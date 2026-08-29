@@ -169,47 +169,38 @@ func (rc *redditClient) do(method, path string, params map[string]string, form u
 	return rc.doWithRetry(req)
 }
 
-// maxRetryAfter caps Retry-After so a misbehaving upstream can't stall the
-// poll goroutine for hours.
-const maxRetryAfter = 5 * time.Minute
-
+// doWithRetry adds the ONE thing chanlib's policy cannot do: refresh an expired
+// token once and re-send. 429 and 5xx belong to chanlib.DoWithRetry and are not
+// retried again here — a second loop around it multiplied one logical call into
+// nine requests at the rate limiter (BUGS L124), and its own 5-minute
+// Retry-After clamp contradicted chanlib's 30-second one.
 func (rc *redditClient) doWithRetry(req *http.Request) (*http.Response, error) {
-	refreshedOn401 := false
-	for range 3 {
-		resp, err := chanlib.DoWithRetry(rc.http, req)
+	resp, err := chanlib.DoWithRetry(rc.http, req)
+	if err != nil {
+		return nil, err
+	}
+	// 401: the token may have been revoked early. Refresh once and re-send.
+	if resp.StatusCode == 401 {
+		resp.Body.Close()
+		if err := rc.refreshToken(); err != nil {
+			return nil, fmt.Errorf("refresh after 401: %w", err)
+		}
+		rc.mu.Lock()
+		req.Header.Set("Authorization", "Bearer "+rc.token)
+		rc.mu.Unlock()
+		resp, err = chanlib.DoWithRetry(rc.http, req)
 		if err != nil {
 			return nil, err
 		}
-		if resp.StatusCode == 429 {
-			resp.Body.Close()
-			wait := 5 * time.Second
-			if ra := resp.Header.Get("Retry-After"); ra != "" {
-				var secs float64
-				if _, perr := fmt.Sscanf(ra, "%f", &secs); perr == nil && secs > 0 {
-					wait = time.Duration(secs) * time.Second
-				}
-			}
-			if wait > maxRetryAfter {
-				wait = maxRetryAfter
-			}
-			time.Sleep(wait)
-			continue
-		}
-		// 401: token may have been revoked early. Refresh once and retry.
-		if resp.StatusCode == 401 && !refreshedOn401 {
-			resp.Body.Close()
-			refreshedOn401 = true
-			if err := rc.refreshToken(); err != nil {
-				return nil, fmt.Errorf("refresh after 401: %w", err)
-			}
-			rc.mu.Lock()
-			req.Header.Set("Authorization", "Bearer "+rc.token)
-			rc.mu.Unlock()
-			continue
-		}
-		return resp, nil
 	}
-	return nil, fmt.Errorf("rate limited after 3 retries")
+	// A 429 that outlived the policy's budget is a documented refusal — nothing
+	// was created — so it becomes a typed transient error the dedup sweep may
+	// retry, rather than a fourth-through-ninth request now (slakd's shape).
+	if resp.StatusCode == 429 {
+		resp.Body.Close()
+		return nil, fmt.Errorf("reddit: rate limited: %w", chanlib.ErrNotDelivered)
+	}
+	return resp, nil
 }
 
 type mediaMetaItem struct {

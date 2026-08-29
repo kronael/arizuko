@@ -6898,7 +6898,7 @@ the two faces land on one number and `number` now behaves like `bool`, which
 already coerced. `TestDecodeMCPArgsMatchesRESTOnAStringifiedNumber` is
 un-skipped and fails with the case removed.
 
-## L124 — reditd wraps chanlib's 429 retry in a second one, so one logical call makes NINE requests at a rate limiter (2026-08-27, open)
+## ✅ FIXED 2026-08-29 L124 — reditd wraps chanlib's 429 retry in a second one, so one logical call makes NINE requests at a rate limiter (2026-08-27)
 
 `chanlib.DoWithPolicy` (`chanlib/retry.go:47`) already retries 429: three
 attempts, honouring `Retry-After` "if present and <= 30s". `reditd.doWithRetry`
@@ -6942,6 +6942,15 @@ measured in this tree against an endpoint answering `429` + `Retry-After: 1`.
 - **Test:** `reditd/client_state_test.go`
   `TestDoWithRetryDoesNotStackTwoRetryLayers` is written and skipped on this
   entry. Un-skip it with the fix.
+
+Fixed as proposed, taking slakd's shape: `doWithRetry` (`reditd/client.go`) now
+calls `chanlib.DoWithRetry` once, keeps ONLY the 401-refresh-once retry that is
+the real reason the wrapper exists, and turns a 429 that outlived the policy's
+budget into `chanlib.ErrNotDelivered` — a documented refusal the dedup sweep may
+retry — instead of sleeping and re-sending. reditd's contradictory 5-minute
+`maxRetryAfter` clamp is gone; chanlib's 30-second cap is the only one.
+`TestDoWithRetryDoesNotStackTwoRetryLayers` is un-skipped and caps one logical
+call at 3 requests.
 
 ## L125 — `6/9` is `status: shipped` and teaches an egress mechanism that `6/24` deleted, including the registration whose leak was the reason to delete it (2026-08-27, open)
 

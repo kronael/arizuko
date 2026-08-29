@@ -122,8 +122,7 @@ func TestDoWithRetryPassesANormalResponseStraightThrough(t *testing.T) {
 }
 
 // A persistently rate-limited endpoint must end in an error rather than loop.
-// The attempt count is deliberately NOT pinned here — see the skipped test
-// below and BUGS L124.
+// The attempt count is pinned by the test below (BUGS L124).
 func TestDoWithRetryGivesUpOnAPersistentRateLimit(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Retry-After", "1")
@@ -146,17 +145,12 @@ func TestDoWithRetryGivesUpOnAPersistentRateLimit(t *testing.T) {
 	}
 }
 
-// BUGS L124: doWithRetry's own 429 loop sits on top of chanlib.DoWithRetry,
-// which already retries 429 three times and honours Retry-After itself. One
-// logical call therefore makes NINE HTTP requests against a rate limiter, and
-// the outer clamp (5 minutes) contradicts chanlib's documented 30s cap.
-// Measured in this tree: 9 requests, 8.76s, against a Retry-After of 1.
-//
-// Skipped rather than deleted: the entry is open and this is the assertion the
-// fix has to satisfy. Un-skip with the fix.
+// One retry layer, one owner. doWithRetry's own 429 loop used to sit on top of
+// chanlib.DoWithRetry, which already retries 429 three times and honours
+// Retry-After itself, so one logical call made NINE HTTP requests against a
+// rate limiter — measured in this tree: 9 requests, 8.76s, against a
+// Retry-After of 1 (BUGS L124).
 func TestDoWithRetryDoesNotStackTwoRetryLayers(t *testing.T) {
-	t.Skip("BUGS L124 — open: reditd's 429 loop wraps chanlib's, so one call makes 9 requests")
-
 	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
