@@ -7389,6 +7389,51 @@ handling on a live backend, so it is recorded rather than shipped.
   pi `dist/utils/shell.js:105` + `dist/core/tools/bash.js`,
   codex-cli 0.147.0 binary strings.
 
+## L134 — a `shell:env:` grant cannot be conditioned on the channel, and writing the predicate that looks like it can silently revokes the key everywhere (2026-08-29, open — proposal, needs sign-off)
+
+An operator asked for "only atlas **in telegram** may use the gh key". The
+`shell:env:<KEY>` row has a `predicate` column and `namespacedAllows` evaluates
+it (`auth/authorize.go:426`), so `predicate=platform=telegram` LOOKS like the
+answer. It is a trap.
+
+`ShellEnvSecrets` (`routd/sibling_db.go:150`) builds the caller as:
+
+```go
+caller := auth.Caller{Principal: "folder:" + folder}
+```
+
+**No `Claims`.** And `ShellEnvKeys` (`auth/authorize.go:463`) passes `nil` for
+params. `predicateMatches` (`auth/authorize.go:298`) returns `true` only for an
+EMPTY predicate; any non-empty predicate against nil claims returns false at
+`:309`/`:317`. So a `platform=telegram` predicate does not narrow the grant to
+Telegram — it makes the row match nothing, on every channel, and the agent
+loses `gh` silently. Nothing logs a denial, because nothing was denied: the key
+simply never appears in the shell.
+
+- **Why the information is not there:** the resolution happens once per dispatch
+  (`routd/dispatch.go:753`), keyed on the FOLDER. The trigger's platform is a
+  property of the chat JID that routed the turn, not of the folder, and it is
+  not carried into the capability call.
+- **What IS expressible today, and is how the operator's intent was met:** the
+  grant's scope is an exact folder (`atlas` does not cover `atlas/support` —
+  measured, `auth.MatchGroups(["atlas"], "atlas/support") == false`). So routing
+  a channel at a CHILD folder denies it the key by construction. Removing
+  atlas's non-support Slack routes left Slack reaching only `atlas/support`,
+  which the `atlas`-scoped grant does not cover.
+- **The gap that structure does not close:** any channel routed at the bare
+  granted folder still gets the key. On marinade that is Telegram (routes 2, 6)
+  AND Discord (routes 27, 28). "Telegram only" is therefore NOT true today.
+- **Minimal fix (proposal):** stamp the trigger's platform as a claim on the
+  caller at `routd/dispatch.go:753` — `Claims: map[string]string{"platform":
+  …}` — so `predicate=platform=telegram` means what it reads. It is small and
+  local, but it changes what a grant row can express on a credential path, so it
+  is an auth-model change and needs sign-off before it ships.
+- **Second, independent hazard worth fixing either way:** a predicate that can
+  never match should not be silently unsatisfiable on this path. Either reject
+  an unknown predicate key when the row is written, or log at ERROR when a
+  `shell:env:` row is skipped for a predicate the caller carries no claims for.
+  Today the failure is indistinguishable from "no grant".
+
 ## L133 — `actionCovers`'s `*` covers rule namespaces too, so every namespaced rule needs its own evaluator (2026-08-29, open — proposal, needs sign-off)
 
 `auth.Authorize` is documented as the SOLE runtime authorization evaluator
