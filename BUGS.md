@@ -3069,7 +3069,7 @@ from the enum, and migrate existing rows — the string appears on exactly one
 write path, so the rewrite is `UPDATE audit_log SET surface='mcp' WHERE
 surface='crackbox'` with no ambiguity about which rows are meant.
 
-## L52 — `arizuko token revoke <jid>` cannot revoke a suffixed chat token (2026-08-18)
+## ✅ FIXED 2026-08-29 L52 — `arizuko token revoke <jid>` cannot revoke a suffixed chat token (2026-08-18)
 
 `cmd/arizuko/token.go:222` derives the owner folder with
 `groupfolder.JidFolder(jid)` when the operator does not pass one, and
@@ -3105,6 +3105,17 @@ JIDs for folder-level chats have no suffix, so stripping would break the
 common case and merely move the asymmetry.
 
 Not fixed: separate concern from the `6/24` egress split it was found during.
+
+Fixed 2026-08-29 with the cause fix the entry names: `store.RouteTokenOwner`
+reads `owner_folder` off the row, and `tokenRevoke` (`cmd/arizuko/token.go`)
+calls it when the operator gives no folder. An explicit second argument still
+wins, so a higher folder revoking on behalf of a descendant is unchanged, and a
+JID with no token now says so instead of blaming the owner.
+`groupfolder.JidFolder` is untouched, as the entry insists.
+`TestRouteTokenOwner_ReadsTheColumnForASuffixedJID` (`store/route_tokens_test.go`)
+covers `web:eval` and `web:eval/egress624` — the live failure — revokes both
+with the owner it reports, and asserts `JidFolder` still returns the whole
+remainder, so a later "fix" there is caught.
 
 ## L51 — every turn waits ~1s for a poll tick that could be a channel send (2026-08-18)
 

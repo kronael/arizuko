@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/auth"
-	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -214,16 +213,20 @@ func tokenRevoke(st *store.Store, args []string) {
 	jid := args[0]
 	// owner_folder bounds revocation and may diverge from the JID's folder
 	// (a higher-tier folder can mint on behalf of a descendant — see
-	// store.RouteToken). Take it explicitly when given; otherwise fall back
-	// to the JID's folder, which only holds for self-owned tokens.
+	// store.RouteToken). Take it explicitly when given; otherwise READ it off
+	// the row. Parsing it out of the JID made every suffixed chat token
+	// unrevokable by its own command: `web:<folder>/<suffix>` parses to
+	// `<folder>/<suffix>`, which is not a folder (BUGS L52).
 	var folder string
 	if len(args) >= 2 {
 		folder = args[1]
+	} else if owner, ok := st.RouteTokenOwner(jid); ok {
+		folder = owner
 	} else {
-		folder = groupfolder.JidFolder(jid)
+		die("Failed: no delivery token for JID %q", jid)
 	}
 	if folder == "" {
-		die("Failed: unrecognised JID format %q", jid)
+		die("Failed: token for JID %q has no owner folder", jid)
 	}
 	revoked, err := st.RevokeRouteToken(jid, folder)
 	if err != nil {

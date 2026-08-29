@@ -228,6 +228,25 @@ func (s *Store) ListRouteTokens(ownerFolder string) []RouteToken {
 	return out
 }
 
+// RouteTokenOwner returns the owner_folder of the DELIVERY token with this jid.
+//
+// The owner is a COLUMN on the row, not something to parse back out of the JID:
+// `token issue chat <folder> <suffix>` mints `web:<folder>/<suffix>`, so a JID
+// parse yields `<folder>/<suffix>`, which is not a folder and matches no row
+// (BUGS L52). Callers that already hold the owner from a grant keep passing it;
+// the operator CLI reads it here.
+func (s *Store) RouteTokenOwner(jid string) (string, bool) {
+	var owner string
+	err := s.db.QueryRow(
+		`SELECT owner_folder FROM route_tokens WHERE jid = ? AND kind = ?`,
+		jid, RouteTokenKindRoute,
+	).Scan(&owner)
+	if err != nil {
+		return "", false
+	}
+	return owner, true
+}
+
 // RevokeRouteToken deletes DELIVERY tokens with the given jid owned by
 // ownerFolder.
 // Returns (true, nil) if at least one row was deleted, (false, nil) when

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
 )
 
 // seedFolder creates the parent group a route token's owner_folder
@@ -174,5 +175,47 @@ func TestRouteTokenJIDKind(t *testing.T) {
 		if got := RouteTokenJIDKind(tc.jid); got != tc.want {
 			t.Errorf("RouteTokenJIDKind(%q)=%q want %q", tc.jid, got, tc.want)
 		}
+	}
+}
+
+// `token issue chat <folder> <suffix>` mints `web:<folder>/<suffix>`, so a JID
+// parse gives `<folder>/<suffix>` — not a folder, matching no row, and the
+// revoke died with "token not found or wrong owner". The owner is a column;
+// read it (BUGS L52).
+func TestRouteTokenOwner_ReadsTheColumnForASuffixedJID(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+	seedFolder(t, s, "eval")
+
+	for _, jid := range []string{"web:eval", "web:eval/egress624"} {
+		if err := s.InsertRouteToken(GenRouteToken(), RouteToken{
+			JID: jid, OwnerFolder: "eval",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		owner, ok := s.RouteTokenOwner(jid)
+		if !ok || owner != "eval" {
+			t.Errorf("RouteTokenOwner(%q) = %q, %v; want \"eval\", true", jid, owner, ok)
+		}
+		// The owner it reports is the one RevokeRouteToken needs.
+		revoked, err := s.RevokeRouteToken(jid, owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !revoked {
+			t.Errorf("revoking %q with the owner off its own row deleted nothing", jid)
+		}
+	}
+
+	if _, ok := s.RouteTokenOwner("web:eval/gone"); ok {
+		t.Error("an absent JID reported an owner")
+	}
+
+	// Why the column and not a parse: JidFolder returns the whole remainder for
+	// a web: JID, which is the suffixed token's failure. Do NOT "fix" JidFolder
+	// to strip a segment — a folder-level chat JID has no suffix, so stripping
+	// breaks the common case and moves the asymmetry.
+	if got := groupfolder.JidFolder("web:eval/egress624"); got == "eval" {
+		t.Error("JidFolder now strips the suffix; re-read BUGS L52 before relying on it")
 	}
 }
