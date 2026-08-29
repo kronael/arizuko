@@ -1133,7 +1133,7 @@ like-on-missing-target case now advertise the cap, which is what they were
 always testing. `Post501Plain` had been passing for the wrong reason: the guard
 returns `Unsupported` too, masking the 501 decode the test exists to check.
 
-## L93 — add_acl validates an `allow` row and then writes the requested `deny`, bypassing Delegate's deny ban (2026-08-25)
+## ✅ FIXED 2026-08-29 L93 — add_acl validates an `allow` row and then writes the requested `deny`, bypassing Delegate's deny ban (2026-08-25)
 
 `auth.Delegate` refuses a deny row outright (`auth/delegate.go:51`):
 
@@ -1172,6 +1172,18 @@ change and it BLOCKS `6/26` gap 2.2**, which needs this same writer to start
 carrying `params` as well. Do both together, with a test that a non-root
 caller's `effect=deny` is refused, and one that `params` reaches `Delegate`'s
 subset check unshaved.
+
+Fixed 2026-08-29, the effect half only: the Gate now builds `want` with the
+caller's own `effect` (`routd/acl_resource.go`), defaulting to `allow` exactly
+as `grantACLTx` does, so the candidate row IS the row the write produces.
+`TestACLMCP_NonRootCannotWriteADenyRow` grants a folder `read` on `world/**`
+WITH the grant option, shows the `allow` call still passes, and pins that the
+same call with `effect=deny` is refused and writes nothing; it fails with the
+hardcoded `"allow"` restored.
+
+**The `params` half of `6/26` gap 2.2 stays open** — it is a second concern
+(the writer carrying a narrowing into `Delegate`'s subset check), not a
+prerequisite for closing the deny hole.
 
 ## L92 — the HITL hold gate fails OPEN when the `acl` read fails (2026-08-24, proposal)
 

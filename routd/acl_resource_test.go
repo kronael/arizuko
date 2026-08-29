@@ -255,3 +255,53 @@ func TestACLMCP_RootElevationGrantsOperatorRole(t *testing.T) {
 		t.Fatal("/root ** grant did not write an operator membership edge")
 	}
 }
+
+// A non-root caller may not write a deny row. auth.Delegate refuses one
+// outright, but the Gate used to build its candidate row with the effect
+// hardcoded to "allow" while the write took the caller's own `effect`
+// argument, so the ban never saw the request. A deny removes capability, so
+// this was an un-delegated power to disable, usable against another principal
+// (BUGS L93).
+func TestACLMCP_NonRootCannotWriteADenyRow(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	for _, f := range []string{"world", "world/a", "world/b"} {
+		_ = db.PutGroup(core.Group{Folder: f})
+	}
+	if _, err := db.SQL().Exec(
+		`INSERT INTO acl (principal, action, scope, effect, params, predicate, granted_by, granted_at)
+		 VALUES ('folder:world/a', 'mcp:add_acl', 'world/**', 'allow', '', '', 'test', ?)`, nowTS()); err != nil {
+		t.Fatal(err)
+	}
+	// Held WITH the grant option, so the allow half below is genuinely delegable.
+	if _, err := db.SQL().Exec(
+		`INSERT INTO acl (principal, action, scope, effect, params, predicate, granted_by, granted_at, grant_option)
+		 VALUES ('folder:world/a', 'read', 'world/**', 'allow', '', '', 'test', ?, 1)`, nowTS()); err != nil {
+		t.Fatal(err)
+	}
+	sock := serveACLMCP(t, db, "world/a", "folder:world/a")
+
+	// The same call, allow: permitted — the caller holds read with the option.
+	if _, e := callToolOverSock(t, sock, "add_acl", map[string]any{
+		"principal": "google:x", "scope": "world/b", "action": "read", "effect": "allow",
+	}); e != "" {
+		t.Fatalf("the delegable allow row was refused: %s", e)
+	}
+	// Deny: refused, and nothing written.
+	if _, e := callToolOverSock(t, sock, "add_acl", map[string]any{
+		"principal": "google:x", "scope": "world/b", "action": "read", "effect": "deny",
+	}); e == "" {
+		t.Fatal("a non-root caller wrote a deny row; auth.Delegate bans one")
+	}
+	var denies int
+	if err := db.SQL().QueryRow(
+		`SELECT COUNT(*) FROM acl WHERE effect='deny' AND scope='world/b'`).Scan(&denies); err != nil {
+		t.Fatal(err)
+	}
+	if denies != 0 {
+		t.Fatalf("the refused call still wrote %d deny rows", denies)
+	}
+}

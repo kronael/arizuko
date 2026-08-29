@@ -202,11 +202,19 @@ func (s *Server) aclPostBuild(folder, callerSub string, authorize authorizeFn, v
 			if act == "" {
 				act = "admin" // grantACLTx default
 			}
+			// The candidate row must be the row grantACLTx will WRITE. Hardcoding
+			// allow here validated an allow row while the write took the caller's
+			// effect, so Delegate's deny ban never saw a requested deny — an
+			// un-delegated power to disable (BUGS L93).
+			eff := argString(x.Args, "effect")
+			if eff == "" {
+				eff = "allow" // grantACLTx default
+			}
 			want := core.ACLRow{
 				Principal: argString(x.Args, "principal"),
 				Action:    act,
 				Scope:     target,
-				Effect:    "allow",
+				Effect:    eff,
 			}
 			if err := auth.Delegate(store.New(s.db.SQL()), callerSub, []core.ACLRow{want}); err != nil {
 				return resreg.Errorf(http.StatusForbidden, "%v", err)
@@ -293,7 +301,7 @@ func grantACLTx(ctx context.Context, tx *sql.Tx, principal, scope, action, effec
 // revokeACLTx is the remove_acl/DELETE twin of grantACLTx. It reports how many rows
 // it removed, and the caller MUST refuse when that is zero: a revoke is the one
 // operation where "did nothing" must never read as success. This face matches
-// `params='' AND predicate=''`, so a row an operator created WITH a params
+// `params=” AND predicate=”`, so a row an operator created WITH a params
 // narrowing is invisible to it — it used to delete nothing and answer {"ok":true}
 // (BUGS L79). Widening the face is a separate, additive change.
 func revokeACLTx(ctx context.Context, tx *sql.Tx, principal, scope, action, effect string) (int64, error) {
