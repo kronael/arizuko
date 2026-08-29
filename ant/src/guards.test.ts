@@ -3,7 +3,8 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { resultingText, skillGuard } from './skillguard.js';
-import { bashSkillRescan } from './guards.js';
+import { bashSkillRescan, ghWriteGate } from './guards.js';
+import { ToolEvent } from './policy.js';
 
 // The registry these used to pin now lives in policy.ts — see policy.test.ts.
 
@@ -134,5 +135,75 @@ describe('a Bash-written skill is caught after the fact (J8)', () => {
 
     expect(fs.existsSync(file)).toBe(true);
     expect(fs.existsSync(`${file}.quarantined`)).toBe(false);
+  });
+});
+
+// ghWriteGate is defence in depth over a GitHub shell credential (spec 5/13
+// §Shell credentials). The tests below pin the two halves that matter: it
+// refuses the named writes on any harness, and it does NOT refuse the read and
+// comment spellings the gh-comment skill is built out of.
+
+function bashEv(command: string): ToolEvent {
+  return {
+    hook_event_name: 'PreToolUse',
+    tool_name: 'Bash',
+    tool_input: { command },
+    tool_use_id: 'u1',
+    session_id: 's1',
+  };
+}
+
+describe('ghWriteGate', () => {
+  const denied = [
+    'gh pr review 12 --approve',
+    'gh pr merge 12 --squash',
+    'gh pr create --title x',
+    'gh release create v1.0.0',
+    'gh repo create foo',
+    'gh repo delete foo',
+  ];
+  for (const cmd of denied) {
+    test(`refuses ${cmd}`, () => {
+      expect(ghWriteGate(bashEv(cmd)).kind).toBe('deny');
+    });
+  }
+
+  const allowed = [
+    'gh pr view 12 --json headRefOid',
+    'gh pr diff 12 --name-only',
+    'gh pr comment 12 --body "🤖 finding"',
+    'gh repo view --json nameWithOwner',
+    'gh api repos/o/r/pulls/12/reviews --method POST --input -',
+    'git commit -m "gh pr merge"',
+  ];
+  for (const cmd of allowed) {
+    test(`allows ${cmd}`, () => {
+      expect(ghWriteGate(bashEv(cmd)).kind).toBe('allow');
+    });
+  }
+
+  // A refusal that only knows the first word of a pipeline is not a refusal: the
+  // agent reaches the same effect by prefixing anything.
+  test('refuses a denied call anywhere in a chain', () => {
+    expect(ghWriteGate(bashEv('echo hi && gh pr merge 12')).kind).toBe('deny');
+    expect(ghWriteGate(bashEv('gh pr view 12 | head; gh pr merge 12')).kind).toBe('deny');
+  });
+
+  test('refuses through an env prefix and an absolute path', () => {
+    expect(ghWriteGate(bashEv('GH_TOKEN=x /usr/bin/gh pr merge 12')).kind).toBe('deny');
+  });
+
+  // `--approve` is what makes a review an approval; a review that only comments
+  // is the gh-comment skill's whole job.
+  test('refuses only the approving review', () => {
+    expect(ghWriteGate(bashEv('gh pr review 12 --comment -b x')).kind).toBe('allow');
+    expect(ghWriteGate(bashEv('gh pr review 12 --approve')).kind).toBe('deny');
+  });
+
+  // The reason text has a job: an agent that reads "refused" and goes hunting for
+  // curl has defeated the gate, so the message names the real lock.
+  test('names the token scope as the real lock', () => {
+    const v = ghWriteGate(bashEv('gh pr review 12 --approve'));
+    expect(v.kind === 'deny' && v.reason).toContain('token');
   });
 });

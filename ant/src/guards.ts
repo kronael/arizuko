@@ -1,4 +1,4 @@
-// guards.ts — the two guard POLICIES that REFUSE. The table saying where they
+// guards.ts — the three guard POLICIES that REFUSE. The table saying where they
 // bind lives in policy.ts; the scanners are pure functions in skillguard.ts.
 // Telemetry and UX policies (tool-log, todo-status, steering, pre-compact) only
 // observe, so they stay out of this file.
@@ -46,6 +46,72 @@ export function bashScrub(ev: ToolEvent): Verdict {
     kind: 'rewrite',
     input: { ...ev.tool_input, command: unsetPrefix + command },
   };
+}
+
+// GH_DENIED are the `gh` spellings the agent may not run once a folder holds a
+// GitHub shell credential (spec 5/13 §Shell credentials). Each entry is the
+// subcommand path plus, optionally, a flag that must also be present.
+//
+// Deny, not rewrite, so the row runs on all three harnesses — codex and pi can
+// both refuse a tool call, and only `rewrite` is claude-only.
+const GH_DENIED: Array<{ path: string[]; flag?: string; why: string }> = [
+  { path: ['pr', 'review'], flag: '--approve', why: 'approving a pull request' },
+  { path: ['pr', 'merge'], why: 'merging a pull request' },
+  { path: ['pr', 'create'], why: 'opening a pull request' },
+  { path: ['release', 'create'], why: 'cutting a release' },
+  { path: ['repo', 'create'], why: 'creating a repository' },
+  { path: ['repo', 'delete'], why: 'deleting a repository' },
+];
+
+// ghSegments splits a command into the pieces a separate program runs in. Crude
+// on purpose — it does not honour quoting, so a `gh` inside a string literal is
+// read as a call. Over-refusing a rare spelling costs a retry; the alternative
+// is a shell parser in a guard.
+function ghSegments(command: string): string[][] {
+  return command
+    .split(/[\n;|&]+/)
+    .map((seg) => seg.trim().split(/\s+/).filter(Boolean))
+    .filter((toks) => toks.length > 0);
+}
+
+// ghWriteGate refuses the GitHub writes a folder's agent must not make. It is
+// DEFENCE IN DEPTH and explicitly not the lock: once a token is in the shell the
+// agent spends it with `curl` as easily as with `gh`, and the approval this gate
+// names is also reachable through `gh api …/reviews --input -`, where the event
+// lives in stdin and no command string shows it. That spelling stays allowed
+// because ant/skills/gh-comment posts review COMMENTS through it, and breaking a
+// shipped skill to raise the cost of one bypass is the wrong trade.
+//
+// The lock is the token's own scope: a PAT minted without `pull_requests: write`
+// cannot approve however it is called. The reason text says so, so an agent that
+// hits this gate stops rather than hunting for the way around it.
+export function ghWriteGate(ev: ToolEvent): Verdict {
+  const command = (ev.tool_input as { command?: string })?.command;
+  if (!command) return ALLOW;
+
+  for (const toks of ghSegments(command)) {
+    // Leading `VAR=v`, `sudo`, `env` and `time` all precede the real command word.
+    let i = 0;
+    while (i < toks.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(toks[i]) || ['sudo', 'env', 'time'].includes(toks[i]))) i++;
+    const cmd = toks[i];
+    if (cmd !== 'gh' && !cmd?.endsWith('/gh')) continue;
+
+    const words = toks.slice(i + 1).filter((t) => !t.startsWith('-'));
+    const flags = toks.slice(i + 1).filter((t) => t.startsWith('-'));
+    for (const rule of GH_DENIED) {
+      if (!rule.path.every((p, n) => words[n] === p)) continue;
+      if (rule.flag && !flags.includes(rule.flag)) continue;
+      return {
+        kind: 'deny',
+        reason:
+          `Refused: ${rule.why} is not a capability this folder holds ` +
+          `(gh ${rule.path.join(' ')}${rule.flag ? ' ' + rule.flag : ''}). ` +
+          `Do not look for another route to the same effect — the GitHub token ` +
+          `is scoped to refuse it too. Report what you wanted to do instead.`,
+      };
+    }
+  }
+  return ALLOW;
 }
 
 // guardedRoots are the trees a skill can be loaded from. Kept narrow on

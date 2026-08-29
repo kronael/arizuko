@@ -15,6 +15,7 @@ describe('the binding table is the whole capability surface', () => {
     expect(bindings(ctx).map((b) => [b.id, b.event, b.matcher ?? '*', b.returns.join('|')])).toEqual([
       ['skill-guard', 'PreToolUse', 'Write|Edit|MultiEdit', 'deny'],
       ['bash-scrub', 'PreToolUse', 'Bash', 'rewrite'],
+      ['gh-write-gate', 'PreToolUse', 'Bash', 'deny'],
       ['tool-log-pre', 'PreToolUse', '*', ''],
       ['skill-rescan', 'PostToolUse', '*', ''],
       ['tool-log-post', 'PostToolUse', '*', ''],
@@ -28,6 +29,10 @@ describe('the binding table is the whole capability surface', () => {
     const kept = runnableBy(bindings(ctx), ['deny', 'inject'], (m) => refused.push(m));
     expect(kept.map((b) => b.id)).not.toContain('bash-scrub');
     expect(refused.join(' ')).toContain('bash-scrub');
+    // gh-write-gate sits on the same tool and answers 'deny', so unlike the row
+    // above it survives on codex and pi — the shell credential it guards reaches
+    // every harness, so a claude-only refusal would guard one of three.
+    expect(kept.map((b) => b.id)).toContain('gh-write-gate');
     // Observers declare no verdicts, so every renderer keeps them.
     expect(kept.map((b) => b.id)).toContain('tool-log-pre');
   });

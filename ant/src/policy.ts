@@ -5,7 +5,7 @@
 // registers them in-process. The scanners live elsewhere (skillguard.ts owns
 // the pattern table, tool-log.ts the line format); this file owns the wiring.
 
-import { bashScrub, bashSkillRescan } from './guards.js';
+import { bashScrub, bashSkillRescan, ghWriteGate } from './guards.js';
 import { skillGuard } from './skillguard.js';
 import { toolLogPost, toolLogPre } from './tool-log.js';
 import { todoStatus } from './todo-status.js';
@@ -68,6 +68,10 @@ export function bindings(ctx: PolicyContext): Binding[] {
     // store.EnvProfileKeys value into the container on every backend, so this row
     // being dropped leaves them readable from those agents' shells (BUGS L131).
     { id: 'bash-scrub', event: 'PreToolUse', matcher: 'Bash', returns: ['rewrite'], run: async (ev) => bashScrub(ev) },
+    // Refuses the GitHub writes a folder must not make once it holds a shell
+    // credential. 'deny' rather than 'rewrite', so unlike bash-scrub above this
+    // row runs on codex and pi too.
+    { id: 'gh-write-gate', event: 'PreToolUse', matcher: 'Bash', returns: ['deny'], run: async (ev) => ghWriteGate(ev) },
     { id: 'tool-log-pre', event: 'PreToolUse', returns: [], run: async (ev) => toolLogPre(ev) },
     // The catch-all. The write gate above covers claude's write TOOLS only: Bash
     // reaches the same files without them (BUGS J8), and codex writes with
