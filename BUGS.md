@@ -7421,8 +7421,21 @@ simply never appears in the shell.
   atlas's non-support Slack routes left Slack reaching only `atlas/support`,
   which the `atlas`-scoped grant does not cover.
 - **The gap that structure does not close:** any channel routed at the bare
-  granted folder still gets the key. On marinade that is Telegram (routes 2, 6)
-  AND Discord (routes 27, 28). "Telegram only" is therefore NOT true today.
+  granted folder still gets the key — the routing table is what decides, not the
+  grant.
+
+  **Resolved on marinade 2026-08-29 by routing, per the operator's decision:**
+  Slack's non-support routes were removed and Discord's two routes re-targeted
+  from `atlas` to `atlas/support` (new ids 34, 35). Only Telegram routes 2 and 6
+  (`room=user/1112184352`, `room=user/1444744465`) now reach the bare `atlas`
+  folder, so only Telegram-triggered turns hold the token. Checked twice: the
+  scope does not cover the child folder, and the sole wildcard row
+  (`role:operator | * | **`) does not confer a `shell:env:` action, because
+  `namespacedAllows` accepts only the exact action or `shell:env:*`.
+
+  That is a per-instance ROUTING arrangement, not an expressible grant. It holds
+  only while nobody points another channel at `atlas`, and nothing enforces
+  that — which is why the fix below stays open.
 - **Minimal fix (proposal):** stamp the trigger's platform as a claim on the
   caller at `routd/dispatch.go:753` — `Claims: map[string]string{"platform":
   …}` — so `predicate=platform=telegram` means what it reads. It is small and
