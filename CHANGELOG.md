@@ -14,6 +14,22 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.66.0] — 2026-08-29
+
+> arizuko v0.66.0 — a credential for the CLI the agent drives, and fourteen fixes
+>
+> An agent can now hold a real token for a tool it runs in its own shell, every
+> harness enforces the same policies, and a queue-wide re-verification closed
+> fourteen defects — several of them cross-tenant.
+>
+> • `gh` works — one named secret per `shell:env:<KEY>` grant, nothing implicit
+> • codex and pi get the skill guard, the tool log and mid-turn steering
+> • folder containment is one exact predicate; a folder named `%` reads nothing
+> • the egress proxy no longer follows a redirect on the caller's behalf
+> • a group born on any surface can speak, and five daemons drain on SIGTERM
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ### Added
 
 - **An agent can hold a credential for a CLI it drives itself** (spec `5/13`
@@ -50,6 +66,63 @@ create/delete` — on every segment of a command chain, on all three harnesses.
   non-delivery as delivered. The image now ships the changelog, the step builds
   `<platform>:<room>`, and zero destinations is an error instead of a silent
   success.
+
+### Fixed
+
+Fourteen defects, from a re-verification of every open `BUGS.md` entry. Each
+fix ships with a test that fails when the fix is removed.
+
+- **A folder's messages, audit trail, routes and errored chats stay its own**
+  (`L122`). Six read paths still wrote folder containment as SQL `LIKE
+?||'/%'`, which is case-insensitive and treats `_` and `%` as wildcards —
+  and `isValidFolder` permits all three in a folder name. A tenant placed at a
+  folder named `%` read every other tenant's message content; a `Coach`/`coach`
+  pair, which a live instance has carried, read each other. All six now call
+  `groupfolder.SQLSubtree`, the exact predicate the cascades already used.
+- **The egress proxy does not follow a redirect for the caller** (`L109`). The
+  allowlist ran once, on the first request line; every later hop met only the
+  address-class dialer check, so one allowlisted redirector reached any host.
+  The 3xx now goes back to the client, which re-issues the hop through the name
+  policy.
+- **`add_acl` validates the row it actually writes** (`L93`). The gate built its
+  candidate with the effect hardcoded to `allow` while the write took the
+  caller's own `effect`, so `auth.Delegate`'s ban on delegating a `deny` never
+  saw one — an un-delegated power to disable another principal.
+- **A new group can speak** (`L119`). The `folder:<f> → role:member` edge lived
+  in one of four creation surfaces, so a group made by the CLI, by dashd or by
+  web onboarding matched zero allow rows and came up with no messaging tools at
+  all. `store` owns the write now, and the other three call it inside the
+  transaction they already had.
+- **The operator can manage proxyd routes again** (`L100`, authz half). authd
+  mints the JWT sub as `user:<id>` and `acl` rows store bare subs, so every
+  `proxyd_routes` action was denied for every operator — and webd's five
+  `routes.*` tools with it.
+- **A folder's own log directory is read-only at any depth** (`L115`).
+  `main/logs` was protected and `main/trading/logs` was not, so anyone scoped to
+  `main` could delete a child folder's logs over WebDAV.
+- **webd answers folder containment the same way every other surface does**
+  (`L101`). Its own predicate was wider than `auth.MatchGroups` (scope `atlas`
+  reached `atlas/content`) and narrower (`atlas/**`, what world creation writes,
+  matched nothing), so a creator was refused their own portal.
+- **A stringified numeric tool argument is honoured** (`L123`). MCP dropped
+  `{"limit":"50"}` silently and the handler read its own default, while REST
+  parsed the same value — one call, two answers.
+- **A suffixed chat token can be revoked by its own command** (`L52`). The owner
+  folder was parsed out of the JID rather than read off the row, so
+  `web:<folder>/<suffix>` yielded a folder that matches nothing and every such
+  token was a standing credential.
+- **A `chat_jid=web:*` route rule is refused on both writers** (`L57`). It can
+  never fire, and `inspect_routing` annotated it as if it governed.
+- **Five daemons drain on SIGTERM** (`L127`). `authd`, `onbod`, `routd`, `runed`
+  and `ttsd` armed the signal handler after their listener, so a signal in that
+  window killed the process with the shutdown below it never run. `tests/shutdown`
+  reads the ordering from source for all nine daemons.
+- **One retry layer at a rate limiter, not two** (`L124`). reditd wrapped
+  chanlib's 429 retry in its own: nine requests for one logical call.
+- **A create call retries a 429, never a 5xx** (`L108`). bskyd, reditd and linkd
+  replayed posts that carry no idempotency key, so a lost response double-posted.
+- **`make test-race` finishes** (`L26`). The documented pre-tag gate died on go's
+  10m per-package default; `store` needs 856s and `routd` 612s. 0 races.
 
 ### Changed
 
