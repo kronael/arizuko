@@ -694,7 +694,7 @@ Two reachable failures:
   to end; not reproduced live (firing a `DELETE` at a production runed was out
   of scope).
 
-## L112 — ant scrubs 2 of the 5 model credentials from the agent's shell (2026-08-26, open — latent, zero live exposure)
+## ✅ FIXED 2026-08-29 L112 — ant scrubs 2 of the 5 model credentials from the agent's shell (2026-08-26)
 
 `ant/src/guards.ts:27` — `SECRET_ENV_VARS = ['ANTHROPIC_API_KEY',
 'CLAUDE_CODE_OAUTH_TOKEN']`. The `bash-scrub` policy (`ant/src/policy.ts:85`)
@@ -723,7 +723,15 @@ exists to prevent.
   the container hand ant the key set it injected, so there is one declaration
   and two readers.
 
-## L113 — `container` is red on `main`: an 11th product shipped without its spec count or its catalog pages (2026-08-26, open)
+
+**Closed 2026-08-29 on re-verification.** `ant/src/guards.ts` `SECRET_ENV_VARS`
+now lists the three ANTHROPIC/CLAUDE keys and records why `OPENAI_API_KEY` and
+`CODEX_API_KEY` are deliberately NOT unset — the `/oracle` skill shells out to
+`codex`, which needs them, and `container/secret_scrub_test.go` pins that
+partition. The exposure this entry described is tracked where it is still real:
+`L131`'s pi half.
+
+## ✅ FIXED 2026-08-29 L113 — `container` is red on `main`: an 11th product shipped without its spec count or its catalog pages (2026-08-26)
 
 `go test ./container/... -count=1 -short` fails at HEAD, and has nothing to do
 with the execution plane:
@@ -745,6 +753,11 @@ A `github` product was added to the corpus without bumping the count in
   `products list` and the public site in agreement.
 - **Fix (local):** either ship the two catalog pages and bump the spec count, or
   drop `github` from the corpus. Two failing assertions, one decision.
+
+
+**Closed 2026-08-29 on re-verification.** `go test ./container/ -run
+'TestProductCorpusPayloadKinds|TestProductCatalogMatchesCorpus'` is green;
+commit `1a6e480d` shipped the github catalog pages.
 
 ## L114 — WebDAV `MOVE`/`COPY` authorize the source path and never the `Destination` header, so a folder-scoped user writes into any other tenant (2026-08-26, proposal — needs sign-off; cross-tenant write)
 
@@ -1265,7 +1278,7 @@ The assertion had a TWIN in the integration suite —
 fixed the same way. One rule change, two suites: grep every assertion of a rule
 before believing one file carries it.
 
-## L89 — release announcements stopped 2026-07-15: nobody opted in, and the CHANGELOG is not in the image (2026-08-24)
+## ✅ FIXED 2026-08-29 L89 — release announcements stopped 2026-07-15: nobody opted in, and the CHANGELOG is not in the image (2026-08-24)
 
 The last release line to reach a real chat is `v0.51.0` on 2026-06-11. Thirteen
 releases have shipped since. `/migrate` itself is healthy — every group but the
@@ -1341,7 +1354,13 @@ Related, found in the same sweep: eleven groups are frozen below v203 —
 `1000` folder is stale on both instances, which is a pattern, not eleven
 accidents. Untriaged.
 
-## L69 — every cost row on the fleet is attributed to nobody: 7188 rows, 0 user subs (2026-08-22)
+
+**Closed 2026-08-29 on re-verification.** The root `Dockerfile` copies
+`CHANGELOG.md` to `/opt/arizuko`, and `ant/skills/migrate/SKILL.md` builds the
+destination JIDs and fails loud on an empty destination list rather than
+advancing the guard.
+
+## ✅ FIXED 2026-08-29 L69 — every cost row on the fleet is attributed to nobody: 7188 rows, 0 user subs (2026-08-22)
 
 `cost_log` already carries the three dimensions spend must be sliced by: `folder`
 (the group), `model`, and `user_sub` (who triggered the turn). Two of the three
@@ -1392,6 +1411,12 @@ column, the index and both queries already exist for exactly this.
 
 Ties: `specs/6/23` (a gateway makes the NUMBER trustworthy; this makes the row
 attributable — orthogonal halves of the same question).
+
+
+**Closed 2026-08-29 on re-verification.** `turnCallerSub`
+(`routd/dispatch.go`) now passes every non-platform sender through verbatim,
+and `store.UserCap` returns `(0, nil)` on `sql.ErrNoRows` instead of erroring.
+Both sites carry the L69 reference.
 
 ## ✅ FIXED 2026-08-23 L83 — webd read failures render as success: the SSE says the round finished (2026-08-23)
 
