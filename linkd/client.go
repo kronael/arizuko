@@ -239,8 +239,21 @@ func (lc *linkClient) fetchMe() error {
 	return nil
 }
 
+// linkedInNonIdempotent reports whether path CREATES something and takes no
+// idempotency key of its own. Such a call retries a 429 — a documented refusal,
+// with Retry-After — but never a 5xx or a dropped connection, which may have
+// posted the thing already (BUGS L108). A like is addressed by actor+object, so
+// re-sending one is a no-op and keeps the full policy.
+func linkedInNonIdempotent(path string) bool {
+	return path == "/v2/ugcPosts" || strings.HasSuffix(path, "/comments")
+}
+
 func (lc *linkClient) do(method, path string, params map[string]string, body io.Reader) (*http.Response, error) {
 	full := lc.cfg.APIBase + path
+	policy := chanlib.RetryTransient
+	if linkedInNonIdempotent(path) {
+		policy = chanlib.RetryRateLimitOnly
+	}
 	// Buffer the body so the 401-retry can replay it. Reusing the original
 	// reader sends an empty payload on retry (the first request drains it).
 	var bodyBytes []byte
@@ -282,7 +295,7 @@ func (lc *linkClient) do(method, path string, params map[string]string, body io.
 	lc.mu.Lock()
 	req.Header.Set("Authorization", "Bearer "+lc.token)
 	lc.mu.Unlock()
-	resp, err := chanlib.DoWithRetry(lc.http, req)
+	resp, err := chanlib.DoWithPolicy(lc.http, req, policy)
 	if err != nil {
 		return nil, err
 	}
@@ -299,7 +312,7 @@ func (lc *linkClient) do(method, path string, params map[string]string, body io.
 		lc.mu.Lock()
 		req2.Header.Set("Authorization", "Bearer "+lc.token)
 		lc.mu.Unlock()
-		return chanlib.DoWithRetry(lc.http, req2)
+		return chanlib.DoWithPolicy(lc.http, req2, policy)
 	}
 	return resp, nil
 }
@@ -490,10 +503,10 @@ func (lc *linkClient) deliverComment(router *chanlib.RouterClient, postURN strin
 // https://learn.microsoft.com/en-us/linkedin/marketing/integrations/community-management/shares/ugc-post-api
 
 type ugcPostBody struct {
-	Author         string                 `json:"author"`
-	LifecycleState string                 `json:"lifecycleState"`
-	SpecificContent map[string]any        `json:"specificContent"`
-	Visibility     map[string]string      `json:"visibility"`
+	Author          string            `json:"author"`
+	LifecycleState  string            `json:"lifecycleState"`
+	SpecificContent map[string]any    `json:"specificContent"`
+	Visibility      map[string]string `json:"visibility"`
 }
 
 type commentBody struct {
@@ -561,10 +574,10 @@ func (lc *linkClient) ugcPost(text, ref string) (string, error) {
 		// preview from the source.
 		// https://learn.microsoft.com/en-us/linkedin/marketing/integrations/community-management/shares/ugc-post-api#reshare-another-users-post
 		raw, _ := json.Marshal(map[string]any{
-			"author":          author,
-			"lifecycleState":  "PUBLISHED",
-			"specificContent": body.SpecificContent,
-			"visibility":      body.Visibility,
+			"author":           author,
+			"lifecycleState":   "PUBLISHED",
+			"specificContent":  body.SpecificContent,
+			"visibility":       body.Visibility,
 			"referenceUgcPost": ref,
 		})
 		resp, err := lc.do("POST", "/v2/ugcPosts", nil, strings.NewReader(string(raw)))

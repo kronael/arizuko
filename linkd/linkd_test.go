@@ -471,3 +471,35 @@ func fragmentDataDir(t *testing.T, yml string) string {
 	t.Fatal("fragment declares no DATA_DIR")
 	return ""
 }
+
+// A create call that takes no idempotency key must not be re-sent on a 5xx or
+// a dropped connection: either may have posted the thing already. A 429 is a
+// documented refusal and stays retryable, and a read retries as before
+// (BUGS L108).
+func TestCreateCallsAreNotReplayedOnA5xx(t *testing.T) {
+	cases := []struct {
+		name, method, path string
+		wantCalls          int
+	}{
+		{"a ugcPost create", "POST", "/v2/ugcPosts", 1},
+		{"a comment create", "POST", "/v2/socialActions/urn%3Ali%3Ashare%3A1/comments", 1},
+		{"a like", "POST", "/v2/socialActions/urn%3Ali%3Ashare%3A1/likes", 3},
+		{"a read", "GET", "/v2/me", 3},
+	}
+	for _, c := range cases {
+		var calls int
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			calls++
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		lc := &linkClient{cfg: config{APIBase: srv.URL}, http: srv.Client()}
+		resp, err := lc.do(c.method, c.path, nil, nil)
+		if err == nil {
+			resp.Body.Close()
+		}
+		if calls != c.wantCalls {
+			t.Errorf("%s: %d HTTP requests, want %d", c.name, calls, c.wantCalls)
+		}
+		srv.Close()
+	}
+}

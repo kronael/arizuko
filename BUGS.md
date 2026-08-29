@@ -520,7 +520,7 @@ The stale entry clears only after 3 consecutive `/health` failures at 30s
   A second, independent defect: a 409 is not a config fault, so
   `chanlib/run.go`'s `os.Exit(1)` on it is wrong — that half is cross-cutting.
 
-## L108 — bskyd, reditd and linkd retry non-idempotent CREATE calls, so a lost response double-posts (2026-08-26, open)
+## ✅ FIXED 2026-08-29 L108 — bskyd, reditd and linkd retry non-idempotent CREATE calls, so a lost response double-posts (2026-08-26)
 
 `chanlib/retry.go:26-34` defines two policies and its own doc names the rule,
 citing `D5`: `RetryRateLimitOnly` exists for *"a create call the platform gives
@@ -555,6 +555,24 @@ platform call, and this retry happens INSIDE it.
 - **Unverified:** whether Bluesky/Reddit/LinkedIn dedup server-side. Confirmed
   that `createRecord` carries no client `rkey` (`bskyd/client.go:372-376` sends
   only `repo`/`collection`/`record`).
+
+Fixed 2026-08-29 with the LOCAL option — a per-adapter non-idempotent set,
+exactly slakd's shape, so the four adapters now read alike:
+
+- `bskyd`: `bskyNonIdempotent` on the XRPC nsid — `com.atproto.repo.createRecord`
+  only. `uploadBlob` is content-addressed by CID, so it keeps the full policy.
+- `reditd`: `redditNonIdempotent` on the path — `/api/comment`, `/api/submit`.
+- `linkd`: `linkedInNonIdempotent(path)` — `/v2/ugcPosts` and any
+  `.../comments`. A like is addressed by actor+object, so re-sending is a no-op
+  and it keeps the full policy.
+
+Tests: each adapter answers 500 from a test server and asserts one request for
+a create and three for a read or an id-addressed mutation. Removing an entry
+from any of the three sets turns its test red.
+
+**Inverting `DoWithRetry`'s default stays open** — the entry's cross-cutting
+option. It is the stronger fix, because a new adapter still inherits the unsafe
+default today, but it changes a shared contract and needs sign-off.
 
 ## ✅ FIXED 2026-08-29 L109 — the egress proxy follows plain-HTTP redirects and never re-checks the allowlist, so one allowlisted redirector reaches any host (2026-08-26)
 

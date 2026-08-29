@@ -166,7 +166,21 @@ func (rc *redditClient) do(method, path string, params map[string]string, form u
 	req.Header.Set("Authorization", "Bearer "+rc.token)
 	rc.mu.Unlock()
 	req.Header.Set("User-Agent", rc.cfg.UserAgent)
-	return rc.doWithRetry(req)
+	policy := chanlib.RetryTransient
+	if redditNonIdempotent[path] {
+		policy = chanlib.RetryRateLimitOnly
+	}
+	return rc.doWithRetry(req, policy)
+}
+
+// redditNonIdempotent names the endpoints that CREATE something and take no
+// idempotency key of their own. They retry a 429 — a documented refusal, with
+// Retry-After — but never a 5xx or a dropped connection, which may have posted
+// the thing already (BUGS L108, the class D5 named). Every other endpoint is a
+// read or a mutation addressed by target id, so a full retry is free.
+var redditNonIdempotent = map[string]bool{
+	"/api/comment": true,
+	"/api/submit":  true,
 }
 
 // doWithRetry adds the ONE thing chanlib's policy cannot do: refresh an expired
@@ -174,8 +188,8 @@ func (rc *redditClient) do(method, path string, params map[string]string, form u
 // retried again here — a second loop around it multiplied one logical call into
 // nine requests at the rate limiter (BUGS L124), and its own 5-minute
 // Retry-After clamp contradicted chanlib's 30-second one.
-func (rc *redditClient) doWithRetry(req *http.Request) (*http.Response, error) {
-	resp, err := chanlib.DoWithRetry(rc.http, req)
+func (rc *redditClient) doWithRetry(req *http.Request, policy chanlib.RetryPolicy) (*http.Response, error) {
+	resp, err := chanlib.DoWithPolicy(rc.http, req, policy)
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +202,7 @@ func (rc *redditClient) doWithRetry(req *http.Request) (*http.Response, error) {
 		rc.mu.Lock()
 		req.Header.Set("Authorization", "Bearer "+rc.token)
 		rc.mu.Unlock()
-		resp, err = chanlib.DoWithRetry(rc.http, req)
+		resp, err = chanlib.DoWithPolicy(rc.http, req, policy)
 		if err != nil {
 			return nil, err
 		}

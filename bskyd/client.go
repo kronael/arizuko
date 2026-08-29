@@ -711,7 +711,20 @@ func (bc *bskyClient) getPostCID(uri string) (string, error) {
 	return result.CID, nil
 }
 
+// bskyNonIdempotent names the XRPC methods that CREATE something and take no
+// client-supplied key. createRecord sends only repo/collection/record — no
+// rkey — so a 5xx or a dropped connection may have written the record already
+// and re-sending posts it twice (BUGS L108). A 429 is a documented refusal and
+// stays retryable. uploadBlob is content-addressed by CID, so it is not here.
+var bskyNonIdempotent = map[string]bool{
+	"com.atproto.repo.createRecord": true,
+}
+
 func (bc *bskyClient) xrpc(method, nsid string, params map[string]string, body, out any) error {
+	policy := chanlib.RetryTransient
+	if bskyNonIdempotent[nsid] {
+		policy = chanlib.RetryRateLimitOnly
+	}
 	do := func() error {
 		var r io.Reader
 		if body != nil {
@@ -733,7 +746,7 @@ func (bc *bskyClient) xrpc(method, nsid string, params map[string]string, body, 
 			q.Set(k, v)
 		}
 		req.URL.RawQuery = q.Encode()
-		resp, err := chanlib.DoWithRetry(bc.http, req)
+		resp, err := chanlib.DoWithPolicy(bc.http, req, policy)
 		if err != nil {
 			return fmt.Errorf("xrpc %s: %w", nsid, err)
 		}

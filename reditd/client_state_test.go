@@ -111,7 +111,7 @@ func TestDoWithRetryPassesANormalResponseStraightThrough(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp, err := rc.doWithRetry(req)
+	resp, err := rc.doWithRetry(req, chanlib.RetryTransient)
 	if err != nil {
 		t.Fatalf("doWithRetry: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestDoWithRetryGivesUpOnAPersistentRateLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp, err := rc.doWithRetry(req)
+	resp, err := rc.doWithRetry(req, chanlib.RetryTransient)
 	if err == nil {
 		resp.Body.Close()
 		t.Fatal("a permanently rate-limited endpoint returned a response")
@@ -164,7 +164,7 @@ func TestDoWithRetryDoesNotStackTwoRetryLayers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp, err := rc.doWithRetry(req); err == nil {
+	if resp, err := rc.doWithRetry(req, chanlib.RetryTransient); err == nil {
 		resp.Body.Close()
 	}
 	if n := calls.Load(); n > 3 {
@@ -175,4 +175,50 @@ func TestDoWithRetryDoesNotStackTwoRetryLayers(t *testing.T) {
 func TestTypingIsASilentNoOp(t *testing.T) {
 	(&redditClient{}).Typing("reddit:t3_abc", true)
 	(&redditClient{}).Typing("reddit:t3_abc", false)
+}
+
+// The same rule as linkd's: a create call that takes no idempotency key is not
+// re-sent on a 5xx or a dropped connection, either of which may have posted it
+// already. Reads and id-addressed mutations keep the full policy (BUGS L108).
+//
+// `do` hardcodes oauth.reddit.com, so the classification it makes is checked
+// through redditNonIdempotent — the map `do` reads — and the consequence of
+// that classification is checked against a real server.
+func TestCreateCallsAreNotReplayedOnA5xx(t *testing.T) {
+	cases := []struct {
+		path      string
+		wantCalls int
+	}{
+		{"/api/submit", 1},
+		{"/api/comment", 1},
+		{"/api/vote", 3},
+		{"/api/del", 3},
+	}
+	for _, c := range cases {
+		var calls atomic.Int32
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			calls.Add(1)
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		rc := &redditClient{http: srv.Client(), expiresAt: time.Now().Add(time.Hour)}
+		req, err := http.NewRequest("POST", srv.URL+c.path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		policy := chanlib.RetryTransient
+		if redditNonIdempotent[c.path] {
+			policy = chanlib.RetryRateLimitOnly
+		}
+		if (c.wantCalls == 1) != redditNonIdempotent[c.path] {
+			t.Errorf("%s: redditNonIdempotent = %v; it decides the policy `do` picks",
+				c.path, redditNonIdempotent[c.path])
+		}
+		if resp, err := rc.doWithRetry(req, policy); err == nil {
+			resp.Body.Close()
+		}
+		if got := int(calls.Load()); got != c.wantCalls {
+			t.Errorf("%s: %d HTTP requests, want %d", c.path, got, c.wantCalls)
+		}
+		srv.Close()
+	}
 }
