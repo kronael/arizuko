@@ -41,7 +41,9 @@ func registerRoutesMCP(srv *mcpserver.MCPServer, c *proxydClient, sub, name stri
 		if slices.Contains(groups, "**") {
 			claims["operator"] = "1"
 		}
-		return resreg.Caller{Sub: sub, Claims: claims}, nil
+		// The session's sub is minted prefixed; acl rows store bare subs, so a
+		// prefixed principal matches nothing and denies silently (BUGS L100).
+		return resreg.Caller{Sub: auth.BareSub(sub), Claims: claims}, nil
 	}
 	resreg.MCPTools(srv, routesForwarder(c, sub, name, groups), callerFor, nil)
 }

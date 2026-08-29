@@ -359,7 +359,11 @@ func callerFromHTTP(ks *auth.KeySet) resreg.CallerFromHTTPFunc {
 		if !channelTrusted(r, ks) {
 			return resreg.Caller{}, fmt.Errorf("missing or invalid identity")
 		}
-		sub := r.Header.Get("X-User-Sub")
+		// The JWT sub is minted prefixed ("user:…"), but acl.principal and
+		// acl_membership.child store BARE subs, so a prefixed principal expands
+		// to itself alone, matches no row and silently denies everything
+		// (BUGS L100).
+		sub := auth.BareSub(r.Header.Get("X-User-Sub"))
 		var groups []string
 		if hdr := r.Header.Get("X-User-Groups"); hdr != "" {
 			_ = json.Unmarshal([]byte(hdr), &groups)
