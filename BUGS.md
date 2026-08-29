@@ -5153,12 +5153,41 @@ is silent.
 - **Affected:** routd dispatch, any folder with two chats routed to it
 - **Source:** `routd/dispatch.go` (steered early return vs the
   `OutcomeError` notice block)
-- **Status:** open — needs a decision before code. The steered turn is already
-  marked `done`, so there is no retry to wait for, but notifying every steered
-  chat of a failed run risks a notice storm on a folder that steers heavily.
-  A per-run cap, or notifying only steered turns with no delivered bot row
-  (`TurnHasBotReply`), are the two shapes worth costing.
-- **Fix:**
+- **Status:** open — the decision is much smaller than this entry assumed.
+
+**Update 2026-08-29 — the fan-out reader already exists, and its twin already
+uses it.** `T1`'s fix built `DB.TypingJIDsForRun(runID)` (`routd/db.go:852`),
+which returns every chat recorded against a run:
+
+```sql
+SELECT DISTINCT COALESCE(NULLIF(return_to,''), chat_jid)
+FROM turn_context WHERE run_id=?
+```
+
+Its own doc comment names this exact situation — *"steering is by FOLDER, so
+the steered turn's chat is not always the running turn's chat"*. `dispatch.go:613`
+calls it to STOP the typing indicator for all of them; the failure notice eight
+lines earlier still sends to `chatJID` alone (`:460`). So the two halves of "who
+was affected by this run" disagree, and the half that goes quiet is the half
+that tells the user something.
+
+The link is already persisted: `SetTurnRunID` (`routd/dispatch.go:402`) records
+the ABSORBING run's id on the steered turn before the steered early-return, so
+nothing new needs storing.
+
+**This answers the notice-storm worry.** The set is not "every steered chat" —
+it is the turns recorded against the ONE run that failed, which is precisely who
+was affected. No per-run cap is needed, and `TurnHasBotReply` is not needed as a
+gate either: it already guards whether this block runs at all.
+
+- **Remaining decision, and it is only this:** the notice is sent with the
+  parent turn's `topic`. Sending the parent's topic to a DIFFERENT chat can land
+  the notice in the wrong thread there. Either resolve each chat's own topic
+  from its turn row, or send the fan-out notices untopiced. Not chosen here.
+- **Fix shape (one loop, one fallback):** send `notice` to
+  `TypingJIDsForRun(out.RunID)`, falling back to `chatJID` when that is empty
+  (`out.RunID` unset), with the idempotency key extended per destination so the
+  adapter does not dedup the fan-out into one delivery.
 
 ## X2 — the aws-devops product's credential model died with X1 (2026-08-09, DECIDED 2026-08-20: retire)
 
