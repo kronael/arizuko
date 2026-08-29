@@ -1023,7 +1023,7 @@ wiped/rebuilt"* and *"a resource the manifest omits entirely is not touched"*.
   (`store/groups.go:117`) deletes the groups row on an FK-on handle, so
   self-owned tokens cascade anyway.
 
-## L119 — three of the four group-creation surfaces never bind `folder:<f> → role:member`, so a world born there holds zero messaging verbs (2026-08-26, open)
+## ✅ FIXED 2026-08-29 L119 — three of the four group-creation surfaces never bind `folder:<f> → role:member`, so a world born there holds zero messaging verbs (2026-08-26)
 
 The binding exists in exactly one place: `routd/db.go:124` `PutGroup` →
 `routd/seed_grants.go:16` `assignDefaultRole` → `store/membership.go:113`. A
@@ -1063,6 +1063,22 @@ routd path.
   already own one; `PutGroupRow` would need one.
 - **Related class:** the derived-vs-stored migration trap that cost the fleet
   9 hours (0023 → 0030).
+
+Fixed 2026-08-29 with the one-renderer half of the proposal: `store` now owns
+both the name and the write — `store.RoleMember` and `store.SeedMemberRoleTx`,
+the single writer of the create-time edge, on a caller-owned transaction.
+
+- `store.PutGroupRow` opens a tx and writes the row AND the edge together, so
+  the CLI's `group add` carries the invariant.
+- `dashd/groups_admin.go` and `onbod/main.go` `createWorldTx` each call
+  `SeedMemberRoleTx` inside the transaction they already held, beside their
+  admin-acl row.
+- `routd.RoleMember` is now `= store.RoleMember`, so the string exists once.
+
+Tests: `store/member_seed_test.go` pins that `PutGroupRow` writes exactly one
+edge and that a re-put neither fails nor duplicates, and that
+`SeedMemberRoleTx` is idempotent on a caller tx. Emptying the helper turns both
+red.
 
 ## L120 — `/openapi.json` fabricates response schemas from a verb convention, so at least 11 mounted REST operations are documented wrongly (2026-08-26, open)
 

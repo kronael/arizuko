@@ -103,6 +103,22 @@ func (s *Store) RemoveMembership(child, parent string) error {
 	})
 }
 
+// RoleMember is the seeded floor role — the 12 messaging verbs, seeded by
+// routd migration 0023. Every group is born a member of it (5/33): power above
+// the floor is explicit delegation, never derived from path depth.
+const RoleMember = "role:member"
+
+// SeedMemberRoleTx binds a new folder to RoleMember on a caller-owned
+// transaction. It is the ONE writer of the create-time edge, because the
+// invariant is "a group row implies the member edge" and it used to live in
+// only one of four creating writers: the CLI, dashd and onbod each inserted a
+// groups row without it, and a folder with no edge expands to nothing, matches
+// zero allow rows and comes up with no messaging tools at all (BUGS L119).
+// Idempotent — the underlying write is INSERT OR IGNORE.
+func SeedMemberRoleTx(tx *sql.Tx, folder string) error {
+	return putMembershipTx(tx, "folder:"+folder, RoleMember, "system:4r-member")
+}
+
 // PutMembership inserts (child → parent) idempotently WITHOUT emitting an
 // audit_log row — the audit-free twin of AddMembership for an edge no operator
 // asked for: the role:member seed every group creation writes, and the 4r

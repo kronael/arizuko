@@ -65,7 +65,12 @@ func (s *Store) PutGroupRow(g core.Group) error {
 	if product == "" {
 		product = core.DefaultProduct
 	}
-	_, err := s.db.Exec(
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(
 		`INSERT INTO groups
 		 (folder, added_at, container_config, product, updated_at)
 		 VALUES (?, ?, ?, ?, ?)
@@ -78,8 +83,15 @@ func (s *Store) PutGroupRow(g core.Group) error {
 		string(cfgJSON),
 		product,
 		time.Now().Format(time.RFC3339),
-	)
-	return err
+	); err != nil {
+		return err
+	}
+	// A groups row implies the member edge, in the same transaction as the row
+	// (BUGS L119).
+	if err := SeedMemberRoleTx(tx, g.Folder); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // DeleteGroup removes a group AND every row that pointed at it, in one

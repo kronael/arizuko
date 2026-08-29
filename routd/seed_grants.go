@@ -7,8 +7,9 @@ package routd
 
 import "github.com/kronael/arizuko/store"
 
-// RoleMember is the seeded floor role (the 12 messaging verbs).
-const RoleMember = "role:member"
+// RoleMember is the seeded floor role (the 12 messaging verbs). One name, in
+// store, because four creation surfaces write this edge (BUGS L119).
+const RoleMember = store.RoleMember
 
 // assignDefaultRole binds a folder principal to role:member (idempotent —
 // PutMembership is INSERT OR IGNORE). Called at group creation so a folder holds

@@ -136,6 +136,15 @@ func (d *dash) handleGroupCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "insert failed", http.StatusInternalServerError)
 		return
 	}
+	// A groups row implies the member edge: without it the folder expands to
+	// nothing, matches zero allow rows and comes up with no messaging tools
+	// (BUGS L119).
+	if err := store.SeedMemberRoleTx(tx, folder); err != nil {
+		tx.Rollback()
+		slog.Error("group create: seed member role", "folder", folder, "err", err)
+		http.Error(w, "seed member role failed", http.StatusInternalServerError)
+		return
+	}
 	if _, err := tx.Exec(`INSERT OR IGNORE INTO acl
 		(principal, action, scope, effect, params, predicate, granted_at, granted_by)
 		VALUES (?, 'admin', ?, 'allow', '', '', datetime('now'), 'dashd')`,

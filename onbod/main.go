@@ -928,6 +928,11 @@ func createWorldTx(db *sql.DB, folder, username, userSub, now string) error {
 	if n, _ := res.RowsAffected(); n == 0 {
 		return fmt.Errorf("folder %q already exists", folder)
 	}
+	// A groups row implies the member edge: without it the new world expands to
+	// nothing and comes up mute (BUGS L119).
+	if err := store.SeedMemberRoleTx(tx, folder); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(`INSERT OR IGNORE INTO acl
 		(principal, action, scope, effect, params, predicate, granted_at, granted_by)
 		VALUES (?, 'admin', ?, 'allow', '', '', datetime('now'), 'onbod')`,
