@@ -6982,7 +6982,7 @@ retry — instead of sleeping and re-sending. reditd's contradictory 5-minute
 `TestDoWithRetryDoesNotStackTwoRetryLayers` is un-skipped and caps one logical
 call at 3 requests.
 
-## L125 — `6/9` is `status: shipped` and teaches an egress mechanism that `6/24` deleted, including the registration whose leak was the reason to delete it (2026-08-27, open)
+## L125 — `6/9` is `status: shipped` and teaches an egress mechanism that `6/24` deleted, including the registration whose leak was the reason to delete it (2026-08-27, status half FIXED 2026-08-29; the rewrite is the operator's call)
 
 `specs/6/9-crackbox-sandboxing.md` still describes the KVM sandbox as it stood
 before 2026-08-18. Measured at `7d81cd78`:
@@ -7014,6 +7014,16 @@ allowlist}`. `Stop` POSTs `/v1/unregister`." `6/24` §"It removes a real leak"
 - **Also stale in the same file, separately:** `:130` claims "`pkg/host/` has
   zero arizuko-internal imports (component test, per `6/16`)". No such test
   existed. Written 2026-08-27 as `tests/components`; the invariant did hold.
+
+**Half done 2026-08-29.** `6/9` now carries `status: defected` + `defects:
+[L125]`, the recorded convention for a spec whose text an open bug contradicts.
+That removes the specific harm named above — the spec no longer reads `shipped`
+to an engineer wiring the KVM backend, so the "make the spec true again" path
+no longer points at reintroducing the deleted registration.
+
+**Still open, and deliberately not decided here:** whether to rewrite the body
+against `sandbox/` + the netfilter model or to demote the spec. The entry says
+that is the operator's call, and it stays that way.
 
 ## ✅ FIXED 2026-08-27 L126 — `6/7`'s conformance matrix says pi's skill-guard is a load-time scan; the code says write-time and blocks, so the matrix understates two of three backends' defences (2026-08-27)
 

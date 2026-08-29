@@ -1,5 +1,6 @@
 ---
-status: shipped
+status: defected
+defects: [L125]
 date: 2026-05-01
 aka: antbox
 ---
