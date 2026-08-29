@@ -1,5 +1,5 @@
 ---
-status: draft
+status: partial
 depends: [5/17-openapi-mcp, 5/7-proxyd-standalone, 5/1-auth-standalone]
 ---
 
@@ -143,6 +143,35 @@ summary if the payload carries one, link to `/dash/<daemon>/`.
 - No new dashboard API separate from `/v1`.
 - No cross-daemon write orchestration in the hub.
 - No single global status screen that unifies every page.
+
+## Build state (2026-08-29)
+
+Signed off and started. The contract above is settled; what exists:
+
+- **Auth (both gates)** — shipped. `auth/dashauth.go` is the one operator
+  decision every daemon dashboard applies: `RequireOperator` / `RequireWrite`,
+  the themed 403, and the same-origin CSRF check for writes. It replaced three
+  drifted copies (timed rendered the themed page, onbod rendered the bare
+  string `forbidden`, dashd carried the `**` shortcut inside `callerScope`);
+  timed and onbod now call it. dashd's `requireAdmin` stays separate on purpose
+  — it answers folder-scoped admin, not operator.
+- **Routing** — shipped for the daemons that have a page. `coreProxydRoutes`
+  carries `/dash/onbod/`, `/dash/routd/` and `/dash/timed/` ahead of the
+  `/dash/` catch-all, and `TestDaemonDashRoutesPrecedeTheCatchAll`
+  (`compose/reserved_routes_test.go`) pins that ordering, the `user` auth mode
+  and the "not backed by dashd" rule for every route added later.
+- **Per-daemon dashboards** — 3 of 9: onbod (admission queue), timed
+  (overview), routd (overview, 2026-08-29). routd is the reference the rest
+  copy: one handler in the owning daemon, gated by `RequireOperator`, reading
+  the same in-process readers its `/v1` handlers read.
+- **Not started** — the `dashd` hub at `/dash/services/` (`6/29`), the six
+  remaining daemons (`6/30`), the adapter contract and its ten instances
+  (`6/31`, `6/32`), and the migration of dashd's direct-DB pages. dashd still
+  holds 86 direct read sites; none has been retired yet, because `6/30` is
+  explicit that a copy leaves dashd only once its replacement is live.
+
+Status stays `partial` until the hub exists and the per-daemon set is complete
+— a contract with three of nine implementations is not shipped.
 
 ## Reconciliation of prior specs
 

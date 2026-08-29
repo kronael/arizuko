@@ -87,11 +87,17 @@ themselves argue:
    internal reasons — 1,221 of ~1,700 lines serve an abandoned
    shared-proxy model, and its consumer-held unregister invariant is a real leak.
    The composition is the product, not the parts.
-4. **The cockpit is almost entirely unbuilt** (`28`–`33`). `onbod` serves
-   `/dash/onbod/` with working approve / deny / reprompt, and `timed` serves
-   `/dash/timed/` — the overview page only. Every other daemon's dashboard is
-   unwritten, and `dashd` still reads several DBs directly, which is the read
-   path these specs exist to retire.
+4. **The cockpit is started** (`28`–`33`, signed off 2026-08-29). `6/28`'s two
+   contracts are real: `auth/dashauth.go` is the one operator gate every daemon
+   dashboard applies (it replaced three drifted copies and added the CSRF check
+   none of them had), and `coreProxydRoutes` carries the per-daemon routes ahead
+   of the `/dash/` catch-all with a test pinning that ordering for every route
+   added later. Three of nine daemons serve their own page: `onbod` (admission
+   queue), `timed` (overview) and `routd` (overview, the reference the rest
+   copy). Still unbuilt: the `dashd` hub at `/dash/services/` (`6/29`), the six
+   remaining daemons, the adapters (`6/31`, `6/32`), and the migration of
+   dashd's 86 direct-DB read sites — which by `6/30`'s own rule leave dashd only
+   once their replacement is live.
 5. **Deferred by their own terms**: `19` waits for `5/13` shape 4; `12`
    (mcpfw) waits for a third-party-MCP consumer.
 
