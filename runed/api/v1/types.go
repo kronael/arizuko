@@ -49,8 +49,10 @@ type RunRequest struct {
 	// Secrets is the trigger user's own MODEL credentials (store.EnvProfileKeys),
 	// resolved + DECRYPTED by routd (it holds SECRETS_KEY; runed has no store).
 	// runed injects them as container env at spawn so the agent's own LLM calls use
-	// the user's key. Capability credentials are NOT in here and never enter the
-	// container — they are brokered per tool call (spec 5/13 §Trust model). Empty =
+	// the user's key. A capability credential rides along ONLY when an explicit
+	// `shell:env:<KEY>` grant names it (spec 5/13 §Trust model), because a CLI the
+	// agent drives itself has no tool call to broker; every other one is brokered
+	// per tool call and never enters the container. Empty =
 	// inject nothing. Plaintext on this hop: routd→runed is the trusted compose
 	// network, same boundary the brokered agent token already crosses.
 	Secrets map[string]string `json:"secrets,omitempty"`

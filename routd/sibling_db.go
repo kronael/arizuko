@@ -94,11 +94,11 @@ func (d *DB) SetUserCap(userSub string, cents int) error {
 	return d.userStore().SetUserCap(userSub, cents)
 }
 
-// EnvProfileSecrets is the ONLY secret set that may enter the agent container's
-// env: the caller's OWN user-scoped model credentials (BYOA). Those keys are spent
-// by the Claude Code SDK subprocess, not by a tool call, so they have no broker
-// path — everything else in `secrets` is a capability credential and reaches a
-// tool solely through ResolveConnectorSecrets (spec 5/13 §Trust model).
+// EnvProfileSecrets resolves the caller's OWN user-scoped model credentials (BYOA)
+// for the container env. Those keys are spent by the Claude Code SDK subprocess,
+// not by a tool call, so they have no broker path. Every capability credential
+// reaches a TOOL solely through ResolveConnectorSecrets (spec 5/13 §Trust model);
+// the one exception is ShellEnvSecrets below, which needs its own grant per key.
 //
 // The narrowing lives HERE, not at the dispatch call site, because the call site
 // is bypassable: an exported reader handing back the whole decrypted folder set
@@ -118,6 +118,37 @@ func (d *DB) EnvProfileSecrets(userSub string) map[string]string {
 		if _, ok := store.EnvProfileKeys[r.Key]; ok {
 			out[r.Key] = r.Value
 		}
+	}
+	return out
+}
+
+// ShellEnvSecrets resolves the folder's capability credentials that an explicit
+// `shell:env:<KEY>` grant marks readable from the agent's own shell, so a CLI the
+// agent drives itself (`gh`) can authenticate. It returns ONLY granted keys and
+// never the whole folder set — the same narrowing discipline as EnvProfileSecrets,
+// and for the same reason: an exported bulk reader is what a later one-liner
+// re-opens the hole with.
+//
+// Env-profile keys are dropped even when granted. They already have a path
+// (EnvProfileSecrets), and the store rejects folder scope for them, so a
+// `shell:env:ANTHROPIC_API_KEY` row can only ever name a user-scoped model
+// credential the container already holds.
+func (d *DB) ShellEnvSecrets(folder, userSub string) map[string]string {
+	out := map[string]string{}
+	if folder == "" {
+		return out
+	}
+	vals, _ := d.folderSecretsForUser(folder, userSub)
+	keys := make([]string, 0, len(vals))
+	for k := range vals {
+		if _, ok := store.EnvProfileKeys[k]; ok {
+			continue
+		}
+		keys = append(keys, k)
+	}
+	caller := auth.Caller{Principal: "folder:" + folder}
+	for _, k := range auth.ShellEnvKeys(d.aclEval(), caller, folder, keys) {
+		out[k] = vals[k]
 	}
 	return out
 }

@@ -273,10 +273,10 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	// that spawn. Anchors stay as the floor so a user without one still reaches the
 	// LLM.
 	//
-	// Capability credentials NEVER arrive here — routd narrows RunRequest.Secrets to
-	// env-profile keys and every other secret is broker-resolved per tool call inside
-	// ipc.CallConnectorTool, so it lives in the connector subprocess's env on the
-	// host (spec 5/13 §Trust model).
+	// A capability credential arrives here only when a `shell:env:<KEY>` grant names
+	// it — routd resolves that per key and adds nothing without a row. Every other
+	// secret is broker-resolved per tool call inside ipc.CallConnectorTool, so it
+	// lives in the connector subprocess's env on the host (spec 5/13 §Trust model).
 	in.Secrets = mergeSecrets(readSecrets(), in.Secrets)
 	in.AsstName = cfg.Name
 	payload, _ := json.Marshal(in)

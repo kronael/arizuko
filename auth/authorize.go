@@ -418,3 +418,58 @@ func CheckHold(s *store.Store, caller Caller, tool, scope string, params map[str
 	}
 	return held
 }
+
+// ShellEnvPrefix namespaces the one grant that widens the container env. Spec
+// 5/13 §Trust model says a capability credential is broker-only, and that holds
+// for anything the agent reaches through a TOOL. A CLI the agent drives itself
+// (`gh`, `buildkite`) has no tool call to broker, so the only way it can
+// authenticate is a credential in the shell env. That is a real widening of the
+// boundary, so it is a grant and never a default: with no row nothing crosses,
+// which is every folder until an operator says otherwise.
+const ShellEnvPrefix = "shell:env:"
+
+// ShellEnvKeys returns the subset of keys the caller may read from the shell env
+// in scope, sorted. Matched EXACTLY, like CheckHold and for the same reason: an
+// operator's (`*`, `**`) row covers every action, so routing this through
+// Authorize would put every folder secret into every operator turn's env — the
+// grant would widen hardest exactly where it should not. `shell:env:*` is the
+// deliberate all-keys row; a deny row wins, as everywhere else.
+func ShellEnvKeys(s *store.Store, caller Caller, scope string, keys []string) []string {
+	if s == nil || caller.Principal == "" || len(keys) == 0 {
+		return nil
+	}
+	rows, err := policyRows(s, expandPrincipals(s, caller))
+	if err != nil {
+		// Same direction as Authorize's deny, said out loud: an unreadable acl
+		// table grants no shell credential rather than falling back to the set.
+		slog.Error("shell env: acl read failed; GRANTING NOTHING",
+			"principal", caller.Principal, "scope", scope, "err", err)
+		return nil
+	}
+	var out []string
+	for _, k := range keys {
+		want := ShellEnvPrefix + k
+		allowed, denied := false, false
+		for _, r := range rows {
+			if r.Action != want && r.Action != ShellEnvPrefix+"*" {
+				continue
+			}
+			if !matchPattern(r.Scope, scope) {
+				continue
+			}
+			if !predicateMatches(r.Predicate, caller.Claims) {
+				continue
+			}
+			if r.Effect == "deny" {
+				denied = true
+			} else {
+				allowed = true
+			}
+		}
+		if allowed && !denied {
+			out = append(out, k)
+		}
+	}
+	slices.Sort(out)
+	return out
+}

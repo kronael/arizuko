@@ -740,12 +740,18 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 	// is fine — runed treats empty as no-extra-constraint.
 	allowlist, _ := l.db.ResolveAllowlist(folder)
 	// Container env carries the trigger user's OWN model credentials (BYOA) and
-	// nothing else from `secrets`: a web-chat user's ANTHROPIC_API_KEY shadows the
-	// operator anchor for their spawn. Folder capability credentials do NOT ride
-	// along — they reach a tool only through the MCP broker, per call, narrowed to
-	// the connector's declared secrets= list (spec 5/13 §Trust model). routd
-	// decrypts here (it holds SECRETS_KEY); runed injects as container env.
+	// the capability credentials a grant names below: a web-chat user's
+	// ANTHROPIC_API_KEY shadows the operator anchor for their spawn. An UNGRANTED
+	// folder credential does not ride along — it reaches a tool only through the MCP
+	// broker, per call, narrowed to the connector's declared secrets= list (spec 5/13
+	// §Trust model). routd decrypts here (it holds SECRETS_KEY); runed injects.
 	secrets := l.db.EnvProfileSecrets(string(caller))
+	// The third tier (5/13 §Trust model): a folder capability credential an explicit
+	// `shell:env:<KEY>` grant makes readable from the agent's own shell, because a CLI
+	// the agent drives itself has no tool call to broker. No grant row adds nothing,
+	// so every folder starts where it did before this line existed.
+	shellEnv := l.db.ShellEnvSecrets(folder, string(caller))
+	maps.Copy(secrets, shellEnv)
 	// 5/33: mounts/egress/web are GRANTS, not tier. routd resolves the three
 	// container-capability booleans from the folder's acl rows and ships them typed,
 	// so runed consumes a decision, not a rule bundle. An elevated /root turn holds
@@ -763,7 +769,8 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 	// and every decision, so an absent surface points at its missing grant.
 	slog.Info("dispatch capabilities resolved",
 		"folder", folder, "turn_id", turnID, "elevated", elevated,
-		"egress", egress, "share_readonly", shareRO, "web_publish", webPublish)
+		"egress", egress, "share_readonly", shareRO, "web_publish", webPublish,
+		"shell_env", slices.Sorted(maps.Keys(shellEnv)))
 	return l.runner.Run(ctx, runedv1.RunRequest{
 		Folder:  types.Folder(folder),
 		Topic:   topic,

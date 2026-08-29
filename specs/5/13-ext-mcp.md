@@ -114,10 +114,39 @@ call site is the only place it is known.
 | Per-user env-profile keys   | `secrets` table   | yes — the model credential is spent by the SDK subprocess, so it has no tool call to broker (`routd.DB.EnvProfileSecrets`, `5/14` §1) |
 | Folder secrets (capability) | `secrets` table   | **no** — broker-only, resolved per call on the host (`5/14` §2). Shipped 2026-08-09, BUGS `X1`.                                       |
 | Per-user capability secrets | `secrets`, broker | **no** — same broker path; a user's own key wins over the folder default for their calls                                              |
+| Shell credentials           | `secrets`, grant  | **only when granted** — a `shell:env:<KEY>` acl row names each key; no row, nothing crosses (`routd.DB.ShellEnvSecrets`, below)       |
 
-The container env therefore holds exactly two things: the operator anchors, and
-the triggering user's own `store.EnvProfileKeys`. Nothing else from `secrets`
-crosses the boundary, so `env` inside the container is not a credential store.
+The container env therefore holds the operator anchors, the triggering user's own
+`store.EnvProfileKeys`, and the capability keys a grant names one at a time.
+Nothing else from `secrets` crosses the boundary.
+
+### Shell credentials
+
+The broker's contract is that a capability credential reaches a TOOL and nothing
+else. That contract holds only where there is a tool to broker. A CLI the agent
+drives itself — `gh`, `buildkite` — is a `Bash` call, so there is no tool name to
+resolve a secret for and no subprocess of ours to inject it into. Such a CLI can
+authenticate only from the shell env.
+
+That is a real widening of the boundary above, so it is a GRANT and never a
+default. `auth.ShellEnvKeys` reads `shell:env:<KEY>` rows, matching the action
+EXACTLY for the reason `CheckHold` does (spec 5/19 Hazard 2): an operator's
+(`*`, `**`) row covers every action, so evaluating this through `Authorize`
+would drop every folder secret into every operator turn's env — the grant would
+widen hardest exactly where it should not. `shell:env:*` is the deliberate
+all-keys row; a deny row wins. `store.EnvProfileKeys` are excluded even under
+`shell:env:*`: they have their own path, and keeping a model credential out of a
+shell the agent drives is the whole of BUGS `L131`.
+
+**What this tier does NOT enforce.** Once a token is in the shell, arizuko can no
+longer bound what it buys. The four broker escape paths below do not apply: the
+agent holds the credential directly, so it can spend it with `curl` as easily as
+with `gh`, and no `acl` row sees the difference. A refusal in the `Bash` write
+gate (`ant/src/guards.ts`) raises the cost of one spelling; it is not the lock.
+**The lock is the token's own scope at the issuing service** — a PAT minted
+without `pull_requests: write` cannot approve a pull request however it is
+called. Grant a shell credential only where the credential itself is already
+bounded to what the folder may do.
 
 Four escape paths the broker closes:
 
