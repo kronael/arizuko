@@ -20,6 +20,14 @@
 # Scope the token at Buildkite, not here. A read-only Buildkite token is the
 # enforcement for "the agent may look but not trigger" — an acl row can refuse
 # a TOOL, but only the token bounds what that tool can do once called.
+#
+# Same runtime blocker as github.toml (BUGS L132): no MCP server runs in routd's
+# image yet. If Buildkite ships a CLI the agent can drive from Bash, the shell
+# route reaches it today instead:
+#
+#   arizuko group <inst> grant 'folder:<folder>' '<folder>' 'shell:env:BUILDKITE_TOKEN'
+#
+# That hands the agent a spendable token, so grant it only with a read-only one.
 [[mcp_connector]]
 name         = "buildkite"
 command      = ["<buildkite-mcp-server>", "stdio"]

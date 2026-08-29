@@ -1,21 +1,39 @@
-# GitHub MCP connector (spec 9/11 M7). Operator copy: drop this block into
-# <data_dir>/connectors.toml (multi-block file) and bump gated. PAT-only:
-# write a per-user fine-grained PAT into the broker via
-#   arizuko user-secret <inst> set <user_sub> GITHUB_TOKEN --value ghp_…
-# or hand the user /dash/me/secrets. Spec 9/14 will add the OAuth dance.
+# GitHub MCP connector (spec 5/13). Operator copy: drop this block into
+# <data_dir>/connectors.toml (multi-block file) and restart routd.
 #
-# Choose ONE command:
-#  - npx (zero install, requires node):
-#      command = ["npx", "-y", "@modelcontextprotocol/server-github"]
-#  - GitHub official binary (faster cold-start; install separately):
+# WARNING — NONE of the commands below runs in the shipped image (BUGS L132).
+# The connector subprocess spawns inside routd, whose image carries static Go
+# binaries and no node: `command -v node npx github-mcp-server` exits 127, and
+# routd has no docker socket by design (runed is the only daemon that holds
+# one). Configure a block here only after an operator installs the server into
+# routd's image. Until then use the shell route below.
+#
+# THE ROUTE THAT WORKS TODAY. `gh` is already installed in the agent image
+# (ant/Dockerfile). Put the token in the secrets table, then grant the folder
+# the one key it may read from its own shell:
+#
+#   arizuko secret <inst> set folder:<folder> GITHUB_TOKEN --value ghp_…
+#   arizuko group <inst> grant 'folder:<folder>' '<folder>' 'shell:env:GITHUB_TOKEN'
+#
+# That tier hands the agent a SPENDABLE token — `ghWriteGate` refuses the named
+# writes, but the token can also be spent with curl. Scope the PAT at GitHub to
+# what the folder may do; a PAT without `pull_requests: write` cannot approve a
+# pull request however it is called. The connector, when it can run, is the
+# stronger shape: the broker resolves per call and the agent never holds it.
+#
+# THE TOKEN DOES NOT GO IN THE HOST .env. `readSecrets` passes only
+# `store.EnvProfileKeys` (the model credentials) into a container, so a
+# GH_TOKEN there reaches nothing.
+#
+# Command options, once a runtime exists:
+#  - GitHub official binary (a static Go binary, so it matches an image that is
+#    already only Go binaries — prefer this):
 #      command = ["github-mcp-server", "stdio"]
-#  - Docker (heavier; requires docker socket access from gated):
-#      command = ["docker", "run", "-i", "--rm",
-#                 "-e", "GITHUB_PERSONAL_ACCESS_TOKEN",
-#                 "ghcr.io/github/github-mcp-server"]
+#  - npx (needs node in routd's image; that bloats every daemon sharing it):
+#      command = ["npx", "-y", "@modelcontextprotocol/server-github"]
 [[mcp_connector]]
 name         = "github"
-command      = ["npx", "-y", "@modelcontextprotocol/server-github"]
+command      = ["github-mcp-server", "stdio"]
 secrets      = ["GITHUB_TOKEN"]
 env_template = { GITHUB_PERSONAL_ACCESS_TOKEN = "{secret:GITHUB_TOKEN}" }
 scope        = "per_call"
