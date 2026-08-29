@@ -16,6 +16,8 @@ import (
 	"context"
 	"database/sql"
 	"strings"
+
+	"github.com/kronael/arizuko/groupfolder"
 )
 
 // Row is one audit_log record on the wire. Every nullable column is scanned
@@ -105,8 +107,8 @@ func Query(ctx context.Context, db *sql.DB, f Filter) ([]Row, error) {
 	args := []any{}
 
 	if f.Folder != "" {
-		where = append(where, "(folder = ? OR folder LIKE ? || '/%')")
-		args = append(args, f.Folder, f.Folder)
+		where = append(where, groupfolder.SQLSubtree("folder", "/"))
+		args = append(args, groupfolder.SubtreeArgs(f.Folder, "/")...)
 	}
 	if f.Category != "" {
 		where = append(where, "category = ?")

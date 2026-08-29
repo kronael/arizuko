@@ -9,6 +9,7 @@ import (
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
 )
 
 // ErrWebJIDRouted is returned by AddRoute when the operator tries to
@@ -219,8 +220,11 @@ func (s *Store) ListRoutes(folder string, isRoot bool) []core.Route {
 	}
 	rows, err := s.db.Query(
 		`SELECT `+routeCols+` FROM routes
-		 WHERE (? = '' OR target = ? OR target LIKE ?||'#%' OR target LIKE ?||'/%')
-		 ORDER BY seq, id`, scope, scope, scope, scope)
+		 WHERE (? = '' OR `+groupfolder.SQLSubtree("target", "#")+
+			` OR `+groupfolder.SQLSubtree("target", "/")+`)
+		 ORDER BY seq, id`,
+		append(append([]any{scope}, groupfolder.SubtreeArgs(scope, "#")...),
+			groupfolder.SubtreeArgs(scope, "/")...)...)
 	if err != nil {
 		return nil
 	}

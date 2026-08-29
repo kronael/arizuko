@@ -89,7 +89,8 @@ func (d *DB) FindMessages(query, scope, sender, since string, limit int) ([]Foun
 	if limit <= 0 || limit > 200 {
 		limit = 20
 	}
-	var scopeJID, scopeFolder any
+	var scopeJID any
+	var scopeFolder string
 	if scope != "" {
 		if strings.Contains(scope, ":") {
 			scopeJID = scope
@@ -111,12 +112,13 @@ func (d *DB) FindMessages(query, scope, sender, since string, limit int) ([]Foun
 		 FROM messages_fts f JOIN messages m ON m.rowid = f.rowid
 		 WHERE messages_fts MATCH ?
 		   AND (? IS NULL OR m.chat_jid = ?)
-		   AND (? IS NULL OR m.routed_to = ? OR m.routed_to LIKE ? || '/%')
+		   AND (? = '' OR `+groupfolder.SQLSubtree("m.routed_to", "/")+`)
 		   AND (? IS NULL OR m.sender = ?)
 		   AND (? IS NULL OR m.timestamp >= ?)
 		 ORDER BY rank, m.timestamp DESC LIMIT ?`,
-		query, scopeJID, scopeJID, scopeFolder, scopeFolder, scopeFolder,
-		senderArg, senderArg, sinceArg, sinceArg, limit)
+		append(append([]any{query, scopeJID, scopeJID, scopeFolder},
+			groupfolder.SubtreeArgs(scopeFolder, "/")...),
+			senderArg, senderArg, sinceArg, sinceArg, limit)...)
 	if err != nil {
 		return nil, err
 	}

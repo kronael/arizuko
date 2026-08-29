@@ -125,19 +125,43 @@ func TestQueryFolderFilterExcludesInstanceScopeRows(t *testing.T) {
 // Skipped rather than deleted: the entry is open and this is the assertion its
 // fix has to satisfy. Un-skip with the fix.
 func TestQueryFolderFilterIsNotWidenedByLikeMetacharacters(t *testing.T) {
-	t.Skip("BUGS L122 — open: the folder filter is a LIKE, so `_` and `%` widen it")
-
 	db := openTestDB(t)
 	seed(t, db,
 		Event{Category: "mcp", Action: "a", Actor: "x", Folder: "a_b/one"},
 		Event{Category: "mcp", Action: "b", Actor: "x", Folder: "aXb/two"},
+		Event{Category: "mcp", Action: "c", Actor: "x", Folder: "coach/k"},
+		Event{Category: "mcp", Action: "d", Actor: "x", Folder: "Coach/private"},
+		Event{Category: "mcp", Action: "e", Actor: "x", Folder: "x/y"},
 	)
-	got, err := Query(context.Background(), db, Filter{Folder: "a_b"})
+	ctx := context.Background()
+
+	got, err := Query(ctx, db, Filter{Folder: "a_b"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if has(got, "aXb/two") {
 		t.Errorf("an underscore in the folder acted as a LIKE wildcard: %v", folders(got))
+	}
+	if !has(got, "a_b/one") {
+		t.Errorf("the folder's own subtree was lost: %v", folders(got))
+	}
+
+	// `%` is legal in a folder name and matches everything under LIKE.
+	got, err = Query(ctx, db, Filter{Folder: "%"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Errorf("a folder named %% read every tenant's audit trail: %v", folders(got))
+	}
+
+	// A live instance has carried a Coach/coach pair; LIKE is case-insensitive.
+	got, err = Query(ctx, db, Filter{Folder: "coach"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if has(got, "Coach/private") {
+		t.Errorf("the filter crossed a case boundary: %v", folders(got))
 	}
 }
 

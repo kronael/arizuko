@@ -3,6 +3,8 @@ package store
 import (
 	"database/sql"
 	"time"
+
+	"github.com/kronael/arizuko/groupfolder"
 )
 
 type ErroredChat struct {
@@ -20,9 +22,9 @@ func (s *Store) ErroredChats(folder string, isRoot bool) []ErroredChat {
 	rows, err := s.db.Query(
 		`SELECT chat_jid, COUNT(*), MAX(timestamp), COALESCE(MAX(routed_to),'')
 		 FROM messages WHERE errored = 1
-		   AND (? = '' OR routed_to = ? OR routed_to LIKE ?||'/%')
+		   AND (? = '' OR `+groupfolder.SQLSubtree("routed_to", "/")+`)
 		 GROUP BY chat_jid ORDER BY MAX(timestamp) DESC`,
-		scope, scope, scope)
+		append([]any{scope}, groupfolder.SubtreeArgs(scope, "/")...)...)
 	if err != nil {
 		return nil
 	}

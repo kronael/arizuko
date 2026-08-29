@@ -132,11 +132,14 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 	scopeSelect.WriteString(`<select name="scope">`)
 	fmt.Fprintf(&scopeSelect, `<option value="%s" selected>%s (this folder)</option>`, esc(folder), esc(folder))
 	if gRows, err := d.adminDB().Query(
-		`SELECT folder FROM groups WHERE folder LIKE ? || '/%' ORDER BY folder LIMIT 200`, folder); err == nil {
+		`SELECT folder FROM groups WHERE `+groupfolder.SQLSubtree("folder", "/")+
+			` ORDER BY folder LIMIT 200`,
+		groupfolder.SubtreeArgs(folder, "/")...); err == nil {
 		defer gRows.Close()
 		for gRows.Next() {
 			var gf string
-			if err := gRows.Scan(&gf); err == nil {
+			// The folder itself is already the selected option above.
+			if err := gRows.Scan(&gf); err == nil && gf != folder {
 				fmt.Fprintf(&scopeSelect, `<option value="%s">%s</option>`, esc(gf), esc(gf))
 			}
 		}

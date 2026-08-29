@@ -6751,7 +6751,7 @@ the common case for a compose service name resolved from outside its network.
   timeout collapses into the existing "cannot check, let it through" path and
   changes no verdict — only how long the wrong-answer case costs.
 
-## L122 — six containment filters still hand-write `LIKE ?||'/%'`, so a folder named `%` reads every tenant's messages and a `Coach`/`coach` pair leaks both ways (2026-08-27, open; cross-tenant read)
+## ✅ FIXED 2026-08-29 L122 — six containment filters still hand-write `LIKE ?||'/%'`, so a folder named `%` reads every tenant's messages and a `Coach`/`coach` pair leaks both ways (2026-08-27)
 
 `groupfolder.SQLSubtree` / `SubtreeArgs` exist precisely because SQL `LIKE` is
 the wrong predicate for folder containment — it is case-INSENSITIVE for ASCII,
@@ -6804,6 +6804,23 @@ paths never did:**
   validator at `groupfolder/folder.go:68`.
 - **Test:** `audit/query_test.go` `TestQueryFolderFilterIsNotWidenedByLikeMetacharacters`
   is written and skipped on this entry. Un-skip it with the fix.
+
+Fixed 2026-08-29, the adoption half. All six sites now call
+`groupfolder.SQLSubtree`/`SubtreeArgs`; `store/routes.go` uses both the `#` and
+the `/` form, and `dashd/grants_admin.go` skips the folder itself in the loop
+because the picker already offers it as the selected option. `grep "LIKE ?||'/%'"`
+over the tree now returns only the helper's own doc comment.
+
+Tests: the audit test is un-skipped and gains the `%` and `Coach`/`coach` rows;
+`store/subtree_filter_test.go` covers the message search, the errored-chat list
+and the route table on the same three metacharacter cases, and asserts the
+folder's OWN subtree still reads. Mutating `SQLSubtree` itself back to a `LIKE`
+turns all four tests red, which is what proves the six sites share one
+predicate now.
+
+**The `isValidFolder` allowlist stays open** — it is the second, independent
+fix named above and a behaviour change for existing folders, so it still needs
+sign-off. The case half survives an allowlist either way.
 
 ## ✅ FIXED 2026-08-29 L123 — an agent that stringifies a numeric tool argument has it silently DROPPED, while the REST twin of the same call accepts it (2026-08-27)
 
