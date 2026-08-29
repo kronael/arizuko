@@ -259,6 +259,12 @@ func main() {
 	}
 
 	httpd := &http.Server{Addr: listenAddr, Handler: obs.HTTPMiddleware("routd")(mux)}
+	// Register the signal handler BEFORE the listener accepts: a SIGTERM in
+	// between takes Go's default disposition and kills the process, so the
+	// Shutdown below never runs (BUGS L127).
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+
 	go func() {
 		slog.Info("routd started", "addr", listenAddr, "db", dataDir, "runed", runedURL)
 		if err := httpd.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -268,8 +274,6 @@ func main() {
 	}()
 	go loop.Run(ctx)
 
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	<-stop
 	slog.Info("routd stopping")
 	cancel()

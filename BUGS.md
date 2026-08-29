@@ -6961,7 +6961,7 @@ call, not a one-shot scan at session start.
   `skill-rescan` `PostToolUse` row is what protects it. The load-time scan is
   described as what it is: the backstop on both, not the gate.
 
-## L127 — six of nine daemons install their SIGTERM handler AFTER they start serving, so a signal in that window kills them with no graceful shutdown (2026-08-27, egress half FIXED, five open)
+## ✅ FIXED 2026-08-29 L127 — six of nine daemons install their SIGTERM handler AFTER they start serving, so a signal in that window kills them with no graceful shutdown (2026-08-27)
 
 Measured at `7d81cd78` by comparing the first `net.Listen`/`Serve` line with the
 first `signal.Notify` line in every `main.go`:
@@ -7000,6 +7000,14 @@ Go's **default disposition** — the process dies immediately and the
   the first `net.Listen` in `authd`, `onbod`, `routd`, `runed` and `ttsd`.
   Not done here — found during a general check (Bug Triage Protocol); only the
   egress half shipped, because its own test was red.
+
+Fixed 2026-08-29: the two lines moved above the listener in all five remaining
+daemons, matching the shape dashd, proxyd and webd already had. The ordering is
+a source fact, so `tests/shutdown` reads it from the source the same way the
+defect was measured: `TestSignalHandlerIsArmedBeforeTheListener` compares the
+first `signal.Notify`/`NotifyContext` line with the first listener line in each
+of the nine `main.go` files, and it covers any daemon added later. Moving one
+back turns the test red.
 
 ## ✅ FIXED 2026-08-27 L128 — `ARIZUKO_BACKEND` never reached runed, so the documented per-backend certification procedure was a silent no-op (2026-08-27)
 

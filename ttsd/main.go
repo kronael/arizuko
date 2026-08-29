@@ -48,6 +48,12 @@ func main() {
 	mux.Handle("GET /v1/voices", proxyHandler(beURL))
 
 	srv := &http.Server{Addr: addr, Handler: mux, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second}
+	// Register the signal handler BEFORE the listener accepts: a SIGTERM in
+	// between takes Go's default disposition and kills the process, so the
+	// Shutdown below never runs (BUGS L127).
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+
 	go func() {
 		slog.Info("ttsd listening", "addr", addr, "backend", backend)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -56,8 +62,6 @@ func main() {
 		}
 	}()
 
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	<-sigs
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

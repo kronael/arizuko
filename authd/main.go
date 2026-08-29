@@ -112,6 +112,12 @@ func main() {
 	}
 	httpd := &http.Server{Addr: listenAddr, Handler: obs.HTTPMiddleware("authd")(srv.mux(cfg))}
 
+	// Register the signal handler BEFORE the listener accepts: a SIGTERM in
+	// between takes Go's default disposition and kills the process, so the
+	// Shutdown below never runs (BUGS L127).
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+
 	go func() {
 		if err := httpd.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("http server", "err", err)
@@ -119,8 +125,6 @@ func main() {
 		}
 	}()
 
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	<-stop
 	slog.Info("authd stopping")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

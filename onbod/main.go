@@ -143,15 +143,18 @@ func main() {
 		Addr:    cfg.listenAddr,
 		Handler: obs.HTTPMiddleware("onbod")(newOnbodMux(xdb, obdb, cfg, ks)),
 	}
+	// Register the signal handler BEFORE the listener accepts: a SIGTERM in
+	// between takes Go's default disposition and kills the process, so the
+	// Shutdown below never runs (BUGS L127).
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+
 	go func() {
 		slog.Info("onbod listening", "addr", cfg.listenAddr)
 		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
 			slog.Error("http server error", "err", err)
 		}
 	}()
-
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 
 	tick := time.NewTicker(cfg.pollInterval)
 	defer tick.Stop()
