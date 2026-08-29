@@ -7175,6 +7175,50 @@ handling on a live backend, so it is recorded rather than shipped.
   pi `dist/utils/shell.js:105` + `dist/core/tools/bash.js`,
   codex-cli 0.147.0 binary strings.
 
+## L133 — `actionCovers`'s `*` covers rule namespaces too, so every namespaced rule needs its own evaluator (2026-08-29, open — proposal, needs sign-off)
+
+`auth.Authorize` is documented as the SOLE runtime authorization evaluator
+(`5/33`). It is not, and the reason is one line.
+
+`actionCovers` returns true for ANY requested action when `rowAction == "*"`.
+An operator holds `(*, **)`, so under the lattice an operator matches
+`hold:mcp:delete` and `shell:env:GITHUB_TOKEN` as readily as `mcp:send`. For a
+GRANT that is right — the operator may do anything. For a RULE it is backwards:
+it would suspend every tool call the operator makes (spec `5/19` Hazard 2) and
+hand every folder secret to every operator turn.
+
+So each rule namespace opts out with its own reader. `CheckHold` did it first;
+`ShellEnvKeys` repeated it 2026-08-29 and the two now share `namespacedAllows`
+(`98a637a1`). That shared body is the workaround, not the fix: the cost is one
+more hand-rolled evaluator per namespace forever, and every one of them is a
+place the scope/predicate/params filter can drift from `Authorize`.
+
+**Proposal — invert the default for rule namespaces.** Teach `actionCovers`
+that `hold:` and `shell:env:` are RULE namespaces, where only an exact action
+or the namespace's own `<ns>*` matches, and no broader row covers them. Then
+`Authorize` is correct for every question, `namespacedAllows` deletes, and
+`CheckHold`/`ShellEnvKeys` become thin wrappers that supply the prefix.
+
+Two things to check before shipping, neither settled here:
+
+1. **A rule namespace must be declared, not sniffed.** Deriving "is this a rule?"
+   from a `:` in the action name would catch `mcp:send` and `web:publish`, which
+   are grants. It needs an explicit set — one declaration, and `grantableAction`
+   in `cmd/arizuko/main.go` is a second reader of it (`L133` is exactly the shape
+   `feedback_grant_action_needs_a_door` warns about).
+2. **`EffectiveActions` and `UserScopes` also walk rows** and would need the same
+   treatment, or a rule row would show up in a capability listing as though it
+   were a grant.
+
+This is a change to the core evaluator's contract, so it is recorded here and
+NOT shipped. The current state is correct and tested — the mutation that makes
+`namespacedAllows` read the lattice turns 6 tests red across both namespaces.
+This entry is about the shape, not a live defect.
+
+- **Source:** `auth/authorize.go` `actionCovers` (`rowAction == "*"`),
+  `namespacedAllows`, `CheckHold`, `ShellEnvKeys`; `specs/5/33-paths-roles.md`
+  ("SOLE runtime authorization evaluator"), `specs/5/19` Hazard 2.
+
 ## L132 — the GitHub connector `6/26` calls "shipped, use this" cannot run: all three documented commands are absent from routd's image (2026-08-28, open)
 
 `6/26` Decision 3 picks the MCP connector over the `gh` CLI and labels it
