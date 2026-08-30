@@ -118,6 +118,9 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("POST /slink/{token}", s.handleSlinkRedirect)
 
 	// MCP: single per-instance, user-grant-gated
+	// The operator dashboard (spec 6/28): webd's own /dash/ namespace, gated by
+	// the proxyd-stamped operator identity rather than the session gate.
+	mux.HandleFunc("GET /dash/webd/", s.handleDash)
 	mux.HandleFunc("POST /mcp", s.requireUser(s.handleMCP))
 	mux.HandleFunc("GET /mcp", s.requireUser(s.handleMCP))
 	mux.HandleFunc("DELETE /mcp", s.requireUser(s.handleMCP))

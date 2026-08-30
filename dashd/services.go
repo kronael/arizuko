@@ -39,8 +39,9 @@ var services = []service{
 	{"proxyd", "proxyd", "/dash/proxyd/", "auth-gated reverse proxy", true, ""},
 	{"onbod", "onbod", "/dash/onbod/", "onboarding queue, gates, invites", true, ""},
 	{"timed", "timed", "/dash/timed/", "scheduled tasks and ticks", true, ""},
-	{"webd", "webd", "/dash/webd/", "web chat widget and routes", false, ""},
+	{"webd", "webd", "/dash/webd/", "web chat widget and routes", true, ""},
 	{"davd", "davd", "/dash/davd/", "WebDAV workspace access", false, "/"},
+	{"ttsd", "ttsd", "/dash/ttsd/", "text-to-speech proxy", true, ""},
 }
 
 // healthTimeout caps each /health probe. The grid probes all daemons

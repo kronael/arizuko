@@ -43,6 +43,9 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", healthHandler(backend))
+	// The operator dashboard (spec 6/28). ttsd verifies no tokens, so it gates
+	// on the operator scope proxyd stamps rather than on a keyset of its own.
+	mux.HandleFunc("GET /dash/ttsd/", dashHandler(backend, chanlib.EnvOr("AUTHD_URL", "") != ""))
 	mux.Handle("POST /v1/audio/speech", proxyHandler(beURL))
 	// /v1/voices is convenient for `ttsd` to surface Kokoro's voice list.
 	mux.Handle("GET /v1/voices", proxyHandler(beURL))
