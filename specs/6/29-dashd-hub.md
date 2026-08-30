@@ -108,8 +108,22 @@ by discipline.
    routd renders an error, because a blank token list reads as "this folder has
    no tokens", which is the opposite of the truth.
 
-   Remaining reads to move: `tasks_admin`, `routes_admin`, `groups_admin`,
-   `grants_admin`, `usage_page`.
+   **The remaining five are NOT one blocked group** — an earlier note here said
+   they were, and that was too broad. Measured 2026-08-30 against their routes
+   and their owners' `/v1`:
+
+   | page           | reads                  | blocked by                                                                                                                                                  |
+   | -------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+   | `groups_admin` | routd `/v1/groups`     | nothing — `/dash/groups/{folder...}` puts the folder in the ROUTE, so it authorizes before it reads, exactly like `route_tokens`                            |
+   | `grants_admin` | authd `/v1`            | nothing — same folder-keyed route                                                                                                                           |
+   | `routes_admin` | routd `/v1/routes`     | nothing — instance-wide and operator-gated first, so no per-folder ordering exists                                                                          |
+   | `usage_page`   | —                      | a MISSING endpoint: `GET /v1/cost` is per-TURN (`turn_id` required); the page needs the per-folder aggregate `6/30` already lists as `GET /v1/cost/summary` |
+   | `tasks_admin`  | routd `/v1/tasks/{id}` | the authorize-before-read ordering above — it is keyed by task id, so the owner is only known after the read                                                |
+
+   So three are mechanical, one needs a small new routd endpoint that this
+   phase already specified, and exactly ONE needs the ordering decision. Each
+   also needs a test double for its owner's API, since `tests/testutils` ships
+   no routd server and `isoEnv` builds a dash with no `routdURL`.
 
    **`tasks_admin` was attempted and reverted 2026-08-30, and the reason is a
    finding, not a stumble.** The code change is straightforward — routd serves
