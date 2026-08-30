@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/resreg/resources"
@@ -166,6 +167,55 @@ func stubRoutd(t *testing.T, db *sql.DB) string {
 			g.ObserveWindowChars = int(owC.Int64)
 		}
 		writeStubJSON(w, g)
+	})
+
+	mux.HandleFunc("GET /v1/tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		var t core.Task
+		var cron, nextRun, ctxMode sql.NullString
+		var created string
+		err := db.QueryRow(`SELECT owner, chat_jid, COALESCE(prompt,''), cron,
+			next_run, status, created_at, context_mode
+			FROM scheduled_tasks WHERE id = ?`, id).
+			Scan(&t.Owner, &t.ChatJID, &t.Prompt, &cron, &nextRun, &t.Status, &created, &ctxMode)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		t.ID, t.Cron, t.ContextMode = id, cron.String, ctxMode.String
+		t.Created, _ = time.Parse(time.RFC3339, created)
+		if nextRun.Valid {
+			if nr, perr := time.Parse(time.RFC3339, nextRun.String); perr == nil {
+				t.NextRun = &nr
+			}
+		}
+		writeStubJSON(w, t)
+	})
+
+	mux.HandleFunc("GET /v1/tasks/{id}/runs", func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.Query(`SELECT run_at, status, COALESCE(duration_ms,0), COALESCE(error,'')
+			FROM task_run_logs WHERE task_id = ? ORDER BY run_at DESC LIMIT 20`, r.PathValue("id"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+		type run struct {
+			RunAt      string `json:"run_at"`
+			Status     string `json:"status"`
+			DurationMS int    `json:"duration_ms"`
+			Error      string `json:"error"`
+		}
+		out := []run{}
+		for rows.Next() {
+			var x run
+			if err := rows.Scan(&x.RunAt, &x.Status, &x.DurationMS, &x.Error); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			out = append(out, x)
+		}
+		writeStubJSON(w, out)
 	})
 
 	srv := httptest.NewServer(mux)

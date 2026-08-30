@@ -3,15 +3,18 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/core"
 	"github.com/robfig/cron/v3"
 )
 
@@ -61,25 +64,41 @@ func (d *dash) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	if _, ok := requireUser(w, r); !ok {
 		return
 	}
-	if d.adminDB() == nil {
-		http.Error(w, "backend unavailable", http.StatusServiceUnavailable)
-		return
-	}
-
-	var owner, chatJID, prompt, status, createdAt string
-	var cron, nextRun, contextMode sql.NullString
-	err := d.adminDB().QueryRow(
-		`SELECT owner, chat_jid, COALESCE(prompt,''), cron, next_run, status, created_at,
-		        context_mode
-		 FROM scheduled_tasks WHERE id = ?`, id,
-	).Scan(&owner, &chatJID, &prompt, &cron, &nextRun, &status, &createdAt, &contextMode)
-	if err == sql.ErrNoRows {
+	// READ through routd's /v1 (spec 6/28 §"Read-path: /v1 only, no direct DB").
+	//
+	// This page authorizes AFTER reading, because the check needs the task's
+	// owner and the owner is only known once the row is fetched — an ordering it
+	// has always had, which a local DB read concealed. It is not a leak: a
+	// forbidden caller still never sees the task. What changes is that an
+	// unreachable routd fails before the refusal, so a cross-tenant request gets
+	// an error rather than a 403. Every migrated page has that same property.
+	//
+	// The WRITES below still go through the DB: they carry the operator onto the
+	// audit row via AsUser and dashd's service bearer does not, so moving them
+	// waits on 6/29's identity decision.
+	task, found, err := d.getTask(r.Context(), id)
+	if err == nil && !found {
 		http.NotFound(w, r)
 		return
 	}
+	var owner, chatJID, prompt, status, createdAt string
+	var cron, nextRun, contextMode sql.NullString
+	if err == nil {
+		owner, chatJID, prompt = task.Owner, task.ChatJID, task.Prompt
+		status = task.Status
+		createdAt = task.Created.UTC().Format(time.RFC3339)
+		cron = sql.NullString{String: task.Cron, Valid: task.Cron != ""}
+		contextMode = sql.NullString{String: task.ContextMode, Valid: task.ContextMode != ""}
+		if task.NextRun != nil {
+			nextRun = sql.NullString{String: task.NextRun.UTC().Format(time.RFC3339), Valid: true}
+		}
+	}
 	if err != nil {
-		slog.Warn("task detail: query", "id", id, "err", err)
-		http.Error(w, "db error", http.StatusInternalServerError)
+		// routd unreachable is a DEPENDENCY outage, not an internal fault: 503
+		// says "ask again", 500 says "this is broken", and only one of those is
+		// true. It is also what a dashd with no backend has always answered.
+		slog.Warn("task detail: read", "id", id, "err", err)
+		http.Error(w, "backend unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	// Gate on the task's owning folder: a non-operator must not read another
@@ -134,34 +153,22 @@ func (d *dash) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, `</div>`)
 
 	fmt.Fprint(w, `<h2>Run history</h2>`)
-	rows, err := d.adminDB().Query(
-		`SELECT run_at, status, COALESCE(duration_ms,0), COALESCE(error,'')
-		 FROM task_run_logs WHERE task_id = ? ORDER BY run_at DESC LIMIT 20`, id)
+	runs, err := d.taskRuns(r.Context(), id)
 	if err != nil {
-		slog.Warn("task detail: run logs query", "id", id, "err", err)
-		fmt.Fprint(w, htmlBanner("err", "run logs error: "+err.Error()))
+		slog.Warn("task detail: run logs", "id", id, "err", err)
+		fmt.Fprint(w, htmlBanner("err", "could not reach routd for run history"))
 		pageClose(w, r)
 		return
 	}
-	defer rows.Close()
 
 	var logRows [][]string
-	for rows.Next() {
-		var runAt, runStatus, errMsg string
-		var durMS int
-		if err := rows.Scan(&runAt, &runStatus, &durMS, &errMsg); err != nil {
-			slog.Warn("task detail: run logs scan", "err", err)
-			continue
-		}
+	for _, run := range runs {
 		logRows = append(logRows, []string{
-			abbrTS(runAt),
-			esc(runStatus),
-			fmt.Sprintf(`%d ms`, durMS),
-			esc(errMsg),
+			abbrTS(run.RunAt),
+			esc(run.Status),
+			fmt.Sprintf(`%d ms`, run.DurationMS),
+			esc(run.Error),
 		})
-	}
-	if err := rows.Err(); err != nil {
-		slog.Warn("task detail: run logs rows", "err", err)
 	}
 	fmt.Fprint(w, htmlTable([]string{"Run At", "Status", "Duration", "Error"}, logRows))
 
@@ -320,4 +327,54 @@ func truncate64(s string) string {
 		return s
 	}
 	return string(runes[:limit]) + "…"
+}
+
+// taskRunLog is one row of routd's GET /v1/tasks/{id}/runs.
+type taskRunLog struct {
+	RunAt      string `json:"run_at"`
+	Status     string `json:"status"`
+	DurationMS int    `json:"duration_ms"`
+	Error      string `json:"error"`
+}
+
+// getTask reads one scheduled task from routd's /v1.
+//
+// found=false with a nil error is a genuine 404; an error means routd is
+// unreachable. The caller must not conflate them — "no such task" and "we could
+// not ask" look identical to an operator and only one of them means the task is
+// gone.
+func (d *dash) getTask(ctx context.Context, id string) (core.Task, bool, error) {
+	body, status, err := d.bearerCall(ctx, d.routdURL, http.MethodGet,
+		"/v1/tasks/"+url.PathEscape(id), nil)
+	if err != nil {
+		return core.Task{}, false, err
+	}
+	if status == http.StatusNotFound {
+		return core.Task{}, false, nil
+	}
+	if status < 200 || status >= 300 {
+		return core.Task{}, false, fmt.Errorf("routd /v1/tasks/%s: status %d", id, status)
+	}
+	var t core.Task
+	if err := json.Unmarshal(body, &t); err != nil {
+		return core.Task{}, false, err
+	}
+	return t, true, nil
+}
+
+// taskRuns reads a task's run history from routd's /v1.
+func (d *dash) taskRuns(ctx context.Context, id string) ([]taskRunLog, error) {
+	body, status, err := d.bearerCall(ctx, d.routdURL, http.MethodGet,
+		"/v1/tasks/"+url.PathEscape(id)+"/runs", nil)
+	if err != nil {
+		return nil, err
+	}
+	if status < 200 || status >= 300 {
+		return nil, fmt.Errorf("routd /v1/tasks/%s/runs: status %d", id, status)
+	}
+	var runs []taskRunLog
+	if err := json.Unmarshal(body, &runs); err != nil {
+		return nil, err
+	}
+	return runs, nil
 }

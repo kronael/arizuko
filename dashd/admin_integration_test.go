@@ -458,7 +458,7 @@ func TestDash_TaskCreate(t *testing.T) {
 	}
 
 	// Fetch the detail page (direct httptest call to avoid redirect loop).
-	d := &dash{dbRoutd: inst.DB, dbPath: "memory",
+	d := &dash{dbRoutd: inst.DB, dbPath: "memory", routdURL: stubRoutd(t, inst.DB),
 		groupsDir: filepath.Join(inst.Tmp, "groups")}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
@@ -595,7 +595,7 @@ func TestDash_TaskDetail_RunLogs(t *testing.T) {
 		}
 	}
 
-	d := &dash{dbRoutd: inst.DB, dbPath: "memory",
+	d := &dash{dbRoutd: inst.DB, dbPath: "memory", routdURL: stubRoutd(t, inst.DB),
 		groupsDir: filepath.Join(inst.Tmp, "groups")}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
@@ -623,7 +623,7 @@ func TestDash_TasksPage_PromptColumn(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	d := &dash{dbRoutd: inst.DB, dbPath: "memory",
+	d := &dash{dbRoutd: inst.DB, dbPath: "memory", routdURL: stubRoutd(t, inst.DB),
 		groupsDir: filepath.Join(inst.Tmp, "groups")}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)

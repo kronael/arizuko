@@ -427,3 +427,26 @@ func TestGrantListSaysWhenRoutdIsUnreachable(t *testing.T) {
 		t.Error("an unreachable routd rendered as an empty grants table")
 	}
 }
+
+// The task page must distinguish "no such task" from "we could not ask". They
+// look identical to an operator and only one means the task is gone.
+func TestTaskDetailSeparatesNotFoundFromUnreachable(t *testing.T) {
+	d, _ := splitAdminDash(t, "alice@x")
+	mux := newMux(d)
+
+	// Reachable routd, absent task → 404.
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, adminReq("GET", "/dash/tasks/no-such-task", "", "alice@x"))
+	if w.Code != http.StatusNotFound {
+		t.Errorf("absent task = %d, want 404", w.Code)
+	}
+
+	// Unreachable routd → 503, not 404 and not 500: a dependency outage says
+	// "ask again", an internal error says "this is broken", and only one is true.
+	d.routdURL = "http://127.0.0.1:1"
+	w2 := httptest.NewRecorder()
+	mux.ServeHTTP(w2, adminReq("GET", "/dash/tasks/no-such-task", "", "alice@x"))
+	if w2.Code != http.StatusServiceUnavailable {
+		t.Errorf("unreachable routd = %d, want 503", w2.Code)
+	}
+}
