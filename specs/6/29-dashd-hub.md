@@ -1,5 +1,5 @@
 ---
-status: draft
+status: partial
 depends: [28-cockpit-index]
 ---
 
@@ -26,6 +26,42 @@ duplicate control renderer. When a per-daemon dashboard subsumes an old
 dashd page (e.g. proxyd's route editor, `6/30`), the migrating PR deletes
 the dashd version and repoints the link — never two renderers
 (CLAUDE.md "One renderer, many sinks").
+
+## Build state (2026-08-30)
+
+**The hub half is real.** `GET /dash/services/` ships, probes every daemon
+concurrently at 500ms per tile, and — since the `6/30` migrations — renders **no
+per-daemon runtime view at all**: dashd's routd, runed, authd and proxyd pages
+are deleted, so the "never two renderers" rule now holds by absence rather than
+by discipline.
+
+**Two things are NOT done, and they are the ones this spec is about.**
+
+1. **The tile list is still hand-kept.** This spec says "the daemon list comes
+   from the proxyd `/dash/<daemon>/` route entries — no registry, no
+   autodiscovery", and `dashd/services.go` still carries a literal list with a
+   `Built` bool beside it. That bool has already drifted from the tree once, in
+   five of eight rows and in BOTH directions, which is why
+   `TestServicesBuiltFlagMatchesMountedRoutes` exists — it reads the union of
+   the core routes and the package manifests and fails when the bool disagrees.
+   The test makes the drift loud; it does not remove the second source.
+
+   The fix is to derive the link from proxyd's `GET /v1/proxyd_routes`, which is
+   the only reader that knows both registration paths and is also the read path
+   `6/28` requires of a cross-cutting dashd page. Attempted 2026-08-30 and
+   backed out: it is a bigger edit than it looks — the `Built` field feeds the
+   link AND the "coming soon" label AND three tests — and it makes the hub's
+   render depend on proxyd answering, which needs a deliberate fallback (core
+   routes only, adapters read as "coming soon") rather than an accidental one.
+
+2. **The retained pages still read the DB directly.** The direct-DB debt `6/28`
+   set out to retire is not on the per-daemon pages — those are gone — it is
+   concentrated in exactly the pages this spec KEEPS: `tasks_admin`,
+   `routes_admin`, `groups_admin`, `grants_admin`, `usage_page` and
+   `route_tokens`, plus `authz.go`. Each must call the owning daemon's `/v1`
+   with dashd's service bearer instead. dashd already has that client
+   (`bearerCall`, and a `routdURL`/`onbodURL`/`authdURL` for each owner), so
+   this is per-page work, not a new mechanism.
 
 ## Retained cross-cutting pages
 
