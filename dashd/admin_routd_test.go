@@ -187,17 +187,35 @@ func TestRouteDelete_TargetsRoutdDB(t *testing.T) {
 	}
 }
 
-// TestRouteTokenList_ReadsRoutdDB: the tokens page reads route_tokens from
-// routd.db and renders the JID and its context, never a token value — the
-// stored column is a hash and the cockpit has no mint (BUGS V2).
-func TestRouteTokenList_ReadsRoutdDB(t *testing.T) {
-	d, routd := splitAdminDash(t, "alice@x")
-	if _, err := routd.Exec(
-		`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at, kind, context)
-		 VALUES (?, 'hook:team/github', 'team', '2026-08-15T00:00:00Z', 'route', 'push events; summarize')`,
-		[]byte("h1")); err != nil {
-		t.Fatal(err)
-	}
+// TestRouteTokenList_ReadsRoutdV1: the tokens page renders the JID and its
+// context, never a token value — the stored column is a hash and the cockpit
+// has no mint (BUGS V2).
+//
+// It used to be TestRouteTokenList_ReadsRoutdDB and seeded routd.db, which was
+// a test OF THE MECHANISM: spec 6/28 says no dashboard reads a SQLite DB
+// directly, so the page now asks routd's /v1 and this drives a stub routd
+// instead. The property — which rows reach the page — is unchanged; only where
+// they come from moved.
+func TestRouteTokenList_ReadsRoutdV1(t *testing.T) {
+	routd := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/route_tokens" {
+			http.NotFound(w, r)
+			return
+		}
+		// The folder narrowing is the caller's, so assert it is sent: a page
+		// that dropped it would render another tenant's tokens.
+		if got := r.URL.Query().Get("folder"); got != "team" {
+			t.Errorf("folder param = %q, want team", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"jid":"hook:team/github","owner_folder":"team",` +
+			`"created_at":"2026-08-15T00:00:00Z","context":"push events; summarize"}]`))
+	}))
+	defer routd.Close()
+
+	d, _ := splitAdminDash(t, "alice@x")
+	d.routdURL = routd.URL
+
 	mux := newMux(d)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, adminReq("GET", "/dash/tokens/team/", "", "alice@x"))
@@ -206,10 +224,25 @@ func TestRouteTokenList_ReadsRoutdDB(t *testing.T) {
 	}
 	body := w.Body.String()
 	if !strings.Contains(body, "hook:team/github") {
-		t.Error("tokens page did not render the routd.db row")
+		t.Error("tokens page did not render the row routd served")
 	}
 	if !strings.Contains(body, "push events; summarize") {
 		t.Error("tokens page did not render the row's context (spec 5/W link context)")
+	}
+}
+
+// routd being unreachable must SAY so. A blank token list reads as "this folder
+// has no tokens", which is the opposite of the truth and the answer an operator
+// would act on.
+func TestRouteTokenListSaysWhenRoutdIsUnreachable(t *testing.T) {
+	d, _ := splitAdminDash(t, "alice@x")
+	d.routdURL = "http://127.0.0.1:1" // refused
+
+	mux := newMux(d)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, adminReq("GET", "/dash/tokens/team/", "", "alice@x"))
+	if !strings.Contains(w.Body.String(), "could not reach routd") {
+		t.Error("an unreachable routd rendered as an empty token list")
 	}
 }
 

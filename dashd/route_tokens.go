@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
-	"time"
 
+	"github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -27,11 +30,24 @@ func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
 	if !d.requireVisible(w, r, folder) {
 		return
 	}
-	st := store.New(d.adminDB())
-
 	pageTopFor(w, r, "Tokens — "+folder)
 
-	tokens := st.ListRouteTokens(folder)
+	// READ through routd's /v1, not routd.db (spec 6/28 §"Read-path: /v1 only,
+	// no direct DB"). routd owns route_tokens and already serves the same rows
+	// to the agent and the CLI, so this page is a third face on one reader
+	// rather than a second projection of the table.
+	//
+	// The revoke below still writes through the store, deliberately: it uses
+	// Store.AsUser to put the OPERATOR on the audit row, and bearerCall carries
+	// only dashd's service bearer, so moving the WRITE would quietly re-attribute
+	// every revoke to service:dashd. That half waits on 6/29's identity decision.
+	tokens, err := d.listRouteTokens(r.Context(), folder)
+	if err != nil {
+		slog.Warn("tokens page: list", "folder", folder, "err", err)
+		fmt.Fprint(w, htmlBanner("err", "could not reach routd for token data"))
+		pageClose(w, r)
+		return
+	}
 	var tableRows [][]string
 	for _, t := range tokens {
 		kind := store.RouteTokenJIDKind(t.JID)
@@ -39,7 +55,7 @@ func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
 			`<form method="post" action="/dash/tokens/%s/%s/revoke">`+
 				`<button class="btn btn-danger btn-sm" type="submit">revoke</button></form>`,
 			folderPath(folder), esc(encodeJID(t.JID)))
-		iso := t.CreatedAt.UTC().Format(time.RFC3339)
+		iso := t.CreatedAt
 		tableRows = append(tableRows, []string{
 			fmt.Sprintf(`<code>%s</code>`, esc(t.JID)),
 			esc(kind),
@@ -89,4 +105,25 @@ func (d *dash) handleTokensRevoke(w http.ResponseWriter, r *http.Request) {
 // scheme, which collided with labels containing "--" (labels allow "-").
 func encodeJID(jid string) string {
 	return url.PathEscape(jid)
+}
+
+// listRouteTokens reads one folder's delivery tokens from routd's /v1 face.
+//
+// The row type is resources.RouteTokensRow — the SAME struct routd's handler
+// serves and /openapi.json emits a schema from — so the page cannot drift into
+// rendering a field the API does not have.
+func (d *dash) listRouteTokens(ctx context.Context, folder string) ([]resources.RouteTokensRow, error) {
+	body, status, err := d.bearerCall(ctx, d.routdURL, http.MethodGet,
+		"/v1/route_tokens?folder="+url.QueryEscape(folder), nil)
+	if err != nil {
+		return nil, err
+	}
+	if status < 200 || status >= 300 {
+		return nil, fmt.Errorf("routd /v1/route_tokens: status %d", status)
+	}
+	var rows []resources.RouteTokensRow
+	if err := json.Unmarshal(body, &rows); err != nil {
+		return nil, err
+	}
+	return rows, nil
 }

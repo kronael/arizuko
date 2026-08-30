@@ -91,9 +91,25 @@ by discipline.
      the operator's own credential rather than acting for them. Cleaner
      attribution, larger change, and it needs a token dashd does not hold.
 
-   Until one is chosen, a page's reads may move and its writes may not — which
-   would leave two paths into one table, the thing `6/28` exists to prevent. So
-   no page moves yet.
+   **Correction 2026-08-30 — the READS are not blocked, and saying they were
+   was wrong.** A SELECT writes no audit row, so attribution cannot be lost by
+   moving one. The earlier claim that a page's reads may not move without its
+   writes ("two paths into one table") mixed up two different rules: "one
+   renderer, many sinks" forbids two PRODUCERS of one output, and one reader
+   plus one writer is not that. The read half is exactly what `6/28`'s
+   "Read-path: /v1 only, no direct DB" asks for, and it can land alone.
+
+   So reads migrate now, per page; writes wait for the decision above.
+   `route_tokens` is done (2026-08-30): the list comes from routd's
+   `GET /v1/route_tokens` typed as `resources.RouteTokensRow` — the same struct
+   routd's handler serves and `/openapi.json` emits a schema from, so the page
+   cannot render a field the API lacks. Its revoke still writes through
+   `Store.AsUser` and says so in a comment naming this decision. An unreachable
+   routd renders an error, because a blank token list reads as "this folder has
+   no tokens", which is the opposite of the truth.
+
+   Remaining reads to move: `tasks_admin`, `routes_admin`, `groups_admin`,
+   `grants_admin`, `usage_page`.
 
    The debt itself: the direct-DB reads `6/28` set out to retire are NOT on the
    per-daemon pages — those are gone — they are concentrated in exactly the
