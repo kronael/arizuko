@@ -41,7 +41,7 @@ type productManifest struct {
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("usage: arizuko <run|create|group|gate|invite|chat|status|pair|generate|packages|token|apply|plan|get|export> ...")
+		fmt.Println("usage: arizuko <run|create|group|gate|invite|chat|talk|status|pair|generate|packages|token|apply|plan|get|export> ...")
 		fmt.Println("  group    <instance> list | add | rm | grant | ungrant | grants | thread-replies <folder> <on|off|default>")
 		fmt.Println("  gate     <instance> list | add | rm | enable | disable")
 		fmt.Println("  invite   <instance> create <target_glob> [--max-uses|-n N] [--expires|-e DURATION]")
@@ -60,6 +60,7 @@ func main() {
 		fmt.Println("  token    <instance> revoke <jid>")
 		fmt.Println("  chat     <instance>  — interactive Claude Code session bound to root MCP socket")
 		fmt.Println("  send     <instance> <folder> \"<msg>\" [--wait|-w | --stream|-S] [--token|-t <raw>] [--topic|-T <t>]")
+		fmt.Println("  talk     [@name] [-g <folder>] [-t <thread>] [-p [prompt]]  — REPL against a live instance; no DB, config in ~/.config/arizuko/talk.toml")
 		fmt.Println("  secret   <instance> set <folder> KEY --value|-v V | list <folder> | delete <folder> KEY")
 		fmt.Println("  user-secret <instance> set <user_sub> KEY --value|-v V | list <user_sub> | delete <user_sub> KEY")
 		fmt.Println("  budget   <instance> set <folder|user> <name|sub> --daily|-d N | show <folder|user> <name|sub>")
@@ -83,6 +84,7 @@ func main() {
 		"invite":        cmdInvite,
 		"chat":          cmdChat,
 		"send":          cmdSend,
+		"talk":          cmdTalk, // spec 6/26 gap 1
 		"status":        cmdStatus,
 		"pair":          cmdPair,
 		"network":       cmdNetwork,

@@ -220,20 +220,43 @@ func operatorInject(st *store.Store, folder, sender, msg, topic string, follow b
 // streamRound subscribes to /sse and prints message frames as they arrive.
 // Returns 0 on round_done success, 1 on failed status, 2 on transport error.
 func streamRound(client *http.Client, sseURL string) int {
+	resp, code := openSSE(client, sseURL, nil)
+	if resp == nil {
+		return code
+	}
+	defer resp.Body.Close()
+	return readSSE(resp.Body)
+}
+
+// openSSE opens an event stream, or reports the transport exit code. Split from
+// readSSE for `arizuko talk`, which must SUBSCRIBE BEFORE IT SENDS: the /me
+// stream it reads replays nothing, so a reply landing between the send and the
+// subscribe is lost and the round never ends. `send --stream` reads a turn
+// stream that does replay, so it opens and reads in one step.
+func openSSE(client *http.Client, sseURL string, hdr map[string]string) (*http.Response, int) {
 	req, _ := http.NewRequest("GET", sseURL, nil)
 	req.Header.Set("Accept", "text/event-stream")
+	for k, v := range hdr {
+		req.Header.Set(k, v)
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed: sse: %v\n", err)
-		return 2
+		return nil, 2
 	}
-	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		raw, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
 		fmt.Fprintf(os.Stderr, "Failed: sse %s: %s\n", resp.Status, raw)
-		return 2
+		return nil, 2
 	}
-	scan := bufio.NewScanner(resp.Body)
+	return resp, 0
+}
+
+// readSSE prints frames off an open event stream until round_done. The single
+// reader both `send --stream` and `talk` go through — one parser, one printer.
+func readSSE(body io.Reader) int {
+	scan := bufio.NewScanner(body)
 	scan.Buffer(make([]byte, 64*1024), 1<<20)
 	var event, data string
 	for scan.Scan() {
@@ -257,8 +280,15 @@ func streamRound(client *http.Client, sseURL string) int {
 func handleSSEFrame(event, data string) int {
 	switch event {
 	case "message", "status":
-		var f struct{ Content, Kind string }
+		var f struct{ Content, Kind, Role string }
 		if json.Unmarshal([]byte(data), &f) == nil {
+			// webd's /mcp `send` echoes the caller's own message onto the same
+			// hub topic as role=user, so `talk` would quote the operator back at
+			// themselves. Turn-stream frames (webd/turn.go) carry no role field,
+			// so this skips nothing on the `send --stream` path.
+			if f.Role == "user" {
+				return -1
+			}
 			fmt.Println(f.Content)
 		}
 	case "round_done":

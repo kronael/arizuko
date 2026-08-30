@@ -40,6 +40,13 @@ beyond `docker` for `run` and `pair`).
   - `arizuko archive export <inst> [out.tar] [--quiesced]` — full-instance backup: the config dump plus secret values, message history, pending onboarding admissions and every `groups/<folder>/` tree, as one tar (spec 5/8)
   - `arizuko archive apply <inst> <archive.tar> [--force] [--stopped]` — full restore. Claims each folder's runed run slot before touching its tree, so an unreachable runed is fatal; `--stopped` asserts the instance is down instead. Credential-bearing documents (`route_tokens`, `invites`, `onboarding`) restore only with `--force` onto a proven-empty target
   - `arizuko chat <instance>` — interactive Claude Code session bound to root MCP socket
+  - `arizuko talk [@name] [-g <folder>] [-t <thread>] [-p [prompt]] [--url U] [--token T]` — hold a conversation with the agent from a terminal, spec `6/26` gap 1. No instance argument and no DB: it POSTs `<url>/mcp` (`list_groups` + `send`) and reads the round off `<url>/me/chats/<folder>/<thread>/sse`, both through the PUBLIC proxyd URL, so it runs from a second machine. Config `~/.config/arizuko/talk.toml` (`url`/`token`/optional `group` at the top level are the one chat; a `[work]` section is `@work`), refused unless mode `0600`. Precedence flag > `@name` > top-level > `ARIZUKO_CHAT_URL`+`ARIZUKO_CHAT_TOKEN` > an error that prints the file to write. `-p` runs one turn (prompt inline or on stdin) and is ONE ITERATION of the REPL loop, never a second send path; `-t` defaults to the fixed literal `talk`. Note `-t` is the THREAD here, not the token as in `send` — the bearer flag is `--token` only
+
+**`send` vs `chat` vs `talk`** — three ways to reach an agent, and they are not interchangeable:
+
+- `send` — **operator-direct injection**. Opens the instance DB and writes the inbound itself; needs the data dir, runs on the host, is the operator's own authority.
+- `chat` — **an interactive Claude Code on the ROOT MCP socket**. An operator tool for driving the platform, not a conversation with the persona.
+- `talk` — **a thin token client, no DB**. Two HTTP surfaces and an authd bearer; the only one that works from a machine that is not the host.
 
 ## Dependencies
 
@@ -56,14 +63,15 @@ beyond `docker` for `run` and `pair`).
 - `packages.go` — `packages` catalog `add` (spec 5/27) + source-based `install`/`upgrade`/`sync`/`remove` with the `installed_packages` record (spec 5/28); `reapplyPackage` is the single updater `upgrade` and `sync` share
 - `products.go` — `products list` (the 5/21 catalog reader) + `products apply`: the `products.toml` reader and the group-scoped half of the 5/28 lock; the blend itself is `container/blend.go`
 - `secret.go` — `secret` + `user-secret`
-- `send.go` — `send` message injection
+- `send.go` — `send` message injection, plus the SSE reader (`openSSE`/`readSSE`/`handleSSEFrame`) that `talk` shares
+- `talk.go` / `talk_config.go` — `talk`: argument grammar, the MCP+SSE turn, and the `~/.config/arizuko/talk.toml` reader
 - `token.go` — `token` route-token management
 
 ## What is tested, and what is not
 
 `go test ./cmd/arizuko/` covers the parsing, planning and wire logic: the
 manifest readers, the apply plan, the package resolver, the `.env` parser, and
-both `send --wait` paths (`streamRound` over SSE, `pollRound` as the fallback).
+both `send --wait` paths (`streamRound` over SSE, `pollRound` as the fallback). `talk` is covered end to end against a real streamable-HTTP MCP server plus an SSE stub (`talk_test.go`): argument grammar, config precedence and the 0600 refusal, folder resolution, and one turn on the wire.
 
 It does NOT cover the `cmdX` subcommand entry points, and cannot in-process:
 each one ends at `die()` (`main.go:110`), which calls `os.Exit(1)`. A test that

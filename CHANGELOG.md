@@ -16,6 +16,19 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Added
 
+- **`arizuko talk` — a terminal conversation with the agent** (spec `6/26` gap 1).
+  `arizuko talk` opens a REPL, `arizuko talk -p "what broke?"` runs one turn and
+  exits, `-p` alone reads the prompt from stdin, `@work` picks a chat and `-t
+bugfix` picks a thread. The client authenticates with an authd-minted ES256
+  bearer and CHOOSES its destination, so one config reaches every folder its
+  subject holds: `-g`, else a `group` key, else the only reachable folder, else
+  an error listing them. It holds no DB handle and takes no instance argument —
+  it POSTs `/mcp` (`list_groups` + `send`) and reads the round off
+  `/me/chats/<folder>/<thread>/sse` through the PUBLIC proxyd URL, so it runs
+  from a second machine. `-p` is ONE ITERATION of the REPL loop, not a second
+  path into the queue. Config is `~/.config/arizuko/talk.toml`, refused unless
+  mode `0600` — the reason `psql` refuses a group-readable `.pgpass`.
+
 - **The `always` verdict on a held tool call** (spec `6/26` Decision 5). Answering
   a held call with `always` approves it AND writes the skip-approval row that
   stops arizuko asking again for that exact shape — one transaction, so a crash

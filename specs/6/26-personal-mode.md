@@ -532,11 +532,31 @@ Shipped 2026-08-29/30 — gap 2 closed and `always` live (`auth/checkhold_test.g
   and decisive once arguments travel — so removing the restriction requires
   removing the reason (gap 2.3).
 
+Shipped 2026-08-30 — gap 1, `arizuko talk` (`cmd/arizuko/talk.go`,
+`talk_config.go`, tests in `talk_test.go` + `talk_config_test.go`):
+
+- `arizuko group <inst> grant <sub> '<folder>/**'` +
+  `arizuko token <inst> issue bearer <folder> --sub user:<sub>` →
+  `arizuko talk` holds a conversation with the persona from a second machine.
+  The binary imports no `store`, opens no sqlite file and takes no instance
+  argument: it POSTs `/mcp` and reads `/me/chats/<folder>/<thread>/sse`, both
+  through the PUBLIC proxyd URL. The grant is a folder subtree, not operator
+  scope — `**` is never required.
+- `-p` is ONE ITERATION of the same loop the REPL runs: one `promptSource`
+  feeds one `turn`, and a test asserts the one-shot form sends exactly one
+  message through that same path.
+- The thread default is the fixed literal `talk`; `-t` names another and the
+  name reaches BOTH the send and the stream (a thread that reached only one
+  would split the conversation in half).
+- Config `~/.config/arizuko/talk.toml` is refused unless its mode is `0600`;
+  precedence is flag > `@name` > top-level > `ARIZUKO_CHAT_*` > an error that
+  prints the file to write and the two commands that fill it.
+
 Still to build:
 
-- `arizuko token <inst> issue chat <folder>` → `arizuko talk <url> --token <t>`
-  holds a conversation with the persona from a second machine, with no DB
-  access and no operator scope (gap 1).
+- **The token is minted by hand.** `talk` reads a bearer an operator already
+  minted; there is no device flow, so a laptop is set up by copying a token
+  across. `newTalkSession` is where an OAuth device grant would attach.
 - `never` — blocked on verdict provenance, not on the writer. See § "Revocation
   needs provenance"; do not ship it on `granted_by`.
 - An adapter with `buttons` renders the options natively and a press resolves
