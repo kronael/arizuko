@@ -103,11 +103,21 @@ JID at message-handling time, same as any other inbound.
 
 ## MCP transport (`/chat/<token>/mcp`)
 
-`webd/chat_mcp.go`. Three tools scoped to the token's group:
-`send_message(content, topic?)` → `{turn_id}` (the round handle),
-`get_round(turn_id, after?, wait?)`, `get_round_status(turn_id)`.
+`webd/mcp.go`. The SAME surface `POST /mcp` serves — `list_groups`,
+`send(folder, content, topic?)` → `{id, topic, folder}` (the id is the
+round handle), `get_history(folder, topic, limit?)` — entered through a
+different door. The token authenticates an anonymous principal whose
+destination set has exactly one element, so `list_groups` returns the
+one pinned group and `auth.MatchGroups` admits no other folder. There is
+no second vocabulary: a client author does not need to know which door
+they came through before they can name a tool (BUGS L139).
+
 External agents register the URL as a remote MCP server in their
 `mcpServers` config and talk to the group as if the tools were local.
+The link's `context` and `target_folder` keep their meaning: `send`
+addresses the JID the row RECORDS (a suffixed `web:t/sfx` or a
+`hook:a/b` is not rebuildable from the folder) and carries the link
+context onto the inbound.
 
 Streaming semantics, the hub, and why blocking-poll is a first-class
 dual of SSE rather than a fallback: [`J-sse.md`](J-sse.md).

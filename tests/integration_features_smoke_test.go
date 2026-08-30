@@ -51,8 +51,10 @@ package tests
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -245,86 +247,41 @@ func TestSmoke_EndToEnd(t *testing.T) {
 	}
 	base = strings.TrimRight(base, "/")
 
-	// 1) send_message → turn_id (one MCP call over the chat token).
-	turnID := chatMCPCall(t, base, "send_message", map[string]any{
-		"content": "smoke: reply with the single word ACK",
-	})["turn_id"]
+	// ONE blocking POST: the chat-token JSON surface takes ?wait=<sec> and returns
+	// once an assistant frame lands, so there is no client poll loop and the
+	// server's own 120s cap bounds the spend. This exercises the delivery path
+	// (webd → routd → container → reply), which is what the smoke tier is for;
+	// the MCP door onto the same queue is covered by webd's unit tests.
+	res := chatTokenPost(t, base, "smoke: reply with the single word ACK", 120)
+	turnID := res["turn_id"]
 	if turnID == nil {
-		t.Fatal("send_message returned no turn_id")
+		t.Fatal("chat POST returned no turn_id")
 	}
-
-	// 2) get_round wait=true — ONE blocking call, server-side ~5min deadline,
-	// no client loop. Returns once an assistant frame lands.
-	res := chatMCPCall(t, base, "get_round", map[string]any{
-		"turn_id": turnID,
-		"wait":    true,
-	})
-	frames, _ := res["frames"].([]any)
-	if len(frames) == 0 {
-		t.Fatalf("no assistant frames for turn %v within deadline — dispatch stalled", turnID)
+	if res["assistant"] == nil {
+		t.Fatalf("no assistant frame for turn %v within deadline — dispatch stalled", turnID)
 	}
-	t.Logf("e2e OK: turn %v produced %d assistant frame(s)", turnID, len(frames))
+	t.Logf("e2e OK: turn %v produced an assistant frame", turnID)
 }
 
-// chatMCPCall makes one JSON-RPC tools/call against a /chat/<token>/mcp
-// surface and returns the tool result's structured content. A single request
-// with a 6-minute client timeout that bounds the server's ~5min wait.
-func chatMCPCall(t *testing.T, base, tool string, args map[string]any) map[string]any {
+// chatTokenPost makes ONE blocking POST /chat/<token>?wait=<sec> and returns the
+// decoded JSON body ({user, turn_id, status, assistant?}). A single request whose
+// client timeout outlives the server-side wait.
+func chatTokenPost(t *testing.T, base, content string, wait int) map[string]any {
 	t.Helper()
-	body, _ := json.Marshal(map[string]any{
-		"jsonrpc": "2.0",
-		"id":      1,
-		"method":  "tools/call",
-		"params":  map[string]any{"name": tool, "arguments": args},
-	})
-	// use docker-free plain HTTP: the chat surface is public (behind proxyd).
-	req := exec.Command("curl", "-sS", "--max-time", "360",
-		"-H", "content-type: application/json", "-d", string(body), base+"/mcp")
+	body, _ := json.Marshal(map[string]any{"content": content})
+	url := fmt.Sprintf("%s?wait=%d", base, wait)
+	// docker-free plain HTTP: the chat surface is public (behind proxyd).
+	cmd := exec.Command("curl", "-sS", "--max-time", strconv.Itoa(wait+60),
+		"-H", "content-type: application/json", "-d", string(body), url)
 	var out, errb strings.Builder
-	req.Stdout = &out
-	req.Stderr = &errb
-	if err := req.Run(); err != nil {
-		t.Fatalf("%s: curl: %v: %s", tool, err, strings.TrimSpace(errb.String()))
-	}
-	var env struct {
-		Result struct {
-			StructuredContent map[string]any `json:"structuredContent"`
-			IsError           bool           `json:"isError"`
-			Content           []struct {
-				Text string `json:"text"`
-			} `json:"content"`
-		} `json:"result"`
-		Error json.RawMessage `json:"error"`
-	}
-	if err := json.Unmarshal([]byte(out.String()), &env); err != nil {
-		t.Fatalf("%s: decode %q: %v", tool, out.String(), err)
-	}
-	if len(env.Error) > 0 {
-		t.Fatalf("%s: rpc error: %s", tool, env.Error)
-	}
-	// A tool-level failure is isError+content, not a JSON-RPC error. Reading
-	// past it reports the wrong cause: a rejected call looks like a missing
-	// field in the result.
-	if env.Result.IsError {
-		msg := ""
-		if len(env.Result.Content) > 0 {
-			msg = env.Result.Content[0].Text
-		}
-		t.Fatalf("%s: tool error: %s", tool, msg)
-	}
-	if env.Result.StructuredContent != nil {
-		return env.Result.StructuredContent
-	}
-	// No structuredContent: this server returns the JSON payload as the text
-	// of the first content block. Reading only structuredContent yields an
-	// empty map, and the caller then blames a missing field for a call that
-	// in fact succeeded.
-	if len(env.Result.Content) == 0 {
-		t.Fatalf("%s: empty result: %s", tool, out.String())
+	cmd.Stdout = &out
+	cmd.Stderr = &errb
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("chat POST: curl: %v: %s", err, strings.TrimSpace(errb.String()))
 	}
 	var payload map[string]any
-	if err := json.Unmarshal([]byte(env.Result.Content[0].Text), &payload); err != nil {
-		t.Fatalf("%s: decode content %q: %v", tool, env.Result.Content[0].Text, err)
+	if err := json.Unmarshal([]byte(out.String()), &payload); err != nil {
+		t.Fatalf("chat POST: decode %q: %v", out.String(), err)
 	}
 	return payload
 }

@@ -45,7 +45,7 @@
 
   // AI handoff — routes the visitor to the krons arizuko agent, prefilled
   // with the current page URL as context. Token is public by design; chat
-  // surface is rate-limited at the webd layer (chat_mcp.go).
+  // surface is rate-limited at the webd layer (route_token.go).
   var AGENT_TOKEN = 'G6CffSXGc5gBqNUtcwE-cm3hNT1P7TOiSNNPru1MP3Y';
   function chatURL(extra) {
     var ref = encodeURIComponent(window.location.pathname);

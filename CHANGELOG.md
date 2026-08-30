@@ -49,6 +49,25 @@ bugfix` picks a thread. The client authenticates with an authd-minted ES256
 
 ### Changed
 
+- **One MCP surface behind two doors; the token vocabulary is gone** (BUGS
+  `L139`). `POST /chat/<token>/mcp` served `send_message` / `get_round` /
+  `get_round_status` while `POST /mcp` served `list_groups` / `send` /
+  `get_history` — two names for one queue, so a client author had to know which
+  door they came through before they could name a tool. Both doors now call the
+  same builder: a route token authenticates an ANONYMOUS principal whose
+  destination set has exactly one element, so `list_groups` returning a single
+  row IS the pinned link, said in the language the surface already speaks.
+  `list_groups`, `send` and `get_history` are the only names; `webd/chat_mcp.go`
+  is deleted. **The tool names change and no known client breaks**: no JS calls
+  them (the widget is plain POST + SSE, `webd/static/` holds only `style.css`),
+  and the one Go client — the `SMOKE_E2E` end-to-end test — moves to the
+  blocking `POST /chat/<token>?wait=` surface, which this change does not touch.
+  The token, `route_tokens`, the per-link `context`, `target_folder` and every
+  non-MCP `/chat/<token>/` browser surface are UNCHANGED — the token is still the
+  only way a caller with no account becomes a principal. A route-token caller
+  cannot reach any folder but its own, and not its subfolders either
+  (`auth.MatchGroups` is segment-wise); both are pinned by test.
+
 - **MCP connectors are HTTP endpoints, not subprocesses** (spec `5/13` shape 2,
   BUGS `L132`). The connector spawned a stdio subprocess inside routd, whose
   image is static Go binaries — no node, no npx, no `github-mcp-server` — and

@@ -183,7 +183,7 @@ via `isStubVerb`, the four `DashSectioner` implementers exact, and
   threshold today, but only a COMMENT says they must — no test enforces it. The Go
   side cannot drift this way; the TS side can.
 
-## L139 — proposal: collapse the two MCP surfaces into one; a route token authenticates an ANONYMOUS principal whose destination set has one element (2026-08-30, proposal — needs sign-off)
+## ✅ FIXED 2026-08-30 L139 — collapse the two MCP surfaces into one; a route token authenticates an ANONYMOUS principal whose destination set has one element (2026-08-30)
 
 Found designing `arizuko talk` (`6/26` Gap 1). The operator's framing, in order:
 *"better to let the client choose his destination and only authenticate him
@@ -251,11 +251,48 @@ new mechanism, the second vocabulary earns its keep only for the anonymous case
 
 - **Severity:** low (no runtime defect; surface duplication)
 - **Scope:** webd MCP surfaces / client tool contract
-- **Affected:** `webd/mcp.go`, `webd/chat_mcp.go`, the web chat UI, `specs/5/W`,
-  `specs/6/26`
-- **Status:** proposal (needs sign-off) — nothing changed, nothing deleted
-- **Fix:** one `buildWebMCP`, two identity sources, grant set of N or 1; delete
-  `chat_mcp.go`'s tool definitions after the client migration is decided
+- **Affected:** `webd/mcp.go`, `webd/chat_mcp.go`, `specs/5/W`, `specs/6/26`,
+  `specs/5/J`, `SECURITY.md`, `webd/README.md`, the token reference page
+- **Status:** fixed
+- **Fix:** one `buildWebMCP`, two identity sources, grant set of N or 1;
+  `webd/chat_mcp.go` deleted
+
+Fixed as signed off. `handleChatTokenMCP` moved to `webd/mcp.go` and calls the
+same `buildWebMCP` with `sub = "anon:chat-<shorthash(token)>"` and
+`grants = []string{row.Folder()}`. `webd/chat_mcp.go` is deleted whole — its
+three tools and the four helpers only they used. `list_groups`, `send` and
+`get_history` are the only names on either door.
+
+Two facts the grant list alone could not carry, so `buildWebMCP` takes a
+`*chatPin`:
+
+- **The destination JID is READ, not derived.** `send` built `"web:"+folder` and
+  `get_history` read `MessagesByTopic`, which is `MessagesByThread("web:"+folder)`.
+  A token's JID can be `web:t/sfx` or `hook:a/b`, which no folder rebuilds — so a
+  pinned caller would have written to, and read, the wrong chat. Both tools now
+  take the JID off the row. This is the
+  [identity_derived_not_read] class, caught before it shipped.
+- **The link `context` (5/W) rides `send`.** It reaches the prompt via
+  `routd/prompt.go:99`; the inline injector in `send` had no field for it.
+
+`send` therefore funnels through `injectRouteMessage`, the injector the POST door
+already used, instead of growing a second one that also carries `link_context`
+(no-duplication rule). Its log is now `webd inbound`, with `token_hash` only when
+there is a token.
+
+**Gate:** unchanged — `tokenSurface` (CORS + anon DoS shield). Not `identified`,
+which demands an `X-User-Sub` an anonymous visitor cannot have; not `transited`,
+which guards the long-lived SSE subscription. Containment is the grant set being
+built from the ROW: `auth.MatchGroups` is segment-wise, so the token reaches its
+folder and NOT its subfolders — pinned by test.
+
+**Blast radius, corrected.** No JS client calls these tools (`webd/static/` is
+`style.css`; the widget is POST + SSE). The measurement missed one real client:
+`tests/integration_features_smoke_test.go` drove `send_message` + `get_round`
+(`wait=true`). The collapsed surface has NO blocking round read, so that test now
+makes one blocking `POST /chat/<token>?wait=120` — still one call, no poll loop,
+server-side deadline — against a surface this change does not touch. Its
+`chatMCPCall` helper is deleted.
 
 ## L138 — the CLI cannot revoke the acl row `/always` writes, and cannot type one (2026-08-30, open)
 
@@ -1816,11 +1853,12 @@ failed read is neither an error the caller sees nor `"pending"`. The handler's
 own emission is NOT covered end to end; the SSE fixture needs an authorized turn
 plus a hub topic, and that is worth adding.
 
-Remaining, same class, not fixed: `webd/chat_mcp.go:148` `collectRoundFrames`
-logs its error but returns `nil` frames, so `get_round` answers with a successful
-empty snapshot and `wait=true` blocks the caller for the full 5-minute cap. The
-fix changes its signature to return the error to the MCP tool, which is a
-contract change on the chat-MCP face — recorded, not shipped.
+Remaining item RESOLVED BY DELETION 2026-08-30 (`L139`): `collectRoundFrames`
+swallowed its error and returned `nil` frames, so `get_round` answered with a
+successful empty snapshot and `wait=true` blocked the caller for the full
+5-minute cap. `get_round` and its helper no longer exist — the collapsed MCP
+surface has no blocking round read, and the `?wait=` POST it replaced them with
+already ends the round on error.
 
 ## ✅ FIXED 2026-08-23 L81 — an operator's edit to a package-owned proxyd route succeeds, then silently reverts (2026-08-23)
 

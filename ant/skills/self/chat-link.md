@@ -99,7 +99,11 @@ await fetch(`${BASE}/hook/${TOKEN}`, {
 
 ## Per-token MCP surface
 
-`/chat/<token>/mcp` exposes three tools for peer agents:
-- `send_message(content, topic)` — inject inbound
-- `get_round(turn_id)` — poll for reply
-- `get_round_status(turn_id)` — counts only
+`/chat/<token>/mcp` serves the SAME tools as `/mcp` — the token just pins the
+destination to one group instead of listing many:
+- `list_groups()` — returns exactly one row: the group this link points at
+- `send(folder, content, topic)` — inject inbound; `folder` must be that group
+- `get_history(folder, topic, limit)` — read the thread back
+
+For a blocking wait on the reply use `POST /chat/<token>?wait=<sec>` or the SSE
+stream; the MCP surface has no round-poll tool.

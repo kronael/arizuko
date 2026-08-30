@@ -41,14 +41,14 @@ concrete tool calls, one watch-out note.
 
 ---
 
-## 03 — Multi-Agent Handoff via Slink-MCP
+## 03 — Multi-Agent Handoff via chat-link MCP
 
 **Scenario:** Agent A drives Agent B's group as a remote tool, fully MCP-mediated, no HTTP polling.
 
-1. In Agent B's group, mint a slink token (or reuse an existing one).
-2. Register `https://<host>/slink/<token>/mcp` as a remote MCP server in Agent A's runtime (howto 16a).
-3. Agent A calls `send_message` to inject a prompt into Agent B.
-4. Agent A polls `get_round` for the reply, or calls `steer` mid-run if the task drifts.
+1. In Agent B's group, mint a chat-link token (or reuse an existing one).
+2. Register `https://<host>/chat/<token>/mcp` as a remote MCP server in Agent A's runtime (howto 16a).
+3. Agent A calls `list_groups` once to learn the pinned folder, then `send` to inject a prompt into Agent B.
+4. Agent A reads the reply with `get_history` on the same topic.
 5. Wrap the loop in a script — the transport is stateless and idempotent.
 
 **Watch out:** No message history flows over the MCP transport. If Agent A needs prior context, fetch it via Agent B's normal MCP tools (`inspect_messages`, `get_thread`) before issuing the handoff.

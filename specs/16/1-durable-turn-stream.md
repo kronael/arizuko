@@ -43,9 +43,10 @@ from it.
   first drains routd-stored events with `seq > n` for the (folder,
   topic)'s active turn, then attaches live. The in-memory buffer stays
   as the live path; the durable log is the replay path.
-- `get_round` MCP (the SSE dual, `5/J`) returns `frames` already; add
-  `last_event_seq` to its result and accept `after_event_seq` so a
-  polling client resumes exactly.
+- The blocking-poll dual (`POST /chat/<token>?wait=`, `5/J`) returns the
+  assistant frame already; add `last_event_seq` to its result and accept
+  `after_event_seq` so a polling client resumes exactly. (The `get_round`
+  MCP tool this bullet named is gone — one MCP vocabulary, BUGS L139.)
 - A turn that finished before the client connected → webd replays the
   stored frames ending in `turn_done`; no hang.
 

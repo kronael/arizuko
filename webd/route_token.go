@@ -346,12 +346,12 @@ func parseChatBody(r *http.Request) (content, topic string, err error) {
 	return content, topic, nil
 }
 
-// injectRouteMessage is the shared writer for chat-token POSTs (the
-// hook-token surface inlines its own simpler path: no topic, no SSE).
-// routd is the sole message appender — no local PutMessage. rc.SendMessage
-// delivers to routd which persists + dispatches. linkContext is the token
-// row's context snapshotted here at ingest (spec 5/W § link context);
-// "" for tokenless callers (panel, /me) or a context-less token.
+// injectRouteMessage is the shared writer for chat-token POSTs and for the MCP
+// `send` tool on BOTH doors (the hook-token surface inlines its own simpler path:
+// no topic, no SSE). routd is the sole message appender — no local PutMessage.
+// rc.SendMessage delivers to routd which persists + dispatches. linkContext is the
+// token row's context snapshotted here at ingest (spec 5/W § link context);
+// "" for tokenless callers (panel, /me, /mcp) or a context-less token.
 func (s *server) injectRouteMessage(jid, folder, content, topic, sender, senderName, token, linkContext string) (core.Message, map[string]any, error) {
 	m := core.Message{
 		ID:        core.MsgID("msg"),
@@ -363,8 +363,13 @@ func (s *server) injectRouteMessage(jid, folder, content, topic, sender, senderN
 		Topic:     topic,
 		Source:    "web",
 	}
-	slog.Info("route-token inbound", "folder", folder, "anon_sender", sender,
-		"token_hash", chanlib.ShortHash(token), "topic", topic)
+	// One injector, both doors (BUGS L139) — token empty means the caller had an
+	// identity, so there is no token hash to log.
+	attrs := []any{"folder", folder, "sender", sender, "topic", topic}
+	if token != "" {
+		attrs = append(attrs, "token_hash", chanlib.ShortHash(token))
+	}
+	slog.Info("webd inbound", attrs...)
 
 	if err := s.rc.SendMessage(chanlib.InboundMsg{
 		ID:          m.ID,

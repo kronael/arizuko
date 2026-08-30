@@ -54,10 +54,11 @@ simply not started.
 
 ## Decision 2 — the terminal is an MCP client, not a new daemon
 
-`POST /chat/{token}/mcp` already serves `send_message`, `get_round` and
-`get_round_status` over streamable HTTP (`webd/server.go:110`,
-`webd/chat_mcp.go`), authorized by a `route_tokens` bearer that is
-append-at-ONE-JID ([`5/W`](../5/W-webhook-routes.md)). Any MCP client — Claude
+`POST /chat/{token}/mcp` already serves `list_groups`, `send` and
+`get_history` over streamable HTTP (`webd/mcp.go`) — the SAME tools
+`POST /mcp` serves, authorized by a `route_tokens` bearer that pins the
+destination set to ONE folder ([`5/W`](../5/W-webhook-routes.md), BUGS
+L139). Any MCP client — Claude
 Code on the laptop included — attaches to the bot with a URL and a token, from
 anywhere, with no operator shell and no DB access.
 

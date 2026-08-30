@@ -133,7 +133,7 @@ Bug reports from the acme website. Triage and file; don't chat back.
       <tr><td>GET</td><td><code>/chat/{token}/</code></td><td>Chat widget (HTML).</td></tr>
       <tr><td>POST</td><td><code>/chat/{token}/</code></td><td>Append body as one inbound at the row's JID. Returns <code>turn_id</code> (browsers open SSE).</td></tr>
       <tr><td>GET</td><td><code>/chat/{token}/{turn_id}/sse</code></td><td>Live SSE for the round.</td></tr>
-      <tr><td>GET, POST</td><td><code>/chat/{token}/mcp</code></td><td>Per-token MCP surface: <code>send_message</code>, <code>get_round</code>, <code>get_round_status</code>.</td></tr>
+      <tr><td>GET, POST</td><td><code>/chat/{token}/mcp</code></td><td>The same MCP surface as <code>/mcp</code> &mdash; <code>list_groups</code>, <code>send</code>, <code>get_history</code> &mdash; entered with the token instead of an account. <code>list_groups</code> returns exactly one group: the one this link is pinned to.</td></tr>
       <tr><td>POST</td><td><code>/hook/{token}</code></td><td>Append body verbatim as one inbound at the row's JID. Fire-and-forget; returns 204.</td></tr>
     </table>
 
@@ -200,7 +200,7 @@ arizuko token &lt;instance&gt; revoke &lt;jid&gt; [&lt;owner_folder&gt;]</code><
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/tokens.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-07">2026-08-07</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-15">2026-08-15</time>
       </div>
     </main>
 

@@ -41,9 +41,9 @@ stalling the publisher. `maxHubKeys` (10000) and `maxSubsPerKey` (256)
 bound memory under flood — a public URL is a flood surface.
 
 **Blocking-poll is a first-class dual of the stream, not a fallback.**
-`get_round(turn_id, wait=true)` and the `/status` endpoint read the same
-hub events an EventSource would. MCP clients and anything behind a proxy
-that mangles SSE use it without a second delivery path existing.
+`POST /chat/<token>?wait=<sec>` and the `/status` endpoint read the same
+hub events an EventSource would. Anything behind a proxy that mangles SSE
+uses it without a second delivery path existing.
 
 ## Surface
 
@@ -56,8 +56,10 @@ that mangles SSE use it without a second delivery path existing.
   on `round_done`.
 - `GET /chat/stream` — the `(token, topic)` stream; the token row
   decides the chat JID and folder, never a client param.
-- `POST /chat/<token>/mcp` — `send_message` / `get_round` /
-  `get_round_status` (`webd/chat_mcp.go`).
+- `POST /chat/<token>/mcp` — the one web MCP surface (`list_groups` /
+  `send` / `get_history`, `webd/mcp.go`), pinned to the token's group.
+  It has no blocking round read; a client that needs one uses the
+  `?wait=` POST or the SSE stream above (BUGS L139).
 
 Frames and turn results are read from `routd.db` — webd holds no
 conversation state of its own.

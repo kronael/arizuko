@@ -399,21 +399,22 @@ Log in via OAuth for the full web UI with topics, history, and typing indicators
 
 ---
 
-## 16a — Slink MCP Endpoint
+## 16a — Chat-link MCP Endpoint
 
-**TLDR:** Same slink token, different transport. `POST /slink/<token>/mcp` exposes three MCP tools to external agents.
+**TLDR:** Same chat-link token, different transport. `POST /chat/<token>/mcp` exposes the standard MCP tools to external agents.
 
-The web chat slink is an SSE-based interactive widget for humans. The slink MCP endpoint is a separate transport designed for other agents — paste the URL into Claude Code or another MCP-aware runtime and the group becomes a tool target. The token authenticates; no JWT, no extra config.
+The web chat link is an SSE-based interactive widget for humans. The MCP endpoint is a separate transport designed for other agents — paste the URL into Claude Code or another MCP-aware runtime and the group becomes a tool target. The token authenticates; no JWT, no extra config.
 
-Two tools are available: `send_message` (push a turn into the group; pass the same `topic` across calls to continue a conversation) and `get_round` (read the latest reply). The endpoint is stateless and idempotent — message history lives in the web chat, not here. Use the MCP transport to embed a group inside another agent's workflow; use the SSE chat for human-in-the-loop interaction.
+The tools are the same ones a signed-in caller gets: `list_groups` (returns the one group this link points at), `send` (push a turn in; pass the same `topic` across calls to continue a conversation) and `get_history` (read the thread back). The endpoint is stateless — message history lives in the web chat. Use the MCP transport to embed a group inside another agent's workflow; use the SSE chat for human-in-the-loop interaction.
 
 ```
-# external agent registers slink MCP as a remote tool
-mcp add slink https://bot.example.com/slink/<token>/mcp
+# external agent registers the chat link as a remote tool
+mcp add bot https://bot.example.com/chat/<token>/mcp
 
 # then drives the group
-slink.send_message(content="run the weekly report")
-slink.get_round()  # returns latest agent reply
+bot.list_groups()                                    # -> the one pinned folder
+bot.send(folder="<folder>", content="run the weekly report")
+bot.get_history(folder="<folder>", topic="<topic>")  # read the reply
 ```
 
 ---

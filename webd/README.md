@@ -20,8 +20,8 @@ chat) and exposes MCP endpoints used by agents running against web JIDs.
   real `sub`/name when the caller carries a verified JWT, else
   `anon:<ip-hash>` — and snapshots the token's optional `context` onto
   the inbound as `link_context` (spec 5/W § link context).
-- Serve the user MCP bridge for authed sessions (`mcp.go`) and the
-  token-only chat-MCP transport at `/chat/<token>/mcp` (`chat_mcp.go`).
+- Serve ONE MCP surface (`mcp.go`) behind two doors: `/mcp` for an identity
+  (N folders) and `/chat/<token>/mcp` for a route token (exactly 1).
 - Accept proxyd-stamped identity headers verified via ES256 bearer
   (`auth.ProxydTransit`).
 
@@ -53,7 +53,7 @@ Shipped today (see `server.go`):
   (`partials.go`).
 - `GET|POST /chat/{token}/...` — public unauthenticated guest surface:
   chat widget root + config, message post, history, turn snapshot/status/SSE,
-  and `POST /chat/{token}/mcp` (`route_token.go`, `chat_mcp.go`, `turn.go`).
+  and `POST /chat/{token}/mcp` (`route_token.go`, `mcp.go`, `turn.go`).
   The URL token IS the capability.
 - `POST /hook/{token}` — fire-and-forget webhook ingest (rate-limited).
 - `GET|POST /pair/{token}` — identity pairing (spec 5/31, `pair.go`).
@@ -65,8 +65,8 @@ Shipped today (see `server.go`):
 - `GET|POST /slink/{token}/...` — legacy; 301 redirects to `/chat/...`.
 - `GET|POST /me/...` — authed per-user chat console: index, chats list,
   new chat, settings, folder/thread views, HTMX partials (`me.go`).
-- `POST|GET|DELETE /mcp` — authed user MCP bridge (`mcp.go`); includes
-  operator `routes.*` tools (`routes_mcp.go`).
+- `POST|GET|DELETE /mcp` — authed user MCP bridge (`mcp.go`): `list_groups`,
+  `send`, `get_history`, plus operator `routes.*` tools (`routes_mcp.go`).
 - `GET /{$}` — authed groups page root.
 - `GET /panel/{folder...}` — authed folder-scoped chat page.
 - `GET /openapi.json` — engine-generated OpenAPI doc (public, pre-auth).
@@ -153,11 +153,11 @@ delivered messages.
 - `hub.go` — SSE fan-out keyed on chat JID + topic
 - `channel.go` — routd→webd callbacks (`/send`, `/typing`, `/v1/round_done`)
 - `route_token.go` — route-token lookup + `/chat/<token>` + `/hook/<token>` handlers
-- `chat_mcp.go` — chat-MCP transport at `POST /chat/<token>/mcp`
-  (3 tools: `send_message`, `get_round`, `get_round_status`)
 - `turn.go` — round-handle endpoints (`/chat/<token>/<id>{,/status,/sse}`)
 - `me.go` — authed per-user chat console (`/me/*`)
-- `mcp.go` — authed user MCP bridge at `/mcp`
+- `mcp.go` — the one web MCP surface (`list_groups`, `send`, `get_history`)
+  behind both doors: `/mcp` for an identity, `/chat/<token>/mcp` for a route
+  token pinned to one group
 - `routes_mcp.go` — operator `routes.*` MCP tools (proxies proxyd `/v1/routes`)
 - `api.go` — authed chat UI JSON API (`/api/groups/*`)
 - `pages.go` — authed HTML pages (root, panel)
@@ -171,6 +171,6 @@ delivered messages.
 
 - `specs/5/17-openapi-mcp.md` — federated `/v1/*` contract (supersedes 5/5)
 - `specs/5/31-identity-pairing.md` — the pairing surface webd serves
-- `specs/5/J-sse.md` — SSE streams + slink-MCP transport
+- `specs/5/J-sse.md` — SSE streams + the blocking-poll dual
 - `specs/4/3-chat-ui.md`
 - `ARCHITECTURE.md` (Web Channel section)

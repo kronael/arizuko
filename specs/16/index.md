@@ -41,7 +41,7 @@ runtime, a workflow engine (that overlaps `13/6`), or Kubernetes.
 
 | Spec                                                         | Status  | Hook                                                                                                                                 |
 | ------------------------------------------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| [1-durable-turn-stream.md](1-durable-turn-stream.md)         | draft   | Event-id'd turn event log in routd; `5/J` SSE + `get_round` MCP replay from `after_event_id`, terminal snapshot on reconnect.        |
+| [1-durable-turn-stream.md](1-durable-turn-stream.md)         | draft   | Event-id'd turn event log in routd; `5/J` SSE + blocking-poll replay from `after_event_id`, terminal snapshot on reconnect.          |
 | [2-final-delivery-outbox.md](2-final-delivery-outbox.md)     | shipped | Absorbed into `5/Q` + `5/E`: pending bot row + backoff sweep + adapter dedup ledger is the outbox.                                   |
 | [3-shared-session-presence.md](3-shared-session-presence.md) | draft   | Presence frames on the webd hub: who is subscribed to a (folder, topic), and an agent-working indicator.                             |
 | [4-agents-catalog.md](4-agents-catalog.md)                   | draft   | Published `/pub/<group>/agents/` catalog of an instance's folders + one-line capability — multiplayer discoverability, vited-served. |
