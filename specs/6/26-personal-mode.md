@@ -76,6 +76,10 @@ one surface, never a fourth path into the queue.
 
 Two shapes exist and they are different products:
 
+Decision 3 stands as the design, but it is no longer the ONLY route: the shell
+credential shipped 2026-08-29 (below) and is what atlas actually uses today,
+because the connector still cannot run.
+
 - **Connector (the design; NOT yet runnable — BUGS `L132`).** All three
   commands `template/connectors/github.toml` offers need a runtime absent from
   routd's image, and the connector subprocess spawns inside routd. Ship a
@@ -111,10 +115,20 @@ and reaches a connector subprocess through the broker per call
 every use. `template/connectors/github.toml` and `buildkite.toml` carry the
 wiring; the token goes in with `arizuko secret set` or `/dash/me/secrets`.
 
-### Why the CLI route is refused, and it is the operator's own requirement
+### The CLI route SHIPPED as a narrowed grant (v0.66.0, 2026-08-29)
 
-The tempting shortcut is to ship `GH_TOKEN` into container env so `gh` works in
-Bash. It is refused, and not on purity grounds:
+This section refused it outright, and the operator overruled that: `gh` now
+works. What ships is not the shortcut this spec argued against — a
+`shell:env:<KEY>` acl row names ONE secret that may enter the container's shell
+env, the broker resolves it per spawn, and no row means nothing crosses. Model
+credentials are excluded even under `shell:env:*`, and the action is
+exact-match, so an operator's `**` row does not confer it
+(BUGS `L134` for the channel-scoping limit, `grant_action_needs_a_door` for why
+`grantableAction` had to learn the namespace first).
+
+**The three objections below still hold, and are now the stated bound rather
+than the reason to refuse.** They are why the grant is per-key and why the PAT's
+own scope is the real lock:
 
 - **It cannot be gated.** `gh pr review --approve` is a shell string. arizuko's
   gate is `CheckHold` at the one `tools/call` interception; a Bash command is
