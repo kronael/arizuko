@@ -100,6 +100,41 @@ func stubRoutd(t *testing.T, db *sql.DB) string {
 		writeStubJSON(w, map[string]any{"folder": folder, "acl": out})
 	})
 
+	// The spend axis. `since` is REQUIRED by routd — a summary with no window
+	// reports a lifetime total as if it were current — so the stub refuses it
+	// too, or a page that forgot to send one would pass here and fail live.
+	mux.HandleFunc("GET /v1/cost/summary", func(w http.ResponseWriter, r *http.Request) {
+		since := r.URL.Query().Get("since")
+		if since == "" {
+			http.Error(w, "since required", http.StatusBadRequest)
+			return
+		}
+		rows, err := db.Query(`SELECT folder,
+			COALESCE(SUM(input_tokens+output_tokens),0),
+			COALESCE(SUM(cost_cents),0)
+			FROM cost_log WHERE recorded_at >= ? GROUP BY folder ORDER BY folder`, since)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+		type row struct {
+			Folder    string `json:"folder"`
+			Tokens    int    `json:"tokens"`
+			CostCents int    `json:"cost_cents"`
+		}
+		out := []row{}
+		for rows.Next() {
+			var x row
+			if err := rows.Scan(&x.Folder, &x.Tokens, &x.CostCents); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			out = append(out, x)
+		}
+		writeStubJSON(w, out)
+	})
+
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv.URL

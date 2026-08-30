@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -34,7 +37,7 @@ func (d *dash) handleUsage(w http.ResponseWriter, r *http.Request) {
 
 	var summaries []groupUsage
 	if len(folders) > 0 && d.adminDB() != nil {
-		summaries, err = d.groupUsageBulk(folders)
+		summaries, err = d.groupUsageBulk(r.Context(), folders)
 		if err != nil {
 			slog.Warn("usage page: bulk", "err", err)
 			fmt.Fprint(w, htmlBanner("err", "usage query error: "+err.Error()))
@@ -126,7 +129,7 @@ type usageMsg struct {
 // input_tokens / output_tokens / cost_cents. folders may be the caller's scoped
 // subset (Groups page) or the full instance list (Usage page); either way the
 // IN-list is batched so the query stays valid regardless of folder count.
-func (d *dash) groupUsageBulk(folders []string) ([]groupUsage, error) {
+func (d *dash) groupUsageBulk(ctx context.Context, folders []string) ([]groupUsage, error) {
 	if len(folders) == 0 {
 		return nil, nil
 	}
@@ -134,9 +137,29 @@ func (d *dash) groupUsageBulk(folders []string) ([]groupUsage, error) {
 
 	costMap := map[string]usageCost{}
 	msgMap := map[string]usageMsg{}
+
+	// Spend comes from routd's GET /v1/cost/summary in ONE call (spec 6/28
+	// read-path; 6/30 named this endpoint as the /v1 work this page needed).
+	// The batching below exists for SQLite's IN-list limit, which an HTTP call
+	// does not have — so the cost read is hoisted out of the loop and only the
+	// message aggregation is still batched.
+	summary, err := d.costSummary(ctx, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	want := map[string]bool{}
+	for _, f := range folders {
+		want[f] = true
+	}
+	for _, row := range summary {
+		if want[row.Folder] {
+			costMap[row.Folder] = usageCost{row.Tokens, row.CostCents}
+		}
+	}
+
 	for start := 0; start < len(folders); start += usageBulkBatch {
 		batch := folders[start:min(start+usageBulkBatch, len(folders))]
-		if err := d.groupUsageBulkBatch(batch, cutoff, costMap, msgMap); err != nil {
+		if err := d.groupUsageBulkBatch(batch, costMap, msgMap); err != nil {
 			return nil, err
 		}
 	}
@@ -157,7 +180,7 @@ func (d *dash) groupUsageBulk(folders []string) ([]groupUsage, error) {
 
 // groupUsageBulkBatch runs the cost_log + messages aggregation for one
 // IN-list-sized batch of folders, merging results into the caller's maps.
-func (d *dash) groupUsageBulkBatch(batch []string, cutoff string, costMap map[string]usageCost, msgMap map[string]usageMsg) error {
+func (d *dash) groupUsageBulkBatch(batch []string, costMap map[string]usageCost, msgMap map[string]usageMsg) error {
 	ph := make([]string, len(batch))
 	args := make([]any, len(batch))
 	for i, f := range batch {
@@ -166,29 +189,9 @@ func (d *dash) groupUsageBulkBatch(batch []string, cutoff string, costMap map[st
 	}
 	in := strings.Join(ph, ",")
 
-	costRows, err := d.adminDB().Query(
-		`SELECT folder,
-		        COALESCE(SUM(input_tokens+output_tokens),0),
-		        COALESCE(SUM(cost_cents),0)
-		 FROM cost_log
-		 WHERE folder IN (`+in+`) AND recorded_at >= ?
-		 GROUP BY folder`,
-		append(args, cutoff)...)
-	if err != nil {
-		return err
-	}
-	defer costRows.Close()
-	for costRows.Next() {
-		var folder string
-		var tok, cents int
-		if err := costRows.Scan(&folder, &tok, &cents); err != nil {
-			return err
-		}
-		costMap[folder] = usageCost{tok, cents}
-	}
-	if err := costRows.Err(); err != nil {
-		return err
-	}
+	// The message counts still read the DB: routd exposes no activity summary,
+	// and cost_log and messages are different data with one reader each — not
+	// two paths to one datum. See 6/29 for what closing them needs.
 
 	msgRows, err := d.adminDB().Query(
 		`SELECT routed_to, COUNT(*), COALESCE(MAX(timestamp),'')
@@ -284,4 +287,32 @@ func lastActiveCell(ts string) string {
 		return "—"
 	}
 	return abbrTS(ts)
+}
+
+// costSummaryRow mirrors routd's GET /v1/cost/summary reply.
+type costSummaryRow struct {
+	Folder    string `json:"folder"`
+	Tokens    int    `json:"tokens"`
+	CostCents int    `json:"cost_cents"`
+}
+
+// costSummary reads per-folder spend since cutoff from routd's /v1.
+//
+// dashd presents a service bearer, whose folder claim is empty, so routd
+// answers for every folder — the same reach the direct cost_log read had. The
+// page's own visibility filter is applied by the caller, unchanged.
+func (d *dash) costSummary(ctx context.Context, cutoff string) ([]costSummaryRow, error) {
+	body, status, err := d.bearerCall(ctx, d.routdURL, http.MethodGet,
+		"/v1/cost/summary?since="+url.QueryEscape(cutoff), nil)
+	if err != nil {
+		return nil, err
+	}
+	if status < 200 || status >= 300 {
+		return nil, fmt.Errorf("routd /v1/cost/summary: status %d", status)
+	}
+	var rows []costSummaryRow
+	if err := json.Unmarshal(body, &rows); err != nil {
+		return nil, err
+	}
+	return rows, nil
 }

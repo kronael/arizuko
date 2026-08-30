@@ -1226,7 +1226,7 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 	}
 	usageMap := map[string]usageKey{}
 	if len(folders) > 0 && d.adminDB() != nil {
-		if summaries, err := d.groupUsageBulk(folders); err != nil {
+		if summaries, err := d.groupUsageBulk(r.Context(), folders); err != nil {
 			slog.Warn("groups: usage query", "err", err)
 		} else {
 			for _, u := range summaries {

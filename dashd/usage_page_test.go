@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"net/http"
 	"net/http/httptest"
@@ -40,7 +41,7 @@ func usageGet(t *testing.T, d *dash) (int, string) {
 
 // TestUsageNilRoutd: a nil routd handle renders the store-unavailable banner.
 func TestUsageNilRoutd(t *testing.T) {
-	code, body := usageGet(t, &dash{dbRoutd: nil})
+	code, body := usageGet(t, &dash{dbRoutd: nil, routdURL: stubRoutd(t, nil)})
 	if code != 200 {
 		t.Fatalf("status = %d", code)
 	}
@@ -54,7 +55,7 @@ func TestUsageEmptyGroups(t *testing.T) {
 	routd := usageRoutdDB(t)
 	defer routd.Close()
 
-	code, body := usageGet(t, &dash{dbRoutd: routd})
+	code, body := usageGet(t, &dash{dbRoutd: routd, routdURL: stubRoutd(t, routd)})
 	if code != 200 {
 		t.Fatalf("status = %d", code)
 	}
@@ -89,7 +90,7 @@ func TestUsageWithCost(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	code, body := usageGet(t, &dash{dbRoutd: routd})
+	code, body := usageGet(t, &dash{dbRoutd: routd, routdURL: stubRoutd(t, routd)})
 	if code != 200 {
 		t.Fatalf("status = %d", code)
 	}
@@ -125,8 +126,8 @@ func TestGroupUsageBulkBatchesLargeFolderLists(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	d := &dash{dbRoutd: routd}
-	out, err := d.groupUsageBulk(folders)
+	d := &dash{dbRoutd: routd, routdURL: stubRoutd(t, routd)}
+	out, err := d.groupUsageBulk(context.Background(), folders)
 	if err != nil {
 		t.Fatalf("groupUsageBulk: %v", err)
 	}
@@ -142,7 +143,7 @@ func TestGroupUsageBulkBatchesLargeFolderLists(t *testing.T) {
 func TestUsageNonOperatorForbidden(t *testing.T) {
 	routd := usageRoutdDB(t)
 	defer routd.Close()
-	d := &dash{dbRoutd: routd}
+	d := &dash{dbRoutd: routd, routdURL: stubRoutd(t, routd)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := httptest.NewRequest("GET", "/dash/usage/", nil)
@@ -151,5 +152,18 @@ func TestUsageNonOperatorForbidden(t *testing.T) {
 	mux.ServeHTTP(w, req)
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403", w.Code)
+	}
+}
+
+// routd being unreachable must SAY so on the usage page. A zero spend column
+// reads as "this instance costs nothing", which is false and is exactly the
+// number an operator would relay upward.
+func TestUsageSaysWhenRoutdIsUnreachable(t *testing.T) {
+	routd := usageRoutdDB(t, "alice")
+	defer routd.Close()
+
+	code, body := usageGet(t, &dash{dbRoutd: routd, routdURL: "http://127.0.0.1:1"})
+	if code == 200 && !strings.Contains(body, "usage query error") {
+		t.Error("an unreachable routd rendered as zero spend")
 	}
 }
