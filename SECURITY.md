@@ -336,10 +336,13 @@ Caveats:
   `specs/5/13-ext-mcp.md`, `specs/5/14-credentials.md`): the broker
   middleware (`ipc/ipc.go` `injectSecretsAdapter`) resolves
   `user(caller.Sub)` then `folder(caller.Folder)` at tool-call time, with
-  audit rows in `secret_use_log`, so secrets reach a tool's subprocess env
-  only for the call that needs them rather than the whole spawn. The
-  connector path (`mcp_connector` TOML + per-call subprocess) is part of
-  the same shape. OAuth-bound connector flows remain deferred (spec 9/14).
+  audit rows in `secret_use_log`, so a secret is spent only on the call that
+  needs it rather than for the whole spawn. The connector path
+  (`mcp_connector` TOML + a per-call HTTPS request whose Authorization header
+  the broker renders) is part of the same shape; the endpoint set is operator-
+  written and immutable after boot, so the agent picks a tool, never a host.
+  MCP's own OAuth 2.1 is reachable now that the transport is HTTP but is not
+  wired — see `specs/5/13-ext-mcp.md` §"OAuth is the next step, not this one".
 - IPv6 is not redirected by the entrypoint script.
 
 **No DNS filter.** The UDP/53 NXDOMAIN listener was deleted with the

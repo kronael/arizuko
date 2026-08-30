@@ -3,29 +3,55 @@ package routd
 import (
 	"context"
 	"maps"
+	"net/http"
+	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/ipc"
 	"github.com/kronael/arizuko/store"
 )
 
-// buildFakeMCP compiles ipc/testdata/fakemcp into a temp binary. fakemcp is a
-// stdio MCP server that echoes the env var named by FAKEMCP_KEY — the same
-// fixture ipc/connector_test.go uses to assert env injection + result scrub.
-func buildFakeMCP(t *testing.T) string {
+// fakeMCP starts a real streamable-HTTP MCP server whose one tool echoes the
+// Authorization header the request carried — the sink the broker now renders
+// the folder's secret into (spec 5/13, BUGS L132).
+func fakeMCP(t *testing.T) string {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), "fakemcp")
-	cmd := exec.Command("go", "build", "-o", bin, "../ipc/testdata/fakemcp/")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build fakemcp: %v\n%s", err, out)
-	}
-	return bin
+	var mu sync.Mutex
+	var seen string
+	m := server.NewMCPServer("fakemcp", "1")
+	m.AddTool(
+		mcp.NewTool("echo_auth", mcp.WithDescription("Echo the Authorization header.")),
+		func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			return mcp.NewToolResultText("auth=" + seen), nil
+		},
+	)
+	h := server.NewStreamableHTTPServer(m)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		mu.Lock()
+		seen = auth
+		mu.Unlock()
+		// A remote MCP server authenticates tools/list too, so an uncredentialed
+		// discovery must fail here the way GitHub's 401 makes it fail live.
+		if auth == "" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		h.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
 }
 
 // seedSecretsStore wraps routd's OWN routd.db handle as a keyring-matched
@@ -45,53 +71,67 @@ func seedSecretsStore(t *testing.T, d *DB, key string) *store.Store {
 	return s
 }
 
-func writeConnectorsTOML(t *testing.T, dir, bin string) {
+func writeConnectorsTOML(t *testing.T, dir, url string) {
 	t.Helper()
 	toml := `[[mcp_connector]]
 name = "fake"
-command = ["` + bin + `"]
+url = "` + url + `"
 secrets = ["GITHUB_TOKEN"]
-scope = "per_call"
 
-[mcp_connector.env_template]
-FAKEMCP_KEY = "GITHUB_TOKEN"
-GITHUB_TOKEN = "{secret:GITHUB_TOKEN}"
+[mcp_connector.headers]
+Authorization = "Bearer {secret:GITHUB_TOKEN}"
 `
 	if err := os.WriteFile(filepath.Join(dir, "connectors.toml"), []byte(toml), 0o644); err != nil {
 		t.Fatalf("write connectors.toml: %v", err)
 	}
 }
 
-// TestLoadConnectors registers a connector tool from a test connectors.toml and
-// asserts the namespaced LocalName + declared secrets travel through.
+// TestLoadConnectors parses a test connectors.toml into specs. Boot does not
+// dial: the credential is per folder and boot has no folder.
 func TestLoadConnectors(t *testing.T) {
-	bin := buildFakeMCP(t)
 	dir := t.TempDir()
-	writeConnectorsTOML(t, dir, bin)
+	writeConnectorsTOML(t, dir, fakeMCP(t))
 
-	tools, err := LoadConnectors(context.Background(), dir)
+	specs, err := LoadConnectors(dir)
 	if err != nil {
 		t.Fatalf("LoadConnectors: %v", err)
 	}
-	if len(tools) != 1 {
-		t.Fatalf("got %d tools, want 1", len(tools))
+	if len(specs) != 1 {
+		t.Fatalf("got %d specs, want 1", len(specs))
 	}
-	if tools[0].LocalName != "fake_echo_env" {
-		t.Errorf("LocalName = %q, want fake_echo_env", tools[0].LocalName)
+	if specs[0].Name != "fake" {
+		t.Errorf("Name = %q, want fake", specs[0].Name)
 	}
-	if got := tools[0].Connector.Secrets; len(got) != 1 || got[0] != "GITHUB_TOKEN" {
+	if got := specs[0].Secrets; len(got) != 1 || got[0] != "GITHUB_TOKEN" {
 		t.Errorf("Secrets = %v, want [GITHUB_TOKEN]", got)
+	}
+	if specs[0].Headers["Authorization"] != "Bearer {secret:GITHUB_TOKEN}" {
+		t.Errorf("Headers = %v, want the bearer template", specs[0].Headers)
 	}
 }
 
 // TestLoadConnectors_MissingFileIsNil: no connectors.toml → nil, no error.
 func TestLoadConnectors_MissingFileIsNil(t *testing.T) {
-	tools, err := LoadConnectors(context.Background(), t.TempDir())
+	specs, err := LoadConnectors(t.TempDir())
 	if err != nil {
 		t.Fatalf("LoadConnectors: %v", err)
 	}
-	if tools != nil {
-		t.Errorf("expected nil tools, got %v", tools)
+	if specs != nil {
+		t.Errorf("expected nil specs, got %v", specs)
+	}
+}
+
+// A header credential must never travel in plaintext, so a http:// endpoint is
+// refused at load rather than at first call.
+func TestLoadConnectors_RefusesPlaintextEndpoint(t *testing.T) {
+	dir := t.TempDir()
+	writeConnectorsTOML(t, dir, "http://example.com/mcp")
+	_, err := LoadConnectors(dir)
+	if err == nil {
+		t.Fatal("expected a plaintext endpoint to be refused")
+	}
+	if !strings.Contains(err.Error(), "https") {
+		t.Errorf("error should name the https requirement, got %v", err)
 	}
 }
 
@@ -224,10 +264,9 @@ func TestSecretsReadOwnDB(t *testing.T) {
 // nil). The fakemcp echoes env[GITHUB_TOKEN]=<value>; the scrubber replaces the
 // raw value with the redaction marker.
 func TestConnectorCall_ReceivesResolvedSecret(t *testing.T) {
-	bin := buildFakeMCP(t)
 	dir := t.TempDir()
-	writeConnectorsTOML(t, dir, bin)
-	tools, err := LoadConnectors(context.Background(), dir)
+	writeConnectorsTOML(t, dir, fakeMCP(t))
+	specs, err := LoadConnectors(dir)
 	if err != nil {
 		t.Fatalf("LoadConnectors: %v", err)
 	}
@@ -243,10 +282,10 @@ func TestConnectorCall_ReceivesResolvedSecret(t *testing.T) {
 	}
 	// Connector tool visibility is db.Authorize-gated on the folder principal, and
 	// the role:member floor carries only the messaging verbs — so grant it explicitly.
-	grantMCPTools(t, db, "main", "fake_echo_env")
+	grantMCPTools(t, db, "main", "fake_echo_auth")
 
 	srv := NewServer(db, nil, nil, nil, 0, "")
-	srv.SetConnectors(tools)
+	srv.SetConnectors(specs)
 
 	ipcDir := t.TempDir()
 	sock := groupfolder.IpcSocket(ipcDir)
@@ -261,11 +300,11 @@ func TestConnectorCall_ReceivesResolvedSecret(t *testing.T) {
 	for !fileExists(sock) && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
 	}
-	text, errText := callToolText(t, sock, "fake_echo_env", map[string]any{})
+	text, errText := callToolText(t, sock, "fake_echo_auth", map[string]any{})
 	if errText != "" {
 		t.Fatalf("tool error: %s", errText)
 	}
-	// The connector echoed the injected env; the scrubber redacted the value.
+	// The connector echoed the injected header; the scrubber redacted the value.
 	if strings.Contains(text, "ghp_livetoken") {
 		t.Errorf("raw secret leaked unscrubbed: %q", text)
 	}

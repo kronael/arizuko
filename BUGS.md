@@ -7548,7 +7548,7 @@ This entry is about the shape, not a live defect.
   `namespacedAllows`, `CheckHold`, `ShellEnvKeys`; `specs/5/33-paths-roles.md`
   ("SOLE runtime authorization evaluator"), `specs/5/19` Hazard 2.
 
-## L132 — the GitHub connector `6/26` calls "shipped, use this" cannot run: all three documented commands are absent from routd's image (2026-08-28, open)
+## ✅ FIXED 2026-08-30 L132 — the GitHub connector `6/26` calls "shipped, use this" cannot run: all three documented commands are absent from routd's image (2026-08-28, fixed)
 
 `6/26` Decision 3 picks the MCP connector over the `gh` CLI and labels it
 "(shipped, use this)". The mechanism is shipped; a runnable connector is not.
@@ -7598,17 +7598,74 @@ working path — hence `status: defected`.
   `compose/compose.go` `routdService` ("NO egress proxy, NO docker socket"),
   live probes above.
 
-**Update 2026-08-29 — GitHub is reachable now, by the other door.** This entry
-stays open: the CONNECTOR still has no runtime. But `gh` is installed in the
-agent image (`ant/Dockerfile:97-102`) and never had a credential, so the
-shell-credential tier (`5/13` §Shell credentials) gives the same capability
-without the connector: `arizuko group <inst> grant 'folder:atlas' 'atlas'
-'shell:env:GITHUB_TOKEN'` puts the existing `folder|atlas|GITHUB_TOKEN` row in
-the agent's env, and `ant/src/guards.ts` `ghWriteGate` refuses the writes it
-must not make. Do not read this entry as "GitHub is impossible" — read it as
-"the connector, and the per-call broker discipline that comes with it, is still
-missing." The shell tier hands the agent a spendable token; the connector would
-not, which is the whole reason to keep this open.
+**Update 2026-08-29 — GitHub is reachable now, by the other door.** `gh` is
+installed in the agent image (`ant/Dockerfile:97-102`) and never had a
+credential, so the shell-credential tier (`5/13` §Shell credentials) gives the
+same capability without the connector: `arizuko group <inst> grant
+'folder:atlas' 'atlas' 'shell:env:GITHUB_TOKEN'` puts the existing
+`folder|atlas|GITHUB_TOKEN` row in the agent's env, and `ant/src/guards.ts`
+`ghWriteGate` refuses the writes it must not make. The shell tier hands the
+agent a spendable token; the connector does not, which is why this stayed open
+after that shipped.
+
+**RESOLVED 2026-08-30 — and the fix above is NOT what shipped. No
+`github-mcp-server` binary is in any image.** Operator decision: the connector
+transport moved from a stdio subprocess to HTTP, and the stdio path was deleted
+rather than kept as a fallback. Nothing spawns a subprocess any more, so there
+is no runtime to install and the whole premise of this entry is gone.
+
+The proposed fix was measured and rejected on its own terms before the switch:
+
+- `github/github-mcp-server` is MIT and does build with our toolchain
+  (`go install …@v1.11.0` under `CGO_ENABLED=0`, verified).
+- But it is **30.5 MB** (21.3 MB stripped), not "a few MB", against a 537 MB
+  runtime image every daemon shares — proxyd, teled and onbod would all carry it
+  to serve one connector.
+- And it would still not have worked: `DiscoverConnectorTools` spawned with
+  `cmd.Env = []string{}`, and `github-mcp-server stdio` **exits 1 before any MCP
+  handshake** with "authentication required: set GITHUB_PERSONAL_ACCESS_TOKEN"
+  when the environment is empty. Verified by driving the real binary through
+  arizuko's own discovery path: `n=0 err=connector "github" initialize: read:
+  EOF`. Shipping the binary would have shipped a connector that still discovered
+  nothing.
+
+What shipped instead: `[[mcp_connector]]` takes a `url` + a `headers` map, and
+the broker renders the same `{secret:KEY}` placeholders into request headers
+rather than a process environment. Everything around it is unchanged — the
+broker still resolves the folder's secrets narrowed to the connector's declared
+keys, still writes the `secret_use_log` row, still scrubs secret values out of
+the result. Both shipped connectors now point at hosted endpoints that exist and
+answer: `https://api.githubcopilot.com/mcp/` and `https://mcp.buildkite.com/mcp`.
+
+Two consequences worth keeping visible:
+
+- **Discovery is per folder, not per boot.** A remote MCP server authenticates
+  `tools/list` (GitHub's answers `401`), and the credential is folder-scoped —
+  routd's boot has no folder, so it has no token. `LoadConnectors` therefore
+  dials nothing, and each turn's socket build discovers with that folder's
+  credential through the same audited broker seam a call uses, recorded as
+  `<connector>_tools/list`. A connector that cannot be reached registers no
+  tools and is logged at error; it never fails the turn.
+- **routd crosses no new egress boundary.** "NO egress proxy" in
+  `compose/compose.go` describes the per-spawn AGENT proxy runed owns, not a
+  daemon network restriction. routd already makes outbound HTTPS on this exact
+  path — surrogate OAuth refreshes tokens against `github.com` at connector-call
+  time (`routd/surrogate_refresh.go`). Confirmed live:
+  `docker exec arizuko_routd_krons wget -qO- https://api.githubcopilot.com/…`
+  returns the protected-resource metadata.
+
+MCP's OAuth 2.1 is now REACHABLE (the spec says an stdio server "SHOULD NOT"
+follow it and takes credentials from the environment instead) but is NOT wired:
+the connector authenticates with the broker-resolved static token. What OAuth
+would still need — RFC 9728/8414 discovery, RFC 7591 dynamic client
+registration, and a consent flow with no user present at routd — is recorded in
+`5/13` §"OAuth is the next step, not this one".
+
+- **Severity:** medium
+- **Scope:** connectors / ipc
+- **Affected:** routd, ipc, template/connectors
+- **Status:** resolved-not-yet-removed
+- **Fix:** see the commit closing this entry
 
 ## L135 — `6/16` says the shared registry and the DNS filter are "both LIVE and enforcing"; `6/24` deleted both three days later (2026-08-30, open)
 

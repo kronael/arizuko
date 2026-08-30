@@ -358,13 +358,14 @@ per-group `MCP.json`. Groups get access to connectors via grant rows
 (`mcp:<connector>:*`), not by registering their own MCP endpoints. The
 `connectors.toml` loader is the current mechanism; migration to a
 `mcp_connectors` resreg resource (routd.db, REST + agent MCP face) is tracked
-in `specs/5/16`. HTTP upstream connectors (`transport = "http"`, shape 4 in
-`specs/5/13`) are planned for long-running sidecar MCP servers.
+in `specs/5/16`.
 
-Third-party MCP servers (github-mcp, linear-mcp, gdrive-mcp…) plug
+Third-party MCP servers (GitHub's hosted server, linear-mcp, …) plug
 in via `<data_dir>/connectors.toml`. Each `[[mcp_connector]]` block
-declares one stdio subprocess; routd discovers its tools at boot
-with `tools/list`, namespaces them `<connector>_<remote_tool>`, and
+declares one HTTPS endpoint (`url` + a `headers` map whose
+`{secret:KEY}` placeholders the broker renders per call); routd
+discovers its tools per folder with that folder's credential,
+namespaces them `<connector>_<remote_tool>`, and
 registers each through the broker chain. Per-call invocation
 resolves the declared secrets, renders the env template, spawns the
 subprocess, proxies `tools/call`, scrubs the result, tears the

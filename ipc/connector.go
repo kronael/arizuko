@@ -1,127 +1,136 @@
 package ipc
 
-// MCP connector: spawn a third-party MCP server as a stdio subprocess,
-// proxy its tools through the broker. Per spec 5/13 § "Connector
-// declaration". v1 is per_call only — subprocess lifetime is one call.
+// MCP connector: call a third-party MCP server over streamable HTTP and proxy
+// its tools through the broker. Per spec 5/13 § "Shape 2 — MCP HTTP connector".
 //
-// On boot routd calls tools/list once with empty secrets to harvest the
-// catalog, then teardown. Each catalog entry is registered as a broker
-// tool named "<connector>_<remote_tool>" whose RequiresSecrets is the
-// connector's secrets list. On invocation: broker resolves secrets,
-// connector spawns subprocess with rendered env, proxies tools/call,
-// scrubs secret values from the result, tears down.
+// The transport is HTTP, never a subprocess. The stdio shape was removed
+// 2026-08-30: every command `template/connectors/github.toml` offered needed a
+// runtime absent from routd's image, and the connector spawns inside routd
+// (BUGS L132). An endpoint needs no runtime, so the credential is a request
+// HEADER the broker renders per call and never a process environment.
+//
+// Discovery is PER FOLDER, not per boot, because the credential is per folder:
+// routd's boot has no folder and therefore no token, and a remote MCP server
+// answers tools/list only to an authenticated caller. Each catalog entry
+// registers as a broker tool "<connector>_<remote_tool>". On invocation: the
+// broker resolves the folder's secrets narrowed to the connector's declared
+// keys, this file renders them into headers, proxies tools/call, and scrubs the
+// secret values out of the result.
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"log/slog"
-	"os/exec"
 	"strings"
-	"sync/atomic"
 	"time"
 
+	"github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // ConnectorSpec is one [[mcp_connector]] block. Loaded from
-// <data_dir>/connectors.toml at routd boot. Immutable thereafter.
+// <data_dir>/connectors.toml at routd boot. Immutable thereafter, which is what
+// makes the file the destination allowlist: the operator writes the reachable
+// endpoints, the agent only ever picks a tool.
 type ConnectorSpec struct {
-	Name        string            `toml:"name"`
-	Command     []string          `toml:"command"`
-	Secrets     []string          `toml:"secrets"`
-	EnvTemplate map[string]string `toml:"env_template"`
-	Scope       string            `toml:"scope"` // "per_call" (v1)
-	CallTimeout time.Duration     `toml:"-"`     // resolved from CONNECTOR_CALL_TIMEOUT_MS
+	Name string `toml:"name"`
+	// URL is the server's streamable-HTTP MCP endpoint.
+	URL string `toml:"url"`
+	// Secrets names the keys the broker resolves for this connector; the
+	// folder's other secrets are never visible to it.
+	Secrets []string `toml:"secrets"`
+	// Headers carries "{secret:KEY}" placeholders, rendered per call against
+	// the broker-resolved values. This is the sink the subprocess env used to be.
+	Headers     map[string]string `toml:"headers"`
+	CallTimeout time.Duration     `toml:"-"` // resolved from CONNECTOR_CALL_TIMEOUT_MS
 }
 
-// ConnectorTool is a single discovered remote tool plus enough metadata
-// to re-invoke. Description + InputSchema travel verbatim from the
-// connector so the agent sees the upstream's contract.
+// ConnectorTool is a single discovered remote tool plus enough metadata to
+// re-invoke. Description + InputSchema travel verbatim from the connector so
+// the agent sees the upstream's contract.
 type ConnectorTool struct {
 	Connector   *ConnectorSpec
 	RemoteName  string // tool name as the connector reports it
-	LocalName   string // "<connector>.Name>_<RemoteName>"
+	LocalName   string // "<connector.Name>_<RemoteName>"
 	Description string
 	InputSchema json.RawMessage // raw JSON schema from the connector
 }
 
-// rpcReq / rpcResp are the minimal JSON-RPC 2.0 shapes we need.
-type rpcReq struct {
-	JSONRPC string `json:"jsonrpc"`
-	ID      int64  `json:"id"`
-	Method  string `json:"method"`
-	Params  any    `json:"params"`
-}
-
-type rpcResp struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *struct {
-		Code    int    `json:"code"`
-		Message string `json:"message"`
-	} `json:"error,omitempty"`
-}
-
-var rpcSeq atomic.Int64
-
-func nextRPCID() int64 { return rpcSeq.Add(1) }
-
-// DiscoverConnectorTools spawns the connector with empty env, sends an
-// initialize handshake + tools/list, parses the catalog, kills the
-// process. Returns one ConnectorTool per remote tool.
-func DiscoverConnectorTools(ctx context.Context, spec *ConnectorSpec) ([]ConnectorTool, error) {
-	if len(spec.Command) == 0 {
-		return nil, fmt.Errorf("connector %q: empty command", spec.Name)
+// dial opens an initialized MCP session against the connector's endpoint with
+// the resolved secrets rendered into request headers. The caller closes it.
+func dial(ctx context.Context, spec *ConnectorSpec, secrets map[string]string) (*client.Client, error) {
+	if spec.URL == "" {
+		return nil, fmt.Errorf("connector %q: empty url", spec.Name)
 	}
-	cmd := exec.CommandContext(ctx, spec.Command[0], spec.Command[1:]...)
-	cmd.Env = []string{} // empty env at discovery; no host env leaks in
-	stdin, stdout, _, err := startStdio(cmd, spec.Name)
+	opts := []transport.StreamableHTTPCOption{
+		transport.WithHTTPHeaders(renderHeaders(spec.Headers, secrets)),
+	}
+	if spec.CallTimeout > 0 {
+		opts = append(opts, transport.WithHTTPTimeout(spec.CallTimeout))
+	}
+	c, err := client.NewStreamableHttpClient(spec.URL, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("connector %q dial: %w", spec.Name, err)
+	}
+	if err := c.Start(ctx); err != nil {
+		c.Close()
+		return nil, fmt.Errorf("connector %q start: %w", spec.Name, err)
+	}
+	var req mcp.InitializeRequest
+	req.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
+	req.Params.ClientInfo = mcp.Implementation{Name: "arizuko-broker", Version: "1"}
+	if _, err := c.Initialize(ctx, req); err != nil {
+		c.Close()
+		return nil, fmt.Errorf("connector %q initialize: %w", spec.Name, err)
+	}
+	return c, nil
+}
+
+// DiscoverConnectorTools opens a session with the folder's resolved secrets and
+// lists the remote catalog. Secrets are required because a remote MCP server
+// authenticates tools/list — GitHub's answers 401 without a bearer — which is
+// why this runs per folder at socket build and not once at routd boot.
+func DiscoverConnectorTools(ctx context.Context, spec *ConnectorSpec, secrets map[string]string) ([]ConnectorTool, error) {
+	if spec.CallTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, spec.CallTimeout)
+		defer cancel()
+	}
+	c, err := dial(ctx, spec, secrets)
 	if err != nil {
 		return nil, err
 	}
-	defer killProc(cmd, spec.Name)
-
-	rdr := bufio.NewReader(stdout)
-	if err := initialize(stdin, rdr); err != nil {
-		return nil, fmt.Errorf("connector %q initialize: %w", spec.Name, err)
-	}
-	resp, err := callRPC(stdin, rdr, "tools/list", map[string]any{})
+	defer c.Close()
+	res, err := c.ListTools(ctx, mcp.ListToolsRequest{})
 	if err != nil {
 		return nil, fmt.Errorf("connector %q tools/list: %w", spec.Name, err)
 	}
-	var list struct {
-		Tools []struct {
-			Name        string          `json:"name"`
-			Description string          `json:"description"`
-			InputSchema json.RawMessage `json:"inputSchema"`
-		} `json:"tools"`
-	}
-	if err := json.Unmarshal(resp, &list); err != nil {
-		return nil, fmt.Errorf("connector %q tools/list parse: %w", spec.Name, err)
-	}
-	out := make([]ConnectorTool, 0, len(list.Tools))
-	for _, t := range list.Tools {
+	out := make([]ConnectorTool, 0, len(res.Tools))
+	for _, t := range res.Tools {
+		// The upstream's schema travels verbatim to the agent. mcp.Tool hides
+		// RawInputSchema from JSON, so the decoded InputSchema is re-marshalled
+		// rather than read back off the wire.
+		schema, merr := json.Marshal(t.InputSchema)
+		if merr != nil {
+			return nil, fmt.Errorf("connector %q tool %q schema: %w", spec.Name, t.Name, merr)
+		}
 		out = append(out, ConnectorTool{
 			Connector:   spec,
 			RemoteName:  t.Name,
 			LocalName:   spec.Name + "_" + t.Name,
 			Description: t.Description,
-			InputSchema: t.InputSchema,
+			InputSchema: schema,
 		})
 	}
 	return out, nil
 }
 
-// CallConnectorTool spawns the connector subprocess with secrets rendered
-// into its env, proxies tools/call, scrubs known secret values from the
-// result text, and tears down. Per spec 5/13 § "Why the agent can't leak
-// the credential" the value scrub is exact-string match against the
-// (finite) per-call secret set.
+// CallConnectorTool opens a session with the secrets rendered into headers,
+// proxies tools/call, and scrubs known secret values from the result. Per spec
+// 5/13 § "Why the agent can't leak the credential" the value scrub is exact
+// string match against the (finite) per-call secret set.
 func CallConnectorTool(
 	ctx context.Context, tool ConnectorTool, args any, secrets map[string]string,
 ) (*mcp.CallToolResult, error) {
@@ -131,157 +140,110 @@ func CallConnectorTool(
 		ctx, cancel = context.WithTimeout(ctx, spec.CallTimeout)
 		defer cancel()
 	}
-	env := renderEnv(spec.EnvTemplate, secrets)
-	cmd := exec.CommandContext(ctx, spec.Command[0], spec.Command[1:]...)
-	cmd.Env = env
-	stdin, stdout, _, err := startStdio(cmd, spec.Name)
+	c, err := dial(ctx, spec, secrets)
 	if err != nil {
 		return nil, err
 	}
-	defer killProc(cmd, spec.Name)
-	rdr := bufio.NewReader(stdout)
-	if err := initialize(stdin, rdr); err != nil {
-		return nil, fmt.Errorf("connector %q initialize: %w", spec.Name, err)
-	}
-	resp, err := callRPC(stdin, rdr, "tools/call", map[string]any{
-		"name":      tool.RemoteName,
-		"arguments": args,
-	})
+	defer c.Close()
+	var req mcp.CallToolRequest
+	req.Params.Name = tool.RemoteName
+	req.Params.Arguments = args
+	res, err := c.CallTool(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("connector %q tools/call: %w", spec.Name, err)
 	}
-	result := scrubResult(resp, secrets)
-	var parsed mcp.CallToolResult
-	if err := json.Unmarshal(result, &parsed); err != nil {
-		return nil, fmt.Errorf("connector %q result parse: %w", spec.Name, err)
-	}
-	return &parsed, nil
+	return scrubCallResult(res, secrets)
 }
 
-// renderEnv resolves "{secret:KEY}" in each template value against the
-// resolved-secrets map. Returns an env slice (KEY=VALUE) suitable for
-// exec.Cmd.Env. Empty resolution leaves the placeholder empty (broker
-// already emitted a "missing" audit row).
-func renderEnv(tmpl, secrets map[string]string) []string {
-	out := make([]string, 0, len(tmpl))
+// renderHeaders resolves "{secret:KEY}" in each header value against the
+// resolved-secrets map. A header whose placeholder resolves to empty is DROPPED
+// rather than sent blank: an `Authorization: Bearer ` with no token reads to the
+// upstream as a malformed credential instead of an absent one.
+func renderHeaders(tmpl, secrets map[string]string) map[string]string {
+	out := make(map[string]string, len(tmpl))
 	for k, v := range tmpl {
-		out = append(out, k+"="+expandSecret(v, secrets))
+		rendered := expandSecret(v, secrets)
+		if rendered == "" || hasUnresolvedSecret(rendered) {
+			continue
+		}
+		out[k] = rendered
 	}
 	return out
 }
 
 func expandSecret(s string, secrets map[string]string) string {
 	for key, val := range secrets {
-		ph := "{secret:" + key + "}"
-		s = strings.ReplaceAll(s, ph, val)
+		if val == "" {
+			continue
+		}
+		s = strings.ReplaceAll(s, "{secret:"+key+"}", val)
 	}
 	return s
 }
 
-// scrubResult exact-string-replaces any non-empty resolved secret value
-// in the JSON text with "«redacted»". Cheap; the secret set is small per
-// call. Only acts on bytes — not on schema/structure.
-func scrubResult(b []byte, secrets map[string]string) []byte {
-	return []byte(scrubSecrets(string(b), secrets))
+// hasUnresolvedSecret reports whether a rendered value still carries a
+// "{secret:" placeholder — the key was declared but the broker resolved nothing.
+func hasUnresolvedSecret(s string) bool {
+	return strings.Contains(s, "{secret:")
 }
 
-// startStdio wires the subprocess pipes. stderr is line-buffered into
-// slog.Debug under the connector name so connector noise never reaches
-// the agent. Returns the start error if cmd.Start fails.
-func startStdio(cmd *exec.Cmd, name string) (io.WriteCloser, io.ReadCloser, io.ReadCloser, error) {
-	stdin, err := cmd.StdinPipe()
+// scrubCallResult re-marshals the result, replaces any non-empty resolved secret
+// value with "«redacted»", and decodes it back. Round-tripping through JSON is
+// what lets one exact-string pass cover every text field the upstream returns.
+func scrubCallResult(res *mcp.CallToolResult, secrets map[string]string) (*mcp.CallToolResult, error) {
+	if res == nil {
+		return nil, fmt.Errorf("connector: nil result")
+	}
+	if !anySecretSet(secrets) {
+		return res, nil
+	}
+	b, err := json.Marshal(res)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, fmt.Errorf("connector result marshal: %w", err)
 	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		stdin.Close()
-		return nil, nil, nil, err
+	cleaned := scrubSecrets(string(b), secrets)
+	var out mcp.CallToolResult
+	if err := json.Unmarshal([]byte(cleaned), &out); err != nil {
+		return nil, fmt.Errorf("connector result parse: %w", err)
 	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		stdin.Close()
-		stdout.Close()
-		return nil, nil, nil, err
-	}
-	if err := cmd.Start(); err != nil {
-		stdin.Close()
-		stdout.Close()
-		stderr.Close()
-		return nil, nil, nil, err
-	}
-	go drainStderr(stderr, name)
-	return stdin, stdout, stderr, nil
+	return &out, nil
 }
 
-func drainStderr(r io.Reader, name string) {
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 64*1024), 1024*1024)
-	for sc.Scan() {
-		slog.Debug("connector stderr", "connector", name, "line", sc.Text())
+func anySecretSet(secrets map[string]string) bool {
+	for _, v := range secrets {
+		if v != "" {
+			return true
+		}
 	}
+	return false
 }
 
-func killProc(cmd *exec.Cmd, name string) {
-	if cmd.Process != nil {
-		_ = cmd.Process.Kill()
-	}
-	_ = cmd.Wait() // collect zombie + drain pipes
-	slog.Debug("connector torn down", "connector", name)
-}
-
-func initialize(stdin io.Writer, rdr *bufio.Reader) error {
-	_, err := callRPC(stdin, rdr, "initialize", map[string]any{
-		"protocolVersion": "2024-11-05",
-		"capabilities":    map[string]any{},
-		"clientInfo":      map[string]any{"name": "arizuko-broker", "version": "1"},
-	})
-	if err != nil {
-		return err
-	}
-	// notifications/initialized — fire-and-forget, no id.
-	note := map[string]any{
-		"jsonrpc": "2.0",
-		"method":  "notifications/initialized",
-		"params":  map[string]any{},
-	}
-	b, _ := json.Marshal(note)
-	if _, err := stdin.Write(append(b, '\n')); err != nil {
-		return err
-	}
-	return nil
-}
-
-func callRPC(stdin io.Writer, rdr *bufio.Reader, method string, params any) (json.RawMessage, error) {
-	id := nextRPCID()
-	req := rpcReq{JSONRPC: "2.0", ID: id, Method: method, Params: params}
-	b, err := json.Marshal(req)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := stdin.Write(append(b, '\n')); err != nil {
-		return nil, err
-	}
-	for {
-		line, err := rdr.ReadBytes('\n')
+// discoverConnector resolves the folder's credential for one connector and lists
+// its remote catalog. The credential is spent on a real tools/list request
+// upstream, so it goes through the SAME audited broker seam a call does — the
+// `<name>_tools/list` tool string is what `secret_use_log` records it as.
+//
+// A connector that cannot be reached or authenticated registers no tools. That
+// is logged at error and never fails the turn: one unreachable third party must
+// not cost the agent every other tool it has.
+func discoverConnector(spec *ConnectorSpec, db StoreFns, folder string) []ConnectorTool {
+	var secrets map[string]string
+	if db.ResolveConnectorSecrets != nil {
+		var err error
+		secrets, err = db.ResolveConnectorSecrets(folder, spec.Name+"_tools/list", spec.Secrets)
 		if err != nil {
-			return nil, fmt.Errorf("read: %w", err)
+			slog.Error("connector: resolve discovery secrets",
+				"connector", spec.Name, "folder", folder, "err", err)
+			return nil
 		}
-		line = []byte(strings.TrimSpace(string(line)))
-		if len(line) == 0 {
-			continue
-		}
-		var resp rpcResp
-		if err := json.Unmarshal(line, &resp); err != nil {
-			return nil, fmt.Errorf("parse: %w", err)
-		}
-		if resp.ID != id {
-			// Notification or out-of-order reply; ignore.
-			continue
-		}
-		if resp.Error != nil {
-			return nil, errors.New(resp.Error.Message)
-		}
-		return resp.Result, nil
 	}
+	tools, err := DiscoverConnectorTools(context.Background(), spec, secrets)
+	if err != nil {
+		slog.Error("connector: discovery failed; no tools registered",
+			"connector", spec.Name, "folder", folder, "url", spec.URL, "err", err)
+		return nil
+	}
+	slog.Info("connector discovered",
+		"connector", spec.Name, "folder", folder, "tools", len(tools))
+	return tools
 }

@@ -241,15 +241,16 @@ func main() {
 	// audit_log table (audit.Init above owns that). AUDIT_ENABLED unset → noop.
 	srv.SetAudit(audit.New(audit.LoadConfig(dataDir, os.Getenv("ARIZUKO_INSTANCE"))))
 	// MCP connectors (spec 5/13 § connectors.toml): load <DATA_DIR>/connectors.toml
-	// (or $CONNECTORS_TOML), spawn each once to harvest its tool catalog, register
-	// through every per-turn MCP socket. Missing file is fine; a bad file is a
-	// boot failure (fail-fast).
-	if conns, cerr := routd.LoadConnectors(ctx, dataDir); cerr != nil {
+	// (or $CONNECTORS_TOML) and hand the specs to every per-turn MCP socket, which
+	// discovers each catalog with the folder's broker-resolved credential. Nothing
+	// is dialled here: boot has no folder, so it has no token. Missing file is
+	// fine; a bad file is a boot failure (fail-fast).
+	if conns, cerr := routd.LoadConnectors(dataDir); cerr != nil {
 		slog.Error("connectors: load failed", "err", cerr)
 		os.Exit(1)
 	} else if len(conns) > 0 {
 		srv.SetConnectors(conns)
-		slog.Info("connectors loaded", "tools", len(conns))
+		slog.Info("connectors loaded", "connectors", len(conns))
 	}
 	if extTools, eerr := routd.LoadExtProviders(ctx, dataDir); eerr != nil {
 		slog.Warn("ext providers: load failed", "err", eerr)

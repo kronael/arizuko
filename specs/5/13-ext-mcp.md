@@ -26,7 +26,7 @@ agent MCP call
   → gate        auth.Authorize("mcp:"+toolName) — may this folder call this tool?
   → inject      resolve folder/user secrets ON THE HOST → map[string]string (never logged)
   → recover/timeout
-  → handler     Go function | REST call | MCP subprocess
+  → handler     Go function | REST call | MCP HTTP connector
   → audit       audit_log row: folder, tool, scope, status, latency_ms
   → result      (secret values scrubbed from the response)
 ```
@@ -39,23 +39,71 @@ surface is fully covered by shapes 2 and 3. A plain Go built-in that needs
 folder secrets would be the first consumer — none does, so building the plumbing
 now is a speculative primitive. Add it WITH its first consumer.
 
-## Shape 2 — MCP subprocess connector (shipped)
+## Shape 2 — MCP HTTP connector (shipped)
 
-A third party ships its own MCP server; arizuko spawns it per call as a stdio
-subprocess. No Go handler needed. Declared in `connectors.toml` with a command,
-a `secrets` list, an `env_template` rendering `{secret:KEY}` placeholders, and a
-`scope` of `per_call` (torn down immediately) or `per_session` (pooled per
-`(connector, caller.sub)`, never shared across users).
+A third party hosts its own MCP server; arizuko calls it over streamable HTTP.
+No Go handler, no subprocess, no runtime to install. Declared in
+`connectors.toml` with a `url`, a `secrets` list, and a `headers` map rendering
+`{secret:KEY}` placeholders.
 
-1. **Boot** — `DiscoverConnectorTools` (`ipc/connector.go:77`) spawns with empty
-   env, calls `tools/list`, caches the catalog. Each remote tool registers as
-   `<connector>_<remote_name>`.
-2. **Per call** — `ConnectorSecrets` (`routd/sibling_db.go:141`) narrows the
-   folder secret map to only the keys the connector declared; the connector
-   never sees the full folder secret set.
-3. **Dispatch** — `ipc/ipc.go:997` renders the env template, spawns, proxies
-   `tools/call` (`ipc/connector.go:125`), scrubs known secret values out of the
-   result JSON.
+1. **Boot** — `LoadConnectors` (`routd/connectors.go`) parses and validates the
+   blocks. It dials NOTHING: the credential is per folder and boot has no
+   folder. A `http://` endpoint is refused here, because the credential rides in
+   a header.
+2. **Per folder** — at each turn's socket build, `discoverConnector`
+   (`ipc/connector.go`) resolves the folder's secrets through the SAME audited
+   broker seam a call uses (recorded as `<connector>_tools/list`, because a
+   remote `tools/list` genuinely spends the credential), then calls `tools/list`.
+   Each remote tool registers as `<connector>_<remote_name>`. A connector that
+   cannot be reached or authenticated registers no tools and is logged at error;
+   it never fails the turn.
+3. **Per call** — `ConnectorSecrets` (`routd/sibling_db.go`) narrows the folder
+   secret map to only the keys the connector declared; the connector never sees
+   the full folder secret set.
+4. **Dispatch** — `ipc/ipc.go` resolves, `CallConnectorTool`
+   (`ipc/connector.go`) renders the headers, proxies `tools/call`, and scrubs
+   known secret values out of the result.
+
+### Why HTTP and not a subprocess
+
+The stdio shape shipped and could never run. The connector subprocess spawns
+inside **routd**, and routd's image is static Go binaries — no node, no npx, no
+`github-mcp-server` — while routd deliberately holds no docker socket (runed is
+the only daemon that does). All three commands `template/connectors/github.toml`
+offered were therefore dead on arrival, and no instance ever configured one
+(BUGS `L132`, closed 2026-08-30 as the wrong fix: shipping a binary into the
+shared runtime image would have bloated every daemon that shares it — proxyd,
+teled, onbod — to serve one connector).
+
+An endpoint needs no runtime. `connectors.toml` is operator-written and
+immutable after boot, so the reachable destination set is CONFIGURED, not
+agent-chosen: that file is the allowlist, and the agent picks a tool, never a
+host. routd already makes outbound HTTPS on this exact path — surrogate OAuth
+refreshes tokens against the provider at call time (`routd/surrogate_refresh.go`)
+— so no new egress boundary is crossed.
+
+### OAuth is the next step, not this one
+
+MCP's authorization spec is reachable only over HTTP: an stdio server "SHOULD
+NOT" follow it and takes credentials from the environment instead. Moving the
+transport is what puts that door in reach. It is NOT wired yet — the connector
+authenticates with the broker-resolved static token, which for GitHub may be a
+PAT or a `5/15` surrogate access token, since `auth/surrogate/providers/github.toml`
+already targets the same authorization server GitHub's remote MCP server names
+in its protected-resource metadata.
+
+What full MCP OAuth would still need:
+
+- RFC 9728 protected-resource-metadata discovery off the `401` challenge, RFC
+  8414 authorization-server metadata, and RFC 7591 dynamic client registration —
+  the last is what a per-provider TOML cannot replace for an unknown server.
+- The `resource` parameter (RFC 8707) binding the token to the MCP endpoint.
+- **A consent flow with no user present.** Discovery and refresh run inside
+  routd; an authorization-code dance needs a browser and a human. `5/15` already
+  solves this for the folder credential by consenting once at `/dash/me/connections`
+  and storing the refresh token, so the connector inherits that answer — but a
+  server requiring per-client DCR has no equivalent, and that gap is the reason
+  this is a separate change.
 
 ## Shape 3 — REST descriptor (shipped)
 
@@ -79,7 +127,7 @@ evaluator and glob syntax as `5/32`, e.g. `ext:cloudflare:dns:write`,
 | shape           | grant prefix                | example                          |
 | --------------- | --------------------------- | -------------------------------- |
 | Go handler      | any custom string           | `github:pr:write`                |
-| MCP subprocess  | `mcp:<connector>:<tool>`    | `mcp:github:create_pull_request` |
+| MCP HTTP        | `mcp:<connector>:<tool>`    | `mcp:github:create_pull_request` |
 | REST descriptor | `ext:<service>:<operation>` | `ext:cloudflare:dns:write`       |
 
 All checked via `auth.Authorize` before any handler fires. There is **no
@@ -153,8 +201,9 @@ Four escape paths the broker closes:
 1. **Tool result echoes the token** — the broker scrubs known secret values from
    the result before returning to the agent (exact-string match on the keys
    declared for that call).
-2. **Subprocess stderr** — routed to a broker-owned sink, never the agent
-   (`ipc/connector.go` `slog.Debug` under the connector name).
+2. **Transport errors and upstream diagnostics** — surfaced to routd's log, never
+   returned as tool output (`ipc/connector.go` wraps every transport failure with
+   the connector name and returns it to the caller without the rendered headers).
 3. **Agent steers the tool to leak** — connector registration is operator-only;
    agents cannot add connectors or REST descriptors.
 4. **Agent reads its own environment** — the spawn ships only the caller's
@@ -176,13 +225,13 @@ capability surface; they do not define it.
 - Single-user deployments have no conflict: the user IS the operator. The
   boundary only applies when users ≠ operator.
 
-## Shape 4 — HTTP upstream MCP (planned)
+## Still open — `mcp_connectors` as a resource
 
-Replaces the stdio subprocess for connectors that ship as long-running HTTP
-services (sidecar MCP servers, hosted providers like `mcp.linear.app/mcp`): a
-`transport = "http"` + `url` in the connector block, same dispatch chain, no
-spawn. `connectors.toml` becomes an `mcp_connectors` resreg resource in routd.db
-so agents can list them and operators manage via dashd — tracked in `5/16`.
+`connectors.toml` is a file read once at boot. Making it an `mcp_connectors`
+resreg resource in routd.db — so agents can list connectors and operators manage
+them via dashd — is tracked in `5/16`. Until then a connector change is an
+operator file edit plus a routd restart, and the file's immutability is what
+makes it the destination allowlist.
 
 ## Out of scope
 

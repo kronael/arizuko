@@ -41,28 +41,18 @@ func TestNumArg(t *testing.T) {
 	}
 }
 
-// --- renderEnv / expandSecret / scrubResult ---
+// --- renderHeaders / expandSecret / scrubSecrets ---
 
-func TestRenderEnv(t *testing.T) {
-	tmpl := map[string]string{
-		"API_KEY": "{secret:MY_KEY}",
-		"STATIC":  "no-substitution",
+func TestRenderHeaders(t *testing.T) {
+	m := renderHeaders(map[string]string{
+		"X-Api-Key": "{secret:MY_KEY}",
+		"X-Static":  "no-substitution",
+	}, map[string]string{"MY_KEY": "secret123"})
+	if m["X-Api-Key"] != "secret123" {
+		t.Errorf("X-Api-Key = %q, want secret123", m["X-Api-Key"])
 	}
-	secrets := map[string]string{"MY_KEY": "secret123"}
-	out := renderEnv(tmpl, secrets)
-	// Convert to map for order-independent check.
-	m := make(map[string]string)
-	for _, kv := range out {
-		parts := strings.SplitN(kv, "=", 2)
-		if len(parts) == 2 {
-			m[parts[0]] = parts[1]
-		}
-	}
-	if m["API_KEY"] != "secret123" {
-		t.Errorf("API_KEY = %q, want secret123", m["API_KEY"])
-	}
-	if m["STATIC"] != "no-substitution" {
-		t.Errorf("STATIC = %q, want no-substitution", m["STATIC"])
+	if m["X-Static"] != "no-substitution" {
+		t.Errorf("X-Static = %q, want no-substitution", m["X-Static"])
 	}
 }
 
@@ -74,10 +64,9 @@ func TestExpandSecret_MultiplePlaceholders(t *testing.T) {
 	}
 }
 
-func TestScrubResult_ReplacesNonEmpty(t *testing.T) {
-	b := []byte(`{"text":"the secret abc and more abc"}`)
-	out := scrubResult(b, map[string]string{"TOK": "abc", "EMPTY": ""})
-	s := string(out)
+func TestScrubSecrets_ReplacesNonEmpty(t *testing.T) {
+	s := scrubSecrets(`{"text":"the secret abc and more abc"}`,
+		map[string]string{"TOK": "abc", "EMPTY": ""})
 	if strings.Contains(s, "abc") {
 		t.Errorf("raw secret still present: %q", s)
 	}

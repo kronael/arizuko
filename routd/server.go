@@ -139,7 +139,7 @@ type Server struct {
 	// connectors is the discovered MCP-connector tool catalog (connectors.toml),
 	// loaded once at boot and registered through every per-turn MCP socket.
 	// nil/empty leaves the connector path off. Set via SetConnectors.
-	connectors []ipc.ConnectorTool
+	connectors []ipc.ConnectorSpec
 
 	// extTools is the REST-descriptor tool catalog (builtin providers +
 	// operator [[ext]] blocks), registered per-turn. Set via SetExtTools.
@@ -211,9 +211,10 @@ func (s *Server) SetTTS(c ttsConfig) { s.tts = c }
 // stream).
 func (s *Server) SetAudit(a *audit.Audit) { s.audit = a }
 
-// SetConnectors supplies the discovered connector-tool catalog (LoadConnectors).
-// Every per-turn MCP socket registers it; nil/empty leaves the path off.
-func (s *Server) SetConnectors(c []ipc.ConnectorTool) { s.connectors = c }
+// SetConnectors supplies the configured connector specs (LoadConnectors). Every
+// per-turn MCP socket discovers each one's catalog with the folder's credential;
+// nil/empty leaves the path off.
+func (s *Server) SetConnectors(c []ipc.ConnectorSpec) { s.connectors = c }
 
 // SetExtTools supplies the REST-descriptor tool catalog (LoadExtProviders).
 // Every per-turn MCP socket registers it; nil/empty leaves the path off.

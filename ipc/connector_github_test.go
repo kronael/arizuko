@@ -3,18 +3,17 @@ package ipc
 import (
 	"context"
 	"os"
-	"os/exec"
 	"testing"
 	"time"
 )
 
-// TestConnector_GitHubPATIntegration smoke-tests the github-mcp connector
-// end-to-end when GITHUB_TOKEN is set in the test env (mirroring the
-// operator-side path). Skips otherwise. Spec 7/Y M7.
+// TestConnector_GitHubPATIntegration drives the REAL GitHub remote MCP server
+// through the connector when GITHUB_TOKEN is set, mirroring the operator path.
+// Skips otherwise. Spec 5/13 shape 2.
 //
-// Requires:
-//   - GITHUB_TOKEN env (fine-grained PAT, read scope on a public repo)
-//   - npx + node on $PATH (the npm-based github-mcp server)
+// It needs no local runtime: the endpoint is hosted, which is the whole reason
+// the connector moved off stdio (BUGS L132). A PAT is accepted as the bearer;
+// the same slot takes a surrogate-OAuth access token (spec 5/15).
 func TestConnector_GitHubPATIntegration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test; needs network + github PAT")
@@ -23,26 +22,19 @@ func TestConnector_GitHubPATIntegration(t *testing.T) {
 	if token == "" {
 		t.Skip("GITHUB_TOKEN unset")
 	}
-	if _, err := exec.LookPath("npx"); err != nil {
-		t.Skip("npx not on PATH")
-	}
 
 	spec := &ConnectorSpec{
-		Name:    "github",
-		Command: []string{"npx", "-y", "@modelcontextprotocol/server-github"},
-		Secrets: []string{"GITHUB_TOKEN"},
-		EnvTemplate: map[string]string{
-			"GITHUB_PERSONAL_ACCESS_TOKEN": "{secret:GITHUB_TOKEN}",
-			"PATH":                         os.Getenv("PATH"),
-			"HOME":                         os.Getenv("HOME"),
-		},
-		Scope:       "per_call",
+		Name:        "github",
+		URL:         "https://api.githubcopilot.com/mcp/",
+		Secrets:     []string{"GITHUB_TOKEN"},
+		Headers:     map[string]string{"Authorization": "Bearer {secret:GITHUB_TOKEN}"},
 		CallTimeout: 60 * time.Second,
 	}
+	secrets := map[string]string{"GITHUB_TOKEN": token}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	tools, err := DiscoverConnectorTools(ctx, spec)
+	tools, err := DiscoverConnectorTools(ctx, spec, secrets)
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
@@ -51,16 +43,17 @@ func TestConnector_GitHubPATIntegration(t *testing.T) {
 	}
 	t.Logf("discovered %d github tools", len(tools))
 	for _, tool := range tools {
-		if tool.LocalName == "github_get_me" || tool.LocalName == "github_search_repositories" {
-			res, err := CallConnectorTool(ctx, tool, map[string]any{}, map[string]string{"GITHUB_TOKEN": token})
-			if err != nil {
-				t.Fatalf("Call %s: %v", tool.LocalName, err)
-			}
-			if len(res.Content) == 0 {
-				t.Errorf("%s: empty content", tool.LocalName)
-			}
-			return
+		if tool.LocalName != "github_get_me" {
+			continue
 		}
+		res, err := CallConnectorTool(ctx, tool, map[string]any{}, secrets)
+		if err != nil {
+			t.Fatalf("Call %s: %v", tool.LocalName, err)
+		}
+		if len(res.Content) == 0 {
+			t.Errorf("%s: empty content", tool.LocalName)
+		}
+		return
 	}
-	t.Logf("no get_me/search_repositories tool to call; smoke pass")
+	t.Logf("no get_me tool to call; discovery smoke pass")
 }

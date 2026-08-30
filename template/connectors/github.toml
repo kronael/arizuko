@@ -1,39 +1,40 @@
 # GitHub MCP connector (spec 5/13). Operator copy: drop this block into
 # <data_dir>/connectors.toml (multi-block file) and restart routd.
 #
-# WARNING — NONE of the commands below runs in the shipped image (BUGS L132).
-# The connector subprocess spawns inside routd, whose image carries static Go
-# binaries and no node: `command -v node npx github-mcp-server` exits 127, and
-# routd has no docker socket by design (runed is the only daemon that holds
-# one). Configure a block here only after an operator installs the server into
-# routd's image. Until then use the shell route below.
+# This is GitHub's HOSTED MCP server — nothing is installed. The connector is an
+# HTTPS endpoint routd calls, so no runtime enters routd's image (which carries
+# static Go binaries and no node) and routd needs no docker socket. The stdio
+# subprocess shape this file used to document could never run for exactly that
+# reason (BUGS L132).
 #
-# THE ROUTE THAT WORKS TODAY. `gh` is already installed in the agent image
-# (ant/Dockerfile). Put the token in the secrets table, then grant the folder
-# the one key it may read from its own shell:
+# THE TOKEN. Put it in the secrets table, folder- or user-scoped:
 #
 #   arizuko secret <inst> set folder:<folder> GITHUB_TOKEN --value ghp_…
-#   arizuko group <inst> grant 'folder:<folder>' '<folder>' 'shell:env:GITHUB_TOKEN'
 #
-# That tier hands the agent a SPENDABLE token — `ghWriteGate` refuses the named
-# writes, but the token can also be spent with curl. Scope the PAT at GitHub to
-# what the folder may do; a PAT without `pull_requests: write` cannot approve a
-# pull request however it is called. The connector, when it can run, is the
-# stronger shape: the broker resolves per call and the agent never holds it.
+# The broker resolves it per call, renders it into the Authorization header
+# below, and scrubs the value out of the result. The agent never holds it — that
+# is the whole point of the connector over the `shell:env:GITHUB_TOKEN` grant,
+# which hands the agent a spendable token instead.
+#
+# `auth/surrogate/providers/github.toml` (spec 5/15) writes the SAME
+# `GITHUB_TOKEN` key after a user consents at /dash/me/connections, so the agent
+# can act as the human rather than as a shared PAT. Either fills this slot.
 #
 # THE TOKEN DOES NOT GO IN THE HOST .env. `readSecrets` passes only
 # `store.EnvProfileKeys` (the model credentials) into a container, so a
 # GH_TOKEN there reaches nothing.
 #
-# Command options, once a runtime exists:
-#  - GitHub official binary (a static Go binary, so it matches an image that is
-#    already only Go binaries — prefer this):
-#      command = ["github-mcp-server", "stdio"]
-#  - npx (needs node in routd's image; that bloats every daemon sharing it):
-#      command = ["npx", "-y", "@modelcontextprotocol/server-github"]
+# SCOPE THE PAT. An `acl` row refuses a tool; only the token bounds what that
+# tool may do once called. A fine-grained PAT without `pull_requests: write`
+# cannot approve a pull request however it is reached.
+#
+# GRANTS. Each remote tool is gated as `mcp:github_<tool>`, so a deny row or a
+# `hold:` row (spec 5/19) can name one operation — the per-call authority the
+# shell route cannot express.
 [[mcp_connector]]
-name         = "github"
-command      = ["github-mcp-server", "stdio"]
-secrets      = ["GITHUB_TOKEN"]
-env_template = { GITHUB_PERSONAL_ACCESS_TOKEN = "{secret:GITHUB_TOKEN}" }
-scope        = "per_call"
+name    = "github"
+url     = "https://api.githubcopilot.com/mcp/"
+secrets = ["GITHUB_TOKEN"]
+
+[mcp_connector.headers]
+Authorization = "Bearer {secret:GITHUB_TOKEN}"

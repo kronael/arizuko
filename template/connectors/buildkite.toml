@@ -1,6 +1,11 @@
 # Buildkite MCP connector (spec 5/13 shape 2). Operator copy: drop this block
 # into <data_dir>/connectors.toml (multi-block file) and restart routd.
 #
+# This is Buildkite's HOSTED MCP server — nothing is installed. The connector is
+# an HTTPS endpoint routd calls, so no runtime enters routd's image and routd
+# needs no docker socket. The stdio subprocess shape this file used to document
+# could never run for exactly that reason (BUGS L132).
+#
 # THE TOKEN DOES NOT GO IN THE HOST .env. `readSecrets` passes only
 # `store.EnvProfileKeys` (the model credentials) into a container, so a
 # BK_TOKEN in .env reaches nothing. A capability credential lives in the
@@ -11,26 +16,13 @@
 #   arizuko user-secret <inst> set <user_sub> BUILDKITE_TOKEN --value bkua_…
 #   # or hand the user /dash/me/secrets
 #
-# Set `command` to whatever Buildkite MCP server the operator installed — this
-# file does not name one, because arizuko owns the wiring below and not the
-# upstream's packaging. The arizuko-side contract is the three lines that
-# follow it: which secret the broker resolves, what env name the subprocess
-# reads it under, and the per-call lifetime.
-#
 # Scope the token at Buildkite, not here. A read-only Buildkite token is the
 # enforcement for "the agent may look but not trigger" — an acl row can refuse
 # a TOOL, but only the token bounds what that tool can do once called.
-#
-# Same runtime blocker as github.toml (BUGS L132): no MCP server runs in routd's
-# image yet. If Buildkite ships a CLI the agent can drive from Bash, the shell
-# route reaches it today instead:
-#
-#   arizuko group <inst> grant 'folder:<folder>' '<folder>' 'shell:env:BUILDKITE_TOKEN'
-#
-# That hands the agent a spendable token, so grant it only with a read-only one.
 [[mcp_connector]]
-name         = "buildkite"
-command      = ["<buildkite-mcp-server>", "stdio"]
-secrets      = ["BUILDKITE_TOKEN"]
-env_template = { BUILDKITE_API_TOKEN = "{secret:BUILDKITE_TOKEN}" }
-scope        = "per_call"
+name    = "buildkite"
+url     = "https://mcp.buildkite.com/mcp"
+secrets = ["BUILDKITE_TOKEN"]
+
+[mcp_connector.headers]
+Authorization = "Bearer {secret:BUILDKITE_TOKEN}"

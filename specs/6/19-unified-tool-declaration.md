@@ -31,9 +31,9 @@ and two registration loops:
   blocks after the embedded built-ins with **no shadow or collision
   rule** — an operator block reusing a built-in provider name yields
   duplicate `LocalName`s with unspecified precedence.
-- `5/13` §Shape 4 plans a THIRD variant (HTTP upstream MCP:
-  `transport = "http"` + `url`) — as written it lands beside the other
-  two, not inside one shape.
+- `5/13` shape 2 became HTTP (`url` + `headers`) on 2026-08-30, so the two
+  remaining variants are `[[mcp_connector]]` and `[[ext]]` — both now HTTP,
+  which makes one block cheaper to reach, not harder.
 
 resreg resources and the hot-tier hand-authored tools are NOT part of
 this: they are platform surface with their own two-face discipline
@@ -86,10 +86,9 @@ execution shapes; only the declaration unifies.
 ## The delta
 
 1. **One `[[connector]]` block, `transport = "stdio" | "http" | "rest"`.**
-   Today's `[[mcp_connector]]` is `transport="stdio"`; today's `[[ext]]`
+   Today's `[[mcp_connector]]` is `transport="http"`; today's `[[ext]]`
    is `transport="rest"` (its `[[ext.tool]]` list moves under the block
-   unchanged); `5/13` shape 4 lands as `transport="http"` instead of a
-   third top-level shape. One loader replaces
+   unchanged). One loader replaces
    `LoadExtProviders` + the `mcp_connector` parse; one registration walk
    replaces the two loops. Grant namespaces (`mcp:` / `ext:`) and
    dispatch paths do not move.

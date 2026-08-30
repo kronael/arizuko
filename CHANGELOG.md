@@ -14,6 +14,40 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Changed
+
+- **MCP connectors are HTTP endpoints, not subprocesses** (spec `5/13` shape 2,
+  BUGS `L132`). The connector spawned a stdio subprocess inside routd, whose
+  image is static Go binaries — no node, no npx, no `github-mcp-server` — and
+  routd holds no docker socket by design. Every command
+  `template/connectors/github.toml` offered was therefore dead, and no instance
+  ever configured one. A `[[mcp_connector]]` block now takes a `url` and a
+  `headers` map, and the broker renders the same `{secret:KEY}` placeholders
+  into request headers instead of a process environment. Both shipped
+  connectors point at hosted servers that exist:
+  `https://api.githubcopilot.com/mcp/` and `https://mcp.buildkite.com/mcp`.
+  Nothing around the transport moved — the broker still narrows the folder's
+  secrets to the connector's declared keys, still writes `secret_use_log`, and
+  still scrubs secret values out of the result.
+- **Connector catalogs are discovered per folder.** A remote MCP server
+  authenticates `tools/list` (GitHub's answers `401`) and the credential is
+  folder-scoped, so routd's boot — which has no folder — dials nothing.
+  Each turn's socket build discovers with that folder's credential through the
+  same audited broker seam a call uses. A connector that cannot be reached
+  registers no tools and is logged at error; it never fails the turn.
+- **A connector endpoint must be `https://`**, refused at load rather than at
+  first call, because the credential now rides in a header.
+
+  MCP's own OAuth 2.1 becomes reachable with this change — the spec says an
+  stdio server "SHOULD NOT" use it and takes credentials from the environment —
+  but it is NOT wired: connectors authenticate with the broker-resolved static
+  token, which for GitHub may be a PAT or a `5/15` surrogate token. What remains
+  is recorded in `5/13` §"OAuth is the next step, not this one".
+
+  **Breaking for operators with a `connectors.toml`:** replace `command` /
+  `env_template` / `scope` with `url` / `headers`. No instance in the fleet has
+  the file, so nothing live is affected.
+
 ## [v0.66.0] — 2026-08-29
 
 > arizuko v0.66.0 — a credential for the CLI the agent drives, and fourteen fixes

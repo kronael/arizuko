@@ -223,10 +223,11 @@ type StoreFns struct {
 	// LogExternalCost records one cost_log row for a non-Anthropic LLM call
 	// (oracle/codex/openai). Spec 11/19.
 	LogExternalCost func(folder, provider, model string, inputTok, outputTok, costCents int) error
-	// Connectors is the (discovered, namespaced) MCP-subprocess tool
-	// catalog, registered through the broker chain at buildMCPServer.
+	// Connectors is the configured MCP HTTP connector set. buildMCPServer
+	// discovers each one's catalog with this folder's broker-resolved
+	// credential and registers the result through the broker chain.
 	// Empty/nil disables the connector path. Spec 5/13.
-	Connectors []ConnectorTool
+	Connectors []ConnectorSpec
 
 	// ExtTools is the REST-descriptor tool catalog loaded from [[ext]]
 	// TOML blocks (built-in providers + operator connectors.toml).
@@ -1080,31 +1081,34 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			})
 	}
 
-	// MCP connectors. The handler spawns the subprocess per call, proxies
-	// tools/call, scrubs the result, tears the subprocess down.
+	// MCP connectors. Each configured endpoint is discovered with THIS folder's
+	// credential — the catalog is per folder because the credential is — then each
+	// remote tool registers as a broker tool that re-resolves per call.
 	for i := range db.Connectors {
-		tool := db.Connectors[i] // capture
-		// Skip announcement when the folder's own principal lacks grant. Default
-		// a grant of mcp:* covers every tool, so this only hides tools an explicit deny covers.
-		if db.Authorize != nil && !db.Authorize("folder:"+folder, folder, "mcp:"+tool.LocalName, nil) {
-			continue
-		}
-		opts := []mcp.ToolOption{}
-		if len(tool.InputSchema) > 0 {
-			opts = append(opts, mcp.WithRawInputSchema(tool.InputSchema))
-		}
-		granted(tool.LocalName, tool.Description, opts,
-			func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-				var secrets map[string]string
-				if db.ResolveConnectorSecrets != nil && tool.Connector != nil {
-					var rerr error
-					secrets, rerr = db.ResolveConnectorSecrets(folder, tool.LocalName, tool.Connector.Secrets)
-					if rerr != nil {
-						return mcp.NewToolResultError(rerr.Error()), nil
+		for _, tool := range discoverConnector(&db.Connectors[i], db, folder) {
+			tool := tool // capture
+			// Skip announcement when the folder's own principal lacks grant. Default
+			// a grant of mcp:* covers every tool, so this only hides tools an explicit deny covers.
+			if db.Authorize != nil && !db.Authorize("folder:"+folder, folder, "mcp:"+tool.LocalName, nil) {
+				continue
+			}
+			opts := []mcp.ToolOption{}
+			if len(tool.InputSchema) > 0 {
+				opts = append(opts, mcp.WithRawInputSchema(tool.InputSchema))
+			}
+			granted(tool.LocalName, tool.Description, opts,
+				func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+					var secrets map[string]string
+					if db.ResolveConnectorSecrets != nil && tool.Connector != nil {
+						var rerr error
+						secrets, rerr = db.ResolveConnectorSecrets(folder, tool.LocalName, tool.Connector.Secrets)
+						if rerr != nil {
+							return mcp.NewToolResultError(rerr.Error()), nil
+						}
 					}
-				}
-				return CallConnectorTool(ctx, tool, req.GetArguments(), secrets)
-			})
+					return CallConnectorTool(ctx, tool, req.GetArguments(), secrets)
+				})
+		}
 	}
 
 	// REST ext tools. Each call makes an HTTP request; secrets are

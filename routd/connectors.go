@@ -1,16 +1,17 @@
 package routd
 
 // Connector loader: reads <data_dir>/connectors.toml (or $CONNECTORS_TOML) at
-// routd boot, discovers each connector's tools by spawning the subprocess once,
-// returns a namespaced ConnectorTool catalog the per-turn MCP socket registers
-// through the broker chain. The reusable half (ConnectorSpec +
-// DiscoverConnectorTools + CallConnectorTool) lives in ipc.
+// routd boot and returns the validated specs. Discovery does NOT happen here —
+// a remote MCP server authenticates tools/list and the credential is per folder,
+// which routd's boot does not have, so the per-turn MCP socket discovers each
+// connector's catalog with the broker-resolved secrets. The reusable half
+// (ConnectorSpec + DiscoverConnectorTools + CallConnectorTool) lives in ipc.
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -25,11 +26,11 @@ type connectorFile struct {
 	Connectors []ipc.ConnectorSpec `toml:"mcp_connector"`
 }
 
-// LoadConnectors reads connectors.toml under projectRoot (or $CONNECTORS_TOML),
-// spawns each connector to harvest its tool catalog, returns the flattened
-// namespaced list. Missing file → nil (connector path disabled). Bad TOML,
-// unknown scope, or discovery failure are errors (fail-fast at boot).
-func LoadConnectors(ctx context.Context, projectRoot string) ([]ipc.ConnectorTool, error) {
+// LoadConnectors reads connectors.toml under projectRoot (or $CONNECTORS_TOML)
+// and returns the validated specs. Missing file → nil (connector path
+// disabled). Bad TOML or an invalid block is an error (fail-fast at boot); an
+// unreachable endpoint is not, because nothing is dialled here.
+func LoadConnectors(projectRoot string) ([]ipc.ConnectorSpec, error) {
 	path := os.Getenv("CONNECTORS_TOML")
 	if path == "" {
 		path = filepath.Join(projectRoot, "connectors.toml")
@@ -47,35 +48,33 @@ func LoadConnectors(ctx context.Context, projectRoot string) ([]ipc.ConnectorToo
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 	callTimeout := connectorCallTimeout()
-	var out []ipc.ConnectorTool
 	for i := range f.Connectors {
 		spec := &f.Connectors[i]
 		if err := validateConnector(spec); err != nil {
 			return nil, fmt.Errorf("connector[%d] %q: %w", i, spec.Name, err)
 		}
 		spec.CallTimeout = callTimeout
-		dctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-		tools, err := ipc.DiscoverConnectorTools(dctx, spec)
-		cancel()
-		if err != nil {
-			return nil, fmt.Errorf("connector %q discover: %w", spec.Name, err)
-		}
-		slog.Info("connector discovered",
-			"name", spec.Name, "tools", len(tools), "secrets", spec.Secrets)
-		out = append(out, tools...)
+		slog.Info("connector configured",
+			"name", spec.Name, "url", spec.URL, "secrets", spec.Secrets)
 	}
-	return out, nil
+	return f.Connectors, nil
 }
 
 func validateConnector(s *ipc.ConnectorSpec) error {
 	if s.Name == "" {
 		return errors.New("name required")
 	}
-	if len(s.Command) == 0 {
-		return errors.New("command required")
+	if s.URL == "" {
+		return errors.New("url required")
 	}
-	if s.Scope != "" && s.Scope != "per_call" {
-		return fmt.Errorf("scope=%q not supported (v1: per_call only)", s.Scope)
+	u, err := url.Parse(s.URL)
+	if err != nil {
+		return fmt.Errorf("url %q: %w", s.URL, err)
+	}
+	// The credential rides in a header, so a plaintext endpoint would put the
+	// folder's token on the wire. Refuse at load rather than at first call.
+	if u.Scheme != "https" && u.Hostname() != "localhost" && u.Hostname() != "127.0.0.1" {
+		return fmt.Errorf("url %q: https required (a header credential must not travel in plaintext)", s.URL)
 	}
 	return nil
 }

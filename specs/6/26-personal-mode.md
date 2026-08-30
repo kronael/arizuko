@@ -1,6 +1,5 @@
 ---
-status: defected
-defects: [L132]
+status: draft
 depends:
   [
     ../5/19-hitl-firewall,
@@ -76,21 +75,24 @@ one surface, never a fourth path into the queue.
 
 Two shapes exist and they are different products:
 
-Decision 3 stands as the design, but it is no longer the ONLY route: the shell
-credential shipped 2026-08-29 (below) and is what atlas actually uses today,
-because the connector still cannot run.
+Decision 3 stands as the design and is runnable as of 2026-08-30. It is not the
+ONLY route: the shell credential shipped 2026-08-29 (below) and is what atlas
+used while the connector could not run.
 
-- **Connector (the design; NOT yet runnable — BUGS `L132`).** All three
-  commands `template/connectors/github.toml` offers need a runtime absent from
-  routd's image, and the connector subprocess spawns inside routd. Ship a
-  static `github-mcp-server` binary into the image before quoting this as a
-  working path. `template/connectors/github.toml` declares
-  the upstream GitHub MCP server; [`5/13`](../5/13-ext-mcp.md) shape 2 spawns
-  it per call, narrows the folder's secrets to the keys the connector declared,
-  gates the call on `mcp:<tool>` and scrubs secret values from the result.
+- **Connector (the design; RUNNABLE since 2026-08-30).** The connector moved
+  from a stdio subprocess to GitHub's HOSTED MCP endpoint
+  (`https://api.githubcopilot.com/mcp/`), which is what closed BUGS `L132`: the
+  subprocess spawned inside routd, whose image has no node and no
+  `github-mcp-server`, and routd holds no docker socket by design. An endpoint
+  needs no runtime. `template/connectors/github.toml` declares it;
+  [`5/13`](../5/13-ext-mcp.md) shape 2 discovers its tools per folder with that
+  folder's credential, narrows the folder's secrets to the keys the connector
+  declared, gates each call on `mcp:<tool>`, renders the token into the
+  Authorization header, and scrubs secret values from the result.
   `auth/surrogate/providers/github.toml` supplies the user-consented token
-  ([`5/15`](../5/15-surrogate-oauth.md)), so the agent acts as the human rather
-  than as a shared PAT. GitHub as a **tool the agent calls**.
+  ([`5/15`](../5/15-surrogate-oauth.md)) into the same `GITHUB_TOKEN` slot, so
+  the agent acts as the human rather than as a shared PAT. GitHub as a **tool
+  the agent calls**.
 - **`gitd` (draft, [`6/27`](27-git-channel.md)).** GitHub as a **channel
   that calls the agent** — each repo a folder, each PR and issue a thread. The
   right design for a different want: an agent that watches a repo, not a human
@@ -136,7 +138,7 @@ own scope is the real lock:
   matching substrings, which `${A}${B}` defeats. An operator who asks for both
   a shell token and a block on approvals has asked for two things that cannot
   both hold.
-- **The connector route gives the block for free.** Each remote tool is its own
+- **The connector route gives the block for free** — and now runs. Each remote tool is its own
   broker tool name, so `hold:mcp:github_<tool>` suspends it for human approval
   (`5/19`, shipped) and a deny row refuses it outright. This is why Decision 3
   picks the connector: not because a CLI is inelegant, but because per-call

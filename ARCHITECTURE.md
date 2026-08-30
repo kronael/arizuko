@@ -581,8 +581,9 @@ delivery paths:
   call resolves them through `routd/mcp.go:ResolveConnectorSecrets` →
   `ConnectorSecrets(folder, callerSub, required)` (user rows win over folder
   for real user triggers; timed/system use `service:routd` → folder scope),
-  narrowed to the keys that call declares, spent in the connector subprocess
-  or the outbound REST request (`ipc/extcall.go`), and scrubbed from the
+  narrowed to the keys that call declares, spent as a header on the
+  connector's HTTPS request (`ipc/connector.go`) or on the outbound REST
+  request (`ipc/extcall.go`), and scrubbed from the
   result. Grant-gated. A capability row is written either by a pasted PAT
   (`/dash/me/secrets`) or via **surrogate OAuth** — the dashboard's
   "Connect GitHub" button (`/dash/me/connections`, `auth/surrogate/`, spec

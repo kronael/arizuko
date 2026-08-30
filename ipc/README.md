@@ -119,7 +119,8 @@ Slack pane controls: `pane_set_prompts`, `pane_set_title`.
 
 Cost tracking: `log_external_cost`.
 
-MCP-subprocess connectors: dynamically registered from catalog (spec 7/Y).
+MCP HTTP connectors: each turn discovers the upstream catalog with that
+folder's broker-resolved credential and registers the tools (spec 5/13).
 
 External REST tools (`extcall.go` `ExtTool`): loaded from `[[ext]]` TOML
 blocks as REST-backed MCP tools. Each maps a tool call to one outbound
@@ -172,7 +173,7 @@ post-fetch `JIDRoutedToFolder` per row.
 - `inspect.go` — read-only introspection (`inspect_routing`,
   `inspect_tasks`, `inspect_session`, `inspect_identity`,
   `inspect_messages`, `find_messages`)
-- `connector.go` — MCP-subprocess tool broker (spec 7/Y)
+- `connector.go` — MCP HTTP connector broker (spec 5/13)
 - `SECURITY.md` — threat model (peer UID, path resolution, grants)
 
 ## Related docs
