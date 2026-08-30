@@ -324,6 +324,13 @@ func (s *server) mux() *http.ServeMux {
 	mux.HandleFunc("/auth/", s.handleAuth)
 	resreg.RegisterREST(mux, routesResourceDecl(s.rr), callerFromHTTP(s.ks))
 	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("proxyd", mux))
+	// The operator dashboard (spec 6/28). requireAuth is wrapped HERE because a
+	// path on this mux never reaches s.route, which is where a routed request
+	// gets authenticated — a bare mount would serve the route table, and its
+	// write forms, to an unauthenticated caller.
+	mux.HandleFunc("GET /dash/proxyd/", s.requireAuth(s.handleDash))
+	mux.HandleFunc("POST /dash/proxyd/", s.requireAuth(s.handleDashRouteCreate))
+	mux.HandleFunc("POST /dash/proxyd/delete", s.requireAuth(s.handleDashRouteDelete))
 	if obs.MetricsEnabled() {
 		mux.Handle("GET /metrics", obs.MetricsHandler())
 	}

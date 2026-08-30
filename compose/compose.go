@@ -350,6 +350,10 @@ var coreProxydRoutes = []ProxydRoute{
 	{Path: "/dash/onbod/", Backend: "http://onbod:8080", Auth: "user", GatedBy: "ONBOARDING_ENABLED"},
 	{Path: "/dash/routd/", Backend: "http://routd:8080", Auth: "user"},
 	{Path: "/dash/authd/", Backend: "http://authd:8080", Auth: "user"},
+	// proxyd serves its own dashboard; the route exists so the hub links it and
+	// so the path is reserved, but proxyd answers it from its own mux before
+	// s.route ever consults this table.
+	{Path: "/dash/proxyd/", Backend: "http://proxyd:8080", Auth: "user"},
 	{Path: "/dash/runed/", Backend: "http://runed:8080", Auth: "user"},
 	{Path: "/dash/timed/", Backend: "http://timed:8080", Auth: "user"},
 	// /dash/ catch-all → dashd (hub + cross-cutting pages).
