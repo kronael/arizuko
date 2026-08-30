@@ -50,6 +50,23 @@ So the foreign path **attests and discards**; the owned path **attests and
 carries**. It is not a missing mechanism, it is a dropped one — which is why
 `L146` measured the gap as one call frame wide.
 
+**Internally it is the credential arizuko already has, minted at the edge.** No
+new credential type is implied. Adapters ALREADY authenticate to authd and hold a
+bearer (`chanlib.SetServiceToken`, spec `5/1`); it is exchanged as the DAEMON
+principal — `AUTHD_SERVICE_NAME`, e.g. `teled` — so today it says "I am the
+adapter". The delta is one claim: "I am slakd, ACTING FOR
+`telegram:user/1112184352`". Same mint, same JWKs, same `X-User-*` stamp
+downstream.
+
+That is the whole edge conversion, and both edges already run it:
+
+    platform signature → authd credential      (adapter, foreign)
+    OAuth bearer       → authd credential      (proxyd, owned)
+
+Two edges, one internal credential, nothing new behind either. Which is why this
+is a claims change on a credential path that already exists, not a new auth
+system.
+
 **The fault this names.** Today routing address and authority are FUSED in the
 JID: it is both where a message goes and, through the token pin, what may be
 reached. That fusion is why `route_tokens` stores a folder three times (inside
