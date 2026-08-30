@@ -7,15 +7,15 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
-## L139 — proposal: two MCP surfaces serve one queue with two tool vocabularies; identity should be the default door and capability tokens the exception (2026-08-30, proposal — needs sign-off)
+## L139 — proposal: collapse the two MCP surfaces into one; a route token authenticates an ANONYMOUS principal whose destination set has one element (2026-08-30, proposal — needs sign-off)
 
-Found designing `arizuko talk` (`6/26` Gap 1). The operator's framing: *"eventually
-it's better to let the client choose his destination and only authenticate him
-through a secret or oauth"*, and *"this would collapse the system and make it
-simpler"*. This records the measured shape and does not take the decision.
+Found designing `arizuko talk` (`6/26` Gap 1). The operator's framing, in order:
+*"better to let the client choose his destination and only authenticate him
+through a secret or oauth"*, then *"this would collapse the system and make it
+simpler"*, then the one that makes it work: *"anon tokens — it can be auth for
+anon, default same way, just no varying destination. No change."*
 
-**Two MCP surfaces exist over the same queue, with near-identical tools under
-different names:**
+**Today there are two MCP surfaces over one queue, with two vocabularies:**
 
 | surface | auth | tools |
 | --- | --- | --- |
@@ -23,34 +23,63 @@ different names:**
 | `POST /chat/{token}/mcp` (`webd/chat_mcp.go`) | capability — the token IS one JID, no identity | `send_message`, `get_round`, `get_round_status` |
 
 `send`/`send_message` and `get_history`/`get_round` do the same job for the same
-queue. Two vocabularies for one thing is the "one renderer, many sinks" rule
-inverted, and a client author must learn which door they came through before
-they can name a tool.
+queue. A client author must know which door they came through before they can
+name a tool. That is "one renderer, many sinks" inverted.
 
-**What the collapse is, and what it is NOT.** Route tokens must NOT be deleted:
-they are the only mechanism for a caller with no identity, and there are two real
-ones — an external human handed a `/chat/<token>/` link, and a third-party
-service POSTing a `hook:<folder>/<source>` webhook. Neither can hold an authd
-bearer. `route_tokens` also carries per-link `context` that has no identity twin.
+**The unification, in one sentence:** every caller authenticates, and the only
+thing that differs is the SIZE OF THE DESTINATION SET. A signed-in human gets N
+folders and picks one; a route token gets exactly one and cannot vary it. Same
+tools, same flow, no second vocabulary — `list_groups` returning a single row IS
+the pinned JID, said in the language the surface already speaks.
 
-The collapse is narrower and worth more: **identity is the DEFAULT door for any
-caller that has one, and a capability token is the exception for callers that do
-not.** Concretely, that means one tool vocabulary, with the capability surface
-exposing the subset a pinned JID can answer, rather than a parallel set of names.
+**It fits the code as written.** `buildWebMCP(sub, name, grants)` takes the
+principal and the grant list as plain arguments — `handleMCP` happens to read
+them from proxyd's headers, but the builder does not care where they came from.
+A token path calls the same builder with `sub = "anon:<jid>"` and
+`grants = []string{row.Folder()}`. `lookupRouteToken` already resolves the row
+and already refuses a token naming a deleted folder. Nothing new is invented;
+one call site is added and one tool set is deleted.
 
-**Why now:** `arizuko talk` was specified against the capability surface and
+**What CANNOT be removed, and why the instruction "remove all tokens" must not be
+read literally.** The token is the CREDENTIAL for a caller that has no identity,
+and there are two real ones:
+
+- an external human handed a `/chat/<token>/` link, who has no authd account;
+- a third-party service POSTing `hook:<folder>/<source>`, which has no account
+  either and cannot perform a login.
+
+`route_tokens` also carries per-link `context` (`5/W`) with no identity twin, and
+`target_folder`, which exists because a suffixed JID cannot be parsed back into a
+folder. Deleting the table would delete the anonymous product, not simplify it.
+
+**So the proposal is: delete the second SURFACE and the second VOCABULARY, keep
+the token as one of two ways to become a principal.** Concretely:
+
+1. `webd/chat_mcp.go`'s three tools go; `/chat/{token}/mcp` routes to the same
+   `buildWebMCP` with a one-element grant set.
+2. `send`, `list_groups`, `get_history` become the only names.
+3. The non-MCP `/chat/<token>/` browser surfaces (`POST /chat/{token}`, the SSE
+   stream, the history read) are UNAFFECTED — they are a web page's transport,
+   not an agent's tool vocabulary.
+
+**Blast radius to measure before shipping:** every existing `/chat/<token>/mcp`
+client breaks on the tool rename. The web chat UI is the known one; `6/26`'s
+`arizuko talk` is being built against `/mcp` already, so it is not affected.
+A deprecation window or an alias may be needed — that is part of the decision.
+
+**Why it surfaced now:** `talk` was specified against the capability surface and
 rewritten to the identity one the same day, because the identity path already
-works end to end — `proxyd.tryAuth` verifies an ES256 bearer against authd's JWKs
-and stamps the sub's groups, and `arizuko token <inst> issue bearer` mints one.
-Nothing had to be built. If the CLI needed no new mechanism, neither does the
-next client, and the second vocabulary earns its keep only for the anonymous case.
+worked end to end and nothing had to be built. If the newest client needed no
+new mechanism, the second vocabulary earns its keep only for the anonymous case
+— and the anonymous case turns out not to need it either.
 
-- **Severity:** low (no runtime defect; this is surface duplication)
-- **Scope:** webd MCP surfaces / client contract
-- **Affected:** `webd/mcp.go`, `webd/chat_mcp.go`, `specs/6/26`, `specs/5/W`
+- **Severity:** low (no runtime defect; surface duplication)
+- **Scope:** webd MCP surfaces / client tool contract
+- **Affected:** `webd/mcp.go`, `webd/chat_mcp.go`, the web chat UI, `specs/5/W`,
+  `specs/6/26`
 - **Status:** proposal (needs sign-off) — nothing changed, nothing deleted
-- **Fix:** decide whether the two tool sets converge on one vocabulary; if yes,
-  the capability surface keeps the subset a single pinned JID can answer
+- **Fix:** one `buildWebMCP`, two identity sources, grant set of N or 1; delete
+  `chat_mcp.go`'s tool definitions after the client migration is decided
 
 ## L138 — the CLI cannot revoke the acl row `/always` writes, and cannot type one (2026-08-30, open)
 
