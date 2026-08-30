@@ -140,34 +140,36 @@ func (s *Server) aclHandler(ctx context.Context, x resreg.Execution) (any, error
 		return map[string]any{"folder": gf, "acl": out}, nil
 
 	case resreg.Action("add"):
-		principal := argString(x.Args, "principal")
-		scope := argString(x.Args, "scope")
-		if principal == "" || scope == "" {
+		row := aclArgsRow(x.Args)
+		if row.Principal == "" || row.Scope == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "principal and scope required")
 		}
-		warning := s.nonCanonicalWarning(principal)
-		if err := grantACLTx(ctx, x.Tx, principal, scope,
-			argString(x.Args, "action"), argString(x.Args, "effect"), "agent:"+x.Caller.Folder); err != nil {
+		// Only ADD validates the narrowing. A remove must still address a row
+		// written before this check existed, or the fix makes a bad row permanent.
+		if err := auth.ValidateParams(row.Params); err != nil {
+			return nil, resreg.Errorf(http.StatusBadRequest, "%v", err)
+		}
+		warning := s.nonCanonicalWarning(row.Principal)
+		row.GrantedBy = "agent:" + x.Caller.Folder
+		if err := grantACLTx(ctx, x.Tx, row); err != nil {
 			return nil, resreg.Errorf(http.StatusConflict, "%v", err)
 		}
 		return aclAddResult{OK: true, Warning: warning}, nil
 
 	case resreg.Action("remove"):
-		principal := argString(x.Args, "principal")
-		scope := argString(x.Args, "scope")
-		if principal == "" || scope == "" {
+		row := aclArgsRow(x.Args)
+		if row.Principal == "" || row.Scope == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "principal and scope required")
 		}
-		n, err := revokeACLTx(ctx, x.Tx, principal, scope,
-			argString(x.Args, "action"), argString(x.Args, "effect"))
+		n, err := revokeACLTx(ctx, x.Tx, row)
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusConflict, "%v", err)
 		}
 		if n == 0 {
 			return nil, resreg.Errorf(http.StatusNotFound,
-				"no matching grant for principal %q scope %q — this surface addresses only un-narrowed rows; "+
-					"a grant carrying params or a predicate must be revoked where it was created",
-				principal, scope)
+				"no matching grant for principal %q scope %q params %q — params must match the row EXACTLY; "+
+					"a grant carrying a predicate must be revoked where it was created",
+				row.Principal, row.Scope, row.Params)
 		}
 		return apiv1.OK{OK: true}, nil
 	}
@@ -198,24 +200,13 @@ func (s *Server) aclPostBuild(folder, callerSub string, authorize authorizeFn, v
 		// the grant option (auth.Delegate — subset-of-held). Root delegates anything.
 		// This is what makes a group unable to hand out authority it wasn't delegated.
 		if x.Action == resreg.Action("add") && !callerID.IsRoot {
-			act := argString(x.Args, "action")
-			if act == "" {
-				act = "admin" // grantACLTx default
-			}
-			// The candidate row must be the row grantACLTx will WRITE. Hardcoding
-			// allow here validated an allow row while the write took the caller's
-			// effect, so Delegate's deny ban never saw a requested deny — an
-			// un-delegated power to disable (BUGS L93).
-			eff := argString(x.Args, "effect")
-			if eff == "" {
-				eff = "allow" // grantACLTx default
-			}
-			want := core.ACLRow{
-				Principal: argString(x.Args, "principal"),
-				Action:    act,
-				Scope:     target,
-				Effect:    eff,
-			}
+			// The candidate MUST be the row grantACLTx will WRITE — same builder,
+			// same defaults. Hardcoding `allow` here validated an allow row while
+			// the write took the caller's effect, so Delegate's deny ban never saw
+			// a requested deny (BUGS L93); the same drift on `params` would let a
+			// caller holding only `mcp:t(repo=mine/*)` write the unnarrowed
+			// `mcp:t`, since auth.paramsCover reads an empty spec as no constraint.
+			want := aclDefaults(aclArgsRow(x.Args))
 			if err := auth.Delegate(store.New(s.db.SQL()), callerSub, []core.ACLRow{want}); err != nil {
 				return resreg.Errorf(http.StatusForbidden, "%v", err)
 			}
@@ -266,65 +257,106 @@ func (s *Server) nonCanonicalWarning(principal string) string {
 		"Re-grant to " + id.ID + " and revoke this one"
 }
 
+// aclArgsRow reads the acl add/remove wire arguments into the row they name,
+// with NO defaults applied — aclOperatorShape tests the raw row, where an
+// omitted action is the operator-role signal. One builder for the Gate and the
+// handler: the row auth.Delegate judges is the row the write produces.
+//
+// There is no `predicate` argument. This face writes rules over call ARGUMENTS;
+// a claim condition is a different question with a different vocabulary, and
+// revokeACLTx pins `predicate=''` to match.
+func aclArgsRow(args resreg.Args) core.ACLRow {
+	return core.ACLRow{
+		Principal: argString(args, "principal"),
+		Action:    argString(args, "action"),
+		Scope:     argString(args, "scope"),
+		Effect:    argString(args, "effect"),
+		Params:    argString(args, "params"),
+	}
+}
+
+// aclDefaults applies the writer's defaults — action `admin`, effect `allow` —
+// and is the ONE place they are declared. The Gate must validate the row the
+// write produces, so a default only the writer knew about is a row auth.Delegate
+// judged as something else (the shape of BUGS L93).
+func aclDefaults(r core.ACLRow) core.ACLRow {
+	if r.Action == "" {
+		r.Action = "admin"
+	}
+	if r.Effect == "" {
+		r.Effect = "allow"
+	}
+	return r
+}
+
+// aclOperatorShape reports whether a row is the operator-role overload rather
+// than an ordinary acl row: scope "**", the action OMITTED (or spelled "*"),
+// and no narrowing. Tested on the RAW row, BEFORE aclDefaults, because the
+// omission is the signal.
+//
+// Matching on scope alone discarded the requested action, so
+// `add_acl(action="read", scope="**")` minted full operator membership. A
+// narrowing counts the same way: a shaped row at "**" is an ordinary
+// wildcard-scope row, and reading it as membership would promote a rule that
+// constrains a few arguments into a role that constrains none.
+func aclOperatorShape(r core.ACLRow) bool {
+	return r.Scope == "**" &&
+		(r.Action == "" || r.Action == "*") &&
+		(r.Effect == "" || r.Effect == "allow") &&
+		r.Params == "" && r.Predicate == ""
+}
+
 // grantACLTx grants via tx so the mutation + invoke's audit row commit as one
-// unit. The operator-role shortcut fires only for the exact shape role:operator
-// models — (*, **, allow); every other action at scope "**" is an ordinary
-// wildcard-scope acl row. Matching on scope alone discarded the requested
-// action, so `add_acl(action="read", scope="**")` minted full operator
-// membership, and a caller holding only (admin, **, grant_option=1) could pass
-// auth.Delegate and then write a strictly stronger right than it held.
-// action/effect default to admin/allow (the grant shape).
-func grantACLTx(ctx context.Context, tx *sql.Tx, principal, scope, action, effect, grantedBy string) error {
+// unit. It takes the ROW rather than a positional argument list, so the
+// candidate the Gate hands auth.Delegate and the row this writes are one value.
+//
+// `params` is the `name=glob` narrowing (spec 5/32 § The row). It was INSERTed
+// as an empty literal until 2026-08-30, so no shaped rule was expressible on
+// this face at all — including the skip-approval row spec 6/26 Decision 5's
+// `always` verdict writes.
+func grantACLTx(ctx context.Context, tx *sql.Tx, row core.ACLRow) error {
+	grantedBy := row.GrantedBy
 	if grantedBy == "" {
 		grantedBy = "routd"
 	}
-	// Tested on the RAW action, before the admin default: an omitted action at
-	// scope "**" is the operator-grant shape (/root grant, the REST twin), and
-	// "*" says the same thing explicitly. An action the caller actually named is
-	// honoured as an ordinary row instead of being discarded.
-	if scope == "**" && (action == "" || action == "*") && (effect == "" || effect == "allow") {
-		return addMembershipTx(ctx, tx, principal, "role:operator", grantedBy)
+	if aclOperatorShape(row) {
+		return addMembershipTx(ctx, tx, row.Principal, "role:operator", grantedBy)
 	}
-	if action == "" {
-		action = "admin"
-	}
-	if effect == "" {
-		effect = "allow"
-	}
+	row = aclDefaults(row)
 	_, err := tx.ExecContext(ctx,
 		`INSERT OR IGNORE INTO acl (principal, action, scope, effect, params, predicate, granted_by, granted_at)
-		 VALUES (?, ?, ?, ?, '', '', ?, ?)`,
-		principal, action, scope, effect, grantedBy, nowTS())
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		row.Principal, row.Action, row.Scope, row.Effect, row.Params, row.Predicate,
+		grantedBy, nowTS())
 	return err
 }
 
-// revokeACLTx is the remove_acl/DELETE twin of grantACLTx. It reports how many rows
-// it removed, and the caller MUST refuse when that is zero: a revoke is the one
-// operation where "did nothing" must never read as success. This face matches
-// `params=” AND predicate=”`, so a row an operator created WITH a params
-// narrowing is invisible to it — it used to delete nothing and answer {"ok":true}
-// (BUGS L79). Widening the face is a separate, additive change.
-func revokeACLTx(ctx context.Context, tx *sql.Tx, principal, scope, action, effect string) (int64, error) {
-	// Mirror of the grant guard, same raw-action test: keying on scope alone let
-	// a narrow-row revoke strip an operator membership granted separately.
-	if scope == "**" && (action == "" || action == "*") && (effect == "" || effect == "allow") {
+// revokeACLTx is the remove_acl/DELETE twin of grantACLTx. It reports how many
+// rows it removed, and the caller MUST refuse when that is zero: a revoke is the
+// one operation where "did nothing" must never read as success.
+//
+// It matches `params` exactly, the empty string included, so revoking is the
+// inverse of granting on this face: a row this surface can write is a row it can
+// remove. The hardcoded `params=''` it replaced deleted nothing while answering
+// {"ok":true} for any narrowed row (BUGS L79) — leaving it would have re-created
+// that hole the day `params` became writable. `predicate=''` stays hardcoded:
+// this face has no predicate argument to write one with.
+func revokeACLTx(ctx context.Context, tx *sql.Tx, row core.ACLRow) (int64, error) {
+	// Mirror of the grant guard, same raw-row test: keying on scope alone let a
+	// narrow-row revoke strip an operator membership granted separately.
+	if aclOperatorShape(row) {
 		res, err := tx.ExecContext(ctx,
-			`DELETE FROM acl_membership WHERE child=? AND parent=?`, principal, "role:operator")
+			`DELETE FROM acl_membership WHERE child=? AND parent=?`, row.Principal, "role:operator")
 		if err != nil {
 			return 0, err
 		}
 		n, _ := res.RowsAffected()
 		return n, nil
 	}
-	if action == "" {
-		action = "admin"
-	}
-	if effect == "" {
-		effect = "allow"
-	}
+	row = aclDefaults(row)
 	res, err := tx.ExecContext(ctx,
-		`DELETE FROM acl WHERE principal=? AND action=? AND scope=? AND effect=? AND params='' AND predicate=''`,
-		principal, action, scope, effect)
+		`DELETE FROM acl WHERE principal=? AND action=? AND scope=? AND effect=? AND params=? AND predicate=''`,
+		row.Principal, row.Action, row.Scope, row.Effect, row.Params)
 	if err != nil {
 		return 0, err
 	}

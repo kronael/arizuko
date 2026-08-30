@@ -54,7 +54,10 @@ var PendingActionsMCPDoc = map[resreg.Action]string{
 		"waiting on them and why.",
 	resreg.Action("approve"): "Approve a held tool call by `id`, releasing it one-shot. " +
 		"The ORIGINAL agent re-issues the call in its own next turn with the approved arguments; " +
-		"nothing runs out of turn. Different arguments are held again.",
+		"nothing runs out of turn. Different arguments are held again. " +
+		"`standing` also writes the rule that skips approval for this exact shape next time — " +
+		"the row is the `matcher` the held call reports, it constrains ONLY the arguments it names, " +
+		"and undoing it means removing that row.",
 	resreg.Action("reject"): "Reject a held tool call by `id`. The call is never run. " +
 		"`note` records why, for the audit trail.",
 }
@@ -67,6 +70,8 @@ var PendingActionsMCPArgs = map[resreg.Action][]resreg.MCPArg{
 	resreg.Action("approve"): {
 		{Name: "id", Type: "string", Required: true},
 		{Name: "note", Type: "string"},
+		{Name: "standing", Type: "bool",
+			Description: "also skip approval for this exact shape next time (the `always` verdict)"},
 	},
 	resreg.Action("reject"): {
 		{Name: "id", Type: "string", Required: true},

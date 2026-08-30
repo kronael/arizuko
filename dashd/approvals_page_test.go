@@ -251,3 +251,105 @@ func TestApprovalsPage_DeepLinkToUnknownRowReports(t *testing.T) {
 		t.Errorf("unknown deep link says nothing:\n%s", body)
 	}
 }
+
+// The `always` button is approve PLUS routd's `standing` argument — not a
+// fourth endpoint, because pending_actions has no third status (spec 6/26
+// Decision 5).
+func TestApprovalResolve_AlwaysSendsStandingOnApprove(t *testing.T) {
+	u := newRoutdUpstream(t)
+	u.respond = `{"id":"ab12","status":"approved"}`
+	mux := approvalsDash(t, u)
+
+	form := url.Values{"verdict": {"always"}}
+	req := asOperator(httptest.NewRequest("POST", "/dash/approvals/ab12/resolve",
+		strings.NewReader(form.Encode())))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303 (body %s)", w.Code, w.Body.String())
+	}
+	if u.path != "/v1/pending_actions/ab12/approve" {
+		t.Errorf("routd path = %q, want the approve action", u.path)
+	}
+	var sent map[string]string
+	if err := json.Unmarshal([]byte(u.body), &sent); err != nil {
+		t.Fatalf("body %q: %v", u.body, err)
+	}
+	if sent["standing"] != "true" {
+		t.Errorf("forwarded body = %v, want standing=true", sent)
+	}
+	if got := w.Header().Get("Location"); got != "/dash/approvals/?msg=always" {
+		t.Errorf("redirect = %q; the operator must be told a rule was written", got)
+	}
+}
+
+// The page prints the rule the `always` button will write — routd's `matcher`,
+// never one rendered here — plus the two properties that widen it: a rule
+// constrains only the arguments it NAMES, and no rule can constrain a
+// non-scalar argument (spec 6/26 § "The predicate is part of the verdict").
+func TestApprovalsPage_ShowsTheRuleAlwaysWouldWrite(t *testing.T) {
+	u := newRoutdUpstream(t)
+	u.respond = `{"pending":[
+		{"id":"ab12","group_folder":"solo","tool":"create_pr","args":"{}","status":"held",
+		 "matcher":"repo=kronael/arizuko","unmatchable":["files"],
+		 "created_at":"2026-08-08T06:00:00Z"}]}`
+	mux := approvalsDash(t, u)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, asOperator(httptest.NewRequest("GET", "/dash/approvals/", nil)))
+	body := w.Body.String()
+
+	if !strings.Contains(body, `value="always"`) {
+		t.Error("a statable rule must offer the always button")
+	}
+	if !strings.Contains(body, "create_pr(repo=kronael/arizuko)") {
+		t.Errorf("the page must print the exact rule:\n%s", body)
+	}
+	if !strings.Contains(body, "Arguments it does not name are unconstrained") {
+		t.Errorf("the page must state the names-only widening:\n%s", body)
+	}
+	if !strings.Contains(body, "No rule can constrain files") {
+		t.Errorf("the page must name the unmatchable argument:\n%s", body)
+	}
+}
+
+// A rule routd cannot state exactly gets no button and a reason. Offering one
+// would promise a standing answer the writer then refuses.
+func TestApprovalsPage_NoAlwaysButtonWhenNoRuleCanBeWritten(t *testing.T) {
+	u := newRoutdUpstream(t)
+	u.respond = `{"pending":[
+		{"id":"ab12","group_folder":"solo","tool":"delete","args":"{}","status":"held",
+		 "matcher_error":"argument \"target\": its value cannot be written as an exact rule",
+		 "created_at":"2026-08-08T06:00:00Z"}]}`
+	mux := approvalsDash(t, u)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, asOperator(httptest.NewRequest("GET", "/dash/approvals/", nil)))
+	body := w.Body.String()
+
+	if strings.Contains(body, `value="always"`) {
+		t.Error("a rule that cannot be stated must not be offered")
+	}
+	if !strings.Contains(body, "no standing answer for this call") {
+		t.Errorf("the page must say why the button is missing:\n%s", body)
+	}
+}
+
+// A held call with no scalar arguments yields an UNNARROWED rule. That is
+// honest but large, so the page says so rather than letting "always" read as
+// "always this one call".
+func TestApprovalsPage_UnnarrowedRuleSaysSo(t *testing.T) {
+	u := newRoutdUpstream(t)
+	u.respond = `{"pending":[
+		{"id":"ab12","group_folder":"solo","tool":"wipe","args":"{}","status":"held",
+		 "created_at":"2026-08-08T06:00:00Z"}]}`
+	mux := approvalsDash(t, u)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, asOperator(httptest.NewRequest("GET", "/dash/approvals/", nil)))
+	if body := w.Body.String(); !strings.Contains(body, "EVERY call to this tool will run") {
+		t.Errorf("an unnarrowed rule must be described as one:\n%s", body)
+	}
+}

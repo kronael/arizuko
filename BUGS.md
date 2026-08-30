@@ -7,6 +7,32 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L138 — the CLI cannot revoke the acl row `/always` writes, and cannot type one (2026-08-30, open)
+
+`always` (spec `6/26` Decision 5, shipped 2026-08-30) writes a skip-approval
+row: `hold:mcp:<tool>` at `effect='deny'` carrying the call's argument
+narrowing. Three surfaces can now address a shaped row — `add_acl`/`remove_acl`
+on the agent + REST face, and `/dash/groups/<f>/grants` (its revoke form has
+carried `params` all along). `arizuko grant`/`ungrant` cannot:
+
+- `runUngrant` (`cmd/arizuko/main.go`) hardcodes `Action: "admin"`,
+  `Effect: "allow"` and no `params`, so it addresses exactly one row shape. An
+  operator on the host cannot undo an `always`.
+- `grantableAction` accepts `mcp:`, `shell:env:` and `<resource>.<verb>` but
+  not `hold:`, so the same CLI cannot type a hold rule OR its exception either
+  — the `grant_action_needs_a_door` shape, where a new action namespace is
+  unreachable until this allowlist learns it.
+
+Not a hole: the dashboard and `remove_acl` both work, and `/always` answers with
+the exact `remove_acl` call that undoes what it wrote. It is a gap in the
+operator's host-side escape hatch, which is the surface that matters when the
+dashboard is the thing that is broken.
+
+- **Owed:** `arizuko grant/ungrant` take `--action`/`--effect`/`--params` and
+  `grantableAction` learns `hold:`. Additive; no behaviour changes for the
+  existing call shapes. Worth pairing with a `grants` listing that prints
+  `params`, which `runGrants` also omits today.
+
 ## L97 — `/approve` on a held call is a no-op: the re-issue trigger sorts BEHIND the cursor that skips it (2026-08-26, proposal — needs sign-off)
 
 HITL approval never completes in chat. The operator types `/approve <id>`, gets
@@ -1278,9 +1304,15 @@ WITH the grant option, shows the `allow` call still passes, and pins that the
 same call with `effect=deny` is refused and writes nothing; it fails with the
 hardcoded `"allow"` restored.
 
-**The `params` half of `6/26` gap 2.2 stays open** — it is a second concern
-(the writer carrying a narrowing into `Delegate`'s subset check), not a
-prerequisite for closing the deny hole.
+**The `params` half closed 2026-08-30.** `grantACLTx`/`revokeACLTx` take the
+`core.ACLRow` and the Gate builds its candidate with the same
+`aclArgsRow`+`aclDefaults` pair the write uses, so the row `Delegate` judges is
+the row stored on BOTH axes. `TestACLMCP_DelegateJudgesTheShapedRow` pins the
+new half: a caller holding only `read(repo=mine/*)` WITH the grant option may
+write that same narrowed row and may not write the unnarrowed `read` —
+`auth.paramsCover` reads an empty spec as no constraint, so shaving `params`
+off the candidate is the same class of bypass this entry records for `effect`.
+Both directions fail with the shave restored.
 
 ## L92 — the HITL hold gate fails OPEN when the `acl` read fails (2026-08-24, proposal)
 

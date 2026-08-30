@@ -1,6 +1,10 @@
 package routd
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/kronael/arizuko/core"
+)
 
 // A narrow action named at scope "**" must stay a narrow row. grantACLTx used
 // to branch on scope alone, so add_acl(action="read", scope="**") discarded the
@@ -17,7 +21,7 @@ func TestGrantACLTx_NarrowActionAtTreeScopeIsNotOperator(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := grantACLTx(t.Context(), tx, "user:a", "**", action, "", "test"); err != nil {
+		if err := grantACLTx(t.Context(), tx, core.ACLRow{Principal: "user:a", Scope: "**", Action: action, GrantedBy: "test"}); err != nil {
 			t.Fatalf("grant %s: %v", action, err)
 		}
 		if err := tx.Commit(); err != nil {
@@ -60,7 +64,7 @@ func TestGrantACLTx_OperatorShapeStillMintsMembership(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := grantACLTx(t.Context(), tx, "user:b", "**", action, "", "test"); err != nil {
+		if err := grantACLTx(t.Context(), tx, core.ACLRow{Principal: "user:b", Scope: "**", Action: action, GrantedBy: "test"}); err != nil {
 			t.Fatalf("grant %q: %v", action, err)
 		}
 		if err := tx.Commit(); err != nil {
@@ -92,13 +96,13 @@ func TestRevokeACLTx_NarrowRevokeLeavesOperatorMembership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := grantACLTx(t.Context(), tx, "user:c", "**", "", "", "test"); err != nil {
+	if err := grantACLTx(t.Context(), tx, core.ACLRow{Principal: "user:c", Scope: "**", GrantedBy: "test"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := grantACLTx(t.Context(), tx, "user:c", "**", "read", "", "test"); err != nil {
+	if err := grantACLTx(t.Context(), tx, core.ACLRow{Principal: "user:c", Scope: "**", Action: "read", GrantedBy: "test"}); err != nil {
 		t.Fatal(err)
 	}
-	n, err := revokeACLTx(t.Context(), tx, "user:c", "**", "read", "")
+	n, err := revokeACLTx(t.Context(), tx, core.ACLRow{Principal: "user:c", Scope: "**", Action: "read"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,10 +125,9 @@ func TestRevokeACLTx_NarrowRevokeLeavesOperatorMembership(t *testing.T) {
 }
 
 // TestRevokeACLTx_ReportsZeroWhenNothingMatched: a revoke that removes no row
-// must say so. This face matches `params='' AND predicate=''`, so an operator
-// grant carrying a params narrowing (dashd's grant form offers exactly that) is
-// invisible to it — and it used to delete nothing and answer {"ok":true},
-// reporting a live grant as revoked (BUGS L79).
+// must say so. `params` is matched EXACTLY, so a request naming no narrowing
+// does not reach a narrowed row — it used to delete nothing and answer
+// {"ok":true}, reporting a live grant as revoked (BUGS L79).
 func TestRevokeACLTx_ReportsZeroWhenNothingMatched(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -142,12 +145,12 @@ func TestRevokeACLTx_ReportsZeroWhenNothingMatched(t *testing.T) {
 	}
 	defer tx.Rollback()
 
-	n, err := revokeACLTx(t.Context(), tx, "user:n", "acme", "read", "allow")
+	n, err := revokeACLTx(t.Context(), tx, core.ACLRow{Principal: "user:n", Scope: "acme", Action: "read", Effect: "allow"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if n != 0 {
-		t.Fatalf("revoke reported %d rows removed; the narrowed row is not addressable here", n)
+		t.Fatalf("revoke reported %d rows removed; the request named no narrowing", n)
 	}
 
 	var live int
@@ -156,5 +159,49 @@ func TestRevokeACLTx_ReportsZeroWhenNothingMatched(t *testing.T) {
 	}
 	if live != 1 {
 		t.Errorf("the narrowed grant count = %d, want 1 (still live)", live)
+	}
+}
+
+// The other half of L79: the narrowed row must be REACHABLE by naming its exact
+// narrowing. A writer that can create a row it cannot remove is the same hole
+// the empty-literal `params` had, pointing the other way — and it is the
+// revocation spec 6/26 § Decision 5 names as the way to undo an `always`.
+func TestRevokeACLTx_ExactParamsRemovesTheNarrowedRow(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if _, err := db.SQL().Exec(
+		`INSERT INTO acl (principal, action, scope, effect, params, predicate, granted_by, granted_at)
+		 VALUES ('user:n', 'read', 'acme', 'allow', 'jid=telegram:*', '', 'test', ''),
+		        ('user:n', 'read', 'acme', 'allow', '', '', 'test', '')`); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := db.SQL().Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+
+	n, err := revokeACLTx(t.Context(), tx, core.ACLRow{
+		Principal: "user:n", Scope: "acme", Action: "read", Effect: "allow",
+		Params: "jid=telegram:*",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("revoke removed %d rows, want 1: the exact narrowing must address its row", n)
+	}
+	// The un-narrowed twin survives: an exact match must not take the neighbour
+	// with it, or revoking one verdict would revoke a standing policy row.
+	var live string
+	if err := tx.QueryRow(
+		`SELECT params FROM acl WHERE principal='user:n'`).Scan(&live); err != nil {
+		t.Fatal(err)
+	}
+	if live != "" {
+		t.Errorf("the surviving row carries params %q, want the un-narrowed twin", live)
 	}
 }

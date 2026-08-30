@@ -143,9 +143,11 @@ func (l *Loop) handleCommand(chatJID string, msg core.Message, folder string) bo
 	case "/gate":
 		l.cmdGate(chatJID, folder, arg, msg.Sender)
 	case "/approve":
-		l.cmdResolveHold(chatJID, folder, arg, msg.Sender, PendingApproved)
+		l.cmdResolveHold(chatJID, folder, arg, msg.Sender, PendingApproved, false)
 	case "/reject":
-		l.cmdResolveHold(chatJID, folder, arg, msg.Sender, PendingRejected)
+		l.cmdResolveHold(chatJID, folder, arg, msg.Sender, PendingRejected, false)
+	case "/always":
+		l.cmdResolveHold(chatJID, folder, arg, msg.Sender, PendingApproved, true)
 	default:
 		return false
 	}
@@ -562,14 +564,19 @@ func (l *Loop) delegateViaMessage(targetFolder, prompt, originJID string) error 
 // command converge here, and the verdict itself funnels through resolveHoldTx
 // — the SAME core the REST face runs — so an approval always commits together
 // with the resolution message that triggers the re-issue.
-func (l *Loop) cmdResolveHold(chatJID, folder, arg, sender, verdict string) {
+//
+// `standing` is /always: `yes` plus the skip-approval rule, one transaction.
+// There is no /never — it would ALSO write a tool deny, and acl rows carry no
+// verdict identity, so nothing could later tell that deny from standing policy
+// (spec 6/26 § "Revocation needs provenance").
+func (l *Loop) cmdResolveHold(chatJID, folder, arg, sender, verdict string, standing bool) {
 	if !l.db.IsOperator(sender) {
 		l.ack(chatJID, "Permission denied: approving a held call requires an operator grant (**).")
 		return
 	}
 	id, note, _ := strings.Cut(strings.TrimSpace(arg), " ")
 	if id == "" {
-		l.ack(chatJID, "Usage: /approve <id> [note]  |  /reject <id> [note]")
+		l.ack(chatJID, "Usage: /approve <id> [note]  |  /reject <id> [note]  |  /always <id> [note]")
 		return
 	}
 	tx, err := l.db.SQL().Begin()
@@ -578,7 +585,8 @@ func (l *Loop) cmdResolveHold(chatJID, folder, arg, sender, verdict string) {
 		return
 	}
 	defer tx.Rollback()
-	p, enqueueJID, err := resolveHoldTx(tx, id, verdict, sender, strings.TrimSpace(note))
+	p, enqueueJID, err := resolveHoldTx(context.Background(), tx, id, verdict, sender,
+		strings.TrimSpace(note), standing)
 	if err != nil {
 		l.ack(chatJID, "Failed: "+err.Error())
 		return
@@ -591,6 +599,25 @@ func (l *Loop) cmdResolveHold(chatJID, folder, arg, sender, verdict string) {
 		l.ack(chatJID, fmt.Sprintf("rejected %s (%s)", id, p.Tool))
 		return
 	}
-	l.ack(chatJID, fmt.Sprintf("approved %s (%s) — the agent will re-issue it", id, p.Tool))
+	msg := fmt.Sprintf("approved %s (%s) — the agent will re-issue it", id, p.Tool)
+	if standing {
+		// Name the rule that was written AND how to undo it: revoking an
+		// `always` is removing this row, and no other row means the same thing.
+		msg += "\n" + standingWritten(p)
+	}
+	l.ack(chatJID, msg)
 	l.Enqueue(enqueueJID)
+}
+
+// standingWritten reports the skip-approval row an /always just wrote, spelled
+// as the remove_acl call that undoes it. Deny-wins is absolute, so a narrower
+// hold cannot restore the approval: removing this row is the ONLY revocation,
+// and the operator has to be told which row that is (spec 6/26 gap 2.1).
+func standingWritten(p PendingAction) string {
+	r := skipApprovalRow(p, "")
+	return fmt.Sprintf(
+		"standing rule written: skip approval for %s in %s.\n"+
+			"undo it with remove_acl(principal=%q, action=%q, scope=%q, effect=%q, params=%q) — "+
+			"removing this row is the only way back, a narrower hold cannot restore the approval.",
+		p.Tool, p.GroupFolder, r.Principal, r.Action, r.Scope, r.Effect, r.Params)
 }

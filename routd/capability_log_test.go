@@ -97,7 +97,7 @@ func TestDispatchLogsGrantedWebPublish(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := grantACLTx(t.Context(), tx, "folder:demo", "demo", "web:publish", "", "test"); err != nil {
+	if err := grantACLTx(t.Context(), tx, core.ACLRow{Principal: "folder:demo", Scope: "demo", Action: "web:publish", GrantedBy: "test"}); err != nil {
 		t.Fatalf("grant: %v", err)
 	}
 	if err := tx.Commit(); err != nil {

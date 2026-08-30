@@ -137,6 +137,22 @@ func (a Args) Int(key string) int64 {
 	return 0
 }
 
+// Bool reads a boolean arg, accepting both shapes the two surfaces deliver:
+// MCP decodes a JSON `true` to a Go bool, while a REST body or query param
+// arrives as the string "true" (decodeRESTArgs). Same reason Int exists —
+// without it a flag silently reads false on one face and true on the other.
+// Absent, unparseable or wrong-typed → false.
+func (a Args) Bool(key string) bool {
+	switch v := a[key].(type) {
+	case bool:
+		return v
+	case string:
+		b, _ := strconv.ParseBool(v)
+		return b
+	}
+	return false
+}
+
 // Execution carries everything a handler needs to act + emit audit.
 // The adapter constructs it once per request; handlers honour Tx for
 // mutating actions on store-backed resources and ignore it otherwise.

@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"fmt"
 	"log/slog"
 	"slices"
 	"strings"
@@ -354,6 +355,79 @@ func paramsMatch(paramSpec string, params map[string]string) bool {
 		}
 	}
 	return true
+}
+
+// ValidateParams reports whether a `params` spec a caller asked to STORE means
+// at read time exactly what it says at write time. paramsMatch trims and splits
+// leniently, which is right for evaluation and wrong for a writer: the stored
+// string is also the revoke key, so `a=1` and `a = 1` evaluate identically and
+// delete differently, and a duplicated key silently makes a row that can never
+// match. An empty spec is valid — it is the unnarrowed row.
+//
+// The grammar lives here, next to the evaluator that defines it, so the writer
+// cannot accept a spec paramsMatch reads as something else.
+func ValidateParams(spec string) error {
+	if spec == "" {
+		return nil
+	}
+	seen := map[string]bool{}
+	for part := range strings.SplitSeq(spec, ",") {
+		// Testing the halves also tests the whole: an empty clause has an empty
+		// name, and any space around `part` is a space around its name or value.
+		k, v, hasEq := strings.Cut(part, "=")
+		if k != strings.TrimSpace(k) || (hasEq && v != strings.TrimSpace(v)) {
+			return fmt.Errorf("params %q: %q has surrounding spaces the evaluator strips", spec, part)
+		}
+		if k == "" {
+			return fmt.Errorf("params %q: empty parameter name", spec)
+		}
+		if seen[k] {
+			return fmt.Errorf("params %q: parameter %q named twice; the clauses are ANDed, so the row can never match", spec, k)
+		}
+		seen[k] = true
+	}
+	return nil
+}
+
+// ParamsSpec renders the matcher for a set of CONCRETE argument values — the
+// exact-value rule spec 6/26's `always` verdict writes. It refuses any value it
+// cannot state exactly rather than writing a rule that means something wider:
+//
+//   - `,` separates clauses, so a value carrying one would split into two rules;
+//   - `*` is a glob in segGlob, so a value carrying one would match beyond itself;
+//   - leading/trailing spaces are stripped at read time (see ValidateParams).
+//
+// A refusal is the honest outcome: a surface must not offer a standing rule it
+// cannot state. The rendered spec is checked back through paramsMatch, so this
+// builder cannot drift from the evaluator that has to read it.
+func ParamsSpec(values map[string]string) (string, error) {
+	keys := make([]string, 0, len(values))
+	for k := range values {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		v := values[k]
+		if strings.Contains(k, "=") {
+			return "", fmt.Errorf("argument name %q carries an =, which separates a name from its value", k)
+		}
+		for what, s := range map[string]string{"name": k, "value": v} {
+			if strings.ContainsAny(s, ",*") || s != strings.TrimSpace(s) {
+				return "", fmt.Errorf("argument %q: its %s cannot be written as an exact rule "+
+					"(a comma splits the rule, a star widens it, spaces are stripped)", k, what)
+			}
+		}
+		parts = append(parts, k+"="+v)
+	}
+	spec := strings.Join(parts, ",")
+	if err := ValidateParams(spec); err != nil {
+		return "", err
+	}
+	if !paramsMatch(spec, values) {
+		return "", fmt.Errorf("rendered rule %q does not match the arguments it was built from", spec)
+	}
+	return spec, nil
 }
 
 // HoldPrefix namespaces hold rules. A hold is NEVER an `effect` on a plain

@@ -35,6 +35,8 @@ func (d *dash) handleApprovals(w http.ResponseWriter, r *http.Request) {
 	writeFlash(w, r, map[string]flash{
 		"approved": {"ok", "approved — the agent will re-issue the call in its next turn"},
 		"rejected": {"ok", "rejected — the call will not run"},
+		"always": {"ok", "approved, and this shape now skips approval — the rule is an acl row " +
+			"on the group's grants page, and removing it is the only way back"},
 	})
 
 	d.renderApprovals(w, r)
@@ -42,17 +44,26 @@ func (d *dash) handleApprovals(w http.ResponseWriter, r *http.Request) {
 }
 
 // pendingRow mirrors routd's PendingAction JSON — the fields this page shows.
+//
+// matcher/unmatchable/matcher_error are routd's, DERIVED there: they are the
+// rule an `always` would write, and this page must display exactly what the
+// writer will store. Rendering them here from `args` would be a second renderer
+// of one fact, which is how a surface ends up showing one grant and writing
+// another (spec 6/26 § "The predicate is part of the verdict").
 type pendingRow struct {
-	ID           string `json:"id"`
-	GroupFolder  string `json:"group_folder"`
-	Tool         string `json:"tool"`
-	Args         string `json:"args"`
-	Status       string `json:"status"`
-	ChatJID      string `json:"chat_jid"`
-	CreatedAt    string `json:"created_at"`
-	ReviewedBy   string `json:"reviewed_by"`
-	ReviewedAt   string `json:"reviewed_at"`
-	ReviewerNote string `json:"reviewer_note"`
+	ID           string   `json:"id"`
+	GroupFolder  string   `json:"group_folder"`
+	Tool         string   `json:"tool"`
+	Args         string   `json:"args"`
+	Status       string   `json:"status"`
+	ChatJID      string   `json:"chat_jid"`
+	CreatedAt    string   `json:"created_at"`
+	ReviewedBy   string   `json:"reviewed_by"`
+	ReviewedAt   string   `json:"reviewed_at"`
+	ReviewerNote string   `json:"reviewer_note"`
+	Matcher      string   `json:"matcher"`
+	Unmatchable  []string `json:"unmatchable"`
+	MatcherError string   `json:"matcher_error"`
 }
 
 // renderApprovals writes the held-call queue and the recent verdicts off one
@@ -117,7 +128,7 @@ func (d *dash) renderApprovals(w http.ResponseWriter, r *http.Request) {
 			approvalArgsCell(p.Args),
 			d.chatJIDCell(p.ChatJID),
 			abbrTS(p.CreatedAt),
-			approvalVerdictCell(p.ID),
+			approvalVerdictCell(p),
 		})
 	}
 	fmt.Fprint(w, htmlTable([]string{"Group", "Tool", "Arguments", "Chat", "Held", ""}, heldRows,
@@ -164,16 +175,54 @@ func approvalArgsCell(args string) string {
 		esc(short), esc(args))
 }
 
-// approvalVerdictCell is one form, two submit buttons: the optional note rides
+// approvalVerdictCell is one form, three submit buttons: the optional note rides
 // whichever verdict is pressed, matching chat's "/approve <id> [note]".
-func approvalVerdictCell(id string) string {
-	return fmt.Sprintf(
+//
+// "always" is approve PLUS the standing rule, so the rule it will write is
+// printed beside the button — never a button whose effect the operator has to
+// guess. routd refuses a rule it cannot state exactly; when it says so, the
+// button is replaced by the reason. There is no "never": undoing one needs a
+// provenance acl rows do not carry (spec 6/26).
+func approvalVerdictCell(p pendingRow) string {
+	id := esc(url.PathEscape(p.ID))
+	out := fmt.Sprintf(
 		`<form method="post" action="/dash/approvals/%s/resolve" class="form-inline">`+
 			`<input type="text" name="note" placeholder="note (optional)" size="14">`+
 			` <button class="btn btn-sm" type="submit" name="verdict" value="approve">approve</button>`+
-			` <button class="btn-danger btn-sm" type="submit" name="verdict" value="reject">reject</button>`+
-			`</form>`,
-		esc(url.PathEscape(id)))
+			` <button class="btn-danger btn-sm" type="submit" name="verdict" value="reject">reject</button>`,
+		id)
+	if p.MatcherError != "" {
+		return out + `</form><div class="dim">no standing answer for this call: ` +
+			esc(p.MatcherError) + `</div>`
+	}
+	return out +
+		` <button class="btn btn-sm" type="submit" name="verdict" value="always">always</button>` +
+		`</form><div class="dim">always &rarr; skip approval for <code>` +
+		esc(alwaysRuleText(p)) + `</code> in <code>` + esc(p.GroupFolder) + `</code>. ` +
+		esc(alwaysCaveat(p)) +
+		` It skips approval only; the grant still has to allow the call. ` +
+		`Undo it by removing that acl row.</div>`
+}
+
+// alwaysRuleText spells the rule routd will write, from routd's own matcher.
+func alwaysRuleText(p pendingRow) string {
+	if p.Matcher == "" {
+		return p.Tool
+	}
+	return p.Tool + "(" + p.Matcher + ")"
+}
+
+// alwaysCaveat states what the rule text cannot show: which arguments it leaves
+// free. Both widen it past what an operator reading the rule assumes.
+func alwaysCaveat(p pendingRow) string {
+	s := "Arguments it does not name are unconstrained."
+	if p.Matcher == "" {
+		s = "No argument constrains it: EVERY call to this tool will run."
+	}
+	if len(p.Unmatchable) > 0 {
+		s += " No rule can constrain " + strings.Join(p.Unmatchable, ", ") + "."
+	}
+	return s
 }
 
 // approvalStatusClass maps a resolved status to its color: released ran (ok),
@@ -207,16 +256,21 @@ func (d *dash) handleApprovalResolve(w http.ResponseWriter, r *http.Request) {
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
 	verdict := r.FormValue("verdict")
-	if id == "" || (verdict != "approve" && verdict != "reject") {
-		http.Error(w, "verdict must be approve or reject", http.StatusBadRequest)
+	if id == "" || (verdict != "approve" && verdict != "reject" && verdict != "always") {
+		http.Error(w, "verdict must be approve, reject or always", http.StatusBadRequest)
 		return
 	}
+	// `always` is approve plus the standing rule — routd's `standing` argument,
+	// not a fourth endpoint, because pending_actions has no third status.
+	action, payload := verdict, map[string]string{
+		"note":     strings.TrimSpace(r.FormValue("note")),
+		"reviewer": strings.TrimSpace(r.Header.Get("X-User-Sub")),
+	}
+	if verdict == "always" {
+		action, payload["standing"] = "approve", "true"
+	}
 	body, status, err := d.routdCall(r.Context(), http.MethodPost,
-		"/v1/pending_actions/"+url.PathEscape(id)+"/"+verdict,
-		map[string]string{
-			"note":     strings.TrimSpace(r.FormValue("note")),
-			"reviewer": strings.TrimSpace(r.Header.Get("X-User-Sub")),
-		})
+		"/v1/pending_actions/"+url.PathEscape(id)+"/"+action, payload)
 	if err != nil {
 		slog.Warn("approval resolve: routd call", "id", id, "verdict", verdict, "err", err)
 		approvalsRedirect(w, r, "", "could not reach routd: "+err.Error())
@@ -229,8 +283,11 @@ func (d *dash) handleApprovalResolve(w http.ResponseWriter, r *http.Request) {
 	}
 	slog.Info("approval resolved", "id", id, "verdict", verdict)
 	msg := "approved"
-	if verdict == "reject" {
+	switch verdict {
+	case "reject":
 		msg = "rejected"
+	case "always":
+		msg = "always"
 	}
 	approvalsRedirect(w, r, msg, "")
 }

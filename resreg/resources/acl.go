@@ -57,9 +57,14 @@ var ACLMCPNames = map[resreg.Action]string{
 // ACLMCPDoc is the single owner of the acl tools' agent-facing one-liners. Copy
 // verbatim — the agent wire contract.
 var ACLMCPDoc = map[resreg.Action]string{
-	resreg.Action("add"):    "Grant a principal access to a folder scope (an acl row); scope '**' grants the operator role. You can only grant within your own authority. Defaults action=admin, effect=allow.",
-	resreg.Action("remove"): "Revoke a principal's access to a folder scope (drop an acl row); scope '**' revokes the operator role. You can only revoke within your own authority.",
-	resreg.ActionList:       "List acl rows for a folder (scope matches the folder). Audit what's permitted before changing.",
+	resreg.Action("add"): "Grant a principal access to a folder scope (an acl row); scope '**' grants the operator role. " +
+		"You can only grant within your own authority. Defaults action=admin, effect=allow. " +
+		"`params` narrows the row to calls whose arguments match, as 'name=glob[,name=glob]' — " +
+		"it constrains ONLY the arguments it names, and a rule cannot name a non-scalar argument at all.",
+	resreg.Action("remove"): "Revoke a principal's access to a folder scope (drop an acl row); scope '**' revokes the operator role. " +
+		"You can only revoke within your own authority. `params` must match the row's narrowing EXACTLY — " +
+		"omit it to drop an un-narrowed row, and pass the same string to drop a narrowed one.",
+	resreg.ActionList: "List acl rows for a folder (scope matches the folder). Audit what's permitted before changing.",
 }
 
 // ACLMCPArgs is the explicit per-action arg list. The agent face carries the exact
@@ -71,12 +76,16 @@ var ACLMCPArgs = map[resreg.Action][]resreg.MCPArg{
 		{Name: "scope", Type: "string", Required: true},
 		{Name: "action", Type: "string"},
 		{Name: "effect", Type: "string"},
+		{Name: "params", Type: "string",
+			Description: "narrow the row to matching call arguments: name=glob[,name=glob]"},
 	},
 	resreg.Action("remove"): {
 		{Name: "principal", Type: "string", Required: true},
 		{Name: "scope", Type: "string", Required: true},
 		{Name: "action", Type: "string"},
 		{Name: "effect", Type: "string"},
+		{Name: "params", Type: "string",
+			Description: "the row's exact narrowing; omit for an un-narrowed row"},
 	},
 	resreg.ActionList: {
 		{Name: "folder", Type: "string", Required: true},

@@ -9,6 +9,7 @@ package routd
 // session, grants and secrets — with no second path around ipc's discipline.
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -22,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 )
 
@@ -43,6 +45,20 @@ type PendingAction struct {
 	Result       string `json:"result"`
 	Error        string `json:"error"`
 	ExpiresAt    string `json:"expires_at"`
+
+	// The three fields below are DERIVED from ArgsFinal, never stored: they are
+	// what an `always` verdict would write, computed by one renderer
+	// (withMatcher → holdMatcher) so the notice, the REST row and the writer
+	// cannot disagree about the rule. Spec 6/26 § "The predicate is part of the
+	// verdict": a rule nobody was shown is a grant nobody agreed to.
+	Matcher string `json:"matcher"`
+	// Unmatchable names the arguments no rule can constrain — stringArgs skips
+	// every non-scalar, so a rule is silent about them and they are free to
+	// change on the next call. Stated in words wherever Matcher is shown.
+	Unmatchable []string `json:"unmatchable,omitempty"`
+	// MatcherError is why no exact rule can be written for this call. Non-empty
+	// means `always` is refused rather than approximated.
+	MatcherError string `json:"matcher_error,omitempty"`
 }
 
 const (
@@ -134,7 +150,7 @@ func pendingActionOn(q queryExecer, id string) (PendingAction, bool) {
 	if err != nil {
 		return PendingAction{}, false
 	}
-	return applyExpiry(p), true
+	return withMatcher(applyExpiry(p)), true
 }
 
 // ListPendingActions returns a folder's rows, newest first. An empty folder
@@ -166,7 +182,7 @@ func (d *DB) ListPendingActions(folder, status string) ([]PendingAction, error) 
 		if status != "" && p.Status != status {
 			continue
 		}
-		out = append(out, p)
+		out = append(out, withMatcher(p))
 	}
 	return out, rows.Err()
 }
@@ -253,21 +269,69 @@ func resolutionMessage(p PendingAction, reviewer string) core.Message {
 	}
 }
 
+// skipApprovalRow is the acl row an `always` verdict writes: on the `hold:`
+// action, never on the tool. `deny` there means DO NOT HOLD this shape —
+// Authorize reads every other effect as ALLOW, so a third effect name would be
+// spec 5/19 Hazard 1 in friendlier words, and a plain allow on `mcp:<tool>`
+// would grant the tool while the hold still fired. Every surface says "skip
+// approval"; only the wire says deny (spec 6/26 § Decision 5).
+//
+// Params is the matcher withMatcher already rendered and the notice already
+// displayed — never one built here, which is what makes "the surface refuses to
+// write a rule it did not display" structural rather than a habit.
+func skipApprovalRow(p PendingAction, reviewer string) core.ACLRow {
+	return core.ACLRow{
+		Principal: p.CallerAgent,
+		Action:    auth.HoldPrefix + p.Tool,
+		Scope:     p.GroupFolder,
+		Effect:    auth.EffectSkipApproval,
+		Params:    p.Matcher,
+		GrantedBy: "always:" + reviewer,
+	}
+}
+
 // resolveHoldTx is the one funnel both resolution faces run — chat /approve and REST
 // POST /v1/pending_actions/{id}/approve|reject. The verdict and, on approval, its
 // resolution message commit in the SAME transaction, so the poll can never dispatch
 // the re-issue before ConsumeApprovedAction can see the approval. Returns the chat
 // to enqueue ("" when nothing to trigger).
-func resolveHoldTx(q queryExecer, id, verdict, reviewer, note string) (PendingAction, string, error) {
-	p, err := resolvePendingActionOn(q, id, verdict, reviewer, note)
+//
+// `standing` is the `always` verdict: approve exactly as `yes`, and additionally
+// write the skip-approval row so the next call of this shape runs inline. It is
+// NOT a third status — pending_actions keeps its states and the standing answer
+// lives in acl, where every other standing answer already lives — and the row
+// commits in THIS transaction, so a crash cannot leave a call approved with no
+// rule or a rule with no approved call.
+//
+// `never` is deliberately absent. Undoing it means deleting the tool deny it
+// also writes, and acl rows carry no verdict identity, so a revoke could not
+// tell that deny from standing policy that predates it (spec 6/26 § "Revocation
+// needs provenance"). That is an unresolved design question, not an omission.
+func resolveHoldTx(ctx context.Context, tx *sql.Tx, id, verdict, reviewer, note string, standing bool) (PendingAction, string, error) {
+	p, err := resolvePendingActionOn(tx, id, verdict, reviewer, note)
 	if err != nil {
 		return PendingAction{}, "", err
 	}
 	if verdict != PendingApproved {
 		return p, "", nil
 	}
+	if standing {
+		// Refuse rather than approximate: an `always` whose full effective match
+		// could not be stated is a rule the operator was never shown.
+		if p.MatcherError != "" {
+			return PendingAction{}, "", fmt.Errorf(
+				"cannot make this a standing answer: %s", p.MatcherError)
+		}
+		if p.CallerAgent == "" || p.Tool == "" || p.GroupFolder == "" {
+			return PendingAction{}, "", fmt.Errorf(
+				"cannot make this a standing answer: the held row names no caller, tool or folder")
+		}
+		if err := grantACLTx(ctx, tx, skipApprovalRow(p, reviewer)); err != nil {
+			return PendingAction{}, "", fmt.Errorf("record the skip-approval rule: %w", err)
+		}
+	}
 	msg := resolutionMessage(p, reviewer)
-	if err := putMessage(q, msg); err != nil {
+	if err := putMessage(tx, msg); err != nil {
 		return PendingAction{}, "", fmt.Errorf("record resolution message: %w", err)
 	}
 	return p, msg.ChatJID, nil
@@ -333,11 +397,12 @@ func (s *Server) holdGate(t turnMCP) func(string, map[string]any) (string, bool)
 		}
 		id := NewPendingID()
 		raw, _ := json.Marshal(args)
-		if err := s.db.PutPendingAction(PendingAction{
+		p := PendingAction{
 			ID: id, GroupFolder: t.folder, CallerAgent: "folder:" + t.folder,
 			Tool: tool, Args: string(raw), ArgsFinal: string(raw), ArgsHash: hash,
 			Status: PendingHeld, ChatJID: t.chatJID,
-		}); err != nil {
+		}
+		if err := s.db.PutPendingAction(p); err != nil {
 			// Fail CLOSED: a hold rule exists and we could not record the call, so letting
 			// it run would silently defeat the gate. The EMPTY id is the signal ipc renders
 			// as an error rather than a pending result: with no row there is no id to
@@ -347,9 +412,44 @@ func (s *Server) holdGate(t turnMCP) func(string, map[string]any) (string, bool)
 			s.notifyHoldFailed(t, tool, err)
 			return "", true
 		}
-		s.notifyHeld(t, id, tool)
+		// The notice quotes the rule an `always` would write, so it runs through
+		// the same renderer the writer will read it from.
+		s.notifyHeld(t, withMatcher(p))
 		return id, true
 	}
+}
+
+// withMatcher fills the derived verdict fields — the ONE renderer of the rule an
+// `always` would write. Every sink reads it here: the chat notice, the REST row
+// the dashboard renders, and resolveHoldTx's writer. A second renderer anywhere
+// would let a surface display one rule and store another, which spec 6/26 calls
+// a grant nobody agreed to.
+func withMatcher(p PendingAction) PendingAction {
+	raw := p.ArgsFinal
+	if raw == "" {
+		raw = p.Args
+	}
+	var args map[string]any
+	if raw != "" {
+		if err := json.Unmarshal([]byte(raw), &args); err != nil {
+			p.MatcherError = "the recorded arguments are not readable as JSON: " + err.Error()
+			return p
+		}
+	}
+	scalars := stringArgs(args)
+	for k := range args {
+		if _, ok := scalars[k]; !ok {
+			p.Unmatchable = append(p.Unmatchable, k)
+		}
+	}
+	sort.Strings(p.Unmatchable)
+	spec, err := auth.ParamsSpec(scalars)
+	if err != nil {
+		p.MatcherError = err.Error()
+		return p
+	}
+	p.Matcher = spec
+	return p
 }
 
 // stringArgs flattens tool args for the acl `params` matcher, which compares
@@ -377,13 +477,47 @@ func stringArgs(args map[string]any) map[string]string {
 // names WHICH decision while the page's own operator gate names WHO. Deliberately not
 // a bearer token: this notice lands in the chat the agent shares with its users, so a
 // link carrying the verdict would hand it to every reader (spec 6/26 § Gap 3).
-func (s *Server) notifyHeld(t turnMCP, id, tool string) {
+func (s *Server) notifyHeld(t turnMCP, p PendingAction) {
 	text := fmt.Sprintf("⏸ %s held for approval (id %s)\n/approve %s   /reject %s",
-		tool, id, id, id)
-	if url := s.approvalURL(id); url != "" {
+		p.Tool, p.ID, p.ID, p.ID)
+	text += "\n" + alwaysOffer(p)
+	if url := s.approvalURL(p.ID); url != "" {
 		text += "\n" + url
 	}
-	s.notifyHold(t, "hitl-"+id, text)
+	s.notifyHold(t, "hitl-"+p.ID, text)
+}
+
+// alwaysOffer is the `always` half of the notice: the EXACT row the verdict
+// would write, plus the two properties that widen it past what an operator
+// assumes (spec 6/26 § "The predicate is part of the verdict"). Both are stated
+// in words because neither is visible in the rule text:
+//
+//   - a rule constrains only the parameters it NAMES, so an argument it does not
+//     name is free to be anything on the next call;
+//   - a non-scalar argument is skipped by stringArgs and can never be matched.
+//
+// When no exact rule can be written the offer is replaced by the reason, so the
+// operator is told why the button is missing rather than left to wonder.
+func alwaysOffer(p PendingAction) string {
+	if p.MatcherError != "" {
+		return "/always is not offered for this call: " + p.MatcherError
+	}
+	rule := p.Tool
+	if p.Matcher != "" {
+		rule += "(" + p.Matcher + ")"
+	}
+	out := fmt.Sprintf("/always %s → skip approval for\n  %s  in folder %s",
+		p.ID, rule, p.GroupFolder)
+	if p.Matcher == "" {
+		out += "\n  (no argument constrains it: EVERY call to this tool will run)"
+	} else {
+		out += "\n  (arguments it does not name are unconstrained)"
+	}
+	if len(p.Unmatchable) > 0 {
+		out += "\n  (no rule can constrain " + strings.Join(p.Unmatchable, ", ") + ")"
+	}
+	out += "\n  (skips approval only; the mcp: grant still has to allow the call)"
+	return out
 }
 
 // approvalURL is the operator's browser route to one held call. Empty when

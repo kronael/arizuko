@@ -73,7 +73,7 @@ func (s *Server) pendingActionsRESTGate(x resreg.Execution, _ string, _ map[stri
 	return nil
 }
 
-func (s *Server) pendingActionsHandler(_ context.Context, x resreg.Execution) (any, error) {
+func (s *Server) pendingActionsHandler(ctx context.Context, x resreg.Execution) (any, error) {
 	switch x.Action {
 	case resreg.ActionList:
 		folder := x.Args.Str("folder")
@@ -106,7 +106,13 @@ func (s *Server) pendingActionsHandler(_ context.Context, x resreg.Execution) (a
 		if reviewer == "" {
 			reviewer = x.Caller.Sub
 		}
-		p, _, err := resolveHoldTx(x.Tx, id, verdict, reviewer, x.Args.Str("note"))
+		// `standing` is the `always` verdict — approve plus the skip-approval
+		// rule, in this tx. It is an ARGUMENT of approve rather than a third
+		// action because pending_actions has no third status: the standing
+		// answer lives in acl (spec 6/26 § Decision 5). Meaningless on reject,
+		// and there is no standing reject — see resolveHoldTx.
+		standing := x.Action == actionApprove && x.Args.Bool("standing")
+		p, _, err := resolveHoldTx(ctx, x.Tx, id, verdict, reviewer, x.Args.Str("note"), standing)
 		switch {
 		case errors.Is(err, ErrPendingNotFound):
 			return nil, resreg.Errorf(http.StatusNotFound, "%v", err)

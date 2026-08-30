@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/ipc"
 )
 
@@ -119,7 +120,7 @@ func TestAddACLToAnAliasStillWritesTheRowAsAsked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := grantACLTx(t.Context(), tx, "github:Y", "atlas", "admin", "allow", "operator"); err != nil {
+	if err := grantACLTx(t.Context(), tx, core.ACLRow{Principal: "github:Y", Scope: "atlas", Action: "admin", Effect: "allow", GrantedBy: "operator"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {

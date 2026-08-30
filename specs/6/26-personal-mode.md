@@ -211,12 +211,17 @@ re-read `acl` on every call ([`5/32`](../5/32-acl-unified.md) § "No caching,
 deliberately"). The agent therefore stores nothing and remembers nothing — it
 learns the standing answer from the OUTCOME of its next call.
 
-| Verdict    | The call in hand                       | Also writes                                                             | Next identical call    |
-| ---------- | -------------------------------------- | ----------------------------------------------------------------------- | ---------------------- |
-| **yes**    | `approved` (one-shot, args-hash keyed) | —                                                                       | held again             |
-| **no**     | `rejected`                             | —                                                                       | held again             |
-| **always** | `approved`, exactly as `yes`           | skip-approval: `hold:mcp:<tool>(<params>)`, `effect='deny'`             | runs inline, no notice |
-| **never**  | `rejected`, exactly as `no`            | skip-approval **plus** `mcp:<tool>`, `effect='deny'` — BOTH, atomically | denied, never held     |
+| Verdict                 | The call in hand                       | Also writes                                                             | Next identical call    |
+| ----------------------- | -------------------------------------- | ----------------------------------------------------------------------- | ---------------------- |
+| **yes** (`/approve`)    | `approved` (one-shot, args-hash keyed) | —                                                                       | held again             |
+| **no** (`/reject`)      | `rejected`                             | —                                                                       | held again             |
+| **always** (`/always`)  | `approved`, exactly as `yes`           | skip-approval: `hold:mcp:<tool>(<params>)`, `effect='deny'`             | runs inline, no notice |
+| **never** (NOT SHIPPED) | `rejected`, exactly as `no`            | skip-approval **plus** `mcp:<tool>`, `effect='deny'` — BOTH, atomically | denied, never held     |
+
+`always` is live on both resolution faces: chat `/always <id> [note]`, and
+`standing=true` on `POST /v1/pending_actions/{id}/approve` (an ARGUMENT of
+approve, never a fourth endpoint — there is no third status to name), which is
+what the approvals page's third button posts.
 
 **`always` and `never` are `yes`/`no` plus a rule — never a third verdict on
 the row.** `pending_actions` keeps its states and `resolvePendingAction` keeps
@@ -242,40 +247,50 @@ would be the `5/19` Hazard 1 trap in new clothes. But an operator reading
 "deny" next to a button that lets a call through will misread it. The wire
 keeps `deny`; every surface says **skip approval**.
 
-### Gap 2 — three things must change before `always` or `never` can be written
+### Gap 2 — three things had to change before `always` could be written
 
-Found by review 2026-08-24 (codex), each confirmed in code. None is large; all
-three are load-bearing, and shipping the buttons without them ships a lie.
+Found by review 2026-08-24 (codex), each confirmed in code. **All three are
+closed as of 2026-08-30, and `always` ships; `never` does not** — see the next
+section for the one reason that is not about this gap.
 
-1. **`CheckHold` cannot express an exception.** `auth/authorize.go:398`
-   returns `true` on the FIRST `hold:` row matching action, scope, predicate
-   and params; it never reads `Effect`. Give it the deny-wins two-pass loop
-   `Authorize` already has: scan every matching row, and a matching row with
-   `effect='deny'` means do not hold. Deny-wins is order-independent, so a
-   broad `hold:mcp:*` plus a narrow skip-approval row behaves correctly — but
-   it is also absolute: any inherited matching deny beats every hold rule
-   regardless of specificity, and a later, narrower hold cannot restore the
-   approval. Revocation is removing the skip-approval row, and the operator
-   surface must say so.
-2. **`add_acl` cannot write a shaped row, and its delegation check is already
-   bypassable.** `grantACLTx` (`routd/acl_resource.go:305`) INSERTs `params`
-   and `predicate` as empty literals, so no rule this decision writes is
-   expressible at all. The same writer carries a shipped defect the same review
-   found: the candidate row handed to `auth.Delegate` hardcodes
-   `Effect: "allow"` (`acl_resource.go:219`) while the INSERT takes the
-   caller's own `effect` argument, so `Delegate`'s outright ban on delegating a
-   deny row (`auth/delegate.go:51`) never sees a deny (BUGS `L93`). Fix both in
-   one pass: the writer must carry `params`, and `Delegate` must judge the row
-   that is actually written — effect included.
-3. **A shaped `never` cannot work yet, so v1 must not offer one.** The hold
+1. **`CheckHold` could not express an exception. CLOSED 2026-08-29.** It
+   returned `true` on the FIRST `hold:` row matching action, scope, predicate
+   and params and never read `Effect`. It now shares `namespacedAllows` with
+   `ShellEnvKeys` — one deny-wins two-pass loop, so a matching `effect='deny'`
+   row means DO NOT HOLD. Deny-wins is order-independent, so a broad
+   `hold:mcp:*` plus a narrow skip-approval row behaves correctly, and it is
+   absolute: any inherited matching deny beats every hold rule regardless of
+   specificity, and a later, narrower hold cannot restore the approval.
+   **Revocation is removing the skip-approval row**, which is why `/always`
+   answers with the exact `remove_acl` call that undoes it, and why the
+   approvals page says the same. Pinned by
+   `auth/checkhold_test.go` — the exception, the broad-rule case, both insert
+   orders, the inherited skip, and `TestCheckHold_OperatorStarDoesNotHoldEverything`
+   still green.
+2. **`add_acl` could not write a shaped row, and its delegation check was
+   bypassable. CLOSED.** The effect half shipped 2026-08-29 (BUGS `L93`); the
+   `params` half 2026-08-30. `grantACLTx` and `revokeACLTx` now take the
+   `core.ACLRow`, and the Gate builds its `auth.Delegate` candidate with the
+   SAME `aclArgsRow`+`aclDefaults` pair the write uses, so the row judged is
+   the row stored — `Delegate` would otherwise have read an empty `params` as
+   no constraint (`auth.paramsCover`) and let a caller holding only
+   `mcp:t(repo=mine/*)` write the unnarrowed `mcp:t`. `revokeACLTx` matches
+   `params` exactly instead of hardcoding `''`, so a row this face can write is
+   a row it can remove; leaving that hardcode would have re-created BUGS `L79`
+   the day `params` became writable. `auth.ValidateParams` refuses a spec
+   `paramsMatch` reads differently from how it is stored — the stored string is
+   also the revoke key.
+3. **A shaped `never` cannot work, so no surface offers one. PINNED.** The hold
    path passes arguments (`stringArgs(args)`), but the authz path does not:
-   `authorizeCall(name, nil)` (`ipc/ipc.go:1006`) hands `Authorize` a nil
-   params map, and `paramsMatch` requires each named key to be PRESENT, so a
-   deny row shaped `mcp:<tool>(repo=x/*)` matches nothing and denies nothing.
-   A shaped `never` would therefore look recorded and refuse no call.
-   **v1: `always` may be shaped, `never` is tool-wide only**, and the notice
-   states that difference in words. Shaped `never` waits on the authz path
-   carrying arguments — its own change, with every tool in its blast radius.
+   `authorizeCall(name, nil)` (`ipc/ipc.go`) hands `Authorize` a nil params
+   map, and `paramsMatch` requires each named key to be PRESENT, so a deny row
+   shaped `mcp:<tool>(repo=x/*)` matches nothing and denies nothing.
+   **v1: `always` may be shaped, `never` is tool-wide only.**
+   `routd/hold_shaped_never_test.go` pins the REASON, not just the rule: the
+   same shaped deny is inert under nil params and decisive once arguments
+   travel, and the hold path is shown carrying them. Removing the restriction
+   therefore requires removing the reason. Carrying arguments into the authz
+   path is its own change, with every tool in its blast radius.
 
 ### Revocation needs provenance, and `acl` has none
 
@@ -291,6 +306,15 @@ is not safe discovery: it cannot show which deny is a verdict and which is
 standing policy. This is the last unresolved piece of the design, and it is why
 `never` does not ship alongside `always`.
 
+**`always` shipped 2026-08-30 without it**, because its revocation is not
+symmetric: it writes ONE row, on the `hold:` action, and removing that row is
+the whole undo — there is no second row whose provenance is in doubt. The two
+surfaces say which row: chat answers `/always` with the `remove_acl` call that
+undoes it, and the approvals page points at the group's grants table. The
+`always` writer records `granted_by = "always:<reviewer>"`, which is a trace,
+NOT the provenance this section asks for — nothing reads it, and it does not
+survive the row being re-created by hand. Do not build `never` on top of it.
+
 ### The predicate is part of the verdict
 
 A held call carries concrete arguments; `always` over ALL arguments is a large
@@ -298,8 +322,10 @@ widening from one sample. The notice states the row it will write — principal,
 action, scope, and the exact parameter matcher — and writes exactly that:
 
 ```
-always → skip approval for
-  github_create_pull_request(repo=kronael/*)  in folder solo
+/always ab12 → skip approval for
+  github_create_pull_request(repo=kronael/arizuko)  in folder solo
+  (arguments it does not name are unconstrained)
+  (no rule can constrain files)
   (skips approval only; the mcp: grant still has to allow the call)
 ```
 
@@ -309,6 +335,25 @@ NAMES, so unnamed arguments are unconstrained, and non-scalar arguments are
 skipped entirely by `stringArgs` and can never be matched. An `always` whose
 full effective match was not shown and accepted is a grant nobody agreed to,
 and the surface refuses to write it.
+
+**The matcher is EXACT VALUES, never a glob** — an earlier draft of this
+section wrote `repo=kronael/*`, which no surface can offer honestly: widening
+one sample into a pattern is an operator judgement, and a verdict button cannot
+make it. So the rendered rule quotes the call's own scalar arguments, and a
+value carrying `,` (which would split the rule), `*` (which would glob it) or
+surrounding whitespace (which the reader strips) cannot be stated at all —
+`always` is REFUSED there and the surface says why instead of showing a button.
+An operator who wants a glob writes the row themselves with `add_acl`, where the
+widening is a thing they typed. Implementation: `auth.ParamsSpec`.
+
+**One renderer, three sinks.** `routd.withMatcher` derives `matcher` /
+`unmatchable` / `matcher_error` from the held row and is the only place they are
+computed; the chat notice, the `/v1/pending_actions` row and
+`resolveHoldTx`'s writer all read them from there. The writer takes
+`p.Matcher` and never builds one, so "refuses to write a rule it did not
+display" is structural rather than a habit — and dashd renders routd's matcher
+rather than re-deriving one from `args`, which is exactly how a page ends up
+showing one grant and writing another.
 
 ## Decision 6 — approval delivery: one decision, three sinks
 
@@ -394,33 +439,54 @@ Shipped 2026-08-24 (verified, tests in the shipping commit):
 - The link opens the page with that row first; a resolved or unknown id is
   reported, not silently absent; `WEB_HOST` unset yields no broken URL.
 
+Shipped 2026-08-29/30 — gap 2 closed and `always` live (`auth/checkhold_test.go`,
+`auth/params_test.go`, `routd/acl_params_test.go`, `routd/hold_always_test.go`,
+`routd/hold_shaped_never_test.go`, `dashd/approvals_page_test.go`):
+
+- A `hold:mcp:<tool>` row plus a same-action row with `effect='deny'` and a
+  narrowing: the matching shape runs inline, every other shape is still held,
+  a broad `hold:mcp:*` does not resurrect the exception, insert order does not
+  matter, an inherited skip beats a directly-held hold, and
+  `TestCheckHold_OperatorStarDoesNotHoldEverything` stays green (gap 2.1).
+- `add_acl` writes a row carrying params and `remove_acl` drops that same row
+  by naming the narrowing exactly; `auth.Delegate`'s subset check runs on the
+  SHAPED row, so a caller who may grant `mcp:t(repo=mine/*)` cannot write
+  `mcp:t`; a narrowed row at scope `**` is an ordinary row and never operator
+  membership; a spec the evaluator would read differently from how it is stored
+  is refused (gap 2.2).
+- `always` writes exactly the matcher the notice displayed — the same
+  `withMatcher` output the notice, the REST row and the page all read — and
+  refuses outright when no exact rule can be stated, leaving the call held
+  rather than approved without its rule (gap 2.2).
+- The notice and the approvals page both state the two widenings in words and
+  name the arguments no rule can constrain; an unnarrowed rule announces that
+  every call to the tool will run (gap 2.2).
+- No surface offers a shaped `never` while `authorizeCall` passes nil params,
+  and the test pins the REASON — the same shaped deny is inert under nil params
+  and decisive once arguments travel — so removing the restriction requires
+  removing the reason (gap 2.3).
+
 Still to build:
 
 - `arizuko token <inst> issue chat <folder>` → `arizuko talk <url> --token <t>`
   holds a conversation with the persona from a second machine, with no DB
   access and no operator scope (gap 1).
-- A `hold:mcp:<tool>` row plus a `hold:mcp:<tool>(repo=x/*)` row with
-  `effect='deny'`: the matching shape runs inline, every other shape is still
-  held, a broad `hold:mcp:*` does not resurrect the exception, and
-  `TestCheckHold_OperatorStarDoesNotHoldEverything` stays green (gap 2.1).
-- `add_acl` writes a row carrying params, and `auth.Delegate`'s subset check
-  runs on the SHAPED row — a caller who may grant `mcp:t(repo=mine/*)` cannot
-  write `mcp:t` (gap 2.2).
-- `always` writes exactly the matcher the notice displayed, and the surface
-  refuses to write one it did not display (gap 2.2).
-- `never` writes BOTH the skip-approval row and the `mcp:<tool>` deny in one
-  transaction; the next call is refused and is NOT held again — the test fails
-  if either row is missing (gap 2.1).
-- The surface offers no shaped `never` while `authorizeCall` passes nil params;
-  a test pins that, so removing the restriction requires removing the reason
-  (gap 2.3).
-- An adapter with `buttons` renders four native options and a press resolves
+- `never` — blocked on verdict provenance, not on the writer. See § "Revocation
+  needs provenance"; do not ship it on `granted_by`.
+- An adapter with `buttons` renders the options natively and a press resolves
   the row; an adapter without renders numbered text and a numeric reply
-  resolves the same row; whapd renders a four-option poll (gap 3).
+  resolves the same row; whapd renders a poll (gap 3). Until then `always` is
+  the chat command and the dashboard button, not a button in the channel.
 - The github connector opens a PR under a surrogate-OAuth token; the token
   never appears in container env or in the tool result.
 - `make build && make lint && go test ./... -short` green; tests in the same
   commit.
+
+**Bounded by BUGS `L97`.** The one-shot half of every verdict — the agent
+re-issuing the approved call — is a no-op today: the re-issue trigger is written
+with a non-fixed-width timestamp and sorts behind the cursor that must pick it
+up. `always`'s standing half is unaffected (the next call is simply not held),
+but its `yes` half inherits `L97` exactly as `/approve` does.
 
 ## Out of scope
 
