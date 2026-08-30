@@ -7,6 +7,51 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L139 — proposal: two MCP surfaces serve one queue with two tool vocabularies; identity should be the default door and capability tokens the exception (2026-08-30, proposal — needs sign-off)
+
+Found designing `arizuko talk` (`6/26` Gap 1). The operator's framing: *"eventually
+it's better to let the client choose his destination and only authenticate him
+through a secret or oauth"*, and *"this would collapse the system and make it
+simpler"*. This records the measured shape and does not take the decision.
+
+**Two MCP surfaces exist over the same queue, with near-identical tools under
+different names:**
+
+| surface | auth | tools |
+| --- | --- | --- |
+| `POST /mcp` (`webd/mcp.go`) | identity — proxyd stamps `X-User-*`, folder gated by `auth.MatchGroups` | `list_groups`, `send`, `get_history` |
+| `POST /chat/{token}/mcp` (`webd/chat_mcp.go`) | capability — the token IS one JID, no identity | `send_message`, `get_round`, `get_round_status` |
+
+`send`/`send_message` and `get_history`/`get_round` do the same job for the same
+queue. Two vocabularies for one thing is the "one renderer, many sinks" rule
+inverted, and a client author must learn which door they came through before
+they can name a tool.
+
+**What the collapse is, and what it is NOT.** Route tokens must NOT be deleted:
+they are the only mechanism for a caller with no identity, and there are two real
+ones — an external human handed a `/chat/<token>/` link, and a third-party
+service POSTing a `hook:<folder>/<source>` webhook. Neither can hold an authd
+bearer. `route_tokens` also carries per-link `context` that has no identity twin.
+
+The collapse is narrower and worth more: **identity is the DEFAULT door for any
+caller that has one, and a capability token is the exception for callers that do
+not.** Concretely, that means one tool vocabulary, with the capability surface
+exposing the subset a pinned JID can answer, rather than a parallel set of names.
+
+**Why now:** `arizuko talk` was specified against the capability surface and
+rewritten to the identity one the same day, because the identity path already
+works end to end — `proxyd.tryAuth` verifies an ES256 bearer against authd's JWKs
+and stamps the sub's groups, and `arizuko token <inst> issue bearer` mints one.
+Nothing had to be built. If the CLI needed no new mechanism, neither does the
+next client, and the second vocabulary earns its keep only for the anonymous case.
+
+- **Severity:** low (no runtime defect; this is surface duplication)
+- **Scope:** webd MCP surfaces / client contract
+- **Affected:** `webd/mcp.go`, `webd/chat_mcp.go`, `specs/6/26`, `specs/5/W`
+- **Status:** proposal (needs sign-off) — nothing changed, nothing deleted
+- **Fix:** decide whether the two tool sets converge on one vocabulary; if yes,
+  the capability surface keeps the subset a single pinned JID can answer
+
 ## L138 — the CLI cannot revoke the acl row `/always` writes, and cannot type one (2026-08-30, open)
 
 `always` (spec `6/26` Decision 5, shipped 2026-08-30) writes a skip-approval

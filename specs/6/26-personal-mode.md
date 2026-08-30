@@ -71,67 +71,71 @@ and nothing else. It holds no DB handle and knows no folder; it sends, then
 streams `/chat/<token>/<id>/sse`. The third consumer of one surface, never a
 fourth path into the queue.
 
-### The `talk` interface (decided 2026-08-30)
+### The `talk` interface (decided 2026-08-30, auth model corrected same day)
 
-Command-line first. One chat per user is the expected case, so that case takes
-no arguments at all:
+Command-line first. The common case takes no arguments:
 
 ```
-arizuko talk                    # REPL against the one chat
-arizuko talk -p "what broke?"   # one turn: send, print the reply, exit
-arizuko talk -p                 # same, prompt read from stdin
-arizuko talk @work -p "…"       # a named chat instead of the default
-arizuko talk -t bugfix          # a different thread, same chat
+arizuko talk                    # REPL
+arizuko talk -p "what broke?"   # one turn: send, print, exit
+arizuko talk -p                 # same, prompt from stdin
+arizuko talk @work -p "…"       # a named entry instead of the default
+arizuko talk -g eng/sre         # a folder other than the resolved default
+arizuko talk -t bugfix          # a different thread, same folder
 ```
 
 **`-p` is one iteration of the REPL loop, not a second code path.** Same send,
-same SSE read, same printer — otherwise the one-shot and interactive forms drift,
-which is the failure this gap's own sentence above warns about.
+same read, same printer — otherwise the one-shot and interactive forms drift,
+which is what this gap's own "never a fourth path into the queue" forbids.
 
-**Two sigils, no collision: `@` picks the chat, `-t` picks the thread.**
+**Authenticate the caller; let the caller choose the destination.** `talk` holds
+an authd-minted ES256 bearer and speaks `POST /mcp` — the surface that already
+offers `list_groups`, `send` (gated by `auth.MatchGroups(grants, folder)`) and
+`get_history`. It does NOT carry a route token.
 
-**Config — minimal, and the common case has no section header.**
+> **An earlier revision of this section had `talk` hold a `route_tokens` bearer
+> against `/chat/<token>/mcp`, and said "the group is never a parameter". That is
+> REVERSED.** A capability token pins one JID and carries no identity, so every
+> destination needs its own token and nothing can enumerate them. Authenticating
+> the human and authorizing the folder is the mechanism arizuko already has
+> everywhere else; a second one for the CLI is the duplication this spec exists
+> to avoid. See BUGS `L139` for the wider collapse this implies.
+
+It works today, unchanged: `proxyd.tryAuth` accepts `Authorization: Bearer
+<ES256>`, verifies against authd's JWKs and stamps `X-User-*`; `webd.identified`
+then requires that stamp plus `auth.ProxydTransit`. So `talk` points at the
+PUBLIC proxyd URL, never at webd directly, and the token is minted by an existing
+command — `arizuko token <inst> issue bearer <folder> --scope`.
+
+**Config — minimal; the common case has no section header.**
 
 ```toml
 # ~/.config/arizuko/talk.toml
 url   = "https://krons.fiu.wtf"
-token = "…"
+token = "…"            # authd ES256 bearer, not a route token
 
 [work]
-url   = "https://other.example"
+url   = "…"
 token = "…"
 ```
 
-Top-level keys are the one chat; a `[section]` is addressed as `@section`.
 Precedence: flag > `@name` > top-level > `ARIZUKO_CHAT_TOKEN` > an error that
-prints the file to write. The file holds a bearer, so it is refused unless its
-mode is `0600` — the same reason `psql` refuses a group-readable `.pgpass`.
+prints the file to write. Refused unless mode is `0600` — it holds a bearer, the
+reason `psql` refuses a group-readable `.pgpass`.
 
-**A token, not peer credentials.** `SO_PEERCRED` on the ipc socket credentials
-the AGENT's turn, and the operator's local authority is already spelled "you can
-read the DB" (`arizuko send`, `arizuko chat`). Giving `talk` a unix-auth door
-would hand it a DB handle and a folder parameter — the two things the paragraph
-above forbids, and what keeps it safe to point at a remote instance. A token is
-also what the surface is: `/chat/<token>/mcp` is web-native, and `talk` should
-speak it the way any other client does. Minting one is already a command:
-`arizuko token <inst> issue chat <folder>`.
+**Folder resolution, in order:** `-g` > a `group` key on the entry > if
+`list_groups` returns exactly one, that one, silently > otherwise an error
+listing what the caller can reach. That last rule is what makes "one chat per
+user needs no arguments" true without hardcoding a default.
 
-**The group is never a parameter, and the chain has three links.** A
-`route_tokens` row carries no scope column — it maps one token to exactly ONE
-inbound JID, so possession IS membership of that conversation and there is
-nothing to choose among. Where the JID delivers is recorded separately in
-`target_folder`, because a suffixed JID (`web:t/sfx`) cannot be parsed back into
-a folder. So `@name` selects a TOKEN, the token names a JID, and the JID's
-recorded `target_folder` decides delivery. `talk` sends no folder and has no
-field on the wire to put one in.
+**The thread default is the fixed literal `talk`** — no last-used cache, so there
+is never a "which thread am I in?".
 
-(`owner_folder` is a third, different thing: it bounds REVOCATION and may
-diverge from the folder in the JID. Who can kill a token is not who receives its
-messages.)
-
-**The thread default is the fixed literal `talk`**, not a remembered value.
-There is no last-used cache to go stale and no "which thread am I in?" — the
-answer is always the one `-t` names, or `talk`.
+**Not in v1: an OAuth device flow.** The bearer is minted by the operator and
+pasted once. A `gh auth login`-shaped handshake that obtains and refreshes its
+own token is the natural next step and sits beside an OAuth server that already
+runs (proxyd proxies `/auth/*` to authd, and a refresh-token cookie flow exists
+for browsers). It is not needed to make `talk` work.
 
 ## Decision 3 — GitHub arrives as a connector, not as a channel
 
