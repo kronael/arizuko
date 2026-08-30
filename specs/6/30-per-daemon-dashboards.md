@@ -38,10 +38,12 @@ packaged daemons ship a `services/<name>.yaml`.
 
 ## Federation state (2026-08-30)
 
-**The core set is complete.** Eight of nine daemons serve their own dashboard —
-onbod, timed, routd, runed, authd, proxyd, webd and ttsd — and davd is the
-deliberate ninth: it has no `/health` and no session list to render, so it stays
-a hub tile probed at `GET /`, exactly as the table says. Each migration deleted
+**The core set is COMPLETE — all nine accounted for.** Eight serve their own
+dashboard (onbod, timed, routd, runed, authd, proxyd, webd, ttsd) and davd
+deliberately serves none: dufs exposes no session list and no disconnect verb,
+so a dashboard would render an empty page and offer nothing. Its finished state
+is the hub tile probed at `GET /`, which ships. The abstention is the ninth
+outcome, not a ninth gap. Each migration deleted
 dashd's copy in the same commit, per the rule below.
 
 **The trap every remaining migration must clear.** proxyd matches
