@@ -14,6 +14,26 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Added
+
+- **The `always` verdict on a held tool call** (spec `6/26` Decision 5). Answering
+  a held call with `always` approves it AND writes the skip-approval row that
+  stops arizuko asking again for that exact shape — one transaction, so a crash
+  cannot leave a call approved with no standing rule. Three faces, one renderer:
+  `/always <id>` in chat, `standing=true` on the existing
+  `POST /v1/pending_actions/{id}/approve`, and a button on `/dash/approvals/`.
+  The notice states the rule it will write, and the writer writes exactly that
+  matcher — a surface cannot record a narrowing it did not display.
+  `never` deliberately does NOT ship: `acl` rows carry no verdict identity, so
+  nothing could later tell a `never`'s tool deny from standing policy.
+- **`add_acl` and `remove_acl` can write and drop a SHAPED row.** `grantACLTx`
+  inserted `params` and `predicate` as empty literals, so no argument-narrowed
+  rule was expressible through the agent or REST face at all. Both writers now
+  take a `core.ACLRow`, so the `auth.Delegate` candidate and the row actually
+  written are one value from one builder. `revokeACLTx` matches `params` exactly
+  rather than assuming `''`. New `auth.ValidateParams` refuses a spec the
+  evaluator would read differently from how it is stored.
+
 ### Changed
 
 - **MCP connectors are HTTP endpoints, not subprocesses** (spec `5/13` shape 2,
