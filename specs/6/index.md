@@ -87,17 +87,20 @@ themselves argue:
    internal reasons — 1,221 of ~1,700 lines serve an abandoned
    shared-proxy model, and its consumer-held unregister invariant is a real leak.
    The composition is the product, not the parts.
-4. **The cockpit is started** (`28`–`33`, signed off 2026-08-29). `6/28`'s two
+4. **The cockpit is SHIPPED** (`28`–`33`, completed 2026-08-30). `6/28`'s two
    contracts are real: `auth/dashauth.go` is the one operator gate every daemon
    dashboard applies (it replaced three drifted copies and added the CSRF check
-   none of them had), and `coreProxydRoutes` carries the per-daemon routes ahead
-   of the `/dash/` catch-all with a test pinning that ordering for every route
-   added later. Three of nine daemons serve their own page: `onbod` (admission
-   queue), `timed` (overview) and `routd` (overview, the reference the rest
-   copy). Still unbuilt: the `dashd` hub at `/dash/services/` (`6/29`), the six
-   remaining daemons, the adapters (`6/31`, `6/32`), and the migration of
-   dashd's 86 direct-DB read sites — which by `6/30`'s own rule leave dashd only
-   once their replacement is live.
+   none had), and the per-daemon routes sit ahead of the `/dash/` catch-all with
+   a test pinning that ordering. Eight daemons serve their own dashboard —
+   onbod, timed, routd, runed, authd, proxyd, webd, ttsd — and davd deliberately
+   serves none (dufs has no session list to render); the hub tile is its
+   finished state. All ten channel adapters serve `/dash/<adapter>/`: seven Go
+   ones from a single `chanlib/dash.go` mounted inside `NewAdapterMux`, whapd
+   and twitd from their own `src/dash.ts`, since neither can import chanlib.
+   dashd is the hub plus the cross-cutting pages, and **no dashboard reads
+   another daemon's SQLite file** — all five retained pages read their owner's
+   `/v1`. Writes stay direct per CLAUDE.md's split write-discipline, which is
+   what keeps the operator on the audit row.
 5. **Deferred by their own terms**: `19` waits for `5/13` shape 4; `12`
    (mcpfw) waits for a third-party-MCP consumer.
 

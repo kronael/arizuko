@@ -1,5 +1,5 @@
 ---
-status: partial
+status: shipped
 depends: [28-cockpit-index]
 ---
 

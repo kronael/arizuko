@@ -1,5 +1,5 @@
 ---
-status: partial
+status: shipped
 depends: [5/17-openapi-mcp, 5/7-proxyd-standalone, 5/1-auth-standalone]
 ---
 
@@ -217,8 +217,10 @@ Signed off and started. The contract above is settled; what exists:
   tokens) that `6/29` keeps central and requires to call the owning daemon's
   `/v1` instead.
 
-Status stays `partial` until the hub exists and the per-daemon set is complete
-— a contract with three of nine implementations is not shipped.
+**Status: shipped 2026-08-30.** The hub exists, the per-daemon set is complete
+(eight dashboards plus davd's recorded abstention), all ten adapters serve the
+shared contract, and no dashboard reads another daemon's SQLite file. The write
+axis is governed by CLAUDE.md's split write-discipline, reconciled above.
 
 ## Reconciliation of prior specs
 
