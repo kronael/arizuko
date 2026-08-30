@@ -27,6 +27,29 @@ The adapter authenticates and does not authorize. The acl authorizes and cannot
 authenticate. They are separated by a hop, and that separation is the design —
 not an artefact of it.
 
+**There are TWO attesters, and web is not a special case.** proxyd is the owned
+surfaces' attester: `proxyd.tryAuth` (`proxyd/main.go:810`) verifies our own ES256
+bearer against authd's JWKs and stamps `X-User-*`, which is structurally the same
+job slakd does with `X-Slack-Signature`. Ours, theirs — same role, different
+secret holder.
+
+| path | attester | holds | attests |
+| --- | --- | --- | --- |
+| foreign | the channel adapter | the platform's signing secret | a correspondent |
+| owned | proxyd | authd's JWKs / our OAuth | a person |
+
+**And that exposes the real asymmetry: both paths attest, but only the owned
+path's attestation SURVIVES to the authorization.** Web carries `X-User-Sub`
+through to `auth.MatchGroups`. The foreign path attests a correspondent and then
+discards it — `db.Authorize("folder:"+folder, folder, …)` (`ipc/ipc.go:1092,1118`)
+— so the folder becomes the principal and the attested sender survives only as a
+payload field, converted to a sub once for the budget gate
+(`routd/dispatch.go:261`) and never for authz.
+
+So the foreign path **attests and discards**; the owned path **attests and
+carries**. It is not a missing mechanism, it is a dropped one — which is why
+`L146` measured the gap as one call frame wide.
+
 **The fault this names.** Today routing address and authority are FUSED in the
 JID: it is both where a message goes and, through the token pin, what may be
 reached. That fusion is why `route_tokens` stores a folder three times (inside
