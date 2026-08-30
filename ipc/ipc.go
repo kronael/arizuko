@@ -252,12 +252,18 @@ type StoreFns struct {
 	// at most once, only on a 401. Nil disables the retry.
 	RefreshConnectorSecrets func(folder, tool string, required []string) (map[string]string, error)
 
-	// Authorize is the SOLE per-call authz check (5/33): sub may call action (e.g.
-	// "mcp:send") with params against `folder` as the SCOPE — the caller's own folder
-	// for magnitude, or the ACTUAL target folder for a management tool's containment (a
-	// delegated row scoped to a subtree covers it). Used by ServeMCP when callerSub !=
-	// "" (ARIZUKO_LOCAL_SUB). Nil means no row-based check (full operator access).
-	Authorize func(sub, folder, action string, params map[string]string) bool
+	// Authorize is the SOLE per-call authz check (5/33): may this turn call action
+	// (e.g. "mcp:send") with params against `folder` as the SCOPE — the caller's own
+	// folder for magnitude, or the ACTUAL target folder for a management tool's
+	// containment (a delegated row scoped to a subtree covers it). Used by ServeMCP
+	// when callerSub != "" (ARIZUKO_LOCAL_SUB). Nil means no row-based check (full
+	// operator access).
+	//
+	// It takes no principal. The turn's principals — the folder it was routed to and
+	// the sender that triggered it — are bound by the injector (routd.turnAuthorize),
+	// so ipc cannot supply a third and the two notions of "who" in this file cannot
+	// stack.
+	Authorize func(folder, action string, params map[string]string) bool
 
 	// Visible is the tools/list visibility view (auth.EffectiveActions): does the
 	// caller hold `name` at any scope? Injected by routd per turn. Nil → every
@@ -922,6 +928,15 @@ func parseBefore(req mcp.CallToolRequest) (time.Time, error) {
 	return t, nil
 }
 
+// buildMCPServer wires one group's tool surface.
+//
+// callerSub is the socket's own principal — `folder:<folder>` for a turn. It is the
+// AUDIT actor and the resreg identity, and it switches row-based authz on (empty =
+// dev/tests, no check). It is NOT an authorization input: the principals win from
+// db.Authorize's injected closure, which holds the turn's route AND its attested
+// sender (routd.turnAuthorize). Two notions of "who" used to live in this file — the
+// socket's folder and the trigger's sender — and passing both to the gate is exactly
+// the stacking that builds a confused deputy, so only one reaches it.
 func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, callerSub string) *server.MCPServer {
 	identity := auth.Resolve(folder)
 	identity.IsRoot = identity.IsRoot || isRoot
@@ -931,7 +946,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 		if callerSub == "" || db.Authorize == nil {
 			return true
 		}
-		return db.Authorize(callerSub, folder, "mcp:"+name, params)
+		return db.Authorize(folder, "mcp:"+name, params)
 	}
 
 	// visible is the tools/list gate: a management/messaging tool shows iff the caller
@@ -1035,7 +1050,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 		if target == "" {
 			target = folder
 		}
-		if callerSub == "" || db.Authorize == nil || db.Authorize(callerSub, target, "mcp:"+action, nil) {
+		if callerSub == "" || db.Authorize == nil || db.Authorize(target, "mcp:"+action, nil) {
 			return nil
 		}
 		emitAuthzDenied(action, callerSub)
@@ -1087,9 +1102,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 	for i := range db.Connectors {
 		for _, tool := range discoverConnector(&db.Connectors[i], db, folder) {
 			tool := tool // capture
-			// Skip announcement when the folder's own principal lacks grant. Default
-			// a grant of mcp:* covers every tool, so this only hides tools an explicit deny covers.
-			if db.Authorize != nil && !db.Authorize("folder:"+folder, folder, "mcp:"+tool.LocalName, nil) {
+			// Skip announcement when the turn lacks the grant. A default grant of
+			// mcp:* covers every tool, so this only hides tools an explicit deny covers.
+			if db.Authorize != nil && !db.Authorize(folder, "mcp:"+tool.LocalName, nil) {
 				continue
 			}
 			opts := []mcp.ToolOption{}
@@ -1115,7 +1130,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 	// resolved per-call and scrubbed from the response.
 	for i := range db.ExtTools {
 		tool := db.ExtTools[i] // capture
-		if db.Authorize != nil && !db.Authorize("folder:"+folder, folder, tool.Scope, nil) {
+		if db.Authorize != nil && !db.Authorize(folder, tool.Scope, nil) {
 			continue
 		}
 		opts := []mcp.ToolOption{}

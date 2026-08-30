@@ -557,11 +557,12 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		// Authorize is the per-call row-ACL check (magnitude + containment in one) that
 		// ServeMCP runs when callerSub is set. nil-safe. Elevated (/root) turns allow-all
 		// — see turnAuthorize. The hand-authored ipc gates pass the ACTUAL target as the
-		// folder/scope so a delegated row scoped to a subtree bounds containment.
-		Authorize: s.turnAuthorize(t.elevated),
-		// Visible is the tools/list view: a tool shows iff the caller holds it (any
-		// scope). Elevated turns see everything (turnVisible).
-		Visible: s.turnVisible("folder:"+t.folder, t.elevated),
+		// folder/scope so a delegated row scoped to a subtree bounds containment. Both
+		// axes ride the closure: the turn's folder and its attested sender.
+		Authorize: s.turnAuthorize(t),
+		// Visible is the tools/list view: a tool shows iff the turn holds it (any
+		// scope), on the same two axes. Elevated turns see everything (turnVisible).
+		Visible: s.turnVisible(t),
 		// Spec 5/I layer A: the hand-authored tools' mutations and every authz
 		// denial land one audit_log row in routd.db — the table migration 0016
 		// creates and cmd/routd's audit.Init points at. It was left nil behind a
@@ -576,7 +577,7 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 // grant bundle is computed — authz is auth.Authorize on the acl rows, visibility is
 // auth.EffectiveActions over the same rows; both elevate under /root.
 func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
-	authorize := s.turnAuthorize(t.elevated)
+	authorize := s.turnAuthorize(t)
 	callerID := turnIdentity(t.folder, t.elevated)
 	// routd binds the socket BEFORE runed spawns the container, so the per-folder
 	// ipc dir may not exist yet. ServeMCP only os.Removes the stale sock + Listens
@@ -590,11 +591,12 @@ func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
 	if uid := os.Getuid(); uid > 0 && uid != 1000 {
 		expectedUID = uid
 	}
-	// Per-call row-ACL: the canonical in-container agent principal is folder:<path>,
-	// so ipc's authorizeCall runs auth.Authorize against the folder's role:member floor
-	// + delegated rows. A no-match denies (loud).
+	// The socket's own principal: folder:<path>, the AGENT's identity. It is the audit
+	// actor and the resreg Caller, and its non-emptiness switches ipc's row-based authz
+	// on. It is no longer an authorization input — the gate's principals come from
+	// turnAuthorize (route + attested sender), so this cannot be stacked onto them.
 	callerSub := turnPrincipal(t.folder)
-	visible := s.turnVisible(callerSub, t.elevated)
+	visible := s.turnVisible(t)
 	// spec 5/16: mount the agent's management tools via resreg (shared handler +
 	// tx/audit) with the agent's injected Gate (auth.Authorize on the target) +
 	// EffectiveActions visibility. One postBuild seam per migrated resource; ServeMCP

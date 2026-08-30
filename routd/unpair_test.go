@@ -24,8 +24,8 @@ func serveMembershipMCP(t *testing.T, db *DB, folder, callerSub string) string {
 	t.Helper()
 	srv := NewServer(db, nil, nil, nil, 0, "https://x.test")
 	sock := groupfolder.IpcSocket(t.TempDir())
-	pb := srv.membershipPostBuild(folder, callerSub, srv.db.Authorize,
-		agentVisibleFor(srv, callerSub, false))
+	pb := srv.membershipPostBuild(folder, callerSub, srv.turnAuthorize(turnMCP{folder: folder}),
+		srv.turnVisible(turnMCP{folder: folder}))
 	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
 		srv.buildStoreFns(turnMCP{folder: folder}), folder, false, 0, callerSub, pb)
 	if err != nil {

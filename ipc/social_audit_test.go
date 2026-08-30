@@ -66,7 +66,7 @@ func TestSocialVerbIsAudited(t *testing.T) {
 
 			var rows []ipcAuditRow
 			db := StoreFns{
-				Authorize:           func(_, _, _ string, _ map[string]string) bool { return true },
+				Authorize:           func(_, _ string, _ map[string]string) bool { return true },
 				DefaultFolderForJID: func(string) string { return "world/a" },
 				LogIPCAudit: func(folder, sub, tool, _, outcome string) error {
 					rows = append(rows, ipcAuditRow{folder, sub, tool, outcome})

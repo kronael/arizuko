@@ -155,6 +155,24 @@ Route binding for channel bots: a `routes` row binds `J → F`, the inbound
 caller's set expands to include the room JID, and one `acl(room_jid, interact,
 F)` row grants the audience.
 
+**`Caller.Route` is the second axis** (`5/33` §"Two axes" owns the model; this is
+how the evaluator reads it). Empty on every single-axis caller — operator REST,
+dashd, `UserScopes`, `IsOperator` — and the evaluation is then unchanged. Set, it
+folds `folder:<Route>` into the expanded set as a principal of its own and marks
+`Principal`+`Extra` as the identity axis. Provenance is re-derived, not carried:
+the row read stays ONE query over the union, and `routePrincipals` recomputes the
+route half, so the two cannot disagree about who is in the set. A principal
+reachable from BOTH axes counts as route — a `role:member` row the folder holds
+is the folder's, not the speaker's.
+
+An allow row reachable only from the identity axis is confined twice: the target
+must lie in `Route`'s subtree (exact prefix on a `/` boundary, case-sensitive —
+never the SQL `LIKE` form, which is neither, `L122`), and the action must match
+without `actionCovers`' cross-namespace lattice. Deny is confined by neither and
+is read with the full lattice, so a `*` deny still refuses. `EffectiveActions`
+applies the same identity rule, because a tool it does not list is never
+registered and its gate never runs.
+
 `auth.EffectiveActions` (`auth/authorize.go:86`) is the separate **visibility**
 view for `tools/list` — does the caller hold this action at ANY scope. Deny rows
 are scope-specific and do not hide a tool; the per-call `Authorize` still

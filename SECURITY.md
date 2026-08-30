@@ -71,7 +71,7 @@ cancelled — so their shared handler (agent MCP tool + operator REST
 `/v1/routes`, `/v1/tasks`) binds every target to the caller's folder
 before mutating. Containment is an injected per-face predicate: the agent
 socket resolves the target against the caller's `acl` rows
-(`db.Authorize(sub, folder, "mcp:"+tool, params)` — the grant's scope
+(`db.AuthorizeTurn(sender, turn-folder, target, "mcp:"+tool, params)` — the grant's scope
 glob IS its containment), the operator REST face applies own-or-descendant
 folder containment (`ownsFolder`). A folder-scoped REST operator is thus
 confined to its own subtree — it cannot re-target or cancel another

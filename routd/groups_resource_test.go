@@ -37,8 +37,8 @@ func serveGroupsMCP(t *testing.T, db *DB, folder, callerSub, groupsDir string) s
 	srv.SetDirs(groupsDir, "")
 	ipcDir := t.TempDir()
 	sock := groupfolder.IpcSocket(ipcDir)
-	pb := srv.groupsPostBuild(folder, callerSub, srv.db.Authorize,
-		agentVisibleFor(srv, callerSub, false), auth.Resolve(folder))
+	pb := srv.groupsPostBuild(folder, callerSub, srv.turnAuthorize(turnMCP{folder: folder}),
+		srv.turnVisible(turnMCP{folder: folder}), auth.Resolve(folder))
 	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
 		srv.buildStoreFns(turnMCP{folder: folder}), folder, false, 0, callerSub, pb)
 	if err != nil {
@@ -63,8 +63,8 @@ func serveGroupsMCPElevated(t *testing.T, db *DB, folder, groupsDir string) stri
 	ipcDir := t.TempDir()
 	sock := groupfolder.IpcSocket(ipcDir)
 	callerSub := "folder:" + folder
-	pb := srv.groupsPostBuild(folder, callerSub, srv.turnAuthorize(true),
-		agentVisibleFor(srv, callerSub, true), turnIdentity(folder, true))
+	pb := srv.groupsPostBuild(folder, callerSub, srv.turnAuthorize(turnMCP{folder: folder, elevated: true}),
+		srv.turnVisible(turnMCP{folder: folder, elevated: true}), turnIdentity(folder, true))
 	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
 		srv.buildStoreFns(turnMCP{folder: folder}), folder, true, 0, callerSub, pb)
 	if err != nil {
@@ -329,8 +329,8 @@ func TestGroupsMCP_AuditRowLands(t *testing.T) {
 
 	ipcDir := t.TempDir()
 	sock := groupfolder.IpcSocket(ipcDir)
-	pb := srv.groupsPostBuild("world/team", "folder:world/team", srv.db.Authorize,
-		agentVisibleFor(srv, "folder:world/team", false), auth.Resolve("world/team"))
+	pb := srv.groupsPostBuild("world/team", "folder:world/team", srv.turnAuthorize(turnMCP{folder: "world/team"}),
+		srv.turnVisible(turnMCP{folder: "world/team"}), auth.Resolve("world/team"))
 	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: "world/team"}),
 		srv.buildStoreFns(turnMCP{folder: "world/team"}), "world/team", false, 0, "folder:world/team", pb)
 	if err != nil {

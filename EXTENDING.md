@@ -676,11 +676,14 @@ invokes with `/root`, not a folder.
 
 To gate a new action: pick an action name (`mcp:<tool>` for MCP tools),
 bind it at registration through the injected `Gate` — `auth.Authorize`
-for the operator REST face, `db.Authorize(sub, folder, "mcp:"+tool,
-params)` on the agent socket — and seed a row if it should be on by
-default. Never add a second check inside the handler. A grant's scope
-glob IS its containment: `mcp:register_group` scoped `acme/**` registers
-under `acme` and nowhere else.
+for the operator REST face, `db.AuthorizeTurn(sender, turn-folder,
+target, "mcp:"+tool, params)` on the agent socket — and seed a row if it
+should be on by default. Never add a second check inside the handler. A
+grant's scope glob IS its containment: `mcp:register_group` scoped
+`acme/**` registers under `acme` and nowhere else. The agent gate reads
+two axes — the turn's folder confers, the attested sender adds inside
+that folder's subtree (`specs/5/33` §"Two axes") — so a new action is
+grantable to a folder, to a person, or to both.
 
 `escalate_group` sends a message to the parent; it does not grant
 permissions. See [`specs/5/33-paths-roles.md`](specs/5/33-paths-roles.md)

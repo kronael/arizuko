@@ -193,7 +193,7 @@ func (s *Server) aclPostBuild(folder, callerSub string, authorize authorizeFn, v
 			target = argString(x.Args, "folder")
 		}
 		// One evaluator: the caller must hold the acl tool scoped to cover the target.
-		if !authorize(callerSub, target, "mcp:"+name, nil) {
+		if !authorize(target, "mcp:"+name, nil) {
 			return resreg.Errorf(http.StatusForbidden, "%s on %s: not permitted", name, target)
 		}
 		// 5/33 lineage delegation: a NON-root writer may only grant a row it HOLDS with

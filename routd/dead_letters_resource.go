@@ -103,7 +103,7 @@ func (s *Server) deadLettersPostBuild(folder, callerSub string, authorize author
 	res := s.deadLettersResource()
 	res.Gate = func(x resreg.Execution, _ string, _ map[string]string) error {
 		name := deadLettersMCPNames[x.Action]
-		if !authorize(callerSub, folder, "mcp:"+name, nil) {
+		if !authorize(folder, "mcp:"+name, nil) {
 			return resreg.Errorf(http.StatusForbidden,
 				"%s acts on this folder's undelivered messages: not permitted", name)
 		}

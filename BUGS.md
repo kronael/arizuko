@@ -166,11 +166,22 @@ the fault is named rather than rediscovered, and so a future change to
 `route_tokens`, `messages.chat_jid` or the adapter boundary starts from the
 principle instead of the symptom.
 
+**Update 2026-08-30 — the "attests and DISCARDS" half is closed.** The turn now
+authorizes on two axes: `auth.Caller.Route` carries the destination folder and
+`auth.Caller.Principal` carries the attested sender, and `auth.Authorize` unions
+them with the sender's half confined to the route's subtree and to an exact
+action (spec `5/33` §"Two axes"). The foreign path still attests a JID rather
+than an account — the sender string is matched as it arrives, and mapping a
+correspondent to a paired account is `L146`'s inbound rewrite, which stays
+deferred. So the fault this entry names is now the STORAGE-KEY half (`web:` as
+ceremony for a column, `L148`'s 22 conversion sites), not the authorization half.
+
 - **Severity:** n/a (recorded principle + a named design fault)
 - **Scope:** routing / auth model / storage key
 - **Affected:** `store/messages.go`, `store/route_tokens.go`, `webd/*`, `ROUTING.md`, `specs/5/W`, `specs/5/34`
-- **Status:** recorded — no work item; `L146` deferred, `L145` open as a proposal
-- **Related:** `L145`, `L146`, `L122`, `identity_derived_not_read`
+- **Status:** recorded — no work item; the auth-axis half shipped 2026-08-30,
+  `L146`'s inbound rewrite stays deferred, `L145` open as a proposal
+- **Related:** `L145`, `L146`, `L148`, `L122`, `identity_derived_not_read`
 
 ## L146 — proposal: the inbound path is one rewrite — a channel payload becomes (destination URI, Authorization header, body); authorize on user + destination, never source (2026-08-30, proposal — needs sign-off)
 

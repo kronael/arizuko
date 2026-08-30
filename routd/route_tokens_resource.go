@@ -212,7 +212,7 @@ func (s *Server) routeTokensPostBuild(folder, callerSub string, authorize author
 				return err
 			}
 		}
-		if !authorize(callerSub, target, "mcp:"+name, nil) {
+		if !authorize(target, "mcp:"+name, nil) {
 			return resreg.Errorf(http.StatusForbidden, "%s on %s: not permitted", name, target)
 		}
 		return nil

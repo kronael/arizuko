@@ -106,7 +106,7 @@ func (s *Server) auditPostBuild(folder, callerSub string, authorize authorizeFn,
 	res := s.auditResource()
 	res.Gate = func(x resreg.Execution, _ string, _ map[string]string) error {
 		name := auditMCPNames[x.Action]
-		if !authorize(callerSub, folder, "mcp:"+name, nil) {
+		if !authorize(folder, "mcp:"+name, nil) {
 			return resreg.Errorf(http.StatusForbidden,
 				"%s reads this folder's audit trail: not permitted", name)
 		}

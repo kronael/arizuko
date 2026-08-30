@@ -262,8 +262,11 @@ Two management surfaces, one handler, an injected gate per surface:
 
 `resreg` carries no auth policy — the authz gate is INJECTED per surface.
 Operator REST uses the default `auth.Authorize` (scope/ACL); the
-agent MCP socket injects `db.Authorize(sub, folder, "mcp:"+tool, params)`
-over the folder's granted `acl` rows. Same folder-containment discipline, two
+agent MCP socket injects
+`db.AuthorizeTurn(sender, turn-folder, target, "mcp:"+tool, params)` over the
+folder's granted `acl` rows, unioned with the attested sender's own rows inside
+that folder's subtree (`specs/5/33` §"Two axes"). Same folder-containment
+discipline, two
 identity sources (agent socket scope vs human JWT folder), two gates. Which
 tools a caller even sees is `auth.EffectiveActions` over those same rows at
 the agent socket, not resreg.
@@ -612,7 +615,8 @@ routd (`ipc.ServeMCP`, called from `routd.ServeTurnMCP`). One per turn
 at `ipc/<folder>/gated.sock`. Tool visibility is `auth.EffectiveActions`
 over the caller's `acl` rows — does it hold the action at ANY scope; each
 call is then authorized by the agent gate
-`db.Authorize(sub, folder, "mcp:"+tool, params)` routd injects, not the
+`db.AuthorizeTurn(sender, turn-folder, target, "mcp:"+tool, params)` routd
+injects, not the
 plain operator `auth.Authorize`. One row set feeds both, so the tool list
 and the per-call gate agree by construction. `list_acl` inspects the
 effective ACL rows for the caller's principal set.

@@ -74,8 +74,8 @@ func newMCPHarness(t *testing.T, folder string) *mcpHarness {
 		// 5/33: authz is auth.Authorize on the ACTUAL target scope. The harness folder is
 		// delegated admin over its OWN subtree (granted below), so it manages itself and
 		// descendants but nothing outside — the containment is the grant scope, not tier.
-		Authorize: func(sub, scope, action string, params map[string]string) bool {
-			return auth.Authorize(s, auth.Caller{Principal: sub}, action, scope, params)
+		Authorize: func(scope, action string, params map[string]string) bool {
+			return auth.Authorize(s, auth.Caller{Route: folder}, action, scope, params)
 		},
 	}
 	// Grant the folder admin (covers every mcp: tool) over its own subtree.

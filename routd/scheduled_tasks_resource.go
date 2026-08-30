@@ -233,7 +233,7 @@ func (s *Server) scheduledTasksPostBuild(folder, callerSub string, authorize aut
 	// authorize's allow-all.
 	contain := func(_ resreg.Caller, a resreg.Action, target string) error {
 		name := tasksMCPNames[a]
-		if !authorize(callerSub, target, "mcp:"+name, nil) {
+		if !authorize(target, "mcp:"+name, nil) {
 			return resreg.Errorf(http.StatusForbidden, "%s on %s: not permitted", name, target)
 		}
 		return nil

@@ -99,7 +99,7 @@ func TestServeMCP_InviteWrite_Denied(t *testing.T) {
 	}
 	// The folder holds invite_list but NOT invite_create/invite_revoke → the latter two
 	// are denied at call time by db.Authorize; the read stays allowed.
-	db := StoreFns{Authorize: func(_, _, action string, _ map[string]string) bool {
+	db := StoreFns{Authorize: func(_, action string, _ map[string]string) bool {
 		return action == "mcp:invite_list"
 	}}
 	stop, err := ServeMCP(sock, gated, db, "world/a/b", false, 0, "folder:world/a/b")

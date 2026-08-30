@@ -27,7 +27,7 @@ checklist because new impl is exactly where they get violated.
 required-scopes, target-resolver)` bound at registration as an injected
   `Gate` — resreg owns no auth policy. Operator REST uses the default
   `auth.Authorize` (scope/ACL); the agent MCP socket injects
-  `db.Authorize(sub, folder, "mcp:"+tool, params)` (granted `acl` rows —
+  `db.AuthorizeTurn(sender, turn-folder, target, "mcp:"+tool, params)` (granted `acl` rows —
   the row's scope glob IS the containment; no depth-derived default).
   A handler resolving a `jid`/`folder`/`run_id` param binds it to the
   caller's folder under whichever gate is mounted.

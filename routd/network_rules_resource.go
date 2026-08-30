@@ -139,7 +139,7 @@ func (s *Server) networkRulesPostBuild(folder, callerSub string, authorize autho
 		// scoped to cover the target — or /root — authorizes it. 5/33 decision 8: the
 		// grant scope IS the containment; the old hard tier cap is gone.
 		target := networkTargetFolder(x.Args, folder)
-		if !authorize(callerSub, target, "mcp:"+name, nil) {
+		if !authorize(target, "mcp:"+name, nil) {
 			return resreg.Errorf(http.StatusForbidden, "%s on %s: not permitted", name, target)
 		}
 		return nil

@@ -20,20 +20,49 @@ type Caller struct {
 	// Extra principals to fold into the expansion set without a DB lookup,
 	// e.g. the room JID for channel-bot inbound (spec 6/9 §Membership).
 	Extra []string
+	// Route is the ROUTE axis (spec 5/33 §"Two axes"): the folder the router
+	// resolved this request TO. Empty on every single-axis caller — operator REST,
+	// dashd, UserScopes, IsOperator — and the evaluator is then bit-for-bit what it
+	// was. Non-empty folds `folder:<Route>` in as a principal of its own AND makes
+	// Principal+Extra the IDENTITY axis, which Authorize confines; see there.
+	Route string
 }
+
+// FolderPrincipal is the acl principal a folder holds its grants as. One spelling:
+// store.SeedMemberRoleTx seeds `folder:<f>` into role:member, routd.turnPrincipal
+// reads it back, and Caller.Route expands through it.
+func FolderPrincipal(folder string) string { return "folder:" + folder }
 
 // Authorize returns true iff caller is permitted to perform action on scope:
 // row-based grants over the caller's expanded principal set, deny-wins. It is the
 // SOLE runtime authorization evaluator (5/33): magnitude AND containment in one call
 // — a delegated row scoped `acme/**` authorizes `mcp:<tool>` on any target under
 // acme. Management callsites pass the ACTUAL target as scope; a no-match is a deny.
+//
+// TWO AXES (5/33 §"Two axes"). When Caller.Route is set the expanded set carries two
+// kinds of principal, and they do NOT authorize alike:
+//
+//   - ROUTE — `folder:<Route>` and its role memberships. What reaching through this
+//     destination confers. Unconfined: it is the authority the turn always had.
+//   - IDENTITY — Principal + Extra and their memberships. What the attested sender
+//     holds. Confined twice: the target must lie in Route's own subtree, and the
+//     action must match without actionCovers' cross-namespace lattice.
+//
+// The confinement is the point. A union of grant rows can only WIDEN, so an
+// unbounded fold would give a folder's agent the reach of everyone who talks to it
+// and make a shared chat a place to borrow authority. With it the invariant holds:
+// OUTSIDE Route's subtree the verdict is exactly what it was before this axis
+// existed, whoever spoke.
+//
+// Deny is never confined, on either axis. A person's deny row refuses the turn they
+// triggered wherever it reaches — the only NARROWING a union of grants can express.
 func Authorize(
 	s *store.Store,
 	caller Caller,
 	action, scope string,
 	params map[string]string,
 ) bool {
-	if s == nil || caller.Principal == "" || action == "" {
+	if s == nil || action == "" || (caller.Principal == "" && caller.Route == "") {
 		return false
 	}
 
@@ -49,16 +78,15 @@ func Authorize(
 	rows, err := policyRows(s, expanded)
 	if err != nil {
 		slog.Error("authorize: acl read failed; DENYING",
-			"principal", caller.Principal, "action", action, "scope", scope, "err", err)
+			"principal", caller.Principal, "route", caller.Route,
+			"action", action, "scope", scope, "err", err)
 		return false
 	}
+	route := routePrincipals(s, caller)
 
 	// 4. Evaluate.
 	allowed, denied := false, false
 	for _, r := range rows {
-		if !actionCovers(r.Action, action) {
-			continue
-		}
 		if !matchPattern(r.Scope, scope) {
 			continue
 		}
@@ -69,8 +97,19 @@ func Authorize(
 			continue
 		}
 		if r.Effect == "deny" {
-			denied = true
-		} else {
+			if actionCovers(r.Action, action) {
+				denied = true
+			}
+			continue
+		}
+		if caller.Route == "" || anyPrincipalMatches(r.Principal, route) {
+			// Single-axis caller, or a row the ROUTE itself reaches: unconfined.
+			if actionCovers(r.Action, action) {
+				allowed = true
+			}
+			continue
+		}
+		if withinSubtree(caller.Route, scope) && identityCovers(r.Action, action) {
 			allowed = true
 		}
 	}
@@ -83,26 +122,93 @@ func Authorize(
 	return allowed
 }
 
+// routePrincipals is the ROUTE axis's own expansion: the destination folder's
+// principal plus its transitive role memberships. A row reachable from this set is
+// one the DESTINATION holds, so it authorizes unconfined. Empty when there is no
+// second axis, which is what leaves every existing caller unchanged.
+func routePrincipals(s *store.Store, caller Caller) []string {
+	if caller.Route == "" {
+		return nil
+	}
+	p := FolderPrincipal(caller.Route)
+	return append([]string{p}, s.Ancestors(p)...)
+}
+
+// withinSubtree reports whether the CONCRETE target `scope` is `folder` itself or
+// lies beneath it. Exact string work, not the SQL LIKE form: `%` and `_` are
+// literals here and the compare is case-sensitive, neither of which LIKE gives —
+// that difference widened six read paths (BUGS L122).
+//
+// A scope carrying a glob is never within any subtree, and cannot be: `**` names
+// targets outside every folder, and routd's installedPackagesScope is exactly `**`,
+// so arguing containment from a pattern would confer package management — the widest
+// grant in the tree — on the identity axis.
+func withinSubtree(folder, scope string) bool {
+	if folder == "" || scope == "" || strings.ContainsAny(scope, "*?[") {
+		return false
+	}
+	return scope == folder || strings.HasPrefix(scope, folder+"/")
+}
+
+// identityCovers is the action test for an allow row reached ONLY through the
+// identity axis: the action matched EXACTLY, or its own namespace wildcard (`mcp:*`
+// for an `mcp:<tool>` request).
+//
+// It refuses actionCovers' cross-namespace lattice for the reason namespacedAllows
+// already refuses it (spec 5/19 Hazard 2): an operator's (`*`, `**`) row covers
+// every action, so reading the lattice here would make every message an operator
+// sends silently elevate the turn that answered it. Elevation by identity already
+// HAS a mechanism — `/root`, gated on IsOperator and one-shot (routd.cmdRoot) — and
+// it is explicit on purpose. One mechanism, not a second implicit one.
+func identityCovers(rowAction, requested string) bool {
+	if rowAction == requested {
+		return true
+	}
+	ns, _, ok := strings.Cut(requested, ":")
+	return ok && rowAction == ns+":*"
+}
+
 // EffectiveActions returns a predicate reporting whether caller holds an allow row
 // for an mcp action at ANY scope — the tool-VISIBILITY view, orthogonal to the
 // per-target authz Authorize does. A lattice grant makes every mcp tool visible; an
 // explicit `mcp:<tool>` allow makes that one visible. Deny rows are scope-specific
 // and do not hide a tool from the list; the per-call Authorize still enforces them.
+//
+// It reads Caller.Route on the same terms Authorize does, so a tool the SENDER holds
+// is listed for the turn they triggered — without it the identity axis would be
+// inert, since an unlisted tool is never registered and its gate never runs. The
+// lattice half is refused on the identity axis for identityCovers' reason. Being
+// scope-free, this can list a tool the sender holds only OUTSIDE the turn's subtree;
+// the per-call Authorize then denies it, which is the same order of events as a deny
+// row and not a new one.
 func EffectiveActions(s *store.Store, caller Caller) func(action string) bool {
-	if s == nil || caller.Principal == "" {
+	if s == nil || (caller.Principal == "" && caller.Route == "") {
 		return func(string) bool { return false }
 	}
 	expanded := expandPrincipals(s, caller)
 	rows, err := policyRows(s, expanded)
 	if err != nil {
 		slog.Error("effective actions: acl read failed; advertising NO tools",
-			"principal", caller.Principal, "err", err)
+			"principal", caller.Principal, "route", caller.Route, "err", err)
 		return func(string) bool { return false }
 	}
+	route := routePrincipals(s, caller)
 	lattice := false
 	held := map[string]bool{}
 	for _, r := range rows {
 		if r.Effect == "deny" {
+			continue
+		}
+		if caller.Route != "" && !anyPrincipalMatches(r.Principal, route) {
+			// Identity-only row: `mcp:*` is the deliberate all-tools delegation,
+			// but `*`/`admin` reach across namespaces and confer nothing here.
+			switch r.Action {
+			case "*", "admin":
+			case "mcp:*":
+				lattice = true
+			default:
+				held[r.Action] = true
+			}
 			continue
 		}
 		switch r.Action {
@@ -174,9 +280,18 @@ func policyRows(s *store.Store, expanded []string) ([]core.ACLRow, error) {
 	return rows, nil
 }
 
-// expandPrincipals: caller.Principal + caller.Extra plus the transitive
-// ancestors of each via acl_membership. Deduplicated.
+// expandPrincipals: caller.Principal + caller.Extra + caller.Route's folder
+// principal, plus the transitive ancestors of each via acl_membership.
+// Deduplicated. It deliberately loses which axis a principal came from — the row
+// read is one query over the union; routePrincipals re-derives the route half for
+// the confinement, so the two never disagree about who is in the set.
 func expandPrincipals(s *store.Store, caller Caller) []string {
+	// Start a frontier; expand each new principal's ancestors. Ancestors
+	// is itself transitive but is keyed off a single child — fold them.
+	frontier := append([]string{caller.Principal}, caller.Extra...)
+	if caller.Route != "" {
+		frontier = append(frontier, FolderPrincipal(caller.Route))
+	}
 	seen := map[string]bool{}
 	var out []string
 	add := func(p string) {
@@ -186,13 +301,9 @@ func expandPrincipals(s *store.Store, caller Caller) []string {
 		seen[p] = true
 		out = append(out, p)
 	}
-	add(caller.Principal)
-	for _, p := range caller.Extra {
+	for _, p := range frontier {
 		add(p)
 	}
-	// Start a frontier; expand each new principal's ancestors. Ancestors
-	// is itself transitive but is keyed off a single child — fold them.
-	frontier := append([]string{caller.Principal}, caller.Extra...)
 	for _, p := range frontier {
 		for _, anc := range s.Ancestors(p) {
 			add(anc)

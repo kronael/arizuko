@@ -101,6 +101,107 @@ the tier axis was net cost.
     like the target's own auth gate — the exact misdiagnosis `ant/CLAUDE.md`
     §"Network egress" warns about.
 
+13. **A turn authorizes on two axes, and the identity axis is confined.** See
+    §"Two axes" below. It is a decision of this spec because it answers "what
+    does an identity carry"; `5/32` owns only how the evaluator reads it.
+
+## Two axes
+
+A turn is not one principal. It has a **route** — the folder the router resolved
+it to — and an **identity** — the sender the channel attested. Until 2026-08-30
+only the route reached authorization: every tool call ran
+`Authorize("folder:"+folder, …)`, and the sender was computed
+(`routd.turnCallerSub`) for the budget gate and dropped. `L147` names that shape
+"attests and discards".
+
+| axis         | field                   | set by                         | answers                            |
+| ------------ | ----------------------- | ------------------------------ | ---------------------------------- |
+| **route**    | `auth.Caller.Route`     | routd, at resolution           | what reaching through here confers |
+| **identity** | `auth.Caller.Principal` | the edge (the attested sender) | what this person holds             |
+
+They **union**, because `acl` is a union of grant rows — that is the only thing
+a row set can do.
+
+### The hazard, and the bound
+
+A union can only WIDEN. Unbounded, an agent turn acquires the grants of everyone
+who talks to it: hold a grant on tenant `X`, speak in tenant `Y`'s chat, and
+`Y`'s agent reaches `X`. A shared chat becomes a place to borrow authority — a
+confused deputy with the folder as deputy.
+
+So an allow row reached ONLY through the identity axis carries **two bounds**,
+both required:
+
+1. **Containment** — the target must be the route's folder or beneath it. Not
+   the row's scope: the TURN's folder. A speaker may add authority inside the
+   conversation they are having, never outside it. A scope carrying a glob is
+   never inside any subtree (`**` names targets outside every folder, and routd
+   authorizes package management against exactly `**`).
+2. **No lattice** — the action matches exactly, or through its own namespace
+   wildcard (`mcp:*` for `mcp:<tool>`). `*` and `admin` cover every action, so
+   reading the lattice here would make every message an operator sends silently
+   elevate the turn that answered it. Elevation by identity already has a
+   mechanism — `/root`, gated on `IsOperator`, one-shot, explicit
+   (`routd.cmdRoot`) — and this must not become an implicit second one. It is
+   the same refusal `auth.namespacedAllows` makes for holds and shell env, for
+   the same reason (`5/19` Hazard 2).
+
+**Deny is never bounded, on either axis.** A person's deny row refuses the turn
+they triggered wherever it reaches. That is the only NARROWING a union of grant
+rows can express, and it is the per-person containment `L146` asked for.
+
+**The invariant, and it is tested.** Outside the route's subtree the verdict does
+not depend on the sender at all: for every target the route's folder could not
+reach before, it still cannot, whoever spoke
+(`auth/authorize_axes_test.go` `TestAxes_NoReachOutsideTheSubtreeWhoeverSpeaks`).
+
+### Nothing changes for an unpaired sender
+
+Measured on krons: **164** distinct senders shaped `telegram:user/1112184352` and
+`whatsapp:271317395882184@lid`, **one** pairing token, and **zero** `acl`
+principals that are not `folder:` or `role:`. 163 of 164 match no row, so their
+identity axis contributes ∅ and the turn authorizes exactly as before
+(`TestAxes_UnpairedSenderIsUnchanged`). The axis is live but inert until an
+operator writes a row keyed on a sender; that write is how per-person authority
+turns on, one folder at a time.
+
+**No sender→account resolution is implied.** A sender string is matched as it
+arrives. Mapping a correspondent to a paired account is the inbound rewrite
+`L146` proposes, and that is deferred; this spec adds the axis, not the mapping.
+
+### One principal per turn
+
+`ipc.StoreFns.Authorize` takes NO principal. A turn's principals are a property
+of the turn, so `routd.turnAuthorize` closes over both and no call site can
+supply a third. The socket's own `folder:<folder>` principal survives as the
+audit actor and the resreg identity — never as an authorization input. Stacking
+two notions of "who" into one gate is how a confused deputy gets built, so the
+type makes it impossible rather than the convention discouraging it.
+
+### Where the axis deliberately does NOT reach
+
+Three reads stay single-axis on `folder:<folder>`, and each for its own reason:
+
+- **Container capabilities** (`share_mount`, `egress`, `web:publish`, resolved at
+  `routd/dispatch.go`) describe the SANDBOX, not a call. They are decided once
+  per spawn; letting whoever spoke change what the container is mounted with
+  makes the sandbox a function of the conversation.
+- **`auth.ShellEnvKeys`** hands a folder secret into the agent's shell. Folding a
+  person in would put their credentials in a container they do not control.
+- **`auth.CheckHold`** answers "must this wait for a human?". Whether a call is
+  held is a property of the folder's policy, not of who asked.
+
+All three already refuse the action lattice for the same family of reason
+(`5/19` Hazard 2). Adding an axis to any of them is a separate decision.
+
+### Residual, recorded
+
+A person explicitly granted `mcp:<tool>` inside a folder's subtree lends that
+tool to the folder's agent for the turn they trigger. That is the feature, not a
+leak: it is scoped to their own grant, bounded by the conversation's folder,
+per-turn, and attributable. `mcp:*` on a sender is the deliberate all-tools
+delegation, and it is bounded the same way.
+
 ## What shipped
 
 One evaluator, `auth.Authorize` (`auth/authorize.go:25`), over `acl` rows with

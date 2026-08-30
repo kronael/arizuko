@@ -149,7 +149,7 @@ func (s *Server) groupsPostBuild(folder, callerSub string, authorize authorizeFn
 		}
 		// 5/33: one evaluator — does the caller hold register_group scoped to cover the
 		// child folder? A delegated row scoped `acme/**` authorizes registering under acme.
-		if !authorize(callerSub, gfld, "mcp:register_group", nil) {
+		if !authorize(gfld, "mcp:register_group", nil) {
 			return "", nil, resreg.Errorf(http.StatusForbidden, "register_group on %s: not permitted", gfld)
 		}
 		return "", nil, nil

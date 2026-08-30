@@ -119,7 +119,7 @@ func (s *Server) installedPackagesPostBuild(folder, callerSub string, authorize 
 	res := s.installedPackagesResource()
 	res.Gate = func(x resreg.Execution, _ string, _ map[string]string) error {
 		name := installedPackagesMCPNames[x.Action]
-		if !authorize(callerSub, installedPackagesScope, "mcp:"+name, nil) {
+		if !authorize(installedPackagesScope, "mcp:"+name, nil) {
 			return resreg.Errorf(http.StatusForbidden,
 				"%s reads instance-wide package state: not permitted", name)
 		}

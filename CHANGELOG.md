@@ -16,6 +16,23 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Added
 
+- **A turn authorizes on two axes: the folder it was routed to AND the person who
+  spoke** (spec `5/33` §"Two axes", BUGS `L147`). Until now every agent tool call
+  authorized as the destination alone — the attested sender was computed for the
+  budget gate and thrown away, so a grant could name a folder but never a person.
+  `auth.Caller` now carries `Route` (the destination, which confers in full)
+  beside `Principal` (the sender, whose grants apply only inside that folder's
+  subtree, and only for an action named exactly). Write an `acl` row against a
+  sender and their grants reach the turns they trigger, in the folder they are
+  speaking in and nowhere else. **Nothing changes for anyone unpaired**: a sender
+  matching no row contributes nothing, which is 163 of the 164 senders on the
+  reference instance. Two bounds keep the union from becoming a way to borrow
+  authority in a shared chat — reach stops at the conversation's own subtree, and
+  a `*`/`admin` row never confers through it, because raising a turn by identity
+  already has an explicit, one-shot mechanism in `/root`. Deny is bounded by
+  neither: a deny row on a person refuses the turn they triggered, which is the
+  first per-person restraint the model can express.
+
 - **`arizuko talk` — a terminal conversation with the agent** (spec `6/26` gap 1).
   `arizuko talk` opens a REPL, `arizuko talk -p "what broke?"` runs one turn and
   exits, `-p` alone reads the prompt from stdin, `@work` picks a chat and `-t

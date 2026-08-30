@@ -94,9 +94,12 @@ them on each request.
   binds `(action, required-scopes, target-resolver)` at route/tool
   registration. Operator REST uses the default `auth.Authorize` (scope/ACL);
   the agent MCP socket (routd) injects
-  `db.Authorize(sub, folder, "mcp:"+tool, params)` — the granted-row path,
-  where the row's scope glob IS the containment
-  (`specs/5/33-paths-roles.md`). Same handler, same folder-containment
+  `db.AuthorizeTurn(sender, turn-folder, target, "mcp:"+tool, params)` —
+  the granted-row path, where the row's scope glob IS the containment
+  (`specs/5/33-paths-roles.md`). That gate reads TWO axes: the turn's
+  folder confers in full, the attested sender adds only inside that
+  folder's subtree and never through the action lattice
+  (`5/33` §"Two axes"). Same handler, same folder-containment
   discipline, two identity
   sources (socket-folder vs JWT-folder) and two injected gates — never a
   second hand-rolled check inside the handler. A handler that resolves a

@@ -22,7 +22,7 @@ Spec: `specs/5/E`.
   capabilities from `acl`, wire `ipc.ServeMCP` to routd's DB + Deliverer,
   and forward the agent's conversation tools (`reply`/`send`/`like`/…)
   back through `/v1/turns/{turn_id}/*`. routd injects the agent authz
-  gate here — `db.Authorize(sub, folder, "mcp:"+tool, params)` — and gates
+  gate here — `db.AuthorizeTurn(sender, turn-folder, target, "mcp:"+tool, params)` — and gates
   tool visibility via `auth.EffectiveActions`; resreg-served cold-tier
   resources reuse that injected gate instead of their default operator
   gate.

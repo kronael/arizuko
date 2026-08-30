@@ -17,21 +17,32 @@ import (
 // rows). Keeping ONE source per concern stops the per-resource copies from drifting
 // (a past drift opened a cross-tenant hole — see web_routes delete).
 
-// authorizeFn is db.Authorize's shape — the per-call row-ACL check the agent socket
-// runs. `folder` is the SCOPE matched against the caller's grant globs (the caller's
-// own folder for magnitude, the target folder for containment). ServeTurnMCP injects
-// it per turn via turnAuthorize.
-type authorizeFn func(sub, folder, action string, params map[string]string) bool
+// authorizeFn is the per-call row-ACL check the agent socket runs. `folder` is the
+// SCOPE matched against the grant globs (the caller's own folder for magnitude, the
+// target folder for containment). ServeTurnMCP injects it per turn via turnAuthorize.
+//
+// It takes NO principal. A turn's principals are a property of the turn — the folder
+// it was routed to and the sender it was triggered by — so turnAuthorize closes over
+// both and no call site can supply a third. That is structural: the two notions of
+// "who" that used to reach this call (the socket's folder principal and the trigger
+// sender) are now reconciled in ONE place, and the folder principal survives only as
+// the audit actor, never as an authorization input.
+type authorizeFn func(folder, action string, params map[string]string) bool
 
-// turnAuthorize renders the per-call row-ACL check for one turn's agent socket. A
-// normal turn binds db.Authorize (role:member floor + operator/delegated grants). An
-// elevated (operator /root) turn allows every call — the operator holds role:operator
-// (`*`, WITH GRANT OPTION), so /root is unrestricted.
-func (s *Server) turnAuthorize(elevated bool) authorizeFn {
-	if !elevated {
-		return s.db.Authorize
+// turnAuthorize renders the per-call row-ACL check for one turn's agent socket, on
+// the two axes of 5/33: the turn's folder confers (role:member floor +
+// operator/delegated grants), the attested sender adds inside that folder's subtree.
+// An elevated (operator /root) turn allows every call — the operator holds
+// role:operator (`*`, WITH GRANT OPTION), so /root is unrestricted, and it is the
+// ONLY path by which a person's own authority reaches outside the turn's subtree.
+func (s *Server) turnAuthorize(t turnMCP) authorizeFn {
+	if t.elevated {
+		return func(string, string, map[string]string) bool { return true }
 	}
-	return func(string, string, string, map[string]string) bool { return true }
+	sender := turnCallerSub(t.trigger)
+	return func(folder, action string, params map[string]string) bool {
+		return s.db.AuthorizeTurn(sender, t.folder, folder, action, params)
+	}
 }
 
 // turnIdentity is the turn's effective identity for the agent-socket gates: the
@@ -46,14 +57,20 @@ func turnIdentity(folder string, elevated bool) auth.Identity {
 }
 
 // turnVisible builds the tools/list visibility predicate for one turn: an elevated
-// /root turn sees everything; else a tool shows iff the caller holds its `mcp:<tool>`
+// /root turn sees everything; else a tool shows iff the turn holds its `mcp:<tool>`
 // grant at any scope (auth.EffectiveActions). Reads are advertised unconditionally by
 // their own registration, never through this predicate.
-func (s *Server) turnVisible(callerSub string, elevated bool) func(name string) bool {
-	if elevated {
+//
+// It reads the SAME two-axis Caller turnAuthorize evaluates, so a tool the sender
+// holds is registered and its gate then runs. A tool listed here is not a tool
+// authorized: the gate is per-target and confines the sender's half to the turn's
+// subtree.
+func (s *Server) turnVisible(t turnMCP) func(name string) bool {
+	if t.elevated {
 		return func(string) bool { return true }
 	}
-	held := auth.EffectiveActions(store.New(s.db.SQL()), auth.Caller{Principal: callerSub})
+	held := auth.EffectiveActions(store.New(s.db.SQL()),
+		auth.Caller{Principal: turnCallerSub(t.trigger), Route: t.folder})
 	return func(name string) bool { return held("mcp:" + name) }
 }
 

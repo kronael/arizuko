@@ -34,13 +34,6 @@ func grantMCPTools(t *testing.T, db *DB, folder string, tools ...string) {
 	}
 }
 
-// agentVisibleFor is the tools/list visibility predicate a resource-parity test's
-// agent socket uses: auth.EffectiveActions over the folder's acl rows (elevate for
-// /root). Mirrors ServeTurnMCP's turnVisible.
-func agentVisibleFor(srv *Server, callerSub string, elevated bool) func(string) bool {
-	return srv.turnVisible(callerSub, elevated)
-}
-
 // serveNetworkMCP stands up the agent socket for folder + the network_rules resreg
 // seam and returns the socket path. Authz reads the folder's acl rows (grant via
 // grantMCPTools); no rules bundle.
@@ -49,7 +42,7 @@ func serveNetworkMCP(t *testing.T, db *DB, folder, callerSub string) string {
 	srv := NewServer(db, nil, nil, nil, 0, "")
 	ipcDir := t.TempDir()
 	sock := groupfolder.IpcSocket(ipcDir)
-	pb := srv.networkRulesPostBuild(folder, callerSub, srv.db.Authorize, agentVisibleFor(srv, callerSub, false))
+	pb := srv.networkRulesPostBuild(folder, callerSub, srv.turnAuthorize(turnMCP{folder: folder}), srv.turnVisible(turnMCP{folder: folder}))
 	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
 		srv.buildStoreFns(turnMCP{folder: folder}), folder, false, 0, callerSub, pb)
 	if err != nil {
@@ -307,7 +300,7 @@ func serveNetworkMCPElevated(t *testing.T, db *DB, folder string) string {
 	ipcDir := t.TempDir()
 	sock := groupfolder.IpcSocket(ipcDir)
 	callerSub := "folder:" + folder
-	pb := srv.networkRulesPostBuild(folder, callerSub, srv.turnAuthorize(true), agentVisibleFor(srv, callerSub, true))
+	pb := srv.networkRulesPostBuild(folder, callerSub, srv.turnAuthorize(turnMCP{folder: folder, elevated: true}), srv.turnVisible(turnMCP{folder: folder, elevated: true}))
 	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
 		srv.buildStoreFns(turnMCP{folder: folder}), folder, true, 0, callerSub, pb)
 	if err != nil {

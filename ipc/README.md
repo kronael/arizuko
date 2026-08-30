@@ -17,7 +17,7 @@ resolved from the socket path; the kernel-attested peer uid
 (`SO_PEERCRED`) gates every connection. Tool visibility is
 `auth.EffectiveActions` over the folder's `acl` rows (a tool the caller
 holds at no scope is never registered); each call is then authorized by
-the agent gate `db.Authorize(sub, folder, "mcp:"+tool, params)` routd
+the agent gate `db.AuthorizeTurn(sender, turn-folder, target, "mcp:"+tool, params)` routd
 injects. One row set feeds both, so list and gate agree.
 
 Hot vs cold tier: the **hot-tier** runtime actions (`reply`/`send`/

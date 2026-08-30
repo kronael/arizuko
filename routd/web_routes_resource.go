@@ -146,7 +146,7 @@ func (s *Server) webRoutesPostBuild(folder, callerSub string, authorize authoriz
 		name := webRoutesMCPNames[x.Action]
 		// web_route tools act on the caller's OWN folder (the handler scopes every row
 		// by folder). One evaluator: the caller must hold the tool for its folder.
-		if !authorize(callerSub, folder, "mcp:"+name, nil) {
+		if !authorize(folder, "mcp:"+name, nil) {
 			return resreg.Errorf(http.StatusForbidden, "%s: not permitted", name)
 		}
 		return nil

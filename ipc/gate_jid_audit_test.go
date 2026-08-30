@@ -26,7 +26,7 @@ func TestGateJIDDenialIsAudited(t *testing.T) {
 			// Magnitude: the caller holds nothing, so authorizeCall denies.
 			name: "magnitude",
 			db: StoreFns{
-				Authorize: func(_, _, _ string, _ map[string]string) bool { return false },
+				Authorize: func(_, _ string, _ map[string]string) bool { return false },
 			},
 		},
 		{
@@ -34,7 +34,7 @@ func TestGateJIDDenialIsAudited(t *testing.T) {
 			// folder, so authorizeJID denies.
 			name: "containment",
 			db: StoreFns{
-				Authorize:           func(_, _, _ string, _ map[string]string) bool { return true },
+				Authorize:           func(_, _ string, _ map[string]string) bool { return true },
 				DefaultFolderForJID: func(string) string { return "world/other" },
 			},
 		},
@@ -90,7 +90,7 @@ func TestGateJIDAllowsContainedChat(t *testing.T) {
 	var rows []ipcAuditRow
 	sent := 0
 	db := StoreFns{
-		Authorize:           func(_, _, _ string, _ map[string]string) bool { return true },
+		Authorize:           func(_, _ string, _ map[string]string) bool { return true },
 		DefaultFolderForJID: func(string) string { return "world/a/sub" },
 		LogIPCAudit: func(folder, sub, tool, _, outcome string) error {
 			rows = append(rows, ipcAuditRow{folder, sub, tool, outcome})

@@ -161,7 +161,7 @@ not an allow/deny decision. The decision belongs to the injected
   the ACL rows ([`specs/5/32-acl-unified.md`](../specs/5/32-acl-unified.md))
   — scope/ACL match, no tier. This is what operator REST mounts.
 - The daemon mounting the resource on the AGENT socket (routd) injects
-  `db.Authorize(sub, folder, "mcp:"+tool, params)`, which calls the same
+  `db.AuthorizeTurn(sender, turn-folder, target, "mcp:"+tool, params)`, which calls the same
   `auth.Authorize` over the same `acl` rows — the difference is the
   identity source (socket folder vs JWT), not the policy. Same handler,
   different gate; resreg is not a second authz server.

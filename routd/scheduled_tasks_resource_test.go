@@ -34,8 +34,8 @@ func serveTasksMCP(t *testing.T, db *DB, folder, callerSub string) string {
 	srv := NewServer(db, nil, nil, nil, 0, "")
 	ipcDir := t.TempDir()
 	sock := groupfolder.IpcSocket(ipcDir)
-	pb := srv.scheduledTasksPostBuild(folder, callerSub, srv.db.Authorize,
-		agentVisibleFor(srv, callerSub, false), auth.Resolve(folder))
+	pb := srv.scheduledTasksPostBuild(folder, callerSub, srv.turnAuthorize(turnMCP{folder: folder}),
+		srv.turnVisible(turnMCP{folder: folder}), auth.Resolve(folder))
 	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
 		srv.buildStoreFns(turnMCP{folder: folder}), folder, false, 0, callerSub, pb)
 	if err != nil {
@@ -59,8 +59,8 @@ func serveTasksMCPElevated(t *testing.T, db *DB, folder string) string {
 	ipcDir := t.TempDir()
 	sock := groupfolder.IpcSocket(ipcDir)
 	callerSub := "folder:" + folder
-	pb := srv.scheduledTasksPostBuild(folder, callerSub, srv.turnAuthorize(true),
-		agentVisibleFor(srv, callerSub, true), turnIdentity(folder, true))
+	pb := srv.scheduledTasksPostBuild(folder, callerSub, srv.turnAuthorize(turnMCP{folder: folder, elevated: true}),
+		srv.turnVisible(turnMCP{folder: folder, elevated: true}), turnIdentity(folder, true))
 	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
 		srv.buildStoreFns(turnMCP{folder: folder}), folder, true, 0, callerSub, pb)
 	if err != nil {

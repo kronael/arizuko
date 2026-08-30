@@ -30,8 +30,8 @@ func serveWebRoutesMCP(t *testing.T, db *DB, folder, callerSub string) string {
 	srv := NewServer(db, nil, nil, nil, 0, "")
 	ipcDir := t.TempDir()
 	sock := groupfolder.IpcSocket(ipcDir)
-	pb := srv.webRoutesPostBuild(folder, callerSub, srv.db.Authorize,
-		agentVisibleFor(srv, callerSub, false))
+	pb := srv.webRoutesPostBuild(folder, callerSub, srv.turnAuthorize(turnMCP{folder: folder}),
+		srv.turnVisible(turnMCP{folder: folder}))
 	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
 		srv.buildStoreFns(turnMCP{folder: folder}), folder, false, 0, callerSub, pb)
 	if err != nil {

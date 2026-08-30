@@ -267,12 +267,29 @@ func (d *DB) UserScopes(sub string) ([]string, error) {
 	return auth.UserScopes(d.aclEval(), sub)
 }
 
-// Authorize is the per-call row-ACL check for an in-container agent tool call.
-// sub is the canonical agent principal (folder:<folder>). Magnitude comes from the
-// folder's role membership + operator grants; a no-match denies.
+// Authorize is the per-call row-ACL check for a caller that IS its own principal —
+// the operator REST/resreg face, where the JWT sub is the whole answer to "who".
+// Magnitude comes from the principal's role membership + operator grants; a no-match
+// denies. The agent turn does not use this: see AuthorizeTurn.
 func (d *DB) Authorize(sub, folder, action string, params map[string]string) bool {
 	caller := auth.Caller{Principal: sub}
 	return auth.Authorize(d.aclEval(), caller, action, folder, params)
+}
+
+// AuthorizeTurn is the per-call row-ACL check for an in-container agent tool call,
+// on the two axes of 5/33: turnFolder is the ROUTE the router resolved this turn to
+// and confers in full; senderSub is the attested sender and adds only inside that
+// folder's subtree. scope is the ACTUAL target — the caller's own folder for
+// magnitude, a descendant for a management tool's containment.
+//
+// It takes the sender rather than a principal because a turn HAS no single "who" to
+// pass: the folder answers "what may be reached through here" and the sender answers
+// "what does this person hold". Stacking them into one string is how a confused
+// deputy gets built, so the two arrive as two fields and auth.Authorize keeps them
+// apart.
+func (d *DB) AuthorizeTurn(senderSub, turnFolder, scope, action string, params map[string]string) bool {
+	caller := auth.Caller{Principal: senderSub, Route: turnFolder}
+	return auth.Authorize(d.aclEval(), caller, action, scope, params)
 }
 
 // CheckHold asks whether this folder's call must wait for a human (spec 5/19).
