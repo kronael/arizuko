@@ -1,5 +1,6 @@
 ---
-status: shipped
+status: defected
+defects: [L142]
 depends: [28-cockpit-index]
 ---
 

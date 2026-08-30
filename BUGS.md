@@ -7,6 +7,182 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L144 — `6/30`'s crackbox section prescribes reviving the shared-daemon shape `6/24` retired; two shipped specs contradict each other (2026-08-30, open)
+
+`6/30`'s table row for crackbox is honest — `Built? no`, citing `6/24` as the
+reason. But its "Required `/v1` work" column and its "crackbox — orthogonality
+forces a different gate, and a different port" prose then prescribe exactly the
+architecture `6/24` killed: a persistent admin listener on `:3129`, bearer-
+forwarded auth, `Route.InjectAuthorization`, and an `EGRESS_CRACKBOX`-gated
+compose fragment.
+
+`6/24` (also `status: shipped`) retired crackbox's daemon mode, admin API,
+registry and long-lived container. The code agrees: `crackbox/` is 414 lines in
+two files and `cmd/crackbox/main.go:9-10`'s own banner reads "no daemon mode, no
+admin API and no registry: one proxy per sandbox, allowlist fixed at start".
+Repo-wide there is no `InjectAuthorization`, no `template/services/crackbox.yaml`;
+`:3129` and `CRACKBOX_ADMIN_SECRET` survive only in changelog and helm artifacts.
+
+The shape cannot return as described — there is no long-lived container to attach
+a fixed admin port to. One shipped spec's future-work section describes an
+architecture another shipped spec explicitly deleted, so a reader following `6/30`
+would rebuild the leak `6/24` removed.
+
+- **Severity:** low (nothing built; the risk is a future reader acting on it)
+- **Scope:** specs
+- **Affected:** `specs/6/30`, `specs/6/24`
+- **Status:** open
+- **Fix:** delete `6/30`'s crackbox required-work column and prose, or restate it
+  as "per-spawn proxy, no dashboard — see `6/24`"
+
+## L143 — `6/30`'s runed section describes a build state two releases stale, and its acceptance criterion cites an endpoint that was never mounted (2026-08-30, open)
+
+**Stale build state.** `6/30`'s top table says runed is "overview only" with the
+runs list "unbuilt", and its Migration-state table says `/dash/runed/` runs+kill
+is "still blocked" on runed's mux having no run list route. The code ships both:
+`runed/dash.go` implements a run list with `?state=` filtering and inline kill,
+wired at `runed/server.go:61-62`, covered by
+`TestDashboardAndItsControlAreServedByRuned` and `TestDashKillStopsTheRun`. A run
+DETAIL page genuinely is not built, so that half holds.
+
+**Unmet acceptance.** The criterion "a folder-scoped token calling `GET /v1/runs`
+sees only its subtree" cites an endpoint that does not exist: `runed/server.go:51`
+mounts `POST /v1/runs`, never a GET list, and `/v1/capacity` and
+`Manager.Snapshot()` do not exist either. The containment DISCIPLINE is real and
+tested — `runed/authz_containment_test.go` holds `TestRunControlFolderBound`,
+`TestRunControlRootUnrestricted` and `TestRunSpawnFolderBound` — so the guarantee
+is sound; the acceptance line names the wrong surface for it.
+
+(An audit first reported that test file as fictional. It exists; verified before
+filing. The endpoint half is what is real.)
+
+**Dead FS mount.** `dashd/main.go:277-279,310` still opens and holds a `runed.db`
+handle, with a comment claiming "the `/dash/runed/` runs view reads them here
+directly". That view moved to runed — `dashd/main.go:537` says so itself — so
+dashd keeps an FS mount on another daemon's DB for no live purpose. Not a
+security hole (proxyd routes `/dash/runed/` to runed ahead of dashd's catch-all),
+but it is the coupling `L142` is about, kept alive by a stale comment.
+
+- **Severity:** low (documentation + one dead handle)
+- **Scope:** specs / dashd
+- **Affected:** `specs/6/30`, `dashd/main.go`
+- **Status:** open
+- **Fix:** mark runed's list built and detail unbuilt; point the acceptance line at
+  the containment tests that exist, or mount the `GET /v1/runs` it names; drop
+  `dbRuned` and its comment
+
+## L142 — `6/28`'s core rule "no dashboard reads a SQLite DB directly" is false: at least 6 of 9 retained dashd pages still read `routd.db` for their displayed content (2026-08-30, open)
+
+Found auditing every phase-6 spec that claims `status: shipped`, the same method
+that found 13 drifts when phase 5 closed.
+
+**The promise.** `6/28` §Read-path: "Every datum a dashboard shows flows through
+the owning daemon's `/v1` surface. No dashboard — hub or per-daemon — reads a
+SQLite DB directly." `6/29` marks reads "DONE 2026-08-30" and lists as
+Acceptance: "No dashd handler opens a SQLite DB or reads a group's FS directly."
+
+**The code.** Direct SQL against `routd.db` (`d.adminDB()` / `d.dbRoutd`) is the
+PRIMARY content of these pages, not a pre-write authz check:
+
+| page | read | site |
+| --- | --- | --- |
+| Groups | `SELECT folder FROM groups ORDER BY folder LIMIT 500` | `dashd/main.go:1193` |
+| Status | `SELECT group_folder, COUNT(*) FROM sessions` | `dashd/main.go:856` |
+| Tasks (list) | `SELECT … FROM scheduled_tasks` | `dashd/main.go:953` |
+| Activity | `SELECT … FROM messages` | `dashd/main.go:1067` |
+| Memory | `SELECT folder FROM groups` + `os.ReadDir` of the group FS | `dashd/main.go:1492-1521` |
+| Usage | `SELECT folder FROM groups`, two `FROM messages` | `dashd/usage_page.go:89,198,223` |
+| Grants | `user_profiles`, `acl_membership`, `groups` for the datalists | `dashd/grants_admin.go:116-149` |
+| Profile | `SELECT name FROM user_profiles` | `dashd/profile.go:36` |
+| Me secrets/env | `secrets` via `secretsDB()` | `dashd/me_secrets.go:63`, `me_env.go:51` |
+
+`usage_page` and `grants_admin` are two of the pages `6/29` names BY NAME as
+"READS DONE". `grants_admin.go:59-62` carries a comment admitting the gap — "the
+three datalist reads below still go to the DB … See 6/29 for what closing them
+needs" — so the code says open work on the same line the spec says closed.
+
+**NOT counted here** (defensible, and the distinction matters): `routes_admin.go`
+`SELECT target FROM routes WHERE id = ?` and `groups_admin.go`
+`SELECT COUNT(*) FROM groups WHERE folder = ?` are existence/authz checks inside
+a write transaction on a table dashd is FS-mounted on — that is the sanctioned
+direct-WRITE path from CLAUDE.md §"Split write-discipline", not a display read.
+`route_tokens.go` and `routes_admin.go`'s GET listing are genuinely migrated.
+
+**Why it matters beyond tidiness:** the rule exists so a dashboard cannot show a
+view of another daemon's data that the daemon itself would not serve — no schema
+coupling, no bypassed authz on the owner's side. Nine pages currently can.
+
+- **Severity:** medium (architectural rule stated as shipped, not enforced)
+- **Scope:** dashd cross-cutting pages
+- **Affected:** `dashd/main.go`, `usage_page.go`, `grants_admin.go`, `profile.go`, `me_secrets.go`, `me_env.go`, `specs/6/28`, `specs/6/29`
+- **Status:** open — `6/28` and `6/29` carry `defected`
+- **Fix:** migrate each read to routd's `/v1`, or amend the specs to state the real rule (which may be "no CROSS-daemon read", given dashd is FS-mounted on routd.db)
+
+## L141 — dashd, the hub the cockpit specs are about, is the one dashboard NOT on the shared operator gate, and still carries the `**` shortcut `6/28` says was replaced (2026-08-30, open)
+
+**The promise.** `6/28` Build state: `auth/dashauth.go` is "the one operator
+decision every daemon dashboard applies", replacing three drifted copies — one of
+which it names as "dashd carried the `**` shortcut inside `callerScope`". It also
+requires that "a deep-page 403 renders the theme error banner (not plain text)".
+
+**The code.** `grep -rn 'auth.RequireOperator|auth.RequireWrite|auth.Forbidden'
+dashd/*.go` returns **zero**. dashd gates through its own `d.requireOperator`
+(`dashd/authz.go:99-108`) → `d.callerScope` (`:40-59`), and
+`slices.Contains(allowed, "**")` is still there at `dashd/authz.go:55` — the exact
+shortcut the spec says was removed. Its refusal is
+`http.Error(w, "forbidden", 403)`: bare text, not the themed banner.
+
+Ten call sites across eight files, including `handleServices` — the hub itself.
+
+The seven daemons the spec lists DO use the shared gate (`timed/dash.go:50`,
+`onbod/dash.go:23`, `webd/dash.go:45`, `proxyd/dash.go:35`, `authd/dash.go:31`,
+`runed/dash.go:29`, `routd/dash.go:86`), so the claim is true of everything
+except the daemon the specs exist to describe.
+
+Separately, `ttsd/dash.go:36-38` inlines `auth.IsOperator` + `auth.Forbidden`
+rather than calling `RequireOperator`. That one is documented in code as
+deliberate (ttsd holds no `KeySet`), so it is a fourth pattern rather than a
+drifted copy — lower severity, but it means "the one gate" is not literally true.
+
+- **Severity:** medium (auth uniformity claimed and not held; no known bypass — `callerScope` still requires an operator scope)
+- **Scope:** dashd authz
+- **Affected:** `dashd/authz.go`, 8 dashd page files, `specs/6/28`
+- **Status:** open — `6/28` carries `defected`
+- **Fix:** dashd adopts `auth.RequireOperator`/`RequireWrite`, deleting `callerScope`'s `**` branch; or `6/28` states dashd's folder-scoped gate as a second deliberate exception alongside ttsd's
+
+## L140 — three shipped adapter specs still count ten channel adapters; `mastd` was deleted 17 days earlier (2026-08-30, open)
+
+`mastd/` was removed in `b72e80f9` ("feat(channels)!: drop Mastodon support",
+2026-08-13) — the directory, `template/services/mastd.yml`, the `go-mastodon`
+dependency and every reference in root docs, ant skills and web docs. Nine
+adapters remain: whapd, teled, slakd, bskyd, reditd, linkd, discd, emaid, twitd.
+
+`6/31` says "the ten channel adapters" (`:9`) and "All ten adapters now serve
+`/dash/<adapter>/`" (`:242`). `6/32` is TITLED "the ten channel adapters", repeats
+the count four times, and carries `mastd` rows in its controls and acceptance
+tables — acceptance criteria for an adapter that does not exist. `6/33` lists
+`mastd` as one of five social adapters (`:6`).
+
+`6/31` and `6/32` were last edited 2026-08-30 — seventeen days AFTER the removal —
+and `6/32`'s own "Build state (2026-08-30)" asserts all ten serve a dashboard. So
+this is not stale prose overtaken by a later change; it is a shipped-status claim
+written after the fact with the count never corrected.
+
+Everything else in the three specs verified CLEAN: one `chanlib/dash.go` renderer
+across all seven Go adapters with no per-adapter code, the three-state health
+model single-sourcing its threshold with `/health`, the capability strip probed
+via `isStubVerb`, the four `DashSectioner` implementers exact, and
+`tests/socialboundary` passing all three subtests.
+
+- **Severity:** low (documentation; the mechanism holds for all nine)
+- **Scope:** specs
+- **Affected:** `specs/6/31`, `specs/6/32`, `specs/6/33`
+- **Status:** open
+- **Fix:** ten → nine throughout; drop every `mastd` row and the `6/33:6` entry
+- **Also worth a line:** twitd's `STALE_SECONDS` and whapd's equal their `/health`
+  threshold today, but only a COMMENT says they must — no test enforces it. The Go
+  side cannot drift this way; the TS side can.
+
 ## L139 — proposal: collapse the two MCP surfaces into one; a route token authenticates an ANONYMOUS principal whose destination set has one element (2026-08-30, proposal — needs sign-off)
 
 Found designing `arizuko talk` (`6/26` Gap 1). The operator's framing, in order:
