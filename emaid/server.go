@@ -302,3 +302,24 @@ func fetchMsgToInbound(
 		Attachments: atts,
 	}, true
 }
+
+// DashSections is emaid's per-adapter delta on the shared adapter dashboard
+// (spec 6/32). The shared page says connected or disconnected; for email that
+// is not enough to act on, and BUGS L62 is the proof — marinade's emaid sat
+// IMAP-auth-failing for three days, and the only visible symptom was an
+// unhealthy container. WHICH account against WHICH host is what turns that into
+// a fixable report.
+//
+// The password is not here and must never be: it is the credential the failing
+// login uses, and an operator page that prints it trades a diagnosis for a
+// leak.
+func (s *server) DashSections() []chanlib.DashSection {
+	return []chanlib.DashSection{{
+		Title: "Mailbox",
+		Rows: [][2]string{
+			{"account", s.cfg.Account},
+			{"IMAP host", s.cfg.IMAPHost},
+			{"SMTP host", s.cfg.SMTPHost},
+		},
+	}}
+}

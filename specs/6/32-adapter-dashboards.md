@@ -166,7 +166,14 @@ renders the pair-flow state, which is the one thing the shared page cannot say:
 "disconnected" does not tell an operator whether they must go and enter a code
 on the phone. It reads `bot.getStatus()`, which already redacts the code.
 
-**Not built, and small:** emaid's folder state. emaid exposes no folder
-accessor today, so the delta needs one — the only remaining item, and an
-interface implementation on a shipped mechanism rather than new design. Sections
-are purely additive, so it cannot regress the shared page.
+**emaid's delta is built**, and `L62` is why it earns its place: marinade's
+emaid sat IMAP-auth-failing for three days and the only visible symptom was an
+unhealthy container. "Connected or not" is not actionable for email; which
+account against which host is. The password is excluded and a test pins that —
+it is the credential the failing login uses, and printing it would trade a
+diagnosis for a leak.
+
+**Every adapter that has a delta now has it.** The four that do — reditd,
+bskyd, whapd, emaid — each render exactly the state the shared page cannot
+show. The rest implement nothing, which is the interface being optional working
+as intended rather than work outstanding.
