@@ -89,13 +89,7 @@ func (s *server) revokeSession(x resreg.Execution) (any, error) {
 	if fam == "" {
 		return nil, resreg.Errorf(http.StatusBadRequest, "family_id required")
 	}
-	res, err := x.Tx.Exec(
-		`UPDATE refresh_tokens SET revoked_at = ? WHERE family_id = ? AND revoked_at IS NULL`,
-		now(), fam)
-	if err != nil {
-		return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
-	}
-	n, err := res.RowsAffected()
+	n, err := revokeFamilyTx(x.Tx, fam)
 	if err != nil {
 		return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 	}
@@ -103,6 +97,23 @@ func (s *server) revokeSession(x resreg.Execution) (any, error) {
 		return nil, resreg.Errorf(http.StatusNotFound, "no live session %q", fam)
 	}
 	return map[string]any{"family_id": fam, "revoked": n}, nil
+}
+
+// revokeFamilyTx is the ONE writer that kills a refresh family, on a
+// caller-owned transaction. The REST face and the dashboard both call it, so
+// there is no second UPDATE that could drift from this one's
+// `revoked_at IS NULL` guard — the guard is what makes re-revoking an
+// already-dead family report zero rather than a fresh success.
+func revokeFamilyTx(tx interface {
+	Exec(string, ...any) (sql.Result, error)
+}, familyID string) (int64, error) {
+	res, err := tx.Exec(
+		`UPDATE refresh_tokens SET revoked_at = ? WHERE family_id = ? AND revoked_at IS NULL`,
+		now(), familyID)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 // maxSessionsLimit caps one page, matching audit's own ceiling.

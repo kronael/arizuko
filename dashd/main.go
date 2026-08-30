@@ -535,8 +535,7 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	// prefix to routd:8080, so a copy here would be unreachable code rendering
 	// the same data from a direct read of routd.db.
 	// /dash/runed/ moved to runed itself (spec 6/28, 6/30).
-	mux.HandleFunc("GET /dash/authd/", g(d.handleAuthd))
-	mux.HandleFunc("POST /dash/authd/revoke", g(d.handleAuthdRevoke))
+	// /dash/authd/ moved to authd itself (spec 6/28, 6/30).
 
 	// proxyd control plane — the reverse-proxy route table. proxyd owns it, so
 	// every handler here is an HTTP call to proxyd's /v1/proxyd_routes.

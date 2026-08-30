@@ -61,7 +61,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	srv := &server{a: a, serviceSecrets: loadServiceSecrets()}
+	// authd verifies its OWN tokens, so the dashboard gate uses its local
+	// keyset — there is no authd to fetch from, it IS authd.
+	srv := &server{a: a, serviceSecrets: loadServiceSecrets(), dashKeys: a.LocalKeySet()}
 
 	// Wire the grants fetcher onto BOTH the daemon (refresh re-snapshot) and the
 	// server (login snapshot + issuer-mint ceiling). GRANTS_URL unset → grants

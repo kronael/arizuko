@@ -131,6 +131,10 @@ type server struct {
 	serviceSecrets map[string]string // bootstrap key -> service principal (sub)
 	grants         GrantsFetcher     // nil when GRANTS_URL is unset
 	secureCookies  bool              // mark refresh cookies Secure (https deployment)
+	// dashKeys gates GET /dash/authd/ (spec 6/28 auth layer 2): the dashboard
+	// trusts the proxyd-verified end-user identity, not a bearer. authd verifies
+	// its OWN tokens, so this is its local keyset; nil → local dev, gate open.
+	dashKeys *auth.KeySet
 }
 
 // mux builds authd's COMPLETE served surface — including /openapi.json, /auth/*
@@ -150,6 +154,10 @@ func (s *server) mux(cfg *core.Config) *http.ServeMux {
 	s.mountAudit(m)
 	s.mountSigningKeys(m)
 	s.mountSessions(m)
+	// The operator dashboard (spec 6/28): authd's own /dash/ namespace, gated
+	// by the proxyd-stamped operator identity rather than a bearer.
+	m.HandleFunc("GET /dash/authd/", s.handleDash)
+	m.HandleFunc("POST /dash/authd/revoke", s.handleDashRevoke)
 	// OAuth /auth/* (spec 5/1): authd is the OAuth provider, minting ES256.
 	// Mounted only when provider config is present (AUTH_BASE_URL + a client id).
 	if cfg != nil {
