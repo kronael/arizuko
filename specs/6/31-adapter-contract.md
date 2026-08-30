@@ -1,5 +1,5 @@
 ---
-status: partial
+status: shipped
 depends: [28-cockpit-index]
 ---
 
@@ -224,6 +224,20 @@ Decisions worth keeping:
   adapter's OWN credential, so the route — and therefore the hub tile — exists
   exactly when the adapter is deployed.
 
-**Not done: the two TypeScript adapters.** whapd and twitd cannot import
-chanlib and must re-implement this contract in their own source. That is the
-cost this spec was written to make payable, and it is unpaid.
+**The two TypeScript adapters are done too** (2026-08-30). whapd and twitd
+cannot import chanlib, so each carries `src/dash.ts` — the same contract, a
+second implementation, which is the cost this spec was written to make payable.
+They match the Go renderer on the three states, the stale-warns rule, the
+fail-closed scope parse and the AUTHD_URL gate.
+
+Two deltas are forced rather than chosen, and are stated in both files:
+
+- **The capability strip is DECLARED, not probed.** Go's `isStubVerb` calls the
+  verb and watches for `Unsupported`; a TS adapter's verbs are switch arms, not
+  values, so there is nothing to call. `supportedVerbs` is a claim that must be
+  edited when a case is added — the Go side cannot drift this way and this one
+  can.
+- **The theme is inlined**, because `theme.Page` is a Go package.
+
+All ten adapters now serve `/dash/<adapter>/`, each registered by its own
+`template/services/<name>.yaml` route gated on the adapter's credential.

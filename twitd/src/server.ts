@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { handleDash } from './dash.js';
 import { verifyRoutd, type RoutdVerifier } from './auth.js';
 import { log } from './log.js';
 import type { Scraper } from './twitter.js';
@@ -84,6 +85,21 @@ export function startServer(
   lastInboundAt: () => number,
 ): http.Server {
   const srv = http.createServer(async (req, res) => {
+    // The operator dashboard (spec 6/31), before the routd gate: it is reached
+    // by an operator's browser through proxyd, not by routd's service token.
+    if (
+      handleDash(req, res, {
+        name: 'twitd',
+        prefixes: ['twitter:'],
+        enforce:
+          process.env['AUTHD_URL'] !== undefined &&
+          process.env['AUTHD_URL'] !== '',
+        isConnected,
+        lastInboundAt,
+      })
+    ) {
+      return;
+    }
     if (req.method === 'GET' && req.url === '/health') {
       const last = lastInboundAt();
       const staleSec = Math.floor(Date.now() / 1000) - last;
