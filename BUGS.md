@@ -112,7 +112,14 @@ That last one is the crux and this entry does not answer it.
 - **Severity:** n/a (design proposal)
 - **Scope:** routd dispatch / ipc authz / channel adapters
 - **Affected:** `routd/dispatch.go`, `ipc/ipc.go`, `routd/sibling_db.go`, all adapters, `specs/5/34`, `specs/6/26`
-- **Status:** proposal (needs sign-off) — nothing changed
+- **Status:** DEFERRED by the operator 2026-08-30 — "for us it's a JID router,
+  that is ok for now". Nothing is to be built from this entry. It is a recorded
+  design, not a work item; the JID router stands.
+- **Why it is still worth having written:** the scope is now bounded (the nine
+  channel adapters plus `/hook/`, nothing behind them), the enforcement that
+  already exists is named (`ROUTING.md:29-38`), and the decision that gates it —
+  what an unpaired sender authorizes as — is costed with real numbers instead of
+  being rediscovered later.
 - **Related:** `L145` (the link half), `channel_recast` (the 2026-08-01 direction this completes)
 
 ## L145 — proposal: let a link's URI SELECT the destination within what its token AUTHORIZES, so folder routing is HTTP path routing (2026-08-30, proposal — needs sign-off)
