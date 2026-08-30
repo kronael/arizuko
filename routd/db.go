@@ -14,6 +14,7 @@ import (
 	"github.com/kronael/arizuko/auth/surrogate"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/db_utils"
+	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
 )
@@ -1090,6 +1091,51 @@ func (d *DB) PutCost(folder, turnID, userSub, model string, in, out, cents int) 
 // the turn has no cost rows yet (still running, or an adapter-side turn that
 // never reported) — the REST face maps that to 404 so a caller can tell
 // "no cost recorded" from a genuine zero-cost row.
+// CostSummaryRow is one folder's spend over a window.
+type CostSummaryRow struct {
+	Folder    string `json:"folder"`
+	Tokens    int    `json:"tokens"`
+	CostCents int    `json:"cost_cents"`
+}
+
+// CostSummary aggregates cost_log per folder since `since` (RFC3339).
+//
+// The per-TURN reader below answers "what did this turn cost"; an operator
+// asking "what is this instance spending" needs the other axis, and dashd's
+// usage page had to read cost_log directly for want of it (spec 6/30 lists
+// this endpoint as routd's required /v1 work; 6/28 is why it must exist at
+// all — no dashboard reads another daemon's DB).
+//
+// Folder containment is exact-or-subtree through groupfolder.SQLSubtree, never
+// a LIKE (BUGS L122). An empty folder means every folder.
+func (d *DB) CostSummary(folder, since string) ([]CostSummaryRow, error) {
+	q := `SELECT folder,
+	             COALESCE(SUM(input_tokens+output_tokens),0),
+	             COALESCE(SUM(cost_cents),0)
+	      FROM cost_log WHERE recorded_at >= ?`
+	args := []any{since}
+	if folder != "" {
+		q += ` AND ` + groupfolder.SQLSubtree("folder", "/")
+		args = append(args, groupfolder.SubtreeArgs(folder, "/")...)
+	}
+	q += ` GROUP BY folder ORDER BY folder`
+
+	rows, err := d.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []CostSummaryRow{}
+	for rows.Next() {
+		var r CostSummaryRow
+		if err := rows.Scan(&r.Folder, &r.Tokens, &r.CostCents); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 func (d *DB) CostByTurn(turnID string) (folder string, in, out, cents int, found bool, err error) {
 	err = d.db.QueryRow(
 		`SELECT folder, COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0), COALESCE(SUM(cost_cents),0)

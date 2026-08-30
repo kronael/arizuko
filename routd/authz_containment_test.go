@@ -165,3 +165,36 @@ func TestRESTWebRoutePutContainment(t *testing.T) {
 		t.Fatalf("cross-folder folder = %d want 403", r.Code)
 	}
 }
+
+// GET /v1/cost/summary is the operator's spend axis (spec 6/30), so its
+// narrowing must be the same one every other read here uses: a folder-scoped
+// token cannot ask for a folder outside its claim, and an empty claim (root or
+// a service bearer) sees everything.
+func TestRESTCostSummaryFolderBound(t *testing.T) {
+	const read = "cost:read:own_group"
+	const since = "?since=2020-01-01T00:00:00Z"
+
+	if c := getCode(t, "alice/eng", "/v1/cost/summary"+since+"&folder=alice/ops", read); c != 403 {
+		t.Errorf("cross-folder summary = %d, want 403", c)
+	}
+	if c := getCode(t, "alice/eng", "/v1/cost/summary"+since+"&folder=alice/eng", read); c != 200 {
+		t.Errorf("own-folder summary = %d, want 200", c)
+	}
+	// No folder asked for: narrowed to the token's own, not widened to all.
+	if c := getCode(t, "alice/eng", "/v1/cost/summary"+since, read); c != 200 {
+		t.Errorf("own summary with no folder param = %d, want 200", c)
+	}
+	if c := getCode(t, "", "/v1/cost/summary"+since, read); c != 200 {
+		t.Errorf("root summary = %d, want 200", c)
+	}
+
+	// The window is required: without it the answer is a lifetime total dressed
+	// as a current one.
+	if c := getCode(t, "", "/v1/cost/summary", read); c != 400 {
+		t.Errorf("summary with no since = %d, want 400", c)
+	}
+	// The dedicated scope is required — the write scope must not satisfy it.
+	if c := getCode(t, "alice", "/v1/cost/summary"+since, "cost:write:own_group"); c != 403 {
+		t.Errorf("summary with cost:write = %d, want 403", c)
+	}
+}

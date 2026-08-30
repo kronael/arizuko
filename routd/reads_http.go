@@ -237,6 +237,42 @@ func (s *Server) handleCost(w http.ResponseWriter, r *http.Request) {
 // handleCostGet is the read twin of the cost surface: one turn's spend summed
 // across models. Closes spec 5/9's honest gap (a) — before this, cost was
 // write-only over REST, so external budget checks (anteval max_tokens) read 0.
+// handleCostSummary answers GET /v1/cost/summary?folder=&since= — spend per
+// folder over a window (spec 6/30). The per-turn face below answers a different
+// question and cannot be aggregated by a caller without reading every turn.
+//
+// The token's folder claim narrows the result the same way every other read
+// here does: an empty claim (root / service) sees everything, a folder-scoped
+// token sees only its own subtree, and a caller asking for a folder outside its
+// claim is refused rather than silently narrowed.
+func (s *Server) handleCostSummary(w http.ResponseWriter, r *http.Request) {
+	_, tokenFolder, ok := s.authz(w, r, scopeCostRead...)
+	if !ok {
+		return
+	}
+	folder := r.URL.Query().Get("folder")
+	if !ownsFolder(tokenFolder, folder) {
+		writeErr(w, 403, "forbidden", "folder outside token scope")
+		return
+	}
+	if folder == "" {
+		folder = tokenFolder
+	}
+	since := r.URL.Query().Get("since")
+	if since == "" {
+		// A summary with no window would scan every row ever recorded and
+		// report a lifetime total as if it were current.
+		writeErr(w, 400, "bad_request", "since required (RFC3339)")
+		return
+	}
+	rows, err := s.db.CostSummary(folder, since)
+	if err != nil {
+		writeErr(w, 500, "store_error", err.Error())
+		return
+	}
+	writeJSON(w, 200, rows)
+}
+
 func (s *Server) handleCostGet(w http.ResponseWriter, r *http.Request) {
 	_, tokenFolder, ok := s.authz(w, r, scopeCostRead...)
 	if !ok {
