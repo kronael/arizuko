@@ -186,10 +186,16 @@ Signed off and started. The contract above is settled; what exists:
   a 500ms per-tile timeout, as specified. Its tile list and probe model are
   done; what remains is that six of its tiles still point at pages dashd
   renders.
-- **Not started** — the six remaining per-daemon dashboards (`6/30`) and the
-  adapter contract and its ten instances (`6/31`, `6/32`, `6/33`). dashd still
-  holds its direct-DB read sites for those six; each retires the same way
-  routd's did, and only when its replacement is live.
+- **Adapters — the shared renderer is SHIPPED** (`6/31`). `chanlib/dash.go` is
+  mounted inside `NewAdapterMux`, so all seven Go adapters serve
+  `/dash/<adapter>/` with no per-adapter code, each registered by its own
+  `template/services/<name>.yaml` route gated on the adapter's credential.
+- **What is left.** The per-adapter delta sections (`6/32`), the two TypeScript
+  adapters that cannot import chanlib (whapd, twitd), the social/chat boundary
+  (`6/33`), and `6/29`'s real debt — dashd's remaining direct-DB reads, which
+  are on the CROSS-CUTTING pages (tasks, routes, groups, grants, usage, route
+  tokens) that `6/29` keeps central and requires to call the owning daemon's
+  `/v1` instead.
 
 Status stays `partial` until the hub exists and the per-daemon set is complete
 — a contract with three of nine implementations is not shipped.

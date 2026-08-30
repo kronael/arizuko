@@ -1,5 +1,5 @@
 ---
-status: draft
+status: partial
 depends: [28-cockpit-index]
 ---
 
@@ -195,3 +195,35 @@ Group specs add delta fragments (e.g. whapd `x/pair`).
   unsigned direct calls to dash routes are rejected.
 - routd's channel-registry page is linked from the overview;
   registry-side fields do not appear on the adapter page.
+
+## Build state (2026-08-30) — SHIPPED
+
+The renderer is `chanlib/dash.go`, mounted inside `NewAdapterMux`, so all seven
+Go adapters (slakd, teled, discd, emaid, bskyd, reditd, linkd) serve
+`/dash/<adapter>/` with **no per-adapter code**. Every fact the page shows is
+already a parameter of that constructor, which is why the contract collapses to
+one mount rather than seven implementations.
+
+Decisions worth keeping:
+
+- **Three statuses, not two.** `stale` is a live process whose platform link has
+  gone quiet — the runbook's "healthchecks green but the agent doesn't reply"
+  case. It renders as a WARNING, not an error: the process is up, so the
+  operator's next step is the platform link, not a restart. The threshold is
+  read from the same `staleThresholds` table `/health` uses, so the page and the
+  healthcheck cannot disagree about when an adapter went quiet.
+- **Capabilities are probed, not declared.** The strip runs `isStubVerb` against
+  each gated verb — the same check `CapImplReport` uses — because a cap read
+  from config is a claim and this page exists to show what the adapter does.
+- **Gating differs from the core daemons, and must.** An adapter verifies no
+  tokens and holds no keyset, so the nil-`KeySet` form falls OPEN, and proxyd's
+  `user` route authenticates a person rather than an operator. Adapters gate on
+  the stamped operator scope, enforcing whenever `AUTHD_URL` is set.
+- **Registration is the manifest.** Each adapter ships
+  `template/services/<name>.yaml` with its `/dash/<name>/` route gated by the
+  adapter's OWN credential, so the route — and therefore the hub tile — exists
+  exactly when the adapter is deployed.
+
+**Not done: the two TypeScript adapters.** whapd and twitd cannot import
+chanlib and must re-implement this contract in their own source. That is the
+cost this spec was written to make payable, and it is unpaid.

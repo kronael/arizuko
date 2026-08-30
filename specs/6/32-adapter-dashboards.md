@@ -1,5 +1,5 @@
 ---
-status: draft
+status: partial
 depends: [28-cockpit-index, 31-adapter-contract]
 ---
 
@@ -128,3 +128,15 @@ copied by the image build, never hand-edited downstream.
   poll-fallback re-attempts IDLE; a send updates last-outbound.
 - twitd: auth-refresh after expired cookies restores `ok`;
   session-reset deletes the cookies and leaves cursors untouched.
+
+## Build state (2026-08-30)
+
+The shared half is shipped: all seven Go adapters serve `/dash/<adapter>/` from
+`chanlib/dash.go` via `NewAdapterMux` (`6/31`). What this spec adds — the
+per-adapter DELTA sections (whapd's pairing pane, reditd's cursor table,
+emaid's folder state, bskyd's session detail) — is unbuilt, and so are the two
+TypeScript adapters, which have no chanlib to mount.
+
+The deltas are additive by construction: an adapter contributes extra sections
+to the shared page rather than replacing it, so none of this work can regress
+what `6/31` shipped.
