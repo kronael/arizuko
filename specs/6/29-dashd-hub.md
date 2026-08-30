@@ -37,7 +37,15 @@ by discipline.
 
 **Two things are NOT done, and they are the ones this spec is about.**
 
-1. **The tile list is still hand-kept.** This spec says "the daemon list comes
+1. ~~The tile list is still hand-kept.~~ **DONE 2026-08-30.** `shouldLink` reads
+   the live route table, fetched once per render from proxyd's own `/v1` — the
+   read path `6/28` requires of a cross-cutting page, and the only reader that
+   knows both registration paths (core routes AND the per-package manifests
+   every adapter ships). Any failure degrades to the core routes compiled in, so
+   nothing links at a path that may not exist during the incident where proxyd
+   is the broken thing. The `Built` bool is deleted.
+
+1. **(historical)** This spec says "the daemon list comes
    from the proxyd `/dash/<daemon>/` route entries — no registry, no
    autodiscovery", and `dashd/services.go` still carries a literal list with a
    `Built` bool beside it. That bool has already drifted from the tree once, in
@@ -54,13 +62,45 @@ by discipline.
    render depend on proxyd answering, which needs a deliberate fallback (core
    routes only, adapters read as "coming soon") rather than an accidental one.
 
-2. **The retained pages still read the DB directly.** The direct-DB debt `6/28`
-   set out to retire is not on the per-daemon pages — those are gone — it is
-   concentrated in exactly the pages this spec KEEPS: `tasks_admin`,
-   `routes_admin`, `groups_admin`, `grants_admin`, `usage_page` and
-   `route_tokens`, plus `authz.go`. Each must call the owning daemon's `/v1`
-   with dashd's service bearer instead. dashd already has that client
-   (`bearerCall`, and a `routdURL`/`onbodURL`/`authdURL` for each owner), so
+1. **The retained pages still read the DB directly — and there is a BLOCKER
+   nobody had written down.**
+
+   The obvious migration is to swap `store.New(d.adminDB())` for
+   `d.bearerCall(routdURL, …)` per page. For the READS that is clean. For the
+   WRITES it is an audit regression, measured 2026-08-30:
+   - `dashd/route_tokens.go:79` revokes via
+     `store.New(d.adminDB()).AsUser(sub).RevokeRouteToken(...)`, and
+     `Store.AsUser` (`store/store.go:44`) puts the OPERATOR's sub on the
+     `audit_log` row.
+   - `bearerCall` (`dashd/engagement_page.go:186`) sets exactly one auth header:
+     `Authorization: Bearer <dashd's service token>`. It forwards no `X-User-*`.
+
+   So moving a control onto the owning daemon's `/v1` today attributes every
+   operator mutation to `service:dashd`. The audit trail would stop naming who
+   did it, and nothing would fail — the write succeeds, the row is just wrong.
+   That affects every retained page that has a control: tasks, routes, groups,
+   grants and route tokens.
+
+   **This is decided before any page moves**, and there are two shapes:
+   - **Forward the operator identity.** dashd re-stamps `X-User-Sub`/`-Groups`
+     on the call and the owning daemon trusts them on the strength of dashd's
+     service bearer — the same trust-stamp pattern `auth.ProxydTransit` already
+     implements for proxyd. This is the smaller change and it keeps one audit
+     shape, but it widens who may stamp identity headers from one daemon to two.
+   - **Give the owning daemon an operator-authenticated face.** dashd forwards
+     the operator's own credential rather than acting for them. Cleaner
+     attribution, larger change, and it needs a token dashd does not hold.
+
+   Until one is chosen, a page's reads may move and its writes may not — which
+   would leave two paths into one table, the thing `6/28` exists to prevent. So
+   no page moves yet.
+
+   The debt itself: the direct-DB reads `6/28` set out to retire are NOT on the
+   per-daemon pages — those are gone — they are concentrated in exactly the
+   pages this spec KEEPS: `tasks_admin`, `routes_admin`, `groups_admin`,
+   `grants_admin`, `usage_page` and `route_tokens`, plus `authz.go`. dashd
+   already holds the client and a URL per owner (`bearerCall`, `routdURL`,
+   `onbodURL`, `authdURL`), so once the attribution question above is answered
    this is per-page work, not a new mechanism.
 
 ## Retained cross-cutting pages
