@@ -70,6 +70,23 @@ type Group struct {
 	Config  GroupConfig
 	Product string
 	Model   string // per-group model override; empty = instance default
+
+	// Open, ObserveWindowMessages and ObserveWindowChars are read-only
+	// projections of the `config` column, exactly as Model already is. They
+	// exist so ONE read answers the whole group settings page instead of the
+	// page reaching into another daemon's DB for them (spec 6/28 read-path).
+	//
+	// Safe as read-only because Store.PutGroup writes `container_config`,
+	// `product` and `updated_at` and never `config` — so a round-trip through
+	// this struct cannot clobber them. Their own setters (SetGroupOpen,
+	// SetGroupObserveWindow) remain the only writers.
+	//
+	// Defaults match the accessors they replace: a group with no `open` key is
+	// OPEN, and an unset window is -1 (no per-group cap), not 0 (a cap of
+	// nothing).
+	Open                  bool `json:"open"`
+	ObserveWindowMessages int  `json:"observe_window_messages"`
+	ObserveWindowChars    int  `json:"observe_window_chars"`
 }
 
 type GroupConfig struct {

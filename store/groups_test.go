@@ -234,3 +234,66 @@ func TestDeleteGroup_CascadesEveryPointerAtomically(t *testing.T) {
 		t.Error("keeper lost its tasks: the cascade is not scoped to the deleted folder")
 	}
 }
+
+// The group row carries `open` and the observe windows so ONE read answers the
+// settings page, instead of a dashboard reaching into this DB for them (spec
+// 6/28). Their defaults must match the accessors they replace, or a group with
+// no config key reads as closed and capped at nothing.
+func TestGroupRowProjectsConfigDefaultsLikeTheAccessors(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+	if err := s.PutGroup(core.Group{Folder: "acme"}); err != nil {
+		t.Fatal(err)
+	}
+
+	g, ok := s.GroupByFolder("acme")
+	if !ok {
+		t.Fatal("group not found")
+	}
+	// A group with no `open` key is OPEN — same as IsGroupOpen.
+	if !g.Open || !s.IsGroupOpen("acme") {
+		t.Errorf("Open = %v, IsGroupOpen = %v; a group with no key is open", g.Open, s.IsGroupOpen("acme"))
+	}
+	// An unset window is -1 (no cap), never 0 (a cap of nothing).
+	wantM, wantC := s.GroupObserveWindow("acme")
+	if g.ObserveWindowMessages != wantM || g.ObserveWindowChars != wantC {
+		t.Errorf("row window = (%d,%d), accessor = (%d,%d)",
+			g.ObserveWindowMessages, g.ObserveWindowChars, wantM, wantC)
+	}
+	if g.ObserveWindowMessages != -1 {
+		t.Errorf("unset window = %d, want -1", g.ObserveWindowMessages)
+	}
+}
+
+// Set values reach the row, and the accessors and the row keep agreeing.
+func TestGroupRowTracksTheSetters(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+	if err := s.PutGroup(core.Group{Folder: "acme"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetGroupOpen("acme", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetGroupObserveWindow("acme", 12, 3400); err != nil {
+		t.Fatal(err)
+	}
+
+	g, _ := s.GroupByFolder("acme")
+	if g.Open {
+		t.Error("row still reports open after SetGroupOpen(false)")
+	}
+	if g.ObserveWindowMessages != 12 || g.ObserveWindowChars != 3400 {
+		t.Errorf("row window = (%d,%d), want (12,3400)", g.ObserveWindowMessages, g.ObserveWindowChars)
+	}
+
+	// PutGroup writes container_config, never config — so a round-trip through
+	// core.Group must not clobber what the setters wrote.
+	if err := s.PutGroup(g); err != nil {
+		t.Fatal(err)
+	}
+	again, _ := s.GroupByFolder("acme")
+	if again.Open || again.ObserveWindowMessages != 12 {
+		t.Errorf("a PutGroup round-trip clobbered config values: %+v", again)
+	}
+}

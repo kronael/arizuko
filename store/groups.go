@@ -140,7 +140,10 @@ func (s *Store) DeleteGroup(folder string) error {
 }
 
 const groupCols = `folder, added_at, container_config, product,
-	COALESCE(json_extract(config, '$.model'), '')`
+	COALESCE(json_extract(config, '$.model'), ''),
+	json_extract(config, '$.open'),
+	json_extract(config, '$.observe_window_messages'),
+	json_extract(config, '$.observe_window_chars')`
 
 func (s *Store) AllGroups() map[string]core.Group {
 	rows, err := s.db.Query(`SELECT ` + groupCols + ` FROM groups`)
@@ -220,14 +223,27 @@ func scanGroupFull(r rowScanner) (core.Group, bool) {
 	var g core.Group
 	var addedAt string
 	var cfgJSON *string
+	var open, owMsgs, owChars sql.NullInt64
 
-	if err := r.Scan(&g.Folder, &addedAt, &cfgJSON, &g.Product, &g.Model); err != nil {
+	if err := r.Scan(&g.Folder, &addedAt, &cfgJSON, &g.Product, &g.Model,
+		&open, &owMsgs, &owChars); err != nil {
 		return g, false
 	}
 
 	g.AddedAt, _ = time.Parse(time.RFC3339, addedAt)
 	if cfgJSON != nil {
 		json.Unmarshal([]byte(*cfgJSON), &g.Config)
+	}
+	// Defaults match IsGroupOpen and GroupObserveWindow exactly: absent `open`
+	// means OPEN, and an unset window is -1 (no per-group cap) rather than 0,
+	// which would read as a cap of nothing.
+	g.Open = !open.Valid || open.Int64 != 0
+	g.ObserveWindowMessages, g.ObserveWindowChars = -1, -1
+	if owMsgs.Valid {
+		g.ObserveWindowMessages = int(owMsgs.Int64)
+	}
+	if owChars.Valid {
+		g.ObserveWindowChars = int(owChars.Int64)
 	}
 	return g, true
 }

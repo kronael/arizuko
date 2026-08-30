@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -271,22 +273,27 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 		pageClose(w, r)
 		return
 	}
-	var product, groupModel string
-	var cfgJSON *string
-	err := d.adminDB().QueryRow(`SELECT product, COALESCE(json_extract(config, '$.model'), ''), container_config FROM groups WHERE folder = ?`, folder).Scan(&product, &groupModel, &cfgJSON)
+	// READ through routd's /v1 (spec 6/28 §"Read-path: /v1 only, no direct DB").
+	// ONE call answers the whole page: the group row now carries `open` and the
+	// observe windows alongside product, model and container_config, so this no
+	// longer needs a query plus two accessors — and it never reads one row over
+	// two transports, which is what stopped this page migrating before.
+	//
+	// The WRITES below still go through the store: they carry the operator onto
+	// the audit row via AsUser and dashd's service bearer does not, so moving
+	// them waits on 6/29's identity decision.
+	g, err := d.getGroup(r.Context(), folder)
 	if err != nil {
-		fmt.Fprint(w, htmlBanner("err", "group not found: "+err.Error()))
+		fmt.Fprint(w, htmlBanner("err", "could not read group: "+esc(err.Error())))
 		pageClose(w, r)
 		return
 	}
-	var groupCfg core.GroupConfig
-	if cfgJSON != nil {
-		_ = json.Unmarshal([]byte(*cfgJSON), &groupCfg)
-	}
-
-	s := store.New(d.adminDB())
-	open := s.IsGroupOpen(folder)
-	owMsgs, owChars := s.GroupObserveWindow(folder)
+	// g.Config (container_config) is not rendered on this page; the old code
+	// unmarshalled it into a variable nothing read, which only compiled because
+	// Unmarshal took its address.
+	product, groupModel := g.Product, g.Model
+	open := g.Open
+	owMsgs, owChars := g.ObserveWindowMessages, g.ObserveWindowChars
 
 	fmt.Fprintf(w, `<p class="dim">Group <code>%s</code> &middot; product <code>%s</code></p>`, esc(folder), esc(product))
 	openChecked := ""
@@ -517,4 +524,26 @@ func (d *dash) handleGroupDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// getGroup reads one group from routd's /v1 face.
+//
+// The row decodes into core.Group — the same struct routd serves — so the page
+// cannot render a field the API lacks, and its `open` / observe-window
+// projections default exactly as IsGroupOpen and GroupObserveWindow do: a
+// group with no key is OPEN and an unset window is -1, never 0.
+func (d *dash) getGroup(ctx context.Context, folder string) (core.Group, error) {
+	body, status, err := d.bearerCall(ctx, d.routdURL, http.MethodGet,
+		"/v1/groups/"+url.PathEscape(folder), nil)
+	if err != nil {
+		return core.Group{}, err
+	}
+	if status < 200 || status >= 300 {
+		return core.Group{}, fmt.Errorf("routd /v1/groups/%s: status %d", folder, status)
+	}
+	var g core.Group
+	if err := json.Unmarshal(body, &g); err != nil {
+		return core.Group{}, err
+	}
+	return g, nil
 }

@@ -135,6 +135,39 @@ func stubRoutd(t *testing.T, db *sql.DB) string {
 		writeStubJSON(w, out)
 	})
 
+	// One group. Its `open` and observe-window values are projections of the
+	// `config` column with the SAME defaults the accessors use — absent open is
+	// OPEN, an unset window is -1 — because a stub that defaulted them to false
+	// and 0 would let a page pass while showing every group as closed and capped
+	// at nothing.
+	mux.HandleFunc("GET /v1/groups/{folder...}", func(w http.ResponseWriter, r *http.Request) {
+		folder := r.PathValue("folder")
+		var addedAt string
+		var cfgJSON *string
+		var open, owM, owC sql.NullInt64
+		g := core.Group{Folder: folder}
+		err := db.QueryRow(`SELECT added_at, container_config, product,
+			COALESCE(json_extract(config,'$.model'),''),
+			json_extract(config,'$.open'),
+			json_extract(config,'$.observe_window_messages'),
+			json_extract(config,'$.observe_window_chars')
+			FROM groups WHERE folder = ?`, folder).
+			Scan(&addedAt, &cfgJSON, &g.Product, &g.Model, &open, &owM, &owC)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		g.Open = !open.Valid || open.Int64 != 0
+		g.ObserveWindowMessages, g.ObserveWindowChars = -1, -1
+		if owM.Valid {
+			g.ObserveWindowMessages = int(owM.Int64)
+		}
+		if owC.Valid {
+			g.ObserveWindowChars = int(owC.Int64)
+		}
+		writeStubJSON(w, g)
+	})
+
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv.URL
