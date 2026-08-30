@@ -7,6 +7,66 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L148 — 22 ad-hoc JID⇄folder conversions in 16 files; collapse them to three named seams so `"web:"` appears twice in the tree (2026-08-30, open — minimal, no schema change)
+
+The operator's requirement: *"remove special treatment of JIDs — that should all
+only be specced in routing, or not there at all."* This is the minimal way to
+match that to the current design. It changes no schema, no queue, no routing, and
+no behaviour; it removes duplication.
+
+**Measured.** `"web:"`/`"hook:"` prefix construction or parsing appears at 22
+sites in 16 files: `webd/me.go` ×3, `webd/mcp.go` ×2, `store/route_tokens.go` ×2,
+`store/messages.go` ×2, `routd/server.go` ×2, `routd/dispatch.go` ×2,
+`cmd/arizuko/token.go` ×2, and one each in `webd/ratelimit.go`,
+`webd/channel.go`, `webd/api.go`, `store/routes.go`, `routd/route_tokens_resource.go`,
+`ipc/ipc.go`, `groupfolder/folder.go`, `dashd/authz.go`, `cmd/arizuko/send.go`.
+
+**Only `store/routes.go` is legitimately routing.** Every other site is doing one
+of two things, ad hoc:
+
+- **folder → JID**: `"web:" + folder` (`store/messages.go:285,314`, …)
+- **JID → folder**: `strings.CutPrefix(jid, "web:")` (`ipc/ipc.go:849`,
+  `dashd/authz.go:123`, `groupfolder/folder.go:111`, …)
+
+**The three seams every site must use instead:**
+
+1. **Constructing a web JID → `groupfolder.WebJID(folder)`** (net-new, ~3 lines).
+   The only place the literal `"web:"` is written.
+2. **Holding a token row → `row.Folder()`**, which READS `target_folder`
+   (`store/route_tokens.go`). Never parse a suffixed `web:t/sfx` or a `hook:` JID
+   — `target_folder` exists precisely because that string cannot be parsed back,
+   and `L139`'s implementation caught a live instance of exactly that bug.
+3. **Holding a bare unsuffixed web JID and no row → `groupfolder.JidFolder(jid)`**,
+   which already exists and is already documented as prefix-grammar-only.
+
+After this, `"web:"` appears twice in the tree — once in `WebJID`, once in
+`JidFolder` — and every other file deals in folders. That is as close to "JIDs
+only in routing" as the current schema allows, because the remaining JID is not a
+routing address at all: it is the queue's serialization key (`Enqueue(chatJID)`,
+`busyWait sync.Map // chatJID → busyState`, `publishRoundDone(chatJID, turnID)`).
+
+**Why this is the right minimal step, not a half-measure.** Removing `web:`
+entirely means re-keying `messages.chat_jid` and the queue onto `(folder, topic)`
+— a schema change touching every consumer. After this consolidation that becomes
+a change at THREE seams instead of 22, and the bug class it causes
+(`identity_derived_not_read`: three traced failures, including the SSE
+`round_done` key bug which landed twice) is fenced meanwhile.
+
+**Ordering note.** `groupfolder.JidFolder` is itself named in
+`identity_derived_not_read` as a smell — parsing rather than reading. It is SOUND
+for unsuffixed web JIDs (1:1 with the folder, `ROUTING.md:29-38`) and UNSOUND for
+suffixed and `hook:` ones. Seam 2 exists to take those; seam 3 must be documented
+as the unsuffixed-web case only.
+
+- **Severity:** low (no runtime defect today; it is the substrate of a class that
+  has produced three)
+- **Scope:** JID⇄folder conversion, repo-wide
+- **Affected:** the 16 files above
+- **Status:** open — minimal, mechanical, no schema change
+- **Fix:** add `groupfolder.WebJID`, route all 22 sites through the three seams,
+  add a test that fails if `"web:"` appears as a literal outside `groupfolder/`
+- **Related:** `L147` (the principle), `L146` (deferred), `identity_derived_not_read`
+
 ## L147 — principle: the channel attests, the router resolves, the ACL authorizes — and `web:` JIDs exist only to satisfy a storage column (2026-08-30, principle — records a design fault, no work item)
 
 The operator's formulation, at the end of the session that produced `L139`,
