@@ -161,14 +161,30 @@ Signed off and started. The contract above is settled; what exists:
   (`compose/reserved_routes_test.go`) pins that ordering, the `user` auth mode
   and the "not backed by dashd" rule for every route added later.
 - **Per-daemon dashboards** — 3 of 9: onbod (admission queue), timed
-  (overview), routd (overview, 2026-08-29). routd is the reference the rest
-  copy: one handler in the owning daemon, gated by `RequireOperator`, reading
-  the same in-process readers its `/v1` handlers read.
-- **Not started** — the `dashd` hub at `/dash/services/` (`6/29`), the six
-  remaining daemons (`6/30`), the adapter contract and its ten instances
-  (`6/31`, `6/32`), and the migration of dashd's direct-DB pages. dashd still
-  holds 86 direct read sites; none has been retired yet, because `6/30` is
-  explicit that a copy leaves dashd only once its replacement is live.
+  (overview), routd (overview + retry + replay, 2026-08-29). routd is the
+  reference the rest copy: handlers in the owning daemon, gated by
+  `RequireOperator` (reads) and `RequireWrite` (mutations), reading the same
+  in-process readers its `/v1` handlers read.
+- **First migration done** — routd's page has LEFT dashd. `dashd/routd_page.go`
+  is deleted, and routd owns the two controls it carried, over its own
+  `ClearErrored` writer instead of dashd's raw `UPDATE` on `routd.db`. This is
+  the shape the rest follow, and it carries a trap worth stating: proxyd matches
+  longest-prefix, so routing `/dash/<daemon>/` moves every POST under it too —
+  the replacement must answer the controls BEFORE the route lands, or the
+  operator gets dead buttons.
+- **The hub links what is served.** Its `Built` flag is checked against the
+  union of dashd's own mux and the proxyd route table; asking only about dashd's
+  mux was the pre-federation question and it hid two working dashboards (onbod,
+  timed) whose tiles rendered as plain text while the hub was their only nav
+  path.
+- **Hub** — `/dash/services/` exists and probes every daemon concurrently with
+  a 500ms per-tile timeout, as specified. Its tile list and probe model are
+  done; what remains is that six of its tiles still point at pages dashd
+  renders.
+- **Not started** — the six remaining per-daemon dashboards (`6/30`) and the
+  adapter contract and its ten instances (`6/31`, `6/32`, `6/33`). dashd still
+  holds its direct-DB read sites for those six; each retires the same way
+  routd's did, and only when its replacement is live.
 
 Status stays `partial` until the hub exists and the per-daemon set is complete
 — a contract with three of nine implementations is not shipped.
