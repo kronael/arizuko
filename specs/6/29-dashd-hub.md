@@ -111,6 +111,33 @@ by discipline.
    Remaining reads to move: `tasks_admin`, `routes_admin`, `groups_admin`,
    `grants_admin`, `usage_page`.
 
+   **`tasks_admin` was attempted and reverted 2026-08-30, and the reason is a
+   finding, not a stumble.** The code change is straightforward — routd serves
+   `GET /v1/tasks/{id}` and `/v1/tasks/{id}/runs`, and the page's two reads swap
+   cleanly. What broke was `TestIso_PerFolderGET_AliceForbiddenOnSales`: the
+   task-detail case went from **403 to 500**.
+
+   The cause is an ordering this page has always had and the DB read hid.
+   Authorization needs the task's OWNER, and the owner is only known after the
+   row is read — so the page reads, THEN authorizes. Against a local DB the read
+   cannot fail, so the 403 always arrived. Against `/v1` an unreachable routd
+   fails first, and a cross-tenant request that must be REFUSED becomes an
+   error instead. 500 and 403 are not interchangeable on an isolation path.
+
+   So this page needs one of:
+   - **Authorize before reading.** Requires the task→folder mapping to be
+     available without fetching the task — a `GET /v1/tasks/{id}/owner`, or
+     carrying the folder in the URL as the group pages already do
+     (`/dash/groups/{folder}/...`). This is the better shape and it is a route
+     change.
+   - **Make the failure explicit.** Keep the order, and render an unreachable
+     routd distinctly from a refusal, so the isolation test can assert 403 for
+     the refusal and something else for the outage.
+
+   Either way the isolation tests need a stub routd, since `isoEnv` builds a
+   dash with no `routdURL`. `route_tokens` did not hit this: its folder is in
+   the URL, so it authorizes before it reads.
+
    The debt itself: the direct-DB reads `6/28` set out to retire are NOT on the
    per-daemon pages — those are gone — they are concentrated in exactly the
    pages this spec KEEPS: `tasks_admin`, `routes_admin`, `groups_admin`,
