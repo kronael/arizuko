@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import type * as http from 'node:http';
 import { adapterStatus, isOperator, renderDash } from './dash.js';
 
@@ -76,5 +76,41 @@ describe('renderDash', () => {
   it('escapes values that reach HTML', () => {
     const html = renderDash('<script>x</script>', ['whatsapp:'], true, 0);
     expect(html).not.toContain('<script>x</script>');
+  });
+});
+
+// whapd's delta (6/32): the pair-flow state. The shared page says
+// "disconnected"; only this says whether an operator must go and enter a code
+// on the phone.
+describe('delta sections', () => {
+  it('renders a section with its rows', () => {
+    const html = renderDash('whapd', ['whatsapp:'], false, 0, [
+      { title: 'Pairing', rows: [['state', 'pending']] },
+    ]);
+    expect(html).toContain('Pairing');
+    expect(html).toContain('pending');
+  });
+
+  // An empty section still says so: omitting the panel looks identical to the
+  // feature not existing.
+  it('says so when a section is empty', () => {
+    const html = renderDash('whapd', ['whatsapp:'], true, 0, [
+      { title: 'Pairing', rows: [] },
+    ]);
+    expect(html).toContain('Pairing');
+    expect(html).toContain('Nothing to show');
+  });
+
+  it('renders no section when the adapter has none', () => {
+    expect(renderDash('whapd', ['whatsapp:'], true, 0)).not.toContain(
+      '<h2>Pairing',
+    );
+  });
+
+  it('escapes section values', () => {
+    const html = renderDash('whapd', ['whatsapp:'], true, 0, [
+      { title: 'x', rows: [['k', '<script>v</script>']] },
+    ]);
+    expect(html).not.toContain('<script>v</script>');
   });
 });

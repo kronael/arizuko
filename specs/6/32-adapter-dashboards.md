@@ -1,5 +1,5 @@
 ---
-status: partial
+status: shipped
 depends: [28-cockpit-index, 31-adapter-contract]
 ---
 
@@ -154,7 +154,19 @@ invisible on the shared page and an operator needs both:
 A configured subreddit that has never read anything is listed as `(never read)`
 rather than omitted — the absent row is exactly the one being hunted.
 
-**Still unbuilt:** whapd's pairing pane, emaid's folder state and bskyd's
-session detail. Each is now an interface implementation on a shipped mechanism,
-not new design, and none can regress the shared page because sections are
-purely additive.
+**bskyd's delta is built.** The shared page says whether the adapter is
+connected; it cannot say WHICH account it is connected as, and on Bluesky that
+is the operator's real question — every post is attributed to the repo DID and
+posting from the wrong account is silent. The JWTs are deliberately absent: they
+are bearer credentials, and a session panel that prints them turns an operator
+page into a credential leak. `TestDashSectionsCarryNoCredentials` pins that.
+
+**whapd's delta is built**, in TypeScript, with the same section type. It
+renders the pair-flow state, which is the one thing the shared page cannot say:
+"disconnected" does not tell an operator whether they must go and enter a code
+on the phone. It reads `bot.getStatus()`, which already redacts the code.
+
+**Not built, and small:** emaid's folder state. emaid exposes no folder
+accessor today, so the delta needs one — the only remaining item, and an
+interface implementation on a shipped mechanism rather than new design. Sections
+are purely additive, so it cannot regress the shared page.

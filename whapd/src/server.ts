@@ -187,6 +187,21 @@ export function startServer(
           process.env['AUTHD_URL'] !== '',
         isConnected,
         lastInboundAt,
+        // whapd's delta (6/32): the pair-flow state. The shared page says
+        // "disconnected"; only this says whether an operator must go and enter
+        // a code on the phone. bot.getStatus() already redacts the code —
+        // rendering it would put a live credential on an operator page.
+        sections: () =>
+          bot === undefined
+            ? []
+            : [
+                {
+                  title: 'Pairing',
+                  rows: Object.entries(bot.getStatus()).map(
+                    ([k, v]) => [k, String(v)] as [string, string],
+                  ),
+                },
+              ],
       })
     ) {
       return;

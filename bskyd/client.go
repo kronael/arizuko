@@ -782,3 +782,36 @@ func uriToKey(uri string) string {
 	parts := strings.Split(uri, "/")
 	return parts[len(parts)-1]
 }
+
+// DashSections is bskyd's per-adapter delta on the shared adapter dashboard
+// (spec 6/32). The shared page shows whether the adapter is connected; it
+// cannot show WHICH account it is connected AS, and on Bluesky that is the
+// question an operator actually has — a repo DID is what every post is
+// attributed to, and posting from the wrong account is silent.
+//
+// The JWTs are NOT rendered. They are bearer credentials: a session panel that
+// prints them turns an operator page into a credential leak, and the DID is the
+// only field that answers the question.
+func (bc *bskyClient) DashSections() []chanlib.DashSection {
+	s := bc.getSession()
+	did := s.DID
+	if did == "" {
+		did = "(no session)"
+	}
+	return []chanlib.DashSection{{
+		Title: "Session",
+		Rows: [][2]string{
+			{"repo DID", did},
+			{"service", bc.cfg.Service},
+			{"authenticated", boolWord(s.AccessJwt != "")},
+		},
+	}}
+}
+
+// boolWord renders a yes/no an operator reads faster than true/false.
+func boolWord(b bool) string {
+	if b {
+		return "yes"
+	}
+	return "no"
+}

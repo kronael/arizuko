@@ -72,12 +72,37 @@ export function adapterStatus(
   return 'ok';
 }
 
+/** DashSection is one per-adapter delta panel — the TS twin of
+ * chanlib.DashSection (spec 6/32). Label/value rows, not HTML, for the same
+ * reason: handing every adapter markup is how one grammar becomes ten layouts.
+ */
+export interface DashSection {
+  title: string;
+  rows: [string, string][];
+}
+
+function renderSection(sec: DashSection): string {
+  const title = `<h2>${esc(sec.title)}</h2>`;
+  if (sec.rows.length === 0) {
+    // An empty section still says so: "not paired" is an answer, and omitting
+    // the panel looks identical to the feature not existing.
+    return `${title}<p class="dim">Nothing to show.</p>`;
+  }
+  const rows = sec.rows
+    .map(
+      ([k, v]) => `<tr><td>${esc(k)}</td><td><code>${esc(v)}</code></td></tr>`,
+    )
+    .join('');
+  return `${title}<table><tbody>${rows}</tbody></table>`;
+}
+
 /** renderDash returns the page body for the given live state. */
 export function renderDash(
   name: string,
   prefixes: string[],
   connected: boolean,
   lastInboundAt: number,
+  sections: DashSection[] = [],
 ): string {
   const status = adapterStatus(connected, lastInboundAt);
   // A stale adapter WARNS: the process is up, so the operator's next step is
@@ -106,7 +131,8 @@ a{color:#4a90e2}h1{color:#d4af37;margin:.2rem 0}
 <h2>Capabilities</h2>
 <p class="dim">Declared, not probed — whapd's verbs are switch arms, so there is
 nothing to call. The Go adapters probe theirs.</p>
-<p>${caps}</p>`;
+<p>${caps}</p>
+${sections.map(renderSection).join('\n')}`;
 }
 
 /**
@@ -127,6 +153,8 @@ export function handleDash(
     enforce: boolean;
     isConnected: () => boolean;
     lastInboundAt: () => number;
+    /** sections are this adapter's deltas (6/32); omitted means none. */
+    sections?: () => DashSection[];
   },
 ): boolean {
   const path = `/dash/${opts.name}/`;
@@ -148,6 +176,7 @@ export function handleDash(
       opts.prefixes,
       opts.isConnected(),
       opts.lastInboundAt(),
+      opts.sections ? opts.sections() : [],
     ),
   );
   return true;
