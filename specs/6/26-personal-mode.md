@@ -66,10 +66,72 @@ Two host-local paths stay beside it: `arizuko send <inst> <folder> "<msg>"
 `arizuko chat <inst>` (an interactive Claude Code on the ROOT MCP socket — an
 operator tool, not a conversation with the persona).
 
-**Gap 1 — `arizuko talk <url> --token <t>`**: a REPL that is a thin client of
-`/chat/<token>/mcp` and nothing else. It holds no DB handle and knows no
-folder; it sends, then streams `/chat/<token>/<id>/sse`. The third consumer of
-one surface, never a fourth path into the queue.
+**Gap 1 — `arizuko talk`**: a REPL that is a thin client of `/chat/<token>/mcp`
+and nothing else. It holds no DB handle and knows no folder; it sends, then
+streams `/chat/<token>/<id>/sse`. The third consumer of one surface, never a
+fourth path into the queue.
+
+### The `talk` interface (decided 2026-08-30)
+
+Command-line first. One chat per user is the expected case, so that case takes
+no arguments at all:
+
+```
+arizuko talk                    # REPL against the one chat
+arizuko talk -p "what broke?"   # one turn: send, print the reply, exit
+arizuko talk -p                 # same, prompt read from stdin
+arizuko talk @work -p "…"       # a named chat instead of the default
+arizuko talk -t bugfix          # a different thread, same chat
+```
+
+**`-p` is one iteration of the REPL loop, not a second code path.** Same send,
+same SSE read, same printer — otherwise the one-shot and interactive forms drift,
+which is the failure this gap's own sentence above warns about.
+
+**Two sigils, no collision: `@` picks the chat, `-t` picks the thread.**
+
+**Config — minimal, and the common case has no section header.**
+
+```toml
+# ~/.config/arizuko/talk.toml
+url   = "https://krons.fiu.wtf"
+token = "…"
+
+[work]
+url   = "https://other.example"
+token = "…"
+```
+
+Top-level keys are the one chat; a `[section]` is addressed as `@section`.
+Precedence: flag > `@name` > top-level > `ARIZUKO_CHAT_TOKEN` > an error that
+prints the file to write. The file holds a bearer, so it is refused unless its
+mode is `0600` — the same reason `psql` refuses a group-readable `.pgpass`.
+
+**A token, not peer credentials.** `SO_PEERCRED` on the ipc socket credentials
+the AGENT's turn, and the operator's local authority is already spelled "you can
+read the DB" (`arizuko send`, `arizuko chat`). Giving `talk` a unix-auth door
+would hand it a DB handle and a folder parameter — the two things the paragraph
+above forbids, and what keeps it safe to point at a remote instance. A token is
+also what the surface is: `/chat/<token>/mcp` is web-native, and `talk` should
+speak it the way any other client does. Minting one is already a command:
+`arizuko token <inst> issue chat <folder>`.
+
+**The group is never a parameter, and the chain has three links.** A
+`route_tokens` row carries no scope column — it maps one token to exactly ONE
+inbound JID, so possession IS membership of that conversation and there is
+nothing to choose among. Where the JID delivers is recorded separately in
+`target_folder`, because a suffixed JID (`web:t/sfx`) cannot be parsed back into
+a folder. So `@name` selects a TOKEN, the token names a JID, and the JID's
+recorded `target_folder` decides delivery. `talk` sends no folder and has no
+field on the wire to put one in.
+
+(`owner_folder` is a third, different thing: it bounds REVOCATION and may
+diverge from the folder in the JID. Who can kill a token is not who receives its
+messages.)
+
+**The thread default is the fixed literal `talk`**, not a remembered value.
+There is no last-used cache to go stale and no "which thread am I in?" — the
+answer is always the one `-t` names, or `talk`.
 
 ## Decision 3 — GitHub arrives as a connector, not as a channel
 
