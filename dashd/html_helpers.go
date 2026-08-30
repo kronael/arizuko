@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -74,4 +75,16 @@ func htmlFormRow(label, inputHTML string) string {
 // key is escaped; val is passed raw (caller escapes as needed).
 func htmlDetail(key, val string) string {
 	return fmt.Sprintf(`<tr><th>%s</th><td>%s</td></tr>`, esc(key), val)
+}
+
+// chatJIDCell renders a chat_jid as a group link when its folder is resolvable
+// (web:/hook: prefixes carry the folder; platform JIDs resolve via the routes
+// table), else as a plain <code> JID. It lived in routd_page.go until that page
+// moved to routd itself (spec 6/28); approvals and proactive still render JIDs.
+func (d *dash) chatJIDCell(jid string) string {
+	if folder := d.jidFolder(jid); folder != "" {
+		return fmt.Sprintf(`<a href="/me/chats?folder=%s"><code>%s</code></a>`,
+			url.QueryEscape(folder), esc(jid))
+	}
+	return `<code>` + esc(jid) + `</code>`
 }

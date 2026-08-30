@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/kronael/arizuko/compose"
 )
 
 // TestServicesOperator: an operator GET /dash/services/ renders one tile per
@@ -64,19 +67,26 @@ func TestServicesOperator(t *testing.T) {
 // Pattern matching is by prefix because dashd registers `GET /dash/` as the
 // portal: an unmounted /dash/<daemon>/ still resolves, to that catch-all, so
 // "did it resolve" is not the question — "did it resolve to ITS OWN route" is.
+//
+// There are now TWO ways a dashboard is served, because 6/28 federates them:
+// dashd's own mux (the pre-migration pages) or a proxyd route to the owning
+// daemon (routd, onbod, timed). Built must track the union — asking only about
+// dashd's mux would call routd's federated page a 404.
 func TestServicesBuiltFlagMatchesMountedRoutes(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
 	mux := newMux(&dash{dbRoutd: db})
+	federated := compose.ReservedRoutePaths()
 
 	for _, s := range services {
 		_, pattern := mux.Handler(httptest.NewRequest("GET", s.Dash, nil))
-		mounted := strings.Contains(pattern, s.Dash)
-		if s.Built && !mounted {
-			t.Errorf("%s is Built but %s resolves to %q — the hub links to a 404",
+		served := strings.Contains(pattern, s.Dash) || slices.Contains(federated, s.Dash)
+		if s.Built && !served {
+			t.Errorf("%s is Built but nothing serves %s — dashd resolves it to %q and "+
+				"proxyd carries no route for it, so the hub links to a 404",
 				s.Name, s.Dash, pattern)
 		}
-		if !s.Built && mounted {
+		if !s.Built && served {
 			t.Errorf("%s serves %s but its tile is Built:false — the page ships and "+
 				"the services hub, its only nav path, renders the name as plain text",
 				s.Name, s.Dash)

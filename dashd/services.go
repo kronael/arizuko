@@ -25,15 +25,20 @@ type service struct {
 }
 
 // services is the static daemon list the hub probes. No autodiscovery — route
-// entry IS registration (spec 6/1); adding a daemon here is a deliberate edit.
-// Set Built=true once the per-daemon /dash/ route is shipped.
+// entry IS registration (spec 6/28); adding a daemon here is a deliberate edit.
+//
+// Built=true once SOMETHING serves the page: dashd's own mux (the pre-migration
+// pages) or a proxyd route to the owning daemon (6/28's federated shape).
+// TestServicesBuiltFlagMatchesMountedRoutes checks that union in both
+// directions — onbod and timed sat at false while serving working dashboards,
+// so the hub, their only nav path, rendered them as plain text.
 var services = []service{
 	{"routd", "routd", "/dash/routd/", "message router, route table, breakers", true, ""},
 	{"runed", "runed", "/dash/runed/", "agent container runs and tokens", true, ""},
 	{"authd", "authd", "/dash/authd/", "signing keys and who is signed in", true, ""},
 	{"proxyd", "proxyd", "/dash/proxyd/", "auth-gated reverse proxy", true, ""},
-	{"onbod", "onbod", "/dash/onbod/", "onboarding queue, gates, invites", false, ""},
-	{"timed", "timed", "/dash/timed/", "scheduled tasks and ticks", false, ""},
+	{"onbod", "onbod", "/dash/onbod/", "onboarding queue, gates, invites", true, ""},
+	{"timed", "timed", "/dash/timed/", "scheduled tasks and ticks", true, ""},
 	{"webd", "webd", "/dash/webd/", "web chat widget and routes", false, ""},
 	{"davd", "davd", "/dash/davd/", "WebDAV workspace access", false, "/"},
 }

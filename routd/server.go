@@ -340,6 +340,8 @@ func (s *Server) Handler() http.Handler {
 	// The operator dashboard (spec 6/28): routd's own /dash/ namespace, gated
 	// by the proxyd-stamped operator identity rather than the /v1 bearer.
 	mux.HandleFunc("GET /dash/routd/", s.handleDash)
+	mux.HandleFunc("POST /dash/routd/retry", s.handleDashRetry)
+	mux.HandleFunc("POST /dash/routd/replay", s.handleDashReplay)
 	return mux
 }
 

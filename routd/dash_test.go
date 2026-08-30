@@ -157,3 +157,88 @@ func TestRenderedValuesAreEscaped(t *testing.T) {
 		t.Error("a folder name broke out of its attribute")
 	}
 }
+
+// dashPost drives a dashboard mutation with a same-origin POST.
+func dashPost(h http.Handler, path, form, groups string) *httptest.ResponseRecorder {
+	r := httptest.NewRequest(http.MethodPost, "http://k.example"+path, strings.NewReader(form))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.Header.Set("Origin", "http://k.example")
+	if groups != "" {
+		r.Header.Set("X-User-Groups", groups)
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	return w
+}
+
+// proxyd matches longest-prefix, so routing /dash/routd/ to routd captures the
+// POST controls under it too. dashd served retry and replay from a raw UPDATE
+// on routd.db; if routd did not answer them, the takeover would leave an
+// operator with two dead buttons — 6/30's rule is that a copy leaves dashd only
+// once the replacement is live.
+func TestDashboardServesTheControlsItTookOver(t *testing.T) {
+	_, _, h := dashSrv(t)
+	for _, p := range []string{"/dash/routd/retry", "/dash/routd/replay"} {
+		w := dashPost(h, p, "chat_jid=x&id=x", `["**"]`)
+		if w.Code == http.StatusNotFound || w.Code == http.StatusMethodNotAllowed {
+			t.Errorf("POST %s = %d; the path routes to routd and nothing answers it", p, w.Code)
+		}
+	}
+}
+
+// Retry clears the chat's errored rows so the loop feeds them again, and says
+// so when there was nothing to clear — a retry that retried nothing must not
+// redirect to a page that looks unchanged for no stated reason.
+func TestRetryClearsErroredRowsAndReportsAnEmptyRetry(t *testing.T) {
+	_, db, h := dashSrv(t)
+	if err := db.PutGroup(core.Group{Folder: "acme"}); err != nil {
+		t.Fatal(err)
+	}
+	m := core.Message{ID: "m1", ChatJID: "tg:1", Sender: "u", Content: "x",
+		Timestamp: time.Now(), RoutedTo: "acme"}
+	if err := db.PutMessage(m); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.MarkMessagesErrored([]string{"m1"}); err != nil {
+		t.Fatal(err)
+	}
+
+	w := dashPost(h, "/dash/routd/retry", "chat_jid=tg:1", `["**"]`)
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("retry = %d, want 303", w.Code)
+	}
+	errored, err := db.ErroredChats("", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(errored) != 0 {
+		t.Errorf("errored chats after retry = %d, want 0", len(errored))
+	}
+
+	// Second retry has nothing to clear.
+	again := dashPost(h, "/dash/routd/retry", "chat_jid=tg:1", `["**"]`)
+	if again.Code == http.StatusSeeOther {
+		t.Error("a retry that cleared nothing reported success")
+	}
+}
+
+// The controls are writes: operator-only AND same-origin, or a third-party page
+// can drive an operator's browser into clearing a chat's error state.
+func TestControlsRefuseNonOperatorAndCrossOrigin(t *testing.T) {
+	s, _, h := dashSrv(t)
+	s.SetDashKeySet(&auth.KeySet{})
+
+	if w := dashPost(h, "/dash/routd/retry", "chat_jid=tg:1", `["acme"]`); w.Code != http.StatusForbidden {
+		t.Errorf("folder-scoped caller: %d, want 403", w.Code)
+	}
+	r := httptest.NewRequest(http.MethodPost, "http://k.example/dash/routd/retry",
+		strings.NewReader("chat_jid=tg:1"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.Header.Set("Origin", "http://evil.example")
+	r.Header.Set("X-User-Groups", `["**"]`)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("cross-origin operator write: %d, want 403", w.Code)
+	}
+}

@@ -452,6 +452,23 @@ func (d *DB) MarkChatErrored(chatJID string) error {
 	return err
 }
 
+// ClearErrored un-flags a chat's errored rows so the dispatch loop feeds them
+// again — the operator's "retry this chat" action. Returns the number of rows
+// cleared so a caller can refuse to report success on zero (a retry that
+// retried nothing is not a retry).
+//
+// routd owns the messages table, so this is its writer. dashd used to do the
+// same UPDATE over a direct handle on routd.db, which is the cross-daemon read
+// path spec 6/28 retires.
+func (d *DB) ClearErrored(chatJID string) (int64, error) {
+	res, err := d.db.Exec("UPDATE messages SET errored=0 WHERE chat_jid=? AND errored=1", chatJID)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
 // MarkMessagesErrored flags a failed run's trigger rows errored=1 so the circuit
 // breaker can prune them (DeleteErroredMessages). The rows stay visible to a
 // later successful run until the breaker trips. Empty list is a no-op.

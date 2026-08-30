@@ -25,7 +25,10 @@ import (
 	"strings"
 	"time"
 
+	"log/slog"
+
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/theme"
 )
 
@@ -41,6 +44,7 @@ type dashSnapshot struct {
 	Groups   int
 	Routes   int
 	Errored  []ErroredChat
+	Dead     []core.Message
 	Pending  int
 	Instance string
 }
@@ -61,6 +65,9 @@ func (s *Server) snapshot() dashSnapshot {
 	}
 	if pending, err := s.db.PendingOutbound(time.Now(), 500); err == nil {
 		snap.Pending = len(pending)
+	}
+	if dead, err := s.db.DeadLetters("", erroredPreview); err == nil {
+		snap.Dead = dead
 	}
 	return snap
 }
@@ -93,7 +100,82 @@ func (s *Server) handleDash(w http.ResponseWriter, r *http.Request) {
 	b.WriteString(`</div>`)
 
 	b.WriteString(erroredTable(snap.Errored))
+	b.WriteString(deadLetterTable(snap.Dead))
 	fmt.Fprint(w, theme.Page("routd", template.HTML(b.String())))
+}
+
+// handleDashRetry clears a chat's errored rows so the loop feeds them again.
+// RequireWrite is RequireOperator plus the same-origin check: this is a
+// cookie-authenticated mutation reachable from a browser.
+func (s *Server) handleDashRetry(w http.ResponseWriter, r *http.Request) {
+	if !auth.RequireWrite(w, r, s.dashKeys, "routd") {
+		return
+	}
+	chatJID := strings.TrimSpace(r.FormValue("chat_jid"))
+	if chatJID == "" {
+		http.Error(w, "chat_jid required", http.StatusBadRequest)
+		return
+	}
+	n, err := s.db.ClearErrored(chatJID)
+	if err != nil {
+		slog.Error("dash retry", "chat_jid", chatJID, "err", err)
+		http.Error(w, "write failed", http.StatusInternalServerError)
+		return
+	}
+	// A retry that cleared nothing is not a retry — say so rather than
+	// redirecting to a page that looks unchanged for no stated reason.
+	if n == 0 {
+		auth.Forbidden(w, "routd", "No errored rows for "+chatJID+".")
+		return
+	}
+	slog.Info("dash retry", "chat_jid", chatJID, "rows", n)
+	http.Redirect(w, r, "/dash/routd/", http.StatusSeeOther)
+}
+
+// handleDashReplay re-queues one dead-lettered outbound message.
+func (s *Server) handleDashReplay(w http.ResponseWriter, r *http.Request) {
+	if !auth.RequireWrite(w, r, s.dashKeys, "routd") {
+		return
+	}
+	id := strings.TrimSpace(r.FormValue("id"))
+	if id == "" {
+		http.Error(w, "id required", http.StatusBadRequest)
+		return
+	}
+	ok, err := s.db.ReplayDeadLetter(id)
+	if err != nil {
+		slog.Error("dash replay", "id", id, "err", err)
+		http.Error(w, "write failed", http.StatusInternalServerError)
+		return
+	}
+	if !ok {
+		auth.Forbidden(w, "routd", "No dead-lettered message "+id+".")
+		return
+	}
+	slog.Info("dash replay", "id", id)
+	http.Redirect(w, r, "/dash/routd/", http.StatusSeeOther)
+}
+
+// deadLetterTable renders the dead-lettered outbound queue with a replay
+// button per row. These are messages that failed delivery past every retry, so
+// the operator's action is the only thing that moves them.
+func deadLetterTable(rows []core.Message) string {
+	if len(rows) == 0 {
+		return `<p class="ok">No dead-lettered outbound.</p>`
+	}
+	var b strings.Builder
+	b.WriteString(`<h2>Dead-lettered outbound</h2><table><thead><tr>` +
+		`<th>chat</th><th>content</th><th></th></tr></thead><tbody>`)
+	for _, m := range rows {
+		fmt.Fprintf(&b, `<tr><td>%s</td><td>%s</td><td>`+
+			`<form method="post" action="/dash/routd/replay">`+
+			`<input type="hidden" name="id" value="%s">`+
+			`<button type="submit">replay</button></form></td></tr>`,
+			html.EscapeString(m.ChatJID), html.EscapeString(truncate(m.Content, 80)),
+			html.EscapeString(m.ID))
+	}
+	b.WriteString(`</tbody></table>`)
+	return b.String()
 }
 
 // warnIf returns the tile's state class. Two states only: a dashboard that
@@ -125,11 +207,14 @@ func erroredTable(rows []ErroredChat) string {
 	}
 	var b strings.Builder
 	b.WriteString(`<h2>Errored chats</h2><table><thead><tr>` +
-		`<th>chat</th><th>folder</th><th>count</th><th>last</th></tr></thead><tbody>`)
+		`<th>chat</th><th>folder</th><th>count</th><th>last</th><th></th></tr></thead><tbody>`)
 	for _, e := range shown {
-		fmt.Fprintf(&b, `<tr><td>%s</td><td>%s</td><td>%d</td><td>%s</td></tr>`,
+		fmt.Fprintf(&b, `<tr><td>%s</td><td>%s</td><td>%d</td><td>%s</td><td>`+
+			`<form method="post" action="/dash/routd/retry">`+
+			`<input type="hidden" name="chat_jid" value="%s">`+
+			`<button type="submit">retry</button></form></td></tr>`,
 			html.EscapeString(e.ChatJID), html.EscapeString(e.RoutedTo), e.Count,
-			html.EscapeString(e.LastAt.Format(time.RFC3339)))
+			html.EscapeString(e.LastAt.Format(time.RFC3339)), html.EscapeString(e.ChatJID))
 	}
 	b.WriteString(`</tbody></table>`)
 	if len(rows) > len(shown) {
