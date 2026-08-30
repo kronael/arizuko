@@ -7,6 +7,61 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L145 — proposal: let a link's URI SELECT the destination within what its token AUTHORIZES, so folder routing is HTTP path routing (2026-08-30, proposal — needs sign-off)
+
+The operator's framing: *"the links should be able to do this, and in fact the
+JIDs should — or rather could — route also using this way, just HTTP URI
+routing."*
+
+**Why it is coherent.** `L139`'s collapse (shipped `8b8158dc`) made the GRANT SET
+the authority: a route token authenticates an anonymous principal, `send` is
+gated by `auth.MatchGroups(grants, folder)`, and today that set has exactly one
+element so there is nothing to choose. Allow the grant to be a glob and the URI
+becomes how a caller picks within it. Nothing new is invented — `MatchGroups`
+already matches `corp/eng/**` (`auth/acl.go:21-29`), and the URI already carries
+two of the three levels: `/chat/{token}/{topic}/messages` and
+`/chat/{token}/{id}/sse` (`webd/server.go:104,108`). This adds the folder.
+
+Folders ARE paths — `corp/eng/sre/oncall` — so folder containment becomes URI
+prefix containment, which an HTTP router does natively and proxyd already does
+for `proxyd_routes`.
+
+**Four things it must get right.**
+
+1. **The URI SELECTS; the grant AUTHORIZES. Never the reverse.** The folder in the
+   path is a request, checked against the token's grant set — it must never be
+   parsed into authority. `target_folder` exists on the row precisely because a
+   suffixed JID (`web:t/sfx`) cannot be parsed back into a folder, and this
+   session already shipped two bugs of exactly that class
+   (`identity_derived_not_read`). A URI segment is the least trustworthy input
+   there is.
+2. **A subtree link is a WIDER credential than a pinned one.** Possession is
+   membership, so a link granted `corp/**` hands the whole subtree to anyone it
+   is forwarded to. This must be opt-in at mint time and never the default; the
+   one-element grant stays the shape a shared chat link gets.
+3. **Route collision.** `/chat/{token}/{topic}/messages` and `/chat/{token}/{id}`
+   already claim the segment after the token, and a folder path contains `/`.
+   A folder-addressed form needs its own namespace segment and a trailing
+   wildcard — e.g. `/chat/{token}/f/{folder...}` — decided explicitly rather than
+   overloading the existing patterns.
+4. **`MatchGroups` is glob, not prefix.** `atlas` does not cover `atlas/content`
+   (pinned by `TestChatTokenMCP_SendSubfolderRefused`). A subtree grant must be
+   written `atlas/**` deliberately; the ambiguity between the two is exactly what
+   `L122` cost.
+
+**What it buys:** one mint for a whole subtree instead of one token per chat, and
+routing that reads the same in the URI, the JID and the ACL — three notations for
+one hierarchy collapse to one.
+
+**What it costs:** a second credential shape to reason about at mint time, and a
+sharing hazard that does not exist today.
+
+- **Severity:** n/a (design proposal)
+- **Scope:** webd token surfaces / route_tokens mint
+- **Affected:** `webd/server.go`, `webd/route_token.go`, `store/route_tokens.go`, `specs/5/W`
+- **Status:** proposal (needs sign-off) — nothing changed
+- **Fix:** add a folder-addressed token surface whose grant set may be a glob; keep the one-element pinned form as the default a shared link gets
+
 ## L144 — `6/30`'s crackbox section prescribes reviving the shared-daemon shape `6/24` retired; two shipped specs contradict each other (2026-08-30, open)
 
 `6/30`'s table row for crackbox is honest — `Built? no`, citing `6/24` as the
