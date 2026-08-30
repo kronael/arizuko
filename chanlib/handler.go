@@ -304,6 +304,9 @@ func NewAdapterMux(name string, prefixes []string, bot BotHandler, isConnected f
 	mux.HandleFunc("POST /pin", Auth(handlePin(bot)))
 	mux.HandleFunc("POST /unpin", Auth(handleUnpin(bot)))
 	mux.HandleFunc("GET /health", handleHealth(name, prefixes, isConnected, lastInboundAt, db))
+	// The operator dashboard (spec 6/31), mounted here so every Go adapter gets
+	// it from the mux it already builds — one renderer, no per-adapter edit.
+	mux.HandleFunc("GET /dash/"+name+"/", handleAdapterDash(name, prefixes, bot, isConnected, lastInboundAt))
 	if hp, ok := bot.(HistoryProvider); ok {
 		mux.HandleFunc("GET /v1/history", Auth(handleHistory(hp)))
 	}

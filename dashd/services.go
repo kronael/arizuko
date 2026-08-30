@@ -42,6 +42,17 @@ var services = []service{
 	{"webd", "webd", "/dash/webd/", "web chat widget and routes", true, ""},
 	{"davd", "davd", "/dash/davd/", "WebDAV workspace access", false, "/"},
 	{"ttsd", "ttsd", "/dash/ttsd/", "text-to-speech proxy", true, ""},
+	// Channel adapters (spec 6/31, 6/32): each serves the SHARED chanlib
+	// dashboard from the mux it already builds, and each route is gated by the
+	// adapter's own credential, so a tile links exactly when the adapter is
+	// deployed.
+	{"slakd", "slakd", "/dash/slakd/", "Slack adapter", true, ""},
+	{"teled", "teled", "/dash/teled/", "Telegram adapter", true, ""},
+	{"discd", "discd", "/dash/discd/", "Discord adapter", true, ""},
+	{"emaid", "emaid", "/dash/emaid/", "Email adapter", true, ""},
+	{"bskyd", "bskyd", "/dash/bskyd/", "Bluesky adapter", true, ""},
+	{"reditd", "reditd", "/dash/reditd/", "Reddit adapter", true, ""},
+	{"linkd", "linkd", "/dash/linkd/", "LinkedIn adapter", true, ""},
 }
 
 // healthTimeout caps each /health probe. The grid probes all daemons

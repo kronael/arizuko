@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -76,7 +77,7 @@ func TestServicesBuiltFlagMatchesMountedRoutes(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
 	mux := newMux(&dash{dbRoutd: db})
-	federated := compose.ReservedRoutePaths()
+	federated := append(compose.ReservedRoutePaths(), manifestRoutePaths(t)...)
 
 	for _, s := range services {
 		_, pattern := mux.Handler(httptest.NewRequest("GET", s.Dash, nil))
@@ -156,4 +157,27 @@ func TestProbeHealthOKAndErr(t *testing.T) {
 	if got := classifyHealth(http.Get(errSrv.URL)); got != statusErr {
 		t.Errorf("503 → %q, want err", got)
 	}
+}
+
+// manifestRoutePaths reads the routes packaged daemons ship in
+// template/services/<name>.yaml. 6/28 names TWO registration paths — core
+// daemons in coreProxydRoutes, packaged ones in a manifest — and a check that
+// knows only the first calls every adapter dashboard a 404.
+func manifestRoutePaths(t *testing.T) []string {
+	t.Helper()
+	files, err := filepath.Glob("../template/services/*.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, f := range files {
+		routes, err := compose.ManifestRoutes(f)
+		if err != nil {
+			t.Fatalf("%s: %v", f, err)
+		}
+		for _, r := range routes {
+			out = append(out, r.Path)
+		}
+	}
+	return out
 }
