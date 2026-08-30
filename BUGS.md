@@ -7,6 +7,71 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L147 — principle: the channel attests, the router resolves, the ACL authorizes — and `web:` JIDs exist only to satisfy a storage column (2026-08-30, principle — records a design fault, no work item)
+
+The operator's formulation, at the end of the session that produced `L139`,
+`L145` and `L146`: *"web should not have JIDs, that's the fault in the design"*,
+*"web should have direct links with an auth attached"*, *"who authorizes and the
+routing are two things separate"*, and finally *"channel created a trusted
+authority, the auth authorizes later"*.
+
+**Three roles, three owners, none deriving another:**
+
+| role | owner | why it must be there |
+| --- | --- | --- |
+| **attest** | the channel adapter | it is the ONLY component holding the platform secret — slakd verifies `X-Slack-Signature` (`slakd/server.go:103-105`), teled its token. Nothing downstream can re-check it. |
+| **resolve** | routd | correspondent → destination, computed per message from the route table, target expansion, modes, autoviv, the `@name`/`#topic` layer and sticky state (`routd/db.go:546`). A resolver, not a map. |
+| **authorize** | the `acl` evaluator | may this authority reach this destination, with these arguments. The only place a grant is read. |
+
+The adapter authenticates and does not authorize. The acl authorizes and cannot
+authenticate. They are separated by a hop, and that separation is the design —
+not an artefact of it.
+
+**The fault this names.** Today routing address and authority are FUSED in the
+JID: it is both where a message goes and, through the token pin, what may be
+reached. That fusion is why `route_tokens` stores a folder three times (inside
+`jid`, again in `target_folder`, again in `owner_folder`), and why `L145` and
+`L146` kept circling one knot.
+
+**`web:` is the clearest instance, and it carries no information at all.**
+`web:<folder>` is 1:1 with the group, bypasses the route table entirely, and
+`store.AddRoute` REJECTS a `chat_jid=web:*` predicate at insert time
+(`ROUTING.md:29-38`). It exists because `messages.chat_jid` is the storage key,
+so every message needs a JID and web got a synthetic one. **The prefix is
+ceremony to satisfy a column.**
+
+**It is the direct cause of a measured bug class — 16 sites in 8 files build or
+parse `"web:"+folder`** (`webd/me.go` ×3, `webd/mcp.go` ×2, `store/messages.go`
+×2, `cmd/arizuko/token.go` ×2, `webd/channel.go`, `webd/api.go`,
+`routd/server.go`, `routd/route_tokens_resource.go`). Three failures traced to it:
+
+- `target_folder` had to be ADDED to the row because `web:t/sfx` cannot be parsed
+  back into a folder;
+- `L139`'s implementation caught `send` deriving `jid := "web:" + g.Folder`, which
+  would have written to and read the WRONG chat for any suffixed or `hook:` token;
+- the SSE `round_done` key bug, which landed twice — keyed on the chat JID where
+  the subscriber keyed on the target folder.
+
+All one shape: a folder encoded into a string and parsed back out
+(`identity_derived_not_read`).
+
+**What follows, if this is ever acted on:** for an owned surface there is no
+correspondent to resolve — only a folder to address — so the URI names the
+destination, the header carries the authority, and `web:` has nothing left to do.
+For a foreign surface the adapter attests, routd resolves, and the acl authorizes,
+each reading its own input.
+
+**No work item.** `L146` is DEFERRED — the JID router stands. This entry exists so
+the fault is named rather than rediscovered, and so a future change to
+`route_tokens`, `messages.chat_jid` or the adapter boundary starts from the
+principle instead of the symptom.
+
+- **Severity:** n/a (recorded principle + a named design fault)
+- **Scope:** routing / auth model / storage key
+- **Affected:** `store/messages.go`, `store/route_tokens.go`, `webd/*`, `ROUTING.md`, `specs/5/W`, `specs/5/34`
+- **Status:** recorded — no work item; `L146` deferred, `L145` open as a proposal
+- **Related:** `L145`, `L146`, `L122`, `identity_derived_not_read`
+
 ## L146 — proposal: the inbound path is one rewrite — a channel payload becomes (destination URI, Authorization header, body); authorize on user + destination, never source (2026-08-30, proposal — needs sign-off)
 
 Designed with the operator across this session. It supersedes `L145`'s framing:
