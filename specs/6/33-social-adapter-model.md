@@ -1,5 +1,5 @@
 ---
-status: draft
+status: shipped
 ---
 
 # Social Adapter Model
@@ -149,17 +149,51 @@ All of that is the observer's job. The adapter stays thin.
 
 ## Migration
 
-Existing social adapters (bskyd, mastd, reditd, twitd, linkd) are already
-thin — they don't have observer logic. This spec documents the intended
-boundary so future development doesn't conflate the two.
+**Measured 2026-08-30, and the claim this section used to make was wrong.** It
+read "existing social adapters are already thin — they don't have observer
+logic". Four of five are. reditd is not.
+
+`reditd.pollOnce` (`reditd/client.go:287`) polls TWO kinds of source:
+
+```go
+rc.pollSource("inbox", "/message/inbox.json", router)      // bot-directed: allowed
+for _, sr := range rc.cfg.Subreddits {
+    rc.pollSource("sr:"+sr, "/r/"+sr+"/new.json", router)  // a FEED: observer work
+}
+```
+
+The inbox poll is exactly what this spec permits — notifications addressed to
+the bot. The subreddit poll is not: `/r/<sr>/new.json` is the whole subreddit's
+new-post feed, in which the bot is not addressed at all. That is "poll hashtags
+or keywords" under another name, and §"No observer polling in adapter" forbids
+it.
+
+bskyd, linkd, mastd and twitd carry no equivalent: a grep for
+hashtag/trending/keyword/search across them returns nothing.
+
+**The exception is RECORDED, not removed.** Deleting reditd's subreddit poll
+would take away a working capability on a deployed adapter with no replacement,
+which is the same mistake `6/30` forbids for dashboard migrations — and the
+observer that should own it is unspecced. So `SUBREDDITS` stays, named here as
+the one adapter that crosses the boundary, and
+`tests/socialboundary` pins the set so a SECOND adapter cannot cross it
+quietly.
+
+**This is what shipping the spec means.** The boundary is decided and enforced;
+one adapter predates it and is documented as the exception. When the observer
+exists, moving reditd's feed poll into it is the migration, and this paragraph
+is its statement of work.
 
 The observer system is unspecced work. Until it exists, agents on social
-platforms operate with notification-only context.
+platforms operate with notification-only context — except on Reddit, where the
+configured subreddits arrive as ordinary inbound messages.
 
 ## Open Questions
 
 1. **Triage skill standard.** Should there be a built-in `social-triage` skill,
-   or is this operator-configured per deployment?
+   or is this operator-configured per deployment? (Open. Today it is
+   operator-configured: nothing ships a triage skill, and a social route
+   defaults to the same always-engage path a chat route takes.)
 
 2. **Observer delivery.** MCP tool (`get_social_context`) vs facts/ files vs
    injected `<observed>` context. Each has tradeoffs.
