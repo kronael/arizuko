@@ -44,6 +44,37 @@ narrows it when one is known; the source only selects the destination.
 So budget knows who you are and authorization does not, and the gap is one call
 frame wide.
 
+**Resolution is only for namespaces arizuko does not own — and this is ALREADY
+enforced.** `ROUTING.md:29-38`: web JIDs bypass the route table entirely
+(`web:<folder>` resolves through `GroupByFolder`), and `store.AddRoute` REJECTS a
+`chat_jid=web:*` predicate at insert time so the mistake fails loudly. The
+surfaces arizuko controls — web chat, `POST /mcp`, `arizuko talk` — state their
+destination and are authorized by grant, which is what `L139` shipped.
+
+So the change is confined to the FOREIGN edge: make platform inbound produce the
+same `(destination, Authorization)` shape the owned surfaces already use.
+Nothing behind that boundary moves.
+
+**The unpaired sender is a foreign-edge policy, not a hole in the model.** Owned
+surfaces already carry an authenticated user (proxyd-stamped or bearer). Platform
+senders mostly do not: krons has **164 distinct senders** shaped
+`telegram:user/1112184352` and `whatsapp:271317395882184@lid`, exactly **one**
+pairing token, and **zero** `acl` principals that are not `folder:` or `role:`.
+Switching `Authorize` to the sender sub with no fallback would deny 163 of 164
+senders and stop the instance. Three options:
+
+1. **Folder floor when unpaired** (recommended default) — nothing breaks; a
+   paired user may be granted more or less than the floor. Buys attribution, not
+   containment, until people pair.
+2. **Seed a principal per sender**, inheriting the folder's role on first sight —
+   real per-person containment and revocation, at the cost of an acl row per
+   stranger who ever posts.
+3. **Require pairing to act** — true user authority, breaks every group chat.
+   Not viable for a chat product.
+
+Recommended: 1 as the default, 2 as an opt-in per folder, so nothing breaks and
+containment is available where it is wanted.
+
 **The one real complication.** `ipc/ipc.go:934` already passes a `callerSub` that
 is the SOCKET peer, not the message sender. Two notions of "who" live in one
 file. They must be reconciled into one principal per turn, not stacked — stacking
