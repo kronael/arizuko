@@ -2,57 +2,65 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
+	"slices"
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/kronael/arizuko/compose"
 )
 
 // service describes one daemon tile on the cockpit services hub. host is the
-// Docker-network name probed at <host>:8080<probe>. Built is true when the
-// /Dash route is deployed; false = control plane in progress. Probe overrides
-// the default /health path (davd has no /health — it answers GET /).
+// Docker-network name probed at <host>:8080<probe>. Probe overrides the default
+// /health path (davd has no /health — it answers GET /).
+//
+// There is deliberately no `Built` field. Whether a tile LINKS is read from the
+// live route table (see shouldLink), because 6/29 makes the route entry the
+// registration: "the daemon list comes from the proxyd /dash/<daemon>/ route
+// entries — no registry, no autodiscovery". The bool that used to sit here was
+// a second record of that fact and it drifted from the tree in five of eight
+// rows, in both directions at once — linking at pages that did not exist while
+// hiding two that did.
 type service struct {
 	Name  string
 	Host  string
 	Dash  string
 	Desc  string
-	Built bool
 	Probe string
 }
 
 // services is the static daemon list the hub probes. No autodiscovery — route
 // entry IS registration (spec 6/28); adding a daemon here is a deliberate edit.
 //
-// Built=true once SOMETHING serves the page: dashd's own mux (the pre-migration
-// pages) or a proxyd route to the owning daemon (6/28's federated shape).
-// TestServicesBuiltFlagMatchesMountedRoutes checks that union in both
-// directions — onbod and timed sat at false while serving working dashboards,
-// so the hub, their only nav path, rendered them as plain text.
+// This list is the set of daemons the hub KNOWS ABOUT and probes. It does not
+// decide which of them are reachable — the route table does.
 var services = []service{
-	{"routd", "routd", "/dash/routd/", "message router, route table, breakers", true, ""},
-	{"runed", "runed", "/dash/runed/", "agent container runs and tokens", true, ""},
-	{"authd", "authd", "/dash/authd/", "signing keys and who is signed in", true, ""},
-	{"proxyd", "proxyd", "/dash/proxyd/", "auth-gated reverse proxy", true, ""},
-	{"onbod", "onbod", "/dash/onbod/", "onboarding queue, gates, invites", true, ""},
-	{"timed", "timed", "/dash/timed/", "scheduled tasks and ticks", true, ""},
-	{"webd", "webd", "/dash/webd/", "web chat widget and routes", true, ""},
-	{"davd", "davd", "/dash/davd/", "WebDAV workspace access", false, "/"},
-	{"ttsd", "ttsd", "/dash/ttsd/", "text-to-speech proxy", true, ""},
+	{"routd", "routd", "/dash/routd/", "message router, route table, breakers", ""},
+	{"runed", "runed", "/dash/runed/", "agent container runs and tokens", ""},
+	{"authd", "authd", "/dash/authd/", "signing keys and who is signed in", ""},
+	{"proxyd", "proxyd", "/dash/proxyd/", "auth-gated reverse proxy", ""},
+	{"onbod", "onbod", "/dash/onbod/", "onboarding queue, gates, invites", ""},
+	{"timed", "timed", "/dash/timed/", "scheduled tasks and ticks", ""},
+	{"webd", "webd", "/dash/webd/", "web chat widget and routes", ""},
+	{"davd", "davd", "/dash/davd/", "WebDAV workspace access", "/"},
+	{"ttsd", "ttsd", "/dash/ttsd/", "text-to-speech proxy", ""},
 	// Channel adapters (spec 6/31, 6/32): each serves the SHARED chanlib
 	// dashboard from the mux it already builds, and each route is gated by the
 	// adapter's own credential, so a tile links exactly when the adapter is
 	// deployed.
-	{"slakd", "slakd", "/dash/slakd/", "Slack adapter", true, ""},
-	{"teled", "teled", "/dash/teled/", "Telegram adapter", true, ""},
-	{"discd", "discd", "/dash/discd/", "Discord adapter", true, ""},
-	{"emaid", "emaid", "/dash/emaid/", "Email adapter", true, ""},
-	{"bskyd", "bskyd", "/dash/bskyd/", "Bluesky adapter", true, ""},
-	{"reditd", "reditd", "/dash/reditd/", "Reddit adapter", true, ""},
-	{"linkd", "linkd", "/dash/linkd/", "LinkedIn adapter", true, ""},
+	{"slakd", "slakd", "/dash/slakd/", "Slack adapter", ""},
+	{"teled", "teled", "/dash/teled/", "Telegram adapter", ""},
+	{"discd", "discd", "/dash/discd/", "Discord adapter", ""},
+	{"emaid", "emaid", "/dash/emaid/", "Email adapter", ""},
+	{"bskyd", "bskyd", "/dash/bskyd/", "Bluesky adapter", ""},
+	{"reditd", "reditd", "/dash/reditd/", "Reddit adapter", ""},
+	{"linkd", "linkd", "/dash/linkd/", "LinkedIn adapter", ""},
 }
 
 // healthTimeout caps each /health probe. The grid probes all daemons
@@ -114,12 +122,55 @@ func classifyHealth(resp *http.Response, err error) string {
 	return statusErr
 }
 
-// shouldLink reports whether a tile links to its control plane: gated on
-// Built alone. An unreachable built daemon is exactly the one an operator
-// wants to click through to diagnose — hiding the link on a bad probe would
-// be backwards. Status is still shown via the dot; it never gates the link.
-func shouldLink(s service) bool {
-	return s.Built
+// shouldLink reports whether a tile links to its control plane.
+//
+// The answer is the route table: a /dash/<daemon>/ route exists only for a
+// daemon that serves one, so a tile links exactly when clicking it arrives
+// somewhere. 6/29: "the daemon list comes from the proxyd /dash/<daemon>/ route
+// entries — no registry, no autodiscovery."
+//
+// The PROBE never gates the link. An unreachable daemon is exactly the one an
+// operator wants to click through to diagnose; hiding the link on a bad probe
+// would be backwards. Status is shown by the dot.
+func shouldLink(routed []string, s service) bool {
+	return slices.Contains(routed, s.Dash)
+}
+
+// routedDashPaths asks proxyd which /dash/ routes it carries.
+//
+// Over proxyd's own /v1, not the DB: that is the read path 6/28 requires of a
+// cross-cutting dashd page, and the live table is the only reader that knows
+// BOTH registration paths 6/28 names — core routes and the per-package
+// manifests every channel adapter ships.
+//
+// On any failure it degrades to the core routes compiled in. That is honest
+// rather than accidental: the core daemons keep their links, adapter tiles read
+// "coming soon" until proxyd answers again, and nothing ever links at a path
+// that does not exist. The alternative — assuming everything is routed — would
+// send an operator to a 404 during precisely the incident when proxyd is the
+// thing that is broken.
+func (d *dash) routedDashPaths(ctx context.Context) []string {
+	if d.proxydURL == "" {
+		return compose.ReservedRoutePaths()
+	}
+	body, status, err := d.bearerCall(ctx, d.proxydURL, http.MethodGet, "/v1/proxyd_routes", nil)
+	if err != nil || status < 200 || status >= 300 {
+		slog.Warn("hub: proxyd routes unreadable; linking core daemons only",
+			"status", status, "err", err)
+		return compose.ReservedRoutePaths()
+	}
+	var routes []struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal(body, &routes); err != nil {
+		slog.Warn("hub: proxyd routes did not decode; linking core daemons only", "err", err)
+		return compose.ReservedRoutePaths()
+	}
+	out := make([]string, 0, len(routes))
+	for _, rt := range routes {
+		out = append(out, rt.Path)
+	}
+	return out
 }
 
 // handleServices renders the cockpit services hub: one tile per known daemon
@@ -131,6 +182,10 @@ func (d *dash) handleServices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pageTopFor(w, r, "Services")
+
+	// One route read per render, shared by every tile: the hub asks proxyd once,
+	// not once per daemon.
+	routed := d.routedDashPaths(r.Context())
 
 	statuses := make([]string, len(services))
 	var wg sync.WaitGroup
@@ -163,13 +218,13 @@ func (d *dash) handleServices(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Fprint(w, `<div class="services-grid">`)
 	for i, s := range services {
-		var nameHTML string
-		if shouldLink(s) {
+		// One question, one answer: a routed dashboard is a link, an unrouted
+		// one says so. Rendering the link and the label from two different
+		// facts is how tiles came to link at pages that were not there.
+		nameHTML := esc(s.Name)
+		if shouldLink(routed, s) {
 			nameHTML = fmt.Sprintf(`<a href="%s">%s</a>`, esc(s.Dash), esc(s.Name))
 		} else {
-			nameHTML = esc(s.Name)
-		}
-		if !s.Built {
 			nameHTML += ` <span class="dim">(coming soon)</span>`
 		}
 		fmt.Fprintf(w,

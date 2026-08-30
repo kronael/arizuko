@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -14,7 +15,7 @@ import (
 
 // TestServicesOperator: an operator GET /dash/services/ renders one tile per
 // known daemon. In-test, daemon hostnames fail DNS resolution → unknown status
-// for every tile. Built tiles still link to their control plane despite the
+// for every tile. A routed tile still links to its control plane despite the
 // unknown status — an unreachable built daemon is exactly the one an operator
 // wants to click through to diagnose. Unbuilt tiles always render the name as
 // plain text, regardless of status.
@@ -39,12 +40,16 @@ func TestServicesOperator(t *testing.T) {
 		if !strings.Contains(body, s.Name) {
 			t.Errorf("missing tile for %s", s.Name)
 		}
+		// A routed dashboard links even when the probe says unknown: an
+		// unreachable daemon is exactly the one an operator wants to click
+		// through to diagnose. The test server has no proxydURL, so the routed
+		// set is the fallback — the core routes — which is that fallback's
+		// contract, asserted here rather than assumed.
 		link := fmt.Sprintf(`<a href="%s">%s</a>`, s.Dash, s.Name)
-		if s.Built && !strings.Contains(body, link) {
-			t.Errorf("built daemon %s: expected link %q despite unknown status", s.Name, link)
-		}
-		if !s.Built && strings.Contains(body, link) {
-			t.Errorf("unbuilt daemon %s: unexpected link %q", s.Name, link)
+		if routed := shouldLink(compose.ReservedRoutePaths(), s); routed && !strings.Contains(body, link) {
+			t.Errorf("routed daemon %s: expected link %q despite unknown status", s.Name, link)
+		} else if !routed && strings.Contains(body, link) {
+			t.Errorf("unrouted daemon %s: rendered link %q at a path proxyd does not carry", s.Name, link)
 		}
 	}
 	// Unreachable via DNS → unknown (not err; err = deployed but down).
@@ -53,44 +58,48 @@ func TestServicesOperator(t *testing.T) {
 	}
 }
 
-// Built and the mounted route must agree in BOTH directions. The flag is hand
-// maintained and the route is registered somewhere else entirely, so nothing
-// but this test connects them:
+// The hub's link source must cover BOTH registration paths 6/28 names, or it
+// calls a whole class of dashboard a 404.
 //
-//   - Built without a route is a tile whose link 404s.
-//   - A route without Built is a shipped page no operator can reach. That is
-//     the direction with no other guard at all — /dash/authd/ shipped with its
-//     tile still reading Built:false, and flipping it back was caught by
-//     nothing until this test existed. The hub is the ONLY nav path to a
-//     per-daemon cockpit (they are deliberately not in navLinks), so an
-//     unflipped tile hides the page completely.
-//
-// Pattern matching is by prefix because dashd registers `GET /dash/` as the
-// portal: an unmounted /dash/<daemon>/ still resolves, to that catch-all, so
-// "did it resolve" is not the question — "did it resolve to ITS OWN route" is.
-//
-// There are now TWO ways a dashboard is served, because 6/28 federates them:
-// dashd's own mux (the pre-migration pages) or a proxyd route to the owning
-// daemon (routd, onbod, timed). Built must track the union — asking only about
-// dashd's mux would call routd's federated page a 404.
-func TestServicesBuiltFlagMatchesMountedRoutes(t *testing.T) {
-	db := routdDB(t)
-	defer db.Close()
-	mux := newMux(&dash{dbRoutd: db})
-	federated := append(compose.ReservedRoutePaths(), manifestRoutePaths(t)...)
+// This replaced TestServicesBuiltFlagMatchesMountedRoutes, which existed to
+// catch drift between a hand-kept `Built` bool and the tree — it had drifted in
+// five of eight rows, in both directions. The bool is gone: shouldLink reads
+// the route table, so the property that test defended now holds by
+// construction. What still needs asserting is that the SOURCE is complete.
+func TestLinkSourceCoversBothRegistrationPaths(t *testing.T) {
+	core := compose.ReservedRoutePaths()
+	manifests := manifestRoutePaths(t)
 
-	for _, s := range services {
-		_, pattern := mux.Handler(httptest.NewRequest("GET", s.Dash, nil))
-		served := strings.Contains(pattern, s.Dash) || slices.Contains(federated, s.Dash)
-		if s.Built && !served {
-			t.Errorf("%s is Built but nothing serves %s — dashd resolves it to %q and "+
-				"proxyd carries no route for it, so the hub links to a 404",
-				s.Name, s.Dash, pattern)
+	// Core daemons register in coreProxydRoutes.
+	for _, want := range []string{"/dash/routd/", "/dash/runed/", "/dash/authd/", "/dash/proxyd/"} {
+		if !slices.Contains(core, want) {
+			t.Errorf("%s is not a core route; its tile would never link", want)
 		}
-		if !s.Built && served {
-			t.Errorf("%s serves %s but its tile is Built:false — the page ships and "+
-				"the services hub, its only nav path, renders the name as plain text",
-				s.Name, s.Dash)
+	}
+	// Packaged daemons register in template/services/<name>.yaml. The live
+	// table proxyd serves carries both, which is why routedDashPaths asks
+	// proxyd rather than reading either list alone.
+	for _, want := range []string{"/dash/slakd/", "/dash/teled/"} {
+		if slices.Contains(core, want) {
+			t.Errorf("%s is a core route; adapters register by manifest", want)
+		}
+		if !slices.Contains(manifests, want) {
+			t.Errorf("%s is in no service manifest; its tile would never link", want)
+		}
+	}
+}
+
+// The fallback is what an operator sees while proxyd is the broken thing, so it
+// must never link at a path that might not exist.
+func TestFallbackLinksOnlyCoreRoutes(t *testing.T) {
+	d := &dash{} // no proxydURL — the fallback path
+	got := d.routedDashPaths(context.Background())
+	if !slices.Equal(got, compose.ReservedRoutePaths()) {
+		t.Errorf("fallback returned %v, want exactly the core routes", got)
+	}
+	for _, s := range services {
+		if shouldLink(got, s) && !slices.Contains(compose.ReservedRoutePaths(), s.Dash) {
+			t.Errorf("fallback linked %s at a path it cannot vouch for", s.Name)
 		}
 	}
 }
@@ -104,12 +113,13 @@ func TestShouldLink(t *testing.T) {
 		s    service
 		want bool
 	}{
-		{"built", service{Name: "routd", Built: true}, true},
-		{"unbuilt", service{Name: "onbod", Built: false}, false},
+		{"a routed dashboard", service{Name: "routd", Dash: "/dash/routd/"}, true},
+		{"a path nobody registered", service{Name: "x", Dash: "/dash/nope/"}, false},
 	}
+	routed := compose.ReservedRoutePaths()
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := shouldLink(c.s); got != c.want {
+			if got := shouldLink(routed, c.s); got != c.want {
 				t.Errorf("shouldLink(%+v) = %v, want %v", c.s, got, c.want)
 			}
 		})
