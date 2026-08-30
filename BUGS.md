@@ -7,6 +7,83 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L146 — proposal: the inbound path is one rewrite — a channel payload becomes (destination URI, Authorization header, body); authorize on user + destination, never source (2026-08-30, proposal — needs sign-off)
+
+Designed with the operator across this session. It supersedes `L145`'s framing:
+that entry asked whether a LINK can select its destination; this asks the same
+question of every inbound message, and answers it the same way.
+
+**The shape.** A channel adapter receives a platform webhook or socket frame and
+does exactly one thing: rewrite it into arizuko's internal call — a destination
+URI, an `Authorization` header, and the body. Everything behind that boundary is
+uniform, and the adapter holds no authority of its own.
+
+    platform payload → routd resolves → (destination URI, Authorization, body)
+
+**Authorization is user + destination. The source is not a principal.** A JID is
+an address, unauthenticated by construction — anyone in a group chat can post —
+so authorizing on it would give every group member the group's authority by
+accident. The destination folder says what authority applies; the paired user
+narrows it when one is known; the source only selects the destination.
+
+**Three measurements say the user half is computed and then thrown away:**
+
+1. `turnCallerSub(last.Sender)` (`routd/dispatch.go:684`) already turns a message
+   sender into a caller sub — mapping `timed`/`system` triggers to
+   `service:routd` and passing a real sender through. It is used for the BUDGET
+   gate (`dispatch.go:261`) and nothing else.
+2. Every authorization call hardcodes the destination as the principal:
+   `db.Authorize("folder:"+folder, folder, …)` at `ipc/ipc.go:1092,1118`, and
+   `routd/sibling_db.go:271` documents `sub` as "the canonical agent principal
+   (folder:<folder>)". Destination twice, user never.
+3. The mechanism intended to close this is GONE: `AssumeRole` and `mcp_tokens`
+   return zero hits in the tree. They were recorded as an unwired shell earlier
+   in this project's history and have since been deleted, so no per-user
+   narrowing exists anywhere on the turn path.
+
+So budget knows who you are and authorization does not, and the gap is one call
+frame wide.
+
+**The one real complication.** `ipc/ipc.go:934` already passes a `callerSub` that
+is the SOCKET peer, not the message sender. Two notions of "who" live in one
+file. They must be reconciled into one principal per turn, not stacked — stacking
+is how a confused deputy gets built.
+
+**What must NOT collapse into URI routing** (settled earlier in the same
+discussion, recorded here so it is not retried):
+
+- **The correspondent mapping.** `tg:12345` is an external identity arizuko does
+  not own and cannot place in its tree. `ROUTING.md`'s route table, target
+  expansion, modes, autoviv, the inline `@name`/`#topic` layer and per-chat
+  sticky state (`routd/db.go:546`) mean a destination is COMPUTED per message,
+  not looked up. routd is a resolver, not a map.
+- **Transport vs authority.** `proxyd_routes` answers "which process"; `acl`
+  answers "may you". Same path shape, different question. Merging them makes a
+  URL prefix into a permission.
+- **Verb rules with arguments.** No path expresses
+  `hold:mcp:github_create_pull_request(repo=x/*)`.
+
+**What collapses cleanly:** folder paths, `acl` scope globs and request URIs are
+one hierarchy in three notations. That is the same repetition the `route_tokens`
+row shows by storing a folder three times (inside `jid`, again in
+`target_folder`, again in `owner_folder`).
+
+**What it buys:** adapters become untrusted — they present a correspondent and
+hold no authority; the credential is minted per turn for the destination the
+route just computed, which is the audit row for free; and one internal calling
+convention replaces per-surface plumbing.
+
+**What it costs:** a per-turn minting path that does not exist today, reconciling
+the two `callerSub` notions, and a decision about what authority a turn carries
+when the sender is NOT paired to a user — the common case on every chat platform.
+That last one is the crux and this entry does not answer it.
+
+- **Severity:** n/a (design proposal)
+- **Scope:** routd dispatch / ipc authz / channel adapters
+- **Affected:** `routd/dispatch.go`, `ipc/ipc.go`, `routd/sibling_db.go`, all adapters, `specs/5/34`, `specs/6/26`
+- **Status:** proposal (needs sign-off) — nothing changed
+- **Related:** `L145` (the link half), `channel_recast` (the 2026-08-01 direction this completes)
+
 ## L145 — proposal: let a link's URI SELECT the destination within what its token AUTHORIZES, so folder routing is HTTP path routing (2026-08-30, proposal — needs sign-off)
 
 The operator's framing: *"the links should be able to do this, and in fact the
