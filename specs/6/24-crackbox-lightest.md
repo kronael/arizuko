@@ -190,9 +190,23 @@ crackbox/          the local-development command
 Deleted outright, because only the shared model needed them:
 `pkg/admin` (572), `pkg/client` (175), `pkg/proxy/peek.go` (279),
 `pkg/proxy/transparent.go` + `origdst_*.go` (195). `pkg/dns` (753) goes
-with them — a DNS NXDOMAIN filter is a second enforcement point for a
-single-tenant proxy that already sees every destination in the CONNECT
-line, and a rule expressed twice is a rule that can disagree with itself.
+with them — **because it was never wired, not because the proxy covers
+it.** Measured at `45f3e2b1` (the commit before the cut): `pkg/dns` was
+reachable only from the crackbox binary's own `CRACKBOX_DNS_ADDR` /
+`CRACKBOX_DNS_UPSTREAM` flags, no daemon imported it and no
+`template/services/` fragment started it. Deleting it removed an
+unrealized option, not a live control.
+
+> **It is NOT the same rule expressed twice.** An earlier revision of this
+> spec justified the deletion that way; that justification is withdrawn. A
+> DNS query never appears in a CONNECT line, so the proxy cannot see it,
+> and the `--internal` network does not stop it: a container on one still
+> resolves external names through docker's embedded resolver
+> (`127.0.0.11`), which forwards from the HOST namespace. Measured
+> 2026-08-30 — `getent hosts example.com` on an `--internal` network with
+> no proxy env returned real addresses, exit 0, while `curl` to the same
+> host timed out. TCP is sealed; UDP/53 is not. The residual channel
+> predates this cut and is tracked as BUGS `L136`.
 
 `runed` changes from "register the spawn's IP against a shared proxy" to
 "start the spawn's proxy with its allowlist, set `HTTP_PROXY`". The
@@ -305,9 +319,25 @@ across ten-plus channels, self-hosted on the operator's own data. The
 parts are not the product. That is the reason to make the parts small and
 boring rather than to market them.
 
+## Open question — does `sandbox/` stay? (2026-08-30, needs sign-off)
+
+This cut made the three parts separable; it did not decide whether they
+separate. The import graph now says they can, exactly and measurably:
+`sandbox/` and `crackbox/` have **zero** inbound edges from anything
+arizuko-internal, and `sandbox/`'s only tie to this repo is one outbound
+edge to `egress/match`. `egress/` is what production consumes — `container`
+imports `egress`, `routd` and `store` import `egress/match`. So arizuko
+runs `egress/`; nothing arizuko runs `sandbox/` or `crackbox/`.
+
+The options and what each costs are recorded as BUGS `L137`. The decision
+is the operator's; this spec does not pre-empt it, and nothing here is
+blocked while it is open.
+
 ## Ties
 
 `6/8`+`6/10` (the design this cut, deleted 2026-08-24) · `6/9` (`pkg/host`,
 the other half)
 · `6/16` (ship one, not seven) · MITM declined (this depends on
-it) · BUGS `L48` (the proposal and its measurements).
+it) · BUGS `L48` (the proposal and its measurements) · BUGS `L136` (the DNS
+channel this cut did not open and does not close) · BUGS `L137` (the
+`sandbox/` packaging question above).

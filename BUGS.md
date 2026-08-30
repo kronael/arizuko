@@ -7609,3 +7609,170 @@ must not make. Do not read this entry as "GitHub is impossible" — read it as
 "the connector, and the per-call broker discipline that comes with it, is still
 missing." The shell tier hands the agent a spendable token; the connector would
 not, which is the whole reason to keep this open.
+
+## L135 — `6/16` says the shared registry and the DNS filter are "both LIVE and enforcing"; `6/24` deleted both three days later (2026-08-30, open)
+
+`specs/6/16-daemon-standalone-matrix.md:178-180` is the paragraph that clears
+crackbox's ship gate, and its parenthesis names three mechanisms that do not
+exist at `b0b299f9`:
+
+> a forward proxy with per-source allowlists and a DNS filter (both LIVE and
+> enforcing — `container/egress.go` registers every spawn's IP with its admin
+> API) plus the unwired KVM library above.
+
+- **"per-source allowlists"** — the `(source_ip, id, allowlist)` registry was
+  `crackbox/pkg/admin` (572 lines), deleted in `79ce6690` (2026-08-18).
+- **"a DNS filter … LIVE and enforcing"** — `crackbox/pkg/dns` (753 lines),
+  deleted in the same commit, and it was never enforcing anything: at
+  `45f3e2b1` it was reachable only from the crackbox binary's own
+  `CRACKBOX_DNS_ADDR`/`CRACKBOX_DNS_UPSTREAM` flags. No daemon imported it, no
+  `template/services/` fragment started it.
+- **"`container/egress.go` registers every spawn's IP with its admin API"** —
+  the current `container/egress.go:129` `startEgressProxy` starts a private
+  proxy container per spawn with `--client <spawnIP>` and `--allow <list>`,
+  and `defer eg.Stop()` (`container/runner.go:204`) tears it down. There is no
+  register call, no admin API and no secret; `crackbox/pkg/client` went with
+  the registry.
+
+Two more sites in the same file describe the pre-cut shape: the component
+table at `:131` (`crackbox | Default-deny egress per source id + KVM sandbox |
+CLI + HTTP | Ships now`) and the package table at `:160` (`crackbox | 0 |
+ships now | egress proxy + KVM sandbox`). `6/24` reversed exactly that:
+`crackbox/` is now a LOCAL DEV command and the shipping pieces are `egress/`
+and `sandbox/`. `:171` still points at `crackbox's pkg/host`, a path deleted
+with the rest.
+
+This is the same class as `L125` and arguably worse: `L125` is a spec
+describing a deleted mechanism, this one asserts a deleted mechanism is
+**currently enforcing a security property**. `6/16` carries `status: draft`,
+which mitigates it — a draft is not a promise — but it is also the file the
+index points at for "what ships", and the sentence is written as a measurement
+("both LIVE and enforcing"), not a plan.
+
+- **Severity:** medium
+- **Scope:** specs / security documentation
+- **Affected:** `specs/6/16-daemon-standalone-matrix.md`
+- **Source:** `specs/6/16-daemon-standalone-matrix.md:131,160,171,178-180`;
+  `container/egress.go:129`; `container/runner.go:204`; deletion commit
+  `79ce6690` (2026-08-18)
+- **Status:** open
+- **Fix:**
+
+## L136 — the `--internal` network does not seal UDP/53, and the two docs that explain the DNS filter's absence give a reason that does not cover DNS (2026-08-30, open)
+
+`SECURITY.md:103` states the egress guarantee as "Default-deny; the spawn's
+network has no route out", and `:~300` as "Non-cooperating clients fail
+closed: the internal Docker network". **Measured 2026-08-30, both are true of
+TCP and false of DNS.** On this docker host, a container on a
+`docker network create --internal` network with no proxy environment:
+
+```
+$ getent hosts example.com        → 2606:4700:10::ac42:93f3, exit 0
+$ curl -m 8 http://example.com    → http_code=000, exit 28 (timeout)
+```
+
+`/etc/resolv.conf` in that container is `nameserver 127.0.0.11` — docker's
+embedded resolver, which forwards upstream from the HOST namespace, so it is
+not subject to the container's missing default route. TCP is sealed by
+topology exactly as documented; UDP/53 is not. An agent can therefore emit
+arbitrary query names to a resolver it does not control, regardless of the
+folder's `network_rules` allowlist — the classic low-bandwidth DNS side
+channel, and precisely what a NXDOMAIN filter on UDP/53 filters.
+
+**This is not a regression from `6/24`.** `pkg/dns` was never wired into any
+daemon or compose fragment (see `L135`), so the channel was open before the
+cut on exactly the same terms. What `6/24` changed is the explanation. Two
+live docs now justify having no DNS filter with a claim that does not reach
+DNS:
+
+- `SECURITY.md:345-349` — "a single-tenant proxy already sees every
+  destination in the CONNECT line — a rule expressed twice is a rule that can
+  disagree with itself."
+- `specs/6/24-crackbox-lightest.md` said the same until it was corrected in
+  this pass.
+
+A DNS query never appears in a CONNECT line, so the proxy cannot see it and
+the two rules cannot disagree — they do not overlap. The reasoning would
+license removing a control the proxy does not in fact subsume.
+
+Scoping it honestly: this does **not** breach the boundary `SECURITY.md:49`
+names ("a malicious agent in group A trying to reach group B's data, files, or
+network") — folder isolation is per-network and holds. It defeats the weaker,
+separately stated property at `:332`, "the egress allowlist restricts _where_
+the agent can reach", for anything an attacker can encode in a hostname.
+
+- **Severity:** medium
+- **Scope:** egress / threat model
+- **Affected:** `SECURITY.md`, all instances with `EGRESS_IMAGE` set (krons,
+  sloth, marinade)
+- **Source:** `SECURITY.md:103,300,332,345-349`; `container/network.go:159`
+  (`--internal`); measured docker probe 2026-08-30 (network created and removed)
+- **Status:** open — needs a decision, not just a doc edit: either correct the
+  docs to scope the guarantee to TCP and accept the channel, or restore a
+  UDP/53 filter and wire it (it never was)
+- **Fix:**
+
+## L137 — proposal: `sandbox/` is 1342 lines nothing in arizuko runs; the import graph says it can leave cleanly, and the cost of leaving is one 144-line package (2026-08-30, proposal — needs sign-off)
+
+The operator's framing: *"i guess eventually crackbox changed to qemubox for
+users and here it's useless then."* This entry records the measured basis for
+that decision and does not take it.
+
+**Measured at `b0b299f9`** (`go list -deps` over the whole module, plus
+`go list -f '{{.ImportPath}} {{.Deps}}' ./...` for the inbound direction):
+
+| dir         | non-test lines | inbound edges from arizuko                              | outbound edges into arizuko |
+| ----------- | -------------- | ------------------------------------------------------- | --------------------------- |
+| `egress/`   | 682            | `container` → `egress`; `routd`, `store` → `egress/match` | **none**                    |
+| `sandbox/`  | 1342           | **none**                                                 | `egress/match` only         |
+| `crackbox/` | 414            | **none**                                                 | `egress`, `sandbox`         |
+
+`sandbox/`'s only consumer anywhere in the tree is
+`crackbox/pkg/run/run.go:175,180` (`sandbox.New` / `h.Spawn`) — the local dev
+command. `runed` and `container/` contain zero KVM/qemu references; runed
+spawns Docker (`runed/docker.go:46` `NewDockerRuntime`). So `6/9`'s
+"shipped but unwired" is confirmed, and 1342 lines of KVM library are carried
+by every clone, build, vet and test run of arizuko without a production
+caller.
+
+The severance cost is therefore **exactly one package**: `egress/match` (144
+lines of glob matching), which `sandbox/` imports and which `routd` and
+`store` also import. Nothing else crosses. `tests/components/imports_test.go`
+already machine-checks the outbound half of this boundary (it passes), so the
+graph above is an enforced invariant, not a snapshot.
+
+Options, and what each costs:
+
+- **A — keep as is.** Cost: 1756 lines (`sandbox` + `crackbox`) with no
+  production caller stay in the module; `6/16`'s ship narrative keeps pointing
+  at `crackbox` as the thing that ships (see `L135`). Gain: zero work, and
+  `crackbox run --kvm` stays available to arizuko developers.
+- **B — `sandbox/` + `crackbox/` leave as "qemubox"; `egress/` stays.** This
+  is the operator's reading. Cost: `egress/match` must become a dependency the
+  new repo can consume (extract it, vendor it, or copy 144 lines); arizuko devs
+  lose `crackbox run` unless they clone the second repo. Gain: arizuko sheds
+  1756 lines it never executes, and the remaining boundary is honest — arizuko
+  keeps the part it runs.
+- **C — wire `sandbox/` into runed as a second backend (`6/9`'s original
+  intent).** Cost: real engineering, not packaging — `container/` carries 11
+  internal deps and is Docker-shaped, and `6/20` already declined the warm-pool
+  lifecycle that neighbours this. Gain: the KVM isolation becomes a product
+  property instead of a library.
+- **D — delete `sandbox/`.** Cost: discards shipped, tested work and kills
+  `6/9`'s decision record. Not recommended; `B` preserves the option `D`
+  destroys.
+
+`A` and `B` are both defensible and `C` is a separate project. The reason to
+decide rather than drift: while it is undecided, `6/16` keeps advertising a
+ship gate for a component whose shape `6/24` already changed, and `6/9` stays
+`defected` describing a library with no home.
+
+- **Severity:** low (no runtime defect; this is packaging and narrative)
+- **Scope:** module layout / component boundary
+- **Affected:** `sandbox/`, `crackbox/`, `egress/`, `specs/6/9`, `specs/6/16`,
+  `specs/6/24`
+- **Source:** import graph measured 2026-08-30 (commands above);
+  `crackbox/pkg/run/run.go:175,180`; `runed/docker.go:46`;
+  `tests/components/imports_test.go`
+- **Status:** proposal (needs sign-off) — no split performed, nothing deleted
+- **Fix:**
