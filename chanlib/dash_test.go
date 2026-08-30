@@ -104,3 +104,53 @@ func TestLocalDevFallsOpen(t *testing.T) {
 		t.Errorf("local dev got %d, want 200", w.Code)
 	}
 }
+
+// sectionBot is a bot that contributes a delta section.
+type sectionBot struct {
+	fakeBot
+	secs []DashSection
+}
+
+func (s *sectionBot) DashSections() []DashSection { return s.secs }
+
+// An adapter with state the shared page cannot show contributes a SECTION, not
+// a second page (6/32). The interface is optional, so an adapter that has no
+// delta needs no code — that is the common case.
+func TestDeltaSectionsAreOptionalAndRendered(t *testing.T) {
+	t.Setenv("AUTHD_URL", "")
+
+	plain := handleAdapterDash("slakd", nil, &fakeBot{},
+		func() bool { return true }, func() int64 { return 0 })
+	if body := dashReq(plain, "").Body.String(); strings.Contains(body, "<h2>Poll sources") {
+		t.Error("an adapter with no DashSections rendered one")
+	}
+
+	with := handleAdapterDash("reditd", nil, &sectionBot{
+		secs: []DashSection{{Title: "Poll sources and cursors", Rows: [][2]string{
+			{"inbox", "t4_abc"}, {"sr:golang", "(never read)"},
+		}}},
+	}, func() bool { return true }, func() int64 { return 0 })
+	body := dashReq(with, "").Body.String()
+	for _, want := range []string{"Poll sources and cursors", "sr:golang", "(never read)", "t4_abc"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the delta section omits %q", want)
+		}
+	}
+}
+
+// An empty section still renders its title: "watching nothing" is an answer,
+// and omitting the panel looks identical to the adapter not having the feature.
+func TestEmptySectionStillSaysSo(t *testing.T) {
+	got := renderSection(DashSection{Title: "Poll sources"})
+	if !strings.Contains(got, "Poll sources") || !strings.Contains(got, "Nothing to show") {
+		t.Errorf("empty section = %q, want the title and a clean-state line", got)
+	}
+}
+
+// Section values are adapter state — a subreddit name is operator-supplied.
+func TestSectionValuesAreEscaped(t *testing.T) {
+	got := renderSection(DashSection{Title: "x", Rows: [][2]string{{"<b>k</b>", "<script>v</script>"}}})
+	if strings.Contains(got, "<script>") || strings.Contains(got, "<b>k</b>") {
+		t.Error("a section row rendered as live markup")
+	}
+}

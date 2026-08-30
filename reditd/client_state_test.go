@@ -222,3 +222,32 @@ func TestCreateCallsAreNotReplayedOnA5xx(t *testing.T) {
 		srv.Close()
 	}
 }
+
+// reditd's delta section (6/32) must list every CONFIGURED source, not only the
+// ones that have read something. A subreddit absent from the cursor map is
+// exactly what an operator is hunting — it has never polled — and letting it
+// vanish makes the panel say the opposite of the truth.
+func TestDashSectionsListEveryConfiguredSource(t *testing.T) {
+	rc := &redditClient{
+		cfg:     config{Subreddits: []string{"golang", "rust"}},
+		cursors: map[string]string{"inbox": "t4_abc", "sr:golang": "t3_xyz"},
+	}
+	secs := rc.DashSections()
+	if len(secs) != 1 {
+		t.Fatalf("sections = %d, want 1", len(secs))
+	}
+	got := map[string]string{}
+	for _, row := range secs[0].Rows {
+		got[row[0]] = row[1]
+	}
+	if got["inbox"] != "t4_abc" {
+		t.Errorf("inbox cursor = %q", got["inbox"])
+	}
+	if got["sr:golang"] != "t3_xyz" {
+		t.Errorf("sr:golang cursor = %q", got["sr:golang"])
+	}
+	// The configured-but-never-read one is the point of the test.
+	if got["sr:rust"] != "(never read)" {
+		t.Errorf("sr:rust = %q, want it listed as never read", got["sr:rust"])
+	}
+}

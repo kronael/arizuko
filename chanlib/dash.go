@@ -36,8 +36,30 @@ import (
 // nothing stamping and nothing to enforce.
 func dashEnforced() bool { return os.Getenv("AUTHD_URL") != "" }
 
+// DashSection is one per-adapter delta panel (spec 6/32). The shared page
+// renders overview, health and capabilities; an adapter that has state the
+// others do not — reditd's per-source cursors, whapd's pairing, emaid's folder
+// — contributes a section rather than a second page.
+//
+// Rows are [][2]string, label then value, because a delta is nearly always a
+// small key/value table and giving adapters HTML would let ten pages drift into
+// ten layouts. An adapter that genuinely needs more should extend this type, so
+// the change is visible in the contract.
+type DashSection struct {
+	Title string
+	Rows  [][2]string
+}
+
+// DashSectioner is the OPTIONAL interface an adapter implements to add delta
+// sections. Optional by the same pattern as HistoryProvider: an adapter that
+// does not implement it gets the shared page and nothing else, which is the
+// common case and needs no code.
+type DashSectioner interface {
+	DashSections() []DashSection
+}
+
 // handleAdapterDash renders the single adapter page 6/31 specifies: overview,
-// connection, stream health, capabilities.
+// connection, stream health, capabilities, then any per-adapter deltas.
 func handleAdapterDash(name string, prefixes []string, bot BotHandler,
 	isConnected func() bool, lastInboundAt func() int64) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -54,6 +76,11 @@ func handleAdapterDash(name string, prefixes []string, bot BotHandler,
 		fmt.Fprintf(&b, `<h1>%s</h1>`, html.EscapeString(name))
 		b.WriteString(adapterOverview(name, prefixes, connected, last))
 		b.WriteString(capStrip(bot))
+		if ds, ok := bot.(DashSectioner); ok {
+			for _, sec := range ds.DashSections() {
+				b.WriteString(renderSection(sec))
+			}
+		}
 		fmt.Fprint(w, theme.Page(name, template.HTML(b.String())))
 	}
 }
@@ -132,5 +159,24 @@ func capStrip(bot BotHandler) string {
 		fmt.Fprintf(&b, `<span class="%s">%s</span> `, cls, html.EscapeString(cap))
 	}
 	b.WriteString(`</p>`)
+	return b.String()
+}
+
+// renderSection renders one delta panel. An empty section still renders its
+// title with a clean-state line: "reditd is watching no subreddits" is an
+// answer an operator needs, and omitting the panel would look identical to the
+// adapter not having the feature.
+func renderSection(sec DashSection) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, `<h2>%s</h2>`, html.EscapeString(sec.Title))
+	if len(sec.Rows) == 0 {
+		return b.String() + `<p class="dim">Nothing to show.</p>`
+	}
+	b.WriteString(`<table><tbody>`)
+	for _, row := range sec.Rows {
+		fmt.Fprintf(&b, `<tr><td>%s</td><td><code>%s</code></td></tr>`,
+			html.EscapeString(row[0]), html.EscapeString(row[1]))
+	}
+	b.WriteString(`</tbody></table>`)
 	return b.String()
 }

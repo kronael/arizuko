@@ -131,12 +131,30 @@ copied by the image build, never hand-edited downstream.
 
 ## Build state (2026-08-30)
 
-The shared half is shipped: all seven Go adapters serve `/dash/<adapter>/` from
-`chanlib/dash.go` via `NewAdapterMux` (`6/31`). What this spec adds — the
-per-adapter DELTA sections (whapd's pairing pane, reditd's cursor table,
-emaid's folder state, bskyd's session detail) — is unbuilt, and so are the two
-TypeScript adapters, which have no chanlib to mount.
+All ten adapters serve `/dash/<adapter>/`: the seven Go ones from
+`chanlib/dash.go` via `NewAdapterMux`, whapd and twitd from their own
+`src/dash.ts` (`6/31`).
 
-The deltas are additive by construction: an adapter contributes extra sections
-to the shared page rather than replacing it, so none of this work can regress
-what `6/31` shipped.
+**The delta mechanism is shipped.** `chanlib.DashSectioner` is an OPTIONAL
+interface — the same pattern as `HistoryProvider` — so an adapter with nothing
+extra needs no code, which is the common case. A section is `[][2]string` label
+/value rows rather than HTML, deliberately: handing ten adapters raw markup is
+how one grammar becomes ten layouts.
+
+**reditd's delta is built**, and it is the one that mattered most. Two facts are
+invisible on the shared page and an operator needs both:
+
+- **Which sources it polls.** reditd is the single adapter that reads a feed the
+  bot is not addressed in — the configured subreddits, recorded as `6/33`'s one
+  boundary exception. An operator who cannot see that list cannot audit it.
+- **How far each source has read.** A cursor frozen across restarts is what a
+  silently-broken poll looks like, and the shared "last inbound" tile cannot
+  show it: one live source keeps the whole adapter looking fresh.
+
+A configured subreddit that has never read anything is listed as `(never read)`
+rather than omitted — the absent row is exactly the one being hunted.
+
+**Still unbuilt:** whapd's pairing pane, emaid's folder state and bskyd's
+session detail. Each is now an interface implementation on a shipped mechanism,
+not new design, and none can regress the shared page because sections are
+purely additive.

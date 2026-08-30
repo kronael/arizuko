@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -675,4 +676,44 @@ func extFromRedditMime(m string) string {
 		return ".webp"
 	}
 	return ".jpg"
+}
+
+// DashSections is reditd's per-adapter delta on the shared adapter dashboard
+// (spec 6/32). Two things about reditd are invisible on the shared page and
+// matter to an operator:
+//
+//   - WHICH sources it polls. reditd is the one adapter that reads a feed the
+//     bot is not addressed in — the configured subreddits — which BUGS/spec
+//     6/33 records as the single boundary exception. An operator who cannot see
+//     that list cannot audit it.
+//   - HOW FAR each source has read. A cursor stuck at the same fullname across
+//     restarts is how a silently-broken poll looks; the shared "last inbound"
+//     tile cannot show it, because one live source keeps the whole adapter
+//     looking fresh.
+func (rc *redditClient) DashSections() []chanlib.DashSection {
+	rc.mu.Lock()
+	keys := make([]string, 0, len(rc.cursors))
+	for k := range rc.cursors {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	rows := make([][2]string, 0, len(keys)+1)
+	for _, k := range keys {
+		rows = append(rows, [2]string{k, rc.cursors[k]})
+	}
+	rc.mu.Unlock()
+
+	// A configured source that has never set a cursor is absent from the map,
+	// so list it explicitly as unread rather than letting it vanish — a
+	// subreddit that never polled is exactly what an operator is looking for.
+	seen := map[string]bool{}
+	for _, k := range keys {
+		seen[k] = true
+	}
+	for _, sr := range rc.cfg.Subreddits {
+		if !seen["sr:"+sr] {
+			rows = append(rows, [2]string{"sr:" + sr, "(never read)"})
+		}
+	}
+	return []chanlib.DashSection{{Title: "Poll sources and cursors", Rows: rows}}
 }
