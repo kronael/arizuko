@@ -33,34 +33,28 @@ func (d *dash) handleRoutes(w http.ResponseWriter, r *http.Request) {
 	pageTopFor(w, r, "Routes")
 	fmt.Fprint(w, `<p class="dim">Routing rules. Each inbound message walks the table in <code>seq</code> order; the first <code>match</code> hit pins the <code>target</code> group.</p>`)
 
-	if d.adminDB() == nil {
-		fmt.Fprint(w, htmlBanner("err", "routes store unavailable"))
-		pageClose(w, r)
-		return
-	}
-
-	rows, err := d.adminDB().Query(
-		`SELECT id, seq, match, target,
-		        COALESCE(observe_window_messages, 0),
-		        COALESCE(observe_window_chars, 0)
-		 FROM routes ORDER BY seq, id LIMIT 1000`)
+	// READ through routd's /v1 (spec 6/28 §"Read-path: /v1 only, no direct DB").
+	// routd owns the routes table and already serves these rows to the agent, to
+	// the CLI and to its own REST face; this page is one more reader, not a
+	// second projection.
+	//
+	// This page has no per-folder authorize-before-read problem: it is
+	// instance-wide and the operator gate ran above, before anything was read.
+	// The WRITES below still go through the store — they carry the operator onto
+	// the audit row via AsUser and dashd's service bearer does not, so moving
+	// them waits on 6/29's identity decision.
+	routes, err := d.listRoutes(r.Context())
 	if err != nil {
-		slog.Warn("routes: query", "err", err)
-		fmt.Fprint(w, htmlBanner("err", "routes query error: "+err.Error()))
+		slog.Warn("routes: list", "err", err)
+		fmt.Fprint(w, htmlBanner("err", "could not reach routd for the route table"))
 		pageClose(w, r)
 		return
 	}
-	defer rows.Close()
 
 	var tableRows [][]string
-	for rows.Next() {
-		var id int64
-		var seq, owm, owc int
-		var match, target string
-		if err := rows.Scan(&id, &seq, &match, &target, &owm, &owc); err != nil {
-			slog.Warn("routes: scan", "err", err)
-			continue
-		}
+	for _, rt := range routes {
+		id, seq, match, target := rt.ID, rt.Seq, rt.Match, rt.Target
+		owm, owc := rt.ObserveWindowMessages, rt.ObserveWindowChars
 		if !visible(allowed, operator, core.ParseRouteTarget(target).Folder) {
 			continue
 		}
@@ -301,4 +295,27 @@ func (d *dash) handleRouteDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// listRoutes reads the route table from routd's /v1 face.
+//
+// The rows decode into core.Route — the SAME struct routd's REST handler
+// serves — so the page cannot render a field the API does not have. routd
+// scopes that list to the caller's folder claim; dashd presents a service
+// bearer, whose claim is empty, so it sees the whole table exactly as the
+// direct read did. The per-folder narrowing this page applies is its own
+// (`visible`, below), unchanged.
+func (d *dash) listRoutes(ctx context.Context) ([]core.Route, error) {
+	body, status, err := d.bearerCall(ctx, d.routdURL, http.MethodGet, "/v1/routes", nil)
+	if err != nil {
+		return nil, err
+	}
+	if status < 200 || status >= 300 {
+		return nil, fmt.Errorf("routd /v1/routes: status %d", status)
+	}
+	var routes []core.Route
+	if err := json.Unmarshal(body, &routes); err != nil {
+		return nil, err
+	}
+	return routes, nil
 }

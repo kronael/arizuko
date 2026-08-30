@@ -29,7 +29,8 @@ func newRWDashServer(t *testing.T) (*httptest.Server, *testutils.Inst, string) {
 	if err := os.MkdirAll(groupsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{dbRoutd: inst.DB, dbOnbod: inst.DB, dbPath: "memory", groupsDir: groupsDir}
+	d := &dash{dbRoutd: inst.DB, dbOnbod: inst.DB, dbPath: "memory", groupsDir: groupsDir,
+		routdURL: stubRoutd(t, inst.DB)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	srv := httptest.NewServer(mux)

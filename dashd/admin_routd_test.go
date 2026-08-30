@@ -42,7 +42,9 @@ func splitAdminDash(t *testing.T, adminSub string) (*dash, *sql.DB) {
 		`INSERT OR IGNORE INTO groups (folder, added_at) VALUES ('team', '')`); err != nil {
 		t.Fatalf("seed team group: %v", err)
 	}
-	return &dash{dbRoutd: routd, groupsDir: t.TempDir()}, routd
+	// routdURL: the pages read through routd's /v1 now (6/28), so the tests need
+	// something serving the rows they seed into routd.db.
+	return &dash{dbRoutd: routd, groupsDir: t.TempDir(), routdURL: stubRoutd(t, routd)}, routd
 }
 
 func adminReq(method, path, body, sub string) *http.Request {
@@ -150,8 +152,13 @@ func TestRouteCreate_TargetsRoutdDB(t *testing.T) {
 	}
 }
 
-// TestRouteList_ReadsRoutdDB: the routes page renders a row seeded into routd.db.
-func TestRouteList_ReadsRoutdDB(t *testing.T) {
+// TestRouteList_ReadsRoutdV1: the routes page renders a row that routd serves.
+//
+// Renamed from ReadsRoutdDB: the row is still seeded into routd.db, but the
+// page reaches it through routd's /v1 now (6/28 §"Read-path: /v1 only"), so
+// the name no longer describes what is being asserted. The property — a route
+// in the table reaches the page — is unchanged.
+func TestRouteList_ReadsRoutdV1(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
 	if _, err := routd.Exec(
 		`INSERT INTO routes (seq, match, target) VALUES (9, 'liveroute=1', 'team')`); err != nil {
@@ -387,5 +394,20 @@ func TestProfile_ReadsRoutdDB(t *testing.T) {
 	}
 	if strings.Contains(body, "Bob Stale") {
 		t.Errorf("profile rendered a stale messages.db name (must read routd.db)")
+	}
+}
+
+// routd being unreachable must SAY so on the routes page. An empty route table
+// reads as "this instance routes nothing", which is both false and the kind of
+// thing an operator would act on during an incident.
+func TestRouteListSaysWhenRoutdIsUnreachable(t *testing.T) {
+	d, _ := splitAdminDash(t, "alice@x")
+	d.routdURL = "http://127.0.0.1:1" // refused
+
+	mux := newMux(d)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, adminReq("GET", "/dash/routes/", "", "alice@x"))
+	if !strings.Contains(w.Body.String(), "could not reach routd") {
+		t.Error("an unreachable routd rendered as an empty route table")
 	}
 }

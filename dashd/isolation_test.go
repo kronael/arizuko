@@ -40,7 +40,11 @@ func isoEnv(t *testing.T) (*http.ServeMux, *testutils.Inst) {
 	t.Helper()
 	_, inst, _ := newRWDashServer(t)
 	mux := http.NewServeMux()
-	(&dash{dbRoutd: inst.DB, dbPath: "memory", groupsDir: inst.Tmp}).registerRoutes(mux)
+	// routdURL: dashd's pages read through routd's /v1 now (6/28), so the
+	// isolation tests need something serving the rows they seed. Production
+	// always has a routdURL; a dash without one is not a state that occurs.
+	(&dash{dbRoutd: inst.DB, dbPath: "memory", groupsDir: inst.Tmp,
+		routdURL: stubRoutd(t, inst.DB)}).registerRoutes(mux)
 
 	now := time.Now()
 	for _, f := range []string{"corp", folderEng, folderSre, folderSales} {

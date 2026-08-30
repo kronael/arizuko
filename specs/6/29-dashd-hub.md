@@ -121,9 +121,20 @@ by discipline.
    | `tasks_admin`  | routd `/v1/tasks/{id}` | the authorize-before-read ordering above — it is keyed by task id, so the owner is only known after the read                                                |
 
    So three are mechanical, one needs a small new routd endpoint that this
-   phase already specified, and exactly ONE needs the ordering decision. Each
-   also needs a test double for its owner's API, since `tests/testutils` ships
-   no routd server and `isoEnv` builds a dash with no `routdURL`.
+   phase already specified, and exactly ONE needs the ordering decision.
+
+   **The test scaffolding they all needed now exists.** `dashd/stub_routd_test.go`
+   answers routd's read endpoints from the same `routd.db` a test seeds, and all
+   three dashd harnesses (`isoEnv`, `newRWDashServer`, `splitAdminDash`) carry a
+   `routdURL` — production always has one, so a dash without it was never a real
+   state. The stub is deliberately a thin projection running the owning daemon's
+   query and marshalling its struct: one that invented its own shape would let
+   these tests pass against a page that cannot read the real thing.
+
+   Two pages are migrated (`route_tokens`, `routes_admin`), and each renders an
+   unreachable routd as an ERROR rather than an empty list — "this instance
+   routes nothing" and "this folder has no tokens" are both false, and both are
+   the kind of thing an operator acts on during an incident.
 
    **`tasks_admin` was attempted and reverted 2026-08-30, and the reason is a
    finding, not a stumble.** The code change is straightforward — routd serves
