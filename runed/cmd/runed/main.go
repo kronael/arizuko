@@ -85,6 +85,9 @@ func main() {
 	// Verifier: offline-verify callers (routd / operator / agent) against
 	// authd's JWKs. runed holds no signing key (spec 5/P § Auth).
 	var verify runed.Verifier
+	// dashKeys arms the /dash/runed/ operator gate from the SAME keyset the /v1
+	// verifier uses; nil (no AUTHD_URL) leaves the dashboard open in local dev.
+	var dashKeys *auth.KeySet
 	if authdURL != "" {
 		ks, kerr := auth.FetchKeys(ctx, authdURL)
 		if kerr != nil {
@@ -92,6 +95,7 @@ func main() {
 			os.Exit(1)
 		}
 		verify = keysetVerifier{ks: ks}
+		dashKeys = ks
 	}
 
 	folders := &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir}
@@ -140,7 +144,9 @@ func main() {
 		container.SeedCodexDirs(cfg.GroupsDir)
 	}
 
-	mux := newRunedMux(runed.NewServer(mgr, db, verify))
+	srv := runed.NewServer(mgr, db, verify)
+	srv.SetDashKeySet(dashKeys)
+	mux := newRunedMux(srv)
 
 	httpd := &http.Server{Addr: listenAddr, Handler: obs.HTTPMiddleware("runed")(mux)}
 	// Register the signal handler BEFORE the listener accepts: a SIGTERM in

@@ -210,13 +210,13 @@ var daemonKeys = map[string][]string{
 	"discd": {"AUTHD_URL", "AUTHD_SERVICE_KEY", "DISCORD_BOT_TOKEN"},
 	// bskyd reads BLUESKY_IDENTIFIER/BLUESKY_PASSWORD. The keys listed here were
 	// BLUESKY_HANDLE/BLUESKY_APP_PASSWORD — names no Go code has ever read.
-	"bskyd":    {"AUTHD_URL", "AUTHD_SERVICE_KEY"},
-	"reditd":   {"AUTHD_URL", "AUTHD_SERVICE_KEY", "REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET", "REDDIT_USERNAME", "REDDIT_PASSWORD"},
-	"slakd":    {"AUTHD_URL", "AUTHD_SERVICE_KEY", "SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET", "SLAKD_USERS_CACHE_TTL"},
-	"linkd":    {"AUTHD_URL", "AUTHD_SERVICE_KEY", "LINKEDIN_CLIENT_ID", "LINKEDIN_CLIENT_SECRET", "LINKEDIN_ACCESS_TOKEN", "LINKEDIN_REFRESH_TOKEN"},
-	"emaid":    {"AUTHD_URL", "AUTHD_SERVICE_KEY", "EMAIL_IMAP_HOST", "EMAIL_SMTP_HOST", "EMAIL_ACCOUNT", "EMAIL_PASSWORD", "EMAIL_IMAP_PORT", "EMAIL_SMTP_PORT"},
-	"whapd":    {"AUTHD_URL", "AUTHD_SERVICE_KEY"},
-	"twitd":    {"AUTHD_URL", "AUTHD_SERVICE_KEY", "TWITTER_USERNAME", "TWITTER_PASSWORD", "TWITTER_EMAIL", "TWITTER_2FA_SECRET", "TWITTER_POLL_INTERVAL"},
+	"bskyd":  {"AUTHD_URL", "AUTHD_SERVICE_KEY"},
+	"reditd": {"AUTHD_URL", "AUTHD_SERVICE_KEY", "REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET", "REDDIT_USERNAME", "REDDIT_PASSWORD"},
+	"slakd":  {"AUTHD_URL", "AUTHD_SERVICE_KEY", "SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET", "SLAKD_USERS_CACHE_TTL"},
+	"linkd":  {"AUTHD_URL", "AUTHD_SERVICE_KEY", "LINKEDIN_CLIENT_ID", "LINKEDIN_CLIENT_SECRET", "LINKEDIN_ACCESS_TOKEN", "LINKEDIN_REFRESH_TOKEN"},
+	"emaid":  {"AUTHD_URL", "AUTHD_SERVICE_KEY", "EMAIL_IMAP_HOST", "EMAIL_SMTP_HOST", "EMAIL_ACCOUNT", "EMAIL_PASSWORD", "EMAIL_IMAP_PORT", "EMAIL_SMTP_PORT"},
+	"whapd":  {"AUTHD_URL", "AUTHD_SERVICE_KEY"},
+	"twitd":  {"AUTHD_URL", "AUTHD_SERVICE_KEY", "TWITTER_USERNAME", "TWITTER_PASSWORD", "TWITTER_EMAIL", "TWITTER_2FA_SECRET", "TWITTER_POLL_INTERVAL"},
 	// ttsd reads exactly TTSD_ADDR, TTS_BACKEND_URL and LOG_LEVEL, and its fragment
 	// sets all three in `environment:`, which outranks env_file. The entry exists to
 	// move it off the shared .env, which handed it SECRETS_KEY, AUTH_SECRET and
@@ -349,6 +349,7 @@ var coreProxydRoutes = []ProxydRoute{
 	// means these must come before the catch-all /dash/ → dashd route.
 	{Path: "/dash/onbod/", Backend: "http://onbod:8080", Auth: "user", GatedBy: "ONBOARDING_ENABLED"},
 	{Path: "/dash/routd/", Backend: "http://routd:8080", Auth: "user"},
+	{Path: "/dash/runed/", Backend: "http://runed:8080", Auth: "user"},
 	{Path: "/dash/timed/", Backend: "http://timed:8080", Auth: "user"},
 	// /dash/ catch-all → dashd (hub + cross-cutting pages).
 	{Path: "/dash/", Backend: "http://dashd:8080", Auth: "user"},

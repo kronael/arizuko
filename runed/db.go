@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/db_utils"
+	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
 )
@@ -262,20 +263,27 @@ func (d *DB) MarkSteered(runID string) error {
 
 // GetSpawn returns a spawn by run_id; ErrNotFound when absent.
 func (d *DB) GetSpawn(runID string) (Spawn, error) {
-	var s Spawn
-	var logID sql.NullInt64
-	var sess, outcome, started, ended sql.NullString
-	var exit sql.NullInt64
-	var steered int
-	err := d.db.QueryRow(`SELECT run_id, folder, topic, container_name, session_log_id,
-		session_id, kind, state, outcome, exit_code, steered, created_at, started_at, ended_at
-		FROM spawns WHERE run_id=?`, runID).Scan(
-		&s.RunID, &s.Folder, &s.Topic, &s.ContainerName, &logID,
-		&sess, &s.Kind, &s.State, &outcome, &exit, &steered, &s.CreatedAt, &started, &ended)
+	s, err := scanSpawn(d.db.QueryRow(`SELECT `+spawnCols+` FROM spawns WHERE run_id=?`, runID))
 	if err == sql.ErrNoRows {
 		return Spawn{}, ErrNotFound
 	}
-	if err != nil {
+	return s, err
+}
+
+// spawnCols is the column list GetSpawn and ListSpawns both scan. One list, so
+// a column added to one reader cannot go missing from the other.
+const spawnCols = `run_id, folder, topic, container_name, session_log_id,
+	session_id, kind, state, outcome, exit_code, steered, created_at, started_at, ended_at`
+
+// scanSpawn reads one row in spawnCols order.
+func scanSpawn(sc interface{ Scan(...any) error }) (Spawn, error) {
+	var s Spawn
+	var logID, exit sql.NullInt64
+	var sess, outcome, started, ended sql.NullString
+	var steered int
+	if err := sc.Scan(&s.RunID, &s.Folder, &s.Topic, &s.ContainerName, &logID,
+		&sess, &s.Kind, &s.State, &outcome, &exit, &steered,
+		&s.CreatedAt, &started, &ended); err != nil {
 		return Spawn{}, err
 	}
 	s.SessionLogID = logID.Int64
@@ -286,6 +294,41 @@ func (d *DB) GetSpawn(runID string) (Spawn, error) {
 	s.StartedAt = started.String
 	s.EndedAt = ended.String
 	return s, nil
+}
+
+// ListSpawns returns spawns newest-first, optionally narrowed by state and
+// folder. Empty filters match everything; limit <= 0 means 50.
+//
+// This is the reader spec 6/30 names for runed's dashboard and its
+// GET /v1/runs face. Folder containment is exact-or-subtree through
+// groupfolder.SQLSubtree, never a LIKE (BUGS L122).
+func (d *DB) ListSpawns(state, folder string, limit int) ([]Spawn, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 50
+	}
+	q := `SELECT ` + spawnCols + ` FROM spawns WHERE (? = '' OR state = ?)`
+	args := []any{state, state}
+	if folder != "" {
+		q += ` AND ` + groupfolder.SQLSubtree("folder", "/")
+		args = append(args, groupfolder.SubtreeArgs(folder, "/")...)
+	}
+	q += ` ORDER BY created_at DESC, rowid DESC LIMIT ?`
+	args = append(args, limit)
+
+	rows, err := d.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Spawn
+	for rows.Next() {
+		sp, err := scanSpawn(rows)
+		if err != nil {
+			return out, err
+		}
+		out = append(out, sp)
+	}
+	return out, rows.Err()
 }
 
 // ExpireOrphans marks any spawn left in running/queued state as exited.

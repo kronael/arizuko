@@ -27,12 +27,20 @@ type Server struct {
 	mgr    *Manager
 	db     *DB
 	verify Verifier
+	// dashKeys gates GET /dash/runed/ (spec 6/28 auth layer 2). Separate from
+	// verify, which gates /v1 on a BEARER: the dashboard trusts the
+	// proxyd-verified end-user identity instead. nil → local dev, gate open.
+	dashKeys *auth.KeySet
 }
 
 // NewServer wires runed's HTTP server.
 func NewServer(mgr *Manager, db *DB, verify Verifier) *Server {
 	return &Server{mgr: mgr, db: db, verify: verify}
 }
+
+// SetDashKeySet wires the operator gate for GET /dash/runed/. Called by main
+// when AUTHD_URL is set; nil in local dev and tests, where it falls open.
+func (s *Server) SetDashKeySet(ks *auth.KeySet) { s.dashKeys = ks }
 
 // Handler builds the routed mux. GET /health is public; everything else is
 // bearer-gated. /openapi.json is NOT here — the binary adds it in newRunedMux
@@ -48,6 +56,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/spawn_sessions", s.handleSessions)
 	mux.HandleFunc("GET /v1/spawn_sessions/recent", s.handleRecentSessions)
 	s.mountAudit(mux)
+	// The operator dashboard (spec 6/28): runed's own /dash/ namespace, gated
+	// by the proxyd-stamped operator identity rather than the /v1 bearer.
+	mux.HandleFunc("GET /dash/runed/", s.handleDash)
+	mux.HandleFunc("POST /dash/runed/kill", s.handleDashKill)
 	return mux
 }
 

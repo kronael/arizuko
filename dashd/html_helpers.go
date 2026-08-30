@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 func isHtmx(r *http.Request) bool {
@@ -87,4 +88,23 @@ func (d *dash) chatJIDCell(jid string) string {
 			url.QueryEscape(folder), esc(jid))
 	}
 	return `<code>` + esc(jid) + `</code>`
+}
+
+// folderLink renders a folder as a link into its chats. It lived in
+// runed_page.go until that page moved to runed itself (spec 6/28); approvals
+// and engagement still render folders.
+func folderLink(folder string) string {
+	return fmt.Sprintf(`<a href="/me/chats?folder=%s">%s</a>`, url.QueryEscape(folder), esc(folder))
+}
+
+// parseTS accepts the timestamp layouts arizuko rows carry. Tolerant on
+// purpose: adapters store platform timestamps truncated to the second while
+// routd writes RFC3339Nano, so one layout cannot read both.
+func parseTS(ts string) (time.Time, bool) {
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02T15:04:05Z", "2006-01-02 15:04:05"} {
+		if t, err := time.Parse(layout, ts); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
 }
