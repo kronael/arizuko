@@ -22,13 +22,13 @@ does not generalise.
 | routd    | **overview only** — [`routd/dash.go`](../../routd/dash.go)   | overview (shipped); queue (+breaker), channels, errored, routes, cost (unbuilt) | retry errored chat (= reset breaker + re-enqueue), drop errored rows, route CRUD, revoke route token, disengage                                | `GET /v1/queue` (needs `GroupQueue.Snapshot()`), `POST /v1/queue/retry`, `DELETE /v1/routing/errored?jid=`, `GET /v1/outbound/pending`, `GET /v1/cost/summary`                                                             |
 | runed    | **overview** — [`runed/dash.go`](../../runed/dash.go)        | overview (capacity + breaker + GC config), runs (`?state=`), run detail         | kill run, stop folder's run — both exist ([`runed/server.go:38-43`](../../runed/server.go))                                                    | `GET /v1/runs?state=&folder=&limit=` (needs `DB.ListSpawns`), `GET /v1/capacity` (needs `Manager.Snapshot()`)                                                                                                              |
 | authd    | **keys + sessions** — [`authd/dash.go`](../../authd/dash.go) | overview, keys, tokens (refresh families), providers, identities                | rotate key, revoke-all keys, issue token (exists), revoke refresh family, unlink provider identity                                             | `GET /v1/keys/meta`, `POST /v1/keys/rotate`, `POST /v1/keys/revoke-all`, `GET` + `DELETE /v1/refresh/families[/{family}]`, `GET /v1/users[/{id}]`, `DELETE /v1/users/{id}/identities/{provider}`, `GET /v1/identities`     |
-| proxyd   | no                                                           | overview, routes, denials, transit                                              | route create/edit/delete (all exist, [`proxyd/resource.go`](../../proxyd/resource.go)), clear denial counters                                  | `GET` + `DELETE /v1/denials` (in-memory ring + counters), `GET /v1/upstreams` (per-backend 500ms probe), `GET /v1/transit`                                                                                                 |
+| proxyd   | **yes** — [`proxyd/dash.go`](../../proxyd/dash.go)           | routes + create/delete (shipped); denials, transit (unbuilt)                    | route create/edit/delete (all exist, [`proxyd/resource.go`](../../proxyd/resource.go)), clear denial counters                                  | `GET` + `DELETE /v1/denials` (in-memory ring + counters), `GET /v1/upstreams` (per-backend 500ms probe), `GET /v1/transit`                                                                                                 |
 | onbod    | **yes** — [`onbod/dash.go`](../../onbod/dash.go)             | admission queue (`/dash/onbod/`)                                                | approve / deny / reprompt — shipped as dash shims ([`onbod/main.go:178-181`](../../onbod/main.go))                                             | **none for the queue** — all four `/v1/onboarding` verbs ship ([`onbod/main.go:167-171`](../../onbod/main.go), [`onbod/admin.go:85-150`](../../onbod/admin.go)). Gates + invites pages unbuilt; their `/v1` already exists |
 | timed    | **overview only** — [`timed/dash.go`](../../timed/dash.go)   | overview (shipped); tasks, task detail, runs (unbuilt)                          | pause/resume, cancel, run-now — routd's `PATCH` + `DELETE /v1/tasks/{id}` ship ([`routd/tasks_http.go:16`](../../routd/tasks_http.go))         | **none on routd** — `/v1/tasks` list/get/patch/delete + `/v1/tasks/runs` + `/v1/tasks/{id}/runs` all ship ([`routd/server.go:258-267`](../../routd/server.go)). Remaining work is timed-local page handlers                |
 | crackbox | no                                                           | overview, registry, denials                                                     | none — `6/24` deleted the admin API, the registry and daemon mode; crackbox is a local dev command with no HTTP surface to hang a dashboard on | `GET /v1/denials?limit=` (ring over the four deny sites), proxyd `Route.InjectAuthorization`, a `template/services/crackbox.yaml` gated by `EGRESS_CRACKBOX`                                                               |
-| webd     | no                                                           | overview (registration + SSE hub usage)                                         | **none** — token revocation and web-route edits are routd-owned, rendered on routd's routes page                                               | `GET /v1/hub/status` (hub keys, per-key subscribers, caps — memory-only)                                                                                                                                                   |
+| webd     | **yes** — [`webd/dash.go`](../../webd/dash.go)               | SSE hub overview (shipped)                                                      | **none** — token revocation and web-route edits are routd-owned, rendered on routd's routes page                                               | `GET /v1/hub/status` (hub keys, per-key subscribers, caps — memory-only)                                                                                                                                                   |
 | davd     | no, and none planned                                         | **none** — hub tile only                                                        | **none exist** — dufs has no session list and no disconnect verb                                                                               | a per-tile probe-path override in the hub ([`6/29`](29-dashd-hub.md)): dufs has no `/health`, so `GET /` 200 is the signal                                                                                                 |
-| ttsd     | no                                                           | overview, read-only                                                             | **none** — backend selection is `TTS_BACKEND_URL`, an env/restart concern                                                                      | `GET /v1/status` (`{backend, ok, probe, latency_ms, last_error, last_error_at}`)                                                                                                                                           |
+| ttsd     | **yes** — [`ttsd/dash.go`](../../ttsd/dash.go)               | backend + live probe (shipped)                                                  | **none** — backend selection is `TTS_BACKEND_URL`, an env/restart concern                                                                      | `GET /v1/status` (`{backend, ok, probe, latency_ms, last_error, last_error_at}`)                                                                                                                                           |
 
 Route registration follows `6/28`: core daemons get their
 `/dash/<daemon>/` entry in `coreProxydRoutes`
@@ -38,9 +38,11 @@ packaged daemons ship a `services/<name>.yaml`.
 
 ## Federation state (2026-08-30)
 
-Five of nine daemons serve their own dashboard: onbod, timed, routd, runed and
-authd. Each migration deleted dashd's copy in the same commit, per the rule
-below.
+**The core set is complete.** Eight of nine daemons serve their own dashboard —
+onbod, timed, routd, runed, authd, proxyd, webd and ttsd — and davd is the
+deliberate ninth: it has no `/health` and no session list to render, so it stays
+a hub tile probed at `GET /`, exactly as the table says. Each migration deleted
+dashd's copy in the same commit, per the rule below.
 
 **The trap every remaining migration must clear.** proxyd matches
 longest-prefix, so adding a `/dash/<daemon>/` route moves EVERY path under it —
@@ -49,13 +51,18 @@ dashd's `POST /dash/routd/retry` and `/replay` before routd implemented them.
 The replacement must answer the controls BEFORE the route lands, or the operator
 gets buttons that 404.
 
-**proxyd is attempted and deliberately NOT shipped.** Its read-only page was
-written and reverted: dashd's copy carries route CREATE and DELETE forms, and
-routing the prefix without porting them first removes the operator's only UI
-path to both. proxyd also needs its own `requireAuth` wrapper, because a path on
-proxyd's mux never reaches `s.route` — where a routed request is authenticated —
-so a bare mount would serve the route table unauthenticated. Both are known; the
-remaining work is the two forms.
+**proxyd shipped on the second attempt**, and the first is worth recording: a
+read-only page was written and reverted because dashd's copy carries route
+CREATE and DELETE forms, and routing the prefix without porting them removes the
+operator's only UI path to both. proxyd also needs its own `requireAuth`
+wrapper — a path on proxyd's mux never reaches `s.route`, where a routed request
+is authenticated, so a bare mount serves the route table and its write forms
+unauthenticated. A test drives all three paths unauthenticated to pin it.
+
+**ttsd gates differently, and has to.** It verifies no tokens and holds no
+keyset, so the nil-`KeySet` form every other daemon uses would fall OPEN — and
+proxyd's `user` route authenticates a person, not an operator. It gates on the
+stamped operator scope directly, enforcing whenever `AUTHD_URL` is set.
 
 ## Migration state — what has left dashd (BUGS `V2`)
 

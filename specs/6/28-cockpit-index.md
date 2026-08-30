@@ -160,13 +160,17 @@ Signed off and started. The contract above is settled; what exists:
   `/dash/` catch-all, and `TestDaemonDashRoutesPrecedeTheCatchAll`
   (`compose/reserved_routes_test.go`) pins that ordering, the `user` auth mode
   and the "not backed by dashd" rule for every route added later.
-- **Per-daemon dashboards** — 5 of 9: onbod (admission queue), timed
-  (overview), routd (overview + retry + replay), runed (capacity + run table +
-  kill), authd (signing keys + sessions + revoke). routd is the
-  reference the rest copy: handlers in the owning daemon, gated by
-  `RequireOperator` (reads) and `RequireWrite` (mutations), reading the same
-  in-process readers its `/v1` handlers read.
-- **Three migrations done** — routd's, runed's and authd's pages have LEFT dashd. `dashd/routd_page.go`
+- **Per-daemon dashboards — the core set is COMPLETE.** Eight of nine serve
+  their own: onbod (admission queue), timed (overview), routd (overview + retry
+  - replay), runed (capacity + run table + kill), authd (keys + sessions +
+    revoke), proxyd (route table + create/delete), webd (SSE hub) and ttsd
+    (backend + probe). davd is the deliberate ninth — no `/health`, nothing to
+    render — and stays a hub tile probed at `GET /`. routd is the
+    reference the rest copy: handlers in the owning daemon, gated by
+    `RequireOperator` (reads) and `RequireWrite` (mutations), reading the same
+    in-process readers its `/v1` handlers read.
+- **Four migrations done** — routd's, runed's, authd's and proxyd's pages have
+  LEFT dashd. `dashd/routd_page.go`
   is deleted, and routd owns the two controls it carried, over its own
   `ClearErrored` writer instead of dashd's raw `UPDATE` on `routd.db`. This is
   the shape the rest follow, and it carries a trap worth stating: proxyd matches
