@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/kronael/arizuko/core"
@@ -49,8 +52,19 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s := store.New(d.adminDB())
-	rows, err := s.ListACLByScope(folder)
+	// READ through routd's /v1 (spec 6/28 §"Read-path: /v1 only, no direct DB").
+	// routd owns the acl table and its list filters `scope = folder`, which is
+	// exactly what ListACLByScope queried — the same rows, one reader.
+	//
+	// The three datalist reads below (user_profiles, acl_membership, the group
+	// subtree) still go to the DB: they are form autocomplete and routd exposes
+	// no /v1 for them. Different data, different reader — not two paths to one
+	// datum. See 6/29 for what closing them needs.
+	//
+	// The WRITES also stay: they carry the operator onto the audit row through
+	// AsUser and dashd's service bearer does not, so moving them waits on
+	// 6/29's identity decision.
+	rows, err := d.listACL(r.Context(), folder)
 	if err != nil {
 		// An empty grants table would read as "this folder has no permissions",
 		// which is the opposite of "we could not read them" (BUGS A4).
@@ -283,4 +297,29 @@ func (d *dash) handleGroupGrantRevoke(w http.ResponseWriter, r *http.Request) {
 	}
 	slog.Info("grant revoked", "folder", folder, "principal", principal, "action", action, "sub", sub)
 	http.Redirect(w, r, "/dash/groups/"+folderPath(folder)+"/grants", http.StatusSeeOther)
+}
+
+// listACL reads one folder's grants from routd's /v1 face.
+//
+// routd's list answers {"folder":…,"acl":[…]} and filters on an EXACT scope
+// match, which is what store.ListACLByScope did (`WHERE scope = ?`). An
+// envelope, not a bare array — decoded as such rather than assumed, because
+// the sibling route_tokens face returns a bare array and guessing wrong here
+// yields an empty grants table, the A4 confusion this page exists to avoid.
+func (d *dash) listACL(ctx context.Context, folder string) ([]core.ACLRow, error) {
+	body, status, err := d.bearerCall(ctx, d.routdURL, http.MethodGet,
+		"/v1/acl?folder="+url.QueryEscape(folder), nil)
+	if err != nil {
+		return nil, err
+	}
+	if status < 200 || status >= 300 {
+		return nil, fmt.Errorf("routd /v1/acl: status %d", status)
+	}
+	var env struct {
+		ACL []core.ACLRow `json:"acl"`
+	}
+	if err := json.Unmarshal(body, &env); err != nil {
+		return nil, err
+	}
+	return env.ACL, nil
 }

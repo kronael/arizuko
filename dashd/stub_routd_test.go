@@ -73,6 +73,33 @@ func stubRoutd(t *testing.T, db *sql.DB) string {
 		writeStubJSON(w, out)
 	})
 
+	// The acl list answers an ENVELOPE, {"folder":…,"acl":[…]}, and filters on an
+	// exact scope match — both mirrored here, because a stub that returned a bare
+	// array or a subtree would let the page pass against a shape routd does not
+	// serve.
+	mux.HandleFunc("GET /v1/acl", func(w http.ResponseWriter, r *http.Request) {
+		folder := r.URL.Query().Get("folder")
+		rows, err := db.Query(`SELECT principal, action, scope, effect,
+			COALESCE(params,''), COALESCE(predicate,'')
+			FROM acl WHERE scope = ? ORDER BY principal, action`, folder)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+		out := []core.ACLRow{}
+		for rows.Next() {
+			var a core.ACLRow
+			if err := rows.Scan(&a.Principal, &a.Action, &a.Scope, &a.Effect,
+				&a.Params, &a.Predicate); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			out = append(out, a)
+		}
+		writeStubJSON(w, map[string]any{"folder": folder, "acl": out})
+	})
+
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv.URL

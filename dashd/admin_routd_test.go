@@ -85,9 +85,9 @@ func TestGrantAdd_TargetsRoutdDB(t *testing.T) {
 	}
 }
 
-// TestGrantList_ReadsRoutdDB: the grants page renders a row seeded into routd.db
+// TestGrantList_ReadsRoutdV1: the grants page renders a row seeded into routd.db
 // (proves the admin-UI READ reflects the live routd.db table).
-func TestGrantList_ReadsRoutdDB(t *testing.T) {
+func TestGrantList_ReadsRoutdV1(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
 	if _, err := routd.Exec(
 		`INSERT INTO acl (principal, action, scope, effect, granted_at)
@@ -409,5 +409,21 @@ func TestRouteListSaysWhenRoutdIsUnreachable(t *testing.T) {
 	mux.ServeHTTP(w, adminReq("GET", "/dash/routes/", "", "alice@x"))
 	if !strings.Contains(w.Body.String(), "could not reach routd") {
 		t.Error("an unreachable routd rendered as an empty route table")
+	}
+}
+
+// routd being unreachable must SAY so on the grants page. An empty grants
+// table reads as "this folder has no permissions", which is the opposite of
+// "we could not read them" — BUGS A4, the confusion this page already guards
+// against for a DB error and must keep guarding against for an HTTP one.
+func TestGrantListSaysWhenRoutdIsUnreachable(t *testing.T) {
+	d, _ := splitAdminDash(t, "alice@x")
+	d.routdURL = "http://127.0.0.1:1" // refused
+
+	mux := newMux(d)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, adminReq("GET", "/dash/groups/team/grants", "", "alice@x"))
+	if !strings.Contains(w.Body.String(), "could not read grants") {
+		t.Error("an unreachable routd rendered as an empty grants table")
 	}
 }
