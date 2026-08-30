@@ -1,5 +1,5 @@
 ---
-status: partial
+status: shipped
 depends: [28-cockpit-index]
 ---
 
@@ -62,119 +62,47 @@ by discipline.
    render depend on proxyd answering, which needs a deliberate fallback (core
    routes only, adapters read as "coming soon") rather than an accidental one.
 
-1. **The retained pages still read the DB directly — and there is a BLOCKER
-   nobody had written down.**
+1. ~~The retained pages still read the DB directly.~~ **READS DONE 2026-08-30 —
+   all five.** `route_tokens`, `routes_admin`, `grants_admin`, `usage_page`,
+   `groups_admin` and `tasks_admin` now read through their owner's `/v1`. No
+   dashboard reads another daemon's SQLite file, which was `6/28`'s core rule
+   and this spec's reason to exist.
 
-   The obvious migration is to swap `store.New(d.adminDB())` for
-   `d.bearerCall(routdURL, …)` per page. For the READS that is clean. For the
-   WRITES it is an audit regression, measured 2026-08-30:
-   - `dashd/route_tokens.go:79` revokes via
-     `store.New(d.adminDB()).AsUser(sub).RevokeRouteToken(...)`, and
-     `Store.AsUser` (`store/store.go:44`) puts the OPERATOR's sub on the
-     `audit_log` row.
-   - `bearerCall` (`dashd/engagement_page.go:186`) sets exactly one auth header:
-     `Authorization: Bearer <dashd's service token>`. It forwards no `X-User-*`.
+   Two needed API work this phase had already specified, not decisions:
+   `GET /v1/cost/summary` (the spend axis — `since` required, folder-narrowed,
+   `SQLSubtree` not `LIKE`), and `open` + the two observe windows added to the
+   group row as read-only projections of the `config` column, safe because
+   `PutGroup` never writes that column and pinned by a round-trip test.
 
-   So moving a control onto the owning daemon's `/v1` today attributes every
-   operator mutation to `service:dashd`. The audit trail would stop naming who
-   did it, and nothing would fail — the write succeeds, the row is just wrong.
-   That affects every retained page that has a control: tasks, routes, groups,
-   grants and route tokens.
+   Every migrated page renders an unreachable owner as an ERROR, never as empty
+   data: "no routes", "no tokens", "no permissions", "costs nothing" and "no
+   such task" are all false statements an operator acts on. `tasks_admin`
+   distinguishes 404 from 503 for the same reason.
 
-   **This is decided before any page moves**, and there are two shapes:
-   - **Forward the operator identity.** dashd re-stamps `X-User-Sub`/`-Groups`
-     on the call and the owning daemon trusts them on the strength of dashd's
-     service bearer — the same trust-stamp pattern `auth.ProxydTransit` already
-     implements for proxyd. This is the smaller change and it keeps one audit
-     shape, but it widens who may stamp identity headers from one daemon to two.
-   - **Give the owning daemon an operator-authenticated face.** dashd forwards
-     the operator's own credential rather than acting for them. Cleaner
-     attribution, larger change, and it needs a token dashd does not hold.
+   Scaffolding: `dashd/stub_routd_test.go` answers routd's read endpoints from
+   the `routd.db` a test seeds, and every dashd harness carries a `routdURL`.
+   That fixture gap — not the authorize-before-read ordering this section once
+   recorded — was what blocked `tasks_admin`; with a `routdURL` present its
+   isolation 403 arrives exactly as in production.
 
-   **Correction 2026-08-30 — the READS are not blocked, and saying they were
-   was wrong.** A SELECT writes no audit row, so attribution cannot be lost by
-   moving one. The earlier claim that a page's reads may not move without its
-   writes ("two paths into one table") mixed up two different rules: "one
-   renderer, many sinks" forbids two PRODUCERS of one output, and one reader
-   plus one writer is not that. The read half is exactly what `6/28`'s
-   "Read-path: /v1 only, no direct DB" asks for, and it can land alone.
+1. **The WRITES stay on the DB, by rule.** This section previously called them
+   blocked on an identity decision. They are not blocked; they are already
+   correct. CLAUDE.md §"Split write-discipline" states that FS-mounted daemons
+   — dashd, onbod, the CLI — write owned tables directly to the owner's DB,
+   while non-mounted daemons go through the owner's HTTP API. dashd is
+   FS-mounted on `routd.db`.
 
-   So reads migrate now, per page; writes wait for the decision above.
-   `route_tokens` is done (2026-08-30): the list comes from routd's
-   `GET /v1/route_tokens` typed as `resources.RouteTokensRow` — the same struct
-   routd's handler serves and `/openapi.json` emits a schema from, so the page
-   cannot render a field the API lacks. Its revoke still writes through
-   `Store.AsUser` and says so in a comment naming this decision. An unreachable
-   routd renders an error, because a blank token list reads as "this folder has
-   no tokens", which is the opposite of the truth.
+   The audit measurement is WHY that rule exists rather than an argument
+   against it: `Store.AsUser` puts the OPERATOR on the `audit_log` row and a
+   service bearer cannot, so routing an operator mutation through `/v1` would
+   attribute it to `service:dashd`. `auth.ProxydTransit` accepts
+   `sub.Sub == ProxydTransitSub` exactly, so admitting dashd would widen
+   identity-stamping from one daemon to two — a cost with no benefit, since the
+   direct write is sanctioned AND keeps the attribution.
 
-   **The remaining five are NOT one blocked group** — an earlier note here said
-   they were, and that was too broad. Measured 2026-08-30 against their routes
-   and their owners' `/v1`:
-
-   | page           | reads                  | blocked by                                                                                                                                                                                                                                                                                                                                                                                                                   |
-   | -------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-   | `groups_admin` | routd `/v1/groups`     | **DONE 2026-08-30** — `open` and the two observe windows are now read-only projections of the `config` column on the group row, exactly as `Model` already was. Safe because `PutGroup` writes `container_config` and never `config`, so a round-trip cannot clobber the setters; a test pins that. ONE call now answers the page, so it never reads one row over two transports — which is what stopped it before           |
-   | `grants_admin` | routd `/v1/acl`        | **grants read DONE 2026-08-30** — routd's list filters `scope = folder`, exactly what `ListACLByScope` queried. Its three DATALIST reads (`user_profiles`, `acl_membership`, the group subtree) stay on the DB: they are form autocomplete and routd exposes no `/v1` for them. Different data, different reader — not two paths to one datum. Closing them needs one `GET /v1/grant_form_options`-shaped endpoint, or three |
-   | `routes_admin` | routd `/v1/routes`     | nothing — instance-wide and operator-gated first, so no per-folder ordering exists                                                                                                                                                                                                                                                                                                                                           |
-   | `usage_page`   | —                      | a MISSING endpoint: `GET /v1/cost` is per-TURN (`turn_id` required); the page needs the per-folder aggregate `6/30` already lists as `GET /v1/cost/summary`                                                                                                                                                                                                                                                                  |
-   | `tasks_admin`  | routd `/v1/tasks/{id}` | the authorize-before-read ordering above — it is keyed by task id, so the owner is only known after the read                                                                                                                                                                                                                                                                                                                 |
-
-   **All five are now measured, and the split is not what the first pass
-   assumed.** Three reads are migrated (`route_tokens`, `routes_admin`,
-   `grants_admin`). Of the remaining two, NEITHER is blocked on a decision:
-   `usage_page` needs `GET /v1/cost/summary` (this phase already specified it)
-   and `groups_admin` needs three values put on the group wire row. Exactly one
-   page, `tasks_admin`, needs the ordering decision — and every WRITE on all
-   five still needs the attribution decision above.
-
-   **The test scaffolding they all needed now exists.** `dashd/stub_routd_test.go`
-   answers routd's read endpoints from the same `routd.db` a test seeds, and all
-   three dashd harnesses (`isoEnv`, `newRWDashServer`, `splitAdminDash`) carry a
-   `routdURL` — production always has one, so a dash without it was never a real
-   state. The stub is deliberately a thin projection running the owning daemon's
-   query and marshalling its struct: one that invented its own shape would let
-   these tests pass against a page that cannot read the real thing.
-
-   Two pages are migrated (`route_tokens`, `routes_admin`), and each renders an
-   unreachable routd as an ERROR rather than an empty list — "this instance
-   routes nothing" and "this folder has no tokens" are both false, and both are
-   the kind of thing an operator acts on during an incident.
-
-   **`tasks_admin` was attempted and reverted 2026-08-30, and the reason is a
-   finding, not a stumble.** The code change is straightforward — routd serves
-   `GET /v1/tasks/{id}` and `/v1/tasks/{id}/runs`, and the page's two reads swap
-   cleanly. What broke was `TestIso_PerFolderGET_AliceForbiddenOnSales`: the
-   task-detail case went from **403 to 500**.
-
-   The cause is an ordering this page has always had and the DB read hid.
-   Authorization needs the task's OWNER, and the owner is only known after the
-   row is read — so the page reads, THEN authorizes. Against a local DB the read
-   cannot fail, so the 403 always arrived. Against `/v1` an unreachable routd
-   fails first, and a cross-tenant request that must be REFUSED becomes an
-   error instead. 500 and 403 are not interchangeable on an isolation path.
-
-   So this page needs one of:
-   - **Authorize before reading.** Requires the task→folder mapping to be
-     available without fetching the task — a `GET /v1/tasks/{id}/owner`, or
-     carrying the folder in the URL as the group pages already do
-     (`/dash/groups/{folder}/...`). This is the better shape and it is a route
-     change.
-   - **Make the failure explicit.** Keep the order, and render an unreachable
-     routd distinctly from a refusal, so the isolation test can assert 403 for
-     the refusal and something else for the outage.
-
-   Either way the isolation tests need a stub routd, since `isoEnv` builds a
-   dash with no `routdURL`. `route_tokens` did not hit this: its folder is in
-   the URL, so it authorizes before it reads.
-
-   The debt itself: the direct-DB reads `6/28` set out to retire are NOT on the
-   per-daemon pages — those are gone — they are concentrated in exactly the
-   pages this spec KEEPS: `tasks_admin`, `routes_admin`, `groups_admin`,
-   `grants_admin`, `usage_page` and `route_tokens`, plus `authz.go`. dashd
-   already holds the client and a URL per owner (`bearerCall`, `routdURL`,
-   `onbodURL`, `authdURL`), so once the attribution question above is answered
-   this is per-page work, not a new mechanism.
+   `6/28`'s read-path rule read "shows or mutates"; that clause contradicted
+   CLAUDE.md and has been corrected there. **Nothing further is outstanding on
+   this axis.**
 
 ## Retained cross-cutting pages
 

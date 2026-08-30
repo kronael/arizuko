@@ -32,9 +32,29 @@ show/control matrices.
 
 ## Read-path: `/v1` only, no direct DB
 
-**Every datum a dashboard shows or mutates flows through the owning
-daemon's `/v1` surface. No dashboard — hub or per-daemon — reads a
-SQLite DB directly.** This retires `dashd`'s current direct reads of
+**Every datum a dashboard shows flows through the owning daemon's `/v1`
+surface. No dashboard — hub or per-daemon — reads a SQLite DB directly.**
+
+**WRITES are governed by CLAUDE.md, not by this spec** (reconciled 2026-08-30).
+This rule read "shows or mutates" and that contradicted the project's
+§"Split write-discipline": _FS-mounted daemons (dashd, onbod, CLI) write owned
+tables directly to the owner's DB; non-mounted daemons write via the owner's
+HTTP API + service token._ dashd is FS-mounted on `routd.db`, so its writes go
+direct BY RULE.
+
+The measurement that forced the reconciliation is also the reason the rule
+exists: `store.AsUser` (`store/store.go:44`) puts the OPERATOR's sub on the
+`audit_log` row, and `dashd`'s `bearerCall` carries only its own service bearer.
+Routing an operator mutation through `/v1` would attribute it to
+`service:dashd` — the write would succeed and the audit trail would quietly
+stop naming who acted. `auth.ProxydTransit` cannot help: it accepts
+`sub.Sub == ProxydTransitSub` exactly, so admitting dashd would widen
+identity-stamping from one daemon to two.
+
+So the read path federates and the write path does not, deliberately. A
+per-daemon dashboard writing its OWN daemon's tables in-process (routd's
+retry/replay, proxyd's route CRUD, authd's revoke) is the same rule read from
+the other side — those daemons own what they write. This retires `dashd`'s current direct reads of
 `routd.db`/`onbod.db`/`runed.db`. (`messages.db` is the retired monolith and
 is already refused at boot, `dashd/main.go:479`.)
 
