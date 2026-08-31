@@ -7,6 +7,134 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L149 — only the LAST assistant text block is delivered, so an answer written before a tool call is destroyed; `ant/CLAUDE.md:85` tells the agent the opposite (2026-08-31, open — the instruction half is minimal, the mechanism half is a proposal)
+
+The operator watched the krons agent answer him three times and receive
+*"you did not reply though"*. The agent had answered. The answers were thrown
+away by the delivery path, and the agent's own manual told it they were not.
+
+**The mechanism.** `ant/src/claude.ts:373` reads the harness's `result` event:
+
+```go
+const text = 'result' in raw ? (raw as { result?: string }).result ?? undefined : undefined;
+```
+
+The Claude Code CLI's `result` field carries **the final assistant message only**.
+`deliverTurn` passes that one string to `submit_turn`, and routd stores it as the
+bot message. Every assistant text block written earlier in the run — before a
+`Skill`, `Bash`, `Write`, `Read` or `Edit` call — never leaves the container.
+
+**What `ant/CLAUDE.md` says instead.** Line 85:
+
+> After a tool call, stay silent unless the user asked a question. No "Done.",
+> "Sent.", "OK", "All set" — **text outside `<think>` is delivered**; the action
+> is already visible.
+
+That sentence is false as implemented. Line 131 then completes the trap:
+
+> for tasks that chat-emit a status, close with a one-line confirmation, even
+> just "done." Status without conclusion is a contract break.
+
+So an agent that answers, then records the answer in its diary, then closes with
+the required one-line confirmation, **ships the confirmation and destroys the
+answer**. The two lines are individually reasonable and jointly lethal.
+
+**The live case** — krons, session `32863f1a`, 2026-08-31 07:35 UTC. The operator
+asked the agent to introspect. Transcript line 299 holds a 1523-character answer
+("The two replies came from two different modes, and I only switched because you
+pushed…"). Lines 300–321 are the diary tool calls. Line 329 is
+`Done — reply sent, lesson banked in diary…` — 102 characters. Telegram message
+`6318` is that 102-character line, and nothing else. Repeated four minutes later:
+1092 characters at line 351, delivered as 96 characters at line 356 (message
+`6322`).
+
+The agent then defended itself from its transcript — *"my visible history holds
+the full thread… Nothing was reset, nothing was hidden"* — which was true of what
+it **wrote** and false of what the operator **received**. See `L150`.
+
+**Measured blast radius**, krons only, top-level chat sessions (excludes
+subagents and workflow runs): **34 destroyed answers across 16 sessions**.
+Heuristic: an assistant text block of ≥250 characters, at least one tool call
+after it, and a final text block under `max(200, len/3)`. Largest single loss:
+2195 characters of research synthesis delivered as 355. Several of the surviving
+summaries refer to the destroyed text — *"the synthesis above is the core of
+it"* — pointing the reader at something the reader never got.
+
+**Why nobody caught it.** The failure is invisible on every axis an operator
+checks. `status` is `sent`, `errored` is `0`, `delivery_attempts` is `0`, and
+Telegram returns a real `platform_id` for the truncated message. A healthy
+delivery of the wrong bytes.
+
+**Fix, two halves — they are separable and the first is not a redesign:**
+
+1. **Instruction (minimal, ships inline).** Correct `ant/CLAUDE.md:85` to state
+   the contract that exists: *only your final text block is delivered; write the
+   answer last, after every tool call.* Then reconcile line 131, which currently
+   asks for a trailing "done" that overwrites the answer.
+2. **Mechanism (proposal, needs sign-off).** Make the delivered text the
+   concatenation of the run's assistant text blocks rather than the last one.
+   This changes delivery semantics for every backend and every turn, so it is a
+   contract change, not a patch. Note `claude.ts:404` already has a
+   concatenating shape for a different frame; do not add a second path — amend
+   the one extraction site.
+
+Option 1 alone stops the loss without touching the wire. Option 2 makes the loss
+impossible by construction. `<status>` is not a workaround: it is capped at ~100
+characters and is a progress signal, not an answer.
+
+- **Files:** `ant/src/claude.ts:373`, `ant/src/index.ts:89-107`,
+  `ant/CLAUDE.md:85`, `ant/CLAUDE.md:131`
+- **Evidence:** krons session `32863f1a-c7a0-4373-a789-a6ce3c05c404`, transcript
+  lines 299/329 and 351/356; `routd.db` messages `6318`, `6322`, `6324`
+- **Related:** `L150` (the agent cannot observe the loss), `submit_turn_result`
+
+## L150 — the agent never sees what it delivered, so it cannot detect a truncated reply and confabulates a cause instead (2026-08-31, open — proposal, needs sign-off)
+
+`routd/prompt_db.go:192,197,208` build the `<messages>` block with
+`AND is_bot_message = 0`. The envelope therefore carries **inbound messages
+only**. The agent's sole record of its own speech is its conversation
+transcript — which holds what it *wrote*, never what *shipped*.
+
+Under `L149` those two differ, and the agent has no way to learn it. Asked
+*"where did you answer?"* the krons agent looked at its transcript, found the
+answer, and produced three successive explanations for a delivery failure it
+could not see: *"a delivery gap, not me going silent"*, then *"Same session the
+whole time… I saw the context and the `[resolve]` steering"*, then a
+timestamp-based theory about turns splitting 13 seconds apart. The last one was
+mechanically correct about a different event and still not the cause. This is
+confabulation forced by missing feedback, not by a weak model — the honest
+answer was unreachable from inside the container.
+
+Note the asymmetry that makes it worse: an explicit `mcp__arizuko__reply` call
+**returns a message id**, so the agent can confirm that one. Turn-final text
+delivery returns nothing. The reliable path is the one the manual tells the
+agent not to use.
+
+**Two candidate fixes, both proposals:**
+
+1. **Receipt.** Have `submit_turn` return the stored message id and length, and
+   have ant surface a mismatch to the agent. Smallest change; tells the agent
+   the truth at the only moment it can still act.
+2. **Echo.** Include the agent's own delivered messages in `<messages>` (drop
+   `is_bot_message = 0`, or add a bounded `<delivered>` block). Larger prompt,
+   but it makes "what did they actually receive" answerable on every turn.
+
+Fix 1 is enough to end the confabulation. Fix 2 also repairs the agent's model
+of the conversation, which currently has a one-sided hole in it.
+
+**Second measurement from the same envelope, recorded not filed.** The turn at
+07:36 carried 22,078 characters. `<episodes>` and `<knowledge>` account for
+roughly 21,800 of them; the live user message is 92. The present tense is 0.4%
+of the context the agent reasons over, and every turn ends with the standing
+directive `[resolve] Invoke /resolve now` — which guarantees a tool call, which
+under `L149` is what destroys the answer. The proportion is not itself a bug,
+but it is the pressure that makes `L149` fire on the turns that matter most.
+
+- **Files:** `routd/prompt_db.go:192,197,208`, `ant/src/index.ts:89-107`
+- **Evidence:** krons session `32863f1a`, transcript lines 333 (envelope), 340,
+  351, 367
+- **Related:** `L149` (the loss this blindness hides)
+
 ## L148 — 22 ad-hoc JID⇄folder conversions in 16 files; collapse them to three named seams so `"web:"` appears twice in the tree (2026-08-30, open — minimal, no schema change)
 
 The operator's requirement: *"remove special treatment of JIDs — that should all
