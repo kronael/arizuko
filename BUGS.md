@@ -7,7 +7,7 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
-## L149 — only the LAST assistant text block is delivered, so an answer written before a tool call is destroyed; `ant/CLAUDE.md:85` tells the agent the opposite (2026-08-31, open — the instruction half is minimal, the mechanism half is a proposal)
+## L149 — only the LAST assistant text block is delivered, so an answer written before a tool call is destroyed; `ant/CLAUDE.md:85` tells the agent the opposite (2026-08-31, instruction half FIXED 2026-08-31; the mechanism half is a proposal)
 
 The operator watched the krons agent answer him three times and receive
 *"you did not reply though"*. The agent had answered. The answers were thrown
@@ -67,10 +67,13 @@ delivery of the wrong bytes.
 
 **Fix, two halves — they are separable and the first is not a redesign:**
 
-1. **Instruction (minimal, ships inline).** Correct `ant/CLAUDE.md:85` to state
-   the contract that exists: *only your final text block is delivered; write the
-   answer last, after every tool call.* Then reconcile line 131, which currently
-   asks for a trailing "done" that overwrites the answer.
+1. **Instruction (minimal, ships inline).** ✅ **DONE 2026-08-31.**
+   `ant/CLAUDE.md:85` now states the contract that exists — *only your FINAL text
+   block is delivered; text before a tool call is discarded; make every tool call
+   first and write the answer once, at the end* — and names the exact trap:
+   never answer and then file that answer, because the closing line replaces it.
+   Line 131 is reconciled: a turn that emitted a `<status>` closes with the
+   ANSWER, not with "done", because that closing block is the only text delivered.
 2. **Mechanism (proposal, needs sign-off).** Make the delivered text the
    concatenation of the run's assistant text blocks rather than the last one.
    This changes delivery semantics for every backend and every turn, so it is a

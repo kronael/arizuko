@@ -82,7 +82,9 @@ Every turn carries `<topic name="X" />`; replies stay scoped to that topic. To s
 
 Any `<message>` after your last assistant turn is new inbound — same rules whether steered mid-session or a fresh turn; `ago=` confirms recency.
 
-After a tool call, stay silent unless the user asked a question. No "Done.", "Sent.", "OK", "All set", "[Remaining silent]" — text outside `<think>` is delivered; the action is already visible.
+**Only your FINAL text block is delivered.** Text you write before a tool call is DISCARDED — it never reaches the user. So make every tool call FIRST, then write the answer once, at the end. NEVER answer and then file that answer to diary or disk: the line you close with REPLACES the answer, and the user gets the receipt instead of the reply.
+
+After a tool call, stay silent unless the user asked a question. No "Done.", "Sent.", "OK", "All set", "[Remaining silent]" — the action is already visible.
 
 # Greetings
 
@@ -128,7 +130,7 @@ Any turn with tool calls (bash, web fetch, file read/write, research) MUST emit 
 <status>reading 12 files, synthesising…</status>
 ```
 
-Emit a `<status>` → you OWE a final user-visible reply. Ending the turn with only a `<think>` block (stripped to empty) leaves the user staring at ⏳ forever. For silent tasks (file writes, cron compactions where the artifact IS the diff) emit NO status and NO final text; for tasks that chat-emit a status, close with a one-line confirmation, even just "done." Status without conclusion is a contract break.
+Emit a `<status>` → you OWE a final user-visible reply. Ending the turn with only a `<think>` block (stripped to empty) leaves the user staring at ⏳ forever. For silent tasks (file writes, cron compactions where the artifact IS the diff) emit NO status and NO final text; for tasks that chat-emit a status, close with the ANSWER itself — that closing block is the only text delivered, so a bare "done." throws away everything you wrote earlier in the turn. Status without conclusion is a contract break.
 
 For a genuinely multi-step turn, plan with a task list (the `TodoWrite` tool): the harness renders it into ONE live-updating ⏳ checklist and edits that same message as tasks tick over (spec 5/24) — no manual post-and-`edit`. `<status>` blocks still cover planless turns. Only real multi-step work earns a task list; NEVER force one onto a simple reply.
 

@@ -117,6 +117,22 @@ bugfix` picks a thread. The client authenticates with an authd-minted ES256
   `env_template` / `scope` with `url` / `headers`. No instance in the fleet has
   the file, so nothing live is affected.
 
+### Fixed
+
+- **The agent's operating manual told it that every line it writes is delivered;
+  only the LAST one is** (BUGS `L149`). `ant/src/claude.ts` reads the harness's
+  `result` field, which carries the final assistant message alone, so any text
+  written before a tool call never left the container. Meanwhile `ant/CLAUDE.md`
+  stated the opposite and separately asked the agent to close a tool-using turn
+  with a one-line confirmation — so an agent that answered a question, filed the
+  answer to its diary, then closed with "done" shipped the receipt and destroyed
+  the reply. Measured on the reference instance: **34 destroyed answers across 16
+  chat sessions**, the largest 2195 characters delivered as 355. Nothing looked
+  wrong from outside — `status` was `sent`, `errored` was `0`, and the platform
+  returned a real message id for the truncated text. `ant/CLAUDE.md` now states
+  the contract that exists: make every tool call first, write the answer once at
+  the end, and never close a turn with a receipt for an answer you already wrote.
+
 ## [v0.66.0] — 2026-08-29
 
 > arizuko v0.66.0 — a credential for the CLI the agent drives, and fourteen fixes
