@@ -7,6 +7,59 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L151 — proposal: an adapter whose credential is dead restart-loops forever and the only trace is one log line; routd already owns the mechanism to say so (2026-09-01, proposal — needs sign-off)
+
+Three of the fleet's adapters are dead right now on a bad credential, and every
+one of them fails the root `CLAUDE.md` rule *"fail loud, fail to the user — a
+logged-but-invisible failure is still silent"*:
+
+| instance | adapter | error | visible where |
+| --- | --- | --- | --- |
+| sloth | `discd` | `websocket: close 4004: Authentication failed` | log only |
+| marinade | `emaid` | `imap: NO [AUTHENTICATIONFAILED] Invalid credentials` | log only |
+| krons | `whapd` | WhatsApp `401 session invalidated` | log only |
+
+**The two halves of the silence.**
+
+1. `chanlib/run.go:90-93` treats every `opts.Start` failure the same:
+   `slog.Error` then `os.Exit(1)`. Docker's restart policy is the retry, so a
+   **permanent** misconfiguration (wrong token) loops exactly like a transient
+   network blip. That is the retry rule inverted — `CLAUDE.md` says retry only
+   remote/network and DB-busy errors; misconfig throws immediately.
+2. `chanreg/health.go:63-66` already detects it. After three failed pings (90
+   seconds) routd deregisters the channel and logs
+   `channel auto-deregistered`. From that moment outbound messages to that
+   platform go nowhere and nothing says so — not the operator, not the agent
+   that calls `send`.
+
+**The proposal, and why it adds no branch.** `system_messages` is the mechanism
+routd already uses to tell agents something changed out-of-band —
+`checkMigrationVersion` (`routd/loop.go:503`) enqueues a row per folder and
+`FlushSysMsgs` (`routd/prompt_db.go:15`) renders it into the next prompt as a
+`<system>` line. Deregistration should enqueue one the same way. The call lands
+**inside the `if fails >= maxHealthFails` block that already exists**, so the
+change is one line at one site plus the plumbing to reach the DB — no new
+control flow, no second notification path.
+
+**The one design question that needs the operator's answer, and is why this is a
+proposal not a patch:** `chanreg` is a library with no DB handle, and a dead
+channel is not scoped to a folder. Which folders get told? Candidates: every
+folder with a route through that channel (precise, needs a query); the operator
+folder only (cheap, one row); or all folders (loud, noisy). Wiring `chanreg` to
+routd's DB is a cross-package contract change either way.
+
+**Not proposed:** an in-arizuko watchdog for a stopped instance. Both `sloth`
+and `marinade` were stopped deliberately by a human on 2026-08-29 17:05 UTC and
+stayed down two days — correct systemd behaviour for an `enabled` unit, and
+process/host alerting is infra, not arizuko's concern.
+
+- **Files:** `chanreg/health.go:63-66`, `chanlib/run.go:90-93`,
+  `routd/loop.go:503`, `routd/prompt_db.go:15`
+- **Evidence:** `journalctl -u arizuko_sloth` 2026-09-01 07:25 (discd 4004 loop),
+  `arizuko_marinade` emaid IMAP AUTHENTICATIONFAILED, `arizuko_krons` whapd 401
+- **Related:** `L149`/`L150` (the same class — a real failure with no path to a
+  human), `adapter_service_name`, `whapd_pairing_recovery`
+
 ## L149 — only the LAST assistant text block is delivered, so an answer written before a tool call is destroyed; `ant/CLAUDE.md:85` tells the agent the opposite (2026-08-31, instruction half FIXED 2026-08-31; the mechanism half is a proposal)
 
 The operator watched the krons agent answer him three times and receive
