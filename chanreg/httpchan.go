@@ -82,6 +82,7 @@ type outMsg struct {
 	ThreadID       string
 	ThreadRoot     string
 	IdempotencyKey string
+	Options        []chanlib.Option
 	IsFile         bool
 	Path           string
 	Name           string
@@ -128,11 +129,35 @@ func (h *HTTPChannel) Send(jid, text, replyTo, threadID, threadRoot, idempotency
 }
 
 func (h *HTTPChannel) SendCtx(ctx context.Context, jid, text, replyTo, threadID, threadRoot, idempotencyKey string) (string, error) {
+	return h.SendOptionsCtx(ctx, jid, text, nil, replyTo, threadID, threadRoot, idempotencyKey)
+}
+
+// SendOptionsCtx is Send carrying pickable answers (spec 5/19). It is the ONE
+// fold: an adapter that does not advertise `buttons` never receives options, it
+// receives the same prompt with the answers written out as text the reader can
+// type. Without that fold a Telegram-only feature would silently deliver an
+// unanswerable prompt everywhere else.
+func (h *HTTPChannel) SendOptionsCtx(ctx context.Context, jid, text string, options []chanlib.Option,
+	replyTo, threadID, threadRoot, idempotencyKey string) (string, error) {
 	if !h.entry.HasCap("send_text") {
 		return "", fmt.Errorf("channel %s: send_text not supported", h.entry.Name)
 	}
-	m := outMsg{JID: jid, Content: text, ReplyTo: replyTo, ThreadID: threadID, ThreadRoot: threadRoot, IdempotencyKey: idempotencyKey}
+	if !h.entry.HasCap("buttons") {
+		text, options = foldOptions(text, options), nil
+	}
+	m := outMsg{JID: jid, Content: text, Options: options, ReplyTo: replyTo,
+		ThreadID: threadID, ThreadRoot: threadRoot, IdempotencyKey: idempotencyKey}
 	return h.trySend(ctx, m)
+}
+
+// foldOptions writes the answers into the message body for a channel with no
+// button surface. Each line is what the reader types, so the fallback and the
+// button send the identical string.
+func foldOptions(text string, options []chanlib.Option) string {
+	for _, o := range options {
+		text += "\n" + o.Send() + "   — " + o.Label
+	}
+	return text
 }
 
 // trySend makes ONE delivery attempt for m and returns the result to the caller.
@@ -161,7 +186,10 @@ func (h *HTTPChannel) trySend(ctx context.Context, m outMsg) (string, error) {
 	if !h.entry.HasCap("send_text") {
 		return "", fmt.Errorf("channel %s: send_text not supported", h.entry.Name)
 	}
-	body := map[string]string{"chat_jid": m.JID, "content": m.Content}
+	body := map[string]any{"chat_jid": m.JID, "content": m.Content}
+	if len(m.Options) > 0 {
+		body["options"] = m.Options
+	}
 	if m.ReplyTo != "" {
 		body["reply_to"] = m.ReplyTo
 	}

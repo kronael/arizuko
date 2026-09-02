@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
@@ -426,6 +427,10 @@ func (d *fakeDeliverer) Send(_, _, _, _, _, _ string) (string, error) {
 	return d.platformID, nil
 }
 func (d *fakeDeliverer) SendVia(_, _, _ string) (string, error) {
+	d.sends++
+	return d.platformID, nil
+}
+func (d *fakeDeliverer) SendOptions(_, _ string, _ []chanlib.Option, _, _ string) (string, error) {
 	d.sends++
 	return d.platformID, nil
 }

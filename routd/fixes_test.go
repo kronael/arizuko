@@ -48,6 +48,7 @@ type recDeliverer struct {
 
 type sentMsg struct {
 	jid, text, replyTo, threadID, threadRoot, idem string
+	options                                        []chanlib.Option
 }
 
 type sentVoice struct {
@@ -59,7 +60,7 @@ type sentEdit struct {
 }
 
 func (d *recDeliverer) Send(jid, text, replyTo, threadID, threadRoot, idem string) (string, error) {
-	d.sends = append(d.sends, sentMsg{jid, text, replyTo, threadID, threadRoot, idem})
+	d.sends = append(d.sends, sentMsg{jid, text, replyTo, threadID, threadRoot, idem, nil})
 	if d.permIdem != "" && idem == d.permIdem {
 		return "", fmt.Errorf("%w: status 400", chanlib.ErrPermanent)
 	}
@@ -70,6 +71,14 @@ func (d *recDeliverer) Send(jid, text, replyTo, threadID, threadRoot, idem strin
 		return "pid-" + idem, nil
 	}
 	return d.pid, nil
+}
+
+// SendOptions records the pickable answers alongside the text so a test can
+// assert what a reader is actually offered.
+func (d *recDeliverer) SendOptions(jid, text string, options []chanlib.Option, threadID, idem string) (string, error) {
+	id, err := d.Send(jid, text, "", threadID, "", idem)
+	d.sends[len(d.sends)-1].options = options
+	return id, err
 }
 
 // SendVia records the pin alongside the send so a test can assert which adapter

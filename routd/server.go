@@ -13,6 +13,7 @@ import (
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/chanreg"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/ipc"
@@ -31,6 +32,12 @@ type Deliverer interface {
 	// the adapter to root a NEW thread on that message id (Slack thread_ts,
 	// Discord start-thread-from-message). Returns the platform-native id.
 	Send(jid, text, replyToID, threadID, threadRoot, idempotencyKey string) (platformID string, err error)
+	// SendOptions is Send carrying the answers a reader can pick without typing
+	// (spec 5/19). An option's Data is what the press SENDS, so a button and a
+	// typed command reach routd as the same text and run the same handler under
+	// the same gate. Channels without a button surface get the answers folded
+	// into the text by chanreg — one fold, every sink.
+	SendOptions(jid, text string, options []chanlib.Option, threadID, idempotencyKey string) (platformID string, err error)
 	// SendVia is Send pinned to a named adapter — step 1 of the outbound
 	// resolution order (spec 5/34 § "Outbound and adapter resolution"). Only
 	// POST /v1/outbound carries a pin, and only because a JID prefix can be

@@ -164,6 +164,21 @@ type rawUpdate struct {
 	UpdateID        int                     `json:"update_id"`
 	Message         *tgbotapi.Message       `json:"message,omitempty"`
 	MessageReaction *messageReactionUpdated `json:"message_reaction,omitempty"`
+	CallbackQuery   *callbackQuery          `json:"callback_query,omitempty"`
+}
+
+// callbackQuery is an inline-keyboard press. Only the fields the mapping needs
+// are decoded: who pressed, which prompt, and the option's data.
+type callbackQuery struct {
+	ID      string         `json:"id"`
+	From    *tgbotapi.User `json:"from,omitempty"`
+	Message *struct {
+		MessageID int `json:"message_id"`
+		Chat      struct {
+			ID int64 `json:"id"`
+		} `json:"chat"`
+	} `json:"message,omitempty"`
+	Data string `json:"data"`
 }
 
 type reactionType struct {
@@ -211,6 +226,8 @@ func (b *bot) poll(ctx context.Context, rc *chanlib.RouterClient, offset int) {
 				delivered = b.handle(u.Message, rc)
 			case u.MessageReaction != nil:
 				delivered = b.handleReaction(u.MessageReaction, rc)
+			case u.CallbackQuery != nil:
+				delivered = b.handleCallback(u.CallbackQuery, rc)
 			}
 			if delivered {
 				offset = u.UpdateID + 1
@@ -226,7 +243,7 @@ func (b *bot) fetchUpdates(offset int) ([]rawUpdate, error) {
 	result, err := b.do("getUpdates", tgbotapi.Params{
 		"offset":          strconv.Itoa(offset),
 		"timeout":         "30",
-		"allowed_updates": `["message","message_reaction"]`,
+		"allowed_updates": `["message","message_reaction","callback_query"]`,
 	})
 	if err != nil {
 		return nil, err
@@ -268,6 +285,40 @@ func (b *bot) handleReaction(r *messageReactionUpdated, rc *chanlib.RouterClient
 		}
 		b.lastInboundAt.Store(time.Now().Unix())
 	}
+	return true
+}
+
+// handleCallback turns an inline-keyboard press into an ordinary inbound message
+// whose content is the option's data (spec 5/19 §"Operator interaction"). A HITL
+// button carries `/approve <id>`, so the press and the typed command reach the
+// same reserved-command parser and the same operator gate — teled decides
+// nothing about the verdict, and no second authorization path exists.
+func (b *bot) handleCallback(q *callbackQuery, rc *chanlib.RouterClient) bool {
+	// Clear the client-side spinner first. It is cosmetic, so a failure here
+	// must not stop the press from being delivered.
+	if _, err := b.do("answerCallbackQuery", tgbotapi.Params{"callback_query_id": q.ID}); err != nil {
+		slog.Warn("answerCallbackQuery failed", "err", err)
+	}
+	if q.Message == nil || q.Data == "" {
+		return true // nothing to route; do not stall the offset on it
+	}
+	jid := chatJIDFromID(q.Message.Chat.ID)
+	promptID := jid + "/" + strconv.Itoa(q.Message.MessageID)
+	im := chanlib.InboundMsg{
+		ID:         promptID + ":cb:" + q.ID,
+		ChatJID:    jid,
+		Sender:     "telegram:user/" + userID(q.From),
+		SenderName: userName(q.From),
+		Content:    q.Data,
+		Timestamp:  time.Now().Unix(),
+		ReplyTo:    promptID,
+		IsGroup:    q.Message.Chat.ID < 0,
+	}
+	if err := rc.SendMessage(im); err != nil {
+		slog.Error("deliver callback failed", "jid", jid, "err", err)
+		return false
+	}
+	b.lastInboundAt.Store(time.Now().Unix())
 	return true
 }
 
@@ -360,6 +411,22 @@ func (b *bot) handle(msg *tgbotapi.Message, rc *chanlib.RouterClient) bool {
 	return true
 }
 
+// keyboard renders one row per option, or nil when there is nothing to draw.
+// Data is what the press sends back, so a button and the typed command carry the
+// identical string; Telegram caps it at 64 bytes, which the short pending ids
+// stay well inside.
+func keyboard(options []chanlib.Option, last bool) any {
+	if len(options) == 0 || !last {
+		return nil
+	}
+	rows := make([][]tgbotapi.InlineKeyboardButton, 0, len(options))
+	for _, o := range options {
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(o.Label, o.Send())))
+	}
+	return tgbotapi.NewInlineKeyboardMarkup(rows...)
+}
+
 func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 	id, err := parseChatID(req.ChatJID)
 	if err != nil {
@@ -382,15 +449,19 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 		}
 	}
 	var firstID string
+	// The keyboard rides the LAST chunk so it sits under the whole prompt.
+	chunks := chanlib.Chunk(req.Content, 4096)
 	// Chunk the plain source so HTML and plain-fallback share the same
 	// boundaries: a chunk that fails HTML parsing (400, e.g. a tag split
 	// across the 4096 limit) retries as plain text on its own — never
 	// re-sending earlier chunks that already landed (which duplicated them).
-	for _, p := range chanlib.Chunk(req.Content, 4096) {
+	for i, p := range chunks {
 		chunkReply := replyMsgID // 0 after the first chunk
 		replyMsgID = 0           // only first chunk replies
+		keys := keyboard(req.Options, i == len(chunks)-1)
 		m := tgbotapi.NewMessage(id, mdToHTML(p))
 		m.ParseMode = "HTML"
+		m.ReplyMarkup = keys
 		if chunkReply != 0 {
 			m.ReplyToMessageID = chunkReply
 		}
@@ -404,6 +475,7 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 				// Plain-text fallback must carry the same reply target,
 				// otherwise an explicit reply silently flattens to a fresh msg.
 				pm := tgbotapi.NewMessage(id, p)
+				pm.ReplyMarkup = keys
 				if chunkReply != 0 {
 					pm.ReplyToMessageID = chunkReply
 				}

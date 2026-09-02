@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/routd"
 	routdv1 "github.com/kronael/arizuko/routd/api/v1"
@@ -144,12 +145,15 @@ type fedDeliverer struct{}
 
 func (fedDeliverer) Send(_, _, _, _, _, _ string) (string, error) { return "platform-fed-1", nil }
 func (fedDeliverer) SendVia(_, _, _ string) (string, error)       { return "platform-fed-1", nil }
-func (fedDeliverer) React(_, _, _ string) error                   { return nil }
-func (fedDeliverer) Edit(_, _, _ string) error                    { return nil }
-func (fedDeliverer) Delete(_, _ string) error                     { return nil }
-func (fedDeliverer) Pin(_, _ string) error                        { return nil }
-func (fedDeliverer) Unpin(_, _ string, _ bool) error              { return nil }
-func (fedDeliverer) Typing(_ string, _ bool) error                { return nil }
+func (fedDeliverer) SendOptions(_, _ string, _ []chanlib.Option, _, _ string) (string, error) {
+	return "platform-fed-1", nil
+}
+func (fedDeliverer) React(_, _, _ string) error      { return nil }
+func (fedDeliverer) Edit(_, _, _ string) error       { return nil }
+func (fedDeliverer) Delete(_, _ string) error        { return nil }
+func (fedDeliverer) Pin(_, _ string) error           { return nil }
+func (fedDeliverer) Unpin(_, _ string, _ bool) error { return nil }
+func (fedDeliverer) Typing(_ string, _ bool) error   { return nil }
 func (fedDeliverer) Document(_, _, _, _, _, _, _ string) (string, error) {
 	return "platform-fed-doc", nil
 }

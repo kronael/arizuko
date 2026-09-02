@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
@@ -24,11 +25,14 @@ type typingEvent struct {
 
 func (d *typingDeliverer) Send(_, _, _, _, _, _ string) (string, error) { return "pid-1", nil }
 func (d *typingDeliverer) SendVia(_, _, _ string) (string, error)       { return "pid-1", nil }
-func (d *typingDeliverer) React(_, _, _ string) error                   { return nil }
-func (d *typingDeliverer) Edit(_, _, _ string) error                    { return nil }
-func (d *typingDeliverer) Delete(_, _ string) error                     { return nil }
-func (d *typingDeliverer) Pin(_, _ string) error                        { return nil }
-func (d *typingDeliverer) Unpin(_, _ string, _ bool) error              { return nil }
+func (d *typingDeliverer) SendOptions(_, _ string, _ []chanlib.Option, _, _ string) (string, error) {
+	return "pid-1", nil
+}
+func (d *typingDeliverer) React(_, _, _ string) error      { return nil }
+func (d *typingDeliverer) Edit(_, _, _ string) error       { return nil }
+func (d *typingDeliverer) Delete(_, _ string) error        { return nil }
+func (d *typingDeliverer) Pin(_, _ string) error           { return nil }
+func (d *typingDeliverer) Unpin(_, _ string, _ bool) error { return nil }
 func (d *typingDeliverer) Document(_, _, _, _, _, _, _ string) (string, error) {
 	return "", nil
 }

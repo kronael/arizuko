@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/chanreg"
 	"github.com/kronael/arizuko/core"
 )
@@ -83,15 +84,21 @@ func (d *chanDeliverer) disabled(jid string) bool {
 }
 
 func (d *chanDeliverer) Send(jid, text, replyToID, threadID, threadRoot, idempotencyKey string) (string, error) {
-	return d.send("", jid, text, replyToID, threadID, threadRoot, idempotencyKey)
+	return d.send("", jid, text, nil, replyToID, threadID, threadRoot, idempotencyKey)
 }
 
 func (d *chanDeliverer) SendVia(channel, jid, text string) (string, error) {
-	return d.send(channel, jid, text, "", "", "", "")
+	return d.send(channel, jid, text, nil, "", "", "", "")
 }
 
-// send is the one text-egress body; Send and SendVia differ only in the pin.
-func (d *chanDeliverer) send(channel, jid, text, replyToID, threadID, threadRoot, idempotencyKey string) (string, error) {
+func (d *chanDeliverer) SendOptions(jid, text string, options []chanlib.Option, threadID, idempotencyKey string) (string, error) {
+	return d.send("", jid, text, options, "", threadID, "", idempotencyKey)
+}
+
+// send is the one text-egress body; Send, SendVia and SendOptions differ only in
+// the pin and the options.
+func (d *chanDeliverer) send(channel, jid, text string, options []chanlib.Option,
+	replyToID, threadID, threadRoot, idempotencyKey string) (string, error) {
 	if d.disabled(jid) {
 		return "", nil
 	}
@@ -99,7 +106,7 @@ func (d *chanDeliverer) send(channel, jid, text, replyToID, threadID, threadRoot
 	if ch == nil {
 		return "", fmt.Errorf("no channel for jid %s", jid)
 	}
-	return ch.Send(jid, text, replyToID, threadID, threadRoot, idempotencyKey)
+	return ch.SendOptionsCtx(context.Background(), jid, text, options, replyToID, threadID, threadRoot, idempotencyKey)
 }
 
 func (d *chanDeliverer) Document(jid, path, name, caption, replyToID, threadID, idempotencyKey string) (string, error) {

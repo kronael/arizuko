@@ -77,6 +77,7 @@ func newTGMock() *tgMock {
 				"chat_id":             r.Form.Get("chat_id"),
 				"text":                r.Form.Get("text"),
 				"reply_to_message_id": r.Form.Get("reply_to_message_id"),
+				"reply_markup":        r.Form.Get("reply_markup"),
 			})
 			idx := len(m.lastSent)
 			m.mu.Unlock()
