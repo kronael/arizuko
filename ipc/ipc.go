@@ -2432,10 +2432,13 @@ func holdResponse(id any, pendingID, tool string) map[string]any {
 			},
 		}
 	}
+	// Verdict-neutral on purpose: a BLOCKING hold reaches this line only after it
+	// already waited, so the call may be held, rejected or timed out and one text
+	// has to be true of all three. The verdict itself lands in the chat.
 	text := fmt.Sprintf(
-		"HELD for human approval (id %s). %s was not run. An operator must "+
-			"/approve %s or /reject %s. Tell the user it is waiting; do not retry — "+
-			"a retry is held again.", pendingID, tool, pendingID, pendingID)
+		"NOT RUN (id %s): %s needs human approval. Tell the user, and read the "+
+			"verdict in the chat; do not retry — a retry is held again.",
+		pendingID, tool)
 	return map[string]any{
 		"jsonrpc": "2.0", "id": id,
 		"result": map[string]any{

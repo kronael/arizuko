@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/store"
@@ -209,12 +210,13 @@ func (d *dash) handleGroupGrantAdd(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "principal and action required", http.StatusBadRequest)
 		return
 	}
-	// Empty = omitted field → default allow. Any other non-allow/deny value is
-	// a malformed submission, not a default.
+	// Empty = omitted field → default allow. Any other value the action does not
+	// take is a malformed submission, not a default.
 	if effect == "" {
 		effect = "allow"
-	} else if effect != "allow" && effect != "deny" {
-		http.Error(w, "effect must be allow or deny", http.StatusBadRequest)
+	} else if !auth.EffectAllowed(action, effect) {
+		http.Error(w, "effect must be allow or deny, or async on a hold: rule",
+			http.StatusBadRequest)
 		return
 	}
 	if scope == "" {

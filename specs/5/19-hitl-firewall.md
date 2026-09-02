@@ -233,15 +233,53 @@ is distinct from the held folder; until that exists, chat `/approve` and the
 `/dash/approvals/` REST face are the two resolution paths, and both funnel
 through `resolveHoldTx`.
 
-### Deliberately not in this release
+## Blocking is the default (2026-09-02)
 
-Per-adapter NATIVE button rendering (teled/discd/slakd callback→inbound). The
-generic `SendRequest.Options` fold was the vehicle; without it the notice is
-plain text carrying the two commands, which is what the acceptance criterion
-"adapter without `buttons` → numbered text" already describes as correct
-behavior. The gate, the resource and the resolution paths do not depend on it.
+The hold row's `effect` chooses WHEN the agent learns the verdict, and the two
+spellings are the whole vocabulary:
 
-That deferral now has an owner: [`6/26`](../6/26-personal-mode.md) § Decision 6
-gap 3 holds the `SendRequest.Options` vehicle and the measured per-adapter cost
-of native render — including the one adapter that cannot have it, which is why
+| effect  | the agent's tool call | who runs an approved call |
+| ------- | --------------------- | ------------------------- |
+| `allow` | WAITS in the turn     | the waiter, inline        |
+| `async` | returns at once       | the agent, re-issuing     |
+| `deny`  | runs (skip approval)  | —                         |
+
+Blocking is the default because a call worth gating is a call worth not
+proceeding without: the async shape let the agent answer the user, close the
+turn, and only much later carry out what it had already reported. Blocking wins
+when both spellings match; `deny` still beats both.
+
+**Exactly one of the waiter and the agent runs an approved call.** The suspended
+row records its mode, and `resolveHoldTx` writes the re-issue trigger only for
+an `async` row. A waiter that reaches `HITL_WAIT` (default 10m, and it must stay
+under `RUNED_RUN_TIMEOUT` or the container dies first) flips its row to `async`
+before giving up, which hands a late approval back to the trigger path rather
+than leaving it to be consumed by some future call of the same shape.
+
+The agent's result text is verdict-NEUTRAL for the same reason: a blocking hold
+reaches it after waiting, so held, rejected and timed-out have to share one
+sentence. The verdict itself is in the chat, where the human is.
+
+Only a `hold:` action takes `async` — `auth.EffectAllowed` is the one reader
+operator surfaces validate through. On any other action it would read as an
+ordinary ALLOW and grant the tool it looks like it is gating (Hazard 1).
+
+## Buttons — shipped for teled (2026-09-02)
+
+`SendRequest.Options []Option{label, data}` and the fold both shipped as
+specified: `chanreg.HTTPChannel.SendOptionsCtx` is the ONE fold site, and an
+adapter that does not advertise `buttons` never receives an options field — it
+receives the same prompt with the answers written out as text a reader can type.
+
+teled advertises `buttons`, draws an inline keyboard on the last chunk, and maps
+`callback_query` to an ordinary `InboundMsg` whose Content is the option's data.
+A HITL button carries `/approve <id>` verbatim, so **the press and the typed
+command are the same inbound text** and meet the same `IsOperator` gate. There
+is no button-only path to a verdict and no token in the notice — the chat is
+readable by everyone in it. `/always` is offered only when an exact rule can be
+written, the same condition the text states.
+
+discd and slakd still take the fold. Their native render stays owned by
+[`6/26`](../6/26-personal-mode.md) § Decision 6 gap 3, which holds the measured
+per-adapter cost — including the one adapter that cannot have it, which is why
 the text fallback is the specified behavior rather than a placeholder.

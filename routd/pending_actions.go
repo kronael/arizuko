@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
 )
 
@@ -45,6 +46,11 @@ type PendingAction struct {
 	Result       string `json:"result"`
 	Error        string `json:"error"`
 	ExpiresAt    string `json:"expires_at"`
+	// Mode is the hold row's effect: auth.EffectHoldBlock means the agent's tool
+	// call is WAITING on this row right now, EffectHoldAsync that it already
+	// returned. It decides who runs the approved call — the waiter, or the agent
+	// re-issuing from resolutionMessage — so exactly one of them does.
+	Mode string `json:"mode"`
 
 	// The three fields below are DERIVED from ArgsFinal, never stored: they are
 	// what an `always` verdict would write, computed by one renderer
@@ -115,24 +121,28 @@ func (d *DB) PutPendingAction(p PendingAction) error {
 	if p.CreatedAt == "" {
 		p.CreatedAt = time.Now().UTC().Format(time.RFC3339)
 	}
+	if p.Mode == "" {
+		p.Mode = auth.EffectHoldAsync
+	}
 	_, err := d.db.Exec(`
 		INSERT INTO pending_actions
 		  (id, group_folder, caller_agent, tool, args, args_final, args_hash,
-		   status, chat_jid, created_at, expires_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+		   status, chat_jid, created_at, expires_at, mode)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
 		p.ID, p.GroupFolder, p.CallerAgent, p.Tool, p.Args, p.ArgsFinal, p.ArgsHash,
-		p.Status, p.ChatJID, p.CreatedAt, p.ExpiresAt)
+		p.Status, p.ChatJID, p.CreatedAt, p.ExpiresAt, p.Mode)
 	return err
 }
 
 const pendingCols = `id, group_folder, caller_agent, tool, args, args_final, args_hash,
-	status, chat_jid, created_at, reviewed_by, reviewed_at, reviewer_note, result, error, expires_at`
+	status, chat_jid, created_at, reviewed_by, reviewed_at, reviewer_note, result, error, expires_at,
+	mode`
 
 func scanPending(sc interface{ Scan(...any) error }) (PendingAction, error) {
 	var p PendingAction
 	err := sc.Scan(&p.ID, &p.GroupFolder, &p.CallerAgent, &p.Tool, &p.Args, &p.ArgsFinal,
 		&p.ArgsHash, &p.Status, &p.ChatJID, &p.CreatedAt, &p.ReviewedBy, &p.ReviewedAt,
-		&p.ReviewerNote, &p.Result, &p.Error, &p.ExpiresAt)
+		&p.ReviewerNote, &p.Result, &p.Error, &p.ExpiresAt, &p.Mode)
 	return p, err
 }
 
@@ -151,6 +161,16 @@ func pendingActionOn(q queryExecer, id string) (PendingAction, bool) {
 		return PendingAction{}, false
 	}
 	return withMatcher(applyExpiry(p)), true
+}
+
+// GetPendingAction reads one row by id, for the blocking waiter.
+func (d *DB) GetPendingAction(id string) (PendingAction, bool) { return pendingActionOn(d.db, id) }
+
+// SetPendingMode records that nobody is waiting on this row any more, so the
+// approval has to travel as a re-issue trigger instead.
+func (d *DB) SetPendingMode(id, mode string) error {
+	_, err := d.db.Exec(`UPDATE pending_actions SET mode = ? WHERE id = ?`, mode, id)
+	return err
 }
 
 // ListPendingActions returns a folder's rows, newest first. An empty folder
@@ -330,6 +350,13 @@ func resolveHoldTx(ctx context.Context, tx *sql.Tx, id, verdict, reviewer, note 
 			return PendingAction{}, "", fmt.Errorf("record the skip-approval rule: %w", err)
 		}
 	}
+	if p.Mode == auth.EffectHoldBlock {
+		// The agent's call is still suspended on this row: the waiter consumes the
+		// approval and runs it inline. A trigger here would make the agent re-issue
+		// a call the waiter already ran. A waiter that times out flips the row to
+		// async first, so a late approval still lands here.
+		return p, "", nil
+	}
 	msg := resolutionMessage(p, reviewer)
 	if err := putMessage(tx, msg); err != nil {
 		return PendingAction{}, "", fmt.Errorf("record resolution message: %w", err)
@@ -392,7 +419,8 @@ func (s *Server) holdGate(t turnMCP) func(string, map[string]any) (string, bool)
 			slog.Info("hitl released", "folder", t.folder, "tool", tool, "pending", id)
 			return "", false
 		}
-		if !s.db.CheckHold("folder:"+t.folder, t.folder, tool, stringArgs(args)) {
+		mode := s.db.CheckHold("folder:"+t.folder, t.folder, tool, stringArgs(args))
+		if mode == "" {
 			return "", false
 		}
 		id := NewPendingID()
@@ -400,7 +428,7 @@ func (s *Server) holdGate(t turnMCP) func(string, map[string]any) (string, bool)
 		p := PendingAction{
 			ID: id, GroupFolder: t.folder, CallerAgent: "folder:" + t.folder,
 			Tool: tool, Args: string(raw), ArgsFinal: string(raw), ArgsHash: hash,
-			Status: PendingHeld, ChatJID: t.chatJID,
+			Status: PendingHeld, ChatJID: t.chatJID, Mode: mode,
 		}
 		if err := s.db.PutPendingAction(p); err != nil {
 			// Fail CLOSED: a hold rule exists and we could not record the call, so letting
@@ -415,9 +443,55 @@ func (s *Server) holdGate(t turnMCP) func(string, map[string]any) (string, bool)
 		// The notice quotes the rule an `always` would write, so it runs through
 		// the same renderer the writer will read it from.
 		s.notifyHeld(t, withMatcher(p))
-		return id, true
+		if mode == auth.EffectHoldAsync || s.awaitVerdict(id) {
+			return id, true
+		}
+		// Approved while the call waited, and the waiter consumed it: fall through
+		// and run the call the operator just said yes to.
+		return "", false
 	}
 }
+
+// HoldWait bounds how long a blocking hold suspends the agent's tool call. It has
+// to stay under RUNED_RUN_TIMEOUT (20m default): past that the container is killed
+// and the wait ends as a dead turn rather than as an answer.
+var HoldWait = chanlib.EnvDur("HITL_WAIT", 10*time.Minute)
+
+// awaitVerdict suspends a blocking hold until a human answers it, and reports
+// whether the call stays held. It returns false ONLY when the approval was
+// consumed here, which is the caller's signal to run the call inline.
+//
+// Giving up flips the row to async so a late approval still reaches the agent as
+// a re-issue trigger — otherwise an approval typed after the timeout would sit
+// unused until some future call of the same shape silently consumed it.
+func (s *Server) awaitVerdict(id string) bool {
+	deadline := time.Now().Add(HoldWait)
+	for time.Now().Before(deadline) {
+		time.Sleep(hitlPoll)
+		p, ok := s.db.GetPendingAction(id)
+		if !ok || p.Status == PendingHeld {
+			continue
+		}
+		if p.Status != PendingApproved {
+			slog.Info("hitl verdict", "pending", id, "status", p.Status)
+			return true
+		}
+		if _, ok := s.db.ConsumeApprovedAction(p.GroupFolder, p.Tool, p.ArgsHash); !ok {
+			return true
+		}
+		slog.Info("hitl released inline", "pending", id, "tool", p.Tool)
+		return false
+	}
+	if err := s.db.SetPendingMode(id, auth.EffectHoldAsync); err != nil {
+		slog.Error("hitl wait expired and the row could not be marked async; a later "+
+			"approval will not reach the agent", "pending", id, "err", err)
+	}
+	return true
+}
+
+// hitlPoll is how often the waiter re-reads the row. A verdict arrives at human
+// speed, so a tighter loop only costs reads.
+var hitlPoll = 2 * time.Second
 
 // withMatcher fills the derived verdict fields — the ONE renderer of the rule an
 // `always` would write. Every sink reads it here: the chat notice, the REST row
@@ -484,7 +558,23 @@ func (s *Server) notifyHeld(t turnMCP, p PendingAction) {
 	if url := s.approvalURL(p.ID); url != "" {
 		text += "\n" + url
 	}
-	s.notifyHold(t, "hitl-"+p.ID, text)
+	s.notifyHold(t, "hitl-"+p.ID, text, verdictOptions(p)...)
+}
+
+// verdictOptions are the three answers as pickable buttons. Each Data is the
+// command it replaces verbatim, so a press and a typed `/approve <id>` are the
+// same inbound text and meet the same operator gate — there is no button-only
+// path to a verdict. `/always` is offered only when an exact rule can be
+// written, which is the same condition alwaysOffer states in the text.
+func verdictOptions(p PendingAction) []chanlib.Option {
+	out := []chanlib.Option{
+		{Label: "✅ Approve", Data: "/approve " + p.ID},
+		{Label: "⛔ Reject", Data: "/reject " + p.ID},
+	}
+	if p.MatcherError == "" {
+		out = append(out, chanlib.Option{Label: "♾ Always", Data: "/always " + p.ID})
+	}
+	return out
 }
 
 // alwaysOffer is the `always` half of the notice: the EXACT row the verdict
@@ -542,11 +632,11 @@ func (s *Server) notifyHoldFailed(t turnMCP, tool string, cause error) {
 		tool, cause))
 }
 
-func (s *Server) notifyHold(t turnMCP, idem, text string) {
+func (s *Server) notifyHold(t turnMCP, idem, text string, options ...chanlib.Option) {
 	if t.chatJID == "" || s.deliver == nil {
 		return
 	}
-	if _, err := s.deliver.Send(t.chatJID, text, "", t.topic, "", idem); err != nil {
+	if _, err := s.deliver.SendOptions(t.chatJID, text, options, t.topic, idem); err != nil {
 		slog.Error("hitl notice not delivered", "jid", t.chatJID, "idem", idem, "err", err)
 	}
 }

@@ -16,6 +16,21 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Added
 
+- **An approval now BLOCKS the call it gates, and buttons answer it** (spec
+  `5/19`). A `hold:mcp:<tool>` rule used to let the agent report "waiting" and
+  finish the turn, so an approval typed a minute later reached an agent that had
+  already moved on. The suspended call now waits inside the turn (`HITL_WAIT`,
+  default 10m) and the operator's yes takes effect where it was asked. The
+  non-blocking shape is still there for a rule that wants it — write the row with
+  `effect='async'`. Exactly one of the waiter and the agent runs an approved
+  call, never both.
+- **The held notice carries Approve / Reject / Always buttons on Telegram.** A
+  button's data is the command it replaces verbatim, so a press and a typed
+  `/approve <id>` are the same inbound text under the same operator gate — no
+  token in the notice, no button-only path to a verdict. Channels without a
+  button surface get the same answers folded into text they can type, so the
+  prompt is answerable everywhere.
+
 - **A turn authorizes on two axes: the folder it was routed to AND the person who
   spoke** (spec `5/33` §"Two axes", BUGS `L147`). Until now every agent tool call
   authorized as the destination alone — the attested sender was computed for the

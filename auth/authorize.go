@@ -154,7 +154,7 @@ func withinSubtree(folder, scope string) bool {
 // identity axis: the action matched EXACTLY, or its own namespace wildcard (`mcp:*`
 // for an `mcp:<tool>` request).
 //
-// It refuses actionCovers' cross-namespace lattice for the reason namespacedAllows
+// It refuses actionCovers' cross-namespace lattice for the reason namespacedEffect
 // already refuses it (spec 5/19 Hazard 2): an operator's (`*`, `**`) row covers
 // every action, so reading the lattice here would make every message an operator
 // sends silently elevate the turn that answered it. Elevation by identity already
@@ -554,6 +554,37 @@ const HoldPrefix = "hold:mcp:"
 // operator-facing wording ("skip approval") cannot drift apart.
 const EffectSkipApproval = "deny"
 
+// A hold row's effect also chooses WHEN the agent learns the verdict, and the
+// two spellings are the whole vocabulary:
+//
+//   - EffectHoldBlock ("allow", the ordinary allow spelling) — the tool call
+//     WAITS inside the agent's turn until a human answers. This is the default
+//     because a call worth gating is a call worth not proceeding without.
+//   - EffectHoldAsync ("async") — the call returns immediately as held and the
+//     agent carries on; the approval arrives later as a re-issue trigger.
+//
+// Blocking wins when both match: the safer reading of two rules is the one that
+// waits. A deny (skip approval) still beats both.
+const (
+	EffectHoldBlock = "allow"
+	EffectHoldAsync = "async"
+)
+
+// EffectAllowed reports whether `effect` is a legal spelling on `action`. Only
+// a hold rule takes EffectHoldAsync — on any other action it would read as an
+// ordinary ALLOW (spec 5/19 Hazard 1), which is the trap a friendlier third
+// effect name always is. Operator surfaces validate through here so the rule and
+// the message they show cannot drift apart.
+func EffectAllowed(action, effect string) bool {
+	switch effect {
+	case "allow", EffectSkipApproval:
+		return true
+	case EffectHoldAsync:
+		return strings.HasPrefix(action, HoldPrefix)
+	}
+	return false
+}
+
 // CheckHold answers "must this tool call wait for a human?" — a DIRECT scoped read of
 // `hold:mcp:`-prefixed rows, deliberately NOT routed through Authorize, whose action
 // lattice would hold EVERY tool for the operator (spec 5/19 Hazard 2). Matching is
@@ -569,9 +600,9 @@ const EffectSkipApproval = "deny"
 //
 // Any matching deny beats every hold rule regardless of specificity, so revocation is
 // removing the skip-approval row.
-func CheckHold(s *store.Store, caller Caller, tool, scope string, params map[string]string) bool {
+func CheckHold(s *store.Store, caller Caller, tool, scope string, params map[string]string) string {
 	if s == nil || caller.Principal == "" || tool == "" {
-		return false
+		return ""
 	}
 	rows, err := policyRows(s, expandPrincipals(s, caller))
 	if err != nil {
@@ -579,14 +610,15 @@ func CheckHold(s *store.Store, caller Caller, tool, scope string, params map[str
 		// the safe answer is "no special treatment", said out loud.
 		slog.Error("check hold: acl read failed; holding NOTHING",
 			"principal", caller.Principal, "tool", tool, "err", err)
-		return false
+		return ""
 	}
-	return namespacedAllows(rows, HoldPrefix, tool, scope, caller.Claims, params)
+	return namespacedEffect(rows, HoldPrefix, tool, scope, caller.Claims, params)
 }
 
-// namespacedAllows answers one namespaced rule: does the caller hold an allow row
-// for `prefix+name` (or the namespace's `prefix+"*"`) covering scope, with no deny
-// row? Deny wins, and an absent row is a no.
+// namespacedEffect answers one namespaced rule: which allow row does the caller
+// hold for `prefix+name` (or the namespace's `prefix+"*"`) covering scope, with no
+// deny row? Deny wins, an absent row is "", and any other value is the row's
+// effect — for `hold:` rows, whether the call blocks the turn or not.
 //
 // The action is matched EXACTLY, never through actionCovers. That is the whole
 // reason this body exists apart from Authorize: an operator's (`*`, `**`) row
@@ -594,13 +626,13 @@ func CheckHold(s *store.Store, caller Caller, tool, scope string, params map[str
 // tool the operator calls (spec 5/19 Hazard 2) and hand every folder secret to
 // every operator turn. Both namespaces need the same refusal, so they share one
 // body rather than two loops that drift.
-func namespacedAllows(
+func namespacedEffect(
 	rows []core.ACLRow,
 	prefix, name, scope string,
 	claims, params map[string]string,
-) bool {
+) string {
 	want := prefix + name
-	allowed, denied := false, false
+	var block, async, denied bool
 	for _, r := range rows {
 		if r.Action != want && r.Action != prefix+"*" {
 			continue
@@ -614,13 +646,24 @@ func namespacedAllows(
 		if !paramsMatch(r.Params, params) {
 			continue
 		}
-		if r.Effect == EffectSkipApproval {
+		switch r.Effect {
+		case EffectSkipApproval:
 			denied = true
-		} else {
-			allowed = true
+		case EffectHoldAsync:
+			async = true
+		default:
+			block = true
 		}
 	}
-	return allowed && !denied
+	switch {
+	case denied:
+		return ""
+	case block:
+		return EffectHoldBlock
+	case async:
+		return EffectHoldAsync
+	}
+	return ""
 }
 
 const ShellEnvPrefix = "shell:env:"
@@ -645,7 +688,7 @@ func ShellEnvKeys(s *store.Store, caller Caller, scope string, keys []string) []
 	}
 	var out []string
 	for _, k := range keys {
-		if namespacedAllows(rows, ShellEnvPrefix, k, scope, caller.Claims, nil) {
+		if namespacedEffect(rows, ShellEnvPrefix, k, scope, caller.Claims, nil) != "" {
 			out = append(out, k)
 		}
 	}

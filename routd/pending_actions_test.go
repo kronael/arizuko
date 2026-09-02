@@ -1,6 +1,7 @@
 package routd
 
 import (
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -183,6 +184,15 @@ func TestStringArgs_SkipsNonScalars(t *testing.T) {
 	if _, ok := got["obj"]; ok {
 		t.Fatal("a non-scalar arg has no glob meaning and must not be matchable")
 	}
+}
+
+// TestMain gives every test the async hold contract by default: HoldWait 0 makes
+// a blocking hold give up at once, mark its row async, and return held — the
+// shape the suite was written against. A test that wants the WAIT sets HoldWait
+// itself. Without this each hold test would sit through the real HITL_WAIT.
+func TestMain(m *testing.M) {
+	HoldWait, hitlPoll = 0, time.Millisecond
+	os.Exit(m.Run())
 }
 
 // TestHoldGate_HoldApproveRelease is spec 5/19's acceptance path end to end at
