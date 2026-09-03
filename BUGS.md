@@ -8063,7 +8063,18 @@ retry — instead of sleeping and re-sending. reditd's contradictory 5-minute
 `TestDoWithRetryDoesNotStackTwoRetryLayers` is un-skipped and caps one logical
 call at 3 requests.
 
-## L125 — `6/9` is `status: shipped` and teaches an egress mechanism that `6/24` deleted, including the registration whose leak was the reason to delete it (2026-08-27, status half FIXED 2026-08-29; the rewrite is the operator's call)
+## ✅ FIXED 2026-09-03 L125 — `6/9` is `status: shipped` and teaches an egress mechanism that `6/24` deleted, including the registration whose leak was the reason to delete it (2026-08-27, status half FIXED 2026-08-29, rewrite FIXED 2026-09-03)
+
+**FIXED 2026-09-03.** The spec now describes what exists, each claim checked
+against the code rather than the old text: the package is `sandbox/` (`crackbox/pkg/`
+holds only `run`), `VMConfig` is the real five fields with `AllowList` and no
+`EgressProxy`, and the egress section states netfilter-on-the-tap and says in
+words WHY there is no registration — an allowlist held by a registration
+outlives a crashed consumer, which is the leak `6/24` deleted. The acceptance
+criterion that asked for `crackbox proxy serve` + register/unregister is
+replaced by one that asks for the tap rules as the evidence. `status: defected`
+lifted; the wiring gap (no daemon imports it) is unchanged and still stated,
+because it is true.
 
 `specs/6/9-crackbox-sandboxing.md` still describes the KVM sandbox as it stood
 before 2026-08-18. Measured at `7d81cd78`:

@@ -1,37 +1,36 @@
 ---
-status: defected
-defects: [L125]
-date: 2026-05-01
+status: shipped
+shipped: 2026-05-01
 aka: antbox
 ---
 
-# Crackbox — sandboxing library + egress proxy
+# sandbox — KVM sandboxing library + per-spawn egress
 
-> Crackbox is a Go library for KVM/qemu sandbox lifecycle
-> (`crackbox/pkg/host/`), shipped alongside the per-spawn egress proxy
+> A Go library for KVM/qemu sandbox lifecycle (`sandbox/`), shipped
+> alongside the per-spawn egress proxy
 > ([`6/24`](24-crackbox-lightest.md)). It is a library, not a daemon.
 > The KVM backend is **not wired into runed yet** — `runed` still
 > spawns via Docker.
 
 ## Status
 
-`Shipped` (2026-05-01) as a library. `crackbox/pkg/host/` has the
-public API `New(instanceID, dataDir)` + `(*Host).Spawn/Exec/Stop/List`,
-system-state-backed `List()` (disk scan + `detectState()`), InstanceID
-namespacing, and SSH-based `Exec`. No arizuko daemon imports it yet
-(see "Wiring gap").
+`Shipped` (2026-05-01) as a library. `sandbox/` has the public API
+`New(instanceID, dataDir)` + `(*Host).Spawn/Exec/Stop/List`,
+system-state-backed `List()` (disk scan), InstanceID namespacing, and
+SSH-based `Exec`. `crackbox/pkg/run` is its one consumer; no arizuko
+daemon imports it (see "Wiring gap").
 
 ## Architecture
 
 `runed` owns container spawn behind the `Runtime` interface — the
 ContainerRuntime seam (`runed/runtime.go`, spec [`5/P`](../5/P-runed.md)).
 Production wraps `container.DockerRunner`. KVM would land as one more
-backend behind that same seam, importing `crackbox/pkg/host/`:
+backend behind that same seam, importing `sandbox/`:
 
 ```
 runed.Runtime (runed/runtime.go)
   ├── DockerRunner   → docker run                 [today]
-  └── (KVM backend)  → import crackbox/pkg/host/  [not wired yet]
+  └── (KVM backend)  → import arizuko/sandbox  [not wired yet]
                        ├── spawn KVM VM
                        ├── manage privileges (/dev/kvm, CAP_NET_ADMIN)
                        ├── attach to per-VM network
@@ -40,7 +39,7 @@ runed.Runtime (runed/runtime.go)
 
 Crackbox is **a library**. The egress proxy ships as the `egress`
 binary runed starts per spawn ([`6/24`](24-crackbox-lightest.md)), its own
-process. A consumer imports `crackbox/pkg/host/` and
+process. A consumer imports `arizuko/sandbox` and
 `crackbox/pkg/client/` directly — no intermediate daemon.
 
 ## Components in the crackbox repo
@@ -58,28 +57,30 @@ crackbox/
     run/                 — `crackbox run` orchestration (network + spawn-and-wait)
 ```
 
-`pkg/host/` public surface (`crackbox/pkg/host/host.go`):
+`sandbox/` public surface (`sandbox/sandbox.go`):
 
 ```go
-package host
+package sandbox
 
 type VMConfig struct {
-    Image       string   // path to base qcow2; empty = default
-    Memory      string   // e.g. "2G"
-    CPUs        int
-    Mounts      []Mount  // virtio-fs mounts
-    EgressProxy string   // proxy admin URL; empty = no proxy
-    AllowList   []string // pushed to the proxy on Spawn
+    Image     string   // path to base qcow2; empty = default Alpine download
+    Memory    string   // e.g. "2G"; empty = default
+    CPUs      int      // 0 = default (2)
+    Mounts    []Mount  // virtio-fs mounts
+    AllowList []string // host allowlist enforced by netfilter on the VM's tap
 }
 
 type Handle struct{ ID string; IP string }
 
 func New(instanceID, dataDir string) (*Host, error)
-func (h *Host) Spawn(cfg VMConfig) (Handle, error)                              // boot VM, register with proxy
+func (h *Host) Spawn(cfg VMConfig) (Handle, error)
 func (h *Host) Exec(h Handle, cmd []string, stdin io.Reader) (int, []byte, []byte, error)
-func (h *Host) Stop(h Handle) error                                            // shutdown VM, unregister
+func (h *Host) Stop(h Handle) error
 func (h *Host) List() ([]Handle, error)                                        // running VMs in this namespace
 ```
+
+Five fields, and the fifth is the whole egress story: no proxy URL, because
+there is no proxy to address. See "Egress enforcement".
 
 The library holds **no in-RAM index of VMs**. Source of truth is the
 system: per-VM metadata files on disk plus live process/network state.
@@ -87,18 +88,19 @@ system: per-VM metadata files on disk plus live process/network state.
 every caller, in every process, sees the same set. A warm-VM pool is
 not implemented.
 
-## Egress-proxy registration
+## Egress enforcement
 
-`Spawn` reads the `EgressProxy` field:
+`VMConfig.AllowList []string` is the whole surface, and enforcement is
+netfilter rules on the VM's own tap device (`sandbox/internal/manager.go`).
+The gate is in the kernel, on the interface the VM's packets must cross, so
+a VM cannot be outside it.
 
-- Empty → no proxy is configured (the VM gets no allowlist gate).
-- Non-empty → health-check that admin URL, then POST
-  `/v1/register {ip, id, allowlist}`. `Stop` POSTs `/v1/unregister`
-  (best-effort).
-
-There is no auto-spawn of a local proxy from `pkg/host/`; the caller
-supplies a running proxy URL. The shared-proxy deployment this once
-described is gone — `6/24` starts one proxy per spawn.
+There is no admin API, no `/v1/register`, and nothing for a caller to hold
+open across a spawn's life. That is the point rather than an omission: an
+allowlist held by a REGISTRATION means a crashed consumer leaves an
+allowlisted IP registered forever, which is the leak
+[`6/24`](24-crackbox-lightest.md) §"It removes a real leak" was written to
+delete. A rule attached to the tap dies with the tap.
 
 ## Privileges
 
@@ -114,13 +116,13 @@ the user-facing privilege boundary.
 
 ## Wiring gap
 
-`crackbox/pkg/host/` is shipped and tested but **no arizuko daemon
-imports it** — `grep -rn crackbox/pkg/host runed/` is empty. Today's
+`sandbox/` is shipped and tested but **no arizuko daemon imports it** —
+`grep -rn arizuko/sandbox runed/` is empty. Today's
 arizuko egress path is Docker-only: one shared `crackbox proxy serve`
 per instance, with per-spawn register/unregister of the routd-resolved
 allowlist (`runed/docker.go`, spec [`5/P`](../5/P-runed.md),
 [`SECURITY.md`](../../SECURITY.md)). Landing KVM means adding a
-`Runtime` backend that calls `pkg/host/`; image management
+`Runtime` backend that calls `sandbox/`; image management
 (`EnsureImage`), the resident-VM pool, and MCP-over-vsock into the VM
 are unbuilt.
 
@@ -128,8 +130,8 @@ are unbuilt.
 
 - `make -C crackbox build && make -C crackbox test` passes on a host
   with no arizuko process and no arizuko data directory.
-- `pkg/host/` has zero arizuko-internal imports (component test, per
+- `sandbox/` has zero arizuko-internal imports (component test, per
   [`6/16`](16-daemon-standalone-matrix.md)).
-- External-proxy mode: pre-run `crackbox proxy serve`; a `pkg/host/`
-  spawn with a non-empty `EgressProxy` registers on Spawn and
-  unregisters on Stop against it.
+- A spawn with a non-empty `AllowList` reaches a listed host and is
+  refused a listed-out one, with the VM's tap rules as the evidence —
+  not a registration the caller has to remember to undo.
