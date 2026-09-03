@@ -132,10 +132,50 @@ Two constraints that decide whether this is safe:
   localhost the cost is a fraction of a millisecond; it is still a real
   per-request tax where today the check is in-process.
 
+## Step 4 — could a standard IdP let us DELETE authd? (proposed 2026-09-03, needs sign-off)
+
+Step 3 asks the question for proxyd. The same question for `authd` has a
+sharper answer, because the auth surface splits cleanly in two and only one
+half is arizuko's.
+
+Measured 2026-09-03 (non-test lines):
+
+| half                    | files                                                                                                                              | lines    | who else does this                                         |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | -------- | ---------------------------------------------------------- |
+| **authn — commodity**   | `auth/oauth.go`, `authd/oauth.go`, `auth/es256.go`, `auth/jwks.go`, `authd/sessions_resource.go`, `authd/signing_keys_resource.go` | **1618** | every OIDC provider: Dex, Authelia, Keycloak, oauth2-proxy |
+| **authz — the product** | `auth/authorize.go`, `auth/acl.go`, `auth/delegate.go`, `auth/scope.go`                                                            | **1044** | nobody                                                     |
+
+The second row is why this is a split and not a replacement. No standard
+expresses `[!]action(param=glob)` over a folder tree with `WITH GRANT OPTION`
+delegation and `5/33`'s two-axis rule — the turn's folder confers in full while
+the attested sender adds only inside that folder's subtree and never through the
+action lattice. That is not a policy an IdP can hold; it is the thing arizuko
+sells. OPA/Rego could hold the RULES but not the model, and
+that trade is its own decision.
+
+The first row is 1618 lines of minting, verifying, rotating and session-storing
+that a deployed IdP does better, and whose bugs are someone else's. Deleting it
+means: authd stops issuing, and verifies an external issuer's JWT instead;
+`signing_keys` and `sessions` go with it; the `service:<daemon>` token becomes a
+client-credentials grant.
+
+**Two things must survive the delete, and they are the whole risk.** The
+`service:proxyd` transit proof (`auth.ProxydTransit`) is what makes `X-User-*`
+trustworthy — step 3's constraint applies here verbatim. And the per-folder JWT
+claim every handler binds its `folder`/`jid` params to is arizuko's, not an
+OIDC claim; it has to be minted by arizuko's authz half from the IdP's subject,
+which means authd does not disappear so much as shrink to a claims mapper.
+
+**Recommendation: yes to the authn half, never the authz half.** The seam is
+the one step 3 already names — a forward-auth endpoint arizuko owns, in front
+of an identity it does not. Sequence it after step 3, which proves the seam on
+the smaller surface first.
+
 ## What this spec does NOT propose
 
-Removing proxyd, choosing between Caddy and Traefik, or moving TLS. Those
-follow step 3 and are decided then, on evidence from steps 1 and 2.
+Removing proxyd, choosing between Caddy and Traefik, moving TLS, or picking
+WHICH IdP. Those follow steps 3 and 4 and are decided then, on evidence from
+the steps before them.
 
 ## Ties
 
