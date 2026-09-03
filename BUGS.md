@@ -7,6 +7,49 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L153 — anteval `webhook-in`: the ingress worked and the agent answered the PREVIOUS case; a skill that hardcodes a nonce outlives the case that built it (2026-09-03, eval finding)
+
+`anteval --smoke` on krons after the 2026-09-03 deploy: **7/9**. Both failures
+are agent reasoning, not platform — every surface under them worked. Recorded so
+the next run can tell a regression from these two.
+
+**`webhook-in`.** The platform half is flawless: proxyd logged
+`POST /hook/<token> 204`, the payload became a `hook:eval/etksvtw/webhook-in`
+message, and a turn fired on it. Then the agent replied *"Callback fired.
+`HTTP 204` — **self-skill** proof registered"* — the answer to the PREVIOUS case.
+
+The cause is the case before it. `self-skill` asks the agent to write a skill
+under `~/.claude/skills/` whose body is `curl -s {sink}/cb/{nonce}` — with that
+run's `self-skill` nonce baked in. The skill persists in the group's home. So
+when the webhook turn said "run the callback", the agent invoked the skill it
+already had, which curled the wrong nonce. anteval saw no callback for
+`webhook-in` and failed it at its 150s cap.
+
+Two things this means. The suite is ORDER-COUPLED where it claims cases are
+independent: `self-skill` leaves a booby-trapped tool in the group that answers
+a later case's instruction plausibly and wrongly. And it is a real agent lesson
+— a stored skill that hardcodes a one-shot token is indistinguishable from a
+correct tool until the token is stale.
+
+**`priv-grant`** timed out at its 180s cap with
+`GET probe: unsupported protocol scheme ""` — the checker's fallback when
+`{cb.url}` never arrived. The child group `eval/etksvtw-priv-grant-g` WAS
+created, so the agent got through `register_group` + `add_acl`; the child's
+publish, or the parent's POST-back of the URL, did not finish in the wall. The
+near-identical `priv-401` (publish + POST the URL) passed in 42s, so the
+delegation half is what costs. Not diagnosed further.
+
+The three grants anteval's hint names (`mcp:register_group`, `mcp:add_acl`,
+`mcp:issue_webhook`) are all held by `folder:eval` — checked, so neither failure
+is the missing-grant case that hint warns about.
+
+**Shape of a fix (proposal — needs sign-off).** For the order-coupling: give
+`self-skill` a teardown, or have the harness reset `~/.claude/skills/` between
+cases the way it already resets the root session. The cheaper half is to make
+the case's prompt build a skill that takes the nonce as an ARGUMENT rather than
+baking it in, which also removes the stale-token lesson from the group. Either
+is a change to the catalog's independence contract, so it waits for sign-off.
+
 ## L152 — an `acl` grant can name a principal nobody will ever present, and no surface says so (2026-09-02)
 
 `acl_membership` on krons grants `role:operator` to
