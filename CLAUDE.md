@@ -436,12 +436,54 @@ another's.
 
 ## Operational check (post-deploy)
 
+**Every deploy runs all five gates, in order. A deploy is not done until gate 5
+passes.** Gates 1-3 are free and catch everything mechanical; 4 is a minute; 5 is
+the only one that proves a live agent still works, and it is the only one that
+costs money (~$5).
+
 ```bash
-sudo systemctl status arizuko_<instance>
-sudo journalctl -u arizuko_<instance> --since "5 min ago" --no-pager | head -30
-sudo journalctl -u arizuko_<instance> --since "5 min ago" --no-pager | grep -iE 'error|fatal'
-sudo docker ps --filter "name=arizuko-" --format "{{.Names}} {{.Status}}"
+I=<instance>; DB=/srv/data/arizuko_$I/store/routd/routd.db
+
+# 1. Build + test, BEFORE the image. Go and TS are separate suites.
+make lint && go test ./... -count=1 -short && (cd whapd && bun run test)
+
+# 2. Ship the image, restart, wait for health to settle.
+sudo make images && sudo systemctl restart arizuko_$I
+until [ "$(sudo docker ps --format '{{.Names}} {{.Status}}' | grep $I | grep -c 'health: starting')" -eq 0 ]; do sleep 10; done
+sudo docker ps --format "{{.Names}} {{.Status}}" | grep $I
+
+# 3. The schema actually moved. A migration that did not apply looks healthy.
+sudo sqlite3 $DB "SELECT MAX(version) FROM migrations WHERE service='routd';"
+ls routd/migrations/ | sort | tail -1   # the two numbers must agree
+
+# 4. Error census — /eval <instance> (the `eval` skill), or its core three:
+sudo journalctl -u arizuko_$I --since "15 min ago" --no-pager \
+  | grep -E '"level":"ERROR"' | grep -oE '"msg":"[^"]*"' | sort | uniq -c | sort -rn
+sudo sqlite3 $DB "SELECT COUNT(*) FROM messages WHERE errored=1;"   # new ones only
+sudo docker exec arizuko_runed_$I sh -c 'env | grep -qE "^(ANTHROPIC_API_KEY|CLAUDE_CODE_OAUTH_TOKEN)="'
 ```
+
+**5. `anteval --smoke` — the live-agent gate.** Nothing above proves an agent can
+still operate the platform; every check up to here passes on a fleet whose agents
+answer nothing (BUGS `L149` shipped green through all of them). Run it on every
+release, and after any deploy touching routd, runed, ipc, ant or an adapter:
+
+```bash
+sudo ./arizuko token $I issue bearer eval \
+  --scope messages:write,messages:read,cost:read --ttl 2h    # token: line
+GW=$(sudo docker network inspect arizuko_${I}_default \
+  --format '{{range .IPAM.Config}}{{.Gateway}}{{end}}')      # NOT a hardcoded IP
+cd anteval && ./anteval run https://<host> --api http://localhost:8081 \
+  --token "$TOK" --chat web:eval --folder eval \
+  --sink-addr $GW:9099 --sink http://$GW:9099 --smoke
+```
+
+Two things that make this fail for the wrong reason. `--cases` is relative, so
+run it from `anteval/` — from the repo root it loads nothing and reports "no
+cases match selectors", which reads like a selector typo. And the sink must be
+the instance's own default-network gateway: the per-folder networks are
+`internal=true`, so an agent reaches the host bridge but nothing beyond it, and
+a stale IP makes 8 of the 9 cases burn their full wall cap for nothing.
 
 Red flags: `"error in message loop"`, `"container timeout"`, `"circuit breaker open"`.
 
@@ -481,14 +523,17 @@ what fires it. Tag and broadcast travel together.
 
 1. Move CHANGELOG.md [Unreleased] to `[vX.Y.Z] — YYYY-MM-DD`
 2. `git tag vX.Y.Z`, tag docker images (`arizuko:vX.Y.Z`, `arizuko-ant:vX.Y.Z`)
-3. **Release the docs too** — a release ALWAYS ships the web docs: bump the
+3. Run the five post-deploy gates (see "Operational check"). `anteval --smoke`
+   is not optional on a tag: it is the only gate that proves a live agent still
+   answers, and every cheaper one passes without that being true.
+4. **Release the docs too** — a release ALWAYS ships the web docs: bump the
    `ARIZUKO_VERSION` stamp in `template/web/pub/arizuko/assets/hub.js` (the
    only copy — the top-level `template/web/pub/assets/` twin was deleted
    2026-08-15, unreferenced by any page and out of the `cp` deploy source),
    update any page whose surface changed (per `template/web/CLAUDE.md`
    maintenance map), then deploy via the `cp` workflow and verify `/pub/*`
    returns 200. Docs are part of the release, not an afterthought.
-4. Add `.diary/YYYYMMDD.md` entry
+5. Add `.diary/YYYYMMDD.md` entry
 
 ## Announcing
 
