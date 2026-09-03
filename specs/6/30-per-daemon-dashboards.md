@@ -1,5 +1,6 @@
 ---
 status: shipped
+shipped: 2026-08-30
 depends: [28-cockpit-index]
 ---
 

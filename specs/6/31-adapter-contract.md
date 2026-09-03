@@ -1,12 +1,13 @@
 ---
 status: shipped
+shipped: 2026-08-30
 depends: [28-cockpit-index]
 ---
 
 # Adapter dashboard contract
 
 **Purpose** — define the adapter dashboard ONCE: page grammar, show
-matrix, control verbs, health semantics. The ten channel adapters are
+matrix, control verbs, health semantics. The nine channel adapters are
 variations on one chanlib runtime, so they get one dashboard renderer
 with per-adapter deltas. [`6/32`](32-adapter-dashboards.md)
 instantiates this contract and lists only deltas. Architecture,
@@ -239,5 +240,5 @@ Two deltas are forced rather than chosen, and are stated in both files:
   can.
 - **The theme is inlined**, because `theme.Page` is a Go package.
 
-All ten adapters now serve `/dash/<adapter>/`, each registered by its own
+All nine adapters now serve `/dash/<adapter>/`, each registered by its own
 `template/services/<name>.yaml` route gated on the adapter's credential.

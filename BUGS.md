@@ -50,6 +50,34 @@ the case's prompt build a skill that takes the nonce as an ARGUMENT rather than
 baking it in, which also removes the stale-token lesson from the group. Either
 is a change to the catalog's independence contract, so it waits for sign-off.
 
+## L154 — `6/28` states its own read-path rule two incompatible ways, which is why `L142` reads as a violation and the per-daemon dashboards read as compliant (2026-09-03, phase-6 status audit)
+
+Auditing every phase-6 spec's `status:` against the code. `6/28` is the
+architecture `6/29`–`6/32` all inherit "and do not restate", and it says the rule
+twice, differently:
+
+- `:37` — "**No dashboard — hub or per-daemon — reads a SQLite DB directly.**"
+- `:223` — "no dashboard reads **another daemon's** SQLite file."
+
+Those are not the same rule. Under `:37` a daemon dashboard reading its OWN db is
+a violation; under `:223` it is the intended design. `L142` quotes `:37` and is
+correct against it; the per-daemon dashboards `6/30` ships are correct against
+`:223`. Nothing can be both, so "is `6/30` defected?" has no answer today — which
+is the actual reason this audit could not settle three specs' status.
+
+Measured while checking: `chanlib/dash.go` — the ONE renderer behind all nine
+adapter dashboards — executes no SQL at all (no `sql.`, `db.`, `Query`, `store.`).
+So `6/31` and `6/32` satisfy BOTH readings and their `shipped` is sound either
+way. The ambiguity only bites `6/29` (dashd, where `L142` measured the direct
+reads) and `6/30`.
+
+**Shape of a fix (proposal — needs sign-off).** Pick one sentence and delete the
+other. `:223` is the one the code was built to and the one the split
+write-discipline already implies — a daemon owning its DB and serving its own
+page from it is the topology, not a leak. If `:37` is the intended rule instead,
+then `6/30` is defected too and dashd's rewrite is larger than `L142` scopes. The
+choice decides two specs' status, so it is the operator's.
+
 ## L152 — an `acl` grant can name a principal nobody will ever present, and no surface says so (2026-09-02)
 
 `acl_membership` on krons grants `role:operator` to

@@ -1,10 +1,11 @@
 ---
 status: shipped
+shipped: 2026-08-30
 ---
 
 # Social Adapter Model
 
-Social adapters (bskyd, mastd, reditd, twitd, linkd) operate differently from
+Social adapters (bskyd, reditd, twitd, linkd) operate differently from
 chat adapters (teled, discd, slakd, whapd, emaid). This spec defines that
 boundary. The observer system it hands broad monitoring to is **unspecced** —
 no spec exists for it yet.
@@ -168,7 +169,7 @@ new-post feed, in which the bot is not addressed at all. That is "poll hashtags
 or keywords" under another name, and §"No observer polling in adapter" forbids
 it.
 
-bskyd, linkd, mastd and twitd carry no equivalent: a grep for
+bskyd, linkd and twitd carry no equivalent: a grep for
 hashtag/trending/keyword/search across them returns nothing.
 
 **The exception is RECORDED, not removed.** Deleting reditd's subreddit poll

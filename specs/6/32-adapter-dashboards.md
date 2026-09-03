@@ -1,12 +1,13 @@
 ---
 status: shipped
+shipped: 2026-08-30
 depends: [28-cockpit-index, 31-adapter-contract]
 ---
 
-# Adapter dashboards — the ten channel adapters
+# Adapter dashboards — the nine channel adapters
 
 Instantiates the adapter contract ([`6/31`](31-adapter-contract.md))
-for all ten adapters. The contract owns the page grammar, show matrix,
+for all nine adapters. The contract owns the page grammar, show matrix,
 control verbs, health semantics, auth, and HTMX fragment set — none of
 it is restated. This spec is the per-adapter delta table plus the
 handful of facts that do not generalise.
@@ -20,7 +21,6 @@ Nothing here is built.
 | whapd   | Baileys websocket (WhatsApp), TypeScript                 | `connection.update` flag (`whapd/src/main.ts`) | phone JID from Baileys creds | `$WHATSAPP_AUTH_DIR/creds.json` (+ `.bak`)        |
 | teled   | Bot API long-poll, 30s `getUpdates`                      | poll success flag (`teled/bot.go`)             | `api.Self.UserName` + ID     | offset file `$DATA_DIR/teled-offset-<channel>`    |
 | slakd   | Events API webhook push (`/slack/events`)                | 60s `auth.test` probe (`slakd/bot.go`)         | `BotUserID()` + `TeamID()`   | none                                              |
-| mastd   | user-stream websocket                                    | `streaming` flag (`mastd/client.go`)           | `me.Acct`                    | none                                              |
 | bskyd   | notifications poll, 10s                                  | `authed` flag (`bskyd/client.go`)              | `session.DID`                | `bluesky-session.json`                            |
 | reditd  | inbox + subreddit poll, `REDDIT_POLL_INTERVAL` (5m)      | last successful poll < 15m (`pollStaleAfter`)  | `cfg.Username`               | `cursors.json`                                    |
 | linkd   | own-shares comment poll, `LINKEDIN_POLL_INTERVAL` (300s) | `authed` flag (`linkd/client.go`)              | `meURN` + `meName`           | `linkd-state-<name>.json`                         |
@@ -38,7 +38,6 @@ not greyed out (`6/31`). Everything marked "new" is Required work.
 | whapd   | start pairing + pair status (**exist**); session reset (new)                  | pairing pane (state machine, code + 60s expiry, 5/hour bucket); outbound queue depth |
 | teled   | reconnect (new — recreate `BotAPI`, restart poll loop)                        | poll offset + last poll error with its 3s backoff                                    |
 | slakd   | refresh auth (new — run `authTest`, flip `connected`, reset watchdog counter) | watchdog pane: `SLAKD_STALE_SECONDS`, fail counter vs `SLAKD_STALE_FAIL_LIMIT`       |
-| mastd   | reconnect (new — cancel stream ctx → immediate redial, backoff reset)         | backoff policy fact line (exponential 1s→60s, resets on success)                     |
 | bskyd   | refresh auth (new — `refreshSession` → `createSession` fallback)              | JWT session state, persisted-session file mtime                                      |
 | reditd  | reconnect (new — immediate `pollOnce`); refresh auth (new — `refreshToken`)   | cursor table (`inbox` + one `sr:<subreddit>` row each); rate-limit pane              |
 | linkd   | reconnect (new — immediate `pollOnce`); refresh auth (new)                    | OAuth token expiry; the stub-inbound caveat below                                    |
@@ -51,7 +50,7 @@ one read endpoint) — a dash handler never opens `cursors.json`,
 `cookies.json`, or `emaid.db` directly (`6/28` read-path).
 
 Adapters with **no** control at all in a column are stating a fact, not
-deferring: mastd and discd hold static tokens, so there is no auth
+deferring: discd holds a static token, so there is no auth
 refresh; slakd's Events API is push, so there is no connection to
 re-establish; emaid's IMAP/SMTP password is static; bskyd's session
 file only feeds `createSession`, which refresh-auth already covers.
@@ -110,7 +109,7 @@ copied by the image build, never hand-edited downstream.
 ## Acceptance
 
 - Contract acceptance ([`6/31`](31-adapter-contract.md)) passes for all
-  ten adapters.
+  nine adapters.
 - whapd: starting a pair shows the code + countdown; a sixth attempt in
   an hour renders the 429 in the pair pane; session-reset flips status
   to `disconnected` and pair state to `unauthenticated`.
@@ -118,7 +117,7 @@ copied by the image build, never hand-edited downstream.
   message replay, no gap.
 - slakd: auth-refresh resets the fail counter; a quiet workspace renders
   `stale` with 200, not a 503.
-- mastd / discd: reconnect redials within one backoff cycle and status
+- discd: reconnect redials within one backoff cycle and status
   returns to `ok` on the next inbound; discd's cache counts repopulate.
 - bskyd / linkd / reditd: auth-refresh updates the rendered token
   expiry; a failed refresh flips status to `disconnected`.
@@ -131,7 +130,7 @@ copied by the image build, never hand-edited downstream.
 
 ## Build state (2026-08-30)
 
-All ten adapters serve `/dash/<adapter>/`: the seven Go ones from
+All nine adapters serve `/dash/<adapter>/`: the seven Go ones from
 `chanlib/dash.go` via `NewAdapterMux`, whapd and twitd from their own
 `src/dash.ts` (`6/31`).
 
