@@ -55,6 +55,14 @@ export function extractContent(msg: WAMessage): ExtractedContent {
   const text = m.conversation || m.extendedTextMessage?.text;
   if (text) return { content: text, isVoiceNote: false };
 
+  // A button press arrives as its own message kind, and the id we SET on the
+  // button comes back verbatim (spec 5/19). Reading the id — never the display
+  // text — is what makes a press identical to typing that command, so it meets
+  // the same gate. WhatsApp has four spellings for the same event across client
+  // versions; all four carry the id.
+  const press = pressedID(msg);
+  if (press) return { content: press, isVoiceNote: false };
+
   const img = m.imageMessage;
   const vid = m.videoMessage;
   const aud = m.audioMessage;
@@ -83,6 +91,31 @@ export function extractContent(msg: WAMessage): ExtractedContent {
     mediaFilename: doc?.fileName || undefined,
     isVoiceNote: !!aud?.ptt,
   };
+}
+
+// pressedID reads the option id back out of a button press, or '' when the
+// message is not one. The four shapes are WhatsApp's, not ours: buttonsMessage
+// and templateMessage are the older renders, interactiveMessage the current
+// one, and a list picker answers with the row id.
+export function pressedID(msg: WAMessage): string {
+  const m = msg.message;
+  if (!m) return '';
+  const direct =
+    m.buttonsResponseMessage?.selectedButtonId ||
+    m.templateButtonReplyMessage?.selectedId ||
+    m.listResponseMessage?.singleSelectReply?.selectedRowId;
+  if (direct) return direct;
+  const params =
+    m.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson;
+  if (!params) return '';
+  try {
+    const parsed = JSON.parse(params) as { id?: string };
+    return parsed.id ?? '';
+  } catch {
+    // A press we cannot read is a press the user made and nothing answered.
+    console.warn('whapd: unreadable button response', params);
+    return '';
+  }
 }
 
 // True when a message's pushName matches the assistant's own name —

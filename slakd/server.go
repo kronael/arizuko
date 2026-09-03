@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/kronael/arizuko/chanlib"
@@ -39,6 +40,10 @@ func (s *server) handler() http.Handler {
 	mux := chanlib.NewAdapterMux(s.cfg.Name, []string{"slack:"}, s.bot, s.isConnected, s.lastInboundAt, s.db)
 	// Events webhook is signature-verified, not chanlib.Auth-gated; file proxy adds Bearer xoxb upstream.
 	mux.HandleFunc("POST /slack/events", s.handleEvents)
+	// Slack posts interactivity to its OWN request URL with its own encoding
+	// (form-encoded `payload=`, not JSON), so it gets its own route. Both are
+	// signature-verified the same way and both end at rc.SendMessage.
+	mux.HandleFunc("POST /slack/interactivity", s.handleInteractivity)
 	mux.HandleFunc("GET /files/", chanlib.Auth(chanlib.FileProxyHandler(chanlib.FileProxyOpts{
 		Resolve: s.files.Get,
 		Decorate: func(req *http.Request) {
@@ -91,6 +96,34 @@ func (s *server) handlePaneTitle(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`{"ok":true}`))
+}
+
+// handleInteractivity receives a button press. Slack requires a 2xx within three
+// seconds or it shows the user an error and retries, so it acks before routing.
+func (s *server) handleInteractivity(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxEventBody))
+	if err != nil {
+		chanlib.WriteErr(w, 400, "body read failed")
+		return
+	}
+	sig := r.Header.Get("X-Slack-Signature")
+	ts := r.Header.Get("X-Slack-Request-Timestamp")
+	if err := verifySignature(s.cfg.SigningSecret, sig, ts, body, s.now()); err != nil {
+		slog.Warn("slack interactivity: signature rejected", "err", err)
+		chanlib.WriteErr(w, 401, "invalid signature")
+		return
+	}
+	if s.bot == nil {
+		chanlib.WriteErr(w, 503, "bot not ready")
+		return
+	}
+	form, err := url.ParseQuery(string(body))
+	if err != nil {
+		chanlib.WriteErr(w, 400, "invalid form")
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	s.bot.handleInteraction([]byte(form.Get("payload")))
 }
 
 // handleEvents requires verbatim body bytes — any upstream re-marshal breaks the HMAC.

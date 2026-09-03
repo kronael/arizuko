@@ -73,6 +73,7 @@ func (b *bot) start(rc *chanlib.RouterClient) error {
 	b.rc = rc
 	b.session.AddHandler(b.onMessage)
 	b.session.AddHandler(b.onReactionAdd)
+	b.session.AddHandler(b.onInteraction)
 	if err := b.session.Open(); err != nil {
 		return fmt.Errorf("discord open: %w", err)
 	}
@@ -312,6 +313,70 @@ func chanID(jid string) string {
 	return rest
 }
 
+// components renders one row of buttons, or nil when there is nothing to draw.
+// CustomID is the option's data — the command the press replaces — so a press
+// and a typed command are the same inbound text under the same gate. Discord
+// caps custom_id at 100 bytes and a row at 5 buttons; a longer offer is
+// truncated rather than rejected, because a prompt with SOME answers beats a
+// send that fails.
+func components(options []chanlib.Option, last bool) []discordgo.MessageComponent {
+	if len(options) == 0 || !last {
+		return nil
+	}
+	row := discordgo.ActionsRow{}
+	for _, o := range options[:min(len(options), 5)] {
+		row.Components = append(row.Components, discordgo.Button{
+			Label:    o.Label,
+			Style:    discordgo.SecondaryButton,
+			CustomID: o.Send(),
+		})
+	}
+	return []discordgo.MessageComponent{row}
+}
+
+// onInteraction turns a button press into an ordinary inbound message whose
+// content is the option's data. Discord kills an interaction that is not
+// acknowledged within three seconds, so the deferred update goes first and its
+// failure never stops the press from being routed.
+func (b *bot) onInteraction(_ *discordgo.Session, i *discordgo.InteractionCreate) {
+	if i == nil || i.Type != discordgo.InteractionMessageComponent {
+		return
+	}
+	if err := b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredMessageUpdate,
+	}); err != nil {
+		slog.Warn("discord interaction ack failed", "err", err)
+	}
+	user := i.User
+	if i.Member != nil && i.Member.User != nil {
+		user = i.Member.User
+	}
+	data := i.MessageComponentData().CustomID
+	if user == nil || data == "" {
+		return
+	}
+	jid := chatJID(i.GuildID, i.ChannelID)
+	promptID := ""
+	if i.Message != nil {
+		promptID = i.Message.ID
+	}
+	if err := b.rc.SendMessage(chanlib.InboundMsg{
+		ID:         promptID + ":cb:" + i.ID,
+		ChatJID:    jid,
+		Sender:     "discord:user/" + user.ID,
+		SenderName: user.Username,
+		Content:    data,
+		Timestamp:  time.Now().Unix(),
+		ReplyTo:    promptID,
+		IsGroup:    i.GuildID != "",
+		ChatName:   b.channelName(i.ChannelID),
+	}); err != nil {
+		slog.Error("deliver interaction failed", "jid", jid, "err", err)
+		return
+	}
+	b.lastInboundAt.Store(time.Now().Unix())
+}
+
 func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 	chID := chanID(req.ChatJID)
 	replyTo := req.ReplyTo
@@ -334,15 +399,20 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 		}
 	}
 	var firstID string
-	for i, c := range chanlib.Chunk(req.Content, 2000) {
+	// The buttons ride the LAST chunk so they sit under the whole prompt.
+	chunks := chanlib.Chunk(req.Content, 2000)
+	for i, c := range chunks {
 		var msg *discordgo.Message
 		var err error
+		send := &discordgo.MessageSend{
+			Content:    c,
+			Components: components(req.Options, i == len(chunks)-1),
+		}
+		if replyTo != "" && i == 0 {
+			send.Reference = &discordgo.MessageReference{MessageID: replyTo}
+		}
 		for attempt := range 3 {
-			if replyTo != "" && i == 0 {
-				msg, err = b.session.ChannelMessageSendReply(chID, c, &discordgo.MessageReference{MessageID: replyTo})
-			} else {
-				msg, err = b.session.ChannelMessageSend(chID, c)
-			}
+			msg, err = b.session.ChannelMessageSendComplex(chID, send)
 			if err == nil {
 				break
 			}

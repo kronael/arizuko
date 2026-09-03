@@ -15,6 +15,10 @@ import (
 var caps = map[string]bool{
 	"send_text": true, "send_file": true, "send_voice": true, "typing": true, "fetch_history": true,
 	"edit": true, "quote": true, "delete": true, "pin": true, "like": true,
+	// buttons is a render capability on send_text, not a verb: with it chanreg
+	// passes SendRequest.Options through and discd draws an actions row;
+	// without it chanreg folds them into typable text instead.
+	"buttons": true,
 }
 
 func main() {

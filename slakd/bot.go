@@ -408,6 +408,59 @@ func (b *bot) handleEvent(body []byte, w http.ResponseWriter) {
 	}
 }
 
+// handleInteraction turns a button press into an ordinary inbound message whose
+// content is the option's value (spec 5/19). A HITL button carries
+// `/approve <id>` verbatim, so the press and the typed command reach the same
+// reserved-command parser and the same operator gate — slakd decides nothing
+// about the verdict, and no second authorization path exists.
+func (b *bot) handleInteraction(payload []byte) {
+	var p struct {
+		Type string `json:"type"`
+		User struct {
+			ID   string `json:"id"`
+			Name string `json:"username"`
+		} `json:"user"`
+		Team struct {
+			ID string `json:"id"`
+		} `json:"team"`
+		Channel struct {
+			ID string `json:"id"`
+		} `json:"channel"`
+		Message struct {
+			TS       string `json:"ts"`
+			ThreadTS string `json:"thread_ts"`
+		} `json:"message"`
+		Actions []struct {
+			ActionID string `json:"action_id"`
+			Value    string `json:"value"`
+		} `json:"actions"`
+	}
+	if err := json.Unmarshal(payload, &p); err != nil {
+		slog.Warn("slack: interaction decode failed", "err", err)
+		return
+	}
+	if p.Type != "block_actions" || len(p.Actions) == 0 || p.Actions[0].Value == "" {
+		return
+	}
+	conv := b.convInfoFor(p.Channel.ID, "")
+	jid := chanlib.FormatSlackJID(cmp.Or(p.Team.ID, b.TeamID()), chanKind(conv.IsIM, conv.IsMpim), p.Channel.ID)
+	if err := b.rc.SendMessage(chanlib.InboundMsg{
+		ID:         jid + "/" + p.Message.TS + ":cb:" + p.Actions[0].ActionID,
+		ChatJID:    jid,
+		Sender:     "slack:user/" + p.User.ID,
+		SenderName: cmp.Or(p.User.Name, b.userName(p.User.ID)),
+		Content:    p.Actions[0].Value,
+		Timestamp:  time.Now().Unix(),
+		Topic:      p.Message.ThreadTS,
+		ReplyTo:    p.Message.TS,
+		IsGroup:    !conv.IsIM,
+	}); err != nil {
+		slog.Error("deliver interaction failed", "jid", jid, "err", err)
+		return
+	}
+	b.lastInboundAt.Store(time.Now().Unix())
+}
+
 func (b *bot) dispatch(teamID string, raw json.RawMessage) {
 	var head struct {
 		Type    string `json:"type"`
@@ -1102,6 +1155,53 @@ func (b *bot) demangleMentions(text string) string {
 
 // ===== Outbound BotHandler =====
 
+// actionBlocks renders the message as Block Kit with one actions block, or ""
+// when there is nothing to draw. A button's `value` is the option's data — the
+// command the press replaces — so a press and a typed command are the same
+// inbound text under the same gate. `text` stays set as the notification
+// fallback Slack shows where blocks cannot render.
+//
+// Slack caps an actions block at 5 elements; a longer offer is truncated rather
+// than rejected, because a prompt with SOME answers beats a send that fails.
+func actionBlocks(text string, options []chanlib.Option) string {
+	if len(options) == 0 {
+		return ""
+	}
+	type txt struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	type element struct {
+		Type     string `json:"type"`
+		Text     txt    `json:"text"`
+		ActionID string `json:"action_id"`
+		Value    string `json:"value"`
+	}
+	type block struct {
+		Type     string    `json:"type"`
+		Text     *txt      `json:"text,omitempty"`
+		Elements []element `json:"elements,omitempty"`
+	}
+	actions := block{Type: "actions"}
+	for i, o := range options[:min(len(options), 5)] {
+		actions.Elements = append(actions.Elements, element{
+			Type:     "button",
+			Text:     txt{Type: "plain_text", Text: o.Label},
+			ActionID: "opt" + strconv.Itoa(i),
+			Value:    o.Send(),
+		})
+	}
+	out, err := json.Marshal([]block{
+		{Type: "section", Text: &txt{Type: "mrkdwn", Text: text}},
+		actions,
+	})
+	if err != nil {
+		slog.Error("slack: could not render option buttons; sending text alone", "err", err)
+		return ""
+	}
+	return string(out)
+}
+
 func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 	parts, err := parseJID(req.ChatJID)
 	if err != nil {
@@ -1116,6 +1216,9 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 	// reply in a thread the user never started.
 	if threadTS := cmp.Or(req.ThreadID, req.ThreadRoot); threadTS != "" {
 		body.Set("thread_ts", threadTS)
+	}
+	if blocks := actionBlocks(body.Get("text"), req.Options); blocks != "" {
+		body.Set("blocks", blocks)
 	}
 	var resp struct {
 		OK    bool   `json:"ok"`
