@@ -46,6 +46,10 @@ type PendingAction struct {
 	Result       string `json:"result"`
 	Error        string `json:"error"`
 	ExpiresAt    string `json:"expires_at"`
+	// NoticeID is the platform id of the chat notice this row was announced in.
+	// A reaction names the message it targets, so this is what turns a ✅ into
+	// this call's verdict.
+	NoticeID string `json:"notice_id"`
 	// Mode is the hold row's effect: auth.EffectHoldBlock means the agent's tool
 	// call is WAITING on this row right now, EffectHoldAsync that it already
 	// returned. It decides who runs the approved call — the waiter, or the agent
@@ -127,22 +131,22 @@ func (d *DB) PutPendingAction(p PendingAction) error {
 	_, err := d.db.Exec(`
 		INSERT INTO pending_actions
 		  (id, group_folder, caller_agent, tool, args, args_final, args_hash,
-		   status, chat_jid, created_at, expires_at, mode)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+		   status, chat_jid, created_at, expires_at, mode, notice_id)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		p.ID, p.GroupFolder, p.CallerAgent, p.Tool, p.Args, p.ArgsFinal, p.ArgsHash,
-		p.Status, p.ChatJID, p.CreatedAt, p.ExpiresAt, p.Mode)
+		p.Status, p.ChatJID, p.CreatedAt, p.ExpiresAt, p.Mode, p.NoticeID)
 	return err
 }
 
 const pendingCols = `id, group_folder, caller_agent, tool, args, args_final, args_hash,
 	status, chat_jid, created_at, reviewed_by, reviewed_at, reviewer_note, result, error, expires_at,
-	mode`
+	mode, notice_id`
 
 func scanPending(sc interface{ Scan(...any) error }) (PendingAction, error) {
 	var p PendingAction
 	err := sc.Scan(&p.ID, &p.GroupFolder, &p.CallerAgent, &p.Tool, &p.Args, &p.ArgsFinal,
 		&p.ArgsHash, &p.Status, &p.ChatJID, &p.CreatedAt, &p.ReviewedBy, &p.ReviewedAt,
-		&p.ReviewerNote, &p.Result, &p.Error, &p.ExpiresAt, &p.Mode)
+		&p.ReviewerNote, &p.Result, &p.Error, &p.ExpiresAt, &p.Mode, &p.NoticeID)
 	return p, err
 }
 
@@ -165,6 +169,45 @@ func pendingActionOn(q queryExecer, id string) (PendingAction, bool) {
 
 // GetPendingAction reads one row by id, for the blocking waiter.
 func (d *DB) GetPendingAction(id string) (PendingAction, bool) { return pendingActionOn(d.db, id) }
+
+// SetPendingNotice records which chat message announced this row, so a reaction
+// on that message can be read as its verdict.
+func (d *DB) SetPendingNotice(id, noticeID string) error {
+	_, err := d.db.Exec(`UPDATE pending_actions SET notice_id = ? WHERE id = ?`, noticeID, id)
+	return err
+}
+
+// VerdictForReaction reads a reaction as the verdict command it stands for, or
+// "" when it is an ordinary reaction. The lookup is (chat, notice, still held):
+// a reaction on anything else, or on a call already decided, is just a reaction.
+func (d *DB) VerdictForReaction(chatJID, target, emoji string) string {
+	verb := chanlib.VerdictEmoji(emoji)
+	noticeID := platformID(target)
+	if verb == "" || chatJID == "" || noticeID == "" {
+		return ""
+	}
+	var id string
+	err := d.db.QueryRow(
+		`SELECT id FROM pending_actions
+		  WHERE chat_jid = ? AND notice_id = ? AND status = ?`,
+		chatJID, noticeID, PendingHeld).Scan(&id)
+	if err != nil {
+		return ""
+	}
+	return verb + " " + id
+}
+
+// platformID reduces a reaction's target to the bare platform message id the
+// delivery returned. Adapters disagree about the shape: teled reports a reacted
+// message as `<chat-jid>/<id>` while discd and slakd report the id alone, and a
+// notice recorded as `6335` would never match `telegram:user/…/6335`. No
+// platform id in use contains a slash, so the last segment is the id.
+func platformID(target string) string {
+	if i := strings.LastIndexByte(target, '/'); i >= 0 {
+		return target[i+1:]
+	}
+	return target
+}
 
 // SetPendingMode records that nobody is waiting on this row any more, so the
 // approval has to travel as a re-issue trigger instead.
@@ -552,13 +595,19 @@ func stringArgs(args map[string]any) map[string]string {
 // a bearer token: this notice lands in the chat the agent shares with its users, so a
 // link carrying the verdict would hand it to every reader (spec 6/26 § Gap 3).
 func (s *Server) notifyHeld(t turnMCP, p PendingAction) {
-	text := fmt.Sprintf("⏸ %s held for approval (id %s)\n/approve %s   /reject %s",
+	text := fmt.Sprintf("⏸ %s held for approval (id %s)\n/approve %s   /reject %s"+
+		"\nor react ✅ / ❌ to this message",
 		p.Tool, p.ID, p.ID, p.ID)
 	text += "\n" + alwaysOffer(p)
 	if url := s.approvalURL(p.ID); url != "" {
 		text += "\n" + url
 	}
-	s.notifyHold(t, "hitl-"+p.ID, text, verdictOptions(p))
+	if id := s.notifyHold(t, "hitl-"+p.ID, text, verdictOptions(p)); id != "" {
+		if err := s.db.SetPendingNotice(p.ID, id); err != nil {
+			slog.Error("hitl notice id not recorded; a reaction cannot resolve this call",
+				"pending", p.ID, "err", err)
+		}
+	}
 }
 
 // verdictOptions are the verdict commands as pickable answers. `/always` is
@@ -623,17 +672,21 @@ func (s *Server) approvalURL(id string) string {
 // this notice and the agent's error are the whole trace. Keyed per turn, like
 // the other dispatch notices, so a failing turn reports once.
 func (s *Server) notifyHoldFailed(t turnMCP, tool string, cause error) {
-	s.notifyHold(t, "hitl-fail-"+t.turnID, fmt.Sprintf(
+	_ = s.notifyHold(t, "hitl-fail-"+t.turnID, fmt.Sprintf(
 		"⛔ %s needs approval and the hold could not be recorded (%v). The call was "+
 			"blocked and there is nothing to /approve — an operator must check routd.",
 		tool, cause), nil)
 }
 
-func (s *Server) notifyHold(t turnMCP, idem, text string, options []chanlib.Option) {
+// notifyHold delivers one notice and returns the platform id it landed as, which
+// is what a reaction on it will name.
+func (s *Server) notifyHold(t turnMCP, idem, text string, options []chanlib.Option) string {
 	if t.chatJID == "" || s.deliver == nil {
-		return
+		return ""
 	}
-	if _, err := s.deliver.SendOptions(t.chatJID, text, options, t.topic, idem); err != nil {
+	id, err := s.deliver.SendOptions(t.chatJID, text, options, t.topic, idem)
+	if err != nil {
 		slog.Error("hitl notice not delivered", "jid", t.chatJID, "idem", idem, "err", err)
 	}
+	return id
 }

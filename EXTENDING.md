@@ -314,7 +314,15 @@ adapter-side.
 Platform limits, verified against each vendor's reference: Discord draws
 five buttons per row and Slack 25 per actions block (both adapters drop the
 rest rather than fail the send); Telegram caps `callback_data` at 64 bytes
-and Discord `custom_id` at 100.
+and Discord `custom_id` at 100. Telegram allows eight to a row; all three
+adapters draw the answers side by side, because a verdict is a choice
+BETWEEN them and a stack reads as separate actions.
+
+**Reactions need nothing from you.** A green/red reaction on a held notice is
+read as its verdict by routd, from the `Reaction` / `ReplyTo` your adapter
+already delivers — which is how a platform with no button surface still answers
+a prompt. Report a reaction's target the way the others do and it works: the
+lookup takes the last path segment, so `<id>` and `<chat-jid>/<id>` both match.
 
 Generic HTTP webhook ingest is the same path: any caller can POST
 `/v1/messages` with the channel-protocol envelope; route inbound

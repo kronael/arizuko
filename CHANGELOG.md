@@ -24,6 +24,14 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   non-blocking shape is still there for a rule that wants it — write the row with
   `effect='async'`. Exactly one of the waiter and the agent runs an approved
   call, never both.
+- **React ✅ or ❌ to a held notice and that is the verdict** — on every platform,
+  including the ones with no buttons at all. A reaction already arrives as an
+  ordinary inbound naming the message it targets, so this needed no adapter
+  change: routd rewrites it into the `/approve <id>` it stands for at ingest, and
+  it meets the same operator gate as a press or a typed command. 👍 and 👎 are
+  deliberately NOT verdicts — they are ordinary social reactions, and reading one
+  as "run the gated call" is an approval nobody gave.
+
 - **The held notice carries Approve / Reject / Always buttons** — natively on
   Telegram, Discord and Slack, folded into typable text everywhere else, so the
   prompt is answerable on every channel. A button's data is the command it

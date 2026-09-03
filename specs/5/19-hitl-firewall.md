@@ -288,6 +288,36 @@ condition the text states.
 | whapd                       | the fold                                 | `buttonsResponse` / `templateButtonReply` / `interactiveResponse` / `listResponse` |
 | bskyd, emaid, linkd, reditd | the fold                                 | ordinary text                                                                      |
 
+## Reactions — the universal answer (2026-09-03)
+
+A button is the best surface where it draws. A **reaction is the only surface
+every chat platform has**, and every adapter already delivers one as an ordinary
+inbound: Content = the emoji, ReplyTo = the message reacted to. So a green or red
+reaction on a held notice IS its verdict, and it needs no adapter change at all.
+
+The rewrite happens at ingest (`handleInbound`), beside the topic-inheritance and
+mention-promotion rewrites already there — NOT in `steer`, which runs after route
+resolution, where a reaction on a mention-only channel never arrives. A matching
+reaction becomes the text `/approve <id>` and meets the same parser and the same
+`IsOperator` gate as a press or a typed command. Still one resolution path.
+
+Three things it needs, and nothing else:
+
+- `pending_actions.notice_id` — the platform id the delivery returned. The notice
+  goes straight to the adapter and never becomes a `messages` row, so nothing
+  else can say which message announced which call.
+- `chanlib.VerdictEmoji` — one place where an emoji means a verdict. The set is
+  green/red only: **👍 and 👎 are deliberately excluded**, because they are
+  ordinary social reactions and reading one as "run the gated call" is an
+  approval nobody gave.
+- One id reduction. Adapters disagree about a reaction's target shape — teled
+  reports `<chat-jid>/<id>`, discd and slakd the id alone — while the delivery
+  always returns the bare id, so the lookup takes the last path segment. Without
+  it Telegram never matches its own notice.
+
+The lookup binds (chat, notice, still-held): a reaction on another message, in
+another chat, or on a call already decided is just a reaction.
+
 Two operator notes. slakd's press needs the Slack app's **Interactivity Request
 URL** pointed at `/slack/interactivity`; unset, the buttons draw and do nothing.
 whapd takes the fold because Baileys 6.7 ships no button-send builder at all —

@@ -544,6 +544,15 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 			s.db.ThreadHasBotMessage(m.ChatJID, m.Topic)) {
 		verb = "mention"
 	}
+	// A green/red reaction on a held notice IS the verdict, spelled in the one
+	// answer surface every platform has. Rewriting it into the command it stands
+	// for is the move the buttons already make: one parser, one operator gate,
+	// no second resolution path. It has to happen HERE and not in steer, which
+	// runs after route resolution — a reaction on a mention-only channel never
+	// gets that far.
+	if cmd := s.db.VerdictForReaction(m.ChatJID, m.ReplyTo, m.Content); cmd != "" {
+		m.Content, verb = cmd, "mention"
+	}
 	row := buildMessageRow(m, ts, verb)
 	// Engagement is NOT committed at ingress: the owning folder isn't known until
 	// route resolution. routd defers the engagement claim to dispatch time
