@@ -198,6 +198,56 @@ against Discord and X, and confirm the claim mapping yields the same
 `discord:user/<id>` principal `acl_membership` already holds. If it does not,
 the authn half stays hand-rolled and this step dies there.
 
+### The spike (run 2026-09-03, Dex v2.45.1)
+
+Dex on the host network, three generic `oauth` connectors pointed at a mock
+that answers each provider's documented userinfo shape, the code flow driven
+with curl, scope `openid profile federated:id`. What the ID token carried:
+
+| connector  | userinfo shape               | ID token                                                                       | verdict                          |
+| ---------- | ---------------------------- | ------------------------------------------------------------------------------ | -------------------------------- |
+| `discord`  | `{"id":"8112…","username"…}` | `"federated_claims":{"connector_id":"discord","user_id":"811295670702047272"}` | **green**                        |
+| `facebook` | `{"id":"1022…","name"…}`     | `"federated_claims":{"connector_id":"facebook","user_id":"1022…"}`             | green                            |
+| `twitter`  | `{"data":{"id":…}}`          | none — Dex: `OAuth Connector: not found id claim`                              | **red**, and red before that too |
+
+The Discord row is the kill condition, and it passed: `user_id` is the raw
+Discord snowflake, so authd can render it as either `discord:<id>` (what the
+native callback mints today) or `discord:user/<id>` (the JID form
+`acl_membership` holds on krons). **Those are two principals today**, bridged
+only by a `5/31` pairing edge; the spike does not collapse them — that is a
+`5/32` namespace decision, not an IdP one.
+
+X fails the generic connector twice, both verified against the source and
+X's docs: the connector builds its login URL with `oauth2.Config.AuthCodeURL(state)`
+and no PKCE, while X's authorization-code grant is PKCE-only; and it reads
+`userInfoResult[userIDKey]` at the top level, while `GET /2/users/me` nests the
+id under `data`. X therefore needs either a Dex connector contributed upstream
+or arizuko's own callback — the generic connector cannot carry it.
+
+Two Dex facts the mapping rests on: `federated_claims` is emitted only for the
+`federated:id` scope (`server/oauth2.go`), and the github connector's `user_id`
+is the numeric GitHub id unless its config sets `useLoginAsID: true` — the
+krons row `github:kronael` keys on the login, so a Dex github connector must set
+it or the operator's grant stops matching.
+
+### What shipped (phase B, additive)
+
+`authd` accepts a Dex login beside the native ones: `DEX_ISSUER` +
+`DEX_CLIENT_ID` (+ `DEX_CLIENT_SECRET`) mount `GET /auth/dex` and
+`/auth/dex/callback`, unset leaves the daemon byte-identical. `authd/dex.go`:
+discovery on first use (authd boots with Dex down), the redirect through the
+same signed-state + PKCE cookies as every provider, the code exchange, go-oidc
+verification of issuer, audience, expiry and signature, then
+`federated_claims` → `dispatch(connector_id, user_id)`. Everything after that
+point — alias resolution, the `auth_users` row, the scope snapshot, the
+`arz/folder` claim, the ES256 mint, refresh — is the existing path. The
+connector `id` in Dex's config IS the principal namespace; authd keeps no
+allowlist, so a new connector is a new namespace with no arizuko code.
+
+Not touched: `auth.ProxydTransit`, `/v1/service-token`, the native callbacks,
+and all of `auth/authorize.go`, `acl.go`, `delegate.go`, `scope.go`. Nothing
+is deleted; the delete waits on a deployment running Dex for its logins.
+
 **Recommendation: yes to the authn half, never the authz half.** The seam is
 the one step 3 already names — a forward-auth endpoint arizuko owns, in front
 of an identity it does not. Sequence it after step 3, which proves the seam on

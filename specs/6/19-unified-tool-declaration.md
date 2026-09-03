@@ -1,5 +1,6 @@
 ---
-status: draft
+status: shipped
+shipped: 2026-09-03
 source: paradigmxyz/centaur@20f3021 (Apache-2.0) peel, 2026-08-10
 depends: [../5/13-ext-mcp, ../5/14-credentials]
 ---
