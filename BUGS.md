@@ -8338,7 +8338,7 @@ duplication rule says amend the original instead.
   `ant/src/codex.ts:84` (`codexPrompt`), `ant/src/pi.ts` (`runPi`);
   the measurement above.
 
-## L131 — pi's bash tool inherits the whole process env, so every model credential is readable from the agent's shell (2026-08-28, claude half FIXED, pi half open — proposal)
+## L131 — pi's bash tool inherits the whole process env, so every model credential is readable from the agent's shell (2026-08-28, claude half FIXED; pi half open — candidate 1 DISPROVED 2026-09-03, replacement mechanism identified, not shipped)
 
 Found auditing the policy layer across all three harnesses. **This entry was
 filed wrong the first time and is corrected here**: the original claimed codex
@@ -8381,6 +8381,38 @@ those two, so scrubbing them breaks a shipped skill.
 `store.EnvProfileKeys` across the language boundary, so a key added to the
 canonical set fails the build rather than landing on the wrong side by
 omission. Both directions mutation-tested.
+
+**Candidate 1 is DISPROVED (2026-09-03, measured on pi 0.51.6).** Deleting the
+keys from `process.env` inside the extension breaks pi's authentication, because
+pi does not read the credential once at startup — it reads it **per request**:
+`agent-loop.js:150` calls `config.getApiKey(provider)` on every turn, and
+`AuthStorage.getApiKey` (`core/auth-storage.js:223`) walks a five-step priority
+list whose step 4 is the environment variable. Delete the variable and the
+second model call of the turn has no credential.
+
+The two escapes pi offers cannot be reached from where we stand.
+`setRuntimeApiKey` (step 1) and `setFallbackResolver` (step 5) are public on
+`AuthStorage`, but `ExtensionContext` (`core/extensions/types.d.ts:169`) exposes
+`ui`, `sessionManager`, `modelRegistry`, `model`, `abort`, `shutdown`,
+`compact` — and no auth handle. An extension cannot supply the credential by
+another route, so it cannot take it out of the env.
+
+**The mechanism that does work is upstream of the extension: never put the
+credential in pi's env.** `ant/src/pi.ts:200` spawns pi with `env: turn.env`,
+the whole set. pi's step 2 reads `auth.json` at `getAgentDir()/auth.json`, and
+arizuko owns the container. Write the credential there and spawn with
+`turn.env` minus `SECRET_ENV_VARS`: `getShellEnv()` then has nothing to leak —
+by construction, not by a delete that races a re-read — and auth resolves one
+step earlier than it does today.
+
+Not shipped, and deliberately. Two unknowns remain that only a live pi can
+settle: the `auth.json` entry shape for an OAUTH credential (`{type:"oauth",
+expires, ...}`) versus an api key, and whether pi's refresh path rewrites that
+file under a container's read-only assumptions. **pi is not the backend on any
+instance** — krons, sloth and marinade all run the claude default with
+`ARIZUKO_BACKEND` unset — so this leaks nothing today and there is no reason to
+ship a credential change verified only by reading. It becomes urgent the day a
+folder is switched to pi.
 
 **OPEN (pi half) — proposal, needs sign-off.** The tension is real: the
 credential MUST be in pi's own env (that is how pi authenticates) and must NOT
