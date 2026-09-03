@@ -264,22 +264,34 @@ Only a `hold:` action takes `async` — `auth.EffectAllowed` is the one reader
 operator surfaces validate through. On any other action it would read as an
 ordinary ALLOW and grant the tool it looks like it is gating (Hazard 1).
 
-## Buttons — shipped for teled (2026-09-02)
+## Buttons — shipped (2026-09-02)
 
 `SendRequest.Options []Option{label, data}` and the fold both shipped as
 specified: `chanreg.HTTPChannel.SendOptionsCtx` is the ONE fold site, and an
 adapter that does not advertise `buttons` never receives an options field — it
 receives the same prompt with the answers written out as text a reader can type.
 
-teled advertises `buttons`, draws an inline keyboard on the last chunk, and maps
-`callback_query` to an ordinary `InboundMsg` whose Content is the option's data.
-A HITL button carries `/approve <id>` verbatim, so **the press and the typed
-command are the same inbound text** and meet the same `IsOperator` gate. There
-is no button-only path to a verdict and no token in the notice — the chat is
-readable by everyone in it. `/always` is offered only when an exact rule can be
-written, the same condition the text states.
+**A button's data is the command it replaces, verbatim.** teled sets it as
+`callback_data`, discd as `custom_id`, slakd as a Block Kit `value`; each maps
+the press back to an ordinary `InboundMsg` whose Content is that data, from the
+PRESSER's own platform id. So the press and the typed command are the same
+inbound text and meet the same `IsOperator` gate. There is no button-only path
+to a verdict and no token in the notice — the chat is readable by everyone in
+it. `/always` is offered only when an exact rule can be written, the same
+condition the text states.
 
-discd and slakd still take the fold. Their native render stays owned by
-[`6/26`](../6/26-personal-mode.md) § Decision 6 gap 3, which holds the measured
-per-adapter cost — including the one adapter that cannot have it, which is why
-the text fallback is the specified behavior rather than a placeholder.
+| adapter                     | render                                   | press arrives as                                                                   |
+| --------------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------- |
+| teled                       | `inline_keyboard` on the last chunk      | `callback_query`                                                                   |
+| discd                       | one `ActionsRow`, capped at 5            | `InteractionCreate` (message component)                                            |
+| slakd                       | `blocks`: section + actions, capped at 5 | `block_actions` on `POST /slack/interactivity`                                     |
+| whapd                       | the fold                                 | `buttonsResponse` / `templateButtonReply` / `interactiveResponse` / `listResponse` |
+| bskyd, emaid, linkd, reditd | the fold                                 | ordinary text                                                                      |
+
+Two operator notes. slakd's press needs the Slack app's **Interactivity Request
+URL** pointed at `/slack/interactivity`; unset, the buttons draw and do nothing.
+whapd takes the fold because Baileys 6.7 ships no button-send builder at all —
+WhatsApp restricts native buttons to the Business API — so the notice arrives as
+typable text, which is the specified behavior rather than a placeholder. Its
+INBOUND half is wired anyway: a press from any source is read by its id, so
+nothing has to change here if that door opens.
