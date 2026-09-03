@@ -13,10 +13,12 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"html/template"
 
+	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
@@ -32,6 +34,10 @@ type oauth struct {
 	state  []byte // CSRF state HMAC key (a CSRF token, not identity — stays symmetric)
 	secure bool
 	grants GrantsFetcher
+
+	// dex is discovered on first use (dexProvider), never at mount.
+	dexMu sync.Mutex
+	dex   *oidc.Provider
 }
 
 // registerOAuth mounts /auth/* on mux, conditionally per configured provider
@@ -67,6 +73,10 @@ func (s *server) registerOAuth(mux *http.ServeMux, cfg *core.Config) {
 	if cfg.TelegramToken != "" {
 		mux.HandleFunc("POST /auth/telegram", o.telegram)
 	}
+	if dexConfigured(cfg) {
+		mux.HandleFunc("GET /auth/dex", o.redirect("dex"))
+		mux.HandleFunc("GET /auth/dex/callback", o.dexCallback)
+	}
 }
 
 func (o *oauth) loginPage(w http.ResponseWriter, r *http.Request) {
@@ -85,6 +95,9 @@ func (o *oauth) loginPage(w http.ResponseWriter, r *http.Request) {
 	if o.cfg.DiscordClientID != "" {
 		b.WriteString(`<a class="oauth-btn" href="/auth/discord">Sign in with Discord</a>`)
 	}
+	if dexConfigured(o.cfg) {
+		b.WriteString(`<a class="oauth-btn" href="/auth/dex">Sign in with Dex</a>`)
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprint(w, theme.Page("Sign in", template.HTML(b.String())))
 }
@@ -98,6 +111,12 @@ func (o *oauth) loginPage(w http.ResponseWriter, r *http.Request) {
 // validated by SafeReturn before entering the SIGNED state and cleared on consume.
 func (o *oauth) redirect(provider string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		base, err := o.authorizeURL(provider)
+		if err != nil {
+			slog.Error("identity provider unreachable", "provider", provider, "err", err)
+			http.Error(w, "identity provider unavailable", http.StatusBadGateway)
+			return
+		}
 		ret := o.consumeReturn(w, r)
 		intent := auth.StateIntent{Return: ret}
 		if r.URL.Query().Get("intent") == "link" {
@@ -112,7 +131,7 @@ func (o *oauth) redirect(provider string) http.HandlerFunc {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		dst := o.authorizeURL(provider) +
+		dst := base +
 			"&state=" + url.QueryEscape(state) +
 			"&code_challenge=" + url.QueryEscape(challenge) +
 			"&code_challenge_method=S256"
@@ -149,23 +168,25 @@ func (o *oauth) consumeReturn(w http.ResponseWriter, r *http.Request) string {
 	return safe
 }
 
-func (o *oauth) authorizeURL(provider string) string {
+func (o *oauth) authorizeURL(provider string) (string, error) {
 	cb := auth.AuthBaseURL(o.cfg) + "/auth/" + provider + "/callback"
 	switch provider {
 	case "google":
 		return "https://accounts.google.com/o/oauth2/v2/auth?client_id=" +
 			url.QueryEscape(o.cfg.GoogleClientID) + "&redirect_uri=" + url.QueryEscape(cb) +
-			"&response_type=code&scope=openid%20email%20profile"
+			"&response_type=code&scope=openid%20email%20profile", nil
 	case "github":
 		return "https://github.com/login/oauth/authorize?client_id=" +
 			url.QueryEscape(o.cfg.GitHubClientID) + "&redirect_uri=" + url.QueryEscape(cb) +
-			"&scope=read:user"
+			"&scope=read:user", nil
 	case "discord":
 		return "https://discord.com/api/oauth2/authorize?client_id=" +
 			url.QueryEscape(o.cfg.DiscordClientID) + "&redirect_uri=" + url.QueryEscape(cb) +
-			"&response_type=code&scope=identify"
+			"&response_type=code&scope=identify", nil
+	case "dex":
+		return o.dexAuthorizeURL(cb)
 	}
-	return ""
+	return "", nil
 }
 
 // callbackCode validates the CSRF state and pulls the code + PKCE verifier

@@ -31,6 +31,12 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Added
 
+- **Sign in through Dex** (spec `6/22` step 4). Set `DEX_ISSUER` +
+  `DEX_CLIENT_ID` (+ `DEX_CLIENT_SECRET`) and the login page offers `/auth/dex`:
+  Dex authenticates against its connectors and authd maps the ID token's
+  `federated_claims` to the same `<connector>:<id>` principal the native
+  callback would mint, so a grant row serves either login path. The folder claim
+  and scope snapshot stay authd's. Unset, nothing changes.
 - **An approval now BLOCKS the call it gates, and buttons answer it** (spec
   `5/19`). A `hold:mcp:<tool>` rule used to let the agent report "waiting" and
   finish the turn, so an approval typed a minute later reached an agent that had

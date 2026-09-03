@@ -108,6 +108,7 @@ var daemonKeys = map[string][]string{
 		"GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "GITHUB_ALLOWED_ORG",
 		"DISCORD_CLIENT_ID", "DISCORD_CLIENT_SECRET",
 		"GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_ALLOWED_EMAILS",
+		"DEX_ISSUER", "DEX_CLIENT_ID", "DEX_CLIENT_SECRET",
 	},
 	// routd: conversation state. routd.db + adapters (/v1/send) + calls runed.
 	// Verifies via authd JWKS. NO egress proxy, NO docker socket.

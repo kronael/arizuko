@@ -27,14 +27,14 @@ const DefaultImage = "arizuko-ant:latest"
 const DefaultAPIPort = 8080
 
 type Config struct {
-	Name                string
-	TelegramToken       string
-	Image               string
+	Name          string
+	TelegramToken string
+	Image         string
 	// AgentBackend selects the container occupant (spec 6/7 "The connector
 	// seam"): claude (default, empty), codex, pi. Static infra config — a
 	// backend exists only if its CLI is baked into Image — so it lives in the
 	// instance .env, never the DB.
-	AgentBackend string
+	AgentBackend        string
 	Timeout             time.Duration
 	IdleTimeout         time.Duration
 	MaxContainers       int
@@ -51,6 +51,11 @@ type Config struct {
 	GoogleSecret        string
 	GoogleAllowedEmails string
 	GitHubAllowedOrg    string
+
+	// Dex login (spec 6/22 step 4); unset → /auth/dex stays unmounted.
+	DexIssuer   string
+	DexClientID string
+	DexSecret   string
 
 	// Surrogate OAuth (spec 5/15): operator-owned confidential-client creds for
 	// the outbound "Connect GitHub" dance. Distinct from GitHubClientID/Secret,
@@ -219,6 +224,10 @@ func LoadConfig() (*Config, error) {
 		GoogleSecret:        envOr("GOOGLE_CLIENT_SECRET", ""),
 		GoogleAllowedEmails: envOr("GOOGLE_ALLOWED_EMAILS", ""),
 		GitHubAllowedOrg:    envOr("GITHUB_ALLOWED_ORG", ""),
+
+		DexIssuer:   envOr("DEX_ISSUER", ""),
+		DexClientID: envOr("DEX_CLIENT_ID", ""),
+		DexSecret:   envOr("DEX_CLIENT_SECRET", ""),
 
 		SurrogateGitHubClientID: envOr("SURROGATE_GITHUB_CLIENT_ID", ""),
 		SurrogateGitHubSecret:   envOr("SURROGATE_GITHUB_CLIENT_SECRET", ""),

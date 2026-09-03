@@ -85,6 +85,10 @@ DB-ownership rule).
 - `LISTEN_ADDR` — HTTP listen address (`:8080`)
 - `ARIZUKO_INSTANCE` — instance name (observability + audit context)
 - OAuth provider: `AUTH_BASE_URL`, `GITHUB_*`, `GOOGLE_*`, `DISCORD_*`, `TELEGRAM_*`
+- `DEX_ISSUER` + `DEX_CLIENT_ID` (+ `DEX_CLIENT_SECRET`) — mount `/auth/dex`:
+  Dex authenticates, authd maps the ID token's `federated_claims` to
+  `<connector_id>:<user_id>` and mints the session as for a native provider
+  (spec `6/22` step 4). Unset → unmounted.
 
 ## Token lifetimes
 
