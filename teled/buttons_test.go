@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -66,6 +67,44 @@ func TestBotSend_ButtonsRideTheLastChunk(t *testing.T) {
 	}
 	if markup, _ := m.lastSent[1]["reply_markup"].(string); !strings.Contains(markup, "/approve ab12") {
 		t.Errorf("last chunk carries no keyboard: %s", markup)
+	}
+}
+
+// TestBotSend_OptionsShareOneRow — a verdict is a choice BETWEEN the answers,
+// so they sit side by side. One row per option reads as a list of separate
+// actions, which is what it looked like before.
+func TestBotSend_OptionsShareOneRow(t *testing.T) {
+	m := newTGMock()
+	defer m.close()
+	b := newTestBot(t, m, config{Name: "telegram"})
+	defer b.typing.Stop()
+
+	if _, err := b.Send(chanlib.SendRequest{
+		ChatJID: "telegram:123", Content: "held",
+		Options: []chanlib.Option{
+			{Label: "Approve", Data: "/approve ab12"},
+			{Label: "Reject", Data: "/reject ab12"},
+			{Label: "Always", Data: "/always ab12"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	markup, _ := m.lastSent[0]["reply_markup"].(string)
+	var kb struct {
+		Rows [][]struct {
+			CallbackData string `json:"callback_data"`
+		} `json:"inline_keyboard"`
+	}
+	if err := json.Unmarshal([]byte(markup), &kb); err != nil {
+		t.Fatalf("reply_markup is not a keyboard: %v (%s)", err, markup)
+	}
+	if len(kb.Rows) != 1 {
+		t.Fatalf("keyboard has %d rows, want the answers side by side in 1", len(kb.Rows))
+	}
+	if len(kb.Rows[0]) != 3 {
+		t.Fatalf("row holds %d buttons, want all 3", len(kb.Rows[0]))
 	}
 }
 

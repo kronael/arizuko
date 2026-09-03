@@ -405,12 +405,13 @@ func buttons(options []chanlib.Option) any {
 	if len(options) == 0 {
 		return nil
 	}
-	rows := make([][]tgbotapi.InlineKeyboardButton, 0, len(options))
-	for _, o := range options {
-		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(o.Label, o.Send())))
+	// One row: a verdict is a choice BETWEEN the answers, and stacking them
+	// reads as a list of separate actions. Telegram allows 8 to a row.
+	row := make([]tgbotapi.InlineKeyboardButton, 0, len(options))
+	for _, o := range options[:min(len(options), 8)] {
+		row = append(row, tgbotapi.NewInlineKeyboardButtonData(o.Label, o.Send()))
 	}
-	return tgbotapi.NewInlineKeyboardMarkup(rows...)
+	return tgbotapi.NewInlineKeyboardMarkup(row)
 }
 
 func (b *bot) Send(req chanlib.SendRequest) (string, error) {
