@@ -1,19 +1,18 @@
-[[ext]]
-name = "gandi"
-base = "https://api.gandi.net/v5"
+[[connector]]
+name      = "gandi"
+transport = "rest"
+url       = "https://api.gandi.net/v5"
+secrets   = ["GANDI_PAT"]
+headers   = { Authorization = "Bearer {secret:GANDI_PAT}" }
 
-  [ext.auth]
-  method = "bearer"
-  secret = "GANDI_PAT"
-
-  [[ext.tool]]
+  [[connector.tool]]
   name        = "dns_list"
   description = "List DNS records for a Gandi domain."
   scope       = "ext:gandi:dns:read"
   method      = "GET"
   path        = "/livedns/domains/{domain}/records"
 
-  [[ext.tool]]
+  [[connector.tool]]
   name        = "dns_set"
   description = "Create or replace a DNS record for a Gandi domain. {rrset_name} is the record name, {rrset_type} is the record type."
   scope       = "ext:gandi:dns:write"

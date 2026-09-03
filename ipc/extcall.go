@@ -3,7 +3,6 @@ package ipc
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -27,18 +26,19 @@ type ExtTool struct {
 	Method  string
 	Path    string
 
-	// AuthMethod is one of: bearer, apikey-header, apikey-query, basic,
-	// json-body.
-	AuthMethod string
-	// SecretKey is the secret-store key for the primary credential.
-	SecretKey  string
-	SecretKey2 string
-	// Header/Header2 are the header names (apikey-header) or JSON body
-	// key names (json-body) for the credentials.
-	Header  string
-	Header2 string
-	// Param is the query-param name for apikey-query auth.
-	Param string
+	// Secrets names the keys the broker resolves for this tool; the folder's
+	// other secrets are never visible to it. Same field, same meaning as
+	// ConnectorSpec.Secrets — one declaration, both transports.
+	Secrets []string
+
+	// Headers, Query and Body are the three sinks a credential can land in.
+	// Each value may carry "{secret:KEY}" placeholders, resolved per call by
+	// RenderSecrets against the broker-resolved secrets — the SAME vocabulary
+	// an `mcp` connector uses for its headers, which is what makes one
+	// declaration serve both transports (spec 6/19).
+	Headers map[string]string
+	Query   map[string]string
+	Body    map[string]string
 }
 
 var pathParam = regexp.MustCompile(`\{([^}]+)\}`)
@@ -126,13 +126,8 @@ func extAttempt(
 		// POST/PUT/PATCH: build JSON body.
 		bodyMap := make(map[string]any, len(remaining))
 		maps.Copy(bodyMap, remaining)
-		if tool.AuthMethod == "json-body" {
-			if v := secrets[tool.SecretKey]; tool.Header != "" && v != "" {
-				bodyMap[tool.Header] = v
-			}
-			if v := secrets[tool.SecretKey2]; tool.Header2 != "" && v != "" {
-				bodyMap[tool.Header2] = v
-			}
+		for k, v := range RenderSecrets(tool.Body, secrets) {
+			bodyMap[k] = v
 		}
 		b, err := json.Marshal(bodyMap)
 		if err != nil {
@@ -149,31 +144,18 @@ func extAttempt(
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	// Wire authentication.
-	switch tool.AuthMethod {
-	case "bearer":
-		if v := secrets[tool.SecretKey]; v != "" {
-			req.Header.Set("Authorization", "Bearer "+v)
+	// Wire authentication: the declared sinks, rendered. There is no auth-method
+	// enum to switch on — a bearer IS `Authorization = "Bearer {secret:K}"`, and
+	// a fifth provider needs no new case here.
+	for k, v := range RenderSecrets(tool.Headers, secrets) {
+		req.Header.Set(k, v)
+	}
+	if q := RenderSecrets(tool.Query, secrets); len(q) > 0 {
+		vals := req.URL.Query()
+		for k, v := range q {
+			vals.Set(k, v)
 		}
-	case "apikey-header":
-		if tool.Header != "" {
-			if v := secrets[tool.SecretKey]; v != "" {
-				req.Header.Set(tool.Header, v)
-			}
-		}
-	case "apikey-query":
-		if v := secrets[tool.SecretKey]; tool.Param != "" && v != "" {
-			q := req.URL.Query()
-			q.Set(tool.Param, v)
-			req.URL.RawQuery = q.Encode()
-		}
-	case "basic":
-		if v := secrets[tool.SecretKey]; v != "" {
-			encoded := base64.StdEncoding.EncodeToString([]byte(v))
-			req.Header.Set("Authorization", "Basic "+encoded)
-		}
-	case "json-body":
-		// Credentials already injected into the body above.
+		req.URL.RawQuery = vals.Encode()
 	}
 
 	resp, err := http.DefaultClient.Do(req)

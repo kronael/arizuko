@@ -1139,10 +1139,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 		}
 		granted(tool.LocalName, tool.Description, opts,
 			func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-				needed := []string{tool.SecretKey}
-				if tool.SecretKey2 != "" {
-					needed = append(needed, tool.SecretKey2)
-				}
+				needed := tool.Secrets
 				var secrets map[string]string
 				if db.ResolveConnectorSecrets != nil {
 					var rerr error

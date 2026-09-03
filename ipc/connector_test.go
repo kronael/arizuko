@@ -158,7 +158,7 @@ func TestCallConnectorTool_ScrubsSecretFromResult(t *testing.T) {
 // An unresolved placeholder must not be sent as a half-rendered credential:
 // "Bearer {secret:NEVER_SET}" upstream is worse than no header at all.
 func TestRenderHeaders_DropsUnresolved(t *testing.T) {
-	got := renderHeaders(map[string]string{
+	got := RenderSecrets(map[string]string{
 		"Authorization": "Bearer {secret:NEVER_SET}",
 		"X-Static":      "keep-me",
 	}, map[string]string{"NEVER_SET": ""})

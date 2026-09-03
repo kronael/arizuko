@@ -17,20 +17,26 @@ import (
 	"github.com/kronael/arizuko/ipc"
 )
 
-type extProviderConfig struct {
-	Name  string          `toml:"name"`
-	Base  string          `toml:"base"`
-	Auth  extAuthConfig   `toml:"auth"`
+// connectorConfig is one [[connector]] block — the ONE declaration shape for an
+// external tool source (spec 6/19). `transport` picks the dispatch path and
+// nothing else: `mcp` discovers its own catalogue and reads Headers only;
+// `rest` declares its tools and may use all three credential sinks. A field is
+// ABSENT for a transport, never the same field meaning two things.
+type connectorConfig struct {
+	Name      string `toml:"name"`
+	Transport string `toml:"transport"`
+	URL       string `toml:"url"`
+	// Secrets names the keys the broker resolves for this connector.
+	Secrets []string `toml:"secrets"`
+	// Headers, Query and Body carry "{secret:KEY}" placeholders, rendered per
+	// call. Three sinks, one vocabulary — which is what replaced the
+	// method/secret/secret2/header/header2/param enum and its ceiling of two.
+	Headers map[string]string `toml:"headers"`
+	Query   map[string]string `toml:"query"`
+	Body    map[string]string `toml:"body"`
+	// Tools is the rest transport's catalogue; an mcp connector discovers its
+	// own and leaves this empty.
 	Tools []extToolConfig `toml:"tool"`
-}
-
-type extAuthConfig struct {
-	Method  string `toml:"method"`
-	Secret  string `toml:"secret"`
-	Secret2 string `toml:"secret2"`
-	Header  string `toml:"header"`
-	Header2 string `toml:"header2"`
-	Param   string `toml:"param"`
 }
 
 type extToolConfig struct {
@@ -99,16 +105,16 @@ func extInputSchema(path string, params []extParamConfig) json.RawMessage {
 }
 
 type extFile struct {
-	Ext []extProviderConfig `toml:"ext"`
+	Connectors []connectorConfig `toml:"connector"`
 }
 
-// LoadExtProviders loads [[ext]] blocks from:
+// LoadExtProviders loads the `rest` [[connector]] blocks from:
 //  1. Built-in providers embedded in extproviders/*.toml
-//  2. Operator [[ext]] blocks from <dir>/connectors.toml (missing file ok)
+//  2. Operator [[connector]] blocks from <dir>/connectors.toml (missing file ok)
 //
 // Returns nil, nil when no ext blocks exist.
 func LoadExtProviders(_ context.Context, dir string) ([]ipc.ExtTool, error) {
-	var providers []extProviderConfig
+	var providers []connectorConfig
 
 	entries, err := fs.ReadDir(builtinProviders, "extproviders")
 	if err != nil {
@@ -126,7 +132,7 @@ func LoadExtProviders(_ context.Context, dir string) ([]ipc.ExtTool, error) {
 		if perr := toml.Unmarshal(data, &f); perr != nil {
 			return nil, fmt.Errorf("parse embedded %s: %w", e.Name(), perr)
 		}
-		providers = append(providers, f.Ext...)
+		providers = append(providers, f.Connectors...)
 	}
 
 	opPath := filepath.Join(dir, "connectors.toml")
@@ -137,9 +143,9 @@ func LoadExtProviders(_ context.Context, dir string) ([]ipc.ExtTool, error) {
 	if err == nil {
 		var f extFile
 		if perr := toml.Unmarshal(data, &f); perr != nil {
-			return nil, fmt.Errorf("parse %s ext blocks: %w", opPath, perr)
+			return nil, fmt.Errorf("parse %s connector blocks: %w", opPath, perr)
 		}
-		providers = append(providers, f.Ext...)
+		providers = append(providers, f.Connectors...)
 	}
 
 	if len(providers) == 0 {
@@ -148,6 +154,9 @@ func LoadExtProviders(_ context.Context, dir string) ([]ipc.ExtTool, error) {
 
 	var out []ipc.ExtTool
 	for _, p := range providers {
+		if p.Transport == transportMCP {
+			continue // discovers its own catalogue; LoadConnectors owns it
+		}
 		before := len(out)
 		for _, t := range p.Tools {
 			out = append(out, ipc.ExtTool{
@@ -155,19 +164,17 @@ func LoadExtProviders(_ context.Context, dir string) ([]ipc.ExtTool, error) {
 				Description: t.Description,
 				Scope:       t.Scope,
 				InputSchema: extInputSchema(t.Path, t.Params),
-				BaseURL:     p.Base,
+				BaseURL:     p.URL,
 				Method:      t.Method,
 				Path:        t.Path,
-				AuthMethod:  p.Auth.Method,
-				SecretKey:   p.Auth.Secret,
-				SecretKey2:  p.Auth.Secret2,
-				Header:      p.Auth.Header,
-				Header2:     p.Auth.Header2,
-				Param:       p.Auth.Param,
+				Secrets:     p.Secrets,
+				Headers:     p.Headers,
+				Query:       p.Query,
+				Body:        p.Body,
 			})
 		}
 		if len(out) == before {
-			slog.Warn("ext provider has no tools", "provider", p.Name)
+			slog.Warn("rest connector has no tools", "connector", p.Name)
 		}
 	}
 	slog.Info("ext providers loaded", "tools", len(out))

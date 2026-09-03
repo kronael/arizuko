@@ -14,6 +14,21 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Changed
+
+- **One `[[connector]]` block for every external tool source** (spec `6/19`).
+  `connectors.toml` carried two block shapes read by two loaders —
+  `[[mcp_connector]]` for a remote MCP server and `[[ext]]` for a REST API. They
+  are now one block with `transport = "mcp" | "rest"`. **The `[ext.auth]`
+  vocabulary is gone**: `method`, `secret`, `secret2`, `header`, `header2`,
+  `param` — six fields for one idea, with a hardcoded ceiling of two credentials
+  that porkbun already sat on. In its place, the `{secret:KEY}` placeholder the
+  MCP connector already used, now usable in three sinks: `headers`, `query` and
+  `body`. A bearer is a literal prefix rather than a mode, so a provider with an
+  unusual scheme needs no new case, and a provider with four credentials is
+  written like one with one. No instance in the fleet had a `connectors.toml`,
+  so the only files that moved are the four built-in DNS providers.
+
 ### Added
 
 - **An approval now BLOCKS the call it gates, and buttons answer it** (spec

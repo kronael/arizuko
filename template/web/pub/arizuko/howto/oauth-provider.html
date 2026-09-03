@@ -65,7 +65,7 @@
         (Google Drive, Slack, Notion, Linear) and expires. For a
         long-lived API key on a folder, an <a href="../reference/env.html">env
         var</a> or a <code>secrets</code>-table row wired to an
-        <code>[[ext]]</code> REST provider is simpler.
+        <code>[[connector]]</code> REST provider is simpler.
       </div>
 
       <h2>1. drop a descriptor</h2>
@@ -153,7 +153,7 @@ SURROGATE_SLACK_CLIENT_SECRET=xxxxxxxxxxxxxxxxxxxx</code></pre>
 
       <p>
         The stored token reads like any other secret. Point an
-        <a href="../howto/webhooks.html">[[ext]] REST provider</a> or an
+        <a href="../howto/webhooks.html">[[connector]] REST provider</a> or an
         MCP connector at <code>secret_key</code> and the agent gets a
         tool that calls the service as the connected user &mdash; no
         credential ever enters the container. See
@@ -188,7 +188,7 @@ SURROGATE_SLACK_CLIENT_SECRET=xxxxxxxxxxxxxxxxxxxx</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/oauth-provider.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-07-29">2026-07-29</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-15">2026-08-15</time>
       </div>
     </main>
 

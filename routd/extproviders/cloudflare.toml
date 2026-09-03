@@ -1,48 +1,47 @@
-[[ext]]
-name = "cloudflare"
-base = "https://api.cloudflare.com/client/v4"
+[[connector]]
+name      = "cloudflare"
+transport = "rest"
+url       = "https://api.cloudflare.com/client/v4"
+secrets   = ["CF_API_TOKEN"]
+headers   = { Authorization = "Bearer {secret:CF_API_TOKEN}" }
 
-  [ext.auth]
-  method = "bearer"
-  secret = "CF_API_TOKEN"
-
-  [[ext.tool]]
+  [[connector.tool]]
   name        = "dns_list"
   description = "List DNS records for a Cloudflare zone."
   scope       = "ext:cloudflare:dns:read"
   method      = "GET"
   path        = "/zones/{zone_id}/dns_records"
 
-  [[ext.tool]]
+  [[connector.tool]]
   name        = "dns_create"
   description = "Create a DNS record in a Cloudflare zone."
   scope       = "ext:cloudflare:dns:write"
   method      = "POST"
   path        = "/zones/{zone_id}/dns_records"
 
-    [[ext.tool.param]]
+    [[connector.tool.param]]
     name        = "type"
     required    = true
     description = "Record type: A, AAAA, CNAME, TXT, MX, ..."
 
-    [[ext.tool.param]]
+    [[connector.tool.param]]
     name        = "name"
     required    = true
     description = "Record name, e.g. www.example.com"
 
-    [[ext.tool.param]]
+    [[connector.tool.param]]
     name        = "content"
     required    = true
     description = "Record value, e.g. 203.0.113.10"
 
-  [[ext.tool]]
+  [[connector.tool]]
   name        = "dns_delete"
   description = "Delete a DNS record from a Cloudflare zone."
   scope       = "ext:cloudflare:dns:write"
   method      = "DELETE"
   path        = "/zones/{zone_id}/dns_records/{record_id}"
 
-  [[ext.tool]]
+  [[connector.tool]]
   name        = "zone_list"
   description = "List Cloudflare zones on the account."
   scope       = "ext:cloudflare:zone:read"

@@ -1,29 +1,25 @@
-[[ext]]
-name = "porkbun"
-base = "https://api.porkbun.com/api/json/v3"
+[[connector]]
+name      = "porkbun"
+transport = "rest"
+url       = "https://api.porkbun.com/api/json/v3"
+secrets   = ["PB_SECRET", "PB_API_KEY"]
+body      = { secretapikey = "{secret:PB_SECRET}", apikey = "{secret:PB_API_KEY}" }
 
-  [ext.auth]
-  method  = "json-body"
-  secret  = "PB_SECRET"
-  secret2 = "PB_API_KEY"
-  header  = "secretapikey"
-  header2 = "apikey"
-
-  [[ext.tool]]
+  [[connector.tool]]
   name        = "dns_list"
   description = "List DNS records for a Porkbun domain."
   scope       = "ext:porkbun:dns:read"
   method      = "POST"
   path        = "/dns/retrieve/{domain}"
 
-  [[ext.tool]]
+  [[connector.tool]]
   name        = "dns_create"
   description = "Create a DNS record for a Porkbun domain."
   scope       = "ext:porkbun:dns:write"
   method      = "POST"
   path        = "/dns/create/{domain}"
 
-  [[ext.tool]]
+  [[connector.tool]]
   name        = "dns_delete"
   description = "Delete a DNS record from a Porkbun domain. {id} is the record ID."
   scope       = "ext:porkbun:dns:write"

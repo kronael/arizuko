@@ -85,12 +85,12 @@ func TestCallExtTool_Bearer(t *testing.T) {
 	}))
 
 	tool := ipc.ExtTool{
-		LocalName:  "test_op",
-		Method:     "GET",
-		BaseURL:    srv.URL,
-		Path:       "/test",
-		AuthMethod: "bearer",
-		SecretKey:  "MY_TOKEN",
+		LocalName: "test_op",
+		Method:    "GET",
+		BaseURL:   srv.URL,
+		Path:      "/test",
+		Secrets:   []string{"MY_TOKEN"},
+		Headers:   map[string]string{"Authorization": "Bearer {secret:MY_TOKEN}"},
 	}
 	secrets := map[string]string{"MY_TOKEN": "tok123"}
 	result, err := ipc.CallExtTool(context.Background(), tool, nil, secrets, nil)
@@ -113,12 +113,12 @@ func TestCallExtTool_PathParam(t *testing.T) {
 	defer srv.Close()
 
 	tool := ipc.ExtTool{
-		LocalName:  "test_dns",
-		Method:     "GET",
-		BaseURL:    srv.URL,
-		Path:       "/zones/{zone_id}/dns_records",
-		AuthMethod: "bearer",
-		SecretKey:  "TOK",
+		LocalName: "test_dns",
+		Method:    "GET",
+		BaseURL:   srv.URL,
+		Path:      "/zones/{zone_id}/dns_records",
+		Secrets:   []string{"TOK"},
+		Headers:   map[string]string{"Authorization": "Bearer {secret:TOK}"},
 	}
 	args := map[string]any{"zone_id": "abc123"}
 	secrets := map[string]string{"TOK": "x"}
@@ -138,12 +138,12 @@ func TestCallExtTool_Scrub(t *testing.T) {
 	defer srv.Close()
 
 	tool := ipc.ExtTool{
-		LocalName:  "test_scrub",
-		Method:     "GET",
-		BaseURL:    srv.URL,
-		Path:       "/test",
-		AuthMethod: "bearer",
-		SecretKey:  "MY_SECRET",
+		LocalName: "test_scrub",
+		Method:    "GET",
+		BaseURL:   srv.URL,
+		Path:      "/test",
+		Secrets:   []string{"MY_SECRET"},
+		Headers:   map[string]string{"Authorization": "Bearer {secret:MY_SECRET}"},
 	}
 	secrets := map[string]string{"MY_SECRET": "supersecret"}
 	result, err := ipc.CallExtTool(context.Background(), tool, nil, secrets, nil)
@@ -174,13 +174,12 @@ func TestCallExtTool_ScrubsTransportError(t *testing.T) {
 	srv.Close()
 
 	tool := ipc.ExtTool{
-		LocalName:  "test_qkey",
-		Method:     "GET",
-		BaseURL:    deadURL,
-		Path:       "/dns",
-		AuthMethod: "apikey-query",
-		Param:      "ApiKey",
-		SecretKey:  "NC_KEY",
+		LocalName: "test_qkey",
+		Method:    "GET",
+		BaseURL:   deadURL,
+		Path:      "/dns",
+		Secrets:   []string{"NC_KEY"},
+		Query:     map[string]string{"ApiKey": "{secret:NC_KEY}"},
 	}
 	secrets := map[string]string{"NC_KEY": "supersecretkey"}
 	result, err := ipc.CallExtTool(context.Background(), tool, nil, secrets, nil)
@@ -208,15 +207,15 @@ func TestCallExtTool_JsonBody(t *testing.T) {
 	}))
 
 	tool := ipc.ExtTool{
-		LocalName:  "test_jsonbody",
-		Method:     "POST",
-		BaseURL:    srv.URL,
-		Path:       "/test",
-		AuthMethod: "json-body",
-		SecretKey:  "PB_API_KEY",
-		SecretKey2: "PB_SECRET",
-		Header:     "apikey",
-		Header2:    "secretapikey",
+		LocalName: "test_jsonbody",
+		Method:    "POST",
+		BaseURL:   srv.URL,
+		Path:      "/test",
+		Secrets:   []string{"PB_API_KEY", "PB_SECRET"},
+		Body: map[string]string{
+			"apikey":       "{secret:PB_API_KEY}",
+			"secretapikey": "{secret:PB_SECRET}",
+		},
 	}
 	secrets := map[string]string{"PB_API_KEY": "mykey", "PB_SECRET": "mysecret"}
 	_, err := ipc.CallExtTool(context.Background(), tool, nil, secrets, nil)
@@ -240,12 +239,12 @@ func TestCallExtTool_MissingSecret(t *testing.T) {
 	}))
 
 	tool := ipc.ExtTool{
-		LocalName:  "test_missing",
-		Method:     "GET",
-		BaseURL:    srv.URL,
-		Path:       "/test",
-		AuthMethod: "bearer",
-		SecretKey:  "CF_API_TOKEN",
+		LocalName: "test_missing",
+		Method:    "GET",
+		BaseURL:   srv.URL,
+		Path:      "/test",
+		Secrets:   []string{"CF_API_TOKEN"},
+		Headers:   map[string]string{"Authorization": "Bearer {secret:CF_API_TOKEN}"},
 	}
 	secrets := map[string]string{}
 	_, err := ipc.CallExtTool(context.Background(), tool, nil, secrets, nil)
@@ -289,7 +288,7 @@ func TestCallExtTool_RefreshesAndRetriesOnce401(t *testing.T) {
 
 	tool := ipc.ExtTool{
 		LocalName: "test_op", Method: "GET", BaseURL: srv.URL, Path: "/test",
-		AuthMethod: "bearer", SecretKey: "TOK",
+		Secrets: []string{"TOK"}, Headers: map[string]string{"Authorization": "Bearer {secret:TOK}"},
 	}
 	refreshes := 0
 	refresh := func(context.Context) (map[string]string, error) {
@@ -325,7 +324,7 @@ func TestCallExtTool_NoSecondRetryWhen401Persists(t *testing.T) {
 
 	tool := ipc.ExtTool{
 		LocalName: "test_op", Method: "GET", BaseURL: srv.URL, Path: "/test",
-		AuthMethod: "bearer", SecretKey: "TOK",
+		Secrets: []string{"TOK"}, Headers: map[string]string{"Authorization": "Bearer {secret:TOK}"},
 	}
 	refresh := func(context.Context) (map[string]string, error) {
 		return map[string]string{"TOK": "fresh"}, nil
@@ -369,7 +368,7 @@ func TestCallExtTool_NoRetryOnNon401OrNoOpRefresh(t *testing.T) {
 
 			tool := ipc.ExtTool{
 				LocalName: "test_op", Method: "GET", BaseURL: srv.URL, Path: "/test",
-				AuthMethod: "bearer", SecretKey: "TOK",
+				Secrets: []string{"TOK"}, Headers: map[string]string{"Authorization": "Bearer {secret:TOK}"},
 			}
 			refresh := func(context.Context) (map[string]string, error) {
 				return c.refreshed, c.refreshErr

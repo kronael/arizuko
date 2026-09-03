@@ -108,7 +108,7 @@ What full MCP OAuth would still need:
 ## Shape 3 — REST descriptor (shipped)
 
 Declarative TOML mapping tool names to REST endpoints — no subprocess, no Go
-handler. Targets providers that ship no MCP server. Each `[[ext]]` block names a
+handler. Targets providers that ship no MCP server. Each `rest` `[[connector]]` block names a
 base URL, an auth method (`bearer` | `apikey-header` | `apikey-query` | `basic` |
 `json-body`) with the `secrets` key(s) it reads, and a list of `[[ext.tool]]`
 entries carrying `name`, `scope`, `method`, and `path`.

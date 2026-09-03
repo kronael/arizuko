@@ -73,12 +73,12 @@ func seedSecretsStore(t *testing.T, d *DB, key string) *store.Store {
 
 func writeConnectorsTOML(t *testing.T, dir, url string) {
 	t.Helper()
-	toml := `[[mcp_connector]]
+	toml := `[[connector]]
 name = "fake"
 url = "` + url + `"
 secrets = ["GITHUB_TOKEN"]
 
-[mcp_connector.headers]
+[connector.headers]
 Authorization = "Bearer {secret:GITHUB_TOKEN}"
 `
 	if err := os.WriteFile(filepath.Join(dir, "connectors.toml"), []byte(toml), 0o644); err != nil {

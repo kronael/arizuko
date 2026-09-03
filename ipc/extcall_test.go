@@ -2,7 +2,6 @@ package ipc
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -65,16 +64,17 @@ func resultText(t *testing.T, r *mcp.CallToolResult) string {
 
 // Each auth method must put the credential in exactly one place. A credential
 // that also lands somewhere else is a second copy in a second log.
-func TestCallExtToolWiresEachAuthMethodInOnePlace(t *testing.T) {
+func TestCallExtToolRendersCredentialsIntoTheDeclaredSinks(t *testing.T) {
 	const secret = "sk-live-abcdef"
 	cases := []struct {
-		name  string
-		tool  ExtTool
-		check func(*testing.T, *extRequest)
+		name    string
+		tool    ExtTool
+		secrets map[string]string // nil → the single "TOK" default
+		check   func(*testing.T, *extRequest)
 	}{
 		{
-			name: "bearer",
-			tool: ExtTool{Method: "GET", Path: "/v1/me", AuthMethod: "bearer", SecretKey: "TOK"},
+			name: "a bearer is a literal prefix, not an enum value",
+			tool: ExtTool{Method: "GET", Path: "/v1/me", Secrets: []string{"TOK"}, Headers: map[string]string{"Authorization": "Bearer {secret:TOK}"}},
 			check: func(t *testing.T, r *extRequest) {
 				if got := r.headers.Get("Authorization"); got != "Bearer "+secret {
 					t.Errorf("Authorization = %q", got)
@@ -85,34 +85,34 @@ func TestCallExtToolWiresEachAuthMethodInOnePlace(t *testing.T) {
 			},
 		},
 		{
-			name: "apikey-header",
-			tool: ExtTool{Method: "GET", Path: "/v1/me", AuthMethod: "apikey-header", SecretKey: "TOK", Header: "X-Api-Key"},
+			name: "credential in a named header",
+			tool: ExtTool{Method: "GET", Path: "/v1/me", Secrets: []string{"TOK"}, Headers: map[string]string{"X-Api-Key": "{secret:TOK}"}},
 			check: func(t *testing.T, r *extRequest) {
 				if got := r.headers.Get("X-Api-Key"); got != secret {
 					t.Errorf("X-Api-Key = %q", got)
 				}
 				if r.headers.Get("Authorization") != "" {
-					t.Error("apikey-header also set Authorization")
+					t.Error("a named-header credential also set Authorization")
 				}
 			},
 		},
 		{
-			name: "apikey-query",
-			tool: ExtTool{Method: "GET", Path: "/v1/me", AuthMethod: "apikey-query", SecretKey: "TOK", Param: "api_key"},
+			name: "credential in a query param",
+			tool: ExtTool{Method: "GET", Path: "/v1/me", Secrets: []string{"TOK"}, Query: map[string]string{"api_key": "{secret:TOK}"}},
 			check: func(t *testing.T, r *extRequest) {
 				if !strings.Contains(r.query, "api_key="+secret) {
 					t.Errorf("query = %q, want api_key=%s", r.query, secret)
 				}
 				if r.headers.Get("Authorization") != "" {
-					t.Error("apikey-query also set Authorization")
+					t.Error("a query credential also set Authorization")
 				}
 			},
 		},
 		{
-			name: "basic",
-			tool: ExtTool{Method: "GET", Path: "/v1/me", AuthMethod: "basic", SecretKey: "TOK"},
+			name: "any literal prefix, no enum needed",
+			tool: ExtTool{Method: "GET", Path: "/v1/me", Secrets: []string{"TOK"}, Headers: map[string]string{"Authorization": "Basic {secret:TOK}"}},
 			check: func(t *testing.T, r *extRequest) {
-				want := "Basic " + base64.StdEncoding.EncodeToString([]byte(secret))
+				want := "Basic " + secret
 				if got := r.headers.Get("Authorization"); got != want {
 					t.Errorf("Authorization = %q, want %q", got, want)
 				}
@@ -122,14 +122,53 @@ func TestCallExtToolWiresEachAuthMethodInOnePlace(t *testing.T) {
 			},
 		},
 		{
-			name: "json-body",
-			tool: ExtTool{Method: "POST", Path: "/v1/me", AuthMethod: "json-body", SecretKey: "TOK", Header: "api_key"},
+			name: "credential in the JSON body",
+			tool: ExtTool{Method: "POST", Path: "/v1/me",
+				Secrets: []string{"TOK"}, Body: map[string]string{"api_key": "{secret:TOK}"}},
 			check: func(t *testing.T, r *extRequest) {
 				if r.body["api_key"] != secret {
 					t.Errorf("body = %#v, want api_key in it", r.body)
 				}
 				if r.headers.Get("Authorization") != "" || strings.Contains(r.query, secret) {
-					t.Error("json-body auth also set a header or a query param")
+					t.Error("a body credential also set a header or a query param")
+				}
+			},
+		},
+		{
+			// The ceiling that killed the old shape: `[ext.auth]` had exactly
+			// secret/secret2 and header/header2, so porkbun's two credentials
+			// were the most it could ever express. A map has no such number.
+			name: "more credentials than the old two-slot ceiling allowed",
+			tool: ExtTool{Method: "POST", Path: "/v1/me",
+				Secrets: []string{"TOK", "TOK2", "TOK3"},
+				Body: map[string]string{
+					"a": "{secret:TOK}", "b": "{secret:TOK2}", "c": "{secret:TOK3}",
+				}},
+			secrets: map[string]string{"TOK": secret, "TOK2": "two", "TOK3": "three"},
+			check: func(t *testing.T, r *extRequest) {
+				for k, want := range map[string]string{"a": secret, "b": "two", "c": "three"} {
+					if r.body[k] != want {
+						t.Errorf("body[%q] = %v, want %q", k, r.body[k], want)
+					}
+				}
+			},
+		},
+		{
+			// A declared key the broker resolved to nothing must not travel as
+			// the literal placeholder — that would send "{secret:MISSING}"
+			// upstream as if it were a credential.
+			name: "an unresolved placeholder is dropped, never sent literally",
+			tool: ExtTool{Method: "GET", Path: "/v1/me",
+				Secrets: []string{"MISSING"},
+				Headers: map[string]string{"X-Key": "{secret:MISSING}"},
+				Query:   map[string]string{"k": "{secret:MISSING}"}},
+			secrets: map[string]string{},
+			check: func(t *testing.T, r *extRequest) {
+				if got := r.headers.Get("X-Key"); got != "" {
+					t.Errorf("X-Key = %q, want the header dropped", got)
+				}
+				if strings.Contains(r.query, "secret:") {
+					t.Errorf("query carries a raw placeholder: %q", r.query)
 				}
 			},
 		},
@@ -141,8 +180,11 @@ func TestCallExtToolWiresEachAuthMethodInOnePlace(t *testing.T) {
 			srv := extServer(t, &got, status200(), `{"ok":true}`)
 			c.tool.BaseURL = srv.URL
 
-			res, err := CallExtTool(context.Background(), c.tool, nil,
-				map[string]string{"TOK": secret}, nil)
+			sec := c.secrets
+			if sec == nil {
+				sec = map[string]string{"TOK": secret}
+			}
+			res, err := CallExtTool(context.Background(), c.tool, nil, sec, nil)
 			if err != nil {
 				t.Fatalf("CallExtTool: %v", err)
 			}
@@ -163,7 +205,7 @@ func TestCallExtToolConsumesPathParams(t *testing.T) {
 
 	tool := ExtTool{
 		BaseURL: srv.URL, Method: "GET", Path: "/repos/{owner}/{repo}/issues",
-		AuthMethod: "bearer", SecretKey: "TOK",
+		Secrets: []string{"TOK"}, Headers: map[string]string{"Authorization": "Bearer {secret:TOK}"},
 	}
 	_, err := CallExtTool(context.Background(), tool,
 		map[string]any{"owner": "kronael", "repo": "arizuko", "state": "open"},
@@ -187,7 +229,7 @@ func TestCallExtToolConsumesPathParams(t *testing.T) {
 func TestCallExtToolLeavesAnUnfilledPathParamLiteral(t *testing.T) {
 	var got extRequest
 	srv := extServer(t, &got, status200(), `{}`)
-	tool := ExtTool{BaseURL: srv.URL, Method: "GET", Path: "/repos/{owner}/issues", AuthMethod: "bearer", SecretKey: "TOK"}
+	tool := ExtTool{BaseURL: srv.URL, Method: "GET", Path: "/repos/{owner}/issues", Secrets: []string{"TOK"}, Headers: map[string]string{"Authorization": "Bearer {secret:TOK}"}}
 
 	if _, err := CallExtTool(context.Background(), tool, nil, map[string]string{"TOK": "t"}, nil); err != nil {
 		t.Fatal(err)
@@ -201,7 +243,7 @@ func TestCallExtToolPutsArgsInTheQueryOrTheBodyByMethod(t *testing.T) {
 	for _, method := range []string{"GET", "DELETE", "HEAD"} {
 		var got extRequest
 		srv := extServer(t, &got, status200(), `{}`)
-		tool := ExtTool{BaseURL: srv.URL, Method: method, Path: "/x", AuthMethod: "bearer", SecretKey: "TOK"}
+		tool := ExtTool{BaseURL: srv.URL, Method: method, Path: "/x", Secrets: []string{"TOK"}, Headers: map[string]string{"Authorization": "Bearer {secret:TOK}"}}
 		if _, err := CallExtTool(context.Background(), tool,
 			map[string]any{"q": "hello world"}, map[string]string{"TOK": "t"}, nil); err != nil {
 			t.Fatal(err)
@@ -217,7 +259,7 @@ func TestCallExtToolPutsArgsInTheQueryOrTheBodyByMethod(t *testing.T) {
 	for _, method := range []string{"POST", "PUT", "PATCH"} {
 		var got extRequest
 		srv := extServer(t, &got, status200(), `{}`)
-		tool := ExtTool{BaseURL: srv.URL, Method: method, Path: "/x", AuthMethod: "bearer", SecretKey: "TOK"}
+		tool := ExtTool{BaseURL: srv.URL, Method: method, Path: "/x", Secrets: []string{"TOK"}, Headers: map[string]string{"Authorization": "Bearer {secret:TOK}"}}
 		if _, err := CallExtTool(context.Background(), tool,
 			map[string]any{"title": "hi", "n": 3}, map[string]string{"TOK": "t"}, nil); err != nil {
 			t.Fatal(err)
@@ -246,7 +288,7 @@ func TestCallExtToolScrubsSecretsFromTheResponse(t *testing.T) {
 	srv := extServer(t, &got, st,
 		`{"error":"bad key sk-live-PRIMARY","hint":"you sent sk-live-SECOND too"}`)
 
-	tool := ExtTool{BaseURL: srv.URL, Method: "GET", Path: "/x", AuthMethod: "bearer", SecretKey: "TOK"}
+	tool := ExtTool{BaseURL: srv.URL, Method: "GET", Path: "/x", Secrets: []string{"TOK"}, Headers: map[string]string{"Authorization": "Bearer {secret:TOK}"}}
 	secrets := map[string]string{"TOK": primary, "TOK2": secondary, "EMPTY": ""}
 
 	res, err := CallExtTool(context.Background(), tool, nil, secrets, nil)
@@ -300,7 +342,7 @@ func TestCallExtToolScrubsTheSecretFromATransportError(t *testing.T) {
 	dead.Close()
 
 	tool := ExtTool{BaseURL: url, Method: "GET", Path: "/x",
-		AuthMethod: "apikey-query", SecretKey: "TOK", Param: "api_key"}
+		Secrets: []string{"TOK"}, Query: map[string]string{"api_key": "{secret:TOK}"}}
 
 	res, err := CallExtTool(context.Background(), tool, nil, map[string]string{"TOK": secret}, nil)
 	if err != nil {
@@ -332,7 +374,7 @@ func TestCallExtToolRetriesOnceWithRefreshedCredentials(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	var refreshes atomic.Int32
-	tool := ExtTool{BaseURL: srv.URL, Method: "GET", Path: "/x", AuthMethod: "bearer", SecretKey: "TOK"}
+	tool := ExtTool{BaseURL: srv.URL, Method: "GET", Path: "/x", Secrets: []string{"TOK"}, Headers: map[string]string{"Authorization": "Bearer {secret:TOK}"}}
 	res, err := CallExtTool(context.Background(), tool, nil, map[string]string{"TOK": stale},
 		func(context.Context) (map[string]string, error) {
 			refreshes.Add(1)
@@ -364,7 +406,7 @@ func TestCallExtToolSkipsTheRetryWhenNothingWasRenewed(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	secrets := map[string]string{"TOK": "pat-unchanged"}
-	tool := ExtTool{BaseURL: srv.URL, Method: "GET", Path: "/x", AuthMethod: "bearer", SecretKey: "TOK"}
+	tool := ExtTool{BaseURL: srv.URL, Method: "GET", Path: "/x", Secrets: []string{"TOK"}, Headers: map[string]string{"Authorization": "Bearer {secret:TOK}"}}
 
 	res, err := CallExtTool(context.Background(), tool, nil, secrets,
 		func(context.Context) (map[string]string, error) {
@@ -392,7 +434,7 @@ func TestCallExtToolStopsAfterOneRetry(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	var refreshes atomic.Int32
-	tool := ExtTool{BaseURL: srv.URL, Method: "GET", Path: "/x", AuthMethod: "bearer", SecretKey: "TOK"}
+	tool := ExtTool{BaseURL: srv.URL, Method: "GET", Path: "/x", Secrets: []string{"TOK"}, Headers: map[string]string{"Authorization": "Bearer {secret:TOK}"}}
 	res, err := CallExtTool(context.Background(), tool, nil, map[string]string{"TOK": "a"},
 		func(context.Context) (map[string]string, error) {
 			n := refreshes.Add(1)
@@ -421,7 +463,7 @@ func TestCallExtToolSurfaces401WithNoRefresher(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	tool := ExtTool{BaseURL: srv.URL, Method: "GET", Path: "/x", AuthMethod: "bearer", SecretKey: "TOK"}
+	tool := ExtTool{BaseURL: srv.URL, Method: "GET", Path: "/x", Secrets: []string{"TOK"}, Headers: map[string]string{"Authorization": "Bearer {secret:TOK}"}}
 	res, err := CallExtTool(context.Background(), tool, nil, map[string]string{"TOK": "a"}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -443,7 +485,7 @@ func TestCallExtToolKeepsTheOriginal401WhenRefreshFails(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	tool := ExtTool{BaseURL: srv.URL, Method: "GET", Path: "/x", AuthMethod: "bearer", SecretKey: "TOK"}
+	tool := ExtTool{BaseURL: srv.URL, Method: "GET", Path: "/x", Secrets: []string{"TOK"}, Headers: map[string]string{"Authorization": "Bearer {secret:TOK}"}}
 	res, err := CallExtTool(context.Background(), tool, nil, map[string]string{"TOK": "a"},
 		func(context.Context) (map[string]string, error) {
 			return nil, io.ErrUnexpectedEOF

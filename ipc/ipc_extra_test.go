@@ -44,7 +44,7 @@ func TestNumArg(t *testing.T) {
 // --- renderHeaders / expandSecret / scrubSecrets ---
 
 func TestRenderHeaders(t *testing.T) {
-	m := renderHeaders(map[string]string{
+	m := RenderSecrets(map[string]string{
 		"X-Api-Key": "{secret:MY_KEY}",
 		"X-Static":  "no-substitution",
 	}, map[string]string{"MY_KEY": "secret123"})

@@ -21,9 +21,21 @@ import (
 	"github.com/kronael/arizuko/ipc"
 )
 
-// connectorFile is the TOML wire shape. One file, many [[mcp_connector]] blocks.
+// The two transports a [[connector]] block can declare (spec 6/19). They are
+// mechanically distinct dispatch paths, which is the rule that keeps one shape
+// from becoming a shape where a field means two things: `mcp` proxies a remote
+// MCP server and discovers its catalogue, `rest` calls an HTTP API from a
+// catalogue it declares. There is no third — the stdio connector was deleted
+// 2026-08-30 because an endpoint needs no runtime and a subprocess does.
+const (
+	transportMCP  = "mcp"
+	transportREST = "rest"
+)
+
+// connectorFile is the TOML wire shape. One file, many [[connector]] blocks.
+// The rest half is read by LoadExtProviders off the same blocks.
 type connectorFile struct {
-	Connectors []ipc.ConnectorSpec `toml:"mcp_connector"`
+	Connectors []ipc.ConnectorSpec `toml:"connector"`
 }
 
 // LoadConnectors reads connectors.toml under projectRoot (or $CONNECTORS_TOML)
@@ -48,16 +60,21 @@ func LoadConnectors(projectRoot string) ([]ipc.ConnectorSpec, error) {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 	callTimeout := connectorCallTimeout()
+	var out []ipc.ConnectorSpec
 	for i := range f.Connectors {
 		spec := &f.Connectors[i]
+		if spec.Transport == transportREST {
+			continue // LoadExtProviders owns the rest half of the same block
+		}
 		if err := validateConnector(spec); err != nil {
 			return nil, fmt.Errorf("connector[%d] %q: %w", i, spec.Name, err)
 		}
 		spec.CallTimeout = callTimeout
-		slog.Info("connector configured",
-			"name", spec.Name, "url", spec.URL, "secrets", spec.Secrets)
+		slog.Info("connector configured", "name", spec.Name,
+			"transport", transportMCP, "url", spec.URL, "secrets", spec.Secrets)
+		out = append(out, *spec)
 	}
-	return f.Connectors, nil
+	return out, nil
 }
 
 func validateConnector(s *ipc.ConnectorSpec) error {

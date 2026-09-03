@@ -12,7 +12,7 @@ here; they drift.
 
 Columns: service · use case · tool name · read/write · auth method ·
 acquisition path (mcp = vendor MCP server · openapi = auto-import
-candidate · rest = hand `[[ext]]` descriptor · go = Go handler) · scope
+candidate · rest = hand a `rest` `[[connector]]` descriptor · go = Go handler) · scope
 string.
 
 ## Dev / infra / cloud

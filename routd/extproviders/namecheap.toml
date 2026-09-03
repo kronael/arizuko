@@ -1,13 +1,11 @@
-[[ext]]
-name = "namecheap"
-base = "https://api.namecheap.com"
+[[connector]]
+name      = "namecheap"
+transport = "rest"
+url       = "https://api.namecheap.com"
+secrets   = ["NAMECHEAP_KEY"]
+query     = { ApiKey = "{secret:NAMECHEAP_KEY}" }
 
-  [ext.auth]
-  method = "apikey-query"
-  secret = "NAMECHEAP_KEY"
-  param  = "ApiKey"
-
-  [[ext.tool]]
+  [[connector.tool]]
   name        = "dns_list"
   description = "List DNS hosts for a Namecheap domain. Requires ApiUser and ClientIp params."
   scope       = "ext:namecheap:dns:read"

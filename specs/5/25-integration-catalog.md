@@ -44,7 +44,7 @@ asserted.
       `openapi2mcp`, **the key gap** (`8/A`; researched, not built).
    3. **Hand REST descriptor** — the workhorse for small/stable/no-spec
       APIs (Porkbun, Vault, Prometheus, Ghost, Home Assistant, …). →
-      `[[ext]]` TOML (shipped, shape 3).
+      `[[connector]]` TOML, `transport = "rest"` (shipped, shape 3).
    4. **Go handler** — the un-descriptor-able: AWS SigV4, GCP SA-JWT,
       registry bearer-challenge, 2-step token exchange, non-HTTP
       (SMTP/IMAP). → shape 1.
@@ -77,7 +77,7 @@ cursor}` triple mapped to each vendor's DSL rather than exposing raw
 
 ## The template — an integration is one manifest
 
-Extends `5/13`'s `[[ext]]`. Net-new fields, each earned by a finding
+Extends `5/13`'s `rest` connector. Net-new fields, each earned by a finding
 above: `acquisition` (mcp|openapi|rest|go), `stakes` (low → default-grant,
 high → `5/19` confirm + idempotency), `kind` (sync | async submit+poll),
 `response` (json|binary|xml), `pagination` (none|cursor|offset|jsonapi),

@@ -30,12 +30,16 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-// ConnectorSpec is one [[mcp_connector]] block. Loaded from
+// ConnectorSpec is one [[connector]] block with transport "mcp". Loaded from
 // <data_dir>/connectors.toml at routd boot. Immutable thereafter, which is what
 // makes the file the destination allowlist: the operator writes the reachable
 // endpoints, the agent only ever picks a tool.
 type ConnectorSpec struct {
 	Name string `toml:"name"`
+	// Transport is "mcp" (this file) or "rest" (routd/ext.go). One block shape,
+	// two dispatch paths, spec 6/19. Empty means mcp: the transport that
+	// discovers its own catalogue is the one a bare block cannot be mistaken for.
+	Transport string `toml:"transport"`
 	// URL is the server's streamable-HTTP MCP endpoint.
 	URL string `toml:"url"`
 	// Secrets names the keys the broker resolves for this connector; the
@@ -65,7 +69,7 @@ func dial(ctx context.Context, spec *ConnectorSpec, secrets map[string]string) (
 		return nil, fmt.Errorf("connector %q: empty url", spec.Name)
 	}
 	opts := []transport.StreamableHTTPCOption{
-		transport.WithHTTPHeaders(renderHeaders(spec.Headers, secrets)),
+		transport.WithHTTPHeaders(RenderSecrets(spec.Headers, secrets)),
 	}
 	if spec.CallTimeout > 0 {
 		opts = append(opts, transport.WithHTTPTimeout(spec.CallTimeout))
@@ -155,11 +159,15 @@ func CallConnectorTool(
 	return scrubCallResult(res, secrets)
 }
 
-// renderHeaders resolves "{secret:KEY}" in each header value against the
-// resolved-secrets map. A header whose placeholder resolves to empty is DROPPED
+// RenderSecrets resolves "{secret:KEY}" in each value against the
+// resolved-secrets map. It serves all three sinks a credential can land in —
+// headers, query params and JSON body — because one placeholder vocabulary over
+// three sinks is what let the `[ext.auth]` enum (method/secret/secret2/header/
+// header2/param, ceiling of two credentials) be deleted. An entry whose
+// placeholder resolves to empty is DROPPED
 // rather than sent blank: an `Authorization: Bearer ` with no token reads to the
 // upstream as a malformed credential instead of an absent one.
-func renderHeaders(tmpl, secrets map[string]string) map[string]string {
+func RenderSecrets(tmpl, secrets map[string]string) map[string]string {
 	out := make(map[string]string, len(tmpl))
 	for k, v := range tmpl {
 		rendered := expandSecret(v, secrets)

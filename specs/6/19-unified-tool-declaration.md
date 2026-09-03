@@ -14,7 +14,7 @@ both shapes miss today: ordered sources, later shadows earlier, loud
 warn. Execution shapes stay exactly as `5/13` ships them — this unifies
 the DECLARATION, never the dispatch.
 
-## arizuko today: one file, two shapes, no collision rule
+## The two shapes this replaced (measured 2026-08-20)
 
 External capability tools split across two TOML shapes with two loaders
 and two registration loops:
@@ -83,51 +83,80 @@ model — every tool is a `uvx`-run CLI shim, no MCP anywhere
 makes their one-declaration trivially true. arizuko keeps its three
 execution shapes; only the declaration unifies.
 
-## The delta
+## The delta — DECIDED 2026-09-03
 
-1. **One `[[connector]]` block, `transport = "stdio" | "http" | "rest"`.**
-   Today's `[[mcp_connector]]` is `transport="http"`; today's `[[ext]]`
-   is `transport="rest"` (its `[[ext.tool]]` list moves under the block
-   unchanged). One loader replaces
-   `LoadExtProviders` + the `mcp_connector` parse; one registration walk
-   replaces the two loops. Grant namespaces (`mcp:` / `ext:`) and
-   dispatch paths do not move.
-2. **The loader rule Centaur has and arizuko lacks**: sources are
-   ordered (embedded built-ins, then operator file), later shadows
-   earlier BY NAME, every shadow logged loud. Kills the duplicate-
-   `LocalName` ambiguity at the one place it can be killed.
-3. **Typed secret entries as the shared vocabulary.** `secrets` becomes
-   a list of `{ key, type, ... }` where `rest`'s current auth-method
-   enum is the `http` type's mode field, and the vocabulary is the SAME
-   one the declined proxy rules would have used (`http` replace/inject only —
-   the vendor-signing types `aws_auth`/`hmac_sign` are DECLINED (2026-08-15);
-   signing rides its request tool / `credential_process` tiers) — so a
-   credential rides the broker (this file); the proxy alternative is declined
-   but is described identically in both. `hosts` on a declaration is
-   the seed a proxy renderer would have consumed; for broker-side transports it
-   is documentation and audit context only (connector subprocesses run
-   on the host, outside the egress path).
+The trigger this spec set for itself has fired. "Do the merge WHEN `5/13` shape 4
+(HTTP upstream MCP) is built" — that shipped 2026-08-30, when the stdio connector
+was deleted and `[[mcp_connector]]` became HTTP-only. So the migration is now,
+and it is cheaper than costed: **no instance in the fleet has a `connectors.toml`
+at all** (krons, sloth, marinade, checked 2026-09-03), so the only files to move
+are the four embedded `routd/extproviders/*.toml`, in-repo.
+
+**One `[[connector]]` block, `transport = "mcp" | "rest"`.** Two values, not the
+three this spec first listed: `stdio` was deleted 2026-08-30 and does not come
+back — an endpoint needs no runtime, a subprocess does, and routd's image has
+none. `mcp` discovers its own tools; `rest` declares them in
+`[[connector.tool]]`, moved under the block unchanged. One loader replaces
+`LoadExtProviders` + the `mcp_connector` parse; grant namespaces (`mcp:` /
+`ext:`) and dispatch paths do not move.
+
+**Secrets: one placeholder, three sinks — NOT a typed vocabulary.** An earlier
+draft of this spec proposed `secrets` as a list of `{key, type, ...}` entries
+with the REST auth-method enum as a mode field. That is more machinery than the
+evidence asks for. The `[[mcp_connector]]` shape already has the general answer:
+name the keys in `secrets`, and write `{secret:KEY}` where the value goes. It
+needs exactly one generalisation to absorb every REST provider — the placeholder
+must be usable in three sinks, not one:
+
+```toml
+[[connector]]
+name      = "cloudflare"
+transport = "rest"
+url       = "https://api.cloudflare.com/client/v4"
+secrets   = ["CF_API_TOKEN"]
+headers   = { Authorization = "Bearer {secret:CF_API_TOKEN}" }
+
+  [[connector.tool]]
+  name   = "dns_list"
+  scope  = "ext:cloudflare:dns:read"
+  method = "GET"
+  path   = "/zones/{zone_id}/dns_records"
+```
+
+`headers`, `query` and `body` are the three sinks, and they are forced by the
+four providers that exist rather than invented: cloudflare and gandi are
+`bearer` (a header), namecheap is `apikey-query` (a query param), porkbun is
+`json-body` (two values in the JSON body). One substitution rule covers all
+four.
+
+This DELETES the `[ext.auth]` vocabulary — `method`, `secret`, `secret2`,
+`header`, `header2`, `param` — six fields for one idea, with a hardcoded ceiling
+of two secrets. `secret2`/`header2` is what a shape looks like after it has run
+out of room once; porkbun already sits on that ceiling. The placeholder form has
+no ceiling and no enum to extend for the fifth provider.
+
+**The loader rule Centaur has and arizuko lacks**: sources are ordered (embedded
+built-ins, then operator file), later shadows earlier BY NAME, every shadow
+logged loud. Kills the duplicate-`LocalName` ambiguity at the one place it can
+be killed. Independently valuable and shipped with the merge.
 
 ## Cost
 
-A `connectors.toml` format migration (fleet exposure is small — one
-`secrets` row fleet-wide as of 2026-08-04, few operator connector
-blocks; the embedded `routd/extproviders/*.toml` migrate in-repo), the
-loader rewrite plus a compatibility read for the two old block names for
-one release, and touching the `ipc.go` registration walk. Risk:
-over-generalizing — held off by the rule that `transport` values must
-stay mechanically distinct dispatch paths (`mcp_tool_naming`
-discipline); the moment a field means different things per transport,
-the shape has failed.
+Smaller than first costed, because the fleet exposure turned out to be zero: no
+`connectors.toml` exists on any instance, so there is no operator file to
+migrate and no compatibility read for the old block names to carry. The work is
+the four embedded providers, one loader, and the `ipc.go` registration walk.
+
+Risk: over-generalizing — held off by the rule that `transport` values must stay
+mechanically distinct dispatch paths (`mcp_tool_naming` discipline). The moment
+a field means different things per transport, the shape has failed. `mcp` reads
+`headers` and ignores `query`/`body`/`tool`; `rest` reads all four. That is a
+field being ABSENT for a transport, never a field changing meaning.
 
 ## Verdict
 
-Worth it, but **timed, not standalone**: do the merge WHEN `5/13` shape
-4 (HTTP upstream MCP) is built — that is the moment a third parallel
-shape would otherwise appear, and the migration then pays for itself.
-Churning a working file purely for symmetry is not minimal. The shadow
-rule (delta 2) is independently shippable earlier if the duplicate-name
-ambiguity bites first.
+Ship it. The condition the earlier verdict named ("timed, not standalone") is
+met, and the migration cost it was waiting on has since gone to zero.
 
 ## Attribution
 
