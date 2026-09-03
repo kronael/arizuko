@@ -7,25 +7,23 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
-## L152 — an `acl` grant can name a principal nobody will ever present, and nothing says so; krons' Telegram operator has been unreachable since 2026-07-19 (2026-09-02)
+## L152 — an `acl` grant can name a principal nobody will ever present, and no surface says so (2026-09-02)
 
 `acl_membership` on krons grants `role:operator` to
 `telegram:user/1183985669`. That id has sent **zero** messages on the instance,
-ever. The account that actually talks to every krons bot is
-`telegram:user/1112184352` ("Kron Ael"), and it holds no operator grant at all.
+ever, and appears in no identity link. It is inert: a second row grants the same
+role to `telegram:user/1112184352`, the account that actually talks to the krons
+bots, so nothing is broken today. The bug is that nothing anywhere would say if
+the inert row were the ONLY one.
 
-So every operator chat command has been silently denied on Telegram since the
-row was written (`cli:kron-all`, 2026-07-19): `/root`, `/gate`, and — found
-first — `/approve`. `cmdResolveHold` answers "Permission denied: approving a
-held call requires an operator grant (**)", which reads as policy working, not
-as a typo in a row.
-
-**Why nothing caught it.** A grant is written against a principal STRING. No
-surface checks that the string corresponds to anything: not at write time (the
+**Why nothing would catch it.** A grant is written against a principal STRING.
+No surface checks the string corresponds to anything: not at write time (the
 CLI, `add_acl` and dashd's form all accept any text), not at read time
 (`Authorize` answering "no" for an unmatched principal is indistinguishable from
-"no" for a real principal), and not afterwards (nothing enumerates rows whose
-principal has never appeared as a message sender or an identity).
+"no" for a real one), and not afterwards (nothing enumerates rows whose
+principal has never appeared as a message sender or a linked identity). The
+denial an operator would then see — "Permission denied: … requires an operator
+grant (**)" — reads as policy working, not as a typo in a row.
 
 It is the mirror of [`grant_action_needs_a_door`]: there, a real principal could
 not reach a new ACTION; here, a real ACTION cannot reach its intended PRINCIPAL.
@@ -34,19 +32,16 @@ looks like policy.
 
 **Shape of a fix (proposal — needs sign-off).** A read-only reconciler, not a
 write-time check: write-time validation would refuse to pre-grant an identity
-that has not spoken yet, which is a legitimate and common case (an invite names
-someone before they arrive). One query — principals in `acl`/`acl_membership`
-that are JID-shaped and appear in no `messages.sender` and no linked identity —
-surfaced on the dashboard grants page and in `arizuko` CLI's grant listing as a
-"never seen" marker beside the row. No new table, no new write path, no
-behavior change to the evaluator.
+that has not spoken yet, which is legitimate and common (an invite names someone
+before they arrive). One query — principals in `acl`/`acl_membership` that are
+JID-shaped and appear in no `messages.sender` and no linked identity — surfaced
+on the dashboard grants page and in the CLI grant listing as a "never seen"
+marker beside the row. No new table, no new write path, no evaluator change.
 
-**Operator fix meanwhile** (one row, the operator's call, not the platform's):
-
-```sql
-INSERT INTO acl_membership (child, parent, added_by, added_at)
-VALUES ('telegram:user/1112184352', 'role:operator', 'cli:fix-L152', datetime('now'));
-```
+**How this entry was first written wrong.** The first version claimed krons'
+Telegram operator had been unreachable since 2026-07-19. That came from a
+`SELECT … LIMIT 30` on a 54-row table: the correct grant is row 31. Read the
+whole table before concluding a row is absent — see `truncated_evidence`.
 
 ## L151 — proposal: an adapter whose credential is dead restart-loops forever and the only trace is one log line; routd already owns the mechanism to say so (2026-09-01, proposal — needs sign-off)
 
