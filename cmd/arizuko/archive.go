@@ -387,8 +387,8 @@ func tarGroups(dataDir string, folders []string, w io.Writer) (int, error) {
 }
 
 // tarFolderTree walks root (a group's on-disk dir) and writes every entry
-// under name folder+"/"+relpath. Symlinks are skipped, never followed —
-// mirrors chanlib.CopyDirNoSymlinks' discipline.
+// under name folder+"/"+relpath. Symlinks are skipped, never followed: their
+// targets would be arbitrary host files.
 func tarFolderTree(tw *tar.Writer, root, folder string) error {
 	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {

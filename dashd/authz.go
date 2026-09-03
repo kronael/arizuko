@@ -226,23 +226,3 @@ func (d *dash) requireAdmin(w http.ResponseWriter, r *http.Request, scope string
 	}
 	return sub, true
 }
-
-// callerAdmins is the non-writing twin of requireAdmin: it reports the same
-// admin decision without emitting a 403. Read views use it to gate exposure of
-// write-capable data (raw chat tokens), so a caller with only read visibility
-// on a folder never sees a reusable bearer for it. Operators (`**` header) pass
-// via the same shortcut callerScope uses; everyone else needs an admin grant.
-func (d *dash) callerAdmins(r *http.Request, folder string) bool {
-	if _, operator := d.callerScope(r); operator {
-		return true
-	}
-	if d.adminDB() == nil {
-		return false
-	}
-	sub := strings.TrimPrefix(strings.TrimSpace(r.Header.Get("X-User-Sub")), "user:")
-	if sub == "" {
-		return false
-	}
-	caller := auth.Caller{Principal: sub, Extra: callerGroups(r)}
-	return auth.Authorize(store.New(d.adminDB()), caller, "admin", folder, nil)
-}

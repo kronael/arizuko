@@ -148,9 +148,8 @@ func CheckProductAssets(product, dir string) error {
 
 // SeedProduct copies ONE product tree into groupDir — the single-product seed
 // behind `arizuko create --product` and `group add --product`. It is
-// chanlib.CopyDirNoSymlinks plus productDest: same symlink discipline, same
-// bytes, but each file lands where its payload kind is read rather than where
-// the author happened to put it.
+// productDest over a symlink-skipping walk: same bytes, but each file lands
+// where its payload kind is read rather than where the author happened to put it.
 func SeedProduct(groupDir, dir string) error {
 	rels, err := productFiles(dir)
 	if err != nil {
@@ -169,8 +168,7 @@ func SeedProduct(groupDir, dir string) error {
 }
 
 // productFiles lists a product's regular files by slash-separated relative path.
-// Symlinks are skipped: copying their targets would leak arbitrary host files
-// (same discipline as chanlib.CopyDirNoSymlinks).
+// Symlinks are skipped: copying their targets would leak arbitrary host files.
 func productFiles(dir string) ([]string, error) {
 	var rels []string
 	err := filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {

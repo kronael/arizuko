@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/routd"
-	"github.com/kronael/arizuko/runed"
 )
 
 // Test fixtures for the two owner DBs dashd reads. They run the DAEMONS' OWN
@@ -35,18 +34,6 @@ func routdDB(t *testing.T) *sql.DB {
 	d, err := routd.OpenMem()
 	if err != nil {
 		t.Fatalf("routd.OpenMem: %v", err)
-	}
-	t.Cleanup(func() { d.Close() })
-	return d.SQL()
-}
-
-// runedDB is a migrated, empty runed.db: spawns, session_log, circuit_breaker,
-// audit_log.
-func runedDB(t *testing.T) *sql.DB {
-	t.Helper()
-	d, err := runed.OpenMem()
-	if err != nil {
-		t.Fatalf("runed.OpenMem: %v", err)
 	}
 	t.Cleanup(func() { d.Close() })
 	return d.SQL()

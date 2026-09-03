@@ -1,7 +1,5 @@
 package internal
 
-import "fmt"
-
 // VMState represents the current state of a VM in its lifecycle.
 type VMState int
 
@@ -37,13 +35,6 @@ type VM struct {
 	SSHPort  int
 	PID      int
 	SSHKeys  string
-}
-
-func (v *VM) BackendURL() string {
-	if v.IP == "" {
-		return ""
-	}
-	return fmt.Sprintf("http://%s:11435", v.IP)
 }
 
 // Constants for VM configuration.
