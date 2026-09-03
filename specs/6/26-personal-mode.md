@@ -1,5 +1,6 @@
 ---
-status: draft
+status: shipped
+shipped: 2026-09-03
 depends:
   [
     ../5/19-hitl-firewall,
