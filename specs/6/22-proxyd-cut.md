@@ -166,6 +166,38 @@ claim every handler binds its `folder`/`jid` params to is arizuko's, not an
 OIDC claim; it has to be minted by arizuko's authz half from the IdP's subject,
 which means authd does not disappear so much as shrink to a claims mapper.
 
+### Which IdP (surveyed 2026-09-03)
+
+Requirements, in the order that decided it: federates to the upstream providers
+arizuko already uses (`github`, `google`, `discord` in `authd/oauth.go`, plus
+Twitter/X and Facebook wanted), Go, minimal, maintained. Each row was read from
+the project's own repo or docs, not from memory.
+
+| candidate | Go / licence                         | what it IS                                                                                          | verdict                                                           |
+| --------- | ------------------------------------ | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| **Dex**   | Go, Apache-2.0, 11.1k★, 4039 commits | "OIDC identity and OAuth 2.0 provider with pluggable connectors" — a BROKER; holds no users         | **selected**                                                      |
+| Ory Hydra | Go, Apache-2.0                       | "standalone OAuth 2.0 and OIDC server **without user management**"; you build the login+consent app | rejected — deletes less                                           |
+| Authelia  | Go, Apache-2.0                       | forward-auth SSO portal with its OWN user store (file/LDAP); OIDC-provider role is beta             | rejected as the IdP — it is step 3's gateway, not step 4's broker |
+| Casdoor   | Go+React, Apache-2.0, 14.3k★         | full IAM: admin console, own user directory, **Casbin ACL/RBAC/ABAC**                               | rejected — brings a second authz model                            |
+
+**Dex, because it is the only one that is a broker rather than a directory.** It
+holds no users and ships no authorization model, so it takes the 1618 authn
+lines and touches none of the 1044 authz ones — which is the whole point of the
+split. Hydra hands the upstream federation back as our problem, so it deletes
+the smaller half of the smaller half. Casdoor would install Casbin beside a
+grant evaluator we are keeping; two authorization engines is worse than one
+hand-rolled.
+
+Native connectors cover github and google. **discord, Twitter/X and Facebook
+have no named Dex connector** and would ride the generic `oauth` connector —
+configurable `authorizationURL` / `tokenURL` / `userInfoURL` / `scopes` /
+`claimMapping`, which is the right shape, but the docs state no stability marker
+and X's OAuth2 wants PKCE with a non-standard userinfo. **One spike proves or
+kills this before anything is deleted**: stand Dex up with the generic connector
+against Discord and X, and confirm the claim mapping yields the same
+`discord:user/<id>` principal `acl_membership` already holds. If it does not,
+the authn half stays hand-rolled and this step dies there.
+
 **Recommendation: yes to the authn half, never the authz half.** The seam is
 the one step 3 already names — a forward-auth endpoint arizuko owns, in front
 of an identity it does not. Sequence it after step 3, which proves the seam on
