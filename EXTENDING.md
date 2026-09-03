@@ -288,6 +288,33 @@ via-`reactions.add`). Steps:
 4. Spec under `specs/2/<letter>-<name>.md`; per-platform native
    support belongs in the verb matrix above.
 
+### Pickable answers (the `buttons` capability)
+
+`SendRequest.Options []Option{label, data}` carries the answers a reader
+can pick without typing. It is a RENDER capability on `send_text`, not a
+verb, so it has no `/send-options` route and no entry in the verb matrix.
+
+Declare `"buttons": true` in your caps map only if the platform draws them
+natively, then read `req.Options` in `Send` and attach the platform's own
+widget. **Set each button's callback payload to `Option.Send()` verbatim**
+— that string is the command the press stands for — and map the press back
+to an ordinary `InboundMsg` whose `Content` is exactly that payload, from
+the presser's own platform id. An adapter never interprets an option and
+never authorizes one: a press and a typed command are then the same
+inbound text meeting the same gate, which is what keeps a button from
+becoming a second authorization path (spec
+[`5/19`](specs/5/19-hitl-firewall.md)).
+
+Declare nothing and you are done: `chanreg.HTTPChannel.SendOptionsCtx`
+folds the answers into typable text before the request leaves routd, so an
+adapter without the cap never sees an options field and its readers still
+get an answerable prompt. That fold is the ONE fold — never reimplement it
+adapter-side.
+
+Two caps to copy rather than rediscover: Discord and Slack reject a row of
+more than five buttons (truncate, do not fail the send), and Telegram caps
+`callback_data` at 64 bytes.
+
 Generic HTTP webhook ingest is the same path: any caller can POST
 `/v1/messages` with the channel-protocol envelope; route inbound
 webhooks through proxyd via the receiving daemon's routes file. No
