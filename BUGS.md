@@ -89,6 +89,62 @@ page from it is the topology, not a leak. If `:37` is the intended rule instead,
 then `6/30` is defected too and dashd's rewrite is larger than `L142` scopes. The
 choice decides two specs' status, so it is the operator's.
 
+## L155 — the skill-guard quarantines 74 of arizuko's own 544 shipped skill files, `migrate/SKILL.md` first; `agent_config_mod` fires `critical` on the STRING "CLAUDE.md" (2026-09-03, live on krons)
+
+The krons agent reported it in chat before any audit did: "`/migrate` … 14
+quarantined by the platform skill-guard (which I did not circumvent)", and a turn
+later "76 stock source files". Reproduced against the shipped corpus by running
+the guard's own `blockingVerdict` over `ant/skills`:
+
+```
+74 of 544 shipped .md files would be quarantined
+  agent_config_mod        108 hits across 65 files
+  reverse_shell             6 hits across 5 files
+  env_exfil_fetch           3 hits across 1 files
+  setuid_setgid             2 hits across 2 files
+  dns_exfil / destructive_root_rm / curl_pipe_shell   1 each
+```
+
+**`agent_config_mod` is 88% of it, and it fires on a MENTION.** On
+`skills/migrate/SKILL.md` — 16 critical findings, every one of them:
+
+```json
+{"patternId":"agent_config_mod","severity":"critical","category":"persistence",
+ "line":5,"match":"CLAUDE.md",
+ "description":"references agent config files (could persist malicious instructions across sessions)"}
+```
+
+The match is the literal string `CLAUDE.md`. Migrating `CLAUDE.md` is what the
+migrate skill IS, so the skill that delivers the corpus is the first file the
+guard eats. A scanner that cannot distinguish USE from MENTION will always fire
+hardest on the documentation of the thing it guards.
+
+**Blast radius: every group, every instance.** `bashSkillRescan`
+(`ant/src/guards.ts:149`) sweeps `guardedRoots(home)` after any Bash call and
+renames anything blocking to `.quarantined` — and a skill only runs if it is
+discoverable at its own path. So `/migrate` writes 95 stock skills and the
+post-hook removes 74 of them, silently, on every sync. The agent noticed; no
+alert did.
+
+**Shape of a fix (proposal — needs sign-off; this is a security control).** Two
+changes, and the first is the cause:
+
+1. **`agent_config_mod` must match a WRITE, not a name.** `> ~/.claude/CLAUDE.md`,
+   a `Write` whose path is an agent config, `tee` into one — not the token
+   appearing in prose. As written the pattern cannot be satisfied by any honest
+   document about arizuko.
+2. **The shipped corpus is not agent-authored.** `bashSkillRescan` exists for
+   BUGS `J8` — the agent writing a persistent instruction under
+   `bypassPermissions`. A file that arrived from the baked image
+   (`/opt/arizuko`, `MaterializeAppSrc`) was never agent-written, so scanning it
+   is a category error. Skipping files identical to their image copy is
+   defence-in-depth for the residual false positives after (1).
+
+Not shipped: narrowing a threat pattern is a security decision, and the six
+non-`agent_config_mod` patterns need reading one at a time before anyone claims
+they are false too — `reverse_shell` across 5 files may be honest documentation
+or may be a real finding in our own corpus.
+
 ## L152 — an `acl` grant can name a principal nobody will ever present, and no surface says so (2026-09-02)
 
 `acl_membership` on krons grants `role:operator` to
