@@ -443,14 +443,21 @@ no broken URL.
 > approving a tool call is verb authority. The link names WHICH decision; the
 > page's existing operator gate names WHO.
 
-**Gap 3 — in the channel.** `SendRequest.Options []Option{label,data}` exists
-in neither `chanlib` nor `core` (verified 2026-08-24: zero hits), so today
-every adapter shows plain text. It is the one generic vehicle: numbered text at
-the existing `HasCap` fold when the adapter lacks `buttons`, native where it
-has them; a press maps to an ordinary `InboundMsg` on the existing ingest, the
-way `chanlib.InboundMsg.Reaction` already carries platform callbacks. Press and
-typed command converge on the one `/approve` parser, consumed before any turn,
-so a verdict never burns a model call.
+**Gap 3 — in the channel. SHIPPED 2026-09-02/03.** `SendRequest.Options
+[]Option{label,data}` rides `POST /send`, and `chanreg.HTTPChannel.SendOptionsCtx`
+is the one fold: an adapter without the `buttons` cap never receives an options
+field, it receives the answers written into the text. teled, discd and slakd draw
+them natively and map a press to an ordinary `InboundMsg` whose Content is the
+option's data, so press and typed command converge on the one `/approve` parser
+before any turn — a verdict never burns a model call. Detail in
+[`5/19`](../5/19-hitl-firewall.md) §"Buttons".
+
+**And the poll below was not needed.** A REACTION is the answer surface every
+platform already has, and every adapter already delivers one as an ordinary
+inbound. A green/red reaction on a held notice is rewritten into its verdict at
+ingest (`5/19` §"Reactions"), which closes whapd — the row the table calls
+blocked — with no send path at all, and no new message kind. 👍/👎 are excluded
+on purpose: an ordinary social reaction is not an approval.
 
 Native render is worth having on three of four adapters, and the fourth is why
 the text fallback is not a placeholder (measured 2026-08-24):
@@ -462,9 +469,9 @@ the text fallback is not a placeholder (measured 2026-08-24):
 | **slakd** | hand-rolled HTTP             | Block Kit out via `chat.postMessage`      | highest — clicks do NOT come back through the Events API. They POST to a separate Interactivity Request URL, form-encoded with a JSON `payload`, needing 200 within 3 s: a second handler beside `POST /slack/events` (`slakd/server.go:41`), a proxyd route, and the Interactivity toggle in the app dashboard              |
 | **whapd** | Baileys 6.7.21               | **none**                                  | blocked — the sendable union (`Types/Message.d.ts:141`) has no `buttons` option, only `buttonReply` and `poll`; the proto still parses `buttonsMessage` inbound, so there is a receive path and no send path. Upstream removed it; Meta deprecates Web-MD buttons for the Cloud API. A 4-option **poll** is the honest shape |
 
-Four verdicts fit every one of these: 4 ≤ Discord's 5 buttons per row, a
-verdict plus an 8-char id is far under Telegram's 64 B, and a poll takes four
-options.
+Three verdicts fit every one of these: 3 ≤ Discord's 5 buttons per row and
+Slack's 25 per actions block, and a verdict plus an 8-char id is far under
+Telegram's 64 B.
 
 ## Decision 7 — the reviewer stays the operator in v1
 
