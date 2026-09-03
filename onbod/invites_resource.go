@@ -34,12 +34,9 @@ func (a *admin) mountInvites(mux *http.ServeMux) {
 // invitesResource is the serving resreg.Resource for invites. Endpoints come
 // from resreg/resources (the same list the OpenAPI doc reads). Store is a
 // store.Store over onbod.db so resreg.invoke opens the mutation+audit tx there.
-// Authz is a no-op; all policy lives in the injected Gate.
+// All policy lives in the injected Gate.
 func (a *admin) invitesResource() resreg.Resource {
 	r := resreg.Mount(resources.InvitesName)
-	r.Authz = func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
-		return "", nil, nil
-	}
 	r.Handler = a.invitesHandler
 	r.Gate = a.invitesRESTGate
 	r.Store = store.New(a.db)
@@ -55,7 +52,7 @@ func (a *admin) invitesRESTGate(x resreg.Execution, _ string, _ map[string]strin
 	if a.ks == nil {
 		return nil
 	}
-	held := strings.Fields(x.Caller.Claims["scopes"])
+	held := x.Caller.Scopes()
 	want := []string{"invites:read", "invites:write"}
 	if x.Action.Mutates() {
 		want = []string{"invites:write"}

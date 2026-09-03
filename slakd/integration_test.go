@@ -14,6 +14,7 @@ import (
 
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/store"
+	"github.com/kronael/arizuko/tests/testutils"
 )
 
 // slackMock spins up an httptest server that mimics the Slack Web API
@@ -273,9 +274,8 @@ func (m *slackMock) Close() { m.srv.Close() }
 // (routd OWNS pane_sessions). st backs the pane handler so slakd's HTTP pane
 // writes land where b.store reads them (read-after-write coherence).
 type routerMock struct {
-	srv      *httptest.Server
+	*testutils.RouterStub
 	mu       sync.Mutex
-	msgs     []chanlib.InboundMsg
 	st       *store.Store
 	paneOps  []string // op of each POST /v1/pane hit, in order
 	paneAuth []string // Authorization header of each POST /v1/pane hit
@@ -283,22 +283,13 @@ type routerMock struct {
 
 func newRouterMock(t *testing.T, st *store.Store) *routerMock {
 	t.Helper()
-	r := &routerMock{st: st}
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /v1/channels/register", func(w http.ResponseWriter, _ *http.Request) {
+	r := &routerMock{RouterStub: testutils.NewRouterStub(), st: st}
+	r.Mux.HandleFunc("POST /v1/channels/register", func(w http.ResponseWriter, _ *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"ok": true, "token": "tok"})
-	})
-	mux.HandleFunc("POST /v1/messages", func(w http.ResponseWriter, req *http.Request) {
-		var im chanlib.InboundMsg
-		json.NewDecoder(req.Body).Decode(&im)
-		r.mu.Lock()
-		r.msgs = append(r.msgs, im)
-		r.mu.Unlock()
-		json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	})
 	// Mirrors routd's POST /v1/pane: op=open → UpsertPane, op=context →
 	// SetPaneContext (by triple). Persists into the shared store.
-	mux.HandleFunc("POST /v1/pane", func(w http.ResponseWriter, req *http.Request) {
+	r.Mux.HandleFunc("POST /v1/pane", func(w http.ResponseWriter, req *http.Request) {
 		var b struct {
 			Op       string `json:"op"`
 			TeamID   string `json:"team_id"`
@@ -325,16 +316,7 @@ func newRouterMock(t *testing.T, st *store.Store) *routerMock {
 		}
 		json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	})
-	r.srv = httptest.NewServer(mux)
 	return r
-}
-
-func (r *routerMock) snapshot() []chanlib.InboundMsg {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	out := make([]chanlib.InboundMsg, len(r.msgs))
-	copy(out, r.msgs)
-	return out
 }
 
 func setupBot(t *testing.T, mock *slackMock) (*bot, *routerMock) {
@@ -357,7 +339,7 @@ func setupBot(t *testing.T, mock *slackMock) (*bot, *routerMock) {
 		t.Fatal(err)
 	}
 	b.store = st
-	rc := chanlib.NewRouterClient(rm.srv.URL)
+	rc := chanlib.NewRouterClient(rm.Srv.URL)
 	// Side calls to routd (/v1/pane, /v1/messages) present the adapter's
 	// service:<adapter> token. "tok" stands in for that ES256 JWT here.
 	rc.SetServiceToken(func(context.Context) (string, error) { return "tok", nil })
@@ -395,7 +377,7 @@ func TestInbound_DM(t *testing.T) {
 	w := httptest.NewRecorder()
 	b.handleEvent(body, w)
 
-	msgs := rm.snapshot()
+	msgs := rm.Snapshot()
 	if len(msgs) != 1 {
 		t.Fatalf("got %d msgs", len(msgs))
 	}
@@ -434,7 +416,7 @@ func TestInbound_ChannelMention(t *testing.T) {
 	}`)
 	w := httptest.NewRecorder()
 	b.handleEvent(body, w)
-	msgs := rm.snapshot()
+	msgs := rm.Snapshot()
 	if len(msgs) != 1 {
 		t.Fatalf("got %d msgs", len(msgs))
 	}
@@ -474,7 +456,7 @@ func TestInbound_ThreadReply(t *testing.T) {
 	w := httptest.NewRecorder()
 	b.handleEvent(body, w)
 
-	msgs := rm.snapshot()
+	msgs := rm.Snapshot()
 	if len(msgs) != 1 {
 		t.Fatalf("got %d", len(msgs))
 	}
@@ -501,7 +483,7 @@ func TestInbound_BotSelfSkipped(t *testing.T) {
 	  }
 	}`)
 	b.handleEvent(body, httptest.NewRecorder())
-	if got := rm.snapshot(); len(got) != 0 {
+	if got := rm.Snapshot(); len(got) != 0 {
 		t.Errorf("bot-self message should be skipped, got %d", len(got))
 	}
 }
@@ -524,7 +506,7 @@ func TestInbound_BotIDOnlySkipped(t *testing.T) {
 	  }
 	}`)
 	b.handleEvent(body, httptest.NewRecorder())
-	if got := rm.snapshot(); len(got) != 0 {
+	if got := rm.Snapshot(); len(got) != 0 {
 		t.Errorf("bot_id-only message should be skipped, got %d", len(got))
 	}
 }
@@ -551,7 +533,7 @@ func TestInbound_OwnEchoSkippedByTS(t *testing.T) {
 	  }
 	}`)
 	b.handleEvent(body, httptest.NewRecorder())
-	if got := rm.snapshot(); len(got) != 0 {
+	if got := rm.Snapshot(); len(got) != 0 {
 		t.Errorf("own-echo (by sent TS) should be skipped, got %d", len(got))
 	}
 }
@@ -573,7 +555,7 @@ func TestInbound_ReactionDislike(t *testing.T) {
 	  }
 	}`)
 	b.handleEvent(body, httptest.NewRecorder())
-	msgs := rm.snapshot()
+	msgs := rm.Snapshot()
 	if len(msgs) != 1 {
 		t.Fatalf("got %d", len(msgs))
 	}
@@ -607,7 +589,7 @@ func TestInbound_ReactionThreadTopic(t *testing.T) {
 	  }
 	}`)
 	b.handleEvent(body, httptest.NewRecorder())
-	msgs := rm.snapshot()
+	msgs := rm.Snapshot()
 	if len(msgs) != 1 {
 		t.Fatalf("got %d", len(msgs))
 	}
@@ -632,7 +614,7 @@ func TestInbound_ReactionBotSelfSkipped(t *testing.T) {
 	  }
 	}`)
 	b.handleEvent(body, httptest.NewRecorder())
-	if got := rm.snapshot(); len(got) != 0 {
+	if got := rm.Snapshot(); len(got) != 0 {
 		t.Errorf("bot reaction should be skipped, got %d", len(got))
 	}
 }
@@ -653,7 +635,7 @@ func TestInbound_MemberJoined(t *testing.T) {
 	  }
 	}`)
 	b.handleEvent(body, httptest.NewRecorder())
-	msgs := rm.snapshot()
+	msgs := rm.Snapshot()
 	if len(msgs) != 1 || msgs[0].Verb != "join" {
 		t.Errorf("join msgs = %+v", msgs)
 	}
@@ -995,7 +977,7 @@ func TestInbound_FileAttachment(t *testing.T) {
 	  }
 	}`)
 	b.handleEvent(body, httptest.NewRecorder())
-	msgs := rm.snapshot()
+	msgs := rm.Snapshot()
 	if len(msgs) != 1 {
 		t.Fatalf("msgs = %d", len(msgs))
 	}
@@ -1122,7 +1104,7 @@ func TestAssistantThreadStarted(t *testing.T) {
 		mock.mu.Lock()
 		tn, pn := len(mock.titles), len(mock.prompts)
 		mock.mu.Unlock()
-		if tn >= 1 && pn >= 1 && len(rm.snapshot()) >= 1 {
+		if tn >= 1 && pn >= 1 && len(rm.Snapshot()) >= 1 {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -1139,7 +1121,7 @@ func TestAssistantThreadStarted(t *testing.T) {
 	}
 	mock.mu.Unlock()
 
-	msgs := rm.snapshot()
+	msgs := rm.Snapshot()
 	if len(msgs) != 1 || msgs[0].Verb != "pane_open" {
 		t.Fatalf("expected one pane_open inbound, got %+v", msgs)
 	}
@@ -1190,8 +1172,8 @@ func TestAssistantThreadContextChanged(t *testing.T) {
 	if p.ContextJID != "slack:T012/channel/Cnew" {
 		t.Errorf("context_jid = %q", p.ContextJID)
 	}
-	if len(rm.snapshot()) != 0 {
-		t.Errorf("context change must not synthesize inbound: %+v", rm.snapshot())
+	if len(rm.Snapshot()) != 0 {
+		t.Errorf("context change must not synthesize inbound: %+v", rm.Snapshot())
 	}
 }
 

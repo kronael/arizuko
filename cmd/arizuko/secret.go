@@ -171,7 +171,7 @@ func runSecretSet(s *store.Store, scope store.SecretScope, scopeID, key, value s
 	if value == "" {
 		return fmt.Errorf("--value required")
 	}
-	if !keyValid(key) {
+	if !store.ValidSecretKey(key) {
 		return fmt.Errorf("key must match ^[A-Z][A-Z0-9_]*$")
 	}
 	// Audited: routd.db HAS had audit_log since routd migration 0016, and routd's
@@ -207,23 +207,4 @@ func runSecretDelete(s *store.Store, scope store.SecretScope, scopeID, key strin
 	}
 	fmt.Fprintf(w, "deleted %s/%s/%s\n", scope, scopeID, key)
 	return nil
-}
-
-// keyValid mirrors dashd/me_secrets.go keyPattern: uppercase ENV-style ids.
-func keyValid(key string) bool {
-	if key == "" {
-		return false
-	}
-	for i, ch := range key {
-		if i == 0 {
-			if ch < 'A' || ch > 'Z' {
-				return false
-			}
-			continue
-		}
-		if !(ch == '_' || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')) {
-			return false
-		}
-	}
-	return true
 }

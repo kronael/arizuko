@@ -81,9 +81,6 @@ type containFn func(c resreg.Caller, a resreg.Action, target string) error
 // seam closed into the handler.
 func (s *Server) routesResource(contain containFn) resreg.Resource {
 	r := resreg.Mount(resources.RoutesName)
-	r.Authz = func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
-		return "", nil, nil
-	}
 	r.Store = store.New(s.db.SQL())
 	r.Handler = func(ctx context.Context, x resreg.Execution) (any, error) {
 		return s.routesHandler(ctx, x, contain)

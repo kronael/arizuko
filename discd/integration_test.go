@@ -15,6 +15,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/tests/testutils"
 )
 
 // TestOnMessage_SkipsSelfAuthor verifies user-mode self-echo filter:
@@ -463,9 +464,9 @@ func TestTyping_Off_NoSend(t *testing.T) {
 // TestOnMessage_Inbound exercises onMessage by wiring a router mock and
 // preloading channel state so the handler doesn't hit the real HTTP API.
 func TestOnMessage_Inbound(t *testing.T) {
-	mr := newDiscdRouterMock()
-	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL)
+	mr := testutils.NewRouterStub()
+	defer mr.Close()
+	rc := chanlib.NewRouterClient(mr.Srv.URL)
 	rc.SetToken("tok")
 
 	sess := newTestSession(t)
@@ -483,12 +484,12 @@ func TestOnMessage_Inbound(t *testing.T) {
 	}}
 	b.onMessage(sess, msg)
 
-	mr.mu.Lock()
-	defer mr.mu.Unlock()
-	if len(mr.msgs) != 1 {
-		t.Fatalf("dispatched %d, want 1", len(mr.msgs))
+	mr.Mu.Lock()
+	defer mr.Mu.Unlock()
+	if len(mr.Msgs) != 1 {
+		t.Fatalf("dispatched %d, want 1", len(mr.Msgs))
 	}
-	got := mr.msgs[0]
+	got := mr.Msgs[0]
 	if got.ChatJID != "discord:dm/ch-1" {
 		t.Errorf("ChatJID = %q", got.ChatJID)
 	}
@@ -504,9 +505,9 @@ func TestOnMessage_Inbound(t *testing.T) {
 }
 
 func TestOnMessage_ThreadChannelTopic(t *testing.T) {
-	mr := newDiscdRouterMock()
-	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL)
+	mr := testutils.NewRouterStub()
+	defer mr.Close()
+	rc := chanlib.NewRouterClient(mr.Srv.URL)
 	rc.SetToken("tok")
 
 	sess := newTestSession(t)
@@ -519,10 +520,10 @@ func TestOnMessage_ThreadChannelTopic(t *testing.T) {
 		Author: &discordgo.User{ID: "u1"}, Timestamp: time.Now(),
 	}})
 
-	mr.mu.Lock()
-	defer mr.mu.Unlock()
-	if len(mr.msgs) != 1 || mr.msgs[0].Topic != "thread-7" {
-		t.Errorf("thread topic not set: %+v", mr.msgs)
+	mr.Mu.Lock()
+	defer mr.Mu.Unlock()
+	if len(mr.Msgs) != 1 || mr.Msgs[0].Topic != "thread-7" {
+		t.Errorf("thread topic not set: %+v", mr.Msgs)
 	}
 }
 
@@ -534,9 +535,9 @@ func TestOnMessage_ThreadChannelTopic(t *testing.T) {
 // agent's fetch_history on the thread returned only the follow-up, missing
 // its own prior reply).
 func TestOnMessage_ThreadInGuild_UsesParentJID(t *testing.T) {
-	mr := newDiscdRouterMock()
-	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL)
+	mr := testutils.NewRouterStub()
+	defer mr.Close()
+	rc := chanlib.NewRouterClient(mr.Srv.URL)
 	rc.SetToken("tok")
 
 	sess := newTestSession(t)
@@ -555,23 +556,23 @@ func TestOnMessage_ThreadInGuild_UsesParentJID(t *testing.T) {
 		Author: &discordgo.User{ID: "u1"}, Timestamp: time.Now(),
 	}})
 
-	mr.mu.Lock()
-	defer mr.mu.Unlock()
-	if len(mr.msgs) != 1 {
-		t.Fatalf("dispatched %d, want 1", len(mr.msgs))
+	mr.Mu.Lock()
+	defer mr.Mu.Unlock()
+	if len(mr.Msgs) != 1 {
+		t.Fatalf("dispatched %d, want 1", len(mr.Msgs))
 	}
-	if mr.msgs[0].ChatJID != "discord:g1/ch-parent" {
-		t.Errorf("ChatJID = %q, want discord:g1/ch-parent (parent channel)", mr.msgs[0].ChatJID)
+	if mr.Msgs[0].ChatJID != "discord:g1/ch-parent" {
+		t.Errorf("ChatJID = %q, want discord:g1/ch-parent (parent channel)", mr.Msgs[0].ChatJID)
 	}
-	if mr.msgs[0].Topic != "thread-9" {
-		t.Errorf("Topic = %q, want thread-9", mr.msgs[0].Topic)
+	if mr.Msgs[0].Topic != "thread-9" {
+		t.Errorf("Topic = %q, want thread-9", mr.Msgs[0].Topic)
 	}
 }
 
 func TestOnMessage_BotIgnored(t *testing.T) {
-	mr := newDiscdRouterMock()
-	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL)
+	mr := testutils.NewRouterStub()
+	defer mr.Close()
+	rc := chanlib.NewRouterClient(mr.Srv.URL)
 	rc.SetToken("tok")
 
 	srv := newServer(config{Name: "discord"}, nil, nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
@@ -581,8 +582,8 @@ func TestOnMessage_BotIgnored(t *testing.T) {
 		ID: "x", ChannelID: "ch-1", Content: "hi",
 		Author: &discordgo.User{ID: "bot-other", Bot: true},
 	}})
-	if len(mr.msgs) != 0 {
-		t.Errorf("bot message should be ignored, got %d", len(mr.msgs))
+	if len(mr.Msgs) != 0 {
+		t.Errorf("bot message should be ignored, got %d", len(mr.Msgs))
 	}
 }
 
@@ -596,9 +597,9 @@ func TestOnMessage_NilAuthor(t *testing.T) {
 }
 
 func TestOnMessage_Attachment(t *testing.T) {
-	mr := newDiscdRouterMock()
-	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL)
+	mr := testutils.NewRouterStub()
+	defer mr.Close()
+	rc := chanlib.NewRouterClient(mr.Srv.URL)
 	rc.SetToken("tok")
 
 	sess := newTestSession(t)
@@ -614,12 +615,12 @@ func TestOnMessage_Attachment(t *testing.T) {
 			{URL: "https://cdn.discordapp.com/a.png", Filename: "a.png", ContentType: "image/png", Size: 1000},
 		},
 	}})
-	mr.mu.Lock()
-	defer mr.mu.Unlock()
-	if len(mr.msgs) != 1 {
-		t.Fatalf("messages = %d", len(mr.msgs))
+	mr.Mu.Lock()
+	defer mr.Mu.Unlock()
+	if len(mr.Msgs) != 1 {
+		t.Fatalf("messages = %d", len(mr.Msgs))
 	}
-	m := mr.msgs[0]
+	m := mr.Msgs[0]
 	if len(m.Attachments) != 1 {
 		t.Fatalf("attachments = %d", len(m.Attachments))
 	}
@@ -632,9 +633,9 @@ func TestOnMessage_Attachment(t *testing.T) {
 }
 
 func TestOnMessage_EmptyContentAndNoAttachments_Skipped(t *testing.T) {
-	mr := newDiscdRouterMock()
-	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL)
+	mr := testutils.NewRouterStub()
+	defer mr.Close()
+	rc := chanlib.NewRouterClient(mr.Srv.URL)
 	rc.SetToken("tok")
 
 	sess := newTestSession(t)
@@ -646,17 +647,17 @@ func TestOnMessage_EmptyContentAndNoAttachments_Skipped(t *testing.T) {
 		ID: "m1", ChannelID: "ch-1", Content: "",
 		Author: &discordgo.User{ID: "u1"}, Timestamp: time.Now(),
 	}})
-	mr.mu.Lock()
-	defer mr.mu.Unlock()
-	if len(mr.msgs) != 0 {
-		t.Errorf("empty content should be skipped, got %d", len(mr.msgs))
+	mr.Mu.Lock()
+	defer mr.Mu.Unlock()
+	if len(mr.Msgs) != 0 {
+		t.Errorf("empty content should be skipped, got %d", len(mr.Msgs))
 	}
 }
 
 func TestOnReactionAdd_LikeAndDislike(t *testing.T) {
-	mr := newDiscdRouterMock()
-	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL)
+	mr := testutils.NewRouterStub()
+	defer mr.Close()
+	rc := chanlib.NewRouterClient(mr.Srv.URL)
 	rc.SetToken("tok")
 
 	sess := newTestSession(t)
@@ -671,19 +672,19 @@ func TestOnReactionAdd_LikeAndDislike(t *testing.T) {
 		Emoji: discordgo.Emoji{Name: "👎"},
 	}})
 
-	mr.mu.Lock()
-	defer mr.mu.Unlock()
-	if len(mr.msgs) != 2 {
-		t.Fatalf("got %d msgs, want 2", len(mr.msgs))
+	mr.Mu.Lock()
+	defer mr.Mu.Unlock()
+	if len(mr.Msgs) != 2 {
+		t.Fatalf("got %d msgs, want 2", len(mr.Msgs))
 	}
-	if mr.msgs[0].Verb != "like" || mr.msgs[0].Reaction != "👍" {
-		t.Errorf("msg[0] verb=%q reaction=%q", mr.msgs[0].Verb, mr.msgs[0].Reaction)
+	if mr.Msgs[0].Verb != "like" || mr.Msgs[0].Reaction != "👍" {
+		t.Errorf("msg[0] verb=%q reaction=%q", mr.Msgs[0].Verb, mr.Msgs[0].Reaction)
 	}
-	if mr.msgs[1].Verb != "dislike" || mr.msgs[1].Reaction != "👎" {
-		t.Errorf("msg[1] verb=%q reaction=%q", mr.msgs[1].Verb, mr.msgs[1].Reaction)
+	if mr.Msgs[1].Verb != "dislike" || mr.Msgs[1].Reaction != "👎" {
+		t.Errorf("msg[1] verb=%q reaction=%q", mr.Msgs[1].Verb, mr.Msgs[1].Reaction)
 	}
-	if mr.msgs[0].ReplyTo != "m1" {
-		t.Errorf("ReplyTo = %q, want m1", mr.msgs[0].ReplyTo)
+	if mr.Msgs[0].ReplyTo != "m1" {
+		t.Errorf("ReplyTo = %q, want m1", mr.Msgs[0].ReplyTo)
 	}
 }
 
@@ -700,30 +701,6 @@ func TestLoadConfig_Defaults(t *testing.T) {
 		t.Errorf("addr = %q", cfg.ListenAddr)
 	}
 }
-
-// router mock
-type discdRouter struct {
-	mu   sync.Mutex
-	msgs []chanlib.InboundMsg
-	srv  *httptest.Server
-}
-
-func newDiscdRouterMock() *discdRouter {
-	m := &discdRouter{}
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /v1/messages", func(w http.ResponseWriter, r *http.Request) {
-		var im chanlib.InboundMsg
-		json.NewDecoder(r.Body).Decode(&im)
-		m.mu.Lock()
-		m.msgs = append(m.msgs, im)
-		m.mu.Unlock()
-		w.Write([]byte(`{"ok":true}`))
-	})
-	m.srv = httptest.NewServer(mux)
-	return m
-}
-
-func (m *discdRouter) close() { m.srv.Close() }
 
 func TestFetchHistory(t *testing.T) {
 	var capturedQuery string

@@ -8,15 +8,11 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"regexp"
 	"strings"
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/store"
 )
-
-// keyPattern: uppercase ENV-style identifiers only.
-var keyPattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 
 const maxSecretValueBytes = 8 << 10 // 8 KiB ceiling per secret value.
 
@@ -50,6 +46,25 @@ func requireSameOrigin(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 	return true
+}
+
+// userSecretWrite is the entry every /dash/me/env and /dash/me/secrets
+// mutation shares: the verified caller, the same-origin guard, the sealed
+// store. ok=false means the response is already written.
+func (d *dash) userSecretWrite(w http.ResponseWriter, r *http.Request) (sub string, ss *store.Store, ok bool) {
+	sub, ok = requireUser(w, r)
+	if !ok {
+		return "", nil, false
+	}
+	if !requireSameOrigin(w, r) {
+		return "", nil, false
+	}
+	ss = d.secretStore()
+	if ss == nil {
+		http.Error(w, "secrets store unavailable", http.StatusServiceUnavailable)
+		return "", nil, false
+	}
+	return sub, ss, true
 }
 
 type secretItem struct {
@@ -185,16 +200,8 @@ func parseSecretBody(w http.ResponseWriter, r *http.Request) (secretWriteBody, e
 }
 
 func (d *dash) handleMeSecretCreate(w http.ResponseWriter, r *http.Request) {
-	sub, ok := requireUser(w, r)
+	sub, ss, ok := d.userSecretWrite(w, r)
 	if !ok {
-		return
-	}
-	if !requireSameOrigin(w, r) {
-		return
-	}
-	ss := d.secretStore()
-	if ss == nil {
-		http.Error(w, "secrets store unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	body, err := parseSecretBody(w, r)
@@ -202,7 +209,7 @@ func (d *dash) handleMeSecretCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if !keyPattern.MatchString(body.Key) {
+	if !store.ValidSecretKey(body.Key) {
 		http.Error(w, "key: must match ^[A-Z][A-Z0-9_]*$", http.StatusBadRequest)
 		return
 	}
@@ -240,20 +247,12 @@ func emitSecretSet(sub, key string) {
 }
 
 func (d *dash) handleMeSecretUpdate(w http.ResponseWriter, r *http.Request) {
-	sub, ok := requireUser(w, r)
+	sub, ss, ok := d.userSecretWrite(w, r)
 	if !ok {
 		return
 	}
-	if !requireSameOrigin(w, r) {
-		return
-	}
-	db := d.secretsDB()
-	if db == nil {
-		http.Error(w, "secrets store unavailable", http.StatusServiceUnavailable)
-		return
-	}
 	key := r.PathValue("key")
-	if !keyPattern.MatchString(key) {
+	if !store.ValidSecretKey(key) {
 		http.Error(w, "key: must match ^[A-Z][A-Z0-9_]*$", http.StatusBadRequest)
 		return
 	}
@@ -274,7 +273,7 @@ func (d *dash) handleMeSecretUpdate(w http.ResponseWriter, r *http.Request) {
 	// POST). Existence is checked on the raw handle; the reseal goes through
 	// secretStore so the new value lands as a `v2:` ciphertext.
 	var exists int
-	switch err := db.QueryRow(
+	switch err := ss.DB().QueryRow(
 		`SELECT 1 FROM secrets WHERE scope_kind = 'user' AND scope_id = ? AND key = ?`,
 		sub, key).Scan(&exists); {
 	case errors.Is(err, sql.ErrNoRows):
@@ -285,7 +284,7 @@ func (d *dash) handleMeSecretUpdate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "query failed", http.StatusInternalServerError)
 		return
 	}
-	if err := d.secretStore().PutSecretRow(store.ScopeUser, sub, key, body.Value); err != nil {
+	if err := ss.PutSecretRow(store.ScopeUser, sub, key, body.Value); err != nil {
 		slog.Warn("me_secrets update", "sub", sub, "key", key, "err", err)
 		http.Error(w, "write failed", http.StatusInternalServerError)
 		return
@@ -296,20 +295,12 @@ func (d *dash) handleMeSecretUpdate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *dash) handleMeSecretDelete(w http.ResponseWriter, r *http.Request) {
-	sub, ok := requireUser(w, r)
+	sub, ss, ok := d.userSecretWrite(w, r)
 	if !ok {
 		return
 	}
-	if !requireSameOrigin(w, r) {
-		return
-	}
-	ss := d.secretStore()
-	if ss == nil {
-		http.Error(w, "secrets store unavailable", http.StatusServiceUnavailable)
-		return
-	}
 	key := r.PathValue("key")
-	if !keyPattern.MatchString(key) {
+	if !store.ValidSecretKey(key) {
 		http.Error(w, "key: must match ^[A-Z][A-Z0-9_]*$", http.StatusBadRequest)
 		return
 	}

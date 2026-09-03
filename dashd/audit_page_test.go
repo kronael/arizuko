@@ -179,8 +179,8 @@ func TestAuditSourceFailureIsLoud(t *testing.T) {
 	d := auditDash(t, auditSourceOf(t, rdb).URL, dead.URL, "", "")
 	body := auditGetOn(t, d, "/dash/audit/")
 
-	if !strings.Contains(body, "audit source unavailable") || !strings.Contains(body, "runed") {
-		t.Errorf("dead source must be named in a banner: %s", body)
+	if !strings.Contains(body, "audit source unavailable") || !strings.Contains(body, "runed 500: boom") {
+		t.Errorf("dead source must be named in a banner with its status and answer: %s", body)
 	}
 	// The survivor still renders — a failing source degrades the page, not
 	// blanks it.

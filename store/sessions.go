@@ -2,7 +2,6 @@ package store
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/kronael/arizuko/core"
@@ -137,57 +136,6 @@ func (s *Store) ForkTopic(folder, parent, child, newSessionID string, force bool
 		return core.ErrTopicExists
 	}
 	return nil
-}
-
-
-func (s *Store) EnqueueSysMsg(folder, origin, event, body string) error {
-	_, err := s.db.Exec(
-		`INSERT INTO system_messages (group_id, origin, event, body, created_at)
-		 VALUES (?, ?, ?, ?, ?)`,
-		folder, origin, event, body, time.Now().Format(time.RFC3339),
-	)
-	return err
-}
-
-func (s *Store) FlushSysMsgs(folder string) string {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return ""
-	}
-	defer tx.Rollback()
-
-	rows, err := tx.Query(
-		`SELECT origin, event, body FROM system_messages
-		 WHERE group_id = ? ORDER BY id ASC`, folder)
-	if err != nil {
-		return ""
-	}
-	var b strings.Builder
-	for rows.Next() {
-		var origin, event, body string
-		if err := rows.Scan(&origin, &event, &body); err != nil {
-			rows.Close()
-			return ""
-		}
-		fmt.Fprintf(&b, "<system origin=%q event=%q>%s</system>\n", origin, event, body)
-	}
-	scanErr := rows.Err()
-	rows.Close()
-	// Never delete rows we failed to render: leave them for the next flush.
-	if scanErr != nil {
-		return ""
-	}
-
-	if b.Len() == 0 {
-		return ""
-	}
-	if _, err := tx.Exec(`DELETE FROM system_messages WHERE group_id = ?`, folder); err != nil {
-		return ""
-	}
-	if err := tx.Commit(); err != nil {
-		return ""
-	}
-	return b.String()
 }
 
 func (s *Store) RecordSession(folder, sessionID string, startedAt time.Time) (int64, error) {

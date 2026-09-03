@@ -27,7 +27,6 @@ import (
 	"database/sql"
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -49,11 +48,6 @@ var aclMCPNames = resources.ACLMCPNames
 // single-sourced in resreg/resources.
 func (s *Server) aclResource() resreg.Resource {
 	r := resreg.Mount(resources.ACLName)
-	// Authz derives (scope, params) for the gate; acl's containment is done
-	// in the injected Gate against the scope arg, so this is a no-op.
-	r.Authz = func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
-		return "", nil, nil
-	}
 	r.Handler = s.aclHandler
 	r.Store = store.New(s.db.SQL())
 	return r
@@ -67,28 +61,7 @@ func (s *Server) aclResource() resreg.Resource {
 func (s *Server) mountACL(mux *http.ServeMux) {
 	res := s.aclResource()
 	res.Gate = s.aclRESTGate
-	resreg.RegisterREST(mux, res, s.aclRESTCaller)
-}
-
-// aclRESTCaller builds the REST Caller for the shared acl handler: identity via
-// the Verifier, Caller.Folder = the caller's JWT folder (the handler stamps grant
-// provenance from it; aclRESTGate binds the body scope to it). Held scopes ride in
-// Claims for the Gate. A nil Verifier is open (local-dev), mirroring s.authz.
-func (s *Server) aclRESTCaller(r *http.Request) (resreg.Caller, error) {
-	var sub, folder string
-	var scope []string
-	if s.verify != nil {
-		var err error
-		sub, scope, folder, err = s.verify.Verify(r)
-		if err != nil {
-			return resreg.Caller{}, err
-		}
-	}
-	return resreg.Caller{
-		Sub:    sub,
-		Folder: folder,
-		Claims: map[string]string{"scopes": strings.Join(scope, " ")},
-	}, nil
+	resreg.RegisterREST(mux, res, s.restCaller(nil))
 }
 
 // aclRESTGate is the operator/human REST twin of aclPostBuild's Gate: the acl:write
@@ -101,7 +74,7 @@ func (s *Server) aclRESTGate(x resreg.Execution, _ string, _ map[string]string) 
 	if s.verify == nil {
 		return nil
 	}
-	if !hasAnyScope(strings.Fields(x.Caller.Claims["scopes"]), []string{"acl:write"}) {
+	if !hasAnyScope(x.Caller.Scopes(), []string{"acl:write"}) {
 		return resreg.Errorf(http.StatusForbidden, "missing scope acl:write")
 	}
 	// Bind the granted/revoked scope to the caller's authority: an operator may only
@@ -264,7 +237,7 @@ func (s *Server) nonCanonicalWarning(principal string) string {
 //
 // There is no `predicate` argument. This face writes rules over call ARGUMENTS;
 // a claim condition is a different question with a different vocabulary, and
-// revokeACLTx pins `predicate=''` to match.
+// revokeACLTx pins `predicate=”` to match.
 func aclArgsRow(args resreg.Args) core.ACLRow {
 	return core.ACLRow{
 		Principal: argString(args, "principal"),
@@ -337,9 +310,9 @@ func grantACLTx(ctx context.Context, tx *sql.Tx, row core.ACLRow) error {
 //
 // It matches `params` exactly, the empty string included, so revoking is the
 // inverse of granting on this face: a row this surface can write is a row it can
-// remove. The hardcoded `params=''` it replaced deleted nothing while answering
+// remove. The hardcoded `params=”` it replaced deleted nothing while answering
 // {"ok":true} for any narrowed row (BUGS L79) — leaving it would have re-created
-// that hole the day `params` became writable. `predicate=''` stays hardcoded:
+// that hole the day `params` became writable. `predicate=”` stays hardcoded:
 // this face has no predicate argument to write one with.
 func revokeACLTx(ctx context.Context, tx *sql.Tx, row core.ACLRow) (int64, error) {
 	// Mirror of the grant guard, same raw-row test: keying on scope alone let a

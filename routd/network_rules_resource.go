@@ -47,9 +47,6 @@ var networkMCPNames = resources.NetworkRulesMCPNames
 // store.Store over routd.db so resreg.invoke opens the mutation+audit tx there.
 func (s *Server) networkRulesResource() resreg.Resource {
 	r := resreg.Mount(resources.NetworkRulesName)
-	r.Authz = func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
-		return "", nil, nil
-	}
 	r.Handler = s.networkRulesHandler
 	r.Store = store.New(s.db.SQL())
 	return r

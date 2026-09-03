@@ -192,7 +192,7 @@ func TestInbound_MentionDemangled(t *testing.T) {
 	}`)
 	w := httptest.NewRecorder()
 	b.handleEvent(body, w)
-	msgs := rm.snapshot()
+	msgs := rm.Snapshot()
 	if len(msgs) != 1 {
 		t.Fatalf("got %d msgs", len(msgs))
 	}

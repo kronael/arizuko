@@ -140,7 +140,7 @@ func TestInvitesRESTGateScopes(t *testing.T) {
 	call := func(action resreg.Action, scopes string) error {
 		return a.invitesRESTGate(resreg.Execution{
 			Action: action,
-			Caller: resreg.Caller{Claims: map[string]string{"scopes": scopes}},
+			Caller: resreg.Caller{Claims: map[string]string{resreg.ScopeClaimKey: scopes}},
 		}, "", nil)
 	}
 	cases := []struct {
@@ -247,7 +247,7 @@ func TestGatesRESTGateScopes(t *testing.T) {
 	call := func(action resreg.Action, scopes string) error {
 		return a.gatesRESTGate(resreg.Execution{
 			Action: action,
-			Caller: resreg.Caller{Claims: map[string]string{"scopes": scopes}},
+			Caller: resreg.Caller{Claims: map[string]string{resreg.ScopeClaimKey: scopes}},
 		}, "", nil)
 	}
 	cases := []struct {

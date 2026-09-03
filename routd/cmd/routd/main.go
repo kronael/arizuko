@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -39,9 +38,9 @@ func main() {
 		slog.Error("DATA_DIR env required")
 		os.Exit(1)
 	}
-	listenAddr := envOr("LISTEN_ADDR", ":8080")
+	listenAddr := core.EnvOr("LISTEN_ADDR", ":8080")
 	authdURL := os.Getenv("AUTHD_URL")
-	runedURL := envOr("RUNED_URL", "http://runed:8080")
+	runedURL := core.EnvOr("RUNED_URL", "http://runed:8080")
 	onbodURL := os.Getenv("ONBOD_URL")
 	webHost := os.Getenv("WEB_HOST")
 
@@ -102,7 +101,7 @@ func main() {
 	// service:routd ES256 token at boot and refreshes it; authd's issuer-pin would
 	// 401 the static ROUTD_SERVICE_TOKEN. When AUTHD_URL or AUTHD_SERVICE_KEY is
 	// unset, fall back to the static env for local dev.
-	runTimeout := durOr("RUNED_RUN_TIMEOUT", 20*time.Minute)
+	runTimeout := core.DurOr("RUNED_RUN_TIMEOUT", 20*time.Minute)
 	// routd must OUT-WAIT runed's kill-deadline. runed kills the container at
 	// RUNED_RUN_TIMEOUT, so routd's dispatch deadline gets a grace margin on top. If
 	// they were equal, routd's deadline could fire first → transport error →
@@ -149,7 +148,7 @@ func main() {
 	reg := chanreg.New()
 	reg.SetBearer(svcSrc) // service:routd egress token; nil → local dev (no auth)
 	deliver := routd.NewChannelDeliverer(
-		reg, parseCSV(os.Getenv("SEND_DISABLED_CHANNELS")), db.LatestSource)
+		reg, core.ParseCSV(os.Getenv("SEND_DISABLED_CHANNELS")), db.LatestSource)
 
 	loop := routd.NewLoop(db, runedClient, routd.LoopConfig{
 		RunTimeout: runedWait,
@@ -158,53 +157,53 @@ func main() {
 		// paces the work and runed admits it, so the two must agree: while
 		// this was unwired, routd held a hardcoded 5 and an operator raising
 		// MAX_CONCURRENT_CONTAINERS moved one cap and not the other (BUGS F71).
-		MaxRuns:   intOr("MAX_CONCURRENT_CONTAINERS", 5),
+		MaxRuns:   core.EnvInt("MAX_CONCURRENT_CONTAINERS", 5),
 		Deliver:   deliver,
 		Proactive: routd.LoadProactiveConfig(os.Getenv),
 		GroupsDir: filepath.Join(dataDir, "groups"),
 		// Auto-migrate source root (ant/skills/self/MIGRATION_VERSION lives
 		// under it); APP_SRC_DIR falls back to HOST_APP_DIR (core.LoadConfig).
-		AppSrcDir: envOr("APP_SRC_DIR", os.Getenv("HOST_APP_DIR")),
+		AppSrcDir: core.EnvOr("APP_SRC_DIR", os.Getenv("HOST_APP_DIR")),
 		// Prompt envelope (buildAgentPrompt). Defaults mirror core.LoadConfig.
-		InstanceName:          envOr("ASSISTANT_NAME", "Andy"),
-		ObserveWindowMessages: intOr("OBSERVE_WINDOW_MESSAGES", 10),
-		ObserveWindowChars:    intOr("OBSERVE_WINDOW_CHARS", 4000),
+		InstanceName:          core.EnvOr("ASSISTANT_NAME", "Andy"),
+		ObserveWindowMessages: core.EnvInt("OBSERVE_WINDOW_MESSAGES", 10),
+		ObserveWindowChars:    core.EnvInt("OBSERVE_WINDOW_CHARS", 4000),
 		// Pre-spawn budget gate (spec 11/19); default-on, mirrors core.LoadConfig.
-		CostCapsEnabled: envOr("COST_CAPS_ENABLED", "true") == "true",
+		CostCapsEnabled: core.EnvOr("COST_CAPS_ENABLED", "true") == "true",
 		// Spawn-time stale-session reset threshold (default 2 days).
 		// SESSION_IDLE_EXPIRY overrides.
-		SessionIdle: durOr("SESSION_IDLE_EXPIRY", 0),
+		SessionIdle: core.DurOr("SESSION_IDLE_EXPIRY", 0),
 		// Chat-initiated onboarding (ONBOARDING_ENABLED / ONBOARDING_PLATFORMS).
 		// A route miss federates an onboarding insert to onbod when enabled.
-		OnboardingEnabled:   envOr("ONBOARDING_ENABLED", "false") == "true",
-		OnboardingPlatforms: parseCSV(os.Getenv("ONBOARDING_PLATFORMS")),
+		OnboardingEnabled:   core.EnvOr("ONBOARDING_ENABLED", "false") == "true",
+		OnboardingPlatforms: core.ParseCSV(os.Getenv("ONBOARDING_PLATFORMS")),
 		// Instance-wide default model: a group with no per-group model falls
 		// back to this. No vendor default. The seam says model is a BACKEND-NATIVE id and
 		// that absent means the harness picks its own (ant/src/backend.ts:29).
 		// A hardcoded claude id made "absent" unexpressible, so switching
 		// ARIZUKO_BACKEND to codex sent it a claude model and every turn 400d
 		// (BUGS L129). Empty reaches ant as falsy, and each CLI defaults itself.
-		DefaultModel: envOr("ARIZUKO_DEFAULT_MODEL", ""),
+		DefaultModel: core.EnvOr("ARIZUKO_DEFAULT_MODEL", ""),
 		// Turn retry on SIGKILL/OOM/timeout (spec 5/12). Default 3.
-		MaxTurnRetry: intOr("MAX_TURN_RETRY", 3),
+		MaxTurnRetry: core.EnvInt("MAX_TURN_RETRY", 3),
 		// Transient delivery failures a pending bot row absorbs before the
 		// outbound sweep dead-letters it (spec 5/34). Default 10.
-		MaxOutboundRetry: intOr("MAX_OUTBOUND_RETRY", 10),
+		MaxOutboundRetry: core.EnvInt("MAX_OUTBOUND_RETRY", 10),
 		// Inbound media enrichment (download + Whisper transcription). Defaults
 		// mirror core.LoadConfig; unset MEDIA_ENABLED leaves it off.
 		Media: routd.MediaConfig(
-			envOr("MEDIA_ENABLED", "false") == "true",
-			int64(intOr("MEDIA_MAX_FILE_BYTES", 20*1024*1024)),
-			envOr("WHISPER_BASE_URL", "http://localhost:8080"),
-			envOr("WHISPER_MODEL", "turbo"),
-			envOr("VOICE_TRANSCRIPTION_ENABLED", "false") == "true",
-			envOr("VIDEO_TRANSCRIPTION_ENABLED", "false") == "true",
+			core.EnvOr("MEDIA_ENABLED", "false") == "true",
+			int64(core.EnvInt("MEDIA_MAX_FILE_BYTES", 20*1024*1024)),
+			core.EnvOr("WHISPER_BASE_URL", "http://localhost:8080"),
+			core.EnvOr("WHISPER_MODEL", "turbo"),
+			core.EnvOr("VOICE_TRANSCRIPTION_ENABLED", "false") == "true",
+			core.EnvOr("VIDEO_TRANSCRIPTION_ENABLED", "false") == "true",
 			svcSrc, // service:routd token for the adapter /files download
 		),
 	})
 
 	loop.SetOnbodClient(onbod)
-	srv := routd.NewServer(db, loop, deliver, verify, durOr("ENGAGEMENT_TTL", routd.DefaultEngagementTTL), webHost)
+	srv := routd.NewServer(db, loop, deliver, verify, core.DurOr("ENGAGEMENT_TTL", routd.DefaultEngagementTTL), webHost)
 	srv.SetDashKeySet(dashKeys)
 	srv.SetIdentityResolver(identity)
 	// session_log run history federated from runed (runed OWNS it — spec 5/P):
@@ -224,15 +223,15 @@ func main() {
 	// SEND_DISABLED_GROUPS: muted folders persist outbound but don't deliver it
 	// (Server.mutedGroup). SEND_DISABLED_CHANNELS (jid-prefix) stays in the
 	// Deliverer; this is the group-folder mute applied in appendAndDeliver.
-	srv.SetDisabledGroups(parseCSV(os.Getenv("SEND_DISABLED_GROUPS")))
+	srv.SetDisabledGroups(core.ParseCSV(os.Getenv("SEND_DISABLED_GROUPS")))
 	// send_voice synthesis config (TTS_* env). Defaults mirror core.LoadConfig;
 	// unset TTS_ENABLED leaves voice off. Cache lives under DATA_DIR/tts.
 	srv.SetTTS(routd.TTSConfig(
-		envOr("TTS_ENABLED", "false") == "true",
-		envOr("TTS_BASE_URL", "http://ttsd:8880"),
-		envOr("TTS_VOICE", "af_bella"),
-		envOr("TTS_MODEL", "kokoro"),
-		durOr("TTS_TIMEOUT", 15*time.Second),
+		core.EnvOr("TTS_ENABLED", "false") == "true",
+		core.EnvOr("TTS_BASE_URL", "http://ttsd:8880"),
+		core.EnvOr("TTS_VOICE", "af_bella"),
+		core.EnvOr("TTS_MODEL", "kokoro"),
+		core.DurOr("TTS_TIMEOUT", 15*time.Second),
 		filepath.Join(dataDir, "tts"),
 	))
 	srv.SetChannelRegistry(reg)
@@ -298,41 +297,4 @@ func (v keysetVerifier) Verify(r *http.Request) (sub string, scope []string, fol
 		return "", nil, "", verr
 	}
 	return s.Sub, s.Scope, s.Extra["arz/folder"], nil
-}
-
-func envOr(k, def string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	return def
-}
-
-func intOr(k string, def int) int {
-	if v := os.Getenv(k); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			return n
-		}
-	}
-	return def
-}
-
-func durOr(k string, def time.Duration) time.Duration {
-	if v := os.Getenv(k); v != "" {
-		if d, err := time.ParseDuration(v); err == nil {
-			return d
-		}
-	}
-	return def
-}
-
-// parseCSV splits a comma-separated env value into trimmed, non-empty
-// entries (SEND_DISABLED_CHANNELS), mirroring core.parseCSV.
-func parseCSV(s string) []string {
-	var out []string
-	for p := range strings.SplitSeq(s, ",") {
-		if t := strings.TrimSpace(p); t != "" {
-			out = append(out, t)
-		}
-	}
-	return out
 }

@@ -197,40 +197,40 @@ func LoadConfigFrom(dir string) (*Config, error) {
 func LoadConfig() (*Config, error) {
 	_ = godotenv.Load(".env")
 
-	root := envOr("DATA_DIR", mustCwd())
-	hostRoot := envOr("HOST_DATA_DIR", root)
-	appDir := envOr("HOST_APP_DIR", execDir())
-	appSrcDir := envOr("APP_SRC_DIR", appDir)
-	name := envOr("ASSISTANT_NAME", "Andy")
+	root := EnvOr("DATA_DIR", mustCwd())
+	hostRoot := EnvOr("HOST_DATA_DIR", root)
+	appDir := EnvOr("HOST_APP_DIR", execDir())
+	appSrcDir := EnvOr("APP_SRC_DIR", appDir)
+	name := EnvOr("ASSISTANT_NAME", "Andy")
 
 	c := &Config{
 		Name:                name,
-		TelegramToken:       envOr("TELEGRAM_BOT_TOKEN", ""),
-		Image:               envOr("CONTAINER_IMAGE", DefaultImage),
-		AgentBackend:        envOr("ARIZUKO_BACKEND", ""),
+		TelegramToken:       EnvOr("TELEGRAM_BOT_TOKEN", ""),
+		Image:               EnvOr("CONTAINER_IMAGE", DefaultImage),
+		AgentBackend:        EnvOr("ARIZUKO_BACKEND", ""),
 		Timeout:             envDur("CONTAINER_TIMEOUT", 60*time.Minute),
 		IdleTimeout:         envDur("IDLE_TIMEOUT", 60*time.Minute),
-		MaxContainers:       envInt("MAX_CONCURRENT_CONTAINERS", 5),
+		MaxContainers:       EnvInt("MAX_CONCURRENT_CONTAINERS", 5),
 		PollInterval:        2 * time.Second,
 		Timezone:            resolveTimezone(),
-		AuthSecret:          envOr("AUTH_SECRET", ""),
-		WebHost:             envOr("WEB_HOST", ""),
-		AuthBaseURL:         envOr("AUTH_BASE_URL", ""),
-		GitHubClientID:      envOr("GITHUB_CLIENT_ID", ""),
-		GitHubSecret:        envOr("GITHUB_CLIENT_SECRET", ""),
-		DiscordClientID:     envOr("DISCORD_CLIENT_ID", ""),
-		DiscordSecret:       envOr("DISCORD_CLIENT_SECRET", ""),
-		GoogleClientID:      envOr("GOOGLE_CLIENT_ID", ""),
-		GoogleSecret:        envOr("GOOGLE_CLIENT_SECRET", ""),
-		GoogleAllowedEmails: envOr("GOOGLE_ALLOWED_EMAILS", ""),
-		GitHubAllowedOrg:    envOr("GITHUB_ALLOWED_ORG", ""),
+		AuthSecret:          EnvOr("AUTH_SECRET", ""),
+		WebHost:             EnvOr("WEB_HOST", ""),
+		AuthBaseURL:         EnvOr("AUTH_BASE_URL", ""),
+		GitHubClientID:      EnvOr("GITHUB_CLIENT_ID", ""),
+		GitHubSecret:        EnvOr("GITHUB_CLIENT_SECRET", ""),
+		DiscordClientID:     EnvOr("DISCORD_CLIENT_ID", ""),
+		DiscordSecret:       EnvOr("DISCORD_CLIENT_SECRET", ""),
+		GoogleClientID:      EnvOr("GOOGLE_CLIENT_ID", ""),
+		GoogleSecret:        EnvOr("GOOGLE_CLIENT_SECRET", ""),
+		GoogleAllowedEmails: EnvOr("GOOGLE_ALLOWED_EMAILS", ""),
+		GitHubAllowedOrg:    EnvOr("GITHUB_ALLOWED_ORG", ""),
 
-		DexIssuer:   envOr("DEX_ISSUER", ""),
-		DexClientID: envOr("DEX_CLIENT_ID", ""),
-		DexSecret:   envOr("DEX_CLIENT_SECRET", ""),
+		DexIssuer:   EnvOr("DEX_ISSUER", ""),
+		DexClientID: EnvOr("DEX_CLIENT_ID", ""),
+		DexSecret:   EnvOr("DEX_CLIENT_SECRET", ""),
 
-		SurrogateGitHubClientID: envOr("SURROGATE_GITHUB_CLIENT_ID", ""),
-		SurrogateGitHubSecret:   envOr("SURROGATE_GITHUB_CLIENT_SECRET", ""),
+		SurrogateGitHubClientID: EnvOr("SURROGATE_GITHUB_CLIENT_ID", ""),
+		SurrogateGitHubSecret:   EnvOr("SURROGATE_GITHUB_CLIENT_SECRET", ""),
 
 		ProjectRoot:       root,
 		HostProjectRoot:   hostRoot,
@@ -241,42 +241,42 @@ func LoadConfig() (*Config, error) {
 		IpcDir:            filepath.Join(root, "ipc"),
 		HostGroupsDir:     filepath.Join(hostRoot, "groups"),
 		WebDir:            filepath.Join(root, "web"),
-		HostCodexDir:      envOr("HOST_CODEX_DIR", ""),
-		MountAllowedRoots: parseCSV(envOr("MOUNT_ALLOWED_ROOTS", "")),
+		HostCodexDir:      EnvOr("HOST_CODEX_DIR", ""),
+		MountAllowedRoots: ParseCSV(EnvOr("MOUNT_ALLOWED_ROOTS", "")),
 
-		APIPort:              envInt("API_PORT", DefaultAPIPort),
-		OnboardingEnabled:    envOr("ONBOARDING_ENABLED", "false") == "true",
-		OnboardingPlatforms:  parseCSV(envOr("ONBOARDING_PLATFORMS", "")),
-		SendDisabledChannels: parseCSV(envOr("SEND_DISABLED_CHANNELS", "")),
-		SendDisabledGroups:   parseCSV(envOr("SEND_DISABLED_GROUPS", "")),
+		APIPort:              EnvInt("API_PORT", DefaultAPIPort),
+		OnboardingEnabled:    EnvOr("ONBOARDING_ENABLED", "false") == "true",
+		OnboardingPlatforms:  ParseCSV(EnvOr("ONBOARDING_PLATFORMS", "")),
+		SendDisabledChannels: ParseCSV(EnvOr("SEND_DISABLED_CHANNELS", "")),
+		SendDisabledGroups:   ParseCSV(EnvOr("SEND_DISABLED_GROUPS", "")),
 
-		ObserveWindowMessages: envInt("OBSERVE_WINDOW_MESSAGES", 10),
-		ObserveWindowChars:    envInt("OBSERVE_WINDOW_CHARS", 4000),
+		ObserveWindowMessages: EnvInt("OBSERVE_WINDOW_MESSAGES", 10),
+		ObserveWindowChars:    EnvInt("OBSERVE_WINDOW_CHARS", 4000),
 
-		MediaEnabled:  envOr("MEDIA_ENABLED", "false") == "true",
-		MediaMaxBytes: int64(envInt("MEDIA_MAX_FILE_BYTES", 20*1024*1024)),
-		WhisperURL:    envOr("WHISPER_BASE_URL", "http://localhost:8080"),
-		VoiceEnabled:  envOr("VOICE_TRANSCRIPTION_ENABLED", "false") == "true",
-		VideoEnabled:  envOr("VIDEO_TRANSCRIPTION_ENABLED", "false") == "true",
-		WhisperModel:  envOr("WHISPER_MODEL", "turbo"),
+		MediaEnabled:  EnvOr("MEDIA_ENABLED", "false") == "true",
+		MediaMaxBytes: int64(EnvInt("MEDIA_MAX_FILE_BYTES", 20*1024*1024)),
+		WhisperURL:    EnvOr("WHISPER_BASE_URL", "http://localhost:8080"),
+		VoiceEnabled:  EnvOr("VOICE_TRANSCRIPTION_ENABLED", "false") == "true",
+		VideoEnabled:  EnvOr("VIDEO_TRANSCRIPTION_ENABLED", "false") == "true",
+		WhisperModel:  EnvOr("WHISPER_MODEL", "turbo"),
 
-		TTSEnabled: envOr("TTS_ENABLED", "false") == "true",
-		TTSURL:     envOr("TTS_BASE_URL", "http://ttsd:8880"),
-		TTSVoice:   envOr("TTS_VOICE", "af_bella"),
-		TTSModel:   envOr("TTS_MODEL", "kokoro"),
+		TTSEnabled: EnvOr("TTS_ENABLED", "false") == "true",
+		TTSURL:     EnvOr("TTS_BASE_URL", "http://ttsd:8880"),
+		TTSVoice:   EnvOr("TTS_VOICE", "af_bella"),
+		TTSModel:   EnvOr("TTS_MODEL", "kokoro"),
 		TTSTimeout: envDur("TTS_TIMEOUT", 15*time.Second),
 
-		EgressNetworkPrefix: envOr("EGRESS_NETWORK_PREFIX", ""),
-		EgressImage:         envOr("EGRESS_IMAGE", ""),
-		EgressUplinkNetwork: envOr("EGRESS_UPLINK_NETWORK", ""),
-		EgressParentSubnet:  envOr("EGRESS_SUBNET", "10.99.0.0/16"),
+		EgressNetworkPrefix: EnvOr("EGRESS_NETWORK_PREFIX", ""),
+		EgressImage:         EnvOr("EGRESS_IMAGE", ""),
+		EgressUplinkNetwork: EnvOr("EGRESS_UPLINK_NETWORK", ""),
+		EgressParentSubnet:  EnvOr("EGRESS_SUBNET", "10.99.0.0/16"),
 
-		CostCapsEnabled: envOr("COST_CAPS_ENABLED", "true") == "true",
+		CostCapsEnabled: EnvOr("COST_CAPS_ENABLED", "true") == "true",
 
-		MaxTurnRetry:     envInt("MAX_TURN_RETRY", 3),
-		MaxOutboundRetry: envInt("MAX_OUTBOUND_RETRY", 10),
+		MaxTurnRetry:     EnvInt("MAX_TURN_RETRY", 3),
+		MaxOutboundRetry: EnvInt("MAX_OUTBOUND_RETRY", 10),
 
-		SecretsKey: envOr("SECRETS_KEY", ""),
+		SecretsKey: EnvOr("SECRETS_KEY", ""),
 	}
 
 	// Validation of the egress vars lives in runed (the only daemon that uses
@@ -309,19 +309,30 @@ func (c *Config) EffectiveAppSrcDir() string {
 // env helpers: core owns these so it does not depend on the channel-adapter
 // library (chanlib) for trivial parsing — that edge created an auth→core→chanlib
 // cycle once chanlib started exchanging service tokens via auth (spec 5/1).
-// envDur parses integer milliseconds (the legacy CONTAINER_TIMEOUT/IDLE_TIMEOUT
-// encoding), matching the old chanlib.EnvDur contract.
-func envOr(k, fallback string) string {
+// An unset OR unparseable value lands on the fallback, never on the zero
+// value: a poll interval of 0 is a busy loop. DurOr reads a Go duration
+// ("20m"); envDur parses integer milliseconds (the legacy
+// CONTAINER_TIMEOUT/IDLE_TIMEOUT encoding).
+func EnvOr(k, fallback string) string {
 	if v := os.Getenv(k); v != "" {
 		return v
 	}
 	return fallback
 }
 
-func envInt(k string, fallback int) int {
+func EnvInt(k string, fallback int) int {
 	if v := os.Getenv(k); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			return n
+		}
+	}
+	return fallback
+}
+
+func DurOr(k string, fallback time.Duration) time.Duration {
+	if v := os.Getenv(k); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			return d
 		}
 	}
 	return fallback
@@ -360,7 +371,7 @@ func execDir() string {
 	return filepath.Dir(ex)
 }
 
-func parseCSV(s string) []string {
+func ParseCSV(s string) []string {
 	if s == "" {
 		return nil
 	}

@@ -135,14 +135,14 @@ func TestOnboardingRESTGateRequiresScope(t *testing.T) {
 	a := &admin{db: db, ks: &auth.KeySet{}}
 	err := a.onboardingRESTGate(resreg.Execution{
 		Action: resreg.ActionList,
-		Caller: resreg.Caller{Claims: map[string]string{"scopes": "gates:read"}},
+		Caller: resreg.Caller{Claims: map[string]string{resreg.ScopeClaimKey: "gates:read"}},
 	}, "", nil)
 	if err == nil {
 		t.Error("wrong scope was allowed")
 	}
 	if err := a.onboardingRESTGate(resreg.Execution{
 		Action: resreg.ActionList,
-		Caller: resreg.Caller{Claims: map[string]string{"scopes": "invites:write"}},
+		Caller: resreg.Caller{Claims: map[string]string{resreg.ScopeClaimKey: "invites:write"}},
 	}, "", nil); err != nil {
 		t.Errorf("invites:write refused: %v", err)
 	}

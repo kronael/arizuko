@@ -662,14 +662,15 @@ func handleHealth(name string, prefixes []string, isConnected func() bool, lastI
 
 // FileProxyOpts wires a /files/<id> handler that resolves an opaque id to a
 // CDN URL and streams the upstream response back through ProxyFile. Used by
-// slakd and discd adapters where Resolve = URLCache.Get; slakd
+// slakd, discd and reditd where Resolve = URLCache.Get; slakd
 // passes Decorate to add the `Authorization: Bearer xoxb` header required
-// by the Slack file CDN.
+// by the Slack file CDN, reditd passes Validate as its SSRF allowlist.
 type FileProxyOpts struct {
 	Resolve  func(id string) (string, bool)
-	Decorate func(*http.Request) // optional: tweak the upstream request
-	Client   *http.Client        // optional; defaults to a 30s-timeout client
-	MaxBytes int64               // proxy cap; 0 ⇒ 20 MiB default in ProxyFile
+	Validate func(url string) bool // optional: reject a resolved URL before the fetch
+	Decorate func(*http.Request)   // optional: tweak the upstream request
+	Client   *http.Client          // optional; defaults to a 30s-timeout client
+	MaxBytes int64                 // proxy cap; 0 ⇒ 20 MiB default in ProxyFile
 }
 
 var defaultProxyClient = &http.Client{Timeout: 30 * time.Second}
@@ -694,6 +695,10 @@ func FileProxyHandler(opts FileProxyOpts) http.HandlerFunc {
 		cdnURL, ok := opts.Resolve(id)
 		if !ok {
 			WriteErr(w, 404, "not found")
+			return
+		}
+		if opts.Validate != nil && !opts.Validate(cdnURL) {
+			WriteErr(w, 400, "disallowed url")
 			return
 		}
 		req, err := http.NewRequestWithContext(r.Context(), "GET", cdnURL, nil)

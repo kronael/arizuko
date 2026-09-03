@@ -27,12 +27,8 @@ func openOwnedDB(ownDSN string) (*sql.DB, error) {
 	if err := db_utils.RequireDBFile(ownDSN); err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("sqlite", ownDSN+"?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)")
+	db, err := db_utils.OpenWAL(db_utils.FileDSN(ownDSN))
 	if err != nil {
-		return nil, err
-	}
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		db.Close()
 		return nil, err
 	}
 	if err := db_utils.Migrate(db, onbodMigrationFS, "migrations", onbodServiceName); err != nil {

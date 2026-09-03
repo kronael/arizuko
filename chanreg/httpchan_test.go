@@ -17,24 +17,6 @@ func staticBearer(tok string) func(context.Context) (string, error) {
 	return func(context.Context) (string, error) { return tok, nil }
 }
 
-func TestHTTPChannelOwns(t *testing.T) {
-	e := &Entry{
-		Name:        "telegram",
-		JIDPrefixes: []string{"tg:", "telegram:"},
-	}
-	ch := NewHTTPChannel(e, staticBearer("secret"))
-
-	if !ch.Owns("tg:123") {
-		t.Error("expected to own tg:123")
-	}
-	if !ch.Owns("telegram:456") {
-		t.Error("expected to own telegram:456")
-	}
-	if ch.Owns("discord:123") {
-		t.Error("should not own discord:123")
-	}
-}
-
 func TestHTTPChannelSend(t *testing.T) {
 	var got map[string]string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -222,31 +204,6 @@ func TestHTTPChannelTypingSwallowsFailures(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
-	}
-}
-
-func TestHTTPChannelHealthCheck(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/health" {
-			t.Errorf("path = %q", r.URL.Path)
-		}
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-	}))
-	defer srv.Close()
-
-	e := &Entry{Name: "tg", URL: srv.URL}
-	ch := NewHTTPChannel(e, staticBearer("secret"))
-
-	if err := ch.HealthCheck(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestHTTPChannelName(t *testing.T) {
-	e := &Entry{Name: "telegram"}
-	ch := NewHTTPChannel(e, staticBearer("s"))
-	if ch.Name() != "telegram" {
-		t.Errorf("name = %q", ch.Name())
 	}
 }
 

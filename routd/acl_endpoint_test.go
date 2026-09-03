@@ -3,7 +3,7 @@ package routd
 // REST-face tests for the spec 5/16 acl fold: POST /v1/acl (add) and body-DELETE
 // /v1/acl (remove) now ride the SAME shared aclHandler the agent's
 // add_acl/remove_acl MCP tools use, via resreg.RegisterREST + the injected
-// aclRESTCaller/aclRESTGate. The *Endpoint tests below are the operator/root
+// restCaller/aclRESTGate. The *Endpoint tests below are the operator/root
 // parity cases (empty JWT folder = root, owns everything); the *Containment tests
 // are the security tightening — a folder-scoped caller is now bound to its own
 // authority, closing the pre-fold hole where the REST face gated on the acl:write

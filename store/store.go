@@ -89,18 +89,8 @@ func Open(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, err
 	}
-	// foreign_keys must ride the DSN: modernc.org/sqlite defaults FK
-	// enforcement OFF per-connection, and database/sql pools many
-	// connections — a one-shot PRAGMA only covers one of them, so
-	// ON DELETE CASCADE (migrations 0068/0069) would silently no-op on
-	// the others. DSN pragmas apply to every pooled connection.
-	dsn := filepath.Join(dir, "messages.db") + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)"
-	db, err := sql.Open("sqlite", dsn)
+	db, err := db_utils.OpenWAL(db_utils.FileDSN(filepath.Join(dir, "messages.db")))
 	if err != nil {
-		return nil, err
-	}
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		db.Close()
 		return nil, err
 	}
 	s := &Store{db: db}
@@ -144,12 +134,8 @@ func OpenOnbodAt(path string) (*Store, error) {
 // The probe is what makes a wrong path loud: SQLite would otherwise open an
 // empty file happily and every read would return zero rows (spec 5/16 step 7).
 func openOwned(path, file, table, owner string) (*Store, error) {
-	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)")
+	db, err := db_utils.OpenWAL(db_utils.FileDSN(path))
 	if err != nil {
-		return nil, err
-	}
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		db.Close()
 		return nil, err
 	}
 	var n int

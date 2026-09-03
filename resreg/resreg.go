@@ -215,7 +215,8 @@ type MCPArg struct {
 //
 // Authz returns (scope, params, err); the adapter then calls auth.Authorize as
 // the canonical ACL gate, and a returned err short-circuits without touching
-// auth. Store, when non-nil, makes the adapter open a tx for mutating actions and
+// auth. nil derives nothing: the injected Gate holds the whole policy.
+// Store, when non-nil, makes the adapter open a tx for mutating actions and
 // write the audit_log row inside it. Set Store nil for forwarder resources.
 type Resource struct {
 	Name      string
@@ -576,10 +577,15 @@ func MCPTools(srv *mcpserver.MCPServer, r Resource, callerFor CallerFromMCPFunc,
 func invoke(ctx context.Context, r Resource, x Execution) (any, int, error) {
 	start := time.Now()
 	forward := r.Store == nil // forwarder: downstream daemon logs
-	scope, params, err := r.Authz(x.Caller, x.Action, x.Args)
-	if err != nil {
-		emitAudit(ctx, nil, x, scope, params, outcomeFor(err), err.Error(), start, forward)
-		return nil, errStatus(err), err
+	var scope string
+	var params map[string]string
+	if r.Authz != nil {
+		var err error
+		scope, params, err = r.Authz(x.Caller, x.Action, x.Args)
+		if err != nil {
+			emitAudit(ctx, nil, x, scope, params, outcomeFor(err), err.Error(), start, forward)
+			return nil, errStatus(err), err
+		}
 	}
 	if !forward {
 		gate := r.Gate

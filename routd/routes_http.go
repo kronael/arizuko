@@ -71,30 +71,8 @@ func (s *Server) mountRoutes(mux *http.ServeMux) {
 	}
 	res := s.routesResource(contain)
 	res.Gate = s.routesRESTGate
-	resreg.RegisterREST(mux, res, s.routesRESTCaller)
+	resreg.RegisterREST(mux, res, s.restCaller(nil))
 	mux.HandleFunc("GET /v1/routes/{id}", s.handleRouteGet)
-}
-
-// routesRESTCaller builds the REST Caller for the shared routes handler. That
-// handler reads x.Caller.Folder as the caller's OWN folder (set/list scoping); for
-// the operator that IS the JWT folder. Held scopes ride in Claims for
-// routesRESTGate. A nil Verifier is open (local-dev/tests): empty principal + empty
-// folder (root — unrestricted, list spans all), mirroring s.authz.
-func (s *Server) routesRESTCaller(r *http.Request) (resreg.Caller, error) {
-	var sub, folder string
-	var scope []string
-	if s.verify != nil {
-		var err error
-		sub, scope, folder, err = s.verify.Verify(r)
-		if err != nil {
-			return resreg.Caller{}, err
-		}
-	}
-	return resreg.Caller{
-		Sub:    sub,
-		Folder: folder,
-		Claims: map[string]string{"scopes": strings.Join(scope, " ")},
-	}, nil
 }
 
 // routesRESTGate is the operator/human REST twin of the agent socket's grant Gate:
@@ -105,7 +83,7 @@ func (s *Server) routesRESTGate(x resreg.Execution, _ string, _ map[string]strin
 	if s.verify == nil {
 		return nil
 	}
-	held := strings.Fields(x.Caller.Claims["scopes"])
+	held := x.Caller.Scopes()
 	want := []string{"routes:read", "routes:read:own_group"}
 	if x.Action.Mutates() {
 		want = []string{"routes:write", "routes:write:own_group"}

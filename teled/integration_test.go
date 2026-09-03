@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -18,6 +17,7 @@ import (
 	tgbotapi "github.com/matterbridge/telegram-bot-api/v6"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/tests/testutils"
 )
 
 // tgMock exposes a minimal Telegram Bot API over HTTP: getMe, sendMessage,
@@ -399,9 +399,9 @@ func TestBotHandle_RoutesInbound(t *testing.T) {
 	m := newTGMock()
 	defer m.close()
 
-	mr := newTeledRouterMock()
-	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL)
+	mr := testutils.NewRouterStub()
+	defer mr.Close()
+	rc := chanlib.NewRouterClient(mr.Srv.URL)
 	rc.SetToken("tok")
 
 	b := newTestBot(t, m, config{Name: "telegram", AssistantName: "Ari", ListenURL: "http://teled:9001"})
@@ -422,12 +422,12 @@ func TestBotHandle_RoutesInbound(t *testing.T) {
 	if !ok {
 		t.Fatal("handle returned false")
 	}
-	mr.mu.Lock()
-	defer mr.mu.Unlock()
-	if len(mr.msgs) != 1 {
-		t.Fatalf("dispatched %d", len(mr.msgs))
+	mr.Mu.Lock()
+	defer mr.Mu.Unlock()
+	if len(mr.Msgs) != 1 {
+		t.Fatalf("dispatched %d", len(mr.Msgs))
 	}
-	got := mr.msgs[0]
+	got := mr.Msgs[0]
 	if got.ChatJID != "telegram:group/100123" {
 		t.Errorf("ChatJID = %q", got.ChatJID)
 	}
@@ -444,9 +444,9 @@ func TestBotHandle_SkipSelfOnly(t *testing.T) {
 	// third-party bots (DeeperDexBot etc.) so routes can #observe them.
 	m := newTGMock()
 	defer m.close()
-	mr := newTeledRouterMock()
-	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL)
+	mr := testutils.NewRouterStub()
+	defer mr.Close()
+	rc := chanlib.NewRouterClient(mr.Srv.URL)
 	rc.SetToken("tok")
 
 	b := newTestBot(t, m, config{Name: "telegram"})
@@ -454,9 +454,9 @@ func TestBotHandle_SkipSelfOnly(t *testing.T) {
 	selfID := b.api.Self.ID
 
 	t.Run("self-bot dropped", func(t *testing.T) {
-		mr.mu.Lock()
-		mr.msgs = nil
-		mr.mu.Unlock()
+		mr.Mu.Lock()
+		mr.Msgs = nil
+		mr.Mu.Unlock()
 		msg := &tgbotapi.Message{
 			MessageID: 1, Chat: &tgbotapi.Chat{ID: 1},
 			From: &tgbotapi.User{ID: selfID, IsBot: true},
@@ -465,17 +465,17 @@ func TestBotHandle_SkipSelfOnly(t *testing.T) {
 		if !b.handle(msg, rc) {
 			t.Error("self bot should ack")
 		}
-		mr.mu.Lock()
-		defer mr.mu.Unlock()
-		if len(mr.msgs) != 0 {
-			t.Errorf("self bot should not dispatch, got %d", len(mr.msgs))
+		mr.Mu.Lock()
+		defer mr.Mu.Unlock()
+		if len(mr.Msgs) != 0 {
+			t.Errorf("self bot should not dispatch, got %d", len(mr.Msgs))
 		}
 	})
 
 	t.Run("third-party bot delivered", func(t *testing.T) {
-		mr.mu.Lock()
-		mr.msgs = nil
-		mr.mu.Unlock()
+		mr.Mu.Lock()
+		mr.Msgs = nil
+		mr.Mu.Unlock()
 		msg := &tgbotapi.Message{
 			MessageID: 2, Chat: &tgbotapi.Chat{ID: 1},
 			From: &tgbotapi.User{ID: selfID + 1, IsBot: true, UserName: "DeeperDexBot"},
@@ -484,13 +484,13 @@ func TestBotHandle_SkipSelfOnly(t *testing.T) {
 		if !b.handle(msg, rc) {
 			t.Error("third-party bot should ack")
 		}
-		mr.mu.Lock()
-		defer mr.mu.Unlock()
-		if len(mr.msgs) != 1 {
-			t.Fatalf("third-party bot should dispatch, got %d", len(mr.msgs))
+		mr.Mu.Lock()
+		defer mr.Mu.Unlock()
+		if len(mr.Msgs) != 1 {
+			t.Fatalf("third-party bot should dispatch, got %d", len(mr.Msgs))
 		}
-		if mr.msgs[0].Content != "market update" {
-			t.Errorf("content = %q", mr.msgs[0].Content)
+		if mr.Msgs[0].Content != "market update" {
+			t.Errorf("content = %q", mr.Msgs[0].Content)
 		}
 	})
 }
@@ -498,9 +498,9 @@ func TestBotHandle_SkipSelfOnly(t *testing.T) {
 func TestBotHandle_EmptyContent(t *testing.T) {
 	m := newTGMock()
 	defer m.close()
-	mr := newTeledRouterMock()
-	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL)
+	mr := testutils.NewRouterStub()
+	defer mr.Close()
+	rc := chanlib.NewRouterClient(mr.Srv.URL)
 	rc.SetToken("tok")
 	b := newTestBot(t, m, config{Name: "telegram"})
 	defer b.typing.Stop()
@@ -513,9 +513,9 @@ func TestBotHandle_EmptyContent(t *testing.T) {
 	if !b.handle(msg, rc) {
 		t.Error("empty should still be ack-safe")
 	}
-	mr.mu.Lock()
-	defer mr.mu.Unlock()
-	if len(mr.msgs) != 0 {
+	mr.Mu.Lock()
+	defer mr.Mu.Unlock()
+	if len(mr.Msgs) != 0 {
 		t.Errorf("empty should not dispatch")
 	}
 }
@@ -523,9 +523,9 @@ func TestBotHandle_EmptyContent(t *testing.T) {
 func TestBotHandle_ReplyMetadata(t *testing.T) {
 	m := newTGMock()
 	defer m.close()
-	mr := newTeledRouterMock()
-	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL)
+	mr := testutils.NewRouterStub()
+	defer mr.Close()
+	rc := chanlib.NewRouterClient(mr.Srv.URL)
 	rc.SetToken("tok")
 	b := newTestBot(t, m, config{Name: "telegram"})
 	defer b.typing.Stop()
@@ -542,9 +542,9 @@ func TestBotHandle_ReplyMetadata(t *testing.T) {
 		MessageThreadID: 123,
 	}
 	b.handle(msg, rc)
-	mr.mu.Lock()
-	defer mr.mu.Unlock()
-	got := mr.msgs[0]
+	mr.Mu.Lock()
+	defer mr.Mu.Unlock()
+	got := mr.Msgs[0]
 	if got.ReplyTo != "telegram:user/1/9" {
 		t.Errorf("ReplyTo = %q", got.ReplyTo)
 	}
@@ -562,9 +562,9 @@ func TestBotHandle_ReplyMetadata(t *testing.T) {
 func TestBotHandle_MediaPhoto(t *testing.T) {
 	m := newTGMock()
 	defer m.close()
-	mr := newTeledRouterMock()
-	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL)
+	mr := testutils.NewRouterStub()
+	defer mr.Close()
+	rc := chanlib.NewRouterClient(mr.Srv.URL)
 	rc.SetToken("tok")
 	b := newTestBot(t, m, config{Name: "telegram", ListenURL: "http://teled:9001"})
 	defer b.typing.Stop()
@@ -576,16 +576,16 @@ func TestBotHandle_MediaPhoto(t *testing.T) {
 		Photo:     []tgbotapi.PhotoSize{{FileID: "photo-x", FileSize: 2048}},
 	}
 	b.handle(msg, rc)
-	mr.mu.Lock()
-	defer mr.mu.Unlock()
-	if len(mr.msgs) != 1 {
+	mr.Mu.Lock()
+	defer mr.Mu.Unlock()
+	if len(mr.Msgs) != 1 {
 		t.Fatal("no dispatch")
 	}
-	if len(mr.msgs[0].Attachments) != 1 {
-		t.Errorf("attachments = %d", len(mr.msgs[0].Attachments))
+	if len(mr.Msgs[0].Attachments) != 1 {
+		t.Errorf("attachments = %d", len(mr.Msgs[0].Attachments))
 	}
-	if !strings.Contains(mr.msgs[0].Content, "[Photo]") {
-		t.Errorf("content = %q", mr.msgs[0].Content)
+	if !strings.Contains(mr.Msgs[0].Content, "[Photo]") {
+		t.Errorf("content = %q", mr.Msgs[0].Content)
 	}
 }
 
@@ -670,33 +670,6 @@ func TestBotStop_NoPoll(t *testing.T) {
 	close(b.done)
 	b.stop()
 }
-
-// router mock (shared shape, file-local to avoid test symbol collisions)
-type teledRouter struct {
-	mu   sync.Mutex
-	msgs []chanlib.InboundMsg
-	srv  *httptest.Server
-}
-
-func newTeledRouterMock() *teledRouter {
-	m := &teledRouter{}
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /v1/messages", func(w http.ResponseWriter, r *http.Request) {
-		var im chanlib.InboundMsg
-		json.NewDecoder(r.Body).Decode(&im)
-		m.mu.Lock()
-		m.msgs = append(m.msgs, im)
-		m.mu.Unlock()
-		w.Write([]byte(`{"ok":true}`))
-	})
-	m.srv = httptest.NewServer(mux)
-	return m
-}
-
-func (m *teledRouter) close() { m.srv.Close() }
-
-// ioRead used nowhere but kept to silence unused-import warnings elsewhere
-var _ = io.Discard
 
 // F56: the DATA_DIR code default must be teled's OWN state directory, never the
 // container data mount root. Same class as linkd's (which persists a refreshed

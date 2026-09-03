@@ -64,9 +64,6 @@ var tasksMCPNames = resources.ScheduledTasksMCPNames
 // mutation+audit tx there. contain is the per-face target-containment seam.
 func (s *Server) scheduledTasksResource(contain containFn, elevated bool) resreg.Resource {
 	r := resreg.Mount(resources.ScheduledTasksName)
-	r.Authz = func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
-		return "", nil, nil
-	}
 	r.Store = store.New(s.db.SQL())
 	r.Handler = func(ctx context.Context, x resreg.Execution) (any, error) {
 		return s.scheduledTasksHandler(ctx, x, contain, elevated)

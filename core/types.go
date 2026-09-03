@@ -1,7 +1,6 @@
 package core
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -186,69 +185,9 @@ type Task struct {
 	ContextMode string // "group" | "isolated"; default "group"
 }
 
-type Channel interface {
-	Name() string
-	Connect(ctx context.Context) error
-	// Send delivers text. threadID posts into an existing thread; threadRoot
-	// asks the adapter to root a NEW thread on that message id when threadID
-	// is empty (Slack thread_ts, Discord start-thread-from-message). Adapters
-	// without threading accept-and-ignore both. idempotencyKey is the bot
-	// row's stable id — the adapter's durable dedup claim (spec 5/34).
-	Send(jid, text, replyTo, threadID, threadRoot, idempotencyKey string) (string, error)
-	SendFile(jid, path, name, caption, replyTo, threadID, idempotencyKey string) (string, error)
-	// SendVoice delivers a synthesized voice message. Adapters that don't
-	// support a native voice/PTT primitive return chanlib.ErrUnsupported.
-	// threadID posts into the active thread (same semantics as Send);
-	// adapters without threading accept-and-ignore it.
-	SendVoice(jid, audioPath, caption, threadID string) (string, error)
-	Owns(jid string) bool
-	Typing(jid string, on bool) error
-	Disconnect() error
-}
-
-// HistoryFetcher is an optional capability implemented by channels that can
-// retrieve history from the upstream platform API. Returns raw JSON bytes
-// matching chanlib.HistoryResponse; the caller decodes.
-type HistoryFetcher interface {
-	FetchHistory(ctx context.Context, jid string, before time.Time, limit int) ([]byte, error)
-}
-
-// Socializer is the optional channel capability for social-graph verbs:
-// standalone posts, likes, and post deletion. Reply sends route through
-// Send(...) with replyTo set, so they're not here. Adapters that don't
-// implement these should return a sentinel "unsupported" error; callers
-// map that to a structured MCP response.
-type Socializer interface {
-	Post(ctx context.Context, jid, content string, mediaPaths []string) (string, error)
-	Like(ctx context.Context, jid, targetID, reaction string) error
-	Delete(ctx context.Context, jid, targetID string) error
-	Forward(ctx context.Context, sourceMsgID, targetJID, comment string) (string, error)
-	Quote(ctx context.Context, jid, sourceMsgID, comment string) (string, error)
-	Repost(ctx context.Context, jid, sourceMsgID string) (string, error)
-	Dislike(ctx context.Context, jid, targetID string) error
-	Edit(ctx context.Context, jid, targetID, content string) error
-	Pin(ctx context.Context, jid, targetID string) error
-	Unpin(ctx context.Context, jid, targetID string, all bool) error
-}
-
-// Suggester is the optional channel capability for staging suggested-prompt buttons
-// shown before the user's next message. Implemented by chanreg.HTTPChannel for any
-// adapter whose backend serves POST /v1/pane/prompts; slakd serves it, others 404.
-type Suggester interface {
-	SetSuggestions(ctx context.Context, jid string, prompts []PanePrompt) error
-}
-
-// Namer is the optional channel capability for renaming an open
-// conversation (Slack assistant-pane title; future: Telegram forum
-// topic name, Discord thread name, WhatsApp group subject).
-// Implemented by chanreg.HTTPChannel for any adapter whose backend
-// serves POST /v1/pane/title.
-type Namer interface {
-	SetName(ctx context.Context, jid, name string) error
-}
-
 // PanePrompt is one suggested-prompt button (title shown on the button,
-// message sent as user input on click).
+// message sent as user input on click). chanreg.HTTPChannel stages them
+// through the adapter's POST /v1/pane/prompts; slakd serves it, others 404.
 type PanePrompt struct {
 	Title   string `json:"title"`
 	Message string `json:"message"`

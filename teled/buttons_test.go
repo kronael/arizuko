@@ -9,6 +9,7 @@ import (
 	tgbotapi "github.com/matterbridge/telegram-bot-api/v6"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/tests/testutils"
 )
 
 // TestBotSend_DrawsOptionsAsAnInlineKeyboard — teled advertises `buttons`, so
@@ -132,9 +133,9 @@ func TestBotSend_NoOptionsNoKeyboard(t *testing.T) {
 func TestHandlePress_IsAnOrdinaryInboundCommand(t *testing.T) {
 	m := newTGMock()
 	defer m.close()
-	mr := newTeledRouterMock()
-	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL)
+	mr := testutils.NewRouterStub()
+	defer mr.Close()
+	rc := chanlib.NewRouterClient(mr.Srv.URL)
 	rc.SetToken("tok")
 
 	b := newTestBot(t, m, config{Name: "telegram"})
@@ -152,12 +153,11 @@ func TestHandlePress_IsAnOrdinaryInboundCommand(t *testing.T) {
 	if !b.handlePress(q, rc) {
 		t.Fatal("handlePress returned false")
 	}
-	mr.mu.Lock()
-	defer mr.mu.Unlock()
-	if len(mr.msgs) != 1 {
-		t.Fatalf("expected one inbound message, got %d", len(mr.msgs))
+	msgs := mr.Snapshot()
+	if len(msgs) != 1 {
+		t.Fatalf("expected one inbound message, got %d", len(msgs))
 	}
-	got := mr.msgs[0]
+	got := msgs[0]
 	if got.Content != "/approve ab12" {
 		t.Errorf("content = %q, want the command the button replaces", got.Content)
 	}
@@ -181,9 +181,9 @@ func TestHandlePress_IsAnOrdinaryInboundCommand(t *testing.T) {
 func TestHandlePress_EmptyPressAdvancesTheOffset(t *testing.T) {
 	m := newTGMock()
 	defer m.close()
-	mr := newTeledRouterMock()
-	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL)
+	mr := testutils.NewRouterStub()
+	defer mr.Close()
+	rc := chanlib.NewRouterClient(mr.Srv.URL)
 	rc.SetToken("tok")
 
 	b := newTestBot(t, m, config{Name: "telegram"})
@@ -192,9 +192,9 @@ func TestHandlePress_EmptyPressAdvancesTheOffset(t *testing.T) {
 	if !b.handlePress(&tgbotapi.CallbackQuery{ID: "cbq2"}, rc) {
 		t.Fatal("a press with no data must not stall the offset")
 	}
-	mr.mu.Lock()
-	defer mr.mu.Unlock()
-	if len(mr.msgs) != 0 {
-		t.Fatalf("nothing to route, but %d messages were sent", len(mr.msgs))
+	mr.Mu.Lock()
+	defer mr.Mu.Unlock()
+	if len(mr.Msgs) != 0 {
+		t.Fatalf("nothing to route, but %d messages were sent", len(mr.Msgs))
 	}
 }

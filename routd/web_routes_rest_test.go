@@ -2,7 +2,7 @@ package routd
 
 // REST-face tests for the spec 5/16 web_routes fold: /v1/web_routes list/create/
 // delete now ride the SAME shared webRoutesHandler the agent MCP tools use, via
-// resreg.RegisterREST + the injected webRoutesRESTCaller/webRoutesRESTGate.
+// resreg.RegisterREST + the injected restCaller/webRoutesRESTGate.
 // These assert (a) create/list/delete parity with the agent handler + the new
 // resreg wire shapes ({ok:true}/404, []ipc.WebRoute with redirect_to omitempty),
 // (b) a scoped non-operator manages its own folder but 403s cross-folder, (c) the

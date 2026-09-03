@@ -28,29 +28,7 @@ func (s *Server) mountTasks(mux *http.ServeMux) {
 	// handler's own branch), so pass elevated=false.
 	res := s.scheduledTasksResource(contain, false)
 	res.Gate = s.tasksRESTGate
-	resreg.RegisterREST(mux, res, s.tasksRESTCaller)
-}
-
-// tasksRESTCaller sets the task target as Caller.Folder and passes held scopes
-// and the JWT folder to the REST gate. A nil Verifier is open.
-func (s *Server) tasksRESTCaller(r *http.Request) (resreg.Caller, error) {
-	var sub, jwtFolder string
-	var scope []string
-	if s.verify != nil {
-		var err error
-		sub, scope, jwtFolder, err = s.verify.Verify(r)
-		if err != nil {
-			return resreg.Caller{}, err
-		}
-	}
-	return resreg.Caller{
-		Sub:    sub,
-		Folder: tasksTarget(r, jwtFolder),
-		Claims: map[string]string{
-			"jwt_folder": jwtFolder,
-			"scopes":     strings.Join(scope, " "),
-		},
-	}, nil
+	resreg.RegisterREST(mux, res, s.restCaller(tasksTarget))
 }
 
 // tasksTarget uses the JWT folder for per-task operations; the handler checks
@@ -72,7 +50,7 @@ func (s *Server) tasksRESTGate(x resreg.Execution, _ string, _ map[string]string
 	if s.verify == nil {
 		return nil
 	}
-	held := strings.Fields(x.Caller.Claims["scopes"])
+	held := x.Caller.Scopes()
 	want := []string{"tasks:read", "tasks:read:own_group"}
 	if x.Action.Mutates() {
 		want = []string{"tasks:write", "tasks:write:own_group"}

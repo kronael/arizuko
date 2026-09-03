@@ -9,42 +9,8 @@ import (
 	"github.com/kronael/arizuko/auth"
 )
 
-// runed's env readers and its verifier. Both must fail toward the documented
-// default and toward "no identity" respectively: RUNED_RUN_TIMEOUT parsed as 0
-// would kill every run the instant it starts, and a verifier returning a
-// partial subject alongside an error hands a caller's identity to a handler
-// that only checks err on some paths.
-
-func TestEnvOrFallsBackOnUnsetAndEmpty(t *testing.T) {
-	const k = "ARIZUKO_RUNED_TEST_STR"
-	t.Setenv(k, "")
-	if got := envOr(k, ":8080"); got != ":8080" {
-		t.Errorf("empty: %q, want the default", got)
-	}
-	t.Setenv(k, ":9099")
-	if got := envOr(k, ":8080"); got != ":9099" {
-		t.Errorf("set: %q", got)
-	}
-}
-
-func TestDurOrRejectsAnythingUnparseable(t *testing.T) {
-	const k = "ARIZUKO_RUNED_TEST_DUR"
-	cases := map[string]time.Duration{
-		"":           20 * time.Minute,
-		"20":         20 * time.Minute, // no unit
-		"20 minutes": 20 * time.Minute,
-		"never":      20 * time.Minute,
-		"90s":        90 * time.Second,
-		"1h":         time.Hour,
-	}
-	for in, want := range cases {
-		t.Setenv(k, in)
-		if got := durOr(k, 20*time.Minute); got != want {
-			t.Errorf("durOr(%q) = %s, want %s", in, got, want)
-		}
-	}
-}
-
+// A verifier returning a partial subject alongside an error hands a caller's
+// identity to a handler that only checks err on some paths.
 func TestKeysetVerifierReturnsNothingOnAFailedVerify(t *testing.T) {
 	k, err := auth.NewSigningKey("k1")
 	if err != nil {

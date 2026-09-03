@@ -1,11 +1,9 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -25,24 +23,6 @@ func (d *dash) whapdURL() string {
 		return strings.TrimRight(u, "/")
 	}
 	return whapdDefaultURL
-}
-
-// pairAuth sets the service:dashd bearer on a whapd pair request. nil svc (local
-// dev, no AUTHD_URL) → no header, no error. A token-exchange error is returned
-// so callers refuse to forward an unauthenticated request (would be a silent
-// 401 at whapd, or worse an unauthenticated call).
-func (d *dash) pairAuth(req *http.Request) error {
-	if d.svc == nil {
-		return nil
-	}
-	tok, err := d.svc(req.Context())
-	if err != nil {
-		return err
-	}
-	if tok != "" {
-		req.Header.Set("Authorization", "Bearer "+tok)
-	}
-	return nil
 }
 
 type pairStatus struct {
@@ -160,59 +140,39 @@ func (d *dash) handleWhatsappPairStart(w http.ResponseWriter, r *http.Request) {
 }
 
 // fetchPairStart POSTs the phone to whapd /v1/pair/start with the service:dashd
-// bearer, returning a pairStartResp. Every failure mode (marshal, request build,
-// token unavailable, transport, non-2xx, decode) is reported via .Error so the
-// caller never forwards or renders a half-formed result.
+// bearer, returning a pairStartResp. Every failure mode (token unavailable,
+// transport, non-2xx, decode) is reported via .Error so the caller never
+// forwards or renders a half-formed result.
 func (d *dash) fetchPairStart(ctx context.Context, phone string) pairStartResp {
-	body, err := json.Marshal(map[string]string{"phone": phone})
-	if err != nil {
-		return pairStartResp{Error: "encode request: " + err.Error()}
-	}
-	req, err := http.NewRequestWithContext(ctx, "POST",
-		d.whapdURL()+"/v1/pair/start", bytes.NewReader(body))
-	if err != nil {
-		return pairStartResp{Error: "build request: " + err.Error()}
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if err := d.pairAuth(req); err != nil {
-		return pairStartResp{Error: "service token unavailable"}
-	}
-	c := &http.Client{Timeout: 15 * time.Second}
-	resp, err := c.Do(req)
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	raw, status, err := d.bearerCall(ctx, d.whapdURL(), http.MethodPost, "/v1/pair/start",
+		map[string]string{"phone": phone})
 	if err != nil {
 		return pairStartResp{Error: "pair-start request failed: " + err.Error()}
 	}
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(resp.Body)
 	var pr pairStartResp
 	if err := json.Unmarshal(raw, &pr); err != nil {
-		return pairStartResp{Error: fmt.Sprintf("whapd returned %d (unparseable body)", resp.StatusCode)}
+		return pairStartResp{Error: fmt.Sprintf("whapd returned %d (unparseable body)", status)}
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+	if status < 200 || status >= 300 {
 		if pr.Error != "" {
 			return pr
 		}
-		return pairStartResp{Error: fmt.Sprintf("whapd returned %d", resp.StatusCode)}
+		return pairStartResp{Error: fmt.Sprintf("whapd returned %d", status)}
 	}
 	return pr
 }
 
 func (d *dash) fetchPairStatus() pairStatus {
-	req, err := http.NewRequest("GET", d.whapdURL()+"/v1/pair/status", nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	raw, _, err := d.bearerCall(ctx, d.whapdURL(), http.MethodGet, "/v1/pair/status", nil)
 	if err != nil {
 		return pairStatus{State: "unreachable", Reason: err.Error()}
 	}
-	if err := d.pairAuth(req); err != nil {
-		return pairStatus{State: "unreachable", Reason: "service token unavailable"}
-	}
-	c := &http.Client{Timeout: 5 * time.Second}
-	resp, err := c.Do(req)
-	if err != nil {
-		return pairStatus{State: "unreachable", Reason: err.Error()}
-	}
-	defer resp.Body.Close()
 	var st pairStatus
-	json.NewDecoder(resp.Body).Decode(&st)
+	json.Unmarshal(raw, &st)
 	if st.State == "" {
 		st.State = "unknown"
 	}

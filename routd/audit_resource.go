@@ -56,9 +56,6 @@ var auditMCPNames = resources.AuditMCPNames
 // authorization for those.
 func (s *Server) auditResource() resreg.Resource {
 	r := resreg.Mount(resources.AuditName)
-	r.Authz = func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
-		return "", nil, nil
-	}
 	r.Handler = s.auditHandler
 	r.Store = store.New(s.db.SQL())
 	return r
@@ -69,21 +66,7 @@ func (s *Server) auditResource() resreg.Resource {
 func (s *Server) mountAudit(mux *http.ServeMux) {
 	res := s.auditResource()
 	res.Gate = s.auditRESTGate
-	resreg.RegisterREST(mux, res, s.auditRESTCaller)
-}
-
-// auditRESTCaller builds the REST Caller. The scope rides in Claims because a
-// caller-builder can only fail 401 and the Gate must answer 403. A nil Verifier
-// is open (local-dev), mirroring s.authz and every sibling REST caller.
-func (s *Server) auditRESTCaller(r *http.Request) (resreg.Caller, error) {
-	if s.verify == nil {
-		return resreg.Caller{}, nil
-	}
-	sub, scope, folder, err := s.verify.Verify(r)
-	if err != nil {
-		return resreg.Caller{}, err
-	}
-	return resreg.Caller{Sub: sub, Folder: folder, Claims: resreg.ScopeClaims(scope)}, nil
+	resreg.RegisterREST(mux, res, s.restCaller(nil))
 }
 
 // auditRESTGate requires the audit:read scope, matching runed's and authd's

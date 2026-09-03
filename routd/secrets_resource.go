@@ -32,7 +32,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strings"
 
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
@@ -44,7 +43,7 @@ import (
 // onto the shared secretsHandler via resreg.RegisterREST. Write-only: no read
 // twin, no agent MCP tool.
 func (s *Server) mountSecrets(mux *http.ServeMux) {
-	resreg.RegisterREST(mux, s.secretsResource(), s.secretsRESTCaller)
+	resreg.RegisterREST(mux, s.secretsResource(), s.restCaller(nil))
 }
 
 // secretsResource is the single renderer for the secret write surface. Store is
@@ -58,26 +57,6 @@ func (s *Server) secretsResource() resreg.Resource {
 	return r
 }
 
-// secretsRESTCaller builds the REST Caller: identity via the Verifier, held
-// scopes + JWT folder in Claims for secretsAuthz. A nil Verifier is open
-// (local-dev), mirroring s.authz.
-func (s *Server) secretsRESTCaller(r *http.Request) (resreg.Caller, error) {
-	var sub, folder string
-	var scope []string
-	if s.verify != nil {
-		var err error
-		sub, scope, folder, err = s.verify.Verify(r)
-		if err != nil {
-			return resreg.Caller{}, err
-		}
-	}
-	return resreg.Caller{
-		Sub:    sub,
-		Folder: folder,
-		Claims: map[string]string{"scopes": strings.Join(scope, " "), "jwt_folder": folder},
-	}, nil
-}
-
 // secretsAuthz is the operator gate (forwarders skip Resource.Gate, so the policy
 // lives here — the hook invoke always runs). It requires the secrets:write scope,
 // then binds the target scope to the caller's authority: a folder secret must sit
@@ -89,7 +68,7 @@ func (s *Server) secretsAuthz(c resreg.Caller, _ resreg.Action, args resreg.Args
 	if s.verify == nil {
 		return "", nil, nil
 	}
-	if !hasAnyScope(strings.Fields(c.Claims["scopes"]), []string{"secrets:write"}) {
+	if !hasAnyScope(c.Scopes(), []string{"secrets:write"}) {
 		return "", nil, resreg.Errorf(http.StatusForbidden, "missing scope secrets:write")
 	}
 	scopeID := argString(args, "scope_id")

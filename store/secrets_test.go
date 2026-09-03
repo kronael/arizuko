@@ -612,3 +612,22 @@ func TestFolderSecretsResolved_RootFallback(t *testing.T) {
 		t.Errorf("root resolution KEY = %q, want base", got["KEY"])
 	}
 }
+
+func TestValidSecretKey(t *testing.T) {
+	cases := map[string]bool{
+		"GITHUB_TOKEN": true,
+		"K":            true,
+		"A1_B2":        true,
+		"":             false,
+		"lower":        false,
+		"1LEAD":        false,
+		"WITH-DASH":    false,
+		"WITH SPACE":   false,
+		"a_lower":      false,
+	}
+	for key, want := range cases {
+		if got := ValidSecretKey(key); got != want {
+			t.Errorf("ValidSecretKey(%q) = %v, want %v", key, got, want)
+		}
+	}
+}

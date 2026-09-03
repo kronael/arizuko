@@ -2,17 +2,13 @@ package main
 
 import (
 	"database/sql"
-	"io"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/kronael/arizuko/chanlib"
 )
-
-var httpClient = &http.Client{Timeout: 30 * time.Second}
 
 var allowedRedditHosts = map[string]bool{
 	"i.redd.it":                true,
@@ -39,43 +35,12 @@ func newServer(cfg config, rc chanlib.BotHandler, files *chanlib.URLCache, db *s
 
 func (s *server) handler() http.Handler {
 	mux := chanlib.NewAdapterMux(s.cfg.Name, []string{"reddit:"}, s.rc, s.isConnected, s.lastInboundAt, s.db)
-	mux.HandleFunc("GET /files/", chanlib.Auth(s.handleFile))
+	mux.HandleFunc("GET /files/", chanlib.Auth(chanlib.FileProxyHandler(chanlib.FileProxyOpts{
+		Resolve:  s.files.Get,
+		Validate: s.safeFetch,
+		MaxBytes: s.cfg.MediaMaxBytes,
+	})))
 	return mux
-}
-
-func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimPrefix(r.URL.Path, "/files/")
-	if id == "" {
-		chanlib.WriteErr(w, 400, "file_id required")
-		return
-	}
-	rawURL, ok := s.files.Get(id)
-	if !ok {
-		chanlib.WriteErr(w, 404, "file not found")
-		return
-	}
-	if s.safeFetch != nil && !s.safeFetch(rawURL) {
-		chanlib.WriteErr(w, 400, "disallowed url")
-		return
-	}
-	resp, err := httpClient.Get(rawURL)
-	if err != nil {
-		chanlib.WriteErr(w, 502, "download failed")
-		return
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		chanlib.WriteErr(w, 502, "download failed")
-		return
-	}
-	if ct := resp.Header.Get("Content-Type"); ct != "" {
-		w.Header().Set("Content-Type", ct)
-	}
-	max := s.cfg.MediaMaxBytes
-	if max <= 0 {
-		max = 20 * 1024 * 1024
-	}
-	io.Copy(w, io.LimitReader(resp.Body, max))
 }
 
 func isSafeFetchURL(raw string) bool {

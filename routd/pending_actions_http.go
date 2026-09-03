@@ -37,9 +37,6 @@ const (
 // Gate and opens the verdict tx.
 func (s *Server) pendingActionsResource() resreg.Resource {
 	r := resreg.Mount(resources.PendingActionsName)
-	r.Authz = func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
-		return "", nil, nil
-	}
 	r.Handler = s.pendingActionsHandler
 	r.Store = store.New(s.db.SQL())
 	return r
@@ -50,7 +47,7 @@ func (s *Server) mountPendingActions(mux *http.ServeMux) {
 	res.Gate = s.pendingActionsRESTGate
 	// Same verified-bearer Caller builder the audit face uses: sub + scopes +
 	// folder claim off the token, open when no Verifier (local dev).
-	resreg.RegisterREST(mux, res, s.auditRESTCaller)
+	resreg.RegisterREST(mux, res, s.restCaller(nil))
 }
 
 // pendingActionsRESTGate requires pending_actions:read for the list and

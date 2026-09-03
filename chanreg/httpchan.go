@@ -118,12 +118,6 @@ func (h *HTTPChannel) authHeader(ctx context.Context, req *http.Request) {
 	}
 }
 
-func (h *HTTPChannel) Name() string { return h.entry.Name }
-
-func (h *HTTPChannel) Connect(_ context.Context) error { return nil }
-
-func (h *HTTPChannel) Owns(jid string) bool { return h.entry.Owns(jid) }
-
 func (h *HTTPChannel) Send(jid, text, replyTo, threadID, threadRoot, idempotencyKey string) (string, error) {
 	return h.SendCtx(context.Background(), jid, text, replyTo, threadID, threadRoot, idempotencyKey)
 }
@@ -514,10 +508,6 @@ func (h *HTTPChannel) SetName(ctx context.Context, jid, name string) error {
 	}
 	return nil
 }
-
-func (h *HTTPChannel) Disconnect() error { return nil }
-
-func (h *HTTPChannel) HealthCheck() error { return healthPing(h.client, h.entry.URL) }
 
 func (h *HTTPChannel) post(ctx context.Context, path string, body []byte) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, "POST", h.entry.URL+path, bytes.NewReader(body))

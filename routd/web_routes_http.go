@@ -18,31 +18,9 @@ import (
 func (s *Server) mountWebRoutes(mux *http.ServeMux) {
 	res := s.webRoutesResource()
 	res.Gate = s.webRoutesRESTGate
-	resreg.RegisterREST(mux, res, s.webRoutesRESTCaller)
+	resreg.RegisterREST(mux, res, s.restCaller(webRoutesTarget))
 	mux.HandleFunc("GET /v1/web_routes/owner", s.handleWebRouteOwner)
 	mux.HandleFunc("GET /v1/web_presence", s.handleWebPresence)
-}
-
-// webRoutesRESTCaller sets the route target as Caller.Folder and passes held
-// scopes and the JWT folder to the REST gate. A nil Verifier is open.
-func (s *Server) webRoutesRESTCaller(r *http.Request) (resreg.Caller, error) {
-	var sub, jwtFolder string
-	var scope []string
-	if s.verify != nil {
-		var err error
-		sub, scope, jwtFolder, err = s.verify.Verify(r)
-		if err != nil {
-			return resreg.Caller{}, err
-		}
-	}
-	return resreg.Caller{
-		Sub:    sub,
-		Folder: webRoutesTarget(r, jwtFolder),
-		Claims: map[string]string{
-			"jwt_folder": jwtFolder,
-			"scopes":     strings.Join(scope, " "),
-		},
-	}, nil
 }
 
 // webRoutesTarget resolves the folder acted on by the shared handler. An
@@ -84,7 +62,7 @@ func (s *Server) webRoutesRESTGate(x resreg.Execution, _ string, _ map[string]st
 	if s.verify == nil {
 		return nil
 	}
-	held := strings.Fields(x.Caller.Claims["scopes"])
+	held := x.Caller.Scopes()
 	want := []string{"routes:read", "routes:read:own_group"}
 	if x.Action.Mutates() {
 		want = []string{"routes:write", "routes:write:own_group"}

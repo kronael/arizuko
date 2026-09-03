@@ -35,9 +35,6 @@ func mcpOnlyResource() Resource {
 		MCPArgs: map[Action][]MCPArg{
 			Action("nudge"): {{Name: "name", Type: "string", Required: true}},
 		},
-		Authz: func(Caller, Action, Args) (string, map[string]string, error) {
-			return "", nil, nil
-		},
 		Handler: func(context.Context, Execution) (any, error) { return nil, nil },
 	}
 }

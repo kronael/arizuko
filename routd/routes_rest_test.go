@@ -3,7 +3,7 @@ package routd
 // REST-face tests for the spec 5/16 routes fold: /v1/routes add/set/list/delete now
 // ride the SAME shared routesHandler the agent's add_route/set_routes/list_routes/
 // delete_route MCP tools use, via resreg.RegisterREST + the injected
-// routesRESTCaller/routesRESTGate; get-one stays a thin read. These assert (a)
+// restCaller/routesRESTGate; get-one stays a thin read. These assert (a)
 // POST/GET/GET-one/DELETE parity with the new resreg wire shapes ({id}, bare
 // []RouteView, {deleted}/404), (b) the tier-0-tenant containment the gate's
 // ownsFolder adds on top of the handler's tier model (add + delete cross-folder →

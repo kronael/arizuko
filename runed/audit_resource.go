@@ -38,9 +38,6 @@ const auditScope = "audit:read"
 // the Gate injected below never consults an acl row.
 func (s *Server) auditResource() resreg.Resource {
 	r := resreg.Mount(resources.AuditName)
-	r.Authz = func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
-		return "", nil, nil
-	}
 	r.Gate = s.auditGate
 	r.Handler = s.auditHandler
 	r.Store = store.New(s.db.SQL())

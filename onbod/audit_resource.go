@@ -37,9 +37,6 @@ func (a *admin) mountAudit(mux *http.ServeMux) {
 // all policy is the injected Gate, as with every other onbod resource.
 func (a *admin) auditResource() resreg.Resource {
 	r := resreg.Mount(resources.AuditName)
-	r.Authz = func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
-		return "", nil, nil
-	}
 	r.Gate = a.auditRESTGate
 	r.Handler = a.auditHandler
 	r.Store = store.New(a.db)

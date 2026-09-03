@@ -52,9 +52,6 @@ var deadLettersMCPNames = resources.DeadLettersMCPNames
 // so resreg runs the Gate and opens the replay tx.
 func (s *Server) deadLettersResource() resreg.Resource {
 	r := resreg.Mount(resources.DeadLettersName)
-	r.Authz = func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
-		return "", nil, nil
-	}
 	r.Handler = s.deadLettersHandler
 	r.Store = store.New(s.db.SQL())
 	return r
@@ -65,7 +62,7 @@ func (s *Server) deadLettersResource() resreg.Resource {
 func (s *Server) mountDeadLetters(mux *http.ServeMux) {
 	res := s.deadLettersResource()
 	res.Gate = s.deadLettersRESTGate
-	resreg.RegisterREST(mux, res, s.auditRESTCaller)
+	resreg.RegisterREST(mux, res, s.restCaller(nil))
 }
 
 // deadLettersRESTGate requires dead_letters:read to look and
@@ -137,7 +134,7 @@ func (s *Server) deadLettersHandler(_ context.Context, x resreg.Execution) (any,
 				ID: m.ID, ChatJID: m.ChatJID, Content: m.Content,
 				Timestamp: m.Timestamp.UTC().Format(time.RFC3339Nano),
 				Topic:     m.Topic, RoutedTo: m.RoutedTo, Source: m.Source,
-				TurnID:    m.TurnID, DeliveryAttempts: m.DeliveryAttempts,
+				TurnID: m.TurnID, DeliveryAttempts: m.DeliveryAttempts,
 			}
 		}
 		return rows, nil

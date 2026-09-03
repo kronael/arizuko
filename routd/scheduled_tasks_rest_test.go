@@ -2,7 +2,7 @@ package routd
 
 // REST-face guard tests for the spec 5/16 scheduled_tasks fold: /v1/tasks
 // list/get/patch/delete now ride the SAME shared scheduledTasksHandler the agent
-// MCP tools use, via resreg.RegisterREST + the injected tasksRESTCaller/
+// MCP tools use, via resreg.RegisterREST + the injected restCaller/
 // tasksRESTGate. tasks_test.go covers the CRUD parity with a service token
 // (empty JWT folder = root); these cover the two containment guards a scoped
 // operator must hit:

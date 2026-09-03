@@ -37,7 +37,7 @@ Primary methods (by domain):
   from the `SECRETS_KEY` env var, which is REQUIRED — every write path refuses
   without it rather than storing plaintext (BUGS S2). A legacy un-prefixed row
   still reads correctly until it is sealed.
-- Routes, system messages, onboarding, topics — see source
+- Routes, onboarding, topics — see source
 
 `messages.is_observed` (migration 0054) marks rows stored under a
 folder via a `#observe` route target — they do not fire a turn but are

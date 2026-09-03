@@ -157,31 +157,6 @@ func TestSessionState(t *testing.T) {
 	}
 }
 
-func TestSystemMessages(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-
-	s.EnqueueSysMsg("main", "gateway", "new-session", "")
-	s.EnqueueSysMsg("main", "gateway", "new-day", "")
-
-	xml := s.FlushSysMsgs("main")
-	if xml == "" {
-		t.Fatal("expected non-empty XML")
-	}
-	// Spec Y-system-messages: tag must be <system>, not <system_message>
-	if !strings.Contains(xml, "<system ") {
-		t.Errorf("expected <system> tag, got: %s", xml)
-	}
-	if strings.Contains(xml, "<system_message") {
-		t.Errorf("unexpected <system_message> tag, got: %s", xml)
-	}
-
-	xml2 := s.FlushSysMsgs("main")
-	if xml2 != "" {
-		t.Fatalf("expected empty after flush, got %q", xml2)
-	}
-}
-
 func TestTaskCRUD(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()

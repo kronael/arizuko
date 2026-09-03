@@ -4,8 +4,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoadConfigDefaults(t *testing.T) {
@@ -107,28 +109,50 @@ func TestLoadConfigFromRespectsDataDirEnv(t *testing.T) {
 	}
 }
 
+// An unset OR unparseable value must land on the documented default, never on
+// the zero value: a poll interval of 0 is a busy loop, a container cap of 0 is
+// a daemon that spawns nothing.
 func TestEnvHelpers(t *testing.T) {
-	os.Unsetenv("TEST_VAR")
-
-	if got := envOr("TEST_VAR", "default"); got != "default" {
-		t.Fatalf("expected default, got %q", got)
+	const k = "ARIZUKO_CORE_TEST_ENV"
+	t.Setenv(k, "")
+	if got := EnvOr(k, "fallback"); got != "fallback" {
+		t.Errorf("EnvOr empty: %q, want the default", got)
+	}
+	t.Setenv(k, "set")
+	if got := EnvOr(k, "fallback"); got != "set" {
+		t.Errorf("EnvOr set: %q", got)
 	}
 
-	os.Setenv("TEST_VAR", "set")
-	defer os.Unsetenv("TEST_VAR")
-	if got := envOr("TEST_VAR", "default"); got != "set" {
-		t.Fatalf("expected set, got %q", got)
+	ints := map[string]int{
+		"":    7,
+		"abc": 7,
+		"1.5": 7,
+		"3 ":  7, // strconv.Atoi rejects the trailing space
+		"12":  12,
+		"-4":  -4,
+		"0":   0, // an explicit 0 IS the operator's choice and must win
+	}
+	for in, want := range ints {
+		t.Setenv(k, in)
+		if got := EnvInt(k, 7); got != want {
+			t.Errorf("EnvInt(%q) = %d, want %d", in, got, want)
+		}
 	}
 
-	os.Setenv("TEST_INT", "42")
-	defer os.Unsetenv("TEST_INT")
-	if got := envInt("TEST_INT", 0); got != 42 {
-		t.Fatalf("expected 42, got %d", got)
+	durs := map[string]time.Duration{
+		"":          time.Minute,
+		"5":         time.Minute, // no unit
+		"5 minutes": time.Minute,
+		"forever":   time.Minute,
+		"30s":       30 * time.Second,
+		"2h":        2 * time.Hour,
+		"0s":        0,
 	}
-
-	os.Setenv("TEST_INT", "bad")
-	if got := envInt("TEST_INT", 99); got != 99 {
-		t.Fatalf("expected fallback 99, got %d", got)
+	for in, want := range durs {
+		t.Setenv(k, in)
+		if got := DurOr(k, time.Minute); got != want {
+			t.Errorf("DurOr(%q) = %s, want %s", in, got, want)
+		}
 	}
 }
 
@@ -222,18 +246,26 @@ func TestRequireSecretKeyring(t *testing.T) {
 	}
 }
 
+// SEND_DISABLED_CHANNELS is matched against adapter names. An entry that keeps
+// its surrounding whitespace matches nothing, so the operator believes a
+// channel is disabled while it keeps sending.
 func TestParseCSV(t *testing.T) {
-	if got := parseCSV(""); got != nil {
-		t.Errorf("empty: got %v, want nil", got)
+	cases := []struct {
+		in   string
+		want []string
+	}{
+		{"", nil},
+		{",", nil},
+		{"  ,  ", nil},
+		{"teled", []string{"teled"}},
+		{" teled ", []string{"teled"}},
+		{"teled,slakd", []string{"teled", "slakd"}},
+		{"teled, slakd ,, discd", []string{"teled", "slakd", "discd"}},
+		{"\tteled\n", []string{"teled"}},
 	}
-	got := parseCSV(" a , ,b,  c ")
-	want := []string{"a", "b", "c"}
-	if len(got) != len(want) {
-		t.Fatalf("got %v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("item %d: got %q, want %q", i, got[i], want[i])
+	for _, c := range cases {
+		if got := ParseCSV(c.in); !reflect.DeepEqual(got, c.want) {
+			t.Errorf("ParseCSV(%q) = %#v, want %#v", c.in, got, c.want)
 		}
 	}
 }

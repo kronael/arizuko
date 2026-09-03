@@ -44,9 +44,9 @@ func TestThreadMsgID_NotANumber(t *testing.T) {
 // handleReaction
 
 func TestHandleReaction_Dispatches(t *testing.T) {
-	mr := newTeledRouterMock()
-	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL)
+	mr := testutils.NewRouterStub()
+	defer mr.Close()
+	rc := chanlib.NewRouterClient(mr.Srv.URL)
 	rc.SetToken("tok")
 
 	m := newTGMock()
@@ -68,12 +68,12 @@ func TestHandleReaction_Dispatches(t *testing.T) {
 		t.Fatal("handleReaction returned false")
 	}
 
-	mr.mu.Lock()
-	defer mr.mu.Unlock()
-	if len(mr.msgs) != 1 {
-		t.Fatalf("dispatched %d, want 1", len(mr.msgs))
+	mr.Mu.Lock()
+	defer mr.Mu.Unlock()
+	if len(mr.Msgs) != 1 {
+		t.Fatalf("dispatched %d, want 1", len(mr.Msgs))
 	}
-	msg := mr.msgs[0]
+	msg := mr.Msgs[0]
 	if msg.Reaction != "👍" {
 		t.Errorf("Reaction = %q, want 👍", msg.Reaction)
 	}
@@ -94,9 +94,9 @@ func TestHandleReaction_Dispatches(t *testing.T) {
 
 func TestHandleReaction_SkipsExistingEmoji(t *testing.T) {
 	// An emoji present in both old and new reactions is not a new addition.
-	mr := newTeledRouterMock()
-	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL)
+	mr := testutils.NewRouterStub()
+	defer mr.Close()
+	rc := chanlib.NewRouterClient(mr.Srv.URL)
 	rc.SetToken("tok")
 
 	m := newTGMock()
@@ -115,17 +115,17 @@ func TestHandleReaction_SkipsExistingEmoji(t *testing.T) {
 
 	b.handleReaction(r, rc)
 
-	mr.mu.Lock()
-	defer mr.mu.Unlock()
-	if len(mr.msgs) != 0 {
-		t.Errorf("unchanged emoji should not be dispatched, got %d", len(mr.msgs))
+	mr.Mu.Lock()
+	defer mr.Mu.Unlock()
+	if len(mr.Msgs) != 0 {
+		t.Errorf("unchanged emoji should not be dispatched, got %d", len(mr.Msgs))
 	}
 }
 
 func TestHandleReaction_SkipsNonEmojiType(t *testing.T) {
-	mr := newTeledRouterMock()
-	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL)
+	mr := testutils.NewRouterStub()
+	defer mr.Close()
+	rc := chanlib.NewRouterClient(mr.Srv.URL)
 	rc.SetToken("tok")
 
 	m := newTGMock()
@@ -144,10 +144,10 @@ func TestHandleReaction_SkipsNonEmojiType(t *testing.T) {
 
 	b.handleReaction(r, rc)
 
-	mr.mu.Lock()
-	defer mr.mu.Unlock()
-	if len(mr.msgs) != 0 {
-		t.Errorf("non-emoji reaction type should be skipped, got %d", len(mr.msgs))
+	mr.Mu.Lock()
+	defer mr.Mu.Unlock()
+	if len(mr.Msgs) != 0 {
+		t.Errorf("non-emoji reaction type should be skipped, got %d", len(mr.Msgs))
 	}
 }
 

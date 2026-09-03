@@ -88,7 +88,7 @@ func TestHandlePress_IsAnOrdinaryInboundCommand(t *testing.T) {
 	  "actions":[{"action_id":"opt0","value":"/approve ab12"}]
 	}`))
 
-	msgs := rm.snapshot()
+	msgs := rm.Snapshot()
 	if len(msgs) != 1 {
 		t.Fatalf("expected one inbound message, got %d", len(msgs))
 	}
@@ -121,7 +121,7 @@ func TestHandlePress_IgnoresEverythingElse(t *testing.T) {
 	} {
 		b.handlePress([]byte(payload))
 	}
-	if n := len(rm.snapshot()); n != 0 {
+	if n := len(rm.Snapshot()); n != 0 {
 		t.Errorf("routed %d non-press payloads", n)
 	}
 }

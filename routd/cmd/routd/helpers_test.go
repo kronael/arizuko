@@ -4,7 +4,6 @@ import (
 	"crypto/ecdsa"
 	"net/http"
 	"os"
-	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -12,87 +11,6 @@ import (
 
 	"github.com/kronael/arizuko/auth"
 )
-
-// The env readers decide routd's whole runtime shape, and none of them was
-// covered: the package sat at 0%. Each one has the same load-bearing rule —
-// an unset OR unparseable value must land on the documented default, never on
-// the zero value. A poll interval of 0 is a busy loop; a container cap of 0 is
-// a daemon that spawns nothing; a channel list that keeps its whitespace never
-// matches an adapter name.
-
-func TestEnvOrFallsBackOnUnsetAndEmpty(t *testing.T) {
-	const k = "ARIZUKO_ROUTD_TEST_STR"
-	t.Setenv(k, "")
-	if got := envOr(k, "fallback"); got != "fallback" {
-		t.Errorf("empty: %q, want the default", got)
-	}
-	t.Setenv(k, "set")
-	if got := envOr(k, "fallback"); got != "set" {
-		t.Errorf("set: %q", got)
-	}
-}
-
-func TestIntOrRejectsAnythingUnparseable(t *testing.T) {
-	const k = "ARIZUKO_ROUTD_TEST_INT"
-	cases := map[string]int{
-		"":    7, // unset-shaped
-		"abc": 7,
-		"1.5": 7,
-		"3 ":  7, // strconv.Atoi rejects the trailing space
-		"12":  12,
-		"-4":  -4,
-		"0":   0, // an explicit 0 IS the operator's choice and must win
-	}
-	for in, want := range cases {
-		t.Setenv(k, in)
-		if got := intOr(k, 7); got != want {
-			t.Errorf("intOr(%q) = %d, want %d", in, got, want)
-		}
-	}
-}
-
-func TestDurOrRejectsAnythingUnparseable(t *testing.T) {
-	const k = "ARIZUKO_ROUTD_TEST_DUR"
-	cases := map[string]time.Duration{
-		"":          time.Minute,
-		"5":         time.Minute, // no unit
-		"5 minutes": time.Minute,
-		"forever":   time.Minute,
-		"30s":       30 * time.Second,
-		"2h":        2 * time.Hour,
-		"0s":        0,
-	}
-	for in, want := range cases {
-		t.Setenv(k, in)
-		if got := durOr(k, time.Minute); got != want {
-			t.Errorf("durOr(%q) = %s, want %s", in, got, want)
-		}
-	}
-}
-
-// SEND_DISABLED_CHANNELS is matched against adapter names. An entry that keeps
-// its surrounding whitespace matches nothing, so the operator believes a
-// channel is disabled while it keeps sending.
-func TestParseCSVTrimsAndDropsEmpties(t *testing.T) {
-	cases := []struct {
-		in   string
-		want []string
-	}{
-		{"", nil},
-		{",", nil},
-		{"  ,  ", nil},
-		{"teled", []string{"teled"}},
-		{" teled ", []string{"teled"}},
-		{"teled,slakd", []string{"teled", "slakd"}},
-		{"teled, slakd ,, discd", []string{"teled", "slakd", "discd"}},
-		{"\tteled\n", []string{"teled"}},
-	}
-	for _, c := range cases {
-		if got := parseCSV(c.in); !reflect.DeepEqual(got, c.want) {
-			t.Errorf("parseCSV(%q) = %#v, want %#v", c.in, got, c.want)
-		}
-	}
-}
 
 // keysetVerifier is what runed and every operator call are checked against.
 // A verifier that returned a partial subject alongside an error would hand the
@@ -168,19 +86,19 @@ func mustReq(t *testing.T, authz string) *http.Request {
 // sends a claude id to codex — 100% of turns 400d on krons 2026-08-27 (L129).
 //
 // Asserted against the SOURCE, not the value: the config is a struct literal
-// inside main(), so there is nothing to call. Calling envOr with an empty
-// fallback tests envOr and passes just as happily with the vendor id restored
-// at the call site — which is exactly how the first version of this test
-// failed to catch its own mutation.
+// inside main(), so there is nothing to call. Calling core.EnvOr with an empty
+// fallback tests core.EnvOr and passes just as happily with the vendor id
+// restored at the call site — which is exactly how the first version of this
+// test failed to catch its own mutation.
 func TestDefaultModelHasNoVendorFallback(t *testing.T) {
 	src, err := os.ReadFile("main.go")
 	if err != nil {
 		t.Fatalf("read main.go: %v", err)
 	}
-	line := regexp.MustCompile(`DefaultModel:\s*envOr\("ARIZUKO_DEFAULT_MODEL",\s*([^)]*)\)`)
+	line := regexp.MustCompile(`DefaultModel:\s*core\.EnvOr\("ARIZUKO_DEFAULT_MODEL",\s*([^)]*)\)`)
 	m := line.FindSubmatch(src)
 	if m == nil {
-		t.Fatal("DefaultModel is no longer read with envOr — update this guard")
+		t.Fatal("DefaultModel is no longer read with core.EnvOr — update this guard")
 	}
 	if got := strings.TrimSpace(string(m[1])); got != `""` {
 		t.Errorf("DefaultModel fallback is %s, want \"\": a vendor id here makes "+

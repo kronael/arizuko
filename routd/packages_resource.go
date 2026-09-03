@@ -61,11 +61,6 @@ var installedPackagesMCPNames = resources.InstalledPackagesMCPNames
 // — a nil Store marks a forwarder, and invoke skips authorization for those.
 func (s *Server) installedPackagesResource() resreg.Resource {
 	r := resreg.Mount(resources.InstalledPackagesName)
-	// Containment is the injected Gate's, run against installedPackagesScope;
-	// there is no per-call scope to derive from args.
-	r.Authz = func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
-		return "", nil, nil
-	}
 	r.Handler = s.installedPackagesHandler
 	r.Store = store.New(s.db.SQL())
 	return r
@@ -76,22 +71,7 @@ func (s *Server) installedPackagesResource() resreg.Resource {
 func (s *Server) mountInstalledPackages(mux *http.ServeMux) {
 	res := s.installedPackagesResource()
 	res.Gate = s.installedPackagesRESTGate
-	resreg.RegisterREST(mux, res, s.installedPackagesRESTCaller)
-}
-
-// installedPackagesRESTCaller builds the REST Caller: identity via the Verifier,
-// Caller.Folder = the JWT folder (the audit row's target). A nil Verifier is open
-// (local-dev), mirroring s.authz and every sibling REST caller.
-func (s *Server) installedPackagesRESTCaller(r *http.Request) (resreg.Caller, error) {
-	var sub, folder string
-	if s.verify != nil {
-		var err error
-		sub, _, folder, err = s.verify.Verify(r)
-		if err != nil {
-			return resreg.Caller{}, err
-		}
-	}
-	return resreg.Caller{Sub: sub, Folder: folder}, nil
+	resreg.RegisterREST(mux, res, s.restCaller(nil))
 }
 
 // installedPackagesRESTGate is the operator/human twin of the agent Gate below:

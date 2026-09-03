@@ -11,6 +11,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/tests/testutils"
 )
 
 // discordAPI records every body posted to the mocked Discord API.
@@ -131,22 +132,21 @@ func TestButtons_CappedAtFive(t *testing.T) {
 // same channel is. discd decides nothing.
 func TestOnPress_IsAnOrdinaryInboundCommand(t *testing.T) {
 	mockDiscordAPI(t)
-	mr := newDiscdRouterMock()
-	defer mr.close()
+	mr := testutils.NewRouterStub()
+	defer mr.Close()
 	s := newTestSession(t)
 	addChannel(t, s, "ch-1", discordgo.ChannelTypeGuildText)
-	rc := chanlib.NewRouterClient(mr.srv.URL)
+	rc := chanlib.NewRouterClient(mr.Srv.URL)
 	rc.SetToken("tok")
 	b := &bot{session: s, rc: rc}
 
 	b.onPress(s, press("ch-1"))
 
-	mr.mu.Lock()
-	defer mr.mu.Unlock()
-	if len(mr.msgs) != 1 {
-		t.Fatalf("expected one inbound message, got %d", len(mr.msgs))
+	msgs := mr.Snapshot()
+	if len(msgs) != 1 {
+		t.Fatalf("expected one inbound message, got %d", len(msgs))
 	}
-	got := mr.msgs[0]
+	got := msgs[0]
 	if got.Content != "/approve ab12" {
 		t.Errorf("content = %q, want the command the button replaces", got.Content)
 	}
@@ -167,26 +167,26 @@ func TestOnPress_IsAnOrdinaryInboundCommand(t *testing.T) {
 // thread's own id it reaches a chat no route owns.
 func TestOnPress_InAThreadIsPlacedLikeATypedMessage(t *testing.T) {
 	mockDiscordAPI(t)
-	mr := newDiscdRouterMock()
-	defer mr.close()
+	mr := testutils.NewRouterStub()
+	defer mr.Close()
 	s := newTestSession(t)
 	if err := s.State.ChannelAdd(&discordgo.Channel{
 		ID: "th-9", GuildID: "g1", Type: discordgo.ChannelTypeGuildPublicThread, ParentID: "ch-1",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	rc := chanlib.NewRouterClient(mr.srv.URL)
+	rc := chanlib.NewRouterClient(mr.Srv.URL)
 	rc.SetToken("tok")
 	b := &bot{session: s, rc: rc}
 
 	b.onPress(s, press("th-9"))
 
-	mr.mu.Lock()
-	defer mr.mu.Unlock()
-	if len(mr.msgs) != 1 {
-		t.Fatalf("expected one inbound message, got %d", len(mr.msgs))
+	mr.Mu.Lock()
+	defer mr.Mu.Unlock()
+	if len(mr.Msgs) != 1 {
+		t.Fatalf("expected one inbound message, got %d", len(mr.Msgs))
 	}
-	got := mr.msgs[0]
+	got := mr.Msgs[0]
 	if got.ChatJID != "discord:g1/ch-1" || got.Topic != "th-9" {
 		t.Errorf("chat_jid = %q topic = %q, want the parent channel and the thread", got.ChatJID, got.Topic)
 	}
@@ -195,15 +195,15 @@ func TestOnPress_InAThreadIsPlacedLikeATypedMessage(t *testing.T) {
 // TestOnPress_IgnoresNonComponentInteractions — a slash command or a modal is
 // not a button press and must not be routed as chat text.
 func TestOnPress_IgnoresNonComponentInteractions(t *testing.T) {
-	mr := newDiscdRouterMock()
-	defer mr.close()
-	b := &bot{session: newTestSession(t), rc: chanlib.NewRouterClient(mr.srv.URL)}
+	mr := testutils.NewRouterStub()
+	defer mr.Close()
+	b := &bot{session: newTestSession(t), rc: chanlib.NewRouterClient(mr.Srv.URL)}
 	b.onPress(nil, &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{
 		Type: discordgo.InteractionApplicationCommand,
 	}})
-	mr.mu.Lock()
-	defer mr.mu.Unlock()
-	if len(mr.msgs) != 0 {
-		t.Errorf("routed %d non-component interactions", len(mr.msgs))
+	mr.Mu.Lock()
+	defer mr.Mu.Unlock()
+	if len(mr.Msgs) != 0 {
+		t.Errorf("routed %d non-component interactions", len(mr.Msgs))
 	}
 }

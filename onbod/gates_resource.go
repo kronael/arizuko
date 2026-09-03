@@ -46,9 +46,6 @@ func (a *admin) mountGates(mux *http.ServeMux) {
 // lives in the injected Gate.
 func (a *admin) gatesResource() resreg.Resource {
 	r := resreg.Mount(resources.OnboardingGatesName)
-	r.Authz = func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
-		return "", nil, nil
-	}
 	r.Handler = a.gatesHandler
 	r.Gate = a.gatesRESTGate
 	r.Store = store.New(a.db)
@@ -69,7 +66,7 @@ func (a *admin) gatesRESTCaller(r *http.Request) (resreg.Caller, error) {
 	}
 	return resreg.Caller{
 		Sub:    sub.Sub,
-		Claims: map[string]string{"scopes": strings.Join(sub.Scope, " ")},
+		Claims: resreg.ScopeClaims(sub.Scope),
 	}, nil
 }
 
@@ -83,7 +80,7 @@ func (a *admin) gatesRESTGate(x resreg.Execution, _ string, _ map[string]string)
 	if a.ks == nil {
 		return nil
 	}
-	held := strings.Fields(x.Caller.Claims["scopes"])
+	held := x.Caller.Scopes()
 	want := []string{"gates:read", "gates:write"}
 	if x.Action.Mutates() {
 		want = []string{"gates:write"}

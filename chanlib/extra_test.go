@@ -419,6 +419,28 @@ func TestFileProxyHandler_EmptyID(t *testing.T) {
 	}
 }
 
+func TestFileProxyHandler_ValidateRejectsBeforeFetch(t *testing.T) {
+	fetched := false
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fetched = true
+	}))
+	defer upstream.Close()
+
+	h := FileProxyHandler(FileProxyOpts{
+		Resolve:  func(string) (string, bool) { return upstream.URL, true },
+		Validate: func(string) bool { return false },
+	})
+	req := httptest.NewRequest("GET", "/files/x", nil)
+	w := httptest.NewRecorder()
+	h(w, req)
+	if w.Code != 400 {
+		t.Fatalf("status = %d, want 400", w.Code)
+	}
+	if fetched {
+		t.Error("upstream fetched despite Validate rejecting the url")
+	}
+}
+
 func TestFileProxyHandler_PanicOnNilResolve(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {

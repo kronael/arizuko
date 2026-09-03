@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/chanreg"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
@@ -124,7 +125,7 @@ type DeleteCall struct {
 	JID, TargetID string
 }
 
-// FakeChannel is a thread-safe core.Channel + core.Socializer implementation
+// FakeChannel is a thread-safe channel fake
 // that records every outbound interaction for later assertion.
 type FakeChannel struct {
 	ChannelName string
@@ -254,6 +255,47 @@ type PlatformReq struct {
 	Body   []byte
 	Header http.Header
 }
+
+// RouterStub is the routd an adapter test delivers to: POST /v1/messages
+// records each InboundMsg in Msgs, or answers 500 while Fail is set. Mux is
+// open for the routes only one adapter needs (slakd's pane writes).
+type RouterStub struct {
+	Mux  *http.ServeMux
+	Srv  *httptest.Server
+	Fail bool
+	Mu   sync.Mutex
+	Msgs []chanlib.InboundMsg
+}
+
+func NewRouterStub() *RouterStub {
+	r := &RouterStub{Mux: http.NewServeMux()}
+	r.Mux.HandleFunc("POST /v1/messages", func(w http.ResponseWriter, req *http.Request) {
+		if r.Fail {
+			w.WriteHeader(500)
+			return
+		}
+		var im chanlib.InboundMsg
+		json.NewDecoder(req.Body).Decode(&im)
+		r.Mu.Lock()
+		r.Msgs = append(r.Msgs, im)
+		r.Mu.Unlock()
+		w.Write([]byte(`{"ok":true}`))
+	})
+	r.Srv = httptest.NewServer(r.Mux)
+	return r
+}
+
+// Snapshot copies Msgs under the lock, for a reader racing the adapter's
+// delivery goroutine.
+func (r *RouterStub) Snapshot() []chanlib.InboundMsg {
+	r.Mu.Lock()
+	defer r.Mu.Unlock()
+	out := make([]chanlib.InboundMsg, len(r.Msgs))
+	copy(out, r.Msgs)
+	return out
+}
+
+func (r *RouterStub) Close() { r.Srv.Close() }
 
 // PlatformHandler produces the response body (and optional status) for a path.
 type PlatformHandler func(req PlatformReq) (status int, body any)

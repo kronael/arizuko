@@ -31,13 +31,8 @@ func openDB(dataDir string) (*sql.DB, error) {
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return nil, err
 	}
-	dsn := filepath.Join(dataDir, "emaid.db") + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)"
-	db, err := sql.Open("sqlite", dsn)
+	db, err := db_utils.OpenWAL(db_utils.FileDSN(filepath.Join(dataDir, "emaid.db")))
 	if err != nil {
-		return nil, err
-	}
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		db.Close()
 		return nil, err
 	}
 	if err := db_utils.Migrate(db, migrationFS, "migrations", serviceName); err != nil {

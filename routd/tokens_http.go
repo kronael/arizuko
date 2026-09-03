@@ -30,29 +30,7 @@ func descendant(target, owner string) bool {
 func (s *Server) mountRouteTokens(mux *http.ServeMux) {
 	res := s.routeTokensResource()
 	res.Gate = s.routeTokensRESTGate
-	resreg.RegisterREST(mux, res, s.routeTokensRESTCaller)
-}
-
-// routeTokensRESTCaller sets the token owner as Caller.Folder and passes held
-// scopes and the JWT folder to the REST gate. A nil Verifier is open.
-func (s *Server) routeTokensRESTCaller(r *http.Request) (resreg.Caller, error) {
-	var sub, jwtFolder string
-	var scope []string
-	if s.verify != nil {
-		var err error
-		sub, scope, jwtFolder, err = s.verify.Verify(r)
-		if err != nil {
-			return resreg.Caller{}, err
-		}
-	}
-	return resreg.Caller{
-		Sub:    sub,
-		Folder: routeTokensOwner(r, jwtFolder),
-		Claims: map[string]string{
-			"jwt_folder": jwtFolder,
-			"scopes":     strings.Join(scope, " "),
-		},
-	}, nil
+	resreg.RegisterREST(mux, res, s.restCaller(routeTokensOwner))
 }
 
 // routeTokensOwner resolves the owner bound by the shared handler. An explicit
@@ -92,7 +70,7 @@ func (s *Server) routeTokensRESTGate(x resreg.Execution, _ string, _ map[string]
 	if s.verify == nil {
 		return nil
 	}
-	held := strings.Fields(x.Caller.Claims["scopes"])
+	held := x.Caller.Scopes()
 	want := []string{"routes:read", "routes:read:own_group"}
 	if x.Action.Mutates() {
 		want = []string{"routes:write", "routes:write:own_group"}

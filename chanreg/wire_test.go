@@ -531,19 +531,6 @@ func TestBearerSourceIsOptionalAndReplaceable(t *testing.T) {
 	}
 }
 
-// Connect and Disconnect exist to satisfy the channel interface: an HTTP
-// adapter holds no session. They must stay no-ops that report success, or
-// every adapter start would fail on a lifecycle step that has nothing to do.
-func TestConnectAndDisconnectAreNoOps(t *testing.T) {
-	h := chanWithCaps(t, "http://unreachable.invalid")
-	if err := h.Connect(context.Background()); err != nil {
-		t.Errorf("Connect = %v, want nil", err)
-	}
-	if err := h.Disconnect(); err != nil {
-		t.Errorf("Disconnect = %v, want nil", err)
-	}
-}
-
 // send: the full body, and the file half of trySend.
 
 // The optional threading fields ride along only when set. An empty reply_to or

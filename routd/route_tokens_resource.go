@@ -72,9 +72,6 @@ var routeTokensMCPNames = resources.RouteTokensMCPNames
 // a store.Store over routd.db so resreg.invoke opens the mutation+audit tx there.
 func (s *Server) routeTokensResource() resreg.Resource {
 	r := resreg.Mount(resources.RouteTokensName)
-	r.Authz = func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
-		return "", nil, nil
-	}
 	r.Handler = s.routeTokensHandler
 	r.Store = store.New(s.db.SQL())
 	return r

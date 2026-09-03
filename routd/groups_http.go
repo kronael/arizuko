@@ -7,7 +7,6 @@ package routd
 
 import (
 	"net/http"
-	"strings"
 
 	"github.com/kronael/arizuko/resreg"
 )
@@ -18,26 +17,7 @@ import (
 // trimmed copy that used to live in this function is why `groups` had to be held
 // out of OpenAPIResources (BUGS F27); endpoints_source_test.go probes this mux.
 func (s *Server) mountGroups(mux *http.ServeMux) {
-	resreg.RegisterREST(mux, s.groupsResource(s.groupsRESTAuthz), s.groupsRESTCaller)
-}
-
-// groupsRESTCaller sets the JWT subtree filtered by the handler. An empty folder
-// means an unrestricted root/service caller; a nil Verifier is open.
-func (s *Server) groupsRESTCaller(r *http.Request) (resreg.Caller, error) {
-	var sub, jwtFolder string
-	var scope []string
-	if s.verify != nil {
-		var err error
-		sub, scope, jwtFolder, err = s.verify.Verify(r)
-		if err != nil {
-			return resreg.Caller{}, err
-		}
-	}
-	return resreg.Caller{
-		Sub:    sub,
-		Folder: jwtFolder,
-		Claims: map[string]string{"scopes": strings.Join(scope, " ")},
-	}, nil
+	resreg.RegisterREST(mux, s.groupsResource(s.groupsRESTAuthz), s.restCaller(nil))
 }
 
 // groupsRESTAuthz checks read scope; the handler enforces result containment.
@@ -45,7 +25,7 @@ func (s *Server) groupsRESTAuthz(c resreg.Caller, _ resreg.Action, _ resreg.Args
 	if s.verify == nil {
 		return "", nil, nil
 	}
-	if !hasAnyScope(strings.Fields(c.Claims["scopes"]), []string{"routes:read", "routes:read:own_group", "acl:read"}) {
+	if !hasAnyScope(c.Scopes(), []string{"routes:read", "routes:read:own_group", "acl:read"}) {
 		return "", nil, resreg.Errorf(http.StatusForbidden, "missing read scope")
 	}
 	return "", nil, nil

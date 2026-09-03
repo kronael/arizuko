@@ -14,7 +14,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -197,28 +196,15 @@ func (d *dash) auditFetch(ctx context.Context, src auditSource, f auditFilters, 
 		v.Set("before_id", strconv.FormatInt(before, 10))
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, src.url+"/v1/audit?"+v.Encode(), nil)
+	buf, status, err := d.bearerCall(ctx, src.url, http.MethodGet, "/v1/audit?"+v.Encode(), nil)
 	if err != nil {
 		return nil, err
 	}
-	if d.svc != nil {
-		tok, terr := d.svc(ctx)
-		if terr != nil {
-			return nil, terr
-		}
-		req.Header.Set("Authorization", "Bearer "+tok)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return nil, fmt.Errorf("%s %d: %s", src.name, resp.StatusCode, strings.TrimSpace(string(msg)))
+	if status < 200 || status >= 300 {
+		return nil, fmt.Errorf("%s %d: %s", src.name, status, upstreamMessage(buf))
 	}
 	var rows []audit.Row
-	if err := json.NewDecoder(resp.Body).Decode(&rows); err != nil {
+	if err := json.Unmarshal(buf, &rows); err != nil {
 		return nil, err
 	}
 	return rows, nil

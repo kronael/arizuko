@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/tests/testutils"
 )
 
 // bskyMock models a minimal Bluesky server sufficient to exercise the
@@ -394,9 +395,9 @@ func TestDefaultReply_FullRuntimePath(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	mr := newBskyRouterMock()
-	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL)
+	mr := testutils.NewRouterStub()
+	defer mr.Close()
+	rc := chanlib.NewRouterClient(mr.Srv.URL)
 	rc.SetToken("tok")
 
 	n := notification{
@@ -408,13 +409,11 @@ func TestDefaultReply_FullRuntimePath(t *testing.T) {
 	n.Record.Text = "@bot hello"
 	bc.handleNotification(n, rc)
 
-	mr.mu.Lock()
-	if len(mr.msgs) != 1 {
-		mr.mu.Unlock()
-		t.Fatalf("dispatched %d, want 1", len(mr.msgs))
+	msgs := mr.Snapshot()
+	if len(msgs) != 1 {
+		t.Fatalf("dispatched %d, want 1", len(msgs))
 	}
-	deliveredID := mr.msgs[0].ID
-	mr.mu.Unlock()
+	deliveredID := msgs[0].ID
 
 	// The delivered ID is what the gateway seeds and the MCP reply fallback
 	// passes as ReplyTo. It must be a full AT-URI.
@@ -445,9 +444,9 @@ func TestDefaultReply_FullRuntimePath(t *testing.T) {
 // a stable, unique ID across repeated delivery (the messages.id PK dedup key).
 // The full AT-URI is unique per post, so dedup stays correct after the change.
 func TestHandleNotification_DedupID(t *testing.T) {
-	mr := newBskyRouterMock()
-	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL)
+	mr := testutils.NewRouterStub()
+	defer mr.Close()
+	rc := chanlib.NewRouterClient(mr.Srv.URL)
 	rc.SetToken("tok")
 
 	bc := &bskyClient{}
@@ -462,15 +461,15 @@ func TestHandleNotification_DedupID(t *testing.T) {
 	bc.handleNotification(n, rc)
 	bc.handleNotification(n, rc) // same notification seen twice
 
-	mr.mu.Lock()
-	defer mr.mu.Unlock()
-	if len(mr.msgs) != 2 {
-		t.Fatalf("dispatched %d, want 2", len(mr.msgs))
+	mr.Mu.Lock()
+	defer mr.Mu.Unlock()
+	if len(mr.Msgs) != 2 {
+		t.Fatalf("dispatched %d, want 2", len(mr.Msgs))
 	}
 	// Both deliveries carry the identical full-URI ID — the DB's INSERT OR
 	// IGNORE on messages.id collapses them to one row.
-	if mr.msgs[0].ID != n.URI || mr.msgs[1].ID != n.URI {
-		t.Errorf("IDs = %q, %q; want both %q", mr.msgs[0].ID, mr.msgs[1].ID, n.URI)
+	if mr.Msgs[0].ID != n.URI || mr.Msgs[1].ID != n.URI {
+		t.Errorf("IDs = %q, %q; want both %q", mr.Msgs[0].ID, mr.Msgs[1].ID, n.URI)
 	}
 }
 
@@ -555,28 +554,28 @@ func TestFetchNotifications_Dispatches(t *testing.T) {
 	})
 
 	// fake router
-	mr := newBskyRouterMock()
-	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL)
+	mr := testutils.NewRouterStub()
+	defer mr.Close()
+	rc := chanlib.NewRouterClient(mr.Srv.URL)
 	rc.SetToken("tok")
 
 	if err := bc.fetchNotifications(rc); err != nil {
 		t.Fatal(err)
 	}
 	// Should have dispatched 2 unread items in oldest→newest order
-	mr.mu.Lock()
-	defer mr.mu.Unlock()
-	if len(mr.msgs) != 2 {
-		t.Fatalf("dispatched %d, want 2", len(mr.msgs))
+	mr.Mu.Lock()
+	defer mr.Mu.Unlock()
+	if len(mr.Msgs) != 2 {
+		t.Fatalf("dispatched %d, want 2", len(mr.Msgs))
 	}
-	if mr.msgs[0].Content != "hello older" {
-		t.Errorf("first dispatched = %q, want oldest first", mr.msgs[0].Content)
+	if mr.Msgs[0].Content != "hello older" {
+		t.Errorf("first dispatched = %q, want oldest first", mr.Msgs[0].Content)
 	}
-	if mr.msgs[0].Verb != "reply" {
-		t.Errorf("verb = %q, want reply", mr.msgs[0].Verb)
+	if mr.Msgs[0].Verb != "reply" {
+		t.Errorf("verb = %q, want reply", mr.Msgs[0].Verb)
 	}
-	if mr.msgs[1].Verb != "message" {
-		t.Errorf("verb = %q, want message", mr.msgs[1].Verb)
+	if mr.Msgs[1].Verb != "message" {
+		t.Errorf("verb = %q, want message", mr.Msgs[1].Verb)
 	}
 	if m.updateSeenHits.Load() != 2 {
 		t.Errorf("updateSeenHits = %d, want 2", m.updateSeenHits.Load())
@@ -614,10 +613,10 @@ func TestFetchNotifications_NoSeenOnDeliverFailure(t *testing.T) {
 			}{Text: "would be lost"},
 		},
 	})
-	mr := newBskyRouterMock()
-	mr.fail = true
-	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL)
+	mr := testutils.NewRouterStub()
+	mr.Fail = true
+	defer mr.Close()
+	rc := chanlib.NewRouterClient(mr.Srv.URL)
 	rc.SetToken("tok")
 
 	if err := bc.fetchNotifications(rc); err != nil {
@@ -629,9 +628,9 @@ func TestFetchNotifications_NoSeenOnDeliverFailure(t *testing.T) {
 }
 
 func TestHandleNotification_WithImages(t *testing.T) {
-	mr := newBskyRouterMock()
-	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL)
+	mr := testutils.NewRouterStub()
+	defer mr.Close()
+	rc := chanlib.NewRouterClient(mr.Srv.URL)
 	rc.SetToken("tok")
 
 	bc := &bskyClient{cfg: config{ListenURL: "http://bskyd:9005"}}
@@ -650,12 +649,12 @@ func TestHandleNotification_WithImages(t *testing.T) {
 	}
 	bc.handleNotification(n, rc)
 
-	mr.mu.Lock()
-	defer mr.mu.Unlock()
-	if len(mr.msgs) != 1 {
-		t.Fatalf("dispatched %d", len(mr.msgs))
+	mr.Mu.Lock()
+	defer mr.Mu.Unlock()
+	if len(mr.Msgs) != 1 {
+		t.Fatalf("dispatched %d", len(mr.Msgs))
 	}
-	msg := mr.msgs[0]
+	msg := mr.Msgs[0]
 	if !strings.Contains(msg.Content, "check this") {
 		t.Errorf("content = %q", msg.Content)
 	}
@@ -678,9 +677,9 @@ func TestPoll_CancelsOnContext(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	mr := newBskyRouterMock()
-	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL)
+	mr := testutils.NewRouterStub()
+	defer mr.Close()
+	rc := chanlib.NewRouterClient(mr.Srv.URL)
 	rc.SetToken("tok")
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -696,38 +695,6 @@ func TestPoll_CancelsOnContext(t *testing.T) {
 		t.Fatal("poll did not exit on ctx cancel")
 	}
 }
-
-// minimal router mock: accepts /v1/messages for SendMessage
-type bskyRouter struct {
-	mu   sync.Mutex
-	msgs []chanlib.InboundMsg
-	srv  *httptest.Server
-	fail bool // when set, /v1/messages returns 500 so SendMessage errors
-}
-
-func newBskyRouterMock() *bskyRouter {
-	m := &bskyRouter{}
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /v1/messages", func(w http.ResponseWriter, r *http.Request) {
-		m.mu.Lock()
-		fail := m.fail
-		m.mu.Unlock()
-		if fail {
-			w.WriteHeader(500)
-			return
-		}
-		var im chanlib.InboundMsg
-		json.NewDecoder(r.Body).Decode(&im)
-		m.mu.Lock()
-		m.msgs = append(m.msgs, im)
-		m.mu.Unlock()
-		w.Write([]byte(`{"ok":true}`))
-	})
-	m.srv = httptest.NewServer(mux)
-	return m
-}
-
-func (m *bskyRouter) close() { m.srv.Close() }
 
 func TestFetchHistory(t *testing.T) {
 	var capturedQuery string

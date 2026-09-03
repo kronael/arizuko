@@ -16,7 +16,6 @@ package main
 import (
 	"context"
 	"net/http"
-	"strings"
 
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
@@ -31,12 +30,9 @@ func (a *admin) mountOnboarding(mux *http.ServeMux) {
 
 // onboardingResource is the serving resreg.Resource for onboarding. Store is a
 // store.Store over onbod.db so resreg.invoke opens the mutation+audit tx there.
-// Authz is a no-op; all policy lives in the injected Gate.
+// All policy lives in the injected Gate.
 func (a *admin) onboardingResource() resreg.Resource {
 	r := resreg.Mount(resources.OnboardingName)
-	r.Authz = func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
-		return "", nil, nil
-	}
 	r.Handler = a.onboardingHandler
 	r.Gate = a.onboardingRESTGate
 	r.Store = store.New(a.db)
@@ -51,7 +47,7 @@ func (a *admin) onboardingRESTGate(x resreg.Execution, _ string, _ map[string]st
 	if a.ks == nil {
 		return nil
 	}
-	if !hasAnyScope(strings.Fields(x.Caller.Claims["scopes"]), "invites:write") {
+	if !hasAnyScope(x.Caller.Scopes(), "invites:write") {
 		return resreg.Errorf(http.StatusForbidden, "missing scope invites:write")
 	}
 	return nil

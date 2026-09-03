@@ -144,25 +144,3 @@ func TestParseSecretSet(t *testing.T) {
 		})
 	}
 }
-
-func TestKeyValid(t *testing.T) {
-	cases := []struct {
-		key  string
-		want bool
-	}{
-		{"GITHUB_TOKEN", true},
-		{"K", true},
-		{"A1_B2", true},
-		{"", false},
-		{"lower", false},
-		{"1LEAD", false},
-		{"WITH-DASH", false},
-		{"WITH SPACE", false},
-		{"a_lower", false},
-	}
-	for _, c := range cases {
-		if got := keyValid(c.key); got != c.want {
-			t.Errorf("keyValid(%q) = %v, want %v", c.key, got, c.want)
-		}
-	}
-}

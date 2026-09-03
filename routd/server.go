@@ -17,6 +17,7 @@ import (
 	"github.com/kronael/arizuko/chanreg"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/ipc"
+	"github.com/kronael/arizuko/resreg"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	"github.com/kronael/arizuko/store"
 )
@@ -389,6 +390,36 @@ func hasAnyScope(held, wanted []string) bool {
 		}
 	}
 	return false
+}
+
+// restCaller builds the REST Caller for a shared resource handler: identity
+// via the Verifier, Folder from target (the JWT folder itself when target is
+// nil), the held scopes and the JWT folder in Claims for the gate. A nil
+// Verifier is open (local-dev), mirroring s.authz.
+func (s *Server) restCaller(target func(r *http.Request, jwtFolder string) string) resreg.CallerFromHTTPFunc {
+	return func(r *http.Request) (resreg.Caller, error) {
+		var sub, jwtFolder string
+		var scope []string
+		if s.verify != nil {
+			var err error
+			sub, scope, jwtFolder, err = s.verify.Verify(r)
+			if err != nil {
+				return resreg.Caller{}, err
+			}
+		}
+		folder := jwtFolder
+		if target != nil {
+			folder = target(r, jwtFolder)
+		}
+		return resreg.Caller{
+			Sub:    sub,
+			Folder: folder,
+			Claims: map[string]string{
+				resreg.ScopeClaimKey: strings.Join(scope, " "),
+				"jwt_folder":         jwtFolder,
+			},
+		}, nil
+	}
 }
 
 // ownsFolder reports whether the token's folder claim owns target (equal or

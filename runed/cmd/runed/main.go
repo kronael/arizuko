@@ -59,9 +59,9 @@ func main() {
 			"crackbox_admin_api", v)
 		os.Exit(1)
 	}
-	listenAddr := envOr("LISTEN_ADDR", ":8080")
+	listenAddr := core.EnvOr("LISTEN_ADDR", ":8080")
 	authdURL := os.Getenv("AUTHD_URL")
-	runTTL := durOr("RUNED_RUN_TIMEOUT", 20*time.Minute)
+	runTTL := core.DurOr("RUNED_RUN_TIMEOUT", 20*time.Minute)
 
 	db, err := runed.Open(cfg.StoreDir)
 	if err != nil {
@@ -171,7 +171,7 @@ func main() {
 	// daemon ctx), so the container can still call tools + submit_turn. We
 	// wait up to RUNED_SHUTDOWN_GRACE for handlers to finish, then exit
 	// (containers are docker --rm and outlive the daemon).
-	grace := durOr("RUNED_SHUTDOWN_GRACE", runTTL)
+	grace := core.DurOr("RUNED_SHUTDOWN_GRACE", runTTL)
 	slog.Info("runed stopping (detaching in-flight runs)", "grace", grace, "in_flight", mgr.ActiveCount())
 	sctx, scancel := context.WithTimeout(context.Background(), grace)
 	defer scancel()
@@ -188,20 +188,4 @@ func (v keysetVerifier) Verify(r *http.Request) (sub string, scope []string, fol
 		return "", nil, "", verr
 	}
 	return s.Sub, s.Scope, s.Extra["arz/folder"], nil
-}
-
-func envOr(k, def string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	return def
-}
-
-func durOr(k string, def time.Duration) time.Duration {
-	if v := os.Getenv(k); v != "" {
-		if d, err := time.ParseDuration(v); err == nil {
-			return d
-		}
-	}
-	return def
 }

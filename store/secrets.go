@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -123,6 +124,12 @@ var EnvProfileKeys = map[string]struct{}{
 	"OPENAI_API_KEY":          {},
 	"CODEX_API_KEY":           {},
 }
+
+var secretKeyRE = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
+
+// ValidSecretKey accepts uppercase ENV-style identifiers only — the one rule
+// the CLI and dashd's /dash/me pages both apply to a secret's name.
+func ValidSecretKey(key string) bool { return secretKeyRE.MatchString(key) }
 
 type Secret struct {
 	ScopeKind SecretScope

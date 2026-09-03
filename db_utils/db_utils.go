@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	_ "modernc.org/sqlite"
 )
 
 // RequireDBFile errors unless path already holds a SQLite file. Owner daemons
@@ -45,6 +47,27 @@ func CreateDBFile(path string) error {
 		return err
 	}
 	return f.Close()
+}
+
+// FileDSN is the on-disk DSN every owner daemon and adapter opens. foreign_keys
+// must ride the DSN: modernc.org/sqlite defaults FK enforcement OFF per
+// connection and database/sql pools many, so a one-shot PRAGMA covers one of
+// them and ON DELETE CASCADE silently no-ops on the rest.
+func FileDSN(path string) string {
+	return path + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)"
+}
+
+// OpenWAL opens dsn in WAL mode; the handle is closed when the pragma fails.
+func OpenWAL(dsn string) (*sql.DB, error) {
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return db, nil
 }
 
 // checkVersions rejects a migration set whose 4-digit prefixes are not exactly

@@ -172,16 +172,8 @@ async function delEnvKey(k){
 
 // handleMeEnvCreate serves POST /dash/me/env — writes one env-profile key.
 func (d *dash) handleMeEnvCreate(w http.ResponseWriter, r *http.Request) {
-	sub, ok := requireUser(w, r)
+	sub, ss, ok := d.userSecretWrite(w, r)
 	if !ok {
-		return
-	}
-	if !requireSameOrigin(w, r) {
-		return
-	}
-	ss := d.secretStore()
-	if ss == nil {
-		http.Error(w, "secrets store unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	body, err := parseSecretBody(w, r)
@@ -205,16 +197,8 @@ func (d *dash) handleMeEnvCreate(w http.ResponseWriter, r *http.Request) {
 
 // handleMeEnvUpdate serves PATCH /dash/me/env/{key} — replaces one env-profile key.
 func (d *dash) handleMeEnvUpdate(w http.ResponseWriter, r *http.Request) {
-	sub, ok := requireUser(w, r)
+	sub, ss, ok := d.userSecretWrite(w, r)
 	if !ok {
-		return
-	}
-	if !requireSameOrigin(w, r) {
-		return
-	}
-	db := d.secretsDB()
-	if db == nil {
-		http.Error(w, "secrets store unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	key := r.PathValue("key")
@@ -232,7 +216,7 @@ func (d *dash) handleMeEnvUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var exists int
-	switch err := db.QueryRow(
+	switch err := ss.DB().QueryRow(
 		`SELECT 1 FROM secrets WHERE scope_kind = 'user' AND scope_id = ? AND key = ?`,
 		sub, key).Scan(&exists); {
 	case errors.Is(err, sql.ErrNoRows):
@@ -243,7 +227,7 @@ func (d *dash) handleMeEnvUpdate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "query failed", http.StatusInternalServerError)
 		return
 	}
-	if err := d.secretStore().PutSecretRow(store.ScopeUser, sub, key, body.Value); err != nil {
+	if err := ss.PutSecretRow(store.ScopeUser, sub, key, body.Value); err != nil {
 		slog.Warn("me_env update", "sub", sub, "key", key, "err", err)
 		http.Error(w, "write failed", http.StatusInternalServerError)
 		return
@@ -255,16 +239,8 @@ func (d *dash) handleMeEnvUpdate(w http.ResponseWriter, r *http.Request) {
 
 // handleMeEnvDelete serves DELETE /dash/me/env/{key} — removes one env-profile key.
 func (d *dash) handleMeEnvDelete(w http.ResponseWriter, r *http.Request) {
-	sub, ok := requireUser(w, r)
+	sub, ss, ok := d.userSecretWrite(w, r)
 	if !ok {
-		return
-	}
-	if !requireSameOrigin(w, r) {
-		return
-	}
-	ss := d.secretStore()
-	if ss == nil {
-		http.Error(w, "secrets store unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	key := r.PathValue("key")

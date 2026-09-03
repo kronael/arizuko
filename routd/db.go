@@ -62,7 +62,7 @@ func Open(dir string) (*DB, error) {
 	if err := db_utils.RequireDBFile(path); err != nil {
 		return nil, err
 	}
-	return open(fileDSN(path))
+	return open(db_utils.FileDSN(path))
 }
 
 // Create seeds dir/routd.db when absent, then migrates it. `arizuko create` and
@@ -73,11 +73,7 @@ func Create(dir string) (*DB, error) {
 	if err := db_utils.CreateDBFile(path); err != nil {
 		return nil, err
 	}
-	return open(fileDSN(path))
-}
-
-func fileDSN(path string) string {
-	return path + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)"
+	return open(db_utils.FileDSN(path))
 }
 
 // OpenMem opens a fresh isolated in-memory routd.db for tests. The DB name
@@ -89,12 +85,8 @@ func OpenMem() (*DB, error) {
 }
 
 func open(dsn string) (*DB, error) {
-	sqldb, err := sql.Open("sqlite", dsn)
+	sqldb, err := db_utils.OpenWAL(dsn)
 	if err != nil {
-		return nil, err
-	}
-	if _, err := sqldb.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		sqldb.Close()
 		return nil, err
 	}
 	if err := db_utils.Migrate(sqldb, migrationFS, "migrations", serviceName); err != nil {

@@ -159,7 +159,7 @@ func TestDispatch_ThreadBroadcastDropped(t *testing.T) {
 	}`)
 	b.handleEvent(body, httptest.NewRecorder())
 
-	if got := rm.snapshot(); len(got) != 0 {
+	if got := rm.Snapshot(); len(got) != 0 {
 		t.Errorf("thread_broadcast must be dropped, got %d msgs: %+v", len(got), got)
 	}
 }
@@ -190,7 +190,7 @@ func TestDispatch_FileShareDelivered(t *testing.T) {
 	}`)
 	b.handleEvent(body, httptest.NewRecorder())
 
-	msgs := rm.snapshot()
+	msgs := rm.Snapshot()
 	if len(msgs) != 1 {
 		t.Fatalf("file_share must deliver 1 msg, got %d", len(msgs))
 	}
@@ -215,7 +215,7 @@ func TestDispatch_AppMentionDeliveredAsMention(t *testing.T) {
 	}`)
 	b.handleEvent(body, httptest.NewRecorder())
 
-	msgs := rm.snapshot()
+	msgs := rm.Snapshot()
 	if len(msgs) != 1 {
 		t.Fatalf("app_mention must deliver 1 msg, got %d", len(msgs))
 	}
@@ -245,7 +245,7 @@ func TestInbound_DMNeverMentionVerb(t *testing.T) {
 	}`)
 	b.handleEvent(body, httptest.NewRecorder())
 
-	msgs := rm.snapshot()
+	msgs := rm.Snapshot()
 	if len(msgs) != 1 {
 		t.Fatalf("got %d msgs", len(msgs))
 	}
@@ -277,7 +277,7 @@ func TestInbound_ThreadReplySetsReplyTo(t *testing.T) {
 	}`)
 	b.handleEvent(body, httptest.NewRecorder())
 
-	msgs := rm.snapshot()
+	msgs := rm.Snapshot()
 	if len(msgs) != 1 {
 		t.Fatalf("got %d msgs", len(msgs))
 	}
