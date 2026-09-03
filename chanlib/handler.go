@@ -31,19 +31,17 @@ type SendRequest struct {
 	// The mux enforces that (dedup.go); adapters read it only when the
 	// platform takes a key of its own. Empty = no dedup (SendVia, local dev).
 	IdempotencyKey string `json:"idempotency_key"`
-	// Options are the answers a reader can pick without typing (spec 5/19
-	// §"Operator interaction"). An adapter that advertises the `buttons`
-	// capability renders them natively; every other adapter never sees them —
-	// chanreg folds them into numbered text before the request leaves routd, so
-	// the same prompt works on a platform with no buttons at all.
+	// Options are the answers a reader can pick without typing. Only an adapter
+	// with the `buttons` capability receives them; chanreg folds them into the
+	// text for every other adapter (spec 5/19).
 	Options []Option `json:"options,omitempty"`
 }
 
-// Option is one pickable answer. Data is what the press SENDS — for the HITL
-// notice it is literally `/approve <id>`, so a button press and a typed command
-// arrive at routd as the same inbound text and run the same handler with the
-// same operator gate (spec 5/19). Telegram caps callback_data at 64 bytes,
-// which is why a pending id is 8 hex characters.
+// Option is one pickable answer. Data is what a press SENDS: the adapter puts
+// Send() on the button verbatim and delivers the press as an ordinary
+// InboundMsg whose Content is that string, from the presser's own id. A press
+// and a typed command are then one inbound path under one gate (spec 5/19);
+// an adapter never interprets an option.
 type Option struct {
 	Label string `json:"label"`
 	Data  string `json:"data"`

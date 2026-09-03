@@ -25,9 +25,8 @@ var caps = map[string]bool{
 	"like":       true,
 	"delete":     true,
 	"pin":        true,
-	// buttons is not a verb but a render capability on send_text: with it
-	// chanreg passes SendRequest.Options through and teled draws an inline
-	// keyboard; without it chanreg folds them into typable text instead.
+	// buttons is a render capability on send_text, not a verb: chanreg passes
+	// SendRequest.Options through instead of folding them into the text.
 	"buttons": true,
 }
 

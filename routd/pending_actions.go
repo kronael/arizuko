@@ -558,14 +558,11 @@ func (s *Server) notifyHeld(t turnMCP, p PendingAction) {
 	if url := s.approvalURL(p.ID); url != "" {
 		text += "\n" + url
 	}
-	s.notifyHold(t, "hitl-"+p.ID, text, verdictOptions(p)...)
+	s.notifyHold(t, "hitl-"+p.ID, text, verdictOptions(p))
 }
 
-// verdictOptions are the three answers as pickable buttons. Each Data is the
-// command it replaces verbatim, so a press and a typed `/approve <id>` are the
-// same inbound text and meet the same operator gate — there is no button-only
-// path to a verdict. `/always` is offered only when an exact rule can be
-// written, which is the same condition alwaysOffer states in the text.
+// verdictOptions are the verdict commands as pickable answers. `/always` is
+// offered on the condition alwaysOffer states in the text: an exact rule exists.
 func verdictOptions(p PendingAction) []chanlib.Option {
 	out := []chanlib.Option{
 		{Label: "✅ Approve", Data: "/approve " + p.ID},
@@ -629,10 +626,10 @@ func (s *Server) notifyHoldFailed(t turnMCP, tool string, cause error) {
 	s.notifyHold(t, "hitl-fail-"+t.turnID, fmt.Sprintf(
 		"⛔ %s needs approval and the hold could not be recorded (%v). The call was "+
 			"blocked and there is nothing to /approve — an operator must check routd.",
-		tool, cause))
+		tool, cause), nil)
 }
 
-func (s *Server) notifyHold(t turnMCP, idem, text string, options ...chanlib.Option) {
+func (s *Server) notifyHold(t turnMCP, idem, text string, options []chanlib.Option) {
 	if t.chatJID == "" || s.deliver == nil {
 		return
 	}

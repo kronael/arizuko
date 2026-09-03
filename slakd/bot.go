@@ -408,15 +408,13 @@ func (b *bot) handleEvent(body []byte, w http.ResponseWriter) {
 	}
 }
 
-// handleInteraction turns a button press into an ordinary inbound message whose
-// content is the option's value (spec 5/19). A HITL button carries
-// `/approve <id>` verbatim, so the press and the typed command reach the same
-// reserved-command parser and the same operator gate — slakd decides nothing
-// about the verdict, and no second authorization path exists.
-func (b *bot) handleInteraction(payload []byte) {
+// handlePress delivers a button press as the inbound message its value would
+// be if typed (chanlib.Option).
+func (b *bot) handlePress(payload []byte) {
 	var p struct {
-		Type string `json:"type"`
-		User struct {
+		Type      string `json:"type"`
+		TriggerID string `json:"trigger_id"`
+		User      struct {
 			ID   string `json:"id"`
 			Name string `json:"username"`
 		} `json:"user"`
@@ -445,17 +443,18 @@ func (b *bot) handleInteraction(payload []byte) {
 	conv := b.convInfoFor(p.Channel.ID, "")
 	jid := chanlib.FormatSlackJID(cmp.Or(p.Team.ID, b.TeamID()), chanKind(conv.IsIM, conv.IsMpim), p.Channel.ID)
 	if err := b.rc.SendMessage(chanlib.InboundMsg{
-		ID:         jid + "/" + p.Message.TS + ":cb:" + p.Actions[0].ActionID,
+		ID:         jid + "/" + p.Message.TS + ":cb:" + p.TriggerID,
 		ChatJID:    jid,
 		Sender:     "slack:user/" + p.User.ID,
-		SenderName: cmp.Or(p.User.Name, b.userName(p.User.ID)),
+		SenderName: b.userName(p.User.ID),
 		Content:    p.Actions[0].Value,
 		Timestamp:  time.Now().Unix(),
 		Topic:      p.Message.ThreadTS,
 		ReplyTo:    p.Message.TS,
 		IsGroup:    !conv.IsIM,
+		ChatName:   chatNameFrom(conv),
 	}); err != nil {
-		slog.Error("deliver interaction failed", "jid", jid, "err", err)
+		slog.Error("deliver press failed", "jid", jid, "err", err)
 		return
 	}
 	b.lastInboundAt.Store(time.Now().Unix())
@@ -1155,15 +1154,10 @@ func (b *bot) demangleMentions(text string) string {
 
 // ===== Outbound BotHandler =====
 
-// actionBlocks renders the message as Block Kit with one actions block, or ""
-// when there is nothing to draw. A button's `value` is the option's data — the
-// command the press replaces — so a press and a typed command are the same
-// inbound text under the same gate. `text` stays set as the notification
-// fallback Slack shows where blocks cannot render.
-//
-// Slack caps an actions block at 5 elements; a longer offer is truncated rather
-// than rejected, because a prompt with SOME answers beats a send that fails.
-func actionBlocks(text string, options []chanlib.Option) string {
+// buttons draws the options as a Block Kit actions block under a section
+// carrying text, or "" when there are none. Slack allows 25 elements in an
+// actions block; the rest are dropped rather than failing the send.
+func buttons(text string, options []chanlib.Option) string {
 	if len(options) == 0 {
 		return ""
 	}
@@ -1183,7 +1177,7 @@ func actionBlocks(text string, options []chanlib.Option) string {
 		Elements []element `json:"elements,omitempty"`
 	}
 	actions := block{Type: "actions"}
-	for i, o := range options[:min(len(options), 5)] {
+	for i, o := range options[:min(len(options), 25)] {
 		actions.Elements = append(actions.Elements, element{
 			Type:     "button",
 			Text:     txt{Type: "plain_text", Text: o.Label},
@@ -1217,7 +1211,7 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 	if threadTS := cmp.Or(req.ThreadID, req.ThreadRoot); threadTS != "" {
 		body.Set("thread_ts", threadTS)
 	}
-	if blocks := actionBlocks(body.Get("text"), req.Options); blocks != "" {
+	if blocks := buttons(body.Get("text"), req.Options); blocks != "" {
 		body.Set("blocks", blocks)
 	}
 	var resp struct {

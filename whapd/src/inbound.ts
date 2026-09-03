@@ -55,11 +55,9 @@ export function extractContent(msg: WAMessage): ExtractedContent {
   const text = m.conversation || m.extendedTextMessage?.text;
   if (text) return { content: text, isVoiceNote: false };
 
-  // A button press arrives as its own message kind, and the id we SET on the
-  // button comes back verbatim (spec 5/19). Reading the id — never the display
-  // text — is what makes a press identical to typing that command, so it meets
-  // the same gate. WhatsApp has four spellings for the same event across client
-  // versions; all four carry the id.
+  // A press arrives as its own message kind carrying the id set on the button;
+  // reading the id, never the display text, makes it the typed command it
+  // stands for (spec 5/19).
   const press = pressedID(msg);
   if (press) return { content: press, isVoiceNote: false };
 

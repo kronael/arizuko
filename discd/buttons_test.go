@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -11,21 +13,55 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 )
 
-// TestSend_DrawsOptionsAsAnActionsRow — discd advertises `buttons`, so chanreg
-// hands it the options untouched and discd is the one that draws them.
-func TestSend_DrawsOptionsAsAnActionsRow(t *testing.T) {
-	var mu sync.Mutex
-	var body map[string]any
+// discordAPI records every body posted to the mocked Discord API.
+type discordAPI struct {
+	mu     sync.Mutex
+	bodies []map[string]any
+}
+
+func mockDiscordAPI(t *testing.T) *discordAPI {
+	t.Helper()
+	a := &discordAPI{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
+		var body map[string]any
 		json.NewDecoder(r.Body).Decode(&body)
-		mu.Unlock()
+		a.mu.Lock()
+		a.bodies = append(a.bodies, body)
+		a.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"id":"msg-1","channel_id":"ch-1"}`))
 	}))
-	defer srv.Close()
-	defer mockDiscordEndpoints(srv.URL)()
+	t.Cleanup(srv.Close)
+	t.Cleanup(mockDiscordEndpoints(srv.URL))
+	return a
+}
 
+func (a *discordAPI) sent() []map[string]any {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return slices.Clone(a.bodies)
+}
+
+// press is one Approve press by user 42 on prompt-7 in channelID.
+func press(channelID string) *discordgo.InteractionCreate {
+	return &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{
+		ID:        "int-1",
+		Type:      discordgo.InteractionMessageComponent,
+		GuildID:   "g1",
+		ChannelID: channelID,
+		Message:   &discordgo.Message{ID: "prompt-7"},
+		Member:    &discordgo.Member{User: &discordgo.User{ID: "42", Username: "alice"}},
+		Data: discordgo.MessageComponentInteractionData{
+			CustomID:      "/approve ab12",
+			ComponentType: discordgo.ButtonComponent,
+		},
+	}}
+}
+
+// TestSend_DrawsOptionsAsAnActionsRow — discd advertises `buttons`, so chanreg
+// hands it the options untouched and discd draws them.
+func TestSend_DrawsOptionsAsAnActionsRow(t *testing.T) {
+	api := mockDiscordAPI(t)
 	b := &bot{session: newTestSession(t)}
 	if _, err := b.Send(chanlib.SendRequest{
 		ChatJID: "discord:ch-1", Content: "held for approval",
@@ -36,8 +72,7 @@ func TestSend_DrawsOptionsAsAnActionsRow(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	mu.Lock()
-	defer mu.Unlock()
+	body := api.sent()[0]
 	rows, ok := body["components"].([]any)
 	if !ok || len(rows) != 1 {
 		t.Fatalf("expected one actions row: %#v", body["components"])
@@ -55,96 +90,120 @@ func TestSend_DrawsOptionsAsAnActionsRow(t *testing.T) {
 	}
 }
 
-// TestComponents_OnlyOnTheLastChunkAndCappedAtFive — Discord rejects a row of
-// more than five, and a prompt with SOME answers beats a send that fails.
-func TestComponents_OnlyOnTheLastChunkAndCappedAtFive(t *testing.T) {
-	six := make([]chanlib.Option, 6)
-	for i := range six {
-		six[i] = chanlib.Option{Label: "o", Data: "d"}
+// TestSend_ButtonsRideTheLastChunk — a long prompt is split; the row sits under
+// its end, never after an earlier chunk.
+func TestSend_ButtonsRideTheLastChunk(t *testing.T) {
+	api := mockDiscordAPI(t)
+	b := &bot{session: newTestSession(t)}
+	if _, err := b.Send(chanlib.SendRequest{
+		ChatJID: "discord:ch-1", Content: strings.Repeat("a", 2500),
+		Options: []chanlib.Option{{Label: "Approve", Data: "/approve ab12"}},
+	}); err != nil {
+		t.Fatal(err)
 	}
-	if got := components(six, false); got != nil {
-		t.Error("a non-final chunk carries no buttons")
+	sent := api.sent()
+	if len(sent) != 2 {
+		t.Fatalf("expected two chunks, got %d", len(sent))
 	}
-	if got := components(nil, true); got != nil {
+	if sent[0]["components"] != nil {
+		t.Errorf("first chunk carried buttons: %#v", sent[0]["components"])
+	}
+	if sent[1]["components"] == nil {
+		t.Error("last chunk carries no buttons")
+	}
+}
+
+// TestButtons_CappedAtFive — Discord allows five buttons in a row, and a prompt
+// with SOME answers beats a send that fails.
+func TestButtons_CappedAtFive(t *testing.T) {
+	if got := buttons(nil); got != nil {
 		t.Error("no options means no components")
 	}
-	row := components(six, true)[0].(discordgo.ActionsRow)
+	six := slices.Repeat([]chanlib.Option{{Label: "o", Data: "d"}}, 6)
+	row := buttons(six)[0].(discordgo.ActionsRow)
 	if len(row.Components) != 5 {
 		t.Errorf("row holds %d buttons, want Discord's cap of 5", len(row.Components))
 	}
 }
 
-// TestOnInteraction_IsAnOrdinaryInboundCommand — a press arrives at routd as the
-// text it replaces, from the presser's own id, so it meets whatever gate the
-// typed command meets. discd decides nothing.
-func TestOnInteraction_IsAnOrdinaryInboundCommand(t *testing.T) {
-	var mu sync.Mutex
-	var got chanlib.InboundMsg
-	router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		json.NewDecoder(r.Body).Decode(&got)
-		mu.Unlock()
-		w.Write([]byte(`{"ok":true}`))
-	}))
-	defer router.Close()
-	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{}`))
-	}))
-	defer api.Close()
-	defer mockDiscordEndpoints(api.URL)()
-
+// TestOnPress_IsAnOrdinaryInboundCommand — a press reaches routd as the text it
+// replaces, from the presser's own id, placed exactly as a typed message in the
+// same channel is. discd decides nothing.
+func TestOnPress_IsAnOrdinaryInboundCommand(t *testing.T) {
+	mockDiscordAPI(t)
+	mr := newDiscdRouterMock()
+	defer mr.close()
 	s := newTestSession(t)
 	addChannel(t, s, "ch-1", discordgo.ChannelTypeGuildText)
-	rc := chanlib.NewRouterClient(router.URL)
+	rc := chanlib.NewRouterClient(mr.srv.URL)
 	rc.SetToken("tok")
 	b := &bot{session: s, rc: rc}
 
-	b.onInteraction(s, &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{
-		ID:        "int-1",
-		Type:      discordgo.InteractionMessageComponent,
-		GuildID:   "g1",
-		ChannelID: "ch-1",
-		Message:   &discordgo.Message{ID: "prompt-7"},
-		Member:    &discordgo.Member{User: &discordgo.User{ID: "42", Username: "alice"}},
-		Data: discordgo.MessageComponentInteractionData{
-			CustomID:      "/approve ab12",
-			ComponentType: discordgo.ButtonComponent,
-		},
-	}})
+	b.onPress(s, press("ch-1"))
 
-	mu.Lock()
-	defer mu.Unlock()
+	mr.mu.Lock()
+	defer mr.mu.Unlock()
+	if len(mr.msgs) != 1 {
+		t.Fatalf("expected one inbound message, got %d", len(mr.msgs))
+	}
+	got := mr.msgs[0]
 	if got.Content != "/approve ab12" {
 		t.Errorf("content = %q, want the command the button replaces", got.Content)
 	}
 	if got.Sender != "discord:user/42" {
 		t.Errorf("sender = %q, want the presser's own id", got.Sender)
 	}
-	if got.ChatJID != "discord:g1/ch-1" {
-		t.Errorf("chat_jid = %q", got.ChatJID)
+	if got.ChatJID != "discord:g1/ch-1" || got.Topic != "" || !got.IsGroup {
+		t.Errorf("chat_jid = %q topic = %q is_group = %v", got.ChatJID, got.Topic, got.IsGroup)
 	}
 	if got.ReplyTo != "prompt-7" {
 		t.Errorf("reply_to = %q, want the prompt message", got.ReplyTo)
 	}
 }
 
-// TestOnInteraction_IgnoresNonComponentInteractions — a slash command or a modal
-// is not a button press and must not be routed as chat text.
-func TestOnInteraction_IgnoresNonComponentInteractions(t *testing.T) {
-	var hits int
-	router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		hits++
-		w.Write([]byte(`{"ok":true}`))
-	}))
-	defer router.Close()
+// TestOnPress_InAThreadIsPlacedLikeATypedMessage — a notice sent into a thread
+// is pressed there. The press must land under the parent channel with the
+// thread as its topic, where a typed reply in that thread lands; under the
+// thread's own id it reaches a chat no route owns.
+func TestOnPress_InAThreadIsPlacedLikeATypedMessage(t *testing.T) {
+	mockDiscordAPI(t)
+	mr := newDiscdRouterMock()
+	defer mr.close()
+	s := newTestSession(t)
+	if err := s.State.ChannelAdd(&discordgo.Channel{
+		ID: "th-9", GuildID: "g1", Type: discordgo.ChannelTypeGuildPublicThread, ParentID: "ch-1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rc := chanlib.NewRouterClient(mr.srv.URL)
+	rc.SetToken("tok")
+	b := &bot{session: s, rc: rc}
 
-	rc := chanlib.NewRouterClient(router.URL)
-	b := &bot{session: newTestSession(t), rc: rc}
-	b.onInteraction(nil, &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{
+	b.onPress(s, press("th-9"))
+
+	mr.mu.Lock()
+	defer mr.mu.Unlock()
+	if len(mr.msgs) != 1 {
+		t.Fatalf("expected one inbound message, got %d", len(mr.msgs))
+	}
+	got := mr.msgs[0]
+	if got.ChatJID != "discord:g1/ch-1" || got.Topic != "th-9" {
+		t.Errorf("chat_jid = %q topic = %q, want the parent channel and the thread", got.ChatJID, got.Topic)
+	}
+}
+
+// TestOnPress_IgnoresNonComponentInteractions — a slash command or a modal is
+// not a button press and must not be routed as chat text.
+func TestOnPress_IgnoresNonComponentInteractions(t *testing.T) {
+	mr := newDiscdRouterMock()
+	defer mr.close()
+	b := &bot{session: newTestSession(t), rc: chanlib.NewRouterClient(mr.srv.URL)}
+	b.onPress(nil, &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{
 		Type: discordgo.InteractionApplicationCommand,
 	}})
-	if hits != 0 {
-		t.Errorf("routed %d non-component interactions", hits)
+	mr.mu.Lock()
+	defer mr.mu.Unlock()
+	if len(mr.msgs) != 0 {
+		t.Errorf("routed %d non-component interactions", len(mr.msgs))
 	}
 }

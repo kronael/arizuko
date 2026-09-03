@@ -40,9 +40,8 @@ func (s *server) handler() http.Handler {
 	mux := chanlib.NewAdapterMux(s.cfg.Name, []string{"slack:"}, s.bot, s.isConnected, s.lastInboundAt, s.db)
 	// Events webhook is signature-verified, not chanlib.Auth-gated; file proxy adds Bearer xoxb upstream.
 	mux.HandleFunc("POST /slack/events", s.handleEvents)
-	// Slack posts interactivity to its OWN request URL with its own encoding
-	// (form-encoded `payload=`, not JSON), so it gets its own route. Both are
-	// signature-verified the same way and both end at rc.SendMessage.
+	// Slack posts a button press to its own request URL with its own encoding
+	// (form-encoded `payload=`, not JSON), so it gets its own route.
 	mux.HandleFunc("POST /slack/interactivity", s.handleInteractivity)
 	mux.HandleFunc("GET /files/", chanlib.Auth(chanlib.FileProxyHandler(chanlib.FileProxyOpts{
 		Resolve: s.files.Get,
@@ -123,7 +122,7 @@ func (s *server) handleInteractivity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusOK)
-	s.bot.handleInteraction([]byte(form.Get("payload")))
+	s.bot.handlePress([]byte(form.Get("payload")))
 }
 
 // handleEvents requires verbatim body bytes — any upstream re-marshal breaks the HMAC.

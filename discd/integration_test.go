@@ -106,15 +106,20 @@ func TestIsRateLimit(t *testing.T) {
 func mockDiscordEndpoints(base string) func() {
 	oldMsgs := discordgo.EndpointChannelMessages
 	oldTyping := discordgo.EndpointChannelTyping
+	oldInteraction := discordgo.EndpointInteractionResponse
 	discordgo.EndpointChannelMessages = func(cID string) string {
 		return base + "/channels/" + cID + "/messages"
 	}
 	discordgo.EndpointChannelTyping = func(cID string) string {
 		return base + "/channels/" + cID + "/typing"
 	}
+	discordgo.EndpointInteractionResponse = func(iID, token string) string {
+		return base + "/interactions/" + iID + "/" + token + "/callback"
+	}
 	return func() {
 		discordgo.EndpointChannelMessages = oldMsgs
 		discordgo.EndpointChannelTyping = oldTyping
+		discordgo.EndpointInteractionResponse = oldInteraction
 	}
 }
 

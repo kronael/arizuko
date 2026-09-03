@@ -311,9 +311,10 @@ adapter without the cap never sees an options field and its readers still
 get an answerable prompt. That fold is the ONE fold — never reimplement it
 adapter-side.
 
-Two caps to copy rather than rediscover: Discord and Slack reject a row of
-more than five buttons (truncate, do not fail the send), and Telegram caps
-`callback_data` at 64 bytes.
+Platform limits, verified against each vendor's reference: Discord draws
+five buttons per row and Slack 25 per actions block (both adapters drop the
+rest rather than fail the send); Telegram caps `callback_data` at 64 bytes
+and Discord `custom_id` at 100.
 
 Generic HTTP webhook ingest is the same path: any caller can POST
 `/v1/messages` with the channel-protocol envelope; route inbound

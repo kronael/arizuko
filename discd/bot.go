@@ -73,7 +73,7 @@ func (b *bot) start(rc *chanlib.RouterClient) error {
 	b.rc = rc
 	b.session.AddHandler(b.onMessage)
 	b.session.AddHandler(b.onReactionAdd)
-	b.session.AddHandler(b.onInteraction)
+	b.session.AddHandler(b.onPress)
 	if err := b.session.Open(); err != nil {
 		return fmt.Errorf("discord open: %w", err)
 	}
@@ -174,30 +174,13 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 	if self := b.session.State.User; self != nil && m.Author.ID == self.ID {
 		return
 	}
-	jid := chatJID(m.GuildID, m.ChannelID)
 	content, atts := buildAttachments(m.Attachments, m.Content, b.cfg.ListenURL, b.files)
 	if content == "" {
 		return
 	}
 	content = replaceMentions(content, b.cfg.AssistantName, b.session.State.User, m.Mentions)
 
-	topic := ""
-	ch, err := b.session.State.Channel(m.ChannelID)
-	if err != nil {
-		ch, err = b.session.Channel(m.ChannelID)
-	}
-	if err == nil {
-		if ch.Type == discordgo.ChannelTypeGuildPublicThread || ch.Type == discordgo.ChannelTypeGuildPrivateThread {
-			topic = m.ChannelID
-			// Threads are first-class topics within their parent channel. Store under
-			// parent_jid + topic=thread_id so fetch_history, engagement and routes see the
-			// whole conversation. Outbound replies still land in the thread via
-			// SendRequest.ThreadID.
-			if ch.ParentID != "" {
-				jid = chatJID(m.GuildID, ch.ParentID)
-			}
-		}
-	}
+	jid, topic, ch := b.chatAndTopic(m.GuildID, m.ChannelID)
 	// Track where this chat's live conversation sits so typing shows in the
 	// thread (topic), not the parent channel root.
 	if topic != "" {
@@ -206,10 +189,7 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 		b.activeThread.Delete(jid)
 	}
 	chatName := b.channelName(m.ChannelID)
-	// Anything other than a 1:1 DM is multi-user (guild text, threads,
-	// group DMs). On lookup error fall back to multi-user; user-scope
-	// secrets stay closed by default.
-	isGroup := !(err == nil && ch.Type == discordgo.ChannelTypeDM)
+	isGroup := isGroupChannel(ch)
 
 	// Guild @mentions use verb "mention"; other guild messages use the default
 	// "message" verb. Route mode (target#observe) plus verb-specific match
@@ -313,14 +293,39 @@ func chanID(jid string) string {
 	return rest
 }
 
-// components renders one row of buttons, or nil when there is nothing to draw.
-// CustomID is the option's data — the command the press replaces — so a press
-// and a typed command are the same inbound text under the same gate. Discord
-// caps custom_id at 100 bytes and a row at 5 buttons; a longer offer is
-// truncated rather than rejected, because a prompt with SOME answers beats a
-// send that fails.
-func components(options []chanlib.Option, last bool) []discordgo.MessageComponent {
-	if len(options) == 0 || !last {
+// chatAndTopic places a message: a thread is a topic under its parent channel's
+// jid, so routes, engagement and history see the whole conversation. ch is nil
+// when the channel could not be resolved.
+func (b *bot) chatAndTopic(guildID, channelID string) (jid, topic string, ch *discordgo.Channel) {
+	jid = chatJID(guildID, channelID)
+	ch, err := b.session.State.Channel(channelID)
+	if err != nil {
+		ch, err = b.session.Channel(channelID)
+	}
+	if err != nil {
+		return jid, "", nil
+	}
+	if ch.Type == discordgo.ChannelTypeGuildPublicThread || ch.Type == discordgo.ChannelTypeGuildPrivateThread {
+		topic = channelID
+		if ch.ParentID != "" {
+			jid = chatJID(guildID, ch.ParentID)
+		}
+	}
+	return jid, topic, ch
+}
+
+// isGroupChannel: anything other than a 1:1 DM is multi-user (guild text,
+// threads, group DMs). An unresolved channel counts as multi-user, so
+// user-scope secrets stay closed by default.
+func isGroupChannel(ch *discordgo.Channel) bool {
+	return !(ch != nil && ch.Type == discordgo.ChannelTypeDM)
+}
+
+// buttons draws the options as one actions row, or nil when there are none.
+// Discord allows five buttons in a row; the rest are dropped rather than
+// failing the send.
+func buttons(options []chanlib.Option) []discordgo.MessageComponent {
+	if len(options) == 0 {
 		return nil
 	}
 	row := discordgo.ActionsRow{}
@@ -334,11 +339,10 @@ func components(options []chanlib.Option, last bool) []discordgo.MessageComponen
 	return []discordgo.MessageComponent{row}
 }
 
-// onInteraction turns a button press into an ordinary inbound message whose
-// content is the option's data. Discord kills an interaction that is not
-// acknowledged within three seconds, so the deferred update goes first and its
-// failure never stops the press from being routed.
-func (b *bot) onInteraction(_ *discordgo.Session, i *discordgo.InteractionCreate) {
+// onPress delivers a button press as the inbound message its CustomID would be
+// if typed (chanlib.Option). Discord drops an interaction unacknowledged for
+// three seconds, so the ack goes first and its failure does not stop the press.
+func (b *bot) onPress(_ *discordgo.Session, i *discordgo.InteractionCreate) {
 	if i == nil || i.Type != discordgo.InteractionMessageComponent {
 		return
 	}
@@ -355,7 +359,7 @@ func (b *bot) onInteraction(_ *discordgo.Session, i *discordgo.InteractionCreate
 	if user == nil || data == "" {
 		return
 	}
-	jid := chatJID(i.GuildID, i.ChannelID)
+	jid, topic, ch := b.chatAndTopic(i.GuildID, i.ChannelID)
 	promptID := ""
 	if i.Message != nil {
 		promptID = i.Message.ID
@@ -367,11 +371,12 @@ func (b *bot) onInteraction(_ *discordgo.Session, i *discordgo.InteractionCreate
 		SenderName: user.Username,
 		Content:    data,
 		Timestamp:  time.Now().Unix(),
+		Topic:      topic,
 		ReplyTo:    promptID,
-		IsGroup:    i.GuildID != "",
+		IsGroup:    isGroupChannel(ch),
 		ChatName:   b.channelName(i.ChannelID),
 	}); err != nil {
-		slog.Error("deliver interaction failed", "jid", jid, "err", err)
+		slog.Error("deliver press failed", "jid", jid, "err", err)
 		return
 	}
 	b.lastInboundAt.Store(time.Now().Unix())
@@ -399,14 +404,14 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 		}
 	}
 	var firstID string
-	// The buttons ride the LAST chunk so they sit under the whole prompt.
 	chunks := chanlib.Chunk(req.Content, 2000)
 	for i, c := range chunks {
 		var msg *discordgo.Message
 		var err error
-		send := &discordgo.MessageSend{
-			Content:    c,
-			Components: components(req.Options, i == len(chunks)-1),
+		send := &discordgo.MessageSend{Content: c}
+		// The buttons ride the LAST chunk so they sit under the whole prompt.
+		if i == len(chunks)-1 {
+			send.Components = buttons(req.Options)
 		}
 		if replyTo != "" && i == 0 {
 			send.Reference = &discordgo.MessageReference{MessageID: replyTo}

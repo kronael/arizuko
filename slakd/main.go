@@ -20,12 +20,8 @@ var caps = map[string]bool{
 	"send_text": true, "send_file": true, "fetch_history": false,
 	"typing": true, "edit": true, "like": true, "delete": true, "dislike": true, "post": true,
 	"pin": true,
-	// buttons is a render capability on send_text, not a verb: with it chanreg
-	// passes SendRequest.Options through and slakd renders a Block Kit actions
-	// block; without it chanreg folds them into typable text instead. The press
-	// arrives on POST /slack/interactivity, which the Slack app config must
-	// point at — an unset Interactivity Request URL means the buttons draw and
-	// do nothing.
+	// buttons is a render capability on send_text, not a verb: chanreg passes
+	// SendRequest.Options through instead of folding them into the text.
 	"buttons": true,
 }
 

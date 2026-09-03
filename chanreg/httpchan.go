@@ -133,10 +133,8 @@ func (h *HTTPChannel) SendCtx(ctx context.Context, jid, text, replyTo, threadID,
 }
 
 // SendOptionsCtx is Send carrying pickable answers (spec 5/19). It is the ONE
-// fold: an adapter that does not advertise `buttons` never receives options, it
-// receives the same prompt with the answers written out as text the reader can
-// type. Without that fold a Telegram-only feature would silently deliver an
-// unanswerable prompt everywhere else.
+// fold: an adapter without `buttons` never receives options, it receives the
+// answers written into the text as what the reader types.
 func (h *HTTPChannel) SendOptionsCtx(ctx context.Context, jid, text string, options []chanlib.Option,
 	replyTo, threadID, threadRoot, idempotencyKey string) (string, error) {
 	if !h.entry.HasCap("send_text") {
@@ -150,9 +148,7 @@ func (h *HTTPChannel) SendOptionsCtx(ctx context.Context, jid, text string, opti
 	return h.trySend(ctx, m)
 }
 
-// foldOptions writes the answers into the message body for a channel with no
-// button surface. Each line is what the reader types, so the fallback and the
-// button send the identical string.
+// foldOptions appends one line per answer: what the reader types, then its label.
 func foldOptions(text string, options []chanlib.Option) string {
 	for _, o := range options {
 		text += "\n" + o.Send() + "   — " + o.Label

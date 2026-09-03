@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -49,12 +50,10 @@ func (a *holdAdapter) await(t *testing.T) map[string]any {
 	t.Helper()
 	for range 500 {
 		a.mu.Lock()
-		n := len(a.sent)
+		sent := a.sent
 		a.mu.Unlock()
-		if n > 0 {
-			a.mu.Lock()
-			defer a.mu.Unlock()
-			return a.sent[0]
+		if len(sent) > 0 {
+			return sent[0]
 		}
 		time.Sleep(2 * time.Millisecond)
 	}
@@ -72,12 +71,7 @@ func holdE2E(t *testing.T, caps map[string]bool) (*DB, *Server, *Loop, *holdAdap
 	loop.deliver = deliver
 	srv := &Server{db: db, deliver: deliver}
 
-	if err := addACLRow(db, core.ACLRow{
-		Principal: "folder:atlas", Action: auth.HoldPrefix + "mcp:like",
-		Scope: "atlas", Effect: auth.EffectHoldBlock,
-	}); err != nil {
-		t.Fatal(err)
-	}
+	holdRule(t, db, "mcp:like", auth.EffectHoldBlock)
 	if err := addMembership(db, "u", "role:operator", "test"); err != nil {
 		t.Fatal(err)
 	}
@@ -93,8 +87,7 @@ func holdE2E(t *testing.T, caps map[string]bool) (*DB, *Server, *Loop, *holdAdap
 // It deliberately reads the button data off the WIRE rather than rebuilding it:
 // if the notice and the command parser ever disagree about the text, this fails.
 func TestHoldE2E_ButtonPressReleasesTheBlockedCall(t *testing.T) {
-	HoldWait, hitlPoll = 10*time.Second, time.Millisecond
-	t.Cleanup(func() { HoldWait, hitlPoll = 0, time.Millisecond })
+	waitForVerdict(t)
 
 	db, srv, loop, adapter := holdE2E(t, map[string]bool{"send_text": true, "buttons": true})
 	gate := srv.holdGate(turnMCP{folder: "atlas", chatJID: "tg:1", turnID: "t1"})
@@ -144,8 +137,7 @@ func TestHoldE2E_ButtonPressReleasesTheBlockedCall(t *testing.T) {
 // TestHoldE2E_RejectPressKeepsTheCallUnrun — the second button. The call must not
 // run, and the row records who said no.
 func TestHoldE2E_RejectPressKeepsTheCallUnrun(t *testing.T) {
-	HoldWait, hitlPoll = 10*time.Second, time.Millisecond
-	t.Cleanup(func() { HoldWait, hitlPoll = 0, time.Millisecond })
+	waitForVerdict(t)
 
 	db, srv, loop, adapter := holdE2E(t, map[string]bool{"send_text": true, "buttons": true})
 	gate := srv.holdGate(turnMCP{folder: "atlas", chatJID: "tg:1", turnID: "t1"})
@@ -183,8 +175,7 @@ func TestHoldE2E_RejectPressKeepsTheCallUnrun(t *testing.T) {
 // the answers are in the text where a reader can type them. Typing one resolves
 // the hold exactly as a press does.
 func TestHoldE2E_ChannelWithoutButtonsStillGetsAnAnswerablePrompt(t *testing.T) {
-	HoldWait, hitlPoll = 10*time.Second, time.Millisecond
-	t.Cleanup(func() { HoldWait, hitlPoll = 0, time.Millisecond })
+	waitForVerdict(t)
 
 	_, srv, loop, adapter := holdE2E(t, map[string]bool{"send_text": true})
 	gate := srv.holdGate(turnMCP{folder: "atlas", chatJID: "tg:1", turnID: "t1"})
@@ -221,25 +212,10 @@ func TestHoldE2E_ChannelWithoutButtonsStillGetsAnAnswerablePrompt(t *testing.T) 
 // offers, so the test types what a reader would actually read.
 func firstApproveID(t *testing.T, text string) string {
 	t.Helper()
-	const marker = "/approve "
-	i := indexOf(text, marker)
-	if i < 0 {
-		t.Fatalf("the folded notice offers no /approve line:\n%s", text)
+	_, rest, ok := strings.Cut(text, "/approve ")
+	if fields := strings.Fields(rest); ok && len(fields) > 0 {
+		return fields[0]
 	}
-	rest := text[i+len(marker):]
-	for j := range len(rest) {
-		if rest[j] == ' ' || rest[j] == '\n' {
-			return rest[:j]
-		}
-	}
-	return rest
-}
-
-func indexOf(s, sub string) int {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
-	}
-	return -1
+	t.Fatalf("the folded notice offers no /approve line:\n%s", text)
+	return ""
 }

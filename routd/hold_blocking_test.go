@@ -9,15 +9,23 @@ import (
 	"github.com/kronael/arizuko/core"
 )
 
-// holdRule installs one hold rule on folder atlas with the given effect.
-func holdRule(t *testing.T, d *DB, effect string) {
+// holdRule installs one hold rule on folder atlas.
+func holdRule(t *testing.T, d *DB, tool, effect string) {
 	t.Helper()
 	if err := addACLRow(d, core.ACLRow{
-		Principal: "folder:atlas", Action: auth.HoldPrefix + "mcp:delete",
+		Principal: "folder:atlas", Action: auth.HoldPrefix + tool,
 		Scope: "atlas", Effect: effect,
 	}); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// waitForVerdict makes a blocking hold wait, where TestMain makes it give up at
+// once.
+func waitForVerdict(t *testing.T) {
+	t.Helper()
+	HoldWait = 10 * time.Second
+	t.Cleanup(func() { HoldWait = 0 })
 }
 
 // awaitHeldID waits for the gate goroutine to record its row and returns its id.
@@ -42,12 +50,11 @@ func awaitHeldID(t *testing.T, d *DB) string {
 // it inline. `held=false` is the gate telling ipc to run the call, so the
 // operator's yes takes effect in the turn that asked rather than the next one.
 func TestHoldGate_BlockingRunsTheApprovedCall(t *testing.T) {
-	HoldWait, hitlPoll = 10*time.Second, time.Millisecond
-	t.Cleanup(func() { HoldWait, hitlPoll = 0, time.Millisecond })
+	waitForVerdict(t)
 
 	d := memDB(t)
 	srv := &Server{db: d}
-	holdRule(t, d, auth.EffectHoldBlock)
+	holdRule(t, d, "mcp:delete", auth.EffectHoldBlock)
 	gate := srv.holdGate(turnMCP{folder: "atlas", turnID: "t1"})
 
 	type verdict struct {
@@ -82,12 +89,11 @@ func TestHoldGate_BlockingRunsTheApprovedCall(t *testing.T) {
 // call must NOT run, and the agent gets the same "not run" result it gets for a
 // call still waiting: the verdict itself reaches the human in chat.
 func TestHoldGate_BlockingReturnsHeldOnReject(t *testing.T) {
-	HoldWait, hitlPoll = 10*time.Second, time.Millisecond
-	t.Cleanup(func() { HoldWait, hitlPoll = 0, time.Millisecond })
+	waitForVerdict(t)
 
 	d := memDB(t)
 	srv := &Server{db: d}
-	holdRule(t, d, auth.EffectHoldBlock)
+	holdRule(t, d, "mcp:delete", auth.EffectHoldBlock)
 	gate := srv.holdGate(turnMCP{folder: "atlas", turnID: "t1"})
 
 	out := make(chan bool, 1)
@@ -114,12 +120,11 @@ func TestHoldGate_BlockingReturnsHeldOnReject(t *testing.T) {
 // configured, an `async` rule still returns at once, because the choice is the
 // rule's and not the timeout's.
 func TestHoldGate_AsyncDoesNotWait(t *testing.T) {
-	HoldWait, hitlPoll = 10*time.Second, time.Millisecond
-	t.Cleanup(func() { HoldWait, hitlPoll = 0, time.Millisecond })
+	waitForVerdict(t)
 
 	d := memDB(t)
 	srv := &Server{db: d}
-	holdRule(t, d, auth.EffectHoldAsync)
+	holdRule(t, d, "mcp:delete", auth.EffectHoldAsync)
 	gate := srv.holdGate(turnMCP{folder: "atlas", turnID: "t1"})
 
 	start := time.Now()
@@ -139,7 +144,7 @@ func TestHoldGate_AsyncDoesNotWait(t *testing.T) {
 func TestAwaitVerdict_TimeoutHandsBackToTheTrigger(t *testing.T) {
 	d := memDB(t)
 	srv := &Server{db: d}
-	holdRule(t, d, auth.EffectHoldBlock)
+	holdRule(t, d, "mcp:delete", auth.EffectHoldBlock)
 	gate := srv.holdGate(turnMCP{folder: "atlas", turnID: "t1"})
 
 	id, held := gate("mcp:delete", map[string]any{"target": "prod"})
@@ -196,7 +201,7 @@ func TestNotifyHeld_OffersTheVerdictsAsButtons(t *testing.T) {
 	d := memDB(t)
 	dl := &recDeliverer{}
 	srv := &Server{db: d, deliver: dl}
-	holdRule(t, d, auth.EffectHoldBlock)
+	holdRule(t, d, "mcp:delete", auth.EffectHoldBlock)
 	gate := srv.holdGate(turnMCP{folder: "atlas", chatJID: "tg:1", turnID: "t9"})
 
 	id, held := gate("mcp:delete", map[string]any{"target": "prod"})

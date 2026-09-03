@@ -146,12 +146,15 @@ every outbound call. Multi-account variants share the base principal.
    `message.channels`, `message.groups`, `message.im`, `message.mpim`,
    `reaction_added`, `member_joined_channel`. File attachments arrive
    piggy-backed on `message.*` events; do not subscribe to `file_shared`.
-4. **Basic Information** → copy _Signing Secret_ into
+4. **Interactivity & Shortcuts** → enable, set Request URL to
+   `https://<your-host>/slack/interactivity`. A button press lands here;
+   without it the buttons draw and do nothing.
+5. **Basic Information** → copy _Signing Secret_ into
    `SLACK_SIGNING_SECRET`.
-5. Install to Workspace → copy _Bot User OAuth Token_ (starts with
+6. Install to Workspace → copy _Bot User OAuth Token_ (starts with
    `xoxb-`) into `SLACK_BOT_TOKEN`.
-6. Invite the bot to channels: `/invite @<botname>`.
-7. `arizuko create <inst> && arizuko run <inst>` — check
+7. Invite the bot to channels: `/invite @<botname>`.
+8. `arizuko create <inst> && arizuko run <inst>` — check
    `GET /health` returns 200 once `auth.test` succeeds.
 
 ## Health signal
@@ -187,12 +190,13 @@ guard ultimately became. A single inbound message — or a single passing
 
 ## Threat model
 
-| Surface         | Verifier                                       | Failure mode                                  |
-| --------------- | ---------------------------------------------- | --------------------------------------------- |
-| `/slack/events` | `X-Slack-Signature` HMAC (signing secret)      | proxyd re-marshals body → HMAC breaks → 401   |
-| `/send`, etc.   | `chanlib.Auth` (`service:routd` ES256 token)   | router compromise → no further isolation      |
-| `/files/<id>`   | `chanlib.Auth` (same bearer) + opaque cache id | id is hex of sha256 prefix; not enumerable    |
-| upstream fetch  | `Authorization: Bearer $SLACK_BOT_TOKEN`       | `url_private` URLs unauthorized without token |
+| Surface                | Verifier                                       | Failure mode                                       |
+| ---------------------- | ---------------------------------------------- | -------------------------------------------------- |
+| `/slack/events`        | `X-Slack-Signature` HMAC (signing secret)      | proxyd re-marshals body → HMAC breaks → 401        |
+| `/slack/interactivity` | same HMAC                                      | a press is chat text; the operator gate is routd's |
+| `/send`, etc.          | `chanlib.Auth` (`service:routd` ES256 token)   | router compromise → no further isolation           |
+| `/files/<id>`          | `chanlib.Auth` (same bearer) + opaque cache id | id is hex of sha256 prefix; not enumerable         |
+| upstream fetch         | `Authorization: Bearer $SLACK_BOT_TOKEN`       | `url_private` URLs unauthorized without token      |
 
 proxyd MUST forward `X-Slack-Signature` + `X-Slack-Request-Timestamp`
 and the raw body unmodified — any re-marshal invalidates the HMAC.

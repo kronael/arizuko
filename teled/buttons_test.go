@@ -11,7 +11,7 @@ import (
 )
 
 // TestBotSend_DrawsOptionsAsAnInlineKeyboard — teled advertises `buttons`, so
-// chanreg hands it the options untouched and teled is the one that draws them.
+// chanreg hands it the options untouched and teled draws them.
 func TestBotSend_DrawsOptionsAsAnInlineKeyboard(t *testing.T) {
 	m := newTGMock()
 	defer m.close()
@@ -41,6 +41,34 @@ func TestBotSend_DrawsOptionsAsAnInlineKeyboard(t *testing.T) {
 	}
 }
 
+// TestBotSend_ButtonsRideTheLastChunk — a long prompt is split; the keyboard
+// sits under its end, never after an earlier chunk.
+func TestBotSend_ButtonsRideTheLastChunk(t *testing.T) {
+	m := newTGMock()
+	defer m.close()
+	b := newTestBot(t, m, config{Name: "telegram"})
+	defer b.typing.Stop()
+
+	if _, err := b.Send(chanlib.SendRequest{
+		ChatJID: "telegram:123",
+		Content: strings.Repeat("a", 5000),
+		Options: []chanlib.Option{{Label: "Approve", Data: "/approve ab12"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.lastSent) != 2 {
+		t.Fatalf("expected two chunks, got %d", len(m.lastSent))
+	}
+	if markup, _ := m.lastSent[0]["reply_markup"].(string); markup != "" {
+		t.Errorf("first chunk carried the keyboard: %s", markup)
+	}
+	if markup, _ := m.lastSent[1]["reply_markup"].(string); !strings.Contains(markup, "/approve ab12") {
+		t.Errorf("last chunk carries no keyboard: %s", markup)
+	}
+}
+
 // TestBotSend_NoOptionsNoKeyboard — an ordinary message must not grow a markup
 // field, which would make every reply look like a prompt.
 func TestBotSend_NoOptionsNoKeyboard(t *testing.T) {
@@ -59,11 +87,10 @@ func TestBotSend_NoOptionsNoKeyboard(t *testing.T) {
 	}
 }
 
-// TestHandleCallback_IsAnOrdinaryInboundCommand is the whole point of the button
-// design: a press arrives at routd as the text it replaces, from the PRESSER's
-// own id. teled decides nothing — the reserved-command parser and its operator
-// gate run exactly as they do for a typed `/approve`.
-func TestHandleCallback_IsAnOrdinaryInboundCommand(t *testing.T) {
+// TestHandlePress_IsAnOrdinaryInboundCommand — a press reaches routd as the
+// text it replaces, from the presser's own id, placed exactly as a typed message
+// in the same chat and topic is. teled decides nothing.
+func TestHandlePress_IsAnOrdinaryInboundCommand(t *testing.T) {
 	m := newTGMock()
 	defer m.close()
 	mr := newTeledRouterMock()
@@ -74,17 +101,17 @@ func TestHandleCallback_IsAnOrdinaryInboundCommand(t *testing.T) {
 	b := newTestBot(t, m, config{Name: "telegram"})
 	defer b.typing.Stop()
 
-	q := &callbackQuery{ID: "cbq1", From: &tgbotapi.User{ID: 42, FirstName: "Alice"}, Data: "/approve ab12"}
-	q.Message = &struct {
-		MessageID int `json:"message_id"`
-		Chat      struct {
-			ID int64 `json:"id"`
-		} `json:"chat"`
-	}{MessageID: 7}
-	q.Message.Chat.ID = -100123
-
-	if !b.handleCallback(q, rc) {
-		t.Fatal("handleCallback returned false")
+	q := &tgbotapi.CallbackQuery{
+		ID:   "cbq1",
+		From: &tgbotapi.User{ID: 42, FirstName: "Alice"},
+		Data: "/approve ab12",
+		Message: &tgbotapi.Message{
+			MessageID: 7, MessageThreadID: 55,
+			Chat: &tgbotapi.Chat{ID: -100123, Title: "ops"},
+		},
+	}
+	if !b.handlePress(q, rc) {
+		t.Fatal("handlePress returned false")
 	}
 	mr.mu.Lock()
 	defer mr.mu.Unlock()
@@ -98,8 +125,8 @@ func TestHandleCallback_IsAnOrdinaryInboundCommand(t *testing.T) {
 	if got.Sender != "telegram:user/42" {
 		t.Errorf("sender = %q, want the presser's own id", got.Sender)
 	}
-	if got.ChatJID != "telegram:group/100123" {
-		t.Errorf("chat_jid = %q", got.ChatJID)
+	if got.ChatJID != "telegram:group/100123" || got.Topic != "55" || got.ChatName != "ops" {
+		t.Errorf("chat_jid = %q topic = %q chat_name = %q", got.ChatJID, got.Topic, got.ChatName)
 	}
 	if got.ReplyTo != "telegram:group/100123/7" {
 		t.Errorf("reply_to = %q, want the prompt message", got.ReplyTo)
@@ -109,10 +136,10 @@ func TestHandleCallback_IsAnOrdinaryInboundCommand(t *testing.T) {
 	}
 }
 
-// TestHandleCallback_EmptyPressAdvancesTheOffset — a press with nothing to route
+// TestHandlePress_EmptyPressAdvancesTheOffset — a press with nothing to route
 // must still be consumed. Returning false would stall Telegram's offset and
 // re-deliver the same update forever.
-func TestHandleCallback_EmptyPressAdvancesTheOffset(t *testing.T) {
+func TestHandlePress_EmptyPressAdvancesTheOffset(t *testing.T) {
 	m := newTGMock()
 	defer m.close()
 	mr := newTeledRouterMock()
@@ -123,7 +150,7 @@ func TestHandleCallback_EmptyPressAdvancesTheOffset(t *testing.T) {
 	b := newTestBot(t, m, config{Name: "telegram"})
 	defer b.typing.Stop()
 
-	if !b.handleCallback(&callbackQuery{ID: "cbq2"}, rc) {
+	if !b.handlePress(&tgbotapi.CallbackQuery{ID: "cbq2"}, rc) {
 		t.Fatal("a press with no data must not stall the offset")
 	}
 	mr.mu.Lock()
