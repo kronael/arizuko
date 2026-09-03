@@ -33,8 +33,20 @@ show/control matrices.
 
 ## Read-path: `/v1` only, no direct DB
 
-**Every datum a dashboard shows flows through the owning daemon's `/v1`
-surface. No dashboard — hub or per-daemon — reads a SQLite DB directly.**
+**Every datum a dashboard shows about ANOTHER daemon flows through that
+daemon's `/v1` surface. No dashboard reads another daemon's SQLite file.**
+
+A daemon's own dashboard reading its OWN DB is the topology, not a leak: the
+daemon owns that file, migrates it, and is the only writer. Requiring it to
+call its own `/v1` to render its own page would be a second reader of one
+table for no gain. The rule bites exactly where ownership ends.
+
+This sentence used to read "No dashboard — hub or per-daemon — reads a SQLite
+DB directly", which contradicted §Status four screens down ("no dashboard reads
+another daemon's SQLite file") and left three specs' status unanswerable: `6/30`
+ships per-daemon dashboards that read their own DBs, correct under one reading
+and a violation under the other (BUGS `L154`). One sentence now, and it is the
+one the code was built to.
 
 **WRITES are governed by CLAUDE.md, not by this spec** (reconciled 2026-08-30).
 This rule read "shows or mutates" and that contradicted the project's

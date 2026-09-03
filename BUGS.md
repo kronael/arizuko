@@ -50,7 +50,18 @@ the case's prompt build a skill that takes the nonce as an ARGUMENT rather than
 baking it in, which also removes the stale-token lesson from the group. Either
 is a change to the catalog's independence contract, so it waits for sign-off.
 
-## L154 — `6/28` states its own read-path rule two incompatible ways, which is why `L142` reads as a violation and the per-daemon dashboards read as compliant (2026-09-03, phase-6 status audit)
+## ✅ FIXED 2026-09-03 L154 — `6/28` states its own read-path rule two incompatible ways, which is why `L142` reads as a violation and the per-daemon dashboards read as compliant (2026-09-03, phase-6 status audit)
+
+**FIXED 2026-09-03 — `:223` wins, `:37` is rewritten to match.** The rule is
+"no dashboard reads ANOTHER daemon's SQLite file". A daemon's own dashboard
+reading its own DB is the topology: it owns the file, migrates it, and is its
+only writer, so routing its own page through its own `/v1` would be a second
+reader of one table for no gain.
+
+Two consequences, both now unambiguous. `6/30`'s per-daemon dashboards are
+COMPLIANT and were never defected. And `L142` keeps its whole force: dashd
+reading `routd.db` is exactly the case the surviving sentence forbids, so `6/29`
+stays defected until those reads go through routd's `/v1`.
 
 Auditing every phase-6 spec's `status:` against the code. `6/28` is the
 architecture `6/29`–`6/32` all inherit "and do not restate", and it says the rule
