@@ -706,6 +706,15 @@ func buildArgs(
 	if cfg.AgentBackend != "" {
 		args = append(args, "-e", "ARIZUKO_BACKEND="+cfg.AgentBackend)
 	}
+	// Same reason: ant reads the gateway pair from process.env, so without
+	// these -e pairs the harness keeps its own credential and the gateway is
+	// silently bypassed.
+	if cfg.ModelGatewayURL != "" {
+		args = append(args, "-e", "MODEL_GATEWAY_URL="+cfg.ModelGatewayURL)
+	}
+	if cfg.ModelGatewayKey != "" {
+		args = append(args, "-e", "MODEL_GATEWAY_KEY="+cfg.ModelGatewayKey)
+	}
 	// Same reason, third instance (BUGS L60): seedSettings wrote ARIZUKO_IS_ROOT
 	// only into settings.json's env block, which the SDK subprocess sees and ant
 	// does not — so ant's elevation check read undefined on EVERY turn and the

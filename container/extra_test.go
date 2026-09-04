@@ -333,3 +333,26 @@ func TestBuildArgs_EmitsIsRootBothWays(t *testing.T) {
 		t.Errorf("ordinary turn must NOT be marked root:\n%s", plain)
 	}
 }
+
+// The gateway pair reaches ant the same way as the backend selector: real
+// container env, or the harness keeps its own credential and the gateway is
+// silently bypassed.
+func TestBuildArgsModelGateway(t *testing.T) {
+	cfg := &core.Config{Timezone: "UTC", Image: "img:latest",
+		ModelGatewayURL: "http://gw:4000", ModelGatewayKey: "virtual-key-abc123"}
+	args := buildArgs(cfg, nil, "c6", egressSpawn{}, "", 0, false)
+	joined := strings.Join(args, " ")
+	for _, want := range []string{"-e MODEL_GATEWAY_URL=http://gw:4000", "-e MODEL_GATEWAY_KEY=virtual-key-abc123"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("missing %q: %s", want, joined)
+		}
+	}
+}
+
+// Unset is today's argv: the two fields add nothing at all.
+func TestBuildArgsNoGatewayOmitsVars(t *testing.T) {
+	cfg := &core.Config{Timezone: "UTC", Image: "img:latest"}
+	if got := strings.Join(buildArgs(cfg, nil, "c7", egressSpawn{}, "", 0, false), " "); strings.Contains(got, "MODEL_GATEWAY") {
+		t.Errorf("unset gateway must add no -e: %s", got)
+	}
+}

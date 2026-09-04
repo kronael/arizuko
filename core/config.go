@@ -30,6 +30,13 @@ type Config struct {
 	Name          string
 	TelegramToken string
 	Image         string
+	// ModelGatewayURL points every harness at an LLM gateway that holds the
+	// real model credential, meters and logs; ModelGatewayKey is the virtual
+	// credential the container presents to it. One declaration, translated
+	// per harness in ant/src/gateway.ts. Empty = the harness's own
+	// credential, unchanged. Static infra config, like AgentBackend.
+	ModelGatewayURL string
+	ModelGatewayKey string
 	// AgentBackend selects the container occupant (spec 6/7 "The connector
 	// seam"): claude (default, empty), codex, pi. Static infra config — a
 	// backend exists only if its CLI is baked into Image — so it lives in the
@@ -208,6 +215,8 @@ func LoadConfig() (*Config, error) {
 		TelegramToken:       EnvOr("TELEGRAM_BOT_TOKEN", ""),
 		Image:               EnvOr("CONTAINER_IMAGE", DefaultImage),
 		AgentBackend:        EnvOr("ARIZUKO_BACKEND", ""),
+		ModelGatewayURL:     EnvOr("MODEL_GATEWAY_URL", ""),
+		ModelGatewayKey:     EnvOr("MODEL_GATEWAY_KEY", ""),
 		Timeout:             envDur("CONTAINER_TIMEOUT", 60*time.Minute),
 		IdleTimeout:         envDur("IDLE_TIMEOUT", 60*time.Minute),
 		MaxContainers:       EnvInt("MAX_CONCURRENT_CONTAINERS", 5),

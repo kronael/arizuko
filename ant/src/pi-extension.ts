@@ -6,6 +6,7 @@
 import os from 'os';
 import path from 'path';
 import { PolicyContext, ToolEvent, Verdict, bindings, runRows, runnableBy } from './policy.js';
+import { GATEWAY_KEY_ENV, modelGateway } from './gateway.js';
 
 // PI_HONOURS: pi can refuse a call ({block, reason}) and can rewrite a tool
 // RESULT, which is how an injection reaches the model. It has no rewrite of a
@@ -25,7 +26,16 @@ interface PiToolResultEvent extends PiToolCallEvent {
   isError?: boolean;
 }
 
+// PiProviderConfig is the override shape of pi.registerProvider (pi 0.51.6
+// docs/extensions.md): baseUrl alone re-points an existing provider and keeps
+// its models; apiKey is the NAME of an env var pi resolves at call time.
+interface PiProviderConfig {
+  baseUrl: string;
+  apiKey?: string;
+}
+
 interface PiApi {
+  registerProvider(name: string, config: PiProviderConfig): void;
   on(event: 'tool_call', fn: (ev: PiToolCallEvent) => Promise<{ block: boolean; reason: string } | undefined>): void;
   on(event: 'tool_result', fn: (ev: PiToolResultEvent) => Promise<{ content: unknown[] } | undefined>): void;
 }
@@ -93,7 +103,25 @@ export function registerWith(pi: PiApi, ctx: PolicyContext): void {
   });
 }
 
+// registerGateway is pi's translation of the gateway pair (gateway.ts). pi has
+// no env-var base URL: each built-in provider carries its own, so the two whose
+// wire formats a gateway speaks are re-pointed at it — anthropic sends the
+// Anthropic messages format to the bare URL (pi-ai appends /v1/messages),
+// openai sends the Responses format to `<url>/v1` (pi-ai appends /responses).
+// Which one a turn uses follows from the model id, as today. The key is a
+// fallback: pi consults it only when no real credential for that provider is
+// present, which is exactly the gateway deployment. Read from pi 0.51.6's
+// model-registry.js, not measured against a live gateway.
+export function registerGateway(pi: Pick<PiApi, 'registerProvider'>, env: Record<string, string | undefined>): void {
+  const gw = modelGateway(env);
+  if (!gw) return;
+  const auth = gw.key ? { apiKey: GATEWAY_KEY_ENV } : {};
+  pi.registerProvider('anthropic', { baseUrl: gw.url, ...auth });
+  pi.registerProvider('openai', { baseUrl: `${gw.url}/v1`, ...auth });
+}
+
 // turnID is empty: pi has no TodoWrite, so nothing here needs the turn id.
 export default function (pi: PiApi): void {
   registerWith(pi, { home: os.homedir(), turnID: '' });
+  registerGateway(pi, process.env);
 }

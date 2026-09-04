@@ -884,3 +884,17 @@ func TestRunTimeoutReachesBothRoutdAndRuned(t *testing.T) {
 		}
 	}
 }
+
+// The gateway pair follows the backend selector: runed re-emits it as
+// container env (container/runner.go buildArgs), and only the allowlist
+// carries an instance .env value into env/runed.env.
+func TestRunedReceivesTheModelGateway(t *testing.T) {
+	dir := seed(t, "MODEL_GATEWAY_URL=http://gw:4000\nMODEL_GATEWAY_KEY=virtual-key-abc123\n")
+	gen(t, dir)
+	runed := read(t, dir, "env/runed.env")
+	for _, want := range []string{"MODEL_GATEWAY_URL=http://gw:4000", "MODEL_GATEWAY_KEY=virtual-key-abc123"} {
+		if !strings.Contains(runed, want) {
+			t.Errorf("env/runed.env must carry %s: runed re-emits it as container env", want)
+		}
+	}
+}

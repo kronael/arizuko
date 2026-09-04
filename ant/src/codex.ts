@@ -18,6 +18,7 @@ import { POLICY_LOG_SPOOL, drainLines } from './spool.js';
 import fs from 'fs';
 import path from 'path';
 import type { ModelUsage } from './mcp.js';
+import { GATEWAY_KEY_ENV, modelGateway } from './gateway.js';
 
 function log(message: string): void {
   console.error(`[ant:codex] ${message}`);
@@ -36,7 +37,7 @@ export function tomlValue(v: string | string[] | Record<string, string>): string
 // codexArgs builds one turn's argv. The prompt travels on stdin (`-`), never
 // argv — an envelope with episodes + diary can exceed the per-arg kernel cap.
 // The continuity token IS codex's thread id.
-export function codexArgs(turn: Pick<Turn, 'cwd' | 'model' | 'continuity' | 'tools'>): string[] {
+export function codexArgs(turn: Pick<Turn, 'cwd' | 'model' | 'continuity' | 'tools' | 'env'>): string[] {
   const args = turn.continuity ? ['exec', 'resume'] : ['exec'];
   args.push(
     // The container is the perimeter (Docker + egress proxy + gated socket); codex's
@@ -59,6 +60,20 @@ export function codexArgs(turn: Pick<Turn, 'cwd' | 'model' | 'continuity' | 'too
     if (s.env && Object.keys(s.env).length > 0) {
       args.push('-c', `mcp_servers.${name}.env=${tomlValue(s.env)}`);
     }
+  }
+  // The gateway pair (gateway.ts) becomes a model provider named `gateway`.
+  // Measured 2026-09-04 with codex-cli 0.153.2: `wire_api=chat` is rejected
+  // as "no longer supported", so it is `responses`. With a key, codex reads
+  // it from the named env var; without one, requires_openai_auth makes codex
+  // send its own ChatGPT bearer to base_url instead.
+  const gw = modelGateway(turn.env);
+  if (gw) {
+    args.push('-c', `model_provider=${tomlValue('gateway')}`);
+    args.push('-c', `model_providers.gateway.name=${tomlValue('gateway')}`);
+    args.push('-c', `model_providers.gateway.base_url=${tomlValue(`${gw.url}/v1`)}`);
+    args.push('-c', `model_providers.gateway.wire_api=${tomlValue('responses')}`);
+    if (gw.key) args.push('-c', `model_providers.gateway.env_key=${tomlValue(GATEWAY_KEY_ENV)}`);
+    else args.push('-c', 'model_providers.gateway.requires_openai_auth=true');
   }
   // `codex exec resume` REJECTS --cd ("unexpected argument '--cd' found"): the
   // rollout records its own working root. The child is spawned with cwd either way.

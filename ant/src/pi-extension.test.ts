@@ -2,7 +2,7 @@ import { describe, expect, test, beforeEach } from 'bun:test';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { canonicalToolName, registerWith } from './pi-extension.js';
+import { canonicalToolName, registerGateway, registerWith } from './pi-extension.js';
 import { STEER_SPOOL, appendLines, drainLines } from './spool.js';
 
 // One row — skill-rescan — WALKS AND RENAMES files under <home>/.claude/skills.
@@ -117,5 +117,45 @@ describe('pi runs the same policy rows claude and codex do', () => {
   test('nothing queued leaves the tool result untouched', async () => {
     const blocks = [{ type: 'text', text: 'ok' }];
     expect(await fakePi().onResult({ toolName: 'bash', toolCallId: 'tc-4', input: {}, content: blocks })).toBeUndefined();
+  });
+});
+
+describe('pi is re-pointed at the model gateway', () => {
+  // A stand-in for registerProvider: it records every (name, config) pair,
+  // which is the whole contract between ant and pi here.
+  function fakeRegistry(): { pi: { registerProvider: (name: string, config: unknown) => void }; calls: Array<[string, unknown]> } {
+    const calls: Array<[string, unknown]> = [];
+    return { pi: { registerProvider: (name, config) => { calls.push([name, config]); } }, calls };
+  }
+
+  // No gateway: pi keeps its built-in providers and their credentials.
+  test('no gateway registers nothing', () => {
+    const r = fakeRegistry();
+    registerGateway(r.pi, { HOME: '/home/node' });
+    expect(r.calls).toEqual([]);
+  });
+
+  // Override mode (baseUrl only keeps the models — pi 0.51.6 docs/extensions.md):
+  // anthropic at the bare URL (pi-ai appends /v1/messages), openai at /v1 (pi-ai
+  // appends /responses). The key travels as the env var NAME pi resolves at
+  // call time, never as its value.
+  test('a gateway re-points anthropic and openai, key by env name', () => {
+    const r = fakeRegistry();
+    registerGateway(r.pi, { MODEL_GATEWAY_URL: 'http://gw:4000', MODEL_GATEWAY_KEY: 'virtual-key-abc123' });
+    expect(r.calls).toEqual([
+      ['anthropic', { baseUrl: 'http://gw:4000', apiKey: 'MODEL_GATEWAY_KEY' }],
+      ['openai', { baseUrl: 'http://gw:4000/v1', apiKey: 'MODEL_GATEWAY_KEY' }],
+    ]);
+  });
+
+  // Without a key no apiKey is passed at all: pi then keeps whatever credential
+  // the provider already has, never an empty string.
+  test('a gateway without a key passes no apiKey', () => {
+    const r = fakeRegistry();
+    registerGateway(r.pi, { MODEL_GATEWAY_URL: 'http://gw:4000/' });
+    expect(r.calls).toEqual([
+      ['anthropic', { baseUrl: 'http://gw:4000' }],
+      ['openai', { baseUrl: 'http://gw:4000/v1' }],
+    ]);
   });
 });

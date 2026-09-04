@@ -6,6 +6,7 @@ import { test, expect } from 'bun:test';
 import path from 'path';
 import {
   ClaudeTurn,
+  claudeEnv,
   claudeResultStatus,
   isRateLimitRejected,
   packContinuity,
@@ -182,4 +183,30 @@ test('ClaudeTurn: a rejected rate limit becomes one <status> notice frame', () =
   // seen-set dedups a repeat to once per turn.
   expect(f.text).toContain('<status>');
   expect(f.text).toContain('rate limit');
+});
+
+// --- model gateway --------------------------------------------------------
+
+// No gateway: the SDK receives the very same object, so today's env is untouched.
+test('claudeEnv: no gateway returns the same env object', () => {
+  const env = { ANTHROPIC_API_KEY: 'real', HOME: '/home/node' };
+  expect(claudeEnv(env)).toBe(env);
+});
+
+// Measured 2026-09-04: the SDK subprocess reads ANTHROPIC_BASE_URL and sends
+// ANTHROPIC_AUTH_TOKEN as `Authorization: Bearer <token>`. The rest of env
+// survives — HOME, the socket paths, everything the turn already carried.
+test('claudeEnv: a gateway becomes ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN', () => {
+  const out = claudeEnv({ HOME: '/home/node', MODEL_GATEWAY_URL: 'http://gw:4000', MODEL_GATEWAY_KEY: 'virtual-key-abc123' });
+  expect(out.ANTHROPIC_BASE_URL).toBe('http://gw:4000');
+  expect(out.ANTHROPIC_AUTH_TOKEN).toBe('virtual-key-abc123');
+  expect(out.HOME).toBe('/home/node');
+});
+
+// URL without a key: the harness's own credential still authenticates, so no
+// empty token is written over it.
+test('claudeEnv: URL without key sets only the base URL', () => {
+  const out = claudeEnv({ MODEL_GATEWAY_URL: 'http://gw:4000' });
+  expect(out.ANTHROPIC_BASE_URL).toBe('http://gw:4000');
+  expect('ANTHROPIC_AUTH_TOKEN' in out).toBe(false);
 });

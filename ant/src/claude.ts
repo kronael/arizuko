@@ -15,6 +15,7 @@ import { Binding, PolicyEvent, ToolEvent, bindings, runRow } from './policy.js';
 import type { ModelUsage } from './mcp.js';
 import { QUERY_TIMEOUT_MS, timeoutFrame } from './backend.js';
 import type { Frame, Harness, ResultFrame, Turn } from './backend.js';
+import { modelGateway } from './gateway.js';
 
 const HOME = '/home/node';
 
@@ -194,6 +195,20 @@ function assistantNameFromSettings(): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+// claudeEnv is claude's translation of the gateway pair (gateway.ts): the SDK
+// subprocess reads ANTHROPIC_BASE_URL and sends ANTHROPIC_AUTH_TOKEN as its
+// bearer. Measured 2026-09-04 against a local sink: with no real credential
+// set and ANTHROPIC_AUTH_TOKEN=virtual-key-abc123, the request carried
+// exactly `Authorization: Bearer virtual-key-abc123`. No gateway returns the
+// same object, so the SDK sees the env it sees today.
+export function claudeEnv(env: Record<string, string>): Record<string, string> {
+  const gw = modelGateway(env);
+  if (!gw) return env;
+  const out: Record<string, string> = { ...env, ANTHROPIC_BASE_URL: gw.url };
+  if (gw.key) out.ANTHROPIC_AUTH_TOKEN = gw.key;
+  return out;
 }
 
 // extraDirs lists the additional context directories for one turn: the shared
@@ -452,7 +467,7 @@ async function* runClaude(turn: Turn): AsyncGenerator<Frame> {
         // arizuko gates side effects at the gated MCP socket and the egress proxy.
         // sandbox off for the same reason — the container IS the sandbox.
         sandbox: { enabled: false },
-        env: turn.env,
+        env: claudeEnv(turn.env),
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
         settingSources: ['project', 'user'],

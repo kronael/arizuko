@@ -112,6 +112,7 @@ test('tomlValue: strings, arrays and tables render as TOML, never JSON', () => {
 test('codexArgs: renders turn.tools into -c overrides so tools cross the gated socket', () => {
   const args = codexArgs({
     cwd: '/home/node',
+    env: {},
     tools: {
       arizuko: {
         command: 'socat',
@@ -132,12 +133,12 @@ test('codexArgs: renders turn.tools into -c overrides so tools cross the gated s
 // do not run and codex prints no warning at all, so the turn looks healthy with
 // every gate absent. Pin it — a silent removal is indistinguishable from a pass.
 test('codexArgs: the hook-trust bypass is present, or every policy is silently off', () => {
-  expect(codexArgs({ cwd: '/home/node' })).toContain('--dangerously-bypass-hook-trust');
+  expect(codexArgs({ cwd: '/home/node', env: {} })).toContain('--dangerously-bypass-hook-trust');
 });
 
 test('codexArgs: model passes through verbatim only when set', () => {
-  expect(codexArgs({ cwd: '/home/node', model: 'gpt-5.5' })).toContain('gpt-5.5');
-  expect(codexArgs({ cwd: '/home/node' })).not.toContain('-m');
+  expect(codexArgs({ cwd: '/home/node', env: {}, model: 'gpt-5.5' })).toContain('gpt-5.5');
+  expect(codexArgs({ cwd: '/home/node', env: {} })).not.toContain('-m');
 });
 
 test('codexPrompt: system text and skills index precede the untouched envelope', () => {
@@ -152,7 +153,7 @@ test('codexPrompt: system text and skills index precede the untouched envelope',
 // persisted turn returned a thread_id and `codex exec resume <id>` recalled a
 // word given only in the earlier turn. `--ephemeral` writes no rollout.
 test('codexArgs: no continuity keeps the fresh-session shape', () => {
-  const args = codexArgs({ cwd: '/home/node' });
+  const args = codexArgs({ cwd: '/home/node', env: {} });
   expect(args[0]).toBe('exec');
   expect(args).not.toContain('resume');
   expect(args).not.toContain('--ephemeral');
@@ -161,7 +162,7 @@ test('codexArgs: no continuity keeps the fresh-session shape', () => {
 
 test('codexArgs: a continuity token becomes `exec resume <id>` and drops --cd', () => {
   const id = '01a02008-eeb1-7221-b72e-53a67645fb0c';
-  const args = codexArgs({ cwd: '/home/node', continuity: id });
+  const args = codexArgs({ cwd: '/home/node', env: {}, continuity: id });
   expect(args.slice(0, 2)).toEqual(['exec', 'resume']);
   // `codex exec resume` rejects --cd outright ("unexpected argument '--cd'
   // found") — passing it fails every resumed turn at argv parse.
@@ -172,6 +173,7 @@ test('codexArgs: a continuity token becomes `exec resume <id>` and drops --cd', 
 test('codexArgs: mcp overrides survive a resumed turn', () => {
   const args = codexArgs({
     cwd: '/home/node',
+    env: {},
     continuity: '01a02008-eeb1-7221-b72e-53a67645fb0c',
     tools: { arizuko: { command: 'socat', args: ['-'] } },
   });
@@ -190,4 +192,37 @@ test('CodexTurn.finish: a missing rollout is retryFresh, never a reply', () => {
   expect(ev.retryFresh).toBe(true);
   // The diagnostic must not reach the user as the turn's answer.
   expect(ev.text).toBeUndefined();
+});
+
+// --- model gateway --------------------------------------------------------
+
+// No gateway in env: argv is identical to an empty env, so today's shape is
+// untouched whatever else the container env carries.
+test('codexArgs: no gateway leaves argv identical to today', () => {
+  const plain = codexArgs({ cwd: '/home/node', env: {} });
+  expect(codexArgs({ cwd: '/home/node', env: { HOME: '/home/node', OPENAI_API_KEY: 'real' } })).toEqual(plain);
+  expect(plain.join(' ')).not.toContain('model_provider');
+});
+
+// Measured 2026-09-04 with codex-cli 0.153.2: this provider block routes the
+// turn through the gateway; `wire_api=chat` is rejected as "no longer
+// supported". The key VALUE never enters argv — codex reads it by env name.
+test('codexArgs: a gateway is a `gateway` provider on the responses wire, key by env name', () => {
+  const args = codexArgs({ cwd: '/home/node', env: { MODEL_GATEWAY_URL: 'http://gw:4000', MODEL_GATEWAY_KEY: 'virtual-key-abc123' } });
+  expect(args).toContain('model_provider="gateway"');
+  expect(args).toContain('model_providers.gateway.name="gateway"');
+  expect(args).toContain('model_providers.gateway.base_url="http://gw:4000/v1"');
+  expect(args).toContain('model_providers.gateway.wire_api="responses"');
+  expect(args).toContain('model_providers.gateway.env_key="MODEL_GATEWAY_KEY"');
+  expect(args).not.toContain('model_providers.gateway.requires_openai_auth=true');
+  expect(args.join(' ')).not.toContain('virtual-key-abc123');
+  expect(args.at(-1)).toBe('-');
+});
+
+// URL without a key: codex sends its own ChatGPT bearer to base_url instead
+// (measured 2026-09-04), so requires_openai_auth replaces env_key.
+test('codexArgs: a gateway without a key sends codex\'s own bearer', () => {
+  const args = codexArgs({ cwd: '/home/node', env: { MODEL_GATEWAY_URL: 'http://gw:4000' } });
+  expect(args).toContain('model_providers.gateway.requires_openai_auth=true');
+  expect(args.join(' ')).not.toContain('env_key');
 });

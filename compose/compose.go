@@ -169,6 +169,10 @@ var daemonKeys = map[string][]string{
 		// the instance .env value never reaches runed, so `ARIZUKO_BACKEND=codex;
 		// restart` silently kept spawning claude.
 		"ARIZUKO_BACKEND",
+		// MODEL_GATEWAY_URL/KEY: runed re-emits them as container env
+		// (container/runner.go buildArgs); absent here the instance .env value
+		// never reaches it, the same silent no-op as ARIZUKO_BACKEND.
+		"MODEL_GATEWAY_URL", "MODEL_GATEWAY_KEY",
 		// NO SECRETS_KEY. runed injects the model credentials routd already decrypted;
 		// it opens no secrets table, so the fleet's decryption key had no reader here —
 		// only a wider blast radius on the one daemon holding docker.sock (BUGS X3).

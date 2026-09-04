@@ -305,3 +305,17 @@ func TestPublicBaseURL(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadConfigModelGateway(t *testing.T) {
+	t.Setenv("MODEL_GATEWAY_URL", "http://gw:4000")
+	t.Setenv("MODEL_GATEWAY_KEY", "virtual-key-abc123")
+	t.Setenv("ARIZUKO_DEV", "true")
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ModelGatewayURL != "http://gw:4000" || cfg.ModelGatewayKey != "virtual-key-abc123" {
+		t.Fatalf("gateway pair not read: %q %q", cfg.ModelGatewayURL, cfg.ModelGatewayKey)
+	}
+}
