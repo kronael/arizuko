@@ -14,6 +14,26 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Added
+
+- **The model gateway: the agent container stops holding the real model
+  credential** (spec `6/23`). Set `MODEL_GATEWAY_URL` and
+  `MODEL_GATEWAY_KEY` and every spawn talks to a gateway that holds the
+  credential, meters the spend and logs the traffic; the container carries
+  only a virtual key. One declaration, three readers — `claude` takes an env
+  pair, `codex` a `-c` provider block, `pi` a `registerProvider` override.
+  Unset is the default and byte-identical to before.
+  `arizuko packages <name> add litellm` ships the gateway itself, and its
+  JSON log lines join `journalctl -u arizuko_<name>` with every other daemon.
+  Which credential the gateway holds matters: an API key works for all three
+  harnesses, while a subscription token keeps plan billing only for
+  first-party clients — measured, `pi` gets a 400 from Anthropic and needs
+  extra-usage credits or an API key.
+- The configured gateway host joins each spawn's egress allowlist by
+  construction. Egress isolation would otherwise deny it and every turn
+  would fail with no model call, on an instance that looks correctly
+  configured.
+
 ### Changed
 
 - **One `[[connector]]` block for every external tool source** (spec `6/19`).
