@@ -36,6 +36,22 @@ show/control matrices.
 **Every datum a dashboard shows about ANOTHER daemon flows through that
 daemon's `/v1` surface. No dashboard reads another daemon's SQLite file.**
 
+**Exception, added 2026-09-04: a read the owner REFUSES to serve.** The rule
+assumes the owner will serve everything a dashboard shows. One table breaks that
+assumption on purpose — `secrets`. routd's secrets resource is write-only by
+design (`routd/secrets_resource.go:43`: "Write-only: no read twin, no agent MCP
+tool"), and resreg gives REST and MCP from one declaration, so adding the read
+face this rule would demand means shipping an API that LISTS SECRETS to satisfy
+a dashboard-hygiene rule. That is strictly worse than the direct read it would
+replace.
+
+So `/dash/me/secrets` and `/dash/me/env` read `secrets` directly, and that is
+correct rather than tolerated. The test is not "does the dashboard read another
+daemon's file" but "would the owner serve this if asked": where the owner
+refuses on purpose, the refusal is the design and the direct read stays. Any
+future exception carries the same burden — a named, deliberate refusal in the
+owner's code, not an endpoint nobody got round to writing.
+
 A daemon's own dashboard reading its OWN DB is the topology, not a leak: the
 daemon owns that file, migrates it, and is the only writer. Requiring it to
 call its own `/v1` to render its own page would be a second reader of one

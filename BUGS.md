@@ -790,7 +790,13 @@ to the file on a routd hiccup is the second path this rule exists to remove, and
 it would make the defect invisible instead of fixed — the pages now render a
 loud "could not reach routd" banner instead.
 
-**One page must NOT be federated, and that is a finding rather than a gap.**
+**Me-secrets: CLOSED 2026-09-04 by amending the rule, not the code.** `6/28`
+now carries an exception for a read the owner REFUSES to serve, and states the
+burden: a named, deliberate refusal in the owner's code, not an endpoint nobody
+got round to writing. `/dash/me/{secrets,env}` reading `secrets` directly is
+correct rather than tolerated.
+
+The original finding, kept because it is the exception's whole justification:
 Me-secrets/env reads `secrets`, and routd's secrets resource is deliberately
 write-only — `routd/secrets_resource.go:43`: "Write-only: no read twin, no agent
 MCP tool." Satisfying `6/28`'s rule there means creating a REST **and MCP**
@@ -799,7 +805,22 @@ would replace. So `6/28` needs a recorded exception for owner-refused reads, not
 code: the rule assumes the owner will serve everything a dashboard shows, and
 here the owner refuses on purpose.
 
-**Still open, and what each needs:** Status (`sessions`), Activity and Usage's
+**The remaining four pages are ONE decision, not four.** Tasks, Status,
+Activity and Usage's message reads all fail at the same place: `service:dashd`'s
+scope set. routd gates its reads with
+`scopeRead = {chats:read:own_group, chats:read, messages:read}`
+(`routd/turns.go:34`) and its task list with `tasks:read`; dashd's token
+(`authd/http.go:103`) holds none of them. Measured live on krons:
+`GET /v1/groups 200`, `GET /v1/tasks 403`.
+
+`authd/service_dashd_test.go:57` pins that set exactly — "every scope beyond
+these needs the sign-off `routes:write` got" — so the ceiling is deliberate and
+one sign-off unblocks all four. **The decision: add `tasks:read` and
+`messages:read` to `service:dashd`, both read-only.** Neither confers new
+visibility: all four pages already display this data by reading `routd.db`
+directly. It replaces four file handles with doors their owner controls.
+
+**Per-page detail:** Status (`sessions`), Activity and Usage's
 two `FROM messages` reads, Grants' `user_profiles` + `acl_membership` datalists (the scope/groups
 datalist IS converted; `/v1/acl_membership` is DELETE-only, with no list face),
 Profile (`user_profiles`), and Me secrets/env (`secrets`). **Tasks: written, deployed, REVERTED the same day — blocked on ONE scope that
