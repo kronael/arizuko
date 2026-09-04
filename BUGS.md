@@ -792,9 +792,14 @@ loud "could not reach routd" banner instead.
 
 **Still open, and what each needs:** Status (`sessions`), Activity and Usage's
 two `FROM messages` reads, Grants' `user_profiles` + `acl_membership` datalists,
-Profile (`user_profiles`), and Me secrets/env (`secrets`). Tasks and the
-membership half are mechanical — routd already mounts `/v1/scheduled_tasks` and
-`/v1/membership`. The rest need a read endpoint that does not exist yet, and
+Profile (`user_profiles`), and Me secrets/env (`secrets`). **Tasks is NOT mechanical, checked:** routd's list takes `?folder=`, ONE
+folder (`routd/tasks_http.go:41`), while the page needs the caller's N glob
+patterns — `ownerVisibleSQL("owner", allowed)` pushes them into the WHERE so the
+`LIMIT` counts only visible rows. That is a documented fix: filtering in Go
+after a plain `LIMIT 500` drops a scoped user's tasks whenever 500 other-owner
+rows sort ahead. Federating it through a single-folder filter would reintroduce
+exactly that, so it needs a scope-aware list on the OWNER's side first — a
+resreg/routd change, not a dashd swap. The rest need a read endpoint that does not exist yet, and
 each is one resreg resource, which also hands the agent the same door as an MCP
 tool (`5/17`).
 
