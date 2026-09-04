@@ -146,18 +146,19 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 	var scopeSelect strings.Builder
 	scopeSelect.WriteString(`<select name="scope">`)
 	fmt.Fprintf(&scopeSelect, `<option value="%s" selected>%s (this folder)</option>`, esc(folder), esc(folder))
-	if gRows, err := d.adminDB().Query(
-		`SELECT folder FROM groups WHERE `+groupfolder.SQLSubtree("folder", "/")+
-			` ORDER BY folder LIMIT 200`,
-		groupfolder.SubtreeArgs(folder, "/")...); err == nil {
-		defer gRows.Close()
-		for gRows.Next() {
-			var gf string
+	// routd owns `groups`, so the subtree is filtered from ITS answer rather
+	// than from its file (6/28). Containment is groupfolder.Contains — the same
+	// rule the POST handler rejects a widened scope with, so the UI cannot
+	// offer an option the server would refuse.
+	if all, err := d.foldersViaRoutd(r.Context()); err == nil {
+		for _, gf := range all {
 			// The folder itself is already the selected option above.
-			if err := gRows.Scan(&gf); err == nil && gf != folder {
+			if gf != folder && groupfolder.Contains(folder, gf) {
 				fmt.Fprintf(&scopeSelect, `<option value="%s">%s</option>`, esc(gf), esc(gf))
 			}
 		}
+	} else {
+		slog.Warn("grants: scope options via routd", "err", err)
 	}
 	scopeSelect.WriteString(`</select>`)
 

@@ -790,8 +790,18 @@ to the file on a routd hiccup is the second path this rule exists to remove, and
 it would make the defect invisible instead of fixed — the pages now render a
 loud "could not reach routd" banner instead.
 
+**One page must NOT be federated, and that is a finding rather than a gap.**
+Me-secrets/env reads `secrets`, and routd's secrets resource is deliberately
+write-only — `routd/secrets_resource.go:43`: "Write-only: no read twin, no agent
+MCP tool." Satisfying `6/28`'s rule there means creating a REST **and MCP**
+surface that LISTS secrets, which is strictly worse than the direct read it
+would replace. So `6/28` needs a recorded exception for owner-refused reads, not
+code: the rule assumes the owner will serve everything a dashboard shows, and
+here the owner refuses on purpose.
+
 **Still open, and what each needs:** Status (`sessions`), Activity and Usage's
-two `FROM messages` reads, Grants' `user_profiles` + `acl_membership` datalists,
+two `FROM messages` reads, Grants' `user_profiles` + `acl_membership` datalists (the scope/groups
+datalist IS converted; `/v1/acl_membership` is DELETE-only, with no list face),
 Profile (`user_profiles`), and Me secrets/env (`secrets`). **Tasks is NOT mechanical, checked:** routd's list takes `?folder=`, ONE
 folder (`routd/tasks_http.go:41`), while the page needs the caller's N glob
 patterns — `ownerVisibleSQL("owner", allowed)` pushes them into the WHERE so the
