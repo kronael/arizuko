@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -15,30 +14,13 @@ import (
 // callerGroups parses the proxyd-signed X-User-Groups header into the list of
 // folders the caller holds an allow-grant on (auth.UserScopes output). JSON
 // array is canonical; a comma-separated fallback covers non-JSON encoders.
-// This is the SAME extraction requireAdmin folds into auth.Authorize.
-func callerGroups(r *http.Request) []string {
-	hdr := r.Header.Get("X-User-Groups")
-	if hdr == "" {
-		return nil
-	}
-	var groups []string
-	_ = json.Unmarshal([]byte(hdr), &groups)
-	if len(groups) == 0 && !strings.HasPrefix(strings.TrimSpace(hdr), "[") {
-		for p := range strings.SplitSeq(hdr, ",") {
-			if p = strings.TrimSpace(p); p != "" {
-				groups = append(groups, p)
-			}
-		}
-	}
-	return groups
-}
 
 // callerScope returns the caller's allowed folders and whether the caller is an
 // operator (`**` in the set). Source of truth is the same the write gate trusts: the
 // proxyd-signed X-User-Groups header, with an auth.UserScopes(sub) fallback when it is
 // absent. ALL read handlers route their scope decision through this one helper.
 func (d *dash) callerScope(r *http.Request) (allowed []string, operator bool) {
-	allowed = callerGroups(r)
+	allowed = auth.CallerGroups(r)
 	if len(allowed) == 0 {
 		if sub := strings.TrimSpace(r.Header.Get("X-User-Sub")); sub != "" && d.adminDB() != nil {
 			scopes, err := auth.UserScopes(store.New(d.adminDB()), strings.TrimPrefix(sub, "user:"))
@@ -52,10 +34,7 @@ func (d *dash) callerScope(r *http.Request) (allowed []string, operator bool) {
 			allowed = scopes
 		}
 	}
-	if slices.Contains(allowed, "**") {
-		return allowed, true
-	}
-	return allowed, false
+	return allowed, slices.Contains(allowed, auth.OperatorGroup)
 }
 
 // visible reports whether a non-operator caller may see `folder`. Operators see
@@ -87,7 +66,7 @@ func (d *dash) requireVisible(w http.ResponseWriter, r *http.Request, folder str
 	}
 	allowed, operator := d.callerScope(r)
 	if !visible(allowed, operator, folder) {
-		http.Error(w, "forbidden", http.StatusForbidden)
+		auth.Forbidden(w, "dashd", "You do not have access to "+folder+".")
 		return false
 	}
 	return true
@@ -101,7 +80,7 @@ func (d *dash) requireOperator(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 	if _, operator := d.callerScope(r); !operator {
-		http.Error(w, "forbidden", http.StatusForbidden)
+		auth.Forbidden(w, "dashd", "Operator access required.")
 		return false
 	}
 	return true
@@ -219,7 +198,7 @@ func (d *dash) requireAdmin(w http.ResponseWriter, r *http.Request, scope string
 		return "", false
 	}
 	s := store.New(d.adminDB())
-	caller := auth.Caller{Principal: sub, Extra: callerGroups(r)}
+	caller := auth.Caller{Principal: sub, Extra: auth.CallerGroups(r)}
 	if !auth.Authorize(s, caller, "admin", scope, nil) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return "", false

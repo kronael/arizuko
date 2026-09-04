@@ -15,7 +15,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -653,7 +652,7 @@ var navLinks = []struct {
 // from the signed X-User-Groups).
 func dashNavFor(r *http.Request) string {
 	urlPath := r.URL.Path
-	operator := slices.Contains(callerGroups(r), "**")
+	operator := auth.IsOperator(r)
 	name := r.Header.Get("X-User-Name")
 	if name == "" {
 		sub := r.Header.Get("X-User-Sub")

@@ -1,6 +1,6 @@
 ---
 status: defected
-defects: [L141, L142]
+defects: [L142]
 depends: [5/17-openapi-mcp, 5/7-proxyd-standalone, 5/1-auth-standalone]
 ---
 

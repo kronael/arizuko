@@ -822,7 +822,26 @@ coupling, no bypassed authz on the owner's side. Nine pages currently can.
 - **Status:** open — `6/28` and `6/29` carry `defected`
 - **Fix:** migrate each read to routd's `/v1`, or amend the specs to state the real rule (which may be "no CROSS-daemon read", given dashd is FS-mounted on routd.db)
 
-## L141 — dashd, the hub the cockpit specs are about, is the one dashboard NOT on the shared operator gate, and still carries the `**` shortcut `6/28` says was replaced (2026-08-30, open)
+## ✅ FIXED 2026-09-04 L141 — dashd, the hub the cockpit specs are about, is the one dashboard NOT on the shared operator gate, and still carries the `**` shortcut `6/28` says was replaced (2026-08-30, fixed 2026-09-04)
+
+**FIXED 2026-09-04.** Three copies became one, each verified before deleting:
+`dashd.callerGroups` was byte-for-byte `auth.CallerGroups` (same header, same
+unmarshal, same nil-on-empty) and is gone; the literal `"**"` is now
+`auth.OperatorGroup`; `main.go`'s own `slices.Contains(callerGroups(r), "**")`
+is `auth.IsOperator(r)`. The operator and per-folder refusals render
+`auth.Forbidden`'s themed banner instead of `http.Error` bare text.
+
+`callerScope`'s DB fallback stays: when `X-User-Groups` is absent it reads
+`auth.UserScopes(sub)`, which the shared `IsOperator` has no equivalent for, so
+delegating the whole decision would have LOST a path rather than unified one.
+The shared readers are used where they are the same rule, and only there.
+
+`dashd/operator_gate_test.go` pins both halves; both mutation-checked (bare-text
+refusal, wrong operator constant), both red.
+
+Still true, and not this entry's claim: `ttsd/dash.go:36-38` inlines
+`auth.IsOperator` + `auth.Forbidden` rather than `RequireOperator`, documented in
+code as deliberate because ttsd holds no `KeySet`.
 
 **The promise.** `6/28` Build state: `auth/dashauth.go` is "the one operator
 decision every daemon dashboard applies", replacing three drifted copies — one of
