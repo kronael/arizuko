@@ -319,3 +319,25 @@ func TestSweepEgressProxiesFiltersByInstance(t *testing.T) {
 		t.Errorf("sweep must filter by this instance's label; got %s", joined)
 	}
 }
+
+// TestGatewayHostJoinsAllowlist pins the rule that a configured gateway is
+// reachable by construction. Without it the per-spawn proxy denies the gateway
+// and every turn fails with no model call, on an instance that looks correctly
+// configured.
+func TestGatewayHostJoinsAllowlist(t *testing.T) {
+	for _, tc := range []struct {
+		name, url, want string
+	}{
+		{"full URL", "http://litellm:4000", "litellm"},
+		{"https with path", "https://gw.example.com/v1", "gw.example.com"},
+		{"bare host:port", "litellm:4000", "litellm"},
+		{"unset", "", ""},
+		{"unparseable", "://nope", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := gatewayHost(tc.url); got != tc.want {
+				t.Errorf("gatewayHost(%q) = %q, want %q", tc.url, got, tc.want)
+			}
+		})
+	}
+}

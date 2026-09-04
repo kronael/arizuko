@@ -141,6 +141,7 @@ func (d *dockerRuntime) egress(allowlist []string) container.EgressConfig {
 		Image:         d.cfg.EgressImage,
 		UplinkNetwork: d.cfg.EgressUplinkNetwork,
 		AllowlistFn:   func(string) ([]string, error) { return allowlist, nil },
+		GatewayURL:    d.cfg.ModelGatewayURL,
 	}
 }
 

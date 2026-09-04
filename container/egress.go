@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -58,6 +59,29 @@ type EgressConfig struct {
 	// AllowlistFn returns the resolved allowlist for an opaque id (in
 	// arizuko's case the folder).
 	AllowlistFn func(id string) ([]string, error)
+	// GatewayURL is core.Config.ModelGatewayURL. When a gateway is configured
+	// it IS the model endpoint, so its host joins the allowlist the way
+	// migration 0005 seeds api.anthropic.com as a global system rule — a
+	// folder cannot grant it, because a folder that failed to would reach no
+	// model at all. Empty (no gateway) adds nothing.
+	GatewayURL string
+}
+
+// gatewayHost is the one place that turns the configured gateway URL into an
+// allowlist entry. A bare host:port or a full URL both resolve; anything
+// unparseable yields "" and is skipped rather than injected raw.
+func gatewayHost(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	if !strings.Contains(raw, "//") {
+		raw = "http://" + raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return u.Hostname()
 }
 
 func (e EgressConfig) active() bool {
@@ -150,6 +174,12 @@ func startEgressProxy(cfg EgressConfig, id, spawnName string) (egressSpawn, erro
 			continue
 		}
 		names = append(names, e)
+	}
+	// The gateway is the model endpoint for this deployment, so it is allowed
+	// by construction. Without this the proxy denies it and EVERY turn fails
+	// with no model call — the feature would look configured and be dead.
+	if h := gatewayHost(cfg.GatewayURL); h != "" {
+		names = append(names, h)
 	}
 	spawnIP, proxyIP, err := pickPair(subnet)
 	if err != nil {
