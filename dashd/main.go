@@ -894,7 +894,7 @@ func (d *dash) handleTasks(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, `<table hx-get="/dash/tasks/x/list" hx-trigger="every 10s" hx-target="tbody" hx-swap="innerHTML">`+
 		`<thead><tr><th>ID</th><th>Group</th><th>Prompt</th><th>Cron</th><th>Status</th><th>Created</th><th>Next Run</th></tr></thead>`+
 		`<tbody>`)
-	d.writeTaskRows(w, allowed, operator)
+	d.writeTaskRows(r.Context(), w, allowed, operator)
 	fmt.Fprint(w, `</tbody></table>`)
 
 	fmt.Fprint(w, htmlSection("Create task",
@@ -913,7 +913,7 @@ func (d *dash) handleTasks(w http.ResponseWriter, r *http.Request) {
 func (d *dash) handleTasksPartial(w http.ResponseWriter, r *http.Request) {
 	allowed, operator := d.callerScope(r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	d.writeTaskRows(w, allowed, operator)
+	d.writeTaskRows(r.Context(), w, allowed, operator)
 }
 
 // ownerVisibleSQL builds a WHERE predicate restricting a folder-valued column to
@@ -939,49 +939,30 @@ func ownerVisibleSQL(col string, allowed []string) (where string, args []any, ok
 	return "(" + strings.Join(terms, " OR ") + ")", args, true
 }
 
-func (d *dash) writeTaskRows(w http.ResponseWriter, allowed []string, operator bool) {
-	if d.adminDB() == nil {
-		fmt.Fprint(w, `<tr><td colspan=7 class="empty">backend unavailable</td></tr>`)
-		return
-	}
-	// Scope the query for non-operators so the LIMIT counts only visible rows —
-	// filtering owner in Go after a plain LIMIT 500 drops a scoped user's tasks
-	// whenever 500 other-owner rows sort ahead of them. A glob grant that SQL
-	// can't express falls back to an over-fetch (visible() below stays the gate).
-	q := `SELECT id, owner, COALESCE(prompt,''), cron, status, created_at, next_run
-	      FROM scheduled_tasks`
-	var args []any
-	tail := ` ORDER BY owner, id LIMIT 500`
-	if !operator {
-		if where, wargs, ok := ownerVisibleSQL("owner", allowed); ok {
-			q += ` WHERE ` + where
-			args = wargs
-		} else {
-			tail = ` ORDER BY owner, id LIMIT 5000`
-		}
-	}
-	rows, err := d.adminDB().Query(q+tail, args...)
+func (d *dash) writeTaskRows(ctx context.Context, w http.ResponseWriter, allowed []string, operator bool) {
+	// routd owns scheduled_tasks; the page asks rather than reads its file
+	// (6/28). dashd's service token carries an empty folder claim, which routd
+	// reads as list-all and does not cap — so the visibility filter and the
+	// display window both apply HERE, after the full set is in hand. That
+	// ordering is the point: filtering after a SQL `LIMIT 500` dropped a scoped
+	// user's tasks whenever 500 other-owner rows sorted ahead (the reason the
+	// old query pushed the scope into its WHERE).
+	tasks, err := d.tasksViaRoutd(ctx)
 	if err != nil {
-		slog.Warn("tasks: query", "err", err)
-		fmt.Fprintf(w, `<tr><td colspan=7 class="empty">error: %s</td></tr>`, esc(err.Error()))
+		slog.Warn("tasks: read via routd", "err", err)
+		fmt.Fprint(w, `<tr><td colspan=7 class="empty">could not reach routd for the task list</td></tr>`)
 		return
 	}
-	defer rows.Close()
 	var n int
-	for rows.Next() {
-		var id, owner, prompt, status, createdAt string
-		var cron, nextRun sql.NullString
-		if err := rows.Scan(&id, &owner, &prompt, &cron, &status, &createdAt, &nextRun); err != nil {
-			slog.Warn("tasks: scan row", "err", err)
-			fmt.Fprintf(w, `<tr><td colspan=7 class="empty">scan error: %s</td></tr>`,
-				esc(err.Error()))
+	for _, t := range tasks {
+		if !visible(allowed, operator, t.Owner) {
 			continue
 		}
-		if !visible(allowed, operator, owner) {
-			continue
+		if n >= taskPageSize {
+			break
 		}
 		dot := "dot-ok"
-		if status != "active" {
+		if t.Status != "active" {
 			dot = "dot-warn"
 		}
 		fmt.Fprintf(w,
@@ -994,27 +975,25 @@ func (d *dash) writeTaskRows(w http.ResponseWriter, allowed []string, operator b
 				`<td>%s</td>`+
 				`<td>%s</td>`+
 				`</tr>`,
-			esc(id), esc(id),
-			esc(owner),
-			esc(prompt), esc(truncate64(prompt)),
-			esc(cron.String),
-			dot, esc(status),
-			abbrTS(createdAt),
-			abbrTS(nextRun.String),
+			esc(t.ID), esc(t.ID),
+			esc(t.Owner),
+			esc(t.Prompt), esc(truncate64(t.Prompt)),
+			esc(t.Cron),
+			dot, esc(t.Status),
+			abbrTS(t.Created),
+			abbrTS(t.NextRun),
 		)
 		n++
-	}
-	if err := rows.Err(); err != nil {
-		slog.Warn("tasks: rows", "err", err)
-		fmt.Fprintf(w, `<tr><td colspan=7 class="empty">rows error: %s</td></tr>`,
-			esc(err.Error()))
-		return
 	}
 	if n == 0 {
 		fmt.Fprint(w, `<tr><td colspan=7 class="empty">No scheduled tasks. `+
 			`Ask the agent to schedule one (e.g. "remind me every morning at 8am").</td></tr>`)
 	}
 }
+
+// taskPageSize bounds the rendered task table. It is a DISPLAY window applied
+// after the visibility filter, never a fetch cap applied before it.
+const taskPageSize = 500
 
 // activityPageSize is the rendered window for one activity page.
 const activityPageSize = 50
