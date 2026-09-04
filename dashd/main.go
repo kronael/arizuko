@@ -851,24 +851,18 @@ func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, htmlBannerRaw("warn", `No groups configured. <a href="/dash/groups/new">Create your first group.</a>`))
 	}
 
-	if operator && d.adminDB() != nil {
-		rows, err := d.adminDB().Query(
-			`SELECT group_folder, COUNT(*) FROM sessions GROUP BY group_folder ORDER BY group_folder`)
+	if operator {
+		counts, err := d.sessionCountsViaRoutd(r.Context())
 		if err != nil {
-			slog.Warn("status: sessions query", "err", err)
+			slog.Warn("status: session counts via routd", "err", err)
 		} else {
-			defer rows.Close()
 			var sessionRows [][]string
 			var total int
-			for rows.Next() {
-				var folder string
-				var n int
-				if err := rows.Scan(&folder, &n); err == nil {
-					fp := folderPath(folder)
-					link := fmt.Sprintf(`<a href="/dash/groups/%s">%s</a>`, esc(fp), esc(folder))
-					sessionRows = append(sessionRows, []string{link, fmt.Sprintf("%d", n)})
-					total += n
-				}
+			for _, c := range counts {
+				fp := folderPath(c.Folder)
+				link := fmt.Sprintf(`<a href="/dash/groups/%s">%s</a>`, esc(fp), esc(c.Folder))
+				sessionRows = append(sessionRows, []string{link, fmt.Sprintf("%d", c.Count)})
+				total += c.Count
 			}
 			if len(sessionRows) > 0 {
 				fmt.Fprintf(w, `<h2>Active sessions <span class="dim" style="font-weight:normal">%d total</span></h2>`, total)

@@ -186,3 +186,50 @@ func (d *dash) tasksViaRoutd(ctx context.Context) ([]resources.ScheduledTasksRow
 	}
 	return rows, nil
 }
+
+// SessionCount is one folder's live session tally, as routd's
+// GET /v1/sessions/counts serves it.
+type SessionCount struct {
+	Folder string `json:"folder"`
+	Count  int    `json:"count"`
+}
+
+// sessionCountsViaRoutd reads the Status page's per-folder session tally from
+// the daemon that owns `sessions` (6/28, BUGS L142).
+func (d *dash) sessionCountsViaRoutd(ctx context.Context) ([]SessionCount, error) {
+	body, status, err := d.bearerCall(ctx, d.routdURL, http.MethodGet, "/v1/sessions/counts", nil)
+	if err != nil {
+		return nil, err
+	}
+	if status < 200 || status >= 300 {
+		return nil, fmt.Errorf("routd /v1/sessions/counts: status %d", status)
+	}
+	var rows []SessionCount
+	if err := json.Unmarshal(body, &rows); err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// DailyVolume is one day's human-message count, as routd's
+// GET /v1/messages/volume serves it. The is_bot_message filter lives with the
+// owner, so this page cannot widen it to include the agent's own output.
+type DailyVolume struct {
+	Day   string `json:"day"`
+	Count int    `json:"count"`
+}
+
+func (d *dash) messageVolumeViaRoutd(ctx context.Context) ([]DailyVolume, error) {
+	body, status, err := d.bearerCall(ctx, d.routdURL, http.MethodGet, "/v1/messages/volume", nil)
+	if err != nil {
+		return nil, err
+	}
+	if status < 200 || status >= 300 {
+		return nil, fmt.Errorf("routd /v1/messages/volume: status %d", status)
+	}
+	var rows []DailyVolume
+	if err := json.Unmarshal(body, &rows); err != nil {
+		return nil, err
+	}
+	return rows, nil
+}

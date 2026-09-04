@@ -93,7 +93,7 @@ func (d *DB) TopicLineage(folder, topic string) (core.TopicLineage, bool) {
 // UPSERT, not UPDATE: buildAgentPrompt advances the cursor BEFORE PutSession
 // creates the (folder,topic) row, so a plain UPDATE would match zero rows on a
 // topic's first turns and re-include the observed window. The inserted row
-// carries session_id='' (PutSession fills it post-run without clobbering
+// carries session_id=” (PutSession fills it post-run without clobbering
 // observed_cursor).
 func (d *DB) UpdateObservedCursor(folder, topic, ts string) error {
 	_, err := d.db.Exec(

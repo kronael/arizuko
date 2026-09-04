@@ -79,7 +79,6 @@ func TestDispatchRun_GroupTaskResumesSession(t *testing.T) {
 	}
 }
 
-
 // The write-back half: runed mints a throwaway session for an isolated spawn, so
 // routd must not install it as the topic's session. Without this the read-side
 // fix above would swap the chat's transcript for the cron's on the next tick.

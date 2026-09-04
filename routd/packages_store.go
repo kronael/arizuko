@@ -81,7 +81,7 @@ func (d *DB) InstalledPackage(folder, name string) (InstalledPackage, bool, erro
 	return p, true, nil
 }
 
-// InstalledPackages lists every record, instance-wide rows first (folder ''
+// InstalledPackages lists every record, instance-wide rows first (folder ”
 // sorts before any group), then by name.
 func (d *DB) InstalledPackages() ([]InstalledPackage, error) {
 	rows, err := d.db.Query(`SELECT ` + installedPackageCols + `

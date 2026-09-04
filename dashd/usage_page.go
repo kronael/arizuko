@@ -79,7 +79,7 @@ func (d *dash) handleUsage(w http.ResponseWriter, r *http.Request) {
 
 	// 7-day daily message volume (human messages only).
 	fmt.Fprint(w, `<h2>7-day volume</h2>`)
-	fmt.Fprint(w, d.usageVolumeTable())
+	fmt.Fprint(w, d.usageVolumeTable(r.Context()))
 
 	pageClose(w, r)
 }
@@ -202,32 +202,18 @@ func (d *dash) groupUsageBulkBatch(batch []string, costMap map[string]usageCost,
 }
 
 // usageVolumeTable renders the 7-day daily human-message count from routd.db.
-func (d *dash) usageVolumeTable() string {
-	if d.adminDB() == nil {
-		return htmlBanner("err", "messages store unavailable")
-	}
-	rows, err := d.adminDB().Query(
-		`SELECT DATE(timestamp) AS day, COUNT(*) AS cnt
-		 FROM messages
-		 WHERE is_bot_message=0 AND timestamp >= datetime('now', '-7 days')
-		 GROUP BY day ORDER BY day DESC`)
+func (d *dash) usageVolumeTable(ctx context.Context) string {
+	// routd owns `messages` and applies the is_bot_message filter itself, so
+	// this page cannot widen the histogram to include the agent's own output
+	// (6/28 read path, BUGS L142).
+	days, err := d.messageVolumeViaRoutd(ctx)
 	if err != nil {
-		slog.Warn("usage page: volume", "err", err)
-		return htmlBanner("err", "volume query error: "+err.Error())
+		slog.Warn("usage page: volume via routd", "err", err)
+		return htmlBanner("err", "could not reach routd for message volume")
 	}
-	defer rows.Close()
 	var volRows [][]string
-	for rows.Next() {
-		var day string
-		var cnt int
-		if err := rows.Scan(&day, &cnt); err != nil {
-			slog.Warn("usage page: volume scan", "err", err)
-			continue
-		}
-		volRows = append(volRows, []string{esc(day), fmt.Sprintf("%d", cnt)})
-	}
-	if err := rows.Err(); err != nil {
-		slog.Warn("usage page: volume rows", "err", err)
+	for _, d := range days {
+		volRows = append(volRows, []string{esc(d.Day), fmt.Sprintf("%d", d.Count)})
 	}
 	return htmlTable([]string{"Date", "Messages"}, volRows)
 }

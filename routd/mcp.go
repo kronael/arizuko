@@ -465,7 +465,7 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		// table unscoped, so scope it here to folder visibility and propagate the DB
 		// error instead of swallowing it — an unscoped, truncated table let inspect see
 		// unrelated groups' routes and hid a real DB error as an empty list (BUGS A3).
-		ListRoutes: scopeRoutes(func() ([]core.Route, error) { return s.db.Routes() }),
+		ListRoutes:          scopeRoutes(func() ([]core.Route, error) { return s.db.Routes() }),
 		DefaultFolderForJID: s.db.DefaultFolderForJID,
 		RouteTokenTarget:    s.db.RouteTokenTarget,
 		JIDRoutedToFolder:   s.db.JIDRoutedToFolder,

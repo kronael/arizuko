@@ -28,7 +28,7 @@ type IdentityResolver interface {
 
 // httpIdentity calls authd's identity endpoint with routd's service token.
 type httpIdentity struct {
-	url   string                              // AUTHD_URL, trailing slash trimmed
+	url   string                                // AUTHD_URL, trailing slash trimmed
 	token func(context.Context) (string, error) // routd's service:routd bearer
 	c     *http.Client
 }

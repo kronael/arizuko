@@ -170,7 +170,7 @@ func putWebRouteTx(ctx context.Context, tx *sql.Tx, r WebRouteRow) error {
 	return err
 }
 
-// deleteWebRouteTx removes a web_routes row on tx. The `(folder=? OR ?='')` predicate
+// deleteWebRouteTx removes a web_routes row on tx. The `(folder=? OR ?=”)` predicate
 // widens ONLY when folder is empty. Containment therefore lives entirely in how the
 // caller resolves its folder — the agent socket's own group, or the REST target bounded
 // to the JWT subtree — never in this SQL.

@@ -300,6 +300,10 @@ func (s *Server) Handler() http.Handler {
 	// (group_folder, topic) → Claude-session-id map, so the path says topic
 	// (BUGS F46, spec 5/5 § Tier 3).
 	mux.HandleFunc("GET /v1/topic_sessions", s.handleSessionGet)
+	// Operator-cockpit aggregates (6/28 read path, BUGS L142). REST-only on
+	// purpose: as resreg resources these would become agent MCP tools.
+	mux.HandleFunc("GET /v1/sessions/counts", s.handleSessionCounts)
+	mux.HandleFunc("GET /v1/messages/volume", s.handleMessageVolume)
 	mux.HandleFunc("GET /v1/users/{sub}/scopes", s.handleUserScopes)
 	s.mountACL(mux)
 	// /v1/acl_membership DELETE — the account side of unpair (spec 5/31). The

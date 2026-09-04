@@ -72,6 +72,49 @@ func stubRoutd(t *testing.T, db *sql.DB) string {
 		writeStubJSON(w, out)
 	})
 
+	mux.HandleFunc("GET /v1/sessions/counts", func(w http.ResponseWriter, _ *http.Request) {
+		rows, err := db.Query(`SELECT group_folder, COUNT(*) FROM sessions
+			GROUP BY group_folder ORDER BY group_folder`)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+		out := []map[string]any{}
+		for rows.Next() {
+			var f string
+			var n int
+			if err := rows.Scan(&f, &n); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			out = append(out, map[string]any{"folder": f, "count": n})
+		}
+		writeStubJSON(w, out)
+	})
+
+	mux.HandleFunc("GET /v1/messages/volume", func(w http.ResponseWriter, _ *http.Request) {
+		rows, err := db.Query(`SELECT DATE(timestamp) AS day, COUNT(*) FROM messages
+			WHERE is_bot_message=0 AND timestamp >= datetime('now','-7 days')
+			GROUP BY day ORDER BY day DESC`)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+		out := []map[string]any{}
+		for rows.Next() {
+			var d string
+			var n int
+			if err := rows.Scan(&d, &n); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			out = append(out, map[string]any{"day": d, "count": n})
+		}
+		writeStubJSON(w, out)
+	})
+
 	mux.HandleFunc("GET /v1/routes", func(w http.ResponseWriter, _ *http.Request) {
 		rows, err := db.Query(`SELECT id, seq, match, target,
 			COALESCE(observe_window_messages,0), COALESCE(observe_window_chars,0)
