@@ -866,7 +866,35 @@ Also established and worth keeping: the REST path is `/v1/tasks`, NOT
 A conversion that assumes the resource name is the path gets a 404, which is how
 this one started.
 
-## L142 — `6/28`'s core rule "no dashboard reads a SQLite DB directly" is false: at least 6 of 9 retained dashd pages still read `routd.db` for their displayed content (2026-08-30, open)
+## ✅ FIXED 2026-09-04 L142 — `6/28`'s core rule "no dashboard reads a SQLite DB directly" is false: at least 6 of 9 retained dashd pages still read `routd.db` for their displayed content (2026-08-30, fixed 2026-09-04)
+
+**FIXED 2026-09-04.** Every display read now goes through the owner, verified
+against the live krons container rather than a stub — `GET /v1/groups`,
+`/v1/tasks`, `/v1/sessions/counts`, `/v1/messages/volume`,
+`/v1/messages/activity`, `/v1/principals`, all 200.
+
+Four new reads are plain handlers on routd, never resreg resources, and that is
+the design rather than a shortcut: resreg gives REST and MCP from one
+declaration, so registering them would hand every agent a tool for cross-folder
+message previews and the list of every principal. The cockpit needs them; an
+agent does not.
+
+Each NARROWS what a caller may ask rather than proxying SQL — routd truncates
+the activity preview to 80 chars, clamps `limit`, applies `is_bot_message=0` to
+the histogram, and `/v1/principals` projects sub+name only. `service:dashd`
+gained `tasks:read` and `messages:read`, both read-only, both replacing a direct
+`routd.db` read; dashd's reach NARROWS, from a file handle to six gated
+endpoints. authd's ceiling test keeps its teeth — the additions are listed with
+their justification and the exact-length check still fails a third.
+
+Me-secrets stays a direct read, and `6/28` now says why: a read the owner
+deliberately refuses to serve is an exception to the rule, not a violation of it.
+
+**What this cost, recorded because the tests never caught it:** the tasks page
+shipped green through the whole suite and answered 403 in production, because
+the stub answered where live routd refused. It took a container-side probe to
+find, a revert to unbreak, and a scope to fix. Every endpoint above was
+re-probed live before this entry was closed.
 
 Found auditing every phase-6 spec that claims `status: shipped`, the same method
 that found 13 drifts when phase 5 closed.

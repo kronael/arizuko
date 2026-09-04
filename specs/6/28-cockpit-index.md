@@ -1,6 +1,5 @@
 ---
-status: defected
-defects: [L142]
+status: shipped
 depends: [5/17-openapi-mcp, 5/7-proxyd-standalone, 5/1-auth-standalone]
 ---
 
