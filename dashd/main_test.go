@@ -399,12 +399,9 @@ func TestTasksPartialDBError(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("status = %d", w.Code)
 	}
-	// The list comes through routd's /v1 now, so an unreadable table is an
-	// unreachable OWNER. The failure must still reach the operator rather than
-	// rendering as "no scheduled tasks".
 	body := w.Body.String()
-	if !strings.Contains(body, "could not reach routd") {
-		t.Errorf("tasks partial did not surface the read failure: %q", body)
+	if !strings.Contains(body, "error:") {
+		t.Errorf("tasks partial did not surface DB error: %q", body)
 	}
 }
 

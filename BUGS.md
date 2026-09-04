@@ -799,20 +799,17 @@ would replace. So `6/28` needs a recorded exception for owner-refused reads, not
 code: the rule assumes the owner will serve everything a dashboard shows, and
 here the owner refuses on purpose.
 
-**Still open, and what each needs:** Status (`sessions`), Activity and Usage's two `FROM messages` reads, Grants' `user_profiles` + `acl_membership` datalists (the scope/groups
+**Still open, and what each needs:** Status (`sessions`), Activity and Usage's
+two `FROM messages` reads, Grants' `user_profiles` + `acl_membership` datalists (the scope/groups
 datalist IS converted; `/v1/acl_membership` is DELETE-only, with no list face),
-Profile (`user_profiles`), and Me secrets/env (`secrets`). **Tasks IS converted (2026-09-04), and my first reading of it was wrong.** I
-recorded it as blocked because routd's list takes ONE `?folder=` while the page
-needs N glob patterns. The premise that made that a blocker — that filtering in
-Go would hit a cap — does not hold: `resreg`'s list carries no `LIMIT`, and
-dashd's service token has an empty folder claim, which `tasksTarget`
-(`routd/tasks_http.go:37`) reads as list-all. So the page fetches the full set
-and applies visibility THEN a display window that counts rendered rows.
-
-The old SQL pushed the scope into its WHERE for a real reason — a plain
-`LIMIT 500` before the owner filter drops a scoped user's tasks whenever 500
-other-owner rows sort ahead. `tasks_scope_test.go` seeds exactly that shape and
-fails if the fetch is truncated at either end. The rest need a read endpoint that does not exist yet, and
+Profile (`user_profiles`), and Me secrets/env (`secrets`). **Tasks is NOT mechanical, checked:** routd's list takes `?folder=`, ONE
+folder (`routd/tasks_http.go:41`), while the page needs the caller's N glob
+patterns — `ownerVisibleSQL("owner", allowed)` pushes them into the WHERE so the
+`LIMIT` counts only visible rows. That is a documented fix: filtering in Go
+after a plain `LIMIT 500` drops a scoped user's tasks whenever 500 other-owner
+rows sort ahead. Federating it through a single-folder filter would reintroduce
+exactly that, so it needs a scope-aware list on the OWNER's side first — a
+resreg/routd change, not a dashd swap. The rest need a read endpoint that does not exist yet, and
 each is one resreg resource, which also hands the agent the same door as an MCP
 tool (`5/17`).
 

@@ -163,22 +163,3 @@ func (d *dash) foldersViaRoutd(ctx context.Context) ([]string, error) {
 	sort.Strings(out)
 	return out, nil
 }
-
-// tasksViaRoutd lists every scheduled task through routd's /v1. dashd's service
-// token carries an empty folder claim, which routd's tasksTarget reads as
-// list-all; the row type is the one routd's handler serves, so the page cannot
-// render a field the API does not have.
-func (d *dash) tasksViaRoutd(ctx context.Context) ([]resources.ScheduledTasksRow, error) {
-	body, status, err := d.bearerCall(ctx, d.routdURL, http.MethodGet, "/v1/scheduled_tasks", nil)
-	if err != nil {
-		return nil, err
-	}
-	if status < 200 || status >= 300 {
-		return nil, fmt.Errorf("routd /v1/scheduled_tasks: status %d", status)
-	}
-	var rows []resources.ScheduledTasksRow
-	if err := json.Unmarshal(body, &rows); err != nil {
-		return nil, err
-	}
-	return rows, nil
-}
