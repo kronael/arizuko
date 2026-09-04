@@ -134,34 +134,61 @@ LiteLLM's documented mechanism is the second
 (`forward_client_headers_to_llm_api`). Bifrost's phrasing suggests the
 first. Do not build on the suggestion.
 
-## Coverage is bounded
+## Coverage is bounded — by the vendor, not by the redirect
 
-A gateway can front a provider only where BOTH hooks exist: a base-URL
-override and a token in env.
+Every harness has a redirect hook. Measured 2026-09-04 against a local
+sink and a local forwarding gateway, all three reached it:
 
-| Path                       | Base URL | Env token | Frontable |
-| -------------------------- | -------- | --------- | --------- |
-| Claude Code (OAuth or key) | yes      | yes       | yes       |
-| Any API-key provider       | yes      | yes       | yes       |
-| Codex on ChatGPT-OAuth     | no       | no        | **no**    |
+| Harness | Redirect mechanism                                          |
+| ------- | ----------------------------------------------------------- |
+| claude  | `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` (env)         |
+| codex   | `-c model_providers.<id>.base_url` + `requires_openai_auth` |
+| pi      | `~/.pi/agent/models.json` provider with `baseUrl`           |
 
-`ant/skills/oracle/SKILL.md:39` documents the codex path as a host mount:
-`HOST_CODEX_DIR` bind-mounted to `/home/node/.codex`, "no env vars
-needed". Nothing to swap, nothing to redirect. Its meterable alternative
-(`CODEX_API_KEY`) is the per-token billing this spec exists to avoid.
+`requires_openai_auth = true` is what makes codex send its ChatGPT
+subscription bearer to an arbitrary `base_url` instead of demanding an
+`env_key` API key. Its upstream is `chatgpt.com/backend-api/codex`, and
+`wire_api` MUST be `responses` — codex-cli 0.153.2 rejects `chat`
+outright. This supersedes an earlier claim in this spec that the
+ChatGPT-OAuth path was not frontable: it is, and the container can hold a
+placeholder `auth.json` while the gateway injects the real token
+(verified end to end, upstream 200).
 
-Worth stating plainly: that host mount is also arizuko's weakest
-credential isolation — the container receives the operator's whole
-ChatGPT session rather than a scoped token — and it is the one case a
-gateway structurally cannot improve. Its own problem, not this spec's.
+The real boundary is the VENDOR'S client check, not the redirect. With a
+subscription credential, only a first-party client draws on plan limits:
+
+| Client     | Through the gateway on plan credentials                                           |
+| ---------- | --------------------------------------------------------------------------------- |
+| claude CLI | 200, `anthropic-ratelimit-unified-5h/7d` headers                                  |
+| codex      | 200 on `/responses`, plan quota consumed                                          |
+| pi         | **400** — "Third-party apps now draw from your extra usage, not your plan limits" |
+
+Same gateway, same injected credential, same upstream: the difference is
+which client is asking. So pi needs extra-usage credits or an API key,
+and no gateway change fixes that. Making pi draw plan quota would require
+forging another client's identity, which arizuko does not do.
+
+With an API key rather than a subscription token, all three work
+uniformly and the client check does not apply.
 
 ## Wiring
 
-Emit `ANTHROPIC_BASE_URL` and the virtual key as `-e` in `buildArgs`.
-**Anything not emitted there is silently dead inside the container** —
-three prior instances (`ARIZUKO_MODEL`, `RUNED_RUN_TIMEOUT`,
-`ARIZUKO_BACKEND`), the last of which killed the second-backend slot
-without anyone noticing.
+ONE declaration, three readers. `MODEL_GATEWAY_URL` and
+`MODEL_GATEWAY_KEY` are emitted as `-e` in `buildArgs`; each harness
+renderer in `ant/` translates them into that harness's own name
+(claude's env pair, codex's `-c` provider block, pi's `models.json`
+provider). A second FORMAT per harness would drift; a second READER per
+harness is what the shapes actually differ in.
+
+**Anything not emitted in `buildArgs` is silently dead inside the
+container** — three prior instances (`ARIZUKO_MODEL`,
+`RUNED_RUN_TIMEOUT`, `ARIZUKO_BACKEND`), the last of which killed the
+second-backend slot without anyone noticing.
+
+Unset means the container keeps the credential and talks to the vendor
+directly. That is the default, it is what every instance runs, and it is
+fine for a small deployment where the operator and the agent's users are
+the same people.
 
 ## Tier placement (`5/14`)
 
@@ -172,11 +199,31 @@ becomes infra (type 3): host `.env` or gateway config, never a table row
 reaching a container. Env-profile rows remain for the BYOC case, but they
 resolve INTO a gateway virtual key rather than into container env.
 
+## Operator note: which credential the gateway holds
+
+The gateway is credential-agnostic; the operator's config decides. The
+two choices differ in more than billing, so record the trade rather than
+defaulting silently.
+
+An **API key** in the gateway is the shape Anthropic documents for
+provisioning "in a development environment, secrets manager, or machine
+image for use by the customer's own authorized users"
+(code.claude.com/docs/en/legal-and-compliance). Every client works
+uniformly.
+
+A **subscription token** in the gateway keeps plan billing for
+first-party clients, and the same page states that developers "may not
+collect, store, or intermediate Claude.ai credentials or session tokens".
+An operator pointing this at their own account should read it and decide;
+arizuko does not make the choice for them, and ships no mechanism that
+disguises which client is calling.
+
 ## Out of scope
 
 Replacing crackbox's egress filtering (different concern, different
-path), any form of interception (declined 2026-08-18), and the codex
-host-mount path (above).
+path), any form of interception (declined 2026-08-18), and forging a
+vendor's first-party client identity to obtain plan billing for a
+third-party harness.
 
 ## Ties
 
