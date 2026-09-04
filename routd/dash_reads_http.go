@@ -14,6 +14,7 @@ package routd
 
 import (
 	"net/http"
+	"strconv"
 )
 
 // sessionCount is one folder's live session tally.
@@ -83,6 +84,106 @@ func (s *Server) handleMessageVolume(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		out = append(out, d)
+	}
+	if err := rows.Err(); err != nil {
+		writeErr(w, 500, "db_error", err.Error())
+		return
+	}
+	writeJSON(w, 200, out)
+}
+
+// activityRow is one line of the cockpit's cross-folder activity feed. Content
+// is truncated by the OWNER at 80 characters: the page shows a preview, and a
+// preview is all this surface will ever serve.
+type activityRow struct {
+	Timestamp string `json:"timestamp"`
+	Source    string `json:"source"`
+	ChatJID   string `json:"chat_jid"`
+	Sender    string `json:"sender"`
+	Verb      string `json:"verb"`
+	Preview   string `json:"preview"`
+}
+
+// handleActivity serves GET /v1/messages/activity?before=&limit= — the newest
+// messages across every chat, which the cockpit's activity page used to read
+// out of routd.db.
+//
+// The caller cannot widen the preview or the page: `limit` is clamped here, and
+// the substr is the owner's. dashd applies its own per-row folder visibility on
+// top, so this is the outer bound rather than the authorization.
+func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
+	if !s.authed(w, r, "messages:read", "chats:read") {
+		return
+	}
+	limit := 1000
+	if v, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && v > 0 && v < limit {
+		limit = v
+	}
+	q := `SELECT timestamp, source, chat_jid, sender, verb, substr(content,1,80) FROM messages`
+	args := []any{}
+	if before := r.URL.Query().Get("before"); before != "" {
+		q += ` WHERE timestamp < ?`
+		args = append(args, before)
+	}
+	q += ` ORDER BY timestamp DESC LIMIT ?`
+	args = append(args, limit)
+
+	rows, err := s.db.SQL().Query(q, args...)
+	if err != nil {
+		writeErr(w, 500, "db_error", err.Error())
+		return
+	}
+	defer rows.Close()
+	out := []activityRow{}
+	for rows.Next() {
+		var a activityRow
+		if err := rows.Scan(&a.Timestamp, &a.Source, &a.ChatJID, &a.Sender, &a.Verb, &a.Preview); err != nil {
+			writeErr(w, 500, "db_error", err.Error())
+			return
+		}
+		out = append(out, a)
+	}
+	if err := rows.Err(); err != nil {
+		writeErr(w, 500, "db_error", err.Error())
+		return
+	}
+	writeJSON(w, 200, out)
+}
+
+// principal is one datalist entry for the grants form: who a grant can name.
+type principal struct {
+	Sub  string `json:"sub"`
+	Name string `json:"name"`
+}
+
+// handlePrincipals serves GET /v1/principals — the subs a grant may name, from
+// `user_profiles` plus the non-role children of `acl_membership`. It exists so
+// the grants form and the profile page stop reading routd.db directly.
+//
+// Names and subs only. No email, no tokens, no profile body: the form needs a
+// label and an identifier, so that is the whole projection.
+func (s *Server) handlePrincipals(w http.ResponseWriter, r *http.Request) {
+	if !s.authed(w, r, "grants:read", "messages:read") {
+		return
+	}
+	rows, err := s.db.SQL().Query(`
+		SELECT sub, COALESCE(name,'') FROM user_profiles
+		UNION
+		SELECT child, '' FROM acl_membership WHERE child NOT LIKE 'role:%'
+		ORDER BY 1`)
+	if err != nil {
+		writeErr(w, 500, "db_error", err.Error())
+		return
+	}
+	defer rows.Close()
+	out := []principal{}
+	for rows.Next() {
+		var p principal
+		if err := rows.Scan(&p.Sub, &p.Name); err != nil {
+			writeErr(w, 500, "db_error", err.Error())
+			return
+		}
+		out = append(out, p)
 	}
 	if err := rows.Err(); err != nil {
 		writeErr(w, 500, "db_error", err.Error())

@@ -114,29 +114,19 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 
 	var principalOpts strings.Builder
 	principalOpts.WriteString(`<datalist id="principals">`)
-	if uRows, err := d.adminDB().Query(
-		`SELECT sub, name FROM user_profiles ORDER BY name`); err == nil {
-		defer uRows.Close()
-		for uRows.Next() {
-			var sub, name string
-			if err := uRows.Scan(&sub, &name); err == nil {
-				label := sub
-				if name != "" && name != sub {
-					label += " (" + name + ")"
-				}
-				fmt.Fprintf(&principalOpts, `<option value="%s" label="%s">`, esc(sub), esc(label))
+	// routd owns user_profiles and acl_membership; the form asks for the subs a
+	// grant may name rather than reading either table (6/28, BUGS L142). The
+	// projection is sub + name — a label and an id, nothing else.
+	if ps, err := d.principalsViaRoutd(r.Context()); err == nil {
+		for _, pr := range ps {
+			label := pr.Sub
+			if pr.Name != "" && pr.Name != pr.Sub {
+				label += " (" + pr.Name + ")"
 			}
+			fmt.Fprintf(&principalOpts, `<option value="%s" label="%s">`, esc(pr.Sub), esc(label))
 		}
-	}
-	if mRows, err := d.adminDB().Query(
-		`SELECT DISTINCT child FROM acl_membership WHERE child NOT LIKE 'role:%' ORDER BY child`); err == nil {
-		defer mRows.Close()
-		for mRows.Next() {
-			var p string
-			if err := mRows.Scan(&p); err == nil {
-				fmt.Fprintf(&principalOpts, `<option value="%s">`, esc(p))
-			}
-		}
+	} else {
+		slog.Warn("grants: principals via routd", "err", err)
 	}
 	principalOpts.WriteString(`</datalist>`)
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -111,6 +112,61 @@ func stubRoutd(t *testing.T, db *sql.DB) string {
 				return
 			}
 			out = append(out, map[string]any{"day": d, "count": n})
+		}
+		writeStubJSON(w, out)
+	})
+
+	// Honours before+limit like routd's handler: the pagination test walks two
+	// pages, and a stub that ignores `before` returns page one twice.
+	mux.HandleFunc("GET /v1/messages/activity", func(w http.ResponseWriter, r *http.Request) {
+		q := `SELECT timestamp, source, chat_jid, sender, COALESCE(verb,''),
+			substr(content,1,80) FROM messages`
+		args := []any{}
+		if before := r.URL.Query().Get("before"); before != "" {
+			q += ` WHERE timestamp < ?`
+			args = append(args, before)
+		}
+		limit := 1000
+		if v, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && v > 0 && v < limit {
+			limit = v
+		}
+		q += ` ORDER BY timestamp DESC LIMIT ?`
+		args = append(args, limit)
+		rows, err := db.Query(q, args...)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+		out := []map[string]string{}
+		for rows.Next() {
+			var ts, src, jid, sender, verb, prev string
+			if err := rows.Scan(&ts, &src, &jid, &sender, &verb, &prev); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			out = append(out, map[string]string{"timestamp": ts, "source": src,
+				"chat_jid": jid, "sender": sender, "verb": verb, "preview": prev})
+		}
+		writeStubJSON(w, out)
+	})
+
+	mux.HandleFunc("GET /v1/principals", func(w http.ResponseWriter, _ *http.Request) {
+		rows, err := db.Query(`SELECT sub, COALESCE(name,'') FROM user_profiles
+			UNION SELECT child, '' FROM acl_membership WHERE child NOT LIKE 'role:%' ORDER BY 1`)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+		out := []map[string]string{}
+		for rows.Next() {
+			var sub, name string
+			if err := rows.Scan(&sub, &name); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			out = append(out, map[string]string{"sub": sub, "name": name})
 		}
 		writeStubJSON(w, out)
 	})

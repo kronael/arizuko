@@ -426,8 +426,11 @@ func TestActivityPartialDBError(t *testing.T) {
 		t.Fatalf("status = %d", w.Code)
 	}
 	body := w.Body.String()
-	if !strings.Contains(body, "error:") {
-		t.Errorf("activity partial did not surface DB error: %q", body)
+	// Activity reads through routd's /v1 now, so an unreadable table is an
+	// unreachable OWNER. The failure must still reach the operator rather than
+	// rendering as "no messages yet".
+	if !strings.Contains(body, "could not reach routd") {
+		t.Errorf("activity partial did not surface the read failure: %q", body)
 	}
 }
 

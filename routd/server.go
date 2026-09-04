@@ -304,6 +304,8 @@ func (s *Server) Handler() http.Handler {
 	// purpose: as resreg resources these would become agent MCP tools.
 	mux.HandleFunc("GET /v1/sessions/counts", s.handleSessionCounts)
 	mux.HandleFunc("GET /v1/messages/volume", s.handleMessageVolume)
+	mux.HandleFunc("GET /v1/messages/activity", s.handleActivity)
+	mux.HandleFunc("GET /v1/principals", s.handlePrincipals)
 	mux.HandleFunc("GET /v1/users/{sub}/scopes", s.handleUserScopes)
 	s.mountACL(mux)
 	// /v1/acl_membership DELETE — the account side of unpair (spec 5/31). The

@@ -1006,7 +1006,7 @@ func (d *dash) handleActivity(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<table%s>`+
 		`<thead><tr><th>Time</th><th>Source</th><th>Chat</th><th>Sender</th><th>Verb</th><th>Content</th></tr></thead>`+
 		`<tbody>`, tableAttrs)
-	older := d.writeActivityRows(w, allowed, operator, before)
+	older := d.writeActivityRows(r.Context(), w, allowed, operator, before)
 	fmt.Fprint(w, `</tbody></table>`)
 	if older != "" {
 		fmt.Fprintf(w, `<p><a class="btn" href="/dash/activity/?before=%s">older &rarr;</a></p>`, url.QueryEscape(older))
@@ -1017,13 +1017,13 @@ func (d *dash) handleActivity(w http.ResponseWriter, r *http.Request) {
 func (d *dash) handleActivityPartial(w http.ResponseWriter, r *http.Request) {
 	allowed, operator := d.callerScope(r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	d.writeActivityRows(w, allowed, operator, "")
+	d.writeActivityRows(r.Context(), w, allowed, operator, "")
 }
 
 // writeActivityRows renders up to activityPageSize rows older than the before
 // cursor (a raw timestamp string; empty = newest). It returns the cursor for
 // the next "older" page, or "" when there is nothing further back.
-func (d *dash) writeActivityRows(w http.ResponseWriter, allowed []string, operator bool, before string) string {
+func (d *dash) writeActivityRows(ctx context.Context, w http.ResponseWriter, allowed []string, operator bool, before string) string {
 	if d.adminDB() == nil {
 		fmt.Fprint(w, `<tr><td colspan=6 class="empty">backend unavailable</td></tr>`)
 		return ""
@@ -1035,39 +1035,26 @@ func (d *dash) writeActivityRows(w http.ResponseWriter, allowed []string, operat
 	if !operator {
 		limit = 1000
 	}
-	query := `SELECT timestamp, source, chat_jid, sender, verb, substr(content,1,80)
-		 FROM messages`
-	args := []any{}
-	if before != "" {
-		query += ` WHERE timestamp < ?`
-		args = append(args, before)
-	}
-	query += ` ORDER BY timestamp DESC LIMIT ?`
-	args = append(args, limit)
-	rows, err := d.adminDB().Query(query, args...)
+	// routd owns `messages` and truncates the preview itself, so this page can
+	// never widen it (6/28 read path, BUGS L142). The per-row folder visibility
+	// below is still dashd's job — routd's limit is the outer bound.
+	feed, err := d.activityViaRoutd(ctx, before, limit)
 	if err != nil {
-		slog.Warn("activity: query", "err", err)
-		fmt.Fprintf(w, `<tr><td colspan=6 class="empty">error: %s</td></tr>`, esc(err.Error()))
+		slog.Warn("activity: read via routd", "err", err)
+		fmt.Fprint(w, `<tr><td colspan=6 class="empty">could not reach routd for activity</td></tr>`)
 		return ""
 	}
-	defer rows.Close()
 	var n int
 	var lastTS string
 	var more bool
 	folderOf := map[string]string{} // memoize chat_jid → folder across rows
-	for rows.Next() {
+	for _, m := range feed {
 		if n >= activityPageSize {
 			more = true
 			break
 		}
-		var ts, source, chatJID, sender, content string
-		var verb sql.NullString
-		if err := rows.Scan(&ts, &source, &chatJID, &sender, &verb, &content); err != nil {
-			slog.Warn("activity: scan row", "err", err)
-			fmt.Fprintf(w, `<tr><td colspan=6 class="empty">scan error: %s</td></tr>`,
-				esc(err.Error()))
-			continue
-		}
+		ts, source, chatJID, sender, content := m.Timestamp, m.Source, m.ChatJID, m.Sender, m.Preview
+		verb := m.Verb
 		folder, seen := folderOf[chatJID]
 		if !seen {
 			folder = d.jidFolder(chatJID)
@@ -1085,17 +1072,11 @@ func (d *dash) writeActivityRows(w http.ResponseWriter, allowed []string, operat
 			esc(source),
 			chatCell,
 			esc(sender),
-			esc(verb.String),
+			esc(verb),
 			esc(content),
 		)
 		lastTS = ts
 		n++
-	}
-	if err := rows.Err(); err != nil {
-		slog.Warn("activity: rows", "err", err)
-		fmt.Fprintf(w, `<tr><td colspan=6 class="empty">rows error: %s</td></tr>`,
-			esc(err.Error()))
-		return ""
 	}
 	if n == 0 {
 		fmt.Fprint(w, `<tr><td colspan=6 class="empty">No messages yet.</td></tr>`)

@@ -32,9 +32,18 @@ func (d *dash) handleProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// routd owns user_profiles; the page asks for the caller's display name
+	// rather than reading the table (6/28, BUGS L142). A failure is silent by
+	// design here — the name is decoration, and the page renders without it.
 	var name string
-	_ = d.adminDB().QueryRow(
-		`SELECT name FROM user_profiles WHERE sub = ?`, sub).Scan(&name)
+	if ps, err := d.principalsViaRoutd(r.Context()); err == nil {
+		for _, pr := range ps {
+			if pr.Sub == sub {
+				name = pr.Name
+				break
+			}
+		}
+	}
 	fmt.Fprint(w, `<p class="dim">Your account and the providers you can add to it.</p>`)
 	identity := `<table>` + htmlDetail("Your account ID", `<code>`+esc(sub)+`</code>`)
 	if name != "" {

@@ -233,3 +233,55 @@ func (d *dash) messageVolumeViaRoutd(ctx context.Context) ([]DailyVolume, error)
 	}
 	return rows, nil
 }
+
+// ActivityRow is one line of the cross-folder activity feed, as routd's
+// GET /v1/messages/activity serves it. Preview is truncated by the owner.
+type ActivityRow struct {
+	Timestamp string `json:"timestamp"`
+	Source    string `json:"source"`
+	ChatJID   string `json:"chat_jid"`
+	Sender    string `json:"sender"`
+	Verb      string `json:"verb"`
+	Preview   string `json:"preview"`
+}
+
+func (d *dash) activityViaRoutd(ctx context.Context, before string, limit int) ([]ActivityRow, error) {
+	path := fmt.Sprintf("/v1/messages/activity?limit=%d", limit)
+	if before != "" {
+		path += "&before=" + url.QueryEscape(before)
+	}
+	body, status, err := d.bearerCall(ctx, d.routdURL, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	if status < 200 || status >= 300 {
+		return nil, fmt.Errorf("routd /v1/messages/activity: status %d", status)
+	}
+	var rows []ActivityRow
+	if err := json.Unmarshal(body, &rows); err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// Principal is one grants-form datalist entry: a sub a grant may name, with an
+// optional display name. Sub and name only — the form needs a label and an id.
+type Principal struct {
+	Sub  string `json:"sub"`
+	Name string `json:"name"`
+}
+
+func (d *dash) principalsViaRoutd(ctx context.Context) ([]Principal, error) {
+	body, status, err := d.bearerCall(ctx, d.routdURL, http.MethodGet, "/v1/principals", nil)
+	if err != nil {
+		return nil, err
+	}
+	if status < 200 || status >= 300 {
+		return nil, fmt.Errorf("routd /v1/principals: status %d", status)
+	}
+	var rows []Principal
+	if err := json.Unmarshal(body, &rows); err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
