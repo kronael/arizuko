@@ -27,7 +27,7 @@ func (d *dash) handleUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	folders, err := d.usageFolders()
+	folders, err := d.usageFolders(r.Context())
 	if err != nil {
 		slog.Warn("usage page: folders", "err", err)
 		fmt.Fprint(w, htmlBanner("err", "folder query error: "+err.Error()))
@@ -84,22 +84,10 @@ func (d *dash) handleUsage(w http.ResponseWriter, r *http.Request) {
 	pageClose(w, r)
 }
 
-// usageFolders lists every group folder from routd.db, alphabetically.
-func (d *dash) usageFolders() ([]string, error) {
-	rows, err := d.dbRoutd.Query(`SELECT folder FROM groups ORDER BY folder`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var folders []string
-	for rows.Next() {
-		var f string
-		if err := rows.Scan(&f); err != nil {
-			return nil, err
-		}
-		folders = append(folders, f)
-	}
-	return folders, rows.Err()
+// usageFolders lists every group folder through routd's /v1, alphabetically.
+// routd owns `groups`; this page asks rather than reads its file (6/28).
+func (d *dash) usageFolders(ctx context.Context) ([]string, error) {
+	return d.foldersViaRoutd(ctx)
 }
 
 // groupUsage holds aggregated usage stats for a single folder.

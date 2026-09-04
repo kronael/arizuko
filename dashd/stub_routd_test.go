@@ -29,6 +29,28 @@ func stubRoutd(t *testing.T, db *sql.DB) string {
 	t.Helper()
 	mux := http.NewServeMux()
 
+	// routd serves the group list as [{"folder":…}] — the shape the live
+	// /v1/groups answers, which is what dashd's pages now read instead of the
+	// table (BUGS L142).
+	mux.HandleFunc("GET /v1/groups", func(w http.ResponseWriter, _ *http.Request) {
+		rows, err := db.Query(`SELECT folder FROM groups ORDER BY folder`)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+		out := []map[string]string{}
+		for rows.Next() {
+			var f string
+			if err := rows.Scan(&f); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			out = append(out, map[string]string{"folder": f})
+		}
+		writeStubJSON(w, out)
+	})
+
 	mux.HandleFunc("GET /v1/routes", func(w http.ResponseWriter, _ *http.Request) {
 		rows, err := db.Query(`SELECT id, seq, match, target,
 			COALESCE(observe_window_messages,0), COALESCE(observe_window_chars,0)

@@ -36,7 +36,7 @@ func testDBWithInvites(t *testing.T) *sql.DB {
 func TestHandleInvitesEmpty(t *testing.T) {
 	db := testDBWithInvites(t)
 	defer db.Close()
-	d := &dash{dbRoutd: db, dbOnbod: db}
+	d := &dash{dbRoutd: db, dbOnbod: db, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -69,7 +69,7 @@ func TestHandleInviteCreateAndList(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	d := &dash{dbRoutd: db, dbOnbod: db}
+	d := &dash{dbRoutd: db, dbOnbod: db, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -130,7 +130,7 @@ func TestHandleInviteCreateForbiddenWithoutAdminGrant(t *testing.T) {
 	db := testDBWithInvites(t)
 	defer db.Close()
 	// No acl row → requireAdmin denies.
-	d := &dash{dbRoutd: db, dbOnbod: db}
+	d := &dash{dbRoutd: db, dbOnbod: db, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -169,7 +169,7 @@ func TestHandleInviteRevokeAndGone(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	d := &dash{dbRoutd: db, dbOnbod: db}
+	d := &dash{dbRoutd: db, dbOnbod: db, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 

@@ -162,8 +162,14 @@ func TestUsageSaysWhenRoutdIsUnreachable(t *testing.T) {
 	routd := usageRoutdDB(t, "alice")
 	defer routd.Close()
 
+	// The folder list is read through routd's /v1 now, so an unreachable routd
+	// fails at the list before any spend is summed. Either banner is a loud
+	// failure; a 200 with NEITHER would be the bug — zero spend that is really
+	// an unreachable owner.
 	code, body := usageGet(t, &dash{dbRoutd: routd, routdURL: "http://127.0.0.1:1"})
-	if code == 200 && !strings.Contains(body, "usage query error") {
+	if code == 200 &&
+		!strings.Contains(body, "usage query error") &&
+		!strings.Contains(body, "folder query error") {
 		t.Error("an unreachable routd rendered as zero spend")
 	}
 }

@@ -313,7 +313,7 @@ func TestIso_Bob_SeesSalesNotEng(t *testing.T) {
 //     sales'). Operator gets the raw COUNT(*).
 func TestIso_PortalCounts_Scoped(t *testing.T) {
 	_, inst := isoEnv(t)
-	d := &dash{dbRoutd: inst.DB}
+	d := &dash{dbRoutd: inst.DB, routdURL: stubRoutd(t, inst.DB)}
 
 	// Errored chats: one per tenant + a JID with no resolvable folder.
 	for _, m := range []struct{ id, jid string }{
@@ -472,7 +472,7 @@ func mustNotContain(t *testing.T, body, bad, why string) {
 //     gate, so this is a cross-tenant read, not a cosmetic mislabel.
 func TestIso_JidFolder_ReadsTheMintedTarget(t *testing.T) {
 	_, inst := isoEnv(t)
-	d := &dash{dbRoutd: inst.DB}
+	d := &dash{dbRoutd: inst.DB, routdURL: stubRoutd(t, inst.DB)}
 
 	if _, err := inst.DB.Exec(
 		`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at, kind, target_folder)

@@ -28,7 +28,7 @@ func TestTasksPartialRows(t *testing.T) {
 		 VALUES('t2', 'g2', 'c', 'p', 'paused', '2026-01-02')`); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{dbRoutd: db}
+	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := asOperator(httptest.NewRequest("GET", "/dash/tasks/x/list", nil))
@@ -53,7 +53,7 @@ func TestTasksPartialXSS(t *testing.T) {
 		 VALUES('<script>', '</td>', '', '', 'x', 'active', '<b>')`); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{dbRoutd: db}
+	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := asOperator(httptest.NewRequest("GET", "/dash/tasks/x/list", nil))
@@ -76,7 +76,7 @@ func TestActivityFullPage(t *testing.T) {
 		 VALUES('m1', 'c1', 's1', 'hi there', '2026-01-01T00:00:00Z', 'tel', 'say')`); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{dbRoutd: db}
+	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := asOperator(httptest.NewRequest("GET", "/dash/activity/", nil))
@@ -109,7 +109,7 @@ func TestActivityPagination(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	d := &dash{dbRoutd: db}
+	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -165,7 +165,7 @@ func TestActivityPartialRows(t *testing.T) {
 		`INSERT INTO messages(id, chat_jid, sender, content, timestamp, source) VALUES('m2','c','s','short','2026-01-02','disc')`); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{dbRoutd: db}
+	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := asOperator(httptest.NewRequest("GET", "/dash/activity/x/recent", nil))
@@ -190,7 +190,7 @@ func TestActivityPartialXSS(t *testing.T) {
 		`INSERT INTO messages(id, chat_jid, sender, content, timestamp, source, verb) VALUES('m1','<c>','<s>','<b>evil</b>','t','<src>','<v>')`); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{dbRoutd: db}
+	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := httptest.NewRequest("GET", "/dash/activity/x/recent", nil)
@@ -225,7 +225,7 @@ func TestGroupsWithRoutes(t *testing.T) {
 		`INSERT INTO routes(seq, match, target) VALUES(2, 'disc:*', 'root/child')`); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{dbRoutd: db}
+	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := asOperator(httptest.NewRequest("GET", "/dash/groups/", nil))
@@ -249,7 +249,7 @@ func TestGroupsRoutesEmpty(t *testing.T) {
 		`INSERT INTO groups(folder, added_at) VALUES('g1', '')`); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{dbRoutd: db}
+	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := asOperator(httptest.NewRequest("GET", "/dash/groups/", nil))
@@ -266,7 +266,7 @@ func TestWriteGroupRoutesQueryError(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	d := &dash{dbRoutd: db}
+	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
 	w := httptest.NewRecorder()
 	d.writeGroupRoutes(w, "g1") // must not panic; renders inline error banner
 	body := w.Body.String()
@@ -291,7 +291,7 @@ func TestHandleMemoryDropdown(t *testing.T) {
 		`INSERT INTO groups(folder, added_at) VALUES('beta', '')`); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{dbRoutd: db, groupsDir: t.TempDir()}
+	d := &dash{dbRoutd: db, groupsDir: t.TempDir(), routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := asOperator(httptest.NewRequest("GET", "/dash/memory/", nil))
@@ -326,7 +326,7 @@ func TestHandleMemorySelectedGroup(t *testing.T) {
 		`INSERT INTO groups(folder, added_at) VALUES(?, '')`, folder); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{dbRoutd: db, groupsDir: groups}
+	d := &dash{dbRoutd: db, groupsDir: groups, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := asOperator(httptest.NewRequest("GET", "/dash/memory/?group="+folder, nil))
@@ -510,7 +510,7 @@ func TestDashRejectsUnsignedXUserSub(t *testing.T) {
 	ks, _ := proxydBearerKS(t)
 	db := routdDB(t)
 	defer db.Close()
-	d := &dash{dbRoutd: db, dbPath: ":memory:", groupsDir: t.TempDir(), ks: ks}
+	d := &dash{dbRoutd: db, dbPath: ":memory:", groupsDir: t.TempDir(), ks: ks, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -534,7 +534,7 @@ func TestDashAcceptsTransitProvenXUserSub(t *testing.T) {
 	ks, tok := proxydBearerKS(t)
 	db := routdDB(t)
 	defer db.Close()
-	d := &dash{dbRoutd: db, dbPath: ":memory:", groupsDir: t.TempDir(), ks: ks}
+	d := &dash{dbRoutd: db, dbPath: ":memory:", groupsDir: t.TempDir(), ks: ks, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -555,7 +555,7 @@ func TestDashAcceptsTransitProvenXUserSub(t *testing.T) {
 func TestDashHealthExemptFromGuard(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
-	d := &dash{dbRoutd: db, dbPath: ":memory:", groupsDir: t.TempDir()}
+	d := &dash{dbRoutd: db, dbPath: ":memory:", groupsDir: t.TempDir(), routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -573,7 +573,7 @@ func TestPortalAllDotsOk(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
 	// no errored chats, no failed tasks → statusDot=ok, tasksDot=ok
-	d := &dash{dbRoutd: db}
+	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := httptest.NewRequest("GET", "/dash/", nil)
@@ -602,7 +602,7 @@ func TestPortalFailedTasksDot(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	d := &dash{dbRoutd: db}
+	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := asOperator(httptest.NewRequest("GET", "/dash/", nil))
@@ -617,7 +617,7 @@ func TestPortalFailedTasksDot(t *testing.T) {
 func TestPortalRejectsNonRoot(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
-	d := &dash{dbRoutd: db}
+	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	// path "/dash/bogus" matches "/dash/" prefix route, handler should 404

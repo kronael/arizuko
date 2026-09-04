@@ -86,7 +86,7 @@ func TestProactivePageRendersModes(t *testing.T) {
 	seedGroup(t, db, groupsDir, "corp/sales", "product: support")
 	seedGroup(t, db, groupsDir, "corp/ops", "proactive:\n  mode: shout")
 
-	modes := sectionBetween(t, getProactivePage(t, &dash{dbRoutd: db, groupsDir: groupsDir}), modesFrom, modesTo)
+	modes := sectionBetween(t, getProactivePage(t, &dash{dbRoutd: db, groupsDir: groupsDir, routdURL: stubRoutd(t, db)}), modesFrom, modesTo)
 
 	// Every group is listed at all — assert existence before properties.
 	for _, folder := range []string{"corp/eng", "corp/sales", "corp/ops"} {
@@ -126,7 +126,7 @@ func TestProactivePageSeparatesBrokenFromSilent(t *testing.T) {
 	groupsDir := t.TempDir()
 	seedGroup(t, db, groupsDir, "corp/broken", "proactive:\n  mode: lurk\n  quiet_hours: ['whenever']")
 
-	modes := sectionBetween(t, getProactivePage(t, &dash{dbRoutd: db, groupsDir: groupsDir}), modesFrom, modesTo)
+	modes := sectionBetween(t, getProactivePage(t, &dash{dbRoutd: db, groupsDir: groupsDir, routdURL: stubRoutd(t, db)}), modesFrom, modesTo)
 	if !strings.Contains(modes, "broken") {
 		t.Fatalf("broken group not marked broken:\n%s", modes)
 	}
@@ -151,7 +151,7 @@ func TestProactivePageRendersCooldown(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	body := getProactivePage(t, &dash{dbRoutd: db, groupsDir: groupsDir})
+	body := getProactivePage(t, &dash{dbRoutd: db, groupsDir: groupsDir, routdURL: stubRoutd(t, db)})
 	cooldown := sectionBetween(t, body, modesTo, "")
 	if !strings.Contains(cooldown, "slack:T1/C1") {
 		t.Fatalf("fired chat missing from the cooldown table:\n%s", cooldown)
@@ -170,7 +170,7 @@ func TestProactivePageRendersCooldown(t *testing.T) {
 func TestProactivePageEmptyStates(t *testing.T) {
 	db := proactiveDB(t)
 	defer db.Close()
-	body := getProactivePage(t, &dash{dbRoutd: db, groupsDir: t.TempDir()})
+	body := getProactivePage(t, &dash{dbRoutd: db, groupsDir: t.TempDir(), routdURL: stubRoutd(t, db)})
 	if !strings.Contains(body, "No groups yet.") {
 		t.Errorf("no empty state for the modes table:\n%s", body)
 	}
@@ -186,7 +186,7 @@ func TestProactivePageEmptyStates(t *testing.T) {
 func TestProactivePageStatesFeatureIsOff(t *testing.T) {
 	db := proactiveDB(t)
 	defer db.Close()
-	body := getProactivePage(t, &dash{dbRoutd: db, groupsDir: t.TempDir()})
+	body := getProactivePage(t, &dash{dbRoutd: db, groupsDir: t.TempDir(), routdURL: stubRoutd(t, db)})
 	if !strings.Contains(body, "PROACTIVE_ENABLED") {
 		t.Errorf("page does not name the env var an operator must set:\n%s", body)
 	}
@@ -203,7 +203,7 @@ func TestProactivePageNonOperatorForbidden(t *testing.T) {
 	groupsDir := t.TempDir()
 	seedGroup(t, db, groupsDir, "corp/eng", "proactive:\n  mode: lurk")
 
-	d := &dash{dbRoutd: db, groupsDir: groupsDir}
+	d := &dash{dbRoutd: db, groupsDir: groupsDir, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := httptest.NewRequest("GET", "/dash/proactive/", nil)
@@ -236,7 +236,7 @@ func TestProactivePageConfinesToGroupsDir(t *testing.T) {
 	}
 	seedGroup(t, db, groupsDir, "../", "")
 
-	modes := sectionBetween(t, getProactivePage(t, &dash{dbRoutd: db, groupsDir: groupsDir}), modesFrom, modesTo)
+	modes := sectionBetween(t, getProactivePage(t, &dash{dbRoutd: db, groupsDir: groupsDir, routdURL: stubRoutd(t, db)}), modesFrom, modesTo)
 	if strings.Contains(modes, `<span class="status-ok">lurk</span>`) {
 		t.Fatalf("read a CLAUDE.md outside the groups dir:\n%s", modes)
 	}

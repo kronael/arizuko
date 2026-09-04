@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -42,34 +43,28 @@ func (d *dash) handleProactive(w http.ResponseWriter, r *http.Request) {
 			`No shipped template sets it, so it is off unless you opted in. `+
 			`This page shows what would happen once you do &mdash; it cannot read routd&rsquo;s environment to confirm the switch.`))
 
-	d.renderProactiveModes(w)
+	d.renderProactiveModes(r.Context(), w)
 	d.renderProactiveCooldowns(w)
 	pageClose(w, r)
 }
 
 // renderProactiveModes writes the per-group mode table, parsing each group's
 // CLAUDE.md through the same parser routd's scanner gates on.
-func (d *dash) renderProactiveModes(w http.ResponseWriter) {
+func (d *dash) renderProactiveModes(ctx context.Context, w http.ResponseWriter) {
 	fmt.Fprint(w, `<h2>Group settings</h2>`)
 	fmt.Fprint(w, `<p class="dim">silent &mdash; never speaks first (the default). `+
 		`lurk &mdash; may speak first. `+
 		`broken &mdash; the settings have a mistake, so this group says nothing at all until you fix it.</p>`)
 
-	rows, err := d.dbRoutd.Query(`SELECT folder FROM groups ORDER BY folder LIMIT 500`)
+	folders, err := d.foldersViaRoutd(ctx)
 	if err != nil {
-		slog.Warn("proactive page: groups query", "err", err)
-		fmt.Fprint(w, htmlBanner("err", "group query error: "+err.Error()))
+		slog.Warn("proactive page: read groups via routd", "err", err)
+		fmt.Fprint(w, htmlBanner("err", "could not reach routd for the group list"))
 		return
 	}
-	defer rows.Close()
 
 	var tableRows [][]string
-	for rows.Next() {
-		var folder string
-		if err := rows.Scan(&folder); err != nil {
-			slog.Warn("proactive page: groups scan", "err", err)
-			continue
-		}
+	for _, folder := range folders {
 		m := d.groupProactiveMode(folder)
 		tableRows = append(tableRows, []string{
 			folderLink(folder),
@@ -77,9 +72,6 @@ func (d *dash) renderProactiveModes(w http.ResponseWriter) {
 			proactiveQuietCell(m),
 			proactiveProblemCell(m),
 		})
-	}
-	if err := rows.Err(); err != nil {
-		slog.Warn("proactive page: groups rows", "err", err)
 	}
 	fmt.Fprint(w, htmlTable([]string{"Group", "Mode", "Quiet hours", "Problem"}, tableRows,
 		"No groups yet."))

@@ -1189,35 +1189,20 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 		pageClose(w, r)
 		return
 	}
-	rows, err := d.adminDB().Query(`SELECT folder FROM groups ORDER BY folder LIMIT 500`)
+	all, err := d.foldersViaRoutd(r.Context())
 	if err != nil {
-		slog.Warn("groups: query", "err", err)
-		fmt.Fprint(w, htmlBanner("err", "error: "+err.Error()))
+		slog.Warn("groups: read via routd", "err", err)
+		fmt.Fprint(w, htmlBanner("err", "could not reach routd for the group list"))
 		pageClose(w, r)
 		return
 	}
-	defer rows.Close()
-
 	var folders []string
-	for rows.Next() {
-		var folder string
-		if err := rows.Scan(&folder); err != nil {
-			slog.Warn("groups: scan row", "err", err)
-			continue
-		}
+	for _, folder := range all {
 		if !visible(allowed, operator, folder) {
 			continue
 		}
 		folders = append(folders, folder)
 	}
-	if err := rows.Err(); err != nil {
-		slog.Warn("groups: rows", "err", err)
-
-		fmt.Fprint(w, htmlBanner("err", "rows error: "+err.Error()))
-		pageClose(w, r)
-		return
-	}
-
 	// Bulk-fetch usage in one pass; fall through with empty map on error.
 	type usageKey struct {
 		tokens7d, cents7d, msgCount int
@@ -1488,22 +1473,16 @@ func (d *dash) handleMemory(w http.ResponseWriter, r *http.Request) {
 		pageClose(w, r)
 		return
 	}
-	rows, err := d.adminDB().Query(`SELECT folder FROM groups ORDER BY folder LIMIT 500`)
+	folders, err := d.foldersViaRoutd(r.Context())
 	if err != nil {
-		slog.Warn("memory: groups query", "err", err)
-		fmt.Fprint(w, htmlBanner("err", "groups query error: "+err.Error()))
+		slog.Warn("memory: read groups via routd", "err", err)
+		fmt.Fprint(w, htmlBanner("err", "could not reach routd for the group list"))
 	} else {
-		defer rows.Close()
 		fmt.Fprint(w, `<form method="get" class="form-narrow">
 <label class="dim" for="group">Group</label>
 <select id="group" name="group" onchange="this.form.submit()">
 <option value="">— select a group —</option>`)
-		for rows.Next() {
-			var folder string
-			if err := rows.Scan(&folder); err != nil {
-				slog.Warn("memory: scan row", "err", err)
-				continue
-			}
+		for _, folder := range folders {
 			if !visible(allowed, operator, folder) {
 				continue
 			}
@@ -1516,9 +1495,6 @@ func (d *dash) handleMemory(w http.ResponseWriter, r *http.Request) {
 				sel,
 				esc(folder),
 			)
-		}
-		if err := rows.Err(); err != nil {
-			slog.Warn("memory: rows", "err", err)
 		}
 		fmt.Fprint(w, `</select></form>`)
 	}

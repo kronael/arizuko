@@ -775,6 +775,29 @@ but it is the coupling `L142` is about, kept alive by a stale comment.
   the containment tests that exist, or mount the `GET /v1/runs` it names; drop
   `dbRuned` and its comment
 
+**PARTIAL 2026-09-04 — the group list, four pages.** `SELECT folder FROM groups
+ORDER BY folder LIMIT 500` was copy-pasted into the groups page, the memory
+page, the usage page and the proactive page: four projections of one table, each
+free to drift into a WHERE the owner would not serve. They now share one reader,
+`dash.foldersViaRoutd`, which asks routd's `GET /v1/groups` — measured live, it
+answers `[{"folder":…}]`.
+
+Mutation-checked: a reader that returns nothing turns 15 tests red, so the pages
+genuinely depend on it rather than on a fallback.
+
+No fallback to the DB was added, deliberately. A read that silently drops back
+to the file on a routd hiccup is the second path this rule exists to remove, and
+it would make the defect invisible instead of fixed — the pages now render a
+loud "could not reach routd" banner instead.
+
+**Still open, and what each needs:** Status (`sessions`), Activity and Usage's
+two `FROM messages` reads, Grants' `user_profiles` + `acl_membership` datalists,
+Profile (`user_profiles`), and Me secrets/env (`secrets`). Tasks and the
+membership half are mechanical — routd already mounts `/v1/scheduled_tasks` and
+`/v1/membership`. The rest need a read endpoint that does not exist yet, and
+each is one resreg resource, which also hands the agent the same door as an MCP
+tool (`5/17`).
+
 ## L142 — `6/28`'s core rule "no dashboard reads a SQLite DB directly" is false: at least 6 of 9 retained dashd pages still read `routd.db` for their displayed content (2026-08-30, open)
 
 Found auditing every phase-6 spec that claims `status: shipped`, the same method

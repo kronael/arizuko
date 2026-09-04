@@ -18,7 +18,7 @@ func splitSecretsDash(t *testing.T) (*dash, *sql.DB) {
 	db := routdDB(t)
 	// The keyring is not optional: store.storeValue refuses every write without
 	// one (BUGS S2).
-	return &dash{dbRoutd: db, secretKeyring: [][]byte{[]byte("dashd-test-key")}}, db
+	return &dash{dbRoutd: db, secretKeyring: [][]byte{[]byte("dashd-test-key")}, routdURL: stubRoutd(t, db)}, db
 }
 
 func TestMeSecrets_WriteTargetsRoutdDB(t *testing.T) {

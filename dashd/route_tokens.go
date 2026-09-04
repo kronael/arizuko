@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"sort"
 
 	"github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/store"
@@ -126,4 +127,39 @@ func (d *dash) listRouteTokens(ctx context.Context, folder string) ([]resources.
 		return nil, err
 	}
 	return rows, nil
+}
+
+// foldersViaRoutd lists every registered group folder through routd's /v1,
+// which is what 6/28's read path requires: routd owns `groups`, so dashd asks
+// rather than reads its file.
+//
+// One reader, four callers. `SELECT folder FROM groups ORDER BY folder LIMIT
+// 500` was copy-pasted into the groups page, the memory page, the usage page
+// and the proactive page — four projections of one table, each free to drift
+// into a WHERE the owner would not serve (BUGS L142).
+func (d *dash) foldersViaRoutd(ctx context.Context) ([]string, error) {
+	body, status, err := d.bearerCall(ctx, d.routdURL, http.MethodGet, "/v1/groups", nil)
+	if err != nil {
+		return nil, err
+	}
+	if status < 200 || status >= 300 {
+		return nil, fmt.Errorf("routd /v1/groups: status %d", status)
+	}
+	var rows []struct {
+		Folder string `json:"folder"`
+	}
+	if err := json.Unmarshal(body, &rows); err != nil {
+		return nil, err
+	}
+	// routd serves rows in table order; the pages render a sorted list, and
+	// sorting HERE keeps that a property of the reader rather than of four
+	// callers that must each remember.
+	out := make([]string, 0, len(rows))
+	for _, r := range rows {
+		if r.Folder != "" {
+			out = append(out, r.Folder)
+		}
+	}
+	sort.Strings(out)
+	return out, nil
 }
