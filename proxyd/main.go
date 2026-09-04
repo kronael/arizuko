@@ -321,6 +321,9 @@ func (s *server) mux() *http.ServeMux {
 	// Proxy /auth/* to authd internally — the browser sees only the public
 	// WEB_HOST URL throughout the OAuth flow. Redirecting to authdURL would
 	// expose the Docker-internal address (http://authd:8080) to the browser.
+	// The forward-auth subrequest surface (6/22 step 3), mounted BEFORE the
+	// /auth/ proxy so it is answered here rather than forwarded to authd.
+	mux.HandleFunc("/auth/forward", s.handleForwardAuth)
 	mux.HandleFunc("/auth/", s.handleAuth)
 	resreg.RegisterREST(mux, routesResourceDecl(s.rr), callerFromHTTP(s.ks))
 	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("proxyd", mux))

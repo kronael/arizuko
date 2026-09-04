@@ -131,7 +131,7 @@ authenticated route renders as `respond 503` with the reason until step 3's
 forward-auth endpoint exists — rendering the proxy hop without it would serve
 the route to anyone. That refusal is the honest boundary between the two steps.
 
-## Step 3 — the auth split (not yet signed off)
+## Step 3 — the auth split (endpoint SHIPPED 2026-09-04; cutting over to an off-the-shelf proxy is still unsigned)
 
 What stays arizuko's becomes a **forward-auth endpoint**: the proxy makes
 a subrequest per request; arizuko answers 200 plus `X-User-*`, or 401.
@@ -150,6 +150,34 @@ Two constraints that decide whether this is safe:
   a cached authz decision is a revocation that does not take effect. On
   localhost the cost is a fraction of a millisecond; it is still a real
   per-request tax where today the check is in-process.
+
+### Shipped 2026-09-04 — `GET /auth/forward` on proxyd
+
+The endpoint exists; the cutover does not. proxyd answers a proxy's auth
+subrequest with 200 + `Authorization` (a freshly minted `service:proxyd` proof),
+`X-User-Sub`, `X-User-Name`, `X-User-Groups` — or the same 303-to-login a direct
+request gets, with `auth_return` set to the CALLER's route read from
+`X-Forwarded-Uri`, not to `/auth/forward`.
+
+Both constraints above are honoured and pinned. The proof is minted **per
+request, in the response**, so no long-lived token sits in a proxy's config
+where a file on the proxy host would be enough to impersonate proxyd. And the
+decision is **not cached** — one subrequest, one answer.
+
+`decideForwardAuth` deliberately runs `requireAuth`'s attempts in
+`requireAuth`'s order rather than deriving its own: a second authentication path
+beside the one proxyd already applies is the drift this spec exists to remove.
+One divergence is recorded rather than hidden — the refresh-via-authd attempt
+needs a `ResponseWriter` to re-set the cookie, and a subrequest has no upstream
+response to attach it to, so an expired access token takes the login flow
+instead. One extra round trip, no silent difference in who is admitted.
+
+**A test that passed against broken code, and what fixed it.** The first version
+asserted only that the answer did not echo the caller's bearer. With `svc` nil
+in the fixture, `attachTransit` DELETES `Authorization` and sets nothing, so the
+assertion passed on an endpoint that attached no proof at all — and the mutation
+that removes `Authorization` from the copied set stayed green. The fixture now
+stands up a stub authd so the proof is real and the test asserts its PRESENCE.
 
 ## Step 4 — could a standard IdP let us DELETE authd? (proposed 2026-09-03, needs sign-off)
 
