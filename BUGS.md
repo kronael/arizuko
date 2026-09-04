@@ -802,16 +802,30 @@ here the owner refuses on purpose.
 **Still open, and what each needs:** Status (`sessions`), Activity and Usage's
 two `FROM messages` reads, Grants' `user_profiles` + `acl_membership` datalists (the scope/groups
 datalist IS converted; `/v1/acl_membership` is DELETE-only, with no list face),
-Profile (`user_profiles`), and Me secrets/env (`secrets`). **Tasks is NOT mechanical, checked:** routd's list takes `?folder=`, ONE
-folder (`routd/tasks_http.go:41`), while the page needs the caller's N glob
-patterns — `ownerVisibleSQL("owner", allowed)` pushes them into the WHERE so the
-`LIMIT` counts only visible rows. That is a documented fix: filtering in Go
-after a plain `LIMIT 500` drops a scoped user's tasks whenever 500 other-owner
-rows sort ahead. Federating it through a single-folder filter would reintroduce
-exactly that, so it needs a scope-aware list on the OWNER's side first — a
-resreg/routd change, not a dashd swap. The rest need a read endpoint that does not exist yet, and
-each is one resreg resource, which also hands the agent the same door as an MCP
-tool (`5/17`).
+Profile (`user_profiles`), and Me secrets/env (`secrets`). **Tasks: written, deployed, REVERTED the same day — blocked on ONE scope that
+the repo gates.** Two of my readings of this page were wrong, in opposite
+directions, and the sequence is the useful part.
+
+First I recorded it as blocked because routd's list takes one `?folder=` while
+the page needs N glob patterns. That premise was false: `resreg`'s list carries
+no `LIMIT`, and `tasksTarget` (`routd/tasks_http.go:37`) reads dashd's empty
+folder claim as list-all. So I converted it, tested it, and shipped it.
+
+Then a live probe against krons answered `GET /v1/tasks 403`. `service:dashd`'s
+grants (`authd/http.go:103`) carry `sessions:read` but not `tasks:read`, so the
+page rendered "could not reach routd" on all three instances. Reverted.
+
+**The decision this needs: grant `service:dashd` the read-only scope
+`tasks:read`.** `authd/service_dashd_test.go:57` refuses it by design — it pins
+dashd's scope set exactly and says "every scope beyond these needs the sign-off
+`routes:write` got". The scope confers nothing new: the page already showed
+every task by reading `routd.db` directly, so it replaces a file handle with a
+door the owner controls. No `tasks:write` — the cockpit mutates nothing.
+
+Also established and worth keeping: the REST path is `/v1/tasks`, NOT
+`/v1/<name>`, because timed calls it across the container boundary (BUGS `F21`).
+A conversion that assumes the resource name is the path gets a 404, which is how
+this one started.
 
 ## L142 — `6/28`'s core rule "no dashboard reads a SQLite DB directly" is false: at least 6 of 9 retained dashd pages still read `routd.db` for their displayed content (2026-08-30, open)
 
