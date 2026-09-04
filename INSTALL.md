@@ -217,6 +217,36 @@ Add the package for your chosen adapter to the instance:
 Without this step, no adapter will start. Each adapter needs its package in
 `services/`.
 
+## Optional: model gateway
+
+By default every agent container receives the model credential from `.env`.
+The `litellm` package moves it into a gateway container instead; the agent
+gets a virtual key that only the gateway accepts (`specs/6/23-llm-gateway.md`).
+
+```bash
+./arizuko packages <name> add litellm
+# then in /srv/data/arizuko_<name>/.env:
+MODEL_GATEWAY_KEY=<openssl rand -hex 24>   # the virtual key; compose refuses to start without one
+MODEL_GATEWAY_URL=http://litellm:4000       # runed hands both to every spawn
+```
+
+The gateway reads `ANTHROPIC_API_KEY`, or `CLAUDE_CODE_OAUTH_TOKEN` when the
+API key is unset, from the same `.env`. Which one you put there matters:
+
+- **API key** — every harness (`claude`, `codex`, `pi`) works through the
+  gateway, billed per token.
+- **Subscription OAuth token** — only first-party clients draw on plan
+  limits. Measured 2026-09-04: `claude` and `codex` complete turns on plan
+  quota; `pi` gets HTTP 400 from Anthropic ("Third-party apps now draw from
+  your extra usage, not your plan limits") and needs extra-usage credits or
+  an API key. arizuko sends no forged client identity to change that.
+
+Without Postgres (arizuko runs SQLite only) litellm has no per-spawn keys,
+budgets or `/spend/logs`; one `MODEL_GATEWAY_KEY` serves the whole instance.
+The gateway's JSON log lines land in `journalctl -u arizuko_<name>` with
+every other daemon, and its per-request token and cost spans go to the OTLP
+collector when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
+
 ## Register first group
 
 ```bash

@@ -3,7 +3,9 @@ package compose
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"sort"
 	"strings"
 	"testing"
 
@@ -358,6 +360,45 @@ func TestForeignImageEnvCarriesNoCommonKeys(t *testing.T) {
 		if strings.Contains(got, leaked) {
 			t.Errorf("env/kokoro.env leaks %s to the third-party image:\n%s", leaked, got)
 		}
+	}
+}
+
+// litellm has no env file: docker interpolates its env straight from .env, so
+// the set of `${KEY}` references in the fragment IS the set of instance values
+// the third-party image can read. Pin it — a new reference is a new key handed
+// to a foreign image, and MODEL_GATEWAY_KEY must stay required (`:?`), or a
+// missing key starts the gateway open to every container on the network.
+func TestLitellmFragmentReadsOnlyItsDeclaredKeys(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(templateServices, "litellm.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var f fragment
+	if err := yaml.Unmarshal(raw, &f); err != nil {
+		t.Fatalf("parse litellm.yml: %v", err)
+	}
+	if n := len(f.Services["litellm"].EnvFile); n != 0 {
+		t.Errorf("litellm.yml names an env_file; its env is the interpolated keys below, nothing more")
+	}
+	want := []string{
+		"ANTHROPIC_API_KEY", "APP", "CLAUDE_CODE_OAUTH_TOKEN", "FLAVOR",
+		"MODEL_GATEWAY_KEY", "OTEL_EXPORTER_OTLP_ENDPOINT",
+		"OTEL_EXPORTER_OTLP_HEADERS", "OTEL_EXPORTER_OTLP_PROTOCOL", "TZ",
+	}
+	seen := map[string]bool{}
+	for _, m := range regexp.MustCompile(`\$\{([A-Z_]+)`).FindAllStringSubmatch(string(raw), -1) {
+		seen[m[1]] = true
+	}
+	var got []string
+	for k := range seen {
+		got = append(got, k)
+	}
+	sort.Strings(got)
+	if !slices.Equal(got, want) {
+		t.Errorf("litellm.yml interpolates %v, want exactly %v", got, want)
+	}
+	if !strings.Contains(string(raw), "${MODEL_GATEWAY_KEY:?") {
+		t.Error("MODEL_GATEWAY_KEY must be a required interpolation (`:?`) so the gateway never starts without a key")
 	}
 }
 

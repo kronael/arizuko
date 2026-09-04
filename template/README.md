@@ -14,9 +14,11 @@ scaffold that `vited` serves in dev.
 - `env.example` — default `.env` with every knob and a comment per var
 - `services/*.yml` — bundled adapter packages (partial compose files):
   `teled`, `discd`, `slakd`, `bskyd`, `reditd`, `emaid`,
-  `whapd`, `twitd`, `linkd`, `ttsd`, `kokoro`. A package with inbound
-  web paths ships `<name>.yaml` beside it — its 5/8 manifest, carrying a
-  `proxyd_routes` block (see `slakd`)
+  `whapd`, `twitd`, `linkd`, `ttsd`, `kokoro`, `litellm`. A package with
+  inbound web paths ships `<name>.yaml` beside it — its 5/8 manifest,
+  carrying a `proxyd_routes` block (see `slakd`). `litellm` is the model
+  gateway (spec 6/23): a third-party image whose config is inline in the
+  fragment and whose credential is interpolated from `.env`
 - `web/` — Vite project (`pub/`, `priv/`, `secret/` path regions,
   `vite.config.ts`, `package.json`)
 

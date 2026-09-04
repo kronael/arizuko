@@ -1,0 +1,59 @@
+# litellm — the model gateway (spec 6/23). It holds the instance's model
+# credential and forwards every agent request upstream with it; a container
+# gets only MODEL_GATEWAY_KEY, the virtual key this proxy checks. Third-party
+# image, so its env is exactly what is named below — never the shared .env,
+# which carries SECRETS_KEY, AUTH_SECRET and every bot token.
+#
+# No Postgres, by design: per-key budgets, per-spawn virtual keys and
+# /spend/logs all need one, and arizuko runs SQLite only. Metering is the
+# OTel span per request, exported only when the instance already exports
+# OTLP (the same OTEL_* declaration every daemon reads); without a collector
+# the journal carries one JSON access line per request and nothing more.
+#
+# The config is inline so the package stays one file. `os.environ/` keeps the
+# credential out of it; ANTHROPIC_API_KEY wins over CLAUDE_CODE_OAUTH_TOKEN,
+# and litellm switches to Bearer + the OAuth beta header on its own when the
+# value is an sk-ant-oat token. `model_name: "*"` passes any model id through,
+# so a new Claude release needs no edit here.
+services:
+  litellm:
+    container_name: ${APP}_litellm_${FLAVOR}
+    image: ghcr.io/berriai/litellm:main-latest
+    command: ['--config', '/app/config.yaml', '--port', '4000']
+    configs:
+      - source: litellm_config
+        target: /app/config.yaml
+    environment:
+      ANTHROPIC_API_KEY: '${ANTHROPIC_API_KEY:-${CLAUDE_CODE_OAUTH_TOKEN:-}}'
+      LITELLM_MASTER_KEY: '${MODEL_GATEWAY_KEY:?MODEL_GATEWAY_KEY is unset in .env — the gateway refuses to start open}'
+      TZ: '${TZ:-UTC}'
+      OTEL_EXPORTER_OTLP_ENDPOINT: '${OTEL_EXPORTER_OTLP_ENDPOINT:-}'
+      OTEL_EXPORTER_OTLP_PROTOCOL: '${OTEL_EXPORTER_OTLP_PROTOCOL:-http/protobuf}'
+      OTEL_EXPORTER_OTLP_HEADERS: '${OTEL_EXPORTER_OTLP_HEADERS:-}'
+      # Spans meter tokens and cost; prompts and replies stay out of the collector.
+      OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT: 'false'
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'python3',
+          '-c',
+          'import urllib.request; urllib.request.urlopen("http://127.0.0.1:4000/health/liveliness")',
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    depends_on: [routd]
+    restart: on-failure
+configs:
+  litellm_config:
+    content: |
+      model_list:
+        - model_name: "*"
+          litellm_params:
+            model: "*"
+            api_key: os.environ/ANTHROPIC_API_KEY
+      litellm_settings:
+        json_logs: true
+        ${OTEL_EXPORTER_OTLP_ENDPOINT:+callbacks: ["otel"]}

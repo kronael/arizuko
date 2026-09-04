@@ -91,6 +91,11 @@
           <td><code>http://runed:8080/openapi.json</code></td>
           <td><code>audit</code> <span class="dim">(read-only) &mdash; its own audit trail; runs and holds stay hot-tier</span></td>
         </tr>
+        <tr>
+          <td><code>litellm</code></td>
+          <td><code>http://litellm:4000/openapi.json</code></td>
+          <td><span class="dim">none of arizuko&rsquo;s &mdash; upstream litellm&rsquo;s own FastAPI document for the <a href="../components/litellm.html">model gateway</a> package; not engine-generated, not gated by the resource registry</span></td>
+        </tr>
       </tbody>
     </table>
 
@@ -166,7 +171,7 @@ curl -s https://&lt;host&gt;/openapi.json | jq '.components.schemas.Routes'</cod
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/openapi.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-06">2026-08-06</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-07">2026-08-07</time>
       </div>
     </main>
 

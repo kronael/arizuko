@@ -19,6 +19,8 @@ New integrations are added via the extension points described in
   capability hooks (Whisper transcription via `WHISPER_BASE_URL`, TTS
   via `ttsd` + `TTS_BASE_URL` (`specs/5/T-voice-synthesis.md`), oracle
   skill in `ant/skills/oracle/` driving the `codex` CLI, egress isolation (`EGRESS_IMAGE` set),
+  model gateway (`litellm` package + `MODEL_GATEWAY_URL`,
+  `specs/6/23-llm-gateway.md`),
   sandbox backend choice (Docker today, KVM via `sandbox/`)).
 
 A minimal deployment runs core plus one channel adapter; a maxed-out
@@ -604,6 +606,16 @@ folder row and no capability credential can reach the container. See
 `SECURITY.md § Secret injection`, [`5/14`](specs/5/14-credentials.md), and
 [`5/13`](specs/5/13-ext-mcp.md).
 
+**Model gateway** ([`6/23`](specs/6/23-llm-gateway.md)) — with the
+`litellm` package installed, the model credential stops at the gateway
+container: `template/services/litellm.yml` reads `ANTHROPIC_API_KEY` (or
+`CLAUDE_CODE_OAUTH_TOKEN`) straight from the instance `.env`, and the agent
+container receives `MODEL_GATEWAY_URL` + `MODEL_GATEWAY_KEY` instead — a
+virtual key litellm checks, worth nothing anywhere else. One key per
+instance, not per spawn: litellm keeps virtual keys, budgets and
+`/spend/logs` in Postgres, which arizuko does not run. Metering is the OTel
+span per request, exported when the instance already exports OTLP.
+
 Session: new session ID updates routd's `sessions` table. Error with no
 output → evict session (cursor rolled back, retry). Error with output →
 cursor advances (partial work preserved).
@@ -744,7 +756,8 @@ offline verification by the rest.
 Bundled catalog at `template/services/` (ships in image, Ansible extracts to
 `/srv/app/arizuko/template/services/`): `teled.yml`, `whapd.yml`, `discd.yml`,
 `slakd.yml` (+ `slakd.yaml`), `bskyd.yml`, `reditd.yml`,
-`linkd.yml`, `emaid.yml`, `twitd.yml`, `ttsd.yml`, `kokoro.yml`.
+`linkd.yml`, `emaid.yml`, `twitd.yml`, `ttsd.yml`, `kokoro.yml`,
+`litellm.yml`.
 
 Fragment format — a plain partial compose file:
 
@@ -769,7 +782,15 @@ file kinds: `.yml`, a partial compose file docker `include`s, and `.yaml`, the
 `5/8` manifest whose rows `arizuko apply` installs.
 
 All Go daemons listen on :8080 internally except ttsd at :8880 —
-historical default that predates the invariant.
+historical default that predates the invariant. The third-party images keep
+their own: kokoro :8880, litellm :4000.
+
+Third-party fragments (`kokoro.yml`, `litellm.yml`) never read the shared
+`.env`. kokoro gets a generated `env/kokoro.env` holding its one key;
+litellm has no env file at all — docker interpolates the keys its fragment
+names (`${MODEL_GATEWAY_KEY:?}` and the credential pair) from `.env`, and
+`compose/fragments_test.go` pins that set, so handing the image a new
+instance value is a visible edit.
 
 Egress isolation runs when `EGRESS_IMAGE` is set. There is no long-lived
 proxy service in the compose file: `runed` starts ONE `egress` proxy

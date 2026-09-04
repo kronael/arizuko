@@ -44,7 +44,10 @@ What's isolated per group:
   triggering user's own `store.EnvProfileKeys` (BYOA), which override
   them for that spawn. Capability credentials never enter the container —
   the tool-call-time broker resolves them on the host, per call
-  (`specs/5/13-ext-mcp.md`, `specs/5/14-credentials.md`).
+  (`specs/5/13-ext-mcp.md`, `specs/5/14-credentials.md`). With the
+  `litellm` package the model credential stays out too: the gateway
+  container holds it, and the agent gets `MODEL_GATEWAY_KEY`, a virtual
+  key that only the gateway accepts (`specs/6/23-llm-gateway.md`).
 
 The threat the model defends against is a malicious agent in group A
 trying to reach group B's data, files, or network. Separate containers
@@ -331,7 +334,12 @@ Caveats:
   the four model keys, so a folder capability credential cannot reach the
   container even if a future caller asks it to. The egress allowlist
   restricts _where_ the agent can reach; it does not prevent leaking a
-  model credential to an allowed domain.
+  model credential to an allowed domain. The `litellm` package closes
+  that gap by construction: the container holds `MODEL_GATEWAY_KEY`, which
+  buys exactly the gateway's upstream access and nothing else, and
+  rotating it is one `.env` edit plus a restart — the provider credential
+  never moves. What it does not buy without Postgres: per-spawn keys, so
+  one leaked key is every container's key until rotated.
 - The tool-level secret broker is **shipped** (v0.57.0;
   `specs/5/13-ext-mcp.md`, `specs/5/14-credentials.md`): the broker
   middleware (`ipc/ipc.go` `injectSecretsAdapter`) resolves
