@@ -63,7 +63,7 @@ export function codexArgs(turn: Pick<Turn, 'cwd' | 'model' | 'continuity' | 'too
   }
   // The gateway pair (gateway.ts) becomes a model provider named `gateway`.
   // Measured 2026-09-04 with codex-cli 0.153.2: `wire_api=chat` is rejected
-  // as "no longer supported", so it is `responses`. With a key, codex reads
+  // outright as "no longer supported", so it is `responses`. With a key, codex reads
   // it from the named env var; without one, requires_openai_auth makes codex
   // send its own ChatGPT bearer to base_url instead.
   const gw = modelGateway(turn.env);
