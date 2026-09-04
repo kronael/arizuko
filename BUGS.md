@@ -805,7 +805,25 @@ would replace. So `6/28` needs a recorded exception for owner-refused reads, not
 code: the rule assumes the owner will serve everything a dashboard shows, and
 here the owner refuses on purpose.
 
-**The remaining four pages are ONE decision, not four.** Tasks, Status,
+**Tasks: DONE 2026-09-04, verified live.** `service:dashd` now holds
+`tasks:read` and `messages:read`, and `GET /v1/tasks` answers 200 from the
+krons container — the same probe that answered 403 and forced the revert.
+
+The ceiling test was updated rather than deleted: the two scopes are listed with
+why, and the exact-length check still bites, so a third addition fails until
+someone justifies it the same way. Both are READ-ONLY and both replace a direct
+`routd.db` read the pages already performed, so dashd's reach NARROWS — a file
+handle becomes two endpoints its owner gates.
+
+**Status, Activity and Usage's message reads still need a HANDLER, not a scope.**
+`messages:read` is now held, but routd serves no aggregate: its message reads are
+`/v1/messages/{find,inspect,thread}` and its session surface is
+`/v1/topic_sessions` (one folder's session id, not per-folder counts). Each page
+needs a small REST-only handler on routd — the `handleUserScopes` shape, plain
+`mux.HandleFunc` + `s.authed`, no resreg resource and therefore no agent MCP
+tool. That is the remaining work, and it is bounded.
+
+**Superseded — the four-page consolidation:** Tasks, Status,
 Activity and Usage's message reads all fail at the same place: `service:dashd`'s
 scope set. routd gates its reads with
 `scopeRead = {chats:read:own_group, chats:read, messages:read}`
