@@ -51,6 +51,27 @@ func stubRoutd(t *testing.T, db *sql.DB) string {
 		writeStubJSON(w, out)
 	})
 
+	mux.HandleFunc("GET /v1/tasks", func(w http.ResponseWriter, _ *http.Request) {
+		rows, err := db.Query(`SELECT id, owner, COALESCE(prompt,''), COALESCE(cron,''),
+			status, created_at, COALESCE(next_run,'') FROM scheduled_tasks ORDER BY owner, id`)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+		out := []resources.ScheduledTasksRow{}
+		for rows.Next() {
+			var t resources.ScheduledTasksRow
+			if err := rows.Scan(&t.ID, &t.Owner, &t.Prompt, &t.Cron,
+				&t.Status, &t.Created, &t.NextRun); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			out = append(out, t)
+		}
+		writeStubJSON(w, out)
+	})
+
 	mux.HandleFunc("GET /v1/routes", func(w http.ResponseWriter, _ *http.Request) {
 		rows, err := db.Query(`SELECT id, seq, match, target,
 			COALESCE(observe_window_messages,0), COALESCE(observe_window_chars,0)

@@ -100,11 +100,18 @@ var serviceGrants = map[string][]string{
 	// The ceiling is exactly these eleven. dashd does not originate work (runs:run),
 	// speak as a channel (messages:write), or read credentials (secrets:read,
 	// grants:read). authd/service_dashd_test.go pins both the set and the count.
+	// tasks:read and messages:read are reads dashd ALREADY performed by another
+	// route: its tasks, activity and usage pages ran arbitrary SQL against
+	// routd.db. 6/28's read path moves them to GET /v1/tasks and routd's message
+	// reads, so the scopes confer no new visibility — they REDUCE reach, from a
+	// file handle to two endpoints the owner gates. Both read-only: the cockpit
+	// mints and mutates nothing (BUGS L142).
 	"service:dashd": {
 		"runs:kill", "routes:read", "routes:write", "audit:read",
 		"signing_keys:read", "sessions:read", "sessions:write",
 		"pending_actions:read", "pending_actions:write",
 		"dead_letters:read", "dead_letters:write",
+		"tasks:read", "messages:read",
 	},
 }
 

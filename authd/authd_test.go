@@ -71,7 +71,6 @@ func TestMintVerifyThroughAuthd(t *testing.T) {
 	}
 }
 
-
 func TestRotationKeepsOldKeyServingWithinWindow(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db) // maxAccessTTL = 1h

@@ -47,6 +47,12 @@ func TestServiceDashdIsScopedToWhatItProxiesAndReads(t *testing.T) {
 		"signing_keys:read", "sessions:read", "sessions:write",
 		"pending_actions:read", "pending_actions:write",
 		"dead_letters:read", "dead_letters:write",
+		// Added 2026-09-04 for 6/28's read path (BUGS L142). Both READ-ONLY and
+		// both replacing a direct routd.db read the pages already did, so the
+		// grant narrows dashd's reach rather than widening it. The ceiling below
+		// still bites: a third addition fails this test until someone justifies
+		// it the same way.
+		"tasks:read", "messages:read",
 	}
 	for _, needed := range want {
 		if !slices.Contains(g, needed) {
