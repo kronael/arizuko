@@ -96,7 +96,7 @@ beside it, into a path vited serves and webd does not. It belongs to whoever
 owns the `/pub` fallback. Either amend the table's verdict, or spec the
 catch-all change on its own — it is a redesign, not a relocation.
 
-## Step 2 — routes become rows (unblocked 2026-08-17, signed off, NOT started)
+## Step 2 — routes become rows (unblocked 2026-08-17, signed off, renderer SHIPPED 2026-09-04)
 
 Config for any off-the-shelf proxy must be **rendered** from somewhere.
 It cannot be rendered from `PROXYD_ROUTES_JSON`, which was seed-once and
@@ -107,10 +107,29 @@ boot path reads rows only. The prerequisite is therefore done and the
 remaining work is the renderer itself, which is unbuilt.
 
 With routes as rows, the proxy config becomes one more reader of one
-declaration (root `CLAUDE.md`, "one declaration, many readers"). The
-renderer is small: read rows, marshal the proxy's config object, POST it
-to Caddy's admin API (`/load`) or drop a file for Traefik's provider.
-Estimate ~150–250 lines.
+declaration (root `CLAUDE.md`, "one declaration, many readers").
+
+**Shipped 2026-09-04: `proxycfg` + `arizuko proxy-config <instance>`.** It
+renders a Caddyfile rather than Caddy's admin JSON — `forward_auth` is a
+first-class directive there, so the one thing the render cannot do stays legible
+instead of hiding in a `handle_response` block. Measured against krons' live
+table: 25 rows in, 25 routes out.
+
+Three things the render has to get right, each pinned by a mutation-checked
+test. **Order**: proxyd matches longest-prefix, Caddy matches `handle` blocks in
+written order, so emission order carries the semantics. **`optional` takes the
+auth hop**: that is where proxyd identifies a caller who offers a credential, so
+skipping it drops attribution on the route-token surface. **`gated_by` is NOT
+re-evaluated**: it is generate-time-only metadata (`proxyd/routes.go:21`) and
+compose drops a gated route before writing the row, so every row that exists has
+already passed. Re-gating on the render dropped two LIVE krons routes (ttsd,
+davd) whose vars live in the generated `env/` rather than `.env` — the `L45`
+shape a second time, a second evaluation of one decision.
+
+**It prints; it does not install.** proxyd is still the running proxy, and an
+authenticated route renders as `respond 503` with the reason until step 3's
+forward-auth endpoint exists — rendering the proxy hop without it would serve
+the route to anyone. That refusal is the honest boundary between the two steps.
 
 ## Step 3 — the auth split (not yet signed off)
 

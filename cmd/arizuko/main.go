@@ -18,9 +18,9 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/compose"
 	"github.com/kronael/arizuko/container"
-	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/groupfolder"
@@ -78,6 +78,7 @@ func main() {
 	cmds := map[string]func([]string){
 		"run":           cmdRun,
 		"generate":      cmdGenerate,
+		"proxy-config":  cmdProxyConfig,
 		"create":        cmdCreate,
 		"group":         cmdGroup,
 		"gate":          cmdGate,

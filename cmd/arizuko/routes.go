@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/kronael/arizuko/compose"
+	"github.com/kronael/arizuko/proxycfg"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -52,4 +53,41 @@ func syncProxydRoutes(dataDir string, routes []compose.ProxydRoute) {
 	chownStore(filepath.Join(dataDir, "store"))
 
 	fmt.Printf("proxyd routes: %d written, %d operator-owned left alone\n", written, kept)
+}
+
+// cmdProxyConfig renders the instance's proxyd_routes rows as a Caddyfile
+// (spec 6/22 step 2). It PRINTS rather than installs: proxyd is still the
+// running proxy, and a renderer that writes into a live proxy's config dir
+// before step 3 exists would hand it a routing table it cannot authenticate.
+//
+// --forward-auth names the endpoint that answers with the transit proof. Unset,
+// every authenticated route renders as a 503 with the reason — see proxycfg.
+func cmdProxyConfig(args []string) {
+	need(args, 1, "arizuko proxy-config <instance> [--listen :8080] [--forward-auth host:port]")
+	dataDir := mustInstanceDir(args[0])
+	opts := proxycfg.Options{Listen: ":8080"}
+	for i := 1; i+1 < len(args)+1 && i < len(args); i += 2 {
+		if i+1 >= len(args) {
+			die("Failed: %s needs a value", args[i])
+		}
+		switch args[i] {
+		case "--listen":
+			opts.Listen = args[i+1]
+		case "--forward-auth":
+			opts.ForwardAuth = args[i+1]
+		default:
+			die("Failed: unknown flag %s", args[i])
+		}
+	}
+	rdb := mustOpenRoutd(dataDir)
+	defer rdb.Close()
+	rows, err := store.New(rdb.SQL()).AllProxydRoutes()
+	if err != nil {
+		die("Failed: read proxyd_routes: %v", err)
+	}
+	out, err := proxycfg.Caddyfile(rows, opts)
+	if err != nil {
+		die("Failed: %v", err)
+	}
+	fmt.Print(out)
 }
