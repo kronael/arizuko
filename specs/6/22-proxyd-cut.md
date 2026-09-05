@@ -1,5 +1,5 @@
 ---
-status: draft
+status: partial
 depends: [16-daemon-standalone-matrix, ../5/7-proxyd-standalone]
 ---
 
