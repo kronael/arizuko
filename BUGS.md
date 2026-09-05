@@ -7,6 +7,26 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L164 — anteval's cost column is empty for 6 of 9 passing cases and `fresh-context` stalls 3 min on a turn that never ran (2026-09-05, open)
+
+Smoke on krons 2026-09-05 07:46-07:55, 9/9 pass. routd recorded 24 `cost_log`
+rows — opus + haiku for every one of the 12 turns the run dispatched — so the
+platform side is complete. The harness still printed `tokens=0` for six cases
+(e.g. `chat-entrypoint`, whose turn `in-d0097d8645d31f85` has rows at 07:46:50)
+and, for `fresh-context`, waited on `in-1b05efa7fa40f3d3` for 3m0s ("never
+recorded a cost … the next case may start behind it"): that case sends `/new`
+and its prompt back to back (07:47:33.818 / .854) and routd folded both into
+one turn, `cmd-new-1788594453854141148`, whose row landed at 07:47:53. The id
+the harness waited on never ran. The stall is ~30 % of a 9.5-minute run and the
+per-case token figure cannot be trusted.
+
+- **Severity:** low (harness only: +3 min per smoke run; token column under-reports)
+- **Scope:** anteval cost read / turn-id derivation
+- **Affected:** anteval
+- **Source:** anteval report 2026-09-05 07:55; `routd.db` `cost_log` 07:45-07:56
+- **Status:** open. Fix shape: read the turn id routd actually ran for the injected message instead of deriving `in-<msgid>`, and read cost after the turn's `round_done`, not on a fixed wait.
+- **Fix:**
+
 ## L156 — runed's `warnChown` reports docker's root-owned `auth.json` mount stub in every group: 50 false EPERM warnings per restart (2026-09-05, open)
 
 `runed` start runs `SeedCodexDirs` → `warnChown(<group>/.codex)`
