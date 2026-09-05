@@ -14,7 +14,37 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Security
+
+- **A stamped identity header now needs proxyd's proof behind it.** Every
+  daemon dashboard accepted `X-User-*` from any caller that could reach its
+  port, so a forged header reached the operator surface directly. `X-User-*`
+  is trusted only behind proxyd's `service:proxyd` ES256 bearer
+  (`auth.ProxydTransit`). Five tests asserted the hole was correct behaviour;
+  they are gone.
+- **A reply target resolves inside its own chat only.** `MessageByID` and
+  `TopicByID` matched on the message id alone, so a reply could address a
+  message in another tenant's chat. Both are scoped by `chat_jid`.
+
 ### Added
+
+- **GitHub arrives as a channel, not a special case** (`gitd`, spec `6/27`).
+  Webhook deliveries become inbound messages through the same `chanlib`
+  surface every adapter uses; `github_sources` registers a repository or an
+  org and the JID grammar carries it.
+- **`mcpfw`: a standalone MCP tool-call filter** (spec `6/12`). A transparent
+  proxy in front of a third-party MCP server, deny-wins and default-deny,
+  with zero arizuko imports — usable outside arizuko.
+- **A package declares what it needs from `.env`** (spec `5/28`). A manifest's
+  `env` section names a key as `generate` (minted at install), `default`
+  (derived every generate) or `required` (the operator must set it, and
+  install refuses until they do). A package installs with working defaults, or
+  it refuses before the first write — never installs and then will not start.
+- **`substrate`: declare what a substrate can do, and degrade loudly**
+  (spec `6/25`). A profile states backend, persistence, sessions and egress;
+  what is delivered is reported against what was declared, with the reason.
+- **Traffic no route claims is held and listed** (spec `6/35`), at
+  `GET /v1/routing/unrouted`.
 
 - **The model gateway: the agent container stops holding the real model
   credential** (spec `6/23`). Set `MODEL_GATEWAY_URL` and
@@ -33,6 +63,20 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   construction. Egress isolation would otherwise deny it and every turn
   would fail with no model call, on an instance that looks correctly
   configured.
+
+### Fixed
+
+- **The agent never saw reply excerpts or its own user memory file.** Both
+  were built and neither reached the prompt: 374 of 374 messages on one
+  instance, 2146 of 2146 on another.
+- **`PERSONA.md` reaches the system prompt.** `SYSTEM.md` replaces the base
+  prompt, `PERSONA.md` appends to it, so a group adds voice without restating
+  the platform contract.
+- **Every adapter dashboard 404'd.** The route mounted under the channel name
+  while proxyd routed the daemon name.
+- **A cross-channel reply reference no longer breaks a Discord thread post.**
+- **`connectors.toml` refuses an unknown table or transport** instead of
+  loading nothing and looking healthy.
 
 ### Changed
 
