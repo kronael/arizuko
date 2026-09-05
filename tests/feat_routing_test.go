@@ -7,6 +7,7 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/router"
 	routdv1 "github.com/kronael/arizuko/routd/api/v1"
+	"github.com/kronael/arizuko/tests/testutils"
 )
 
 func TestFeature_MessageRouting(t *testing.T) {
@@ -63,10 +64,12 @@ func TestFeature_MessageRouting(t *testing.T) {
 		if rec.StatusCode != 200 {
 			t.Fatalf("ingest status=%d", rec.StatusCode)
 		}
-		deadline := time.Now().Add(5 * time.Second)
-		for f.dispatchedFolder("feat.route.1") == "" && time.Now().Before(deadline) {
-			time.Sleep(20 * time.Millisecond)
-		}
+		// The fake agent records the dispatch before it posts its reply, so the
+		// bot row is the signal the turn closed; waiting on the dispatch alone
+		// raced the reply under a loaded package run.
+		testutils.WaitForRow(t, f.routdDB.SQL(),
+			`SELECT COUNT(*) FROM messages WHERE chat_jid=? AND is_bot_message=1`,
+			[]any{"slack:T/C/U"}, 5*time.Second)
 		if got := f.dispatchedFolder("feat.route.1"); got != "demo" {
 			t.Fatalf("dispatched to %q, want demo", got)
 		}

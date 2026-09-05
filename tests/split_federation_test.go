@@ -195,11 +195,35 @@ type federation struct {
 	ranSecrets  map[string]map[string]string // folder -> RunRequest.Secrets (container env)
 }
 
+// fedOpts selects what stands in for the agent and for adapter egress. The zero
+// value is the FakeRuntime agent and the no-op deliverer.
+type fedOpts struct {
+	// instance names the runed Manager; it prefixes every container name.
+	// "" → fedtest.
+	instance string
+	// runtime builds runed's Runtime once f (the observation sink) exists.
+	// nil → fakeAgentRuntime.
+	runtime func(f *federation) runed.Runtime
+	// deliver is routd's egress half. nil → fedDeliverer{}.
+	deliver routd.Deliverer
+	// runTTL bounds one run; zero keeps runed's default.
+	runTTL time.Duration
+	loop   []func(*routd.LoopConfig)
+}
+
 // bootFederation stands up authd, runed (real Manager + FakeRuntime), and routd (real
 // Loop + real poller calling runed over HTTP). The FakeRuntime is the only fake: it
 // simulates the agent by calling the reply tool over the turn's MCP socket. Returns
 // f and the running loop's cancel.
 func bootFederation(t *testing.T, cfgMods ...func(*routd.LoopConfig)) *federation {
+	t.Helper()
+	return bootFederationWith(t, fedOpts{loop: cfgMods})
+}
+
+// bootFederationWith is bootFederation with the agent side chosen by the caller:
+// the FakeRuntime for the split-contract tests, runed's real docker Runtime for
+// the container turns in e2e_turn_test.go.
+func bootFederationWith(t *testing.T, o fedOpts) *federation {
 	t.Helper()
 	f := &federation{
 		ipcDir:      t.TempDir(),
@@ -217,22 +241,18 @@ func bootFederation(t *testing.T, cfgMods ...func(*routd.LoopConfig)) *federatio
 	t.Cleanup(func() { rudb.Close() })
 	f.runedDB = rudb
 
-	// The FakeRuntime is the agent: on each run it records the folder routd
-	// dispatched to and calls the reply tool over the turn's MCP socket — the
-	// real agent→routd path, just without an LLM deciding the text.
-	rt := runed.FakeRuntime{Fn: func(_ context.Context, spec runed.RunSpec) runed.RunResult {
-		f.mu.Lock()
-		f.ranFolders[spec.TurnID] = spec.Folder
-		f.ranSessions[spec.TurnID] = spec.SessionID
-		f.ranSecrets[spec.Folder] = spec.Secrets
-		f.mu.Unlock()
-		if err := f.agentReply(spec, "agent says: ack "+spec.TurnID); err != nil {
-			return runed.RunResult{Outcome: runedv1.OutcomeError, Error: err.Error()}
-		}
-		return runed.RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "sess-" + spec.TurnID}
-	}}
+	var rt runed.Runtime
+	if o.runtime != nil {
+		rt = o.runtime(f)
+	} else {
+		rt = fakeAgentRuntime(t, f)
+	}
+	if o.instance == "" {
+		o.instance = "fedtest"
+	}
 	mgr := runed.NewManager(rudb, rt, runed.ManagerConfig{
-		Instance: "fedtest",
+		Instance: o.instance,
+		RunTTL:   o.runTTL,
 	})
 	runedSrv := runed.NewServer(mgr, rudb, newFedVerifier(t, f.authd))
 	f.runedTS = httptest.NewServer(runedSrv.Handler())
@@ -253,15 +273,27 @@ func bootFederation(t *testing.T, cfgMods ...func(*routd.LoopConfig)) *federatio
 	// routd → runed over REAL HTTP via the production client, carrying routd's
 	// service token (runs:run). This is the PINNED POST /v1/runs contract.
 	svcTok := f.authd.mintService(t, "service:routd", "runs:run", "runs:kill")
-	runedClient := runedv1.NewClient(f.runedTS.URL, svcTok, 10*time.Second)
+	// POST /v1/runs returns when the run ends, so the client waits out a whole
+	// run: a shorter deadline re-dispatches a live turn and tears its MCP
+	// socket down under the container.
+	clientTimeout := 10 * time.Second
+	if o.runTTL > 0 {
+		clientTimeout = o.runTTL + 30*time.Second
+	}
+	runedClient := runedv1.NewClient(f.runedTS.URL, svcTok, clientTimeout)
 
 	lc := routd.LoopConfig{
 		InstanceName: "fedtest",
 		PollEvery:    20 * time.Millisecond, // fast poll for the test
 		IpcDir:       f.ipcDir,
 	}
-	for _, mod := range cfgMods {
+	for _, mod := range o.loop {
 		mod(&lc)
+	}
+	var deliver routd.Deliverer = fedDeliverer{}
+	if o.deliver != nil {
+		deliver = o.deliver
+		lc.Deliver = deliver
 	}
 	loop := routd.NewLoop(rodb, runedClient, lc)
 	f.loop = loop
@@ -269,7 +301,7 @@ func bootFederation(t *testing.T, cfgMods ...func(*routd.LoopConfig)) *federatio
 	// authd's JWKS) gates /v1/messages on a service:<adapter> messages:write JWT.
 	// Adapters present a token from mintAdapter — see
 	// TestSplitFederation_InboundViaServiceToken.
-	f.routdSrv = routd.NewServer(rodb, loop, fedDeliverer{}, newFedVerifier(t, f.authd), 0, "https://fed.test")
+	f.routdSrv = routd.NewServer(rodb, loop, deliver, newFedVerifier(t, f.authd), 0, "https://fed.test")
 	loop.BindServer(f.routdSrv)
 	f.routdTS = httptest.NewServer(f.routdSrv.Handler())
 	t.Cleanup(f.routdTS.Close)
@@ -282,6 +314,25 @@ func bootFederation(t *testing.T, cfgMods ...func(*routd.LoopConfig)) *federatio
 	return f
 }
 
+// fakeAgentRuntime is the agent as a FakeRuntime: on each run it records the
+// folder routd dispatched to, mints a folder-bound reply token from authd, and
+// posts a reply back to routd over HTTP — the real agent→routd callback, just
+// without an LLM deciding the text.
+func fakeAgentRuntime(t *testing.T, f *federation) runed.Runtime {
+	t.Helper()
+	return runed.FakeRuntime{Fn: func(_ context.Context, spec runed.RunSpec) runed.RunResult {
+		f.mu.Lock()
+		f.ranFolders[spec.TurnID] = spec.Folder
+		f.ranSessions[spec.TurnID] = spec.SessionID
+		f.ranSecrets[spec.Folder] = spec.Secrets
+		f.mu.Unlock()
+		// Reply over the turn's own MCP socket — the path a real agent takes.
+		if err := f.agentReply(spec, "agent says: ack "+spec.TurnID); err != nil {
+			return runed.RunResult{Outcome: runedv1.OutcomeError, Error: err.Error()}
+		}
+		return runed.RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "sess-" + spec.TurnID}
+	}}
+}
 func (f *federation) dispatchedFolder(turnID string) string {
 	f.mu.Lock()
 	defer f.mu.Unlock()

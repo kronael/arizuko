@@ -228,6 +228,102 @@ in another edit set that day.
 - **Affected:** routd
 - **Source:** `routd/tokens.go` `SweepIdempotency`; `routd/loop.go:498`
 - **Status:** open
+## L174 — gateway-measured spend has no path into `cost_log`: the litellm package exports OTLP spans and nothing arizuko runs reads them (2026-09-05, open — proposal, needs sign-off)
+
+`cost_log` has two writers, both in routd: `recordTurnResult` books
+`req.Models` from the agent's `submit_turn` (`routd/turns.go:703`), and
+`LogExternalCost` behind `POST /v1/cost` (`cost:write`,
+`routd/reads_http.go:215`) plus the `log_external_cost` MCP tool. dashd reads
+the one summary face, `GET /v1/cost/summary`. With `MODEL_GATEWAY_URL` set the
+gateway sees every model request and none of that reaches either writer, so
+the cap still enforces against the spender's own report — 6/23's Fault 2,
+unchanged by 6/23 shipping. `tests/e2e_turn_test.go` exhibits the gap end to
+end: a turn whose model call fails books no row and the folder's spend view
+does not move, although the endpoint served the request.
+
+Measured 2026-09-05 against `ghcr.io/berriai/litellm:main-latest` (1.101.0)
+with the package's no-Postgres config and a local upstream + HTTP sink: the
+proxy forwards `/v1/messages` upstream with the injected credential (the
+upstream saw `x-api-key`); `success_callback: ["generic"]` with
+`GENERIC_LOGGER_ENDPOINT` starts (`Initialized Success Callbacks -
+['generic']`) and delivered nothing to the sink after a `/v1/messages` and a
+`/chat/completions` request and 20 s of waiting (cause not determined); the
+JSON access line for a request carries the status and no usage;
+`/spend/logs` needs Postgres. So today the ONLY per-request usage export is the
+OTLP span, and arizuko has no receiver — by design (`CLAUDE.md`: "audit_log
+stays SQLite-canonical; OTLP is observability only").
+
+Two gaps, in order:
+
+1. **Attribution.** The spec's shape — a per-spawn virtual key the gateway
+   meters by — needs Postgres in litellm. Without it every request carries
+   the master key and the only per-request identity is what the container
+   sends (a header: `ANTHROPIC_CUSTOM_HEADERS` for claude, `http_headers` on
+   the codex provider, the pi provider's headers), set by the metered party.
+   The AMOUNT would be gateway-measured; the FOLDER would still be
+   self-reported.
+2. **Transport.** The gateway → routd carrier does not exist. Candidates: (i)
+   a litellm custom callback (one python file mounted through `configs:` in
+   `template/services/litellm.yml`) that POSTs `apiv1.CostRequest` to the
+   existing `POST /v1/cost` with a `cost:write` service bearer — amends the
+   original write path, no second table, no second reader; (ii) an OTLP
+   receiver in arizuko — a second accounting substrate, declined above.
+
+Proposal, needing sign-off because it changes the `/v1/cost` contract and
+the trust model: (i) for transport; for attribution, `POST /v1/cost` accepts an
+optional `turn_id` the callback forwards from a request header the harness
+sets, and routd takes the FOLDER from its own turn context
+(`GetTurnContext`), never from the header — the container can then mislabel
+only onto a live turn id it can name, not onto an arbitrary folder. The
+agent's `req.Models` degrades to corroboration and a disagreement between the
+two rows for one turn is logged, as 6/23 already states. Touches
+`routd/reads_http.go` (handleCost), `routd/api/v1/types.go`,
+`template/services/litellm.yml` (callback file), and the three harness
+renderers under `ant/src/` (one header each). Until then the operator note
+stands: the gateway is a credential boundary, not an accounting one.
+
+- **Severity:** medium (the cap enforces a number the metered party supplies)
+- **Scope:** model gateway → routd accounting
+- **Affected:** any instance with `MODEL_GATEWAY_URL` set (none today)
+- **Source:** `template/services/litellm.yml`; `routd/reads_http.go:215`; `routd/turns.go:703`; `routd/dispatch.go:261`; litellm probe 2026-09-05 12:30
+- **Status:** proposal (needs sign-off)
+- **Fix:**
+
+## L175 — ant delivers a model API failure as a successful reply and books no usage for it (2026-09-05, open)
+
+Measured with claude-cli 2.1.261 (host and the `arizuko-ant` image alike):
+an HTTP 400 from the model endpoint yields a result of `subtype:"success",
+is_error:true, result:"API Error: 400 …", modelUsage:{}`.
+`claudeResultStatus` (`ant/src/claude.ts:329-335`) reads only the subtype and
+the "Not logged in" text, so ant submits `status: success` with the error
+line as the result and no `models`; routd's `recordTurnResult` then delivers
+"API Error: 400 fake says no" to the chat as the agent's answer, writes no
+cost row, and the run counts as clean for the breaker. The same shape
+follows an exhausted 529 retry. `tests/e2e_turn_test.go` step 3 exhibits it
+(the assertion documents the behaviour, it does not endorse it).
+
+- **Severity:** low (the user sees the error text; no retry, no notice, no cost)
+- **Scope:** ant claude harness → routd turn result
+- **Affected:** every claude-backend instance
+- **Source:** `ant/src/claude.ts:329-335`, `:388-397`; `routd/turns.go:679`
+- **Status:** open. Fix shape: `claudeResultStatus` reads `is_error` → `status: error`, so routd's failure path (retry, then the notice) handles it instead of delivering the line.
+- **Fix:**
+
+## L176 — `GET /v1/messages/volume` compares RFC3339 timestamps to `datetime('now','-7 days')`, so the window is seven days plus the whole boundary day (2026-09-05, open)
+
+`routd/dash_reads_http.go:69-73` filters `timestamp >= datetime('now', '-7
+days')`. SQLite renders that cutoff as `YYYY-MM-DD HH:MM:SS` (a space) while
+`messages.timestamp` is RFC3339 (`T`); on the boundary date every `T` row
+sorts after the cutoff, so rows from up to 24 h before it are counted. The
+spend column beside it (`CostSummary`) compares like for like in RFC3339Nano.
+Found while checking the usage page's numbers against routd's own server
+(`dashd/usage_page_routd_test.go`); that test pins today's rows only.
+
+- **Severity:** low (one day of over-count in a 7-day histogram)
+- **Scope:** routd dashboard reads
+- **Affected:** every instance's `/dash/usage/` volume table
+- **Source:** `routd/dash_reads_http.go:69-73`
+- **Status:** open. Fix shape: pass the cutoff from Go in the column's own format, as `CostSummary` does.
 - **Fix:**
 
 ## L164 — anteval's cost column is empty for 6 of 9 passing cases and `fresh-context` stalls 3 min on a turn that never ran (2026-09-05, open)

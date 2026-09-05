@@ -36,21 +36,22 @@ New coverage added by `tests/integration_features_test.go` is marked
 
 ## 2. Agent dispatch
 
-| Feature                                   | exists | tested                                                                                        | ref                                     |
-| ----------------------------------------- | ------ | --------------------------------------------------------------------------------------------- | --------------------------------------- |
-| Container spawn per turn (runed)          | yes    | yes — `TestFeature_AgentDispatch/spawn-persisted` (FakeRuntime), `routd/parity_spawn_test.go` | ARCHITECTURE.md                         |
-| Spawn row persisted (runed.db)            | yes    | yes — `TestFeature_AgentDispatch/spawn-persisted`                                             | ARCHITECTURE.md                         |
-| Session persistence / fork                | yes    | partial — `routd/session_test.go`, `routd/session_fork_test.go`                               | ARCHITECTURE.md                         |
-| Context mode (group / isolated)           | yes    | yes — `TestFeature_AgentDispatch/context-mode`                                                | `core/types.go:Task.ContextMode`        |
-| Per-group model override                  | yes    | yes — `TestFeature_AgentDispatch/model-override`                                              | `store/groups.go:SetGroupModel`         |
-| Observe window (context sizing)           | yes    | yes — `TestFeature_AgentDispatch/observe-window`, `tests/mcp_helpers_test.go`                 | `store/groups.go:SetGroupObserveWindow` |
-| Group queue serialization                 | yes    | partial — `routd/loop_test.go`                                                                | ARCHITECTURE.md                         |
-| Steer (SIGUSR1 mid-run inject)            | yes    | partial — `routd/steer_commands_test.go`                                                      | ARCHITECTURE.md                         |
-| Circuit breaker (3-fail open)             | yes    | partial — runed manager                                                                       | ARCHITECTURE.md                         |
-| MaxConcurrent cap                         | yes    | no                                                                                            | ARCHITECTURE.md                         |
-| Run TTL / kill                            | yes    | partial — `runed/*`                                                                           | ARCHITECTURE.md                         |
-| Cost cap pre-check                        | yes    | partial — `routd/budget_test.go`                                                              | routd/README.md                         |
-| Egress allowlist (crackbox network_rules) | yes    | partial — `crackbox/pkg/*`                                                                    | ARCHITECTURE.md                         |
+| Feature                                    | exists | tested                                                                                                                   | ref                                     |
+| ------------------------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------ | --------------------------------------- |
+| Container spawn per turn (runed)           | yes    | yes — `TestFeature_AgentDispatch/spawn-persisted` (FakeRuntime), `routd/parity_spawn_test.go`                            | ARCHITECTURE.md                         |
+| Spawn row persisted (runed.db)             | yes    | yes — `TestFeature_AgentDispatch/spawn-persisted`                                                                        | ARCHITECTURE.md                         |
+| Session persistence / fork                 | yes    | partial — `routd/session_test.go`, `routd/session_fork_test.go`                                                          | ARCHITECTURE.md                         |
+| Context mode (group / isolated)            | yes    | yes — `TestFeature_AgentDispatch/context-mode`                                                                           | `core/types.go:Task.ContextMode`        |
+| Per-group model override                   | yes    | yes — `TestFeature_AgentDispatch/model-override`                                                                         | `store/groups.go:SetGroupModel`         |
+| Observe window (context sizing)            | yes    | yes — `TestFeature_AgentDispatch/observe-window`, `tests/mcp_helpers_test.go`                                            | `store/groups.go:SetGroupObserveWindow` |
+| Group queue serialization                  | yes    | partial — `routd/loop_test.go`                                                                                           | ARCHITECTURE.md                         |
+| Steer (SIGUSR1 mid-run inject)             | yes    | partial — `routd/steer_commands_test.go`                                                                                 | ARCHITECTURE.md                         |
+| Circuit breaker (3-fail open)              | yes    | partial — runed manager                                                                                                  | ARCHITECTURE.md                         |
+| MaxConcurrent cap                          | yes    | no                                                                                                                       | ARCHITECTURE.md                         |
+| Run TTL / kill                             | yes    | partial — `runed/*`                                                                                                      | ARCHITECTURE.md                         |
+| Cost cap pre-check                         | yes    | yes — `routd/budget_test.go`, `tests/e2e_turn_test.go::TestE2ETurn_CostAccounting` (real container, refused at dispatch) | routd/README.md                         |
+| Model gateway redirect (`MODEL_GATEWAY_*`) | yes    | yes — `tests/e2e_turn_test.go::TestE2ETurn_CostAccounting` (harness reaches the fake model with the virtual key)         | specs/6/23                              |
+| Egress allowlist (crackbox network_rules)  | yes    | partial — `crackbox/pkg/*`                                                                                               | ARCHITECTURE.md                         |
 
 ## 3. Channel adapters
 
@@ -234,17 +235,17 @@ Tools dispatched over the real MCP unix socket. Generic socket path covered by
 
 ## 13. Observability
 
-| Feature                                     | exists | tested                                                | ref               |
-| ------------------------------------------- | ------ | ----------------------------------------------------- | ----------------- |
-| routd /health                               | yes    | yes — `TestFeature_HealthEndpoints/routd-health`      | `routd/server.go` |
-| runed /health                               | yes    | yes — `TestFeature_HealthEndpoints/runed-health`      | `runed/server.go` |
-| authd / dashd / timed / webd / davd /health | yes    | partial — own `*_test.go` (package main) + smoke      | each daemon       |
-| Live multi-daemon /health (smoke)           | yes    | yes — `TestSmoke_DaemonHealth` (`-tags smoke`)        | Makefile smoke    |
-| Audit log table + emission                  | yes    | partial — `audit/audit_test.go`, `audit/log_test.go`  | specs/5/I         |
-| /metrics (Prometheus)                       | yes    | partial — obs pkg                                     | runed/README.md   |
-| OTLP export                                 | yes    | partial — obs pkg                                     | specs/5/O         |
-| Cost logging                                | yes    | partial — `store/cost_log.go`, `routd/budget_test.go` | ARCHITECTURE.md   |
-| Turn context / results                      | yes    | partial — `split_federation_test.go` (PutTurnContext) | ARCHITECTURE.md   |
+| Feature                                     | exists | tested                                                                                                                                                 | ref               |
+| ------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------- |
+| routd /health                               | yes    | yes — `TestFeature_HealthEndpoints/routd-health`                                                                                                       | `routd/server.go` |
+| runed /health                               | yes    | yes — `TestFeature_HealthEndpoints/runed-health`                                                                                                       | `runed/server.go` |
+| authd / dashd / timed / webd / davd /health | yes    | partial — own `*_test.go` (package main) + smoke                                                                                                       | each daemon       |
+| Live multi-daemon /health (smoke)           | yes    | yes — `TestSmoke_DaemonHealth` (`-tags smoke`)                                                                                                         | Makefile smoke    |
+| Audit log table + emission                  | yes    | partial — `audit/audit_test.go`, `audit/log_test.go`                                                                                                   | specs/5/I         |
+| /metrics (Prometheus)                       | yes    | partial — obs pkg                                                                                                                                      | runed/README.md   |
+| OTLP export                                 | yes    | partial — obs pkg                                                                                                                                      | specs/5/O         |
+| Cost logging                                | yes    | yes — `tests/e2e_turn_test.go::TestE2ETurn_CostAccounting` (submit_turn → cost_log → `/v1/cost`, `/v1/cost/summary`), `dashd/usage_page_routd_test.go` | ARCHITECTURE.md   |
+| Turn context / results                      | yes    | partial — `split_federation_test.go` (PutTurnContext)                                                                                                  | ARCHITECTURE.md   |
 
 ## 14. Integration plumbing
 

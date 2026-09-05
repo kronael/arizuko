@@ -88,6 +88,22 @@ test-e2e:
 	exit $$code
 .PHONY: test-e2e
 
+# test-turns: real container turns against a fake model (tests/e2e_turn_test.go):
+# routd + runed + docker + the arizuko-ant image + the agent runtime, with only
+# the model endpoint faked through MODEL_GATEWAY_URL. Needs docker (directly or
+# via `sudo -n`) and `make agent`; no network, no credential, no spend. Skipped
+# under -short, so `make test` never spawns; the vacuous-pass guard is the same
+# one test-e2e carries.
+test-turns:
+	@out=$$(go test ./tests/ -count=1 -run E2ETurn -v -timeout 600s 2>&1); code=$$?; \
+	printf '%s\n' "$$out" | grep -vE '"level":"(DEBUG|INFO)"|^[0-9/]+ [0-9:]+ (INFO|WARN) '; \
+	if printf '%s' "$$out" | grep -qE 'no tests to run|^--- SKIP'; then \
+		echo "test-turns: the container turns did not run — docker or arizuko-ant missing?" >&2; \
+		exit 1; \
+	fi; \
+	exit $$code
+.PHONY: test-turns
+
 # play: Playwright browser suite against a throwaway dashd + seeded sqlite.
 # Builds seed + dashd binaries on demand. Requires Node + one-time
 # `npx playwright install --with-deps chromium` under tests/dashd-playwright/.
