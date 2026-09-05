@@ -30,6 +30,126 @@ class root `CLAUDE.md` forbids ("Strict, not magical").
   existing panic-on-misconfiguration path, so an unknown Type is a build
   failure — every `Register` call is `init()`-time.
 - **Fix:** `fix(resreg): reject an unknown MCPArg.Type at registration`
+## L169 — a Discord `reply` quoting a message outside its thread was refused, labelled 502, retried ten times and re-posted top-level; the agent re-sent it too (2026-09-05, partial)
+
+Measured on sloth, channel `920916162416635944`, 11:39–11:47 UTC: 14 `mcp
+deliver failed` and 22 sweep retries, every one `channel discord send: status
+502`; ten rows still `pending` at `delivery_attempts=6`. Every refused row
+carries `reply_to_id` = a parent-channel message AND a thread destination
+(`topic` = a thread, or `ThreadRoot` = the trigger); every success in the same
+minutes had no reference or a same-thread one. A 22-hour-old thread with fresh
+human activity (`1545429028956012584`) and a 4-minute-old one
+(`1545760882322182276`) refused the same pair, so archive state and message age
+are not the variable; the cross-channel reference is. Discord resolves a
+`message_reference` inside the destination channel only and answers 400 code
+50035 "Unknown message". The journal cannot show that text: the body was dropped
+(below).
+
+The chain, each link measured:
+
+1. `discd.classifySendErr` wrapped the Discord 4xx as a plain error → chanlib
+   502 → `chanreg.classifyStatus` "transient", body dropped → the routd sweep
+   retried it ten times and the agent read "status 502".
+2. `maybeRetryOutbound` (`routd/loop.go:428`) re-sends with `m.Topic` only, no
+   `threadRoot`. A row from a parent-channel turn has `topic=''`, so the sweep
+   posted it in the parent channel — the four `sent` rows with `reply_to_id`
+   set and `topic=''`, delivered 11:44:40 and 11:45:12 by platform-id
+   snowflake, 52 s and 78 s after the tool call. That is "answers in the main
+   channel instead of the thread": the first reply of the turn rooted the
+   thread, the next two fell out of it.
+3. The tool told the agent "502"; the agent called `reply` again with the same
+   text; the sweep delivered both — the repeats. Recorded under `L150`.
+
+Fixed here: (1) discd sends the reference with `fail_if_not_exists=false`, so
+the text posts in the thread without the quote; a Discord 4xx maps to
+`chanlib.ErrInvalidRequest` (400 → dead-letter, reason in the text); chanreg
+carries the adapter's `{"error":…}` body up. Over the seven days before, the
+discd inline fall-through (`thread start failed`) fired 0 times and the sweep
+dead-lettered 0 rows; all 14 failures are this class.
+
+**Open — proposal.** Link 2 remains for a genuinely transient failure on a
+thread-rooting reply: the pending row does not carry the thread it was meant to
+root, so the sweep cannot put it back. Shape: `deliverRow` (`routd/turns.go`)
+stamps `row.Topic = threadRoot` on the pending row too, and `mcpDeliver` returns
+the root so `putOutboundRow` (`ipc/ipc.go`) stamps it — then the sweep's
+`ThreadID` is the thread. A thread the first reply never created answers 404,
+which now dead-letters visibly instead of posting in the wrong place. Same hole
+on Slack (`slakd/bot.go:1211` takes `ThreadID` or `ThreadRoot`; the sweep sends
+neither for a `topic=''` row).
+
+- **Severity:** high
+- **Scope:** discd send, chanreg error transport, routd outbound sweep
+- **Affected:** sloth; every Discord instance
+- **Source:** `journalctl -u arizuko_sloth` 2026-09-05T11:39:58Z–11:47:25Z;
+  `messages` rows `mcp-1788608398191977579` … `mcp-1788608845928580763`;
+  `discd/bot.go:416,719`, `chanreg/httpchan.go:206`, `routd/loop.go:428`
+- **Status:** partial — links 1 and 3's Discord case fixed; link 2 is a proposal
+- **Fix:** (this commit) for link 1
+
+## L166 — the MCP outbound row records neither the thread it rooted nor its reply target; the REST row does (2026-09-05, open — proposal)
+
+`deliverRow` (`routd/turns.go`) stamps `row.Topic = threadRoot` after a
+thread-rooting reply "so threadHasBotMessage finds it". The MCP path does not:
+`putOutboundRow` (`ipc/ipc.go:696`) stamps `activeTopic(db, folder)` — the
+turn's topic, `''` for a parent-channel turn — and `recordOutbound` passes no
+`replyToID`, so a delivered MCP reply never records what it replied to.
+Measured on sloth: 4 of the 9 `mcp-` rows delivered into thread
+`1545760882322182276` carry `topic=''`; only the REST-delivered `out-` rows say
+where they landed. Consequences: `threadHasBotMessage` misses an MCP-rooted
+thread; the sweep (L169 link 2) has no thread to retry into; "where did this
+reply land" is unanswerable from the row; and the 7-day reply/no-reply census
+is polluted. Shape: `mcpDeliver` returns the root it used (or
+`GatedFns.SendReply` returns a result struct) and `putOutboundRow` stamps it
+and `replyToID` on success — one row shape for both paths. Touches `ipc/ipc.go`
+(contested) and `routd/mcp.go`.
+
+- **Severity:** medium
+- **Scope:** outbound row shape (MCP vs REST)
+- **Affected:** every instance
+- **Source:** `ipc/ipc.go:669,696`, `routd/turns.go` deliverRow, `routd/mcp.go:247`
+- **Status:** proposal (needs sign-off)
+- **Fix:**
+
+## L167 — `reply(replyToId=<parent-channel message>)` from inside a thread: the tool doc promised a quote Discord cannot make, and which thread it should go to is undecided (2026-09-05, open — proposal)
+
+The `reply` description (`ipc/ipc.go:1186`) says "pass replyToId to target a
+specific earlier message", and `ant/CLAUDE.md` said Discord "has no native
+inline threads" and `reply` "shows a Replied to banner" — while discd has rooted
+a thread on every reply since 2026-06-11. The operator asked the agent to
+"answer them in the respective threads and as replies to the respective
+messages"; the agent did what its manual said and every call was refused
+(L165). With L165 the text now lands in the current thread without the quote,
+and `ant/CLAUDE.md` § Discord threading states the mechanics as built. What the
+human asked for — a thread rooted on EACH quoted message — is a policy choice
+for `replyThreadRoot` (`routd/turns.go:232`, the single policy site): root on
+`replyToId` when it names a parent-channel message other than the trigger.
+Decide before changing; it changes what `reply` means for every turn.
+
+- **Severity:** medium
+- **Scope:** reply semantics / agent manual
+- **Affected:** every Discord instance
+- **Source:** `ipc/ipc.go:1186`, `ant/CLAUDE.md` § Discord threading,
+  `routd/turns.go:232`
+- **Status:** proposal (needs sign-off)
+- **Fix:**
+
+## L168 — `TestTyping_DebouncesAndSends` fails the race detector 2 runs in 3 (2026-09-05, open)
+
+`go test ./discd/ -race -run TestTyping_DebouncesAndSends` alone: FAIL, FAIL,
+ok. The debounced typing goroutine outlives its test and reads the
+package-level `discordgo.Endpoint*` var (`discd/bot.go` typing send) while the
+next test's `mockAllDiscordEndpoints` cleanup writes it
+(`discd/integration_test.go:122`). Test harness, not a product race: the
+endpoint vars are constants in production. Fix shape: stop the typing goroutine
+in the test (or wait for it) before the cleanup restores the endpoints.
+
+- **Severity:** low
+- **Scope:** discd test harness
+- **Affected:** CI with `-race`
+- **Source:** race report frames `discd/integration_test.go:122` (write) vs
+  `discd/bot.go` typing path (read), 2026-09-05
+- **Status:** open
+- **Fix:**
 
 ## L164 — anteval's cost column is empty for 6 of 9 passing cases and `fresh-context` stalls 3 min on a turn that never ran (2026-09-05, open)
 
@@ -645,7 +765,18 @@ but it is the pressure that makes `L149` fire on the turns that matter most.
 - **Files:** `routd/prompt_db.go:192,197,208`, `ant/src/index.ts:89-107`
 - **Evidence:** krons session `32863f1a`, transcript lines 333 (envelope), 340,
   351, 367
-- **Related:** `L149` (the loss this blindness hides)
+- **Related:** `L149` (the loss this blindness hides); `L165` (the same
+  blindness in the failure direction, below)
+
+**Measured 2026-09-05 on sloth (`L165`).** `reply` returned `status 502`. The
+row was already `pending` and owned by the sweep, which delivered it 52 s later.
+The agent, told only "failed", called `reply` again with the same text six
+seconds later, and the sweep delivered that copy too — two of each answer in the
+channel (`mcp-1788608628001196602` / `mcp-1788608634966950969`, and the `yes.`
+pair). The tool result must name who owns the retry: either the error reads
+"queued; the sweep retries this, do not resend" (fix 1's receipt shape), or a
+send the agent was told failed is not retried by the sweep (one owner). Today it
+is both, and the agent cannot tell.
 
 ## L148 — 22 ad-hoc JID⇄folder conversions in 16 files; collapse them to three named seams so `"web:"` appears twice in the tree (2026-08-30, open — minimal, no schema change)
 

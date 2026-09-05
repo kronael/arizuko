@@ -64,6 +64,21 @@ func classifyStatus(status int) error {
 	return fmt.Errorf("status %d", status)
 }
 
+// adapterErr classifies a non-200 send response and carries the reason the
+// adapter's `{"error": ...}` body names. Without it a Discord refusal reached
+// routd and the agent as a bare "status 502", and the journal held no record
+// of why (sloth 2026-09-05).
+func adapterErr(resp *http.Response) error {
+	err := classifyStatus(resp.StatusCode)
+	var body struct {
+		Error string `json:"error"`
+	}
+	if json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&body) == nil && body.Error != "" {
+		return fmt.Errorf("%w: %s", err, body.Error)
+	}
+	return err
+}
+
 type HTTPChannel struct {
 	entry *Entry
 	// bearer yields the credential presented to the adapter on every call: routd's
@@ -169,7 +184,7 @@ func (h *HTTPChannel) trySend(ctx context.Context, m outMsg) (string, error) {
 				json.NewDecoder(resp.Body).Decode(&r)
 				return r.ID, nil
 			}
-			err = classifyStatus(resp.StatusCode)
+			err = adapterErr(resp)
 		}
 		return "", fmt.Errorf("channel %s send-file: %w", h.entry.Name, err)
 	}
@@ -203,7 +218,7 @@ func (h *HTTPChannel) trySend(ctx context.Context, m outMsg) (string, error) {
 			json.NewDecoder(httpResp.Body).Decode(&resp)
 			return resp.ID, nil
 		}
-		err = classifyStatus(httpResp.StatusCode)
+		err = adapterErr(httpResp)
 	}
 	return "", fmt.Errorf("channel %s send: %w", h.entry.Name, err)
 }

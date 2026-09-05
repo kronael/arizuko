@@ -2,7 +2,11 @@ package main
 
 import (
 	"errors"
+<<<<<<< ours
 	"regexp"
+=======
+	"net/http"
+>>>>>>> theirs
 	"strings"
 	"testing"
 
@@ -90,20 +94,33 @@ func TestReplaceMentions_NoLeadingAtPrefix(t *testing.T) {
 // classifySendErr releases the dedup claim (ErrNotDelivered) only for a rate
 // limit with NO chunk delivered — a 429 proves Discord created nothing, while
 // after a delivered chunk a re-post would duplicate it, and a transport error
-// may have sent the message.
+// may have sent the message. A Discord 4xx is a refusal of the request as
+// formed (ErrInvalidRequest): the reason travels to the agent and routd
+// dead-letters instead of retrying; a 5xx stays transient.
 func TestClassifySendErr(t *testing.T) {
 	rl := &discordgo.RateLimitError{RateLimit: &discordgo.RateLimit{
 		TooManyRequests: &discordgo.TooManyRequests{}, URL: "/channels/1/messages",
 	}}
+	refused := &discordgo.RESTError{
+		Response:     &http.Response{StatusCode: 400, Status: "400 Bad Request"},
+		ResponseBody: []byte(`{"code":50035,"message":"Invalid Form Body"}`),
+	}
+	upstream := &discordgo.RESTError{
+		Response:     &http.Response{StatusCode: 500, Status: "500 Internal Server Error"},
+		ResponseBody: []byte(`{"message":"Internal Server Error"}`),
+	}
 	cases := []struct {
 		name    string
 		err     error
 		firstID string
 		wantND  bool
+		wantIR  bool
 	}{
-		{"rate limit before any chunk", rl, "", true},
-		{"rate limit after a delivered chunk", rl, "17", false},
-		{"transport error", errors.New("connection reset"), "", false},
+		{"rate limit before any chunk", rl, "", true, false},
+		{"rate limit after a delivered chunk", rl, "17", false, false},
+		{"transport error", errors.New("connection reset"), "", false, false},
+		{"discord 400 refusal", refused, "", false, true},
+		{"discord 500 stays transient", upstream, "", false, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -113,6 +130,12 @@ func TestClassifySendErr(t *testing.T) {
 			}
 			if errors.Is(got, chanlib.ErrNotDelivered) != c.wantND {
 				t.Fatalf("err = %v, ErrNotDelivered = %v, want %v", got, !c.wantND, c.wantND)
+			}
+			if errors.Is(got, chanlib.ErrInvalidRequest) != c.wantIR {
+				t.Fatalf("err = %v, ErrInvalidRequest = %v, want %v", got, !c.wantIR, c.wantIR)
+			}
+			if c.wantIR && !strings.Contains(got.Error(), "Invalid Form Body") {
+				t.Fatalf("err = %v, want Discord's reason in the text", got)
 			}
 		})
 	}

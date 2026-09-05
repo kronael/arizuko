@@ -382,6 +382,10 @@ func (b *bot) onPress(_ *discordgo.Session, i *discordgo.InteractionCreate) {
 	b.lastInboundAt.Store(time.Now().Unix())
 }
 
+// neverFailOnReference is fail_if_not_exists=false in the pointer form the
+// wire struct takes.
+var neverFailOnReference = false
+
 func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 	chID := chanID(req.ChatJID)
 	replyTo := req.ReplyTo
@@ -414,7 +418,14 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 			send.Components = buttons(req.Options)
 		}
 		if replyTo != "" && i == 0 {
-			send.Reference = &discordgo.MessageReference{MessageID: replyTo}
+			// Discord resolves a reference inside the destination channel only,
+			// so a reply to a parent-channel message from inside its thread is
+			// "Unknown message" (400, code 50035). That refused every such reply
+			// on sloth, and the sweep's retry landed the text in the parent
+			// channel. fail_if_not_exists=false posts a plain message in the
+			// thread instead: the place is what the reader needs, the quote
+			// banner is decoration.
+			send.Reference = &discordgo.MessageReference{MessageID: replyTo, FailIfNotExists: &neverFailOnReference}
 		}
 		for attempt := range 3 {
 			msg, err = b.session.ChannelMessageSendComplex(chID, send)
@@ -720,7 +731,25 @@ func classifySendErr(err error, firstID string) error {
 	if isRateLimit(err) && firstID == "" {
 		return fmt.Errorf("discord send: %v: %w", err, chanlib.ErrNotDelivered)
 	}
+	if isClientRefusal(err) {
+		// Discord refused the request as formed (a bad reference, a missing
+		// channel, no permission); a retry cannot repair it. ErrInvalidRequest
+		// maps to a 400 that carries Discord's own reason, so routd dead-letters
+		// the row and the agent reads why, instead of the bare "status 502" that
+		// the sweep retried ten times.
+		return fmt.Errorf("%w: discord send: %v", chanlib.ErrInvalidRequest, err)
+	}
 	return fmt.Errorf("discord send: %w", err)
+}
+
+// isClientRefusal reports a Discord 4xx other than a rate limit.
+func isClientRefusal(err error) bool {
+	var rest *discordgo.RESTError
+	if !errors.As(err, &rest) || rest.Response == nil {
+		return false
+	}
+	code := rest.Response.StatusCode
+	return code >= 400 && code < 500 && code != http.StatusTooManyRequests
 }
 
 // isRateLimit detects Discord 429 errors via typed discordgo errors with substring fallback.
