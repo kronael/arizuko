@@ -1,11 +1,14 @@
 package store
 
 import (
-	"database/sql"
 	"time"
-
-	"github.com/kronael/arizuko/audit"
 )
+
+// web_routes is routd's table. routd owns every write (`web_routes_resource.go`,
+// on resreg's transaction) and store serves the one read proxyd needs: the whole
+// inventory, which proxyd snapshots and then longest-prefix-matches in Go
+// (`proxyd/main.go:159`). There is deliberately no writer and no matcher here —
+// a second writer is how `created_at` came to mean two different things.
 
 type WebRoute struct {
 	PathPrefix string
@@ -14,6 +17,9 @@ type WebRoute struct {
 	Folder     string
 	CreatedAt  time.Time
 }
+
+// webRouteCols is the projection scanWebRoute expects. One list, one scanner.
+const webRouteCols = `path_prefix, access, COALESCE(redirect_to,''), folder, created_at`
 
 func scanWebRoute(r rowScanner) (WebRoute, error) {
 	var wr WebRoute
@@ -25,97 +31,9 @@ func scanWebRoute(r rowScanner) (WebRoute, error) {
 	return wr, nil
 }
 
-func (s *Store) SetWebRoute(r WebRoute) error {
-	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		_, err := tx.Exec(
-			`INSERT INTO web_routes (path_prefix, access, redirect_to, folder, created_at)
-			 VALUES (?, ?, ?, ?, ?)
-			 ON CONFLICT(path_prefix) DO UPDATE SET
-			   access = excluded.access,
-			   redirect_to = excluded.redirect_to,
-			   folder = excluded.folder,
-			   created_at = excluded.created_at`,
-			r.PathPrefix, r.Access, nilIfEmpty(r.RedirectTo), r.Folder,
-			r.CreatedAt.UTC().Format(time.RFC3339),
-		)
-		return audit.Event{
-			Category: audit.CategoryMutation,
-			Action:   "web_route.set",
-			Actor:    "system",
-			Surface:  audit.SurfaceGateway,
-			Resource: "web_routes/" + r.PathPrefix,
-			Folder:   r.Folder,
-			Outcome:  audit.OutcomeOK,
-			ParamsSummary: map[string]any{
-				"access":      r.Access,
-				"redirect_to": r.RedirectTo,
-			},
-		}, err
-	})
-}
-
-func (s *Store) DelWebRoute(pathPrefix, folder string) (bool, error) {
-	var hit bool
-	err := s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		res, err := tx.Exec(
-			`DELETE FROM web_routes WHERE path_prefix = ? AND (folder = ? OR ? = '')`,
-			pathPrefix, folder, folder,
-		)
-		if err != nil {
-			return audit.Event{}, err
-		}
-		n, _ := res.RowsAffected()
-		hit = n > 0
-		return audit.Event{
-			Category: audit.CategoryMutation,
-			Action:   "web_route.delete",
-			Actor:    "system",
-			Surface:  audit.SurfaceGateway,
-			Resource: "web_routes/" + pathPrefix,
-			Folder:   folder,
-			Outcome:  audit.OutcomeOK,
-		}, nil
-	})
-	return hit, err
-}
-
-// WebRouteOwner returns the folder owning an exact path_prefix, if a row
-// exists. Backs the 5/N set_web_route path-claim check (a top-level prefix
-// outside the caller's own slot is claimable only if unowned).
-func (s *Store) WebRouteOwner(pathPrefix string) (string, bool) {
-	var folder string
-	if err := s.db.QueryRow(
-		`SELECT folder FROM web_routes WHERE path_prefix = ?`, pathPrefix,
-	).Scan(&folder); err != nil {
-		return "", false
-	}
-	return folder, true
-}
-
-func (s *Store) ListWebRoutes(folder string) []WebRoute {
-	rows, err := s.db.Query(
-		`SELECT path_prefix, access, COALESCE(redirect_to,''), folder, created_at
-		 FROM web_routes WHERE folder = ? ORDER BY path_prefix`,
-		folder,
-	)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-	var out []WebRoute
-	for rows.Next() {
-		if wr, err := scanWebRoute(rows); err == nil {
-			out = append(out, wr)
-		}
-	}
-	return out
-}
-
+// AllWebRoutes returns every web_route, ordered by prefix. proxyd's snapshot.
 func (s *Store) AllWebRoutes() ([]WebRoute, error) {
-	rows, err := s.db.Query(
-		`SELECT path_prefix, access, COALESCE(redirect_to,''), folder, created_at
-		 FROM web_routes ORDER BY path_prefix`,
-	)
+	rows, err := s.db.Query(`SELECT ` + webRouteCols + ` FROM web_routes ORDER BY path_prefix`)
 	if err != nil {
 		return nil, err
 	}
@@ -129,17 +47,4 @@ func (s *Store) AllWebRoutes() ([]WebRoute, error) {
 		out = append(out, wr)
 	}
 	return out, rows.Err()
-}
-
-func (s *Store) MatchWebRoute(urlPath string) (WebRoute, bool) {
-	row := s.db.QueryRow(
-		`SELECT path_prefix, access, COALESCE(redirect_to,''), folder, created_at
-		 FROM web_routes
-		 WHERE ? LIKE path_prefix || '%'
-		 ORDER BY length(path_prefix) DESC
-		 LIMIT 1`,
-		urlPath,
-	)
-	wr, err := scanWebRoute(row)
-	return wr, err == nil
 }

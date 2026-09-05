@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kronael/arizuko/core"
 )
@@ -12,6 +13,26 @@ import (
 // pooled connection has it on — both Open() and OpenMem(). Drop that DSN
 // pragma and the CASCADE assertions below go red, which is the regression
 // guard: a one-shot `PRAGMA foreign_keys=ON` only covers one connection.
+
+// These two write and count web_routes with raw SQL on purpose. The subject is
+// the migration's FOREIGN KEY, not any Go method, and routd owns the writer —
+// reaching for one here would test the wrong package.
+func insertWebRoute(s *Store, prefix, folder string) error {
+	_, err := s.db.Exec(
+		`INSERT INTO web_routes (path_prefix, access, redirect_to, folder, created_at)
+		 VALUES (?, 'public', '', ?, ?)`,
+		prefix, folder, time.Now().UTC().Format(time.RFC3339))
+	return err
+}
+
+func countWebRoutes(s *Store, folder string) int {
+	var n int
+	if err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM web_routes WHERE folder = ?`, folder).Scan(&n); err != nil {
+		return -1
+	}
+	return n
+}
 
 func openFKStore(t *testing.T) *Store {
 	t.Helper()
@@ -29,11 +50,7 @@ func openFKStore(t *testing.T) *Store {
 // no parent group.
 func TestFK_WebRoutes_RejectsUnknownFolder(t *testing.T) {
 	s := openFKStore(t)
-	err := s.SetWebRoute(WebRoute{
-		PathPrefix: "/pub/ghost/",
-		Access:     "public",
-		Folder:     "ghost-folder-with-no-group",
-	})
+	err := insertWebRoute(s, "/pub/ghost/", "ghost-folder-with-no-group")
 	if err == nil {
 		t.Fatal("expected FK violation, got nil")
 	}
@@ -50,22 +67,18 @@ func TestFK_WebRoutes_CascadeOnGroupDelete(t *testing.T) {
 	if err := s.PutGroup(core.Group{Folder: "acme"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetWebRoute(WebRoute{
-		PathPrefix: "/pub/acme/",
-		Access:     "public",
-		Folder:     "acme",
-	}); err != nil {
+	if err := insertWebRoute(s, "/pub/acme/", "acme"); err != nil {
 		t.Fatal(err)
 	}
-	if got := s.ListWebRoutes("acme"); len(got) != 1 {
-		t.Fatalf("seed: want 1 web_route, got %d", len(got))
+	if got := countWebRoutes(s, "acme"); got != 1 {
+		t.Fatalf("seed: want 1 web_route, got %d", got)
 	}
 
 	if err := s.DeleteGroup("acme"); err != nil {
 		t.Fatal(err)
 	}
-	if got := s.ListWebRoutes("acme"); len(got) != 0 {
-		t.Fatalf("after group delete: want 0 web_routes (CASCADE), got %d", len(got))
+	if got := countWebRoutes(s, "acme"); got != 0 {
+		t.Fatalf("after group delete: want 0 web_routes (CASCADE), got %d", got)
 	}
 }
 

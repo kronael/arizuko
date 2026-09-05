@@ -56,13 +56,19 @@ func revokeTokens(t *testing.T, d *DB, jid, owner string) int {
 	return want
 }
 
-// putWebRoute upserts through store.SetWebRoute, the live writer.
+// putWebRoute seeds one row. routd's own writer is tx-scoped behind resreg and
+// this is a fixture, not the subject, so it writes the row directly rather than
+// reaching into another package for a writer that does not run in production.
 func putWebRoute(t *testing.T, d *DB, r WebRouteRow) {
 	t.Helper()
-	err := liveStore(d).SetWebRoute(store.WebRoute{
-		PathPrefix: r.PathPrefix, Access: r.Access,
-		RedirectTo: r.RedirectTo, Folder: r.Folder, CreatedAt: time.Now(),
-	})
+	_, err := d.SQL().Exec(
+		`INSERT INTO web_routes (path_prefix, access, redirect_to, folder, created_at)
+		 VALUES (?, ?, ?, ?, ?)
+		 ON CONFLICT(path_prefix) DO UPDATE SET
+		   access = excluded.access, redirect_to = excluded.redirect_to,
+		   folder = excluded.folder`,
+		r.PathPrefix, r.Access, r.RedirectTo, r.Folder,
+		time.Now().UTC().Format(time.RFC3339))
 	if err != nil {
 		t.Fatalf("put web route %s: %v", r.PathPrefix, err)
 	}

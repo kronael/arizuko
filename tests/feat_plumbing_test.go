@@ -12,21 +12,24 @@ import (
 )
 
 func TestFeature_IntegrationPlumbing(t *testing.T) {
-	// web_routes URL table: put → list → delete round-trip.
+	// routd's web_routes reader over rows that exist. The rows are seeded and
+	// removed with raw SQL because routd's own writers are tx-scoped behind
+	// resreg; the subject here is the reader and the schema it reads.
 	t.Run("web-routes-table", func(t *testing.T) {
 		db := mustRoutdDB(t)
-		if err := liveStore(db).SetWebRoute(store.WebRoute{
-			PathPrefix: "/pub/demo", Access: "public", Folder: "demo",
-			CreatedAt: time.Now()}); err != nil {
+		if _, err := db.SQL().Exec(
+			`INSERT INTO web_routes (path_prefix, access, redirect_to, folder, created_at)
+			 VALUES ('/pub/demo', 'public', '', 'demo', ?)`,
+			time.Now().UTC().Format(time.RFC3339)); err != nil {
 			t.Fatal(err)
 		}
 		rows, err := db.WebRoutes("demo")
 		if err != nil || len(rows) != 1 || rows[0].Access != "public" {
 			t.Fatalf("web routes = %+v err=%v", rows, err)
 		}
-		ok, err := liveStore(db).DelWebRoute("/pub/demo", "demo")
-		if err != nil || !ok {
-			t.Fatalf("delete web route = %v err=%v", ok, err)
+		if _, err := db.SQL().Exec(
+			`DELETE FROM web_routes WHERE path_prefix = '/pub/demo' AND folder = 'demo'`); err != nil {
+			t.Fatal(err)
 		}
 		rows, _ = db.WebRoutes("demo")
 		if len(rows) != 0 {
@@ -35,9 +38,10 @@ func TestFeature_IntegrationPlumbing(t *testing.T) {
 	})
 }
 
-// TestStore_WebRouteInventory covers store.AllWebRoutes (full listing) and
-// store.MatchWebRoute (longest-prefix search) — both needed by proxyd's
-// access-control decision path.
+// TestStore_WebRouteInventory covers store.AllWebRoutes — the whole-table
+// snapshot proxyd reads before matching a request. proxyd does the
+// longest-prefix match itself, in Go, over that snapshot (proxyd/main.go:159),
+// so the ordering this asserts is the contract and there is no SQL matcher.
 func TestStore_WebRouteInventory(t *testing.T) {
 	s, err := store.Open(t.TempDir())
 	if err != nil {
@@ -51,12 +55,13 @@ func TestStore_WebRouteInventory(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, r := range []store.WebRoute{
-		{PathPrefix: "/pub/a", Access: "public", Folder: "a", CreatedAt: now},
-		{PathPrefix: "/pub/a/docs", Access: "auth", Folder: "a", CreatedAt: now},
-		{PathPrefix: "/pub/b", Access: "deny", Folder: "b", CreatedAt: now},
+	for _, r := range [][2]string{
+		{"/pub/a", "a"}, {"/pub/a/docs", "a"}, {"/pub/b", "b"},
 	} {
-		if err := s.SetWebRoute(r); err != nil {
+		if _, err := s.DB().Exec(
+			`INSERT INTO web_routes (path_prefix, access, redirect_to, folder, created_at)
+			 VALUES (?, 'public', '', ?, ?)`,
+			r[0], r[1], now.UTC().Format(time.RFC3339)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -65,12 +70,11 @@ func TestStore_WebRouteInventory(t *testing.T) {
 	if err != nil || len(all) != 3 {
 		t.Fatalf("AllWebRoutes = %d err=%v, want 3", len(all), err)
 	}
-	wr, ok := s.MatchWebRoute("/pub/a/docs/intro.html")
-	if !ok || wr.PathPrefix != "/pub/a/docs" {
-		t.Fatalf("MatchWebRoute longest-prefix = %q ok=%v, want /pub/a/docs", wr.PathPrefix, ok)
-	}
-	if _, ok := s.MatchWebRoute("/nope"); ok {
-		t.Fatal("MatchWebRoute: unexpected match for /nope")
+	// Ordered by path_prefix, so proxyd's snapshot is stable across reads.
+	for i, want := range []string{"/pub/a", "/pub/a/docs", "/pub/b"} {
+		if all[i].PathPrefix != want {
+			t.Errorf("AllWebRoutes[%d] = %q, want %q", i, all[i].PathPrefix, want)
+		}
 	}
 }
 
