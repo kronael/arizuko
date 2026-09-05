@@ -196,24 +196,36 @@ routing.
 
 ## Installing packages
 
-`arizuko packages <instance> install | upgrade | remove` manages packages
-(spec `5/28`). A package is a git source or local dir shipping **two file
+`arizuko packages <instance> add | install | upgrade | remove` manages packages
+(spec `5/28`). `add <name>` takes the package from the bundled catalog and
+`install <source>` from a git URL or local dir; both run the same install. A
+package is a process plus a declaration of how it hooks in — **two file
 kinds**, split by who owns the format:
 
 - **compose fragment** — `<name>.yml`, docker's format, included verbatim →
-  copied to `services/`, brought up on `arizuko generate`.
+  placed in `services/` (a link at the catalog for `add`, a copy for
+  `install`), brought up on `arizuko generate`.
 - **manifest** — `<name>.yaml`, arizuko's `5/8` config manifest → applied
   through the same engine as `arizuko apply`: one transaction per owner DB
   with pre-image rollback, so a package installs whole or not at all. Every
   resource `apply` writes is available to a package — `proxyd_routes`, `acl`,
   `scheduled_tasks`, `network_rules`, `web_routes`, `routes`, `groups`. Rows
   land live (proxyd reads `proxyd_routes` per request, so a route takes effect
-  with **no restart**); the compose fragment waits for `generate`.
+  with **no restart**); the compose fragment waits for `generate`. The
+  manifest's `env` section names what the process needs from the instance
+  `.env`, per key: `generate: true` (minted once at install, then the
+  operator's line), `default: <value>` (derived on every generate, never
+  written; a `.env` value wins), `required: true` (install and generate refuse
+  until the operator sets it — never a fragment that installs and then fails
+  to start). Docker interpolates `${KEY}` from `.env`, so a third-party image
+  reads a minted key with no env file of its own.
 - **skills** — `skills/<name>/` → copied to `<datadir>/skills/`, layered into
   every group by `seedSkills` at spawn.
 
 ```yaml
 # helpbot.yaml — a package manifest
+env:
+  HELPBOT_KEY: { generate: true }
 proxyd_routes:
   - path: /helpbot/
     backend: http://helpbot:8080

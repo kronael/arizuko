@@ -520,7 +520,7 @@ func stampPkgRoutes(name, file string, rows any) any {
 			die("Failed: %s: route %q declares owner %q — a package never names its own owner; "+
 				"install stamps %q (BUGS L46)", file, routes[i].Path, routes[i].Owner, owner)
 		}
-		if claimed := compose.ReservedRouteClaim(routes[i].Path); claimed != "" {
+		if claimed := compose.ReservedRouteClaim("", routes[i].Path); claimed != "" {
 			die("Failed: %s: route %q claims the core surface %q — a package may not serve "+
 				"core arizuko's own paths (BUGS L46)", file, routes[i].Path, claimed)
 		}

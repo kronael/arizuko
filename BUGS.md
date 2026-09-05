@@ -10334,3 +10334,146 @@ tiles by name. Adding `gitd` touched `cmd/arizuko/github.go`,
   the route table serves. Spec: `7/25` §"What the contract needs". Whether
   the declaration is a resreg row (`5/8`'s shape) or a compose-side key in
   `<name>.yaml` is the decision to sign.
+
+## ✅ FIXED 2026-09-05 L203 — the manifest half of every shipped package never reached a live instance (2026-09-05)
+
+MEASURED across the fleet: krons, sloth and marinade hold zero
+`services/*.yaml` sidecars and zero `owner = package:*` rows in
+`proxyd_routes`. krons has `/dash/ttsd/` (a core route) and nothing for
+teled or whapd, although both ship a `6/31` dashboard route. Two mechanical
+causes, both in the delivery path, neither in the manifests:
+
+1. `compose.RelinkCatalog` `continue`d on an already-linked base fragment
+   before the sidecar was ever considered, and `relinkSidecarIfIdentical`
+   returned on an absent instance copy. krons's four fragments were linked on
+   2026-08-16, before any sidecar existed, so no later generate could deliver
+   one.
+2. The deploy unit runs `arizuko generate` in a container that mounts
+   `/srv/data/arizuko_<inst>` and the docker socket only
+   (`/etc/systemd/system/arizuko_krons.service` ExecStartPre). A sidecar
+   linked at `HOST_APP_DIR/template/services/` is a dangling symlink there,
+   and `ManifestRoutes` read a dangling link as "no manifest" — so even a
+   linked sidecar delivered nothing on a deploy.
+
+- **Severity:** high (every package's declared routes and, now, env needs
+  were silently absent on every deployed instance)
+- **Scope:** compose relink + generate-time manifest read
+- **Affected:** all three instances; every catalog package with a `.yaml`
+- **Source:** `sudo ls -la /srv/data/arizuko_*/services/`; `SELECT owner FROM
+  proxyd_routes` on each `routd.db`; the unit's ExecStartPre mounts
+- **Status:** fixed. `relinkSidecar` runs for a linked base and creates the
+  absent sidecar; `manifestPath` reads a linked sidecar from
+  `compose.CatalogDir` (the checkout when visible, else the copy baked into
+  the image). Tests `TestRelinkCatalogLinksTheMissingSidecarOfALinkedBase`,
+  `TestLinkedManifestIsReadFromTheCatalog`. On krons's next deploy this links
+  `teled.yaml`, `whapd.yaml`, `ttsd.yaml` and writes `/dash/teled/` and
+  `/dash/whapd/` (`auth: user`, gated by each adapter's token).
+- **Fix:** `a8e1a34a`
+
+## ✅ FIXED 2026-09-05 L199 — `packages add` applied nothing, so two install paths read one manifest differently (2026-09-05)
+
+`install <source>` parsed every resource of `<name>.yaml` and applied it
+through the apply engine with an `installed_packages` record; `add <name>` —
+the verb every shipped package uses — linked two files and applied nothing,
+and `generate` read exactly one key (`proxyd_routes`) from the sidecar. A
+catalog package therefore could not declare a grant, a task, a network rule
+or a web route, whatever `5/28` says it may, which is why all ten shipped
+manifests carry only `proxyd_routes`. Two verbs, two readers, one format —
+the optionality root `CLAUDE.md` forbids.
+
+- **Severity:** medium
+- **Scope:** `cmd/arizuko/packages.go`
+- **Affected:** every catalog package
+- **Source:** `cmdPackages` `add` vs `install`; `compose.ManifestRoutes`
+- **Status:** fixed. `installPackage` is the one path: `add` and `install`
+  differ only in where the files come from (catalog, linked; source, copied)
+  and what the record says. A catalog record carries `Source: catalog`, so
+  `upgrade`/`sync` leave it alone (its files follow the catalog) and `remove`
+  withdraws the rows it names. `add` takes `--folder` for the same grant
+  bound `install` does. Test `TestPackagesAddProvisionsEnvAndAppliesRows`.
+  Still unread by any verb: `upgrade` re-applies no rows for any package
+  (`5/28` records this gap); the new env section is provisioned by both.
+- **Fix:** `0e9b5691`
+
+## L200 — first-party wiring lives in five Go tables no manifest can express, so a third-party package cannot be an adapter (2026-09-05, open — proposal, needs sign-off)
+
+The contract's test is a package this repo does not contain. Measured
+against it, a package outside the tree can declare routes, ten row kinds and
+its env needs (`L199`, the `env` block) — and still cannot become a channel
+adapter without patching Go, because four facts have no manifest key:
+
+| fact | where it lives today | what a package would need |
+| --- | --- | --- |
+| the service principal (`service:<name>` key + `AUTHD_SERVICE_NAME`) | `compose.adapterDaemons` | a way to say "wire me a service key" |
+| which `.env` keys reach its scoped `env/<name>.env` | `compose.daemonKeys` (+ `foreignImages`) | the `env` block, read as the file's key list |
+| its routes reserved as core ground | `compose.coreProxydRoutes` | first-party daemons declaring theirs in `<daemon>.yaml` |
+| a dashd hub tile | `dashd/services.go` core set + `compose.ReservedRoutePaths` | derived from the route it declares |
+
+Adding `gitd` touched five core files for exactly these. `baseDaemons`
+(`packages.go`) is a sixth copy of "what is core". Nothing in the residue is
+imperative, so no install script is needed: every item is a declaration the
+manifest lacks a key for. A `postinst` would only re-express these as code
+that runs with the operator's authority, which is the second path this file's
+policy forbids.
+
+- **Severity:** medium (first-party components are not packages yet; the
+  contract holds for a sidecar like litellm and fails for an adapter)
+- **Scope:** compose, dashd, packages
+- **Affected:** any adapter shipped outside this repo; every first-party
+  adapter's own wiring
+- **Source:** `compose/compose.go` `adapterDaemons`, `daemonKeys`,
+  `foreignImages`, `coreProxydRoutes`; `dashd/services.go`; `cmd/arizuko/packages.go`
+  `baseDaemons`
+- **Status:** proposed. Dissolve the tables into per-daemon `<daemon>.yaml`:
+  the `env` block becomes the scoped env file's key list (a daemon is in
+  `daemonKeys` XOR declares `env`, both refuses); one manifest flag names an
+  adapter needing a service principal; each core daemon's routes move to its
+  own manifest and the reserved set derives from the catalog. Then
+  `TestFragmentEnvFilesAreGenerated` asserts against the catalog, not the
+  map. Redesign — sign-off before code.
+- **Fix:**
+
+## L201 — nothing mechanical stops a sourced package from mounting a core owner's store or the docker socket (2026-09-05, open — proposal, needs sign-off)
+
+Contract rule 1: a package brings its own dependencies and arizuko's store is
+untouched. `TestNoFragmentMountsTheWholeDataDir` and
+`TestStatefulFragmentsMountTheirStateDir` enforce it for the shipped catalog
+only; `packages install <source>` accepts any `volumes:` line, so a package
+may bind `${DATA_DIR}/store/routd`, `${DATA_DIR}/.env`, `${DATA_DIR}/ipc` or
+`/var/run/docker.sock` and install cleanly. Routes have the analogue already
+(`compose.ReservedRouteClaim`, refused at install and again at generate).
+
+- **Severity:** medium (supply-chain: an installed package reads every
+  owner DB and every secret)
+- **Scope:** package install + generate
+- **Affected:** any sourced package
+- **Source:** `readFragmentAssets`/`installPackage` never read `volumes:`;
+  `warnUnsatisfiedDeps` shows the regex-over-fragment precedent
+- **Status:** proposed. Refuse at install and at generate a fragment whose
+  bind source is an owner store dir, `.env`, `ipc/`, or the docker socket —
+  the same two-reader shape as `ReservedRouteClaim`. A new refusal on an
+  operator path; sign-off first.
+- **Fix:**
+
+## L202 — a linked package runs the host checkout's compose fragment while generate reads the image's manifest, so one package can come from two versions (2026-09-05, open — needs sign-off)
+
+`packages add` links `services/<name>.yml` at `HOST_APP_DIR/template/services/`
+(`compose.HostCatalogDir`); docker `include`s it on the host, so the live
+container runs whatever the checkout holds — an uncommitted edit ships on the
+next restart with no build and no tag, the class `M1` closed for `ant/`. The
+`L198` fix reads a linked `.yaml` through `compose.CatalogDir`, which is the
+baked `/opt/arizuko` copy where the deploy unit runs generate. The two halves
+of one package therefore come from the checkout and the release respectively,
+and only agree while the checkout is at the deployed tag.
+
+- **Severity:** medium
+- **Scope:** package delivery
+- **Affected:** every catalog-linked package on every instance
+- **Source:** `compose.HostCatalogDir`, `compose.CatalogDir`, the deploy
+  unit's mounts
+- **Status:** open. Two honest shapes: link at a release copy generate
+  exports into the data dir (`<dataDir>/catalog/`, written from
+  `/opt/arizuko` on every generate, so both halves are the image's), or mount
+  the checkout into the generate container and accept that a checkout is the
+  release. The first keeps "a release is an image"; sign-off decides.
+- **Fix:**

@@ -435,7 +435,7 @@ func collectProxydRoutes(servicesDir, catalogDir string, services []string, env 
 			// of the same manifest: `packages upgrade` rewrites the fragment without
 			// re-applying its rows, so a revision that added `/dash/` would otherwise
 			// reach proxyd_routes through this path alone (BUGS L46).
-			if claimed := ReservedRouteClaim(r.Path); claimed != "" {
+			if claimed := ReservedRouteClaim(bundledName(catalogDir, name), r.Path); claimed != "" {
 				return nil, fmt.Errorf("%s.yaml declares route %q, which claims the core surface %q; "+
 					"a package may not serve core arizuko's own paths (BUGS L46)", name, r.Path, claimed)
 			}
@@ -468,12 +468,18 @@ func ReservedRoutePaths() []string {
 
 // ReservedRouteClaim returns the core path that `path` would take over, or "".
 //
-// proxyd matches the LONGEST prefix, with a trailing-slash path matching as a
-// prefix and a bare path exactly. So a package takes core ground two ways: by
-// declaring a core path verbatim, or by declaring anything INSIDE a core prefix
-// — `/dash/mine/` is longer than `/dash/`, so the operator console would answer
-// from the package's backend.
-func ReservedRouteClaim(path string) string {
+// `bundled` is the name of a fragment the arizuko release itself ships, and it
+// names the ONE exception: such a daemon serves its own `/dash/<name>/`
+// console, which is where proxyd routes an adapter dashboard. Ten shipped
+// adapters declare exactly that in their own manifest. The name must come from
+// the release's catalog — a third-party package cannot put a file there — so
+// pass "" for every package installed from a source and for an operator's
+// hand-written row. Neither gets the exception, and `/dash/` stays closed to
+// both (BUGS L46).
+func ReservedRouteClaim(bundled, path string) string {
+	if bundled != "" && strings.HasPrefix(path, "/dash/"+bundled+"/") {
+		return ""
+	}
 	for _, reserved := range ReservedRoutePaths() {
 		if path == reserved {
 			return reserved

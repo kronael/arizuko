@@ -37,8 +37,16 @@ is derived from the feature flags (`WEB_PORT`, `WEBDAV_ENABLED`,
 
 A package is `services/<name>.yml` (a partial compose file defining one
 service) plus an optional `services/<name>.yaml` (its 5/8 manifest, whose
-`proxyd_routes` block this package reads). Fragment paths
+`proxyd_routes` and `env` blocks this package reads). Fragment paths
 resolve against `services/`, so a fragment reads `../env/<name>.env`.
+
+`Generate` provisions each package's `env` block before it writes any env
+file (`ProvisionPackageEnv`): a `.env` value wins; `generate` mints a token
+once and appends it to `.env` above the managed block; `default` fills the
+run's env only; `required` fails generate, naming the key. A linked manifest
+is read from the readable catalog (`CatalogDir`), because the deploy unit
+runs generate in a container that mounts the data dir and not the checkout,
+where the link is dangling.
 
 `services/<name>.yml` is a SYMLINK at the bundled catalog
 (`template/services/<name>.yml`), not a copy — `arizuko packages <inst>
@@ -73,8 +81,14 @@ for `arizuko generate` to write into `proxyd_routes`.
 - `Generate(dataDir string) (string, []ProxydRoute, error)` — the compose
   YAML plus the proxyd route table the same run decided on
 - `ProxydRoute` — one route of a `<name>.yaml` manifest
-- `ManifestRoutes(path) ([]ProxydRoute, error)` — the `proxyd_routes` block of
-  one 5/8 manifest fragment, parsed by `resreg.ParseYAML`
+- `ReadManifest(path) (Manifest, error)` — the `proxyd_routes` and `env`
+  blocks of one package manifest, parsed by `resreg.ParseManifest`;
+  `ManifestRoutes(path)` is its routes half
+- `ProvisionPackageEnv(dataDir, manifestPath, name, env)` — resolve a
+  package's `env` block against `.env`; `packages add|install` and
+  `Generate` share it
+- `CatalogDir(hostAppDir)` — the catalog this process can read: the
+  checkout when visible, else the copy baked into the image
 - `HostCatalogDir(dataDir) (string, bool)` — the host-resolvable catalog
   dir from `.env`'s `HOST_APP_DIR`, for use as a symlink target
 - `RelinkCatalog(servicesDir, readableCatalogDir, hostCatalogDir)

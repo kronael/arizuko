@@ -65,7 +65,7 @@ func (s *server) handleDashRouteCreate(w http.ResponseWriter, r *http.Request) {
 	// A route claiming core ground would silently take over the operator
 	// console or the agent surface, so it is refused with the path it collides
 	// with rather than written and puzzled over later.
-	if claim := compose.ReservedRouteClaim(path); claim != "" {
+	if claim := compose.ReservedRouteClaim("", path); claim != "" {
 		auth.Forbidden(w, "proxyd", "Path "+path+" takes over the core route "+claim+".")
 		return
 	}
@@ -154,7 +154,7 @@ func proxydRouteTable(routes []Route) string {
 		// A core route is not deletable from here: compose re-writes it on the
 		// next generate, so the button would appear to work and then undo
 		// itself.
-		if compose.ReservedRouteClaim(rt.Path) == "" {
+		if compose.ReservedRouteClaim("", rt.Path) == "" {
 			action = fmt.Sprintf(
 				`<form method="post" action="/dash/proxyd/delete">`+
 					`<input type="hidden" name="path" value="%s">`+

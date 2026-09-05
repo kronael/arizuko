@@ -208,3 +208,17 @@ func writeEnvAtomic(dataDir, path, body string) error {
 	}
 	return nil
 }
+
+// bundledName returns name when the arizuko release's own catalog ships a
+// manifest for it, else "". It is the test ReservedRouteClaim's `/dash/`
+// exception rests on: only a daemon in this release may serve its own console
+// path, and nothing a package installs can write into the catalog.
+func bundledName(catalogDir, name string) string {
+	if catalogDir == "" {
+		return ""
+	}
+	if _, err := os.Stat(filepath.Join(catalogDir, name+".yaml")); err != nil {
+		return ""
+	}
+	return name
+}

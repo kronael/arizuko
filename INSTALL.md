@@ -227,10 +227,14 @@ gets a virtual key that only the gateway accepts (`specs/6/23-llm-gateway.md`).
 
 ```bash
 ./arizuko packages <name> add litellm
-# then in /srv/data/arizuko_<name>/.env:
-MODEL_GATEWAY_KEY=<openssl rand -hex 24>   # the virtual key; compose refuses to start without one
-MODEL_GATEWAY_URL=http://litellm:4000       # runed hands both to every spawn
+# generated MODEL_GATEWAY_KEY for litellm into .env
+./arizuko generate <name>
 ```
+
+`add` mints `MODEL_GATEWAY_KEY` into `/srv/data/arizuko_<name>/.env` (the
+package's `litellm.yaml` declares it `generate`), and every generate sets
+`MODEL_GATEWAY_URL=http://litellm:4000` for runed unless `.env` names another
+gateway. To rotate the key, delete the line; the next generate mints a new one.
 
 The gateway reads `ANTHROPIC_API_KEY`, or `CLAUDE_CODE_OAUTH_TOKEN` when the
 API key is unset, from the same `.env`. Which one you put there matters:

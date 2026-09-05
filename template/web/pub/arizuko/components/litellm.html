@@ -89,7 +89,7 @@
    +--&gt; OTel span (tokens, cost) --&gt; OTEL_EXPORTER_OTLP_ENDPOINT, if set</code></pre>
     </div>
 
-    <p>Inputs: HTTP from agent containers on the compose network. Outputs: HTTPS to the model provider. Hard deps: <code>MODEL_GATEWAY_KEY</code> in <code>.env</code> &mdash; the fragment interpolates it as required, so an instance with the package and no key does not start at all rather than starting a gateway that accepts every caller.</p>
+    <p>Inputs: HTTP from agent containers on the compose network. Outputs: HTTPS to the model provider. Hard deps: <code>MODEL_GATEWAY_KEY</code> in <code>.env</code> &mdash; <code>arizuko packages &lt;name&gt; add litellm</code> mints it there, and the fragment still interpolates it as required, so a hand-copied fragment with no key does not start at all rather than starting a gateway that accepts every caller.</p>
 
     <p>With <a href="egress.html">egress</a> isolation on (<code>EGRESS_IMAGE</code> set), a spawn reaches the gateway through its own egress proxy, which sits on the compose network where <code>litellm</code> resolves. The proxy forwards plain HTTP to any host on the spawn&rsquo;s allowlist, so <code>litellm</code> must be on it.</p>
 
@@ -140,8 +140,8 @@ ANTHROPIC_BASE_URL=http://localhost:4000 ANTHROPIC_AUTH_TOKEN=sk-my-virtual-key 
 
     <h2>Key env vars</h2>
     <ul>
-      <li><code>MODEL_GATEWAY_KEY</code> &mdash; the virtual key. litellm&rsquo;s master key on one side, the container&rsquo;s <code>ANTHROPIC_AUTH_TOKEN</code> on the other. Required once the package is installed.</li>
-      <li><code>MODEL_GATEWAY_URL</code> &mdash; <code>http://litellm:4000</code>; what runed hands the spawn as its base URL.</li>
+      <li><code>MODEL_GATEWAY_KEY</code> &mdash; the virtual key. litellm&rsquo;s master key on one side, the container&rsquo;s <code>ANTHROPIC_AUTH_TOKEN</code> on the other. Minted into <code>.env</code> by <code>packages add</code>; delete the line to rotate it on the next generate.</li>
+      <li><code>MODEL_GATEWAY_URL</code> &mdash; defaults to <code>http://litellm:4000</code> on every generate while the package is installed; what runed hands the spawn as its base URL. Set it in <code>.env</code> to point at another gateway.</li>
       <li><code>ANTHROPIC_API_KEY</code> / <code>CLAUDE_CODE_OAUTH_TOKEN</code> &mdash; the real credential, read by the gateway from <code>.env</code>; API key wins.</li>
       <li><code>OTEL_EXPORTER_OTLP_ENDPOINT</code>, <code>OTEL_EXPORTER_OTLP_PROTOCOL</code>, <code>OTEL_EXPORTER_OTLP_HEADERS</code> &mdash; the instance&rsquo;s OTLP declaration, passed through unchanged.</li>
     </ul>

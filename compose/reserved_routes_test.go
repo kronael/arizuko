@@ -62,17 +62,25 @@ func TestReservedRouteClaim(t *testing.T) {
 	if got := len(ReservedRoutePaths()); got != len(coreProxydRoutes) {
 		t.Fatalf("reserved paths = %d, want one per core route (%d)", got, len(coreProxydRoutes))
 	}
-	for _, tc := range []struct{ path, want string }{
-		{"/dash/", "/dash/"},
-		{"/dash/mine/", "/dash/"}, // longest-prefix wins, so this front-doors the console
-		{"/onboard", "/onboard"},  // gated by ONBOARDING_ENABLED, reserved anyway
-		{"/mcp", "/mcp"},          // bare path, exact match only
-		{"/mcpx", ""},             // a bare core path reserves nothing below it
-		{"/grabby/", ""},          // a package's own ground
-		{"/dashboard/", ""},       // shares a prefix with /dash/ but is not inside it
+	for _, tc := range []struct{ bundled, path, want string }{
+		{"", "/dash/", "/dash/"},
+		{"", "/dash/mine/", "/dash/"}, // longest-prefix wins, so this front-doors the console
+		{"", "/onboard", "/onboard"},  // gated by ONBOARDING_ENABLED, reserved anyway
+		{"", "/mcp", "/mcp"},          // bare path, exact match only
+		{"", "/mcpx", ""},             // a bare core path reserves nothing below it
+		{"", "/grabby/", ""},          // a package's own ground
+		{"", "/dashboard/", ""},       // shares a prefix with /dash/ but is not inside it
+		// A service serves its own console. teled ships /dash/teled/ in its own
+		// fragment, and proxyd routes an adapter dashboard by daemon name.
+		{"teled", "/dash/teled/", ""},
+		{"teled", "/dash/teled/routes", ""},
+		// and only its own: the carve-out is the bundled name, not the prefix.
+		{"teled", "/dash/routd/", "/dash/routd/"},
+		{"teled", "/dash/", "/dash/"},
+		{"teled", "/dash/teled", "/dash/"}, // no trailing slash is not the subtree
 	} {
-		if got := ReservedRouteClaim(tc.path); got != tc.want {
-			t.Errorf("ReservedRouteClaim(%q) = %q, want %q", tc.path, got, tc.want)
+		if got := ReservedRouteClaim(tc.bundled, tc.path); got != tc.want {
+			t.Errorf("ReservedRouteClaim(%q, %q) = %q, want %q", tc.bundled, tc.path, got, tc.want)
 		}
 	}
 }
