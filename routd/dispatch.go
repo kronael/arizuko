@@ -272,7 +272,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 	// parent topic's Claude session so the child resumes from its tail.
 	parent := ""
 	if last.ReplyToID != "" {
-		parent = l.db.TopicByID(last.ReplyToID)
+		parent = l.db.TopicByID(last.ChatJID, last.ReplyToID)
 	}
 	l.ensureTopicWithFork(folder, topic, parent)
 	// Download inbound media + transcribe voice/video into the trigger before the

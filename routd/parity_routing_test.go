@@ -177,13 +177,13 @@ func TestTopicByID_RoundTrip(t *testing.T) {
 	_ = db.PutMessage(core.Message{ID: "msg-2", ChatJID: "tg:123", Sender: "t",
 		Content: "m", Timestamp: time.Now().UTC(), Topic: ""})
 
-	if got := db.TopicByID("msg-1"); got != "thread-42" {
+	if got := db.TopicByID("tg:123", "msg-1"); got != "thread-42" {
 		t.Errorf("TopicByID(msg-1) = %q, want thread-42", got)
 	}
-	if got := db.TopicByID("msg-2"); got != "" {
+	if got := db.TopicByID("tg:123", "msg-2"); got != "" {
 		t.Errorf("TopicByID(msg-2) = %q, want empty", got)
 	}
-	if got := db.TopicByID("non-existent"); got != "" {
+	if got := db.TopicByID("tg:123", "non-existent"); got != "" {
 		t.Errorf("TopicByID(non-existent) = %q, want empty", got)
 	}
 }
@@ -351,5 +351,24 @@ func TestParsePrefix(t *testing.T) {
 			t.Errorf("parsePrefix(%q) = (%q,%q,%v), want (%q,%q,%v)",
 				c.in, name, rest, ok, c.wantName, c.wantRest, c.wantOK)
 		}
+	}
+}
+
+// TestMessageByID_IsChatScoped pins the containment bound. platform_id is a
+// per-platform value, so an unscoped lookup resolves a reply id to a row in
+// another chat and another folder, and ingest then copies that row's sender,
+// text and topic into this message.
+func TestMessageByID_IsChatScoped(t *testing.T) {
+	db, _ := targetLoop(t)
+	_ = db.PutMessage(core.Message{ID: "a1", ChatJID: "discord:guild/aaa", PlatformID: "999",
+		Sender: "alice", Content: "secret from another folder", Topic: "t-a"})
+	if _, ok := db.MessageByID("discord:guild/bbb", "999"); ok {
+		t.Error("a platform id resolved across chats")
+	}
+	if _, ok := db.MessageByID("discord:guild/aaa", "999"); !ok {
+		t.Error("the parent did not resolve inside its own chat")
+	}
+	if got := db.TopicByID("discord:guild/bbb", "999"); got != "" {
+		t.Errorf("topic leaked across chats: %q", got)
 	}
 }

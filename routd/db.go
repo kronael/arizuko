@@ -380,9 +380,14 @@ func (d *DB) PendingOutbound(cutoff time.Time, limit int) ([]core.Message, error
 // MessageByID returns the stored row matched by id OR platform_id: an adapter
 // names a reply's parent by the platform's id, which a bot row carries in
 // platform_id. ok=false when no row matches.
-func (d *DB) MessageByID(id string) (core.Message, bool) {
+// MessageByID resolves a reply target WITHIN one chat. The chat bound is not
+// optional: `platform_id` is a per-platform value, so an unscoped lookup can
+// resolve a reply id to a row in another chat and another folder, and the
+// caller then copies that row's sender, text and topic into this message.
+func (d *DB) MessageByID(chatJID, id string) (core.Message, bool) {
 	rows, err := d.db.Query(`SELECT `+msgReadCols+`
-		FROM messages WHERE id=? OR platform_id=? LIMIT 1`, id, id)
+		FROM messages WHERE chat_jid=? AND (id=? OR platform_id=?) LIMIT 1`,
+		chatJID, id, id)
 	if err != nil {
 		return core.Message{}, false
 	}
@@ -396,8 +401,8 @@ func (d *DB) MessageByID(id string) (core.Message, bool) {
 
 // TopicByID returns the topic of the row MessageByID matches, so a reply to a
 // threaded message forks lineage from the parent's topic, not the main topic.
-func (d *DB) TopicByID(id string) string {
-	m, _ := d.MessageByID(id)
+func (d *DB) TopicByID(chatJID, id string) string {
+	m, _ := d.MessageByID(chatJID, id)
 	return m.Topic
 }
 

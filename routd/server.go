@@ -555,7 +555,7 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	var parent core.Message
 	hasParent := false
 	if m.ReplyTo != "" {
-		parent, hasParent = s.db.MessageByID(m.ReplyTo)
+		parent, hasParent = s.db.MessageByID(m.ChatJID, m.ReplyTo)
 	}
 	if m.Topic == "" && hasParent {
 		m.Topic = parent.Topic
