@@ -46,8 +46,12 @@ front end, which is what `crackbox` already is.
 deterministic trace id per turn. Publish only if someone asks; it wins
 no attention on its own.
 
-`groupfolder` is 212 lines of path containment. It is a file, not a
-project. Fold it into whatever ships beside it.
+`groupfolder` is 212 lines with **73 callers**. It holds the
+folder-containment predicate every cross-folder read tests, and it
+replaced fifteen hand-written copies of that check. Do not publish it as
+a project, and do not fold it away either: it carries two concerns —
+containment predicates and path resolution — and splitting them is a
+rename across 73 call sites. Its own spec, not this one.
 
 ## What publishing actually costs
 
