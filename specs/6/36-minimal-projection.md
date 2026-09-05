@@ -21,18 +21,21 @@ redundancy cites the call path. Measured 2026-09-05 at `7752b524`:
 83,217 non-test Go lines, 119,690 test lines, 3,458 TypeScript adapter
 lines, 3,269 TypeScript agent-runtime lines, 21 daemons.
 
-The maintainer's own sentence is the frame: _a layer between, that meters
-and asserts; services ingest messages and provide services to agents; the
-layer decides where a message goes and which resources the agent may use._
-Read against the code, that is four verbs and two nouns. The four verbs are
-exactly `routd`'s four jobs. Nothing in the tree needs a fifth verb.
+The maintainer's own sentence is the frame: _one standard for messages
+getting in, one standard for messages getting out and actions, a mechanism
+in between that meters and asserts and decides where a message goes and
+which resources the agent may use; no connection that does not need to
+exist; a single user gets a system that works with no configuration, an
+enterprise configures ACL the way AWS lets it._ Read against the code, that
+is two standards, four verbs and two nouns. The four verbs are exactly
+`routd`'s four jobs. Nothing in the tree needs a fifth verb.
 
-| Verb                 | The one site                                                                                               | What it reads                                        |
-| -------------------- | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| **Ingest**           | `putMessage` — `routd/db.go:244`                                                                           | `apiv1.Message` — `routd/api/v1/types.go:13`         |
-| **Route**            | `Loop.resolve` — `routd/loop.go:682`                                                                       | `routes` rows, `chat_reply_state`, `route_tokens`    |
-| **Grant**            | `auth.Authorize` — `auth/authorize.go:59`                                                                  | `acl` + `acl_membership` rows                        |
-| **Meter and assert** | `audit.Event` through `store.runAudited`; the spawn-time capability snapshot — `routd/dispatch.go:738-771` | `audit_log` ×4, `cost_log`, `network_rules`, `hold:` |
+| Verb                 | The one site                                                                                                                                  | What it reads                                                    |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| **Ingest**           | `putMessage` — `routd/db.go:244`                                                                                                              | `apiv1.Message` — `routd/api/v1/types.go:13`                     |
+| **Route**            | `Loop.resolve` — `routd/loop.go:682`                                                                                                          | `routes` rows, `chat_reply_state`, `route_tokens`                |
+| **Grant**            | `auth.Authorize` — `auth/authorize.go:59`                                                                                                     | `acl` + `acl_membership` rows                                    |
+| **Meter and assert** | `audit.Event` through `store.runAudited`; the spawn-time capability snapshot — `routd/dispatch.go:738-771`; `budgetGate` `routd/budget.go:11` | `audit_log` ×4, `cost_log`, spend caps, `network_rules`, `hold:` |
 
 The two nouns: the **folder** is the coordinate — the agent's files, the
 tenancy key, and the grant subject `folder:<f>` in one string
@@ -51,7 +54,47 @@ or the **read face** of Meter (every `/dash/` page, all on one `theme.Page`,
 pipeline is the same set in runtime order; this spec folds Agent into the
 folder noun and State into the two durable stores 5/A already names.
 
-## 1. Where each mechanism lands
+## 1. Two standards, not one
+
+The asymmetry is in the code and the projection keeps it. Ingest is a
+**struct**; egress is an **interface**.
+
+**In: one envelope, N normalizers.** Every source — nine adapters, webd,
+timed, the agent's own `send`, a scheduled task, a silence trigger — ends as
+one `apiv1.Message` (`routd/api/v1/types.go:13`) appended by one function
+(`routd/db.go:244`). The envelope carries a `Verb` discriminator
+(`message|like|dislike|edit|delete|join`, `types.go:26`), so a reaction, an
+edit and a join arrive as the same shape with a tag, and routd enriches them
+generically after the append (`routd/server.go:555-600`, `routd/enrich.go`).
+This is EIP's Normalizer plus Canonical Data Model, and Cockburn's driving
+side: the adapter calls routd.
+
+**Out: one interface, typed acts.** Every act on a platform is one of the 14
+methods of `chanlib.BotHandler` (`chanlib/handler.go:61-76`), each with its
+own body (`SendRequest` … `UnpinRequest`, `handler.go:18-129`), plus the
+`round_done` signal (`chanreg/httpchan.go:313` → `webd/channel.go:48`). The
+outbound has two kinds and the code keeps them apart: a **message** out is a
+`messages` row first (`FromMe`, `BotMsg`, `ipc/ipc.go:718`) and is retried
+from the row (`PendingOutbound`, `routd/loop.go:416`); an **action** out
+(like, edit, pin, delete) touches no row and writes an audit event instead
+(`routd/social_audit.go:12`). This is Cockburn's driven side: routd calls
+the adapter. The same process plays both roles, which is why one adapter mux
+carries a POST to routd and 14 handlers from routd.
+
+Where the code bends the asymmetry, each bend is a cut or a fix:
+
+- The outbound interface is re-declared as REST at `routd/turns.go` with no
+  caller in the tree (§7, S2). It is the one place the two standards were
+  made symmetric, and nothing uses the symmetry.
+- `POST /v1/outbound` (`routd/server.go:634`, `deliver.SendVia`) sends with
+  no `messages` row. It is the only outbound that skips the ledger; onbod's
+  prompts and replies (`onbod/main.go:1396`) are therefore invisible to
+  `find_messages` and to the transcript. A row-first send is the standard;
+  this entry should append and then deliver like `ipc.go:718`.
+- The 14-verb interface is declared six times (§2); one declaration with
+  five readers is the shape.
+
+## 2. Where each mechanism lands
 
 The test for each row: is it the verb, a second declaration of the verb, or
 a second owner of the verb? Only the middle kind is a cut.
@@ -68,7 +111,8 @@ a second owner of the verb? Only the middle kind is a cut.
 | timed                                                   | Ingest          | `GET /v1/tasks/due` → `POST /v1/messages`, `timed/split.go:253-278`              | a clock that owns no state; every row it touches is routd's                                              |
 | proactive interjection                                  | Ingest          | `routd/proactive.go:15-20`                                                       | a silence trigger, not a second clock                                                                    |
 | ipc `send`/`reply`/delegate/escalate                    | Ingest          | `ipc/ipc.go:718`, `:1921`, `:1960`                                               | the agent as a source; same appender                                                                     |
-| `/v1/turns/{turn_id}/*` (14 handlers)                   | Ingest          | `routd/turns.go:153-573`                                                         | **the MCP write tools' REST twin, with no caller in the tree** (§3, S2)                                  |
+| `/v1/turns/{turn_id}/*` (14 handlers)                   | Egress          | `routd/turns.go:153-573`                                                         | **the MCP write tools' REST twin, with no caller in the tree** (§7, S2)                                  |
+| `POST /v1/outbound`                                     | Egress          | `routd/server.go:634`                                                            | the daemon-facing send; the only outbound with no `messages` row (§1)                                    |
 | route table + engagement + sticky + observe             | Route           | `routd/loop.go:682-729`; `router/router.go:371`                                  | one resolver, layered overrides                                                                          |
 | `route_tokens.target_folder`                            | Route           | read first in `directFolder`, `routd/loop.go:762-775`                            | a second JID→folder map, by design ([`5/W`](../5/W-webhook-routes.md))                                   |
 | steer `@folder`, delegate, escalate                     | Route           | `routd/steer.go`; `ipc/ipc.go:1779`, `:1828`                                     | Route with a different trigger                                                                           |
@@ -76,15 +120,16 @@ a second owner of the verb? Only the middle kind is a cut.
 | `DB.Authorize` / `DB.AuthorizeTurn`                     | Grant           | `routd/sibling_db.go:274`, `:290`                                                | one evaluator, two identity sources (JWT sub; socket folder + trigger sender)                            |
 | `auth.CheckHold`, `auth.ShellEnvKeys`                   | Grant           | `auth/authorize.go:603`, `:672` → `namespacedEffect` `:614`                      | the same rows and matchers, exact match rather than the lattice (Hazard 2 at `:617`)                     |
 | `auth.HasScope`                                         | Grant           | `auth/scope.go:13`; `runed/server.go:81`, `authd/http.go:305`                    | a bearer's capability, not a principal's; daemons with no `acl` table                                    |
-| `network_rules` + `egress/match`                        | Grant           | `routd/network.go:36` (own ancestry `:63`), `egress/match/match.go:73`           | a second predicate language over a different subject (host); see §4                                      |
+| `network_rules` + `egress/match`                        | Grant           | `routd/network.go:36` (own ancestry `:63`), `egress/match/match.go:73`           | a second predicate language over a different subject (host); see §8                                      |
 | onbod gates, proxyd `auth:` attribute                   | Grant           | `onbod/main.go:312`; `compose/compose.go:364`                                    | admission before a principal has a folder; per-path level in a generic proxy                             |
 | `web:publish`, `egress`, `mcp:share_mount`              | Grant           | `routd/dispatch.go:760-763`                                                      | ordinary `acl` actions, snapshotted at spawn                                                             |
 | `audit_log` ×4                                          | Meter           | `audit/log.go`; `dashd/audit_page.go:58-61` reads owners over `/v1`              | one writer, one row shape, one file per owner                                                            |
 | `cost_log`, `secret_use_log`, `task_run_logs`           | Meter           | `routd/db.go:1076`; `store/secret_use_log.go`; `store/tasks.go`                  | per-subject ledgers, one writer each                                                                     |
+| spend caps                                              | Assert          | `routd/budget.go:11` `budgetGate`; `FolderCap`/`UserCap` `routd/db.go:1147`      | a per-folder and per-user ceiling read before dispatch                                                   |
 | per-spawn egress proxy, hold gate, proxyd transit       | Assert          | `container/egress.go:34-153`; `routd/pending_actions.go`; `auth.ProxydTransit`   | the three enforcement points a message or call crosses                                                   |
 | `resreg` catalog + mount                                | (surface)       | `resreg/engine.go:1332` `Register`, `:1372` `Mount`                              | one declaration, two readers at two times (`resreg/resources/names.go:5-14`)                             |
-| `store.Store` vs `routd.DB`                             | (state)         | `store/*.go` 186 methods; `routd/db.go` + `sibling_db.go` 116 methods, 54 shared | **two data layers over one file**; the shared names carry different SQL (§3, S3)                         |
-| dashd admin pages                                       | (read face)     | `dashd/routes_admin.go:278`, `tasks_admin.go:204`, `groups_admin.go:133`         | **raw SQL beside the resreg handlers** for routes, tasks, groups (§3, S1)                                |
+| `store.Store` vs `routd.DB`                             | (state)         | `store/*.go` 186 methods; `routd/db.go` + `sibling_db.go` 116 methods, 54 shared | **two data layers over one file**; the shared names carry different SQL (§7, S3)                         |
+| dashd admin pages                                       | (read face)     | `dashd/routes_admin.go:278`, `tasks_admin.go:204`, `groups_admin.go:133`         | **raw SQL beside the resreg handlers** for routes, tasks, groups (§7, S1)                                |
 | CLI grant/route/invite/secret/network                   | (write face)    | `cmd/arizuko/main.go:605`, `route.go:101`, `secret.go`, `network.go`             | a third writer through `store`; `resreg.Apply` already exists for the offline case (`apply.go:193`)      |
 | onbod world creation                                    | Grant bootstrap | `onbod/main.go:923-940` raw `INSERT` into routd's `groups`, `acl`, `routes`      | a second group-create transaction beside `store.SeedMemberRoleTx` (`store/membership.go:118`)            |
 | `sandbox/`, `crackbox/`                                 | (substrate)     | `runed/cmd/runed/main.go:102` wires `NewDockerRuntime` only                      | not in the turn path; [`6/9`](9-crackbox-sandboxing.md) says so                                          |
@@ -101,7 +146,72 @@ checks. And `HasCap` is read only inside the deliverer
 (`ipc/ipc.go:1217` registers `send_file` for every turn), so a model learns
 a channel's limits by failing a call.
 
-## 2. The turn is ephemeral — what that costs and what it buys
+## 3. The connections that need not exist
+
+The maintainer's rule: if there does not need to be a connection, there
+should not be one. The seam is `/v1` over HTTP plus the MCP socket. A
+connection that is not the seam — a daemon opening another daemon's SQLite
+file, or a package importing another package for one call — is either
+load-bearing or incidental. The load-bearing ones, from
+`go list -f '{{.Imports}}'`: adapters → routd (`/v1/messages`, one
+registration); routd → adapters (the 14 verbs); routd → runed (`POST
+/v1/runs`); every daemon → authd (`/v1/service-token`, `/v1/keys`); timed →
+routd (`/v1/tasks/*`); proxyd → every backend. Everything below is not the
+seam, ranked by what its removal deletes:
+
+1. **dashd opens `routd.db`, `onbod.db` and `runed.db`** (`dashd/main.go:368-374`)
+   and imports `container` (`SetupGroup`), `ipc` (`ListTools`), `compose`
+   (`ReservedRoutePaths`) and `proactive` (`Parse`) for four page reads.
+   [`6/28`](28-cockpit-index.md) already rules reads go over `/v1`. S1.
+2. **proxyd opens `routd.db`** (`proxyd/main.go:930`) to derive a user's
+   scopes from `acl` (`auth.UserScopes(s.stRoutd, …)`, `proxyd/main.go:795`)
+   while routd serves the same derivation at `GET /v1/users/{sub}/scopes`
+   (`routd/server.go:651`); and to read `proxyd_routes`, a resource proxyd
+   owns whose table lives in routd's file — there is no `store/proxyd/`.
+   The mount is what makes proxyd the "irreplaceable half" of
+   [`6/22`](22-proxyd-cut.md); serving the scope over `/v1` or in the token
+   is what would let an off-the-shelf proxy take the commodity half.
+3. **webd opens `routd.db`** (`webd/main.go:66`) for groups, messages,
+   `turn_results`, `route_tokens` and `audit_log`, while routd serves message
+   reads on `/v1/messages/*` and route tokens through resreg, and the one
+   thing webd needs live — the turn-closed push — already rides the channel
+   protocol (`/v1/round_done`).
+4. **onbod opens `routd.db`** and calls `container.SetupGroup`
+   (`onbod/main.go:913-940`). S11.
+5. **`container` imports `ipc`** (`container/runner.go:108-111`, `:255`
+   `ipc.ServeMCP`) for an in-runner MCP server the split never takes
+   (`runed/docker.go:64-65`: "no in-process ServeMCP"), and `router` for
+   `UserContextXml`. The substrate links the whole tool surface for a branch
+   that `ExternalMCP` skips.
+6. **`store` imports `router`** (`store/groups.go:218`, `store/messages.go:695`):
+   the schema library evaluates the route table to answer
+   `JIDRoutableToFolder`, a Grant question ("may this folder reach this
+   JID") answered with Route logic inside the data layer.
+7. **proxyd and dashd import `compose`** (`proxyd/dash.go:68`,
+   `dashd/services.go`) for `ReservedRouteClaim`: two runtime daemons compiled
+   against the generator's reserved-path list. A column on `proxyd_routes`
+   removes both imports.
+8. **slakd imports `store`** (`slakd/bot.go:38-44`) to read pane sessions —
+   the one adapter that opens routd's file. routd serves the write half
+   (`POST /v1/pane`, `routd/server.go:687`) and no read half.
+9. **routd imports `container`** (`WriteGroupsSnapshot`, `WriteTasksSnapshot`,
+   `CopySession`, `routd/dispatch.go`) to write files into the group tree for
+   the agent to read. A second reader in a different shape is allowed; routd
+   knowing the container's filesystem layout is the coupling. runed holds
+   the `RunRequest` and could write the same files.
+10. **`cmd/arizuko` imports `routd` and `runed`** as packages (migrate,
+    probe): the CLI links daemon internals it could reach over `/v1` or
+    through `resreg.Apply`. S4.
+11. **`auth` imports `theme`** (`auth/dashauth.go`): the evaluator library
+    renders a login page.
+
+Items 1–4 are the same finding four times: the routd file is opened by five
+processes, so its ownership is a convention, not a boundary. Items 5–11 are
+one-call imports whose removal is small and whose presence makes the parts
+un-shippable alone ([`6/16`](16-daemon-standalone-matrix.md)'s toolbox test
+fails on every one of them).
+
+## 4. The turn is ephemeral — what that costs and what it buys
 
 The maintainer's sentence leaves it implicit; the code makes it explicit.
 `dispatchRun` resolves the session id, model, container config, egress
@@ -140,7 +250,90 @@ every mount or network grant change, and a long-lived credential in the
 container. The turn is essential, not incidental; the coordinator's
 hypothesis is right in kind and wrong in size.
 
-## 3. The slimming, ranked by lines removed against risk
+## 5. The permission model against IAM
+
+The live row is `principal | action | scope | effect | params | predicate |
+granted_by | granted_at | grant_option` (`store/acl.go:16-20`). Against
+IAM's Principal / Action / Resource / Effect / Condition it is the same
+tuple: `scope` is the Resource, a folder glob with `**`
+(`auth/authorize.go:59` doc); `params` and `predicate` are the Condition —
+`params` on the call's arguments, `predicate` on the caller's claims
+(`predicateMatches`, `auth/authorize.go:406-409`); `effect` is deny-wins
+(`:59`). `grant_option` is SQL's WITH GRANT OPTION and IAM has no clean
+equivalent; `auth/delegate.go` checks that a delegated row is a subset of a
+held one.
+
+The three example rows go through one evaluator:
+
+- `role:operator | * | ** | allow` — the `*` action covers every action
+  through the lattice (`actionCovers`), the `**` scope every folder;
+  `auth.Authorize` answers it like any other row. It is seeded with
+  `grant_option` by migration `0022`.
+- `role:member | mcp:reply | ** | allow` — the floor. Every folder is a
+  member through `folder:<f>` → `role:member` (`store.SeedMemberRoleTx`,
+  `store/membership.go:118`; migrations `0023`, `0030`), and a turn's Route
+  axis expands through it (`auth/authorize.go` "TWO AXES").
+- `folder:X | web_route.set | X | allow` — one narrow agent-granted
+  capability, matched on the Identity axis inside `X`'s subtree
+  (`routd/sibling_db.go:290` `AuthorizeTurn`).
+
+Beside the evaluator there are side doors, and the question is which are
+the same door twice:
+
+- **`elevated`** (`routd/agent_gate.go:37-41`, `routd/dispatch.go:760-763`)
+  answers `true` without reading a row. It is `sudo`: `cmdRoot` gates it on
+  `IsOperator` (`routd/steer.go:225`), and it is the only path by which a
+  person's authority reaches outside the turn's subtree. Load-bearing; the
+  two-axis confinement would otherwise confine the operator too.
+- **`IsOperator`** has two spellings (`routd/sibling_db.go:310-318`):
+  membership in `role:operator`, or `admin` on `**`. One question, two
+  answers; the second exists for a direct grant with no role edge.
+- **Bearer scopes** are derived from the same rows (`auth.UserScopes`,
+  `auth/authorize.go:239`) into a second vocabulary (`messages:write`
+  against `mcp:reply`) and checked by `auth.HasScope` on daemons that own no
+  `acl` table (`runed/server.go:81`, `authd/http.go:305`). This is IAM's
+  session policy: a credential's ceiling, evaluated offline. One
+  declaration, a second reader in a different shape; the mapping between
+  the two vocabularies lives in one function.
+- **`network_rules`**, **`onboarding_gates`** (`onbod/main.go:37-41`: kind,
+  param, limit per day) and **proxyd's `auth:` level** are three coarse
+  pre-gates on three other subjects (host, admission, path). None is the
+  evaluator wearing a coat; egress is the one that could become rows (open
+  question 4).
+- **`grant_option` is unreachable from two of three faces**: the live
+  `add_acl` tool and `/v1/acl` write the row without it
+  (`routd/acl_resource.go:290-312`), the MCP args carry no such field
+  (`resreg/resources/acl.go:73-90`), and dashd's bootstrap insert omits it
+  (`dashd/groups_admin.go:150`). Only `arizuko apply` mints a
+  re-delegatable grant. The AWS-shaped half of the model is declared and
+  not served (S6).
+
+Verdict: one evaluator serves all three rows; the parallel paths are
+different subjects, not copies, except the one that is missing — the
+delegation column no live surface can set.
+
+## 6. The gradient: zero configuration to enterprise
+
+For each primitive: what a single user gets with no configuration, what
+deep configuration looks like, and where the gradient breaks.
+
+| Primitive      | Zero-configuration default                                                                                                                 | Deep configuration                                                                                              | Finding                                                                                                                                                                                    |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Ingest         | one adapter env token; `arizuko create` seeds group `main` (`cmd/arizuko/main.go:339`); the adapter registers itself (`chanlib/run.go:63`) | route tokens with link context, `hook:` sources, multi-account adapters, source pinning                         | none                                                                                                                                                                                       |
+| Route          | a direct-address JID needs no row; `arizuko group add <jid> main` is one row                                                               | verbs, mention, observe, topic kinds, engagement, sticky, delegation depth-capped at 1                          | none                                                                                                                                                                                       |
+| Grant          | `role:member` floor per folder (`SeedMemberRoleTx`); `role:operator \| * \| **` with `grant_option` (migration `0022`)                     | per-row scope glob, `params`, `predicate` on claims, holds (block / async / skip), `shell:env`, `grant_option`  | `grant_option` unreachable from every live face (§5); the enterprise half of delegation exists only in `apply`                                                                             |
+| Meter / assert | `audit_log` and `cost_log` always on; egress **off** unless `EGRESS_IMAGE`; no holds; no caps                                              | OTLP export; per-folder allowlists with ancestry (`routd/network.go:63`); holds per tool; `FolderCap`/`UserCap` | `POST /v1/outbound` sends with no `messages` row (§1): a message leaves unmetered by the transcript                                                                                        |
+| Folder         | `main`, seeded with skills and settings by `container.SetupGroup`                                                                          | hierarchy, products blended per kind (`container/blend.go`), per-group model and container config               | none                                                                                                                                                                                       |
+| Turn           | Docker, default model, 20-minute run TTL                                                                                                   | per-group config, isolated tasks, the model gateway ([`6/23`](23-llm-gateway.md))                               | none                                                                                                                                                                                       |
+| Identity       | one operator, addressed by chat JID; web login needs an OAuth provider configured in authd                                                 | five providers plus Dex; pairing (`5/31`); `predicate` on claims                                                | a chat JID and a web sub are two principals until paired (diary 2026-09-03, the Discord case): the single user pays a pairing step to be one person; the small-user test fails at identity |
+| Admission      | none needed — the operator adds groups                                                                                                     | gates by kind, param and daily limit; invites with max-uses and expiry; the queue                               | [`5/A`](../5/A-primitives-framing.md) decision 6 puts onbod in the smallest deployment; a single user never calls it. The small-user test says optional (§9)                               |
+
+Two findings survive the table: delegation is declared and not served
+(enterprise fails), and identity is two strings for one person until a
+pairing step (single user fails). Both are rows and a handler, not
+architecture.
+
+## 7. The slimming, ranked by lines removed against risk
 
 | #   | Cut                                                                                                  | Removes                                             | Risk   |
 | --- | ---------------------------------------------------------------------------------------------------- | --------------------------------------------------- | ------ |
@@ -156,6 +349,7 @@ hypothesis is right in kind and wrong in size.
 | S10 | one verb table drives the adapter mux and the client                                                 | ~150 lines and the reason for `caps_test.go`        | low    |
 | S11 | onbod's world creation calls routd's group create                                                    | ~60 lines; one group-create transaction             | medium |
 | S12 | `sandbox/`, runed's `mcp_tokens` table, the `content/` `project/` `sidecar/` directories             | 205 lines, one dead table, three stray dirs         | low    |
+| S13 | proxyd reads scopes from `/v1/users/{sub}/scopes`; `container` drops its `ipc` branch                | two of the §3 couplings; the rest follow S1 and S4  | low    |
 
 **S1 — dashd as a client.** [`6/28`](28-cockpit-index.md) §"Read-path"
 already rules that a dashboard reads another daemon only over `/v1`, and
@@ -269,6 +463,13 @@ transaction is the invariant (a group without its member edge expands to
 nothing); it must stay one transaction, which is why S11 depends on a
 `groups.create` handler that seeds inside its own tx, not on three REST calls.
 
+**S13 — the small couplings.** proxyd calls `GET /v1/users/{sub}/scopes`
+(`routd/server.go:651`) in place of `auth.UserScopes` over its own handle to
+`routd.db` (`proxyd/main.go:795`); `container/runner.go` drops the
+`ServeMCP` branch the split never takes (`:108-111`, `:255`) and with it the
+`ipc` import. Each is one call site. The remaining §3 items ride S1 (dashd's
+four imports), S4 (the CLI's daemon imports) and S11 (onbod's mount).
+
 **Rejected as cuts, after reading:** `proxyd`/`proxycfg` (a staged
 replacement, not a twin — `6/22`); `authd`/`onbod`/`auth/surrogate` OAuth
 (one authorization-code flow, `authd/oauth.go:112-330`; dex is a fifth
@@ -279,8 +480,10 @@ versus calendar); `mountsec` (path safety, no grant logic);
 migration file each); the resreg catalog/mount pair (one declaration read
 at two times, `resreg/resources/names.go:5-14`).
 
-## 4. What must stay plural
+## 8. What must stay plural
 
+- **The two standards.** A struct in, an interface out (§1). A symmetric
+  "connector" primitive would re-create the REST twin this spec deletes.
 - **One evaluator, two questions.** `Authorize` walks the action lattice;
   `CheckHold` and `ShellEnvKeys` match exactly, through `namespacedEffect`.
   Routing a hold through the lattice holds every tool for the `**` holder
@@ -292,6 +495,9 @@ at two times, `resreg/resources/names.go:5-14`).
 - **The operator gate and the turn gate.** Same `auth.Authorize`, two
   callers: the JWT sub is the whole "who" on REST; the socket folder plus
   the trigger sender are the two axes on MCP (`routd/sibling_db.go:274-310`).
+- **`elevated`.** The one path outside the subtree, gated on `IsOperator`;
+  removing it makes the operator subject to the confinement built for
+  everyone else (§5).
 - **Egress as its own language — for now.** `network_rules` answers "which
   host" over a folder, with host-glob validation at write
   (`store/network.go:29`) and ancestry resolution at spawn. It is a second
@@ -302,23 +508,22 @@ at two times, `resreg/resources/names.go:5-14`).
   opened. Open question 4.
 - **Per-owner databases and per-owner `audit_log`.** Ownership is a mount
   boundary for authd and runed. It is not one for routd: dashd, proxyd,
-  webd, onbod and the CLI open `routd.db` (`dashd/main.go:368-374`,
-  `proxyd/main.go:930`, `webd/main.go:66`, `onbod/main.go:913`). S1, S4 and
-  S11 are what make the routd boundary real; the four files stay four.
+  webd, onbod and the CLI open `routd.db` (§3). S1, S4, S11 and S13 are what
+  make the routd boundary real; the four files stay four.
 - **Compose fragment and manifest per package.** Two files because two
   owners define the formats (`template/services/<name>.yml` and `.yaml`);
   root `CLAUDE.md` already rules it.
 - **Nine platform clients on one renderer.** The clients are nine APIs.
   The cut is the copy between the two TypeScript ones, not the count.
 - **Blocking and async holds.** Two times — the container's TTL and a
-  human's — so two modes while the turn is ephemeral (§2).
+  human's — so two modes while the turn is ephemeral (§4).
 - **The spawn-time snapshot and the per-call gate.** Mounts and networks
   are Docker facts fixed at spawn; tool calls are gated per call
   (`routd/agent_gate.go:37`). Two times, one evaluator.
 - **The four "route" tables.** Four primitives; they should stop sharing a
   word, not a schema.
 
-## 5. The daemon count
+## 9. The daemon count
 
 Twenty-one on disk: `authd routd runed onbod dashd proxyd webd timed ttsd`,
 nine adapters, `egress` (one per spawn), `davd`, `vited`, and `litellm` when
@@ -343,11 +548,12 @@ configured. The projection:
 Eighteen is the floor this reading supports without a decision on onbod;
 seventeen with it. The adapters are the count and they are correct.
 
-## 6. Sequencing
+## 10. Sequencing
 
 - **Independent, now:** S2 (delete the twin), S9 (one wire type), S6
-  (the `Tx` split), S7 (invites' socket mount), S12 (dead code), S10 after
-  S2 (the verb table has one fewer reader).
+  (the `Tx` split), S7 (invites' socket mount), S12 (dead code), S13 (two
+  call sites), the `/v1/outbound` row-first fix (§1), S10 after S2 (the verb
+  table has one fewer reader).
 - **S3 before S1 and S4:** the surviving data layer must be decided before
   two writers move onto it.
 - **`groups.create` on `/v1` before S1 and S11:** both need the one
@@ -359,7 +565,7 @@ seventeen with it. The adapters are the count and they are correct.
 - **Egress into `acl` after a 5/33 decision;** it touches the
   `grantableAction` door and the 0023 migration's lesson.
 
-## 7. Open questions
+## 11. Open questions
 
 1. Is `timed` in the smallest deployment (5/A d6) or optional (6/16)?
 2. Does the hot tier get a REST face? Root `CLAUDE.md` says no; `5/E` and
@@ -373,6 +579,11 @@ seventeen with it. The adapters are the count and they are correct.
 6. twitd: share a TypeScript `chanlib` with whapd, or move to Go?
 7. `grant_option` on the live `add_acl` and `/v1/acl` — ship it with S6, or
    keep re-delegation apply-only on purpose?
+8. Where does `proxyd_routes` live once proxyd stops opening `routd.db` — a
+   `store/proxyd/` file, or routd serving it?
+9. Should a web login and a chat JID be one principal by default for a
+   single-user instance, with pairing the enterprise path rather than the
+   floor?
 
 **The objection this spec cannot answer.** Every cut above moves a writer
 onto routd's handlers. That is root `CLAUDE.md`'s "amend the original" and
@@ -385,7 +596,7 @@ stays a second writer with no gate — root on the box is the gate — and the
 two-axis containment never runs on that path. One engine, two transports,
 one of them ungated. That is the smallest honest shape, not one renderer.
 
-## 8. Premises checked against the tree
+## 12. Premises checked against the tree
 
 - `AuthorizeTurn` is at `routd/sibling_db.go:290`; `HoldPrefix` at
   `auth/authorize.go:547`, the evaluator `CheckHold` at `:603`.
@@ -401,6 +612,8 @@ one of them ungated. That is the smallest honest shape, not one renderer.
 - Four grant evaluators was this spec's own premise; the tree has one
   lattice evaluator, one exact-match body over the same rows, and two
   checks on different subjects.
+- The `acl` row is IAM's tuple plus `grant_option`, and one evaluator
+  serves the operator row, the member floor and a narrow agent grant (§5).
 - `mcp_tokens` (runed) has no reader or writer outside its migration.
 - webd registers once with no heartbeat (`chanlib/run.go:69-88` re-registers
   every three minutes; `webd/main.go:120-128` does not), so three failed
