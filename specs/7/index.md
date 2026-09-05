@@ -8,6 +8,8 @@ Putting arizuko in the cloud comes AFTER splitting it into parts, which is
 phase 6's job: you cannot deploy a part you have not separated. That order is
 the whole reason this is its own phase rather than work inside 6.
 
+[`23-agent-habitat.md`](23-agent-habitat.md) records the reframing — three verbs, the two-standard asymmetry and what the outside world already calls it.
+
 [`22-rust-track.md`](22-rust-track.md) answers what, if anything, moves to Rust: the isolation boundary only, and never on the cloud path.
 
 [`21-storage-seam.md`](21-storage-seam.md) is the storage spec — the `Store`
