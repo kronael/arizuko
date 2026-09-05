@@ -1,6 +1,6 @@
 ---
 status: defected
-defects: [L198, L199]
+defects: [L199, L200]
 depends:
   [
     ../5/28-packages,
@@ -88,7 +88,7 @@ reaches the instance: `proxyd_routes`. `compose.ManifestRoutes` reads
 that key and `continue`s past any other (`compose/compose.go:513-516`),
 so a catalog manifest declaring a scheduled task or a network rule
 parses, links, prints "run `arizuko generate` to apply", and delivers
-nothing — a silent no-op on an operator path (BUGS `L198`).
+nothing — a silent no-op on an operator path (BUGS `L199`).
 
 The ten shipped manifests (`template/services/*.yaml`: bskyd, discd,
 emaid, gitd, linkd, reditd, slakd, teled, twitd, whapd) declare
@@ -132,7 +132,7 @@ register over HTTP, `POST /v1/messages` in, `/send` out — and `whapd` and
 `twitd` prove it from TypeScript with no Go import. What fails the
 outsider test is the deployment contract: two maps in `compose.go` decide
 who gets a principal and an env file, and a manifest cannot say "I am a
-channel adapter" or "hand me these keys" (BUGS `L199`, proposal).
+channel adapter" or "hand me these keys" (BUGS `L200`, proposal).
 
 ## The components against the contract — measured
 
@@ -180,14 +180,14 @@ Three readings:
 
 ## What the contract needs
 
-Recorded as proposals, not shipped (BUGS `L199`, needs sign-off):
+Recorded as proposals, not shipped (BUGS `L200`, needs sign-off):
 
 1. The manifest declares what the two maps decide: that the package is a
    channel adapter (a `service:<name>` principal) and which env keys it
    reads. `generate` becomes a reader of that declaration instead of a map
    keyed by name, and nothing else in the compose layer names an adapter.
 2. `add` and `install` deliver the same declaration, or `add` refuses a
-   manifest key it will not apply (`L198`).
+   manifest key it will not apply (`L199`).
 3. A package's hook into a core daemon (`TTS_BASE_URL` on runed, a tile in
    the hub) is a row or a declared env contribution, not a name switch.
 
@@ -215,4 +215,4 @@ matrix; its import axis is the library question, not this one) · `6/12`
 (a package may be Rust because the contract is a process) · `7/23` (the
 package as the habitat's participant shape) · BUGS `L44` (rows are one
 asset kind), `L46` (a package's authority is what the operator handed
-it), `L137` (sandbox has no home), `L198`, `L199`.
+it), `L137` (sandbox has no home), `L199`, `L200`.

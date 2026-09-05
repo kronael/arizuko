@@ -1,6 +1,6 @@
 ---
 status: draft
-depends: [22-rust-track]
+depends: [22-rust-track, 25-publish-plan]
 ---
 
 # specs/7/23 — the reframing: arizuko as a habitat for agents
@@ -46,6 +46,25 @@ Three properties force the asymmetry, and they are independent:
 - **Ingress is mechanical; egress is a decision.** A message arrived —
   route it. Whether to reply, react, open an issue or stay quiet is
   exactly what tool-calling is for.
+
+## The participant shape — a package
+
+The three verbs say what the layer does. They do not say what may speak
+to it. That shape is settled (2026-09-05): **a package — a process plus
+a declaration of how it hooks into the system** (`7/25`). It is not a
+fourth verb. It is what every participant is, wherever its source lives:
+an adapter that ingests, a gateway the turn's model calls go through, a
+proxy a spawn's traffic leaves by. Hurd's translator has the same shape —
+a normal program attached to a node with `settrans`, speaking that node's
+interface — and the maintainer's framing is "mostly like Hurd, but this
+one should work".
+
+The declaration hooks into the verbs by name. A channel registration
+(`POST /v1/channels/register`) is the ingest hook; `proxyd_routes` and
+`routes` rows are the route hook; `acl` rows, bounded to the folder the
+operator named at install, are the grant hook. The ephemeral turn is why
+every hook is a row or a registration and never a callback into a
+process: nothing long-lived exists to be called back.
 
 ## What the outside world calls this
 
@@ -181,14 +200,16 @@ but the distinction matters when comparing designs.
   `routd/`), so a model learns a channel's limits by failing rather than
   by looking.
 - Every shipped package manifest in `template/services/` declares only
-  `proxyd_routes`. The apply engine accepts more: `resreg.Apply`
-  (`resreg/engine.go`) takes every key that names a resource registered
-  with `Resource.DB == subsystem`, and `cmd/arizuko/packages.go` already
-  builds `skills` and grants beside the routes. A package can declare a
-  scheduled task or a network rule today; none does.
+  `proxyd_routes`, and that is the ceiling of the verb they ship through:
+  `packages add` links the file and applies no row, and `generate` reads
+  one key of it (`compose.ManifestRoutes`). `packages install` applies
+  every resource `apply` rebuilds — a scheduled task, a network rule, a
+  grant inside `--folder` — so a package can declare those today through
+  `install` only. Measured in `7/25`; BUGS `L199`.
 
 ## Ties
 
-`22-rust-track` · `21-storage-seam` · `6/16` daemon standalone matrix ·
-`6/1` adoption (the field measured by property) · `5/33` paths and roles
-(the grant model) · `5/34` channel protocol.
+`25-publish-plan` (the package contract) · `22-rust-track` ·
+`21-storage-seam` · `6/16` daemon standalone matrix · `6/1` adoption (the
+field measured by property) · `5/33` paths and roles (the grant model) ·
+`5/34` channel protocol.

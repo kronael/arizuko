@@ -10263,3 +10263,74 @@ unroutable folder — the `L66`/`L67` shape — and its `chat_reply_state`.
 - **Source:** `sed -n 112,135p store/groups.go; sed -n 440,491p dashd/groups_admin.go`
 - **Status:** open — proposal, needs sign-off: one delete in `store.DeleteGroup` carrying both halves (`groups` exact and `/`-subtree, `acl` `/`-subtree, `routes` both separators, `chat_reply_state`, `scheduled_tasks`, the audit row through `runAudited`), and dashd calling it. `specs/6/37` redesign 1 makes the cascade non-security-bearing by construction.
 - **Fix:**
+
+## L199 — `packages add` links a manifest whose non-route keys nothing reads (2026-09-05, open)
+
+`arizuko packages <inst> add <name>` symlinks or copies the catalog's
+`<name>.yml` and `<name>.yaml` into `services/` and applies no row —
+`parsePkgManifests` and `installPkgRows` run only under `install`
+(`cmd/arizuko/packages.go`, `case "add"` vs `case "install"`). The only
+reader of a linked manifest is `generate`, through `compose.ManifestRoutes`,
+which takes `manifest[proxyd_routes]` and `continue`s past every other key
+(`compose/compose.go:513-516`). So a catalog manifest that declares a
+`scheduled_tasks`, `network_rules`, `acl` or `web_routes` row parses cleanly
+(`resreg.ParseYAML` accepts any registered resource), links cleanly, prints
+"run `arizuko generate` to apply", and delivers nothing. The ten shipped
+manifests declare only `proxyd_routes`, so nothing is lost today; the path is
+armed for the first manifest that declares more. Same class as `L44` (rows a
+package could not express) and `J15` (a payload that applies and reaches no
+consumer).
+
+- **Severity:** low today (no shipped manifest declares a second resource);
+  medium the day one does
+- **Scope:** package install, the `add` verb
+- **Affected:** `cmd/arizuko/packages.go` `case "add"`; `compose.ManifestRoutes`
+- **Source:** `cmd/arizuko/packages.go` (`add` never calls
+  `parsePkgManifests`); `compose/compose.go:513-516`; measured 2026-09-05 at
+  `02d0fbc1`
+- **Status:** open
+- **Fix:** either `add` applies rows through the same `installPkgRows` path
+  `install` uses (one writer), or `ManifestRoutes` refuses a document that
+  names a resource `generate` will not deliver. Spec: `7/25` §"What a
+  manifest can declare".
+
+## L200 — proposal: a package cannot declare that it is a channel adapter or which env keys it reads; two name maps in `compose.go` decide both, so no outsider adapter passes the package contract (2026-09-05, proposal — needs sign-off)
+
+`7/25`'s acceptance test: can someone outside the repo ship a package that
+hooks in without patching arizuko. The wire contract passes it — `5/34` is
+HTTP in any language, and `whapd`/`twitd` prove it from TypeScript — and the
+deployment contract fails it at two names:
+
+- `compose.adapterDaemons` (`compose/compose.go:250-254`) is the set
+  `wireServiceKey` provisions a `service:<daemon>` principal for. An adapter
+  outside it gets no `AUTHD_SERVICE_KEY`, and `POST /v1/channels/register`
+  answers 401 under a Verifier (`routd/channels.go`, `channelAuth`).
+- `compose.daemonKeys` (`compose/compose.go:98-238`) is the per-daemon env
+  allowlist `writeEnvFiles` writes `env/<daemon>.env` from. A daemon outside
+  it gets no file; a fragment that names one fails `compose up` (compose's
+  `env_file` `required` defaults to true), and `envFileName`'s fallback hands
+  it the shared `.env` with every instance secret.
+
+The same class, smaller: `hasService(services, "ttsd")`
+(`compose/compose.go:788`) sets `TTS_ENABLED`/`TTS_BASE_URL` on runed by name;
+`/dash/ttsd/` is a core route (`compose/compose.go:369`) where every adapter's
+dashboard route is a manifest row; `dashd/services.go:57-67` lists the hub
+tiles by name. Adding `gitd` touched `cmd/arizuko/github.go`,
+`compose/compose.go`, `resreg/resources/github_sources.go`,
+`store/github_sources.go` and `store/migrations/0088` in one commit
+(`c0594f32`), against `5/27`'s "adding an adapter touches no Go".
+
+- **Severity:** medium (the package contract is unmet for the whole channel
+  layer; every shipped adapter needs a `compose.go` edit to exist)
+- **Scope:** compose generation; the package manifest
+- **Affected:** every adapter package; any outsider adapter; `ttsd`
+- **Source:** `compose/compose.go:98-238,250-254,369,788`;
+  `dashd/services.go:57-67`; `routd/channels.go` `channelAuth`;
+  `git show --stat c0594f32`; measured 2026-09-05 at `02d0fbc1`
+- **Status:** proposal — needs sign-off (a manifest key is a new contract)
+- **Fix:** the manifest declares what the maps decide — that the package is a
+  channel adapter (a principal) and the env keys it reads — and `generate`
+  reads the declaration instead of a map keyed by name; the hub lists what
+  the route table serves. Spec: `7/25` §"What the contract needs". Whether
+  the declaration is a resreg row (`5/8`'s shape) or a compose-side key in
+  `<name>.yaml` is the decision to sign.
