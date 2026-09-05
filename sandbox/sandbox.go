@@ -15,7 +15,22 @@ import (
 	"regexp"
 
 	"github.com/kronael/arizuko/sandbox/internal"
+	"github.com/kronael/arizuko/substrate"
 )
+
+// Profile is what the KVM substrate can do: a VM whose disk image lives under
+// the data dir until Destroy, into which Exec runs commands over SSH for as
+// long as it is up, and whose outbound traffic netfilter filters on the tap
+// by address — an allowlist entry that is an IP or a CIDR becomes a rule, a
+// host name becomes nothing (internal/netfilter.go). Nothing in arizuko runs
+// it; the declaration exists so the difference from Docker is a value, not a
+// paragraph (spec 6/25 §3).
+var Profile = substrate.Profile{
+	Backend:     substrate.KVM,
+	Persistence: substrate.ResidentDisk,
+	Sessions:    true,
+	Egress:      substrate.EgressAddress,
+}
 
 var instanceIDRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,32}$`)
 

@@ -9967,3 +9967,61 @@ Local paths table (`link-is-public-url`), the map (`self-skill`).
   commit `docs(ant): ant/CLAUDE.md carries only what the rule of 6/34 keeps resident`
 - **Status:** open — each row wants a case before the ledger is done
 - **Fix:**
+
+## L189 — `sandbox/` writes no netfilter rule for a host-name allowlist entry, and the comment that explains why names a proxy `6/24` deleted (2026-09-05, open — proposal, needs sign-off)
+
+Measured at `7c631ed3`: `sandbox/internal/netfilter.go` `RestoreNetworkRules`
+and `CleanupNetworkRules` walk `meta.AllowList` and act only where
+`match.LooksLikeIP(target)` is true; the other branch is the comment
+"domains are handled by egred proxy — no iptables rules needed". `6/24`
+removed that proxy and the registration, and nothing on the VM path resolves
+a name. `sandbox/README.md` said the matcher is shared with the proxy "so a
+rule means the same thing on both substrates"; `specs/6/9` line 70 says
+"host allowlist enforced by netfilter". Both overstate. The declaration
+`sandbox.Profile.Egress = address` (shipped with `6/25` §3) now states the
+measured level, and the README paragraph is corrected to match it.
+
+What a name entry does at the packet level depends on the `cbx-<H4>`
+chain's default policy, which is not in the tree (`libexec/crackbox-tap`
+writes only NAT rules) — so whether a name is denied or is allow-all is
+unmeasured. Decision needed, not taken here because the substrate is unwired
+and each option is a design choice: (a) resolve names at spawn and write
+address rules (TTL churn, rebinding); (b) a proxy inside the VM network;
+(c) declare address-only in `6/9` and have `Spawn` reject a name in
+`VMConfig.AllowList` — the strict option, the same rule `6/25` 1b applied to
+the proxy ("a rule that never matches reads as protection and is not").
+
+- **Severity:** low (nothing in arizuko runs `sandbox/`; `crackbox run --kvm` is local dev)
+- **Scope:** `sandbox/internal/netfilter.go`; `specs/6/9` line 70
+- **Affected:** `crackbox run --kvm` users who pass host names
+- **Source:** `sandbox/internal/netfilter.go` RestoreNetworkRules; `egress/match.LooksLikeIP`; `sandbox/sandbox.go` Profile
+- **Status:** open — proposal, needs sign-off
+- **Fix:** pick (a), (b) or (c); (c) is ~10 lines in `sandbox.Spawn` plus one spec line
+
+## L190 — proposal: `6/9`, `6/16` and `6/25` §Order restate substrate facts that `substrate.Profile` now declares; make the prose a pointer (2026-09-05, open — docs, needs the spec owner)
+
+`6/25` §3 says the matrix in `6/16` "becomes the doc rendering of a value,
+not a second source of truth". The value shipped 2026-09-05:
+`substrate.Profile` (an enum-and-bool struct; `TestProfileCarriesNoPolicy`
+refuses any other field shape, `TestSubstrateIsALeaf` refuses any arizuko
+import), `container.Profile` (docker, mounted_home, no sessions, domain
+egress), `sandbox.Profile` (kvm, resident_disk, sessions, address egress),
+and `EgressConfig.Effective()` as the one verdict on whether egress isolation
+runs — runed logs it at start, refuses to start on a half configuration, and
+shows it on `/dash/runed/`.
+
+The prose that still restates those facts, and could not be edited by the
+work that shipped the value (`specs/` was out of its write scope):
+`specs/6/9` "Architecture" tree and line 70; `specs/6/16` "The four layers"
+item 3 and the `dockbox` row of the package axis; `specs/6/25` §Order,
+which still reads "1 is adopted" and should record 3 as adopted. Choice
+recorded: the code is the only statement. Each paragraph should become "see
+`substrate.Profile` (`container.Profile`, `sandbox.Profile`)" with no
+restated value, so the next substrate difference is a diff to one struct.
+
+- **Severity:** low (docs drift, no runtime effect)
+- **Scope:** `specs/6/9`, `specs/6/16`, `specs/6/25`
+- **Affected:** readers of the specs
+- **Source:** `substrate/substrate.go`; `container/egress.go` Profile, Effective; `sandbox/sandbox.go` Profile
+- **Status:** open — docs
+- **Fix:** replace each restated value with the pointer; one edit per spec

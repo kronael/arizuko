@@ -9,6 +9,7 @@ import (
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/groupfolder"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
+	"github.com/kronael/arizuko/substrate"
 )
 
 // Verifier offline-verifies inbound bearer tokens (routd service / operator
@@ -31,12 +32,19 @@ type Server struct {
 	// verify, which gates /v1 on a BEARER: the dashboard trusts the
 	// proxyd-verified end-user identity instead. nil → local dev, gate open.
 	dashKeys *auth.KeySet
+	// sub is what the substrate delivers on this configuration, shown on the
+	// dashboard so an operator reads a downgrade where they look, not in the
+	// source (spec 6/25 §3). The zero value renders nothing.
+	sub substrate.Effective
 }
 
 // NewServer wires runed's HTTP server.
 func NewServer(mgr *Manager, db *DB, verify Verifier) *Server {
 	return &Server{mgr: mgr, db: db, verify: verify}
 }
+
+// SetSubstrate hands the dashboard the value main computed with Substrate.
+func (s *Server) SetSubstrate(sub substrate.Effective) { s.sub = sub }
 
 // SetDashKeySet wires the operator gate for GET /dash/runed/. Called by main
 // when AUTHD_URL is set; nil in local dev and tests, where it falls open.

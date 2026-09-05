@@ -31,7 +31,10 @@ stdout is discarded. Also owns `SetupGroup` to create new group folders.
 - `SeedCodexDirs(groupsDir)` — pre-create `.codex/` per group
 - `FolderNetwork(prefix, folder) string` — per-folder network name
 - `PickIP(subnet) string` — random IP in /24 for egress isolation
-- `EgressConfig` — crackbox isolation settings
+- `EgressConfig` — this instance's egress isolation inputs
+- `Profile` — the Docker substrate's declaration (`substrate.Profile`);
+  `EgressConfig.Effective()` is the one verdict on whether egress isolation
+  runs, with the reason when it does not
 
 ## Env injection
 
@@ -74,7 +77,7 @@ Additional mounts from `group.toml` validated via `mountsec`.
 
 ## Dependencies
 
-- `core`, `groupfolder`, `mountsec`, `ipc`, `audit`, `diary`, `grants`, `router`, `chanlib`, `crackbox/pkg/client`
+- `core`, `groupfolder`, `mountsec`, `audit`, `diary`, `router`, `chanlib`, `store`, `auth`, `obs`, `theme`, `db_utils`, `egress`, `egress/match`, `substrate` (measured with `go list -deps`; `tests/components` pins that `ipc` is not among them)
 
 ## Files
 
@@ -83,7 +86,7 @@ Additional mounts from `group.toml` validated via `mountsec`.
 - `runtime.go` — docker daemon checks, container cleanup, codex seed
 - `episodes.go` — recent-episode XML for prompt context
 - `network.go` — per-folder Docker network creation for egress isolation
-- `egress.go` — crackbox registration/unregistration, IP allocation
+- `egress.go` — the per-spawn egress proxy, IP allocation, the substrate declaration and `Effective`
 
 ## Related docs
 

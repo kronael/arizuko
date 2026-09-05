@@ -41,9 +41,13 @@ state under `<dataDir>/<instanceID>/vms/<id>/`.
 
 ## Egress
 
-`AllowList` becomes netfilter rules on the VM's own tap device, matched with
-[`egress/match`](../egress/match/) — the same matcher the egress proxy uses,
-so a rule means the same thing on both substrates.
+`AllowList` becomes netfilter rules on the VM's own tap device. An entry that
+is an IP address or a CIDR becomes a rule; a host name becomes nothing
+(`internal/netfilter.go` writes a rule only for what
+[`egress/match.LooksLikeIP`](../egress/match/) accepts). That is why
+`Profile.Egress` in `sandbox.go` is `address` where the proxy's is `domain`
+— the declaration is the statement of record, and BUGS `L189` holds the open
+question of whether host names should be enforced here at all.
 
 The VM case needs no proxy and no registration: a guest has exactly one
 virtual NIC, the tap the host created, so the tap IS the identity. Nothing

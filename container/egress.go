@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/egress"
+	"github.com/kronael/arizuko/substrate"
 )
 
 // egressLabel marks proxy containers so a runed restart can reap the ones its
@@ -31,9 +32,11 @@ var (
 	egressReadyPoll    = 20 * time.Millisecond
 )
 
-// EgressConfig holds this instance's egress isolation settings. Zero value
-// disables it, and a deployment with no egress configured spawns exactly as
-// it did before — no network, no proxy, no filtering.
+// EgressConfig holds this instance's egress isolation settings. Effective is
+// the one reader that decides whether isolation runs: an empty Image is
+// isolation off by choice — no network, no proxy, no filtering — and an
+// Image with another input missing is a misconfiguration no spawn proceeds
+// past.
 //
 // One proxy per spawn (spec 6/24): the allowlist is baked into the proxy
 // process at start and dies with the turn. There is no registry, no admin
@@ -84,9 +87,49 @@ func gatewayHost(raw string) string {
 	return u.Hostname()
 }
 
-func (e EgressConfig) active() bool {
-	return e.Image != "" && e.NetworkPrefix != "" &&
-		e.UplinkNetwork != "" && e.AllowlistFn != nil
+// Profile is what the Docker substrate can do at its best: one `docker run
+// --rm` per turn with the group directory bound in as home, and one egress
+// proxy per spawn that matches host names and checks the address they
+// resolve to before dialling (spec 6/24, 6/25 §1). EgressConfig.Effective
+// says what a configuration delivers against it.
+var Profile = substrate.Profile{
+	Backend:     substrate.Docker,
+	Persistence: substrate.MountedHome,
+	Sessions:    false,
+	Egress:      substrate.EgressDomain,
+}
+
+// Effective is the one place that decides whether egress isolation runs, and
+// says why when it does not. Image is the switch. Empty, the operator left
+// isolation off: Delivered.Egress is none, Reason says so, and a spawn runs
+// on the default network. Set, the operator turned it on, so an empty
+// NetworkPrefix or UplinkNetwork or a nil AllowlistFn is a misconfiguration:
+// Effective returns an error naming each missing input and no caller
+// proceeds. A spawn that went ahead would run unfiltered while the config
+// reads as isolated — the silent downgrade spec 6/25 §3 forbids.
+func (e EgressConfig) Effective() (substrate.Effective, error) {
+	eff := substrate.Effective{Declared: Profile, Delivered: Profile}
+	if e.Image == "" {
+		eff.Delivered.Egress = substrate.EgressNone
+		eff.Reason = "no egress image configured"
+		return eff, nil
+	}
+	var missing []string
+	if e.NetworkPrefix == "" {
+		missing = append(missing, "network prefix")
+	}
+	if e.UplinkNetwork == "" {
+		missing = append(missing, "uplink network")
+	}
+	if e.AllowlistFn == nil {
+		missing = append(missing, "allowlist")
+	}
+	if len(missing) > 0 {
+		return substrate.Effective{}, fmt.Errorf(
+			"egress image %q is set but missing: %s — the proxy cannot start, so a spawn would run unfiltered",
+			e.Image, strings.Join(missing, ", "))
+	}
+	return eff, nil
 }
 
 // egressSpawn is one spawn's private egress path.
@@ -141,8 +184,10 @@ func PickIP(subnet string) (string, error) {
 }
 
 // startEgressProxy starts this spawn's own egress proxy and returns where to
-// put the spawn and how to reach the proxy. Disabled config is a no-op
-// (zero egressSpawn, nil error) — a deployment without egress spawns as before.
+// put the spawn and how to reach the proxy. Isolation off by choice
+// (Effective: no image) is a no-op — zero egressSpawn, nil error — and the
+// spawn goes on the default network. A half configuration is Effective's
+// error, returned as is.
 //
 // Order matters and is the reason this returns before the caller runs the
 // agent: the proxy's listener is answering before this function returns, so
@@ -151,7 +196,11 @@ func PickIP(subnet string) (string, error) {
 // spawn — a spawn that proceeds without its proxy is an unfiltered container,
 // which inverts the property this exists for.
 func startEgressProxy(cfg EgressConfig, id, spawnName string) (egressSpawn, error) {
-	if !cfg.active() {
+	eff, err := cfg.Effective()
+	if err != nil {
+		return egressSpawn{}, err
+	}
+	if eff.Delivered.Egress == substrate.EgressNone {
 		return egressSpawn{}, nil
 	}
 	netName, subnet, err := ensureFolderNetwork(cfg.NetworkPrefix, cfg.ParentSubnet, id)

@@ -22,9 +22,10 @@ const (
 )
 
 // shippable are the components that must stand alone. They may import each
-// other — crackbox composes the other two, and sandbox reuses egress's
-// allowlist matcher — but nothing else inside arizuko.
-var shippable = []string{"sandbox", "egress", "crackbox"}
+// other — crackbox composes egress and sandbox, sandbox reuses egress's
+// allowlist matcher and declares a substrate.Profile — but nothing else
+// inside arizuko.
+var shippable = []string{"sandbox", "egress", "crackbox", "substrate"}
 
 func deps(t *testing.T, pattern string) []string {
 	t.Helper()
@@ -55,6 +56,19 @@ func TestShippableComponentsImportNoArizukoInternals(t *testing.T) {
 				t.Errorf("%s imports arizuko-internal %q — a shippable component may depend only on stdlib, third parties and %v",
 					c, dep, shippable)
 			}
+		}
+	}
+}
+
+// TestSubstrateIsALeaf: the capability declaration imports nothing of
+// arizuko's, siblings included. Mechanism reads the declaration — container
+// and sandbox import substrate — never the reverse: a declaration that
+// imported egress or core could name an allowlist or a folder, and then a
+// substrate could carry policy (spec 6/16, the component contract).
+func TestSubstrateIsALeaf(t *testing.T) {
+	for _, dep := range deps(t, "./substrate") {
+		if dep != "substrate" {
+			t.Errorf("substrate imports arizuko-internal %q — the declaration must be a leaf", dep)
 		}
 	}
 }

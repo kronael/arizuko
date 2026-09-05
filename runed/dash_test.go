@@ -7,7 +7,25 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/core"
 )
+
+// The dashboard states what the substrate delivers and why less when less:
+// the operator's surface for an egress downgrade (spec 6/25 §3).
+func TestDashboardShowsSubstrate(t *testing.T) {
+	s, _, h := dashSrv(t)
+	sub, err := Substrate(&core.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetSubstrate(sub)
+	body := dashGet(h, "", `["**"]`).Body.String()
+	for _, want := range []string{"Substrate: docker", "egress none", "declared domain", "no egress image configured"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the overview does not render %q", want)
+		}
+	}
+}
 
 // dashSrv builds a runed Server with its dashboard mounted.
 func dashSrv(t *testing.T) (*Server, *DB, http.Handler) {

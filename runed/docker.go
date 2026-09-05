@@ -18,6 +18,7 @@ import (
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/obs"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
+	"github.com/kronael/arizuko/substrate"
 )
 
 // dockerRuntime is the production Runtime: a pure container-spawner. routd
@@ -106,7 +107,7 @@ func (d *dockerRuntime) Run(ctx context.Context, spec RunSpec) RunResult {
 		WebPublish:     spec.WebPublish,
 		Secrets:        spec.Secrets,
 		QueryTimeoutMs: queryTimeoutMs(spec.RunTTL),
-		Egress:         d.egress(spec.EgressAllowlist),
+		Egress:         egressConfig(d.cfg, spec.EgressAllowlist),
 	})
 	obs.ContainerActiveDec()
 	outcome := outcomeFor(out)
@@ -126,21 +127,31 @@ func (d *dockerRuntime) Run(ctx context.Context, spec RunSpec) RunResult {
 	}
 }
 
-// egress builds the per-spawn EgressConfig from runed's own config plus the allowlist
-// routd resolved. EgressConfig.active() gates on EgressImage, so on an instance with
-// no egress configured this is inert; where it IS configured, startEgressProxy runs
-// this spawn's proxy and puts the spawn on an --internal network whose only route out
-// is that proxy (spec 6/24). Its absence left split spawns on the default network,
-// i.e. the open internet.
-func (d *dockerRuntime) egress(allowlist []string) container.EgressConfig {
+// egressConfig is the one mapping from runed's config to the substrate's egress
+// inputs, plus the allowlist routd resolved for this spawn. Both readers — the
+// per-spawn proxy and the startup Substrate check — go through it, so they
+// cannot disagree on what is set. EgressConfig.Effective decides what it
+// delivers: where the image is configured, startEgressProxy runs this spawn's
+// proxy and puts the spawn on an --internal network whose only route out is
+// that proxy (spec 6/24). Its absence left split spawns on the default
+// network, i.e. the open internet.
+func egressConfig(cfg *core.Config, allowlist []string) container.EgressConfig {
 	return container.EgressConfig{
-		NetworkPrefix: d.cfg.EgressNetworkPrefix,
-		ParentSubnet:  d.cfg.EgressParentSubnet,
-		Image:         d.cfg.EgressImage,
-		UplinkNetwork: d.cfg.EgressUplinkNetwork,
+		NetworkPrefix: cfg.EgressNetworkPrefix,
+		ParentSubnet:  cfg.EgressParentSubnet,
+		Image:         cfg.EgressImage,
+		UplinkNetwork: cfg.EgressUplinkNetwork,
 		AllowlistFn:   func(string) ([]string, error) { return allowlist, nil },
-		GatewayURL:    d.cfg.ModelGatewayURL,
+		GatewayURL:    cfg.ModelGatewayURL,
 	}
+}
+
+// Substrate is what this configuration delivers against the Docker
+// declaration (container.Profile). main logs it once at start and refuses to
+// run on an error: an image named with an input missing would leave every
+// spawn unfiltered while the config reads as isolated (spec 6/25 §3).
+func Substrate(cfg *core.Config) (substrate.Effective, error) {
+	return egressConfig(cfg, nil).Effective()
 }
 
 // queryTimeoutMs derives the agent's in-container query timeout from the run

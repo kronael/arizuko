@@ -22,6 +22,7 @@ import (
 	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/runed"
+	"github.com/kronael/arizuko/substrate"
 )
 
 // newRunedMux builds runed's complete HTTP surface: the Server's routed mux
@@ -47,12 +48,22 @@ func main() {
 		slog.Error("load config", "err", err)
 		os.Exit(1)
 	}
-	// A .env still naming the shared crackbox proxy would silently spawn
-	// unfiltered containers: the admin API it points at no longer exists and
-	// EGRESS_IMAGE — the new switch — would be empty, so egress would read as
-	// "not configured". Refusing to start is the loud version of that, and it
-	// happens once at deploy instead of per turn (spec 6/24).
-	if v := os.Getenv("CRACKBOX_ADMIN_API"); v != "" && cfg.EgressImage == "" {
+	// What the Docker substrate delivers on this configuration, decided once
+	// at start where the operator is looking (spec 6/25 §3). An error is a
+	// half configuration — the image is named and an input the proxy needs is
+	// empty — under which every spawn would run unfiltered; refusing to start
+	// is the loud version, once at deploy instead of per turn.
+	sub, err := runed.Substrate(cfg)
+	if err != nil {
+		slog.Error("substrate", "err", err)
+		os.Exit(1)
+	}
+	slog.Info("substrate", "backend", sub.Delivered.Backend, "egress", sub.Delivered.Egress,
+		"declared_egress", sub.Declared.Egress, "reason", sub.Reason)
+	// A .env still naming the shared crackbox proxy reads as isolation on to
+	// the operator while the substrate delivers none: the admin API it points
+	// at does not exist (spec 6/24). Same refusal, same moment.
+	if v := os.Getenv("CRACKBOX_ADMIN_API"); v != "" && sub.Delivered.Egress == substrate.EgressNone {
 		slog.Error("CRACKBOX_ADMIN_API is set but the shared crackbox proxy was removed (spec 6/24); "+
 			"egress is now one proxy per spawn: set EGRESS_IMAGE=arizuko-egress:latest "+
 			"(build it with `make images`) and drop CRACKBOX_ADMIN_API, or drop both to run without egress filtering",
@@ -146,6 +157,7 @@ func main() {
 
 	srv := runed.NewServer(mgr, db, verify)
 	srv.SetDashKeySet(dashKeys)
+	srv.SetSubstrate(sub)
 	mux := newRunedMux(srv)
 
 	httpd := &http.Server{Addr: listenAddr, Handler: obs.HTTPMiddleware("runed")(mux)}

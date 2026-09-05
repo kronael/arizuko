@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/substrate"
 	"github.com/kronael/arizuko/theme"
 )
 
@@ -52,6 +53,9 @@ func (s *Server) handleDash(w http.ResponseWriter, r *http.Request) {
 	runedTile(&b, "Live agents", agents)
 	runedTile(&b, "Recent runs", len(runs))
 	fmt.Fprint(&b, `</div>`)
+	if s.sub.Declared.Backend != "" {
+		b.WriteString(substrateLine(s.sub))
+	}
 
 	b.WriteString(stateFilter(state))
 	b.WriteString(runTable(runs))
@@ -78,6 +82,19 @@ func (s *Server) handleDashKill(w http.ResponseWriter, r *http.Request) {
 	}
 	slog.Info("dash kill", "run_id", runID)
 	http.Redirect(w, r, "/dash/runed/", http.StatusSeeOther)
+}
+
+// substrateLine renders what the substrate delivers and, when that is less
+// than it declares, why.
+func substrateLine(sub substrate.Effective) string {
+	d := sub.Delivered
+	line := fmt.Sprintf(`<p class="sub">Substrate: %s · %s · egress %s`,
+		d.Backend, d.Persistence, d.Egress)
+	if sub.Reason != "" {
+		line += fmt.Sprintf(` (declared %s — %s)`,
+			sub.Declared.Egress, html.EscapeString(sub.Reason))
+	}
+	return line + `</p>`
 }
 
 func runedTile(b *strings.Builder, label string, n int) {

@@ -117,9 +117,27 @@ func testConfig(allow ...string) EgressConfig {
 	}
 }
 
+// TestStartEgressProxyRefusesHalfConfig — an image names the proxy but the
+// uplink is empty: the operator asked for isolation and would get none. The
+// spawn must fail naming the missing input, before any docker call.
+func TestStartEgressProxyRefusesHalfConfig(t *testing.T) {
+	f := &fakeDocker{}
+	f.install(t)
+
+	cfg := testConfig()
+	cfg.UplinkNetwork = ""
+	_, err := startEgressProxy(cfg, "atlas", "arizuko-test-atlas-1")
+	if err == nil || !strings.Contains(err.Error(), "uplink network") {
+		t.Fatalf("a half config must fail naming the missing input, got %v", err)
+	}
+	if len(f.calls) != 0 {
+		t.Errorf("no docker call may precede the refusal: %v", f.calls)
+	}
+}
+
 // TestStartEgressProxyInertWithoutConfig — no egress configured means no
 // proxy, no network and no error: the spawn runs exactly as it did before
-// egress existed. Preserving this is why `active()` gates the whole path.
+// egress existed. Preserving this is why `Effective` gates the whole path.
 func TestStartEgressProxyInertWithoutConfig(t *testing.T) {
 	f := &fakeDocker{}
 	f.install(t)

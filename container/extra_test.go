@@ -9,6 +9,7 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/substrate"
 )
 
 func TestWorldOf(t *testing.T) {
@@ -66,26 +67,42 @@ func TestPickIP_IPv6Rejected(t *testing.T) {
 	}
 }
 
-func TestEgressConfigActive(t *testing.T) {
+// Effective is the one verdict on egress isolation: off by choice carries a
+// reason and no error; an image with any other input missing is an error that
+// names every missing input; a full config delivers the declaration.
+func TestEffective(t *testing.T) {
 	e := EgressConfig{}
-	if e.active() {
-		t.Error("zero EgressConfig should not be active")
+	eff, err := e.Effective()
+	if err != nil {
+		t.Fatalf("isolation off by choice is not an error: %v", err)
 	}
+	if eff.Delivered.Egress != substrate.EgressNone || eff.Reason == "" {
+		t.Errorf("zero config must deliver egress none with a reason, got %+v", eff)
+	}
+	if eff.Declared != Profile {
+		t.Errorf("declared must be the substrate's ceiling, got %+v", eff.Declared)
+	}
+
 	e.Image = "arizuko-egress:latest"
-	if e.active() {
-		t.Error("still inactive without NetworkPrefix")
+	_, err = e.Effective()
+	if err == nil {
+		t.Fatal("an image with nothing else must be a misconfiguration error")
 	}
+	for _, want := range []string{"network prefix", "uplink network", "allowlist"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the error must name the missing %q: %v", want, err)
+		}
+	}
+
 	e.NetworkPrefix = "arizuko_krons"
-	if e.active() {
-		t.Error("still inactive without UplinkNetwork")
-	}
 	e.UplinkNetwork = "arizuko_krons_default"
-	if e.active() {
-		t.Error("still inactive without AllowlistFn")
-	}
 	e.AllowlistFn = func(string) ([]string, error) { return nil, nil }
-	if !e.active() {
-		t.Error("expected active with all fields set")
+	eff, err = e.Effective()
+	if err != nil {
+		t.Fatalf("full config: %v", err)
+	}
+	if eff.Delivered != Profile || eff.Reason != "" {
+		t.Errorf("full config must deliver the declaration with no reason, got %+v", eff)
 	}
 }
 
