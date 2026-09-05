@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/ecdsa"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -61,16 +62,37 @@ func TestDashNonOperatorForbidden(t *testing.T) {
 }
 
 func TestDashOperatorGroupAdmitted(t *testing.T) {
-	r := stubRoutd(t, `[]`)
-	d := &dashServer{r: r, ks: auth.NewKeySet(nil)} // gate enforced
-
+	// Both halves are required: the stamped group AND proxyd's service bearer.
+	// The header alone is attacker input on any reachable port.
+	k, err := auth.NewSigningKey("k1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok, err := k.Sign(auth.TokenClaims{Sub: auth.ProxydTransitSub, Typ: "service"}, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := &dashServer{r: stubRoutd(t, `[]`),
+		ks: auth.NewKeySet(map[string]*ecdsa.PublicKey{"k1": &k.Priv.PublicKey})}
 	req := httptest.NewRequest("GET", "/dash/timed/", nil)
-	req.Header.Set("X-User-Groups", `["**"]`) // operator
+	req.Header.Set("X-User-Groups", `["**"]`)
+	req.Header.Set("Authorization", "Bearer "+tok)
 	w := httptest.NewRecorder()
 	d.handleDash(w, req)
-
 	if w.Code != http.StatusOK {
-		t.Fatalf("want 200 for operator, got %d", w.Code)
+		t.Fatalf("want 200 for an operator behind the transit proof, got %d", w.Code)
+	}
+}
+
+// The same request without the proof must be refused.
+func TestDashOperatorHeaderWithoutProofRefused(t *testing.T) {
+	d := &dashServer{r: stubRoutd(t, `[]`), ks: auth.NewKeySet(nil)}
+	req := httptest.NewRequest("GET", "/dash/timed/", nil)
+	req.Header.Set("X-User-Groups", `["**"]`)
+	w := httptest.NewRecorder()
+	d.handleDash(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("forged operator header = %d, want 403", w.Code)
 	}
 }
 
