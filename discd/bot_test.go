@@ -2,11 +2,8 @@ package main
 
 import (
 	"errors"
-<<<<<<< ours
-	"regexp"
-=======
 	"net/http"
->>>>>>> theirs
+	"regexp"
 	"strings"
 	"testing"
 
