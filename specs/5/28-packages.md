@@ -75,6 +75,51 @@ A resource with `SkipApplyRebuild` (`secrets`, `route_tokens`, `invites`,
 apply never writes them, so the rows would be a reported success that did
 nothing — the same answer a package declaring `mcpServers` gets.
 
+## What a package needs from `.env` — the `env` section
+
+A package that ships a process needs values the rows cannot carry: a port, a
+shared key, an upstream URL. Those live in the instance `.env`, which compose
+generation reads. So the manifest carries one more reserved top-level key —
+`env` — beside its resource rows. It is the same "one declaration, many
+readers" rule the routes already follow: `install` provisions the keys,
+`generate` resolves them into the fragment's environment, and neither invents
+a second file.
+
+An entry names exactly ONE source:
+
+| Source           | When the value appears           | Where it lives afterwards                     |
+| ---------------- | -------------------------------- | --------------------------------------------- |
+| `generate: true` | minted once, at install          | written into `.env`; the operator owns it     |
+| `default: <v>`   | derived on every `generate`      | never written; setting the key in `.env` wins |
+| `required: true` | never — the operator must set it | `.env`, by hand, before install succeeds      |
+
+`required` is the load-bearing one. A package whose fragment installs cleanly
+and then refuses to start is the Debian failure this section exists to
+prevent: the refusal belongs at install time, on the near side of the first
+write, where the operator is still holding the decision. `litellm` shipped
+exactly that bug — it installed, then would not start until someone wrote
+`MODEL_GATEWAY_KEY` by hand.
+
+`generate` and `default` are what "installs with working defaults" means.
+After `packages add <name>`, the instance comes up on the next `generate`
+with no hand-written value at all, unless the package genuinely cannot
+invent one.
+
+**`apply` refuses the `env` section.** Two readers, two parsers:
+`resreg.ParseManifest` returns rows AND env needs and only `arizuko packages`
+calls it; `resreg.ParseYAML` is the same decoder with the env half rejected,
+and that is what `arizuko apply` calls. An operator who applies a package's
+manifest by hand gets a refusal naming `packages add`, never a success that
+provisioned nothing.
+
+The `env` section is a declaration, not a script. Nothing in it runs. A
+package cannot mint a capability for itself this way — the keys it names are
+values, and the grants it may hold are still bounded by `--folder` at install
+(§Lifecycle). An install script, if one is ever added, runs with the
+OPERATOR's authority and never the package's, and it may only do what nothing
+declarative can express; anything declarable stays declarative, so the apply
+engine's pre-image rollback keeps covering it.
+
 **Trust follows what's touched.** Skills, compose fragments and manifest rows
 above are agent/operator space, updatable via the lock. An image
 extension changes what software exists INSIDE the sandbox only — mounts,
@@ -570,6 +615,13 @@ sign-off-shaped decision rather than an implementation detail.
 - `container/product_seed_test.go` — the verbatim-seed lock (both seeders) +
   corpus counts
 - `container/runner.go` `seedSkills()` — skill seeding at spawn
+- `resreg/engine.go` `ParseManifest` / `ParseYAML` / `parseEnvNeeds` — the two
+  readers of one document; `EnvNeed` is the `env` entry, `PackageEnvKey` the
+  reserved key
+- `compose/manifest.go` `ProvisionPackageEnv` — the one resolver `packages add`
+  and `generate` both call
+- `cmd/arizuko/packages.go` `installPackage` — the single install path; every
+  refusal lands before the first write
 - `resreg/resources/proxyd_routes.go`, `routd/acl_resource.go` — the owner handlers
 - `ant/skills/self/migration.md` — the 3-way merge packages reuse for skills
 - `routd/loop.go:434` `checkMigrationVersion()` — the update trigger
