@@ -10494,3 +10494,137 @@ and only agree while the checkout is at the deployed tag.
   the checkout into the generate container and accept that a checkout is the
   release. The first keeps "a release is an image"; sign-off decides.
 - **Fix:**
+
+## L204 — `chats.errored` is set and never cleared, so the operator's errored list is monotonic and the retry button reports success while changing nothing (2026-09-05, open)
+
+MEASURED. `routd/db.go:411 MarkChatErrored` is the ONLY writer of
+`chats.errored`: `INSERT INTO chats(jid, errored) VALUES(?,1) ON CONFLICT(jid)
+DO UPDATE SET errored=1`. A whole-tree grep of every non-test write finds no
+statement that sets it back to 0 and none that deletes a `chats` row.
+
+Three readers key on it: `routd/db.go:467 CountErroredChats` (the `/status`
+line, `steer.go:214`), `routd/reads.go:227 ErroredChats` (`/v1/routing/errored`
+and `dash.go:63`), and `dashd/main.go:741` through the REST face.
+
+The operator's "retry this chat" action clears a DIFFERENT column.
+`routd/db.go:427 ClearErrored` runs `UPDATE messages SET errored=0 WHERE
+chat_jid=? AND errored=1`, and the circuit breaker's `DeleteErroredMessages`
+deletes `messages` rows. Neither touches `chats.errored`. So the retry returns
+a non-zero `RowsAffected`, reports success (`routd/dash.go:129`), re-feeds the
+chat correctly — and the chat stays on the errored list and in the `/status`
+count for the life of the instance.
+
+- **Severity:** medium — no data is wrong, but the operator's primary "what is
+  broken" surface never returns to clean, so it stops being read.
+- **Scope:** routd, the operator dashboard
+- **Affected:** every instance; the count only ever rises
+- **Source:** `routd/db.go:411`, `:427`, `:467`; `routd/reads.go:227`
+- **Status:** proposal — needs sign-off (deletes a column)
+- **Fix:** `chats.errored` is a derived duplicate of "this chat has a row with
+  `messages.errored=1`", which is the column the writes and the retry already
+  maintain. Delete the column and `MarkChatErrored` (`dispatch.go:443` already
+  calls `MarkMessagesErrored` on the next line) and derive both readers:
+  `SELECT COUNT(DISTINCT chat_jid) FROM messages WHERE errored=1` — which is
+  exactly what `store/groups.go:17` and `dashd/authz.go:167` already do — and
+  `SELECT chat_jid, COUNT(*), MAX(timestamp) FROM messages WHERE errored=1
+  GROUP BY chat_jid`, which also collapses `ErroredChats`'s two correlated
+  subqueries. One writer stays, and the flag cannot go stale because there is
+  no flag.
+
+## L205 — a route added through proxyd's own dashboard is stamped with no owner, so the next `generate` silently deletes it (2026-09-05, open)
+
+MEASURED. `proxyd/dash.go:72` writes `store.ProxydRoute{Path: path, Backend:
+backend, Auth: mode}` — `Owner` unset. `store.RouteSurvivesGenerate`
+(`store/proxyd_routes.go:41`) is `owner == RouteOwnerOperator` and nothing
+else, so an empty owner does not survive. The `/v1` face gets this right:
+`proxyd/resource.go:213` stamps `r.Owner = store.RouteOwnerOperator` before
+the write.
+
+This is BUGS `L45`/`L81` reintroduced on the sibling surface. Those entries
+record the same class — a route that passed its guard with 200 and was
+overwritten at the next deploy — and the fix that produced the single
+`RouteSurvivesGenerate` predicate. The dashboard form was not on that list.
+
+`SyncProxydRoutes` never deletes a path nothing ships, so a route on
+package-free ground survives by luck; the collision case is the one that bites,
+and it bites silently at deploy time rather than at write time.
+
+- **Severity:** medium
+- **Scope:** proxyd
+- **Affected:** any operator who adds a route from `/dash/proxyd/` rather than
+  through `/v1/proxyd_routes`
+- **Source:** `proxyd/dash.go:72` vs `proxyd/resource.go:213`
+- **Status:** open — a one-line stamp, no sign-off needed
+- **Fix:** pass `Owner: store.RouteOwnerOperator` explicitly. Do NOT rely on a
+  default: `store.PutProxydRoute` defaults an empty owner to
+  `RouteOwnerArizuko` (`store/proxyd_routes.go:192`), which is the wrong owner
+  for an operator write and would make the row look release-shipped.
+
+Related, same file: `proxyd` hand-rolls three tx writers under the comment
+"proxyd-local until store/ exposes them uniformly" (`resource.go:379`), and
+`store/proxyd_routes.go:86/190/222` already exposes all three. The INSERTs are
+byte-identical. Folding proxyd onto store's writers removes ~45 lines and also
+gets the dashboard the `proxyd_route.set`/`.delete` audit rows it skips today.
+
+## L206 — a group created from the dashboard grants its creator an exact-folder scope, so they cannot administer their own child folders (2026-09-05, open)
+
+MEASURED. Two writers hand-roll the creator's admin grant and they disagree on
+the scope:
+
+- `onbod/main.go:936` grants `folder+"/**"`
+- `dashd/groups_admin.go:150` grants `folder` (exact)
+
+`auth.matchPattern` (`auth/acl.go:63`) does not let a bare `X` cover `X/sub` —
+verified by probe: `matchPattern("eng","eng/sre")` is false, and
+`matchPattern("eng/**","eng")` is true, so onbod's form covers both the folder
+and its subtree while dashd's covers only the folder itself.
+
+So the same group has two different authority outcomes depending on which
+surface created it. A group made through web onboarding lets its creator
+administer child folders; the same group made from `/dash/groups/` does not,
+and the failure appears later, at the first `requireAdmin` on a child.
+
+Both writers also bypass `store.AddACLRow`/`PutACLRow` (`store/acl.go:34`,
+`:133`), so neither emits an `acl.add` audit row — a grant lands with no record
+of who granted it.
+
+- **Severity:** medium — a silent authority difference between two creation
+  paths, discovered only when an admin action is refused
+- **Scope:** dashd, onbod, store
+- **Affected:** every group created through `/dash/groups/`
+- **Source:** `dashd/groups_admin.go:150` vs `onbod/main.go:936`;
+  `auth/acl.go:63`
+- **Status:** open
+- **Fix:** one `store` helper both callers use, taking a tx (both writes are
+  inside one), granting `folder+"/**"`, and emitting the audit row. The scope
+  question is settled by `5/33`: the creator holds the folder and its subtree.
+  Amend the original; do not add a third writer.
+
+## L207 — authd stamps `issued_at` in local time and then compares it as a string, so on a non-UTC host the session list orders wrong (2026-09-05, open)
+
+MEASURED. `authd/store.go:317` is `func now() string { return
+time.Now().Format(time.RFC3339) }` — no `.UTC()`. Every other timestamp writer
+in the repo normalises to UTC first. It stamps `refresh_tokens.issued_at`.
+
+`authd/sessions_resource.go` then compares that column as TEXT:
+`:140` takes `MIN(issued_at)` per family, and `:143` is `ORDER BY r.issued_at
+DESC`. RFC3339 sorts correctly as a string only when every value carries the
+same offset. `2026-09-05T00:30:00+01:00` sorts AFTER `2026-09-05T10:00:00Z`
+because `'0'` < `'1'`, although it is nine and a half hours earlier.
+
+So on a host in any non-UTC zone the operator's session list is ordered wrong
+and each family's reported start time is the wrong row. It is latent today
+because Go formats a zero offset as `Z`, identical to `.UTC()`, and the fleet
+runs UTC.
+
+Same class as `rfc3339nano_sort_key`: a timestamp whose text form is compared
+without a canonical shape.
+
+- **Severity:** low today, medium on any non-UTC deployment
+- **Scope:** authd
+- **Affected:** the sessions surface; any instance not running UTC
+- **Source:** `authd/store.go:317`; `authd/sessions_resource.go:140`, `:143`
+- **Status:** open — a one-word fix
+- **Fix:** `time.Now().UTC().Format(time.RFC3339)`. The column becomes
+  `timestamptz` at the Postgres cutover, which removes the class; until then
+  the stamp must be canonical because the comparison is textual.
