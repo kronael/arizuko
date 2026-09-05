@@ -16,18 +16,19 @@ the whole reason this is its own phase rather than work inside 6.
 
 [`22-rust-track.md`](22-rust-track.md) answers what, if anything, moves to Rust: the isolation boundary only, and never on the cloud path.
 
-[`21-storage-seam.md`](21-storage-seam.md) is the storage decision: no `Store`
-interface. Its census finds 26 of 47 transactions multi-table, each one a
-privilege-escalation guard, which excludes every key-value, document and
-CRDT store — and every engine that keeps `BEGIN … COMMIT` is off the shelf.
-`database/sql` is the seam; the cloud track adopts Litestream (backup) and
-libSQL (a remote database) behind it.
+[`21-storage-seam.md`](21-storage-seam.md) is the storage decision: move
+to Postgres, no `Store` interface. Its census finds 26 of 47 transactions
+multi-table, each a privilege-escalation guard; the cloud target is managed
+Postgres, reached by a connection string. A DynamoDB-shaped layer is the
+other branch, and it costs three invariants a redesign first — group delete,
+membership, `resreg.Apply` — which the spec measures so the choice is a
+decision, not a discovery.
 
 ## Specs
 
-| Spec                                     | Status  | Covers                                                                                                                                                                                                                          |
-| ---------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [21-storage-seam.md](21-storage-seam.md) | shipped | decision: no `Store` interface — `database/sql` is the seam; 26 of 47 transactions are multi-table, so no KV/document/CRDT store; Litestream for backup, libSQL for a remote database, Postgres only behind a named requirement |
+| Spec                                     | Status  | Covers                                                                                                                                                                                                                   |
+| ---------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [21-storage-seam.md](21-storage-seam.md) | shipped | decision: Postgres, no `Store` interface; 26 of 47 transactions are multi-table; the cloud target is managed Postgres (a DSN); the DynamoDB branch is costed — three security invariants need a redesign before any seam |
 
 ## The cockpit left on 2026-08-27
 
