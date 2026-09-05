@@ -71,8 +71,10 @@ func TestDashboardGateIsOperatorOnlyWhenArmed(t *testing.T) {
 	if w := dashGet(h, `["atlas"]`); w.Code != http.StatusForbidden {
 		t.Errorf("folder-scoped caller: %d, want 403", w.Code)
 	}
-	if w := dashGet(h, `["**"]`); w.Code != http.StatusOK {
-		t.Errorf("operator: %d, want 200", w.Code)
+	// A stamped header is trustworthy only behind proxyd's service bearer, so
+	// the header alone is refused however wide its groups claim to be.
+	if w := dashGet(h, `["**"]`); w.Code != http.StatusForbidden {
+		t.Errorf("operator: %d, want 403", w.Code)
 	}
 }
 

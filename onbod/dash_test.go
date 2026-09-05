@@ -7,24 +7,32 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
 )
 
-// operatorKeySet returns a non-nil KeySet so the dash operator gate engages
-// (nil ks short-circuits to open). The dashboard trusts the proxyd-stamped
-// X-User-Groups, not the bearer, so the KeySet's contents don't matter here —
-// only that requireOperator runs its `**` check.
-func operatorKeySet(t *testing.T) *auth.KeySet {
+// operatorKeySet returns a KeySet and the proxyd service bearer that verifies
+// against it. A stamped X-User-Groups is trustworthy only behind that bearer,
+// so a dashboard test must carry both halves to reach the page it is about.
+func operatorKeySet(t *testing.T) (*auth.KeySet, string) {
 	t.Helper()
 	k, err := auth.NewSigningKey("k1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return auth.NewKeySet(map[string]*ecdsa.PublicKey{"k1": &k.Priv.PublicKey})
+	tok, err := k.Sign(auth.TokenClaims{Sub: auth.ProxydTransitSub, Typ: "service"}, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return auth.NewKeySet(map[string]*ecdsa.PublicKey{"k1": &k.Priv.PublicKey}), tok
 }
+
+// dashBearer is the proxyd service bearer the current test's admin verifies
+// against; a stamped header without it is refused at the gate.
+var dashBearer string
 
 func newDashAdmin(t *testing.T) *admin {
 	t.Helper()
@@ -35,7 +43,9 @@ func newDashAdmin(t *testing.T) *admin {
 		t.Fatalf("openOwnedDB: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	return &admin{db: db, ks: operatorKeySet(t)}
+	ks, tok := operatorKeySet(t)
+	dashBearer = tok
+	return &admin{db: db, ks: ks}
 }
 
 // TestDashOperatorRendersQueue: an operator GET (`**` in X-User-Groups) renders
@@ -48,6 +58,7 @@ func TestDashOperatorRendersQueue(t *testing.T) {
 
 	r := httptest.NewRequest("GET", "/dash/onbod/", nil)
 	r.Header.Set("X-User-Groups", `["**"]`)
+	r.Header.Set("Authorization", "Bearer "+dashBearer)
 	w := httptest.NewRecorder()
 	a.handleDash(w, r)
 
@@ -91,6 +102,7 @@ func TestDashApproveFlipsRow(t *testing.T) {
 	r := httptest.NewRequest("POST", "/dash/onbod/approve/telegram:user/7", nil)
 	r.SetPathValue("jid", "telegram:user/7")
 	r.Header.Set("X-User-Groups", `["**"]`)
+	r.Header.Set("Authorization", "Bearer "+dashBearer)
 	w := httptest.NewRecorder()
 	a.handleDashApprove(w, r)
 

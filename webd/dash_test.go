@@ -69,8 +69,10 @@ func TestWebdDashboardIsOperatorOnly(t *testing.T) {
 	r2 := httptest.NewRequest(http.MethodGet, "http://k.example/dash/webd/", nil)
 	r2.Header.Set("X-User-Groups", `["**"]`)
 	s.handleDash(ok, r2)
-	if ok.Code != http.StatusOK {
-		t.Errorf("operator = %d, want 200", ok.Code)
+	// A stamped header is trustworthy only behind proxyd's service bearer, so
+	// the header alone is refused however wide its groups claim to be.
+	if ok.Code != http.StatusForbidden {
+		t.Errorf("operator header with no transit proof = %d, want 403", ok.Code)
 	}
 }
 

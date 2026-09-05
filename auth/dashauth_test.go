@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // req builds a dashboard request with the proxyd-stamped scopes header.
@@ -66,11 +67,30 @@ func TestRequireOperatorRefusesWithTheThemedPage(t *testing.T) {
 	}
 
 	ok := httptest.NewRecorder()
-	if !RequireOperator(ok, req(`["**"]`), ks, "routd") {
-		t.Error("an operator was refused")
+	if RequireOperator(ok, req(`["**"]`), ks, "routd") {
+		t.Error("an operator header passed with no transit proof behind it")
 	}
-	if ok.Body.Len() != 0 {
-		t.Error("the gate wrote a body on the pass path")
+	if ok.Body.Len() == 0 {
+		t.Error("the refusal wrote no body")
+	}
+}
+
+// The pass path: a stamped operator header BEHIND a live proxyd service
+// bearer. Both halves are required — the header alone is attacker input.
+func TestRequireOperatorAcceptsAStampedHeaderBehindTheProof(t *testing.T) {
+	k, err := NewSigningKey("k1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok, err := k.Sign(TokenClaims{Sub: ProxydTransitSub, Typ: "service"}, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := req(`["**"]`)
+	r.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	if !RequireOperator(w, r, transitKeys(t, k), "routd") {
+		t.Fatal("an operator behind a live transit proof was refused")
 	}
 }
 
@@ -91,7 +111,17 @@ func TestNilKeySetFallsOpen(t *testing.T) {
 // not be able to drive an operator's browser into one. Neither daemon copy of
 // this gate had any CSRF check at all.
 func TestRequireWriteRefusesCrossOrigin(t *testing.T) {
-	ks := &KeySet{}
+	// The subject here is the origin check, so every case carries a live
+	// transit proof and clears the operator gate first.
+	k, err := NewSigningKey("k1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok, err := k.Sign(TokenClaims{Sub: ProxydTransitSub, Typ: "service"}, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ks := transitKeys(t, k)
 	cases := []struct {
 		name, header, value string
 		want                bool
@@ -105,6 +135,7 @@ func TestRequireWriteRefusesCrossOrigin(t *testing.T) {
 	for _, c := range cases {
 		r := httptest.NewRequest(http.MethodPost, "http://dash.example/dash/routd/x", nil)
 		r.Header.Set("X-User-Groups", `["**"]`)
+		r.Header.Set("Authorization", "Bearer "+tok)
 		if c.header != "" {
 			r.Header.Set(c.header, c.value)
 		}
@@ -127,5 +158,24 @@ func TestWriteChecksOperatorBeforeOrigin(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "Operator access required") {
 		t.Error("the refusal named the origin, not the missing scope")
+	}
+}
+
+// TestRequireOperator_ForgedHeaderWithoutTransit is the negative test no
+// dashboard had. proxyd strips a client's X-User-* and stamps its own behind a
+// service bearer; without verifying that bearer the header is attacker input,
+// and `X-User-Groups: ["**"]` returned the operator page to anyone who could
+// reach the port.
+func TestRequireOperator_ForgedHeaderWithoutTransit(t *testing.T) {
+	ks := &KeySet{}
+	r := httptest.NewRequest("GET", "/dash/routd/", nil)
+	r.Header.Set("X-User-Groups", `["**"]`)
+	r.Header.Set("X-User-Sub", "attacker")
+	w := httptest.NewRecorder()
+	if RequireOperator(w, r, ks, "routd") {
+		t.Fatal("a forged operator header passed without a transit proof")
+	}
+	if w.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", w.Code)
 	}
 }

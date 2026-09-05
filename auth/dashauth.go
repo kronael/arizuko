@@ -67,7 +67,11 @@ func RequireOperator(w http.ResponseWriter, r *http.Request, ks *KeySet, daemon 
 	if ks == nil {
 		return true
 	}
-	if IsOperator(r) {
+	// X-User-* is trustworthy ONLY behind proxyd's service bearer: proxyd
+	// strips the client's copy and stamps its own. Reading the header without
+	// verifying that proof lets anyone who can reach the port send
+	// `X-User-Groups: ["**"]` and receive the operator page.
+	if ProxydTransit(r, ks) && IsOperator(r) {
 		return true
 	}
 	Forbidden(w, daemon, "Operator access required.")
