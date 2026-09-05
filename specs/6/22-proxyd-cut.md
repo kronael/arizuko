@@ -140,12 +140,14 @@ This is Traefik `ForwardAuth` / Caddy `forward_auth` / nginx
 
 Two constraints that decide whether this is safe:
 
-- **The transit proof must be minted per request, in the auth response.**
-  Today `auth.ProxydTransit` proves the request came through proxyd, and
-  backends verify that bearer before trusting `X-User-*`. If the proxy
-  instead holds a long-lived token in its config, that is a downgrade.
-  Returning a freshly minted bearer as a copied response header preserves
-  the current property.
+- **The transit proof rides the auth response, never the proxy's config.**
+  `auth.ProxydTransit` proves the request came through proxyd, and backends
+  verify that bearer before trusting `X-User-*`. A long-lived token in the
+  proxy's config is a downgrade: a file on the proxy host is then enough to
+  impersonate proxyd for as long as the file exists. Copying proxyd's own
+  bearer into each response bounds that exposure to the bearer's TTL — 15
+  minutes (`authd/main.go:25`), the same bearer proxyd attaches to every
+  proxied request today.
 - **Authorization is never cached.** One subrequest per request, always —
   a cached authz decision is a revocation that does not take effect. On
   localhost the cost is a fraction of a millisecond; it is still a real
@@ -154,15 +156,20 @@ Two constraints that decide whether this is safe:
 ### Shipped 2026-09-04 — `GET /auth/forward` on proxyd
 
 The endpoint exists; the cutover does not. proxyd answers a proxy's auth
-subrequest with 200 + `Authorization` (a freshly minted `service:proxyd` proof),
+subrequest with 200 + `Authorization` (its own `service:proxyd` bearer),
 `X-User-Sub`, `X-User-Name`, `X-User-Groups` — or the same 303-to-login a direct
 request gets, with `auth_return` set to the CALLER's route read from
 `X-Forwarded-Uri`, not to `/auth/forward`.
 
-Both constraints above are honoured and pinned. The proof is minted **per
-request, in the response**, so no long-lived token sits in a proxy's config
-where a file on the proxy host would be enough to impersonate proxyd. And the
-decision is **not cached** — one subrequest, one answer.
+Both constraints above are honoured and pinned, in the form the code has. The
+proof is copied into each response from `auth.TokenSource` (`attachTransit`,
+`proxyd/main.go:773`), which re-exchanges `AUTHD_SERVICE_KEY` one minute before
+the 15-minute expiry. It is **not minted per request**: every response inside
+one window carries the same bearer, and a proxy host that reads one response
+can present it to any backend for the rest of that window. A per-request mint
+is one authd round trip per request — the tax this step already accepts for
+authorization — and `L191` records that choice as open. The decision is
+**not cached** — one subrequest, one answer.
 
 `decideForwardAuth` deliberately runs `requireAuth`'s attempts in
 `requireAuth`'s order rather than deriving its own: a second authentication path
@@ -177,41 +184,105 @@ asserted only that the answer did not echo the caller's bearer. With `svc` nil
 in the fixture, `attachTransit` DELETES `Authorization` and sets nothing, so the
 assertion passed on an endpoint that attached no proof at all — and the mutation
 that removes `Authorization` from the copied set stayed green. The fixture now
-stands up a stub authd so the proof is real and the test asserts its PRESENCE.
+stands up a stub authd so the proof is real and the test asserts its PRESENCE —
+presence, not freshness: a test asserting a distinct `jti` per response fails
+today (`L191`).
 
-## Step 4 — could a standard IdP let us DELETE authd? (proposed 2026-09-03, needs sign-off)
+## Step 4 — could a standard IdP let us DELETE authd? (measured 2026-09-05: no)
 
 Step 3 asks the question for proxyd. The same question for `authd` has a
-sharper answer, because the auth surface splits cleanly in two and only one
-half is arizuko's.
+sharp answer. The auth surface does not split into a commodity half and a
+product half. It splits into an upstream provider dance, which Dex takes, and
+everything else, which no IdP can hold because it mints arizuko's claims.
 
-Measured 2026-09-03 (non-test lines):
+### The measurement
 
-| half                    | files                                                                                                                              | lines    | who else does this                                         |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | -------- | ---------------------------------------------------------- |
-| **authn — commodity**   | `auth/oauth.go`, `authd/oauth.go`, `auth/es256.go`, `auth/jwks.go`, `authd/sessions_resource.go`, `authd/signing_keys_resource.go` | **1618** | every OIDC provider: Dex, Authelia, Keycloak, oauth2-proxy |
-| **authz — the product** | `auth/authorize.go`, `auth/acl.go`, `auth/delegate.go`, `auth/scope.go`                                                            | **1044** | nobody                                                     |
+Six files carry authn: `auth/oauth.go`, `authd/oauth.go`, `auth/es256.go`,
+`auth/jwks.go`, `authd/sessions_resource.go`,
+`authd/signing_keys_resource.go` — 1639 lines by `wc -l` at every commit since
+2026-09-02, 1260 with blanks and comments removed (the figure 1618 reproduces
+by neither count). Counting the whole of them as commodity is the error; the
+classification is what decides the step. Read function by function:
 
-The second row is why this is a split and not a replacement. No standard
-expresses `[!]action(param=glob)` over a folder tree with `WITH GRANT OPTION`
-delegation and `5/33`'s two-axis rule — the turn's folder confers in full while
-the attested sender adds only inside that folder's subtree and never through the
-action lattice. That is not a policy an IdP can hold; it is the thing arizuko
-sells. OPA/Rego could hold the RULES but not the model, and
-that trade is its own decision.
+| what the six files hold                                                                                                                                               | lines   | who else does this                                                                                                                               |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| upstream provider dance — Google/GitHub/Discord code exchange + userinfo fetch, GitHub org check (`auth/oauth.go` `Exchange*`/`Fetch*`, `authd/oauth.go` `*Callback`) | **345** | Dex connectors: `github` (`orgs`, `useLoginAsID`), `google`, generic `oauth`                                                                     |
+| relying-party glue — signed CSRF state, PKCE cookies, `auth_return`, login page, callback prologue                                                                    | 280     | nobody: authd is the relying party to WHATEVER issues, and `authd/dex.go` calls every one of these                                               |
+| identity + session glue — alias resolution (`dispatch`), login-time scope snapshot, `arz/folder` mint, refresh family, audit row, `/auth/me`, logout                  | 155     | nobody                                                                                                                                           |
+| Telegram login widget, Google email-glob allowlist                                                                                                                    | 77      | nobody — the widget is an HMAC form POST, not OAuth, and no Dex connector has that shape; Dex's google connector filters on `hostedDomains` only |
+| mint, verify, rotate, list sessions, key metadata (`auth/es256.go`, `auth/jwks.go`, `authd/sessions_resource.go`, `authd/signing_keys_resource.go`)                   | 728     | every IdP — for ITS claims. None can mint `arz/folder` or the grants snapshot, so it stays while arizuko's tokens carry them (below)             |
+| imports and file headers                                                                                                                                              | 54      | —                                                                                                                                                |
 
-The first row is 1618 lines of minting, verifying, rotating and session-storing
-that a deployed IdP does better, and whose bugs are someone else's. Deleting it
-means: authd stops issuing, and verifies an external issuer's JWT instead;
-`signing_keys` and `sessions` go with it; the `service:<daemon>` token becomes a
-client-credentials grant.
+**345 of 1639 lines are the commodity.** `authd/dex.go`, the relying-party
+side of the broker, is 126 lines, so adopting Dex nets a cut of about 220
+lines against a new daemon.
 
-**Two things must survive the delete, and they are the whole risk.** The
-`service:proxyd` transit proof (`auth.ProxydTransit`) is what makes `X-User-*`
-trustworthy — step 3's constraint applies here verbatim. And the per-folder JWT
-claim every handler binds its `folder`/`jid` params to is arizuko's, not an
-OIDC claim; it has to be minted by arizuko's authz half from the IdP's subject,
-which means authd does not disappear so much as shrink to a claims mapper.
+### Why the 728 lines of minting stay
+
+Dex's ID token carries a fixed claim set — `email`, `groups`, `name` /
+`preferred_username`, `federated_claims` — a closed `switch` over four scopes
+in `server/tokens/issuer.go` with no per-user claim hook
+([source](https://github.com/dexidp/dex/blob/master/server/tokens/issuer.go)).
+It cannot carry `arz/folder`, which eight files read (`routd/cmd/routd/main.go`,
+`runed/cmd/runed/main.go`, `onbod/audit_resource.go`, `cmd/arizuko/token.go`,
+…), nor the login-time scope snapshot that bounds every token (`5/1`). Either
+arizuko mints — and then `es256.go`, `jwks.go`, the refresh families and the
+key metadata all stay, because they ARE the mint — or every backend looks the
+folder and the grants up in routd.db per request, which is the pre-split
+topology `5/16` removed and the database-at-the-verifier `6/25` §2 refuses.
+Authelia's `claims_policies` (4.39+) map static attributes from its file or
+LDAP store, not a live grants table; Keycloak's protocol mappers can compute a
+claim and bring a JVM plus an RDBMS (`6/16`). Nothing short of a fork puts
+arizuko's claim into an IdP's token.
+
+Downscoping is arizuko's too: `POST /v1/tokens` in downscope mode
+(`authd/http.go:311`, `parent_jti`, TTL capped at the parent's) has no Dex
+analogue — Dex narrows none of its own tokens, on either side.
+
+### The service token does not become a client-credentials grant
+
+Dex v2.45.1, the latest release (2026-03-03), has no `client_credentials`
+grant: `server/oauth2.go` at that tag lists `authorization_code`,
+`refresh_token`, `implicit`, `password`, `device_code` and `token-exchange`
+([source](https://github.com/dexidp/dex/blob/v2.45.1/server/oauth2.go)). The
+grant exists on master, unreleased, and refuses the `federated:id` scope
+([source](https://github.com/dexidp/dex/blob/master/server/grants/clientcredentials.go)).
+It would not help if it shipped: `auth.ProxydTransit` pins `typ=service` and
+`sub=service:proxyd` on arizuko's own verifier, and `serviceGrants`
+(`authd/http.go`) is arizuko's scope table. `POST /v1/service-token` and
+`auth/service.go` stay, and neither was in the count.
+
+### What adopting Dex costs
+
+All of it is paid before the 220 lines are cut.
+
+- **A second daemon with a second store.** Dex's own docs call its SQLite
+  backend "not appropriate for real workloads"
+  ([storage](https://dexidp.io/docs/configuration/storage/)): production means
+  Postgres, MySQL or etcd beside arizuko's SQLite files, or running against
+  that advice. Its SQLite build is CGO `mattn/go-sqlite3`, not the pure-Go
+  driver the rest of the stack uses.
+- **A second secrets file.** Every upstream client id and secret moves from
+  `.env` into Dex's YAML, plus a Dex client for authd (`DEX_CLIENT_ID`,
+  `DEX_CLIENT_SECRET`). Two places to rotate.
+- **Alpha connectors on the login path.** Dex's own table marks `github`
+  "stable", `google` "alpha" and the generic `oauth` connector "alpha"
+  ([connectors](https://dexidp.io/docs/connectors/)). Discord and Facebook
+  ride the alpha one, X does not work through it (the spike below), Telegram
+  has no connector shape at all.
+- **Two hops per login, one more daemon that can be down.** Browser → authd →
+  Dex → upstream → Dex → authd. With the native callbacks deleted, Dex down
+  is login down; with them kept, nothing is deleted.
+- **Dex's admin surface is gRPC only** (`api/v2/api.proto`: `ListRefresh`,
+  `RevokeRefresh`, `ListAuthSessions`, …). It is broader than `/v1/sessions`
+  and unreachable from `curl` or the dashboard without a gRPC client.
+- **A migration with no rows to move, and one trap.** Principals stay
+  `<connector id>:<user_id>`, so `acl` rows survive — only if the github
+  connector sets `useLoginAsID: true`. Without it every `github:<login>` row
+  matches nothing and the config looks applied (`L45`'s shape).
+- **Key rotation moves to `signer.config.keysRotationPeriod`** and loses the
+  lifecycle view: Dex publishes `/keys` and nothing about a key's life, the
+  gap `GET /v1/signing_keys` closed.
 
 ### Which IdP (surveyed 2026-09-03)
 
@@ -220,17 +291,20 @@ arizuko already uses (`github`, `google`, `discord` in `authd/oauth.go`, plus
 Twitter/X and Facebook wanted), Go, minimal, maintained. Each row was read from
 the project's own repo or docs, not from memory.
 
-| candidate | Go / licence                         | what it IS                                                                                          | verdict                                                           |
-| --------- | ------------------------------------ | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| **Dex**   | Go, Apache-2.0, 11.1k★, 4039 commits | "OIDC identity and OAuth 2.0 provider with pluggable connectors" — a BROKER; holds no users         | **selected**                                                      |
-| Ory Hydra | Go, Apache-2.0                       | "standalone OAuth 2.0 and OIDC server **without user management**"; you build the login+consent app | rejected — deletes less                                           |
-| Authelia  | Go, Apache-2.0                       | forward-auth SSO portal with its OWN user store (file/LDAP); OIDC-provider role is beta             | rejected as the IdP — it is step 3's gateway, not step 4's broker |
-| Casdoor   | Go+React, Apache-2.0, 14.3k★         | full IAM: admin console, own user directory, **Casbin ACL/RBAC/ABAC**                               | rejected — brings a second authz model                            |
+| candidate    | Go / licence                         | what it IS                                                                                          | verdict                                                           |
+| ------------ | ------------------------------------ | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| **Dex**      | Go, Apache-2.0, 11.1k★, 4039 commits | "OIDC identity and OAuth 2.0 provider with pluggable connectors" — a BROKER; holds no users         | **selected**                                                      |
+| Ory Hydra    | Go, Apache-2.0                       | "standalone OAuth 2.0 and OIDC server **without user management**"; you build the login+consent app | rejected — deletes less                                           |
+| Authelia     | Go, Apache-2.0                       | forward-auth SSO portal with its OWN user store (file/LDAP); OIDC-provider role is beta             | rejected as the IdP — it is step 3's gateway, not step 4's broker |
+| Casdoor      | Go+React, Apache-2.0, 14.3k★         | full IAM: admin console, own user directory, **Casbin ACL/RBAC/ABAC**                               | rejected — brings a second authz model                            |
+| oauth2-proxy | Go, MIT                              | a relying-party reverse proxy: authenticates against an IdP, holds a proxy session, mints nothing   | not a candidate — it is step 3's shape, not an issuer             |
 
 **Dex, because it is the only one that is a broker rather than a directory.** It
-holds no users and ships no authorization model, so it takes the 1618 authn
-lines and touches none of the 1044 authz ones — which is the whole point of the
-split. Hydra hands the upstream federation back as our problem, so it deletes
+holds no users and ships no authorization model, so it takes the provider dance
+and touches none of the 1044 authz lines (`auth/authorize.go`, `acl.go`,
+`delegate.go`, `scope.go` — the `[!]action(param=glob)` lattice, `WITH GRANT
+OPTION` delegation and `5/33`'s two-axis rule, which no standard expresses).
+Hydra hands the upstream federation back as our problem, so it deletes
 the smaller half of the smaller half. Casdoor would install Casbin beside a
 grant evaluator we are keeping; two authorization engines is worse than one
 hand-rolled.
@@ -295,16 +369,21 @@ Not touched: `auth.ProxydTransit`, `/v1/service-token`, the native callbacks,
 and all of `auth/authorize.go`, `acl.go`, `delegate.go`, `scope.go`. Nothing
 is deleted; the delete waits on a deployment running Dex for its logins.
 
-**Recommendation: yes to the authn half, never the authz half.** The seam is
-the one step 3 already names — a forward-auth endpoint arizuko owns, in front
-of an identity it does not. Sequence it after step 3, which proves the seam on
-the smaller surface first.
+**Decision (2026-09-05): Dex is an optional upstream broker, not a
+replacement.** Phase B stays as shipped — additive, off by default, one more
+`/auth/<provider>` beside the native ones, for an operator who already runs
+Dex. That is where a broker earns its place: an operator who has one. Nothing
+is deleted. As a trade the delete loses on its own terms: the three native
+callbacks are 345 lines with no dependency, and their replacement is a daemon,
+a store its docs say should not be SQLite for real workloads, and alpha
+connectors for two of the three providers. The other 1294 lines stay in every case, because they mint
+the claim the platform runs on.
 
 ## What this spec does NOT propose
 
-Removing proxyd, choosing between Caddy and Traefik, moving TLS, or picking
-WHICH IdP. Those follow steps 3 and 4 and are decided then, on evidence from
-the steps before them.
+Removing proxyd, choosing between Caddy and Traefik, or moving TLS. Those
+follow step 3's cutover and are decided then, on evidence from the steps
+before them. Step 4 is decided: no IdP replaces authd.
 
 ## Ties
 
@@ -314,4 +393,5 @@ inheritance — the irreplaceable mechanism) · `5/W` (the route-token surface
 step 1 consolidates in webd) · BUGS `L45` (routes as rows, step 2's
 prerequisite) · `L44` (packages declare through the manifest) · `L40` (the
 shield keys on the client, not the hop — the property that had to survive the
-move) · `L4` (folder from the row, not the JID grammar — one resolver now).
+move) · `L4` (folder from the row, not the JID grammar — one resolver now) · `L191`
+(the forward-auth proof is the cached service bearer, not a per-request mint).

@@ -93,7 +93,7 @@ never reaches a matcher list. A deny list has no arizuko-side producer yet —
 already means "remove an allow row" — so deny is binary-level until a
 schema decision earns its own spec.
 
-## 2 — the request carries its own policy
+## 2 — the request carries its own policy (declined 2026-09-05)
 
 **What qm does.** `src/auth/capability-token.ts` mints ONE signed, 1-hour
 credential with an `aud` discriminator across six audiences (control plane,
@@ -104,22 +104,61 @@ up. The egress proxy needs no database: it verifies the signature and reads
 `claims.egress`. Identity rides the request (`proxy-authorization`), so one
 proxy serves every scope.
 
-**Why this is the answer to the shared proxy.** The design `6/24` replaced
-kept a registry of
-`(source_ip, id, allowlist)` and leaked when an entry was not unregistered.
-`6/24` cut that by giving every spawn its own proxy — correct, and the right
-call at the time. qm shows the shared model is safe when identity is **proved
-per request** instead of inferred from the source address. That is the same
-correction `L4` records for folders: read identity from the credential, never
-derive it from the transport.
+**What arizuko already has.** Two credentials carry identity with the request
+today, both plain ES256 JWTs from authd: the `service:proxyd` transit proof
+(`auth.ProxydTransit`) and every user or service bearer, with `scope` and
+`arz/folder` as claims (`5/1`). Attenuation exists as an issuer round trip —
+`POST /v1/tokens` in downscope mode (`authd/http.go:311`): same `sub`, scope ⊆
+the parent's, `parent_jti`, TTL capped at the parent's. That is the property
+`L4` names, already held: identity from the credential, never from the
+transport. The one verifier with no token is the egress proxy, and its policy
+is its argv — `container/egress.go` `startEgressProxy` runs one proxy per
+spawn with `--client <spawn ip> --allow <list>` (`--allow-all` for the `*`
+row), and the process dies with the turn.
 
-**Adopt, narrowly.** Do NOT reinstate a shared proxy — `6/24` shipped and the
-per-spawn model is simpler and stronger. Adopt the property: arizuko already
-mints service bearers (`auth.ProxydTransit`) and already has a per-spawn
-`--client` check. Carrying the allowlist in a signed claim rather than in the
-proxy's env is what makes policy auditable at the point of use, and it is the
-precondition for `6/22` step 3, whose forward-auth response must mint the
-transit proof per request.
+**Why a claim adds nothing there.** A signed claim proves which principal is
+on the other end of a connection. The per-spawn proxy has exactly one, pinned
+by `--client` and by the folder network, and the list it enforces was set by
+runed — the same parent that would have to obtain the claim. Verifying one
+re-derives what the process already is, and costs: runed holds no signing key
+(only authd signs, `5/1`), so every spawn adds a `POST /v1/tokens` round trip;
+the egress binary grows a verifier and needs JWKS reach to authd; the agent's
+HTTP client has to send `Proxy-Authorization` (not measured for the claude,
+codex and pi harnesses); and token expiry becomes a second revocation path
+beside the one that exists — the process ends — two paths that drift. The
+design `6/24` replaced leaked because a REGISTRY went stale; the per-spawn
+proxy has no registry, so there is nothing for a claim to make safe.
+
+**The precondition claim was wrong.** `6/22` step 3's forward-auth endpoint
+shipped 2026-09-04 without this decision, and its response does not mint per
+request: it copies the cached `auth.TokenSource` bearer (`attachTransit`,
+`proxyd/main.go:773`), re-exchanged one minute before its 15-minute expiry
+(`L191`). Nothing in `6/22` waits on decision 2.
+
+**When it stops being a no-op, adopt — do not write.** The property earns its
+cost only at a SHARED verifier — a proxy serving many spawns, or a KVM host
+with one proxy for every VM — where the transport no longer names the tenant.
+`6/24` deleted the shared proxy and `sandbox/` enforces by address, so no such
+verifier exists. If one returns, the standard is **Biscuit**: Datalog policy
+carried in the token's blocks, verification by any service holding the root
+public key, offline attenuation by appending a block
+([doc.biscuitsec.org](https://doc.biscuitsec.org/)); Go implementation
+[`eclipse-biscuit/biscuit-go`](https://github.com/eclipse-biscuit/biscuit-go),
+Apache-2.0, tag v2.2.0, last push 2026-07-13, 90 stars — small, alive, v2
+blocks. Surveyed 2026-09-05 and ranked behind it: UCAN 1.0 (capabilities,
+proof chains, DID keys — [`ucan-wg/go-ucan`](https://github.com/ucan-wg/go-ucan)
+targets rc.1 and is thinner); macaroons (caveats, but the verifier holds the
+root SECRET — a shared key to distribute;
+[`go-macaroon/macaroon`](https://github.com/go-macaroon/macaroon), BSD-3);
+SPIFFE SVIDs (identity and `aud` only, no policy, and SPIRE is a server plus an
+agent per node); Ory Keto and OpenFGA (Zanzibar tuples in Postgres/MySQL behind
+a check API — the database this decision exists to avoid); Cedar (a policy
+language, not a token —
+[`cedar-go`](https://github.com/cedar-policy/cedar-go) is core-only); and RFC
+9068 JWTs (fixed claim families; RFC 8693 narrows only at the issuer's token
+endpoint). Hand-rolling a capability-token format is not justified against
+Biscuit, and adopting Biscuit is not justified against a proxy whose argv is
+its policy.
 
 ## 3 — a substrate declares what it can do, and degrades loudly
 
@@ -194,14 +233,18 @@ address that was checked, so a name cannot resolve past the gate. Six tests in
 
 1 first: it is a live address-hygiene gap in code shipped to three instances on
 2026-08-18, and it is tens of lines. Then 3, which is cheap and pays every time
-a substrate is added. 2 is a precondition for `6/22` step 3 and should land
-with it. 4 is continuous — one contract test per seam, as each seam is touched.
+a substrate is added. 2 is declined: no verifier needs it while the proxy is
+per-spawn, and `6/22` step 3 shipped without it. 4 is continuous — one
+contract test per seam, as each seam is touched.
 
 ## Ties
 
-`6/24` (the per-spawn proxy this hardens) · `6/22` (step 3's forward-auth, which
-decision 2 unblocks) · `6/16` (the matrix decision 3 turns into a value) ·
+`6/24` (the per-spawn proxy this hardens) · `6/22` (step 3's forward-auth,
+which shipped without decision 2) · `6/16` (the matrix decision 3 turns into a
+value) ·
 MITM declined 2026-08-18 (this is address hygiene, not interception) ·
 `5/9` (anteval, which decision 4 explicitly does not replace) · BUGS `L54`
 (the seam decision 4 exists to cover) · `L4` (identity from the credential,
-never from the transport — decision 2's precedent).
+never from the transport — the property decision 2 found already held) ·
+`L191` (the forward-auth proof is the cached service bearer, not a per-request
+mint).

@@ -10025,3 +10025,26 @@ restated value, so the next substrate difference is a diff to one struct.
 - **Source:** `substrate/substrate.go`; `container/egress.go` Profile, Effective; `sandbox/sandbox.go` Profile
 - **Status:** open — docs
 - **Fix:** replace each restated value with the pointer; one edit per spec
+
+## L191 — `6/22` step 3 says the forward-auth transit proof is "minted per request"; `attachTransit` serves the cached `TokenSource` bearer for up to 15 minutes (2026-09-05, open — spec corrected, code decision needs sign-off)
+
+`proxyd/forward_auth.go` copies `Authorization` from `attachTransit`
+(`proxyd/main.go:773`), which calls `auth.TokenSource.Token` — the bearer
+`auth/service.go` exchanges once and re-exchanges one minute before its
+15-minute expiry (`authd/main.go:25`). Every forward-auth response inside one
+window carries the same `service:proxyd` bearer. The property the spec stated
+— no token an external proxy holds can impersonate proxyd beyond the one
+request — does not hold: a proxy host that reads one response can present
+that bearer to any backend for the rest of the window. The weaker property
+holds: nothing long-lived sits in the proxy's config, and the exposure is
+bounded by the TTL. `proxyd/forward_auth_test.go` asserts the proof's
+presence, not its freshness; a test asserting a distinct `jti` per response
+fails today. `specs/6/22` now states the shipped property; the open choice is
+whether to build the stronger one.
+
+- **Severity:** low — no off-the-shelf proxy is cut over; proxyd is the only reader of `/auth/forward` today
+- **Scope:** proxyd forward-auth; `specs/6/22` step 3; `specs/6/25` §2
+- **Affected:** any deployment that cuts over to Caddy/Traefik `forward_auth`
+- **Source:** `proxyd/main.go:773` `attachTransit`; `auth/service.go:59` `Token`
+- **Status:** open — proposal: either mint per request through `POST /v1/tokens` (one authd round trip per request, the tax step 3 already accepts for authorization) and pin freshness with a per-response `jti` test, or accept the TTL-bounded property as the design and drop the per-request wording for good
+- **Fix:**
