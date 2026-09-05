@@ -183,7 +183,7 @@ and every one is a change the self-hosted deployment needs as well.
 - **Connection limits and poolers.** `max_connections` on a managed
   instance follows the instance class; arizuko opens one `database/sql`
   pool per daemon and sets `SetMaxOpenConns` at one site in the tree.
-  Twenty daemons with unbounded pools is the first thing a managed
+  Seventeen Go daemons with unbounded pools is the first thing a managed
   instance rejects. Every opener sets a cap; a transaction-mode pooler
   (PgBouncer, RDS Proxy, Azure's built-in PgBouncer) additionally
   forbids `SET`/`RESET`, `LISTEN`, session advisory locks and
