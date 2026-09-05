@@ -58,7 +58,10 @@ receive ours. routd mints the trace with `WithTurn` once a `turn_id` exists.
 
 ## Where it's wired
 
-- `obs.Setup` — every daemon `main()`.
+- `obs.Setup` — every daemon `main()`, as `defer obs.Setup("name", instance)()`.
+- Metrics: keep label cardinality bounded (folder, model, status — never an
+  unbounded id). Spans: `obs.StartSpan` at turn lifecycle, model calls,
+  container spawns and cross-daemon HTTP — the sites below.
 - `WithTurn` — `routd/loop.go`, at turn-open.
 - `InjectRequest` — `chanlib` RouterClient, `authd` grants, `onbod` reply,
   `runed` run client (internal hops only).

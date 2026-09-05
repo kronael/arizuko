@@ -31,13 +31,17 @@ test('profiles declare the measured capability matrix', () => {
     tools: 'mcp',
     guard: 'write-time',
     steering: 'mid-turn',
+    manual: 'native',
     status: 'streaming',
   });
+  // manual 'rendered': codex and pi have no convention that finds
+  // ~/.claude/CLAUDE.md, so the chassis renders it (BUGS L130).
   expect(selectHarness('codex').profile).toEqual({
     continuity: 'native',
     tools: 'mcp',
     guard: 'load-time',
     steering: 'between-turn',
+    manual: 'rendered',
     status: 'streaming',
   });
   // pi's guard became write-time when the extension's input mapping was fixed;
@@ -47,6 +51,7 @@ test('profiles declare the measured capability matrix', () => {
     tools: 'none',
     guard: 'write-time',
     steering: 'between-turn',
+    manual: 'rendered',
     status: 'streaming',
   });
 });

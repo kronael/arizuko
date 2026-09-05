@@ -36,6 +36,11 @@ adapters return `chanlib.ErrUnsupported` (HTTP 501) for verbs they
 don't implement. The MCP layer maps this to a structured response —
 catch it and degrade gracefully (`send_file` fail → host + `send` URL).
 
+Reddit and some adapters return `ErrUnsupported` for `like` — do not
+retry. A Slack `like` that errors usually means the bot token lacks the
+`reactions:write` scope: log it with `/issues`, do NOT loop-retry, do NOT
+tell the user the channel is broken.
+
 ## Routing patterns
 
 Channel scope is encoded in the JID — see `/typed-jids` for the format.

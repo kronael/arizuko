@@ -20,7 +20,8 @@ broadcast. Stub body for no-skill-change releases is fine.
 
 1. Create `NNN-vX.Y.Z-summary.md` — short, actionable, no ceremony
 2. Bump `MIGRATION_VERSION` in this dir to `N`
-3. Bump "Latest migration version" in `../SKILL.md`
+3. Bump "Latest migration version" in `../migration.md` (`SKILL.md` is
+   the index; the version line lives in `migration.md`)
 4. Rebuild the agent image
 
 Each file is `cat`'d to the agent as-is. Keep it terse — a behavior

@@ -218,6 +218,9 @@ export const piHarness: Harness = {
     // it lands; the load-time scan in runPi stays as the backstop.
     guard: 'write-time',
     steering: 'between-turn',
+    // rendered: pi has no manual convention of its own; the chassis hands it
+    // over with --system-prompt.
+    manual: 'rendered',
     status: 'streaming',
   },
   run: runPi,

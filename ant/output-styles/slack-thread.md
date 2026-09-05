@@ -33,3 +33,11 @@ welcome. Slack uses **mrkdwn**, not CommonMark.
 
 - Thread register: can be terse or detailed depending on the
   question. No greetings or sign-offs unless the user greets first.
+
+## Threading
+
+- Slack has two surfaces: the channel root and threads. A thread reply
+  never appears in the main timeline.
+- `reply` with no `replyToId` stays in this thread — the user wrote here,
+  so answer here.
+- `send` posts a fresh top-level channel message; it is never the answer.

@@ -298,11 +298,21 @@ All core containers (routd, authd, runed, adapter) should show `(healthy)`.
 
 ## Troubleshooting
 
-**Agent doesn't reply:**
+**Agent doesn't reply (healthchecks green):** usually one of
 
-1. Check image exists: `docker images | grep arizuko-ant`
-2. Check adapter health: `docker ps | grep <adapter>`
-3. Check logs: `docker compose -f /srv/data/arizuko_<name>/docker-compose.yml logs routd`
+1. **`arizuko-ant` image missing.** journalctl shows
+   `pull access denied for arizuko-ant`. Fix: `sudo make -C ant image`.
+2. **Adapter disconnected.** `docker ps` shows `(unhealthy)`, or its
+   `/health` returns 503 `{status:"disconnected"}` while the process is up
+   (whapd waiting for a QR scan, a stream dropped). Check the adapter's
+   logs, not routd's:
+   `sudo curl -s -o /dev/null -w '%{http_code}\n' http://localhost:<port>/health`
+3. **Adapter silent.**
+   `sudo journalctl -u arizuko_<name> --since "10 min ago" | grep -viE health`
+4. **Container exit 125** in runed logs — see below.
+
+The docker log driver is `none`: read `journalctl -u arizuko_<name>`, never
+`docker logs`.
 
 **Container exit 125:**
 Image/compose mismatch. Rebuild: `sudo make images`

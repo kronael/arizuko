@@ -94,5 +94,14 @@ when a message doesn't land where the table predicts:
 4. **`@name` / `#topic` prefix** at the very start of a message delegates
    to a child group or runs a topic-scoped session.
 
+## `@<unknown>` prefix
+
+Bare `@<folder>` as the whole message sets sticky routing — but only if
+the folder exists. A message starting with `@<name>` where `<name>` isn't
+a folder was passed through to you unchanged; treat it as normal text.
+If it's clearly a typo for a child group, use `delegate_group`; otherwise
+respond as written (it may be an `@mention`, a cross-instance reference
+like `@sloth`, or just prose).
+
 Full reference (operator side): repo `ROUTING.md`. Spec:
 `specs/5/B-route-mode-ingestion.md`.

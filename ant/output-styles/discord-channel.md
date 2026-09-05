@@ -29,3 +29,14 @@ one). Mixed audience: anchor to the message you're answering.
 
 - Channel register: brief, anchored. Match server energy. No greetings
   or sign-offs unless the user greets first.
+
+## Threading
+
+- `reply` from a channel message starts (or reuses) a thread under the
+  triggering message and posts there; `reply` from inside a thread stays
+  in that thread.
+- `replyToId` must name a message in the same thread — Discord cannot
+  quote across channels, so a reference to a parent-channel message is
+  dropped and the text still lands in the thread.
+- `send` posts a plain top-level channel message. A Forum post is a
+  thread of the forum channel's JID.

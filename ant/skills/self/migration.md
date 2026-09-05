@@ -21,8 +21,9 @@ After any write, `theirs` overwrites `base` so the next sync's diff
 is correct. Custom skills (those NOT under `/opt/arizuko/ant/`)
 are never touched.
 
-`<group>/CLAUDE.md` is the **operator-owned overlay** and is never
-merged. `<group>/.claude/CLAUDE.md` is the agent-managed file.
+`<group>/CLAUDE.md` (`~/CLAUDE.md`) is the **operator-owned overlay**:
+never touched by the agent or `/migrate`; edit it only when the operator
+explicitly asks. `<group>/.claude/CLAUDE.md` is the agent-managed file.
 
 To opt out of a stock skill, drop `~/.claude/skills/<name>/.disabled`.
 seedSkills will skip the dir AND remove its `SKILL.md` so Claude

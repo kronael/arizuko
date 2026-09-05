@@ -68,6 +68,11 @@ export interface HarnessProfile {
   guard: 'write-time' | 'load-time' | 'none';
   steering: 'mid-turn' | 'between-turn';
   status: 'streaming' | 'terminal-only';
+  // How the resident manual (~/.claude/CLAUDE.md, seeded from ant/CLAUDE.md)
+  // reaches the model: 'native' when the harness reads that file itself,
+  // 'rendered' when the chassis must put it in the system prompt. One file,
+  // one reader per harness — never a per-harness copy (BUGS L130).
+  manual: 'native' | 'rendered';
 }
 
 // Harness is the seam: one occupant. run() is one turn — it unpacks the

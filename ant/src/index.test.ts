@@ -26,7 +26,7 @@ test('statusBlocks: multiline block content survives', () => {
 function scripted(frames: Frame[]): Harness {
   return {
     name: 'scripted',
-    profile: { continuity: 'none', tools: 'none', guard: 'none', steering: 'between-turn', status: 'streaming' },
+    profile: { continuity: 'none', tools: 'none', guard: 'none', steering: 'between-turn', manual: 'native', status: 'streaming' },
     run: async function* () { yield* frames; },
   };
 }
@@ -189,18 +189,45 @@ describe('buildSystemPrompt layering', () => {
   // SYSTEM.md replaces the base prompt and PERSONA.md appends to it. runner.go
   // reads both and ships them on one wire; a dropped persona is invisible —
   // the turn still runs, just without the group's voice.
+  const native = { manual: 'native' as const };
+  const rendered = { manual: 'rendered' as const };
+  const manual = () => 'THE-MANUAL';
+  const noManual = () => null;
+
   test('persona follows systemMd in the rendered prompt', () => {
-    const out = buildSystemPrompt({ systemMd: 'THE-SYSTEM', persona: 'THE-PERSONA' });
+    const out = buildSystemPrompt({ systemMd: 'THE-SYSTEM', persona: 'THE-PERSONA' }, native, noManual);
     expect(out).toContain('THE-SYSTEM');
     expect(out).toContain('THE-PERSONA');
     expect(out!.indexOf('THE-SYSTEM')).toBeLessThan(out!.indexOf('THE-PERSONA'));
   });
 
   test('persona alone still reaches the prompt', () => {
-    expect(buildSystemPrompt({ persona: 'ONLY-PERSONA' })).toContain('ONLY-PERSONA');
+    expect(buildSystemPrompt({ persona: 'ONLY-PERSONA' }, native, noManual)).toContain('ONLY-PERSONA');
   });
 
   test('neither set renders nothing the harness must override', () => {
-    expect(buildSystemPrompt({})).toBeUndefined();
+    expect(buildSystemPrompt({}, native, noManual)).toBeUndefined();
+  });
+
+  // BUGS L130: a codex or pi agent received none of ~/.claude/CLAUDE.md and
+  // failed every task that needed platform knowledge. The manual is one file;
+  // a harness that reads it natively must not get it twice, and one that
+  // cannot must get it between SYSTEM.md and the persona.
+  test('a rendered-manual harness gets the manual after systemMd and before persona', () => {
+    const out = buildSystemPrompt({ systemMd: 'THE-SYSTEM', persona: 'THE-PERSONA' }, rendered, manual)!;
+    expect(out.indexOf('THE-SYSTEM')).toBeLessThan(out.indexOf('THE-MANUAL'));
+    expect(out.indexOf('THE-MANUAL')).toBeLessThan(out.indexOf('THE-PERSONA'));
+  });
+
+  test('the manual alone is enough to render a system prompt', () => {
+    expect(buildSystemPrompt({}, rendered, manual)).toBe('THE-MANUAL');
+  });
+
+  test('a native-manual harness never receives the manual from the chassis', () => {
+    expect(buildSystemPrompt({ systemMd: 'THE-SYSTEM' }, native, manual)).not.toContain('THE-MANUAL');
+  });
+
+  test('a missing manual file renders nothing rather than an empty layer', () => {
+    expect(buildSystemPrompt({}, rendered, noManual)).toBeUndefined();
   });
 });

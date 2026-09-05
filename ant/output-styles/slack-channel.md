@@ -38,3 +38,10 @@ into a thread or a linked report. Slack uses **mrkdwn**, not CommonMark.
 
 - Channel register: brief, anchored, citation-style. No greetings or
   sign-offs unless the user greets first.
+
+## Threading
+
+- `reply` with no `replyToId` creates (or reuses) a thread under the
+  message that triggered this turn — the depth goes there, matching where
+  the user wrote from. A thread reply never appears in the main timeline.
+- `send` is the top-level headline only, never a reply.

@@ -866,8 +866,12 @@ Three substrates, clearly split:
   operator view.
 - **OTLP export (opt-in)** — slog stream tee'd to any OTel-compatible
   collector when `OTEL_EXPORTER_OTLP_ENDPOINT` is set in the instance
-  `.env`. Logs not spans; `turn_id` → deterministic TraceID across
-  daemons. Library: [`obs/`](obs/). Spec:
+  `.env`. Logs not spans; `turn_id` → deterministic TraceID
+  (`sha256(instance + "/" + turn_id)[:16]`) across daemons, so a
+  collector (Grafana / Tempo / Datadog / Honeycomb) groups one turn.
+  `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` adds spans, `METRICS_ENABLED` a
+  Prometheus `/metrics`; every one unset → zero overhead, stderr JSON only.
+  Library: [`obs/`](obs/) (wiring rules in its README). Spec:
   [`5/O`](specs/5/O-observability.md). Off by default.
 
 ## Error Handling
@@ -977,6 +981,38 @@ message content (bm25 ranking + snippet; phrase / OR / NOT / prefix /
 NEAR; spec 5/C). A `/root`-elevated turn sees every folder; an ordinary
 turn is scoped to its own folder subtree. Full tool table in
 `ant/skills/self/SKILL.md`.
+
+## Data dir
+
+`/srv/data/arizuko_<name>/` per instance (`${PREFIX:-/srv}/data/`):
+
+- `.env` — config; daemons read it from cwd (`core.LoadConfig`). Anchor
+  vars: `AUTHD_SERVICE_KEY`, `AUTH_SECRET`, `HOST_DATA_DIR`,
+  `CONTAINER_IMAGE`, `WEB_HOST`, `ASSISTANT_NAME`; per-daemon vars in each
+  `<daemon>/README.md`. Business state (gates, grants, onboarding) lives in
+  the DB; infra toggles live in env.
+- `store/<owner>/` — each owner daemon's SQLite file plus its `-wal`/`-shm`
+  siblings (`store/routd/routd.db`, `store/runed/`, `store/authd/auth.db`,
+  `store/onbod/`). Compose binds one owner subdir per container, so
+  ownership is a mount boundary, not a convention (`specs/5/16` step 7).
+  The retired `store/messages.db` stays flat; adapters keep private
+  `store/<name>/` dirs.
+- `groups/<folder>/` — group files, logs, diary; `media/<YYYYMMDD>/` holds
+  downloaded inbound attachments; `.claude/` holds agent session state.
+- `ipc/<folder>/` — MCP unix sockets.
+- `web/pub/`, `web/priv/` — the unified web trees the per-group slots
+  project into (table below).
+
+## Design principles
+
+**Simple stays simple, complex goes deeper.** arizuko's primitives scale
+with need: `solo/inbox` and `corp/eng/sre/oncall/launch-q3` run the same
+code. Every primitive has a one-line setup AND a deep-config path — group
+hierarchy (arbitrary depth), topic kinds (default thread or
+`task`/`meeting`), grants (the seeded `role:member` floor or per-folder
+rules), channels (env-var trivial, dashd-managed), secrets (folder-scoped
+by default, user-scoped when needed). Don't force structure where it isn't
+needed; don't fight it where it is.
 
 ## Container mount layout (v0.45.11+)
 

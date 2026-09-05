@@ -22,3 +22,19 @@ hey what's up
 | `identity` | —             | Active identity context (v2)                     |
 
 Never quote system messages back to the user verbatim.
+
+## Attachments
+
+The gateway downloads inbound media before you run and puts an
+`<attachment>` tag in the message body:
+
+```xml
+<attachment path="/home/node/media/20260329/msgid-0.jpg" mime="image/jpeg" filename="photo.jpg"/>
+<attachment path="/home/node/media/20260329/msgid-1.ogg" mime="audio/ogg" filename="voice.ogg" transcript="hello world"/>
+```
+
+- `path` is absolute — `Read` it directly (PDFs, images, code all work).
+- Voice/video is pre-transcribed; prefer `transcript=` over re-transcribing.
+- `[Document: name]` with NO `<attachment path=…>` tag means the file did
+  NOT arrive. Never claim you read it. Reply: "The file didn't reach me —
+  please re-share as a file attachment." Log it with `/issues`.

@@ -9902,4 +9902,68 @@ the root socket.
 - **Affected:** operators who set it
 - **Source:** `ipc/ipc.go` ServeMCP callerSub; `container/runner.go`
 - **Status:** open
+## ✅ FIXED 2026-09-05 L185 — closes L130: the resident manual reaches codex and pi (2026-09-05)
+
+L130 measured a codex agent on the eval folder with `~/.claude/CLAUDE.md`
+present at 33,511 bytes and unread: only Claude Code discovers that file, so
+two of three harnesses ran with none of the operating manual and failed
+exactly the cases needing platform knowledge (`priv-401`, `priv-grant`).
+
+- **Severity:** high (two harnesses ran without the agent contract)
+- **Scope:** ant chassis, harness profiles
+- **Affected:** every group on `ARIZUKO_BACKEND=codex|pi`
+- **Source:** `ant/src/index.ts` `buildSystemPrompt`, `ant/src/backend.ts`
+  `HarnessProfile.manual`
+- **Status:** fixed. One declaration, one reader per harness: the seeded
+  `~/.claude/CLAUDE.md` (the operator-mergeable copy Claude Code reads
+  natively) is the only file. `HarnessProfile` gains `manual: 'native' |
+  'rendered'`; claude declares `native` and is never handed the file twice,
+  codex and pi declare `rendered` and the chassis reads that same file into
+  the system prompt between `SYSTEM.md` and `PERSONA.md`. No `AGENTS.md`, no
+  per-harness copy. The per-turn cost is the resident file's size, which is
+  why `6/34` trims it in the same change.
+- **Fix:** `fix(ant): the resident manual reaches codex and pi`
+
+## L188 — sections that left `ant/CLAUDE.md` under 6/34 with no anteval case behind them (2026-09-05, open — backfill list)
+
+6/34 proposed "no case, no move"; the maintainer moved first and accepted a
+window in which a dropped rule is undetectable. This is the ledger of that
+window: each row is a rule that now loads only when the agent chooses its
+owner, and whose observance nothing measures. A row closes when
+`anteval/cases/anteval.toml` gains a case that exercises it.
+
+| Moved section (owner now)                                                                     | Case today                                       |
+| --------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| Greetings (`hello` frontmatter)                                                               | none                                             |
+| Model economy — breadth to `/sonnet`, `/haiku` (their frontmatter)                            | none                                             |
+| Persona layers (`persona/SKILL.md`, the `<persona>` block's own `/persona` pointer)          | none                                             |
+| `inspect_*` / `find_messages` over `sqlite3` (`self/mcp.md`)                                  | none                                             |
+| Session-opening ritual (`self/SKILL.md` §Session recovery)                                   | none                                             |
+| `register_group` is explicit, absent = ask (`self/mcp.md`)                                    | partial — `world-create-refusal-honest`, `child-delegate` |
+| Additional mounts, operator SQL (`EXTENDING.md` §Adding a host mount)                         | none (operator procedure, not agent behaviour)   |
+| CLAUDE.md ownership, `~/CLAUDE.md` operator-only (`self/migration.md`)                        | none                                             |
+| Web routing table + login/dashboard/portal pointers (`self/web-routing.md`)                   | partial — `web-route`                            |
+| Gateway commands (`self/commands.md`)                                                         | none                                             |
+| `@<unknown>` prefix (`self/chat-routing.md`)                                                  | none                                             |
+| Runtimes — `uv --python 3.14`, `bun`, never bare `pip` (`self/runtimes.md`)                   | none                                             |
+| Attachment transcript preference (`self/messages.md`)                                         | none (`read-attachment-honesty` covers the resident no-tag rule only) |
+| Social actions — `platform_id=` as `targetId`, edit windows (`like`/`delete`/`edit`/pin descriptions) | none                                     |
+| Slack `like` scope error, Reddit unsupported (`channels/SKILL.md`)                            | none                                             |
+| Slack / Discord threading (`slack-thread.md`, `slack-channel.md`, `discord-channel.md`)       | none                                             |
+| Reaction register mirroring, DM anti-patterns (`like` description)                            | none                                             |
+| Telegram group reactions (`telegram-group.md`)                                                | none                                             |
+| `send_file` caption = TL;DR (`send_file` description)                                         | none                                             |
+
+Covered by an existing case and therefore not listed: Network egress
+(`egress-diagnose`, `egress-dns-distinguish`, `self-grant-noop`),
+Publishing (`priv-401`, `priv-deny`, `priv-grant`, `web-route`,
+`spawn-publish-reach`), Agent home / storage (`state-persist`, `priv-401`),
+Local paths table (`link-is-public-url`), the map (`self-skill`).
+
+- **Severity:** low (measurement gap, no observed regression)
+- **Scope:** anteval cases
+- **Affected:** every backend, every group
+- **Source:** `specs/6/34-resident-prompt.md` §"The failure mode"; the move
+  commit `docs(ant): ant/CLAUDE.md carries only what the rule of 6/34 keeps resident`
+- **Status:** open — each row wants a case before the ledger is done
 - **Fix:**

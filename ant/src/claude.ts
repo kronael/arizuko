@@ -529,6 +529,9 @@ export const claudeHarness: Harness = {
     tools: 'mcp',
     guard: 'write-time',
     steering: 'mid-turn',
+    // native: settingSources ['project','user'] makes Claude Code load
+    // ~/.claude/CLAUDE.md itself; rendering it too would ship it twice.
+    manual: 'native',
     status: 'streaming',
   },
   run: runClaude,

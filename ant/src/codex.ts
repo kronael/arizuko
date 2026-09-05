@@ -299,6 +299,9 @@ export const codexHarness: Harness = {
     tools: 'mcp',
     guard: 'load-time',
     steering: 'between-turn',
+    // rendered: codex looks for AGENTS.md, never ~/.claude/CLAUDE.md, so the
+    // manual reaches it only through the system text codexPrompt prepends.
+    manual: 'rendered',
     status: 'streaming',
   },
   run: runCodex,

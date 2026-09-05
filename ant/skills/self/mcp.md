@@ -49,6 +49,13 @@ expect is missing, you were not granted it — ask, don't work around it.
 | `add_route`      | Add a single route for a JID                                              |
 | `delete_route`   | Delete a route by ID                                                      |
 
+**Creating a group is always explicit**: `register_group(folder="<full/path>",
+jid="<chat jid>")`. Nothing auto-creates one — delegating or routing to a
+folder that does not exist fails and tells you to call this. `register_group`
+is not in the `role:member` floor; if it is absent from your tool list, ask
+the operator rather than working around it. There is no numeric cap on how
+many groups you may create — your grant's scope is the whole limit.
+
 ## Engagement
 
 | Tool                 | Description                                                                    |
@@ -111,6 +118,7 @@ redirects/auth on top.
 | `inspect_tasks`    | Scheduled tasks + recent `task_run_logs` (pass `task_id` for runs)          |
 | `inspect_session`  | Current session_id + recent `session_log` entries                           |
 | `inspect_identity` | Resolve a platform sender sub to its canonical identity and all claimed subs. Use to recognize a user across channels. |
+| `find_messages`    | FTS5 content search over the local DB — phrase / OR / NOT / prefix syntax, optional scope (chat_jid or folder subtree) |
 | `list_acl`         | List ACL rules visible to this group.                                       |
 | `add_acl`          | Grant a principal access to a folder `scope` (acl row; `scope='**'` grants operator role). Write-face of REST `POST /v1/acl`. You may grant only rows you hold WITH GRANT OPTION. |
 | `remove_acl`       | Revoke a principal's access to a `scope`. Write-face of REST `DELETE /v1/acl`. Only within your granted scope. |
@@ -119,9 +127,14 @@ redirects/auth on top.
 
 ## History tools — which to use
 
-- `inspect_messages` — whole-chat DB audit, outbound log, errored rows
+- `inspect_messages` — whole-chat DB audit, outbound log, errored rows (not the context tool — `fetch_history` is)
 - `get_thread` — one (chat_jid, topic) slice when chat fans into topics
 - `fetch_history` — authoritative platform-side context (use after `reset_session` or first-contact)
+- `find_messages` — find a message by what was said
+
+Use the read-only `inspect_*` family instead of shelling out to
+`sqlite3`/`journalctl`: always-on, no grant needed, scoped to your own
+folder unless you are elevated `/root`.
 
 See `/typed-jids` for chatJid format. Bare ids like `telegram:1234` are stale — use typed forms (`telegram:user/<id>`, `discord:dm/<channel>`).
 

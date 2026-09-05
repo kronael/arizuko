@@ -1214,7 +1214,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			return toolJSON(map[string]any{"ok": true, "id": platformID})
 		})
 
-	registerRaw("send_file", "Deliver a file from the group workspace (~/) to a chat. Works on every platform whose channel registered the tool — don't second-guess by platform name (telegram, discord, whatsapp all supported). Use when the user asked for a file (image, doc, CSV, audio) or when output would exceed a chat-reasonable length. `caption` IS the accompanying message — never follow with `send`. Not for inline text the user can read in-chat.",
+	registerRaw("send_file", "Deliver a file from the group workspace (~/) to a chat. Works on every platform whose channel registered the tool — don't second-guess by platform name (telegram, discord, whatsapp all supported). Use when the user asked for a file (image, doc, CSV, audio) or when output would exceed a chat-reasonable length. `caption` IS the accompanying message — a 2-4 sentence TL;DR of the file's key findings, so the user understands it without opening it — never follow with `send`. Not for inline text the user can read in-chat.",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("filepath", mcp.Required()),
@@ -1389,7 +1389,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 
 	regSocial(socialAct{
 		name: "like",
-		desc: "Like an existing message (unicode emoji on discord, like on bluesky). Use when acknowledging or endorsing a specific earlier message without sending text. Not for textual responses (`reply`) or new posts (`post`). Platform decides what reaction strings are valid; unsupported platforms return an error.",
+		desc: "Add a reaction to an existing message (unicode emoji on discord/slack/telegram, like on bluesky). `targetId` MUST be the platform-native id: the `platform_id=` attribute of the message XML, never `id=` (an internal DB id no platform accepts). Prefer a reaction over a limp text 'ok'/'done' when its meaning is unambiguous (👍 ack, ✅ done, 👀 seen, ❤️ warmth); when nuance or a question is present, react AND `reply` — a reaction alone reads as dismissal. Mirror the user's own emoji register and never inject enthusiasm they haven't shown; in DMs react sparingly, never to your own messages, never 👍 on something that deserves a word. Not for new posts (`post`). Platform decides what reaction strings are valid; unsupported platforms return an error — do not retry.",
 		args: []string{"chatJid", "targetId", "reaction"},
 		call: func(a map[string]string) (string, error) {
 			if gated.Like == nil {
@@ -1401,7 +1401,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 
 	regSocial(socialAct{
 		name: "delete",
-		desc: "Delete a post/message previously created by this agent (platform enforces authorship). Use to retract an incorrect or superseded post. Not for editing (no edit tool — delete and re-post) or for hiding inbound messages.",
+		desc: "Delete a post/message previously created by this agent (platform enforces authorship; a user's message errors — do not retry). `targetId` is the `platform_id=` attribute of the message XML, never `id=`. Use to retract an incorrect or superseded post. Not for changing text (`edit`) or for hiding inbound messages.",
 		args: []string{"chatJid", "targetId"},
 		call: func(a map[string]string) (string, error) {
 			if gated.Delete == nil {
@@ -1456,7 +1456,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 
 	regSocial(socialAct{
 		name: "dislike",
-		desc: "Endorse-negative on a message (Discord 👎 reaction). Native only — Bluesky and most platforms have no native downvote and return unsupported with a hint.",
+		desc: "Endorse-negative on a message (Discord 👎 reaction). `targetId` is the `platform_id=` attribute of the message XML, never `id=`. Native only — Bluesky and most platforms have no native downvote and return unsupported with a hint.",
 		args: []string{"chatJid", "targetId"},
 		call: func(a map[string]string) (string, error) {
 			if gated.Dislike == nil {
@@ -1468,7 +1468,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 
 	regSocial(socialAct{
 		name: "edit",
-		desc: "Modify a message previously sent by this agent in-place (Discord, Slack, Bluesky, Telegram own bot messages). Preserves the platform message id. Not for retract-and-resend (use `delete` then `post`/`send`). Email is unsupported.",
+		desc: "Modify a message previously sent by this agent in-place (Discord, Slack, Bluesky, Telegram own bot messages) — corrections, a live status. `targetId` is the `platform_id=` attribute of the message XML or the `id` that `reply`/`send` returned, never the XML `id=`. Preserves the platform message id. Platform windows apply (Telegram ≤48h, WhatsApp ~15m); past the window the adapter returns unsupported — do not retry. Not for retract-and-resend (use `delete` then `post`/`send`). Email is unsupported.",
 		args: []string{"chatJid", "targetId", "content"},
 		call: func(a map[string]string) (string, error) {
 			if gated.Edit == nil {
@@ -1480,7 +1480,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 
 	regSocial(socialAct{
 		name: "pin_message",
-		desc: "Pin a message to a chat/channel (Slack pins.add, Discord channel pin, Telegram pinned message). Use to mark a live status surface (deploy progress, standup link) or anchor a reference. Not for editing content (`edit`) or amplifying on a feed (`repost`/`quote`). Bluesky/Reddit/Email/WhatsApp return unsupported.",
+		desc: "Pin a message to a chat/channel (Slack pins.add, Discord channel pin, Telegram pinned message). `targetId` is the `platform_id=` attribute of the message XML, never `id=`. Use to mark a live status surface (deploy progress, standup link) or anchor a reference. Not for editing content (`edit`) or amplifying on a feed (`repost`/`quote`). Bluesky/Reddit/Email/WhatsApp return unsupported.",
 		args: []string{"chatJid", "targetId"},
 		call: func(a map[string]string) (string, error) {
 			if gated.Pin == nil {
@@ -1492,7 +1492,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 
 	regSocial(socialAct{
 		name: "unpin_message",
-		desc: "Remove the pin on a specific message (Slack pins.remove, Discord channel unpin, Telegram unpinChatMessage). Use to retire a status surface or rotate the pinned reference. Not for clearing every pin (use `unpin_all` on Slack/Telegram) or deleting the message itself (`delete`).",
+		desc: "Remove the pin on a specific message (Slack pins.remove, Discord channel unpin, Telegram unpinChatMessage). `targetId` is the `platform_id=` attribute of the message XML, never `id=`. Use to retire a status surface or rotate the pinned reference. Not for clearing every pin (use `unpin_all` on Slack/Telegram) or deleting the message itself (`delete`).",
 		args: []string{"chatJid", "targetId"},
 		call: func(a map[string]string) (string, error) {
 			if gated.Unpin == nil {

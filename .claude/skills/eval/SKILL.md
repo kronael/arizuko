@@ -2,6 +2,8 @@
 
 Checks operational health of running arizuko instances.
 Run after deploys, on suspicion of a stuck agent, or periodically.
+The five post-deploy gates — build, ship, schema, census, `anteval
+--smoke` — are §"Post-deploy gates" at the end of this file.
 
 ## Method: causes, not symptoms
 
@@ -545,3 +547,69 @@ be judged by whether it drives the class to zero.
 | Agent ignores skills, responds generically | Solve not firing: CLAUDE.md not seeded, or nudge missing from runner | Re-seed group via `SetupGroup`; verify `runner.go` has `[solve]` annotation |
 | Skill exists but never matched by dispatch | Broken `description:` in SKILL.md frontmatter — awk can't parse it | Fix the YAML frontmatter: `description: >` followed by indented text on next line |
 | Every agent says `Not logged in · Please run /login` | Generated `env/runed.env` omitted the operator model credential | Regenerate compose and recreate `runed`; verify check 9a before retrying turns |
+
+---
+
+## Post-deploy gates
+
+**Every deploy runs all five gates, in order. A deploy is not done until
+gate 5 passes.** Gates 1-3 are free and catch everything mechanical; 4 is a
+minute; 5 is the only one that proves a live agent still works, and it is
+the only one that costs money (~$5).
+
+```bash
+I=<instance>; DB=/srv/data/arizuko_$I/store/routd/routd.db
+
+# 1. Build + test, BEFORE the image. Go and TS are separate suites.
+make lint && go test ./... -count=1 -short && (cd whapd && bun run test)
+
+# 2. Ship the image, restart, wait for health to settle.
+sudo make images && sudo systemctl restart arizuko_$I
+until [ "$(sudo docker ps --format '{{.Names}} {{.Status}}' | grep $I | grep -c 'health: starting')" -eq 0 ]; do sleep 10; done
+sudo docker ps --format "{{.Names}} {{.Status}}" | grep $I
+
+# 3. The schema actually moved. A migration that did not apply looks healthy.
+sudo sqlite3 $DB "SELECT MAX(version) FROM migrations WHERE service='routd';"
+ls routd/migrations/ | sort | tail -1   # the two numbers must agree
+
+# 4. Error census — the checks above, or their core three:
+sudo journalctl -u arizuko_$I --since "15 min ago" --no-pager \
+  | grep -E '"level":"ERROR"' | grep -oE '"msg":"[^"]*"' | sort | uniq -c | sort -rn
+sudo sqlite3 $DB "SELECT COUNT(*) FROM messages WHERE errored=1;"   # new ones only
+sudo docker exec arizuko_runed_$I sh -c 'env | grep -qE "^(ANTHROPIC_API_KEY|CLAUDE_CODE_OAUTH_TOKEN)="'
+```
+
+**5. `anteval --smoke` — the live-agent gate.** Nothing above proves an
+agent can still operate the platform; every check up to here passes on a
+fleet whose agents answer nothing (BUGS `L149` shipped green through all of
+them). Run it on every release, and after any deploy touching routd, runed,
+ipc, ant or an adapter:
+
+```bash
+sudo ./arizuko token $I issue bearer eval \
+  --scope messages:write,messages:read,cost:read --ttl 2h    # token: line
+GW=$(sudo docker network inspect arizuko_${I}_default \
+  --format '{{range .IPAM.Config}}{{.Gateway}}{{end}}')      # NOT a hardcoded IP
+cd anteval && ./anteval run https://<host> --api http://localhost:8081 \
+  --token "$TOK" --chat web:eval --folder eval \
+  --sink-addr $GW:9099 --sink http://$GW:9099 --smoke
+```
+
+Two things that make this fail for the wrong reason. `--cases` is
+relative, so run it from `anteval/` — from the repo root it loads nothing
+and reports "no cases match selectors", which reads like a selector typo.
+And the sink must be the instance's own default-network gateway: the
+per-folder networks are `internal=true`, so an agent reaches the host
+bridge but nothing beyond it, and a stale IP makes 8 of the 9 cases burn
+their full wall cap for nothing.
+
+Red flags: `"error in message loop"`, `"container timeout"`, `"circuit
+breaker open"`.
+
+Adapter `/health` returns 503 `{status:"disconnected"}` when the platform
+side is down even if the process is up (whapd showing QR, an adapter
+stream dropped, …). Check on the host:
+
+```bash
+sudo curl -s -o /dev/null -w '%{http_code}\n' http://localhost:<port>/health
+```

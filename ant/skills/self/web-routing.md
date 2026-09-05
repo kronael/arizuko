@@ -18,6 +18,42 @@ Proxyd routes all web traffic. URL structure:
 
 Legacy `/slink/*` 301-redirects to `/chat/*`.
 
+Default is auth-gated; `/pub/*` is explicitly public. `/x/` is auth-gated
+but served by webd, not Vite — you cannot drop static files there.
+`/dash/` is operator-only HTMX from dashd; `/pub/arizuko/` is the public
+docs site, NOT the dashboard. Point "how do I log in" / "where's the
+dashboard" to `https://$WEB_HOST/auth/login` + `https://$WEB_HOST/dash/`;
+point the user portal (folder trees, chat history, threads) to
+`https://$WEB_HOST/me/`.
+
+## Local path → public URL
+
+The user cannot open container paths. Resolve `$WEB_HOST` and
+`$ARIZUKO_GROUP_FOLDER` with `echo` (never emit the literal `$…`) and
+translate before you link:
+
+| Local (where you wrote it)         | Public (what the user opens)                                                                          |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `~/<file>` (private home, off-web) | `https://$WEB_HOST/dav/$ARIZUKO_GROUP_FOLDER/<file>` (WebDAV, JWT-gated for the operator via browser) |
+| `~/public_html/<app>/<file>`       | `https://$WEB_HOST/pub/$ARIZUKO_GROUP_FOLDER/<app>/<file>` (no auth)                                  |
+| `~/private_html/<app>/<file>`      | `https://$WEB_HOST/priv/$ARIZUKO_GROUP_FOLDER/<app>/<file>` (JWT)                                     |
+
+Rule of thumb when referencing your own working file in chat:
+
+- Persistent reference (report, log, generated artifact for later): write
+  under `~/reports/`, link via the WebDAV URL.
+- One-shot deliverable (user wants it now): `send_file ~/...` with a TL;DR
+  caption.
+- Public page (anyone with the URL): write under `~/public_html/...`, send
+  the `/pub/<folder>/...` URL.
+- OAuth-gated page (logged-in only): write under `~/private_html/...`, send
+  the `/priv/<folder>/...` URL.
+
+Wrong: `Saved to ~/reports/weekly.md` (the user can't open it). Right:
+resolve the vars, then
+`https://$WEB_HOST/dav/$ARIZUKO_GROUP_FOLDER/reports/weekly.md` (or
+`send_file ~/reports/weekly.md caption="this week's roundup"`).
+
 ## Two URLs, one file (the `/pub` ↔ `/` rule)
 
 `https://$WEB_HOST/pub/<X>` (no auth) and `https://$WEB_HOST/<X>`

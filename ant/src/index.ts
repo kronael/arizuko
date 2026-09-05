@@ -8,7 +8,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { submitTurn, submitStatus } from './mcp.js';
 import { injectMcpEnv } from './mcp-servers.js';
-import { Harness, Turn, selectHarness } from './backend.js';
+import { Harness, HarnessProfile, Turn, selectHarness } from './backend.js';
 import { STEER_SPOOL, appendLines, drainLines } from './spool.js';
 
 interface ContainerInput {
@@ -43,15 +43,38 @@ const MAX_STDIN_BYTES = 1024 * 1024;
 
 const PROGRESS_INTERVAL_MS = 90_000;
 
-// buildSystemPrompt renders the text layers the chassis owns (system MD, output
-// style). undefined means "no rendered text" — each harness supplies its own
-// default.
-export function buildSystemPrompt(ci: ContainerInput): string | undefined {
+// buildSystemPrompt renders the text layers the chassis owns (system MD, the
+// resident manual, persona, output style). undefined means "no rendered text"
+// — each harness supplies its own default.
+export function buildSystemPrompt(
+  ci: ContainerInput,
+  profile: Pick<HarnessProfile, 'manual'>,
+  manual: () => string | null = readHomeManual,
+): string | undefined {
   // SYSTEM.md replaces the harness's own base prompt; PERSONA.md appends to
   // it, so a group can add voice without restating the platform contract.
   // runner.go reads both from the group dir and ships them on the same wire.
-  const parts = [ci.systemMd, ci.persona, readOutputStyle()].filter(Boolean);
+  // The manual sits between them: it is the platform contract the persona
+  // adds voice on top of, and a harness that reads the file natively must
+  // not receive it a second time here.
+  const parts = [
+    ci.systemMd,
+    profile.manual === 'rendered' ? manual() : null,
+    ci.persona,
+    readOutputStyle(),
+  ].filter(Boolean);
   return parts.length > 0 ? parts.join('\n\n') : undefined;
+}
+
+// readHomeManual reads the seeded, operator-mergeable copy of ant/CLAUDE.md —
+// the same file Claude Code discovers on its own, so every harness runs on
+// one declaration (BUGS L130).
+function readHomeManual(): string | null {
+  try {
+    return fs.readFileSync(`${HOME}/.claude/CLAUDE.md`, 'utf-8').trim() || null;
+  } catch {
+    return null;
+  }
 }
 
 function readOutputStyle(): string | null {
@@ -248,7 +271,7 @@ export async function runTurn(
     turnID,
     model: env.ARIZUKO_MODEL || undefined,
     continuity,
-    systemPrompt: buildSystemPrompt(containerInput),
+    systemPrompt: buildSystemPrompt(containerInput, harness.profile),
     tools: injectMcpEnv(env),
     env,
     signal: controller.signal,

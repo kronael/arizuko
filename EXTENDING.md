@@ -46,6 +46,29 @@ No registration step — `seedOutputStyles` discovers files by directory
 listing at spawn (`container/runner.go:669`). Drop the file, rebuild
 the agent image (`make agent`), redeploy.
 
+## Adding a host mount (`/mnt/<name>`)
+
+The operator can bind-mount host dirs (read-only) into every container of
+a group at `/mnt/<name>` — a mount named `data/binance_perp` appears at
+`/mnt/data/binance_perp`. Two parts:
+
+1. **Instance allowlist** — `MOUNT_ALLOWED_ROOTS=/path1,/path2` in the
+   instance `.env` (compose hands it to `runed`). A host path not under an
+   allowed root is rejected and logged.
+2. **Per-group mounts** — the `container_config.Mounts` column of `groups`
+   in `store/routd/routd.db`: a JSON array of
+   `{"Host":"/path","Container":"name","RO":true}`. All groups at once:
+   ```sql
+   UPDATE groups SET container_config = json_set(
+       COALESCE(container_config,'{}'), '$.Mounts',
+       json('[{"Host":"/srv/data/binance_perp","Container":"data/binance_perp","RO":true}]')
+   );
+   ```
+
+After either change restart `runed`; the next spawn picks it up, a running
+session waits until then. The agent-side view is the mount table in
+`ant/skills/self/workspace.md`.
+
 ## Adding an autocall
 
 Autocalls inject zero-arg, one-line, pure-read facts into the

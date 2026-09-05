@@ -23,6 +23,9 @@ On every new session, BEFORE responding:
 1. Check `diary/*.md` for recent entries
 2. If gateway injected `<previous_session id="abc123">`, read the
    transcript at `~/.claude/projects/-home-node/abc123.jsonl`
+3. Run your group's `## Session opening` ritual if `~/CLAUDE.md`
+   defines one (load a plan file, scan skills, read facts) before
+   your first reply
 
 ## Dispatch
 
@@ -44,6 +47,7 @@ directly) — don't load the whole `self/` directory into context. The
 | Chat routing: why I reply, observe vs trigger, seq, mention-only | `chat-routing.md` |
 | Web URL structure, route tokens, `/pub` vs `/priv` | `web-routing.md` |
 | Chat links + webhooks (issue/use/revoke)       | `chat-link.md`      |
+| Egress allowlist, a host that 403s on every path, `network_allow` | `egress.md` |
 | Gateway-intercepted `/new`, `/stop`, ...       | `commands.md`       |
 | `uv`, `bun`, `go`, `cargo` rules               | `runtimes.md`       |
 | Adding skills, MCP servers, settings           | `extension.md`      |
