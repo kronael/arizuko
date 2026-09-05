@@ -9156,6 +9156,23 @@ was exposed too, reasoning "the key is in the process env, therefore the shell
 sees it" without checking whether each CLI filters its own shell env. codex
 does. pi does not.
 
+**CORRECTED 2026-09-05: the harness filter is not a boundary, and the table
+below only ever described accidental leakage.** Every process in the agent
+container runs as the same uid (`container/runner.go:718`, `--user 1000:1000`),
+nothing sets `hidepid`, and `/proc/<pid>/environ` is readable across siblings at
+equal uid. Measured: a sentinel planted in one process was read from another
+inside `arizuko-ant:latest`. So the agent's shell reads the harness's own env
+whatever that harness strips from the child it spawns — `cat /proc/1/environ`
+defeats codex's `shell_environment_policy` and claude's `bash-scrub` alike.
+All three occupants are exposed; pi is only the one that does not try.
+
+The fix is upstream of every harness and it SHIPPED 2026-09-05: with
+`cfg.ModelGatewayURL` set, `container.spawnSecrets` deletes every
+`store.EnvProfileKeys` entry from the merged secret map, so no model credential
+enters the container and `/proc` holds nothing to read. Scrubbing stays as
+defence against an accidental echo. Without a gateway configured the exposure
+is unchanged, so 6/7's defect stands for that case.
+
 **The delivery chain is common to all three.** `readSecrets`
 (`container/runner.go:765`) iterates `store.EnvProfileKeys` and passes every one
 set in the host `.env` through; they ride the stdin payload as
