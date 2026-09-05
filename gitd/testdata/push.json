@@ -1,0 +1,67 @@
+{
+  "ref": "refs/heads/main",
+  "before": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+  "after": "0f1e2d3c4b5a69788796a5b4c3d2e1f098765432",
+  "created": false,
+  "deleted": false,
+  "forced": false,
+  "compare": "https://github.com/kronael/arizuko/compare/a1b2c3d4e5f6...0f1e2d3c4b5a",
+  "commits": [
+    {
+      "id": "b7c8d9e0f1a2b3c4d5e6f708192a3b4c5d6e7f80",
+      "message": "fix(routd): drop the stale topic cursor\n\nThe cursor outlived its session.",
+      "timestamp": "2026-09-05T09:12:01Z",
+      "author": {
+        "name": "Ondrej Vostal",
+        "email": "ondrej@example.test",
+        "username": "kronael"
+      },
+      "added": [],
+      "removed": [],
+      "modified": ["routd/loop.go"]
+    },
+    {
+      "id": "0f1e2d3c4b5a69788796a5b4c3d2e1f098765432",
+      "message": "docs(changelog): v0.63.1",
+      "timestamp": "2026-09-05T09:14:44Z",
+      "author": {
+        "name": "Ondrej Vostal",
+        "email": "ondrej@example.test",
+        "username": "kronael"
+      },
+      "added": [],
+      "removed": [],
+      "modified": ["CHANGELOG.md"]
+    }
+  ],
+  "head_commit": {
+    "id": "0f1e2d3c4b5a69788796a5b4c3d2e1f098765432",
+    "message": "docs(changelog): v0.63.1",
+    "timestamp": "2026-09-05T09:14:44Z",
+    "author": {
+      "name": "Ondrej Vostal",
+      "email": "ondrej@example.test",
+      "username": "kronael"
+    }
+  },
+  "repository": {
+    "id": 901234567,
+    "name": "arizuko",
+    "full_name": "kronael/arizuko",
+    "private": false,
+    "owner": {
+      "login": "kronael",
+      "id": 1234567,
+      "type": "User",
+      "name": "kronael"
+    },
+    "html_url": "https://github.com/kronael/arizuko",
+    "default_branch": "main"
+  },
+  "pusher": { "name": "kronael", "email": "ondrej@example.test" },
+  "sender": { "login": "kronael", "id": 1234567, "type": "User" },
+  "installation": {
+    "id": 77001122,
+    "node_id": "MDIzOkludGVncmF0aW9uSW5zdGFsbGF0aW9uNzcwMDExMjI="
+  }
+}

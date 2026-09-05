@@ -275,6 +275,7 @@ func (s *Server) Handler() http.Handler {
 	s.mountRoutes(mux)
 	s.mountWebRoutes(mux)
 	s.mountRouteTokens(mux)
+	s.mountGitHubSources(mux)
 	s.mountGroups(mux)
 	// /v1/installed_packages read face (spec 5/28). Read-only by design — the
 	// install/upgrade/remove lifecycle writes host files and restarts sidecars,

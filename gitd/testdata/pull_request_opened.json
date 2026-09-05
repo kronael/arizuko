@@ -1,0 +1,48 @@
+{
+  "action": "opened",
+  "number": 12,
+  "pull_request": {
+    "id": 2345678901,
+    "number": 12,
+    "state": "open",
+    "locked": false,
+    "draft": false,
+    "merged": false,
+    "title": "feat(gitd): GitHub as an ingress channel",
+    "body": "Webhooks land as messages on `github:` JIDs.\n\nCloses #3.",
+    "html_url": "https://github.com/kronael/arizuko/pull/12",
+    "user": { "login": "rhias", "id": 7654321, "type": "User" },
+    "created_at": "2026-09-05T10:00:00Z",
+    "updated_at": "2026-09-05T10:00:00Z",
+    "head": {
+      "label": "rhias:gitd",
+      "ref": "gitd",
+      "sha": "c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00",
+      "repo": { "full_name": "rhias/arizuko" }
+    },
+    "base": {
+      "label": "kronael:main",
+      "ref": "main",
+      "sha": "0f1e2d3c4b5a69788796a5b4c3d2e1f098765432",
+      "repo": { "full_name": "kronael/arizuko" }
+    },
+    "commits": 3,
+    "additions": 812,
+    "deletions": 4,
+    "changed_files": 11
+  },
+  "repository": {
+    "id": 901234567,
+    "name": "arizuko",
+    "full_name": "kronael/arizuko",
+    "private": false,
+    "owner": { "login": "kronael", "id": 1234567, "type": "User" },
+    "html_url": "https://github.com/kronael/arizuko",
+    "default_branch": "main"
+  },
+  "sender": { "login": "rhias", "id": 7654321, "type": "User" },
+  "installation": {
+    "id": 77001122,
+    "node_id": "MDIzOkludGVncmF0aW9uSW5zdGFsbGF0aW9uNzcwMDExMjI="
+  }
+}

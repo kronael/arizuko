@@ -1,0 +1,26 @@
+{
+  "zen": "Keep it logically awesome.",
+  "hook_id": 512345678,
+  "hook": {
+    "type": "Repository",
+    "id": 512345678,
+    "name": "web",
+    "active": true,
+    "events": ["*"],
+    "config": {
+      "content_type": "json",
+      "insecure_ssl": "0",
+      "url": "https://krons.test/github/repo/kronael/arizuko"
+    }
+  },
+  "repository": {
+    "id": 901234567,
+    "name": "arizuko",
+    "full_name": "kronael/arizuko",
+    "private": false,
+    "owner": { "login": "kronael", "id": 1234567, "type": "User" },
+    "html_url": "https://github.com/kronael/arizuko",
+    "default_branch": "main"
+  },
+  "sender": { "login": "kronael", "id": 1234567, "type": "User" }
+}

@@ -30,6 +30,7 @@ COPY --from=build /proxyd /usr/local/bin/proxyd
 COPY --from=build /webd /usr/local/bin/webd
 COPY --from=build /linkd /usr/local/bin/linkd
 COPY --from=build /slakd /usr/local/bin/slakd
+COPY --from=build /gitd /usr/local/bin/gitd
 COPY --from=build /emaid /usr/local/bin/emaid
 COPY --from=build /bskyd /usr/local/bin/bskyd
 COPY --from=build /reditd /usr/local/bin/reditd

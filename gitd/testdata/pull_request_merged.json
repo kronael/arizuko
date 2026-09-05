@@ -1,0 +1,39 @@
+{
+  "action": "closed",
+  "number": 12,
+  "pull_request": {
+    "id": 2345678901,
+    "number": 12,
+    "state": "closed",
+    "merged": true,
+    "title": "feat(gitd): GitHub as an ingress channel",
+    "body": "Webhooks land as messages.",
+    "html_url": "https://github.com/kronael/arizuko/pull/12",
+    "user": { "login": "rhias", "id": 7654321, "type": "User" },
+    "merged_by": { "login": "kronael", "id": 1234567, "type": "User" },
+    "head": {
+      "ref": "gitd",
+      "sha": "c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00"
+    },
+    "base": {
+      "ref": "main",
+      "sha": "0f1e2d3c4b5a69788796a5b4c3d2e1f098765432"
+    },
+    "updated_at": "2026-09-05T11:00:00Z",
+    "merged_at": "2026-09-05T11:00:00Z"
+  },
+  "repository": {
+    "id": 901234567,
+    "name": "arizuko",
+    "full_name": "kronael/arizuko",
+    "private": false,
+    "owner": { "login": "kronael", "id": 1234567, "type": "User" },
+    "html_url": "https://github.com/kronael/arizuko",
+    "default_branch": "main"
+  },
+  "sender": { "login": "kronael", "id": 1234567, "type": "User" },
+  "installation": {
+    "id": 77001122,
+    "node_id": "MDIzOkludGVncmF0aW9uSW5zdGFsbGF0aW9uNzcwMDExMjI="
+  }
+}

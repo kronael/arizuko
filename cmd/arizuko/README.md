@@ -27,6 +27,7 @@ beyond `docker` for `run` and `pair`).
   - `arizuko secret <inst> set <folder> KEY --value V | list <folder> | delete <folder> KEY | seal-legacy [--dry-run]` — folder-scoped secrets; `seal-legacy` encrypts rows written before encryption-at-rest landed (rehearse with `--dry-run` against a `.backup` copy — it rewrites the column every credential lives in)
   - `arizuko user-secret <inst> set <user_sub> KEY --value V | list <user_sub> | delete <user_sub> KEY` — user-scoped secrets
   - `arizuko token <inst> issue chat <folder> [<suffix>] | issue webhook <folder> <label> | list <folder> | revoke <jid> [<owner_folder>]` — manage `route_tokens` (chat / webhook capability URLs)
+  - `arizuko github <inst> add <repo|org|app> <name> <folder> | list [<folder>] | rm <kind>/<name> <folder>` — manage `github_sources` (gitd webhook secrets, spec `6/27`): `add` prints the delivery URL + secret once and seeds the route rows that deliver the source's events to `<folder>`
   - `arizuko token <inst> issue bearer <folder> --scope|-s s1,s2 [--ttl|-t 1h] [--sub SUB]` — mint a folder-scoped ES256 access JWT signed with authd's active key (read from auth.db; operator-only). E.g. `--scope messages:write,messages:read` for anteval's inject+inspect
   - `arizuko invite <inst> create <target_glob> [--max-uses N] [--expires DURATION]`
   - `arizuko invite <inst> list [--issued-by SUB]`
@@ -66,6 +67,7 @@ beyond `docker` for `run` and `pair`).
 - `send.go` — `send` message injection, plus the SSE reader (`openSSE`/`readSSE`/`handleSSEFrame`) that `talk` shares
 - `talk.go` / `talk_config.go` — `talk`: argument grammar, the MCP+SSE turn, and the `~/.config/arizuko/talk.toml` reader
 - `token.go` — `token` route-token management
+- `github.go` — `github` webhook-source management for gitd (spec `6/27`)
 
 ## What is tested, and what is not
 

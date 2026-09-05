@@ -203,11 +203,11 @@ func TestPermanentIngressClassification(t *testing.T) {
 		want bool
 	}{{400, true}, {403, true}, {413, true}, {422, true},
 		{401, false}, {429, false}, {500, false}, {502, false}, {503, false}} {
-		if got := permanentIngress(&StatusError{Path: "/v1/messages", Code: tc.code}); got != tc.want {
-			t.Errorf("permanentIngress(%d) = %v, want %v", tc.code, got, tc.want)
+		if got := PermanentIngress(&StatusError{Path: "/v1/messages", Code: tc.code}); got != tc.want {
+			t.Errorf("PermanentIngress(%d) = %v, want %v", tc.code, got, tc.want)
 		}
 	}
-	if permanentIngress(errDial) {
+	if PermanentIngress(errDial) {
 		t.Error("a transport error must not classify as permanent")
 	}
 }

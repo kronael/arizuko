@@ -1,0 +1,36 @@
+{
+  "action": "created",
+  "issue": {
+    "id": 3456789099,
+    "number": 7,
+    "state": "open",
+    "title": "KVM backend loses the egress proxy on restart",
+    "body": "After a host reboot the VM comes up with no proxy.",
+    "html_url": "https://github.com/kronael/crackbox/issues/7",
+    "user": { "login": "rhias", "id": 7654321, "type": "User" }
+  },
+  "comment": {
+    "id": 4567890999,
+    "node_id": "IC_kwDOA6",
+    "html_url": "https://github.com/kronael/crackbox/issues/7#issuecomment-4567890999",
+    "body": "Reproduced on 6.1; the proxy PID file is stale.",
+    "user": { "login": "rhias", "id": 7654321, "type": "User" },
+    "created_at": "2026-09-05T10:06:00Z",
+    "updated_at": "2026-09-05T10:06:00Z",
+    "author_association": "CONTRIBUTOR"
+  },
+  "repository": {
+    "id": 901234999,
+    "name": "crackbox",
+    "full_name": "kronael/crackbox",
+    "private": false,
+    "owner": { "login": "kronael", "id": 1234567, "type": "User" },
+    "html_url": "https://github.com/kronael/crackbox",
+    "default_branch": "main"
+  },
+  "sender": { "login": "rhias", "id": 7654321, "type": "User" },
+  "installation": {
+    "id": 77001122,
+    "node_id": "MDIzOkludGVncmF0aW9uSW5zdGFsbGF0aW9uNzcwMDExMjI="
+  }
+}

@@ -80,6 +80,7 @@ func main() {
 		"generate":      cmdGenerate,
 		"proxy-config":  cmdProxyConfig,
 		"create":        cmdCreate,
+		"github":        cmdGithub,
 		"group":         cmdGroup,
 		"gate":          cmdGate,
 		"invite":        cmdInvite,

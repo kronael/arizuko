@@ -66,12 +66,12 @@ func (r *RouterClient) pendingDB() *sql.DB {
 	return r.pending
 }
 
-// permanentIngress reports a routd answer no retry can repair: routd read the
+// PermanentIngress reports a routd answer no retry can repair: routd read the
 // payload and refused it (400 malformed / missing field / jid-prefix or
 // sender-scheme mismatch, 403 forbidden, 413 too large, 422 unprocessable).
 // Everything else — a dial failure, a 401 while authd is restarting, a 5xx, a
 // 429 — is the daemon being unavailable, which is exactly what retention is for.
-func permanentIngress(err error) bool {
+func PermanentIngress(err error) bool {
 	var se *StatusError
 	if !errors.As(err, &se) {
 		return false
@@ -93,7 +93,7 @@ func (r *RouterClient) retainInbound(msg InboundMsg, cause error) {
 	if db == nil {
 		return
 	}
-	if permanentIngress(cause) {
+	if PermanentIngress(cause) {
 		slog.Error("inbound refused by routd and dropped; a retry cannot repair it",
 			"id", msg.ID, "chat_jid", msg.ChatJID, "err", cause)
 		return
@@ -204,7 +204,7 @@ func (r *RouterClient) SweepInboundOnce(ctx context.Context) {
 			r.dropPending(db, d.id)
 			slog.Info("retained inbound delivered", "id", d.id, "chat_jid", msg.ChatJID,
 				"attempts", d.attempts+1)
-		case permanentIngress(err):
+		case PermanentIngress(err):
 			slog.Error("retained inbound refused by routd and dropped; a retry cannot repair it",
 				"id", d.id, "chat_jid", msg.ChatJID, "attempts", d.attempts+1, "err", err)
 			r.dropPending(db, d.id)

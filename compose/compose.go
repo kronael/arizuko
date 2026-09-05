@@ -222,6 +222,10 @@ var daemonKeys = map[string][]string{
 	"emaid":  {"AUTHD_URL", "AUTHD_SERVICE_KEY", "EMAIL_IMAP_HOST", "EMAIL_SMTP_HOST", "EMAIL_ACCOUNT", "EMAIL_PASSWORD", "EMAIL_IMAP_PORT", "EMAIL_SMTP_PORT"},
 	"whapd":  {"AUTHD_URL", "AUTHD_SERVICE_KEY"},
 	"twitd":  {"AUTHD_URL", "AUTHD_SERVICE_KEY", "TWITTER_USERNAME", "TWITTER_PASSWORD", "TWITTER_EMAIL", "TWITTER_2FA_SECRET", "TWITTER_POLL_INTERVAL"},
+	// gitd unseals github_sources secrets from routd.db, so it needs the same
+	// SECRETS_KEY routd seals with. GITHUB_TOKEN is optional: it only enables
+	// send_text (the agent's reply as a comment).
+	"gitd": {"AUTHD_URL", "AUTHD_SERVICE_KEY", "SECRETS_KEY", "GITHUB_TOKEN"},
 	// ttsd reads exactly TTSD_ADDR, TTS_BACKEND_URL and LOG_LEVEL, and its fragment
 	// sets all three in `environment:`, which outranks env_file. The entry exists to
 	// move it off the shared .env, which handed it SECRETS_KEY, AUTH_SECRET and
@@ -246,6 +250,7 @@ var foreignImages = map[string]bool{"kokoro": true}
 var adapterDaemons = map[string]bool{
 	"teled": true, "whapd": true, "discd": true, "slakd": true,
 	"bskyd": true, "reditd": true, "emaid": true, "twitd": true, "linkd": true,
+	"gitd": true,
 }
 
 // envFileName returns the env file a service reads, relative to the data dir.

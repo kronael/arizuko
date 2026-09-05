@@ -19,6 +19,7 @@ const (
 	ACLMembershipName     = "acl_membership"
 	AuditName             = "audit"
 	DeadLettersName       = "dead_letters"
+	GitHubSourcesName     = "github_sources"
 	GroupsName            = "groups"
 	InstalledPackagesName = "installed_packages"
 	InvitesName           = "invites"

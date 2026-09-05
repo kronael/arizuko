@@ -15,7 +15,7 @@ New integrations are added via the extension points described in
   is core.
 - **Integrations** are pluggable: per-platform channel adapters
   (`teled`, `whapd`, `discd`, `slakd`, `bskyd`, `reditd`, `emaid`,
-  `twitd`, `linkd`) talking to core over the channel protocol; optional
+  `twitd`, `linkd`, `gitd`) talking to core over the channel protocol; optional
   capability hooks (Whisper transcription via `WHISPER_BASE_URL`, TTS
   via `ttsd` + `TTS_BASE_URL` (`specs/5/T-voice-synthesis.md`), oracle
   skill in `ant/skills/oracle/` driving the `codex` CLI, egress isolation (`EGRESS_IMAGE` set),
@@ -79,7 +79,7 @@ Every channel adapter, `webd`, and `proxyd` talk to `routd` over HTTP
 ## Integrations
 
 ```
-teled/ discd/ slakd/ bskyd/ reditd/ emaid/ whapd/ twitd/ linkd/
+teled/ discd/ slakd/ bskyd/ reditd/ emaid/ whapd/ twitd/ linkd/ gitd/
         channel adapters — separate processes, register with core via
         the HTTP channel protocol (see "Channel Protocol" below)
 
@@ -755,7 +755,7 @@ offline verification by the rest.
 
 Bundled catalog at `template/services/` (ships in image, Ansible extracts to
 `/srv/app/arizuko/template/services/`): `teled.yml`, `whapd.yml`, `discd.yml`,
-`slakd.yml` (+ `slakd.yaml`), `bskyd.yml`, `reditd.yml`,
+`slakd.yml` (+ `slakd.yaml`), `gitd.yml` (+ `gitd.yaml`), `bskyd.yml`, `reditd.yml`,
 `linkd.yml`, `emaid.yml`, `twitd.yml`, `ttsd.yml`, `kokoro.yml`,
 `litellm.yml`.
 

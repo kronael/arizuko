@@ -192,14 +192,15 @@ HOST_APP_DIR=/path/to/arizuko
 
 Add credentials for your chosen adapter(s):
 
-| Adapter              | Env vars                                                                | How to get                           |
-| -------------------- | ----------------------------------------------------------------------- | ------------------------------------ |
-| **teled** (Telegram) | `TELEGRAM_BOT_TOKEN`                                                    | @BotFather → /newbot                 |
-| **discd** (Discord)  | `DISCORD_BOT_TOKEN`                                                     | discord.com/developers → Bot → Token |
-| **slakd** (Slack)    | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`                               | api.slack.com → App → OAuth          |
-| **bskyd** (Bluesky)  | `BLUESKY_HANDLE`, `BLUESKY_APP_PASSWORD`                                | Settings → App passwords             |
-| **emaid** (Email)    | `EMAIL_IMAP_HOST`, `EMAIL_SMTP_HOST`, `EMAIL_ACCOUNT`, `EMAIL_PASSWORD` | Your email provider                  |
-| **whapd** (WhatsApp) | (none — pairs via QR)                                                   | `./arizuko pair <name> whapd`        |
+| Adapter              | Env vars                                                                                                  | How to get                           |
+| -------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| **teled** (Telegram) | `TELEGRAM_BOT_TOKEN`                                                                                      | @BotFather → /newbot                 |
+| **discd** (Discord)  | `DISCORD_BOT_TOKEN`                                                                                       | discord.com/developers → Bot → Token |
+| **slakd** (Slack)    | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`                                                                 | api.slack.com → App → OAuth          |
+| **bskyd** (Bluesky)  | `BLUESKY_HANDLE`, `BLUESKY_APP_PASSWORD`                                                                  | Settings → App passwords             |
+| **emaid** (Email)    | `EMAIL_IMAP_HOST`, `EMAIL_SMTP_HOST`, `EMAIL_ACCOUNT`, `EMAIL_PASSWORD`                                   | Your email provider                  |
+| **whapd** (WhatsApp) | (none — pairs via QR)                                                                                     | `./arizuko pair <name> whapd`        |
+| **gitd** (GitHub)    | (none in `.env` — `./arizuko github <name> add …` mints the secret; `GITHUB_TOKEN` optional, for replies) | GitHub → Settings → Webhooks / App   |
 
 **Telegram is simplest** — just needs one token from @BotFather.
 
@@ -212,6 +213,7 @@ Add the package for your chosen adapter to the instance:
 ./arizuko packages <name> add teled      # Telegram
 ./arizuko packages <name> add discd      # Discord
 ./arizuko packages <name> add slakd      # Slack
+./arizuko packages <name> add gitd       # GitHub webhooks (then `arizuko github <name> add …`)
 ```
 
 Without this step, no adapter will start. Each adapter needs its package in

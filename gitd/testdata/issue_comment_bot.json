@@ -1,0 +1,35 @@
+{
+  "action": "created",
+  "issue": {
+    "id": 3456789012,
+    "number": 12,
+    "state": "open",
+    "title": "feat(gitd): GitHub as an ingress channel",
+    "html_url": "https://github.com/kronael/arizuko/pull/12",
+    "pull_request": {
+      "url": "https://api.github.com/repos/kronael/arizuko/pulls/12"
+    }
+  },
+  "comment": {
+    "id": 4567890124,
+    "html_url": "https://github.com/kronael/arizuko/pull/12#issuecomment-4567890124",
+    "body": "The signature check looks correct; reject an empty secret too.",
+    "user": { "login": "arizuko-krons[bot]", "id": 99887766, "type": "Bot" },
+    "created_at": "2026-09-05T10:08:00Z",
+    "updated_at": "2026-09-05T10:08:00Z"
+  },
+  "repository": {
+    "id": 901234567,
+    "name": "arizuko",
+    "full_name": "kronael/arizuko",
+    "private": false,
+    "owner": { "login": "kronael", "id": 1234567, "type": "User" },
+    "html_url": "https://github.com/kronael/arizuko",
+    "default_branch": "main"
+  },
+  "sender": { "login": "arizuko-krons[bot]", "id": 99887766, "type": "Bot" },
+  "installation": {
+    "id": 77001122,
+    "node_id": "MDIzOkludGVncmF0aW9uSW5zdGFsbGF0aW9uNzcwMDExMjI="
+  }
+}
