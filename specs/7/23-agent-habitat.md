@@ -72,27 +72,59 @@ trigger half has no MCP primitive.
 Three OSS projects ship the exact ingress/egress split natively, and a
 fourth states it as a contract:
 
-| Project                        | License    | Where it says so                                                                                                                           |
-| ------------------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `letta-ai/letta-code`          | Apache-2.0 | `src/channels/README.md`: "A channel message can successfully reach the agent, but the agent still has to call `MessageChannel` to reply." |
-| `openclaw`                     | MIT        | `docs/channels/groups.md`: group rooms default to `messages.groupChat.visibleReplies: "message_tool"`; `"automatic"` is the opt-in         |
-| `yc-software/qm`               | MIT        | `src/core/orchestrator/surface-tools.ts`: `post` `reach` `react` `edit` `delete` plus `staySilent`; nothing posts without a call           |
-| Claude Code channels reference | —          | code.claude.com/docs/en/channels-reference: "the channel contract: capability declaration, notification events, reply tools …"             |
+| Project                        | License    | Where it says so                                                                                                                                                                                                                                                       |
+| ------------------------------ | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `letta-ai/letta-code`          | Apache-2.0 | `src/channels/README.md`: "A channel message can successfully reach the agent, but the agent still has to call `MessageChannel` to reply."                                                                                                                             |
+| `openclaw`                     | MIT        | `docs/channels/groups.md` (main, 2026-09-05): `messages.groupChat.visibleReplies: "message_tool"` is an opt-in mode; the default is `"automatic"`, the mode falls back to automatic when the tool is unavailable, and command turns and plugin-bound threads bypass it |
+| `yc-software/qm`               | MIT        | `src/core/orchestrator/surface-tools.ts`: `post` `reach` `react` `edit` `delete` plus `staySilent`; nothing posts without a call                                                                                                                                       |
+| Claude Code channels reference | —          | code.claude.com/docs/en/channels-reference: "the channel contract: capability declaration, notification events, reply tools …"                                                                                                                                         |
 
 So "a model's plain reply is not delivered" is a design pattern with
-public precedent, not an arizuko invention. Do not claim it as one.
+public precedent, not an arizuko invention. Do not claim it as one. What
+arizuko has and openclaw's mode does not is the absence of any
+auto-delivery path — no fallback, no command bypass, no plugin bypass.
+That is the defensible sentence. (`refs/` clones lag upstream by months;
+the openclaw row is cited from live `main`, never from `refs/`.)
 
 What none of the four has is a **permission scope with depth**. letta-code
 gates by sender allowlist per account (`dmPolicy`, `allowedUsers`,
-`admin_users`) and names no tenant or workspace. qm's scope is a closed,
-flat set of kinds (`personal | channel | team | org | group`), so it cannot
-express `corp/eng/sre/oncall`. openclaw gates per room. Systems with a
-real permission boundary — Dust, Onyx, Chatwoot — are symmetric: the
-connector posts the model's reply back directly. Nothing found applies
-folder-depth grants through one gate to both MCP and REST.
+`admin_users`), and the server under it authenticates with one shared
+password (`SECURE=true`, `LETTA_SERVER_PASSWORD`;
+docs.letta.com/guides/selfhosting) — no accounts, no tenants. qm's scope
+is a closed, flat set of kinds (`personal | channel | team | org |
+group`), so it cannot express `corp/eng/sre/oncall`. openclaw's operator
+scopes are, by its own docs, "not hostile multi-tenant isolation"
+(`docs/gateway/operator-scopes.md`). Hermes delivers replies "without
+special handling from the agent" — symmetric.
 
-Verdict: no adoptable router exists. The parts worth reading, not
-adopting:
+Systems with a real permission boundary are symmetric: Dust's Slack
+connector streams the answer itself (`connectors/src/connectors/slack/bot.ts`,
+`streamConversationToSlack`); Onyx's bot posts it
+(`backend/onyx/onyxbot/slack/handlers/handle_regular_answer.py`,
+`respond_in_thread_or_channel`); Chatwoot's own Captain posts it
+(`enterprise/app/jobs/captain/conversation/response_builder_job.rb`,
+under its proprietary `enterprise/` license), and its bring-your-own
+AgentBot is a webhook in and a REST call out — a helpdesk, not an agent
+runtime. Their scopes are flat: workspace, account, inbox.
+
+The gate itself has one near neighbour. `paperclipai/paperclip` (MIT)
+runs one policy engine — `allow | deny | require_approval | rate_limited
+| defer_runtime` — for the agent's `POST /api/tool-gateway/tools/call`
+and the human's `…/action-requests/:id/approve`
+(`doc/MCP-ACCESS-GOVERNANCE.md`): "one gate, two faces", shipped. Its
+scope is a fixed five-level lattice, `issue > routine > agent > project >
+company`, not a path, and it has no chat ingress (issues #7, #49). And
+in the field the two halves exclude each other inside one product:
+AnythingLLM's Telegram connector "only works in single-user mode …
+Enabling multi-user mode will automatically disconnect the bot"
+(docs.anythingllm.com/channels/telegram).
+
+Verdict: no adoptable router exists. The asymmetry is adoptable from
+three projects, the gate from Paperclip, the coordinate from Keycloak
+(`6/16`); the binding of one path to tenant, grant, route, egress, web
+host and file tree, applied by one gate to both MCP and REST, is not
+shipped anywhere found. The field by property is in `6/1`. The parts
+worth reading, not adopting:
 
 - mautrix `bridgev2` (MPL-2.0): the `RemoteEventType` taxonomy in
   `bridgev2/networkinterface.go` (message, upsert, edit, reaction, remove,
