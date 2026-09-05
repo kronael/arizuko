@@ -7,6 +7,30 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## ✅ FIXED 2026-09-05 L165 — an unknown `MCPArg.Type` silently declares a string property, so the argument never arrives (2026-09-05)
+
+`mcpArgOption` (`resreg/resreg.go:805-824`) switches on `"number"`, `"bool"`,
+`"array"` and falls through its `default` to `mcp.WithString` for everything
+else. A Type nobody typed correctly is therefore not an error: the tool schema
+advertises a string, the caller sends a JSON bool, and the argument is absent
+from `Args` — the handler writes its zero value and answers `{"ok":true}`.
+Found live while fixing `grant_option`: declared `Type: "boolean"`, the
+`add_acl` write was a no-op with no error on any surface, and the only symptom
+was a stored `0`. Two other resources spell it `"bool"`
+(`pending_actions.go:73`, `proxyd_routes.go:60,69`), so the correct spelling
+existed and the wrong one still registered cleanly. This is the silent-fallback
+class root `CLAUDE.md` forbids ("Strict, not magical").
+
+- **Severity:** medium (a mis-typed argument is silently dropped on the agent's
+  own management surface; the write reports success)
+- **Scope:** resreg MCP tool derivation
+- **Affected:** every resreg resource declaring `MCPArgs`
+- **Source:** `resreg/resreg.go:805-824`; measured 2026-09-05 against `add_acl`
+- **Status:** fixed. `Resource.checkMCPArgTypes` runs from `initMeta`, the
+  existing panic-on-misconfiguration path, so an unknown Type is a build
+  failure — every `Register` call is `init()`-time.
+- **Fix:** `fix(resreg): reject an unknown MCPArg.Type at registration`
+
 ## L164 — anteval's cost column is empty for 6 of 9 passing cases and `fresh-context` stalls 3 min on a turn that never ran (2026-09-05, open)
 
 Smoke on krons 2026-09-05 07:46-07:55, 9/9 pass. routd recorded 24 `cost_log`
@@ -27,7 +51,7 @@ per-case token figure cannot be trusted.
 - **Status:** open. Fix shape: read the turn id routd actually ran for the injected message instead of deriving `in-<msgid>`, and read cost after the turn's `round_done`, not on a fixed wait.
 - **Fix:**
 
-## L156 — runed's `warnChown` reports docker's root-owned `auth.json` mount stub in every group: 50 false EPERM warnings per restart (2026-09-05, open)
+## ✅ FIXED 2026-09-05 L156 — runed's `warnChown` reports docker's root-owned `auth.json` mount stub in every group: 50 false EPERM warnings per restart (2026-09-05)
 
 `runed` start runs `SeedCodexDirs` → `warnChown(<group>/.codex)`
 (`container/runtime.go:26-39`, `runner.go:1110-1117`). Each group's
@@ -47,8 +71,16 @@ in the 30-day journal).
 - **Scope:** runed startup / codex pre-seed
 - **Affected:** krons, marinade, sloth
 - **Source:** `container/runtime.go:26-39`, `container/runner.go:616`, `:1110-1117`; journal krons 2026-09-04T14:28:18
-- **Status:** open. Fix shape, in the original mechanism: `SeedCodexDirs` creates the empty `auth.json` stub as uid 1000 before docker does, so the mount target is already agent-owned; or `chownR` skips declared RO mount targets.
-- **Fix:**
+- **Verified:** `auth.json` AND `config.toml` are both 0-byte `root:root` under
+  every seeded group on krons (`adshaus`, `eval`, …), in a `.codex/` otherwise
+  owned by uid 1000 — so the daemon, not the agent, made them.
+- **Status:** fixed. `container.SeedCodexMountTargets` creates the RO overmount
+  targets as the running uid before the docker daemon has to, and replaces a
+  zero-length target it does not own (runed owns the directory, so it may
+  unlink what it may not chown). Called from `SeedCodexDirs` and from
+  `buildMounts`, which now builds the RO mount list from the same
+  `CodexROMounts` declaration.
+- **Fix:** `fix(container): own the codex RO mount targets before docker does`
 
 ## L157 — `SeedCodexDirs` derives "group" from a `.claude/` marker on disk, so a root-owned project dir is seeded and fails at every restart (2026-09-05, open)
 
@@ -67,10 +99,28 @@ dir with a `.claude/` marker gets a platform-seeded `.codex/`.
 - **Scope:** runed startup
 - **Affected:** sloth, marinade
 - **Source:** `container/runtime.go:14-39`; journal sloth 2026-09-04T14:30:23
-- **Status:** open — proposal, needs sign-off: seed per group on its first spawn under the run slot (the runner already does the lazy `MkdirAll`; the pre-seed exists only for the cold-start race), or read the group list from routd's `/v1/groups`, and delete the walk.
+- **Verified 2026-09-05:** `groups/main/trading/candles/downloader/` on sloth is
+  `drwxr-xr-x root root` and holds a root-owned `.claude/`; `routd.db.groups`
+  holds `coach, main, main/code, main/content, main/main, main/reading,
+  main/trading` and nothing below `main/trading`. The walk seeds a directory
+  that is not a group, and cannot.
+- **Verified, and it sharpens the proposal:** the race the walk exists to close
+  has no window in runed. `buildMounts` calls `os.MkdirAll(groupCodex)`
+  synchronously, in-process, before runed execs `docker run`
+  (`container/runner.go:611`), and a group's spawns are serialised by its run
+  slot. Docker never sees a missing bind source that runed is about to create.
+  The comment's cited precedent is `gateway.seedCodexDirs` — a topology that no
+  longer exists.
+- **Status:** open — proposal, needs sign-off. Preferred shape: DELETE the walk;
+  `buildMounts` already creates the directory and (since `L156`) its mount
+  targets, per group, at the moment the group actually spawns. That removes the
+  identity-derived-from-a-`.claude`-marker violation instead of narrowing it.
+  Alternative if the pre-seed must stay: read the group list from routd's
+  `/v1/groups`. Not shipped: deleting a startup mechanism is a control-flow
+  change.
 - **Fix:**
 
-## L158 — a Discord mention of the assistant is parsed as a child-group `@prefix` (2026-09-05, open)
+## ✅ FIXED 2026-09-05 L158 — a Discord mention of the assistant is parsed as a child-group `@prefix` (2026-09-05)
 
 discd rewrites the bot's own mention `<@botid>` to `@<assistant name>`
 (`discd/bot.go:763-768`). routd's prefix layer then reads `@sloth …` as a
@@ -86,8 +136,12 @@ silent delegation.
 - **Scope:** discd inbound → routd steer
 - **Affected:** sloth (any Discord group)
 - **Source:** `discd/bot.go:763-768`, `routd/steer.go:449-458`
-- **Status:** open. Fix shape, at the producer: discd drops the self-mention from the text — the `verb=mention` trigger already carries "the bot was addressed" (`bot.go:194-201`) — and keeps rewriting other users' mentions.
-- **Fix:**
+- **Status:** fixed at the producer. `replaceMentions` drops the self-mention
+  (`dropMention` takes one adjacent space with it, so no doubled or leading
+  space is left) and keeps rewriting other users' mentions. A message that is
+  nothing but the mention falls back to the bare assistant name: routd 400s on
+  empty content (`routd/server.go:501`), so a bare ping must keep text.
+- **Fix:** `fix(discd): drop the bot's own mention instead of rendering it @name`
 
 ## L159 — a scheduled task fires nightly into a Telegram chat teled already classified as permanently dead (2026-09-05, open)
 
@@ -107,10 +161,16 @@ the operator sees nothing.
 - **Scope:** teled terminal errors → routd chats / scheduled_tasks lifecycle
 - **Affected:** krons (`mayai`), marinade
 - **Source:** journal krons 2026-09-05T02:00:26-02:05:42; `routd.db` `scheduled_tasks`
-- **Status:** open — proposal, needs sign-off: on a permanent send or typing error (chat not found, chat deleted, bot kicked) mark the chat dead in `chats`, pause its scheduled tasks, and show it on the dashboard; the operator deletes or re-targets. No retry, no silent skip.
+- **Verified 2026-09-05:** `task-1776079794467-4c33dcb2` is still present on
+  krons with `chat_jid = telegram:group/5161994241`. And the verdict really has
+  no consumer: `chanlib.ErrPermanent` (`chanlib/handler.go:149`) is read only by
+  the OUTBOUND retry bound — `routd/loop.go:432` dead-letters the message row —
+  and nothing anywhere reads it to touch `chats`, `routes` or `scheduled_tasks`.
+  The chat stays live, the task stays armed, the container runs nightly.
+- **Status:** open — proposal, needs sign-off: on a permanent send or typing error (chat not found, chat deleted, bot kicked) mark the chat dead in `chats`, pause its scheduled tasks, and show it on the dashboard; the operator deletes or re-targets. No retry, no silent skip. This is a new lifecycle spanning teled, routd's chat/task tables and the dashboard, so it is not shipped inline.
 - **Fix:**
 
-## L160 — routd's poll loop resolves a chat after `db.Close()`: a "message dropped" ERROR at shutdown (2026-09-05, open)
+## ✅ FIXED 2026-09-05 L160 — routd's poll loop resolves a chat after `db.Close()`: a "message dropped" ERROR at shutdown (2026-09-05)
 
 sloth 2026-09-04 13:41:20.999 `routd stopping`; 22 ms later `resolve: route
 table read failed; message dropped as route-miss
@@ -127,10 +187,13 @@ occurrence in 7 days.
 - **Scope:** routd shutdown ordering
 - **Affected:** all instances
 - **Source:** `routd/cmd/routd/main.go:52,280-287`; `routd/loop.go:682-696`
-- **Status:** open. Fix shape: wait for `loop.Run` to return before `db.Close()` (done channel), the way `httpd` already gets `Shutdown`.
-- **Fix:**
+- **Status:** fixed. `Loop.Run` closes an internal `done`; `Loop.Wait(timeout)`
+  blocks on it and main calls it after `httpd.Shutdown`, before the deferred
+  `db.Close()`. A timeout exits WITHOUT closing — an unclosed SQLite WAL is
+  recovered on the next open, a dropped inbound message is not.
+- **Fix:** `fix(routd): wait for the poll loop before closing the DB`
 
-## L161 — every deploy logs `execution plane unreachable` at ERROR and ends a live turn with 137 (2026-09-05, open)
+## L161 — every deploy logs `execution plane unreachable` at ERROR and ends a live turn with 137 (2026-09-05, log half FIXED 2026-09-05; the stop half is a proposal)
 
 At each restart routd polls before runed listens: `dispatch run transport
 failure` → `execution plane unreachable; group work re-feeds on next poll`
@@ -146,10 +209,32 @@ ended `container exited with error code:137`; routd re-fed it after the restart
 - **Scope:** compose start ordering; runed stop
 - **Affected:** all instances
 - **Source:** journal sloth 2026-09-04T14:30:13-23; `runed/cmd/runed/main.go:152-179`
-- **Status:** open. Fix shape: routd waits on runed's healthcheck (`condition: service_healthy`) and the pre-listen transport failure logs at WARN; a live turn at stop is drained within the stop grace or its re-feed is recorded as such.
-- **Fix:**
+- **Correction to this entry.** `L25` did NOT fix this class with
+  `condition: service_healthy` — it shipped `chanlib.RouterClient.RetainInbound`
+  (a durable `inbound_pending` table). `service_healthy` appears NOWHERE in the
+  tree; the compose fragments all use the plain `depends_on: [routd]` list form.
+  So there is no precedent to follow, and the ordering fix was rejected on its
+  own merits: `routd` already declares `depends_on: [authd, runed]` and both
+  carry `healthBlock` (`interval: 30s`, `start_period: 15s`), so gating routd on
+  runed's health would delay the INGRESS by 15-45 s on every deploy and make
+  routd unstartable whenever runed is unhealthy. routd is what adapters deliver
+  into; keeping it down longer trades a log line for lost inbound.
+- **Status (log half): fixed.** The defect is the LEVEL, not the retry: the work
+  re-feeds, which is the correct handling of a transient remote failure. The log
+  site could not tell a restart from an outage, so it shouted on both. The queue
+  now tracks the outage itself (`depDownSince`/`depDownLoud`, queue-wide — the
+  plane is not per-group): WARN inside `dependencyDownGrace`, ERROR exactly ONCE
+  when the outage outlives it, WARN thereafter, INFO on recovery. The window
+  cannot be a failure COUNT — 26 groups fail in the same poll, so a fleet
+  crosses any count immediately.
+- **Status (stop half): proposal, needs sign-off.** A live turn SIGKILLed at
+  runed's stop (`exit 137`) is re-fed and its model spend paid twice. Draining
+  it means runed's stop path waits on the in-flight spawn (or records the kill
+  so the re-feed is attributed) — a change to the shutdown contract across
+  runed and routd, so it is not shipped here.
+- **Fix (log half):** `fix(queue): level the unreachable-plane log by outage, not by group`
 
-## L162 — slakd logs `slack inbound quiet; token healthy, not restarting` every minute, forever (2026-09-05, open)
+## ✅ FIXED 2026-09-05 L162 — slakd logs `slack inbound quiet; token healthy, not restarting` every minute, forever (2026-09-05)
 
 marinade: 1019 lines in the 17 h after the deploy, 1390 in the 24 h before;
 `stale_seconds` reached 61500 (17 h). The watchdog (`slakd/bot.go:291-313`)
@@ -162,8 +247,11 @@ filter the adapter that would carry a real one.
 - **Scope:** slakd watchdog
 - **Affected:** marinade
 - **Source:** `slakd/bot.go:291-313`
-- **Status:** open. Fix shape: warn once on the transition into stale and once on recovery; keep `stale_seconds` on `/health`.
-- **Fix:**
+- **Status:** fixed. The watchdog carries a `quiet` state: it warns on the edge
+  into quiet and logs `slack inbound resumed` on the edge out. An auth.test
+  failure clears the state, so a recovery back to quiet says so once.
+  `stale_seconds` still rides `/health` every tick.
+- **Fix:** `fix(slakd): warn on the edge into a quiet stream, not every tick`
 
 ## L163 — an adapter restart empties its in-memory `/files/<id>` cache, so attachments re-fed across the restart 404 and the agent gets the text only (2026-09-05, open)
 
@@ -178,7 +266,19 @@ names an attachment it never receives. Silent to the user.
 - **Scope:** chanlib file proxy / routd enrich
 - **Affected:** every adapter on `FileProxyHandler` (discd measured)
 - **Source:** `chanlib/urlcache.go`, `chanlib/handler.go:678-690`, `routd/enrich.go:96-112`
-- **Status:** open — proposal, needs sign-off: persist the id→url map in the adapter's own SQLite (the emaid precedent), or enrich delivers a visible placeholder in the text so the loss is not silent.
+- **Verified 2026-09-05, and it is wider than a restart.** `URLCache` is a
+  bounded LRU (`DefaultURLCacheSize = 4096`), so an id is also lost by
+  EVICTION, not only by restart — a busy adapter drops the oldest mapping while
+  running. The id is `sha256(url)[:12]`, derived from the URL it stands for,
+  which is what makes the third option below possible.
+- **Status:** open — proposal, needs sign-off. Three shapes, cheapest last:
+  (1) persist the id→url map in the adapter's own SQLite (the emaid precedent);
+  (2) enrich delivers a visible placeholder so the loss is not silent
+  (`routd/enrich.go:110` currently WARNs and `continue`s — the agent is told
+  nothing); (3) make the id a signed capability token that CARRIES the URL, so
+  the proxy holds no state and neither a restart nor an eviction can lose one.
+  (3) is the only one that makes the bad state impossible by construction, but
+  it changes the `/files/<id>` contract for every adapter on `FileProxyHandler`.
 - **Fix:**
 
 ## L153 — anteval `webhook-in`: the ingress worked and the agent answered the PREVIOUS case; a skill that hardcodes a nonce outlives the case that built it (2026-09-03, eval finding)
@@ -9226,5 +9326,5 @@ ship gate for a component whose shape `6/24` already changed, and `6/9` stays
 - **Status:** proposal (needs sign-off) — no split performed, nothing deleted
 - **Fix:**
 
-- [ ] `add_acl` and `POST /v1/acl` never write `grant_option` (`routd/acl_resource.go:290` vs `store/acl.go:16`), so re-delegation is reachable only through `resreg.Apply` — the live grant surfaces cannot express it.
-- [ ] `webd` registers with chanreg once and sends no heartbeat (`webd/main.go:127`), so three failed probes deregister the `web` channel until the daemon restarts.
+- [x] ✅ FIXED 2026-09-05 — `add_acl` and `POST /v1/acl` never write `grant_option` (`routd/acl_resource.go:290` vs `store/acl.go:16`), so re-delegation is reachable only through `resreg.Apply` — the live grant surfaces cannot express it. `aclArgsRow` reads the argument, `grantACLTx` writes the column and `list_acl` reports it; the Gate needed no change, because `auth.Delegate`'s `grantableRows` already only holds rows the caller has WITH the option. `fix(routd): write grant_option on the live acl grant surfaces`
+- [x] ✅ FIXED 2026-09-05 — `webd` registers with chanreg once and sends no heartbeat (`webd/main.go:127`), so three failed probes deregister the `web` channel until the daemon restarts. The heartbeat `chanlib.Run` ran inline is now `RouterClient.Heartbeat`, replaying the registration `Register` already saves; `chanlib.Run` and webd both start it. `fix(chanlib): one heartbeat every registering daemon can run`

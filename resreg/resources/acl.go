@@ -60,7 +60,8 @@ var ACLMCPDoc = map[resreg.Action]string{
 	resreg.Action("add"): "Grant a principal access to a folder scope (an acl row); scope '**' grants the operator role. " +
 		"You can only grant within your own authority. Defaults action=admin, effect=allow. " +
 		"`params` narrows the row to calls whose arguments match, as 'name=glob[,name=glob]' — " +
-		"it constrains ONLY the arguments it names, and a rule cannot name a non-scalar argument at all.",
+		"it constrains ONLY the arguments it names, and a rule cannot name a non-scalar argument at all. " +
+		"`grant_option` lets the grantee re-grant the row; you can only pass it on where you hold it yourself.",
 	resreg.Action("remove"): "Revoke a principal's access to a folder scope (drop an acl row); scope '**' revokes the operator role. " +
 		"You can only revoke within your own authority. `params` must match the row's narrowing EXACTLY — " +
 		"omit it to drop an un-narrowed row, and pass the same string to drop a narrowed one.",
@@ -78,6 +79,8 @@ var ACLMCPArgs = map[resreg.Action][]resreg.MCPArg{
 		{Name: "effect", Type: "string"},
 		{Name: "params", Type: "string",
 			Description: "narrow the row to matching call arguments: name=glob[,name=glob]"},
+		{Name: "grant_option", Type: "bool",
+			Description: "let the grantee re-grant this row to others; only grantable by a holder who has it"},
 	},
 	resreg.Action("remove"): {
 		{Name: "principal", Type: "string", Required: true},

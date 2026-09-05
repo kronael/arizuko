@@ -93,6 +93,7 @@ type fieldMeta struct {
 // initMeta builds resourceMeta from RowType + tags. Called at Register;
 // panics on misconfiguration (caller-fault, not runtime fault).
 func (r *Resource) initMeta() {
+	r.checkMCPArgTypes()
 	if r.RowType == nil {
 		return
 	}
@@ -1319,6 +1320,27 @@ func SubsystemOf(manifest map[string]any) (string, error) {
 	}
 	sort.Strings(subs)
 	return "", fmt.Errorf("resreg: manifest document mixes subsystems %v; one document must target one owner DB", subs)
+}
+
+// mcpArgTypes are the MCPArg.Type spellings mcpArgOption understands. Anything
+// else falls through its default and declares a STRING property, so an argument
+// the caller sends as a JSON bool or number never arrives and the write is a
+// silent no-op — `grant_option` was declared "boolean" and landed that way.
+// Registration is init-time, so the panic is a build failure, never a runtime
+// one.
+var mcpArgTypes = map[string]bool{
+	"": true, "string": true, "number": true, "bool": true, "array": true,
+}
+
+func (r *Resource) checkMCPArgTypes() {
+	for action, args := range r.MCPArgs {
+		for _, a := range args {
+			if !mcpArgTypes[a.Type] {
+				panic(fmt.Sprintf("resreg: %s %s arg %q: unknown MCPArg.Type %q (want one of string/number/bool/array)",
+					r.Name, action, a.Name, a.Type))
+			}
+		}
+	}
 }
 
 // --- registry ---------------------------------------------------------

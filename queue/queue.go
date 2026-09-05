@@ -5,9 +5,19 @@ import (
 	"log/slog"
 	"slices"
 	"sync"
+	"time"
 )
 
 const circuitBreakerThreshold = 3
+
+// dependencyDownGrace is how long the execution plane may be unreachable before
+// the queue calls it an outage rather than a restart. A deploy restarts routd
+// before runed listens, so the first polls always fail and the work re-feeds:
+// 26 ERROR lines in one krons restart, which trains the reader to filter the
+// line that would carry a real outage (BUGS L161). The grace cannot be a
+// FAILURE COUNT — every group fails in the same poll, so a fleet of 26 crosses
+// any count on the first one.
+const dependencyDownGrace = 60 * time.Second
 
 // ErrDependencyDown marks a failure the GROUP did not cause: the execution
 // plane was never reached, so no work was attempted on this group's behalf.
@@ -39,6 +49,17 @@ type GroupQueue struct {
 	processMessages processMessagesFn
 	folderForJid    folderForJidFn
 	shuttingDown    bool
+
+	// depDownSince is when the execution plane was first found unreachable in
+	// the current outage (zero when it is reachable); depDownLoud records that
+	// the outage was already reported at ERROR, so it is said once, not once
+	// per group per poll. Queue-wide, because the plane is.
+	depDownSince time.Time
+	depDownLoud  bool
+
+	// now is the clock, injectable so a test can cross dependencyDownGrace
+	// without waiting a minute.
+	now func() time.Time
 }
 
 func New(maxConcurrent int) *GroupQueue {
@@ -46,6 +67,7 @@ func New(maxConcurrent int) *GroupQueue {
 		groups:        make(map[string]*groupState),
 		activeFolders: make(map[string]string),
 		maxConcurrent: maxConcurrent,
+		now:           time.Now,
 	}
 }
 
@@ -147,6 +169,37 @@ func (q *GroupQueue) Shutdown() {
 		"activeCount", q.activeCount)
 }
 
+// logDependencyDown reports one unreachable-plane outcome at the level the
+// OUTAGE deserves. Caller holds q.mu.
+func (q *GroupQueue) logDependencyDown(groupJid string, err error) {
+	now := q.now()
+	if q.depDownSince.IsZero() {
+		q.depDownSince = now
+	}
+	down := now.Sub(q.depDownSince)
+	switch {
+	case down < dependencyDownGrace:
+		slog.Warn("execution plane unreachable; group work re-feeds on next poll",
+			"groupJid", groupJid, "down", down, "err", err)
+	case !q.depDownLoud:
+		q.depDownLoud = true
+		slog.Error("execution plane unreachable past the restart window; no group work is running",
+			"groupJid", groupJid, "down", down, "err", err)
+	default:
+		slog.Warn("execution plane still unreachable",
+			"groupJid", groupJid, "down", down, "err", err)
+	}
+}
+
+// clearDependencyDown ends the outage: the plane answered. Caller holds q.mu.
+func (q *GroupQueue) clearDependencyDown() {
+	if q.depDownLoud {
+		slog.Info("execution plane reachable again", "down", q.now().Sub(q.depDownSince))
+	}
+	q.depDownSince = time.Time{}
+	q.depDownLoud = false
+}
+
 func (q *GroupQueue) runForGroup(groupJid string) {
 	q.mu.Lock()
 	fn := q.processMessages
@@ -168,14 +221,20 @@ func (q *GroupQueue) runForGroup(groupJid string) {
 		// no-output as failure false-tripped the breaker after silent turns —
 		// discord channel chatter on sloth+marinade, 9ms after a 0-exit run.
 		s.consecutiveFailures = 0
+		q.clearDependencyDown()
 	case errors.Is(err, ErrDependencyDown):
-		// Loud, because an unreachable execution plane is an operator's problem —
-		// but neither success nor this group's failure, so the streak is left
-		// exactly as it was. Nothing ran, so there is nothing to credit or blame.
-		slog.Error("execution plane unreachable; group work re-feeds on next poll",
-			"groupJid", groupJid, "failures", s.consecutiveFailures, "err", err)
+		// Neither success nor this group's failure, so the streak is left exactly
+		// as it was: nothing ran, so there is nothing to credit or blame.
+		//
+		// The LEVEL is the plane's question, not the group's. A restart makes
+		// every group fail at once and the work re-feeds, so that is a WARN; an
+		// outage that outlives the restart window is an operator's problem and is
+		// reported ONCE at ERROR.
+		q.logDependencyDown(groupJid, err)
 	default:
-		// Only a failure attributable to processing THIS group counts.
+		// Only a failure attributable to processing THIS group counts. Reaching
+		// the group at all proves the plane answered.
+		q.clearDependencyDown()
 		s.consecutiveFailures++
 		slog.Error("error processing messages for group",
 			"groupJid", groupJid, "failures", s.consecutiveFailures, "err", err)

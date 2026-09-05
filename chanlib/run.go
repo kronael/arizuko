@@ -67,25 +67,7 @@ func Run(opts RunOpts) {
 	}
 	slog.Info("registered with router", "url", opts.RouterURL)
 
-	// Re-register every 3 minutes: routd auto-deregisters after 3 consecutive
-	// health failures (e.g. transient Telegram/Slack API 502). Under split
-	// topology, JWT auth and channel registration are decoupled, so inbound
-	// delivery still works (JWT passes) but outbound silently fails (channel
-	// not in registry). The heartbeat keeps the entry alive without restart.
-	go func() {
-		t := time.NewTicker(3 * time.Minute)
-		defer t.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-t.C:
-				if _, err := rc.Register(opts.Name, opts.ListenURL, opts.Prefixes, opts.Caps); err != nil {
-					slog.Warn("channel heartbeat failed", "name", opts.Name, "err", err)
-				}
-			}
-		}
-	}()
+	go rc.Heartbeat(ctx)
 
 	handler, stop, err := opts.Start(ctx, rc)
 	if err != nil {

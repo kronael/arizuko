@@ -132,6 +132,10 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("registered with router", "url", cfg.routerURL)
+	// routd auto-deregisters a channel after 3 failed health probes, and inbound
+	// keeps working while outbound silently fails — so `web` must heartbeat like
+	// every other adapter, not register once and hope.
+	go rc.Heartbeat(ctx)
 
 	ln, err := net.Listen("tcp", cfg.listenAddr)
 	if err != nil {

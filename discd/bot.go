@@ -756,15 +756,30 @@ func (b *bot) isMentioned(m *discordgo.MessageCreate) bool {
 	return false
 }
 
-// replaceMentions rewrites raw mention tokens to readable names: the bot's
-// own mention becomes @AssistantName, every other mentioned user becomes
-// @Username (resolved from the message's Mentions list, which Discord
-// populates for every in-content mention). Unresolved tokens stay verbatim.
+// replaceMentions rewrites raw mention tokens to readable names: every
+// mentioned user becomes @Username (resolved from the message's Mentions list,
+// which Discord populates for every in-content mention). Unresolved tokens stay
+// verbatim.
+//
+// The bot's OWN mention is DROPPED, not rewritten. Rendering it as
+// @<assistant name> put an `@name` at the head of every mention-triggered
+// message, and routd's prefix layer reads a leading `@name` as a delegation to
+// the child group of that name: one sloth message produced 7 `@prefix: child
+// group not found` warnings, and a child group actually named after the
+// assistant would turn every plain mention into a silent delegation (BUGS
+// L158). The `verb=mention` trigger already carries "the bot was addressed";
+// the text does not have to.
+//
+// A message that is nothing BUT the mention falls back to the bare assistant
+// name — routd rejects empty content with 400, so a bare ping must keep some
+// text. With no assistant name configured the raw token stays, unchanged.
 func replaceMentions(content, assistantName string, self *discordgo.User, mentions []*discordgo.User) string {
-	if self != nil && assistantName != "" {
-		at := "@" + assistantName
-		content = strings.ReplaceAll(content, "<@"+self.ID+">", at)
-		content = strings.ReplaceAll(content, "<@!"+self.ID+">", at)
+	if self != nil {
+		if s := dropMention(content, self.ID); strings.TrimSpace(s) != "" {
+			content = s
+		} else if assistantName != "" {
+			content = assistantName
+		}
 	}
 	for _, u := range mentions {
 		if u == nil || u.Username == "" {
@@ -773,6 +788,18 @@ func replaceMentions(content, assistantName string, self *discordgo.User, mentio
 		at := "@" + u.Username
 		content = strings.ReplaceAll(content, "<@"+u.ID+">", at)
 		content = strings.ReplaceAll(content, "<@!"+u.ID+">", at)
+	}
+	return content
+}
+
+// dropMention removes one user's mention tokens together with a single adjacent
+// space, so the removal leaves neither a doubled space nor a leading one. It
+// touches only the token, never the surrounding formatting.
+func dropMention(content, id string) string {
+	for _, tok := range []string{"<@" + id + ">", "<@!" + id + ">"} {
+		content = strings.ReplaceAll(content, tok+" ", "")
+		content = strings.ReplaceAll(content, " "+tok, "")
+		content = strings.ReplaceAll(content, tok, "")
 	}
 	return content
 }

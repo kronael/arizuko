@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/kronael/arizuko/audit"
@@ -612,12 +613,14 @@ func buildMounts(
 	os.MkdirAll(groupCodex, 0o755)
 	m = append(m, volumeMount{Host: hp(cfg, groupCodex), Container: containerHome + "/.codex"})
 	if cfg.HostCodexDir != "" {
-		m = append(m, volumeMount{
-			Host: filepath.Join(cfg.HostCodexDir, "auth.json"), Container: containerHome + "/.codex/auth.json", RO: true,
-		})
-		m = append(m, volumeMount{
-			Host: filepath.Join(cfg.HostCodexDir, "config.toml"), Container: containerHome + "/.codex/config.toml", RO: true,
-		})
+		SeedCodexMountTargets(groupCodex)
+		for _, name := range CodexROMounts {
+			m = append(m, volumeMount{
+				Host:      filepath.Join(cfg.HostCodexDir, name),
+				Container: containerHome + "/.codex/" + name,
+				RO:        true,
+			})
+		}
 	}
 
 	if len(in.Config.Mounts) > 0 {
@@ -1091,6 +1094,14 @@ func seedGroupDir(cfg *core.Config, folder string) error {
 }
 
 const containerUID = 1000
+
+// ownedByContainerUID reports whether a stat already names the agent uid, so a
+// caller can skip a repair it does not need. A platform without a Unix stat
+// answers false: repairing there is harmless, claiming ownership is not.
+func ownedByContainerUID(fi os.FileInfo) bool {
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	return ok && int(st.Uid) == containerUID
+}
 
 // mkSlot is the spawn-time backstop for a web slot SetupGroup should already
 // have created (a group registered before cfg.WebDir was set, say). runed runs

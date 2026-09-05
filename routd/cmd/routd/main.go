@@ -285,7 +285,19 @@ func main() {
 	sctx, scancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer scancel()
 	_ = httpd.Shutdown(sctx)
+
+	// Wait for the poll loop before the deferred db.Close() runs (BUGS L160).
+	// On a timeout, exit WITHOUT closing: an unclosed SQLite WAL is recovered on
+	// the next open, a dropped inbound message is not.
+	if !loop.Wait(loopStopTimeout) {
+		slog.Warn("poll loop still running at shutdown; exiting without closing the DB",
+			"timeout", loopStopTimeout)
+		os.Exit(0)
+	}
 }
+
+// loopStopTimeout bounds the shutdown wait for the poll loop.
+const loopStopTimeout = 10 * time.Second
 
 // keysetVerifier adapts auth.FetchKeys → routd.Verifier (offline JWT
 // verify). routd is a verifier, not a signer.

@@ -293,6 +293,12 @@ func (b *bot) watchdog(ctx context.Context) {
 	t := time.NewTicker(every)
 	defer t.Stop()
 	fails := 0
+	// quiet is the STATE "inbound is stale but the token is healthy". A quiet
+	// workspace is a state, not an event: re-warning every tick put 1019 lines
+	// in 17 h on marinade, which trains the reader to filter the adapter that
+	// would carry a real failure (BUGS L162, the L61 cadence class). Warn on the
+	// edge into quiet and on the edge out; `stale_seconds` stays on /health.
+	quiet := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -301,6 +307,10 @@ func (b *bot) watchdog(ctx context.Context) {
 			age := time.Now().Unix() - b.lastInboundAt.Load()
 			if age <= staleSec {
 				fails = 0
+				if quiet {
+					quiet = false
+					slog.Info("slack inbound resumed", "stale_seconds", age)
+				}
 				continue
 			}
 			// Stale: probe auth.test to tell "quiet" from "dead" and refresh /health.
@@ -308,9 +318,15 @@ func (b *bot) watchdog(ctx context.Context) {
 			b.connected.Store(authErr == nil)
 			if authErr == nil {
 				fails = 0
-				slog.Warn("slack inbound quiet; token healthy, not restarting", "stale_seconds", age)
+				if !quiet {
+					quiet = true
+					slog.Warn("slack inbound quiet; token healthy, not restarting", "stale_seconds", age)
+				}
 				continue
 			}
+			// The token stopped being healthy, so "quiet; token healthy" no longer
+			// holds: clear it so a recovery back to quiet says so once.
+			quiet = false
 			fails++
 			slog.Warn("slack inbound stale and auth.test failing", "stale_seconds", age, "consecutive", fails, "limit", limit)
 			if watchdogShouldExit(true, fails, limit) {

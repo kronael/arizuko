@@ -496,8 +496,10 @@ func TestOnMessage_Inbound(t *testing.T) {
 	if got.Sender != "discord:user/user-42" {
 		t.Errorf("Sender = %q", got.Sender)
 	}
-	if !strings.Contains(got.Content, "@Ari") {
-		t.Errorf("mention not replaced: %q", got.Content)
+	// The self-mention is dropped, not rendered: an `@name` at the head of the
+	// text is a child-group delegation to routd's prefix layer (BUGS L158).
+	if got.Content != "hi" {
+		t.Errorf("self-mention not dropped: %q", got.Content)
 	}
 	if got.Topic != "" {
 		t.Errorf("non-thread should have empty topic, got %q", got.Topic)

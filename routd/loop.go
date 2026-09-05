@@ -50,6 +50,10 @@ type Loop struct {
 	pollEvery  time.Duration
 	runTimeout time.Duration
 
+	// done closes when Run returns. Wait reads it so a caller can hold the DB
+	// open until the last poll has finished (BUGS L160).
+	done chan struct{}
+
 	// srv stands up the per-turn agent MCP socket in-process (ServeTurnMCP);
 	// set post-construction via BindServer (Loop↔Server is a deliberate cycle).
 	// folders resolves the per-folder ipc dir so routd and runed agree on the
@@ -240,6 +244,7 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 	}
 	l := &Loop{
 		db:              db,
+		done:            make(chan struct{}),
 		runner:          runner,
 		deliver:         cfg.Deliver,
 		pollEvery:       cfg.PollEvery,
@@ -303,6 +308,25 @@ func (l *Loop) StopQueue() {
 	}
 }
 
+// Wait blocks until Run has returned, or until timeout elapses; it reports
+// whether the loop stopped. The caller must not close the DB before it does:
+// Routes() then fails mid-poll and resolve() fails FORWARD — cursor advanced,
+// the inbound message dropped as a route-miss (BUGS L160, sloth 2026-09-04,
+// 22 ms after "routd stopping").
+//
+// The loop returns as soon as its current pollOnce finishes, so a timeout here
+// means a poll is genuinely stuck and the DB is still in use.
+func (l *Loop) Wait(timeout time.Duration) bool {
+	t := time.NewTimer(timeout)
+	defer t.Stop()
+	select {
+	case <-l.done:
+		return true
+	case <-t.C:
+		return false
+	}
+}
+
 // publishRoundDone fans a closed-turn notice to the web SSE channel, keyed on
 // the chat JID verbatim. The turns.go /result handler calls it on the first
 // terminal signal.
@@ -317,6 +341,7 @@ func (l *Loop) publishRoundDone(chatJID, turnID string) {
 // chats whose turn_context is still 'running' (crash recovery) from the
 // un-advanced agent_cursor.
 func (l *Loop) Run(ctx context.Context) {
+	defer close(l.done)
 	l.sweepOrphanSocks()
 	l.recoverPending()
 	if n, err := l.db.RecoverFiringTasks(); err != nil {

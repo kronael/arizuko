@@ -108,6 +108,7 @@ func (s *Server) aclHandler(ctx context.Context, x resreg.Execution) (any, error
 				"principal": r.Principal, "action": r.Action,
 				"scope": r.Scope, "effect": r.Effect,
 				"params": r.Params, "predicate": r.Predicate,
+				"grant_option": r.GrantOption,
 			})
 		}
 		return map[string]any{"folder": gf, "acl": out}, nil
@@ -240,11 +241,12 @@ func (s *Server) nonCanonicalWarning(principal string) string {
 // revokeACLTx pins `predicate=”` to match.
 func aclArgsRow(args resreg.Args) core.ACLRow {
 	return core.ACLRow{
-		Principal: argString(args, "principal"),
-		Action:    argString(args, "action"),
-		Scope:     argString(args, "scope"),
-		Effect:    argString(args, "effect"),
-		Params:    argString(args, "params"),
+		Principal:   argString(args, "principal"),
+		Action:      argString(args, "action"),
+		Scope:       argString(args, "scope"),
+		Effect:      argString(args, "effect"),
+		Params:      argString(args, "params"),
+		GrantOption: args.Bool("grant_option"),
 	}
 }
 
@@ -287,6 +289,12 @@ func aclOperatorShape(r core.ACLRow) bool {
 // as an empty literal until 2026-08-30, so no shaped rule was expressible on
 // this face at all — including the skip-approval row spec 6/26 Decision 5's
 // `always` verdict writes.
+//
+// `grant_option` is 5/33's WITH GRANT OPTION. Omitting it from the INSERT left
+// the column at its DEFAULT on both live grant surfaces, so re-delegation was
+// reachable only through `resreg.Apply`. The Gate is what keeps it honest: a
+// non-root writer passes auth.Delegate, whose grantableRows only ever holds
+// rows the caller itself holds WITH the option.
 func grantACLTx(ctx context.Context, tx *sql.Tx, row core.ACLRow) error {
 	grantedBy := row.GrantedBy
 	if grantedBy == "" {
@@ -296,11 +304,15 @@ func grantACLTx(ctx context.Context, tx *sql.Tx, row core.ACLRow) error {
 		return addMembershipTx(ctx, tx, row.Principal, "role:operator", grantedBy)
 	}
 	row = aclDefaults(row)
+	grantOption := 0
+	if row.GrantOption {
+		grantOption = 1
+	}
 	_, err := tx.ExecContext(ctx,
-		`INSERT OR IGNORE INTO acl (principal, action, scope, effect, params, predicate, granted_by, granted_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT OR IGNORE INTO acl (principal, action, scope, effect, params, predicate, granted_by, granted_at, grant_option)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		row.Principal, row.Action, row.Scope, row.Effect, row.Params, row.Predicate,
-		grantedBy, nowTS())
+		grantedBy, nowTS(), grantOption)
 	return err
 }
 

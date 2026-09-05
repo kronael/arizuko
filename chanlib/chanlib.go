@@ -182,16 +182,57 @@ func (r *RouterClient) Register(name, url string, prefixes []string, caps map[st
 	return resp.Token, nil
 }
 
-func (r *RouterClient) reregister() error {
+// savedRegistration returns the parameters of the last successful Register.
+// An empty name means Register never ran.
+func (r *RouterClient) savedRegistration() (name, url string, prefixes []string, caps map[string]bool) {
 	r.regMu.Lock()
-	name, url, prefixes, caps := r.regName, r.regURL, r.regPrefixes, r.regCaps
-	r.regMu.Unlock()
+	defer r.regMu.Unlock()
+	return r.regName, r.regURL, r.regPrefixes, r.regCaps
+}
+
+func (r *RouterClient) reregister() error {
+	name, url, prefixes, caps := r.savedRegistration()
 	if name == "" {
 		return fmt.Errorf("re-register: no saved params (Register was never called)")
 	}
 	slog.Warn("re-registering channel after 401", "name", name)
 	_, err := r.Register(name, url, prefixes, caps)
 	return err
+}
+
+// heartbeatEvery paces the registration refresh.
+const heartbeatEvery = 3 * time.Minute
+
+// Heartbeat re-registers with the saved parameters until ctx ends. EVERY daemon
+// that registers a channel must run one: routd auto-deregisters after 3
+// consecutive failed health probes (`chanreg/health.go`), and under split
+// topology JWT auth and channel registration are decoupled — so a deregistered
+// adapter keeps receiving inbound while its OUTBOUND silently fails, until the
+// process restarts. webd registered once and ran no heartbeat, which is how
+// the `web` channel disappeared for a whole daemon lifetime.
+//
+// Register must have run first; with no saved registration it does nothing.
+func (r *RouterClient) Heartbeat(ctx context.Context) {
+	r.heartbeat(ctx, heartbeatEvery)
+}
+
+func (r *RouterClient) heartbeat(ctx context.Context, every time.Duration) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			name, url, prefixes, caps := r.savedRegistration()
+			if name == "" {
+				continue
+			}
+			if _, err := r.Register(name, url, prefixes, caps); err != nil {
+				slog.Warn("channel heartbeat failed", "name", name, "err", err)
+			}
+		}
+	}
 }
 
 func (r *RouterClient) Deregister() error {
