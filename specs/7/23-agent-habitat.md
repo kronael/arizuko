@@ -7,8 +7,8 @@ depends: [22-rust-track]
 
 The record of a design session, kept so the argument does not have to be
 had twice. Nothing here is a change to make; it is the shape the system
-already has, named, plus what is genuinely missing and what the outside
-world already calls these things.
+already has, named, what the outside world already calls these things,
+and which of them a stranger can adopt off the shelf.
 
 ## The thesis
 
@@ -49,33 +49,61 @@ Three properties force the asymmetry, and they are independent:
 
 ## What the outside world calls this
 
-Researched 2026-09-05. The split is common in shape and named three
-times, in none of them for agents:
+Researched 2026-09-05 against primary sources. The split is common in
+shape and named three times, in none of them for agents:
 
-| Vocabulary                       | Name                              |
-| -------------------------------- | --------------------------------- |
-| Cockburn, hexagonal architecture | driving vs driven adapters        |
-| Enterprise Integration Patterns  | Normalizer + Canonical Data Model |
-| Industry (Zapier, n8n, Composio) | triggers vs actions               |
+| Vocabulary                       | Name                              | Source                                                                                   |
+| -------------------------------- | --------------------------------- | ---------------------------------------------------------------------------------------- |
+| Cockburn, hexagonal architecture | driving vs driven adapters        | alistair.cockburn.us/hexagonal-architecture                                              |
+| Enterprise Integration Patterns  | Normalizer + Canonical Data Model | enterpriseintegrationpatterns.com/patterns/messaging/Normalizer.html                     |
+| Industry (Zapier, n8n, Composio) | triggers vs actions               | help.zapier.com 8496181725453 · docs.n8n.io node-types · docs.composio.dev/docs/triggers |
 
-MCP's own specification names only the egress half — tools are
-"model-controlled" — and defines no server-initiated inbound feature at
-all.
+MCP names only the egress half: tools are "model-controlled"
+(modelcontextprotocol.io/specification/2025-06-18/server/tools; the
+current revision is 2025-11-25). The protocol does carry server-initiated
+requests — `sampling/createMessage`, `elicitation/create`, `roots/list`,
+the `list_changed` and `resources/updated` notifications, and the
+2025-11-25 experimental tasks — but every one runs inside a session the
+client already opened. None starts a turn from an external event. The
+trigger half has no MCP primitive.
 
-**One OSS project ships the exact combination**: `letta-ai/letta-code`,
-whose `MessageChannel` tool documentation states that a normal assistant
-response is not delivered back to the channel automatically.
-`openclaw` has it as a per-turn mode; Claude Code's channels reference
-states it as a contract.
+## The asymmetry is not rare; the pairing is
 
-**Nobody pairs it with tenancy.** Systems with a real permission boundary
-(Dust, Onyx, Chatwoot) are all symmetric — the connector posts back
-directly. Nothing found has folder-depth grants applied by one gate to
-both MCP and REST.
+Three OSS projects ship the exact ingress/egress split natively, and a
+fourth states it as a contract:
 
-Verdict: no adoptable router exists. Two things are worth reading for
-parts — mautrix `bridgev2`'s event taxonomy and `PortalKey` identity
-type, and n8n's `connect_credentials` per-caller credential gate.
+| Project                        | License    | Where it says so                                                                                                                           |
+| ------------------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `letta-ai/letta-code`          | Apache-2.0 | `src/channels/README.md`: "A channel message can successfully reach the agent, but the agent still has to call `MessageChannel` to reply." |
+| `openclaw`                     | MIT        | `docs/channels/groups.md`: group rooms default to `messages.groupChat.visibleReplies: "message_tool"`; `"automatic"` is the opt-in         |
+| `yc-software/qm`               | MIT        | `src/core/orchestrator/surface-tools.ts`: `post` `reach` `react` `edit` `delete` plus `staySilent`; nothing posts without a call           |
+| Claude Code channels reference | —          | code.claude.com/docs/en/channels-reference: "the channel contract: capability declaration, notification events, reply tools …"             |
+
+So "a model's plain reply is not delivered" is a design pattern with
+public precedent, not an arizuko invention. Do not claim it as one.
+
+What none of the four has is a **permission scope with depth**. letta-code
+gates by sender allowlist per account (`dmPolicy`, `allowedUsers`,
+`admin_users`) and names no tenant or workspace. qm's scope is a closed,
+flat set of kinds (`personal | channel | team | org | group`), so it cannot
+express `corp/eng/sre/oncall`. openclaw gates per room. Systems with a
+real permission boundary — Dust, Onyx, Chatwoot — are symmetric: the
+connector posts the model's reply back directly. Nothing found applies
+folder-depth grants through one gate to both MCP and REST.
+
+Verdict: no adoptable router exists. The parts worth reading, not
+adopting:
+
+- mautrix `bridgev2` (MPL-2.0): the `RemoteEventType` taxonomy in
+  `bridgev2/networkinterface.go` (message, upsert, edit, reaction, remove,
+  read receipt, delivery receipt, typing, chat info change, resync,
+  delete, backfill) and `networkid.PortalKey` — a room identity that
+  is `(portal, receiver)`, never a parsed string.
+- n8n's **end-user credentials**
+  (docs.n8n.io/administer/manage-credentials/end-user-credentials): a
+  workflow runs with the credential of the person who triggered it, not a
+  fixed one. n8n's RBAC scopes are `credential:create|read|update|delete|
+list|share|move`; there is no `connect_credentials` identifier.
 
 ## The permission gradient
 
@@ -100,26 +128,35 @@ Putting egress behind MCP does NOT move the platform credential into the
 broker. routd's tools delegate to the adapter's `/send`, so the token
 stays in the adapter; the tool holds the **authority** (the grant gate),
 not the credential. Composio and Arcade are the products where the tool
-server holds the credential. The agent holds it in neither case, but the
-distinction matters when comparing designs.
+server holds the credential: Composio "injects the connected account's
+credentials server-side" (docs.composio.dev/docs/connected-accounts) and
+Arcade "will securely inject the OAuth token into the tool's Context"
+(docs.arcade.dev, create-tool-auth). The agent holds it in neither case,
+but the distinction matters when comparing designs.
 
 ## Open threads
 
 - `webd` registers as the `web` channel (`webd/main.go:127`). `hook:` is
-  the scheme that does not register — it is delivered by source name
-  (`routd/deliver.go:55-64`), which is consistent with it being the
-  capability-token door for senders that cannot authenticate rather than
-  a channel.
+  the scheme that does not register: routd composes
+  `hook:<target-folder>/<source>` JIDs itself
+  (`routd/route_tokens_resource.go`) and `Loop.directFolder`
+  (`routd/loop.go`) resolves them through `groupfolder.JidFolder` and then
+  `RouteTokenTarget` — the token's target is read before the JID's folder.
+  That is consistent with `hook:` being the capability-token door for
+  senders that cannot authenticate rather than a channel.
 - `HasCap` is consulted in `chanreg/httpchan.go` (18 sites) when folding
-  options, and never exposed to the agent, so a model learns a channel's
-  limits by failing rather than by looking.
-- Tenancy rides `route_tokens.target_folder` as well as the JID, and the
-  token target is read first (`routd/loop.go:762`).
+  options, and never exposed to the agent (no site in `ipc/` or
+  `routd/`), so a model learns a channel's limits by failing rather than
+  by looking.
 - Every shipped package manifest in `template/services/` declares only
-  `proxyd_routes`. Whether the apply engine supports more sections than
-  any package uses was not established.
+  `proxyd_routes`. The apply engine accepts more: `resreg.Apply`
+  (`resreg/engine.go`) takes every key that names a resource registered
+  with `Resource.DB == subsystem`, and `cmd/arizuko/packages.go` already
+  builds `skills` and grants beside the routes. A package can declare a
+  scheduled task or a network rule today; none does.
 
 ## Ties
 
 `22-rust-track` · `21-storage-seam` · `6/16` daemon standalone matrix ·
-`5/33` paths and roles (the grant model) · `5/34` channel protocol.
+`6/1` adoption (the field measured by property) · `5/33` paths and roles
+(the grant model) · `5/34` channel protocol.
