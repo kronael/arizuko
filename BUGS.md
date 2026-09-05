@@ -9225,3 +9225,6 @@ ship gate for a component whose shape `6/24` already changed, and `6/9` stays
   `tests/components/imports_test.go`
 - **Status:** proposal (needs sign-off) — no split performed, nothing deleted
 - **Fix:**
+
+- [ ] `add_acl` and `POST /v1/acl` never write `grant_option` (`routd/acl_resource.go:290` vs `store/acl.go:16`), so re-delegation is reachable only through `resreg.Apply` — the live grant surfaces cannot express it.
+- [ ] `webd` registers with chanreg once and sends no heartbeat (`webd/main.go:127`), so three failed probes deregister the `web` channel until the daemon restarts.
