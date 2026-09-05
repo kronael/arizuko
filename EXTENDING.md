@@ -371,7 +371,7 @@ separate "webhook adapter" abstraction.
 ## Checking a component against the contract
 
 Any daemon — yours, or one shipped from outside this repo — is checked
-against the component contract (`specs/6/7-environment-contracts.md`) by
+against the component contract by
 probing it while it runs:
 
 ```bash
@@ -727,7 +727,7 @@ a Claude Code `PostToolUse` hook (`ant/src/claude.ts`); another harness
 maps it to whatever its protocol offers.
 
 Short of a wholesale replacement, ant ships a **harness chassis**
-(spec [`6/7`](specs/6/7-environment-contracts.md) § "The harness
+(the harness
 seam"): its runtime half (stdin parse, IPC steering, the `<status>`
 pipeline, idempotent `submit_turn`) is reused, and the harness half is
 one requirements-shaped interface (`Turn` in, `Frame`s out, one `run()`

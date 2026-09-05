@@ -1,12 +1,7 @@
 ---
 status: shipped
 shipped: 2026-09-05
-depends:
-  [
-    ../6/7-environment-contracts,
-    ../5/16-mcp-rest-unification,
-    ../5/33-paths-roles,
-  ]
+depends: [../5/16-mcp-rest-unification, ../5/33-paths-roles]
 ---
 
 # specs/7/21 — the storage seam: Postgres, and no seam

@@ -2,7 +2,6 @@
 status: shipped
 depends:
   [
-    7-environment-contracts,
     ../4/P-personas,
     ../5/Y-output-styles-per-surface,
     ../8/A-hierarchical-skills,

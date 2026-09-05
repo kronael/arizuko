@@ -84,8 +84,8 @@ their APIs; they do not reimplement yours.**
 
 arizuko has two such environments — the **agent environment** (event + tools +
 home) and the **component environment** (what a daemon gets and owes).
-[`6/7`](7-environment-contracts.md) owns both contracts and their conformance
-(agent: `anteval` per backend; component: a probe against a live process).
+Conformance is measured, not declared: `anteval` per backend for the agent,
+a probe against a live process for the component.
 `6/16`'s four-layer model is the map of where the seams are.
 
 ## Tracks, ranked
@@ -200,7 +200,6 @@ it.
 
 ## Ties
 
-[`6/7`](7-environment-contracts.md) (the two contracts — owns the terms) ·
 [`6/16`](16-daemon-standalone-matrix.md) (the four layers; the counterpart per
 commodity part) · `7/23` (the ingress/egress asymmetry and its precedents) ·
 `specs/5/A` (positioning) · `USELESS.md` (honest gaps) · the Agent Research

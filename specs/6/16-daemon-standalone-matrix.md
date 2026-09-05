@@ -82,10 +82,10 @@ names it as the mirror.
 
 The consequence that matters: **a second backend — pi, codex — is a sibling of
 `ant`, not of runed.** Writing the slot's contract is the precondition for
-backends, for a substrate change, and for shipping the channel layer — one
-document, three unblocked items. That document is
-[`6/7`](7-environment-contracts.md), which owns both contracts and their
-conformance.
+backends, for a substrate change, and for shipping the channel layer. The
+harness seam is the shipped answer for the first: `ant/src/backend.ts` owns
+the seam types and the selector, and `ARIZUKO_BACKEND` fails loudly on an
+unknown name.
 
 A part is shippable exactly when its contract with the neighbouring layer is
 statable in one sentence. That is why the substrate ("run a workload with this
@@ -217,8 +217,7 @@ only `auth`, `db_utils`, `obs` and `theme`: JWT verification, migrations, loggin
 adds `audit` + `core`). The product is "one normalized envelope, N platforms,
 with reconnect, declared capabilities and idempotent send"; the gate is
 writing the envelope as a contract rather than "whatever routd accepts"
-([`6/7`](7-environment-contracts.md) names this as one of its three unblocked
-items; the protocol spec is `5/34`).
+(the protocol spec is `5/34`).
 
 **`router` ships; routd does not.** `router/` has exactly one internal dep
 (`core`) and matching a message against a route table knows nothing about
