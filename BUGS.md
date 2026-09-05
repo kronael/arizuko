@@ -10048,3 +10048,39 @@ whether to build the stronger one.
 - **Source:** `proxyd/main.go:773` `attachTransit`; `auth/service.go:59` `Token`
 - **Status:** open — proposal: either mint per request through `POST /v1/tokens` (one authd round trip per request, the tax step 3 already accepts for authorization) and pin freshness with a per-response `jti` test, or accept the TTL-bounded property as the design and drop the per-request wording for good
 - **Fix:**
+
+## L192 — `idempotency_keys` has no writer: the table exists, a sweep deletes from it, nothing inserts (2026-09-05, open — dead schema)
+
+`routd/migrations/0001-initial-schema.sql:164` creates `idempotency_keys`
+with an expiry index; the only statement that names it in Go is the sweep
+`DELETE FROM idempotency_keys WHERE expires_at < ?` (`routd/tokens.go:92`).
+No `INSERT` exists anywhere in tracked code, and the table holds 0 rows on
+krons. Outbound idempotency lives in `chanlib/dedup.go` (`outbound_dedup`),
+so the routd table is a leftover, and the sweep is work against an empty
+table on every tick. `7/21` cited a `messages + idempotency_keys`
+transaction; the 2026-09-05 census found none.
+
+- **Severity:** low (no behaviour; dead DDL and a no-op sweep)
+- **Scope:** `routd/migrations`, `routd/tokens.go`
+- **Affected:** readers of the schema; the sweep loop
+- **Source:** `grep -rn idempotency_keys --include='*.go' --include='*.sql'`; `SELECT COUNT(*)` on krons `routd.db`
+- **Status:** open
+- **Fix:** a migration that drops the table, and delete the sweep — or an insert at the ledger site, if one was meant to exist
+
+## L193 — `7/22` and `specs/index.md` argue from the "27 of 43" census and the storage seam that `7/21` declined (2026-09-05, open — docs, spec owner)
+
+`specs/7/22-rust-track.md` §"Rust buys nothing for the cloud" says the cloud
+track "proceeds through the storage seam" and repeats "~27 of 43". `7/21`
+now records 26 of 47 and declines the seam: `database/sql` is the seam and
+the engines that keep the transactions are off the shelf. `7/22`'s
+conclusion — Rust buys nothing for the cloud because the constraint is the
+transaction — still holds, but its premise names a component that will not
+be built. `specs/index.md` lines 23 and 58 still call phase 7 "the storage
+seam".
+
+- **Severity:** low (docs drift, no runtime effect)
+- **Scope:** `specs/7/22`, `specs/index.md`
+- **Affected:** readers of the phase-7 specs
+- **Source:** `grep -n '27 of 43\|storage seam' specs/7/22-rust-track.md specs/index.md`
+- **Status:** open — docs
+- **Fix:** one paragraph in `7/22` pointing at the `7/21` census; two phrases in `specs/index.md`
