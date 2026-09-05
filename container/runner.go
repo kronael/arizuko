@@ -26,7 +26,6 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/diary"
 	"github.com/kronael/arizuko/groupfolder"
-	"github.com/kronael/arizuko/ipc"
 	"github.com/kronael/arizuko/mountsec"
 	"github.com/kronael/arizuko/router"
 	"github.com/kronael/arizuko/store"
@@ -104,13 +103,8 @@ type Input struct {
 	// runed's RunTTL and set just below it so the agent aborts + delivers a
 	// graceful summary BEFORE runed's hard container kill. 0 = unset (agent
 	// uses its built-in default).
-	QueryTimeoutMs int64        `json:"-"`
-	Annotations    []string     `json:"-"`
-	GatedFns       ipc.GatedFns `json:"-"`
-	StoreFns       ipc.StoreFns `json:"-"`
-	// ExternalMCP: the MCP socket is owned by the caller (routd hosts it
-	// in-process); skip the in-container ServeMCP, just mount the ipc dir.
-	ExternalMCP bool `json:"-"`
+	QueryTimeoutMs int64    `json:"-"`
+	Annotations    []string `json:"-"`
 
 	Egress EgressConfig `json:"-"`
 
@@ -243,26 +237,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 		return Output{Error: "stderr pipe: " + err.Error()}
 	}
 
-	stopMCP := func() {}
-	if ipcDir != "" && !in.ExternalMCP {
-		sockPath := groupfolder.IpcSocket(ipcDir)
-		// Expected peer uid for SO_PEERCRED check and socket chown.
-		// Defaults to 1000 (ant image's `node` user). In dev, the host
-		// uid may be propagated via --user <uid>:<gid>; match it.
-		expectedUID := 1000
-		if uid := os.Getuid(); uid > 0 && uid != 1000 {
-			expectedUID = uid
-		}
-		if stop, err := ipc.ServeMCP(sockPath, in.GatedFns, in.StoreFns, in.Folder, in.Elevated, expectedUID, os.Getenv("ARIZUKO_LOCAL_SUB")); err != nil {
-			slog.Warn("failed to start MCP server",
-				"group", in.Folder, "container", containerName, "err", err)
-		} else {
-			stopMCP = stop
-		}
-	}
-
 	if err := cmd.Start(); err != nil {
-		stopMCP()
 		// The docker CLI did not launch (missing or not executable) — a
 		// host misconfiguration; a retry spawns nothing (BUGS F73).
 		return Output{Error: "start: " + err.Error(), Terminal: true}
@@ -393,8 +368,6 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	if softDeadline != nil {
 		softDeadline.Stop()
 	}
-
-	stopMCP()
 
 	elapsed := time.Since(start)
 

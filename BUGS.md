@@ -9796,3 +9796,110 @@ wire change; decide before adding the field.
 - **Source:** `discd/bot.go` FetchHistory, `routd/mcp.go` fetchPlatformHistory
 - **Status:** proposal (needs sign-off)
 - **Fix:**
+
+## L185 — proposal: `arizuko` runtime verbs as HTTP clients need a CLI principal and an audit-surface decision; refused as a mechanical cut (2026-09-05, proposal — needs sign-off)
+
+Spec 6/36 S4 moves the nine `cmd/arizuko` writers (`grant`, `route`,
+`network`, `secret`, `token`, `send`, `packages`, `apply`, `skills`) from
+`store` onto routd's `/v1`, after `talk.go`'s shape. Measured at `f86e84b2`,
+four facts make it a redesign, not a cut:
+
+1. **Credential.** Only routd publishes a host port (`compose/compose.go`
+   `routdService`, `API_PORT:8080`); authd publishes none, so the CLI cannot
+   exchange `AUTHD_SERVICE_KEY` for a service token. The one host-side bearer
+   is `mintBearer` (`cmd/arizuko/token.go`), which reads authd's ACTIVE
+   PRIVATE KEY from `auth.db`. The trust root stays the filesystem; the cut
+   moves the FS access from a `routd.db` write to an `auth.db` key read.
+2. **Authorization.** routd's REST gates (`aclRESTGate`, `routesRESTGate`)
+   authorize by bearer scope + JWT folder, not by `acl` rows, so a root
+   bearer with `acl:write` CAN make the bootstrap grant over HTTP — the
+   principal question does not block. What changes: every runtime verb needs
+   routd up. `arizuko grant` with routd stopped fails where today it writes.
+3. **Audit surface.** `store.AsCLI` records a CLI mutation as `cli:<osuser>`
+   on surface `cli`; its own comment calls recording it as REST "a lie the
+   audit trail cannot detect". Over `/v1` routd records `user:<bearer sub>`
+   on surface `rest`. Every CLI mutation's audit row changes shape.
+4. **`send`.** `operatorInject` (`cmd/arizuko/send.go`) is the second
+   `messages` appender 6/36 §2 names; routd's poll (`routd/loop.go`
+   `pollOnce` → `NewMessages`) does pick the row up, so the gap is the
+   skipped ingest enrichment, not delivery. `POST /v1/messages` acks
+   `{ok,id}` with no turn id, and `--wait`/`--stream` poll
+   `BotRepliesSince` on the DB; none of the five `GET /v1/messages/*` reads
+   is a bot-reply cursor for one chat, so an HTTP `send --wait` needs a new
+   read endpoint.
+
+Line count: the runtime-mutation bodies in those files total ~750 lines and
+each `store` call becomes an HTTP call of the same size plus bearer minting.
+The "~1k lines removed" is a move, not a removal.
+
+Decision needed: (a) the CLI stays an FS-root operator (as is; `resreg.Apply`
+remains the ungated second engine 6/36 §11 names), or (b) it becomes a REST
+client under a `user:cli` principal, retiring audit surface `cli` and adding
+a `/v1` reply read for `send`.
+
+- **Severity:** low
+- **Scope:** cmd/arizuko write verbs
+- **Affected:** operators of `arizuko grant|route|network|secret|token|send`
+- **Source:** `cmd/arizuko/{main,route,network,secret,token,send}.go`;
+  `compose/compose.go` routdService; `store/store.go` AsCLI;
+  `routd/acl_resource.go` aclRESTGate
+- **Status:** proposal (needs sign-off)
+- **Fix:**
+
+## L186 — proposal: dashd's admin writes over routd's `/v1` need a forwarder trust routd does not have; refused as a cut (2026-09-05, proposal — needs sign-off)
+
+Spec 6/36 S1 says `webd/routes_mcp.go` proves the audit-actor bridge
+(`X-User-*` forwarded under a service bearer). Measured at `f86e84b2`: that
+bridge exists only at proxyd — `proxyd/resource.go` `trustedForwarders =
+[webd, dashd]` and `channelTrusted`. routd's verifier
+(`routd/cmd/routd/main.go` `keysetVerifier.Verify`) is `auth.VerifyHTTP`
+alone: it returns the bearer's own sub and never reads `X-User-*`, and
+`auth.ProxydTransit` pins `service:proxyd`. dashd's `bearerCall`
+(`dashd/engagement_page.go`) sends no `X-User-*` to routd on purpose:
+"routd and authd authorize the BEARER".
+
+S1 therefore has two shapes, both redesigns: (a) routd grows a forwarder
+allowlist like proxyd's and honors `X-User-*` under `service:dashd` — a new
+trust edge on the daemon that owns `acl`; or (b) dashd writes under its own
+bearer and the audit actor becomes the daemon — the regression
+`store.AsUser` exists to prevent. Also absent: `POST /v1/groups`
+(`resreg/resources/groups.go`: register is MCPOnly, "no daemon serves POST
+/v1/groups"). dashd's create is one transaction over `groups`,
+`SeedMemberRoleTx`, the creator's `admin` row and the audit row, plus
+`container.SetupGroup` on the groups mount; 6/36 S11 needs the same handler.
+
+Shipped instead, the safe half S1 lists "on the way": dashd's route update
+and delete write through the store's audited transaction as the operator
+(`AsUser(sub).UpdateRoute` / `DeleteRoute`); the raw `DELETE` + `audit.Emit`
+outside the transaction as `rest:dashd`, and the audit-free
+`UpdateRouteRow`/`DeleteRouteRow` twins, are gone.
+
+Decision needed: shape (a) or (b), and whether `groups.create` lands on
+routd's `/v1` first — it is the precondition for both S1 and S11.
+
+- **Severity:** medium
+- **Scope:** dashd ↔ routd identity on `/v1` writes
+- **Affected:** dashd, routd
+- **Source:** `proxyd/resource.go` trustedForwarders;
+  `routd/cmd/routd/main.go` keysetVerifier; `dashd/engagement_page.go`
+  bearerCall; `resreg/resources/groups.go` GroupsAgentEndpoints
+- **Status:** proposal (needs sign-off)
+- **Fix:**
+
+## L187 — `ARIZUKO_LOCAL_SUB` has no reader (2026-09-05, open — docs)
+
+Its only reader was the in-runner `ipc.ServeMCP` branch in
+`container/runner.go`, which the split never took (runed spawned with the
+socket owned by routd) and which is now deleted. `ipc.ServeMCP` still takes
+`callerSub`; routd passes the turn's identity, not this env var. CHANGELOG
+v0.42.0 and `ant/skills/self/migrations/136-v0.42.0-local-auth-cli-audit.md`
+document the variable as a grants-check switch for local sessions; it does
+nothing. Either document it as retired or wire it where `arizuko chat` opens
+the root socket.
+
+- **Severity:** low
+- **Scope:** local-dev MCP identity
+- **Affected:** operators who set it
+- **Source:** `ipc/ipc.go` ServeMCP callerSub; `container/runner.go`
+- **Status:** open
+- **Fix:**

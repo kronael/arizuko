@@ -189,7 +189,7 @@ func TestDockerRuntimeCtxDeadlineKills(t *testing.T) {
 	defer cancel()
 	res := rt.Run(ctx, RunSpec{
 		RunID: "run_ttl", Folder: "demo", ContainerName: "arizuko-test-demo-ttl",
-		MessageBatch: "m",
+		MessageBatch:  "m",
 		RegisterSteer: func(func(string) bool) {},
 	})
 	select {
@@ -228,7 +228,7 @@ func TestDockerRuntimeNoKillOnFastRunWithinDeadline(t *testing.T) {
 	defer cancel()
 	rt.Run(ctx, RunSpec{
 		RunID: "run_fast", Folder: "demo", ContainerName: "arizuko-test-demo-fast",
-		MessageBatch: "m",
+		MessageBatch:  "m",
 		RegisterSteer: func(func(string) bool) {},
 	})
 	// Wait past the (already-disarmed) deadline to prove no late kill fires.
@@ -335,8 +335,7 @@ func TestDockerRuntimeCancelKills(t *testing.T) {
 
 // TestContainerConfigToGroupConfig: the opaque RunRequest.ContainerConfig map
 // round-trips into container.Input.Config (core.GroupConfig) via JSON, and the
-// per-group Model override flows onto Input.Model. routd owns the MCP socket
-// in-process, so runed spawns with ExternalMCP=true (no in-process ServeMCP).
+// per-group Model override flows onto Input.Model.
 func TestContainerConfigToGroupConfig(t *testing.T) {
 	folders := &groupfolder.Resolver{GroupsDir: t.TempDir(), IpcDir: t.TempDir()}
 	runner := &blockingRunner{
@@ -360,9 +359,6 @@ func TestContainerConfigToGroupConfig(t *testing.T) {
 	in := runner.last.Load()
 	if in == nil {
 		t.Fatal("runner never spawned")
-	}
-	if !in.ExternalMCP {
-		t.Fatal("Input.ExternalMCP=false want true (routd owns the socket)")
 	}
 	if in.Model != "claude-opus-4-8" {
 		t.Fatalf("Input.Model=%q want claude-opus-4-8", in.Model)

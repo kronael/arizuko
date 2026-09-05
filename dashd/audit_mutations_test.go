@@ -167,8 +167,8 @@ func TestGroupDelete_AuditRollsBackWithMutation(t *testing.T) {
 	}
 }
 
-// Route update and delete are already audited; keep them covered so the actor
-// stays attached as those handlers evolve.
+// Route update and delete record the operator, like every other mutation here;
+// a handler that emits its own row as the daemon ("rest:dashd") fails these.
 func TestRouteDelete_Audited(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
 	var id int64
@@ -184,5 +184,26 @@ func TestRouteDelete_Audited(t *testing.T) {
 	}
 	if n := count(t, routd, `SELECT COUNT(*) FROM audit_log WHERE action='route.delete'`); n != 1 {
 		t.Errorf("route.delete audit rows = %d, want 1", n)
+	}
+	if got := auditActor(t, d, "route.delete"); got != "alice@x" {
+		t.Errorf("route.delete actor_sub = %q, want alice@x", got)
+	}
+}
+
+func TestRouteUpdate_Audited(t *testing.T) {
+	d, routd := splitAdminDash(t, "alice@x")
+	var id int64
+	if err := routd.QueryRow(
+		`INSERT INTO routes (seq, match, target) VALUES (1, 'm=1', 'team') RETURNING id`).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	form := url.Values{"seq": {"7"}, "match": {"m=updated"}, "target": {"team"}}.Encode()
+	w := httptest.NewRecorder()
+	newMux(d).ServeHTTP(w, adminReq("PATCH", "/dash/routes/"+strconv.FormatInt(id, 10), form, "alice@x"))
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("PATCH route = %d body=%q", w.Code, w.Body.String())
+	}
+	if got := auditActor(t, d, "route.update"); got != "alice@x" {
+		t.Errorf("route.update actor_sub = %q, want alice@x", got)
 	}
 }

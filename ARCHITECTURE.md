@@ -636,8 +636,7 @@ effective ACL rows for the caller's principal set.
 socat bridges the host socket into the container; the agent configures
 the `arizuko` MCP server in `settings.json` with `socat UNIX-CONNECT`.
 routd binds the socket before runed spawns the container and removes it
-when the run returns; runed sets `Input.ExternalMCP=true` and only
-mounts the ipc dir.
+when the run returns; runed only mounts the ipc dir.
 
 Identity resolved from the socket path (folder); authorization runs
 the injected agent gate (`db.Authorize` with `mcp:`+tool name), never a

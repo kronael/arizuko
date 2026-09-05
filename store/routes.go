@@ -92,11 +92,10 @@ func (s *Store) AddRoute(r core.Route) (int64, error) {
 	return id, nil
 }
 
-// DeleteRoute removes a route by id and records it, the audited twin of
-// DeleteRouteRow. Returns rows affected (0 → not found, and no audit row: a
-// delete that matched nothing is not a mutation). Mirrors AddRoute — the route
-// and its audit row commit together, so an audit row cannot outlive a rolled
-// back delete.
+// DeleteRoute removes a route by id and records it. Returns rows affected (0 →
+// not found, and no audit row: a delete that matched nothing is not a
+// mutation). Mirrors AddRoute — the route and its audit row commit together,
+// so an audit row cannot outlive a rolled back delete.
 func (s *Store) DeleteRoute(id int64) (int64, error) {
 	ctx := context.Background()
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -163,15 +162,21 @@ func (s *Store) PutRouteRow(r core.Route) (int64, error) {
 	return res.LastInsertId()
 }
 
-// UpdateRouteRow updates a route by id WITHOUT emitting an audit_log row, for a
-// caller that emits its own (dashd's handler does). Mirrors AddRoute's full
-// column set so the observe-window columns are not silently dropped on edit.
-// Returns the number of rows affected (0 → not found).
-func (s *Store) UpdateRouteRow(id int64, r core.Route) (int64, error) {
+// UpdateRoute rewrites a route by id and records it. Mirrors AddRoute's full
+// column set so the observe-window columns are not silently dropped on edit,
+// and its transaction so the row and its audit row commit together. Returns
+// rows affected (0 → not found, and no audit row).
+func (s *Store) UpdateRoute(id int64, r core.Route) (int64, error) {
 	if MatchesWebJID(r.Match) {
 		return 0, ErrWebJIDRouted
 	}
-	res, err := s.db.Exec(
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx,
 		`UPDATE routes SET seq = ?, match = ?, target = ?,
 		   observe_window_messages = ?, observe_window_chars = ?
 		 WHERE id = ?`,
@@ -181,18 +186,35 @@ func (s *Store) UpdateRouteRow(id int64, r core.Route) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	return res.RowsAffected()
-}
-
-// DeleteRouteRow removes a route by id WITHOUT emitting an audit_log row — the
-// audit-free twin of DeleteRoute, for a caller with no audit context of its own.
-// Returns rows affected (0 → not found).
-func (s *Store) DeleteRouteRow(id int64) (int64, error) {
-	res, err := s.db.Exec(`DELETE FROM routes WHERE id = ?`, id)
+	n, err := res.RowsAffected()
 	if err != nil {
 		return 0, err
 	}
-	return res.RowsAffected()
+	if n == 0 {
+		return 0, nil
+	}
+	actor, actorSub, surface := s.auditIdentity()
+	if err := audit.EmitInTx(ctx, tx, audit.Event{
+		Category: audit.CategoryMutation,
+		Action:   "route.update",
+		Actor:    actor,
+		ActorSub: actorSub,
+		Surface:  surface,
+		Resource: fmt.Sprintf("routes/%d", id),
+		Folder:   r.Target,
+		Outcome:  audit.OutcomeOK,
+		ParamsSummary: map[string]any{
+			"match":  r.Match,
+			"target": r.Target,
+			"seq":    r.Seq,
+		},
+	}); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return n, nil
 }
 
 // MatchesWebJID reports whether a route's Match expression includes a

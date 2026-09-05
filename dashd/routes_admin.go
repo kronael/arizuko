@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	"github.com/kronael/arizuko/store"
@@ -292,7 +291,8 @@ func (d *dash) handleRouteUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	curFolder := core.ParseRouteTarget(curTarget).Folder
-	if _, ok := d.requireAdmin(w, r, curFolder); !ok {
+	sub, ok := d.requireAdmin(w, r, curFolder)
+	if !ok {
 		return
 	}
 	// If the target moves to a different folder, the caller must also admin the
@@ -303,7 +303,7 @@ func (d *dash) handleRouteUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	n, err := store.New(d.adminDB()).UpdateRouteRow(id, core.Route{
+	n, err := store.New(d.adminDB()).AsUser(sub).UpdateRoute(id, core.Route{
 		Seq:                   body.Seq,
 		Match:                 body.Match,
 		Target:                body.Target,
@@ -319,20 +319,6 @@ func (d *dash) handleRouteUpdate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	audit.Emit(context.Background(), audit.Event{
-		Category: audit.CategoryMutation,
-		Action:   "route.update",
-		Actor:    "rest:dashd",
-		Surface:  audit.SurfaceREST,
-		Resource: fmt.Sprintf("routes/%d", id),
-		Folder:   body.Target,
-		Outcome:  audit.OutcomeOK,
-		ParamsSummary: map[string]any{
-			"seq":    body.Seq,
-			"match":  body.Match,
-			"target": body.Target,
-		},
-	})
 	slog.Info("route updated", "id", id)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -360,23 +346,20 @@ func (d *dash) handleRouteDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	folder := core.ParseRouteTarget(target).Folder
-	if _, ok := d.requireAdmin(w, r, folder); !ok {
+	sub, ok := d.requireAdmin(w, r, folder)
+	if !ok {
 		return
 	}
-	if _, err := d.adminDB().Exec(`DELETE FROM routes WHERE id = ?`, id); err != nil {
+	n, err := store.New(d.adminDB()).AsUser(sub).DeleteRoute(id)
+	if err != nil {
 		slog.Warn("routes: delete", "id", id, "err", err)
 		http.Error(w, "delete failed", http.StatusInternalServerError)
 		return
 	}
-	audit.Emit(context.Background(), audit.Event{
-		Category: audit.CategoryMutation,
-		Action:   "route.delete",
-		Actor:    "rest:dashd",
-		Surface:  audit.SurfaceREST,
-		Resource: fmt.Sprintf("routes/%d", id),
-		Folder:   folder,
-		Outcome:  audit.OutcomeOK,
-	})
+	if n == 0 {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
 	slog.Info("route deleted", "id", id)
 	if r.Method == http.MethodPost {
 		http.Redirect(w, r, "/dash/routes/", http.StatusSeeOther)

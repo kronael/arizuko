@@ -59,6 +59,18 @@ func TestShippableComponentsImportNoArizukoInternals(t *testing.T) {
 	}
 }
 
+// TestContainerImportsNoIPC: the spawn substrate does not link the agent tool
+// surface. routd hosts the MCP socket and hands runed only the ipc dir to
+// mount; a container package that imports ipc pulls every tool, store callback
+// and connector into a process whose job is `docker run`.
+func TestContainerImportsNoIPC(t *testing.T) {
+	for _, dep := range deps(t, "./container") {
+		if dep == "ipc" || strings.HasPrefix(dep, "ipc/") {
+			t.Errorf("container imports arizuko-internal %q — the spawn substrate must not link the tool surface", dep)
+		}
+	}
+}
+
 // TestNoDaemonImportsCrackbox pins the other half of the same split: 6/24 cut
 // crackbox to a LOCAL DEV command that composes egress and sandbox. A daemon
 // reaching for it would make a dev tool a deployment dependency.

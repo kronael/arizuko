@@ -332,6 +332,43 @@ func TestTaskWrite_AuditRidesTheTransaction(t *testing.T) {
 	}
 }
 
+// TestRouteWrite_AuditRidesTheTransaction: a route update or delete and its
+// audit row commit together, so with audit_log gone neither mutation lands.
+// Falsifiable: swallow the audit error inside the store's transaction and both
+// writes survive the missing table.
+func TestRouteWrite_AuditRidesTheTransaction(t *testing.T) {
+	d, routd := splitAdminDash(t, "alice@x")
+	var id int64
+	if err := routd.QueryRow(
+		`INSERT INTO routes (seq, match, target) VALUES (1, 'm=1', 'team') RETURNING id`).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := routd.Exec(`DROP TABLE audit_log`); err != nil {
+		t.Fatal(err)
+	}
+	mux := newMux(d)
+	path := "/dash/routes/" + strconv.FormatInt(id, 10)
+
+	form := url.Values{"seq": {"7"}, "match": {"m=updated"}, "target": {"team"}}.Encode()
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, adminReq("PATCH", path, form, "alice@x"))
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("PATCH route with no audit_log = %d, want 500", w.Code)
+	}
+	if n := count(t, routd, `SELECT COUNT(*) FROM routes WHERE id=? AND match='m=1'`, id); n != 1 {
+		t.Errorf("route changed without its audit row")
+	}
+
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, adminReq("POST", path+"/delete", "", "alice@x"))
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("POST route delete with no audit_log = %d, want 500", w.Code)
+	}
+	if n := count(t, routd, `SELECT COUNT(*) FROM routes WHERE id=?`, id); n != 1 {
+		t.Errorf("route deleted without its audit row")
+	}
+}
+
 // TestTaskList_ReadsRoutdDB: the tasks list renders a task seeded into routd.db.
 func TestTaskList_ReadsRoutdDB(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")

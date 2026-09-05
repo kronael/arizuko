@@ -21,8 +21,8 @@ import (
 )
 
 // dockerRuntime is the production Runtime: a pure container-spawner. routd
-// hosts the agent MCP socket in-process (Input.ExternalMCP), so runed only
-// mounts the ipc dir and spawns the per-turn container via container.Run.
+// hosts the agent MCP socket, so runed only mounts the ipc dir and spawns the
+// per-turn container via container.Run.
 // runed still owns the lifecycle envelope: steer-into, runTTL kill, teardown.
 type dockerRuntime struct {
 	cfg     *core.Config
@@ -61,9 +61,8 @@ func dockerKill(name string) error {
 	return nil
 }
 
-// Run spawns one container turn. routd owns the MCP socket in-process
-// (ExternalMCP), so runed only mounts the ipc dir — no in-process ServeMCP,
-// no federation. Before spawning it registers the steer closure so a
+// Run spawns one container turn. routd owns the MCP socket, so runed only
+// mounts the ipc dir. Before spawning it registers the steer closure so a
 // concurrent POST /v1/runs writes into this live container instead of
 // spawning a second (spec 5/P § Steer-into-running-container).
 func (d *dockerRuntime) Run(ctx context.Context, spec RunSpec) RunResult {
@@ -106,7 +105,6 @@ func (d *dockerRuntime) Run(ctx context.Context, spec RunSpec) RunResult {
 		EgressOpen:     spec.Egress,
 		WebPublish:     spec.WebPublish,
 		Secrets:        spec.Secrets,
-		ExternalMCP:    true,
 		QueryTimeoutMs: queryTimeoutMs(spec.RunTTL),
 		Egress:         d.egress(spec.EgressAllowlist),
 	})

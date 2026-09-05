@@ -29,6 +29,34 @@ func TestAddRoute_RejectsWebJIDPredicate(t *testing.T) {
 	}
 }
 
+func TestUpdateRoute_RejectsWebJIDPredicate(t *testing.T) {
+	s := openMem(t)
+	id, err := s.AddRoute(core.Route{Match: "chat_jid=telegram:1", Target: "alpha"})
+	if err != nil {
+		t.Fatalf("AddRoute: %v", err)
+	}
+	_, err = s.UpdateRoute(id, core.Route{Match: "chat_jid=web:alpha", Target: "alpha"})
+	if !errors.Is(err, ErrWebJIDRouted) {
+		t.Errorf("UpdateRoute(web jid) err = %v, want ErrWebJIDRouted", err)
+	}
+}
+
+// An update that matches no row is not a mutation: no rows, no audit row.
+func TestUpdateRoute_MissingIDRecordsNothing(t *testing.T) {
+	s := openMem(t)
+	n, err := s.UpdateRoute(404, core.Route{Match: "chat_jid=telegram:1", Target: "alpha"})
+	if err != nil || n != 0 {
+		t.Fatalf("UpdateRoute(missing) = %d, %v; want 0, nil", n, err)
+	}
+	var rows int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM audit_log WHERE action='route.update'`).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 0 {
+		t.Errorf("audit rows for an update that matched nothing: %d", rows)
+	}
+}
+
 func TestAddRoute_AllowsNonWebJID(t *testing.T) {
 	cases := []string{
 		"chat_jid=telegram:123",
