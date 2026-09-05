@@ -59,6 +59,41 @@ without a miss signal reproduces it at a new layer.
   answer: measure how often a request matches nothing before building
   retrieval for a problem that may not exist at this size.
 
+## Measured in the harness, 2026-09-05
+
+The listing is `name` plus `description - when_to_use`, cut per skill at
+1,536 chars (`skillListingMaxDescChars`), under a total budget of
+`skillListingBudgetFraction` — 0.01 of the context window, in characters
+window x 4 x 0.01. That is 8,000 chars for a 200k window and 40,000 for
+1M. Over budget, skills sort by `usageCount x 0.5^(days/7)` and the tail
+drops to **bare names**.
+
+**The limit is window-dependent, not count-dependent.** 84 skills is
+28.7k chars raw: it fits a 1M window with margin and does not fit a 200k
+one, where the budget keeps roughly twenty descriptions.
+
+**The drop is self-reinforcing.** In one measured session, 62 skills
+carried text and 24 were bare — and all 24 had `usageCount` 0. A skill
+that has never been used loses its description first, and a skill with no
+description cannot be matched, so it is never used. `/skill-doctor`
+exposes the loop; nothing prevents it.
+
+Nothing native searches skills. MCP tool search has no skill twin.
+
+## What to do instead
+
+No new mechanism. Three cheaper moves, in order:
+
+1. Set `skillListingBudgetFraction` per host when a 200k-window model is
+   in use — the drop is a budget setting, not a design flaw.
+2. Trim any skill past the 1,536-char cap. One is over today, and the
+   words past the cut never reach the model at all, so its tail keywords
+   are unreachable while appearing present in the file.
+3. Treat usage decay as the ranking it already is, and read
+   `/skill-doctor` rather than guessing which skills are reachable.
+
+Build retrieval only if a measured miss rate justifies it.
+
 ## Open questions
 
 - Does the harness offer a native skill-search or lazy-listing facility?
