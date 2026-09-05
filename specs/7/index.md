@@ -8,7 +8,9 @@ Putting arizuko in the cloud comes AFTER splitting it into parts, which is
 phase 6's job: you cannot deploy a part you have not separated. That order is
 the whole reason this is its own phase rather than work inside 6.
 
-[`21-storage-seam.md`](21-storage-seam.md) is the one spec here — the `Store`
+[`22-rust-track.md`](22-rust-track.md) answers what, if anything, moves to Rust: the isolation boundary only, and never on the cloud path.
+
+[`21-storage-seam.md`](21-storage-seam.md) is the storage spec — the `Store`
 operation set derived from DynamoDB and pruned to what arizuko actually needs.
 Its finding is that the seam cannot be a key-value interface: ~27 of 43
 transactions are multi-table and each prevents a specific privilege escalation,
