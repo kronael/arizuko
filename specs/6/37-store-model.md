@@ -246,6 +246,40 @@ the engine underneath could do all of it. Its one benefit, that a later
 switch touches no call site, is paid up front whether the switch happens
 or not.
 
+## Three tiers, and the middle one is arizuko's own
+
+Amended 2026-09-05. The refusal above is narrow and it stands: no layer
+in arizuko presents a foreign vendor's API. It is not an argument
+against an internal interface, and the store has three tiers, not one.
+
+**Tier 1 — the opener.** DSN in, pool out. It owns the pragma set, the
+connection cap and the transient-error class. Every daemon calls it and
+none opens its own. This is the unified setup, and it ships first.
+
+**Tier 2 — what arizuko's daemons actually need.** Not a storage
+abstraction and not a vendor's shape: the operations the daemons already
+repeat, named in arizuko's terms. The surface is DERIVED from the 474
+statements now in the tree, never invented ahead of them — a tier that
+is a thin passthrough over `database/sql` is the indirection this spec
+rejects, and the way to avoid it is to admit only operations that
+several daemons write today by hand. The candidates the tree already
+shows: folder-subtree containment (24 hand-written `LIKE` predicates,
+one helper), the audited transaction, a resource rebuild from a
+document, and an idempotent ledger append. Each is a place where the
+same SQL appears in more than one package.
+
+**Tier 3 — each daemon's own queries.** They stay SQL against the pool.
+A query one daemon issues is not an interface.
+
+**What the key-value question becomes.** It stops being an API to adopt
+and becomes a property to measure: can tier 2 be expressed inside
+conditional-write and partition-key semantics? Where it can, a later
+engine is reachable. Where it cannot — the audit cursor, ranked search,
+the partial unique index that is the trust root — the answer names
+exactly which operation binds arizuko to a relational engine, which is
+worth knowing whether or not anyone ever moves. The measurement is
+free; the facade was not.
+
 ## What the three redesigns are worth now
 
 They were the price of surviving without an interactive multi-table
