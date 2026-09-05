@@ -8,13 +8,6 @@ status: shipped
 > allows / denies / logs each `tools/call` against a flat ruleset.
 > No folders, no grants — arizuko derives the rule list and pushes it.
 
-## Status
-
-Draft / future. No consumer wired yet. The component contract is in
-[16-daemon-standalone-matrix.md](16-daemon-standalone-matrix.md). This
-lands when agents connect to **third-party MCP servers** whose tools
-arizuko's own `Gate` does not cover (see Problem).
-
 ## Problem
 
 arizuko already gates its OWN tools: the injected `Gate` authorizes every
@@ -121,6 +114,9 @@ matching the transport the client uses.
 - `GET /v1/log` — recent call decisions (for audit).
 - `GET /health`.
 
+Standalone, the admin endpoint trusts its caller; inside arizuko, `proxyd`
+and `authd` front it.
+
 **Go imports** — `mcpfw/pkg/...`:
 
 - `firewall.NewProxy(Config) *Proxy` — what `serve` runs.
@@ -168,19 +164,6 @@ the derived list:
 The split mirrors A's domain/mechanism table: arizuko owns _which tools
 this folder's grants permit_; mcpfw owns _match a tool name
 against a flat rule list and forward or refuse the JSON-RPC call_.
-
-## Out of scope
-
-- Deriving rules from grants (stays in `auth/` / `grants/`).
-- Folder / scope concepts of any kind.
-- Tool-argument inspection or payload scanning (a denied tool is denied
-  by name; argument-level policy is a separate concern, not this gate).
-- Skill-file content scanning — that is
-  [../5/23-skill-guard.md](../5/23-skill-guard.md)'s PreToolUse hook, a different
-  layer.
-- Auth of the admin API — arizuko's `proxyd` + `authd` front it when
-  deployed inside arizuko; standalone, the admin endpoint trusts its
-  caller.
 
 ## Acceptance
 

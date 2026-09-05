@@ -8,11 +8,9 @@ depends: [28-cockpit-index, 31-adapter-contract]
 
 Instantiates the adapter contract ([`6/31`](31-adapter-contract.md))
 for all nine adapters. The contract owns the page grammar, show matrix,
-control verbs, health semantics, auth, and HTMX fragment set — none of
-it is restated. This spec is the per-adapter delta table plus the
-handful of facts that do not generalise.
-
-Nothing here is built.
+health semantics and auth — none of it is restated. This spec is the
+per-adapter delta table plus the handful of facts that do not
+generalise.
 
 ## Transport, liveness, identity, state
 
@@ -28,41 +26,39 @@ Nothing here is built.
 | emaid   | IMAP IDLE (28m keepalive) + 30s poll fallback; SMTP dial | `connected` flag (`emaid/imap.go`)             | `EMAIL_ACCOUNT`              | `emaid.db` (thread tables)                        |
 | twitd   | mentions poll, `TWITTER_POLL_INTERVAL` (90s), TypeScript | `connected` flag (`twitd/src/main.ts`)         | cookie session (handle)      | `$TWITTER_AUTH_DIR/cookies.json` + `cursors.json` |
 
-## Controls and extra sections
+## Controls and delta sections
 
 An affordance with no underlying mechanism is **absent from the page**,
-not greyed out (`6/31`). Everything marked "new" is Required work.
+not greyed out (`6/31`).
 
-| Adapter | Controls                                                                      | Extra sections beyond the contract                                                   |
-| ------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| whapd   | start pairing + pair status (**exist**); session reset (new)                  | pairing pane (state machine, code + 60s expiry, 5/hour bucket); outbound queue depth |
-| teled   | reconnect (new — recreate `BotAPI`, restart poll loop)                        | poll offset + last poll error with its 3s backoff                                    |
-| slakd   | refresh auth (new — run `authTest`, flip `connected`, reset watchdog counter) | watchdog pane: `SLAKD_STALE_SECONDS`, fail counter vs `SLAKD_STALE_FAIL_LIMIT`       |
-| bskyd   | refresh auth (new — `refreshSession` → `createSession` fallback)              | JWT session state, persisted-session file mtime                                      |
-| reditd  | reconnect (new — immediate `pollOnce`); refresh auth (new — `refreshToken`)   | cursor table (`inbox` + one `sr:<subreddit>` row each); rate-limit pane              |
-| linkd   | reconnect (new — immediate `pollOnce`); refresh auth (new)                    | OAuth token expiry; the stub-inbound caveat below                                    |
-| discd   | reconnect (new — `session.Close()` + `Open()`)                                | guild/channel cache **counts** (read-only); send-retry policy pane                   |
-| emaid   | reconnect (new — close IMAP client, retry loop redials)                       | active inbound mode (`idle` vs `poll` fallback); thread-store row counts             |
-| twitd   | refresh auth, session reset, reconnect (all new)                              | cookie state + login validity; per-source cursors                                    |
+| Adapter | Controls                    | Delta sections beyond the contract                                                  |
+| ------- | --------------------------- | ----------------------------------------------------------------------------------- |
+| whapd   | start pairing + pair status | pairing pane (state machine, code + 60s expiry, 5/hour bucket)                      |
+| teled   | —                           | —                                                                                   |
+| slakd   | —                           | —                                                                                   |
+| bskyd   | —                           | the account the session is connected as (DID + handle); the JWTs are never rendered |
+| reditd  | —                           | cursor table (`inbox` + one `sr:<subreddit>` row each)                              |
+| linkd   | —                           | —                                                                                   |
+| discd   | —                           | —                                                                                   |
+| emaid   | —                           | the account and host the IMAP/SMTP login uses; the password is excluded             |
+| twitd   | —                           | —                                                                                   |
 
-Each delta field rides the adapter's `GET /v1/status` (the contract's
-one read endpoint) — a dash handler never opens `cursors.json`,
-`cookies.json`, or `emaid.db` directly (`6/28` read-path).
+A delta section reads the adapter's own in-memory state through
+`DashSectioner`; a dash handler never opens `cursors.json`, `cookies.json`,
+or `emaid.db` directly (`6/28` read-path).
 
-Adapters with **no** control at all in a column are stating a fact, not
-deferring: discd holds a static token, so there is no auth
-refresh; slakd's Events API is push, so there is no connection to
-re-establish; emaid's IMAP/SMTP password is static; bskyd's session
-file only feeds `createSession`, which refresh-auth already covers.
+Adapters with no control are stating a fact, not deferring: discd holds a
+static token, so there is no auth refresh; slakd's Events API is push, so
+there is no connection to re-establish; emaid's IMAP/SMTP password is
+static; bskyd's session file only feeds `createSession`.
 
 ## Adapter-specific facts
 
-**whapd — Baileys reconnection is internal.** No `reconnect` verb: the
-only meaningful recoveries are re-pair and reset. The dashboard is the
-operator UI for the **pairing-code** path, preferred over reading a QR
-out of container logs (see `whapd/README.md`, the `--pair <phone>`
-flag); the pair rate limit's 429 surfaces verbatim. QR rendering stays
-out of the dashboard.
+**whapd — Baileys reconnection is internal.** The only meaningful
+recoveries are re-pair and reset. The dashboard is the operator UI for
+the **pairing-code** path, preferred over reading a QR out of container
+logs (see `whapd/README.md`, the `--pair <phone>` flag); the pair rate
+limit's 429 surfaces verbatim. QR rendering stays out of the dashboard.
 
 **teled — long-poll is a fact, not a mode.** teled has no webhook code
 path, so there is no toggle and no verb.
@@ -72,8 +68,7 @@ path, so there is no toggle and no verb.
 (`isConnected()` → 503), plus the watchdog's `auth.test`-gated
 `os.Exit` backstop. This distinction is load-bearing: a stale-503 once
 bounced a quiet `slakd_marinade` (2026-06-19). The dead-subscription
-detection that 503 was added for (2026-06-05) now lives in the
-watchdog.
+detection lives in the watchdog.
 
 **reditd — 60m stale threshold** (`chanlib.staleThresholds["reddit"]`);
 sparse subreddits are quiet for hours. Its `isConnected()` IS the
@@ -85,48 +80,26 @@ it does not re-derive one.
 states that instead of showing a meaningless freshness number.
 
 **emaid — INBOX only, hardcoded.** No multi-folder support, so
-"resync folders" has no mechanism and is absent. SMTP is a per-message
-dial, so the contract's shared `lastOutboundAt` doubles as the SMTP
-health signal.
+"resync folders" has no mechanism and is absent.
 
 **whapd and twitd are TypeScript** and cannot import `chanlib`: they
-re-implement the contract, including the operator dash gate, which is
-**new work** — today `whapd/src/auth.ts` and `twitd/src/auth.ts` verify
-only routd service tokens. Both also serve their own `/health` where
-5m staleness is a **503**, stricter than the chanlib default. Theme is
-vendored from `theme/` into the TS images at build time — one source,
-copied by the image build, never hand-edited downstream.
-
-## Non-goals beyond `6/31`
-
-- No cursor editing or rewind (reditd, twitd) — cursors advance only on
-  successful delivery by design; rewind means replay.
-- No follow / subreddit / guild management, no Slack pane-staging
-  controls, no Discord admin, no mailbox browsing, no posting UI.
-  Content lives in routd; `/v1/pane/*` is an agent-output mechanism.
-- No QR rendering (whapd, above).
+re-implement the contract, including the operator dash gate
+(`whapd/src/auth.ts` and `twitd/src/auth.ts` verify routd service tokens
+for the adapter API; the dash gate is separate). Both also serve their
+own `/health` where 5m staleness is a **503**, stricter than the chanlib
+default. The theme is inlined (`6/31`).
 
 ## Acceptance
 
 - Contract acceptance ([`6/31`](31-adapter-contract.md)) passes for all
   nine adapters.
 - whapd: starting a pair shows the code + countdown; a sixth attempt in
-  an hour renders the 429 in the pair pane; session-reset flips status
-  to `disconnected` and pair state to `unauthenticated`.
-- teled: reconnect restarts polling without losing the offset — no
-  message replay, no gap.
-- slakd: auth-refresh resets the fail counter; a quiet workspace renders
-  `stale` with 200, not a 503.
-- discd: reconnect redials within one backoff cycle and status
-  returns to `ok` on the next inbound; discd's cache counts repopulate.
-- bskyd / linkd / reditd: auth-refresh updates the rendered token
-  expiry; a failed refresh flips status to `disconnected`.
-- reditd: the cursor table matches what `/v1/status` reports, and the
+  an hour renders the 429 in the pair pane.
+- slakd: a quiet workspace renders `stale` with 200, not a 503.
+- reditd: the cursor table matches the poller's own cursors, and the
   dash handler never opens `cursors.json`.
-- emaid: the page shows the active inbound mode; reconnect from
-  poll-fallback re-attempts IDLE; a send updates last-outbound.
-- twitd: auth-refresh after expired cookies restores `ok`;
-  session-reset deletes the cookies and leaves cursors untouched.
+- bskyd and emaid: the delta section carries no credential
+  (`TestDashSectionsCarryNoCredentials`; the emaid password test).
 
 ## Build state (2026-08-30)
 
@@ -134,14 +107,14 @@ All nine adapters serve `/dash/<adapter>/`: the seven Go ones from
 `chanlib/dash.go` via `NewAdapterMux`, whapd and twitd from their own
 `src/dash.ts` (`6/31`).
 
-**The delta mechanism is shipped.** `chanlib.DashSectioner` is an OPTIONAL
+**The delta mechanism.** `chanlib.DashSectioner` is an OPTIONAL
 interface — the same pattern as `HistoryProvider` — so an adapter with nothing
 extra needs no code, which is the common case. A section is `[][2]string` label
 /value rows rather than HTML, deliberately: handing ten adapters raw markup is
 how one grammar becomes ten layouts.
 
-**reditd's delta is built**, and it is the one that mattered most. Two facts are
-invisible on the shared page and an operator needs both:
+**reditd's delta**, the one that mattered most. Two facts are invisible on the
+shared page and an operator needs both:
 
 - **Which sources it polls.** reditd is the single adapter that reads a feed the
   bot is not addressed in — the configured subreddits, recorded as `6/33`'s one
@@ -153,26 +126,26 @@ invisible on the shared page and an operator needs both:
 A configured subreddit that has never read anything is listed as `(never read)`
 rather than omitted — the absent row is exactly the one being hunted.
 
-**bskyd's delta is built.** The shared page says whether the adapter is
-connected; it cannot say WHICH account it is connected as, and on Bluesky that
-is the operator's real question — every post is attributed to the repo DID and
-posting from the wrong account is silent. The JWTs are deliberately absent: they
-are bearer credentials, and a session panel that prints them turns an operator
-page into a credential leak. `TestDashSectionsCarryNoCredentials` pins that.
+**bskyd's delta.** The shared page says whether the adapter is connected; it
+cannot say WHICH account it is connected as, and on Bluesky that is the
+operator's real question — every post is attributed to the repo DID and posting
+from the wrong account is silent. The JWTs are deliberately absent: they are
+bearer credentials, and a session panel that prints them turns an operator page
+into a credential leak. `TestDashSectionsCarryNoCredentials` pins that.
 
-**whapd's delta is built**, in TypeScript, with the same section type. It
-renders the pair-flow state, which is the one thing the shared page cannot say:
+**whapd's delta**, in TypeScript, with the same section type. It renders the
+pair-flow state, which is the one thing the shared page cannot say:
 "disconnected" does not tell an operator whether they must go and enter a code
 on the phone. It reads `bot.getStatus()`, which already redacts the code.
 
-**emaid's delta is built**, and `L62` is why it earns its place: marinade's
-emaid sat IMAP-auth-failing for three days and the only visible symptom was an
-unhealthy container. "Connected or not" is not actionable for email; which
-account against which host is. The password is excluded and a test pins that —
-it is the credential the failing login uses, and printing it would trade a
-diagnosis for a leak.
+**emaid's delta**, and `L62` is why it earns its place: marinade's emaid sat
+IMAP-auth-failing for three days and the only visible symptom was an unhealthy
+container. "Connected or not" is not actionable for email; which account
+against which host is. The password is excluded and a test pins that — it is
+the credential the failing login uses, and printing it would trade a diagnosis
+for a leak.
 
-**Every adapter that has a delta now has it.** The four that do — reditd,
-bskyd, whapd, emaid — each render exactly the state the shared page cannot
-show. The rest implement nothing, which is the interface being optional working
-as intended rather than work outstanding.
+**Every adapter that has a delta has it.** The four that do — reditd, bskyd,
+whapd, emaid — each render exactly the state the shared page cannot show. The
+rest implement nothing, which is the interface being optional working as
+intended.

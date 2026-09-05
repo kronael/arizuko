@@ -80,7 +80,7 @@ breach, and a package that sits anywhere else gains nothing from Rust it
 did not have in Go.
 
 The contract also names a cost the rule below hides. `egress` hooks in
-as a process. `mcpfw` hooks into nothing (`6/12`: no consumer wired), so
+as a process. `mcpfw` hooks into nothing (`6/12`), so
 a rewrite of it has no consumer to break and none to serve; its
 stub-driven acceptance tests are its only oracle, which is what rule 4
 asks for and also the reason to leave it last.
@@ -91,8 +91,7 @@ The remaining ~82,000 lines are SQLite-backed business logic: routing,
 grants, onboarding, scheduling, the dashboard. Go is already the right
 tool for them, the transactions are the correctness argument rather than
 the performance one, and no user-visible property improves by moving
-them. `## Non-goals` below states this as a rule rather than a
-preference.
+them.
 
 ## The rule
 
@@ -115,24 +114,6 @@ Independent of the cloud track, and lower priority than it. A rewrite
 that begins before a component's acceptance tests exist has no oracle,
 and the tests are the deliverable that makes the rewrite verifiable —
 write them first, in Go, against the Go implementation.
-
-## Non-goals
-
-- Rewriting any daemon that owns a schema.
-- A staged port that leaves one component half in each language.
-- Rust for performance. No measurement identifies any of these three as a
-  bottleneck, and this spec does not assert one.
-- A Go plugin ABI, FFI or a shared library between languages. A package
-  is a process; two languages meet over HTTP, a socket or a flag list.
-
-## Honest gaps
-
-- No measurement shows a memory-safety defect in the Go implementations.
-  The argument is that the boundary is where such a defect would be
-  costly, not that one exists.
-- A second toolchain costs build time, CI, and the ability of one
-  maintainer to work anywhere in the tree. For 1.7% of the lines that
-  cost is real and is not quantified here.
 
 ## Ties
 

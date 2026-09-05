@@ -10,9 +10,6 @@ depends:
 
 # specs/6/34 — the resident budget: what an always-loaded file may carry
 
-A proposal, not a decision. The tables below describe each file as the
-rule leaves it; nothing moves until this spec is `planned`.
-
 ## Problem
 
 Two files load without being asked for, on every turn, for a reader who
@@ -137,7 +134,7 @@ remainder, if any.
 | Section                             | L / B     | Verdict            | Rule | Destination and remainder                                                                                                                                                                                                                                                                       |
 | ----------------------------------- | --------- | ------------------ | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Identity                            | 5 / 168   | keep               | 1    | who/where in two env vars; the introspection recipe is `self/identity.md`                                                                                                                                                                                                                       |
-| Response Style                      | 21 / 2320 | keep               | 2    | the register floor; `4/P` decides it lives here because one output style loads per session. The STE bullet list is the only trim candidate (open question 6)                                                                                                                                    |
+| Response Style                      | 21 / 2320 | keep               | 2    | the register floor; `4/P` decides it lives here because one output style loads per session. The STE bullet list is the only trim candidate                                                                                                                                                      |
 | Rigor                               | 4 / 406   | keep               | 2    | fabrication has no error                                                                                                                                                                                                                                                                        |
 | Tenancy model                       | 12 / 1861 | keep, trim         | 1    | resident: group = isolated home, path carries zero authorization, tool list = grant set, topic in one line. The `register_group` paragraph moves to `self/mcp.md` — the tool's own error says "call this"                                                                                       |
 | Autocalls                           | 4 / 269   | keep               | 1    | envelope; `self/autocalls.md` holds the long form                                                                                                                                                                                                                                               |
@@ -151,7 +148,7 @@ remainder, if any.
 | Memory stores                       | 8 / 388   | keep               | 3    | four rows: event → skill. The `/issues` line joins it as a fifth row                                                                                                                                                                                                                            |
 | Recording user-reported issues      | 4 / 103   | move               | —    | one row in Memory stores                                                                                                                                                                                                                                                                        |
 | Status updates                      | 13 / 1331 | keep, trim         | 2    | ⏳ forever is silent. The `TodoWrite` paragraph becomes one line; `5/24` owns the rendering                                                                                                                                                                                                     |
-| Persona                             | 9 / 834   | move               | —    | the `<persona>` block carries its own pointer, "(For full register: /persona)" (`routd/prompt.go:138`); `persona/SKILL.md` owns the layers. Layer 1 is also a stale claim (open question 2)                                                                                                     |
+| Persona                             | 9 / 834   | move               | —    | the `<persona>` block carries its own pointer, "(For full register: /persona)" (`routd/prompt.go:138`); `persona/SKILL.md` owns the layers                                                                                                                                                      |
 | Tool discipline                     | 4 / 506   | merge              | 2    | folds into When blocked — the same "enumerate before declaring absent" rule twice                                                                                                                                                                                                               |
 | When blocked                        | 15 / 1602 | keep, trim         | 2    | resident: the three-step order. The `inspect_*`/`find_messages` paragraph is tool-description territory (`self/mcp.md`); the "check your live tool list" paragraph repeats Tenancy; the session-opening ritual is `self/SKILL.md` §"Session recovery"                                           |
 | Environment (`$WEB_HOST`)           | 4 / 143   | keep               | 2    | a literal `$WEB_HOST` in chat raises no error                                                                                                                                                                                                                                                   |
@@ -205,7 +202,7 @@ recorded it.
 | Docs layout / When to read what       | 26 / 1312 | keep, grow             | 3    | this IS the map; it absorbs Essence, Layout, Service Architecture, Entrypoint, Migrating from kanipi as rows                                                                                                                                                                                     |
 | Updating the web docs                 | 41 / 1869 | move                   | —    | `template/web/CLAUDE.md` owns "Deploy to live krons" and loads when the tree is touched; the "visuals are load-bearing" paragraph moves with it. Resident: one row                                                                                                                               |
 | Layout                                | 7 / 293   | merge                  | —    | a row                                                                                                                                                                                                                                                                                            |
-| Refine scope                          | 20 / 937  | move                   | —    | a project skill, `.claude/skills/refine/SKILL.md` (open question 5 on the name)                                                                                                                                                                                                                  |
+| Refine scope                          | 20 / 937  | move                   | —    | a project skill, `.claude/skills/refine/SKILL.md`                                                                                                                                                                                                                                                |
 | Conventions                           | 39 / 2311 | split                  | 2    | resident rows: `.jl`, XML-in-prompts/JSON-in-IPC, `submit_turn`, `:8080` everywhere, dynamic-vs-static in one sentence. The `L45` narrative → `5/28`; "adding a channel adapter" → `EXTENDING.md`                                                                                                |
 | Trust boundaries                      | 8 / 358   | move                   | —    | `SECURITY.md` §"Identity header trust" owns it                                                                                                                                                                                                                                                   |
 | Split write-discipline                | 6 / 198   | keep                   | 2    | a direct write to another daemon's DB works until it does not                                                                                                                                                                                                                                    |
@@ -219,7 +216,7 @@ recorded it.
 | Operational check (five gates)        | 61 / 3048 | move, 2-line rule      | —    | `.claude/skills/eval/SKILL.md` exists for exactly this and gate 4 already invokes it. Resident: a deploy is not done until `anteval --smoke` passes, and the reason (`L149` shipped green through gates 1–4)                                                                                     |
 | OTLP export                           | 10 / 520  | move                   | —    | `ARCHITECTURE.md:849`                                                                                                                                                                                                                                                                            |
 | Shipping changes                      | 14 / 761  | move, 1-line rule      | 2    | `ant/skills/self/migrations/CLAUDE.md` owns the steps. Resident: every release bumps `MIGRATION_VERSION`, docs-only included — forgetting it is silent                                                                                                                                           |
-| Tagging a new version                 | 16 / 947  | move                   | —    | the same project skill as Refine scope's neighbour: `.claude/skills/release/` (open question 5)                                                                                                                                                                                                  |
+| Tagging a new version                 | 16 / 947  | move                   | —    | the same project skill as Refine scope's neighbour: `.claude/skills/release/`                                                                                                                                                                                                                    |
 | Announcing                            | 20 / 533  | move                   | —    | `CHANGELOG.md`'s head, where the shape is used                                                                                                                                                                                                                                                   |
 | Deploy policy                         | 6 / 210   | keep                   | 2    | deploying to a second instance unasked raises no error                                                                                                                                                                                                                                           |
 | "Nothing works" checklist             | 13 / 708  | move                   | —    | `.claude/skills/eval/` method; `INSTALL.md:305` already has exit 125                                                                                                                                                                                                                             |
@@ -268,7 +265,7 @@ cannot help. What breaks if each stays out:
 Everything else in the file is reachable by name once these are in hand,
 or produces a visible error when ignored.
 
-## The failure mode, and how the proposal detects it
+## The failure mode, and the three guards
 
 A rule that stops being loaded stops being followed, silently. The move
 above makes ≈19 KB of instruction contingent on the agent choosing to
@@ -318,43 +315,6 @@ attention — the rule in the middle of a 388-line file being the one
 skipped — the proposal stands, and `L130` adds a second reason: a codex
 or pi agent receives none of this file today, and the proposal there is
 to prepend it per turn, which prices every resident byte three times.
-
-## Open questions
-
-1. **Subject.** The brief names the root file; the container loads
-   `ant/CLAUDE.md`. This spec applies one rule to both. Confirm both are in
-   scope, or cut one.
-2. **A stale claim in the resident file.** `ant/CLAUDE.md` §Persona layer
-   1 says the full `PERSONA.md` body is folded into the system prompt at
-   session start. `container/runner.go:531` reads it into `in.Persona`;
-   `ant/src/index.ts` `ContainerInput` carries `systemMd` and no `persona`
-   field, and `buildSystemPrompt` renders `SYSTEM.md` + the output style
-   only. Either the sentence is wrong or a reader is missing. Not filed
-   in `BUGS.md` by this spec's constraints.
-3. **`/resolve` is resident.** The nudge invokes it every turn, so its
-   70-line body and its bash loop over 93+ skill descriptions run every
-   turn beside Claude Code's own preloaded listing of the same
-   descriptions. `8/A` is the spec for the catalog cost; does this spec's
-   budget count `/resolve`, and does `8/A` fold it?
-4. **Order against `L130`.** The codex/pi proposal prepends the manual
-   per turn. A 15 KB manual is a different decision from a 34 KB one;
-   which is signed off first?
-5. **Project skills that shadow global names.** `refine` and `release`
-   exist in `~/.claude/skills/`; a repo-local `.claude/skills/refine/`
-   carrying arizuko's refine scope shadows or merges with it depending on
-   Claude Code's precedence. Accept the shadowing, or name them
-   `arizuko-refine` / `arizuko-release`?
-6. **The STE block.** Nine of Response Style's 21 lines are the STE
-   rules. `4/P` locks the register in the resident file; is the STE
-   detail part of "the register", or does it move beside the caveman
-   authority the way the maintainer's own `~/.claude` keeps it?
-7. **Product `~/CLAUDE.md`.** On four krons groups the product file is
-   larger than the platform file (up to 43.7 KB). `5/28` owns it; this
-   spec does not touch it. Should the same rule bind product authors?
-8. **Tool descriptions as owners.** Moving Social actions into
-   `ipc/ipc.go` descriptions puts behaviour rules in Go string literals
-   that load eagerly anyway; moving them to `channels` puts them behind a
-   skill the model must choose. Which is the declaration?
 
 ## Pointers
 

@@ -5,8 +5,7 @@ status: draft
 # Components & daemons — what ships alone, and against what
 
 The consolidated "ship in parts" spec: which pieces stand alone, on which
-of two axes, measured against the market. Absorbs the former package
-catalogue, the extraction method, and the orthogonal-component pattern.
+of two axes, measured against the market.
 
 ## Two standalone axes (do not conflate)
 
@@ -16,7 +15,7 @@ A part can be "standalone" in two different senses; keep them apart.
    imports, consumed only via CLI / HTTP / `pkg/` (the contract below). The
    _toolbox_ test: raid the repo for one part. Passers today: `mcpfw`
    (`6/12`), `egress` (`6/24`), `obs`, and `crackbox` as a set with
-   `egress` + `sandbox`; roadmap: `resreg` as a standalone two-face lib.
+   `egress` + `sandbox`.
 2. **Config-driven droppable daemon** — keeps arizuko imports, but runs
    generic against any stack because its behaviour is TOML/env, not
    hardcoded. The _service_ test: drop it in front of your backends.
@@ -36,8 +35,8 @@ For each candidate:
 1. **Contract** — the one promise it makes to a caller who knows nothing
    about arizuko. Can't state it in one sentence → not a component yet.
 2. **Does it hold?** — test it adversarially. `crackbox` was the lesson: 0
-   internal deps **and** its default-deny egress failed open (closed
-   2026-08-15, below) — ready-by-import-count, broken-by-contract.
+   internal deps **and** its default-deny egress failed open —
+   ready-by-import-count, broken-by-contract.
 3. **Stranger vs cruft** — the minimal surface a stranger imports/runs,
    minus every folder/JID/`routd.db` assumption baked in. That delta is
    the extraction work.
@@ -90,8 +89,7 @@ unknown name.
 A part is shippable exactly when its contract with the neighbouring layer is
 statable in one sentence. That is why the substrate ("run a workload with this
 home, socket and egress policy"), `resreg` ("one declaration, two faces") and
-the channel layer ("this envelope, N platforms") are candidates, and why
-`servekit` is not — see below.
+the channel layer ("this envelope, N platforms") are candidates.
 
 ## The matrix
 
@@ -180,21 +178,10 @@ shippable set):
 The Docker substrate is `container/` and its declaration is
 `container.Profile`; the KVM substrate is `sandbox/` and its declaration
 is `sandbox.Profile`. What either can do is read from those values
-(`6/25` §3), not from this table.
+(`6/25` §2), not from this table.
 
-**`crackbox`'s ship gate cleared 2026-08-15.** The "egress fails OPEN" blocker
-earlier revisions cited was closed: `5/33` grants gate the `*` bypass behind an
-explicit `egress` grant, and the e2e suite (Case2/Case4) proves deny. crackbox
-is now the first shippable part, not a blocked one. Note it is three things, not
-one: a forward proxy with per-source allowlists and a DNS filter (both LIVE and
-enforcing — `container/egress.go` registers every spawn's IP with its admin API)
-plus the unwired KVM library above. Deleting the mechanism would remove
-per-tenant egress enforcement, one of the three claims `USELESS.md` says
-survives its own counter; collapsing the component BOUNDARY is a separate and
-much cheaper decision.
-
-**`servekit` is retired as a name (2026-08-15).** It bundled three unrelated
-contracts by directory and therefore fails the one-sentence test:
+**The web stack is three unrelated contracts**, so as a bundle it fails the
+one-sentence test:
 
 - `davd` and `vited` are **zero lines of Go** — davd is `sigoden/dufs` wrapped
   in alpine to add `wget` for a healthcheck (`compose/compose.go:1190`). They
@@ -236,9 +223,9 @@ core — the DSL is agent-agnostic, the daemon is not.
   `authd`/`proxyd` carry imports yet are the real standalone daemons.
 - **Adapter sprawl is correct granularity, not debt** — one daemon per
   channel isolates its own failure; don't consolidate the fleet.
-- **No security gate blocks the components.** The egress-fails-open entry
-  closed 2026-08-15 (`5/33` grants gate the `*` bypass, e2e proves deny);
-  crackbox is shippable now.
+- **No security gate blocks the components.** `5/33` grants gate the `*`
+  egress bypass behind an explicit `egress` grant, and the e2e suite
+  (Case2/Case4) proves deny; crackbox is shippable.
 - **Ship one, not seven.** `USELESS.md`'s sharpest finding is that arizuko is
   over-built for its proven audience, and "one stranger running one instance is
   worth more than the next five daemons". Carving every boundary in this
@@ -319,8 +306,7 @@ complete as an inventory.
 Two rows still move with other specs. The `proxyd` gate is carried by
 `6/22` (partial), and the substrate rows follow `substrate.Profile`, which
 `6/25` (partial) owns. Vendor names date; re-measure a row before citing
-it (the OpenClaw default in `7/23` was once written from a four-month-old
-clone under `refs/`, and was wrong).
+it.
 
 ## What this means for "ship in parts"
 

@@ -9851,7 +9851,7 @@ each `store` call becomes an HTTP call of the same size plus bearer minting.
 The "~1k lines removed" is a move, not a removal.
 
 Decision needed: (a) the CLI stays an FS-root operator (as is; `resreg.Apply`
-remains the ungated second engine 6/36 §11 names), or (b) it becomes a REST
+remains the ungated second engine `6/36` §"Premises checked against the tree" names), or (b) it becomes a REST
 client under a `user:cli` principal, retiring audit surface `cli` and adding
 a `/v1` reply read for `send`.
 

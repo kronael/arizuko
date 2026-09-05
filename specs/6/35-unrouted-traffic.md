@@ -70,11 +70,6 @@ posture" — mutually exclusive by construction). `5/18` already decided that
 This spec keeps that decision; both catch-alls remain one route row away for an
 operator who wants one, with the view below showing what the row would claim.
 
-Rejected for the same reason: auto-claiming a chat because its sender is paired
-to an account that admins exactly one group. The route is on the CHAT, and a
-Telegram group carries everyone in it; the admin's pairing says nothing about
-them. "Strict, not magical" (CLAUDE.md).
-
 ## What ships
 
 ### routd — the held set is derived, not stored
@@ -128,14 +123,6 @@ sees the hold and writes the same row from the other side. A greeted chat that
 never pairs stays in the view; a chat routed by either path leaves it. Neither
 path consults the other, and neither needs to.
 
-## What does not change
-
-Route resolution, the cursor, the onboarding branch and every existing route
-row behave exactly as before. An instance with explicit routes lists nothing it
-did not already drop, and every chat it routed still routes to the same folder
-(`routd/unrouted_test.go` pins both, and the test was run against a reader that
-skipped the filter to prove it can fail).
-
 ## Code pointers
 
 - `routd/unrouted.go` — the reader on `Loop` (it needs `resolve`) and the
@@ -144,12 +131,3 @@ skipped the filter to prove it can fail).
   add form so the operator sees what is waiting before writing a rule.
 - `dashd/stub_routd_test.go` — the stub answers the endpoint from the seeded
   `routd.db` by the same resolution, so the page test reads the real shape.
-
-## Open
-
-- Whether routd's own `/dash/routd/` overview should carry an "Unrouted chats"
-  tile from the same reader (`6/30` lists a channels page for routd, unbuilt).
-- Whether the portal's count row should show the held count; it would be the
-  portal's first HTTP read (every other count is a direct `routd.db` count).
-- A one-click "claim platform" beside the per-chat claim. Deferred: the add
-  form already takes `platform=<name>`, and the section points at it.

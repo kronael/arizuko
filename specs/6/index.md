@@ -5,157 +5,55 @@ status: active
 # specs/6 — split arizuko into parts
 
 The end goal is that people run arizuko instead of their own agent
-harness. The path (thesis inverted 2026-08-15, `6/1`): **publish the
-environment, do not wrap the harness.** Like Lambda, arizuko publishes
-contracts — the agent environment and the component environment — and
-the value is what the environment gives you for free: tenancy, egress,
-ACL, web, audit. Conformance is measured, never declared: `anteval` per
-backend for the agent, a probe against a live process for the component.
-Wrapping a foreign harness stays an on-ramp; emulation is rejected.
+harness. The path (`6/1`): **publish the environment, do not wrap the
+harness.** Like Lambda, arizuko publishes contracts — the agent
+environment and the component environment — and the value is what the
+environment gives you for free: tenancy, egress, ACL, web, audit.
+Conformance is measured, not declared: `anteval` per backend for the agent,
+a probe against a live process for the component. Wrapping a foreign
+harness stays an on-ramp.
 
-**The phase also carries the operator cockpit** (`28`–`33`, moved here from
-phase 7 on 2026-08-27). It belongs with the parts, not beside the cloud: every
-daemon serving its own `/dash/<daemon>/` from its own `/v1` is what makes a
-daemon observable and controllable ALONE, which is the same property `16`
-measures and `7` states as a contract. A part nobody can watch has not shipped.
+**The phase also carries the operator cockpit** (`28`–`33`). It belongs with
+the parts, not beside the cloud: every daemon serving its own
+`/dash/<daemon>/` from its own `/v1` is what makes a daemon observable and
+controllable ALONE, which is the same property `16` measures and `7` states
+as a contract. A part nobody can watch has not shipped.
 
 ## Specs
 
 | Spec                                                               | Status  | Covers                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | ------------------------------------------------------------------ | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [1-adoption-interop.md](1-adoption-interop.md)                     | draft   | adoption: publish-the-contract thesis (Lambda analogy), the field measured by property (openclaw, qm, Paperclip ship three of four; the hierarchical scope is the one unshipped), the wrap as on-ramp, the seven services, the loop marked unproven                                                                                                                                                                                                                                                        |
+| [1-adoption-interop.md](1-adoption-interop.md)                     | draft   | adoption: publish-the-contract thesis (Lambda analogy), the field measured by property (openclaw, qm, Paperclip ship three of four; the hierarchical scope is the one unshipped), the wrap as on-ramp, the seven services, the reimplementation loop                                                                                                                                                                                                                                                       |
 | [16-daemon-standalone-matrix.md](16-daemon-standalone-matrix.md)   | draft   | the four-layer model + two standalone axes + the matrices, import graph measured 2026-09-05 (`mcpfw`, `egress`, `obs`, `crackbox` ship); counterpart per commodity part (Keycloak, Pomerium, otelslog carry the coordinate, none the binding); complete as an inventory                                                                                                                                                                                                                                    |
-| [9-crackbox-sandboxing.md](9-crackbox-sandboxing.md)               | shipped | the KVM/qemu sandbox library, now `sandbox/` — **shipped but unwired**: `runed` still spawns Docker; its consumer is `crackbox run --kvm` (was `12/12`)                                                                                                                                                                                                                                                                                                                                                    |
-| [12-mcp-firewall.md](12-mcp-firewall.md)                           | shipped | `mcpfw` — transparent MCP proxy for THIRD-PARTY MCP servers; deny-wins tool-call filter (was `12/17`)                                                                                                                                                                                                                                                                                                                                                                                                      |
+| [9-crackbox-sandboxing.md](9-crackbox-sandboxing.md)               | shipped | the KVM/qemu sandbox library, `sandbox/`; its consumer is `crackbox run --kvm`                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| [12-mcp-firewall.md](12-mcp-firewall.md)                           | shipped | `mcpfw` — transparent MCP proxy for THIRD-PARTY MCP servers; deny-wins tool-call filter                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | [18-durable-workflows-decline.md](18-durable-workflows-decline.md) | shipped | costed DECLINE of a durable-execution engine — `5/A` decision 5 stands; reopen trigger + the four-table shape to copy if it fires                                                                                                                                                                                                                                                                                                                                                                          |
-| [19-unified-tool-declaration.md](19-unified-tool-declaration.md)   | shipped | one `[[connector]]` block with `transport = mcp \| rest`; the `[ext.auth]` enum deleted for one `{secret:KEY}` placeholder over three sinks                                                                                                                                                                                                                                                                                                                                                                |
+| [19-unified-tool-declaration.md](19-unified-tool-declaration.md)   | shipped | one `[[connector]]` block with `transport = mcp \| rest`; one `{secret:KEY}` placeholder over three sinks; ordered sources, later shadows earlier, loud                                                                                                                                                                                                                                                                                                                                                    |
 | [20-sandbox-lifecycle-decline.md](20-sandbox-lifecycle-decline.md) | shipped | costed DECLINE of the warm-pool sandbox lifecycle vs per-turn ephemeral containers; the mount-boundary blocker; `can_open_io`+reconcile survive for `6/9` KVM                                                                                                                                                                                                                                                                                                                                              |
-| [22-proxyd-cut.md](22-proxyd-cut.md)                               | partial | cut proxyd to its irreplaceable half — misfiled token handlers moved to webd (step 1), routes as rows + a Caddyfile renderer (step 2), a forward-auth endpoint (step 3, cutover unsigned); step 4 measured: no IdP deletes authd — Dex takes 345 of 1639 lines and the mint stays. Does NOT remove proxyd                                                                                                                                                                                                  |
-| [23-llm-gateway.md](23-llm-gateway.md)                             | shipped | adopt Bifrost so the container holds a per-spawn virtual key, not the real model credential; cost measured at the boundary instead of self-reported by the agent                                                                                                                                                                                                                                                                                                                                           |
-| [24-crackbox-lightest.md](24-crackbox-lightest.md)                 | shipped | cut crackbox to one static per-spawn forward proxy (~250-300 lines): no registry, no admin API, no transparent mode, no SNI peek. Splits into `egress/` (what runed runs), `sandbox/` (the KVM library) and `crackbox/` — a LOCAL DEV command, not a shipped component                                                                                                                                                                                                                                     |
-| [25-qm-adoptions.md](25-qm-adoptions.md)                           | partial | four decisions read out of `yc-software/qm` (MIT, 83k LOC): egress address hygiene (adopted), policy in the token (declined — no shared verifier; Biscuit if one returns), a declared substrate profile, cross-language contract tests                                                                                                                                                                                                                                                                     |
-| [26-personal-mode.md](26-personal-mode.md)                         | shipped | one human, one terminal, one approval per call: the no-adapter topology, `arizuko talk` over `/chat/<t>/mcp`, GitHub as a connector, MITM vs HITL, and the four verdicts (yes/no/always/never) as `acl` rows — needs deny-wins in `CheckHold`                                                                                                                                                                                                                                                              |
+| [22-proxyd-cut.md](22-proxyd-cut.md)                               | partial | cut proxyd to its irreplaceable half — the token handlers live in webd (step 1), routes as rows + a Caddyfile renderer (step 2), a forward-auth endpoint (step 3); step 4 measured: no IdP replaces authd — Dex takes 345 of 1639 lines and the mint stays, so Dex is an optional upstream broker                                                                                                                                                                                                          |
+| [23-llm-gateway.md](23-llm-gateway.md)                             | shipped | the model gateway: the container holds a per-spawn virtual key, not the real model credential; cost measured at the boundary instead of self-reported by the agent; coverage bounded by the vendor's client check                                                                                                                                                                                                                                                                                          |
+| [24-crackbox-lightest.md](24-crackbox-lightest.md)                 | shipped | one static per-spawn forward proxy (~250-300 lines) enforces per-folder egress; the split into `egress/` (what runed runs), `sandbox/` (the KVM library) and `crackbox/` — a LOCAL DEV command, not a shipped component                                                                                                                                                                                                                                                                                    |
+| [25-qm-adoptions.md](25-qm-adoptions.md)                           | shipped | three decisions read out of `yc-software/qm` (MIT, 83k LOC): egress address hygiene (adopted), a declared substrate profile, cross-language contract tests                                                                                                                                                                                                                                                                                                                                                 |
+| [26-personal-mode.md](26-personal-mode.md)                         | shipped | one human, one terminal, one approval per call: the no-adapter topology, `arizuko talk` over `/mcp`, GitHub as a connector, HITL, and the verdicts (yes/no/always) as `acl` rows with deny-wins in `CheckHold`                                                                                                                                                                                                                                                                                             |
 | [27-git-channel.md](27-git-channel.md)                             | shipped | `gitd` — GitHub as an ingress-only channel: repo, org and App webhooks all arrive as one HMAC-signed POST; `github:<owner>/<repo>/pr/<n>` JIDs with the PR or issue as topic; sender is `github:<login>`, the same principal authd mints; `send_text` the only verb, egress stays the GitHub connector                                                                                                                                                                                                     |
-| [28-cockpit-index.md](28-cockpit-index.md)                         | shipped | **the cockpit anchor**: architecture, the `/v1`-only read path, routing, auth, theme, non-goals — every other cockpit spec points back at it (was `7/1`)                                                                                                                                                                                                                                                                                                                                                   |
-| [29-dashd-hub.md](29-dashd-hub.md)                                 | shipped | the `dashd` hub + the cross-cutting operator pages that stay central (was `7/2`)                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| [30-per-daemon-dashboards.md](30-per-daemon-dashboards.md)         | shipped | routd, runed, authd, proxyd, onbod, timed, crackbox, webd, davd, ttsd — one table plus the per-daemon reasoning that survives (was `7/3`)                                                                                                                                                                                                                                                                                                                                                                  |
-| [31-adapter-contract.md](31-adapter-contract.md)                   | shipped | the shared adapter dashboard grammar + health model, defined once (was `7/11`)                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| [32-adapter-dashboards.md](32-adapter-dashboards.md)               | shipped | the ten channel adapters instantiating that contract (was `7/12`)                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| [33-social-adapter-model.md](33-social-adapter-model.md)           | shipped | the boundary between social adapters (asymmetric visibility, selective engagement) and chat adapters (bidirectional, push) (was `7/41`)                                                                                                                                                                                                                                                                                                                                                                    |
+| [28-cockpit-index.md](28-cockpit-index.md)                         | shipped | **the cockpit anchor**: architecture, the `/v1`-only read path, routing, auth, theme — every other cockpit spec points back at it                                                                                                                                                                                                                                                                                                                                                                          |
+| [29-dashd-hub.md](29-dashd-hub.md)                                 | shipped | the `dashd` hub + the cross-cutting operator pages that stay central                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| [30-per-daemon-dashboards.md](30-per-daemon-dashboards.md)         | shipped | routd, runed, authd, proxyd, onbod, timed, webd, davd, ttsd — one table plus the per-daemon reasoning that survives                                                                                                                                                                                                                                                                                                                                                                                        |
+| [31-adapter-contract.md](31-adapter-contract.md)                   | shipped | the shared adapter dashboard grammar + health model, defined once                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| [32-adapter-dashboards.md](32-adapter-dashboards.md)               | shipped | the nine channel adapters instantiating that contract                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| [33-social-adapter-model.md](33-social-adapter-model.md)           | shipped | the boundary between social adapters (asymmetric visibility, selective engagement) and chat adapters (bidirectional, push)                                                                                                                                                                                                                                                                                                                                                                                 |
 | [34-resident-prompt.md](34-resident-prompt.md)                     | shipped | the resident budget: the three-test rule for what an always-loaded `CLAUDE.md` may carry, both files classified section by section, the envelope/delivery/authority carve-out argued, and the no-case-no-move guard against rules that silently stop loading                                                                                                                                                                                                                                               |
 | [35-unrouted-traffic.md](35-unrouted-traffic.md)                   | shipped | unrouted traffic is HELD, never delivered: no route, no folder, no turn; the held set derived from the loop's own resolve at `GET /v1/routing/unrouted`, shown on `/dash/routes/` operator-only with a one-click claim that is the existing route write; why neither catch-all is a seed                                                                                                                                                                                                                   |
-| [36-minimal-projection.md](36-minimal-projection.md)               | shipped | the four verbs the system rests on — ingest, route, grant, meter-and-assert — with the folder as coordinate and the turn as transaction; every mechanism mapped onto them, the five ranked cuts, and what must stay plural                                                                                                                                                                                                                                                                                 |
+| [36-minimal-projection.md](36-minimal-projection.md)               | shipped | the four verbs the system rests on — ingest, route, grant, meter-and-assert — with the folder as coordinate and the turn as transaction; every mechanism mapped onto them, the ranked cuts, and what must stay plural                                                                                                                                                                                                                                                                                      |
 | [37-store-model.md](37-store-model.md)                             | draft   | the store model: Postgres exists for Dex and LiteLLM only (their docs and `schema.prisma` require it) and arizuko stays on SQLite per owner; the 26/19/7/3 census re-verified in code, the three security-bearing write paths (group delete, membership, `resreg.Apply`) each with the engine-neutral redesign that frees it from an interactive transaction, what a key-value model still costs (audit query, FTS, aggregates, the seam), and the staged order with `audit_log` as the point of no return |
 
 `7` owns the contracts; `1` owns the strategy; `16` owns the map (layers,
 axes, matrices); `28` owns the cockpit and every one of `29`–`33` points back
 at it. `9` (crackbox KVM), `24` (the per-spawn egress proxy) and
-`12` (`mcpfw`) are the concrete component specs from the former phase 12. `17`–`20` are the
+`12` (`mcpfw`) are the concrete component specs. `18`–`20` are the
 **Centaur peel** (`paradigmxyz/centaur@20f3021`, Apache-2.0, read
-2026-08-10): `18` and `20` shipped as decision records (decline, costed,
-with reopen triggers); `17` was narrowed twice on 2026-08-15 (signing →
-request tool; vendor-signing transforms declined), then declined and
-deleted 2026-08-20 (see the deleted table); `19` is timed, not
-standalone.
-
-## The plan from here
-
-The phase is `active` (2026-08-15). What ships, in the order the specs
-themselves argue:
-
-1. **The `6/7` contracts made real** — the component probe **shipped
-   2026-08-17** (`arizuko probe <base-url>`); routd and proxyd pass 5/5
-   live, dashd 3/3. pi's session resume **shipped 2026-08-27**, so all three
-   backends now resume layer 1. **codex is live-certified the same day: 7/9 on
-   the smoke gate.** Getting there took two fixes — `ARIZUKO_BACKEND` never
-   reached runed (`L128`), so no backend could be certified at all, and the
-   backend switch leaves a claude model id behind (`L129`), so every codex turn
-   400d until the model was set too. `pi` is blocked on a credential, not on
-   code: both credentials the host holds are refused by their own APIs. The
-   remaining work is diagnosing codex's two failures, which share one
-   signature, and an operator decision on pi's provider key.
-2. **The opaque-client credential hole is closed by declining it (2026-08-20)** —
-   arizuko serves credentials through one mechanism, the MCP broker; an opaque
-   in-container client is out of scope by decision, not by coverage. The spec
-   that proposed filling it is deleted (see the table below). `X2` closes as
-   option (c): retire `--product aws-devops`.
-3. **crackbox cut to its lightest** (`6/24`) — a static per-spawn forward
-   proxy, ~250 lines, with `pkg/host` split out and `crackbox` surviving
-   as the tool that composes them. **Demoted 2026-08-18**: the earlier
-   framing was "get a stranger running it", but Anthropic ships
-   sandboxing and network restriction inside Claude Code, so a standalone
-   egress proxy competes with a free bundled feature. Do it for the
-   internal reasons — 1,221 of ~1,700 lines serve an abandoned
-   shared-proxy model, and its consumer-held unregister invariant is a real leak.
-   The composition is the product, not the parts.
-4. **The cockpit is SHIPPED** (`28`–`33`, completed 2026-08-30). `6/28`'s two
-   contracts are real: `auth/dashauth.go` is the one operator gate every daemon
-   dashboard applies (it replaced three drifted copies and added the CSRF check
-   none had), and the per-daemon routes sit ahead of the `/dash/` catch-all with
-   a test pinning that ordering. Eight daemons serve their own dashboard —
-   onbod, timed, routd, runed, authd, proxyd, webd, ttsd — and davd deliberately
-   serves none (dufs has no session list to render); the hub tile is its
-   finished state. All ten channel adapters serve `/dash/<adapter>/`: seven Go
-   ones from a single `chanlib/dash.go` mounted inside `NewAdapterMux`, whapd
-   and twitd from their own `src/dash.ts`, since neither can import chanlib.
-   dashd is the hub plus the cross-cutting pages, and **no dashboard reads
-   another daemon's SQLite file** — all five retained pages read their owner's
-   `/v1`. Writes stay direct per CLAUDE.md's split write-discipline, which is
-   what keeps the operator on the audit row.
-5. **Deferred by their own terms**: `19` waits for a second consumer; `12`
-   (mcpfw) waits for a third-party-MCP consumer.
-
-## The re-cut, applied 2026-08-27
-
-Phase 5 closed on 2026-08-15 and this phase took `active` the same day, so
-everything arriving after that landed here regardless of subject. The operator's
-re-cut, recorded 2026-08-16 and refined the same day to the order the work
-actually runs in: **6 splits arizuko into parts** — the tools, the components,
-the contracts that let a part ship alone — and **7 puts the parts in the
-cloud.** Splitting comes first because you cannot deploy a part you have not
-separated.
-
-Applied by moving the operator cockpit here, `7/1`·`7/2`·`7/3`·`7/11`·`7/12`·`7/41`
-→ `28`–`33`. Nothing in phase 6 moved: the contracts (`7`), the strategy (`1`)
-and the ship-in-parts map (`16`) are what let a part ship alone, so they were
-already in the right phase. Phase 7 keeps `21` and means one thing.
-
-**Why the destination numbers start at 28.** `1`–`27` have all been used in
-this phase, several of them by more than one spec — `specs/6/1` has been five
-different specs and `specs/6/2` six. Re-using one would turn every old pointer
-to it into a confidently wrong pointer instead of a dangling one, which is the
-failure `L43` measured.
-
-## History
-
-Absorbed 2026-08-27: the operator cockpit, `7/1`–`7/41` → `28`–`33` (above).
-
-Dropped 2026-07-16: `3`+`4` (folded into `1`), `5`+`6`+`7` (folded into
-`16`; the number `7` was later reused for the contracts spec),
-`11` (messaging-gateway — premature), `13` (sandd — `runed` owns spawn).
-Self-learning + skill-guard moved to `5/22`·`5/23`; the Hermes
-integration moved to [`../5/35-hermes-integration.md`](../5/35-hermes-integration.md)
-2026-08-02.
-
-Deleted 2026-08-24 — the two superseded crackbox specs:
-
-| was                         | why                                                                                                                                                                                                                                                                                                                                 |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `8-crackbox-standalone.md`  | the SHARED forward proxy with a registry, admin API, client library, transparent mode and SNI peek. `6/24` shipped 2026-08-18 and deleted all of it: one proxy per spawn, allowlist fixed at start. Its durable finding — the consumer-held unregister invariant was a real leak — is recorded in `6/24` §"It removes a real leak". |
-| `10-crackbox-dns-filter.md` | the NXDOMAIN filter on UDP/53, keyed on the same registry as the proxy. `6/24` deleted `pkg/dns`: a single-tenant proxy already sees every destination in the CONNECT line, and a rule expressed twice can disagree with itself. `SECURITY.md:346` already states the supersession.                                                 |
-
-Deleted 2026-08-02:
-
-| was                             | why                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `2-target-matrix.md`            | competitive intel duplicating the Agent Research Hub, which it named as the real source of truth. Dated vendor tables rot; re-read the Hub instead.                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `17-agentic-distribution.md`    | self-disclaimed "recorded debate, NOT a build order" whose own codex critique folded it into `5/20` (since dissolved into `5/28`). The honest-removal delta landed in `5/28` (shipped 2026-07-29).                                                                                                                                                                                                                                                                                                                                                                                               |
-| `17-egress-credential-proxy.md` | DECLINED then deleted 2026-08-20. Every tier refused: arizuko serves credentials through the MCP broker or not at all, and an opaque in-container client is out of scope **by decision**, not by coverage. Tier 0 (`credential_process`) had one named consumer, `X2`'s `aws-devops` product, which zero groups on any instance run. The two declines it recorded are now stated inline where they were cited: **interception/MITM is declined (2026-08-18)** and **vendor-signing transforms `aws_auth`/`hmac_sign` are declined (2026-08-15)**. `X2` closes as option (c), retire the product. |
-| `slides.md`                     | a 10-slide pitch deck — presentation material, no buildable content.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-
-`16`'s counterpart landscape was compressed to its durable finding (the
-composition is the moat; never claim a commodity part is novel); the
-dated 2026-07-15 vendor sweep table was cut for the same reason `2` was.
+2026-08-10): `18` and `20` are decision records (decline, costed, with
+reopen triggers); `19` shipped.
 
 ## Ties
 

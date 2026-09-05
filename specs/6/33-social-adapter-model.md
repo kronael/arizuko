@@ -7,8 +7,7 @@ shipped: 2026-08-30
 
 Social adapters (bskyd, reditd, twitd, linkd) operate differently from
 chat adapters (teled, discd, slakd, whapd, emaid). This spec defines that
-boundary. The observer system it hands broad monitoring to is **unspecced** —
-no spec exists for it yet.
+boundary.
 
 ## Problem
 
@@ -35,9 +34,7 @@ Social platforms are different:
    problem from "respond to this notification." Bundling both into one adapter
    conflates two concerns with different scaling, auth, and trust profiles.
 
-## Design: Two-System Split
-
-### Adapter — this spec
+## Design: the adapter is the notification stream
 
 The social adapter covers the **immediate interaction landscape** only:
 
@@ -49,7 +46,9 @@ The social adapter covers the **immediate interaction landscape** only:
 This is the same event-driven model as chat adapters: platform pushes (or
 adapter polls) notifications, adapter forwards to routd, agent replies via
 `send`/`reply`. The adapter is thin; it doesn't crawl, doesn't observe, doesn't
-index.
+index. Broad monitoring — keyword/hashtag tracking, competitor mentions,
+sentiment, trend detection, thread context enrichment — is not the adapter's
+job.
 
 **Key difference from chat adapters:**
 
@@ -60,54 +59,18 @@ index.
 | Polling            | Rare (webhooks)        | Common (rate-limited) |
 | Trust model        | Authenticated users    | Public strangers      |
 
-### Observer — a different system, unspecced
+## Adapter Behavior
 
-The observer handles **broad monitoring** — everything beyond the notification
-stream:
-
-- Keyword/hashtag monitoring
-- Competitor/industry mentions
-- Sentiment tracking
-- Trend detection
-- Thread context enrichment
-
-The observer is a **different system entirely**:
-
-- Runs outside the adapter, possibly outside arizuko
-- May use different auth (read-only API keys, scraping, third-party services)
-- Writes to a facts/knowledge store the agent reads, not to the message stream
-- Has its own rate-limit budget, retry logic, and failure modes
-
-The observer delivers context to the agent via files (`facts/`, `workspace/`)
-or via a dedicated MCP tool (`get_social_context`), NOT by injecting messages
-into the channel adapter's inbound stream.
-
-## Adapter Behavior Changes
-
-### 1. Selective reply (agent-driven)
-
-Social adapters do NOT auto-route every notification to the agent. Instead:
+### 1. Notifications are ordinary inbound
 
 ```
 notification → adapter → routd (stored, verb=mention) → routing rules
 ```
 
-The routing rule for social channels should default to a **triage skill** that
-decides whether to engage:
-
-```
-# routes table
-chat_jid LIKE 'bsky:%'  →  folder=social/bsky  skill=triage
-```
-
-The triage skill sees the notification, checks relevance (is this spam? is
-this a known account? is this on-topic?), and either:
-
-- Replies directly
-- Escalates to a human
-- Ignores (no response)
-
-This is different from chat adapters where the default is "always engage."
+Whether the agent engages is the route's and the agent's decision, not the
+adapter's. Nothing ships a triage skill: a social route defaults to the same
+always-engage path a chat route takes, and the operator narrows it with the
+route table (`5/B`) or the persona.
 
 ### 2. Minimal context in payload
 
@@ -126,8 +89,7 @@ InboundMsg{
 }
 ```
 
-If the agent needs more context, it calls the observer's MCP tool or reads
-from facts/. The adapter doesn't block on enrichment.
+The adapter doesn't block on enrichment.
 
 ### 3. No observer polling in adapter
 
@@ -138,7 +100,7 @@ The adapter polls ONLY for notifications directed at the bot. It does NOT:
 - Poll trending topics
 - Crawl threads for context
 
-All of that is the observer's job. The adapter stays thin.
+The adapter stays thin.
 
 ## What Stays the Same
 
@@ -148,11 +110,9 @@ All of that is the observer's job. The adapter stays thin.
 - Health check at `/health`
 - Service token auth via AUTHD_SERVICE_NAME
 
-## Migration
+## The one exception: reditd's subreddit poll (measured 2026-08-30)
 
-**Measured 2026-08-30, and the claim this section used to make was wrong.** It
-read "existing social adapters are already thin — they don't have observer
-logic". Four of five are. reditd is not.
+Four of five social adapters are thin. reditd is not.
 
 `reditd.pollOnce` (`reditd/client.go:287`) polls TWO kinds of source:
 
@@ -173,37 +133,13 @@ bskyd, linkd and twitd carry no equivalent: a grep for
 hashtag/trending/keyword/search across them returns nothing.
 
 **The exception is RECORDED, not removed.** Deleting reditd's subreddit poll
-would take away a working capability on a deployed adapter with no replacement,
-which is the same mistake `6/30` forbids for dashboard migrations — and the
-observer that should own it is unspecced. So `SUBREDDITS` stays, named here as
-the one adapter that crosses the boundary, and
-`tests/socialboundary` pins the set so a SECOND adapter cannot cross it
-quietly.
+would take away a working capability on a deployed adapter with no
+replacement. So `SUBREDDITS` stays, named here as the one adapter that crosses
+the boundary, and `tests/socialboundary` pins the set so a SECOND adapter
+cannot cross it quietly.
 
-**This is what shipping the spec means.** The boundary is decided and enforced;
-one adapter predates it and is documented as the exception. When the observer
-exists, moving reditd's feed poll into it is the migration, and this paragraph
-is its statement of work.
-
-The observer system is unspecced work. Until it exists, agents on social
-platforms operate with notification-only context — except on Reddit, where the
-configured subreddits arrive as ordinary inbound messages.
-
-## Open Questions
-
-1. **Triage skill standard.** Should there be a built-in `social-triage` skill,
-   or is this operator-configured per deployment? (Open. Today it is
-   operator-configured: nothing ships a triage skill, and a social route
-   defaults to the same always-engage path a chat route takes.)
-
-2. **Observer delivery.** MCP tool (`get_social_context`) vs facts/ files vs
-   injected `<observed>` context. Each has tradeoffs.
-
-3. **Rate limit coordination.** If both adapter and observer hit the same API,
-   how do they share rate budget?
-
-4. **Cross-platform observer.** One observer per platform, or one unified
-   "social observer" that aggregates across bsky/mastodon/reddit/twitter/linkedin?
+Agents on social platforms operate with notification-only context — except on
+Reddit, where the configured subreddits arrive as ordinary inbound messages.
 
 ## Related
 

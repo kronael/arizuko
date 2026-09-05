@@ -37,7 +37,7 @@ var observerMarkers = []string{"hashtag", "trending", "competitor"}
 // the bot is not addressed in — and it predates this spec. Removing it would
 // take a working capability off a deployed adapter with no replacement, and
 // the observer that should own it is unspecced, so it is recorded rather than
-// deleted (6/33 §Migration).
+// deleted (6/33 §"The one exception: reditd's subreddit poll").
 //
 // The point of the map is that it is a CLOSED list: a second adapter cannot
 // start polling a feed without editing this line and reading why.

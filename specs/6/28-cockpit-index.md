@@ -11,8 +11,8 @@ and writing only through its own `/v1` surface. A lean `dashd` hub
 probes and links them — an AWS-Console "Services" home, much leaner.**
 One renderer per daemon, one hub. This spec is the anchor; `6/29`,
 `6/30`, `6/31` and `6/32` point back here for architecture, routing,
-auth, theme, and non-goals, and add only their own page lists +
-show/control matrices.
+auth and theme, and add only their own page lists + show/control
+matrices.
 
 ## The shape
 
@@ -56,22 +56,13 @@ daemon owns that file, migrates it, and is the only writer. Requiring it to
 call its own `/v1` to render its own page would be a second reader of one
 table for no gain. The rule bites exactly where ownership ends.
 
-This sentence used to read "No dashboard — hub or per-daemon — reads a SQLite
-DB directly", which contradicted §Status four screens down ("no dashboard reads
-another daemon's SQLite file") and left three specs' status unanswerable: `6/30`
-ships per-daemon dashboards that read their own DBs, correct under one reading
-and a violation under the other (BUGS `L154`). One sentence now, and it is the
-one the code was built to.
-
-**WRITES are governed by CLAUDE.md, not by this spec** (reconciled 2026-08-30).
-This rule read "shows or mutates" and that contradicted the project's
+**WRITES are governed by CLAUDE.md, not by this spec.** Its
 §"Split write-discipline": _FS-mounted daemons (dashd, onbod, CLI) write owned
 tables directly to the owner's DB; non-mounted daemons write via the owner's
 HTTP API + service token._ dashd is FS-mounted on `routd.db`, so its writes go
 direct BY RULE.
 
-The measurement that forced the reconciliation is also the reason the rule
-exists: `store.AsUser` (`store/store.go:44`) puts the OPERATOR's sub on the
+The measurement behind the rule: `store.AsUser` (`store/store.go:44`) puts the OPERATOR's sub on the
 `audit_log` row, and `dashd`'s `bearerCall` carries only its own service bearer.
 Routing an operator mutation through `/v1` would attribute it to
 `service:dashd` — the write would succeed and the audit trail would quietly
@@ -82,9 +73,7 @@ identity-stamping from one daemon to two.
 So the read path federates and the write path does not, deliberately. A
 per-daemon dashboard writing its OWN daemon's tables in-process (routd's
 retry/replay, proxyd's route CRUD, authd's revoke) is the same rule read from
-the other side — those daemons own what they write. This retires `dashd`'s current direct reads of
-`routd.db`/`onbod.db`/`runed.db`. (`messages.db` is the retired monolith and
-is already refused at boot, `dashd/main.go:479`.)
+the other side — those daemons own what they write.
 
 Why strict, not hybrid: live process state (`runed` active runs,
 `routd` breaker + queue depth, adapter session health, `timed`
@@ -145,9 +134,8 @@ middleware"):
    authd-minted `service:proxyd` ES256 bearer as transit proof.
 2. **Daemon-side gate** — the daemon verifies the `service:proxyd`
    bearer with `auth.ProxydTransit(r, ks)` (`auth/middleware.go`) and
-   only then trusts the stamped `X-User-*`; a shared `auth/dashauth.go`
-   helper (promoted from `dashd/authz.go`'s `requireAdmin`) then runs
-   the one operator/scope decision over `X-User-Groups`. CSRF for
+   only then trusts the stamped `X-User-*`; the shared `auth/dashauth.go`
+   helper then runs the one operator/scope decision over `X-User-Groups`. CSRF for
    writes lives in the same helper (same-origin check). `ks==nil`
    (`AUTHD_URL` unset, local-dev) falls open.
 
@@ -176,38 +164,22 @@ Specs reference theme by name only — no CSS prose, no px figures.
 
 Request-time probe to each `<daemon>:8080/health`, `context.WithTimeout`
 500ms per probe so one slow daemon can't stall the render. No cached
-probe loop initially; add caching only if render latency becomes a
-problem. Tile content: daemon name, `ok|warn|err`, one-line health
-summary if the payload carries one, link to `/dash/<daemon>/`.
+probe loop; add caching only if render latency becomes a problem. Tile
+content: daemon name, `ok|warn|err`, one-line health summary if the
+payload carries one, link to `/dash/<daemon>/`.
 
-## Non-goals
+## What exists (2026-08-30)
 
-- Not a metrics system; not a Prometheus/Grafana replacement. Tiles
-  show binary health + version, not time-series.
-- No autodiscovery — the proxyd route entry is the registration.
-- No config DSL, no SPA, no frontend build step. HTMX +
-  server-rendered HTML only.
-- No websocket/SSE requirement.
-- No new dashboard API separate from `/v1`.
-- No cross-daemon write orchestration in the hub.
-- No single global status screen that unifies every page.
-
-## Build state (2026-08-29)
-
-Signed off and started. The contract above is settled; what exists:
-
-- **Auth (both gates)** — shipped. `auth/dashauth.go` is the one operator
-  decision every daemon dashboard applies: `RequireOperator` / `RequireWrite`,
-  the themed 403, and the same-origin CSRF check for writes. It replaced three
-  drifted copies (timed rendered the themed page, onbod rendered the bare
-  string `forbidden`, dashd carried the `**` shortcut inside `callerScope`);
-  timed and onbod now call it. dashd's `requireAdmin` stays separate on purpose
-  — it answers folder-scoped admin, not operator.
-- **Routing** — shipped for the daemons that have a page. `coreProxydRoutes`
-  carries `/dash/onbod/`, `/dash/routd/` and `/dash/timed/` ahead of the
-  `/dash/` catch-all, and `TestDaemonDashRoutesPrecedeTheCatchAll`
-  (`compose/reserved_routes_test.go`) pins that ordering, the `user` auth mode
-  and the "not backed by dashd" rule for every route added later.
+- **Auth (both gates).** `auth/dashauth.go` is the one operator decision
+  every daemon dashboard applies: `RequireOperator` / `RequireWrite`, the
+  themed 403, and the same-origin CSRF check for writes; timed and onbod call
+  it. dashd's `requireAdmin` stays separate on purpose — it answers
+  folder-scoped admin, not operator.
+- **Routing.** `coreProxydRoutes` carries `/dash/onbod/`, `/dash/routd/` and
+  `/dash/timed/` ahead of the `/dash/` catch-all, and
+  `TestDaemonDashRoutesPrecedeTheCatchAll` (`compose/reserved_routes_test.go`)
+  pins that ordering, the `user` auth mode and the "not backed by dashd" rule
+  for every route added later.
 - **Per-daemon dashboards — the core set is COMPLETE.** Eight of nine serve
   their own: onbod (admission queue), timed (overview), routd (overview + retry
   - replay), runed (capacity + run table + kill), authd (keys + sessions +
@@ -216,59 +188,26 @@ Signed off and started. The contract above is settled; what exists:
     render — and stays a hub tile probed at `GET /`. routd is the
     reference the rest copy: handlers in the owning daemon, gated by
     `RequireOperator` (reads) and `RequireWrite` (mutations), reading the same
-    in-process readers its `/v1` handlers read.
-- **Four migrations done** — routd's, runed's, authd's and proxyd's pages have
-  LEFT dashd. `dashd/routd_page.go`
-  is deleted, and routd owns the two controls it carried, over its own
-  `ClearErrored` writer instead of dashd's raw `UPDATE` on `routd.db`. This is
-  the shape the rest follow, and it carries a trap worth stating: proxyd matches
-  longest-prefix, so routing `/dash/<daemon>/` moves every POST under it too —
-  the replacement must answer the controls BEFORE the route lands, or the
-  operator gets dead buttons.
-- **The hub links what is served.** Its `Built` flag is checked against the
-  union of dashd's own mux and the proxyd route table; asking only about dashd's
-  mux was the pre-federation question and it hid two working dashboards (onbod,
-  timed) whose tiles rendered as plain text while the hub was their only nav
-  path.
-- **Hub** — `/dash/services/` exists and probes every daemon concurrently with
-  a 500ms per-tile timeout, as specified. Its tile list and probe model are
-  done; what remains is that six of its tiles still point at pages dashd
-  renders.
-- **Adapters — the shared renderer is SHIPPED** (`6/31`). `chanlib/dash.go` is
-  mounted inside `NewAdapterMux`, so all seven Go adapters serve
-  `/dash/<adapter>/` with no per-adapter code, each registered by its own
-  `template/services/<name>.yaml` route gated on the adapter's credential.
-- **What is left.** The per-adapter delta sections (`6/32`), the two TypeScript
-  adapters that cannot import chanlib (whapd, twitd), the social/chat boundary
-  (`6/33`), and `6/29`'s real debt — dashd's remaining direct-DB reads, which
-  are on the CROSS-CUTTING pages (tasks, routes, groups, grants, usage, route
-  tokens) that `6/29` keeps central and requires to call the owning daemon's
-  `/v1` instead.
+    in-process readers its `/v1` handlers read, and writing its two controls
+    over its own `ClearErrored` writer.
+- **Hub.** `/dash/services/` probes every daemon concurrently with a 500ms
+  per-tile timeout and links what is served, read from the live proxyd route
+  table (`6/29`).
+- **Adapters.** The shared renderer `chanlib/dash.go` is mounted inside
+  `NewAdapterMux`, so all seven Go adapters serve `/dash/<adapter>/` with no
+  per-adapter code, each registered by its own `template/services/<name>.yaml`
+  route gated on the adapter's credential (`6/31`).
 
 **Status: shipped 2026-08-30.** The hub exists, the per-daemon set is complete
 (eight dashboards plus davd's recorded abstention), all nine adapters serve the
 shared contract, and no dashboard reads another daemon's SQLite file. The write
-axis is governed by CLAUDE.md's split write-discipline, reconciled above.
-
-## Reconciliation of prior specs
-
-- The former `11/18-daemon-dashboards.md` — superseded by this spec and
-  deleted 2026-08-02. Its routing/auth/theme/hub model carried over
-  almost verbatim; the one change is the read-path (it left `dashd`'s
-  direct-DB pages in place — this spec migrates them to `/v1`).
-- `specs/3/d-dashboards.md` (shipped) — historical input; the tile
-  portal it shipped becomes the hub (`6/29`).
-- `specs/4/Q-dash-memory.md` (shipped) — the memory browser is a
-  retained cross-cutting `dashd` page (`6/29`), re-homed to read via the
-  owning daemon's `/v1`.
-- `specs/4/V-dashd-acl-ui.md` (shipped) — the ACL UI is a retained
-  cross-cutting `dashd` page (`6/29`), reading `authd`'s `/v1`.
+axis is governed by CLAUDE.md's split write-discipline, above.
 
 ## The spec set
 
 | Spec   | Covers                                                          |
 | ------ | --------------------------------------------------------------- |
-| `6/28` | this — architecture, read-path, routing, auth, theme, non-goals |
+| `6/28` | this — architecture, read-path, routing, auth, theme            |
 | `6/29` | dashd hub + retained cross-cutting operator pages               |
 | `6/30` | the ten core/edge daemon dashboards, one table + the residue    |
 | `6/31` | adapter dashboard contract — shared page grammar + health model |
@@ -279,36 +218,24 @@ A per-daemon section carries only: pages, the show/control matrix, the
 repeated architecture text, no implementation tutorial, no CSS prose
 beyond "use theme" — point back here.
 
-## Build order
-
-1. `6/28` (this) + `6/29` hub — land architecture + the empty tile grid.
-2. `6/31` adapter contract — the repeated pattern, defined once.
-3. Finish onbod (gates + invites pages) and timed (task pages): both
-   already serve a dashboard and need no new `/v1` work.
-4. runed, proxyd — operational depth.
-5. routd, authd — the big control surfaces.
-6. `6/32` adapters — repeated pattern work.
-7. webd/ttsd, crackbox.
-
 ## Reusable pieces
 
 - `theme` — tiles (hub) vs tables/detail (daemon), status dots, banner,
   crumbs, theme-toggle, `.btn-danger`.
-- `auth/dashauth.go` — promoted `requireAdmin` + same-origin CSRF for
-  writes.
+- `auth/dashauth.go` — the operator gate + same-origin CSRF for writes.
 - `chanreg/health.go` — canonical adapter liveness semantics (`6/31`).
-- `onbod/dash.go` + `timed/dash.go` — the two shipped dashboards; copy
-  their operator gate and their "one writer per resource, two faces"
-  shape rather than inventing a third.
+- `onbod/dash.go` + `timed/dash.go` — copy their operator gate and their
+  "one writer per resource, two faces" shape rather than inventing a
+  third.
 - existing `GET /health` + `GET /openapi.json` on every daemon.
 - existing `/v1` handlers (`specs/5/17`).
 
 ## Code pointers
 
-- [`dashd/main.go`](../../dashd/main.go) — current monolithic route
-  table; becomes the hub + cross-cutting pages.
-- [`dashd/authz.go`](../../dashd/authz.go) — `requireAdmin`, promoted to
-  `auth/dashauth.go`.
+- [`dashd/main.go`](../../dashd/main.go) — the hub + cross-cutting pages.
+- [`dashd/authz.go`](../../dashd/authz.go) — `requireAdmin`, the
+  folder-scoped admin gate (distinct from `auth/dashauth.go`'s operator
+  gate).
 - [`theme/theme.go`](../../theme/theme.go) — `Head()` / `Page()`.
 - [`auth/middleware.go`](../../auth/middleware.go) — `ProxydTransit`
   (service-bearer transit proof; gate the daemon-side dash check on it).
@@ -317,6 +244,5 @@ beyond "use theme" — point back here.
   HTML page is a third face on the same `/v1` handler set.
 - [`specs/5/7-proxyd-standalone.md`](../5/7-proxyd-standalone.md) —
   route field semantics and `gated_by` evaluation. Registration is a
-  `services/<daemon>.yaml` manifest or `coreProxydRoutes`; the
-  `.toml` converter it describes is retired (root `CLAUDE.md`
-  "Adding a channel adapter" is current).
+  `services/<daemon>.yaml` manifest or `coreProxydRoutes` (root
+  `CLAUDE.md` "Adding a channel adapter").

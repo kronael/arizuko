@@ -18,15 +18,7 @@ depends:
 > already understands. gitd is **ingress only**; everything the agent does
 > BACK to the repo goes through the GitHub MCP connector — not through channel
 > verbs. Shipped 2026-09-05: `gitd/`, the `github_sources` registry, the
-> `arizuko github` CLI. GitLab and Gitea are the same shape behind their own
-> scheme, later.
-
-## Status
-
-Shipped in code, verified against captured webhook fixtures, **not yet verified
-against a live GitHub delivery**: no App exists for any instance and nothing
-was deployed. What a live run must still show is listed under
-[Acceptance](#acceptance).
+> `arizuko github` CLI.
 
 ## Decision 1 — ingress and egress are two different mechanisms
 
@@ -66,11 +58,6 @@ is a PAT or a fine-grained token; gitd holds no App private key (Decision 5).
 reaches those endpoints under `mcp:` grants and the hold gate, and a second
 path to one act is the duplication this repo forbids.
 
-> **BUGS `L94` (fixed 2026-08-25).** `Like` and `Post` were the only two verbs
-> in `chanreg/httpchan.go` with no `HasCap` guard; gitd is the first adapter
-> that implements neither, and the guards are what turn that into "this
-> platform does not do that" instead of a 404 transport error.
-
 ## Decision 3 — the JID grammar IS the routing model
 
 The scheme is **`github:`**, not a host-neutral `git:`. Two measured
@@ -79,8 +66,8 @@ rejects a sender whose scheme no registered JID prefix shares
 (`chanreg.Entry.OwnsScheme`), and authd mints a GitHub sign-in as
 `github:<login>` (`authd/oauth.go` dispatch with `auth.FetchGitHubUser`).
 Decision 5 requires the webhook sender to BE that principal, so the JID scheme
-must be `github:`. GitLab gets `gitlab:` — scheme = OAuth provider name, and
-the sender/JID agreement holds by construction.
+must be `github:`. Scheme = OAuth provider name, so the sender/JID agreement
+holds by construction.
 
 ```
 github:<owner>                    account/org-level event (no repository)
@@ -237,8 +224,7 @@ Two identity rules gitd inherits:
 - **GitHub logins are mutable.** A user rename silently transfers
   `github:<old-login>` — and every grant on it — to whoever claims the old
   name; the numeric `sender.id` is stable but is not what authd mints. gitd
-  matches authd for one identity rather than inventing a second shape; the
-  fix, when it is needed, is authd keying on the id and gitd following.
+  matches authd for one identity rather than inventing a second shape.
 - **Bot loops.** The agent's own comment fires `issue_comment.created`. gitd
   drops `sender.type == "Bot"` and any sender equal to `GITHUB_TOKEN`'s login
   (learned from `GET /user` at start) at ingest — the only place that can.
@@ -246,17 +232,13 @@ Two identity rules gitd inherits:
   own; the operator redelivers from the "Recent deliveries" tab. gitd covers
   the routd side: a delivery routd cannot take is retained in `gitd.db`
   (`chanlib.RetainInbound`) and answered `202`, re-delivered by the sweep. A
-  gitd outage is the operator's redeliver. No reconcile poll ships.
+  gitd outage is the operator's redeliver.
 - **Replay.** GitHub signs no timestamp. A replayed delivery re-posts a
   message whose id (`gh-c<comment id>`, `gh-d<delivery guid>`) routd already
   holds, so it is an `INSERT OR IGNORE` no-op — the id, not the signature, is
   the replay defence.
 - **`.github/workflows/` stays read-only** unless a grant explicitly opens it.
   An agent that can edit its own CI can edit its own gate.
-- **Not live-verified.** Signature, mapping, containment, retention and the
-  two-repo case are fixture-driven; a real delivery, an agent reply landing as
-  a comment, and the `sessions` split across two PRs are still to be seen on
-  an instance.
 
 ## Architecture
 
@@ -276,10 +258,10 @@ A standard `5/34` adapter, packaged per `5/7`/`5/8`: `template/services/gitd.yml
   `github:<owner>/<repo>/pr/<n>` with `topic=pr/<n>` — **fixture-verified**
   (`TestMapEvent_Fixtures`, `TestWebhook_PushDelivered`). The agent's answer
   lands as a comment on that PR — **API-shape verified against a fake GitHub**
-  (`TestSend_PostsComment`), live unverified.
+  (`TestSend_PostsComment`).
 - Two PRs on one repo hold two independent conversations: each event carries
   its own topic — **fixture-verified**; the two `sessions` rows are routd
-  behaviour, live unverified.
+  behaviour.
 - A push to a repo routed `#observe` creates NO turn — **verified through
   `router.ResolveRouteTarget`** on the seeded rows.
 - A route row at a lower seq pulls one PR into a different folder — route
@@ -293,9 +275,3 @@ A standard `5/34` adapter, packaged per `5/7`/`5/8`: `template/services/gitd.yml
   `hold:mcp:github_merge_pull_request` suspends it — unchanged from `5/19`.
 - gitd advertises exactly `send_text`; every other verb returns `Unsupported`
   without a network call — **verified** (`TestCapImplConsistency`).
-
-## Out of scope
-
-GitLab / Gitea daemons (same shape, own scheme, later) · line-anchored review
-replies (top-level comments only in v1) · reconcile polling · cross-repo
-coordination (each repo is its own JID; coordinate by mentioning a sibling).

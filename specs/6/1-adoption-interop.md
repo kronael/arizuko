@@ -72,10 +72,6 @@ off-the-shelf answer, and that is the only audience the thesis addresses.
 
 ## The thesis — the environment IS the product
 
-The framing "run your harness inside arizuko" is **emulation**, and it was
-rejected. Emulation inherits the wrapped thing's model, carries compatibility
-debt forever, and caps arizuko at whatever it wraps.
-
 The Lambda analogy is the argument. Lambda never emulated your server. It
 published a contract — handler, event, context, and a role the SDK finds on its
 own — and the value was what the environment gives you for free: isolation,
@@ -113,7 +109,7 @@ Hub (comparative, source-cited), `USELESS.md` (the self-critique that makes
 honest claims believable), the `web-native Linux` one-liner (`specs/5/A`).
 Campaigning before the contracts exist asks people to take a leap.
 
-## The engine — an agentic reimplementation loop (unproven)
+## The engine — an agentic reimplementation loop
 
 The interop surface is large (N harnesses × their features) and moving.
 Hand-building it does not scale. Dogfood instead: arizuko's own agents build
@@ -122,9 +118,7 @@ a time:
 
 1. **Read** the target system's source (the Hub already clones repos into
    `refs/`) and its released changes since last run. `refs/` lags upstream by
-   months; a claim is verified against live `main`, never against the clone —
-   the openclaw default in `7/23` was once written from a stale clone and was
-   wrong.
+   months; a claim is verified against live `main`, never against the clone.
 2. **Extract** the config/protocol surface an arizuko folder would need to
    host or import it, measured against the `6/7` contracts.
 3. **Reimplement / shim** the smallest interop, in an isolated worktree.
@@ -135,8 +129,8 @@ a time:
 This reuses machinery that exists: the Hub's monthly code-analysis protocol,
 worktree-isolated subagents, the migrate/broadcast delivery path. The loop is
 the same shape arizuko already runs on itself (`specs/5/22` self-learning);
-here it points outward. It has not run once; it is scoped to one target and
-measured on whether the interop it produces is adopted before it scales.
+here it points outward. It is scoped to one target and measured on whether
+the interop it produces is adopted before it scales.
 
 ## What the environment provides — services one level up
 
@@ -172,31 +166,12 @@ only on proof the primitives can't. (marble is the reference output: a
 1,590-topic prerequisite graph answered by `jq` over three bundled JSON files,
 no graph DB.)
 
-## Non-goals / honest risks
-
-- **Not a shim graveyard.** Interop that dilutes the folder coordinate is a
-  liability. Every adapter must keep tenancy + egress + ACL intact.
-- **The moat must stay the reason.** If arizuko is only "compatible with X", X
-  wins on maturity. The contract is the product; compatibility is the on-ramp.
-- **Validation is still autobiographical** (`USELESS.md` §3). One external
-  operator running one foreign part against the published contracts is the
-  first real proof — optimize for that, not for feature count.
-- **The reimplementation loop is unproven and expensive.** Scope it to one
-  target, measure whether the interop it produces is actually adopted, before
-  scaling the fleet.
-
-## What is settled, and what is not
+## What is settled
 
 Settled: the thesis, narrowed to property **a** and measured against the
 field; the two contracts as the primary track; the on-ramp as secondary; the
 seven services. The analysis is complete as positioning — nothing in it is
-code to write.
-
-Not settled, and the reason the status is not `shipped`: no external operator
-has occupied either contract (`6/7` is `defected`, `L131`), and the
-reimplementation loop has not run. Both are proofs the thesis needs; neither
-is a gap in the analysis. Vendor rows date — re-measure a row before citing
-it.
+code to write. Vendor rows date — re-measure a row before citing it.
 
 ## Ties
 

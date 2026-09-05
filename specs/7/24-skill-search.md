@@ -94,15 +94,6 @@ No new mechanism. Three cheaper moves, in order:
 
 Build retrieval only if a measured miss rate justifies it.
 
-## Open questions
-
-- Does the harness offer a native skill-search or lazy-listing facility?
-  If it does, adopt it rather than building one.
-- Is 95 skills past the point where a flat index stops working, or is
-  that assumed? No measurement here shows a discovery failure; the case
-  rests on the cost of the resident index and the absence of a miss
-  signal, not on an observed miss.
-
 ## Ties
 
 `23-agent-habitat` (the resident budget this competes for) · `6/34` (what

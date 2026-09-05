@@ -142,19 +142,7 @@ Verdict: no adoptable router exists. The asymmetry is adoptable from
 three projects, the gate from Paperclip, the coordinate from Keycloak
 (`6/16`); the binding of one path to tenant, grant, route, egress, web
 host and file tree, applied by one gate to both MCP and REST, is not
-shipped anywhere found. The field by property is in `6/1`. The parts
-worth reading, not adopting:
-
-- mautrix `bridgev2` (MPL-2.0): the `RemoteEventType` taxonomy in
-  `bridgev2/networkinterface.go` (message, upsert, edit, reaction, remove,
-  read receipt, delivery receipt, typing, chat info change, resync,
-  delete, backfill) and `networkid.PortalKey` — a room identity that
-  is `(portal, receiver)`, never a parsed string.
-- n8n's **end-user credentials**
-  (docs.n8n.io/administer/manage-credentials/end-user-credentials): a
-  workflow runs with the credential of the person who triggered it, not a
-  fixed one. n8n's RBAC scopes are `credential:create|read|update|delete|
-list|share|move`; there is no `connect_credentials` identifier.
+shipped anywhere found. The field by property is in `6/1`.
 
 ## The permission gradient
 
@@ -173,7 +161,7 @@ The zero-config-to-enterprise gradient is already visible in live rows:
 A single user configures nothing. An enterprise writes the third shape as
 deep as it needs. One evaluator serves all three.
 
-## Correction worth keeping
+## The credential stays in the adapter
 
 Putting egress behind MCP does NOT move the platform credential into the
 broker. routd's tools delegate to the adapter's `/send`, so the token
@@ -184,28 +172,6 @@ credentials server-side" (docs.composio.dev/docs/connected-accounts) and
 Arcade "will securely inject the OAuth token into the tool's Context"
 (docs.arcade.dev, create-tool-auth). The agent holds it in neither case,
 but the distinction matters when comparing designs.
-
-## Open threads
-
-- `webd` registers as the `web` channel (`webd/main.go:127`). `hook:` is
-  the scheme that does not register: routd composes
-  `hook:<target-folder>/<source>` JIDs itself
-  (`routd/route_tokens_resource.go`) and `Loop.directFolder`
-  (`routd/loop.go`) resolves them through `groupfolder.JidFolder` and then
-  `RouteTokenTarget` — the token's target is read before the JID's folder.
-  That is consistent with `hook:` being the capability-token door for
-  senders that cannot authenticate rather than a channel.
-- `HasCap` is consulted in `chanreg/httpchan.go` (18 sites) when folding
-  options, and never exposed to the agent (no site in `ipc/` or
-  `routd/`), so a model learns a channel's limits by failing rather than
-  by looking.
-- Every shipped package manifest in `template/services/` declares only
-  `proxyd_routes`, and that is the ceiling of the verb they ship through:
-  `packages add` links the file and applies no row, and `generate` reads
-  one key of it (`compose.ManifestRoutes`). `packages install` applies
-  every resource `apply` rebuilds — a scheduled task, a network rule, a
-  grant inside `--folder` — so a package can declare those today through
-  `install` only. Measured in `7/25`; BUGS `L199`.
 
 ## Ties
 

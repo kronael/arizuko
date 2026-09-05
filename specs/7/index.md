@@ -44,17 +44,6 @@ decision, not a discovery.
 | [24-skill-search.md](24-skill-search.md)   | draft    | skill discovery has no miss signal; the harness listing budget is window-dependent; a miss counter before any retrieval                                                                                                  |
 | [25-publish-plan.md](25-publish-plan.md)   | defected | the package contract and the outsider test; a manifest declares ten resources through `install` and one through `add`; five hooks are names in Go (BUGS `L199`, `L200`); every component measured against it             |
 
-## The cockpit left on 2026-08-27
-
-This phase used to carry two tracks that shared a number and nothing else: the
-operator cockpit and the cloud. The cockpit is platform work — it observes and
-controls the parts — so it moved to phase 6 as `6/28`–`6/33`, and the digits
-now say what the work order already said: **6 splits arizuko into parts, 7 puts
-the parts in the cloud.**
-
-Those six numbers are burnt: this phase numbers new work from `22` up, never
-back into them.
-
 ## Ties
 
 `6/16` (the ship-in-parts matrix — what a part must satisfy to ship alone) ·

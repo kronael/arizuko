@@ -298,8 +298,7 @@ the same door twice:
 - **`network_rules`**, **`onboarding_gates`** (`onbod/main.go:37-41`: kind,
   param, limit per day) and **proxyd's `auth:` level** are three coarse
   pre-gates on three other subjects (host, admission, path). None is the
-  evaluator wearing a coat; egress is the one that could become rows (open
-  question 4).
+  evaluator wearing a coat; egress is the one that could become rows.
 - **`grant_option` is unreachable from two of three faces**: the live
   `add_acl` tool and `/v1/acl` write the row without it
   (`routd/acl_resource.go:290-312`), the MCP args carry no such field
@@ -470,16 +469,6 @@ nothing); it must stay one transaction, which is why S11 depends on a
 `ipc` import. Each is one call site. The remaining §3 items ride S1 (dashd's
 four imports), S4 (the CLI's daemon imports) and S11 (onbod's mount).
 
-**Rejected as cuts, after reading:** `proxyd`/`proxycfg` (a staged
-replacement, not a twin — `6/22`); `authd`/`onbod`/`auth/surrogate` OAuth
-(one authorization-code flow, `authd/oauth.go:112-330`; dex is a fifth
-provider on the same `dispatch`, `authd/dex.go:56`; surrogate is arizuko as a
-client on the user's behalf); `proactive` versus `scheduled_tasks` (silence
-versus calendar); `mountsec` (path safety, no grant logic);
-`installed_packages_new`/`route_tokens_new` (SQLite rebuild idiom inside one
-migration file each); the resreg catalog/mount pair (one declaration read
-at two times, `resreg/resources/names.go:5-14`).
-
 ## 8. What must stay plural
 
 - **The two standards.** A struct in, an interface out (§1). A symmetric
@@ -505,7 +494,7 @@ at two times, `resreg/resources/names.go:5-14`).
   second format. Folding it into `acl` as `net:<host>` rows is a
   [`5/33`](../5/33-paths-roles.md) decision, and the `grantableAction` door
   (`cmd/arizuko/main.go:584-589`) shows the cost of a namespace nobody
-  opened. Open question 4.
+  opened.
 - **Per-owner databases and per-owner `audit_log`.** Ownership is a mount
   boundary for authd and runed. It is not one for routd: dashd, proxyd,
   webd, onbod and the CLI open `routd.db` (§3). S1, S4, S11 and S13 are what
@@ -565,38 +554,7 @@ seventeen with it. The adapters are the count and they are correct.
 - **Egress into `acl` after a 5/33 decision;** it touches the
   `grantableAction` door and the 0023 migration's lesson.
 
-## 11. Open questions
-
-1. Is `timed` in the smallest deployment (5/A d6) or optional (6/16)?
-2. Does the hot tier get a REST face? Root `CLAUDE.md` says no; `5/E` and
-   `5/Z` ship one; nothing calls it.
-3. Is the `X-User-*` bridge under a service bearer the audit-actor answer
-   for dashd and the CLI, so the "FS-mounted daemons write direct" rule can
-   go? `webd/routes_mcp.go` says it already is for one resource.
-4. Does egress belong in `acl` as a namespaced action, the way `hold:` and
-   `shell:env:` do?
-5. Is `onbod` a daemon or a resource set inside routd and authd?
-6. twitd: share a TypeScript `chanlib` with whapd, or move to Go?
-7. `grant_option` on the live `add_acl` and `/v1/acl` — ship it with S6, or
-   keep re-delegation apply-only on purpose?
-8. Where does `proxyd_routes` live once proxyd stops opening `routd.db` — a
-   `store/proxyd/` file, or routd serving it?
-9. Should a web login and a chat JID be one principal by default for a
-   single-user instance, with pairing the enterprise path rather than the
-   floor?
-
-**The objection this spec cannot answer.** Every cut above moves a writer
-onto routd's handlers. That is root `CLAUDE.md`'s "amend the original" and
-it is also the opposite of phase 6's thesis, which is to split arizuko into
-parts that ship alone; `6/16`'s standalone tests reward a seam where this
-spec removes one (S8, the onbod question). The two goals are both the
-maintainer's and this spec cannot rank them. The residue is concrete: the
-offline CLI must keep writing SQL with routd stopped, so `resreg.Apply`
-stays a second writer with no gate — root on the box is the gate — and the
-two-axis containment never runs on that path. One engine, two transports,
-one of them ungated. That is the smallest honest shape, not one renderer.
-
-## 12. Premises checked against the tree
+## 11. Premises checked against the tree
 
 - `AuthorizeTurn` is at `routd/sibling_db.go:290`; `HoldPrefix` at
   `auth/authorize.go:547`, the evaluator `CheckHold` at `:603`.

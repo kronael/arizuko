@@ -10,9 +10,8 @@ Caddy/Traefik plus Authelia's job, and the weakest position in the repo",
 and the move is "shrink toward off-the-shelf and publish the
 grant-scoped mount contract, not extract a bundle."
 
-**This spec does not remove proxyd.** It states what proxyd is actually
-made of, and orders the cuts so each one stands alone. Step 1 is worth
-doing whether or not an off-the-shelf proxy is ever adopted.
+It states what proxyd is made of, and orders the cuts so each one stands
+alone.
 
 ## What is in there
 
@@ -23,40 +22,31 @@ the cost of owning a commodity.
 
 Four jobs live in one daemon:
 
-| Job                               | Verdict                                                                                                                                                                                                                                                     |
-| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| route matching + reverse proxying | commodity. Caddy and Traefik do it, better tested                                                                                                                                                                                                           |
-| TLS termination                   | commodity, and Caddy does automatic certs                                                                                                                                                                                                                   |
-| folder + `acl` scoping            | **irreplaceable** — `auth.MatchSlot`, per-folder mounts, no parent inheritance (`5/10`). No off-the-shelf proxy has a folder-agent                                                                                                                          |
-| bespoke token handlers            | **misfiled** — `/chat/<token>` (`dispatchRouteToken`) and `/hook/<token>` were application surface, not proxying. Moved to webd, step 1. The vhost redirect (`worldForHost`/`vhostRedirect`) was listed here too and does not belong: see "Not moved" below |
+| Job                               | Verdict                                                                                                                                                                                                                              |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| route matching + reverse proxying | commodity. Caddy and Traefik do it, better tested                                                                                                                                                                                    |
+| TLS termination                   | commodity, and Caddy does automatic certs                                                                                                                                                                                            |
+| folder + `acl` scoping            | **irreplaceable** — `auth.MatchSlot`, per-folder mounts, no parent inheritance (`5/10`). No off-the-shelf proxy has a folder-agent                                                                                                   |
+| bespoke token handlers            | **misfiled** — `/chat/<token>` and `/hook/<token>` are application surface, not proxying; they live in webd (step 1). The vhost redirect (`worldForHost`/`vhostRedirect`) is not application surface: see "The vhost redirect" below |
 
-## Step 1 — move the misfiled handlers out (DONE for /chat/ + /hook/, 2026-08-18)
+## Step 1 — the misfiled handlers live in webd (2026-08-18)
 
-`/chat/<token>` and `/hook/<token>` terminated in proxyd: it resolved a
-route token, minted identity and dispatched. That is `webd`'s job — the same
-token-chat, SSE and `/hook` surface `6/16` already calls "the agent
-surface, not a web-stack part".
+`/chat/<token>` and `/hook/<token>` are `webd`'s — the same token-chat, SSE
+and `/hook` surface `6/16` calls "the agent surface, not a web-stack part".
+None of it is proxying, and none of it depends on the proxy decision: proxyd
+is a proxy rather than a proxy with an application stapled to it.
 
-None of this is proxying, and none of it depends on the proxy decision.
-Moving it makes proxyd honest **either way**: if the off-the-shelf swap
-never happens, proxyd is still a proxy rather than a proxy with an
-application stapled to it.
+proxyd knows neither path.
 
-### What shipped
-
-`dispatchRouteToken` is gone, and with it the `switch rt.Path` arm naming
-`/chat/` and `/hook/`. proxyd no longer knows either path.
-
-- **Token resolution deleted, not moved.** webd already resolved the token in
-  every handler (`lookupRouteToken`); proxyd resolved the same row a second
-  time to stamp `X-Chat-Token` / `X-Folder` / `X-Group-Name`. One row, one
-  reader now. `X-Group-Name` had no reader at all.
-- **The anon DoS shield moved** to `webd/anonshield.go`, keyed on the
+- **One row, one reader.** webd resolves the token in every handler
+  (`lookupRouteToken`); proxyd never reads the row and stamps no
+  `X-Chat-Token` / `X-Folder` / `X-Group-Name`.
+- **The anon DoS shield is `webd/anonshield.go`**, keyed on the
   `X-Forwarded-For` client proxyd resolves — not `RemoteAddr`, which behind
   proxyd is one address for the whole world (`L40`).
-- **`auth: optional` replaces the path special-case.** proxyd still does the
-  one thing only proxyd can: identify a caller who offers a bearer, and prove
-  transit. It is now a route attribute, so the rows are ordinary rows.
+- **`auth: optional` is a route attribute**, so the rows are ordinary rows.
+  proxyd does the one thing only proxyd can: identify a caller who offers a
+  bearer, and prove transit.
 
 ### The bug this exposed
 
@@ -69,19 +59,11 @@ anonymous visitor.** It could only pass in local dev, where a nil KeySet
 short-circuits the check.
 
 `optional` attaches the proof on both paths, which fixes it. The gate itself
-survives, restated as what it always meant: `transited(r)`, the bearer, with
-none of the token-stamp indirection.
+is `transited(r)`, the bearer, with none of the token-stamp indirection; the
+test asserts the containment that does the work: `?group=` cannot aim the
+subscription (`L30`).
 
-One property did NOT survive: the gate used to distinguish "proxyd resolved a
-token for this request" from "proxyd merely authenticated someone", so a
-signed-in user whose grants missed the token's folder was refused. proxyd no
-longer resolves tokens, so that distinction is unreachable by relocation. It
-was nominal — the refused caller had to be holding the route token, which
-already lets them POST into the chat and read its history through sibling
-endpoints that have never had a gate. The test now asserts the containment
-that does the work: `?group=` cannot aim the subscription (`L30`).
-
-### Not moved: the vhost redirect
+### The vhost redirect stays in proxyd
 
 `worldForHost` / `vhostRedirect` stay in proxyd. They are not addressable by a
 `proxyd_routes` row: both call sites are proxyd's _fallback_, one at bare `/`
@@ -90,21 +72,15 @@ probing) and one at the unmatched-path catch-all. Routing either to webd means
 changing what proxyd does with **every** unmatched request fleet-wide, and
 makes the world front door depend on webd being up.
 
-The redirect is also not the application surface the table above calls it: it
-emits `/pub/<world>/<path>`, the same shape as the plain `/pub` fallback
-beside it, into a path vited serves and webd does not. It belongs to whoever
-owns the `/pub` fallback. Either amend the table's verdict, or spec the
-catch-all change on its own — it is a redesign, not a relocation.
+The redirect emits `/pub/<world>/<path>`, the same shape as the plain `/pub`
+fallback beside it, into a path vited serves and webd does not. It belongs to
+whoever owns the `/pub` fallback.
 
-## Step 2 — routes become rows (unblocked 2026-08-17, signed off, renderer SHIPPED 2026-09-04)
+## Step 2 — routes are rows; the renderer (shipped 2026-09-04)
 
-Config for any off-the-shelf proxy must be **rendered** from somewhere.
-It cannot be rendered from `PROXYD_ROUTES_JSON`, which was seed-once and
-ignored after first boot — the fault `L45` records, and the reason krons
-was missing 7 of the 18 routes arizuko ships. **`L45` was fixed 2026-08-17**:
-`arizuko generate` writes the rows (`store.SyncProxydRoutes`) and proxyd's
-boot path reads rows only. The prerequisite is therefore done and the
-remaining work is the renderer itself, which is unbuilt.
+Config for any off-the-shelf proxy is **rendered** from the rows: `arizuko
+generate` writes them (`store.SyncProxydRoutes`) and proxyd's boot path reads
+rows only — never from a seed-once env var, the fault `L45` records.
 
 With routes as rows, the proxy config becomes one more reader of one
 declaration (root `CLAUDE.md`, "one declaration, many readers").
@@ -126,12 +102,12 @@ already passed. Re-gating on the render dropped two LIVE krons routes (ttsd,
 davd) whose vars live in the generated `env/` rather than `.env` — the `L45`
 shape a second time, a second evaluation of one decision.
 
-**It prints; it does not install.** proxyd is still the running proxy, and an
-authenticated route renders as `respond 503` with the reason until step 3's
-forward-auth endpoint exists — rendering the proxy hop without it would serve
-the route to anyone. That refusal is the honest boundary between the two steps.
+**It prints; it does not install.** proxyd is the running proxy, and an
+authenticated route renders as `respond 503` with the reason unless the render
+is given a forward-auth endpoint (`forward_auth`) — rendering the proxy hop
+without one would serve the route to anyone.
 
-## Step 3 — the auth split (endpoint SHIPPED 2026-09-04; cutting over to an off-the-shelf proxy is still unsigned)
+## Step 3 — the auth split (endpoint shipped 2026-09-04)
 
 What stays arizuko's becomes a **forward-auth endpoint**: the proxy makes
 a subrequest per request; arizuko answers 200 plus `X-User-*`, or 401.
@@ -153,9 +129,9 @@ Two constraints that decide whether this is safe:
   localhost the cost is a fraction of a millisecond; it is still a real
   per-request tax where today the check is in-process.
 
-### Shipped 2026-09-04 — `GET /auth/forward` on proxyd
+### `GET /auth/forward` on proxyd
 
-The endpoint exists; the cutover does not. proxyd answers a proxy's auth
+proxyd answers a proxy's auth
 subrequest with 200 + `Authorization` (its own `service:proxyd` bearer),
 `X-User-Sub`, `X-User-Name`, `X-User-Groups` — or the same 303-to-login a direct
 request gets, with `auth_return` set to the CALLER's route read from
@@ -179,16 +155,7 @@ needs a `ResponseWriter` to re-set the cookie, and a subrequest has no upstream
 response to attach it to, so an expired access token takes the login flow
 instead. One extra round trip, no silent difference in who is admitted.
 
-**A test that passed against broken code, and what fixed it.** The first version
-asserted only that the answer did not echo the caller's bearer. With `svc` nil
-in the fixture, `attachTransit` DELETES `Authorization` and sets nothing, so the
-assertion passed on an endpoint that attached no proof at all — and the mutation
-that removes `Authorization` from the copied set stayed green. The fixture now
-stands up a stub authd so the proof is real and the test asserts its PRESENCE —
-presence, not freshness: a test asserting a distinct `jti` per response fails
-today (`L191`).
-
-## Step 4 — could a standard IdP let us DELETE authd? (measured 2026-09-05: no)
+## Step 4 — Dex as an optional upstream broker (measured 2026-09-05)
 
 Step 3 asks the question for proxyd. The same question for `authd` has a
 sharp answer. The auth surface does not split into a commodity half and a
@@ -229,7 +196,7 @@ It cannot carry `arz/folder`, which eight files read (`routd/cmd/routd/main.go`,
 arizuko mints — and then `es256.go`, `jwks.go`, the refresh families and the
 key metadata all stay, because they ARE the mint — or every backend looks the
 folder and the grants up in routd.db per request, which is the pre-split
-topology `5/16` removed and the database-at-the-verifier `6/25` §2 refuses.
+topology `5/16` removed.
 Authelia's `claims_policies` (4.39+) map static attributes from its file or
 LDAP store, not a live grants table; Keycloak's protocol mappers can compute a
 claim and bring a JVM plus an RDBMS (`6/16`). Nothing short of a fork puts
@@ -251,38 +218,6 @@ It would not help if it shipped: `auth.ProxydTransit` pins `typ=service` and
 `sub=service:proxyd` on arizuko's own verifier, and `serviceGrants`
 (`authd/http.go`) is arizuko's scope table. `POST /v1/service-token` and
 `auth/service.go` stay, and neither was in the count.
-
-### What adopting Dex costs
-
-All of it is paid before the 220 lines are cut.
-
-- **A second daemon with a second store.** Dex's own docs call its SQLite
-  backend "not appropriate for real workloads"
-  ([storage](https://dexidp.io/docs/configuration/storage/)): production means
-  Postgres, MySQL or etcd beside arizuko's SQLite files, or running against
-  that advice. Its SQLite build is CGO `mattn/go-sqlite3`, not the pure-Go
-  driver the rest of the stack uses.
-- **A second secrets file.** Every upstream client id and secret moves from
-  `.env` into Dex's YAML, plus a Dex client for authd (`DEX_CLIENT_ID`,
-  `DEX_CLIENT_SECRET`). Two places to rotate.
-- **Alpha connectors on the login path.** Dex's own table marks `github`
-  "stable", `google` "alpha" and the generic `oauth` connector "alpha"
-  ([connectors](https://dexidp.io/docs/connectors/)). Discord and Facebook
-  ride the alpha one, X does not work through it (the spike below), Telegram
-  has no connector shape at all.
-- **Two hops per login, one more daemon that can be down.** Browser → authd →
-  Dex → upstream → Dex → authd. With the native callbacks deleted, Dex down
-  is login down; with them kept, nothing is deleted.
-- **Dex's admin surface is gRPC only** (`api/v2/api.proto`: `ListRefresh`,
-  `RevokeRefresh`, `ListAuthSessions`, …). It is broader than `/v1/sessions`
-  and unreachable from `curl` or the dashboard without a gRPC client.
-- **A migration with no rows to move, and one trap.** Principals stay
-  `<connector id>:<user_id>`, so `acl` rows survive — only if the github
-  connector sets `useLoginAsID: true`. Without it every `github:<login>` row
-  matches nothing and the config looks applied (`L45`'s shape).
-- **Key rotation moves to `signer.config.keysRotationPeriod`** and loses the
-  lifecycle view: Dex publishes `/keys` and nothing about a key's life, the
-  gap `GET /v1/signing_keys` closed.
 
 ### Which IdP (surveyed 2026-09-03)
 
@@ -310,14 +245,11 @@ grant evaluator we are keeping; two authorization engines is worse than one
 hand-rolled.
 
 Native connectors cover github and google. **discord, Twitter/X and Facebook
-have no named Dex connector** and would ride the generic `oauth` connector —
+have no named Dex connector** and ride the generic `oauth` connector —
 configurable `authorizationURL` / `tokenURL` / `userInfoURL` / `scopes` /
 `claimMapping`, which is the right shape, but the docs state no stability marker
-and X's OAuth2 wants PKCE with a non-standard userinfo. **One spike proves or
-kills this before anything is deleted**: stand Dex up with the generic connector
-against Discord and X, and confirm the claim mapping yields the same
-`discord:user/<id>` principal `acl_membership` already holds. If it does not,
-the authn half stays hand-rolled and this step dies there.
+and X's OAuth2 wants PKCE with a non-standard userinfo. The spike below
+measured both.
 
 ### The spike (run 2026-09-03, Dex v2.45.1)
 
@@ -365,9 +297,8 @@ point — alias resolution, the `auth_users` row, the scope snapshot, the
 connector `id` in Dex's config IS the principal namespace; authd keeps no
 allowlist, so a new connector is a new namespace with no arizuko code.
 
-Not touched: `auth.ProxydTransit`, `/v1/service-token`, the native callbacks,
-and all of `auth/authorize.go`, `acl.go`, `delegate.go`, `scope.go`. Nothing
-is deleted; the delete waits on a deployment running Dex for its logins.
+Untouched: `auth.ProxydTransit`, `/v1/service-token`, the native callbacks,
+and all of `auth/authorize.go`, `acl.go`, `delegate.go`, `scope.go`.
 
 **Decision (2026-09-05): Dex is an optional upstream broker, not a
 replacement.** Phase B stays as shipped — additive, off by default, one more
@@ -378,12 +309,6 @@ callbacks are 345 lines with no dependency, and their replacement is a daemon,
 a store its docs say should not be SQLite for real workloads, and alpha
 connectors for two of the three providers. The other 1294 lines stay in every case, because they mint
 the claim the platform runs on.
-
-## What this spec does NOT propose
-
-Removing proxyd, choosing between Caddy and Traefik, or moving TLS. Those
-follow step 3's cutover and are decided then, on evidence from the steps
-before them. Step 4 is decided: no IdP replaces authd.
 
 ## Ties
 

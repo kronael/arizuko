@@ -40,10 +40,10 @@ This is not a hypothetical drift: the field is documented as absent for
 "ant versions before the cost-caps cutover", so a stale agent image
 already produces unmetered turns.
 
-### A second consumer, found 2026-08-22
+### A second consumer
 
-`cost_log` is no longer only a spend record. `anteval` now waits for a case's
-turn to record its cost before injecting the next case, because routd runs one
+`cost_log` is also `anteval`'s completion signal: it waits for a case's turn
+to record its cost before injecting the next case, because routd runs one
 turn per folder and a case that outran its budget starved every case behind it
 (BUGS `L68`). The eval's completion signal is therefore a number the spender
 supplies — an agent that dies before `submit_turn` reports nothing, and the
@@ -53,34 +53,13 @@ That is the same trust gap as Fault 2, reached from a different direction, and
 it sharpens what the gateway buys: gateway-written accounting makes the signal
 independent of the container's cooperation.
 
-It also exposes a gap the gateway does NOT close. Turn COMPLETION is not cost:
-`recordTurnResult` already calls `SetTurnState(turnID, "done")`, so routd knows
-authoritatively when a turn ended, but no read surface exposes it — routd
-mounts `/v1/cost` and `/v1/turns/{turn_id}/history`, and neither answers "is
-this turn still running". anteval reaches for cost because turn state is not
-readable, not because cost is the right signal. A `turn_state` read surface
-(a resreg resource per `5/17`, like every other cold-tier entity) is the
-orthogonal fix, and it is worth having whether or not the gateway ships.
-
-Measured on the first clean smoke (krons 2026-08-22, 9/9): one case waited the
-full 3-minute fallback and warned. Its injected message id never became a turn
-id, because routd batches a folder's pending messages and the turn takes the
-LAST id in the batch. Cost keyed by turn id therefore cannot answer "did MY
-message finish" at all for a batched case — no gateway changes that, and a
-`turn_state` resource keyed the same way would not either. The signal anteval
-actually wants is "does this folder have a live turn", which routd already knows
-and no surface reports.
-
 ## Why a gateway and not the egress proxy
 
 **A gateway is configured, not intercepted.** The client is pointed at it
 (`ANTHROPIC_BASE_URL`) and the gateway IS the endpoint. No TLS
-termination, no CA inside the container, nothing spliced.
-
-That is precisely why this works where the declined MITM tier did not, and
-why declining that tier (2026-08-18) costs nothing here. Metering model
-traffic never needed interception — it needed the client to be told where
-to send it.
+termination, no CA inside the container, nothing spliced. Metering model
+traffic never needs interception — it needs the client to be told where to
+send it.
 
 ## The shape
 
@@ -120,20 +99,6 @@ API-key path is impractically costly. A gateway that speaks only API keys
 is disqualified. Bifrost documents detecting an Anthropic MAX account
 instead of API-key auth.
 
-## Open question — where the OAuth credential lives
-
-This decides whether the spec delivers security or only visibility, and
-it must be answered from Bifrost's own documentation before any code:
-
-- credential **at the gateway**, spawn gets a revocable virtual key →
-  Fault 1 and Fault 2 both close;
-- credential **forwarded from the client** → Fault 2 closes, Fault 1 does
-  not, because the container still holds the real token.
-
-LiteLLM's documented mechanism is the second
-(`forward_client_headers_to_llm_api`). Bifrost's phrasing suggests the
-first. Do not build on the suggestion.
-
 ## Coverage is bounded — by the vendor, not by the redirect
 
 Every harness has a redirect hook. Measured 2026-09-04 against a local
@@ -149,8 +114,7 @@ sink and a local forwarding gateway, all three reached it:
 subscription bearer to an arbitrary `base_url` instead of demanding an
 `env_key` API key. Its upstream is `chatgpt.com/backend-api/codex`, and
 `wire_api` MUST be `responses` — codex-cli 0.153.2 rejects `chat`
-outright. This supersedes an earlier claim in this spec that the
-ChatGPT-OAuth path was not frontable: it is, and the container can hold a
+outright. The ChatGPT-OAuth path is frontable: the container holds a
 placeholder `auth.json` while the gateway injects the real token
 (verified end to end, upstream 200).
 
@@ -218,16 +182,8 @@ An operator pointing this at their own account should read it and decide;
 arizuko does not make the choice for them, and ships no mechanism that
 disguises which client is calling.
 
-## Out of scope
-
-Replacing crackbox's egress filtering (different concern, different
-path), any form of interception (declined 2026-08-18), and forging a
-vendor's first-party client identity to obtain plan billing for a
-third-party harness.
-
 ## Ties
 
-`5/14` credential tiers · MITM declined 2026-08-18 (metering never needed
-it) · `6/16` adopt-the-mechanism · BUGS `L49` (the proposal and its
+`5/14` credential tiers · `6/16` adopt-the-mechanism · BUGS `L49` (the proposal and its
 verification notes) · `X2` (the same "container must not hold the raw
 secret" argument, other half).

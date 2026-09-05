@@ -4,11 +4,11 @@ shipped: 2026-08-30
 depends: [28-cockpit-index]
 ---
 
-# Per-daemon dashboards — routd, runed, authd, proxyd, onbod, timed, crackbox, webd, davd, ttsd
+# Per-daemon dashboards — routd, runed, authd, proxyd, onbod, timed, webd, davd, ttsd
 
-Architecture, read-path (`/v1` only), routing, auth, theme, HTMX
-grammar, and non-goals live in [`6/28`](28-cockpit-index.md) and are not
-restated here. Channel adapters are [`6/31`](31-adapter-contract.md) +
+Architecture, read-path (`/v1` only), routing, auth, theme and HTMX
+grammar live in [`6/28`](28-cockpit-index.md) and are not restated here.
+Channel adapters are [`6/31`](31-adapter-contract.md) +
 [`6/32`](32-adapter-dashboards.md).
 
 Each daemon's dashboard is its own `/dash/<daemon>/` namespace on
@@ -18,24 +18,22 @@ does not generalise.
 
 ## The set
 
-| Daemon   | Built?                                                       | Pages                                                                           | Key controls                                                                                                                                   | Required `/v1` work                                                                                                                                                                                                        |
-| -------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| routd    | **overview only** — [`routd/dash.go`](../../routd/dash.go)   | overview (shipped); queue (+breaker), channels, errored, routes, cost (unbuilt) | retry errored chat (= reset breaker + re-enqueue), drop errored rows, route CRUD, revoke route token, disengage                                | `GET /v1/queue` (needs `GroupQueue.Snapshot()`), `POST /v1/queue/retry`, `DELETE /v1/routing/errored?jid=`, `GET /v1/outbound/pending`, `GET /v1/cost/summary`                                                             |
-| runed    | **overview** — [`runed/dash.go`](../../runed/dash.go)        | overview (capacity + breaker + GC config), runs (`?state=`), run detail         | kill run, stop folder's run — both exist ([`runed/server.go:38-43`](../../runed/server.go))                                                    | `GET /v1/runs?state=&folder=&limit=` (needs `DB.ListSpawns`), `GET /v1/capacity` (needs `Manager.Snapshot()`)                                                                                                              |
-| authd    | **keys + sessions** — [`authd/dash.go`](../../authd/dash.go) | overview, keys, tokens (refresh families), providers, identities                | rotate key, revoke-all keys, issue token (exists), revoke refresh family, unlink provider identity                                             | `GET /v1/keys/meta`, `POST /v1/keys/rotate`, `POST /v1/keys/revoke-all`, `GET` + `DELETE /v1/refresh/families[/{family}]`, `GET /v1/users[/{id}]`, `DELETE /v1/users/{id}/identities/{provider}`, `GET /v1/identities`     |
-| proxyd   | **yes** — [`proxyd/dash.go`](../../proxyd/dash.go)           | routes + create/delete (shipped); denials, transit (unbuilt)                    | route create/edit/delete (all exist, [`proxyd/resource.go`](../../proxyd/resource.go)), clear denial counters                                  | `GET` + `DELETE /v1/denials` (in-memory ring + counters), `GET /v1/upstreams` (per-backend 500ms probe), `GET /v1/transit`                                                                                                 |
-| onbod    | **yes** — [`onbod/dash.go`](../../onbod/dash.go)             | admission queue (`/dash/onbod/`)                                                | approve / deny / reprompt — shipped as dash shims ([`onbod/main.go:178-181`](../../onbod/main.go))                                             | **none for the queue** — all four `/v1/onboarding` verbs ship ([`onbod/main.go:167-171`](../../onbod/main.go), [`onbod/admin.go:85-150`](../../onbod/admin.go)). Gates + invites pages unbuilt; their `/v1` already exists |
-| timed    | **overview only** — [`timed/dash.go`](../../timed/dash.go)   | overview (shipped); tasks, task detail, runs (unbuilt)                          | pause/resume, cancel, run-now — routd's `PATCH` + `DELETE /v1/tasks/{id}` ship ([`routd/tasks_http.go:16`](../../routd/tasks_http.go))         | **none on routd** — `/v1/tasks` list/get/patch/delete + `/v1/tasks/runs` + `/v1/tasks/{id}/runs` all ship ([`routd/server.go:258-267`](../../routd/server.go)). Remaining work is timed-local page handlers                |
-| crackbox | no                                                           | overview, registry, denials                                                     | none — `6/24` deleted the admin API, the registry and daemon mode; crackbox is a local dev command with no HTTP surface to hang a dashboard on | `GET /v1/denials?limit=` (ring over the four deny sites), proxyd `Route.InjectAuthorization`, a `template/services/crackbox.yaml` gated by `EGRESS_CRACKBOX`                                                               |
-| webd     | **yes** — [`webd/dash.go`](../../webd/dash.go)               | SSE hub overview (shipped)                                                      | **none** — token revocation and web-route edits are routd-owned, rendered on routd's routes page                                               | `GET /v1/hub/status` (hub keys, per-key subscribers, caps — memory-only)                                                                                                                                                   |
-| davd     | no, and none planned                                         | **none** — hub tile only                                                        | **none exist** — dufs has no session list and no disconnect verb                                                                               | a per-tile probe-path override in the hub ([`6/29`](29-dashd-hub.md)): dufs has no `/health`, so `GET /` 200 is the signal                                                                                                 |
-| ttsd     | **yes** — [`ttsd/dash.go`](../../ttsd/dash.go)               | backend + live probe (shipped)                                                  | **none** — backend selection is `TTS_BACKEND_URL`, an env/restart concern                                                                      | `GET /v1/status` (`{backend, ok, probe, latency_ms, last_error, last_error_at}`)                                                                                                                                           |
+| Daemon | Dashboard                                | Pages                                     | Controls                                                                                                                                                                      |
+| ------ | ---------------------------------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| routd  | [`routd/dash.go`](../../routd/dash.go)   | overview                                  | retry errored chat (= reset breaker + re-enqueue), replay                                                                                                                     |
+| runed  | [`runed/dash.go`](../../runed/dash.go)   | overview (capacity + breaker + run table) | kill run, stop folder's run ([`runed/server.go:38-43`](../../runed/server.go))                                                                                                |
+| authd  | [`authd/dash.go`](../../authd/dash.go)   | keys, sessions (refresh families)         | rotate key, revoke-all keys, issue token, revoke refresh family                                                                                                               |
+| proxyd | [`proxyd/dash.go`](../../proxyd/dash.go) | routes                                    | route create/delete ([`proxyd/resource.go`](../../proxyd/resource.go))                                                                                                        |
+| onbod  | [`onbod/dash.go`](../../onbod/dash.go)   | admission queue (`/dash/onbod/`)          | approve / deny / reprompt — dash shims over the four `/v1/onboarding` verbs ([`onbod/main.go:167-181`](../../onbod/main.go), [`onbod/admin.go:85-150`](../../onbod/admin.go)) |
+| timed  | [`timed/dash.go`](../../timed/dash.go)   | overview (loop health + task table)       | —                                                                                                                                                                             |
+| webd   | [`webd/dash.go`](../../webd/dash.go)     | SSE hub overview                          | **none** — token revocation and web-route edits are routd-owned                                                                                                               |
+| davd   | none — hub tile only                     | —                                         | **none exist** — dufs has no session list and no disconnect verb; it has no `/health`, so `GET /` 200 is the tile's signal ([`6/29`](29-dashd-hub.md))                        |
+| ttsd   | [`ttsd/dash.go`](../../ttsd/dash.go)     | backend + live probe                      | **none** — backend selection is `TTS_BACKEND_URL`, an env/restart concern                                                                                                     |
 
 Route registration follows `6/28`: core daemons get their
 `/dash/<daemon>/` entry in `coreProxydRoutes`
-([`compose/compose.go:302-308`](../../compose/compose.go) — onbod and
-timed are already there, ahead of the `/dash/` catch-all to dashd);
-packaged daemons ship a `services/<name>.yaml`.
+([`compose/compose.go:302-308`](../../compose/compose.go), ahead of the
+`/dash/` catch-all to dashd); packaged daemons ship a `services/<name>.yaml`.
 
 ## Federation state (2026-08-30)
 
@@ -44,74 +42,43 @@ dashboard (onbod, timed, routd, runed, authd, proxyd, webd, ttsd) and davd
 deliberately serves none: dufs exposes no session list and no disconnect verb,
 so a dashboard would render an empty page and offer nothing. Its finished state
 is the hub tile probed at `GET /`, which ships. The abstention is the ninth
-outcome, not a ninth gap. Each migration deleted
-dashd's copy in the same commit, per the rule below.
+outcome, not a ninth gap.
 
-**The trap every remaining migration must clear.** proxyd matches
-longest-prefix, so adding a `/dash/<daemon>/` route moves EVERY path under it —
-including the POST controls. routd's migration hit this: the route captured
-dashd's `POST /dash/routd/retry` and `/replay` before routd implemented them.
-The replacement must answer the controls BEFORE the route lands, or the operator
-gets buttons that 404.
-
-**proxyd shipped on the second attempt**, and the first is worth recording: a
-read-only page was written and reverted because dashd's copy carries route
-CREATE and DELETE forms, and routing the prefix without porting them removes the
-operator's only UI path to both. proxyd also needs its own `requireAuth`
-wrapper — a path on proxyd's mux never reaches `s.route`, where a routed request
-is authenticated, so a bare mount serves the route table and its write forms
-unauthenticated. A test drives all three paths unauthenticated to pin it.
+**proxyd has its own `requireAuth` wrapper** — a path on proxyd's mux never
+reaches `s.route`, where a routed request is authenticated, so a bare mount
+would serve the route table and its write forms unauthenticated. A test drives
+all three paths unauthenticated to pin it.
 
 **ttsd gates differently, and has to.** It verifies no tokens and holds no
 keyset, so the nil-`KeySet` form every other daemon uses would fall OPEN — and
 proxyd's `user` route authenticates a person, not an operator. It gates on the
 stamped operator scope directly, enforcing whenever `AUTHD_URL` is set.
 
-## Migration state — what has left dashd (BUGS `V2`)
+## What dashd does not host
 
-dashd hosts control planes this spec moves to their owning daemon. A copy
-comes out of dashd only when the replacement is **live**; deleting one whose
-per-daemon page is unbuilt removes the operator's only way to do the thing.
-
-**Moved (2026-08-15).** dashd's chat portal (`chat.go`, 477 lines + 504 of
-test) is deleted. Its replacement is webd's `/me/chats` + `/me/chats/new`
+**The chat portal is webd's.** `/me/chats` + `/me/chats/new`
 ([`webd/server.go:128-141`](../../webd/server.go)), routed through proxyd at
 `/me/` ([`compose/compose.go`](../../compose/compose.go) `{Path: "/me/", …
-Auth: "user"}`). The portal also persisted the RAW reusable route bearer to
-`chat_sessions` so it could render "continue" links; that table is dropped
-([`routd/migrations/0036-drop-chat-sessions.sql`](../../routd/migrations/0036-drop-chat-sessions.sql)),
-so no arizuko table stores a route token in plaintext. dashd's `chat` tile and
-its folder links now point at `/me/chats`.
+Auth: "user"}`); dashd's `chat` tile and its folder links point there. No
+arizuko table stores a route token in plaintext
+([`routd/migrations/0036-drop-chat-sessions.sql`](../../routd/migrations/0036-drop-chat-sessions.sql)).
 
-**Removed outright, not moved.** The route-token **mint** form
-(`dashd/route_tokens.go`) is gone with no cockpit replacement, because
-§webd below already says there is none: minting is routd's
+**There is no route-token mint form in the cockpit.** Minting is routd's
 `POST /v1/route_tokens/{chat,hook}`, the agent's `issue_chat_link` /
 `issue_webhook` / `issue_pairing_link`
 ([`resreg/resources/route_tokens.go:38-54`](../../resreg/resources/route_tokens.go)),
-and `arizuko token`. `/dash/tokens/{folder}/` keeps list + revoke.
-
-**Still in dashd, blocked on this spec.** Each needs the per-daemon page
-built FIRST:
-
-| dashd surface                                                                     | blocked on                                                                                                                                                                                          |
-| --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/dash/routd/` errored + retry, `/dash/routes/` CRUD, `/dash/tokens/` list+revoke | routd's `/dash/routd/`. routd serves no `/dash/` namespace and `compose.go` has no route to it — dashd answers those paths from the `/dash/` catch-all                                              |
-| `/dash/runed/` runs + kill (`runed_page.go`, 289 lines)                           | runed's `/dash/runed/` AND `GET /v1/runs?state=` — runed's mux is 8 routes, none of them a run LIST ([`runed/server.go:39-46`](../../runed/server.go)); dashd reads `spawns` from runed.db directly |
-| `/dash/tasks/` list, detail, create, pause/resume/cancel                          | timed's task + task-detail pages. `/dash/timed/` ships the OVERVIEW only — one handler, `GET /dash/timed/` ([`timed/split.go:42`](../../timed/split.go)) — with no controls                         |
+and `arizuko token`. `/dash/tokens/{folder}/` lists and revokes.
 
 **Canonical cron parser: timed's.** Per §timed below, timed owns all
 cron/interval computation
 ([`timed/main.go:33-57`](../../timed/main.go) `computeNextRun`/`nextCron`).
-Two other copies exist and one has already drifted: routd's
+Two other copies exist and one has drifted: routd's
 `parseTaskSchedule`
 ([`routd/scheduled_tasks_resource.go:285`](../../routd/scheduled_tasks_resource.go))
 accepts an RFC3339 one-shot and computes in the process's local time, while
 dashd's `taskNextRun` ([`dashd/tasks_admin.go:20,36`](../../dashd/tasks_admin.go))
 rejects that same one-shot with 400 and computes in `TZ`. So the identical
-schedule is accepted by the agent and refused by the dashboard. dashd's copy
-dies with its tasks page; routd's must converge on timed's semantics when
-timed's pages land.
+schedule is accepted by the agent and refused by the dashboard.
 
 ## Daemon-specific notes
 
@@ -130,11 +97,10 @@ page will conflate them:
   `onCircuitBreakerOpen` ([`routd/dispatch.go:347`](../../routd/dispatch.go),
   [`routd/loop.go:720`](../../routd/loop.go)).
 
-The queue page labels both: routd's own counters, and the
-runed-originated consequence. runed's counters render on runed's
-overview. Because the breaker auto-resets, "reset breaker" and "retry"
-are ONE verb — resetting without re-enqueuing is a no-op state, and
-re-enqueuing resets by construction. One code path.
+runed's counters render on runed's overview. Because the breaker
+auto-resets, "reset breaker" and "retry" are ONE verb — resetting without
+re-enqueuing is a no-op state, and re-enqueuing resets by construction. One
+code path.
 
 ### runed — kill-run IS the revoke
 
@@ -151,13 +117,10 @@ run, and it does **not** count toward the folder breaker (operator
 intent is not a run failure). The confirm dialog says the agent's turn
 is lost mid-flight.
 
-There is no tokens page: `mcp_tokens` and the per-spawn brokered token
-were dropped ([`runed/migrations/0003-drop-mcp-tokens.sql`](../../runed/migrations/0003-drop-mcp-tokens.sql))
-— nothing consumed the token and authd forced every one to
-`sub=service:runed`. A turn's authority is the SO_PEERCRED-gated unix
-socket, which is visible as the run itself.
+There is no tokens page: runed mints no token. A turn's authority is the
+SO_PEERCRED-gated unix socket, which is visible as the run itself.
 
-### authd — metadata only, and two identity families
+### authd — metadata only
 
 **Page-wide rule: metadata only, never secret material.** No
 `priv_pem`, no refresh-token hashes, no service bootstrap secrets, no
@@ -167,23 +130,9 @@ the issue-token form: shown once in the mint response, never persisted,
 never re-displayable.
 
 Access JWTs are stateless (no issued-token table, `jti` unpersisted),
-so the "tokens" page is **refresh families**: `refresh_tokens` grouped
+so the "sessions" page is **refresh families**: `refresh_tokens` grouped
 by `family_id`, with live / spent / revoked state. A reuse-revoked
 family is the forensic trace of a replay.
-
-The identities page renders one table family: `auth_users` +
-`oauth_identities`
-([`authd/migrations/0001-authd-schema.sql:22,32`](../../authd/migrations/0001-authd-schema.sql))
-— the canonical user and its provider logins, what
-`GET /v1/identities/{sub}` resolves for routd's `inspect_identity`.
-
-There used to be a second family here — `identities` + `identity_claims`, an
-advisory cross-channel-claim table with no live writer — dropped 2026-08-04
-(`fcd845cb`, `authd/migrations/0006-drop-identities.sql`). Binding a channel
-identity to a person is now [`5/31`](../5/31-identity-pairing.md) pairing,
-which writes `acl_membership`, not this page's table — the dashboard row
-above ("unlink provider identity") only ever unlinks an `oauth_identities`
-row.
 
 `GET /v1/keys` is the public JWKS and must stay public-cacheable —
 hence the separate operator-gated `GET /v1/keys/meta`. Providers are
@@ -194,20 +143,18 @@ and this spec does not invent one.
 
 Every request reads `proxyd_routes` fresh
 ([`proxyd/resource.go:60-63`](../../proxyd/resource.go) — the spec-5/8
-no-cache rule; the old snapshot cache was deleted). A route mutation is
-live for the next request with no restart. **Do not propose a "reload
-routes" button** — there is nothing to reload. Equally, there is no
-`enabled` column: the honest disable is DELETE.
+no-cache rule). A route mutation is live for the next request with no
+restart. **Do not propose a "reload routes" button** — there is nothing
+to reload. Equally, there is no `enabled` column: the honest disable is
+DELETE.
 
 Everything else proxyd serves (`/auth/*`, `/pub/*`, `/dav/*`,
 `/chat/`, `/hook/`, `TRUSTED_PROXIES`, vhost aliases) is boot config —
-rendered read-only. Denial classes tagged at their emit sites:
-`auth_denied`, `dav_forbidden`, `dav_blocked`, `rate_limited`. The ring
-is RAM-only by design; audit web events remain the durable record.
+rendered read-only.
 
-### onbod — the most built of the set
+### onbod — one writer per resource, two faces
 
-`/dash/onbod/` renders the admission queue today and its approve /
+`/dash/onbod/` renders the admission queue and its approve /
 deny / reprompt shims call the **same store writers** the `/v1`
 handlers use ([`onbod/dash.go`](../../onbod/dash.go)) — one writer per
 resource, two faces. Its operator gate is `**` in the proxyd-stamped
@@ -215,10 +162,6 @@ resource, two faces. Its operator gate is `**` in the proxyd-stamped
 bearer-scoped `/v1` gate, and distinct again from the end-user
 `/onboard` page, which is not part of the cockpit.
 
-Two facts the gates page must surface when it is built: gate matching
-is first-match-wins with `*` as catch-all, and **zero enabled gates
-means every linked JID auto-approves** — render that as a visible
-`warn`, and put it in the confirm dialog for disabling the last gate.
 No `/v1` response or rendered page ever carries a live onboarding
 `token`; it is a bearer credential for binding a JID.
 
@@ -236,42 +179,9 @@ Consequence, accepted: routd's audit rows for dashboard writes
 attribute to `service:timed`, not the operator; the operator decision
 is recorded at timed's own dash gate.
 
-Only timed can compute the next-ticks preview (it holds the cron
-parser), so that pane needs no endpoint — it is a pure function of the
-row the page already fetched. Lag is `now − next_run` on `active` rows
-(≤60s is normal, >2 ticks is `warn`); a row stuck in `firing` past 2
-ticks is `err` — a crash between claim and fire strands it there.
-Run-now is `PATCH {next_run: now}`, reusing the one claim-fire loop
-rather than adding a second fire path, and is offered only on `active`
-tasks because the claim predicate requires it.
-
-### crackbox — orthogonality forces a different gate, and a different port
-
-crackbox imports no arizuko-internal subpackage
-([`crackbox/README.md:152-155`](../../crackbox/README.md)), and `auth`
-is in that grep list — so **crackbox cannot verify proxyd's transit
-proof**. Its daemon-side gate is instead its existing constant-time
-admin bearer check, with proxyd injecting
-`Authorization: Bearer $CRACKBOX_ADMIN_SECRET` on forward (the new
-`Route.InjectAuthorization` field). proxyd's own gate carries
-`auth: "operator"`. Rejected: hand-rolling an HMAC verifier inside
-crackbox (duplicates `auth/middleware.go`), and trusting the docker
-network (agent containers share the egress network with crackbox —
-that is exactly why the admin secret exists). CSRF is a hand-rolled
-same-origin check; `auth/dashauth.go` is likewise unimportable.
-
-`theme` is stdlib-only and absent from the orthogonality grep, so
-crackbox imports it directly — no CSS copy, no rendering from dashd.
-
-The dashboard is served from the **admin listener `:3129`**, a
-documented deviation from the universal `:8080`: crackbox's ports
-predate the convention and are part of its external contract. The
-proxyd route backend targets `:3129` explicitly.
-
-Live enforcement state is crackbox's; **persistent per-folder egress
-policy is routd's `network_rules`**, edited on routd's dashboard. One
-renderer each. A live-allowlist edit therefore lasts only until the
-next spawn re-registers from routd-resolved policy — the page says so.
+Lag is `now − next_run` on `active` rows (≤60s is normal, >2 ticks is
+`warn`); a row stuck in `firing` past 2 ticks is `err` — a crash between
+claim and fire strands it there.
 
 ### webd / davd / ttsd — davd is the minimality precedent
 
@@ -283,14 +193,13 @@ fails minimality. Its cockpit presence is the hub tile. WebDAV here is
 stateless per request; dufs exposes no session list and no
 disconnect/revoke verb, and davd has no notion of identity — auth,
 per-group scoping, and the write guard all live upstream in proxyd. So
-"active sessions" and "revoke" are **not available**, not deferred, and
-`/dav/*` write traffic is observable where it is gated: proxyd. Revisit
-only if davd ever gains arizuko code for other reasons.
+"active sessions" and "revoke" are **not available**, and `/dav/*` write
+traffic is observable where it is gated: proxyd.
 
 webd's dash hosts no token or web-route pages: those tables are
-routd-owned and render on routd's routes page. There is no token
-minting anywhere in the cockpit — creation stays with `/me/chats/new`
-and the agent tools, one creation flow.
+routd-owned. There is no token minting anywhere in the cockpit —
+creation stays with `/me/chats/new` and the agent tools, one creation
+flow.
 
 ttsd's page is read-only **explicitly**, and says so inline so nobody
 hunts for a button: switching backends is an `.env` edit plus restart,
@@ -304,21 +213,13 @@ an operator runbook step. Infra toggles stay in env.
 - Each daemon's overview renders for an operator behind proxyd; a
   non-operator gets the themed 403 banner, and the hub tile shows
   `warn` (up, scope-denied) rather than `err` (probe failed).
-- Live-state claims hold against the process: routd's queue snapshot
-  matches `docker ps` during a run; runed's `active_count` matches
-  `Manager.ActiveCount()` under concurrency; a killed run leaves the
-  folder's breaker count unchanged.
-- Tripping a chat breaker (3 consecutive failed turns) shows it at
-  threshold on routd's queue page, and retry dispatches a fresh run.
+- Live-state claims hold against the process: runed's `active_count`
+  matches `Manager.ActiveCount()` under concurrency; a killed run leaves
+  the folder's breaker count unchanged.
 - Creating a route from proxyd's page is honoured by the next request
   through proxyd with no restart.
-- No response under `/dash/authd/` or its new `/v1` reads contains
+- No response under `/dash/authd/` or its `/v1` reads contains
   `priv_pem` or any refresh-token material; no onbod surface contains a
   live onboarding `token`.
-- A folder-scoped token calling `GET /v1/runs` sees only its subtree
-  (containment mirrors `runed/authz_containment_test.go`).
-- On an `EGRESS_CRACKBOX` instance a crackbox tile appears and a
-  blocked egress attempt lands on its denials page within one poll; on
-  a non-crackbox instance there is no route and no tile.
 - No `/dash/davd/` route is registered, and its tile is green exactly
   when dufs answers `GET /` with 200.

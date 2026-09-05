@@ -29,7 +29,7 @@ Postgres, MySQL — and says of the one arizuko would share: "SQLite3 is
 the recommended storage for users who want to stand up dex quickly. It
 is not appropriate for real workloads"
 (dexidp.io/docs/configuration/storage/, read 2026-09-05;
-[`22`](22-proxyd-cut.md) §"What adopting Dex costs" prices this).
+[`22`](22-proxyd-cut.md) step 4 measures the trade).
 
 **LiteLLM** fixes its engine in code, not in prose: `schema.prisma`
 declares `datasource client { provider = "postgresql" }`, and Prisma
@@ -169,10 +169,7 @@ rather than by two transactions agreeing. Cost: `gen` threads through
 the writers of those four tables (22 non-test files write control-plane
 tables outside `resreg`) and one `groups` read per authorization;
 [`5/33`](../5/33-paths-roles.md)'s coordinate stays the path — `gen` is
-a storage-level liveness token, never shown to a principal. Rejected:
-`7/21`'s per-world version item that every writer bumps so the delete
-can `ConditionCheck` it — it keeps "delete every row" as the invariant
-and still fails past 100 rows.
+a storage-level liveness token, never shown to a principal.
 
 ### 2. Membership: one writer, a version on write, a bounded walk on read
 
@@ -316,31 +313,10 @@ return is a ledger with history written to the key-value store only** —
 cannot be rebuilt from a key-value partition without a copy back, and no
 copy-back exists.
 
-## Honest gaps
-
-- The 19-fit classification is `7/21`'s; four sites were re-read here
-  (the three non-fits, invites, `/always`) and the site count (47, 24
-  files) re-counted.
-- No key-value target is chosen. DynamoDB's published limits are used
-  because they are the strictest (100 actions, 400 KB, eventually
-  consistent indexes); a store with multi-document transactions moves
-  the 19/7 line and was not measured.
-- The 77 KB manifest is one instance. The document ceiling is 400 KB; no
-  instance near it was measured.
-- Write contention was not measured: the version items in redesigns 2
-  and 3 assume membership and control-plane writes are rare, which the
-  row counts suggest and no log proves.
-- The `gen` check adds a `groups` read to every authorization;
-  `policyRows` has no cache and the cost was not measured.
-- The search loss has no measured usage: how often `find_messages` runs
-  is not logged.
-- Whether Dex and LiteLLM share one Postgres server or each ship their
-  own is left to `22` and `23`.
-
 ## Ties
 
-`7/21` (the census and the declined seam) · `22` §"What adopting Dex
-costs" · `23` (the gateway that needs the database) · `36` (the control
+`7/21` (the census and the declined seam) · `22` step 4 (the Dex
+trade) · `23` (the gateway that needs the database) · `36` (the control
 plane's writers, S1/S6/S11) · `5/16` (ownership = the migrating daemon) ·
 `5/33` (the path is the coordinate) · BUGS `L44`, `L66`/`L67`, `L195`,
 `L198`.

@@ -149,7 +149,7 @@ from `go list -deps`; lines are non-test Go or TS under the directory.
 | `gitd`                                   | 676           | `chanlib`, `core`, `store`                                                                                             | yes             | same + `routd.db` mount + a core resource, store, migration and CLI verb                                          | fails on all of it                                                                                                                                                                                                |
 | `ttsd` + `kokoro`                        | 191 + image   | `auth`, `chanlib`, `obs`, `theme`                                                                                      | yes             | fragment; `hasService("ttsd")`; core route `/dash/ttsd/`; `daemonKeys`                                            | fails on three name switches                                                                                                                                                                                      |
 | `egress`                                 | 667           | none                                                                                                                   | yes, per spawn  | `EGRESS_IMAGE`; runed passes `--listen --client --allow` and probes `/health` (`container/egress.go:252-257,286`) | passes as a process — a replacement image with the same flags needs no Go edit; runed's one Go import from it is the `/health` path constant. `store` and `routd` import `egress/match`, so the matcher is core's |
-| `mcpfw`                                  | 370           | none                                                                                                                   | yes, standalone | **none** — no fragment, env var, daemon or `ant` reference (`6/12`: no consumer wired)                            | vacuous: a tool with no hook is not a package of this system                                                                                                                                                      |
+| `mcpfw`                                  | 370           | none                                                                                                                   | yes, standalone | **none** — no fragment, env var, daemon or `ant` reference (`6/12`)                                               | vacuous: a tool with no hook is not a package of this system                                                                                                                                                      |
 | `crackbox`                               | 414           | `egress`, `sandbox`                                                                                                    | yes, dev CLI    | none — no daemon imports it (`tests/components`)                                                                  | not a package; a developer tool                                                                                                                                                                                   |
 | `sandbox`                                | 1,348         | `egress/match`, `substrate`                                                                                            | no              | none — nothing runs it (BUGS `L137`)                                                                              | not a package; a library                                                                                                                                                                                          |
 | `obs`                                    | 547           | none                                                                                                                   | no              | imported by every daemon                                                                                          | not a package; a library a package may vendor                                                                                                                                                                     |
@@ -178,40 +178,13 @@ Three readings:
   the cheapest gap in the table, and the one that turns the adapter fleet
   into packages an outsider can add.
 
-## What the contract needs
-
-Recorded as proposals, not shipped (BUGS `L200`, needs sign-off):
-
-1. The manifest declares what the two maps decide: that the package is a
-   channel adapter (a `service:<name>` principal) and which env keys it
-   reads. `generate` becomes a reader of that declaration instead of a map
-   keyed by name, and nothing else in the compose layer names an adapter.
-2. `add` and `install` deliver the same declaration, or `add` refuses a
-   manifest key it will not apply (`L199`).
-3. A package's hook into a core daemon (`TTS_BASE_URL` on runed, a tile in
-   the hub) is a row or a declared env contribution, not a name switch.
-
-What the contract does not need: a registry, OCI, signing or dependency
-solving (`5/28` §Deferred, unchanged); a Go plugin mechanism — a package
-is a process, so its language is invisible (`7/22`); a second install
-verb.
-
-## Non-goals
-
-- A monorepo split. The repo layout is a choice, not the contract.
-- Making `gitd` or `slakd` pass by copying routd's schema into them. The
-  fix is an owner surface — a routd REST read for `pane_sessions`;
-  `github_sources` served, not mounted — and it is its own change.
-- Publishing a library as a "package". A library ships inside the process
-  that needs it.
-
 ## Ties
 
 `5/28` (install, upgrade, remove; the installed record) · `5/27` (the
 fragment; opt-in by omission) · `5/8` (the manifest rows) · `5/34` (the
 wire contract every adapter package satisfies) · `6/16` (the standalone
 matrix; its import axis is the library question, not this one) · `6/12`
-(mcpfw, unwired) · `6/23` (litellm) · `6/24` (egress per spawn) · `7/22`
+(mcpfw) · `6/23` (litellm) · `6/24` (egress per spawn) · `7/22`
 (a package may be Rust because the contract is a process) · `7/23` (the
 package as the habitat's participant shape) · BUGS `L44` (rows are one
 asset kind), `L46` (a package's authority is what the operator handed
