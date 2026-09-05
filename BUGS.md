@@ -10237,3 +10237,29 @@ this, which is why `L154`'s audit and this one found the same class again.
   the two mechanical checks it can make — frontmatter status equals the index
   row, and a `shipped` spec contains no "not built"/"no consumer"/"nothing
   moves" sentence
+
+## L198 — two group deletes, each purging a different half: `store.DeleteGroup` leaves `acl` and child groups, dashd's leaves `scheduled_tasks` and `chat_reply_state` (2026-09-05, open — proposal, needs sign-off)
+
+MEASURED. `store/groups.go:112-135` `DeleteGroup` — the delete behind
+`arizuko group rm` (`cmd/arizuko/main.go:495`), routd's rollback
+(`routd/db.go:147`) and `registerGroup`'s rollback (`routd/mcp.go:217`) —
+deletes `groups` (exact), `routes` (`#`-subtree), `chat_reply_state` and
+`scheduled_tasks`. `dashd/groups_admin.go:447-491` — the operator's delete —
+deletes `groups` (exact and `/`-subtree), `acl` (`/`-subtree), `routes` (`#`-
+and `/`-subtree) and the audit row. Neither touches what the other does, and
+each path's comment describes the other wrongly: `routd/db.go:143-146` calls
+store's "the ONE delete … shared with the operator's `arizuko group rm`";
+`dashd/groups_admin.go:444-445` says store's "touches only groups".
+
+Consequence. `arizuko group rm acme` leaves every `acl` row scoped under
+`acme/`: the re-created folder inherits the last tenant's admin, the
+escalation dashd's own comment names (`:440-443`). The operator's delete
+leaves the folder's `scheduled_tasks`, so timed keeps firing into an
+unroutable folder — the `L66`/`L67` shape — and its `chat_reply_state`.
+
+- **Severity:** high (privilege escalation on the CLI and rollback paths; the `L66` recurrence on the operator path)
+- **Scope:** `store/groups.go`, `dashd/groups_admin.go`
+- **Affected:** every instance, both delete paths
+- **Source:** `sed -n 112,135p store/groups.go; sed -n 440,491p dashd/groups_admin.go`
+- **Status:** open — proposal, needs sign-off: one delete in `store.DeleteGroup` carrying both halves (`groups` exact and `/`-subtree, `acl` `/`-subtree, `routes` both separators, `chat_reply_state`, `scheduled_tasks`, the audit row through `runAudited`), and dashd calling it. `specs/6/37` redesign 1 makes the cascade non-security-bearing by construction.
+- **Fix:**
