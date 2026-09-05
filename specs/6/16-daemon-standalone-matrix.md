@@ -14,9 +14,9 @@ A part can be "standalone" in two different senses; keep them apart.
 
 1. **Import-orthogonal component** — a sibling dir, zero arizuko-internal
    imports, consumed only via CLI / HTTP / `pkg/` (the contract below). The
-   _toolbox_ test: raid the repo for one part. Passers today: `crackbox`,
-   `obs`; roadmap: `mcpfw` (MCP firewall, `6/12`) and `resreg` as a
-   standalone two-face lib.
+   _toolbox_ test: raid the repo for one part. Passers today: `mcpfw`
+   (`6/12`), `egress` (`6/24`), `obs`, and `crackbox` as a set with
+   `egress` + `sandbox`; roadmap: `resreg` as a standalone two-face lib.
 2. **Config-driven droppable daemon** — keeps arizuko imports, but runs
    generic against any stack because its behaviour is TOML/env, not
    hardcoded. The _service_ test: drop it in front of your backends.
@@ -53,7 +53,8 @@ _mechanism_ — a flat per-id ruleset, matching a request against it, opening
 sockets.** So a component takes strings (`id`, `host`, `tool`) and returns
 strings — never a `Folder`/`Grant`, never arizuko's `.env` or DB.
 The mechanical test is one grep for `github.com/…/arizuko/(store|core|auth|
-router|grants|ipc|…)` under the component dir → empty. `ant/` is the mirror:
+router|groupfolder|ipc|…)` under the component dir → empty
+(`tests/components/imports_test.go` runs it on every build). `ant/` is the mirror:
 TS in arizuko's repo, own build + Dockerfile, consumed as an image over a
 stdin/stdout protocol, zero Go imports.
 
@@ -68,6 +69,9 @@ arizuko is four layers, and **each boundary is a contract, not a directory**:
    coordinate. The layer that DEFINES contracts.
 3. **Execution substrate** — runed + `container/` + the egress proxy. The layer
    that PROVIDES the agent environment: home, socket, mounts, network policy.
+   What a substrate can do is declared once, as a value: `substrate.Profile`
+   (`container.Profile` for Docker, `sandbox.Profile` for KVM). This spec
+   restates none of it.
 4. **The agent** — `ant`. Runs inside 3, consumes what 2 defines.
 
 `ant` is a component of nothing. It is not part of `resreg` (it is a CLIENT of
@@ -114,22 +118,24 @@ standalone.
 Keep arizuko imports; run generic via TOML/env. These have a standalone
 spec and are the credible "drop in front of your stack" story.
 
-| Daemon   | Contract (stranger's promise)                                                 | Surface        | Gate to standalone                                            |
-| -------- | ----------------------------------------------------------------------------- | -------------- | ------------------------------------------------------------- |
-| `authd`  | OIDC login → mint/verify JWTs; sole signer + JWKs                             | HTTP + JWKs    | `5/1` — split out as the token authority any daemon verifies  |
-| `proxyd` | Auth-gated reverse proxy, per-path `public`/`user`/`operator`, runtime routes | Config + `/v1` | `5/7` steps 4–7: strip 4 folder refs, delegate all mint, docs |
-| `vited`  | Static `/pub` `/priv` origin (Vite)                                           | HTTP           | 0 internal deps; near-generic (README exists)                 |
-| `davd`   | WebDAV workspace over upstream `dufs` + healthcheck                           | HTTP (WebDAV)  | 0 internal deps; thin wrapper, near-generic                   |
+| Daemon   | Contract (stranger's promise)                                                 | Surface        | Gate to standalone                                                    |
+| -------- | ----------------------------------------------------------------------------- | -------------- | --------------------------------------------------------------------- |
+| `authd`  | OIDC login → mint/verify JWTs; sole signer + JWKs                             | HTTP + JWKs    | `5/1` — split out as the token authority any daemon verifies          |
+| `proxyd` | Auth-gated reverse proxy, per-path `public`/`user`/`operator`, runtime routes | Config + `/v1` | `5/7` steps 4–7, carried by `6/22` (partial): strip folder refs, docs |
+| `vited`  | Static `/pub` `/priv` origin (Vite)                                           | HTTP           | 0 internal deps; near-generic (README exists)                         |
+| `davd`   | WebDAV workspace over upstream `dufs` + healthcheck                           | HTTP (WebDAV)  | 0 internal deps; thin wrapper, near-generic                           |
 
 ### Import-orthogonal components (the toolbox proper)
 
 Sibling dirs / libs consumed with no arizuko process (the component
 contract, above).
 
-| Component  | Contract                                           | Surface        | Gate                                                       |
-| ---------- | -------------------------------------------------- | -------------- | ---------------------------------------------------------- |
-| `crackbox` | Default-deny egress per source id + KVM sandbox    | CLI + HTTP     | **Ships now** — fail-open gate cleared 2026-08-15 (below)  |
-| `obs`      | Opt-in `audit_log`+journald+OTLP for any Go daemon | `import` + env | **Ships now** — has a README; needs only a drop-in example |
+| Component  | Contract                                                  | Surface        | Gate                                                                        |
+| ---------- | --------------------------------------------------------- | -------------- | --------------------------------------------------------------------------- |
+| `mcpfw`    | Gate an agent's MCP tool calls against a ruleset (`6/12`) | CLI + ruleset  | none — a binary, a README, stub-driven acceptance tests; first in `7/25`    |
+| `egress`   | Resolve, then check the address, then dial (`6/24`)       | CLI + HTTP     | none — ships with `crackbox` as its local front end                         |
+| `crackbox` | Default-deny egress per source id + KVM sandbox           | CLI + HTTP     | none — imports only `egress` and `sandbox`; `tests/components` pins the set |
+| `obs`      | Opt-in `audit_log`+journald+OTLP for any Go daemon        | `import` + env | none — has a README; publish on request (`7/25`)                            |
 
 ### Channel + effect/event daemons (correct granularity as daemons)
 
@@ -144,32 +150,37 @@ below in _Use-case clusters_, is "does one-daemon-per-channel serve the
 deployer's job?" — yes. The channel LAYER is a different question — see
 the Package axis below.
 
-| Daemon(s)                                                                | Shape                                          | Daemon-per-X rationale                                 |
-| ------------------------------------------------------------------------ | ---------------------------------------------- | ------------------------------------------------------ |
-| `slakd` `teled` `discd` `whapd` `bskyd` `reditd` `linkd` `twitd` `emaid` | Platform ↔ `routd` bridge via `chanlib`        | one per platform: isolated failure, secrets, reconnect |
-| `timed`                                                                  | Scheduler — injects turns into the bus on cron | one cron plane; a tick is just another Event (`5/A`)   |
-| `ttsd`                                                                   | Text→speech HTTP proxy over a TTS backend      | one capability endpoint; near-generic like `vited`     |
+| Daemon(s)                                                                       | Shape                                          | Daemon-per-X rationale                                 |
+| ------------------------------------------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------ |
+| `slakd` `teled` `discd` `whapd` `bskyd` `reditd` `linkd` `twitd` `emaid` `gitd` | Platform ↔ `routd` bridge via `chanlib`        | one per platform: isolated failure, secrets, reconnect |
+| `timed`                                                                         | Scheduler — injects turns into the bus on cron | one cron plane; a tick is just another Event (`5/A`)   |
+| `ttsd`                                                                          | Text→speech HTTP proxy over a TTS backend      | one capability endpoint; near-generic like `vited`     |
 
 ## Package axis — import coupling (component candidates)
 
 The daemon matrix asks "deploy alone?"; this asks "import alone?"
-Internal-dep counts (indicative — they drift; grep 2026-07-14):
+Direct non-test arizuko imports, measured 2026-09-05 (`grep` of
+`github.com/kronael/arizuko/` per package; `tests/components` pins the
+shippable set):
 
-| Package                            | internal deps        | readiness                  | what it is                       |
-| ---------------------------------- | -------------------- | -------------------------- | -------------------------------- |
-| `crackbox`                         | 0                    | **ships now** (2026-08-15) | egress proxy + KVM sandbox       |
-| `obs`                              | 0                    | **ships now**              | tri-substrate observability      |
-| `router`                           | 1 (`core`)           | near — lift `core` types   | routing-table DSL                |
-| `grants`                           | 2                    | near — needs a store seam  | capability-auth DSL              |
-| `resreg`                           | 4                    | roadmap = two-face lib     | two-face API engine (`5/17`)     |
-| `dockbox` _(concept)_              | in `container/` (11) | heavy decouple             | Docker sibling to crackbox's KVM |
-| store, auth, chanlib, ipc, compose | 3–11                 | **don't extract**          | these _are_ the platform         |
+| Package                  | internal deps                               | readiness                   | what it is                                  |
+| ------------------------ | ------------------------------------------- | --------------------------- | ------------------------------------------- |
+| `mcpfw`, `egress`, `obs` | 0                                           | **ship now** (`7/25` order) | MCP gate, egress proxy, observability       |
+| `substrate`              | 0                                           | ships with the sandbox      | the capability declaration (`Profile`)      |
+| `sandbox`                | 2 (`egress`, `substrate`)                   | ships with `crackbox`       | KVM substrate (`6/9`)                       |
+| `crackbox`               | 2 (`egress`, `sandbox`)                     | **ships now** as the set    | local front end for egress + KVM            |
+| `groupfolder`            | 0                                           | not published — 73 callers  | the containment predicate (`7/25`)          |
+| `router`                 | 1 (`core`)                                  | near — lift `core` types    | routing-table DSL                           |
+| `resreg`                 | 3 (`audit`, `auth`, `store`)                | roadmap = two-face lib      | two-face API engine (`5/17`)                |
+| `chanlib`                | 4 (`auth`, `db_utils`, `obs`, `theme`)      | near — write the envelope   | the channel layer (`5/34`)                  |
+| `auth`                   | 4 (`core`, `groupfolder`, `store`, `theme`) | **don't extract**           | the grant evaluator reads `acl` via `store` |
+| `container`              | 10                                          | **don't extract**           | the Docker substrate; `container.Profile`   |
+| store, ipc, compose      | 3–9                                         | **don't extract**           | these _are_ the platform                    |
 
-`obs` and `crackbox` ship as-is (crackbox's gate cleared, next
-paragraph). `dockbox` names the
-run-an-agent-in-a-container concern for a later clean extraction — and that is
-where crackbox's `pkg/host` KVM library belongs, which is why nothing imports it
-from crackbox today (`6/9`).
+The Docker substrate is `container/` and its declaration is
+`container.Profile`; the KVM substrate is `sandbox/` and its declaration
+is `sandbox.Profile`. What either can do is read from those values
+(`6/25` §3), not from this table.
 
 **`crackbox`'s ship gate cleared 2026-08-15.** The "egress fails OPEN" blocker
 earlier revisions cited was closed: `5/33` grants gate the `*` bypass behind an
@@ -188,9 +199,9 @@ contracts by directory and therefore fails the one-sentence test:
 - `davd` and `vited` are **zero lines of Go** — davd is `sigoden/dufs` wrapped
   in alpine to add `wget` for a healthcheck (`compose/compose.go:1190`). They
   are already someone else's product, composed.
-- `proxyd` (1,591 lines) is the commodity half — Caddy/Traefik plus Authelia's
+- `proxyd` (1,768 lines) is the commodity half — Caddy/Traefik plus Authelia's
   job, and the weakest position in the repo. `5/7` already specs it droppable.
-- `webd` (3,282 lines) is **not** a web-stack part at all: token chat, SSE,
+- `webd` (3,364 lines) is **not** a web-stack part at all: token chat, SSE,
   `/hook`, `/me` are the agent surface and belong with the platform.
 
 What is irreplaceable there is one mechanism, not a stack: every web surface is
@@ -201,7 +212,7 @@ publish the grant-scoped mount contract**, not extract a bundle.
 
 **The channel LAYER is near-extractable even though no single adapter is.**
 One adapter alone is inert — a bridge with no router — but `chanlib` imports
-only `auth`, `db_utils` and `obs`: JWT verification, migrations, logging. **No
+only `auth`, `db_utils`, `obs` and `theme`: JWT verification, migrations, logging, a palette. **No
 `store`, no `core`, no `router`, no `ipc` — zero domain coupling** (`chanreg`
 adds `audit` + `core`). The product is "one normalized envelope, N platforms,
 with reconnect, declared capabilities and idempotent send"; the gate is
@@ -232,8 +243,8 @@ core — the DSL is agent-agnostic, the daemon is not.
 - **Ship one, not seven.** `USELESS.md`'s sharpest finding is that arizuko is
   over-built for its proven audience, and "one stranger running one instance is
   worth more than the next five daemons". Carving every boundary in this
-  catalogue on spec repeats that in a new register. Ship crackbox, get a
-  stranger to run it, and let what they hit choose the next seam.
+  catalogue on spec repeats that in a new register. Ship `mcpfw` (`7/25`),
+  get a stranger to run it, and let what they hit choose the next seam.
 
 ## Use-case clusters — resolidify by the deployer's job
 
@@ -243,16 +254,16 @@ axis the 21 daemons collapse to **8 clusters**. The channel fleet is
 _one_ cluster, not ten decisions: that is why "most daemons are adapters"
 is a feature, not sprawl.
 
-| Cluster                | Daemons                                                                         | Deployer's job                                | Optionality                     |
-| ---------------------- | ------------------------------------------------------------------------------- | --------------------------------------------- | ------------------------------- |
-| **Core plane**         | `authd` `routd` `runed`                                                         | run agents at all                             | always required                 |
-| **Channel presence**   | `slakd` `teled` `discd` `whapd` `bskyd` `reditd` `linkd` `twitd` `emaid` `webd` | meet users where they are                     | ≥1; add/drop one daemon each    |
-| **Web + management**   | `proxyd` `vited` `davd` `dashd`                                                 | put the agent on the web, run/observe/control | shrink to off-the-shelf (above) |
-| **Onboarding**         | `onbod`                                                                         | let people join safely                        | optional                        |
-| **Scheduling**         | `timed`                                                                         | wake the agent on a clock                     | optional                        |
-| **Isolation / egress** | `crackbox`                                                                      | contain what the agent can reach              | optional (security)             |
-| **Capabilities**       | `ttsd` (+ Whisper/OpenAI hooks)                                                 | give the agent voice / extra models           | optional                        |
-| **Observability**      | `obs` (library)                                                                 | see what happened                             | opt-in, zero-overhead unset     |
+| Cluster                | Daemons                                                                                | Deployer's job                                | Optionality                     |
+| ---------------------- | -------------------------------------------------------------------------------------- | --------------------------------------------- | ------------------------------- |
+| **Core plane**         | `authd` `routd` `runed`                                                                | run agents at all                             | always required                 |
+| **Channel presence**   | `slakd` `teled` `discd` `whapd` `bskyd` `reditd` `linkd` `twitd` `emaid` `gitd` `webd` | meet users where they are                     | ≥1; add/drop one daemon each    |
+| **Web + management**   | `proxyd` `vited` `davd` `dashd`                                                        | put the agent on the web, run/observe/control | shrink to off-the-shelf (above) |
+| **Onboarding**         | `onbod`                                                                                | let people join safely                        | optional                        |
+| **Scheduling**         | `timed`                                                                                | wake the agent on a clock                     | optional                        |
+| **Isolation / egress** | `crackbox`                                                                             | contain what the agent can reach              | optional (security)             |
+| **Capabilities**       | `ttsd` (+ Whisper/OpenAI hooks)                                                        | give the agent voice / extra models           | optional                        |
+| **Observability**      | `obs` (library)                                                                        | see what happened                             | opt-in, zero-overhead unset     |
 
 This is the **deployer-facing** grouping — orthogonal to the
 import-coupling axis (Package axis, above) and the standalone verdict. A minimal
@@ -298,9 +309,9 @@ such swap — nothing external carries the folder binding.
 
 Ship on two shelves, not one list:
 
-1. **Components (import)** — `obs` and `crackbox` (both ready), then
-   `mcpfw` (`6/12`) and the `resreg` two-face lib as the decouples land
-   (ROI order).
+1. **Components (import)** — `mcpfw`, then `egress`, then `obs` on
+   request, `crackbox` as the set with `egress` + `sandbox` (`7/25`'s
+   order); the `resreg` two-face lib only after its three imports are cut.
 2. **Daemons (deploy)** — `authd` + `proxyd` as the "auth gateway you
    drop in front of any stack" pair; `vited`/`davd` fold in as generic
    static/WebDAV origins. `5/1` + `5/7` are the specs; the gate is
