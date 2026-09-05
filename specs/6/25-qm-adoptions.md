@@ -1,5 +1,5 @@
 ---
-status: draft
+status: partial
 source: yc-software/qm (MIT), read at 83k LOC 2026-08-20
 depends:
   [
@@ -185,6 +185,12 @@ operator-invoked, never automated.
 - **Postgres.** Single-box SQLite WAL is a feature, not a gap.
 
 ## Order
+
+**1 is adopted.** `egress/address.go` resolves a destination and checks the
+resulting IP before dialling it — `resolveDest` refuses instance-metadata and
+blocked classes, loopback and private are opt-in, and the dial targets the
+address that was checked, so a name cannot resolve past the gate. Six tests in
+`egress/address_test.go` plus the tunnel path in `connect_test.go` cover it.
 
 1 first: it is a live address-hygiene gap in code shipped to three instances on
 2026-08-18, and it is tens of lines. Then 3, which is cheap and pays every time

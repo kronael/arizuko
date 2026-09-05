@@ -1,5 +1,5 @@
 ---
-status: draft
+status: shipped
 depends:
   [
     ../5/18-onboarding-model,
