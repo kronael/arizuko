@@ -1,0 +1,9 @@
+# Installing the package turns TTS on for runed and points it at ttsd's own
+# port (spec 5/8 `env`). Both are derived on every generate, never written:
+# an explicit .env value wins, so an external Kokoro or a cloud TTS is one
+# TTS_BASE_URL line away.
+env:
+  TTS_ENABLED:
+    default: 'true'
+  TTS_BASE_URL:
+    default: 'http://ttsd:8880'

@@ -438,7 +438,10 @@ func parsePkgManifests(name, dir string, files []string, bound []string) []pkgFr
 			die("Failed: %s: %v", n, serr)
 		}
 		for _, doc := range docs {
-			manifest, _, perr := resreg.ParseYAML(doc)
+			// ParseManifest, not ParseYAML: a package's document may carry an
+			// `env` section. provisionPkgEnv reads that half; this reader takes
+			// the rows (one declaration, two readers).
+			manifest, _, _, perr := resreg.ParseManifest(doc)
 			if perr != nil {
 				die("Failed: parse %s: %v", n, perr)
 			}
