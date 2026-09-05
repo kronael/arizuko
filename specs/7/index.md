@@ -16,17 +16,18 @@ the whole reason this is its own phase rather than work inside 6.
 
 [`22-rust-track.md`](22-rust-track.md) answers what, if anything, moves to Rust: the isolation boundary only, and never on the cloud path.
 
-[`21-storage-seam.md`](21-storage-seam.md) is the storage spec — the `Store`
-operation set derived from DynamoDB and pruned to what arizuko actually needs.
-Its finding is that the seam cannot be a key-value interface: ~27 of 43
-transactions are multi-table and each prevents a specific privilege escalation,
-so transactions stay in the seam while aggregates and FTS stay out of it.
+[`21-storage-seam.md`](21-storage-seam.md) is the storage decision: no `Store`
+interface. Its census finds 26 of 47 transactions multi-table, each one a
+privilege-escalation guard, which excludes every key-value, document and
+CRDT store — and every engine that keeps `BEGIN … COMMIT` is off the shelf.
+`database/sql` is the seam; the cloud track adopts Litestream (backup) and
+libSQL (a remote database) behind it.
 
 ## Specs
 
-| Spec                                     | Status | Covers                                                                                                                                                                                   |
-| ---------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [21-storage-seam.md](21-storage-seam.md) | draft  | the `Store` operation set derived from DynamoDB and pruned; transactions kept (the invariants are multi-table); aggregates and FTS explicitly OUT of the layer; per-table partition keys |
+| Spec                                     | Status  | Covers                                                                                                                                                                                                                          |
+| ---------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [21-storage-seam.md](21-storage-seam.md) | shipped | decision: no `Store` interface — `database/sql` is the seam; 26 of 47 transactions are multi-table, so no KV/document/CRDT store; Litestream for backup, libSQL for a remote database, Postgres only behind a named requirement |
 
 ## The cockpit left on 2026-08-27
 
