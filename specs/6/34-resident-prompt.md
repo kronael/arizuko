@@ -1,5 +1,5 @@
 ---
-status: draft
+status: shipped
 depends:
   [
     7-environment-contracts,
