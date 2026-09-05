@@ -10628,3 +10628,65 @@ without a canonical shape.
 - **Fix:** `time.Now().UTC().Format(time.RFC3339)`. The column becomes
   `timestamptz` at the Postgres cutover, which removes the class; until then
   the stamp must be canonical because the comparison is textual.
+
+## L208 — `store/` is a second, dead implementation of five tables that `routd` now owns: ~44 statements with no production caller, and the dead copy is the drifted one (2026-09-05, open — proposal, needs sign-off)
+
+MEASURED with gopls reference resolution, not grep. Grep cannot decide this
+question: `routd.DB` and `store.Store` share 20+ method names, so `s.X()` and
+`d.X()` are indistinguishable textually. Every claim below was resolved by
+symbol.
+
+During the daemon split, `routd` grew its own SQL for tables `store` already
+served, and nobody deleted store's. About **44 statements across ~990 lines,
+17% of the package**, now have zero production callers. Each is shadowed by a
+live twin in `routd/` or `proxyd/`.
+
+The sharpest case, verified: `store.Store.FindMessages`
+(`store/messages.go:727`) has **16 references and all 16 are `_test.go`**. It
+is byte-identical FTS5 to `routd/reads.go:89` — the same
+`snippet(messages_fts,0,'«','»','…',32)`, the same `bm25()`, the same
+`m.rowid = f.rowid`. So the single hardest statement in the repo to port to
+Postgres exists twice and one copy is dead.
+
+Also confirmed with zero production callers: `MessagesAll`, `PatchTask` (3
+UPDATE statements), `RemoveTask`, `PendingChatJIDs`, `WebRouteOwner`.
+
+**Where two copies exist, the dead one is the drifted one.** Four measured:
+
+- `store/web_routes.go:28 SetWebRoute` sets `created_at = excluded.created_at`
+  on conflict — it overwrites the original. `routd`'s live `putWebRouteTx`
+  deliberately keeps it.
+- `store/groups.go:15 CountErroredChats` counts `SELECT COUNT(DISTINCT
+  chat_jid) FROM messages WHERE errored=1`; the live `routd/db.go:467` counts
+  `SELECT COUNT(*) FROM chats WHERE errored=1`. Different table, same name.
+  (The live one is `L204`'s bug; the dead one is the correct derivation.)
+- `store/proxyd_routes.go` writes DELETE-then-INSERT; `proxyd` writes
+  INSERT + a separate UPDATE.
+- **`cost_log` is two incompatible tables with one name.**
+  `store/migrations/0049` declares `(ts, folder, user_sub, model, input_tok,
+  cache_read, cache_write, output_tok, cents)`; `routd/migrations/0001`
+  declares `(folder, turn_id, model, input_tokens, output_tokens, cost_cents,
+  recorded_at)` with a PK. `store/cost_log.go`'s statements name store's
+  columns, which exist only in the frozen pre-split `messages.db` that
+  `store/owners.go:6` says no daemon opens. That SQL cannot run anywhere real.
+
+One reduction inverts: the LIVE `routd.MarkMessagesObserved` is a loop of
+single-row UPDATEs, while the DEAD `store/messages.go:372` already does the
+correct single `... WHERE id IN (...)`. Port the good one before deleting it.
+
+- **Severity:** medium — no live fault, but every one of these is ported,
+  reviewed and maintained twice, and a reader cannot tell which copy runs
+- **Scope:** store, and the routd/proxyd twins
+- **Affected:** the whole Postgres move; ~35 statements and one of the two
+  FTS5 queries disappear before it starts
+- **Source:** `store/messages.go`, `tasks.go`, `web_routes.go`,
+  `groups.go` (the `chats` accessors), `proxyd_routes.go`, `cost_log.go`
+- **Status:** proposal — needs sign-off (deletes a large public surface)
+- **Fix:** delete in this order, smallest blast radius first: `web_routes.go`
+  (5 statements), `cost_log.go` (2), the free `tasks.go` deletes (4), the
+  `groups.go` `chats` block (9), `proxyd_routes.go` (1), then `messages.go`
+  (16, and the highest test churn). One question decides whether `messages.go`
+  and `tasks.go` are deletions or test-scaffold migrations: whether the ~40
+  `tests/` and `webd/` call sites keeping `store.PutMessage` and
+  `store.CreateTask` alive are testing `store` or merely using it as the
+  handiest fixture. Repoint them at `routd.DB` and the answer is deletion.
