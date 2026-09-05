@@ -23,6 +23,22 @@ The transaction census is the evidence for every claim that follows:
 what the schema requires of an engine, which engines keep it, and what a
 Dynamo-shaped batch can and cannot carry.
 
+## Three adoptions want the same database
+
+Postgres is not a cost this decision pays alone. Measured 2026-09-05:
+
+- **LiteLLM** returns HTTP 500 "Database not connected" on `/spend/logs`
+  without it; per-key budgets and virtual keys need it too (`6/23`).
+- **Dex** states SQLite is "not appropriate for real workloads" and names
+  Postgres, MySQL or etcd (`6/22` step 4).
+- The cloud target wants it on its own.
+
+So the marginal cost of the second and third adoption is a connection
+string. A dependency three separate tools already require is shared
+substrate, not a tax, and that is what makes "assemble existing tools"
+affordable rather than expensive. Judge any future adoption's cost after
+this move, not before it.
+
 ## What the transactions require (measured 2026-09-05)
 
 Method: every `BeginTx`/`Begin` in tracked, non-test Go, the body read to
