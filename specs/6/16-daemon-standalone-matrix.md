@@ -271,39 +271,57 @@ deployment is _Core plane + one Channel_; a maxed one is every cluster.
 "One daemon per channel" is the right unit precisely because the deployer
 picks channels à la carte, and each fails/scales/reconnects on its own.
 
-## Counterpart landscape — the durable finding
+## Counterpart landscape — measured 2026-09-05
 
-A market sweep (2026-07-15) asked per part whether a real external
-counterpart exists. **The finding validates `5/A`: no single primitive is
-unique — the composition is the moat.** Only the folder-as-agent org-tree
-router is near-unique, and even it has an honest neighbour (OpenClaw has
-multiple agents but no arbitrary-depth org-tree + inbox + escalation
-ladder). `crackbox` egress and `mcpfw` are early entrants in unsettled
-markets; `webd`/`dashd`/channel-fleet are differentiated _bundles_ (the
-pieces are buyable, the integrated shape is not); resreg's edge is rigor,
-not the idea (FastAPI-MCP ships the idea). Everything else — `authd`
-`proxyd` `runed` `timed` `onbod` `ttsd` `obs` and the KVM lib — is
-commodity against mature incumbents.
+Per commodity part: the incumbent a stranger adopts, and whether it
+carries the folder coordinate. Every row is from the incumbent's docs or
+source; the one README-only row is marked. The orchestration field —
+who else routes agents across tenants — is measured by property in
+[`6/1`](1-adoption-interop.md), not here.
 
-The vendor names behind that reading date fast; re-run the sweep rather
-than trusting a stale table. What does not date is the rule it produced:
+| Part     | Incumbent to adopt                                                           | License                 | Carries the folder coordinate?                                                                                                                                                                                                                                                             |
+| -------- | ---------------------------------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `authd`  | Keycloak (heavy); Zitadel, Ory Hydra, Dex (light)                            | Apache-2.0              | **the coordinate, yes**: a Keycloak group is a slash-separated path, subgroups inherit role mappings, and a mapper puts the path into the token (keycloak.org server_admin, "Groups"). Not the binding.                                                                                    |
+| `proxyd` | Pomerium                                                                     | Apache-2.0              | **mostly**: an identity-aware proxy whose policy decides route + authorization and whose authorization service "constructs security headers based on JWT claims" for upstreams (pomerium.com/docs/internals/architecture) — proxyd's transit stamp, with a group claim for the path ladder |
+| `runed`  | kubernetes-sigs `agent-sandbox`; Daytona; Anthropic self-hosted sandboxes    | Apache-2.0; AGPL-3.0; — | no: image + workspace in, sandbox out; none derives an egress allowlist from a path. They are occupants for the `ContainerRuntime` seam, not replacements for the folder mount contract.                                                                                                   |
+| `timed`  | `robfig/cron`, `river`; Temporal Schedules at the heavy end                  | MIT                     | no: the only arizuko part is that a tick becomes an Event on the bus with a folder                                                                                                                                                                                                         |
+| `onbod`  | Zitadel organizations + registration; Ory Kratos self-service flows          | Apache-2.0              | no: an org is a flat tenant ("comparable to a tenant", zitadel.com/docs/concepts/structure/organizations); admission into a subtree has no carrier                                                                                                                                         |
+| `ttsd`   | `speaches-ai/speaches` — OpenAI-compatible TTS and STT, self-hosted (README) | MIT                     | there is no tenancy dimension to carry; the cheapest swap in the repo, behind the HTTP seam that already exists                                                                                                                                                                            |
+| `obs`    | OpenTelemetry Go SDK + `otelslog` bridge + Collector                         | Apache-2.0              | **split**: the slog→OTLP fan-out is exactly `go.opentelemetry.io/contrib/bridges/otelslog`, and a `folder` attribute rides any OTel record; the `audit_log` row that the ACL evaluator and the cost gate read back has no external system of record                                        |
 
-**Never claim a commodity part is novel** (codex/CTO-audit rule, `5/A`).
-"We have an egress proxy" is true and weak; "per-agent folder-scoped
-egress bound to agent identity, self-hosted" is the differentiated claim —
-and even that ships qualified while `crackbox` is opt-in. Name the
-composition, not the part. Perfect the commodities
-silently; a landing page that leads with "our OIDC issuer" competes with
-Keycloak on Keycloak's turf and loses.
+**The finding.** Three of the seven commodity parts have an external
+carrier for the coordinate — Keycloak carries the path, Pomerium the
+path-scoped gate, OTel the attribute. None carries the **binding**: one
+path that is at once tenant, ACL scope, route target, egress allowlist,
+web host and file tree, applied by one evaluator to the agent over MCP
+and the human over REST. That composition is the claim. A part is not,
+and the rule stands: **never claim a commodity part is novel** (`5/A`).
+"We have an OIDC issuer" competes with Keycloak on Keycloak's turf and
+loses; "one path binds six things" is the sentence, and even it ships
+qualified while `crackbox` egress is opt-in.
 
 Replacing a native part with its counterpart is possible only for the
-commodities, and only **behind arizuko's seam** — never a raw drop-in.
-`runed`'s `ContainerRuntime` seam (`5/P`, today Docker + Fake) could carry
-an external sandbox, but the folder-mount + MCP-socket contract makes
-E2B/Modal a real port. The catch is _can_ ≠ _should_: swapping `authd` for
-Keycloak trades a small Go binary for a JVM + its own DB, against the
-plain-primitives / one-tar-backup ethos. The differentiated tier has no
-such swap — nothing external carries the folder binding.
+commodities, and only behind arizuko's seam — never a raw drop-in.
+`runed`'s `ContainerRuntime` seam (`5/P`, today Docker + Fake) can carry
+an external sandbox, but the folder-mount + MCP-socket contract makes it
+a port, not a swap. The catch is _can_ ≠ _should_: swapping `authd` for
+Keycloak trades a small Go binary for a JVM and its own database,
+against the plain-primitives / one-tar-backup ethos. `ttsd` is the one
+part where the swap is free.
+
+## What is settled, and what is not
+
+Settled, and measured: the two axes; the four layers; the per-package
+import graph (pinned by `tests/components`); the verdict per daemon; the
+counterpart per commodity part. Nothing here is code to write, so the
+document's lifecycle is that of an analysis, not a feature: it is
+complete as an inventory.
+
+Two rows still move with other specs. The `proxyd` gate is carried by
+`6/22` (partial), and the substrate rows follow `substrate.Profile`, which
+`6/25` (partial) owns. Vendor names date; re-measure a row before citing
+it (the OpenClaw default in `7/23` was once written from a four-month-old
+clone under `refs/`, and was wrong).
 
 ## What this means for "ship in parts"
 
