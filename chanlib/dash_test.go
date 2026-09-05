@@ -154,3 +154,22 @@ func TestSectionValuesAreEscaped(t *testing.T) {
 		t.Error("a section row rendered as live markup")
 	}
 }
+
+// TestAdapterDashMountsAtTheDaemonName pins the routed path. teled runs with
+// Name "telegram" and AUTHD_SERVICE_NAME "teled", and its manifest publishes
+// /dash/teled/ — mounting at the platform name made the page 404 on every
+// live instance while its own test passed by supplying a daemon name no
+// production adapter ever sets.
+func TestAdapterDashMountsAtTheDaemonName(t *testing.T) {
+	t.Setenv("AUTHD_SERVICE_NAME", "teled")
+	mux := NewAdapterMux("telegram", []string{"telegram:"}, &fakeBot{},
+		func() bool { return true }, func() int64 { return 0 }, nil)
+	for path, want := range map[string]bool{"/dash/teled/": true, "/dash/telegram/": false} {
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
+		got := w.Code != http.StatusNotFound
+		if got != want {
+			t.Errorf("%s: found=%v want=%v (code %d)", path, got, want, w.Code)
+		}
+	}
+}

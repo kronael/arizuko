@@ -328,7 +328,12 @@ func NewAdapterMux(name string, prefixes []string, bot BotHandler, isConnected f
 	mux.HandleFunc("GET /health", handleHealth(name, prefixes, isConnected, lastInboundAt, db))
 	// The operator dashboard (spec 6/31), mounted here so every Go adapter gets
 	// it from the mux it already builds — one renderer, no per-adapter edit.
-	mux.HandleFunc("GET /dash/"+name+"/", handleAdapterDash(name, prefixes, bot, isConnected, lastInboundAt))
+	// Routed by DAEMON name: the 5/8 manifest publishes /dash/teled/, while
+	// `name` is the platform ("telegram"). compose sets AUTHD_SERVICE_NAME per
+	// daemon, so the path is read from config rather than derived from the
+	// platform — deriving it made every adapter dashboard 404 at its own URL.
+	mux.HandleFunc("GET /dash/"+EnvOr("AUTHD_SERVICE_NAME", name)+"/",
+		handleAdapterDash(name, prefixes, bot, isConnected, lastInboundAt))
 	if hp, ok := bot.(HistoryProvider); ok {
 		mux.HandleFunc("GET /v1/history", Auth(handleHistory(hp)))
 	}
