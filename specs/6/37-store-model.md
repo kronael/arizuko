@@ -1,5 +1,5 @@
 ---
-status: draft
+status: shipped
 depends:
   [
     ../7/21-storage-seam,
@@ -11,16 +11,16 @@ depends:
   ]
 ---
 
-# specs/6/37 — the store model: SQLite for arizuko, Postgres for the tools
+# specs/6/37 — the store model: Postgres, behind one opener
 
-Decision (maintainer, 2026-09-05): Postgres is not the model for
-arizuko's own data. It runs in the deployment for the two tools that
-require it, and no arizuko daemon connects to it. arizuko's store stays
-one SQLite file per owner daemon. The relational model is not a
-commitment either: `7/21` measured that three write paths bind arizuko
-to an interactive multi-table transaction, and this spec names what
-each must become to survive without one. `7/21`'s census stands as the
-evidence; its recommendation — move arizuko to Postgres — does not.
+Decision (maintainer, signed off 2026-09-05): **Postgres is the engine
+for arizuko's own data, not only for the tools that require it.** Dex
+and LiteLLM already put a Postgres in the deployment; arizuko joins it
+rather than running a second engine beside it. `7/21`'s census is the
+evidence and its recommendation is adopted.
+
+The engine is a commitment; the provider is not. The seam that keeps the
+second true is below, and it is not a `Store` interface.
 
 ## Two databases, one boundary
 
@@ -215,78 +215,55 @@ visible, fail-closed window equal to the apply's duration; the consistent
 whole-subsystem export (`resreg/archive.go:68`, `:137`, a read-only tx)
 becomes "read under the marker, or accept skew".
 
-### One document instead of three redesigns
+## The seam is `database/sql`, and it is one opener
 
-The control plane of the largest instance is 77 KB of YAML. Stored as
-one document per subsystem and swapped by compare-and-swap, all three
-paths above become a single conditional write, and the checksum `Apply`
-already computes is the document's version. DynamoDB caps an item at
-400 KB (docs.aws.amazon.com/amazondynamodb/latest/developerguide/HowItWorks.NamingRulesDataTypes.html)
-— 5× headroom on krons, and a hard ceiling. The single CAS is the single
-writer SQLite has per file, at the write rate of grants and routes; the
-ledgers stay outside it. This is the shape to choose if one design is
-wanted rather than three; the three above are what to do table by table
-if the ceiling or the per-row readers rule a document out.
+A storage interface abstracts over engines that differ in **data
+model**. Managed Postgres and self-hosted Postgres do not differ in data
+model; they differ in DSN. `database/sql` is therefore the seam, and it
+ships in the standard library.
 
-## What a key-value model costs after the redesigns
+What arizuko lacks is not an abstraction but ONE place that opens a
+connection. Eight production sites call `sql.Open` today, each carrying
+its own pragma string, and they already disagree: `dashd/main.go` and
+`cmd/arizuko/migrate_split.go` set `journal_mode(WAL)`, `authd/main.go`
+does not; `cmd/arizuko/token.go` sets neither `foreign_keys` nor WAL.
+Nothing enforces agreement, so the divergence is invisible until an
+engine cares. Postgres cares about all of it.
 
-- **The audit trail's query, not its atomicity.** Every audit row commits
-  with the mutation it records (`runAudited` ×24, the `resreg` mutate
-  path, `audit.EmitInTx` in dashd's delete); a two-item batch keeps that.
-  What goes is `audit.Query`'s shape (`audit/query.go:99-139`): subtree,
-  category, actor substring, and an exact cursor on `id` because "id
-  order IS time order". A partition per world sorted by `(time, ulid)`
-  keeps the page and the cursor; subtree and actor become filters on the
-  partition, and actor substring is a partition scan over 159,309 rows.
-  The gates never read `audit_log` — its one reader is `audit.Query`,
-  fed by the four `audit_resource.go` files into dashd; the gates read
-  `acl` and `cost_log`.
-- **Full-text search has no replacement in the model.** `messages_fts`
-  and its 3 triggers serve `FindMessages` (`routd/reads.go:114`,
-  `store/messages.go:755`) for the agent tool (`ipc/ipc.go:2166`), MCP
-  (`routd/mcp.go:480`) and REST (`routd/reads_http.go:133`). A key-value
-  store has no `MATCH`; recall over history becomes an external index or
-  a scan.
-- **Aggregates become counters.** The cost gate reads `SUM(cost_cents)`
-  per folder-day and per user-day (`routd/db.go:1141`); a counter item
-  updated in the same batch as the `cost_log` put preserves it exactly.
-  dashd's usage page (`dashd/usage_page.go:114-181`) joins `cost_log` to
-  `messages` with `GROUP BY` — counters or scans.
-- **Query shapes that move into code** (non-test Go, lines/files): `JOIN`
-  13/10, `GROUP BY` 8/6, `UNION` 10/6, `DISTINCT` 13/9, `WITH RECURSIVE`
-  5/3, `LIKE` 28/16 of which `groupfolder.SQLSubtree` 16/11, `ORDER BY`
-  100/43, `json_extract` 12/2. A subtree predicate is a key prefix only
-  where the folder is the key; 19 of routd's 29 tables have no folder
-  column (`7/21`).
-- **Schema versioning.** 153 migration files in 7 embedded sets — `routd`
-  43, `store` 88 (the second declaration `L195` records), `authd` 7,
-  `onbod` 6, `runed` 6, `chanlib` 2, `emaid` 1 — and `db_utils.Migrate`'s
-  `(service, version)` ledger. A key-value item carries its own shape
-  version and readers upgrade on read; the duplicate-version check that
-  caught `L4` (`db_utils/db_utils.go:79`) has no equivalent.
-- **The seam returns.** `modernc.org/sqlite` runs in-process, which is why
-  `make test` needs no server. A key-value model needs a local
-  implementation for tests and a cloud one for deployment — the interface
-  `7/21` declined for Postgres, and the right one for a store whose data
-  model is the interface (get, put, query by key, conditional batch). A
-  local implementation on SQLite — one `kv(pk, sk, doc, ver)` table per
-  owner — keeps tests in-process and makes "SQLite now" and "key-value
-  later" one code path.
-- **Failure class.** SQLite fails a stale read-then-write loudly
-  (`SQLITE_BUSY_SNAPSHOT`, the "busy/locked" class the retry rule names);
-  a failed condition is the same class but not transient — the caller
-  re-reads and re-decides, never retries blind.
+**Build this first, and it ships before any engine changes.** One
+`db_utils` opener takes a DSN and returns a pool: it owns the pragma set
+on SQLite, the `SetMaxOpenConns` cap everywhere, and the transient-error
+class the retry rule reads. Every other site calls it. That is "one
+declaration, many readers" — the same rule the route table follows —
+and it is engine-neutral: the funnel is correct on SQLite today and is
+the whole provider swap tomorrow.
 
-## Decision: SQLite now
+A DynamoDB-shaped facade whose only implementation is Postgres is the
+seam this spec refuses. Every call site would pay the key-value price —
+no predicate deletes, no joins, no snapshot reads, FTS and cascades and
+the partial unique index reimplemented as call-site discipline — while
+the engine underneath could do all of it. Its one benefit, that a later
+switch touches no call site, is paid up front whether the switch happens
+or not.
 
-Nothing measured needs a second engine. One writer per file is by design
-(`runed/manager.go:205`: "the mutex IS the `BEGIN IMMEDIATE` claim"), and
-the busiest ledger writes about one row a minute. The concurrent writers
-and managed failover Postgres would buy answer a problem no instance
-has, at the price of the relational commitment the maintainer declines.
-The three redesigns are the work that makes the model a choice; each is
-worth its property on SQLite alone — the first closes `L198` by
-construction — and none requires the others.
+## What the three redesigns are worth now
+
+They were the price of surviving without an interactive multi-table
+transaction. Postgres has one, so none of them is required by the
+engine. Each is kept or dropped on its own property:
+
+- **Redesign 1 (group delete as `(path, generation)`)** stays. It closes
+  `L198` by construction rather than by remembering to purge in two
+  places, and that is true on any engine.
+- **Redesign 2 (membership version + bounded walk)** stays as the fix
+  for the three duplicated walk copies. The concurrency half is what
+  Postgres gives for free.
+- **Redesign 3 (`Apply` in-progress marker)** is superseded in its
+  mechanism: `resreg.Apply` upgrades to a write lock with `UPDATE
+audit_log SET id = id WHERE 1 = 0`, a RESERVED lock in SQLite and a
+  no-op in Postgres. It becomes `pg_advisory_xact_lock`, or the checksum
+  recheck races. That substitution is mandatory on the move; the marker
+  is not.
 
 ## Order and reversibility
 
