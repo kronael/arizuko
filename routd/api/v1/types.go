@@ -301,6 +301,24 @@ type ErroredChatsResponse struct {
 	Chats []ErroredChat `json:"chats"`
 }
 
+// UnroutedChat is one row of GET /v1/routing/unrouted: a chat whose latest
+// inbound message no route, direct address or engagement window claims (spec
+// 6/35). Held, not delivered — the operator claims it by writing a route.
+type UnroutedChat struct {
+	ChatJID    string `json:"chat_jid"`
+	Platform   string `json:"platform"`
+	ChatName   string `json:"chat_name,omitempty"`
+	Count      int    `json:"count"`
+	FirstAt    string `json:"first_at"`
+	LastAt     string `json:"last_at"`
+	LastSender string `json:"last_sender"`
+}
+
+// UnroutedChatsResponse is GET /v1/routing/unrouted.
+type UnroutedChatsResponse struct {
+	Chats []UnroutedChat `json:"chats"`
+}
+
 // EngagementResponse is GET /v1/engagement?jid&topic: the engaged folder and
 // deadline (both "" when the window is not live) plus the (jid,topic) thread
 // anchor last_reply_id, which outlives the window and is reported regardless.

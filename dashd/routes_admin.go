@@ -13,6 +13,7 @@ import (
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
+	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -77,6 +78,10 @@ func (d *dash) handleRoutes(w http.ResponseWriter, r *http.Request) {
 		"No routes configured. Messages will not be delivered until at least one route exists.",
 	))
 
+	if operator {
+		d.writeUnroutedSection(w, r)
+	}
+
 	fmt.Fprint(w, htmlSection("Add route",
 		`<form method="post" action="/dash/routes/">`+
 			htmlFormRow("Seq", `<input type="number" name="seq" value="0" required>`)+
@@ -90,6 +95,89 @@ func (d *dash) handleRoutes(w http.ResponseWriter, r *http.Request) {
 			` Target <code>folder</code> trigger, <code>folder#observe</code> silent ingest, <code>folder#&lt;topic&gt;</code> topic pin.</p>`))
 
 	pageClose(w, r)
+}
+
+// writeUnroutedSection renders the held set (spec 6/35): every chat routd drops
+// today because no route, direct address or engagement window claims it, each
+// with a claim form that posts the existing add-route write. Operator-only — a
+// held chat belongs to no folder, so no folder-scoped caller has a claim to
+// see it. Read through routd's /v1, never the table: the verdict is the loop's
+// own resolve, which only routd can run. An unreachable routd is an error
+// banner, because "no unrouted chats" is a statement the operator acts on.
+func (d *dash) writeUnroutedSection(w http.ResponseWriter, r *http.Request) {
+	chats, err := d.listUnrouted(r.Context())
+	if err != nil {
+		slog.Warn("routes: unrouted", "err", err)
+		fmt.Fprint(w, htmlSection("Unrouted chats", htmlBanner("err", "could not reach routd for unrouted chats")))
+		return
+	}
+	folders, err := d.foldersViaRoutd(r.Context())
+	if err != nil {
+		slog.Warn("routes: unrouted folders", "err", err)
+		fmt.Fprint(w, htmlSection("Unrouted chats", htmlBanner("err", "could not reach routd for the group list")))
+		return
+	}
+	var rows [][]string
+	for _, c := range chats {
+		rows = append(rows, []string{
+			esc(c.Platform),
+			`<code>` + esc(c.ChatJID) + `</code>`,
+			esc(c.ChatName),
+			fmt.Sprint(c.Count),
+			esc(shortDate(c.FirstAt)),
+			esc(shortDate(c.LastAt)),
+			`<code>` + esc(c.LastSender) + `</code>`,
+			claimRouteForm(c.ChatJID, folders),
+		})
+	}
+	fmt.Fprint(w, htmlSection("Unrouted chats",
+		`<p class="dim">Chats that have messaged this instance and reach no group: routd stores them and fires no turn.`+
+			` <strong>Claim</strong> writes a <code>chat_jid=</code> route at seq 0; to claim a whole platform, add`+
+			` <code>platform=&lt;name&gt;</code> below. History does not move — only messages after the claim reach the group.</p>`+
+			htmlTable(
+				[]string{"Platform", "Chat", "Name", "Messages", "First", "Last", "Last sender", ""},
+				rows,
+				"No unrouted chats: every chat that has messaged this instance resolves to a group.",
+			)))
+}
+
+// claimRouteForm is the per-row claim: the add-route form with the match fixed
+// to this chat and the target chosen from the groups routd lists.
+func claimRouteForm(jid string, folders []string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, `<form method="post" action="/dash/routes/" class="form-inline">`+
+		`<input type="hidden" name="seq" value="0">`+
+		`<input type="hidden" name="match" value="chat_jid=%s">`+
+		`<select name="target">`, esc(jid))
+	for _, f := range folders {
+		fmt.Fprintf(&b, `<option value="%s">%s</option>`, esc(f), esc(f))
+	}
+	b.WriteString(`</select> <button type="submit">claim</button></form>`)
+	return b.String()
+}
+
+// shortDate trims an RFC3339 timestamp to the minute: "2026-09-05 11:14".
+func shortDate(ts string) string {
+	if t, ok := parseTS(ts); ok {
+		return t.UTC().Format("2006-01-02 15:04")
+	}
+	return ts
+}
+
+// listUnrouted reads the held set from routd's /v1/routing/unrouted.
+func (d *dash) listUnrouted(ctx context.Context) ([]apiv1.UnroutedChat, error) {
+	body, status, err := d.routdGet(ctx, "/v1/routing/unrouted")
+	if err != nil {
+		return nil, err
+	}
+	if status < 200 || status >= 300 {
+		return nil, fmt.Errorf("routd /v1/routing/unrouted: status %d", status)
+	}
+	var out apiv1.UnroutedChatsResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, err
+	}
+	return out.Chats, nil
 }
 
 // routeFromForm parses seq/match/target from form-encoded body. JSON body

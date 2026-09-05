@@ -198,6 +198,19 @@ creating a child folder + high-prio route. The grant is delegated, never
 implied by where the agent sits. No core mechanism — just routes + MCP
 composing. See `template/web/pub/arizuko/concepts/autoviv.html`.
 
+### Unrouted chats (held)
+
+A chat no rule matches is **held**: routd stores its messages under no
+folder, advances the cursor and fires no turn. It is not delivered
+anywhere — a folder confers files, secrets, grants and egress, and a
+platform lets anyone message a bot, so no group is a safe default.
+`GET /v1/routing/unrouted` lists the held chats (unscoped bearer only;
+the verdict is the loop's own resolve), and `/dash/routes/` shows them
+to the operator with a one-click claim that writes a `chat_jid=` rule at
+seq 0. A `platform=<name>` rule claims a whole platform. History does
+not move: only messages after the claim reach the group. Spec
+`specs/6/35-unrouted-traffic.md`.
+
 ### Example: Discord guild mention-only
 
 A guild where the agent reads everything but only replies on mention:

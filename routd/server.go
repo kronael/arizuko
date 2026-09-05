@@ -293,6 +293,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/messages/find", s.handleFindMessages)
 	mux.HandleFunc("GET /v1/routing/resolve", s.handleRoutingResolve)
 	mux.HandleFunc("GET /v1/routing/errored", s.handleErroredChats)
+	mux.HandleFunc("GET /v1/routing/unrouted", s.handleUnroutedChats)
 	mux.HandleFunc("GET /v1/engagement", s.handleEngagementGet)
 	mux.HandleFunc("POST /v1/engagement", s.handleEngagementSet)
 	// topic_sessions, NOT sessions: `sessions` is authd's wire identity (the

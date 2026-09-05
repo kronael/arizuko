@@ -6,11 +6,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/resreg/resources"
+	apiv1 "github.com/kronael/arizuko/routd/api/v1"
+	"github.com/kronael/arizuko/router"
 )
 
 // stubRoutd stands in for routd's /v1 read face, serving from the SAME
@@ -189,6 +193,61 @@ func stubRoutd(t *testing.T, db *sql.DB) string {
 				return
 			}
 			out = append(out, r)
+		}
+		writeStubJSON(w, out)
+	})
+
+	// The held set (spec 6/35): chats with inbound rows that the route table
+	// does not claim and that address no folder directly. The verdict is
+	// router.ResolveRoute over the chat's last inbound row — the evaluator
+	// routd's loop calls at its route-table step — so the stub cannot list a
+	// chat the real reader would not.
+	mux.HandleFunc("GET /v1/routing/unrouted", func(w http.ResponseWriter, _ *http.Request) {
+		rrows, err := db.Query(`SELECT seq, match, target FROM routes ORDER BY seq, id`)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		var routes []core.Route
+		for rrows.Next() {
+			var rt core.Route
+			if err := rrows.Scan(&rt.Seq, &rt.Match, &rt.Target); err != nil {
+				rrows.Close()
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			routes = append(routes, rt)
+		}
+		rrows.Close()
+		// One MAX() so the bare sender/verb columns come from the newest row
+		// (SQLite's single-max rule); MIN() rides a subquery for that reason.
+		rows, err := db.Query(`SELECT chat_jid, sender, verb, COUNT(*),
+			(SELECT MIN(m2.timestamp) FROM messages m2 WHERE m2.chat_jid=messages.chat_jid
+			   AND m2.is_from_me=0 AND m2.is_bot_message=0),
+			MAX(timestamp)
+			FROM messages WHERE is_from_me=0 AND is_bot_message=0
+			GROUP BY chat_jid ORDER BY MAX(timestamp) DESC`)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+		out := apiv1.UnroutedChatsResponse{Chats: []apiv1.UnroutedChat{}}
+		for rows.Next() {
+			var c apiv1.UnroutedChat
+			var verb string
+			if err := rows.Scan(&c.ChatJID, &c.LastSender, &verb, &c.Count, &c.FirstAt, &c.LastAt); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			if groupfolder.JidFolder(c.ChatJID) != "" || !strings.Contains(c.ChatJID, ":") {
+				continue
+			}
+			if router.ResolveRoute(core.Message{ChatJID: c.ChatJID, Sender: c.LastSender, Verb: verb}, routes) != "" {
+				continue
+			}
+			c.Platform = core.JidPlatform(c.ChatJID)
+			out.Chats = append(out.Chats, c)
 		}
 		writeStubJSON(w, out)
 	})
