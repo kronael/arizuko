@@ -195,18 +195,26 @@ func (d *dash) handleTaskAction(w http.ResponseWriter, r *http.Request) {
 	// match the current status affects 0 rows → 409. pause: active→paused;
 	// resume: paused→active (recompute next_run from cron); cancel: active|paused
 	// →cancelled.
+	// The write and its audit row commit together (audit.EmitInTx): a crash
+	// between the two cannot leave a mutation without its trail.
+	tx, err := d.adminDB().BeginTx(r.Context(), nil)
+	if err != nil {
+		slog.Warn("task action: begin", "id", id, "action", action, "err", err)
+		http.Error(w, "write failed", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback()
 	var newStatus string
 	var res sql.Result
-	var err error
 	switch action {
 	case "pause":
 		newStatus = "paused"
-		res, err = d.adminDB().Exec(
+		res, err = tx.Exec(
 			`UPDATE scheduled_tasks SET status = 'paused' WHERE id = ? AND status = 'active'`, id)
 	case "resume":
 		newStatus = "active"
 		var cronVal sql.NullString
-		if qerr := d.adminDB().QueryRow(
+		if qerr := tx.QueryRow(
 			`SELECT cron FROM scheduled_tasks WHERE id = ?`, id).Scan(&cronVal); qerr != nil {
 			if qerr == sql.ErrNoRows {
 				http.Error(w, "not found", http.StatusNotFound)
@@ -221,12 +229,12 @@ func (d *dash) handleTaskAction(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid cron expression", http.StatusBadRequest)
 			return
 		}
-		res, err = d.adminDB().Exec(
+		res, err = tx.Exec(
 			`UPDATE scheduled_tasks SET status = 'active', next_run = ? WHERE id = ? AND status = 'paused'`,
 			nextRun, id)
 	case "cancel":
 		newStatus = "cancelled"
-		res, err = d.adminDB().Exec(
+		res, err = tx.Exec(
 			`UPDATE scheduled_tasks SET status = 'cancelled' WHERE id = ? AND status IN ('active','paused')`, id)
 	default:
 		http.NotFound(w, r)
@@ -242,7 +250,7 @@ func (d *dash) handleTaskAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid state transition", http.StatusConflict)
 		return
 	}
-	audit.Emit(context.Background(), audit.Event{
+	err = audit.EmitInTx(r.Context(), tx, audit.Event{
 		Category: audit.CategoryMutation,
 		Action:   "task.update",
 		Actor:    "rest:dashd",
@@ -253,6 +261,14 @@ func (d *dash) handleTaskAction(w http.ResponseWriter, r *http.Request) {
 			"status": newStatus,
 		},
 	})
+	if err == nil {
+		err = tx.Commit()
+	}
+	if err != nil {
+		slog.Warn("task action: commit", "id", id, "action", action, "err", err)
+		http.Error(w, "write failed", http.StatusInternalServerError)
+		return
+	}
 	slog.Info("task action", "id", id, "action", action, "status", newStatus)
 	http.Redirect(w, r, "/dash/tasks/"+id, http.StatusSeeOther)
 }
@@ -294,27 +310,40 @@ func (d *dash) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	id = "t-" + id
 
-	_, err := d.adminDB().Exec(
+	// The insert and its audit row commit together (audit.EmitInTx).
+	tx, err := d.adminDB().BeginTx(r.Context(), nil)
+	if err != nil {
+		slog.Warn("task create: begin", "err", err)
+		http.Error(w, "insert failed", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback()
+	_, err = tx.Exec(
 		`INSERT INTO scheduled_tasks (id, owner, chat_jid, prompt, cron, next_run, status, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, 'active', datetime('now'))`,
 		id, owner, chatJID, prompt, cronVal, nextRun)
+	if err == nil {
+		err = audit.EmitInTx(r.Context(), tx, audit.Event{
+			Category: audit.CategoryMutation,
+			Action:   "task.create",
+			Actor:    "rest:dashd",
+			Surface:  audit.SurfaceREST,
+			Resource: "scheduled_tasks/" + id,
+			Folder:   owner,
+			Outcome:  audit.OutcomeOK,
+			ParamsSummary: map[string]any{
+				"cron": cronVal,
+			},
+		})
+	}
+	if err == nil {
+		err = tx.Commit()
+	}
 	if err != nil {
 		slog.Warn("task create: insert", "err", err)
 		http.Error(w, "insert failed", http.StatusInternalServerError)
 		return
 	}
-	audit.Emit(context.Background(), audit.Event{
-		Category: audit.CategoryMutation,
-		Action:   "task.create",
-		Actor:    "rest:dashd",
-		Surface:  audit.SurfaceREST,
-		Resource: "scheduled_tasks/" + id,
-		Folder:   owner,
-		Outcome:  audit.OutcomeOK,
-		ParamsSummary: map[string]any{
-			"cron": cronVal,
-		},
-	})
 	slog.Info("task created", "id", id, "owner", owner, "cron", cronVal)
 	http.Redirect(w, r, "/dash/tasks/"+id, http.StatusSeeOther)
 }

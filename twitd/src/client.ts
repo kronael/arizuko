@@ -39,7 +39,6 @@ export class RouterClient {
         send_text: true,
         send_file: true,
         post: true,
-        reply: true,
         repost: true,
         quote: true,
         like: true,

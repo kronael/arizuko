@@ -33,22 +33,4 @@ func TestFeature_Auth(t *testing.T) {
 			t.Fatal("rejected ingest must not store the row")
 		}
 	})
-
-	t.Run("folder-bound-reply", func(t *testing.T) {
-		f := bootFederation(t)
-		if _, err := f.routdDB.PutTurnContext("turn-fb", "demo", "", "slack:T/C/U", "u1", ""); err != nil {
-			t.Fatal(err)
-		}
-		f.authd.grant("user:agent", "messages:send:own_group")
-		foreign := f.authd.mintUser(t, "user:agent", "other")
-		rec := postBearer(t, f.routdTS.URL, "POST", "/v1/turns/turn-fb/reply", foreign, "fk", routdv1.ReplyRequest{JID: "slack:T/C/U", Text: "leak"})
-		if rec.StatusCode != 403 {
-			t.Fatalf("foreign folder reply = %d, want 403", rec.StatusCode)
-		}
-		own := f.authd.mintUser(t, "user:agent", "demo")
-		rec2 := postBearer(t, f.routdTS.URL, "POST", "/v1/turns/turn-fb/reply", own, "ok", routdv1.ReplyRequest{JID: "slack:T/C/U", Text: "legit"})
-		if rec2.StatusCode != 200 {
-			t.Fatalf("own folder reply = %d, want 200", rec2.StatusCode)
-		}
-	})
 }

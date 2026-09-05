@@ -16,10 +16,10 @@ import (
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 )
 
-// stubRunner records the POST /v1/runs body and, on Run, calls back into
-// routd's /v1/turns/{turn_id}/reply (proving the sole-appender callback)
-// then returns {outcome:ok, session_id:stub}. Mirrors the spec 5/E
-// standalone acceptance stub runed.
+// stubRunner records the POST /v1/runs body and, on Run, replies through
+// routd's append-and-deliver (the sole appender) then returns
+// {outcome:ok, session_id:stub}. Mirrors the spec 5/E standalone acceptance
+// stub runed.
 type stubRunner struct {
 	srv      *Server
 	gotBatch string
@@ -35,12 +35,9 @@ func (r *stubRunner) Run(_ context.Context, req runedv1.RunRequest) (runedv1.Run
 		// callback, no submit_turn.
 		return runedv1.RunOutcome{Busy: true}, nil
 	}
-	// the agent's reply tool calls back into routd (the sole appender). The
-	// HTTP idem wrapper persists the returned row; calling appendAndDeliver
-	// directly, the stub must persist it itself.
-	if _, _, row := r.srv.appendAndDeliver(req.TurnID, req.ChatJID, "hello back", "", true); row != nil {
-		_ = r.srv.db.PutMessage(*row)
-	}
+	// the agent's reply lands through routd's append-and-deliver (the sole
+	// appender).
+	r.srv.appendAndDeliver(req.TurnID, req.ChatJID, "hello back")
 	// the agent submits its turn.
 	first, _ := r.srv.db.RecordTurnResult(string(req.Folder), req.TurnID, "sess-stub", "success")
 	if first {
@@ -264,8 +261,8 @@ func loadBusyState(t *testing.T, l *Loop, chatJID string) busyState {
 	return v.(busyState)
 }
 
-// TestTurnReplyAppendsAndDelivers checks the sole-appender callback writes a
-// pending bot row and delivers via the Deliverer (append-then-deliver).
+// TestTurnReplyAppendsAndDelivers checks the sole appender writes the bot row
+// and delivers via the Deliverer, stamping the platform id on the row.
 func TestTurnReplyAppendsAndDelivers(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -276,76 +273,23 @@ func TestTurnReplyAppendsAndDelivers(t *testing.T) {
 	srv := NewServer(db, nil, dl, nil, 0, "")
 	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
 
-	h := srv.Handler()
-	rec := doJSONKey(t, h, "POST", "/v1/turns/t1/reply", "idem-1",
-		apiv1.ReplyRequest{JID: "slack:T/C/U", Text: "answer"})
-	if rec.Code != 200 {
-		t.Fatalf("reply status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	var out apiv1.SendResult
-	json.Unmarshal(rec.Body.Bytes(), &out)
-	if out.Status != core.MessageStatusSent || out.PlatformID != "1716.0042" {
-		t.Fatalf("reply result=%+v", out)
-	}
+	srv.appendAndDeliver("t1", "slack:T/C/U", "answer")
 	if dl.sends != 1 {
 		t.Fatalf("deliverer sends=%d want 1", dl.sends)
 	}
 	if countBots(t, db, "slack:T/C/U") != 1 {
 		t.Fatal("want exactly one bot row")
 	}
-
-	// idempotent replay: same key → no second row, replayed response.
-	rec2 := doJSONKey(t, h, "POST", "/v1/turns/t1/reply", "idem-1",
-		apiv1.ReplyRequest{JID: "slack:T/C/U", Text: "answer"})
-	if rec2.Code != 200 {
-		t.Fatalf("replay status=%d", rec2.Code)
-	}
-	if dl.sends != 1 {
-		t.Fatalf("replay re-delivered (sends=%d)", dl.sends)
-	}
-	if countBots(t, db, "slack:T/C/U") != 1 {
-		t.Fatal("replay appended a second bot row")
-	}
-
-	// key reuse with a different body → 409.
-	rec3 := doJSONKey(t, h, "POST", "/v1/turns/t1/reply", "idem-1",
-		apiv1.ReplyRequest{JID: "slack:T/C/U", Text: "different"})
-	if rec3.Code != 409 {
-		t.Fatalf("key-reuse status=%d want 409", rec3.Code)
+	var status, pid string
+	db.SQL().QueryRow("SELECT status, COALESCE(platform_id,'') FROM messages WHERE turn_id='t1' AND is_bot_message=1").
+		Scan(&status, &pid)
+	if status != core.MessageStatusSent || pid != "1716.0042" {
+		t.Fatalf("bot row = (%q, %q), want (sent, 1716.0042)", status, pid)
 	}
 }
 
-// TestReplyRequiresIdempotencyKey: reply/send/document are required=true on the
-// idem ledger — a call with NO X-Idempotency-Key is 400 and must NOT execute
-// (no bot row, no platform send). The key is the only dedup a runed retry has;
-// if the required gate regressed to ledger-less at-least-once, a retried reply
-// would double-send the agent's answer.
-func TestReplyRequiresIdempotencyKey(t *testing.T) {
-	db, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	dl := &fakeDeliverer{platformID: "9.9"}
-	srv := NewServer(db, nil, dl, nil, 0, "")
-	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
-	h := srv.Handler()
-
-	rec := doJSONKey(t, h, "POST", "/v1/turns/t1/reply", "", // no key
-		apiv1.ReplyRequest{JID: "slack:T/C/U", Text: "answer"})
-	if rec.Code != 400 {
-		t.Fatalf("reply without idempotency key = %d want 400 (body=%s)", rec.Code, rec.Body.String())
-	}
-	if dl.sends != 0 {
-		t.Fatalf("keyless reply delivered (sends=%d) — required gate must reject before execute", dl.sends)
-	}
-	if countBots(t, db, "slack:T/C/U") != 0 {
-		t.Fatal("keyless reply appended a bot row despite the 400")
-	}
-}
-
-// TestResultRecordsOutcome checks /v1/turns/{id}/result records session_id,
-// cost, flips turn state, and dedups on (folder, turn_id).
+// TestResultRecordsOutcome checks recordTurnResult (submit_turn) records
+// session_id, cost, flips turn state, and dedups on (folder, turn_id).
 func TestResultRecordsOutcome(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -354,28 +298,19 @@ func TestResultRecordsOutcome(t *testing.T) {
 	defer db.Close()
 	srv := NewServer(db, nil, nil, nil, 0, "")
 	db.PutTurnContext("t9", "demo", "main", "web:demo", "u1", "")
-	h := srv.Handler()
 
 	body := apiv1.TurnResult{TurnID: "t9", SessionID: "sX", Status: "success",
 		Models: map[string]apiv1.ModelCost{"claude": {Input: 100, Output: 20, CostCents: 3}}}
-	rec := doJSON(t, h, "POST", "/v1/turns/t9/result", "", body)
-	var ack apiv1.TurnResultAck
-	json.Unmarshal(rec.Body.Bytes(), &ack)
-	if !ack.Recorded {
-		t.Fatal("first result not recorded")
+	first, err := srv.recordTurnResult("t9", body)
+	if err != nil || !first {
+		t.Fatalf("first result: recorded=%v err=%v", first, err)
 	}
 	if got := db.SessionID("demo", "main"); got != "sX" {
 		t.Fatalf("session not persisted: %q", got)
 	}
-	if db.SessionID("demo", "main") == "" {
-		t.Fatal("session missing")
-	}
 	// duplicate → recorded:false.
-	rec2 := doJSON(t, h, "POST", "/v1/turns/t9/result", "", body)
-	var ack2 apiv1.TurnResultAck
-	json.Unmarshal(rec2.Body.Bytes(), &ack2)
-	if ack2.Recorded {
-		t.Fatal("duplicate result was recorded (want dropped)")
+	if again, err := srv.recordTurnResult("t9", body); err != nil || again {
+		t.Fatalf("duplicate result: recorded=%v err=%v (want dropped)", again, err)
 	}
 }
 

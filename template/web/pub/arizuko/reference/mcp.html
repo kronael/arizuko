@@ -70,7 +70,7 @@
 
     <h3 id="post"><code>post</code></h3>
     <p>Create a new top-level post on a platform (bluesky post, discord channel message, reddit submission). Use for broadcast/announcement content that isn't replying to anyone. Not for replies (<code>reply</code>), direct messages (<code>send</code>), or file delivery (<code>send_file</code>).</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1052"><code>ipc/ipc.go:1052</code></a> &middot; Grant action: <code>post(jid=...)</code> &middot; REST twin: <code>POST /v1/turns/{turn_id}/post</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1052"><code>ipc/ipc.go:1052</code></a> &middot; Grant action: <code>post(jid=...)</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -122,7 +122,7 @@
 
     <h3 id="send_voice"><code>send_voice</code></h3>
     <p>Deliver <code>text</code> as a synthesized voice message on the platform &mdash; push-to-talk on Telegram/WhatsApp, audio attachment on Discord. <code>voice</code> defaults to <code>PERSONA.md</code> frontmatter or the instance default; pass an explicit name to override.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1009"><code>ipc/ipc.go:1009</code></a> &middot; Grant action: <code>send_voice(jid=...)</code> &middot; Max 5000 chars; requires <code>TTS_BASE_URL</code> (otherwise <code>UnsupportedError</code> propagates). REST twin: <code>POST /v1/turns/{turn_id}/send_voice</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1009"><code>ipc/ipc.go:1009</code></a> &middot; Grant action: <code>send_voice(jid=...)</code> &middot; Max 5000 chars; requires <code>TTS_BASE_URL</code> (otherwise <code>UnsupportedError</code> propagates).</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -175,7 +175,7 @@
 
     <h3 id="forward"><code>forward</code></h3>
     <p>Redeliver an existing message to a different chat with provenance preserved (Telegram forward, WhatsApp forward, email <code>Fwd:</code>). Not for replying within the same chat (<code>reply</code>) or amplifying on a public feed (<code>repost</code> / <code>quote</code>).</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1183"><code>ipc/ipc.go:1183</code></a> &middot; Grant action: <code>forward(jid=&lt;targetJid&gt;)</code> &mdash; <code>jidArg</code> is <code>targetJid</code>, not the source. REST twin: <code>POST /v1/turns/{turn_id}/forward</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1183"><code>ipc/ipc.go:1183</code></a> &middot; Grant action: <code>forward(jid=&lt;targetJid&gt;)</code> &mdash; <code>jidArg</code> is <code>targetJid</code>, not the source.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -201,7 +201,7 @@
 
     <h3 id="quote"><code>quote</code></h3>
     <p>Republish a message on your own feed with added commentary (Bluesky quote, X quote-tweet). Native only &mdash; Discord has no quote primitive and returns unsupported with a hint to use <code>post(content=..., source_url=...)</code>.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1198"><code>ipc/ipc.go:1198</code></a> &middot; Grant action: <code>quote(jid=...)</code> &middot; REST twin: <code>POST /v1/turns/{turn_id}/quote</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1198"><code>ipc/ipc.go:1198</code></a> &middot; Grant action: <code>quote(jid=...)</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -214,7 +214,7 @@
 
     <h3 id="repost"><code>repost</code></h3>
     <p>Amplify a message on your own feed without added text (Bluesky repost, X retweet). Use to endorse-and-share. Not for commentary (<code>quote</code>) or sending a copy to a different chat (<code>forward</code>).</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1212"><code>ipc/ipc.go:1212</code></a> &middot; Grant action: <code>repost(jid=...)</code> &middot; REST twin: <code>POST /v1/turns/{turn_id}/repost</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1212"><code>ipc/ipc.go:1212</code></a> &middot; Grant action: <code>repost(jid=...)</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -876,7 +876,7 @@ headers   = { Authorization = "Bearer {secret:CF_API_TOKEN}" }
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/mcp.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-18">2026-08-18</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-03">2026-09-03</time>
       </div>
     </main>
 

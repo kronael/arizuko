@@ -1,6 +1,6 @@
-// Integration plumbing tests: idempotency ledger, web_routes URL table,
-// and store-level primitives (web-route inventory, turn result/frames,
-// run-log list) that underpin the cross-daemon contract.
+// Integration plumbing tests: web_routes URL table and store-level primitives
+// (web-route inventory, turn result/frames, run-log list) that underpin the
+// cross-daemon contract.
 package tests
 
 import (
@@ -8,34 +8,10 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
 )
 
 func TestFeature_IntegrationPlumbing(t *testing.T) {
-	// First claim wins; replay of the same key returns the stored record.
-	t.Run("idempotency-ledger", func(t *testing.T) {
-		db, err := routd.OpenMem()
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { db.Close() })
-		claimed, _, err := db.IdemClaim("/v1/messages", "k1", "hashA")
-		if err != nil || !claimed {
-			t.Fatalf("first claim = %v err=%v, want true", claimed, err)
-		}
-		claimed2, prior, err := db.IdemClaim("/v1/messages", "k1", "hashA")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if claimed2 {
-			t.Fatal("second claim of same key should lose")
-		}
-		if prior.RequestHash != "hashA" {
-			t.Fatalf("prior hash = %q, want hashA", prior.RequestHash)
-		}
-	})
-
 	// web_routes URL table: put → list → delete round-trip.
 	t.Run("web-routes-table", func(t *testing.T) {
 		db := mustRoutdDB(t)

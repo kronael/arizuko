@@ -19,6 +19,9 @@ import (
 // scopeRoutesRead/Write match the route-CRUD scopes; engagement is a
 // routing-state write owned by the caller's folder.
 var (
+	// scopeRead gates the message reads: the agent (own_group) scope plus the
+	// broader operator/service scopes that also grant it (any-of match).
+	scopeRead        = []string{"chats:read:own_group", "chats:read", "messages:read"}
 	scopeRoutesRead  = []string{"routes:read", "routes:read:own_group"}
 	scopeRoutesWrite = []string{"routes:write", "routes:write:own_group"}
 	// External-cost accounting is its own capability — NOT messages:send (codex

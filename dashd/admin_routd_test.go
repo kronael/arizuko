@@ -292,6 +292,46 @@ func TestTaskAction_TargetsRoutdDB(t *testing.T) {
 	}
 }
 
+// TestTaskWrite_AuditRidesTheTransaction: a task write and its audit row commit
+// together. With audit_log gone the audit insert fails, and the task write must
+// roll back with it — a mutation the operator cannot see in the trail is the
+// state the transaction exists to forbid. Falsifiable: emit the audit row
+// outside the transaction and both writes survive the missing table.
+func TestTaskWrite_AuditRidesTheTransaction(t *testing.T) {
+	d, routd := splitAdminDash(t, "alice@x")
+	if _, err := routd.Exec(
+		`INSERT INTO scheduled_tasks (id, owner, chat_jid, prompt, status, created_at)
+		 VALUES ('t-1', 'team', 'web:team', 'p', 'active', '')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := routd.Exec(`DROP TABLE audit_log`); err != nil {
+		t.Fatal(err)
+	}
+	mux := newMux(d)
+
+	form := url.Values{
+		"owner": {"team"}, "chat_jid": {"web:team"},
+		"prompt": {"do the thing"}, "cron": {"0 9 * * *"},
+	}.Encode()
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, adminReq("POST", "/dash/tasks/", form, "alice@x"))
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("POST tasks with no audit_log = %d, want 500", w.Code)
+	}
+	if n := count(t, routd, `SELECT COUNT(*) FROM scheduled_tasks WHERE prompt='do the thing'`); n != 0 {
+		t.Errorf("task row committed without its audit row: %d rows", n)
+	}
+
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, adminReq("POST", "/dash/tasks/t-1/pause", "", "alice@x"))
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("POST task pause with no audit_log = %d, want 500", w.Code)
+	}
+	if got := statusOf(t, routd, "t-1"); got != "active" {
+		t.Errorf("task status changed without its audit row: %q", got)
+	}
+}
+
 // TestTaskList_ReadsRoutdDB: the tasks list renders a task seeded into routd.db.
 func TestTaskList_ReadsRoutdDB(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")

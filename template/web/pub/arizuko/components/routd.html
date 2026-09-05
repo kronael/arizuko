@@ -67,7 +67,7 @@
 
     <p>Second, <strong>authorization</strong>: routd is the grant authority. It owns the <code>acl</code> and <code>acl_membership</code> tables and runs the per-action authz gate (<code>auth.AuthorizeWith</code>) on every folder-scoped request &mdash; MCP and REST alike. The question it answers is not &ldquo;who are you&rdquo; (that is authd&rsquo;s job) but &ldquo;may you do <em>this</em> to <em>these</em> params.&rdquo; A handler that resolves a <code>jid</code> or <code>folder</code> binds it to the caller&rsquo;s folder here, so a request can never reach across folders.</p>
 
-    <p>Third, <strong>the MCP host</strong>: the agent talks to arizuko over an MCP socket, and routd hosts that socket <em>in-process</em> (<code>ServeTurnMCP</code>). It derives the folder&rsquo;s grant rules, wires the socket to its own DB and the channel deliverer, and forwards the agent&rsquo;s conversation tools (<code>reply</code>, <code>send</code>, <code>like</code>, &hellip;) back through <code>/v1/turns/{turn_id}/*</code>. runed only mounts the ipc dir and sets <code>Input.ExternalMCP=true</code>; it runs no MCP server of its own.</p>
+    <p>Third, <strong>the MCP host</strong>: the agent talks to arizuko over an MCP socket, and routd hosts that socket <em>in-process</em> (<code>ServeTurnMCP</code>). It derives the folder&rsquo;s grant rules, wires the socket to its own DB and the channel deliverer, and serves the agent&rsquo;s conversation tools (<code>reply</code>, <code>send</code>, <code>like</code>, &hellip;) in-process. runed only mounts the ipc dir and sets <code>Input.ExternalMCP=true</code>; it runs no MCP server of its own.</p>
 
     <p>Put differently: routd is where routing, authorization, and the MCP host all live, because all three need the same thing &mdash; the message log and the folder a turn belongs to. Splitting them across daemons would mean three copies of that state drifting apart.</p>
 
@@ -83,7 +83,7 @@
         +--POST /v1/runs--&gt;  runed   (spawns the container)
         |                      |
         |     agent MCP socket | ServeTurnMCP in-process; runed mounts ipc dir
-        |   &lt;-reply/send/like-&gt; |  /v1/turns/{turn_id}/*
+        |   &lt;-reply/send/like-&gt; |  in-process (ipc.ServeMCP)
         v
       channel deliverer (chanreg)  -> back out to the adapter</code></pre>
     </div>
@@ -129,7 +129,7 @@ export WEB_HOST=localhost:8080
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/routd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-18">2026-08-18</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-04">2026-09-04</time>
       </div>
     </main>
 

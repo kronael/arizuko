@@ -88,9 +88,9 @@ type Verifier interface {
 	Verify(r *http.Request) (sub string, scope []string, folder string, err error)
 }
 
-// Server is routd's HTTP face: ingress + the /v1/turns callback surface +
-// route/web-route/route-token CRUD + outbound passthrough. It holds the
-// runed client to dispatch runs.
+// Server is routd's HTTP face: ingress + route/web-route/route-token CRUD +
+// outbound passthrough. It holds the runed client to dispatch runs and hosts
+// the per-turn agent MCP socket (mcp.go).
 type Server struct {
 	db          *DB
 	loop        *Loop
@@ -333,24 +333,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/cost", s.handleCost)
 	mux.HandleFunc("GET /v1/cost", s.handleCostGet)
 	mux.HandleFunc("GET /v1/cost/summary", s.handleCostSummary)
-	// turn callbacks (the sole-appender surface)
-	mux.HandleFunc("POST /v1/turns/{turn_id}/reply", s.handleReply)
-	mux.HandleFunc("POST /v1/turns/{turn_id}/send", s.handleSend)
-	mux.HandleFunc("POST /v1/turns/{turn_id}/document", s.handleDocument)
-	mux.HandleFunc("GET /v1/turns/{turn_id}/history", s.handleHistory)
-	mux.HandleFunc("POST /v1/turns/{turn_id}/like", s.handleLike)
-	mux.HandleFunc("POST /v1/turns/{turn_id}/edit", s.handleEdit)
-	mux.HandleFunc("POST /v1/turns/{turn_id}/delete", s.handleDelete)
-	mux.HandleFunc("POST /v1/turns/{turn_id}/pin", s.handlePin)
-	mux.HandleFunc("POST /v1/turns/{turn_id}/unpin", s.handleUnpin)
-	// social/feed turn-face — the REST twins of the post/forward/quote/repost/
-	// send_voice MCP tools; pure relays to the same Deliverer methods (spec 2/j).
-	mux.HandleFunc("POST /v1/turns/{turn_id}/post", s.handlePost)
-	mux.HandleFunc("POST /v1/turns/{turn_id}/forward", s.handleForward)
-	mux.HandleFunc("POST /v1/turns/{turn_id}/quote", s.handleQuote)
-	mux.HandleFunc("POST /v1/turns/{turn_id}/repost", s.handleRepost)
-	mux.HandleFunc("POST /v1/turns/{turn_id}/send_voice", s.handleSendVoice)
-	mux.HandleFunc("POST /v1/turns/{turn_id}/result", s.handleResult)
 	s.mountChannels(mux)
 	// The operator dashboard (spec 6/28): routd's own /dash/ namespace, gated
 	// by the proxyd-stamped operator identity rather than the /v1 bearer.
@@ -609,7 +591,8 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleOutbound(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r, "messages:write") {
+	sub, _, ok := s.authz(w, r, "messages:write")
+	if !ok {
 		return
 	}
 	var req apiv1.OutboundRequest
@@ -633,8 +616,29 @@ func (s *Server) handleOutbound(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if _, err := s.deliver.SendVia(req.Channel, req.JID, req.Text); err != nil {
-		writeErr(w, 502, "delivery_failed", err.Error())
+	// A daemon's message is a messages row like the agent's: routd is the sole
+	// appender, and a send with no row is invisible to find_messages, the
+	// transcript and the dead_letters surface — onbod's greetings left no trace.
+	// A refused send lands `failed`, the dead-letter state; delivery_attempts=0
+	// says the platform refused it, and the pending sweep never retries it.
+	row := core.Message{
+		ID: "out-" + randHex(8), ChatJID: req.JID, Sender: sub, Content: req.Text,
+		Timestamp: time.Now().UTC(), BotMsg: true, FromMe: true, Status: core.MessageStatusPending,
+	}
+	pid, sendErr := s.deliver.SendVia(req.Channel, req.JID, req.Text)
+	if sendErr != nil {
+		row.Status = core.MessageStatusFailed
+	} else {
+		row.PlatformID, row.Status = pid, core.MessageStatusSent
+	}
+	// A store failure after a successful send is logged, not returned: the
+	// message already reached the platform, and a 5xx makes the caller send it
+	// twice.
+	if err := s.db.PutMessage(row); err != nil {
+		slog.Error("outbound row not stored", "jid", req.JID, "sender", sub, "status", row.Status, "err", err)
+	}
+	if sendErr != nil {
+		writeErr(w, 502, "delivery_failed", sendErr.Error())
 		return
 	}
 	writeJSON(w, 200, apiv1.OK{OK: true})

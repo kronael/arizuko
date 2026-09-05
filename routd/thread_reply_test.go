@@ -5,7 +5,6 @@ import (
 
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
-	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 )
 
 // threadTurn seeds a turn for the reply-into-thread tests: context + the
@@ -21,9 +20,9 @@ func threadTurn(t *testing.T, db *DB, turnID, folder, jid, trigger string) {
 }
 
 // A REPLY in a multi-user chat roots a new platform thread on the trigger
-// message: Send receives threadRoot = the trigger message id. A SEND to the
-// same chat stays top-level (threadRoot empty) — the reply/send contract.
-func TestReplyThreadsOnTriggerSendStaysTopLevel(t *testing.T) {
+// message: Send receives threadRoot = the trigger message id. The top-level
+// `send` verb rides the MCP path (TestMcpDeliverReplyThreadsSendDoesNot).
+func TestReplyThreadsOnTrigger(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
@@ -34,18 +33,10 @@ func TestReplyThreadsOnTriggerSendStaysTopLevel(t *testing.T) {
 	jid := "discord:g1/ch-1"
 	_ = db.SetChatIsGroup(jid, true)
 	threadTurn(t, db, "t1", "demo", jid, "root-1")
-	h := srv.Handler()
 
-	doJSONKey(t, h, "POST", "/v1/turns/t1/reply", "k1",
-		apiv1.ReplyRequest{JID: jid, Text: "answer"})
+	srv.appendAndDeliver("t1", jid, "answer")
 	if len(dl.sends) != 1 || dl.sends[0].threadRoot != "root-1" {
 		t.Fatalf("reply threadRoot: got %+v, want root-1", dl.sends)
-	}
-
-	doJSONKey(t, h, "POST", "/v1/turns/t1/send", "k2",
-		apiv1.ReplyRequest{JID: jid, Text: "broadcast"})
-	if len(dl.sends) != 2 || dl.sends[1].threadRoot != "" {
-		t.Fatalf("send threadRoot: got %+v, want empty", dl.sends)
 	}
 }
 
@@ -116,8 +107,8 @@ func TestReplyThreadRootSuppressed(t *testing.T) {
 	}
 }
 
-// The in-process MCP twins agree with the REST face: reply carries the thread
-// root, send does not.
+// The in-process MCP reply/send agree with the prose-result path: reply
+// carries the thread root, send does not.
 func TestMcpDeliverReplyThreadsSendDoesNot(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -162,10 +153,8 @@ func TestReplyStartsThreadSetsTopic(t *testing.T) {
 	jid := "discord:g1/ch-1"
 	_ = db.SetChatIsGroup(jid, true)
 	threadTurn(t, db, "t1", "demo", jid, "root-1")
-	h := srv.Handler()
 
-	doJSONKey(t, h, "POST", "/v1/turns/t1/reply", "k1",
-		apiv1.ReplyRequest{JID: jid, Text: "answer"})
+	srv.appendAndDeliver("t1", jid, "answer")
 	// The bot message row must have Topic = threadRoot.
 	var topic string
 	db.SQL().QueryRow("SELECT COALESCE(topic,'') FROM messages WHERE turn_id='t1' AND is_bot_message=1").Scan(&topic)
@@ -239,8 +228,7 @@ func TestReplyThreadPrefOffKeepsThreadID(t *testing.T) {
 	}
 	_ = db.SetTurnTriggerMsg("t1", "1700000200.000200")
 
-	doJSONKey(t, srv.Handler(), "POST", "/v1/turns/t1/reply", "k1",
-		apiv1.ReplyRequest{JID: jid, Text: "answer"})
+	srv.appendAndDeliver("t1", jid, "answer")
 	if len(dl.sends) != 1 {
 		t.Fatalf("sends = %d, want 1", len(dl.sends))
 	}
@@ -316,8 +304,9 @@ func TestDocumentThreadsOnTopic(t *testing.T) {
 	if _, err := db.PutTurnContext("t1", "demo", "th-9", jid, "u1", ""); err != nil {
 		t.Fatal(err)
 	}
-	doJSONKey(t, srv.Handler(), "POST", "/v1/turns/t1/document", "k1",
-		apiv1.DocumentRequest{JID: jid, Path: "/tmp/report.pdf", Name: "report.pdf"})
+	if _, err := srv.mcpAppendDoc("t1", jid, "/tmp/report.pdf", "report.pdf", "", "", ""); err != nil {
+		t.Fatal(err)
+	}
 	if len(dl.docs) != 1 || dl.docs[0].threadID != "th-9" {
 		t.Fatalf("document threadID: got %+v, want th-9", dl.docs)
 	}

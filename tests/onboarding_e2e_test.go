@@ -59,7 +59,6 @@ func TestOnboardingEndToEnd(t *testing.T) {
 		func(context.Context) (string, error) { return "svc-tok", nil }))
 
 	const jid = "telegram:group/424242"
-	f.authd.grant("user:agent", "messages:send:own_group", "chats:read:own_group")
 
 	// 1. First contact: an unrouted chat posts over the real adapter path.
 	in := routdv1.Message{ID: "onb.1", ChatJID: jid, Sender: "nikol", Content: "/start hello?", Verb: "message"}

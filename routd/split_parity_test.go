@@ -201,13 +201,12 @@ func TestAppendAndDeliver_StripsThinksAndStatus(t *testing.T) {
 	srv := NewServer(db, nil, dl, nil, 0, "")
 	_, _ = db.PutTurnContext("t1", "grp", "", "telegram:1", "user-1", "")
 
-	status, _, row := srv.appendAndDeliver("t1", "telegram:1",
-		"<think>internal thought</think>Visible reply<status>Working on it</status>", "", true)
-	if status != 200 {
-		t.Fatalf("status=%d want 200", status)
-	}
-	if row == nil || row.Content != "Visible reply" {
-		t.Fatalf("reply row content = %v, want \"Visible reply\"", row)
+	srv.appendAndDeliver("t1", "telegram:1",
+		"<think>internal thought</think>Visible reply<status>Working on it</status>")
+	var content string
+	db.SQL().QueryRow("SELECT content FROM messages WHERE turn_id='t1' AND is_bot_message=1 AND verb<>'status'").Scan(&content)
+	if content != "Visible reply" {
+		t.Fatalf("reply row content = %q, want \"Visible reply\"", content)
 	}
 	if len(dl.sends) != 2 {
 		t.Fatalf("send count = %d, want 2 (status + reply): %+v", len(dl.sends), dl.sends)
@@ -232,9 +231,9 @@ func TestAppendAndDeliver_PureThinkSilent(t *testing.T) {
 	srv := NewServer(db, nil, dl, nil, 0, "")
 	_, _ = db.PutTurnContext("t1", "grp", "", "telegram:1", "user-1", "")
 
-	_, _, row := srv.appendAndDeliver("t1", "telegram:1", "<think>just thinking</think>", "", true)
-	if row != nil {
-		t.Errorf("pure-think reply persisted a row: %+v", row)
+	srv.appendAndDeliver("t1", "telegram:1", "<think>just thinking</think>")
+	if n := countBots(t, db, "telegram:1"); n != 0 {
+		t.Errorf("pure-think reply persisted %d rows, want 0", n)
 	}
 	if len(dl.sends) != 0 {
 		t.Errorf("pure-think reply delivered %d messages, want 0", len(dl.sends))
@@ -255,16 +254,18 @@ func TestAppendAndDeliver_MutedGroup(t *testing.T) {
 	srv.SetDisabledGroups([]string{"grp"})
 	_, _ = db.PutTurnContext("t1", "grp", "", "telegram:12345", "user-1", "")
 
-	status, _, row := srv.appendAndDeliver("t1", "telegram:12345", "hello world", "", true)
-	if status != 200 {
-		t.Fatalf("status=%d want 200", status)
-	}
+	srv.appendAndDeliver("t1", "telegram:12345", "hello world")
 	if len(dl.sends) != 0 {
 		t.Errorf("muted group: channel.Send called %d times, want 0", len(dl.sends))
 	}
-	if row == nil {
-		t.Fatal("muted group: reply row not returned (must persist)")
+	var row core.Message
+	var bot int
+	if err := db.SQL().QueryRow(
+		"SELECT content, is_bot_message, sender, routed_to, status FROM messages WHERE turn_id='t1'").
+		Scan(&row.Content, &bot, &row.Sender, &row.RoutedTo, &row.Status); err != nil {
+		t.Fatalf("muted group: reply row not persisted: %v", err)
 	}
+	row.BotMsg = bot == 1
 	if row.Content != "hello world" {
 		t.Errorf("Content = %q, want %q", row.Content, "hello world")
 	}

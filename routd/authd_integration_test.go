@@ -108,21 +108,12 @@ func newVerifiedRoutd(t *testing.T, a *stubAuthd) (*DB, *Server, *stubRunner) {
 // serveBearer issues a JSON request with an Authorization: Bearer header (which
 // doJSONKey cannot set), so the live Verifier path runs against the real token.
 func serveBearer(t *testing.T, h http.Handler, method, path, token string, body any) *httptest.ResponseRecorder {
-	return serveBearerKey(t, h, method, path, token, "", body)
-}
-
-// serveBearerKey is serveBearer plus an X-Idempotency-Key (the turn-callback
-// write surface requires one; ingress does not).
-func serveBearerKey(t *testing.T, h http.Handler, method, path, token, idemKey string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	raw, _ := json.Marshal(body)
 	req := httptest.NewRequest(method, path, strings.NewReader(string(raw)))
 	req.Header.Set("Content-Type", "application/json")
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
-	}
-	if idemKey != "" {
-		req.Header.Set("X-Idempotency-Key", idemKey)
 	}
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -249,40 +240,5 @@ func TestInboundDispatchIngressFolderNotBound(t *testing.T) {
 	}
 	if !messageExists(db, "m9") {
 		t.Fatal("CURRENT: message routing to a non-token folder is still stored at ingress")
-	}
-}
-
-// TestTurnCallbackDeniedForeignFolder is the folder-bound grant enforcement on
-// the callback surface (authzTurn → ownsFolder): a token whose arz/folder claim
-// is for a DIFFERENT folder than the turn's cannot drive that turn's reply.
-// This is where routd enforces folder-scoped grants end-to-end — a leaked agent
-// token for folder "other" cannot append into "demo". 403, no bot row. The
-// control asserts the same token scoped to the turn's own folder is allowed.
-func TestTurnCallbackDeniedForeignFolder(t *testing.T) {
-	authd := newStubAuthd(t)
-	db, srv, _ := newVerifiedRoutd(t, authd)
-	h := srv.Handler()
-
-	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
-
-	foreignTok := authd.mint(t, "user:u9", "other", "messages:send:own_group")
-	rec := serveBearer(t, h, "POST", "/v1/turns/t1/reply", foreignTok,
-		apiv1.ReplyRequest{JID: "slack:T/C/U", Text: "answer"})
-	if rec.Code != 403 {
-		t.Fatalf("reply from a foreign-folder token must be 403, got %d body=%s", rec.Code, rec.Body.String())
-	}
-	if countBots(t, db, "slack:T/C/U") != 0 {
-		t.Fatal("a denied callback must not append a bot row")
-	}
-
-	// control: the same shape token scoped to the turn's own folder is allowed.
-	ownTok := authd.mint(t, "user:u1", "demo", "messages:send:own_group")
-	rec2 := serveBearerKey(t, h, "POST", "/v1/turns/t1/reply", ownTok, "idem-1",
-		apiv1.ReplyRequest{JID: "slack:T/C/U", Text: "answer"})
-	if rec2.Code != 200 {
-		t.Fatalf("control: own-folder token must be 200, got %d body=%s", rec2.Code, rec2.Body.String())
-	}
-	if countBots(t, db, "slack:T/C/U") != 1 {
-		t.Fatal("authorized own-folder callback must append exactly one bot row")
 	}
 }

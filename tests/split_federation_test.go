@@ -12,13 +12,16 @@ package tests
 //
 // ONLY the LLM/container turn is faked. routd's own authd_integration_test wires an
 // in-process stubRunner and drives processGroupMessages by hand; here routd→runed is
-// real HTTP, routd's real poll loop dispatches, and the run callback rides a real
-// authd-brokered token back to routd.
+// real HTTP, routd's real poll loop dispatches, and the agent's reply rides the
+// per-turn MCP socket routd serves — the same path a spawned agent drives.
 
 import (
+	"bufio"
 	"context"
 	"crypto/ecdsa"
 	"encoding/json"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -30,6 +33,7 @@ import (
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/routd"
 	routdv1 "github.com/kronael/arizuko/routd/api/v1"
 	"github.com/kronael/arizuko/router"
@@ -179,33 +183,31 @@ type federation struct {
 	loop     *routd.Loop
 	runedDB  *runed.DB
 	runedTS  *httptest.Server
+	// ipcDir is where routd serves each turn's agent MCP socket; the fake agent
+	// dials it there to reply.
+	ipcDir string
 
-	// agent observations: the folder routd dispatched each turn to, the secret
-	// set it shipped for the container env, and the status routd returned to the
-	// agent's reply callback.
+	// agent observations: the folder routd dispatched each turn to and the
+	// secret set it shipped for the container env.
 	mu          sync.Mutex
 	ranFolders  map[string]string            // turnID -> routd-dispatched folder
 	ranSessions map[string]string            // turnID -> RunSpec.SessionID routd shipped (resume id)
 	ranSecrets  map[string]map[string]string // folder -> RunRequest.Secrets (container env)
-	replyStatus map[string]int               // turnID -> routd reply status
 }
 
 // bootFederation stands up authd, runed (real Manager + FakeRuntime), and routd (real
 // Loop + real poller calling runed over HTTP). The FakeRuntime is the only fake: it
-// simulates the agent by posting a reply back into routd with a real authd-minted
-// folder-bound token. Returns f and the running loop's cancel.
+// simulates the agent by calling the reply tool over the turn's MCP socket. Returns
+// f and the running loop's cancel.
 func bootFederation(t *testing.T, cfgMods ...func(*routd.LoopConfig)) *federation {
 	t.Helper()
 	f := &federation{
+		ipcDir:      t.TempDir(),
 		ranFolders:  map[string]string{},
 		ranSessions: map[string]string{},
 		ranSecrets:  map[string]map[string]string{},
-		replyStatus: map[string]int{},
 	}
 	f.authd = newFakeAuthd(t)
-	// Grant resolution (the DB resolver authd consults): the agent identity
-	// gets the full reply grant set for its folder.
-	f.authd.grant("user:agent", "messages:send:own_group", "chats:read:own_group")
 
 	// --- runed (execution plane) ---
 	rudb, err := runed.OpenMem()
@@ -216,29 +218,17 @@ func bootFederation(t *testing.T, cfgMods ...func(*routd.LoopConfig)) *federatio
 	f.runedDB = rudb
 
 	// The FakeRuntime is the agent: on each run it records the folder routd
-	// dispatched to, mints a folder-bound reply token from authd, and posts a
-	// reply back to routd over HTTP — the real agent→routd callback, just
-	// without an LLM deciding the text.
+	// dispatched to and calls the reply tool over the turn's MCP socket — the
+	// real agent→routd path, just without an LLM deciding the text.
 	rt := runed.FakeRuntime{Fn: func(_ context.Context, spec runed.RunSpec) runed.RunResult {
 		f.mu.Lock()
 		f.ranFolders[spec.TurnID] = spec.Folder
 		f.ranSessions[spec.TurnID] = spec.SessionID
 		f.ranSecrets[spec.Folder] = spec.Secrets
 		f.mu.Unlock()
-		replyTok := f.authd.mintUser(t, "user:agent", spec.Folder)
-		body, _ := json.Marshal(routdv1.ReplyRequest{JID: spec.ChatJID, Text: "agent says: ack " + spec.TurnID})
-		req, _ := http.NewRequest("POST", f.routdTS.URL+"/v1/turns/"+spec.TurnID+"/reply", strings.NewReader(string(body)))
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+replyTok)
-		req.Header.Set("X-Idempotency-Key", "agent-"+spec.TurnID)
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
+		if err := f.agentReply(spec, "agent says: ack "+spec.TurnID); err != nil {
 			return runed.RunResult{Outcome: runedv1.OutcomeError, Error: err.Error()}
 		}
-		defer resp.Body.Close()
-		f.mu.Lock()
-		f.replyStatus[spec.TurnID] = resp.StatusCode
-		f.mu.Unlock()
 		return runed.RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "sess-" + spec.TurnID}
 	}}
 	mgr := runed.NewManager(rudb, rt, runed.ManagerConfig{
@@ -268,6 +258,7 @@ func bootFederation(t *testing.T, cfgMods ...func(*routd.LoopConfig)) *federatio
 	lc := routd.LoopConfig{
 		InstanceName: "fedtest",
 		PollEvery:    20 * time.Millisecond, // fast poll for the test
+		IpcDir:       f.ipcDir,
 	}
 	for _, mod := range cfgMods {
 		mod(&lc)
@@ -313,19 +304,62 @@ func (f *federation) dispatchedSecrets(folder string) map[string]string {
 	return f.ranSecrets[folder]
 }
 
-func (f *federation) replyCode(turnID string) int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.replyStatus[turnID]
+// agentReply is the fake agent's reply tool: one JSON-RPC tools/call over the
+// per-turn MCP socket routd serves under the folder's ipc dir. routd binds the
+// socket before it calls runed and removes it when the run returns, so it is
+// live for the whole FakeRuntime call.
+func (f *federation) agentReply(spec runed.RunSpec, text string) error {
+	ipcDir, err := (&groupfolder.Resolver{IpcDir: f.ipcDir}).IpcPath(spec.Folder)
+	if err != nil {
+		return err
+	}
+	conn, err := net.Dial("unix", groupfolder.IpcSocket(ipcDir))
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	req, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{"name": "reply", "arguments": map[string]any{"chatJid": spec.ChatJID, "text": text}},
+	})
+	if _, err := conn.Write(append(req, '\n')); err != nil {
+		return err
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	raw, err := bufio.NewReader(conn).ReadBytes('\n')
+	if err != nil {
+		return err
+	}
+	var resp struct {
+		Result struct {
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+			IsError bool `json:"isError"`
+		} `json:"result"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return err
+	}
+	if resp.Error != nil {
+		return fmt.Errorf("reply rpc: %s", resp.Error.Message)
+	}
+	if resp.Result.IsError && len(resp.Result.Content) > 0 {
+		return fmt.Errorf("reply tool: %s", resp.Result.Content[0].Text)
+	}
+	return nil
 }
 
 // ---- The end-to-end flow ----
 
 // TestSplitFederation_InboundToTurnRoundTrip drives the full split path: authd mints
 // tokens; an adapter posts an inbound to routd over HTTP; routd's REAL poll loop routes
-// and dispatches to runed over the real contract; runed brokers a token and runs the
-// (Fake) agent, which posts a reply BACK to routd with a real folder-bound token; routd
-// appends exactly one bot row. Every hop is real but the LLM/container.
+// and dispatches to runed over the real contract; runed runs the (Fake) agent, which
+// replies over the turn's MCP socket; routd appends exactly one bot row. Every hop is
+// real but the LLM/container.
 func TestSplitFederation_InboundToTurnRoundTrip(t *testing.T) {
 	f := bootFederation(t)
 
@@ -349,17 +383,14 @@ func TestSplitFederation_InboundToTurnRoundTrip(t *testing.T) {
 	}
 
 	// routd's poll loop routes the chat, dispatches the run to runed over HTTP,
-	// runed runs the fake agent, which replies back into routd. Wait for the
-	// resulting bot row to land (the turn closing).
+	// runed runs the fake agent, which replies over the turn's socket. Wait for
+	// the resulting bot row to land (the turn closing).
 	testutils.WaitForRow(t, f.routdDB.SQL(),
 		`SELECT COUNT(*) FROM messages WHERE chat_jid=? AND is_bot_message=1`,
 		[]any{"slack:T/C/U"}, 5*time.Second)
 
 	if got := f.dispatchedFolder("wamid.1"); got != "demo" {
 		t.Fatalf("routd dispatched turn to folder %q, want demo (routd→runed over HTTP)", got)
-	}
-	if code := f.replyCode("wamid.1"); code != 200 {
-		t.Fatalf("agent reply callback into routd = %d, want 200 (folder-bound token accepted)", code)
 	}
 	if got := countBotRows(t, f.routdDB, "slack:T/C/U"); got != 1 {
 		t.Fatalf("bot rows = %d, want 1 (the agent's reply appended exactly once)", got)
@@ -412,42 +443,6 @@ func TestSplitFederation_InboundRejectsBadToken(t *testing.T) {
 	}
 	if messageExists(f.routdDB, "bad.1") {
 		t.Fatal("a rejected ingest must not store the inbound row")
-	}
-}
-
-// TestSplitFederation_ForeignFolderTokenRejected proves the folder-bound grant
-// gate bites across the real federation: a leaked agent token for a DIFFERENT
-// folder than the turn's cannot drive that turn's reply. authd mints both
-// tokens; routd verifies them against the SAME JWKS; only the own-folder token
-// is accepted. This is the flip-blocker enforcement end-to-end.
-func TestSplitFederation_ForeignFolderTokenRejected(t *testing.T) {
-	f := bootFederation(t)
-
-	if _, err := f.routdDB.PutTurnContext("turn-x", "demo", "", "slack:T/C/U", "u1", ""); err != nil {
-		t.Fatalf("put turn context: %v", err)
-	}
-	f.authd.grant("user:agent", "messages:send:own_group")
-
-	// Foreign-folder token: well-formed, correct scope, WRONG folder → 403.
-	foreign := f.authd.mintUser(t, "user:agent", "other")
-	rec := postBearer(t, f.routdTS.URL, "POST", "/v1/turns/turn-x/reply", foreign, "fk-1",
-		routdv1.ReplyRequest{JID: "slack:T/C/U", Text: "leaked"})
-	if rec.StatusCode != 403 {
-		t.Fatalf("foreign-folder reply status=%d, want 403", rec.StatusCode)
-	}
-	if countBotRows(t, f.routdDB, "slack:T/C/U") != 0 {
-		t.Fatal("a denied callback must not append a bot row")
-	}
-
-	// Control: the same identity scoped to the turn's own folder is accepted.
-	own := f.authd.mintUser(t, "user:agent", "demo")
-	rec2 := postBearer(t, f.routdTS.URL, "POST", "/v1/turns/turn-x/reply", own, "ok-1",
-		routdv1.ReplyRequest{JID: "slack:T/C/U", Text: "legit"})
-	if rec2.StatusCode != 200 {
-		t.Fatalf("own-folder reply status=%d, want 200", rec2.StatusCode)
-	}
-	if countBotRows(t, f.routdDB, "slack:T/C/U") != 1 {
-		t.Fatal("authorized own-folder callback must append exactly one bot row")
 	}
 }
 

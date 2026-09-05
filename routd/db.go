@@ -235,8 +235,8 @@ func (d *DB) RemoveGroupWatcher(observer, source string) error {
 }
 
 // execer is the shared subset of *sql.DB and *sql.Tx PutMessage uses, so the
-// same INSERT serves both the auto-commit and in-tx (atomic-with-ledger)
-// paths.
+// same INSERT serves both the auto-commit path and the in-tx re-issue
+// (pending_actions.go).
 type execer interface {
 	Exec(query string, args ...any) (sql.Result, error)
 }
@@ -267,28 +267,6 @@ func (d *DB) PutMessage(m core.Message) error { return putMessage(d.db, m) }
 func (d *DB) EnrichMessage(id, content string) error {
 	_, err := d.db.Exec(`UPDATE messages SET content=?, attachments='' WHERE id=?`, content, id)
 	return err
-}
-
-// AppendAndFinish appends the bot row AND finishes the idempotency ledger row in
-// ONE tx. A crash between the two cannot leave a permanent in_flight ledger row:
-// either both commit or neither does, and the retry replays. msg==nil finishes
-// only the ledger (mutation handlers that append no row).
-func (d *DB) AppendAndFinish(msg *core.Message, endpoint, key string, status int, response string) error {
-	tx, err := d.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if msg != nil {
-		if err := putMessage(tx, *msg); err != nil {
-			return err
-		}
-	}
-	if _, err := tx.Exec("UPDATE idempotency_keys SET status=?, response=? WHERE endpoint=? AND key=?",
-		status, response, endpoint, key); err != nil {
-		return err
-	}
-	return tx.Commit()
 }
 
 // NewMessages returns rows with timestamp > since across all chats, plus the new

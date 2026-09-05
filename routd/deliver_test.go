@@ -7,8 +7,10 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/kronael/arizuko/chanreg"
+	"github.com/kronael/arizuko/core"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 )
 
@@ -232,11 +234,7 @@ func TestServerWiresDelivererViaRegistry(t *testing.T) {
 	}
 
 	db.PutTurnContext("t1", "demo", "", "slack:T1/C/U", "u1", "")
-	drec := doJSONKey(t, h, "POST", "/v1/turns/t1/reply", "k1",
-		apiv1.ReplyRequest{JID: "slack:T1/C/U", Text: "answer"})
-	if drec.Code != 200 {
-		t.Fatalf("reply status=%d body=%s", drec.Code, drec.Body.String())
-	}
+	srv.appendAndDeliver("t1", "slack:T1/C/U", "answer")
 	if a.count() != 1 {
 		t.Fatalf("adapter delivered=%d want 1", a.count())
 	}
@@ -319,5 +317,66 @@ func TestOutboundHonoursChannelPin(t *testing.T) {
 	}
 	if pinned.count() != 1 || other.count() != 0 {
 		t.Fatalf("unregistered pin still delivered: pinned=%d other=%d", pinned.count(), other.count())
+	}
+}
+
+// POST /v1/outbound is a message like any other: routd appends the row it
+// delivers, so a daemon's send (onbod's greeting) reaches find_messages, the
+// transcript and — when the platform refuses it — the dead_letters surface.
+// Falsifiable: drop the PutMessage and the adapter still delivers while the
+// messages table stays empty.
+func TestOutboundAppendsMessagesRow(t *testing.T) {
+	adapter := newFakeAdapter(t, "pid-out-1")
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	reg := chanreg.New()
+	// The inbound-source fallback knows telegram only, so a slack: jid has no
+	// adapter to resolve to.
+	deliver := NewChannelDeliverer(reg, nil, func(jid string) string {
+		if strings.HasPrefix(jid, "telegram:") {
+			return "telegram"
+		}
+		return ""
+	})
+	registerAdapter(t, reg, "telegram", adapter.srv.URL, "telegram:")
+	srv := NewServer(db, nil, deliver, nil, 0, "")
+	srv.SetChannelRegistry(reg)
+	h := srv.Handler()
+
+	rec := doJSON(t, h, "POST", "/v1/outbound", "",
+		apiv1.OutboundRequest{JID: "telegram:user/9", Text: "welcome aboard"})
+	if rec.Code != 200 {
+		t.Fatalf("outbound status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var content, status, pid string
+	err = db.SQL().QueryRow(
+		"SELECT content, status, COALESCE(platform_id,'') FROM messages WHERE chat_jid=? AND is_bot_message=1 AND is_from_me=1",
+		"telegram:user/9").Scan(&content, &status, &pid)
+	if err != nil {
+		t.Fatalf("delivered outbound left no messages row: %v", err)
+	}
+	if content != "welcome aboard" || status != core.MessageStatusSent || pid != "pid-out-1" {
+		t.Fatalf("row = (%q, %q, %q), want (welcome aboard, sent, pid-out-1)", content, status, pid)
+	}
+
+	// No adapter owns slack: → the send is refused, the row is dead-lettered
+	// (`failed`, never `pending`), and the sweep never re-sends it.
+	rec = doJSON(t, h, "POST", "/v1/outbound", "",
+		apiv1.OutboundRequest{JID: "slack:T/C/U", Text: "nobody home"})
+	if rec.Code != 502 {
+		t.Fatalf("refused outbound status=%d, want 502", rec.Code)
+	}
+	if err := db.SQL().QueryRow(
+		"SELECT status FROM messages WHERE chat_jid=? AND is_bot_message=1", "slack:T/C/U").Scan(&status); err != nil {
+		t.Fatalf("refused outbound left no dead-letter row: %v", err)
+	}
+	if status != core.MessageStatusFailed {
+		t.Fatalf("refused outbound row status=%q, want failed", status)
+	}
+	if rows, _ := db.PendingOutbound(time.Now().Add(time.Hour), 10); len(rows) != 0 {
+		t.Fatalf("dead-lettered outbound row is in the retry feed: %+v", rows)
 	}
 }

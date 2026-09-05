@@ -126,10 +126,9 @@ type errSendT string
 func (e errSendT) Error() string { return string(e) }
 
 // TestEarlySubmitTurnKeepsCallbacksLive is the [blocker] fix: an early
-// submit_turn flips state→done, but trailing reply/send the still-live run
+// submit_turn flips state→done, but the trailing frames the still-live run
 // emits stay valid until POST /v1/runs returns (run_returned). Only after the
-// run-response do late callbacks 409 turn_done (spec 5/E § Post-terminal
-// callbacks).
+// run-response is a late frame dropped (spec 5/E § Post-terminal callbacks).
 func TestEarlySubmitTurnKeepsCallbacksLive(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -139,31 +138,28 @@ func TestEarlySubmitTurnKeepsCallbacksLive(t *testing.T) {
 	dl := &recDeliverer{}
 	srv := NewServer(db, nil, dl, nil, 0, "")
 	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
-	h := srv.Handler()
 
 	// submit_turn arrives early (flips state→done, run_returned stays 0).
-	doJSON(t, h, "POST", "/v1/turns/t1/result", "",
-		apiv1.TurnResult{TurnID: "t1", SessionID: "sX", Status: "success"})
+	if _, err := srv.recordTurnResult("t1", apiv1.TurnResult{TurnID: "t1", SessionID: "sX", Status: "success"}); err != nil {
+		t.Fatal(err)
+	}
 	if tc, _ := db.GetTurnContext("t1"); tc.State != "done" || tc.RunReturned {
 		t.Fatalf("after early submit_turn: state=%q run_returned=%v (want done/false)", tc.State, tc.RunReturned)
 	}
 
-	// a trailing send BEFORE the run-response must still succeed.
-	rec := doJSONKey(t, h, "POST", "/v1/turns/t1/send", "k-send",
-		apiv1.ReplyRequest{JID: "slack:T/C/U", Text: "trailing frame"})
-	if rec.Code != 200 {
-		t.Fatalf("trailing send after early submit_turn: status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	if countBots(t, db, "slack:T/C/U") != 1 {
-		t.Fatal("trailing send did not append the bot row")
+	// a trailing frame BEFORE the run-response is still delivered.
+	srv.appendAndDeliver("t1", "slack:T/C/U", "trailing frame")
+	if countBots(t, db, "slack:T/C/U") != 1 || len(dl.sends) != 1 {
+		t.Fatalf("trailing frame after early submit_turn: bots=%d sends=%d, want 1/1",
+			countBots(t, db, "slack:T/C/U"), len(dl.sends))
 	}
 
-	// the run returns → run_returned set; now a late callback 409s.
+	// the run returns → run_returned set; a late frame is dropped.
 	_ = db.SetRunReturned("t1")
-	rec2 := doJSONKey(t, h, "POST", "/v1/turns/t1/send", "k-late",
-		apiv1.ReplyRequest{JID: "slack:T/C/U", Text: "too late"})
-	if rec2.Code != 409 {
-		t.Fatalf("post-run-return callback: status=%d want 409", rec2.Code)
+	srv.appendAndDeliver("t1", "slack:T/C/U", "too late")
+	if countBots(t, db, "slack:T/C/U") != 1 || len(dl.sends) != 1 {
+		t.Fatalf("post-run-return frame was delivered: bots=%d sends=%d, want 1/1",
+			countBots(t, db, "slack:T/C/U"), len(dl.sends))
 	}
 }
 
@@ -877,84 +873,6 @@ func TestSweepIdempotencyDropsExpired(t *testing.T) {
 	}
 }
 
-// TestMutationDoneGuard is the done-guard fix: like/edit/delete/pin/unpin
-// 409 after the run returns (spec 5/E § Post-terminal callbacks). Without the
-// guard a late mutation would touch a platform message past the live run.
-func TestMutationDoneGuard(t *testing.T) {
-	db, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	dl := &recDeliverer{}
-	srv := NewServer(db, nil, dl, nil, 0, "")
-	h := srv.Handler()
-	db.PutTurnContext("t", "demo", "", "slack:T/C/U", "u1", "")
-
-	// before run-return: like succeeds.
-	rec := doJSON(t, h, "POST", "/v1/turns/t/like", "",
-		apiv1.ReactionRequest{JID: "slack:T/C/U", PlatformID: "p1", Reaction: "👍"})
-	if rec.Code != 200 {
-		t.Fatalf("like before run-return: status=%d", rec.Code)
-	}
-
-	// after run-return: like 409s (callback closed).
-	_ = db.SetRunReturned("t")
-	rec2 := doJSON(t, h, "POST", "/v1/turns/t/like", "",
-		apiv1.ReactionRequest{JID: "slack:T/C/U", PlatformID: "p2", Reaction: "👍"})
-	if rec2.Code != 409 {
-		t.Fatalf("like after run-return: status=%d want 409 body=%s", rec2.Code, rec2.Body.String())
-	}
-	if dl.reacts != 1 {
-		t.Fatalf("reacts=%d want 1 (the post-close like must not fire)", dl.reacts)
-	}
-}
-
-// TestAppendAndFinishAtomic is the idempotency-atomicity fix: AppendAndFinish
-// commits the bot row AND the ledger response together; a replay returns the
-// stored response without a second row (spec 5/E § Idempotency step 2).
-func TestAppendAndFinishAtomic(t *testing.T) {
-	db, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	dl := &recDeliverer{pid: "pid-1"}
-	srv := NewServer(db, nil, dl, nil, 0, "")
-	db.PutTurnContext("t", "demo", "", "slack:T/C/U", "u1", "")
-	h := srv.Handler()
-
-	rec := doJSONKey(t, h, "POST", "/v1/turns/t/reply", "k1",
-		apiv1.ReplyRequest{JID: "slack:T/C/U", Text: "hi"})
-	if rec.Code != 200 {
-		t.Fatalf("reply status=%d", rec.Code)
-	}
-	// the bot row AND the ledger response committed together.
-	if countBots(t, db, "slack:T/C/U") != 1 {
-		t.Fatal("bot row not appended")
-	}
-	var ledgerStatus int
-	var ledgerResp string
-	db.SQL().QueryRow("SELECT status, response FROM idempotency_keys WHERE endpoint='POST /v1/turns/reply' AND key='k1'").
-		Scan(&ledgerStatus, &ledgerResp)
-	if ledgerStatus != 200 || ledgerResp == "" {
-		t.Fatalf("ledger not finished atomically: status=%d resp=%q", ledgerStatus, ledgerResp)
-	}
-
-	// replay returns the stored response, no second row, no second delivery.
-	rec2 := doJSONKey(t, h, "POST", "/v1/turns/t/reply", "k1",
-		apiv1.ReplyRequest{JID: "slack:T/C/U", Text: "hi"})
-	if rec2.Code != 200 || rec2.Body.String() != ledgerResp {
-		t.Fatalf("replay status=%d body=%q want stored %q", rec2.Code, rec2.Body.String(), ledgerResp)
-	}
-	if countBots(t, db, "slack:T/C/U") != 1 {
-		t.Fatal("replay appended a second row")
-	}
-	if len(dl.sends) != 1 {
-		t.Fatalf("replay re-delivered (sends=%d)", len(dl.sends))
-	}
-}
-
 // TestRoundDoneKeysOnChatJID guards the SSE-key-mismatch bug-class (BUGS L30):
 // publishRoundDone must pass the CHAT JID VERBATIM (the webd SSE subscriber's
 // key) — not the routing-target folder, and not a prefix-stripped derivation.
@@ -977,13 +895,13 @@ func TestRoundDoneKeysOnChatJID(t *testing.T) {
 	loop.StopQueue()
 	srv := NewServer(db, loop, dl, nil, 0, "")
 	loop.BindServer(srv)
-	h := srv.Handler()
 
 	// The turn's chat JID is the web submission folder; its routed target is "bob".
 	db.PutTurnContext("t1", "bob", "", "web:alice/submissions", "u1", "")
 
-	doJSON(t, h, "POST", "/v1/turns/t1/result", "",
-		apiv1.TurnResult{TurnID: "t1", SessionID: "sX", Status: "success"})
+	if _, err := srv.recordTurnResult("t1", apiv1.TurnResult{TurnID: "t1", SessionID: "sX", Status: "success"}); err != nil {
+		t.Fatal(err)
+	}
 
 	if len(dl.roundDones) != 1 {
 		t.Fatalf("RoundDone fired %d times, want 1: %+v", len(dl.roundDones), dl.roundDones)
@@ -1010,12 +928,12 @@ func TestRoundDoneHookJIDVerbatim(t *testing.T) {
 	loop.StopQueue()
 	srv := NewServer(db, loop, dl, nil, 0, "")
 	loop.BindServer(srv)
-	h := srv.Handler()
 
 	db.PutTurnContext("t2", "acme", "", "hook:acme/stripe", "u1", "")
 
-	doJSON(t, h, "POST", "/v1/turns/t2/result", "",
-		apiv1.TurnResult{TurnID: "t2", SessionID: "sY", Status: "success"})
+	if _, err := srv.recordTurnResult("t2", apiv1.TurnResult{TurnID: "t2", SessionID: "sY", Status: "success"}); err != nil {
+		t.Fatal(err)
+	}
 
 	if len(dl.roundDones) != 1 {
 		t.Fatalf("RoundDone fired %d times, want 1: %+v", len(dl.roundDones), dl.roundDones)
@@ -1179,83 +1097,6 @@ func TestRouteDeleteStoreErrorReturns500(t *testing.T) {
 	}
 }
 
-// TestDocumentStampsPlatformID: the /document REST twin must persist the
-// platform id the Deliverer returns onto the stored bot row AND echo it in the
-// SendResult. Before the fix it discarded the returned pid (`if _, err := ...`)
-// so the document row landed with empty platform_id, breaking later
-// edit/delete/pin targeting that message. Mirrors how /reply + /send already
-// capture pid (turns.go appendAndDeliver).
-func TestDocumentStampsPlatformID(t *testing.T) {
-	db, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	dl := &fakeDeliverer{platformID: "doc-pid-99"}
-	srv := NewServer(db, nil, dl, nil, 0, "")
-	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
-	h := srv.Handler()
-
-	rec := doJSONKey(t, h, "POST", "/v1/turns/t1/document", "doc-1",
-		apiv1.DocumentRequest{JID: "slack:T/C/U", Path: "/srv/x.pdf", Name: "x.pdf"})
-	if rec.Code != 200 {
-		t.Fatalf("document status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	var out apiv1.SendResult
-	json.Unmarshal(rec.Body.Bytes(), &out)
-	if out.PlatformID != "doc-pid-99" {
-		t.Fatalf("SendResult.PlatformID=%q want doc-pid-99", out.PlatformID)
-	}
-	if out.Status != core.MessageStatusSent {
-		t.Fatalf("SendResult.Status=%q want sent", out.Status)
-	}
-	// The stored bot row must carry the platform id for later mutations to resolve.
-	var pid string
-	db.SQL().QueryRow(
-		"SELECT COALESCE(platform_id,'') FROM messages WHERE chat_jid=? AND is_bot_message=1",
-		"slack:T/C/U").Scan(&pid)
-	if pid != "doc-pid-99" {
-		t.Fatalf("stored document row platform_id=%q want doc-pid-99", pid)
-	}
-}
-
-// TestDocumentDeliveryFailure: a Document() delivery error returns 422 and
-// dead-letters the bot row. The row keeps the evidence; 'failed' keeps it out
-// of PendingOutbound, because the text-only maybeRetryOutbound sweep would
-// re-send a pending document row as a captionless, fileless message.
-func TestDocumentDeliveryFailure(t *testing.T) {
-	db, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	dl := &fakeDeliverer{docErr: errSend}
-	srv := NewServer(db, nil, dl, nil, 0, "")
-	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
-	h := srv.Handler()
-
-	rec := doJSONKey(t, h, "POST", "/v1/turns/t1/document", "doc-err-1",
-		apiv1.DocumentRequest{JID: "slack:T/C/U", Path: "/srv/x.pdf", Name: "x.pdf"})
-	if rec.Code != 422 {
-		t.Fatalf("document delivery failure status=%d body=%s, want 422", rec.Code, rec.Body.String())
-	}
-	var n int
-	db.SQL().QueryRow(`SELECT COUNT(*) FROM messages
-		WHERE chat_jid=? AND is_bot_message=1 AND status=?`,
-		"slack:T/C/U", core.MessageStatusFailed).Scan(&n)
-	if n != 1 {
-		t.Fatalf("failed document persisted %d dead-lettered bot rows, want 1", n)
-	}
-	// The sweep must never see it.
-	rows, err := db.PendingOutbound(time.Now().Add(time.Hour), 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(rows) != 0 {
-		t.Fatalf("dead-lettered document row is still in the retry feed: %+v", rows)
-	}
-}
-
 // TestSubmitTurnResultDelivered: a submit_turn carrying a prose result for a
 // turn that called no reply/send tool delivers that result as the reply — the
 // agent's "text outside <think> is delivered" contract. Regression: the split
@@ -1270,10 +1111,11 @@ func TestSubmitTurnResultDelivered(t *testing.T) {
 	dl := &recDeliverer{}
 	srv := NewServer(db, nil, dl, nil, 0, "")
 	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
-	h := srv.Handler()
 
-	doJSON(t, h, "POST", "/v1/turns/t1/result", "",
-		apiv1.TurnResult{TurnID: "t1", SessionID: "sX", Status: "success", Result: "the answer"})
+	if _, err := srv.recordTurnResult("t1",
+		apiv1.TurnResult{TurnID: "t1", SessionID: "sX", Status: "success", Result: "the answer"}); err != nil {
+		t.Fatal(err)
+	}
 
 	if len(dl.sends) != 1 || dl.sends[0].text != "the answer" {
 		t.Fatalf("submit_turn result not delivered: sends=%+v", dl.sends)
@@ -1294,12 +1136,12 @@ func TestSubmitTurnResultSkippedWhenAlreadyReplied(t *testing.T) {
 	dl := &recDeliverer{}
 	srv := NewServer(db, nil, dl, nil, 0, "")
 	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
-	h := srv.Handler()
 
-	doJSONKey(t, h, "POST", "/v1/turns/t1/reply", "k1",
-		apiv1.ReplyRequest{JID: "slack:T/C/U", Text: "explicit reply"})
-	doJSON(t, h, "POST", "/v1/turns/t1/result", "",
-		apiv1.TurnResult{TurnID: "t1", Status: "success", Result: "would-be duplicate"})
+	srv.appendAndDeliver("t1", "slack:T/C/U", "explicit reply")
+	if _, err := srv.recordTurnResult("t1",
+		apiv1.TurnResult{TurnID: "t1", Status: "success", Result: "would-be duplicate"}); err != nil {
+		t.Fatal(err)
+	}
 
 	if len(dl.sends) != 1 {
 		t.Fatalf("double-send: want 1 send, got %d (%+v)", len(dl.sends), dl.sends)
@@ -1318,10 +1160,11 @@ func TestSubmitTurnResultSilentForIsolated(t *testing.T) {
 	dl := &recDeliverer{}
 	srv := NewServer(db, nil, dl, nil, 0, "")
 	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "timed-isolated:compact-memories", "")
-	h := srv.Handler()
 
-	doJSON(t, h, "POST", "/v1/turns/t1/result", "",
-		apiv1.TurnResult{TurnID: "t1", Status: "success", Result: "Silent cron compaction complete — wrote ~/episodes/x.md"})
+	if _, err := srv.recordTurnResult("t1",
+		apiv1.TurnResult{TurnID: "t1", Status: "success", Result: "Silent cron compaction complete — wrote ~/episodes/x.md"}); err != nil {
+		t.Fatal(err)
+	}
 
 	if len(dl.sends) != 0 {
 		t.Fatalf("isolated cron leaked to chat: sends=%+v", dl.sends)
@@ -1330,8 +1173,8 @@ func TestSubmitTurnResultSilentForIsolated(t *testing.T) {
 
 // TestSubmitTurnResultPureThinkDropsSilently: a result that is only a <think>
 // block strips to empty in appendAndDeliver (clean=="") → no reply sent, no bot
-// row persisted, and the turn still completes successfully (200). Guards the
-// silent-drop path: a pure-reasoning turn must not 500 or leave a blank bot row.
+// row persisted, and the turn still completes successfully. Guards the
+// silent-drop path: a pure-reasoning turn must not error or leave a blank bot row.
 func TestSubmitTurnResultPureThinkDropsSilently(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -1341,13 +1184,10 @@ func TestSubmitTurnResultPureThinkDropsSilently(t *testing.T) {
 	dl := &recDeliverer{}
 	srv := NewServer(db, nil, dl, nil, 0, "")
 	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
-	h := srv.Handler()
 
-	rec := doJSON(t, h, "POST", "/v1/turns/t1/result", "",
-		apiv1.TurnResult{TurnID: "t1", SessionID: "sX", Status: "success",
-			Result: "<think>just reasoning, nothing to say</think>"})
-	if rec.Code != 200 {
-		t.Fatalf("pure-think result status=%d body=%s", rec.Code, rec.Body.String())
+	if _, err := srv.recordTurnResult("t1", apiv1.TurnResult{TurnID: "t1", SessionID: "sX", Status: "success",
+		Result: "<think>just reasoning, nothing to say</think>"}); err != nil {
+		t.Fatalf("pure-think result: %v", err)
 	}
 	if len(dl.sends) != 0 {
 		t.Fatalf("pure-think delivered a message: sends=%+v", dl.sends)

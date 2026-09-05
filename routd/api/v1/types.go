@@ -1,10 +1,7 @@
-// Package v1 is routd's published contract: the wire types + a thin HTTP
-// client for the /v1/turns/{turn_id}/* callback surface and the ingress
-// /v1/messages endpoint. Imports only types/ (spec 5/E § api/v1 surface)
-// so runed can call back without dragging in core.
-//
-// The /v1/turns/{turn_id}/* bodies are PINNED, identical to the rendering
-// in specs/5/E-routd.md § Turn / conversation commands.
+// Package v1 is routd's published contract: the wire types of the ingress
+// /v1/messages endpoint, the daemon-facing /v1/outbound, the route/token CRUD
+// and the turn result submit_turn carries. Imports only types/ (spec 5/E §
+// api/v1 surface) so a caller never drags in core.
 package v1
 
 // Message is the inbound body of POST /v1/messages (adapter → routd).
@@ -48,126 +45,14 @@ type MessageAck struct {
 	ID string `json:"id"`
 }
 
-// ReplyRequest is POST /v1/turns/{turn_id}/reply and /send (send ignores
-// ReplyToID).
-type ReplyRequest struct {
-	JID       string `json:"jid"`
-	Text      string `json:"text"`
-	ReplyToID string `json:"reply_to_id"`
-}
-
-// DocumentRequest is POST /v1/turns/{turn_id}/document. The file at Path
-// lives on the shared group volume both routd and the adapter mount.
-type DocumentRequest struct {
-	JID       string `json:"jid"`
-	Path      string `json:"path"`
-	Name      string `json:"name"`
-	Caption   string `json:"caption"`
-	ReplyToID string `json:"reply_to_id"`
-}
-
-// PostRequest is POST /v1/turns/{turn_id}/post — author a fresh top-level
-// post (feed/social channels). MediaPaths live on the shared group volume.
-type PostRequest struct {
-	JID        string   `json:"jid"`
-	Content    string   `json:"content"`
-	MediaPaths []string `json:"media_paths"`
-}
-
-// ForwardRequest is POST /v1/turns/{turn_id}/forward — relay SourceMsgID to
-// TargetJID with an optional leading comment.
-type ForwardRequest struct {
-	SourceMsgID string `json:"source_msg_id"`
-	TargetJID   string `json:"target_jid"`
-	Comment     string `json:"comment"`
-}
-
-// QuoteRequest is POST /v1/turns/{turn_id}/quote — quote SourceMsgID in JID
-// with a comment.
-type QuoteRequest struct {
-	JID         string `json:"jid"`
-	SourceMsgID string `json:"source_msg_id"`
-	Comment     string `json:"comment"`
-}
-
-// RepostRequest is POST /v1/turns/{turn_id}/repost — amplify SourceMsgID into
-// JID (no comment).
-type RepostRequest struct {
-	JID         string `json:"jid"`
-	SourceMsgID string `json:"source_msg_id"`
-}
-
-// VoiceRequest is POST /v1/turns/{turn_id}/send_voice — synthesize Text to a
-// voice note (Voice picks the TTS voice; empty = default) and deliver it.
-type VoiceRequest struct {
-	JID      string `json:"jid"`
-	Text     string `json:"text"`
-	Voice    string `json:"voice"`
-	ThreadID string `json:"thread_id"`
-}
-
-// SendResult is the response of reply/send (carries platform_id) and
-// document (no platform_id until delivered).
-type SendResult struct {
-	MessageID  string `json:"message_id"`
-	PlatformID string `json:"platform_id"`
-	Status     string `json:"status"` // sent|pending
-}
-
-// ReactionRequest is POST /v1/turns/{turn_id}/like.
-type ReactionRequest struct {
-	JID        string `json:"jid"`
-	PlatformID string `json:"platform_id"`
-	Reaction   string `json:"reaction"`
-}
-
-// EditRequest is POST /v1/turns/{turn_id}/edit.
-type EditRequest struct {
-	JID        string `json:"jid"`
-	PlatformID string `json:"platform_id"`
-	Content    string `json:"content"`
-}
-
-// TargetRequest is POST /v1/turns/{turn_id}/{delete,pin,unpin}. all is
-// honored only by /unpin.
-type TargetRequest struct {
-	JID        string `json:"jid"`
-	PlatformID string `json:"platform_id"`
-	All        bool   `json:"all"`
-}
-
-// OK is the {ok:true} response of like/edit/delete/pin/unpin.
+// OK is the {ok:true} response of a write that returns nothing else.
 type OK struct {
 	OK bool `json:"ok"`
 }
 
-// HistoryMessage is one row of GET /v1/turns/{turn_id}/history / thread.
-type HistoryMessage struct {
-	ID         string `json:"id"`
-	Sender     string `json:"sender"`
-	Content    string `json:"content"`
-	Timestamp  string `json:"timestamp"`
-	ReplyToID  string `json:"reply_to_id"`
-	IsFromMe   bool   `json:"is_from_me"`
-	IsBotMsg   bool   `json:"is_bot_message"`
-	PlatformID string `json:"platform_id"`
-}
-
-// HistoryResponse is GET /v1/turns/{turn_id}/history.
-type HistoryResponse struct {
-	Source   string           `json:"source"` // cache|platform|cache-only
-	Messages []HistoryMessage `json:"messages"`
-	Cap      int              `json:"cap"`
-}
-
-// ThreadResponse is GET /v1/turns/{turn_id}/thread.
-type ThreadResponse struct {
-	Messages []HistoryMessage `json:"messages"`
-}
-
-// TurnResult is submit_turn / POST /v1/turns/{turn_id}/result. The cost
-// breakdown is reported by runed; routd persists it into cost_log (runed
-// never writes cost).
+// TurnResult is the submit_turn payload. The cost breakdown is reported by
+// the agent runtime; routd persists it into cost_log (runed never writes
+// cost).
 type TurnResult struct {
 	TurnID    string               `json:"turn_id"`
 	SessionID string               `json:"session_id"`
@@ -188,14 +73,8 @@ type ModelCost struct {
 	CostCents int `json:"cost_cents"`
 }
 
-// TurnResultAck is the response of /v1/turns/{turn_id}/result; recorded
-// false = duplicate (folder,turn_id), ignored.
-type TurnResultAck struct {
-	Recorded bool `json:"recorded"`
-}
-
 // OutboundRequest is POST /v1/outbound (timed/onbod → routd → adapter).
-// Does NOT append a messages row.
+// routd appends the messages row it delivers.
 type OutboundRequest struct {
 	JID     string `json:"jid"`
 	Text    string `json:"text"`

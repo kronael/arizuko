@@ -64,7 +64,6 @@ func bootMediaFed(t *testing.T, enabled bool, whisperURL string, maxBytes int64)
 	t.Helper()
 	f := &mediaFed{batches: map[string]string{}}
 	f.authd = newFakeAuthd(t)
-	f.authd.grant("user:agent", "messages:send:own_group", "chats:read:own_group")
 	f.groupsDir = t.TempDir()
 
 	rudb, err := runed.OpenMem()
@@ -428,44 +427,19 @@ func outboundDeliverer(t *testing.T, a *outAdapter, caps map[string]bool) routd.
 	return d
 }
 
-// bootOutbound boots a routd Server whose Deliverer routes telegram: jids to the
-// stub adapter, and seeds an open turn context so the turn-callback handlers run.
-func bootOutbound(t *testing.T, a *outAdapter, caps map[string]bool, tts ...routd.Deliverer) (*httptest.Server, *fakeAuthd) {
-	t.Helper()
-	authd := newFakeAuthd(t)
-	authd.grant("user:agent", "messages:send:own_group")
-	rodb, err := routd.OpenMem()
-	if err != nil {
-		t.Fatalf("routd.OpenMem: %v", err)
-	}
-	t.Cleanup(func() { rodb.Close() })
-	loop := routd.NewLoop(rodb, nil, routd.LoopConfig{InstanceName: "out"})
-	srv := routd.NewServer(rodb, loop, outboundDeliverer(t, a, caps), newFedVerifier(t, authd), 0, "https://out.test")
-	loop.BindServer(srv)
-	ts := httptest.NewServer(srv.Handler())
-	t.Cleanup(ts.Close)
-	if _, err := rodb.PutTurnContext("turn-out", "demo", "", "telegram:user/9", "u1", ""); err != nil {
-		t.Fatalf("put turn context: %v", err)
-	}
-	return ts, authd
-}
-
-// TestOutboundDocument_AdapterReceivesMultipart: POST /v1/turns/{id}/document
+// TestOutboundDocument_AdapterReceivesMultipart: the Deliverer's Document
 // (what send_file forwards to) → the stub adapter receives the file with the
 // right filename, caption, jid, and bytes.
 func TestOutboundDocument_AdapterReceivesMultipart(t *testing.T) {
 	a := newOutAdapter(t)
-	ts, authd := bootOutbound(t, a, map[string]bool{"send_text": true, "send_file": true})
+	dl := outboundDeliverer(t, a, map[string]bool{"send_text": true, "send_file": true})
 
 	tmp := filepath.Join(t.TempDir(), "report.md")
 	if err := os.WriteFile(tmp, []byte("# report body"), 0o644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
-	req := routdv1.DocumentRequest{JID: "telegram:user/9", Path: tmp, Name: "report.md", Caption: "here you go"}
-	rec := postBearer(t, ts.URL, "POST", "/v1/turns/turn-out/document",
-		authd.mintUser(t, "user:agent", "demo"), "doc-idem-1", req)
-	if rec.StatusCode != 200 {
-		t.Fatalf("document status=%d, want 200", rec.StatusCode)
+	if _, err := dl.Document("telegram:user/9", tmp, "report.md", "here you go", "", "", "doc-idem-1"); err != nil {
+		t.Fatalf("document: %v", err)
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -480,63 +454,20 @@ func TestOutboundDocument_AdapterReceivesMultipart(t *testing.T) {
 	}
 }
 
-// TestOutboundSendVoice_TTSDisabled: POST /send_voice with TTS off →
-// Unsupported (the handler relays the tts.go refusal); the adapter is never
-// touched.
-func TestOutboundSendVoice_TTSDisabled(t *testing.T) {
+// TestOutboundSendVoice_AdapterReceivesMultipart: the Deliverer's SendVoice
+// (what send_voice forwards to once routd has synthesized the audio — the
+// synthesis half is routd/voice_test.go) → the audio reaches the adapter's
+// /send-voice as multipart.
+func TestOutboundSendVoice_AdapterReceivesMultipart(t *testing.T) {
 	a := newOutAdapter(t)
-	ts, authd := bootOutbound(t, a, map[string]bool{"send_text": true, "send_voice": true})
+	dl := outboundDeliverer(t, a, map[string]bool{"send_text": true, "send_voice": true})
 
-	req := routdv1.VoiceRequest{JID: "telegram:user/9", Text: "say this aloud"}
-	rec := postBearer(t, ts.URL, "POST", "/v1/turns/turn-out/send_voice",
-		authd.mintUser(t, "user:agent", "demo"), "", req)
-	// The send_voice handler relays a non-2xx for an unsupported feature.
-	if rec.StatusCode == 200 {
-		t.Fatalf("send_voice with TTS disabled returned 200, want a refusal")
+	tmp := filepath.Join(t.TempDir(), "note.ogg")
+	if err := os.WriteFile(tmp, []byte("OggS synthesized opus"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
 	}
-	if a.voiceHits != 0 {
-		t.Errorf("adapter /send-voice must not be hit when TTS is off, hits=%d", a.voiceHits)
-	}
-}
-
-// TestOutboundSendVoice_TTSStubSynthesizes: POST /send_voice with a stub TTS →
-// the synthesized audio reaches the adapter's /send-voice as multipart.
-func TestOutboundSendVoice_TTSStubSynthesizes(t *testing.T) {
-	a := newOutAdapter(t)
-	var ttsHits int
-	tts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		ttsHits++
-		w.Write([]byte("OggS synthesized opus"))
-	}))
-	t.Cleanup(tts.Close)
-
-	authd := newFakeAuthd(t)
-	authd.grant("user:agent", "messages:send:own_group")
-	rodb, err := routd.OpenMem()
-	if err != nil {
-		t.Fatalf("routd.OpenMem: %v", err)
-	}
-	t.Cleanup(func() { rodb.Close() })
-	loop := routd.NewLoop(rodb, nil, routd.LoopConfig{InstanceName: "out"})
-	srv := routd.NewServer(rodb, loop,
-		outboundDeliverer(t, a, map[string]bool{"send_text": true, "send_voice": true}),
-		newFedVerifier(t, authd), 0, "https://out.test")
-	srv.SetTTS(routd.TTSConfig(true, tts.URL, "af_bella", "kokoro", 10*time.Second, t.TempDir()))
-	loop.BindServer(srv)
-	ts := httptest.NewServer(srv.Handler())
-	t.Cleanup(ts.Close)
-	if _, err := rodb.PutTurnContext("turn-out", "demo", "", "telegram:user/9", "u1", ""); err != nil {
-		t.Fatalf("put turn context: %v", err)
-	}
-
-	req := routdv1.VoiceRequest{JID: "telegram:user/9", Text: "say this aloud"}
-	rec := postBearer(t, ts.URL, "POST", "/v1/turns/turn-out/send_voice",
-		authd.mintUser(t, "user:agent", "demo"), "", req)
-	if rec.StatusCode != 200 {
-		t.Fatalf("send_voice with TTS enabled status=%d, want 200", rec.StatusCode)
-	}
-	if ttsHits == 0 {
-		t.Fatal("TTS service was never called")
+	if _, err := dl.SendVoice("telegram:user/9", tmp, "", ""); err != nil {
+		t.Fatalf("send voice: %v", err)
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -544,7 +475,7 @@ func TestOutboundSendVoice_TTSStubSynthesizes(t *testing.T) {
 		t.Fatalf("adapter /send-voice hits = %d, want 1", a.voiceHits)
 	}
 	if string(a.last.body) != "OggS synthesized opus" {
-		t.Errorf("adapter got voice body %q, want the synthesized audio", a.last.body)
+		t.Errorf("adapter got voice body %q, want the audio bytes", a.last.body)
 	}
 }
 

@@ -20,9 +20,8 @@ Spec: `specs/5/E`.
 - Run the orchestration loop: claim a turn, dispatch to runed, track results.
 - Host the in-process per-turn MCP socket: resolve the folder's container
   capabilities from `acl`, wire `ipc.ServeMCP` to routd's DB + Deliverer,
-  and forward the agent's conversation tools (`reply`/`send`/`like`/…)
-  back through `/v1/turns/{turn_id}/*`. routd injects the agent authz
-  gate here — `db.AuthorizeTurn(sender, turn-folder, target, "mcp:"+tool, params)` — and gates
+  and serve the agent's conversation tools (`reply`/`send`/`like`/…)
+  in-process. routd injects the agent authz gate here — `db.AuthorizeTurn(sender, turn-folder, target, "mcp:"+tool, params)` — and gates
   tool visibility via `auth.EffectiveActions`; resreg-served cold-tier
   resources reuse that injected gate instead of their default operator
   gate.
@@ -34,8 +33,7 @@ Spec: `specs/5/E`.
   ant `TodoWrite` hook and `<status>` blocks, and stamps `verb="status"`
   so `TurnHasBotReply` excludes it — a status must never count as the
   agent's reply. Only `chanlib.ErrUnsupported` (email/WhatsApp/Reddit)
-  falls back to a fresh send; a real edit failure surfaces. MCP-only,
-  no REST twin (spec 5/24).
+  falls back to a fresh send; a real edit failure surfaces (spec 5/24).
 - Channel egress via the `chanreg` Deliverer (adapters register their
   egress URL + owned JID prefixes).
 
@@ -134,7 +132,6 @@ Endpoints (`server.go`, `channels.go`):
   the two dead-letter causes apart — 0 = the platform refused it, the cap =
   retries ran out. Agent twins `list_dead_letters` / `replay_dead_letter`.
 - `POST /v1/cost` — cost log write
-- `POST /v1/turns/{turn_id}/{reply,send,document,history,like,edit,delete,pin,unpin,post,forward,quote,repost,send_voice,result}` — agent tool forwards
 - `GET /openapi.json` — OpenAPI 3.1 doc (public, pre-auth)
 - `GET /health` — healthcheck (public)
 
@@ -231,7 +228,7 @@ optional observability webhook — not the source of truth.
 - `channels.go` — adapter register/deregister + channel health loop
 - `loop.go` — orchestration loop (poll/claim/dispatch)
 - `dispatch.go` — turn dispatch to runed + enrichment + budget gate
-- `turns.go` — turn callbacks (`/v1/turns/{turn_id}/*`) + agent tool forwards
+- `turns.go` — the turn's outbound: prose-result + status delivery, `submit_turn` recording
 - `deliver.go` — channel Deliverer (egress fanout via chanreg)
 - `mcp.go` — in-process per-turn MCP socket (`ServeTurnMCP`, `buildGatedFns`)
 - `prompt.go`, `prompt_db.go` — prompt envelope build (observe window, persona)

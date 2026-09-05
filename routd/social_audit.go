@@ -8,14 +8,12 @@ import (
 )
 
 // The audit trail for message actions (spec 5/Z): like, dislike, edit, delete,
-// pin, unpin. They reach the platform over two faces — the agent's MCP socket
-// (routd/mcp.go buildGatedFns) and its REST twin (routd/turns.go) — and both
-// call auditSocial, so the faces cannot drift into recording different things.
+// pin, unpin. They reach the platform over the agent's MCP socket
+// (routd/mcp.go buildGatedFns), and every one of them calls auditSocial.
 
 // socialTool runs one Deliverer social verb on the agent socket and records it.
-// The verb and its audit row are one step here for the same reason they are in
-// mutate/target: a new social tool cannot reach the Deliverer without going
-// through a call that writes the row.
+// The verb and its audit row are one step: a new social tool cannot reach the
+// Deliverer without going through a call that writes the row.
 func (s *Server) socialTool(t turnMCP, action, jid, targetID string, params map[string]any, call func() error) error {
 	err := call()
 	s.auditSocial(action, t.folder, t.turnID, jid, targetID, audit.SurfaceMCP, params, err)

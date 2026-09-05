@@ -518,12 +518,9 @@ func TestDelegatedReplyReturnsToOrigin(t *testing.T) {
 	// a delegated turn: the run addresses the child folder JID; return_to is the origin.
 	db.PutTurnContext("t-deleg", "root/eng", "", "root/eng", "delegate", "slack:T/C/ORIGIN")
 
-	status, _, row := srv.appendAndDeliver("t-deleg", "root/eng", "done", "", true)
-	if status != 200 || row == nil {
-		t.Fatalf("appendAndDeliver status=%d row=%v", status, row)
-	}
-	if row.ChatJID != "slack:T/C/ORIGIN" {
-		t.Fatalf("bot row chat_jid=%q want slack:T/C/ORIGIN (return path)", row.ChatJID)
+	srv.appendAndDeliver("t-deleg", "root/eng", "done")
+	if countBots(t, db, "slack:T/C/ORIGIN") != 1 {
+		t.Fatal("bot row not stored under slack:T/C/ORIGIN (return path)")
 	}
 	if len(dl.sends) != 1 || dl.sends[0].jid != "slack:T/C/ORIGIN" {
 		t.Fatalf("delivered to %+v want origin slack:T/C/ORIGIN", dl.sends)
@@ -547,9 +544,7 @@ func TestDelegatedReplyEngagesDispatchChat(t *testing.T) {
 	// dispatch chat = web:root/eng; the run returns to a different origin JID.
 	db.PutTurnContext("t-deleg", "root/eng", "", "web:root/eng", "delegate", "slack:T/C/ORIGIN")
 
-	if status, _, _ := srv.appendAndDeliver("t-deleg", "root/eng", "done", "", true); status != 200 {
-		t.Fatalf("appendAndDeliver status=%d", status)
-	}
+	srv.appendAndDeliver("t-deleg", "root/eng", "done")
 	// engagement is claimed on the DISPATCH chat, not the origin.
 	if f, ok := db.Engaged("web:root/eng", ""); !ok || f != "root/eng" {
 		t.Fatalf("dispatch chat engaged=%q,%v want root/eng,true", f, ok)

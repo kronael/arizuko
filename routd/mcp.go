@@ -306,8 +306,7 @@ func (s *Server) mcpSendVoice(turnID, jid, text, voice, folder, threadID string)
 // tokens_http.go, where only the REST-only resolve stays hand-rolled.
 
 // mcpSubmitTurn maps the ipc.TurnResult agent payload onto routd's apiv1
-// shape and records it through the shared recordTurnResult writer (the same
-// path the REST /result twin uses).
+// shape and records it through recordTurnResult (turns.go).
 func (s *Server) mcpSubmitTurn(_ string, t ipc.TurnResult) error {
 	req := apiv1.TurnResult{
 		TurnID: t.TurnID, SessionID: t.SessionID, Status: t.Status,

@@ -231,12 +231,15 @@ describe('POST /post', () => {
   });
 });
 
-describe('POST /reply', () => {
+// routd carries the agent's reply as /send with reply_to (chanreg trySend);
+// there is no separate reply route on the wire.
+describe('POST /send with reply_to', () => {
   it('calls sendTweet with replyTo id', async () => {
     stub = makeStub();
-    const r = await fetch(`${BASE}/reply`, {
+    const r = await fetch(`${BASE}/send`, {
       method: 'POST',
       body: JSON.stringify({
+        chat_jid: 'twitter:user/alice',
         reply_to: 'twitter:tweet/1234',
         content: 'reply',
       }),
@@ -251,9 +254,13 @@ describe('POST /reply', () => {
 
   it('accepts bare numeric id', async () => {
     stub = makeStub();
-    const r = await fetch(`${BASE}/reply`, {
+    const r = await fetch(`${BASE}/send`, {
       method: 'POST',
-      body: JSON.stringify({ reply_to: '5678', content: 'r' }),
+      body: JSON.stringify({
+        chat_jid: 'twitter:user/alice',
+        reply_to: '5678',
+        content: 'r',
+      }),
       headers: { 'Content-Type': 'application/json', ...auth() },
     });
     expect(r.status).toBe(200);

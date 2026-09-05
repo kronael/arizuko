@@ -2,7 +2,6 @@ package routd
 
 import (
 	"log/slog"
-	"time"
 
 	"github.com/kronael/arizuko/store"
 )
@@ -86,37 +85,6 @@ func (d *DB) WebRoutes(folder string) ([]WebRouteRow, error) {
 		out = append(out, r)
 	}
 	return out, rows.Err()
-}
-
-// IdemRecord is a stored idempotent response.
-type IdemRecord struct {
-	RequestHash string
-	Status      int
-	Response    string
-}
-
-// IdemClaim attempts to claim (endpoint, key) with reqHash. Returns
-// (claimed=true, _) when this caller won the insert (it must then execute
-// and AppendAndFinish to atomically persist the row + ledger response). When
-// lost, returns (false, prior) with the stored record; the caller replays
-// prior.Response if reqHash matches, else 409.
-func (d *DB) IdemClaim(endpoint, key, reqHash string) (bool, IdemRecord, error) {
-	created := time.Now().UTC()
-	expires := created.Add(24 * time.Hour)
-	res, err := d.db.Exec(`INSERT OR IGNORE INTO idempotency_keys
-		(endpoint, key, request_hash, status, response, created_at, expires_at)
-		VALUES(?,?,?,0,'',?,?)`,
-		endpoint, key, reqHash, created.Format(time.RFC3339Nano), expires.Format(time.RFC3339Nano))
-	if err != nil {
-		return false, IdemRecord{}, err
-	}
-	if n, _ := res.RowsAffected(); n == 1 {
-		return true, IdemRecord{}, nil
-	}
-	var rec IdemRecord
-	err = d.db.QueryRow("SELECT request_hash, status, response FROM idempotency_keys WHERE endpoint=? AND key=?",
-		endpoint, key).Scan(&rec.RequestHash, &rec.Status, &rec.Response)
-	return false, rec, err
 }
 
 // SweepIdempotency drops ledger rows past expires_at (hourly GC).

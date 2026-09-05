@@ -151,6 +151,85 @@ in the test (or wait for it) before the cleanup restores the endpoints.
 - **Status:** open
 - **Fix:**
 
+## L170 — `routd.DB` and `store.Store` declare 66 method names twice with different SQL; routd's `AllGroups` hands its own callers `Open=false` and no observe window (2026-09-05, open)
+
+Measured at `c0594f32` with a receiver-normalised diff of every method name
+both types declare: 69 shared, 3 textually identical (`Close`,
+`JIDRoutedToFolder`, `TopicLineage`), 66 different. Two differences change
+behaviour. routd's `PutGroup` (`routd/db.go:115`) merges `config.$.model` with
+`json_set` and writes no audit row; `store.PutGroup` (`store/groups.go:21`)
+replaces `container_config` and audits `group.upsert`. routd's `AllGroups`
+(`routd/db.go:170`) reads four columns, so every routd caller —
+`groups_resource.go:60` (the agent's `groups` list), `dispatch.go:343` (the
+`available_groups` snapshot the container reads), `steer.go:163`,
+`loop.go:517`, `dash.go:57` — sees `Open=false` and a zero observe window
+where `store.AllGroups` (`store/groups.go:148`) reads both. `store.New(d.db)`
+also carries neither routd's secret keyring nor its audit actor, so forwarding
+the secret and audited writers changes what they seal and who they record.
+Spec 6/36 S3 ("`routd.DB` forwards every shared name to `store`") is not a
+mechanical change: each of the 66 is a decision on which body survives.
+
+- **Severity:** medium (two writers with different semantics over one file; the agent's groups snapshot lacks `open`)
+- **Scope:** routd data layer vs `store`
+- **Affected:** routd; dashd, webd, proxyd and the CLI as the `store` side
+- **Source:** `routd/db.go:115,170`; `store/groups.go:21,148`
+- **Status:** open — refused as a cut 2026-09-05; needs a per-method decision, not a forward
+- **Fix:**
+
+## L171 — proposal: one TypeScript channel module for whapd and twitd (2026-09-05, proposal — needs sign-off)
+
+Measured at `c0594f32`: `auth.ts` (126 lines) and `log.ts` (10) are
+byte-identical between the two adapters; `dash.ts` differs in 51 of 154
+lines, `client.ts` in 40 of 74; `server.ts` differs in 505 lines of 386-513 —
+platform code, not a copy. The shared surface is ~300 lines, not the 1,236
+spec 6/36 §2 counts. Removing it means a package both Dockerfiles build, a
+tsconfig path in each adapter, and one owner for the routd-facing ES256
+verifier in TypeScript — a new package boundary, so a redesign. 6/36 open
+question 6 (share a TypeScript chanlib, or move twitd to Go) decides it.
+
+- **Severity:** low
+- **Scope:** whapd, twitd
+- **Affected:** whapd, twitd, the `Makefile` image targets
+- **Source:** `whapd/src/{auth,log,dash,client}.ts` against `twitd/src/`
+- **Status:** proposed
+- **Fix:**
+
+## L172 — `InboundAttachment.Size` is set by three adapters, dropped on the wire, and read by nobody (2026-09-05, open)
+
+`chanlib.InboundAttachment.Size` (`chanlib/chanlib.go:39`) is filled by slakd
+(`bot.go:840`), discd (`bot.go:161`) and teled (`bot.go:845`). routd decodes
+the POST into `apiv1.Attachment` (`routd/api/v1/types.go:38`), which has no
+`Size`, so the stored `attachments` column never carries one. No reader in
+routd, ipc, container, router, core, chanlib or webd uses the field. The cut
+is to delete the field and its three setters — not to add it to the wire
+type, which nobody would read either. Deferred 2026-09-05 because slakd and
+teled were in another edit set that day. Spec 6/36 S9 (one wire type)
+subsumes it.
+
+- **Severity:** low
+- **Scope:** chanlib inbound wire type
+- **Affected:** slakd, discd, teled
+- **Source:** `chanlib/chanlib.go:39`; `routd/api/v1/types.go:38`
+- **Status:** open
+- **Fix:**
+
+## L173 — `idempotency_keys` has no writer; the hourly sweep, its test and the table outlive the ledger (2026-09-05, open)
+
+The REST turn face was the ledger's only writer; with it gone (`fa00076d`)
+`SweepIdempotency` (`routd/tokens.go`) deletes from an always-empty table
+every hour, `TestSweepIdempotencyDropsExpired` seeds it by raw SQL, and
+`routd/migrations/0001-initial-schema.sql` still creates it. The cut is a
+migration dropping the table, the `SweepIdempotency` call in
+`routd/loop.go:498` and the test. Deferred 2026-09-05 because `loop.go` was
+in another edit set that day.
+
+- **Severity:** low
+- **Scope:** routd schema
+- **Affected:** routd
+- **Source:** `routd/tokens.go` `SweepIdempotency`; `routd/loop.go:498`
+- **Status:** open
+- **Fix:**
+
 ## L164 — anteval's cost column is empty for 6 of 9 passing cases and `fresh-context` stalls 3 min on a turn that never ran (2026-09-05, open)
 
 Smoke on krons 2026-09-05 07:46-07:55, 9/9 pass. routd recorded 24 `cost_log`

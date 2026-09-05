@@ -15,11 +15,6 @@ interface PostReq {
   content: string;
 }
 
-interface ReplyReq {
-  reply_to: string;
-  content: string;
-}
-
 interface KeyedReq {
   chat_jid?: string;
   target_id: string;
@@ -156,14 +151,6 @@ export function startServer(
         const s = requireScraper(res, scraper, isConnected);
         if (!s) return;
         await act(res, () => v.post(s, body.content));
-        return;
-      }
-
-      case '/reply': {
-        const body = await readBody<ReplyReq>(req);
-        const s = requireScraper(res, scraper, isConnected);
-        if (!s) return;
-        await act(res, () => v.reply(s, body.reply_to, body.content));
         return;
       }
 
