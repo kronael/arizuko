@@ -1,5 +1,5 @@
 ---
-status: draft
+status: shipped
 ---
 
 # mcpfw — transparent MCP tool-call filter
