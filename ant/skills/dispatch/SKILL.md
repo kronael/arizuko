@@ -2,7 +2,7 @@
 name: dispatch
 description: >
   Match current task to available skills and invoke matches. USE via
-  `/resolve` on every prompt; do not skip. NOT user-invocable directly.
+  `/solve` on every prompt; do not skip. NOT user-invocable directly.
 user-invocable: false
 ---
 

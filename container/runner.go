@@ -529,7 +529,7 @@ func prepareInput(cfg *core.Config, in Input, groupDir string) Input {
 	in.SystemMd = readOptional(filepath.Join(groupDir, "SYSTEM.md"))
 
 	in.Annotations = append(in.Annotations,
-		"[resolve] Invoke /resolve now \u2014 classify, recall, "+
+		"[solve] Invoke /solve now \u2014 classify, recall, "+
 			"match skills, then respond.")
 
 	if len(in.Annotations) > 0 {

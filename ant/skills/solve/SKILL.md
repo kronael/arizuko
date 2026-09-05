@@ -1,5 +1,5 @@
 ---
-name: resolve
+name: solve
 description: >
   Triage every incoming message — classify (new task vs continuation),
   recall context from diary/facts/users, match skills against the request,

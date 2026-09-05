@@ -883,7 +883,7 @@ func TestPrepareInputResolveNudge(t *testing.T) {
 	in := Input{Prompt: "hello world"}
 	out := prepareInput(cfg, in, d)
 
-	if !strings.Contains(out.Prompt, "[resolve]") {
+	if !strings.Contains(out.Prompt, "[solve]") {
 		t.Error("resolve nudge missing from prepared prompt")
 	}
 	if !strings.HasSuffix(out.Prompt, "hello world") {

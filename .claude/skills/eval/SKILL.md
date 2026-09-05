@@ -460,28 +460,28 @@ Fix: trigger `/migrate` in the affected group (each group self-migrates), or man
 
 ---
 
-### 20. Resolve wiring
+### 20. Solve wiring
 
 ```bash
 DB=/srv/data/arizuko_${INSTANCE}/store/routd/routd.db  # split: routd owns messages/chats/routes/scheduled_tasks/groups
-# Check that group CLAUDE.md has the resolve instruction (seeded from ant/CLAUDE.md)
+# Check that group CLAUDE.md has the solve instruction (seeded from ant/CLAUDE.md)
 for g in $(sudo sqlite3 $DB "SELECT folder FROM groups;  -- row existence = active; delete cascades the row (no state col)"); do
-  has=$(sudo grep -c "resolve" /srv/data/arizuko_${INSTANCE}/groups/$g/.claude/CLAUDE.md 2>/dev/null)
+  has=$(sudo grep -c "solve" /srv/data/arizuko_${INSTANCE}/groups/$g/.claude/CLAUDE.md 2>/dev/null)
   if [ "$has" -lt 1 ]; then
-    echo "$g: MISSING resolve instruction in CLAUDE.md"
+    echo "$g: MISSING solve instruction in CLAUDE.md"
   fi
 done
 echo "done"
 
-# Also verify runner injects [resolve] nudge into prompts (code check)
-grep -q '\[resolve\]' /home/onvos/app/arizuko/container/runner.go && \
-  echo "runner.go: [resolve] nudge present" || \
-  echo "runner.go: [resolve] nudge MISSING"
+# Also verify runner injects [solve] nudge into prompts (code check)
+grep -q '\[solve\]' /home/onvos/app/arizuko/container/runner.go && \
+  echo "runner.go: [solve] nudge present" || \
+  echo "runner.go: [solve] nudge MISSING"
 ```
 
-**Pass**: all groups have resolve in CLAUDE.md + runner.go injects nudge.
-**Fail**: CLAUDE.md missing resolve → `ant/CLAUDE.md` not seeded (seedGroupDir broken).
-Runner missing nudge → resolve never fires → no skill matching → agent runs blind.
+**Pass**: all groups have solve in CLAUDE.md + runner.go injects nudge.
+**Fail**: CLAUDE.md missing solve → `ant/CLAUDE.md` not seeded (seedGroupDir broken).
+Runner missing nudge → solve never fires → no skill matching → agent runs blind.
 
 ---
 
@@ -515,7 +515,7 @@ Checked: <what was checked>
 | skill seeding | pass/fail | ... |
 | dispatch discovery | pass/fail | ... |
 | skill consistency | pass/fail | ... |
-| resolve wiring | pass/fail | ... |
+| solve wiring | pass/fail | ... |
 
 **Summary**: <one line>
 ```
@@ -542,6 +542,6 @@ be judged by whether it drives the class to zero.
 | Errored messages on a chat | Container timed out with no output, or stack crashed mid-run | Clear with `DELETE FROM messages WHERE chat_jid = '...' AND errored = 1` then restart |
 | Migration version mismatch | New migration not applied to instance | Run migration manually or `arizuko run` to regenerate compose + restart |
 | routd "connecting channels: count=0" | Adapters not yet registered | Wait 10s; if still 0, restart adapters |
-| Agent ignores skills, responds generically | Resolve not firing: CLAUDE.md not seeded, or nudge missing from runner | Re-seed group via `SetupGroup`; verify `runner.go` has `[resolve]` annotation |
+| Agent ignores skills, responds generically | Solve not firing: CLAUDE.md not seeded, or nudge missing from runner | Re-seed group via `SetupGroup`; verify `runner.go` has `[solve]` annotation |
 | Skill exists but never matched by dispatch | Broken `description:` in SKILL.md frontmatter — awk can't parse it | Fix the YAML frontmatter: `description: >` followed by indented text on next line |
 | Every agent says `Not logged in · Please run /login` | Generated `env/runed.env` omitted the operator model credential | Regenerate compose and recreate `runed`; verify check 9a before retrying turns |
