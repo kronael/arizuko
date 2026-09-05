@@ -82,7 +82,7 @@ func callToolArray(t *testing.T, sock, name string, args map[string]any) ([]any,
 // the audit-free PutTaskRow: this is test seeding, not an act to record.
 func seedTask(t *testing.T, d *DB, id, owner, jid, prompt string) {
 	t.Helper()
-	if err := store.New(d.SQL()).PutTaskRow(core.Task{
+	if err := store.New(d.SQL()).CreateTask(core.Task{
 		ID: id, Owner: owner, ChatJID: jid, Prompt: prompt,
 		Cron: "0 9 * * *", Status: core.TaskActive, Created: time.Now(),
 	}); err != nil {

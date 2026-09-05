@@ -86,7 +86,7 @@ func TestDueTasks_ClaimsOnce(t *testing.T) {
 	defer s.Close()
 
 	past := time.Now().Add(-time.Hour)
-	if err := s.PutTaskRow(core.Task{
+	if err := s.CreateTask(core.Task{
 		ID: "t1", Owner: "alice", ChatJID: "alice", Prompt: "/ping",
 		NextRun: &past, Status: core.TaskActive, Created: time.Now(),
 	}); err != nil {
@@ -125,7 +125,7 @@ func TestRecoverFiringTasks(t *testing.T) {
 	defer s.Close()
 
 	past := time.Now().Add(-time.Hour)
-	if err := s.PutTaskRow(core.Task{
+	if err := s.CreateTask(core.Task{
 		ID: "stuck", Owner: "a", ChatJID: "a", Prompt: "/ping",
 		NextRun: &past, Status: core.TaskActive, Created: time.Now(),
 	}); err != nil {

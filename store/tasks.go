@@ -15,45 +15,12 @@ type TaskPatch struct {
 	NextRun *time.Time
 }
 
+// CreateTask inserts one scheduled task. It is the ONE insert store owns.
+// Audit belongs to the writer that a person or an agent actually reaches —
+// dashd's form and routd's `/v1` resource each emit their own row on their own
+// transaction — so this path emits none rather than a second, different record
+// of one act.
 func (s *Store) CreateTask(t core.Task) error {
-	var nextRun *string
-	if t.NextRun != nil {
-		v := t.NextRun.Format(time.RFC3339)
-		nextRun = &v
-	}
-	cm := t.ContextMode
-	if cm == "" {
-		cm = "group"
-	}
-	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		_, err := tx.Exec(
-			`INSERT INTO scheduled_tasks (`+taskCols+`)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			t.ID, t.Owner, t.ChatJID, t.Prompt, nilIfEmpty(t.Cron),
-			nextRun, t.Status, t.Created.Format(time.RFC3339), cm,
-		)
-		return audit.Event{
-			Category: audit.CategoryMutation,
-			Action:   "task.create",
-			Actor:    "system",
-			Surface:  audit.SurfaceGateway,
-			Resource: "scheduled_tasks/" + t.ID,
-			Folder:   t.Owner,
-			Outcome:  audit.OutcomeOK,
-			ParamsSummary: map[string]any{
-				"cron":         t.Cron,
-				"context_mode": cm,
-			},
-		}, err
-	})
-}
-
-const taskCols = `id, owner, chat_jid, prompt, cron, next_run, status, created_at, context_mode`
-
-// PutTaskRow inserts one scheduled task WITHOUT emitting an audit_log row — the
-// audit-free twin of CreateTask used by tests seeding routd.db directly. Same
-// INSERT as CreateTask; routd itself uses the audited CreateTask.
-func (s *Store) PutTaskRow(t core.Task) error {
 	var nextRun *string
 	if t.NextRun != nil {
 		v := t.NextRun.Format(time.RFC3339)
@@ -71,35 +38,14 @@ func (s *Store) PutTaskRow(t core.Task) error {
 	return err
 }
 
-// SetTaskStatus updates one task's status WITHOUT emitting an audit_log row —
-// the audit-free path behind the agent's pause_task/resume_task tools on
-// routd.db. Mirrors UpdateTask(id, TaskPatch{Status}).
+const taskCols = `id, owner, chat_jid, prompt, cron, next_run, status, created_at, context_mode`
+
+// SetTaskStatus updates one task's status. The agent's pause and resume reach
+// routd's `/v1` resource, not this; what this exists for is the status half of
+// the DueTasks contract — a paused task must leave the due set and a resumed
+// one must return to it — which is asserted against DueTasks, the live reader.
 func (s *Store) SetTaskStatus(id, status string) error {
 	_, err := s.db.Exec(`UPDATE scheduled_tasks SET status = ? WHERE id = ?`, status, id)
-	return err
-}
-
-// PatchTask applies a partial update: status and/or next_run. Both optional;
-// at least one must be non-empty. nextRun must be RFC3339 or empty.
-func (s *Store) PatchTask(id, status, nextRun string) error {
-	switch {
-	case status != "" && nextRun != "":
-		_, err := s.db.Exec(`UPDATE scheduled_tasks SET status=?, next_run=? WHERE id=?`, status, nextRun, id)
-		return err
-	case status != "":
-		return s.SetTaskStatus(id, status)
-	case nextRun != "":
-		_, err := s.db.Exec(`UPDATE scheduled_tasks SET next_run=? WHERE id=?`, nextRun, id)
-		return err
-	default:
-		return nil
-	}
-}
-
-// RemoveTask deletes one task WITHOUT emitting an audit_log row — the audit-free
-// twin of DeleteTask.
-func (s *Store) RemoveTask(id string) error {
-	_, err := s.db.Exec(`DELETE FROM scheduled_tasks WHERE id = ?`, id)
 	return err
 }
 

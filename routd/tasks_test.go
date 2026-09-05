@@ -29,7 +29,7 @@ func TestTasksDueEndpoint(t *testing.T) {
 
 	past := time.Now().Add(-time.Hour)
 	s := store.New(db.SQL())
-	if err := s.PutTaskRow(core.Task{
+	if err := s.CreateTask(core.Task{
 		ID: "due-1", Owner: "main", ChatJID: "web:main", Prompt: "ping",
 		Cron: "0 9 * * *", NextRun: &past, Status: core.TaskActive, Created: time.Now(),
 	}); err != nil {
@@ -37,7 +37,7 @@ func TestTasksDueEndpoint(t *testing.T) {
 	}
 	// A future task must NOT be returned.
 	future := time.Now().Add(time.Hour)
-	if err := s.PutTaskRow(core.Task{
+	if err := s.CreateTask(core.Task{
 		ID: "future-1", Owner: "main", ChatJID: "web:main", Prompt: "later",
 		NextRun: &future, Status: core.TaskActive, Created: time.Now(),
 	}); err != nil {
@@ -101,7 +101,7 @@ func TestTaskRescheduleRecurring(t *testing.T) {
 	// Seed a 'firing' task (the state after GET /v1/tasks/due claimed it).
 	s := store.New(db.SQL())
 	now := time.Now()
-	if err := s.PutTaskRow(core.Task{
+	if err := s.CreateTask(core.Task{
 		ID: "rs-1", Owner: "main", ChatJID: "web:main", Prompt: "tick",
 		Cron: "0 9 * * *", NextRun: &now, Status: "firing", Created: now,
 	}); err != nil {
@@ -129,7 +129,7 @@ func TestTaskRescheduleOneShot(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "service:timed", scope: []string{"tasks:write"}})
 	s := store.New(db.SQL())
 	now := time.Now()
-	if err := s.PutTaskRow(core.Task{
+	if err := s.CreateTask(core.Task{
 		ID: "rs-once", Owner: "main", ChatJID: "web:main", Prompt: "once",
 		NextRun: &now, Status: "firing", Created: now,
 	}); err != nil {
@@ -193,7 +193,7 @@ func TestTaskListEndpoint(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "service:dashd", scope: []string{"tasks:read"}})
 	seedTask(t, db, "tl-active", "main", "web:main", "live")
 	s := store.New(db.SQL())
-	if err := s.PutTaskRow(core.Task{
+	if err := s.CreateTask(core.Task{
 		ID: "tl-paused", Owner: "main", ChatJID: "web:main", Prompt: "off",
 		Status: core.TaskPaused, Created: time.Now(),
 	}); err != nil {
