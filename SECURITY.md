@@ -346,7 +346,7 @@ Caveats:
   `user(caller.Sub)` then `folder(caller.Folder)` at tool-call time, with
   audit rows in `secret_use_log`, so a secret is spent only on the call that
   needs it rather than for the whole spawn. The connector path
-  (`mcp_connector` TOML + a per-call HTTPS request whose Authorization header
+  (a `[[connector]]` TOML block + a per-call HTTPS request whose Authorization header
   the broker renders) is part of the same shape; the endpoint set is operator-
   written and immutable after boot, so the agent picks a tool, never a host.
   MCP's own OAuth 2.1 is reachable now that the transport is HTTP but is not

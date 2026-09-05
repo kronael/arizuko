@@ -416,7 +416,7 @@ by each. Reference: `specs/5/7-proxyd-standalone.md`,
 ## Adding an MCP connector
 
 **Connector scope (2026-07-27):** Connectors are **global and operator-defined**.
-All `[[mcp_connector]]` blocks register at the deployment level — there is no
+All `[[connector]]` blocks register at the deployment level — there is no
 per-group `MCP.json`. Groups get access to connectors via grant rows
 (`mcp:<connector>:*`), not by registering their own MCP endpoints. The
 `connectors.toml` loader is the current mechanism; migration to a
@@ -424,23 +424,28 @@ per-group `MCP.json`. Groups get access to connectors via grant rows
 in `specs/5/16`.
 
 Third-party MCP servers (GitHub's hosted server, linear-mcp, …) plug
-in via `<data_dir>/connectors.toml`. Each `[[mcp_connector]]` block
-declares one HTTPS endpoint (`url` + a `headers` map whose
-`{secret:KEY}` placeholders the broker renders per call); routd
-discovers its tools per folder with that folder's credential,
-namespaces them `<connector>_<remote_tool>`, and
-registers each through the broker chain. Per-call invocation
-resolves the declared secrets, renders the env template, spawns the
-subprocess, proxies `tools/call`, scrubs the result, tears the
-subprocess down. Spec `specs/5/13-ext-mcp.md` § "Connector declaration".
+in via `<data_dir>/connectors.toml`. Each `[[connector]]` block with
+`transport = "mcp"` declares one HTTPS endpoint (`url` + a `headers`
+map whose `{secret:KEY}` placeholders the broker renders per call);
+routd discovers its tools per folder with that folder's credential,
+namespaces them `<connector>_<remote_tool>`, and registers each
+through the broker chain. Per-call invocation resolves the declared
+secrets, renders the headers, proxies `tools/call`, and scrubs the
+result. The loader refuses any other table name or transport value,
+so a block under an old name fails routd's boot instead of configuring
+nothing. Specs `specs/5/13-ext-mcp.md` § "Connector declaration",
+`specs/6/19-unified-tool-declaration.md`; operator copies in
+`template/connectors/`.
 
 ```toml
-[[mcp_connector]]
-name         = "github"
-command      = ["github-mcp-server", "stdio"]
-secrets      = ["GITHUB_TOKEN"]
-env_template = { GITHUB_PERSONAL_ACCESS_TOKEN = "{secret:GITHUB_TOKEN}" }
-scope        = "per_call"
+[[connector]]
+name      = "github"
+transport = "mcp"
+url       = "https://api.githubcopilot.com/mcp/"
+secrets   = ["GITHUB_TOKEN"]
+
+[connector.headers]
+Authorization = "Bearer {secret:GITHUB_TOKEN}"
 ```
 
 - `secrets` lists the broker keys the connector needs; resolved at
@@ -543,7 +548,7 @@ act as them) rather than a static key, add a **surrogate OAuth provider** (spec
    `secret_key` and the broker refreshes it near expiry.
 
 The token then reads like any other secret — reference `secret_key` from an
-`[[ext]]` REST provider or an `[[mcp_connector]]` (above) to give agents tools
+`[[connector]]` block, `transport = "rest"` or `"mcp"` (above), to give agents tools
 backed by the user's OAuth grant. `github` and `google` ship as built-ins.
 
 ## Adding a slink-driven page

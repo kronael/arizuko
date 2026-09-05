@@ -86,22 +86,113 @@ func mustPkgName(name string) {
 	}
 }
 
-// packageTemplates returns the bundled catalog dir: the repo's
-// template/services when HOST_APP_DIR points at a checkout, else the copy
-// baked into arizuko:latest by the Dockerfile.
+// packageTemplates returns the bundled catalog dir this process can read.
 func packageTemplates(dataDir string) string {
-	cfg, err := core.LoadConfigFrom(dataDir)
-	if err == nil && cfg.HostAppDir != "" {
-		if dir := filepath.Join(cfg.HostAppDir, "template", "services"); dirExists(dir) {
-			return dir
-		}
+	hostAppDir := ""
+	if cfg, err := core.LoadConfigFrom(dataDir); err == nil {
+		hostAppDir = cfg.HostAppDir
 	}
-	return "/opt/arizuko/template/services"
+	return compose.CatalogDir(hostAppDir)
 }
 
 func dirExists(path string) bool {
 	st, err := os.Stat(path)
 	return err == nil && st.IsDir()
+}
+
+// provisionPkgEnv resolves what a package needs from .env through the same
+// function generate runs, so a refusal (`required` unset) lands here, before
+// the first file is written, and a minted key exists before the first
+// generate. Reports by key name only.
+func provisionPkgEnv(dataDir, manifestPath, name string) {
+	env, err := loadInstanceEnv(dataDir)
+	if os.IsNotExist(err) {
+		env = map[string]string{}
+	} else if err != nil {
+		die("Failed: read .env: %v", err)
+	}
+	generated, err := compose.ProvisionPackageEnv(dataDir, manifestPath, name, env)
+	if err != nil {
+		die("Failed: %v", err)
+	}
+	for _, key := range generated {
+		fmt.Printf("generated %s for %s into .env\n", key, name)
+	}
+}
+
+// catalogOrigin is the Source and Revision an installed-package record carries
+// for a package taken from the bundled catalog: its files are links the catalog
+// refreshes by itself, so upgrade and sync have nothing to re-fetch.
+const catalogOrigin = "catalog"
+
+// installPackage is the one install path. It validates the whole manifest
+// before a byte is written — a package installs whole or not at all, and every
+// refusal (unknown resource, bad row field, inert grant predicate, a grant wider
+// than --folder, a route on core ground, an unset required env) belongs on the
+// near side of the first write. Then it places the files (linked at hostDir
+// when given, else copied from srcDir), applies the rows through `apply`'s own
+// engine, and records what was installed.
+func installPackage(dataDir, inst, name, srcDir string, files []string, hashes map[string]string,
+	bound []string, origin, revision, hostDir string) {
+	frags := parsePkgManifests(name, srcDir, files, bound)
+	provisionPkgEnv(dataDir, filepath.Join(srcDir, name+".yaml"), name)
+	svcDir := filepath.Join(dataDir, "services")
+	if err := os.MkdirAll(svcDir, 0o755); err != nil {
+		die("Failed: mkdir services: %v", err)
+	}
+	for _, n := range files {
+		if hostDir != "" {
+			if err := compose.SymlinkFragment(svcDir, hostDir, n); err != nil {
+				die("Failed: install %s: %v", n, err)
+			}
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(srcDir, n))
+		if err != nil {
+			die("Failed: read %s: %v", n, err)
+		}
+		if err := writeFileAtomic(filepath.Join(svcDir, n), b); err != nil {
+			die("Failed: install %s: %v", n, err)
+		}
+	}
+	rdb := mustOpenRoutd(dataDir)
+	defer rdb.Close()
+	manifest := map[string][]string{manifestFiles: files}
+	if len(frags) > 0 {
+		rows, aerr := installPkgRows(dataDir, rdb, name, frags, pkgManifestDigest(srcDir, files))
+		if aerr != nil {
+			// The rows are the half that is live the moment it lands, and the
+			// apply left none of them. Take the inert half back down too, so a
+			// refused install is not half-present at the next `generate`.
+			dropFiles(svcDir, files)
+			die("Failed: install %s: %v", name, aerr)
+		}
+		maps.Copy(manifest, rows)
+	}
+	if skills := applyPackageSkills(dataDir, srcDir); len(skills) > 0 {
+		manifest[manifestSkills] = skills
+	}
+	grants := installedGrants(frags)
+	// Folder is InstanceWide: install writes compose fragments, proxyd routes
+	// and host files, none of which belong to a group (spec 5/28).
+	if err := rdb.PutInstalledPackage(routd.InstalledPackage{
+		Folder:      routd.InstanceWide,
+		Name:        name,
+		Source:      origin,
+		Revision:    revision,
+		Manifest:    manifest,
+		AssetHashes: hashes,
+		InstalledAt: time.Now().UTC().Format(time.RFC3339),
+	}); err != nil {
+		die("Failed: record install of %s: %v", name, err)
+	}
+	fmt.Printf("installed %s@%s (%d file(s), %d route(s), %d grant(s)) — run `arizuko generate %s` to apply\n",
+		name, revision, len(files), len(manifest[resources.ProxydRoutesName]), len(grants), inst)
+	// Grants are named, not counted: files and routes are inert until
+	// `generate`, a grant is live the moment it lands.
+	for _, row := range grants {
+		fmt.Println(describeGrant(row))
+	}
 }
 
 // isGitURL reports whether src is a remote git source rather than a local dir.
@@ -725,6 +816,9 @@ type reapplyResult struct {
 // ONE updater. Only the file half of the manifest is replaced: overwriting the
 // recorded row and skill identities would strand rows `remove` must delete.
 func reapplyPackage(svcDir string, rdb *routd.DB, rec routd.InstalledPackage) reapplyResult {
+	if rec.Source == catalogOrigin {
+		return reapplyResult{Revision: rec.Revision}
+	}
 	if dirty := dirtyAssets(svcDir, rec); len(dirty) > 0 {
 		return reapplyResult{Dirty: dirty}
 	}
@@ -811,63 +905,36 @@ func cmdPackages(args []string) {
 			fmt.Printf("%-12s enabled (local)\n", n)
 		}
 	case "add":
-		need(args, 3, usage)
-		name := args[2]
+		// A catalog package installs through the SAME path a sourced one does;
+		// only where its files come from differs. The fragment is a symlink at
+		// the catalog, so a shipped fix reaches the instance on the next
+		// generate (BUGS R1) — a copy only when HOST_APP_DIR is unset, since the
+		// link target must be host-resolvable (compose.HostCatalogDir), never
+		// derived from where this process runs.
+		name, bound := parseInstallFlags(args[2:], usage)
 		mustPkgName(name)
-		// Confirm the kind exists before writing anything — a package installs
-		// whole or not at all (no half-written fragment on a routes read error).
 		fragment, err := os.ReadFile(filepath.Join(tmplDir, name+".yml"))
 		if err != nil {
 			die("Failed: add %s: %v (catalog: %s)", name, err, tmplDir)
 		}
-		if err := os.MkdirAll(svcDir, 0o755); err != nil {
-			die("Failed: mkdir services: %v", err)
-		}
-		hasManifest := false
-		if _, rErr := os.Stat(filepath.Join(tmplDir, name+".yaml")); rErr == nil {
-			hasManifest = true
+		files := []string{name + ".yml"}
+		hashes := map[string]string{"file:" + name + ".yml": sha256hex(fragment)}
+		if manifest, rErr := os.ReadFile(filepath.Join(tmplDir, name+".yaml")); rErr == nil {
+			files = append(files, name+".yaml")
+			hashes["file:"+name+".yaml"] = sha256hex(manifest)
 		} else if !os.IsNotExist(rErr) {
 			die("Failed: add %s manifest: %v", name, rErr)
 		}
-		// Prefer a symlink at the catalog over a copy: a copy never refreshes
-		// (BUGS R1 — the exact bug this replaces), a symlink always reads the
-		// current template. Falls back to a copy only when HOST_APP_DIR isn't
-		// configured, since the symlink target must be host-resolvable (see
-		// compose.HostCatalogDir) — never derived from where this process
-		// happens to run.
-		if hostDir, ok := compose.HostCatalogDir(dataDir); ok {
-			if err := compose.SymlinkFragment(svcDir, hostDir, name+".yml"); err != nil {
-				die("Failed: add %s: %v", name, err)
-			}
-			if hasManifest {
-				if err := compose.SymlinkFragment(svcDir, hostDir, name+".yaml"); err != nil {
-					die("Failed: add %s manifest: %v", name, err)
-				}
-			}
-		} else {
-			if err := writeFileAtomic(filepath.Join(svcDir, name+".yml"), fragment); err != nil {
-				die("Failed: add %s: %v", name, err)
-			}
-			if hasManifest {
-				manifest, rErr := os.ReadFile(filepath.Join(tmplDir, name+".yaml"))
-				if rErr != nil {
-					die("Failed: add %s manifest: %v", name, rErr)
-				}
-				if err := writeFileAtomic(filepath.Join(svcDir, name+".yaml"), manifest); err != nil {
-					die("Failed: add %s manifest: %v", name, err)
-				}
-			}
-			fmt.Fprintln(os.Stderr, "warning: HOST_APP_DIR not set in .env — installed a local copy instead "+
+		hostDir, linked := compose.HostCatalogDir(dataDir)
+		if !linked {
+			fmt.Fprintln(os.Stderr, "warning: HOST_APP_DIR not set in .env — installing a local copy instead "+
 				"of a catalog link; it will not receive template fixes automatically. Set HOST_APP_DIR (see INSTALL.md).")
 		}
+		installPackage(dataDir, args[0], name, tmplDir, files, hashes, bound, catalogOrigin, catalogOrigin, hostDir)
 		warnUnsatisfiedDeps(name, fragment, svcDir)
-		fmt.Printf("added %s — run `arizuko generate %s` to apply\n", name, args[0])
 	case "install":
 		// Spec 5/28: install a package from a source dir or git URL, recording
-		// exactly what was installed. A package ships two file kinds, split by
-		// who owns the format: `<name>.yml` is docker's compose fragment,
-		// `<name>.yaml` is arizuko's 5/8 manifest — grants, routes, tasks,
-		// network rules, web routes — applied through `apply`'s own engine.
+		// exactly what was installed.
 		origin, bound := parseInstallFlags(args[2:], usage)
 		name := packageName(origin)
 		mustPkgName(name)
@@ -877,62 +944,7 @@ func cmdPackages(args []string) {
 		if len(files) == 0 {
 			die("Failed: no compose fragment (*.yml) in source %s", origin)
 		}
-		// Parse and validate the whole manifest BEFORE a byte is written: a
-		// package installs whole or not at all, and every refusal this path can
-		// raise (unknown resource, bad row field, inert grant predicate, a grant
-		// wider than --folder, a route on core ground) belongs on the near side
-		// of the first write.
-		frags := parsePkgManifests(name, dir, files, bound)
-		if err := os.MkdirAll(svcDir, 0o755); err != nil {
-			die("Failed: mkdir services: %v", err)
-		}
-		for _, n := range files {
-			b, err := os.ReadFile(filepath.Join(dir, n))
-			if err != nil {
-				die("Failed: read %s: %v", n, err)
-			}
-			if err := writeFileAtomic(filepath.Join(svcDir, n), b); err != nil {
-				die("Failed: install %s: %v", n, err)
-			}
-		}
-		rdb := mustOpenRoutd(dataDir)
-		defer rdb.Close()
-		manifest := map[string][]string{manifestFiles: files}
-		if len(frags) > 0 {
-			rows, aerr := installPkgRows(dataDir, rdb, name, frags, pkgManifestDigest(dir, files))
-			if aerr != nil {
-				// The rows are the half that is live the moment it lands, and the
-				// apply left none of them. Take the inert half back down too, so a
-				// refused install is not half-present at the next `generate`.
-				dropFiles(svcDir, files)
-				die("Failed: install %s: %v", name, aerr)
-			}
-			maps.Copy(manifest, rows)
-		}
-		if skills := applyPackageSkills(dataDir, dir); len(skills) > 0 {
-			manifest[manifestSkills] = skills
-		}
-		grants := installedGrants(frags)
-		// Folder is InstanceWide: install writes compose fragments, proxyd routes
-		// and host files, none of which belong to a group (spec 5/28).
-		if err := rdb.PutInstalledPackage(routd.InstalledPackage{
-			Folder:      routd.InstanceWide,
-			Name:        name,
-			Source:      origin,
-			Revision:    revision,
-			Manifest:    manifest,
-			AssetHashes: hashes,
-			InstalledAt: time.Now().UTC().Format(time.RFC3339),
-		}); err != nil {
-			die("Failed: record install of %s: %v", name, err)
-		}
-		fmt.Printf("installed %s@%s (%d file(s), %d route(s), %d grant(s)) — run `arizuko generate %s` to apply\n",
-			name, revision, len(files), len(manifest[resources.ProxydRoutesName]), len(grants), args[0])
-		// Grants are named, not counted: files and routes are inert until
-		// `generate`, a grant is live the moment it lands.
-		for _, row := range grants {
-			fmt.Println(describeGrant(row))
-		}
+		installPackage(dataDir, args[0], name, dir, files, hashes, bound, origin, revision, "")
 	case "upgrade":
 		// P3 (spec 5/28): re-install a package's assets from its recorded source,
 		// but REFUSE to overwrite a locally edited (dirty) asset — emit which and

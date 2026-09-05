@@ -253,7 +253,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	// it — routd resolves that per key and adds nothing without a row. Every other
 	// secret is broker-resolved per tool call inside ipc.CallConnectorTool, so it
 	// lives in the connector subprocess's env on the host (spec 5/13 §Trust model).
-	in.Secrets = mergeSecrets(readSecrets(), in.Secrets)
+	in.Secrets = spawnSecrets(cfg, in.Secrets)
 	in.AsstName = cfg.Name
 	payload, _ := json.Marshal(in)
 	in.Secrets = nil
@@ -756,6 +756,24 @@ func readSecrets() map[string]string {
 			}
 			s[k] = v
 		}
+	}
+	return s
+}
+
+// spawnSecrets is the one secret map a container receives: the operator anchors
+// under the trigger user's own env-profile rows. A configured model gateway
+// holds the real credential and the spawn presents MODEL_GATEWAY_KEY instead
+// (buildArgs), so the model keys are withheld from BOTH sources — a filter on
+// readSecrets alone would still hand the user's own row to the container
+// (spec 6/23 Fault 1). Every other key, a `shell:env:<KEY>` grant, passes
+// through unchanged; with no gateway the map is exactly the merge.
+func spawnSecrets(cfg *core.Config, override map[string]string) map[string]string {
+	s := mergeSecrets(readSecrets(), override)
+	if cfg.ModelGatewayURL == "" {
+		return s
+	}
+	for k := range store.EnvProfileKeys {
+		delete(s, k)
 	}
 	return s
 }

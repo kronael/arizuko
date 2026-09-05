@@ -471,3 +471,60 @@ func TestSecretUseLogRecordsScopeAndTool(t *testing.T) {
 		}
 	}
 }
+
+// A block under any other table name is refused with the key named, never
+// parsed to zero connectors: the shipped templates carried `[[mcp_connector]]`
+// after the loader bound `connector`, and nothing said so.
+func TestLoadConnectors_RejectsUnknownTable(t *testing.T) {
+	dir := t.TempDir()
+	body := "[[mcp_connector]]\nname = \"github\"\nurl = \"https://example.com/mcp\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "connectors.toml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadConnectors(dir)
+	if err == nil {
+		t.Fatal("a [[mcp_connector]] block must fail the load, not configure nothing")
+	}
+	if !strings.Contains(err.Error(), "mcp_connector") {
+		t.Errorf("error should name the unknown key, got %v", err)
+	}
+}
+
+// The discriminator has two values; a third is a block neither loader owns.
+func TestLoadConnectors_RejectsUnknownTransport(t *testing.T) {
+	dir := t.TempDir()
+	body := "[[connector]]\nname = \"x\"\ntransport = \"stdio\"\nurl = \"https://example.com/mcp\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "connectors.toml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadConnectors(dir); err == nil || !strings.Contains(err.Error(), "stdio") {
+		t.Fatalf("transport stdio must be refused by name, got %v", err)
+	}
+}
+
+// The operator templates under template/connectors/ are the live block
+// shape: each loads as exactly one mcp connector, and the rest loader passes
+// over the same file without error.
+func TestTemplateConnectorsLoad(t *testing.T) {
+	for _, name := range []string{"github", "buildkite"} {
+		src := filepath.Join("..", "template", "connectors", name+".toml")
+		body, err := os.ReadFile(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "connectors.toml"), body, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		specs, err := LoadConnectors(dir)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if len(specs) != 1 || specs[0].Name != name || specs[0].Transport != transportMCP {
+			t.Fatalf("%s: want one mcp connector named %s, got %+v", name, name, specs)
+		}
+		if _, err := LoadExtProviders(context.Background(), dir); err != nil {
+			t.Fatalf("%s: rest loader must skip an mcp block, got %v", name, err)
+		}
+	}
+}

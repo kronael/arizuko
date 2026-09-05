@@ -2,7 +2,10 @@ package container
 
 import (
 	"os"
+	"strings"
 	"testing"
+
+	"github.com/kronael/arizuko/core"
 )
 
 // readSecrets picks the operator anchors (ANTHROPIC_API_KEY /
@@ -73,5 +76,57 @@ func TestMergeSecrets_NilOverride(t *testing.T) {
 	base := map[string]string{"ANTHROPIC_API_KEY": "anchor"}
 	if got := mergeSecrets(base, nil); got["ANTHROPIC_API_KEY"] != "anchor" {
 		t.Errorf("nil-override merge = %v, want anchor preserved", got)
+	}
+}
+
+// A configured gateway withholds the model credential from BOTH sources — the
+// host anchor and the trigger user's own env-profile row — while a `shell:env`
+// capability key still passes, and the virtual key still reaches the spawn as
+// container env (spec 6/23 Fault 1).
+func TestSpawnSecrets_GatewayWithholdsModelCredential(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "operator-oauth")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	cfg := &core.Config{Timezone: "UTC", Image: "img:latest",
+		ModelGatewayURL: "http://gw:4000", ModelGatewayKey: "virtual-key-abc123"}
+	user := map[string]string{"ANTHROPIC_API_KEY": "user-byoa", "GITHUB_TOKEN": "ghp-shell-env"}
+
+	got := spawnSecrets(cfg, user)
+
+	if v, ok := got["CLAUDE_CODE_OAUTH_TOKEN"]; ok {
+		t.Errorf("host anchor CLAUDE_CODE_OAUTH_TOKEN=%q reached the spawn with a gateway configured", v)
+	}
+	if v, ok := got["ANTHROPIC_API_KEY"]; ok {
+		t.Errorf("user-scope ANTHROPIC_API_KEY=%q reached the spawn with a gateway configured", v)
+	}
+	if got["GITHUB_TOKEN"] != "ghp-shell-env" {
+		t.Errorf("shell:env key dropped by the gateway filter: %v", got)
+	}
+	args := strings.Join(buildArgs(cfg, nil, "c8", egressSpawn{}, "", 0, false), " ")
+	if !strings.Contains(args, "-e MODEL_GATEWAY_KEY=virtual-key-abc123") {
+		t.Errorf("virtual key must still reach the spawn: %s", args)
+	}
+}
+
+// No gateway: the spawn receives exactly today's merge — anchor, BYOA override,
+// and capability key alike. One code path; the gateway is a value, not a mode.
+func TestSpawnSecrets_NoGatewayKeepsBothSources(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "operator-oauth")
+	t.Setenv("ANTHROPIC_API_KEY", "operator-anchor")
+	cfg := &core.Config{Timezone: "UTC", Image: "img:latest"}
+	user := map[string]string{"ANTHROPIC_API_KEY": "user-byoa", "GITHUB_TOKEN": "ghp-shell-env"}
+
+	got := spawnSecrets(cfg, user)
+	want := mergeSecrets(readSecrets(), user)
+
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("%s = %q, want %q", k, got[k], v)
+		}
+	}
+	if got["CLAUDE_CODE_OAUTH_TOKEN"] != "operator-oauth" || got["ANTHROPIC_API_KEY"] != "user-byoa" {
+		t.Errorf("unset gateway must change nothing: %v", got)
 	}
 }

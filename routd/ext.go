@@ -12,8 +12,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/BurntSushi/toml"
-
 	"github.com/kronael/arizuko/ipc"
 )
 
@@ -129,8 +127,8 @@ func LoadExtProviders(_ context.Context, dir string) ([]ipc.ExtTool, error) {
 			return nil, fmt.Errorf("read embedded %s: %w", e.Name(), rerr)
 		}
 		var f extFile
-		if perr := toml.Unmarshal(data, &f); perr != nil {
-			return nil, fmt.Errorf("parse embedded %s: %w", e.Name(), perr)
+		if perr := decodeConnectors("embedded "+e.Name(), data, &f); perr != nil {
+			return nil, perr
 		}
 		providers = append(providers, f.Connectors...)
 	}
@@ -142,8 +140,8 @@ func LoadExtProviders(_ context.Context, dir string) ([]ipc.ExtTool, error) {
 	}
 	if err == nil {
 		var f extFile
-		if perr := toml.Unmarshal(data, &f); perr != nil {
-			return nil, fmt.Errorf("parse %s connector blocks: %w", opPath, perr)
+		if perr := decodeConnectors(opPath, data, &f); perr != nil {
+			return nil, perr
 		}
 		providers = append(providers, f.Connectors...)
 	}
@@ -154,10 +152,13 @@ func LoadExtProviders(_ context.Context, dir string) ([]ipc.ExtTool, error) {
 
 	var out []ipc.ExtTool
 	for _, p := range providers {
-		if p.Transport == transportMCP {
+		transport, terr := connectorTransport(p.Name, p.Transport)
+		if terr != nil {
+			return nil, terr
+		}
+		if transport == transportMCP {
 			continue // discovers its own catalogue; LoadConnectors owns it
 		}
-		before := len(out)
 		for _, t := range p.Tools {
 			out = append(out, ipc.ExtTool{
 				LocalName:   p.Name + "_" + t.Name,
@@ -173,8 +174,8 @@ func LoadExtProviders(_ context.Context, dir string) ([]ipc.ExtTool, error) {
 				Body:        p.Body,
 			})
 		}
-		if len(out) == before {
-			slog.Warn("rest connector has no tools", "connector", p.Name)
+		if len(p.Tools) == 0 {
+			return nil, fmt.Errorf("connector %q: transport rest declares no [[connector.tool]]", p.Name)
 		}
 	}
 	slog.Info("ext providers loaded", "tools", len(out))

@@ -567,14 +567,22 @@ func TestEgressIsolation(t *testing.T) {
 	}
 }
 
-// services/ttsd.yml present → TTS auto-enabled on runed; explicit .env wins.
-func TestTTSAutoEnable(t *testing.T) {
+const ttsdManifest = "env:\n  TTS_ENABLED: {default: 'true'}\n  TTS_BASE_URL: {default: 'http://ttsd:8880'}\n"
+
+// A package's `default` env needs reach the daemons that read them on every
+// generate, without touching .env; an explicit .env value wins; and nothing is
+// derived for a package that is not installed.
+func TestPackageEnvDefaultsReachRuned(t *testing.T) {
 	dir := seed(t, "API_PORT=8080\n")
 	write(t, dir, "services/ttsd.yml", "services:\n  ttsd:\n    image: arizuko-ttsd:latest\n")
+	write(t, dir, "services/ttsd.yaml", ttsdManifest)
 	gen(t, dir)
 	runed := read(t, dir, "env/runed.env")
 	if !strings.Contains(runed, "TTS_ENABLED=true") || !strings.Contains(runed, "TTS_BASE_URL=http://ttsd:8880") {
-		t.Errorf("ttsd package must auto-enable TTS on runed; got:\n%s", runed)
+		t.Errorf("ttsd package must enable TTS on runed; got:\n%s", runed)
+	}
+	if strings.Contains(read(t, dir, ".env"), "TTS_") {
+		t.Error("a default is derived per generate, never written to .env")
 	}
 
 	off := seed(t, "API_PORT=8080\n")
@@ -585,9 +593,121 @@ func TestTTSAutoEnable(t *testing.T) {
 
 	override := seed(t, "TTS_BASE_URL=https://api.openai.com\n")
 	write(t, override, "services/ttsd.yml", "services:\n  ttsd:\n    image: arizuko-ttsd:latest\n")
+	write(t, override, "services/ttsd.yaml", ttsdManifest)
 	gen(t, override)
 	if !strings.Contains(read(t, override, "env/runed.env"), "TTS_BASE_URL=https://api.openai.com") {
-		t.Error("explicit TTS_BASE_URL must win over the auto default")
+		t.Error("explicit TTS_BASE_URL must win over the package default")
+	}
+}
+
+const gatewayManifest = "env:\n  MODEL_GATEWAY_KEY: {generate: true}\n  MODEL_GATEWAY_URL: {default: 'http://litellm:4000'}\n"
+
+// A `generate` need is minted once into .env above the managed block — where
+// docker interpolates the fragment from and the operator edits — and the same
+// run hands it to runed. A second generate keeps the value; an operator value
+// set afterwards wins over the minted one.
+func TestPackageEnvGenerateMintsOnceIntoDotEnv(t *testing.T) {
+	dir := seed(t, "API_PORT=8080\n")
+	write(t, dir, "services/litellm.yml", "services:\n  litellm:\n    image: x\n")
+	write(t, dir, "services/litellm.yaml", gatewayManifest)
+	gen(t, dir)
+
+	dotenv := read(t, dir, ".env")
+	key := envLine(t, dotenv, "MODEL_GATEWAY_KEY")
+	if len(key) != 64 {
+		t.Fatalf("MODEL_GATEWAY_KEY = %q, want a 32-byte hex token", key)
+	}
+	if strings.Index(dotenv, "MODEL_GATEWAY_KEY=") > strings.Index(dotenv, managedBegin) {
+		t.Errorf("minted key must sit above the managed block:\n%s", dotenv)
+	}
+	if strings.Contains(dotenv, "MODEL_GATEWAY_URL=") {
+		t.Error("a default is never written to .env")
+	}
+	runed := read(t, dir, "env/runed.env")
+	if !strings.Contains(runed, "MODEL_GATEWAY_KEY="+key) || !strings.Contains(runed, "MODEL_GATEWAY_URL=http://litellm:4000") {
+		t.Errorf("runed must receive the minted key and the default URL:\n%s", runed)
+	}
+
+	gen(t, dir)
+	if again := envLine(t, read(t, dir, ".env"), "MODEL_GATEWAY_KEY"); again != key {
+		t.Errorf("second generate re-minted the key: %q → %q", key, again)
+	}
+	if st, err := os.Stat(filepath.Join(dir, ".env")); err != nil || st.Mode().Perm() != 0o600 {
+		t.Errorf(".env must stay 0600; got %v %v", st.Mode().Perm(), err)
+	}
+
+	mine := seed(t, "MODEL_GATEWAY_KEY=operators-own\n")
+	write(t, mine, "services/litellm.yml", "services:\n  litellm:\n    image: x\n")
+	write(t, mine, "services/litellm.yaml", gatewayManifest)
+	gen(t, mine)
+	if strings.Count(read(t, mine, ".env"), "MODEL_GATEWAY_KEY=") != 1 ||
+		!strings.Contains(read(t, mine, "env/runed.env"), "MODEL_GATEWAY_KEY=operators-own") {
+		t.Error("an operator-set key must win and never be duplicated")
+	}
+}
+
+// envLine returns KEY's value from a KEY=VALUE file body, failing when absent.
+func envLine(t *testing.T, body, key string) string {
+	t.Helper()
+	for line := range strings.SplitSeq(body, "\n") {
+		if v, ok := strings.CutPrefix(line, key+"="); ok {
+			return v
+		}
+	}
+	t.Fatalf("%s missing from:\n%s", key, body)
+	return ""
+}
+
+// A `required` need with no operator value fails generate, naming the key and
+// the file, rather than emitting a compose whose service will not start; and a
+// key that is present but empty refuses too, since the platform never edits an
+// operator line.
+func TestPackageEnvRequiredRefusesLoud(t *testing.T) {
+	dir := seed(t, "API_PORT=8080\n")
+	write(t, dir, "services/tok.yml", "services:\n  tok:\n    image: x\n")
+	write(t, dir, "services/tok.yaml", "env:\n  TOK_TOKEN: {required: true}\n")
+	_, _, err := Generate(dir)
+	if err == nil || !strings.Contains(err.Error(), "TOK_TOKEN") || !strings.Contains(err.Error(), ".env") {
+		t.Fatalf("Generate = %v, want a refusal naming TOK_TOKEN and .env", err)
+	}
+	if _, serr := os.Stat(filepath.Join(dir, "env", "runed.env")); serr == nil {
+		t.Error("a refused generate must write no env file")
+	}
+
+	write(t, dir, ".env", "TOK_TOKEN=abc\n")
+	gen(t, dir)
+
+	empty := seed(t, "MODEL_GATEWAY_KEY=\n")
+	write(t, empty, "services/litellm.yml", "services:\n  litellm:\n    image: x\n")
+	write(t, empty, "services/litellm.yaml", gatewayManifest)
+	if _, _, err := Generate(empty); err == nil || !strings.Contains(err.Error(), "present but empty") {
+		t.Fatalf("Generate = %v, want a refusal on the empty operator line", err)
+	}
+}
+
+// Where the deploy unit runs generate, a catalog link is dangling: the
+// container mounts the data dir, not the checkout. A linked manifest must then
+// be read from the readable catalog, or every linked package loses its routes
+// and env needs with no error.
+func TestLinkedManifestIsReadFromTheCatalog(t *testing.T) {
+	host := t.TempDir()
+	catalog := filepath.Join(host, "template", "services")
+	if err := os.MkdirAll(catalog, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, catalog, "gw.yaml",
+		"proxyd_routes:\n  - path: /gw/\n    backend: http://gw:8080\n    auth: user\n"+gatewayManifest)
+	dir := seed(t, "HOST_APP_DIR="+host+"\n")
+	write(t, dir, "services/gw.yml", "services:\n  gw:\n    image: x\n")
+	if err := os.Symlink("/nowhere/template/services/gw.yaml", filepath.Join(dir, "services", "gw.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	routes := genRoutes(t, dir)
+	if !hasRoute(routes, "/gw/") {
+		t.Errorf("route behind a dangling catalog link was dropped: %+v", routes)
+	}
+	if !strings.Contains(read(t, dir, ".env"), "MODEL_GATEWAY_KEY=") {
+		t.Error("env need behind a dangling catalog link was not provisioned")
 	}
 }
 

@@ -42,7 +42,10 @@ Container env carries model credentials only: the operator anchors from the
 host `.env` (`store.EnvProfileKeys` — `ANTHROPIC_API_KEY`,
 `CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY`, `CODEX_API_KEY`, required for LLM
 calls), overlaid with the triggering user's own rows for those same keys
-(BYOA, `routd.DB.EnvProfileSecrets`). Capability credentials — folder- or
+(BYOA, `routd.DB.EnvProfileSecrets`). With a model gateway configured
+(`MODEL_GATEWAY_URL`), `spawnSecrets` withholds those keys from both sources
+and the container holds only `MODEL_GATEWAY_KEY`, the gateway's virtual key
+(spec `6/23`). Capability credentials — folder- or
 user-scoped — are broker-resolved on the host at tool-call time and never
 enter the container (specs `5/13`, `5/14`). Agent model and query timeout
 are set via `ARIZUKO_MODEL` and `ARIZUKO_QUERY_TIMEOUT_MS` env vars

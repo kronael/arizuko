@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"sort"
 	"strings"
 	"syscall"
@@ -13,8 +12,6 @@ import (
 	"github.com/joho/godotenv"
 
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/resreg"
-	"github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -421,7 +418,7 @@ func gatedByOn(env map[string]string, key string) bool {
 // This is the generate-time READER of the manifest a package also installs
 // through `arizuko apply`: routes are needed before any daemon or DB exists,
 // which justifies a second reader, never a second format (BUGS L44).
-func collectProxydRoutes(servicesDir string, services []string, env map[string]string) ([]ProxydRoute, error) {
+func collectProxydRoutes(servicesDir, catalogDir string, services []string, env map[string]string) ([]ProxydRoute, error) {
 	var out []ProxydRoute
 	for _, r := range coreProxydRoutes {
 		if gatedByOn(env, r.GatedBy) {
@@ -429,7 +426,7 @@ func collectProxydRoutes(servicesDir string, services []string, env map[string]s
 		}
 	}
 	for _, name := range services {
-		routes, err := ManifestRoutes(filepath.Join(servicesDir, name+".yaml"))
+		routes, err := ManifestRoutes(manifestPath(servicesDir, catalogDir, name))
 		if err != nil {
 			return nil, err
 		}
@@ -488,47 +485,6 @@ func ReservedRouteClaim(path string) string {
 	return ""
 }
 
-// ManifestRoutes reads one 5/8 manifest fragment and returns its proxyd_routes
-// rows. A missing file is not an error. Parsing goes through resreg.ParseYAML,
-// the same decoder `arizuko apply` uses, so a typo rejects identically on both
-// readers instead of silently emitting a valid-looking but wrong route.
-func ManifestRoutes(path string) ([]ProxydRoute, error) {
-	b, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", filepath.Base(path), err)
-	}
-	docs, err := resreg.SplitDocuments(b)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", filepath.Base(path), err)
-	}
-	var out []ProxydRoute
-	for _, doc := range docs {
-		manifest, _, perr := resreg.ParseYAML(doc)
-		if perr != nil {
-			return nil, fmt.Errorf("parse %s: %w", filepath.Base(path), perr)
-		}
-		rows, ok := manifest[resources.ProxydRoutesName].([]resources.ProxydRoutesRow)
-		if !ok {
-			continue
-		}
-		for _, r := range rows {
-			out = append(out, ProxydRoute{
-				Path:            r.Path,
-				Backend:         r.Backend,
-				Auth:            r.Auth,
-				GatedBy:         r.GatedBy,
-				PreserveHeaders: r.PreserveHeaders,
-				StripPrefix:     r.StripPrefix,
-				RedirectTo:      r.RedirectTo,
-			})
-		}
-	}
-	return out, nil
-}
-
 // readFragments lists the compose service fragments in <dataDir>/services,
 // sorted by name. Each `<name>.yml` is included verbatim by docker compose.
 func readFragments(servicesDir string) ([]string, error) {
@@ -549,10 +505,6 @@ func readFragments(servicesDir string) ([]string, error) {
 	}
 	sort.Strings(names)
 	return names, nil
-}
-
-func hasService(services []string, name string) bool {
-	return slices.Contains(services, name)
 }
 
 // activeProfiles derives COMPOSE_PROFILES from the instance feature flags.
@@ -630,30 +582,7 @@ func writeManagedEnv(dataDir, app, flavor string, profiles []string) error {
 	}
 	fmt.Fprintf(&b, "%s\nAPP=%s\nFLAVOR=%s\nDATA_DIR=%s\nCOMPOSE_PROFILES=%s\n%s\n",
 		managedBegin, app, flavor, dataDir, strings.Join(profiles, ","), managedEnd)
-	tmp, err := os.CreateTemp(dataDir, ".env.*")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	if _, err := tmp.WriteString(b.String()); err != nil {
-		tmp.Close()
-		os.Remove(tmpPath)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmpPath)
-		return err
-	}
-	// .env holds AUTH_SECRET, SECRETS_KEY and operator tokens — never world-readable.
-	if err := os.Chmod(tmpPath, 0o600); err != nil {
-		os.Remove(tmpPath)
-		return err
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		os.Remove(tmpPath)
-		return err
-	}
-	return nil
+	return writeEnvAtomic(dataDir, path, b.String())
 }
 
 // Generate renders the instance's docker-compose.yml and returns it with the
@@ -783,14 +712,17 @@ func Generate(dataDir string) (string, []ProxydRoute, error) {
 		env["AUTHD_SERVICE_KEYS"] = strings.Join(keyPairs, ",")
 	}
 
-	// services/ttsd.yml present → auto-enable TTS on runed. Explicit .env values
-	// still win (external Kokoro / OpenAI cloud override TTS_BASE_URL).
-	if hasService(services, "ttsd") {
-		if _, set := env["TTS_ENABLED"]; !set {
-			env["TTS_ENABLED"] = "true"
+	// What each package needs from .env, resolved before any env file is
+	// written: a minted key reaches the daemons that read it (runed re-emits
+	// MODEL_GATEWAY_KEY) and a package default gates its routes below.
+	catalogDir := CatalogDir(env["HOST_APP_DIR"])
+	for _, name := range services {
+		generated, err := ProvisionPackageEnv(dataDir, manifestPath(servicesDir, catalogDir, name), name, env)
+		if err != nil {
+			return "", nil, err
 		}
-		if _, set := env["TTS_BASE_URL"]; !set {
-			env["TTS_BASE_URL"] = "http://ttsd:8880"
+		for _, key := range generated {
+			fmt.Printf("env: generated %s for %s into .env\n", key, name)
 		}
 	}
 
@@ -809,7 +741,7 @@ func Generate(dataDir string) (string, []ProxydRoute, error) {
 		fmt.Fprintf(os.Stderr, "compose: app-src: %v\n", derr)
 	}
 
-	routes, err := collectProxydRoutes(servicesDir, services, env)
+	routes, err := collectProxydRoutes(servicesDir, catalogDir, services, env)
 	if err != nil {
 		return "", nil, err
 	}

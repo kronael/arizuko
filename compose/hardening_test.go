@@ -61,7 +61,7 @@ func TestProxydRoutesRejectUnknownField(t *testing.T) {
 	}
 	mustWrite(t, filepath.Join(sd, "slakd.yaml"),
 		"proxyd_routes:\n  - path: /slack/\n    backend: http://slakd:8080\n    auth: public\n    strip_prefx: true\n")
-	if _, err := collectProxydRoutes(sd, []string{"slakd"}, map[string]string{}); err == nil {
+	if _, err := collectProxydRoutes(sd, "", []string{"slakd"}, map[string]string{}); err == nil {
 		t.Fatal("expected error on unknown route field, got nil")
 	}
 }
@@ -75,7 +75,7 @@ func TestProxydRoutesRejectUnknownResource(t *testing.T) {
 		t.Fatal(err)
 	}
 	mustWrite(t, filepath.Join(sd, "x.yaml"), "scheduled_task:\n  - id: t1\n")
-	if _, err := collectProxydRoutes(sd, []string{"x"}, map[string]string{}); err == nil {
+	if _, err := collectProxydRoutes(sd, "", []string{"x"}, map[string]string{}); err == nil {
 		t.Fatal("expected error on unknown resource key, got nil")
 	}
 }
@@ -106,7 +106,7 @@ func TestProxydRoutesAcceptRedirectTo(t *testing.T) {
 	// a package declaring one is refused before redirect_to is parsed (L46).
 	mustWrite(t, filepath.Join(sd, "xpkg.yaml"),
 		"proxyd_routes:\n  - path: /xpkg/\n    backend: http://x:8080\n    auth: public\n    redirect_to: /y/\n")
-	routes, err := collectProxydRoutes(sd, []string{"xpkg"}, map[string]string{})
+	routes, err := collectProxydRoutes(sd, "", []string{"xpkg"}, map[string]string{})
 	if err != nil {
 		t.Fatal(err)
 	}

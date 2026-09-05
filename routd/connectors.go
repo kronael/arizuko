@@ -56,16 +56,21 @@ func LoadConnectors(projectRoot string) ([]ipc.ConnectorSpec, error) {
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
 	var f connectorFile
-	if err := toml.Unmarshal(data, &f); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", path, err)
+	if err := decodeConnectors(path, data, &f); err != nil {
+		return nil, err
 	}
 	callTimeout := connectorCallTimeout()
 	var out []ipc.ConnectorSpec
 	for i := range f.Connectors {
 		spec := &f.Connectors[i]
-		if spec.Transport == transportREST {
+		transport, err := connectorTransport(spec.Name, spec.Transport)
+		if err != nil {
+			return nil, err
+		}
+		if transport == transportREST {
 			continue // LoadExtProviders owns the rest half of the same block
 		}
+		spec.Transport = transport
 		if err := validateConnector(spec); err != nil {
 			return nil, fmt.Errorf("connector[%d] %q: %w", i, spec.Name, err)
 		}
@@ -75,6 +80,36 @@ func LoadConnectors(projectRoot string) ([]ipc.ConnectorSpec, error) {
 		out = append(out, *spec)
 	}
 	return out, nil
+}
+
+// decodeConnectors parses one connectors file and refuses any key the block
+// shape does not declare. Cost of the lenient decode: the shipped templates
+// wrote `[[mcp_connector]]` after the block became `[[connector]]`, parsed to
+// zero blocks with no error, and configured nothing on every instance that
+// copied them.
+func decodeConnectors(src string, data []byte, v any) error {
+	meta, err := toml.Decode(string(data), v)
+	if err != nil {
+		return fmt.Errorf("parse %s: %w", src, err)
+	}
+	if undecoded := meta.Undecoded(); len(undecoded) > 0 {
+		return fmt.Errorf("parse %s: unknown key %q — a block is [[connector]] with transport = mcp | rest (spec 6/19)",
+			src, undecoded[0].String())
+	}
+	return nil
+}
+
+// connectorTransport is the one reading of the discriminator for both loaders:
+// empty means mcp, and anything but the two dispatch paths is refused, so a
+// block can never be loaded by both loaders or by neither.
+func connectorTransport(name, transport string) (string, error) {
+	switch transport {
+	case "", transportMCP:
+		return transportMCP, nil
+	case transportREST:
+		return transportREST, nil
+	}
+	return "", fmt.Errorf("connector %q: transport %q is not mcp or rest", name, transport)
 }
 
 func validateConnector(s *ipc.ConnectorSpec) error {

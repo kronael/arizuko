@@ -19,10 +19,11 @@
 # Scope the token at Buildkite, not here. A read-only Buildkite token is the
 # enforcement for "the agent may look but not trigger" — an acl row can refuse
 # a TOOL, but only the token bounds what that tool can do once called.
-[[mcp_connector]]
-name    = "buildkite"
-url     = "https://mcp.buildkite.com/mcp"
-secrets = ["BUILDKITE_TOKEN"]
+[[connector]]
+name      = "buildkite"
+transport = "mcp"
+url       = "https://mcp.buildkite.com/mcp"
+secrets   = ["BUILDKITE_TOKEN"]
 
-[mcp_connector.headers]
+[connector.headers]
 Authorization = "Bearer {secret:BUILDKITE_TOKEN}"

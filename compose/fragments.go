@@ -99,7 +99,13 @@ func RelinkCatalog(servicesDir, readableCatalogDir, hostCatalogDir string) (reli
 	}
 	for _, name := range names {
 		if isSymlink(filepath.Join(servicesDir, name+".yml")) {
-			continue // already linked, by this or an earlier run
+			// Linked by this or an earlier run. The sidecar is still checked:
+			// a package linked before its manifest shipped has none, and the
+			// catalog's routes and env needs must reach it too.
+			if err := relinkSidecar(servicesDir, readableCatalogDir, hostCatalogDir, name); err != nil {
+				return relinked, diverged, err
+			}
+			continue
 		}
 		kind, tmpl, ok := catalogTemplate(readableCatalogDir, name)
 		if !ok || name != kind {
@@ -117,7 +123,7 @@ func RelinkCatalog(servicesDir, readableCatalogDir, hostCatalogDir string) (reli
 			return relinked, diverged, err
 		}
 		relinked = append(relinked, name)
-		if err := relinkSidecarIfIdentical(servicesDir, readableCatalogDir, hostCatalogDir, name); err != nil {
+		if err := relinkSidecar(servicesDir, readableCatalogDir, hostCatalogDir, name); err != nil {
 			return relinked, diverged, err
 		}
 	}
@@ -131,26 +137,27 @@ func isSymlink(path string) bool {
 	return err == nil && fi.Mode()&os.ModeSymlink != 0
 }
 
-// relinkSidecarIfIdentical links <name>.yaml — the package's 5/8 manifest
-// fragment — alongside its base compose fragment when both the catalog and the
-// instance carry one and they match; the same drift risk applies to a package's
-// declared rows as to its compose fragment. Silently skipped (not an error)
-// when either side has no manifest, the installed one has diverged, or it is
-// already linked.
-func relinkSidecarIfIdentical(servicesDir, readableCatalogDir, hostCatalogDir, name string) error {
+// relinkSidecar links <name>.yaml — the package's manifest — alongside a
+// catalog-linked base fragment: the same drift risk applies to a package's
+// declared rows and env needs as to its compose fragment. The instance's copy
+// is linked when it matches the catalog and created when it is absent (the
+// base fragment being linked is the operator's acceptance of the catalog
+// version of this package). Silently skipped (not an error) when the catalog
+// ships none, the installed one has diverged, or it is already linked.
+func relinkSidecar(servicesDir, readableCatalogDir, hostCatalogDir, name string) error {
 	sidecar := name + ".yaml"
 	if isSymlink(filepath.Join(servicesDir, sidecar)) {
 		return nil
 	}
 	tmpl, terr := os.ReadFile(filepath.Join(readableCatalogDir, sidecar))
 	if terr != nil {
-		return nil // catalog ships no routes sidecar for this kind
+		return nil // catalog ships no manifest for this kind
 	}
 	installed, ierr := os.ReadFile(filepath.Join(servicesDir, sidecar))
-	if ierr != nil {
-		return nil // instance never installed the sidecar
+	if ierr != nil && !os.IsNotExist(ierr) {
+		return fmt.Errorf("read services/%s: %w", sidecar, ierr)
 	}
-	if !bytes.Equal(installed, tmpl) {
+	if ierr == nil && !bytes.Equal(installed, tmpl) {
 		return nil // hand-edited — keep it real
 	}
 	return SymlinkFragment(servicesDir, hostCatalogDir, sidecar)

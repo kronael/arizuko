@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -503,19 +504,27 @@ func (r *Resource) ParseRows(node *yaml.Node) (any, error) {
 	if node.Kind != yaml.SequenceNode {
 		return nil, fmt.Errorf("%s: expected YAML sequence, got kind %d", r.Name, node.Kind)
 	}
-	// yaml.v3 KnownFields lives on Decoder, not Node.Decode — round-trip
-	// the node through a strict Decoder so an unknown row field rejects.
-	raw, err := yaml.Marshal(node)
-	if err != nil {
-		return nil, fmt.Errorf("%s: re-encode: %w", r.Name, err)
-	}
 	slicePtr := reflect.New(reflect.SliceOf(r.meta.rowType))
-	dec := yaml.NewDecoder(bytes.NewReader(raw))
-	dec.KnownFields(true)
-	if err := dec.Decode(slicePtr.Interface()); err != nil {
-		return nil, fmt.Errorf("%s: parse: %w", r.Name, err)
+	if err := decodeStrict(node, slicePtr.Interface()); err != nil {
+		return nil, fmt.Errorf("%s: %w", r.Name, err)
 	}
 	return slicePtr.Elem().Interface(), nil
+}
+
+// decodeStrict decodes node into out, refusing an unknown field. yaml.v3
+// KnownFields lives on Decoder, not Node.Decode, so the node round-trips
+// through a strict Decoder.
+func decodeStrict(node *yaml.Node, out any) error {
+	raw, err := yaml.Marshal(node)
+	if err != nil {
+		return fmt.Errorf("re-encode: %w", err)
+	}
+	dec := yaml.NewDecoder(bytes.NewReader(raw))
+	dec.KnownFields(true)
+	if err := dec.Decode(out); err != nil {
+		return fmt.Errorf("parse: %w", err)
+	}
+	return nil
 }
 
 // EmitRows marshals a `[]RowType` to a YAML node, sorted by PK string
@@ -1227,22 +1236,61 @@ func EmitYAML(manifest map[string]any) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// ParseYAML decodes ONE manifest document into a map of resource name → rows. The
-// reserved key "checksum" is extracted and returned separately so it can never be
-// mistaken for a resource name. Strict: an unknown top-level key rejects before
-// the DB is touched, so an operator's intended config cannot silently fail.
+// EnvNeed is one entry of a package manifest's `env` section: a key the
+// package's process reads from the instance .env, and where its value comes
+// from when the operator has set none. Exactly one source is set.
+//
+// `generate` is minted once and written into .env, where it then belongs to
+// the operator like every other line; `default` is derived on every generate
+// and never written, so setting the key in .env is the whole override story;
+// `required` has no value anyone can invent, so install and generate refuse
+// until the operator sets it — never a fragment that installs and then will
+// not start.
+type EnvNeed struct {
+	Generate bool   `yaml:"generate,omitempty"`
+	Default  string `yaml:"default,omitempty"`
+	Required bool   `yaml:"required,omitempty"`
+}
+
+// PackageEnvKey is the reserved top-level manifest key holding EnvNeed entries.
+const PackageEnvKey = "env"
+
+var envKeyRE = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
+
+// ParseYAML decodes ONE config manifest document into a map of resource name →
+// rows. The reserved key "checksum" is extracted and returned separately so it
+// can never be mistaken for a resource name. Strict: an unknown top-level key
+// rejects before the DB is touched, so an operator's intended config cannot
+// silently fail. A package's `env` section is refused: `apply` writes rows, and
+// accepting the section would report a success that provisioned nothing.
 func ParseYAML(data []byte) (map[string]any, string, error) {
+	rows, env, checksum, err := ParseManifest(data)
+	if err != nil {
+		return nil, "", err
+	}
+	if len(env) > 0 {
+		return nil, "", fmt.Errorf("`%s` is a package declaration that only `arizuko packages` "+
+			"provisions — install this file with `packages add` or `packages install`", PackageEnvKey)
+	}
+	return rows, checksum, nil
+}
+
+// ParseManifest is ParseYAML for the document a package ships: the rows plus
+// its `env` section, read by install and by generate alike (one declaration,
+// many readers).
+func ParseManifest(data []byte) (map[string]any, map[string]EnvNeed, string, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return nil, "", fmt.Errorf("yaml unmarshal: %w", err)
+		return nil, nil, "", fmt.Errorf("yaml unmarshal: %w", err)
 	}
 	if doc.Kind == yaml.DocumentNode && len(doc.Content) > 0 {
 		doc = *doc.Content[0]
 	}
 	if doc.Kind != yaml.MappingNode {
-		return nil, "", fmt.Errorf("manifest root must be a mapping")
+		return nil, nil, "", fmt.Errorf("manifest root must be a mapping")
 	}
 	out := map[string]any{}
+	var env map[string]EnvNeed
 	var checksum string
 	resByName := map[string]*Resource{}
 	for _, r := range All() {
@@ -1251,23 +1299,65 @@ func ParseYAML(data []byte) (map[string]any, string, error) {
 	for i := 0; i+1 < len(doc.Content); i += 2 {
 		key := doc.Content[i].Value
 		val := doc.Content[i+1]
-		if key == "checksum" {
+		switch key {
+		case "checksum":
 			if err := val.Decode(&checksum); err != nil {
-				return nil, "", fmt.Errorf("checksum: %w", err)
+				return nil, nil, "", fmt.Errorf("checksum: %w", err)
 			}
+			continue
+		case PackageEnvKey:
+			parsed, err := parseEnvNeeds(val)
+			if err != nil {
+				return nil, nil, "", err
+			}
+			env = parsed
 			continue
 		}
 		r, ok := resByName[key]
 		if !ok || r.RowType == nil {
-			return nil, "", fmt.Errorf("unknown resource key %q (line %d)", key, doc.Content[i].Line)
+			return nil, nil, "", fmt.Errorf("unknown resource key %q (line %d)", key, doc.Content[i].Line)
 		}
 		rows, err := r.ParseRows(val)
 		if err != nil {
-			return nil, "", err
+			return nil, nil, "", err
 		}
 		out[key] = rows
 	}
-	return out, checksum, nil
+	return out, env, checksum, nil
+}
+
+// parseEnvNeeds decodes the `env` mapping strictly: a key must be an env var
+// name and an entry names exactly one source, so a typo like `defualt:` refuses
+// instead of installing a package that needs a value nothing supplies.
+func parseEnvNeeds(node *yaml.Node) (map[string]EnvNeed, error) {
+	if node.Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("%s: must map KEY to {generate|default|required} (line %d)",
+			PackageEnvKey, node.Line)
+	}
+	out := map[string]EnvNeed{}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		key := node.Content[i].Value
+		line := node.Content[i].Line
+		if !envKeyRE.MatchString(key) {
+			return nil, fmt.Errorf("%s: %q is not an env var name (line %d)", PackageEnvKey, key, line)
+		}
+		var need EnvNeed
+		if err := decodeStrict(node.Content[i+1], &need); err != nil {
+			return nil, fmt.Errorf("%s.%s: %w", PackageEnvKey, key, err)
+		}
+		sources := 0
+		for _, set := range []bool{need.Generate, need.Default != "", need.Required} {
+			if set {
+				sources++
+			}
+		}
+		if sources != 1 {
+			return nil, fmt.Errorf("%s.%s: name exactly one of generate, default, required (line %d)",
+				PackageEnvKey, key, line)
+		}
+		out[key] = need
+	}
+	return out, nil
 }
 
 // SplitDocuments splits a `---`-separated multi-document YAML stream into its

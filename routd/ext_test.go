@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -381,5 +383,45 @@ func TestCallExtTool_NoRetryOnNon401OrNoOpRefresh(t *testing.T) {
 				t.Fatalf("upstream hits = %d, want 1 (no retry)", hits)
 			}
 		})
+	}
+}
+
+func writeOperatorConnectors(t *testing.T, body string) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "connectors.toml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// The rest loader reads the same operator file and refuses the same unknown
+// table, so a wrong block name cannot slip past one loader by being skipped
+// in the other.
+func TestLoadExtProviders_RejectsUnknownTable(t *testing.T) {
+	dir := writeOperatorConnectors(t, "[[ext]]\nname = \"x\"\nurl = \"https://example.com\"\n")
+	if _, err := LoadExtProviders(context.Background(), dir); err == nil || !strings.Contains(err.Error(), "ext") {
+		t.Fatalf("an [[ext]] block must fail the load by name, got %v", err)
+	}
+}
+
+// A bare block is mcp (ipc.ConnectorSpec): the rest loader must pass over it
+// rather than register a rest provider with no tools.
+func TestLoadExtProviders_BareBlockIsMCP(t *testing.T) {
+	dir := writeOperatorConnectors(t, "[[connector]]\nname = \"fake\"\nurl = \"https://example.com/mcp\"\n")
+	tools, err := LoadExtProviders(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("bare block is mcp and must not be loaded as rest: %v", err)
+	}
+	if len(tools) != 10 {
+		t.Errorf("want the 10 builtin tools only, got %d", len(tools))
+	}
+}
+
+// A rest block that declares no tool configures nothing — refused at load.
+func TestLoadExtProviders_RestWithoutToolsIsLoud(t *testing.T) {
+	dir := writeOperatorConnectors(t, "[[connector]]\nname = \"empty\"\ntransport = \"rest\"\nurl = \"https://example.com\"\n")
+	if _, err := LoadExtProviders(context.Background(), dir); err == nil || !strings.Contains(err.Error(), "empty") {
+		t.Fatalf("a rest connector without tools must fail the load by name, got %v", err)
 	}
 }

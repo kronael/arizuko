@@ -305,6 +305,63 @@ testrows: []
 	}
 }
 
+// A package's `env` section rides the same document as its rows: one parse
+// yields both, and the section never leaks into the resource map, where
+// SubsystemOf would fail looking it up.
+func TestParseManifest_EnvSectionBesideRows(t *testing.T) {
+	freshEngine(t)
+	manifest := []byte(`
+env:
+  GW_KEY: {generate: true}
+  GW_URL: {default: "http://gw:4000"}
+  GW_TOKEN: {required: true}
+testrows:
+  - kind: a
+    name: x
+    value: "1"
+`)
+	rows, env, _, err := ParseManifest(manifest)
+	if err != nil {
+		t.Fatalf("ParseManifest: %v", err)
+	}
+	if _, ok := rows[PackageEnvKey]; ok {
+		t.Error("env must not be a resource key")
+	}
+	if len(rows["testrows"].([]TestRow)) != 1 {
+		t.Errorf("rows lost beside env: %v", rows)
+	}
+	want := map[string]EnvNeed{
+		"GW_KEY":   {Generate: true},
+		"GW_URL":   {Default: "http://gw:4000"},
+		"GW_TOKEN": {Required: true},
+	}
+	if !reflect.DeepEqual(env, want) {
+		t.Errorf("env = %+v, want %+v", env, want)
+	}
+}
+
+// An entry with no source, two sources, a misspelled source or a non-env
+// key refuses, so a package that needs a value nothing supplies never
+// installs; and ParseYAML — the row-only reader `apply` uses — refuses the
+// section outright rather than applying the rows and dropping the env.
+func TestParseManifest_EnvStrict(t *testing.T) {
+	freshEngine(t)
+	for name, body := range map[string]string{
+		"no source":   "env:\n  GW_KEY: {}\n",
+		"two sources": "env:\n  GW_KEY: {generate: true, default: x}\n",
+		"typo":        "env:\n  GW_KEY: {defualt: x}\n",
+		"bad key":     "env:\n  gw-key: {generate: true}\n",
+		"not mapping": "env:\n  - GW_KEY\n",
+	} {
+		if _, _, _, err := ParseManifest([]byte(body)); err == nil {
+			t.Errorf("%s: ParseManifest accepted %q", name, body)
+		}
+	}
+	if _, _, err := ParseYAML([]byte("env:\n  GW_KEY: {generate: true}\ntestrows: []\n")); err == nil {
+		t.Error("ParseYAML must refuse a package env section")
+	}
+}
+
 func TestYAMLEmit_Deterministic(t *testing.T) {
 	db, _ := freshEngine(t)
 	insertRaw(t, db,

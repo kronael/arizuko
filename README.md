@@ -177,7 +177,7 @@ Documents can be mounted or written into a group's workspace; agents can read th
 - **Container isolation**: each group runs in a separate Docker container on a separate network. Sibling groups never share a context window.
 - **Egress isolation**: every spawn gets its own `egress` proxy holding its folder's allowlist, on a network with no other route out. Default-deny; the proxy never terminates TLS (MITM declined 2026-08-18). Spec `specs/6/24`.
 - **ACL**: `auth.Authorize` — one `acl` table, deny-wins, no fallback. Capability comes from granted rows, never from a folder's depth; `role:member` is the seeded default and everything above it is delegated. MCP tools gated per-action per-principal.
-- **Secret injection**: secrets are AES-256-GCM encrypted at rest. Only model credentials reach the container env — an API token for a tool is resolved on the host for the one call that needs it and never crosses into the agent's environment.
+- **Secret injection**: secrets are AES-256-GCM encrypted at rest. Only model credentials reach the container env, and with a model gateway configured (`MODEL_GATEWAY_URL`) not even those: the container receives the gateway's virtual key and never the provider credential — an API token for a tool is resolved on the host for the one call that needs it and never crosses into the agent's environment.
 - **Identity relay**: `proxyd` stamps `X-User-*` headers, proving the channel with a `service:proxyd` ES256 bearer (verified via `auth.ProxydTransit`); backends trust the headers only when that proof holds. Client-supplied `X-User-*` headers are stripped.
 
 Full threat model in [SECURITY.md](SECURITY.md).

@@ -31,10 +31,11 @@
 # GRANTS. Each remote tool is gated as `mcp:github_<tool>`, so a deny row or a
 # `hold:` row (spec 5/19) can name one operation — the per-call authority the
 # shell route cannot express.
-[[mcp_connector]]
-name    = "github"
-url     = "https://api.githubcopilot.com/mcp/"
-secrets = ["GITHUB_TOKEN"]
+[[connector]]
+name      = "github"
+transport = "mcp"
+url       = "https://api.githubcopilot.com/mcp/"
+secrets   = ["GITHUB_TOKEN"]
 
-[mcp_connector.headers]
+[connector.headers]
 Authorization = "Bearer {secret:GITHUB_TOKEN}"
