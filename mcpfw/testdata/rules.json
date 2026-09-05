@@ -1,0 +1,6 @@
+{
+  "rules": [
+    { "tool": "read_*", "action": "allow" },
+    { "tool": "send_*", "action": "deny" }
+  ]
+}
