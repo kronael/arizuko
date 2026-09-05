@@ -361,9 +361,14 @@ func (s *Server) mcpSubmitStatus(turnID, text string) error {
 
 // fetchPlatformHistory backs the fetch_history MCP tool: proxy to the adapter
 // owning jid (Deliverer.FetchHistory → GET /v1/history), decode the
-// HistoryResponse, cache rows in routd.db (dedup by ID via PutMessage), and
-// return the decoded messages. On no-adapter/decode failure it returns
-// source:"cache"/"cache-only" with whatever the local DB holds.
+// HistoryResponse and return the decoded messages. On no-adapter/decode
+// failure it returns source:"cache"/"cache-only" with whatever the local DB
+// holds.
+//
+// The rows are rendered, never stored: `messages` is the inbound log the poll
+// loop dispatches from, and a platform row written there is a user message
+// with no bot flag — sloth fed 630 of its own posts back to its agent as
+// <observed>, and 1609 rows fleet-wide sat dead behind the cursor.
 func (s *Server) fetchPlatformHistory(jid string, before time.Time, limit int) (ipc.PlatformHistory, error) {
 	fallback := func(source string) (ipc.PlatformHistory, error) {
 		msgs, err := s.db.MessagesBefore(jid, beforeStr(before), limit)
@@ -386,14 +391,10 @@ func (s *Server) fetchPlatformHistory(jid string, before time.Time, limit int) (
 	}
 	out := ipc.PlatformHistory{Source: resp.Source, Cap: resp.Cap}
 	for _, m := range resp.Messages {
-		cm := core.Message{
-			ID: m.ID, ChatJID: m.ChatJID, Sender: m.Sender, Content: m.Content,
+		out.Messages = append(out.Messages, core.Message{
+			ID: m.ID, ChatJID: m.ChatJID, Sender: m.Sender, Name: m.SenderName, Content: m.Content,
 			Timestamp: time.Unix(m.Timestamp, 0).UTC(), ReplyToID: m.ReplyTo,
-		}
-		if cm.ID != "" {
-			_ = s.db.PutMessage(cm)
-		}
-		out.Messages = append(out.Messages, cm)
+		})
 	}
 	return out, nil
 }

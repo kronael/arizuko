@@ -140,11 +140,6 @@ func FormatMessages(msgs []core.Message, observed ...[]core.Message) string {
 			b.WriteString(escapeXml(m.Topic))
 			b.WriteString(`"`)
 		}
-		if tm.tag == "observed" && m.ChatJID != "" {
-			b.WriteString(` source="`)
-			b.WriteString(escapeXml(m.ChatJID))
-			b.WriteString(`"`)
-		}
 		if m.Errored {
 			b.WriteString(` errored="true"`)
 		}
@@ -218,20 +213,26 @@ var platformShort = map[string]string{
 	"slack": "sl", "email": "em", "web": "web",
 }
 
+// senderToUserFileID maps a sender JID to its per-user file id: the platform's
+// short code and the bare platform id. A typed JID's kind segment
+// ("discord:user/789") is dropped, so the id names the same file the pre-typed
+// JID did and the `users` skill documents ("dc-789").
 func senderToUserFileID(sender string) string {
-	parts := strings.SplitN(sender, ":", 2)
-	if len(parts) != 2 {
+	platform, id, ok := strings.Cut(sender, ":")
+	if !ok {
 		return sender
 	}
-	short := platformShort[parts[0]]
-	if short == "" {
-		p := parts[0]
-		if len(p) > 2 {
-			p = p[:2]
-		}
-		short = p
+	if _, bare, typed := strings.Cut(id, "/"); typed {
+		id = bare
 	}
-	return short + "-" + parts[1]
+	short := platformShort[platform]
+	if short == "" {
+		short = platform
+		if len(short) > 2 {
+			short = short[:2]
+		}
+	}
+	return short + "-" + id
 }
 
 var nameRe = regexp.MustCompile(`(?m)^name:\s*(.+)$`)

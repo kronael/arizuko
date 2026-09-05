@@ -15,6 +15,10 @@ import (
 )
 
 // buildMessageRow maps the ingress wire Message to a core.Message row.
+// replyExcerptChars bounds the parent text a reply carries: enough to identify
+// the message the user answered, not a second copy of a long bot reply.
+const replyExcerptChars = 200
+
 func buildMessageRow(m apiv1.Message, ts time.Time, verb string) core.Message {
 	// whapd sends a single attachment via the flat fields (its only shape); fold
 	// it into the array so the stored `attachments` column is always valid JSON

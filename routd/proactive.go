@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/kronael/arizuko/proactive"
 )
@@ -154,10 +155,15 @@ func evalProactive(db *DB, cfg ProactiveConfig, mode proactive.Mode, jid string,
 	return proactiveResult{check: "NoSignal"}
 }
 
+// truncate cuts s to at most n bytes on a rune boundary, so a multibyte
+// character at the cut never lands in a prompt as a broken byte.
 func truncate(s string, n int) string {
 	s = strings.TrimSpace(s)
 	if len(s) <= n {
 		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
 	}
 	return s[:n]
 }

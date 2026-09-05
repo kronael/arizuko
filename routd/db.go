@@ -335,7 +335,8 @@ func scanMessages(rows *sql.Rows, since string) ([]core.Message, string, error) 
 		var ts, turnID, platformID, fwdFrom sql.NullString
 		var fromMe, botMsg int
 		if err := rows.Scan(&m.ID, &m.ChatJID, &m.Sender, &m.Name, &m.Content, &ts,
-			&fromMe, &botMsg, &m.ReplyToID, &m.Topic, &m.RoutedTo, &m.Verb, &m.Source,
+			&fromMe, &botMsg, &m.ReplyToID, &m.ReplyToText, &m.ReplyToSender,
+			&m.Topic, &m.RoutedTo, &m.Verb, &m.Source,
 			&turnID, &m.Status, &platformID, &m.ChatName, &fwdFrom, &m.Attachments,
 			&m.LinkContext, &m.DeliveryAttempts); err != nil {
 			return out, hi, err
@@ -405,13 +406,28 @@ func (d *DB) PendingOutbound(cutoff time.Time, limit int) ([]core.Message, error
 	return msgs, err
 }
 
-// TopicByID returns the topic of a stored row matched by id OR platform_id —
-// reaction topic-inheritance looks up the parent so a reaction to a threaded
-// message routes to the parent's topic, not the main topic.
+// MessageByID returns the stored row matched by id OR platform_id: an adapter
+// names a reply's parent by the platform's id, which a bot row carries in
+// platform_id. ok=false when no row matches.
+func (d *DB) MessageByID(id string) (core.Message, bool) {
+	rows, err := d.db.Query(`SELECT `+msgReadCols+`
+		FROM messages WHERE id=? OR platform_id=? LIMIT 1`, id, id)
+	if err != nil {
+		return core.Message{}, false
+	}
+	defer rows.Close()
+	msgs, _, err := scanMessages(rows, "")
+	if err != nil || len(msgs) == 0 {
+		return core.Message{}, false
+	}
+	return msgs[0], true
+}
+
+// TopicByID returns the topic of the row MessageByID matches, so a reply to a
+// threaded message forks lineage from the parent's topic, not the main topic.
 func (d *DB) TopicByID(id string) string {
-	var topic string
-	d.db.QueryRow("SELECT topic FROM messages WHERE id=? OR platform_id=? LIMIT 1", id, id).Scan(&topic)
-	return topic
+	m, _ := d.MessageByID(id)
+	return m.Topic
 }
 
 // MarkChatErrored flags a chat as errored (a run definitively failed). The
@@ -1308,14 +1324,6 @@ func (d *DB) ChatHasRunningTurn(jid string) bool {
 	var n int
 	d.db.QueryRow("SELECT 1 FROM turn_context WHERE chat_jid=? AND state='running' LIMIT 1", jid).Scan(&n)
 	return n == 1
-}
-
-// ReplyTargetIsBot reports whether the message with the given id (or platform_id)
-// is a bot-authored row — used to promote replies-to-bot to verb=mention.
-func (d *DB) ReplyTargetIsBot(id string) bool {
-	var bot int
-	d.db.QueryRow("SELECT is_bot_message FROM messages WHERE id=? OR platform_id=?", id, id).Scan(&bot)
-	return bot == 1
 }
 
 // ThreadHasBotMessage reports whether the bot has posted in (chatJID, topic).

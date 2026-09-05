@@ -546,13 +546,27 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	if verb == "" {
 		verb = "message"
 	}
-	// Reaction topic-inheritance: a reaction/reply with no topic of its own
-	// inherits the parent message's topic so it routes to the parent's thread, not
-	// the main topic. Resolved BEFORE promotion so the thread-participation check
-	// below sees the inherited topic.
-	if m.Topic == "" && m.ReplyTo != "" {
-		m.Topic = s.db.TopicByID(m.ReplyTo)
+	// The parent of a reply/reaction settles three things at once: a reply
+	// with no topic of its own inherits the parent's topic so it routes to the
+	// parent's thread (resolved BEFORE promotion so the thread-participation
+	// check sees it); a reply whose adapter sent no excerpt gets the parent's
+	// sender and text, which is what the agent reads under <reply-to>; and a
+	// reply to a bot row is a mention.
+	var parent core.Message
+	hasParent := false
+	if m.ReplyTo != "" {
+		parent, hasParent = s.db.MessageByID(m.ReplyTo)
 	}
+	if m.Topic == "" && hasParent {
+		m.Topic = parent.Topic
+	}
+	if m.ReplyToText == "" && hasParent {
+		m.ReplyToText, m.ReplyToSender = parent.Content, parent.Name
+		if parent.Name == "" {
+			m.ReplyToSender = parent.Sender
+		}
+	}
+	m.ReplyToText = truncate(m.ReplyToText, replyExcerptChars)
 	// Mention promotion: an inbound that replies to a bot row, OR lands in a
 	// thread the bot started/participated in (spec 5/L), is promoted to
 	// verb=mention so routing sees a uniform trigger and the agent re-attends the
@@ -561,8 +575,7 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	// 10/17) must NOT escalate to a mention this way — that would let a spoofed
 	// inbound drive an agent turn. gated guarded this; the split had dropped it.
 	if verb != "untrusted" &&
-		((m.ReplyTo != "" && s.db.ReplyTargetIsBot(m.ReplyTo)) ||
-			s.db.ThreadHasBotMessage(m.ChatJID, m.Topic)) {
+		((hasParent && parent.BotMsg) || s.db.ThreadHasBotMessage(m.ChatJID, m.Topic)) {
 		verb = "mention"
 	}
 	// A green/red reaction on a held notice IS the verdict, spelled in the one

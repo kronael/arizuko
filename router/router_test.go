@@ -153,12 +153,37 @@ func TestSenderToUserFileID(t *testing.T) {
 		{"discord:789", "dc-789"},
 		{"email:user@example.com", "em-user@example.com"},
 		{"unknown:abc", "un-abc"},
+		// Typed JIDs (migration 0042): the kind segment never reaches the file
+		// id, so the file the agent kept before the migration is still found.
+		{"discord:user/789", "dc-789"},
+		{"telegram:user/123456", "tg-123456"},
+		{"slack:user/U1", "sl-U1"},
+		{"email:address/user@example.com", "em-user@example.com"},
+		{"whatsapp:5551234@s.whatsapp.net", "wa-5551234@s.whatsapp.net"},
 	}
 	for _, tc := range cases {
 		got := senderToUserFileID(tc.in)
 		if got != tc.want {
 			t.Fatalf("senderToUserFileID(%q) = %q, want %q", tc.in, got, tc.want)
 		}
+	}
+}
+
+// TestFormatMessagesObservedNamesTheChatOnce: an observed row names its chat
+// in chat_id like every other row; a second attribute with the same value
+// (3508 of 3508 observed lines in two live transcripts) is noise the agent
+// has to read past.
+func TestFormatMessagesObservedNamesTheChatOnce(t *testing.T) {
+	ts := time.Date(2025, 3, 7, 12, 0, 0, 0, time.UTC)
+	observed := []core.Message{
+		{ID: "o1", ChatJID: "discord:g/c1", Sender: "u1", Content: "bg", Timestamp: ts},
+	}
+	got := FormatMessages(nil, observed)
+	if !strings.Contains(got, `<observed id="o1"`) || !strings.Contains(got, `chat_id="discord:g/c1"`) {
+		t.Fatalf("observed row lost its tag or chat_id:\n%s", got)
+	}
+	if strings.Contains(got, ` source=`) {
+		t.Fatalf("observed row repeats chat_id as source:\n%s", got)
 	}
 }
 

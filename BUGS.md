@@ -9634,3 +9634,165 @@ ship gate for a component whose shape `6/24` already changed, and `6/9` stays
 
 - [x] ✅ FIXED 2026-09-05 — `add_acl` and `POST /v1/acl` never write `grant_option` (`routd/acl_resource.go:290` vs `store/acl.go:16`), so re-delegation is reachable only through `resreg.Apply` — the live grant surfaces cannot express it. `aclArgsRow` reads the argument, `grantACLTx` writes the column and `list_acl` reports it; the Gate needed no change, because `auth.Delegate`'s `grantableRows` already only holds rows the caller has WITH the option. `fix(routd): write grant_option on the live acl grant surfaces`
 - [x] ✅ FIXED 2026-09-05 — `webd` registers with chanreg once and sends no heartbeat (`webd/main.go:127`), so three failed probes deregister the `web` channel until the daemon restarts. The heartbeat `chanlib.Run` ran inline is now `RouterClient.Heartbeat`, replaying the registration `Register` already saves; `chanlib.Run` and webd both start it. `fix(chanlib): one heartbeat every registering daemon can run`
+
+## ✅ FIXED 2026-09-05 L177 — every `<reply-to>` rendered `sender="unknown"` with no body; routd never read the excerpt columns back (2026-09-05)
+
+`msgReadCols` (`routd/reads.go`) omitted `reply_to_text` and `reply_to_sender`,
+so the 80 excerpts teled stored never reached a prompt, and no other adapter
+sends one. Measured in the live transcripts: sloth `main/trading` 374 of 374
+real `<reply-to>` lines `sender="unknown"`, krons 2146 of 2146; the only
+`sender="bot"` lines are the manual quoting itself. `ant/CLAUDE.md` promised
+an excerpt "when the parent is out of the session window" — a rule nothing
+implemented, in the monolith either (`api/api.go:331` copied the adapter's
+field and stopped). On sloth 1966 of 2069 replies name a parent routd already
+holds. The agent's own episodes log filed this on 8/21 as "gateway never fills
+`<reply-to>` parent even when in local db".
+
+- **Severity:** medium (the user's load-bearing intent — which message they
+  answered — arrived as an opaque id)
+- **Scope:** routd message read path + ingest
+- **Affected:** every instance, every adapter but teled
+- **Source:** `routd/reads.go` msgReadCols, `routd/server.go` handleMessages;
+  transcripts 2026-09-05
+- **Status:** fixed. The read path scans both columns; ingest fills sender +
+  a 200-char excerpt from the stored parent through one `MessageByID` lookup
+  that also serves topic inheritance and reply-to-bot promotion.
+  `ant/CLAUDE.md` § How messages arrive states the mechanics as built.
+- **Fix:** 25f57b15
+
+## ✅ FIXED 2026-09-05 L178 — `fetch_history` wrote platform rows into `messages` as user inbound; 1609 dead or misattributed rows fleet-wide (2026-09-05)
+
+`fetchPlatformHistory` (`routd/mcp.go`) `PutMessage`d every fetched row with
+no `BotMsg`, no name, no verb, no chat name. Two faces, both measured on
+sloth: (1) the bot's own posts came back under its own Discord user id
+(`discord:user/1325081371307278484`, `sender_name` "sloth_re_tardus") as
+`is_bot_message=0` — 630 rows marked `is_observed=1`, i.e. the agent read its
+own words in `<observed>` as a stranger's; (2) a row inserted after the chat
+cursor had passed its platform timestamp is invisible to the poll loop
+forever — `1545761586571116545` (2026-09-05 11:44:41Z, the sweep-delivered
+copy of the agent's own reply from L169) has `routed_to=''`,
+`is_observed=0`, no `turn_context`, no journal line, and is absent from every
+transcript of the folder while `inspect_messages` answers it. Cache-shaped
+rows (no sender_name, no source, no chat_name): sloth 634, krons 947,
+marinade 28.
+
+- **Severity:** high (a second writer of the inbound log with a different row
+  shape; the agent's own speech re-enters as a user's)
+- **Scope:** routd fetch_history
+- **Affected:** sloth, krons, marinade
+- **Source:** `routd/mcp.go` fetchPlatformHistory; `routd.db` on the three
+  instances 2026-09-05
+- **Status:** fixed — rows are rendered, never stored; the `cache` fallback
+  reads what routd ingested itself. The rows already written stay (below,
+  L181).
+- **Fix:** 216196c1
+
+## ✅ FIXED 2026-09-05 L179 — after the typed-JID migration the `<user>` block never found a per-user memory file (2026-09-05)
+
+`senderToUserFileID` kept everything after the scheme, so migration 0042
+turned `discord:user/789` into file id `dc-user/789`: the lookup path gained
+a directory level and every pre-migration file (`dc-<id>.md`, `tg-<id>.md`,
+`sl-<id>.md` on sloth, krons, marinade) stopped resolving. Live: sloth
+`main/trading` transcripts inject `<user id="dc-user/162597936323231753" />`
+with no `memory=` while `users/dc-162597936323231753.md` exists and was
+edited by the agent the same day. Agents then wrote new files by hand under
+three spellings. The same function expands a `{sender}` route target, which
+became a two-level folder.
+
+- **Severity:** medium (per-user memory silently unreachable since 0042)
+- **Scope:** router sender → file id
+- **Affected:** every instance, every typed-JID platform
+- **Source:** `router/router.go` senderToUserFileID; `users/` listings on the
+  three instances 2026-09-05
+- **Status:** fixed; the misnamed files are operator data (L181)
+- **Fix:** e7b2675e
+
+## ✅ FIXED 2026-09-05 L180 — `<observed>` carried `source=` equal to `chat_id=` on every line (2026-09-05)
+
+3508 of 3508 observed lines in the krons `krons` and sloth `main/trading`
+transcripts carried both attributes with the same value. Removed.
+
+- **Severity:** low
+- **Scope:** router prompt renderer
+- **Affected:** every instance
+- **Source:** `router/router.go` FormatMessages
+- **Status:** fixed
+- **Fix:** 98cb94b7
+
+## L181 — operator data left behind by L178 and L179 (2026-09-05, open — operator task)
+
+Nothing mechanical fixes stored data. Two sets to clean by hand:
+
+1. Per-user files written under the wrong name while L179 was live — rename
+   to `<short>-<bare id>.md`: sloth `groups/main/trading/users/dc-user-657972559354265610.md`,
+   `groups/main/trading/users/dc-user-811295670702047272.md`,
+   `groups/main/main/users/dc-user-811295670702047272.md`; marinade
+   `groups/atlas/search/users/sl-user/U4PMARRT6.md` (a subdirectory).
+2. The platform rows L178 wrote: `is_bot_message=0 AND sender_name IS NULL
+   AND source IS NULL AND chat_name IS NULL` on a `<platform>:` chat — 634 on
+   sloth, 947 on krons, 28 on marinade. They answer `inspect_messages`,
+   `search_messages` and the 7-day census as user inbound. Deleting them is a
+   data fix on three live DBs; sign off before running it.
+
+- **Severity:** low
+- **Scope:** instance data
+- **Affected:** sloth, krons, marinade
+- **Source:** `find … -path '*/users/*.md'` and the `messages` query above,
+  2026-09-05
+- **Status:** open (operator)
+- **Fix:**
+
+## L182 — the sloth host clock is 18 s behind Discord, so every inbound `time=` is in the future of `now:` (2026-09-05, open — infra)
+
+`date -u` on hel1v5 read 12:35:56Z while `https://discord.com` answered
+`Date: 12:36:14 GMT`. Every Discord inbound is stamped from the snowflake, so
+the transcript shows `now: 12:10:52Z` above `time="12:11:10Z"` on the same
+turn; `ago=` reads "now" for a negative duration, and `MessagesBefore(before="")`
+(= now) hides the newest 18 s. Not a code defect: NTP on the host.
+
+- **Severity:** low
+- **Scope:** sloth host
+- **Affected:** sloth
+- **Source:** transcript `827e9e0e` 12:11:08Z; `date -u` vs Discord `Date`
+  header 2026-09-05 12:36
+- **Status:** open (infra)
+- **Fix:**
+
+## L183 — a same-second inbound pair split across two turns loses the second message; measured exposure, no loss observed (2026-09-05, proposal)
+
+Adapters stamp whole seconds (`m.Timestamp.Unix()`; 5844 of sloth's inbound
+rows have no fraction) and the chat cursor is the trigger's timestamp string
+compared with `timestamp > ?`. When message B lands in the same second as A
+after A's batch was read, A's turn advances the cursor to that second and B
+is never `> cursor` — and a fractional B (`…05.3Z`) sorts BEFORE a
+whole-second A (`…05Z`) in the string compare. 133 same-second inbound pairs
+exist on sloth. Checked against the transcripts for `#trading` since 08-29:
+every non-cache inbound row reached a transcript, so the exposure has not
+fired in that window. Shape of the fix: the cursor becomes the row's `rowid`
+(routd is the sole writer, the table is append-only), with the timestamp kept
+for `new_day` and idle expiry — a cursor redesign, not a patch.
+
+- **Severity:** medium (silent loss of a user message, rare)
+- **Scope:** routd dispatch cursor
+- **Affected:** every instance
+- **Source:** `routd/dispatch.go` processGroupMessages, `routd/db.go`
+  MessagesSince; `messages` on sloth 2026-09-05
+- **Status:** proposal (needs sign-off)
+- **Fix:**
+
+## L184 — `fetch_history` cannot tell the agent which rows are its own (2026-09-05, proposal)
+
+With L178 fixed the rows are rendered from the adapter's response, whose
+`InboundMsg` has no own-author flag, so the bot's posts render as
+`sender="discord:user/<bot id>"`. The agent reads its own words as another
+user's — the twin of L150 on the read side. Shape: the adapter, which knows
+its user id (`session.State.User.ID`), marks its rows `from_me` in the
+`HistoryResponse` and the renderer emits the folder name as sender. A chanlib
+wire change; decide before adding the field.
+
+- **Severity:** low
+- **Scope:** chanlib HistoryResponse, adapters' FetchHistory
+- **Affected:** every adapter with the fetch_history cap
+- **Source:** `discd/bot.go` FetchHistory, `routd/mcp.go` fetchPlatformHistory
+- **Status:** proposal (needs sign-off)
+- **Fix:**

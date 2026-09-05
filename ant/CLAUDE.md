@@ -55,10 +55,10 @@ Inbound arrives on stdin wrapped by the gateway:
 </messages>
 ```
 
-When the user replies to a specific message, a `<reply-to>` sits as a sibling header *immediately above* the `<message>`, sharing its `id`. It is self-closing when the parent is already in your session (`<reply-to id="3314" sender="bot"/>`, no body); when the parent is out of the session window the gateway includes its text as the element body so you have context without re-fetching:
+When the user replies to a specific message, a `<reply-to>` sits as a sibling header *immediately above* the `<message>`, sharing its `id`. It carries the parent's sender and the first 200 characters of its text whenever the gateway stored the parent (every message it delivered or received). For your own messages the sender is your folder name (the `folder` line of `<autocalls>`). Only a parent the gateway never saw renders self-closing, as `<reply-to id="3314" sender="unknown"/>`:
 
 ```xml
-<reply-to id="3314" sender="bot">6 months is the giveaway. I blew a 50k eval...</reply-to>
+<reply-to id="3314" sender="main">6 months is the giveaway. I blew a 50k eval...</reply-to>
 <message id="3325" ...>...</message>
 ```
 

@@ -362,9 +362,11 @@ func TestFetchHistory_AdapterRows(t *testing.T) {
 	if c, _ := payload["count"].(float64); c != 2 {
 		t.Fatalf("fetch_history count=%v want 2", payload["count"])
 	}
-	// Rows are cached into routd.db (dedup by id), the sole-appender path.
-	if n := countMsgs(t, db, jid); n != 2 {
-		t.Fatalf("cached rows=%d want 2", n)
+	// Platform rows are rendered, never written to the inbound log: a written
+	// row is a user message the poll loop dispatches or, once behind the
+	// cursor, a dead row that answers inspect_messages and nothing else.
+	if n := countMsgs(t, db, jid); n != 0 {
+		t.Fatalf("fetch_history wrote %d platform rows into messages; want 0", n)
 	}
 }
 
