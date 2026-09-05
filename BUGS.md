@@ -10155,3 +10155,85 @@ constants in `core` that both `LoadConfig` and routd's `main` read.
 - **Source:** `routd/cmd/routd/main.go` NewLoop call; `core/config.go` LoadConfig
 - **Status:** open — proposal, needs sign-off
 - **Fix:** constants in `core` (~15 lines) or `core.LoadConfig` in routd's main
+
+## L196 — routd's operator dashboard renders to anyone who sets `X-User-Groups`, on a host-published port (2026-09-05, open — needs sign-off)
+
+MEASURED on live krons, read-only GET, no token:
+
+```
+curl -o /dev/null -w '%{http_code}'                       http://127.0.0.1:8081/dash/routd/  -> 403
+curl -H 'X-User-Groups: ["**"]' -H 'X-User-Sub: audit'    http://127.0.0.1:8081/dash/routd/  -> 200
+```
+
+The 200 is the full operator page (`<title>arizuko — routd</title>`). The port
+is reachable off-host: `docker port arizuko_routd_krons` is `0.0.0.0:8081`
+(`compose/compose.go` emits `'$API_PORT:8080'`, short syntax binds all
+interfaces), `ss -ltnp` confirms `0.0.0.0:8081`, and `iptables -S INPUT` is
+`-P INPUT ACCEPT` with only a fail2ban jump on 22.
+
+`6/28` §Auth defines two gates: gate 1 verifies the `service:proxyd` ES256
+bearer with `auth.ProxydTransit`, and only a daemon that passed gate 1 may
+trust the stamped `X-User-*`. Gate 2 ships; gate 1 does not. `auth.ProxydTransit`
+has four non-test call sites (`auth/middleware.go`, `dashd/main.go`,
+`onbod/main.go`, `webd/server.go`), none of them a `dash.go`. `routd/dash.go`
+calls `auth.RequireOperator` → `auth/dashauth.go` `IsOperator`, which reads the
+raw header. `auth/dashauth.go`'s own header comment says a caller "MUST verify
+that before calling anything here" — seven daemon dashboards do not.
+
+Not probed, because it would be a write: `RequireWrite` adds a `sameOrigin`
+check, so whether the page's POST controls (retry, replay, drop, route CRUD,
+token revoke) are equally reachable is REASONED, not measured. The read alone
+exposes routes, tokens, queue and errored traffic for every tenant.
+
+- **Severity:** high
+- **Scope:** `auth/dashauth.go`, `routd/dash.go`, `runed/dash.go`, `authd/dash.go`,
+  `timed/dash.go`, `webd/dash.go`, `onbod/dash.go`, `proxyd/dash.go`,
+  `ttsd/dash.go`, `chanlib/dash.go`
+- **Affected:** krons (measured), marinade and sloth (same image, same compose
+  shape — not probed)
+- **Source:** `6/28` §Auth gate 1 vs `auth/dashauth.go` `IsOperator`
+- **Status:** open — needs sign-off; the fix is a contract change (gate 1 inside
+  `RequireOperator`, or every dashboard mount wrapped), which is a redesign
+- **Fix:** fold `auth.ProxydTransit` into `RequireOperator`/`IsOperator` so the
+  one gate is one gate, and add the negative test (`X-User-Groups` with no
+  transit proof → 403) that no dashboard has today
+
+## L197 — six phase-6 specs read `shipped` in frontmatter and `draft`/`defected` in the index, and five of those flips touched no code (2026-09-05, open — docs, spec owner)
+
+MEASURED. Frontmatter vs `specs/6/index.md`, whole directory:
+
+| spec | frontmatter | index row |
+| --- | --- | --- |
+| `6/12` | shipped | draft |
+| `6/23` | shipped | draft |
+| `6/28` | shipped | defected |
+| `6/29` | shipped | defected |
+| `6/34` | shipped | draft |
+| `6/35` | shipped | draft |
+| `6/36` | shipped | draft |
+
+Every disagreement runs the same direction. Four commits set them, all
+2026-09-05, and `git show --stat` says what each changed: `b32262e5` (6/23,
+6/22) two frontmatter lines, no code; `d6f17262` (6/12) one frontmatter line,
+no code; `b71ec2c2` (6/35, 6/25); `23b629e0` (6/34, 6/36) two frontmatter
+lines, no code. None touched `specs/6/index.md`.
+
+Three bodies contradict their own frontmatter in a sentence:
+`6/12:13` "Draft / future. No consumer wired yet."; `6/32:15` "Nothing here is
+built."; `6/34:14-15` "A proposal, not a decision … nothing moves until this
+spec is `planned`."
+
+`tests/specrefs/refs_test.go` checks that a `depends:` entry resolves to a
+file. Nothing checks that a status is true, that a body agrees with its own
+frontmatter, or that the index agrees with either — so no test can fail on
+this, which is why `L154`'s audit and this one found the same class again.
+
+- **Severity:** medium
+- **Scope:** `specs/6/*.md` frontmatter, `specs/6/index.md`, `tests/specrefs/`
+- **Affected:** anyone reading `specs/6/` to learn what the platform does
+- **Source:** `git show --stat b32262e5 d6f17262 b71ec2c2 23b629e0`
+- **Status:** open — docs, needs the spec owner
+- **Fix:** reconcile each row against the code, then extend `tests/specrefs` with
+  the two mechanical checks it can make — frontmatter status equals the index
+  row, and a `shipped` spec contains no "not built"/"no consumer"/"nothing
+  moves" sentence
