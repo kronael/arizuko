@@ -910,29 +910,6 @@ func (d *dash) handleTasksPartial(w http.ResponseWriter, r *http.Request) {
 	d.writeTaskRows(r.Context(), w, allowed, operator)
 }
 
-// ownerVisibleSQL builds a WHERE predicate restricting a folder-valued column to
-// the caller's granted folders, mirroring visible() so a LIMIT counts only
-// visible rows. A glob-free scope covers exactly its own folder, so equality is
-// the whole predicate. ok is false when a grant carries a glob ('*') SQL can't
-// express — the caller then over-fetches and lets visible() filter.
-func ownerVisibleSQL(col string, allowed []string) (where string, args []any, ok bool) {
-	var terms []string
-	for _, a := range allowed {
-		if a == "" {
-			continue
-		}
-		if strings.ContainsRune(a, '*') {
-			return "", nil, false
-		}
-		terms = append(terms, col+" = ?")
-		args = append(args, a)
-	}
-	if len(terms) == 0 {
-		return "0", nil, true // no concrete grants → nothing visible
-	}
-	return "(" + strings.Join(terms, " OR ") + ")", args, true
-}
-
 func (d *dash) writeTaskRows(ctx context.Context, w http.ResponseWriter, allowed []string, operator bool) {
 	// routd owns scheduled_tasks; the page asks rather than reads its file
 	// (6/28). dashd's service token carries an empty folder claim, which routd

@@ -100,7 +100,7 @@ type Loop struct {
 
 	// Maintenance cadence, loop-driven (no free tickers). nextRetryAt paces
 	// the outbound retry sweep (pending bot rows >30s); nextGCAt paces the
-	// hourly GC (expired stale running turns + idempotency-ledger sweep).
+	// hourly GC (expired stale running turns).
 	nextRetryAt time.Time
 	nextGCAt    time.Time
 
@@ -392,7 +392,7 @@ func (l *Loop) sweepOrphanSocks() {
 }
 
 // Maintenance cadence. The retry sweep re-dispatches pending bot rows; the GC
-// sweeps stale running turns and the idempotency ledger.
+// sweeps stale running turns.
 const (
 	outboundRetryEvery = 30 * time.Second
 	outboundRetryAfter = 30 * time.Second
@@ -482,7 +482,7 @@ func (l *Loop) maybeRetryOutbound(now time.Time) {
 
 // maybeGC runs the hourly housekeeping: sweep stale 'running' turns to
 // 'expired' (so a crashed-never-completed turn stops being re-fed yet does
-// not trip the done-guard) and drop expired idempotency-ledger rows.
+// not trip the done-guard).
 func (l *Loop) maybeGC(now time.Time) {
 	if now.Before(l.nextGCAt) {
 		return
@@ -494,9 +494,6 @@ func (l *Loop) maybeGC(now time.Time) {
 		} else if n > 0 {
 			slog.Info("gc: swept stale running turns", "count", n)
 		}
-	}
-	if err := l.db.SweepIdempotency(); err != nil {
-		slog.Warn("gc: sweep idempotency", "err", err)
 	}
 }
 

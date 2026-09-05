@@ -213,7 +213,7 @@ subsumes it.
 - **Status:** open
 - **Fix:**
 
-## L173 — `idempotency_keys` has no writer; the hourly sweep, its test and the table outlive the ledger (2026-09-05, open)
+## ✅ FIXED 2026-09-05 L173 — `idempotency_keys` has no writer; the hourly sweep, its test and the table outlive the ledger (2026-09-05)
 
 The REST turn face was the ledger's only writer; with it gone (`fa00076d`)
 `SweepIdempotency` (`routd/tokens.go`) deletes from an always-empty table
@@ -227,7 +227,8 @@ in another edit set that day.
 - **Scope:** routd schema
 - **Affected:** routd
 - **Source:** `routd/tokens.go` `SweepIdempotency`; `routd/loop.go:498`
-- **Status:** open
+- **Status:** fixed — migration 0042 drops the table (0043 takes `pane_sessions.last_status_at`, the same writer-less shape, found by a column census); zero rows on krons, marinade and sloth
+- **Fix:** dde8683f
 ## L174 — gateway-measured spend has no path into `cost_log`: the litellm package exports OTLP spans and nothing arizuko runs reads them (2026-09-05, open — proposal, needs sign-off)
 
 `cost_log` has two writers, both in routd: `recordTurnResult` books
@@ -9886,7 +9887,7 @@ routd's `/v1` first — it is the precondition for both S1 and S11.
 - **Status:** proposal (needs sign-off)
 - **Fix:**
 
-## L187 — `ARIZUKO_LOCAL_SUB` has no reader (2026-09-05, open — docs)
+## ✅ FIXED 2026-09-05 L187 — `ARIZUKO_LOCAL_SUB` has no reader (2026-09-05)
 
 Its only reader was the in-runner `ipc.ServeMCP` branch in
 `container/runner.go`, which the split never took (runed spawned with the
@@ -9901,7 +9902,8 @@ the root socket.
 - **Scope:** local-dev MCP identity
 - **Affected:** operators who set it
 - **Source:** `ipc/ipc.go` ServeMCP callerSub; `container/runner.go`
-- **Status:** open
+- **Status:** fixed — retired: the last code mention (`ipc/ipc.go`) is gone; the v0.42.0 CHANGELOG entry and migration 136 stay as history
+- **Fix:** 277b1dbf
 ## ✅ FIXED 2026-09-05 L185 — closes L130: the resident manual reaches codex and pi (2026-09-05)
 
 L130 measured a codex agent on the eval folder with `~/.claude/CLAUDE.md`
@@ -10084,3 +10086,72 @@ seam".
 - **Source:** `grep -n '27 of 43\|storage seam' specs/7/22-rust-track.md specs/index.md`
 - **Status:** open — docs
 - **Fix:** one paragraph in `7/22` pointing at the `7/21` census; two phrases in `specs/index.md`
+## L195 — `store/migrations` is a second declaration of routd's schema that only tests run, and it has drifted on 7 shared tables (2026-09-05, open — proposal, needs sign-off)
+
+Measured at `23b629e0` by migrating both chains into memory and diffing
+`pragma_table_info`: `store/migrations/` (88 files, 1855 lines) builds 45
+tables; `routd/migrations/` builds 35. Production never runs the store chain
+— `store.Migrate`/`store.Open`/`store.OpenMem` have no caller outside
+`_test.go` files except `tests/dashd-playwright/seed/main.go` — yet 28 test
+files across `auth`, `cmd`, `proxyd`, `resreg`, `routd`, `slakd`, `tests`
+and `webd` open it, and `testutils.NewInstance` hands it to
+`onbod/integration_test.go`, `webd/integration_test.go`,
+`proxyd/integration_test.go` and `tests/onboarding_e2e_test.go`.
+
+The two chains disagree today on every column of `cost_log` (store
+`ts,cents,input_tok,output_tok,cache_read,cache_write` vs routd
+`recorded_at,cost_cents,input_tokens,output_tokens,turn_id`), on
+`system_messages` (store `attrs,created_at,event,group_id,origin` vs routd
+`created,folder,kind,source`), and routd-only columns on `messages`
+(`delivery_attempts,link_context`), `pending_actions` (`mode,notice_id`),
+`secrets` (`expires_at,provider,refresh_val,scope_list`) and `chats`
+(`errored`); `user_profiles.linked_to_sub` exists only in store. The store
+chain still grows in step with routd's (`0082`/`0083` mirror routd
+`0031`/`0032`), so every routd migration is written twice. `testutils.go`
+names the failure this buys: "a store-schema fixture lets a genuine
+column-name regression pass". `webd/integration_test.go` and
+`tests/onboarding_e2e_test.go` read `messages` through the store schema,
+which lacks two production columns.
+
+The cut is not mechanical: `store` cannot import `routd` (routd imports
+store), so the store package's own unit tests need a schema from somewhere.
+Options: (a) move the store-only tables' helpers to their owners and have
+`store`'s tests open `routd/migrations` through a test-only embed; (b) keep
+one chain under `store/` and have `routd.Create` apply it (undoes the 5/16
+per-daemon ownership); (c) freeze the store chain at `0083` and forbid
+additions, moving the four `NewInstance` callers to `NewRoutdInstance`.
+(c) is the smallest and stops the bleeding; (a) is the one-declaration fix.
+
+- **Severity:** medium (tests certify a schema production does not run)
+- **Scope:** `store/migrations/`, `tests/testutils`, four integration tests
+- **Affected:** every daemon test on `NewInstance`; the drift is silent
+- **Source:** `store/store.go` Migrate/Open/OpenMem; `tests/testutils/testutils.go` NewInstance
+- **Status:** open — proposal, needs sign-off
+- **Fix:** (c) first; then (a) as its own spec under `7/21`
+## L194 — `routd/cmd/routd/main.go` re-declares five defaults `core.LoadConfig` also declares, and one pair already differs (2026-09-05, open — proposal, needs sign-off)
+
+routd builds its `LoopConfig` from `os.Getenv` directly and never calls
+`core.LoadConfig`. After the dead-field cut (`core.Config` lost 19 fields no
+production code read) eight env vars still carry a default in both places:
+`MAX_CONCURRENT_CONTAINERS` (5 / 5 — the pair BUGS F71 already paid for),
+`ASSISTANT_NAME` (`Andy` / `Andy`), `MEDIA_ENABLED`, `MEDIA_MAX_FILE_BYTES`,
+`WHISPER_MODEL`, `VOICE_TRANSCRIPTION_ENABLED`,
+`VIDEO_TRANSCRIPTION_ENABLED` (runed writes them into the agent's media
+TOML through `core.Config`; routd reads them for inbound enrichment), and
+`APP_SRC_DIR`, where the fallbacks differ: core falls to `HOST_APP_DIR` then
+`execDir()`, routd to `HOST_APP_DIR` then `""`. Compose always sets
+`HOST_APP_DIR`, so the difference is latent on an instance and live in a
+bare `routd` run.
+
+Two readers of one env var are allowed; two declarations of its default
+are the F71 shape. The fix is one of: routd calls `core.LoadConfig` and
+copies the fields it needs into `LoopConfig` (a control-flow change in
+`main`, so it needs the owner's sign-off), or the defaults become named
+constants in `core` that both `LoadConfig` and routd's `main` read.
+
+- **Severity:** low
+- **Scope:** `routd/cmd/routd/main.go`, `core/config.go`
+- **Affected:** routd, runed (media defaults), operators who set none of the vars
+- **Source:** `routd/cmd/routd/main.go` NewLoop call; `core/config.go` LoadConfig
+- **Status:** open — proposal, needs sign-off
+- **Fix:** constants in `core` (~15 lines) or `core.LoadConfig` in routd's main

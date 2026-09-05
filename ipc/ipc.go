@@ -256,7 +256,7 @@ type StoreFns struct {
 	// (e.g. "mcp:send") with params against `folder` as the SCOPE — the caller's own
 	// folder for magnitude, or the ACTUAL target folder for a management tool's
 	// containment (a delegated row scoped to a subtree covers it). Used by ServeMCP
-	// when callerSub != "" (ARIZUKO_LOCAL_SUB). Nil means no row-based check (full
+	// when callerSub != "". Nil means no row-based check (full
 	// operator access).
 	//
 	// It takes no principal. The turn's principals — the folder it was routed to and

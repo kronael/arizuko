@@ -55,10 +55,8 @@ New coverage added by `tests/integration_features_test.go` is marked
 
 ## 3. Channel adapters
 
-Capability surface tested generically via `testutils.FakeChannel`
-(`TestFeature_ChannelAdapters/capability-surface`): send, reply, file,
-voice, like, delete, post, typing, prefix-Owns. Per-adapter wire encoding is
-covered in each adapter's own `*_test.go`.
+Per-adapter wire encoding is covered in each adapter's own `*_test.go`; the
+routd-side capability gate is covered in `routd/deliver_test.go`.
 
 | Adapter           | exists | tested                 | ref             |
 | ----------------- | ------ | ---------------------- | --------------- |

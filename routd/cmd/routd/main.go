@@ -164,11 +164,11 @@ func main() {
 		// Auto-migrate source root (ant/skills/self/MIGRATION_VERSION lives
 		// under it); APP_SRC_DIR falls back to HOST_APP_DIR (core.LoadConfig).
 		AppSrcDir: core.EnvOr("APP_SRC_DIR", os.Getenv("HOST_APP_DIR")),
-		// Prompt envelope (buildAgentPrompt). Defaults mirror core.LoadConfig.
+		// Prompt envelope (buildAgentPrompt).
 		InstanceName:          core.EnvOr("ASSISTANT_NAME", "Andy"),
 		ObserveWindowMessages: core.EnvInt("OBSERVE_WINDOW_MESSAGES", 10),
 		ObserveWindowChars:    core.EnvInt("OBSERVE_WINDOW_CHARS", 4000),
-		// Pre-spawn budget gate (spec 11/19); default-on, mirrors core.LoadConfig.
+		// Pre-spawn budget gate (spec 11/19); default-on.
 		CostCapsEnabled: core.EnvOr("COST_CAPS_ENABLED", "true") == "true",
 		// Spawn-time stale-session reset threshold (default 2 days).
 		// SESSION_IDLE_EXPIRY overrides.
@@ -189,8 +189,9 @@ func main() {
 		// Transient delivery failures a pending bot row absorbs before the
 		// outbound sweep dead-letters it (spec 5/34). Default 10.
 		MaxOutboundRetry: core.EnvInt("MAX_OUTBOUND_RETRY", 10),
-		// Inbound media enrichment (download + Whisper transcription). Defaults
-		// mirror core.LoadConfig; unset MEDIA_ENABLED leaves it off.
+		// Inbound media enrichment (download + Whisper transcription); unset
+		// MEDIA_ENABLED leaves it off. The MEDIA_* and WHISPER_MODEL defaults
+		// mirror core.LoadConfig, which runed reads for the agent's media config.
 		Media: routd.MediaConfig(
 			core.EnvOr("MEDIA_ENABLED", "false") == "true",
 			int64(core.EnvInt("MEDIA_MAX_FILE_BYTES", 20*1024*1024)),
@@ -224,8 +225,8 @@ func main() {
 	// (Server.mutedGroup). SEND_DISABLED_CHANNELS (jid-prefix) stays in the
 	// Deliverer; this is the group-folder mute applied in appendAndDeliver.
 	srv.SetDisabledGroups(core.ParseCSV(os.Getenv("SEND_DISABLED_GROUPS")))
-	// send_voice synthesis config (TTS_* env). Defaults mirror core.LoadConfig;
-	// unset TTS_ENABLED leaves voice off. Cache lives under DATA_DIR/tts.
+	// send_voice synthesis config (TTS_* env); unset TTS_ENABLED leaves voice
+	// off. Cache lives under DATA_DIR/tts.
 	srv.SetTTS(routd.TTSConfig(
 		core.EnvOr("TTS_ENABLED", "false") == "true",
 		core.EnvOr("TTS_BASE_URL", "http://ttsd:8880"),

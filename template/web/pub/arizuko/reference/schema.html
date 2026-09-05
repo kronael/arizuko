@@ -282,7 +282,6 @@
         <tr><td><code>channel_id</code></td><td>TEXT</td><td>NOT NULL</td><td>DM channel that hosts the pane</td></tr>
         <tr><td><code>context_jid</code></td><td>TEXT</td><td>NULL</td><td>workspace channel the user is currently viewing</td></tr>
         <tr><td><code>opened_at</code></td><td>TEXT</td><td>NOT NULL</td><td>RFC3339Nano UTC</td></tr>
-        <tr><td><code>last_status_at</code></td><td>TEXT</td><td>NULL</td><td>last <code>setStatus</code> call &mdash; used to debounce</td></tr>
       </table>
       <p class="meta"><strong>PK:</strong> <code>(team_id, user_id, thread_ts)</code>. <strong>Index:</strong> <code>idx_pane_sessions_channel</code> on <code>channel_id</code>.</p>
       <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/pane_sessions.go"><code>store/pane_sessions.go</code></a> &mdash; <code>UpsertPane</code>, <code>SetPaneContext</code>, <code>SetPaneStatusAt</code>.</p>
@@ -709,7 +708,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/schema.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-09">2026-08-09</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-18">2026-08-18</time>
       </div>
     </main>
 

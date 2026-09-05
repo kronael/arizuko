@@ -45,7 +45,6 @@ type Config struct {
 	Timeout             time.Duration
 	IdleTimeout         time.Duration
 	MaxContainers       int
-	PollInterval        time.Duration
 	Timezone            string
 	AuthSecret          string
 	WebHost             string
@@ -64,13 +63,6 @@ type Config struct {
 	DexClientID string
 	DexSecret   string
 
-	// Surrogate OAuth (spec 5/15): operator-owned confidential-client creds for
-	// the outbound "Connect GitHub" dance. Distinct from GitHubClientID/Secret,
-	// which authenticate a USER TO arizuko (login); these authenticate arizuko
-	// AS the user to the GitHub API. Empty → the dance can't run (no creds).
-	SurrogateGitHubClientID string
-	SurrogateGitHubSecret   string
-
 	ProjectRoot     string
 	HostProjectRoot string
 	HostAppDir      string
@@ -78,7 +70,6 @@ type Config struct {
 	StoreDir        string
 	GroupsDir       string
 	IpcDir          string
-	HostGroupsDir   string
 	WebDir          string
 
 	// MountAllowedRoots is the operator-level gate for GroupConfig.Mounts:
@@ -93,33 +84,13 @@ type Config struct {
 	// mount; agents fall back to CODEX_API_KEY / OPENAI_API_KEY.
 	HostCodexDir string
 
-	APIPort              int
-	OnboardingEnabled    bool
-	OnboardingPlatforms  []string
-	SendDisabledChannels []string
-	SendDisabledGroups   []string
-
-	// Observe-mode context window defaults (per-route overrides on
-	// routes.observe_window_messages / routes.observe_window_chars).
-	ObserveWindowMessages int
-	ObserveWindowChars    int
+	APIPort int
 
 	MediaEnabled  bool
 	MediaMaxBytes int64
-	WhisperURL    string
 	VoiceEnabled  bool
 	VideoEnabled  bool
 	WhisperModel  string
-
-	// TTS pipeline. TTSURL is the OpenAI-compatible /v1/audio/speech base
-	// URL (point at bundled ttsd or any external server). TTSVoice is the
-	// instance default; agents can override per-call via send_voice args
-	// or per-group via SOUL.md `voice:` frontmatter.
-	TTSEnabled bool
-	TTSURL     string
-	TTSVoice   string
-	TTSModel   string
-	TTSTimeout time.Duration
 
 	// Egress isolation (spec 6/24). Enabled when EgressImage is non-empty.
 	// No separate EGRESS_ISOLATION switch — name the image or don't.
@@ -131,24 +102,10 @@ type Config struct {
 	EgressUplinkNetwork string // network giving each spawn's proxy its route out (compose project default)
 	EgressParentSubnet  string // parent CIDR carved into per-folder /24s (default 10.99.0.0/16)
 
-	// Cost caps (spec 11/19). Enabled by default; pre-spawn gate consults
-	// per-folder + per-user caps in store/cost_log. Set false to bypass
-	// the gate entirely (escape hatch for operators).
-	CostCapsEnabled bool
-
-	// ENGAGEMENT_TTL belongs to routd alone (routd.DefaultEngagementTTL) and
-	// must not gain a field here: a second default nothing reads is what the
+	// ENGAGEMENT_TTL, the TTS_*, SEND_DISABLED_*, OBSERVE_WINDOW_*, retry and
+	// cost-cap vars belong to routd alone (routd/cmd/routd/main.go) and must
+	// not gain a field here: a second default nothing reads is what the
 	// operator docs quoted for months (BUGS F12).
-
-	// MaxTurnRetry is the maximum number of retry attempts when a turn
-	// fails without delivering a reply (SIGKILL/OOM/timeout). Default 3.
-	MaxTurnRetry int
-
-	// MaxOutboundRetry is the number of transient delivery failures a pending
-	// bot row absorbs before routd's sweep dead-letters it (status 'failed').
-	// A permanent refusal dead-letters at once and spends no attempt.
-	// Default 10.
-	MaxOutboundRetry int
 
 	// SecretsKey is the AES-256-GCM keyring for the secrets table (spec 5/14).
 	// Required by routd — secrets are encrypted at rest, with no plaintext mode and
@@ -220,7 +177,6 @@ func LoadConfig() (*Config, error) {
 		Timeout:             envDur("CONTAINER_TIMEOUT", 60*time.Minute),
 		IdleTimeout:         envDur("IDLE_TIMEOUT", 60*time.Minute),
 		MaxContainers:       EnvInt("MAX_CONCURRENT_CONTAINERS", 5),
-		PollInterval:        2 * time.Second,
 		Timezone:            resolveTimezone(),
 		AuthSecret:          EnvOr("AUTH_SECRET", ""),
 		WebHost:             EnvOr("WEB_HOST", ""),
@@ -238,9 +194,6 @@ func LoadConfig() (*Config, error) {
 		DexClientID: EnvOr("DEX_CLIENT_ID", ""),
 		DexSecret:   EnvOr("DEX_CLIENT_SECRET", ""),
 
-		SurrogateGitHubClientID: EnvOr("SURROGATE_GITHUB_CLIENT_ID", ""),
-		SurrogateGitHubSecret:   EnvOr("SURROGATE_GITHUB_CLIENT_SECRET", ""),
-
 		ProjectRoot:       root,
 		HostProjectRoot:   hostRoot,
 		HostAppDir:        appDir,
@@ -248,42 +201,22 @@ func LoadConfig() (*Config, error) {
 		StoreDir:          filepath.Join(root, "store"),
 		GroupsDir:         filepath.Join(root, "groups"),
 		IpcDir:            filepath.Join(root, "ipc"),
-		HostGroupsDir:     filepath.Join(hostRoot, "groups"),
 		WebDir:            filepath.Join(root, "web"),
 		HostCodexDir:      EnvOr("HOST_CODEX_DIR", ""),
 		MountAllowedRoots: ParseCSV(EnvOr("MOUNT_ALLOWED_ROOTS", "")),
 
-		APIPort:              EnvInt("API_PORT", DefaultAPIPort),
-		OnboardingEnabled:    EnvOr("ONBOARDING_ENABLED", "false") == "true",
-		OnboardingPlatforms:  ParseCSV(EnvOr("ONBOARDING_PLATFORMS", "")),
-		SendDisabledChannels: ParseCSV(EnvOr("SEND_DISABLED_CHANNELS", "")),
-		SendDisabledGroups:   ParseCSV(EnvOr("SEND_DISABLED_GROUPS", "")),
-
-		ObserveWindowMessages: EnvInt("OBSERVE_WINDOW_MESSAGES", 10),
-		ObserveWindowChars:    EnvInt("OBSERVE_WINDOW_CHARS", 4000),
+		APIPort: EnvInt("API_PORT", DefaultAPIPort),
 
 		MediaEnabled:  EnvOr("MEDIA_ENABLED", "false") == "true",
 		MediaMaxBytes: int64(EnvInt("MEDIA_MAX_FILE_BYTES", 20*1024*1024)),
-		WhisperURL:    EnvOr("WHISPER_BASE_URL", "http://localhost:8080"),
 		VoiceEnabled:  EnvOr("VOICE_TRANSCRIPTION_ENABLED", "false") == "true",
 		VideoEnabled:  EnvOr("VIDEO_TRANSCRIPTION_ENABLED", "false") == "true",
 		WhisperModel:  EnvOr("WHISPER_MODEL", "turbo"),
-
-		TTSEnabled: EnvOr("TTS_ENABLED", "false") == "true",
-		TTSURL:     EnvOr("TTS_BASE_URL", "http://ttsd:8880"),
-		TTSVoice:   EnvOr("TTS_VOICE", "af_bella"),
-		TTSModel:   EnvOr("TTS_MODEL", "kokoro"),
-		TTSTimeout: envDur("TTS_TIMEOUT", 15*time.Second),
 
 		EgressNetworkPrefix: EnvOr("EGRESS_NETWORK_PREFIX", ""),
 		EgressImage:         EnvOr("EGRESS_IMAGE", ""),
 		EgressUplinkNetwork: EnvOr("EGRESS_UPLINK_NETWORK", ""),
 		EgressParentSubnet:  EnvOr("EGRESS_SUBNET", "10.99.0.0/16"),
-
-		CostCapsEnabled: EnvOr("COST_CAPS_ENABLED", "true") == "true",
-
-		MaxTurnRetry:     EnvInt("MAX_TURN_RETRY", 3),
-		MaxOutboundRetry: EnvInt("MAX_OUTBOUND_RETRY", 10),
 
 		SecretsKey: EnvOr("SECRETS_KEY", ""),
 	}

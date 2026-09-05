@@ -112,18 +112,6 @@ func TestNameOf(t *testing.T) {
 	}
 }
 
-func TestIsTopLevel(t *testing.T) {
-	if !IsTopLevel("main") {
-		t.Fatal("main should be top-level")
-	}
-	if IsTopLevel("main/code") {
-		t.Fatal("main/code should not be top-level")
-	}
-	if IsTopLevel("main/sub/deep") {
-		t.Fatal("nested should not be top-level")
-	}
-}
-
 func TestResolverPathTraversal(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "groups"), 0o755)

@@ -843,36 +843,6 @@ func TestSweepExpiredRunning(t *testing.T) {
 	}
 }
 
-// TestSweepIdempotencyDropsExpired is the SweepIdempotency-invoked fix: the
-// hourly GC drops ledger rows past expires_at so the ledger doesn't grow
-// unbounded (spec 5/E § Idempotency step 4).
-func TestSweepIdempotencyDropsExpired(t *testing.T) {
-	db, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	// a live row (expires in the future) and a stale row (expired).
-	db.SQL().Exec(`INSERT INTO idempotency_keys(endpoint,key,request_hash,status,response,created_at,expires_at)
-		VALUES('POST /v1/turns/reply','live','h',200,'{}',?,?)`,
-		nowTS(), time.Now().Add(time.Hour).UTC().Format(time.RFC3339Nano))
-	db.SQL().Exec(`INSERT INTO idempotency_keys(endpoint,key,request_hash,status,response,created_at,expires_at)
-		VALUES('POST /v1/turns/reply','stale','h',200,'{}',?,?)`,
-		nowTS(), time.Now().Add(-time.Hour).UTC().Format(time.RFC3339Nano))
-
-	// maybeGC (loop-driven) invokes SweepIdempotency hourly.
-	loop := NewLoop(db, runnerFn(nil), LoopConfig{})
-	loop.nextGCAt = time.Now().Add(-time.Second) // due now
-	loop.maybeGC(time.Now())
-
-	var live, stale int
-	db.SQL().QueryRow("SELECT COUNT(*) FROM idempotency_keys WHERE key='live'").Scan(&live)
-	db.SQL().QueryRow("SELECT COUNT(*) FROM idempotency_keys WHERE key='stale'").Scan(&stale)
-	if live != 1 || stale != 0 {
-		t.Fatalf("after GC: live=%d stale=%d want 1/0", live, stale)
-	}
-}
-
 // TestRoundDoneKeysOnChatJID guards the SSE-key-mismatch bug-class (BUGS L30):
 // publishRoundDone must pass the CHAT JID VERBATIM (the webd SSE subscriber's
 // key) — not the routing-target folder, and not a prefix-stripped derivation.

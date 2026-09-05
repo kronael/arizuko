@@ -1,14 +1,12 @@
 // Package testutils provides shared fixtures for daemon integration tests:
-// a migrated DB (store or routd schema), a FakeChannel recording all
-// outbound calls, a FakePlatform httptest server, and small assertion helpers.
+// a migrated DB (store or routd schema), a FakePlatform httptest server, and
+// small assertion helpers.
 package testutils
 
 import (
-	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -97,155 +95,6 @@ func NewInstance(t *testing.T) *Inst {
 	}
 	t.Cleanup(func() { db.Close() })
 	return inst
-}
-
-// SentMsg records a Send call on FakeChannel.
-type SentMsg struct {
-	JID, Text, ReplyTo, ThreadID, ThreadRoot, TurnID string
-}
-
-// SentFile records a SendFile call.
-type SentFile struct {
-	JID, Path, Name, Caption, ThreadID string
-}
-
-// ReactionCall records a Like call.
-type ReactionCall struct {
-	JID, TargetID, Reaction string
-}
-
-// PostCall records a Post call.
-type PostCall struct {
-	JID, Content string
-	Media        []string
-}
-
-// DeleteCall records a Delete call.
-type DeleteCall struct {
-	JID, TargetID string
-}
-
-// FakeChannel is a thread-safe channel fake
-// that records every outbound interaction for later assertion.
-type FakeChannel struct {
-	ChannelName string
-	Prefixes    []string
-
-	mu           sync.Mutex
-	SentMessages []SentMsg
-	SentFiles    []SentFile
-	SentVoices   []VoiceCall
-	Reactions    []ReactionCall
-	Posts        []PostCall
-	Deletes      []DeleteCall
-	TypingCalls  int
-
-	// SendErr, if non-nil, is returned from Send/SendFile.
-	SendErr error
-}
-
-// NewFakeChannel returns a FakeChannel owning jids with the given prefixes.
-func NewFakeChannel(name string, prefixes ...string) *FakeChannel {
-	return &FakeChannel{ChannelName: name, Prefixes: prefixes}
-}
-
-func (f *FakeChannel) Name() string                    { return f.ChannelName }
-func (f *FakeChannel) Connect(_ context.Context) error { return nil }
-func (f *FakeChannel) Disconnect() error               { return nil }
-
-func (f *FakeChannel) Owns(jid string) bool {
-	for _, p := range f.Prefixes {
-		if strings.HasPrefix(jid, p) {
-			return true
-		}
-	}
-	return false
-}
-
-func (f *FakeChannel) Send(jid, text, replyTo, threadID, threadRoot, turnID string) (string, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.SendErr != nil {
-		return "", f.SendErr
-	}
-	f.SentMessages = append(f.SentMessages, SentMsg{jid, text, replyTo, threadID, threadRoot, turnID})
-	return fmt.Sprintf("fake-%d", len(f.SentMessages)), nil
-}
-
-func (f *FakeChannel) SendFile(jid, path, name, caption, _, threadID, _ string) (string, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.SendErr != nil {
-		return "", f.SendErr
-	}
-	f.SentFiles = append(f.SentFiles, SentFile{jid, path, name, caption, threadID})
-	return fmt.Sprintf("fake-file-%d", len(f.SentFiles)), nil
-}
-
-// VoiceCall records a SendVoice invocation; SentVoices is the table
-// integration tests inspect to assert voice routing.
-type VoiceCall struct {
-	JID, Path, Caption, ThreadID string
-}
-
-func (f *FakeChannel) SendVoice(jid, path, caption, threadID string) (string, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.SendErr != nil {
-		return "", f.SendErr
-	}
-	f.SentVoices = append(f.SentVoices, VoiceCall{jid, path, caption, threadID})
-	return fmt.Sprintf("voice-%d", len(f.SentVoices)), nil
-}
-
-func (f *FakeChannel) Typing(_ string, _ bool) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.TypingCalls++
-	return nil
-}
-
-func (f *FakeChannel) Post(_ context.Context, jid, content string, media []string) (string, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.Posts = append(f.Posts, PostCall{jid, content, media})
-	return fmt.Sprintf("post-%d", len(f.Posts)), nil
-}
-
-func (f *FakeChannel) Like(_ context.Context, jid, target, reaction string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.Reactions = append(f.Reactions, ReactionCall{jid, target, reaction})
-	return nil
-}
-
-func (f *FakeChannel) Delete(_ context.Context, jid, target string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.Deletes = append(f.Deletes, DeleteCall{jid, target})
-	return nil
-}
-
-func (f *FakeChannel) Forward(_ context.Context, _, _, _ string) (string, error) {
-	return "", nil
-}
-func (f *FakeChannel) Quote(_ context.Context, _, _, _ string) (string, error) {
-	return "", nil
-}
-func (f *FakeChannel) Repost(_ context.Context, _, _ string) (string, error) {
-	return "", nil
-}
-func (f *FakeChannel) Dislike(_ context.Context, _, _ string) error { return nil }
-func (f *FakeChannel) Edit(_ context.Context, _, _, _ string) error { return nil }
-
-// Snapshots (return copies) for assertions:
-
-func (f *FakeChannel) Sent() []SentMsg {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	cp := make([]SentMsg, len(f.SentMessages))
-	copy(cp, f.SentMessages)
-	return cp
 }
 
 // PlatformReq is a recorded inbound request to a FakePlatform.

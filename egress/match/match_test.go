@@ -152,29 +152,6 @@ func TestNormalizeEntry(t *testing.T) {
 	}
 }
 
-func TestLooksLikeDomain(t *testing.T) {
-	tests := []struct {
-		in   string
-		want bool
-	}{
-		{"github.com", true},
-		{"api.github.com", true},
-		{"a.b.c.d", true},
-		{"localhost", false},
-		{"1.2.3.4", false},
-		{"github.com/path", false},
-		{"-bad.com", false},
-		{"good-.com", false},
-		{"", false},
-	}
-	for _, tc := range tests {
-		got := LooksLikeDomain(tc.in)
-		if got != tc.want {
-			t.Errorf("LooksLikeDomain(%q) = %v, want %v", tc.in, got, tc.want)
-		}
-	}
-}
-
 func TestLooksLikeIP(t *testing.T) {
 	tests := []struct {
 		in   string

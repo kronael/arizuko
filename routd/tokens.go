@@ -6,7 +6,7 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// route_tokens, web_routes, and the idempotency ledger. route tokens are the
+// route_tokens and web_routes. route tokens are the
 // /chat/ /hook/ widget bearer tokens routd owns outright — a distinct credential
 // family from authd capability tokens.
 
@@ -85,10 +85,4 @@ func (d *DB) WebRoutes(folder string) ([]WebRouteRow, error) {
 		out = append(out, r)
 	}
 	return out, rows.Err()
-}
-
-// SweepIdempotency drops ledger rows past expires_at (hourly GC).
-func (d *DB) SweepIdempotency() error {
-	_, err := d.db.Exec("DELETE FROM idempotency_keys WHERE expires_at < ?", nowTS())
-	return err
 }

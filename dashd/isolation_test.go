@@ -406,29 +406,6 @@ func TestIso_VisiblePredicate(t *testing.T) {
 	}
 }
 
-// ownerVisibleSQL is a prefilter, not a gate — but it must not be WIDER than
-// visible(), or a LIMIT counts rows the caller may never see. A glob-free scope
-// covers exactly its own folder, so the predicate is equality; a glob scope is
-// inexpressible in SQL and reports ok=false so the caller over-fetches.
-func TestIso_OwnerVisibleSQLMirrorsVisible(t *testing.T) {
-	where, args, ok := ownerVisibleSQL("owner", []string{folderEng})
-	if !ok {
-		t.Fatal("glob-free scope must be expressible")
-	}
-	if where != "(owner = ?)" {
-		t.Errorf("where = %q, want %q", where, "(owner = ?)")
-	}
-	if len(args) != 1 || args[0] != folderEng {
-		t.Errorf("args = %v, want [%s]", args, folderEng)
-	}
-	if _, _, ok := ownerVisibleSQL("owner", []string{folderEngTree}); ok {
-		t.Error("glob scope must report ok=false, not a hand-rolled LIKE")
-	}
-	if where, _, ok := ownerVisibleSQL("owner", nil); !ok || where != "0" {
-		t.Errorf("no grants = (%q, %v), want (\"0\", true)", where, ok)
-	}
-}
-
 // --- seed + assert helpers ---
 
 func seedTask(t *testing.T, inst *testutils.Inst, id, owner string) {

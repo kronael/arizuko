@@ -28,14 +28,6 @@ func Contains(parent, child string) bool {
 	return child == parent || strings.HasPrefix(child, parent+"/")
 }
 
-// IsTopLevel reports whether folder is a top-level world (no "/"). It is a
-// FOLDER-SHAPE predicate only — NOT a privilege check. A top-level world is a
-// tier-1 tenant, never root: root is a transient operator elevation (/root), not
-// a folder position.
-func IsTopLevel(folder string) bool {
-	return !strings.Contains(folder, "/")
-}
-
 // ParentOf returns the immediate parent folder of folder, or "" if folder is root.
 // "main/content" → "main", "main" → "".
 func ParentOf(folder string) string {

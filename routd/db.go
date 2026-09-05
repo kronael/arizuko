@@ -294,35 +294,6 @@ func (d *DB) MessagesSince(chatJID, since string) ([]core.Message, error) {
 	return msgs, err
 }
 
-// History returns the chat's rows older than before (or all when before is
-// empty), newest-bounded by limit, chronological.
-func (d *DB) History(chatJID, before string, limit int) ([]core.Message, error) {
-	if limit <= 0 {
-		limit = 50
-	}
-	q := `SELECT ` + msgReadCols + ` FROM messages WHERE chat_jid=?`
-	args := []any{chatJID}
-	if before != "" {
-		q += " AND timestamp < ?"
-		args = append(args, before)
-	}
-	q += " ORDER BY timestamp DESC LIMIT ?"
-	args = append(args, limit)
-	rows, err := d.db.Query(q, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	msgs, _, err := scanMessages(rows, "")
-	if err != nil {
-		return nil, err
-	}
-	for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
-		msgs[i], msgs[j] = msgs[j], msgs[i]
-	}
-	return msgs, nil
-}
-
 // scanMessages drains rows into core.Message values, tracking the high-water
 // mark from `since`. A row scan error ABORTS (returns the error) rather than
 // skipping the row: a silent skip past a malformed row would advance the

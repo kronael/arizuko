@@ -17,21 +17,6 @@ var domainRegex = regexp.MustCompile(
 	`^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?` +
 		`(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*$`)
 
-// LooksLikeDomain reports whether target is a syntactically valid domain.
-// Domains have dots, no slashes, and don't parse as IP addresses.
-func LooksLikeDomain(target string) bool {
-	if !strings.Contains(target, ".") {
-		return false
-	}
-	if strings.Contains(target, "/") {
-		return false
-	}
-	if net.ParseIP(target) != nil {
-		return false
-	}
-	return domainRegex.MatchString(target)
-}
-
 // LooksLikeIP reports whether target is an IP address or CIDR range.
 func LooksLikeIP(target string) bool {
 	if net.ParseIP(target) != nil {
