@@ -7,6 +7,160 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L156 — runed's `warnChown` reports docker's root-owned `auth.json` mount stub in every group: 50 false EPERM warnings per restart (2026-09-05, open)
+
+`runed` start runs `SeedCodexDirs` → `warnChown(<group>/.codex)`
+(`container/runtime.go:26-39`, `runner.go:1110-1117`). Each group's
+`.codex/auth.json` on the host is a 0-byte root-owned file: docker materialized
+it as the target of the RO bind `HostCodexDir/auth.json → ~/.codex/auth.json`
+(`runner.go:616`) on the group's first spawn, inside the bind-mounted home.
+runed is uid 1000, so `lchown` on it is EPERM, and the WARN fires once per
+group per restart — krons 50 per restart (548 in the 24 h before the
+2026-09-04 deploy across 11 restarts; 50 at 14:28:18-44), marinade 6, sloth 4.
+The agent never writes that path (it is RO), so every line is a false alarm.
+The warning exists to catch a REAL root-owned path (its comment cites the
+`~/public_html` that survived unnoticed from May to August); a real one would
+now be the 51st identical line. Present since at least 2026-08-27 19:21 (first
+in the 30-day journal).
+
+- **Severity:** low (noise that defeats the warning's own purpose)
+- **Scope:** runed startup / codex pre-seed
+- **Affected:** krons, marinade, sloth
+- **Source:** `container/runtime.go:26-39`, `container/runner.go:616`, `:1110-1117`; journal krons 2026-09-04T14:28:18
+- **Status:** open. Fix shape, in the original mechanism: `SeedCodexDirs` creates the empty `auth.json` stub as uid 1000 before docker does, so the mount target is already agent-owned; or `chownR` skips declared RO mount targets.
+- **Fix:**
+
+## L157 — `SeedCodexDirs` derives "group" from a `.claude/` marker on disk, so a root-owned project dir is seeded and fails at every restart (2026-09-05, open)
+
+`SeedCodexDirs` walks `groups/` and treats any directory holding `.claude/` as
+a group (`runtime.go:19-24`: "runed has no groups table to enumerate, so it
+walks the tree"). On sloth `groups/main/trading/candles/downloader/` is a
+root-owned project directory with its own `.claude/`; it is not a group
+(`groups` holds only `main/trading`), so every restart logs `seed codex dir …
+mkdir …/.codex: permission denied` (sloth 10, marinade 18 in the 24 h before the
+deploy; 1-2 per restart). Identity is derived from a filesystem marker — the
+class root `CLAUDE.md` forbids — and the walk descends every project tree under
+every group home. Harmless today because the mkdir fails; a writable project
+dir with a `.claude/` marker gets a platform-seeded `.codex/`.
+
+- **Severity:** low
+- **Scope:** runed startup
+- **Affected:** sloth, marinade
+- **Source:** `container/runtime.go:14-39`; journal sloth 2026-09-04T14:30:23
+- **Status:** open — proposal, needs sign-off: seed per group on its first spawn under the run slot (the runner already does the lazy `MkdirAll`; the pre-seed exists only for the cold-start race), or read the group list from routd's `/v1/groups`, and delete the walk.
+- **Fix:**
+
+## L158 — a Discord mention of the assistant is parsed as a child-group `@prefix` (2026-09-05, open)
+
+discd rewrites the bot's own mention `<@botid>` to `@<assistant name>`
+(`discd/bot.go:763-768`). routd's prefix layer then reads `@sloth …` as a
+delegation to the child group `<folder>/sloth`, finds none, warns `@prefix:
+child group not found child=main/trading/sloth` and falls through
+(`routd/steer.go:449-458`). One message (`@sloth only on mentions`, sloth
+2026-09-04 14:30:05) produced 7 warnings, one per poll until the restart let it
+through; the turn then answered normally. Harmless today. Latent: a child group
+named after the assistant (`main/sloth`) would turn every plain mention into a
+silent delegation.
+
+- **Severity:** low
+- **Scope:** discd inbound → routd steer
+- **Affected:** sloth (any Discord group)
+- **Source:** `discd/bot.go:763-768`, `routd/steer.go:449-458`
+- **Status:** open. Fix shape, at the producer: discd drops the self-mention from the text — the `verb=mention` trigger already carries "the bot was addressed" (`bot.go:194-201`) — and keeps rewriting other users' mentions.
+- **Fix:**
+
+## L159 — a scheduled task fires nightly into a Telegram chat teled already classified as permanently dead (2026-09-05, open)
+
+krons `task-1776079794467-4c33dcb2` (`/compact-memories episodes day`, owner
+`mayai`, `0 2 * * *`, isolated, created 2026-04-13) targets
+`telegram:group/5161994241`. Telegram answers `Bad Request: chat not found` to
+every typing call (10 WARN per run at 02:00; 33 in the 7 days before the
+deploy) and `permanent: status 400` to the one send that was attempted
+(`deliver send failed`, 2026-09-01 04:05:25). The run still spawns a 43 s
+container each night. marinade shows the same shape at 02:00:
+`telegram:group/1003805633088` (`Forbidden: the group chat was deleted`) and
+`telegram:group/5012430759` (`chat not found`). teled names the verdict
+(`permanent`) and nothing consumes it: no chat, route or task is retired, and
+the operator sees nothing.
+
+- **Severity:** medium-low (one wasted container run per dead chat per night; a task that can never deliver)
+- **Scope:** teled terminal errors → routd chats / scheduled_tasks lifecycle
+- **Affected:** krons (`mayai`), marinade
+- **Source:** journal krons 2026-09-05T02:00:26-02:05:42; `routd.db` `scheduled_tasks`
+- **Status:** open — proposal, needs sign-off: on a permanent send or typing error (chat not found, chat deleted, bot kicked) mark the chat dead in `chats`, pause its scheduled tasks, and show it on the dashboard; the operator deletes or re-targets. No retry, no silent skip.
+- **Fix:**
+
+## L160 — routd's poll loop resolves a chat after `db.Close()`: a "message dropped" ERROR at shutdown (2026-09-05, open)
+
+sloth 2026-09-04 13:41:20.999 `routd stopping`; 22 ms later `resolve: route
+table read failed; message dropped as route-miss
+jid=discord:…/1327767461285855437 err="sql: database is closed"`.
+`routd/cmd/routd/main.go` runs `go loop.Run(ctx)` (line 280), on SIGTERM calls
+`cancel()` (284) and returns without waiting for the loop; the deferred
+`db.Close()` (line 52) runs while the poll goroutine is mid-`resolve`, so
+`Routes()` fails and `loop.go:694` fails forward — cursor advanced, message
+dropped. This time nothing real was lost (that chat's newest row is from
+2026-05-15), but the drop is possible by construction at every restart. 1
+occurrence in 7 days.
+
+- **Severity:** low today (an inbound message in the poll at shutdown would be lost)
+- **Scope:** routd shutdown ordering
+- **Affected:** all instances
+- **Source:** `routd/cmd/routd/main.go:52,280-287`; `routd/loop.go:682-696`
+- **Status:** open. Fix shape: wait for `loop.Run` to return before `db.Close()` (done channel), the way `httpd` already gets `Shutdown`.
+- **Fix:**
+
+## L161 — every deploy logs `execution plane unreachable` at ERROR and ends a live turn with 137 (2026-09-05, open)
+
+At each restart routd polls before runed listens: `dispatch run transport
+failure` → `execution plane unreachable; group work re-feeds on next poll`
+(krons 2026-09-03: 26 lines in the 20:44-20:45 restart, 6 at 21:24; sloth
+2026-09-04 14:30: 4). The work is re-fed, so nothing is lost, but the line is
+ERROR for an expected startup race — the class `L25` fixed for slakd
+(`depends_on` with no `condition: service_healthy`). On the stop side sloth's
+`main/trading` turn was 22 s in when runed stopped (14:30:05 → 14:30:14) and
+ended `container exited with error code:137`; routd re-fed it after the restart
+(answered 14:30:57), so that turn's model spend was paid twice.
+
+- **Severity:** low (ERROR noise on every deploy; one duplicated turn per live group per deploy)
+- **Scope:** compose start ordering; runed stop
+- **Affected:** all instances
+- **Source:** journal sloth 2026-09-04T14:30:13-23; `runed/cmd/runed/main.go:152-179`
+- **Status:** open. Fix shape: routd waits on runed's healthcheck (`condition: service_healthy`) and the pre-listen transport failure logs at WARN; a live turn at stop is drained within the stop grace or its re-feed is recorded as such.
+- **Fix:**
+
+## L162 — slakd logs `slack inbound quiet; token healthy, not restarting` every minute, forever (2026-09-05, open)
+
+marinade: 1019 lines in the 17 h after the deploy, 1390 in the 24 h before;
+`stale_seconds` reached 61500 (17 h). The watchdog (`slakd/bot.go:291-313`)
+re-warns on every tick once `age > staleSec` while `auth.test` passes. A quiet
+workspace is a state, not an event; this is the cadence defect `L61` fixed in
+onbod — an unactionable condition at WARN once a minute trains the reader to
+filter the adapter that would carry a real one.
+
+- **Severity:** low (noise)
+- **Scope:** slakd watchdog
+- **Affected:** marinade
+- **Source:** `slakd/bot.go:291-313`
+- **Status:** open. Fix shape: warn once on the transition into stale and once on recovery; keep `stale_seconds` on `/health`.
+- **Fix:**
+
+## L163 — an adapter restart empties its in-memory `/files/<id>` cache, so attachments re-fed across the restart 404 and the agent gets the text only (2026-09-05, open)
+
+sloth 2026-09-04 13:43:13-19, right after the 13:41 restart: 12 × `enrich:
+download failed url=http://discd:8080/files/<id> err="HTTP 404"`.
+`chanlib.URLCache` (`chanlib/urlcache.go`) is an in-memory LRU mapping the
+12-hex id to the platform URL; discd's restart drops it, routd's enrich WARNs
+and `continue`s (`routd/enrich.go:110`), so the turn runs on a message that
+names an attachment it never receives. Silent to the user.
+
+- **Severity:** low-medium (silent attachment loss around every adapter restart)
+- **Scope:** chanlib file proxy / routd enrich
+- **Affected:** every adapter on `FileProxyHandler` (discd measured)
+- **Source:** `chanlib/urlcache.go`, `chanlib/handler.go:678-690`, `routd/enrich.go:96-112`
+- **Status:** open — proposal, needs sign-off: persist the id→url map in the adapter's own SQLite (the emaid precedent), or enrich delivers a visible placeholder in the text so the loss is not silent.
+- **Fix:**
+
 ## L153 — anteval `webhook-in`: the ingress worked and the agent answered the PREVIOUS case; a skill that hardcodes a nonce outlives the case that built it (2026-09-03, eval finding)
 
 `anteval --smoke` on krons after the 2026-09-03 deploy: **7/9**. Both failures
@@ -233,6 +387,14 @@ process/host alerting is infra, not arizuko's concern.
   `arizuko_marinade` emaid IMAP AUTHENTICATIONFAILED, `arizuko_krons` whapd 401
 - **Related:** `L149`/`L150` (the same class — a real failure with no path to a
   human), `adapter_service_name`, `whapd_pairing_recovery`
+
+**2026-09-05 re-check after the 2026-09-04 deploy.** sloth `discd` is resolved:
+the operator's credential fix went live with the 13:41 restart (`channel
+registered name=discord` 14:29:32; a Discord turn answered at 14:30:57), zero
+`4004` lines since. marinade `emaid` unchanged: 358 `imap idle error` in the 6 h
+before, 1018 in the 17 h after (~60/h both). krons `whapd` unchanged: 336
+`session invalidated` in the 6 h before, 973 in the 17 h after (~56/h both).
+Both still log-only.
 
 ## L149 — only the LAST assistant text block is delivered, so an answer written before a tool call is destroyed; `ant/CLAUDE.md:85` tells the agent the opposite (2026-08-31, instruction half FIXED 2026-08-31; the mechanism half is a proposal)
 
@@ -6692,6 +6854,11 @@ prefix, and routd returns `no channel for jid`. A normal `room=` route tagged
 `#announce` therefore cannot announce. Source: `cmd/arizuko/main.go:403-425`,
 `ant/skills/migrate/SKILL.md:280-295`, `chanreg/chanreg.go:41-47`,
 `routd/deliver.go:112-120`.
+
+**2026-09-05 evidence.** sloth: 22 lines in 7 days, newest 2026-09-04 14:30:35 —
+the `/migrate` broadcast is delegated to `main/main`, whose reply targets jid
+`main` (a folder) and is dead-lettered (`out-c804cc4821ac8d0f`). krons: 7 lines
+2026-09-03 20:47-20:52 for the anteval `eval/etksvtw-*` chats, same shape.
 
 - **Severity:** medium (announcements silently lost on some groups; log noise)
 - **Status:** OPEN, record-only.
