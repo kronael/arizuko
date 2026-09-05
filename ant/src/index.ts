@@ -21,6 +21,7 @@ interface ContainerInput {
   assistantName?: string;
   secrets?: Record<string, string>;
   systemMd?: string;
+  persona?: string;
 }
 
 interface ContainerOutput {
@@ -45,8 +46,11 @@ const PROGRESS_INTERVAL_MS = 90_000;
 // buildSystemPrompt renders the text layers the chassis owns (system MD, output
 // style). undefined means "no rendered text" — each harness supplies its own
 // default.
-function buildSystemPrompt(ci: ContainerInput): string | undefined {
-  const parts = [ci.systemMd, readOutputStyle()].filter(Boolean);
+export function buildSystemPrompt(ci: ContainerInput): string | undefined {
+  // SYSTEM.md replaces the harness's own base prompt; PERSONA.md appends to
+  // it, so a group can add voice without restating the platform contract.
+  // runner.go reads both from the group dir and ships them on the same wire.
+  const parts = [ci.systemMd, ci.persona, readOutputStyle()].filter(Boolean);
   return parts.length > 0 ? parts.join('\n\n') : undefined;
 }
 

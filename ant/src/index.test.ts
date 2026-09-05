@@ -1,8 +1,8 @@
 // The chassis <status> pipeline: statusBlocks is THE one extraction site, so a
 // harness only has to put its assistant text on the frame.
 
-import { test, expect } from 'bun:test';
-import { NUDGE_TEXT, checkIpcMessage, runTurn, statusBlocks } from './index.js';
+import { describe, test, expect } from 'bun:test';
+import { NUDGE_TEXT, buildSystemPrompt, checkIpcMessage, runTurn, statusBlocks } from './index.js';
 import type { Frame, Harness } from './backend.js';
 import { STEER_SPOOL, appendLines, drainLines } from './spool.js';
 
@@ -183,4 +183,24 @@ test('runTurn: a failed result is delivered as an error, not dropped', async () 
   );
   expect(d.deliveries).toHaveLength(1);
   expect(d.deliveries[0].status).toBe('error');
+});
+
+describe('buildSystemPrompt layering', () => {
+  // SYSTEM.md replaces the base prompt and PERSONA.md appends to it. runner.go
+  // reads both and ships them on one wire; a dropped persona is invisible —
+  // the turn still runs, just without the group's voice.
+  test('persona follows systemMd in the rendered prompt', () => {
+    const out = buildSystemPrompt({ systemMd: 'THE-SYSTEM', persona: 'THE-PERSONA' });
+    expect(out).toContain('THE-SYSTEM');
+    expect(out).toContain('THE-PERSONA');
+    expect(out!.indexOf('THE-SYSTEM')).toBeLessThan(out!.indexOf('THE-PERSONA'));
+  });
+
+  test('persona alone still reaches the prompt', () => {
+    expect(buildSystemPrompt({ persona: 'ONLY-PERSONA' })).toContain('ONLY-PERSONA');
+  });
+
+  test('neither set renders nothing the harness must override', () => {
+    expect(buildSystemPrompt({})).toBeUndefined();
+  });
 });
