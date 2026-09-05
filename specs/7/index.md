@@ -8,6 +8,8 @@ Putting arizuko in the cloud comes AFTER splitting it into parts, which is
 phase 6's job: you cannot deploy a part you have not separated. That order is
 the whole reason this is its own phase rather than work inside 6.
 
+[`25-publish-plan.md`](25-publish-plan.md) names the four components whose import graph already lets them ship, and the two that cannot.
+
 [`24-skill-search.md`](24-skill-search.md) asks what a skill-discovery index costs and what a miss would look like.
 
 [`23-agent-habitat.md`](23-agent-habitat.md) records the reframing — three verbs, the two-standard asymmetry and what the outside world already calls it.
