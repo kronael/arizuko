@@ -6,17 +6,19 @@ status: draft
 
 arizuko is not a harness. It is orchestration: it decides how agents run and for
 whom — routing, tenancy, identity, permissions — the layer _above_ any harness.
-The adoption thesis (operator decision 2026-08-15, inverting this spec's
-original "wrap what you already run"): **arizuko publishes an environment, and
-the value is what the environment gives you for free.** Wrapping a foreign
-harness stays available as an on-ramp; it is no longer the thesis.
+The adoption thesis (operator decision 2026-08-15): **arizuko publishes an
+environment, and the value is what the environment gives you for free.**
+Wrapping a foreign harness stays available as an on-ramp; it is not the thesis.
 
 ## Problem
 
-The crowded field (Claude Code, OpenClaw, NanoClaw, ElizaOS, Hermes, a new one
-every week) is a field of _harnesses_ — each runs one agent for one user.
-arizuko is a different layer: it orchestrates agents across tenants. Competing
-with a harness head-to-head is a category error.
+The field is crowded, and it is no longer a field of single-user harnesses.
+Three open-source projects orchestrate agents across people and channels today
+(measured below), and each ships two or three of arizuko's four defining
+properties. Competing with a harness head-to-head was always a category error;
+competing with an orchestrator on the properties it already has is a losing
+one. The thesis survives on one property, and the adoption work is to make
+that one property the contract a stranger can occupy.
 
 Two things make the layer worth adopting (`specs/5/A`, `USELESS.md` §4):
 
@@ -28,11 +30,51 @@ Two things make the layer worth adopting (`specs/5/A`, `USELESS.md` §4):
    file you diff, a grant that gates it, and (if you `git init` the group) a
    `git revert` away. Self-modifying, human-owned.
 
-## The thesis — the environment IS the product (2026-08-15)
+## The field, measured by property (2026-09-05)
 
-The original framing ("run your harness inside arizuko") is **emulation**, and
-it was rejected. Emulation inherits the wrapped thing's model, carries
-compatibility debt forever, and caps arizuko at whatever it wraps.
+Four properties, each yes/no against the project's docs or source (never a
+README unless marked): **a** — multi-tenant with a hierarchical scope, not a
+flat org→user model; **b** — any harness (Claude Code, codex, pi) as a
+swappable executor; **c** — inbound from several chat platforms normalized to
+one shape; **d** — outbound only through permissioned tools, the model's plain
+reply not auto-posted.
+
+| Project                                                                   | a    | b    | c       | d    | License                         | Decisive source                                                                                                                                                                                        |
+| ------------------------------------------------------------------------- | ---- | ---- | ------- | ---- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `openclaw/openclaw`                                                       | no   | yes  | yes     | mode | MIT                             | `docs/gateway/operator-scopes.md`: scopes are "not hostile multi-tenant isolation"; `docs/concepts/agent-runtimes.md`: `pi`, `codex`, `claude-cli` runtimes; ~30 channels behind one `message` adapter |
+| `yc-software/qm`                                                          | no   | yes  | part    | yes  | MIT                             | `src/core/orchestrator/surface-tools.ts` (`post` … `staySilent`); scope kinds are a closed flat set; Slack + own web only                                                                              |
+| `paperclipai/paperclip`                                                   | part | yes  | no      | yes  | MIT                             | `doc/MCP-ACCESS-GOVERNANCE.md`: one policy engine for the agent tool call and the human approval; scope is a fixed five-level lattice; no chat ingress (issues #7, #49)                                |
+| `letta-ai/letta-code`                                                     | no   | no   | yes     | yes  | Apache-2.0                      | `src/channels/README.md` (reply only via `MessageChannel`); server auth is one shared password (docs.letta.com/guides/selfhosting)                                                                     |
+| `NousResearch/hermes-agent`                                               | no   | part | yes     | no   | MIT                             | replies delivered "without special handling from the agent"; `SECURITY.md` names a single trusted operator                                                                                             |
+| Dust                                                                      | no   | no   | part    | no   | —                               | `connectors/src/connectors/slack/bot.ts` streams the answer; Workspace → Space → Role, flat (docs.dust.tt access-controls)                                                                             |
+| Onyx                                                                      | no   | no   | part    | no   | —                               | `backend/onyx/onyxbot/slack/handlers/handle_regular_answer.py` posts the answer itself                                                                                                                 |
+| Chatwoot                                                                  | no   | no   | yes     | part | MIT + proprietary `enterprise/` | Captain posts the reply (`enterprise/…/response_builder_job.rb`); AgentBot is webhook-in, REST-out; account → inbox → role, flat                                                                       |
+| AnythingLLM                                                               | no   | no   | part    | no   | MIT                             | docs.anythingllm.com/channels/telegram: the connector "only works in single-user mode … multi-user mode will automatically disconnect the bot"                                                         |
+| Coder Tasks, Ona, OpenHands Cloud, Devin, Claude in Slack, Managed Agents | no   | no   | no/part | no   | mixed                           | each is one harness on one ingress; Coder states it is "not a wrapper around third-party agent tools like Claude Code or Codex"                                                                        |
+
+Two readings, both required:
+
+- **Properties b, c and d are commodity.** openclaw has all three of them (d
+  as an opt-in mode with fallbacks — `7/23`), qm has b and d, Paperclip has b
+  and d. Claiming any of the three as arizuko's difference is claiming a
+  commodity, which `5/A` forbids.
+- **Property a is unshipped anywhere found.** The nearest are Paperclip's fixed
+  five-level lattice and Keycloak's slash-separated group paths (`6/16`), and
+  neither binds the path to a mount, an egress allowlist or a web prefix. In
+  the field the two halves even exclude each other inside one product
+  (AnythingLLM, above). That is the thesis, and it is narrow: **one path binds
+  tenant, grant, route, egress, web host and file tree, and one evaluator
+  applies it to the agent over MCP and to the human over REST.**
+
+The strongest single "adopt this instead" candidate is openclaw. A deployer who
+does not need tenancy with depth should be told so; a deployer who does has no
+off-the-shelf answer, and that is the only audience the thesis addresses.
+
+## The thesis — the environment IS the product
+
+The framing "run your harness inside arizuko" is **emulation**, and it was
+rejected. Emulation inherits the wrapped thing's model, carries compatibility
+debt forever, and caps arizuko at whatever it wraps.
 
 The Lambda analogy is the argument. Lambda never emulated your server. It
 published a contract — handler, event, context, and a role the SDK finds on its
@@ -40,15 +82,11 @@ own — and the value was what the environment gives you for free: isolation,
 IAM, scaling. You give up generality and gain the platform. **You write to
 their APIs; they do not reimplement yours.**
 
-arizuko has two such environments today — the **agent environment** (event +
-tools + home) and the **component environment** (what a daemon gets and owes).
-Both existed only as prose in root `CLAUDE.md`; nothing answered "is this a
-well-formed arizuko daemon" or "is this a well-formed arizuko agent". So the
-adoption work is: write each as a contract, give each a conformance check a
-stranger's part must pass. **[`6/7`](7-environment-contracts.md) is that
-document** — it owns both contracts and their conformance (agent: `anteval`
-per backend; component: a probe against a live process). `6/16`'s four-layer
-model is the map of where the seams are.
+arizuko has two such environments — the **agent environment** (event + tools +
+home) and the **component environment** (what a daemon gets and owes).
+[`6/7`](7-environment-contracts.md) owns both contracts and their conformance
+(agent: `anteval` per backend; component: a probe against a live process).
+`6/16`'s four-layer model is the map of where the seams are.
 
 ## Tracks, ranked
 
@@ -61,6 +99,8 @@ the product:
 
 - **Runtime pluralism.** runed spawns "just another binary"; a foreign harness
   can occupy the agent slot to the degree it meets the `6/7` agent contract.
+  openclaw and qm already do this for their own slots; it is table stakes, not
+  a differentiator.
 - **MCP as the seam.** arizuko is MCP-native (agent side) + REST (human side).
   Every capability another harness exposes over MCP is reachable; every
   arizuko resource is reachable by their agent. Interop is protocol work.
@@ -73,7 +113,7 @@ Hub (comparative, source-cited), `USELESS.md` (the self-critique that makes
 honest claims believable), the `web-native Linux` one-liner (`specs/5/A`).
 Campaigning before the contracts exist asks people to take a leap.
 
-## The engine — an agentic reimplementation loop
+## The engine — an agentic reimplementation loop (unproven)
 
 The interop surface is large (N harnesses × their features) and moving.
 Hand-building it does not scale. Dogfood instead: arizuko's own agents build
@@ -81,7 +121,10 @@ arizuko's interop. A scheduled loop (`timed` → a folder-agent), one system at
 a time:
 
 1. **Read** the target system's source (the Hub already clones repos into
-   `refs/`) and its released changes since last run.
+   `refs/`) and its released changes since last run. `refs/` lags upstream by
+   months; a claim is verified against live `main`, never against the clone —
+   the openclaw default in `7/23` was once written from a stale clone and was
+   wrong.
 2. **Extract** the config/protocol surface an arizuko folder would need to
    host or import it, measured against the `6/7` contracts.
 3. **Reimplement / shim** the smallest interop, in an isolated worktree.
@@ -92,7 +135,8 @@ a time:
 This reuses machinery that exists: the Hub's monthly code-analysis protocol,
 worktree-isolated subagents, the migrate/broadcast delivery path. The loop is
 the same shape arizuko already runs on itself (`specs/5/22` self-learning);
-here it points outward.
+here it points outward. It has not run once; it is scoped to one target and
+measured on whether the interop it produces is adopted before it scales.
 
 ## What the environment provides — services one level up
 
@@ -112,6 +156,10 @@ example) that the folder coordinate closes for _every_ occupant:
 
 These seven are the moat; never trade them for a harness's model/skill
 breadth. An on-ramp adapter that dilutes any of them is not worth carrying.
+Against an orchestrator rather than a harness, the table narrows: openclaw
+has per-agent workspaces (its docs: "not a hard sandbox"), Paperclip has a
+governance gate and budgets, qm has an Envoy-checked egress. What none has is
+the folder as the one key to all seven rows.
 
 ## Demand classes, not just systems
 
@@ -137,9 +185,23 @@ no graph DB.)
   target, measure whether the interop it produces is actually adopted, before
   scaling the fleet.
 
+## What is settled, and what is not
+
+Settled: the thesis, narrowed to property **a** and measured against the
+field; the two contracts as the primary track; the on-ramp as secondary; the
+seven services. The analysis is complete as positioning — nothing in it is
+code to write.
+
+Not settled, and the reason the status is not `shipped`: no external operator
+has occupied either contract (`6/7` is `defected`, `L131`), and the
+reimplementation loop has not run. Both are proofs the thesis needs; neither
+is a gap in the analysis. Vendor rows date — re-measure a row before citing
+it.
+
 ## Ties
 
 [`6/7`](7-environment-contracts.md) (the two contracts — owns the terms) ·
-[`6/16`](16-daemon-standalone-matrix.md) (the four layers) · `specs/5/A`
-(positioning) · `USELESS.md` (honest gaps) · the Agent Research Hub ·
-`specs/5/22` self-learning (the loop, turned outward).
+[`6/16`](16-daemon-standalone-matrix.md) (the four layers; the counterpart per
+commodity part) · `7/23` (the ingress/egress asymmetry and its precedents) ·
+`specs/5/A` (positioning) · `USELESS.md` (honest gaps) · the Agent Research
+Hub · `specs/5/22` self-learning (the loop, turned outward).
