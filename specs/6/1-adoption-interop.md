@@ -1,5 +1,5 @@
 ---
-status: draft
+status: shipped
 ---
 
 # Adoption — publish the environment, not the wrap

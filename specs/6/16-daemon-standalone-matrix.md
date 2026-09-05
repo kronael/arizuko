@@ -1,5 +1,5 @@
 ---
-status: draft
+status: shipped
 ---
 
 # Components & daemons — what ships alone, and against what
