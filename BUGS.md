@@ -11264,7 +11264,40 @@ The `ant/CLAUDE.md` half of the same spec is executed correctly — 388 lines to
   to "keep" with the reason. Either is fine; the table claiming one thing while
   the file does another is not.
 
-## L222 — one granted connector tool drops the WHOLE `tools/list`, so the folder loses every tool (2026-09-06, open)
+## ✅ FIXED 2026-09-06 L222 — a raw tool schema drops the WHOLE `tools/list`, so the turn loses every tool (2026-09-06)
+
+**FIXED 2026-09-06 in `7419a01d`, and this entry UNDERSTATED it: the defect was
+live on the fleet, not latent.** I wrote that no `acl` row grants an ext tool so
+nothing arms it. The announce filter is not the only door. `turnAuthorize`
+(`routd/agent_gate.go:38`) returns `func(...) bool { return true }` for an
+elevated turn, because the operator holds `*` WITH GRANT OPTION — so `/root`
+passes every check, the four embedded providers under `routd/extproviders/`
+register, and the marshal refuses. **Every `/root` turn on every instance
+received no tools at all** and timed out, which reads as an agent ignoring the
+operator. Measured on a live socket: with the defect, `read: i/o timeout` and
+the log line naming `cloudflare_dns_create`; with the fix, 53 tools listed.
+
+The arming condition in this entry was also wrong. The ext announce filter reads
+`tool.Scope` (`ext:cloudflare:dns:read`), not `mcp:<name>`, and per
+`auth/authorize.go:390` only a `*` row covers that shape — `admin` and `mcp:*`
+do not. So the doors are `*` and elevation, never an ordinary grant.
+
+The fix is one clearing at `ipc/ipc.go`'s single registration funnel, following
+what `mcp-go`'s own `WithInputSchema` does: clear `InputSchema.Type` when a raw
+schema is present. `NewToolWithRawSchema` was rejected on the library's
+documented warning that such a tool is incompatible with the `ToolOption`s both
+call sites pass.
+
+A per-tool marshal guard was considered and refused on reachability: the input
+conflict is now impossible at the one funnel, no `RawOutputSchema` exists
+anywhere in the tree, and both raw-schema producers are `json.Marshal` of a Go
+value, so the bytes are valid by construction. The guard would trade a loud
+total failure for a quiet dropped tool, which is worse under fail-loud.
+
+Two tests hold it, each through a real producer rather than a hand-built
+fixture: a connector tool over `fakeMCP`, and the real embedded cloudflare
+provider through `LoadExtProviders`. One mutation proves both — invert the
+guard to `if tool.RawInputSchema == nil` and each goes red naming its tool.
 
 VERIFIED against the vendored library and the call path, not a report.
 
@@ -11520,6 +11553,49 @@ Per owner today: `onbod`, `chanlib` and `emaid` apply CLEAN on Postgres;
 - **Scope:** `*/migrations/*.sql`
 - **Fix:** port per owner, smallest first, in the order `6/37` sets. FTS waits
   for step 8.
+
+## L230 — no CLI can grant a single ext tool, because `grantableAction` refuses the scope shape the filter reads (2026-09-06, open)
+
+MEASURED while fixing `L222`. The ext-tool announce filter checks
+`tool.Scope`, which the embedded providers write as
+`ext:<provider>:<area>:<verb>` — for example `ext:cloudflare:dns:read`.
+`grantableAction` (`cmd/arizuko/main.go:596`) accepts an action only with an
+`mcp:` or `shell:env:` prefix, or a `.`, so it rejects every one of those
+scopes.
+
+The consequence: an operator cannot open ONE ext tool to a folder. The only
+rows that reach it are a blanket `*` and an operator `/root` elevation, both of
+which confer everything. A test that needed the row had to write it directly
+rather than through `arizuko grant`.
+
+This is the `grant_action_needs_a_door` class exactly — the same shape that
+cost the 0023 egress outage, where a new action existed in the evaluator and
+nothing could write a row for it.
+
+- **Severity:** medium — a shipped capability has no least-privilege path, so
+  using it at all means granting everything
+- **Scope:** `cmd/arizuko/main.go`, the ext announce filter
+- **Fix:** teach `grantableAction` the `ext:` prefix. Then check the same
+  question for every other scope namespace a filter reads, since this is the
+  second instance of one bug class.
+
+## L231 — `writeJSON` drops an unmarshalable response with no error frame, so the caller waits out its timeout (2026-09-06, open)
+
+MEASURED while fixing `L222`. `ipc/ipc.go` logs at ERROR with the folder and
+the error, then returns without writing anything. The agent is a JSON-RPC
+client: with no response and no error frame it blocks until its read deadline —
+10.01 seconds, measured.
+
+`L222` removed the only reachable way to produce an unmarshalable response, so
+nothing triggers this today. It stays a reporting gap: any future response that
+cannot marshal costs the turn a silent timeout rather than an error the agent
+can act on or report.
+
+- **Severity:** low — unreachable now, and the log line is loud; what is
+  missing is delivery to the caller
+- **Scope:** `ipc/ipc.go`
+- **Fix:** write a JSON-RPC error frame when marshalling the result fails, so
+  the failure reaches the agent instead of only the journal
 
 ## L219 — restoring an archive re-introduces the mixed-width timestamps `L97` removed (2026-09-06, proposal — needs sign-off)
 
