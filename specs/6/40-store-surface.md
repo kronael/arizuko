@@ -66,35 +66,55 @@ generation that stops a recreated folder inheriting the last tenant's admin,
 and the checksum that makes a package install transactional, are both "version
 the result".
 
+**The collapse is a proposal, and the code does not do it today.**
+`store.DeleteGroup` runs four table-specific predicates and carries no version;
+`resreg.Apply` scopes on an exact resource value and compare-and-swaps a
+subsystem-wide checksum (`resreg/engine.go:301-316`, `:786-879`). Making them
+one operation is work, not an observation, and `L198` is the open half of it.
+
 This is the operation a key-value engine cannot carry as one write. The scope
 is unbounded, so the row set must be read before it can be deleted, and a row
 added in between survives. That is the price `6/38` costed, and it is now one
 price rather than two.
 
-## The audited write is an intent log, not a transaction
+## The audited write: an intent log needs three more things
 
 `runAudited` has 20 call sites across 10 files and is the largest single reason
-this system opens transactions. It does not need one:
+this system opens transactions. Replacing it with three single-row writes —
+pending audit row, data row carrying the audit id, then mark it committed — is
+the right shape, because each write is atomic alone and that is what a
+key-value engine gives. It does not work as stated, and a review found four
+ways it fails.
 
-1. Write the audit row **pending**.
-2. Write the data row, carrying the audit row's id.
-3. Mark the audit row **committed**.
+**A delete leaves nothing to carry the back-reference.** `store.DeleteGroup`
+is an audited delete across four tables; after it, no row exists to name the
+audit id, so a sweep cannot tell a completed delete from an abandoned one. Any
+audited delete has to leave a tombstone carrying the id, which makes every
+audited delete a soft delete with reclamation behind it. That is the price, and
+it is not small.
 
-Three single-row writes, each atomic on its own, which is exactly what a
-key-value engine gives.
+**The event is built lazily, so the pending row cannot hold it.**
+`store/audit_helpers.go:10-28` says it outright: the `audit.Event` is
+constructed inside the mutation so callers can include last-insert-id or
+affected-rows. A pending row written first cannot carry fields that do not
+exist yet, so the record is two shapes — an INTENT (actor, action, target)
+written first, and an OUTCOME completed at step 3.
 
-**The back-reference in step 2 is load-bearing.** Without it, a crash between
-steps 2 and 3 leaves a completed write whose audit row is still pending, and a
-sweep that deletes pending rows destroys the audit for a write that happened —
-the one outcome the audit exists to prevent. A sweep cannot distinguish "this
-failed" from "this succeeded and we died before the stamp" unless the data row
-says so.
+**A later writer erases the marker.** The data row holds only the newest
+writer's audit id. If A writes, crashes before committing its audit, and B then
+overwrites the row, the sweep sees A pending with no row naming it and deletes
+it — though A's write happened and was superseded. The back-reference is a
+liveness proof, not a history proof, and an audit log is a history.
 
-With the back-reference the sweep is a reconciliation, decidable from the rows
-alone: a pending audit whose data row exists is committed; a pending audit with
-no data row is deleted. The cost is one column on every audited table, and the
-gain is that the same marker serves `resreg.Apply`'s in-progress state, so the
-system has one mechanism where `6/37` redesign 3 assumed two.
+**A sweep can race a live writer.** A sweep that observes no marker yet, delete
+the pending audit, and let the writer then commit its data, produces an
+unaudited write. The sweep needs a lease or an age bound longer than any write
+can take, which reintroduces a timeout as a correctness parameter.
+
+So the honest statement: the intent log removes the transaction for inserts and
+updates, at the cost of tombstoned deletes, a two-shape audit row, and a
+time-bounded sweep. Whether that trade is worth taking is a decision, and it is
+`L241`.
 
 ## What this surface is not
 
@@ -103,19 +123,50 @@ operation is named in arizuko's terms and each has a SQL implementation today.
 Tier 3 — a query one daemon issues — stays raw SQL against the pool, and a
 passthrough over `database/sql` remains the indirection `6/37` rejects.
 
+## Three is not enough — two more the census missed
+
+A review against the code found two invariants no operation above expresses.
+
+**The reachability guard.** `store.AddMembership` walks the ancestor closure
+with `WITH RECURSIVE up(p)` and refuses the edge if the child already appears
+in it — a graph reachability test, decided by an unbounded read, under the same
+lock as the insert. A path prefix cannot express it: membership is a DAG over
+folders, not a tree, so a parent need not be a prefix of its child. This is the
+operation `6/38` costed as needing a materialised ancestor closure maintained
+on every membership write.
+
+**The claim-and-return.** `store.DueTasks` is
+`UPDATE scheduled_tasks SET status='firing' WHERE status='active' AND next_run
+<= ? RETURNING …` — a conditional update over an unbounded set that returns
+what it claimed, which is a work-queue lease. A key-value engine has neither
+the predicate update nor the return, so it becomes query-then-conditional-write
+per item, and the claim stops being atomic across the set.
+
+Two corrections to operation 2 as well: invite redemption and `/always`
+condition ONE row and atomically write OTHERS, so the operation is a guarded
+BATCH — a condition check plus a bounded set of writes — not a single-row
+conditional write. That shape is native (`TransactWriteItems` allows a
+`ConditionCheck` on an item it does not modify), but the bound is 100 actions.
+
 ## Portability, stated once
 
 | Operation          | Key-value engine                                                                     |
 | ------------------ | ------------------------------------------------------------------------------------ |
 | containment        | native: `begins_with` on a sort key under a tenant partition                         |
-| guarded transition | native: a conditional write                                                          |
+| guarded batch      | native: a `ConditionCheck` plus writes, bounded at 100 actions                       |
 | versioned replace  | NOT native: unbounded scope, read-then-delete, and the read is not part of the write |
-| audited write      | native once it is an intent log with the back-reference                              |
+| reachability guard | NOT native: an unbounded graph read decides the write                                |
+| claim-and-return   | NOT native: no predicate update, no return over a set                                |
+| audited write      | native only with tombstoned deletes, a two-shape row, and a time-bounded sweep       |
 
-One operation of the three blocks a key-value move, and the same operation is
-the one needing `pg_advisory_xact_lock` on Postgres. That coincidence is the
-finding: `replace` is not a storage call, it is a protocol over a lock and a
-sequence of bounded writes, and it should be named as one.
+Three of the five block a key-value move, not one. The versioned replace is
+also the operation needing `pg_advisory_xact_lock` on Postgres, and that
+coincidence stands: `replace` is not a storage call, it is a protocol over a
+lock and a sequence of bounded writes, and it should be named as one.
+
+The first draft of this spec claimed three operations and that the audited
+write folded in cleanly. Both were wrong, and the code said so — the sections
+above record what the review found rather than the shape that was tidier.
 
 ## Ties
 
