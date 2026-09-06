@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/dashd/dashstore"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -38,35 +38,10 @@ func sortedEnvProfileKeys() []string {
 }
 
 // listUserEnvKeys returns the caller's env-profile keys that are currently set.
+// The fixed display-order key list bounds the answer, so a secret outside the
+// profile cannot reach this page.
 func (d *dash) listUserEnvKeys(sub string) ([]secretItem, error) {
-	// Build an IN(...) list from the fixed display-order key list.
-	placeholders := make([]string, len(envProfileKeyList))
-	args := make([]any, 0, len(envProfileKeyList)+1)
-	args = append(args, sub)
-	for i, k := range envProfileKeyList {
-		placeholders[i] = "?"
-		args = append(args, k)
-	}
-	q := fmt.Sprintf(
-		`SELECT key, created_at FROM secrets
-		 WHERE scope_kind = 'user' AND scope_id = ? AND key IN (%s)
-		 ORDER BY key`,
-		strings.Join(placeholders, ","))
-	rows, err := d.secretsDB().Query(q, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []secretItem{}
-	for rows.Next() {
-		var it secretItem
-		if err := rows.Scan(&it.Key, &it.CreatedAt); err != nil {
-			slog.Warn("me_env scan", "err", err)
-			continue
-		}
-		items = append(items, it)
-	}
-	return items, rows.Err()
+	return d.ds().UserEnvKeys(sub, envProfileKeyList)
 }
 
 // handleMeEnv serves GET /dash/me/env — HTML or JSON list of the caller's
@@ -215,11 +190,8 @@ func (d *dash) handleMeEnvUpdate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "key: body key must match path", http.StatusBadRequest)
 		return
 	}
-	var exists int
-	switch err := ss.DB().QueryRow(
-		`SELECT 1 FROM secrets WHERE scope_kind = 'user' AND scope_id = ? AND key = ?`,
-		sub, key).Scan(&exists); {
-	case errors.Is(err, sql.ErrNoRows):
+	switch err := d.ds().UserSecretExists(sub, key); {
+	case errors.Is(err, dashstore.ErrSecretMissing):
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	case err != nil:

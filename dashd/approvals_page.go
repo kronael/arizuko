@@ -308,14 +308,12 @@ func approvalsRedirect(w http.ResponseWriter, r *http.Request, msg, errMsg strin
 // a deploy whose routd has not migrated the table yet must not break the
 // portal.
 func (d *dash) countHeldApprovals() int {
-	if d.adminDB() == nil {
+	st := d.ds()
+	if st == nil {
 		return 0
 	}
-	var n int
-	if err := d.adminDB().QueryRow(
-		`SELECT COUNT(*) FROM pending_actions
-		  WHERE status='held' AND (expires_at IS NULL OR expires_at='' OR expires_at > ?)`,
-		time.Now().UTC().Format(time.RFC3339)).Scan(&n); err != nil {
+	n, err := st.HeldApprovalCount(time.Now().UTC().Format(time.RFC3339))
+	if err != nil {
 		slog.Warn("scope: held-approvals count", "err", err)
 		return 0
 	}

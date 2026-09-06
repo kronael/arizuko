@@ -117,32 +117,29 @@ func (d *dash) jidFolder(jid string) string {
 }
 
 // countVisible is the one scope-filtered counter behind the portal/status
-// numbers: operators get countQ's raw COUNT(*); scoped callers get listQ's
-// single column mapped to a folder via toFolder and filtered through
-// `visible`. Three counts, one shape — the per-count copies drifted before.
-func (d *dash) countVisible(allowed []string, operator bool, countQ, listQ string, toFolder func(string) string) int {
-	if d.adminDB() == nil {
+// numbers: an operator gets the store's raw total; a scoped caller gets the
+// folder-bearing column mapped through toFolder and filtered through `visible`.
+// Three counts, one shape — the per-count copies drifted before. Both halves
+// come from dashstore as a pair, so a number and its scoped form are the same
+// question asked twice rather than two questions.
+func (d *dash) countVisible(name string, allowed []string, operator bool,
+	total func() (int, error), each func() ([]string, error), toFolder func(string) string) int {
+	if d.ds() == nil {
 		return 0
 	}
 	if operator {
-		var n int
-		if err := d.adminDB().QueryRow(countQ).Scan(&n); err != nil {
-			slog.Warn("scope: count", "q", countQ, "err", err)
+		n, err := total()
+		if err != nil {
+			slog.Warn("scope: count", "count", name, "err", err)
 		}
 		return n
 	}
-	rows, err := d.adminDB().Query(listQ)
+	vals, err := each()
 	if err != nil {
-		slog.Warn("scope: list", "q", listQ, "err", err)
-		return 0
+		slog.Warn("scope: list", "count", name, "err", err)
 	}
-	defer rows.Close()
 	n := 0
-	for rows.Next() {
-		var v string
-		if err := rows.Scan(&v); err != nil {
-			continue
-		}
+	for _, v := range vals {
 		if visible(allowed, operator, toFolder(v)) {
 			n++
 		}
@@ -154,29 +151,25 @@ func folderIdentity(f string) string { return f }
 
 // countVisibleGroups counts groups the caller may see.
 func (d *dash) countVisibleGroups(allowed []string, operator bool) int {
-	return d.countVisible(allowed, operator,
-		`SELECT COUNT(*) FROM groups`,
-		`SELECT folder FROM groups ORDER BY folder LIMIT 500`,
-		folderIdentity)
+	st := d.ds()
+	return d.countVisible("groups", allowed, operator,
+		st.GroupCount, st.GroupFolders, folderIdentity)
 }
 
 // countVisibleErroredChats counts distinct errored chat_jids whose
 // routing-target folder the caller may see.
 func (d *dash) countVisibleErroredChats(allowed []string, operator bool) int {
-	return d.countVisible(allowed, operator,
-		`SELECT COUNT(DISTINCT chat_jid) FROM messages WHERE errored=1`,
-		`SELECT DISTINCT chat_jid FROM messages WHERE errored=1 LIMIT 1000`,
-		d.jidFolder)
+	st := d.ds()
+	return d.countVisible("errored-chats", allowed, operator,
+		st.ErroredChatCount, st.ErroredChatJIDs, d.jidFolder)
 }
 
 // countVisibleFailedTasks counts task runs that errored in the last day whose
 // owning group folder the caller may see.
 func (d *dash) countVisibleFailedTasks(allowed []string, operator bool) int {
-	return d.countVisible(allowed, operator,
-		`SELECT COUNT(*) FROM task_run_logs WHERE status='error' AND run_at > datetime('now','-1 day')`,
-		`SELECT t.owner FROM task_run_logs l JOIN scheduled_tasks t ON t.id = l.task_id
-		 WHERE l.status='error' AND l.run_at > datetime('now','-1 day') LIMIT 1000`,
-		folderIdentity)
+	st := d.ds()
+	return d.countVisible("failed-tasks", allowed, operator,
+		st.FailedTaskRunCount, st.FailedTaskOwners, folderIdentity)
 }
 
 // requireAdmin gates a write to scope (folder or "**" for global) via auth.Authorize

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/dashd/dashstore"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -67,32 +67,14 @@ func (d *dash) userSecretWrite(w http.ResponseWriter, r *http.Request) (sub stri
 	return sub, ss, true
 }
 
-type secretItem struct {
-	Key       string `json:"key"`
-	CreatedAt string `json:"created_at"`
-}
+// secretItem is a stored secret's name and date, the whole of what the /dash/me
+// surfaces are allowed to show.
+type secretItem = dashstore.SecretKey
 
 // listUserSecrets returns the caller's secret KEYS + created_at — never values
 // (the list surface mirrors GitHub SSH keys: names visible, secrets opaque).
 func (d *dash) listUserSecrets(sub string) ([]secretItem, error) {
-	rows, err := d.secretsDB().Query(
-		`SELECT key, created_at FROM secrets
-		 WHERE scope_kind = 'user' AND scope_id = ?
-		 ORDER BY key`, sub)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []secretItem{}
-	for rows.Next() {
-		var it secretItem
-		if err := rows.Scan(&it.Key, &it.CreatedAt); err != nil {
-			slog.Warn("me_secrets scan", "err", err)
-			continue
-		}
-		items = append(items, it)
-	}
-	return items, rows.Err()
+	return d.ds().UserSecretKeys(sub)
 }
 
 // handleMeSecrets serves the user's secret list: an HTML management page for a
@@ -270,13 +252,11 @@ func (d *dash) handleMeSecretUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// PATCH is update-only: 404 when the key was never set (the create path is
-	// POST). Existence is checked on the raw handle; the reseal goes through
-	// secretStore so the new value lands as a `v2:` ciphertext.
-	var exists int
-	switch err := ss.DB().QueryRow(
-		`SELECT 1 FROM secrets WHERE scope_kind = 'user' AND scope_id = ? AND key = ?`,
-		sub, key).Scan(&exists); {
-	case errors.Is(err, sql.ErrNoRows):
+	// POST). Existence is asked of the store without opening the value; the
+	// reseal goes through secretStore so the new value lands as a `v2:`
+	// ciphertext.
+	switch err := d.ds().UserSecretExists(sub, key); {
+	case errors.Is(err, dashstore.ErrSecretMissing):
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	case err != nil:

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/dashd/dashstore"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	"github.com/kronael/arizuko/store"
 )
@@ -280,9 +280,9 @@ func (d *dash) handleRouteUpdate(w http.ResponseWriter, r *http.Request) {
 	// Authz on the CURRENT row's folder, not just the submitted target — an
 	// admin on folder B must not be able to repoint a route that currently
 	// targets folder A. Load the existing target first; 404 if it's gone.
-	var curTarget string
-	if err := d.adminDB().QueryRow(`SELECT target FROM routes WHERE id = ?`, id).Scan(&curTarget); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+	curTarget, err := d.ds().RouteTarget(id)
+	if err != nil {
+		if errors.Is(err, dashstore.ErrRouteMissing) {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
@@ -335,9 +335,9 @@ func (d *dash) handleRouteDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Resolve folder via the existing route row so we can gate admin to scope.
-	var target string
-	if err := d.adminDB().QueryRow(`SELECT target FROM routes WHERE id = ?`, id).Scan(&target); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+	target, err := d.ds().RouteTarget(id)
+	if err != nil {
+		if errors.Is(err, dashstore.ErrRouteMissing) {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
