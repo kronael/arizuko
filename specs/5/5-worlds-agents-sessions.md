@@ -168,7 +168,7 @@ capability-token table was dropped as unconsumed
 to build a downscope on.
 
 Prototyping has **one** mechanism, and it is not a prototype feature.
-Automatic prototype spawn was deleted (`4a9a49c7`, with `4/26`): a delegated
+Automatic prototype spawn was deleted (`4a9a49c7`): a delegated
 message to an unrouted folder no longer creates anything —
 `routd/steer.go`'s `delegateViaMessage` errors naming the folder and the tool
 that creates it. Groups are never created by routing.
@@ -357,7 +357,7 @@ new folder". One asset, or is `prototype` dead vocabulary?
 
 **✓ A — product-only. "Prototype" leaves the vocabulary.** Doc-only change:
 `product` already ships (see [§Built](#built)), while the `prototype/` dir
-mechanism was deleted with `4/26` (`4a9a49c7`) and has no code — `grep -rn
+mechanism was deleted in `4a9a49c7` and has no code — `grep -rn
 prototype --include=*.go` returns only historical comments. One word, and it
 is the one with shipped code behind it.
 
@@ -468,6 +468,5 @@ sessions/spawns · `5/21` products (`draft`) · `5/8` export/apply ·
 `5/28` packages · `5/14` credentials · `11/19` cost caps · `5/9` capability
 eval · `5/V` web vhosts.
 
-`4/26` prototypes is **not** a tie: the spec file was deleted with the
-mechanism in `4a9a49c7` (`specs/4/26-prototypes.md`, -77 lines). It is named
-in Tier 3 as history only.
+Prototypes are **not** a tie: the mechanism and its spec were deleted in
+`4a9a49c7` (-77 lines). Tier 3 names them as history only.

@@ -11,8 +11,8 @@ depends: specs/5/16-mcp-rest-unification.md, specs/5/17-openapi-mcp.md, specs/5/
 > a continuously-synced source of truth. No DB→YAML sync, no startup-apply,
 > no SIGHUP-reload. A dump never claims to be live, so "drift" is a
 > non-concept. This supersedes the git-as-truth model (a continuously-synced
-> cold-tier `agents.toml`, formerly `specs/9/3`, deleted with the corpus
-> minimization in `819d43cd`); committing an `export` dump to git is fine.
+> cold-tier `agents.toml`, deleted with the corpus minimization in
+> `819d43cd`); committing an `export` dump to git is fine.
 
 > **DECISION (2026-08-04, operator).** Import must transfer _everything_:
 > cold-tier config, `groups/<folder>/` trees, message history, and encrypted
@@ -292,7 +292,7 @@ The caller is `arizuko apply --as-folder <folder>`
 this section requires, never a copy-folder mechanism of its own. Two further
 consumers, named so the next agent doesn't re-derive them: `5/28`'s seed-once
 package group, and cross-instance folder migration. Prototype spawn was the
-third until `4a9a49c7` deleted it (with `4/26`) precisely because
+third until `4a9a49c7` deleted it precisely because
 copy-register-route behind one verb duplicated export→apply — see `5/5`
 §"Tier 3 — Session".
 

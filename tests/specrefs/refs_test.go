@@ -122,3 +122,54 @@ func TestEveryDependsEntryResolves(t *testing.T) {
 		t.Fatal("no depends: entries parsed — the frontmatter format changed")
 	}
 }
+
+// specIDRe matches a spec ID written as prose in backticks — `6/16`, `5/A`,
+// `specs/5/33`. That is how most of the corpus cites a spec, and it is the form
+// no other check sees: a link check reads `](path.md)` and the depends check
+// reads frontmatter, so a prose ID can name a retired number while the build
+// stays green. `6/7` was retired and left 25 such pointers across eight files.
+var specIDRe = regexp.MustCompile("`(?:specs/)?([1-9][0-9]?)/([0-9]{1,2}|[A-Z])`")
+
+// historyFiles record what was true when they were written, so a retired ID in
+// them is correct and must stay. Everything else states the present.
+func isHistory(rel string) bool {
+	return rel == "BUGS.md" || rel == "CHANGELOG.md" ||
+		strings.Contains(rel, "/migrations/") || strings.HasPrefix(rel, ".diary/")
+}
+
+// TestEveryBacktickSpecIDResolves is the guard for prose pointers. A phase
+// directory that does not exist is not an error — phases are planned before
+// they are written — but a phase that exists and does not hold the ID is: that
+// is a reader sent to a spec nobody can open.
+func TestEveryBacktickSpecIDResolves(t *testing.T) {
+	checked := 0
+	for _, f := range sourceFiles(t) {
+		if filepath.Ext(f) != ".md" || isHistory(rel(f)) {
+			continue
+		}
+		body, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatalf("read %s: %v", f, err)
+		}
+		for _, m := range specIDRe.FindAllStringSubmatch(string(body), -1) {
+			phase, id := m[1], m[2]
+			phaseDir := filepath.Join(root, "specs", phase)
+			if _, err := os.Stat(phaseDir); err != nil {
+				continue
+			}
+			checked++
+			hits, err := filepath.Glob(filepath.Join(phaseDir, id+"-*.md"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(hits) == 0 {
+				t.Errorf("%s: cites %s, and specs/%s holds no %s-*.md",
+					rel(f), m[0], phase, id)
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no backtick spec IDs found — the pattern stopped matching the corpus")
+	}
+	t.Logf("resolved %d backtick spec IDs", checked)
+}

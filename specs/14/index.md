@@ -46,8 +46,3 @@ file.
   mechanism", then specified that mechanism a second time. One mechanism,
   one spec, with the CLI's genuine reasons (bootstrap before dashd is
   reachable, no browser over SSH, scriptable) kept.
-
-`7-auth-tunneling.md` and the merged `8-cli-auth-helper.md` both cited
-`8/32`, `8/37`, and `13/6-dynamic-channels.md` for the channel-row and
-auth-tunnel work — a renumbering artifact. Those are `14/6` and `14/7`:
-they were citing each other, and `14/7` was citing itself.

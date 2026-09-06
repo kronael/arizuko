@@ -117,7 +117,7 @@ Both must close before Mode A ships to a tenant that isn't the operator.
   through an `acl_membership` edge (`auth/authorize_test.go`
   `TestAuthorize_JIDClaimViaMembership`). `handleMessages` rejects a
   sender outside a scheme the adapter registered (`Entry.OwnsScheme`,
-  `4/1`). What that does NOT do is bound an edge to a sub-namespace
+  `5/34`). What that does NOT do is bound an edge to a sub-namespace
   _within_ its scheme, so a compromised adapter can still assert any user
   of its own platform. **An integration is trusted for its platform, not
   beyond it.**

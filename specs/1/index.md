@@ -32,4 +32,4 @@ Merged or moved out of this phase:
 | `8-email.md`          | [`../4/social-adapters.md`](../4/social-adapters.md) §emaid                                                                                                           |
 | `a-task-scheduler.md` | [`../4/8-scheduler-service.md`](../4/8-scheduler-service.md) — it was a duplicate that said so itself                                                                 |
 | `Z-slink-widget.md`   | [`../5/W-webhook-routes.md`](../5/W-webhook-routes.md) — `/slink/{token}/chat`, `/config` and CORS all moved to `/chat/<token>/`                                      |
-| `W-slink.md`          | [`../5/W-webhook-routes.md`](../5/W-webhook-routes.md) — round-handle protocol; the stub outlived its last referrer (`14/3`, deleted 2026-08-02)                      |
+| `W-slink.md`          | [`../5/W-webhook-routes.md`](../5/W-webhook-routes.md) — round-handle protocol                                                                                        |

@@ -103,8 +103,8 @@ folder, where it is diffable and owned.
   `ThreadState` with resume delegated to each CLI confirms the thin
   wrapper needs no server. The recorded arizuko decision stands: the
   generic seam is the process boundary / MCP socket, not a
-  TypeScript interface with N implementations (`5/K` deleted
-  2026-08-06, −782 lines, `.diary/20260806.md:137-142`).
+  TypeScript interface with N implementations (recorded 2026-08-06,
+  `.diary/20260806.md:137-142`).
 - **Enforcement outside the agent** — their permissions-bypassed CLI
   inside a NetworkPolicy+proxy cage is the same philosophy as
   container + crackbox + gated socket (`SECURITY.md` §Network egress

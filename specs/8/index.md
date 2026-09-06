@@ -32,6 +32,5 @@ channel-specific items go there.
 | `H-per-daemon-secrets.md`    | claimed `<DAEMON>_CHANNEL_SECRET` had shipped. It never existed (zero code hits), and `CHANNEL_SECRET` itself is retired — adapters now exchange an ES256 service token via `AUTHD_SERVICE_KEY`.        |
 | `Z-egred-mitm.md`            | 593 lines proposing HTTPS-MITM on an `egred` daemon that was never built, premised on `gated`. Its own opening quoted `5/13` _rejecting_ MITM, then reintroduced it. `crackbox` (`6/24`) is the answer. |
 
-There is no secret-broker spec: `specs/7/Y-secret-broker.md` was folded into
-[`../5/13-ext-mcp.md`](../5/13-ext-mcp.md) (commit `c6a878e4`). Code comments
-in `store/secrets.go` still cite the dead `6/Y`/`8/Y` paths.
+There is no secret-broker spec in this phase: the broker is specced in
+[`../5/13-ext-mcp.md`](../5/13-ext-mcp.md).

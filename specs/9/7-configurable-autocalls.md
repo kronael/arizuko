@@ -460,11 +460,10 @@ or stale fact (CLAUDE.md: "strict, not magical").
 - **NOT a blocking dependency on data.** Every `query` is
   deadline-bounded and fail-open-to-omitted. A down/slow probe never
   blocks or fails a turn.
-- **NOT a replacement for MCP tools or functions.** Anything needing
-  args from the agent, side effects, on-demand timing, network, or
-  shell is an MCP tool or a function (`9/6`), not an autocall. The
-  autocall niche is unchanged from 5/4: always-relevant, small,
-  read-only facts injected without schema cost.
+- **NOT a replacement for MCP tools.** Anything needing args from the
+  agent, side effects, on-demand timing, network, or shell is an MCP
+  tool, not an autocall. The autocall niche is unchanged from 5/4:
+  always-relevant, small, read-only facts injected without schema cost.
 - **NOT an env-var or file config.** Definitions are business state →
   DB-backed via resreg. Only the budgets are env (`AUTOCALL_*_MS`).
 - **NOT a new render path.** One renderer, one sink; configured rows
@@ -484,9 +483,7 @@ or stale fact (CLAUDE.md: "strict, not magical").
 - `specs/5/32-acl-unified.md` — `autocalls:*` actions; operator-owned
   by default, folder-delegable by explicit grant.
 - An MCP tool is the escape hatch for facts that need real work (shell,
-  network, unbounded); autocalls stay cheap and inline. The `functions`
-  primitive that used to hold that role was specced in `9/6` and deleted
-  2026-08-02 — it was built on the removed `gated` daemon.
+  network, unbounded); autocalls stay cheap and inline.
 - `ant/CLAUDE.md` §Autocalls — agent-side contract (ground truth,
   don't re-fetch); unchanged in spirit, one sentence added.
 - Code anchors: `routd/prompt.go` (`autocalls` slice) (builtin slice), `:51`

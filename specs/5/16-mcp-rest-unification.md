@@ -882,5 +882,5 @@ distinguish "operator" from "top-level tenant".
 ## Out of scope
 
 - The `5/17` mechanism itself (shipped).
-- Data-model sharpening (`9/2`) and git-as-truth (`9/3`) — the other two
-  phase-8 actions, still phase 8; do not smuggle them in here.
+- Data-model sharpening (`9/2`) — the other open phase-9 action; do not
+  smuggle it in here.

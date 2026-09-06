@@ -13,7 +13,7 @@ of building from scratch.
 > **Scope split (2026-07-14, repointed 2026-08-04).** This spec is the
 > PRODUCER side — what a product contains and how to author one.
 > Composition, distribution, and updates live in
-> [`28-packages.md`](28-packages.md) (`5/20` dissolved into it), which
+> [`28-packages.md`](28-packages.md), which
 > supersedes this file's single-template narrative: a group holds an
 > ORDERED MIX of products, blended per payload kind.
 
@@ -110,7 +110,7 @@ shipped" (`cmd/arizuko/products.go`, `listProducts`).
 - Skill whitelisting is not enforced; all global skills are seeded. The
   `skills` list in `PRODUCT.md` stays informational until it is.
 - Third-party products (per-instance product dirs) — deferred.
-- `--product` accepting a URL or git repo — deferred; `5/20`'s source
+- `--product` accepting a URL or git repo — deferred; `5/28`'s source
   resolvers are the intended path.
 
 None of the three blocks the producer side this spec defines. The first is

@@ -354,7 +354,7 @@ Caveats:
 - IPv6 is not redirected by the entrypoint script.
 
 **No DNS filter.** The UDP/53 NXDOMAIN listener was deleted with the
-shared proxy (spec `6/24` supersedes `6/10`). It was never wired into
+shared proxy (spec `6/24`). It was never wired into
 `container.Run`, and a single-tenant proxy already sees every destination
 in the CONNECT line — a rule expressed twice is a rule that can disagree
 with itself. The HTTP/CONNECT 403 in `egress/` is the enforced path.
