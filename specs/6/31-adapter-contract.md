@@ -7,7 +7,7 @@ depends: [28-cockpit-index]
 # Adapter dashboard contract
 
 **Purpose** — define the adapter dashboard ONCE: page grammar, show
-matrix, health semantics. The nine channel adapters are variations on
+matrix, health semantics. The ten channel adapters are variations on
 one chanlib runtime, so they get one dashboard renderer with
 per-adapter deltas. [`6/32`](32-adapter-dashboards.md) instantiates
 this contract and lists only deltas. Architecture, routing, auth,
@@ -96,11 +96,11 @@ routd SERVICE tokens (`whapd/src/auth.ts`, `twitd/src/auth.ts`).
 
 ## Build state (2026-08-30) — SHIPPED
 
-The renderer is `chanlib/dash.go`, mounted inside `NewAdapterMux`, so all seven
-Go adapters (slakd, teled, discd, emaid, bskyd, reditd, linkd) serve
+The renderer is `chanlib/dash.go`, mounted inside `NewAdapterMux`, so all eight
+Go adapters (slakd, teled, discd, emaid, bskyd, reditd, linkd, gitd) serve
 `/dash/<adapter>/` with **no per-adapter code**. Every fact the page shows is
 already a parameter of that constructor, which is why the contract collapses to
-one mount rather than seven implementations.
+one mount rather than eight implementations.
 
 Decisions worth keeping:
 
@@ -137,5 +137,5 @@ Two deltas are forced rather than chosen, and are stated in both files:
   can.
 - **The theme is inlined**, because `theme.Page` is a Go package.
 
-All nine adapters serve `/dash/<adapter>/`, each registered by its own
+All ten adapters serve `/dash/<adapter>/`, each registered by its own
 `template/services/<name>.yaml` route gated on the adapter's credential.

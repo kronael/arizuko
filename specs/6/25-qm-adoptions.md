@@ -102,10 +102,10 @@ rendering of a value, not a second source of truth.
 
 ## 3 — agent behaviour is testable without a live instance
 
-**What qm does.** `src/harness/mock-harness.ts` (802 lines) is a full harness
-implementation behind the same interface as Claude Code, Codex, Pi and
-OpenCode. With `replay.ts` and the recorded tape, agent behaviour is
-exercised deterministically, offline, for free.
+**What qm does.** `src/harness/mock-harness.ts` (840 lines at `main`, read
+2026-09-06) is a full harness implementation behind the same interface as
+Claude Code, Codex, Pi and OpenCode. With `replay.ts` and the recorded tape,
+agent behaviour is exercised deterministically, offline, for free.
 
 **What arizuko has.** `anteval` — a black-box prober that needs a live
 instance, a minted bearer, an eval folder with raised `MaxChildren`, a
@@ -113,7 +113,7 @@ reachable sink, granted tools, and real model spend. It is excellent and it is
 also, by construction, run rarely. That is why nothing caught `L54`: the fault
 lived between routd's session id and ant's resume guard, and no tier owned
 that seam. `tests/feat_continuity_test.go` (2026-08-20) pins it end to end
-by extracting ant's own `UUID_RE` from `ant/src/index.ts` and asserting routd's
+by extracting ant's own `UUID_RE` from `ant/src/claude.ts` and asserting routd's
 minted id passes it — a cross-language contract test with no container.
 
 **Adopted.** The shape is extended: wherever a Go producer feeds a TypeScript

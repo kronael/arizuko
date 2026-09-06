@@ -194,12 +194,13 @@ payload carries one, link to `/dash/<daemon>/`.
   per-tile timeout and links what is served, read from the live proxyd route
   table (`6/29`).
 - **Adapters.** The shared renderer `chanlib/dash.go` is mounted inside
-  `NewAdapterMux`, so all seven Go adapters serve `/dash/<adapter>/` with no
+  `NewAdapterMux`, so all eight Go adapters serve `/dash/<adapter>/` with no
   per-adapter code, each registered by its own `template/services/<name>.yaml`
   route gated on the adapter's credential (`6/31`).
 
 **Status: shipped 2026-08-30.** The hub exists, the per-daemon set is complete
-(eight dashboards plus davd's recorded abstention), all nine adapters serve the
+(eight dashboards plus davd's recorded abstention), all ten channel adapters
+serve the
 shared contract, and no dashboard reads another daemon's SQLite file. The write
 axis is governed by CLAUDE.md's split write-discipline, above.
 
@@ -211,7 +212,7 @@ axis is governed by CLAUDE.md's split write-discipline, above.
 | `6/29` | dashd hub + retained cross-cutting operator pages               |
 | `6/30` | the ten core/edge daemon dashboards, one table + the residue    |
 | `6/31` | adapter dashboard contract — shared page grammar + health model |
-| `6/32` | the nine channel adapters, instantiating that contract          |
+| `6/32` | the ten channel adapters, instantiating that contract           |
 
 A per-daemon section carries only: pages, the show/control matrix, the
 `/v1` additions it needs, and reasoning that does not generalise. No

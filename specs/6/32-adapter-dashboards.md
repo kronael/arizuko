@@ -4,27 +4,28 @@ shipped: 2026-08-30
 depends: [28-cockpit-index, 31-adapter-contract]
 ---
 
-# Adapter dashboards — the nine channel adapters
+# Adapter dashboards — the ten channel adapters
 
 Instantiates the adapter contract ([`6/31`](31-adapter-contract.md))
-for all nine adapters. The contract owns the page grammar, show matrix,
+for all ten adapters. The contract owns the page grammar, show matrix,
 health semantics and auth — none of it is restated. This spec is the
 per-adapter delta table plus the handful of facts that do not
 generalise.
 
 ## Transport, liveness, identity, state
 
-| Adapter | Transport                                                | `isConnected()` source                         | Identity                     | Persisted state                                   |
-| ------- | -------------------------------------------------------- | ---------------------------------------------- | ---------------------------- | ------------------------------------------------- |
-| whapd   | Baileys websocket (WhatsApp), TypeScript                 | `connection.update` flag (`whapd/src/main.ts`) | phone JID from Baileys creds | `$WHATSAPP_AUTH_DIR/creds.json` (+ `.bak`)        |
-| teled   | Bot API long-poll, 30s `getUpdates`                      | poll success flag (`teled/bot.go`)             | `api.Self.UserName` + ID     | offset file `$DATA_DIR/teled-offset-<channel>`    |
-| slakd   | Events API webhook push (`/slack/events`)                | 60s `auth.test` probe (`slakd/bot.go`)         | `BotUserID()` + `TeamID()`   | none                                              |
-| bskyd   | notifications poll, 10s                                  | `authed` flag (`bskyd/client.go`)              | `session.DID`                | `bluesky-session.json`                            |
-| reditd  | inbox + subreddit poll, `REDDIT_POLL_INTERVAL` (5m)      | last successful poll < 15m (`pollStaleAfter`)  | `cfg.Username`               | `cursors.json`                                    |
-| linkd   | own-shares comment poll, `LINKEDIN_POLL_INTERVAL` (300s) | `authed` flag (`linkd/client.go`)              | `meURN` + `meName`           | `linkd-state-<name>.json`                         |
-| discd   | Discord gateway websocket (discordgo)                    | `session.DataReady` (`discd/bot.go`)           | `session.State.User`         | none                                              |
-| emaid   | IMAP IDLE (28m keepalive) + 30s poll fallback; SMTP dial | `connected` flag (`emaid/imap.go`)             | `EMAIL_ACCOUNT`              | `emaid.db` (thread tables)                        |
-| twitd   | mentions poll, `TWITTER_POLL_INTERVAL` (90s), TypeScript | `connected` flag (`twitd/src/main.ts`)         | cookie session (handle)      | `$TWITTER_AUTH_DIR/cookies.json` + `cursors.json` |
+| Adapter | Transport                                                | `isConnected()` source                         | Identity                                               | Persisted state                                   |
+| ------- | -------------------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------- |
+| whapd   | Baileys websocket (WhatsApp), TypeScript                 | `connection.update` flag (`whapd/src/main.ts`) | phone JID from Baileys creds                           | `$WHATSAPP_AUTH_DIR/creds.json` (+ `.bak`)        |
+| teled   | Bot API long-poll, 30s `getUpdates`                      | poll success flag (`teled/bot.go`)             | `api.Self.UserName` + ID                               | offset file `$DATA_DIR/teled-offset-<channel>`    |
+| slakd   | Events API webhook push (`/slack/events`)                | 60s `auth.test` probe (`slakd/bot.go`)         | `BotUserID()` + `TeamID()`                             | none                                              |
+| bskyd   | notifications poll, 10s                                  | `authed` flag (`bskyd/client.go`)              | `session.DID`                                          | `bluesky-session.json`                            |
+| reditd  | inbox + subreddit poll, `REDDIT_POLL_INTERVAL` (5m)      | last successful poll < 15m (`pollStaleAfter`)  | `cfg.Username`                                         | `cursors.json`                                    |
+| linkd   | own-shares comment poll, `LINKEDIN_POLL_INTERVAL` (300s) | `authed` flag (`linkd/client.go`)              | `meURN` + `meName`                                     | `linkd-state-<name>.json`                         |
+| discd   | Discord gateway websocket (discordgo)                    | `session.DataReady` (`discd/bot.go`)           | `session.State.User`                                   | none                                              |
+| emaid   | IMAP IDLE (28m keepalive) + 30s poll fallback; SMTP dial | `connected` flag (`emaid/imap.go`)             | `EMAIL_ACCOUNT`                                        | `emaid.db` (thread tables)                        |
+| twitd   | mentions poll, `TWITTER_POLL_INTERVAL` (90s), TypeScript | `connected` flag (`twitd/src/main.ts`)         | cookie session (handle)                                | `$TWITTER_AUTH_DIR/cookies.json` + `cursors.json` |
+| gitd    | GitHub webhook push (`POST /github/{source...}`)         | `connected` flag, set at start (`gitd/bot.go`) | `GITHUB_TOKEN` login (`GET /user`); empty ingress-only | none of its own; sources in `routd.db`            |
 
 ## Controls and delta sections
 
@@ -42,6 +43,7 @@ not greyed out (`6/31`).
 | discd   | —                           | —                                                                                   |
 | emaid   | —                           | the account and host the IMAP/SMTP login uses; the password is excluded             |
 | twitd   | —                           | —                                                                                   |
+| gitd    | —                           | last accepted delivery per configured source                                        |
 
 A delta section reads the adapter's own in-memory state through
 `DashSectioner`; a dash handler never opens `cursors.json`, `cookies.json`,
@@ -92,7 +94,7 @@ default. The theme is inlined (`6/31`).
 ## Acceptance
 
 - Contract acceptance ([`6/31`](31-adapter-contract.md)) passes for all
-  nine adapters.
+  ten adapters.
 - whapd: starting a pair shows the code + countdown; a sixth attempt in
   an hour renders the 429 in the pair pane.
 - slakd: a quiet workspace renders `stale` with 200, not a 503.
@@ -103,7 +105,7 @@ default. The theme is inlined (`6/31`).
 
 ## Build state (2026-08-30)
 
-All nine adapters serve `/dash/<adapter>/`: the seven Go ones from
+All ten adapters serve `/dash/<adapter>/`: the eight Go ones from
 `chanlib/dash.go` via `NewAdapterMux`, whapd and twitd from their own
 `src/dash.ts` (`6/31`).
 
@@ -145,7 +147,13 @@ against which host is. The password is excluded and a test pins that — it is
 the credential the failing login uses, and printing it would trade a diagnosis
 for a leak.
 
-**Every adapter that has a delta has it.** The four that do — reditd, bskyd,
-whapd, emaid — each render exactly the state the shared page cannot show. The
-rest implement nothing, which is the interface being optional working as
+**gitd's delta.** gitd is webhook-driven, so the operator's question when a
+source goes quiet is which of the configured sources last delivered. The shared
+"last inbound" tile answers that for the adapter as a whole and hides it
+per source, exactly as reditd's cursors do. A source with nothing yet reads
+`none since start` rather than being omitted (`gitd/bot.go:145-157`).
+
+**Every adapter that has a delta has it.** The five that do — reditd, bskyd,
+whapd, emaid, gitd — each render exactly the state the shared page cannot show.
+The rest implement nothing, which is the interface being optional working as
 intended.

@@ -41,7 +41,14 @@ The social adapter covers the **immediate interaction landscape** only:
 - Direct mentions of the bot account
 - Replies to the bot's own posts
 - DMs (where the platform supports them)
-- Reactions/likes on the bot's posts (as `verb=like`)
+
+Reactions and likes are an OUTBOUND capability only. Each adapter declares
+`like` in its capability map (`bskyd/main.go:16`, `reditd/main.go:19`,
+`linkd/main.go:19`) so the agent can react, and none of them fetches one:
+bskyd asks the notifications API for `reasons: "mention,reply"`
+(`bskyd/client.go:228`), reditd reads the inbox and the configured subreddit
+feeds, linkd reads a post's comments, twitd reads mentions and replies. A
+route keyed on an inbound `verb=like` matches nothing.
 
 This is the same event-driven model as chat adapters: platform pushes (or
 adapter polls) notifications, adapter forwards to routd, agent replies via
@@ -64,7 +71,7 @@ job.
 ### 1. Notifications are ordinary inbound
 
 ```
-notification → adapter → routd (stored, verb=mention) → routing rules
+notification → adapter → routd (stored, verb per §"Inbound verbs") → routing rules
 ```
 
 Whether the agent engages is the route's and the agent's decision, not the
@@ -83,7 +90,7 @@ InboundMsg{
     Sender:      "bsky:user/did:plc:xyz789",
     SenderName:  "@alice.bsky.social",
     Content:     "@bot what do you think?",
-    Verb:        "mention",
+    Verb:        "message",     // "reply" when the notification is a reply
     ReplyTo:     parentPostID,  // if a reply
     // NO thread context, NO quoted post, NO author history
 }
@@ -91,7 +98,31 @@ InboundMsg{
 
 The adapter doesn't block on enrichment.
 
-### 3. No observer polling in adapter
+### 3. Inbound verbs
+
+Each adapter sets `InboundMsg.Verb` from the shape of the notification it
+read. These four values are the whole inbound vocabulary:
+
+| Adapter | Verbs emitted              | Set at                     |
+| ------- | -------------------------- | -------------------------- |
+| bskyd   | `message`, `reply`         | `bskyd/client.go:289-291`  |
+| reditd  | `message`, `reply`, `post` | `reditd/client.go:353-365` |
+| linkd   | `comment`, `reply`         | `linkd/client.go:468-471`  |
+| twitd   | `message`, `reply`         | `twitd/src/poll.ts:56`     |
+
+`mention` is not among them. routd assigns it centrally, and only in two
+cases: the inbound replies to a bot row or lands in a thread the bot has
+already spoken in (`routd/server.go:577-580`, the `5/L` promotion), or a
+reaction carries a held-notice verdict (`routd/server.go:587-589`). A
+first-contact @mention from a stranger satisfies neither, so it reaches the
+route table with the verb its adapter set.
+
+An operator route that must catch a first-contact mention therefore keys on
+`message`, `reply`, `comment` or `post`. Keying it on `mention` or `like`
+silently matches nothing — the route table reports no error for a verb no
+adapter emits.
+
+### 4. No observer polling in adapter
 
 The adapter polls ONLY for notifications directed at the bot. It does NOT:
 
@@ -112,7 +143,7 @@ The adapter stays thin.
 
 ## The one exception: reditd's subreddit poll (measured 2026-08-30)
 
-Four of five social adapters are thin. reditd is not.
+Three of the four social adapters are thin. reditd is not.
 
 `reditd.pollOnce` (`reditd/client.go:287`) polls TWO kinds of source:
 
@@ -145,5 +176,5 @@ Reddit, where the configured subreddits arrive as ordinary inbound messages.
 
 - `5/L-mention-promotion` — verb promotion for replies/reactions
 - `5/G-engagement` — engagement window (applies differently to social)
-- [`6/32`](32-adapter-dashboards.md) — the operator dashboard deltas for
-  these five adapters
+- [`6/32`](32-adapter-dashboards.md) — the operator dashboard deltas, for
+  these four and the six non-social adapters beside them

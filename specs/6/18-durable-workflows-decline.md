@@ -21,12 +21,17 @@ Postgres-backed durable execution in the Temporal replay style, via a
 vendored `absurd` library. All paths are into `paradigmxyz/centaur` at
 `20f3021`.
 
-- **Four tables per queue**: tasks (state machine
+- **Five tables per queue**, generated with the prefixes `t_`, `r_`,
+  `c_`, `e_`, `w_`: tasks (state machine
   `pending/running/sleeping/completed/failed/cancelled`), runs (one per
   attempt, lease columns `claimed_by`/`claim_expires_at`/`available_at`),
-  checkpoints keyed `(task_id, checkpoint_name)`, and waits linking a
-  suspended run to an `event_name`
-  (`services/api-rs/crates/centaur-session-sqlx/migrations/0007_absurd_workflows.sql:151-230`).
+  checkpoints keyed `(task_id, checkpoint_name)`, events `e_<queue>`
+  (`event_name` primary key — the row `emit_event` first-writes), and
+  waits linking a suspended run to an `event_name`
+  (`services/api-rs/crates/centaur-session-sqlx/migrations/0007_absurd_workflows.sql:150-230`).
+  A sixth, `i_<queue>` (idempotency), is created only in `partitioned`
+  storage mode (`:232-240`); an unpartitioned queue carries
+  `idempotency_key` as a unique column on `t_<queue>`.
 - **Checkpoint-or-execute replay.** The handler re-runs from the top on
   every resume; `TaskContext::step(name, f)` returns the stored result
   when the checkpoint exists and only otherwise executes the closure
@@ -112,7 +117,7 @@ the platform's actual load.
 
 **Reopen trigger**: a shipped product needs a multi-hour side-effecting
 job where re-running the whole turn is unacceptable (paid API calls per
-step, bulk migrations). The shape to copy then is absurd's four tables +
+step, bulk migrations). The shape to copy then is absurd's five tables +
 checkpoint-or-execute `step()` — mechanical, well-factored, and the SQL
 is readable — NOT a workflow DSL, and NOT the undelivered child-await
 API. Wire it as its own daemon owning its own DB, per the split
