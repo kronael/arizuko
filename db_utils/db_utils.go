@@ -302,10 +302,32 @@ func createVersionTable(ctx context.Context, db *sql.DB, d dialect) error {
 	return nil
 }
 
+// migrateReport records what one migrate call did with the files it considered.
+// Its two lists are the two ways a pending file stops being pending: this call
+// ran it, or another opener recorded it while this call waited on the critical
+// section. A file whose version was already recorded when this call read the
+// version is in neither list — that is the ordinary nothing-to-do case a
+// restart takes.
+type migrateReport struct {
+	applied []string
+	yielded []string
+}
+
 // Migrate applies pending `NNNN-*.sql` migrations from fsys/dir. Versions
 // must be sequential with no gaps. Tracked in the `migrations` table
 // keyed on (service, version).
 func Migrate(db *sql.DB, fsys embed.FS, dir, service string) error {
+	_, err := migrate(db, fsys, dir, service)
+	return err
+}
+
+// migrate is Migrate, reporting which files it ran and which it yielded to a
+// concurrent opener. The report is what tells the concurrency test that the
+// recheck inside the critical section ran at all: the end state is identical
+// whether six openers raced for a file or one applied every file before the
+// other five read the version.
+func migrate(db *sql.DB, fsys embed.FS, dir, service string) (migrateReport, error) {
+	var rep migrateReport
 	ctx := context.Background()
 	d := dialectFor(db)
 
@@ -316,16 +338,16 @@ func Migrate(db *sql.DB, fsys embed.FS, dir, service string) error {
 	max, err := readVersion(ctx, db, d, service)
 	if err != nil {
 		if cerr := createVersionTable(ctx, db, d); cerr != nil {
-			return cerr
+			return rep, cerr
 		}
 		if max, err = readVersion(ctx, db, d, service); err != nil {
-			return fmt.Errorf("read migration version: %w", err)
+			return rep, fmt.Errorf("read migration version: %w", err)
 		}
 	}
 
 	entries, err := fsys.ReadDir(dir)
 	if err != nil {
-		return fmt.Errorf("read migrations dir %q: %w", dir, err)
+		return rep, fmt.Errorf("read migrations dir %q: %w", dir, err)
 	}
 	var files []string
 	for _, e := range entries {
@@ -335,20 +357,20 @@ func Migrate(db *sql.DB, fsys embed.FS, dir, service string) error {
 	}
 	sort.Strings(files)
 	if err := checkVersions(files); err != nil {
-		return err
+		return rep, err
 	}
 
 	for _, f := range files {
 		ver, err := strconv.Atoi(f[:4])
 		if err != nil {
-			return fmt.Errorf("migration %q: non-numeric version prefix: %w", f, err)
+			return rep, fmt.Errorf("migration %q: non-numeric version prefix: %w", f, err)
 		}
 		if ver <= max {
 			continue
 		}
 		raw, err := fsys.ReadFile(dir + "/" + f)
 		if err != nil {
-			return fmt.Errorf("%s: read: %w", f, err)
+			return rep, fmt.Errorf("%s: read: %w", f, err)
 		}
 		// Serialise concurrent openers of the same DB (e.g. webd + proxyd
 		// both racing to apply the same migration). The critical section holds a
@@ -356,47 +378,49 @@ func Migrate(db *sql.DB, fsys embed.FS, dir, service string) error {
 		// first commits, then sees cur >= ver and skips.
 		conn, err := db.Conn(ctx)
 		if err != nil {
-			return err
+			return rep, err
 		}
 		if err := d.beginLocked(ctx, conn); err != nil {
 			conn.Close()
-			return fmt.Errorf("%s: exclusive lock: %w", f, err)
+			return rep, fmt.Errorf("%s: exclusive lock: %w", f, err)
 		}
 		cur, err := readVersion(ctx, conn, d, service)
 		if err != nil {
 			_, _ = conn.ExecContext(ctx, "ROLLBACK")
 			conn.Close()
-			return fmt.Errorf("%s: recheck version: %w", f, err)
+			return rep, fmt.Errorf("%s: recheck version: %w", f, err)
 		}
 		if cur >= ver {
 			// another process applied this migration while we were waiting
 			_, _ = conn.ExecContext(ctx, "ROLLBACK")
 			conn.Close()
 			max = cur
+			rep.yielded = append(rep.yielded, f)
 			continue
 		}
 		if ver != cur+1 {
 			_, _ = conn.ExecContext(ctx, "ROLLBACK")
 			conn.Close()
-			return fmt.Errorf("migration gap: expected %d, got %d", cur+1, ver)
+			return rep, fmt.Errorf("migration gap: expected %d, got %d", cur+1, ver)
 		}
 		if _, err := conn.ExecContext(ctx, string(raw)); err != nil {
 			_, _ = conn.ExecContext(ctx, "ROLLBACK")
 			conn.Close()
-			return fmt.Errorf("%s: %w", f, err)
+			return rep, fmt.Errorf("%s: %w", f, err)
 		}
 		if _, err := conn.ExecContext(ctx, d.insertVersion,
 			service, ver, time.Now().Format(time.RFC3339)); err != nil {
 			_, _ = conn.ExecContext(ctx, "ROLLBACK")
 			conn.Close()
-			return fmt.Errorf("%s: record: %w", f, err)
+			return rep, fmt.Errorf("%s: record: %w", f, err)
 		}
 		if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
 			conn.Close()
-			return fmt.Errorf("%s: commit: %w", f, err)
+			return rep, fmt.Errorf("%s: commit: %w", f, err)
 		}
 		conn.Close()
 		max = ver
+		rep.applied = append(rep.applied, f)
 	}
-	return nil
+	return rep, nil
 }

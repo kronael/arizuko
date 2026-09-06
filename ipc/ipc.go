@@ -425,19 +425,41 @@ func holdEligible(srv *server.MCPServer, db StoreFns, tool string) bool {
 	return db.Visible == nil || db.Visible(tool)
 }
 
+// rpcEncodeFailure renders the JSON-RPC error frame writeJSON sends in place of
+// a response that will not marshal. It is assembled from bytes rather than
+// marshalled as a whole: writeJSON reaches it only because a marshal has already
+// failed, and a replacement that can fail the same way leaves the caller with
+// nothing to read.
+//
+// The id is the only part from outside, and it is what tells the caller which
+// request the frame answers. It arrives as JSON off the wire, so it re-marshals;
+// a request that carried none gets null, the id JSON-RPC gives a response the
+// server cannot attribute. The Go value that would not encode stays in the log —
+// putting it in the frame means marshalling a second value here, and the agent
+// can act on neither.
+func rpcEncodeFailure(id any) []byte {
+	raw, err := json.Marshal(id)
+	if err != nil {
+		raw = []byte("null")
+	}
+	return []byte(`{"jsonrpc":"2.0","id":` + string(raw) + `,"error":{"code":-32603,` +
+		`"message":"internal error: the response could not be encoded; the call may already have taken effect"}}`)
+}
+
 func serveConn(ctx context.Context, c net.Conn, srv *server.MCPServer, gated GatedFns, db StoreFns, folder string) {
 	r := bufio.NewReader(c)
 	var writeMu sync.Mutex
-	writeJSON := func(v any) {
+	writeJSON := func(id, v any) {
 		writeMu.Lock()
 		defer writeMu.Unlock()
 		b, err := json.Marshal(v)
 		if err != nil {
-			// No error frame is written (v carries the request id we'd need);
-			// the caller's request times out — at least make the cause loud.
-			slog.Error("mcp writeJSON marshal — response dropped, caller will time out",
+			// The operator needs the Go value that would not encode; the agent
+			// needs a frame to read, or it waits out its deadline for a response
+			// that is never coming.
+			slog.Error("mcp response marshal — sending an error frame instead",
 				"folder", folder, "err", err)
-			return
+			b = rpcEncodeFailure(id)
 		}
 		c.Write(append(b, '\n'))
 	}
@@ -459,19 +481,23 @@ func serveConn(ctx context.Context, c net.Conn, srv *server.MCPServer, gated Gat
 			ID     any    `json:"id"`
 		}
 		if err := json.Unmarshal(raw, &head); err != nil {
-			writeJSON(map[string]any{
+			writeJSON(nil, map[string]any{
 				"jsonrpc": "2.0", "id": nil,
 				"error": map[string]any{"code": -32700, "message": "parse error"},
 			})
 			continue
 		}
+		// reply carries this request's id alongside the response, so a response
+		// that will not marshal is replaced by an error frame the caller can
+		// still match to the call it is waiting on.
+		reply := func(v any) { writeJSON(head.ID, v) }
 
 		if head.Method == "submit_turn" {
-			handleSubmitTurn(raw, head.ID, gated, folder, writeJSON)
+			handleSubmitTurn(raw, head.ID, gated, folder, reply)
 			continue
 		}
 		if head.Method == "submit_status" {
-			handleSubmitStatus(raw, head.ID, gated, folder, writeJSON)
+			handleSubmitStatus(raw, head.ID, gated, folder, reply)
 			continue
 		}
 
@@ -492,7 +518,7 @@ func serveConn(ctx context.Context, c net.Conn, srv *server.MCPServer, gated Gat
 			// HandleMessage, so no tool can route around it.
 			if db.CheckHold != nil && holdEligible(srv, db, p.Params.Name) {
 				if id, held := db.CheckHold(p.Params.Name, p.Params.Arguments); held {
-					writeJSON(holdResponse(head.ID, id, p.Params.Name))
+					reply(holdResponse(head.ID, id, p.Params.Name))
 					continue
 				}
 			}
@@ -504,7 +530,7 @@ func serveConn(ctx context.Context, c net.Conn, srv *server.MCPServer, gated Gat
 			endSpan(nil)
 		}
 		if resp != nil {
-			writeJSON(resp)
+			reply(resp)
 		}
 	}
 }
