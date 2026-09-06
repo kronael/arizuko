@@ -403,7 +403,7 @@ arizuko route acme add 'chat_jid=hook:main/eng/github' main/eng --seq -5
         hook token &mdash; it owns IMAP receive, SMTP send, and
         threading by Message-ID. See
         <a href="../../components/emaid.html">emaid</a> for the
-        connection setup. Auth-related env vars (spec 10/17) gate
+        connection setup. Auth-related env vars (spec 11/17) gate
         whether inbound is treated as trusted:
       </p>
       <pre><code># In .env — required to mark ANY inbound as trusted
@@ -417,7 +417,7 @@ EMAIL_STRICT_AUTH=false                       # true = drop unauthenticated outr
         <code>EMAIL_TRUSTED_AUTHSERV</code> to your provider's
         authserv-id (Gmail: <code>mx.google.com</code>, Fastmail:
         <code>mail.fastmail.com</code>) to enable DMARC-pass trust.
-        Full design: <a href="https://github.com/kronael/arizuko/blob/main/specs/10/17-emaid-auth.md">specs/10/17-emaid-auth.md</a>.
+        Full design: <a href="https://github.com/kronael/arizuko/blob/main/specs/11/17-emaid-auth.md">specs/11/17-emaid-auth.md</a>.
       </p>
 
       <h2>12. compose with support (optional)</h2>
@@ -592,7 +592,7 @@ mcpc @s tools-call add_route \
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/slack-team/setup.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-17">2026-08-17</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-27">2026-08-27</time>
       </div>
     </main>
 

@@ -63,7 +63,7 @@
     <h2>Why it exists</h2>
     <p>Without dashd, operators inspect an arizuko instance through <code>sqlite3 store/routd/routd.db</code>, <code>journalctl -u arizuko_&lt;inst&gt;</code>, and the <code>arizuko</code> CLI. That works for an engineer, but it asks a lot of anyone else, and it never gives a one-screen answer to &ldquo;what is this instance doing right now&rdquo;.</p>
 
-    <p>dashd owns no tables of its own. It reads from tables other daemons own &mdash; <code>groups</code>, <code>routes</code>, <code>scheduled_tasks</code>, <code>messages</code>, <code>sessions</code>, <code>channels</code>, <code>auth_users</code>, written by routd, authd, timed, and onbod &mdash; and renders them. The plan in <code>specs/5/5-uniform-mcp-rest.md</code> is to move those direct reads onto the sibling daemons&rsquo; <code>/v1/*</code> APIs, leaving dashd a pure client.</p>
+    <p>dashd owns no tables of its own. It reads from tables other daemons own &mdash; <code>groups</code>, <code>routes</code>, <code>scheduled_tasks</code>, <code>messages</code>, <code>sessions</code>, <code>channels</code>, <code>auth_users</code>, written by routd, authd, timed, and onbod &mdash; and renders them. Which of those reads go over the owner daemon&rsquo;s <code>/v1/*</code> API and which stay direct is settled in <code>specs/5/16-mcp-rest-unification.md</code>.</p>
 
     <h2>How it fits</h2>
     <div class="callout">
@@ -152,7 +152,7 @@ export INSTANCE_NAME=demo
     <ul>
       <li><a href="../reference/env.html#dashd">reference/env &mdash; dashd</a> &mdash; full env var table.</li>
       <li><a href="../components/proxyd.html">components/proxyd</a> &mdash; the auth gate that sits in front.</li>
-      <li><code>specs/5/5-uniform-mcp-rest.md</code> &mdash; the <code>/v1/*</code> migration plan.</li>
+      <li><code>specs/5/16-mcp-rest-unification.md</code> &mdash; one resource declaration, two faces: MCP and REST.</li>
       <li><code>specs/4/Q-dash-memory.md</code> &mdash; memory view and edit surface.</li>
     </ul>
 
@@ -163,7 +163,7 @@ export INSTANCE_NAME=demo
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/dashd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-04">2026-09-04</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-05">2026-09-05</time>
       </div>
     </main>
 
