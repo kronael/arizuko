@@ -10,13 +10,18 @@ import (
 	"github.com/kronael/arizuko/routd"
 )
 
-// cmdBudget manages per-folder and per-user cost caps + reports spend.
-// Spec 11/19. routd's pre-spawn budgetGate refuses to spawn when today's spend
-// exceeds the lower of (folder cap, user cap), reading caps from
-// `groups.cost_cap_cents_per_day` / `user_profiles.cost_cap_cents_per_day` and
-// spend from `cost_log` — all in ROUTD.DB. The verb goes through *routd.DB so
-// it writes and reads the exact rows the gate enforces from; opening the
-// frozen messages.db here made `budget set` a silent no-op (BUGS.md Q1).
+// cmdBudget manages per-folder and per-user cost caps. Spec 11/19, 6/39.
+//
+// The cap is arizuko's policy and lives in ROUTD.DB
+// (`groups.cost_cap_cents_per_day` / `user_profiles.cost_cap_cents_per_day`);
+// routd's pre-spawn budgetGate pushes it to the model gateway, which meters the
+// spend and refuses the request itself. The verb goes through *routd.DB so it
+// writes the exact rows the gate reads; opening the frozen messages.db here made
+// `budget set` a silent no-op (BUGS.md Q1).
+//
+// Spend is NOT reported here. It belongs to the gateway, and reaching it needs
+// the master key this CLI deliberately does not hold — the metered surfaces are
+// the dashboard and routd's GET /v1/cost/summary.
 func cmdBudget(args []string) {
 	need(args, 2, "arizuko budget <instance> <set|show> ...")
 	instance, action := args[0], args[1]
@@ -87,39 +92,24 @@ func runBudgetSet(s *routd.DB, scope, target string, daily int, w io.Writer) err
 }
 
 func runBudgetShow(s *routd.DB, scope, target string, w io.Writer) error {
-	var cap, spent int
+	var cap int
 	var err error
 	switch scope {
 	case "folder":
 		cap, err = s.FolderCap(target)
-		if err != nil {
-			return err
-		}
-		spent, err = s.SpendTodayFolder(target)
-		if err != nil {
-			return err
-		}
 	case "user":
 		cap, err = s.UserCap(target)
-		if err != nil {
-			return err
-		}
-		spent, err = s.SpendTodayUser(target)
-		if err != nil {
-			return err
-		}
 	default:
 		return fmt.Errorf("scope must be 'folder' or 'user', got %q", scope)
+	}
+	if err != nil {
+		return err
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	fmt.Fprintf(tw, "scope\t%s\n", scope)
 	fmt.Fprintf(tw, "target\t%s\n", target)
 	fmt.Fprintf(tw, "cap\t%s\n", formatCap(cap))
-	fmt.Fprintf(tw, "spent today\t%d cents\n", spent)
-	if cap > 0 {
-		fmt.Fprintf(tw, "remaining\t%d cents\n", cap-spent)
-		fmt.Fprintf(tw, "status\t%s\n", budgetStatus(spent, cap))
-	}
+	fmt.Fprintf(tw, "spend\tmetered by the model gateway — see the dashboard usage page\n")
 	return tw.Flush()
 }
 
@@ -128,15 +118,4 @@ func formatCap(cents int) string {
 		return "uncapped"
 	}
 	return fmt.Sprintf("%d cents/day", cents)
-}
-
-func budgetStatus(spent, cap int) string {
-	if spent >= cap {
-		return "EXHAUSTED — turns will be refused"
-	}
-	pct := (spent * 100) / cap
-	if pct >= 80 {
-		return fmt.Sprintf("WARN — %d%% of cap consumed", pct)
-	}
-	return fmt.Sprintf("ok — %d%% of cap consumed", pct)
 }

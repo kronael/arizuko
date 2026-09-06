@@ -255,10 +255,22 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		}
 		return true, false, false, "", nil
 	}
-	// Pre-spawn budget gate. If today's folder spend hits the cap, deliver a
-	// channel-visible refusal (no run dispatched) and consume the batch — return
-	// hadOutput=true so processGroupMessages advances the cursor past it.
-	msg, budgetCents := l.budgetGate(folder, turnCallerSub(last.Sender))
+	// Pre-spawn budget gate. It reconciles the folder's team at the gateway —
+	// which the mint below needs to exist — and asks the meter whether either
+	// cap is spent. A gateway that will not answer fails the turn as a
+	// dependency outage: the batch re-feeds and the folder's breaker streak is
+	// left alone, the same shape as an unreachable runed. Spawning anyway would
+	// run a turn no cap can stop.
+	msg, gerr := l.budgetGate(ctx, folder, turnCallerSub(last.Sender))
+	if gerr != nil {
+		slog.Error("model gateway did not answer the budget gate; no spawn",
+			"folder", folder, "turn_id", turnID, "err", gerr)
+		return false, false, false, "", fmt.Errorf("%w: model gateway budget gate: %w",
+			queue.ErrDependencyDown, gerr)
+	}
+	// If a cap is spent, deliver a channel-visible refusal (no run dispatched)
+	// and consume the batch — return hadOutput=true so processGroupMessages
+	// advances the cursor past it.
 	if msg != "" {
 		if l.deliver != nil {
 			_, _ = l.deliver.Send(chatJID, msg, "", topic, "", "budget-"+turnID)
@@ -357,28 +369,21 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 	}
 
 	// This turn's own virtual key at the model gateway (spec 6/23). It carries
-	// the folder's remaining daily budget and the run ceiling as a TTL, so the
-	// container holds a credential that buys this turn and nothing after it,
-	// and revoking it is the deferred delete below. The alias ends in random
-	// hex because a retry re-dispatches the SAME turn_id and the gateway would
-	// otherwise be asked for a key it already has.
+	// the run ceiling as a TTL and the two coordinates the meter attributes by —
+	// the folder as its team, the caller as its user — so the container holds a
+	// credential that buys this turn and nothing after it, charged to the folder
+	// whose cap the gate just reconciled. Revoking it is the deferred delete
+	// below. The alias ends in random hex because a retry re-dispatches the SAME
+	// turn_id and the gateway would otherwise be asked for a key it already has.
 	//
 	// A gateway that will not mint fails the turn as a dependency outage: the
 	// batch re-feeds and the folder's breaker streak is left alone (the same
 	// shape as an unreachable runed). Spawning anyway would put a container on
 	// the network with no model credential at all.
-	//
-	// Reading what the key was charged rides the same defer, ahead of the
-	// delete, so EVERY way out of this function books the turn — including the
-	// transport failure below, where routd stopped hearing about a run that may
-	// well still be spending. meterCost gates it because a refusal that ran
-	// nothing has no rows to wait for, and waiting anyway would put the whole
-	// flush window on every Busy poll.
 	var gwKey turnKey
-	meterCost := false
 	if l.gateway != nil {
 		k, gerr := l.gateway.mint(ctx, "arizuko-"+turnID+"-"+randHex(4),
-			folder, turnID, l.runTimeout, budgetCents)
+			folder, turnID, turnCallerSub(last.Sender), l.runTimeout)
 		if gerr != nil {
 			slog.Error("model gateway refused to mint this turn's key; no spawn",
 				"folder", folder, "turn_id", turnID, "err", gerr)
@@ -386,10 +391,15 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 				queue.ErrDependencyDown, gerr)
 		}
 		gwKey = k
+		// Which key metered the turn is the turn's own identity, and it is the
+		// handle GET /v1/cost?turn_id= resolves to ask the gateway what this turn
+		// cost. Recorded before the spawn: a routd that dies mid-run must still
+		// leave the turn pointing at the key that was spending for it.
+		if err := l.db.SetTurnGatewayKey(turnID, gwKey.Hash); err != nil {
+			slog.Error("turn's gateway key not recorded; its cost becomes unreadable",
+				"folder", folder, "turn_id", turnID, "err", err)
+		}
 		defer func() {
-			if meterCost {
-				l.recordGatewayCost(ctx, gwKey, folder, topic, chatJID, turnID, last.Sender)
-			}
 			if err := l.gateway.revoke(ctx, gwKey.Key); err != nil {
 				slog.Error("model gateway key not revoked; it stands until its TTL expires",
 					"folder", folder, "turn_id", turnID, "err", err)
@@ -421,13 +431,6 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 			_ = l.deliver.Typing(jid, false)
 		}
 	}
-	// Whatever the container spent is on this turn's key — a run that failed
-	// burned the tokens it burned. Two dispatches are exempt: a Busy refusal
-	// admitted nothing, and a steer wrote its batch into a container another
-	// turn owns, so its calls are charged to THAT turn's key. An unreachable
-	// runed is the third: nothing ran, and out is the zero value there, so it
-	// is named rather than inferred.
-	meterCost = l.gateway != nil && !out.Busy && !out.Steered && !runedUnreachable(derr)
 	if derr != nil {
 		slog.Warn("dispatch run transport failure", "folder", folder, "turn_id", turnID, "err", derr)
 		if runedUnreachable(derr) {
@@ -543,34 +546,6 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 			"folder", folder, "turn_id", turnID, "err", err)
 	}
 	return out.Outcome != runedv1.OutcomeSilent, false, false, observedMark, nil
-}
-
-// recordGatewayCost books what the gateway charged this turn's key into
-// cost_log (spec 6/23 Fault 2). The number comes from the boundary the tokens
-// crossed, so an agent that under-reports or reports nothing changes it not at
-// all, and the next turn's budget gate reads a figure the spender could not
-// choose.
-//
-// A read that FAILS is loud in both directions: the log names the folder and
-// the turn, and the chat gets a notice, because the alternative is a folder
-// spending against a cap that silently sees zero. A read that succeeds and
-// finds nothing is not a failure — a turn that reached no model spent nothing.
-func (l *Loop) recordGatewayCost(ctx context.Context, key turnKey, folder, topic, chatJID, turnID, trigger string) {
-	models, err := l.gateway.waitForSpend(ctx, key.Hash)
-	if err != nil {
-		slog.Error("gateway cost read failed; this turn is unmetered and the folder's cap will not count it",
-			"folder", folder, "turn_id", turnID, "err", err)
-		if l.deliver != nil {
-			_, _ = l.deliver.Send(chatJID, gatewayCostNotice, "", topic, "", "cost-"+turnID)
-		}
-		return
-	}
-	if len(models) == 0 {
-		slog.Warn("gateway recorded no model usage for this turn",
-			"folder", folder, "turn_id", turnID)
-		return
-	}
-	putTurnCost(l.db, folder, turnID, turnCallerSub(trigger), models)
 }
 
 // ensureTopicWithFork ensures (folder, topic) has a sessions row and, when
@@ -723,12 +698,6 @@ const silentTurnNotice = "⚠️ I couldn't produce a reply to that — please r
 // ghostGroupNotice is sent when a chat routes to a folder with no registered
 // group row (a ghost route). See runTurn's ghost-group guard.
 const ghostGroupNotice = "⚠️ This chat routes to a group that isn't set up — an operator needs to register it."
-
-// gatewayCostNotice is sent when the model gateway would not say what a turn
-// spent. The reply already went out; what is broken is the accounting, and a
-// budget cap that counts nothing is exactly the failure spec 6/23 exists to
-// close, so it never stays in the log alone.
-const gatewayCostNotice = "⚠️ That turn ran, but the model gateway didn't report its cost — spend limits are not counting it. An operator should check the gateway."
 
 // retryBackoff is the delay between retry attempts (spec 5/12).
 const retryBackoff = 10 * time.Second

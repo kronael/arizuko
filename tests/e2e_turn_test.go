@@ -227,32 +227,10 @@ func (s *turnStack) inbound(t *testing.T, id, text string) {
 	}
 }
 
-// costRow is the cost_log row a turn booked for one model; ok=false when none.
-type costRow struct {
-	in, out, cents int
-	userSub        string
-}
-
-func (s *turnStack) cost(t *testing.T, turnID string) (costRow, bool) {
-	t.Helper()
-	var r costRow
-	err := s.routdDB.SQL().QueryRow(
-		`SELECT input_tokens, output_tokens, cost_cents, user_sub FROM cost_log WHERE turn_id=? AND model=?`,
-		turnID, turnModel).Scan(&r.in, &r.out, &r.cents, &r.userSub)
-	if err != nil {
-		return costRow{}, false
-	}
-	return r, true
-}
-
-func (s *turnStack) costRows(t *testing.T, turnID string) int {
-	t.Helper()
-	var n int
-	if err := s.routdDB.SQL().QueryRow(`SELECT COUNT(*) FROM cost_log WHERE turn_id=?`, turnID).Scan(&n); err != nil {
-		t.Fatal(err)
-	}
-	return n
-}
+// spendCents is what the gateway has metered for the turn's folder. arizuko
+// holds no spend, so this asks the meter — the same number its budget gate
+// refuses on.
+func (s *turnStack) spendCents() int { return s.llm.TeamSpendCents(turnFolder) }
 
 func (s *turnStack) spawns(t *testing.T) int {
 	t.Helper()
@@ -292,7 +270,7 @@ func (s *turnStack) costGet(t *testing.T, turnID string) (int, routdv1.CostRespo
 	return rec.StatusCode, out
 }
 
-func (s *turnStack) costSummary(t *testing.T) []routd.CostSummaryRow {
+func (s *turnStack) costSummary(t *testing.T) routdv1.CostSummaryResponse {
 	t.Helper()
 	tok := s.authd.mintService(t, "service:dashd", "cost:read")
 	since := time.Now().UTC().Add(-7 * 24 * time.Hour).Format(time.RFC3339Nano)
@@ -300,11 +278,11 @@ func (s *turnStack) costSummary(t *testing.T) []routd.CostSummaryRow {
 	if rec.StatusCode != 200 {
 		t.Fatalf("cost summary: status %d", rec.StatusCode)
 	}
-	var rows []routd.CostSummaryRow
-	if err := json.NewDecoder(rec.Body).Decode(&rows); err != nil {
+	var out routdv1.CostSummaryResponse
+	if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {
 		t.Fatal(err)
 	}
-	return rows
+	return out
 }
 
 func getBearer(t *testing.T, base, path, token string) *http.Response {
@@ -336,14 +314,13 @@ func waitFor(t *testing.T, what string, timeout time.Duration, cond func() bool)
 // TestE2ETurn_CostAccounting drives three consecutive turns through one stack.
 //
 //  1. A completed turn: the container's harness talks to the fake through the
-//     gateway pair, submit_turn lands, the reply reaches the chat, and cost_log
-//     carries the tokens the fake served at the CLI's list price — readable on
-//     both cost faces dashd uses.
+//     gateway pair, submit_turn lands, the reply reaches the chat, and the
+//     GATEWAY carries the tokens the fake served — readable on both cost faces
+//     dashd uses, and held nowhere in arizuko.
 //  2. The folder cap set at that spend: the next message is refused at
 //     dispatch with the budget notice, and neither runed nor the model sees it.
-//  3. The cap lifted and the model failing: the agent submits no usage, so no
-//     cost_log row lands and the gate's view of the folder does not move — the
-//     self-reporting gap spec 6/23 names as Fault 2, exhibited end to end.
+//  3. The cap lifted and the model failing: the agent submits no usage, and the
+//     meter is unmoved by what the agent says about itself.
 func TestE2ETurn_CostAccounting(t *testing.T) {
 	s := bootTurnStack(t)
 
@@ -384,35 +361,29 @@ func TestE2ETurn_CostAccounting(t *testing.T) {
 
 		// The CLI decides how many requests one turn takes (the SDK path issued
 		// two for this prompt where `claude -p` issued one); what accounting
-		// owes is that every request the endpoint served is booked, at the
+		// owes is that every request the endpoint served is metered, at the
 		// tokens it served and the CLI's list price for them.
 		n := len(calls)
 		wantIn, wantOut, wantCents := n*turnInTok, n*turnOutTok, n*turnCents
-		// The gateway's number arrives after the reply does: routd polls
-		// /spend/logs once the run returns, because litellm writes usage on a
-		// batch timer. So the reply landing is not the cost landing, and this
-		// waits for the row rather than reading straight after the message.
-		testutils.WaitForRow(t, s.routdDB.SQL(),
-			"SELECT COUNT(*) FROM cost_log WHERE turn_id=?", []any{"wamid.1"}, turnTimeout)
-		row, ok := s.cost(t, "wamid.1")
-		if !ok {
-			t.Fatal("no cost_log row for the turn: the gateway's spend never reached cost_log")
-		}
-		if row.in != wantIn || row.out != wantOut || row.cents != wantCents {
-			t.Fatalf("cost_log = %+v, want in=%d out=%d cents=%d for %d served calls", row, wantIn, wantOut, wantCents, n)
-		}
-		if row.userSub != "u1" {
-			t.Fatalf("cost_log user_sub = %q, want the trigger sender u1", row.userSub)
+		// The turn's key was minted for THIS folder and THIS caller, which is
+		// how the gateway attributes and caps. Nothing in arizuko records what
+		// it cost.
+		if got := s.spendCents(); got != wantCents {
+			t.Fatalf("gateway metered %d cents against %s, want %d — the turn's key "+
+				"was not charged to its folder", got, turnFolder, wantCents)
 		}
 		if status, got := s.costGet(t, "wamid.1"); status != 200 ||
 			got.Folder != turnFolder || got.CostCents != wantCents || got.InputTokens != wantIn {
 			t.Fatalf("GET /v1/cost = %d %+v, want 200 folder=%s cents=%d", status, got, turnFolder, wantCents)
 		}
 		sum := s.costSummary(t)
-		if len(sum) != 1 || sum[0].Folder != turnFolder || sum[0].CostCents != wantCents ||
-			sum[0].Tokens != wantIn+wantOut {
+		if !sum.Metered {
+			t.Fatal("GET /v1/cost/summary reported no meter on an instance with a gateway")
+		}
+		if len(sum.Folders) != 1 || sum.Folders[0].Folder != turnFolder ||
+			sum.Folders[0].CostCents != wantCents || sum.Folders[0].Tokens != wantIn+wantOut {
 			t.Fatalf("GET /v1/cost/summary = %+v, want one %s row with %d tokens, %d cents",
-				sum, turnFolder, wantIn+wantOut, wantCents)
+				sum.Folders, turnFolder, wantIn+wantOut, wantCents)
 		}
 		if n := s.spawns(t); n != 1 {
 			t.Fatalf("runed spawns = %d, want 1", n)
@@ -424,9 +395,9 @@ func TestE2ETurn_CostAccounting(t *testing.T) {
 	}
 
 	t.Run("cap at today's spend refuses the next turn at dispatch", func(t *testing.T) {
-		spent, err := s.routdDB.SpendTodayFolder(turnFolder)
-		if err != nil {
-			t.Fatal(err)
+		spent := s.spendCents()
+		if spent == 0 {
+			t.Fatal("the gateway metered nothing for the first turn; the cap would prove nothing")
 		}
 		if err := s.routdDB.SetFolderCap(turnFolder, spent); err != nil {
 			t.Fatal(err)
@@ -447,9 +418,6 @@ func TestE2ETurn_CostAccounting(t *testing.T) {
 		if n := len(s.llm.Calls()); n != calls {
 			t.Fatalf("model calls = %d, want %d: a refused turn must not reach the model", n, calls)
 		}
-		if n := s.costRows(t, "wamid.2"); n != 0 {
-			t.Fatalf("cost_log rows for the refused turn = %d, want 0", n)
-		}
 		if n := countBotRows(t, s.routdDB, turnChat); n != 1 {
 			t.Fatalf("bot rows = %d, want 1: the refusal is a notice, not a reply row", n)
 		}
@@ -458,15 +426,15 @@ func TestE2ETurn_CostAccounting(t *testing.T) {
 		return
 	}
 
-	t.Run("model failure leaves no cost row and the gate blind", func(t *testing.T) {
+	t.Run("model failure moves the meter only by what it served", func(t *testing.T) {
 		if err := s.routdDB.SetFolderCap(turnFolder, 0); err != nil {
 			t.Fatal(err)
 		}
-		before, err := s.routdDB.SpendTodayFolder(turnFolder)
-		if err != nil {
-			t.Fatal(err)
-		}
-		s.llm.SetReply(testutils.LLMReply{Status: 400, Message: "fake says no"})
+		before := s.spendCents()
+		// A refused call costs nothing, so the meter must not move — and the
+		// agent's own report of the turn cannot move it either, because arizuko
+		// keeps no number the agent could write to.
+		s.llm.SetReply(testutils.LLMReply{Status: 400, Message: "fake says no", CostCents: 0})
 		calls := len(s.llm.Calls())
 		s.inbound(t, "wamid.3", "one more")
 		waitFor(t, "the turn to close", turnTimeout, func() bool {
@@ -478,18 +446,19 @@ func TestE2ETurn_CostAccounting(t *testing.T) {
 		// The CLI reports the API failure as its result text; ant forwards it
 		// as the turn's reply with no usage attached.
 		testutils.AssertMessage(t, s.routdDB.SQL(), turnChat, "API Error: 400")
-		if n := s.costRows(t, "wamid.3"); n != 0 {
-			t.Fatalf("cost_log rows for a turn that reported no usage = %d, want 0", n)
+		// The gateway writes a spend row for a refused call too — status
+		// "failure", zero tokens, zero spend — so the turn IS metered and is
+		// charged nothing. Reporting it as 404 would lose the difference between
+		// a turn that reached the model and one that never did.
+		status, got := s.costGet(t, "wamid.3")
+		if status != 200 {
+			t.Fatalf("GET /v1/cost for a refused turn = %d, want 200", status)
 		}
-		if status, _ := s.costGet(t, "wamid.3"); status != 404 {
-			t.Fatalf("GET /v1/cost for an unreported turn = %d, want 404", status)
+		if got.CostCents != 0 || got.InputTokens != 0 || got.OutputTokens != 0 {
+			t.Fatalf("GET /v1/cost for a refused turn = %+v, want all zero", got)
 		}
-		spent, err := s.routdDB.SpendTodayFolder(turnFolder)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if spent != before {
-			t.Fatalf("folder spend after an unreported turn = %d, want %d unchanged", spent, before)
+		if got := s.spendCents(); got != before {
+			t.Fatalf("meter after a failed turn = %d, want %d unchanged", got, before)
 		}
 		s.awaitIdle(t)
 	})

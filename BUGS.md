@@ -7,6 +7,34 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L240 — the egress proxy and its spawn draw random addresses independently, so ~1 run in 250 collides (2026-09-06)
+
+`randomIP` (`container/egress.go:150-183`) picks a host from the folder's /24
+with `crypto/rand`, and `startEgressProxy` calls it twice — once for the proxy,
+once for the spawn — with nothing comparing the two. Roughly 250 usable hosts,
+two independent draws, so a collision is about 1 in 250.
+
+Reproduced on an untouched tree:
+
+```
+$ go test ./container/ -count=300 -short -run TestStartEgressProxyBakesAllowlistAndPin
+    egress_test.go:184: proxy and spawn share an address: 10.99.42.15
+FAIL
+```
+
+`TestStartEgressProxyBakesAllowlistAndPin` already asserts the two differ, so
+the flake is visible; what it means live is a spawn that cannot reach its own
+proxy, on a folder whose egress is then simply broken until the next turn
+re-rolls. The suite hides it because one run in 250 reads as somebody else's
+problem — it surfaced here in a full `go test ./... -short` and passed on the
+re-run.
+
+Cause fix: allocate both from one draw (proxy at host, spawn at host+1, wrapping
+inside the /24), so sharing an address is impossible by construction rather than
+improbable. Retrying on collision would be the symptom patch.
+
+Found while shipping `6/39`, which touches no file under `container/`.
+
 ## ✅ FIXED 2026-09-05 L165 — an unknown `MCPArg.Type` silently declares a string property, so the argument never arrives (2026-09-05)
 
 `mcpArgOption` (`resreg/resreg.go:805-824`) switches on `"number"`, `"bool"`,
@@ -5029,7 +5057,17 @@ caller, so it is a contract change, not an inline patch.
 Recorded, not fixed (Bug Triage Protocol).
 
 
-## L49 — proposal: an LLM gateway, so the container never holds the real model key (2026-08-18, operator's idea, needs sign-off)
+## ✅ FIXED 2026-09-06 L49 — proposal: an LLM gateway, so the container never holds the real model key (2026-08-18, operator's idea)
+
+Shipped as `specs/6/23-llm-gateway.md` (the gateway holds the credential; one
+virtual key per turn, bounded by the run ceiling and deleted at the end) and
+`specs/6/39-gateway-owns-spend.md` (the gateway is the ledger: the folder is a
+team, its cap is that team's one-day budget enforced on the request, the caller
+rides the key as `user_id`, and arizuko stores no spend). Per-key metering is a
+read, as this entry asked.
+
+The codex-on-ChatGPT-OAuth gap below stands: it is a host mount with no token to
+swap and no base URL to redirect, so no gateway can meter it.
 
 **Today the agent container holds the real provider key.** `ANTHROPIC_API_KEY`
 is in `store.EnvProfileKeys` (`store/secrets.go:115`), which `5/14` defines as

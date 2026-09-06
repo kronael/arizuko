@@ -48,7 +48,9 @@ Spec: `specs/5/E`.
 - Auth+grants: `acl`, `acl_membership`, `secrets`, `secret_use_log`
 - Scheduler: `scheduled_tasks`, `task_run_logs`
 - Slack pane: `pane_sessions`
-- Cost: `cost_log`, `auth_users` (cost-cap column only; authd owns identity)
+- Cost: `auth_users` (cost-cap column only; authd owns identity). Spend
+  itself belongs to the model gateway (spec 6/39); `cost_log_archive` holds
+  what was recorded before that and nothing reads it.
 - Network: `network_rules`
 - Packages: `installed_packages` (installed-package record, keyed
   (folder, name) with `''` = instance-wide; the CLI writes it directly,

@@ -302,39 +302,23 @@ func stubRoutd(t *testing.T, db *sql.DB) string {
 		writeStubJSON(w, map[string]any{"folder": folder, "acl": out})
 	})
 
-	// The spend axis. `since` is REQUIRED by routd — a summary with no window
-	// reports a lifetime total as if it were current — so the stub refuses it
-	// too, or a page that forgot to send one would pass here and fail live.
+	// The spend axis. routd answers it from the model gateway, which is the
+	// ledger — the numbers are in nobody's SQLite, so the stub serves what a test
+	// seeds through stubMeter rather than reading a table (spec 6/39).
+	//
+	// `since` is REQUIRED by routd — a summary with no window reports a lifetime
+	// total as if it were current — so the stub refuses it too, or a page that
+	// forgot to send one would pass here and fail live.
 	mux.HandleFunc("GET /v1/cost/summary", func(w http.ResponseWriter, r *http.Request) {
-		since := r.URL.Query().Get("since")
-		if since == "" {
+		if r.URL.Query().Get("since") == "" {
 			http.Error(w, "since required", http.StatusBadRequest)
 			return
 		}
-		rows, err := db.Query(`SELECT folder,
-			COALESCE(SUM(input_tokens+output_tokens),0),
-			COALESCE(SUM(cost_cents),0)
-			FROM cost_log WHERE recorded_at >= ? GROUP BY folder ORDER BY folder`, since)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+		rows := stubSpend
+		if rows == nil {
+			rows = []stubSpendRow{}
 		}
-		defer rows.Close()
-		type row struct {
-			Folder    string `json:"folder"`
-			Tokens    int    `json:"tokens"`
-			CostCents int    `json:"cost_cents"`
-		}
-		out := []row{}
-		for rows.Next() {
-			var x row
-			if err := rows.Scan(&x.Folder, &x.Tokens, &x.CostCents); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			out = append(out, x)
-		}
-		writeStubJSON(w, out)
+		writeStubJSON(w, map[string]any{"metered": stubMetered, "folders": rows})
 	})
 
 	// One group. Its `open` and observe-window values are projections of the
@@ -427,4 +411,28 @@ func stubRoutd(t *testing.T, db *sql.DB) string {
 func writeStubJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// stubSpendRow is one folder's metered spend in the stub's /v1/cost/summary
+// reply, in the shape routd emits.
+type stubSpendRow struct {
+	Folder    string `json:"folder"`
+	Tokens    int    `json:"tokens"`
+	CostCents int    `json:"cost_cents"`
+}
+
+// stubMetered / stubSpend are the meter the stub reports. They default to a
+// metered instance with no spend, which is what a fresh gateway looks like.
+// dashd's tests do not run in parallel, so a package-level pair is the whole
+// mechanism; stubMeter resets both with the test.
+var (
+	stubMetered = true
+	stubSpend   []stubSpendRow
+)
+
+// stubMeter seeds what the gateway metered for the duration of one test.
+func stubMeter(t *testing.T, metered bool, rows ...stubSpendRow) {
+	t.Helper()
+	stubMetered, stubSpend = metered, rows
+	t.Cleanup(func() { stubMetered, stubSpend = true, nil })
 }

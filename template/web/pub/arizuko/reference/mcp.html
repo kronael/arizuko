@@ -805,21 +805,8 @@
     <p class="returns"><strong>Returns:</strong> JSON-RPC <code>{"result": {"ok": true}}</code>, or a JSON-RPC error.</p>
 
     <h2 id="cost">cost accounting</h2>
-
-    <h3 id="log_external_cost"><code>log_external_cost</code></h3>
-    <p>Record one non-Anthropic LLM call against the folder's daily budget. Call this AFTER invoking an external model (e.g. <code>codex exec --json</code> for <code>/oracle</code>). Anthropic costs are captured automatically via <code>submit_turn</code> &mdash; this tool is for everything else the agent shells out to. Skipping it hides the call from cost-caps; the only operator-visible drift becomes the provider's own invoice. Spec <a href="https://github.com/kronael/arizuko/blob/main/specs/11/19-cost-caps.md">11/19</a>. Registration is conditional on <code>db.LogExternalCost</code> being wired.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L848"><code>ipc/ipc.go:848</code></a>. Writes <code>cost_log</code>.</p>
-    <table class="params">
-      <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
-      <tbody>
-        <tr><td class="name">provider</td><td class="type">string</td><td class="req req-y">yes</td><td><code>openai</code>, <code>codex</code>, other.</td></tr>
-        <tr><td class="name">model</td><td class="type">string</td><td class="req req-y">yes</td><td>Model identifier, e.g. <code>gpt-5</code>, <code>codex-mini</code>.</td></tr>
-        <tr><td class="name">cost_usd</td><td class="type">number</td><td class="req req-y">yes</td><td>USD cost reported by the provider; gateway rounds to cents.</td></tr>
-        <tr><td class="name">input_tokens</td><td class="type">number</td><td class="req req-n">no</td><td>Input token count (0 if unknown).</td></tr>
-        <tr><td class="name">output_tokens</td><td class="type">number</td><td class="req req-n">no</td><td>Output token count (0 if unknown).</td></tr>
-      </tbody>
-    </table>
-    <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true, "cents": N}</code>.</p>
+    <p>There is no cost tool. Where an instance runs a model gateway, the gateway meters every call that passes through it and is the only ledger of what was spent &mdash; arizuko stores none of it. A number the agent reported about itself is exactly what a bypassed gateway produces, so the harness logs the agent&rsquo;s self-report and stores nothing from it. Spec <a href="https://github.com/kronael/arizuko/blob/main/specs/6/39-gateway-owns-spend.md">6/39</a>.</p>
+    <p>A call the agent makes <em>outside</em> the gateway &mdash; <code>codex</code> for <code>/oracle</code>, say &mdash; is metered by nobody, and no spend cap covers it. The operator sees it on that provider&rsquo;s invoice.</p>
 
     <h2 id="ext">external REST tools</h2>
     <p>Beyond the hand-written MCP tools above, arizuko can expose a REST API as an MCP tool from a declarative <code>[[connector]]</code> TOML descriptor &mdash; no Go code per endpoint. A descriptor maps a tool name to one HTTP call; when the agent invokes it, <code>routd</code> makes the request directly on the host, injects the credential from the <code>secrets</code> table, and hands back only the response body. The token never enters the container. Loader: <a href="https://github.com/kronael/arizuko/blob/main/routd/ext.go"><code>routd/ext.go</code></a>; dispatcher: <a href="https://github.com/kronael/arizuko/blob/main/ipc/extcall.go"><code>ipc/extcall.go CallExtTool</code></a>.</p>
@@ -876,7 +863,7 @@ headers   = { Authorization = "Bearer {secret:CF_API_TOKEN}" }
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/mcp.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-03">2026-09-03</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-05">2026-09-05</time>
       </div>
     </main>
 

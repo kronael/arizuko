@@ -47,6 +47,25 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Changed
 
+- **The model gateway owns spend; arizuko stores none** (spec `6/39`).
+  A second ledger can only agree, lag, or lie, so there is one number and
+  LiteLLM holds it. A folder is a gateway team by identity — the folder path is
+  the `team_id` — and its `cost_cap_cents_per_day` is that team's one-day
+  budget, so the cap is enforced on the request itself rather than by a sum
+  arizuko kept: over budget, the gateway answers 429 and the call never reaches
+  a model. The caller rides the turn's key as `user_id`, set by routd, so the
+  spender cannot choose whose budget it spends. The pre-spawn gate is a single
+  `GET /team/info` doing three jobs: it creates the team a turn's key needs to
+  exist at all, converges its budget on the operator's cap, and reads the spend
+  its refusal quotes. `cost_log`, `SpendTodayFolder`, `SpendTodayUser`,
+  `log_external_cost` and `POST /v1/cost` are gone; `/v1/cost`,
+  `/v1/cost/summary` and `/dash/usage/` read the gateway. An instance with no
+  gateway has no meter and every surface says so instead of showing a zero — a
+  cap set there is enforced by nothing, which routd logs at ERROR.
+  Migration `0046` RENAMES `cost_log` to `cost_log_archive`: those rows are the
+  only copy of what was spent before the gateway metered anything, and the
+  rename also makes any writer left behind fail loud instead of quietly
+  starting a second ledger.
 - **Every daemon opens its database through one opener** (spec `6/37`).
   `db_utils` owns the pragma set, and `authd` now fails to start when it
   cannot enter WAL mode rather than logging a warning and serving on.

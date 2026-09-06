@@ -116,10 +116,10 @@ type TurnResult struct {
 	// rather than a normal completion. routd logs a WARN; outcome stays OK.
 	TimedOut bool `json:"timed_out,omitempty"`
 
-	// Models carries per-model token usage + pre-computed cost.
-	// Optional; nil/empty when the agent doesn't report (e.g. ant
-	// versions before the cost-caps cutover). One cost_log row per
-	// model when present. Spec 11/19.
+	// Models carries per-model token usage + pre-computed cost, as the
+	// harness reports it. Optional, and nil/empty when the agent does not
+	// report. routd logs it and stores nothing: the model gateway is the
+	// ledger (spec 6/39).
 	Models map[string]ModelUsage `json:"models,omitempty"`
 
 	// CallerSub is the user_sub the turn ran on behalf of (empty for
@@ -220,9 +220,6 @@ type StoreFns struct {
 	// as a duplicate (e.g. "Replied with …") on top of the real reply.
 	CurrentTurnID func(folder string) string
 
-	// LogExternalCost records one cost_log row for a non-Anthropic LLM call
-	// (oracle/codex/openai). Spec 11/19.
-	LogExternalCost func(folder, provider, model string, inputTok, outputTok, costCents int) error
 	// Connectors is the configured MCP HTTP connector set. buildMCPServer
 	// discovers each one's catalog with this folder's broker-resolved
 	// credential and registers the result through the broker chain.
@@ -1090,45 +1087,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 		}
 		emitAuthzDenied(action, callerSub)
 		return fmt.Errorf("forbidden: %s on %s is outside %s's granted scope", action, target, folder)
-	}
-
-	if db.LogExternalCost != nil {
-		registerRaw("log_external_cost",
-			"Record one non-Anthropic LLM call against the folder's daily "+
-				"budget. Call this AFTER invoking an external model (e.g. "+
-				"`codex exec --json` for /oracle). Pass provider, model, "+
-				"token counts and the call's USD cost; gateway converts to "+
-				"cents and writes a cost_log row. Skipping this hides the "+
-				"call from cost-caps (operator-visible drift only via the "+
-				"provider's own invoice). Spec `specs/11/19-cost-caps.md`.",
-			[]mcp.ToolOption{
-				mcp.WithString("provider", mcp.Required(),
-					mcp.Description("openai | codex | other")),
-				mcp.WithString("model", mcp.Required(),
-					mcp.Description("model identifier, e.g. gpt-5, codex-mini")),
-				mcp.WithNumber("input_tokens",
-					mcp.Description("input token count (0 if unknown)")),
-				mcp.WithNumber("output_tokens",
-					mcp.Description("output token count (0 if unknown)")),
-				mcp.WithNumber("cost_usd", mcp.Required(),
-					mcp.Description("USD cost reported by the provider")),
-			},
-			func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-				provider := req.GetString("provider", "")
-				model := req.GetString("model", "")
-				if provider == "" || model == "" {
-					return toolErr("log_external_cost: provider and model required")
-				}
-				costUSD := req.GetFloat("cost_usd", 0)
-				cents := int(costUSD*100 + 0.5)
-				inputTok := int(req.GetFloat("input_tokens", 0))
-				outputTok := int(req.GetFloat("output_tokens", 0))
-				if err := db.LogExternalCost(folder, provider, model, inputTok, outputTok, cents); err != nil {
-					return toolErr("log_external_cost: " + err.Error())
-				}
-				out, _ := json.Marshal(map[string]any{"ok": true, "cents": cents})
-				return mcp.NewToolResultText(string(out)), nil
-			})
 	}
 
 	// MCP connectors. Each configured endpoint is discovered with THIS folder's

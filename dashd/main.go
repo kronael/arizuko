@@ -368,7 +368,7 @@ func upstreamErr(daemon string, status int, body []byte) string {
 type dash struct {
 	dbRoutd *sql.DB // routd.db handle — dashd's ONLY message/config store. routd OWNS
 	// acl/groups/routes/route_tokens/secrets/audit_log AND the live
-	// messages/chats/sessions/cost_log/user_profiles tables (spec 5/5); dashd
+	// messages/chats/sessions/user_profiles tables (spec 5/5); dashd
 	// reads+writes them here. nil in read-only tests.
 	dbOnbod *sql.DB // onbod.db handle. onbod OWNS invites/onboarding_gates in the
 	// split topology (spec 5/5); dashd's invites page reads+writes them here.
@@ -1142,7 +1142,10 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 	}
 	usageMap := map[string]usageKey{}
 	if len(folders) > 0 && d.adminDB() != nil {
-		if summaries, err := d.groupUsageBulk(r.Context(), folders); err != nil {
+		// The metered flag is the usage page's concern: this listing shows a
+		// spend figure only when there is one, so an unmetered instance simply
+		// omits it rather than needing to say so per row.
+		if summaries, _, err := d.groupUsageBulk(r.Context(), folders); err != nil {
 			slog.Warn("groups: usage query", "err", err)
 		} else {
 			for _, u := range summaries {

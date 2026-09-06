@@ -152,8 +152,9 @@ func ensurePristineRoot(cfg Config) error {
 // dispatch for 7m42s and three cases expired unstarted (BUGS L68). The failures
 // land in ALPHABETICAL order, which reads like a pattern and is only the queue.
 //
-// The completion signal is the turn's cost row. A turn that never reports one must
-// not hang the suite, so the wait is bounded and says so out loud.
+// The completion signal is the model gateway metering the turn. A turn the meter
+// never reports must not hang the suite, so the wait is bounded and says so out
+// loud — and an instance with no gateway has no meter, so it always waits out.
 func settle(cfg Config, turnID string) string {
 	if turnID == "" || cfg.Target == nil {
 		return ""

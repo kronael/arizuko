@@ -180,12 +180,13 @@ func main() {
 		InstanceName:          core.EnvOr("ASSISTANT_NAME", "Andy"),
 		ObserveWindowMessages: core.EnvInt("OBSERVE_WINDOW_MESSAGES", 10),
 		ObserveWindowChars:    core.EnvInt("OBSERVE_WINDOW_CHARS", 4000),
-		// Pre-spawn budget gate (spec 11/19); default-on.
+		// Pre-spawn budget gate (spec 11/19, 6/39); default-on. Off clears the
+		// gateway's budgets too, so the escape hatch reaches what enforces them.
 		CostCapsEnabled: core.EnvOr("COST_CAPS_ENABLED", "true") == "true",
-		// Model gateway (spec 6/23). With a URL set, routd mints one virtual
-		// key per turn against the master key below and books cost_log from
-		// what the gateway measured. Unset leaves the model credential in the
-		// container and the agent's own report as the only number.
+		// Model gateway (spec 6/23, 6/39). With a URL set, routd mints one
+		// virtual key per turn against the master key below, and the gateway is
+		// the ledger every spend surface reads. Unset leaves the model
+		// credential in the container and there is no meter at all.
 		GatewayURL: gatewayURL,
 		GatewayKey: gatewayKey,
 		// Spawn-time stale-session reset threshold (default 2 days).

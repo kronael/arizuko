@@ -247,13 +247,3 @@ func (d *DB) ErroredChats(folder string, isRoot bool) ([]ErroredChat, error) {
 	}
 	return out, rows.Err()
 }
-
-// LogExternalCost records one cost_log row for a non-Anthropic LLM call
-// (oracle/codex/openai). The model column carries provider:model; turn_id is a
-// fresh ext-<rand> so each call is its own row (cost_log's PK is
-// (folder,turn_id,model), and PutCost is INSERT OR IGNORE).
-func (d *DB) LogExternalCost(folder, provider, model string, inputTok, outputTok, costCents int) error {
-	// Channel-scoped (user_sub ""): the external subcall isn't attributed to a
-	// caller.
-	return d.PutCost(folder, "ext-"+randHex(8), "", provider+":"+model, inputTok, outputTok, costCents)
-}

@@ -407,12 +407,12 @@ func TestLitellmFragmentReadsOnlyItsDeclaredKeys(t *testing.T) {
 	}
 }
 
-// The gateway's key management and its spend log are Postgres-only, so a
-// litellm without a reachable database mints no per-turn key and records no
-// usage: routd's mint fails, every turn fails with it, and cost_log stays
-// agent-reported. Pin the wiring — the database is named, it is healthy before
+// The gateway's key management, its team budgets and its spend log are all
+// Postgres-only, so a litellm without a reachable database mints no per-turn
+// key, holds no cap and records no usage: routd's mint fails and every turn
+// fails with it. Pin the wiring — the database is named, it is healthy before
 // the gateway starts, its data survives a recreate, and it holds the gateway's
-// state rather than the instance's (spec 6/23).
+// state rather than the instance's (spec 6/23, 6/39).
 func TestLitellmFragmentWiresItsDatabase(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join(templateServices, "litellm.yml"))
 	if err != nil {

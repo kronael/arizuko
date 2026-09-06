@@ -12,9 +12,14 @@ import (
 
 // TestUsagePageNumbersViaRealRoutd renders /dash/usage/ against routd's own
 // Server over routd's own DB — no stub in the read path — and checks the
-// numbers, not the status: the 7-day window excludes older spend, the totals
-// sum the per-group cells, and a folder with nothing in the window shows the
-// dash, never a stale figure.
+// numbers, not the status.
+//
+// This routd names no model gateway, which is a supported deployment and the
+// one with no meter. The page must then say so on every spend cell rather than
+// draw a zero: nothing measured this instance, and "$0.00" would claim
+// something did (spec 6/39). The message axis is arizuko's own data and is
+// unaffected, so it still carries real counts — which is what makes this the
+// end-to-end check that the two halves come from different owners.
 func TestUsagePageNumbersViaRealRoutd(t *testing.T) {
 	db, err := routd.OpenMem()
 	if err != nil {
@@ -28,22 +33,6 @@ func TestUsagePageNumbersViaRealRoutd(t *testing.T) {
 	}
 	now := time.Now().UTC()
 	recent := core.TS(now)
-	stale := core.TS(now.Add(-8 * 24 * time.Hour))
-	for _, r := range []struct {
-		folder, turn, at string
-		in, out, cents   int
-	}{
-		{"alpha", "t1", recent, 1200, 300, 250},
-		{"alpha", "t2", recent, 100, 100, 5},
-		{"beta", "t3", stale, 5000, 5000, 999},
-	} {
-		if _, err := db.SQL().Exec(
-			`INSERT INTO cost_log (folder, turn_id, model, input_tokens, output_tokens, cost_cents, recorded_at)
-			 VALUES (?, ?, 'claude-sonnet-4-5', ?, ?, ?, ?)`,
-			r.folder, r.turn, r.in, r.out, r.cents, r.at); err != nil {
-			t.Fatal(err)
-		}
-	}
 	// Two human rows and one bot row on alpha: the per-group count is all rows
 	// routed there, the volume table counts humans only.
 	for _, m := range []struct {
@@ -66,38 +55,28 @@ func TestUsagePageNumbersViaRealRoutd(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("status = %d: %s", code, body)
 	}
-	for _, want := range []string{
-		`<h3>3</h3>`,     // total messages: alpha's three rows
-		`<h3>1k</h3>`,    // tokens / 7d: 1700 → "1k"
-		`<h3>$2.55</h3>`, // cost / 7d: 255 cents
-	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("summary card %s missing:\n%s", want, body)
-		}
+	// The message axis is arizuko's own and still counts.
+	if !strings.Contains(body, `<h3>3</h3>`) {
+		t.Errorf("total messages card missing alpha's three rows:\n%s", body)
+	}
+	// The spend axis has no owner on this instance and must say so.
+	if !strings.Contains(body, "No model gateway is set up") {
+		t.Errorf("an unmetered instance must name the missing gateway:\n%s", body)
+	}
+	if strings.Contains(body, "$0.00") {
+		t.Errorf("unmetered instance drew $0.00, which claims a measurement:\n%s", body)
 	}
 	alpha := strings.Index(body, `href="/dash/groups/alpha"`)
 	beta := strings.Index(body, `href="/dash/groups/beta"`)
 	if alpha < 0 || beta < 0 {
 		t.Fatalf("per-group rows missing:\n%s", body)
 	}
-	if alpha > beta {
-		t.Errorf("groups sort by 7d tokens descending; alpha must precede beta")
-	}
 	alphaRow := body[alpha:beta]
-	for _, want := range []string{`<td>3</td>`, `<td>1k</td>`, `<td>$2.55</td>`} {
-		if !strings.Contains(alphaRow, want) {
-			t.Errorf("alpha row lacks %s: %s", want, alphaRow)
-		}
+	if !strings.Contains(alphaRow, `<td>3</td>`) {
+		t.Errorf("alpha row lost its message count: %s", alphaRow)
 	}
-	betaRow := body[beta:]
-	if end := strings.Index(betaRow, `</tr>`); end > 0 {
-		betaRow = betaRow[:end]
-	}
-	if strings.Count(betaRow, `<td>—</td>`) != 4 {
-		t.Errorf("beta has nothing in the window; want four dashes: %s", betaRow)
-	}
-	if strings.Contains(body, "$9.99") || strings.Contains(body, "10k") {
-		t.Errorf("beta's 8-day-old spend leaked into the 7d window:\n%s", body)
+	if strings.Count(alphaRow, `<td>no meter</td>`) != 2 {
+		t.Errorf("alpha's token and cost cells must both read 'no meter': %s", alphaRow)
 	}
 	today := now.Format("2006-01-02")
 	if !strings.Contains(body, `<td>`+today+`</td><td>2</td>`) {

@@ -72,38 +72,15 @@ like `tokens used: 4321 ($0.11)` or a `total_cost_usd` field in
 - If you must reason about the cost, do so inside `<think>` only —
   never in visible output.
 
-Use the `log_external_cost` MCP tool (see below) to record the
-spend internally. That is the **only** sanctioned destination for
-the cost number.
+Keep the cost number out of visible output entirely. There is nowhere
+to record it: the model gateway meters what passes through it, and a
+codex call does not.
 
-## Cost reporting (spec 11/19)
+## Cost of a codex call
 
-Anthropic spend is tracked automatically (gateway captures usage from
-every Claude Code turn). **codex/openai spend isn't**, so report it
-explicitly after each call so the budget gate covers it.
+A codex call does not go through the model gateway, so no spend cap
+covers it. The operator sees it on OpenAI's invoice and nowhere else.
+Treat `/oracle` as spending real money that no limit will stop, and
+use it when the answer is worth that.
 
-Use `--json` so the per-call usage is machine-readable. After the
-codex run, call the `log_external_cost` MCP tool with what you
-captured:
-
-```bash
-codex --json exec "$prompt" > /tmp/oracle.jsonl
-# parse the terminal `task_complete` event for token_usage + total_cost_usd
-```
-
-Then in your turn:
-
-```
-log_external_cost(
-  provider="codex",
-  model="<the model codex used, e.g. gpt-5>",
-  input_tokens=<token_usage.input>,
-  output_tokens=<token_usage.output>,
-  cost_usd=<total_cost_usd>,
-)
-```
-
-Skipping this hides the call from cost-caps. The operator still sees
-it on OpenAI's invoice but the per-folder cap doesn't include it.
-
-Spec: `specs/11/19-cost-caps.md`.
+Spec: `specs/6/39-gateway-owns-spend.md`.

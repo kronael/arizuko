@@ -57,22 +57,22 @@ RFC3339Nano UTC TEXT throughout; the Go layer computes every timestamp
 
 The tables and who else reads them:
 
-| Table                               | What it carries                                                          |
-| ----------------------------------- | ------------------------------------------------------------------------ |
-| `groups`                            | folder = identity; `container_config`/`model` opaque, forwarded to runed |
-| `chats`                             | per-chat `agent_cursor`, sticky group/topic pins                         |
-| `messages` (+ `messages_fts`)       | the single event log; FTS5 shadow backs `find_messages` (5/C)            |
-| `routes`                            | the route table (5/B, 5/Q)                                               |
-| `sessions`                          | per-`(folder, topic)` session id, fork lineage, observed cursor (5/F)    |
-| `chat_reply_state`                  | thread anchor + engagement deadline (5/G)                                |
-| `turn_context` / `turn_results`     | turn binding + the submit_turn idempotency ledger                        |
-| `cost_log`                          | per-turn model cost — routd persists what runed reports                  |
-| `web_routes`                        | URL-tree access map (5/V)                                                |
-| `route_tokens`                      | `/chat/`,`/hook/` bearer tokens, stored hashed (5/W)                     |
-| `acl` / `acl_membership`            | routd is the policy decision point (5/32)                                |
-| `idempotency_keys`                  | the replay ledger (§ Idempotency)                                        |
-| `chat_proactive`                    | per-chat proactive cooldown (5/6)                                        |
-| `group_watchers`, `system_messages` | cross-folder ambient (5/F); pending system events                        |
+| Table                               | What it carries                                                                          |
+| ----------------------------------- | ---------------------------------------------------------------------------------------- |
+| `groups`                            | folder = identity; `container_config`/`model` opaque, forwarded to runed                 |
+| `chats`                             | per-chat `agent_cursor`, sticky group/topic pins                                         |
+| `messages` (+ `messages_fts`)       | the single event log; FTS5 shadow backs `find_messages` (5/C)                            |
+| `routes`                            | the route table (5/B, 5/Q)                                                               |
+| `sessions`                          | per-`(folder, topic)` session id, fork lineage, observed cursor (5/F)                    |
+| `chat_reply_state`                  | thread anchor + engagement deadline (5/G)                                                |
+| `turn_context` / `turn_results`     | turn binding + the submit_turn idempotency ledger                                        |
+| `cost_log_archive`                  | spend from before the model gateway became the ledger; nothing reads or writes it (6/39) |
+| `web_routes`                        | URL-tree access map (5/V)                                                                |
+| `route_tokens`                      | `/chat/`,`/hook/` bearer tokens, stored hashed (5/W)                                     |
+| `acl` / `acl_membership`            | routd is the policy decision point (5/32)                                                |
+| `idempotency_keys`                  | the replay ledger (§ Idempotency)                                                        |
+| `chat_proactive`                    | per-chat proactive cooldown (5/6)                                                        |
+| `group_watchers`, `system_messages` | cross-folder ambient (5/F); pending system events                                        |
 
 `session_id` is **opaque to routd** — runed produces it, routd persists
 it via `submit_turn`. `pane_sessions` is read by the prompt build but

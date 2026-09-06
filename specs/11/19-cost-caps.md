@@ -1,8 +1,19 @@
 ---
-status: partial
+status: superseded
+superseded_by: [../6/39-gateway-owns-spend]
 ---
 
 # Cost caps + ephemeral budget nudges
+
+The cap itself shipped and still stands: `groups.cost_cap_cents_per_day`,
+`user_profiles.cost_cap_cents_per_day`, and a pre-spawn gate that refuses the
+turn. What this spec designed underneath it did not survive. Spend is the model
+gateway's, not a `cost_log` table arizuko keeps, and the cap is enforced as a
+gateway budget on the request rather than by a `SUM()` over rows — see
+`../6/39-gateway-owns-spend.md`. Read the `cost_log` schema and the aggregation
+below as the design that got there, not as what runs.
+
+The mid-turn `<budget_notice>` nudges were never built.
 
 Per-channel and per-user token / dollar budgets, with mid-session
 ephemeral nudges when the agent approaches a cap. Public-channel

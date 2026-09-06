@@ -14,10 +14,9 @@ import (
 )
 
 // usageRoutdDB is a migrated routd.db seeded with the given group folders. The
-// page reads groups, cost_log and messages; cost_log's routd column names
-// (recorded_at / input_tokens / output_tokens / cost_cents, NOT the pre-split
-// store ts / input_tok / cents) now come from routd's own chain rather than a
-// restatement of it.
+// page reads groups and messages from here and the spend from routd's
+// /v1/cost/summary, which the stub answers from stubMeter — the gateway holds
+// that number and no SQLite does (spec 6/39).
 func usageRoutdDB(t *testing.T, folders ...string) *sql.DB {
 	t.Helper()
 	db := routdDB(t)
@@ -67,28 +66,26 @@ func TestUsageEmptyGroups(t *testing.T) {
 	if !strings.Contains(body, ">0<") {
 		t.Errorf("empty groups should show a zero total: %s", body)
 	}
+	// A metered instance with nothing spent yet does report $0.00 — that IS a
+	// measurement. Only an instance with no gateway shows "no meter" instead.
 	if !strings.Contains(body, "$0.00") {
 		t.Errorf("empty groups should show $0.00 cost: %s", body)
 	}
 }
 
-// TestUsageWithCost: a group with cost_log rows shows aggregated tokens/cents
-// and a per-group breakdown row.
+// TestUsageWithCost: the page shows the tokens and cents the GATEWAY metered,
+// aggregated and broken out per group.
 func TestUsageWithCost(t *testing.T) {
 	routd := usageRoutdDB(t, "alice")
 	defer routd.Close()
 
 	now := core.NowTS()
 	if _, err := routd.Exec(
-		`INSERT INTO cost_log (folder, turn_id, model, input_tokens, output_tokens, cost_cents, recorded_at)
-		 VALUES ('alice', 't1', 'claude-opus-5', 800, 700, 250, ?)`, now); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := routd.Exec(
 		`INSERT INTO messages (id, chat_jid, sender, content, is_bot_message, timestamp, routed_to)
 		 VALUES ('m1','web:alice','u1','hi',0,?,'alice')`, now); err != nil {
 		t.Fatal(err)
 	}
+	stubMeter(t, true, stubSpendRow{Folder: "alice", Tokens: 1500, CostCents: 250})
 
 	code, body := usageGet(t, &dash{dbRoutd: routd, routdURL: stubRoutd(t, routd)})
 	if code != 200 {
@@ -106,6 +103,29 @@ func TestUsageWithCost(t *testing.T) {
 	}
 }
 
+// An instance with no model gateway has no meter, so the page says so instead
+// of drawing $0.00 — a zero there reads as "nothing was spent", which is a
+// measurement nobody took (spec 6/39).
+func TestUsageSaysSoWhenThereIsNoMeter(t *testing.T) {
+	routd := usageRoutdDB(t, "alice")
+	defer routd.Close()
+	stubMeter(t, false)
+
+	code, body := usageGet(t, &dash{dbRoutd: routd, routdURL: stubRoutd(t, routd)})
+	if code != 200 {
+		t.Fatalf("status = %d", code)
+	}
+	if !strings.Contains(body, "no meter") {
+		t.Errorf("unmetered instance must say so rather than show a figure: %s", body)
+	}
+	if strings.Contains(body, "$0.00") {
+		t.Errorf("unmetered instance showed $0.00, which claims a measurement: %s", body)
+	}
+	if !strings.Contains(body, "No model gateway is set up") {
+		t.Errorf("the page should name the missing gateway: %s", body)
+	}
+}
+
 // TestGroupUsageBulkBatchesLargeFolderLists: groupUsageBulk must not build a
 // single IN(...) list sized to the whole folder count — that fails outright
 // once SQLite's bound-parameter limit is exceeded. Seed more folders than
@@ -118,24 +138,21 @@ func TestGroupUsageBulkBatchesLargeFolderLists(t *testing.T) {
 	}
 	routd := usageRoutdDB(t, folders...)
 	defer routd.Close()
-
-	now := core.NowTS()
-	if _, err := routd.Exec(
-		`INSERT INTO cost_log (folder, turn_id, model, input_tokens, output_tokens, cost_cents, recorded_at)
-		 VALUES (?, 't1', 'claude-opus-5', 10, 10, 5, ?)`, folders[n-1], now); err != nil {
-		t.Fatal(err)
-	}
+	stubMeter(t, true, stubSpendRow{Folder: folders[n-1], Tokens: 20, CostCents: 5})
 
 	d := &dash{dbRoutd: routd, routdURL: stubRoutd(t, routd)}
-	out, err := d.groupUsageBulk(context.Background(), folders)
+	out, metered, err := d.groupUsageBulk(context.Background(), folders)
 	if err != nil {
 		t.Fatalf("groupUsageBulk: %v", err)
+	}
+	if !metered {
+		t.Error("groupUsageBulk reported no meter where the summary said there is one")
 	}
 	if len(out) != n {
 		t.Fatalf("got %d rows, want %d", len(out), n)
 	}
 	if out[n-1].Tokens7d != 20 {
-		t.Errorf("last folder's cost_log row not aggregated: got %+v", out[n-1])
+		t.Errorf("last folder's metered spend not carried: got %+v", out[n-1])
 	}
 }
 

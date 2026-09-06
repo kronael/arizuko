@@ -2,9 +2,11 @@ import net from 'net';
 
 const MCP_SOCK = '/run/ipc/gated.sock';
 
-// ModelUsage is one model's per-turn accounting, forwarded so gated can
-// write a cost_log row per call. Spec 11/19. Mirrors the SDK's ModelUsage
-// in snake_case; cost_cents is the SDK's costUSD × 100 rounded.
+// ModelUsage is one model's per-turn accounting as the harness reports it.
+// routd logs it and stores nothing: the model gateway is the ledger, and a
+// self-reported number is what a bypassed gateway looks like (spec 6/39).
+// Mirrors the SDK's ModelUsage in snake_case; cost_cents is costUSD × 100
+// rounded.
 export interface ModelUsage {
   input: number;
   output: number;

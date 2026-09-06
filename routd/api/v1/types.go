@@ -50,9 +50,9 @@ type OK struct {
 	OK bool `json:"ok"`
 }
 
-// TurnResult is the submit_turn payload. The cost breakdown is reported by
-// the agent runtime; routd persists it into cost_log (runed never writes
-// cost).
+// TurnResult is the submit_turn payload. The cost breakdown is the agent
+// runtime's own report, which routd logs and never stores — the model gateway
+// is the ledger (spec 6/39).
 type TurnResult struct {
 	TurnID    string               `json:"turn_id"`
 	SessionID string               `json:"session_id"`
@@ -66,7 +66,7 @@ type TurnResult struct {
 	TimedOut bool `json:"timed_out"`
 }
 
-// ModelCost is one per-model cost row in TurnResult.Models.
+// ModelCost is one model's self-reported usage in TurnResult.Models.
 type ModelCost struct {
 	Input     int `json:"input"`
 	Output    int `json:"output"`
@@ -237,25 +237,34 @@ type SessionResponse struct {
 	SessionID string `json:"session_id"`
 }
 
-// CostRequest is POST /v1/cost: one external-LLM cost_log row.
-type CostRequest struct {
-	Folder       string `json:"folder"`
-	Provider     string `json:"provider"`
-	Model        string `json:"model"`
-	InputTokens  int    `json:"input_tokens"`
-	OutputTokens int    `json:"output_tokens"`
-	CostCents    int    `json:"cost_cents"`
-}
-
-// CostResponse is GET /v1/cost?turn_id=: the turn's recorded spend summed
-// across cost_log models. 404 when the turn has no rows yet — distinct from
-// a genuine zero-cost turn.
+// CostResponse is GET /v1/cost?turn_id=: what the model gateway charged the key
+// that ran the turn. 404 when no meter holds a number for it — the turn ran with
+// no gateway, or the gateway has not flushed its usage rows yet.
 type CostResponse struct {
 	TurnID       string `json:"turn_id"`
 	Folder       string `json:"folder"`
 	InputTokens  int    `json:"input_tokens"`
 	OutputTokens int    `json:"output_tokens"`
 	CostCents    int    `json:"cost_cents"`
+}
+
+// FolderSpend is one folder's metered usage in a CostSummaryResponse.
+type FolderSpend struct {
+	Folder    string `json:"folder"`
+	Tokens    int    `json:"tokens"`
+	CostCents int    `json:"cost_cents"`
+}
+
+// CostSummaryResponse is GET /v1/cost/summary: what the model gateway metered
+// per folder over the window.
+//
+// Metered false means this instance names no gateway and therefore has no spend
+// meter at all (spec 6/39). It is carried explicitly because an empty Folders
+// list would otherwise read as "nothing was spent", which is a claim an
+// unmetered instance cannot make.
+type CostSummaryResponse struct {
+	Metered bool          `json:"metered"`
+	Folders []FolderSpend `json:"folders"`
 }
 
 // Err is the uniform JSON error envelope.

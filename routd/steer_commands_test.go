@@ -613,27 +613,24 @@ func TestDelegateToExistingChildStillWorks(t *testing.T) {
 
 // TestBudgetGateRefusesOverCap: a folder at/over its daily cost cap refuses the
 // turn pre-spawn — no run dispatched, a channel-visible refusal delivered, and
-// the cursor advances past the batch (gated budgetGate parity).
+// the cursor advances past the batch. The spend is the GATEWAY's; arizuko holds
+// none to disagree with it.
 func TestBudgetGateRefusesOverCap(t *testing.T) {
-	db, loop, rr := recLoop(t)
+	db, loop, runner, fake := gatewayLoop(t, "demo")
 	dl := &recDeliverer{}
 	loop.deliver = dl
-	loop.costCapsEnabled = true
-	_ = db.PutGroup(core.Group{Folder: "demo"})
-	// cap = 100 cents; spend already 150 cents today.
-	if _, err := db.SQL().Exec("UPDATE groups SET cost_cap_cents_per_day=100 WHERE folder='demo'"); err != nil {
+	// cap = 100 cents; the gateway has already metered 150 today.
+	if err := db.SetFolderCap("demo", 100); err != nil {
 		t.Fatal(err)
 	}
-	_ = db.PutCost("demo", "t-prior", "", "claude", 0, 0, 150)
-	_ = db.PutMessage(core.Message{ID: "a", ChatJID: "web:demo", Sender: "u",
-		Content: "expensive question", Timestamp: time.Now().UTC()})
+	fake.setTeam("demo", 150, 100)
 
 	had, err := loop.processGroupMessages("web:demo")
 	if err != nil {
 		t.Fatalf("process: %v", err)
 	}
-	if len(rr.runs) != 0 {
-		t.Fatalf("over-cap turn dispatched a run: %+v", rr.runs)
+	if runner.req.TurnID != "" {
+		t.Fatalf("over-cap turn dispatched a run: %+v", runner.req)
 	}
 	if !had {
 		t.Fatal("over-cap refusal should report hadOutput=true (consumed)")
@@ -649,59 +646,48 @@ func TestBudgetGateRefusesOverCap(t *testing.T) {
 
 // TestBudgetGateAllowsUnderCap: a folder under its cap dispatches normally.
 func TestBudgetGateAllowsUnderCap(t *testing.T) {
-	db, loop, rr := recLoop(t)
-	loop.costCapsEnabled = true
-	_ = db.PutGroup(core.Group{Folder: "demo"})
-	if _, err := db.SQL().Exec("UPDATE groups SET cost_cap_cents_per_day=1000 WHERE folder='demo'"); err != nil {
+	db, loop, runner, fake := gatewayLoop(t, "demo")
+	if err := db.SetFolderCap("demo", 1000); err != nil {
 		t.Fatal(err)
 	}
-	_ = db.PutCost("demo", "t-prior", "", "claude", 0, 0, 150)
-	_ = db.PutMessage(core.Message{ID: "a", ChatJID: "web:demo", Sender: "u",
-		Content: "cheap question", Timestamp: time.Now().UTC()})
+	fake.setTeam("demo", 150, 1000)
 
 	if _, err := loop.processGroupMessages("web:demo"); err != nil {
 		t.Fatalf("process: %v", err)
 	}
-	if len(rr.runs) != 1 {
-		t.Fatalf("under-cap turn dispatched %d runs want 1", len(rr.runs))
+	if runner.req.TurnID == "" {
+		t.Fatal("under-cap turn dispatched no run")
 	}
 }
 
 // TestBudgetGateZeroCapUncapped: a folder with cap=0 (the default) is uncapped
-// regardless of spend — the turn dispatches.
+// regardless of what the gateway metered — the turn dispatches.
 func TestBudgetGateZeroCapUncapped(t *testing.T) {
-	db, loop, rr := recLoop(t)
-	loop.costCapsEnabled = true
-	_ = db.PutGroup(core.Group{Folder: "demo"}) // cap defaults to 0
-	_ = db.PutCost("demo", "t-prior", "", "claude", 0, 0, 9999)
-	_ = db.PutMessage(core.Message{ID: "a", ChatJID: "web:demo", Sender: "u",
-		Content: "q", Timestamp: time.Now().UTC()})
+	_, loop, runner, fake := gatewayLoop(t, "demo") // cap defaults to 0
+	fake.setTeam("demo", 9999, 0)
 
 	if _, err := loop.processGroupMessages("web:demo"); err != nil {
 		t.Fatalf("process: %v", err)
 	}
-	if len(rr.runs) != 1 {
-		t.Fatalf("zero-cap folder gated (runs=%d want 1)", len(rr.runs))
+	if runner.req.TurnID == "" {
+		t.Fatal("zero-cap folder was gated")
 	}
 }
 
 // TestBudgetGateDisabledBypasses: costCapsEnabled=false bypasses the gate even
-// when over cap (the operator escape hatch).
+// when the gateway's meter is over the cap (the operator escape hatch).
 func TestBudgetGateDisabledBypasses(t *testing.T) {
-	db, loop, rr := recLoop(t)
+	db, loop, runner, fake := gatewayLoop(t, "demo")
 	loop.costCapsEnabled = false
-	_ = db.PutGroup(core.Group{Folder: "demo"})
-	if _, err := db.SQL().Exec("UPDATE groups SET cost_cap_cents_per_day=10 WHERE folder='demo'"); err != nil {
+	if err := db.SetFolderCap("demo", 10); err != nil {
 		t.Fatal(err)
 	}
-	_ = db.PutCost("demo", "t-prior", "", "claude", 0, 0, 9999)
-	_ = db.PutMessage(core.Message{ID: "a", ChatJID: "web:demo", Sender: "u",
-		Content: "q", Timestamp: time.Now().UTC()})
+	fake.setTeam("demo", 9999, 10)
 
 	if _, err := loop.processGroupMessages("web:demo"); err != nil {
 		t.Fatalf("process: %v", err)
 	}
-	if len(rr.runs) != 1 {
-		t.Fatalf("disabled gate still refused (runs=%d want 1)", len(rr.runs))
+	if runner.req.TurnID == "" {
+		t.Fatal("disabled gate still refused the turn")
 	}
 }

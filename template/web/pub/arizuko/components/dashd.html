@@ -124,7 +124,7 @@ export INSTANCE_NAME=demo
       <li><code>/dash/me/env</code> &mdash; per-user model API keys (<code>ANTHROPIC_API_KEY</code> and the like), kept separate from capability tokens.</li>
       <li><code>/dash/me/connections</code> &mdash; surrogate OAuth: &ldquo;Connect GitHub&rdquo; writes an access + refresh token into the same <code>secrets</code> row a pasted <code>GITHUB_TOKEN</code> would, without the user minting a PAT by hand.</li>
       <li><code>/dash/audit/</code> &mdash; the <a href="../concepts/audit.html">audit trail</a> browser: newest first, 50 a page, filtered by category, actor or folder. Federated across routd, runed and authd &mdash; each daemon serves its own <code>audit_log</code> at <code>GET /v1/audit</code> and dashd merges the three, with a Source column saying which answered. A source that fails gets a banner naming it, because an empty section would claim nothing happened there.</li>
-      <li><code>/dash/usage/</code> &mdash; per-folder model spend and turn counts from <code>cost_log</code>.</li>
+      <li><code>/dash/usage/</code> &mdash; per-folder model spend and turn counts. The spend comes from the model gateway through routd&rsquo;s <code>/v1/cost/summary</code>; an instance with no gateway has no meter, and the page says so rather than showing a zero.</li>
       <li><code>/dash/proactive/</code> &mdash; which groups may <a href="../concepts/proactive.html">speak first</a>, their quiet hours, any broken <code>proactive:</code> block, and when each chat last interjected. Read-only: <code>mode:</code> stays operator-edited in the group&rsquo;s <code>CLAUDE.md</code> so the file remains the single source.</li>
       <li><code>/dash/engagement/</code> &mdash; every conversation the agent is <a href="../concepts/engagement.html">staying in</a> without being addressed, with the group and the time left, plus a <strong>disengage</strong> button per row for a chat it should stay out of. Operator-only. Like <code>/dash/proxyd/</code>, dashd owns no SQL here: both faces are HTTP calls to <a href="../components/routd.html">routd</a>&rsquo;s <code>/v1/engagement</code>, so routd stays the single writer, applies the folder check, and writes the audit row inside the mutation&rsquo;s own transaction.</li>
       <li><code>/dash/services/</code>, <code>/dash/routd/</code>, <code>/dash/runed/</code> &mdash; the daemon cockpits: health tiles, errored chats with a retry, live runs with a kill.</li>
@@ -163,7 +163,7 @@ export INSTANCE_NAME=demo
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/dashd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-05">2026-09-05</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-06">2026-09-06</time>
       </div>
     </main>
 

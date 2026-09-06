@@ -160,8 +160,9 @@ func TestMigrateSplit(t *testing.T) {
 		"route_tokens": 1, "turn_results": 1, "web_routes": 1,
 		// network_rules: routd seeds 2 base rows (folder='') + our 1 → 3.
 		"network_rules": 3, "chat_reply_state": 1, "group_watchers": 1,
-		// cost_log: 2 same-(folder,model) rows BOTH survive (synthetic per-row turn_id).
-		"system_messages": 1, "cost_log": 2,
+		// cost_log_archive: 2 same-(folder,model) rows BOTH survive (synthetic
+		// per-row turn_id).
+		"system_messages": 1, "cost_log_archive": 2,
 		// user_profiles: routd.db owns it → copied (split onbod reads it cross-DB).
 		"user_profiles": 1,
 		// acl (5/33 unified evaluator): 1 seeded folder:main row + role:operator
@@ -220,26 +221,27 @@ func TestMigrateSplit(t *testing.T) {
 			folder, source, kind, body, created)
 	}
 
-	// transform: cost_log remapped; turn_id synthesized 'mig-'||rowid (UNIQUE per
-	// source row so INSERT OR IGNORE doesn't collapse same-(folder,model) history).
+	// transform: the legacy spend lands in cost_log_archive, remapped; turn_id
+	// synthesized 'mig-'||rowid (UNIQUE per source row so INSERT OR IGNORE does not
+	// collapse same-(folder,model) history).
 	var cf, cTurn, cModel, cRecorded string
 	var cin, cout, cents int
 	if err := r.QueryRow(
-		`SELECT folder, turn_id, model, input_tokens, output_tokens, cost_cents, recorded_at FROM cost_log LIMIT 1`).
+		`SELECT folder, turn_id, model, input_tokens, output_tokens, cost_cents, recorded_at FROM cost_log_archive LIMIT 1`).
 		Scan(&cf, &cTurn, &cModel, &cin, &cout, &cents, &cRecorded); err != nil {
-		t.Fatalf("read routd.cost_log: %v", err)
+		t.Fatalf("read routd.cost_log_archive: %v", err)
 	}
 	if cf != "main" || !strings.HasPrefix(cTurn, "mig-") || cModel != "claude" || cRecorded == "" {
-		t.Errorf("cost_log remap wrong: folder=%q turn=%q model=%q in=%d out=%d cents=%d at=%q",
+		t.Errorf("cost_log_archive remap wrong: folder=%q turn=%q model=%q in=%d out=%d cents=%d at=%q",
 			cf, cTurn, cModel, cin, cout, cents, cRecorded)
 	}
 	// #5: both same-(folder,model) rows survive (no PK collapse).
 	var costN int
-	if err := r.QueryRow(`SELECT COUNT(*) FROM cost_log`).Scan(&costN); err != nil {
-		t.Fatalf("count routd.cost_log: %v", err)
+	if err := r.QueryRow(`SELECT COUNT(*) FROM cost_log_archive`).Scan(&costN); err != nil {
+		t.Fatalf("count routd.cost_log_archive: %v", err)
 	}
 	if costN != 2 {
-		t.Errorf("cost_log rows = %d, want 2 (turn_id collapse dropped history)", costN)
+		t.Errorf("cost_log_archive rows = %d, want 2 (turn_id collapse dropped history)", costN)
 	}
 	// #6: user_profiles copied to routd.db (split onbod reads it cross-DB).
 	var auName string
