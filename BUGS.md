@@ -5029,7 +5029,17 @@ caller, so it is a contract change, not an inline patch.
 Recorded, not fixed (Bug Triage Protocol).
 
 
-## L49 — proposal: an LLM gateway, so the container never holds the real model key (2026-08-18, operator's idea, needs sign-off)
+## ✅ FIXED 2026-09-06 L49 — proposal: an LLM gateway, so the container never holds the real model key (2026-08-18, operator's idea)
+
+Shipped as `specs/6/23-llm-gateway.md` (the gateway holds the credential; one
+virtual key per turn, bounded by the run ceiling and deleted at the end) and
+`specs/6/39-gateway-owns-spend.md` (the gateway is the ledger: the folder is a
+team, its cap is that team's one-day budget enforced on the request, the caller
+rides the key as `user_id`, and arizuko stores no spend). Per-key metering is a
+read, as this entry asked.
+
+The codex-on-ChatGPT-OAuth gap below stands: it is a host mount with no token to
+swap and no base URL to redirect, so no gateway can meter it.
 
 **Today the agent container holds the real provider key.** `ANTHROPIC_API_KEY`
 is in `store.EnvProfileKeys` (`store/secrets.go:115`), which `5/14` defines as

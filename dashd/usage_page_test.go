@@ -121,7 +121,7 @@ func TestUsageSaysSoWhenThereIsNoMeter(t *testing.T) {
 	if strings.Contains(body, "$0.00") {
 		t.Errorf("unmetered instance showed $0.00, which claims a measurement: %s", body)
 	}
-	if !strings.Contains(body, "no model gateway") {
+	if !strings.Contains(body, "No model gateway is set up") {
 		t.Errorf("the page should name the missing gateway: %s", body)
 	}
 }

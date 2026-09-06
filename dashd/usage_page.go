@@ -67,9 +67,10 @@ func (d *dash) handleUsage(w http.ResponseWriter, r *http.Request) {
 		totalMsgs, meteredCell(metered, fmtTokens(totalTokens)),
 		meteredCell(metered, fmtCents(totalCents)))
 	if !metered {
-		fmt.Fprint(w, htmlBanner("warn", "This instance has no model gateway, so nothing "+
-			"meters what it spends. Token and cost columns stay empty until one is "+
-			"configured; a spend cap needs a gateway to enforce it."))
+		fmt.Fprint(w, htmlBanner("warn", "No model gateway is set up on this instance, "+
+			"so nothing is counting what it spends. Every token and cost figure below "+
+			"reads \"no meter\" — that means unknown, not zero. A daily spend cap needs "+
+			"a gateway to enforce it."))
 	}
 
 	fmt.Fprint(w, `<h2>Per-group</h2>`)

@@ -60,7 +60,7 @@ func TestUsagePageNumbersViaRealRoutd(t *testing.T) {
 		t.Errorf("total messages card missing alpha's three rows:\n%s", body)
 	}
 	// The spend axis has no owner on this instance and must say so.
-	if !strings.Contains(body, "no model gateway") {
+	if !strings.Contains(body, "No model gateway is set up") {
 		t.Errorf("an unmetered instance must name the missing gateway:\n%s", body)
 	}
 	if strings.Contains(body, "$0.00") {
