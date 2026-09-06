@@ -668,6 +668,14 @@ func namespacedEffect(
 
 const ShellEnvPrefix = "shell:env:"
 
+// ExtScopePrefix opens the namespace an external connector's tools authorize
+// on. `routd.LoadExtProviders` carries each tool's `scope` from its TOML
+// (`ext:cloudflare:dns:read`) and the agent socket authorizes THAT string, not
+// the tool's `mcp:` name — so an action in this namespace has to be grantable
+// or the only rows that reach an ext tool are a blanket `*` and an operator
+// elevation, both of which confer everything (BUGS L230).
+const ExtScopePrefix = "ext:"
+
 // ShellEnvKeys returns the subset of keys the caller may read from the shell env
 // in scope, sorted. Matched EXACTLY, like CheckHold and for the same reason: an
 // operator's (`*`, `**`) row covers every action, so routing this through

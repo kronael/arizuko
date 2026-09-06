@@ -80,3 +80,30 @@ func TestGrantActionReachesShellEnv(t *testing.T) {
 		t.Fatalf("explicit shell:env grant did not confer the key, got %v", got)
 	}
 }
+
+// TestGrantActionReachesAnExtTool is the same gap a third time. An external
+// connector's tools authorize on the `scope` its TOML declares
+// (`ext:cloudflare:dns:read`), which the agent socket passes to Authorize
+// verbatim — not the tool's `mcp:` name. So an operator who cannot type that
+// action cannot open ONE ext tool, and the only rows that reach it are a
+// blanket `*` and an operator elevation, both of which confer everything.
+// The default `admin` grant must not reach it: the lattice stops at `mcp:*`.
+func TestGrantActionReachesAnExtTool(t *testing.T) {
+	s := newMem(t)
+	var out bytes.Buffer
+	const scope = auth.ExtScopePrefix + "cloudflare:dns:read"
+
+	if err := runGrant(s, "folder:atlas", "atlas", "", &out); err != nil {
+		t.Fatalf("admin grant: %v", err)
+	}
+	if auth.Authorize(s, auth.Caller{Principal: "folder:atlas"}, scope, "atlas", nil) {
+		t.Fatal("an admin grant must not confer an ext tool — the lattice stops at mcp:*")
+	}
+
+	if err := runGrant(s, "folder:atlas", "atlas", scope, &out); err != nil {
+		t.Fatalf("ext scope grant: %v", err)
+	}
+	if !auth.Authorize(s, auth.Caller{Principal: "folder:atlas"}, scope, "atlas", nil) {
+		t.Fatal("explicit ext grant did not authorize the tool the socket asks about")
+	}
+}

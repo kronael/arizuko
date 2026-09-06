@@ -597,9 +597,11 @@ func grantableAction(action string) bool {
 	if grantableActions[action] {
 		return true
 	}
-	// mcp:<tool>, shell:env:<KEY> and <resource>.<verb> are open-ended by design.
+	// mcp:<tool>, shell:env:<KEY>, ext:<provider>:<area>:<verb> and
+	// <resource>.<verb> are open-ended by design.
 	return strings.HasPrefix(action, "mcp:") ||
 		strings.HasPrefix(action, auth.ShellEnvPrefix) ||
+		strings.HasPrefix(action, auth.ExtScopePrefix) ||
 		strings.Contains(action, ".")
 }
 
@@ -611,7 +613,7 @@ func runGrant(s *store.Store, sub, pat, action string, w io.Writer) error {
 		action = "admin"
 	}
 	if !grantableAction(action) {
-		return fmt.Errorf("unknown action %q — one of *, admin, interact, egress, web:publish, mcp:*, mcp:<tool>, shell:env:<KEY>, <resource>.<verb>", action)
+		return fmt.Errorf("unknown action %q — one of *, admin, interact, egress, web:publish, mcp:*, mcp:<tool>, shell:env:<KEY>, ext:<provider>:<area>:<verb>, <resource>.<verb>", action)
 	}
 	if pat == "**" && action == "admin" {
 		// Operator grant: add to role:operator instead of a per-folder row.
