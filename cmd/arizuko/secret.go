@@ -40,7 +40,7 @@ func openStoreWithKey(dataDir string) (*store.Store, error) {
 }
 
 // cmdSecret manages folder-scoped secrets (operator-only). User secrets
-// live behind `arizuko user-secret`. Spec 7/Y.
+// live behind `arizuko user-secret`. Spec 5/13.
 func cmdSecret(args []string) {
 	cmdScopedSecret(args, "secret", "folder", store.ScopeFolder)
 }
