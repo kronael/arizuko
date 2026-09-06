@@ -10816,7 +10816,27 @@ agent explicitly asked for is withdrawn.
 - **Status:** fixed in `egress/match/match.go`; reaches an instance on the next
   image rebuild and restart
 
-## L210 — `6/7` was retired but 23 references still point at it, in 8 files including three phase-6 specs that call it their contract (2026-09-06, open)
+## L210 — 26 prose spec IDs across the corpus name a spec that does not exist, and no check sees that form (2026-09-06, `6/7` half FIXED 2026-09-06; 23 remain)
+
+**`6/7` half FIXED 2026-09-06 in `8ad728e8`, and the count was low.** Every
+live `6/7` citation now names what actually holds its claim: `6/1` states the
+two contracts, `5/9` is the agent conformance basis, `5/16` gives each daemon
+the database it owns and migrates, and `6/16` is the ship-in-parts map.
+`BUGS.md` and `CHANGELOG.md` keep theirs — they record what was true when
+written.
+
+**The real scope is larger than this entry measured.** A guard that resolves
+the prose form (`` `N/M` `` and `` `specs/N/M` ``) against `specs/<N>/<M>-*.md`
+reports 803 IDs in the corpus and 26 dangling, in phases 1, 4, 5, 6, 7, 8, 9
+and 14 — not 23 pointing at one retired number. Three were phase 6 and went
+with the `6/7` sweep; 23 remain, and each needs its successor found rather
+than guessed.
+
+There is still no `specs/RETIRED.md`; commit `7d81cd78` dropped that table and
+kept the link check, so a retired number resolves to nothing by design. The
+guard's rule matches that decision: a phase directory that does not exist is
+fine, because a phase is planned before it is written, but a phase that exists
+and holds no file for the cited ID is a reader sent nowhere.
 
 MEASURED. `git log --diff-filter=D -- 'specs/6/7-*'` names commit `fd1a4c3b`,
 "docs(specs): retire 6/7; conformance is measured, and its dependents say so
