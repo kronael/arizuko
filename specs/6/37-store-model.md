@@ -249,9 +249,18 @@ Every production site calls `db_utils.OpenWAL(db_utils.FileDSN(path))` —
 `store` for each owner DB, `authd`, `dashd`, the CLI's split cutover and
 token signer, and both test harnesses. `db_utils/opener_test.go` reads
 the tree and fails on any other `sql.Open("sqlite"`, so a new daemon is
-caught the day it is written. `store.OpenMem` is the one exception,
-named in that test: its DSN is a per-call in-memory database with no
-on-disk pragma set to share.
+caught the day it is written.
+
+A test file is held to the same rule, and the guard's only exemption is
+`db_utils`'s own files. `ARIZUKO_TEST_PG_DSN` decides the engine a test
+database is created on — unset, a private SQLite one held in memory;
+set, a fresh database on that server, dropped when the test ends —
+and `db_utils.NewTestDB` is the one place that reads it. `dbtest.Open(t)`
+is how a `_test.go` reaches it; `store.OpenMem`, `routd.OpenMem` and
+`runed.OpenMem` call `NewTestDB` from their own package, because a
+production package must not link `testing`. That is what makes step 6's
+proof askable: pointing the suite at the other engine is one variable
+rather than an edit in every test file.
 
 The connection cap is not in the opener yet. It belongs there — the spec
 asks for one — but no site sets one today, so the number is a measurement

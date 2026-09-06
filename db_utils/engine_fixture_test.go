@@ -7,20 +7,12 @@ package db_utils
 // live here, in the fixture, and nowhere in a test body.
 
 import (
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
-	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 )
-
-// pgDSNEnv points this suite at a Postgres server. Unset, the suite runs on
-// SQLite alone and `make test` keeps its under-five-seconds budget.
-const pgDSNEnv = "ARIZUKO_TEST_PG_DSN"
 
 // engineFixture hands a test one database per key. Two calls with one key
 // return two handles to the SAME database, which the concurrent-migrator test
@@ -39,32 +31,11 @@ type engineFixture struct {
 func forEachEngine(t *testing.T, body func(t *testing.T, e *engineFixture)) {
 	t.Helper()
 	t.Run("sqlite", func(t *testing.T) { body(t, sqliteFixture(t)) })
-	dsn := os.Getenv(pgDSNEnv)
+	dsn := os.Getenv(TestPGDSNEnv)
 	if dsn == "" {
 		return
 	}
 	t.Run("postgres", func(t *testing.T) { body(t, postgresFixture(t, dsn)) })
-}
-
-// dbKey turns a test name into an identifier a database name accepts on either
-// engine: readable at the front, and a hash at the back so two long names that
-// share a prefix stay distinct inside Postgres's 63-byte limit.
-func dbKey(key string) string {
-	sum := sha256.Sum256([]byte(key))
-	safe := strings.Map(func(r rune) rune {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
-			return r
-		case r >= 'A' && r <= 'Z':
-			return r + ('a' - 'A')
-		default:
-			return '_'
-		}
-	}, key)
-	if len(safe) > 30 {
-		safe = safe[:30]
-	}
-	return safe + "_" + hex.EncodeToString(sum[:4])
 }
 
 func sqliteFixture(t *testing.T) *engineFixture {
@@ -101,40 +72,33 @@ func sqliteFixture(t *testing.T) *engineFixture {
 }
 
 func postgresFixture(t *testing.T, adminDSN string) *engineFixture {
-	admin, err := Open(adminDSN)
-	if err != nil {
-		t.Fatalf("open the postgres named by %s: %v", pgDSNEnv, err)
-	}
-	t.Cleanup(func() { admin.Close() })
-
+	// One DSN per database name, so two calls with one key open two pools on the
+	// SAME database — what the concurrent-migrator test needs.
 	var mu sync.Mutex
-	created := map[string]bool{}
+	dsns := map[string]string{}
 	return &engineFixture{
 		name: "postgres",
 		open: func(t *testing.T, key string) *sql.DB {
 			t.Helper()
 			name := "arizuko_test_" + dbKey(key)
 			mu.Lock()
-			first := !created[name]
-			created[name] = true
-			mu.Unlock()
-			if first {
-				// A previous run that died before its cleanup leaves the database
-				// behind; a test that inherits its rows is a test that proves the
-				// wrong thing.
-				if _, err := admin.Exec("DROP DATABASE IF EXISTS " + name + " WITH (FORCE)"); err != nil {
-					t.Fatalf("drop %s: %v", name, err)
+			dsn, held := dsns[name]
+			if !held {
+				var drop func() error
+				var err error
+				if dsn, drop, err = createPostgresDB(adminDSN, name); err != nil {
+					mu.Unlock()
+					t.Fatalf("reserve %s: %v", name, err)
 				}
-				if _, err := admin.Exec("CREATE DATABASE " + name); err != nil {
-					t.Fatalf("create %s: %v", name, err)
-				}
+				dsns[name] = dsn
 				t.Cleanup(func() {
-					if _, err := admin.Exec("DROP DATABASE IF EXISTS " + name + " WITH (FORCE)"); err != nil {
+					if err := drop(); err != nil {
 						t.Errorf("drop %s: %v", name, err)
 					}
 				})
 			}
-			db, err := Open(withDatabase(t, adminDSN, name))
+			mu.Unlock()
+			db, err := Open(dsn)
 			if err != nil {
 				t.Fatalf("open postgres %s: %v", name, err)
 			}
@@ -157,18 +121,6 @@ func postgresFixture(t *testing.T, adminDSN string) *engineFixture {
 				"SELECT version FROM migrations WHERE service=$1 ORDER BY version", service)
 		},
 	}
-}
-
-// withDatabase re-points a postgres:// URL at another database on the same
-// server, keeping the credentials and every query parameter.
-func withDatabase(t *testing.T, dsn, name string) string {
-	t.Helper()
-	u, err := url.Parse(dsn)
-	if err != nil {
-		t.Fatalf("parse %s: %v", pgDSNEnv, err)
-	}
-	u.Path = "/" + name
-	return u.String()
 }
 
 func scanVersions(t *testing.T, db *sql.DB, query, service string) []int {

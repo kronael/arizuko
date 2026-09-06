@@ -46,6 +46,22 @@ must not each decide for itself:
   connection fault the driver can prove reached no server. Everything
   else throws on the first attempt.
 
+## The database a test opens
+
+A test asks this package for a database the same way a daemon does, by
+DSN, so one environment variable moves the whole suite between engines
+(spec `6/37` step 6). `ARIZUKO_TEST_PG_DSN` is that variable: unset, a
+test database is a private SQLite one held in memory; set to a
+`postgres://` URL, each is a fresh database created on that server and
+dropped when the test finishes.
+
+`dbtest.Open(t)` is how a `_test.go` reaches it — `opener_test.go`
+fails the build on a direct `sql.Open` in a test file too, so a new
+test cannot quietly add a twenty-seventh place to edit. The three
+`OpenMem` builders (`store`, `routd`, `runed`) call `NewTestDB` from
+their own package, because a production package must not link
+`testing`.
+
 ## Public API
 
 - `Open(dsn string) (*sql.DB, error)`
@@ -53,6 +69,9 @@ must not each decide for itself:
 - `RequireDBFile(path string) error` / `CreateDBFile(path string) error`
 - `IsTransient(err error) bool`
 - `Migrate(db *sql.DB, fsys embed.FS, dir, service string) error`
+- `NewTestDB(name string) (dsn string, release func() error, err error)`
+  and `OpenTestDB(name string)`, which is `NewTestDB` plus `Open`
+- `TestPGDSNEnv` — the name of the environment variable above
 
 `service` is the bookkeeping key written into the `migrations` table
 so multiple schemas can share the same DB without colliding on
@@ -102,7 +121,9 @@ and `github.com/jackc/pgx/v5`.
 
 ## Files
 
-- `db_utils.go` — the whole public surface
+- `db_utils.go` — the opener, the transient class and the migration runner
+- `testdb.go` — the database a test opens, on either engine
+- `dbtest/` — the `*testing.T` wrapper over it
 
 ## Related
 
