@@ -10,10 +10,11 @@ the whole reason this is its own phase rather than work inside 6.
 
 The part is a **package** — a process plus a declaration of how it hooks
 into the system — and every component is one (`25`, settled 2026-09-05).
-The four specs before it each answer one question a part raises on its
-way to the cloud: what it stores (`21`), what language it may be (`22`),
-what it is a participant in (`23`), how the agent inside it finds its
-skills (`24`).
+The three specs before it each answer one question a part raises on its
+way to the cloud: what language it may be (`22`), what it is a participant
+in (`23`), how the agent inside it finds its skills (`24`). What a part
+stores is settled before it ships alone, so the storage seam is
+[`6/38`](../6/38-storage-seam.md).
 
 [`25-publish-plan.md`](25-publish-plan.md) is the package contract: the
 outsider test, what a manifest can and cannot declare (measured), and
@@ -26,23 +27,14 @@ the nine adapters fail on two name maps in `compose.go`.
 
 [`22-rust-track.md`](22-rust-track.md) answers what, if anything, moves to Rust: the isolation boundary only, never on the cloud path — and a package may be Rust because the contract is a process.
 
-[`21-storage-seam.md`](21-storage-seam.md) is the storage decision: move
-to Postgres, no `Store` interface. Its census finds 26 of 47 transactions
-multi-table, each a privilege-escalation guard; the cloud target is managed
-Postgres, reached by a connection string. A DynamoDB-shaped layer is the
-other branch, and it costs three invariants a redesign first — group delete,
-membership, `resreg.Apply` — which the spec measures so the choice is a
-decision, not a discovery.
-
 ## Specs
 
-| Spec                                       | Status   | Covers                                                                                                                                                                                                                   |
-| ------------------------------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [21-storage-seam.md](21-storage-seam.md)   | shipped  | decision: Postgres, no `Store` interface; 26 of 47 transactions are multi-table; the cloud target is managed Postgres (a DSN); the DynamoDB branch is costed — three security invariants need a redesign before any seam |
-| [22-rust-track.md](22-rust-track.md)       | draft    | Rust only at the isolation boundary and never on the cloud path; the package contract makes a package's language invisible; `egress/match` is core's, so the Rust unit in `egress` is the proxy                          |
-| [23-agent-habitat.md](23-agent-habitat.md) | draft    | the three verbs, the ingress/egress asymmetry, the package as the participant shape, the field by name and by property                                                                                                   |
-| [24-skill-search.md](24-skill-search.md)   | draft    | skill discovery has no miss signal; the harness listing budget is window-dependent; a miss counter before any retrieval                                                                                                  |
-| [25-publish-plan.md](25-publish-plan.md)   | defected | the package contract and the outsider test; a manifest declares ten resources through `install` and one through `add`; five hooks are names in Go (BUGS `L199`, `L200`); every component measured against it             |
+| Spec                                       | Status   | Covers                                                                                                                                                                                                       |
+| ------------------------------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [22-rust-track.md](22-rust-track.md)       | draft    | Rust only at the isolation boundary and never on the cloud path; the package contract makes a package's language invisible; `egress/match` is core's, so the Rust unit in `egress` is the proxy              |
+| [23-agent-habitat.md](23-agent-habitat.md) | draft    | the three verbs, the ingress/egress asymmetry, the package as the participant shape, the field by name and by property                                                                                       |
+| [24-skill-search.md](24-skill-search.md)   | draft    | skill discovery has no miss signal; the harness listing budget is window-dependent; a miss counter before any retrieval                                                                                      |
+| [25-publish-plan.md](25-publish-plan.md)   | defected | the package contract and the outsider test; a manifest declares ten resources through `install` and one through `add`; five hooks are names in Go (BUGS `L199`, `L200`); every component measured against it |
 
 ## Ties
 

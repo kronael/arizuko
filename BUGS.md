@@ -10076,7 +10076,7 @@ with an expiry index; the only statement that names it in Go is the sweep
 No `INSERT` exists anywhere in tracked code, and the table holds 0 rows on
 krons. Outbound idempotency lives in `chanlib/dedup.go` (`outbound_dedup`),
 so the routd table is a leftover, and the sweep is work against an empty
-table on every tick. `7/21` cited a `messages + idempotency_keys`
+table on every tick. `6/38` cited a `messages + idempotency_keys`
 transaction; the 2026-09-05 census found none.
 
 - **Severity:** low (no behaviour; dead DDL and a no-op sweep)
@@ -10086,10 +10086,10 @@ transaction; the 2026-09-05 census found none.
 - **Status:** open
 - **Fix:** a migration that drops the table, and delete the sweep — or an insert at the ledger site, if one was meant to exist
 
-## L193 — `7/22` and `specs/index.md` argue from the "27 of 43" census and the storage seam that `7/21` declined (2026-09-05, open — docs, spec owner)
+## L193 — `7/22` and `specs/index.md` argue from the "27 of 43" census and the storage seam that `6/38` declined (2026-09-05, open — docs, spec owner)
 
 `specs/7/22-rust-track.md` §"Rust buys nothing for the cloud" says the cloud
-track "proceeds through the storage seam" and repeats "~27 of 43". `7/21`
+track "proceeds through the storage seam" and repeats "~27 of 43". `6/38`
 now records 26 of 47 and declines the seam: `database/sql` is the seam and
 the engines that keep the transactions are off the shelf. `7/22`'s
 conclusion — Rust buys nothing for the cloud because the constraint is the
@@ -10102,7 +10102,7 @@ seam".
 - **Affected:** readers of the phase-7 specs
 - **Source:** `grep -n '27 of 43\|storage seam' specs/7/22-rust-track.md specs/index.md`
 - **Status:** open — docs
-- **Fix:** one paragraph in `7/22` pointing at the `7/21` census; two phrases in `specs/index.md`
+- **Fix:** one paragraph in `7/22` pointing at the `6/38` census; two phrases in `specs/index.md`
 ## L195 — `store/migrations` is a second declaration of routd's schema that only tests run, and it has drifted on 7 shared tables (2026-09-05, open — proposal, needs sign-off)
 
 Measured at `23b629e0` by migrating both chains into memory and diffing
@@ -10144,7 +10144,7 @@ additions, moving the four `NewInstance` callers to `NewRoutdInstance`.
 - **Affected:** every daemon test on `NewInstance`; the drift is silent
 - **Source:** `store/store.go` Migrate/Open/OpenMem; `tests/testutils/testutils.go` NewInstance
 - **Status:** open — proposal, needs sign-off
-- **Fix:** (c) first; then (a) as its own spec under `7/21`
+- **Fix:** (c) first; then (a) as its own spec under `6/38`
 ## L194 — `routd/cmd/routd/main.go` re-declares five defaults `core.LoadConfig` also declares, and one pair already differs (2026-09-05, open — proposal, needs sign-off)
 
 routd builds its `LoopConfig` from `os.Getenv` directly and never calls
@@ -10778,3 +10778,38 @@ agent explicitly asked for is withdrawn.
   fleet-wide
 - **Status:** fixed in `egress/match/match.go`; reaches an instance on the next
   image rebuild and restart
+
+## L210 — `6/7` was retired but 23 references still point at it, in 8 files including three phase-6 specs that call it their contract (2026-09-06, open)
+
+MEASURED. `git log --diff-filter=D -- 'specs/6/7-*'` names commit `fd1a4c3b`,
+"docs(specs): retire 6/7; conformance is measured, and its dependents say so
+directly". The file is gone. The pointers are not:
+
+`grep -rn '`+"`6/7`"+`' --include=*.md` returns 23 hits across `BUGS.md`,
+`ant/README.md`, `specs/index.md`, `specs/5/9-agent-capability-eval.md`,
+`specs/6/1-adoption-interop.md`, `specs/6/16-daemon-standalone-matrix.md`,
+`specs/6/34-resident-prompt.md` and `specs/6/38-storage-seam.md`. Three of
+those are phase-6 specs marked `shipped`, and each cites `6/7` as the
+authority for the environment or component contract — `specs/6/index.md` says
+"`7` owns the contracts" of a spec that does not exist.
+
+`tests/specrefs` does not catch it: `refs_test.go:46` matches markdown links
+(`](path.md)`) and `depends:` entries, and every one of these 23 is a backtick
+ID in prose. So the build is green while eight files cite a retired number.
+
+That is the `L43` failure exactly — a pointer that reads as authoritative and
+resolves to nothing — with the extra twist that the retirement was deliberate
+and the sweep was not done.
+
+There is no `specs/RETIRED.md` in the tree, so a reader who follows `6/7` has
+nowhere to land and no record that the number is burnt.
+
+- **Severity:** medium — no runtime effect; every reader of three shipped specs
+  is sent to a spec that does not exist
+- **Scope:** `specs/`, `BUGS.md`, `ant/README.md`, `tests/specrefs`
+- **Fix:** (a) rewrite the 23 citations to name what actually holds each claim
+  — the retirement commit says the dependents already state it directly, so the
+  target text exists; (b) extend `tests/specrefs` to resolve backtick IDs
+  (`` `N/M` ``) as well as links, which is what would have caught this the day
+  `6/7` was retired; (c) decide whether a retired-number table comes back, and
+  if so make (b) resolve against it

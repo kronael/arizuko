@@ -4,7 +4,7 @@ shipped: 2026-09-05
 depends: [../5/16-mcp-rest-unification, ../5/33-paths-roles]
 ---
 
-# specs/7/21 — the storage seam: Postgres, and no seam
+# specs/6/38 — the storage seam: Postgres, and no seam
 
 Decision: arizuko moves to Postgres and writes no `Store` interface. The
 component contract (`6/7`) says a daemon must "own and migrate your

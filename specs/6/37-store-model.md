@@ -2,7 +2,7 @@
 status: shipped
 depends:
   [
-    ../7/21-storage-seam,
+    38-storage-seam,
     22-proxyd-cut,
     23-llm-gateway,
     36-minimal-projection,
@@ -16,7 +16,7 @@ depends:
 Decision (maintainer, signed off 2026-09-05): **Postgres is the engine
 for arizuko's own data, not only for the tools that require it.** Dex
 and LiteLLM already put a Postgres in the deployment; arizuko joins it
-rather than running a second engine beside it. `7/21`'s census is the
+rather than running a second engine beside it. `6/38`'s census is the
 evidence and its recommendation is adopted.
 
 The engine is a commitment; the provider is not. The seam that keeps the
@@ -54,7 +54,7 @@ The split:
 - [`5/16`](../5/16-mcp-rest-unification.md)'s rule is unchanged: a store
   belongs to the daemon that migrates it. Dex and LiteLLM migrate theirs.
 
-`7/21` counted arizuko as a third adopter, which made a shared Postgres
+`6/38` counted arizuko as a third adopter, which made a shared Postgres
 look like substrate. With arizuko out, the count is two tools and the
 one server they need anyway. "The marginal cost is a connection string"
 is the argument for the lock-in this spec declines; it is not an
@@ -88,7 +88,7 @@ index holds the trust root (`authd/migrations/0002`). Foreign-key
 enforcement rides the DSN (`db_utils/db_utils.go:52-58`), and the live
 routd.db carries 10 orphan `task_run_logs` rows
 (`pragma_foreign_key_check`): the invariants are in the transactions,
-not in the DDL, as `7/21` found. 47 `Begin`/`BeginTx` sites in 24
+not in the DDL, as `6/38` found. 47 `Begin`/`BeginTx` sites in 24
 non-test files; `store.runAudited` has 24 callers. Backup is `arizuko
 archive export [--quiesced]` (`cmd/arizuko/archive.go:87`), a logical
 export of config, secrets, messages and group trees, not a file copy.
@@ -116,7 +116,7 @@ the six readers and the filesystem state have moved.
 
 ## The census a scale-out model is judged against
 
-[`7/21`](../7/21-storage-seam.md) §"Branch B, measured": 47 sites, 26
+[`6/38`](38-storage-seam.md) §"Branch B, measured": 47 sites, 26
 multi-table; 19 fit a bounded conditional batch (DynamoDB
 `TransactWriteItems`: ≤100 actions, no two on one item, a condition only
 on the item it sits on), 7 do not, and 3 of those 7 are
@@ -135,7 +135,7 @@ with `UPDATE pending_actions SET status = ? WHERE id = ? AND status = ?`
 and a `RowsAffected == 1` check (`routd/pending_actions.go:429`, under
 the tx at `routd/steer.go:582-597`). Both are conditions on the item
 written, so both survive a batch model as written. The other 17 are
-`7/21`'s classification, not re-read here.
+`6/38`'s classification, not re-read here.
 
 ## The three redesigns
 
@@ -160,7 +160,7 @@ read, the engagement read) treats a row whose `gen` is not the folder's
 current `gen` as absent. Delete becomes one conditional write on the
 `groups` row; the four purges become a sweep that may fail or lag with
 no consequence. A scope whose first segment is a wildcard belongs to the
-instance world (`7/21` §"Partition keys") and carries no `gen`; a group
+instance world (`6/38` §"Partition keys") and carries no `gen`; a group
 delete never touched those rows either.
 
 Preserved: a re-created folder starts with no authority on every delete
@@ -178,7 +178,7 @@ Four copies of the cycle walk exist; the redesign keeps one
 parent's ancestor set outside the transaction by key lookups, refuses if
 it contains the child, then writes one conditional batch: the edge
 `(child, parent)` conditioned on absence; the pairing token's claim where
-there is one (the two-item batch `7/21` counts as fitting); and a
+there is one (the two-item batch `6/38` counts as fitting); and a
 `membership` version item conditioned on the value it read — so two
 inserts that would together close a cycle cannot both pass. On the read
 side `store.Ancestors` becomes parent-pointer lookups with a visited set
@@ -335,7 +335,7 @@ copy-back exists.
 
 ## Ties
 
-`7/21` (the census and the declined seam) · `22` step 4 (the Dex
+`6/38` (the census and the declined seam) · `22` step 4 (the Dex
 trade) · `23` (the gateway that needs the database) · `36` (the control
 plane's writers, S1/S6/S11) · `5/16` (ownership = the migrating daemon) ·
 `5/33` (the path is the coordinate) · BUGS `L44`, `L66`/`L67`, `L195`,

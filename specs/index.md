@@ -20,12 +20,15 @@ arizuko's self-learning pointed outward. Since 2026-08-27 it also
 carries the operator cockpit (`6/28`–`6/33`): a daemon nobody can watch
 alone has not shipped alone.
 
-**Phase 7** is the cloud track: `7/21`, the storage seam. It sits after
-6 because putting arizuko in the cloud comes after splitting it into
-parts, and you cannot deploy a part you have not separated. The
-operator cockpit used to share this number and moved to `6/28`–`6/33`
-on 2026-08-27 — it belongs with the parts it watches. Products are
-phase 17.
+**Phase 7** is the cloud track: what a part may be written in (`7/22`),
+what it is a participant in (`7/23`), how the agent inside it finds its
+skills (`7/24`), and the package contract that lets an outsider ship one
+(`7/25`). It sits after 6 because putting arizuko in the cloud comes after
+splitting it into parts, and you cannot deploy a part you have not
+separated. The operator cockpit (`6/28`–`6/33`) and the storage seam
+(`6/38`) both sit with the split for the same reason: a part that cannot
+be watched, or has not settled what it stores, has not shipped alone.
+Products are phase 17.
 
 **Phase 8** layers enterprise hardening: encryption at rest, audit
 stream, per-daemon secrets, SSO/SAML, tool-level secret broker,
@@ -47,25 +50,25 @@ combination is the platform thesis arizuko ships toward.
 
 ## Phase table
 
-| Phase      | Description                                                                                                                                        | Status     |
-| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| [1/](1/)   | core gateway — routing, channels, auth, scheduler                                                                                                  | shipped    |
-| [2/](2/)   | social channels — events, actions, twitter                                                                                                         | shipped    |
-| [3/](3/)   | permissions, cleanup, gaps                                                                                                                         | shipped    |
-| [4/](4/)   | dashboards, memory, scheduler, personas — core architecture (channel protocol → `5/34`, ACL → `5/32`·`5/33`)                                       | shipped    |
-| [5/](5/)   | platform core — surfaces, identity, routing, tenancy, runtime                                                                                      | shipped    |
-| [6/](6/)   | split arizuko into parts — the environment contracts (`6/7`), the ship-in-parts catalogue (`6/16`), crackbox, the operator cockpit (`6/28`–`6/33`) | **active** |
-| [7/](7/)   | the cloud track — the storage seam (`7/21`); the cockpit left for `6/28`–`6/33` on 2026-08-27                                                      | queued     |
-| [8/](8/)   | enterprise hardening — encryption, audit, SSO, secret broker                                                                                       | queued     |
-| [9/](9/)   | platform program — data model, git-as-truth (MCP+REST unification → 5/16·5/17)                                                                     | drafting   |
-| [10/](10/) | self-healing — Aeon mechanism incorporation                                                                                                        | queued     |
-| [11/](11/) | operator tools — branding, usage limits                                                                                                            | queued     |
-| [12/](12/) | _dissolved 2026-07-14 → consolidated into [6/](6/) (`6/8`–`6/12`, `6/16`); self-learning/skill-guard → `5/22`·`5/23`_                              | dissolved  |
-| [13/](13/) | standalone + reusable — ant, workflows, self-eval                                                                                                  | planned    |
-| [14/](14/) | future features — pinned, CLI, dynamic channels                                                                                                    | planned    |
-| [15/](15/) | later — committed direction, not scheduled                                                                                                         | planned    |
-| [16/](16/) | multiplayer — shared sessions, durable streams, presence                                                                                           | drafting   |
-| [17/](17/) | products — persona templates, publishing surface                                                                                                   | queued     |
+| Phase      | Description                                                                                                                                                                                           | Status     |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| [1/](1/)   | core gateway — routing, channels, auth, scheduler                                                                                                                                                     | shipped    |
+| [2/](2/)   | social channels — events, actions, twitter                                                                                                                                                            | shipped    |
+| [3/](3/)   | permissions, cleanup, gaps                                                                                                                                                                            | shipped    |
+| [4/](4/)   | dashboards, memory, scheduler, personas — core architecture (channel protocol → `5/34`, ACL → `5/32`·`5/33`)                                                                                          | shipped    |
+| [5/](5/)   | platform core — surfaces, identity, routing, tenancy, runtime                                                                                                                                         | shipped    |
+| [6/](6/)   | split arizuko into parts — the environment contracts (`6/7`), the ship-in-parts catalogue (`6/16`), crackbox, the operator cockpit (`6/28`–`6/33`), the store model and storage seam (`6/37`, `6/38`) | **active** |
+| [7/](7/)   | the cloud track — the Rust track, the habitat reframing, skill search, the package contract; the cockpit and the storage seam sit with the split                                                      | queued     |
+| [8/](8/)   | enterprise hardening — encryption, audit, SSO, secret broker                                                                                                                                          | queued     |
+| [9/](9/)   | platform program — data model, git-as-truth (MCP+REST unification → 5/16·5/17)                                                                                                                        | drafting   |
+| [10/](10/) | self-healing — Aeon mechanism incorporation                                                                                                                                                           | queued     |
+| [11/](11/) | operator tools — branding, usage limits                                                                                                                                                               | queued     |
+| [12/](12/) | _dissolved 2026-07-14 → consolidated into [6/](6/) (`6/8`–`6/12`, `6/16`); self-learning/skill-guard → `5/22`·`5/23`_                                                                                 | dissolved  |
+| [13/](13/) | standalone + reusable — ant, workflows, self-eval                                                                                                                                                     | planned    |
+| [14/](14/) | future features — pinned, CLI, dynamic channels                                                                                                                                                       | planned    |
+| [15/](15/) | later — committed direction, not scheduled                                                                                                                                                            | planned    |
+| [16/](16/) | multiplayer — shared sessions, durable streams, presence                                                                                                                                              | drafting   |
+| [17/](17/) | products — persona templates, publishing surface                                                                                                                                                      | queued     |
 
 **A retired spec number is burnt.** Numbering continues past the highest ID its
 phase has ever held; reusing one turns every old pointer to it into a
@@ -89,9 +92,10 @@ let a part ship alone), **7 = put the parts in the cloud.** Splitting comes
 first because you cannot deploy a part you have not separated.
 
 Applied by moving the six cockpit specs `7/1`·`7/2`·`7/3`·`7/11`·`7/12`·`7/41`
-to `6/28`–`6/33`. Nothing else moved: the contracts, the strategy and the
-ship-in-parts map are what let a part ship alone, so they were already in phase
-6, and `7/21` was already the cloud. The destination numbers start at 28
+to `6/28`–`6/33`, and the storage seam to `6/38`: an engine decision settles
+what a part stores, which is a condition of shipping it alone rather than of
+deploying it. The contracts, the strategy and the ship-in-parts map were
+already in phase 6 for the same reason. Destination numbers start at 28
 because every number below it has been used in phase 6 before — reusing one
 turns an old pointer into a confidently wrong one, which is the failure `L43`
 measured.
