@@ -135,6 +135,28 @@ folders, not a tree, so a parent need not be a prefix of its child. This is the
 operation `6/38` costed as needing a materialised ancestor closure maintained
 on every membership write.
 
+The same walk is on the READ path: `auth.Authorize` resolves a principal's
+grants through `store.Ancestors` (`auth/authorize.go:134`, `:308`), and
+`routd/sibling_db.go:312` walks it again to ask whether a caller is an
+operator. Measured on all three live instances it costs nothing — 58 edges on
+krons pointing at exactly two parents, `role:operator` and `role:member`, and
+no parent is ever itself a child, so the recursion never recurses. The one
+apparent DAG is an identity ALIAS (`telegram:user/… → google:…`) sharing a
+table with role assignment, not a deep hierarchy.
+
+**Left as it is, deliberately, with the trigger written down.** If the graph
+ever gains depth, the answer is not a faster walk or a closure table. The token
+already carries a login-time scope snapshot (`authd/oauth.go`), so the walk
+belongs at mint time, and the reason it is not there is that `6/22` step 3
+refuses to cache an authorization decision — a cached decision is a revocation
+that does not take effect. The shape that satisfies both is a `grants_version`
+per principal, bumped when a membership or `acl` row affecting it changes,
+carried in the token and compared against one row per request: a point lookup
+instead of a recursion, with revocation still effective on the next request.
+Its hard part is invalidation scope, since "which principals does this `acl`
+write affect" is itself a subtree question. **Reopen when any parent becomes a
+child, or when `Ancestors` shows on a latency profile.**
+
 **The claim-and-return.** `store.DueTasks` is
 `UPDATE scheduled_tasks SET status='firing' WHERE status='active' AND next_run
 <= ? RETURNING …` — a conditional update over an unbounded set that returns
