@@ -19,11 +19,24 @@ and LiteLLM already put a Postgres in the deployment; arizuko joins it
 rather than running a second engine beside it. `6/38`'s census is the
 evidence and its recommendation is adopted.
 
-**State.** Step 1 of the order below is in progress and tier 1 of the
-seam ships: every production site opens through
-`db_utils.OpenWAL(db_utils.FileDSN(path))` and `db_utils/opener_test.go`
-fails the build on any other opener. The connection cap, `pgx` and every
-owner database are steps this spec still owes.
+**State.** Steps 1 to 6 of the order below are done or in progress, and the
+seam is built: `db_utils.Open` selects the engine from the DSN it is given,
+every production site calls it, and `db_utils/opener_test.go` fails the build
+on any other opener. The cap is 4 per Postgres pool — 20 pools exist in a full
+deployment and the budget is set for 24, so 96 against the 97 a stock server
+leaves, which is the number an operator sharing that server with Dex and
+LiteLLM must raise. `db_utils.IsTransient` classifies `40001`, `40P01` and the
+SQLite lock codes; it has no caller yet, because retrying a transaction means
+re-running the caller's closure at 47 sites, and that is step 7. The migration
+runner speaks both dialects, with `pg_advisory_xact_lock` as the Postgres
+critical section — transaction-scoped, so it survives a transaction-mode
+pooler, and it is the working precedent redesign 3 copies.
+
+Every daemon still opens SQLite. What stands between here and step 7 is
+measured rather than estimated: 30 migration files are SQLite-only (`L228`,
+two of them FTS5 and therefore step 8's), and 40 `sql.Open` sites across 26
+test files bypass the seam, so the suite cannot yet be pointed at another
+engine (`L227`).
 
 The engine is a commitment; the provider is not. The seam that keeps the
 second true is below, and it is not a `Store` interface.
