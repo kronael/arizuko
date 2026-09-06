@@ -129,8 +129,10 @@ func (t *HTTPTarget) Session(folder, topic string) (string, error) {
 }
 
 // Cost reports the turn's token spend via routd GET /v1/cost?turn_id= (the
-// token needs cost:read). 404 = no cost recorded (turn still running, or a
-// routd predating the endpoint) → 0, not an error; other failures surface.
+// token needs cost:read). The number is the model gateway's — arizuko holds
+// none (spec 6/39) — so 404 means no meter has one for this turn: it is still
+// running, the gateway has not flushed its usage rows, or the instance names no
+// gateway at all. That reads as 0, not an error; other failures surface.
 func (t *HTTPTarget) Cost(turnID string) (int, error) {
 	if turnID == "" {
 		return 0, nil
