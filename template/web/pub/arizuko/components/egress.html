@@ -105,7 +105,7 @@ agent  --internal net-->  its proxy  --uplink-->  allowed hosts only</code></pre
       <li>no DNS filter &mdash; a single-tenant proxy already sees every destination, and a rule expressed twice can disagree with itself</li>
       <li>no supervision &mdash; the spawn&rsquo;s lifetime is the proxy&rsquo;s lifetime, and runed owns both</li>
     </ul>
-    <p>Interception stays declined (<code>specs/6/17</code>): a proxy that never terminates TLS has nothing to leak if it is compromised, which is what keeps it small enough to audit.</p>
+    <p>Interception stays declined (<code>specs/5/13-ext-mcp.md</code>): a proxy that never terminates TLS has nothing to leak if it is compromised, which is what keeps it small enough to audit.</p>
 
     <h2>Standalone usage</h2>
     <p>Yes. <code>egress</code> is a plain Go binary with three flags and no dependency on anything else in arizuko.</p>
@@ -166,7 +166,7 @@ crackbox run --image python:3 --allow pypi.org,files.pythonhosted.org -- pip ins
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/egress.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-18">2026-08-18</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-04">2026-09-04</time>
       </div>
     </main>
 

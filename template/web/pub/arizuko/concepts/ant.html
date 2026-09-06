@@ -90,11 +90,11 @@
 
     <h2>arizuko vs standalone ant</h2>
     <p><strong>Today:</strong> every arizuko group is an ant folder. <code>arizuko chat &lt;instance&gt; [group]</code> drops you into one for interactive use. <code>runed</code> spawns containers from the same folders for inbound chat messages.</p>
-    <p><strong>Planned:</strong> a standalone <code>ant &lt;folder&gt;</code> CLI that runs one agent without arizuko anywhere on the system &mdash; no gateway, no scheduler, no router. Spec at <a href="https://github.com/kronael/arizuko/blob/main/specs/12/b-ant-standalone.md">specs/12/b-ant-standalone.md</a>.</p>
+    <p><strong>Alone:</strong> ant is the agent layer, not a daemon you deploy by itself. It occupies the container <code>runed</code> hands it and talks over a stdin/stdout protocol, which is what makes a second harness &mdash; pi, codex &mdash; a sibling of ant rather than of runed. What arizuko does ship on its own is listed in <a href="https://github.com/kronael/arizuko/blob/main/specs/6/16-daemon-standalone-matrix.md">specs/6/16-daemon-standalone-matrix.md</a>.</p>
 
     <h2>go deeper</h2>
     <ul>
-      <li><a href="https://github.com/kronael/arizuko/blob/main/specs/12/b-ant-standalone.md">specs/12/b-ant-standalone.md</a> &mdash; standalone CLI, container runtime, skill curation.</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/specs/6/16-daemon-standalone-matrix.md">specs/6/16-daemon-standalone-matrix.md</a> &mdash; which parts ship alone, and where ant sits among them.</li>
       <li><a href="../concepts/tokens.html">route tokens</a> &mdash; how to reach an ant from a browser or webhook.</li>
       <li><a href="../concepts/grants.html">grants</a> &mdash; how an <code>acl</code> row turns into a per-tool permission.</li>
       <li><a href="../concepts/jid.html">jid</a> &mdash; the addresses the agent uses to send messages back out.</li>
@@ -106,7 +106,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/ant.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-07">2026-08-07</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-09">2026-08-09</time>
       </div>
     </main>
 
