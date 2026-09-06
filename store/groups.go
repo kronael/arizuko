@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -88,24 +89,31 @@ func (s *Store) PutGroupRow(g core.Group) error {
 	return tx.Commit()
 }
 
-// DeleteGroup removes a group AND every row that pointed at it, in one
-// transaction. It is the ONE delete: routd's rollback and the operator's
-// `arizuko group rm` both land here.
+// DeleteGroup removes the folder's subtree and every row that confers on it or
+// routes into it, in one transaction, and returns how many groups rows went. It
+// is the ONE delete: the operator's `arizuko group rm`, dashd's delete page and
+// routd's registration rollback all land here. What it removes is declared once
+// in folderScopePurge.
 //
-// The cascade is the whole point. A bare `DELETE FROM groups` leaves routes
-// aimed at a folder that no longer resolves, engagement state pinned to it, and
-// scheduled_tasks that timed keeps firing forever — sloth ran `Coach-mem-0..4`
-// nightly from 2026-05-05 without one of them ever executing, and each firing
-// reached onbod, which read the unroutable jid as a new account to onboard
-// (BUGS L66, L67). There are no foreign keys to fall back on: routes and
-// scheduled_tasks declare none, and the live DBs run with foreign_keys=0.
+// The purge is the whole point, and it has to be total. A bare
+// `DELETE FROM groups` leaves routes aimed at a folder that no longer resolves,
+// engagement state pinned to it, and scheduled_tasks that timed keeps firing
+// forever — sloth ran `Coach-mem-0..4` nightly from 2026-05-05 without one of
+// them ever executing, and each firing reached onbod, which read the unroutable
+// jid as a new account to onboard (BUGS L66, L67). Worse, an acl row scoped
+// under the folder makes whoever administered it administer the next tenant of
+// the same path (BUGS L198).
 //
-// One transaction, not four statements: a partial cascade IS the orphan state
-// this exists to prevent. route_tokens is deliberately NOT cascaded — a token
-// for a deleted target is refused at webd's ingress instead (BUGS L5).
-func (s *Store) DeleteGroup(folder string) error {
+// The subtree, not the row: a child folder left behind is an orphan holding
+// grants of its own, and a child's acl rows sit under the parent's path.
+//
+// One transaction, not one statement per table: a partial purge IS the state
+// this exists to prevent. A folder with no groups row in its subtree returns 0
+// and writes nothing, audit row included — there is no delete to record.
+func (s *Store) DeleteGroup(folder string) (int, error) {
 	actor, actorSub, surface := s.auditIdentity()
-	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
+	removed := 0
+	err := s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
 		ev := audit.Event{
 			Category: audit.CategoryMutation,
 			Action:   "group.delete",
@@ -116,21 +124,24 @@ func (s *Store) DeleteGroup(folder string) error {
 			Folder:   folder,
 			Outcome:  audit.OutcomeOK,
 		}
-		for _, q := range []struct {
-			sql  string
-			args []any
-		}{
-			{`DELETE FROM groups WHERE folder = ?`, []any{folder}},
-			{`DELETE FROM routes WHERE ` + groupfolder.SQLSubtree("target", "#"), groupfolder.SubtreeArgs(folder, "#")},
-			{`DELETE FROM chat_reply_state WHERE engaged_folder = ?`, []any{folder}},
-			{`DELETE FROM scheduled_tasks WHERE owner = ?`, []any{folder}},
-		} {
-			if _, err := tx.Exec(q.sql, q.args...); err != nil {
-				return ev, err
-			}
+		n, err := purgeFolder(tx, folder)
+		if err != nil {
+			return ev, err
 		}
+		if n == 0 {
+			return ev, errNoSuchGroup
+		}
+		removed = n
+		ev.ParamsSummary = map[string]any{"groups_removed": n}
 		return ev, nil
 	})
+	if errors.Is(err, errNoSuchGroup) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return removed, nil
 }
 
 const groupCols = `folder, added_at, container_config, product,

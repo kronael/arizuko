@@ -74,7 +74,7 @@ func TestFK_WebRoutes_CascadeOnGroupDelete(t *testing.T) {
 		t.Fatalf("seed: want 1 web_route, got %d", got)
 	}
 
-	if err := s.DeleteGroup("acme"); err != nil {
+	if _, err := s.DeleteGroup("acme"); err != nil {
 		t.Fatal(err)
 	}
 	if got := countWebRoutes(s, "acme"); got != 0 {
@@ -119,7 +119,7 @@ func TestFK_RouteTokens_CascadeOnGroupDelete(t *testing.T) {
 		t.Fatalf("seed: want 1 route_token, got %d", len(got))
 	}
 
-	if err := s.DeleteGroup("acme"); err != nil {
+	if _, err := s.DeleteGroup("acme"); err != nil {
 		t.Fatal(err)
 	}
 	if got := s.ListRouteTokens("acme"); len(got) != 0 {
@@ -192,7 +192,7 @@ func TestFK_HistoryTablesStrandOnGroupDelete(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DeleteGroup("acme"); err != nil {
+	if _, err := s.DeleteGroup("acme"); err != nil {
 		t.Fatal(err)
 	}
 	// History strands by spec.

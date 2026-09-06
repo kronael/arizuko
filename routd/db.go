@@ -184,11 +184,11 @@ func (d *DB) GroupExists(folder string) bool {
 	return n == 1
 }
 
-// DeleteGroup removes a group and cascades every row pointing at it. The
-// cascade, its transaction and its audit row all live in store.DeleteGroup —
-// the ONE delete, shared with the operator's `arizuko group rm`. routd having
-// its own copy is what let the CLI ship a delete with no cascade at all.
-func (d *DB) DeleteGroup(folder string) error {
+// DeleteGroup removes a group's subtree and every row that confers on it or
+// routes into it, and reports how many groups rows went. The purge, its
+// transaction and its audit row all live in store.DeleteGroup — the ONE delete,
+// shared with the operator's `arizuko group rm` and dashd's delete page.
+func (d *DB) DeleteGroup(folder string) (int, error) {
 	return d.userStore().DeleteGroup(folder)
 }
 
