@@ -72,10 +72,10 @@ lands.
 
 Ten dimensions: self-modification · subagents + privileges · web
 publishing · online chat apps · reach via REST + MCP · composites ·
-routing · egress · the backend contract floor (`6/7`) · continuity
+routing · egress · the backend contract floor · continuity
 (added 2026-08-20: the group-knowledge
 layer must carry a fact to a transcript-less isolated turn — the
-`specs/6/7` portability claim; what stays live-unmeasured and why is in
+portability claim; what stays live-unmeasured and why is in
 `anteval/README.md` §"Continuity coverage"), plus a
 **fabricate-vs-surface** family added 2026-07-12
 (evidence-ranked from ~50 candidates mined from cross-project memory, live

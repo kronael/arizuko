@@ -86,7 +86,7 @@ a probe against a live process for the component.
 
 ## Tracks, ranked
 
-**1. The contracts (primary).** `6/7`'s two contracts, their conformance
+**1. The contracts (primary).** The two contracts above, their conformance
 checks, and `pi` as the second agent-slot occupant — a contract proven against
 a real second implementation, not a hypothetical one.
 
@@ -94,7 +94,7 @@ a real second implementation, not a hypothetical one.
 the product:
 
 - **Runtime pluralism.** runed spawns "just another binary"; a foreign harness
-  can occupy the agent slot to the degree it meets the `6/7` agent contract.
+  can occupy the agent slot to the degree it meets the agent contract.
   openclaw and qm already do this for their own slots; it is table stakes, not
   a differentiator.
 - **MCP as the seam.** arizuko is MCP-native (agent side) + REST (human side).
@@ -120,7 +120,7 @@ a time:
    `refs/`) and its released changes since last run. `refs/` lags upstream by
    months; a claim is verified against live `main`, never against the clone.
 2. **Extract** the config/protocol surface an arizuko folder would need to
-   host or import it, measured against the `6/7` contracts.
+   host or import it, measured against those two contracts.
 3. **Reimplement / shim** the smallest interop, in an isolated worktree.
 4. **Verify** end-to-end (spawn a folder on that runtime, drive a turn), gate
    on an adversarial check, open the change for operator review.

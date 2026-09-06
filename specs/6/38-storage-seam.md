@@ -6,9 +6,9 @@ depends: [../5/16-mcp-rest-unification, ../5/33-paths-roles]
 
 # specs/6/38 — the storage seam: Postgres, and no seam
 
-Decision: arizuko moves to Postgres and writes no `Store` interface. The
-component contract (`6/7`) says a daemon must "own and migrate your
-schema"; the seam it does that through is Go's `database/sql`, and the
+Decision: arizuko moves to Postgres and writes no `Store` interface.
+`5/16` gives each daemon its own database to own and migrate; the seam it
+does that through is Go's `database/sql`, and the
 cloud target is managed Postgres, reached by a connection string. A
 DynamoDB-shaped layer is justified only if the cloud target is
 Postgres-incompatible, and that branch costs three security invariants a
@@ -337,8 +337,8 @@ folder-shape predicate rather than a table.
 
 ## Ties
 
-`6/7` component contract (this is its storage half) · `5/16` per-daemon
-DB ownership (ownership becomes a role per owner) · `5/33` grants and
+`5/16` per-daemon DB ownership (this is its storage half; ownership
+becomes a role per owner) · `5/33` grants and
 scope globs · `5/5` R2 (a world is a predicate) · `7/22` (argues from the
 invariants; its conclusion stands with no seam) · `6/16` (the
 ship-in-parts matrix) · BUGS `L44` (the transactional install Branch B

@@ -30,8 +30,8 @@ session state are all the harness's, never ant's.
 Harness independence lives at the **process boundary**: the agent tool
 surface + `submit_turn` on the unix socket routd serves is a wire
 protocol, so a different harness replaces ant as its own process without
-touching arizuko. Inside ant, `src/backend.ts` is the harness seam
-(spec `6/7`), stated as arizuko's requirements: `Turn` in, `Frame`s out
+touching arizuko. Inside ant, `src/backend.ts` is the harness seam,
+stated as arizuko's requirements: `Turn` in, `Frame`s out
 (continuity / status / result), one `run()` per harness plus a
 `HarnessProfile` declaring its capabilities. Continuity is an opaque
 token each harness packs (claude a `sessionId#resumeAt` pair, codex its

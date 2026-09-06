@@ -330,7 +330,7 @@ Durable rules the package layout obeys.
   `types`): imported, never run. Utility packages follow Go convention
   (`httputil/`, not `http_utils/`). One Go module
   (`github.com/kronael/arizuko`); sibling shippable components stay
-  inside it (`specs/6/7-orthogonal-components.md`).
+  inside it ([specs/6/16](specs/6/16-daemon-standalone-matrix.md)).
 
 - **DAG library layering.** Libraries form a directed acyclic graph;
   downward imports only, no cycles, no library importing a daemon.

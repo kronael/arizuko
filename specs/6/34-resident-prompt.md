@@ -82,8 +82,7 @@ the same content the resident file carries:
 
 That is the "one declaration, many readers" rule of root `CLAUDE.md`
 violated in the agent's own manual: two copies, and the live sizes show
-they drift (`6/7` §"The component contract" states the same cost for its
-own tables). The root file has the same shape: `specs/CLAUDE.md` opens
+they drift. The root file has the same shape: `specs/CLAUDE.md` opens
 with "the settled rules from root `CLAUDE.md` — repeated here as a
 checklist", `template/web/CLAUDE.md` owns "Deploy to live krons" while
 the root carries 41 lines on the same subject, and
@@ -147,11 +146,11 @@ remainder, if any.
 | Rigor                               | 4 / 406   | keep               | 2    | fabrication has no error                                                                                                                                                                                                                                                                        |
 | Tenancy model                       | 12 / 1861 | keep, trim         | 1    | resident: group = isolated home, path carries zero authorization, tool list = grant set, topic in one line. The `register_group` paragraph moves to `self/mcp.md` — the tool's own error says "call this"                                                                                       |
 | Autocalls                           | 4 / 269   | keep               | 1    | envelope; `self/autocalls.md` holds the long form                                                                                                                                                                                                                                               |
-| How messages arrive                 | 24 / 1306 | keep               | 1    | the envelope is the contract (`6/7`); nothing else names `<messages>` and `<reply-to>`                                                                                                                                                                                                          |
+| How messages arrive                 | 24 / 1306 | keep               | 1    | the envelope is the contract; nothing else names `<messages>` and `<reply-to>`                                                                                                                                                                                                                  |
 | When to respond                     | 18 / 1638 | keep               | 2    | silence on a mention, final-block-only delivery (`L149`), `<link-context>`: all silent. Already shaped right — it points at `chat-link.md` for the full rules                                                                                                                                   |
 | Greetings                           | 4 / 70    | move               | —    | `hello`'s frontmatter already routes on "hi/hello with no specific task"; the resident line is a second copy                                                                                                                                                                                    |
 | Resolve                             | 4 / 634   | keep, trim         | 3    | the nudge is the mechanism (`runner.go:531`); one resident line names it. "Read the channel before answering `no context`" is `resolve/SKILL.md` §2 already                                                                                                                                     |
-| Task discipline                     | 5 / 408   | keep               | 2    | `AskUserQuestion` ends the turn silent. Leaves when a PreToolUse deny rule for it ships (`6/7` policy table)                                                                                                                                                                                    |
+| Task discipline                     | 5 / 408   | keep               | 2    | `AskUserQuestion` ends the turn silent. Leaves when a PreToolUse deny rule for it ships                                                                                                                                                                                                         |
 | Skills and tools                    | 6 / 642   | keep               | 3    | this is the map: `/self`, and connector tools deferred behind Tool Search — the deferral is invisible without the line                                                                                                                                                                          |
 | Model economy                       | 4 / 461   | move               | —    | `sonnet` and `haiku` frontmatter route on scouting and mechanical lookups; economy is not a silent failure                                                                                                                                                                                      |
 | Memory stores                       | 8 / 388   | keep               | 3    | four rows: event → skill. The `/issues` line joins it as a fifth row                                                                                                                                                                                                                            |
@@ -248,7 +247,7 @@ cannot help. What breaks if each stays out:
   treats XML as user text, replies to observed context, re-fetches what
   autocalls carry, answers the last thing it said instead of the message
   the user pointed at. No error, and no user phrase triggers a skill.
-  `6/7` makes the envelope the agent contract for this reason.
+  The envelope IS the agent contract for this reason.
 - **Delivery** (only the final text block leaves the container; a
   `<status>` owes an answer; `<think>`-only is silence; a mention must
   produce visible output). Out: answers destroyed with zero error —
@@ -283,7 +282,7 @@ guards, one per class of moved content:
 
 1. **No case, no move.** A section leaves residency only if an
    `anteval` case exercises the behaviour it teaches — `anteval` is the
-   agent conformance basis (`5/9`, `6/7`), `--smoke` is gate 5 of every
+   agent conformance basis (`5/9`), `--smoke` is gate 5 of every
    deploy, and the ≈$5 run is what turns "the agent still follows this"
    from a belief into a measurement. Of the sections marked move above,
    these are covered by the 22 cases in `anteval/cases/anteval.toml`

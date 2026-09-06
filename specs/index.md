@@ -11,7 +11,7 @@ genericized daemons), and runtime (pipeline, middleware, modality).
 **Phase 6** is adoption & interop: the end goal is that people run
 arizuko instead of their own agent harness. The path is publishing the
 environment, not wrapping the harness (`6/1`, inverted 2026-08-15):
-state the agent and component contracts (`6/7`), give each a
+state the agent and component contracts (`6/1`), give each a
 conformance check a stranger's part must pass (`anteval` per backend;
 a component probe), and let the folder coordinate (tenancy + egress +
 ACL + web) be what the environment gives you for free. Wrapping stays
@@ -57,7 +57,7 @@ combination is the platform thesis arizuko ships toward.
 | [3/](3/)   | permissions, cleanup, gaps                                                                                                                                                                            | shipped    |
 | [4/](4/)   | dashboards, memory, scheduler, personas — core architecture (channel protocol → `5/34`, ACL → `5/32`·`5/33`)                                                                                          | shipped    |
 | [5/](5/)   | platform core — surfaces, identity, routing, tenancy, runtime                                                                                                                                         | shipped    |
-| [6/](6/)   | split arizuko into parts — the environment contracts (`6/7`), the ship-in-parts catalogue (`6/16`), crackbox, the operator cockpit (`6/28`–`6/33`), the store model and storage seam (`6/37`, `6/38`) | **active** |
+| [6/](6/)   | split arizuko into parts — the environment contracts (`6/1`), the ship-in-parts catalogue (`6/16`), crackbox, the operator cockpit (`6/28`–`6/33`), the store model and storage seam (`6/37`, `6/38`) | **active** |
 | [7/](7/)   | the cloud track — the Rust track, the habitat reframing, skill search, the package contract; the cockpit and the storage seam sit with the split                                                      | queued     |
 | [8/](8/)   | enterprise hardening — encryption, audit, SSO, secret broker                                                                                                                                          | queued     |
 | [9/](9/)   | platform program — data model, git-as-truth (MCP+REST unification → 5/16·5/17)                                                                                                                        | drafting   |
