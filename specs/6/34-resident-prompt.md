@@ -113,6 +113,15 @@ at least one holds:
    routes on what users say; an envelope tag, a mount state or an error
    code is not something a user says, so no skill description catches it.
    Such a pointer is one row: trigger → owner. It is never the content.
+4. **A workflow skill reads it from here.** A skill that names the
+   project's `CLAUDE.md` as its override source makes the section a
+   declaration with a named reader, and a copy at any other address is the
+   second format "one declaration, many readers" forbids. Test: does a
+   skill body say it reads this file? A project skill cannot take the
+   section instead, because a project skill whose name matches a global one
+   is shadowed by it: `create-eval` exists in both `.claude/skills/` and
+   `~/.claude/skills/`, and only the global description reaches the
+   session's skill listing.
 
 Everything else is one of: a skill body (its frontmatter is the pointer),
 a tool description (`tools/list` is the reader), an output style (one loads
@@ -121,7 +130,7 @@ that owns the subject. A table of topics → skills is not a map and does not
 go in the resident file: the skill listing already is that table, and a
 hand copy goes stale.
 
-The rule applies to a new section the same way: name which of the three
+The rule applies to a new section the same way: name which of the four
 tests it passes in the commit that adds it; a section that passes none is
 a skill.
 
@@ -186,7 +195,7 @@ that directory is read — `specs/CLAUDE.md`, `template/web/CLAUDE.md`,
 on-demand rules. The root file has no conformance harness, so this table
 moves **explanations, never rule lines**: every invariant keeps its one
 sentence resident and sends its cost narrative to the spec or bug that
-recorded it.
+recorded it. L / B are the sizes this audit measured.
 
 | Section                               | L / B     | Verdict                | Rule | Destination and remainder                                                                                                                                                                                                                                                                        |
 | ------------------------------------- | --------- | ---------------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -202,7 +211,7 @@ recorded it.
 | Docs layout / When to read what       | 26 / 1312 | keep, grow             | 3    | this IS the map; it absorbs Essence, Layout, Service Architecture, Entrypoint, Migrating from kanipi as rows                                                                                                                                                                                     |
 | Updating the web docs                 | 41 / 1869 | move                   | —    | `template/web/CLAUDE.md` owns "Deploy to live krons" and loads when the tree is touched; the "visuals are load-bearing" paragraph moves with it. Resident: one row                                                                                                                               |
 | Layout                                | 7 / 293   | merge                  | —    | a row                                                                                                                                                                                                                                                                                            |
-| Refine scope                          | 20 / 937  | move                   | —    | a project skill, `.claude/skills/refine/SKILL.md`                                                                                                                                                                                                                                                |
+| Refine scope                          | 20 / 937  | keep                   | 4    | `~/.claude/skills/refine` reads the live project `CLAUDE.md` for its lenses (step 3), so this section is that skill's project half                                                                                                                                                               |
 | Conventions                           | 39 / 2311 | split                  | 2    | resident rows: `.jl`, XML-in-prompts/JSON-in-IPC, `submit_turn`, `:8080` everywhere, dynamic-vs-static in one sentence. The `L45` narrative → `5/28`; "adding a channel adapter" → `EXTENDING.md`                                                                                                |
 | Trust boundaries                      | 8 / 358   | move                   | —    | `SECURITY.md` §"Identity header trust" owns it                                                                                                                                                                                                                                                   |
 | Split write-discipline                | 6 / 198   | keep                   | 2    | a direct write to another daemon's DB works until it does not                                                                                                                                                                                                                                    |
@@ -216,15 +225,15 @@ recorded it.
 | Operational check (five gates)        | 61 / 3048 | move, 2-line rule      | —    | `.claude/skills/eval/SKILL.md` exists for exactly this and gate 4 already invokes it. Resident: a deploy is not done until `anteval --smoke` passes, and the reason (`L149` shipped green through gates 1–4)                                                                                     |
 | OTLP export                           | 10 / 520  | move                   | —    | `ARCHITECTURE.md:849`                                                                                                                                                                                                                                                                            |
 | Shipping changes                      | 14 / 761  | move, 1-line rule      | 2    | `ant/skills/self/migrations/CLAUDE.md` owns the steps. Resident: every release bumps `MIGRATION_VERSION`, docs-only included — forgetting it is silent                                                                                                                                           |
-| Tagging a new version                 | 16 / 947  | move                   | —    | the same project skill as Refine scope's neighbour: `.claude/skills/release/`                                                                                                                                                                                                                    |
-| Announcing                            | 20 / 533  | move                   | —    | `CHANGELOG.md`'s head, where the shape is used                                                                                                                                                                                                                                                   |
+| Tagging a new version                 | 16 / 947  | keep                   | 4    | `~/.claude/skills/release` step 0 reads the project `CLAUDE.md` for the steps that override its defaults                                                                                                                                                                                         |
+| Announcing                            | 20 / 533  | keep                   | 4    | `~/.claude/skills/release` reads `## Announcing` for the tagline and footer; `CHANGELOG.md`'s head points here and states no rule of its own                                                                                                                                                     |
 | Deploy policy                         | 6 / 210   | keep                   | 2    | deploying to a second instance unasked raises no error                                                                                                                                                                                                                                           |
 | "Nothing works" checklist             | 13 / 708  | move                   | —    | `.claude/skills/eval/` method; `INSTALL.md:305` already has exit 125                                                                                                                                                                                                                             |
 | Migrating from kanipi                 | 3 / 46    | merge                  | —    | a row                                                                                                                                                                                                                                                                                            |
 
-Estimate: ≈7 KB resident from 28.7 KB. The rule lines survive in full;
-what leaves is narrative that a spec, a bug entry or a directory-scoped
-file already records.
+Resident today: 14.5 KB in 274 lines, of the 28.7 KB above. Every rule
+line stays resident; what leaves is narrative a spec, a bug entry or a
+directory-scoped file already records.
 
 ## The carve-out, argued
 

@@ -126,3 +126,25 @@ func TestMaintainerFilePointersResolve(t *testing.T) {
 		t.Fatalf("matched only %d pointers in CLAUDE.md; the extractor no longer sees the file's shape", seen)
 	}
 }
+
+// TestMaintainerFileCarriesTheSkillReadSections: three sections of root
+// CLAUDE.md are the project half of a global skill — `~/.claude/skills/refine`
+// reads the live project file for its lenses, and `~/.claude/skills/release`
+// reads it for the steps and the broadcast shape that override its defaults
+// (`6/34` rule 4). A project skill cannot hold them: a project skill whose name
+// matches a global one is shadowed by it, so the copy would reach no reader.
+func TestMaintainerFileCarriesTheSkillReadSections(t *testing.T) {
+	body := read(t, "CLAUDE.md")
+	for _, must := range []string{
+		"Refine scope",
+		"Tagging a new version",
+		"Announcing",
+	} {
+		// The heading itself, not a mention of it: root CLAUDE.md quotes
+		// "## Announcing" in a cross-reference, and a skill reading the
+		// section needs the section.
+		if !strings.Contains(body, "\n## "+must+"\n") {
+			t.Errorf("CLAUDE.md no longer carries the %q section — a skill reads it from this file", must)
+		}
+	}
+}
