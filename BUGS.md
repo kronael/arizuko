@@ -10995,3 +10995,29 @@ The `ant/CLAUDE.md` half of the same spec is executed correctly — 388 lines to
 - **Fix:** create the two skills and cut the sections, or change the three rows
   to "keep" with the reason. Either is fine; the table claiming one thing while
   the file does another is not.
+
+## L218 — `6/18` says "four tables per queue"; the migration it cites creates five, and a sixth in partitioned mode (2026-09-06, open — docs)
+
+VERIFIED against the source, not the summary. Fetched
+`services/api-rs/crates/centaur-session-sqlx/migrations/0007_absurd_workflows.sql`
+from `paradigmxyz/centaur` at the exact commit `6/18` cites,
+`20f3021728a826c0b2dc44177a213fbad1e45202`.
+
+The per-queue generator emits six `create table` statements with the prefixes
+`t_`, `r_`, `c_`, `e_`, `w_` and `i_`. The spec counts four — tasks, runs,
+checkpoints, waits — and omits `e_<queue>`, the events store
+(`event_name text primary key`). `i_<queue>` (idempotency) is the sixth and
+appears in partitioned mode.
+
+The spec's own "External events" bullet describes `emit_event` as
+"first-write-wins the event row", so the row it forgot to count is the one its
+prose depends on.
+
+This does not touch the decline itself, which stands: nothing in arizuko
+implements a workflow engine, verified by grep for checkpoint, lease and
+claim-expiry machinery.
+
+- **Severity:** low — a wrong count in a document whose value is precise
+  measurement
+- **Scope:** `specs/6/18`
+- **Fix:** five tables, six under partitioning; name `e_<queue>`
