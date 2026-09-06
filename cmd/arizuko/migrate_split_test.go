@@ -8,7 +8,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/runed"
 	"github.com/kronael/arizuko/store"
@@ -782,5 +784,75 @@ func TestMigrateSplitToleratesOrphanRunLog(t *testing.T) {
 	defer rdb.Close()
 	if got := count(t, rdb.SQL(), "task_run_logs"); got != 2 {
 		t.Errorf("routd.task_run_logs: got %d, want 2 (seeded + orphan)", got)
+	}
+}
+
+// The cutover is a bulk SQL copy, and routd.Create has already run the
+// migration that makes messages.timestamp, chats.agent_cursor and
+// sessions.observed_cursor fixed width — so the sequence never revisits what
+// the copy lands. A legacy monolith holds a whole-second cursor and a
+// fractional message inside that same second; `.` is 0x2E and `Z` is 0x5A, so
+// copied verbatim the LATER message sorts BEHIND the cursor and the agent never
+// sees it (BUGS L219, L97).
+func TestMigrateSplitLandsTimestampsFixedWidth(t *testing.T) {
+	storeDir := filepath.Join(t.TempDir(), "store")
+	seedMessagesDB(t, storeDir)
+
+	s, err := store.Open(storeDir)
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	// tg:1's agent_cursor is the whole second 2026-01-02T00:01:00Z. This message
+	// is 882ms LATER in that same second.
+	const later = "2026-01-02T00:01:00.882458214Z"
+	if _, err := s.DB().Exec(
+		`INSERT INTO messages(id, chat_jid, sender, content, timestamp)
+		 VALUES('mfrac','tg:1','alice','the newest message',?)`, later); err != nil {
+		t.Fatalf("seed fractional message: %v", err)
+	}
+	if _, err := s.DB().Exec(
+		`UPDATE sessions SET observed_cursor='2026-01-02T00:01:00Z' WHERE group_folder='main'`); err != nil {
+		t.Fatalf("seed observed_cursor: %v", err)
+	}
+	s.Close()
+
+	if err := migrateSplit(storeDir, false); err != nil {
+		t.Fatalf("migrateSplit: %v", err)
+	}
+	rdb, err := routd.Create(storeDir)
+	if err != nil {
+		t.Fatalf("routd.Open: %v", err)
+	}
+	defer rdb.Close()
+
+	// The message is later in time, so it has to sort after the cursor — the
+	// whole point of the column's width.
+	var visible int
+	if err := rdb.SQL().QueryRow(
+		`SELECT COUNT(*) FROM messages m JOIN chats c ON m.chat_jid = c.jid
+		 WHERE m.id = 'mfrac' AND m.timestamp > c.agent_cursor`).Scan(&visible); err != nil {
+		t.Fatalf("visibility probe: %v", err)
+	}
+	if visible != 1 {
+		t.Error("the copied message sorts behind the copied cursor; the agent never sees it")
+	}
+
+	// Every value in each of the three columns, not just the pair above.
+	width := len(core.TS(time.Now()))
+	for _, c := range []struct{ table, col string }{
+		{"messages", "timestamp"},
+		{"chats", "agent_cursor"},
+		{"sessions", "observed_cursor"},
+	} {
+		var mixed int
+		if err := rdb.SQL().QueryRow(
+			`SELECT COUNT(*) FROM `+c.table+
+				` WHERE `+c.col+` IS NOT NULL AND `+c.col+` != '' AND length(`+c.col+`) != ?`,
+			width).Scan(&mixed); err != nil {
+			t.Fatalf("width probe %s.%s: %v", c.table, c.col, err)
+		}
+		if mixed != 0 {
+			t.Errorf("%s.%s: %d copied values are not the column's fixed width", c.table, c.col, mixed)
+		}
 	}
 }

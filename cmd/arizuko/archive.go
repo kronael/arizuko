@@ -546,7 +546,7 @@ func applyArchive(ctx context.Context, stores map[string]*store.Store, dataDir s
 
 		case archiveMessagesEntry:
 			routdDB := stores[resreg.SubsystemRoutd].DB()
-			imported, chatJIDs, ierr := resreg.ImportMessagesJSONL(ctx, routdDB, tr, 0)
+			imported, chatJIDs, refused, ierr := resreg.ImportMessagesJSONL(ctx, routdDB, tr, 0)
 			if ierr != nil {
 				return report.String(), fmt.Errorf("messages: %w", ierr)
 			}
@@ -555,6 +555,14 @@ func applyArchive(ctx context.Context, stores map[string]*store.Store, dataDir s
 				return report.String(), fmt.Errorf("agent_cursor: %w", cerr)
 			}
 			fmt.Fprintf(&report, "messages: %d rows imported, %d chat cursors derived\n", imported, nc)
+			// Refused rows are named, never counted-and-forgotten: correcting
+			// one in the archive and re-running is the way back, and the
+			// re-run is a no-op on everything that already landed.
+			for _, u := range refused {
+				fmt.Fprintf(&report,
+					"messages: REFUSED %s — timestamp %q is not an RFC3339 instant, so it cannot be ordered against a cursor; fix it in the archive and re-run\n",
+					u.ID, u.Timestamp)
+			}
 
 		case archiveGroupsEntry:
 			data, rerr := io.ReadAll(tr)

@@ -357,6 +357,17 @@ func migrateSplit(storeDir string, dryRun bool) error {
 	if err != nil {
 		return fmt.Errorf("routd.db: %w", err)
 	}
+	// The copy is SQL-to-SQL, so messages.timestamp, chats.agent_cursor and
+	// sessions.observed_cursor arrive in whatever width the source wrote —
+	// and routd.Create has already run the migration that normalises them, so
+	// the sequence will not revisit these rows. Hand them to routd's own
+	// normaliser here, or the column's string order stops being its time order
+	// and a cursor skips a row for good (BUGS L219, L97).
+	if !dryRun {
+		if err := routd.NormalizeFixedWidthTimestamps(rdb.SQL()); err != nil {
+			return fmt.Errorf("routd.db: %w", err)
+		}
+	}
 	// 5/33: bind every migrated folder to role:member (the messaging floor). copyInto
 	// copies group rows raw (no PutGroup → no assignDefaultRole), so a migrated agent
 	// would have no grants and couldn't even send. Idempotent (INSERT OR IGNORE).

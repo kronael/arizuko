@@ -25,6 +25,29 @@ var migrationFS embed.FS
 
 const serviceName = "routd"
 
+// fixedWidthMigration is the file whose three UPDATEs bring messages.timestamp,
+// chats.agent_cursor and sessions.observed_cursor into core.TSLayout.
+const fixedWidthMigration = "migrations/0044-fixed-width-timestamps.sql"
+
+// NormalizeFixedWidthTimestamps re-runs the normalisation the file of the same
+// name performs. A bulk copy that lands rows AFTER the migration sequence has
+// run — the cutover in cmd/arizuko — writes into a routd.db where 0044 is
+// already recorded, so the sequence never revisits those rows; this is how such
+// a copy reaches the one normaliser instead of carrying a second copy of its
+// SQL. Every statement is a pure re-rendering, GLOB-scoped so an already
+// fixed-width value matches nothing, and the file's own statement order (rows
+// before cursors) is preserved by running it whole.
+func NormalizeFixedWidthTimestamps(db *sql.DB) error {
+	raw, err := migrationFS.ReadFile(fixedWidthMigration)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", fixedWidthMigration, err)
+	}
+	if _, err := db.Exec(string(raw)); err != nil {
+		return fmt.Errorf("%s: %w", fixedWidthMigration, err)
+	}
+	return nil
+}
+
 // DB is routd's owner of routd.db: the message/event store + routing rules +
 // turn lifecycle + route tokens. routd is the SOLE appender of messages. Times
 // are core.TSLayout UTC, computed in Go.
