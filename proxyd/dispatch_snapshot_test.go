@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -25,15 +27,13 @@ func TestSnapshotCarriesAProxyForEveryRoute(t *testing.T) {
 	}
 	defer st.Close()
 
-	for _, r := range []store.ProxydRoute{
+	if _, _, err := st.SyncProxydRoutes([]store.ProxydRoute{
 		{Path: "/chat/", Backend: "http://webd:8080", Auth: "public"},
 		{Path: "/panel/", Backend: "http://dashd:8080", Auth: "user"},
 		{Path: "/dav/", Backend: "http://davd:8080", Auth: "user", StripPrefix: true},
 		{Path: "/old/", RedirectTo: "/panel/"},
-	} {
-		if err := st.PutProxydRoute(r); err != nil {
-			t.Fatal(err)
-		}
+	}); err != nil {
+		t.Fatal(err)
 	}
 
 	s := &server{rr: newRoutesResource(st, nil)}
@@ -73,7 +73,7 @@ func TestConcurrentRouteMutationNeverSplitsAcrossSnapshots(t *testing.T) {
 	}
 	defer st.Close()
 	route := store.ProxydRoute{Path: "/panel/", Backend: up.URL, Auth: "public"}
-	if err := st.PutProxydRoute(route); err != nil {
+	if _, _, err := st.SyncProxydRoutes([]store.ProxydRoute{route}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -90,11 +90,7 @@ func TestConcurrentRouteMutationNeverSplitsAcrossSnapshots(t *testing.T) {
 				return
 			default:
 			}
-			if i%2 == 0 {
-				_, _ = st.DeleteProxydRoute(route.Path)
-			} else {
-				_ = st.PutProxydRoute(route)
-			}
+			churnRoute(st.DB(), route, i%2 != 0)
 		}
 	}()
 
@@ -135,4 +131,25 @@ func TestConcurrentRouteMutationNeverSplitsAcrossSnapshots(t *testing.T) {
 		t.Errorf("%d of %d matched requests found no backend — dispatch split across two snapshots",
 			split.Load(), matched.Load())
 	}
+}
+
+// churnRoute adds or removes one route through the statements /v1/proxyd_routes
+// itself runs, each in its own committed transaction. A single transaction that
+// deleted and re-inserted would never let a concurrent reader see the row
+// absent, and the absent read is half of what this race needs.
+func churnRoute(db *sql.DB, r store.ProxydRoute, add bool) {
+	tx, err := db.Begin()
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
+	if add {
+		err = insertProxydRouteTx(context.Background(), tx, r)
+	} else {
+		_, err = deleteProxydRouteTx(context.Background(), tx, r.Path)
+	}
+	if err != nil {
+		return
+	}
+	_ = tx.Commit()
 }

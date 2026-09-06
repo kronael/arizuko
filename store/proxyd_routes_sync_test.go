@@ -86,10 +86,8 @@ func TestSyncProxydRoutesLeavesOperatorRoutesAlone(t *testing.T) {
 		Owner: RouteOwnerOperator}
 	override := ProxydRoute{Path: "/dash/", Backend: "http://my-dash:8080", Auth: "user",
 		Owner: RouteOwnerOperator}
-	for _, r := range []ProxydRoute{own, override} {
-		if err := s.PutProxydRoute(r); err != nil {
-			t.Fatal(err)
-		}
+	if _, _, err := s.SyncProxydRoutes([]ProxydRoute{own, override}); err != nil {
+		t.Fatal(err)
 	}
 
 	written, kept, err := s.SyncProxydRoutes([]ProxydRoute{
@@ -125,13 +123,14 @@ func TestSyncProxydRoutesLeavesOperatorRoutesAlone(t *testing.T) {
 // it is re-derived from the package's `*-routes.json` on every generate, so an
 // unset Owner must mean arizuko. Stamping it `operator` would freeze a
 // package's route at whatever the install-time release shipped.
-func TestPutProxydRouteDefaultsToArizukoOwner(t *testing.T) {
+func TestSyncProxydRoutesDefaultsToArizukoOwner(t *testing.T) {
 	s, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	if err := s.PutProxydRoute(ProxydRoute{Path: "/rp/", Backend: "http://routepkg:8080", Auth: "public"}); err != nil {
+	if _, _, err := s.SyncProxydRoutes([]ProxydRoute{
+		{Path: "/rp/", Backend: "http://routepkg:8080", Auth: "public"}}); err != nil {
 		t.Fatal(err)
 	}
 	r, ok := routeAt(t, s, "/rp/")
@@ -158,5 +157,35 @@ func TestRouteSurvivesGenerate(t *testing.T) {
 		if got := RouteSurvivesGenerate(c.owner); got != c.want {
 			t.Errorf("RouteSurvivesGenerate(%q) = %v, want %v", c.owner, got, c.want)
 		}
+	}
+}
+
+// A release ships the same path on every generate, so the second write of a
+// path must rewrite the row rather than fail on the primary key. A plain
+// INSERT errors here, and SyncProxydRoutes reports that error for the whole
+// set — one unchanged route would stop the rest of the sync.
+func TestSyncProxydRoutesRewritesAPathInPlace(t *testing.T) {
+	s, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	r := ProxydRoute{Path: "/slack/", Backend: "http://slakd:8080", Auth: "public",
+		GatedBy: "SLACK_BOT_TOKEN", PreserveHeaders: []string{"X-Slack-Signature"}}
+	if _, _, err := s.SyncProxydRoutes([]ProxydRoute{r}); err != nil {
+		t.Fatal(err)
+	}
+	r.Backend = "http://slakd2:8080"
+	if _, _, err := s.SyncProxydRoutes([]ProxydRoute{r}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, ok := routeAt(t, s, "/slack/")
+	if !ok {
+		t.Fatal("/slack/ missing after the rewrite")
+	}
+	if got.Backend != "http://slakd2:8080" || len(got.PreserveHeaders) != 1 {
+		t.Errorf("row not rewritten: %+v", got)
 	}
 }

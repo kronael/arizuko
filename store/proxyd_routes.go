@@ -80,9 +80,9 @@ func (s *Store) AllProxydRoutes() ([]ProxydRoute, error) {
 	return out, rows.Err()
 }
 
-// putProxydRouteTx upserts one row by path (delete-then-insert, no unique-
-// constraint dependency). The single INSERT every store-side writer shares —
-// PutProxydRoute for a package's hot-apply, SyncProxydRoutes for generate.
+// putProxydRouteTx upserts one row. `path` is the primary key, so one
+// INSERT ... ON CONFLICT replaces every other column in place.
+// SyncProxydRoutes writes every row through it.
 func putProxydRouteTx(tx *sql.Tx, r ProxydRoute) error {
 	headers := "[]"
 	if len(r.PreserveHeaders) > 0 {
@@ -96,12 +96,13 @@ func putProxydRouteTx(tx *sql.Tx, r ProxydRoute) error {
 	if r.StripPrefix {
 		strip = 1
 	}
-	if _, err := tx.Exec("DELETE FROM proxyd_routes WHERE path=?", r.Path); err != nil {
-		return err
-	}
 	_, err := tx.Exec(`INSERT INTO proxyd_routes
 		(path, backend, auth, gated_by, preserve_headers, strip_prefix, redirect_to, owner)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(path) DO UPDATE SET
+		  backend=excluded.backend, auth=excluded.auth, gated_by=excluded.gated_by,
+		  preserve_headers=excluded.preserve_headers, strip_prefix=excluded.strip_prefix,
+		  redirect_to=excluded.redirect_to, owner=excluded.owner`,
 		r.Path, r.Backend, r.Auth, r.GatedBy, headers, strip, r.RedirectTo, r.Owner)
 	return err
 }
@@ -179,69 +180,4 @@ func proxydRouteOwners(tx *sql.Tx) (map[string]string, error) {
 		owners[path] = owner
 	}
 	return owners, rows.Err()
-}
-
-// PutProxydRoute upserts a proxyd route by path — the direct-DB write the CLI uses
-// to hot-apply a package's route, taking effect without a restart (spec 5/28 P2).
-// An unset Owner means RouteOwnerArizuko: the CLI's route writers are the managed
-// ones, and only proxyd's own CRUD surface declares an operator route.
-//
-// Audited: this opens a public URL onto a backend with no restart. ParamsSummary
-// carries the blast radius — which backend, behind which auth — not just the path.
-func (s *Store) PutProxydRoute(r ProxydRoute) error {
-	actor, actorSub, surface := s.auditIdentity()
-	if r.Owner == "" {
-		r.Owner = RouteOwnerArizuko
-	}
-	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		if err := putProxydRouteTx(tx, r); err != nil {
-			return audit.Event{}, err
-		}
-		return audit.Event{
-			Category: audit.CategoryMutation,
-			Action:   "proxyd_route.set",
-			Actor:    actor,
-			ActorSub: actorSub,
-			Surface:  surface,
-			Resource: "proxyd_routes/" + r.Path,
-			Outcome:  audit.OutcomeOK,
-			ParamsSummary: map[string]any{
-				"backend":     r.Backend,
-				"auth":        r.Auth,
-				"gated_by":    r.GatedBy,
-				"redirect_to": r.RedirectTo,
-			},
-		}, nil
-	})
-}
-
-// DeleteProxydRoute removes a proxyd route by path. ok=false when absent.
-//
-// Audited for the same reason as PutProxydRoute, and because a trail that
-// records routes opening but never closing reads as "still live" for a route
-// that is gone. `deleted` distinguishes the real withdrawal from a no-op.
-func (s *Store) DeleteProxydRoute(path string) (bool, error) {
-	var hit bool
-	actor, actorSub, surface := s.auditIdentity()
-	err := s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		res, err := tx.Exec("DELETE FROM proxyd_routes WHERE path=?", path)
-		if err != nil {
-			return audit.Event{}, err
-		}
-		n, _ := res.RowsAffected()
-		hit = n > 0
-		return audit.Event{
-			Category: audit.CategoryMutation,
-			Action:   "proxyd_route.delete",
-			Actor:    actor,
-			ActorSub: actorSub,
-			Surface:  surface,
-			Resource: "proxyd_routes/" + path,
-			Outcome:  audit.OutcomeOK,
-			ParamsSummary: map[string]any{
-				"deleted": hit,
-			},
-		}, nil
-	})
-	return hit, err
 }

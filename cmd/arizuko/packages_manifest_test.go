@@ -220,8 +220,8 @@ func TestRemoveReversesOnlyRecordedRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	st0 := store.New(rdb0.SQL())
-	if err := st0.PutProxydRoute(store.ProxydRoute{
-		Path: "/mine/", Backend: "http://mine:8080", Auth: "user", Owner: store.RouteOwnerOperator}); err != nil {
+	if _, _, err := st0.SyncProxydRoutes([]store.ProxydRoute{
+		{Path: "/mine/", Backend: "http://mine:8080", Auth: "user", Owner: store.RouteOwnerOperator}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := st0.AddACLRow(core.ACLRow{

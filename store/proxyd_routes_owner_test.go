@@ -53,8 +53,8 @@ func TestSyncProxydRoutesStillSkipsOperatorOwnedPackagePath(t *testing.T) {
 	}
 	defer s.Close()
 
-	if err := s.PutProxydRoute(ProxydRoute{
-		Path: "/helpbot/", Backend: "http://mine:8080", Auth: "user", Owner: RouteOwnerOperator}); err != nil {
+	if _, _, err := s.SyncProxydRoutes([]ProxydRoute{
+		{Path: "/helpbot/", Backend: "http://mine:8080", Auth: "user", Owner: RouteOwnerOperator}}); err != nil {
 		t.Fatal(err)
 	}
 	written, kept, err := s.SyncProxydRoutes([]ProxydRoute{

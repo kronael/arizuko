@@ -112,13 +112,11 @@ func TestGenerateKeepsOperatorRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := store.New(rdb.SQL())
-	for _, r := range []store.ProxydRoute{
+	if _, _, err := st.SyncProxydRoutes([]store.ProxydRoute{
 		{Path: "/arizuko", RedirectTo: "/pub/arizuko/", Auth: "public", Owner: store.RouteOwnerOperator},
 		{Path: "/panel/", Backend: "http://my-panel:8080", Auth: "user", Owner: store.RouteOwnerOperator},
-	} {
-		if err := st.PutProxydRoute(r); err != nil {
-			t.Fatal(err)
-		}
+	}); err != nil {
+		t.Fatal(err)
 	}
 	rdb.Close()
 
@@ -152,10 +150,10 @@ func TestGenerateRewritesChangedArizukoRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The row an older release left behind: same path, stale backend and auth.
-	if err := store.New(rdb.SQL()).PutProxydRoute(store.ProxydRoute{
+	if _, _, err := store.New(rdb.SQL()).SyncProxydRoutes([]store.ProxydRoute{{
 		Path: "/chat/", Backend: "http://old-webd:8080", Auth: "user",
 		Owner: store.RouteOwnerArizuko,
-	}); err != nil {
+	}}); err != nil {
 		t.Fatal(err)
 	}
 	rdb.Close()
