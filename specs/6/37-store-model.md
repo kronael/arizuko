@@ -1,5 +1,5 @@
 ---
-status: shipped
+status: partial
 depends:
   [
     38-storage-seam,
@@ -19,10 +19,16 @@ and LiteLLM already put a Postgres in the deployment; arizuko joins it
 rather than running a second engine beside it. `6/38`'s census is the
 evidence and its recommendation is adopted.
 
+**State.** Step 1 of the order below is in progress and tier 1 of the
+seam ships: every production site opens through
+`db_utils.OpenWAL(db_utils.FileDSN(path))` and `db_utils/opener_test.go`
+fails the build on any other opener. The connection cap, `pgx` and every
+owner database are steps this spec still owes.
+
 The engine is a commitment; the provider is not. The seam that keeps the
 second true is below, and it is not a `Store` interface.
 
-## Two databases, one boundary
+## One server, three owners
 
 **Dex** documents five backends — etcd, Kubernetes CRDs, SQLite3,
 Postgres, MySQL — and says of the one arizuko would share: "SQLite3 is
@@ -41,24 +47,19 @@ Virtual keys, spend logs, budgets and team management all need that
 database (docs.litellm.ai/docs/proxy/db_info) —
 [`23`](23-llm-gateway.md) chose it for exactly those.
 
-The split:
+Both tools need the server whatever arizuko does, so the server is
+substrate and the third owner is free. The split:
 
-- The `postgres` service ships inside the package that needs it — the
-  Dex package of `22`, the gateway package of `23` — as that package's
-  compose fragment, with its DSN in that package's env only. Whether the
-  two share one server is a packaging choice those specs make.
-- No arizuko daemon carries a Postgres DSN, and `go.mod` carries no
-  Postgres driver: `modernc.org/sqlite v1.46.1` is the only database
-  dependency. arizuko reads LiteLLM's spend and Dex's identity over their
-  HTTP faces, never their tables; they never open `store/`.
-- [`5/16`](../5/16-mcp-rest-unification.md)'s rule is unchanged: a store
-  belongs to the daemon that migrates it. Dex and LiteLLM migrate theirs.
-
-`6/38` counted arizuko as a third adopter, which made a shared Postgres
-look like substrate. With arizuko out, the count is two tools and the
-one server they need anyway. "The marginal cost is a connection string"
-is the argument for the lock-in this spec declines; it is not an
-argument for re-opening it.
+- One `postgres` service in the deployment. Each owner holds its own
+  database on it and knows only its own DSN: the Dex package of `22`,
+  the gateway package of `23`, and arizuko's daemons.
+- arizuko's daemons carry a Postgres DSN and open it through the one
+  `db_utils` opener below. They read LiteLLM's spend and Dex's identity
+  over those tools' HTTP faces, never their tables, and neither tool
+  opens arizuko's.
+- [`5/16`](../5/16-mcp-rest-unification.md)'s rule holds across all
+  three: a store belongs to the daemon that migrates it. Dex and LiteLLM
+  migrate theirs; each arizuko daemon migrates its own.
 
 ## What the store is (measured 2026-09-05, krons)
 
@@ -257,9 +258,9 @@ or not.
 
 ## Three tiers, and the middle one is arizuko's own
 
-Amended 2026-09-05. The refusal above is narrow and it stands: no layer
-in arizuko presents a foreign vendor's API. It is not an argument
-against an internal interface, and the store has three tiers, not one.
+The refusal above is narrow: no layer in arizuko presents a foreign
+vendor's API. That is not an argument against an internal interface, and
+the store has three tiers, not one.
 
 **Tier 1 — the opener.** DSN in, pool out. It owns the pragma set, the
 connection cap and the transient-error class. Every daemon calls it and
@@ -310,9 +311,9 @@ audit_log SET id = id WHERE 1 = 0`, a RESERVED lock in SQLite and a
 
 ## Order and reversibility
 
-1. Postgres ships inside the Dex and gateway packages (`22`, `23`).
-   Verifiable: `go.mod` names no Postgres driver; no generated
-   `env/<daemon>.env` carries a Postgres DSN.
+1. The `postgres` service ships and the two tools use it (`22`, `23`).
+   Verifiable: Dex and LiteLLM start against it, and `/spend/logs`
+   answers. No arizuko daemon has a DSN yet.
 2. `L198`: one group delete, both halves — a fix, not this spec.
 3. Redesign 1 on the current files. Proof: delete through each path,
    re-create, assert a pre-delete admin row does not authorize.
@@ -320,18 +321,24 @@ audit_log SET id = id WHERE 1 = 0`, a RESERVED lock in SQLite and a
    would together close a cycle run concurrently and one is refused.
 5. Redesign 3: `arizuko apply` rehearsed against a `.backup` copy with a
    kill mid-apply — the marker stays, the gates deny, the resume clears it.
-6. A key-value pilot on a ledger with one writer and no join: the adapter
-   dedup store (`chanlib/migrations`: `outbound_dedup`, `inbound_pending`,
-   keyed by idempotency key; whapd already runs the same contract as one
-   file per key). Then `cost_log` with its counters; then `messages`.
-7. `audit_log` last.
+   Its SQLite write-lock upgrade becomes `pg_advisory_xact_lock` on the
+   move, and the substitution is mandatory or the checksum recheck races.
+6. `pgx` enters `go.mod` and `db_utils` opens either engine from the DSN
+   it is given, with the connection cap this tier owes and Postgres's
+   transient class (`40001`, `40P01`, connection reset) added to the
+   retry rule. Proof: the same suite passes against both engines.
+7. Each owner database moves on its own, smallest first — `auth.db`,
+   `onbod.db`, `runed.db`, then `routd.db`. A daemon migrates its own
+   schema on either engine, so no daemon waits for another.
+8. `messages` and `audit_log` last, because `messages_fts` is FTS5 and
+   its Postgres counterpart is `tsvector`: the index is rebuilt, not
+   copied, and it ranks differently.
 
-Steps 1–5 are code on the same SQLite files and revert with `git
-revert`. Step 6 reverts by rebuilding the dedup ledger. **The point of no
-return is a ledger with history written to the key-value store only** —
-`messages` or `audit_log` — because the `id` cursor and the FTS index
-cannot be rebuilt from a key-value partition without a copy back, and no
-copy-back exists.
+Steps 1–6 are additive and revert with `git revert` — the SQLite files
+are untouched and still authoritative. **The point of no return is the
+first owner database whose writes land only on Postgres**, because
+reverting it needs a copy back that does not exist. Step 8 is the
+sharpest of those: the search index cannot come back byte-identical.
 
 ## Ties
 
