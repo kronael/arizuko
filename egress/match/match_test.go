@@ -29,7 +29,12 @@ func TestHost(t *testing.T) {
 		{"multiple entries", []string{"foo.com", "bar.org", "baz.net"}, "api.bar.org", true},
 		{"leading glob matches subdomain", []string{"*.github.com"}, "api.github.com", true},
 		{"leading glob matches apex too", []string{"*.github.com"}, "github.com", true},
-		{"single label matches its suffix", []string{"com"}, "github.com", true},
+		// A single label matches exactly and never as a suffix: `localhost` and a
+		// container service name are real dotless hosts, but so is `com`, and one
+		// such row would otherwise allow the whole TLD (BUGS L209).
+		{"single label does not grant its TLD", []string{"com"}, "github.com", false},
+		{"single label still matches itself", []string{"localhost"}, "localhost", true},
+		{"single label is not a parent", []string{"localhost"}, "evil.localhost", false},
 	}
 	for _, tc := range tests {
 		got := Host(tc.allowlist, tc.host)

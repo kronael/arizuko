@@ -40,11 +40,20 @@ func NormalizeEntry(entry string) string {
 // case-insensitive, trailing dots stripped, "*.x" equivalent to "x". Entries are
 // assumed validated, so Host carries no special cases for entries that cannot name a
 // host — no magic "*" and no silent IP skip.
+//
+// A single-label entry matches EXACTLY and never as a suffix. `localhost` and a
+// container service name are legitimate dotless hosts, but so is `com`, and the
+// subdomain arm would make that one entry allow every .com host on the internet
+// — an allowlist row that reads as one host and grants the whole TLD. sloth's
+// main/trading held eight of them (BUGS L209).
 func Host(list []string, host string) bool {
 	host = strings.ToLower(strings.TrimSuffix(host, "."))
 	for _, entry := range list {
 		entry = NormalizeEntry(entry)
-		if host == entry || strings.HasSuffix(host, "."+entry) {
+		if host == entry {
+			return true
+		}
+		if strings.Contains(entry, ".") && strings.HasSuffix(host, "."+entry) {
 			return true
 		}
 	}
