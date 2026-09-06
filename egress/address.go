@@ -10,14 +10,14 @@ import (
 // "is this NAME allowed"; this answers "is the ADDRESS behind that name a place
 // the proxy may go", and hands back the exact address the caller must dial.
 //
-// The two questions are separate because the answers can disagree. The proxy
-// used to check the name and then dial the name, so the name that passed and
-// the address that was reached were two independent resolutions — a window to
-// rebind an allowlisted host onto an address inside the deployment. It also
-// checked no address class at all, and the proxy is the one container on the
-// spawn's path that HAS an uplink: the sandbox network is `--internal`, so the
-// agent has nowhere to send a packet, which makes this process the deputy worth
-// confusing. Resolving once and dialling the resolved address closes both.
+// The two questions are separate because the answers can disagree. Checking a
+// name and then dialling that name is two independent resolutions, and the gap
+// between them is a window to rebind an allowlisted host onto an address inside
+// the deployment. The proxy is the one container on the spawn's path that HAS
+// an uplink — the sandbox network is `--internal`, so the agent has nowhere
+// else to send a packet — which makes this process the deputy worth confusing.
+// Resolving once and dialling the resolved address closes the window, and the
+// address class check closes the rest.
 //
 // Nothing here decrypts or inspects anything. This is address hygiene, not
 // interception; MITM stays declined (2026-08-18) and spec 6/25 decision 1 is
