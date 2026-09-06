@@ -63,7 +63,7 @@ combination is the platform thesis arizuko ships toward.
 | [9/](9/)   | platform program — data model, git-as-truth (MCP+REST unification → 5/16·5/17)                                                                                                                        | drafting   |
 | [10/](10/) | self-healing — Aeon mechanism incorporation                                                                                                                                                           | queued     |
 | [11/](11/) | operator tools — branding, usage limits                                                                                                                                                               | queued     |
-| [12/](12/) | _dissolved 2026-07-14 → consolidated into [6/](6/) (`6/8`–`6/12`, `6/16`); self-learning/skill-guard → `5/22`·`5/23`_                                                                                 | dissolved  |
+| [12/](12/) | _dissolved 2026-07-14 → consolidated into [6/](6/) (`6/9`, `6/12`, `6/16`); self-learning/skill-guard → `5/22`·`5/23`_                                                                                | dissolved  |
 | [13/](13/) | standalone + reusable — ant, workflows, self-eval                                                                                                                                                     | planned    |
 | [14/](14/) | future features — pinned, CLI, dynamic channels                                                                                                                                                       | planned    |
 | [15/](15/) | later — committed direction, not scheduled                                                                                                                                                            | planned    |
@@ -73,8 +73,8 @@ combination is the platform thesis arizuko ships toward.
 **A retired spec number is burnt.** Numbering continues past the highest ID its
 phase has ever held; reusing one turns every old pointer to it into a
 confidently wrong pointer rather than a dangling one. `specs/6/1` has been five
-different specs and `specs/7/2` six — that is the cost of not following the
-rule. `tests/specrefs` checks that every link under `specs/` resolves.
+different specs and a phase-7 number six — that is the cost of not following
+the rule. `tests/specrefs` checks that every link under `specs/` resolves.
 
 **Status vocabulary.** `active` is the phase being built, and exactly ONE phase
 holds it — the table said `active` on six phases at once, which expressed no
@@ -91,11 +91,10 @@ operator's re-cut, refined 2026-08-16 to the order the work actually runs in:
 let a part ship alone), **7 = put the parts in the cloud.** Splitting comes
 first because you cannot deploy a part you have not separated.
 
-Applied by moving the six cockpit specs `7/1`·`7/2`·`7/3`·`7/11`·`7/12`·`7/41`
-to `6/28`–`6/33`, and the storage seam to `6/38`: an engine decision settles
-what a part stores, which is a condition of shipping it alone rather than of
-deploying it. The contracts, the strategy and the ship-in-parts map were
-already in phase 6 for the same reason. Destination numbers start at 28
-because every number below it has been used in phase 6 before — reusing one
-turns an old pointer into a confidently wrong one, which is the failure `L43`
-measured.
+The cockpit is `6/28`–`6/33` and the storage seam `6/38`: an engine
+decision settles what a part stores, which is a condition of shipping it
+alone rather than of deploying it. The contracts, the strategy and the
+ship-in-parts map are in phase 6 for the same reason. Destination numbers
+start at 28 because every number below it has been used in phase 6 before —
+reusing one turns an old pointer into a confidently wrong one, which is the
+failure `L43` measured.

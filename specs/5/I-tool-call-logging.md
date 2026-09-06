@@ -20,8 +20,8 @@ sandbox (Bash, Edit, Read, Write, Task, …) produce a torrent of calls per
 turn, and before this spec there was no uniform record: agent-internal
 tool use was invisible to the operator and platform-side reads weren't
 logged at all. No single place answered "what did agent X do in turn Y",
-no replay substrate, no acceptance signal for `8/1`'s "exactly one audit
-row per state transition".
+no replay substrate, no acceptance signal for "exactly one audit row per
+state transition".
 
 ## Two layers, one shape
 
@@ -223,7 +223,7 @@ truth is "runed did not answer".
 - **Replacing slog with audit_log** — both stay; different rate,
   durability, and query shape.
 - **Logging full LLM responses inline** — too large. The per-turn artifact
-  under `~/turns/` ([`9/3`](8-yaml-manifests.md)) carries the verbatim
+  under `~/turns/` ([`5/8`](8-yaml-manifests.md)) carries the verbatim
   output; `audit_log` carries the pointer.
 
 ## Cross-references
