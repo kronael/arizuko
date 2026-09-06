@@ -101,14 +101,18 @@
     </ul>
     <p>Anthropic&rsquo;s <a href="https://code.claude.com/docs/en/legal-and-compliance">legal and compliance page</a> documents provisioning an API key in a shared environment; the same page says developers may not intermediate Claude.ai session tokens. An operator pointing the gateway at their own subscription should read it and decide.</p>
 
-    <h2>What the missing database costs you</h2>
-    <p>litellm keeps virtual keys, per-key budgets and <code>/spend/logs</code> in Postgres. arizuko runs SQLite only and does not add a second engine, so the gateway runs without one. Measured consequences:</p>
+    <h2>Why the package ships a database</h2>
+    <p>litellm keeps virtual keys, budgets and its spend log in Postgres, so the package ships one (<code>litellm_db</code>) beside the proxy. Without it there are no per-turn keys, no budgets and no spend table &mdash; one <code>MODEL_GATEWAY_KEY</code> shared by every spawn, and <code>GET /spend/logs</code> answering 500. arizuko&rsquo;s own stores stay SQLite; this Postgres is the gateway&rsquo;s state, not arizuko&rsquo;s, so it lives in a named volume rather than under the instance data dir.</p>
+
+    <h2>The gateway is the ledger</h2>
+    <p>arizuko stores no spend (spec <a href="https://github.com/kronael/arizuko/blob/main/specs/6/39-gateway-owns-spend.md">6/39</a>). A second ledger can only agree, lag, or lie, so there is one number and litellm holds it.</p>
     <ul>
-      <li>One <code>MODEL_GATEWAY_KEY</code> per instance, shared by every spawn. There is no per-spawn key and no per-folder budget at the gateway; a leaked key is every container&rsquo;s key until you rotate it (edit <code>.env</code>, restart the instance).</li>
-      <li><code>GET /spend/logs</code> returns 500 &ldquo;Database not connected&rdquo;. The gateway keeps no spend table.</li>
-      <li>routd&rsquo;s spend gate still reads <code>cost_log</code>, which the agent reports itself. The gateway&rsquo;s own numbers reach you only as spans.</li>
+      <li><strong>A folder is a team.</strong> The folder path is the litellm <code>team_id</code> verbatim, and its <code>cost_cap_cents_per_day</code> is that team&rsquo;s <code>max_budget</code> on a <code>1d</code> window. The cap is enforced on the request itself: over budget, litellm answers 429 <code>Budget has been exceeded! Team=&hellip;</code> and the call never reaches the model.</li>
+      <li><strong>A person is an internal user.</strong> routd sets <code>user_id</code> on the key it mints, so the caller a turn is charged to is not a field the container can rewrite.</li>
+      <li><strong>A turn is a key.</strong> One virtual key per turn, with the run ceiling as its TTL, deleted when the turn ends.</li>
     </ul>
-    <p>What you do get: the credential leaves the container, and metering happens at a point the agent cannot edit.</p>
+    <p>The pre-spawn gate is a single <code>GET /team/info</code> doing three jobs at once: it creates the team a turn&rsquo;s key needs to exist at all &mdash; a key naming a team litellm does not have fails every model call with 404 &mdash; it moves the team&rsquo;s budget onto whatever cap the operator now holds, and it reads the spend its refusal quotes. Everything the operator sees, on the dashboard or over REST, reads back through the same meter.</p>
+    <p>Spend rows land on a batch timer (<code>proxy_batch_write_at</code>, 1 second here), so a row is readable a moment after the call, not instantly. That is the only lag, and no design removes it: what the decision buys is that nothing in arizuko can disagree with the meter, because nothing in arizuko holds a copy.</p>
 
     <h2>Logs and metering</h2>
     <p>Every compose service runs attached under the instance&rsquo;s systemd unit, and the docker log driver is <code>none</code>, so a container&rsquo;s stdout goes to journald and nowhere else. litellm joins that stream by the same mechanism, with the same <code>arizuko_litellm_&lt;flavor&gt; |</code> prefix every other service carries:</p>
@@ -162,7 +166,7 @@ ANTHROPIC_BASE_URL=http://localhost:4000 ANTHROPIC_AUTH_TOKEN=sk-my-virtual-key 
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/litellm.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-04">2026-09-04</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-05">2026-09-05</time>
       </div>
     </main>
 

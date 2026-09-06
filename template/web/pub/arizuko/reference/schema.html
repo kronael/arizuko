@@ -593,24 +593,22 @@
     </div>
 
     <div class="tablecard">
-      <h3><code>cost_log</code></h3>
-      <p>One row per LLM call (Anthropic plus oracle subcalls); the gateway aggregates daily totals for per-folder and per-user budget enforcement (spec 11/19).</p>
+      <h3><code>cost_log_archive</code></h3>
+      <p>Spend recorded before the model gateway became the ledger. Nothing reads it and nothing writes it: where a gateway is configured it meters every call and arizuko stores no spend at all (spec <a href="https://github.com/kronael/arizuko/blob/main/specs/6/39-gateway-owns-spend.md">6/39</a>). The rows are kept because they are the only copy of that history &mdash; query them with <code>sqlite3</code> when you want it.</p>
       <table>
         <tr><th>column</th><th>type</th><th>default</th><th>meaning</th></tr>
-        <tr><td><code>ts</code></td><td>TEXT NOT NULL</td><td></td><td>RFC3339</td></tr>
-        <tr><td><code>folder</code></td><td>TEXT NOT NULL</td><td>''</td><td>charged folder</td></tr>
+        <tr><td><code>folder</code></td><td>TEXT NOT NULL</td><td></td><td>charged folder (PK with turn_id, model)</td></tr>
+        <tr><td><code>turn_id</code></td><td>TEXT NOT NULL</td><td></td><td>the turn that spent it</td></tr>
+        <tr><td><code>model</code></td><td>TEXT NOT NULL</td><td></td><td>e.g. <code>claude-opus-4-7</code></td></tr>
         <tr><td><code>user_sub</code></td><td>TEXT NOT NULL</td><td>''</td><td>'' = channel-scoped turn</td></tr>
-        <tr><td><code>model</code></td><td>TEXT NOT NULL</td><td></td><td>e.g. <code>claude-opus-4-7</code>, <code>gpt-5</code></td></tr>
-        <tr><td><code>input_tok</code></td><td>INTEGER NOT NULL</td><td>0</td><td>prompt tokens</td></tr>
-        <tr><td><code>cache_read</code></td><td>INTEGER NOT NULL</td><td>0</td><td>cheaper cached input tokens</td></tr>
-        <tr><td><code>cache_write</code></td><td>INTEGER NOT NULL</td><td>0</td><td>cache-creation tokens</td></tr>
-        <tr><td><code>output_tok</code></td><td>INTEGER NOT NULL</td><td>0</td><td>completion tokens</td></tr>
-        <tr><td><code>cents</code></td><td>INTEGER NOT NULL</td><td>0</td><td>precomputed cost</td></tr>
+        <tr><td><code>input_tokens</code></td><td>INTEGER NOT NULL</td><td>0</td><td>prompt tokens</td></tr>
+        <tr><td><code>output_tokens</code></td><td>INTEGER NOT NULL</td><td>0</td><td>completion tokens</td></tr>
+        <tr><td><code>cost_cents</code></td><td>INTEGER NOT NULL</td><td>0</td><td>cost in whole cents</td></tr>
+        <tr><td><code>recorded_at</code></td><td>TEXT NOT NULL</td><td></td><td>fixed-width UTC timestamp</td></tr>
       </table>
-      <p class="meta"><strong>Indexes:</strong> <code>idx_cost_log_folder_ts</code> on <code>(folder, ts)</code>; <code>idx_cost_log_user_ts</code> on <code>(user_sub, ts)</code>.</p>
-      <p class="meta"><strong>Writers:</strong> gateway (per call).</p>
-      <p class="meta"><strong>Readers:</strong> gateway (daily aggregation for caps), dashd.</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0049-cost-log.sql">0049</a>.</p>
+      <p class="meta"><strong>Writers:</strong> none.</p>
+      <p class="meta"><strong>Readers:</strong> none.</p>
+      <p class="meta"><strong>Migrations:</strong> renamed by <a href="https://github.com/kronael/arizuko/blob/main/routd/migrations/0046-cost-log-archive.sql">routd 0046</a>.</p>
     </div>
 
     <div class="tablecard">
@@ -708,7 +706,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/schema.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-05">2026-09-05</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-06">2026-09-06</time>
       </div>
     </main>
 

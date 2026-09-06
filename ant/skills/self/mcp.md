@@ -123,7 +123,6 @@ redirects/auth on top.
 | `add_acl`          | Grant a principal access to a folder `scope` (acl row; `scope='**'` grants operator role). Write-face of REST `POST /v1/acl`. You may grant only rows you hold WITH GRANT OPTION. |
 | `remove_acl`       | Revoke a principal's access to a `scope`. Write-face of REST `DELETE /v1/acl`. Only within your granted scope. |
 | `reset_session`    | Clear this group's session and start fresh                                  |
-| `log_external_cost`| Record a non-Anthropic LLM call against the folder's daily budget (e.g. after `/oracle`). Pass provider, model, token counts, cost_usd. |
 
 ## History tools — which to use
 

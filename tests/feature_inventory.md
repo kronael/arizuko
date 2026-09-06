@@ -233,17 +233,17 @@ Tools dispatched over the real MCP unix socket. Generic socket path covered by
 
 ## 13. Observability
 
-| Feature                                     | exists | tested                                                                                                                                                 | ref               |
-| ------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------- |
-| routd /health                               | yes    | yes — `TestFeature_HealthEndpoints/routd-health`                                                                                                       | `routd/server.go` |
-| runed /health                               | yes    | yes — `TestFeature_HealthEndpoints/runed-health`                                                                                                       | `runed/server.go` |
-| authd / dashd / timed / webd / davd /health | yes    | partial — own `*_test.go` (package main) + smoke                                                                                                       | each daemon       |
-| Live multi-daemon /health (smoke)           | yes    | yes — `TestSmoke_DaemonHealth` (`-tags smoke`)                                                                                                         | Makefile smoke    |
-| Audit log table + emission                  | yes    | partial — `audit/audit_test.go`, `audit/log_test.go`                                                                                                   | specs/5/I         |
-| /metrics (Prometheus)                       | yes    | partial — obs pkg                                                                                                                                      | runed/README.md   |
-| OTLP export                                 | yes    | partial — obs pkg                                                                                                                                      | specs/5/O         |
-| Cost logging                                | yes    | yes — `tests/e2e_turn_test.go::TestE2ETurn_CostAccounting` (submit_turn → cost_log → `/v1/cost`, `/v1/cost/summary`), `dashd/usage_page_routd_test.go` | ARCHITECTURE.md   |
-| Turn context / results                      | yes    | partial — `split_federation_test.go` (PutTurnContext)                                                                                                  | ARCHITECTURE.md   |
+| Feature                                     | exists | tested                                                                                                                                                                        | ref               |
+| ------------------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| routd /health                               | yes    | yes — `TestFeature_HealthEndpoints/routd-health`                                                                                                                              | `routd/server.go` |
+| runed /health                               | yes    | yes — `TestFeature_HealthEndpoints/runed-health`                                                                                                                              | `runed/server.go` |
+| authd / dashd / timed / webd / davd /health | yes    | partial — own `*_test.go` (package main) + smoke                                                                                                                              | each daemon       |
+| Live multi-daemon /health (smoke)           | yes    | yes — `TestSmoke_DaemonHealth` (`-tags smoke`)                                                                                                                                | Makefile smoke    |
+| Audit log table + emission                  | yes    | partial — `audit/audit_test.go`, `audit/log_test.go`                                                                                                                          | specs/5/I         |
+| /metrics (Prometheus)                       | yes    | partial — obs pkg                                                                                                                                                             | runed/README.md   |
+| OTLP export                                 | yes    | partial — obs pkg                                                                                                                                                             | specs/5/O         |
+| Cost metering                               | yes    | yes — `tests/e2e_turn_test.go::TestE2ETurn_CostAccounting` (turn → gateway meter → `/v1/cost`, `/v1/cost/summary`), `routd/gateway_test.go`, `dashd/usage_page_routd_test.go` | ARCHITECTURE.md   |
+| Turn context / results                      | yes    | partial — `split_federation_test.go` (PutTurnContext)                                                                                                                         | ARCHITECTURE.md   |
 
 ## 14. Integration plumbing
 

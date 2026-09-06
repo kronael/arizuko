@@ -453,7 +453,7 @@ each daemon re-sequences its own `migrations/` from `0001`.
   `messages_fts`, `groups`, `routes`, `route_tokens`, `sessions`,
   `system_messages`, `scheduled_tasks`, `task_run_logs`, `channels`,
   `acl`, `acl_membership`, `chat_reply_state`, `secrets`,
-  `secret_use_log`, `turn_context`, `turn_results`, `cost_log`,
+  `secret_use_log`, `turn_context`, `turn_results`, `cost_log_archive`,
   `network_rules`, `web_routes`, `group_watchers`,
   `pane_sessions`, `installed_packages`.
 - **`runed.db`** (`runed/migrations/`): `spawns`, `session_log`,
@@ -481,9 +481,9 @@ each daemon re-sequences its own `migrations/` from `0001`.
 | `chat_reply_state`   | jid + topic (PK), last_reply_id, engaged_until, engaged_folder (routd.db)                                                                                                                                                                                                                                                                                            |
 | `secrets`            | scope_kind + scope_id + key (PK), value (AES-256-GCM encrypted), created_at (routd.db, migration 0008)                                                                                                                                                                                                                                                               |
 | `secret_use_log`     | ts, spawn_id, caller_sub, folder, tool, key, scope, status, latency_ms (routd.db, migration 0008)                                                                                                                                                                                                                                                                    |
-| `turn_context`       | turn_id (PK), folder, topic, chat_jid, trigger_sender, started_at, run_id, state (routd.db)                                                                                                                                                                                                                                                                          |
+| `turn_context`       | turn_id (PK), folder, topic, chat_jid, trigger_sender, started_at, run_id, state, gateway_key_hash — sha256 of the key the model gateway metered this turn with, the handle `GET /v1/cost` resolves (routd.db)                                                                                                                                                       |
 | `turn_results`       | folder + turn_id (PK), session_id, status, recorded_at (routd.db)                                                                                                                                                                                                                                                                                                    |
-| `cost_log`           | folder + turn_id + model (PK), input_tokens, output_tokens, cost_cents, recorded_at (routd.db)                                                                                                                                                                                                                                                                       |
+| `cost_log_archive`   | folder + turn_id + model (PK), input_tokens, output_tokens, cost_cents, recorded_at — spend recorded before the model gateway became the ledger. Nothing reads or writes it; an operator queries it directly for the history (spec 6/39; routd.db)                                                                                                                   |
 | `network_rules`      | folder + target (PK), created_at, created_by — the per-folder egress allowlist (routd.db, migration 0005)                                                                                                                                                                                                                                                            |
 | `web_routes`         | path_prefix (PK), access, redirect_to, folder (FK → groups), created_at (routd.db)                                                                                                                                                                                                                                                                                   |
 | `group_watchers`     | observer + source (PK) (routd.db)                                                                                                                                                                                                                                                                                                                                    |
@@ -611,12 +611,24 @@ container: `template/services/litellm.yml` reads `ANTHROPIC_API_KEY` (or
 `CLAUDE_CODE_OAUTH_TOKEN`) straight from the instance `.env`, and the agent
 container receives `MODEL_GATEWAY_URL` + `MODEL_GATEWAY_KEY` instead — a
 virtual key litellm checks, worth nothing anywhere else. One key per TURN:
-routd mints it with the folder's remaining daily budget and the run ceiling
-as its TTL, hands it to runed with the run, reads back what the gateway
-charged it, and deletes it. That reading IS the `cost_log` row, so the
-budget gate enforces against a number the spender could not choose. The
-package ships the Postgres litellm needs for keys and `/spend/logs`
-(`litellm_db`); arizuko's own stores stay SQLite.
+routd mints it with the run ceiling as its TTL, carrying the folder as its
+team and the caller as its user, hands it to runed with the run, and deletes
+it after.
+
+**The gateway is the ledger** ([`6/39`](specs/6/39-gateway-owns-spend.md)) —
+arizuko stores no spend. A folder's `cost_cap_cents_per_day` becomes its
+team's `max_budget` with `budget_duration: "1d"`, and a person's becomes
+their internal user's, so the cap is enforced by the thing that meters it and
+the refusal happens on the request. The pre-spawn gate is one
+`GET /team/info` doing three jobs: it creates the team a turn's key needs to
+exist at all, converges its budget on the cap the operator set, and reads the
+spend the refusal quotes. Every operator surface reads back through routd's
+`/v1/cost/summary`. The package ships the Postgres litellm needs for keys and
+spend (`litellm_db`); arizuko's own stores stay SQLite.
+
+With no gateway there is no meter: the dashboard says so rather than showing
+a number the agent chose, and a cap set on such an instance is enforced by
+nothing, which the gate says in the log.
 
 Session: new session ID updates routd's `sessions` table. Error with no
 output → evict session (cursor rolled back, retry). Error with output →

@@ -255,11 +255,14 @@ API key is unset, from the same `.env`. Which one you put there matters:
   your extra usage, not your plan limits") and needs extra-usage credits or
   an API key. arizuko sends no forged client identity to change that.
 
-With the gateway configured, `cost_log` is written from what litellm charged
-each turn's key rather than from what the agent reports, so `arizuko budget`
-caps bind on a number the agent cannot choose. A turn whose spend the gateway
-will not report is refused silently by nothing: routd logs it at ERROR and the
-chat gets a notice saying limits are not counting that turn.
+With the gateway configured, litellm is the ledger and arizuko stores no
+spend (`specs/6/39-gateway-owns-spend.md`). An `arizuko budget` cap becomes the
+folder's team budget at the gateway, so it binds on the request itself, on a
+number the agent cannot choose, and the dashboard reads the same figure back.
+
+Without a gateway there is no meter. `/dash/usage/` says so instead of showing
+a total, and a cap set on such an instance is enforced by nothing — routd logs
+that at ERROR every time the gate runs. A cap needs a gateway.
 
 The gateway's JSON log lines land in `journalctl -u arizuko_<name>` with every
 other daemon, and its per-request token and cost spans go to the OTLP collector

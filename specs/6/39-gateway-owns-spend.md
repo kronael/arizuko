@@ -1,5 +1,5 @@
 ---
-status: draft
+status: shipped
 depends: [23-llm-gateway, 37-store-model, ../5/16-mcp-rest-unification]
 ---
 
@@ -94,19 +94,14 @@ flush and no more. A cap is checked by the gateway on the request itself, which
 is exactly when it matters. Nothing in arizuko can disagree with the meter,
 because nothing in arizuko holds a copy.
 
-## What goes
+## What arizuko does not hold
 
-- `cost_log`'s writers and readers — `PutCost`, `CostByTurn`, `CostSummary`
-  over the table, `LogExternalCost`, the `log_external_cost` MCP tool, and
-  `POST /v1/cost`. A call the agent makes outside the gateway is a bypassed
-  gateway, and the spec's answer to that is a log line, not a row.
-- `routd/db.go` `SpendTodayFolder` and `SpendTodayUser`.
-- `routd/budget.go`'s spend arithmetic. The pre-spawn gate stays as a shape
-  but asks the gateway, and its refusal quotes the gateway's numbers.
-- `routd/gateway.go` `spend()`, `waitForSpend()` and the poll that follows a
-  run — routd stops reading spend to write it down. The per-turn key stops
-  carrying a `max_budget`, because the team is what enforces the folder's cap.
-- `dashd/usage_page.go`'s cost queries, which become a proxied read.
+No spend table, and no arithmetic over one. `cost_log`'s writers and readers,
+`SpendTodayFolder`, `SpendTodayUser`, `LogExternalCost`, the
+`log_external_cost` MCP tool and `POST /v1/cost` are gone, and the per-turn key
+carries no `max_budget` of its own because the team is what enforces the
+folder's cap. A call the agent makes outside the gateway is a bypassed gateway,
+and the answer to that is a log line, not a row.
 
 ## What arizuko keeps, and why
 
@@ -130,13 +125,17 @@ because nothing in arizuko holds a copy.
 instances, back to 2026-05-14, from months the gateway did not meter. LiteLLM's
 own Postgres has none of it, so a drop destroys the only copy.
 
-Step 4 therefore **renames** the table to `cost_log_archive` rather than
-dropping it. The rows survive byte for byte with no export to misplace, and the
-rename is what makes the cutover safe rather than merely careful: any writer left
-behind fails loud on a missing table instead of quietly starting a second ledger
-again. Nothing reads the archive and nothing writes it; an operator reads it with
-`sqlite3` when they want the history, and the dashboard does not show it, because
-a second number on the operator's screen is the thing this spec removes.
+Migration `routd/0046` therefore **renames** the table to `cost_log_archive`
+rather than dropping it. The rows survive byte for byte with no export to
+misplace, and the rename is what makes the cutover safe rather than merely
+careful: any writer left behind fails loud on a missing table instead of quietly
+starting a second ledger again. Nothing reads the archive and nothing writes it;
+an operator reads it with `sqlite3` when they want the history, and the dashboard
+does not show it, because a second number on the operator's screen is the thing
+this spec removes.
+
+`migrate-split` lands a pre-split instance's legacy spend there for the same
+reason: it is history from before a gateway metered anything.
 
 ## The instance with no gateway
 
@@ -147,16 +146,21 @@ the gate says so in the log rather than pretending — that is the honest readin
 of a harness the operator did not put a meter in front of, and it is the reason a
 cap needs a gateway.
 
-## Order
+## Where it lives
 
-1. The mapping: the folder is the team, the mint sends `team_id` and `user_id`.
-2. The pre-spawn gate reconciles the team and asks the gateway, and surfaces the
-   gateway's refusal to the channel.
-3. The operator surfaces read the gateway.
-4. `cost_log` and its arithmetic go, and the table becomes `cost_log_archive`.
-
-Steps 1 to 3 are additive and revert with `git revert`. Step 4 is the one that
-moves stored rows, and the rename is what keeps it reversible.
+- `routd/gateway.go` — the one client for the admin surface: `mint` (team +
+  user on the key), `teamBudget`/`createTeam`/`updateTeam`, the user twins,
+  `keySpend` (one turn) and `spendByFolder` (the operator window).
+- `routd/budget.go` — the gate: `folderMeter` reconciles and reads, `userMeter`
+  does the person axis, and a gateway that will not answer returns an error the
+  dispatcher turns into `queue.ErrDependencyDown`.
+- `routd/dispatch.go` — the gate runs before the mint, and the minted key's
+  hash is recorded on the turn.
+- `routd/reads_http.go` — `GET /v1/cost` resolves the turn to its key and asks;
+  `GET /v1/cost/summary` is the one read every operator surface goes through.
+- `routd/migrations/0045` (the turn's key hash), `0046` (the archive rename).
+- `dashd/usage_page.go` — the usage page, and `meteredCell` for the instance
+  that has no meter.
 
 ## Ties
 

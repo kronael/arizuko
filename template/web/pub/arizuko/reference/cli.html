@@ -390,7 +390,7 @@ arizuko gate krons add 'corp/eng/**' 1000</code></pre>
     <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L461"><code>cmd/arizuko/main.go:461</code></a></p>
 
     <h2 id="budget" class="group-h2">Budget (cost caps)</h2>
-    <p>Per-folder and per-user daily spend caps in cents. The pre-spawn gate in <code>gateway/</code> refuses to spawn when today's spend exceeds the lower of (folder cap, user cap). Caps live on <code>groups.cost_cap_cents_per_day</code> and <code>auth_users.cost_cap_cents_per_day</code>; spend is summed from <code>cost_log</code>. Spec <a href="https://github.com/kronael/arizuko/blob/main/specs/11/19-cost-caps.md">11/19</a>. Dispatcher at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/budget.go#L18"><code>budget.go:18</code></a>.</p>
+    <p>Per-folder and per-user daily spend caps in cents, stored on <code>groups.cost_cap_cents_per_day</code> and <code>user_profiles.cost_cap_cents_per_day</code>. The cap is arizuko&rsquo;s policy; the model gateway enforces it. routd&rsquo;s pre-spawn gate pushes each cap to the gateway as a one-day budget and refuses the turn when the gateway&rsquo;s meter is at it. <code>budget show</code> prints the cap, not the spend &mdash; the spend belongs to the gateway, and reading it needs a master key this CLI does not hold; see <code>/dash/usage/</code>. Without a gateway nothing enforces a cap, which routd logs at ERROR. Spec <a href="https://github.com/kronael/arizuko/blob/main/specs/6/39-gateway-owns-spend.md">6/39</a>. Dispatcher at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/budget.go#L18"><code>budget.go:18</code></a>.</p>
 
     <h3 id="budget-set"><span class="sig">arizuko budget &lt;instance&gt; set &lt;folder|user&gt; &lt;name|sub&gt; --daily N</span></h3>
     <p>Set a daily cap (in cents) on a folder or user. <code>--daily 0</code> removes the cap (uncapped). Negative values are rejected.</p>
@@ -532,7 +532,7 @@ arizuko secret krons set main CF_API_TOKEN --value cf_xxxxxxxx</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/cli.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-17">2026-08-17</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-18">2026-08-18</time>
       </div>
     </main>
 

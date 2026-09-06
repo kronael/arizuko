@@ -158,7 +158,7 @@ Full package graph, message flow, container lifecycle, and SQLite schema in [ARC
 | linkd   | LinkedIn           |
 | gitd    | GitHub (webhooks)  |
 
-Optional capability hooks: Whisper transcription (`WHISPER_BASE_URL`), TTS (`ttsd` + `TTS_BASE_URL`), second LLM (`OPENAI_API_KEY`/`CODEX_API_KEY` in the host `.env` or a user's own `/dash/me/env` row — these are model keys, so the store rejects them at folder scope), model gateway (`litellm` package + `MODEL_GATEWAY_URL`/`MODEL_GATEWAY_KEY` — the gateway holds the model credential, each turn gets its own budgeted virtual key, and `cost_log` is written from what the gateway charged it; `specs/6/23-llm-gateway.md`).
+Optional capability hooks: Whisper transcription (`WHISPER_BASE_URL`), TTS (`ttsd` + `TTS_BASE_URL`), second LLM (`OPENAI_API_KEY`/`CODEX_API_KEY` in the host `.env` or a user's own `/dash/me/env` row — these are model keys, so the store rejects them at folder scope), model gateway (`litellm` package + `MODEL_GATEWAY_URL`/`MODEL_GATEWAY_KEY` — the gateway holds the model credential, each turn gets its own virtual key charged to its folder and caller, and the gateway is the only ledger of what was spent; `specs/6/23-llm-gateway.md`, `specs/6/39-gateway-owns-spend.md`).
 
 Full daemon and library tables in [ARCHITECTURE.md](ARCHITECTURE.md).
 

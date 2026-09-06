@@ -117,8 +117,6 @@ the hot-tier tools above, not these bodies.
 
 Slack pane controls: `pane_set_prompts`, `pane_set_title`.
 
-Cost tracking: `log_external_cost`.
-
 MCP HTTP connectors: each turn discovers the upstream catalog with that
 folder's broker-resolved credential and registers the tools (spec 5/13).
 
