@@ -89,8 +89,7 @@ in its gate column.
 **What a consumer would have to build.** A host that wanted mcpfw in front
 of an MCP server would derive the flat allowed-tool list for one caller,
 write it as the ruleset JSON, run `mcpfw serve` against the upstream, and
-point the caller's MCP client at the firewall's address instead of the
-upstream's. Nothing in the shipped binary reads a ruleset from anywhere but
+point the caller's MCP client at the firewall's address, not the upstream's. Nothing in the shipped binary reads a ruleset from anywhere but
 that file at startup, so a host that needs per-caller rules runs one
 process per ruleset. An in-process host skips the binary and calls
 `firewall.Firewall.Handle` directly.
