@@ -10813,3 +10813,125 @@ nowhere to land and no record that the number is burnt.
   (`` `N/M` ``) as well as links, which is what would have caught this the day
   `6/7` was retired; (c) decide whether a retired-number table comes back, and
   if so make (b) resolve against it
+
+## L211 — `6/23` is marked shipped and names two faults it closes; the container half shipped, the other two did not (2026-09-06, open)
+
+VERIFIED independently after an audit raised it.
+
+**Fault 1, the per-spawn key, did not ship.** The spec's mechanism is a virtual
+key minted per spawn with a budget and a TTL, so revocation is scoped to one
+turn. `template/services/litellm.yaml:9` declares `MODEL_GATEWAY_KEY:
+generate: true` — minted ONCE per instance, into `.env` — and
+`container/runner.go:691` passes that same static `cfg.ModelGatewayKey` to
+every spawn forever. No mint, no TTL, no per-key budget exists anywhere. The
+container no longer holds the operator's Anthropic credential, which is real
+and is `spawnSecrets` (`container/runner.go:765`) working as designed. What it
+holds instead is one shared non-expiring master key to the gateway.
+
+**Fault 2, gateway-authoritative cost, did not ship.** `routd/turns.go:224`
+still calls `PutCost(...)` in a loop over `req.Models` — the agent's own
+`submit_turn` field. Nothing reads LiteLLM's `/spend/logs`. Cost attribution
+is exactly as self-reported as before.
+
+**The spec still argues for the wrong vendor.** §"Adopt Bifrost"
+(`specs/6/23-llm-gateway.md:78`) calls LiteLLM "Python + Postgres — heavy" and
+disqualifying. `grep -ri bifrost` over the code and compose returns nothing;
+`template/services/litellm.yml` is what ships. The reversal was correct and
+measured — LiteLLM injects the OAuth credential and Bifrost cannot — but the
+spec never recorded it, so the document argues against what runs.
+
+- **Severity:** medium — one shared gateway key is better than one shared
+  Anthropic key, but it is not what the spec promises, and spend is still
+  attacker-declared
+- **Scope:** `container/runner.go`, `routd/turns.go`, `specs/6/23`
+- **Fix:** either build the two halves, or change `6/23` to state what shipped
+  and record the vendor decision. `L49` stays open either way.
+
+## L212 — `mcpfw` is complete, tested, and wired to nothing (2026-09-06, open)
+
+MEASURED. `grep -rl mcpfw --include=*.go` returns five files and every one is
+under `mcpfw/`. No daemon imports it, none pushes a ruleset, and no agent's
+third-party MCP traffic passes through it. The unmet need `6/12` was written to
+close — third-party MCP tool calls reaching an agent ungated — is fully open.
+
+The engine itself is real: deny-wins and default-deny in
+`mcpfw/pkg/rule/rule.go`, and `mcpfw/pkg/firewall/firewall.go` refuses before
+touching upstream, both tested. What is missing is everything that would let
+something use it: `mcpfw/cmd/mcpfw/main.go` registers `serve` only — no
+`check` subcommand — and the mux serves `POST /` alone, so the spec's
+`PUT/GET /v1/rules`, `GET /v1/log`, `GET /health`, `pkg/client`, the unix and
+stdio transports and the multi-upstream fan-in do not exist.
+
+- **Severity:** medium — no false guarantee in code, but `6/12` reads as a
+  shipped control and gates zero traffic
+- **Scope:** `mcpfw/`, `specs/6/12`
+- **Fix:** either wire routd's connector path through it, or mark `6/12` as a
+  library that ships alone with no arizuko consumer yet — `6/16`'s own category
+
+## L213 — two connectors may share a name and both register, with no error and no log (2026-09-06, open)
+
+MEASURED at `routd/ext.go:114`. `LoadExtProviders` reads the embedded
+`extproviders/` set, appends the operator's `connectors.toml`, and emits one
+`ipc.ExtTool` per tool with `LocalName = p.Name + "_" + t.Name`. There is no
+name check between the two sources and none within either.
+
+So an operator who names a connector after a built-in gets two tools with an
+identical `LocalName` handed to the agent. Which one a call reaches is
+whichever the consumer's map or slice order lands on.
+
+`6/19` names the opposite behaviour as load-bearing and credits it to Centaur:
+"sources are ordered … later shadows earlier BY NAME, every shadow logged
+loud." Neither half exists — no shadowing, no log line. `routd/ext_test.go`
+has no duplicate-name case.
+
+- **Severity:** medium — an operator can silently displace or duplicate a
+  built-in tool, and the failure is undefined rather than loud
+- **Scope:** `routd/ext.go`, `specs/6/19`
+- **Fix:** index by `LocalName` while loading; a later source replaces an
+  earlier one and logs the shadow at WARN; a duplicate within one source is an
+  error, since no order can justify it
+
+## L214 — `6/26` reads as a shipped approval gate while its primary verdict is a known no-op (2026-09-06, open — docs)
+
+VERIFIED. `specs/6/26-personal-mode.md` carries `status: shipped` and its
+Decisions 4 and 5 say "Acceptance: Shipped 2026-08-24/29/30". Its headline
+scenario is answering each risky call yes / no / always.
+
+`L97` says the plain yes is a no-op: the re-issue trigger's timestamp sorts
+behind the dispatch cursor that skips it, so the held call is never re-issued.
+That entry is still `proposal — needs sign-off`, and the cause is unchanged
+today — `routd/db.go:110` is `func nowTS() string { return
+time.Now().UTC().Format(time.RFC3339Nano) }`, and RFC3339Nano is not
+fixed-width, so a whole-second stamp sorts ahead of a fractional one.
+
+`always` is unaffected: it skips the approval path rather than re-issuing
+through it. So the one verdict a personal-mode user reaches for most is the
+one that does nothing.
+
+The spec does name the bound, but as a closing footnote rather than in the
+status line or either decision body. A reader who stops at "Acceptance:
+Shipped" believes the loop works end to end.
+
+- **Severity:** medium (docs) — `L97` carries the runtime severity
+- **Scope:** `specs/6/26`
+- **Fix:** `status: defected` with `defects: [L97]`, and the bound stated in
+  Decision 4 rather than at the end — the convention `defected_spec_status`
+  already exists for exactly this
+
+## L215 — two `6/25` citations name the wrong file and a stale line count (2026-09-06, open — docs)
+
+MEASURED. `specs/6/25-qm-adoptions.md` says `UUID_RE` is extracted from
+`ant/src/index.ts`; it lives in `ant/src/claude.ts`, which is what the test
+itself reads — only the prose is wrong. The same spec cites qm's
+`mock-harness.ts` at 802 lines; qm's `main` is 840 today, drift since the
+2026-08-20 read.
+
+Every mechanism the spec claims is real: `egress/address.go` resolve-then-dial
+with the IMDSv2 IPv6 case, `match.Allowed` checking deny before allow,
+`substrate.Effective` with `runed/dash.go`'s `substrateLine`, and all three
+contract tests.
+
+- **Severity:** low — no deploy impact; a reader following the citation lands
+  on the wrong file
+- **Scope:** `specs/6/25`
+- **Fix:** correct the filename; date the qm line count or drop it
