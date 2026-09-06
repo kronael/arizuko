@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"embed"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/kronael/arizuko/db_utils"
@@ -28,6 +29,10 @@ var ErrNotFound = errors.New("not found")
 // session_log). Times are RFC3339 TEXT.
 type DB struct {
 	db *sql.DB
+
+	// release closes the pool and drops the database OpenMem reserved. A DB
+	// opened against a file leaves the file alone, and Close closes the pool.
+	release func() error
 }
 
 // Open attaches to an EXISTING runed.db at dir/runed.db (WAL, FK on) and runs
@@ -51,10 +56,25 @@ func Create(dir string) (*DB, error) {
 	return open(db_utils.FileDSN(path))
 }
 
-// OpenMem opens a fresh isolated in-memory runed.db for tests. The DB name
-// is unique per call so tests don't share state via the shared cache.
+// OpenMem opens a fresh, private, empty runed.db for one test and migrates it.
+// db_utils.NewTestDB owns the engine and the DSN, so ARIZUKO_TEST_PG_DSN moves
+// this and every other test database together (spec 6/37 step 6). Close releases
+// the database.
 func OpenMem() (*DB, error) {
-	return open("file:runed_mem_" + randHex(8) + "?mode=memory&cache=shared&_pragma=foreign_keys(on)")
+	dsn, release, err := db_utils.NewTestDB("runed")
+	if err != nil {
+		return nil, err
+	}
+	d, err := open(dsn)
+	if err != nil {
+		// the caller gets no handle, so the failed open releases the database
+		if rerr := release(); rerr != nil {
+			return nil, fmt.Errorf("%w (and releasing the database: %v)", err, rerr)
+		}
+		return nil, err
+	}
+	d.release = release
+	return d, nil
 }
 
 func open(dsn string) (*DB, error) {
@@ -69,7 +89,12 @@ func open(dsn string) (*DB, error) {
 	return &DB{db: sqldb}, nil
 }
 
-func (d *DB) Close() error { return d.db.Close() }
+func (d *DB) Close() error {
+	if d.release != nil {
+		return d.release()
+	}
+	return d.db.Close()
+}
 
 // SQL returns the raw handle for callers that need it (tests).
 func (d *DB) SQL() *sql.DB { return d.db }

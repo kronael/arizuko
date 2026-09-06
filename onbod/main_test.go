@@ -19,8 +19,8 @@ import (
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/db_utils/dbtest"
 	"github.com/kronael/arizuko/store"
-	_ "modernc.org/sqlite"
 )
 
 func TestMain(m *testing.M) {
@@ -29,18 +29,11 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// migratedDB opens an in-memory SQLite DB and runs the canonical
-// store migrations. Use for tests that exercise the full schema.
+// migratedDB opens an empty database and runs the canonical store
+// migrations. Use for tests that exercise the full schema.
 func migratedDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
-	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
-		t.Fatal(err)
-	}
+	db := dbtest.Open(t)
 	if err := store.Migrate(db); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
@@ -49,15 +42,8 @@ func migratedDB(t *testing.T) *sql.DB {
 
 func testDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	// A second pooled connection to ":memory:" is a DIFFERENT, empty database,
-	// so anything doing two queries on this handle sees no fixtures. Pin to one.
-	db.SetMaxOpenConns(1)
-	t.Cleanup(func() { db.Close() })
-	_, err = db.Exec(`
+	db := dbtest.Open(t)
+	_, err := db.Exec(`
 		CREATE TABLE routes (id INTEGER PRIMARY KEY AUTOINCREMENT, seq INTEGER, match TEXT, target TEXT, observe_window_messages INTEGER, observe_window_chars INTEGER, added_by TEXT, added_via TEXT);
 		CREATE TABLE groups (folder TEXT PRIMARY KEY, parent TEXT, name TEXT, added_at TEXT, slink_token TEXT, product TEXT);
 		CREATE TABLE onboarding (jid TEXT PRIMARY KEY, status TEXT, prompted_at TEXT, created TEXT, user_sub TEXT, gate TEXT, queued_at TEXT, admitted_at TEXT);

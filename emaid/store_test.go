@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	_ "modernc.org/sqlite"
+	"github.com/kronael/arizuko/db_utils"
 )
 
 func newTestDB(t *testing.T) *sql.DB {
@@ -49,7 +49,7 @@ func TestOpenDBFreshMigrates(t *testing.T) {
 // file, keep its rows, and record migration version 1.
 func TestOpenDBAdoptsPreMigrationFile(t *testing.T) {
 	dir := t.TempDir()
-	old, err := sql.Open("sqlite", filepath.Join(dir, "emaid.db"))
+	old, err := db_utils.Open(db_utils.FileDSN(filepath.Join(dir, "emaid.db")))
 	if err != nil {
 		t.Fatal(err)
 	}

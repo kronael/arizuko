@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kronael/arizuko/db_utils/dbtest"
 	"gopkg.in/yaml.v3"
-	_ "modernc.org/sqlite"
 )
 
 // TestRow is the synthetic schema. Composite PK on (kind, name); scope
@@ -52,11 +52,7 @@ CREATE TABLE testrows (
 func freshEngine(t *testing.T) (*sql.DB, *Resource) {
 	t.Helper()
 	reset()
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatalf("sqlite open: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
+	db := dbtest.Open(t)
 	if _, err := db.Exec(testSchema); err != nil {
 		t.Fatalf("schema: %v", err)
 	}
@@ -155,11 +151,7 @@ func TestDeleteScope_CompositePK(t *testing.T) {
 // manifest-visible read AND write.
 func TestRowFilter_ExcludesFromScanDeleteAndChecksum(t *testing.T) {
 	reset()
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
+	db := dbtest.Open(t)
 	if _, err := db.Exec(testSchema); err != nil {
 		t.Fatal(err)
 	}
@@ -585,11 +577,7 @@ func TestApply_Force(t *testing.T) {
 func TestApply_UnknownSubsystem(t *testing.T) {
 	freshEngine(t)
 	reset()
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
+	db := dbtest.Open(t)
 	if _, err := db.Exec(testSchema); err != nil {
 		t.Fatal(err)
 	}
@@ -601,7 +589,7 @@ func TestApply_UnknownSubsystem(t *testing.T) {
 		PKFields: []string{"Kind", "Name"},
 		Scope:    ScopeSpec{Field: "Kind"},
 	})
-	_, err = Apply(context.Background(), db, testSubsystem, "", true, map[string]any{
+	_, err := Apply(context.Background(), db, testSubsystem, "", true, map[string]any{
 		"testrows": []TestRow{{Kind: "a", Name: "x", Value: "1"}},
 	}, nil)
 	if err == nil {
@@ -788,11 +776,7 @@ func TestRetarget_RefusesUnscopedResource(t *testing.T) {
 // TestHooks_BeforeInsert exercises the write-side hook chain.
 func TestHooks_BeforeInsert(t *testing.T) {
 	reset()
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
+	db := dbtest.Open(t)
 	if _, err := db.Exec(testSchema); err != nil {
 		t.Fatal(err)
 	}
@@ -826,11 +810,7 @@ func TestHooks_BeforeInsert(t *testing.T) {
 // nil-coalescing empty strings to NULL for nullable columns).
 func TestColumnOverride_Write(t *testing.T) {
 	reset()
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
+	db := dbtest.Open(t)
 	if _, err := db.Exec(`
 		CREATE TABLE nullable (
 		  name  TEXT PRIMARY KEY,

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync/atomic"
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/db_utils"
@@ -35,6 +34,10 @@ type Store struct {
 	// made. Set via AsUser (REST) or AsCLI (CLI).
 	auditSub     string
 	auditSurface string
+
+	// release closes the pool and drops the database OpenMem reserved. A store
+	// opened against a file leaves the file alone, and Close closes the pool.
+	release func() error
 }
 
 // AsUser returns a shallow copy of s whose audited writers attribute their
@@ -148,35 +151,29 @@ func openOwned(path, file, table, owner string) (*Store, error) {
 	return &Store{db: db}, nil
 }
 
-// memDBSeq names each OpenMem's in-memory DB uniquely so two stores in the
-// same process never share rows/schema. A bare `file::memory:?cache=shared`
-// DSN is process-wide: every OpenMem in a test binary mapped onto ONE shared
-// DB, leaking rows across tests -> order-dependent failures (commit 5671e695).
-var memDBSeq atomic.Int64
-
+// OpenMem opens a fresh, private, empty store for one test and migrates it.
+// db_utils.OpenTestDB owns the engine and the DSN, so ARIZUKO_TEST_PG_DSN moves
+// this and every other test database together (spec 6/37 step 6). Close releases
+// the database.
 func OpenMem() (*Store, error) {
-	// `:memory:` SQLite is per-connection; database/sql can pool a second connection
-	// that sees an empty DB. A NAMED memdb with `cache=shared` is shared across this
-	// pool's connections yet private to this DSN. SQLite drops a shared-cache memdb
-	// when its last connection closes, so pin one idle connection for the pool's life.
-	dsn := fmt.Sprintf(
-		"file:memdb-%d?mode=memory&cache=shared&_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)&_pragma=journal_mode(WAL)",
-		memDBSeq.Add(1))
-	db, err := sql.Open("sqlite", dsn)
+	db, release, err := db_utils.OpenTestDB("store")
 	if err != nil {
 		return nil, err
 	}
-	db.SetMaxIdleConns(1)
-	db.SetConnMaxLifetime(0)
-	s := &Store{db: db}
 	if err := migrate(db); err != nil {
-		db.Close()
+		// the caller gets no handle, so the failed open releases the database
+		if rerr := release(); rerr != nil {
+			return nil, fmt.Errorf("%w (and releasing the database: %v)", err, rerr)
+		}
 		return nil, err
 	}
-	return s, nil
+	return &Store{db: db, release: release}, nil
 }
 
 func (s *Store) Close() error {
+	if s.release != nil {
+		return s.release()
+	}
 	return s.db.Close()
 }
 

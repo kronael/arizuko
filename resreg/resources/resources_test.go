@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/db_utils/dbtest"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resregtest"
 	"github.com/kronael/arizuko/store"
@@ -27,11 +28,7 @@ import (
 
 func openMem(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
+	db := dbtest.Open(t)
 	if err := store.Migrate(db); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}

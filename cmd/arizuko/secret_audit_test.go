@@ -2,10 +2,10 @@ package main
 
 import (
 	"bytes"
-	"database/sql"
 	"strings"
 	"testing"
 
+	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -33,7 +33,7 @@ const secretPlaintext = "sk-plaintext-do-not-log-9f3a"
 // a leak into ANY of them is caught, not just the one we expect to hold params.
 func secretAuditRow(t *testing.T, dir, action string) (actor, surface, whole string) {
 	t.Helper()
-	db, err := sql.Open("sqlite", store.OwnerDBPath(dir, store.OwnerRoutd))
+	db, err := db_utils.Open(db_utils.FileDSN(store.OwnerDBPath(dir, store.OwnerRoutd)))
 	if err != nil {
 		t.Fatalf("open routd.db: %v", err)
 	}

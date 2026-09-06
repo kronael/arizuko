@@ -3,6 +3,8 @@ package routd
 import (
 	"database/sql"
 	"testing"
+
+	"github.com/kronael/arizuko/db_utils/dbtest"
 )
 
 // TestInstalledPackageCRUD exercises the installed-package record (spec 5/28):
@@ -141,11 +143,7 @@ func TestInstalledPackageFolderIsPartOfKey(t *testing.T) {
 // the DDL ran. Falsified by changing 0031's INSERT ... SELECT to add a WHERE
 // that matches nothing: count goes 3 -> 0 and this fails alone.
 func TestInstalledPackagesMigration0031PreservesRows(t *testing.T) {
-	db, err := sql.Open("sqlite", "file:"+t.TempDir()+"/m.db")
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
-	defer db.Close()
+	db := dbtest.Open(t)
 
 	// The shape 0020 shipped, verbatim.
 	if _, err := db.Exec(`CREATE TABLE installed_packages (

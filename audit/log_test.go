@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	_ "modernc.org/sqlite"
+	"github.com/kronael/arizuko/db_utils/dbtest"
 )
 
 // schemaSQL mirrors store/migrations/0066-audit-log.sql for the audit
@@ -36,14 +36,10 @@ CREATE TABLE audit_log (
 
 func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
+	db := dbtest.Open(t)
 	if _, err := db.Exec(schemaSQL); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { db.Close() })
 	return db
 }
 

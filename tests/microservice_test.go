@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/store"
-	_ "modernc.org/sqlite"
 )
 
 // Cross-service contract tests: verify timed's raw SQL stays compatible
@@ -33,12 +33,10 @@ func openSharedDB(t *testing.T) (*store.Store, *sql.DB) {
 	}
 	t.Cleanup(func() { s.Close() })
 
-	dsn := filepath.Join(dir, "store", "messages.db") + "?_pragma=busy_timeout(5000)"
-	db, err := sql.Open("sqlite", dsn)
+	db, err := db_utils.Open(db_utils.FileDSN(filepath.Join(dir, "store", "messages.db")))
 	if err != nil {
-		t.Fatal("sql.Open:", err)
+		t.Fatal("open messages.db:", err)
 	}
-	db.Exec("PRAGMA journal_mode=WAL")
 	t.Cleanup(func() { db.Close() })
 
 	return s, db

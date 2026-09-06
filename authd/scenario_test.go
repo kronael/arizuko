@@ -20,18 +20,15 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/db_utils/dbtest"
 )
 
-// openSecondDB opens a distinct in-memory DB (a second, independent authd
-// deployment with its own keypair) — separate cache name so it does not alias
-// testDB's shared cache.
+// openSecondDB opens a second, independent authd deployment with its own
+// keypair. Every dbtest.Open is a database of its own, so it shares nothing
+// with testDB's.
 func openSecondDB(t *testing.T) (*sql.DB, error) {
 	t.Helper()
-	db, err := sql.Open("sqlite", "file:"+t.Name()+"-B?mode=memory&cache=shared&_pragma=foreign_keys(on)")
-	if err != nil {
-		return nil, err
-	}
-	t.Cleanup(func() { db.Close() })
+	db := dbtest.Open(t)
 	if err := migrate(db); err != nil {
 		return nil, err
 	}

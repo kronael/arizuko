@@ -5,17 +5,16 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kronael/arizuko/db_utils/dbtest"
 )
 
-// oauthStore builds a Store on a fresh in-memory secrets table that carries the
+// oauthStore builds a Store on a fresh secrets table that carries the
 // surrogate-OAuth columns routd migration 0017 adds (store's own migrations
 // predate them; routd owns the live table).
 func oauthStore(t *testing.T) *Store {
 	t.Helper()
-	db, err := sql.Open("sqlite", "file:oauth_"+strings.ReplaceAll(t.Name(), "/", "_")+"?mode=memory&cache=shared")
-	if err != nil {
-		t.Fatal(err)
-	}
+	db := dbtest.Open(t)
 	if _, err := db.Exec(`CREATE TABLE secrets (
 		scope_kind TEXT NOT NULL, scope_id TEXT NOT NULL, key TEXT NOT NULL,
 		value BLOB NOT NULL, created_at TEXT NOT NULL,
@@ -23,7 +22,6 @@ func oauthStore(t *testing.T) *Store {
 		PRIMARY KEY (scope_kind, scope_id, key));`); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { db.Close() })
 	s := New(db)
 	s.SetSecretKeys([]byte("oauth-test-key"))
 	return s

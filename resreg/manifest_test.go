@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	_ "modernc.org/sqlite"
+	"github.com/kronael/arizuko/db_utils/dbtest"
 )
 
 // The manifest helpers decide what a `.yaml` document means before any
@@ -196,11 +196,7 @@ CREATE TABLE testrows (
 func folderEngine(t *testing.T) *sql.DB {
 	t.Helper()
 	reset()
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
+	db := dbtest.Open(t)
 	if _, err := db.Exec(folderSchema); err != nil {
 		t.Fatal(err)
 	}
@@ -254,11 +250,7 @@ func TestKnownFoldersUnionsTheLiveDBAndEveryManifest(t *testing.T) {
 
 func TestKnownFoldersErrorsWhenGroupsIsNotRegistered(t *testing.T) {
 	reset()
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
+	db := dbtest.Open(t)
 	if _, err := KnownFolders(db); err == nil {
 		t.Fatal("KnownFolders succeeded with no groups resource; every folder would read as unknown")
 	}

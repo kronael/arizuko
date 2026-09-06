@@ -23,7 +23,7 @@ import (
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
-	_ "modernc.org/sqlite"
+	"github.com/kronael/arizuko/db_utils"
 )
 
 // recordingGrants captures the principal FetchGrants is queried with so a test
@@ -103,20 +103,16 @@ func TestAuditLandsInAuthDB(t *testing.T) {
 
 // concurrentDB opens a real file-backed WAL DB so goroutines genuinely run in
 // parallel (a shared-cache memory DB needs MaxOpenConns(1), which serializes
-// callers and would hide a race). WAL + busy_timeout lets racing writers wait
-// on the write lock rather than erroring, so the test observes the fix's
-// invariant, not transient lock noise.
+// callers and would hide a race). It is authd's own production DSN: WAL plus
+// busy_timeout lets racing writers wait on the write lock rather than erroring,
+// so the test observes the fix's invariant, not transient lock noise.
 func concurrentDB(t *testing.T) *sql.DB {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "auth.db")
-	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(on)&_pragma=busy_timeout(10000)")
+	db, err := db_utils.Open(db_utils.FileDSN(filepath.Join(t.TempDir(), "auth.db")))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		t.Fatal(err)
-	}
 	if err := migrate(db); err != nil {
 		t.Fatal(err)
 	}

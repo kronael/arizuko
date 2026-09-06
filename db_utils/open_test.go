@@ -136,9 +136,9 @@ func TestIsTransientSeesARealSQLiteLock(t *testing.T) {
 // means two transactions can never wait on each other — so it is the one a
 // SQLite-only test can never cover.
 func TestIsTransientSeesARealPostgresDeadlock(t *testing.T) {
-	dsn := os.Getenv(pgDSNEnv)
+	dsn := os.Getenv(TestPGDSNEnv)
 	if dsn == "" {
-		t.Skipf("%s not set", pgDSNEnv)
+		t.Skipf("%s not set", TestPGDSNEnv)
 	}
 	db := mustOpen(t, dsn)
 	if _, err := db.Exec(`DROP TABLE IF EXISTS deadlock_probe;
@@ -201,9 +201,9 @@ func TestIsTransientSeesARealPostgresDeadlock(t *testing.T) {
 // cap is not advisory — and the number that matters is the fleet's total, not
 // one pool's. Asserting the constant against itself would prove nothing.
 func TestOpenCapsThePostgresPool(t *testing.T) {
-	dsn := os.Getenv(pgDSNEnv)
+	dsn := os.Getenv(TestPGDSNEnv)
 	if dsn == "" {
-		t.Skipf("%s not set", pgDSNEnv)
+		t.Skipf("%s not set", TestPGDSNEnv)
 	}
 	db := mustOpen(t, dsn)
 	// database/sql reports 0 for "no limit".
@@ -229,9 +229,9 @@ func TestOpenCapsThePostgresPool(t *testing.T) {
 // (pgx conn.go: "Always use simple protocol when there are no arguments"), so
 // only a parameterised one can tell the modes apart.
 func TestOpenRunsPostgresOnTheSimpleProtocol(t *testing.T) {
-	dsn := os.Getenv(pgDSNEnv)
+	dsn := os.Getenv(TestPGDSNEnv)
 	if dsn == "" {
-		t.Skipf("%s not set", pgDSNEnv)
+		t.Skipf("%s not set", TestPGDSNEnv)
 	}
 	db := mustOpen(t, dsn)
 	ctx := context.Background()

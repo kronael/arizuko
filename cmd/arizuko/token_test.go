@@ -3,7 +3,6 @@ package main
 import (
 	"crypto/ecdsa"
 	"crypto/x509"
-	"database/sql"
 	"encoding/pem"
 	"os"
 	"path/filepath"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/store"
 )
@@ -54,7 +54,7 @@ func TestMintBearer(t *testing.T) {
 
 func TestMintBearerNoActiveKey(t *testing.T) {
 	storeDir := t.TempDir()
-	adb, err := sql.Open("sqlite", filepath.Join(storeDir, "auth.db"))
+	adb, err := db_utils.Open(db_utils.FileDSN(filepath.Join(storeDir, "auth.db")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func seedAuthDB(t *testing.T, storeDir string, key *auth.SigningKey) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	adb, err := sql.Open("sqlite", path)
+	adb, err := db_utils.Open(db_utils.FileDSN(path))
 	if err != nil {
 		t.Fatal(err)
 	}

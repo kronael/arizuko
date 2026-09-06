@@ -64,6 +64,10 @@ type DB struct {
 	// (spec 5/15). nil → no refresh (PAT-only path); ConnectorSecrets then reads
 	// the stored value unchanged. Wired in routd main from auth/surrogate.
 	surrogate *surrogate.Engine
+
+	// release closes the pool and drops the database OpenMem reserved. A DB
+	// opened against a file leaves the file alone, and Close closes the pool.
+	release func() error
 }
 
 // SetSurrogate wires the surrogate-OAuth engine used by ConnectorSecrets to
@@ -100,12 +104,25 @@ func Create(dir string) (*DB, error) {
 	return open(db_utils.FileDSN(path))
 }
 
-// OpenMem opens a fresh isolated in-memory routd.db for tests. The DB name
-// is unique per call so concurrent / sequential tests don't share state via
-// the shared cache.
+// OpenMem opens a fresh, private, empty routd.db for one test and migrates it.
+// db_utils.OpenTestDB owns the engine and the DSN, so ARIZUKO_TEST_PG_DSN moves
+// this and every other test database together (spec 6/37 step 6). Close releases
+// the database.
 func OpenMem() (*DB, error) {
-	name := "routd_mem_" + randHex(8)
-	return open("file:" + name + "?mode=memory&cache=shared&_pragma=foreign_keys(on)")
+	dsn, release, err := db_utils.NewTestDB("routd")
+	if err != nil {
+		return nil, err
+	}
+	d, err := open(dsn)
+	if err != nil {
+		// the caller gets no handle, so the failed open releases the database
+		if rerr := release(); rerr != nil {
+			return nil, fmt.Errorf("%w (and releasing the database: %v)", err, rerr)
+		}
+		return nil, err
+	}
+	d.release = release
+	return d, nil
 }
 
 func open(dsn string) (*DB, error) {
@@ -124,6 +141,9 @@ func open(dsn string) (*DB, error) {
 }
 
 func (d *DB) Close() error {
+	if d.release != nil {
+		return d.release()
+	}
 	return d.db.Close()
 }
 

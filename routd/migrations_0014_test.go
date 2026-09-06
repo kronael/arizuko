@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	_ "modernc.org/sqlite"
+	"github.com/kronael/arizuko/db_utils/dbtest"
 )
 
 // TestMigration0014 seeds a pre-0014 routd groups table (model +
@@ -13,14 +13,9 @@ import (
 // migration folds them into the `config` JSON column, omitting NULLs and
 // preserving the web_routes FK via in-place DROP COLUMN.
 func TestMigration0014(t *testing.T) {
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
+	db := dbtest.Open(t)
 
 	if _, err := db.Exec(`
-		PRAGMA foreign_keys=ON;
 		CREATE TABLE groups (
 		  folder                  TEXT PRIMARY KEY,
 		  added_at                TEXT NOT NULL,
