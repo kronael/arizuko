@@ -417,7 +417,8 @@ func (d *dash) handleGroupSettingsSave(w http.ResponseWriter, r *http.Request) {
 }
 
 // DELETE /dash/groups/{folder} (or POST .../delete from the form).
-// Removes the DB row + best-effort rm of the groups/<folder>/ dir.
+// Removes the folder's subtree and everything scoped to it, plus a best-effort
+// rm of the groups/<folder>/ dir.
 func (d *dash) handleGroupDelete(w http.ResponseWriter, r *http.Request) {
 	folder := groupFromPath(r, "/delete")
 	if folder == "" {
@@ -436,76 +437,18 @@ func (d *dash) handleGroupDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "store unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	// acl (scope) and routes (target) have NO FK to groups — the groups DELETE
-	// cascades nothing. Purge the folder row, its child rows, and the folder's
-	// grant + route rows in ONE transaction so a parent delete never leaves
-	// orphaned child groups, and a re-created folder cannot inherit stale admin
-	// grants or routing targets. Covers the subtree (X/...) and X/**-style globs.
-	// store.DeleteGroup can't stand in: it opens its own tx and touches only
-	// groups. The audit row joins this tx so it cannot outlive a rolled-back
-	// delete.
-	tx, err := d.adminDB().Begin()
+	// store.DeleteGroup is the ONE purge — what it removes is declared once, in
+	// store.folderScopePurge — and AsUser attributes its audit row to the
+	// operator who pressed the button. A second list here is a second thing to
+	// keep in step, and two lists purging different halves is BUGS L198.
+	removed, err := store.New(d.adminDB()).AsUser(sub).DeleteGroup(folder)
 	if err != nil {
-		slog.Warn("group delete: begin", "folder", folder, "err", err)
-		http.Error(w, "delete failed", http.StatusInternalServerError)
-		return
-	}
-	res, err := tx.Exec(`DELETE FROM groups WHERE folder = ?`, folder)
-	if err != nil {
-		tx.Rollback()
 		slog.Warn("group delete: db", "folder", folder, "err", err)
 		http.Error(w, "delete failed", http.StatusInternalServerError)
 		return
 	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		tx.Rollback()
+	if removed == 0 {
 		http.Error(w, "not found", http.StatusNotFound)
-		return
-	}
-	if _, err := tx.Exec(
-		`DELETE FROM groups WHERE `+groupfolder.SQLSubtree("folder", "/"),
-		groupfolder.SubtreeArgs(folder, "/")...); err != nil {
-		tx.Rollback()
-		slog.Warn("group delete: purge children", "folder", folder, "err", err)
-		http.Error(w, "delete failed", http.StatusInternalServerError)
-		return
-	}
-	if _, err := tx.Exec(
-		`DELETE FROM acl WHERE `+groupfolder.SQLSubtree("scope", "/"),
-		groupfolder.SubtreeArgs(folder, "/")...); err != nil {
-		tx.Rollback()
-		slog.Warn("group delete: purge acl", "folder", folder, "err", err)
-		http.Error(w, "delete failed", http.StatusInternalServerError)
-		return
-	}
-	if _, err := tx.Exec(
-		`DELETE FROM routes WHERE `+groupfolder.SQLSubtree("target", "#")+
-			` OR `+groupfolder.SQLSubtree("target", "/"),
-		append(groupfolder.SubtreeArgs(folder, "#"), groupfolder.SubtreeArgs(folder, "/")...)...); err != nil {
-		tx.Rollback()
-		slog.Warn("group delete: purge routes", "folder", folder, "err", err)
-		http.Error(w, "delete failed", http.StatusInternalServerError)
-		return
-	}
-	if err := audit.EmitInTx(r.Context(), tx, audit.Event{
-		Category: audit.CategoryMutation,
-		Action:   "group.delete",
-		Actor:    "user:" + sub,
-		ActorSub: sub,
-		Surface:  audit.SurfaceREST,
-		Resource: "groups/" + folder,
-		Folder:   folder,
-		Outcome:  audit.OutcomeOK,
-	}); err != nil {
-		tx.Rollback()
-		slog.Warn("group delete: audit", "folder", folder, "err", err)
-		http.Error(w, "delete failed", http.StatusInternalServerError)
-		return
-	}
-	if err := tx.Commit(); err != nil {
-		slog.Warn("group delete: commit", "folder", folder, "err", err)
-		http.Error(w, "delete failed", http.StatusInternalServerError)
 		return
 	}
 	if d.groupsDir != "" {

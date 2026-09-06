@@ -613,9 +613,10 @@ func TestGhostGroup_RefusesUnregistered(t *testing.T) {
 	}
 }
 
-// TestDeleteGroup_CascadesRoutes verifies deleting a group removes its own
-// routes (bare + observe variant) so no ghost route lingers, but keeps a child
-// folder's routes (GB1 L4b).
+// TestDeleteGroup_CascadesRoutes verifies deleting a group removes every route
+// into its subtree — the bare target, the observe variant on "#", and a child
+// folder's — while a SIBLING whose name merely starts with the same characters
+// keeps its own.
 func TestDeleteGroup_CascadesRoutes(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -623,21 +624,24 @@ func TestDeleteGroup_CascadesRoutes(t *testing.T) {
 	}
 	defer db.Close()
 	_ = db.PutGroup(core.Group{Folder: "atlas"})
+	_ = db.PutGroup(core.Group{Folder: "atlaswhatever"})
 	doSetRoutes(t, db, []core.Route{
 		{Seq: 0, Match: "room=1", Target: "atlas"},
 		{Seq: 1, Match: "room=2", Target: "atlas#observe"},
 		{Seq: 2, Match: "room=3", Target: "atlas/support"},
+		{Seq: 3, Match: "room=4", Target: "atlas/support#observe"},
+		{Seq: 4, Match: "room=5", Target: "atlaswhatever"},
 	})
 
-	if err := db.DeleteGroup("atlas"); err != nil {
+	if _, err := db.DeleteGroup("atlas"); err != nil {
 		t.Fatal(err)
 	}
 	if db.GroupExists("atlas") {
 		t.Fatal("group not deleted")
 	}
 	routes, _ := db.Routes()
-	if len(routes) != 1 || routes[0].Target != "atlas/support" {
-		t.Fatalf("expected only atlas/support route to survive, got %+v", routes)
+	if len(routes) != 1 || routes[0].Target != "atlaswhatever" {
+		t.Fatalf("expected only the sibling route to survive, got %+v", routes)
 	}
 }
 
@@ -1248,10 +1252,12 @@ func TestDeleteGroup_CascadesTasks(t *testing.T) {
 	defer db.Close()
 	_ = db.PutGroup(core.Group{Folder: "atlas"})
 	_ = db.PutGroup(core.Group{Folder: "atlas/support"})
+	_ = db.PutGroup(core.Group{Folder: "atlaswhatever"})
 	for _, tk := range []struct{ id, owner string }{
 		{"atlas-mem-0", "atlas"},
 		{"atlas-mem-1", "atlas"},
 		{"atlas/support-mem-0", "atlas/support"},
+		{"atlaswhatever-mem-0", "atlaswhatever"},
 	} {
 		if _, err := db.SQL().Exec(
 			`INSERT INTO scheduled_tasks (id, owner, chat_jid, prompt, cron, next_run, status, created_at, context_mode)
@@ -1261,7 +1267,7 @@ func TestDeleteGroup_CascadesTasks(t *testing.T) {
 		}
 	}
 
-	if err := db.DeleteGroup("atlas"); err != nil {
+	if _, err := db.DeleteGroup("atlas"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1278,8 +1284,8 @@ func TestDeleteGroup_CascadesTasks(t *testing.T) {
 		}
 		ids = append(ids, id)
 	}
-	if len(ids) != 1 || ids[0] != "atlas/support-mem-0" {
-		t.Fatalf("only the child folder's task may survive, got %v", ids)
+	if len(ids) != 1 || ids[0] != "atlaswhatever-mem-0" {
+		t.Fatalf("only the sibling folder's task may survive, got %v", ids)
 	}
 }
 

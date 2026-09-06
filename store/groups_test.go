@@ -196,7 +196,7 @@ func TestDeleteGroup_CascadesEveryPointerAtomically(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := s.DeleteGroup("doomed"); err != nil {
+	if _, err := s.DeleteGroup("doomed"); err != nil {
 		t.Fatalf("DeleteGroup: %v", err)
 	}
 

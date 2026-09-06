@@ -492,11 +492,15 @@ func cmdGroup(args []string) {
 	case "rm":
 		need(args, 3, "arizuko group <instance> rm <folder>")
 		folder := args[2]
-		if err := s.DeleteGroup(folder); err != nil {
+		removed, err := s.DeleteGroup(folder)
+		if err != nil {
 			die("Failed: remove group: %v", err)
 		}
+		if removed == 0 {
+			die("Failed: no group at %s", folder)
+		}
 		auditCLI(s, "group rm", []string{folder})
-		fmt.Printf("removed group %s\n", folder)
+		fmt.Printf("removed %d group(s) under %s\n", removed, folder)
 
 	case "grant":
 		need(args, 4, "arizuko group <instance> grant <sub> <pattern> [action]")
