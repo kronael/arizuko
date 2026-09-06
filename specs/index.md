@@ -74,7 +74,8 @@ combination is the platform thesis arizuko ships toward.
 phase has ever held; reusing one turns every old pointer to it into a
 confidently wrong pointer rather than a dangling one. `specs/6/1` has been five
 different specs and a phase-7 number six — that is the cost of not following
-the rule. `tests/specrefs` checks that every link under `specs/` resolves.
+the rule. `tests/specrefs` checks that every link under `specs/` resolves and
+that every backtick spec ID names a file.
 
 **Status vocabulary.** `active` is the phase being built, and exactly ONE phase
 holds it — the table said `active` on six phases at once, which expressed no
