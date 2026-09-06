@@ -508,7 +508,6 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		SetEngagement:        setEngagement,
 		BumpEngagement:       setEngagement,
 		EngagedFolder:        func(jid, topic string) string { f, _ := s.db.Engaged(jid, topic); return f },
-		LogExternalCost:      s.db.LogExternalCost,
 		CurrentTriggerSender: func(_ string) string { return t.trigger },
 		CurrentTopic:         func(_ string) string { return t.topic },
 		CurrentTurnID:        func(_ string) string { return t.turnID },

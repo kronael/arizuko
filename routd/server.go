@@ -330,7 +330,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/tasks/runlog", s.handleTaskRunLog)
 	mux.HandleFunc("GET /v1/tasks/{id}/runs", s.handleTaskRunLogs)
 	mux.HandleFunc("POST /v1/tasks/{id}/reschedule", s.handleTaskReschedule)
-	mux.HandleFunc("POST /v1/cost", s.handleCost)
 	mux.HandleFunc("GET /v1/cost", s.handleCostGet)
 	mux.HandleFunc("GET /v1/cost/summary", s.handleCostSummary)
 	s.mountChannels(mux)

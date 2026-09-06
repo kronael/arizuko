@@ -1,11 +1,10 @@
 package routd
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
-
-	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/store"
@@ -26,103 +25,94 @@ func seedUser(t *testing.T, db *DB, sub string, capCents int) {
 }
 
 // TestBudgetGate_HonorsOperatorSetCaps proves the `arizuko budget set` write
-// path reaches enforcement: the caps are written through the SAME DB.SetFolderCap
-// / DB.SetUserCap the CLI verb calls, and budgetGate must then refuse the turn.
-// The verb used to write these caps into the frozen messages.db, so an operator
-// capped a folder and nothing changed (BUGS.md Q1).
+// path reaches enforcement. The caps are written through the SAME
+// DB.SetFolderCap / DB.SetUserCap the CLI verb calls, and the gate must push
+// them to the gateway and refuse on the gateway's meter. The verb used to write
+// these caps into the frozen messages.db, so an operator capped a folder and
+// nothing changed (BUGS.md Q1).
 func TestBudgetGate_HonorsOperatorSetCaps(t *testing.T) {
-	db, loop, _ := recLoop(t)
-	loop.costCapsEnabled = true
-	_ = db.PutGroup(core.Group{Folder: "team"})
-	s := store.New(db.SQL())
-	if err := s.CreateAuthUser("google:bob", "bob", "Bob"); err != nil {
-		t.Fatalf("seed user: %v", err)
-	}
+	db, loop, _, fake := gatewayLoop(t, "team")
 
 	// Exactly what `arizuko budget set folder team --daily 40` does.
 	if err := db.SetFolderCap("team", 40); err != nil {
 		t.Fatalf("SetFolderCap: %v", err)
 	}
-	if err := db.PutCost("team", "t-prior", "", "m", 0, 0, 40); err != nil {
-		t.Fatal(err)
-	}
-	if msg, _ := loop.budgetGate("team", ""); !strings.Contains(msg, "channel spent 40 of 40") {
+	fake.setTeam("team", 40, 40)
+	if msg, _ := loop.budgetGate(context.Background(), "team", ""); !strings.Contains(msg, "channel spent 40 of 40") {
 		t.Errorf("operator folder cap not enforced: budgetGate = %q", msg)
 	}
 
 	// And `arizuko budget set user google:bob --daily 10`.
 	_ = db.PutGroup(core.Group{Folder: "wide"})
-	if err := db.SetUserCap("google:bob", 10); err != nil {
-		t.Fatalf("SetUserCap: %v", err)
-	}
-	if err := db.PutCost("wide", "t-prior2", "google:bob", "m", 0, 0, 10); err != nil {
-		t.Fatal(err)
-	}
-	if msg, _ := loop.budgetGate("wide", "google:bob"); !strings.Contains(msg, "you spent 10 of 10") {
+	seedUser(t, db, "google:bob", 10)
+	fake.setTeam("wide", 0, 0)
+	fake.setUser("google:bob", 10, 10)
+	if msg, _ := loop.budgetGate(context.Background(), "wide", "google:bob"); !strings.Contains(msg, "you spent 10 of 10") {
 		t.Errorf("operator user cap not enforced: budgetGate = %q", msg)
 	}
 }
 
-// TestBudgetGate_UserCapBindsLower: a user cap below the folder cap binds first.
-// Mirrors gateway_test.TestBudgetGate_UserCapBindsLower.
+// A user cap below the folder's binds first: the person is stopped in a folder
+// that still has headroom.
 func TestBudgetGate_UserCapBindsLower(t *testing.T) {
-	db, loop, _ := recLoop(t)
-	loop.costCapsEnabled = true
-	_ = db.PutGroup(core.Group{Folder: "f"})
-	if _, err := db.SQL().Exec("UPDATE groups SET cost_cap_cents_per_day=1000 WHERE folder='f'"); err != nil {
+	db, loop, _, fake := gatewayLoop(t, "f")
+	if err := db.SetFolderCap("f", 1000); err != nil {
 		t.Fatal(err)
 	}
 	seedUser(t, db, "google:alice", 50)
-	if err := db.PutCost("f", "t-prior", "google:alice", "m", 0, 0, 50); err != nil {
+	fake.setTeam("f", 10, 1000)
+	fake.setUser("google:alice", 50, 50)
+
+	msg, err := loop.budgetGate(context.Background(), "f", "google:alice")
+	if err != nil {
 		t.Fatal(err)
 	}
-	msg, _ := loop.budgetGate("f", "google:alice")
-	if msg == "" || !strings.Contains(msg, "you spent 50 of 50") {
+	if !strings.Contains(msg, "you spent 50 of 50") {
 		t.Errorf("expected user-scope refusal, got %q", msg)
 	}
 }
 
-// TestBudgetGate_JWTSenderActivatesUserCap: a JWT-derived sender activates the
-// per-user branch. Mirrors gateway_test.TestBudgetGate_JWTSenderActivatesUserCap.
+// A JWT-derived sender activates the per-user branch.
 func TestBudgetGate_JWTSenderActivatesUserCap(t *testing.T) {
-	db, loop, _ := recLoop(t)
-	loop.costCapsEnabled = true
-	_ = db.PutGroup(core.Group{Folder: "f"})
-	if _, err := db.SQL().Exec("UPDATE groups SET cost_cap_cents_per_day=1000 WHERE folder='f'"); err != nil {
+	db, loop, _, fake := gatewayLoop(t, "f")
+	if err := db.SetFolderCap("f", 1000); err != nil {
 		t.Fatal(err)
 	}
 	seedUser(t, db, "github:carol", 25)
-	if err := db.PutCost("f", "t-prior", "github:carol", "m", 0, 0, 25); err != nil {
+	fake.setTeam("f", 0, 1000)
+	fake.setUser("github:carol", 25, 25)
+
+	msg, err := loop.budgetGate(context.Background(), "f", turnCallerSub("github:carol"))
+	if err != nil {
 		t.Fatal(err)
 	}
-	msg, _ := loop.budgetGate("f", turnCallerSub("github:carol"))
-	if msg == "" || !strings.Contains(msg, "you spent 25 of 25") {
+	if !strings.Contains(msg, "you spent 25 of 25") {
 		t.Errorf("expected user-scope refusal, got %q", msg)
 	}
 }
 
-// TestBudgetGate_AdapterSenderFolderOnly: an adapter sender owns no
-// user_profiles row, so it is uncapped and only the folder cap binds. It is
-// still ATTRIBUTED — the sub reaches the gate verbatim (BUGS L69).
+// An adapter sender owns no user_profiles row, so it is uncapped and only the
+// folder cap binds. It is still ATTRIBUTED — the sub reaches the gate verbatim
+// (BUGS L69).
 func TestBudgetGate_AdapterSenderFolderOnly(t *testing.T) {
-	db, loop, _ := recLoop(t)
-	loop.costCapsEnabled = true
-	_ = db.PutGroup(core.Group{Folder: "f"})
-	if _, err := db.SQL().Exec("UPDATE groups SET cost_cap_cents_per_day=100 WHERE folder='f'"); err != nil {
+	db, loop, _, fake := gatewayLoop(t, "f")
+	if err := db.SetFolderCap("f", 100); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.PutCost("f", "t-prior", "", "m", 0, 0, 100); err != nil {
+	fake.setTeam("f", 100, 100)
+
+	msg, err := loop.budgetGate(context.Background(), "f", turnCallerSub("telegram:user/42"))
+	if err != nil {
 		t.Fatal(err)
 	}
-	msg, _ := loop.budgetGate("f", turnCallerSub("telegram:user/42"))
-	if msg == "" || !strings.Contains(msg, "channel spent 100 of 100") {
+	if !strings.Contains(msg, "channel spent 100 of 100") {
 		t.Errorf("expected channel-scope refusal, got %q", msg)
 	}
 }
 
-// TestUserCap_NoProfileRowIsUncapped: the sub that cost attribution actually
-// sees is a platform one, and it owns no user_profiles row. That must read as
-// uncapped, not as an error the gate logs on every single turn (BUGS L69).
+// The sub that cost attribution actually sees is a platform one, and it owns no
+// user_profiles row. That must read as uncapped, not as an error the gate logs
+// on every single turn (BUGS L69).
 func TestUserCap_NoProfileRowIsUncapped(t *testing.T) {
 	db, _, _ := recLoop(t)
 	cap, err := db.UserCap("telegram:user/42")
@@ -134,57 +124,50 @@ func TestUserCap_NoProfileRowIsUncapped(t *testing.T) {
 	}
 }
 
-// TestRecordTurnCost_WritesUserSubRow: a turn whose trigger is a JWT sender logs
-// a cost_log row carrying that user_sub, so SpendTodayUser aggregates it.
-// Mirrors gateway_test.TestRecordTurnCost_WritesPerModelRow's per-user half.
-func TestRecordTurnCost_WritesUserSubRow(t *testing.T) {
-	db, _, _ := recLoop(t)
-	if err := db.PutCost("team", "t1", "google:bob", "claude-opus-4-7", 1000, 200, 5); err != nil {
+// COST_CAPS_ENABLED off is the operator's escape hatch, and it has to reach the
+// thing doing the enforcing. Leaving the gateway's budget standing would keep it
+// refusing turns arizuko no longer caps, with no arizuko surface showing why.
+func TestBudgetGate_DisablingCapsClearsTheGatewaysBudget(t *testing.T) {
+	db, loop, _, fake := gatewayLoop(t, "demo")
+	loop.costCapsEnabled = false
+	if err := db.SetFolderCap("demo", 500); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.PutCost("team", "t1", "google:bob", "claude-haiku-4-5", 500, 50, 1); err != nil {
-		t.Fatal(err)
-	}
-	folderTotal, err := db.SpendTodayFolder("team")
+	fake.setTeam("demo", 900, 500)
+
+	msg, err := loop.budgetGate(context.Background(), "demo", "user:a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if folderTotal != 6 {
-		t.Errorf("folder spend = %d, want 6", folderTotal)
+	if msg != "" {
+		t.Errorf("caps disabled but the gate refused: %q", msg)
 	}
-	userTotal, err := db.SpendTodayUser("google:bob")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if userTotal != 6 {
-		t.Errorf("user spend = %d, want 6", userTotal)
+	if cap, _ := fake.teamCap("demo"); cap != 0 {
+		t.Errorf("gateway still enforcing %d cents after caps were disabled", cap)
 	}
 }
 
-// TestBudgetGate_UserCapDispatchParity: end-to-end through processGroupMessages,
-// a JWT sender over its user cap is refused pre-spawn (no run), even when the
-// folder cap is generous — the dispatch site passes turnCallerSub(last.Sender).
+// End-to-end through processGroupMessages: a JWT sender over its user cap is
+// refused pre-spawn (no run), even when the folder cap is generous — the
+// dispatch site passes turnCallerSub(last.Sender).
 func TestBudgetGate_UserCapDispatchParity(t *testing.T) {
-	db, loop, rr := recLoop(t)
+	db, loop, runner, fake := gatewayLoop(t, "demo")
 	dl := &recDeliverer{}
 	loop.deliver = dl
-	loop.costCapsEnabled = true
-	_ = db.PutGroup(core.Group{Folder: "demo"})
-	if _, err := db.SQL().Exec("UPDATE groups SET cost_cap_cents_per_day=1000 WHERE folder='demo'"); err != nil {
+	if err := db.SetFolderCap("demo", 1000); err != nil {
 		t.Fatal(err)
 	}
 	seedUser(t, db, "google:dave", 30)
-	if err := db.PutCost("demo", "t-prior", "google:dave", "claude", 0, 0, 30); err != nil {
-		t.Fatal(err)
-	}
-	_ = db.PutMessage(core.Message{ID: "a", ChatJID: "web:demo", Sender: "google:dave",
+	fake.setTeam("demo", 0, 1000)
+	fake.setUser("google:dave", 30, 30)
+	_ = db.PutMessage(core.Message{ID: "b", ChatJID: "web:demo", Sender: "google:dave",
 		Content: "expensive question", Timestamp: time.Now().UTC()})
 
 	if _, err := loop.processGroupMessages("web:demo"); err != nil {
 		t.Fatalf("process: %v", err)
 	}
-	if len(rr.runs) != 0 {
-		t.Fatalf("over-user-cap turn dispatched a run: %+v", rr.runs)
+	if runner.req.TurnID != "" {
+		t.Fatalf("over-user-cap turn dispatched a run: %+v", runner.req)
 	}
 	want := "Budget reached for today (you spent 30 of 30 cents). Resumes at 00:00 UTC."
 	if got := lastAck(t, dl); got != want {
@@ -192,66 +175,44 @@ func TestBudgetGate_UserCapDispatchParity(t *testing.T) {
 	}
 }
 
-// TestRecordTurnResult_AttributesPlatformSender drives the REAL cost-attribution
-// wiring, not the rule in isolation: a turn triggered from Telegram must leave a
-// cost_log row carrying that sender. The fleet had 7188 rows and not one carried
-// a user_sub, because an allowlist of authd schemes sat between the trigger and
-// the write (BUGS L69). Only an end-to-end assertion catches that — the rule's
-// own table test passed the whole time.
-func TestRecordTurnResult_AttributesPlatformSender(t *testing.T) {
-	s := testServer(t)
-	const turnID = "turn-attrib-1"
+// The real attribution wiring, not the rule in isolation: a turn triggered from
+// Telegram must reach the gateway carrying that sender, because the gateway is
+// what meters and caps per person now. The fleet once had 7188 cost rows and not
+// one carried a user_sub, because an allowlist of authd schemes sat between the
+// trigger and the write (BUGS L69). Only an end-to-end assertion catches that.
+func TestDispatch_AttributesPlatformSenderToTheGateway(t *testing.T) {
+	db, loop, _, fake := gatewayLoop(t, "krons")
 	const sender = "telegram:user/1112184352"
-	if _, err := s.db.PutTurnContext(turnID, "krons", "", "tg:1", sender, ""); err != nil {
-		t.Fatalf("put turn context: %v", err)
-	}
+	_ = db.PutMessage(core.Message{ID: "b", ChatJID: "web:krons", Sender: sender,
+		Content: "hi", Timestamp: time.Now().UTC()})
 
-	if _, err := s.recordTurnResult(turnID, apiv1.TurnResult{
-		Status: "success",
-		Models: map[string]apiv1.ModelCost{
-			"claude-opus-5": {Input: 1000, Output: 200, CostCents: 7},
-		},
-	}); err != nil {
-		t.Fatalf("record turn result: %v", err)
+	if _, err := loop.processGroupMessages("web:krons"); err != nil {
+		t.Fatalf("process: %v", err)
 	}
-
-	var got string
-	if err := s.db.SQL().QueryRow(
-		"SELECT user_sub FROM cost_log WHERE turn_id=?", turnID).Scan(&got); err != nil {
-		t.Fatalf("read cost row: %v", err)
+	minted, _ := fake.snapshot()
+	if len(minted) == 0 {
+		t.Fatal("no key minted")
 	}
-	if got != sender {
-		t.Errorf("cost_log.user_sub = %q, want %q", got, sender)
-	}
-	spent, err := s.db.SpendTodayUser(sender)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if spent != 7 {
-		t.Errorf("SpendTodayUser(%q) = %d, want 7", sender, spent)
+	if got := minted[len(minted)-1]["user_id"]; got != sender {
+		t.Errorf("key user_id = %v, want %q — the platform sender must reach the meter verbatim", got, sender)
 	}
 }
 
 // A scheduled task has no person behind it and must attribute to the platform,
-// never to the empty bucket every unattributed row shares.
-func TestRecordTurnResult_AttributesScheduledTaskToRoutd(t *testing.T) {
-	s := testServer(t)
-	const turnID = "turn-attrib-2"
-	if _, err := s.db.PutTurnContext(turnID, "krons", "", "tg:1", "timed", ""); err != nil {
-		t.Fatalf("put turn context: %v", err)
+// never to the empty bucket every unattributed turn would share.
+func TestDispatch_AttributesScheduledTaskToRoutd(t *testing.T) {
+	db, loop, _, fake := gatewayLoop(t, "krons")
+	_ = db.PutMessage(core.Message{ID: "b", ChatJID: "web:krons", Sender: "timed",
+		Content: "cron", Timestamp: time.Now().UTC()})
+
+	if _, err := loop.processGroupMessages("web:krons"); err != nil {
+		t.Fatalf("process: %v", err)
 	}
-	if _, err := s.recordTurnResult(turnID, apiv1.TurnResult{
-		Status: "success",
-		Models: map[string]apiv1.ModelCost{"claude-opus-5": {CostCents: 3}},
-	}); err != nil {
-		t.Fatalf("record turn result: %v", err)
+	minted, _ := fake.snapshot()
+	if len(minted) == 0 {
+		t.Fatal("no key minted")
 	}
-	var got string
-	if err := s.db.SQL().QueryRow(
-		"SELECT user_sub FROM cost_log WHERE turn_id=?", turnID).Scan(&got); err != nil {
-		t.Fatalf("read cost row: %v", err)
-	}
-	if got != "service:routd" {
-		t.Errorf("cost_log.user_sub = %q, want service:routd", got)
+	if got := minted[len(minted)-1]["user_id"]; got != "service:routd" {
+		t.Errorf("key user_id = %v, want service:routd", got)
 	}
 }

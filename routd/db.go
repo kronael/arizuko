@@ -15,7 +15,6 @@ import (
 	"github.com/kronael/arizuko/auth/surrogate"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/db_utils"
-	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
 )
@@ -1081,77 +1080,26 @@ func (d *DB) SessionID(folder, topic string) string {
 	return id.String
 }
 
-// PutCost writes one cost_log row per model under the (folder,turn_id)
-// dedup; a duplicate submit_turn does not double-charge. userSub is the turn's
-// caller (turnCallerSub of its trigger sender — the platform's own triggers
-// resolve to service:routd) so SpendTodayUser can aggregate per-user spend.
-func (d *DB) PutCost(folder, turnID, userSub, model string, in, out, cents int) error {
-	_, err := d.db.Exec(`INSERT OR IGNORE INTO cost_log(folder, turn_id, user_sub, model, input_tokens, output_tokens, cost_cents, recorded_at)
-		VALUES(?,?,?,?,?,?,?,?)`, folder, turnID, userSub, model, in, out, cents, nowTS())
+// SetTurnGatewayKey records the sha256 of the key the gateway minted for this
+// turn (turn_context.gateway_key_hash). LiteLLM names a key in its spend log by
+// that hash and never by the key itself, so this is the handle that resolves a
+// turn to the gateway's own numbers — the pointer arizuko keeps in place of the
+// copy it used to write (spec 6/39).
+func (d *DB) SetTurnGatewayKey(turnID, keyHash string) error {
+	_, err := d.db.Exec("UPDATE turn_context SET gateway_key_hash=? WHERE turn_id=?", keyHash, turnID)
 	return err
 }
 
-// CostByTurn aggregates cost_log across models for one turn. found=false when
-// the turn has no cost rows yet (still running, or an adapter-side turn that
-// never reported) — the REST face maps that to 404 so a caller can tell
-// "no cost recorded" from a genuine zero-cost row.
-// CostSummaryRow is one folder's spend over a window.
-type CostSummaryRow struct {
-	Folder    string `json:"folder"`
-	Tokens    int    `json:"tokens"`
-	CostCents int    `json:"cost_cents"`
-}
-
-// CostSummary aggregates cost_log per folder since `since` (RFC3339).
-//
-// The per-TURN reader below answers "what did this turn cost"; an operator
-// asking "what is this instance spending" needs the other axis, and dashd's
-// usage page had to read cost_log directly for want of it (spec 6/30 lists
-// this endpoint as routd's required /v1 work; 6/28 is why it must exist at
-// all — no dashboard reads another daemon's DB).
-//
-// Folder containment is exact-or-subtree through groupfolder.SQLSubtree, never
-// a LIKE (BUGS L122). An empty folder means every folder.
-func (d *DB) CostSummary(folder, since string) ([]CostSummaryRow, error) {
-	q := `SELECT folder,
-	             COALESCE(SUM(input_tokens+output_tokens),0),
-	             COALESCE(SUM(cost_cents),0)
-	      FROM cost_log WHERE recorded_at >= ?`
-	args := []any{since}
-	if folder != "" {
-		q += ` AND ` + groupfolder.SQLSubtree("folder", "/")
-		args = append(args, groupfolder.SubtreeArgs(folder, "/")...)
-	}
-	q += ` GROUP BY folder ORDER BY folder`
-
-	rows, err := d.db.Query(q, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []CostSummaryRow{}
-	for rows.Next() {
-		var r CostSummaryRow
-		if err := rows.Scan(&r.Folder, &r.Tokens, &r.CostCents); err != nil {
-			return nil, err
-		}
-		out = append(out, r)
-	}
-	return out, rows.Err()
-}
-
-func (d *DB) CostByTurn(turnID string) (folder string, in, out, cents int, found bool, err error) {
-	err = d.db.QueryRow(
-		`SELECT folder, COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0), COALESCE(SUM(cost_cents),0)
-		 FROM cost_log WHERE turn_id=? GROUP BY folder`, turnID).
-		Scan(&folder, &in, &out, &cents)
+// TurnGatewayKey returns the key hash that metered a turn. Empty means the turn
+// ran with no gateway, so no meter holds a number for it.
+func (d *DB) TurnGatewayKey(turnID string) (string, error) {
+	var hash string
+	err := d.db.QueryRow(
+		"SELECT COALESCE(gateway_key_hash,'') FROM turn_context WHERE turn_id=?", turnID).Scan(&hash)
 	if err == sql.ErrNoRows {
-		return "", 0, 0, 0, false, nil
+		return "", nil
 	}
-	if err != nil {
-		return "", 0, 0, 0, false, err
-	}
-	return folder, in, out, cents, true, nil
+	return hash, err
 }
 
 // FolderCap returns the per-day spend cap for a folder in cents
@@ -1173,33 +1121,6 @@ func (d *DB) SetFolderCap(folder string, cents int) error {
 	_, err := d.db.Exec(
 		"UPDATE groups SET cost_cap_cents_per_day = ? WHERE folder=?", cents, folder)
 	return err
-}
-
-// SpendTodayFolder sums cost_log.cost_cents for a folder since the UTC start of
-// today — the pre-spawn budget gate's spend view.
-func (d *DB) SpendTodayFolder(folder string) (int, error) {
-	var cents int
-	err := d.db.QueryRow(
-		`SELECT COALESCE(SUM(cost_cents), 0) FROM cost_log WHERE folder=? AND recorded_at >= ?`,
-		folder, startOfTodayUTC()).Scan(&cents)
-	return cents, err
-}
-
-// SpendTodayUser sums cost_log.cost_cents for a user_sub since the UTC start of
-// today — the per-user half of the budget gate.
-func (d *DB) SpendTodayUser(userSub string) (int, error) {
-	var cents int
-	err := d.db.QueryRow(
-		`SELECT COALESCE(SUM(cost_cents), 0) FROM cost_log WHERE user_sub=? AND recorded_at >= ?`,
-		userSub, startOfTodayUTC()).Scan(&cents)
-	return cents, err
-}
-
-// startOfTodayUTC is the stored-timestamp form of 00:00 UTC today — the budget
-// window's lower bound.
-func startOfTodayUTC() string {
-	now := time.Now().UTC()
-	return core.TS(time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC))
 }
 
 // proactiveSelfSender is the synthetic inbound's sender. Rows from it never

@@ -14,58 +14,91 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
-	apiv1 "github.com/kronael/arizuko/routd/api/v1"
+	"github.com/kronael/arizuko/queue"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 )
 
-// turnResultWithModels is a submit_turn payload carrying a per-model cost the
-// agent computed for itself — the number 6/23 Fault 2 is about.
-func turnResultWithModels() apiv1.TurnResult {
-	return apiv1.TurnResult{
-		Status: "success",
-		Models: map[string]apiv1.ModelCost{
-			"claude-opus-4": {Input: 10, Output: 5, CostCents: 7},
-		},
-	}
-}
-
-// fakeGateway is litellm's admin surface as routd uses it: mint, read spend,
-// delete. It answers the real paths with the real field names, so a rename on
-// either side of the wire fails here rather than on the instance.
+// fakeGateway is litellm's admin surface as routd uses it. It answers the real
+// paths with the real field names, the real status codes and the real nesting —
+// /team/info wraps its row in "team_info", a duplicate /team/new is 400, an
+// absent team is 404 — all measured against ghcr.io/berriai/litellm:main-latest
+// on 2026-09-06. A rename on either side of the wire fails here rather than on
+// the instance.
 type fakeGateway struct {
 	mu sync.Mutex
+	// teams and users are the gateway's budget rows, in the gateway's own unit
+	// (dollars). A nil maxBudget is an entity the gateway holds no ceiling for.
+	teams map[string]*fakeBudget
+	users map[string]*fakeBudget
 	// minted is every /key/generate body, decoded.
 	minted []map[string]any
 	// deleted is every key named in a /key/delete body.
 	deleted []string
-	// spendFor answers /spend/logs?api_key=<hash>. A hash absent from the map
-	// answers an empty list, which is what an unflushed turn looks like.
+	// spendFor answers /spend/logs?api_key=<hash>.
 	spendFor map[string][]map[string]any
-	// mintStatus, when non-zero, is the status /key/generate answers with.
-	mintStatus int
-	// spendStatus, when non-zero, is the status /spend/logs answers with.
-	spendStatus int
-	// spendReads counts /spend/logs requests, so a poll can be observed.
-	spendReads int
-	// bearers is every Authorization header the surface saw.
-	bearers []string
+	// daily answers /team/daily/activity: one entry per day, each mapping a
+	// team id to that day's metrics.
+	daily []map[string]map[string]any
+	// calls counts requests per path, so a test can assert that an uncapped
+	// caller costs no round trip at all.
+	calls map[string]int
+	// mintStatus / teamInfoStatus, when non-zero, is the status that path
+	// answers with instead of doing its job.
+	mintStatus     int
+	teamInfoStatus int
 	// nextKey is the key the next mint hands back.
 	nextKey string
 }
 
+type fakeBudget struct {
+	spend     float64
+	maxBudget *float64
+}
+
 func newFakeGateway(t *testing.T) (*fakeGateway, string) {
 	t.Helper()
-	g := &fakeGateway{spendFor: map[string][]map[string]any{}, nextKey: "sk-minted-1"}
+	g := &fakeGateway{
+		teams:    map[string]*fakeBudget{},
+		users:    map[string]*fakeBudget{},
+		spendFor: map[string][]map[string]any{},
+		calls:    map[string]int{},
+		nextKey:  "sk-minted-1",
+	}
 	srv := httptest.NewServer(g)
 	t.Cleanup(srv.Close)
 	return g, srv.URL
 }
 
+// setTeam seeds a team the way the gateway would hold it: spend and cap in
+// CENTS here, converted at the boundary, so a test never hand-writes the
+// dollars-vs-cents conversion the code under test owns.
+func (g *fakeGateway) setTeam(id string, spentCents, capCents int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.teams[id] = newFakeBudget(spentCents, capCents)
+}
+
+func (g *fakeGateway) setUser(id string, spentCents, capCents int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.users[id] = newFakeBudget(spentCents, capCents)
+}
+
+func newFakeBudget(spentCents, capCents int) *fakeBudget {
+	b := &fakeBudget{spend: float64(spentCents) / 100}
+	if capCents > 0 {
+		d := float64(capCents) / 100
+		b.maxBudget = &d
+	}
+	return b
+}
+
 func (g *fakeGateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.bearers = append(g.bearers, r.Header.Get("Authorization"))
+	g.calls[r.URL.Path]++
 	w.Header().Set("Content-Type", "application/json")
+
 	switch r.URL.Path {
 	case "/key/generate":
 		if g.mintStatus != 0 {
@@ -76,6 +109,7 @@ func (g *fakeGateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		g.minted = append(g.minted, body)
 		_ = json.NewEncoder(w).Encode(map[string]any{"key": g.nextKey})
+
 	case "/key/delete":
 		var body struct {
 			Keys []string `json:"keys"`
@@ -83,191 +117,123 @@ func (g *fakeGateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		g.deleted = append(g.deleted, body.Keys...)
 		_ = json.NewEncoder(w).Encode(map[string]any{"deleted_keys": body.Keys})
-	case "/spend/logs":
-		g.spendReads++
-		if g.spendStatus != 0 {
-			http.Error(w, `{"error":"database not connected"}`, g.spendStatus)
+
+	case "/team/info":
+		if g.teamInfoStatus != 0 {
+			http.Error(w, `{"error":"database not connected"}`, g.teamInfoStatus)
 			return
 		}
+		g.writeInfo(w, g.teams[r.URL.Query().Get("team_id")], "team_info")
+
+	case "/user/info":
+		g.writeInfo(w, g.users[r.URL.Query().Get("user_id")], "user_info")
+
+	case "/team/new":
+		g.upsert(w, r, g.teams, "team_id", true)
+
+	case "/team/update":
+		g.upsert(w, r, g.teams, "team_id", false)
+
+	case "/user/new":
+		g.upsert(w, r, g.users, "user_id", true)
+
+	case "/user/update":
+		g.upsert(w, r, g.users, "user_id", false)
+
+	case "/spend/logs":
 		rows := g.spendFor[r.URL.Query().Get("api_key")]
 		if rows == nil {
 			rows = []map[string]any{}
 		}
 		_ = json.NewEncoder(w).Encode(rows)
+
+	case "/team/daily/activity":
+		results := []map[string]any{}
+		for _, day := range g.daily {
+			ents := map[string]any{}
+			for team, m := range day {
+				ents[team] = map[string]any{"metrics": m}
+			}
+			results = append(results, map[string]any{
+				"date":      "2026-09-06",
+				"metrics":   map[string]any{},
+				"breakdown": map[string]any{"entities": ents},
+			})
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"results": results})
+
 	default:
 		http.NotFound(w, r)
 	}
 }
 
-func (g *fakeGateway) snapshot() ([]map[string]any, []string, int) {
+// writeInfo answers the /team/info and /user/info shape: the row nested under
+// its own key, or 404 when the gateway holds none.
+func (g *fakeGateway) writeInfo(w http.ResponseWriter, b *fakeBudget, key string) {
+	if b == nil {
+		http.Error(w, `{"error":{"message":"not found","code":"404"}}`, http.StatusNotFound)
+		return
+	}
+	info := map[string]any{"spend": b.spend, "max_budget": nil}
+	if b.maxBudget != nil {
+		info["max_budget"] = *b.maxBudget
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{key: info})
+}
+
+// upsert is the /team/new + /team/update pair (and the user twin). create=true
+// refuses a duplicate with 400, which is what the real /team/new does and why
+// the gate has to read before it writes.
+func (g *fakeGateway) upsert(w http.ResponseWriter, r *http.Request, into map[string]*fakeBudget, idField string, create bool) {
+	var body map[string]any
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	id, _ := body[idField].(string)
+	if create && into[id] != nil {
+		http.Error(w, `{"error":"already exists"}`, http.StatusBadRequest)
+		return
+	}
+	b := into[id]
+	if b == nil {
+		b = &fakeBudget{}
+		into[id] = b
+	}
+	b.maxBudget = nil
+	if v, ok := body["max_budget"].(float64); ok {
+		b.maxBudget = &v
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{idField: id})
+}
+
+func (g *fakeGateway) snapshot() ([]map[string]any, []string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	return append([]map[string]any(nil), g.minted...), append([]string(nil), g.deleted...), g.spendReads
+	return append([]map[string]any(nil), g.minted...), append([]string(nil), g.deleted...)
+}
+
+// teamCap reports the cap the gateway now holds for a team, in cents, and
+// whether it holds a team at all.
+func (g *fakeGateway) teamCap(id string) (int, bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	b := g.teams[id]
+	if b == nil {
+		return 0, false
+	}
+	if b.maxBudget == nil {
+		return 0, true
+	}
+	return int(*b.maxBudget*100 + 0.5), true
+}
+
+func (g *fakeGateway) callCount(path string) int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.calls[path]
 }
 
 func keyHash(key string) string {
 	sum := sha256.Sum256([]byte(key))
 	return hex.EncodeToString(sum[:])
-}
-
-// The key a turn hands its container is scoped in both dimensions the spec
-// promises: a TTL taken from the run ceiling and a budget taken from what the
-// folder may still spend today. Without them the container holds a credential
-// that outlives the turn and buys as much as the operator's own key.
-func TestGatewayMintCarriesTTLAndBudget(t *testing.T) {
-	fake, url := newFakeGateway(t)
-	gw := newModelGateway(url, "sk-master")
-
-	key, err := gw.mint(context.Background(), "arizuko-turn-1-ab12", "atlas/support", "turn-1",
-		20*time.Minute, 250)
-	if err != nil {
-		t.Fatalf("mint: %v", err)
-	}
-	if key.Key != "sk-minted-1" || key.Hash != keyHash("sk-minted-1") {
-		t.Fatalf("mint returned %+v; Hash must be sha256(Key), which is how /spend/logs names it", key)
-	}
-	minted, _, _ := fake.snapshot()
-	if len(minted) != 1 {
-		t.Fatalf("mint sent %d requests, want 1", len(minted))
-	}
-	body := minted[0]
-	if body["duration"] != "1200s" {
-		t.Errorf("duration = %v, want 1200s (the run ceiling) — a key with no TTL outlives its turn", body["duration"])
-	}
-	if body["max_budget"] != 2.5 {
-		t.Errorf("max_budget = %v, want 2.5 (250 cents in dollars) — the folder's remaining cap "+
-			"is what stops a runaway turn at the boundary", body["max_budget"])
-	}
-	if body["key_alias"] != "arizuko-turn-1-ab12" {
-		t.Errorf("key_alias = %v; the alias is how an operator finds this turn's key", body["key_alias"])
-	}
-	meta, _ := body["metadata"].(map[string]any)
-	if meta["folder"] != "atlas/support" || meta["turn_id"] != "turn-1" {
-		t.Errorf("metadata = %v, want the folder and turn this key was minted for", meta)
-	}
-	if got := fake.bearers[0]; got != "Bearer sk-master" {
-		t.Errorf("mint authorised with %q, want the master key", got)
-	}
-}
-
-// An uncapped folder has no budget to hand the key. Sending one anyway would
-// be a per-turn ceiling the operator never set, and the first turn over it
-// would fail with no rule behind the refusal.
-func TestGatewayMintOmitsBudgetWhenTheFolderIsUncapped(t *testing.T) {
-	fake, url := newFakeGateway(t)
-	gw := newModelGateway(url, "sk-master")
-
-	if _, err := gw.mint(context.Background(), "a", "atlas", "turn-1", 0, 0); err != nil {
-		t.Fatalf("mint: %v", err)
-	}
-	minted, _, _ := fake.snapshot()
-	if _, ok := minted[0]["max_budget"]; ok {
-		t.Errorf("mint sent max_budget for an uncapped folder: %v", minted[0])
-	}
-	if _, ok := minted[0]["duration"]; ok {
-		t.Errorf("mint sent a duration with no run ceiling configured: %v", minted[0])
-	}
-}
-
-// The gateway's own log is the source cost_log takes: per model, tokens summed
-// and dollars rounded to cents ONCE over the model's total. Rounding each
-// request would book a turn of sub-cent calls as zero.
-func TestGatewaySpendAggregatesPerModel(t *testing.T) {
-	fake, url := newFakeGateway(t)
-	gw := newModelGateway(url, "sk-master")
-	hash := keyHash("sk-minted-1")
-	fake.spendFor[hash] = []map[string]any{
-		{"model": "claude-opus-4", "spend": 0.004, "prompt_tokens": 100, "completion_tokens": 20},
-		{"model": "claude-opus-4", "spend": 0.004, "prompt_tokens": 50, "completion_tokens": 10},
-		{"model": "claude-haiku-4", "spend": 0.031, "prompt_tokens": 7, "completion_tokens": 3},
-	}
-
-	got, err := gw.spend(context.Background(), hash)
-	if err != nil {
-		t.Fatalf("spend: %v", err)
-	}
-	opus := got["claude-opus-4"]
-	if opus.Input != 150 || opus.Output != 30 {
-		t.Errorf("opus tokens = %+v, want 150 in / 30 out summed across its requests", opus)
-	}
-	if opus.CostCents != 1 {
-		t.Errorf("opus cost = %d cents, want 1: $0.008 rounds once over the model's total, "+
-			"not per request (which would book 0)", opus.CostCents)
-	}
-	if haiku := got["claude-haiku-4"]; haiku.CostCents != 3 {
-		t.Errorf("haiku cost = %d cents, want 3", haiku.CostCents)
-	}
-}
-
-// litellm writes spend rows on a batch timer, so the read taken the instant a
-// container exits sees nothing. The wait is what makes the turn boundary a
-// usable place to read from at all.
-func TestGatewayWaitForSpendPollsUntilTheFlushLands(t *testing.T) {
-	fake, url := newFakeGateway(t)
-	gw := newModelGateway(url, "sk-master")
-	gw.spendFlush = 3 * time.Second
-	hash := keyHash("sk-minted-1")
-	go func() {
-		time.Sleep(1500 * time.Millisecond)
-		fake.mu.Lock()
-		fake.spendFor[hash] = []map[string]any{
-			{"model": "m", "spend": 0.02, "prompt_tokens": 1, "completion_tokens": 1},
-		}
-		fake.mu.Unlock()
-	}()
-
-	got, err := gw.waitForSpend(context.Background(), hash)
-	if err != nil {
-		t.Fatalf("waitForSpend: %v", err)
-	}
-	if got["m"].CostCents != 2 {
-		t.Fatalf("waitForSpend = %+v; it gave up before the gateway flushed the turn's usage", got)
-	}
-	if _, _, reads := fake.snapshot(); reads < 2 {
-		t.Errorf("waitForSpend read once (%d); an unflushed first read must be retried, not believed", reads)
-	}
-}
-
-// A read that fails and a turn that spent nothing must never look the same:
-// only the first one means the folder's cap has stopped counting.
-func TestGatewayWaitForSpendReportsAFailedReadAsAnError(t *testing.T) {
-	fake, url := newFakeGateway(t)
-	fake.spendStatus = http.StatusInternalServerError
-	gw := newModelGateway(url, "sk-master")
-	gw.spendFlush = 0
-
-	got, err := gw.waitForSpend(context.Background(), keyHash("sk-minted-1"))
-	if err == nil {
-		t.Fatalf("waitForSpend = %+v, nil; a 500 must not read as a zero-cost turn", got)
-	}
-	if !strings.Contains(err.Error(), "500") {
-		t.Errorf("error %q does not carry the gateway's status", err)
-	}
-}
-
-// Revocation is deleting the key — the spec's whole claim that a leaked
-// credential is scoped to one turn rests on this call happening.
-func TestGatewayRevokeDeletesTheKey(t *testing.T) {
-	fake, url := newFakeGateway(t)
-	gw := newModelGateway(url, "sk-master")
-
-	if err := gw.revoke(context.Background(), "sk-minted-1"); err != nil {
-		t.Fatalf("revoke: %v", err)
-	}
-	if _, deleted, _ := fake.snapshot(); len(deleted) != 1 || deleted[0] != "sk-minted-1" {
-		t.Fatalf("revoke deleted %v, want [sk-minted-1]", deleted)
-	}
-}
-
-// A gateway URL with no master key mints nothing; the pair is the declaration,
-// and the URL alone is what decides whether the instance has a gateway.
-func TestNewGatewayIfConfigured(t *testing.T) {
-	if gw := newGatewayIfConfigured("", "sk-master"); gw != nil {
-		t.Error("no URL must yield no gateway: the instance runs the harness's own credential")
-	}
-	if gw := newGatewayIfConfigured("http://gw:4000/", "sk-master"); gw == nil || gw.baseURL != "http://gw:4000" {
-		t.Errorf("newGatewayIfConfigured = %+v; the trailing slash must go or every path doubles it", gw)
-	}
 }
 
 // keyRunner records the run request and answers a clean turn boundary.
@@ -290,17 +256,227 @@ func gatewayLoop(t *testing.T, folder string) (*DB, *Loop, *keyRunner, *fakeGate
 	fake, url := newFakeGateway(t)
 	runner := &keyRunner{}
 	loop := NewLoop(db, runner, LoopConfig{
-		GroupsDir:  t.TempDir(),
-		RunTimeout: 20 * time.Minute,
-		GatewayURL: url,
-		GatewayKey: "sk-master",
+		GroupsDir:       t.TempDir(),
+		RunTimeout:      20 * time.Minute,
+		GatewayURL:      url,
+		GatewayKey:      "sk-master",
+		CostCapsEnabled: true,
 	})
 	loop.StopQueue()
-	loop.gateway.spendFlush = 0
 	_ = db.PutGroup(core.Group{Folder: folder})
 	_ = db.PutMessage(core.Message{ID: "a", ChatJID: "web:" + folder, Sender: "u",
 		Content: "q", Timestamp: time.Now().UTC()})
 	return db, loop, runner, fake
+}
+
+// The key a turn hands its container carries the two coordinates the meter
+// attributes by — the folder as its team, the caller as its user. Both are set
+// by routd on a credential the container only holds, which is what stops the
+// spender choosing whose budget it spends.
+func TestMintCarriesTheFolderAndTheCaller(t *testing.T) {
+	fake, url := newFakeGateway(t)
+	gw := newModelGateway(url, "sk-master")
+
+	if _, err := gw.mint(context.Background(), "alias", "corp/eng", "t1", "user:alice", 20*time.Minute); err != nil {
+		t.Fatalf("mint: %v", err)
+	}
+	minted, _ := fake.snapshot()
+	if len(minted) != 1 {
+		t.Fatalf("minted %d keys, want 1", len(minted))
+	}
+	if got := minted[0]["team_id"]; got != "corp/eng" {
+		t.Errorf("key team_id = %v, want the folder corp/eng — the gateway attributes and caps by team", got)
+	}
+	if got := minted[0]["user_id"]; got != "user:alice" {
+		t.Errorf("key user_id = %v, want the caller user:alice — per-person spend is attributed by it", got)
+	}
+	if got := minted[0]["duration"]; got != "1200s" {
+		t.Errorf("key duration = %v, want 1200s — the key must not outlive the run ceiling", got)
+	}
+}
+
+// The key carries no budget of its own: the folder's cap is the team's and the
+// person's is the user's. A per-turn ceiling invented here would be a third
+// policy the operator never set.
+func TestMintCarriesNoBudgetOfItsOwn(t *testing.T) {
+	fake, url := newFakeGateway(t)
+	gw := newModelGateway(url, "sk-master")
+
+	if _, err := gw.mint(context.Background(), "alias", "demo", "t1", "user:a", time.Minute); err != nil {
+		t.Fatalf("mint: %v", err)
+	}
+	minted, _ := fake.snapshot()
+	if _, ok := minted[0]["max_budget"]; ok {
+		t.Errorf("the key carried max_budget=%v; the team enforces the folder's cap, "+
+			"and a second ceiling here is a policy nobody set", minted[0]["max_budget"])
+	}
+}
+
+// A caller with no sub is attributed to its team alone rather than to a user
+// named "", which would collect every anonymous turn under one budget.
+func TestMintOmitsAnEmptyCaller(t *testing.T) {
+	fake, url := newFakeGateway(t)
+	gw := newModelGateway(url, "sk-master")
+
+	if _, err := gw.mint(context.Background(), "alias", "demo", "t1", "", time.Minute); err != nil {
+		t.Fatalf("mint: %v", err)
+	}
+	minted, _ := fake.snapshot()
+	if _, ok := minted[0]["user_id"]; ok {
+		t.Errorf("key carried user_id=%v for a caller with no sub", minted[0]["user_id"])
+	}
+}
+
+// A folder the gateway has never seen gets its team created, carrying the
+// operator's cap. Without this every model call on the turn's key fails 404
+// "Team doesn't exist in db" — the team is a precondition of the turn, not an
+// optimisation for capped folders.
+func TestGateCreatesTheTeamWhenTheGatewayHasNone(t *testing.T) {
+	db, loop, _, fake := gatewayLoop(t, "demo")
+	if err := db.SetFolderCap("demo", 500); err != nil {
+		t.Fatal(err)
+	}
+
+	refusal, err := loop.budgetGate(context.Background(), "demo", "user:a")
+	if err != nil || refusal != "" {
+		t.Fatalf("gate = (%q, %v), want the turn allowed", refusal, err)
+	}
+	cap, ok := fake.teamCap("demo")
+	if !ok {
+		t.Fatal("the gate did not create the folder's team; every model call on this turn's key would 404")
+	}
+	if cap != 500 {
+		t.Errorf("created team cap = %d cents, want the operator's 500", cap)
+	}
+}
+
+// The operator's cap is arizuko's policy and the gateway's job is only to
+// enforce it, so a cap the operator changed moves the team's budget with it.
+func TestGateConvergesTheTeamOnTheOperatorsCap(t *testing.T) {
+	db, loop, _, fake := gatewayLoop(t, "demo")
+	fake.setTeam("demo", 0, 100)
+	if err := db.SetFolderCap("demo", 900); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := loop.budgetGate(context.Background(), "demo", "user:a"); err != nil {
+		t.Fatalf("gate: %v", err)
+	}
+	if cap, _ := fake.teamCap("demo"); cap != 900 {
+		t.Errorf("team cap = %d cents, want 900 — the gateway kept enforcing a cap the operator replaced", cap)
+	}
+}
+
+// Removing a cap has to CLEAR the gateway's, not merely stop arizuko checking
+// it. A budget left standing would keep refusing turns the operator no longer
+// caps, and no arizuko surface would show why.
+func TestGateClearsTheGatewayCapWhenTheOperatorRemovesIt(t *testing.T) {
+	db, loop, _, fake := gatewayLoop(t, "demo")
+	fake.setTeam("demo", 0, 400)
+	if err := db.SetFolderCap("demo", 0); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := loop.budgetGate(context.Background(), "demo", "user:a"); err != nil {
+		t.Fatalf("gate: %v", err)
+	}
+	cap, ok := fake.teamCap("demo")
+	if !ok {
+		t.Fatal("team vanished")
+	}
+	if cap != 0 {
+		t.Errorf("team cap = %d cents after the operator removed the cap, want 0 (uncapped)", cap)
+	}
+}
+
+// An unchanged cap costs no write. The gate runs on every turn, so a blind
+// update would be one pointless round trip per dispatch.
+func TestGateDoesNotRewriteAnUnchangedCap(t *testing.T) {
+	db, loop, _, fake := gatewayLoop(t, "demo")
+	fake.setTeam("demo", 0, 500)
+	if err := db.SetFolderCap("demo", 500); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := loop.budgetGate(context.Background(), "demo", "user:a"); err != nil {
+		t.Fatalf("gate: %v", err)
+	}
+	if n := fake.callCount("/team/update"); n != 0 {
+		t.Errorf("/team/update called %d times for an unchanged cap, want 0", n)
+	}
+}
+
+// The refusal quotes the GATEWAY's numbers, because they are the only ones
+// there are — arizuko holds no spend to disagree with them.
+func TestGateRefusesOnTheGatewaysFolderMeter(t *testing.T) {
+	db, loop, _, fake := gatewayLoop(t, "demo")
+	fake.setTeam("demo", 700, 500)
+	if err := db.SetFolderCap("demo", 500); err != nil {
+		t.Fatal(err)
+	}
+
+	refusal, err := loop.budgetGate(context.Background(), "demo", "user:a")
+	if err != nil {
+		t.Fatalf("gate: %v", err)
+	}
+	if !strings.Contains(refusal, "channel spent 700 of 500 cents") {
+		t.Errorf("refusal = %q, want the gateway's own spend and cap in it", refusal)
+	}
+}
+
+// The person axis refuses on the same meter, so a caller who has spent their
+// day's budget is stopped in a folder that still has headroom.
+func TestGateRefusesOnTheGatewaysUserMeter(t *testing.T) {
+	db, loop, _, fake := gatewayLoop(t, "demo")
+	fake.setTeam("demo", 0, 0)
+	fake.setUser("user:a", 300, 200)
+	seedUser(t, db, "user:a", 200)
+
+	refusal, err := loop.budgetGate(context.Background(), "demo", "user:a")
+	if err != nil {
+		t.Fatalf("gate: %v", err)
+	}
+	if !strings.Contains(refusal, "you spent 300 of 200 cents") {
+		t.Errorf("refusal = %q, want the gateway's per-person numbers", refusal)
+	}
+}
+
+// An uncapped caller is metered through the key's user_id whether or not the
+// gateway holds a row for them, so the gate must not spend a round trip
+// looking one up. Platform senders are almost all of them.
+func TestGateAsksNothingAboutAnUncappedCaller(t *testing.T) {
+	_, loop, _, fake := gatewayLoop(t, "demo")
+	fake.setTeam("demo", 0, 0)
+
+	if _, err := loop.budgetGate(context.Background(), "demo", "telegram:user/1"); err != nil {
+		t.Fatalf("gate: %v", err)
+	}
+	if n := fake.callCount("/user/info"); n != 0 {
+		t.Errorf("/user/info called %d times for an uncapped caller, want 0", n)
+	}
+}
+
+// A gateway that will not answer leaves the cap blind, and a turn dispatched
+// against a blind meter is the second ledger this spec removes. It fails as a
+// dependency outage so the batch re-feeds, exactly like a refused mint.
+func TestGateRefusesToSpawnWhenTheGatewayIsSilent(t *testing.T) {
+	db, loop, runner, fake := gatewayLoop(t, "demo")
+	fake.teamInfoStatus = http.StatusInternalServerError
+	if err := db.SetFolderCap("demo", 500); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := loop.processGroupMessages("web:demo")
+	if err == nil {
+		t.Fatal("a silent gateway must fail the turn, not spawn against a meter nobody read")
+	}
+	if !errors.Is(err, queue.ErrDependencyDown) {
+		t.Errorf("err = %v, want a dependency outage so the batch re-feeds "+
+			"and the folder's breaker streak is left alone", err)
+	}
+	if runner.req.TurnID != "" {
+		t.Fatalf("a run was dispatched anyway: %+v", runner.req)
+	}
 }
 
 // The container gets a key minted for THIS turn and the master key stays in
@@ -319,7 +495,7 @@ func TestTurnMintsItsOwnKeyAndRevokesItAfter(t *testing.T) {
 	if runner.req.ModelGatewayKey == "sk-master" {
 		t.Fatal("the run carried the MASTER key; it authorises the mint and never leaves routd")
 	}
-	minted, deleted, _ := fake.snapshot()
+	minted, deleted := fake.snapshot()
 	if len(minted) != 1 {
 		t.Fatalf("turn minted %d keys, want exactly 1", len(minted))
 	}
@@ -343,149 +519,135 @@ func TestTurnRefusesToSpawnWhenTheMintFails(t *testing.T) {
 	}
 }
 
-// cost_log takes the gateway's number. The agent's own submit_turn report is
-// not the row, so an agent that under-reports moves nothing.
-func TestGatewaySpendBecomesTheCostLogRow(t *testing.T) {
-	db, loop, _, fake := gatewayLoop(t, "demo")
-	fake.spendFor[keyHash("sk-minted-1")] = []map[string]any{
-		{"model": "claude-opus-4", "spend": 0.42, "prompt_tokens": 900, "completion_tokens": 120},
-	}
+// The turn records WHICH key metered it. That pointer is what GET /v1/cost
+// resolves to ask the gateway what the turn cost, and it is the only thing
+// arizuko keeps in place of the copy it used to write.
+func TestTurnRecordsTheKeyThatMeteredIt(t *testing.T) {
+	db, loop, runner, _ := gatewayLoop(t, "demo")
 
 	if _, err := loop.processGroupMessages("web:demo"); err != nil {
 		t.Fatalf("process: %v", err)
 	}
-
-	var model string
-	var in, out, cents int
-	err := db.SQL().QueryRow(
-		`SELECT model, input_tokens, output_tokens, cost_cents FROM cost_log WHERE folder='demo'`).
-		Scan(&model, &in, &out, &cents)
+	got, err := db.TurnGatewayKey(runner.req.TurnID)
 	if err != nil {
-		t.Fatalf("cost_log has no row for the turn: %v", err)
-	}
-	if model != "claude-opus-4" || in != 900 || out != 120 || cents != 42 {
-		t.Errorf("cost_log row = %s %d/%d %dc, want claude-opus-4 900/120 42c from the gateway",
-			model, in, out, cents)
-	}
-}
-
-// A run whose response never came back may still be spending, and routd holds
-// the only key it can be spending on. Losing the reply must not lose the turn's
-// accounting too.
-func TestALostRunResponseStillBooksTheTurn(t *testing.T) {
-	db, loop, _, fake := gatewayLoop(t, "demo")
-	loop.runner = runnerFunc(func(context.Context, runedv1.RunRequest) (runedv1.RunOutcome, error) {
-		return runedv1.RunOutcome{}, errors.New("read tcp: i/o timeout")
-	})
-	fake.spendFor[keyHash("sk-minted-1")] = []map[string]any{
-		{"model": "m", "spend": 0.15, "prompt_tokens": 5, "completion_tokens": 5},
-	}
-
-	if _, err := loop.processGroupMessages("web:demo"); err == nil {
-		t.Fatal("a transport failure must still surface as an error")
-	}
-
-	var cents int
-	if err := db.SQL().QueryRow(
-		`SELECT cost_cents FROM cost_log WHERE folder='demo'`).Scan(&cents); err != nil {
-		t.Fatalf("a lost run response booked no cost: %v", err)
-	}
-	if cents != 15 {
-		t.Errorf("cost_cents = %d, want 15", cents)
-	}
-}
-
-// The mirror: a refusal that admitted nothing has no rows to wait for, so the
-// boundary must not sit out the whole flush window on every Busy poll.
-func TestABusyDispatchNeverWaitsForSpend(t *testing.T) {
-	db, loop, _, fake := gatewayLoop(t, "demo")
-	loop.gateway.spendFlush = time.Hour
-	loop.runner = runnerFunc(func(context.Context, runedv1.RunRequest) (runedv1.RunOutcome, error) {
-		return runedv1.RunOutcome{Busy: true}, nil
-	})
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		_, _ = loop.processGroupMessages("web:demo")
-	}()
-	select {
-	case <-done:
-	case <-time.After(20 * time.Second):
-		t.Fatal("a Busy dispatch waited on the gateway's flush window; nothing ran, so nothing can land")
-	}
-
-	if _, _, reads := fake.snapshot(); reads != 0 {
-		t.Errorf("a Busy dispatch read /spend/logs %d times; it admitted no run", reads)
-	}
-	var rows int
-	if err := db.SQL().QueryRow(`SELECT COUNT(*) FROM cost_log`).Scan(&rows); err != nil {
 		t.Fatal(err)
 	}
-	if rows != 0 {
-		t.Errorf("a Busy dispatch booked %d cost rows", rows)
+	if got != keyHash("sk-minted-1") {
+		t.Errorf("turn's gateway_key_hash = %q, want sha256 of the minted key — "+
+			"without it the turn's cost is unreadable", got)
 	}
 }
 
-// runnerFunc adapts a func to the Runner seam.
-type runnerFunc func(context.Context, runedv1.RunRequest) (runedv1.RunOutcome, error)
-
-func (f runnerFunc) Run(ctx context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
-	return f(ctx, req)
-}
-
-// The agent's self-report is corroboration on a gateway instance, never the
-// row. Writing it would let a turn book its own number into the primary key
-// the gateway's measurement needs.
-func TestAgentReportedCostIsNotWrittenWhenTheGatewayMeters(t *testing.T) {
-	db, loop, _, _ := gatewayLoop(t, "demo")
-	srv := NewServer(db, loop, nil, nil, time.Minute, "")
-	loop.BindServer(srv)
-	if _, err := db.PutTurnContext("turn-x", "demo", "", "web:demo", "u", ""); err != nil {
-		t.Fatalf("put turn context: %v", err)
-	}
-
-	if _, err := srv.recordTurnResult("turn-x", turnResultWithModels()); err != nil {
-		t.Fatalf("recordTurnResult: %v", err)
-	}
-
-	var rows int
-	if err := db.SQL().QueryRow(`SELECT COUNT(*) FROM cost_log WHERE turn_id='turn-x'`).Scan(&rows); err != nil {
-		t.Fatal(err)
-	}
-	if rows != 0 {
-		t.Errorf("submit_turn wrote %d cost_log rows on a gateway instance; the spender's own "+
-			"number must never become the row", rows)
-	}
-}
-
-// The mirror: with no gateway the agent's report is the ONLY number there is,
-// so it stays the row.
-func TestAgentReportedCostIsTheRowWithNoGateway(t *testing.T) {
+// An instance with no gateway has no meter. It still runs turns: the harness is
+// supported without one, and refusing every turn would break it.
+func TestNoGatewaySpawnsAndEnforcesNothing(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
-		t.Fatalf("open mem: %v", err)
+		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	loop := NewLoop(db, &keyRunner{}, LoopConfig{GroupsDir: t.TempDir()})
+	runner := &keyRunner{}
+	loop := NewLoop(db, runner, LoopConfig{GroupsDir: t.TempDir(), CostCapsEnabled: true})
 	loop.StopQueue()
-	srv := NewServer(db, loop, nil, nil, time.Minute, "")
-	loop.BindServer(srv)
 	_ = db.PutGroup(core.Group{Folder: "demo"})
-	if _, err := db.PutTurnContext("turn-y", "demo", "", "web:demo", "u", ""); err != nil {
-		t.Fatalf("put turn context: %v", err)
+	_ = db.SetFolderCap("demo", 1)
+	_ = db.PutMessage(core.Message{ID: "a", ChatJID: "web:demo", Sender: "u",
+		Content: "q", Timestamp: time.Now().UTC()})
+
+	refusal, err := loop.budgetGate(context.Background(), "demo", "user:a")
+	if err != nil || refusal != "" {
+		t.Fatalf("gate = (%q, %v); with no meter there is nothing to refuse on", refusal, err)
+	}
+	if _, err := loop.processGroupMessages("web:demo"); err != nil {
+		t.Fatalf("an instance with no gateway must still run turns: %v", err)
+	}
+	if runner.req.ModelGatewayKey != "" {
+		t.Errorf("run carried a gateway key %q on an instance with no gateway", runner.req.ModelGatewayKey)
+	}
+}
+
+func TestNewGatewayIfConfigured(t *testing.T) {
+	if gw := newGatewayIfConfigured("", "sk-master"); gw != nil {
+		t.Error("no URL must yield no gateway: the instance runs the harness's own credential")
+	}
+	if gw := newGatewayIfConfigured("http://gw:4000/", "sk-master"); gw == nil || gw.baseURL != "http://gw:4000" {
+		t.Errorf("newGatewayIfConfigured = %+v; the trailing slash must go or every path doubles it", gw)
+	}
+}
+
+// A read for an entity the gateway does not hold is a distinct condition, not a
+// failure: it is exactly what tells the gate to create one. Reporting it as an
+// error would make every folder's first turn a dependency outage.
+func TestAbsentEntityReadsAsNotFound(t *testing.T) {
+	_, url := newFakeGateway(t)
+	gw := newModelGateway(url, "sk-master")
+
+	if _, err := gw.teamBudget(context.Background(), "nope"); !errors.Is(err, errGatewayNotFound) {
+		t.Errorf("teamBudget for an absent team = %v, want errGatewayNotFound", err)
+	}
+	if _, err := gw.userBudget(context.Background(), "nobody"); !errors.Is(err, errGatewayNotFound) {
+		t.Errorf("userBudget for an absent user = %v, want errGatewayNotFound", err)
+	}
+}
+
+// The gateway speaks dollars and every arizuko surface speaks whole cents, so
+// the conversion happens once at the boundary and rounds the TOTAL — a turn of
+// many sub-cent calls reports what it cost rather than a column of zeroes.
+func TestKeySpendSumsTheModelsAndRoundsTheTotalOnce(t *testing.T) {
+	fake, url := newFakeGateway(t)
+	gw := newModelGateway(url, "sk-master")
+	fake.spendFor["h1"] = []map[string]any{
+		{"model": "opus", "spend": 0.004, "prompt_tokens": 10, "completion_tokens": 2},
+		{"model": "opus", "spend": 0.004, "prompt_tokens": 5, "completion_tokens": 3},
+		{"model": "haiku", "spend": 0.004, "prompt_tokens": 1, "completion_tokens": 1},
 	}
 
-	if _, err := srv.recordTurnResult("turn-y", turnResultWithModels()); err != nil {
-		t.Fatalf("recordTurnResult: %v", err)
+	got, err := gw.keySpend(context.Background(), "h1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 3 × $0.004 = $0.012 → 1 cent. Rounded per row it would be 0.
+	if got.CostCents != 1 {
+		t.Errorf("cost = %d cents, want 1 — rounding each request instead of the "+
+			"total reports a turn of sub-cent calls as free", got.CostCents)
+	}
+	if got.InputTokens != 16 || got.OutputTokens != 6 {
+		t.Errorf("tokens = in %d out %d, want in 16 out 6", got.InputTokens, got.OutputTokens)
+	}
+	if got.Requests != 3 {
+		t.Errorf("requests = %d, want 3 — an empty read is how an unflushed turn "+
+			"is told apart from one that spent nothing", got.Requests)
+	}
+}
+
+// The operator's per-folder read sums the gateway's days into one row per
+// folder. The daily surface reports a row per DAY with each team's share
+// nested under it, so a reader that took the day's top-level metrics would
+// report every folder's spend as the instance's total.
+func TestSpendByFolderSumsTheDaysPerFolder(t *testing.T) {
+	fake, url := newFakeGateway(t)
+	gw := newModelGateway(url, "sk-master")
+	fake.daily = []map[string]map[string]any{
+		{
+			"corp/eng": {"spend": 0.10, "prompt_tokens": 100, "completion_tokens": 10},
+			"solo":     {"spend": 0.01, "prompt_tokens": 5, "completion_tokens": 1},
+		},
+		{
+			"corp/eng": {"spend": 0.20, "prompt_tokens": 200, "completion_tokens": 20},
+		},
 	}
 
-	var cents int
-	if err := db.SQL().QueryRow(
-		`SELECT cost_cents FROM cost_log WHERE turn_id='turn-y'`).Scan(&cents); err != nil {
-		t.Fatalf("no cost_log row from the agent's report: %v", err)
+	rows, err := gw.spendByFolder(context.Background(), "2026-09-01", "2026-09-07")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if cents != 7 {
-		t.Errorf("cost_cents = %d, want 7 from the agent's submit_turn report", cents)
+	if len(rows) != 2 {
+		t.Fatalf("rows = %+v, want one per folder", rows)
+	}
+	if rows[0].Folder != "corp/eng" || rows[0].CostCents != 30 || rows[0].Tokens != 330 {
+		t.Errorf("corp/eng = %+v, want 30 cents and 330 tokens summed across both days", rows[0])
+	}
+	if rows[1].Folder != "solo" || rows[1].CostCents != 1 || rows[1].Tokens != 6 {
+		t.Errorf("solo = %+v, want 1 cent and 6 tokens", rows[1])
 	}
 }

@@ -1,7 +1,6 @@
 package routd
 
 import (
-	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -215,34 +214,14 @@ func (s *Server) handleSessionGet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, apiv1.SessionResponse{SessionID: s.db.SessionID(folder, r.URL.Query().Get("topic"))})
 }
 
-func (s *Server) handleCost(w http.ResponseWriter, r *http.Request) {
-	_, folder, ok := s.authz(w, r, scopeCost...)
-	if !ok {
-		return
-	}
-	var req apiv1.CostRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, "bad_request", err.Error())
-		return
-	}
-	if !ownsFolder(folder, req.Folder) {
-		denyCrossFolder(w, req.Folder)
-		return
-	}
-	if err := s.db.LogExternalCost(req.Folder, req.Provider, req.Model,
-		req.InputTokens, req.OutputTokens, req.CostCents); err != nil {
-		writeErr(w, 500, "store_error", err.Error())
-		return
-	}
-	writeJSON(w, 200, apiv1.OK{OK: true})
-}
-
-// handleCostGet is the read twin of the cost surface: one turn's spend summed
-// across models. Closes spec 5/9's honest gap (a) — before this, cost was
-// write-only over REST, so external budget checks (anteval max_tokens) read 0.
-// handleCostSummary answers GET /v1/cost/summary?folder=&since= — spend per
-// folder over a window (spec 6/30). The per-turn face below answers a different
-// question and cannot be aggregated by a caller without reading every turn.
+// handleCostSummary answers GET /v1/cost/summary?folder=&since= — what the
+// model gateway metered per folder over a window (spec 6/39). arizuko keeps no
+// spend of its own, so this is a proxied read: the gateway is the ledger and
+// this is the one place every operator surface reaches it, which is what stops
+// the dashboard and the CLI showing two different numbers.
+//
+// An instance with no gateway has no meter, and the reply says so rather than
+// reporting a zero that reads like "nothing was spent".
 //
 // The token's folder claim narrows the result the same way every other read
 // here does: an empty claim (root / service) sees everything, a folder-scoped
@@ -263,19 +242,49 @@ func (s *Server) handleCostSummary(w http.ResponseWriter, r *http.Request) {
 	}
 	since := r.URL.Query().Get("since")
 	if since == "" {
-		// A summary with no window would scan every row ever recorded and
-		// report a lifetime total as if it were current.
+		// A summary with no window would report a lifetime total as if it were
+		// current.
 		writeErr(w, 400, "bad_request", "since required (RFC3339)")
 		return
 	}
-	rows, err := s.db.CostSummary(folder, since)
-	if err != nil {
-		writeErr(w, 500, "store_error", err.Error())
+	gw := s.gateway()
+	if gw == nil {
+		writeJSON(w, 200, apiv1.CostSummaryResponse{Metered: false, Folders: []apiv1.FolderSpend{}})
 		return
 	}
-	writeJSON(w, 200, rows)
+	rows, err := gw.spendByFolder(r.Context(), gatewayDay(since), gatewayDay(core.TS(time.Now())))
+	if err != nil {
+		writeErr(w, 502, "gateway_error", err.Error())
+		return
+	}
+	out := make([]apiv1.FolderSpend, 0, len(rows))
+	for _, row := range rows {
+		if !ownsFolder(folder, row.Folder) {
+			continue
+		}
+		out = append(out, apiv1.FolderSpend{
+			Folder: row.Folder, Tokens: row.Tokens, CostCents: row.CostCents,
+		})
+	}
+	writeJSON(w, 200, apiv1.CostSummaryResponse{Metered: true, Folders: out})
 }
 
+// gatewayDay reduces an RFC3339 instant to the YYYY-MM-DD the gateway's daily
+// activity read is bounded by.
+func gatewayDay(ts string) string {
+	if len(ts) >= 10 {
+		return ts[:10]
+	}
+	return ts
+}
+
+// handleCostGet answers GET /v1/cost?turn_id= — what the gateway charged the
+// key that ran one turn. arizuko stores which key metered the turn, never the
+// number, so this resolves the pointer and asks (spec 6/39). anteval reads it
+// as the settle barrier between cases and as the max_tokens budget.
+//
+// 404 means no meter holds a number for this turn: it ran with no gateway, or
+// the gateway has not flushed its usage rows yet.
 func (s *Server) handleCostGet(w http.ResponseWriter, r *http.Request) {
 	_, tokenFolder, ok := s.authz(w, r, scopeCostRead...)
 	if !ok {
@@ -286,21 +295,37 @@ func (s *Server) handleCostGet(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "bad_request", "turn_id required")
 		return
 	}
-	folder, in, out, cents, found, err := s.db.CostByTurn(turnID)
+	tc, found := s.db.GetTurnContext(turnID)
+	if !found {
+		writeErr(w, 404, "not_found", "no such turn "+turnID)
+		return
+	}
+	if !ownsFolder(tokenFolder, tc.Folder) {
+		denyCrossFolder(w, tc.Folder)
+		return
+	}
+	hash, err := s.db.TurnGatewayKey(turnID)
 	if err != nil {
 		writeErr(w, 500, "store_error", err.Error())
 		return
 	}
-	if !found {
+	gw := s.gateway()
+	if hash == "" || gw == nil {
+		writeErr(w, 404, "not_found", "no meter recorded this turn "+turnID)
+		return
+	}
+	spend, err := gw.keySpend(r.Context(), hash)
+	if err != nil {
+		writeErr(w, 502, "gateway_error", err.Error())
+		return
+	}
+	if spend.Requests == 0 {
 		writeErr(w, 404, "not_found", "no cost recorded for turn "+turnID)
 		return
 	}
-	if !ownsFolder(tokenFolder, folder) {
-		denyCrossFolder(w, folder)
-		return
-	}
 	writeJSON(w, 200, apiv1.CostResponse{
-		TurnID: turnID, Folder: folder,
-		InputTokens: in, OutputTokens: out, CostCents: cents,
+		TurnID: turnID, Folder: tc.Folder,
+		InputTokens: spend.InputTokens, OutputTokens: spend.OutputTokens,
+		CostCents: spend.CostCents,
 	})
 }

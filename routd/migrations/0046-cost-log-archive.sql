@@ -1,0 +1,12 @@
+-- cost_log becomes history (spec 6/39).
+--
+-- The model gateway is the ledger now, so nothing writes these rows any more.
+-- They are NOT dropped: the table holds months of real spend from before the
+-- gateway metered anything — 8,848 rows and about $4,624 across the live
+-- instances as of 2026-09-06 — and LiteLLM's own store has no copy of it.
+--
+-- The rename is what makes the cutover safe rather than merely careful. A
+-- writer left behind anywhere fails loud on a missing table instead of quietly
+-- starting the second ledger this spec exists to remove. Nothing reads the
+-- archive; an operator queries it with sqlite3 when they want the history.
+ALTER TABLE cost_log RENAME TO cost_log_archive;

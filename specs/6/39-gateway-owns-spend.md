@@ -98,7 +98,8 @@ because nothing in arizuko holds a copy.
 
 - `cost_log`'s writers and readers — `PutCost`, `CostByTurn`, `CostSummary`
   over the table, `LogExternalCost`, the `log_external_cost` MCP tool, and
-  `POST`/`GET /v1/cost`.
+  `POST /v1/cost`. A call the agent makes outside the gateway is a bypassed
+  gateway, and the spec's answer to that is a log line, not a row.
 - `routd/db.go` `SpendTodayFolder` and `SpendTodayUser`.
 - `routd/budget.go`'s spend arithmetic. The pre-spawn gate stays as a shape
   but asks the gateway, and its refusal quotes the gateway's numbers.
@@ -112,8 +113,13 @@ because nothing in arizuko holds a copy.
 - **The cap decision.** What a folder may spend is an operator policy in
   arizuko's `groups` row, and what a person may spend is theirs in
   `user_profiles`. Only ENFORCEMENT moves; the gate pushes both to the gateway.
-- **The turn record.** `turns` keeps the turn, its folder, its caller and its
-  outcome. That is arizuko's data; what it cost is not.
+- **The turn record, including which key metered it.** `turn_context` keeps the
+  turn, its folder, its caller, its outcome and the sha256 of the key minted for
+  it. Which credential paid is the turn's own identity; what it bought is not.
+  That one pointer is what keeps `GET /v1/cost?turn_id=` answerable without a
+  copy — it resolves the turn to its key and asks the gateway. `anteval` reads
+  it as both the settle barrier between cases and the `max_tokens` budget, so
+  the endpoint stays; only its source moves.
 - **The agent's self-report, as a log line only.** With no gateway it is the
   only number there is, and with one it is the signature of a bypassed
   gateway when the two disagree.
