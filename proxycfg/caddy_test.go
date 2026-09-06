@@ -1,6 +1,7 @@
 package proxycfg
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -42,8 +43,8 @@ func TestCaddyfile_LongestPrefixFirst(t *testing.T) {
 }
 
 // TestCaddyfile_AuthenticatedRouteRefusesWithoutTheHop is the honesty check.
-// proxyd mints a service:proxyd bearer per request and no off-the-shelf proxy
-// can. Rendering the proxy hop with no forward-auth endpoint would serve an
+// proxyd holds a service:proxyd bearer and no off-the-shelf proxy can.
+// Rendering the proxy hop with no forward-auth endpoint would serve an
 // authenticated route to anyone, so it must refuse instead.
 func TestCaddyfile_AuthenticatedRouteRefusesWithoutTheHop(t *testing.T) {
 	out := render(t, []store.ProxydRoute{
@@ -85,16 +86,29 @@ func TestCaddyfile_AuthClassesMapToTheHop(t *testing.T) {
 	}
 }
 
-// TestCaddyfile_IdentityHeadersSurviveTheHop — a backend trusts X-User-* only
-// when the transit proof holds, so the hop must copy them through. Dropping
-// them silently logs every caller out.
+// TestCaddyfile_IdentityHeadersSurviveTheHop — the hop must copy through
+// EVERYTHING /auth/forward answers, not the subset a backend refuses without.
+// Authorization carries the transit proof and X-User-Sub the caller, so losing
+// either fails loudly; X-User-Name does not — webd records it as the sender
+// name on a posted message and dashd shows it in the nav, so a render that
+// drops it answers 200 and anonymises every caller.
 func TestCaddyfile_IdentityHeadersSurviveTheHop(t *testing.T) {
 	out := render(t, []store.ProxydRoute{
 		{Path: "/dash/", Backend: "dashd:8080", Auth: "user"},
 	}, Options{ForwardAuth: "authd:8080"})
-	for _, h := range []string{"X-User-Sub", "X-User-Groups", "Authorization"} {
-		if !strings.Contains(out, h) {
-			t.Errorf("copy_headers is missing %s:\n%s", h, out)
+
+	var copied string
+	for _, line := range strings.Split(out, "\n") {
+		if f := strings.Fields(line); len(f) > 0 && f[0] == "copy_headers" {
+			copied = strings.Join(f[1:], " ")
+		}
+	}
+	if copied == "" {
+		t.Fatalf("the hop copies no headers at all:\n%s", out)
+	}
+	for _, h := range []string{"Authorization", "X-User-Sub", "X-User-Name", "X-User-Groups"} {
+		if !slices.Contains(strings.Fields(copied), h) {
+			t.Errorf("copy_headers is missing %s: %q", h, copied)
 		}
 	}
 }

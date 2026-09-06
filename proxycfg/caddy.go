@@ -8,12 +8,11 @@
 // rewrite — the routing table already lives somewhere both can read.
 //
 // What it CANNOT render, and why that is step 3 rather than a gap here: proxyd
-// mints a `service:proxyd` ES256 bearer per request and trust-stamps X-User-*,
-// and no off-the-shelf proxy can mint that. Every authenticated route therefore
-// emits a `forward_auth` hop to an arizuko endpoint that must answer with the
-// proof. Until that endpoint exists the rendered config routes correctly and
-// authenticates nothing, so it is not a drop-in replacement and does not
-// pretend to be.
+// holds a `service:proxyd` ES256 bearer and trust-stamps X-User-*, and no
+// off-the-shelf proxy can hold that bearer. Every authenticated route therefore
+// emits a `forward_auth` hop to arizuko's /auth/forward, which answers with the
+// identity and the proof. Given no endpoint to hop to, an authenticated route
+// renders as a refusal rather than a proxy hop that would serve it open.
 package proxycfg
 
 import (
@@ -21,6 +20,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -33,10 +33,6 @@ type Options struct {
 	// routes with a loud comment instead of a hop that would silently pass.
 	ForwardAuth string
 }
-
-// authHeaders are the identity headers a backend trusts once the transit proof
-// holds (SECURITY.md §"Identity header trust"). They must survive the auth hop.
-var authHeaders = []string{"X-User-Sub", "X-User-Groups", "Authorization"}
 
 // Caddyfile renders the routes. Order is longest-prefix-first because proxyd
 // matches that way and Caddy matches its handle blocks in written order — the
@@ -96,7 +92,9 @@ func renderRoute(b *strings.Builder, r store.ProxydRoute, opts Options) error {
 		}
 		fmt.Fprintf(b, "\t\tforward_auth %s {\n", opts.ForwardAuth)
 		fmt.Fprintf(b, "\t\t\turi /auth/forward?route=%s\n", r.Path)
-		fmt.Fprintf(b, "\t\t\tcopy_headers %s\n", strings.Join(authHeaders, " "))
+		// The whole of what /auth/forward answers, from the one declaration that
+		// endpoint also reads — copying a subset drops identity silently.
+		fmt.Fprintf(b, "\t\t\tcopy_headers %s\n", strings.Join(auth.TransitHeaders, " "))
 		b.WriteString("\t\t}\n")
 	}
 	for _, h := range r.PreserveHeaders {

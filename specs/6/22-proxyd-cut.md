@@ -1,5 +1,5 @@
 ---
-status: partial
+status: shipped
 depends: [16-daemon-standalone-matrix, ../5/7-proxyd-standalone]
 ---
 
@@ -15,7 +15,7 @@ alone.
 
 ## What is in there
 
-1,631 lines of non-test Go, and **3,955 lines of test** — more than two
+1,768 lines of non-test Go, and **4,196 lines of test** — more than two
 lines of test per line of code, most of it exercising hand-rolled
 proxying. That ratio is the strongest argument in this document: it is
 the cost of owning a commodity.
@@ -86,13 +86,17 @@ declaration (root `CLAUDE.md`, "one declaration, many readers").
 renders a Caddyfile rather than Caddy's admin JSON — `forward_auth` is a
 first-class directive there, so the one thing the render cannot do stays legible
 instead of hiding in a `handle_response` block. Measured against krons' live
-table: 25 rows in, 25 routes out.
+table: 26 rows in, 26 routes out, 21 of them taking the auth hop.
 
-Three things the render has to get right, each pinned by a mutation-checked
+Four things the render has to get right, each pinned by a mutation-checked
 test. **Order**: proxyd matches longest-prefix, Caddy matches `handle` blocks in
 written order, so emission order carries the semantics. **`optional` takes the
 auth hop**: that is where proxyd identifies a caller who offers a credential, so
-skipping it drops attribution on the route-token surface. **`gated_by` is NOT
+skipping it drops attribution on the route-token surface. **`copy_headers`
+carries the whole answer**: `auth.TransitHeaders` is one declaration the
+renderer and the endpoint both read, because a subset is silent — dropping
+`X-User-Name` still answers 200 and anonymises every caller, on 21 of krons' 26
+routes. **`gated_by` is NOT
 re-evaluated**: it is generate-time-only metadata (`proxyd/routes.go:21`) and
 compose drops a gated route before writing the row, so every row that exists has
 already passed. Re-gating on the render dropped two LIVE krons routes (ttsd,
@@ -118,9 +122,8 @@ Two constraints that decide whether this is safe:
   verify that bearer before trusting `X-User-*`. A long-lived token in the
   proxy's config is a downgrade: a file on the proxy host is then enough to
   impersonate proxyd for as long as the file exists. Copying proxyd's own
-  bearer into each response bounds that exposure to the bearer's TTL — 15
-  minutes (`authd/main.go:25`), the same bearer proxyd attaches to every
-  proxied request today.
+  bearer into each response bounds that exposure to the bearer's life instead
+  — the window is measured below.
 - **Authorization is never cached.** One subrequest per request, always —
   a cached authz decision is a revocation that does not take effect. On
   localhost the cost is a fraction of a millisecond; it is still a real
@@ -134,15 +137,8 @@ subrequest with 200 + `Authorization` (its own `service:proxyd` bearer),
 request gets, with `auth_return` set to the CALLER's route read from
 `X-Forwarded-Uri`, not to `/auth/forward`.
 
-Both constraints above are honoured and pinned, in the form the code has. The
-proof is copied into each response from `auth.TokenSource` (`attachTransit`,
-`proxyd/main.go:773`), which re-exchanges `AUTHD_SERVICE_KEY` one minute before
-the 15-minute expiry. It is **not minted per request**: every response inside
-one window carries the same bearer, and a proxy host that reads one response
-can present it to any backend for the rest of that window. A per-request mint
-is one authd round trip per request — the tax this step already accepts for
-authorization — and `L191` records that choice as open. The decision is
-**not cached** — one subrequest, one answer.
+The answer is the whole of `auth.TransitHeaders` — one declaration `proxycfg`
+also reads, so the render cannot copy a subset of what the endpoint sets.
 
 `decideForwardAuth` deliberately runs `requireAuth`'s attempts in
 `requireAuth`'s order rather than deriving its own: a second authentication path
@@ -151,6 +147,44 @@ One divergence is recorded rather than hidden — the refresh-via-authd attempt
 needs a `ResponseWriter` to re-set the cookie, and a subrequest has no upstream
 response to attach it to, so an expired access token takes the login flow
 instead. One extra round trip, no silent difference in who is admitted.
+
+### The property the proof has, and what a stronger one costs
+
+The proof is copied into each response from `auth.TokenSource`
+(`attachTransit`, `proxyd/main.go`), which re-exchanges `AUTHD_SERVICE_KEY` one
+minute before the 15-minute expiry. Every response inside one window therefore
+carries the same bearer. Stated plainly: **a proxy host that captures one
+answer can present that bearer to any backend until it expires — a replay
+window of up to 15 minutes.** What the design buys is that nothing long-lived
+sits in the proxy's config, so the exposure ends with the bearer instead of
+with the file.
+
+A per-request mint was measured rather than assumed, and it is not worth
+building:
+
+- **It is a new network call, not one that already exists.** `/auth/forward`
+  makes none. The bearer is cached (`auth/service.go`), the JWKS is a cached
+  `RemoteKeySet` (`auth/jwks.go` — "offline verification, no hot-path hop"),
+  and the authorization read is a local SQLite query on the FS-mounted
+  `routd.db` (`auth.UserScopes`, the `5/16` hot-path exception). The one
+  subrequest this step refuses to cache is the PROXY's, not an authd hop.
+- **Measured cost.** `POST /v1/service-token` against an in-process authd over
+  loopback: 0.20–0.35 ms per call, beside an offline verify at 0.10–0.20 ms.
+  Across a container network it is more, and it makes authd a synchronous
+  dependency of every proxied request — where the cached bearer keeps proxyd
+  serving through an authd restart.
+- **It would not deliver the property.** `handleServiceToken` mints at
+  `accessTTL` with no TTL parameter, so a per-request mint yields a fresh
+  `jti` and the SAME 15-minute window. Backends verify offline and hold no
+  `jti` list (`auth.ProxydTransit`), so freshness is not observable to them.
+  Even a short-TTL mint floors at 30 seconds, because `subjectFromPayload`
+  admits a token until `exp` plus `tokenClockSkew`. "Beyond one request" needs
+  a replay cache in every backend — the per-request lookup `5/16` rules out.
+
+So the window is the design, and it is named where an operator meets it
+(`SECURITY.md` §"Handing the proof to a fronting proxy"): a fronting proxy is
+trusted for the window, and belongs in proxyd's trust zone rather than on a
+rented edge.
 
 ## Step 4 — Dex as an optional upstream broker (measured 2026-09-05)
 
@@ -307,6 +341,23 @@ a store its docs say should not be SQLite for real workloads, and alpha
 connectors for two of the three providers. The other 1294 lines stay in every case, because they mint
 the claim the platform runs on.
 
+## State
+
+Four steps, each shipped or decided; nothing here is pending.
+
+- The misfiled handlers are webd's, and proxyd knows neither path.
+- The routes are rows, and `proxycfg` is a third reader of them.
+- `/auth/forward` answers the subrequest, with the window above.
+- Dex is mounted for an operator who runs one, and nothing was deleted.
+
+**The cutover is deliberately not taken.** proxyd is the running proxy on
+every instance: `arizuko proxy-config` prints a Caddyfile and installs
+nothing, because which proxy fronts an instance is the operator's decision and
+a renderer that wrote into a live config dir would take it for them. The point
+of the four steps is that the decision is now available — the commodity half
+is expressible as somebody else's config, and the half that is not commodity
+answers over HTTP instead of living inside the proxy.
+
 ## Ties
 
 `6/16` (the position, and the four-layer map) · `5/7` (proxyd standalone —
@@ -316,4 +367,5 @@ step 1 consolidates in webd) · BUGS `L45` (routes as rows, step 2's
 prerequisite) · `L44` (packages declare through the manifest) · `L40` (the
 shield keys on the client, not the hop — the property that must survive the
 move) · `L4` (folder from the row, not the JID grammar — one resolver) · `L191`
-(the forward-auth proof is the cached service bearer, not a per-request mint).
+(the forward-auth proof is the cached service bearer, and what a per-request
+mint would cost).

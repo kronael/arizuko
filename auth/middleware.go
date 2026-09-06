@@ -7,9 +7,20 @@ import (
 // ProxydTransitSub is the JWT subject of the service token proxyd attaches to
 // every request it forwards (spec 5/1). proxyd is the sole web ingress: it
 // strips client-supplied identity headers, authenticates the user, then
-// re-stamps X-User-* / X-Chat-* and proves the channel with this token. A
-// backend trusts those stamped headers ONLY on this proof.
+// re-stamps X-User-* and proves the channel with this token. A backend trusts
+// those stamped headers ONLY on this proof.
 const ProxydTransitSub = "service:proxyd"
+
+// TransitHeaders is the whole of proxyd's answer: the identity it stamped plus
+// the proof that backs it. proxyd's /auth/forward endpoint sets this set, and
+// proxycfg renders the same set as Caddy's copy_headers, so a fronting proxy
+// hands the backend exactly what the in-process path would have.
+//
+// One declaration because a drop is silent, not loud: X-User-Name is the sender
+// name webd records on a posted message (webd/api.go) and the label dashd's nav
+// shows, so a renderer that copies three of the four anonymises every caller
+// while every request still returns 200 (spec 6/22 steps 2 and 3).
+var TransitHeaders = []string{"Authorization", "X-User-Sub", "X-User-Name", "X-User-Groups"}
 
 // ProxydTransit reports whether r carries a valid authd-minted ES256 bearer
 // minted FOR proxyd (typ=service, sub=service:proxyd). VerifyHTTP checks

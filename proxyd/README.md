@@ -42,12 +42,12 @@ Sources of truth:
 
 Bespoke handling for `/dav/` (group-scoped routing + davAllow write-block)
 lives in `dispatchRoute` in `main.go` — the last path proxyd names. `/chat/`
-and `/hook/` used to sit beside it; they are now plain rows whose `auth:
-optional` value carries what proxyd still contributes (below).
+and `/hook/` are plain rows whose `auth: optional` value carries everything
+proxyd contributes to them (below).
 
-Routes not in the declared table (hand-wired in `main.go`): `/auth/*`
-(login flow), `/health`, `/pub/*` (vited fallback + external redirect),
-the derived-host `302 → /pub/<world>/` redirect.
+Routes not in the declared table (hand-wired in `main.go`): `/auth/forward`
+(below), `/auth/*` (login flow), `/health`, `/pub/*` (vited fallback +
+external redirect), the derived-host `302 → /pub/<world>/` redirect.
 
 See `specs/5/7-proxyd-standalone.md` for the field semantics.
 
@@ -114,6 +114,30 @@ X-User-Groups is recorded into `Claims["operator"]="1"` for predicate
 matching. Non-operators have no matching row and no mcp:\* tier fallback,
 so the call is denied (spec 5/17, spec 5/32 §"Operator implicit").
 
+## Forward auth (`GET /auth/forward`)
+
+The subrequest surface for a proxy that fronts arizuko — Caddy
+`forward_auth`, Traefik `ForwardAuth`, nginx `auth_request`
+(`specs/6/22` step 3). It answers 200 plus `auth.TransitHeaders` (identity
+and the `service:proxyd` bearer that makes a backend trust it), or the same
+303-to-login a direct request gets, with `auth_return` set to the caller's
+route from `X-Forwarded-Uri`.
+
+`decideForwardAuth` runs `requireAuth`'s attempts in `requireAuth`'s order
+rather than deriving its own, so the endpoint cannot admit anyone the
+in-process gate refuses. One divergence, recorded rather than hidden: a
+refresh needs a `ResponseWriter` to re-set the cookie and a subrequest has
+no upstream response to attach one to, so an expired access token takes the
+login flow — one round trip more, no difference in who is admitted.
+
+The decision is never cached; the proof is the bearer proxyd already holds,
+which bounds a captured answer to that bearer's remaining life
+(SECURITY.md §"Handing the proof to a fronting proxy").
+
+`arizuko proxy-config <instance> --forward-auth <host:port>` renders the
+route table as a Caddyfile pointed at this endpoint; without the flag every
+authenticated route renders as a 503 rather than an open hop.
+
 ## Why proxyd reads routd.db directly
 
 routd owns `acl`; the standing rule is that another daemon
@@ -123,10 +147,9 @@ exception, decided 2026-08-07 (spec
 **FS-mounted on the owner's DB, and reading it on the per-request hot path.**
 
 One cross-owner read remains and qualifies: `auth.UserScopes` via
-`groupsForSub` on every ES256-authenticated request. (`store.LookupRouteToken`
-on every `/chat/` and `/hook/` request was the other; specs/6/22 step 1 moved
-that resolution to webd, which is FS-mounted on routd.db anyway, leaving one
-reader of the row instead of two.) The alternative considered and rejected was
+`groupsForSub` on every ES256-authenticated request. Route-token resolution is
+webd's, which is FS-mounted on routd.db anyway, so the row has one reader
+(specs/6/22 step 1). The alternative considered and rejected was
 not an HTTP hop but trusting the login-time `Scope` snapshot in the JWT, which would
 let a revoked grant keep working until the caller's next token refresh (15
 minutes, `accessTTL`). Reading `acl` per request is what makes revocation take
