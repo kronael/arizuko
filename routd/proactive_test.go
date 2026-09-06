@@ -413,7 +413,7 @@ func lurkGroup(t *testing.T, l *Loop, folder string) {
 // the proactive one) would bump engagement.
 func consumeSeeded(t *testing.T, db *DB, jid string, now time.Time, gap time.Duration) {
 	t.Helper()
-	if err := db.SetAgentCursor(jid, now.Add(-gap).UTC().Format(time.RFC3339Nano)); err != nil {
+	if err := db.SetAgentCursor(jid, core.TS(now.Add(-gap))); err != nil {
 		t.Fatal(err)
 	}
 }

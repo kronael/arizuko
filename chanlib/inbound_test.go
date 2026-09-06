@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"github.com/kronael/arizuko/core"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -220,7 +221,7 @@ func dueNow(t *testing.T, db *sql.DB) {
 	t.Helper()
 	if _, err := db.Exec(
 		`UPDATE inbound_pending SET next_attempt_at=?`,
-		time.Now().Add(-time.Hour).UTC().Format(time.RFC3339Nano)); err != nil {
+		core.TS(time.Now().Add(-time.Hour))); err != nil {
 		t.Fatalf("force due: %v", err)
 	}
 }

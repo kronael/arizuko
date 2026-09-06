@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/kronael/arizuko/core"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -79,7 +80,7 @@ func getEngagementSection(t *testing.T, mux *http.ServeMux) string {
 
 // future renders an RFC3339Nano deadline d from now, the shape routd emits.
 func future(d time.Duration) string {
-	return time.Now().Add(d).UTC().Format(time.RFC3339Nano)
+	return core.TS(time.Now().Add(d))
 }
 
 func TestEngagementPage_RendersLiveWindows(t *testing.T) {

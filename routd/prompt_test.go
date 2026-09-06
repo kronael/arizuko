@@ -139,7 +139,7 @@ func TestEmitSystemEvents_NewDay(t *testing.T) {
 	loop := NewLoop(db, runnerFn(nil), LoopConfig{})
 	loop.StopQueue()
 
-	yesterday := time.Now().AddDate(0, 0, -1).UTC().Format(time.RFC3339Nano)
+	yesterday := core.TS(time.Now().AddDate(0, 0, -1))
 	_ = db.SetAgentCursor("jid1", yesterday)
 	_ = db.PutSession("grp1", "", "sess-1") // a live session suppresses new_session
 
@@ -191,7 +191,7 @@ func TestEmitSystemEvents_NewSession(t *testing.T) {
 	srv.SetSessionResolver(sess)
 	loop.BindServer(srv)
 
-	_ = db.SetAgentCursor("jid2", time.Now().UTC().Format(time.RFC3339Nano))
+	_ = db.SetAgentCursor("jid2", core.NowTS())
 
 	loop.emitSystemEvents("grp2", "jid2")
 
@@ -361,7 +361,7 @@ func TestBuildAgentPrompt_DoesNotConsumeTheObservedWindow(t *testing.T) {
 	if _, err := db.SQL().Exec(
 		`INSERT INTO messages (id, chat_jid, sender, content, timestamp, is_observed, routed_to, verb)
 		 VALUES ('obs1','tg:9','someone','ambient chatter',?,1,'main','message')`,
-		now.UTC().Format(time.RFC3339Nano)); err != nil {
+		core.TS(now)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -423,7 +423,7 @@ func TestObservedSinceExcludesIsolatedCronRuns(t *testing.T) {
 		if _, err := db.SQL().Exec(
 			`INSERT INTO messages(id, chat_jid, sender, content, timestamp, routed_to, is_observed, topic)
 			 VALUES(?,?,?,?,?,?,?,'')`,
-			id, "discord:g/c", sender, content, now.Format(time.RFC3339Nano), "trading", obs); err != nil {
+			id, "discord:g/c", sender, content, core.TS(now), "trading", obs); err != nil {
 			t.Fatalf("insert %s: %v", id, err)
 		}
 	}

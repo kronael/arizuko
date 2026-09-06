@@ -817,7 +817,7 @@ func TestSweepExpiredRunning(t *testing.T) {
 	// a turn started 2h ago, still running.
 	db.PutTurnContext("old", "demo", "", "slack:T/C/U", "u1", "")
 	db.SQL().Exec("UPDATE turn_context SET started_at=? WHERE turn_id='old'",
-		time.Now().Add(-2*time.Hour).UTC().Format(time.RFC3339Nano))
+		core.TS(time.Now().Add(-2*time.Hour)))
 	// a turn started just now, still running.
 	db.PutTurnContext("new", "demo", "", "slack:T/C/U2", "u1", "")
 

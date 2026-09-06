@@ -155,7 +155,7 @@ func TestExistingPendingRowKeepsFullBudget(t *testing.T) {
 	if _, err := db.SQL().Exec(`INSERT INTO messages
 		(id, chat_jid, sender, content, timestamp, is_from_me, is_bot_message, status)
 		VALUES ('legacy', 'slack:T/C/U', 'demo', 'queued before the upgrade', ?, 1, 1, 'pending')`,
-		time.Now().UTC().Add(-48*time.Hour).Format(time.RFC3339Nano)); err != nil {
+		core.TS(time.Now().UTC().Add(-48*time.Hour))); err != nil {
 		t.Fatal(err)
 	}
 	if n := attemptsOf(db, "legacy"); n != 0 {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"github.com/kronael/arizuko/core"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,7 +15,7 @@ func seedInbound(t *testing.T, db *sql.DB, id, jid, sender string, at time.Time)
 	if _, err := db.Exec(
 		`INSERT INTO messages (id, chat_jid, sender, content, timestamp, verb)
 		 VALUES (?, ?, ?, 'hi', ?, 'message')`,
-		id, jid, sender, at.UTC().Format(time.RFC3339Nano)); err != nil {
+		id, jid, sender, core.TS(at)); err != nil {
 		t.Fatalf("seed message %s: %v", id, err)
 	}
 }

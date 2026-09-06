@@ -3,12 +3,12 @@ package main
 import (
 	"context"
 	"database/sql"
+	"github.com/kronael/arizuko/core"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -78,7 +78,7 @@ func TestUsageWithCost(t *testing.T) {
 	routd := usageRoutdDB(t, "alice")
 	defer routd.Close()
 
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	now := core.NowTS()
 	if _, err := routd.Exec(
 		`INSERT INTO cost_log (folder, turn_id, model, input_tokens, output_tokens, cost_cents, recorded_at)
 		 VALUES ('alice', 't1', 'claude-opus-5', 800, 700, 250, ?)`, now); err != nil {
@@ -119,7 +119,7 @@ func TestGroupUsageBulkBatchesLargeFolderLists(t *testing.T) {
 	routd := usageRoutdDB(t, folders...)
 	defer routd.Close()
 
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	now := core.NowTS()
 	if _, err := routd.Exec(
 		`INSERT INTO cost_log (folder, turn_id, model, input_tokens, output_tokens, cost_cents, recorded_at)
 		 VALUES (?, 't1', 'claude-opus-5', 10, 10, 5, ?)`, folders[n-1], now); err != nil {

@@ -99,19 +99,19 @@ func TestSessionIdleExpired(t *testing.T) {
 	}
 
 	// Cursor 1h ago: fresh.
-	_ = db.SetAgentCursor(jid, time.Now().Add(-1*time.Hour).UTC().Format(time.RFC3339Nano))
+	_ = db.SetAgentCursor(jid, core.TS(time.Now().Add(-1*time.Hour)))
 	if loop.sessionIdleExpired(jid) {
 		t.Error("expected false for 1h-old cursor")
 	}
 
 	// Cursor 3d ago: expired.
-	_ = db.SetAgentCursor(jid, time.Now().Add(-3*24*time.Hour).UTC().Format(time.RFC3339Nano))
+	_ = db.SetAgentCursor(jid, core.TS(time.Now().Add(-3*24*time.Hour)))
 	if !loop.sessionIdleExpired(jid) {
 		t.Error("expected true for 3d-old cursor")
 	}
 
 	// Just under the threshold: not expired (strict >).
-	_ = db.SetAgentCursor(jid, time.Now().Add(-sessionIdleExpiry).Add(time.Second).UTC().Format(time.RFC3339Nano))
+	_ = db.SetAgentCursor(jid, core.TS(time.Now().Add(-sessionIdleExpiry).Add(time.Second)))
 	if loop.sessionIdleExpired(jid) {
 		t.Error("expected false for just-under-threshold cursor")
 	}
@@ -149,7 +149,7 @@ func TestSpawnResetsStaleSession(t *testing.T) {
 	_ = db.PutMessage(core.Message{ID: "n1", ChatJID: jid, Sender: "u", Content: "hello", Timestamp: now, Verb: "message"})
 	// Cursor predates the new message but is 3 days stale: the message is fed,
 	// and the stale session is reset before the spawn reads it.
-	_ = db.SetAgentCursor(jid, now.Add(-3*24*time.Hour).Format(time.RFC3339Nano))
+	_ = db.SetAgentCursor(jid, core.TS(now.Add(-3*24*time.Hour)))
 
 	if _, err := loop.processGroupMessages(jid); err != nil {
 		t.Fatalf("process: %v", err)
@@ -178,7 +178,7 @@ func TestSpawnKeepsFreshSession(t *testing.T) {
 
 	now := time.Now().UTC()
 	_ = db.PutMessage(core.Message{ID: "f1", ChatJID: jid, Sender: "u", Content: "hello", Timestamp: now, Verb: "message"})
-	_ = db.SetAgentCursor(jid, now.Add(-2*time.Hour).Format(time.RFC3339Nano))
+	_ = db.SetAgentCursor(jid, core.TS(now.Add(-2*time.Hour)))
 
 	if _, err := loop.processGroupMessages(jid); err != nil {
 		t.Fatalf("process: %v", err)

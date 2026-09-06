@@ -27,8 +27,8 @@ func TestUsagePageNumbersViaRealRoutd(t *testing.T) {
 		}
 	}
 	now := time.Now().UTC()
-	recent := now.Format(time.RFC3339Nano)
-	stale := now.Add(-8 * 24 * time.Hour).Format(time.RFC3339Nano)
+	recent := core.TS(now)
+	stale := core.TS(now.Add(-8 * 24 * time.Hour))
 	for _, r := range []struct {
 		folder, turn, at string
 		in, out, cents   int
