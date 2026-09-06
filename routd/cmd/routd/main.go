@@ -252,8 +252,12 @@ func main() {
 		srv.SetConnectors(conns)
 		slog.Info("connectors loaded", "connectors", len(conns))
 	}
+	// The rest half of the same file, on the same fail-fast terms: a rejected
+	// block means the agent gets NO ext tools, and a log line the operator never
+	// reads is not a report. Refusing to boot is how the operator hears it.
 	if extTools, eerr := routd.LoadExtProviders(ctx, dataDir); eerr != nil {
-		slog.Warn("ext providers: load failed", "err", eerr)
+		slog.Error("ext providers: load failed", "err", eerr)
+		os.Exit(1)
 	} else if len(extTools) > 0 {
 		srv.SetExtTools(extTools)
 	}

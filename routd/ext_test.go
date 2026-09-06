@@ -1,9 +1,11 @@
 package routd
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -423,5 +425,105 @@ func TestLoadExtProviders_RestWithoutToolsIsLoud(t *testing.T) {
 	dir := writeOperatorConnectors(t, "[[connector]]\nname = \"empty\"\ntransport = \"rest\"\nurl = \"https://example.com\"\n")
 	if _, err := LoadExtProviders(context.Background(), dir); err == nil || !strings.Contains(err.Error(), "empty") {
 		t.Fatalf("a rest connector without tools must fail the load by name, got %v", err)
+	}
+}
+
+// The operator file is the later source, so a connector it names after a
+// built-in replaces that built-in's tool under the same LocalName rather than
+// registering a second one — and says so at WARN, naming both sources (6/19).
+func TestLoadExtProviders_OperatorShadowsBuiltin(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	dir := writeOperatorConnectors(t, `[[connector]]
+name      = "cloudflare"
+transport = "rest"
+url       = "https://operator.example.com/v4"
+
+  [[connector.tool]]
+  name   = "dns_list"
+  method = "GET"
+  path   = "/zones/{zone_id}/dns_records"
+`)
+	tools, err := LoadExtProviders(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("an operator override is a shadow, not a failure: %v", err)
+	}
+	var hits []ipc.ExtTool
+	for _, tool := range tools {
+		if tool.LocalName == "cloudflare_dns_list" {
+			hits = append(hits, tool)
+		}
+	}
+	if len(hits) != 1 {
+		t.Fatalf("cloudflare_dns_list registered %d times, want 1", len(hits))
+	}
+	if hits[0].BaseURL != "https://operator.example.com/v4" {
+		t.Errorf("BaseURL = %q, want the operator's", hits[0].BaseURL)
+	}
+	if len(tools) != 10 {
+		t.Errorf("want 10 tools (the shadow replaces, never adds), got %d", len(tools))
+	}
+	logged := buf.String()
+	if !strings.Contains(logged, "ext tool shadowed") ||
+		!strings.Contains(logged, "cloudflare_dns_list") ||
+		!strings.Contains(logged, "embedded extproviders") ||
+		!strings.Contains(logged, "connectors.toml") {
+		t.Errorf("a shadow must log loud, naming the tool and both sources; got %q", logged)
+	}
+}
+
+// Two blocks in the operator file claiming one tool name is not an ordering
+// question — nothing picks between them, so the load fails.
+func TestLoadExtProviders_DuplicateInOneSourceIsError(t *testing.T) {
+	dir := writeOperatorConnectors(t, `[[connector]]
+name      = "acme"
+transport = "rest"
+url       = "https://one.example.com"
+
+  [[connector.tool]]
+  name   = "zones"
+  method = "GET"
+  path   = "/zones"
+
+[[connector]]
+name      = "acme"
+transport = "rest"
+url       = "https://two.example.com"
+
+  [[connector.tool]]
+  name   = "zones"
+  method = "GET"
+  path   = "/zones"
+`)
+	_, err := LoadExtProviders(context.Background(), dir)
+	if err == nil || !strings.Contains(err.Error(), "acme_zones") {
+		t.Fatalf("one name declared twice in one source must fail the load by name, got %v", err)
+	}
+}
+
+// The same refusal inside a single connector: two [[connector.tool]] blocks
+// under one name collide on the same LocalName.
+func TestLoadExtProviders_DuplicateToolInOneConnectorIsError(t *testing.T) {
+	dir := writeOperatorConnectors(t, `[[connector]]
+name      = "acme"
+transport = "rest"
+url       = "https://one.example.com"
+
+  [[connector.tool]]
+  name   = "zones"
+  method = "GET"
+  path   = "/zones"
+
+  [[connector.tool]]
+  name   = "zones"
+  method = "POST"
+  path   = "/zones"
+`)
+	_, err := LoadExtProviders(context.Background(), dir)
+	if err == nil || !strings.Contains(err.Error(), "acme_zones") {
+		t.Fatalf("one name declared twice in one connector must fail the load by name, got %v", err)
 	}
 }
