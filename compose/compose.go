@@ -131,10 +131,10 @@ var daemonKeys = map[string][]string{
 		"SECRETS_KEY",
 		// Instance-wide fallback model when a group has no per-group model.
 		"ARIZUKO_DEFAULT_MODEL",
-		// The model gateway (spec 6/23). routd mints one virtual key per turn
-		// with the master key and reads back what the gateway charged it, so
-		// the pair lives with the daemon that owns cost_log and the budget
-		// gate. runed gets the URL only.
+		// The model gateway (spec 6/23, 6/39). routd mints one virtual key per
+		// turn with the master key, and the gateway is the ledger it reads the
+		// folder's spend from, so the pair lives with the daemon that owns the
+		// budget gate. runed gets the URL only.
 		"MODEL_GATEWAY_URL", "MODEL_GATEWAY_KEY",
 		// Inbound media enrichment and outbound send_voice run IN routd. The split left
 		// the env only on runed, so routd defaulted MEDIA_ENABLED off → every inbound

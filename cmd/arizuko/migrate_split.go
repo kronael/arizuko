@@ -137,7 +137,7 @@ var routdSpecs = []copySpec{
 	{dst: "pane_sessions", src: "pane_sessions",
 		cols: "team_id, user_id, thread_ts, channel_id, context_jid, opened_at",
 		sel:  "team_id, user_id, thread_ts, channel_id, context_jid, opened_at"},
-	// user_profiles: routd.db OWNS it (routd migrations 0011 + 0025; cost_log.user_sub
+	// user_profiles: routd.db OWNS it (routd migrations 0011 + 0025; the cap column
 	// references it). Split onbod reads+writes it cross-DB on routd.db (xdb), so it MUST
 	// be copied — left an orphan, every existing user vanishes from onboarding /
 	// world-create. The source is a PRE-split messages.db: there the table predates the

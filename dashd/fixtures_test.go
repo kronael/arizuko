@@ -27,7 +27,7 @@ import (
 
 // routdDB is a migrated, empty routd.db. Every table dashd's admin and page
 // handlers read — groups, messages, routes, scheduled_tasks, task_run_logs,
-// sessions, acl, secrets, audit_log, cost_log, installed_packages,
+// sessions, acl, secrets, audit_log, installed_packages,
 // chat_proactive, user_profiles, pending_actions — comes from routd's chain.
 func routdDB(t *testing.T) *sql.DB {
 	t.Helper()

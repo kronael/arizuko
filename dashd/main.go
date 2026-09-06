@@ -368,7 +368,7 @@ func upstreamErr(daemon string, status int, body []byte) string {
 type dash struct {
 	dbRoutd *sql.DB // routd.db handle — dashd's ONLY message/config store. routd OWNS
 	// acl/groups/routes/route_tokens/secrets/audit_log AND the live
-	// messages/chats/sessions/cost_log/user_profiles tables (spec 5/5); dashd
+	// messages/chats/sessions/user_profiles tables (spec 5/5); dashd
 	// reads+writes them here. nil in read-only tests.
 	dbOnbod *sql.DB // onbod.db handle. onbod OWNS invites/onboarding_gates in the
 	// split topology (spec 5/5); dashd's invites page reads+writes them here.

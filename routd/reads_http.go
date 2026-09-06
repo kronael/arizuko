@@ -25,7 +25,7 @@ var (
 	scopeRoutesWrite = []string{"routes:write", "routes:write:own_group"}
 	// External-cost accounting is its own capability — NOT messages:send (codex
 	// review: don't couple cost-write to outbound conversation). Agents log cost
-	// via the in-process MCP log_external_cost tool; this REST path is for service
+	// this REST path is for service
 	// callers that hold cost:write.
 	scopeCost = []string{"cost:write", "cost:write:own_group"}
 	// Reading a turn's spend is the read half of the same capability (anteval's

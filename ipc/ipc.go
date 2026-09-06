@@ -116,10 +116,10 @@ type TurnResult struct {
 	// rather than a normal completion. routd logs a WARN; outcome stays OK.
 	TimedOut bool `json:"timed_out,omitempty"`
 
-	// Models carries per-model token usage + pre-computed cost.
-	// Optional; nil/empty when the agent doesn't report (e.g. ant
-	// versions before the cost-caps cutover). One cost_log row per
-	// model when present. Spec 11/19.
+	// Models carries per-model token usage + pre-computed cost, as the
+	// harness reports it. Optional, and nil/empty when the agent does not
+	// report. routd logs it and stores nothing: the model gateway is the
+	// ledger (spec 6/39).
 	Models map[string]ModelUsage `json:"models,omitempty"`
 
 	// CallerSub is the user_sub the turn ran on behalf of (empty for
