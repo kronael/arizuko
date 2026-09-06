@@ -11533,7 +11533,7 @@ would still leave the suite unable to run against it.
   extend the guard past the test boundary so a new direct `sql.Open` is caught
   the day it is written — the same move that made the production side one seam
 
-## L228 — 30 migration files are SQLite-only, and two of them cannot be ported (2026-09-06, open)
+## L228 — 30 migration files are SQLite-only, and porting them needs a decision, not a rewrite (2026-09-06, proposal — needs sign-off)
 
 MEASURED by applying all 154 migration files one at a time against a real
 `postgres:17-alpine`. Thirty fail on their own dialect; another 34 fail only as
@@ -11558,8 +11558,46 @@ Per owner today: `onbod`, `chanlib` and `emaid` apply CLEAN on Postgres;
 - **Severity:** medium — this is the measured distance to `6/37` step 7, not a
   defect in what runs
 - **Scope:** `*/migrations/*.sql`
-- **Fix:** port per owner, smallest first, in the order `6/37` sets. FTS waits
-  for step 8.
+- **Why this is a decision and not typing.** There is no spelling of
+  `INTEGER PRIMARY KEY AUTOINCREMENT` that both engines accept. Plain `INTEGER
+  PRIMARY KEY` is a rowid alias in SQLite and carries no default in Postgres,
+  and SQLite reuses a rowid after the highest row is deleted — which
+  `store/turns.go:90` relies on not happening, since it pages with
+  `(timestamp, id)` as a keyset cursor. `BLOB` against `bytea` has the same
+  shape. So one SQL text cannot serve both engines, and the migration runner
+  applies one text per file.
+
+  The runner has no checksum — the `migrations` table records only
+  `(service, version, applied_at)` — so editing an applied file changes nothing
+  on a live database and only decides what a FRESH install creates. That makes
+  this safe to do late, and it makes "the two must produce identical schemas"
+  the property to hold.
+
+- **Three ways, costed. This needs sign-off before any of them.**
+
+  1. **Per-dialect files** (`0001-initial-schema.sqlite.sql` +
+     `.postgres.sql`). Honest and explicit; the runner already carries a
+     `dialect` value to select on. Cost: it doubles 154 files, and two texts
+     for one schema is the "one declaration, many readers" rule broken by
+     construction — they drift the first time someone edits one.
+  2. **A substitution table in the runner** — a small fixed vocabulary
+     (`{{AUTOINCREMENT}}`, `{{BLOB}}`, `{{INSERT_OR_IGNORE}}`) the runner
+     expands per dialect. One text, one declaration. Cost: a bespoke dialect
+     mini-language nobody else can read, and every new construct is a new
+     token.
+  3. **Portable-by-construction where possible, per-dialect only where not.**
+     `INSERT OR IGNORE`, `GLOB` and the `json_*` calls all have standard
+     equivalents that SQLite also accepts, so most of the 30 need no mechanism
+     at all. Only the type keywords and the two FTS5 tables would need one,
+     which shrinks whichever of (1) or (2) is chosen to a handful of files.
+
+  My recommendation is (3) with (1) for the remainder: it keeps one text for
+  most of the corpus and puts the split exactly where the engines genuinely
+  differ, rather than everywhere.
+
+- **Fix:** port per owner, smallest first, in the order `6/37` sets — `onbod`,
+  `chanlib` and `emaid` already apply clean, `authd` needs one file. FTS waits
+  for step 8. The mechanism above is the part that needs your answer first.
 
 ## ✅ FIXED 2026-09-06 L230 — no CLI can grant a single ext tool, because `grantableAction` refuses the scope shape the filter reads (2026-09-06)
 
