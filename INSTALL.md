@@ -231,10 +231,18 @@ gets a virtual key that only the gateway accepts (`specs/6/23-llm-gateway.md`).
 ./arizuko generate <name>
 ```
 
-`add` mints `MODEL_GATEWAY_KEY` into `/srv/data/arizuko_<name>/.env` (the
-package's `litellm.yaml` declares it `generate`), and every generate sets
-`MODEL_GATEWAY_URL=http://litellm:4000` for runed unless `.env` names another
-gateway. To rotate the key, delete the line; the next generate mints a new one.
+`add` mints `MODEL_GATEWAY_KEY` and `MODEL_GATEWAY_DB_PASSWORD` into
+`/srv/data/arizuko_<name>/.env` (the package's `litellm.yaml` declares both
+`generate`), and every generate sets `MODEL_GATEWAY_URL=http://litellm:4000`
+unless `.env` names another gateway. To rotate a secret, delete its line; the
+next generate mints a new one.
+
+`MODEL_GATEWAY_KEY` is the gateway's MASTER key and goes to routd, which mints
+one virtual key per turn with it, bounded by that folder's remaining daily
+budget and expiring with the run. runed gets only the URL; the container gets
+only the minted key. The package also starts `litellm_db`, the Postgres litellm
+keeps those keys and its spend log in — that database is the gateway's
+bookkeeping, in a named volume, and arizuko's own stores stay SQLite.
 
 The gateway reads `ANTHROPIC_API_KEY`, or `CLAUDE_CODE_OAUTH_TOKEN` when the
 API key is unset, from the same `.env`. Which one you put there matters:
@@ -247,11 +255,15 @@ API key is unset, from the same `.env`. Which one you put there matters:
   your extra usage, not your plan limits") and needs extra-usage credits or
   an API key. arizuko sends no forged client identity to change that.
 
-Without Postgres (arizuko runs SQLite only) litellm has no per-spawn keys,
-budgets or `/spend/logs`; one `MODEL_GATEWAY_KEY` serves the whole instance.
-The gateway's JSON log lines land in `journalctl -u arizuko_<name>` with
-every other daemon, and its per-request token and cost spans go to the OTLP
-collector when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
+With the gateway configured, `cost_log` is written from what litellm charged
+each turn's key rather than from what the agent reports, so `arizuko budget`
+caps bind on a number the agent cannot choose. A turn whose spend the gateway
+will not report is refused silently by nothing: routd logs it at ERROR and the
+chat gets a notice saying limits are not counting that turn.
+
+The gateway's JSON log lines land in `journalctl -u arizuko_<name>` with every
+other daemon, and its per-request token and cost spans go to the OTLP collector
+when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
 
 ## Register first group
 

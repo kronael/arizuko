@@ -158,7 +158,7 @@ Full package graph, message flow, container lifecycle, and SQLite schema in [ARC
 | linkd   | LinkedIn           |
 | gitd    | GitHub (webhooks)  |
 
-Optional capability hooks: Whisper transcription (`WHISPER_BASE_URL`), TTS (`ttsd` + `TTS_BASE_URL`), second LLM (`OPENAI_API_KEY`/`CODEX_API_KEY` in the host `.env` or a user's own `/dash/me/env` row — these are model keys, so the store rejects them at folder scope), model gateway (`litellm` package + `MODEL_GATEWAY_URL`/`MODEL_GATEWAY_KEY` — the gateway holds the model credential and the agent container gets a virtual key; `specs/6/23-llm-gateway.md`).
+Optional capability hooks: Whisper transcription (`WHISPER_BASE_URL`), TTS (`ttsd` + `TTS_BASE_URL`), second LLM (`OPENAI_API_KEY`/`CODEX_API_KEY` in the host `.env` or a user's own `/dash/me/env` row — these are model keys, so the store rejects them at folder scope), model gateway (`litellm` package + `MODEL_GATEWAY_URL`/`MODEL_GATEWAY_KEY` — the gateway holds the model credential, each turn gets its own budgeted virtual key, and `cost_log` is written from what the gateway charged it; `specs/6/23-llm-gateway.md`).
 
 Full daemon and library tables in [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -177,7 +177,7 @@ Documents can be mounted or written into a group's workspace; agents can read th
 - **Container isolation**: each group runs in a separate Docker container on a separate network. Sibling groups never share a context window.
 - **Egress isolation**: every spawn gets its own `egress` proxy holding its folder's allowlist, on a network with no other route out. Default-deny; the proxy never terminates TLS (MITM declined 2026-08-18). Spec `specs/6/24`.
 - **ACL**: `auth.Authorize` — one `acl` table, deny-wins, no fallback. Capability comes from granted rows, never from a folder's depth; `role:member` is the seeded default and everything above it is delegated. MCP tools gated per-action per-principal.
-- **Secret injection**: secrets are AES-256-GCM encrypted at rest. Only model credentials reach the container env, and with a model gateway configured (`MODEL_GATEWAY_URL`) not even those: the container receives the gateway's virtual key and never the provider credential — an API token for a tool is resolved on the host for the one call that needs it and never crosses into the agent's environment.
+- **Secret injection**: secrets are AES-256-GCM encrypted at rest. Only model credentials reach the container env, and with a model gateway configured (`MODEL_GATEWAY_URL`) not even those: the container receives a virtual key minted for that one turn and never the provider credential — an API token for a tool is resolved on the host for the one call that needs it and never crosses into the agent's environment.
 - **Identity relay**: `proxyd` stamps `X-User-*` headers, proving the channel with a `service:proxyd` ES256 bearer (verified via `auth.ProxydTransit`); backends trust the headers only when that proof holds. Client-supplied `X-User-*` headers are stripped.
 
 Full threat model in [SECURITY.md](SECURITY.md).
