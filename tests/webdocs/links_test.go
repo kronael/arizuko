@@ -1,6 +1,7 @@
 // Package webdocs tests the static operator site in template/web/pub as
-// content: every internal link resolves, and the hand-copied product nav in
-// every page names exactly the pages that exist.
+// content: every internal link resolves, every spec the pages cite is in the
+// corpus, and the hand-copied product nav in every page names exactly the
+// pages that exist.
 //
 // The site has no build step, so nothing but a test can catch a dangling
 // link. Retiring the aws-devops product (242b7d10) deleted its two pages and
@@ -30,26 +31,55 @@ const siteRoot = "arizuko"
 var (
 	linkRe = regexp.MustCompile(`(?i)(?:href|src)\s*=\s*"([^"]*)"`)
 	idRe   = regexp.MustCompile(`(?i)\b(?:id|name)\s*=\s*"([^"]+)"`)
+
+	// specPathRe matches a spec named by filename — in an href
+	// ("…/blob/main/specs/5/17-openapi-mcp.md"), in prose, or in a JS
+	// comment. specIDRe matches the shorter form the pages also use, where
+	// the slug is left off: "spec 5/17", "spec&nbsp;5/17", "specs/5/17".
+	// All three are in the tree, so all three are checked.
+	specPathRe = regexp.MustCompile(`specs/([1-9][0-9]?)/([0-9A-Za-z][0-9A-Za-z_.-]*)\.md`)
+	specIDRe   = regexp.MustCompile(`(?i)\bspecs?(?:[ \t\x{00A0}]+|&nbsp;|/)([1-9][0-9]?)/([0-9]{1,2}|[A-Za-z][0-9]?)\b`)
 )
 
+// specsDir is the corpus the site cites. It sits outside pubDir, so the
+// site's own link check cannot see these: they are written as absolute
+// github.com URLs, as prose, or as both.
+const specsDir = "../../specs"
+
 func htmlFiles(t *testing.T) []string {
+	t.Helper()
+	out := siteFiles(t, ".html")
+	if len(out) < 50 {
+		t.Fatalf("only %d html files under %s — the path is wrong and every "+
+			"assertion below would pass vacuously", len(out), pubDir)
+	}
+	return out
+}
+
+// siteFiles walks everything the site ships with one of the given
+// extensions. The spec checks want .js too: the browser SDK carries its
+// protocol pointer in a header comment, and that pointer went stale with
+// the rest (BUGS L220).
+func siteFiles(t *testing.T, exts ...string) []string {
 	t.Helper()
 	var out []string
 	err := filepath.WalkDir(pubDir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if !d.IsDir() && strings.HasSuffix(path, ".html") {
-			out = append(out, path)
+		if d.IsDir() {
+			return nil
+		}
+		for _, e := range exts {
+			if strings.HasSuffix(path, e) {
+				out = append(out, path)
+				return nil
+			}
 		}
 		return nil
 	})
 	if err != nil {
 		t.Fatalf("walk %s: %v", pubDir, err)
-	}
-	if len(out) < 50 {
-		t.Fatalf("only %d html files under %s — the path is wrong and every "+
-			"assertion below would pass vacuously", len(out), pubDir)
 	}
 	return out
 }
@@ -130,6 +160,80 @@ func TestWebDocsFragmentsResolve(t *testing.T) {
 	if checked < 100 {
 		t.Fatalf("only %d fragment links found; the extraction is broken", checked)
 	}
+}
+
+// TestWebDocsSpecPathsResolve requires every spec the site names by filename
+// to exist in the corpus. TestWebDocsInternalLinksResolve cannot see these:
+// the site writes them as absolute github.com URLs, which resolve() skips as
+// off-site, and as bare prose in a <code> span, which carries no href at all.
+// Sixteen were dead when this test was written, one of them cited ten times
+// on a single page (BUGS L220).
+func TestWebDocsSpecPathsResolve(t *testing.T) {
+	checked := 0
+	for _, f := range siteFiles(t, ".html", ".js") {
+		body, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatalf("read %s: %v", f, err)
+		}
+		for _, m := range specPathRe.FindAllStringSubmatch(string(body), -1) {
+			checked++
+			target := filepath.Join(specsDir, m[1], m[2]+".md")
+			if _, err := os.Stat(target); err != nil {
+				t.Errorf("%s cites %s, which is not in the corpus — repoint it "+
+					"at the spec that holds the claim", f, m[0])
+			}
+		}
+	}
+	t.Logf("resolved %d spec paths", checked)
+	if checked < 150 {
+		t.Fatalf("only %d spec paths found; the extraction is broken", checked)
+	}
+}
+
+// TestWebDocsSpecIDsResolve covers the shorter form the same pages use —
+// "spec 5/17", "spec&nbsp;5/17", "specs/5/17" — where the slug is left off
+// and only a glob can resolve it. A renumbered phase leaves this form
+// dangling while every filename beside it is correct; nine were dead
+// alongside the sixteen paths.
+//
+// A phase directory that does not exist is an error here, unlike in
+// tests/specrefs: the corpus may cite a phase that is planned and unwritten,
+// but a published page that does so hands its reader a 404.
+func TestWebDocsSpecIDsResolve(t *testing.T) {
+	checked := 0
+	for _, f := range siteFiles(t, ".html", ".js") {
+		body, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatalf("read %s: %v", f, err)
+		}
+		s := string(body)
+		for _, loc := range specIDRe.FindAllStringSubmatchIndex(s, -1) {
+			// Skip an ID that is the head of a filename: the path check
+			// above already owns "specs/5/17-openapi-mcp.md", and reporting
+			// it twice hides which form actually needs the edit.
+			if end := loc[1]; end < len(s) && (s[end] == '-' || s[end] == '.' || isAlnum(s[end])) {
+				continue
+			}
+			id, phase, num := s[loc[0]:loc[1]], s[loc[2]:loc[3]], s[loc[4]:loc[5]]
+			checked++
+			hits, err := filepath.Glob(filepath.Join(specsDir, phase, num+"-*.md"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(hits) == 0 {
+				t.Errorf("%s cites %q, and specs/%s holds no %s-*.md — repoint it "+
+					"at the spec that holds the claim", f, id, phase, num)
+			}
+		}
+	}
+	t.Logf("resolved %d prose spec IDs", checked)
+	if checked < 50 {
+		t.Fatalf("only %d prose spec IDs found; the extraction is broken", checked)
+	}
+}
+
+func isAlnum(b byte) bool {
+	return b >= '0' && b <= '9' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z'
 }
 
 // TestWebDocsUseRelativeLinks enforces template/web/CLAUDE.md §"Style rules":
