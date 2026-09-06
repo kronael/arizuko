@@ -1751,7 +1751,44 @@ dashboard is the thing that is broken.
   existing call shapes. Worth pairing with a `grants` listing that prints
   `params`, which `runGrants` also omits today.
 
-## L97 — `/approve` on a held call is a no-op: the re-issue trigger sorts BEHIND the cursor that skips it (2026-08-26, proposal — needs sign-off)
+## ✅ FIXED 2026-09-06 L97 — `/approve` on a held call is a no-op: the re-issue trigger sorts BEHIND the cursor that skips it (2026-08-26)
+
+**FIXED 2026-09-06 in `55cf3086`, `936a4fcb`, `56d41b37`, `5734a9c6`.**
+`core.TSLayout` is the one write layout for every TEXT timestamp column:
+nine fraction digits, always, forced to UTC, so lexicographic order over the
+column IS chronological order. Thirty-five writer sites across `routd/`,
+`store/`, `chanlib/` and `dashd/` render through `core.TS`; five of them had
+no `.UTC()` at all, which broke width as well as order. Readers are unchanged
+— `time.Parse(time.RFC3339Nano, ...)` reads a fixed-width nine-digit
+fraction, measured rather than assumed.
+
+Nine render sites stay on `time.RFC3339Nano` on purpose: they build a JSON
+response field or an audit event and are never sorted. `pending_actions` and
+`invites` stay on plain `time.RFC3339`, which has no fraction and is already
+fixed width on BOTH the write and the compare — changing one side would have
+created the defect there.
+
+`routd/migrations/0044-fixed-width-timestamps.sql` pads `messages.timestamp`,
+`chats.agent_cursor` and `sessions.observed_cursor`, GLOB-scoped so a re-run
+matches nothing. Rehearsed against copies of all three live databases: krons
+6560/28/9 rows, marinade 5072/25/26, sloth 7248/34/34, no column left mixed,
+a second run byte-identical, 986 ms on the largest. An independent pass with
+real `time.Parse` confirmed 0 instants changed, 0 rows newly visible and 0
+newly hidden.
+
+**The ordering inside the migration is load-bearing and measured.** Padding a
+cursor makes it shorter than the unpadded rows of its own second, so
+normalising cursors BEFORE rows re-feeds consumed messages — 28 on krons, 27
+on marinade, 33 on sloth. Rows first measured no flip. `db_utils` runs the
+whole file in one `BEGIN EXCLUSIVE`, so no reader observes the partial state
+either way; the file states the order for anyone running the statements by
+hand.
+
+**The migration recovers nothing already lost.** Both stranded `hitl-` rows
+on krons sit behind cursors that advanced long ago. Its job is to make the
+code fix work on a deployed instance, which it must: a chat holding a legacy
+whole-second cursor still hides a new fractional trigger. `L102` (clock skew)
+and `L103` (exact equality) survive a fixed-width format untouched.
 
 HITL approval never completes in chat. The operator types `/approve <id>`, gets
 `approved <id> (like) — the agent will re-issue it`, and **nothing happens**.
@@ -10868,7 +10905,22 @@ stdio transports and the multi-upstream fan-in do not exist.
 - **Fix:** either wire routd's connector path through it, or mark `6/12` as a
   library that ships alone with no arizuko consumer yet — `6/16`'s own category
 
-## L213 — two connectors may share a name and both register, with no error and no log (2026-09-06, open)
+## ✅ FIXED 2026-09-06 L213 — two connectors may share a name and both register, with no error and no log (2026-09-06)
+
+**FIXED 2026-09-06 in `4acc973f`.** `LoadExtProviders` now walks ordered
+sources and indexes by `LocalName` — the agent's wire identity, so it also
+catches the prefix collision (`foo_bar` + `baz` against `foo` + `bar_baz`)
+that a connector-level check misses. A later source replaces an earlier entry
+and logs the shadow at WARN with both sources named; the same name twice
+inside one source is an error, since no ordering justifies it. The embedded
+`extproviders/` set counts as ONE source: it ships as a unit and its order is
+an accident of filenames.
+
+**The entry's scope was one file short.** `routd/cmd/routd/main.go:255`
+downgraded a load failure to `slog.Warn` and served on, and the loader returns
+`nil` on error — so one rejected block silently removed EVERY ext tool. It now
+fails the boot, the same terms `LoadConnectors` already applies to the same
+file twenty lines above.
 
 MEASURED at `routd/ext.go:114`. `LoadExtProviders` reads the embedded
 `extproviders/` set, appends the operator's `connectors.toml`, and emits one
@@ -11000,7 +11052,26 @@ holds four.
   documented; (b) extend the boundary scan to `.ts` so twitd is covered — the
   markers are plain strings and the language does not matter
 
-## L217 — `6/34` marks three root `CLAUDE.md` sections "move" and all three are still resident, into skills that do not exist (2026-09-06, open)
+## ✅ FIXED 2026-09-06 L217 — `6/34` marks three root `CLAUDE.md` sections "move" and all three are still resident, into skills that do not exist (2026-09-06)
+
+**FIXED 2026-09-06 in `b2c79dd5`, resolved as keep, and the entry's premise
+was wrong.** The two destinations are addresses nothing reads. A project skill
+whose name collides with a global one loses, and `~/.claude/skills/refine/`
+and `~/.claude/skills/release/` both exist — so `.claude/skills/refine/` and
+`.claude/skills/release/` would be shadowed and reach no reader.
+
+Both global skills already read this file: the release skill's step 0 reads
+the project `CLAUDE.md` and its step at `:77` reads the `## Announcing`
+section by name; the refine skill reads the live project WISDOM. So the root
+file is the DECLARATION and the global skill is the READER, which is the rule
+`6/34` exists to protect. Moving the shape to `CHANGELOG.md` would have
+created the second format that rule forbids.
+
+The three rows now say keep under a fourth residency rule ("A workflow skill
+reads it from here"), `CHANGELOG.md`'s head comment is a pointer instead of a
+second copy of four rules, and
+`tests/resident/resident_test.go` pins the three sections so the row cannot
+drift again.
 
 VERIFIED. The spec's per-section table is its plan. Three rows say move:
 "Refine scope" → `.claude/skills/refine/SKILL.md`, "Tagging a new version" →
@@ -11023,6 +11094,27 @@ The `ant/CLAUDE.md` half of the same spec is executed correctly — 388 lines to
 - **Fix:** create the two skills and cut the sections, or change the three rows
   to "keep" with the reason. Either is fine; the table claiming one thing while
   the file does another is not.
+
+## L219 — restoring an archive re-introduces the mixed-width timestamps `L97` removed (2026-09-06, proposal — needs sign-off)
+
+MEASURED. `resreg/archive.go:101` carries `Timestamp string` verbatim out of an
+archive and writes it into `messages.timestamp` at `:206`. Nothing re-renders
+it. `DeriveAgentCursors` (`:268`) then derives a cursor with a string
+`MAX(timestamp)` and compares `excluded.agent_cursor > COALESCE(...)`.
+
+So an archive written before migration `0044` restores rows in the stripped
+`time.RFC3339Nano` shape into a column the rest of the system now guarantees is
+fixed width, and the whole `L97` class returns for those chats: a nanosecond
+row lands behind a whole-second cursor and is skipped for good.
+
+- **Severity:** medium — it needs an archive restore to fire, but the failure
+  is silent and permanent for the chats it touches
+- **Scope:** `resreg/archive.go`
+- **Fix (proposal):** parse each archived timestamp and re-render it through
+  `core.TS` on the way in. What to do with one that will not parse is the part
+  that needs sign-off: refusing the restore is loud and correct by this repo's
+  rules, but it takes a working recovery path away from an operator holding a
+  hand-edited archive.
 
 ## ✅ FIXED 2026-09-06 L218 — `6/18` says "four tables per queue"; the migration it cites creates five, and a sixth in partitioned mode (2026-09-06, docs)
 
