@@ -112,26 +112,32 @@ two already have protocols of their own, and the marker they need is the same
 mechanism, so it is one thing serving two callers rather than a scheme imposed
 on forty.
 
-**Where a bounded batch is not enough, and why the intent log is hard there.**
-A review of the three-write form — pending audit row, data row carrying the
-audit id, mark it committed — found four failures, and they are the reason the
-unbounded protocols must be written carefully rather than assumed:
+**One audit row shape, two behaviours: `pending` then `done`.** The state
+lives ON THE AUDIT ROW, not as a back-reference from the data row, and that
+single choice is what makes it work.
 
-- **A delete leaves nothing to carry the back-reference.** `store.DeleteGroup`
-  spans four tables and leaves no row naming the audit id, so an audited delete
-  needs a tombstone and becomes a soft delete with reclamation behind it.
-- **The event is built lazily.** `store/audit_helpers.go:10` constructs the
-  `audit.Event` INSIDE the mutation so callers can include last-insert-id or
-  affected-rows, so a pending row cannot carry fields that do not exist yet —
-  the record is an intent first, an outcome second.
-- **A later writer erases the marker.** The data row holds only the newest
-  audit id, so a superseded write's audit looks abandoned. The back-reference
-  is a liveness proof where an audit needs a history proof.
-- **A sweep can race a live writer**, which puts a timeout in the correctness
-  argument.
+- **Bounded write.** The batch carries the mutation and the audit row together.
+  Whether the row is born `done`, or born `pending` and marked `done` in the
+  same batch, the intermediate state is never observable — the transaction
+  makes it invisible. Nothing changes for the 24 `runAudited` callers.
+- **Unbounded write** — the subtree purge and `resreg.Apply`. The writes span
+  several batches, so `pending` is real and observable, and it is exactly the
+  marker those two protocols need. The audit row IS the in-progress marker;
+  there is no second mechanism.
 
-That is `L241`, and its scope is now two protocols rather than the whole
-audited-write path.
+Putting the state on the audit row rather than on the data row removes three
+failures a back-reference design has. A delete leaves nothing behind to carry a
+back-reference, and here it does not need to. A later writer overwrites a data
+row's marker, and here there is no marker on the data row to overwrite. The
+`audit.Event` is built lazily inside the mutation
+(`store/audit_helpers.go:10`) so a pending row cannot hold its outcome fields —
+and here it is not asked to: `pending` records the intent, `done` records the
+outcome, which is what those two states are for.
+
+What remains is the fourth: a sweep must tell an abandoned `pending` from one
+still in flight. That is a deadline on the audit row itself, so the judgement is
+made from the row and needs no lookup into the data. It applies to two
+protocols, not to the forty ordinary writes.
 
 ## What this surface is not
 
