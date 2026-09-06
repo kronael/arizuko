@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"flag"
 	"fmt"
 	"os"
@@ -11,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -161,7 +161,7 @@ func mintBearer(storeDir, folder, sub string, scopes []string, ttl time.Duration
 	if _, err := os.Stat(path); err != nil {
 		return "", time.Time{}, fmt.Errorf("authd database not found at %s: %w", path, err)
 	}
-	adb, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)")
+	adb, err := db_utils.OpenWAL(db_utils.FileDSN(path))
 	if err != nil {
 		return "", time.Time{}, err
 	}

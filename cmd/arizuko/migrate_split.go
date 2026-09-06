@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/runed"
 	"github.com/kronael/arizuko/store"
@@ -333,7 +334,7 @@ func migrateSplit(storeDir string, dryRun bool) error {
 	// Bootstrap the schema (IF NOT EXISTS — no-op when onbod already migrated) so
 	// the copy target exists. onbod's migration FS is package-private (package
 	// main), hence the inline DDL (onbodSchema mirrors it verbatim).
-	odb, err := sql.Open("sqlite", filepath.Join(storeDir, "onbod.db")+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(on)")
+	odb, err := db_utils.OpenWAL(db_utils.FileDSN(filepath.Join(storeDir, "onbod.db")))
 	if err != nil {
 		return fmt.Errorf("open onbod.db: %w", err)
 	}

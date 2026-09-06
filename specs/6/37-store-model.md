@@ -222,21 +222,30 @@ model**. Managed Postgres and self-hosted Postgres do not differ in data
 model; they differ in DSN. `database/sql` is therefore the seam, and it
 ships in the standard library.
 
-What arizuko lacks is not an abstraction but ONE place that opens a
-connection. Eight production sites call `sql.Open` today, each carrying
-its own pragma string, and they already disagree: `dashd/main.go` and
-`cmd/arizuko/migrate_split.go` set `journal_mode(WAL)`, `authd/main.go`
-does not; `cmd/arizuko/token.go` sets neither `foreign_keys` nor WAL.
-Nothing enforces agreement, so the divergence is invisible until an
-engine cares. Postgres cares about all of it.
+What arizuko needs is not an abstraction but ONE place that opens a
+connection, and that place is `db_utils`. It owns the pragma set:
+`busy_timeout(5000)` and `foreign_keys(on)` ride the DSN, because
+modernc.org/sqlite defaults foreign-key enforcement OFF per connection
+and `database/sql` pools many — a one-shot `PRAGMA` covers one of them
+and `ON DELETE CASCADE` silently no-ops on the rest. WAL is a hard
+error, not a warning: a store in rollback-journal mode looks identical
+to a healthy one.
 
-**Build this first, and it ships before any engine changes.** One
-`db_utils` opener takes a DSN and returns a pool: it owns the pragma set
-on SQLite, the `SetMaxOpenConns` cap everywhere, and the transient-error
-class the retry rule reads. Every other site calls it. That is "one
-declaration, many readers" — the same rule the route table follows —
-and it is engine-neutral: the funnel is correct on SQLite today and is
-the whole provider swap tomorrow.
+Every production site calls `db_utils.OpenWAL(db_utils.FileDSN(path))` —
+`store` for each owner DB, `authd`, `dashd`, the CLI's split cutover and
+token signer, and both test harnesses. `db_utils/opener_test.go` reads
+the tree and fails on any other `sql.Open("sqlite"`, so a new daemon is
+caught the day it is written. `store.OpenMem` is the one exception,
+named in that test: its DSN is a per-call in-memory database with no
+on-disk pragma set to share.
+
+The connection cap is not in the opener yet. It belongs there — the spec
+asks for one — but no site sets one today, so the number is a measurement
+this tier still owes.
+
+That is "one declaration, many readers" — the same rule the route table
+follows — and it is engine-neutral: the funnel is correct on SQLite
+today and is the whole provider swap tomorrow.
 
 A DynamoDB-shaped facade whose only implementation is Postgres is the
 seam this spec refuses. Every call site would pay the key-value price —

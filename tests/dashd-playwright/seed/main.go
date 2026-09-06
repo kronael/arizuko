@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/runed"
 	"github.com/kronael/arizuko/store"
@@ -79,8 +80,7 @@ func main() {
 	if err := os.MkdirAll(filepath.Dir(onbodFile), 0o755); err != nil {
 		log.Fatalf("seed: mkdir onbod dir: %v", err)
 	}
-	onbodDB, err := sql.Open("sqlite",
-		onbodFile+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(on)")
+	onbodDB, err := db_utils.OpenWAL(db_utils.FileDSN(onbodFile))
 	if err != nil {
 		log.Fatalf("seed: open onbod.db: %v", err)
 	}

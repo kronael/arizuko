@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -41,15 +40,12 @@ func main() {
 		listenAddr = ":8080"
 	}
 
-	db, err := sql.Open("sqlite", dsn+"?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)")
+	db, err := db_utils.OpenWAL(db_utils.FileDSN(dsn))
 	if err != nil {
 		slog.Error("open db", "err", err)
 		os.Exit(1)
 	}
 	defer db.Close()
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		slog.Warn("set WAL mode", "err", err)
-	}
 	if err := migrate(db); err != nil {
 		slog.Error("migrate", "err", err)
 		os.Exit(1)

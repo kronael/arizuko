@@ -26,6 +26,12 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   `TopicByID` matched on the message id alone, so a reply could address a
   message in another tenant's chat. Both are scoped by `chat_jid`.
 
+### Changed
+
+- **Every daemon opens its database through one opener** (spec `6/37`).
+  `db_utils` owns the pragma set, and `authd` now fails to start when it
+  cannot enter WAL mode rather than logging a warning and serving on.
+
 ### Added
 
 - **GitHub arrives as a channel, not a special case** (`gitd`, spec `6/27`).

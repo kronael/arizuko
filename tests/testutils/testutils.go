@@ -17,6 +17,7 @@ import (
 
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/chanreg"
+	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
@@ -69,14 +70,9 @@ func NewRoutdInstance(t *testing.T) *Inst {
 func NewInstance(t *testing.T) *Inst {
 	t.Helper()
 	tmp := t.TempDir()
-	dsn := "file:" + filepath.Join(tmp, "test.db") + "?cache=shared&_pragma=busy_timeout(5000)"
-	db, err := sql.Open("sqlite", dsn)
+	db, err := db_utils.OpenWAL(db_utils.FileDSN(filepath.Join(tmp, "test.db")))
 	if err != nil {
-		t.Fatalf("sql.Open: %v", err)
-	}
-	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
-		db.Close()
-		t.Fatalf("pragma: %v", err)
+		t.Fatalf("open: %v", err)
 	}
 	if err := store.Migrate(db); err != nil {
 		db.Close()

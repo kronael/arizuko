@@ -24,6 +24,7 @@ import (
 	"github.com/kronael/arizuko/auth/surrogate"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/diary"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/obs"
@@ -437,7 +438,7 @@ func openSiblingOwner(env, dataDir, owner string) *sql.DB {
 			"owner", owner, "path", path, "env", env)
 		return nil
 	}
-	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(on)")
+	db, err := db_utils.OpenWAL(db_utils.FileDSN(path))
 	if err != nil {
 		slog.Error("open owner DB", "owner", owner, "path", path, "err", err)
 		return nil
