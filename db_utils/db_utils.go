@@ -265,11 +265,23 @@ func (d dialect) beginLocked(ctx context.Context, conn *sql.Conn) error {
 	return nil
 }
 
-// ensureVersionTable creates the bookkeeping table inside the critical section.
-// Two daemons boot together and both run it, and Postgres's CREATE TABLE IF NOT
-// EXISTS is not race-free — concurrent creators collide on the catalog's unique
-// index rather than one of them seeing the other's table.
-func ensureVersionTable(ctx context.Context, db *sql.DB, d dialect) error {
+// rowQuerier is the one statement Migrate issues from both the pool and a
+// pinned connection.
+type rowQuerier interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+func readVersion(ctx context.Context, q rowQuerier, d dialect, service string) (int, error) {
+	var max int
+	err := q.QueryRowContext(ctx, d.selectVersion, service).Scan(&max)
+	return max, err
+}
+
+// createVersionTable creates the bookkeeping table inside the critical section.
+// Two daemons boot together and both reach here, and Postgres's CREATE TABLE IF
+// NOT EXISTS is not race-free — concurrent creators collide on the catalog's
+// unique index rather than one of them seeing the other's table.
+func createVersionTable(ctx context.Context, db *sql.DB, d dialect) error {
 	conn, err := db.Conn(ctx)
 	if err != nil {
 		return err
@@ -296,13 +308,19 @@ func ensureVersionTable(ctx context.Context, db *sql.DB, d dialect) error {
 func Migrate(db *sql.DB, fsys embed.FS, dir, service string) error {
 	ctx := context.Background()
 	d := dialectFor(db)
-	if err := ensureVersionTable(ctx, db, d); err != nil {
-		return err
-	}
 
-	var max int
-	if err := db.QueryRow(d.selectVersion, service).Scan(&max); err != nil {
-		return fmt.Errorf("read migration version: %w", err)
+	// The version read is the probe for the bookkeeping table, so a database
+	// that already carries it takes no write lock at boot. Reaching for the lock
+	// unconditionally queues every daemon behind whichever one is inside a slow
+	// migration, and the rest fail on busy_timeout.
+	max, err := readVersion(ctx, db, d, service)
+	if err != nil {
+		if cerr := createVersionTable(ctx, db, d); cerr != nil {
+			return cerr
+		}
+		if max, err = readVersion(ctx, db, d, service); err != nil {
+			return fmt.Errorf("read migration version: %w", err)
+		}
 	}
 
 	entries, err := fsys.ReadDir(dir)
@@ -344,9 +362,8 @@ func Migrate(db *sql.DB, fsys embed.FS, dir, service string) error {
 			conn.Close()
 			return fmt.Errorf("%s: exclusive lock: %w", f, err)
 		}
-		var cur int
-		if err := conn.QueryRowContext(ctx, d.selectVersion,
-			service).Scan(&cur); err != nil {
+		cur, err := readVersion(ctx, conn, d, service)
+		if err != nil {
 			_, _ = conn.ExecContext(ctx, "ROLLBACK")
 			conn.Close()
 			return fmt.Errorf("%s: recheck version: %w", f, err)
