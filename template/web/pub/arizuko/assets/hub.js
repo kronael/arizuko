@@ -38,8 +38,7 @@
       ARIZUKO_VERSION +
       '</span> · ' +
       '<a href="https://github.com/kronael/arizuko">github.com/kronael/arizuko</a>' +
-      ' · <a href="https://krons.fiu.wtf/pub/arizuko/">krons.fiu.wtf</a>' +
-      ' · <a href="https://krons.fiu.wtf/pub/arizuko/legacy/">previous docs</a>';
+      ' · <a href="https://krons.fiu.wtf/pub/arizuko/">krons.fiu.wtf</a>';
     document.body.appendChild(f);
   }
 
