@@ -77,27 +77,6 @@ func TestFeature_MemoryGroupState(t *testing.T) {
 		}
 	})
 
-	// Sticky group pin: chat JID bound to a folder overrides the route table.
-	t.Run("sticky-group-round-trip", func(t *testing.T) {
-		s := mustMonolithDB(t)
-		if err := s.PutGroup(core.Group{Folder: "pinned"}); err != nil {
-			t.Fatal(err)
-		}
-		if err := s.SetStickyGroup("telegram:99", "pinned"); err != nil {
-			t.Fatal(err)
-		}
-		if got := s.GetStickyGroup("telegram:99"); got != "pinned" {
-			t.Fatalf("sticky = %q, want pinned", got)
-		}
-		// Clearing the pin restores empty.
-		if err := s.SetStickyGroup("telegram:99", ""); err != nil {
-			t.Fatal(err)
-		}
-		if got := s.GetStickyGroup("telegram:99"); got != "" {
-			t.Fatalf("sticky after clear = %q, want empty", got)
-		}
-	})
-
 	// Per-group model override persists and reads back.
 	t.Run("model-override-persists", func(t *testing.T) {
 		s := mustMonolithDB(t)

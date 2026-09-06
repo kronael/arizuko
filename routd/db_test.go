@@ -60,3 +60,40 @@ func TestOpenNoSiblingDB(t *testing.T) {
 		t.Fatalf("pane_sessions table missing from routd.db: %v", err)
 	}
 }
+
+// The chats row carries four independent pins — is_group, agent_cursor,
+// sticky_group, sticky_topic — and four separate writers upsert into it. Each
+// writer names ONLY its own column in the DO UPDATE clause. An `INSERT OR
+// REPLACE`, or a DO UPDATE that lists a column it does not own, silently drops
+// the other three: the chat keeps routing but loses its @group pin.
+func TestChatUpsertsPreserveTheOtherColumns(t *testing.T) {
+	db := memDB(t)
+	const jid = "telegram:42"
+
+	if err := db.SetStickyGroup(jid, "support"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetStickyTopic(jid, "billing"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetAgentCursor(jid, "2026-01-01T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetChatIsGroup(jid, true); err != nil {
+		t.Fatal(err)
+	}
+
+	group, topic := db.StickyState(jid)
+	if group != "support" {
+		t.Errorf("sticky_group = %q, want support — a later upsert cleared it", group)
+	}
+	if topic != "billing" {
+		t.Errorf("sticky_topic = %q, want billing — a later upsert cleared it", topic)
+	}
+	if got := db.GetAgentCursor(jid); got != "2026-01-01T00:00:00Z" {
+		t.Errorf("agent_cursor = %q, want the value set — a later upsert cleared it", got)
+	}
+	if !db.ChatIsGroup(jid) {
+		t.Error("is_group not persisted")
+	}
+}

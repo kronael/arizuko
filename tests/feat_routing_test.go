@@ -38,19 +38,6 @@ func TestFeature_MessageRouting(t *testing.T) {
 		}
 	})
 
-	t.Run("sticky-pin", func(t *testing.T) {
-		s := mustMonolithDB(t)
-		if err := s.PutGroup(core.Group{Folder: "pinned"}); err != nil {
-			t.Fatal(err)
-		}
-		if err := s.SetStickyGroup("telegram:99", "pinned"); err != nil {
-			t.Fatal(err)
-		}
-		if got := s.GetStickyGroup("telegram:99"); got != "pinned" {
-			t.Fatalf("sticky group = %q, want pinned", got)
-		}
-	})
-
 	t.Run("inbound-to-dispatch", func(t *testing.T) {
 		f := bootFederation(t)
 		if err := f.routdDB.PutGroup(core.Group{Folder: "demo"}); err != nil {

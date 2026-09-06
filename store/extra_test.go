@@ -350,30 +350,6 @@ func TestRoutedToByMessageID(t *testing.T) {
 	}
 }
 
-func TestHasPendingMessages(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-
-	jid := "tg:pending"
-	if s.HasPendingMessages(jid, "Bot") {
-		t.Fatal("empty chat should have no pending messages")
-	}
-
-	now := time.Now()
-	s.PutMessage(core.Message{
-		ID: "pm1", ChatJID: jid, Sender: "alice",
-		Content: "hello", Timestamp: now,
-	})
-	if !s.HasPendingMessages(jid, "Bot") {
-		t.Fatal("should have pending messages after PutMessage")
-	}
-
-	s.SetAgentCursor(jid, now.Add(time.Second))
-	if s.HasPendingMessages(jid, "Bot") {
-		t.Fatal("advancing cursor should clear pending")
-	}
-}
-
 func TestSetLastReply_EmptyReplyIDPreservesExisting(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
