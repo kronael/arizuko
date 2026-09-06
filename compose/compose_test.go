@@ -623,9 +623,11 @@ func TestPackageEnvGenerateMintsOnceIntoDotEnv(t *testing.T) {
 	if strings.Contains(dotenv, "MODEL_GATEWAY_URL=") {
 		t.Error("a default is never written to .env")
 	}
-	runed := read(t, dir, "env/runed.env")
-	if !strings.Contains(runed, "MODEL_GATEWAY_KEY="+key) || !strings.Contains(runed, "MODEL_GATEWAY_URL=http://litellm:4000") {
-		t.Errorf("runed must receive the minted key and the default URL:\n%s", runed)
+	if routd := read(t, dir, "env/routd.env"); !strings.Contains(routd, "MODEL_GATEWAY_KEY="+key) {
+		t.Errorf("routd must receive the minted master key; it mints each turn's virtual key with it:\n%s", routd)
+	}
+	if runed := read(t, dir, "env/runed.env"); !strings.Contains(runed, "MODEL_GATEWAY_URL=http://litellm:4000") {
+		t.Errorf("runed must receive the default URL:\n%s", runed)
 	}
 
 	gen(t, dir)
@@ -641,7 +643,7 @@ func TestPackageEnvGenerateMintsOnceIntoDotEnv(t *testing.T) {
 	write(t, mine, "services/litellm.yaml", gatewayManifest)
 	gen(t, mine)
 	if strings.Count(read(t, mine, ".env"), "MODEL_GATEWAY_KEY=") != 1 ||
-		!strings.Contains(read(t, mine, "env/runed.env"), "MODEL_GATEWAY_KEY=operators-own") {
+		!strings.Contains(read(t, mine, "env/routd.env"), "MODEL_GATEWAY_KEY=operators-own") {
 		t.Error("an operator-set key must win and never be duplicated")
 	}
 }
@@ -1005,16 +1007,27 @@ func TestRunTimeoutReachesBothRoutdAndRuned(t *testing.T) {
 	}
 }
 
-// The gateway pair follows the backend selector: runed re-emits it as
-// container env (container/runner.go buildArgs), and only the allowlist
-// carries an instance .env value into env/runed.env.
-func TestRunedReceivesTheModelGateway(t *testing.T) {
-	dir := seed(t, "MODEL_GATEWAY_URL=http://gw:4000\nMODEL_GATEWAY_KEY=virtual-key-abc123\n")
+// The gateway pair splits by who uses which half (spec 6/23). routd mints each
+// turn's virtual key with the master key and reads back what the gateway
+// charged it, so both halves reach routd. runed gets the URL — it re-emits it
+// as container env and allows the gateway host through the spawn's egress
+// proxy — and never the master key, because the daemon holding docker.sock has
+// no call to make that the gateway would honour.
+func TestTheModelGatewayMasterKeyReachesRoutdAndNotRuned(t *testing.T) {
+	dir := seed(t, "MODEL_GATEWAY_URL=http://gw:4000\nMODEL_GATEWAY_KEY=master-key-abc123\n")
 	gen(t, dir)
-	runed := read(t, dir, "env/runed.env")
-	for _, want := range []string{"MODEL_GATEWAY_URL=http://gw:4000", "MODEL_GATEWAY_KEY=virtual-key-abc123"} {
-		if !strings.Contains(runed, want) {
-			t.Errorf("env/runed.env must carry %s: runed re-emits it as container env", want)
+	routd := read(t, dir, "env/routd.env")
+	for _, want := range []string{"MODEL_GATEWAY_URL=http://gw:4000", "MODEL_GATEWAY_KEY=master-key-abc123"} {
+		if !strings.Contains(routd, want) {
+			t.Errorf("env/routd.env must carry %s: routd mints the per-turn key and books its spend", want)
 		}
+	}
+	runed := read(t, dir, "env/runed.env")
+	if !strings.Contains(runed, "MODEL_GATEWAY_URL=http://gw:4000") {
+		t.Error("env/runed.env must carry MODEL_GATEWAY_URL: runed re-emits it as container env")
+	}
+	if strings.Contains(runed, "MODEL_GATEWAY_KEY=") {
+		t.Errorf("env/runed.env carries the gateway MASTER key; runed injects only the "+
+			"per-turn key routd hands it in the run request:\n%s", runed)
 	}
 }

@@ -377,12 +377,14 @@ func TestLitellmFragmentReadsOnlyItsDeclaredKeys(t *testing.T) {
 	if err := yaml.Unmarshal(raw, &f); err != nil {
 		t.Fatalf("parse litellm.yml: %v", err)
 	}
-	if n := len(f.Services["litellm"].EnvFile); n != 0 {
-		t.Errorf("litellm.yml names an env_file; its env is the interpolated keys below, nothing more")
+	for name, svc := range f.Services {
+		if len(svc.EnvFile) != 0 {
+			t.Errorf("litellm.yml gives %s an env_file; its env is the interpolated keys below, nothing more", name)
+		}
 	}
 	want := []string{
 		"ANTHROPIC_API_KEY", "APP", "CLAUDE_CODE_OAUTH_TOKEN", "FLAVOR",
-		"MODEL_GATEWAY_KEY", "OTEL_EXPORTER_OTLP_ENDPOINT",
+		"MODEL_GATEWAY_DB_PASSWORD", "MODEL_GATEWAY_KEY", "OTEL_EXPORTER_OTLP_ENDPOINT",
 		"OTEL_EXPORTER_OTLP_HEADERS", "OTEL_EXPORTER_OTLP_PROTOCOL", "TZ",
 	}
 	seen := map[string]bool{}
@@ -399,6 +401,65 @@ func TestLitellmFragmentReadsOnlyItsDeclaredKeys(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), "${MODEL_GATEWAY_KEY:?") {
 		t.Error("MODEL_GATEWAY_KEY must be a required interpolation (`:?`) so the gateway never starts without a key")
+	}
+	if !strings.Contains(string(raw), "${MODEL_GATEWAY_DB_PASSWORD:?") {
+		t.Error("MODEL_GATEWAY_DB_PASSWORD must be a required interpolation (`:?`); an empty password starts a gateway database open on the compose network")
+	}
+}
+
+// The gateway's key management and its spend log are Postgres-only, so a
+// litellm without a reachable database mints no per-turn key and records no
+// usage: routd's mint fails, every turn fails with it, and cost_log stays
+// agent-reported. Pin the wiring — the database is named, it is healthy before
+// the gateway starts, its data survives a recreate, and it holds the gateway's
+// state rather than the instance's (spec 6/23).
+func TestLitellmFragmentWiresItsDatabase(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(templateServices, "litellm.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var f struct {
+		Services map[string]struct {
+			Environment map[string]string `yaml:"environment"`
+			Volumes     []string          `yaml:"volumes"`
+			DependsOn   map[string]struct {
+				Condition string `yaml:"condition"`
+			} `yaml:"depends_on"`
+			Healthcheck map[string]any `yaml:"healthcheck"`
+		} `yaml:"services"`
+		Volumes map[string]any `yaml:"volumes"`
+	}
+	if err := yaml.Unmarshal(raw, &f); err != nil {
+		t.Fatalf("parse litellm.yml: %v", err)
+	}
+	gateway, ok := f.Services["litellm"]
+	if !ok {
+		t.Fatal("litellm.yml declares no litellm service")
+	}
+	db, ok := f.Services["litellm_db"]
+	if !ok {
+		t.Fatal("litellm.yml declares no litellm_db; without it /key/generate and /spend/logs both fail")
+	}
+	if url := gateway.Environment["DATABASE_URL"]; !strings.Contains(url, "@litellm_db:5432/") {
+		t.Errorf("litellm DATABASE_URL is %q; it must name the litellm_db service", url)
+	}
+	if c := gateway.DependsOn["litellm_db"].Condition; c != "service_healthy" {
+		t.Errorf("litellm depends on litellm_db with condition %q, want service_healthy — "+
+			"litellm runs its schema migration at boot and exits when the database is not up yet", c)
+	}
+	if len(db.Healthcheck) == 0 {
+		t.Error("litellm_db has no healthcheck, so service_healthy above can never be satisfied")
+	}
+	data, mounted := mountFor(db.Volumes, "/var/lib/postgresql/data")
+	if !mounted {
+		t.Fatalf("litellm_db does not mount its data dir (volumes %v); every recreate loses every key and every spend row", db.Volumes)
+	}
+	if strings.HasPrefix(data, "${DATA_DIR}") || strings.HasPrefix(data, "/") {
+		t.Errorf("litellm_db keeps its data at %q; this is the gateway's bookkeeping, not instance state, "+
+			"so it belongs in a named volume rather than the dir backup and restore own", data)
+	}
+	if _, declared := f.Volumes[data]; !declared {
+		t.Errorf("litellm_db mounts volume %q that the fragment never declares in its top-level volumes:", data)
 	}
 }
 

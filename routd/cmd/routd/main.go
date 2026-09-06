@@ -150,6 +150,18 @@ func main() {
 	deliver := routd.NewChannelDeliverer(
 		reg, core.ParseCSV(os.Getenv("SEND_DISABLED_CHANNELS")), db.LatestSource)
 
+	// The model gateway pair (spec 6/23). A URL with no master key mints no
+	// key, and every turn would then fail at dispatch; refuse at boot instead,
+	// the way runed refuses a half-configured egress substrate.
+	gatewayURL := os.Getenv("MODEL_GATEWAY_URL")
+	gatewayKey := os.Getenv("MODEL_GATEWAY_KEY")
+	if gatewayURL != "" && gatewayKey == "" {
+		slog.Error("MODEL_GATEWAY_URL is set and MODEL_GATEWAY_KEY is not; "+
+			"routd mints each turn's virtual key with that master key and can mint none without it",
+			"gateway", gatewayURL)
+		os.Exit(1)
+	}
+
 	loop := routd.NewLoop(db, runedClient, routd.LoopConfig{
 		RunTimeout: runedWait,
 		IpcDir:     filepath.Join(dataDir, "ipc"),
@@ -170,6 +182,12 @@ func main() {
 		ObserveWindowChars:    core.EnvInt("OBSERVE_WINDOW_CHARS", 4000),
 		// Pre-spawn budget gate (spec 11/19); default-on.
 		CostCapsEnabled: core.EnvOr("COST_CAPS_ENABLED", "true") == "true",
+		// Model gateway (spec 6/23). With a URL set, routd mints one virtual
+		// key per turn against the master key below and books cost_log from
+		// what the gateway measured. Unset leaves the model credential in the
+		// container and the agent's own report as the only number.
+		GatewayURL: gatewayURL,
+		GatewayKey: gatewayKey,
 		// Spawn-time stale-session reset threshold (default 2 days).
 		// SESSION_IDLE_EXPIRY overrides.
 		SessionIdle: core.DurOr("SESSION_IDLE_EXPIRY", 0),

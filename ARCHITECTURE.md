@@ -610,10 +610,13 @@ folder row and no capability credential can reach the container. See
 container: `template/services/litellm.yml` reads `ANTHROPIC_API_KEY` (or
 `CLAUDE_CODE_OAUTH_TOKEN`) straight from the instance `.env`, and the agent
 container receives `MODEL_GATEWAY_URL` + `MODEL_GATEWAY_KEY` instead — a
-virtual key litellm checks, worth nothing anywhere else. One key per
-instance, not per spawn: litellm keeps virtual keys, budgets and
-`/spend/logs` in Postgres, which arizuko does not run. Metering is the OTel
-span per request, exported when the instance already exports OTLP.
+virtual key litellm checks, worth nothing anywhere else. One key per TURN:
+routd mints it with the folder's remaining daily budget and the run ceiling
+as its TTL, hands it to runed with the run, reads back what the gateway
+charged it, and deletes it. That reading IS the `cost_log` row, so the
+budget gate enforces against a number the spender could not choose. The
+package ships the Postgres litellm needs for keys and `/spend/logs`
+(`litellm_db`); arizuko's own stores stay SQLite.
 
 Session: new session ID updates routd's `sessions` table. Error with no
 output → evict session (cursor rolled back, retry). Error with output →
@@ -785,10 +788,11 @@ their own: kokoro :8880, litellm :4000.
 
 Third-party fragments (`kokoro.yml`, `litellm.yml`) never read the shared
 `.env`. kokoro gets a generated `env/kokoro.env` holding its one key;
-litellm has no env file at all — docker interpolates the keys its fragment
-names (`${MODEL_GATEWAY_KEY:?}` and the credential pair) from `.env`, and
-`compose/fragments_test.go` pins that set, so handing the image a new
-instance value is a visible edit. The key itself is minted into `.env` by
+litellm and its `litellm_db` have no env file at all — docker interpolates
+the keys the fragment names (`${MODEL_GATEWAY_KEY:?}`,
+`${MODEL_GATEWAY_DB_PASSWORD:?}` and the credential pair) from `.env`, and
+`compose/fragments_test.go` pins that set, so handing either image a new
+instance value is a visible edit. Both secrets are minted into `.env` by
 `packages add` (the `env` block of `litellm.yaml`), so the `:?` is a guard
 against a hand-copied fragment, not a step the operator performs.
 

@@ -131,6 +131,11 @@ var daemonKeys = map[string][]string{
 		"SECRETS_KEY",
 		// Instance-wide fallback model when a group has no per-group model.
 		"ARIZUKO_DEFAULT_MODEL",
+		// The model gateway (spec 6/23). routd mints one virtual key per turn
+		// with the master key and reads back what the gateway charged it, so
+		// the pair lives with the daemon that owns cost_log and the budget
+		// gate. runed gets the URL only.
+		"MODEL_GATEWAY_URL", "MODEL_GATEWAY_KEY",
 		// Inbound media enrichment and outbound send_voice run IN routd. The split left
 		// the env only on runed, so routd defaulted MEDIA_ENABLED off → every inbound
 		// attachment silently dropped and send_voice disabled (krons, 2026-06-10). Both
@@ -166,10 +171,14 @@ var daemonKeys = map[string][]string{
 		// the instance .env value never reaches runed, so `ARIZUKO_BACKEND=codex;
 		// restart` silently kept spawning claude.
 		"ARIZUKO_BACKEND",
-		// MODEL_GATEWAY_URL/KEY: runed re-emits them as container env
-		// (container/runner.go buildArgs); absent here the instance .env value
-		// never reaches it, the same silent no-op as ARIZUKO_BACKEND.
-		"MODEL_GATEWAY_URL", "MODEL_GATEWAY_KEY",
+		// MODEL_GATEWAY_URL: runed re-emits it as container env
+		// (container/runner.go buildArgs) and allows the gateway host through
+		// the spawn's egress proxy; absent here the instance .env value never
+		// reaches it, the same silent no-op as ARIZUKO_BACKEND. NOT the master
+		// key — routd mints each turn's virtual key and runed only injects the
+		// one it is handed (spec 6/23), so the daemon holding docker.sock has
+		// no credential the gateway would honour on its own.
+		"MODEL_GATEWAY_URL",
 		// NO SECRETS_KEY. runed injects the model credentials routd already decrypted;
 		// it opens no secrets table, so the fleet's decryption key had no reader here —
 		// only a wider blast radius on the one daemon holding docker.sock (BUGS X3).

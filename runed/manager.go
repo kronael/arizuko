@@ -349,6 +349,7 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 		ShareReadOnly: req.ShareReadOnly, Egress: req.Egress, WebPublish: req.WebPublish,
 		EgressAllowlist: req.EgressAllowlist,
 		Secrets:         req.Secrets,
+		ModelGatewayKey: req.ModelGatewayKey,
 		RunTTL:          m.runTTL,
 		RegisterSteer:   func(steer func(batch string) bool) { m.SetSteer(runID, steer) },
 	})

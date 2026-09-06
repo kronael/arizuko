@@ -86,8 +86,7 @@ func TestMergeSecrets_NilOverride(t *testing.T) {
 func TestSpawnSecrets_GatewayWithholdsModelCredential(t *testing.T) {
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "operator-oauth")
 	t.Setenv("ANTHROPIC_API_KEY", "")
-	cfg := &core.Config{Timezone: "UTC", Image: "img:latest",
-		ModelGatewayURL: "http://gw:4000", ModelGatewayKey: "virtual-key-abc123"}
+	cfg := &core.Config{Timezone: "UTC", Image: "img:latest", ModelGatewayURL: "http://gw:4000"}
 	user := map[string]string{"ANTHROPIC_API_KEY": "user-byoa", "GITHUB_TOKEN": "ghp-shell-env"}
 
 	got := spawnSecrets(cfg, user)
@@ -101,8 +100,8 @@ func TestSpawnSecrets_GatewayWithholdsModelCredential(t *testing.T) {
 	if got["GITHUB_TOKEN"] != "ghp-shell-env" {
 		t.Errorf("shell:env key dropped by the gateway filter: %v", got)
 	}
-	args := strings.Join(buildArgs(cfg, nil, "c8", egressSpawn{}, "", 0, false), " ")
-	if !strings.Contains(args, "-e MODEL_GATEWAY_KEY=virtual-key-abc123") {
+	args := strings.Join(buildArgs(cfg, nil, "c8", egressSpawn{}, "", 0, false, "sk-turn-key"), " ")
+	if !strings.Contains(args, "-e MODEL_GATEWAY_KEY=sk-turn-key") {
 		t.Errorf("virtual key must still reach the spawn: %s", args)
 	}
 }

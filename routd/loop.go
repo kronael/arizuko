@@ -109,6 +109,12 @@ type Loop struct {
 	// whose folder is at/over its daily cost cap.
 	costCapsEnabled bool
 
+	// gateway is the model gateway's admin client (spec 6/23). Non-nil means
+	// every turn mints its own virtual key and cost_log is written from what
+	// the gateway measured. nil means no gateway: the container keeps the model
+	// credential and the agent's submit_turn report is the only number there is.
+	gateway *modelGateway
+
 	// media is the inbound enrichment config (MEDIA_*/WHISPER_*/VOICE_/VIDEO_
 	// env). Disabled (Enabled=false) → enrichAttachments is a no-op.
 	media mediaConfig
@@ -185,6 +191,15 @@ type LoopConfig struct {
 	// Default-on at the cmd layer.
 	CostCapsEnabled bool
 
+	// GatewayURL/GatewayKey are the model gateway pair (MODEL_GATEWAY_URL,
+	// MODEL_GATEWAY_KEY). With a URL set, every turn gets its own virtual key
+	// minted against the gateway with this master key, and cost_log takes the
+	// gateway's measurement instead of the agent's report (spec 6/23). Empty
+	// URL leaves the container holding the model credential and the agent
+	// reporting its own spend.
+	GatewayURL string
+	GatewayKey string
+
 	// Media is the inbound enrichment config (MEDIA_*/WHISPER_*/VOICE_/VIDEO_
 	// env). Zero value (Enabled=false) leaves inbound media un-downloaded and
 	// voice un-transcribed.
@@ -256,6 +271,7 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 		groupsDir:       cfg.GroupsDir,
 		appSrcDir:       cfg.AppSrcDir,
 		costCapsEnabled: cfg.CostCapsEnabled,
+		gateway:         newGatewayIfConfigured(cfg.GatewayURL, cfg.GatewayKey),
 		media:           cfg.Media,
 		sessionIdle:     cfg.SessionIdle,
 		folders:         &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir},

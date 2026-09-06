@@ -33,6 +33,10 @@ type RunSpec struct {
 	WebPublish      bool              // 5/33 grant decision → container.Input.WebPublish (mount web surfaces)
 	EgressAllowlist []string          // routd-resolved egress allowlist → EgressConfig.AllowlistFn
 	Secrets         map[string]string // routd-resolved user env-profile keys (BYOA model creds) → container.Input.Secrets, injected as container env; capability creds are brokered, never here
+	// ModelGatewayKey is this turn's virtual key at the model gateway, minted
+	// by routd (spec 6/23) → container.Input.ModelGatewayKey → the spawn's
+	// MODEL_GATEWAY_KEY. Empty means no gateway on this instance.
+	ModelGatewayKey string
 
 	// RunTTL is the run ceiling (the brokered token's TTL). The Runtime
 	// enforces it as a kill-deadline FROM WITHIN the run path so the kill is

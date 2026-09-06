@@ -182,6 +182,28 @@ func (s *Server) deliverRow(tc TurnContext, jid string, row *core.Message, threa
 	}
 }
 
+// gatewayMetered reports whether cost_log takes its numbers from the model
+// gateway on this instance. The Loop owns the gateway client because the mint
+// and the spend read bracket a dispatch; this is the same declaration read from
+// the callback side.
+func (s *Server) gatewayMetered() bool { return s.loop != nil && s.loop.gateway != nil }
+
+// putTurnCost is the ONE writer of a turn's cost_log rows. Both sources reach
+// it — the gateway's measurement at the turn boundary, and the agent's own
+// submit_turn report where no gateway is configured — and exactly one of them
+// fires per turn, so the (folder, turn_id, model) dedup never has to arbitrate
+// between two numbers for the same call.
+func putTurnCost(db *DB, folder, turnID, userSub string, models map[string]apiv1.ModelCost) {
+	for model, c := range models {
+		if err := db.PutCost(folder, turnID, userSub, model, c.Input, c.Output, c.CostCents); err != nil {
+			slog.Error("putTurnCost: PutCost failed; cost attribution for this turn is missing",
+				"folder", folder, "turn_id", turnID, "model", model, "err", err)
+		}
+		obs.RecordModelTokens(model, folder, "in", c.Input)
+		obs.RecordModelTokens(model, folder, "out", c.Output)
+	}
+}
+
 // recordTurnResult is the turn-completion writer behind the in-process
 // submit_turn MCP method. It records the outcome idempotently, and on the FIRST
 // record persists session_id + per-model cost, flips the turn to done, and
@@ -220,14 +242,17 @@ func (s *Server) recordTurnResult(turnID string, req apiv1.TurnResult) (bool, er
 					"folder", tc.Folder, "turn_id", turnID, "err", err)
 			}
 		}
-		userSub := turnCallerSub(tc.Trigger)
-		for model, c := range req.Models {
-			if err := s.db.PutCost(tc.Folder, turnID, userSub, model, c.Input, c.Output, c.CostCents); err != nil {
-				slog.Error("recordTurnResult: PutCost failed; cost attribution for this turn is missing",
-					"folder", tc.Folder, "turn_id", turnID, "model", model, "err", err)
-			}
-			obs.RecordModelTokens(model, tc.Folder, "in", c.Input)
-			obs.RecordModelTokens(model, tc.Folder, "out", c.Output)
+		// The agent's own per-model report. With a model gateway configured it
+		// is corroboration and nothing more — the row comes from what the
+		// gateway measured, at the turn boundary, from a number the spender
+		// could not choose (spec 6/23 Fault 2). Logged rather than dropped
+		// because a harness that thinks it spent what the gateway never saw is
+		// the one shape a bypassed gateway takes.
+		if s.gatewayMetered() {
+			slog.Info("agent self-reported model usage; cost_log takes the gateway's measurement",
+				"folder", tc.Folder, "turn_id", turnID, "models", len(req.Models))
+		} else {
+			putTurnCost(s.db, tc.Folder, turnID, turnCallerSub(tc.Trigger), req.Models)
 		}
 		if err := s.db.SetTurnState(turnID, "done"); err != nil {
 			slog.Error("recordTurnResult: SetTurnState(done) failed; turn may appear stuck in-progress",

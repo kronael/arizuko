@@ -47,7 +47,8 @@ What's isolated per group:
   (`specs/5/13-ext-mcp.md`, `specs/5/14-credentials.md`). With the
   `litellm` package the model credential stays out too: the gateway
   container holds it, and the agent gets `MODEL_GATEWAY_KEY`, a virtual
-  key that only the gateway accepts (`specs/6/23-llm-gateway.md`).
+  key minted for that one turn, carrying that folder's remaining daily
+  budget and expiring with the run (`specs/6/23-llm-gateway.md`).
 
 The threat the model defends against is a malicious agent in group A
 trying to reach group B's data, files, or network. Separate containers
@@ -336,10 +337,12 @@ Caveats:
   restricts _where_ the agent can reach; it does not prevent leaking a
   model credential to an allowed domain. The `litellm` package closes
   that gap by construction: the container holds `MODEL_GATEWAY_KEY`, which
-  buys exactly the gateway's upstream access and nothing else, and
-  rotating it is one `.env` edit plus a restart — the provider credential
-  never moves. What it does not buy without Postgres: per-spawn keys, so
-  one leaked key is every container's key until rotated.
+  buys exactly the gateway's upstream access and nothing else — the
+  provider credential never moves. routd mints that key per turn against a
+  master key it alone holds, bounds it by the folder's remaining daily
+  budget and the run ceiling, and deletes it when the turn ends, so a key
+  read out of a container's environment buys one turn of one folder's
+  tokens and then nothing.
 - The tool-level secret broker is **shipped** (v0.57.0;
   `specs/5/13-ext-mcp.md`, `specs/5/14-credentials.md`): the broker
   middleware (`ipc/ipc.go` `injectSecretsAdapter`) resolves

@@ -1,14 +1,20 @@
 # litellm — the model gateway (spec 6/23). It holds the instance's model
 # credential and forwards every agent request upstream with it; a container
-# gets only MODEL_GATEWAY_KEY, the virtual key this proxy checks. Third-party
-# image, so its env is exactly what is named below — never the shared .env,
-# which carries SECRETS_KEY, AUTH_SECRET and every bot token.
+# gets a per-turn virtual key routd minted, never the master key this proxy
+# checks it against. Third-party images, so their env is exactly what is named
+# below — never the shared .env, which carries SECRETS_KEY, AUTH_SECRET and
+# every bot token.
 #
-# No Postgres, by design: per-key budgets, per-spawn virtual keys and
-# /spend/logs all need one, and arizuko runs SQLite only. Metering is the
-# OTel span per request, exported only when the instance already exports
-# OTLP (the same OTEL_* declaration every daemon reads); without a collector
-# the journal carries one JSON access line per request and nothing more.
+# litellm_db is litellm's own key and spend bookkeeping: per-key budgets,
+# virtual keys and /spend/logs are all Postgres-only, so the gateway cannot
+# scope or meter a turn without it. It is the gateway's state, not arizuko's,
+# so it lives in a named volume rather than under the instance data dir, which
+# backup and restore own.
+#
+# proxy_batch_write_at is the spend flush: a request's usage row reaches
+# /spend/logs that many seconds later (plus up to 5s of jitter), and routd
+# waits for it at the turn boundary before writing cost_log. The default 10
+# would put that wait on every turn.
 #
 # The config is inline so the package stays one file. `os.environ/` keeps the
 # credential out of it; ANTHROPIC_API_KEY wins over CLAUDE_CODE_OAUTH_TOKEN,
@@ -26,6 +32,7 @@ services:
     environment:
       ANTHROPIC_API_KEY: '${ANTHROPIC_API_KEY:-${CLAUDE_CODE_OAUTH_TOKEN:-}}'
       LITELLM_MASTER_KEY: '${MODEL_GATEWAY_KEY:?MODEL_GATEWAY_KEY is unset in .env — the gateway refuses to start open}'
+      DATABASE_URL: 'postgresql://litellm:${MODEL_GATEWAY_DB_PASSWORD:?MODEL_GATEWAY_DB_PASSWORD is unset in .env — without it the gateway mints no virtual keys and records no spend}@litellm_db:5432/litellm'
       TZ: '${TZ:-UTC}'
       OTEL_EXPORTER_OTLP_ENDPOINT: '${OTEL_EXPORTER_OTLP_ENDPOINT:-}'
       OTEL_EXPORTER_OTLP_PROTOCOL: '${OTEL_EXPORTER_OTLP_PROTOCOL:-http/protobuf}'
@@ -43,9 +50,32 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 15s
-    depends_on: [routd]
+      start_period: 60s
+    depends_on:
+      routd:
+        condition: service_started
+      litellm_db:
+        condition: service_healthy
     restart: on-failure
+  litellm_db:
+    container_name: ${APP}_litellm_db_${FLAVOR}
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: 'litellm'
+      POSTGRES_DB: 'litellm'
+      POSTGRES_PASSWORD: '${MODEL_GATEWAY_DB_PASSWORD:?MODEL_GATEWAY_DB_PASSWORD is unset in .env — without it the gateway mints no virtual keys and records no spend}'
+      TZ: '${TZ:-UTC}'
+    volumes:
+      - 'litellm_db:/var/lib/postgresql/data'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U litellm -d litellm']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: on-failure
+volumes:
+  litellm_db:
 configs:
   litellm_config:
     content: |
@@ -54,6 +84,8 @@ configs:
           litellm_params:
             model: "*"
             api_key: os.environ/ANTHROPIC_API_KEY
+      general_settings:
+        proxy_batch_write_at: 1
       litellm_settings:
         json_logs: true
         ${OTEL_EXPORTER_OTLP_ENDPOINT:+callbacks: ["otel"]}
