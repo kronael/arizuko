@@ -15,11 +15,25 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/store"
 )
+
+// msgAt parses a fixture day. Timestamps reach messages.timestamp through
+// core.TS: a fixture that hand-formats that column brings a second format to a
+// column whose guarantee is that its string order is its time order (BUGS L97).
+func msgAt(t *testing.T, day string) time.Time {
+	t.Helper()
+	v, err := time.Parse(time.RFC3339, day+"T00:00:00Z")
+	if err != nil {
+		t.Fatalf("fixture day %q: %v", day, err)
+	}
+	return v
+}
 
 // seedGroupFiles writes a minimal group dir under dataDir/groups/<folder> —
 // standing in for what container.SetupGroup/the agent would have written,
@@ -96,12 +110,12 @@ func TestArchive_RoundTrip_ConfigSecretsMessagesGroups(t *testing.T) {
 	// archive_test.go's fixture.
 	if _, err := srcRoutd.DB().Exec(`INSERT INTO messages
 		(id, chat_jid, sender, content, timestamp, topic, routed_to, link_context)
-		VALUES ('m1','web:atlas','user1','hello','2026-01-01T00:00:00Z','general','atlas','ctx-a')`); err != nil {
+		VALUES ('m1','web:atlas','user1','hello',?,'general','atlas','ctx-a')`, core.TS(msgAt(t, "2026-01-01"))); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := srcRoutd.DB().Exec(`INSERT INTO messages
 		(id, chat_jid, sender, content, timestamp, topic, routed_to)
-		VALUES ('m2','web:atlas','user1','world','2026-01-02T00:00:00Z','general','atlas')`); err != nil {
+		VALUES ('m2','web:atlas','user1','world',?,'general','atlas')`, core.TS(msgAt(t, "2026-01-02"))); err != nil {
 		t.Fatal(err)
 	}
 
@@ -203,7 +217,7 @@ func TestArchive_RoundTrip_ConfigSecretsMessagesGroups(t *testing.T) {
 	if err := dstRoutd.DB().QueryRow("SELECT agent_cursor FROM chats WHERE jid='web:atlas'").Scan(&cursor); err != nil {
 		t.Fatal(err)
 	}
-	if cursor != "2026-01-02T00:00:00Z" {
+	if cursor != core.TS(msgAt(t, "2026-01-02")) {
 		t.Errorf("agent_cursor = %q, want the MAX imported timestamp", cursor)
 	}
 

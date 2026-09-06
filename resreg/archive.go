@@ -20,6 +20,8 @@ import (
 	"io"
 	"sort"
 	"time"
+
+	"github.com/kronael/arizuko/core"
 )
 
 // ArchiveFormatVersion is archive.yaml's own format version — a small
@@ -172,15 +174,52 @@ func ExportMessagesJSONL(ctx context.Context, db *sql.DB, w io.Writer) (int, err
 // duration (spec 5/8 "Message history").
 const defaultImportBatch = 500
 
+// UnorderableMessage names one archived row this import refused: its
+// timestamp is not an RFC3339 instant, so there is no core.TS rendering of it
+// and it cannot be ordered against a cursor. The ID and the value as the
+// archive carried it are both reported, because fixing the archive by hand is
+// the operator's way back in.
+type UnorderableMessage struct {
+	ID        string
+	Timestamp string
+}
+
+// fixedWidthTS re-renders an archived timestamp into core.TSLayout. Parsing
+// with time.RFC3339Nano matches every reader of this column, and accepts each
+// width an archive can carry — a whole second, a stripped fraction, a padded
+// one — because they are all the same instant.
+func fixedWidthTS(s string) (string, error) {
+	t, err := time.Parse(time.RFC3339Nano, s)
+	if err != nil {
+		return "", err
+	}
+	return core.TS(t), nil
+}
+
 // ImportMessagesJSONL reads JSONL from r and appends every row via INSERT OR
 // IGNORE keyed on id (spec 5/8 "Message history": "idempotent bulk append,
 // not rebuild" — re-running the same archive, or restoring onto a target
 // that already has some of the same history, is a no-op on already-present
 // rows). Runs in batches of batchSize rows per tx (<=0 uses
-// defaultImportBatch). Returns the number of rows read and the set of
-// chat_jids touched, for the caller to derive agent_cursor from
-// (DeriveAgentCursors, below — spec 5/8's Finding 4).
-func ImportMessagesJSONL(ctx context.Context, db *sql.DB, r io.Reader, batchSize int) (imported int, chatJIDs map[string]bool, err error) {
+// defaultImportBatch). Returns the number of rows read, the set of chat_jids
+// touched for the caller to derive agent_cursor from (DeriveAgentCursors,
+// below — spec 5/8's Finding 4), and the rows it refused.
+//
+// Every timestamp is re-rendered through core.TS on the way in. An archive is
+// the one place a foreign string reaches messages.timestamp, whose guarantee is
+// that its string order is its time order, so this is where the value is
+// brought into core.TSLayout rather than trusted (BUGS L219, L97).
+//
+// A row whose timestamp is not an RFC3339 instant is REFUSED — never written —
+// and returned in refused for the caller to report. Per row, not per archive:
+// a restore is a sequence of committed phases over a streaming tar, so failing
+// here cannot roll back the config and secrets already applied, and the stream
+// is unbounded and batched, so it cannot be checked up front either. Failing
+// the whole restore would leave a half-restored instance while protecting
+// nothing the per-row refusal does not — neither path writes the bad value.
+// The import is idempotent, so correcting a named row and re-running completes
+// the archive without duplicating what already landed.
+func ImportMessagesJSONL(ctx context.Context, db *sql.DB, r io.Reader, batchSize int) (imported int, chatJIDs map[string]bool, refused []UnorderableMessage, err error) {
 	if batchSize <= 0 {
 		batchSize = defaultImportBatch
 	}
@@ -227,19 +266,25 @@ func ImportMessagesJSONL(ctx context.Context, db *sql.DB, r io.Reader, batchSize
 			break
 		}
 		if derr != nil {
-			return imported, chatJIDs, fmt.Errorf("decode message: %w", derr)
+			return imported, chatJIDs, refused, fmt.Errorf("decode message: %w", derr)
 		}
+		ts, terr := fixedWidthTS(m.Timestamp)
+		if terr != nil {
+			refused = append(refused, UnorderableMessage{ID: m.ID, Timestamp: m.Timestamp})
+			continue
+		}
+		m.Timestamp = ts
 		batch = append(batch, m)
 		if len(batch) >= batchSize {
 			if ferr := flush(); ferr != nil {
-				return imported, chatJIDs, ferr
+				return imported, chatJIDs, refused, ferr
 			}
 		}
 	}
 	if ferr := flush(); ferr != nil {
-		return imported, chatJIDs, ferr
+		return imported, chatJIDs, refused, ferr
 	}
-	return imported, chatJIDs, nil
+	return imported, chatJIDs, refused, nil
 }
 
 // DeriveAgentCursors sets chats.agent_cursor = MAX(messages.timestamp) for every
