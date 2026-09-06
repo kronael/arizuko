@@ -24,12 +24,37 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 - **A reply target resolves inside its own chat only.** `MessageByID` and
   `TopicByID` matched on the message id alone, so a reply could address a
   message in another tenant's chat. Both are scoped by `chat_jid`.
+- **Approving a held call now re-issues it.** `/approve` answered "the agent
+  will re-issue it" and nothing happened, on every platform. `messages.timestamp`
+  is compared as text and was written with a layout that strips trailing zeros,
+  so the re-issue trigger sorted behind the cursor that had to pick it up — and
+  a cursor only moves forward. `core.TSLayout` is now the one write layout for
+  every compared timestamp column, and migration `0044` pads the rows already
+  stored (BUGS `L97`).
+- **The agent container holds a key scoped to its own turn** (spec `6/23`).
+  routd mints a gateway key per turn, bounds it by the folder's remaining daily
+  budget and the run's ceiling, and deletes it when the turn ends. Cost comes
+  from the gateway's own spend log; the agent's self-reported number is a log
+  line, not a billing row.
+- **Two connectors can no longer share a tool name in silence** (spec `6/19`).
+  A later source shadows an earlier one and says so; a duplicate inside one
+  source is an error. routd refuses to start on a connector file it cannot
+  load, rather than dropping every external tool with a warning.
+- **proxyd's identity answer is one declaration** (spec `6/22`). The
+  forward-auth endpoint and the Caddyfile renderer read the same header set, so
+  a fronting proxy cannot copy three of four and leave every caller nameless
+  while returning 200.
 
 ### Changed
 
 - **Every daemon opens its database through one opener** (spec `6/37`).
   `db_utils` owns the pragma set, and `authd` now fails to start when it
   cannot enter WAL mode rather than logging a warning and serving on.
+- **proxyd is cut to the half no off-the-shelf proxy can do** (spec `6/22`).
+  Routes are rows, `arizuko proxy-config` renders a Caddyfile from them, and
+  `/auth/forward` answers who the caller is so Caddy or Traefik can front the
+  stack. proxyd keeps the folder and `acl` scoping, which is the part nobody
+  else has.
 
 ### Added
 
