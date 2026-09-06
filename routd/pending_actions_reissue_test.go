@@ -103,6 +103,30 @@ func TestApproveReIssuesHeldCallInTheCursorSecond(t *testing.T) {
 	}
 }
 
+// TestPutMessageStoresAFixedWidthTimestamp pins the writer the cursor is
+// compared against. A whole second is the case that gives a stripping layout
+// away, and it is the common one: every adapter truncates a platform timestamp
+// to the second before handing the row to routd.
+func TestPutMessageStoresAFixedWidthTimestamp(t *testing.T) {
+	db := memDB(t)
+	whole := time.Date(2026, 8, 26, 19, 6, 41, 0, time.UTC)
+	if err := db.PutMessage(core.Message{
+		ID: "m-whole", ChatJID: "slack:T/C/U", Sender: "u1",
+		Content: "hi", Timestamp: whole, Verb: "message",
+	}); err != nil {
+		t.Fatalf("put message: %v", err)
+	}
+	var got string
+	if err := db.SQL().QueryRow(
+		`SELECT timestamp FROM messages WHERE id = 'm-whole'`).Scan(&got); err != nil {
+		t.Fatalf("read stored timestamp: %v", err)
+	}
+	if want := "2026-08-26T19:06:41.000000000Z"; got != want {
+		t.Fatalf("stored %q, want %q — a stored second must carry its zero fraction, "+
+			"or it sorts after every fractional row of the same second", got, want)
+	}
+}
+
 // TestPollOnceDoesNotSkipTheChatHoldingATrigger covers the other gate on the
 // same second: pollOnce feeds from the global minimum cursor and skips any chat
 // already current on its own, comparing the batch tail against that cursor as
