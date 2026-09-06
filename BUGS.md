@@ -11441,6 +11441,34 @@ passing.
 - **Fix:** count the openers that observed version 0 and fail the fixture when
   fewer than two did, the way the proxyd test counts its two outcomes
 
+**CONFIRMED 2026-09-06, and it is worse than "the margin is unmeasured": the
+race has never happened in this test, at either fixture size.** Measured by
+mutation. The recheck in `db_utils/db_utils.go` is `if cur >= ver { skip }`;
+changing it to `if cur > ver` makes a waiting opener fall through to the
+`ver != cur+1` gap check and return an error, so the test MUST go red if any
+opener ever waited on the lock. It stays green — at the 40,000-row fixture
+(0.056s) and at the original 400,000 (0.892s) alike.
+
+The cause is the outer skip, not the hold. Each opener re-reads `max` at the
+top of `Migrate`, before touching the lock, so one that arrives after the first
+has committed skips every file at `if ver <= max` and never reaches the
+recheck. On a loaded two-CPU box the six goroutines do not overlap: opener 0
+finishes all three files before opener 1 is scheduled, and the total runtime is
+one burn rather than six.
+
+So `L226`'s size change is innocent — it weakened nothing that was working.
+Two consequences follow. The recheck-and-skip branch has NO coverage on
+SQLite at all (the Postgres side is covered, because `pg_advisory_xact_lock`
+was proved by its own mutation). And a guard has to count what happens INSIDE
+`Migrate`: a first attempt read the version in the goroutine just before
+calling `Migrate`, which counts openers that then re-read a finished state and
+skip, so it reports a race that did not occur. It was measured, found
+unfaithful, and not shipped.
+
+- **Revised fix:** have `Migrate` report whether it applied or skipped each
+  file, and make the test require at least one of each. That is also something
+  `arizuko migrate` could print, which the silent path today cannot.
+
 ## L227 — the one-opener guard stops at the test boundary, so the suite cannot be pointed at another engine (2026-09-06, open)
 
 MEASURED, and confirmed independently: `git grep -c 'sql.Open("sqlite"' --
