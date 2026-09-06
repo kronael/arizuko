@@ -87,7 +87,9 @@ X-User-Sig:    &lt;HMAC over the above + timestamp&gt;</code></pre>
     <ul>
       <li><a href="../crackbox/">crackbox</a> &mdash; sandbox internals, standalone usage, threat model for the proxy itself</li>
       <li><a href="https://github.com/kronael/arizuko/blob/main/SECURITY.md"><code>SECURITY.md</code></a> &mdash; full trust model, boundary table, identity-header signing, trust-zone diagram, incident log</li>
-      <li><a href="https://github.com/kronael/arizuko/tree/main/specs/9"><code>specs/9/</code></a> &mdash; security spec bucket: standalone crackbox (9), arizuko integration (10), tool-level secret broker (11), sandboxing options (12), DNS filter (15)</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/specs/6/24-crackbox-lightest.md"><code>specs/6/24-crackbox-lightest.md</code></a> &mdash; the egress proxy and how a spawn reaches it</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/specs/6/9-crackbox-sandboxing.md"><code>specs/6/9-crackbox-sandboxing.md</code></a> &mdash; the KVM sandbox library beside it</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/specs/5/13-ext-mcp.md"><code>specs/5/13-ext-mcp.md</code></a> &mdash; the tool-level secret broker and the four escape paths it closes</li>
       <li><a href="https://github.com/kronael/arizuko/blob/main/specs/5/7-proxyd-standalone.md"><code>specs/5/7-proxyd-standalone.md</code></a> &mdash; per-route auth modes, federated platform API</li>
       <li><a href="https://github.com/kronael/arizuko/blob/main/specs/5/1-auth-standalone.md"><code>specs/5/1-auth-standalone.md</code></a> &mdash; auth as a library: mint, verify, downscope, MCP tool surface</li>
       <li><a href="https://github.com/kronael/arizuko/blob/main/ipc/SECURITY.md"><code>ipc/SECURITY.md</code></a> &mdash; MCP unix socket, <code>SO_PEERCRED</code> peer-uid check, per-group mount isolation</li>

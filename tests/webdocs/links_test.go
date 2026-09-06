@@ -208,10 +208,13 @@ func TestWebDocsSpecIDsResolve(t *testing.T) {
 		}
 		s := string(body)
 		for _, loc := range specIDRe.FindAllStringSubmatchIndex(s, -1) {
-			// Skip an ID that is the head of a filename: the path check
+			// Skip an ID that is the head of a real filename: the path check
 			// above already owns "specs/5/17-openapi-mcp.md", and reporting
-			// it twice hides which form actually needs the edit.
-			if end := loc[1]; end < len(s) && (s[end] == '-' || s[end] == '.' || isAlnum(s[end])) {
+			// it twice hides which form actually needs the edit. A trailing
+			// slug that is NOT a filename stays this check's business —
+			// "specs/7/D-*" is a glob two pages wrote, and skipping on the
+			// bare dash would let it through.
+			if headOfSpecFilename(s, loc[1]) {
 				continue
 			}
 			id, phase, num := s[loc[0]:loc[1]], s[loc[2]:loc[3]], s[loc[4]:loc[5]]
@@ -232,8 +235,15 @@ func TestWebDocsSpecIDsResolve(t *testing.T) {
 	}
 }
 
-func isAlnum(b byte) bool {
-	return b >= '0' && b <= '9' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z'
+// headOfSpecFilename reports whether the spec ID ending at i is followed by
+// the rest of a "<num>-<slug>.md" filename, which specPathRe already checks.
+func headOfSpecFilename(s string, i int) bool {
+	j := i
+	for j < len(s) && (s[j] == '-' || s[j] == '.' || s[j] == '_' ||
+		s[j] >= '0' && s[j] <= '9' || s[j] >= 'a' && s[j] <= 'z' || s[j] >= 'A' && s[j] <= 'Z') {
+		j++
+	}
+	return strings.HasSuffix(s[i:j], ".md")
 }
 
 // TestWebDocsUseRelativeLinks enforces template/web/CLAUDE.md §"Style rules":
