@@ -10918,7 +10918,19 @@ Shipped" believes the loop works end to end.
   Decision 4 rather than at the end — the convention `defected_spec_status`
   already exists for exactly this
 
-## L215 — two `6/25` citations name the wrong file and a stale line count (2026-09-06, open — docs)
+## ✅ FIXED 2026-09-06 L215 — two `6/25` citations name the wrong file and a stale line count (2026-09-06, docs)
+
+**FIXED 2026-09-06 in `64dcc899`, and the spec had a third staleness.** The
+citation is `ant/src/claude.ts` (`tests/feat_continuity_test.go:42` reads it),
+and qm's `mock-harness.ts` is 840 lines at `main`, dated at the read so the
+next drift is visible.
+
+The read for this fix found what the entry missed: decisions 1 and 2 are
+adopted, and section 1 still described the gap as current — `egress/proxy.go`
+matching the name then dialling `r.Host`, at two line numbers that no longer
+resolve. `egress/address.go:67` `resolveDest` resolves once and refuses a host
+when ANY answer is blocked. Both sections now state the shipped code, and the
+spent `## Order` ranking is a two-line `## State` (`bfb3b8fa`).
 
 MEASURED. `specs/6/25-qm-adoptions.md` says `UUID_RE` is extracted from
 `ant/src/index.ts`; it lives in `ant/src/claude.ts`, which is what the test
@@ -10936,7 +10948,23 @@ contract tests.
 - **Scope:** `specs/6/25`
 - **Fix:** correct the filename; date the qm line count or drop it
 
-## L216 — `6/33` documents two inbound verbs no adapter emits, and its enforcement test excludes the one adapter that could break it (2026-09-06, open)
+## L216 — `6/33` documents two inbound verbs no adapter emits, and its enforcement test excludes the one adapter that could break it (2026-09-06, doc half FIXED 2026-09-06; the test half is open)
+
+**Doc half FIXED 2026-09-06 in `64dcc899`.** Re-measured before editing: the
+four adapters write `message` (`bskyd/client.go:289`, `reditd/client.go:353`,
+`twitd/src/poll.ts:56`), `reply`, `comment` (`linkd/client.go:468`) and `post`
+(`reditd/client.go:365`), and `like` appears only in the three outbound
+capability maps and reditd's vote call. `6/33` gains a §"Inbound verbs" table
+naming those four with their sites, states that `mention` is routd's central
+promotion (`routd/server.go:577-580`, and the verdict rewrite at `:587-589`
+which the entry missed), and tells the operator to key a route on
+`message`/`reply`/`comment`/`post` because `mention` and `like` match nothing.
+The example payload carries `Verb: "message"`, and the count reads three of
+four.
+
+**The test half is untouched and stays open**: `tests/socialboundary` still
+scans Go only, so twitd is outside the boundary `6/33` claims. That is a `.go`
+change.
 
 VERIFIED. `specs/6/33-social-adapter-model.md:44` says social adapters deliver
 "reactions/likes on the bot's posts (as `verb=like`)", and its example payload
@@ -10996,7 +11024,17 @@ The `ant/CLAUDE.md` half of the same spec is executed correctly — 388 lines to
   to "keep" with the reason. Either is fine; the table claiming one thing while
   the file does another is not.
 
-## L218 — `6/18` says "four tables per queue"; the migration it cites creates five, and a sixth in partitioned mode (2026-09-06, open — docs)
+## ✅ FIXED 2026-09-06 L218 — `6/18` says "four tables per queue"; the migration it cites creates five, and a sixth in partitioned mode (2026-09-06, docs)
+
+**FIXED 2026-09-06 in `64dcc899`, re-counted from the fetched file.**
+`0007_absurd_workflows.sql` at `20f3021` creates `t_`, `r_`, `c_`, `e_`, `w_`
+at `:150-230` and `i_` at `:232-240`, inside `if v_storage_mode =
+'partitioned'`. The spec names all five with their prefixes, says `e_<queue>`
+is the row `emit_event` first-writes, and records that an unpartitioned queue
+carries `idempotency_key` as a unique column on `t_<queue>` instead of a
+sixth table. The cited range moves `:151-230` → `:150-230` so it starts at the
+statement rather than inside it, and the reopen trigger says five tables.
+The decline is untouched.
 
 VERIFIED against the source, not the summary. Fetched
 `services/api-rs/crates/centaur-session-sqlx/migrations/0007_absurd_workflows.sql`
