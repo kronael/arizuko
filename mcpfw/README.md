@@ -47,8 +47,10 @@ gating.
 ## What it does not own
 
 No folders, no grants, no identity, no tenancy. Every signature takes
-strings and the flat `Rule` shape. A caller that needs folder-scoped policy
-derives the rule list and pushes it — see `specs/6/12-mcp-firewall.md`.
+strings and the flat `Rule` shape. A caller that needs scoped policy derives
+the flat tool list itself and writes it as the ruleset file `serve` reads at
+startup — one process per ruleset. An in-process caller skips the binary and
+calls `firewall.Firewall.Handle`. See `specs/6/12-mcp-firewall.md`.
 
 ## Layout
 

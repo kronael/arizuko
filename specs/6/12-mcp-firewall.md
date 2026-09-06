@@ -4,72 +4,95 @@ status: shipped
 
 # mcpfw — transparent MCP tool-call filter
 
-> Sits between an agent and its MCP servers, parses JSON-RPC, and
+> A binary that sits in front of ONE MCP server, parses JSON-RPC, and
 > allows / denies / logs each `tools/call` against a flat ruleset.
-> No folders, no grants — arizuko derives the rule list and pushes it.
+> It ships alone. arizuko is not a consumer, and this spec says why.
 
-## Problem
+## What it is for
 
-arizuko already gates its OWN tools: the injected `Gate` authorizes every
-`tools/call` and filters `tools/list` for arizuko's resreg/ipc surface
-(`5/17`). That path needs no second proxy — a firewall in front of it would
-duplicate the security path (`db.Authorize`).
+Anyone running an agent against an MCP server they do not control has the
+same problem: the server advertises a catalogue, the agent may call all of
+it, and nothing in the protocol expresses "this agent may call these tools
+and not those". mcpfw is the generic answer on that wire — intercept every
+`tools/call`, match the tool name against a flat allow/deny ruleset, pass
+or refuse.
 
-The unmet need is **third-party MCP servers**. When a folder-agent connects
-to an external MCP server (a vendor tool, a community server), those tools
-never pass through arizuko's `Gate` — the agent talks to the upstream
-directly, and nothing checks which of the upstream's tools it may call.
-mcpfw is the generic component on THAT wire: intercept every
-`tools/call` to an untrusted upstream, match the tool name against a flat
-allow/deny ruleset, pass or refuse. The _mechanism_ (parse JSON-RPC, match
-a tool name, forward or refuse) is generic; the _domain_ (which folder may
-use which upstream tool) is arizuko's — the grant layer derives the flat
-allowed-tool list per (folder, agent) and pushes it. The firewall never
-learns what a folder or grant is.
+The mechanism is generic: parse JSON-RPC, match a tool name, forward or
+refuse. The domain — WHICH caller may use which tool — belongs to whoever
+runs it. The firewall takes opaque strings and never learns what a tenant,
+a user or a folder is. That split is the component contract of
+[16-daemon-standalone-matrix.md](16-daemon-standalone-matrix.md), and
+mcpfw is one of the parts that passes its import-orthogonality test.
 
 This is a different layer from
-[../5/23-skill-guard.md](../5/23-skill-guard.md): skill-guard is a PreToolUse hook
-that scans the _content_ of agent-written skill files for threat
-patterns before they land on disk. mcpfw filters _JSON-RPC
-tool calls_ on the wire. Skill-guard answers "is this skill file
-dangerous to write"; mcpfw answers "is this agent allowed to
-call this tool right now". Both gate the agent, at different layers;
-keep them distinct.
+[../5/23-skill-guard.md](../5/23-skill-guard.md). Skill-guard is a
+PreToolUse hook that scans the CONTENT of agent-written skill files before
+they land on disk; mcpfw filters JSON-RPC tool calls on the wire.
+Skill-guard answers "is this skill file dangerous to write", mcpfw answers
+"may this caller call this tool". Keep them distinct.
 
-## What it owns (mechanism)
+## arizuko is not a consumer
 
-- **Transparent MCP proxy.** Bridges the same transport arizuko already
-  uses for MCP — a unix socket / stdio pair into the container (the
-  `ipc/` socat bridge per [ipc/SECURITY.md](../../ipc/SECURITY.md)),
-  and the streamable-HTTP MCP endpoint from
-  [J-sse.md](../5/J-sse.md) for remote clients. The agent connects to
-  the firewall instead of directly to the upstream MCP server; the
-  firewall dials one or more upstreams and splices the streams.
-- **JSON-RPC parse + dispatch.** Reads each JSON-RPC frame. For
-  `tools/call`, extract the tool name and check it against the ruleset.
-  For `tools/list`, optionally filter the returned tool array to the
-  allowed set (so a denied tool is invisible, not just un-callable).
-  Everything else (`initialize`, `ping`, resource reads, prompts)
-  passes through untouched.
-- **Allow / deny / log per call.** On `tools/call`: allow → forward to
-  upstream and relay the response; deny → return a JSON-RPC error to
-  the client without touching upstream; log → record the call (and its
-  decision) to the firewall's own log/store. The decision is a pure
-  function of the tool name and the flat ruleset.
-- **Runtime state.** The active ruleset (pushed by the consumer) and a
-  call log. Its own store; never `messages.db`.
+**Measured 2026-09-06.** No arizuko package imports `mcpfw`, nothing pushes
+it a ruleset, and no agent's MCP traffic passes through it. That is the
+correct arrangement, not a gap: arizuko already gates the calls mcpfw would
+gate, with the same decision semantics and one axis more.
 
-## What it does NOT own (arizuko domain)
+**The agent has exactly one MCP server.** `injectMcpEnv`
+(`ant/src/mcp-servers.ts`) returns a single entry — `arizuko`, socat to the
+per-turn gated socket `/run/ipc/gated.sock` — and `ant/src/index.ts` passes
+that map as the turn's whole tool config. Each harness holds the same line:
+`claude` sets `strictMcpConfig: true` so a `.mcp.json` in the turn's cwd is
+not read (`ant/src/claude.ts`), `codex` passes `--ignore-user-config` so an
+agent-written `$HOME/.codex/config.toml` `[mcp_servers]` block is not read
+(`ant/src/codex.ts`), and `pi` declares `tools: 'none'` (`ant/src/pi.ts`).
+The agent never dials a third-party MCP server; routd does.
 
-- **Where the ruleset comes from.** arizuko's grant layer derives it;
-  the firewall receives a flat list. The firewall has no concept of a
-  grant, a tier, or a scope expression.
-- **What a folder / agent / session is.** The firewall sees opaque
-  tool-name strings and an opaque instance label. Mapping a folder's
-  grants to a tool list is arizuko's job.
-- **Tool semantics.** The firewall does not know what `send_message`
-  does versus `read_file`. It matches names against globs; meaning is
-  the consumer's.
+**A third-party server arrives as a connector, and its tools are local.**
+`routd.LoadConnectors` reads `[[connector]]` blocks with `transport = "mcp"`
+(`routd/connectors.go`) and hands the specs to ipc (`routd/mcp.go`). ipc
+discovers each server's catalogue with THIS folder's credential and
+registers every remote tool as a LOCAL tool named `<connector>_<tool>`
+through `granted()` (`ipc/ipc.go`). routd dials the upstream itself, inside
+the tool handler, in `ipc.CallConnectorTool` (`ipc/connector.go`) — after
+the gate has run.
+
+**The gate is `auth.Authorize` on the `acl` rows.** `granted()` wraps every
+handler in `authorizeCall(name, nil)` → `db.Authorize(folder,
+"mcp:"+name, nil)`, and routd injects the real evaluator per turn
+(`Authorize: s.turnAuthorize(t)` in `routd/mcp.go` →
+`db.AuthorizeTurn` in `routd/agent_gate.go` → `auth.Authorize` in
+`routd/sibling_db.go`). `callerSub` is the turn principal and non-empty,
+which is the condition that switches the row check on. A second check
+filters the announcement, so a tool the turn does not hold is not
+advertised either.
+
+**Same semantics, one axis more.** `auth.Authorize` is deny-wins and a
+no-match is a deny (`auth/authorize.go`) — the model this spec's ruleset
+section specifies. It is default-deny for connector tools in practice too:
+the seeded floor role carries twelve messaging verbs and nothing else
+(`routd/migrations/0023-4r-role-member.sql`), so a connector tool needs an
+explicit `mcp:<connector>_<tool>` or `mcp:*` grant. On top of that,
+`AuthorizeTurn` carries the two axes of
+[../5/33-paths-roles.md](../5/33-paths-roles.md): the turn's folder confers
+in full and the attested sender adds only inside that folder's subtree.
+A `Rule` here is `{tool, action}` over a name glob with no target at all,
+so it cannot express containment.
+
+**So wiring it would be the forbidden second path.** Putting mcpfw on the
+connector call would run two gates on one `tools/call` — root `CLAUDE.md`
+bans that, and two gates drift. Making mcpfw the single gate would trade a
+containment-carrying evaluator for one that matches names only. Neither is
+an improvement, so the component ships alone: `6/16`'s own category, "none"
+in its gate column.
+
+**What a consumer would have to build.** A host that wanted mcpfw in front
+of an MCP server would derive the flat allowed-tool list for one caller,
+write it as the ruleset JSON, run `mcpfw serve` against the upstream, and
+point the caller's MCP client at the firewall's address, not the upstream's. Nothing in the shipped binary reads a ruleset from anywhere but
+that file at startup, so a host that needs per-caller rules runs one
+process per ruleset. An in-process host skips the binary and calls
+`firewall.Firewall.Handle` directly.
 
 ## Ruleset model (decided)
 
@@ -91,87 +114,71 @@ This is the opposite choice from `routd`'s first-match route table, and
 deliberately so — routing is positive selection, gating is negative
 authority.
 
+`*` spans any run of characters including separators, so `read_*` covers
+`read_file`. A ruleset whose action is not one of the three, or whose tool
+pattern is empty, fails to load rather than being skipped: a typo'd rule
+that parsed as "no rule" would vanish, and under default-deny a vanished
+`deny` is the dangerous direction.
+
 ## Public surface
 
-Three contracts (the component contract, `6/16`):
-
-**CLI** — primary surface, no arizuko process needed:
+**CLI** — `serve` is the only verb, and the whole configuration is flags:
 
 ```
-mcpfw serve --upstream <addr> --rules <file> [--listen <sock-or-addr>]
-mcpfw check <tool-name>        # dry-run a name against the ruleset
+mcpfw serve --upstream <url> --rules <file> [--listen :7070] [--filter-list]
 ```
 
-`--upstream` may repeat (multiple upstream MCP servers fan in). The
-listen endpoint is a unix socket (stdio bridge) or an HTTP address,
-matching the transport the client uses.
+`--upstream` is one MCP server URL over HTTP; `--rules` is the ruleset JSON,
+read once at startup. `--filter-list` removes denied tools from a
+`tools/list` reply and is off by default: hiding a tool changes what the
+model believes exists, which is a choice to make rather than a side effect
+of gating. A refused call, and any call a `log` rule matches, is written to
+the process log.
 
-**HTTP / admin API** — to push a ruleset at runtime:
-
-- `PUT /v1/rules` — replace the active ruleset (the consumer pushes the
-  derived flat list here).
-- `GET /v1/rules` — read the active ruleset.
-- `GET /v1/log` — recent call decisions (for audit).
-- `GET /health`.
-
-Standalone, the admin endpoint trusts its caller; inside arizuko, `proxyd`
-and `authd` front it.
+**HTTP** — one route, the proxy itself: `POST /` takes a single JSON-RPC
+frame as the body and returns the gated reply. There is no admin API and no
+runtime ruleset push; the ruleset is the file the process started with.
 
 **Go imports** — `mcpfw/pkg/...`:
 
-- `firewall.NewProxy(Config) *Proxy` — what `serve` runs.
-- `rule.Decide(rules []Rule, tool string) Action` — the pure decision
-  function (`Allow` / `Deny`), exposed so callers can share it.
-- `client.New(adminURL) *Client` — thin HTTP wrapper for pushing rules.
+- `rule.Load(io.Reader) (Set, error)` — parse and validate a ruleset.
+- `rule.Set.Decide(tool string) Decision` — the pure decision, `Allowed`
+  plus `Logged`. `rule.Match(pattern, tool string) bool` is the glob.
+- `firewall.Firewall` — `Rules`, `Upstream`, `Log`, `FilterList` as fields,
+  gating one message per `Handle(json.RawMessage)`.
+- `firewall.Upstream` — one `Call` method, so a stub in a test is three
+  lines and the gate runs with no real server.
+
+`internal/transport` carries JSON-RPC over HTTP and is private.
 
 ## Layout + orthogonality
 
 Standard component skeleton and mechanical grep test per `6/16` — `mcpfw/`
 is a sibling dir with its own `README`/`Makefile`/`Dockerfile`, `cmd/`,
-public `pkg/{firewall,rule,client}`, private `internal/transport/`, and
-`testdata/` JSON-RPC fixtures. Acceptance adds two component-specific
-checks on top of `6/16`'s: every signature takes strings (`tool`,
-`upstream`) and the flat `Rule` shape — never `core.Folder`, `core.Grant`,
-or anything grant-shaped — and `make -C mcpfw test` drives the proxy
-against a stub upstream on a host with no arizuko data directory.
-
-## How arizuko consumes it
-
-arizuko owns the per-(folder, agent) tool policy; the firewall enforces
-the derived list:
-
-1. arizuko's grant layer (`auth/`, `grants/`, against
-   [`specs/5/32-acl-unified.md`](../5/32-acl-unified.md)) resolves a
-   folder's grants into the **flat allowed-tool list** for the agent
-   about to run a turn — the domain decision.
-2. arizuko pushes that flat list to the firewall (`PUT /v1/rules` or
-   `pkg/firewall` in-process) as `{tool: <glob>, action: allow}` rules,
-   one ruleset per agent/turn. Denials are implicit via default-deny;
-   explicit `deny` rules express revocations on top of a broad allow.
-3. `routd` hosts the per-turn MCP socket (see
-   [`specs/5/E-routd.md`](../5/E-routd.md)); the firewall sits
-   **between** the in-container agent and that socket. The agent's MCP
-   client connects to the firewall socket — the same `ipc/` socat bridge
-   it uses today ([ipc/SECURITY.md](../../ipc/SECURITY.md)); the firewall
-   dials routd. The agent cannot reach the MCP socket except through the
-   firewall.
-4. The firewall allows / denies / logs each `tools/call`; arizuko reads
-   the decision log via `GET /v1/log` for audit (arizuko's own
-   `audit_log` remains the forensic source of truth — the firewall's
-   log is observability, mirroring the OTLP-vs-audit split in
-   CLAUDE.md).
-
-The split mirrors A's domain/mechanism table: arizuko owns _which tools
-this folder's grants permit_; mcpfw owns _match a tool name
-against a flat rule list and forward or refuse the JSON-RPC call_.
+public `pkg/{firewall,rule}`, private `internal/transport/`, and a
+`testdata/` ruleset fixture. Acceptance adds two component-specific checks on top
+of `6/16`'s: every signature takes strings (`tool`, `upstream`) and the flat
+`Rule` shape — never `core.Folder`, `core.Grant`, or anything grant-shaped
+— and `make -C mcpfw test` runs on a host with no arizuko data directory.
 
 ## Acceptance
 
-- `mcpfw serve --upstream <stub> --rules <file>` with a ruleset
-  allowing `read_*` and denying `send_*`: an agent `tools/call` for
-  `read_file` reaches the stub upstream and returns its result; a call
-  for `send_message` returns a JSON-RPC error without touching upstream
-  — with no arizuko process running.
-- A `tools/call` for a tool matched by no rule is denied (default-deny).
-- With `tools/list` filtering on, the denied tool does not appear in
-  the listed tools returned to the client.
+Held by `mcpfw/pkg/firewall` and `mcpfw/pkg/rule` tests, all against a stub
+upstream with no arizuko process:
+
+- With a ruleset allowing `read_*` and denying `send_*`, a `tools/call` for
+  `read_file` reaches the upstream and returns its reply; a call for
+  `send_message` returns a JSON-RPC error and the upstream is never reached.
+- A `tools/call` for a tool matched by no rule is denied (default-deny), and
+  a `deny` beats an `allow` that also matches (deny-wins).
+- A `log` rule marks the call logged and permits nothing on its own, and the
+  logger sees a refused call with its decision.
+- With `FilterList`, a denied tool is absent from the `tools/list` reply and an
+  allowed one survives; without it, the denied tool is still advertised.
+- A ruleset with an unknown action or an empty tool pattern fails to load.
+
+The claim this spec makes about arizuko is held separately, by
+`ipc/connector_gate_test.go`: a connector tool the turn does not hold is
+neither announced nor dialled, a tool it holds reaches the upstream, and a
+tool revoked after registration is refused at call time with the upstream
+untouched.

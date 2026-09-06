@@ -26,7 +26,11 @@ import (
 // sawAuth reports whether a value was observed on ANY request rather than on the
 // last one: closing the client sends a session-terminate request of its own, so
 // a last-write-wins capture reads back empty however the call went.
-func fakeMCP(t *testing.T) (url string, sawAuth func(string) bool) {
+//
+// reqs counts every HTTP request the stub received, which is how a caller sees
+// whether the upstream was touched at all — a gate that refuses before dialling
+// leaves the count where it was.
+func fakeMCP(t *testing.T) (url string, sawAuth func(string) bool, reqs func() int) {
 	t.Helper()
 	var mu sync.Mutex
 	var seen []string
@@ -62,14 +66,18 @@ func fakeMCP(t *testing.T) (url string, sawAuth func(string) bool) {
 	}))
 	t.Cleanup(srv.Close)
 	return srv.URL, func(want string) bool {
-		mu.Lock()
-		defer mu.Unlock()
-		return slices.Contains(seen, want)
-	}
+			mu.Lock()
+			defer mu.Unlock()
+			return slices.Contains(seen, want)
+		}, func() int {
+			mu.Lock()
+			defer mu.Unlock()
+			return len(seen)
+		}
 }
 
 func TestDiscoverConnectorTools_Namespacing(t *testing.T) {
-	url, _ := fakeMCP(t)
+	url, _, _ := fakeMCP(t)
 	spec := &ConnectorSpec{
 		Name:        "fake",
 		URL:         url,
@@ -102,7 +110,7 @@ func TestDiscoverConnectorTools_Namespacing(t *testing.T) {
 // The secret must reach the upstream as a request header — the sink that
 // replaced the subprocess env when the connector became HTTP (BUGS L132).
 func TestCallConnectorTool_SecretRidesInHeader(t *testing.T) {
-	url, sawAuth := fakeMCP(t)
+	url, sawAuth, _ := fakeMCP(t)
 	spec := &ConnectorSpec{
 		Name:        "fake",
 		URL:         url,
@@ -126,7 +134,7 @@ func TestCallConnectorTool_SecretRidesInHeader(t *testing.T) {
 // The result scrub is the guarantee that survived the transport swap: a secret
 // value echoed back by the upstream must never reach the agent.
 func TestCallConnectorTool_ScrubsSecretFromResult(t *testing.T) {
-	url, _ := fakeMCP(t)
+	url, _, _ := fakeMCP(t)
 	spec := &ConnectorSpec{
 		Name:        "fake",
 		URL:         url,
@@ -185,7 +193,7 @@ func TestScrubCallResult_IgnoresEmptySecret(t *testing.T) {
 // The catalog is discovered per folder with that folder's credential, and the
 // tools land on the agent's socket. This is the end-to-end shape L132 broke.
 func TestConnector_EndToEndThroughMCPSocket(t *testing.T) {
-	url, sawAuth := fakeMCP(t)
+	url, sawAuth, _ := fakeMCP(t)
 	spec := ConnectorSpec{
 		Name:        "fake",
 		URL:         url,
