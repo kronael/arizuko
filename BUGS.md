@@ -10928,7 +10928,36 @@ nowhere to land and no record that the number is burnt.
   `6/7` was retired; (c) decide whether a retired-number table comes back, and
   if so make (b) resolve against it
 
-## L220 — the public operator docs cite 16 specs that do not exist (2026-09-06, open)
+## ✅ FIXED 2026-09-06 L220 — the public operator docs cite specs that do not exist (2026-09-06)
+
+**FIXED 2026-09-06 in `ba3c4104`, `0a3febf2`, `3266b8bf`, `b77f8753`, and MY
+COUNT WAS LOW.** Sixteen was the `.md` path form only. The site cites specs in
+three shapes — a `.md` path, a bare `specs/N/M`, and `spec N/M` in prose — plus
+a glob (`specs/7/D-*`). Sweeping all four found **27 dead references across 31
+files**, nine of them in the prose form and three of those on live pages. 46
+distinct spec paths remain and every one resolves.
+
+Most resolved to a renumber or a move with a commit to cite: `10/17`→`11/17`,
+`7/D`→`8/D`, `5/5-uniform-mcp-rest`→`5/16`, both crackbox specs→`6/24`, and
+`7/Y-secret-broker`→`5/13` following the same repoint `e0ca2f43` had already
+made in the Go comments.
+
+Six had no successor and the pointer was dropped rather than invented — the
+important one being `7/H-per-daemon-secrets` at eleven sites, where
+`specs/8/index.md` records that the env var it documents NEVER existed.
+
+**Three false claims fell out of the repoint and were corrected, not recited:**
+workflow enforcement is a shipped costed decline (`6/18`), not "on the
+roadmap"; the standalone `ant` CLI is dropped, not "planned"; and secrets are
+AES-256-GCM at rest under `SECRETS_KEY` (`store/secrets.go:77` refuses a
+plaintext write) where a page said "Plaintext at rest".
+
+`tests/webdocs` now resolves both forms over `.html` and `.js` — 239 paths and
+84 prose IDs, with floors so the check cannot silently stop matching. It
+deliberately differs from `tests/specrefs` on one point: specrefs tolerates a
+phase directory that does not exist because a phase is planned before it is
+written, and the site may not, because a published page hands its reader a 404.
+Five mutations, one per citation form, each red.
 
 MEASURED. `template/web/pub/arizuko/` names 56 distinct `specs/<phase>/<id>-<slug>.md`
 paths. Sixteen resolve to no file:
@@ -11578,6 +11607,38 @@ real guarantee with a real reason and now no test.
 - **Fix:** its own test, six openers racing an empty database with no warm-up,
   asserting every one returns without error and the table exists once. It must
   run on both engines, since the SQLite and Postgres failure modes differ.
+
+## L233 — the per-turn gateway key broke the end-to-end turn, and `make test` cannot see it (2026-09-06, open)
+
+REPRODUCED on the merged tree, then fixed in the same pass — recorded because
+the way it shipped matters more than the fix.
+
+`TestE2ETurn_CostAccounting` fails: `run outcome error … err="model gateway
+configured but this run carries no virtual key; routd mints one per turn (spec
+6/23)"`, then a four-minute `WaitForRow` timeout. The turn never runs.
+
+Cause: `6/23` made routd mint a key per turn against `MODEL_GATEWAY_URL`, and
+the e2e's `testutils.FakeLLM` serves `POST /v1/messages` and 404s everything
+else. So the mint fails and `container.Run` refuses the spawn — correctly, by
+its own new guard. The unit side was covered (`routd/gateway_test.go` has a
+fake gateway); the e2e fake was not updated with it.
+
+**`make test` is `-short`, which skips the e2e, so the suite reported 64
+packages ok through every merge today.** That is the same shape as `L226`: a
+real failure sitting behind the flag nobody runs by default. Two agents and I
+each ran the short suite and called the tree green.
+
+- **Severity:** medium — no instance is affected (none sets
+  `MODEL_GATEWAY_URL`), but the gate that would have caught it is not in the
+  loop anyone runs
+- **Scope:** `tests/testutils/fakellm.go`, `tests/e2e_turn_test.go`, the
+  `test`/`test-e2e` split
+- **Fix:** the fake now serves the gateway admin surface — `/key/generate`,
+  `/spend/logs`, `/key/delete` — and derives spend from the tokens it actually
+  served, so the e2e proves the per-turn mint end to end and asserts the
+  container presented the MINTED key rather than the instance master key. The
+  open half is process: decide whether `make test` should carry the e2e, or
+  whether shipping a spec's mechanism must run `make test-e2e` before merge.
 
 ## L228 — 30 migration files are SQLite-only, and porting them needs a decision, not a rewrite (2026-09-06, proposal — needs sign-off)
 
