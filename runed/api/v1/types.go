@@ -56,6 +56,13 @@ type RunRequest struct {
 	// inject nothing. Plaintext on this hop: routd→runed is the trusted compose
 	// network, same boundary the brokered agent token already crosses.
 	Secrets map[string]string `json:"secrets,omitempty"`
+	// ModelGatewayKey is THIS turn's virtual key at the model gateway, minted
+	// by routd against the master key it alone holds, carrying the folder's
+	// remaining daily budget and the run ceiling as a TTL (spec 6/23). runed
+	// injects it as the container's MODEL_GATEWAY_KEY and never sees the key
+	// that made it. Empty means the instance runs no gateway, and the container
+	// then carries the model credential in Secrets as before.
+	ModelGatewayKey string `json:"model_gateway_key,omitempty"`
 }
 
 // RunOutcome is the synchronous response of POST /v1/runs, returned when the run

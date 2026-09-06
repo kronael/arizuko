@@ -46,7 +46,7 @@ func TestBudgetGate_HonorsOperatorSetCaps(t *testing.T) {
 	if err := db.PutCost("team", "t-prior", "", "m", 0, 0, 40); err != nil {
 		t.Fatal(err)
 	}
-	if msg := loop.budgetGate("team", ""); !strings.Contains(msg, "channel spent 40 of 40") {
+	if msg, _ := loop.budgetGate("team", ""); !strings.Contains(msg, "channel spent 40 of 40") {
 		t.Errorf("operator folder cap not enforced: budgetGate = %q", msg)
 	}
 
@@ -58,7 +58,7 @@ func TestBudgetGate_HonorsOperatorSetCaps(t *testing.T) {
 	if err := db.PutCost("wide", "t-prior2", "google:bob", "m", 0, 0, 10); err != nil {
 		t.Fatal(err)
 	}
-	if msg := loop.budgetGate("wide", "google:bob"); !strings.Contains(msg, "you spent 10 of 10") {
+	if msg, _ := loop.budgetGate("wide", "google:bob"); !strings.Contains(msg, "you spent 10 of 10") {
 		t.Errorf("operator user cap not enforced: budgetGate = %q", msg)
 	}
 }
@@ -76,7 +76,7 @@ func TestBudgetGate_UserCapBindsLower(t *testing.T) {
 	if err := db.PutCost("f", "t-prior", "google:alice", "m", 0, 0, 50); err != nil {
 		t.Fatal(err)
 	}
-	msg := loop.budgetGate("f", "google:alice")
+	msg, _ := loop.budgetGate("f", "google:alice")
 	if msg == "" || !strings.Contains(msg, "you spent 50 of 50") {
 		t.Errorf("expected user-scope refusal, got %q", msg)
 	}
@@ -95,7 +95,7 @@ func TestBudgetGate_JWTSenderActivatesUserCap(t *testing.T) {
 	if err := db.PutCost("f", "t-prior", "github:carol", "m", 0, 0, 25); err != nil {
 		t.Fatal(err)
 	}
-	msg := loop.budgetGate("f", turnCallerSub("github:carol"))
+	msg, _ := loop.budgetGate("f", turnCallerSub("github:carol"))
 	if msg == "" || !strings.Contains(msg, "you spent 25 of 25") {
 		t.Errorf("expected user-scope refusal, got %q", msg)
 	}
@@ -114,7 +114,7 @@ func TestBudgetGate_AdapterSenderFolderOnly(t *testing.T) {
 	if err := db.PutCost("f", "t-prior", "", "m", 0, 0, 100); err != nil {
 		t.Fatal(err)
 	}
-	msg := loop.budgetGate("f", turnCallerSub("telegram:user/42"))
+	msg, _ := loop.budgetGate("f", turnCallerSub("telegram:user/42"))
 	if msg == "" || !strings.Contains(msg, "channel spent 100 of 100") {
 		t.Errorf("expected channel-scope refusal, got %q", msg)
 	}

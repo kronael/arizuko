@@ -43,7 +43,7 @@ func TestDispatchRun_IsolatedTaskGetsNoSession(t *testing.T) {
 	}
 
 	if _, err := loop.dispatchRun(context.Background(), folder, "", "discord:g/c",
-		"turn-1", "timed-isolated:task-1", "run the monitor", false); err != nil {
+		"turn-1", "timed-isolated:task-1", "run the monitor", false, ""); err != nil {
 		t.Fatalf("dispatchRun: %v", err)
 	}
 
@@ -67,7 +67,7 @@ func TestDispatchRun_GroupTaskResumesSession(t *testing.T) {
 	}
 
 	if _, err := loop.dispatchRun(context.Background(), folder, "", "discord:g/c",
-		"turn-1", "timed", "run the monitor", false); err != nil {
+		"turn-1", "timed", "run the monitor", false, ""); err != nil {
 		t.Fatalf("dispatchRun: %v", err)
 	}
 

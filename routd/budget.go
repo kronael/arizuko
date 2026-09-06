@@ -8,14 +8,20 @@ import (
 // budgetGate is the pre-spawn cost-cap check. It returns a non-empty refusal
 // message when today's spend is at or above the lower of the folder cap and
 // (when known) the user cap, else "" (turn allowed). Cap == 0 means uncapped.
-func (l *Loop) budgetGate(folder, userSub string) string {
+//
+// remaining is what an allowed turn may still spend today, in cents: the lower
+// of the two headrooms, and 0 when neither axis caps this turn. It is the
+// budget the turn's gateway key carries (spec 6/23), read here because the
+// caps and today's spend are the same rows the refusal decides on — asking a
+// second time could answer differently.
+func (l *Loop) budgetGate(folder, userSub string) (refusal string, remaining int) {
 	if !l.costCapsEnabled {
-		return ""
+		return "", 0
 	}
 	folderCap, err := l.db.FolderCap(folder)
 	if err != nil {
 		slog.Warn("budget: FolderCap failed", "folder", folder, "err", err)
-		return ""
+		return "", 0
 	}
 	userCap := 0
 	if userSub != "" {
@@ -26,7 +32,7 @@ func (l *Loop) budgetGate(folder, userSub string) string {
 		}
 	}
 	if folderCap == 0 && userCap == 0 {
-		return ""
+		return "", 0
 	}
 
 	if folderCap > 0 {
@@ -36,7 +42,9 @@ func (l *Loop) budgetGate(folder, userSub string) string {
 		} else if spent >= folderCap {
 			slog.Info("budget: folder cap exhausted; refusing turn",
 				"folder", folder, "spent_cents", spent, "cap_cents", folderCap)
-			return budgetMsg("channel", spent, folderCap)
+			return budgetMsg("channel", spent, folderCap), 0
+		} else {
+			remaining = folderCap - spent
 		}
 	}
 	if userCap > 0 {
@@ -46,10 +54,12 @@ func (l *Loop) budgetGate(folder, userSub string) string {
 		} else if spent >= userCap {
 			slog.Info("budget: user cap exhausted; refusing turn",
 				"user_sub", userSub, "spent_cents", spent, "cap_cents", userCap)
-			return budgetMsg("you", spent, userCap)
+			return budgetMsg("you", spent, userCap), 0
+		} else if headroom := userCap - spent; remaining == 0 || headroom < remaining {
+			remaining = headroom
 		}
 	}
-	return ""
+	return "", remaining
 }
 
 // budgetMsg renders the channel-visible refusal.

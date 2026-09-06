@@ -90,24 +90,25 @@ func (d *dockerRuntime) Run(ctx context.Context, spec RunSpec) RunResult {
 	obs.ContainerActiveInc()
 	start := time.Now()
 	out := d.runner.Run(d.cfg, d.folders, container.Input{
-		Name:           spec.ContainerName,
-		Prompt:         spec.MessageBatch,
-		SessionID:      spec.SessionID,
-		ChatJID:        spec.ChatJID,
-		Channel:        spec.Channel, // drives pickOutputStyle → per-surface formatting
-		Folder:         spec.Folder,
-		Topic:          spec.Topic,
-		MessageID:      spec.TurnID,
-		Sender:         spec.TriggerSender,
-		Model:          spec.Model,
-		Config:         gc,
-		Elevated:       spec.Elevated,
-		ShareReadOnly:  spec.ShareReadOnly,
-		EgressOpen:     spec.Egress,
-		WebPublish:     spec.WebPublish,
-		Secrets:        spec.Secrets,
-		QueryTimeoutMs: queryTimeoutMs(spec.RunTTL),
-		Egress:         egressConfig(d.cfg, spec.EgressAllowlist),
+		Name:            spec.ContainerName,
+		Prompt:          spec.MessageBatch,
+		SessionID:       spec.SessionID,
+		ChatJID:         spec.ChatJID,
+		Channel:         spec.Channel, // drives pickOutputStyle → per-surface formatting
+		Folder:          spec.Folder,
+		Topic:           spec.Topic,
+		MessageID:       spec.TurnID,
+		Sender:          spec.TriggerSender,
+		Model:           spec.Model,
+		Config:          gc,
+		Elevated:        spec.Elevated,
+		ShareReadOnly:   spec.ShareReadOnly,
+		EgressOpen:      spec.Egress,
+		WebPublish:      spec.WebPublish,
+		Secrets:         spec.Secrets,
+		ModelGatewayKey: spec.ModelGatewayKey,
+		QueryTimeoutMs:  queryTimeoutMs(spec.RunTTL),
+		Egress:          egressConfig(d.cfg, spec.EgressAllowlist),
 	})
 	obs.ContainerActiveDec()
 	outcome := outcomeFor(out)

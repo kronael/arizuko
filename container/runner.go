@@ -95,10 +95,16 @@ type Input struct {
 	// appends "*" to the egress allowlist (unconstrained network); WebPublish mounts
 	// the web surfaces (/var/lib/www RO + public_html/private_html RW). All default
 	// false. (EgressOpen is distinct from the Egress EgressConfig field below.)
-	ShareReadOnly bool   `json:"-"`
-	EgressOpen    bool   `json:"-"`
-	WebPublish    bool   `json:"-"`
-	Model         string `json:"-"` // per-group model override; empty = instance default
+	ShareReadOnly bool `json:"-"`
+	EgressOpen    bool `json:"-"`
+	WebPublish    bool `json:"-"`
+	// ModelGatewayKey is THIS spawn's virtual key at the model gateway, minted
+	// per turn by routd against a master key runed never holds (spec 6/23).
+	// buildArgs emits it as MODEL_GATEWAY_KEY; it rides the -e flag, not the
+	// stdin payload, because ant reads it from process.env. Empty means no
+	// gateway, and the model credential stays in Secrets.
+	ModelGatewayKey string `json:"-"`
+	Model           string `json:"-"` // per-group model override; empty = instance default
 	// QueryTimeoutMs is the agent's in-container query timeout, derived from
 	// runed's RunTTL and set just below it so the agent aborts + delivers a
 	// graceful summary BEFORE runed's hard container kill. 0 = unset (agent
@@ -153,6 +159,17 @@ type volumeMount struct {
 }
 
 func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
+	// A gateway instance withholds the model credential from this container
+	// (spawnSecrets), so a spawn arriving with no minted key would reach no
+	// model at all and read as a harness fault. Refuse before anything is
+	// started: the only way here is a routd that did not mint, which is a
+	// version skew or a bug, never a state to run a turn in.
+	if cfg.ModelGatewayURL != "" && in.ModelGatewayKey == "" {
+		return Output{
+			Status: "error", Terminal: true,
+			Error: "model gateway configured but this run carries no virtual key; routd mints one per turn (spec 6/23)",
+		}
+	}
 	elevated := in.Elevated
 
 	groupDir := in.GroupPath
@@ -198,7 +215,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	}
 	defer eg.Stop()
 
-	args := buildArgs(cfg, mounts, containerName, eg, in.Model, in.QueryTimeoutMs, elevated)
+	args := buildArgs(cfg, mounts, containerName, eg, in.Model, in.QueryTimeoutMs, elevated, in.ModelGatewayKey)
 
 	logsDir := filepath.Join(groupDir, "logs")
 	os.MkdirAll(logsDir, 0o755)
@@ -657,7 +674,7 @@ func buildMounts(
 
 func buildArgs(
 	cfg *core.Config, mounts []volumeMount, name string, eg egressSpawn,
-	model string, queryTimeoutMs int64, elevated bool,
+	model string, queryTimeoutMs int64, elevated bool, gatewayKey string,
 ) []string {
 	args := []string{
 		"run", "-i", "--rm",
@@ -684,12 +701,12 @@ func buildArgs(
 	}
 	// Same reason: ant reads the gateway pair from process.env, so without
 	// these -e pairs the harness keeps its own credential and the gateway is
-	// silently bypassed.
+	// silently bypassed. The URL is instance config; the key is this ONE
+	// spawn's, minted by routd for this turn and dead when the turn ends
+	// (spec 6/23), so it arrives with the run and is never read from cfg.
 	if cfg.ModelGatewayURL != "" {
 		args = append(args, "-e", "MODEL_GATEWAY_URL="+cfg.ModelGatewayURL)
-	}
-	if cfg.ModelGatewayKey != "" {
-		args = append(args, "-e", "MODEL_GATEWAY_KEY="+cfg.ModelGatewayKey)
+		args = append(args, "-e", "MODEL_GATEWAY_KEY="+gatewayKey)
 	}
 	// Same reason, third instance (BUGS L60): seedSettings wrote ARIZUKO_IS_ROOT
 	// only into settings.json's env block, which the SDK subprocess sees and ant

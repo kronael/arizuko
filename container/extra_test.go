@@ -113,7 +113,7 @@ func TestBuildArgsWithEgress(t *testing.T) {
 		IP:       "10.99.5.42",
 		ProxyURL: "http://10.99.5.7:3128",
 	}
-	args := buildArgs(cfg, nil, "c1", eg, "claude-fable-5", 1800000, false)
+	args := buildArgs(cfg, nil, "c1", eg, "claude-fable-5", 1800000, false, "")
 	joined := strings.Join(args, " ")
 
 	if !strings.Contains(joined, "--network net-atlas") {
@@ -143,7 +143,7 @@ func TestBuildArgsWithEgress(t *testing.T) {
 // (spec 6/7 § "Why this document exists").
 func TestBuildArgsAgentBackend(t *testing.T) {
 	cfg := &core.Config{Timezone: "UTC", Image: "img:latest", AgentBackend: "codex"}
-	args := buildArgs(cfg, nil, "c4", egressSpawn{}, "", 0, false)
+	args := buildArgs(cfg, nil, "c4", egressSpawn{}, "", 0, false, "")
 	joined := strings.Join(args, " ")
 	if !strings.Contains(joined, "ARIZUKO_BACKEND=codex") {
 		t.Errorf("missing ARIZUKO_BACKEND -e: %s", joined)
@@ -152,7 +152,7 @@ func TestBuildArgsAgentBackend(t *testing.T) {
 
 func TestBuildArgsNoBackendOmitsVar(t *testing.T) {
 	cfg := &core.Config{Timezone: "UTC", Image: "img:latest"}
-	args := buildArgs(cfg, nil, "c5", egressSpawn{}, "", 0, false)
+	args := buildArgs(cfg, nil, "c5", egressSpawn{}, "", 0, false, "")
 	if strings.Contains(strings.Join(args, " "), "ARIZUKO_BACKEND") {
 		t.Errorf("empty backend must omit -e ARIZUKO_BACKEND: %s", strings.Join(args, " "))
 	}
@@ -160,7 +160,7 @@ func TestBuildArgsNoBackendOmitsVar(t *testing.T) {
 
 func TestBuildArgsNoModelNoTimeout(t *testing.T) {
 	cfg := &core.Config{Timezone: "UTC", Image: "img:latest"}
-	args := buildArgs(cfg, nil, "c3", egressSpawn{}, "", 0, false)
+	args := buildArgs(cfg, nil, "c3", egressSpawn{}, "", 0, false, "")
 	joined := strings.Join(args, " ")
 	if strings.Contains(joined, "ARIZUKO_MODEL") {
 		t.Errorf("empty model must omit -e ARIZUKO_MODEL: %s", joined)
@@ -177,7 +177,7 @@ func TestBuildArgsNoModelNoTimeout(t *testing.T) {
 // fail every request while looking configured.
 func TestBuildArgsNoEgressIsUnchangedSpawn(t *testing.T) {
 	cfg := &core.Config{Timezone: "UTC", Image: "img:latest"}
-	args := buildArgs(cfg, nil, "c2", egressSpawn{}, "", 0, false)
+	args := buildArgs(cfg, nil, "c2", egressSpawn{}, "", 0, false, "")
 	joined := strings.Join(args, " ")
 	for _, forbidden := range []string{"--network", "--ip", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"} {
 		if strings.Contains(joined, forbidden) {
@@ -337,12 +337,12 @@ func TestWriteGroupsSnapshot_RootKeepsGroups(t *testing.T) {
 func TestBuildArgs_EmitsIsRootBothWays(t *testing.T) {
 	cfg, _, _ := makeCfg(t)
 
-	elevated := strings.Join(buildArgs(cfg, nil, "root1", egressSpawn{}, "", 0, true), " ")
+	elevated := strings.Join(buildArgs(cfg, nil, "root1", egressSpawn{}, "", 0, true, ""), " ")
 	if !strings.Contains(elevated, "ARIZUKO_IS_ROOT=1") {
 		t.Errorf("elevated turn must carry ARIZUKO_IS_ROOT=1:\n%s", elevated)
 	}
 
-	plain := strings.Join(buildArgs(cfg, nil, "plain1", egressSpawn{}, "", 0, false), " ")
+	plain := strings.Join(buildArgs(cfg, nil, "plain1", egressSpawn{}, "", 0, false, ""), " ")
 	if !strings.Contains(plain, "ARIZUKO_IS_ROOT=") {
 		t.Errorf("ordinary turn must still carry the var (empty):\n%s", plain)
 	}
@@ -353,23 +353,43 @@ func TestBuildArgs_EmitsIsRootBothWays(t *testing.T) {
 
 // The gateway pair reaches ant the same way as the backend selector: real
 // container env, or the harness keeps its own credential and the gateway is
-// silently bypassed.
+// silently bypassed. The URL is instance config; the key is the ONE routd
+// minted for this turn, so it comes from the run and never from cfg — a
+// process-wide key here would be the shared master key every spawn held.
 func TestBuildArgsModelGateway(t *testing.T) {
 	cfg := &core.Config{Timezone: "UTC", Image: "img:latest",
-		ModelGatewayURL: "http://gw:4000", ModelGatewayKey: "virtual-key-abc123"}
-	args := buildArgs(cfg, nil, "c6", egressSpawn{}, "", 0, false)
+		ModelGatewayURL: "http://gw:4000", ModelGatewayKey: "master-key-abc123"}
+	args := buildArgs(cfg, nil, "c6", egressSpawn{}, "", 0, false, "sk-this-turn")
 	joined := strings.Join(args, " ")
-	for _, want := range []string{"-e MODEL_GATEWAY_URL=http://gw:4000", "-e MODEL_GATEWAY_KEY=virtual-key-abc123"} {
+	for _, want := range []string{"-e MODEL_GATEWAY_URL=http://gw:4000", "-e MODEL_GATEWAY_KEY=sk-this-turn"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("missing %q: %s", want, joined)
 		}
+	}
+	if strings.Contains(joined, "master-key-abc123") {
+		t.Errorf("the gateway MASTER key reached the container; it authorises the mint and stays in routd:\n%s", joined)
+	}
+}
+
+// A spawn that arrives with no minted key on a gateway instance is refused
+// before anything starts. spawnSecrets has already withheld the model
+// credential from it, so running it produces a container that can reach no
+// model and a failure that reads as the harness's.
+func TestRunRefusesAGatewaySpawnWithNoKey(t *testing.T) {
+	cfg := &core.Config{Timezone: "UTC", Image: "img:latest", ModelGatewayURL: "http://gw:4000"}
+	out := Run(cfg, &groupfolder.Resolver{GroupsDir: t.TempDir()}, Input{Folder: "atlas"})
+	if out.Status != "error" || !out.Terminal {
+		t.Fatalf("Run = %+v; a gateway spawn with no virtual key must fail terminally", out)
+	}
+	if !strings.Contains(out.Error, "virtual key") {
+		t.Errorf("Run error %q does not name the missing virtual key", out.Error)
 	}
 }
 
 // Unset is today's argv: the two fields add nothing at all.
 func TestBuildArgsNoGatewayOmitsVars(t *testing.T) {
 	cfg := &core.Config{Timezone: "UTC", Image: "img:latest"}
-	if got := strings.Join(buildArgs(cfg, nil, "c7", egressSpawn{}, "", 0, false), " "); strings.Contains(got, "MODEL_GATEWAY") {
+	if got := strings.Join(buildArgs(cfg, nil, "c7", egressSpawn{}, "", 0, false, ""), " "); strings.Contains(got, "MODEL_GATEWAY") {
 		t.Errorf("unset gateway must add no -e: %s", got)
 	}
 }
