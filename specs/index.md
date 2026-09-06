@@ -35,13 +35,13 @@ stream, per-daemon secrets, SSO/SAML, tool-level secret broker,
 MITM-isolated egress. The trust primitives that make arizuko
 credible to regulated buyers.
 
-**Phase 9** delivers the operationally-minimal pivot: data-model tier
-separation (cold / warm / hot) and git-as-truth for the cold tier (audit,
-history, fork, distribute — native git verbs replace bespoke machinery).
-Secrets stay in SQLite; git carries only references. Its first action —
-MCP+REST unification (one mutation path) — was pulled forward to phase 5
-(`5/17` mechanism + `5/16` rollout) and both have shipped; the remaining
-phase-9 actions are the data model and git-as-truth.
+**Phase 9** owns the data model: tier separation (cold / warm / hot), which
+is the vocabulary `CLAUDE.md` leans on for "every cold-tier entity is a resreg
+resource". That is its one remaining action. MCP+REST unification belongs to
+phase 5 (`5/17` the mechanism, `5/16` the rollout), and both ship. Git as
+truth is DECLINED: `5/8` makes the SQLite database authoritative and YAML a
+transport dump, so committing an `export` to git is fine and a
+continuously-synced working tree is not the model (`specs/9/index.md`).
 
 Together: phases 5 + 8 give **enterprise-ready** (capabilities +
 trust); phase 9 gives **operationally minimal** (one storage
@@ -60,7 +60,7 @@ combination is the platform thesis arizuko ships toward.
 | [6/](6/)   | split arizuko into parts — the environment contracts (`6/1`), the ship-in-parts catalogue (`6/16`), crackbox, the operator cockpit (`6/28`–`6/33`), the store model and storage seam (`6/37`, `6/38`) | **active** |
 | [7/](7/)   | the cloud track — the Rust track, the habitat reframing, skill search, the package contract; the cockpit and the storage seam sit with the split                                                      | queued     |
 | [8/](8/)   | enterprise hardening — encryption, audit, SSO, secret broker                                                                                                                                          | queued     |
-| [9/](9/)   | platform program — data model, git-as-truth (MCP+REST unification → 5/16·5/17)                                                                                                                        | drafting   |
+| [9/](9/)   | the data model — cold / warm / hot tier separation, and operator-extensible `<autocalls>`; git-as-truth is declined (`5/8`) and MCP+REST unification ships in `5/16`·`5/17`                           | drafting   |
 | [10/](10/) | self-healing — Aeon mechanism incorporation                                                                                                                                                           | queued     |
 | [11/](11/) | operator tools — branding, usage limits                                                                                                                                                               | queued     |
 | [12/](12/) | _dissolved 2026-07-14 → consolidated into [6/](6/) (`6/9`, `6/12`, `6/16`); self-learning/skill-guard → `5/22`·`5/23`_                                                                                | dissolved  |

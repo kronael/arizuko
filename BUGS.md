@@ -10956,7 +10956,14 @@ are HTML in another tree with its own deploy procedure
   and extend the check that already guards this tree (`tests/webdocs`) to
   resolve `specs/…md` paths, so the deploy cannot ship a dead one again
 
-## L221 — `specs/index.md` lists git-as-truth as live phase-9 work; `specs/9/index.md` says it is rejected (2026-09-06, open — docs)
+## ✅ FIXED 2026-09-06 L221 — `specs/index.md` lists git-as-truth as live phase-9 work; `specs/9/index.md` says it is rejected (2026-09-06)
+
+**FIXED 2026-09-06.** Both sites now say what `specs/9/index.md` decided: the
+one remaining phase-9 action is the data model, and git as truth is declined
+because `5/8` makes the SQLite database authoritative and YAML a transport
+dump — committing an `export` to git is fine, a continuously-synced working
+tree is not the model. The narrative paragraph also stopped recounting which
+action moved where and states where each one lives now.
 
 MEASURED. `specs/index.md:44` reads "the remaining phase-9 actions are the data
 model and git-as-truth", and its phase table at `:63` describes `9/` as
