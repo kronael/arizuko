@@ -11597,7 +11597,42 @@ can act on or report.
 - **Fix:** write a JSON-RPC error frame when marshalling the result fails, so
   the failure reaches the agent instead of only the journal
 
-## L219 — restoring an archive re-introduces the mixed-width timestamps `L97` removed (2026-09-06, proposal — needs sign-off)
+## ✅ FIXED 2026-09-06 L219 — restoring an archive re-introduces the mixed-width timestamps `L97` removed (2026-09-06)
+
+**FIXED 2026-09-06 in `3c932b5c` and `706d1b95`. The open policy question
+resolves to REFUSE THE ROW, never the restore**, and the reason is structural
+rather than a preference.
+
+`applyArchive` is not atomic: it walks a tar, commits config, then secrets,
+then messages in batches of 500, so an error returns with everything before it
+already written. "Refuse the restore" cannot mean "roll back" — that option
+does not exist in this code. Validating up front is against the design too:
+the messages entry is a deliberately unbounded streaming tar entry, batched so
+a long transfer never holds the write lock.
+
+And a whole-archive refusal would make krons's own archive unrestorable.
+Measured on copies of all three live databases: krons holds exactly two rows
+migration `0044` cannot parse, `test-trigger-1775133527` and
+`debug-1775135388`, both space-separator debug rows that `0044` skips by
+design; marinade and sloth hold none. Refusing the archive would abort after
+config and secrets had committed, over two dead rows. Per-row refusal protects
+the invariant identically — neither writes the bad value — and the import is
+idempotent, so the operator corrects the row and re-runs while everything
+already landed is a no-op. The refused rows are named in the apply report.
+
+**A sibling carried the same defect.** `cmd/arizuko/migrate_split.go` runs the
+migrations, `0044` among them, and THEN bulk-copies `messages.timestamp`,
+`chats.agent_cursor` and `sessions.observed_cursor` verbatim into a database
+where `0044` is already recorded and will never revisit them. Fixed with
+`routd.NormalizeFixedWidthTimestamps`, which executes the embedded `0044`
+file — one SQL text with two callers, not a second copy of the padding.
+
+**Negative finding worth as much as the fix.** The archive's other imported
+timestamps are NOT siblings. `onboarding`, `invites`, `route_tokens` and
+`pending_actions` write and compare plain `time.RFC3339`, which is
+fraction-free and therefore already fixed width. Re-rendering those through
+`core.TS` would ADD a fraction and create this defect where it does not exist —
+the trap `L97` names. The fix touches `messages.timestamp` only.
 
 MEASURED. `resreg/archive.go:101` carries `Timestamp string` verbatim out of an
 archive and writes it into `messages.timestamp` at `:206`. Nothing re-renders
