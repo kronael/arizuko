@@ -376,7 +376,7 @@ Audit = <code>git log</code>. Fork = <code>git worktree</code>. Distribute = <co
     <li><code>deployments</code> table in SQLite (cache; rebuildable from git)</li>
     <li>Three canonical product templates: oncall, support, sales-assist</li>
     <li>Folder/user-scope secrets layering (BYOA primitive) — specs/5/14-credentials.md</li>
-    <li><strong>Spec:</strong> specs/5/8-yaml-manifests.md — the decision that landed instead: SQLite is authoritative and the manifest is a dump/import artifact, so <code>agents.toml</code> is not a source of truth</li>
+    <li><strong>Spec:</strong> specs/5/8-yaml-manifests.md — it decides the opposite of this card: SQLite is authoritative, the YAML manifest is a dump/import artifact, and no <code>agents.toml</code> is a source of truth</li>
   </ul>
 </div>
 
