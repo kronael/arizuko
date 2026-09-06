@@ -56,12 +56,13 @@ func syncProxydRoutes(dataDir string, routes []compose.ProxydRoute) {
 }
 
 // cmdProxyConfig renders the instance's proxyd_routes rows as a Caddyfile
-// (spec 6/22 step 2). It PRINTS rather than installs: proxyd is still the
-// running proxy, and a renderer that writes into a live proxy's config dir
-// before step 3 exists would hand it a routing table it cannot authenticate.
+// (spec 6/22 step 2). It PRINTS rather than installs: proxyd is the running
+// proxy, so which proxy fronts an instance is the operator's decision and a
+// renderer that wrote into a live proxy's config dir would take it for them.
 //
-// --forward-auth names the endpoint that answers with the transit proof. Unset,
-// every authenticated route renders as a 503 with the reason — see proxycfg.
+// --forward-auth names the endpoint that answers with the transit proof
+// (proxyd's /auth/forward). Unset, every authenticated route renders as a 503
+// with the reason — see proxycfg.
 func cmdProxyConfig(args []string) {
 	need(args, 1, "arizuko proxy-config <instance> [--listen :8080] [--forward-auth host:port]")
 	dataDir := mustInstanceDir(args[0])

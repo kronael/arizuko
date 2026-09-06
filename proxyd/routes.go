@@ -17,7 +17,7 @@ var validAuth = map[string]bool{"public": true, "user": true, "operator": true, 
 type Route struct {
 	Path    string `json:"path"`
 	Backend string `json:"backend"`
-	Auth    string `json:"auth"` // "public" | "user" | "operator"
+	Auth    string `json:"auth"` // one of validAuth
 	// GatedBy is generate-time-only metadata: compose.collectProxydRoutes drops
 	// a route whose gated_by env var is unset before the row is written. proxyd
 	// NEVER reads it at runtime (a route in the table is already a survivor) —

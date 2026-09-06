@@ -9,9 +9,12 @@ package main
 //
 // Two constraints the spec fixes, and both are load-bearing:
 //
-//   - The transit proof is minted PER REQUEST, in this response. Handing the
-//     proxy a long-lived token to keep in its config would be a downgrade — a
-//     file on the proxy host would then be enough to impersonate proxyd.
+//   - The proof rides the response, never the proxy's config. It is the same
+//     `service:proxyd` bearer proxyd attaches to a proxied request: exchanged
+//     from AUTHD_SERVICE_KEY and re-exchanged a minute before its 15-minute
+//     expiry (auth/service.go), so a proxy host that reads one response can
+//     replay it until that bearer expires. A token in the proxy's config would
+//     instead last as long as the file, so the response is where it belongs.
 //   - The decision is never cached. One subrequest per request, always; a
 //     cached authz answer is a revocation that does not take effect.
 
@@ -23,13 +26,8 @@ import (
 	"github.com/kronael/arizuko/auth"
 )
 
-// forwardAuthHeaders are what the proxy copies onto the upstream request on a
-// 200. Authorization carries the transit proof, so it is not optional: without
-// it every backend reads the identity headers as untrusted and refuses.
-var forwardAuthHeaders = []string{"Authorization", "X-User-Sub", "X-User-Name", "X-User-Groups"}
-
 // handleForwardAuth answers a proxy's auth subrequest: 200 with the identity
-// headers and a fresh transit proof, or the same 303-to-login a direct request
+// headers and the transit proof, or the same 303-to-login a direct request
 // would have received.
 //
 // It reuses requireAuth's decision rather than re-deriving it. A second
@@ -60,7 +58,7 @@ func (s *server) handleForwardAuth(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
 		return
 	}
-	for _, h := range forwardAuthHeaders {
+	for _, h := range auth.TransitHeaders {
 		if v := authed.Header.Get(h); v != "" {
 			w.Header().Set(h, v)
 		}

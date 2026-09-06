@@ -36,7 +36,9 @@ func forwardAuthSrv(t *testing.T) (*server, func(sub string) string) {
 	s.svc = svc
 
 	return s, func(sub string) string {
-		tok, err := k.Sign(auth.TokenClaims{Sub: sub, Typ: "user"}, time.Hour)
+		tok, err := k.Sign(auth.TokenClaims{
+			Sub: sub, Typ: "user", Extra: map[string]string{"name": "Fwd User"},
+		}, time.Hour)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -66,6 +68,13 @@ func TestForwardAuth_AnsweredIdentityCarriesTheTransitProof(t *testing.T) {
 	}
 	if w.Header().Get("X-User-Groups") == "" {
 		t.Error("X-User-Groups absent; the proxy has nothing to copy")
+	}
+	// The display name is the half of the answer no backend refuses without:
+	// webd records it as the sender name on a posted message and dashd shows it
+	// in the nav, so an endpoint that omits it anonymises every caller behind a
+	// fronting proxy while every request still answers 200.
+	if got := w.Header().Get("X-User-Name"); got != "Fwd User" {
+		t.Errorf("X-User-Name = %q, want the caller's display name", got)
 	}
 	// The proof must be PRESENT — a 200 that answers identity without it makes
 	// every backend read X-User-* as untrusted, so the whole surface reads as
