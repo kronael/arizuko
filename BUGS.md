@@ -11004,7 +11004,13 @@ contract tests.
 - **Scope:** `specs/6/25`
 - **Fix:** correct the filename; date the qm line count or drop it
 
-## L216 — `6/33` documents two inbound verbs no adapter emits, and its enforcement test excludes the one adapter that could break it (2026-09-06, doc half FIXED 2026-09-06; the test half is open)
+## ✅ FIXED 2026-09-06 L216 — `6/33` documents two inbound verbs no adapter emits, and its enforcement test excludes the one adapter that could break it (2026-09-06)
+
+**Test half FIXED 2026-09-06.** `tests/socialboundary` globs each adapter's
+`src/*.ts` beside its `*.go`, and `twitd` joins the scanned set, so the
+boundary the spec cites now covers all four. Proved by mutation: a `trending`
+comment appended to `twitd/src/poll.ts` turns the scan red and naming twitd,
+which also proves the glob reaches the file rather than reading an empty set.
 
 **Doc half FIXED 2026-09-06 in `64dcc899`.** Re-measured before editing: the
 four adapters write `message` (`bskyd/client.go:289`, `reditd/client.go:353`,

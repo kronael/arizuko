@@ -22,9 +22,10 @@ import (
 
 const root = "../.."
 
-// socialAdapters are the Go social adapters 6/33 names. mastd and twitd are
-// absent from this list because neither ships Go source in this tree.
-var socialAdapters = []string{"bskyd", "reditd", "linkd"}
+// socialAdapters are the four social adapters 6/33 names. twitd is here with
+// the three Go ones: the markers below are plain strings and the boundary is
+// the same one, so the implementation language decides nothing.
+var socialAdapters = []string{"bskyd", "reditd", "linkd", "twitd"}
 
 // observerMarkers are the shapes that mean broad monitoring rather than
 // bot-directed notification. Deliberately blunt: a false positive costs a
@@ -45,15 +46,27 @@ var feedPollExceptions = map[string]string{
 	"reditd": "/r/<sr>/new.json per SUBREDDITS — pending the observer",
 }
 
+// adapterSource concatenates one adapter's non-test source. A Go adapter keeps
+// its source in the package directory and a TypeScript one under `src/`, so both
+// are read; an adapter that ships neither returns the empty string, which every
+// test below reads as "carries nothing", so a missing directory can never make
+// a boundary look clean.
 func adapterSource(t *testing.T, name string) string {
 	t.Helper()
-	files, err := filepath.Glob(filepath.Join(root, name, "*.go"))
-	if err != nil {
-		t.Fatal(err)
+	var files []string
+	for _, pat := range []string{
+		filepath.Join(root, name, "*.go"),
+		filepath.Join(root, name, "src", "*.ts"),
+	} {
+		found, err := filepath.Glob(pat)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, found...)
 	}
 	var b strings.Builder
 	for _, f := range files {
-		if strings.HasSuffix(f, "_test.go") {
+		if strings.HasSuffix(f, "_test.go") || strings.HasSuffix(f, ".test.ts") {
 			continue
 		}
 		src, err := os.ReadFile(f)

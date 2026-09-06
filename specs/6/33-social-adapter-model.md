@@ -167,7 +167,9 @@ hashtag/trending/keyword/search across them returns nothing.
 would take away a working capability on a deployed adapter with no
 replacement. So `SUBREDDITS` stays, named here as the one adapter that crosses
 the boundary, and `tests/socialboundary` pins the set so a SECOND adapter
-cannot cross it quietly.
+cannot cross it quietly. That scan reads each adapter's Go package and its
+`src/*.ts`, so all four are inside it and the implementation language decides
+nothing.
 
 Agents on social platforms operate with notification-only context — except on
 Reddit, where the configured subreddits arrive as ordinary inbound messages.
