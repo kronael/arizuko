@@ -195,20 +195,27 @@ func (d *dash) handleTaskAction(w http.ResponseWriter, r *http.Request) {
 
 	// pause: active→paused; resume: paused→active (recompute next_run from
 	// cron); cancel: active|paused→cancelled. A task not in the state a
-	// transition starts from moves nowhere and answers 409.
+	// transition starts from moves nowhere and answers 409. The status the
+	// audit row records and the move that writes it come off the same case, so
+	// a fourth action cannot be half-added.
+	st := d.ds()
 	var newStatus string
+	var move func(audit.Event) error
 	switch action {
 	case "pause":
 		newStatus = "paused"
+		move = func(ev audit.Event) error { return st.PauseTask(r.Context(), id, ev) }
 	case "resume":
 		newStatus = "active"
+		move = func(ev audit.Event) error { return st.ResumeTask(r.Context(), id, taskNextRun, ev) }
 	case "cancel":
 		newStatus = "cancelled"
+		move = func(ev audit.Event) error { return st.CancelTask(r.Context(), id, ev) }
 	default:
 		http.NotFound(w, r)
 		return
 	}
-	ev := audit.Event{
+	err := move(audit.Event{
 		Category: audit.CategoryMutation,
 		Action:   "task.update",
 		Actor:    "rest:dashd",
@@ -218,17 +225,7 @@ func (d *dash) handleTaskAction(w http.ResponseWriter, r *http.Request) {
 		ParamsSummary: map[string]any{
 			"status": newStatus,
 		},
-	}
-	st := d.ds()
-	var err error
-	switch action {
-	case "pause":
-		err = st.PauseTask(r.Context(), id, ev)
-	case "resume":
-		err = st.ResumeTask(r.Context(), id, taskNextRun, ev)
-	case "cancel":
-		err = st.CancelTask(r.Context(), id, ev)
-	}
+	})
 	switch {
 	case errors.Is(err, dashstore.ErrTaskMissing):
 		http.Error(w, "not found", http.StatusNotFound)

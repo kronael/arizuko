@@ -107,9 +107,9 @@ func (d *dash) handleGroupCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg, cerr := core.LoadConfig()
-	if cerr != nil {
-		slog.Error("group create: load config", "err", cerr)
+	cfg, err := core.LoadConfig()
+	if err != nil {
+		slog.Error("group create: load config", "err", err)
 		http.Error(w, "config load failed", http.StatusInternalServerError)
 		return
 	}
