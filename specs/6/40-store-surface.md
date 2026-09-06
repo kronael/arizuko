@@ -173,6 +173,22 @@ conditional write. That shape is native (`TransactWriteItems` allows a
 
 ## Portability, stated once
 
+**First, what this table is not.** arizuko is NOT key-value ready, and `6/38`
+decided not to be: "arizuko moves to Postgres and writes no `Store` interface".
+The seam is `db_utils.Open`, which returns a `*sql.DB` — a SQL handle. No
+key-value engine can sit behind that type, so the question is never "does the
+seam carry DynamoDB", it is "what would a rewrite cost". This table is that
+estimate.
+
+Two things make the estimate larger than the table alone suggests. The
+migration apparatus — seven owners, 156 versioned DDL files, keyed
+`(service, version)` — has no counterpart in a key-value engine, which has no
+DDL past creating a table and its keys. It would be deleted, not ported, and
+with it goes the mechanism that makes a schema change reviewable. And the four
+owner databases are four consistency boundaries chosen because a transaction
+cannot span them; a key-value engine has one boundary per item, so every
+cross-table invariant in the census below becomes application code.
+
 | Operation          | Key-value engine                                                                     |
 | ------------------ | ------------------------------------------------------------------------------------ |
 | containment        | native: `begins_with` on a sort key under a tenant partition                         |
