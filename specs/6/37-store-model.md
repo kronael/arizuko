@@ -380,8 +380,28 @@ proven before anything moves at all.
    small — the reason for step 4's order. It is rehearsed against a copy of a
    live database before it is believed, and "0 rows matched" is a red flag,
    never an all-clear.
-6. **A second driver** — Postgres or DynamoDB — written to the conformance
-   suite. With it come the three redesigns `6/38` costed: the versioned
+6. **A second driver: the DynamoDB API.** arizuko depends on the API, which is
+   a published contract, never on a vendor's code — so the backend is the
+   operator's choice. Self-hosted that is **ScyllaDB Alternator**, which has
+   been production-supported since 2020 and runs any DynamoDB SDK unmodified;
+   managed, it is DynamoDB itself. One driver serves both.
+
+   **Alternator is source-available, not open source.** AGPL 6.2.x was the last
+   open-source release and no further AGPL versions are planned; Enterprise
+   2025.1 onward is free up to 10 TB and 50 vCPUs per organisation. That bound
+   is irrelevant here — arizuko's largest database is 58 MB — but it binds the
+   OPERATOR, not arizuko, which is why the API and not the server is what this
+   spec targets. An adopter who dislikes the terms writes a different driver
+   for the same interface.
+
+   The Mongo wire protocol over FerretDB (Apache 2.0, Postgres underneath) fits
+   `6/40`'s operations better on four of five: it has real multi-document
+   transactions for the versioned replace, `$graphLookup` for the reachability
+   guard, and `findOneAndUpdate` for the claim-and-return. It is not chosen. The
+   DynamoDB API's constraints are the point — a design that satisfies them runs
+   anywhere — and that discipline is bought with the three redesigns below.
+
+   Written to the conformance suite. With it come the three redesigns `6/38` costed: the versioned
    replace's per-scope version, membership's materialised ancestor closure, and
    `resreg.Apply`'s lock object with bounded batches, which gives up the
    pre-image rollback it carries today (`L44`).
