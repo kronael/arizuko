@@ -13,11 +13,14 @@
 -- that same second still sorts behind the stored `...57Z`. The column and the
 -- cursors have to be normalised together for the new layout to mean anything.
 --
--- Order within this file does not matter and must not be relied on: db_utils
--- runs the whole file inside one BEGIN EXCLUSIVE, so no reader sees a column
--- normalised against a cursor that is not. Each UPDATE is a pure re-rendering —
--- it preserves the instant exactly — so the final state cannot skip or replay a
--- row that the pre-migration state did not already skip.
+-- Each UPDATE is a pure re-rendering: it preserves the instant exactly, so the
+-- final state cannot skip or replay a row the pre-migration state did not
+-- already skip. A PARTIAL state can. Padding a cursor makes it shorter than the
+-- unpadded rows of its own second, so cursors normalised while rows are not
+-- re-feeds consumed messages: 28 on krons, 27 on marinade, 33 on sloth, measured
+-- against copies of the live files. db_utils runs the whole file inside one
+-- BEGIN EXCLUSIVE, so no reader ever sees that state — and the rows go first
+-- here, which measured no flip either way, for anyone running these by hand.
 --
 -- Scoped by GLOB to the RFC3339-with-Z shapes and nothing else. Two krons rows
 -- carry a hand-inserted `2026-04-02 12:38:47` (space separator, no zone); they do
