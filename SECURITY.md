@@ -90,10 +90,10 @@ tenant's routes or tasks.
 | MCP peer identity   | `SO_PEERCRED` peer-uid check on each accepted conn                                                                                                                                                                                                                                                                                                             | `ipc/ipc.go` (`ServeMCP`), see `ipc/SECURITY.md`                                                                                |
 | Agent exec scope    | `bypassPermissions` inside container; mounts scoped to the group                                                                                                                                                                                                                                                                                               | `ant/src/index.ts`, `container/runner.go`                                                                                       |
 | Additional mounts   | `ValidateAdditionalMounts` + `ValidateFilePath` blocklist/symlink guard                                                                                                                                                                                                                                                                                        | `mountsec/`                                                                                                                     |
-| Web routes          | `/pub/*` + `/health` public; `/priv/*` JWT-gated (serves from `web/priv/`); `/slink/*` forwarded to webd (which 301s → `/chat/<token>/`); `/chat/*` + `/hook/*` token; rest JWT                                                                                                                                                                                | `proxyd/main.go`, `webd/server.go` (`handleSlinkRedirect`)                                                                      |
+| Web routes          | `/pub/*` + `/health` public; `/priv/*` JWT-gated (serves from `web/priv/`); `/slink/*` forwarded to webd (which 301s → `/chat/<token>/`); `/chat/*` + `/hook/*` are `auth: optional` rows to webd, which holds the token check; rest JWT                                                                                                                       | `proxyd/main.go`, `webd/server.go` (`handleSlinkRedirect`), `webd/route_token.go`                                               |
 | Chat-MCP            | `/chat/<token>/mcp` — token IS the auth; it authenticates an ANONYMOUS principal whose grant set is the one folder the row records, so the shared `send`/`get_history` gate (`auth.MatchGroups`) admits no other                                                                                                                                               | `webd/mcp.go` (`handleChatTokenMCP`)                                                                                            |
 | WebDAV write-block  | `.env` / `*.pem` / `.git` write-blocked; `<group>/logs/` read-only                                                                                                                                                                                                                                                                                             | `proxyd/main.go` (`davAllow`)                                                                                                   |
-| Chat identity relay | proxyd stamps `X-Folder` and proves channel via ES256 `service:proxyd` bearer; webd verifies via `auth.ProxydTransit`                                                                                                                                                                                                                                          | `proxyd/main.go`, `webd/server.go` (`auth.ProxydTransit`)                                                                       |
+| Chat identity relay | proxyd stamps `X-User-*` and proves channel via ES256 `service:proxyd` bearer; webd verifies via `auth.ProxydTransit` and resolves the route token itself                                                                                                                                                                                                      | `proxyd/main.go` (`attachTransit`), `webd/route_token.go`, `webd/server.go` (`auth.ProxydTransit`)                              |
 | Authn               | GitHub / Google / Discord / Telegram OAuth → JWT (1h) + refresh (30d)                                                                                                                                                                                                                                                                                          | `auth/web.go`, `auth/oauth.go`                                                                                                  |
 | Login throttle      | 5 POST `/auth/login` per IP per 15min, in-memory                                                                                                                                                                                                                                                                                                               | `auth/web.go`                                                                                                                   |
 | Authz               | Unified `acl` + `acl_membership` → `auth.Authorize`; a row's `params` predicates do per-tool arg gating; `auth.Delegate` bounds re-delegation to a subset of rows held WITH GRANT OPTION                                                                                                                                                                       | `auth/authorize.go`, `auth/delegate.go`, `auth/acl.go`                                                                          |
@@ -197,6 +197,27 @@ No shared HMAC secret. The pin is the subject claim: without it, any
 holder of a valid authd token reaching a backend directly could spoof
 `X-User-*`. The `service:proxyd` subject is the load-bearing check
 (`auth/middleware.go`).
+
+### Handing the proof to a fronting proxy (`GET /auth/forward`)
+
+An off-the-shelf proxy can route but cannot hold arizuko's bearer, so
+`proxyd/forward_auth.go` answers its auth subrequest with the whole of
+`auth.TransitHeaders` — the identity plus that same bearer — or the
+303-to-login a direct request gets (`specs/6/22` step 3).
+
+The proof therefore travels in a response the fronting proxy reads,
+which bounds the exposure to the bearer's own life rather than to a
+config file's: proxyd exchanges it from `AUTHD_SERVICE_KEY` and
+re-exchanges a minute before its 15-minute expiry (`accessTTL`,
+`authd/main.go`), so **a proxy host that captures one answer can present
+that bearer to any backend until it expires — up to 15 minutes.** The
+backend check is offline and stateless: `auth.ProxydTransit` verifies
+signature, expiry and subject, and consults no `jti` list, so a captured
+bearer is indistinguishable from proxyd's own until `exp`.
+
+That is the property to hold in mind when putting a proxy in front:
+whoever runs it is trusted for the window, so it belongs inside the
+same trust zone as proxyd, not on a rented edge.
 
 ## Trust zones
 
