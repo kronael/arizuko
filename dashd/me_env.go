@@ -51,7 +51,7 @@ func (d *dash) handleMeEnv(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if d.secretsDB() == nil {
+	if d.ds() == nil {
 		http.Error(w, "secrets store unavailable", http.StatusServiceUnavailable)
 		return
 	}

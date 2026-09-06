@@ -467,11 +467,6 @@ func resolveDSN(dbPath, dataDir string) (string, error) {
 	return dbPath, nil
 }
 
-// secretsDB returns the handle the /dash/me/secrets read+delete paths use — the
-// same routd.db handle, since routd OWNS the secrets table. (List returns no
-// values; delete needs no key. Writes go through secretStore to seal at rest.)
-func (d *dash) secretsDB() *sql.DB { return d.adminDB() }
-
 // secretStore wraps routd.db as a *store.Store with the SECRETS_KEY keyring set,
 // so user-secret writes (PutSecretRow) seal `v2:` values the same way routd's
 // secretStore does — the BYOA encryption-at-rest path. nil when routd.db is
