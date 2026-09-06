@@ -151,19 +151,12 @@ nothing: 58 edges on krons pointing at exactly two parents, `role:operator` and
 recurses. The one apparent DAG is an identity ALIAS
 (`telegram:user/… → google:…`) sharing a table with role assignment.
 
-A token could carry the resolved answer — the access token already holds a
-login-time scope snapshot, `authd` records what it issued (78 refresh rows on
-the busiest instance, none on the other two), `POST /dash/authd/revoke` kills a
-family, and `accessTTL` is 15 minutes, so a capability change scans a tiny
-issued set or simply waits for expiry. But that is a CACHE. The walk still runs
-at mint time and the scan still runs on revocation, so the operation stays on
-this surface either way and portability is unchanged. It buys latency on the
-authorize path, nothing more, and `6/22` step 3 currently refuses it on the
-grounds that a cached authorization decision is a revocation that does not take
-effect.
-
-**Reopen when any parent becomes a child, or when `Ancestors` shows on a
-latency profile.**
+Resolving at token-mint time and revoking from the recorded issued set would
+take the walk off the authorize path. It is an OPTIMISATION — the walk still
+runs at mint, the revocation scan still runs, and this operation stays in the
+census either way — so it is recorded in
+[`15/h`](../15/h-authorization-cache.md) with its measurements and its reopen
+trigger, not scheduled here.
 
 **The claim-and-return.** `store.DueTasks` is
 `UPDATE scheduled_tasks SET status='firing' WHERE status='active' AND next_run
