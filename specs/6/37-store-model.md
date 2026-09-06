@@ -380,49 +380,40 @@ proven before anything moves at all.
    small — the reason for step 4's order. It is rehearsed against a copy of a
    live database before it is believed, and "0 rows matched" is a red flag,
    never an all-clear.
-6. **A second driver: the DynamoDB API.** arizuko depends on the API, which is
-   a published contract, never on a vendor's code — so the backend is the
-   operator's choice. Self-hosted that is **ScyllaDB Alternator**, which has
-   been production-supported since 2020 and runs any DynamoDB SDK unmodified;
-   managed, it is DynamoDB itself. One driver serves both.
+6. **Drivers, written directly against each engine.** The interface is
+   `6/40`'s five operations — arizuko's own vocabulary, not a vendor's API
+   surface — so each driver implements five things directly and nothing
+   translates a wire protocol in between.
+   - **SQLite** in-process, for local and single-host. The SQL moves out of
+     the daemons and into this driver; it does not change.
+   - **Postgres** for a real deployment, which is where `6/37`'s existing
+     opener, pool cap and transient classification already land.
+   - **DynamoDB** through the AWS SDK, for the cloud.
 
-   **Locally, the DynamoDB-over-Postgres adapter exists and AWS wrote it.**
-   ExtendDB is Apache 2.0, in Rust, speaks the DynamoDB wire protocol and
-   stores in PostgreSQL behind a pluggable storage trait. It implements what
-   `6/40`'s operations need — `TransactWriteItems` and `TransactGetItems`,
-   condition expressions, `Query` on key conditions, Streams and TTL — and it
-   does not implement global tables or cross-Region replication, which are
-   managed-service features arizuko never asks for.
+   **No surrogate database, and that is deliberate.** Two exist and both were
+   examined: ScyllaDB Alternator, production-supported since 2020 but
+   source-available since AGPL 6.2.x, and AWS's ExtendDB, Apache 2.0 and Rust,
+   speaking the DynamoDB wire protocol over PostgreSQL — which implements
+   `TransactWriteItems`, condition expressions, `Query` on key conditions,
+   Streams and TTL, and is v0.1 "for development, testing, and
+   experimentation" by AWS's own words.
 
-   It is **v0.1 and AWS says development only**: "This is a v0.1 release for
-   development, testing, and experimentation", at "an early stage" with
-   performance and operational properties that "differ". So it is the local and
-   CI backend, not a production one — and its existence settles the design
-   question, because the adapter this spec would otherwise have to invent is
-   already written, by the vendor whose protocol it implements.
+   Either would be needed only to serve the FULL DynamoDB API. Five operations
+   do not need a translation server: pointing the interface straight at
+   Postgres or SQLite is a smaller, debuggable path with no second process in
+   it and no one else's mapping between arizuko and its rows. A partial
+   implementation written here beats a complete one written for a surface
+   arizuko does not use.
 
-   Three deployments, one driver: DynamoDB managed, Alternator self-hosted,
-   ExtendDB (or SQLite) locally.
+   What is given up is the portability discipline a vendor API imposes for
+   free. **The conformance suite replaces it** — that is why step 2 makes it a
+   proof obligation rather than a claim, and why an operation that cannot be
+   expressed for all three drivers does not go on the interface.
 
-   **Alternator is source-available, not open source.** AGPL 6.2.x was the last
-   open-source release and no further AGPL versions are planned; Enterprise
-   2025.1 onward is free up to 10 TB and 50 vCPUs per organisation. That bound
-   is irrelevant here — arizuko's largest database is 58 MB — but it binds the
-   OPERATOR, not arizuko, which is why the API and not the server is what this
-   spec targets. An adopter who dislikes the terms writes a different driver
-   for the same interface.
-
-   The Mongo wire protocol over FerretDB (Apache 2.0, Postgres underneath) fits
-   `6/40`'s operations better on four of five: it has real multi-document
-   transactions for the versioned replace, `$graphLookup` for the reachability
-   guard, and `findOneAndUpdate` for the claim-and-return. It is not chosen. The
-   DynamoDB API's constraints are the point — a design that satisfies them runs
-   anywhere — and that discipline is bought with the three redesigns below.
-
-   Written to the conformance suite. With it come the three redesigns `6/38` costed: the versioned
-   replace's per-scope version, membership's materialised ancestor closure, and
-   `resreg.Apply`'s lock object with bounded batches, which gives up the
-   pre-image rollback it carries today (`L44`).
+   With the DynamoDB driver come the three redesigns `6/38` costed: the
+   versioned replace's per-scope version, membership's materialised ancestor
+   closure, and `resreg.Apply`'s lock object with bounded batches, which gives
+   up the pre-image rollback it carries today (`L44`).
 
 Steps 1 to 3 change no engine and no data, and revert with `git revert`. Step 4
 is per-daemon and reverts per daemon, which is the whole point of doing it this
