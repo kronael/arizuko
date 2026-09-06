@@ -380,40 +380,58 @@ proven before anything moves at all.
    small — the reason for step 4's order. It is rehearsed against a copy of a
    live database before it is believed, and "0 rows matched" is a red flag,
    never an all-clear.
-6. **Drivers, written directly against each engine.** The interface is
-   `6/40`'s five operations — arizuko's own vocabulary, not a vendor's API
-   surface — so each driver implements five things directly and nothing
-   translates a wire protocol in between.
-   - **SQLite** in-process, for local and single-host. The SQL moves out of
-     the daemons and into this driver; it does not change.
-   - **Postgres** for a real deployment, which is where `6/37`'s existing
-     opener, pool cap and transient classification already land.
-   - **DynamoDB** through the AWS SDK, for the cloud.
+6. **Two drivers: Postgres and DynamoDB.** The interface is `6/40`'s five
+   operations — arizuko's own vocabulary, not a vendor's API surface — so each
+   driver implements five things directly, with no wire protocol translated in
+   between.
 
-   **No surrogate database, and that is deliberate.** Two exist and both were
-   examined: ScyllaDB Alternator, production-supported since 2020 but
-   source-available since AGPL 6.2.x, and AWS's ExtendDB, Apache 2.0 and Rust,
-   speaking the DynamoDB wire protocol over PostgreSQL — which implements
-   `TransactWriteItems`, condition expressions, `Query` on key conditions,
-   Streams and TTL, and is v0.1 "for development, testing, and
-   experimentation" by AWS's own words.
+   **SQLite gets no driver.** It is the SOURCE, not a target: today's data is
+   read out of it by the code that already exists, and the daemon that has
+   moved never opens it again. Keeping a third driver would mean carrying the
+   engine arizuko is leaving for the lifetime of the interface.
 
-   Either would be needed only to serve the FULL DynamoDB API. Five operations
-   do not need a translation server: pointing the interface straight at
-   Postgres or SQLite is a smaller, debuggable path with no second process in
-   it and no one else's mapping between arizuko and its rows. A partial
-   implementation written here beats a complete one written for a surface
-   arizuko does not use.
+   **No surrogate database.** Two were examined and both answer a question this
+   design no longer has. ScyllaDB Alternator is production-supported since 2020
+   but source-available since AGPL 6.2.x; AWS's ExtendDB is Apache 2.0 and Rust,
+   speaks the DynamoDB wire protocol over PostgreSQL, and is v0.1 "for
+   development, testing, and experimentation" by AWS's own words. Either would
+   be needed only to serve the FULL DynamoDB API — 58 operations, four
+   expression grammars, a typed attribute model and pagination semantics.
+   Five operations need none of it, and a partial implementation written here
+   beats a complete one written for a surface arizuko never calls.
 
-   What is given up is the portability discipline a vendor API imposes for
-   free. **The conformance suite replaces it** — that is why step 2 makes it a
-   proof obligation rather than a claim, and why an operation that cannot be
-   expressed for all three drivers does not go on the interface.
+   What a vendor API would have imposed for free is portability discipline.
+   **The conformance suite replaces it**: every driver runs the same test
+   bodies, and an operation that cannot be expressed for both does not go on
+   the interface.
 
    With the DynamoDB driver come the three redesigns `6/38` costed: the
    versioned replace's per-scope version, membership's materialised ancestor
    closure, and `resreg.Apply`'s lock object with bounded batches, which gives
    up the pre-image rollback it carries today (`L44`).
+
+## The migration is an export and an import, through infrastructure that exists
+
+Not a hand-written script per daemon. `resreg.ExportSnapshot` reads a
+subsystem through its registered resources and emits a checksummed manifest;
+`arizuko apply` writes one back. Export from the old backend, import into the
+new one, export again and compare — that is the migration and its own test, and
+it is a property rather than an example, so it catches the drift a bespoke
+script introduces.
+
+**The gap in that path is the prerequisite, and it is work already owed.**
+Measured: 20 of routd's 34 live tables have a resreg resource; fourteen do not.
+Five of those fourteen are cold-tier management entities that root `CLAUDE.md`
+already requires to be resreg resources — `chats`, `chat_proactive`,
+`group_watchers`, `pane_sessions`, `user_profiles` — and "a management resource
+without a resreg registration is a review-blocker". That is the `5/16` debt,
+and closing it is step 3a rather than a separate project.
+
+The remaining nine are hot-tier or operational — `sessions`, `turn_context`,
+`turn_results`, `task_run_logs`, `secret_use_log`, `system_messages`,
+`chat_reply_state`, `cost_log`, `migrations`. They are not management
+resources and must not become them; each needs an explicit verdict on whether
+it moves, is rebuilt, or is left behind.
 
 Steps 1 to 3 change no engine and no data, and revert with `git revert`. Step 4
 is per-daemon and reverts per daemon, which is the whole point of doing it this
