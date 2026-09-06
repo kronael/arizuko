@@ -13,11 +13,11 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/dashd/dashstore"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/store"
 )
@@ -96,13 +96,13 @@ func (d *dash) handleGroupCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var exists int
-	if err := d.adminDB().QueryRow(`SELECT COUNT(*) FROM groups WHERE folder = ?`, folder).Scan(&exists); err != nil {
+	exists, err := d.ds().GroupExists(folder)
+	if err != nil {
 		slog.Warn("group create: exists check", "folder", folder, "err", err)
 		http.Error(w, "check failed", http.StatusInternalServerError)
 		return
 	}
-	if exists > 0 {
+	if exists {
 		http.Error(w, "folder already exists", http.StatusConflict)
 		return
 	}
@@ -118,45 +118,7 @@ func (d *dash) handleGroupCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "setup failed", http.StatusInternalServerError)
 		return
 	}
-	s := store.New(d.adminDB())
-	// Raw INSERT rather than store.PutGroup because PutGroup opens its own tx
-	// and cannot carry the admin grant: the group row and the grant share one tx
-	// so an ACL failure never leaves a group with no admin (orphaned,
-	// inaccessible). The audit row joins that same tx below.
-	now := time.Now().Format(time.RFC3339)
-	tx, err := d.adminDB().Begin()
-	if err != nil {
-		slog.Error("group create: begin", "folder", folder, "err", err)
-		http.Error(w, "insert failed", http.StatusInternalServerError)
-		return
-	}
-	if _, err := tx.Exec(
-		`INSERT INTO groups (folder, added_at, product, updated_at) VALUES (?, ?, ?, ?)`,
-		folder, now, product, now); err != nil {
-		tx.Rollback()
-		slog.Error("group create: insert", "folder", folder, "err", err)
-		http.Error(w, "insert failed", http.StatusInternalServerError)
-		return
-	}
-	// A groups row implies the member edge: without it the folder expands to
-	// nothing, matches zero allow rows and comes up with no messaging tools
-	// (BUGS L119).
-	if err := store.SeedMemberRoleTx(tx, folder); err != nil {
-		tx.Rollback()
-		slog.Error("group create: seed member role", "folder", folder, "err", err)
-		http.Error(w, "seed member role failed", http.StatusInternalServerError)
-		return
-	}
-	if _, err := tx.Exec(`INSERT OR IGNORE INTO acl
-		(principal, action, scope, effect, params, predicate, granted_at, granted_by)
-		VALUES (?, 'admin', ?, 'allow', '', '', datetime('now'), 'dashd')`,
-		sub, folder); err != nil {
-		tx.Rollback()
-		slog.Error("group create: grant admin", "folder", folder, "sub", sub, "err", err)
-		http.Error(w, "grant admin failed", http.StatusInternalServerError)
-		return
-	}
-	if err := audit.EmitInTx(r.Context(), tx, audit.Event{
+	ev := audit.Event{
 		Category: audit.CategoryMutation,
 		Action:   "group.create",
 		Actor:    "user:" + sub,
@@ -169,18 +131,22 @@ func (d *dash) handleGroupCreate(w http.ResponseWriter, r *http.Request) {
 			"folder":  folder,
 			"product": product,
 		},
-	}); err != nil {
-		tx.Rollback()
-		slog.Error("group create: audit", "folder", folder, "err", err)
+	}
+	switch err := d.ds().CreateGroupWithAdmin(r.Context(), folder, product, sub, ev); {
+	case errors.Is(err, dashstore.ErrSeedMemberRole):
+		slog.Error("group create: seed member role", "folder", folder, "err", err)
+		http.Error(w, "seed member role failed", http.StatusInternalServerError)
+		return
+	case errors.Is(err, dashstore.ErrGrantAdmin):
+		slog.Error("group create: grant admin", "folder", folder, "sub", sub, "err", err)
+		http.Error(w, "grant admin failed", http.StatusInternalServerError)
+		return
+	case err != nil:
+		slog.Error("group create: insert", "folder", folder, "err", err)
 		http.Error(w, "insert failed", http.StatusInternalServerError)
 		return
 	}
-	if err := tx.Commit(); err != nil {
-		slog.Error("group create: commit", "folder", folder, "err", err)
-		http.Error(w, "insert failed", http.StatusInternalServerError)
-		return
-	}
-	if err := s.SeedDefaultTasks(folder, folder); err != nil {
+	if err := store.New(d.adminDB()).SeedDefaultTasks(folder, folder); err != nil {
 		slog.Warn("group create: seed tasks", "folder", folder, "err", err)
 	}
 	slog.Info("group created", "folder", folder, "product", product, "sub", sub)

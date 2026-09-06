@@ -136,32 +136,19 @@ func (d *dash) renderProactiveCooldowns(w http.ResponseWriter) {
 		`until the cooldown passes &mdash; 24 hours unless routd runs with a different `+
 		`<code>PROACTIVE_COOLDOWN</code>. This is the usual answer to &ldquo;why didn&rsquo;t it say anything?&rdquo;</p>`)
 
-	rows, err := d.dbRoutd.Query(
-		`SELECT jid, COALESCE(proactive_last_fired_at,'')
-		 FROM chat_proactive
-		 WHERE proactive_last_fired_at IS NOT NULL
-		 ORDER BY proactive_last_fired_at DESC LIMIT 50`)
+	cooldowns, err := d.ds().ProactiveCooldowns()
 	if err != nil {
 		slog.Warn("proactive page: cooldown query", "err", err)
 		fmt.Fprint(w, htmlBanner("err", "cooldown query error: "+err.Error()))
 		return
 	}
-	defer rows.Close()
 
 	var tableRows [][]string
-	for rows.Next() {
-		var jid, firedAt string
-		if err := rows.Scan(&jid, &firedAt); err != nil {
-			slog.Warn("proactive page: cooldown scan", "err", err)
-			continue
-		}
+	for _, c := range cooldowns {
 		tableRows = append(tableRows, []string{
-			d.chatJIDCell(jid),
-			abbrTS(firedAt),
+			d.chatJIDCell(c.JID),
+			abbrTS(c.FiredAt),
 		})
-	}
-	if err := rows.Err(); err != nil {
-		slog.Warn("proactive page: cooldown rows", "err", err)
 	}
 	fmt.Fprint(w, htmlTable([]string{"Chat", "Last spoke first"}, tableRows,
 		"No chat has spoken unprompted yet."))

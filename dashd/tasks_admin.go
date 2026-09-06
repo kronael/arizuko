@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/dashd/dashstore"
 	"github.com/robfig/cron/v3"
 )
 
@@ -191,66 +193,29 @@ func (d *dash) handleTaskAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// State-machine guards live in the WHERE clause: a transition that does not
-	// match the current status affects 0 rows → 409. pause: active→paused;
-	// resume: paused→active (recompute next_run from cron); cancel: active|paused
-	// →cancelled.
-	// The write and its audit row commit together (audit.EmitInTx): a crash
-	// between the two cannot leave a mutation without its trail.
-	tx, err := d.adminDB().BeginTx(r.Context(), nil)
-	if err != nil {
-		slog.Warn("task action: begin", "id", id, "action", action, "err", err)
-		http.Error(w, "write failed", http.StatusInternalServerError)
-		return
-	}
-	defer tx.Rollback()
+	// pause: active→paused; resume: paused→active (recompute next_run from
+	// cron); cancel: active|paused→cancelled. A task not in the state a
+	// transition starts from moves nowhere and answers 409. The status the
+	// audit row records and the move that writes it come off the same case, so
+	// a fourth action cannot be half-added.
+	st := d.ds()
 	var newStatus string
-	var res sql.Result
+	var move func(audit.Event) error
 	switch action {
 	case "pause":
 		newStatus = "paused"
-		res, err = tx.Exec(
-			`UPDATE scheduled_tasks SET status = 'paused' WHERE id = ? AND status = 'active'`, id)
+		move = func(ev audit.Event) error { return st.PauseTask(r.Context(), id, ev) }
 	case "resume":
 		newStatus = "active"
-		var cronVal sql.NullString
-		if qerr := tx.QueryRow(
-			`SELECT cron FROM scheduled_tasks WHERE id = ?`, id).Scan(&cronVal); qerr != nil {
-			if qerr == sql.ErrNoRows {
-				http.Error(w, "not found", http.StatusNotFound)
-				return
-			}
-			slog.Warn("task action: load cron", "id", id, "err", qerr)
-			http.Error(w, "write failed", http.StatusInternalServerError)
-			return
-		}
-		nextRun, ok := taskNextRun(cronVal.String)
-		if !ok {
-			http.Error(w, "invalid cron expression", http.StatusBadRequest)
-			return
-		}
-		res, err = tx.Exec(
-			`UPDATE scheduled_tasks SET status = 'active', next_run = ? WHERE id = ? AND status = 'paused'`,
-			nextRun, id)
+		move = func(ev audit.Event) error { return st.ResumeTask(r.Context(), id, taskNextRun, ev) }
 	case "cancel":
 		newStatus = "cancelled"
-		res, err = tx.Exec(
-			`UPDATE scheduled_tasks SET status = 'cancelled' WHERE id = ? AND status IN ('active','paused')`, id)
+		move = func(ev audit.Event) error { return st.CancelTask(r.Context(), id, ev) }
 	default:
 		http.NotFound(w, r)
 		return
 	}
-	if err != nil {
-		slog.Warn("task action: update", "id", id, "action", action, "err", err)
-		http.Error(w, "write failed", http.StatusInternalServerError)
-		return
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		http.Error(w, "invalid state transition", http.StatusConflict)
-		return
-	}
-	err = audit.EmitInTx(r.Context(), tx, audit.Event{
+	err := move(audit.Event{
 		Category: audit.CategoryMutation,
 		Action:   "task.update",
 		Actor:    "rest:dashd",
@@ -261,11 +226,18 @@ func (d *dash) handleTaskAction(w http.ResponseWriter, r *http.Request) {
 			"status": newStatus,
 		},
 	})
-	if err == nil {
-		err = tx.Commit()
-	}
-	if err != nil {
-		slog.Warn("task action: commit", "id", id, "action", action, "err", err)
+	switch {
+	case errors.Is(err, dashstore.ErrTaskMissing):
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	case errors.Is(err, dashstore.ErrInvalidCron):
+		http.Error(w, "invalid cron expression", http.StatusBadRequest)
+		return
+	case errors.Is(err, dashstore.ErrTaskState):
+		http.Error(w, "invalid state transition", http.StatusConflict)
+		return
+	case err != nil:
+		slog.Warn("task action", "id", id, "action", action, "err", err)
 		http.Error(w, "write failed", http.StatusInternalServerError)
 		return
 	}
@@ -302,44 +274,33 @@ func (d *dash) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var id string
-	if err := d.adminDB().QueryRow(`SELECT lower(hex(randomblob(6)))`).Scan(&id); err != nil {
+	st := d.ds()
+	id, err := st.NewTaskID()
+	if err != nil {
 		slog.Warn("task create: gen id", "err", err)
 		http.Error(w, "id gen failed", http.StatusInternalServerError)
 		return
 	}
-	id = "t-" + id
 
-	// The insert and its audit row commit together (audit.EmitInTx).
-	tx, err := d.adminDB().BeginTx(r.Context(), nil)
-	if err != nil {
-		slog.Warn("task create: begin", "err", err)
-		http.Error(w, "insert failed", http.StatusInternalServerError)
-		return
-	}
-	defer tx.Rollback()
-	_, err = tx.Exec(
-		`INSERT INTO scheduled_tasks (id, owner, chat_jid, prompt, cron, next_run, status, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, 'active', datetime('now'))`,
-		id, owner, chatJID, prompt, cronVal, nextRun)
-	if err == nil {
-		err = audit.EmitInTx(r.Context(), tx, audit.Event{
-			Category: audit.CategoryMutation,
-			Action:   "task.create",
-			Actor:    "rest:dashd",
-			Surface:  audit.SurfaceREST,
-			Resource: "scheduled_tasks/" + id,
-			Folder:   owner,
-			Outcome:  audit.OutcomeOK,
-			ParamsSummary: map[string]any{
-				"cron": cronVal,
-			},
-		})
-	}
-	if err == nil {
-		err = tx.Commit()
-	}
-	if err != nil {
+	if err := st.CreateTask(r.Context(), dashstore.NewTask{
+		ID:      id,
+		Owner:   owner,
+		ChatJID: chatJID,
+		Prompt:  prompt,
+		Cron:    cronVal,
+		NextRun: nextRun,
+	}, audit.Event{
+		Category: audit.CategoryMutation,
+		Action:   "task.create",
+		Actor:    "rest:dashd",
+		Surface:  audit.SurfaceREST,
+		Resource: "scheduled_tasks/" + id,
+		Folder:   owner,
+		Outcome:  audit.OutcomeOK,
+		ParamsSummary: map[string]any{
+			"cron": cronVal,
+		},
+	}); err != nil {
 		slog.Warn("task create: insert", "err", err)
 		http.Error(w, "insert failed", http.StatusInternalServerError)
 		return

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/dashd/dashstore"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -129,9 +130,9 @@ func TestUsageSaysSoWhenThereIsNoMeter(t *testing.T) {
 // TestGroupUsageBulkBatchesLargeFolderLists: groupUsageBulk must not build a
 // single IN(...) list sized to the whole folder count — that fails outright
 // once SQLite's bound-parameter limit is exceeded. Seed more folders than
-// usageBulkBatch and confirm every one still gets a row back.
+// dashstore.UsageBatch and confirm every one still gets a row back.
 func TestGroupUsageBulkBatchesLargeFolderLists(t *testing.T) {
-	n := usageBulkBatch + 10
+	n := dashstore.UsageBatch + 10
 	folders := make([]string, n)
 	for i := range folders {
 		folders[i] = strings.Repeat("f", 1) + string(rune('a'+i%26)) + strconv.Itoa(i)

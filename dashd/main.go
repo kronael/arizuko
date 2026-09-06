@@ -24,6 +24,7 @@ import (
 	"github.com/kronael/arizuko/auth/surrogate"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/dashd/dashstore"
 	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/diary"
 	"github.com/kronael/arizuko/groupfolder"
@@ -415,8 +416,15 @@ type dash struct {
 
 // adminDB returns the handle the admin paths (grants/groups/routes/route_tokens)
 // read+write. routd OWNS those tables in the split topology, so dashd points its
-// admin SQL straight at routd.db (dbRoutd).
+// admin reads straight at routd.db (dbRoutd).
 func (d *dash) adminDB() *sql.DB { return d.dbRoutd }
+
+// ds returns dashd's storage layer over routd.db — every statement dashd runs
+// lives behind it (dashd/dashstore, spec 6/37 step 1). nil when routd.db is
+// absent, which is how the pages know to banner instead of render. Built per
+// call for the same reason secretStore is: tests construct a dash literal and a
+// field set at boot would be empty for them.
+func (d *dash) ds() *dashstore.Store { return dashstore.New(d.adminDB()) }
 
 // resolveDSN picks dashd's SQLite path: DB_PATH when set, else
 // <DATA_DIR>/store/routd.db. It REFUSES messages.db — a stale DB_PATH from an old
@@ -458,11 +466,6 @@ func resolveDSN(dbPath, dataDir string) (string, error) {
 	}
 	return dbPath, nil
 }
-
-// secretsDB returns the handle the /dash/me/secrets read+delete paths use — the
-// same routd.db handle, since routd OWNS the secrets table. (List returns no
-// values; delete needs no key. Writes go through secretStore to seal at rest.)
-func (d *dash) secretsDB() *sql.DB { return d.adminDB() }
 
 // secretStore wraps routd.db as a *store.Store with the SECRETS_KEY keyring set,
 // so user-secret writes (PutSecretRow) seal `v2:` values the same way routd's
@@ -1200,41 +1203,25 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *dash) writeGroupRoutes(w http.ResponseWriter, folder string) {
-	rows, err := d.adminDB().Query(
-		`SELECT seq, match, target FROM routes WHERE target=? OR target LIKE ? ORDER BY seq LIMIT 200`,
-		folder, folder+"/%")
+	routes, err := d.ds().RoutesIntoFolder(folder)
 	if err != nil {
 		slog.Warn("groups: routes query", "err", err, "folder", folder)
 		fmt.Fprint(w, htmlBanner("err", "routes error: "+err.Error()))
 		return
 	}
-	defer rows.Close()
-	var n int
-	for rows.Next() {
-		if n == 0 {
-			fmt.Fprint(w, `<table><thead><tr><th>Seq</th><th>Match</th><th>Target</th></tr></thead><tbody>`)
-		}
-		var seq int
-		var match, target string
-		if err := rows.Scan(&seq, &match, &target); err != nil {
-			slog.Warn("groups: routes scan row", "err", err, "folder", folder)
-			continue
-		}
-		fmt.Fprintf(w, `<tr><td>%d</td><td><code>%s</code></td><td><code>%s</code></td></tr>`,
-			seq,
-			esc(match),
-			esc(target),
-		)
-		n++
-	}
-	if err := rows.Err(); err != nil {
-		slog.Warn("groups: routes rows", "err", err, "folder", folder)
-	}
-	if n > 0 {
-		fmt.Fprint(w, `</tbody></table>`)
-	} else {
+	if len(routes) == 0 {
 		fmt.Fprint(w, `<p class="empty">no routes targeting this group</p>`)
+		return
 	}
+	fmt.Fprint(w, `<table><thead><tr><th>Seq</th><th>Match</th><th>Target</th></tr></thead><tbody>`)
+	for _, rt := range routes {
+		fmt.Fprintf(w, `<tr><td>%d</td><td><code>%s</code></td><td><code>%s</code></td></tr>`,
+			rt.Seq,
+			esc(rt.Match),
+			esc(rt.Target),
+		)
+	}
+	fmt.Fprint(w, `</tbody></table>`)
 }
 
 // Allowed: MEMORY.md, .claude/CLAUDE.md, *.md under diary/facts/users/episodes/ (no subdirs).

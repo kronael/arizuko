@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/kronael/arizuko/core"
@@ -112,17 +111,7 @@ type groupUsage struct {
 	LastActive string // RFC3339 timestamp of the latest message, or ""
 }
 
-// usageBulkBatch bounds how many folders go into one IN(...) list. SQLite
-// caps bound parameters per statement (SQLITE_MAX_VARIABLE_NUMBER); an
-// unbatched IN-list sized to the full folder count fails outright once an
-// instance's group tree passes that ceiling. groupUsageBulk chunks instead.
-const usageBulkBatch = 500
-
 type usageCost struct{ tokens, cents int }
-type usageMsg struct {
-	cnt    int
-	lastTS string
-}
 
 // groupUsageBulk returns one groupUsage per folder, joining the gateway's spend
 // (7d window, through routd) with routd.db's messages (all-time count + last
@@ -136,7 +125,6 @@ func (d *dash) groupUsageBulk(ctx context.Context, folders []string) ([]groupUsa
 	cutoff := core.TS(time.Now().Add(-7 * 24 * time.Hour))
 
 	costMap := map[string]usageCost{}
-	msgMap := map[string]usageMsg{}
 
 	// Spend comes from routd's GET /v1/cost/summary in ONE call (spec 6/28
 	// read-path; 6/30 named this endpoint as the /v1 work this page needed).
@@ -157,11 +145,9 @@ func (d *dash) groupUsageBulk(ctx context.Context, folders []string) ([]groupUsa
 		}
 	}
 
-	for start := 0; start < len(folders); start += usageBulkBatch {
-		batch := folders[start:min(start+usageBulkBatch, len(folders))]
-		if err := d.groupUsageBulkBatch(batch, costMap, msgMap); err != nil {
-			return nil, false, err
-		}
+	msgMap, err := d.ds().MessageActivityByFolder(folders)
+	if err != nil {
+		return nil, false, err
 	}
 
 	out := make([]groupUsage, len(folders))
@@ -171,46 +157,11 @@ func (d *dash) groupUsageBulk(ctx context.Context, folders []string) ([]groupUsa
 			Folder:     f,
 			Tokens7d:   c.tokens,
 			Cents7d:    c.cents,
-			MsgCount:   m.cnt,
-			LastActive: m.lastTS,
+			MsgCount:   m.Count,
+			LastActive: m.LastAt,
 		}
 	}
 	return out, summary.Metered, nil
-}
-
-// groupUsageBulkBatch runs the messages aggregation for one IN-list-sized batch
-// of folders, merging results into the caller's maps.
-func (d *dash) groupUsageBulkBatch(batch []string, costMap map[string]usageCost, msgMap map[string]usageMsg) error {
-	ph := make([]string, len(batch))
-	args := make([]any, len(batch))
-	for i, f := range batch {
-		ph[i] = "?"
-		args[i] = f
-	}
-	in := strings.Join(ph, ",")
-
-	// The message counts still read the DB: routd exposes no activity summary.
-	// Spend and messages are different data with one reader each — not two paths
-	// to one datum. See 6/29 for what closing this one needs.
-
-	msgRows, err := d.adminDB().Query(
-		`SELECT routed_to, COUNT(*), COALESCE(MAX(timestamp),'')
-		 FROM messages
-		 WHERE routed_to IN (`+in+`)
-		 GROUP BY routed_to`, args...)
-	if err != nil {
-		return err
-	}
-	defer msgRows.Close()
-	for msgRows.Next() {
-		var folder, lastTS string
-		var cnt int
-		if err := msgRows.Scan(&folder, &cnt, &lastTS); err != nil {
-			return err
-		}
-		msgMap[folder] = usageMsg{cnt, lastTS}
-	}
-	return msgRows.Err()
 }
 
 // usageVolumeTable renders the 7-day daily human-message count from routd.db.
