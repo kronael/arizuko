@@ -12,6 +12,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"net"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -133,5 +134,23 @@ func TestConnectorTool_RevokedAfterAnnounce_RefusedAtCall(t *testing.T) {
 	}
 	if n := reqs(); n != afterDiscovery {
 		t.Errorf("upstream saw %d requests after the revoked call, want %d", n, afterDiscovery)
+	}
+}
+
+// The grant has to survive the LIST as well as the call. A connector tool
+// carries the upstream's own schema, and tools/list marshals as ONE document,
+// so a tool whose descriptor refuses to marshal costs the turn every other
+// tool with it. Both halves are asserted here: the held tool is announced, and
+// the built-in surface it stands beside is still there.
+func TestConnectorTool_Held_IsListedBesideTheBuiltInTools(t *testing.T) {
+	url, _, _ := fakeMCP(t)
+	sock := gatedConnectorSocket(t, url, func(string, string, map[string]string) bool { return true })
+
+	names := listToolNames(t, sock)
+	if !slices.Contains(names, "fake_echo_auth") {
+		t.Errorf("tools/list did not announce the held connector tool; got %v", names)
+	}
+	if !slices.Contains(names, "reply") {
+		t.Errorf("a connector tool took the built-in surface down with it; got %v", names)
 	}
 }

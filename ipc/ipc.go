@@ -961,7 +961,16 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			return
 		}
 		all := append([]mcp.ToolOption{mcp.WithDescription(desc)}, opts...)
-		srv.AddTool(mcp.NewTool(name, all...), h)
+		tool := mcp.NewTool(name, all...)
+		// mcp.NewTool seeds InputSchema.Type, and Tool.MarshalJSON refuses a tool
+		// that carries it beside a raw schema. tools/list marshals as ONE
+		// document, so one such tool costs the turn every other tool with it.
+		// Clearing Type is what mcp-go's own WithInputSchema does; doing it at the
+		// single registration point holds for every raw-schema caller (BUGS L222).
+		if tool.RawInputSchema != nil {
+			tool.InputSchema.Type = ""
+		}
+		srv.AddTool(tool, h)
 	}
 	emitAuthzDenied := func(tool, actorSub string) {
 		actor := actorSub
