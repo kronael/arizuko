@@ -175,6 +175,7 @@ func bootTurnStack(t *testing.T) *turnStack {
 
 	llm := testutils.NewFakeLLM(t, testutils.LLMReply{
 		Text: fakeAnswer, InputTokens: turnInTok, OutputTokens: turnOutTok,
+		CostCents: turnCents,
 	})
 	cfg.ModelGatewayURL = llm.URLFor(bridge)
 
@@ -189,6 +190,16 @@ func bootTurnStack(t *testing.T) *turnStack {
 			lc.IpcDir = cfg.IpcDir
 			lc.GroupsDir = cfg.GroupsDir
 			lc.CostCapsEnabled = true
+			// routd holds the master key and mints the per-turn key from it;
+			// the container gets only what routd minted. Setting the pair on
+			// core.Config alone arms container.Run's refusal without arming the
+			// mint that satisfies it, and the turn never starts (spec 6/23).
+			// routd runs in the test process on the host, so it reaches the
+			// fake on loopback; the container reaches the same fake across the
+			// docker bridge. One gateway, two routes to it — in a deployment
+			// both sides are inside the compose network and the value is one.
+			lc.GatewayURL = llm.URLFor("127.0.0.1")
+			lc.GatewayKey = cfg.ModelGatewayKey
 		}},
 	})
 	// A run the test abandoned (a failed wait) must not outlive it.
@@ -348,9 +359,23 @@ func TestE2ETurn_CostAccounting(t *testing.T) {
 		if len(calls) == 0 {
 			t.Fatal("the model endpoint saw no request: the harness did not use MODEL_GATEWAY_URL")
 		}
+		// routd mints a key per turn and hands THAT to the container, so the
+		// bearer on the wire is the minted one, never the instance master key
+		// the config carries (spec 6/23). A turn that presented the master key
+		// would mean the mint was skipped and revocation reaches nothing.
+		minted := s.llm.MintedKeys()
+		if len(minted) == 0 {
+			t.Fatal("the gateway minted no key: routd did not mint for this turn")
+		}
+		mintedBearers := map[string]bool{}
+		for _, k := range minted {
+			mintedBearers["Bearer "+k] = true
+		}
 		for _, c := range calls {
-			if c.Bearer != "Bearer fake-virtual-key" {
-				t.Errorf("model call bearer = %q, want the virtual key from MODEL_GATEWAY_KEY", c.Bearer)
+			if c.Bearer == "Bearer fake-virtual-key" {
+				t.Errorf("model call carried the instance master key; the per-turn mint was skipped")
+			} else if !mintedBearers[c.Bearer] {
+				t.Errorf("model call bearer = %q, want a key the gateway minted for this turn", c.Bearer)
 			}
 			if c.Model != turnModel {
 				t.Errorf("model call model = %q, want the group override %q", c.Model, turnModel)
@@ -363,9 +388,15 @@ func TestE2ETurn_CostAccounting(t *testing.T) {
 		// tokens it served and the CLI's list price for them.
 		n := len(calls)
 		wantIn, wantOut, wantCents := n*turnInTok, n*turnOutTok, n*turnCents
+		// The gateway's number arrives after the reply does: routd polls
+		// /spend/logs once the run returns, because litellm writes usage on a
+		// batch timer. So the reply landing is not the cost landing, and this
+		// waits for the row rather than reading straight after the message.
+		testutils.WaitForRow(t, s.routdDB.SQL(),
+			"SELECT COUNT(*) FROM cost_log WHERE turn_id=?", []any{"wamid.1"}, turnTimeout)
 		row, ok := s.cost(t, "wamid.1")
 		if !ok {
-			t.Fatal("no cost_log row for the turn: submit_turn carried no usage")
+			t.Fatal("no cost_log row for the turn: the gateway's spend never reached cost_log")
 		}
 		if row.in != wantIn || row.out != wantOut || row.cents != wantCents {
 			t.Fatalf("cost_log = %+v, want in=%d out=%d cents=%d for %d served calls", row, wantIn, wantOut, wantCents, n)

@@ -1,6 +1,8 @@
 package testutils
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -17,8 +19,12 @@ type LLMReply struct {
 	Text         string
 	InputTokens  int
 	OutputTokens int
-	Status       int
-	Message      string
+	// CostCents is what this reply cost, which /spend/logs reports back in
+	// dollars for the key that made the call. One declaration: a test that
+	// asserts on cost_log reads this same number rather than a second copy.
+	CostCents int
+	Status    int
+	Message   string
 }
 
 // LLMCall is one request the fake model served, as much of it as a test asserts
@@ -30,6 +36,11 @@ type LLMCall struct {
 	Stream bool
 	Bearer string
 	Tools  int
+	// The usage this call was answered with, which is what /spend/logs reports
+	// back for the key that made it. Spend is dollars, the unit litellm uses.
+	InputTokens  int
+	OutputTokens int
+	Spend        float64
 }
 
 // FakeLLM is the Anthropic Messages API stood in by a test: it speaks the wire
@@ -43,6 +54,13 @@ type FakeLLM struct {
 	mu    sync.Mutex
 	reply LLMReply
 	calls []LLMCall
+	// keys maps sha256(key) to the key the gateway minted, which is how
+	// /spend/logs names a key. routd mints one per turn and reads spend back
+	// by that hash (spec 6/23), so a fake that serves only /v1/messages
+	// answers 404 to the mint and no turn runs at all.
+	keys    map[string]string
+	minted  int
+	deleted []string
 }
 
 // NewFakeLLM starts the fake on an ephemeral port bound to 0.0.0.0 and closes
@@ -53,7 +71,7 @@ func NewFakeLLM(t *testing.T, reply LLMReply) *FakeLLM {
 	if err != nil {
 		t.Fatalf("fake llm listen: %v", err)
 	}
-	f := &FakeLLM{ln: ln, reply: reply}
+	f := &FakeLLM{ln: ln, reply: reply, keys: map[string]string{}}
 	srv := &http.Server{Handler: http.HandlerFunc(f.serve)}
 	go srv.Serve(ln)
 	t.Cleanup(func() { srv.Close() })
@@ -85,7 +103,86 @@ func (f *FakeLLM) Calls() []LLMCall {
 	return out
 }
 
+// MintedKeys returns every key the gateway handed out, in mint order.
+func (f *FakeLLM) MintedKeys() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]string, 0, len(f.keys))
+	for _, k := range f.keys {
+		out = append(out, k)
+	}
+	return out
+}
+
+// DeletedKeys returns every key revoked through /key/delete, in call order.
+func (f *FakeLLM) DeletedKeys() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.deleted...)
+}
+
+// serveGateway answers the admin surface routd drives per turn: mint a key,
+// read what it spent, revoke it. Spend is derived from the calls this fake
+// already served on that key, so a test asserting cost reads the gateway's
+// number rather than one the test also wrote.
+func (f *FakeLLM) serveGateway(w http.ResponseWriter, r *http.Request) bool {
+	switch {
+	case r.Method == http.MethodPost && r.URL.Path == "/key/generate":
+		f.mu.Lock()
+		f.minted++
+		key := fmt.Sprintf("sk-fake-turn-%d", f.minted)
+		sum := sha256.Sum256([]byte(key))
+		f.keys[hex.EncodeToString(sum[:])] = key
+		f.mu.Unlock()
+		writeJSON(w, map[string]string{"key": key})
+		return true
+
+	case r.Method == http.MethodGet && r.URL.Path == "/spend/logs":
+		f.mu.Lock()
+		key := f.keys[r.URL.Query().Get("api_key")]
+		type row struct {
+			Model            string  `json:"model"`
+			Spend            float64 `json:"spend"`
+			PromptTokens     int     `json:"prompt_tokens"`
+			CompletionTokens int     `json:"completion_tokens"`
+		}
+		rows := []row{}
+		for _, c := range f.calls {
+			if key == "" || c.Bearer != "Bearer "+key {
+				continue
+			}
+			rows = append(rows, row{
+				Model: c.Model, Spend: c.Spend,
+				PromptTokens: c.InputTokens, CompletionTokens: c.OutputTokens,
+			})
+		}
+		f.mu.Unlock()
+		writeJSON(w, rows)
+		return true
+
+	case r.Method == http.MethodPost && r.URL.Path == "/key/delete":
+		var body struct {
+			Keys []string `json:"keys"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		f.mu.Lock()
+		f.deleted = append(f.deleted, body.Keys...)
+		f.mu.Unlock()
+		writeJSON(w, map[string]string{"status": "ok"})
+		return true
+	}
+	return false
+}
+
+func writeJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(v)
+}
+
 func (f *FakeLLM) serve(w http.ResponseWriter, r *http.Request) {
+	if f.serveGateway(w, r) {
+		return
+	}
 	if r.Method != http.MethodPost || !strings.HasPrefix(r.URL.Path, "/v1/messages") {
 		http.NotFound(w, r)
 		return
@@ -103,6 +200,8 @@ func (f *FakeLLM) serve(w http.ResponseWriter, r *http.Request) {
 	f.calls = append(f.calls, LLMCall{
 		Path: r.URL.Path, Model: body.Model, Stream: body.Stream,
 		Bearer: r.Header.Get("Authorization"), Tools: len(body.Tools),
+		InputTokens: f.reply.InputTokens, OutputTokens: f.reply.OutputTokens,
+		Spend: float64(f.reply.CostCents) / 100,
 	})
 	reply := f.reply
 	f.mu.Unlock()
