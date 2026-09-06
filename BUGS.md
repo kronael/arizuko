@@ -10935,3 +10935,63 @@ contract tests.
   on the wrong file
 - **Scope:** `specs/6/25`
 - **Fix:** correct the filename; date the qm line count or drop it
+
+## L216 — `6/33` documents two inbound verbs no adapter emits, and its enforcement test excludes the one adapter that could break it (2026-09-06, open)
+
+VERIFIED. `specs/6/33-social-adapter-model.md:44` says social adapters deliver
+"reactions/likes on the bot's posts (as `verb=like`)", and its example payload
+at :86 carries `Verb: "mention"`.
+
+Neither reaches routd. `grep '"like"'` over the four social adapters returns
+only outbound capability maps (`bskyd/main.go:16`, `linkd/main.go:19`,
+`reditd/main.go:19`) and reditd's own vote call (`reditd/client.go:531`) —
+never an inbound verb. `bskyd/client.go:228` asks the notifications API for
+`reasons: "mention,reply"`, so a like is not even fetched. The literal string
+`"mention"` is never written as an inbound verb by any of the four; their
+inbound verbs are `message`, `reply`, `comment` and `post`.
+
+routd's only `verb=mention` write is the central promotion at
+`routd/server.go:576`, which fires on a reply inside a thread the bot is
+already in. A first-contact @mention — the spec's own example — is not
+promoted, so an operator route keyed on `verb=mention` silently never matches
+it.
+
+The boundary guard has a hole of its own. `tests/socialboundary/boundary_test.go:27`
+is `var socialAdapters = []string{"bskyd", "reditd", "linkd"}` and its comment
+excludes twitd because twitd ships TypeScript, not Go. The spec cites this test
+as proof "a SECOND adapter cannot cross it quietly". twitd can: nothing scans
+`twitd/src/` for the observer markers.
+
+Cosmetic on top: :115 says "four of five social adapters are thin"; the tree
+holds four.
+
+- **Severity:** medium — an operator writes a route that never matches and
+  gets no error, and one adapter is outside the boundary the spec claims
+- **Scope:** `specs/6/33`, `tests/socialboundary`
+- **Fix:** (a) state the verbs the adapters actually emit, or emit the ones
+  documented; (b) extend the boundary scan to `.ts` so twitd is covered — the
+  markers are plain strings and the language does not matter
+
+## L217 — `6/34` marks three root `CLAUDE.md` sections "move" and all three are still resident, into skills that do not exist (2026-09-06, open)
+
+VERIFIED. The spec's per-section table is its plan. Three rows say move:
+"Refine scope" → `.claude/skills/refine/SKILL.md`, "Tagging a new version" →
+`.claude/skills/release/`, "Announcing" → `CHANGELOG.md`'s head.
+
+All three are still in the resident file — `CLAUDE.md:167`, `:245`, `:256` —
+and `ls .claude/skills/` returns `create-eval` and `eval` only. Neither
+destination exists.
+
+So the file the spec audited carries about 15% of its own text past the verdict
+it recorded, and the "Announcing" block is now declared in two places, which is
+the "one declaration, many readers" violation `6/34` exists to remove.
+
+The `ant/CLAUDE.md` half of the same spec is executed correctly — 388 lines to
+196, and each move or trim verdict spot-checked lands as written.
+
+- **Severity:** low — no runtime effect; the resident budget the spec sets is
+  overspent and the plan reads as done
+- **Scope:** `CLAUDE.md`, `specs/6/34`
+- **Fix:** create the two skills and cut the sections, or change the three rows
+  to "keep" with the reason. Either is fine; the table claiming one thing while
+  the file does another is not.
