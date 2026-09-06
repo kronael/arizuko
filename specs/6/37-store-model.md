@@ -245,11 +245,12 @@ and `ON DELETE CASCADE` silently no-ops on the rest. WAL is a hard
 error, not a warning: a store in rollback-journal mode looks identical
 to a healthy one.
 
-Every production site calls `db_utils.OpenWAL(db_utils.FileDSN(path))` —
+Every production site calls `db_utils.Open(db_utils.FileDSN(path))` —
 `store` for each owner DB, `authd`, `dashd`, the CLI's split cutover and
 token signer, and both test harnesses. `db_utils/opener_test.go` reads
 the tree and fails on any other `sql.Open("sqlite"`, so a new daemon is
-caught the day it is written.
+caught the day it is written. Two such opens exist: the seam itself, and
+the guard's own string literal.
 
 A test file is held to the same rule, and the guard's only exemption is
 `db_utils`'s own files. `ARIZUKO_TEST_PG_DSN` decides the engine a test
@@ -262,9 +263,13 @@ production package must not link `testing`. That is what makes step 6's
 proof askable: pointing the suite at the other engine is one variable
 rather than an edit in every test file.
 
-The connection cap is not in the opener yet. It belongs there — the spec
-asks for one — but no site sets one today, so the number is a measurement
-this tier still owes.
+The cap is 4 per Postgres pool, set in the opener. SQLite is left
+uncapped on purpose: a cap is a share of a finite SERVER budget and a
+local file has no server, so capping it would be an unmeasured
+throughput change to every daemon. The floor is that `Migrate` pins one
+connection for a whole file while the daemon serves; the ceiling is that
+a full deployment holds 20 pools, budgeted for 24, which asks a shared
+server for 96 against the 97 a stock Postgres leaves.
 
 That is "one declaration, many readers" — the same rule the route table
 follows — and it is engine-neutral: the funnel is correct on SQLite
