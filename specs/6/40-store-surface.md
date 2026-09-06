@@ -1,5 +1,6 @@
 ---
-status: draft
+status: shipped
+shipped: 2026-09-06
 depends: [37-store-model, 38-storage-seam, ../5/33-paths-roles]
 ---
 

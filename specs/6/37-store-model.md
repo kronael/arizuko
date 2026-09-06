@@ -294,16 +294,14 @@ connection cap and the transient-error class. Every daemon calls it and
 none opens its own. This is the unified setup, and it ships first.
 
 **Tier 2 — what arizuko's daemons actually need.** Not a storage
-abstraction and not a vendor's shape: the operations the daemons already
-repeat, named in arizuko's terms. The surface is DERIVED from the 474
-statements now in the tree, never invented ahead of them — a tier that
-is a thin passthrough over `database/sql` is the indirection this spec
-rejects, and the way to avoid it is to admit only operations that
-several daemons write today by hand. The candidates the tree already
-shows: folder-subtree containment (24 hand-written `LIKE` predicates,
-one helper), the audited transaction, a resource rebuild from a
-document, and an idempotent ledger append. Each is a place where the
-same SQL appears in more than one package.
+abstraction and not a vendor's shape: operations named in arizuko's
+terms. [`6/40`](40-store-surface.md) derives them and is the authority
+on what they are. It admits an operation because it carries an
+INVARIANT, not because its SQL repeats — the operations that decide
+portability each appear exactly once, so a repetition test excludes
+every one of them. Five survive, and three cannot be carried by a
+key-value engine. A tier that is a thin passthrough over `database/sql`
+remains the indirection this spec rejects.
 
 **Tier 3 — each daemon's own queries.** They stay SQL against the pool.
 A query one daemon issues is not an interface.
