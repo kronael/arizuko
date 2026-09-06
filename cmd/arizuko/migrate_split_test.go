@@ -11,10 +11,11 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/db_utils"
+	"github.com/kronael/arizuko/db_utils/dbtest"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/runed"
 	"github.com/kronael/arizuko/store"
-	_ "modernc.org/sqlite"
 )
 
 // seedMessagesDB creates a migrated messages.db at storeDir and inserts a row
@@ -313,7 +314,7 @@ func TestMigrateSplit(t *testing.T) {
 		`SELECT name FROM sqlite_master WHERE type='table' AND name='invites'`).Scan(&invTbl); err != sql.ErrNoRows {
 		t.Errorf("routd.db must not contain an `invites` table (federated to onbod), found %q (err=%v)", invTbl, err)
 	}
-	odb, err := sql.Open("sqlite", filepath.Join(storeDir, "onbod.db"))
+	odb, err := db_utils.Open(db_utils.FileDSN(filepath.Join(storeDir, "onbod.db")))
 	if err != nil {
 		t.Fatalf("open onbod.db: %v", err)
 	}
@@ -479,7 +480,7 @@ func TestMigrateSplitMigrationsIdempotent(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read %s: %v", c.mig, err)
 		}
-		db, err := sql.Open("sqlite", filepath.Join(storeDir, c.db))
+		db, err := db_utils.Open(db_utils.FileDSN(filepath.Join(storeDir, c.db)))
 		if err != nil {
 			t.Fatalf("open %s: %v", c.db, err)
 		}
@@ -578,20 +579,12 @@ func TestOnbodSchemaMatchesMigrations(t *testing.T) {
 			onbodBootstrapVersion, len(files))
 	}
 
-	bootstrapped, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "boot.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer bootstrapped.Close()
+	bootstrapped := dbtest.Open(t)
 	if _, err := bootstrapped.Exec(onbodSchema); err != nil {
 		t.Fatalf("exec onbodSchema: %v", err)
 	}
 
-	migrated, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "mig.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer migrated.Close()
+	migrated := dbtest.Open(t)
 	for _, f := range files[:onbodBootstrapVersion] {
 		raw, rerr := os.ReadFile(f)
 		if rerr != nil {
@@ -642,7 +635,7 @@ func TestMigrateSplitSkipsOnbodReplay(t *testing.T) {
 		t.Fatalf("migrateSplit: %v", err)
 	}
 
-	db, err := sql.Open("sqlite", filepath.Join(storeDir, "onbod.db"))
+	db, err := db_utils.Open(db_utils.FileDSN(filepath.Join(storeDir, "onbod.db")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -706,7 +699,7 @@ func TestMigrateSplitKeepsOnbodOwnVersion(t *testing.T) {
 	if err := os.MkdirAll(storeDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	pre, err := sql.Open("sqlite", filepath.Join(storeDir, "onbod.db"))
+	pre, err := db_utils.Open(db_utils.FileDSN(filepath.Join(storeDir, "onbod.db")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -722,7 +715,7 @@ func TestMigrateSplitKeepsOnbodOwnVersion(t *testing.T) {
 		t.Fatalf("migrateSplit: %v", err)
 	}
 
-	db, err := sql.Open("sqlite", filepath.Join(storeDir, "onbod.db"))
+	db, err := db_utils.Open(db_utils.FileDSN(filepath.Join(storeDir, "onbod.db")))
 	if err != nil {
 		t.Fatal(err)
 	}

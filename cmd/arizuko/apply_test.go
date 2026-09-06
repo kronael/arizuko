@@ -27,7 +27,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"os"
 	"path/filepath"
 	"strings"
@@ -65,12 +64,9 @@ func openInstance(t *testing.T) (string, map[string]*store.Store) {
 	if err := db_utils.CreateDBFile(onbodPath); err != nil {
 		t.Fatalf("seed onbod.db: %v", err)
 	}
-	odb, err := sql.Open("sqlite", onbodPath+"?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)")
+	odb, err := db_utils.Open(db_utils.FileDSN(onbodPath))
 	if err != nil {
 		t.Fatalf("open onbod.db (bootstrap): %v", err)
-	}
-	if _, err := odb.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		t.Fatal(err)
 	}
 	if _, err := odb.Exec(onbodSchema); err != nil {
 		t.Fatalf("onbod.db bootstrap schema: %v", err)

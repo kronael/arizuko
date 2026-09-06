@@ -1,10 +1,9 @@
 package groupfolder
 
 import (
-	"database/sql"
 	"testing"
 
-	_ "modernc.org/sqlite"
+	"github.com/kronael/arizuko/db_utils/dbtest"
 )
 
 // TestSQLSubtree_NoWildcardsNoCaseFolding runs the real SQL, because the bug it
@@ -13,11 +12,7 @@ import (
 // deleted Coach's (LIKE is case-insensitive for ASCII); a live instance has
 // carried a Coach/coach pair (BUGS L66).
 func TestSQLSubtree_NoWildcardsNoCaseFolding(t *testing.T) {
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
+	db := dbtest.Open(t)
 	if _, err := db.Exec(`CREATE TABLE t(v TEXT)`); err != nil {
 		t.Fatal(err)
 	}

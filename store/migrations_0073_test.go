@@ -5,18 +5,14 @@ import (
 	"os"
 	"testing"
 
-	_ "modernc.org/sqlite"
+	"github.com/kronael/arizuko/db_utils/dbtest"
 )
 
 // TestMigration0073 seeds a pre-0073 groups table (model + open +
 // observe_window_* columns) and verifies the migration folds them into the
 // `config` JSON column, omitting NULLs, leaving container_config alone.
 func TestMigration0073(t *testing.T) {
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
+	db := dbtest.Open(t)
 
 	// Pre-migration schema: groups as 0057+0060 leave it (the columns 0073
 	// collapses), plus a FK referrer to prove DROP COLUMN keeps the FK intact.

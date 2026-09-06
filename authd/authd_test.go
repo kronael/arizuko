@@ -12,16 +12,12 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/auth"
-	_ "modernc.org/sqlite"
+	"github.com/kronael/arizuko/db_utils/dbtest"
 )
 
 func testDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", "file:"+t.Name()+"?mode=memory&cache=shared&_pragma=foreign_keys(on)")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
+	db := dbtest.Open(t)
 	if err := migrate(db); err != nil {
 		t.Fatal(err)
 	}

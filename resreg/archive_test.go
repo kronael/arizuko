@@ -24,6 +24,7 @@ import (
 	"database/sql"
 	"testing"
 
+	"github.com/kronael/arizuko/db_utils/dbtest"
 	"github.com/kronael/arizuko/resreg"
 	_ "github.com/kronael/arizuko/resreg/resources" // side-effect: register cold-tier resources
 	"github.com/kronael/arizuko/store"
@@ -31,11 +32,7 @@ import (
 
 func archiveTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
+	db := dbtest.Open(t)
 	if err := store.Migrate(db); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}

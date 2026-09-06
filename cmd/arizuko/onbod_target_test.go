@@ -1,13 +1,11 @@
 package main
 
 import (
-	"database/sql"
 	"os"
 	"testing"
 
 	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/store"
-	_ "modernc.org/sqlite"
 )
 
 // bootstrapOnbodDB creates a migrated onbod.db in dir by running onbodSchema
@@ -19,7 +17,7 @@ func bootstrapOnbodDB(t *testing.T, dir string) {
 	if err := db_utils.CreateDBFile(path); err != nil {
 		t.Fatalf("seed onbod.db: %v", err)
 	}
-	db, err := sql.Open("sqlite", path)
+	db, err := db_utils.Open(db_utils.FileDSN(path))
 	if err != nil {
 		t.Fatalf("open onbod.db: %v", err)
 	}

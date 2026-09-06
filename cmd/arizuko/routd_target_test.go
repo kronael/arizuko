@@ -2,16 +2,15 @@ package main
 
 import (
 	"bytes"
-	"database/sql"
 	"path/filepath"
 	"sort"
 	"testing"
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
-	_ "modernc.org/sqlite"
 )
 
 // setupSplitStore creates BOTH a migrated routd.db (routd owns acl/secrets in the
@@ -44,7 +43,7 @@ func countRows(t *testing.T, dir, owner, q string, args ...any) int {
 	if _, ok := store.OwnerDBs[owner]; ok {
 		file = store.OwnerDBPath(dir, owner)
 	}
-	db, err := sql.Open("sqlite", file)
+	db, err := db_utils.Open(db_utils.FileDSN(file))
 	if err != nil {
 		t.Fatalf("open %s: %v", file, err)
 	}

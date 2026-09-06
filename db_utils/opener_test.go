@@ -8,8 +8,15 @@ package db_utils
 // with a warning instead of an error — a session store silently in rollback
 // journal mode looks identical to a healthy one.
 //
+// A test file is held to the same rule, and for a second reason: forty test
+// files each writing their own SQLite DSN is forty places to edit before the
+// suite can be pointed at another engine, which is the proof 6/37 step 6 asks
+// for. db_utils/dbtest is a test's one way in, and it takes its DSN from this
+// package like every daemon does.
+//
 // This test is the enforcement (spec 6/37, tier 1). It reads the tree rather
-// than a list, so a new daemon is caught the day it is written.
+// than a list, so a new daemon — or a new test — is caught the day it is
+// written.
 
 import (
 	"os"
@@ -17,13 +24,6 @@ import (
 	"strings"
 	"testing"
 )
-
-// openMemIsItsOwnDSN: store.OpenMem builds a per-call named in-memory DSN
-// (`file:memdb-N?mode=memory&cache=shared`), which is not a file path and has
-// no on-disk pragma set to share. It is the one legitimate direct open.
-var openMemIsItsOwnDSN = map[string]bool{
-	"store/store.go": true,
-}
 
 // postgresOpens are the ways a caller reaches Postgres past db_utils.Open. Each
 // one skips the connection cap, the exec mode a transaction-mode pooler
@@ -42,29 +42,32 @@ var postgresOpens = []string{
 	"pgx.ConnectConfig(",
 }
 
-func TestEveryProductionOpenGoesThroughThisPackage(t *testing.T) {
+func TestEveryOpenGoesThroughThisPackage(t *testing.T) {
 	root := ".."
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 		if info.IsDir() {
-			switch info.Name() {
 			// .claude holds agent worktrees and refs holds reference checkouts of
-		// other projects; neither is this module's source.
-		case ".git", ".claude", "refs", "node_modules", "tmp", "db_utils":
+			// other projects; neither is this module's source.
+			switch info.Name() {
+			case ".git", ".claude", "refs", "node_modules", "tmp":
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+		if !strings.HasSuffix(path, ".go") {
 			return nil
 		}
 		rel, rerr := filepath.Rel(root, path)
 		if rerr != nil {
 			return rerr
 		}
-		if openMemIsItsOwnDSN[filepath.ToSlash(rel)] {
+		// This package IS the opener, so it is the one place that names a driver.
+		// The exemption is these files alone: db_utils/dbtest is a separate package
+		// and answers to the rule like everything else.
+		if filepath.Dir(rel) == "db_utils" {
 			return nil
 		}
 		src, rerr := os.ReadFile(path)
@@ -74,7 +77,8 @@ func TestEveryProductionOpenGoesThroughThisPackage(t *testing.T) {
 		for i, line := range strings.Split(string(src), "\n") {
 			if strings.Contains(line, `sql.Open("sqlite"`) {
 				t.Errorf("%s:%d opens SQLite directly — call db_utils.Open(db_utils.FileDSN(path)) "+
-					"so the pragma set has one owner (spec 6/37)", filepath.ToSlash(rel), i+1)
+					"for a file, or dbtest.Open(t) for a test database, so the pragma set and the "+
+					"engine have one owner (spec 6/37)", filepath.ToSlash(rel), i+1)
 			}
 			for _, open := range postgresOpens {
 				if strings.Contains(line, open) {

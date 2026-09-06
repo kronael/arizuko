@@ -1,21 +1,16 @@
 package store
 
 import (
-	"database/sql"
 	"os"
 	"testing"
 
-	_ "modernc.org/sqlite"
+	"github.com/kronael/arizuko/db_utils/dbtest"
 )
 
 // TestMigration0054 verifies the route impulse_config -> #observe
 // conversion + duplicate trigger row spawning + column drop.
 func TestMigration0054(t *testing.T) {
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
+	db := dbtest.Open(t)
 
 	// Pre-migration schema: routes table as 0053 leaves it, plus a
 	// minimal messages table so the ALTER ADD COLUMN succeeds.
@@ -87,8 +82,8 @@ func TestMigration0054(t *testing.T) {
 
 	// Read back routes.
 	type r struct {
-		seq            int
-		match, target  string
+		seq           int
+		match, target string
 	}
 	rows, err := db.Query(`SELECT seq, match, target FROM routes ORDER BY seq, id`)
 	if err != nil {
