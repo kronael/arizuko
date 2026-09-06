@@ -11964,6 +11964,48 @@ never have reached in the first place.
   `groups` row, or `6/37` redesign 1's generation, which makes an orphan
   unreachable rather than absent
 
+## L247 — `handleGroupCreate` has no test, and it is the security-bearing transaction (2026-09-06, open)
+
+MEASURED while giving `dashd` a storage layer. `dashstore.GroupExists` and
+`dashstore.CreateGroupWithAdmin` sit at **0% coverage**, and
+`handleGroupCreate` has no test at all — no reference to it or to
+`POST /dash/groups/new` anywhere in `dashd/*_test.go` or `tests/`.
+
+That call writes the group row, the member edge, the admin grant and the audit
+row in one transaction. `specs/6/38`'s census names exactly this shape as
+security-bearing: the escalation it prevents is a folder whose creator does not
+get the admin grant, or gets one the audit does not record. It is also the
+transaction `L198` had to reason about from the other end.
+
+The rest of the new package is at 76.2%, so this is a hole rather than a
+pattern.
+
+- **Severity:** medium — untested, not known broken; the risk is that a future
+  change to the three-write sequence has nothing to catch it
+- **Scope:** `dashd/`, `dashd/dashstore`
+- **Fix:** drive it through the real handler, not the store method — the point
+  is that the four writes commit together, and a fixture that calls
+  `CreateGroupWithAdmin` directly proves the method rather than the page.
+
+## L248 — four dashd list reads now surface a mid-iteration failure that was silently dropped (2026-09-06, open — behaviour delta)
+
+RECORDED as a change, not a bug, because it is a real behaviour delta shipped
+inside a refactor and it deserves to be visible.
+
+`InstalledPackages`, `ProactiveCooldowns`, `RoutesIntoFolder` and the secret-key
+read now return `rows.Err()`, and their handlers banner on it. Before, a driver
+failure PART WAY THROUGH iteration was dropped and the page rendered a
+truncated table with no trace — the operator saw a short list and no error. The
+open-error path is unchanged.
+
+This aligns with "fail loud, fail to the user", so the delta is in the right
+direction. No test covers it either way.
+
+- **Severity:** low — strictly more honest than what it replaces
+- **Scope:** `dashd/dashstore`
+- **Fix:** a test that injects a mid-iteration failure and asserts the banner,
+  which would also pin the four call sites against a silent regression
+
 ## L228 — 30 migration files are SQLite-only, and porting them needs a decision, not a rewrite (2026-09-06, proposal — needs sign-off)
 
 MEASURED by applying all 154 migration files one at a time against a real
