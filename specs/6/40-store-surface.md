@@ -171,6 +171,52 @@ BATCH — a condition check plus a bounded set of writes — not a single-row
 conditional write. That shape is native (`TransactWriteItems` allows a
 `ConditionCheck` on an item it does not modify), but the bound is 100 actions.
 
+## The seam is TWO primitives, and the rest are protocols
+
+A design review against the code cut the five to two. Everything below stands
+as the analysis that produced them; this is the interface.
+
+```
+Query(shape)                 // shape carries an exact or prefix predicate
+GuardedBatch(checks, writes) // conditions on items it may not modify, plus writes
+```
+
+Each driver implements those two and nothing else. The other three are
+PROTOCOLS — package-level functions written once, over the two primitives,
+shared by every driver:
+
+- **Containment is not an operation, it is a predicate.**
+  `groupfolder.SQLSubtree` returns `WHERE` text that callers embed inside other
+  reads and mutations (`groupfolder/folder.go:183`, `routd/reads.go:109`,
+  `store/folder_scope.go:33`). So `Query` takes an exact-or-prefix predicate
+  argument; containment never needed a method of its own.
+- **The versioned replace** is `Query`, a start-marker CAS, N guarded writes,
+  then a finish CAS. It cannot be one batch because `resreg.Apply` processes an
+  unbounded row set (`resreg/engine.go:819`, `:834`). It also has exactly ONE
+  domain consumer — `Apply` itself; `store.DeleteGroup` is an unversioned
+  subtree purge (`store/groups.go:113`). One caller is a function, not an
+  interface member.
+- **The reachability guard** is a graph `Query` plus a version-guarded batch.
+- **The claim-and-return** is `Query` plus a per-row guarded batch, which is
+  the form `routd/pending_actions.go:421` already uses.
+
+**The constraint this exposes, and it is not negotiable.** Exact set-wide
+atomicity — "these N rows change together or none do", for unbounded N —
+cannot have an identical DynamoDB driver. The interface therefore defines
+per-item claims and marker-gated replace, and every caller is written to those
+semantics on BOTH drivers. A Postgres driver that quietly offers stronger
+guarantees would let callers depend on something the other driver cannot honour,
+which is the drift the conformance suite exists to catch.
+
+**Five shapes the two primitives do not yet cover**, each measured: plural
+condition checks (`store/pairing.go:114`), unbounded bulk mutation
+(`store/secrets.go:372`), computed post-images (`store/routes.go:58`),
+generated ids, and result-dependent audit writes — `runAudited` builds its
+`audit.Event` after the mutation so it can carry affected-rows
+(`store/audit_helpers.go:10`). They are normalised by client-supplied ids,
+precomputed audit data, paging, and CAS batches. Schema migration stays
+driver-local.
+
 ## Portability, stated once
 
 **First, what this table is not.** arizuko is NOT key-value ready, and `6/38`
