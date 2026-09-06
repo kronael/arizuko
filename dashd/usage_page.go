@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/kronael/arizuko/core"
 )
 
 // handleUsage renders GET /dash/usage/ — the instance-wide usage cockpit:
@@ -121,7 +123,7 @@ func (d *dash) groupUsageBulk(ctx context.Context, folders []string) ([]groupUsa
 	if len(folders) == 0 {
 		return nil, nil
 	}
-	cutoff := time.Now().UTC().Add(-7 * 24 * time.Hour).Format(time.RFC3339Nano)
+	cutoff := core.TS(time.Now().Add(-7 * 24 * time.Hour))
 
 	costMap := map[string]usageCost{}
 	msgMap := map[string]usageMsg{}

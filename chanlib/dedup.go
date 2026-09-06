@@ -8,8 +8,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"time"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/db_utils"
 	// OpenAdapterDB opens "sqlite" DSNs, so the driver registration belongs
 	// with the call — six adapter mains would each have to remember it, and the
@@ -77,7 +77,7 @@ func claimDelivery(db *sql.DB, key, jid string) (dedupClaim, error) {
 	if db == nil || key == "" {
 		return dedupClaim{}, nil
 	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	now := core.NowTS()
 	res, err := db.Exec(
 		`INSERT OR IGNORE INTO outbound_dedup(idempotency_key, chat_jid, state, created_at)
 		 VALUES(?,?,'inflight',?)`, key, jid, now)
@@ -110,7 +110,7 @@ func settleDelivery(db *sql.DB, key, platformID string) {
 	if _, err := db.Exec(
 		`UPDATE outbound_dedup SET state='sent', platform_id=?, settled_at=?
 		 WHERE idempotency_key=?`,
-		platformID, time.Now().UTC().Format(time.RFC3339Nano), key); err != nil {
+		platformID, core.NowTS(), key); err != nil {
 		// The message IS delivered; only the record failed. Say so loudly —
 		// the next attempt on this key now refuses instead of resending.
 		slog.Error("outbound delivered but the dedup record failed",

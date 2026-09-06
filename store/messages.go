@@ -24,7 +24,7 @@ func (s *Store) PutMessage(m core.Message) error {
 		  reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb, attachments, source, turn_id, status, chat_name, platform_id)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID, m.ChatJID, m.Sender, m.Name, m.Content,
-		m.Timestamp.Format(time.RFC3339Nano),
+		core.TS(m.Timestamp),
 		btoi(m.FromMe), btoi(m.BotMsg),
 		nilIfEmpty(m.ForwardedFrom),
 		nilIfEmpty(m.ReplyToID), nilIfEmpty(m.ReplyToText), nilIfEmpty(m.ReplyToSender),
@@ -64,14 +64,14 @@ func (s *Store) NewMessages(jids []string, since time.Time, botName string) ([]c
 			   AND sender NOT LIKE ?
 			 ORDER BY timestamp ASC
 			 LIMIT 200`,
-			since.Format(time.RFC3339Nano), botName+"%",
+			core.TS(since), botName+"%",
 		)
 	} else {
 		args := make([]any, 0, len(jids)+2)
 		for _, jid := range jids {
 			args = append(args, jid)
 		}
-		args = append(args, since.Format(time.RFC3339Nano), botName+"%")
+		args = append(args, core.TS(since), botName+"%")
 		ph := "(" + strings.TrimSuffix(strings.Repeat("?,", len(jids)), ",") + ")"
 		rows, err = s.db.Query(
 			`SELECT `+msgCols+` FROM messages
@@ -132,7 +132,7 @@ func (s *Store) MessagesSince(jid string, since time.Time, botName string) ([]co
 		   AND sender NOT LIKE ?
 		 ORDER BY timestamp ASC
 		 LIMIT 100`,
-		jid, since.Format(time.RFC3339Nano), botName+"%",
+		jid, core.TS(since), botName+"%",
 	)
 	if err != nil {
 		return nil, err
@@ -152,7 +152,7 @@ func (s *Store) BotRepliesSince(jid string, since time.Time) ([]core.Message, er
 		   AND is_bot_message = 1
 		 ORDER BY timestamp ASC
 		 LIMIT 100`,
-		jid, since.Format(time.RFC3339Nano),
+		jid, core.TS(since),
 	)
 	if err != nil {
 		return nil, err
@@ -246,7 +246,7 @@ func (s *Store) MessagesByThread(jid, topic string, before time.Time, limit int)
 		 WHERE chat_jid = ? AND topic = ? AND timestamp < ?
 		 ORDER BY timestamp DESC
 		 LIMIT ?`,
-		jid, topic, before.Format(time.RFC3339Nano), limit,
+		jid, topic, core.TS(before), limit,
 	)
 	if err != nil {
 		return nil, err
@@ -281,7 +281,7 @@ func (s *Store) MessagesSinceTopic(jid, topic string, after time.Time, limit int
 		 WHERE chat_jid = ? AND topic = ? AND timestamp > ?
 		 ORDER BY timestamp ASC
 		 LIMIT ?`,
-		jid, topic, after.Format(time.RFC3339Nano), limit,
+		jid, topic, core.TS(after), limit,
 	)
 	if err != nil {
 		return nil, err
@@ -434,7 +434,7 @@ func (s *Store) SetLastReply(jid, topic, replyID, folder string) error {
 func (s *Store) BumpEngagement(jid, topic, folder string, until time.Time) error {
 	var engaged any
 	if !until.IsZero() {
-		engaged = until.UTC().Format(time.RFC3339Nano)
+		engaged = core.TS(until)
 	}
 	_, err := s.db.Exec(
 		`INSERT INTO chat_reply_state (jid, topic, last_reply_id, engaged_until, engaged_folder)
@@ -541,7 +541,7 @@ func (s *Store) MessagesBefore(jid string, before time.Time, limit int) ([]core.
 		 WHERE chat_jid = ? AND timestamp < ?
 		 ORDER BY timestamp DESC
 		 LIMIT ?`,
-		jid, before.Format(time.RFC3339Nano), limit,
+		jid, core.TS(before), limit,
 	)
 	if err != nil {
 		return nil, err

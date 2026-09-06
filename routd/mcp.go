@@ -399,13 +399,13 @@ func (s *Server) fetchPlatformHistory(jid string, before time.Time, limit int) (
 	return out, nil
 }
 
-// beforeStr renders an ipc time bound as the RFC3339Nano string routd's read
+// beforeStr renders an ipc time bound as the stored-timestamp string routd's read
 // methods expect; a zero time is the empty string (no bound → now).
 func beforeStr(t time.Time) string {
 	if t.IsZero() {
 		return ""
 	}
-	return t.UTC().Format(time.RFC3339Nano)
+	return core.TS(t)
 }
 
 // scopeRoutes wraps an unscoped route-table reader with the same folder-

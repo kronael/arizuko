@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 )
 
@@ -164,7 +165,7 @@ func (s *Store) InsertRouteToken(rawToken string, t RouteToken) error {
 	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
 		_, err := tx.Exec(
 			`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at, context, kind, target_folder) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			TokenRefBytes(rawToken), t.JID, t.OwnerFolder, ts.Format(time.RFC3339Nano), nilIfEmpty(t.Context), RouteTokenKindRoute, nilIfEmpty(t.TargetFolder),
+			TokenRefBytes(rawToken), t.JID, t.OwnerFolder, core.TS(ts), nilIfEmpty(t.Context), RouteTokenKindRoute, nilIfEmpty(t.TargetFolder),
 		)
 		return audit.Event{
 			Category: audit.CategoryChannel,

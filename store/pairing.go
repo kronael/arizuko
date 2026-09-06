@@ -18,6 +18,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/kronael/arizuko/core"
 )
 
 // PairingTTL bounds redemption, measured from the token's created_at. Short,
@@ -79,7 +81,7 @@ func IssuePairingLink(ctx context.Context, x rowExecer, jid, ownerFolder string)
 		`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at, context, kind)
 		 VALUES (?, ?, ?, ?, NULL, ?)`,
 		TokenRefBytes(raw), jid, nilIfEmpty(ownerFolder),
-		time.Now().UTC().Format(time.RFC3339Nano), RouteTokenKindPair,
+		core.NowTS(), RouteTokenKindPair,
 	); err != nil {
 		return "", fmt.Errorf("pairing: mint token for %s: %w", jid, err)
 	}

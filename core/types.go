@@ -110,7 +110,7 @@ type Route struct {
 
 // TopicLineage is the per-topic state introduced by spec 6/F. ParentTopic is *string
 // so "fork from main" is distinguishable from "no parent". Empty ObservedCursor means
-// no cursor recorded yet. All timestamps are RFC3339Nano UTC.
+// no cursor recorded yet. All timestamps are core.TSLayout UTC.
 type TopicLineage struct {
 	Folder         string
 	Topic          string
