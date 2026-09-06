@@ -11457,7 +11457,33 @@ failure mode hides from the command everyone runs.
   `make test-all` should carry `-race` for this package, since a concurrency
   guarantee proved without it is proved weakly.
 
-## L229 — the migration concurrency test cannot tell a passing race from one that never happened (2026-09-06, open)
+## ✅ FIXED 2026-09-06 L229 — the migration concurrency test cannot tell a passing race from one that never happened (2026-09-06)
+
+**FIXED 2026-09-06 in `b65a22ea`, and MY OWN CONFIRMATION ABOVE WAS WRONG.** I
+wrote that the race never happens. It happens in roughly 40% of runs — measured
+at 17 vacuous in 30, later 10 in 30, once `migrate` reported outcomes directly.
+
+The error was a weak mutation. `cur >= ver` → `cur > ver` only turns a yield
+into an error on the exact `cur == ver` tie; the common yield is `cur > ver`
+strictly, because the winner applied 0001, 0002 and 0003 while the loser waited
+on 0001, and the mutated code still skips those. So the mutation under-reports,
+and I read its silence as absence. Run 30 times it went red twice.
+
+The stated cause holds and is one step earlier than "the outer skip":
+`createVersionTable` takes the SAME critical section the migrations do, so an
+opener queued behind a rival's `CREATE TABLE` only reads the version after that
+rival has also committed a migration, then skips every file. Creating the table
+before the start line took the vacuous rate from 17/30 to 0/40.
+
+`Migrate` keeps its signature. The body is unexported `migrate(...)
+(migrateReport, error)` and `Migrate` delegates and discards — one
+implementation, no second path. The report has `applied` and `yielded`, and a
+file already recorded when the call read the version is in NEITHER, which is
+the distinction that makes the guard faithful. The signature stayed because
+there is no `arizuko migrate` to print a report: `cmd/arizuko/main.go` registers
+`migrate-split` only, so exporting the type would add API nothing calls.
+
+Stability after the fix: 40/40 green, 12/12 under `-race`, 15/15 at load 10.9.
 
 MEASURED while closing `L226`. `TestMigrateAppliesEachFileOnceUnderConcurrentOpeners`
 starts six openers on one barrier and then asserts only the end state: three
@@ -11532,6 +11558,26 @@ would still leave the suite unable to run against it.
 - **Fix:** give the three `OpenMem` builders one engine-aware source, then
   extend the guard past the test boundary so a new direct `sql.Open` is caught
   the day it is written — the same move that made the production side one seam
+
+## L232 — the concurrent `createVersionTable` race has no test at all (2026-09-06, open)
+
+Recorded when `L229` shipped. That fix creates the bookkeeping table before the
+concurrency test's start line, which is what puts all six openers on one
+reading and made the test honest. It also removed the INCIDENTAL coverage of
+six openers racing `createVersionTable` itself.
+
+Nothing asserted that race before, so nothing regressed — but
+`createVersionTable`'s own doc comment says it exists because Postgres's
+`CREATE TABLE IF NOT EXISTS` is not race-free: concurrent creators collide on
+the catalog's unique index rather than one seeing the other's table. That is a
+real guarantee with a real reason and now no test.
+
+- **Severity:** low — the guarantee is implemented and was proved once by
+  mutation during the Postgres work; what is missing is a standing test
+- **Scope:** `db_utils/`
+- **Fix:** its own test, six openers racing an empty database with no warm-up,
+  asserting every one returns without error and the table exists once. It must
+  run on both engines, since the SQLite and Postgres failure modes differ.
 
 ## L228 — 30 migration files are SQLite-only, and porting them needs a decision, not a rewrite (2026-09-06, proposal — needs sign-off)
 
@@ -11638,7 +11684,27 @@ nothing could write a row for it.
   question for every other scope namespace a filter reads, since this is the
   second instance of one bug class.
 
-## L231 — `writeJSON` drops an unmarshalable response with no error frame, so the caller waits out its timeout (2026-09-06, open)
+## ✅ FIXED 2026-09-06 L231 — `writeJSON` drops an unmarshalable response with no error frame, so the caller waits out its timeout (2026-09-06)
+
+**FIXED 2026-09-06 in `73b26588`.** `writeJSON` takes the request id as a first
+parameter, bound once per request as `reply := func(v any) { writeJSON(head.ID,
+v) }`, so the two submit handlers learn nothing about the failure path.
+`rpcEncodeFailure` assembles the frame as BYTES rather than marshalling a
+struct, and the only external part — the id — is re-marshalled alone with a
+`null` fallback, so the replacement cannot fail the way the original did. The
+cause stays in the ERROR log and out of the frame: it names a Go type the agent
+cannot act on, and putting it in the frame means marshalling a second value at
+the one place that must not marshal.
+
+Reproduced end to end rather than by reading: a tool returning
+`StructuredContent: make(chan int)` made the client wait out its deadline.
+Proved by four mutations, including one that pins the frame's wording, because
+the socket test would go vacuous if the MCP library ever emitted its own
+`-32603` — the same shape of vacuity `L229` is about.
+
+This also closes the 2026-07-13 sweep bullet that reads "Error-frame delivery
+stays open: `writeJSON` takes an opaque `v`, so a proper JSON-RPC error frame
+needs the request id threaded in — design, not a log-add."
 
 MEASURED while fixing `L222`. `ipc/ipc.go` logs at ERROR with the folder and
 the error, then returns without writing anything. The agent is a JSON-RPC
