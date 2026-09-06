@@ -12,9 +12,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/ipc"
 )
 
@@ -525,5 +528,55 @@ url       = "https://one.example.com"
 	_, err := LoadExtProviders(context.Background(), dir)
 	if err == nil || !strings.Contains(err.Error(), "acme_zones") {
 		t.Fatalf("one name declared twice in one connector must fail the load by name, got %v", err)
+	}
+}
+
+// Granting one of the embedded REST providers is what puts its tool into
+// tools/list, and every one of them carries a schema extInputSchema builds from
+// its path placeholders. The list marshals as ONE document, so the granted tool
+// and every unrelated tool in it stand or fall together (BUGS L222).
+//
+// An ext tool needs two rows: the announce filter reads the tool's own scope,
+// and the tools/list visibility predicate reads mcp:<name>.
+func TestExtTool_Granted_IsListedBesideTheOtherTools(t *testing.T) {
+	tools, err := LoadExtProviders(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatalf("LoadExtProviders: %v", err)
+	}
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	grantMCPTools(t, db, "main", "cloudflare_dns_list")
+	if err := addACLRow(db, core.ACLRow{
+		Principal: "folder:main", Action: "ext:cloudflare:dns:read",
+		Scope: "main/**", Effect: "allow",
+	}); err != nil {
+		t.Fatalf("grant ext scope: %v", err)
+	}
+
+	srv := NewServer(db, nil, nil, nil, 0, "")
+	srv.SetExtTools(tools)
+	sock := groupfolder.IpcSocket(t.TempDir())
+	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: "main"}),
+		srv.buildStoreFns(turnMCP{folder: "main"}), "main", false, 0, "")
+	if err != nil {
+		t.Fatalf("ServeMCP: %v", err)
+	}
+	t.Cleanup(stop)
+	deadline := time.Now().Add(2 * time.Second)
+	for !fileExists(sock) && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	names := listToolNames(t, sock)
+	if !names["cloudflare_dns_list"] {
+		t.Errorf("tools/list did not announce the granted ext tool; got %v", names)
+	}
+	// inspect_identity registers at a different site and carries a structured
+	// schema, so its absence means the whole document was lost, not one tool.
+	if !names["inspect_identity"] {
+		t.Errorf("an ext tool took the unrelated tools down with it; got %v", names)
 	}
 }
