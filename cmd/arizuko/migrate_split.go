@@ -163,12 +163,16 @@ var routdSpecs = []copySpec{
 	{dst: "audit_log", src: "audit_log",
 		cols: "id, created_at, category, action, actor, actor_sub, resource, scope, surface, params_summary, outcome, error_msg, duration_ms, turn_id, folder, instance, request_id, source_ip",
 		sel:  "id, created_at, category, action, actor, actor_sub, resource, scope, surface, params_summary, outcome, error_msg, duration_ms, turn_id, folder, instance, request_id, source_ip"},
-	// cost_log: messages.db has no turn_id column (routd PK is folder,turn_id,model).
+	// cost_log_archive: the spend a pre-split instance recorded, landing in the
+	// table that holds spend history (spec 6/39 — the model gateway is the ledger,
+	// and these rows predate one metering anything).
+	//
+	// messages.db has no turn_id column (the archive's PK is folder,turn_id,model).
 	// Synthesize a UNIQUE turn_id per source row ('mig-'||rowid) — a constant ''
 	// would collapse every legacy (folder,model) pair to ONE row under INSERT OR
 	// IGNORE, dropping cost history. input_tok→input_tokens, output_tok→output_tokens,
 	// cents→cost_cents, ts→recorded_at; user_sub/cache_read/cache_write dropped.
-	{dst: "cost_log", src: "cost_log", transfm: true,
+	{dst: "cost_log_archive", src: "cost_log", transfm: true,
 		cols: "folder, turn_id, model, input_tokens, output_tokens, cost_cents, recorded_at",
 		sel:  "folder, 'mig-'||rowid, model, input_tok, output_tok, cents, ts"},
 }

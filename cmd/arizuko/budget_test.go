@@ -95,9 +95,10 @@ func TestRunBudgetSet_RejectsBadScope(t *testing.T) {
 	}
 }
 
-// TestRunBudgetShow_Folder also pins the spend half to routd.db: PutCost is
-// routd's cost_log writer (cost_cents/recorded_at), and `budget show` must sum
-// exactly those rows — the store-schema reader summed ts/cents and saw nothing.
+// `budget show` reports the CAP, which is arizuko's own policy row, and says
+// where the spend lives. It cannot report spend: the gateway meters it and
+// reaching it needs the master key this CLI deliberately does not hold, so a
+// number here would either be stale or be a second ledger (spec 6/39).
 func TestRunBudgetShow_Folder(t *testing.T) {
 	s := budgetDB(t)
 	if err := s.PutGroup(core.Group{Folder: "team"}); err != nil {
@@ -106,15 +107,12 @@ func TestRunBudgetShow_Folder(t *testing.T) {
 	if err := s.SetFolderCap("team", 100); err != nil {
 		t.Fatalf("SetFolderCap: %v", err)
 	}
-	if err := s.PutCost("team", "t1", "", "m", 0, 0, 25); err != nil {
-		t.Fatalf("PutCost: %v", err)
-	}
 	var buf bytes.Buffer
 	if err := runBudgetShow(s, "folder", "team", &buf); err != nil {
 		t.Fatalf("runBudgetShow: %v", err)
 	}
 	out := buf.String()
-	for _, want := range []string{"team", "100 cents/day", "25 cents", "75 cents", "25%"} {
+	for _, want := range []string{"team", "100 cents/day", "metered by the model gateway"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)
 		}
@@ -129,15 +127,12 @@ func TestRunBudgetShow_User(t *testing.T) {
 	if err := s.SetUserCap("google:bob", 200); err != nil {
 		t.Fatalf("SetUserCap: %v", err)
 	}
-	if err := s.PutCost("team", "t1", "google:bob", "m", 0, 0, 40); err != nil {
-		t.Fatalf("PutCost: %v", err)
-	}
 	var buf bytes.Buffer
 	if err := runBudgetShow(s, "user", "google:bob", &buf); err != nil {
 		t.Fatalf("runBudgetShow: %v", err)
 	}
 	out := buf.String()
-	for _, want := range []string{"google:bob", "200 cents/day", "40 cents", "160 cents", "20%"} {
+	for _, want := range []string{"google:bob", "200 cents/day"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)
 		}
@@ -155,9 +150,6 @@ func TestRunBudgetShow_Uncapped(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "uncapped") {
 		t.Errorf("output = %q", buf.String())
-	}
-	if strings.Contains(buf.String(), "remaining") {
-		t.Errorf("uncapped output should not show remaining: %q", buf.String())
 	}
 }
 
@@ -200,22 +192,5 @@ func TestParseBudgetSet(t *testing.T) {
 					tc.args, scope, target, daily, tc.wantScope, tc.wantTarget, tc.wantDaily)
 			}
 		})
-	}
-}
-
-func TestBudgetStatus_Thresholds(t *testing.T) {
-	for _, c := range []struct {
-		spent, cap int
-		want       string
-	}{
-		{10, 100, "ok — 10%"},
-		{80, 100, "WARN"},
-		{100, 100, "EXHAUSTED"},
-		{200, 100, "EXHAUSTED"},
-	} {
-		got := budgetStatus(c.spent, c.cap)
-		if !strings.Contains(got, c.want) {
-			t.Errorf("status(%d,%d) = %q, want substring %q", c.spent, c.cap, got, c.want)
-		}
 	}
 }

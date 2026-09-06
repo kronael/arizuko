@@ -1142,7 +1142,10 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 	}
 	usageMap := map[string]usageKey{}
 	if len(folders) > 0 && d.adminDB() != nil {
-		if summaries, err := d.groupUsageBulk(r.Context(), folders); err != nil {
+		// The metered flag is the usage page's concern: this listing shows a
+		// spend figure only when there is one, so an unmetered instance simply
+		// omits it rather than needing to say so per row.
+		if summaries, _, err := d.groupUsageBulk(r.Context(), folders); err != nil {
 			slog.Warn("groups: usage query", "err", err)
 		} else {
 			for _, u := range summaries {

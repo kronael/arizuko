@@ -129,8 +129,8 @@ func TestGroupList(t *testing.T) {
 	}
 }
 
-// TestGroupListUsage: seed a group + cost_log + messages, assert usage numbers
-// appear in /dash/groups/ output.
+// TestGroupListUsage: seed a group + the gateway's metered spend + messages,
+// assert usage numbers appear in /dash/groups/ output.
 func TestGroupListUsage(t *testing.T) {
 	srv, inst, _ := newDashServer(t)
 
@@ -140,13 +140,8 @@ func TestGroupListUsage(t *testing.T) {
 		`INSERT INTO groups (folder, added_at) VALUES (?, ?)`, folder, now); err != nil {
 		t.Fatal(err)
 	}
-	// One row today: 500 input + 200 output = 700 tokens, 15 cents.
-	if _, err := inst.DB.Exec(
-		`INSERT INTO cost_log (folder, turn_id, model, input_tokens, output_tokens, cost_cents, recorded_at)
-		 VALUES (?, 't1', 'm', 500, 200, 15, ?)`,
-		folder, now); err != nil {
-		t.Fatal(err)
-	}
+	// What the gateway metered today: 700 tokens, 15 cents.
+	stubMeter(t, true, stubSpendRow{Folder: folder, Tokens: 700, CostCents: 15})
 	// Insert 3 messages routed to this folder.
 	for i := range 3 {
 		if _, err := inst.DB.Exec(

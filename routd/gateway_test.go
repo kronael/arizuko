@@ -15,6 +15,7 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/queue"
+	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 )
 
@@ -649,5 +650,78 @@ func TestSpendByFolderSumsTheDaysPerFolder(t *testing.T) {
 	}
 	if rows[1].Folder != "solo" || rows[1].CostCents != 1 || rows[1].Tokens != 6 {
 		t.Errorf("solo = %+v, want 1 cent and 6 tokens", rows[1])
+	}
+}
+
+// An instance with no gateway answers /v1/cost/summary honestly: metered false,
+// no folders. The flag is carried explicitly because an empty list would
+// otherwise read as "nothing was spent", which is a claim an unmetered instance
+// cannot make.
+func TestCostSummarySaysWhenThereIsNoMeter(t *testing.T) {
+	_, h := authSrv(t, fakeVerifier{sub: "user:u", scope: []string{"cost:read"}, folder: ""})
+
+	rec := doJSON(t, h, "GET", "/v1/cost/summary?since=2026-09-01T00:00:00Z", "", nil)
+	if rec.Code != 200 {
+		t.Fatalf("cost summary = %d want 200: %s", rec.Code, rec.Body.String())
+	}
+	var got apiv1.CostSummaryResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Metered {
+		t.Error("an instance with no gateway reported metered=true; nothing measures it")
+	}
+	if len(got.Folders) != 0 {
+		t.Errorf("folders = %+v, want none", got.Folders)
+	}
+}
+
+// The spend summary is a LIST-ALL read, and the gateway answers it for every
+// folder on the instance. A folder-scoped token must therefore see only its own
+// subtree: an empty folder claim is the service/root reach, and a scoped one is
+// a containment boundary, not a hint. The same shape leaked cross-tenant on
+// another list-all read once already.
+func TestCostSummaryNarrowsToTheCallersSubtree(t *testing.T) {
+	fake, url := newFakeGateway(t)
+	fake.daily = []map[string]map[string]any{{
+		"alice":     {"spend": 1.00, "prompt_tokens": 10, "completion_tokens": 0},
+		"alice/eng": {"spend": 2.00, "prompt_tokens": 20, "completion_tokens": 0},
+		"bob":       {"spend": 4.00, "prompt_tokens": 40, "completion_tokens": 0},
+	}}
+
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	loop := NewLoop(db, &keyRunner{}, LoopConfig{
+		GroupsDir: t.TempDir(), GatewayURL: url, GatewayKey: "sk-master",
+	})
+	loop.StopQueue()
+	srv := NewServer(db, nil, &recDeliverer{},
+		fakeVerifier{sub: "user:u", scope: []string{"cost:read:own_group"}, folder: "alice"}, 0, "")
+	srv.loop = loop
+	h := srv.Handler()
+
+	rec := doJSON(t, h, "GET", "/v1/cost/summary?since=2026-09-01T00:00:00Z", "", nil)
+	if rec.Code != 200 {
+		t.Fatalf("cost summary = %d want 200: %s", rec.Code, rec.Body.String())
+	}
+	var got apiv1.CostSummaryResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if !got.Metered {
+		t.Fatal("a gateway is configured; the reply must report a meter")
+	}
+	seen := map[string]int{}
+	for _, f := range got.Folders {
+		seen[f.Folder] = f.CostCents
+	}
+	if _, leaked := seen["bob"]; leaked {
+		t.Errorf("a token scoped to alice was handed bob's spend: %+v", got.Folders)
+	}
+	if seen["alice"] != 100 || seen["alice/eng"] != 200 {
+		t.Errorf("own subtree = %+v, want alice 100 and alice/eng 200 cents", got.Folders)
 	}
 }

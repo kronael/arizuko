@@ -119,14 +119,3 @@ func formatCap(cents int) string {
 	}
 	return fmt.Sprintf("%d cents/day", cents)
 }
-
-func budgetStatus(spent, cap int) string {
-	if spent >= cap {
-		return "EXHAUSTED — turns will be refused"
-	}
-	pct := (spent * 100) / cap
-	if pct >= 80 {
-		return fmt.Sprintf("WARN — %d%% of cap consumed", pct)
-	}
-	return fmt.Sprintf("ok — %d%% of cap consumed", pct)
-}

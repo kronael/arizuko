@@ -37,9 +37,13 @@ func (d *dash) handleUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The meter is asked about even with no folders to show: whether this
+	// instance HAS one is a property of the instance, not of its group tree, and
+	// an empty tree that reported "no meter" would blame the wrong thing.
 	var summaries []groupUsage
-	if len(folders) > 0 && d.adminDB() != nil {
-		summaries, err = d.groupUsageBulk(r.Context(), folders)
+	metered := false
+	if d.adminDB() != nil {
+		summaries, metered, err = d.groupUsageBulk(r.Context(), folders)
 		if err != nil {
 			slog.Warn("usage page: bulk", "err", err)
 			fmt.Fprint(w, htmlBanner("err", "usage query error: "+err.Error()))
@@ -60,7 +64,13 @@ func (d *dash) handleUsage(w http.ResponseWriter, r *http.Request) {
 		`<div class="card"><h3>%s</h3><p class="dim">tokens / 7d</p></div>`+
 		`<div class="card"><h3>%s</h3><p class="dim">cost / 7d</p></div>`+
 		`</div>`,
-		totalMsgs, fmtTokens(totalTokens), fmtCents(totalCents))
+		totalMsgs, meteredCell(metered, fmtTokens(totalTokens)),
+		meteredCell(metered, fmtCents(totalCents)))
+	if !metered {
+		fmt.Fprint(w, htmlBanner("warn", "This instance has no model gateway, so nothing "+
+			"meters what it spends. Token and cost columns stay empty until one is "+
+			"configured; a spend cap needs a gateway to enforce it."))
+	}
 
 	fmt.Fprint(w, `<h2>Per-group</h2>`)
 	sort.Slice(summaries, func(i, j int) bool {
@@ -71,8 +81,8 @@ func (d *dash) handleUsage(w http.ResponseWriter, r *http.Request) {
 		groupRows = append(groupRows, []string{
 			fmt.Sprintf(`<a href="/dash/groups/%s">%s</a>`, folderPath(s.Folder), esc(s.Folder)),
 			usageCount(s.MsgCount),
-			usageTokens(s.Tokens7d),
-			usageCents(s.Cents7d),
+			meteredCell(metered, usageTokens(s.Tokens7d)),
+			meteredCell(metered, usageCents(s.Cents7d)),
 			lastActiveCell(s.LastActive),
 		})
 	}
@@ -95,8 +105,8 @@ func (d *dash) usageFolders(ctx context.Context) ([]string, error) {
 // groupUsage holds aggregated usage stats for a single folder.
 type groupUsage struct {
 	Folder     string
-	Tokens7d   int    // input_tokens + output_tokens over the last 7 days
-	Cents7d    int    // cost_cents over the last 7 days
+	Tokens7d   int    // tokens the gateway metered over the last 7 days
+	Cents7d    int    // what the gateway charged over the last 7 days, in cents
 	MsgCount   int    // all-time message count (routed_to = folder)
 	LastActive string // RFC3339 timestamp of the latest message, or ""
 }
@@ -113,16 +123,15 @@ type usageMsg struct {
 	lastTS string
 }
 
-// groupUsageBulk returns one groupUsage per folder, joining routd.db's cost_log
-// (7d window) and messages (all-time count + last active) in Go. Both tables are
-// routd-owned: cost_log is keyed (folder, turn_id, model) with recorded_at /
-// input_tokens / output_tokens / cost_cents. folders may be the caller's scoped
-// subset (Groups page) or the full instance list (Usage page); either way the
-// IN-list is batched so the query stays valid regardless of folder count.
-func (d *dash) groupUsageBulk(ctx context.Context, folders []string) ([]groupUsage, error) {
-	if len(folders) == 0 {
-		return nil, nil
-	}
+// groupUsageBulk returns one groupUsage per folder, joining the gateway's spend
+// (7d window, through routd) with routd.db's messages (all-time count + last
+// active). It also reports whether a meter exists at all — false on an instance
+// with no model gateway, where the spend figures are absent rather than zero.
+//
+// folders may be the caller's scoped subset (Groups page) or the full instance
+// list (Usage page); either way the message IN-list is batched so the query
+// stays valid regardless of folder count.
+func (d *dash) groupUsageBulk(ctx context.Context, folders []string) ([]groupUsage, bool, error) {
 	cutoff := core.TS(time.Now().Add(-7 * 24 * time.Hour))
 
 	costMap := map[string]usageCost{}
@@ -135,13 +144,13 @@ func (d *dash) groupUsageBulk(ctx context.Context, folders []string) ([]groupUsa
 	// message aggregation is still batched.
 	summary, err := d.costSummary(ctx, cutoff)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	want := map[string]bool{}
 	for _, f := range folders {
 		want[f] = true
 	}
-	for _, row := range summary {
+	for _, row := range summary.Folders {
 		if want[row.Folder] {
 			costMap[row.Folder] = usageCost{row.Tokens, row.CostCents}
 		}
@@ -150,7 +159,7 @@ func (d *dash) groupUsageBulk(ctx context.Context, folders []string) ([]groupUsa
 	for start := 0; start < len(folders); start += usageBulkBatch {
 		batch := folders[start:min(start+usageBulkBatch, len(folders))]
 		if err := d.groupUsageBulkBatch(batch, costMap, msgMap); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 	}
 
@@ -165,11 +174,11 @@ func (d *dash) groupUsageBulk(ctx context.Context, folders []string) ([]groupUsa
 			LastActive: m.lastTS,
 		}
 	}
-	return out, nil
+	return out, summary.Metered, nil
 }
 
-// groupUsageBulkBatch runs the cost_log + messages aggregation for one
-// IN-list-sized batch of folders, merging results into the caller's maps.
+// groupUsageBulkBatch runs the messages aggregation for one IN-list-sized batch
+// of folders, merging results into the caller's maps.
 func (d *dash) groupUsageBulkBatch(batch []string, costMap map[string]usageCost, msgMap map[string]usageMsg) error {
 	ph := make([]string, len(batch))
 	args := make([]any, len(batch))
@@ -179,9 +188,9 @@ func (d *dash) groupUsageBulkBatch(batch []string, costMap map[string]usageCost,
 	}
 	in := strings.Join(ph, ",")
 
-	// The message counts still read the DB: routd exposes no activity summary,
-	// and cost_log and messages are different data with one reader each — not
-	// two paths to one datum. See 6/29 for what closing them needs.
+	// The message counts still read the DB: routd exposes no activity summary.
+	// Spend and messages are different data with one reader each — not two paths
+	// to one datum. See 6/29 for what closing this one needs.
 
 	msgRows, err := d.adminDB().Query(
 		`SELECT routed_to, COUNT(*), COALESCE(MAX(timestamp),'')
@@ -256,6 +265,16 @@ func usageCents(cents int) string {
 	return fmtCents(cents)
 }
 
+// meteredCell renders a spend figure, or "no meter" when the instance names no
+// model gateway. An unmetered instance holds no spend at all, so showing 0 there
+// would report a measurement nobody took (spec 6/39).
+func meteredCell(metered bool, value string) string {
+	if !metered {
+		return "no meter"
+	}
+	return value
+}
+
 // lastActiveCell renders a folder's last-active timestamp as a relative <abbr>,
 // or "—" when the folder has never been active.
 func lastActiveCell(ts string) string {
@@ -265,30 +284,41 @@ func lastActiveCell(ts string) string {
 	return abbrTS(ts)
 }
 
-// costSummaryRow mirrors routd's GET /v1/cost/summary reply.
+// costSummaryRow is one folder's metered spend in routd's GET /v1/cost/summary
+// reply.
 type costSummaryRow struct {
 	Folder    string `json:"folder"`
 	Tokens    int    `json:"tokens"`
 	CostCents int    `json:"cost_cents"`
 }
 
-// costSummary reads per-folder spend since cutoff from routd's /v1.
+// costSummaryReply is routd's GET /v1/cost/summary reply. Metered false means
+// the instance names no model gateway and so has no spend meter at all — the
+// page says that rather than drawing a zero (spec 6/39).
+type costSummaryReply struct {
+	Metered bool             `json:"metered"`
+	Folders []costSummaryRow `json:"folders"`
+}
+
+// costSummary reads per-folder spend since cutoff from routd's /v1, which
+// proxies the model gateway — the one place every operator surface reaches the
+// meter, so the dashboard cannot show a number the REST face does not.
 //
 // dashd presents a service bearer, whose folder claim is empty, so routd
-// answers for every folder — the same reach the direct cost_log read had. The
-// page's own visibility filter is applied by the caller, unchanged.
-func (d *dash) costSummary(ctx context.Context, cutoff string) ([]costSummaryRow, error) {
+// answers for every folder. The page's own visibility filter is applied by the
+// caller, unchanged.
+func (d *dash) costSummary(ctx context.Context, cutoff string) (costSummaryReply, error) {
+	var out costSummaryReply
 	body, status, err := d.bearerCall(ctx, d.routdURL, http.MethodGet,
 		"/v1/cost/summary?since="+url.QueryEscape(cutoff), nil)
 	if err != nil {
-		return nil, err
+		return out, err
 	}
 	if status < 200 || status >= 300 {
-		return nil, fmt.Errorf("routd /v1/cost/summary: status %d", status)
+		return out, fmt.Errorf("routd /v1/cost/summary: status %d", status)
 	}
-	var rows []costSummaryRow
-	if err := json.Unmarshal(body, &rows); err != nil {
-		return nil, err
+	if err := json.Unmarshal(body, &out); err != nil {
+		return out, err
 	}
-	return rows, nil
+	return out, nil
 }
