@@ -111,7 +111,7 @@ type server struct {
 	rr          *routesResource // stateless route handler; reads routes from DB per request (spec 5/8 no-cache)
 	viteProxy   *httputil.ReverseProxy
 	authdProxy  *httputil.ReverseProxy // nil when AUTHD_URL unset (local dev)
-	ks          *auth.KeySet           // soak: ES256 JWKs (nil when AUTHD_URL unset → HS256-only, exactly as today)
+	ks          *auth.KeySet           // authd's ES256 JWKs; nil when AUTHD_URL unset, and then tryAuth authenticates nobody
 	svc         *auth.TokenSource      // service:proxyd token presented to backends (nil → local dev, X-User-* unsigned)
 	pubRedir    *pubRedirect
 	warnedEdges sync.Map // peer → struct{}, so an untrusted edge warns once, not per request
@@ -786,7 +786,7 @@ func (s *server) attachTransit(r *http.Request) *http.Request {
 // groupsForSub resolves a verified sub to its grant patterns (X-User-Groups).
 // ES256 subs are prefixed (`user:google:123`); grant rows key on the bare sub
 // (`google:123`) per spec 5/1 § "sub prefix rule". Strip a leading `user:`
-// before the lookup so ES256 and HS256 subs map to the same grants.
+// before the lookup so a bearer's sub and its grant row key match.
 // Reads from routd.db (stRoutd) — acl lives there in the split topology.
 func (s *server) groupsForSub(sub string) []string {
 	if s.stRoutd == nil {
@@ -807,9 +807,9 @@ func (s *server) groupsForSub(sub string) []string {
 // JWT; otherwise nil. A refresh_token cookie is NOT an identity here — requireAuth
 // trades it for an access token. Bearer verify is ES256 only, against authd's JWKs.
 //
-// An HS256 branch used to run FIRST here, against AUTH_SECRET. Nothing has minted
-// an HS256 bearer since OAuth moved to authd, so it admitted no legitimate caller
-// and turned an AUTH_SECRET leak into arbitrary identity forgery (BUGS L6).
+// ES256 is the only algorithm accepted, and authd is its only signer. A shared
+// secret verified here would turn one AUTH_SECRET leak into arbitrary identity
+// forgery, since proxyd is the sole stamper of X-User-* (BUGS L6).
 func (s *server) tryAuth(r *http.Request) *http.Request {
 	if s.ks == nil {
 		return nil
@@ -876,9 +876,9 @@ func (s *server) tryRefreshViaAuthd(w http.ResponseWriter, r *http.Request) *htt
 
 func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// AUTH_SECRET no longer verifies any bearer (BUGS L6); it keys the
-		// OAuth CSRF state, so the login flow cannot complete without it and
-		// denying here keeps the failure at the door rather than mid-flow.
+		// AUTH_SECRET keys the OAuth CSRF state and verifies no bearer
+		// (BUGS L6), so the login flow cannot complete without it. Denying
+		// here keeps the failure at the door rather than mid-flow.
 		if s.cfg.authSecret == "" {
 			slog.Warn("auth denied", "reason", "auth_secret_unset", "path", r.URL.Path)
 			http.NotFound(w, r)
@@ -937,9 +937,9 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Soak: dual-verify ES256 bearers alongside HS256. When AUTHD_URL is set,
-	// fetch authd's public JWKs so tryAuth can accept ES256 tokens; unset →
-	// ks stays nil and proxyd is HS256-only, exactly as today.
+	// Fetch authd's public JWKs so tryAuth can verify ES256 bearers offline.
+	// With AUTHD_URL unset (local dev) ks stays nil and tryAuth authenticates
+	// nobody, so every route that needs an identity falls through to login.
 	var ks *auth.KeySet
 	if cfg.authdURL != "" {
 		if ks, err = auth.FetchKeys(ctx, cfg.authdURL); err != nil {

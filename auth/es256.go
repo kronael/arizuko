@@ -4,9 +4,8 @@ package auth
 // holds the building blocks it uses. Backends never link the signing path —
 // they only call VerifyToken (jwks.go) against cached public JWKs.
 //
-// The legacy HS256 verifier that once sat beside this one is gone: nothing had
-// minted an HS256 bearer since authd took over OAuth, so it admitted no caller
-// and widened an AUTH_SECRET leak into identity forgery (BUGS L6).
+// ES256 is the only algorithm any verifier here accepts. A shared secret would
+// make one AUTH_SECRET leak enough to forge any identity (BUGS L6).
 
 import (
 	"crypto/ecdsa"
@@ -22,8 +21,7 @@ import (
 	jose "github.com/go-jose/go-jose/v4"
 )
 
-// Shared token errors. authd (Refresh) and VerifyToken both return them, so
-// they outlived the HS256 file they were declared in.
+// Shared token errors. authd (Refresh) and VerifyToken both return them.
 var (
 	ErrInvalidToken = errors.New("invalid token")
 	ErrExpiredToken = errors.New("expired token")

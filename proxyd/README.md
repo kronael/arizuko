@@ -15,7 +15,7 @@ and owns the anon DoS shield (`specs/6/22-proxyd-cut.md` step 1).
 
 ## Responsibilities
 
-- Authenticate: `Authorization: Bearer <jwt>` (HS256 or ES256) → `refresh_token` cookie → redirect `/auth/login`.
+- Authenticate: `Authorization: Bearer <jwt>` (ES256, against authd's JWKs) → `refresh_token` cookie → redirect `/auth/login`.
 - Stamp `X-User-Sub`, `X-User-Name`, `X-User-Groups` + `Authorization: Bearer service:proxyd`.
 - Route by DB-backed prefix table (runtime mutate via `/v1/proxyd_routes`).
 - Rewrite `X-Forwarded-For` from `TRUSTED_PROXIES` CIDRs only.
@@ -188,13 +188,14 @@ Endpoints:
 
 ## Dependencies
 
-- `auth` (JWT verify, ES256/HS256 dual), `chanlib`, `core`, `store`, `resreg`
+- `auth` (ES256 JWT verify against authd's JWKs), `chanlib`, `core`, `store`, `resreg`
 
 ## Configuration
 
 - `PROXYD_LISTEN` (default `:8080`)
 - `VITE_ADDR` (default `http://vited:8080`) — backend for `/pub/*`, `/priv/*`
-- `AUTH_SECRET` — HS256 JWT verify secret
+- `AUTH_SECRET` — keys the OAuth CSRF state; unset means `requireAuth` denies,
+  because the login flow cannot complete
 - `AUTHD_URL` — authd endpoint for ES256 JWKs + `/auth/*` redirects
 - `AUTHD_SERVICE_KEY` — proxyd's service key for ES256 bearer minting
 - `AUTHD_SERVICE_NAME` (default `proxyd`)
