@@ -10943,7 +10943,11 @@ has no duplicate-name case.
   earlier one and logs the shadow at WARN; a duplicate within one source is an
   error, since no order can justify it
 
-## L214 — `6/26` reads as a shipped approval gate while its primary verdict is a known no-op (2026-09-06, open — docs)
+## ✅ FIXED 2026-09-06 L214 — `6/26` reads as a shipped approval gate while its primary verdict is a known no-op (2026-09-06, docs)
+
+**FIXED 2026-09-06.** `L97` is closed, so the bound is gone and the spec no
+longer carries it. The one-shot half of every verdict re-issues, and
+`routd/pending_actions_reissue_test.go` drives that path end to end.
 
 VERIFIED. `specs/6/26-personal-mode.md` carries `status: shipped` and its
 Decisions 4 and 5 say "Acceptance: Shipped 2026-08-24/29/30". Its headline

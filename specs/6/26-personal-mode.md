@@ -465,12 +465,6 @@ Shipped 2026-08-30 — `arizuko talk` (`cmd/arizuko/talk.go`,
   precedence is flag > `@name` > top-level > `ARIZUKO_CHAT_*` > an error that
   prints the file to write and the two commands that fill it.
 
-**Bounded by BUGS `L97`.** The one-shot half of every verdict — the agent
-re-issuing the approved call — is a no-op today: the re-issue trigger is written
-with a non-fixed-width timestamp and sorts behind the cursor that must pick it
-up. `always`'s standing half is unaffected (the next call is simply not held),
-but its `yes` half inherits `L97` exactly as `/approve` does.
-
 ## Ties
 
 `5/19` HITL (the gate) · `5/32` (the `acl` row the verdicts write) ·
