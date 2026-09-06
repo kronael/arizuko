@@ -386,6 +386,24 @@ proven before anything moves at all.
    been production-supported since 2020 and runs any DynamoDB SDK unmodified;
    managed, it is DynamoDB itself. One driver serves both.
 
+   **Locally, the DynamoDB-over-Postgres adapter exists and AWS wrote it.**
+   ExtendDB is Apache 2.0, in Rust, speaks the DynamoDB wire protocol and
+   stores in PostgreSQL behind a pluggable storage trait. It implements what
+   `6/40`'s operations need — `TransactWriteItems` and `TransactGetItems`,
+   condition expressions, `Query` on key conditions, Streams and TTL — and it
+   does not implement global tables or cross-Region replication, which are
+   managed-service features arizuko never asks for.
+
+   It is **v0.1 and AWS says development only**: "This is a v0.1 release for
+   development, testing, and experimentation", at "an early stage" with
+   performance and operational properties that "differ". So it is the local and
+   CI backend, not a production one — and its existence settles the design
+   question, because the adapter this spec would otherwise have to invent is
+   already written, by the vendor whose protocol it implements.
+
+   Three deployments, one driver: DynamoDB managed, Alternator self-hosted,
+   ExtendDB (or SQLite) locally.
+
    **Alternator is source-available, not open source.** AGPL 6.2.x was the last
    open-source release and no further AGPL versions are planned; Enterprise
    2025.1 onward is free up to 10 TB and 50 vCPUs per organisation. That bound
