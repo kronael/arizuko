@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -366,6 +367,71 @@ func TestGatewaySpendBecomesTheCostLogRow(t *testing.T) {
 		t.Errorf("cost_log row = %s %d/%d %dc, want claude-opus-4 900/120 42c from the gateway",
 			model, in, out, cents)
 	}
+}
+
+// A run whose response never came back may still be spending, and routd holds
+// the only key it can be spending on. Losing the reply must not lose the turn's
+// accounting too.
+func TestALostRunResponseStillBooksTheTurn(t *testing.T) {
+	db, loop, _, fake := gatewayLoop(t, "demo")
+	loop.runner = runnerFunc(func(context.Context, runedv1.RunRequest) (runedv1.RunOutcome, error) {
+		return runedv1.RunOutcome{}, errors.New("read tcp: i/o timeout")
+	})
+	fake.spendFor[keyHash("sk-minted-1")] = []map[string]any{
+		{"model": "m", "spend": 0.15, "prompt_tokens": 5, "completion_tokens": 5},
+	}
+
+	if _, err := loop.processGroupMessages("web:demo"); err == nil {
+		t.Fatal("a transport failure must still surface as an error")
+	}
+
+	var cents int
+	if err := db.SQL().QueryRow(
+		`SELECT cost_cents FROM cost_log WHERE folder='demo'`).Scan(&cents); err != nil {
+		t.Fatalf("a lost run response booked no cost: %v", err)
+	}
+	if cents != 15 {
+		t.Errorf("cost_cents = %d, want 15", cents)
+	}
+}
+
+// The mirror: a refusal that admitted nothing has no rows to wait for, so the
+// boundary must not sit out the whole flush window on every Busy poll.
+func TestABusyDispatchNeverWaitsForSpend(t *testing.T) {
+	db, loop, _, fake := gatewayLoop(t, "demo")
+	loop.gateway.spendFlush = time.Hour
+	loop.runner = runnerFunc(func(context.Context, runedv1.RunRequest) (runedv1.RunOutcome, error) {
+		return runedv1.RunOutcome{Busy: true}, nil
+	})
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = loop.processGroupMessages("web:demo")
+	}()
+	select {
+	case <-done:
+	case <-time.After(20 * time.Second):
+		t.Fatal("a Busy dispatch waited on the gateway's flush window; nothing ran, so nothing can land")
+	}
+
+	if _, _, reads := fake.snapshot(); reads != 0 {
+		t.Errorf("a Busy dispatch read /spend/logs %d times; it admitted no run", reads)
+	}
+	var rows int
+	if err := db.SQL().QueryRow(`SELECT COUNT(*) FROM cost_log`).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 0 {
+		t.Errorf("a Busy dispatch booked %d cost rows", rows)
+	}
+}
+
+// runnerFunc adapts a func to the Runner seam.
+type runnerFunc func(context.Context, runedv1.RunRequest) (runedv1.RunOutcome, error)
+
+func (f runnerFunc) Run(ctx context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
+	return f(ctx, req)
 }
 
 // The agent's self-report is corroboration on a gateway instance, never the

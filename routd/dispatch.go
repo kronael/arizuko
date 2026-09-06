@@ -367,7 +367,15 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 	// batch re-feeds and the folder's breaker streak is left alone (the same
 	// shape as an unreachable runed). Spawning anyway would put a container on
 	// the network with no model credential at all.
+	//
+	// Reading what the key was charged rides the same defer, ahead of the
+	// delete, so EVERY way out of this function books the turn — including the
+	// transport failure below, where routd stopped hearing about a run that may
+	// well still be spending. meterCost gates it because a refusal that ran
+	// nothing has no rows to wait for, and waiting anyway would put the whole
+	// flush window on every Busy poll.
 	var gwKey turnKey
+	meterCost := false
 	if l.gateway != nil {
 		k, gerr := l.gateway.mint(ctx, "arizuko-"+turnID+"-"+randHex(4),
 			folder, turnID, l.runTimeout, budgetCents)
@@ -379,6 +387,9 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		}
 		gwKey = k
 		defer func() {
+			if meterCost {
+				l.recordGatewayCost(ctx, gwKey, folder, topic, chatJID, turnID, last.Sender)
+			}
 			if err := l.gateway.revoke(ctx, gwKey.Key); err != nil {
 				slog.Error("model gateway key not revoked; it stands until its TTL expires",
 					"folder", folder, "turn_id", turnID, "err", err)
@@ -410,6 +421,13 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 			_ = l.deliver.Typing(jid, false)
 		}
 	}
+	// Whatever the container spent is on this turn's key — a run that failed
+	// burned the tokens it burned. Two dispatches are exempt: a Busy refusal
+	// admitted nothing, and a steer wrote its batch into a container another
+	// turn owns, so its calls are charged to THAT turn's key. An unreachable
+	// runed is the third: nothing ran, and out is the zero value there, so it
+	// is named rather than inferred.
+	meterCost = l.gateway != nil && !out.Busy && !out.Steered && !runedUnreachable(derr)
 	if derr != nil {
 		slog.Warn("dispatch run transport failure", "folder", folder, "turn_id", turnID, "err", derr)
 		if runedUnreachable(derr) {
@@ -431,15 +449,6 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 	// Persist the runed-assigned run_id for reconciliation (turn_context.run_id).
 	if out.RunID != "" {
 		_ = l.db.SetTurnRunID(turnID, out.RunID)
-	}
-	// The container ran, so whatever it spent is on this turn's key — including
-	// a run that failed, which still burned the tokens it burned. Read it
-	// before the deferred revoke deletes the key, and before the outcome
-	// branches below return. A steer never reaches here: its batch went into a
-	// container another turn owns, so its model calls are on THAT turn's key
-	// and this key paid for nothing.
-	if l.gateway != nil && !out.Steered {
-		l.recordGatewayCost(ctx, gwKey, folder, topic, chatJID, turnID, last.Sender)
 	}
 	if out.Steered {
 		// The batch was written into the folder's already-live container; the
