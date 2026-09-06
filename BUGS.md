@@ -7,6 +7,34 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L240 — the egress proxy and its spawn draw random addresses independently, so ~1 run in 250 collides (2026-09-06)
+
+`randomIP` (`container/egress.go:150-183`) picks a host from the folder's /24
+with `crypto/rand`, and `startEgressProxy` calls it twice — once for the proxy,
+once for the spawn — with nothing comparing the two. Roughly 250 usable hosts,
+two independent draws, so a collision is about 1 in 250.
+
+Reproduced on an untouched tree:
+
+```
+$ go test ./container/ -count=300 -short -run TestStartEgressProxyBakesAllowlistAndPin
+    egress_test.go:184: proxy and spawn share an address: 10.99.42.15
+FAIL
+```
+
+`TestStartEgressProxyBakesAllowlistAndPin` already asserts the two differ, so
+the flake is visible; what it means live is a spawn that cannot reach its own
+proxy, on a folder whose egress is then simply broken until the next turn
+re-rolls. The suite hides it because one run in 250 reads as somebody else's
+problem — it surfaced here in a full `go test ./... -short` and passed on the
+re-run.
+
+Cause fix: allocate both from one draw (proxy at host, spawn at host+1, wrapping
+inside the /24), so sharing an address is impossible by construction rather than
+improbable. Retrying on collision would be the symptom patch.
+
+Found while shipping `6/39`, which touches no file under `container/`.
+
 ## ✅ FIXED 2026-09-05 L165 — an unknown `MCPArg.Type` silently declares a string property, so the argument never arrives (2026-09-05)
 
 `mcpArgOption` (`resreg/resreg.go:805-824`) switches on `"number"`, `"bool"`,
