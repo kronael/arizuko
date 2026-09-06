@@ -10816,7 +10816,22 @@ agent explicitly asked for is withdrawn.
 - **Status:** fixed in `egress/match/match.go`; reaches an instance on the next
   image rebuild and restart
 
-## L210 — 26 prose spec IDs across the corpus name a spec that does not exist, and no check sees that form (2026-09-06, `6/7` half FIXED 2026-09-06; 23 remain)
+## ✅ FIXED 2026-09-06 L210 — 26 prose spec IDs across the corpus name a spec that does not exist, and no check sees that form (2026-09-06)
+
+**FIXED 2026-09-06 in `8ad728e8`, `ad3d8104`, `e0ca2f43`, `fde7b5fd`.** All 26
+resolve. Eight were repointed at the spec that received the claim — `6/10` to
+`6/24` (`6e3c1ce5` deletes `6/8` and `6/10` and names `6/24` the only crackbox
+record), `7/7` to `6/30` (which carries onbod's admission queue at line 27),
+`5/20` to `5/28`, `4/1` to `5/34`, and the two `7/Y` comments in
+`cmd/arizuko/secret.go` and `store/secret_use_log.go` to `5/13`. The rest name
+a mechanism deleted with its spec, so the sentence states the fact and carries
+no pointer.
+
+`tests/specrefs.TestEveryBacktickSpecIDResolves` is the guard: it resolves
+`` `N/M` `` and `` `specs/N/M` `` against `specs/N/M-*.md`, reports 775 IDs,
+and ignores a phase directory that does not exist because a phase is planned
+before it is written. Proved by mutation — a `` `6/99` `` inserted into `6/20`
+turns it red naming that file.
 
 **`6/7` half FIXED 2026-09-06 in `8ad728e8`, and the count was low.** Every
 live `6/7` citation now names what actually holds its claim: `6/1` states the
@@ -10870,6 +10885,54 @@ nowhere to land and no record that the number is burnt.
   (`` `N/M` ``) as well as links, which is what would have caught this the day
   `6/7` was retired; (c) decide whether a retired-number table comes back, and
   if so make (b) resolve against it
+
+## L220 — the public operator docs cite 16 specs that do not exist (2026-09-06, open)
+
+MEASURED. `template/web/pub/arizuko/` names 56 distinct `specs/<phase>/<id>-<slug>.md`
+paths. Sixteen resolve to no file:
+
+`1/W-slink` · `4/26-prototypes` · `5/4-openapi-discoverable` ·
+`5/5-uniform-mcp-rest` · `5/X-session-workflows` · `6/F-group-observe` ·
+`7/D-slack-agent-pane` · `7/H-per-daemon-secrets` · `7/Y-secret-broker` ·
+`10/8-self-eval-skill` · `10/17-emaid-auth` · `10/19-cost-caps` ·
+`11/2-declarative-composition` · `11/12-crackbox-sandboxing` ·
+`11/15-crackbox-dns-filter` · `12/b-ant-standalone`.
+
+`reference/env.html` alone carries ten references to `specs/7/H-per-daemon-secrets.md`.
+Several are written as live github.com links, so a reader on
+`krons.fiu.wtf/pub/arizuko/` follows them to a 404.
+
+`tests/specrefs` cannot see these: it checks markdown under `specs/`, and these
+are HTML in another tree with its own deploy procedure
+(`template/web/CLAUDE.md`).
+
+- **Severity:** medium — no runtime effect, but this is the operator-facing
+  public surface, and a 404 from a published page is worse than a dead pointer
+  inside the corpus
+- **Scope:** `template/web/pub/arizuko/`, `tests/webdocs`
+- **Fix:** repoint each to the spec that received its claim the way `L210` did,
+  and extend the check that already guards this tree (`tests/webdocs`) to
+  resolve `specs/…md` paths, so the deploy cannot ship a dead one again
+
+## L221 — `specs/index.md` lists git-as-truth as live phase-9 work; `specs/9/index.md` says it is rejected (2026-09-06, open — docs)
+
+MEASURED. `specs/index.md:44` reads "the remaining phase-9 actions are the data
+model and git-as-truth", and its phase table at `:63` describes `9/` as
+"platform program — data model, git-as-truth".
+
+`specs/9/index.md:36` says the opposite of the second half: `3-git-as-truth.md`
+is "the rejected approach above", built on "the gateway is the only git writer"
+— and `gated`/gateway was deleted at v0.50.0. No git-writing code was ever
+written. `:37` records that the ingestion doc premised on it self-disclaimed.
+
+So the master index sends a reader to look for work that the phase's own index
+settled as declined. No pointer dangles, so `L210`'s guard cannot see it.
+
+- **Severity:** low — a reader of the top-level index believes an approach is
+  open that the phase rejected
+- **Scope:** `specs/index.md`
+- **Fix:** state the one remaining phase-9 action, and say git-as-truth is
+  declined with the reason `9/` already gives
 
 ## L211 — `6/23` is marked shipped and names two faults it closes; the container half shipped, the other two did not (2026-09-06, open)
 
