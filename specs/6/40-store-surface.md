@@ -78,44 +78,42 @@ is unbounded, so the row set must be read before it can be deleted, and a row
 added in between survives. That is the price `6/38` costed, and it is now one
 price rather than two.
 
-## The audited write: an intent log needs three more things
+## The audited write commits in a GuardedBatch, not an intent log
 
-`runAudited` has 20 call sites across 10 files and is the largest single reason
-this system opens transactions. Replacing it with three single-row writes —
-pending audit row, data row carrying the audit id, then mark it committed — is
-the right shape, because each write is atomic alone and that is what a
-key-value engine gives. It does not work as stated, and a review found four
-ways it fails.
+`GuardedBatch` is a bounded all-or-nothing write, so **a mutation and its audit
+row go in one call and the guarantee `runAudited` gives today survives
+unchanged**: no write without its audit, no audit without its write. `6/38`
+already measured that this fits — the 24 `runAudited` callers are in its
+19-site "fits as a bounded conditional batch" group precisely because none of
+them reads inside the transaction.
 
-**A delete leaves nothing to carry the back-reference.** `store.DeleteGroup`
-is an audited delete across four tables; after it, no row exists to name the
-audit id, so a sweep cannot tell a completed delete from an abandoned one. Any
-audited delete has to leave a tombstone carrying the id, which makes every
-audited delete a soft delete with reclamation behind it. That is the price, and
-it is not small.
+So the intent log is NOT the replacement for the audited write. It is needed
+only where the write set is UNBOUNDED and therefore cannot be one batch: the
+versioned replace over a subtree, and `resreg.Apply` over a subsystem. Those
+two already have protocols of their own, and the marker they need is the same
+mechanism, so it is one thing serving two callers rather than a scheme imposed
+on forty.
 
-**The event is built lazily, so the pending row cannot hold it.**
-`store/audit_helpers.go:10-28` says it outright: the `audit.Event` is
-constructed inside the mutation so callers can include last-insert-id or
-affected-rows. A pending row written first cannot carry fields that do not
-exist yet, so the record is two shapes — an INTENT (actor, action, target)
-written first, and an OUTCOME completed at step 3.
+**Where a bounded batch is not enough, and why the intent log is hard there.**
+A review of the three-write form — pending audit row, data row carrying the
+audit id, mark it committed — found four failures, and they are the reason the
+unbounded protocols must be written carefully rather than assumed:
 
-**A later writer erases the marker.** The data row holds only the newest
-writer's audit id. If A writes, crashes before committing its audit, and B then
-overwrites the row, the sweep sees A pending with no row naming it and deletes
-it — though A's write happened and was superseded. The back-reference is a
-liveness proof, not a history proof, and an audit log is a history.
+- **A delete leaves nothing to carry the back-reference.** `store.DeleteGroup`
+  spans four tables and leaves no row naming the audit id, so an audited delete
+  needs a tombstone and becomes a soft delete with reclamation behind it.
+- **The event is built lazily.** `store/audit_helpers.go:10` constructs the
+  `audit.Event` INSIDE the mutation so callers can include last-insert-id or
+  affected-rows, so a pending row cannot carry fields that do not exist yet —
+  the record is an intent first, an outcome second.
+- **A later writer erases the marker.** The data row holds only the newest
+  audit id, so a superseded write's audit looks abandoned. The back-reference
+  is a liveness proof where an audit needs a history proof.
+- **A sweep can race a live writer**, which puts a timeout in the correctness
+  argument.
 
-**A sweep can race a live writer.** A sweep that observes no marker yet, delete
-the pending audit, and let the writer then commit its data, produces an
-unaudited write. The sweep needs a lease or an age bound longer than any write
-can take, which reintroduces a timeout as a correctness parameter.
-
-So the honest statement: the intent log removes the transaction for inserts and
-updates, at the cost of tombstoned deletes, a two-shape audit row, and a
-time-bounded sweep. Whether that trade is worth taking is a decision, and it is
-`L241`.
+That is `L241`, and its scope is now two protocols rather than the whole
+audited-write path.
 
 ## What this surface is not
 
