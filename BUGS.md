@@ -286,9 +286,14 @@ stands: the gateway is a credential boundary, not an accounting one.
 - **Severity:** medium (the cap enforces a number the metered party supplies)
 - **Scope:** model gateway → routd accounting
 - **Affected:** any instance with `MODEL_GATEWAY_URL` set (none today)
-- **Source:** `template/services/litellm.yml`; `routd/reads_http.go:215`; `routd/turns.go:703`; `routd/dispatch.go:261`; litellm probe 2026-09-05 12:30
-- **Status:** proposal (needs sign-off)
-- **Fix:**
+- **Source:** `template/services/litellm.yml`; `routd/reads_http.go:215`; `routd/dispatch.go:261`; litellm probe 2026-09-05 12:30
+- **Status:** fixed — the transport is neither of the two candidates. The
+  package ships litellm's Postgres, so routd mints a key per turn, and the
+  carrier is the run it already brackets: `recordGatewayCost` reads
+  `/spend/logs` for that key at the turn boundary and `putTurnCost` writes the
+  row. No callback file, no header the metered party sets, no second
+  accounting substrate — attribution is the key itself, which routd minted.
+- **Fix:** 2f6441ed, c8854f7d
 
 ## L175 — ant delivers a model API failure as a successful reply and books no usage for it (2026-09-05, open)
 
@@ -10814,7 +10819,7 @@ nowhere to land and no record that the number is burnt.
   `6/7` was retired; (c) decide whether a retired-number table comes back, and
   if so make (b) resolve against it
 
-## L211 — `6/23` is marked shipped and names two faults it closes; the container half shipped, the other two did not (2026-09-06, open)
+## L211 — `6/23` is marked shipped and names two faults it closes; the container half shipped, the other two did not (2026-09-06, fixed)
 
 VERIFIED independently after an audit raised it.
 
@@ -10844,8 +10849,15 @@ spec never recorded it, so the document argues against what runs.
   Anthropic key, but it is not what the spec promises, and spend is still
   attacker-declared
 - **Scope:** `container/runner.go`, `routd/turns.go`, `specs/6/23`
-- **Fix:** either build the two halves, or change `6/23` to state what shipped
-  and record the vendor decision. `L49` stays open either way.
+- **Status:** fixed — both halves built and the spec rewritten. The blocker
+  both shared was litellm's Postgres, which `6/37` and `6/38` had already
+  decided; the package now ships it as `litellm_db`. routd mints the per-turn
+  key (`routd/gateway.go`), bounds it by the folder's remaining daily budget
+  and the run ceiling, and deletes it; `putTurnCost` (`routd/turns.go`) is the
+  one cost_log writer and takes the gateway's measurement, with the agent's
+  `submit_turn` figure demoted to a log line. `6/23` states the LiteLLM
+  decision, present tense, with the measured reason Bifrost is rejected.
+- **Fix:** 2f6441ed, c8854f7d, a67a94e1
 
 ## L212 — `mcpfw` is complete, tested, and wired to nothing (2026-09-06, open)
 
