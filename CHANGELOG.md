@@ -6,9 +6,8 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 (upstream at v1.1.3).
 
 <!-- Each release entry opens with a `>` blockquote — that's the
-     chat broadcast, extracted verbatim. Format spec in root
-     CLAUDE.md "## Announcing". ≤ 9 lines, 3-6 bullets, user
-     benefit first, end with the changelog link. -->
+     chat broadcast, extracted verbatim. Its shape is root
+     CLAUDE.md "## Announcing". -->
 
 ---
 

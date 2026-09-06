@@ -106,14 +106,28 @@ type extFile struct {
 	Connectors []connectorConfig `toml:"connector"`
 }
 
-// LoadExtProviders loads the `rest` [[connector]] blocks from:
+// extSource is one entry in the loader's ordered source list (spec 6/19). The
+// embedded set is ONE source: it ships as a unit and its file order is an
+// accident of names, so nothing in it can claim to come "later" than the rest.
+// The operator file is the second source and shadows it.
+type extSource struct {
+	name       string
+	connectors []connectorConfig
+}
+
+// extSlot records where a LocalName landed in the output and which source put
+// it there, so a shadow can name both sides and a repeat inside one source is
+// distinguishable from an ordered override.
+type extSlot struct {
+	pos    int
+	source string
+}
+
+// extSources reads the loader's sources in order:
 //  1. Built-in providers embedded in extproviders/*.toml
 //  2. Operator [[connector]] blocks from <dir>/connectors.toml (missing file ok)
-//
-// Returns nil, nil when no ext blocks exist.
-func LoadExtProviders(_ context.Context, dir string) ([]ipc.ExtTool, error) {
-	var providers []connectorConfig
-
+func extSources(dir string) ([]extSource, error) {
+	builtin := extSource{name: "embedded extproviders"}
 	entries, err := fs.ReadDir(builtinProviders, "extproviders")
 	if err != nil {
 		return nil, fmt.Errorf("read embedded extproviders: %w", err)
@@ -130,8 +144,9 @@ func LoadExtProviders(_ context.Context, dir string) ([]ipc.ExtTool, error) {
 		if perr := decodeConnectors("embedded "+e.Name(), data, &f); perr != nil {
 			return nil, perr
 		}
-		providers = append(providers, f.Connectors...)
+		builtin.connectors = append(builtin.connectors, f.Connectors...)
 	}
+	sources := []extSource{builtin}
 
 	opPath := filepath.Join(dir, "connectors.toml")
 	data, err := os.ReadFile(opPath)
@@ -143,40 +158,70 @@ func LoadExtProviders(_ context.Context, dir string) ([]ipc.ExtTool, error) {
 		if perr := decodeConnectors(opPath, data, &f); perr != nil {
 			return nil, perr
 		}
-		providers = append(providers, f.Connectors...)
+		sources = append(sources, extSource{name: opPath, connectors: f.Connectors})
 	}
+	return sources, nil
+}
 
-	if len(providers) == 0 {
-		return nil, nil
+// LoadExtProviders builds the REST tool catalogue from the ordered sources.
+// LocalName is the agent's wire identity for a tool, so it is the key the
+// loader indexes on: a later source replaces an earlier one under that name and
+// logs the shadow at WARN, and two declarations of one name inside a single
+// source are refused, because no ordering can pick between them.
+//
+// Returns nil, nil when no ext blocks exist.
+func LoadExtProviders(_ context.Context, dir string) ([]ipc.ExtTool, error) {
+	sources, err := extSources(dir)
+	if err != nil {
+		return nil, err
 	}
-
 	var out []ipc.ExtTool
-	for _, p := range providers {
-		transport, terr := connectorTransport(p.Name, p.Transport)
-		if terr != nil {
-			return nil, terr
+	byName := map[string]extSlot{}
+	for _, src := range sources {
+		for _, p := range src.connectors {
+			transport, terr := connectorTransport(p.Name, p.Transport)
+			if terr != nil {
+				return nil, terr
+			}
+			if transport == transportMCP {
+				continue // discovers its own catalogue; LoadConnectors owns it
+			}
+			if len(p.Tools) == 0 {
+				return nil, fmt.Errorf("connector %q: transport rest declares no [[connector.tool]]", p.Name)
+			}
+			for _, t := range p.Tools {
+				tool := ipc.ExtTool{
+					LocalName:   p.Name + "_" + t.Name,
+					Description: t.Description,
+					Scope:       t.Scope,
+					InputSchema: extInputSchema(t.Path, t.Params),
+					BaseURL:     p.URL,
+					Method:      t.Method,
+					Path:        t.Path,
+					Secrets:     p.Secrets,
+					Headers:     p.Headers,
+					Query:       p.Query,
+					Body:        p.Body,
+				}
+				held, taken := byName[tool.LocalName]
+				switch {
+				case !taken:
+					byName[tool.LocalName] = extSlot{pos: len(out), source: src.name}
+					out = append(out, tool)
+				case held.source == src.name:
+					return nil, fmt.Errorf("ext tool %q declared twice in %s: a tool name is the agent's wire identity and no ordering picks between two in one source (spec 6/19)",
+						tool.LocalName, src.name)
+				default:
+					slog.Warn("ext tool shadowed", "tool", tool.LocalName,
+						"shadowed", held.source, "by", src.name)
+					out[held.pos] = tool
+					byName[tool.LocalName] = extSlot{pos: held.pos, source: src.name}
+				}
+			}
 		}
-		if transport == transportMCP {
-			continue // discovers its own catalogue; LoadConnectors owns it
-		}
-		for _, t := range p.Tools {
-			out = append(out, ipc.ExtTool{
-				LocalName:   p.Name + "_" + t.Name,
-				Description: t.Description,
-				Scope:       t.Scope,
-				InputSchema: extInputSchema(t.Path, t.Params),
-				BaseURL:     p.URL,
-				Method:      t.Method,
-				Path:        t.Path,
-				Secrets:     p.Secrets,
-				Headers:     p.Headers,
-				Query:       p.Query,
-				Body:        p.Body,
-			})
-		}
-		if len(p.Tools) == 0 {
-			return nil, fmt.Errorf("connector %q: transport rest declares no [[connector.tool]]", p.Name)
-		}
+	}
+	if len(out) == 0 {
+		return nil, nil
 	}
 	slog.Info("ext providers loaded", "tools", len(out))
 	return out, nil
