@@ -138,10 +138,15 @@ spend — and runed has no store at all (`5/E`). The same daemon owns
 
 The lifecycle is one bracket around one dispatch (`routd/dispatch.go`):
 `budgetGate` yields the refusal and the remaining cents, `mint` turns the
-cents into `max_budget` and the run ceiling into `duration`, `dispatchRun`
-carries the key in `RunRequest.ModelGatewayKey` the way it already carries
-routd-resolved `Secrets`, `recordGatewayCost` (`routd/dispatch.go:549`)
-reads what the key was charged, and a deferred `revoke` deletes it.
+cents into `max_budget` and the run ceiling into `duration`, and
+`dispatchRun` carries the key in `RunRequest.ModelGatewayKey` the way it
+already carries routd-resolved `Secrets`. One `defer` closes the bracket —
+`recordGatewayCost` (`routd/dispatch.go:558`) reads what the key was
+charged, then `revoke` deletes it — so every way out of the turn books it,
+including a run whose reply never came back and which may still be
+spending. Two dispatches skip the read because they have nothing to read:
+a Busy refusal admitted no run, and a steer spent on the key of the turn
+that owns the container.
 
 `putTurnCost` (`routd/turns.go:196`) is the ONE writer of a turn's
 `cost_log` rows. Exactly one source reaches it per turn — the gateway's
