@@ -11554,7 +11554,21 @@ Per owner today: `onbod`, `chanlib` and `emaid` apply CLEAN on Postgres;
 - **Fix:** port per owner, smallest first, in the order `6/37` sets. FTS waits
   for step 8.
 
-## L230 — no CLI can grant a single ext tool, because `grantableAction` refuses the scope shape the filter reads (2026-09-06, open)
+## ✅ FIXED 2026-09-06 L230 — no CLI can grant a single ext tool, because `grantableAction` refuses the scope shape the filter reads (2026-09-06)
+
+**FIXED 2026-09-06 in `b7ad983a`.** `auth.ExtScopePrefix` declares the
+namespace once, beside `ShellEnvPrefix`, and `grantableAction` accepts it. The
+unknown-action message names the shape too — the mutation that proved the test
+surfaced that the message is user-facing and was about to be wrong.
+
+`cmd/arizuko/grant_action_test.go` now records this class three times over:
+`egress` after migration 0023, `shell:env:<KEY>`, and this. Each has the same
+shape — an evaluator learns an action and nothing can write a row for it — and
+each asserts the same second half, that the default `admin` grant does NOT
+reach it, because the lattice stops at `mcp:*`.
+
+Proved by mutation: break the prefix match and the test goes red with
+`unknown action "ext:cloudflare:dns:read"`.
 
 MEASURED while fixing `L222`. The ext-tool announce filter checks
 `tool.Scope`, which the embedded providers write as
