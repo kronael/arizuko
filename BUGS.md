@@ -10728,7 +10728,7 @@ harness (invites, watchers, tasks) on routd too. That is the test-scaffold
 migration, and it is the last thing standing between the tree and one FTS5
 query instead of two.
 
-## L209 — a bare TLD is a valid egress allow entry, so one agent-written rule opens every host under it (2026-09-06, open — proposal, needs sign-off)
+## L209 — a bare TLD is a valid egress allow entry, so one agent-written rule opens every host under it (2026-09-06, FIXED)
 
 MEASURED, on the live sloth instance. `main/trading` holds eight allow rows
 that are bare TLDs: `com`, `org`, `net`, `io`, `ai`, `co`, `news`, `xyz`. All
@@ -10751,19 +10751,30 @@ granted per folder, and a folder that may add `api.coingecko.com` may add
 `com`. The grant says which folder writes rules, never which hosts a rule may
 cover.
 
-Cause fix: `ValidEntry` refuses an entry with no dot, the same way it refuses
-an IP — an entry that matches a whole TLD is a policy hole, not a host name.
-That is a new refusal on a write path both the CLI and the agent resource
-share, so it needs the sign-off. It also strands the eight live rows, which is
-the point: they must be re-written as real hosts, or the folder must move to
-the explicit allow-all mode where it reads as what it is.
+**FIXED 2026-09-06, and the first cause was wrong.** Refusing a dotless entry
+in `ValidEntry` breaks legitimate hosts: `localhost` is a real host name with
+no dot, and so is every container service name on the compose network. The
+`egress/test` suite proved it immediately — two e2e cases allow `localhost`.
 
-Same class as `grant_action_needs_a_door` inverted: there the door was missing,
-here the door has no frame.
+The fault is not the entry, it is the match. `Host` applied the subdomain arm
+to every entry, so a single label was read as a parent domain. A single label
+now matches EXACTLY and never as a suffix: `localhost` still means the host
+`localhost`, and `com` means a host literally named `com`, which is harmless.
+No list of TLDs, no public-suffix dependency, and no legal entry refused.
+
+`egress/match/match_test.go` carried `{"single label matches its suffix",
+["com"], "github.com", true}` — a test asserting the hole was correct
+behaviour. It is replaced by the three cases that pin the rule, and dropping
+the `strings.Contains(entry, ".")` guard turns two of them red.
+
+The eight sloth rows stay in the table and stop granting the TLD at the next
+spawn after the deploy. They are not deleted: each is data the folder wrote,
+and `api.coingecko.com`-style rows beside them keep working, so nothing the
+agent explicitly asked for is withdrawn.
 
 - **Severity:** high — an agent-reachable path to near-total egress
-- **Scope:** `egress/match`, `store/network.go`, `routd/network_rules_resource.go`
-- **Affected:** sloth `main/trading` today; any folder holding `network_allow`
-- **Fix:** `ValidEntry` refuses a single-label entry; audit every live
-  `network_rules` row for the shape; decide per folder between real hosts and
-  declared allow-all
+- **Scope:** `egress/match`
+- **Affected:** sloth `main/trading` — the only folder holding such rows,
+  fleet-wide
+- **Status:** fixed in `egress/match/match.go`; reaches an instance on the next
+  image rebuild and restart
