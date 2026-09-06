@@ -11,13 +11,33 @@ depends:
   ]
 ---
 
-# specs/6/37 — the store model: Postgres, behind one opener
+# specs/6/37 — the store model: an object store behind an interface
 
-Decision (maintainer, signed off 2026-09-05): **Postgres is the engine
-for arizuko's own data, not only for the tools that require it.** Dex
-and LiteLLM already put a Postgres in the deployment; arizuko joins it
-rather than running a second engine beside it. `6/38`'s census is the
-evidence and its recommendation is adopted.
+Decision (maintainer): **arizuko's storage is an object store behind an
+interface.** A daemon addresses objects by key and holds no SQL; SQL lives in
+exactly one place, the interface's driver, so a second engine is a second
+driver and changes no daemon.
+
+This supersedes the earlier decision recorded here and the one
+[`6/38`](38-storage-seam.md) opens with — "arizuko moves to Postgres and writes
+no `Store` interface". That verdict costed an interface against a POSTGRES
+target, where it buys nothing because Postgres is already `database/sql`.
+Against an object store the interface is not an indirection over the engine, it
+IS the engine's shape. `6/38`'s measurements are what made the reversal
+decidable and they stand unchanged; only its verdict moved here.
+
+**The interface must be totally encapsulating, and that is a proof
+obligation, not a claim.** It has to serve SQLite, Postgres and DynamoDB
+without any of them showing through. The proof is one conformance suite every
+driver passes — the same shape `db_utils`'s migration suite already uses to run
+each test body once per engine. A driver that cannot pass it is not a driver,
+and an operation that cannot be expressed for all three does not belong on the
+interface (`6/40` names five, and three of them are the hard cases).
+
+**It needs no new engine to start.** The vendored driver is SQLite 3.51.2 with
+`jsonb()`, measured on the deployment running today, so the first driver is
+built over the engine already there. Nothing crosses a point of no return to
+begin, and no live data moves.
 
 **State.** Steps 1 to 6 of the order below are done or in progress, and the
 seam is built: `db_utils.Open` selects the engine from the DSN it is given,
@@ -334,36 +354,48 @@ audit_log SET id = id WHERE 1 = 0`, a RESERVED lock in SQLite and a
   recheck races. That substitution is mandatory on the move; the marker
   is not.
 
-## Order and reversibility
+## Order — daemon by daemon, smallest first
 
-1. The `postgres` service ships and the two tools use it (`22`, `23`).
-   Verifiable: Dex and LiteLLM start against it, and `/spend/logs`
-   answers. No arizuko daemon has a DSN yet.
-2. `L198`: one group delete, both halves — a fix, not this spec.
-3. Redesign 1 on the current files. Proof: delete through each path,
-   re-create, assert a pre-delete admin row does not authorize.
-4. Redesign 2: the three walk copies deleted. Proof: two inserts that
-   would together close a cycle run concurrently and one is refused.
-5. Redesign 3: `arizuko apply` rehearsed against a `.backup` copy with a
-   kill mid-apply — the marker stays, the gates deny, the resume clears it.
-   Its SQLite write-lock upgrade becomes `pg_advisory_xact_lock` on the
-   move, and the substitution is mandatory or the checksum recheck races.
-6. `pgx` enters `go.mod` and `db_utils` opens either engine from the DSN
-   it is given, with the connection cap this tier owes and Postgres's
-   transient class (`40001`, `40P01`, connection reset) added to the
-   retry rule. Proof: the same suite passes against both engines.
-7. Each owner database moves on its own, smallest first — `auth.db`,
-   `onbod.db`, `runed.db`, then `routd.db`. A daemon migrates its own
-   schema on either engine, so no daemon waits for another.
-8. `messages` and `audit_log` last, because `messages_fts` is FTS5 and
-   its Postgres counterpart is `tsvector`: the index is rebuilt, not
-   copied, and it ranks differently.
+Not one schema migration. Each daemon moves on its own, and the interface is
+proven before anything moves at all.
 
-Steps 1–6 are additive and revert with `git revert` — the SQLite files
-are untouched and still authoritative. **The point of no return is the
-first owner database whose writes land only on Postgres**, because
-reverting it needs a copy back that does not exist. Step 8 is the
-sharpest of those: the search index cannot come back byte-identical.
+1. **The storage-layer rule and its guard.** SQL only inside a daemon's storage
+   package, enforced by a test that fails the build — the way
+   `db_utils/opener_test.go` fails on a stray `sql.Open`. Measured today:
+   `webd` already holds zero SQL statements and is the target shape; `dashd`
+   holds 13 files and has no storage layer at all, so it goes first; `routd`
+   has 12 outside `db.go`.
+2. **The interface and its conformance suite**, derived from `6/40`'s five
+   operations. The suite runs every test body against every driver. The SQLite
+   driver is written to it, and SQL MOVES rather than changes.
+3. **`L195` settled** before anything is carried forward: `store/`'s 88
+   migration files are a second declaration of routd's schema that nothing
+   runs, and porting a schema no daemon executes is wasted work.
+4. **Daemon by daemon**, in the order their size sets. Measured on krons:
+   `emaid` 1 migration and `chanlib` 2 are the pilot; `runed` 6 tables,
+   `onbod` 7 and `authd` 7 are the middle; `routd` is last at 35 tables,
+   because every hard invariant in `6/40` lives there.
+5. **A hand-written script per daemon** reads the old tables and writes the
+   objects. One-way, small, and reviewable precisely because each daemon is
+   small — the reason for step 4's order. It is rehearsed against a copy of a
+   live database before it is believed, and "0 rows matched" is a red flag,
+   never an all-clear.
+6. **A second driver** — Postgres or DynamoDB — written to the conformance
+   suite. With it come the three redesigns `6/38` costed: the versioned
+   replace's per-scope version, membership's materialised ancestor closure, and
+   `resreg.Apply`'s lock object with bounded batches, which gives up the
+   pre-image rollback it carries today (`L44`).
+
+Steps 1 to 3 change no engine and no data, and revert with `git revert`. Step 4
+is per-daemon and reverts per daemon, which is the whole point of doing it this
+way: the point of no return arrives once per daemon instead of once for the
+system.
+
+**The open question this does not answer.** Seven owners and 156 versioned DDL
+files are a relational discipline, and an object store has no DDL past creating
+a table and its keys. Under a second driver that apparatus does not port, and
+the reviewability versioned files give has to come from somewhere else.
+`L228` and `L195` both feed it.
 
 ## Ties
 

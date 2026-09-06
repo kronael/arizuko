@@ -6,7 +6,18 @@ depends: [../5/16-mcp-rest-unification, ../5/33-paths-roles]
 
 # specs/6/38 — the storage seam: Postgres, and no seam
 
-Decision: arizuko moves to Postgres and writes no `Store` interface.
+Decision: superseded by [`6/37`](37-store-model.md) — arizuko's storage is an
+object store behind an interface, and this document is the MEASUREMENT that
+made that decidable, not the verdict. Everything below stands: the census of 47
+transaction sites, what DynamoDB's `TransactWriteItems` can and cannot carry,
+what managed Postgres leaks into application code, and both branches costed.
+The three redesigns it prices are what a second driver owes.
+
+The reasoning that follows argues for Postgres and against an interface, and it
+is correct against a POSTGRES target — an interface over `database/sql` buys
+nothing when the engine already is `database/sql`. Read it as the case that had
+to be answered.
+
 `5/16` gives each daemon its own database to own and migrate; the seam it
 does that through is Go's `database/sql`, and the
 cloud target is managed Postgres, reached by a connection string. A
