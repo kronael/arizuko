@@ -1795,6 +1795,13 @@ code fix work on a deployed instance, which it must: a chat holding a legacy
 whole-second cursor still hides a new fractional trigger. `L102` (clock skew)
 and `L103` (exact equality) survive a fixed-width format untouched.
 
+**A fixture is a writer too.** Eleven test files seeded a compared column with
+raw SQL and `time.RFC3339Nano`, which collides with the padded cursor the code
+now writes: the stripped form of an instant whose nanoseconds end in zero sorts
+AFTER the padded form of that same instant, so the row is never excluded.
+`TestBuildAgentPrompt_DoesNotConsumeTheObservedWindow` lost about one run in
+ten on it. Fixed in `2f90e308` — every fixture renders through `core.TS`.
+
 HITL approval never completes in chat. The operator types `/approve <id>`, gets
 `approved <id> (like) — the agent will re-issue it`, and **nothing happens**.
 The held call is never re-issued.
