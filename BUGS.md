@@ -11564,7 +11564,34 @@ unfaithful, and not shipped.
   file, and make the test require at least one of each. That is also something
   `arizuko migrate` could print, which the silent path today cannot.
 
-## L227 — the one-opener guard stops at the test boundary, so the suite cannot be pointed at another engine (2026-09-06, open)
+## ✅ FIXED 2026-09-06 L227 — the one-opener guard stops at the test boundary, so the suite cannot be pointed at another engine (2026-09-06)
+
+**FIXED 2026-09-06 in `a5ba8193` and `496d2f94`. All 39 sites converted, ZERO
+exempted.** Two `sql.Open("sqlite"` remain in the tree: the seam itself, and
+the guard's own string literal.
+
+The seam is `db_utils.NewTestDB(name) (dsn, release, err)`, which returns a DSN
+and links no `testing` — that matters, because `store.OpenMem`, `routd.OpenMem`
+and `runed.OpenMem` are PRODUCTION files, and a decision living in a
+`testing`-importing package would link `testing` into every daemon binary.
+`db_utils/dbtest.Open(t)` is the ergonomic wrapper for the 22 sites that just
+want an empty database; the other 17 read a file the code under test wrote, so
+their DSN is dictated by the artifact and they call `Open(FileDSN(path))`.
+
+The guard now scans `_test.go` and its only exemption is `db_utils`'s own
+directory — the named-file list is gone, and `db_utils/dbtest` is guarded like
+everything else. Proved by mutation: a direct open added to
+`routd/packages_store_test.go` fails the build naming the file and line.
+
+Pointing the suite at Postgres now fails on `AUTOINCREMENT` and `blob`, which
+is exactly the `L228` boundary — every test reaches the engine and fails on
+schema rather than on "there is no way to ask". Zero test databases are left
+behind.
+
+Two behaviour deltas worth knowing: several `":memory:"` sites ran with FOREIGN
+KEYS OFF and now run production's pragma set, and `onbod`'s
+`SetMaxOpenConns(1)` workaround for `:memory:` per-connection semantics is gone
+because the shared-cache memdb makes it unnecessary.
 
 MEASURED, and confirmed independently: `git grep -c 'sql.Open("sqlite"' --
 '*_test.go'` sums to **40 sites across 26 files**. `db_utils/opener_test.go`
@@ -11745,6 +11772,40 @@ resolve the moment the file is gone, while a bare `5/5` silently retargets.
 - **Fix:** a house rule that a spec is cited by filename wherever a link is
   possible, and the bare `N/M` form is reserved for prose that names a spec the
   sentence also describes. Then the existing guards cover the rest.
+
+## L238 — 110 test sites discard `OpenMem`'s error, so a failure crashes instead of reporting (2026-09-06, open)
+
+MEASURED while closing `L227`. `git grep -c ', _ := .*OpenMem()' -- '*_test.go'`
+sums to **110 sites across 20 files**, all shaped `s, _ := OpenMem()`. `OpenMem`
+returns `nil` on failure, so the next call panics with a nil-pointer SIGSEGV.
+
+This is unreachable while the engine is SQLite and the open cannot really fail.
+It is the FIRST thing a Postgres-pointed run hits: instead of a schema error
+naming the migration that will not apply, the output is a crash log. That makes
+it a direct blocker on reading `L228`'s progress, not a style point.
+
+- **Severity:** low today, medium the moment the suite is pointed at Postgres
+- **Scope:** 20 test files
+- **Fix:** mechanical — `s := mustOpenMem(t)` or check the error. Worth doing
+  in the same pass as the `OpenMem` rename below, since both touch the same
+  call sites.
+
+## L239 — `OpenMem` now opens Postgres when pointed, so its name is wrong (2026-09-06, open — naming)
+
+Recorded when `L227` shipped. `store.OpenMem`, `routd.OpenMem` and
+`runed.OpenMem` resolve their engine through `db_utils.NewTestDB`, so with
+`ARIZUKO_TEST_PG_DSN` set they open a fresh Postgres database. "Mem" is then
+false, and a false name is how a reader forms a wrong model of what a test
+proves.
+
+The honest name is `OpenTest`. The rename is 479 call sites across 139 test
+files — compiler-checked and mechanical, deliberately kept out of the `L227`
+diff so the seam and the guard stayed readable.
+
+- **Severity:** low — nothing misbehaves; a reader is misled
+- **Scope:** `store/`, `routd/`, `runed/` and their callers
+- **Fix:** rename with the compiler's help, in one commit that does nothing
+  else, alongside `L238`.
 
 ## L228 — 30 migration files are SQLite-only, and porting them needs a decision, not a rewrite (2026-09-06, proposal — needs sign-off)
 
