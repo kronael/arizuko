@@ -70,57 +70,6 @@ func TestMessageByID_EmptyID(t *testing.T) {
 	}
 }
 
-func TestIsBotMessageByID_BotMsg(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-
-	s.PutMessage(core.Message{
-		ID: "bot-1", ChatJID: "tg:1", Sender: "main",
-		Content: "reply", Timestamp: time.Now(),
-		FromMe: true, BotMsg: true,
-	})
-	if !s.IsBotMessageByID("bot-1") {
-		t.Error("expected true for bot message")
-	}
-}
-
-func TestIsBotMessageByID_UserMsg(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-
-	s.PutMessage(core.Message{
-		ID: "user-1", ChatJID: "tg:1", Sender: "alice",
-		Content: "hi", Timestamp: time.Now(),
-	})
-	if s.IsBotMessageByID("user-1") {
-		t.Error("expected false for user message")
-	}
-}
-
-func TestIsBotMessageByID_ByPlatformID(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-
-	s.PutMessage(core.Message{
-		ID: "out-1", ChatJID: "tg:1", Sender: "main",
-		Content: "reply", Timestamp: time.Now(),
-		FromMe: true, BotMsg: true,
-	})
-	s.MarkMessageDelivered("out-1", "plt-99")
-	if !s.IsBotMessageByID("plt-99") {
-		t.Error("expected true when looking up by platform_id")
-	}
-}
-
-func TestIsBotMessageByID_EmptyID(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-
-	if s.IsBotMessageByID("") {
-		t.Error("empty id should return false")
-	}
-}
-
 func TestMarkMessagesObserved_AndObservedSince(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
@@ -243,35 +192,6 @@ func TestMessagesBefore_BeforeCutsOff(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].ID != "old" {
 		t.Errorf("expected only 'old', got %+v", got)
-	}
-}
-
-func TestLatestSource(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-
-	now := time.Now()
-	s.PutMessage(core.Message{
-		ID: "s1", ChatJID: "tg:1", Sender: "alice",
-		Content: "hi", Timestamp: now, Source: "telegram",
-	})
-	s.PutMessage(core.Message{
-		ID: "s2", ChatJID: "tg:1", Sender: "alice",
-		Content: "bye", Timestamp: now.Add(time.Second), Source: "telegram",
-	})
-
-	got := s.LatestSource("tg:1")
-	if got != "telegram" {
-		t.Errorf("LatestSource = %q, want telegram", got)
-	}
-}
-
-func TestLatestSource_MissingJID(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-
-	if got := s.LatestSource("nope"); got != "" {
-		t.Errorf("missing jid: got %q, want empty", got)
 	}
 }
 

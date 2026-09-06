@@ -37,9 +37,11 @@ func TestJIDRoutableToFolder_MentionOnlySubfolder(t *testing.T) {
 	}
 }
 
-// An outbound bot row that stores its own platform id is matchable by
-// IsBotMessageByID, so a later human reply promotes to verb=mention (spec 6/J).
-func TestPutMessage_PlatformIDPromotable(t *testing.T) {
+// An outbound bot row carries a synthetic primary id, so the only handle on it
+// the platform ever returns is `platform_id`. routd matches a reply's parent on
+// `id OR platform_id` to promote it to verb=mention (spec 6/J); a row written
+// without the column makes that lookup miss and the agent never re-attends.
+func TestPutMessage_KeepsThePlatformID(t *testing.T) {
 	s := openMem(t)
 	ts := "1780300379.765170"
 	if err := s.PutMessage(core.Message{
@@ -48,7 +50,13 @@ func TestPutMessage_PlatformIDPromotable(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("PutMessage: %v", err)
 	}
-	if !s.IsBotMessageByID(ts) {
-		t.Fatal("IsBotMessageByID(platform TS) = false — reply-to-bot promotion would miss the tool reply")
+	var got string
+	if err := s.db.QueryRow(
+		`SELECT COALESCE(platform_id,'') FROM messages WHERE id = ?`, "mcp-test1").
+		Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got != ts {
+		t.Fatalf("platform_id = %q, want %q — the reply-to-bot lookup would miss the row", got, ts)
 	}
 }

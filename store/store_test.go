@@ -563,69 +563,6 @@ func TestPutMessage_DefaultsStatusToSent(t *testing.T) {
 	}
 }
 
-func TestPendingOutboundOlderThan_AndMarkDelivered(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-
-	old := time.Now().Add(-time.Minute)
-	fresh := time.Now()
-	// Pending row from a minute ago: should be returned
-	s.PutMessage(core.Message{
-		ID: "p1", ChatJID: "tg:1", Sender: "main", Content: "old",
-		Timestamp: old, FromMe: true, BotMsg: true, RoutedTo: "tg:1",
-		Status: core.MessageStatusPending,
-	})
-	// Pending row just inserted: too fresh for cutoff=now-30s
-	s.PutMessage(core.Message{
-		ID: "p2", ChatJID: "tg:1", Sender: "main", Content: "fresh",
-		Timestamp: fresh, FromMe: true, BotMsg: true, RoutedTo: "tg:1",
-		Status: core.MessageStatusPending,
-	})
-	// Already-sent row: never returned by the pending scan
-	s.PutMessage(core.Message{
-		ID: "s1", ChatJID: "tg:1", Sender: "main", Content: "done",
-		Timestamp: old, FromMe: true, BotMsg: true, RoutedTo: "tg:1",
-		Status: core.MessageStatusSent,
-	})
-
-	rows, err := s.PendingOutboundOlderThan(time.Now().Add(-30*time.Second), 50)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(rows) != 1 || rows[0].ID != "p1" {
-		t.Fatalf("expected only p1, got %v", rowIDs(rows))
-	}
-	if rows[0].Status != core.MessageStatusPending {
-		t.Errorf("scanned status = %q, want pending", rows[0].Status)
-	}
-
-	if err := s.MarkMessageDelivered("p1", "platform-xyz"); err != nil {
-		t.Fatal(err)
-	}
-	var st, platformID string
-	s.db.QueryRow(`SELECT status, COALESCE(platform_id,'') FROM messages WHERE id = ?`, "p1").
-		Scan(&st, &platformID)
-	if st != core.MessageStatusSent || platformID != "platform-xyz" {
-		t.Errorf("after MarkMessageDelivered: status=%q platform_id=%q", st, platformID)
-	}
-
-	if err := s.MarkMessageStatus("p2", core.MessageStatusFailed); err != nil {
-		t.Fatal(err)
-	}
-	s.db.QueryRow(`SELECT status FROM messages WHERE id = ?`, "p2").Scan(&st)
-	if st != core.MessageStatusFailed {
-		t.Errorf("after MarkMessageStatus(failed): status=%q", st)
-	}
-}
-
-func rowIDs(ms []core.Message) []string {
-	out := make([]string, len(ms))
-	for i, m := range ms {
-		out[i] = m.ID
-	}
-	return out
-}
-
 // Spec 5/G — engagement primitives.
 func TestEngagement_SetAndCheck(t *testing.T) {
 	s, _ := OpenMem()

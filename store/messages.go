@@ -33,63 +33,6 @@ func (s *Store) PutMessage(m core.Message) error {
 	return err
 }
 
-func (s *Store) MarkMessageStatus(id, status string) error {
-	_, err := s.db.Exec(`UPDATE messages SET status = ? WHERE id = ?`, status, id)
-	return err
-}
-
-func (s *Store) MarkMessageDelivered(id, platformID string) error {
-	_, err := s.db.Exec(
-		`UPDATE messages SET status = 'sent', platform_id = ? WHERE id = ?`,
-		nilIfEmpty(platformID), id,
-	)
-	return err
-}
-
-func (s *Store) PendingOutboundOlderThan(cutoff time.Time, limit int) ([]core.Message, error) {
-	if limit <= 0 || limit > 200 {
-		limit = 50
-	}
-	rows, err := s.db.Query(
-		`SELECT `+msgCols+`, status FROM messages
-		 WHERE status = 'pending' AND is_bot_message = 1
-		   AND timestamp <= ?
-		 ORDER BY timestamp ASC
-		 LIMIT ?`,
-		cutoff.Format(time.RFC3339Nano), limit,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []core.Message
-	for rows.Next() {
-		m, err := scanMessageWithStatus(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, m)
-	}
-	return out, rows.Err()
-}
-
-func scanMessageWithStatus(r rowScanner) (core.Message, error) {
-	var m core.Message
-	var ts string
-	var fromMe, botMsg, errored int
-	if err := r.Scan(&m.ID, &m.ChatJID, &m.Sender, &m.Name, &m.Content,
-		&ts, &fromMe, &botMsg, &m.ForwardedFrom,
-		&m.ReplyToID, &m.ReplyToText, &m.ReplyToSender,
-		&m.Topic, &m.RoutedTo, &m.Verb, &m.Attachments, &m.Source, &errored, &m.TurnID, &m.ChatName, &m.PlatformID, &m.Status); err != nil {
-		return m, err
-	}
-	m.FromMe = fromMe != 0
-	m.BotMsg = botMsg != 0
-	m.Errored = errored != 0
-	m.Timestamp, _ = time.Parse(time.RFC3339Nano, ts)
-	return m, nil
-}
-
 func (s *Store) EnrichMessage(id, content string) error {
 	_, err := s.db.Exec(
 		`UPDATE messages SET content=?, attachments='' WHERE id=?`,
@@ -249,17 +192,6 @@ func scanMessage(r rowScanner) (core.Message, error) {
 	m.Errored = errored != 0
 	m.Timestamp, _ = time.Parse(time.RFC3339Nano, ts)
 	return m, nil
-}
-
-func (s *Store) LatestSource(jid string) string {
-	var src string
-	s.db.QueryRow(
-		`SELECT source FROM messages
-		 WHERE chat_jid = ? AND source != '' AND is_bot_message = 0
-		 ORDER BY timestamp DESC LIMIT 1`,
-		jid,
-	).Scan(&src)
-	return src
 }
 
 type TopicSummary struct {
@@ -561,26 +493,6 @@ func (s *Store) RoutedToByMessageID(id string) string {
 	return routedTo
 }
 
-// IsBotMessageByID returns true when the id refers to a stored message the bot itself
-// sent. Used by the reply-to-bot → verb=mention promotion (spec 6/J).
-//
-// Outbound bot rows carry a SYNTHETIC primary id and MarkMessageDelivered stuffs the
-// platform's returned id into `platform_id`, while an inbound reaction's `reply_to`
-// carries the platform id — so we match either column.
-func (s *Store) IsBotMessageByID(id string) bool {
-	if id == "" {
-		return false
-	}
-	var v int
-	s.db.QueryRow(
-		`SELECT 1 FROM messages
-		  WHERE (id=? OR platform_id=?) AND is_bot_message=1
-		  LIMIT 1`,
-		id, id,
-	).Scan(&v)
-	return v == 1
-}
-
 // MessageByID returns one message by primary key, or ok=false if missing.
 // Light-weight read for tests and probes; production routing paths use
 // the bulk `NewMessages` window instead.
@@ -642,26 +554,6 @@ func (s *Store) MessagesBefore(jid string, before time.Time, limit int) ([]core.
 		msgs[i], msgs[j] = msgs[j], msgs[i]
 	}
 	return msgs, nil
-}
-
-// MessagesAll returns all rows (inbound + bot) for jid, newest first.
-// Unlike MessagesBefore it does not filter is_bot_message; used by tests
-// asserting the mute path persists outbound while skipping platform send.
-func (s *Store) MessagesAll(jid string, limit int) ([]core.Message, error) {
-	if limit <= 0 || limit > 200 {
-		limit = 100
-	}
-	rows, err := s.db.Query(
-		`SELECT `+msgCols+` FROM messages
-		 WHERE chat_jid = ?
-		 ORDER BY timestamp DESC
-		 LIMIT ?`,
-		jid, limit,
-	)
-	if err != nil {
-		return nil, err
-	}
-	return collectMessages(rows)
 }
 
 func (s *Store) JIDRoutedToFolder(jid, folder string) bool {
