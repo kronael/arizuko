@@ -410,6 +410,47 @@ proven before anything moves at all.
    closure, and `resreg.Apply`'s lock object with bounded batches, which gives
    up the pre-image rollback it carries today (`L44`).
 
+## How a daemon's tables become documents — five rules
+
+Derived from modelling `runed`, the first daemon to move. Its five tables are
+one domain entity (`spawns`, 232 rows, 56 references), one mandated
+`audit_log`, one history log (`session_log`, 15,008 rows), one flag table
+(`circuit_breaker`) and bookkeeping — and the sixth table SQLite reports is
+`sqlite_sequence`, which exists only because of `AUTOINCREMENT` and does not
+survive the move.
+
+**1. Partition by the coordinate you filter on, not the identifier you look up
+by.** `spawns.run_id` is the SQL primary key, but the queries are
+`WHERE folder=?` and `WHERE folder=? AND state IN ('queued','running')`. Make
+`folder` the partition and `run_id` the sort key, or every real query becomes a
+scan. The tenancy coordinate is almost always the right partition, which is the
+same fact `6/40` §1 states about containment.
+
+**2. Count the queries that carry no partition key before designing.** runed
+has three: `state IN ('queued','running')`, `kind='agent' AND state IN (…)`,
+and `created_at < ?` for the sweep. Each is a full scan unless it gets a
+secondary index or the caller starts supplying a folder. A query without the
+partition key is either an index you must declare or a design error you must
+fix — never something to discover at runtime.
+
+**3. A foreign key becomes an embed or a duplicated key, and you must choose.**
+`spawns.session_log_id REFERENCES session_log(id)` cannot be a join. If the
+child is only ever read with its parent, embed it; if it is read on its own,
+copy the parent's key into it and index that. Deciding by default is how a
+document model rots.
+
+**4. Never order by a generated id.** `session_log` is read
+`ORDER BY id DESC LIMIT ?`, and that `id` is `AUTOINCREMENT` — a sequence no
+document store has. Order by a time key the writer produces, fixed width so
+string order is time order. That is `core.TS` and the reason `L97` cost every
+approval in the system.
+
+**5. Separate history from state.** `audit_log` and `session_log` are
+append-only history; `spawns` and `circuit_breaker` are mutable state. History
+is write-once, needs none of the transactional guarantees state does, and
+partitions by time or folder without contention. Modelling them alike makes the
+cheap thing pay the expensive thing's costs.
+
 ## The migration is an export and an import, through infrastructure that exists
 
 Not a hand-written script per daemon. `resreg.ExportSnapshot` reads a
