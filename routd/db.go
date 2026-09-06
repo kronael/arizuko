@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/kronael/arizuko/audit"
@@ -552,17 +553,15 @@ func (d *DB) MarkMessagesObserved(folder string, ids []string) error {
 	if len(ids) == 0 {
 		return nil
 	}
-	tx, err := d.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
+	args := make([]any, 0, len(ids)+1)
+	args = append(args, folder)
 	for _, id := range ids {
-		if _, err := tx.Exec("UPDATE messages SET is_observed=1, routed_to=? WHERE id=?", folder, id); err != nil {
-			return err
-		}
+		args = append(args, id)
 	}
-	return tx.Commit()
+	_, err := d.db.Exec(
+		"UPDATE messages SET is_observed=1, routed_to=? WHERE id IN (?"+
+			strings.Repeat(",?", len(ids)-1)+")", args...)
+	return err
 }
 
 // Routes returns the route table by ascending seq.

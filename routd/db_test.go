@@ -4,6 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/kronael/arizuko/core"
 )
 
 // Open never creates routd.db. Without this, a routd pointed at the wrong
@@ -95,5 +98,48 @@ func TestChatUpsertsPreserveTheOtherColumns(t *testing.T) {
 	}
 	if !db.ChatIsGroup(jid) {
 		t.Error("is_group not persisted")
+	}
+}
+
+// The observe ingest marks a whole batch at once. One UPDATE with an IN list
+// binds one placeholder per id, so an off-by-one in that list either errors or
+// silently marks the wrong rows — and a half-marked batch re-enters the next
+// poll as unobserved, which fires the turn the observe rule exists to suppress.
+func TestMarkMessagesObservedMarksEveryIDInTheBatch(t *testing.T) {
+	db := memDB(t)
+	const jid = "slack:T/C/X"
+	ids := []string{"a", "b", "c"}
+	for _, id := range ids {
+		if err := db.PutMessage(core.Message{ID: id, ChatJID: jid, Sender: "u",
+			Content: id, Timestamp: time.Now().UTC()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// One row outside the batch: it must stay unobserved.
+	if err := db.PutMessage(core.Message{ID: "d", ChatJID: jid, Sender: "u",
+		Content: "d", Timestamp: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := db.MarkMessagesObserved("demo", ids); err != nil {
+		t.Fatalf("MarkMessagesObserved: %v", err)
+	}
+	for _, id := range ids {
+		var obs int
+		var routed string
+		if err := db.SQL().QueryRow(
+			"SELECT is_observed, routed_to FROM messages WHERE id=?", id).Scan(&obs, &routed); err != nil {
+			t.Fatal(err)
+		}
+		if obs != 1 || routed != "demo" {
+			t.Errorf("id %q: is_observed=%d routed_to=%q, want 1/demo", id, obs, routed)
+		}
+	}
+	var obs int
+	if err := db.SQL().QueryRow("SELECT is_observed FROM messages WHERE id='d'").Scan(&obs); err != nil {
+		t.Fatal(err)
+	}
+	if obs != 0 {
+		t.Error("a row outside the batch was marked observed")
 	}
 }
