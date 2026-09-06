@@ -11640,6 +11640,79 @@ each ran the short suite and called the tree green.
   open half is process: decide whether `make test` should carry the e2e, or
   whether shipping a spec's mechanism must run `make test-e2e` before merge.
 
+## L234 — `template/web/pub/arizuko/legacy/` is a second publicly-reachable site documenting deleted machinery (2026-09-06, open)
+
+MEASURED while fixing `L220`. The `legacy/` tree is a whole second copy of the
+operator site, linked from `changelog/index.html:183`, so a reader reaches it.
+It documents machinery that no longer exists: the `gated` daemon (deleted at
+v0.50.0), 35 mentions of the retired `CHANNEL_SECRET`, tier-0/tier-1
+authorization (tiers are gone per `5/33`), and a cost gate "in `gateway/`".
+
+It carried 19 of the 31 files the `L220` sweep had to edit, so it is not inert
+— it is a maintenance tax that pays for nothing, and it hands readers a picture
+of a system that is not this one.
+
+- **Severity:** medium — public, and wrong in ways a reader cannot detect
+- **Scope:** `template/web/pub/arizuko/legacy/`
+- **Fix:** delete it, or unlink it and mark it an archive with a date at the
+  top of every page. Deleting a published tree is a decision, not a fix —
+  hence this entry rather than a commit.
+
+## L235 — `arizuko-client.js` exists in three copies and they have now diverged (2026-09-06, open)
+
+MEASURED. The browser SDK ships byte-identical at `webd/assets/`,
+`template/web/pub/arizuko/assets/` and `.../legacy/assets/`.
+`specs/1/Z2-slink-sdk.md` says the `embed.FS` copy is the single source of
+truth precisely so there is "no copy-drift".
+
+The `L220` sweep repointed the spec reference in the two `pub/` copies and left
+`webd/assets/arizuko-client.js:16` pointing at the deleted `specs/1/W-slink.md`
+— because that file is outside the web bucket. So the three now differ by
+exactly that line, which is the drift the spec exists to prevent, demonstrated.
+
+- **Severity:** low — one comment line today; the mechanism guarantees more
+- **Scope:** `webd/assets/`, `template/web/pub/arizuko/assets/`, `.../legacy/`
+- **Fix:** one copy with the others generated or served from it, per `1/Z2`.
+  Until then a test that fails when the three differ.
+
+## L236 — 10 of 195 repo links on the public site point at Go files that do not exist (2026-09-06, open)
+
+MEASURED while fixing `L220`. The site deep-links into source: `gateway/gateway.go`
+(5 pages), `grants/grants.go` (4), `gateway/commands.go` (3), `auth/policy.go`
+(3), `store/identities.go` (2), plus `mastd/main.go`, `gated/main.go`,
+`crackbox/pkg/host/host.go`, `core/jid.go` and `core/jid_test.go`.
+
+Two live pages are affected. `reference/topics.html` carries **12 line-anchored
+links into the deleted `gateway/`**, so every one is a 404 with a line number
+that means nothing.
+
+This is `L220`'s defect for code rather than specs, and the new `tests/webdocs`
+guard cannot see it: those are absolute github.com URLs, which it skips as
+off-site.
+
+- **Severity:** medium — public 404s from the reference pages
+- **Scope:** `template/web/pub/arizuko/`, `tests/webdocs`
+- **Fix:** repoint each at the file that holds the code now, then teach the
+  guard to resolve a github.com blob URL that points into THIS repo against the
+  working tree — the off-site skip is what let these through.
+
+## L237 — a spec renumber that lands on a live number cannot be caught by any check (2026-09-06, open)
+
+OBSERVED while fixing `L220`. `legacy/reference/mcp.html` said "Spec 5/5
+(uniform MCP/REST registry)". `5/5` today is `worlds-agents-sessions`. The
+citation resolves, so neither `tests/specrefs` nor the new `tests/webdocs`
+guard can flag it — the number is live, it just names a different spec.
+
+Only the filename form is self-checking: `5/5-uniform-mcp-rest.md` fails to
+resolve the moment the file is gone, while a bare `5/5` silently retargets.
+
+- **Severity:** low — one known instance, but it is undetectable by
+  construction, which is what makes it worth a rule
+- **Scope:** the citation convention
+- **Fix:** a house rule that a spec is cited by filename wherever a link is
+  possible, and the bare `N/M` form is reserved for prose that names a spec the
+  sentence also describes. Then the existing guards cover the rest.
+
 ## L228 — 30 migration files are SQLite-only, and porting them needs a decision, not a rewrite (2026-09-06, proposal — needs sign-off)
 
 MEASURED by applying all 154 migration files one at a time against a real
