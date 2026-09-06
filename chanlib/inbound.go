@@ -29,6 +29,8 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/kronael/arizuko/core"
 )
 
 const (
@@ -129,7 +131,7 @@ func (r *RouterClient) retainInbound(msg InboundMsg, cause error) {
 	slog.Warn("inbound retained for re-delivery", "id", msg.ID, "chat_jid", msg.ChatJID, "err", cause)
 }
 
-func rfc(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
+func rfc(t time.Time) string { return core.TS(t) }
 
 // inboundBackoff is the wait after `attempts` consecutive failures: 30s
 // doubling to a 15m ceiling.

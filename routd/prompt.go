@@ -43,7 +43,7 @@ func (l *Loop) buildAgentPrompt(folder, topic string, trigger []core.Message) (s
 	observed := l.db.ObservedSince(folder, cursor, maxN, maxC)
 	mark := ""
 	if len(observed) > 0 {
-		mark = observed[len(observed)-1].Timestamp.UTC().Format(time.RFC3339Nano)
+		mark = core.TS(observed[len(observed)-1].Timestamp)
 	}
 
 	rules := ""

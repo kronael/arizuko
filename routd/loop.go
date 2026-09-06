@@ -599,7 +599,7 @@ func (l *Loop) pollOnce() {
 		// Global poll feeds from the min cursor; skip chats already current on
 		// their own cursor — enqueuing them would (false,nil)→trip the queue
 		// breaker (cost a 3-attempt split cutover to find).
-		if last.Timestamp.UTC().Format(time.RFC3339Nano) <= l.db.GetAgentCursor(chatJID) {
+		if core.TS(last.Timestamp) <= l.db.GetAgentCursor(chatJID) {
 			continue
 		}
 		r := l.resolve(chatJID, last)
@@ -799,7 +799,7 @@ func (l *Loop) directFolder(jid string) string {
 func (l *Loop) advance(chatJID string, last core.Message) {
 	// Any cursor advance is progress past the batch a Busy refusal parked.
 	l.busyWait.Delete(chatJID)
-	_ = l.db.SetAgentCursor(chatJID, last.Timestamp.UTC().Format(time.RFC3339Nano))
+	_ = l.db.SetAgentCursor(chatJID, core.TS(last.Timestamp))
 }
 
 // sessionIdleExpiry is the default spawn-time stale-session threshold.
@@ -807,7 +807,7 @@ func (l *Loop) advance(chatJID string, last core.Message) {
 const sessionIdleExpiry = 2 * 24 * time.Hour
 
 // sessionIdleExpired reports whether the chat's last activity (its agent_cursor,
-// an RFC3339Nano timestamp) is older than the idle threshold. A zero/empty or
+// a stored timestamp) is older than the idle threshold. A zero/empty or
 // unparseable cursor is never expired (fresh chat — no session to reset anyway).
 func (l *Loop) sessionIdleExpired(chatJID string) bool {
 	cur := l.db.GetAgentCursor(chatJID)

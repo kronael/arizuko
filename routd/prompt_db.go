@@ -88,7 +88,7 @@ func (d *DB) TopicLineage(folder, topic string) (core.TopicLineage, bool) {
 	return out, true
 }
 
-// UpdateObservedCursor advances a topic's observed cursor to ts (RFC3339Nano
+// UpdateObservedCursor advances a topic's observed cursor to ts (core.TSLayout
 // UTC), monotonically (only when the new value is strictly greater, or NULL).
 // UPSERT, not UPDATE: buildAgentPrompt advances the cursor BEFORE PutSession
 // creates the (folder,topic) row, so a plain UPDATE would match zero rows on a
@@ -145,7 +145,7 @@ func (d *DB) WatchedSources(folder string) []string {
 }
 
 // ObservedSince returns the trailing window of observed messages for folder
-// whose timestamp is strictly greater than cursor (RFC3339Nano UTC). Empty
+// whose timestamp is strictly greater than cursor (core.TSLayout UTC). Empty
 // cursor means "no lower bound; the window cap decides". Capped by maxMsgs and
 // maxChars; the oldest messages drop first when the char cap binds.
 //

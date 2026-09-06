@@ -2,7 +2,8 @@ package store
 
 import (
 	"database/sql"
-	"time"
+
+	"github.com/kronael/arizuko/core"
 )
 
 // PaneSession is a Slack assistant pane session — one per (team, user,
@@ -10,10 +11,10 @@ import (
 // context_jid is the workspace channel the user is viewing while the
 // pane is open (may be empty).
 type PaneSession struct {
-	TeamID       string
-	UserID       string
-	ThreadTS     string
-	ChannelID    string
+	TeamID     string
+	UserID     string
+	ThreadTS   string
+	ChannelID  string
 	ContextJID string
 	OpenedAt   string
 }
@@ -21,7 +22,7 @@ type PaneSession struct {
 // UpsertPane inserts or updates the pane row for (team, user, thread_ts).
 // Sets opened_at on insert only; channel_id is refreshed on every call.
 func (s *Store) UpsertPane(teamID, userID, threadTS, channelID string) error {
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	now := core.NowTS()
 	_, err := s.db.Exec(
 		`INSERT INTO pane_sessions (team_id, user_id, thread_ts, channel_id, opened_at)
 		 VALUES (?, ?, ?, ?, ?)

@@ -3,7 +3,6 @@ package store
 import (
 	"database/sql"
 	"errors"
-	"time"
 
 	"github.com/kronael/arizuko/core"
 )
@@ -16,7 +15,7 @@ func (s *Store) RecordTurnResult(folder, turnID, sessionID, status string) (bool
 		 (folder, turn_id, session_id, status, recorded_at)
 		 VALUES (?, ?, ?, ?, ?)`,
 		folder, turnID, nilIfEmpty(sessionID), status,
-		time.Now().Format(time.RFC3339Nano),
+		core.NowTS(),
 	)
 	if err != nil {
 		return false, err

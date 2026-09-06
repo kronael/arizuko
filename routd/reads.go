@@ -32,7 +32,7 @@ func (d *DB) MessagesBefore(jid, before string, limit int) ([]core.Message, erro
 		limit = 100
 	}
 	if before == "" {
-		before = time.Now().UTC().Format(time.RFC3339Nano)
+		before = core.NowTS()
 	}
 	rows, err := d.db.Query(`SELECT `+msgReadCols+` FROM messages
 		WHERE chat_jid=? AND timestamp < ? ORDER BY timestamp DESC LIMIT ?`,
@@ -58,7 +58,7 @@ func (d *DB) MessagesByThread(jid, topic, before string, limit int) ([]core.Mess
 		limit = 50
 	}
 	if before == "" {
-		before = time.Now().UTC().Format(time.RFC3339Nano)
+		before = core.NowTS()
 	}
 	rows, err := d.db.Query(`SELECT `+msgReadCols+` FROM messages
 		WHERE chat_jid=? AND topic=? AND timestamp < ? ORDER BY timestamp DESC LIMIT ?`,

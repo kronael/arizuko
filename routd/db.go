@@ -27,7 +27,7 @@ const serviceName = "routd"
 
 // DB is routd's owner of routd.db: the message/event store + routing rules +
 // turn lifecycle + route tokens. routd is the SOLE appender of messages. Times
-// are RFC3339Nano UTC, computed in Go.
+// are core.TSLayout UTC, computed in Go.
 type DB struct {
 	db *sql.DB
 
@@ -107,7 +107,7 @@ func (d *DB) Close() error {
 // SQL returns the raw handle for callers that need it (tests).
 func (d *DB) SQL() *sql.DB { return d.db }
 
-func nowTS() string { return time.Now().UTC().Format(time.RFC3339Nano) }
+func nowTS() string { return core.NowTS() }
 
 // PutGroup upserts a group identity row, persisting the per-group model +
 // container_config so dispatchRun can forward them to runed (GroupConfig reads
@@ -249,7 +249,7 @@ func putMessage(x execer, m core.Message) error {
 		 topic, routed_to, verb, attachments, source, is_observed, turn_id, status,
 		 platform_id, chat_name, link_context)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		m.ID, m.ChatJID, m.Sender, m.Name, m.Content, m.Timestamp.UTC().Format(time.RFC3339Nano),
+		m.ID, m.ChatJID, m.Sender, m.Name, m.Content, core.TS(m.Timestamp),
 		b2i(m.FromMe), b2i(m.BotMsg), m.ForwardedFrom, m.ReplyToID, m.ReplyToText, m.ReplyToSender,
 		m.Topic, m.RoutedTo, defaultVerb(m.Verb), m.Attachments, m.Source, b2i(false),
 		nullStr(m.TurnID), defaultStatus(m.Status), nullStr(m.PlatformID), m.ChatName,
@@ -369,7 +369,7 @@ func (d *DB) PendingOutbound(cutoff time.Time, limit int) ([]core.Message, error
 	}
 	rows, err := d.db.Query(`SELECT `+msgReadCols+`
 		FROM messages WHERE status='pending' AND is_bot_message=1 AND timestamp <= ?
-		ORDER BY timestamp ASC LIMIT ?`, cutoff.UTC().Format(time.RFC3339Nano), limit)
+		ORDER BY timestamp ASC LIMIT ?`, core.TS(cutoff), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -606,7 +606,7 @@ const engagementUpsert = `INSERT INTO chat_reply_state(jid, topic, last_reply_id
 	ON CONFLICT(jid, topic) DO UPDATE SET engaged_until=excluded.engaged_until, engaged_folder=excluded.engaged_folder`
 
 func engagementArgs(jid, topic, folder string, ttl time.Duration) []any {
-	return []any{jid, topic, time.Now().Add(ttl).UTC().Format(time.RFC3339Nano), folder}
+	return []any{jid, topic, core.TS(time.Now().Add(ttl)), folder}
 }
 
 // SetEngagement claims an engagement window for (jid, topic) by folder until
@@ -684,7 +684,7 @@ func (d *DB) Engaged(jid, topic string) (string, bool) {
 // Containment is descendant(row.Folder, folder) — self-or-below — deliberately
 // NOT ownsFolder, which reports true for an empty target and would show every
 // scoped caller the rows no folder has claimed. The window filter runs here
-// because the deadline is RFC3339Nano TEXT, and the subtree filter runs here so
+// because the deadline is core.TSLayout TEXT, and the subtree filter runs here so
 // containment has ONE implementation instead of a LIKE pattern that a folder name
 // containing _ or % would silently widen.
 func (d *DB) ListEngaged(folder string, all bool) ([]Engagement, error) {
@@ -894,7 +894,7 @@ func (d *DB) RunningTurns() ([]TurnContext, error) {
 // re-fed by crash recovery, without tripping the done-guard against a legitimate
 // re-dispatch. Returns the count swept.
 func (d *DB) SweepExpiredRunning(timeout time.Duration) (int64, error) {
-	cutoff := time.Now().Add(-timeout).UTC().Format(time.RFC3339Nano)
+	cutoff := core.TS(time.Now().Add(-timeout))
 	res, err := d.db.Exec("UPDATE turn_context SET state='expired' WHERE state='running' AND started_at < ?", cutoff)
 	if err != nil {
 		return 0, err
@@ -1152,11 +1152,11 @@ func (d *DB) SpendTodayUser(userSub string) (int, error) {
 	return cents, err
 }
 
-// startOfTodayUTC is the RFC3339Nano timestamp at 00:00 UTC today — the budget
+// startOfTodayUTC is the stored-timestamp form of 00:00 UTC today — the budget
 // window's lower bound.
 func startOfTodayUTC() string {
 	now := time.Now().UTC()
-	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).Format(time.RFC3339Nano)
+	return core.TS(time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC))
 }
 
 // proactiveSelfSender is the synthetic inbound's sender. Rows from it never
@@ -1219,7 +1219,7 @@ func (d *DB) LatestSource(jid string) string {
 func (d *DB) BotSpokeSince(jid string, since time.Time) bool {
 	var n int
 	d.db.QueryRow(`SELECT 1 FROM messages WHERE chat_jid=? AND is_bot_message=1
-		AND timestamp>=? LIMIT 1`, jid, since.UTC().Format(time.RFC3339Nano)).Scan(&n)
+		AND timestamp>=? LIMIT 1`, jid, core.TS(since)).Scan(&n)
 	return n == 1
 }
 
@@ -1229,7 +1229,7 @@ func (d *DB) InboundCountSince(jid string, since time.Time) int {
 	var n int
 	d.db.QueryRow(`SELECT COUNT(*) FROM messages WHERE chat_jid=?
 		AND is_bot_message=0 AND sender<>? AND timestamp>=?`,
-		jid, proactiveSelfSender, since.UTC().Format(time.RFC3339Nano)).Scan(&n)
+		jid, proactiveSelfSender, core.TS(since)).Scan(&n)
 	return n
 }
 

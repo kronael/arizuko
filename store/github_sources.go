@@ -128,7 +128,7 @@ func (s *Store) AddGitHubSourceTx(ctx context.Context, tx *sql.Tx, src GitHubSou
 	}
 	res, err := tx.ExecContext(ctx,
 		`INSERT OR IGNORE INTO github_sources (source, secret, owner_folder, created_at) VALUES (?, ?, ?, ?)`,
-		src.Source, sealed, src.OwnerFolder, ts.UTC().Format(time.RFC3339Nano))
+		src.Source, sealed, src.OwnerFolder, core.TS(ts))
 	if err != nil {
 		return "", err
 	}

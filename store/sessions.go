@@ -40,7 +40,7 @@ func (s *Store) EnsureTopicLineage(folder, topic, parentTopic, newSessionID stri
 	if topic == "" {
 		return false, nil
 	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	now := core.NowTS()
 	res, err := s.db.Exec(
 		`INSERT OR IGNORE INTO sessions
 		   (group_folder, topic, session_id, parent_topic, forked_at, observed_cursor)
@@ -86,7 +86,7 @@ func (s *Store) TopicLineage(folder, topic string) (core.TopicLineage, bool) {
 }
 
 // UpdateObservedCursor advances a topic's observed cursor to ts
-// (RFC3339Nano UTC). Idempotent: only writes when the new cursor is
+// (core.TSLayout UTC). Idempotent: only writes when the new cursor is
 // strictly greater than the stored one (or stored is NULL).
 func (s *Store) UpdateObservedCursor(folder, topic, ts string) error {
 	_, err := s.db.Exec(
@@ -107,7 +107,7 @@ func (s *Store) ForkTopic(folder, parent, child, newSessionID string, force bool
 	if child == "" {
 		return fmt.Errorf("fork: child topic empty")
 	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	now := core.NowTS()
 	if force {
 		_, err := s.db.Exec(
 			`INSERT INTO sessions (group_folder, topic, session_id,

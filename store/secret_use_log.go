@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/core"
 )
 
 // SecretUseRow is one audit row written by the broker middleware per
@@ -38,7 +39,7 @@ func (s *Store) LogSecretUse(r SecretUseRow) error {
 		`INSERT INTO secret_use_log
 		 (ts, spawn_id, caller_sub, folder, tool, key, scope, status, latency_ms)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		ts.Format(time.RFC3339Nano), r.SpawnID, r.CallerSub, r.Folder,
+		core.TS(ts), r.SpawnID, r.CallerSub, r.Folder,
 		r.Tool, r.Key, r.Scope, r.Status, r.LatencyMS); err != nil {
 		return err
 	}
