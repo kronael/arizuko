@@ -1,6 +1,7 @@
 package db_utils
 
 import (
+	"context"
 	"database/sql"
 	"embed"
 	"os"
@@ -195,11 +196,23 @@ func TestMigrateResumesFromAPartiallyMigratedDatabase(t *testing.T) {
 // file twice, which the fixture's CREATE TABLE turns into an error -- or, with
 // IF NOT EXISTS DDL, into silently doubled INSERTs.
 //
-// testdata/slow's first migration holds the transaction for ~100ms so every
-// other opener has certainly read MAX(version)=0 before it commits. Against
-// testdata/ok the goroutines simply serialise and neither guard is exercised --
-// removing the recheck, or downgrading the lock to a bare BEGIN, left that
-// version of this test green.
+// testdata/slow's first migration holds the transaction for ~100ms, which is
+// the window the other five openers need to read MAX(version)=0 and queue on
+// the same file. Against testdata/ok they serialise instead and neither guard
+// is exercised: removing the recheck, or downgrading the lock to a bare BEGIN,
+// keeps a testdata/ok run green.
+//
+// The hold is only half of it. Creating the bookkeeping table takes the same
+// critical section the migrations do, so an opener queued behind a rival's
+// CREATE TABLE reads the version only after that rival has committed a
+// migration as well, and then skips every file at the top of migrate without
+// ever reaching the recheck — 17 runs in 30 raced nothing at all. Creating the
+// table before the start line puts all six openers on one start line, which is
+// also the state every restart after the first one is in.
+//
+// The end state is identical whether six openers raced for a file or one
+// applied every file before the other five read the version, so the counts
+// below are what says the race happened at all.
 func TestMigrateAppliesEachFileOnceUnderConcurrentOpeners(t *testing.T) {
 	forEachEngine(t, func(t *testing.T, e *engineFixture) {
 		const openers = 6
@@ -207,16 +220,20 @@ func TestMigrateAppliesEachFileOnceUnderConcurrentOpeners(t *testing.T) {
 		for i := range dbs {
 			dbs[i] = e.open(t, t.Name())
 		}
+		if err := createVersionTable(context.Background(), dbs[0], dialectFor(dbs[0])); err != nil {
+			t.Fatalf("create the migrations table: %v", err)
+		}
 
 		var wg sync.WaitGroup
 		errs := make([]error, openers)
+		reports := make([]migrateReport, openers)
 		start := make(chan struct{})
 		for i := range dbs {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
 				<-start
-				errs[i] = Migrate(dbs[i], fixtures, "testdata/slow", "svc")
+				reports[i], errs[i] = migrate(dbs[i], fixtures, "testdata/slow", "svc")
 			}(i)
 		}
 		close(start)
@@ -235,6 +252,20 @@ func TestMigrateAppliesEachFileOnceUnderConcurrentOpeners(t *testing.T) {
 		}
 		if got := e.appliedVersions(t, dbs[0], "svc"); len(got) != 3 {
 			t.Errorf("recorded versions = %v, want exactly three", got)
+		}
+
+		var applied, yielded int
+		for _, r := range reports {
+			applied += len(r.applied)
+			yielded += len(r.yielded)
+		}
+		if applied != 3 {
+			t.Errorf("the openers ran %d files between them, want 3 — each file exactly once", applied)
+		}
+		if yielded == 0 {
+			t.Fatalf("fixture is vacuous: applied=%d yielded=%d, want yielded non-zero — "+
+				"no opener waited on the critical section and found the file already recorded, "+
+				"so the recheck this test exists for did not run", applied, yielded)
 		}
 	})
 }
