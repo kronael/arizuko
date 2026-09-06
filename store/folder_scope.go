@@ -105,7 +105,11 @@ var folderScopeKeep = map[string]string{
 	"session_log":    "history",
 	"task_run_logs":  "history; cascaded by scheduled_tasks.id where a run is still linked",
 	"cost_log":       "the spend a deleted folder booked is still owed",
-	"messages":       "the transcript of a chat that outlives the folder",
+	// The gateway meters spend now (spec 6/39); this holds what arizuko
+	// booked before it, frozen, with no writer. A delete must not erase a
+	// folder's billing record any more than it erases its audit trail.
+	"cost_log_archive": "history; the ledger arizuko kept before the gateway",
+	"messages":         "the transcript of a chat that outlives the folder",
 
 	// The FTS index over messages and the four shadow tables sqlite hangs off
 	// it. Its triggers follow messages, which this delete does not touch.
