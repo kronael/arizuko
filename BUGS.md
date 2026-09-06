@@ -11854,6 +11854,78 @@ diff so the seam and the guard stayed readable.
 - **Fix:** rename with the compiler's help, in one commit that does nothing
   else, alongside `L238`.
 
+## L243 — `system_messages` survives a group delete, and two schemas disagree on its folder column (2026-09-06, open)
+
+FOUND while closing `L198`. `system_messages` is folder-scoped and no delete
+path purges it, so `FlushSysMsgs` drains a deleted tenant's queue into the NEXT
+tenant's prompt on the re-created folder.
+
+It is not in the one purge because the two schemas disagree on the column:
+routd.db calls it `folder`, messages.db calls it `group_id`. A migration to
+reconcile them was written and rehearsed against copies of krons' and
+marinade's live `messages.db` — 0 rows both times, which is a red flag rather
+than an all-clear, so it was re-run with three seeded old-shape rows and mapped
+all three with ids preserved. It was then REVERTED, because
+`cmd/arizuko/migrate_split.go:151` reads `group_id, origin, event, created_at`
+by name, and changing a historical one-way cutover tool for a low-severity leak
+is the wrong trade.
+
+- **Severity:** medium — content crosses a tenant boundary, but only into a
+  folder path that was deleted and re-created
+- **Scope:** `store/`, `messages.db`, `cmd/arizuko/migrate_split.go`
+- **Fix:** reconcile the column with a spec that says what `migrate_split` does
+  after it, or let `6/37` redesign 1's generation make the stale rows
+  unreachable instead
+
+## L244 — `invites` and `invite_redemptions` are folder-scoped in another database, so no purge reaches them (2026-09-06, open)
+
+FOUND while closing `L198`. Both live in onbod.db and carry `target_glob`,
+which names a folder subtree. A redemption that outlives its folder authorizes
+`handleCreateWorld` under the re-created path, admitting someone the new tenant
+never invited.
+
+One transaction on routd.db cannot reach a second database, so this is not
+fixable by extending the purge. It is the first concrete case for `6/37`
+redesign 1: a generation makes a stale row unreachable without needing the two
+databases to commit together.
+
+- **Severity:** medium — admission to a re-created folder by a stale invite
+- **Scope:** `onbod/`, `specs/6/37` redesign 1
+- **Fix:** the generation, or an onbod-side sweep keyed on the folder's absence
+
+## L245 — routd's `registerGroup` rollback deletes a subtree it did not create (2026-09-06, open)
+
+FOUND while closing `L198`. `routd/mcp.go:217` rolls back a failed route insert
+by calling the group delete. `PutGroup` upserts, so when the folder already
+existed the rollback removes rows it never created — and now that the purge is
+a subtree delete, it takes the folder's children with it.
+
+The unsoundness predates the purge change, which only widens the blast radius:
+the rollback already destroyed a pre-existing folder's own rows.
+
+- **Severity:** low — needs a route insert to fail on a folder that already
+  exists
+- **Scope:** `routd/mcp.go`
+- **Fix:** roll back only what this call created — check whether `PutGroup`
+  inserted or updated, and skip the delete when it updated
+
+## L246 — orphan rows from the old delete cannot be cleaned through the new one (2026-09-06, open)
+
+MEASURED. marinade carries one orphan route, four engagement rows and two
+sessions for `libtest` and `atlas/tom`, left by the delete path `L198` fixed.
+`DeleteGroup` no-ops when no `groups` row matches, so the fixed purge cannot
+reach them: the row that would trigger it is exactly the row that is gone.
+
+`atlas/tom` is a child folder, which the exact-match `groups` delete could
+never have reached in the first place.
+
+- **Severity:** low — stale rows, no authorization among them (zero `acl`
+  orphans fleet-wide)
+- **Scope:** `store/`, `cmd/arizuko`
+- **Fix:** a `purge <folder>` verb that runs the scope without requiring the
+  `groups` row, or `6/37` redesign 1's generation, which makes an orphan
+  unreachable rather than absent
+
 ## L228 — 30 migration files are SQLite-only, and porting them needs a decision, not a rewrite (2026-09-06, proposal — needs sign-off)
 
 MEASURED by applying all 154 migration files one at a time against a real
