@@ -10360,6 +10360,12 @@ unroutable folder — the `L66`/`L67` shape — and its `chat_reply_state`.
 - **Status:** open — proposal, needs sign-off: one delete in `store.DeleteGroup` carrying both halves (`groups` exact and `/`-subtree, `acl` `/`-subtree, `routes` both separators, `chat_reply_state`, `scheduled_tasks`, the audit row through `runAudited`), and dashd calling it. `specs/6/37` redesign 1 makes the cascade non-security-bearing by construction.
 - **Fix:**
 
+`specs/6/40-store-surface.md:53-67` now collapses this cascade and
+`resreg.Apply` into one "versioned replace". The code does not: `DeleteGroup`
+uses four table-specific predicates and no version, while `Apply` uses exact
+resource scopes plus a subsystem-wide checksum compare-and-swap
+(`resreg/engine.go:301-316,786-879`).
+
 ## L199 — `packages add` links a manifest whose non-route keys nothing reads (2026-09-05, open)
 
 `arizuko packages <inst> add <name>` symlinks or copies the catalog's
@@ -12041,3 +12047,35 @@ claim-expiry machinery.
   measurement
 - **Scope:** `specs/6/18`
 - **Fix:** five tables, six under partitioning; name `e_<queue>`
+
+## L241 — the `6/40` audit intent log loses successful deletes and races active or later writers (2026-09-06, proposed)
+
+The pending-audit back-reference proves only that one row currently names the
+audit id. A successful delete leaves no row, a partial multi-row write leaves
+enough evidence to look complete, and a later update or delete erases the
+marker before reconciliation. A concurrent sweep can also observe no marker,
+delete the pending audit, and then let the active writer commit its data.
+`runAudited` includes all these shapes, and builds some audit fields only after
+the mutation.
+
+- **Severity:** high
+- **Scope:** `specs/6/40-store-surface.md` audited-write protocol
+- **Affected:** any future non-transactional store implementation
+- **Source:** `specs/6/40-store-surface.md:74-97`; `store/audit_helpers.go:10-28`; `store/groups.go:106-133`; `store/proxyd_routes.go:127-162`
+- **Status:** proposed — redesign needs sign-off
+- **Fix:**
+
+## L242 — the `6/40` three-operation surface omits graph and multi-row invariants (2026-09-06, proposed)
+
+`AddMembership` reads the full ancestor closure and inserts the edge under the
+same transaction. No path-prefix, single-row conditional write, or scoped
+replace expresses that test. Invite redemption and `/always` also condition
+one row and atomically write other rows, while `DueTasks` conditionally updates
+and returns an unbounded due set.
+
+- **Severity:** high
+- **Scope:** `specs/6/40-store-surface.md` operation census
+- **Affected:** membership, invite redemption, held-call resolution, scheduler
+- **Source:** `store/membership.go:18-84`; `store/invites.go:265-337`; `routd/pending_actions.go:356-407`; `store/tasks.go:77-97`
+- **Status:** proposed — redesign needs sign-off
+- **Fix:**
