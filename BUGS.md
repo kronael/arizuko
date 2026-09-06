@@ -10334,7 +10334,48 @@ this, which is why `L154`'s audit and this one found the same class again.
   row, and a `shipped` spec contains no "not built"/"no consumer"/"nothing
   moves" sentence
 
-## L198 — two group deletes, each purging a different half: `store.DeleteGroup` leaves `acl` and child groups, dashd's leaves `scheduled_tasks` and `chat_reply_state` (2026-09-05, open — proposal, needs sign-off)
+## ✅ FIXED 2026-09-06 L198 — two group deletes, each purging a different half (2026-09-05)
+
+**FIXED 2026-09-06 in `2d93482d`, and the scope was FOUR gaps, not two.** Both
+paths also left `acl_membership`, `secrets`, `network_rules`, `sessions`,
+`group_watchers`, `pending_actions`, `installed_packages` and
+`chats.sticky_group`.
+
+Two of those are worse than the `acl` row this entry names. `acl_membership.child`
+holds `folder:<path>` — the route-axis principal `auth.Authorize` expands
+through `FolderPrincipal` and `Ancestors` — so an edge into a privileged parent
+survived and re-conferred on the re-created folder. And folder-scoped `secrets`
+survived: marinade holds `folder|atlas|GITHUB_TOKEN` today, so deleting and
+re-creating `atlas` hands the next tenant the previous tenant's GitHub PAT.
+Verified against the live row.
+
+`store/folder_scope.go` is now the one declaration — 15 scopes rendered through
+`groupfolder.SQLSubtree`, run in one transaction, called by `store`, `dashd`,
+the CLI and routd's rollback. dashd's own list is gone; its stated reason for
+having one ("DeleteGroup opens its own tx and touches only groups") was wrong
+on both halves, and the real constraint — needing to know whether a row existed
+for its 404 — is met by returning a count.
+
+**The classification is TOTAL over the schema.** `folderScopeKeep` gives every
+other table a reason and `folderScopeUnpurged` names what the delete cannot
+reach, backed by a completeness test in both `store` and `routd`. It earned
+that immediately by catching `invite_redemptions`, which the author had missed.
+
+**The escalation is latent, not exploited.** Zero `acl` orphans on krons,
+marinade and sloth. marinade does carry one orphan route, four engagement rows
+and two sessions for `libtest` and `atlas/tom` — `atlas/tom` being a CHILD, which
+the exact-match `groups` delete could never reach.
+
+Also corrected: `store/groups.go`'s comment claimed the live databases run with
+`foreign_keys=0`. `db_utils.FileDSN` sets `_pragma=foreign_keys(on)` and every
+daemon opens through it, so `web_routes`, `route_tokens.owner_folder` and
+`github_sources` DO cascade — confirmed empirically. The false claim had
+narrowed the purge.
+
+The generation (`6/37` redesign 1) is NOT shipped and is the recorded next
+step. The purge is atomic today only because `groups`, `acl`, `acl_membership`
+and `secrets` share routd.db; `6/37`'s federated split ends that, and the two
+`folderScopeUnpurged` entries are already out of reach.
 
 MEASURED. `store/groups.go:112-135` `DeleteGroup` — the delete behind
 `arizuko group rm` (`cmd/arizuko/main.go:495`), routd's rollback
