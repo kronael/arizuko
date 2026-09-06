@@ -11302,7 +11302,13 @@ tool surface.
   `mcp.NewToolWithRawSchema`. Then a test that marshals a `tools/list`
   containing one raw-schema tool, which is the assertion nothing makes today.
 
-## L223 — a 10.7 MB compiled binary is tracked in git (2026-09-06, open)
+## ✅ FIXED 2026-09-06 L223 — a 10.7 MB compiled binary is tracked in git (2026-09-06)
+
+**FIXED 2026-09-06 in `db098c3d`.** `git rm --cached mcpfw/mcpfw`, and
+`.gitignore` now covers both build outputs a `make -C <dir> build` leaves —
+`mcpfw/mcpfw` and `gitd/gitd`, the second of which was untracked and one
+`git add` away from the same fate. The objects already in history stay; that is
+the cost of noticing late.
 
 MEASURED. `git ls-files -s mcpfw/mcpfw` returns a tracked mode-100755 blob and
 the file is 10,752,842 bytes of ELF. It is `make -C mcpfw build`'s output, and
@@ -11343,7 +11349,23 @@ read it. Proved by mutation twice: restoring the shipped renderer turns the new
 - **Reached no instance:** proxyd is the running proxy; the renderer prints and
   installs nothing
 
-## L225 — `proxyd/README.md` says proxyd accepts HS256 bearers; `tryAuth` is ES256-only (2026-09-06, open — docs)
+## ✅ FIXED 2026-09-06 L225 — `proxyd/README.md` says proxyd accepts HS256 bearers; `tryAuth` is ES256-only (2026-09-06)
+
+**FIXED 2026-09-06 in `db098c3d`, and the README was not the only place.**
+Eight sites still described the removed HS256 path, and two of them stated
+something FALSE about the code that runs: `proxyd/main.go:114` and `:940`
+both said proxyd is "HS256-only, exactly as today" when `AUTHD_URL` is unset.
+It is not — `tryAuth` returns nil on a nil key set, so it authenticates nobody
+and every route needing an identity falls through to login.
+
+`proxyd/README.md` also documented `AUTH_SECRET` as the "HS256 JWT verify
+secret". It verifies no bearer; it keys the OAuth CSRF state, which is why
+`requireAuth` denies when it is unset. Both README lines and the six comments
+now state what runs, with no account of what was removed.
+
+The regression guard in `proxyd/proxy_internals_test.go` stays: it asserts an
+HS256 bearer signed with `AUTH_SECRET` is refused even when the ES256 key set
+is absent, which is the `L6` forgery branch staying shut.
 
 MEASURED during the `6/22` audit. `proxyd/README.md:18` states proxyd
 authenticates `Bearer <jwt>` "(HS256 or ES256)". The HS256 branch was removed
