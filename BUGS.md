@@ -10979,7 +10979,34 @@ spec never recorded it, so the document argues against what runs.
   decision, present tense, with the measured reason Bifrost is rejected.
 - **Fix:** 2f6441ed, c8854f7d, a67a94e1
 
-## L212 — `mcpfw` is complete, tested, and wired to nothing (2026-09-06, open)
+## ✅ FIXED 2026-09-06 L212 — `mcpfw` is complete, tested, and wired to nothing (2026-09-06)
+
+**FIXED 2026-09-06 by restatement, and the entry's CONCLUSION was wrong.** The
+measurement stands — five files, all under `mcpfw/`, no `check`, no `/v1/*`, no
+`pkg/client`, no unix or stdio transport, no fan-in. What is wrong is "the
+unmet need is fully open". It is closed, by the gate arizuko already has.
+
+An agent never dials a third-party MCP server. `injectMcpEnv`
+(`ant/src/mcp-servers.ts:37`) hands the turn exactly one entry, the arizuko
+socket, and each harness pins that shut: claude with `strictMcpConfig: true`,
+codex with `--ignore-user-config`, pi with `tools: 'none'`. A connector's tools
+are LOCAL tools — routd registers each as `<connector>_<tool>` through
+`granted()` and dials the upstream itself INSIDE the handler
+(`ipc/connector.go:138`), after the check.
+
+That check is `auth.Authorize` on the `acl` rows, at announce
+(`ipc/ipc.go:1107`) and again at call time (`:989` → `authorizeCall`). It is
+deny-wins and no-match-denies, which IS `6/12`'s model, and it carries `5/33`'s
+two axes, which a `Rule` — `{tool, action}` over a name glob, no target —
+cannot express. So wiring `mcpfw` in would be a second gate on one
+`tools/call`, which this repo forbids, and making it the only gate would trade
+containment for name matching.
+
+`6/12` now describes the binary that ships and says arizuko is not its
+consumer — the "ships alone" category `6/16` already files it under, and what
+`7/22` and `7/25` already said. `ipc/connector_gate_test.go` holds the gate:
+proved by mutation, neutering the call-time check lets a refused call reach
+upstream and the request counter rises from 4 to 8.
 
 MEASURED. `grep -rl mcpfw --include=*.go` returns five files and every one is
 under `mcpfw/`. No daemon imports it, none pushes a ruleset, and no agent's
@@ -11199,6 +11226,61 @@ The `ant/CLAUDE.md` half of the same spec is executed correctly — 388 lines to
 - **Fix:** create the two skills and cut the sections, or change the three rows
   to "keep" with the reason. Either is fine; the table claiming one thing while
   the file does another is not.
+
+## L222 — one granted connector tool drops the WHOLE `tools/list`, so the folder loses every tool (2026-09-06, open)
+
+VERIFIED against the vendored library and the call path, not a report.
+
+`mcp.NewTool` sets `InputSchema.Type = "object"`
+(`mcp-go@v0.45.0/mcp/tools.go:788`). `WithRawInputSchema` sets `RawInputSchema`
+and does NOT clear that field (`:897`). `Tool.MarshalJSON` refuses when both
+are set (`:619`): "has both InputSchema and RawInputSchema set".
+
+`ipc/ipc.go` builds every connector tool (`:1110`) and every REST ext tool
+(`:1137`) as `mcp.NewTool(name, WithRawInputSchema(...))` through `granted()`
+→ `srv.AddTool(mcp.NewTool(name, all...))` at `:964`. So each of those tools
+carries both.
+
+**The blast radius is the whole response, not the tool.** `tools/list`
+marshals as ONE document, so a single refusing tool makes `writeJSON` fail and
+routd drops the reply. The agent receives no tool list at all and times out.
+
+**It does not fire on the fleet today, and the reason is an accident.** The
+four embedded providers (`routd/extproviders/`: cloudflare, gandi, namecheap,
+porkbun) all build a non-empty schema from their path placeholders
+(`routd/ext.go:197`), so they all carry the conflict — but the announce filter
+at `ipc/ipc.go:1107` skips a tool the folder has no grant for, and no live
+`acl` row on krons, marinade or sloth grants `mcp:*` or a `mcp:<connector>_*`
+action. Every ext tool is filtered out before it can be marshalled.
+
+So the trap is armed and waiting for the first operator who grants an ext tool
+— the very act of enabling a connector is what breaks that folder's entire
+tool surface.
+
+- **Severity:** high — latent, and it fires on the first grant of the feature
+  it guards, taking down every unrelated tool with it
+- **Scope:** `ipc/ipc.go`
+- **Fix:** clear `InputSchema.Type` beside `WithRawInputSchema`, the way
+  `mcp-go`'s own `WithInputSchema[T]` does, or build those tools with
+  `mcp.NewToolWithRawSchema`. Then a test that marshals a `tools/list`
+  containing one raw-schema tool, which is the assertion nothing makes today.
+
+## L223 — a 10.7 MB compiled binary is tracked in git (2026-09-06, open)
+
+MEASURED. `git ls-files -s mcpfw/mcpfw` returns a tracked mode-100755 blob and
+the file is 10,752,842 bytes of ELF. It is `make -C mcpfw build`'s output, and
+`.gitignore` does not cover it. A scan of every tracked executable finds it is
+the only one, so the rule the repo follows everywhere else was missed once.
+
+Every rebuild rewrites it, so each one adds another ~10 MB object to the
+history, which no `git rm` recovers.
+
+- **Severity:** low — no runtime effect; it costs clone time and repository
+  size, and it grows on every build
+- **Scope:** `mcpfw/`, `.gitignore`
+- **Fix:** `git rm --cached mcpfw/mcpfw` and add the build output to
+  `.gitignore`. The objects already in history stay; that is the cost of
+  noticing late.
 
 ## L219 — restoring an archive re-introduces the mixed-width timestamps `L97` removed (2026-09-06, proposal — needs sign-off)
 
