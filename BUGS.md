@@ -10708,19 +10708,25 @@ Six of them were, and are gone: `MarkMessageStatus`, `MarkMessageDelivered`,
 `IsBotMessageByID`, `MessagesAll`. Each had a live twin in `routd/db.go` or no
 caller at all.
 
-`FindMessages` is the one left, and it is a test migration rather than a
-deletion. gopls: 16 references, all `_test.go`. But `store/messages_fts_test.go`
-and `store/subtree_filter_test.go` are the repo's ONLY tests of the FTS5
-grammar — query parsing, an unbalanced quote, a unicode term, the `a_b`
-underscore-wildcard scope (`L122`), the sender and since filters, the limit cap,
-and a deleted row leaving the index. `routd/reads.go:89` runs the live copy and
-`grep FindMessages routd/*_test.go` returns nothing.
+`FindMessages` is the one left, and its tests have moved (2026-09-06).
+`routd/messages_fts_test.go` now covers the LIVE query — index-on-insert, the
+FTS5 operators, diacritic folding, each filter arm, the `a_b`/`%`/`Coach`
+subtree widenings (`L122`), the delete trigger, a malformed query surfacing as
+an error, and ranking at 1000 rows. A same-arity mutation of the subtree
+predicate turns the widening test red on all three cases.
 
-Both copies are correct today: each uses `groupfolder.SQLSubtree`, so this is
-not a drift case. Deleting store's without moving those 14 assertions to
-`routd` would leave the live FTS query with no coverage at all. Move them
-first; the deletion is then free and one of the two FTS5 queries is gone before
-the Postgres port begins.
+Deleting store's copy of those tests lost nothing: `store.OpenRoutd` does NOT
+run store's migrations — routd owns routd.db's schema — so `store/`'s own
+`messages_fts` exists only under `store.OpenMem`, in no live database.
+
+The method itself stays, and the blocker has a name:
+`tests/integration_mcp_test.go` builds the whole `ipc.StoreFns` MCP harness
+from one `*store.Store`, including `FindMessages`. Moving it to `routd.DB`
+needs either a `routd.New(*sql.DB)` constructor — which routd deliberately does
+not have, since `Open` refuses to manufacture a database — or the rest of that
+harness (invites, watchers, tasks) on routd too. That is the test-scaffold
+migration, and it is the last thing standing between the tree and one FTS5
+query instead of two.
 
 ## L209 — a bare TLD is a valid egress allow entry, so one agent-written rule opens every host under it (2026-09-06, open — proposal, needs sign-off)
 
