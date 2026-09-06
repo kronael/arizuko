@@ -87,6 +87,24 @@ already measured that this fits — the 24 `runAudited` callers are in its
 19-site "fits as a bounded conditional batch" group precisely because none of
 them reads inside the transaction.
 
+**Central and per-owner become the same design.** Four SQLite files force
+audit to be per-owner: a transaction cannot span them, so each daemon must keep
+its own. A document store has no such boundary — `TransactWriteItems` carries
+up to 100 actions ACROSS TABLES in one account and region, and the isolation
+the four files gave is now a partition key. So one audit table partitioned by
+owner is the same thing as four audit tables, and a mutation in routd's table
+can commit with an audit row in the shared one, in a single `GuardedBatch`.
+
+That answers the question the audit research had to reject on today's
+substrate. A central audit store written synchronously is only a distributed
+transaction while the stores are separate; once there is one backend it is one
+transaction, and centralisation costs nothing. The write stays atomic AND the
+record is already in one place — no shipper, no outbox, no reconciliation.
+
+What remains after the move is durability off the box, which is a different
+requirement: retention, tamper evidence and an export the operator can hold.
+The archive answers that, and it answers it for one table instead of four.
+
 So the intent log is NOT the replacement for the audited write. It is needed
 only where the write set is UNBOUNDED and therefore cannot be one batch: the
 versioned replace over a subtree, and `resreg.Apply` over a subsystem. Those
