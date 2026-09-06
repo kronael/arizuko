@@ -10681,15 +10681,46 @@ correct single `... WHERE id IN (...)`. Port the good one before deleting it.
   FTS5 queries disappear before it starts
 - **Source:** `store/messages.go`, `tasks.go`, `web_routes.go`,
   `groups.go` (the `chats` accessors), `proxyd_routes.go`, `cost_log.go`
-- **Status:** proposal — needs sign-off (deletes a large public surface)
+- **Status:** signed off; `web_routes.go`, `cost_log.go`, `tasks.go`,
+  the `groups.go` `chats` block and `proxyd_routes.go` are done. What remains
+  of `messages.go` is not a deletion — see below.
 - **Fix:** delete in this order, smallest blast radius first: `web_routes.go`
   (5 statements), `cost_log.go` (2), the free `tasks.go` deletes (4), the
-  `groups.go` `chats` block (9), `proxyd_routes.go` (1), then `messages.go`
-  (16, and the highest test churn). One question decides whether `messages.go`
-  and `tasks.go` are deletions or test-scaffold migrations: whether the ~40
-  `tests/` and `webd/` call sites keeping `store.PutMessage` and
-  `store.CreateTask` alive are testing `store` or merely using it as the
-  handiest fixture. Repoint them at `routd.DB` and the answer is deletion.
+  `groups.go` `chats` block (9), `proxyd_routes.go` (1), then `messages.go`.
+
+### `messages.go` is not a dead file — `webd` reads it (measured 2026-09-06)
+
+The open question was whether the call sites keeping `store.PutMessage` alive
+test `store` or use it as a fixture. gopls answers it: **87 references, and
+exactly one is production** — `cmd/arizuko/send.go:176`. The other 86 are
+`_test.go`.
+
+But the file stays, because `webd` is a live `store` consumer. `webd/main.go:66`
+opens routd.db with `store.OpenRoutd`, `webd/server.go:32` holds the
+`*store.Store`, and webd's production code calls six of this file's readers:
+`Topics`, `MessagesByTopic`, `MessagesByThread`, `MessagesSinceTopic`,
+`TopicByMessageID`, `MessageTimestampByID`. `dashd`, `onbod`, `proxyd`, `slakd`,
+`gitd` and the CLI hold one too. `store/` is the shared schema library those
+daemons read through; only the methods `routd` re-implemented are dead.
+
+Six of them were, and are gone: `MarkMessageStatus`, `MarkMessageDelivered`,
+`PendingOutboundOlderThan` (with `scanMessageWithStatus`), `LatestSource`,
+`IsBotMessageByID`, `MessagesAll`. Each had a live twin in `routd/db.go` or no
+caller at all.
+
+`FindMessages` is the one left, and it is a test migration rather than a
+deletion. gopls: 16 references, all `_test.go`. But `store/messages_fts_test.go`
+and `store/subtree_filter_test.go` are the repo's ONLY tests of the FTS5
+grammar — query parsing, an unbalanced quote, a unicode term, the `a_b`
+underscore-wildcard scope (`L122`), the sender and since filters, the limit cap,
+and a deleted row leaving the index. `routd/reads.go:89` runs the live copy and
+`grep FindMessages routd/*_test.go` returns nothing.
+
+Both copies are correct today: each uses `groupfolder.SQLSubtree`, so this is
+not a drift case. Deleting store's without moving those 14 assertions to
+`routd` would leave the live FTS query with no coverage at all. Move them
+first; the deletion is then free and one of the two FTS5 queries is gone before
+the Postgres port begins.
 
 ## L209 — a bare TLD is a valid egress allow entry, so one agent-written rule opens every host under it (2026-09-06, open — proposal, needs sign-off)
 
