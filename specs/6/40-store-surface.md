@@ -146,17 +146,33 @@ apparent DAG is an identity ALIAS (`telegram:user/… → google:…`) sharing a
 table with role assignment, not a deep hierarchy.
 
 **Left as it is, deliberately, with the trigger written down.** If the graph
-ever gains depth, the answer is not a faster walk or a closure table. The token
-already carries a login-time scope snapshot (`authd/oauth.go`), so the walk
-belongs at mint time, and the reason it is not there is that `6/22` step 3
-refuses to cache an authorization decision — a cached decision is a revocation
-that does not take effect. The shape that satisfies both is a `grants_version`
-per principal, bumped when a membership or `acl` row affecting it changes,
-carried in the token and compared against one row per request: a point lookup
-instead of a recursion, with revocation still effective on the next request.
-Its hard part is invalidation scope, since "which principals does this `acl`
-write affect" is itself a subtree question. **Reopen when any parent becomes a
-child, or when `Ancestors` shows on a latency profile.**
+ever gains depth, the answer is not a faster walk or a closure table. Move the
+resolution to token-mint time and let the issued set carry revocation — most of
+that already exists.
+
+The access token already carries a login-time scope snapshot
+(`authd/oauth.go`), `proxyd` verifies it offline against a cached JWKS with no
+per-request hop, and `authd` records what it issued: `refresh_tokens` holds 78
+rows on the busiest live instance and none on the other two. An operator revoke
+is mounted at `POST /dash/authd/revoke`, which kills one refresh family.
+`accessTTL` is 15 minutes.
+
+So invalidation does not need the affected principal set computed at write
+time, which is the hard part — "which principals does this `acl` write affect"
+is itself a subtree question. It needs the opposite: because the issued set is
+recorded and small, a capability change scans it and revokes the tokens
+carrying that capability, and a scan over tens of rows costs nothing. Where an
+immediate effect is not required, a token simply expires, which bounds any
+change at 15 minutes.
+
+The one case that cannot wait is removing an operator's `**`, and that is a
+single revoked-token check per request against a table with tens of rows — a
+point lookup, not a recursion, and native to any engine.
+
+What blocks this today is a decision rather than machinery: `6/22` step 3
+refuses to cache an authorization decision, so `auth.Authorize` re-derives it
+every call. **Reopen when any parent becomes a child, or when `Ancestors` shows
+on a latency profile.**
 
 **The claim-and-return.** `store.DueTasks` is
 `UPDATE scheduled_tasks SET status='firing' WHERE status='active' AND next_run
