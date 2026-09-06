@@ -11608,7 +11608,40 @@ real guarantee with a real reason and now no test.
   asserting every one returns without error and the table exists once. It must
   run on both engines, since the SQLite and Postgres failure modes differ.
 
-## L233 — the per-turn gateway key broke the end-to-end turn, and `make test` cannot see it (2026-09-06, open)
+## ✅ FIXED 2026-09-06 L233 — the per-turn gateway key broke the end-to-end turn, and `make test` cannot see it (2026-09-06)
+
+**FIXED 2026-09-06 in `960772ef`. Three distinct causes, each real, found by
+running it rather than reading it.**
+
+1. **The mint was never wired in the harness.** routd reads the gateway pair
+   from `routd.LoopConfig`; the container reads it from `core.Config`. The e2e
+   set only the second, so `container.Run`'s guard fired correctly on a mint
+   that never happened. Production wires both from `MODEL_GATEWAY_URL` and
+   `MODEL_GATEWAY_KEY` in `routd/cmd/routd/main.go`, and refuses to boot on a
+   URL without a key — so this is a harness gap, not a live trap.
+2. **Two routes to one gateway.** The container reaches the fake across the
+   docker bridge and routd reaches it on loopback. In a deployment both sides
+   sit inside the compose network and the value is one.
+3. **Cost is now asynchronous, and `6/23` shipped that without saying so.**
+   routd polls `/spend/logs` after the run returns, because LiteLLM writes
+   usage on a batch timer. The test read `cost_log` straight after the reply
+   arrived; the write landed a second later against a closed database. **The
+   reply landing is no longer the cost landing** — worth knowing for any
+   operator surface that shows a turn's cost.
+
+The fake now serves `/key/generate`, `/spend/logs` and `/key/delete`, derives
+spend from the tokens it actually served, and takes its price from the scripted
+reply so the assertion and the fake read ONE declaration. The test asserts the
+container presented a MINTED key, not the instance master key — proof the mint
+happens at all, which nothing checked end to end before.
+
+Runtime went 241s failing to 10.7s passing.
+
+**The process half stays open, and it is the part that matters.** `make test`
+is `-short` and skips the e2e, so this shipped through every merge with 64
+packages reported green — by two agents and by me. Same shape as `L226`. Decide
+whether `make test` carries the e2e, or whether shipping a spec's mechanism
+must run `make test-e2e` before merge.
 
 REPRODUCED on the merged tree, then fixed in the same pass — recorded because
 the way it shipped matters more than the fix.
