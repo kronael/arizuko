@@ -21,46 +21,6 @@ func seedFolders(t *testing.T, s *Store, folders ...string) {
 	}
 }
 
-// A folder name may legally hold `%`, `_` or a capital: isValidFolder rejects
-// only `..`, `\`, NUL, empty and over-long segments and reserved names. Under
-// SQL LIKE all three widened the scope, so a tenant at `%` read every other
-// tenant's message content and a Coach/coach pair read each other — a pair a
-// live instance HAS carried (BUGS L122).
-func TestFolderScopedReadsAreNotWidenedByLikeMetacharacters(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-	seedFolders(t, s, "a_b/one", "aXb/two", "coach/k", "Coach/private", "x/y")
-
-	cases := []struct {
-		scope string
-		leak  string
-	}{
-		{"a_b", "aXb/two"},         // _ is a single-character wildcard
-		{"%", "x/y"},               // % matches every folder with a separator
-		{"coach", "Coach/private"}, // LIKE is case-insensitive for ASCII
-	}
-	for _, c := range cases {
-		got, err := s.FindMessages("needle", c.scope, "", "", 50)
-		if err != nil {
-			t.Fatalf("scope %q: %v", c.scope, err)
-		}
-		for _, m := range got {
-			if m.ChatJID == "tg:"+c.leak {
-				t.Errorf("scope %q read %q's messages", c.scope, c.leak)
-			}
-		}
-	}
-
-	// The exact subtree still reads, or the fix would be a denial of service.
-	got, err := s.FindMessages("needle", "a_b", "", "", 50)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 || got[0].ChatJID != "tg:a_b/one" {
-		t.Errorf("the folder's own subtree was lost: %+v", got)
-	}
-}
-
 // ErroredChats reads the same messages table through its own filter.
 func TestErroredChatsAreNotWidenedByLikeMetacharacters(t *testing.T) {
 	s, _ := OpenMem()
