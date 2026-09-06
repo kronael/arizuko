@@ -210,7 +210,7 @@ axis is governed by CLAUDE.md's split write-discipline, above.
 | ------ | --------------------------------------------------------------- |
 | `6/28` | this — architecture, read-path, routing, auth, theme            |
 | `6/29` | dashd hub + retained cross-cutting operator pages               |
-| `6/30` | the ten core/edge daemon dashboards, one table + the residue    |
+| `6/30` | the nine core/edge daemon dashboards, one table + the residue   |
 | `6/31` | adapter dashboard contract — shared page grammar + health model |
 | `6/32` | the ten channel adapters, instantiating that contract           |
 

@@ -182,8 +182,8 @@ needs a per-world version item that every `acl`/`routes`/`groups` writer
 bumps, so the delete can `ConditionCheck` it — and still fails past 100
 rows; membership needs a materialised ancestor closure per node,
 maintained on every membership write; `Apply` needs a lock item and a
-sequence of ≤100-item batches, which gives up the pre-image rollback that
-`L44` was fixed to have. That is Branch B's price. It is a redesign of
+sequence of ≤100-item batches, which gives up the pre-image rollback
+`resreg.Apply` already carries (`L44`). That is Branch B's price. It is a redesign of
 three invariants, and it is what a seam would have to be built against.
 
 ## What managed Postgres leaks into application code
@@ -260,8 +260,8 @@ FOR UPDATE` on a lock row, or the checksum recheck races.
    database, or accepts the skew.
 3. Foreign keys are enforced everywhere. SQLite enforces them only where
    the DSN says `foreign_keys(on)`; Postgres always does. Any writer
-   that worked because a pragma was missing fails loudly, which is the
-   correct outcome and a migration-day surprise.
+   whose correctness rests on that pragma being absent fails loudly, which
+   is the correct outcome and a migration-day surprise.
 
 **Migrations.** 151 SQL files in seven embedded sets, 27 of them
 carrying SQLite DDL. They do not port: each owner gets a squashed
@@ -289,12 +289,12 @@ search; `pg_stat_statements`.
 
 **What an operator pays.** One more service in compose (`postgres`, a
 volume, ~100 MB resident plus per-connection memory, hence the pool
-caps); a backup path that is no longer "tar the data dir" — the tar must
-include a `pg_dump`, or stop the server first; major-version upgrades
+caps); a backup path where a tar of the data dir is not enough — the tar
+must include a `pg_dump`, or stop the server first; major-version upgrades
 (`pg_upgrade`); one DSN per daemon in the generated `env/<daemon>.env`;
 and a single point of failure where today each daemon's file fails
-alone. Litestream, which the self-hosted SQLite deployment would have
-used for backup, has no role once the engine is Postgres.
+alone. Litestream, the SQLite replication tool, has no role once the engine
+is Postgres.
 
 ## Why not a replicated SQLite instead
 

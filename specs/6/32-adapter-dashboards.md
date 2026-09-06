@@ -25,7 +25,7 @@ generalise.
 | discd   | Discord gateway websocket (discordgo)                    | `session.DataReady` (`discd/bot.go`)           | `session.State.User`                                   | none                                              |
 | emaid   | IMAP IDLE (28m keepalive) + 30s poll fallback; SMTP dial | `connected` flag (`emaid/imap.go`)             | `EMAIL_ACCOUNT`                                        | `emaid.db` (thread tables)                        |
 | twitd   | mentions poll, `TWITTER_POLL_INTERVAL` (90s), TypeScript | `connected` flag (`twitd/src/main.ts`)         | cookie session (handle)                                | `$TWITTER_AUTH_DIR/cookies.json` + `cursors.json` |
-| gitd    | GitHub webhook push (`POST /github/{source...}`)         | `connected` flag, set at start (`gitd/bot.go`) | `GITHUB_TOKEN` login (`GET /user`); empty ingress-only | none of its own; sources in `routd.db`            |
+| gitd    | GitHub webhook push (`POST /github/{source...}`)         | `connected` flag, set at start (`gitd/bot.go`) | `GITHUB_TOKEN` login (`GET /user`); empty ingress-only | none of its own — `github_sources` is routd-owned |
 
 ## Controls and delta sections
 

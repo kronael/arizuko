@@ -48,20 +48,17 @@ proxyd knows neither path.
   proxyd does the one thing only proxyd can: identify a caller who offers a
   bearer, and prove transit.
 
-### The bug this exposed
+### Why `optional` attaches the transit proof on both paths
 
-proxyd attached its `service:proxyd` transit bearer only inside
-`setUserHeaders`, i.e. only for callers it authenticated. An anonymous
-`/chat/` request therefore reached webd with no proof it had transited proxyd
-— and `/chat/stream`'s gate demanded exactly that proof. **On every instance
-with a JWKS configured, the chat widget's live stream answered 403 to every
-anonymous visitor.** It could only pass in local dev, where a nil KeySet
-short-circuits the check.
-
-`optional` attaches the proof on both paths, which fixes it. The gate itself
-is `transited(r)`, the bearer, with none of the token-stamp indirection; the
-test asserts the containment that does the work: `?group=` cannot aim the
-subscription (`L30`).
+`/chat/stream`'s gate is `transited(r)` — the `service:proxyd` bearer itself,
+with none of the token-stamp indirection. An anonymous `/chat/` request carries
+no credential for proxyd to authenticate, so a proxy that attached the bearer
+only where it sets `X-User-*` hands webd a request with no proof of transit,
+and every anonymous visitor on a JWKS-configured instance is 403 on the live
+stream; only a nil KeySet in local dev short-circuits the check. `optional`
+therefore attaches the proof on the anonymous path too. The test asserts the
+containment that does the work: `?group=` cannot aim the subscription
+(`L30`).
 
 ### The vhost redirect stays in proxyd
 
@@ -195,8 +192,8 @@ It cannot carry `arz/folder`, which eight files read (`routd/cmd/routd/main.go`,
 …), nor the login-time scope snapshot that bounds every token (`5/1`). Either
 arizuko mints — and then `es256.go`, `jwks.go`, the refresh families and the
 key metadata all stay, because they ARE the mint — or every backend looks the
-folder and the grants up in routd.db per request, which is the pre-split
-topology `5/16` removed.
+folder and the grants up in routd.db per request — the per-request lookup in
+every backend that `5/16` rules out.
 Authelia's `claims_policies` (4.39+) map static attributes from its file or
 LDAP store, not a live grants table; Keycloak's protocol mappers can compute a
 claim and bring a JVM plus an RDBMS (`6/16`). Nothing short of a fork puts
@@ -217,7 +214,7 @@ grant exists on master, unreleased, and refuses the `federated:id` scope
 It would not help if it shipped: `auth.ProxydTransit` pins `typ=service` and
 `sub=service:proxyd` on arizuko's own verifier, and `serviceGrants`
 (`authd/http.go`) is arizuko's scope table. `POST /v1/service-token` and
-`auth/service.go` stay, and neither was in the count.
+`auth/service.go` stay, and neither is in the count.
 
 ### Which IdP (surveyed 2026-09-03)
 
@@ -257,11 +254,11 @@ Dex on the host network, three generic `oauth` connectors pointed at a mock
 that answers each provider's documented userinfo shape, the code flow driven
 with curl, scope `openid profile federated:id`. What the ID token carried:
 
-| connector  | userinfo shape               | ID token                                                                       | verdict                          |
-| ---------- | ---------------------------- | ------------------------------------------------------------------------------ | -------------------------------- |
-| `discord`  | `{"id":"8112…","username"…}` | `"federated_claims":{"connector_id":"discord","user_id":"811295670702047272"}` | **green**                        |
-| `facebook` | `{"id":"1022…","name"…}`     | `"federated_claims":{"connector_id":"facebook","user_id":"1022…"}`             | green                            |
-| `twitter`  | `{"data":{"id":…}}`          | none — Dex: `OAuth Connector: not found id claim`                              | **red**, and red before that too |
+| connector  | userinfo shape               | ID token                                                                       | verdict   |
+| ---------- | ---------------------------- | ------------------------------------------------------------------------------ | --------- |
+| `discord`  | `{"id":"8112…","username"…}` | `"federated_claims":{"connector_id":"discord","user_id":"811295670702047272"}` | **green** |
+| `facebook` | `{"id":"1022…","name"…}`     | `"federated_claims":{"connector_id":"facebook","user_id":"1022…"}`             | green     |
+| `twitter`  | `{"data":{"id":…}}`          | none — Dex: `OAuth Connector: not found id claim`                              | **red**   |
 
 The Discord row is the kill condition, and it passed: `user_id` is the raw
 Discord snowflake, so authd can render it as either `discord:<id>` (what the
@@ -317,6 +314,6 @@ already specs it droppable) · `5/10` (per-folder mounts, no parent
 inheritance — the irreplaceable mechanism) · `5/W` (the route-token surface
 step 1 consolidates in webd) · BUGS `L45` (routes as rows, step 2's
 prerequisite) · `L44` (packages declare through the manifest) · `L40` (the
-shield keys on the client, not the hop — the property that had to survive the
-move) · `L4` (folder from the row, not the JID grammar — one resolver now) · `L191`
+shield keys on the client, not the hop — the property that must survive the
+move) · `L4` (folder from the row, not the JID grammar — one resolver) · `L191`
 (the forward-auth proof is the cached service bearer, not a per-request mint).

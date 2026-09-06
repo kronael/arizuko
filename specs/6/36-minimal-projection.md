@@ -59,7 +59,7 @@ folder noun and State into the two durable stores 5/A already names.
 The asymmetry is in the code and the projection keeps it. Ingest is a
 **struct**; egress is an **interface**.
 
-**In: one envelope, N normalizers.** Every source — nine adapters, webd,
+**In: one envelope, N normalizers.** Every source — ten adapters, webd,
 timed, the agent's own `send`, a scheduled task, a silence trigger — ends as
 one `apiv1.Message` (`routd/api/v1/types.go:13`) appended by one function
 (`routd/db.go:244`). The envelope carries a `Verb` discriminator
@@ -101,8 +101,8 @@ a second owner of the verb? Only the middle kind is a cut.
 
 | Mechanism                                               | Verb            | Anchor                                                                           | Verdict                                                                                                  |
 | ------------------------------------------------------- | --------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| 7 Go channel adapters                                   | Ingest          | `chanlib.Run` `chanlib/run.go:31`; `NewAdapterMux` `chanlib/handler.go:306`      | one renderer, seven platform clients (27–147 lines of `server.go` each)                                  |
-| whapd, twitd (TypeScript)                               | Ingest          | `whapd/src/server.ts` 513, `twitd/src/server.ts` 386, two `dash.ts`              | **the same mux and dashboard twice more**: 1,236 lines re-typed (`chanlib/dash.go:12-14` says so)        |
+| 8 Go channel adapters                                   | Ingest          | `chanlib.Run` `chanlib/run.go:31`; `NewAdapterMux` `chanlib/handler.go:306`      | one renderer, eight platform clients (27–325 lines of `server.go` each)                                  |
+| whapd, twitd (TypeScript)                               | Ingest          | `whapd/src/server.ts` 513, `twitd/src/server.ts` 373, two `dash.ts`              | **the same mux and dashboard twice more**: 1,223 lines re-typed (`chanlib/dash.go:13-15` says so)        |
 | webd `web:` channel                                     | Ingest          | `webd/main.go:128` registers `web:`; own mux `webd/server.go:72`                 | a registered channel with its own mux; holds SSE state no adapter has                                    |
 | `hook:` JIDs                                            | Ingest          | minted `routd/route_tokens_resource.go:267`; exempt `routd/server.go:849`        | a JID scheme with no registry owner; delivered by source name, `routd/deliver.go:55-64`                  |
 | bare-folder JIDs (timed, tasks, steer)                  | Ingest          | `routd/loop.go:535`, `routd/steer.go:547`, `timed/split.go:260`                  | third internal scheme; the same `isChannelJID` covers all three                                          |
@@ -139,9 +139,10 @@ Two rows deserve a sentence each. The 14-verb set is declared six times:
 `BotHandler` (`chanlib/handler.go:61`), the adapter mux (`:314-327`), the
 client (`chanreg/httpchan.go`), the REST twin (`routd/turns.go`), and the two
 TypeScript servers. The per-adapter `caps_test.go` files exist to catch the
-drift a sixfold declaration invites, and one drift is already in:
-`twitd/src/client.ts:41` declares a `reply` capability that no Go code
-checks. And `HasCap` is read only inside the deliverer
+drift a sixfold declaration invites, and all eight Go adapters carry one. The
+two TypeScript declarations (`whapd/src/client.ts:23`,
+`twitd/src/client.ts:38`) carry none, so a cap they announce and do not
+implement is caught by nothing. And `HasCap` is read only inside the deliverer
 (`chanreg/httpchan.go`, 18 sites); the agent's tool list is channel-blind
 (`ipc/ipc.go:1217` registers `send_file` for every turn), so a model learns
 a channel's limits by failing a call.
@@ -514,8 +515,8 @@ four imports), S4 (the CLI's daemon imports) and S11 (onbod's mount).
 
 ## 9. The daemon count
 
-Twenty-one on disk: `authd routd runed onbod dashd proxyd webd timed ttsd`,
-nine adapters, `egress` (one per spawn), `davd`, `vited`, and `litellm` when
+Twenty-two on disk: `authd routd runed onbod dashd proxyd webd timed ttsd`,
+ten adapters, `egress` (one per spawn), `davd`, `vited`, and `litellm` when
 configured. The projection:
 
 - **Stay, as core:** `authd` (keys, sessions, five login providers),
@@ -523,7 +524,7 @@ configured. The projection:
   [`6/22`](22-proxyd-cut.md) lands its off-the-shelf half, `egress`.
 - **Stay, as clients of the core:** `dashd` (after S1 it opens no database
   and ships alone, which [`6/16`](16-daemon-standalone-matrix.md) wants),
-  `webd` (a channel plus the app surface), the nine adapters, `ttsd`,
+  `webd` (a channel plus the app surface), the ten adapters, `ttsd`,
   `davd`, `vited`, `litellm` — services with no arizuko state.
 - **Fold candidates:** `timed` (S8). `onbod` after S11 and S4: admission is
   a Grant bootstrap (`matchGate`), an invite is an ingress credential like a
@@ -534,8 +535,8 @@ configured. The projection:
   ("admission"), not a process. Folding it is a decision on ownership of
   `onbod.db`, not a code cut, and this spec does not make it.
 
-Eighteen is the floor this reading supports without a decision on onbod;
-seventeen with it. The adapters are the count and they are correct.
+Nineteen is the floor this reading supports without a decision on onbod;
+eighteen with it. The adapters are the count and they are correct.
 
 ## 10. Sequencing
 
@@ -563,13 +564,12 @@ seventeen with it. The adapters are the count and they are correct.
   source name (`routd/deliver.go:55-64`), never by prefix ownership.
 - `HasCap` lives in the deliverer (`chanreg/httpchan.go`, 18 sites), not in
   routd's loop; the tool list never reads it.
-- Seven adapter dashboards are one renderer (`chanlib/dash.go:63`); the two
+- Eight adapter dashboards are one renderer (`chanlib/dash.go:63`); the two
   TypeScript adapters carry copies.
 - Tenancy rides the JID through `routes`, and also through
   `route_tokens.target_folder`, which `directFolder` reads first.
-- Four grant evaluators was this spec's own premise; the tree has one
-  lattice evaluator, one exact-match body over the same rows, and two
-  checks on different subjects.
+- The tree holds no four grant evaluators: one lattice evaluator, one
+  exact-match body over the same rows, and two checks on different subjects.
 - The `acl` row is IAM's tuple plus `grant_option`, and one evaluator
   serves the operator row, the member floor and a narrow agent grant (§5).
 - `mcp_tokens` (runed) has no reader or writer outside its migration.

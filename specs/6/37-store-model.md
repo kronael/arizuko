@@ -287,11 +287,11 @@ engine is reachable. Where it cannot — the audit cursor, ranked search,
 the partial unique index that is the trust root — the answer names
 exactly which operation binds arizuko to a relational engine, which is
 worth knowing whether or not anyone ever moves. The measurement is
-free; the facade was not.
+free; a facade is not.
 
 ## What the three redesigns are worth now
 
-They were the price of surviving without an interactive multi-table
+They are the price of surviving without an interactive multi-table
 transaction. Postgres has one, so none of them is required by the
 engine. Each is kept or dropped on its own property:
 
@@ -301,8 +301,8 @@ engine. Each is kept or dropped on its own property:
 - **Redesign 2 (membership version + bounded walk)** stays as the fix
   for the three duplicated walk copies. The concurrency half is what
   Postgres gives for free.
-- **Redesign 3 (`Apply` in-progress marker)** is superseded in its
-  mechanism: `resreg.Apply` upgrades to a write lock with `UPDATE
+- **Redesign 3 (`Apply` in-progress marker)** needs a different mechanism
+  on each engine. `resreg.Apply` upgrades to a write lock with `UPDATE
 audit_log SET id = id WHERE 1 = 0`, a RESERVED lock in SQLite and a
   no-op in Postgres. It becomes `pg_advisory_xact_lock`, or the checksum
   recheck races. That substitution is mandatory on the move; the marker

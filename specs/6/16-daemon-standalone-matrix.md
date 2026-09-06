@@ -305,7 +305,7 @@ complete as an inventory.
 
 Two rows still move with other specs. The `proxyd` gate is carried by
 `6/22` (partial), and the substrate rows follow `substrate.Profile`, which
-`6/25` (partial) owns. Vendor names date; re-measure a row before citing
+`6/25` owns. Vendor names date; re-measure a row before citing
 it.
 
 ## What this means for "ship in parts"

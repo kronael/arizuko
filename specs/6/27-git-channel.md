@@ -272,6 +272,7 @@ A standard `5/34` adapter, packaged per `5/7`/`5/8`: `template/services/gitd.yml
 - A forged or missing signature is refused with 401 and nothing reaches routd
   — **verified** (`TestVerifySignature`, `TestWebhook_RejectsBadSignature`).
 - `github_merge_pull_request` is a connector tool, not a channel verb, and
-  `hold:mcp:github_merge_pull_request` suspends it — unchanged from `5/19`.
+  `hold:mcp:github_merge_pull_request` suspends it — the `5/19` gate applies
+  as written.
 - gitd advertises exactly `send_text`; every other verb returns `Unsupported`
   without a network call — **verified** (`TestCapImplConsistency`).

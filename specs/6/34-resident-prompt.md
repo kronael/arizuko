@@ -248,7 +248,7 @@ cannot help. What breaks if each stays out:
   ships; then these lines leave under rule 2.
 - **Authority** (a folder isolates and confers nothing; the tool list is
   the grant set; groups are created explicitly). Out: the model's prior is
-  hierarchical, and `5/33` removed the tiers that prior expects. The agent
+  hierarchical, and `5/33` leaves no tiers for that prior to land on. The agent
   reasons from depth, asks for a `chown` on a missing `web:publish` grant
   (the file records four such requests), and works around a missing tool.
 - **The register floor** (terse, the ceiling, no marketing adjectives,

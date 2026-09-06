@@ -173,7 +173,7 @@ shell env, the broker resolves it per spawn, and no row means nothing crosses.
 Model credentials are excluded even under `shell:env:*`, and the action is
 exact-match, so an operator's `**` row does not confer it (BUGS `L134` for the
 channel-scoping limit, `grant_action_needs_a_door` for why `grantableAction`
-had to learn the namespace first).
+must accept the namespace before any row in it can be written).
 
 **Three bounds, which are why the grant is per-key and why the PAT's own scope
 is the real lock:**

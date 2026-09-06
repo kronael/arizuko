@@ -12,10 +12,10 @@ Wrapping a foreign harness stays available as an on-ramp; it is not the thesis.
 
 ## Problem
 
-The field is crowded, and it is no longer a field of single-user harnesses.
+The field is crowded, and it is not a field of single-user harnesses.
 Three open-source projects orchestrate agents across people and channels today
 (measured below), and each ships two or three of arizuko's four defining
-properties. Competing with a harness head-to-head was always a category error;
+properties. Competing with a harness head-to-head is a category error;
 competing with an orchestrator on the properties it already has is a losing
 one. The thesis survives on one property, and the adoption work is to make
 that one property the contract a stranger can occupy.
@@ -74,7 +74,7 @@ off-the-shelf answer, and that is the only audience the thesis addresses.
 
 The Lambda analogy is the argument. Lambda never emulated your server. It
 published a contract — handler, event, context, and a role the SDK finds on its
-own — and the value was what the environment gives you for free: isolation,
+own — and the value is what the environment gives you for free: isolation,
 IAM, scaling. You give up generality and gain the platform. **You write to
 their APIs; they do not reimplement yours.**
 
