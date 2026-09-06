@@ -25,6 +25,23 @@ var openMemIsItsOwnDSN = map[string]bool{
 	"store/store.go": true,
 }
 
+// postgresOpens are the ways a caller reaches Postgres past db_utils.Open. Each
+// one skips the connection cap, the exec mode a transaction-mode pooler
+// requires, and the transient class — the three things this package owns on the
+// Postgres side, and none of them visible in a passing test.
+var postgresOpens = []string{
+	`sql.Open("pgx"`,
+	`sql.Open("pgx/v5"`,
+	`sql.Open("postgres"`,
+	"stdlib.OpenDB(",
+	"stdlib.OpenDBFromDSN(",
+	"stdlib.RegisterConnConfig(",
+	"pgxpool.New(",
+	"pgxpool.NewWithConfig(",
+	"pgx.Connect(",
+	"pgx.ConnectConfig(",
+}
+
 func TestEveryProductionOpenGoesThroughThisPackage(t *testing.T) {
 	root := ".."
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
@@ -56,8 +73,15 @@ func TestEveryProductionOpenGoesThroughThisPackage(t *testing.T) {
 		}
 		for i, line := range strings.Split(string(src), "\n") {
 			if strings.Contains(line, `sql.Open("sqlite"`) {
-				t.Errorf("%s:%d opens SQLite directly — call db_utils.OpenWAL(db_utils.FileDSN(path)) "+
+				t.Errorf("%s:%d opens SQLite directly — call db_utils.Open(db_utils.FileDSN(path)) "+
 					"so the pragma set has one owner (spec 6/37)", filepath.ToSlash(rel), i+1)
+			}
+			for _, open := range postgresOpens {
+				if strings.Contains(line, open) {
+					t.Errorf("%s:%d opens Postgres directly — call db_utils.Open(dsn) so the "+
+						"connection cap, the query exec mode and the transient class have one "+
+						"owner (spec 6/37)", filepath.ToSlash(rel), i+1)
+				}
 			}
 		}
 		return nil

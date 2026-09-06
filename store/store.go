@@ -89,7 +89,7 @@ func Open(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, err
 	}
-	db, err := db_utils.OpenWAL(db_utils.FileDSN(filepath.Join(dir, "messages.db")))
+	db, err := db_utils.Open(db_utils.FileDSN(filepath.Join(dir, "messages.db")))
 	if err != nil {
 		return nil, err
 	}
@@ -134,7 +134,7 @@ func OpenOnbodAt(path string) (*Store, error) {
 // The probe is what makes a wrong path loud: SQLite would otherwise open an
 // empty file happily and every read would return zero rows (spec 5/16 step 7).
 func openOwned(path, file, table, owner string) (*Store, error) {
-	db, err := db_utils.OpenWAL(db_utils.FileDSN(path))
+	db, err := db_utils.Open(db_utils.FileDSN(path))
 	if err != nil {
 		return nil, err
 	}

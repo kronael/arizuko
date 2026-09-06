@@ -31,7 +31,7 @@ func OpenAdapterDB(dataDir, service string) (*sql.DB, error) {
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return nil, err
 	}
-	db, err := db_utils.OpenWAL(db_utils.FileDSN(filepath.Join(dataDir, service+".db")))
+	db, err := db_utils.Open(db_utils.FileDSN(filepath.Join(dataDir, service+".db")))
 	if err != nil {
 		return nil, err
 	}

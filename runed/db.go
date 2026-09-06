@@ -58,7 +58,7 @@ func OpenMem() (*DB, error) {
 }
 
 func open(dsn string) (*DB, error) {
-	sqldb, err := db_utils.OpenWAL(dsn)
+	sqldb, err := db_utils.Open(dsn)
 	if err != nil {
 		return nil, err
 	}

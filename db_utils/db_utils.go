@@ -3,6 +3,7 @@ package db_utils
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"embed"
 	"errors"
 	"fmt"
@@ -13,7 +14,11 @@ import (
 	"strings"
 	"time"
 
-	_ "modernc.org/sqlite"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/stdlib"
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 // RequireDBFile errors unless path already holds a SQLite file. Owner daemons
@@ -57,8 +62,45 @@ func FileDSN(path string) string {
 	return path + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)"
 }
 
-// OpenWAL opens dsn in WAL mode; the handle is closed when the pragma fails.
-func OpenWAL(dsn string) (*sql.DB, error) {
+// maxOpenConns caps every Postgres pool. A Postgres connection is a share of one
+// server-wide budget, so the number is arithmetic rather than taste.
+//
+// The floor is what one daemon holds at once. Migrate takes a dedicated
+// connection and holds it for a whole migration file, a daemon migrates while it
+// serves, a transaction holds a second connection while another goroutine reads,
+// and 4 leaves one spare.
+//
+// The ceiling is the fleet. A full deployment holds 20 pools — routd, runed,
+// authd, proxyd, webd and emaid one each; onbod, gitd and slakd two (their own
+// database and routd's); dashd three; teled, discd, bskyd, linkd and reditd one
+// each — and 24 leaves room for four more adapters without touching this number.
+// So arizuko asks a shared server for at most 24*4 = 96 connections. Postgres
+// ships max_connections=100 with superuser_reserved_connections=3
+// (postgresql.org/docs/17/runtime-config-connection.html), which leaves 97: a
+// server that also carries Dex's and LiteLLM's pools (spec 6/37) needs
+// max_connections raised, and this is the number to raise it past.
+const maxOpenConns = 4
+
+// Open opens dsn and returns a pool. The DSN selects the engine: `postgres://`
+// and `postgresql://` open Postgres through pgx, and every other DSN is a SQLite
+// path or `file:` URI.
+//
+// SQLite is opened in WAL mode and the pragma failure is an error, not a
+// warning: a store in rollback-journal mode looks identical to a healthy one.
+// Postgres is pinged before the handle is returned, so a wrong DSN fails at
+// boot rather than on the first query.
+func Open(dsn string) (*sql.DB, error) {
+	if isPostgresURL(dsn) {
+		return openPostgres(dsn)
+	}
+	if isLibpqKeywordDSN(dsn) {
+		return nil, fmt.Errorf("%q is a libpq keyword DSN; write it as a postgres:// URL "+
+			"(SQLite would take the whole string as a file path and create a file with that name)", dsn)
+	}
+	return openSQLite(dsn)
+}
+
+func openSQLite(dsn string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
@@ -68,6 +110,78 @@ func OpenWAL(dsn string) (*sql.DB, error) {
 		return nil, err
 	}
 	return db, nil
+}
+
+func openPostgres(dsn string) (*sql.DB, error) {
+	cfg, err := pgx.ParseConfig(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("parse postgres DSN: %w", err)
+	}
+	// A transaction-mode pooler (PgBouncer, RDS Proxy, Azure's built-in
+	// PgBouncer) hands each transaction whichever server connection is free, so
+	// a statement prepared on one is missing on the next and PREPARE/DEALLOCATE
+	// are refused outright (pgbouncer.org/features.html). The simple protocol
+	// names no prepared statement, so a pooled connection carries no state a
+	// later transaction depends on.
+	cfg.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+	db := stdlib.OpenDB(*cfg)
+	db.SetMaxOpenConns(maxOpenConns)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("connect to postgres: %w", err)
+	}
+	return db, nil
+}
+
+func isPostgresURL(dsn string) bool {
+	return strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://")
+}
+
+// isLibpqKeywordDSN reports whether dsn is Postgres in libpq keyword/value form
+// (`host=db user=routd dbname=routd`). Open refuses that form rather than
+// guessing: a SQLite path never begins `word=value`, and opening one as a file
+// would create a file named after the whole connection string and boot green on
+// an empty schema.
+func isLibpqKeywordDSN(dsn string) bool {
+	head, _, _ := strings.Cut(dsn, " ")
+	key, value, ok := strings.Cut(head, "=")
+	return ok && key != "" && value != "" && !strings.ContainsAny(key, `/\.:?`)
+}
+
+// IsTransient reports whether err is a database fault a retry can clear. It is
+// the whole class: everything else — a misconfiguration, missing data, a
+// programming error — throws on the first attempt.
+//
+// SQLite contributes SQLITE_BUSY and SQLITE_LOCKED, which reach a caller only
+// after FileDSN's busy_timeout has already waited. Postgres contributes 40001
+// serialization_failure and 40P01 deadlock_detected
+// (postgresql.org/docs/17/errcodes-appendix.html), plus the connection faults a
+// managed failover produces when it re-points the endpoint. Deadlock has no
+// SQLite counterpart: one writer per file means two transactions can never wait
+// on each other.
+//
+// A dropped connection counts only when pgconn can prove the statement never
+// reached the server. Retrying a statement that may already have run is a
+// second write, not a retry.
+func IsTransient(err error) bool {
+	if err == nil {
+		return false
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == "40001" || pgErr.Code == "40P01"
+	}
+	var liteErr *sqlite.Error
+	if errors.As(err, &liteErr) {
+		switch liteErr.Code() & 0xff {
+		case sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED:
+			return true
+		}
+		return false
+	}
+	return errors.Is(err, driver.ErrBadConn) || pgconn.SafeToRetry(err)
 }
 
 // checkVersions rejects a migration set whose 4-digit prefixes are not exactly
@@ -97,20 +211,116 @@ func checkVersions(files []string) error {
 	return nil
 }
 
+// migrateLockKey scopes every migrator on one Postgres database to a single
+// advisory lock. The value is arbitrary; only its uniqueness inside arizuko
+// matters. pg_advisory_xact_lock releases at commit, which is what a
+// transaction-mode pooler allows and a session lock is not.
+const migrateLockKey = 6103702026090601
+
+// dialect is the SQL Migrate's own bookkeeping differs in between engines. The
+// migration runner is the one place in arizuko that speaks both: it applies the
+// SQLite sets an instance already carries and the Postgres baselines an instance
+// converts to (spec 6/37 step 7). Every other statement in the tree has one
+// dialect.
+type dialect struct {
+	// begin opens the critical section — one migrator at a time, so the version
+	// recheck inside it decides which one applies the file.
+	begin []string
+	// selectVersion reads the highest applied version for one service.
+	selectVersion string
+	// insertVersion records an applied migration.
+	insertVersion string
+}
+
+var sqliteDialect = dialect{
+	begin:         []string{"BEGIN EXCLUSIVE"},
+	selectVersion: "SELECT COALESCE(MAX(version),0) FROM migrations WHERE service=?",
+	insertVersion: "INSERT INTO migrations (service, version, applied_at) VALUES (?,?,?)",
+}
+
+var postgresDialect = dialect{
+	begin: []string{
+		"BEGIN",
+		fmt.Sprintf("SELECT pg_advisory_xact_lock(%d)", migrateLockKey),
+	},
+	selectVersion: "SELECT COALESCE(MAX(version),0) FROM migrations WHERE service=$1",
+	insertVersion: "INSERT INTO migrations (service, version, applied_at) VALUES ($1,$2,$3)",
+}
+
+func dialectFor(db *sql.DB) dialect {
+	if _, ok := db.Driver().(*stdlib.Driver); ok {
+		return postgresDialect
+	}
+	return sqliteDialect
+}
+
+// beginLocked opens the critical section on conn. The caller owns the ROLLBACK
+// or COMMIT that ends it.
+func (d dialect) beginLocked(ctx context.Context, conn *sql.Conn) error {
+	for _, stmt := range d.begin {
+		if _, err := conn.ExecContext(ctx, stmt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// rowQuerier is the one statement Migrate issues from both the pool and a
+// pinned connection.
+type rowQuerier interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+func readVersion(ctx context.Context, q rowQuerier, d dialect, service string) (int, error) {
+	var max int
+	err := q.QueryRowContext(ctx, d.selectVersion, service).Scan(&max)
+	return max, err
+}
+
+// createVersionTable creates the bookkeeping table inside the critical section.
+// Two daemons boot together and both reach here, and Postgres's CREATE TABLE IF
+// NOT EXISTS is not race-free — concurrent creators collide on the catalog's
+// unique index rather than one of them seeing the other's table.
+func createVersionTable(ctx context.Context, db *sql.DB, d dialect) error {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if err := d.beginLocked(ctx, conn); err != nil {
+		return fmt.Errorf("create migrations table: lock: %w", err)
+	}
+	if _, err := conn.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS migrations (
+		service TEXT NOT NULL, version INTEGER NOT NULL, applied_at TEXT NOT NULL,
+		PRIMARY KEY (service, version))`); err != nil {
+		_, _ = conn.ExecContext(ctx, "ROLLBACK")
+		return fmt.Errorf("create migrations table: %w", err)
+	}
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return fmt.Errorf("create migrations table: commit: %w", err)
+	}
+	return nil
+}
+
 // Migrate applies pending `NNNN-*.sql` migrations from fsys/dir. Versions
 // must be sequential with no gaps. Tracked in the `migrations` table
 // keyed on (service, version).
 func Migrate(db *sql.DB, fsys embed.FS, dir, service string) error {
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS migrations (
-		service TEXT NOT NULL, version INTEGER NOT NULL, applied_at TEXT NOT NULL,
-		PRIMARY KEY (service, version))`); err != nil {
-		return fmt.Errorf("create migrations table: %w", err)
-	}
+	ctx := context.Background()
+	d := dialectFor(db)
 
-	var max int
-	if err := db.QueryRow("SELECT COALESCE(MAX(version),0) FROM migrations WHERE service=?",
-		service).Scan(&max); err != nil {
-		return fmt.Errorf("read migration version: %w", err)
+	// The version read is the probe for the bookkeeping table, so a database
+	// that already carries it takes no write lock at boot. Reaching for the lock
+	// unconditionally queues every daemon behind whichever one is inside a slow
+	// migration, and the rest fail on busy_timeout.
+	max, err := readVersion(ctx, db, d, service)
+	if err != nil {
+		if cerr := createVersionTable(ctx, db, d); cerr != nil {
+			return cerr
+		}
+		if max, err = readVersion(ctx, db, d, service); err != nil {
+			return fmt.Errorf("read migration version: %w", err)
+		}
 	}
 
 	entries, err := fsys.ReadDir(dir)
@@ -141,22 +351,19 @@ func Migrate(db *sql.DB, fsys embed.FS, dir, service string) error {
 			return fmt.Errorf("%s: read: %w", f, err)
 		}
 		// Serialise concurrent openers of the same DB (e.g. webd + proxyd
-		// both racing to apply the same migration). BEGIN EXCLUSIVE holds a
+		// both racing to apply the same migration). The critical section holds a
 		// write lock for the duration, so the second opener blocks until the
 		// first commits, then sees cur >= ver and skips.
-		ctx := context.Background()
 		conn, err := db.Conn(ctx)
 		if err != nil {
 			return err
 		}
-		if _, err := conn.ExecContext(ctx, "BEGIN EXCLUSIVE"); err != nil {
+		if err := d.beginLocked(ctx, conn); err != nil {
 			conn.Close()
 			return fmt.Errorf("%s: exclusive lock: %w", f, err)
 		}
-		var cur int
-		if err := conn.QueryRowContext(ctx,
-			"SELECT COALESCE(MAX(version),0) FROM migrations WHERE service=?",
-			service).Scan(&cur); err != nil {
+		cur, err := readVersion(ctx, conn, d, service)
+		if err != nil {
 			_, _ = conn.ExecContext(ctx, "ROLLBACK")
 			conn.Close()
 			return fmt.Errorf("%s: recheck version: %w", f, err)
@@ -178,8 +385,7 @@ func Migrate(db *sql.DB, fsys embed.FS, dir, service string) error {
 			conn.Close()
 			return fmt.Errorf("%s: %w", f, err)
 		}
-		if _, err := conn.ExecContext(ctx,
-			"INSERT INTO migrations (service, version, applied_at) VALUES (?,?,?)",
+		if _, err := conn.ExecContext(ctx, d.insertVersion,
 			service, ver, time.Now().Format(time.RFC3339)); err != nil {
 			_, _ = conn.ExecContext(ctx, "ROLLBACK")
 			conn.Close()

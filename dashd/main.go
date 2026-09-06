@@ -438,7 +438,7 @@ func openSiblingOwner(env, dataDir, owner string) *sql.DB {
 			"owner", owner, "path", path, "env", env)
 		return nil
 	}
-	db, err := db_utils.OpenWAL(db_utils.FileDSN(path))
+	db, err := db_utils.Open(db_utils.FileDSN(path))
 	if err != nil {
 		slog.Error("open owner DB", "owner", owner, "path", path, "err", err)
 		return nil

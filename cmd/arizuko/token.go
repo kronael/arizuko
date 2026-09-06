@@ -161,7 +161,7 @@ func mintBearer(storeDir, folder, sub string, scopes []string, ttl time.Duration
 	if _, err := os.Stat(path); err != nil {
 		return "", time.Time{}, fmt.Errorf("authd database not found at %s: %w", path, err)
 	}
-	adb, err := db_utils.OpenWAL(db_utils.FileDSN(path))
+	adb, err := db_utils.Open(db_utils.FileDSN(path))
 	if err != nil {
 		return "", time.Time{}, err
 	}

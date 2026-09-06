@@ -334,7 +334,7 @@ func migrateSplit(storeDir string, dryRun bool) error {
 	// Bootstrap the schema (IF NOT EXISTS — no-op when onbod already migrated) so
 	// the copy target exists. onbod's migration FS is package-private (package
 	// main), hence the inline DDL (onbodSchema mirrors it verbatim).
-	odb, err := db_utils.OpenWAL(db_utils.FileDSN(filepath.Join(storeDir, "onbod.db")))
+	odb, err := db_utils.Open(db_utils.FileDSN(filepath.Join(storeDir, "onbod.db")))
 	if err != nil {
 		return fmt.Errorf("open onbod.db: %w", err)
 	}
