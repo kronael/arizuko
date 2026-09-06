@@ -11376,7 +11376,24 @@ under `L6`; `tryAuth` verifies ES256 against the JWKS key set and nothing else.
 - **Scope:** `proxyd/README.md`
 - **Fix:** say ES256, and name the key set it verifies against
 
-## L226 — `db_utils`'s concurrency test fails under `-race`, and `make test` cannot see it (2026-09-06, open)
+## ✅ FIXED 2026-09-06 L226 — `db_utils`'s concurrency test fails under `-race`, and `make test` cannot see it (2026-09-06)
+
+**FIXED 2026-09-06 in `43a7afcc`.** The fixture's hold is bounded from above by
+`busy_timeout(5000)`: a losing opener waits that long and then reports
+`SQLITE_BUSY`, so a hold near the timeout makes a correctness test into a
+timing test. The recursive CTE drops from 400,000 rows to 40,000, about 106 ms,
+which leaves headroom for the race detector's slowdown. Measured here:
+`-race` fails in 8.3 s before, passes in 3.6 s after; 0.21 s without `-race`.
+
+**One thing this does NOT establish, and it is worth its own entry.** The test
+asserts the outcome — three rows, three recorded versions — and nothing asserts
+that the race actually happened. The fixture's own comment says the point of
+the hold is that every other opener reads `MAX(version)=0` before the winner
+commits, and that "without the hold the goroutines serialise and the recheck is
+never exercised". So a hold that becomes too short passes silently, which is
+the failure the 10x reduction makes newly plausible. `proxyd`'s snapshot race
+test already carries the guard this one lacks: it fails the fixture outright
+when both outcomes did not occur.
 
 REPRODUCED on the tree WITHOUT the change that surfaced it, so it is
 pre-existing, not introduced. `go test ./db_utils/ -race -count=1 -run
@@ -11399,6 +11416,30 @@ failure mode hides from the command everyone runs.
   instrumentation cannot push it past the timeout. Then decide whether
   `make test-all` should carry `-race` for this package, since a concurrency
   guarantee proved without it is proved weakly.
+
+## L229 — the migration concurrency test cannot tell a passing race from one that never happened (2026-09-06, open)
+
+MEASURED while closing `L226`. `TestMigrateAppliesEachFileOnceUnderConcurrentOpeners`
+starts six openers on one barrier and then asserts only the end state: three
+rows in `widgets`, three recorded versions. Nothing asserts that more than one
+opener ever read `MAX(version)=0`, which is the whole point — the fixture's
+comment says so itself.
+
+The recheck-and-rollback path it exists to cover is therefore exercised only as
+long as the fixture's hold outlasts the goroutines' start-up. `L226` cut that
+hold by 10x for a good reason, so the margin is now unmeasured rather than
+generous.
+
+`proxyd/dispatch_snapshot_test.go` already solves this for the same shape of
+test: it counts both outcomes and calls `t.Fatalf("fixture is vacuous: …")`
+when either is zero, so a race that stops racing fails loudly instead of
+passing.
+
+- **Severity:** low — the code is right; the test's guarantee is weaker than it
+  reads, and it degrades silently
+- **Scope:** `db_utils/migrate_engine_test.go`
+- **Fix:** count the openers that observed version 0 and fail the fixture when
+  fewer than two did, the way the proxyd test counts its two outcomes
 
 ## L227 — the one-opener guard stops at the test boundary, so the suite cannot be pointed at another engine (2026-09-06, open)
 
