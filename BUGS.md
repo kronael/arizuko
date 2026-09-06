@@ -10690,3 +10690,43 @@ correct single `... WHERE id IN (...)`. Port the good one before deleting it.
   `tests/` and `webd/` call sites keeping `store.PutMessage` and
   `store.CreateTask` alive are testing `store` or merely using it as the
   handiest fixture. Repoint them at `routd.DB` and the answer is deletion.
+
+## L209 — a bare TLD is a valid egress allow entry, so one agent-written rule opens every host under it (2026-09-06, open — proposal, needs sign-off)
+
+MEASURED, on the live sloth instance. `main/trading` holds eight allow rows
+that are bare TLDs: `com`, `org`, `net`, `io`, `ai`, `co`, `news`, `xyz`. All
+eight carry `created_by = 'folder:main'` and timestamps inside six seconds on
+2026-06-12 — the agent wrote them itself through `network_allow`.
+
+`match.Host` matches a suffix: `strings.HasSuffix(host, "."+entry)`. So the
+row `com` allows every `.com` host. A probe against the real package confirms
+it — `Host(["org","com","io"], "api.telegram.org")` is `true`, and so is
+`evil.org`. Eight rows put the commercial internet inside one folder's
+allowlist while the operator's rule list still reads as an allowlist.
+
+`match.ValidEntry` refuses a scheme, credentials, an IP, a port, a path, a
+`*` and an inner wildcard — every shape that *cannot* match. It does not
+refuse the one shape that matches far too much. `domainRegex` accepts a single
+label, so `com` is a well-formed host name and passes.
+
+The folder-scope check is not the containment here either: `network_allow` is
+granted per folder, and a folder that may add `api.coingecko.com` may add
+`com`. The grant says which folder writes rules, never which hosts a rule may
+cover.
+
+Cause fix: `ValidEntry` refuses an entry with no dot, the same way it refuses
+an IP — an entry that matches a whole TLD is a policy hole, not a host name.
+That is a new refusal on a write path both the CLI and the agent resource
+share, so it needs the sign-off. It also strands the eight live rows, which is
+the point: they must be re-written as real hosts, or the folder must move to
+the explicit allow-all mode where it reads as what it is.
+
+Same class as `grant_action_needs_a_door` inverted: there the door was missing,
+here the door has no frame.
+
+- **Severity:** high — an agent-reachable path to near-total egress
+- **Scope:** `egress/match`, `store/network.go`, `routd/network_rules_resource.go`
+- **Affected:** sloth `main/trading` today; any folder holding `network_allow`
+- **Fix:** `ValidEntry` refuses a single-label entry; audit every live
+  `network_rules` row for the shape; decide per folder between real hosts and
+  declared allow-all
