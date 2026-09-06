@@ -27,7 +27,7 @@ func openOwnedDB(ownDSN string) (*sql.DB, error) {
 	if err := db_utils.RequireDBFile(ownDSN); err != nil {
 		return nil, err
 	}
-	db, err := db_utils.OpenWAL(db_utils.FileDSN(ownDSN))
+	db, err := db_utils.Open(db_utils.FileDSN(ownDSN))
 	if err != nil {
 		return nil, err
 	}

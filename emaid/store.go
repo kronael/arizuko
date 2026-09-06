@@ -31,7 +31,7 @@ func openDB(dataDir string) (*sql.DB, error) {
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return nil, err
 	}
-	db, err := db_utils.OpenWAL(db_utils.FileDSN(filepath.Join(dataDir, "emaid.db")))
+	db, err := db_utils.Open(db_utils.FileDSN(filepath.Join(dataDir, "emaid.db")))
 	if err != nil {
 		return nil, err
 	}

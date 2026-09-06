@@ -40,7 +40,7 @@ func main() {
 		listenAddr = ":8080"
 	}
 
-	db, err := db_utils.OpenWAL(db_utils.FileDSN(dsn))
+	db, err := db_utils.Open(db_utils.FileDSN(dsn))
 	if err != nil {
 		slog.Error("open db", "err", err)
 		os.Exit(1)
