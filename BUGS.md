@@ -10094,7 +10094,37 @@ restated value, so the next substrate difference is a diff to one struct.
 - **Status:** open — docs
 - **Fix:** replace each restated value with the pointer; one edit per spec
 
-## L191 — `6/22` step 3 says the forward-auth transit proof is "minted per request"; `attachTransit` serves the cached `TokenSource` bearer for up to 15 minutes (2026-09-05, open — spec corrected, code decision needs sign-off)
+## ✅ FIXED 2026-09-06 L191 — the forward-auth transit proof is bounded by the bearer TTL, not by the request (2026-09-05)
+
+**RESOLVED 2026-09-06 in `08693410`: the TTL-bounded property is the design,
+because the stronger one is not purchasable.** Two measurements settle it, and
+BOTH of this entry's own assumptions were wrong.
+
+**The mint does not ride an existing round trip.** `/auth/forward` makes zero
+network calls: `auth.VerifyHTTP` checks the caller's token against a
+`RemoteKeySet` built once at boot, `attachTransit` serves the cached bearer,
+and `groupsForSub` is a local SQLite read on the FS-mounted `routd.db` (the
+`5/16` hot-path exception). The "one subrequest per request" step 3 refuses to
+cache is the PROXY's subrequest to arizuko, not an arizuko-to-authd hop. So a
+per-request mint ADDS a call to every proxied request and makes authd a
+synchronous dependency of the web path, where the cached bearer carries proxyd
+through an authd restart today. Benchmarked on loopback with a real ES256
+mint: 0.20-0.35 ms against 0.12-0.20 ms for the local verify — roughly double
+per decision, and a container hop in production.
+
+**And it would not deliver the property.** `POST /v1/service-token` takes no
+TTL argument and mints at `accessTTL`, 15 minutes (`authd/main.go`). A
+per-request mint yields a fresh `jti` and the SAME window. `auth.ProxydTransit`
+verifies offline and consults no `jti` list, so freshness is invisible to a
+backend. Even a short-TTL mint floors at 30 seconds, because `tokenClockSkew`
+(`auth/jwks.go:25`) still accepts an expired token inside it. "No token beyond
+one request" therefore needs a replay cache in every backend — the per-request
+lookup `5/16` rules out.
+
+Two corrections to this entry as written: its Scope named `specs/6/25` §2,
+which is about a substrate declaring what it can do and has nothing on the
+transit proof; and its Status named `POST /v1/tokens`, which is the downscope
+path needing a parent token, not the service mint.
 
 `proxyd/forward_auth.go` copies `Authorization` from `attachTransit`
 (`proxyd/main.go:773`), which calls `auth.TokenSource.Token` — the bearer
@@ -11288,6 +11318,41 @@ history, which no `git rm` recovers.
 - **Fix:** `git rm --cached mcpfw/mcpfw` and add the build output to
   `.gitignore`. The objects already in history stay; that is the cost of
   noticing late.
+
+## ✅ FIXED 2026-09-06 L224 — the Caddyfile renderer copied three of the four forward-auth headers, so every fronting-proxy caller is anonymous (2026-09-06)
+
+FOUND and fixed while auditing `6/22`. `/auth/forward` answers four headers;
+`proxycfg` rendered `copy_headers` with three, dropping `X-User-Name`.
+Rendered against krons' live table: 26 rows, 26 routes, 21 of them carrying
+the auth hop and every one short that header.
+
+It fails silently. Every request still returns 200, and the backends that read
+the header just see nothing: `webd/api.go:98` records the sender name on a
+posted message, `webd/pair.go:61`, and `dashd/main.go:657` labels the nav. So a
+deployment fronted by Caddy would attribute every message to a nameless user
+and nothing would report an error.
+
+Two declarations of one set, which is the failure root `CLAUDE.md` names. Fixed
+by `auth.TransitHeaders` — one declaration, both the endpoint and the renderer
+read it. Proved by mutation twice: restoring the shipped renderer turns the new
+`proxycfg` test red naming the missing header, and slicing the set to two in
+`proxyd/forward_auth.go` turns the endpoint test red.
+
+- **Severity when live:** would have been high — silent, total loss of caller
+  attribution behind a fronting proxy
+- **Reached no instance:** proxyd is the running proxy; the renderer prints and
+  installs nothing
+
+## L225 — `proxyd/README.md` says proxyd accepts HS256 bearers; `tryAuth` is ES256-only (2026-09-06, open — docs)
+
+MEASURED during the `6/22` audit. `proxyd/README.md:18` states proxyd
+authenticates `Bearer <jwt>` "(HS256 or ES256)". The HS256 branch was removed
+under `L6`; `tryAuth` verifies ES256 against the JWKS key set and nothing else.
+
+- **Severity:** low — a reader configuring a client tries an algorithm proxyd
+  refuses, and the 401 does not say why
+- **Scope:** `proxyd/README.md`
+- **Fix:** say ES256, and name the key set it verifies against
 
 ## L219 — restoring an archive re-introduces the mixed-width timestamps `L97` removed (2026-09-06, proposal — needs sign-off)
 
