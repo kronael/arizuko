@@ -83,16 +83,13 @@ carries a POST to routd and 14 handlers from routd.
 
 Where the code bends the asymmetry, each bend is a cut or a fix:
 
-- The outbound interface is re-declared as REST at `routd/turns.go` with no
-  caller in the tree (§7, S2). It is the one place the two standards were
-  made symmetric, and nothing uses the symmetry.
 - `POST /v1/outbound` (`routd/server.go:634`, `deliver.SendVia`) sends with
   no `messages` row. It is the only outbound that skips the ledger; onbod's
   prompts and replies (`onbod/main.go:1396`) are therefore invisible to
   `find_messages` and to the transcript. A row-first send is the standard;
   this entry should append and then deliver like `ipc.go:718`.
-- The 14-verb interface is declared six times (§2); one declaration with
-  five readers is the shape.
+- The 14-verb interface is declared five times (§2); one declaration with
+  four readers is the shape.
 
 ## 2. Where each mechanism lands
 
@@ -111,7 +108,6 @@ a second owner of the verb? Only the middle kind is a cut.
 | timed                                                   | Ingest          | `GET /v1/tasks/due` → `POST /v1/messages`, `timed/split.go:253-278`              | a clock that owns no state; every row it touches is routd's                                              |
 | proactive interjection                                  | Ingest          | `routd/proactive.go:15-20`                                                       | a silence trigger, not a second clock                                                                    |
 | ipc `send`/`reply`/delegate/escalate                    | Ingest          | `ipc/ipc.go:718`, `:1921`, `:1960`                                               | the agent as a source; same appender                                                                     |
-| `/v1/turns/{turn_id}/*` (14 handlers)                   | Egress          | `routd/turns.go:153-573`                                                         | **the MCP write tools' REST twin, with no caller in the tree** (§7, S2)                                  |
 | `POST /v1/outbound`                                     | Egress          | `routd/server.go:634`                                                            | the daemon-facing send; the only outbound with no `messages` row (§1)                                    |
 | route table + engagement + sticky + observe             | Route           | `routd/loop.go:682-729`; `router/router.go:371`                                  | one resolver, layered overrides                                                                          |
 | `route_tokens.target_folder`                            | Route           | read first in `directFolder`, `routd/loop.go:762-775`                            | a second JID→folder map, by design ([`5/W`](../5/W-webhook-routes.md))                                   |
@@ -135,11 +131,11 @@ a second owner of the verb? Only the middle kind is a cut.
 | `sandbox/`, `crackbox/`                                 | (substrate)     | `runed/cmd/runed/main.go:102` wires `NewDockerRuntime` only                      | not in the turn path; [`6/9`](9-crackbox-sandboxing.md) says so                                          |
 | `proxycfg/caddy.go`                                     | (surface)       | `cmd/arizuko/routes.go:60-95` prints, never installs                             | a third reader of `proxyd_routes`, staged by [`6/22`](22-proxyd-cut.md)                                  |
 
-Two rows deserve a sentence each. The 14-verb set is declared six times:
+Two rows deserve a sentence each. The 14-verb set is declared five times:
 `BotHandler` (`chanlib/handler.go:61`), the adapter mux (`:314-327`), the
-client (`chanreg/httpchan.go`), the REST twin (`routd/turns.go`), and the two
-TypeScript servers. The per-adapter `caps_test.go` files exist to catch the
-drift a sixfold declaration invites, and all eight Go adapters carry one. The
+client (`chanreg/httpchan.go`), and the two TypeScript servers. The
+per-adapter `caps_test.go` files exist to catch the drift a fivefold
+declaration invites, and all eight Go adapters carry one. The
 two TypeScript declarations (`whapd/src/client.ts:23`,
 `twitd/src/client.ts:38`) carry none, so a cap they announce and do not
 implement is caught by nothing. And `HasCap` is read only inside the deliverer
@@ -338,10 +334,10 @@ architecture.
 | #   | Cut                                                                                                  | Removes                                             | Risk   |
 | --- | ---------------------------------------------------------------------------------------------------- | --------------------------------------------------- | ------ |
 | S1  | dashd's admin SQL becomes calls on routd's `/v1` resources                                           | ~1.5–2k lines; the `onbod.db` and `runed.db` mounts | medium |
-| S2  | delete `routd/turns.go`, the REST twin of the hot-tier tools                                         | 722 lines, 14 routes, their scope sets, tests       | low    |
+| S2  | **taken** — the `/v1/turns` REST twin is gone (`3b94cf67`)                                           | 722 lines, 14 routes, their scope sets, tests       | —      |
 | S3  | `routd.DB` forwards to `store.Store` for every shared name, as `DeleteGroup` already does            | ~500 lines of `routd/db.go`                         | medium |
 | S4  | CLI runtime mutations become HTTP calls; `create`/`generate`/`migrate`/`archive` keep the filesystem | ~1k lines of `cmd/arizuko`                          | medium |
-| S5  | one TypeScript `chanlib` shared by whapd and twitd, or twitd in Go                                   | ~600 lines shared; 1,332 if twitd moves to Go       | low    |
+| S5  | one TypeScript `chanlib` shared by whapd and twitd, or twitd in Go                                   | ~600 lines shared; 1,318 if twitd moves to Go       | low    |
 | S6  | exported `*Tx` writers in `store` for acl, membership, invites; the three copies call them           | ~120 lines; closes the `grant_option` gap           | low    |
 | S7  | mount the `invites` resource on the agent socket; delete the two hand-rolled ipc tools               | ~90 lines                                           | low    |
 | S8  | timed becomes a routd goroutine                                                                      | ~400 lines, one daemon, one service token           | medium |
@@ -353,7 +349,7 @@ architecture.
 
 **S1 — dashd as a client.** [`6/28`](28-cockpit-index.md) §"Read-path"
 already rules that a dashboard reads another daemon only over `/v1`, and
-[`6/29`](29-dashd-hub.md) already deleted the per-daemon pages. The writes
+[`6/29`](29-dashd-hub.md) leaves dashd no per-daemon pages. The writes
 stay direct "by rule" because `store.AsUser` (`store/store.go:44`) is how the
 operator's sub reaches the audit row and `bearerCall` carries only dashd's
 service bearer. That reason does not hold: `webd/routes_mcp.go:135-174`
@@ -369,18 +365,14 @@ audit; `dashd/tasks_admin.go:204-306` writes `scheduled_tasks` with a plain
 `Exec` and a separate audit emit, so a crash between them loses the audit
 row.
 
-**S2 — the REST twin nobody calls.** `routd/turns.go:23` names itself "the
-HTTP twin of the agent's in-process MCP write tools". No file outside
-`routd/` references `/v1/turns/`; runed makes no call to routd at all
-(`runed/api/v1/client.go:113` — one blocking `POST /v1/runs`, the reply
-tools ride the in-process socket). The twin has its own append-and-deliver
-chain (`appendAndDeliver`, `mutate`, `target`, `deliverRow`, `idem`) beside
-ipc's (`ipc/ipc.go:718`); `routd/social_audit.go:12` keeps the two from
-drifting on audit only. Root `CLAUDE.md` rules that hot-tier actions have no
-REST twin; [`5/E`](../5/E-routd.md) and [`5/Z`](../5/Z-message-actions.md)
-pin the twin's bodies as shipped. The code sides with `CLAUDE.md`. What
-breaks: `5/E` §Turn, `5/Z`, [`5/P`](../5/P-runed.md), `routd/README.md:137`,
-and the `components/routd.html` page describe a surface that stops existing.
+**S2 — taken.** Root `CLAUDE.md` rules that hot-tier actions have no REST
+twin, and `/v1/turns/` is registered nowhere in the tree. `routd/turns.go` is
+244 lines carrying the turn's own outbound lifecycle — `appendAndDeliver`
+(`:55`) renders what `submit_turn` returns, and the `<status>` blocks, into
+`messages` rows — while `ipc/ipc.go:718` stays the single append-and-deliver
+chain for the agent's write tools. [`5/E`](../5/E-routd.md) §Turn, `5/Z`,
+[`5/P`](../5/P-runed.md), `routd/README.md` and the `components/routd.html`
+page still describe the twin: that is the drift this cut leaves behind.
 
 **S3 — two data layers over `routd.db`.** 54 method names exist on both
 `routd.DB` and `store.Store`, and the bodies differ: `routd/db.go:115`
@@ -540,10 +532,10 @@ eighteen with it. The adapters are the count and they are correct.
 
 ## 10. Sequencing
 
-- **Independent, now:** S2 (delete the twin), S9 (one wire type), S6
-  (the `Tx` split), S7 (invites' socket mount), S12 (dead code), S13 (two
-  call sites), the `/v1/outbound` row-first fix (§1), S10 after S2 (the verb
-  table has one fewer reader).
+- **Independent, now:** S9 (one wire type), S6 (the `Tx` split), S7
+  (invites' socket mount), S10 (with S2 taken, the verb table has one fewer
+  reader), S12 (dead code), S13 (two call sites), and the `/v1/outbound`
+  row-first fix (§1).
 - **S3 before S1 and S4:** the surviving data layer must be decided before
   two writers move onto it.
 - **`groups.create` on `/v1` before S1 and S11:** both need the one

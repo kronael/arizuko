@@ -28,11 +28,12 @@ Three decisions are genuinely better and are adoptable without touching it.
 
 ## 1 — egress checks the address, not only the name
 
-**What arizuko does.** `egress/proxy.go:131` matches the CONNECT host against
-a name allowlist, then `net.DialTimeout("tcp", r.Host, …)` at `:142` **dials
-the name**, resolving a second time. The name that was checked and the address
-that is reached are two independent resolutions. There is no address check of
-any kind: no link-local, no cloud metadata, no loopback, no private range.
+**The fault this closes.** A proxy that matches the CONNECT host against a
+name allowlist and then dials the NAME resolves twice, so the name that passed
+and the address that is reached are two independent answers, and an
+allowlisted host can rebind between them. A name allowlist also says nothing
+about address class: link-local, cloud metadata, loopback and private ranges
+all pass it.
 
 **Why it matters here and not in the agent.** The spawn's network is
 `--internal`, so the agent itself has nowhere to send a packet — `6/24`
@@ -49,10 +50,20 @@ it to `cluster: original_dst` keyed on `x-egress-upstream-address`, so the
 address checked IS the address connected to. There is no second resolution and
 therefore no window to rebind into.
 
-**Adopt.** Resolve once in `handleConnect`, reject the address classes, dial
-the resolved IP rather than the name. `egress/` is 233 lines; this is tens.
-Keep the SNI-free design — nothing is decrypted, this is address hygiene, not
-inspection.
+**Adopted.** `resolveDest` (`egress/address.go:67`) resolves once and returns
+the one address the caller must dial, refusing the host when ANY of its answers
+is blocked rather than picking the good one — resolver ordering must not decide
+the outcome. `blockedIP` (`:36`) rejects loopback, link-local (which covers
+`169.254.169.254` and every name for it, with no second list to keep current),
+unspecified and multicast, plus AWS IMDSv2 over IPv6 at `fd00:ec2::254`, which
+is outside link-local. Private ranges are a separate opt-in (`--deny-private`),
+because a per-spawn proxy sits on the compose network where private addresses
+are ordinary neighbours. `handleConnect` (`egress/proxy.go:212`) then dials
+that address and never the name again. The SNI-free design stays: nothing is
+decrypted, this is address hygiene, not inspection. Six tests in
+`egress/address_test.go` pin `resolveDest`, and `egress/connect_test.go` pins
+the tunnel path — including that `--allow-all` still refuses a blocked
+address.
 
 ### 1b — deny beats allow, and one grammar at every boundary
 
@@ -95,10 +106,15 @@ degradation: `L54` logged a lost transcript at INFO for eleven weeks; `L45`'s
 env var stopped applying and looked healthy; `X3` shipped a key to a daemon
 with no reader.
 
-**Adopt.** Give each spawn substrate a declared profile in code, and require
-the resolver that computes an effective capability to be a named function that
-can log or fail when it downgrades. The matrix in `6/16` becomes the doc
-rendering of a value, not a second source of truth.
+**Adopted.** `substrate.Profile` is the declared ceiling and
+`substrate.Effective` is what a substrate delivers against it
+(`substrate/substrate.go:53,65`); `container.Profile` and `sandbox.Profile`
+are the two declarations. `EgressConfig.Effective` (`container/egress.go:110`)
+is the one named function where a capability may be found missing, and it
+returns an error rather than delivering less quietly; `runed.Substrate`
+(`runed/docker.go:153`) calls it at boot and `substrateLine`
+(`runed/dash.go:89`) renders the gap on the operator page. The matrix in `6/16`
+is the doc rendering of that value, not a second source of truth.
 
 ## 3 — agent behaviour is testable without a live instance
 
@@ -137,18 +153,12 @@ twice or lost.
 
 anteval stays what it is: manual, operator-invoked, never automated.
 
-## Order
+## State
 
-**1 is adopted.** `egress/address.go` resolves a destination and checks the
-resulting IP before dialling it — `resolveDest` refuses instance-metadata and
-blocked classes, loopback and private are opt-in, and the dial targets the
-address that was checked, so a name cannot resolve past the gate. Six tests in
-`egress/address_test.go` plus the tunnel path in `connect_test.go` cover it.
-
-1 first: it is a live address-hygiene gap in code shipped to three instances on
-2026-08-18, and it is tens of lines. Then 2, which is cheap and pays every time
-a substrate is added. **3 is adopted**: the three seams above each carry a
-contract test, and a new seam earns one as it is touched.
+All three are adopted, and each section above names the code that carries it.
+A new Go↔TypeScript seam earns a contract test as it is touched, and a new
+substrate declares a `Profile` and resolves its `Effective` through a named
+function.
 
 ## Ties
 

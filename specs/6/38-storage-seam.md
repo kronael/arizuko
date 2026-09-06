@@ -324,8 +324,8 @@ not the answer to the stated requirement, which names Postgres.
 
 ## Partition keys are per-table — an access-pattern note, not a design
 
-Kept because it states how the tables are read, which any engine's
-indexes should follow. 19 of routd's 29 tables have no `folder` column.
+This states how the tables are read, which any engine's indexes should
+follow. 19 of routd's 29 tables have no `folder` column.
 `messages` keys on `chat_jid`, `secrets` on `(scope_kind, scope_id)`,
 `audit_log` on `folder` with `""` for instance-scope rows, `acl` on a
 **world**: `container/runner.go worldOf` returns the top path segment,

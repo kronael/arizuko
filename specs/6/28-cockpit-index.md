@@ -35,7 +35,7 @@ matrices.
 **Every datum a dashboard shows about ANOTHER daemon flows through that
 daemon's `/v1` surface. No dashboard reads another daemon's SQLite file.**
 
-**Exception, added 2026-09-04: a read the owner REFUSES to serve.** The rule
+**Exception: a read the owner REFUSES to serve.** The rule
 assumes the owner will serve everything a dashboard shows. One table breaks that
 assumption on purpose — `secrets`. routd's secrets resource is write-only by
 design (`routd/secrets_resource.go:43`: "Write-only: no read twin, no agent MCP
@@ -125,7 +125,7 @@ autodiscovery.
 ## Auth: two gates, shared helper
 
 Identical to today's `/dash/` gate, applied uniformly
-(`specs/1-auth-standalone.md`, CLAUDE.md "Auth is a uniform
+(`specs/5/1-auth-standalone.md`, CLAUDE.md "Auth is a uniform
 middleware"):
 
 1. **proxyd transit gate** on `/dash/<daemon>/` — `auth: "user"`. proxyd
@@ -200,8 +200,8 @@ payload carries one, link to `/dash/<daemon>/`.
 
 **Status: shipped 2026-08-30.** The hub exists, the per-daemon set is complete
 (eight dashboards plus davd's recorded abstention), all ten channel adapters
-serve the
-shared contract, and no dashboard reads another daemon's SQLite file. The write
+serve the shared contract, and no dashboard reads another daemon's SQLite file.
+The write
 axis is governed by CLAUDE.md's split write-discipline, above.
 
 ## The spec set
