@@ -45,11 +45,28 @@ The conformance suite asserts the limit honestly (a write without a `Bump` is
 invisible, and the body says so), which is the right first move. It is not a
 fix.
 
-- **Severity:** medium (silent, and only under concurrency)
-- **Scope:** `objstore/marker.go`, `objstore/consistent.go`, every future scope writer
-- **Affected:** nothing today — no production caller has adopted the protocol yet
-- **Source:** the protocol's own conformance body, 2026-09-07
-- **Status:** open — proposal, needs sign-off
+**No longer latent, and it cost a guarantee** (2026-09-07). `onbod`'s three
+resources are now entity-backed, so `arizuko archive export` reads them through
+`objstore.ReadConsistent`. The column path it replaced opened a read
+transaction, which EXCLUDED a concurrent write. `ReadConsistent` sees only
+writers that carry `Bump`, and `grep objstore.Bump` over non-test code outside
+`objstore/` returns one comment and no writer. So an admission landing during an
+export is invisible today, and the export reports itself consistent.
+
+That is strictly weaker than what shipped yesterday, on an operator-facing
+surface, and it is the first real cost of the port rather than a deferred one.
+
+The fix is blocked on an import cycle: `store` cannot import `resreg`. The
+shape that works is the one `resreg` already uses for the subsystem key — the
+scope's constants live in `store`, `resreg` reads them the way it reads
+`store.OwnerOnbod`, and `store`'s writers add the `Bump` action without
+importing `resreg` at all.
+
+- **Severity:** high (a shipped guarantee is weaker than it was)
+- **Scope:** `objstore/marker.go`, `objstore/consistent.go`, `store/invites.go`, `store/onboarding.go`, `resreg/archive.go`
+- **Affected:** `arizuko archive export` and `export` on onbod, today
+- **Source:** `grep objstore.Bump` over non-test code, 2026-09-07
+- **Status:** open — the regression is live
 - **Fix:** a scope's writes go through one helper that adds the `Bump`, the way
   `runAudited` owns the audit row, so forgetting is not expressible. Adopt it
   with the first real caller rather than before one exists.
