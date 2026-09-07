@@ -458,3 +458,34 @@ func TestEntity_EnsureSubsystemIsQuietForColumnShapes(t *testing.T) {
 		t.Errorf("%s was created for a subsystem with no entity-backed resource", ScopeEntity)
 	}
 }
+
+// The four column writes take a *sql.Tx, and an entity-backed subsystem's apply
+// takes a claim rather than a transaction — so reaching one means a caller went
+// round the dispatch, and the answer names the shape rather than a column the
+// engine cannot find.
+func TestEntity_ColumnWritesRefuseAnEntityResource(t *testing.T) {
+	db, _, r := freshEntity(t)
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // nothing here commits
+	for _, tc := range []struct {
+		name string
+		run  func() error
+	}{
+		{"Insert", func() error { return r.Insert(t.Context(), tx, EntityRow{Key: "a"}) }},
+		{"InsertAll", func() error { return r.InsertAll(t.Context(), tx, []EntityRow{{Key: "a"}}) }},
+		{"DeleteScope", func() error { return r.DeleteScope(t.Context(), tx, "a") }},
+		{"DeleteAll", func() error { return r.DeleteAll(t.Context(), tx) }},
+	} {
+		err := tc.run()
+		if err == nil {
+			t.Errorf("%s wrote columns to an entity-backed resource", tc.name)
+			continue
+		}
+		if !strings.Contains(err.Error(), "is entity-backed") {
+			t.Errorf("%s err = %v, want it to name the shape", tc.name, err)
+		}
+	}
+}

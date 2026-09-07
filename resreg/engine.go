@@ -252,11 +252,28 @@ func (r *Resource) scanAll(rd reader) (any, error) {
 	return slice.Interface(), rows.Err()
 }
 
+// columnsOnly refuses an entity-backed resource at a write built out of
+// columns. The four writes below take a *sql.Tx, and an entity-backed
+// subsystem's apply takes a claim rather than a transaction (entity.go), so
+// reaching one of them means a caller went round the dispatch. Without this the
+// answer is a "no such column" from the engine, which reads as a schema fault
+// rather than as the shape mistake it is.
+func (r *Resource) columnsOnly(op string) error {
+	if r.meta == nil {
+		return fmt.Errorf("resreg: %s has no schema (RowType unset)", r.Name)
+	}
+	if r.meta.entity != nil {
+		return fmt.Errorf("resreg: %s is entity-backed and %s writes columns; an entity's "+
+			"rows are replaced under a claim, not inside a transaction", r.Name, op)
+	}
+	return nil
+}
+
 // Insert binds row (a struct value or pointer) and inserts via tx.
 // Runs Hooks.BeforeInsert + Hooks.ValidateRow if set.
 func (r *Resource) Insert(ctx context.Context, tx *sql.Tx, row any) error {
-	if r.meta == nil {
-		return fmt.Errorf("resreg: %s has no schema (RowType unset)", r.Name)
+	if err := r.columnsOnly("Insert"); err != nil {
+		return err
 	}
 	rv := reflect.ValueOf(row)
 	if rv.Kind() == reflect.Pointer {
@@ -326,8 +343,8 @@ func (r *Resource) InsertAll(ctx context.Context, tx *sql.Tx, rows any) error {
 // without a ScopeSpec return an error — caller must use DeleteAll for
 // global resources.
 func (r *Resource) DeleteScope(ctx context.Context, tx *sql.Tx, scope string) error {
-	if r.meta == nil {
-		return fmt.Errorf("resreg: %s has no schema (RowType unset)", r.Name)
+	if err := r.columnsOnly("DeleteScope"); err != nil {
+		return err
 	}
 	if r.meta.scopeField == nil {
 		return fmt.Errorf("resreg: %s has no ScopeSpec; use DeleteAll", r.Name)
@@ -342,8 +359,8 @@ func (r *Resource) DeleteScope(ctx context.Context, tx *sql.Tx, scope string) er
 
 // DeleteAll wipes every row in the table. Used by full-rebuild apply.
 func (r *Resource) DeleteAll(ctx context.Context, tx *sql.Tx) error {
-	if r.meta == nil {
-		return fmt.Errorf("resreg: %s has no schema (RowType unset)", r.Name)
+	if err := r.columnsOnly("DeleteAll"); err != nil {
+		return err
 	}
 	_, err := tx.ExecContext(ctx, "DELETE FROM "+r.Table+r.whereFilter())
 	if err != nil {
