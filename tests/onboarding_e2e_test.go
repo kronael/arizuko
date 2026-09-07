@@ -35,6 +35,10 @@ func TestOnboardingEndToEnd(t *testing.T) {
 	// onbod stand-in: POST /v1/onboarding runs the real store insert on a real
 	// migrated schema (exactly what onbod's handleOnboardingInsert does after
 	// its bearer check).
+	//
+	// The schema is the frozen pre-split one, not onbod.db's. onbod embeds and
+	// migrates its own chain from `package main`, so no test outside onbod can
+	// build the onboarding table any other way.
 	onbodInst := testutils.NewInstance(t)
 	onbodStore := store.New(onbodInst.DB)
 	onbodMux := http.NewServeMux()

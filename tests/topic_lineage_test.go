@@ -25,6 +25,7 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/ipc"
 	"github.com/kronael/arizuko/store"
+	"github.com/kronael/arizuko/tests/testutils"
 )
 
 // mcpHarness boots store + MCP socket + initialised client. folder
@@ -46,11 +47,7 @@ type forkCall struct {
 func newMCPHarness(t *testing.T, folder string) *mcpHarness {
 	t.Helper()
 	tmp := t.TempDir()
-	s, err := store.Open(filepath.Join(tmp, "store"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { s.Close() })
+	s := testutils.NewRoutdStore(t)
 
 	h := &mcpHarness{S: s, Folder: folder, Tmp: tmp}
 

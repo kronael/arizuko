@@ -48,6 +48,13 @@ type fullMCPHarness struct {
 	RevokeCalls []aclCall
 }
 
+// newFullMCPHarness builds the whole ipc tool surface over ONE store. The tools
+// it wires span two owner databases — reply/send/fork read routd.db, invite_create
+// and invite_list read onbod.db — and only the frozen pre-split chain carries both
+// sets of tables in one file. onbod embeds and migrates its own chain from
+// `package main`, so a test outside onbod cannot build the invites table at all;
+// splitting this harness across two stores is what would let it leave the frozen
+// schema.
 func newFullMCPHarness(t *testing.T, folder string) *fullMCPHarness {
 	t.Helper()
 	tmp := t.TempDir()
@@ -112,8 +119,8 @@ func newFullMCPHarness(t *testing.T, folder string) *fullMCPHarness {
 		DefaultFolderForJID: defaultFolder,
 		GetTask:             s.GetTask,
 		ListTasks:           s.ListTasks,
-		MessagesBefore:   s.MessagesBefore,
-		MessagesByThread: s.MessagesByThread,
+		MessagesBefore:      s.MessagesBefore,
+		MessagesByThread:    s.MessagesByThread,
 		FindMessages: func(q, scope, sender, since string, limit int) ([]ipc.FoundMessage, error) {
 			rows, err := s.FindMessages(q, scope, sender, since, limit)
 			if err != nil {
@@ -295,7 +302,6 @@ func TestMCP_InviteTools(t *testing.T) {
 		}
 	})
 }
-
 
 func TestMCP_MessageInspection(t *testing.T) {
 	h := newFullMCPHarness(t, "hq")

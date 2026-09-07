@@ -9,6 +9,7 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/store"
+	"github.com/kronael/arizuko/tests/testutils"
 )
 
 func TestFeature_IntegrationPlumbing(t *testing.T) {
@@ -43,11 +44,7 @@ func TestFeature_IntegrationPlumbing(t *testing.T) {
 // longest-prefix match itself, in Go, over that snapshot (proxyd/main.go:159),
 // so the ordering this asserts is the contract and there is no SQL matcher.
 func TestStore_WebRouteInventory(t *testing.T) {
-	s, err := store.Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
+	s := testutils.NewRoutdStore(t)
 
 	now := time.Now()
 	for _, f := range []string{"a", "b"} {
@@ -81,11 +78,7 @@ func TestStore_WebRouteInventory(t *testing.T) {
 // TestStore_TurnResult covers RecordTurnResult + GetTurnResult: the success
 // path and the "pending" fallback for an unknown turn ID.
 func TestStore_TurnResult(t *testing.T) {
-	s, err := store.Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
+	s := testutils.NewRoutdStore(t)
 
 	if _, err := s.RecordTurnResult("hq", "turn-1", "sess-1", "success"); err != nil {
 		t.Fatal(err)
@@ -109,11 +102,7 @@ func TestStore_TurnResult(t *testing.T) {
 // TestStore_TurnFrames covers TurnFrames pagination: full fetch then
 // after-cursor fetch returns the tail only.
 func TestStore_TurnFrames(t *testing.T) {
-	s, err := store.Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
+	s := testutils.NewRoutdStore(t)
 
 	base := time.Now()
 	for i := range 3 {
@@ -139,11 +128,7 @@ func TestStore_TurnFrames(t *testing.T) {
 // TestStore_RunLogList covers AllRunLogs: task run records across tasks are
 // returned ordered by time, providing the cross-task audit feed.
 func TestStore_RunLogList(t *testing.T) {
-	s, err := store.Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
+	s := testutils.NewRoutdStore(t)
 
 	for _, tid := range []string{"t1", "t2"} {
 		if err := s.CreateTask(core.Task{

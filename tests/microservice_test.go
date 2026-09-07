@@ -3,18 +3,18 @@ package tests
 import (
 	"database/sql"
 	"fmt"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/store"
+	"github.com/kronael/arizuko/tests/testutils"
 )
 
-// Cross-service contract tests: verify timed's raw SQL stays compatible
-// with the schema gated owns (store/migrations/). Gated owns all schema;
-// timed connects to the already-migrated DB and never runs migrations.
+// Cross-service contract tests: the raw SQL a non-owner service would run
+// against routd's scheduled_tasks and messages, checked against the schema
+// routd's own chain builds. routd owns the tables and migrates them; a reader
+// here runs statements only.
 
 const timedFireSQL = `SELECT id, chat_jid, prompt, cron FROM scheduled_tasks
  WHERE status = 'active' AND next_run <= ?`
@@ -22,24 +22,12 @@ const timedFireSQL = `SELECT id, chat_jid, prompt, cron FROM scheduled_tasks
 const timedInsertMsg = `INSERT INTO messages (id, chat_jid, sender, content, timestamp)
  VALUES (?, ?, 'timed', ?, ?)`
 
-// openSharedDB opens a store (runs migrations) and returns a second *sql.DB
-// handle for raw timed-style queries against the same file.
+// openSharedDB returns routd.db's schema twice: through the shared store library
+// six daemons hold, and as the raw *sql.DB a caller runs statements on directly.
 func openSharedDB(t *testing.T) (*store.Store, *sql.DB) {
 	t.Helper()
-	dir := t.TempDir()
-	s, err := store.Open(filepath.Join(dir, "store"))
-	if err != nil {
-		t.Fatal("store.Open:", err)
-	}
-	t.Cleanup(func() { s.Close() })
-
-	db, err := db_utils.Open(db_utils.FileDSN(filepath.Join(dir, "store", "messages.db")))
-	if err != nil {
-		t.Fatal("open messages.db:", err)
-	}
-	t.Cleanup(func() { db.Close() })
-
-	return s, db
+	s := testutils.NewRoutdStore(t)
+	return s, s.DB()
 }
 
 func TestTimedFireQueryWorksOnStoreSchema(t *testing.T) {

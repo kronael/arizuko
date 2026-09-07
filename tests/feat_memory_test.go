@@ -7,12 +7,13 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/tests/testutils"
 )
 
 func TestFeature_MemoryGroupState(t *testing.T) {
 	// New group defaults open; SetGroupOpen(false) closes it.
 	t.Run("group-open-flag", func(t *testing.T) {
-		s := mustMonolithDB(t)
+		s := testutils.NewRoutdStore(t)
 		if err := s.PutGroup(core.Group{Folder: "g"}); err != nil {
 			t.Fatal(err)
 		}
@@ -35,7 +36,7 @@ func TestFeature_MemoryGroupState(t *testing.T) {
 
 	// Cross-folder ambient: add watcher → in WatchedSources; remove → gone.
 	t.Run("group-watchers", func(t *testing.T) {
-		s := mustMonolithDB(t)
+		s := testutils.NewRoutdStore(t)
 		if err := s.AddGroupWatcher("corp/eng", "corp/sales"); err != nil {
 			t.Fatal(err)
 		}
@@ -58,7 +59,7 @@ func TestFeature_MemoryGroupState(t *testing.T) {
 
 	// Observe window (msgs, chars) persists; partial updates preserve the omitted dimension.
 	t.Run("observe-window-partial-update", func(t *testing.T) {
-		s := mustMonolithDB(t)
+		s := testutils.NewRoutdStore(t)
 		if err := s.PutGroup(core.Group{Folder: "ow"}); err != nil {
 			t.Fatal(err)
 		}
@@ -79,7 +80,7 @@ func TestFeature_MemoryGroupState(t *testing.T) {
 
 	// Per-group model override persists and reads back.
 	t.Run("model-override-persists", func(t *testing.T) {
-		s := mustMonolithDB(t)
+		s := testutils.NewRoutdStore(t)
 		if err := s.PutGroup(core.Group{Folder: "m"}); err != nil {
 			t.Fatal(err)
 		}

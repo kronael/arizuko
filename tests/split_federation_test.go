@@ -39,7 +39,6 @@ import (
 	"github.com/kronael/arizuko/router"
 	"github.com/kronael/arizuko/runed"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
-	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/tests/testutils"
 )
 
@@ -602,9 +601,9 @@ func TestSplitVsMonolithRoutingParity(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f := bootFederation(t)
 
-			// Monolith side: the gateway store over the same routes, decided via
-			// the shared router.ResolveRouteTarget (the exact gateway.go call).
-			mono := mustMonolithDB(t)
+			// In-process side: a second routd.db over the same routes, decided via
+			// the shared router.ResolveRouteTarget every dispatch path calls.
+			mono := testutils.NewRoutdStore(t)
 			for _, target := range distinctTargets(tc.routes) {
 				if err := f.routdDB.PutGroup(core.Group{Folder: target}); err != nil {
 					t.Fatalf("routd put group: %v", err)
@@ -711,18 +710,6 @@ func countBotRows(t *testing.T, db *routd.DB, jid string) int {
 		t.Fatalf("count bot rows: %v", err)
 	}
 	return n
-}
-
-// mustMonolithDB opens an in-memory migrated messages.db for the monolith
-// (gateway) side of the parity check.
-func mustMonolithDB(t *testing.T) *store.Store {
-	t.Helper()
-	s, err := store.OpenMem()
-	if err != nil {
-		t.Fatalf("store.OpenMem: %v", err)
-	}
-	t.Cleanup(func() { s.Close() })
-	return s
 }
 
 func containsScope(scope []string, want string) bool {

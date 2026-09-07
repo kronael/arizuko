@@ -26,7 +26,7 @@ func TestFeature_AgentDispatch(t *testing.T) {
 	})
 
 	t.Run("model-override", func(t *testing.T) {
-		s := mustMonolithDB(t)
+		s := testutils.NewRoutdStore(t)
 		if err := s.PutGroup(core.Group{Folder: "corp/eng"}); err != nil {
 			t.Fatal(err)
 		}
@@ -55,7 +55,7 @@ func TestFeature_AgentDispatch(t *testing.T) {
 	})
 
 	t.Run("observe-window", func(t *testing.T) {
-		s := mustMonolithDB(t)
+		s := testutils.NewRoutdStore(t)
 		if err := s.PutGroup(core.Group{Folder: "w"}); err != nil {
 			t.Fatal(err)
 		}
