@@ -5,15 +5,17 @@ engine is a second driver and no daemon changes (spec
 [`6/37`](../specs/6/37-store-model.md), surface
 [`6/40`](../specs/6/40-store-surface.md)).
 
-**Two daemons run on this.** `authd/authstore` and `emaid/mailstore` hold no
-SQL at all; the other seven are still to move.
+**Two daemons and one library run on this.** `authd/authstore`,
+`emaid/mailstore` and `chanlib/chanstore` hold no SQL at all.
 
-emaid is the first that reaches storage ONLY through this package. It imports
-neither `audit` nor `store` directly and hands its pool to neither, so the only
-other statements against `emaid.db` are chanlib's own two tables — which is
-`L251`'s ownership half, and it moves when chanlib does. `authd` still hands its
-pool to `audit` and `store`, so the daemon around `authstore` stays SQLite-only
-even though `authstore` itself does not.
+emaid is the first that reaches storage ONLY through this package: nothing
+holds a statement against `emaid.db` any more, because chanlib's own two tables
+became entities with it. chanlib is the widest single move — its entities land
+in EIGHT adapter databases, one per channel — and it is the first mover that is
+a library rather than a daemon, so the driver is picked by the opener the
+adapters share. `authd` still hands its pool to `audit` and `store`, so the
+daemon around `authstore` stays SQLite-only even though `authstore` itself does
+not.
 
 ## Two primitives
 

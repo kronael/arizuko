@@ -93,8 +93,10 @@ tables emaid used to own onto those entities, setting the old tables aside as
 `_v1`. `--dry-run` reads and checks without writing.
 
 chanlib's `outbound_dedup` and `inbound_pending` share the same `emaid.db` file
-and are chanlib's own: it runs those statements, and they move when chanlib
-does (BUGS `L251`).
+and are chanlib's own entities, read through `chanlib/chanstore`. emaid opens
+the file through `chanlib.OpenAdapterDB`, the same door the other seven
+adapters use, and adds its own entities to the pool that door hands back.
+`arizuko migrate-chanlib` moves those two.
 
 ## Related docs
 
