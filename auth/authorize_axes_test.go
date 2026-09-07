@@ -1,8 +1,9 @@
-package auth
+package auth_test
 
 import (
 	"testing"
 
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -16,7 +17,7 @@ func seedFolder(t *testing.T, s *store.Store, folder string) {
 	t.Helper()
 	addRow(t, s, "role:member", "mcp:send", "**", "allow")
 	addRow(t, s, "role:member", "mcp:reply", "**", "allow")
-	if err := s.PutMembership(FolderPrincipal(folder), "role:member", "test"); err != nil {
+	if err := s.PutMembership(auth.FolderPrincipal(folder), "role:member", "test"); err != nil {
 		t.Fatalf("PutMembership: %v", err)
 	}
 }
@@ -31,10 +32,10 @@ func seedFolder(t *testing.T, s *store.Store, folder string) {
 func TestAxes_UnpairedSenderIsUnchanged(t *testing.T) {
 	s := openMem(t)
 	seedFolder(t, s, "atlas/eng")
-	addRow(t, s, FolderPrincipal("atlas/eng"), "mcp:register_group", "atlas/eng/**", "allow")
+	addRow(t, s, auth.FolderPrincipal("atlas/eng"), "mcp:register_group", "atlas/eng/**", "allow")
 
-	before := Caller{Principal: FolderPrincipal("atlas/eng")}
-	after := Caller{Principal: "telegram:user/1112184352", Route: "atlas/eng"}
+	before := auth.Caller{Principal: auth.FolderPrincipal("atlas/eng")}
+	after := auth.Caller{Principal: "telegram:user/1112184352", Route: "atlas/eng"}
 
 	cases := []struct{ action, scope string }{
 		{"mcp:send", "atlas/eng"},
@@ -46,8 +47,8 @@ func TestAxes_UnpairedSenderIsUnchanged(t *testing.T) {
 		{"mcp:schedule_task", "atlas/eng"},
 	}
 	for _, c := range cases {
-		want := Authorize(s, before, c.action, c.scope, nil)
-		got := Authorize(s, after, c.action, c.scope, nil)
+		want := auth.Authorize(s, before, c.action, c.scope, nil)
+		got := auth.Authorize(s, after, c.action, c.scope, nil)
 		if got != want {
 			t.Fatalf("%s on %s: unpaired sender got %v, folder-only %v — the axis must be inert for a sender with no rows",
 				c.action, c.scope, got, want)
@@ -67,17 +68,17 @@ func TestAxes_SenderGrantStopsAtTheSubtree(t *testing.T) {
 	addRow(t, s, "google:alice", "mcp:register_group", "tenantX/**", "allow")
 	addRow(t, s, "google:alice", "mcp:register_group", "tenantY/**", "allow")
 
-	turn := Caller{Principal: "google:alice", Route: "tenantY"}
-	if Authorize(s, turn, "mcp:register_group", "tenantX/child", nil) {
+	turn := auth.Caller{Principal: "google:alice", Route: "tenantY"}
+	if auth.Authorize(s, turn, "mcp:register_group", "tenantX/child", nil) {
 		t.Fatal("a speaker's grant on ANOTHER tenant must not reach through this turn")
 	}
-	if !Authorize(s, turn, "mcp:register_group", "tenantY/child", nil) {
+	if !auth.Authorize(s, turn, "mcp:register_group", "tenantY/child", nil) {
 		t.Fatal("a speaker's grant INSIDE the turn's subtree is the feature; it must apply")
 	}
 	// The bound is the turn's folder, not the row's: the same row read from a turn
 	// routed elsewhere confers nothing.
-	elsewhere := Caller{Principal: "google:alice", Route: "tenantZ"}
-	if Authorize(s, elsewhere, "mcp:register_group", "tenantY/child", nil) {
+	elsewhere := auth.Caller{Principal: "google:alice", Route: "tenantZ"}
+	if auth.Authorize(s, elsewhere, "mcp:register_group", "tenantY/child", nil) {
 		t.Fatal("identity axis must be bounded by the TURN's folder, not by the row's scope")
 	}
 }
@@ -96,7 +97,7 @@ func TestAxes_NoReachOutsideTheSubtreeWhoeverSpeaks(t *testing.T) {
 	}
 	addRow(t, s, "google:bob", "mcp:register_group", "**", "allow")
 
-	folderOnly := Caller{Principal: FolderPrincipal("atlas/eng")}
+	folderOnly := auth.Caller{Principal: auth.FolderPrincipal("atlas/eng")}
 	speakers := []string{"", "google:root", "google:bob", "telegram:user/999", "service:routd"}
 	outside := []string{"other/tenant", "atlas", "atlas/engineering", "**", "atlas/eng2"}
 	actions := []string{"mcp:send", "mcp:register_group", "admin", "interact"}
@@ -104,8 +105,8 @@ func TestAxes_NoReachOutsideTheSubtreeWhoeverSpeaks(t *testing.T) {
 	for _, sp := range speakers {
 		for _, scope := range outside {
 			for _, action := range actions {
-				want := Authorize(s, folderOnly, action, scope, nil)
-				got := Authorize(s, Caller{Principal: sp, Route: "atlas/eng"}, action, scope, nil)
+				want := auth.Authorize(s, folderOnly, action, scope, nil)
+				got := auth.Authorize(s, auth.Caller{Principal: sp, Route: "atlas/eng"}, action, scope, nil)
 				if got != want {
 					t.Fatalf("speaker %q, %s on %s (outside atlas/eng): got %v, want the folder's own %v",
 						sp, action, scope, got, want)
@@ -129,17 +130,17 @@ func TestAxes_LatticeIsNotConferredByIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	turn := Caller{Principal: "google:root", Route: "atlas/eng"}
-	if Authorize(s, turn, "mcp:register_group", "atlas/eng", nil) {
+	turn := auth.Caller{Principal: "google:root", Route: "atlas/eng"}
+	if auth.Authorize(s, turn, "mcp:register_group", "atlas/eng", nil) {
 		t.Fatal("an operator merely SPEAKING must not elevate the turn; /root is the explicit path")
 	}
 	// The same operator's row still answers on its own axis, unchanged.
-	if !Authorize(s, Caller{Principal: "google:root"}, "mcp:register_group", "atlas/eng", nil) {
+	if !auth.Authorize(s, auth.Caller{Principal: "google:root"}, "mcp:register_group", "atlas/eng", nil) {
 		t.Fatal("the operator's own single-axis authority must be untouched")
 	}
 	// An explicitly delegated tool row still confers — that is the whole feature.
 	addRow(t, s, "google:root", "mcp:register_group", "atlas/**", "allow")
-	if !Authorize(s, turn, "mcp:register_group", "atlas/eng", nil) {
+	if !auth.Authorize(s, turn, "mcp:register_group", "atlas/eng", nil) {
 		t.Fatal("an EXPLICIT mcp:<tool> row on the sender must confer inside the subtree")
 	}
 }
@@ -155,24 +156,24 @@ func TestAxes_DenyWinsAcrossBothAxes(t *testing.T) {
 
 	// Deny on the IDENTITY axis beats the route's own allow.
 	addRow(t, s, "google:mallory", "mcp:send", "**", "deny")
-	if Authorize(s, Caller{Principal: "google:mallory", Route: "atlas/eng"}, "mcp:send", "atlas/eng", nil) {
+	if auth.Authorize(s, auth.Caller{Principal: "google:mallory", Route: "atlas/eng"}, "mcp:send", "atlas/eng", nil) {
 		t.Fatal("a deny on the sender must refuse the turn it triggered")
 	}
-	if !Authorize(s, Caller{Principal: "google:innocent", Route: "atlas/eng"}, "mcp:send", "atlas/eng", nil) {
+	if !auth.Authorize(s, auth.Caller{Principal: "google:innocent", Route: "atlas/eng"}, "mcp:send", "atlas/eng", nil) {
 		t.Fatal("the deny must be that sender's, not the folder's")
 	}
 
 	// Deny on the ROUTE axis beats an identity allow inside the subtree.
-	addRow(t, s, FolderPrincipal("atlas/eng"), "mcp:register_group", "**", "deny")
+	addRow(t, s, auth.FolderPrincipal("atlas/eng"), "mcp:register_group", "**", "deny")
 	addRow(t, s, "google:carol", "mcp:register_group", "atlas/**", "allow")
-	if Authorize(s, Caller{Principal: "google:carol", Route: "atlas/eng"}, "mcp:register_group", "atlas/eng", nil) {
+	if auth.Authorize(s, auth.Caller{Principal: "google:carol", Route: "atlas/eng"}, "mcp:register_group", "atlas/eng", nil) {
 		t.Fatal("a deny on the route must refuse an allow the sender brought")
 	}
 
 	// A deny reached through the LATTICE still refuses, even though an identity
 	// ALLOW may not use it: `*` deny covers mcp:<tool>.
 	addRow(t, s, "google:dave", "*", "**", "deny")
-	if Authorize(s, Caller{Principal: "google:dave", Route: "atlas/eng"}, "mcp:reply", "atlas/eng", nil) {
+	if auth.Authorize(s, auth.Caller{Principal: "google:dave", Route: "atlas/eng"}, "mcp:reply", "atlas/eng", nil) {
 		t.Fatal("a lattice deny on the sender must still refuse")
 	}
 }
@@ -187,9 +188,9 @@ func TestAxes_GlobScopeIsNeverInsideASubtree(t *testing.T) {
 	s := openMem(t)
 	seedFolder(t, s, "atlas")
 	addRow(t, s, "google:alice", "mcp:install_package", "**", "allow")
-	turn := Caller{Principal: "google:alice", Route: "atlas"}
+	turn := auth.Caller{Principal: "google:alice", Route: "atlas"}
 	for _, scope := range []string{"**", "atlas/*", "atlas/**", "atlas/?"} {
-		if Authorize(s, turn, "mcp:install_package", scope, nil) {
+		if auth.Authorize(s, turn, "mcp:install_package", scope, nil) {
 			t.Fatalf("scope %q is a pattern, not a target inside atlas", scope)
 		}
 	}
@@ -205,16 +206,16 @@ func TestAxes_SubtreeBoundIsSegmentwise(t *testing.T) {
 	s := openMem(t)
 	seedFolder(t, s, "atlas")
 	addRow(t, s, "google:alice", "mcp:register_group", "**", "allow")
-	turn := Caller{Principal: "google:alice", Route: "atlas"}
+	turn := auth.Caller{Principal: "google:alice", Route: "atlas"}
 
-	if !Authorize(s, turn, "mcp:register_group", "atlas", nil) {
+	if !auth.Authorize(s, turn, "mcp:register_group", "atlas", nil) {
 		t.Fatal("the folder itself is inside its own subtree")
 	}
-	if !Authorize(s, turn, "mcp:register_group", "atlas/eng/deep", nil) {
+	if !auth.Authorize(s, turn, "mcp:register_group", "atlas/eng/deep", nil) {
 		t.Fatal("a descendant is inside")
 	}
 	for _, scope := range []string{"atlas-eng", "atlasx", "ATLAS/eng", "atlas2/eng"} {
-		if Authorize(s, turn, "mcp:register_group", scope, nil) {
+		if auth.Authorize(s, turn, "mcp:register_group", scope, nil) {
 			t.Fatalf("%q is not inside atlas", scope)
 		}
 	}
@@ -232,17 +233,17 @@ func TestAxes_SingleAxisCallersUnchanged(t *testing.T) {
 	if err := s.PutMembership("google:root", "role:operator", "test"); err != nil {
 		t.Fatal(err)
 	}
-	c := Caller{Principal: "google:root"}
+	c := auth.Caller{Principal: "google:root"}
 	for _, tc := range []struct{ action, scope string }{
 		{"admin", "anything"}, {"mcp:register_group", "a/b/c"}, {"interact", "x"},
 	} {
-		if !Authorize(s, c, tc.action, tc.scope, nil) {
+		if !auth.Authorize(s, c, tc.action, tc.scope, nil) {
 			t.Fatalf("single-axis operator lost %s on %s", tc.action, tc.scope)
 		}
 	}
 	// Extra keeps its meaning: more of the same identity, unconfined.
 	addRow(t, s, "discord:837/1504", "interact", "atlas/eng", "allow")
-	if !Authorize(s, Caller{Principal: "discord:user/811", Extra: []string{"discord:837/1504"}},
+	if !auth.Authorize(s, auth.Caller{Principal: "discord:user/811", Extra: []string{"discord:837/1504"}},
 		"interact", "atlas/eng", nil) {
 		t.Fatal("Extra must still fold in unconfined when no Route is set")
 	}
@@ -256,10 +257,10 @@ func TestAxes_SingleAxisCallersUnchanged(t *testing.T) {
 func TestAxes_RouteAloneAuthorizes(t *testing.T) {
 	s := openMem(t)
 	seedFolder(t, s, "atlas/eng")
-	if !Authorize(s, Caller{Route: "atlas/eng"}, "mcp:send", "atlas/eng", nil) {
+	if !auth.Authorize(s, auth.Caller{Route: "atlas/eng"}, "mcp:send", "atlas/eng", nil) {
 		t.Fatal("the route axis alone must authorize the folder's own floor")
 	}
-	if Authorize(s, Caller{}, "mcp:send", "atlas/eng", nil) {
+	if auth.Authorize(s, auth.Caller{}, "mcp:send", "atlas/eng", nil) {
 		t.Fatal("no axis at all must still deny")
 	}
 }
@@ -279,14 +280,14 @@ func TestAxes_VisibilityFollowsTheSameRule(t *testing.T) {
 	}
 	addRow(t, s, "google:carol", "mcp:register_group", "atlas/**", "allow")
 
-	byOperator := EffectiveActions(s, Caller{Principal: "google:root", Route: "atlas/eng"})
+	byOperator := auth.EffectiveActions(s, auth.Caller{Principal: "google:root", Route: "atlas/eng"})
 	if byOperator("mcp:register_group") {
 		t.Fatal("an operator speaking must not make every tool visible; that is /root's job")
 	}
 	if !byOperator("mcp:send") {
 		t.Fatal("the folder's own floor must stay visible")
 	}
-	byCarol := EffectiveActions(s, Caller{Principal: "google:carol", Route: "atlas/eng"})
+	byCarol := auth.EffectiveActions(s, auth.Caller{Principal: "google:carol", Route: "atlas/eng"})
 	if !byCarol("mcp:register_group") {
 		t.Fatal("a tool the sender explicitly holds must be listed, or its gate never runs")
 	}

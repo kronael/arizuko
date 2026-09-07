@@ -1,20 +1,28 @@
-package auth
+// Package auth_test (external) so these tests can build their acl and
+// acl_membership fixture from ROUTD's migration chain, which is the schema
+// production has — proxyd, webd, dashd, onbod and the CLI all reach those two
+// tables through store.OpenRoutd. routd imports auth, so an INTERNAL auth test
+// file cannot import routd back (a cycle at the test-binary level); the
+// external test package convention is exactly the escape hatch for that, as
+// resreg/archive_test.go documents for the same reason.
+package auth_test
 
 import (
 	"testing"
 
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/store"
+	"github.com/kronael/arizuko/tests/testutils"
 )
 
+// openMem is routd.db's own schema, wrapped in the shared store library. It
+// arrives already seeded with role:member (the 12 messaging verbs) and
+// role:operator (*, ** WITH GRANT OPTION), which is what a real acl table holds
+// before anyone grants anything.
 func openMem(t *testing.T) *store.Store {
 	t.Helper()
-	s, err := store.OpenMem()
-	if err != nil {
-		t.Fatalf("OpenMem: %v", err)
-	}
-	t.Cleanup(func() { s.Close() })
-	return s
+	return testutils.NewRoutdStore(t)
 }
 
 func addRow(t *testing.T, s *store.Store, principal, action, scope, effect string) {
@@ -35,7 +43,7 @@ func addRowFull(t *testing.T, s *store.Store, r core.ACLRow) {
 
 func TestAuthorize_EmptyDenies(t *testing.T) {
 	s := openMem(t)
-	if Authorize(s, Caller{Principal: "p"}, "interact", "f", nil) {
+	if auth.Authorize(s, auth.Caller{Principal: "p"}, "interact", "f", nil) {
 		t.Fatal("empty acl should deny")
 	}
 }
@@ -43,7 +51,7 @@ func TestAuthorize_EmptyDenies(t *testing.T) {
 func TestAuthorize_SingleAllow(t *testing.T) {
 	s := openMem(t)
 	addRow(t, s, "google:alice", "interact", "atlas/eng", "allow")
-	if !Authorize(s, Caller{Principal: "google:alice"}, "interact", "atlas/eng", nil) {
+	if !auth.Authorize(s, auth.Caller{Principal: "google:alice"}, "interact", "atlas/eng", nil) {
 		t.Fatal("expected allow")
 	}
 }
@@ -52,7 +60,7 @@ func TestAuthorize_DenyWinsSameTriple(t *testing.T) {
 	s := openMem(t)
 	addRow(t, s, "p", "admin", "f", "allow")
 	addRow(t, s, "p", "admin", "f", "deny")
-	if Authorize(s, Caller{Principal: "p"}, "admin", "f", nil) {
+	if auth.Authorize(s, auth.Caller{Principal: "p"}, "admin", "f", nil) {
 		t.Fatal("deny must win")
 	}
 }
@@ -63,7 +71,7 @@ func TestAuthorize_RoleMembershipOneDeep(t *testing.T) {
 	if err := s.AddMembership("google:alice", "role:operator", ""); err != nil {
 		t.Fatal(err)
 	}
-	if !Authorize(s, Caller{Principal: "google:alice"}, "admin", "anything", nil) {
+	if !auth.Authorize(s, auth.Caller{Principal: "google:alice"}, "admin", "anything", nil) {
 		t.Fatal("operator role should grant admin via membership")
 	}
 }
@@ -80,7 +88,7 @@ func TestAuthorize_RoleMembershipThreeDeep(t *testing.T) {
 	if err := s.AddMembership("google:bob", "role:eng", ""); err != nil {
 		t.Fatal(err)
 	}
-	if !Authorize(s, Caller{Principal: "google:bob"}, "interact", "x/y", nil) {
+	if !auth.Authorize(s, auth.Caller{Principal: "google:bob"}, "interact", "x/y", nil) {
 		t.Fatal("3-deep role chain should grant")
 	}
 }
@@ -92,7 +100,7 @@ func TestAuthorize_JIDClaimViaMembership(t *testing.T) {
 	if err := s.AddMembership("discord:user/812", "google:alice", ""); err != nil {
 		t.Fatal(err)
 	}
-	if !Authorize(s, Caller{Principal: "discord:user/812"}, "admin", "atlas/eng", nil) {
+	if !auth.Authorize(s, auth.Caller{Principal: "discord:user/812"}, "admin", "atlas/eng", nil) {
 		t.Fatal("JID claim should inherit canonical's grants")
 	}
 }
@@ -100,10 +108,10 @@ func TestAuthorize_JIDClaimViaMembership(t *testing.T) {
 func TestAuthorize_WildcardPrincipal(t *testing.T) {
 	s := openMem(t)
 	addRow(t, s, "discord:user/*", "interact", "atlas/eng", "allow")
-	if !Authorize(s, Caller{Principal: "discord:user/12345"}, "interact", "atlas/eng", nil) {
+	if !auth.Authorize(s, auth.Caller{Principal: "discord:user/12345"}, "interact", "atlas/eng", nil) {
 		t.Fatal("wildcard principal should match concrete user")
 	}
-	if Authorize(s, Caller{Principal: "telegram:user/12345"}, "interact", "atlas/eng", nil) {
+	if auth.Authorize(s, auth.Caller{Principal: "telegram:user/12345"}, "interact", "atlas/eng", nil) {
 		t.Fatal("wildcard scoped to discord namespace must not match telegram")
 	}
 }
@@ -111,10 +119,10 @@ func TestAuthorize_WildcardPrincipal(t *testing.T) {
 func TestAuthorize_WildcardScope(t *testing.T) {
 	s := openMem(t)
 	addRow(t, s, "p", "interact", "mainco/**", "allow")
-	if !Authorize(s, Caller{Principal: "p"}, "interact", "mainco/eng/sre", nil) {
+	if !auth.Authorize(s, auth.Caller{Principal: "p"}, "interact", "mainco/eng/sre", nil) {
 		t.Fatal("** must cover descendants")
 	}
-	if Authorize(s, Caller{Principal: "p"}, "interact", "other/eng", nil) {
+	if auth.Authorize(s, auth.Caller{Principal: "p"}, "interact", "other/eng", nil) {
 		t.Fatal("scope must not match outside subtree")
 	}
 }
@@ -122,10 +130,10 @@ func TestAuthorize_WildcardScope(t *testing.T) {
 func TestAuthorize_ActionLatticeAdminImpliesMcp(t *testing.T) {
 	s := openMem(t)
 	addRow(t, s, "p", "admin", "f", "allow")
-	if !Authorize(s, Caller{Principal: "p"}, "mcp:send", "f", nil) {
+	if !auth.Authorize(s, auth.Caller{Principal: "p"}, "mcp:send", "f", nil) {
 		t.Fatal("admin should imply mcp:<tool>")
 	}
-	if !Authorize(s, Caller{Principal: "p"}, "interact", "f", nil) {
+	if !auth.Authorize(s, auth.Caller{Principal: "p"}, "interact", "f", nil) {
 		t.Fatal("admin should imply interact")
 	}
 }
@@ -134,7 +142,7 @@ func TestAuthorize_ActionLatticeStarImpliesAll(t *testing.T) {
 	s := openMem(t)
 	addRow(t, s, "p", "*", "f", "allow")
 	for _, a := range []string{"interact", "admin", "mcp:send", "mcp:reply"} {
-		if !Authorize(s, Caller{Principal: "p"}, a, "f", nil) {
+		if !auth.Authorize(s, auth.Caller{Principal: "p"}, a, "f", nil) {
 			t.Fatalf("* should imply %s", a)
 		}
 	}
@@ -143,10 +151,10 @@ func TestAuthorize_ActionLatticeStarImpliesAll(t *testing.T) {
 func TestAuthorize_ActionLatticeMcpStar(t *testing.T) {
 	s := openMem(t)
 	addRow(t, s, "p", "mcp:*", "f", "allow")
-	if !Authorize(s, Caller{Principal: "p"}, "mcp:send", "f", nil) {
+	if !auth.Authorize(s, auth.Caller{Principal: "p"}, "mcp:send", "f", nil) {
 		t.Fatal("mcp:* must imply mcp:send")
 	}
-	if Authorize(s, Caller{Principal: "p"}, "admin", "f", nil) {
+	if auth.Authorize(s, auth.Caller{Principal: "p"}, "admin", "f", nil) {
 		t.Fatal("mcp:* must NOT imply admin")
 	}
 }
@@ -157,17 +165,17 @@ func TestAuthorize_PredicateMatch(t *testing.T) {
 		Principal: "p", Action: "interact", Scope: "f",
 		Effect: "allow", Predicate: "discord:guild=G123",
 	})
-	if !Authorize(s, Caller{
+	if !auth.Authorize(s, auth.Caller{
 		Principal: "p", Claims: map[string]string{"discord:guild": "G123"},
 	}, "interact", "f", nil) {
 		t.Fatal("predicate match should allow")
 	}
-	if Authorize(s, Caller{
+	if auth.Authorize(s, auth.Caller{
 		Principal: "p", Claims: map[string]string{"discord:guild": "G999"},
 	}, "interact", "f", nil) {
 		t.Fatal("predicate mismatch should deny")
 	}
-	if Authorize(s, Caller{Principal: "p"}, "interact", "f", nil) {
+	if auth.Authorize(s, auth.Caller{Principal: "p"}, "interact", "f", nil) {
 		t.Fatal("missing claim should deny")
 	}
 }
@@ -177,11 +185,11 @@ func TestAuthorize_ChannelBotRoomJID(t *testing.T) {
 	// Room JID carries interact grant for folder F.
 	addRow(t, s, "discord:837/1504", "interact", "atlas/eng", "allow")
 	// Caller arrives as user, with room JID in Extra.
-	caller := Caller{
+	caller := auth.Caller{
 		Principal: "discord:user/811",
 		Extra:     []string{"discord:837/1504"},
 	}
-	if !Authorize(s, caller, "interact", "atlas/eng", nil) {
+	if !auth.Authorize(s, caller, "interact", "atlas/eng", nil) {
 		t.Fatal("room JID grant should reach caller via Extra")
 	}
 }
@@ -192,15 +200,15 @@ func TestAuthorize_ParamGlob(t *testing.T) {
 		Principal: "p", Action: "mcp:send", Scope: "f",
 		Effect: "allow", Params: "jid=telegram:*",
 	})
-	if !Authorize(s, Caller{Principal: "p"}, "mcp:send", "f",
+	if !auth.Authorize(s, auth.Caller{Principal: "p"}, "mcp:send", "f",
 		map[string]string{"jid": "telegram:123"}) {
 		t.Fatal("param glob match should allow")
 	}
-	if Authorize(s, Caller{Principal: "p"}, "mcp:send", "f",
+	if auth.Authorize(s, auth.Caller{Principal: "p"}, "mcp:send", "f",
 		map[string]string{"jid": "discord:123"}) {
 		t.Fatal("param mismatch should deny")
 	}
-	if Authorize(s, Caller{Principal: "p"}, "mcp:send", "f", nil) {
+	if auth.Authorize(s, auth.Caller{Principal: "p"}, "mcp:send", "f", nil) {
 		t.Fatal("missing param should deny")
 	}
 }
@@ -210,9 +218,9 @@ func TestAuthorize_ParamGlob(t *testing.T) {
 // int. A folder with no matching allow row (no membership) is DENIED, even for mcp:*.
 func TestAuthorizeWith_NoTierFallback(t *testing.T) {
 	s := openMem(t)
-	caller := Caller{Principal: "folder:atlas/eng"}
+	caller := auth.Caller{Principal: "folder:atlas/eng"}
 	// No rows, no membership → deny (there is no tier default to fall back to).
-	if Authorize(s, caller, "mcp:send", "atlas/eng", nil) {
+	if auth.Authorize(s, caller, "mcp:send", "atlas/eng", nil) {
 		t.Fatal("no fallback: mcp:send with no matching row must be denied")
 	}
 	// An explicit allow row grants it — the data path.
@@ -221,15 +229,15 @@ func TestAuthorizeWith_NoTierFallback(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if !Authorize(s, caller, "mcp:send", "atlas/eng", nil) {
+	if !auth.Authorize(s, caller, "mcp:send", "atlas/eng", nil) {
 		t.Fatal("explicit allow row must grant mcp:send")
 	}
 }
 
 func TestAuthorize_InteractNoTierFallback(t *testing.T) {
 	s := openMem(t)
-	caller := Caller{Principal: "folder:atlas/eng"}
-	if Authorize(s, caller, "admin", "atlas/eng", nil) {
+	caller := auth.Caller{Principal: "folder:atlas/eng"}
+	if auth.Authorize(s, caller, "admin", "atlas/eng", nil) {
 		t.Fatal("admin must require an explicit row (no tier default)")
 	}
 }

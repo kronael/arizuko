@@ -1,30 +1,31 @@
-package auth
+package auth_test
 
 import (
 	"testing"
 
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 )
 
 func TestCheckHold_NoRowsRunInline(t *testing.T) {
 	s := openMem(t)
-	if CheckHold(s, Caller{Principal: "folder:atlas"}, "mcp:send", "atlas", nil) != "" {
+	if auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "mcp:send", "atlas", nil) != "" {
 		t.Fatal("no hold row should run inline")
 	}
 }
 
 func TestCheckHold_BareRuleAlwaysHolds(t *testing.T) {
 	s := openMem(t)
-	addRow(t, s, "folder:atlas", HoldPrefix+"mcp:delete", "atlas", "allow")
-	if CheckHold(s, Caller{Principal: "folder:atlas"}, "mcp:delete", "atlas", nil) == "" {
+	addRow(t, s, "folder:atlas", auth.HoldPrefix+"mcp:delete", "atlas", "allow")
+	if auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "mcp:delete", "atlas", nil) == "" {
 		t.Fatal("bare hold rule should hold")
 	}
 }
 
 func TestCheckHold_OtherToolUnaffected(t *testing.T) {
 	s := openMem(t)
-	addRow(t, s, "folder:atlas", HoldPrefix+"mcp:delete", "atlas", "allow")
-	if CheckHold(s, Caller{Principal: "folder:atlas"}, "mcp:send", "atlas", nil) != "" {
+	addRow(t, s, "folder:atlas", auth.HoldPrefix+"mcp:delete", "atlas", "allow")
+	if auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "mcp:send", "atlas", nil) != "" {
 		t.Fatal("a hold on delete must not hold send")
 	}
 }
@@ -39,11 +40,11 @@ func TestCheckHold_OperatorStarDoesNotHoldEverything(t *testing.T) {
 	if err := s.AddMembership("google:alice", "role:operator", "test"); err != nil {
 		t.Fatalf("AddMembership: %v", err)
 	}
-	caller := Caller{Principal: "google:alice"}
-	if !Authorize(s, caller, "mcp:delete", "atlas", nil) {
+	caller := auth.Caller{Principal: "google:alice"}
+	if !auth.Authorize(s, caller, "mcp:delete", "atlas", nil) {
 		t.Fatal("precondition: operator should be authorized for the tool")
 	}
-	if CheckHold(s, caller, "mcp:delete", "atlas", nil) != "" {
+	if auth.CheckHold(s, caller, "mcp:delete", "atlas", nil) != "" {
 		t.Fatal("operator (*, **) must NOT hold every tool")
 	}
 }
@@ -54,7 +55,7 @@ func TestCheckHold_OperatorStarDoesNotHoldEverything(t *testing.T) {
 func TestCheckHold_PlainAllowRowIsNotAHold(t *testing.T) {
 	s := openMem(t)
 	addRow(t, s, "folder:atlas", "mcp:delete", "atlas", "allow")
-	if CheckHold(s, Caller{Principal: "folder:atlas"}, "mcp:delete", "atlas", nil) != "" {
+	if auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "mcp:delete", "atlas", nil) != "" {
 		t.Fatal("a plain grant row must not be read as a hold")
 	}
 }
@@ -62,47 +63,47 @@ func TestCheckHold_PlainAllowRowIsNotAHold(t *testing.T) {
 func TestCheckHold_ParamsMakeItConditional(t *testing.T) {
 	s := openMem(t)
 	addRowFull(t, s, core.ACLRow{
-		Principal: "folder:atlas", Action: HoldPrefix + "mcp:network_allow",
+		Principal: "folder:atlas", Action: auth.HoldPrefix + "mcp:network_allow",
 		Scope: "atlas", Effect: "allow", Params: "host=*.prod.example.com",
 	})
-	caller := Caller{Principal: "folder:atlas"}
-	if CheckHold(s, caller, "mcp:network_allow", "atlas", map[string]string{"host": "db.prod.example.com"}) == "" {
+	caller := auth.Caller{Principal: "folder:atlas"}
+	if auth.CheckHold(s, caller, "mcp:network_allow", "atlas", map[string]string{"host": "db.prod.example.com"}) == "" {
 		t.Fatal("matching param should hold")
 	}
-	if CheckHold(s, caller, "mcp:network_allow", "atlas", map[string]string{"host": "docs.example.com"}) != "" {
+	if auth.CheckHold(s, caller, "mcp:network_allow", "atlas", map[string]string{"host": "docs.example.com"}) != "" {
 		t.Fatal("non-matching param should run inline")
 	}
 }
 
 func TestCheckHold_ScopeContains(t *testing.T) {
 	s := openMem(t)
-	addRow(t, s, "folder:atlas", HoldPrefix+"mcp:delete", "atlas/**", "allow")
-	caller := Caller{Principal: "folder:atlas"}
-	if CheckHold(s, caller, "mcp:delete", "atlas/eng", nil) == "" {
+	addRow(t, s, "folder:atlas", auth.HoldPrefix+"mcp:delete", "atlas/**", "allow")
+	caller := auth.Caller{Principal: "folder:atlas"}
+	if auth.CheckHold(s, caller, "mcp:delete", "atlas/eng", nil) == "" {
 		t.Fatal("subtree scope should cover the child folder")
 	}
-	if CheckHold(s, caller, "mcp:delete", "other", nil) != "" {
+	if auth.CheckHold(s, caller, "mcp:delete", "other", nil) != "" {
 		t.Fatal("scope must not reach outside the subtree")
 	}
 }
 
 func TestCheckHold_WildcardToolRule(t *testing.T) {
 	s := openMem(t)
-	addRow(t, s, "folder:atlas", HoldPrefix+"*", "atlas", "allow")
-	if CheckHold(s, Caller{Principal: "folder:atlas"}, "mcp:anything", "atlas", nil) == "" {
+	addRow(t, s, "folder:atlas", auth.HoldPrefix+"*", "atlas", "allow")
+	if auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "mcp:anything", "atlas", nil) == "" {
 		t.Fatal("hold:mcp:* should hold every tool for that folder")
 	}
 }
 
 func TestCheckHold_NilStoreAndEmptyInputs(t *testing.T) {
 	s := openMem(t)
-	if CheckHold(nil, Caller{Principal: "folder:atlas"}, "mcp:x", "atlas", nil) != "" {
+	if auth.CheckHold(nil, auth.Caller{Principal: "folder:atlas"}, "mcp:x", "atlas", nil) != "" {
 		t.Fatal("nil store should not hold")
 	}
-	if CheckHold(s, Caller{}, "mcp:x", "atlas", nil) != "" {
+	if auth.CheckHold(s, auth.Caller{}, "mcp:x", "atlas", nil) != "" {
 		t.Fatal("empty principal should not hold")
 	}
-	if CheckHold(s, Caller{Principal: "folder:atlas"}, "", "atlas", nil) != "" {
+	if auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "", "atlas", nil) != "" {
 		t.Fatal("empty tool should not hold")
 	}
 }
@@ -114,17 +115,17 @@ func TestCheckHold_NilStoreAndEmptyInputs(t *testing.T) {
 // Hazard 1, granting the tool while the hold still fires.
 func TestCheckHold_SkipApprovalRowBeatsMatchingHold(t *testing.T) {
 	s := openMem(t)
-	addRow(t, s, "folder:atlas", HoldPrefix+"mcp:delete", "atlas", "allow")
+	addRow(t, s, "folder:atlas", auth.HoldPrefix+"mcp:delete", "atlas", "allow")
 	addRowFull(t, s, core.ACLRow{
-		Principal: "folder:atlas", Action: HoldPrefix + "mcp:delete",
-		Scope: "atlas", Effect: EffectSkipApproval, Params: "target=staging",
+		Principal: "folder:atlas", Action: auth.HoldPrefix + "mcp:delete",
+		Scope: "atlas", Effect: auth.EffectSkipApproval, Params: "target=staging",
 	})
-	c := Caller{Principal: "folder:atlas"}
+	c := auth.Caller{Principal: "folder:atlas"}
 
-	if CheckHold(s, c, "mcp:delete", "atlas", map[string]string{"target": "staging"}) != "" {
+	if auth.CheckHold(s, c, "mcp:delete", "atlas", map[string]string{"target": "staging"}) != "" {
 		t.Error("the skipped shape must run inline")
 	}
-	if CheckHold(s, c, "mcp:delete", "atlas", map[string]string{"target": "prod"}) == "" {
+	if auth.CheckHold(s, c, "mcp:delete", "atlas", map[string]string{"target": "prod"}) == "" {
 		t.Error("every other shape must still be held")
 	}
 }
@@ -135,16 +136,16 @@ func TestCheckHold_SkipApprovalRowBeatsMatchingHold(t *testing.T) {
 func TestCheckHold_BroadHoldDoesNotResurrectSkippedShape(t *testing.T) {
 	s := openMem(t)
 	addRowFull(t, s, core.ACLRow{
-		Principal: "folder:atlas", Action: HoldPrefix + "mcp:delete",
-		Scope: "atlas", Effect: EffectSkipApproval, Params: "target=staging",
+		Principal: "folder:atlas", Action: auth.HoldPrefix + "mcp:delete",
+		Scope: "atlas", Effect: auth.EffectSkipApproval, Params: "target=staging",
 	})
-	addRow(t, s, "folder:atlas", HoldPrefix+"*", "atlas", "allow")
-	c := Caller{Principal: "folder:atlas"}
+	addRow(t, s, "folder:atlas", auth.HoldPrefix+"*", "atlas", "allow")
+	c := auth.Caller{Principal: "folder:atlas"}
 
-	if CheckHold(s, c, "mcp:delete", "atlas", map[string]string{"target": "staging"}) != "" {
+	if auth.CheckHold(s, c, "mcp:delete", "atlas", map[string]string{"target": "staging"}) != "" {
 		t.Error("a later broad hold must not override the exception")
 	}
-	if CheckHold(s, c, "mcp:send", "atlas", nil) == "" {
+	if auth.CheckHold(s, c, "mcp:send", "atlas", nil) == "" {
 		t.Error("hold:mcp:* must still hold a tool the exception does not name")
 	}
 }
@@ -156,10 +157,10 @@ func TestCheckHold_SkipApprovalDoesNotDenyTheTool(t *testing.T) {
 	s := openMem(t)
 	addRow(t, s, "folder:atlas", "mcp:delete", "atlas", "allow")
 	addRowFull(t, s, core.ACLRow{
-		Principal: "folder:atlas", Action: HoldPrefix + "mcp:delete",
-		Scope: "atlas", Effect: EffectSkipApproval,
+		Principal: "folder:atlas", Action: auth.HoldPrefix + "mcp:delete",
+		Scope: "atlas", Effect: auth.EffectSkipApproval,
 	})
-	if !Authorize(s, Caller{Principal: "folder:atlas"}, "mcp:delete", "atlas", nil) {
+	if !auth.Authorize(s, auth.Caller{Principal: "folder:atlas"}, "mcp:delete", "atlas", nil) {
 		t.Fatal("a skip-approval row must not deny the tool it releases")
 	}
 }
@@ -171,16 +172,16 @@ func TestCheckHold_SkipApprovalDoesNotDenyTheTool(t *testing.T) {
 // prefix bug. This one uses the shape production actually sends.
 func TestCheckHold_RawToolNameIsWhatProductionSends(t *testing.T) {
 	s := openMem(t)
-	addRow(t, s, "folder:atlas", HoldPrefix+"reply", "atlas", "allow")
-	c := Caller{Principal: "folder:atlas"}
-	if CheckHold(s, c, "reply", "atlas", nil) == "" {
+	addRow(t, s, "folder:atlas", auth.HoldPrefix+"reply", "atlas", "allow")
+	c := auth.Caller{Principal: "folder:atlas"}
+	if auth.CheckHold(s, c, "reply", "atlas", nil) == "" {
 		t.Fatal("a hold on the raw tool name must hold it")
 	}
 	addRowFull(t, s, core.ACLRow{
-		Principal: "folder:atlas", Action: HoldPrefix + "reply",
-		Scope: "atlas", Effect: EffectSkipApproval,
+		Principal: "folder:atlas", Action: auth.HoldPrefix + "reply",
+		Scope: "atlas", Effect: auth.EffectSkipApproval,
 	})
-	if CheckHold(s, c, "reply", "atlas", nil) != "" {
+	if auth.CheckHold(s, c, "reply", "atlas", nil) != "" {
 		t.Fatal("the skip-approval row must release the raw tool name too")
 	}
 }
@@ -190,11 +191,11 @@ func TestCheckHold_RawToolNameIsWhatProductionSends(t *testing.T) {
 // would fail; this inserts BOTH orders in two stores and demands one answer.
 func TestCheckHold_SkipWinsInEitherInsertOrder(t *testing.T) {
 	skip := core.ACLRow{
-		Principal: "folder:atlas", Action: HoldPrefix + "deploy",
-		Scope: "atlas", Effect: EffectSkipApproval,
+		Principal: "folder:atlas", Action: auth.HoldPrefix + "deploy",
+		Scope: "atlas", Effect: auth.EffectSkipApproval,
 	}
 	hold := core.ACLRow{
-		Principal: "folder:atlas", Action: HoldPrefix + "deploy",
+		Principal: "folder:atlas", Action: auth.HoldPrefix + "deploy",
 		Scope: "atlas", Effect: "allow",
 	}
 	for _, tc := range []struct {
@@ -208,7 +209,7 @@ func TestCheckHold_SkipWinsInEitherInsertOrder(t *testing.T) {
 			s := openMem(t)
 			addRowFull(t, s, tc.first)
 			addRowFull(t, s, tc.second)
-			if CheckHold(s, Caller{Principal: "folder:atlas"}, "deploy", "atlas", nil) != "" {
+			if auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "deploy", "atlas", nil) != "" {
 				t.Error("a skip-approval row must win regardless of insert order")
 			}
 		})
@@ -220,15 +221,15 @@ func TestCheckHold_SkipWinsInEitherInsertOrder(t *testing.T) {
 // an inherited skip beats a directly-held hold, by design.
 func TestCheckHold_InheritedSkipBeatsDirectHold(t *testing.T) {
 	s := openMem(t)
-	addRow(t, s, "folder:atlas", HoldPrefix+"deploy", "atlas", "allow")
+	addRow(t, s, "folder:atlas", auth.HoldPrefix+"deploy", "atlas", "allow")
 	addRowFull(t, s, core.ACLRow{
-		Principal: "role:release", Action: HoldPrefix + "deploy",
-		Scope: "atlas", Effect: EffectSkipApproval,
+		Principal: "role:release", Action: auth.HoldPrefix + "deploy",
+		Scope: "atlas", Effect: auth.EffectSkipApproval,
 	})
 	if err := s.AddMembership("folder:atlas", "role:release", "test"); err != nil {
 		t.Fatalf("AddMembership: %v", err)
 	}
-	if CheckHold(s, Caller{Principal: "folder:atlas"}, "deploy", "atlas", nil) != "" {
+	if auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "deploy", "atlas", nil) != "" {
 		t.Error("an inherited skip-approval row must release the hold")
 	}
 }
@@ -241,14 +242,14 @@ func TestEffectAllowed_AsyncOnlyOnAHoldRule(t *testing.T) {
 		action, effect string
 		want           bool
 	}{
-		{HoldPrefix + "mcp:delete", EffectHoldAsync, true},
-		{HoldPrefix + "mcp:delete", "allow", true},
-		{HoldPrefix + "mcp:delete", EffectSkipApproval, true},
-		{"mcp:delete", EffectHoldAsync, false},
+		{auth.HoldPrefix + "mcp:delete", auth.EffectHoldAsync, true},
+		{auth.HoldPrefix + "mcp:delete", "allow", true},
+		{auth.HoldPrefix + "mcp:delete", auth.EffectSkipApproval, true},
+		{"mcp:delete", auth.EffectHoldAsync, false},
 		{"mcp:delete", "allow", true},
-		{HoldPrefix + "mcp:delete", "maybe", false},
+		{auth.HoldPrefix + "mcp:delete", "maybe", false},
 	} {
-		if got := EffectAllowed(c.action, c.effect); got != c.want {
+		if got := auth.EffectAllowed(c.action, c.effect); got != c.want {
 			t.Errorf("EffectAllowed(%q, %q) = %v, want %v", c.action, c.effect, got, c.want)
 		}
 	}
@@ -258,9 +259,9 @@ func TestEffectAllowed_AsyncOnlyOnAHoldRule(t *testing.T) {
 // read, or `block by default` would silently become `block always`.
 func TestCheckHold_AsyncRowSaysAsync(t *testing.T) {
 	s := openMem(t)
-	addRow(t, s, "folder:atlas", HoldPrefix+"mcp:delete", "atlas", EffectHoldAsync)
-	if got := CheckHold(s, Caller{Principal: "folder:atlas"}, "mcp:delete", "atlas", nil); got != EffectHoldAsync {
-		t.Fatalf("CheckHold = %q, want %q", got, EffectHoldAsync)
+	addRow(t, s, "folder:atlas", auth.HoldPrefix+"mcp:delete", "atlas", auth.EffectHoldAsync)
+	if got := auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "mcp:delete", "atlas", nil); got != auth.EffectHoldAsync {
+		t.Fatalf("CheckHold = %q, want %q", got, auth.EffectHoldAsync)
 	}
 }
 
@@ -268,9 +269,9 @@ func TestCheckHold_AsyncRowSaysAsync(t *testing.T) {
 // safer reading of a disagreement is the one that waits.
 func TestCheckHold_BlockingWinsOverAsync(t *testing.T) {
 	s := openMem(t)
-	addRow(t, s, "folder:atlas", HoldPrefix+"mcp:delete", "atlas", EffectHoldAsync)
-	addRow(t, s, "folder:atlas", HoldPrefix+"*", "atlas", "allow")
-	if got := CheckHold(s, Caller{Principal: "folder:atlas"}, "mcp:delete", "atlas", nil); got != EffectHoldBlock {
-		t.Fatalf("CheckHold = %q, want the blocking effect %q", got, EffectHoldBlock)
+	addRow(t, s, "folder:atlas", auth.HoldPrefix+"mcp:delete", "atlas", auth.EffectHoldAsync)
+	addRow(t, s, "folder:atlas", auth.HoldPrefix+"*", "atlas", "allow")
+	if got := auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "mcp:delete", "atlas", nil); got != auth.EffectHoldBlock {
+		t.Fatalf("CheckHold = %q, want the blocking effect %q", got, auth.EffectHoldBlock)
 	}
 }

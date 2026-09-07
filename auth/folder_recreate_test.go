@@ -1,10 +1,11 @@
-package auth
+package auth_test
 
 import (
 	"errors"
 	"testing"
 	"time"
 
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/store"
 )
@@ -35,8 +36,8 @@ func TestRecreatedFolder_InheritsNoGrant(t *testing.T) {
 		t.Fatalf("SetSecret: %v", err)
 	}
 
-	old := Caller{Principal: "google:oldadmin"}
-	if !Authorize(s, old, "interact", "acme/inbox", nil) {
+	old := auth.Caller{Principal: "google:oldadmin"}
+	if !auth.Authorize(s, old, "interact", "acme/inbox", nil) {
 		t.Fatal("seed: the old admin must hold acme before the delete")
 	}
 
@@ -52,16 +53,16 @@ func TestRecreatedFolder_InheritsNoGrant(t *testing.T) {
 	if err := s.PutGroup(core.Group{Folder: "acme", AddedAt: time.Now()}); err != nil {
 		t.Fatalf("re-create: %v", err)
 	}
-	if Authorize(s, old, "interact", "acme/inbox", nil) {
+	if auth.Authorize(s, old, "interact", "acme/inbox", nil) {
 		t.Fatal("the re-created folder inherited the old tenant's admin grant")
 	}
-	if Authorize(s, old, "interact", "acme/eng/inbox", nil) {
+	if auth.Authorize(s, old, "interact", "acme/eng/inbox", nil) {
 		t.Fatal("the re-created folder inherited the old tenant's child-scoped grant")
 	}
 	if _, err := s.GetSecret(store.ScopeFolder, "acme", "GITHUB_TOKEN"); !errors.Is(err, store.ErrSecretNotFound) {
 		t.Fatalf("the re-created folder inherited the old tenant's credential: err=%v", err)
 	}
-	if !Authorize(s, Caller{Principal: "google:neighbour"}, "interact", "acmecorp/inbox", nil) {
+	if !auth.Authorize(s, auth.Caller{Principal: "google:neighbour"}, "interact", "acmecorp/inbox", nil) {
 		t.Fatal("the purge widened onto a sibling folder whose name shares a prefix")
 	}
 }
@@ -75,13 +76,13 @@ func TestRecreatedFolder_InheritsNoMembership(t *testing.T) {
 	if err := s.PutGroup(core.Group{Folder: "acme", AddedAt: time.Now()}); err != nil {
 		t.Fatalf("PutGroup: %v", err)
 	}
-	if err := s.PutMembership(FolderPrincipal("acme"), "role:privileged", "test"); err != nil {
+	if err := s.PutMembership(auth.FolderPrincipal("acme"), "role:privileged", "test"); err != nil {
 		t.Fatalf("PutMembership: %v", err)
 	}
 	addRow(t, s, "role:privileged", "*", "**", "allow")
 
-	route := Caller{Route: "acme"}
-	if !Authorize(s, route, "interact", "elsewhere", nil) {
+	route := auth.Caller{Route: "acme"}
+	if !auth.Authorize(s, route, "interact", "elsewhere", nil) {
 		t.Fatal("seed: the folder must reach the privileged role before the delete")
 	}
 
@@ -91,7 +92,7 @@ func TestRecreatedFolder_InheritsNoMembership(t *testing.T) {
 	if err := s.PutGroup(core.Group{Folder: "acme", AddedAt: time.Now()}); err != nil {
 		t.Fatalf("re-create: %v", err)
 	}
-	if Authorize(s, route, "interact", "elsewhere", nil) {
+	if auth.Authorize(s, route, "interact", "elsewhere", nil) {
 		t.Fatal("the re-created folder inherited the old tenant's role membership")
 	}
 }

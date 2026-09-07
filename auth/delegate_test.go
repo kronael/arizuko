@@ -1,8 +1,9 @@
-package auth
+package auth_test
 
 import (
 	"testing"
 
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 )
 
@@ -16,12 +17,12 @@ func TestDelegate(t *testing.T) {
 
 	t.Run("operator delegates anything", func(t *testing.T) {
 		s := openMem(t)
-		// role:operator (*, **) WITH GRANT OPTION is seeded by migration 0075; a
-		// member inherits it transitively.
+		// role:operator (*, **) WITH GRANT OPTION is seeded by
+		// routd/migrations/0022; a member inherits it transitively.
 		if err := s.AddMembership("google:alice", "role:operator", "test"); err != nil {
 			t.Fatal(err)
 		}
-		if err := Delegate(s, "google:alice", []core.ACLRow{
+		if err := auth.Delegate(s, "google:alice", []core.ACLRow{
 			row("folder:acme/eng", "mcp:send", "acme/eng", false),
 			row("folder:x", "admin", "x/**", true),
 		}); err != nil {
@@ -33,13 +34,13 @@ func TestDelegate(t *testing.T) {
 		s := openMem(t)
 		addRowFull(t, s, row("folder:acme", "admin", "acme/**", true))
 		// admin covers mcp:send; acme/** covers acme/eng.
-		if err := Delegate(s, "folder:acme", []core.ACLRow{
+		if err := auth.Delegate(s, "folder:acme", []core.ACLRow{
 			row("folder:acme/eng", "mcp:send", "acme/eng", false),
 		}); err != nil {
 			t.Fatalf("in-subtree delegation should pass: %v", err)
 		}
 		// Outside the held scope → rejected.
-		if err := Delegate(s, "folder:acme", []core.ACLRow{
+		if err := auth.Delegate(s, "folder:acme", []core.ACLRow{
 			row("folder:other", "mcp:send", "other/x", false),
 		}); err == nil {
 			t.Fatal("out-of-subtree delegation must fail")
@@ -49,7 +50,7 @@ func TestDelegate(t *testing.T) {
 	t.Run("no grant option → cannot delegate", func(t *testing.T) {
 		s := openMem(t)
 		addRowFull(t, s, row("folder:acme", "admin", "acme/**", false)) // held WITHOUT option
-		if err := Delegate(s, "folder:acme", []core.ACLRow{
+		if err := auth.Delegate(s, "folder:acme", []core.ACLRow{
 			row("folder:acme/eng", "mcp:send", "acme/eng", false),
 		}); err == nil {
 			t.Fatal("delegation without grant option must fail")
@@ -60,14 +61,14 @@ func TestDelegate(t *testing.T) {
 		s := openMem(t)
 		addRowFull(t, s, row("folder:acme", "admin", "acme/*", true)) // single-segment glob
 		// acme/* must NOT cover acme/** (that spans acme/eng/sre the granter lacks).
-		if err := Delegate(s, "folder:acme", []core.ACLRow{
+		if err := auth.Delegate(s, "folder:acme", []core.ACLRow{
 			row("folder:x", "admin", "acme/**", false),
 		}); err == nil {
 			t.Fatal("acme/* must not delegate acme/**")
 		}
 		// But acme/** DOES cover a deeper concrete path and deeper glob.
 		addRowFull(t, s, row("folder:acme", "admin", "acme/**", true))
-		if err := Delegate(s, "folder:acme", []core.ACLRow{
+		if err := auth.Delegate(s, "folder:acme", []core.ACLRow{
 			row("folder:x", "admin", "acme/eng/sre", false),
 			row("folder:y", "admin", "acme/eng/**", false),
 		}); err != nil {
@@ -80,13 +81,13 @@ func TestDelegate(t *testing.T) {
 		addRowFull(t, s, row("folder:acme", "admin", "acme/**", true))
 		addRowFull(t, s, core.ACLRow{Principal: "folder:acme", Action: "admin", Scope: "acme/secret", Effect: "deny"})
 		// Held admin+GO on acme/** but a deny on acme/secret → can't delegate there.
-		if err := Delegate(s, "folder:acme", []core.ACLRow{
+		if err := auth.Delegate(s, "folder:acme", []core.ACLRow{
 			row("folder:x", "admin", "acme/secret", false),
 		}); err == nil {
 			t.Fatal("must not delegate past own deny")
 		}
 		// Wildcard principal is an escalation → refused.
-		if err := Delegate(s, "folder:acme", []core.ACLRow{
+		if err := auth.Delegate(s, "folder:acme", []core.ACLRow{
 			row("*", "admin", "acme/eng", false),
 		}); err == nil {
 			t.Fatal("must not delegate to a wildcard principal")
@@ -96,7 +97,7 @@ func TestDelegate(t *testing.T) {
 	t.Run("cannot broaden the action", func(t *testing.T) {
 		s := openMem(t)
 		addRowFull(t, s, row("folder:acme", "mcp:send", "acme/**", true)) // only mcp:send
-		if err := Delegate(s, "folder:acme", []core.ACLRow{
+		if err := auth.Delegate(s, "folder:acme", []core.ACLRow{
 			row("folder:acme/eng", "admin", "acme/eng", false), // admin ⊃ mcp:send
 		}); err == nil {
 			t.Fatal("delegating a broader action than held must fail")
