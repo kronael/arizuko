@@ -370,6 +370,26 @@ against, and putting it on the interface would mean either a typed attribute
 model or a method only the SQL driver honours. `objstore.Increment` reads,
 writes under the value it read as its condition, and retries the lost race.
 
+## The consistent multi-read, and why it is a protocol
+
+`resreg.ExportSnapshot` wraps N reads in one transaction so a subsystem document
+is one MVCC snapshot rather than thirteen unrelated ones. `objstore` has `Query`
+and nothing else, so the obvious move is to add a snapshot or a read
+transaction. **It cannot be added.** DynamoDB has `TransactGetItems`, which
+fetches up to 100 items BY KEY; it has no snapshot across N table reads, and an
+operation one driver cannot express does not go on the interface.
+
+The answer is the read twin of §3's versioned replace, and it needs no new
+shape. Read the scope's version marker, run the N queries, read the marker
+again: if it moved, a writer committed during the read and the export retries.
+That is one extra point read per export, it detects exactly the interleaving a
+transaction would have prevented, and it is expressible on both drivers.
+
+What it does not give is a BLOCKING snapshot — a busy scope could retry more
+than once. `resreg` already carries the ingredient: `ExportSnapshot` computes a
+checksum per subsystem, so a moved marker and a changed checksum are the same
+signal, and the export is already a read the operator repeats when it fails.
+
 ## Portability, stated once
 
 **First, what this table is not.** arizuko is NOT key-value ready, and `6/38`

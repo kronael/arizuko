@@ -7,6 +7,68 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L260 — `route_tokens.PKFields` is not unique in live data, so `resreg.Diff` collapses 15 of 43 tokens (2026-09-07, open)
+
+MEASURED on krons 2026-09-07: `route_tokens` holds 43 rows over 27 distinct
+`jid` values, and `web:eval` alone carries 16. `PKFields` is `{"JID"}`, which
+`resreg.Diff` treats as the manifest identity and `EmitRows` sorts by.
+
+Today the harm is bounded: the resource is `SkipApplyRebuild`, so `apply` never
+rewrites it, and the visible cost is `arizuko plan` under-reporting how many
+tokens a folder holds. It stops being bounded the moment an entity's sort key is
+derived from `PKFields` — 15 live ingress credentials would collide onto one
+item and the last write would win.
+
+- **Severity:** medium now, high at the move
+- **Scope:** `resreg/resources/route_tokens.go`, `resreg/engine.go` `Diff`
+- **Affected:** krons measured; any instance with more than one token per jid
+- **Source:** `SELECT count(*), count(DISTINCT jid) FROM route_tokens`
+- **Status:** open
+- **Fix:** `PKFields` names a unique coordinate — `token_hash` is one — and the
+  entity's sort key is declared separately from the manifest identity
+
+## L261 — every route on krons sits at `seq = 0`, so dispatch order is decided by an autoincrement tie-break (2026-09-07, open)
+
+MEASURED on krons 2026-09-07: `routes` holds 58 rows and `count(DISTINCT seq)`
+is 1 — every row has `seq = 0`. `ORDER BY seq, id` therefore resolves entirely
+on `id`, which is `INTEGER PRIMARY KEY AUTOINCREMENT`.
+
+`6/37` rule 4 says never order by a generated id, because the id is an artefact
+of insert order rather than a fact anyone declared. Routing order is exactly the
+kind of decision an operator should be able to state and read back. Today it is
+whatever order the rows happened to be inserted in, and re-importing an archive
+in a different order silently reorders dispatch.
+
+`delete_route(id)` is a live MCP wire contract, so the id must survive as a
+value; the point is that it must stop being the ORDER.
+
+- **Severity:** medium (latent reorder on any re-import)
+- **Scope:** `store/routes.go`, `resreg/resources/routes.go`, `cmd/arizuko` route verbs
+- **Affected:** krons measured, 58 rows
+- **Source:** `SELECT count(*), count(DISTINCT seq) FROM routes`
+- **Status:** open
+- **Fix:** `seq` carries a declared order — the route verbs set it — and the
+  entity sorts on a padded `seq` so string order is numeric order
+
+## L262 — the storage-layer guard uppercases a line before matching, so prose reads as SQL (2026-09-07, open)
+
+`db_utils/sql_layer_test.go:164` does `strings.ToUpper` before testing a string
+literal against the SQL verb list. So an MCP tool description beginning "Update
+fields on an existing proxyd route." matches `UPDATE `.
+
+One instance in the live tree — `resreg/resources/proxyd_routes.go:42` — and it
+is enough to block `resreg` from joining `sqlLayers`. The guard is meant to be
+exact: it already parses with `go/parser` precisely so a comment quoting a query
+is not mistaken for one, and then throws that precision away on the case fold.
+
+- **Severity:** low (a false positive, never a false negative)
+- **Scope:** `db_utils/sql_layer_test.go`
+- **Affected:** any package whose prose starts with a SQL verb
+- **Source:** `resreg/resources/proxyd_routes.go:42`, measured 2026-09-07
+- **Status:** open
+- **Fix:** match the verb case-sensitively. Every statement in the tree is
+  written in upper case, so the fold buys nothing and costs this.
+
 ## L259 — `resreg` has one row reader and it builds column SQL, so no registered table can become an entity until resreg moves (2026-09-07, open — proposal, needs sign-off)
 
 MEASURED 2026-09-07 while moving `store`'s first slice. `resreg/engine.go:209`
