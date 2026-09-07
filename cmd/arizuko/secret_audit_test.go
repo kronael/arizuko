@@ -7,6 +7,10 @@ import (
 
 	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/store"
+
+	"github.com/kronael/arizuko/audit"
+
+	"github.com/kronael/arizuko/objstore/sqlstore"
 )
 
 // `arizuko secret set|delete` carried the same false claim as grant (BUGS.md Q5)
@@ -38,18 +42,19 @@ func secretAuditRow(t *testing.T, dir, action string) (actor, surface, whole str
 		t.Fatalf("open routd.db: %v", err)
 	}
 	defer db.Close()
-	var resource, scope, folder, params, errMsg string
-	err = db.QueryRow(
-		`SELECT COALESCE(actor, ''), COALESCE(surface, ''), COALESCE(resource, ''),
-		        COALESCE(scope, ''), COALESCE(folder, ''), COALESCE(params_summary, ''),
-		        COALESCE(error_msg, '')
-		 FROM audit_log WHERE action = ? ORDER BY id DESC LIMIT 1`, action).Scan(
-		&actor, &surface, &resource, &scope, &folder, &params, &errMsg)
+	rows, err := audit.Query(t.Context(), sqlstore.New(db), audit.Filter{Limit: audit.MaxLimit})
 	if err != nil {
-		return "", "", ""
+		t.Fatalf("read the audit trail: %v", err)
 	}
-	return actor, surface, strings.Join(
-		[]string{actor, surface, resource, scope, folder, params, errMsg}, "|")
+	for _, r := range rows {
+		if r.Action != action {
+			continue
+		}
+		return r.Actor, r.Surface, strings.Join([]string{ // newest first
+			r.Actor, r.Surface, r.Resource, r.Scope, r.Folder, r.ParamsSummary, r.ErrorMsg,
+		}, "|")
+	}
+	return "", "", ""
 }
 
 // secretStore opens dir's routd.db with a keyring, as the CLI does.

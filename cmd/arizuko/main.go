@@ -103,6 +103,7 @@ func main() {
 		"export":            cmdExport,  // spec 5/8
 		"archive":           cmdArchive, // spec 5/8
 		"migrate-split":     cmdMigrateSplit,
+		"migrate-audit":     cmdMigrateAudit,     // spec 6/37 step 7
 		"migrate-authstore": cmdMigrateAuthstore, // spec 6/37 step 7
 		"migrate-chanlib":   cmdMigrateChanlib,   // spec 6/37 step 7
 		"migrate-emaid":     cmdMigrateEmaid,     // spec 6/37 step 7

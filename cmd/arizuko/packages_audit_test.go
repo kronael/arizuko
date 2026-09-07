@@ -11,6 +11,10 @@ import (
 
 	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/routd"
+
+	"github.com/kronael/arizuko/audit"
+
+	"github.com/kronael/arizuko/objstore/sqlstore"
 )
 
 // A package apply mutates many rows at once, so it needs a verdict of its own:
@@ -45,23 +49,16 @@ func aclAuditRows(t *testing.T, dir, action string) [][3]string {
 		t.Fatalf("open routd.db: %v", err)
 	}
 	defer db.Close()
-	rows, err := db.Query(
-		`SELECT COALESCE(actor, ''), COALESCE(surface, ''), COALESCE(params_summary, '')
-		 FROM audit_log WHERE action = ? ORDER BY id`, action)
+	rows, err := audit.Query(t.Context(), sqlstore.New(db), audit.Filter{Limit: audit.MaxLimit})
 	if err != nil {
-		t.Fatalf("query audit_log: %v", err)
+		t.Fatalf("read the audit trail: %v", err)
 	}
-	defer rows.Close()
 	var out [][3]string
-	for rows.Next() {
-		var r [3]string
-		if err := rows.Scan(&r[0], &r[1], &r[2]); err != nil {
-			t.Fatalf("scan: %v", err)
+	// Oldest first, which is the order the assertions read.
+	for i := len(rows) - 1; i >= 0; i-- {
+		if rows[i].Action == action {
+			out = append(out, [3]string{rows[i].Actor, rows[i].Surface, rows[i].ParamsSummary})
 		}
-		out = append(out, r)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate: %v", err)
 	}
 	return out
 }

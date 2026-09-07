@@ -68,7 +68,7 @@ func openInstance(t *testing.T) (string, map[string]*store.Store) {
 	if err != nil {
 		t.Fatalf("open onbod.db (bootstrap): %v", err)
 	}
-	if _, err := odb.Exec(onbodSchema); err != nil {
+	if err := bootstrapOnbod(odb); err != nil {
 		t.Fatalf("onbod.db bootstrap schema: %v", err)
 	}
 	odb.Close()

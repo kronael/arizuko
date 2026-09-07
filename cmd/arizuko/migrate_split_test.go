@@ -16,6 +16,10 @@ import (
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/runed"
 	"github.com/kronael/arizuko/store"
+
+	"github.com/kronael/arizuko/audit"
+
+	"github.com/kronael/arizuko/objstore/sqlstore"
 )
 
 // seedMessagesDB creates a migrated messages.db at storeDir and inserts a row
@@ -117,6 +121,17 @@ func seedMessagesDB(t *testing.T, storeDir string) {
 	// migrate-split is now the ONLY path that carries them off the monolith.
 	exec(`INSERT INTO proxyd_routes(path, backend, auth, gated_by, preserve_headers, strip_prefix, redirect_to)
 		VALUES('/panel/','http://up','user','','[]',0,'')`)
+	// A pre-split monolith carries the TABLE audit_log used to be, which nothing
+	// creates any more — so the fixture builds it, then fills it. The entity of
+	// the same name is what store.Open made, and only one of the two can hold
+	// the name.
+	exec(`DROP TABLE audit_log`)
+	exec(`CREATE TABLE audit_log (
+	  id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL,
+	  category TEXT NOT NULL, action TEXT NOT NULL, actor TEXT NOT NULL,
+	  actor_sub TEXT, resource TEXT, scope TEXT, surface TEXT, params_summary TEXT,
+	  outcome TEXT NOT NULL, error_msg TEXT, duration_ms INTEGER, turn_id TEXT,
+	  folder TEXT, instance TEXT, request_id TEXT, source_ip TEXT)`)
 	exec(`INSERT INTO audit_log(id, created_at, category, action, actor, outcome)
 		VALUES(4242,'2026-01-01T00:00:00Z','authz','acl.add','system','ok')`)
 
@@ -381,9 +396,12 @@ func TestMigrateSplitCoalescesNullMessageCols(t *testing.T) {
 	seedMessagesDB(t, storeDir)
 
 	// Inject a row with the genuinely-nullable source columns set to NULL.
-	s, err := store.Open(storeDir)
+	// The seeded monolith carries the TABLE audit_log used to be, so it is opened
+	// the way `arizuko migrate-split` opens it — the pool, not store.Open, whose
+	// job is to CREATE a monolith rather than to reopen one.
+	s, err := db_utils.Open(db_utils.FileDSN(filepath.Join(storeDir, "messages.db")))
 	if err != nil {
-		t.Fatalf("store.Open: %v", err)
+		t.Fatalf("open messages.db: %v", err)
 	}
 	// sender_name + reply_to_id are plain `TEXT` (nullable) at the migrated head
 	// AND scanMessages reads them into plain `string` — the exact pair routd's own
@@ -392,7 +410,7 @@ func TestMigrateSplitCoalescesNullMessageCols(t *testing.T) {
 	// — the legacy shape that bricked the split poll loop. (source/topic/routed_to
 	// are NOT NULL at head — store migration 0023 rebuilt them — so a verbatim NULL
 	// can't occur there; COALESCE on them is harmless defence.)
-	if _, err := s.DB().Exec(
+	if _, err := s.Exec(
 		`INSERT INTO messages(id, chat_jid, sender, sender_name, content, timestamp,
 			reply_to_id, turn_id, platform_id)
 		 VALUES('mnull','tg:1','carol',NULL,'legacy','2026-01-02T00:03:00Z',NULL,NULL,NULL)`); err != nil {
@@ -582,11 +600,17 @@ func TestOnbodSchemaMatchesMigrations(t *testing.T) {
 	}
 
 	bootstrapped := dbtest.Open(t)
-	if _, err := bootstrapped.Exec(onbodSchema); err != nil {
+	if err := bootstrapOnbod(bootstrapped); err != nil {
 		t.Fatalf("exec onbodSchema: %v", err)
 	}
 
 	migrated := dbtest.Open(t)
+	// The entity audit records into is not part of the chain on either side: the
+	// driver creates it, from one declaration, wherever an owner database is
+	// opened. bootstrapOnbod does that too, so the comparison sees it on both.
+	if err := audit.EnsureEntities(t.Context(), sqlstore.New(migrated)); err != nil {
+		t.Fatal(err)
+	}
 	for _, f := range files[:onbodBootstrapVersion] {
 		raw, rerr := os.ReadFile(f)
 		if rerr != nil {
@@ -753,17 +777,20 @@ func TestMigrateSplitToleratesOrphanRunLog(t *testing.T) {
 
 	// inject an orphan run log: task_id points at no scheduled_task (source has
 	// no FK, so this is exactly the legacy shape krons carries).
-	s, err := store.Open(storeDir)
+	// The seeded monolith carries the TABLE audit_log used to be, so it is opened
+	// the way `arizuko migrate-split` opens it — the pool, not store.Open, whose
+	// job is to CREATE a monolith rather than to reopen one.
+	s, err := db_utils.Open(db_utils.FileDSN(filepath.Join(storeDir, "messages.db")))
 	if err != nil {
-		t.Fatalf("store.Open: %v", err)
+		t.Fatalf("open messages.db: %v", err)
 	}
 	// Pin one conn so PRAGMA foreign_keys=OFF + the orphan INSERT share it; the
 	// monolith historically had FK off when these orphans accrued.
-	s.DB().SetMaxOpenConns(1)
-	if _, err := s.DB().Exec(`PRAGMA foreign_keys=OFF`); err != nil {
+	s.SetMaxOpenConns(1)
+	if _, err := s.Exec(`PRAGMA foreign_keys=OFF`); err != nil {
 		t.Fatalf("fk off: %v", err)
 	}
-	if _, err := s.DB().Exec(
+	if _, err := s.Exec(
 		`INSERT INTO task_run_logs(task_id, run_at, status) VALUES(999999,'2026-01-05T00:00:00Z','ok')`); err != nil {
 		t.Fatalf("seed orphan run log: %v", err)
 	}
@@ -793,19 +820,22 @@ func TestMigrateSplitLandsTimestampsFixedWidth(t *testing.T) {
 	storeDir := filepath.Join(t.TempDir(), "store")
 	seedMessagesDB(t, storeDir)
 
-	s, err := store.Open(storeDir)
+	// The seeded monolith carries the TABLE audit_log used to be, so it is opened
+	// the way `arizuko migrate-split` opens it — the pool, not store.Open, whose
+	// job is to CREATE a monolith rather than to reopen one.
+	s, err := db_utils.Open(db_utils.FileDSN(filepath.Join(storeDir, "messages.db")))
 	if err != nil {
-		t.Fatalf("store.Open: %v", err)
+		t.Fatalf("open messages.db: %v", err)
 	}
 	// tg:1's agent_cursor is the whole second 2026-01-02T00:01:00Z. This message
 	// is 882ms LATER in that same second.
 	const later = "2026-01-02T00:01:00.882458214Z"
-	if _, err := s.DB().Exec(
+	if _, err := s.Exec(
 		`INSERT INTO messages(id, chat_jid, sender, content, timestamp)
 		 VALUES('mfrac','tg:1','alice','the newest message',?)`, later); err != nil {
 		t.Fatalf("seed fractional message: %v", err)
 	}
-	if _, err := s.DB().Exec(
+	if _, err := s.Exec(
 		`UPDATE sessions SET observed_cursor='2026-01-02T00:01:00Z' WHERE group_folder='main'`); err != nil {
 		t.Fatalf("seed observed_cursor: %v", err)
 	}

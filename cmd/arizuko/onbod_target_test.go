@@ -22,7 +22,7 @@ func bootstrapOnbodDB(t *testing.T, dir string) {
 		t.Fatalf("open onbod.db: %v", err)
 	}
 	defer db.Close()
-	if _, err := db.Exec(onbodSchema); err != nil {
+	if err := bootstrapOnbod(db); err != nil {
 		t.Fatalf("onbod.db schema: %v", err)
 	}
 }

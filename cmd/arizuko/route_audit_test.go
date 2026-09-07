@@ -6,6 +6,10 @@ import (
 
 	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/store"
+
+	"github.com/kronael/arizuko/audit"
+
+	"github.com/kronael/arizuko/objstore/sqlstore"
 )
 
 // `arizuko route add|rm` mutates the live route table, so it must leave an
@@ -27,14 +31,16 @@ func routeAudit(t *testing.T, dir, action string) (actor, actorSub, surface stri
 		t.Fatalf("open routd.db: %v", err)
 	}
 	defer db.Close()
-	err = db.QueryRow(
-		`SELECT COALESCE(actor, ''), COALESCE(actor_sub, ''), COALESCE(surface, '')
-		 FROM audit_log WHERE action = ? ORDER BY id DESC LIMIT 1`, action).Scan(
-		&actor, &actorSub, &surface)
+	rows, err := audit.Query(t.Context(), sqlstore.New(db), audit.Filter{Limit: audit.MaxLimit})
 	if err != nil {
-		return "", "", ""
+		t.Fatalf("read the audit trail: %v", err)
 	}
-	return actor, actorSub, surface
+	for _, r := range rows {
+		if r.Action == action {
+			return r.Actor, r.ActorSub, r.Surface // newest first
+		}
+	}
+	return "", "", ""
 }
 
 func TestRouteAddAudited(t *testing.T) {

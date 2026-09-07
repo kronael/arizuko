@@ -14,6 +14,10 @@ import (
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/runed"
 	"github.com/kronael/arizuko/store"
+
+	"github.com/kronael/arizuko/audit"
+
+	"github.com/kronael/arizuko/objstore/sqlstore"
 )
 
 // cmdMigrateSplit populates routd.db + runed.db + auth.db from an existing
@@ -157,12 +161,10 @@ var routdSpecs = []copySpec{
 	{dst: "proxyd_routes", src: "proxyd_routes",
 		cols: "path, backend, auth, gated_by, preserve_headers, strip_prefix, redirect_to",
 		sel:  "path, backend, auth, gated_by, preserve_headers, strip_prefix, redirect_to"},
-	// audit_log: routd.db OWNS it (routd migration 0016 mirrors store 0066);
-	// dashd/proxyd/webd all emit + read there. Straight copy — `id` carried so
-	// forensic ids stay stable (routd.db has no audit_log before its migrations).
-	{dst: "audit_log", src: "audit_log",
-		cols: "id, created_at, category, action, actor, actor_sub, resource, scope, surface, params_summary, outcome, error_msg, duration_ms, turn_id, folder, instance, request_id, source_ip",
-		sel:  "id, created_at, category, action, actor, actor_sub, resource, scope, surface, params_summary, outcome, error_msg, duration_ms, turn_id, folder, instance, request_id, source_ip"},
+	// audit_log is NOT here: it is an objstore entity, so it is not a column
+	// list and no INSERT … SELECT can carry it. copyAuditLog below reads the
+	// monolith's rows through the same source reader `arizuko migrate-audit`
+	// uses and hands them to audit.Import, which owns the item shape.
 	// cost_log_archive: the spend a pre-split instance recorded, landing in the
 	// table that holds spend history (spec 6/39 — the model gateway is the ledger,
 	// and these rows predate one metering anything).
@@ -234,31 +236,18 @@ CREATE TABLE IF NOT EXISTS onboarding_gates (
   gate          TEXT PRIMARY KEY,
   limit_per_day INTEGER NOT NULL,
   enabled       INTEGER NOT NULL DEFAULT 1
-);
-CREATE TABLE IF NOT EXISTS audit_log (
-  id              INTEGER PRIMARY KEY AUTOINCREMENT,
-  created_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  category        TEXT    NOT NULL,
-  action          TEXT    NOT NULL,
-  actor           TEXT    NOT NULL,
-  actor_sub       TEXT,
-  resource        TEXT,
-  scope           TEXT,
-  surface         TEXT,
-  params_summary  TEXT,
-  outcome         TEXT    NOT NULL,
-  error_msg       TEXT,
-  duration_ms     INTEGER,
-  turn_id         TEXT,
-  folder          TEXT,
-  instance        TEXT,
-  request_id      TEXT,
-  source_ip       TEXT
-);
-CREATE INDEX IF NOT EXISTS audit_log_created_at ON audit_log(created_at);
-CREATE INDEX IF NOT EXISTS audit_log_actor_sub  ON audit_log(actor_sub) WHERE actor_sub IS NOT NULL;
-CREATE INDEX IF NOT EXISTS audit_log_folder     ON audit_log(folder)    WHERE folder    IS NOT NULL;
-CREATE INDEX IF NOT EXISTS audit_log_cat_act    ON audit_log(category, action);`
+);`
+
+// bootstrapOnbod builds onbod.db's owned tables and the entity audit records
+// into. The two halves are separate because they have separate owners: the DDL
+// above mirrors onbod's migration chain, and audit declares its entity beside
+// the code that writes it, so the driver creates that one.
+func bootstrapOnbod(db *sql.DB) error {
+	if _, err := db.Exec(onbodSchema); err != nil {
+		return err
+	}
+	return audit.EnsureEntities(context.Background(), sqlstore.New(db))
+}
 
 // onbodBootstrapVersion is the onbod migration version onbodSchema embodies IN
 // FULL. migrateSplit stamps exactly these rows into `migrations` so onbod's next
@@ -315,6 +304,35 @@ func recordOnbodBootstrap(db *sql.DB) error {
 	return nil
 }
 
+// copyAuditLog moves the monolith's audit trail into routd.db's entity and
+// answers how many events landed. The source half is the reader migrate-audit
+// already has, so the two tools read one table one way.
+func copyAuditLog(dst *sql.DB, msgPath string, dryRun bool) (int, error) {
+	src, err := db_utils.Open(db_utils.FileDSN(msgPath))
+	if err != nil {
+		return 0, err
+	}
+	defer src.Close() //nolint:errcheck // read-only, and the process ends either way
+	sources, err := legacySources(src, auditTables)
+	if err != nil {
+		return 0, err
+	}
+	if len(sources) == 0 {
+		return 0, nil
+	}
+	snap, err := readAuditSnapshot(src, sources["audit_log"])
+	if err != nil {
+		return 0, err
+	}
+	if _, err := audit.CheckSnapshot(snap); err != nil {
+		return 0, err
+	}
+	if dryRun {
+		return len(snap.Rows), nil
+	}
+	return audit.Import(context.Background(), sqlstore.New(dst), snap)
+}
+
 func migrateSplit(storeDir string, dryRun bool) error {
 	msgPath := filepath.Join(storeDir, "messages.db")
 	if _, err := os.Stat(msgPath); err != nil {
@@ -344,7 +362,7 @@ func migrateSplit(storeDir string, dryRun bool) error {
 	}
 	defer odb.Close()
 	if !dryRun {
-		if _, err := odb.Exec(onbodSchema); err != nil {
+		if err := bootstrapOnbod(odb); err != nil {
 			return fmt.Errorf("onbod.db schema: %w", err)
 		}
 		if err := recordOnbodBootstrap(odb); err != nil {
@@ -371,6 +389,14 @@ func migrateSplit(storeDir string, dryRun bool) error {
 		if err := routd.NormalizeFixedWidthTimestamps(rdb.SQL()); err != nil {
 			return fmt.Errorf("routd.db: %w", err)
 		}
+	}
+	// The monolith's audit trail lands in routd.db, which is where dashd, webd
+	// and proxyd all record. It is an entity rather than a table, so it travels
+	// through audit's own import instead of copyInto — and the import carries
+	// the sequence numbers, so the order the ids had survives.
+	aN, err := copyAuditLog(rdb.SQL(), msgPath, dryRun)
+	if err != nil {
+		return fmt.Errorf("routd.db: %w", err)
 	}
 	// 5/33: bind every migrated folder to role:member (the messaging floor). copyInto
 	// copies group rows raw (no PutGroup → no assignDefaultRole), so a migrated agent
@@ -405,6 +431,7 @@ func migrateSplit(storeDir string, dryRun bool) error {
 
 	fmt.Println("\nsummary:")
 	fmt.Printf("  routd.db rows: %s\n", fmtCounts(routdSpecs, rN))
+	fmt.Printf("  routd.db audit_log: %d events\n", aN)
 	fmt.Printf("  runed.db rows: %s\n", fmtCounts(runedSpecs, uN))
 	fmt.Printf("  onbod.db rows: %s\n", fmtCounts(onbodSpecs, oN))
 	fmt.Printf("\norphan tables LEFT IN messages.db (not copied — no daemon reads them):\n  %v\n",
