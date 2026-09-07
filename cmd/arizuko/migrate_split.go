@@ -13,6 +13,7 @@ import (
 	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/runed"
+	"github.com/kronael/arizuko/runed/runstore"
 	"github.com/kronael/arizuko/store"
 
 	"github.com/kronael/arizuko/audit"
@@ -179,13 +180,12 @@ var routdSpecs = []copySpec{
 		sel:  "folder, 'mig-'||rowid, model, input_tok, output_tok, cents, ts"},
 }
 
-// runedSpecs map messages.db → runed.db. session_log is a straight copy
-// (identical columns); spawns has no pre-split source.
-var runedSpecs = []copySpec{
-	{dst: "session_log", src: "session_log",
-		cols: "id, group_folder, session_id, started_at, ended_at, result, error, message_count",
-		sel:  "id, group_folder, session_id, started_at, ended_at, result, error, message_count"},
-}
+// The monolith's only runed-owned table is session_log, and it travels through
+// runstore's own import rather than a copySpec: it is an ENTITY now, so the
+// destination has no `session_log` table to INSERT into, and the id the copy
+// would have carried is the AUTOINCREMENT sequence a document store does not
+// have (spec 6/37 rule 4). `spawns` and `circuit_breaker` have no pre-split
+// source at all.
 
 // onbodSpecs map messages.db → onbod.db. onbod now OWNS the onboarding admission
 // state machine, invite links and per-gate limits. Straight copies — identical
@@ -333,6 +333,36 @@ func copyAuditLog(dst *sql.DB, msgPath string, dryRun bool) (int, error) {
 	return audit.Import(context.Background(), sqlstore.New(dst), snap)
 }
 
+// copySessionLog moves the monolith's run history into runed.db's entity and
+// answers how many sessions landed. The source half is the reader migrate-runed
+// already has, so the two tools read one table one way.
+func copySessionLog(dst *sql.DB, msgPath string, dryRun bool) (int, error) {
+	src, err := db_utils.Open(db_utils.FileDSN(msgPath))
+	if err != nil {
+		return 0, err
+	}
+	defer src.Close() //nolint:errcheck // read-only, and the process ends either way
+	sources, err := legacySources(src, []string{"session_log"})
+	if err != nil {
+		return 0, err
+	}
+	if len(sources) == 0 {
+		return 0, nil
+	}
+	snap, err := readRunedSnapshot(src, sources)
+	if err != nil {
+		return 0, err
+	}
+	if _, err := runstore.CheckSnapshot(snap); err != nil {
+		return 0, err
+	}
+	if dryRun {
+		return len(snap.Sessions), nil
+	}
+	counts, err := runstore.New(sqlstore.New(dst)).Import(context.Background(), snap)
+	return counts.Sessions, err
+}
+
 func migrateSplit(storeDir string, dryRun bool) error {
 	msgPath := filepath.Join(storeDir, "messages.db")
 	if _, err := os.Stat(msgPath); err != nil {
@@ -409,7 +439,7 @@ func migrateSplit(storeDir string, dryRun bool) error {
 			}
 		}
 	}
-	uN, err := copyInto(udb.SQL(), msgPath, runedSpecs, dryRun)
+	uN, err := copySessionLog(udb.SQL(), msgPath, dryRun)
 	if err != nil {
 		return fmt.Errorf("runed.db: %w", err)
 	}
@@ -432,7 +462,7 @@ func migrateSplit(storeDir string, dryRun bool) error {
 	fmt.Println("\nsummary:")
 	fmt.Printf("  routd.db rows: %s\n", fmtCounts(routdSpecs, rN))
 	fmt.Printf("  routd.db audit_log: %d events\n", aN)
-	fmt.Printf("  runed.db rows: %s\n", fmtCounts(runedSpecs, uN))
+	fmt.Printf("  runed.db session_log: %d sessions\n", uN)
 	fmt.Printf("  onbod.db rows: %s\n", fmtCounts(onbodSpecs, oN))
 	fmt.Printf("\norphan tables LEFT IN messages.db (not copied — no daemon reads them):\n  %v\n",
 		orphanTables)
