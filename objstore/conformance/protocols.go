@@ -44,11 +44,12 @@ var errBody = errors.New("the body gave up")
 // AVersionedReplaceIsFencedByItsMarker is resreg.Apply's shape: make a scope's
 // rows equal a document, and version the result.
 //
-// It cannot be one batch. One krons apply processes 417 rows against
+// It cannot be one batch. The routd subsystem's registered tables hold 417 rows
+// on krons today and a replace deletes and re-inserts each of them, against
 // MaxBatchActions of 100, so the writes span several transactions on every
-// engine, and what keeps two of them apart is the claim on the marker rather
-// than a lock. The body seeds and replaces a row set larger than one
-// transaction holds, so the chunking is exercised rather than assumed.
+// engine — and what keeps two replaces apart is the claim on the marker rather
+// than a lock. The body seeds and replaces a row set larger than one transaction
+// holds, so the chunking is exercised rather than assumed.
 //
 // What the protocol does NOT give is Apply's pre-image rollback (BUGS L44): a
 // replace that fails after writing leaves the scope part-written and its claim

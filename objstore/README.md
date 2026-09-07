@@ -41,7 +41,7 @@ package-level function over these two, written once and shared by every driver
 | protocol                | file            | the caller that asks for it                                      |
 | ----------------------- | --------------- | ---------------------------------------------------------------- |
 | `Increment`             | `protocol.go`   | `store/invites.go`: `used_count = used_count + 1 … RETURNING`    |
-| `Replace`               | `replace.go`    | `resreg.Apply`, whose 417-row scope cannot be one batch          |
+| `Replace`               | `replace.go`    | `resreg.Apply`, whose 417-row krons scope cannot be one batch    |
 | `ReadConsistent`        | `consistent.go` | `resreg.ExportSnapshot`, N reads that have to describe ONE state |
 | `AddEdge` / `Reachable` | `reach.go`      | the membership cycle check, written twice (BUGS `L256`)          |
 

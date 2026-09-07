@@ -4,10 +4,14 @@ package objstore
 // document, and version the result (spec 6/40 §3).
 //
 // It cannot be one GuardedBatch and that is not a driver's shortcoming.
-// resreg.Apply processes an UNBOUNDED row set — 417 rows in one krons apply
-// against MaxBatchActions of 100 — so the writes span several batches whatever
-// the engine is, and the intermediate state is real and observable. 6/40 states
-// the shape: Query, a start-marker CAS, N guarded writes, a finish CAS.
+// resreg.Apply processes an UNBOUNDED row set: the routd subsystem's registered
+// tables hold 417 rows on krons today (acl 42, acl_membership 58, routes 58,
+// route_tokens 43, network_rules 15, web_routes 54, proxyd_routes 26, groups 53,
+// scheduled_tasks 66, pending_actions 2), and a replace issues a delete AND an
+// insert for each one against MaxBatchActions of 100. So the writes span several
+// batches whatever the engine is, and the intermediate state is real and
+// observable. 6/40 states the shape: Query, a start-marker CAS, N guarded
+// writes, a finish CAS.
 //
 // ONE DOMAIN CONSUMER, and it is resreg.Apply. store.DeleteGroup is an
 // unversioned subtree purge (store/groups.go:113) and does not ask for this.
