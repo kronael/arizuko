@@ -54,10 +54,12 @@ const (
 // everything under Value+Sep, so `a` does not reach `ab`. Leave Sep empty for a
 // bare begins_with over the whole prefix.
 //
-// A driver renders this with an exact character comparison, never SQL LIKE:
-// LIKE is case-insensitive for ASCII and reads `_` and `%` as wildcards, so
-// folder `a_b` matches `aXb` and folder `coach` matches `Coach` — and a live
-// instance HAS carried a Coach/coach pair (BUGS L66, L122, L252).
+// A key-value driver renders this as begins_with, which is exact. A SQL driver
+// renders it as a substr comparison, never LIKE: `_` and `%` are LIKE wildcards
+// on every engine, so folder `a_b` matches `aXb` on both sqlite 3.51.2 and
+// PostgreSQL 17.11. Case folding is an engine difference on top of that —
+// sqlite's LIKE folds ASCII and Postgres's does not — and a live instance HAS
+// carried a Coach/coach pair (BUGS L66, L122, L252).
 type KeyPredicate struct {
 	Op    KeyOp
 	Value string
