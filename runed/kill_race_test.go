@@ -30,16 +30,16 @@ func TestSpawnAbortsWhenKilledBeforeStart(t *testing.T) {
 	db, mgr := newMgr(t, rt, 5)
 
 	req := runedv1.RunRequest{Folder: "demo", MessageBatch: "m"}
-	c, _, ok, err := mgr.admit(req, KindAgent)
+	c, _, ok, err := mgr.admit(t.Context(), req, KindAgent)
 	if err != nil || !ok {
 		t.Fatalf("admit: ok=%v err=%v", ok, err)
 	}
-	if err := mgr.Kill(c.runID); err != nil {
+	if err := mgr.Kill(t.Context(), c.runID); err != nil {
 		t.Fatalf("kill: %v", err)
 	}
 
 	// The kill is what frees the folder — the premise the launch must respect.
-	if live := mgr.ActiveRunID("demo"); live != "" {
+	if live, _ := mgr.ActiveRunID(t.Context(), "demo"); live != "" {
 		t.Fatalf("folder still holds %q after kill; the race this guards is unreachable", live)
 	}
 
@@ -55,12 +55,12 @@ func TestSpawnAbortsWhenKilledBeforeStart(t *testing.T) {
 	if out.RunID != "" || out.Outcome != "" || out.SessionID != "" {
 		t.Errorf("aborted launch outcome=%+v want empty run_id/outcome/session_id", out)
 	}
-	if sp, _ := db.GetSpawn(c.runID); sp.State != "killed" {
+	if sp, _ := db.SpawnByRunID(t.Context(), c.runID); sp.State != "killed" {
 		t.Errorf("spawn state=%q want killed (row resurrected)", sp.State)
 	}
 	// An aborted launch opened no session, so it must leave no session_log row
 	// for a session nothing will ever close.
-	if rows, _ := db.RecentSessions("demo", 10); len(rows) != 0 {
+	if rows, _ := db.RecentSessions(t.Context(), "demo", 10); len(rows) != 0 {
 		t.Errorf("aborted launch left %d session_log row(s), want 0", len(rows))
 	}
 }
@@ -89,11 +89,11 @@ func TestKilledClaimDoesNotDoubleSpawnFolder(t *testing.T) {
 	_, mgr := newMgr(t, rt, 5)
 
 	req := runedv1.RunRequest{Folder: "demo", MessageBatch: "m"}
-	c, _, ok, err := mgr.admit(req, KindAgent)
+	c, _, ok, err := mgr.admit(t.Context(), req, KindAgent)
 	if err != nil || !ok {
 		t.Fatalf("admit: ok=%v err=%v", ok, err)
 	}
-	if err := mgr.Kill(c.runID); err != nil {
+	if err := mgr.Kill(t.Context(), c.runID); err != nil {
 		t.Fatalf("kill: %v", err)
 	}
 
@@ -135,21 +135,21 @@ func TestStartSpawnReportsWhetherItFired(t *testing.T) {
 	}
 	defer db.Close()
 
-	_ = db.CreateSpawn(Spawn{RunID: "r1", Folder: "demo", ContainerName: "c1", State: "queued"})
-	started, err := db.StartSpawn("r1", "s")
+	_ = db.CreateSpawn(t.Context(), Spawn{RunID: "r1", Folder: "demo", ContainerName: "c1", State: "queued"})
+	started, err := db.StartSpawn(t.Context(), "r1", "s")
 	if err != nil || !started {
 		t.Fatalf("StartSpawn on queued = (%v, %v) want (true, nil)", started, err)
 	}
 	// Already running: the claim was taken, so a second start must not re-fire.
-	if started, err := db.StartSpawn("r1", "s"); err != nil || started {
+	if started, err := db.StartSpawn(t.Context(), "r1", "s"); err != nil || started {
 		t.Errorf("StartSpawn on running = (%v, %v) want (false, nil)", started, err)
 	}
 
-	_ = db.CreateSpawn(Spawn{RunID: "r2", Folder: "demo2", ContainerName: "c2", State: "queued"})
-	if err := db.KillSpawn("r2"); err != nil {
+	_ = db.CreateSpawn(t.Context(), Spawn{RunID: "r2", Folder: "demo2", ContainerName: "c2", State: "queued"})
+	if err := db.KillSpawn(t.Context(), "r2"); err != nil {
 		t.Fatalf("kill spawn: %v", err)
 	}
-	if started, err := db.StartSpawn("r2", "s"); err != nil || started {
+	if started, err := db.StartSpawn(t.Context(), "r2", "s"); err != nil || started {
 		t.Errorf("StartSpawn on killed = (%v, %v) want (false, nil)", started, err)
 	}
 }

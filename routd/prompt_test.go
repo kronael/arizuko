@@ -183,7 +183,7 @@ func TestEmitSystemEvents_NewSession(t *testing.T) {
 
 	ended := time.Date(2026, 1, 1, 10, 5, 0, 0, time.UTC)
 	sess := &stubSessions{rows: []core.SessionRecord{{
-		ID: 1, Folder: "grp2", SessionID: "abc123def456",
+		ID: "log-1", Folder: "grp2", SessionID: "abc123def456",
 		StartedAt: time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC),
 		EndedAt:   &ended, Result: "ok", MsgCount: 7,
 	}}}

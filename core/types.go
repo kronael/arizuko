@@ -193,8 +193,16 @@ type PanePrompt struct {
 	Message string `json:"message"`
 }
 
+// SessionRecord is one entry of a folder's run history, as routd federates it
+// from runed's GET /v1/spawn_sessions/recent and as store reads its own
+// session_log.
+//
+// ID IS A STRING because runed's is: the row's identity there is its sort key,
+// the instant it started plus a suffix, and a generated sequence is what no
+// document store has (spec 6/37 rule 4). The same move made audit.Row.ID a
+// string for the same reason.
 type SessionRecord struct {
-	ID        int64
+	ID        string
 	Folder    string
 	SessionID string
 	StartedAt time.Time

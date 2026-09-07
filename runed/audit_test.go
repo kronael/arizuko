@@ -172,7 +172,7 @@ func TestKillEmitsAuditRow(t *testing.T) {
 	db, srv := auditServer(t, &killRecorder{}, fakeVerifier{
 		sub: "user:google:114alice", scope: []string{"runs:kill"}, folder: "demo",
 	})
-	_ = db.CreateSpawn(Spawn{RunID: "run_k", Folder: "demo", ContainerName: "c1", State: "running"})
+	_ = db.CreateSpawn(t.Context(), Spawn{RunID: "run_k", Folder: "demo", ContainerName: "c1", State: "running"})
 
 	if got := req(t, srv.Handler(), "DELETE", "/v1/runs/run_k"); got.Code != 200 {
 		t.Fatalf("kill = %d want 200", got.Code)
@@ -202,13 +202,13 @@ func TestKillOfTerminalRunEmitsAuditRow(t *testing.T) {
 	db, srv := auditServer(t, rec, fakeVerifier{
 		sub: "user:google:114alice", scope: []string{"runs:kill"}, folder: "demo",
 	})
-	_ = db.CreateSpawn(Spawn{RunID: "run_done", Folder: "demo", ContainerName: "c1", State: "queued"})
-	_ = db.EndSpawn("run_done", "exited", runedv1.OutcomeOK, 0)
+	_ = db.CreateSpawn(t.Context(), Spawn{RunID: "run_done", Folder: "demo", ContainerName: "c1", State: "queued"})
+	_ = db.EndSpawn(t.Context(), "run_done", "exited", runedv1.OutcomeOK, 0)
 
 	if got := req(t, srv.Handler(), "DELETE", "/v1/runs/run_done"); got.Code != 200 {
 		t.Fatalf("kill of terminal run = %d want 200", got.Code)
 	}
-	sp, _ := db.GetSpawn("run_done")
+	sp, _ := db.SpawnByRunID(t.Context(), "run_done")
 	if sp.State != "exited" {
 		t.Fatalf("spawns state=%q — premise is that a terminal run is untouched", sp.State)
 	}
@@ -273,7 +273,7 @@ func TestRunEmitsNoAuditRow(t *testing.T) {
 	}
 
 	// Control: the emitter and the table are live in this very DB.
-	_ = db.CreateSpawn(Spawn{RunID: "run_k", Folder: "demo", ContainerName: "c1", State: "running"})
+	_ = db.CreateSpawn(t.Context(), Spawn{RunID: "run_k", Folder: "demo", ContainerName: "c1", State: "running"})
 	if got := req(t, h, "DELETE", "/v1/runs/run_k"); got.Code != 200 {
 		t.Fatalf("control kill = %d want 200", got.Code)
 	}

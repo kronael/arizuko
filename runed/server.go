@@ -194,7 +194,7 @@ func (s *Server) handleRunStop(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "unknown_run", "no such run") // uniform with status/kill; don't leak other folders
 		return
 	}
-	runID, killed, err := s.mgr.StopFolder(req.Folder)
+	runID, killed, err := s.mgr.StopFolder(r.Context(), req.Folder)
 	s.auditRunSlot(r.Context(), sub, actionRunKill, req.Folder, runID, killParams(killed), err)
 	if err != nil {
 		writeErr(w, 500, "kill_failed", err.Error())
@@ -208,7 +208,7 @@ func (s *Server) handleRunStatus(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	sp, err := s.db.GetSpawn(r.PathValue("run_id"))
+	sp, err := s.db.SpawnByRunID(r.Context(), r.PathValue("run_id"))
 	if err == ErrNotFound {
 		writeErr(w, 404, "unknown_run", "no such run")
 		return
@@ -238,7 +238,7 @@ func (s *Server) handleRunKill(w http.ResponseWriter, r *http.Request) {
 	// its own subtree, and the audit row records WHICH folder's slot this freed.
 	// Unconditional — root and service:routd used to skip it, but then the path
 	// that drives every operator kill was the one whose row had no folder.
-	sp, err := s.db.GetSpawn(runID)
+	sp, err := s.db.SpawnByRunID(r.Context(), runID)
 	if err == ErrNotFound {
 		writeErr(w, 404, "unknown_run", "no such run")
 		return
@@ -255,7 +255,7 @@ func (s *Server) handleRunKill(w http.ResponseWriter, r *http.Request) {
 	// run is an idempotent no-op 200 (Manager.Kill) and leaves the spawns row
 	// untouched, so killed=false is the fact the row has to carry itself.
 	killed := sp.State == "running" || sp.State == "queued"
-	err = s.mgr.Kill(runID)
+	err = s.mgr.Kill(r.Context(), runID)
 	s.auditRunSlot(r.Context(), sub, actionRunKill, sp.Folder, runID, killParams(killed && err == nil), err)
 	if err == ErrNotFound {
 		writeErr(w, 404, "unknown_run", "no such run")
@@ -279,7 +279,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	if folder == "" {
 		folder = r.URL.Query().Get("folder")
 	}
-	rows, err := s.db.RecentSessions(folder, 0)
+	rows, err := s.db.RecentSessions(r.Context(), folder, 0)
 	if err != nil {
 		writeErr(w, 500, "store_error", err.Error())
 		return
@@ -312,7 +312,7 @@ func (s *Server) handleRecentSessions(w http.ResponseWriter, r *http.Request) {
 			n = parsed
 		}
 	}
-	rows, err := s.db.RecentSessionRecords(folder, n)
+	rows, err := s.db.RecentSessions(r.Context(), folder, n)
 	if err != nil {
 		writeErr(w, 500, "store_error", err.Error())
 		return

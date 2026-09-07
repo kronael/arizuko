@@ -151,12 +151,18 @@ func (m *Manager) Run(ctx context.Context, req runedv1.RunRequest) (runedv1.RunO
 	// reset the agent's failure streak. Done before admission so a retry
 	// after 3 failures actually spawns.
 	if kind == KindAgent {
-		if failures, _ := m.db.GetFailures(folder); failures >= circuitBreakerThreshold {
-			_ = m.db.ResetFailures(folder)
+		failures, err := m.db.FailureStreak(ctx, folder)
+		if err != nil {
+			return runedv1.RunOutcome{}, fmt.Errorf("read the failure streak: %w", err)
+		}
+		if failures >= circuitBreakerThreshold {
+			if err := m.db.ClearFailures(ctx, folder); err != nil {
+				return runedv1.RunOutcome{}, fmt.Errorf("reset the breaker: %w", err)
+			}
 		}
 	}
 
-	claim, out, ok, err := m.admit(req, kind)
+	claim, out, ok, err := m.admit(ctx, req, kind)
 	if err != nil || !ok {
 		return out, err
 	}
@@ -176,7 +182,7 @@ func (m *Manager) Hold(ctx context.Context, folder types.Folder, reason string) 
 	// Reason rides on the spawn's topic so an operator looking at dashd's
 	// runed page sees WHY the folder is held, with no column of its own.
 	req := runedv1.RunRequest{Folder: folder, Topic: reason, Kind: KindHold}
-	claim, _, ok, err := m.admit(req, KindHold)
+	claim, _, ok, err := m.admit(ctx, req, KindHold)
 	if err != nil {
 		return runedv1.HoldOutcome{}, err
 	}
@@ -204,12 +210,12 @@ type claim struct {
 // concurrent callers can never both pass the cap or both claim one folder
 // (single-process runed, so the mutex IS the BEGIN IMMEDIATE claim). ok=false
 // means the caller returns out verbatim.
-func (m *Manager) admit(req runedv1.RunRequest, kind string) (c claim, out runedv1.RunOutcome, ok bool, err error) {
+func (m *Manager) admit(ctx context.Context, req runedv1.RunRequest, kind string) (c claim, out runedv1.RunOutcome, ok bool, err error) {
 	folder := string(req.Folder)
 	m.mu.Lock()
 
 	// Folder busy? Steer into the live container, else reject as busy.
-	active, err := m.db.GetActiveSpawn(folder)
+	active, err := m.db.LiveSpawnInFolder(ctx, folder)
 	if err != nil {
 		m.mu.Unlock()
 		return claim{}, runedv1.RunOutcome{}, false, fmt.Errorf("check active spawn: %w", err)
@@ -227,7 +233,9 @@ func (m *Manager) admit(req runedv1.RunRequest, kind string) (c claim, out runed
 		runID, sessionID := active.RunID, active.SessionID
 		m.mu.Unlock()
 		if steered {
-			_ = m.db.MarkSteered(runID)
+			if merr := m.db.MarkSteered(ctx, runID); merr != nil {
+				slog.Error("runed: could not record the steer", "run_id", runID, "err", merr)
+			}
 			return claim{}, runedv1.RunOutcome{
 				RunID: runID, Outcome: runedv1.OutcomeOK,
 				SessionID: sessionID, Steered: true,
@@ -246,7 +254,7 @@ func (m *Manager) admit(req runedv1.RunRequest, kind string) (c claim, out runed
 	// here; its serialization comes entirely from the per-folder
 	// exclusivity above (one live spawn per folder, any kind).
 	if kind == KindAgent {
-		activeCount, cerr := m.db.ActiveAgentCount()
+		activeCount, cerr := m.db.LiveAgentSpawnCount(ctx)
 		if cerr != nil {
 			m.mu.Unlock()
 			return claim{}, runedv1.RunOutcome{}, false, fmt.Errorf("check active count: %w", cerr)
@@ -268,7 +276,7 @@ func (m *Manager) admit(req runedv1.RunRequest, kind string) (c claim, out runed
 	if c.sessionID == "" {
 		c.sessionID = newUUID()
 	}
-	if err := m.db.CreateSpawn(Spawn{
+	if err := m.db.CreateSpawn(ctx, Spawn{
 		RunID: c.runID, Folder: folder, Topic: req.Topic, ContainerName: c.containerName,
 		SessionID: c.sessionID, Kind: kind, State: "queued",
 	}); err != nil {
@@ -294,7 +302,7 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 	// Returning here also keeps an aborted launch from opening a session_log row
 	// nothing will close, and from running endRun — which would clear a real failure
 	// streak and delete a steer callback that belongs to the folder's NEXT run.
-	started, err := m.db.StartSpawn(runID, sessionID)
+	started, err := m.db.StartSpawn(ctx, runID, sessionID)
 	if err != nil {
 		// Spawn row stays 'queued' → the folder is held until runed restarts
 		// (ExpireOrphans), the same operator-visible zombie EndSpawn failure
@@ -313,10 +321,15 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 	// Isolated (timed-isolated:*) runs are one-off containers, and a
 	// non-agent kind has no agent session at all: neither gets a
 	// session_log row. The spawns row still exists for GET/DELETE.
-	var logID int64
+	var logID string
 	if !req.Isolated && kind == KindAgent {
-		logID, _ = m.db.RecordSession(folder, sessionID)
-		_ = m.db.SetSpawnSessionLogID(runID, logID)
+		var lerr error
+		if logID, lerr = m.db.OpenSession(ctx, folder, sessionID); lerr != nil {
+			slog.Error("runed: OpenSession failed — the run has no history row",
+				"run_id", runID, "folder", folder, "err", lerr)
+		} else if lerr = m.db.LinkSessionLog(ctx, runID, logID); lerr != nil {
+			slog.Error("runed: LinkSessionLog failed", "run_id", runID, "log_id", logID, "err", lerr)
+		}
 	}
 
 	// RunTTL's kill-deadline is armed HERE, at the shared dispatch site, by
@@ -363,17 +376,18 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 	if res.NewSessionID != "" {
 		endSession = res.NewSessionID
 	}
-	if err := m.db.EndSpawn(runID, state, res.Outcome, res.ExitCode); err != nil {
+	if err := m.db.EndSpawn(ctx, runID, state, res.Outcome, res.ExitCode); err != nil {
 		// spawn row stays 'running' if this fails → zombie that blocks the cap.
 		// Operator must reset it manually: UPDATE spawns SET state='exited' WHERE run_id=?
 		slog.Error("runed: EndSpawn failed — spawn may become zombie", "run_id", runID, "err", err)
 	}
-	if !req.Isolated && kind == KindAgent {
-		if err := m.db.EndSession(logID, res.NewSessionID, res.Outcome, res.Error, res.MessageCount); err != nil {
-			slog.Error("runed: EndSession failed", "log_id", logID, "err", err)
+	if logID != "" {
+		if err := m.db.CloseSession(ctx, folder, logID, res.NewSessionID,
+			res.Outcome, res.Error, res.MessageCount); err != nil {
+			slog.Error("runed: CloseSession failed", "log_id", logID, "err", err)
 		}
 	}
-	breakerTripped := m.endRun(folder, runID, failed, kind)
+	breakerTripped := m.endRun(ctx, folder, runID, failed, kind)
 
 	out := runedv1.RunOutcome{
 		RunID: runID, Outcome: res.Outcome, SessionID: endSession, Error: res.Error,
@@ -398,16 +412,25 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 // Breaker accounting is scoped to KindAgent (spec 5/8): a failed hold run must
 // never count against the agent's breaker and stop it spawning. EndSpawn still
 // records the hold's own outcome unconditionally.
-func (m *Manager) endRun(folder, runID string, failed bool, kind string) bool {
+func (m *Manager) endRun(ctx context.Context, folder, runID string, failed bool, kind string) bool {
 	var tripped bool
 	if kind == KindAgent {
 		if failed {
-			newCount, _ := m.db.IncrFailures(folder)
+			newCount, err := m.db.RecordFailure(ctx, folder)
+			if err != nil {
+				// The streak is what opens the breaker, so a count that did not
+				// land is a wedge nobody sees: the folder keeps failing and the
+				// caller is never told to stop.
+				slog.Error("runed: could not count a failure against the breaker",
+					"folder", folder, "run_id", runID, "err", err)
+			}
 			tripped = newCount == circuitBreakerThreshold
 		} else {
 			// Any clean exit resets the breaker (silent included); a folder
 			// alternating error/silent must never creep to the threshold.
-			_ = m.db.ResetFailures(folder)
+			if err := m.db.ClearFailures(ctx, folder); err != nil {
+				slog.Error("runed: could not clear the breaker", "folder", folder, "err", err)
+			}
 		}
 	}
 
@@ -440,17 +463,19 @@ func (m *Manager) SetSteer(runID string, steer func(batch string) bool) {
 // kill records state=killed WITHOUT outcome=error and does NOT count toward
 // the breaker (it's operator intent, not a run failure). The slot frees
 // implicitly once the row is terminal; routd re-feeds any pending batch.
-func (m *Manager) Kill(runID string) error {
-	sp, err := m.db.GetSpawn(runID)
+func (m *Manager) Kill(ctx context.Context, runID string) error {
+	sp, err := m.db.SpawnByRunID(ctx, runID)
 	if err != nil {
 		return err
 	}
 	live := sp.State == "running" || sp.State == "queued"
 	if live {
 		_ = m.executor(sp.Kind).Kill(sp.ContainerName)
-		// KillSpawn re-checks the state in SQL — a run that completed normally
-		// between GetSpawn and here keeps its terminal state (not 'killed').
-		_ = m.db.KillSpawn(runID)
+		// KillSpawn re-checks liveness on the write — a run that completed
+		// normally between the read above and here keeps its terminal state.
+		if kerr := m.db.KillSpawn(ctx, runID); kerr != nil {
+			return kerr
+		}
 	}
 	// Clear this run's steer callback (its container is gone). Killing an
 	// already-terminal run_id now disarms only that run, never whichever run
@@ -465,26 +490,29 @@ func (m *Manager) Kill(runID string) error {
 // folder's live spawn and Kills it. Returns the killed run_id (or "" + killed
 // false when the folder has no live spawn — routd renders the no-active text).
 // Kill records state=killed without counting toward the breaker.
-func (m *Manager) StopFolder(folder string) (runID string, killed bool, err error) {
-	runID = m.ActiveRunID(folder)
-	if runID == "" {
-		return "", false, nil
+func (m *Manager) StopFolder(ctx context.Context, folder string) (runID string, killed bool, err error) {
+	runID, err = m.ActiveRunID(ctx, folder)
+	if err != nil || runID == "" {
+		return "", false, err
 	}
-	if err := m.Kill(runID); err != nil {
+	if err := m.Kill(ctx, runID); err != nil {
 		return "", false, err
 	}
 	return runID, true, nil
 }
 
 // ActiveRunID returns the run_id of a folder's live spawn, or "" when none.
-func (m *Manager) ActiveRunID(folder string) string {
-	runID, _ := m.db.ActiveSpawnForFolder(folder)
-	return runID
+func (m *Manager) ActiveRunID(ctx context.Context, folder string) (string, error) {
+	active, err := m.db.LiveSpawnInFolder(ctx, folder)
+	if err != nil || active == nil {
+		return "", err
+	}
+	return active.RunID, nil
 }
 
 // ActiveCount returns the number of live spawns (test/observability).
-func (m *Manager) ActiveCount() int {
-	n, _ := m.db.ActiveCount()
+func (m *Manager) ActiveCount(ctx context.Context) int {
+	n, _ := m.db.LiveSpawnCount(ctx)
 	return n
 }
 

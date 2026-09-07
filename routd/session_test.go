@@ -21,10 +21,15 @@ func TestSessionResolver_FederatesOverHTTP(t *testing.T) {
 		gotPath = r.URL.Path + "?" + r.URL.RawQuery
 		gotAuth = r.Header.Get("Authorization")
 		_ = json.NewEncoder(w).Encode(runedv1.RecentSessionsResponse{
+			// The id and both timestamps are the shape runed now writes:
+			// a time-keyed string id, and core.TS's fixed nine-digit
+			// fraction, which time.RFC3339 parses on the way back in.
 			Sessions: []runedv1.RecentSessionRecord{{
-				ID: 9, GroupFolder: "demo", SessionID: "abc123def456",
-				StartedAt: "2026-01-01T10:00:00Z", EndedAt: "2026-01-01T10:05:00Z",
-				Result: "ok", Error: "boom", MessageCount: 7,
+				ID: "2026-01-01T10:00:00.000000000Z-0000002a", GroupFolder: "demo",
+				SessionID: "abc123def456",
+				StartedAt: "2026-01-01T10:00:00.000000000Z",
+				EndedAt:   "2026-01-01T10:05:00.000000000Z",
+				Result:    "ok", Error: "boom", MessageCount: 7,
 			}},
 		})
 	}))
@@ -46,6 +51,10 @@ func TestSessionResolver_FederatesOverHTTP(t *testing.T) {
 	if r.Folder != "demo" || r.SessionID != "abc123def456" || r.Result != "ok" ||
 		r.Error != "boom" || r.MsgCount != 7 {
 		t.Fatalf("mapped record wrong: %+v", r)
+	}
+	if r.ID != "2026-01-01T10:00:00.000000000Z-0000002a" {
+		t.Fatalf("id = %q, want the wire id verbatim: it is runed's sort key and "+
+			"a caller quoting it back has to get the same string", r.ID)
 	}
 	if r.StartedAt.IsZero() || r.EndedAt == nil {
 		t.Fatalf("timestamps not parsed: started=%v ended=%v", r.StartedAt, r.EndedAt)

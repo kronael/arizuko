@@ -25,6 +25,12 @@ import (
 	"github.com/kronael/arizuko/substrate"
 )
 
+// spawnRetention is how long a finished run stays queryable. It is the bound
+// that keeps runed's one spawns partition a window rather than an archive
+// (runed/runstore/spawns.go), so it is stated where the sweep that applies it
+// lives.
+const spawnRetention = 7 * 24 * time.Hour
+
 // newRunedMux builds runed's complete HTTP surface: the Server's routed mux
 // plus the two mounts main used to add inline. Extracted so a test can probe
 // the routing table runed actually builds — the doc-vs-mux guard has to compare
@@ -84,7 +90,7 @@ func main() {
 	// migrates its own audit_log; correlation across them is turn_id, not a
 	// shared table (spec 5/I).
 	audit.Init(db.Obj(), os.Getenv("ARIZUKO_INSTANCE"))
-	if n, err := db.ExpireOrphans(); err != nil {
+	if n, err := db.ExpireOrphans(context.Background()); err != nil {
 		slog.Error("expire orphan spawns", "err", err)
 	} else if n > 0 {
 		slog.Warn("runed: expired orphan spawns from prior run", "count", n)
@@ -121,7 +127,9 @@ func main() {
 	// future folder-exclusive job) claim a folder's run slot (spec 5/8).
 	mgr.RegisterExecutor(runed.KindHold, runed.NewHoldRuntime())
 
-	// hourly GC of expired spawns + tokens.
+	// Hourly GC of aged spawns. The RETENTION is this policy's, not the
+	// store's: spawns lives in one partition and this sweep is what keeps it a
+	// window rather than an archive (runed/runstore/spawns.go).
 	go func() {
 		t := time.NewTicker(time.Hour)
 		defer t.Stop()
@@ -130,7 +138,12 @@ func main() {
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				_ = db.SweepExpired(7 * 24 * time.Hour)
+				n, err := db.DropSpawnsBefore(ctx, time.Now().Add(-spawnRetention))
+				if err != nil {
+					slog.Error("runed: sweep aged spawns", "err", err)
+				} else if n > 0 {
+					slog.Info("runed: swept aged spawns", "count", n)
+				}
 			}
 		}
 	}()
@@ -184,7 +197,7 @@ func main() {
 	// wait up to RUNED_SHUTDOWN_GRACE for handlers to finish, then exit
 	// (containers are docker --rm and outlive the daemon).
 	grace := core.DurOr("RUNED_SHUTDOWN_GRACE", runTTL)
-	slog.Info("runed stopping (detaching in-flight runs)", "grace", grace, "in_flight", mgr.ActiveCount())
+	slog.Info("runed stopping (detaching in-flight runs)", "grace", grace, "in_flight", mgr.ActiveCount(context.Background()))
 	sctx, scancel := context.WithTimeout(context.Background(), grace)
 	defer scancel()
 	_ = httpd.Shutdown(sctx)

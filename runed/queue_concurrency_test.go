@@ -175,7 +175,7 @@ func TestBreakerPersistsToDB(t *testing.T) {
 	mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
 	mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
 
-	got, err := db.GetFailures("demo")
+	got, err := db.FailureStreak(t.Context(), "demo")
 	if err != nil {
 		t.Fatalf("GetFailures: %v", err)
 	}
@@ -192,7 +192,7 @@ func TestBreakerPersistsToDB(t *testing.T) {
 
 	// New manager reads existing failure count. A successful run resets it.
 	mgr2.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
-	got, _ = db.GetFailures("demo")
+	got, _ = db.FailureStreak(t.Context(), "demo")
 	if got != 0 {
 		t.Fatalf("failure count after success=%d want 0 (reset)", got)
 	}
@@ -205,10 +205,10 @@ func TestActiveSpawnsPersistAcrossRestart(t *testing.T) {
 	db, _ := newMgr(t, FakeRuntime{}, 5)
 
 	// Simulate two active spawns left by a crashed manager.
-	_ = db.CreateSpawn(Spawn{RunID: "r1", Folder: "a", ContainerName: "c1", State: "running"})
-	_ = db.CreateSpawn(Spawn{RunID: "r2", Folder: "b", ContainerName: "c2", State: "queued"})
+	_ = db.CreateSpawn(t.Context(), Spawn{RunID: "r1", Folder: "a", ContainerName: "c1", State: "running"})
+	_ = db.CreateSpawn(t.Context(), Spawn{RunID: "r2", Folder: "b", ContainerName: "c2", State: "queued"})
 	// One terminated spawn (should not count).
-	_ = db.CreateSpawn(Spawn{RunID: "r3", Folder: "c", ContainerName: "c3", State: "exited"})
+	_ = db.CreateSpawn(t.Context(), Spawn{RunID: "r3", Folder: "c", ContainerName: "c3", State: "exited"})
 
 	// New manager reads state from DB.
 	mgr2 := NewManager(db, FakeRuntime{}, ManagerConfig{
@@ -216,17 +216,17 @@ func TestActiveSpawnsPersistAcrossRestart(t *testing.T) {
 	})
 
 	// ActiveCount should return 2 (the two live spawns).
-	if got := mgr2.ActiveCount(); got != 2 {
+	if got := mgr2.ActiveCount(t.Context()); got != 2 {
 		t.Fatalf("ActiveCount()=%d want 2 (DB state persisted)", got)
 	}
 
 	// ActiveRunID for folder "a" should return "r1".
-	if got := mgr2.ActiveRunID("a"); got != "r1" {
+	if got, _ := mgr2.ActiveRunID(t.Context(), "a"); got != "r1" {
 		t.Fatalf("ActiveRunID(a)=%q want r1", got)
 	}
 
 	// Folder "c" has no active spawn (it exited).
-	if got := mgr2.ActiveRunID("c"); got != "" {
+	if got, _ := mgr2.ActiveRunID(t.Context(), "c"); got != "" {
 		t.Fatalf("ActiveRunID(c)=%q want empty (exited)", got)
 	}
 }
@@ -253,7 +253,7 @@ func TestKillFreesSlotForNextRun(t *testing.T) {
 
 	go mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "first"})
 	<-firstStarted
-	runID := mgr.ActiveRunID("demo")
+	runID, _ := mgr.ActiveRunID(t.Context(), "demo")
 
 	// At cap=1 a second folder is rejected busy — runed keeps no queue.
 	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Folder: "other", MessageBatch: "second"})
@@ -262,7 +262,7 @@ func TestKillFreesSlotForNextRun(t *testing.T) {
 	}
 
 	// Kill the first → frees the only slot → the resubmitted batch now runs.
-	if err := mgr.Kill(runID); err != nil {
+	if err := mgr.Kill(t.Context(), runID); err != nil {
 		t.Fatalf("kill: %v", err)
 	}
 	go mgr.Run(context.Background(), runedv1.RunRequest{Folder: "other", MessageBatch: "second"})
@@ -307,14 +307,14 @@ func TestSteerWhenNoLiveRunSpawns(t *testing.T) {
 // property.
 func TestStaleSteerRegistrationIsUnreachable(t *testing.T) {
 	db, mgr := newMgr(t, FakeRuntime{}, 5)
-	_ = db.CreateSpawn(Spawn{RunID: "current", Folder: "demo", ContainerName: "c", State: "running", SessionID: "s"})
+	_ = db.CreateSpawn(t.Context(), Spawn{RunID: "current", Folder: "demo", ContainerName: "c", State: "running", SessionID: "s"})
 
 	stale := false
 	mgr.SetSteer("stale", func(string) bool { stale = true; return true })
 
 	// The live run has no callback wired, so the batch cannot be steered and
 	// the folder answers Busy — but on no account does it reach the dead run's.
-	_, out, _, err := mgr.admit(runedv1.RunRequest{Folder: "demo", MessageBatch: "hi"}, KindAgent)
+	_, out, _, err := mgr.admit(t.Context(), runedv1.RunRequest{Folder: "demo", MessageBatch: "hi"}, KindAgent)
 	if err != nil {
 		t.Fatalf("admit: %v", err)
 	}
@@ -328,8 +328,9 @@ func TestStaleSteerRegistrationIsUnreachable(t *testing.T) {
 
 // steerFor reports whether mgr holds a callback reachable for the folder's
 // currently-live run — the exact lookup admit does.
-func steerFor(mgr *Manager, folder string) bool {
-	active, _ := mgr.db.GetActiveSpawn(folder)
+func steerFor(t *testing.T, mgr *Manager, folder string) bool {
+	t.Helper()
+	active, _ := mgr.db.LiveSpawnInFolder(t.Context(), folder)
 	if active == nil {
 		return false
 	}
@@ -348,12 +349,12 @@ func TestEndRunDoesNotDisarmTheSuccessor(t *testing.T) {
 	db, mgr := newMgr(t, FakeRuntime{}, 5)
 
 	// Run A finished; run B has since claimed the folder and wired its steer.
-	_ = db.CreateSpawn(Spawn{RunID: "B", Folder: "demo", ContainerName: "cb", State: "running", SessionID: "s"})
+	_ = db.CreateSpawn(t.Context(), Spawn{RunID: "B", Folder: "demo", ContainerName: "cb", State: "running", SessionID: "s"})
 	mgr.SetSteer("B", func(string) bool { return true })
 
-	mgr.endRun("demo", "A", false, KindAgent)
+	mgr.endRun(t.Context(), "demo", "A", false, KindAgent)
 
-	if !steerFor(mgr, "demo") {
+	if !steerFor(t, mgr, "demo") {
 		t.Fatal("run A's exit deleted run B's steer callback; B is live and un-steerable")
 	}
 }
@@ -365,15 +366,15 @@ func TestEndRunDoesNotDisarmTheSuccessor(t *testing.T) {
 func TestKillingATerminalRunDoesNotDisarmTheLiveOne(t *testing.T) {
 	db, mgr := newMgr(t, FakeRuntime{}, 5)
 
-	_ = db.CreateSpawn(Spawn{RunID: "A", Folder: "demo", ContainerName: "ca", State: "running", SessionID: "s"})
-	_ = db.EndSpawn("A", "exited", "ok", 0)
-	_ = db.CreateSpawn(Spawn{RunID: "B", Folder: "demo", ContainerName: "cb", State: "running", SessionID: "s"})
+	_ = db.CreateSpawn(t.Context(), Spawn{RunID: "A", Folder: "demo", ContainerName: "ca", State: "running", SessionID: "s"})
+	_ = db.EndSpawn(t.Context(), "A", "exited", "ok", 0)
+	_ = db.CreateSpawn(t.Context(), Spawn{RunID: "B", Folder: "demo", ContainerName: "cb", State: "running", SessionID: "s"})
 	mgr.SetSteer("B", func(string) bool { return true })
 
-	if err := mgr.Kill("A"); err != nil {
+	if err := mgr.Kill(t.Context(), "A"); err != nil {
 		t.Fatalf("Kill: %v", err)
 	}
-	if !steerFor(mgr, "demo") {
+	if !steerFor(t, mgr, "demo") {
 		t.Fatal("killing a terminal run disarmed the live run that had claimed the folder")
 	}
 }
@@ -382,10 +383,10 @@ func TestKillingATerminalRunDoesNotDisarmTheLiveOne(t *testing.T) {
 // closure per run for the process's life.
 func TestEndRunClearsItsOwnSteer(t *testing.T) {
 	db, mgr := newMgr(t, FakeRuntime{}, 5)
-	_ = db.CreateSpawn(Spawn{RunID: "A", Folder: "demo", ContainerName: "ca", State: "running", SessionID: "s"})
+	_ = db.CreateSpawn(t.Context(), Spawn{RunID: "A", Folder: "demo", ContainerName: "ca", State: "running", SessionID: "s"})
 	mgr.SetSteer("A", func(string) bool { return true })
 
-	mgr.endRun("demo", "A", false, KindAgent)
+	mgr.endRun(t.Context(), "demo", "A", false, KindAgent)
 
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()

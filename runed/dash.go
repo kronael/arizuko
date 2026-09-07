@@ -32,7 +32,8 @@ func (s *Server) handleDash(w http.ResponseWriter, r *http.Request) {
 	}
 	// state= narrows the table. Empty is every state, which is the landing view.
 	state := strings.TrimSpace(r.URL.Query().Get("state"))
-	runs, err := s.db.ListSpawns(state, strings.TrimSpace(r.URL.Query().Get("folder")), runsShown)
+	ctx := r.Context()
+	runs, err := s.db.RecentSpawns(ctx, state, strings.TrimSpace(r.URL.Query().Get("folder")), runsShown)
 	if err != nil {
 		slog.Error("dash: list spawns", "err", err)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -46,8 +47,8 @@ func (s *Server) handleDash(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(&b, `<div class="crumb"><a href="/dash/services/">arizuko hub</a> › runed</div>`)
 	fmt.Fprint(&b, `<h1>runed</h1>`)
 
-	active, _ := s.db.ActiveCount()
-	agents, _ := s.db.ActiveAgentCount()
+	active, _ := s.db.LiveSpawnCount(ctx)
+	agents, _ := s.db.LiveAgentSpawnCount(ctx)
 	fmt.Fprint(&b, `<div class="tiles">`)
 	runedTile(&b, "Live spawns", active)
 	runedTile(&b, "Live agents", agents)
@@ -75,7 +76,7 @@ func (s *Server) handleDashKill(w http.ResponseWriter, r *http.Request) {
 	}
 	// Kill is idempotent by design — killing an exited run is a 200 no-op — so
 	// this reports what it did rather than implying the container was running.
-	if err := s.mgr.Kill(runID); err != nil {
+	if err := s.mgr.Kill(r.Context(), runID); err != nil {
 		slog.Error("dash kill", "run_id", runID, "err", err)
 		http.Error(w, "kill failed", http.StatusInternalServerError)
 		return

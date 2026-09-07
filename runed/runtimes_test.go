@@ -88,7 +88,7 @@ func TestProdSteerPath(t *testing.T) {
 	if first.Outcome != runedv1.OutcomeOK {
 		t.Fatalf("first outcome=%q want ok", first.Outcome)
 	}
-	sessions, _ := db.RecentSessions("acme/eng", 10)
+	sessions, _ := db.RecentSessions(t.Context(), "acme/eng", 10)
 	if len(sessions) != 1 || sessions[0].MessageCount != 2 {
 		t.Fatalf("session_log message_count not populated from Output: %+v", sessions)
 	}

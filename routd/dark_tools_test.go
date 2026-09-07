@@ -225,7 +225,7 @@ func TestInspectSession_Federated(t *testing.T) {
 
 	srv := NewServer(db, nil, &recDeliverer{}, nil, 0, "")
 	srv.SetSessionResolver(&stubSessions{rows: []core.SessionRecord{{
-		ID: 1, Folder: "demo", SessionID: "sess-1",
+		ID: "log-1", Folder: "demo", SessionID: "sess-1",
 		StartedAt: time.Now(), Result: "ok", MsgCount: 5,
 	}}})
 	ipcDir := filepath.Join(t.TempDir(), "ipc", "demo")

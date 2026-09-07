@@ -11,7 +11,7 @@ import (
 func TestRunControlFolderBound(t *testing.T) {
 	rec := &killRecorder{}
 	db, srv := serverWith(t, rec, fakeVerifier{scope: []string{"runs:kill"}, folder: "alice"})
-	_ = db.CreateSpawn(Spawn{RunID: "run_bob", Folder: "bob", ContainerName: "c", State: "running"})
+	_ = db.CreateSpawn(t.Context(), Spawn{RunID: "run_bob", Folder: "bob", ContainerName: "c", State: "running"})
 	h := srv.Handler()
 
 	if got := req(t, h, "GET", "/v1/runs/run_bob"); got.Code != 404 {
@@ -32,7 +32,7 @@ func TestRunControlFolderBound(t *testing.T) {
 func TestRunControlRootUnrestricted(t *testing.T) {
 	rec := &killRecorder{}
 	db, srv := serverWith(t, rec, fakeVerifier{scope: []string{"runs:kill"}}) // folder=""
-	_ = db.CreateSpawn(Spawn{RunID: "run_bob", Folder: "bob", ContainerName: "c", State: "running"})
+	_ = db.CreateSpawn(t.Context(), Spawn{RunID: "run_bob", Folder: "bob", ContainerName: "c", State: "running"})
 	h := srv.Handler()
 
 	if got := req(t, h, "GET", "/v1/runs/run_bob"); got.Code != 200 {

@@ -75,14 +75,14 @@ func TestContractRun(t *testing.T) {
 	}
 
 	// the spawn was persisted; one session_log row.
-	sp, err := db.GetSpawn(out.RunID)
+	sp, err := db.SpawnByRunID(t.Context(), out.RunID)
 	if err != nil {
 		t.Fatalf("spawn not persisted: %v", err)
 	}
 	if sp.State != "exited" || sp.Outcome != runedv1.OutcomeOK {
 		t.Fatalf("spawn state=%q outcome=%q", sp.State, sp.Outcome)
 	}
-	sessions, _ := db.RecentSessions("demo", 10)
+	sessions, _ := db.RecentSessions(t.Context(), "demo", 10)
 	if len(sessions) != 1 || sessions[0].Result != runedv1.OutcomeOK {
 		t.Fatalf("session_log=%+v", sessions)
 	}
@@ -110,7 +110,11 @@ func TestSteerIntoRunning(t *testing.T) {
 	}()
 	<-started
 	// wire the steer callback as the production Runtime would.
-	srv.mgr.SetSteer(srv.mgr.ActiveRunID("demo"), func(batch string) bool { return true })
+	live, err := srv.mgr.ActiveRunID(t.Context(), "demo")
+	if err != nil {
+		t.Fatalf("ActiveRunID: %v", err)
+	}
+	srv.mgr.SetSteer(live, func(batch string) bool { return true })
 
 	rec := doRun(t, h, runedv1.RunRequest{Folder: "demo", ChatJID: "j", TurnID: "t2", MessageBatch: "steered"})
 	var out runedv1.RunOutcome

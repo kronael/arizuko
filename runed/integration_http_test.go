@@ -122,7 +122,7 @@ func TestHTTPRunLifecycle(t *testing.T) {
 	done := make(chan *httptest.ResponseRecorder, 1)
 	go func() { done <- doRun(t, h, runedv1.RunRequest{Folder: "demo", TurnID: "t1", MessageBatch: "m"}) }()
 	<-started
-	runID := srv.mgr.ActiveRunID("demo")
+	runID, _ := srv.mgr.ActiveRunID(t.Context(), "demo")
 	if runID == "" {
 		t.Fatal("no active run after spawn started")
 	}
@@ -144,7 +144,7 @@ func TestHTTPRunLifecycle(t *testing.T) {
 	if atomic.LoadInt32(&rec.killed) != 1 {
 		t.Fatalf("Runtime.Kill called %d times want 1", rec.killed)
 	}
-	if sp, _ := db.GetSpawn(runID); sp.State != "killed" {
+	if sp, _ := db.SpawnByRunID(t.Context(), runID); sp.State != "killed" {
 		t.Fatalf("post-kill state=%q want killed", sp.State)
 	}
 	close(release)
@@ -229,8 +229,10 @@ func (errVerifier) Verify(*http.Request) (string, []string, string, error) {
 func TestHTTPRecentSessionsShape(t *testing.T) {
 	db, srv := serverWith(t, FakeRuntime{}, fakeVerifier{scope: []string{"sessions:read"}, folder: "demo"})
 	for _, sid := range []string{"s1", "s2", "s3"} {
-		id, _ := db.RecordSession("demo", sid)
-		db.EndSession(id, sid, "ok", "", 2)
+		id, _ := db.OpenSession(t.Context(), "demo", sid)
+		if err := db.CloseSession(t.Context(), "demo", id, sid, "ok", "", 2); err != nil {
+			t.Fatalf("CloseSession: %v", err)
+		}
 	}
 	rec := req(t, srv.Handler(), "GET", "/v1/spawn_sessions/recent?n=2")
 	if rec.Code != 200 {

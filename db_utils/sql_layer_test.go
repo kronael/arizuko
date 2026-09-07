@@ -56,7 +56,7 @@ var sqlLayers = []sqlLayer{
 	{daemon: "chanlib", storage: "chanlib/none"},
 	{daemon: "dashd", storage: "dashd/dashstore"},
 	{daemon: "emaid", storage: "emaid/none"},
-	{daemon: "runed", storage: "runed/db.go"},
+	{daemon: "runed", storage: "runed/runstore"},
 }
 
 // sqlVerbs open a statement. A literal is SQL when one of these starts it or

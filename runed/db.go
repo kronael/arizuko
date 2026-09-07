@@ -4,33 +4,52 @@
 // token signer. runed mounts the ipc dir into each spawn and manages spawn/steer/kill.
 package runed
 
+// db.go is where runed picks its storage driver and makes sure the store can
+// answer. It is the composition root and the only file in the daemon that names
+// a driver: runed/runstore holds every read and write, so a second engine is a
+// second driver and one line here (spec 6/37 step 5).
+//
+// There is no migration set and no DDL. An entity is a name the driver resolves
+// however it must — a table on SQL, nothing at all on an engine with no schema —
+// so creating the storage is asking the driver for the entities runstore and
+// audit declare, and asking twice is a no-op.
+
 import (
 	"context"
 	"database/sql"
-	"embed"
-	"errors"
 	"fmt"
-	"time"
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/db_utils"
-	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/objstore/sqlstore"
+	"github.com/kronael/arizuko/runed/runstore"
 	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
 )
 
-//go:embed migrations/*.sql
-var migrationFS embed.FS
+// ErrNotFound signals an absent item to the HTTP layer (404). It is runstore's,
+// named here so a handler comparing against it needs no second import.
+var ErrNotFound = runstore.ErrNotFound
 
-const serviceName = "runed"
+// The shapes runed's handlers pass around are runstore's, so the daemon and its
+// storage layer name one type each rather than two that have to be copied
+// between.
+type (
+	// Spawn is one container spawn (the execution-session envelope).
+	Spawn = runstore.Spawn
+	// ActiveSpawn is a live spawn's identifying info for the steer path.
+	ActiveSpawn = runstore.ActiveSpawn
+	// Session is one session_log entry, as both the dashboard page and routd's
+	// federated read project it.
+	Session = runstore.Session
+)
 
-// ErrNotFound signals an absent row to the HTTP layer (404).
-var ErrNotFound = errors.New("not found")
-
-// DB owns runed.db: execution runtime state with no home in routd (spawns,
-// session_log). Times are RFC3339 TEXT.
+// DB owns runed.db: execution runtime state with no home in routd. Every read
+// and write is runstore's, embedded so a handler calls it directly and this file
+// holds no pass-through method to drift.
 type DB struct {
+	*runstore.Store
+
 	db *sql.DB
 
 	// release closes the pool and drops the database OpenMem reserved. A DB
@@ -38,8 +57,8 @@ type DB struct {
 	release func() error
 }
 
-// Open attaches to an EXISTING runed.db at dir/runed.db (WAL, FK on) and runs
-// migrations. It never creates the file — see Create.
+// Open attaches to an EXISTING runed.db at dir/runed.db. It never creates the
+// file — see Create.
 func Open(dir string) (*DB, error) {
 	path := store.OwnerDBPath(dir, store.OwnerRuned)
 	if err := db_utils.RequireDBFile(path); err != nil {
@@ -48,9 +67,9 @@ func Open(dir string) (*DB, error) {
 	return open(db_utils.FileDSN(path))
 }
 
-// Create seeds dir/runed.db when absent, then migrates it. `arizuko create` and
-// the split-cutover tool only — every other caller Opens, so a wrong path fails
-// loud instead of yielding a migrated DB with no spawn history.
+// Create seeds dir/runed.db when absent. `arizuko create` and the split-cutover
+// tool only — every other caller Opens, so a wrong path fails loud instead of
+// yielding a prepared DB with no spawn history.
 func Create(dir string) (*DB, error) {
 	path := store.OwnerDBPath(dir, store.OwnerRuned)
 	if err := db_utils.CreateDBFile(path); err != nil {
@@ -59,7 +78,7 @@ func Create(dir string) (*DB, error) {
 	return open(db_utils.FileDSN(path))
 }
 
-// OpenMem opens a fresh, private, empty runed.db for one test and migrates it.
+// OpenMem opens a fresh, private, empty runed.db for one test.
 // db_utils.NewTestDB owns the engine and the DSN, so ARIZUKO_TEST_PG_DSN moves
 // this and every other test database together (spec 6/37 step 6). Close releases
 // the database.
@@ -85,18 +104,33 @@ func open(dsn string) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := db_utils.Migrate(sqldb, migrationFS, "migrations", serviceName); err != nil {
-		sqldb.Close()
+	if err := ensureStorage(sqldb); err != nil {
+		sqldb.Close() //nolint:errcheck // the open already failed
 		return nil, err
 	}
-	// audit_log is an entity rather than a migration, so it is created by the
-	// driver here.
-	if err := audit.EnsureEntities(context.Background(), sqlstore.New(sqldb)); err != nil {
-		sqldb.Close()
-		return nil, err
-	}
-	return &DB{db: sqldb}, nil
+	return &DB{Store: runstore.New(newObjectStore(sqldb)), db: sqldb}, nil
 }
+
+// ensureStorage prepares db to serve runed: every entity runstore reads, and the
+// one audit records into.
+//
+// audit declares its entity beside the code that writes it and every owner
+// applies the same list, so a daemon with no migrations of its own still has
+// somewhere to record — without which every Emit would warn and drop the row
+// while the daemon reported healthy (BUGS F29 is what that costs).
+func ensureStorage(db *sql.DB) error {
+	ctx := context.Background()
+	s := newObjectStore(db)
+	if err := runstore.EnsureEntities(ctx, s); err != nil {
+		return err
+	}
+	return audit.EnsureEntities(ctx, s)
+}
+
+// newObjectStore is the driver choice, in one place. sqlstore serves both SQLite
+// and Postgres off the DSN db_utils.Open already read, so this line does not
+// change when the engine does.
+func newObjectStore(db *sql.DB) *sqlstore.Store { return sqlstore.New(db) }
 
 func (d *DB) Close() error {
 	if d.release != nil {
@@ -107,377 +141,14 @@ func (d *DB) Close() error {
 
 // Obj is this database through objstore's two primitives, which is how audit
 // reaches it.
-func (d *DB) Obj() *sqlstore.Store { return sqlstore.New(d.db) }
+func (d *DB) Obj() *sqlstore.Store { return newObjectStore(d.db) }
 
-// SQL returns the raw handle for callers that need it (tests).
+// SQL returns the raw pool. Its ONE production caller is audit_resource.go,
+// which needs a non-nil *store.Store because resreg reads a nil Store as a
+// FORWARDER and skips authorization entirely — the same marker authd's
+// auditStore passes for the same reason. Nothing here runs a statement on it.
+//
+// `arizuko migrate-split` and `arizuko migrate-runed` take it too: both are the
+// source half of a data move, and the source half is the only half that knows
+// the old schema.
 func (d *DB) SQL() *sql.DB { return d.db }
-
-func nowTS() string { return time.Now().UTC().Format(time.RFC3339) }
-
-// RecordSession opens a session_log row at spawn start, returning its id.
-func (d *DB) RecordSession(folder, sessionID string) (int64, error) {
-	res, err := d.db.Exec(`INSERT INTO session_log(group_folder, session_id, started_at)
-		VALUES(?,?,?)`, folder, sessionID, nowTS())
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
-}
-
-// EndSession closes a session_log row at exit. A non-empty newSessionID
-// (harness-emitted) overwrites the started session_id via COALESCE.
-func (d *DB) EndSession(id int64, newSessionID, result, errMsg string, msgs int) error {
-	_, err := d.db.Exec(`UPDATE session_log
-		SET ended_at=?, session_id=COALESCE(NULLIF(?,''), session_id),
-		    result=?, error=?, message_count=?
-		WHERE id=?`, nowTS(), newSessionID, result, errMsg, msgs, id)
-	return err
-}
-
-// SessionRow is one session_log entry (dashd run history).
-type SessionRow struct {
-	ID           int64
-	SessionID    string
-	StartedAt    string
-	EndedAt      string
-	Result       string
-	MessageCount int
-}
-
-// RecentSessions lists a folder's session_log rows, newest first.
-func (d *DB) RecentSessions(folder string, limit int) ([]SessionRow, error) {
-	if limit <= 0 {
-		limit = 20
-	}
-	rows, err := d.db.Query(`SELECT id, session_id, started_at,
-		COALESCE(ended_at,''), COALESCE(result,''), COALESCE(message_count,0)
-		FROM session_log WHERE group_folder=? ORDER BY id DESC LIMIT ?`, folder, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []SessionRow
-	for rows.Next() {
-		var r SessionRow
-		if err := rows.Scan(&r.ID, &r.SessionID, &r.StartedAt, &r.EndedAt, &r.Result, &r.MessageCount); err != nil {
-			return nil, err
-		}
-		out = append(out, r)
-	}
-	return out, rows.Err()
-}
-
-// SessionRecord is a full session_log row (group_folder + error included),
-// the shape routd federates over GET /v1/spawn_sessions/recent for its new_session
-// hint + inspect_session tool. The dashd-facing SessionRow drops both fields.
-type SessionRecord struct {
-	ID           int64
-	GroupFolder  string
-	SessionID    string
-	StartedAt    string
-	EndedAt      string
-	Result       string
-	Error        string
-	MessageCount int
-}
-
-// RecentSessionRecords lists a folder's full session_log rows, newest first.
-// Backs routd's federated read (spec 5/P) — split ownership means routd
-// never opens runed.db directly.
-func (d *DB) RecentSessionRecords(folder string, limit int) ([]SessionRecord, error) {
-	if limit <= 0 {
-		limit = 20
-	}
-	rows, err := d.db.Query(`SELECT id, group_folder, session_id, started_at,
-		COALESCE(ended_at,''), COALESCE(result,''), COALESCE(error,''), COALESCE(message_count,0)
-		FROM session_log WHERE group_folder=? ORDER BY id DESC LIMIT ?`, folder, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []SessionRecord
-	for rows.Next() {
-		var r SessionRecord
-		if err := rows.Scan(&r.ID, &r.GroupFolder, &r.SessionID, &r.StartedAt,
-			&r.EndedAt, &r.Result, &r.Error, &r.MessageCount); err != nil {
-			return nil, err
-		}
-		out = append(out, r)
-	}
-	return out, rows.Err()
-}
-
-// Spawn is one container spawn (the execution-session envelope). Kind
-// selects the Manager.Run post-claim executor ('agent' | 'backup' | ...,
-// spec 5/8 "Filesystem restore claims the folder's run slot"); it defaults
-// to 'agent' so every pre-existing caller is unaffected.
-type Spawn struct {
-	RunID         string
-	Folder        string
-	Topic         string
-	ContainerName string
-	SessionLogID  int64
-	SessionID     string
-	Kind          string
-	State         string
-	Outcome       string
-	ExitCode      int
-	Steered       bool
-	CreatedAt     string
-	StartedAt     string
-	EndedAt       string
-}
-
-// CreateSpawn inserts a spawns row in state=queued. An empty Kind stores as
-// 'agent' (the column default), so existing callers need no change.
-func (d *DB) CreateSpawn(s Spawn) error {
-	kind := s.Kind
-	if kind == "" {
-		kind = "agent"
-	}
-	_, err := d.db.Exec(`INSERT INTO spawns
-		(run_id, folder, topic, container_name, session_log_id,
-		 session_id, kind, state, created_at)
-		VALUES(?,?,?,?,?,?,?,?,?)`,
-		s.RunID, s.Folder, s.Topic, s.ContainerName, nz64(s.SessionLogID),
-		nullStr(s.SessionID), kind, s.State, nowTS())
-	return err
-}
-
-// StartSpawn flips a spawn to state=running with its resolved session_id and reports
-// whether the claim was still there to take. Guarded on state='queued': without it a
-// DELETE landing between CreateSpawn and here would be undone — a terminal row
-// resurrected and the folder held until RunTTL.
-//
-// started=false means that DELETE won and the caller MUST NOT launch. The guard alone
-// only made the ROW right — the folder then reads free while a launch nobody can see
-// proceeds, so a concurrent claim puts a second container on one folder's mount.
-func (d *DB) StartSpawn(runID, sessionID string) (started bool, err error) {
-	res, err := d.db.Exec(`UPDATE spawns SET state='running', session_id=?, started_at=?
-		WHERE run_id=? AND state='queued'`,
-		sessionID, nowTS(), runID)
-	if err != nil {
-		return false, err
-	}
-	n, err := res.RowsAffected()
-	return n > 0, err
-}
-
-// EndSpawn records the terminal state + outcome + exit code at teardown.
-// A 'killed' state is sticky: a later teardown UPDATE (the spawn goroutine
-// returning after a deliberate DELETE killed the container) won't clobber it
-// back to 'error' (spec 5/P § DELETE: don't set outcome=error for a kill).
-func (d *DB) EndSpawn(runID, state, outcome string, exitCode int) error {
-	_, err := d.db.Exec(`UPDATE spawns SET state=?, outcome=?, exit_code=?, ended_at=?
-		WHERE run_id=? AND state!='killed'`,
-		state, outcome, exitCode, nowTS(), runID)
-	return err
-}
-
-// KillSpawn records state='killed' ONLY for a still-active run — the TOCTOU
-// between Kill's GetSpawn and this write can let a run complete normally
-// (state='exited'/'error') in between; the WHERE clause guards that so a kill
-// never overwrites an already-terminal state (spec 5/P § DELETE).
-func (d *DB) KillSpawn(runID string) error {
-	_, err := d.db.Exec(`UPDATE spawns SET state='killed', outcome='', exit_code=-1, ended_at=?
-		WHERE run_id=? AND state IN ('queued','running')`,
-		nowTS(), runID)
-	return err
-}
-
-// MarkSteered records that a steer-into-running write happened on a spawn.
-func (d *DB) MarkSteered(runID string) error {
-	_, err := d.db.Exec("UPDATE spawns SET steered=1 WHERE run_id=?", runID)
-	return err
-}
-
-// GetSpawn returns a spawn by run_id; ErrNotFound when absent.
-func (d *DB) GetSpawn(runID string) (Spawn, error) {
-	s, err := scanSpawn(d.db.QueryRow(`SELECT `+spawnCols+` FROM spawns WHERE run_id=?`, runID))
-	if err == sql.ErrNoRows {
-		return Spawn{}, ErrNotFound
-	}
-	return s, err
-}
-
-// spawnCols is the column list GetSpawn and ListSpawns both scan. One list, so
-// a column added to one reader cannot go missing from the other.
-const spawnCols = `run_id, folder, topic, container_name, session_log_id,
-	session_id, kind, state, outcome, exit_code, steered, created_at, started_at, ended_at`
-
-// scanSpawn reads one row in spawnCols order.
-func scanSpawn(sc interface{ Scan(...any) error }) (Spawn, error) {
-	var s Spawn
-	var logID, exit sql.NullInt64
-	var sess, outcome, started, ended sql.NullString
-	var steered int
-	if err := sc.Scan(&s.RunID, &s.Folder, &s.Topic, &s.ContainerName, &logID,
-		&sess, &s.Kind, &s.State, &outcome, &exit, &steered,
-		&s.CreatedAt, &started, &ended); err != nil {
-		return Spawn{}, err
-	}
-	s.SessionLogID = logID.Int64
-	s.SessionID = sess.String
-	s.Outcome = outcome.String
-	s.ExitCode = int(exit.Int64)
-	s.Steered = steered == 1
-	s.StartedAt = started.String
-	s.EndedAt = ended.String
-	return s, nil
-}
-
-// ListSpawns returns spawns newest-first, optionally narrowed by state and
-// folder. Empty filters match everything; limit <= 0 means 50.
-//
-// This is the reader spec 6/30 names for runed's dashboard and its
-// GET /v1/runs face. Folder containment is exact-or-subtree through
-// groupfolder.SQLSubtree, never a LIKE (BUGS L122).
-func (d *DB) ListSpawns(state, folder string, limit int) ([]Spawn, error) {
-	if limit <= 0 || limit > 500 {
-		limit = 50
-	}
-	q := `SELECT ` + spawnCols + ` FROM spawns WHERE (? = '' OR state = ?)`
-	args := []any{state, state}
-	if folder != "" {
-		q += ` AND ` + groupfolder.SQLSubtree("folder", "/")
-		args = append(args, groupfolder.SubtreeArgs(folder, "/")...)
-	}
-	q += ` ORDER BY created_at DESC, rowid DESC LIMIT ?`
-	args = append(args, limit)
-
-	rows, err := d.db.Query(q, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []Spawn
-	for rows.Next() {
-		sp, err := scanSpawn(rows)
-		if err != nil {
-			return out, err
-		}
-		out = append(out, sp)
-	}
-	return out, rows.Err()
-}
-
-// ExpireOrphans marks any spawn left in running/queued state as exited.
-// Called once at startup: runed was killed while containers were live,
-// leaving rows that count toward ActiveCount and block the concurrency cap.
-func (d *DB) ExpireOrphans() (int64, error) {
-	res, err := d.db.Exec(`UPDATE spawns SET state='exited', outcome='error',
-		exit_code=-1, ended_at=? WHERE state IN ('running','queued')`, nowTS())
-	if err != nil {
-		return 0, err
-	}
-	return res.RowsAffected()
-}
-
-// SweepExpired drops spawns older than retention.
-func (d *DB) SweepExpired(retention time.Duration) error {
-	cutoff := time.Now().Add(-retention).UTC().Format(time.RFC3339)
-	_, err := d.db.Exec("DELETE FROM spawns WHERE created_at < ?", cutoff)
-	return err
-}
-
-// GetFailures returns the consecutive failure count for a folder (0 if absent).
-func (d *DB) GetFailures(folder string) (int, error) {
-	var n int
-	err := d.db.QueryRow("SELECT failures FROM circuit_breaker WHERE folder=?", folder).Scan(&n)
-	if err == sql.ErrNoRows {
-		return 0, nil
-	}
-	return n, err
-}
-
-// IncrFailures increments the failure count and returns the new value.
-func (d *DB) IncrFailures(folder string) (int, error) {
-	_, err := d.db.Exec(`INSERT INTO circuit_breaker(folder, failures, last_failure)
-		VALUES(?, 1, ?)
-		ON CONFLICT(folder) DO UPDATE SET failures=failures+1, last_failure=excluded.last_failure`,
-		folder, nowTS())
-	if err != nil {
-		return 0, err
-	}
-	return d.GetFailures(folder)
-}
-
-// ResetFailures sets the failure count to zero.
-func (d *DB) ResetFailures(folder string) error {
-	_, err := d.db.Exec("DELETE FROM circuit_breaker WHERE folder=?", folder)
-	return err
-}
-
-// ActiveSpawnForFolder returns the run_id of a folder's live spawn, or "" if
-// none. A "live" spawn is one in state queued or running. The Manager holds
-// no in-memory spawn state; it answers "is one live" by querying here.
-func (d *DB) ActiveSpawnForFolder(folder string) (string, error) {
-	var runID string
-	err := d.db.QueryRow(`SELECT run_id FROM spawns
-		WHERE folder=? AND state IN ('queued','running')
-		ORDER BY created_at DESC LIMIT 1`, folder).Scan(&runID)
-	if err == sql.ErrNoRows {
-		return "", nil
-	}
-	return runID, err
-}
-
-// ActiveCount returns the total number of live spawns (queued or running),
-// every kind included — the true in-flight count (shutdown logging, tests).
-func (d *DB) ActiveCount() (int, error) {
-	var n int
-	err := d.db.QueryRow("SELECT COUNT(*) FROM spawns WHERE state IN ('queued','running')").Scan(&n)
-	return n, err
-}
-
-// ActiveAgentCount returns the number of live kind='agent' spawns — the global
-// concurrency cap's actual budget (spec 5/8). A containerless kind consumes no docker
-// resource comparable to a container and must not compete with agent turns for the
-// cap, in either direction.
-func (d *DB) ActiveAgentCount() (int, error) {
-	var n int
-	err := d.db.QueryRow("SELECT COUNT(*) FROM spawns WHERE kind='agent' AND state IN ('queued','running')").Scan(&n)
-	return n, err
-}
-
-// ActiveSpawn is a live spawn's identifying info for the steer path.
-type ActiveSpawn struct {
-	RunID     string
-	SessionID string
-}
-
-// GetActiveSpawn returns identifying info for a live spawn, or nil if none.
-func (d *DB) GetActiveSpawn(folder string) (*ActiveSpawn, error) {
-	var a ActiveSpawn
-	err := d.db.QueryRow(`SELECT run_id, COALESCE(session_id,'') FROM spawns
-		WHERE folder=? AND state IN ('queued','running')
-		ORDER BY created_at DESC LIMIT 1`, folder).Scan(&a.RunID, &a.SessionID)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return &a, nil
-}
-
-// SetSpawnSessionLogID links a spawn to its session_log row (called after
-// RecordSession when the spawn row was created before the session row).
-func (d *DB) SetSpawnSessionLogID(runID string, logID int64) error {
-	_, err := d.db.Exec("UPDATE spawns SET session_log_id=? WHERE run_id=?", logID, runID)
-	return err
-}
-
-func nullStr(s string) any {
-	if s == "" {
-		return nil
-	}
-	return s
-}
-
-func nz64(n int64) any {
-	if n == 0 {
-		return nil
-	}
-	return n
-}

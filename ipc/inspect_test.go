@@ -32,7 +32,7 @@ func TestInspectToolsRegistered(t *testing.T) {
 			return []TaskRunLog{{ID: 1, TaskID: id, RunAt: now, Status: "ok"}}
 		},
 		RecentSessions: func(f string, n int) []core.SessionRecord {
-			return []core.SessionRecord{{ID: 1, Folder: f, SessionID: "s1", StartedAt: now}}
+			return []core.SessionRecord{{ID: "sess-1", Folder: f, SessionID: "s1", StartedAt: now}}
 		},
 		GetSession: func(f, topic string) (string, bool) { return "s1", true },
 		GetIdentityForSub: func(sub string) (Identity, []string, bool) {

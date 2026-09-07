@@ -225,8 +225,8 @@ func TestRunedHolder_EndToEnd(t *testing.T) {
 	if !out.Busy {
 		t.Errorf("agent turn during restore outcome=%+v want busy=true", out)
 	}
-	if n, cerr := db.ActiveCount(); cerr != nil || n != 1 {
-		t.Fatalf("ActiveCount=%d err=%v want 1 (the hold)", n, cerr)
+	if n, cerr := db.LiveSpawnCount(ctx); cerr != nil || n != 1 {
+		t.Fatalf("LiveSpawnCount=%d err=%v want 1 (the hold)", n, cerr)
 	}
 
 	// A second restore of the same folder cannot start.

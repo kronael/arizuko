@@ -155,7 +155,7 @@ type StopRunResponse struct {
 // SessionRow is one GET /v1/spawn_sessions entry (session_log, dashd run
 // history).
 type SessionRow struct {
-	ID           int64  `json:"id"`
+	ID           string `json:"id"`
 	SessionID    string `json:"session_id"`
 	StartedAt    string `json:"started_at"`
 	EndedAt      string `json:"ended_at"`
@@ -173,7 +173,7 @@ type SessionsResponse struct {
 // inspect_session tool. Carries group_folder + error (which the dashd-facing
 // SessionRow omits) so it round-trips a core.SessionRecord losslessly.
 type RecentSessionRecord struct {
-	ID           int64  `json:"id"`
+	ID           string `json:"id"`
 	GroupFolder  string `json:"group_folder"`
 	SessionID    string `json:"session_id"`
 	StartedAt    string `json:"started_at"`

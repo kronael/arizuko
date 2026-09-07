@@ -61,7 +61,7 @@ func dashPost(h http.Handler, path, form, groups string) *httptest.ResponseRecor
 // over from dashd along with the prefix (6/28, 6/30).
 func TestDashboardAndItsControlAreServedByRuned(t *testing.T) {
 	_, db, h := dashSrv(t)
-	_ = db.CreateSpawn(Spawn{RunID: "r1", Folder: "acme", ContainerName: "c1",
+	_ = db.CreateSpawn(t.Context(), Spawn{RunID: "r1", Folder: "acme", ContainerName: "c1",
 		State: "running", SessionID: "s"})
 
 	w := dashGet(h, "", `["**"]`)
@@ -84,13 +84,13 @@ func TestDashboardAndItsControlAreServedByRuned(t *testing.T) {
 // uses, not a second one.
 func TestDashKillStopsTheRun(t *testing.T) {
 	_, db, h := dashSrv(t)
-	_ = db.CreateSpawn(Spawn{RunID: "r1", Folder: "acme", ContainerName: "c1",
+	_ = db.CreateSpawn(t.Context(), Spawn{RunID: "r1", Folder: "acme", ContainerName: "c1",
 		State: "running", SessionID: "s"})
 
 	if w := dashPost(h, "/dash/runed/kill", "run_id=r1", `["**"]`); w.Code != http.StatusSeeOther {
 		t.Fatalf("kill = %d, want 303", w.Code)
 	}
-	sp, err := db.GetSpawn("r1")
+	sp, err := db.SpawnByRunID(t.Context(), "r1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,8 +123,8 @@ func TestOnlyLiveRunsOfferKill(t *testing.T) {
 // when an operator reaches for it.
 func TestStateFilterNarrowsAndStaysComplete(t *testing.T) {
 	_, db, h := dashSrv(t)
-	_ = db.CreateSpawn(Spawn{RunID: "live", Folder: "acme", ContainerName: "c1", State: "running"})
-	_ = db.CreateSpawn(Spawn{RunID: "done", Folder: "acme", ContainerName: "c2", State: "exited"})
+	_ = db.CreateSpawn(t.Context(), Spawn{RunID: "live", Folder: "acme", ContainerName: "c1", State: "running"})
+	_ = db.CreateSpawn(t.Context(), Spawn{RunID: "done", Folder: "acme", ContainerName: "c2", State: "exited"})
 
 	running := dashGet(h, "?state=running", `["**"]`).Body.String()
 	if !strings.Contains(running, "live") || strings.Contains(running, `<code>done</code>`) {

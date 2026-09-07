@@ -56,7 +56,7 @@ func TestSerializationNoConcurrentDoubleSpawn(t *testing.T) {
 	if peak != 1 {
 		t.Fatalf("peak concurrent containers for one folder=%d want 1 (folder-exclusivity)", peak)
 	}
-	if c := mgr.ActiveCount(); c != 0 {
+	if c := mgr.ActiveCount(t.Context()); c != 0 {
 		t.Fatalf("active count after drain=%d want 0", c)
 	}
 }
@@ -334,15 +334,15 @@ func TestBreakerResetsOnSilent(t *testing.T) {
 
 func TestKillDoesNotRelabelCompletedRun(t *testing.T) {
 	db, mgr := newMgr(t, FakeRuntime{}, 5)
-	_ = db.CreateSpawn(Spawn{RunID: "r", Folder: "demo", ContainerName: "c", State: "queued"})
-	_, _ = db.StartSpawn("r", "s")
-	if err := db.EndSpawn("r", "exited", "ok", 0); err != nil {
+	_ = db.CreateSpawn(t.Context(), Spawn{RunID: "r", Folder: "demo", ContainerName: "c", State: "queued"})
+	_, _ = db.StartSpawn(t.Context(), "r", "s")
+	if err := db.EndSpawn(t.Context(), "r", "exited", "ok", 0); err != nil {
 		t.Fatalf("end spawn: %v", err)
 	}
-	if err := mgr.Kill("r"); err != nil {
+	if err := mgr.Kill(t.Context(), "r"); err != nil {
 		t.Fatalf("kill: %v", err)
 	}
-	if sp, _ := db.GetSpawn("r"); sp.State != "exited" || sp.Outcome != "ok" {
+	if sp, _ := db.SpawnByRunID(t.Context(), "r"); sp.State != "exited" || sp.Outcome != "ok" {
 		t.Fatalf("Kill relabeled a completed run: state=%q outcome=%q want exited/ok", sp.State, sp.Outcome)
 	}
 }
@@ -363,21 +363,21 @@ func TestIsolatedRunNoSessionLineage(t *testing.T) {
 	if out.Outcome != runedv1.OutcomeOK {
 		t.Fatalf("isolated run outcome=%q want ok", out.Outcome)
 	}
-	if rows, _ := db.RecentSessions("demo", 10); len(rows) != 0 {
+	if rows, _ := db.RecentSessions(t.Context(), "demo", 10); len(rows) != 0 {
 		t.Fatalf("isolated run wrote %d session_log rows, want 0 (no lineage)", len(rows))
 	}
 	// the spawns row still exists for GET/DELETE, with no session_log link.
-	sp, err := db.GetSpawn(out.RunID)
+	sp, err := db.SpawnByRunID(t.Context(), out.RunID)
 	if err != nil {
 		t.Fatalf("GET isolated run: %v", err)
 	}
-	if sp.SessionLogID != 0 {
-		t.Fatalf("isolated spawn session_log_id=%d want 0", sp.SessionLogID)
+	if sp.SessionLogID != "" {
+		t.Fatalf("isolated spawn session_log_id=%q want empty", sp.SessionLogID)
 	}
 
 	// a NON-isolated run does record a session_log row.
 	mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
-	if rows, _ := db.RecentSessions("demo", 10); len(rows) != 1 {
+	if rows, _ := db.RecentSessions(t.Context(), "demo", 10); len(rows) != 1 {
 		t.Fatalf("non-isolated run wrote %d session_log rows, want 1", len(rows))
 	}
 }

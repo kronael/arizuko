@@ -34,7 +34,7 @@ func waitSpawnState(t *testing.T, db *DB, runID string, want ...string) Spawn {
 	var sp Spawn
 	for time.Now().Before(deadline) {
 		var err error
-		sp, err = db.GetSpawn(runID)
+		sp, err = db.SpawnByRunID(t.Context(), runID)
 		if err != nil {
 			t.Fatalf("get spawn %s: %v", runID, err)
 		}
@@ -100,7 +100,7 @@ func TestHoldReleaseUnblocks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("hold: %v", err)
 	}
-	if err := mgr.Kill(held.RunID); err != nil {
+	if err := mgr.Kill(t.Context(), held.RunID); err != nil {
 		t.Fatalf("release: %v", err)
 	}
 	waitSpawnState(t, db, held.RunID, "killed", "exited")
@@ -194,7 +194,7 @@ func TestHoldDoesNotTripBreaker(t *testing.T) {
 		waitSpawnState(t, db, held.RunID, "error", "exited")
 	}
 
-	if failures, err := db.GetFailures("demo"); err != nil || failures != 0 {
+	if failures, err := db.FailureStreak(t.Context(), "demo"); err != nil || failures != 0 {
 		t.Fatalf("failures=%d err=%v after %d expired holds; want 0 (breaker is agent-only)",
 			failures, err, circuitBreakerThreshold)
 	}
@@ -228,10 +228,10 @@ func TestHoldDoesNotConsumeContainerCap(t *testing.T) {
 	}
 
 	// Three live spawns, but zero live AGENT spawns: the cap's budget is free.
-	if n, err := db.ActiveCount(); err != nil || n != 3 {
+	if n, err := db.LiveSpawnCount(t.Context()); err != nil || n != 3 {
 		t.Fatalf("ActiveCount=%d err=%v want 3 (every kind counts here)", n, err)
 	}
-	if n, err := db.ActiveAgentCount(); err != nil || n != 0 {
+	if n, err := db.LiveAgentSpawnCount(t.Context()); err != nil || n != 0 {
 		t.Fatalf("ActiveAgentCount=%d err=%v want 0 (a hold spawns no container)", n, err)
 	}
 
@@ -253,7 +253,7 @@ func TestHoldUnknownKindFailsLoud(t *testing.T) {
 	if _, err := mgr.Hold(context.Background(), types.Folder("demo"), "restore"); err == nil {
 		t.Fatal("Hold with no KindHold executor returned nil error")
 	}
-	if n, err := db.ActiveCount(); err != nil || n != 0 {
+	if n, err := db.LiveSpawnCount(t.Context()); err != nil || n != 0 {
 		t.Fatalf("ActiveCount=%d err=%v want 0 — a failed Hold must claim nothing", n, err)
 	}
 }
@@ -290,11 +290,11 @@ func TestHoldReleaseIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("hold: %v", err)
 	}
-	if err := mgr.Kill(held.RunID); err != nil {
+	if err := mgr.Kill(t.Context(), held.RunID); err != nil {
 		t.Fatalf("first release: %v", err)
 	}
 	waitSpawnState(t, db, held.RunID, "killed", "exited")
-	if err := mgr.Kill(held.RunID); err != nil {
+	if err := mgr.Kill(t.Context(), held.RunID); err != nil {
 		t.Fatalf("second release: %v", err)
 	}
 }
@@ -324,7 +324,7 @@ func TestHoldEndpointRequiresScope(t *testing.T) {
 	if got.Code != 403 {
 		t.Fatalf("hold without runs:run = %d want 403", got.Code)
 	}
-	if n, err := db.ActiveCount(); err != nil || n != 0 {
+	if n, err := db.LiveSpawnCount(t.Context()); err != nil || n != 0 {
 		t.Fatalf("ActiveCount=%d err=%v — a rejected hold must claim nothing", n, err)
 	}
 }
@@ -338,7 +338,7 @@ func TestHoldEndpointFolderBound(t *testing.T) {
 	if got.Code != 403 {
 		t.Fatalf("cross-folder hold = %d want 403", got.Code)
 	}
-	if n, err := db.ActiveCount(); err != nil || n != 0 {
+	if n, err := db.LiveSpawnCount(t.Context()); err != nil || n != 0 {
 		t.Fatalf("ActiveCount=%d err=%v — the 403 must fire before the claim", n, err)
 	}
 
