@@ -526,6 +526,12 @@ func applyEntities(ctx context.Context, be Backend, subsystem, wantChecksum stri
 // decided by where the batch boundary falls, so objstore.Replacer refuses the
 // pair outright rather than answering differently depending on the row count.
 // That is the same order the column path runs, DeleteAll then InsertAll.
+//
+// There is no scoped branch and no ApplyOpts.PruneScopes here, and neither is
+// silently dropped: an entity-backed resource cannot declare a ScopeSpec
+// (initEntity), so HasScope is false for every one of them, ManifestScopes
+// answers nothing for such a subsystem, and the rollback that fills PruneScopes
+// has nothing to put in it. The wipe is already total.
 func replaceRows(ctx context.Context, rp *objstore.Replacer, rd reader, subsystem string,
 	manifestRows map[string]any) error {
 	for _, r := range BySubsystem(subsystem) {
