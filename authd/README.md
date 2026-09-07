@@ -119,7 +119,7 @@ one way, with the daemon stopped. It sets the old tables aside as
 ## Observability
 
 slog → journald (always on). OTLP export when `OTEL_EXPORTER_OTLP_ENDPOINT` set
-(spec `specs/5/O-observability.md`). Audit events written to `auth.db` audit_log (`daemon.start`, `login`, and
+(spec `specs/5/O-observability.md`). Audit events recorded in `auth.db`'s audit_log entity (`daemon.start`, `login`, and
 `sessions:delete` for an operator revoke) and served read-only at
 `GET /v1/audit`, which `/dash/audit/` federates. `params_summary` has exactly one writer,
 `daemon.start`; its DSN field is redacted at the writer (`audit.redactRE`) and

@@ -24,7 +24,8 @@ Standard OTel SDK vars are honoured when endpoints are set:
 `service.instance.id=<instance>`.
 
 Export is best-effort: batch processors drop on overflow and swallow errors.
-`audit_log` stays SQLite-canonical; OTLP is observability only.
+`audit_log` stays the canonical record in the owner databases; OTLP is
+observability only.
 
 ## Usage (developer)
 
