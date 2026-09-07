@@ -1,18 +1,6 @@
--- specs/6/D: Slack agent pane (assistant.threads.*) sessions.
--- One row per (team_id, user_id, thread_ts) — Slack's pane identity.
--- channel_id is the DM channel where the pane lives (lookups by it
--- map outbound back to a pane). context_jid is the workspace channel
--- the user is viewing while pane is open (assistant_thread_context_changed).
--- Timestamps are RFC3339Nano UTC computed by Go; no strftime.
-
-CREATE TABLE pane_sessions (
-  team_id        TEXT NOT NULL,
-  user_id        TEXT NOT NULL,
-  thread_ts      TEXT NOT NULL,
-  channel_id     TEXT NOT NULL,
-  context_jid    TEXT,
-  opened_at      TEXT NOT NULL,
-  last_status_at TEXT,
-  PRIMARY KEY (team_id, user_id, thread_ts)
-);
-CREATE INDEX idx_pane_sessions_channel ON pane_sessions(channel_id);
+-- pane_sessions is an objstore entity, not a table this chain creates: the
+-- driver makes it, from the one declaration that sits beside the code writing
+-- it (store.EnsureEntities, spec 6/37 step 7). An entity keeps the name of the
+-- table it replaces, so a database carrying rows here is moved by
+-- `arizuko migrate-store` and refuses to open until it has been.
+SELECT 1;

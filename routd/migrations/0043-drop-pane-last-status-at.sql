@@ -1,8 +1,5 @@
--- Drop pane_sessions.last_status_at — a column with no writer and no reader.
---
--- It was declared for a setStatus debounce whose Go side is deleted; the
--- column stayed, so the schema and the two schema pages described a debounce
--- the code does not perform.
---
--- No data loss: every live instance holds only NULLs in it.
-ALTER TABLE pane_sessions DROP COLUMN last_status_at;
+-- pane_sessions is an objstore entity and carries no last_status_at attribute,
+-- so there is no column left to drop. The attribute had no writer and no reader
+-- and every live instance held only NULLs in it, which is why nothing carries
+-- it forward: `arizuko migrate-store` reads the six fields the entity keeps.
+SELECT 1;

@@ -29,7 +29,7 @@ func (d *DB) CountActiveTasks() int {
 // PaneContextJID returns (contextJID, true) when a Slack assistant pane exists
 // for the DM channelID. No row → ("", false).
 func (d *DB) PaneContextJID(channelID string) (string, bool) {
-	p, ok := d.paneStore().GetPaneByChannel(channelID)
+	p, ok := d.paneStore().PaneInChannel(channelID)
 	if !ok {
 		return "", false
 	}
@@ -45,7 +45,7 @@ func (d *DB) SetPaneContext(channelID, contextJID string) error {
 // UpsertPane creates/refreshes the pane row keyed by (team, user, thread) (behind
 // POST /v1/pane upsert=open). slakd calls this over HTTP.
 func (d *DB) UpsertPane(teamID, userID, threadTS, channelID string) error {
-	return d.paneStore().UpsertPane(teamID, userID, threadTS, channelID)
+	return d.paneStore().OpenPane(teamID, userID, threadTS, channelID)
 }
 
 // SetPaneContextByTriple updates the pane's workspace-channel context keyed by

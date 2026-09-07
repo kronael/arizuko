@@ -1,9 +1,28 @@
 package store
 
 import (
+	"context"
 	"testing"
 	"time"
+
+	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 )
+
+// secretUses reads the whole entity back. There is no production reader (the
+// file header says so), so the test names the read it makes rather than
+// inventing a method nothing else would call.
+func secretUses(t *testing.T, s *Store) []objstore.Item {
+	t.Helper()
+	items, err := s.Obj().Query(context.Background(), objstore.Query{
+		Entity: SecretUseLog, Partition: secretUsePartition,
+	})
+	if err != nil {
+		t.Fatalf("read the secret uses: %v", err)
+	}
+	return items
+}
 
 func TestLogSecretUse_RoundTrip(t *testing.T) {
 	s := openMemSealed(t)
@@ -24,27 +43,51 @@ func TestLogSecretUse_RoundTrip(t *testing.T) {
 		t.Fatalf("LogSecretUse: %v", err)
 	}
 
-	var (
-		spawn, sub, folder, tool, key, scope, status string
-		latency                                      int64
-	)
-	if err := s.db.QueryRow(
-		`SELECT spawn_id, caller_sub, folder, tool, key, scope, status, latency_ms
-		 FROM secret_use_log`,
-	).Scan(&spawn, &sub, &folder, &tool, &key, &scope, &status, &latency); err != nil {
-		t.Fatalf("scan: %v", err)
+	items := secretUses(t, s)
+	if len(items) != 1 {
+		t.Fatalf("recorded %d uses, want 1", len(items))
 	}
-	if spawn != "spawn-1" || sub != "github:alice" || folder != "atlas/eng" ||
-		tool != "github_pr" || key != "GITHUB_TOKEN" || scope != "user" ||
-		status != "ok" || latency != 42 {
-		t.Errorf("row mismatch: spawn=%q sub=%q folder=%q tool=%q key=%q scope=%q status=%q latency=%d",
-			spawn, sub, folder, tool, key, scope, status, latency)
+	a := items[0].Attrs
+	if a[attrUseSpawnID] != "spawn-1" || a[attrUseCallerSub] != "github:alice" ||
+		a[attrUseFolder] != "atlas/eng" || a[attrUseTool] != "github_pr" ||
+		a[attrUseKey] != "GITHUB_TOKEN" || a[attrUseScope] != "user" ||
+		a[attrUseStatus] != "ok" || a[attrUseLatency] != "42" {
+		t.Errorf("item mismatch: %v", a)
 	}
 }
 
-// One LogSecretUse call must produce BOTH the secret_use_log row and its
-// audit_log row in one transaction — the "every event has an audit row"
-// invariant. They commit together or not at all.
+// TestLogSecretUse_TheIDCarriesTheInstant pins that the time is the sort key and
+// is not stored beside it. Two declarations of one fact are two things that can
+// disagree, and the ordering guarantee rests on the key.
+func TestLogSecretUse_TheIDCarriesTheInstant(t *testing.T) {
+	s := openMemSealed(t)
+
+	ts := time.Date(2026, 5, 13, 12, 0, 0, 0, time.UTC)
+	if err := s.LogSecretUse(SecretUseRow{
+		TS: ts, Tool: "t", Key: "K", Scope: "missing", Status: "ok",
+	}); err != nil {
+		t.Fatalf("LogSecretUse: %v", err)
+	}
+	items := secretUses(t, s)
+	if len(items) != 1 {
+		t.Fatalf("recorded %d uses, want 1", len(items))
+	}
+	id := items[0].Key.Sort
+	if len(id) != SecretUseIDWidth {
+		t.Fatalf("id %q is %d bytes, want %d", id, len(id), SecretUseIDWidth)
+	}
+	if got := id[:tsWidth]; got != core.TS(ts) {
+		t.Errorf("id carries the instant %q, want %q", got, core.TS(ts))
+	}
+	if _, stored := items[0].Attrs["ts"]; stored {
+		t.Errorf("the item stores the time a second time, beside the key that already is it")
+	}
+}
+
+// TestLogSecretUse_AuditPairAtomic: one call must produce BOTH the use and its
+// audit_log row — the "every event has an audit row" invariant. They are now one
+// GuardedBatch rather than one transaction, so they commit together or not at
+// all on every engine (spec 6/40).
 func TestLogSecretUse_AuditPairAtomic(t *testing.T) {
 	s := openMemSealed(t)
 
@@ -56,12 +99,8 @@ func TestLogSecretUse_AuditPairAtomic(t *testing.T) {
 		t.Fatalf("LogSecretUse: %v", err)
 	}
 
-	var nUse int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM secret_use_log`).Scan(&nUse); err != nil {
-		t.Fatal(err)
-	}
-	if nUse != 1 {
-		t.Errorf("secret_use_log rows: want 1, got %d", nUse)
+	if n := len(secretUses(t, s)); n != 1 {
+		t.Errorf("recorded uses: want 1, got %d", n)
 	}
 
 	nAudit := 0
@@ -75,17 +114,65 @@ func TestLogSecretUse_AuditPairAtomic(t *testing.T) {
 	}
 }
 
+// TestLogSecretUse_ARefusedPairRecordsNeither is the other half of the same
+// invariant, and the one a batch makes checkable: a use whose id is already
+// taken must not leave an audit row behind claiming a read that recorded
+// nothing.
+func TestLogSecretUse_ARefusedPairRecordsNeither(t *testing.T) {
+	s := openMemSealed(t)
+
+	// Claim an id, then make the live write reach for the same one.
+	ts := time.Date(2026, 5, 13, 12, 0, 0, 0, time.UTC)
+	id := core.TS(ts) + "-00000001"
+	if _, err := s.Obj().GuardedBatch(context.Background(), nil, []objstore.Write{
+		secretUseWrite(id, SecretUseRow{Tool: "t", Key: "K", Scope: "missing", Status: "ok"}),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	before := len(auditRowsFor(t, s, "secret.read"))
+	_, again := s.Obj().GuardedBatch(context.Background(), nil, []objstore.Write{
+		secretUseWrite(id, SecretUseRow{Tool: "t", Key: "K", Scope: "missing", Status: "ok"}),
+		mustAuditWrite(t),
+	})
+	if again != nil {
+		t.Fatalf("batch: %v", again)
+	}
+	if got := len(auditRowsFor(t, s, "secret.read")); got != before {
+		t.Fatalf("the refused batch left %d audit rows behind, want %d", got, before)
+	}
+	if n := len(secretUses(t, s)); n != 1 {
+		t.Fatalf("recorded %d uses, want the 1 that committed", n)
+	}
+}
+
 func TestLogSecretUse_AutoTimestamp(t *testing.T) {
 	s := openMemSealed(t)
 
 	if err := s.LogSecretUse(SecretUseRow{Tool: "t", Key: "K", Scope: "missing", Status: "ok"}); err != nil {
 		t.Fatalf("LogSecretUse: %v", err)
 	}
-	var ts string
-	if err := s.db.QueryRow(`SELECT ts FROM secret_use_log`).Scan(&ts); err != nil {
-		t.Fatalf("scan: %v", err)
+	items := secretUses(t, s)
+	if len(items) != 1 {
+		t.Fatalf("recorded %d uses, want 1", len(items))
 	}
-	if _, err := time.Parse(time.RFC3339Nano, ts); err != nil {
-		t.Errorf("ts not RFC3339Nano: %q (%v)", ts, err)
+	if _, err := time.Parse(time.RFC3339Nano, items[0].Key.Sort[:tsWidth]); err != nil {
+		t.Errorf("the id's instant is not a time: %q (%v)", items[0].Key.Sort, err)
 	}
+}
+
+// mustAuditWrite renders the audit row LogSecretUse would put in the same
+// batch, through the same renderer, so the refusal test exercises the real pair
+// rather than a pair assembled for it.
+func mustAuditWrite(t *testing.T) objstore.Write {
+	t.Helper()
+	_, w := audit.WriteFor(audit.Event{
+		Category: audit.CategorySecret,
+		Action:   "secret.read",
+		Actor:    "github:bob",
+		ActorSub: "github:bob",
+		Surface:  audit.SurfaceCrackbox,
+		Resource: "secrets/missing//K",
+		Outcome:  audit.OutcomeOK,
+	})
+	return w
 }

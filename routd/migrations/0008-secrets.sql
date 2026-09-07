@@ -4,7 +4,7 @@
 -- gated's messages.db. Schema mirrors the FINAL messages.db shape (store 0034
 -- created `secrets` with enc_value; 0047 renamed enc_value→value; 0048 added
 -- secret_use_log) so store.FolderSecretsResolved + the audit-free writers read
--- it verbatim.
+-- it verbatim. secret_use_log has since become an objstore entity; see below.
 CREATE TABLE secrets (
   scope_kind  TEXT NOT NULL,
   scope_id    TEXT NOT NULL,
@@ -16,15 +16,8 @@ CREATE TABLE secrets (
 CREATE INDEX idx_secrets_folder ON secrets(scope_id) WHERE scope_kind = 'folder';
 CREATE INDEX idx_secrets_user   ON secrets(scope_id) WHERE scope_kind = 'user';
 
-CREATE TABLE secret_use_log (
-  ts          TEXT NOT NULL,
-  spawn_id    TEXT NOT NULL DEFAULT '',
-  caller_sub  TEXT NOT NULL DEFAULT '',
-  folder      TEXT NOT NULL DEFAULT '',
-  tool        TEXT NOT NULL,
-  key         TEXT NOT NULL,
-  scope       TEXT NOT NULL,
-  status      TEXT NOT NULL,
-  latency_ms  INTEGER NOT NULL DEFAULT 0
-);
-CREATE INDEX idx_secret_use_log_ts ON secret_use_log(ts);
+-- secret_use_log is an objstore entity rather than a table this chain creates:
+-- the driver makes it, from the one declaration that sits beside the code
+-- writing it (store.EnsureEntities, spec 6/37 step 7). An entity keeps the name
+-- of the table it replaces, so a routd.db carrying rows here is moved by
+-- `arizuko migrate-store` and refuses to open until it has been.

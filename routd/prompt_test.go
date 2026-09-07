@@ -39,10 +39,9 @@ func TestBuildAgentPrompt_PaneHints(t *testing.T) {
 		t.Errorf("non-pane jid emitted pane surface; prompt:\n%s", got)
 	}
 
-	// Pane row without context → surface only. Seed into routd's OWN routd.db.
-	if _, err := db.SQL().Exec(
-		`INSERT INTO pane_sessions(team_id,user_id,thread_ts,channel_id,opened_at)
-		 VALUES('T1','U99','1700.1','D0XY','2026-01-01T00:00:00Z')`); err != nil {
+	// A pane without a context → surface only. It is opened through the writer:
+	// pane_sessions is an objstore entity in routd's OWN routd.db.
+	if err := db.UpsertPane("T1", "U99", "1700.1", "D0XY"); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := loop.buildAgentPrompt("main", "", trigger)

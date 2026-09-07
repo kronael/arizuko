@@ -208,10 +208,10 @@ func migrate(db *sql.DB) error {
 	if err := db_utils.Migrate(db, migrationFS, "migrations", serviceName); err != nil {
 		return err
 	}
-	// audit_log is an entity rather than a migration, so it is created by the
-	// driver here — the audited writers in this package record into whichever
-	// database they were opened over.
-	if err := audit.EnsureEntities(context.Background(), sqlstore.New(db)); err != nil {
+	// The moved tables are entities rather than migrations, so they are created
+	// by the driver here — the audited writers in this package record into
+	// whichever database they were opened over (entities.go).
+	if err := EnsureEntities(context.Background(), sqlstore.New(db)); err != nil {
 		return err
 	}
 	if err := BackfillInviteRefs(db); err != nil {

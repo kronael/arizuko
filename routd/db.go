@@ -134,10 +134,12 @@ func open(dsn string) (*DB, error) {
 		sqldb.Close()
 		return nil, err
 	}
-	// audit_log is an entity rather than a migration, so it is created by the
-	// driver here — routd owns this file, and dashd, webd and proxyd all record
-	// into it without opening it themselves.
-	if err := audit.EnsureEntities(context.Background(), sqlstore.New(sqldb)); err != nil {
+	// audit_log, pane_sessions and secret_use_log are entities rather than
+	// migrations, so they are created by the driver here — routd owns this file,
+	// and dashd, webd and proxyd all record into it without opening it
+	// themselves. store owns the declaration of the three (store/entities.go),
+	// because store is what reads and writes them.
+	if err := store.EnsureEntities(context.Background(), sqlstore.New(sqldb)); err != nil {
 		sqldb.Close()
 		return nil, err
 	}

@@ -41,7 +41,7 @@ const (
 // stay local against routd.db (slakd opens routd.db, which OWNS pane_sessions).
 // Kept narrow so tests can stub it without dragging the DB in.
 type paneStore interface {
-	GetPaneByChannel(channelID string) (store.PaneSession, bool)
+	PaneInChannel(channelID string) (store.PaneSession, bool)
 }
 
 type bot struct {
@@ -1278,7 +1278,7 @@ func (b *bot) applyPanePending(channelID string) {
 	if b.store == nil {
 		return
 	}
-	pane, ok := b.store.GetPaneByChannel(channelID)
+	pane, ok := b.store.PaneInChannel(channelID)
 	if !ok {
 		return
 	}
@@ -1338,7 +1338,7 @@ func (b *bot) paneByJID(jid string) (store.PaneSession, bool, error) {
 	if err != nil {
 		return store.PaneSession{}, false, err
 	}
-	p, ok := b.store.GetPaneByChannel(parts.ID)
+	p, ok := b.store.PaneInChannel(parts.ID)
 	return p, ok, nil
 }
 

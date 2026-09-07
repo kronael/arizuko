@@ -1,14 +1,6 @@
--- Spec 9/11 broker audit table. One row per (tool call × resolved key).
--- No secret values; only key, scope, status, latency.
-CREATE TABLE IF NOT EXISTS secret_use_log (
-  ts          TEXT NOT NULL,
-  spawn_id    TEXT NOT NULL DEFAULT '',
-  caller_sub  TEXT NOT NULL DEFAULT '',
-  folder      TEXT NOT NULL DEFAULT '',
-  tool        TEXT NOT NULL,
-  key         TEXT NOT NULL,
-  scope       TEXT NOT NULL,
-  status      TEXT NOT NULL,
-  latency_ms  INTEGER NOT NULL DEFAULT 0
-);
-CREATE INDEX IF NOT EXISTS idx_secret_use_log_ts ON secret_use_log(ts);
+-- secret_use_log is an objstore entity, not a table this chain creates: the
+-- driver makes it, from the one declaration that sits beside the code writing
+-- it (store.EnsureEntities, spec 6/37 step 7). An entity keeps the name of the
+-- table it replaces, so a database carrying rows here is moved by
+-- `arizuko migrate-store` and refuses to open until it has been.
+SELECT 1;

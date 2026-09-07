@@ -287,7 +287,7 @@ func newRouterMock(t *testing.T, st *store.Store) *routerMock {
 	r.Mux.HandleFunc("POST /v1/channels/register", func(w http.ResponseWriter, _ *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"ok": true, "token": "tok"})
 	})
-	// Mirrors routd's POST /v1/pane: op=open → UpsertPane, op=context →
+	// Mirrors routd's POST /v1/pane: op=open → OpenPane, op=context →
 	// SetPaneContext (by triple). Persists into the shared store.
 	r.Mux.HandleFunc("POST /v1/pane", func(w http.ResponseWriter, req *http.Request) {
 		var b struct {
@@ -306,7 +306,7 @@ func newRouterMock(t *testing.T, st *store.Store) *routerMock {
 		var err error
 		switch b.Op {
 		case "open":
-			err = r.st.UpsertPane(b.TeamID, b.UserID, b.ThreadTS, b.Channel)
+			err = r.st.OpenPane(b.TeamID, b.UserID, b.ThreadTS, b.Channel)
 		case "context":
 			err = r.st.SetPaneContext(b.TeamID, b.UserID, b.ThreadTS, b.JID)
 		}
@@ -1129,7 +1129,7 @@ func TestAssistantThreadStarted(t *testing.T) {
 	}
 
 	// Pane row persisted with context_jid.
-	p, ok := b.store.GetPaneByChannel("D0XY")
+	p, ok := b.store.PaneInChannel("D0XY")
 	if !ok {
 		t.Fatal("pane row missing after started")
 	}
@@ -1145,7 +1145,7 @@ func TestAssistantThreadContextChanged(t *testing.T) {
 	b, rm := setupBot(t, mock)
 
 	// Seed a pane row directly in the shared store (pane writes go via HTTP).
-	if err := rm.st.UpsertPane("T012", "U99", "1700.001", "D0XY"); err != nil {
+	if err := rm.st.OpenPane("T012", "U99", "1700.001", "D0XY"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1164,7 +1164,7 @@ func TestAssistantThreadContextChanged(t *testing.T) {
 	}`)
 	b.handleEvent(body, httptest.NewRecorder())
 
-	p, _ := b.store.GetPaneByChannel("D0XY")
+	p, _ := b.store.PaneInChannel("D0XY")
 	if p.ContextJID != "slack:T012/channel/Cnew" {
 		t.Errorf("context_jid = %q", p.ContextJID)
 	}
@@ -1218,7 +1218,7 @@ func TestSend_PaneStagedPromptsFire(t *testing.T) {
 	b, rm := setupBot(t, mock)
 
 	// Seed pane row + stage prompts.
-	if err := rm.st.UpsertPane("T012", "U99", "1700.001", "D0XY"); err != nil {
+	if err := rm.st.OpenPane("T012", "U99", "1700.001", "D0XY"); err != nil {
 		t.Fatal(err)
 	}
 	b.setPanePending("T012", "U99", "1700.001",

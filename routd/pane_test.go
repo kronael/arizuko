@@ -11,11 +11,10 @@ import (
 func TestPaneSetEndpoint(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "service:slakd", scope: []string{"messages:write"}})
 
-	// slakd opens the pane first (its own UpsertPane path) — seed the row so the
-	// channel-keyed context write has a target.
-	if _, err := db.SQL().Exec(
-		`INSERT INTO pane_sessions(team_id,user_id,thread_ts,channel_id,opened_at)
-		 VALUES('T1','U99','1700.1','D0XY','2026-01-01T00:00:00Z')`); err != nil {
+	// slakd opens the pane first (its own UpsertPane path) — open it here so the
+	// channel-keyed context write has a target. pane_sessions is an objstore
+	// entity, so the seed goes through the writer rather than a statement.
+	if err := db.UpsertPane("T1", "U99", "1700.1", "D0XY"); err != nil {
 		t.Fatalf("seed pane: %v", err)
 	}
 

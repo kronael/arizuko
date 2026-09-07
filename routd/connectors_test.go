@@ -17,6 +17,8 @@ import (
 
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/ipc"
+	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -433,23 +435,24 @@ func TestSecretUseLogRecordsScopeAndTool(t *testing.T) {
 		t.Fatalf("MINE = %q, want the user row to shadow the folder default", got["MINE"])
 	}
 
-	rows, err := db.SQL().Query(`SELECT key, scope, tool, caller_sub, spawn_id FROM secret_use_log ORDER BY key`)
+	// secret_use_log is an objstore entity (store/secret_use_log.go), so the
+	// items are read through the driver and the attribute names are the stored
+	// contract this test is about.
+	items, err := sqlstore.New(db.SQL()).Query(t.Context(), objstore.Query{
+		Entity: "secret_use_log", Partition: "secret_use",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
 	type row struct{ scope, tool, caller, spawn string }
 	seen := map[string]row{}
-	for rows.Next() {
-		var k string
-		var r row
-		if err := rows.Scan(&k, &r.scope, &r.tool, &r.caller, &r.spawn); err != nil {
-			t.Fatal(err)
+	for _, it := range items {
+		seen[it.Attrs["key"]] = row{
+			scope:  it.Attrs["scope"],
+			tool:   it.Attrs["tool"],
+			caller: it.Attrs["caller_sub"],
+			spawn:  it.Attrs["spawn_id"],
 		}
-		seen[k] = r
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatal(err)
 	}
 	if len(seen) != 3 {
 		t.Fatalf("secret_use_log rows = %d (%v), want one per required key", len(seen), seen)
