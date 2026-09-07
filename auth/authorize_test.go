@@ -44,7 +44,7 @@ func addRowFull(t *testing.T, s *store.Store, r core.ACLRow) {
 func TestAuthorize_EmptyDenies(t *testing.T) {
 	s := openMem(t)
 	if auth.Authorize(s, auth.Caller{Principal: "p"}, "interact", "f", nil) {
-		t.Fatal("empty acl should deny")
+		t.Fatal("a principal with no row of its own must be denied, seeded roles or not")
 	}
 }
 
