@@ -46,8 +46,8 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
-	if err := migrate(db); err != nil {
-		slog.Error("migrate", "err", err)
+	if err := ensureStorage(db); err != nil {
+		slog.Error("prepare storage", "err", err)
 		os.Exit(1)
 	}
 
@@ -133,9 +133,8 @@ func main() {
 // resolveDSN picks authd's SQLite path. An explicit DATABASE wins; otherwise
 // the DB is <DATA_DIR>/store/authd/auth.db — its own owner subdirectory, which
 // is the only path compose binds into this container, so authd cannot reach
-// routd's or onbod's DB at all (spec 5/16 step 7). authd owns auth.db and runs
-// its own migrations; it must NOT migrate another daemon's DB (CLAUDE.md
-// DB-ownership rule).
+// routd's or onbod's DB at all (spec 5/16 step 7). authd owns auth.db; it must
+// NOT reach another daemon's DB (CLAUDE.md DB-ownership rule).
 func resolveDSN(database, dataDir string) (string, error) {
 	if database != "" {
 		return database, nil
@@ -144,7 +143,7 @@ func resolveDSN(database, dataDir string) (string, error) {
 		return "", errMissingDB
 	}
 	// Strict: authd never creates auth.db. A wrong or unmounted path would
-	// otherwise migrate a fresh empty file, minting NEW signing keys and
+	// otherwise fill a fresh empty file, minting NEW signing keys and
 	// invalidating every live session while authd reports healthy
 	// (spec 5/16 step 7). `arizuko create` seeds the file.
 	dsn := store.OwnerDBPath(filepath.Join(dataDir, "store"), store.OwnerAuthd)

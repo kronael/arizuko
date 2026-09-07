@@ -13,24 +13,21 @@ package main
 // revocation was (BUGS F15).
 //
 // WHERE THE AUDIT ROW LANDS, which BUGS F15a called out as undecided: auth.db,
-// written by resreg.invoke INSIDE the revoke's own transaction, and readable
-// because 5/I federated authd's audit_log into /dash/audit/. The objection at
-// the time — "an operator-initiated revoke recorded only in auth.db is
-// invisible on the page that exists to show it" — was true when it was written
-// and is not true now, which is what unblocks this endpoint rather than any
-// argument about it.
+// written by resreg.invoke, and readable because 5/I federated authd's
+// audit_log into /dash/audit/. The objection at the time — "an
+// operator-initiated revoke recorded only in auth.db is invisible on the page
+// that exists to show it" — was true when it was written and is not true now,
+// which is what unblocks this endpoint rather than any argument about it.
 //
-// Taking resreg's standard `delete` action is what buys that row: invoke opens
-// the transaction, hands it to the handler, and emits the audit event into the
-// same one, rolling the mutation back if the audit write fails. A bespoke
-// POST /revoke would have had to hand-roll all three.
+// Taking resreg's standard `delete` action is what buys that row without a
+// bespoke emit. What it no longer buys is one transaction around the revoke and
+// the row: revokeSession below says why, and what closes it.
 
 import (
 	"context"
 	"net/http"
 	"time"
 
-	"github.com/kronael/arizuko/authd/authstore"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
 )
@@ -78,24 +75,33 @@ func (s *server) sessionsHandler(_ context.Context, x resreg.Execution) (any, er
 	}
 }
 
-// revokeSession kills one family inside the transaction resreg opened, so the
-// revoke and its audit row commit together or not at all.
+// revokeSession kills one family through the store, and its audit row is
+// written by resreg into the transaction it opened on auth.db.
+//
+// The two are NO LONGER one transaction. The revoke is a guarded batch on the
+// refresh family; the audit row is still a statement audit runs against the raw
+// *sql.DB (BUGS L251), and a batch cannot join a transaction it does not own.
+// So an audit write that failed after this returned would leave the family
+// revoked, where it used to roll the revoke back. Both halves become one
+// GuardedBatch when audit_log is an entity, which is what spec 6/40 §"The
+// audited write commits in a GuardedBatch" is for; until then this is the one
+// guarantee the port gives up, and it is stated rather than hidden.
 //
 // A family_id that matches nothing is a 404 rather than a silent success: an
 // operator who mistypes an id during an incident must not be told the session
-// is dead. `revoked_at IS NULL` in the UPDATE means re-revoking an already-dead
+// is dead. The `revoked_at` Absent guard means re-revoking an already-dead
 // family also 404s, which is the same honest answer — nothing was killed here.
 func (s *server) revokeSession(x resreg.Execution) (any, error) {
 	fam := x.Args.Str("family_id")
 	if fam == "" {
 		return nil, resreg.Errorf(http.StatusBadRequest, "family_id required")
 	}
-	n, err := authstore.RevokeFamilyTx(x.Tx, fam)
+	killed, err := s.a.st.RevokeFamily(fam)
 	if err != nil {
 		return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 	}
-	if n == 0 {
+	if !killed {
 		return nil, resreg.Errorf(http.StatusNotFound, "no live session %q", fam)
 	}
-	return map[string]any{"family_id": fam, "revoked": n}, nil
+	return map[string]any{"family_id": fam, "revoked": 1}, nil
 }

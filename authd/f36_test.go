@@ -17,10 +17,12 @@ package main
 import (
 	"context"
 	"database/sql"
-	"github.com/kronael/arizuko/authd/authstore"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/kronael/arizuko/authd/authstore"
+	"github.com/kronael/arizuko/objstore"
 )
 
 // gateGrants parks the FIRST FetchGrants caller until release is closed, and
@@ -53,13 +55,11 @@ func (g *gateGrants) FetchGrants(context.Context, string) (GrantsSnapshot, error
 // familyOf reads the lineage a raw refresh token belongs to.
 func familyOf(t *testing.T, db *sql.DB, raw string) string {
 	t.Helper()
-	var fam string
-	if err := db.QueryRow(
-		`SELECT family_id FROM refresh_tokens WHERE token_hash = ?`, authstore.HashToken(raw)).
-		Scan(&fam); err != nil {
-		t.Fatalf("family of issued token: %v", err)
+	r, ok := newTestStore(db).RefreshTokenBySecret(raw)
+	if !ok {
+		t.Fatal("family of issued token: the token is not in the store")
 	}
-	return fam
+	return r.Family
 }
 
 // familyRows counts a family's rows: total, and how many are still live
@@ -70,10 +70,16 @@ func familyOf(t *testing.T, db *sql.DB, raw string) string {
 // that must exist is what stops these tests passing vacuously.
 func familyRows(t *testing.T, db *sql.DB, fam string) (total, live int) {
 	t.Helper()
-	if err := db.QueryRow(
-		`SELECT COUNT(*), COUNT(CASE WHEN revoked_at IS NULL AND used_at IS NULL THEN 1 END)
-		   FROM refresh_tokens WHERE family_id = ?`, fam).Scan(&total, &live); err != nil {
-		t.Fatalf("count family rows: %v", err)
+	tokens := entityItems(t, db, authstore.RefreshTokens,
+		objstore.Cmp{Attr: "family_id", Op: objstore.Eq, Value: fam})
+	total = len(tokens)
+	if familyRevoked(t, db, fam) {
+		return total, 0
+	}
+	for _, it := range tokens {
+		if _, spent := it.Attrs["used_at"]; !spent {
+			live++
+		}
 	}
 	return total, live
 }
@@ -179,7 +185,7 @@ func TestRefreshFamilyKillOutrunsNoSuccessor(t *testing.T) {
 // logged out by an error that changed nothing else.
 func TestRefreshClaimRollsBackWhenSuccessorInsertFails(t *testing.T) {
 	db := concurrentDB(t)
-	raw, err := authstore.New(db).StartRefreshFamily("1", []string{"tasks:read"}, "", time.Hour)
+	raw, err := newTestStore(db).StartRefreshFamily("1", []string{"tasks:read"}, "", time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +196,7 @@ func TestRefreshClaimRollsBackWhenSuccessorInsertFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	newRaw, won, err := authstore.New(db).ClaimAndRotateRefresh(raw, fam, "1", []string{"tasks:read"}, "", time.Hour)
+	newRaw, won, err := newTestStore(db).ClaimAndRotateRefresh(raw, fam, "1", []string{"tasks:read"}, "", time.Hour)
 	if err == nil {
 		t.Fatal("a blocked successor INSERT must surface as an error, not a silent no-op")
 	}
@@ -246,7 +252,7 @@ func TestRefreshAfterLogoutRevokeMintsNoSuccessor(t *testing.T) {
 
 	<-g.entered
 	// This is verbatim what oauth.logout does with the caller's cookie.
-	if _, err := authstore.New(db).RevokeFamily(fam); err != nil {
+	if _, err := newTestStore(db).RevokeFamily(fam); err != nil {
 		t.Fatal(err)
 	}
 	close(g.release)

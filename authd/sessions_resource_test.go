@@ -11,6 +11,7 @@ import (
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/authd/authstore"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/resreg/resources"
 )
 
@@ -43,15 +44,31 @@ func sessionsDELETE(t *testing.T, base, path, token string) (int, string) {
 	return resp.StatusCode, string(body)
 }
 
-// liveFamilyRows counts a family's rows and how many are unrevoked.
+// liveFamilyRows counts a family's tokens and how many of them are unrevoked.
+//
+// Revocation is one field on the FAMILY now, so every token of a live family is
+// unrevoked and every token of a dead one is not. That is the whole point of
+// the entity: there is no second place for the revoked state to be missing
+// from, so a successor cannot outlive the family it was minted into.
 func liveFamilyRows(t *testing.T, db *sql.DB, fam string) (total, live int) {
 	t.Helper()
-	if err := db.QueryRow(
-		`SELECT COUNT(*), COUNT(CASE WHEN revoked_at IS NULL THEN 1 END)
-		   FROM refresh_tokens WHERE family_id = ?`, fam).Scan(&total, &live); err != nil {
-		t.Fatal(err)
+	total = len(entityItems(t, db, authstore.RefreshTokens,
+		objstore.Cmp{Attr: "family_id", Op: objstore.Eq, Value: fam}))
+	if familyRevoked(t, db, fam) {
+		return total, 0
 	}
-	return total, live
+	return total, total
+}
+
+// familyRevoked reads the family's one tombstone.
+func familyRevoked(t *testing.T, db *sql.DB, fam string) bool {
+	t.Helper()
+	it, ok := entityItem(t, db, authstore.RefreshFamilies, fam)
+	if !ok {
+		t.Fatalf("family %s has no item", fam)
+	}
+	_, revoked := it.Attrs["revoked_at"]
+	return revoked
 }
 
 // TestSessionsNeverServeTokenValues is the content-level leak test. The raw
@@ -70,11 +87,9 @@ func TestSessionsNeverServeTokenValues(t *testing.T) {
 		t.Fatal(err)
 	}
 	hash := authstore.HashToken(raw)
-	var stored string
-	if err := a.db.QueryRow(
-		`SELECT token_hash FROM refresh_tokens WHERE token_hash = ?`, hash).Scan(&stored); err != nil {
-		t.Fatalf("fixture session not in the DB (%v) — every assertion below "+
-			"would pass vacuously", err)
+	if _, ok := entityItem(t, a.db, authstore.RefreshTokens, hash); !ok {
+		t.Fatal("fixture session not in the store — every assertion below " +
+			"would pass vacuously")
 	}
 
 	tok := operatorToken(t, a, "sessions:read")
@@ -294,7 +309,7 @@ func TestSessionsRowPerFamilyInvariant(t *testing.T) {
 		raw = next
 	}
 
-	rows, err := authstore.New(db).SessionsByFamily("", 0, time.Now())
+	rows, err := newTestStore(db).SessionsByFamily("", 0, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}

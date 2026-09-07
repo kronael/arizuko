@@ -24,10 +24,11 @@ var errReuse = errors.New("refresh token reuse detected")
 // key still inside its serving window, and persists keys/refresh state through
 // authstore.
 type Authd struct {
-	// st is where every statement authd runs lives (spec 6/37 step 1). db is
-	// the same handle, kept because audit.Init, audit.Query and store.New take
-	// one and run their own statements against auth.db — the ownership half of
-	// the seam, tracked as BUGS L251 — and because the health check pings it.
+	// st is every question authd asks its store, and it holds no SQL (spec 6/37
+	// step 5). db is the same database, kept because audit.Init, audit.Query and
+	// store.New take a *sql.DB and run their own statements against auth.db —
+	// the ownership half of the seam, tracked as BUGS L251 — and because the
+	// health check pings it.
 	st           *authstore.Store
 	db           *sql.DB
 	accessTTL    time.Duration // short access JWT lifetime (~15m)
@@ -45,7 +46,7 @@ type Authd struct {
 }
 
 func newAuthd(db *sql.DB, accessTTL, refreshTTL, maxAccessTTL time.Duration) (*Authd, error) {
-	a := &Authd{st: authstore.New(db), db: db, accessTTL: accessTTL, refreshTTL: refreshTTL, maxAccessTTL: maxAccessTTL}
+	a := &Authd{st: newAuthstore(db), db: db, accessTTL: accessTTL, refreshTTL: refreshTTL, maxAccessTTL: maxAccessTTL}
 	if err := a.reload(); err != nil {
 		return nil, err
 	}
@@ -84,9 +85,9 @@ func (a *Authd) reload() error {
 
 // Rotate generates a new active key, retiring the old one as of now (it keeps
 // verifying within its TTL window). Emergency revoke is RevokeAllNow. Retire and
-// insert run in ONE transaction, and the `idx_signing_keys_one_active` partial-unique
-// index guards "exactly one active key": two concurrent Rotate() calls cannot both
-// commit a second active row.
+// install run in ONE guarded batch, conditioned on the key the new one replaces,
+// so two concurrent Rotate() calls elect one winner and the trust root never
+// splits into two signers; the loser gets authstore.ErrRotationLost.
 func (a *Authd) Rotate() error {
 	k, err := auth.NewSigningKey(genKid(time.Now()))
 	if err != nil {
@@ -107,7 +108,7 @@ func genKid(created time.Time) string {
 	return fmt.Sprintf("%d-%s", created.Unix(), hex.EncodeToString(b))
 }
 
-// RevokeAllNow backdates every active key's retired_at past the serving window,
+// RevokeAllNow backdates the active key's retired_at past the serving window,
 // closing verification of all currently-issued tokens immediately, then mints a
 // fresh active key. This is the emergency-revoke path.
 func (a *Authd) RevokeAllNow() error {

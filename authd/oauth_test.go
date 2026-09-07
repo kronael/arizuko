@@ -10,6 +10,7 @@ import (
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/authd/authstore"
 	"github.com/kronael/arizuko/core"
 	_ "modernc.org/sqlite"
 )
@@ -40,7 +41,7 @@ func TestOAuthDispatchMintsES256AndCreatesUser(t *testing.T) {
 		t.Fatalf("dispatch status %d: %s", rec.Code, rec.Body.String())
 	}
 	// Canonical user created + provider linked in authd's own tables.
-	if !userExists(db, "google:g-123") {
+	if !userExists(t, db, "google:g-123") {
 		t.Fatal("canonical user not created in auth_users")
 	}
 	// The JSON response carries an ES256 access token that verifies.
@@ -283,14 +284,11 @@ func TestOAuthLinkIntentCarriesBareSub(t *testing.T) {
 	if linkDone.Code != http.StatusOK {
 		t.Fatalf("link dispatch status %d: %s", linkDone.Code, linkDone.Body.String())
 	}
-	var users int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM auth_users`).Scan(&users); err != nil {
-		t.Fatal(err)
-	}
+	users := entityCount(t, db, authstore.AuthUsers)
 	if users != 1 {
 		t.Fatalf("linking forked the account: %d auth_users rows, want 1", users)
 	}
-	if !userExists(db, "google:g-1") {
+	if !userExists(t, db, "google:g-1") {
 		t.Fatal("canonical account google:g-1 must survive the link")
 	}
 	sub, err := auth.VerifyToken(jsonField(t, linkDone.Body.Bytes(), "token"), a.LocalKeySet())
@@ -367,10 +365,7 @@ func TestOAuthCanonicalLoginUnaffectedByResolution(t *testing.T) {
 	if !auth.HasScope(sub.Scope, "tasks", "read") {
 		t.Fatalf("canonical login lost its grants: %v", sub.Scope)
 	}
-	var users int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM auth_users`).Scan(&users); err != nil {
-		t.Fatal(err)
-	}
+	users := entityCount(t, db, authstore.AuthUsers)
 	if users != 1 {
 		t.Fatalf("%d auth_users rows, want 1", users)
 	}

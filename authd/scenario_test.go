@@ -29,7 +29,7 @@ import (
 func openSecondDB(t *testing.T) (*sql.DB, error) {
 	t.Helper()
 	db := dbtest.Open(t)
-	if err := migrate(db); err != nil {
+	if err := ensureStorage(db); err != nil {
 		return nil, err
 	}
 	return db, nil

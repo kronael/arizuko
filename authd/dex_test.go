@@ -14,6 +14,7 @@ import (
 	jose "github.com/go-jose/go-jose/v4"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/authd/authstore"
 	"github.com/kronael/arizuko/core"
 )
 
@@ -163,7 +164,7 @@ func TestDexCallbackMintsTheNativeProviderPrincipal(t *testing.T) {
 	if sub.Sub != "user:discord:811295670702047272" {
 		t.Fatalf("sub = %q want user:discord:811295670702047272", sub.Sub)
 	}
-	if !userExists(db, "discord:811295670702047272") {
+	if !userExists(t, db, "discord:811295670702047272") {
 		t.Fatal("canonical user must be keyed on the provider principal, not Dex's sub")
 	}
 	if got := f.tokenReq; got.Get("code") != "abc" || got.Get("code_verifier") == "" ||
@@ -196,9 +197,8 @@ func TestDexCallbackRejectsWhatIsNotOurs(t *testing.T) {
 			if out.Code != http.StatusBadGateway {
 				t.Fatalf("status %d want 502: %s", out.Code, out.Body.String())
 			}
-			var users int
-			if err := db.QueryRow(`SELECT count(*) FROM auth_users`).Scan(&users); err != nil || users != 0 {
-				t.Fatalf("a rejected token must not create a user (rows=%d err=%v)", users, err)
+			if users := entityCount(t, db, authstore.AuthUsers); users != 0 {
+				t.Fatalf("a rejected token must not create a user (rows=%d)", users)
 			}
 		})
 	}

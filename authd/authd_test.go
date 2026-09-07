@@ -19,16 +19,16 @@ import (
 func testDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db := dbtest.Open(t)
-	if err := migrate(db); err != nil {
+	if err := ensureStorage(db); err != nil {
 		t.Fatal(err)
 	}
 	return db
 }
 
-func userExists(db *sql.DB, userID string) bool {
-	var n int
-	db.QueryRow(`SELECT 1 FROM auth_users WHERE user_id = ?`, userID).Scan(&n)
-	return n == 1
+func userExists(t *testing.T, db *sql.DB, userID string) bool {
+	t.Helper()
+	_, ok := entityItem(t, db, authstore.AuthUsers, userID)
+	return ok
 }
 
 func newTestAuthd(t *testing.T, db *sql.DB) *Authd {
@@ -194,29 +194,43 @@ func TestRefreshUnknownTokenRejected(t *testing.T) {
 
 func TestOAuthUserUpsertUniqueProvider(t *testing.T) {
 	db := testDB(t)
-	st := authstore.New(db)
+	st := newTestStore(db)
 	if err := st.LinkOAuthIdentity("user:abc", "Alice", "github", "12345"); err != nil {
 		t.Fatal(err)
 	}
-	if !userExists(db, "user:abc") {
+	if !userExists(t, db, "user:abc") {
 		t.Fatal("user should exist")
 	}
-	// Re-linking the same provider updates provider_sub, does not duplicate
-	// (UNIQUE(user_id, provider)).
+	// Re-linking the same provider re-links the same identity; it does not add
+	// a second one, and it does not add a second account.
 	if err := st.LinkOAuthIdentity("user:abc", "Alice", "github", "12345"); err != nil {
 		t.Fatal(err)
 	}
-	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM oauth_identities WHERE user_id = ? AND provider = ?`,
-		"user:abc", "github").Scan(&n)
-	if n != 1 {
-		t.Fatalf("expected 1 identity row, got %d", n)
+	if n := entityCount(t, db, authstore.OAuthIdentities); n != 1 {
+		t.Fatalf("expected 1 identity, got %d", n)
 	}
-	// sub is stored bare (no "user:" prefix is added by storage).
-	var stored string
-	db.QueryRow(`SELECT user_id FROM auth_users WHERE user_id = ?`, "user:abc").Scan(&stored)
-	if stored != "user:abc" {
-		t.Fatalf("user_id stored as %q", stored)
+	// One identity per (account, provider): a different github id for the same
+	// account DISPLACES the first, which is what the UNIQUE(user_id, provider)
+	// upsert did. The old sub must stop resolving.
+	if err := st.LinkOAuthIdentity("user:abc", "Alice", "github", "67890"); err != nil {
+		t.Fatal(err)
+	}
+	if n := entityCount(t, db, authstore.OAuthIdentities); n != 1 {
+		t.Fatalf("a second github id left %d identities on one account, want 1", n)
+	}
+	if _, _, _, _, ok := st.OAuthIdentityForSub("github:12345"); ok {
+		t.Fatal("the displaced identity still resolves")
+	}
+	owner, _, _, subs, ok := st.OAuthIdentityForSub("github:67890")
+	if !ok || owner != "user:abc" {
+		t.Fatalf("the new identity resolves to %q (ok=%v), want user:abc", owner, ok)
+	}
+	if len(subs) != 1 || subs[0] != "github:67890" {
+		t.Fatalf("the account lists %v, want only github:67890", subs)
+	}
+	// The account's sub is stored bare (no "user:" prefix is added by storage).
+	if _, ok := entityItem(t, db, authstore.AuthUsers, "user:abc"); !ok {
+		t.Fatal("the account is not stored under its own sub")
 	}
 }
 

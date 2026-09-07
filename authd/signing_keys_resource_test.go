@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kronael/arizuko/authd/authstore"
 	"github.com/kronael/arizuko/resreg/resources"
 )
 
@@ -25,11 +26,12 @@ func TestSigningKeysNeverServeKeyMaterial(t *testing.T) {
 	_, a := auditTestAuthd(t)
 	_, ts := newServer(t, a)
 
-	var privPEM string
-	if err := a.db.QueryRow(
-		`SELECT priv_pem FROM signing_keys WHERE active = 1`).Scan(&privPEM); err != nil {
-		t.Fatal(err)
+	kid := activeKid(t, a.db)
+	key, ok := entityItem(t, a.db, authstore.SigningKeys, kid)
+	if !ok {
+		t.Fatalf("the slot names %q but no such key is stored", kid)
 	}
+	privPEM := key.Attrs["priv_pem"]
 	if !strings.Contains(privPEM, "PRIVATE KEY") {
 		t.Fatalf("fixture holds no private PEM (%q) — every assertion below would "+
 			"pass vacuously", privPEM)

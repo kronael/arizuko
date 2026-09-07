@@ -1,20 +1,42 @@
 package authstore
 
-// signing_keys.go holds every read and write of `signing_keys`, the trust root:
-// one active key signs, and each retired key keeps verifying until its window
-// closes.
+// signing_keys.go holds every read and write of the trust root: one key signs,
+// and each retired key keeps verifying until its window closes.
+//
+// TWO entities, and the second one is the invariant. `signing_keys` holds the
+// keypairs, sorted by kid — the kid is `<unix>-<hex>`, so key order IS creation
+// order and the metadata read needs no sort of its own. `signing_key_slot`
+// holds ONE item, at sort key `active`, naming the kid that signs.
+//
+// A key carries no `active` attribute, and that is deliberate. "Exactly one
+// active key" was a partial-unique index on a column, which no key-value engine
+// has; as a slot it is a property of the coordinate instead, so two active keys
+// are not a state this store can represent. Rotation moves the slot under a
+// compare-and-set on the kid it is replacing, which is what makes two racing
+// rotations elect one winner on every engine rather than on the one with the
+// index.
 
 import (
 	"crypto/ecdsa"
 	"crypto/x509"
-	"database/sql"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/resreg/resources"
 )
+
+// activeSlot is the sort key of the one item that names the signing key.
+const activeSlot = "active"
+
+// ErrRotationLost is what a rotation reports when another rotation moved the
+// slot first. It is a REFUSAL, not a fault — the loser must not sign — and it
+// is an error because that is what the caller has always seen: the unique index
+// failed its INSERT the same way.
+var ErrRotationLost = errors.New("another rotation moved the active signing key first")
 
 // StoredKey is a signing key as stored, with its parsed private key.
 type StoredKey struct {
@@ -26,120 +48,161 @@ type StoredKey struct {
 // SigningKeysWithMaterial reads every signing key WITH its private half and
 // parses each PEM. It is the only reader in the tree that takes priv_pem, and
 // it feeds the in-process signer; SigningKeyMetadata answers the operator's
-// question without ever touching the column.
+// question without ever naming the attribute.
 //
 // It applies no serving window: the caller holds maxAccessTTL and decides which
 // of these keys still verify.
 func (s *Store) SigningKeysWithMaterial() ([]StoredKey, error) {
-	rows, err := s.db.Query(`SELECT kid, priv_pem, active, retired_at FROM signing_keys`)
+	active, err := s.activeKid()
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	items, err := s.s.Query(ctx(), objstore.Query{Entity: SigningKeys, Partition: Partition})
+	if err != nil {
+		return nil, err
+	}
 	var out []StoredKey
-	for rows.Next() {
-		var kid, privPEM string
-		var active int
-		var retired sql.NullString
-		if err := rows.Scan(&kid, &privPEM, &active, &retired); err != nil {
-			return nil, err
-		}
-		priv, err := auth.ParseECPrivateKeyPEM(privPEM)
+	for _, it := range items {
+		priv, err := auth.ParseECPrivateKeyPEM(it.Attrs["priv_pem"])
 		if err != nil {
-			return nil, fmt.Errorf("parse key %s: %w", kid, err)
+			return nil, fmt.Errorf("parse key %s: %w", it.Key.Sort, err)
 		}
-		k := StoredKey{Key: &auth.SigningKey{Kid: kid, Priv: priv}, Active: active == 1}
-		if retired.Valid {
-			if t, err := time.Parse(time.RFC3339, retired.String); err == nil {
-				k.RetiredAt = &t
-			}
+		k := StoredKey{
+			Key:    &auth.SigningKey{Kid: it.Key.Sort, Priv: priv},
+			Active: it.Key.Sort == active,
+		}
+		if t, ok := parseTS(it.Attrs["retired_at"]); ok {
+			k.RetiredAt = &t
 		}
 		out = append(out, k)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
-// RotateActiveKey retires the current active key(s) as of `at` and inserts k as
-// the new active key in ONE transaction. The `idx_signing_keys_one_active`
-// partial-unique index means two concurrent rotations cannot both land a second
-// active row: the loser's INSERT violates the constraint and its tx rolls back,
-// so the trust root never splits into two signers.
+// RotateActiveKey retires the key holding the slot as of `at` and installs k in
+// it, in ONE batch. Two concurrent rotations cannot both land: the slot write
+// is conditioned on the kid it is replacing, so the loser's batch is refused
+// whole — its new key is never written and the trust root never splits into two
+// signers.
 func (s *Store) RotateActiveKey(k *auth.SigningKey, at time.Time) error {
 	privPEM, pubPEM, err := EncodeKey(k.Priv)
 	if err != nil {
 		return err
 	}
-	tx, err := s.db.Begin()
+	old, err := s.activeKid()
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
-	if _, err := tx.Exec(
-		`UPDATE signing_keys SET active = 0, retired_at = ? WHERE active = 1`,
-		at.Format(time.RFC3339)); err != nil {
+	writes := []objstore.Write{{
+		Op: objstore.Put, Entity: SigningKeys, Key: key(k.Kid),
+		Attrs: map[string]string{
+			"priv_pem": privPEM, "pub_pem": pubPEM, "created_at": now(),
+		},
+		Cond: objstore.Cond{Item: objstore.ItemAbsent},
+	}}
+	if old == "" {
+		// No key holds the slot: a first boot, or the window an emergency
+		// revoke opens between RetireActiveKeys and the rotation that follows
+		// it. ItemAbsent is what elects one winner there, and it is the engine's
+		// own uniqueness rather than a read this package performed.
+		writes = append(writes, objstore.Write{
+			Op: objstore.Put, Entity: SigningKeySlot, Key: key(activeSlot),
+			Attrs: map[string]string{"kid": k.Kid},
+			Cond:  objstore.Cond{Item: objstore.ItemAbsent},
+		})
+	} else {
+		writes = append(writes,
+			objstore.Write{
+				Op: objstore.Update, Entity: SigningKeySlot, Key: key(activeSlot),
+				Attrs: map[string]string{"kid": k.Kid},
+				Cond: objstore.Cond{Where: []objstore.Cmp{
+					{Attr: "kid", Op: objstore.Eq, Value: old},
+				}},
+			},
+			objstore.Write{
+				Op: objstore.Update, Entity: SigningKeys, Key: key(old),
+				Attrs: map[string]string{"retired_at": at.UTC().Format(time.RFC3339)},
+				Cond:  objstore.Cond{Item: objstore.ItemPresent},
+			})
+	}
+	committed, err := s.s.GuardedBatch(ctx(), nil, writes)
+	if err != nil {
 		return err
 	}
-	if _, err := tx.Exec(
-		`INSERT INTO signing_keys (kid, priv_pem, pub_pem, active, created_at)
-		 VALUES (?, ?, ?, 1, ?)`,
-		k.Kid, privPEM, pubPEM, now()); err != nil {
-		return err
+	if !committed {
+		return ErrRotationLost
 	}
-	return tx.Commit()
+	return nil
 }
 
-// RetireActiveKeys marks all currently-active keys retired as of `at`. Used by
-// emergency revoke (at backdated, window closes immediately); normal rotation
-// retires in-tx via RotateActiveKey.
+// RetireActiveKeys marks the key holding the slot retired as of `at` and empties
+// the slot. Used by emergency revoke (at backdated, window closes immediately);
+// normal rotation retires in-batch via RotateActiveKey.
+//
+// An empty slot is not a failure: there is nothing to retire, which is the
+// answer the set-wide UPDATE this replaces also gave by touching no row. Nor is
+// a refused batch — it means another caller emptied the slot in between, and
+// the key it named is retired either way.
 func (s *Store) RetireActiveKeys(at time.Time) error {
-	_, err := s.db.Exec(
-		`UPDATE signing_keys SET active = 0, retired_at = ? WHERE active = 1`,
-		at.Format(time.RFC3339))
+	kid, err := s.activeKid()
+	if err != nil || kid == "" {
+		return err
+	}
+	_, err = s.s.GuardedBatch(ctx(), nil, []objstore.Write{
+		{
+			Op: objstore.Delete, Entity: SigningKeySlot, Key: key(activeSlot),
+			Cond: objstore.Cond{Where: []objstore.Cmp{
+				{Attr: "kid", Op: objstore.Eq, Value: kid},
+			}},
+		},
+		{
+			Op: objstore.Update, Entity: SigningKeys, Key: key(kid),
+			Attrs: map[string]string{"retired_at": at.UTC().Format(time.RFC3339)},
+			Cond:  objstore.Cond{Item: objstore.ItemPresent},
+		},
+	})
 	return err
 }
 
-// SigningKeyMetadata reads the non-secret columns of signing_keys and derives
-// each key's serving state.
+// SigningKeyMetadata reads the non-secret attributes of every signing key and
+// derives each key's serving state.
 //
-// The SELECT list is the security boundary of this read. `priv_pem` is not in
+// The PROJECTION is the security boundary of this read. `priv_pem` is not in
 // it, `pub_pem` is not in it, and there is no argument, filter or action that
-// can add a column — the statement is a constant. SigningKeysWithMaterial is
-// the only reader that takes priv_pem, and it is in-process and feeds the
-// signer.
+// can add one — the list is a constant, and the driver never fetches what it
+// does not project, so the private half does not leave the engine.
+// SigningKeysWithMaterial is the only reader that takes it, and it is
+// in-process and feeds the signer.
 //
 // Status is the time-based window spec 5/1 pins, computed once here rather than
-// left for each reader to re-derive: a key serves while active, OR while
-// now < retired_at + maxAccessTTL. `retiring` is a retired key whose
+// left for each reader to re-derive: a key serves while it holds the slot, OR
+// while now < retired_at + maxAccessTTL. `retiring` is a retired key whose
 // already-issued tokens still verify; `retired` no longer verifies anything and
 // is waiting on GC.
 func (s *Store) SigningKeyMetadata(maxAccessTTL time.Duration, at time.Time) ([]resources.SigningKeysRow, error) {
-	rows, err := s.db.Query(
-		`SELECT kid, active, created_at, retired_at FROM signing_keys ORDER BY kid DESC`)
+	active, err := s.activeKid()
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	items, err := s.s.Query(ctx(), objstore.Query{
+		Entity: SigningKeys, Partition: Partition, Descending: true,
+		Project: []string{"created_at", "retired_at"},
+	})
+	if err != nil {
+		return nil, err
+	}
 	out := []resources.SigningKeysRow{}
-	for rows.Next() {
-		var (
-			kid       string
-			active    int
-			createdAt string
-			retiredAt sql.NullString
-		)
-		if err := rows.Scan(&kid, &active, &createdAt, &retiredAt); err != nil {
-			return nil, err
-		}
+	for _, it := range items {
 		r := resources.SigningKeysRow{
-			Kid:       kid,
+			Kid:       it.Key.Sort,
 			Alg:       "ES256",
-			Active:    active == 1,
-			CreatedAt: createdAt,
+			Active:    it.Key.Sort == active,
+			CreatedAt: it.Attrs["created_at"],
 			Status:    "retired",
 		}
-		if retiredAt.Valid {
-			r.RetiredAt = retiredAt.String
-			if t, err := time.Parse(time.RFC3339, retiredAt.String); err == nil {
+		if retired, ok := it.Attrs["retired_at"]; ok {
+			r.RetiredAt = retired
+			if t, ok := parseTS(retired); ok {
 				serves := t.Add(maxAccessTTL)
 				r.ServesUntil = serves.Format(time.RFC3339)
 				if at.Before(serves) {
@@ -152,11 +215,32 @@ func (s *Store) SigningKeyMetadata(maxAccessTTL time.Duration, at time.Time) ([]
 		}
 		out = append(out, r)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
-// EncodeKey renders a private key into the two PEM columns signing_keys stores,
-// which is this layer's serialization of a key rather than the signer's.
+// activeKid reads the kid holding the slot, empty when no key does.
+func (s *Store) activeKid() (string, error) {
+	it, ok, err := s.point(SigningKeySlot, activeSlot, "kid")
+	if err != nil || !ok {
+		return "", err
+	}
+	return it.Attrs["kid"], nil
+}
+
+// parseTS reads a stored timestamp. An absent attribute and an unparseable one
+// are the same answer to every caller here — "this key has no retirement" —
+// which is what the nullable column said too.
+func parseTS(v string) (time.Time, bool) {
+	if v == "" {
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339, v)
+	return t, err == nil
+}
+
+// EncodeKey renders a private key into the two PEM attributes a signing key
+// stores, which is this layer's serialization of a key rather than the
+// signer's.
 func EncodeKey(priv *ecdsa.PrivateKey) (privPEM, pubPEM string, err error) {
 	der, err := x509.MarshalPKCS8PrivateKey(priv)
 	if err != nil {

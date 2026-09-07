@@ -6,31 +6,27 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/kronael/arizuko/authd/authstore"
 )
 
-// seedIdentity inserts a canonical identity + its sub claims directly into
-// auth.db (raw INSERTs avoid store.LinkSub's audit_log dependency — the
-// endpoint reads via store.GetIdentityForSub regardless of write path).
-// seedIdentity writes the model the OAuth login path populates — auth_users +
-// oauth_identities — which is what /v1/identities/{sub} now reads.
+// seedIdentity writes a canonical account plus the provider logins linked to
+// it — the model the OAuth login path populates and /v1/identities/{sub} reads.
+// The items go in directly rather than through LinkOAuthIdentity so a seed can
+// build a shape the login path would not, and so a broken writer cannot make
+// these bodies pass.
 func seedIdentity(t *testing.T, a *Authd, id, name string, subs ...string) {
 	t.Helper()
-	if _, err := a.db.Exec(
-		`INSERT INTO auth_users(user_id, name, created_at) VALUES(?,?,?)`,
-		id, name, "2026-01-01T00:00:00Z"); err != nil {
-		t.Fatalf("seed user: %v", err)
-	}
+	putItem(t, a.db, authstore.AuthUsers, id, map[string]string{
+		"name": name, "created_at": "2026-01-01T00:00:00Z",
+	})
 	for _, sub := range subs {
-		provider, providerSub, ok := strings.Cut(sub, ":")
-		if !ok {
+		if _, _, ok := strings.Cut(sub, ":"); !ok {
 			t.Fatalf("seed sub %q is not <provider>:<id>", sub)
 		}
-		if _, err := a.db.Exec(
-			`INSERT INTO oauth_identities(user_id, provider, provider_sub, linked_at)
-			 VALUES(?,?,?,?)`,
-			id, provider, providerSub, "2026-01-01T00:00:00Z"); err != nil {
-			t.Fatalf("seed link %s: %v", sub, err)
-		}
+		putItem(t, a.db, authstore.OAuthIdentities, sub, map[string]string{
+			"user_id": id, "linked_at": "2026-01-01T00:00:00Z",
+		})
 	}
 }
 

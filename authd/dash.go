@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/auth"
-	"github.com/kronael/arizuko/authd/authstore"
 	"github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/theme"
 )
@@ -69,32 +68,20 @@ func (s *server) handleDashRevoke(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "family_id required", http.StatusBadRequest)
 		return
 	}
-	tx, err := s.a.db.Begin()
-	if err != nil {
-		slog.Error("dash revoke: begin", "family_id", family, "err", err)
-		http.Error(w, "write failed", http.StatusInternalServerError)
-		return
-	}
-	defer tx.Rollback()
-	n, err := authstore.RevokeFamilyTx(tx, family)
+	killed, err := s.a.st.RevokeFamily(family)
 	if err != nil {
 		slog.Error("dash revoke", "family_id", family, "err", err)
 		http.Error(w, "write failed", http.StatusInternalServerError)
 		return
 	}
-	// Zero rows is not success: an operator mistyping an id during an incident
-	// must not be told the session is dead (the /v1 face 404s for the same
-	// reason).
-	if n == 0 {
+	// Killing nothing is not success: an operator mistyping an id during an
+	// incident must not be told the session is dead (the /v1 face 404s for the
+	// same reason).
+	if !killed {
 		auth.Forbidden(w, "authd", "No live session "+family+".")
 		return
 	}
-	if err := tx.Commit(); err != nil {
-		slog.Error("dash revoke: commit", "family_id", family, "err", err)
-		http.Error(w, "write failed", http.StatusInternalServerError)
-		return
-	}
-	slog.Info("dash revoke", "family_id", family, "rows", n)
+	slog.Info("dash revoke", "family_id", family)
 	http.Redirect(w, r, "/dash/authd/", http.StatusSeeOther)
 }
 
@@ -146,8 +133,8 @@ func sessionTable(rows []resources.SessionsRow) string {
 }
 
 // revokeForm renders the sign-out button for a live family only. A revoked
-// family has nothing left to kill, and the writer reports zero rows for one, so
-// offering the button would invite a press that answers "no live session".
+// family has nothing left to kill, and the writer reports killed=false for one,
+// so offering the button would invite a press that answers "no live session".
 func revokeForm(s resources.SessionsRow) string {
 	if s.Status != "active" {
 		return ""

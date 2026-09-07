@@ -78,8 +78,8 @@ func TestRefreshUsesFullOAuthPrincipal(t *testing.T) {
 }
 
 // Bug 2: authd emits audit into auth.db, which only has audit_log because
-// authd's own migration set (0003) creates it — store/migrations/0066 lands in
-// messages.db, which authd never migrates. An emitted event must persist (no
+// audit.EnsureTable creates it there — store/migrations/0066 lands in
+// messages.db, which authd never touches. An emitted event must persist (no
 // "no such table" drop).
 func TestAuditLandsInAuthDB(t *testing.T) {
 	db := testDB(t)
@@ -114,7 +114,7 @@ func concurrentDB(t *testing.T) *sql.DB {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	if err := migrate(db); err != nil {
+	if err := ensureStorage(db); err != nil {
 		t.Fatal(err)
 	}
 	return db
@@ -173,7 +173,7 @@ func TestRefreshRotationRaceSingleWinner(t *testing.T) {
 // caller "win".
 func TestMarkRefreshUsedAtomicSingleWinner(t *testing.T) {
 	db := concurrentDB(t)
-	raw, err := authstore.New(db).StartRefreshFamily("user:1", []string{"a:read"}, "", time.Hour)
+	raw, err := newTestStore(db).StartRefreshFamily("user:1", []string{"a:read"}, "", time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +186,7 @@ func TestMarkRefreshUsedAtomicSingleWinner(t *testing.T) {
 	for range n {
 		go func() {
 			defer wg.Done()
-			won, err := authstore.New(db).ClaimRefreshToken(raw)
+			won, err := newTestStore(db).ClaimRefreshToken(raw)
 			if err != nil {
 				return
 			}
@@ -203,9 +203,10 @@ func TestMarkRefreshUsedAtomicSingleWinner(t *testing.T) {
 	}
 }
 
-// Concurrent Rotate() must leave EXACTLY ONE active key. The retire+insert
-// transaction plus the partial-unique index (migration 0002) prevent two
-// active signers (split authority at the trust root).
+// Concurrent Rotate() must leave EXACTLY ONE active key. The retire+install
+// batch is conditioned on the kid the new key replaces, so a losing rotation
+// writes nothing at all — no second signer, no split authority at the trust
+// root.
 func TestRotateConcurrentSingleActiveKey(t *testing.T) {
 	db := concurrentDB(t)
 	a, err := newAuthd(db, 15*time.Minute, time.Hour, time.Hour)
@@ -224,12 +225,33 @@ func TestRotateConcurrentSingleActiveKey(t *testing.T) {
 	}
 	wg.Wait()
 
-	var active int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM signing_keys WHERE active = 1`).Scan(&active); err != nil {
+	keys, err := newTestStore(db).SigningKeyMetadata(time.Hour, time.Now())
+	if err != nil {
 		t.Fatal(err)
 	}
+	active := 0
+	for _, k := range keys {
+		if k.Active {
+			active++
+		}
+	}
+	if len(keys) < 2 {
+		t.Fatalf("8 rotations left %d keys; at least one must have landed beside the boot key", len(keys))
+	}
 	if active != 1 {
-		t.Fatalf("exactly one active signing key required after concurrent rotate, got %d", active)
+		t.Fatalf("exactly one active signing key required after concurrent rotate, got %d of %d", active, len(keys))
+	}
+	// A losing rotation must write NOTHING, which is what the unique index gave
+	// by rolling the loser's whole transaction back. The slot write is
+	// conditioned on the kid it replaces, so a loser's new key never lands —
+	// and the evidence is that every stored key is either the one in the slot
+	// or a retired one. A key with neither is private key material nobody can
+	// use and no retirement sweep will ever collect.
+	for _, k := range keys {
+		if !k.Active && k.RetiredAt == "" {
+			t.Fatalf("key %s holds no slot and carries no retirement: a losing rotation "+
+				"left its key material behind (%d keys total)", k.Kid, len(keys))
+		}
 	}
 	if err := a.reload(); err != nil {
 		t.Fatal(err)
@@ -239,20 +261,48 @@ func TestRotateConcurrentSingleActiveKey(t *testing.T) {
 	}
 }
 
-// The one-active-key index also rejects a second active row inserted directly —
-// the structural guarantee the rotation tx relies on.
-func TestOneActiveKeyIndexEnforced(t *testing.T) {
+// A second signing key written straight into the store cannot become a second
+// signer. "Exactly one active key" is no longer a partial-unique index on a
+// column a writer could set — it is the signing SLOT, one item naming one kid,
+// so two active keys are not a state the store can hold. The adversarial write
+// below is the strongest form: it bypasses every method authstore offers, and
+// the key it plants still signs nothing.
+func TestSecondKeyCannotBecomeASecondSigner(t *testing.T) {
 	db := testDB(t)
-	if _, err := newAuthd(db, 15*time.Minute, time.Hour, time.Hour); err != nil {
+	a, err := newAuthd(db, 15*time.Minute, time.Hour, time.Hour)
+	if err != nil {
 		t.Fatal(err)
 	}
-	k, _ := auth.NewSigningKey(genKid(time.Now()))
+	booted, err := a.activeKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	k, _ := auth.NewSigningKey(genKid(time.Now().Add(time.Hour)))
 	privPEM, pubPEM, _ := authstore.EncodeKey(k.Priv)
-	_, err := db.Exec(
-		`INSERT INTO signing_keys (kid, priv_pem, pub_pem, active, created_at) VALUES (?, ?, ?, 1, ?)`,
-		k.Kid, privPEM, pubPEM, time.Now().Format(time.RFC3339))
-	if err == nil {
-		t.Fatal("inserting a second active key must violate the unique index")
+	putItem(t, db, authstore.SigningKeys, k.Kid, map[string]string{
+		"priv_pem": privPEM, "pub_pem": pubPEM,
+		"created_at": time.Now().Format(time.RFC3339),
+	})
+
+	// Anti-vacuity: the planted key IS in the store, so what follows is about
+	// the slot rather than about a write that never landed.
+	if _, ok := entityItem(t, db, authstore.SigningKeys, k.Kid); !ok {
+		t.Fatal("the planted key is not in the store; the assertions below prove nothing")
+	}
+	if err := a.reload(); err != nil {
+		t.Fatal(err)
+	}
+	if kid := activeKid(t, db); kid != booted.Kid {
+		t.Fatalf("the slot names %q, want the boot key %q", kid, booted.Kid)
+	}
+	now, err := a.activeKey()
+	if err != nil || now.Kid != booted.Kid {
+		t.Fatalf("the signer moved to %v (%v); a planted key must not sign", now, err)
+	}
+	// It does not verify either: a key that holds no slot and carries no
+	// retirement is outside the serving window, so it is not even a verifier.
+	if _, serving := a.PublicKeys()[k.Kid]; serving {
+		t.Fatal("a planted key entered the serving set")
 	}
 }
 
@@ -272,10 +322,9 @@ func TestRetiredKeyForgeryRejectedThroughAuthd(t *testing.T) {
 	// Backdate the now-retired key's retired_at a few seconds into the past:
 	// inside the 1h serving window (still serves legit pre-retire tokens) yet
 	// unambiguously before a token minted NOW, despite second-resolution times.
-	if _, err := db.Exec(`UPDATE signing_keys SET retired_at = ? WHERE kid = ?`,
-		time.Now().Add(-5*time.Second).Format(time.RFC3339), stolen.Kid); err != nil {
-		t.Fatal(err)
-	}
+	mergeAttrs(t, db, authstore.SigningKeys, stolen.Kid, map[string]string{
+		"retired_at": time.Now().Add(-5 * time.Second).Format(time.RFC3339),
+	})
 	if err := a.reload(); err != nil {
 		t.Fatal(err)
 	}
