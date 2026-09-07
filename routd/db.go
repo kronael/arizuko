@@ -137,10 +137,12 @@ func open(dsn string) (*DB, error) {
 	// audit_log, pane_sessions and secret_use_log are entities rather than
 	// migrations, so they are created by the driver here — routd owns this file,
 	// and dashd, webd and proxyd all record into it without opening it
-	// themselves. store owns the declaration of the three (store/entities.go),
-	// because store is what reads and writes them.
+	// themselves. store owns the declaration (store/entities.go), because store
+	// is what reads and writes them, and the OWNER argument is what keeps this
+	// file to the two it holds: store also declares onbod's three, and asking
+	// for the whole set would grow them here with no reader to match.
 	ctx := context.Background()
-	if err := store.EnsureEntities(ctx, sqlstore.New(sqldb)); err != nil {
+	if err := store.EnsureEntities(ctx, sqlstore.New(sqldb), store.OwnerRoutd); err != nil {
 		sqldb.Close()
 		return nil, err
 	}

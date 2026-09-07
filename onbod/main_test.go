@@ -20,6 +20,7 @@ import (
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/db_utils/dbtest"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
 
@@ -57,7 +58,6 @@ func testDB(t *testing.T) *sql.DB {
 	_, err := db.Exec(`
 		CREATE TABLE routes (id INTEGER PRIMARY KEY AUTOINCREMENT, seq INTEGER, match TEXT, target TEXT, observe_window_messages INTEGER, observe_window_chars INTEGER, added_by TEXT, added_via TEXT);
 		CREATE TABLE groups (folder TEXT PRIMARY KEY, parent TEXT, name TEXT, added_at TEXT, slink_token TEXT, product TEXT);
-		CREATE TABLE onboarding (jid TEXT PRIMARY KEY, status TEXT, prompted_at TEXT, created TEXT, user_sub TEXT, gate TEXT, queued_at TEXT, admitted_at TEXT);
 		CREATE TABLE route_tokens (token_hash BLOB PRIMARY KEY, jid TEXT NOT NULL, owner_folder TEXT REFERENCES groups(folder) ON DELETE CASCADE, created_at TEXT NOT NULL, context TEXT, kind TEXT NOT NULL DEFAULT 'route');
 		CREATE TABLE messages (id TEXT PRIMARY KEY, chat_jid TEXT, sender TEXT, content TEXT, timestamp TEXT, is_from_me INTEGER, is_bot_message INTEGER, source TEXT NOT NULL DEFAULT '');
 		CREATE TABLE scheduled_tasks (id TEXT PRIMARY KEY, owner TEXT, chat_jid TEXT, prompt TEXT, cron TEXT, next_run TEXT, status TEXT, created_at TEXT, context_mode TEXT);
@@ -65,19 +65,162 @@ func testDB(t *testing.T) *sql.DB {
 		CREATE TABLE acl_membership (child TEXT NOT NULL, parent TEXT NOT NULL, added_by TEXT, added_at TEXT NOT NULL, PRIMARY KEY (child, parent));
 		CREATE TABLE user_profiles (id INTEGER PRIMARY KEY AUTOINCREMENT, sub TEXT UNIQUE, username TEXT, name TEXT, created_at TEXT);
 		CREATE TABLE channels (name TEXT PRIMARY KEY, url TEXT, capabilities TEXT);
-		CREATE TABLE onboarding_gates (gate TEXT PRIMARY KEY, limit_per_day INTEGER NOT NULL, enabled INTEGER NOT NULL DEFAULT 1);
-		CREATE TABLE invites (ref TEXT PRIMARY KEY, target_glob TEXT NOT NULL, issued_by_sub TEXT NOT NULL, issued_at TEXT NOT NULL, expires_at TEXT, max_uses INTEGER NOT NULL DEFAULT 1, used_count INTEGER NOT NULL DEFAULT 0);
 		CREATE TABLE invite_redemptions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_sub TEXT NOT NULL, target_glob TEXT NOT NULL, redeemed_at TEXT NOT NULL);
 	`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// audit_log is an entity, so the fixture asks the driver for it exactly as
-	// an owner's opener does.
-	if err := audit.EnsureEntities(t.Context(), newObjectStore(db)); err != nil {
+	// onbod's own three tables and audit_log are entities, so the fixture asks
+	// the driver for them exactly as an owner's opener does (onbod/db.go
+	// migrateOwned) — never with a CREATE TABLE of its own, which would build a
+	// shape production does not have.
+	obj := newObjectStore(db)
+	if err := audit.EnsureEntities(t.Context(), obj); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.EnsureEntities(t.Context(), obj, store.OwnerOnbod); err != nil {
 		t.Fatal(err)
 	}
 	return db
+}
+
+// fixtureTS is the instant a fixture stamps when it does not care which. It is
+// 20 bytes because created/prompted_at/queued_at/admitted_at are DECLARED
+// ordered attributes and every driver refuses another width — a short value
+// would sort into the wrong place instead of failing (store/onboarding.go).
+const fixtureTS = "2026-01-01T00:00:00Z"
+
+// seedAdmission stores one admission. It writes through the owner's own
+// importer rather than a fixture of its own, so the item shape onbod reads is
+// the one store writes. An unset Created gets fixtureTS: every read that orders
+// admissions compares it.
+func seedAdmission(t *testing.T, db *sql.DB, r store.ArchiveOnboardingRow) {
+	t.Helper()
+	if r.Created == "" {
+		r.Created = fixtureTS
+	}
+	if _, err := store.New(db).ImportOnboarding(t.Context(),
+		[]store.ArchiveOnboardingRow{r}); err != nil {
+		t.Fatalf("seed admission %s: %v", r.JID, err)
+	}
+}
+
+// admission reads one admission back. The zero row when there is none, so a
+// caller asserting on a status reads "" rather than failing on a missing row.
+func admission(t *testing.T, db *sql.DB, jid string) store.OnboardingRow {
+	t.Helper()
+	rows, err := store.New(db).ListOnboarding("")
+	if err != nil {
+		t.Fatalf("read admissions: %v", err)
+	}
+	for _, r := range rows {
+		if r.JID == jid {
+			return r
+		}
+	}
+	return store.OnboardingRow{}
+}
+
+// admissionStatus is one admission's status, "" when there is none.
+func admissionStatus(t *testing.T, db *sql.DB, jid string) string {
+	t.Helper()
+	return admission(t, db, jid).Status
+}
+
+// countAdmissions counts the admissions in one status; an empty status counts
+// every one.
+func countAdmissions(t *testing.T, db *sql.DB, status string) int {
+	t.Helper()
+	rows, err := store.New(db).ListOnboarding(status)
+	if err != nil {
+		t.Fatalf("count admissions: %v", err)
+	}
+	return len(rows)
+}
+
+// seedGateRow stores one gate at a chosen limit and enablement.
+func seedGateRow(t *testing.T, db *sql.DB, gate string, limit int, enabled bool) {
+	t.Helper()
+	st := store.New(db)
+	if err := st.PutGate(gate, limit); err != nil {
+		t.Fatalf("seed gate %s: %v", gate, err)
+	}
+	if !enabled {
+		if err := st.EnableGate(gate, false); err != nil {
+			t.Fatalf("disable gate %s: %v", gate, err)
+		}
+	}
+}
+
+// seedInviteRow stores one invite at a chosen ref, for a fixture that has to
+// name the coordinate it will assert on.
+func seedInviteRow(t *testing.T, db *sql.DB, r store.ArchiveInviteRow) {
+	t.Helper()
+	if r.IssuedAt == "" {
+		r.IssuedAt = fixtureTS
+	}
+	if _, err := store.New(db).ImportInvites(t.Context(),
+		[]store.ArchiveInviteRow{r}); err != nil {
+		t.Fatalf("seed invite %s: %v", r.Ref, err)
+	}
+}
+
+// setAdmissionAttr writes one attribute of one admission, for a fixture that
+// has to build a state no accessor writes — a status the state machine cannot
+// reach, or a marker only a second admission would overwrite.
+func setAdmissionAttr(t *testing.T, db *sql.DB, jid, attr, value string) {
+	t.Helper()
+	committed, err := store.New(db).Obj().GuardedBatch(t.Context(), nil, []objstore.Write{{
+		Op: objstore.Update, Entity: store.Onboarding,
+		Key:   objstore.Key{Partition: store.OwnerOnbod, Sort: jid},
+		Attrs: map[string]string{attr: value},
+	}})
+	if err != nil {
+		t.Fatalf("set %s %s: %v", jid, attr, err)
+	}
+	if !committed {
+		t.Fatalf("set %s %s: refused, so there is no such admission", jid, attr)
+	}
+}
+
+// setAdmissionStatus moves one admission to a status no accessor writes, which
+// is what a stranded-row fixture needs.
+func setAdmissionStatus(t *testing.T, db *sql.DB, jid, status string) {
+	t.Helper()
+	setAdmissionAttr(t, db, jid, "status", status)
+}
+
+// allAdmissions is every admission, for a caller that counts by more than one
+// attribute at once.
+func allAdmissions(t *testing.T, db *sql.DB) []store.OnboardingRow {
+	t.Helper()
+	rows, err := store.New(db).ListOnboarding("")
+	if err != nil {
+		t.Fatalf("read admissions: %v", err)
+	}
+	return rows
+}
+
+// invite reads one invite back by ref.
+func invite(t *testing.T, db *sql.DB, ref string) store.ArchiveInviteRow {
+	t.Helper()
+	rows, err := store.New(db).ExportInvites(t.Context())
+	if err != nil {
+		t.Fatalf("read invites: %v", err)
+	}
+	for _, r := range rows {
+		if r.Ref == ref {
+			return r
+		}
+	}
+	t.Fatalf("no invite at ref %s", ref)
+	return store.ArchiveInviteRow{}
+}
+
+// inviteUsed is one invite's redemption counter, by ref.
+func inviteUsed(t *testing.T, db *sql.DB, ref string) int {
+	t.Helper()
+	return invite(t, db, ref).UsedCount
 }
 
 // The greeting's credential is a PAIRING token in route_tokens, not a second
@@ -86,7 +229,7 @@ func testDB(t *testing.T) *sql.DB {
 // any folder — is known, which is the constraint blocker 2 relaxed.
 func TestPromptUnpromptedMintsPairingTokenWithNullOwner(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, created) VALUES ('telegram:1', 'awaiting_message', '2026-01-01')`)
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "telegram:1", Status: "awaiting_message"})
 
 	cfg := config{greeting: "Welcome!", authBaseURL: "https://example.com"}
 	promptUnprompted(db, db, cfg)
@@ -105,15 +248,8 @@ func TestPromptUnpromptedMintsPairingTokenWithNullOwner(t *testing.T) {
 		t.Errorf("owner_folder = %q, want NULL — no folder exists at greet time", owner.String)
 	}
 
-	var prompted sql.NullString
-	db.QueryRow(`SELECT prompted_at FROM onboarding WHERE jid = 'telegram:1'`).Scan(&prompted)
-	if !prompted.Valid {
+	if admission(t, db, "telegram:1").PromptedAt == "" {
 		t.Error("expected prompted_at to be set")
-	}
-	var legacy sql.NullString
-	db.QueryRow(`SELECT token_ref FROM onboarding WHERE jid = 'telegram:1'`).Scan(&legacy)
-	if legacy.Valid {
-		t.Errorf("onboarding.token_ref = %q; the fold leaves onbod with no token of its own", legacy.String)
 	}
 }
 
@@ -121,7 +257,7 @@ func TestPromptUnpromptedMintsPairingTokenWithNullOwner(t *testing.T) {
 // A greeting whose link does not resolve is the silence spec 5/18 opens with.
 func TestPromptUnpromptedLinkRedeemsAsAPairing(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, created) VALUES ('telegram:1', 'awaiting_message', '2026-01-01')`)
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "telegram:1", Status: "awaiting_message"})
 
 	var sent string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -469,7 +605,7 @@ func TestUsernameValidation(t *testing.T) {
 // remove, so the absence is asserted, not just the admission verdict.
 func TestAdmitJIDApprovesAndWritesNoEdge(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, created) VALUES ('telegram:1', 'awaiting_message', '2026-01-01')`)
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "telegram:1", Status: "awaiting_message"})
 
 	admitJID(db, config{}, "telegram:1", "github:alice")
 
@@ -479,13 +615,12 @@ func TestAdmitJIDApprovesAndWritesNoEdge(t *testing.T) {
 		t.Errorf("admitJID wrote %d acl_membership rows; the edge belongs to RedeemPairing alone", edges)
 	}
 
-	var status, sub string
-	db.QueryRow(`SELECT status, user_sub FROM onboarding WHERE jid = 'telegram:1'`).Scan(&status, &sub)
-	if status != "approved" {
-		t.Errorf("want approved, got %s", status)
+	row := admission(t, db, "telegram:1")
+	if row.Status != "approved" {
+		t.Errorf("want approved, got %s", row.Status)
 	}
-	if sub != "github:alice" {
-		t.Errorf("want github:alice, got %q", sub)
+	if row.UserSub != "github:alice" {
+		t.Errorf("want github:alice, got %q", row.UserSub)
 	}
 }
 
@@ -494,16 +629,16 @@ func TestAdmitJIDApprovesAndWritesNoEdge(t *testing.T) {
 // PairingAddedBy count — a role membership is not a pairing.
 func TestObservePairingsAdmitsAPairedJID(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, created) VALUES ('telegram:1', 'awaiting_message', '2026-01-01')`)
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "telegram:1", Status: "awaiting_message"})
 	db.Exec(`INSERT INTO acl_membership (child, parent, added_at, added_by)
 		VALUES ('telegram:1', 'github:alice', '2026-01-01', ?)`, store.PairingAddedBy)
 
 	observePairings(db, db, config{})
 
-	var status, sub string
-	db.QueryRow(`SELECT status, user_sub FROM onboarding WHERE jid = 'telegram:1'`).Scan(&status, &sub)
-	if status != "approved" || sub != "github:alice" {
-		t.Errorf("observePairings left row at (%s, %s), want (approved, github:alice)", status, sub)
+	row := admission(t, db, "telegram:1")
+	if row.Status != "approved" || row.UserSub != "github:alice" {
+		t.Errorf("observePairings left row at (%s, %s), want (approved, github:alice)",
+			row.Status, row.UserSub)
 	}
 }
 
@@ -511,15 +646,13 @@ func TestObservePairingsAdmitsAPairedJID(t *testing.T) {
 // admission for a JID nobody has claimed.
 func TestObservePairingsLeavesUnpairedRowsAlone(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, created) VALUES ('telegram:1', 'awaiting_message', '2026-01-01')`)
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "telegram:1", Status: "awaiting_message"})
 
 	observePairings(db, db, config{})
 
-	var status string
-	var sub sql.NullString
-	db.QueryRow(`SELECT status, user_sub FROM onboarding WHERE jid = 'telegram:1'`).Scan(&status, &sub)
-	if status != "awaiting_message" || sub.Valid {
-		t.Errorf("unpaired row advanced to (%s, %v)", status, sub)
+	row := admission(t, db, "telegram:1")
+	if row.Status != "awaiting_message" || row.UserSub != "" {
+		t.Errorf("unpaired row advanced to (%s, %q)", row.Status, row.UserSub)
 	}
 }
 
@@ -528,20 +661,21 @@ func TestObservePairingsLeavesUnpairedRowsAlone(t *testing.T) {
 // once per poll interval.
 func TestObservePairingsAdmitsOnlyOnce(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, created) VALUES ('telegram:1', 'awaiting_message', '2026-01-01')`)
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "telegram:1", Status: "awaiting_message"})
 	db.Exec(`INSERT INTO acl_membership (child, parent, added_at, added_by)
 		VALUES ('telegram:1', 'github:alice', '2026-01-01', ?)`, store.PairingAddedBy)
 
 	observePairings(db, db, config{})
-	var first string
-	db.QueryRow(`SELECT admitted_at FROM onboarding WHERE jid = 'telegram:1'`).Scan(&first)
+	first := admission(t, db, "telegram:1").AdmittedAt
 
-	db.Exec(`UPDATE onboarding SET admitted_at = 'SECOND-PASS' WHERE jid = 'telegram:1'`)
+	// A marker only a second admission would overwrite. It is a real 20-byte
+	// instant because admitted_at is a DECLARED ordered attribute.
+	const marker = "1999-12-31T23:59:59Z"
+	setAdmissionAttr(t, db, "telegram:1", "admitted_at", marker)
 	observePairings(db, db, config{})
 
-	var second string
-	db.QueryRow(`SELECT admitted_at FROM onboarding WHERE jid = 'telegram:1'`).Scan(&second)
-	if second != "SECOND-PASS" {
+	second := admission(t, db, "telegram:1").AdmittedAt
+	if second != marker {
 		t.Errorf("second tick re-admitted the row (admitted_at %q → %q)", first, second)
 	}
 }
@@ -553,17 +687,16 @@ func TestObservePairingsAdmitsOnlyOnce(t *testing.T) {
 // and a message every pollInterval, forever.
 func TestObservePairingsSkipsARowThatAlreadyNamesAUser(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, user_sub, created)
-		VALUES ('telegram:1', 'awaiting_message', 'github:old', '2026-01-01')`)
+	seedAdmission(t, db, store.ArchiveOnboardingRow{
+		JID: "telegram:1", Status: "awaiting_message", UserSub: "github:old"})
 	db.Exec(`INSERT INTO acl_membership (child, parent, added_at, added_by)
 		VALUES ('telegram:1', 'github:alice', '2026-01-01', ?)`, store.PairingAddedBy)
 
 	observePairings(db, db, config{})
 
-	var status, sub string
-	db.QueryRow(`SELECT status, user_sub FROM onboarding WHERE jid='telegram:1'`).Scan(&status, &sub)
-	if status != "awaiting_message" || sub != "github:old" {
-		t.Errorf("row already naming a user was re-admitted: (%s, %s)", status, sub)
+	row := admission(t, db, "telegram:1")
+	if row.Status != "awaiting_message" || row.UserSub != "github:old" {
+		t.Errorf("row already naming a user was re-admitted: (%s, %s)", row.Status, row.UserSub)
 	}
 }
 
@@ -572,8 +705,9 @@ func TestObservePairingsSkipsARowThatAlreadyNamesAUser(t *testing.T) {
 // re-greets the chat and then strands it — the O1 shape, freshly minted.
 func TestRepromptLeavesAnAdmittableRow(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, user_sub, gate, admitted_at, prompted_at, created)
-		VALUES ('telegram:1', 'approved', 'github:alice', '*', '2026-01-02', '2026-01-02', '2026-01-01')`)
+	seedAdmission(t, db, store.ArchiveOnboardingRow{
+		JID: "telegram:1", Status: "approved", UserSub: "github:alice", Gate: "*",
+		AdmittedAt: "2026-01-02T00:00:00Z", PromptedAt: "2026-01-02T00:00:00Z"})
 	db.Exec(`INSERT INTO acl_membership (child, parent, added_at, added_by)
 		VALUES ('telegram:1', 'github:alice', '2026-01-01', ?)`, store.PairingAddedBy)
 
@@ -582,12 +716,10 @@ func TestRepromptLeavesAnAdmittableRow(t *testing.T) {
 	}
 	observePairings(db, db, config{})
 
-	var status, sub string
-	db.QueryRow(`SELECT status, COALESCE(user_sub,'') FROM onboarding WHERE jid='telegram:1'`).
-		Scan(&status, &sub)
-	if status != "approved" || sub != "github:alice" {
+	row := admission(t, db, "telegram:1")
+	if row.Status != "approved" || row.UserSub != "github:alice" {
 		t.Errorf("reprompted row stalled at (%s, %q); the observer could not re-admit it",
-			status, sub)
+			row.Status, row.UserSub)
 	}
 }
 
@@ -597,17 +729,15 @@ func TestRepromptLeavesAnAdmittableRow(t *testing.T) {
 // parent happens to be — `role:operator`, on the instances that have it.
 func TestObservePairingsIgnoresNonPairingEdges(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, created) VALUES ('telegram:1', 'awaiting_message', '2026-01-01')`)
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "telegram:1", Status: "awaiting_message"})
 	db.Exec(`INSERT INTO acl_membership (child, parent, added_at, added_by)
 		VALUES ('telegram:1', 'role:operator', '2026-01-01', 'migration-0053')`)
 
 	observePairings(db, db, config{})
 
-	var status string
-	var sub sql.NullString
-	db.QueryRow(`SELECT status, user_sub FROM onboarding WHERE jid = 'telegram:1'`).Scan(&status, &sub)
-	if status != "awaiting_message" || sub.Valid {
-		t.Errorf("a role membership admitted the row: (%s, %v)", status, sub)
+	row := admission(t, db, "telegram:1")
+	if row.Status != "awaiting_message" || row.UserSub != "" {
+		t.Errorf("a role membership admitted the row: (%s, %q)", row.Status, row.UserSub)
 	}
 }
 
@@ -620,8 +750,7 @@ func TestObservePairingsIgnoresAgentMintedPairings(t *testing.T) {
 
 	observePairings(db, db, config{})
 
-	var rows int
-	db.QueryRow(`SELECT COUNT(*) FROM onboarding`).Scan(&rows)
+	rows := countAdmissions(t, db, "")
 	if rows != 0 {
 		t.Errorf("observer created %d onboarding rows; it must only advance existing ones", rows)
 	}
@@ -790,16 +919,13 @@ func TestMatchGateNoWildcard(t *testing.T) {
 
 func TestAdmitJIDWithGatesQueues(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, created)
-		VALUES ('telegram:1', 'awaiting_message', '2026-01-01')`)
-	db.Exec(`INSERT INTO onboarding_gates (gate, limit_per_day) VALUES ('github:org=co', 10)`)
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "telegram:1", Status: "awaiting_message"})
+	seedGateRow(t, db, "github:org=co", 10, true)
 
 	admitJID(db, config{}, "telegram:1", "github:alice")
 
-	var status, gateCol, queuedAt string
-	db.QueryRow(
-		`SELECT status, gate, queued_at FROM onboarding WHERE jid = 'telegram:1'`,
-	).Scan(&status, &gateCol, &queuedAt)
+	row := admission(t, db, "telegram:1")
+	status, gateCol, queuedAt := row.Status, row.Gate, row.QueuedAt
 	if status != "queued" {
 		t.Errorf("want status=queued, got %s", status)
 	}
@@ -816,15 +942,13 @@ func TestAdmitJIDWithGatesQueues(t *testing.T) {
 // chat is told exactly once.
 func TestAdmitJIDWithGatesNoMatchIsRefusedTerminally(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, created)
-		VALUES ('telegram:1', 'awaiting_message', '2026-01-01')`)
-	db.Exec(`INSERT INTO onboarding_gates (gate, limit_per_day) VALUES ('github:org=co', 10)`)
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "telegram:1", Status: "awaiting_message"})
+	seedGateRow(t, db, "github:org=co", 10, true)
 
 	admitJID(db, config{}, "telegram:1", "google:alice@other.com")
 
-	var status, sub string
-	db.QueryRow(`SELECT status, COALESCE(user_sub,'') FROM onboarding WHERE jid = 'telegram:1'`).
-		Scan(&status, &sub)
+	row := admission(t, db, "telegram:1")
+	status, sub := row.Status, row.UserSub
 	if status != "refused" {
 		t.Errorf("want status=refused, got %s", status)
 	}
@@ -837,23 +961,20 @@ func TestAdmitFromQueue(t *testing.T) {
 	db := testDB(t)
 	now := "2026-04-17T10:00:00Z"
 	// 3 queued users under the same gate, limit=2
-	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
-		VALUES ('t:1', 'queued', 'github:org=co', ?, 'github:a', '2026-01-01')`, now)
-	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
-		VALUES ('t:2', 'queued', 'github:org=co', ?, 'github:b', '2026-01-01')`,
-		"2026-04-17T10:01:00Z")
-	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
-		VALUES ('t:3', 'queued', 'github:org=co', ?, 'github:c', '2026-01-01')`,
-		"2026-04-17T10:02:00Z")
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "t:1", Status: "queued",
+		Gate: "github:org=co", QueuedAt: now, UserSub: "github:a"})
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "t:2", Status: "queued",
+		Gate: "github:org=co", QueuedAt: "2026-04-17T10:01:00Z", UserSub: "github:b"})
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "t:3", Status: "queued",
+		Gate: "github:org=co", QueuedAt: "2026-04-17T10:02:00Z", UserSub: "github:c"})
 
-	db.Exec(`INSERT INTO onboarding_gates (gate, limit_per_day) VALUES ('github:org=co', 2)`)
+	seedGateRow(t, db, "github:org=co", 2, true)
 	admitFromQueue(db)
 
 	// First 2 should be approved, third still queued
-	var s1, s2, s3 string
-	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 't:1'`).Scan(&s1)
-	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 't:2'`).Scan(&s2)
-	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 't:3'`).Scan(&s3)
+	s1 := admissionStatus(t, db, "t:1")
+	s2 := admissionStatus(t, db, "t:2")
+	s3 := admissionStatus(t, db, "t:3")
 	if s1 != "approved" {
 		t.Errorf("t:1 want approved, got %s", s1)
 	}
@@ -872,20 +993,18 @@ func TestAdmitFromQueueRespectsDaily(t *testing.T) {
 	// the suite runs past that day.
 	today := time.Now().UTC().Format("2006-01-02")
 	// 1 already admitted today (counted by admitted_at)
-	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, admitted_at, user_sub, created)
-		VALUES ('t:0', 'approved', 'github:org=co', ?, ?, 'github:z', '2026-01-01')`,
-		today+"T08:00:00Z", today+"T08:00:00Z")
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "t:0", Status: "approved",
+		Gate: "github:org=co", QueuedAt: today + "T08:00:00Z",
+		AdmittedAt: today + "T08:00:00Z", UserSub: "github:z"})
 	// 1 queued
-	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
-		VALUES ('t:1', 'queued', 'github:org=co', ?, 'github:a', '2026-01-01')`,
-		today+"T10:00:00Z")
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "t:1", Status: "queued",
+		Gate: "github:org=co", QueuedAt: today + "T10:00:00Z", UserSub: "github:a"})
 
-	db.Exec(`INSERT INTO onboarding_gates (gate, limit_per_day) VALUES ('github:org=co', 1)`)
+	seedGateRow(t, db, "github:org=co", 1, true)
 	admitFromQueue(db)
 
 	// Daily limit already hit, t:1 stays queued
-	var s string
-	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 't:1'`).Scan(&s)
+	s := admissionStatus(t, db, "t:1")
 	if s != "queued" {
 		t.Errorf("t:1 want queued (daily limit hit), got %s", s)
 	}
@@ -901,27 +1020,35 @@ func TestAdmitFromQueueCapHoldsAcrossDays(t *testing.T) {
 	yesterday := time.Now().Add(-24 * time.Hour).UTC().Format("2006-01-02")
 	// 3 users queued yesterday, all under the same gate, limit=2.
 	for i, jid := range []string{"t:1", "t:2", "t:3"} {
-		db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
-			VALUES (?, 'queued', 'github:org=co', ?, ?, '2026-01-01')`,
-			jid, yesterday+"T1"+strconv.Itoa(i)+":00:00Z", "github:"+jid)
+		seedAdmission(t, db, store.ArchiveOnboardingRow{JID: jid, Status: "queued",
+			Gate:     "github:org=co",
+			QueuedAt: yesterday + "T1" + strconv.Itoa(i) + ":00:00Z",
+			UserSub:  "github:" + jid})
 	}
-	db.Exec(`INSERT INTO onboarding_gates (gate, limit_per_day) VALUES ('github:org=co', 2)`)
+	seedGateRow(t, db, "github:org=co", 2, true)
 
 	// Two ticks in the same run; the second must not exceed today's cap.
 	admitFromQueue(db)
 	admitFromQueue(db)
 
-	var approved int
-	db.QueryRow(`SELECT COUNT(*) FROM onboarding WHERE gate = 'github:org=co' AND status = 'approved'`).
-		Scan(&approved)
+	approved := 0
+	stamped := 0
+	// admitted rows must carry today's admitted_at so the count is on the right day.
+	today := time.Now().UTC().Format("2006-01-02")
+	for _, r := range allAdmissions(t, db) {
+		if r.Status != "approved" {
+			continue
+		}
+		if r.Gate == "github:org=co" {
+			approved++
+		}
+		if strings.HasPrefix(r.AdmittedAt, today) {
+			stamped++
+		}
+	}
 	if approved != 2 {
 		t.Errorf("want 2 admitted (daily cap), got %d — cap leaks across days", approved)
 	}
-	// admitted rows must carry today's admitted_at so the count is on the right day.
-	today := time.Now().UTC().Format("2006-01-02")
-	var stamped int
-	db.QueryRow(`SELECT COUNT(*) FROM onboarding WHERE status = 'approved' AND admitted_at LIKE ?`,
-		today+"%").Scan(&stamped)
 	if stamped != 2 {
 		t.Errorf("want 2 rows stamped admitted_at=today, got %d", stamped)
 	}
@@ -929,13 +1056,12 @@ func TestAdmitFromQueueCapHoldsAcrossDays(t *testing.T) {
 
 func TestAdmitFromQueueNoGates(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
-		VALUES ('t:1', 'queued', 'github:org=co', '2026-04-17T10:00:00Z', 'github:a', '2026-01-01')`)
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "t:1", Status: "queued",
+		Gate: "github:org=co", QueuedAt: "2026-04-17T10:00:00Z", UserSub: "github:a"})
 	// No gates in DB → noop
 	admitFromQueue(db)
 
-	var s string
-	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 't:1'`).Scan(&s)
+	s := admissionStatus(t, db, "t:1")
 	if s != "queued" {
 		t.Errorf("want queued (no gates = noop), got %s", s)
 	}
@@ -944,14 +1070,14 @@ func TestAdmitFromQueueNoGates(t *testing.T) {
 func TestQueuePositionRendering(t *testing.T) {
 	db := testDB(t)
 	// 2 users queued, test shows position for second one
-	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
-		VALUES ('t:1', 'queued', '*', '2026-04-17T10:00:00Z', 'github:first', '2026-01-01')`)
-	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
-		VALUES ('t:2', 'queued', '*', '2026-04-17T10:01:00Z', 'github:second', '2026-01-01')`)
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "t:1", Status: "queued",
+		Gate: "*", QueuedAt: "2026-04-17T10:00:00Z", UserSub: "github:first"})
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "t:2", Status: "queued",
+		Gate: "*", QueuedAt: "2026-04-17T10:01:00Z", UserSub: "github:second"})
 	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
 		VALUES ('github:second', 'second', 'Second', '2026-01-01')`)
 
-	db.Exec(`INSERT INTO onboarding_gates (gate, limit_per_day) VALUES ('*', 100)`)
+	seedGateRow(t, db, "*", 100, true)
 
 	cfg := config{}
 	req := httptest.NewRequest("GET", "/onboard", nil)
@@ -973,14 +1099,12 @@ func TestQueuePositionRendering(t *testing.T) {
 
 func TestNoGatesLegacyBehavior(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, created)
-		VALUES ('telegram:1', 'awaiting_message', '2026-01-01')`)
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "telegram:1", Status: "awaiting_message"})
 
 	// No gates → admitJID should set approved directly
 	admitJID(db, config{}, "telegram:1", "github:alice")
 
-	var status string
-	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 'telegram:1'`).Scan(&status)
+	status := admissionStatus(t, db, "telegram:1")
 	if status != "approved" {
 		t.Errorf("want approved (legacy), got %s", status)
 	}
@@ -1006,10 +1130,9 @@ func TestInviteCreation(t *testing.T) {
 		t.Errorf("expected 64-char hex token, got %d", len(token))
 	}
 
-	var glob, issuedBy string
-	var maxUses, used int
-	db.QueryRow(`SELECT target_glob, issued_by_sub, max_uses, used_count FROM invites WHERE ref = ?`,
-		store.TokenRef(token)).Scan(&glob, &issuedBy, &maxUses, &used)
+	inv := invite(t, db, store.TokenRef(token))
+	glob, issuedBy := inv.TargetGlob, inv.IssuedBySub
+	maxUses, used := inv.MaxUses, inv.UsedCount
 	if glob != "alice" {
 		t.Errorf("want target_glob=alice, got %q", glob)
 	}
@@ -1063,8 +1186,7 @@ func TestInviteConsume(t *testing.T) {
 		t.Errorf("redemption wrote %d route(s) as a side effect; want 0", n)
 	}
 
-	var used int
-	db.QueryRow(`SELECT used_count FROM invites WHERE ref = ?`, store.TokenRef(token)).Scan(&used)
+	used := inviteUsed(t, db, store.TokenRef(token))
 	if used != 1 {
 		t.Errorf("want used_count=1, got %d", used)
 	}
@@ -1073,8 +1195,8 @@ func TestInviteConsume(t *testing.T) {
 func TestInviteExpired(t *testing.T) {
 	db := testDB(t)
 	past := "2020-01-01T00:00:00Z"
-	db.Exec(`INSERT INTO invites (ref, target_glob, issued_by_sub, issued_at, max_uses, expires_at)
-		VALUES (?, 'alice', 'telegram:1', '2026-01-01T00:00:00Z', 1, ?)`, store.TokenRef("expired-tok"), past)
+	seedInviteRow(t, db, store.ArchiveInviteRow{Ref: store.TokenRef("expired-tok"),
+		TargetGlob: "alice", IssuedBySub: "telegram:1", MaxUses: 1, ExpiresAt: past})
 
 	cfg := config{}
 	req := httptest.NewRequest("GET", "/invite/expired-tok", nil)
@@ -1094,8 +1216,8 @@ func TestInviteExpired(t *testing.T) {
 
 func TestInviteMaxUses(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO invites (ref, target_glob, issued_by_sub, issued_at, used_count, max_uses)
-		VALUES (?, 'alice', 'telegram:1', '2026-01-01T00:00:00Z', 1, 1)`, store.TokenRef("used-tok"))
+	seedInviteRow(t, db, store.ArchiveInviteRow{Ref: store.TokenRef("used-tok"),
+		TargetGlob: "alice", IssuedBySub: "telegram:1", MaxUses: 1, UsedCount: 1})
 
 	cfg := config{}
 	req := httptest.NewRequest("GET", "/invite/used-tok", nil)
@@ -1115,8 +1237,8 @@ func TestInviteMaxUses(t *testing.T) {
 
 func TestInviteAuthRequired(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO invites (ref, target_glob, issued_by_sub, issued_at, max_uses)
-		VALUES (?, 'alice', 'telegram:1', '2026-01-01T00:00:00Z', 1)`, store.TokenRef("auth-tok"))
+	seedInviteRow(t, db, store.ArchiveInviteRow{Ref: store.TokenRef("auth-tok"),
+		TargetGlob: "alice", IssuedBySub: "telegram:1", MaxUses: 1})
 
 	cfg := config{authBaseURL: "https://example.com", secureCookie: true}
 	req := httptest.NewRequest("GET", "/invite/auth-tok", nil)
@@ -1404,8 +1526,8 @@ func TestQueuePositionXSSEscape(t *testing.T) {
 		VALUES ('github:x', 'x', 'X', '2026-01-01')`)
 	// gate value itself is stored, but the eta-msg is server-side formatted;
 	// ensure no raw DB reflection occurs in HTML without escape.
-	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
-		VALUES ('t:1', 'queued', '<x>', '2026-04-17T10:00:00Z', 'github:x', '2026-01-01')`)
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "t:1", Status: "queued",
+		Gate: "<x>", QueuedAt: "2026-04-17T10:00:00Z", UserSub: "github:x"})
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/onboard", nil)
@@ -1518,16 +1640,15 @@ func TestNonOperatorNoGrantsDenied(t *testing.T) {
 // Admission queue FIFO: oldest queued_at admitted first.
 func TestAdmitFromQueueFIFO(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
-		VALUES ('t:late', 'queued', '*', '2026-04-17T12:00:00Z', 'u:late', '2026-01-01')`)
-	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
-		VALUES ('t:early', 'queued', '*', '2026-04-17T09:00:00Z', 'u:early', '2026-01-01')`)
-	db.Exec(`INSERT INTO onboarding_gates (gate, limit_per_day) VALUES ('*', 1)`)
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "t:late", Status: "queued",
+		Gate: "*", QueuedAt: "2026-04-17T12:00:00Z", UserSub: "u:late"})
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "t:early", Status: "queued",
+		Gate: "*", QueuedAt: "2026-04-17T09:00:00Z", UserSub: "u:early"})
+	seedGateRow(t, db, "*", 1, true)
 	admitFromQueue(db)
 
-	var early, late string
-	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 't:early'`).Scan(&early)
-	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 't:late'`).Scan(&late)
+	early := admissionStatus(t, db, "t:early")
+	late := admissionStatus(t, db, "t:late")
 	if early != "approved" {
 		t.Errorf("FIFO violated: early want approved, got %s", early)
 	}
@@ -1539,17 +1660,16 @@ func TestAdmitFromQueueFIFO(t *testing.T) {
 // Two gates with independent daily limits.
 func TestAdmitFromQueueMultipleGates(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
-		VALUES ('g:1', 'queued', 'github:org=co', '2026-04-17T10:00:00Z', 'gh:1', '2026-01-01')`)
-	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
-		VALUES ('*:1', 'queued', '*', '2026-04-17T10:00:00Z', 'any:1', '2026-01-01')`)
-	db.Exec(`INSERT INTO onboarding_gates (gate, limit_per_day) VALUES ('github:org=co', 5)`)
-	db.Exec(`INSERT INTO onboarding_gates (gate, limit_per_day) VALUES ('*', 5)`)
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "g:1", Status: "queued",
+		Gate: "github:org=co", QueuedAt: "2026-04-17T10:00:00Z", UserSub: "gh:1"})
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "*:1", Status: "queued",
+		Gate: "*", QueuedAt: "2026-04-17T10:00:00Z", UserSub: "any:1"})
+	seedGateRow(t, db, "github:org=co", 5, true)
+	seedGateRow(t, db, "*", 5, true)
 	admitFromQueue(db)
 
-	var a, b string
-	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 'g:1'`).Scan(&a)
-	db.QueryRow(`SELECT status FROM onboarding WHERE jid = '*:1'`).Scan(&b)
+	a := admissionStatus(t, db, "g:1")
+	b := admissionStatus(t, db, "*:1")
 	if a != "approved" || b != "approved" {
 		t.Errorf("both gates should admit: got github=%s, wildcard=%s", a, b)
 	}
@@ -1558,8 +1678,8 @@ func TestAdmitFromQueueMultipleGates(t *testing.T) {
 // Disabled gate is not loaded.
 func TestLoadGatesEnabledFilter(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding_gates (gate, limit_per_day, enabled) VALUES ('github:org=co', 10, 1)`)
-	db.Exec(`INSERT INTO onboarding_gates (gate, limit_per_day, enabled) VALUES ('*', 5, 0)`)
+	seedGateRow(t, db, "github:org=co", 10, true)
+	seedGateRow(t, db, "*", 5, false)
 
 	gates := loadGates(db)
 	if len(gates) != 1 {
@@ -1579,9 +1699,8 @@ func TestStateMachineMigrated(t *testing.T) {
 	// Seed auth user + existing world for the JID to link to.
 	xdb.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
 		VALUES ('github:alice', 'alice', 'Alice', '2026-01-01')`)
-	obdb.Exec(`INSERT INTO onboarding_gates (gate, limit_per_day) VALUES ('*', 5)`)
-	obdb.Exec(`INSERT INTO onboarding (jid, status, created)
-		VALUES ('telegram:7', 'awaiting_message', '2026-01-01')`)
+	seedGateRow(t, obdb, "*", 5, true)
+	seedAdmission(t, obdb, store.ArchiveOnboardingRow{JID: "telegram:7", Status: "awaiting_message"})
 
 	cfg := config{authBaseURL: "https://example.com"}
 
@@ -1593,8 +1712,7 @@ func TestStateMachineMigrated(t *testing.T) {
 	if pairTokens != 1 {
 		t.Fatalf("prompt minted %d pairing tokens, want 1", pairTokens)
 	}
-	var st string
-	obdb.QueryRow(`SELECT status FROM onboarding WHERE jid = 'telegram:7'`).Scan(&st)
+	st := admissionStatus(t, obdb, "telegram:7")
 	if st != "awaiting_message" {
 		t.Fatalf("prompting must not advance status, got %s", st)
 	}
@@ -1605,14 +1723,14 @@ func TestStateMachineMigrated(t *testing.T) {
 
 	// 3) the observer discovers it → queued (a gate is configured)
 	observePairings(xdb, obdb, cfg)
-	obdb.QueryRow(`SELECT status FROM onboarding WHERE jid = 'telegram:7'`).Scan(&st)
+	st = admissionStatus(t, obdb, "telegram:7")
 	if st != "queued" {
 		t.Fatalf("after observe+gate want queued, got %s", st)
 	}
 
 	// 4) admit from queue → approved
 	admitFromQueue(obdb)
-	obdb.QueryRow(`SELECT status FROM onboarding WHERE jid = 'telegram:7'`).Scan(&st)
+	st = admissionStatus(t, obdb, "telegram:7")
 	if st != "approved" {
 		t.Fatalf("after admit want approved, got %s", st)
 	}
@@ -1621,8 +1739,8 @@ func TestStateMachineMigrated(t *testing.T) {
 // Invite: auth_return cookie is also set when unauthenticated (regression guard).
 func TestInviteSetsCookieFlagsHTTPS(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO invites (ref, target_glob, issued_by_sub, issued_at, max_uses)
-		VALUES (?, 'alice', 'x', '2026-01-01T00:00:00Z', 1)`, store.TokenRef("tok"))
+	seedInviteRow(t, db, store.ArchiveInviteRow{Ref: store.TokenRef("tok"),
+		TargetGlob: "alice", IssuedBySub: "x", MaxUses: 1})
 	cfg := config{authBaseURL: "https://example.com", secureCookie: true}
 	req := httptest.NewRequest("GET", "/invite/tok", nil)
 	req.SetPathValue("token", "tok")
@@ -1682,7 +1800,7 @@ func TestDashboardUnauthenticated(t *testing.T) {
 // format without mocking.
 func TestPromptUnpromptedSendsGreeting(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, created) VALUES ('telegram:1', 'awaiting_message', '2026-01-01')`)
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "telegram:1", Status: "awaiting_message"})
 
 	var gotAuth string
 	var gotBody []byte
@@ -1709,7 +1827,7 @@ func TestPromptUnpromptedSendsGreeting(t *testing.T) {
 // sendReply gracefully handles non-2xx — the prompt still claims the row.
 func TestSendReplyHandlesNon2xx(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, created) VALUES ('t:1', 'awaiting_message', '2026-01-01')`)
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "t:1", Status: "awaiting_message"})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
@@ -1717,17 +1835,15 @@ func TestSendReplyHandlesNon2xx(t *testing.T) {
 	cfg := config{gatedURL: srv.URL, authBaseURL: "https://ex.com"}
 	// Should not panic even when router returns 500.
 	promptUnprompted(db, db, cfg)
-	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM onboarding WHERE jid='t:1' AND prompted_at IS NOT NULL`).Scan(&n)
-	if n != 1 {
-		t.Errorf("row should still be claimed after send failure, got %d", n)
+	if admission(t, db, "t:1").PromptedAt == "" {
+		t.Error("row should still be claimed after send failure")
 	}
 }
 
 // sendReply swallows transport errors (unreachable URL).
 func TestSendReplyHandlesTransportError(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, created) VALUES ('t:1', 'awaiting_message', '2026-01-01')`)
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "t:1", Status: "awaiting_message"})
 	// Point at a closed port to force Do() to fail.
 	cfg := config{gatedURL: "http://127.0.0.1:1", authBaseURL: "https://ex.com"}
 	promptUnprompted(db, db, cfg) // must not panic
@@ -1837,15 +1953,16 @@ func TestQueuePositionETAHours(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
 		VALUES ('github:x', 'x', 'X', '2026-01-01')`)
-	db.Exec(`INSERT INTO onboarding_gates (gate, limit_per_day) VALUES ('*', 1)`)
+	seedGateRow(t, db, "*", 1, true)
 	// 4 earlier queued entries + the caller → position 5, 5*1440/1 = 7200 min.
 	for i, jid := range []string{"t:a", "t:b", "t:c", "t:d"} {
-		db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
-			VALUES (?, 'queued', '*', ?, 'u:'||?, '2026-01-01')`,
-			jid, "2026-04-17T0"+strconv.Itoa(i)+":00:00Z", i)
+		seedAdmission(t, db, store.ArchiveOnboardingRow{JID: jid, Status: "queued",
+			Gate:     "*",
+			QueuedAt: "2026-04-17T0" + strconv.Itoa(i) + ":00:00Z",
+			UserSub:  "u:" + strconv.Itoa(i)})
 	}
-	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
-		VALUES ('t:me', 'queued', '*', '2026-04-17T09:00:00Z', 'github:x', '2026-01-01')`)
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "t:me", Status: "queued",
+		Gate: "*", QueuedAt: "2026-04-17T09:00:00Z", UserSub: "github:x"})
 
 	req := httptest.NewRequest("GET", "/onboard", nil)
 	req.Header.Set("X-User-Sub", "github:x")
@@ -1862,23 +1979,22 @@ func TestAdmitFromQueueDailyLimitPersists(t *testing.T) {
 	db := testDB(t)
 	today := time.Now().Format("2006-01-02")
 	// Already-approved entry counts against today's budget (by admitted_at).
-	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, admitted_at, user_sub, created)
-		VALUES ('t:old', 'approved', '*', ?, ?, 'u:old', '2026-01-01')`,
-		today+"T02:00:00Z", today+"T02:00:00Z")
-	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
-		VALUES ('t:wait', 'queued', '*', ?, 'u:wait', '2026-01-01')`, today+"T03:00:00Z")
-	db.Exec(`INSERT INTO onboarding_gates (gate, limit_per_day) VALUES ('*', 1)`)
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "t:old", Status: "approved",
+		Gate: "*", QueuedAt: today + "T02:00:00Z", AdmittedAt: today + "T02:00:00Z",
+		UserSub: "u:old"})
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "t:wait", Status: "queued",
+		Gate: "*", QueuedAt: today + "T03:00:00Z", UserSub: "u:wait"})
+	seedGateRow(t, db, "*", 1, true)
 
 	admitFromQueue(db)
-	var st string
-	db.QueryRow(`SELECT status FROM onboarding WHERE jid='t:wait'`).Scan(&st)
+	st := admissionStatus(t, db, "t:wait")
 	if st != "queued" {
 		t.Errorf("daily limit should block further admission, got %s", st)
 	}
 
 	// Second call is also a no-op (limit already hit).
 	admitFromQueue(db)
-	db.QueryRow(`SELECT status FROM onboarding WHERE jid='t:wait'`).Scan(&st)
+	st = admissionStatus(t, db, "t:wait")
 	if st != "queued" {
 		t.Errorf("second admit should still be no-op, got %s", st)
 	}
@@ -1891,16 +2007,15 @@ func TestAdmitFromQueuePriorDayBacklogCounts(t *testing.T) {
 	_, db := migratedDB(t)
 	// Two entries queued yesterday, limit 1/day. First admit takes one.
 	yesterday := time.Now().Add(-24 * time.Hour).Format("2006-01-02")
-	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
-		VALUES ('t:1', 'queued', '*', ?, 'u:1', '2026-01-01')`, yesterday+"T01:00:00Z")
-	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
-		VALUES ('t:2', 'queued', '*', ?, 'u:2', '2026-01-01')`, yesterday+"T02:00:00Z")
-	db.Exec(`INSERT INTO onboarding_gates (gate, limit_per_day) VALUES ('*', 1)`)
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "t:1", Status: "queued",
+		Gate: "*", QueuedAt: yesterday + "T01:00:00Z", UserSub: "u:1"})
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "t:2", Status: "queued",
+		Gate: "*", QueuedAt: yesterday + "T02:00:00Z", UserSub: "u:2"})
+	seedGateRow(t, db, "*", 1, true)
 
 	admitFromQueue(db)
-	var s1, s2 string
-	db.QueryRow(`SELECT status FROM onboarding WHERE jid='t:1'`).Scan(&s1)
-	db.QueryRow(`SELECT status FROM onboarding WHERE jid='t:2'`).Scan(&s2)
+	s1 := admissionStatus(t, db, "t:1")
+	s2 := admissionStatus(t, db, "t:2")
 	if s1 != "approved" {
 		t.Errorf("oldest backlog entry should be admitted, got %s", s1)
 	}
@@ -1911,7 +2026,7 @@ func TestAdmitFromQueuePriorDayBacklogCounts(t *testing.T) {
 	// Re-poll: the admission stamped admitted_at=today, so today's count is 1,
 	// quota exhausted; t:2 must stay queued instead of draining the backlog.
 	admitFromQueue(db)
-	db.QueryRow(`SELECT status FROM onboarding WHERE jid='t:2'`).Scan(&s2)
+	s2 = admissionStatus(t, db, "t:2")
 	if s2 != "queued" {
 		t.Errorf("prior-day backlog must not evade today's limit, got %s", s2)
 	}
@@ -2041,8 +2156,8 @@ func TestCSRFRejectedWhenFormMissing(t *testing.T) {
 func TestPromptUnprompted_DoesNotRegreetAPromptedRow(t *testing.T) {
 	db := testDB(t)
 	stale := time.Now().UTC().Add(-31 * time.Minute).Format(time.RFC3339)
-	db.Exec(`INSERT INTO onboarding (jid, status, prompted_at, created)
-		VALUES ('telegram:1', 'awaiting_message', ?, '2026-01-01')`, stale)
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "telegram:1",
+		Status: "awaiting_message", PromptedAt: stale})
 
 	cfg := config{authBaseURL: "https://example.com"}
 	promptUnprompted(db, db, cfg)
@@ -2052,8 +2167,7 @@ func TestPromptUnprompted_DoesNotRegreetAPromptedRow(t *testing.T) {
 	if minted != 0 {
 		t.Errorf("re-greeted a row already prompted %s ago: %d tokens minted", "31m", minted)
 	}
-	var prompted string
-	db.QueryRow(`SELECT prompted_at FROM onboarding WHERE jid='telegram:1'`).Scan(&prompted)
+	prompted := admission(t, db, "telegram:1").PromptedAt
 	if prompted != stale {
 		t.Errorf("prompted_at moved: %q -> %q", stale, prompted)
 	}
@@ -2064,15 +2178,13 @@ func TestPromptUnprompted_DoesNotRegreetAPromptedRow(t *testing.T) {
 func TestPromptUnprompted_DoesNotResetClaimedRow(t *testing.T) {
 	db := testDB(t)
 	stale := time.Now().UTC().Add(-31 * time.Minute).Format(time.RFC3339)
-	db.Exec(`INSERT INTO onboarding (jid, status, user_sub, prompted_at, created)
-		VALUES ('telegram:1', 'approved', 'github:alice', ?, '2026-01-01')`, stale)
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "telegram:1", Status: "approved",
+		UserSub: "github:alice", PromptedAt: stale})
 
 	cfg := config{authBaseURL: "https://example.com"}
 	promptUnprompted(db, db, cfg)
 
-	var status string
-	db.QueryRow(`SELECT status FROM onboarding WHERE jid='telegram:1'`).Scan(&status)
-	if status != "approved" {
+	if status := admissionStatus(t, db, "telegram:1"); status != "approved" {
 		t.Errorf("claimed row was reset: status=%s", status)
 	}
 	var minted int
@@ -2154,10 +2266,7 @@ func TestKnownStatusesCoversEveryWriter(t *testing.T) {
 // incident. Once per (jid, status) per process is the whole fix.
 func TestStrandedRowWarnsOncePerProcess(t *testing.T) {
 	db := testDB(t)
-	if _, err := db.Exec(
-		`INSERT INTO onboarding (jid, status) VALUES ('telegram:user/1', 'pending')`); err != nil {
-		t.Fatalf("fixture: %v", err)
-	}
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "telegram:user/1", Status: "pending"})
 
 	var buf bytes.Buffer
 	prev := slog.Default()
@@ -2174,10 +2283,7 @@ func TestStrandedRowWarnsOncePerProcess(t *testing.T) {
 
 	// A row that moves to a DIFFERENT unknown status is a new fact, so it
 	// warns again — silence there would hide a real change.
-	if _, err := db.Exec(
-		`UPDATE onboarding SET status = 'wedged' WHERE jid = 'telegram:user/1'`); err != nil {
-		t.Fatalf("update: %v", err)
-	}
+	setAdmissionStatus(t, db, "telegram:user/1", "wedged")
 	warnStrandedRows(db)
 	if got := strings.Count(buf.String(), "stranded in an unknown status"); got != 2 {
 		t.Errorf("a changed status logged %d times total, want 2", got)

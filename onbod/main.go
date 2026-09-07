@@ -381,28 +381,20 @@ var warnedStranded sync.Map
 // repair them — picking a status for a row of unknown provenance is the
 // operator's call — but silence is what let them sit unnoticed.
 func warnStrandedRows(db *sql.DB) {
-	rows, err := db.Query(`SELECT jid, status FROM onboarding`)
+	rows, err := store.New(db).ListOnboarding("")
 	if err != nil {
 		slog.Error("stranded-row scan", "err", err)
 		return
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var jid, status string
-		if err := rows.Scan(&jid, &status); err != nil {
-			slog.Error("stranded-row scan", "err", err)
-			return
+	for _, r := range rows {
+		if knownStatuses[r.Status] {
+			continue
 		}
-		if !knownStatuses[status] {
-			if _, seen := warnedStranded.LoadOrStore(jid+"\x00"+status, true); seen {
-				continue
-			}
-			slog.Error("onboarding row stranded in an unknown status — it will never advance",
-				"jid", jid, "status", status, "known", "awaiting_message/token_used/queued/approved")
+		if _, seen := warnedStranded.LoadOrStore(r.JID+"\x00"+r.Status, true); seen {
+			continue
 		}
-	}
-	if err := rows.Err(); err != nil {
-		slog.Error("stranded-row scan", "err", err)
+		slog.Error("onboarding row stranded in an unknown status — it will never advance",
+			"jid", r.JID, "status", r.Status, "known", "awaiting_message/token_used/queued/approved")
 	}
 }
 
@@ -415,21 +407,13 @@ func warnStrandedRows(db *sql.DB) {
 // row's existence and is not re-derived here.
 func promptUnprompted(xdb, obdb *sql.DB, cfg config) {
 	warnStrandedRows(obdb)
-	rows, err := obdb.Query(
-		`SELECT jid FROM onboarding WHERE status = 'awaiting_message' AND prompted_at IS NULL`)
+	obst := store.New(obdb)
+	pending, err := obst.UnpromptedJIDs()
 	if err != nil {
 		slog.Error("promptUnprompted query", "err", err)
 		return
 	}
-	var pending []string
-	for rows.Next() {
-		var jid string
-		rows.Scan(&jid)
-		pending = append(pending, jid)
-	}
-	rows.Close()
 
-	now := time.Now().UTC().Format(time.RFC3339)
 	base := strings.TrimRight(cfg.authBaseURL, "/")
 	for _, jid := range pending {
 		// Mint BEFORE the claim. The two writes are in different databases with
@@ -442,17 +426,15 @@ func promptUnprompted(xdb, obdb *sql.DB, cfg config) {
 			slog.Error("promptUnprompted mint pairing link", "jid", jid, "err", err)
 			continue
 		}
-		// Claim-per-row: the UPDATE re-checks prompted_at IS NULL so two
+		// Claim-per-row: the write re-checks that prompted_at is absent, so two
 		// overlapping ticks can't both win the same jid. Only the tick whose
-		// UPDATE affected a row sends the link (else the other tick already did).
-		res, err := obdb.Exec(
-			`UPDATE onboarding SET prompted_at = ? WHERE jid = ? AND prompted_at IS NULL`,
-			now, jid)
+		// claim was taken sends the link (else the other tick already did).
+		claimed, err := obst.ClaimOnboardingPrompt(jid)
 		if err != nil {
 			slog.Error("promptUnprompted claim", "jid", jid, "err", err)
 			continue
 		}
-		if n, _ := res.RowsAffected(); n != 1 {
+		if !claimed {
 			continue
 		}
 
@@ -488,23 +470,11 @@ func promptUnprompted(xdb, obdb *sql.DB, cfg config) {
 // The dedup is onboarding's jid primary key plus the `user_sub IS NULL` guard, so
 // a row is admitted once and an agent-minted pairing is invisible here.
 func observePairings(xdb, obdb *sql.DB, cfg config) {
-	rows, err := obdb.Query(
-		`SELECT jid FROM onboarding WHERE status = 'awaiting_message' AND user_sub IS NULL`)
+	awaiting, err := store.New(obdb).UnadmittedJIDs()
 	if err != nil {
 		slog.Error("observePairings query", "err", err)
 		return
 	}
-	var awaiting []string
-	for rows.Next() {
-		var jid string
-		if err := rows.Scan(&jid); err != nil {
-			rows.Close()
-			slog.Error("observePairings scan", "err", err)
-			return
-		}
-		awaiting = append(awaiting, jid)
-	}
-	rows.Close()
 
 	for _, jid := range awaiting {
 		var parent string
@@ -531,7 +501,7 @@ func observePairings(xdb, obdb *sql.DB, cfg config) {
 // The refusal used to be a 403 the user saw. It is now discovered on a tick, after
 // that page is gone, so it travels to the chat instead.
 func admitJID(obdb *sql.DB, cfg config, jid, userSub string) {
-	now := time.Now().UTC().Format(time.RFC3339)
+	obst := store.New(obdb)
 	gates := loadGates(obdb)
 
 	if len(gates) > 0 {
@@ -539,9 +509,7 @@ func admitJID(obdb *sql.DB, cfg config, jid, userSub string) {
 		if g == nil {
 			// Terminal. user_sub is stamped so the row stops matching and the
 			// refusal is sent exactly once.
-			if _, err := obdb.Exec(
-				`UPDATE onboarding SET status = 'refused', user_sub = ? WHERE jid = ?`,
-				userSub, jid); err != nil {
+			if err := obst.RefuseOnboarding(jid, userSub); err != nil {
 				slog.Error("refuse jid", "jid", jid, "err", err)
 				return
 			}
@@ -554,9 +522,7 @@ func admitJID(obdb *sql.DB, cfg config, jid, userSub string) {
 			return
 		}
 		k := gateKey(*g)
-		if _, err := obdb.Exec(
-			`UPDATE onboarding SET status = 'queued', user_sub = ?, gate = ?, queued_at = ? WHERE jid = ?`,
-			userSub, k, now, jid); err != nil {
+		if err := obst.QueueOnboarding(jid, userSub, k); err != nil {
 			slog.Error("queue jid", "jid", jid, "err", err)
 			return
 		}
@@ -570,9 +536,7 @@ func admitJID(obdb *sql.DB, cfg config, jid, userSub string) {
 		return
 	}
 
-	if _, err := obdb.Exec(
-		`UPDATE onboarding SET status = 'approved', user_sub = ?, admitted_at = ? WHERE jid = ?`,
-		userSub, now, jid); err != nil {
+	if err := obst.AdmitOnboarding(jid, userSub); err != nil {
 		slog.Error("approve jid", "jid", jid, "err", err)
 		return
 	}
@@ -619,11 +583,14 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, u
 		return
 	}
 
-	var qGate, qAt string
-	if obdb.QueryRow(
-		`SELECT COALESCE(gate,''), COALESCE(queued_at,'') FROM onboarding WHERE user_sub = ? AND status = 'queued' LIMIT 1`,
-		userSub).Scan(&qGate, &qAt) == nil {
-		renderQueuePosition(w, obdb, qGate, qAt)
+	// A read failure here is not "not queued": it is reported and the page falls
+	// through to the same branches an unqueued caller takes.
+	queued, isQueued, err := store.New(obdb).QueuedAdmission(userSub)
+	if err != nil {
+		slog.Error("queued-admission lookup", "user", userSub, "err", err)
+	}
+	if isQueued {
+		renderQueuePosition(w, obdb, queued.Gate, queued.QueuedAt)
 		return
 	}
 
@@ -734,10 +701,8 @@ func mayCreateFirstWorld(obdb *sql.DB, userSub string) bool {
 	if userSub == "" || len(loadGates(obdb)) == 0 {
 		return false
 	}
-	var n int
-	if err := obdb.QueryRow(
-		`SELECT COUNT(*) FROM onboarding WHERE user_sub = ? AND status = 'approved'`,
-		userSub).Scan(&n); err != nil {
+	n, err := store.New(obdb).ApprovedAdmissions(userSub)
+	if err != nil {
 		slog.Error("approved-admission lookup", "user", userSub, "err", err)
 		return false
 	}
@@ -943,19 +908,14 @@ func createWorldTx(db *sql.DB, folder, username, userSub, now string) error {
 }
 
 func loadGates(db *sql.DB) []gate {
-	rows, err := db.Query(
-		`SELECT gate, limit_per_day FROM onboarding_gates WHERE enabled = 1`)
+	rows, err := store.New(db).EnabledGates()
 	if err != nil {
 		slog.Error("loadGates query", "err", err)
 		return nil
 	}
-	defer rows.Close()
 	var out []gate
-	for rows.Next() {
-		var key string
-		var limit int
-		rows.Scan(&key, &limit)
-		out = append(out, gateFromKey(key, limit))
+	for _, g := range rows {
+		out = append(out, gateFromKey(g.Gate, g.LimitPerDay))
 	}
 	return out
 }
@@ -1035,17 +995,19 @@ func scanFolders(db *sql.DB) ([]string, error) {
 }
 
 func renderQueuePosition(w http.ResponseWriter, db *sql.DB, gateStr, queuedAt string) {
-	var pos int
-	db.QueryRow(
-		`SELECT COUNT(*) FROM onboarding WHERE status = 'queued' AND gate = ? AND queued_at < ?`,
-		gateStr, queuedAt).Scan(&pos)
+	st := store.New(db)
+	pos, err := st.QueuePosition(gateStr, queuedAt)
+	if err != nil {
+		slog.Error("queue-position count", "gate", gateStr, "err", err)
+	}
 	pos++ // 1-indexed
 
 	var etaMsg string
-	var limit int
-	if db.QueryRow(
-		`SELECT limit_per_day FROM onboarding_gates WHERE gate = ? AND enabled = 1`,
-		gateStr).Scan(&limit) == nil && limit > 0 {
+	g, found, err := st.Gate(gateStr)
+	if err != nil {
+		slog.Error("queue-position gate lookup", "gate", gateStr, "err", err)
+	}
+	if limit := g.LimitPerDay; found && g.Enabled && limit > 0 {
 		mins := pos * 1440 / limit
 		if mins < 60 {
 			etaMsg = fmt.Sprintf("~%d minutes", mins)
@@ -1069,64 +1031,36 @@ func admitFromQueue(db *sql.DB) {
 	if len(gates) == 0 {
 		return
 	}
-	// Day-range on admitted_at (not LIKE prefix) so timezone drift doesn't miscount admissions.
-	now := time.Now().UTC().Format(time.RFC3339)
+	st := store.New(db)
+	// Day-range on admitted_at (not a prefix match) so timezone drift doesn't
+	// miscount admissions.
 	todayStart := time.Now().Format("2006-01-02") + "T00:00:00Z"
 	tomorrowStart := time.Now().Add(24*time.Hour).Format("2006-01-02") + "T00:00:00Z"
 	for _, g := range gates {
 		k := gateKey(g)
-		tx, err := db.Begin()
+		admitted, err := st.AdmittedInWindow(k, todayStart, tomorrowStart)
 		if err != nil {
-			slog.Error("admitFromQueue begin", "gate", k, "err", err)
+			slog.Error("admitFromQueue count", "gate", k, "err", err)
 			continue
 		}
-		var admitted int
-		tx.QueryRow(
-			`SELECT COUNT(*) FROM onboarding
-			 WHERE gate = ? AND status = 'approved'
-			   AND admitted_at >= ? AND admitted_at < ?`,
-			k, todayStart, tomorrowStart).Scan(&admitted)
 		remaining := g.limitPerDay - admitted
 		if remaining <= 0 {
-			tx.Rollback()
 			continue
 		}
-		rows, err := tx.Query(
-			`SELECT jid FROM onboarding
-			 WHERE status = 'queued' AND gate = ?
-			 ORDER BY queued_at ASC LIMIT ?`, k, remaining)
+		batch, err := st.QueuedJIDs(k, remaining)
 		if err != nil {
 			slog.Error("admitFromQueue query", "gate", k, "err", err)
-			tx.Rollback()
 			continue
 		}
-		var batch []string
-		for rows.Next() {
-			var jid string
-			rows.Scan(&jid)
-			batch = append(batch, jid)
+		// A partial write is REPORTED and its landed prefix is audited, where the
+		// transaction this replaces rolled the whole gate's claim back. The
+		// admissions are independent and the next tick re-reads the queue, so
+		// what a failure leaves behind is work a re-run finishes.
+		n, err := st.AdmitQueued(batch)
+		if err != nil {
+			slog.Error("admitFromQueue update", "gate", k, "admitted", n, "err", err)
 		}
-		rows.Close()
-		updateErr := false
-		for _, jid := range batch {
-			if _, err := tx.Exec(
-				`UPDATE onboarding SET status = 'approved', admitted_at = ? WHERE jid = ?`,
-				now, jid); err != nil {
-				slog.Error("admitFromQueue update", "jid", jid, "err", err)
-				updateErr = true
-				break
-			}
-		}
-		if updateErr {
-			// Don't commit a partial batch — roll back the whole gate's claim.
-			tx.Rollback()
-			continue
-		}
-		if err := tx.Commit(); err != nil {
-			slog.Error("admitFromQueue commit", "gate", k, "err", err)
-			continue
-		}
-		for _, jid := range batch {
+		for _, jid := range batch[:n] {
 			audit.Emit(context.Background(), audit.Event{
 				Category: audit.CategoryMutation,
 				Action:   "onboarding.approve",

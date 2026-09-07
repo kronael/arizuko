@@ -64,13 +64,6 @@ DROP TABLE messages;
 ALTER TABLE messages_new RENAME TO messages;
 CREATE INDEX idx_messages_chat_ts ON messages(chat_jid, timestamp);
 
-CREATE TABLE onboarding_new (
-  jid         TEXT PRIMARY KEY,
-  status      TEXT NOT NULL,
-  prompted_at TEXT,
-  created     TEXT NOT NULL
-);
-INSERT INTO onboarding_new (jid, status, prompted_at, created)
-  SELECT jid, status, prompted_at, created FROM onboarding;
-DROP TABLE onboarding;
-ALTER TABLE onboarding_new RENAME TO onboarding;
+-- The onboarding rebuild that dropped `sender`, `world_name` and `channel` is
+-- gone with the table: an admission is an objstore item, and an attribute it
+-- does not carry is simply absent.

@@ -212,9 +212,15 @@ func migrate(db *sql.DB) error {
 	// by the driver here — the audited writers in this package record into
 	// whichever database they were opened over (entities.go). audit owns its own
 	// declaration and every opener asks for it separately.
+	//
+	// BOTH owners' sets, because this chain builds the pre-split monolith and
+	// carrying every owner's tables in one file is what pre-split MEANS. A split
+	// instance's openers ask for one owner each (routd/db.go, onbod/db.go).
 	ctx := context.Background()
-	if err := EnsureEntities(ctx, sqlstore.New(db)); err != nil {
-		return err
+	for _, owner := range []string{OwnerRoutd, OwnerOnbod} {
+		if err := EnsureEntities(ctx, sqlstore.New(db), owner); err != nil {
+			return err
+		}
 	}
 	if err := audit.EnsureEntities(ctx, sqlstore.New(db)); err != nil {
 		return err

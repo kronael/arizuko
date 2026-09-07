@@ -7,28 +7,24 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/store"
 )
 
-// testDBWithInvites is a migrated routd.db plus `invites`, the ONE table here
-// that routd's chain cannot supply: onbod owns it and onbod is package main, so
-// its migration FS is unreachable from outside — the same constraint
-// cmd/arizuko's onbodSchema constant works around. acl, acl_membership and
-// audit_log are routd's, from routd's own migrations (BUGS F44).
+// testDBWithInvites is a migrated routd.db plus onbod's entities, because these
+// handlers hold BOTH files and this fixture fuses them into one. `invites` is
+// an objstore entity, so it is asked of the driver rather than created by a
+// CREATE TABLE that would build a shape production does not have — and it is
+// asked for UNDER ITS OWNER, which is what keeps routd.db's own opener from
+// growing it (store/entities.go). acl, acl_membership and audit_log are routd's
+// own, from routd's migrations (BUGS F44).
 func testDBWithInvites(t *testing.T) *sql.DB {
 	t.Helper()
 	db := routdDB(t)
-	if _, err := db.Exec(`CREATE TABLE invites (
-		ref TEXT PRIMARY KEY,
-		target_glob TEXT NOT NULL,
-		issued_by_sub TEXT NOT NULL,
-		issued_at TEXT NOT NULL,
-		expires_at TEXT,
-		max_uses INTEGER NOT NULL DEFAULT 1,
-		used_count INTEGER NOT NULL DEFAULT 0
-	)`); err != nil {
-		t.Fatalf("schema: %v", err)
+	if err := store.EnsureEntities(t.Context(), sqlstore.New(db), store.OwnerOnbod); err != nil {
+		t.Fatalf("onbod entities: %v", err)
 	}
 	return db
 }
@@ -158,14 +154,14 @@ func TestHandleInviteRevokeAndGone(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	// Seed one invite directly, keyed by ref (I1) — token here is just the
-	// would-be bearer, never itself persisted (long enough for the [:8]
+	// Seed one invite through its owner, keyed by ref (I1) — token here is just
+	// the would-be bearer, never itself persisted (long enough for the [:8]
 	// display slice).
 	const token = "tok-abcdef0123456789abcdef0123456789"
-	if _, err := db.Exec(
-		`INSERT INTO invites (ref, target_glob, issued_by_sub, issued_at, max_uses, used_count)
-		 VALUES (?, 'carol', 'github:operator', datetime('now'), 1, 0)`, store.TokenRef(token),
-	); err != nil {
+	if _, err := store.New(db).ImportInvites(t.Context(), []store.ArchiveInviteRow{{
+		Ref: store.TokenRef(token), TargetGlob: "carol", IssuedBySub: "github:operator",
+		IssuedAt: time.Now().UTC().Format(time.RFC3339), MaxUses: 1,
+	}}); err != nil {
 		t.Fatal(err)
 	}
 

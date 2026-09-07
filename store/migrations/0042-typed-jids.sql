@@ -23,8 +23,12 @@
 --   chats.jid (PK; agent_cursor follows because it's a column on chats)
 --   user_jids.jid
 --   grants.jid
---   onboarding.jid
 --   routes.match (chat_jid=/sender= clauses)
+--
+-- onboarding.jid was in that lockstep and is not any more: an admission is an
+-- objstore item whose jid IS its sort key, and a coordinate is not rewritten in
+-- place by an UPDATE. A pre-move database's admissions are re-keyed by
+-- `arizuko migrate-onbod`, which reads the table this chain left behind.
 
 -- ============================================================================
 -- TELEGRAM: split signed integer into user/group kinds; drop sign bit.
@@ -94,15 +98,7 @@ UPDATE grants SET jid = 'telegram:group/' || substr(jid, 11)
   WHERE jid LIKE 'telegram:-%'
     AND jid NOT LIKE 'telegram:%/%';
 
-UPDATE onboarding SET jid = 'telegram:user/' || substr(jid, 10)
-  WHERE jid LIKE 'telegram:%'
-    AND jid NOT LIKE 'telegram:-%'
-    AND jid NOT LIKE 'telegram:%/%'
-    AND substr(jid, 10) GLOB '[0-9]*';
 
-UPDATE onboarding SET jid = 'telegram:group/' || substr(jid, 11)
-  WHERE jid LIKE 'telegram:-%'
-    AND jid NOT LIKE 'telegram:%/%';
 
 -- ============================================================================
 -- DISCORD: split via chats.is_group. DMs → discord:dm/<channel>;
@@ -143,9 +139,6 @@ UPDATE grants SET jid = 'discord:user/' || substr(jid, 9)
   WHERE jid LIKE 'discord:%'
     AND jid NOT LIKE 'discord:%/%';
 
-UPDATE onboarding SET jid = 'discord:_/' || substr(jid, 9)
-  WHERE jid LIKE 'discord:%'
-    AND jid NOT LIKE 'discord:%/%';
 
 -- ============================================================================
 -- MASTODON: drop host (single-instance per arizuko deployment); shape is
@@ -181,10 +174,6 @@ UPDATE grants SET jid = 'mastodon:account/' || substr(jid, 10)
     AND jid NOT LIKE 'mastodon:account/%'
     AND jid NOT LIKE 'mastodon:status/%';
 
-UPDATE onboarding SET jid = 'mastodon:account/' || substr(jid, 10)
-  WHERE jid LIKE 'mastodon:%'
-    AND jid NOT LIKE 'mastodon:account/%'
-    AND jid NOT LIKE 'mastodon:status/%';
 
 -- ============================================================================
 -- REDDIT: t1_/t2_/t3_ thing-prefix → kind discriminator.
@@ -218,7 +207,6 @@ UPDATE user_jids SET jid = 'reddit:user/' || substr(jid, 11) WHERE jid LIKE 'red
 
 UPDATE grants SET jid = 'reddit:user/' || substr(jid, 11) WHERE jid LIKE 'reddit:t2_%';
 
-UPDATE onboarding SET jid = 'reddit:user/' || substr(jid, 11) WHERE jid LIKE 'reddit:t2_%';
 
 -- ============================================================================
 -- WEB: stored as `web:<folder>` today (folder name doubles as the chat
@@ -258,8 +246,6 @@ UPDATE user_jids SET jid = 'bluesky:user/' || replace(substr(jid, 9), ':', '%3A'
 UPDATE grants SET jid = 'bluesky:user/' || replace(substr(jid, 9), ':', '%3A')
   WHERE jid LIKE 'bluesky:%' AND jid NOT LIKE 'bluesky:user/%';
 
-UPDATE onboarding SET jid = 'bluesky:user/' || replace(substr(jid, 9), ':', '%3A')
-  WHERE jid LIKE 'bluesky:%' AND jid NOT LIKE 'bluesky:user/%';
 
 -- ============================================================================
 -- EMAIL: address (sender) shape. Existing messages.chat_jid uses thread IDs

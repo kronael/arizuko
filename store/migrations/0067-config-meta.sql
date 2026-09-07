@@ -4,7 +4,8 @@
 -- inside BEGIN IMMEDIATE. Bootstrap value counts existing config rows
 -- so a fresh apply against a populated DB doesn't always reject with
 -- "version 0 != exported 0". `secrets` is excluded from the count —
--- out-of-band blob rotation must not invalidate pending applies.
+-- out-of-band blob rotation must not invalidate pending applies. So is
+-- `onboarding_gates`, which is an objstore entity and has no table to count.
 
 CREATE TABLE config_meta (
   version INTEGER NOT NULL DEFAULT 0
@@ -19,5 +20,4 @@ INSERT INTO config_meta (version)
     (SELECT COUNT(*) FROM web_routes)        +
     (SELECT COUNT(*) FROM scheduled_tasks)   +
     (SELECT COUNT(*) FROM network_rules)     +
-    (SELECT COUNT(*) FROM proxyd_routes)     +
-    (SELECT COUNT(*) FROM onboarding_gates);
+    (SELECT COUNT(*) FROM proxyd_routes);

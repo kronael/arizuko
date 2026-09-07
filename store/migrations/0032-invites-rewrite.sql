@@ -1,19 +1,10 @@
--- Hard cutover: invitations → invites with the new schema.
--- Existing rows migrate forward atomically; no alias view, no backwards compat.
--- folder → target_glob (exact-match is a valid glob).
-
-CREATE TABLE invites (
-  token         TEXT PRIMARY KEY,
-  target_glob   TEXT NOT NULL,
-  issued_by_sub TEXT NOT NULL,
-  issued_at     TEXT NOT NULL,
-  expires_at    TEXT,
-  max_uses      INTEGER NOT NULL DEFAULT 1,
-  used_count    INTEGER NOT NULL DEFAULT 0
-);
-
-INSERT INTO invites (token, target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count)
-SELECT token, folder, created_by, created_at, expires, max_uses, uses
-FROM invitations;
-
-DROP TABLE invitations;
+-- The invitations → invites cutover. Its source table is gone (0028) and its
+-- destination is an entity, so there is nothing left on either side of the
+-- copy.
+--
+-- `invites` is an objstore entity rather than a table this chain creates:
+-- the driver makes it, from the one declaration that sits beside the code
+-- writing it (store.EnsureEntities, spec 6/37 step 7). An entity keeps the name
+-- of the table it replaces, so a database carrying rows here is moved by
+-- `arizuko migrate-onbod` and refuses to open until it has been.
+SELECT 1;

@@ -6,9 +6,21 @@ import (
 	"github.com/kronael/arizuko/resreg"
 )
 
-// OnboardingRow mirrors the onboarding admission table. It is the projection every read
-// surface sees, and since onbod 0006 it is also the whole table: the credential columns
-// it deliberately omitted are gone from the schema too.
+// OnboardingRow mirrors the onboarding entity (store/onboarding.go), whose sort
+// key is JID and whose every other db:-tagged field is one attribute. It is the
+// projection every read surface sees, and since onbod 0006 it is also the whole
+// row: the credential columns it deliberately omitted are gone from the schema
+// too.
+//
+// FIVE OF THE EIGHT FIELDS ARE OPTIONAL AND NEED NO NULL HANDLING, which is
+// what the entity shape deletes. store.InsertOnboarding writes only jid, status
+// and created, so an item carries none of the other five until a verdict lands
+// — and absent is the only null an item has (objstore.Item). On the column path
+// every one of them needed a COALESCE on read and a nil conversion on write,
+// and the first pending admission on an instance made ScanAll fail outright
+// until they got them, taking Export, Checksum and therefore `arizuko
+// export`/`plan`/`apply`/`archive export` for the whole onbod subsystem with it
+// (BUGS F42).
 //
 // token_ref was absent here rather than hidden with `yaml:"-"`, because the engine
 // derives Insert's column list purely from the `db:` tags, so a field that does not
@@ -74,34 +86,20 @@ var OnboardingMCPArgs = map[resreg.Action][]resreg.MCPArg{
 
 func init() {
 	resreg.Register(resreg.Resource{
-		Name:      OnboardingName,
-		Table:     "onboarding",
-		DB:        resreg.SubsystemOnbod,
-		RowType:   reflect.TypeFor[OnboardingRow](),
-		PKFields:  []string{"JID"},
-		Endpoints: OnboardingEndpoints,
-		MCPDoc:    OnboardingMCPDoc,
-		MCPArgs:   OnboardingMCPArgs,
+		Name:          OnboardingName,
+		Table:         "onboarding",
+		DB:            resreg.SubsystemOnbod,
+		RowType:       reflect.TypeFor[OnboardingRow](),
+		PKFields:      []string{"JID"},
+		EntitySortKey: "JID",
+		Endpoints:     OnboardingEndpoints,
+		MCPDoc:        OnboardingMCPDoc,
+		MCPArgs:       OnboardingMCPArgs,
 		// Admissions are runtime state driven by chat traffic and the gate
 		// limiter, never declared in a manifest. Without this, any apply
 		// mentioning onboarding would DELETE+INSERT the whole table from a
 		// RowType that has no token_ref — nulling every live setup link
 		// instance-wide (Z3). Mirrors route_tokens / invites / secrets.
 		SkipApplyRebuild: true,
-		Hooks: resreg.Hooks{
-			// Every column below is nullable in onbod/migrations/0004 and NULL
-			// is the NORMAL state: store.InsertOnboarding writes only (jid,
-			// status, created), so the first pending admission on an instance
-			// made ScanAll fail outright — and with it Export, Checksum, and
-			// therefore `arizuko export`/`plan`/`apply`/`archive export` for
-			// the whole onbod subsystem (BUGS F42).
-			ColumnOverride: map[string]resreg.ColumnHook{
-				"UserSub":    {Read: "COALESCE(user_sub, '')", Write: nilIfEmptyString},
-				"Gate":       {Read: "COALESCE(gate, '')", Write: nilIfEmptyString},
-				"PromptedAt": {Read: "COALESCE(prompted_at, '')", Write: nilIfEmptyString},
-				"QueuedAt":   {Read: "COALESCE(queued_at, '')", Write: nilIfEmptyString},
-				"AdmittedAt": {Read: "COALESCE(admitted_at, '')", Write: nilIfEmptyString},
-			},
-		},
 	})
 }

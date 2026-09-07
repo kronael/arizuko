@@ -74,9 +74,18 @@ func TestOnboardingEndToEnd(t *testing.T) {
 	// The route miss must queue admission — the onboarding row appears in the
 	// onbod-owned store with status awaiting_message (the dashboard queue +
 	// greeting tick both key on it). This is the step that was dead live.
-	testutils.WaitForRow(t, onbodInst.DB,
-		`SELECT COUNT(*) FROM onboarding WHERE jid=? AND status='awaiting_message'`,
-		[]any{jid}, 5*time.Second)
+	testutils.WaitFor(t, "the awaiting_message admission for "+jid, 5*time.Second, func() bool {
+		rows, err := onbodStore.ListOnboarding("awaiting_message")
+		if err != nil {
+			return false
+		}
+		for _, r := range rows {
+			if r.JID == jid {
+				return true
+			}
+		}
+		return false
+	})
 
 	// No agent turn fired for the unrouted chat.
 	if got := f.dispatchedFolder("onb.1"); got != "" {

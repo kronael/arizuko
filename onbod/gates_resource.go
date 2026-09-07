@@ -14,7 +14,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -92,14 +91,17 @@ func (a *admin) gatesRESTGate(x resreg.Execution, _ string, _ map[string]string)
 }
 
 // gatesHandler runs list/update(upsert)/delete against onbod.db. The mutating
-// verbs write on resreg's tx (x.Tx) via the *Tx helpers below — NOT the store's
-// audited methods — so the mutation and its single audit_log row land in
+// verbs write on resreg's tx (x.Tx) via the store's *Tx methods — NOT its
+// audited ones — so the mutation and its single audit_log row land in
 // resreg.invoke's one tx (calling store.PutGate/EnableGate/DeleteGate here would
-// open a second tx and double-audit).
+// open a second tx and double-audit). The gates are objstore items and the
+// audit row is a SQL insert, and both ride that same transaction
+// (objstore/sqlstore.GuardedBatchInTx).
 func (a *admin) gatesHandler(ctx context.Context, x resreg.Execution) (any, error) {
+	st := store.New(a.db)
 	switch x.Action {
 	case resreg.ActionList:
-		gates, err := store.New(a.db).ListGates()
+		gates, err := st.ListGates()
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
@@ -119,12 +121,12 @@ func (a *admin) gatesHandler(ctx context.Context, x resreg.Execution) (any, erro
 		// ABSENT leaves enablement untouched; both does both. resreg decodes the JSON
 		// body into Args, so an absent "enabled" key is simply not in the map.
 		if limit := argInt(x.Args, "limit_per_day"); limit > 0 {
-			if err := putGateTx(ctx, x.Tx, gate, limit); err != nil {
+			if err := st.PutGateTx(ctx, x.Tx, gate, limit); err != nil {
 				return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 			}
 		}
 		if enabled, ok := x.Args["enabled"].(bool); ok {
-			if err := enableGateTx(ctx, x.Tx, gate, enabled); err != nil {
+			if err := st.EnableGateTx(ctx, x.Tx, gate, enabled); err != nil {
 				return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 			}
 		}
@@ -136,41 +138,13 @@ func (a *admin) gatesHandler(ctx context.Context, x resreg.Execution) (any, erro
 		if gate == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "gate required")
 		}
-		if err := deleteGateTx(ctx, x.Tx, gate); err != nil {
+		if err := st.DeleteGateTx(ctx, x.Tx, gate); err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
 		slog.Info("gate deleted", "gate", gate)
 		return map[string]bool{"ok": true}, nil
 	}
 	return nil, resreg.Errorf(http.StatusBadRequest, "unknown action %q", x.Action)
-}
-
-// putGateTx upserts a gate's daily limit on tx (mirrors store.PutGate's SQL;
-// ON CONFLICT keeps enabled, updating only the limit).
-func putGateTx(ctx context.Context, tx *sql.Tx, gate string, limitPerDay int) error {
-	_, err := tx.ExecContext(ctx,
-		`INSERT INTO onboarding_gates (gate, limit_per_day, enabled)
-		 VALUES (?, ?, 1)
-		 ON CONFLICT(gate) DO UPDATE SET limit_per_day = excluded.limit_per_day`,
-		gate, limitPerDay)
-	return err
-}
-
-// enableGateTx flips a gate's enabled flag on tx (mirrors store.EnableGate).
-func enableGateTx(ctx context.Context, tx *sql.Tx, gate string, enabled bool) error {
-	en := 0
-	if enabled {
-		en = 1
-	}
-	_, err := tx.ExecContext(ctx,
-		`UPDATE onboarding_gates SET enabled = ? WHERE gate = ?`, en, gate)
-	return err
-}
-
-// deleteGateTx removes a gate on tx (mirrors store.DeleteGate).
-func deleteGateTx(ctx context.Context, tx *sql.Tx, gate string) error {
-	_, err := tx.ExecContext(ctx, `DELETE FROM onboarding_gates WHERE gate = ?`, gate)
-	return err
 }
 
 // argString reads a string arg (path values + string body fields land as string).

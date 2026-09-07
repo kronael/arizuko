@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -260,19 +261,31 @@ func AssertMessage(t *testing.T, db *sql.DB, jid, substr string) {
 	t.Fatalf("no message for jid=%q containing %q; saw %v", jid, substr, found)
 }
 
+// WaitFor polls until holds() answers true, or fails naming what it waited for.
+// It is the one poll loop here; WaitForRow is the SQL-shaped entry point onto
+// it, and a caller whose subject is an objstore entity has no query to hand
+// over and passes the read itself.
+func WaitFor(t *testing.T, what string, timeout time.Duration, holds func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		if holds() {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timeout after %s waiting for %s", timeout, what)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+}
+
 // WaitForRow polls SELECT COUNT(*) from the given query until > 0 or timeout.
 // query must be a full SELECT returning an int count.
 func WaitForRow(t *testing.T, db *sql.DB, query string, args []any, timeout time.Duration) {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for {
+	WaitFor(t, fmt.Sprintf("%s args=%v", query, args), timeout, func() bool {
 		var n int
-		if err := db.QueryRow(query, args...).Scan(&n); err == nil && n > 0 {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("WaitForRow timeout after %s: %s args=%v", timeout, query, args)
-		}
-		time.Sleep(25 * time.Millisecond)
-	}
+		err := db.QueryRow(query, args...).Scan(&n)
+		return err == nil && n > 0
+	})
 }

@@ -6,15 +6,18 @@ import (
 	"github.com/kronael/arizuko/resreg"
 )
 
-// InvitesRow mirrors the invites table (store/migrations/0077-invites-hash-at-rest).
-// expires_at is nullable in DB but exposed as an (omitempty) string; used_count
-// and max_uses are INTEGER. Kept as plain scalars for uniform engine handling —
-// this row drives the /openapi.json schema only (onbod's handler does its own
-// scan via store.ListInvites). ExpiresAt DOES need the nullable-scan hook below
-// (corrected — found by the 5/8 archive round-trip test: a real, unexpiring
-// invite — `arizuko invite create` with no --expires — scans NULL and crashed
-// ScanAll outright, breaking `arizuko export`/`get`/`plan` on onbod for any
-// instance holding one).
+// InvitesRow mirrors the invites entity (store/invites.go), whose sort key is
+// Ref and whose every other db:-tagged field is one attribute.
+// used_count and max_uses are INTEGER. Kept as plain scalars for uniform engine
+// handling — this row drives the /openapi.json schema only (onbod's handler
+// does its own read via store.ListInvites).
+//
+// EXPIRES_AT NEEDS NO NULL HANDLING, and that is what the entity shape deletes.
+// An invite minted with no --expires simply does not carry the attribute, and
+// absent is the only null an item has (objstore.Item) — where the column path
+// needed a COALESCE on read and a nil conversion on write, and crashed
+// `arizuko export`/`get`/`plan` on onbod for every instance holding one until
+// it got them (found by the 5/8 archive round-trip test).
 //
 // `ref` (store.TokenRef = hex(sha256(token))) IS the DB primary key (I1) —
 // the raw bearer is never persisted, so there is no token field to leak here
@@ -47,29 +50,17 @@ var InvitesEndpoints = []resreg.Endpoint{
 
 func init() {
 	resreg.Register(resreg.Resource{
-		Name:      InvitesName,
-		Table:     "invites",
-		DB:        resreg.SubsystemOnbod,
-		RowType:   reflect.TypeOf(InvitesRow{}),
-		PKFields:  []string{"Ref"},
-		Endpoints: InvitesEndpoints,
+		Name:          InvitesName,
+		Table:         "invites",
+		DB:            resreg.SubsystemOnbod,
+		RowType:       reflect.TypeOf(InvitesRow{}),
+		PKFields:      []string{"Ref"},
+		EntitySortKey: "Ref",
+		Endpoints:     InvitesEndpoints,
 		// Invite tokens are minted imperatively (invite_create / POST /v1/invites)
 		// and never round-trip through a manifest — Apply must never DELETE+INSERT
 		// this table, or an apply would revoke every live invite (mirrors
 		// route_tokens and secrets).
 		SkipApplyRebuild: true,
-		Hooks: resreg.Hooks{
-			ColumnOverride: map[string]resreg.ColumnHook{
-				// expires_at is NULL for an invite minted with no --expires
-				// (store/migrations/0077); every other nullable-mapped-to-
-				// non-pointer column in this package uses the identical
-				// COALESCE+nilIfEmptyString pair (route_tokens.Context,
-				// groups.UpdatedAt).
-				"ExpiresAt": {
-					Read:  "COALESCE(expires_at, '')",
-					Write: nilIfEmptyString,
-				},
-			},
-		},
 	})
 }

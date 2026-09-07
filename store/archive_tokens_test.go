@@ -13,9 +13,11 @@ package store_test
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"testing"
 
 	"github.com/kronael/arizuko/db_utils/dbtest"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -105,10 +107,13 @@ func TestImportRouteTokensIsIdempotent(t *testing.T) {
 }
 
 func TestExportInvitesCarriesTheRefAndImportRestoresIt(t *testing.T) {
-	src, db := archiveStore(t)
+	src, _ := archiveStore(t)
 	ctx := context.Background()
-	if _, err := db.Exec(`INSERT INTO invites(ref, target_glob, issued_by_sub, issued_at, max_uses, used_count)
-		VALUES ('ref1', 'atlas/*', 'user:admin', '2026-01-01T00:00:00Z', 5, 1)`); err != nil {
+	seed := []store.ArchiveInviteRow{{
+		Ref: "ref1", TargetGlob: "atlas/*", IssuedBySub: "user:admin",
+		IssuedAt: "2026-01-01T00:00:00Z", MaxUses: 5, UsedCount: 1,
+	}}
+	if _, err := src.ImportInvites(ctx, seed); err != nil {
 		t.Fatal(err)
 	}
 	rows, err := src.ExportInvites(ctx)
@@ -119,7 +124,7 @@ func TestExportInvitesCarriesTheRefAndImportRestoresIt(t *testing.T) {
 		t.Fatalf("exported invites = %+v", rows)
 	}
 
-	dstSt, dst := archiveStore(t)
+	dstSt, _ := archiveStore(t)
 	n, err := dstSt.ImportInvites(ctx, rows)
 	if err != nil {
 		t.Fatal(err)
@@ -127,13 +132,21 @@ func TestExportInvitesCarriesTheRefAndImportRestoresIt(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("imported %d, want 1", n)
 	}
-	var glob string
-	var used int
-	if err := dst.QueryRow("SELECT target_glob, used_count FROM invites WHERE ref='ref1'").Scan(&glob, &used); err != nil {
+	back, err := dstSt.ExportInvites(ctx)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if glob != "atlas/*" || used != 1 {
-		t.Errorf("restored invite = glob=%q used=%d", glob, used)
+	if len(back) != 1 || back[0].TargetGlob != "atlas/*" || back[0].UsedCount != 1 {
+		t.Errorf("restored invite = %+v", back)
+	}
+	// An invite minted with no --expires carries no expires_at attribute at
+	// all, and the round trip must not invent an empty one — absent is the
+	// only null this model has.
+	if back[0].ExpiresAt != "" {
+		t.Errorf("expires_at = %q, want empty", back[0].ExpiresAt)
+	}
+	if err := invitesCarryNoExpiry(t, dstSt); err != nil {
+		t.Error(err)
 	}
 	count, err := dstSt.CountInvites(ctx)
 	if err != nil {
@@ -144,21 +157,41 @@ func TestExportInvitesCarriesTheRefAndImportRestoresIt(t *testing.T) {
 	}
 }
 
+// invitesCarryNoExpiry proves ABSENCE rather than emptiness: it asks the driver
+// for the items that carry the attribute at all, which is the test a tombstone
+// read performs and an empty string would pass.
+func invitesCarryNoExpiry(t *testing.T, s *store.Store) error {
+	t.Helper()
+	items, err := s.Obj().Query(context.Background(), objstore.Query{
+		Entity: "invites", Partition: store.OwnerOnbod,
+		Where: []objstore.Cmp{{Attr: "expires_at", Op: objstore.Present}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 0 {
+		return fmt.Errorf("%d invites carry an expires_at attribute, want 0 — an empty "+
+			"string is a value a tombstone read still finds", len(items))
+	}
+	return nil
+}
+
 // The onboarding lane had no test of its own in resreg — cmd/arizuko covered
 // it only through the whole `archive apply` orchestration. The empty-string
 // columns are the half worth pinning: an admission that never reached a state
 // carries NULL, and a round trip that turned those into "" would make a
 // pending admission look prompted.
 func TestExportOnboardingRoundTripsTheEmptyTimestampsAsAbsent(t *testing.T) {
-	src, db := archiveStore(t)
+	src, _ := archiveStore(t)
 	ctx := context.Background()
-	if _, err := db.Exec(`INSERT INTO onboarding(jid, status, created)
-		VALUES ('telegram:user/7', 'pending', '2026-01-01T00:00:00Z')`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT INTO onboarding(jid, status, user_sub, gate, created, prompted_at, queued_at, admitted_at)
-		VALUES ('telegram:user/8', 'admitted', 'user:x', 'g1', '2026-01-01T00:00:00Z',
-		        '2026-01-02T00:00:00Z', '2026-01-03T00:00:00Z', '2026-01-04T00:00:00Z')`); err != nil {
+	if _, err := src.ImportOnboarding(ctx, []store.ArchiveOnboardingRow{
+		{JID: "telegram:user/7", Status: "pending", Created: "2026-01-01T00:00:00Z"},
+		{
+			JID: "telegram:user/8", Status: "admitted", UserSub: "user:x", Gate: "g1",
+			Created: "2026-01-01T00:00:00Z", PromptedAt: "2026-01-02T00:00:00Z",
+			QueuedAt: "2026-01-03T00:00:00Z", AdmittedAt: "2026-01-04T00:00:00Z",
+		},
+	}); err != nil {
 		t.Fatal(err)
 	}
 	rows, err := src.ExportOnboarding(ctx)
@@ -175,7 +208,7 @@ func TestExportOnboardingRoundTripsTheEmptyTimestampsAsAbsent(t *testing.T) {
 		t.Errorf("admitted row = %+v", rows[1])
 	}
 
-	dstSt, dst := archiveStore(t)
+	dstSt, _ := archiveStore(t)
 	n, err := dstSt.ImportOnboarding(ctx, rows)
 	if err != nil {
 		t.Fatal(err)
@@ -183,13 +216,19 @@ func TestExportOnboardingRoundTripsTheEmptyTimestampsAsAbsent(t *testing.T) {
 	if n != 2 {
 		t.Fatalf("imported %d, want 2", n)
 	}
-	var prompted sql.NullString
-	if err := dst.QueryRow(`SELECT prompted_at FROM onboarding WHERE jid='telegram:user/7'`).Scan(&prompted); err != nil {
+	// ABSENT, not empty: the re-greet poll claims an admission by asking for the
+	// ones with no prompted_at attribute, and an empty string is a value it
+	// reads as already prompted.
+	prompted, err := dstSt.Obj().Query(ctx, objstore.Query{
+		Entity: "onboarding", Partition: store.OwnerOnbod,
+		Where: []objstore.Cmp{{Attr: "prompted_at", Op: objstore.Present}},
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if prompted.Valid {
-		t.Errorf("prompted_at = %q, want NULL — an empty string is a value the "+
-			"re-greet poll reads as already prompted", prompted.String)
+	if len(prompted) != 1 || prompted[0].Key.Sort != "telegram:user/8" {
+		t.Errorf("%d admissions carry prompted_at, want only telegram:user/8: %+v",
+			len(prompted), prompted)
 	}
 	count, err := dstSt.CountOnboarding(ctx)
 	if err != nil {
@@ -203,10 +242,13 @@ func TestExportOnboardingRoundTripsTheEmptyTimestampsAsAbsent(t *testing.T) {
 // A live admission must not be walked backwards by a restore: the import
 // UPSERTs by jid and IGNOREs a jid the target already holds.
 func TestImportOnboardingLeavesALiveAdmissionAlone(t *testing.T) {
-	st, db := archiveStore(t)
+	st, _ := archiveStore(t)
 	ctx := context.Background()
-	if _, err := db.Exec(`INSERT INTO onboarding(jid, status, created, admitted_at)
-		VALUES ('telegram:user/9', 'admitted', '2026-01-01T00:00:00Z', '2026-02-01T00:00:00Z')`); err != nil {
+	live := store.ArchiveOnboardingRow{
+		JID: "telegram:user/9", Status: "admitted",
+		Created: "2026-01-01T00:00:00Z", AdmittedAt: "2026-02-01T00:00:00Z",
+	}
+	if _, err := st.ImportOnboarding(ctx, []store.ArchiveOnboardingRow{live}); err != nil {
 		t.Fatal(err)
 	}
 	n, err := st.ImportOnboarding(ctx, []store.ArchiveOnboardingRow{
@@ -218,12 +260,11 @@ func TestImportOnboardingLeavesALiveAdmissionAlone(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("reported %d rows, want 1", n)
 	}
-	var status, admitted string
-	if err := db.QueryRow(`SELECT status, COALESCE(admitted_at,'') FROM onboarding WHERE jid='telegram:user/9'`).
-		Scan(&status, &admitted); err != nil {
+	back, err := st.ExportOnboarding(ctx)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if status != "admitted" || admitted != "2026-02-01T00:00:00Z" {
-		t.Errorf("live admission = status=%q admitted_at=%q, want the row untouched", status, admitted)
+	if len(back) != 1 || back[0] != live {
+		t.Errorf("live admission = %+v, want the row untouched at %+v", back, live)
 	}
 }

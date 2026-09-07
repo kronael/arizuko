@@ -1,7 +1,11 @@
--- Simplify onboarding: collapse 4-step flow to 2-step (awaiting_message → pending).
--- Move any in-progress records to the new initial state, but skip JIDs that already have routes.
-UPDATE onboarding SET status = 'awaiting_message', prompted_at = NULL
-  WHERE status IN ('awaiting_world', 'awaiting_building', 'awaiting_room')
-  AND jid NOT IN (SELECT DISTINCT jid FROM routes);
--- Clean up onboarding records for JIDs that already have routes.
-DELETE FROM onboarding WHERE jid IN (SELECT DISTINCT jid FROM routes);
+-- Collapsing the 4-step onboarding flow to 2 moved in-progress rows to the new
+-- initial state and dropped the ones that already had routes. Both are UPDATEs
+-- and DELETEs against a table that is an entity now, so the file that shaped a
+-- pre-split messages.db has nothing left to run against it.
+--
+-- `onboarding` is an objstore entity rather than a table this chain creates:
+-- the driver makes it, from the one declaration that sits beside the code
+-- writing it (store.EnsureEntities, spec 6/37 step 7). An entity keeps the name
+-- of the table it replaces, so a database carrying rows here is moved by
+-- `arizuko migrate-onbod` and refuses to open until it has been.
+SELECT 1;

@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/kronael/arizuko/store"
 )
 
 // Spec 5/18 step 8. A chat-onboarded stranger who administers no world may
@@ -31,15 +33,9 @@ func seedStranger(t *testing.T, db *sql.DB, sub, status string) {
 		VALUES (?, ?, 'Stranger', '2026-01-01')`, sub, sub); err != nil {
 		t.Fatalf("seed user_profiles: %v", err)
 	}
-	if _, err := db.Exec(`INSERT INTO onboarding (jid, status, user_sub, created)
-		VALUES ('telegram:group/1', ?, ?, '2026-01-01')`, status, sub); err != nil {
-		t.Fatalf("seed onboarding: %v", err)
-	}
-	var got string
-	if err := db.QueryRow(
-		`SELECT status FROM onboarding WHERE user_sub = ?`, sub).Scan(&got); err != nil {
-		t.Fatalf("onboarding seed did not land: %v", err)
-	}
+	seedAdmission(t, db, store.ArchiveOnboardingRow{
+		JID: "telegram:group/1", Status: status, UserSub: sub})
+	got := admissionStatus(t, db, "telegram:group/1")
 	if got != status {
 		t.Fatalf("onboarding seed landed as %q, want %q", got, status)
 	}
@@ -51,11 +47,7 @@ func seedStranger(t *testing.T, db *sql.DB, sub, status string) {
 // (wrong enabled value, wrong column) fails the seed instead of the assertion.
 func seedGate(t *testing.T, db *sql.DB, gate string, enabled int) {
 	t.Helper()
-	if _, err := db.Exec(
-		`INSERT INTO onboarding_gates (gate, limit_per_day, enabled) VALUES (?, 10, ?)`,
-		gate, enabled); err != nil {
-		t.Fatalf("seed gate: %v", err)
-	}
+	seedGateRow(t, db, gate, 10, enabled == 1)
 	visible := len(loadGates(db)) > 0
 	if visible != (enabled == 1) {
 		t.Fatalf("gate %q enabled=%d is %v to loadGates; seed does not model the case",

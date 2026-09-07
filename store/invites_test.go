@@ -1,11 +1,15 @@
 package store
 
 import (
+	"context"
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/kronael/arizuko/objstore"
 )
 
 func TestInviteCRUD(t *testing.T) {
@@ -301,5 +305,79 @@ func TestBackfillInviteRefsCarriesLegacyRows(t *testing.T) {
 	}
 	if _, err := s.GetInvite("plaintext-tok"); err != nil {
 		t.Fatalf("row lost across idempotent backfill: %v", err)
+	}
+}
+
+// The redemption's COMPARE-AND-SWAP is what makes two concurrent redeemers
+// share one use instead of both taking it, and this pins the LOSING side
+// deterministically where TestConsumeInviteAtomicConcurrent pins it under
+// contention. The condition is the counter value the loser's own read saw; a
+// write built from it after somebody else moved the counter is REFUSED, which
+// is the answer consumeInvite turns into ErrInviteUnavailable.
+func TestUsedCountWriteRefusesAStaleCounter(t *testing.T) {
+	s := openEntities(t)
+
+	_, token, err := s.CreateInvite("alice", "github:alice", 5, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The value a redeemer read one round trip ago.
+	stale, err := s.GetInvite(token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Somebody else redeems in the gap.
+	if _, err := s.ConsumeInviteNoGrant(token, "github:bob"); err != nil {
+		t.Fatalf("the competing redemption: %v", err)
+	}
+	key, err := inviteKey(stale.Ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	committed, err := s.Obj().GuardedBatch(context.Background(), nil,
+		[]objstore.Write{usedCountWrite(key, stale.UsedCount, stale.UsedCount+1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if committed {
+		t.Error("a write built from a counter value that has since moved was committed; " +
+			"two redeemers would take one use and the invite would over-issue")
+	}
+	after, err := s.GetInvite(token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.UsedCount != 1 {
+		t.Errorf("used_count = %d after one redemption and one refused write, want 1",
+			after.UsedCount)
+	}
+}
+
+// issued_at and expires_at are DECLARED 20 bytes wide: the list orders by one
+// and the redemption compares the other, and both are byte comparisons (BUGS
+// L97).
+func TestInviteInstantsRefuseAnotherWidth(t *testing.T) {
+	s := openEntities(t)
+
+	_, token, err := s.CreateInvite("alice", "github:alice", 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := inviteKey(TokenRef(token))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, attr := range []string{attrInvIssuedAt, attrInvExpiresAt} {
+		_, err := s.Obj().GuardedBatch(context.Background(), nil, []objstore.Write{{
+			Op: objstore.Update, Entity: Invites, Key: key,
+			Attrs: map[string]string{attr: "2026-01-01"},
+		}})
+		if err == nil {
+			t.Errorf("%s accepted a 10-byte value", attr)
+			continue
+		}
+		if !strings.Contains(err.Error(), "declared ordered width is 20") {
+			t.Errorf("%s refused with %v, want the ordered-width reason", attr, err)
+		}
 	}
 }

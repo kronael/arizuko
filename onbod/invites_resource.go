@@ -14,12 +14,11 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
 
-	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/store"
@@ -64,14 +63,16 @@ func (a *admin) invitesRESTGate(x resreg.Execution, _ string, _ map[string]strin
 }
 
 // invitesHandler runs create/list/revoke against onbod.db. The mutating verbs
-// write on resreg's tx (x.Tx) via createInviteTx / the DELETE below — NOT the
-// store's audited methods — so the mutation and its single audit_log row land in
-// resreg.invoke's one tx (calling store.CreateInvite/RevokeInvite here would open
-// a second tx and double-audit). list is read-only (no tx).
+// write on resreg's tx (x.Tx) via the store's *Tx methods — NOT its audited ones
+// — so the mutation and its single audit_log row land in resreg.invoke's one tx
+// (calling store.CreateInvite/RevokeInviteByRef here would open a second tx and
+// double-audit). The invite is an objstore item and the audit row is a SQL
+// insert, and both ride that same transaction. list is read-only (no tx).
 func (a *admin) invitesHandler(ctx context.Context, x resreg.Execution) (any, error) {
+	st := store.New(a.db)
 	switch x.Action {
 	case resreg.ActionList:
-		invs, err := store.New(a.db).ListInvites(argString(x.Args, "issued_by"))
+		invs, err := st.ListInvites(argString(x.Args, "issued_by"))
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
@@ -82,83 +83,61 @@ func (a *admin) invitesHandler(ctx context.Context, x resreg.Execution) (any, er
 		return map[string]any{"invites": out}, nil
 
 	case resreg.ActionCreate:
-		inv, rawToken, err := createInviteTx(ctx, x.Tx, x.Args)
+		inv, rawToken, err := createInviteTx(ctx, st, x.Tx, x.Args)
 		if err != nil {
 			return nil, err
 		}
-		return toInviteCreatedJSON(*inv, rawToken), nil
+		return toInviteCreatedJSON(inv, rawToken), nil
 
 	case resreg.ActionDelete:
 		ref := argString(x.Args, "ref")
 		if ref == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "ref required")
 		}
-		// ref IS the primary key (I1) — a direct delete, no resolve step.
-		res, err := x.Tx.ExecContext(ctx, `DELETE FROM invites WHERE ref = ?`, ref)
-		if err != nil {
+		// ref IS the coordinate (I1) — a direct delete, no resolve step.
+		if err := st.RevokeInviteByRefTx(ctx, x.Tx, ref); err != nil {
+			if errors.Is(err, store.ErrInviteRefUnknown) {
+				return nil, resreg.Errorf(http.StatusNotFound, "no invite with ref %q", ref)
+			}
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
-		}
-		if n, err := res.RowsAffected(); err != nil {
-			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
-		} else if n == 0 {
-			return nil, resreg.Errorf(http.StatusNotFound, "no invite with ref %q", ref)
 		}
 		return map[string]bool{"ok": true}, nil
 	}
 	return nil, resreg.Errorf(http.StatusBadRequest, "unknown action %q", x.Action)
 }
 
-// createInviteTx mints an invite on tx, mirroring store.CreateInvite's validation
-// + INSERT (used_count starts 0). target_glob is required and folder-validated
-// (trailing slash = subworld-create mode, which skips folder validation);
-// issued_by_sub defaults to "onbod"; max_uses floors at 1; expires_at is optional
-// RFC3339. The token is server-generated (core.GenHexToken), same as the store;
-// only its hash (store.TokenRef) is persisted (I1) — the raw token is returned
-// here for the caller to hand back exactly once.
-func createInviteTx(ctx context.Context, tx *sql.Tx, args resreg.Args) (*store.Invite, string, error) {
-	targetGlob := argString(args, "target_glob")
-	if targetGlob == "" {
-		return nil, "", resreg.Errorf(http.StatusBadRequest, "target_glob required")
-	}
-	check := strings.TrimSuffix(targetGlob, "/")
-	if check == "" {
-		check = "/"
-	}
-	if check != "/" && !groupfolder.IsValidFolder(check) {
-		return nil, "", resreg.Errorf(http.StatusBadRequest, "invalid target_glob %q", targetGlob)
-	}
+// createInviteTx mints an invite on resreg's tx. The mint's RULES are
+// store.MintInvite's — target_glob required and folder-validated (trailing
+// slash = subworld-create mode, which skips folder validation), max_uses
+// floored at 1, the token server-generated and only its hash persisted (I1) —
+// so this face and the CLI's cannot disagree about what a valid invite is.
+//
+// What stays here is the HTTP shape: the two arguments the wire carries but the
+// mint does not take (issued_by_sub defaulting to "onbod", an RFC3339
+// expires_at) and the status codes. A rejected mint is the caller's fault, so
+// it is a 400 — the same answer the validation this delegates to used to give
+// inline.
+func createInviteTx(ctx context.Context, st *store.Store, tx *sql.Tx,
+	args resreg.Args) (store.Invite, string, error) {
 	issuedBySub := argString(args, "issued_by_sub")
 	if issuedBySub == "" {
 		issuedBySub = "onbod"
 	}
-	maxUses := max(argInt(args, "max_uses"), 1)
 	var expiresAt *time.Time
 	if s := argString(args, "expires_at"); s != "" {
 		t, err := time.Parse(time.RFC3339, s)
 		if err != nil {
-			return nil, "", resreg.Errorf(http.StatusBadRequest, "expires_at: %v", err)
+			return store.Invite{}, "", resreg.Errorf(http.StatusBadRequest, "expires_at: %v", err)
 		}
 		expiresAt = &t
 	}
-	token := core.GenHexToken()
-	ref := store.TokenRef(token)
-	now := time.Now().UTC()
-	var expStr sql.NullString
-	if expiresAt != nil {
-		expStr = sql.NullString{String: expiresAt.UTC().Format(time.RFC3339), Valid: true}
+	inv, token, err := store.MintInvite(argString(args, "target_glob"), issuedBySub,
+		argInt(args, "max_uses"), expiresAt)
+	if err != nil {
+		return store.Invite{}, "", resreg.Errorf(http.StatusBadRequest, "%v", err)
 	}
-	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO invites (ref, target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count)
-		 VALUES (?, ?, ?, ?, ?, ?, 0)`,
-		ref, targetGlob, issuedBySub, now.Format(time.RFC3339), expStr, maxUses); err != nil {
-		return nil, "", resreg.Errorf(http.StatusInternalServerError, "%v", err)
+	if err := st.InsertInviteTx(ctx, tx, inv); err != nil {
+		return store.Invite{}, "", resreg.Errorf(http.StatusInternalServerError, "%v", err)
 	}
-	return &store.Invite{
-		Ref:         ref,
-		TargetGlob:  targetGlob,
-		IssuedBySub: issuedBySub,
-		IssuedAt:    now,
-		ExpiresAt:   expiresAt,
-		MaxUses:     maxUses,
-	}, token, nil
+	return inv, token, nil
 }

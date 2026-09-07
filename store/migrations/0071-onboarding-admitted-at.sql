@@ -1,4 +1,11 @@
--- Gated onboarding: stamp when a row was admitted (status→approved) so the
--- per-gate daily limit counts admissions on the day they happened, not the day
--- they queued. Backlog queued on a prior day no longer evades today's quota.
-ALTER TABLE onboarding ADD COLUMN admitted_at TEXT;
+-- `admitted_at` counts a gate's admissions on the day they happened rather
+-- than the day they queued, so a backlog does not evade today's quota. It is an
+-- attribute of an objstore item now, declared 20 bytes wide because
+-- store.AdmittedInWindow compares it (store/onboarding.go).
+--
+-- `onboarding` is an objstore entity rather than a table this chain creates:
+-- the driver makes it, from the one declaration that sits beside the code
+-- writing it (store.EnsureEntities, spec 6/37 step 7). An entity keeps the name
+-- of the table it replaces, so a database carrying rows here is moved by
+-- `arizuko migrate-onbod` and refuses to open until it has been.
+SELECT 1;

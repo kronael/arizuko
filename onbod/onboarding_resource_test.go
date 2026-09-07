@@ -17,6 +17,7 @@ import (
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
+	"github.com/kronael/arizuko/store"
 )
 
 // The registered row type must not carry the credential column at all —
@@ -39,10 +40,7 @@ func TestOnboardingRowHasNoTokenField(t *testing.T) {
 // different key, and counted first so an empty table cannot pass it vacuously.
 func TestOnboardingListLeaksNoToken(t *testing.T) {
 	db := testDB(t)
-	if _, err := db.Exec(`INSERT INTO onboarding (jid, status, created)
-		VALUES ('telegram:1', 'awaiting_message', '2026-01-01')`); err != nil {
-		t.Fatal(err)
-	}
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "telegram:1", Status: "awaiting_message"})
 
 	a := &admin{db: db}
 	mux := http.NewServeMux()
@@ -62,63 +60,58 @@ func TestOnboardingListLeaksNoToken(t *testing.T) {
 	}
 }
 
-// A row written before the migration (plaintext token, legacy table shape) must
-// survive openOwnedDB's migrate + backfill with its facts intact. Its link is no
-// longer redeemable anywhere — the fold moved redemption to /pair/{token} (spec
-// 5/31) — but the ROW is admission state, and losing it would strand the chat
-// behind its own jid primary key.
+// A row a PRE-MOVE database left behind must survive openOwnedDB with its facts
+// intact. Its link is no longer redeemable anywhere — the fold moved redemption
+// to /pair/{token} (spec 5/31) — but the ROW is admission state, and losing it
+// would strand the chat behind its own jid coordinate.
+//
+// The fixture stages `onboarding_legacy` DIRECTLY, because that table is the
+// only thing left of the reshape: onbod 0003/0004/0006 are blanked now that the
+// three tables are entities, so nothing in the chain can produce one. What it
+// models is a database migrated by an older binary, which is exactly the state
+// CarryOnboardingLegacy exists for. Its extra token columns are staged too —
+// the carry must not name them (BUGS F40) and would fail outright if it did.
 func TestPreMigrationRowSurvivesTheBackfill(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "store", "onbod.db")
 	mustSeedDB(t, path)
 
-	// Migrate once to get the current schema, then put the table back into its
-	// pre-Z3 shape with a live plaintext token, exactly as a real instance
-	// looked before 0004 ran.
 	db, err := openOwnedDB(path)
 	if err != nil {
 		t.Fatalf("openOwnedDB: %v", err)
 	}
+	// `created` is 20 bytes because it is a DECLARED ordered attribute: every
+	// driver refuses another width, so a carry of a short value fails loudly
+	// rather than sorting into the wrong place (BUGS L97).
 	if _, err := db.Exec(`
-		DROP TABLE onboarding;
-		CREATE TABLE onboarding (jid TEXT PRIMARY KEY, status TEXT NOT NULL,
+		CREATE TABLE onboarding_legacy (jid TEXT PRIMARY KEY, status TEXT NOT NULL,
 			prompted_at TEXT, created TEXT NOT NULL, token TEXT, token_expires TEXT,
 			user_sub TEXT, gate TEXT, queued_at TEXT, admitted_at TEXT);
-		INSERT INTO onboarding (jid, status, created, token, token_expires, gate)
-			VALUES ('telegram:legacy', 'awaiting_message', '2026-01-01', 'pre-migration-tok', '2099-01-01T00:00:00Z', 'invite_required');
-		DELETE FROM migrations WHERE service='onbod' AND version >= 4;
+		INSERT INTO onboarding_legacy (jid, status, created, token, token_expires, gate)
+			VALUES ('telegram:legacy', 'awaiting_message', '2026-01-01T00:00:00Z',
+			        'pre-migration-tok', '2099-01-01T00:00:00Z', 'invite_required');
 	`); err != nil {
 		t.Fatalf("stage legacy shape: %v", err)
 	}
 	db.Close()
 
-	// Re-open: 0004 reshapes, 0006 drops the token columns, CarryOnboardingLegacy
-	// moves the row across and cleans up after itself.
+	// Re-open: CarryOnboardingLegacy moves the row across and cleans up after
+	// itself.
 	db, err = openOwnedDB(path)
 	if err != nil {
 		t.Fatalf("reopen after legacy stage: %v", err)
 	}
 	defer db.Close()
 
-	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM onboarding`).Scan(&n)
-	if n != 1 {
-		t.Fatalf("row count after migration = %d, want 1 (row was dropped, not carried)", n)
+	rows, err := store.New(db).ListOnboarding("")
+	if err != nil {
+		t.Fatalf("read admissions: %v", err)
 	}
-	var status, gate string
-	if err := db.QueryRow(
-		`SELECT status, COALESCE(gate,'') FROM onboarding WHERE jid='telegram:legacy'`).
-		Scan(&status, &gate); err != nil {
-		t.Fatalf("read migrated row: %v", err)
+	if len(rows) != 1 {
+		t.Fatalf("row count after the carry = %d, want 1 (row was dropped, not carried)", len(rows))
 	}
-	if status != "awaiting_message" || gate != "invite_required" {
-		t.Errorf("admission facts lost: status=%q gate=%q", status, gate)
-	}
-	// F40: the bearer columns do not survive the chain — 0006 drops both, and
-	// the carry-forward must not name them or it would fail outright.
-	for _, col := range []string{"token", "token_ref", "token_expires"} {
-		if _, err := db.Query(`SELECT ` + col + ` FROM onboarding`); err == nil {
-			t.Errorf("column %s survived onbod 0006", col)
-		}
+	if rows[0].JID != "telegram:legacy" || rows[0].Status != "awaiting_message" ||
+		rows[0].Gate != "invite_required" {
+		t.Errorf("admission facts lost: %+v", rows[0])
 	}
 	// onboarding_legacy is gone — the carry cleaned up after itself.
 	var legacy int

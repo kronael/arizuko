@@ -92,8 +92,7 @@ func TestSplitInviteGrantLandsInRoutd(t *testing.T) {
 	// invites used_count increments in onbod.db (obdb). Keyed by ref, not the
 	// raw token (I1: onbod.db stores only the hash — a raw-token lookup would
 	// find nothing against the post-I1 schema).
-	var used int
-	obdb.QueryRow(`SELECT used_count FROM invites WHERE ref = ?`, store.TokenRef(token)).Scan(&used)
+	used := inviteUsed(t, obdb, store.TokenRef(token))
 	if used != 1 {
 		t.Errorf("want used_count=1 in onbod.db, got %d", used)
 	}
@@ -188,8 +187,7 @@ func TestSplitInviteGrantFailureRollsBack(t *testing.T) {
 	}
 
 	// The consume must be rolled back: used_count back to 0, invite not burned.
-	var used int
-	obdb.QueryRow(`SELECT used_count FROM invites WHERE ref = ?`, store.TokenRef(token)).Scan(&used)
+	used := inviteUsed(t, obdb, store.TokenRef(token))
 	if used != 0 {
 		t.Errorf("invite burned without grant: used_count=%d want 0 (RestoreInvite)", used)
 	}

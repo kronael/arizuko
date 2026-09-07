@@ -1,33 +1,11 @@
--- Z3: onboarding.token was a live PLAINTEXT bearer (onbod mints it with
--- core.GenHexToken and mails it as /onboard?token=<raw>), so any read access to
--- the DB could redeem any pending admission — the same hole I1 closed for
--- invites (0077) and 0059 closed for route_tokens. Same treatment: only
--- hex(sha256(token)) is persisted, in token_ref; the raw bearer lives only in
--- the link the user was sent.
+-- Z3: onboarding.token was a live plaintext bearer. token_ref replaced it and
+-- onbod 0006 then dropped that too, once the 5/31 fold left nothing writing it
+-- (BUGS F40). store.CarryOnboardingLegacy still carries an `onboarding_legacy`
+-- a pre-move database left behind; this file can no longer produce one.
 --
--- token_ref replaces token as the lookup key but NOT as a primary key: jid
--- stays the PK (unlike invites, where ref was already the public handle). NULL
--- token_ref keeps its existing meaning — "consumed or never minted".
---
--- SQLite has no sha256(), so this migration only reshapes the table; the data
--- carries forward via store.BackfillOnboardingTokenRefs (Go) immediately after
--- this runs — see store.migrate (store/store.go) and onbod/db.go's
--- openOwnedDB. Renamed, not dropped, so a crash between this migration and the
--- Go step leaves recoverable data instead of silently discarding every pending
--- admission link; the backfill drops onboarding_legacy once every row landed.
-ALTER TABLE onboarding RENAME TO onboarding_legacy;
-
-CREATE TABLE onboarding (
-  jid           TEXT PRIMARY KEY,
-  status        TEXT NOT NULL,
-  prompted_at   TEXT,
-  created       TEXT NOT NULL,
-  token_ref     TEXT,
-  token_expires TEXT,
-  user_sub      TEXT,
-  gate          TEXT,
-  queued_at     TEXT,
-  admitted_at   TEXT
-);
-
-CREATE INDEX IF NOT EXISTS idx_onboarding_token_ref ON onboarding(token_ref);
+-- `onboarding` is an objstore entity rather than a table this chain creates:
+-- the driver makes it, from the one declaration that sits beside the code
+-- writing it (store.EnsureEntities, spec 6/37 step 7). An entity keeps the name
+-- of the table it replaces, so a database carrying rows here is moved by
+-- `arizuko migrate-onbod` and refuses to open until it has been.
+SELECT 1;

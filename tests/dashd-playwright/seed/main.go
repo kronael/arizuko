@@ -14,6 +14,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"flag"
 	"fmt"
@@ -24,8 +25,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/db_utils"
+	"github.com/kronael/arizuko/objstore/sqlstore"
+	"github.com/kronael/arizuko/resreg"
+	_ "github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/runed"
 	"github.com/kronael/arizuko/store"
@@ -78,6 +83,21 @@ func main() {
 	}
 	defer onbodDB.Close()
 	applySQLDir(onbodDB, onbodMigrations)
+	// onbod's owned tables are objstore ENTITIES, so the chain above creates
+	// none of them and the driver does. store.OpenOnbodAt probes for `invites`
+	// to prove the path, so a seed that stopped here would leave every
+	// /dash/invites/ page reporting "invites store unavailable" while the suite
+	// still called itself green — the same failure the comment above records.
+	obj := sqlstore.New(onbodDB)
+	if err := audit.EnsureEntities(context.Background(), obj); err != nil {
+		log.Fatalf("seed: onbod audit entity: %v", err)
+	}
+	if err := store.EnsureEntities(context.Background(), obj, store.OwnerOnbod); err != nil {
+		log.Fatalf("seed: onbod entities: %v", err)
+	}
+	if err := resreg.EnsureSubsystem(context.Background(), obj, obj, resreg.SubsystemOnbod); err != nil {
+		log.Fatalf("seed: onbod subsystem: %v", err)
+	}
 
 	// runed.db — /dash/runed/ needs it, and runed IS an importable package, so
 	// its own opener runs its own migrations.

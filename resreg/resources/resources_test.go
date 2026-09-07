@@ -42,6 +42,18 @@ func openMem(t *testing.T) *sql.DB {
 	if err := store.Migrate(db); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
+	// The onbod subsystem's resources are entities, so its apply is a versioned
+	// replace and the version MARKER has to exist before any write — a Bump is
+	// an Update and an Update against a missing item refuses the whole batch it
+	// rides in (objstore.EnsureScope). onbod's own opener does this in
+	// migrateOwned; store.Migrate cannot, because store may not import resreg.
+	// It is a no-op for routd, which is still a column subsystem.
+	obj := sqlstore.New(db)
+	for _, subsystem := range []string{resreg.SubsystemOnbod, resreg.SubsystemRoutd} {
+		if err := resreg.EnsureSubsystem(context.Background(), obj, obj, subsystem); err != nil {
+			t.Fatalf("ensure %s: %v", subsystem, err)
+		}
+	}
 	return db
 }
 
@@ -721,24 +733,39 @@ func TestFacadeMCP_RegistrySingleSource(t *testing.T) {
 	}
 }
 
-// seedInvite inserts one live invite row (keyed by ref = TokenRef(token), I1)
-// and returns the WOULD-BE bearer — never itself persisted — so callers can
-// assert it never appears anywhere it shouldn't. expires_at is set non-NULL
-// because InvitesRow scans it into a plain string with no COALESCE hook, so a
-// NULL-expiry invite fails the engine scan outright.
+// seedInvite stores one live invite (keyed by ref = TokenRef(token), I1) and
+// returns the WOULD-BE bearer — never itself persisted — so callers can assert
+// it never appears anywhere it shouldn't. It writes through the owner's own
+// importer rather than a fixture of its own, so the item shape this engine
+// reads is the one store.ImportInvites writes.
 func seedInvite(t *testing.T, db *sql.DB) string {
 	t.Helper()
 	const token = "live-bearer-do-not-export"
 	now := time.Now().UTC()
-	if _, err := db.Exec(
-		`INSERT INTO invites (ref, target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		store.TokenRef(token), "atlas/**", "agent:atlas", now.Format(time.RFC3339),
-		now.Add(24*time.Hour).Format(time.RFC3339), 3, 0,
-	); err != nil {
+	if _, err := store.New(db).ImportInvites(context.Background(), []store.ArchiveInviteRow{{
+		Ref: store.TokenRef(token), TargetGlob: "atlas/**", IssuedBySub: "agent:atlas",
+		IssuedAt:  now.Format(time.RFC3339),
+		ExpiresAt: now.Add(24 * time.Hour).Format(time.RFC3339),
+		MaxUses:   3,
+	}}); err != nil {
 		t.Fatal(err)
 	}
 	return token
+}
+
+// liveInvites names every invite the database holds, so a test can say which
+// survived an apply without reaching past the owner into the item shape.
+func liveInvites(t *testing.T, db *sql.DB) map[string]bool {
+	t.Helper()
+	rows, err := store.New(db).ExportInvites(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]bool{}
+	for _, r := range rows {
+		out[r.Ref] = true
+	}
+	return out
 }
 
 // TestApply_NeverRebuildsInvites: invites are minted imperatively, so apply must
@@ -771,18 +798,12 @@ func TestApply_NeverRebuildsInvites(t *testing.T) {
 	if _, err := resreg.Apply(context.Background(), resreg.OnDB(db), resreg.SubsystemOnbod, c0, false, manifest, nil); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
-	var n int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM invites WHERE ref = ?`, store.TokenRef(token)).Scan(&n); err != nil {
-		t.Fatal(err)
+	live := liveInvites(t, db)
+	if !live[store.TokenRef(token)] {
+		t.Errorf("live invite wiped by apply (%v) — apply revoked a live bearer", live)
 	}
-	if n != 1 {
-		t.Errorf("live invite wiped by apply (count=%d) — apply revoked a live bearer", n)
-	}
-	if err := db.QueryRow(`SELECT COUNT(*) FROM invites WHERE ref = 'manifest-ref'`).Scan(&n); err != nil {
-		t.Fatal(err)
-	}
-	if n != 0 {
-		t.Errorf("apply INSERTed a manifest-declared invite (count=%d) — tokens are minted, never declared", n)
+	if live["manifest-ref"] {
+		t.Errorf("apply stored a manifest-declared invite (%v) — tokens are minted, never declared", live)
 	}
 }
 

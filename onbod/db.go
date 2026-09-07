@@ -8,6 +8,7 @@ import (
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/objstore/sqlstore"
+	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
 )
@@ -45,12 +46,14 @@ func openOwnedDB(ownDSN string) (*sql.DB, error) {
 	return db, nil
 }
 
-// migrateOwned builds onbod's OWN schema in db: the embedded chain, then the two
-// Go steps a reshaping migration cannot do. Migrations 0003 (invites) and 0004
-// (onboarding) only reshape their tables; these finish the job and drop the
-// renamed-out-of-the-way invites_legacy / onboarding_legacy (store/invites.go,
-// store/onboarding.go). BackfillInviteRefs also hashes plaintext invites at rest,
-// which SQL cannot do — SQLite has no sha256().
+// migrateOwned builds onbod's OWN schema in db: the embedded chain, the entities
+// the chain no longer creates, and the two Go steps a reshaping migration cannot
+// do. BackfillInviteRefs and CarryOnboardingLegacy carry the invites_legacy /
+// onboarding_legacy tables a pre-move database left behind and drop them
+// (store/invites.go, store/onboarding.go); BackfillInviteRefs also hashes
+// plaintext invites at rest, which SQL cannot do — SQLite has no sha256(). Both
+// are no-ops on a database created since the move, which never grows either
+// table.
 //
 // Split out of openOwnedDB so a test builds the schema onbod ships from the one
 // declaration of it, rather than a second one that drifts.
@@ -58,10 +61,26 @@ func migrateOwned(db *sql.DB) error {
 	if err := db_utils.Migrate(db, onbodMigrationFS, "migrations", onbodServiceName); err != nil {
 		return err
 	}
-	// audit_log is an entity rather than a migration, so it is created by the
-	// driver here — the invite and gate writers record inside their own
-	// transactions against this file.
-	if err := audit.EnsureEntities(context.Background(), newObjectStore(db)); err != nil {
+	// Every one of onbod's own tables is an entity rather than a migration, so
+	// the driver creates them here — the chain above only records that it has
+	// nothing left to build (onbod/migrations/0001).
+	//
+	// THREE CALLS, THREE OWNERS. audit owns its entity and four databases carry
+	// it. store owns the declaration of onboarding/onboarding_gates/invites,
+	// because store is where they are read and written. resreg owns the version
+	// MARKER its replace claims and its consistent read compares — and the
+	// marker has to exist before any write, because a Bump is an Update and an
+	// Update against a missing item refuses the whole batch it rides in
+	// (objstore.EnsureScope).
+	ctx := context.Background()
+	obj := newObjectStore(db)
+	if err := audit.EnsureEntities(ctx, obj); err != nil {
+		return err
+	}
+	if err := store.EnsureEntities(ctx, obj, store.OwnerOnbod); err != nil {
+		return err
+	}
+	if err := resreg.EnsureSubsystem(ctx, obj, obj, resreg.SubsystemOnbod); err != nil {
 		return err
 	}
 	if err := store.BackfillInviteRefs(db); err != nil {

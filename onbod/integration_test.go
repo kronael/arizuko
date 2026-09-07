@@ -114,11 +114,7 @@ func TestOnboardingFlow(t *testing.T) {
 	srv, inst, fake, cfg := newOnbodServer(t)
 
 	jid := "telegram:42"
-	if _, err := inst.Ob.Exec(
-		`INSERT INTO onboarding (jid, status, created) VALUES (?, 'awaiting_message', ?)`,
-		jid, time.Now().Format(time.RFC3339)); err != nil {
-		t.Fatal(err)
-	}
+	seedAdmission(t, inst.Ob, store.ArchiveOnboardingRow{JID: jid, Status: "awaiting_message"})
 
 	// Trigger the poll step: promptUnprompted mints the pairing token, issues a
 	// POST to gatedURL and stamps prompted_at on the row.
@@ -152,13 +148,6 @@ func TestOnboardingFlow(t *testing.T) {
 	if string(stored) == token {
 		t.Fatal("token stored in the clear — route_tokens must keep the hash, not the bearer")
 	}
-	// onbod mints no onboarding token of its own any more.
-	var legacy sql.NullString
-	inst.Ob.QueryRow(`SELECT token_ref FROM onboarding WHERE jid = ?`, jid).Scan(&legacy)
-	if legacy.Valid {
-		t.Errorf("onboarding.token_ref = %q; the pairing link is the only credential", legacy.String)
-	}
-
 	// GET /pair is webd's and is side-effect-free; the redemption POST it fronts
 	// is store.RedeemPairing, which is what writes the edge.
 	sub := "github:alice"
@@ -180,17 +169,15 @@ func TestOnboardingFlow(t *testing.T) {
 	}
 
 	// Admission is a poll now, not part of redemption.
-	var status string
-	inst.Ob.QueryRow(`SELECT status FROM onboarding WHERE jid = ?`, jid).Scan(&status)
+	status := admissionStatus(t, inst.Ob, jid)
 	if status != "awaiting_message" {
 		t.Errorf("redemption advanced admission on its own: status=%q", status)
 	}
 	observePairings(inst.X, inst.Ob, cfg)
 
 	// Confirm onboarding row now approved and user_sub bound.
-	var gotSub, gotStatus string
-	inst.Ob.QueryRow(`SELECT user_sub, status FROM onboarding WHERE jid = ?`,
-		jid).Scan(&gotSub, &gotStatus)
+	admitted := admission(t, inst.Ob, jid)
+	gotSub, gotStatus := admitted.UserSub, admitted.Status
 	if gotSub != sub {
 		t.Errorf("onboarding.user_sub = %q, want %q", gotSub, sub)
 	}
@@ -303,34 +290,23 @@ func TestOnboardingFlow(t *testing.T) {
 func TestGateRateLimit(t *testing.T) {
 	_, inst, _, _ := newOnbodServer(t)
 
-	if _, err := inst.Ob.Exec(
-		`INSERT INTO onboarding_gates (gate, limit_per_day, enabled) VALUES ('*', 2, 1)`,
-	); err != nil {
-		t.Fatal(err)
-	}
+	seedGateRow(t, inst.Ob, "*", 2, true)
 
-	now := time.Now().Format(time.RFC3339)
 	for i, jid := range []string{"telegram:1", "telegram:2", "telegram:3"} {
 		sub := "github:u" + string(rune('a'+i))
-		inst.Ob.Exec(`INSERT INTO onboarding (jid, status, created)
-			VALUES (?, 'awaiting_message', ?)`, jid, now)
+		seedAdmission(t, inst.Ob, store.ArchiveOnboardingRow{JID: jid, Status: "awaiting_message"})
 		admitJID(inst.Ob, config{}, jid, sub)
 	}
 
-	var queued int
-	inst.Ob.QueryRow(
-		`SELECT COUNT(*) FROM onboarding WHERE status = 'queued'`).Scan(&queued)
+	queued := countAdmissions(t, inst.Ob, "queued")
 	if queued != 3 {
 		t.Fatalf("all 3 should be queued before admission, got %d", queued)
 	}
 
 	admitFromQueue(inst.Ob)
 
-	var approved, stillQueued int
-	inst.Ob.QueryRow(
-		`SELECT COUNT(*) FROM onboarding WHERE status = 'approved'`).Scan(&approved)
-	inst.Ob.QueryRow(
-		`SELECT COUNT(*) FROM onboarding WHERE status = 'queued'`).Scan(&stillQueued)
+	approved := countAdmissions(t, inst.Ob, "approved")
+	stillQueued := countAdmissions(t, inst.Ob, "queued")
 	if approved != 2 {
 		t.Errorf("approved = %d, want 2 (rate limit)", approved)
 	}
@@ -340,8 +316,7 @@ func TestGateRateLimit(t *testing.T) {
 
 	// Second admission pass same day must not exceed the limit.
 	admitFromQueue(inst.Ob)
-	inst.Ob.QueryRow(
-		`SELECT COUNT(*) FROM onboarding WHERE status = 'approved'`).Scan(&approved)
+	approved = countAdmissions(t, inst.Ob, "approved")
 	if approved != 2 {
 		t.Errorf("after re-admit, approved = %d, want 2 (persisted limit)", approved)
 	}

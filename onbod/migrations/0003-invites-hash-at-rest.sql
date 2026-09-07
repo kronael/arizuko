@@ -1,19 +1,13 @@
--- Mirrors store/migrations/0077-invites-hash-at-rest.sql (I1: invites.token
--- was plaintext at rest; ref = hex(sha256(token)) becomes the primary key,
--- same as route_tokens' token_hash). Keeping the two in step is the point
--- (see store 0076's comment on the same discipline for user_profiles).
+-- I1 reshaped `invites` so that only hex(sha256(token)) is stored, keyed by
+-- `ref`. The reshape has nothing left to do: the table it renamed aside no
+-- longer exists to rename, because the invites this instance holds are items.
+-- store.BackfillInviteRefs still runs on every boot and still hashes and
+-- carries an `invites_legacy` a pre-move database left behind — it just cannot
+-- be produced here any more.
 --
--- SQLite has no sha256(), so this migration only reshapes the table; onbod's
--- openOwnedDB calls store.BackfillInviteRefs immediately after running these
--- migrations to carry existing rows forward and drop invites_legacy.
-ALTER TABLE invites RENAME TO invites_legacy;
-
-CREATE TABLE invites (
-  ref           TEXT PRIMARY KEY,
-  target_glob   TEXT NOT NULL,
-  issued_by_sub TEXT NOT NULL,
-  issued_at     TEXT NOT NULL,
-  expires_at    TEXT,
-  max_uses      INTEGER NOT NULL DEFAULT 1,
-  used_count    INTEGER NOT NULL DEFAULT 0
-);
+-- `invites` is an objstore entity rather than a table this chain creates:
+-- the driver makes it, from the one declaration that sits beside the code
+-- writing it (store.EnsureEntities, spec 6/37 step 7). An entity keeps the name
+-- of the table it replaces, so a database carrying rows here is moved by
+-- `arizuko migrate-onbod` and refuses to open until it has been.
+SELECT 1;

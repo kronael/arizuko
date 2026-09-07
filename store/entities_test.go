@@ -34,8 +34,13 @@ func openEntities(t *testing.T) *Store {
 		}
 	})
 	ctx, driver := context.Background(), sqlstore.New(db)
-	if err := EnsureEntities(ctx, driver); err != nil {
-		t.Fatalf("create the entities: %v", err)
+	// Both owners' sets: this stand-in opener stands in for every one of them,
+	// and a real opener names the single owner whose file it holds
+	// (routd/db.go, onbod/db.go).
+	for _, owner := range []string{OwnerRoutd, OwnerOnbod} {
+		if err := EnsureEntities(ctx, driver, owner); err != nil {
+			t.Fatalf("create %s's entities: %v", owner, err)
+		}
 	}
 	// audit owns its own declaration, and a real opener asks for it separately
 	// (store.migrate, routd/db.go). An audited write lands in the same database,
