@@ -91,61 +91,87 @@ var folderScopePurge = []folderScope{
 	{table: "installed_packages", col: "folder", seps: []string{"/"}},
 }
 
+// keepReason is why a group delete leaves a table alone.
+//
+// It is a VALUE rather than a sentence because one of the reasons is a
+// MECHANISM and the rest are judgements. "history" is a decision this file
+// makes and nothing can invalidate it. "the groups row's ON DELETE CASCADE
+// removes it" is a claim about the SCHEMA, and it stops being true the moment
+// the table stops being a SQL table: an objstore entity has no foreign keys and
+// a key-value engine has no cascade at all, so the row would then be deleted by
+// NOTHING while the completeness test still passed, because the table is still
+// classified (BUGS L253). A mechanism is checkable; a sentence is not.
+type keepReason struct {
+	why string
+	// cascadesOn names the table whose own delete removes the row instead of
+	// this purge, and is empty when the reason is a judgement.
+	// TestFolderScope_EveryClaimedCascadeExists reads the schema through it, so
+	// the claim cannot outlive the constraint that makes it true.
+	cascadesOn string
+}
+
+// cascadeOffGroups is the one mechanism a keep verdict may name: the FK to
+// groups(folder) that fires inside this delete's own transaction.
+func cascadeOffGroups(why string) keepReason { return keepReason{why: why, cascadesOn: "groups"} }
+
+// keep is the ordinary verdict: a judgement, with no mechanism to check.
+func keep(why string) keepReason { return keepReason{why: why} }
+
 // folderScopeKeep names every other table in the schema and why a group delete
 // leaves it alone. With folderScopePurge it is a TOTAL classification: the
 // completeness test fails on a table in neither list, so a table joining the
 // schema cannot skip the question of whether it confers on a folder.
-var folderScopeKeep = map[string]string{
+var folderScopeKeep = map[string]keepReason{
 	// History. What happened is not the folder's to take away, and this
 	// transaction writes the delete's own row into audit_log.
-	"audit_log":      "the record of the delete itself commits with it",
-	"cli_audit":      "history",
-	"ipc_audit":      "history",
-	"secret_use_log": "history",
-	"session_log":    "history",
-	"task_run_logs":  "history; cascaded by scheduled_tasks.id where a run is still linked",
-	"cost_log":       "the spend a deleted folder booked is still owed",
+	"audit_log":      keep("the record of the delete itself commits with it"),
+	"cli_audit":      keep("history"),
+	"ipc_audit":      keep("history"),
+	"secret_use_log": keep("history"),
+	"session_log":    keep("history"),
+	"task_run_logs":  keep("history; cascaded by scheduled_tasks.id where a run is still linked"),
+	"cost_log":       keep("the spend a deleted folder booked is still owed"),
 	// The gateway meters spend now (spec 6/39); this holds what arizuko
 	// booked before it, frozen, with no writer. A delete must not erase a
 	// folder's billing record any more than it erases its audit trail.
-	"cost_log_archive": "history; the ledger arizuko kept before the gateway",
-	"messages":         "the transcript of a chat that outlives the folder",
+	"cost_log_archive": keep("history; the ledger arizuko kept before the gateway"),
+	"messages":         keep("the transcript of a chat that outlives the folder"),
 
 	// The FTS index over messages and the four shadow tables sqlite hangs off
 	// it. Its triggers follow messages, which this delete does not touch.
-	"messages_fts":         "index over messages",
-	"messages_fts_data":    "fts5 shadow table",
-	"messages_fts_idx":     "fts5 shadow table",
-	"messages_fts_docsize": "fts5 shadow table",
-	"messages_fts_config":  "fts5 shadow table",
+	"messages_fts":         keep("index over messages"),
+	"messages_fts_data":    keep("fts5 shadow table"),
+	"messages_fts_idx":     keep("fts5 shadow table"),
+	"messages_fts_docsize": keep("fts5 shadow table"),
+	"messages_fts_config":  keep("fts5 shadow table"),
 
 	// Cascaded by the groups row this delete removes.
-	"web_routes":     "FK groups(folder) ON DELETE CASCADE",
-	"route_tokens":   "FK groups(folder) ON DELETE CASCADE; a token naming a gone target is refused at webd ingress (BUGS L5)",
-	"github_sources": "FK groups(folder) ON DELETE CASCADE",
+	"web_routes":     cascadeOffGroups("FK groups(folder) ON DELETE CASCADE"),
+	"route_tokens":   cascadeOffGroups("FK groups(folder) ON DELETE CASCADE; a token naming a gone target is refused at webd ingress (BUGS L5)"),
+	"github_sources": cascadeOffGroups("FK groups(folder) ON DELETE CASCADE"),
 
 	// Turn state, keyed by a turn id the next tenant never mints.
-	"turn_context": "keyed by turn_id; a re-created folder mints new ones",
-	"turn_results": "keyed by turn_id; a re-created folder mints new ones",
+	"turn_context": keep("keyed by turn_id; a re-created folder mints new ones"),
+	"turn_results": keep("keyed by turn_id; a re-created folder mints new ones"),
 
 	// No folder coordinate at all.
-	"chat_proactive":   "keyed by chat jid",
-	"chat_sessions":    "keyed by chat jid",
-	"pane_sessions":    "keyed by slack thread",
-	"user_profiles":    "a person, not a folder",
-	"auth_users":       "a person, not a folder",
-	"auth_sessions":    "a person, not a folder",
-	"identities":       "a person, not a folder",
-	"identity_claims":  "a person, not a folder",
-	"identity_codes":   "a person, not a folder",
-	"onboarding":       "a person, not a folder",
-	"onboarding_gates": "instance-wide",
-	"proxyd_routes":    "owner is a package or the instance, never a folder",
-	"idempotency_keys": "keyed by request",
-	"router_state":     "instance-wide",
-	"config_meta":      "instance-wide",
-	"migrations":       "schema bookkeeping",
-	"sqlite_sequence":  "schema bookkeeping",
+	"chat_proactive":   keep("keyed by chat jid"),
+	"chat_sessions":    keep("keyed by chat jid"),
+	"pane_sessions":    keep("keyed by slack thread"),
+	"user_profiles":    keep("a person, not a folder"),
+	"auth_users":       keep("a person, not a folder"),
+	"auth_sessions":    keep("a person, not a folder"),
+	"identities":       keep("a person, not a folder"),
+	"identity_claims":  keep("a person, not a folder"),
+	"identity_codes":   keep("a person, not a folder"),
+	"onboarding":       keep("a person, not a folder"),
+	"onboarding_gates": keep("instance-wide"),
+	"proxyd_routes":    keep("owner is a package or the instance, never a folder"),
+	"idempotency_keys": keep("keyed by request"),
+	"router_state":     keep("instance-wide"),
+	"config_meta":      keep("instance-wide"),
+	"migrations":       keep("schema bookkeeping"),
+	"sqlite_sequence":  keep("schema bookkeeping"),
 }
 
 // folderScopeUnpurged names a table that carries a folder coordinate the delete
@@ -168,6 +194,23 @@ var folderScopeUnpurged = map[string]string{
 	// which makes reach unnecessary.
 	"invites":            "onbod owns it, in onbod.db",
 	"invite_redemptions": "onbod owns it, in onbod.db",
+}
+
+// FolderScopeCascades answers, for every table whose keep verdict claims a
+// cascade, the table whose delete performs it.
+//
+// It is the second reader of the same declaration, and the reason there is one:
+// a verdict that names a MECHANISM is a claim about the schema, so something has
+// to go and look. Both completeness tests walk it against their own schema,
+// because routd.db and messages.db do not hold the same tables.
+func FolderScopeCascades() map[string]string {
+	out := map[string]string{}
+	for table, r := range folderScopeKeep {
+		if r.cascadesOn != "" {
+			out[table] = r.cascadesOn
+		}
+	}
+	return out
 }
 
 // FolderScopeClassified reports whether table carries a verdict in the
