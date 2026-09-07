@@ -5,9 +5,13 @@
 //
 // The surface is TWO primitives and nothing else (spec 6/40 §"The seam is TWO
 // primitives"). Query reads; GuardedBatch writes under conditions. Everything
-// arizuko needs beyond them — the versioned replace, the reachability guard,
-// the claim-and-return, the counter — is a PROTOCOL written once over the two
-// and shared by every driver, never a third method some engine cannot carry.
+// arizuko needs beyond them is a PROTOCOL written once over the two and shared
+// by every driver, never a third method some engine cannot carry: the counter
+// (protocol.go), the versioned replace (replace.go), the consistent multi-read
+// (consistent.go) and the reachability guard (reach.go). The claim-and-return
+// is not written; it is Query plus a per-row guarded batch, the form
+// routd/pending_actions.go:421 already uses, and it goes in with the daemon
+// that owns it.
 //
 // The interface is deliberately narrower than SQL, because the narrow shape is
 // the one every engine has. What a driver must never do is offer more: a

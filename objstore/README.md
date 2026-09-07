@@ -34,14 +34,47 @@ Query(ctx, Query) ([]Item, error)
 GuardedBatch(ctx, []Check, []Write) (committed bool, err error)
 ```
 
-That is the whole interface. The versioned replace, the reachability guard, the
-claim-and-return and the counter are PROTOCOLS — package-level functions over
-these two, written once and shared by every driver — never further methods some
-engine cannot carry.
+That is the whole interface. What arizuko needs beyond it is a PROTOCOL — a
+package-level function over these two, written once and shared by every driver
+— never a further method some engine cannot carry.
+
+| protocol                | file            | the caller that asks for it                                      |
+| ----------------------- | --------------- | ---------------------------------------------------------------- |
+| `Increment`             | `protocol.go`   | `store/invites.go`: `used_count = used_count + 1 … RETURNING`    |
+| `Replace`               | `replace.go`    | `resreg.Apply`, whose 417-row scope cannot be one batch          |
+| `ReadConsistent`        | `consistent.go` | `resreg.ExportSnapshot`, N reads that have to describe ONE state |
+| `AddEdge` / `Reachable` | `reach.go`      | the membership cycle check, written twice (BUGS `L256`)          |
 
 `committed == false` with a nil error is a REFUSED batch: a condition did not
 hold. It is a normal outcome, the answer `authd`'s `ClaimRefreshToken` already
 gives as `won=false`, and it must never arrive as an error.
+
+**The claim-and-return is not written.** `store.DueTasks` is `UPDATE
+scheduled_tasks SET status='firing' WHERE status='active' AND next_run <= ?
+RETURNING …` — `Query` plus a per-row guarded batch, which is the form
+`routd/pending_actions.go:421` already uses in SQL. It goes in with the daemon
+that owns it; nothing here needs it first.
+
+## The version marker
+
+Three of the four rest on one item per scope, because all three are UNBOUNDED —
+the row set, the read set or the graph frontier is not known before the call
+begins, so none of them fits in one all-or-nothing batch. The marker carries
+`version` (a value every writer changes), `holder` (present only while a replace
+runs, and its value is the fencing token) and `since`.
+
+`EnsureScope` creates it where a daemon already calls `CreateEntity`, and a
+BOUNDED writer adds `Bump(scope)` to its own batch so that an export can see it.
+`ReadConsistent` detects exactly the writers that carry that `Bump` and no
+others — a discipline rather than a guarantee the engine gives, asserted as such
+in the suite so nobody reads more into it.
+
+**What `Replace` costs `resreg.Apply`, said plainly.** Apply runs every DELETE
+and INSERT in ONE SQL transaction today, so a failure part-way rolls the
+subsystem back to its pre-image — the rollback `L44` depends on. A marker-gated
+sequence has none. A replace that dies half-way leaves the scope part-written
+with its claim held, and recovery is to run it again, never to undo it. That is
+what buys the unbounded row set, and it is the price `6/38` costed.
 
 ## What gets on the surface
 
@@ -114,15 +147,19 @@ key, where it costs nothing.
 
 ## Layout
 
-| path           | what it holds                                                     |
-| -------------- | ----------------------------------------------------------------- |
-| `objstore.go`  | `Store`, `Item`, `Key` — the object model                         |
-| `query.go`     | the read shape: key predicate, filters, order, the caller's bound |
-| `batch.go`     | the write shape, and the bounds every driver enforces             |
-| `ordered.go`   | the declared widths every driver refuses a value against          |
-| `protocol.go`  | `Increment` — what the two primitives compose into                |
-| `sqlstore/`    | the SQL driver: one generator, two dialects                       |
-| `conformance/` | the test bodies every driver runs                                 |
+| path            | what it holds                                                     |
+| --------------- | ----------------------------------------------------------------- |
+| `objstore.go`   | `Store`, `Item`, `Key` — the object model                         |
+| `query.go`      | the read shape: key predicate, filters, order, the caller's bound |
+| `batch.go`      | the write shape, and the bounds every driver enforces             |
+| `ordered.go`    | the declared widths every driver refuses a value against          |
+| `protocol.go`   | `Increment` — the counter, and what a protocol looks like         |
+| `marker.go`     | `Scope`, `EnsureScope`, `Bump` — the version marker three share   |
+| `replace.go`    | `Replace` — the versioned replace, and the claim it writes under  |
+| `consistent.go` | `ReadConsistent` — the multi-read that retries a moved scope      |
+| `reach.go`      | `Reachable`, `AddEdge` — the graph walk and its version guard     |
+| `sqlstore/`     | the SQL driver: one generator, two dialects                       |
+| `conformance/`  | the test bodies every driver runs                                 |
 
 ## The SQL driver is one driver with two emitters
 
@@ -170,3 +207,15 @@ NOTHING` turned into an upsert, the counter's compare-and-swap dropped, its
 companion writes dropped, and both width checks disabled. A mutation that breaks
 the STATEMENT rather than the answer does not count — a body that goes red
 because Postgres refused to parse the query has proved nothing.
+
+The protocols were watched the same way, and **the mutation is what sized the
+code**: two conjuncts survived being deleted, so they were deleted. The sixteen
+that turn a body red are the claim's compare-and-swap, its held-scope refusal,
+the fence on every batch a replace writes, the plan's version guard, the finish
+compare-and-swap, keeping a claim after a partial write, the batch bound, the
+whole-set duplicate check, `EnsureScope`, `Bump`'s changed value, the second
+marker read, the retry, the held and missing refusals on a consistent read, the
+graph's version guard, its retry, the transitive frontier and the walk's own
+seed. A body that could not go red for one of them was rewritten until it could:
+two of them first passed against broken code because the interleave they needed
+never happened, which is why `slip` forces every one of them.
