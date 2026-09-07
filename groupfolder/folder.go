@@ -186,12 +186,15 @@ func resolve(base, folder string) (string, error) {
 // the three placeholders in order.
 //
 // It exists because the cascades hand-wrote `col = ? OR col LIKE ?||'/%'` at
-// five sites, and SQL LIKE is the wrong predicate twice over: it is
-// case-INSENSITIVE for ASCII, and `_` and `%` are wildcards. Measured on
-// sqlite 3: deleting folder `a_b` also deleted `axb`'s rows, and deleting
-// `coach` also deleted `Coach`'s — a live instance HAS carried a `Coach`/`coach`
-// pair (BUGS L66). substr comparison is exact, case-sensitive and has no
-// metacharacters at all.
+// five sites, and LIKE is the wrong predicate for containment. `_` and `%` are
+// wildcards on every engine: measured on sqlite 3.51.2 and PostgreSQL 17.11,
+// `'aXb' LIKE 'a_b'` is true on both, so deleting folder `a_b` also deleted
+// `axb`'s rows. Case folding is an engine difference, not a general fact —
+// sqlite's LIKE folds ASCII and Postgres's does not, so `'Coach' LIKE 'coach%'`
+// is true on sqlite and false on Postgres. A live instance HAS carried a
+// `Coach`/`coach` pair (BUGS L66), and it leaked on sqlite only. substr
+// comparison is exact, case-sensitive and has no metacharacters at all, which
+// is why it is the predicate on every engine.
 func SQLSubtree(col, sep string) string {
 	return "(" + col + " = ? OR substr(" + col + ", 1, ?) = ?)"
 }

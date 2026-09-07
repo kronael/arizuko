@@ -42,9 +42,12 @@ That representation is what makes the folder portable. A prefix on a path is
 partition key sits ABOVE the folder, at the tenant root, so one query covers
 the subtree. Choose the folder itself as the partition key and the same
 predicate becomes a full scan. The prefix is also why the predicate must be
-`substr`, not `LIKE`: `_` and `%` are wildcards, and `LIKE` is
-case-insensitive, so a folder named `a_b` would otherwise match `aXb`
-(BUGS `L122`).
+`substr`, not `LIKE`: `_` and `%` are wildcards, so a folder named `a_b`
+matches `aXb` (BUGS `L122`). Measured on sqlite 3.51.2 and PostgreSQL 17.11,
+that half leaks on both engines. **Case folding is an engine difference and not
+a general fact** — sqlite's `LIKE` folds ASCII, Postgres's does not — so a
+`Coach`/`coach` pair leaks on sqlite alone. `substr` is exact on both, which is
+what makes one predicate serve two drivers.
 
 ## 2. The guarded transition — read, decide, write under a condition
 
@@ -228,6 +231,18 @@ shared by every driver:
 - **The reachability guard** is a graph `Query` plus a version-guarded batch.
 - **The claim-and-return** is `Query` plus a per-row guarded batch, which is
   the form `routd/pending_actions.go:421` already uses.
+
+**One check has no SQL twin, and the driver refuses it rather than faking it.**
+A `Check` on an item that must NOT exist is native to DynamoDB — a
+`ConditionCheck` with `attribute_not_exists`. SQL cannot match it. At Postgres
+READ COMMITTED, `SELECT … FOR UPDATE` locks the rows a query FOUND, and an
+absent item has none, so a concurrent insert is invisible and the check passes
+for both racers. `objstore/sqlstore` therefore returns an error naming the
+substitute: a `Put` carrying its own absent-condition, where the engine's own
+uniqueness enforces it. An interface that quietly accepted the check would let
+a caller depend on a guarantee one driver does not have, which is the exact
+drift the conformance suite exists to catch — so the asymmetry is a loud
+refusal instead of a silent race.
 
 **The constraint this exposes, and it is not negotiable.** Exact set-wide
 atomicity — "these N rows change together or none do", for unbounded N —
