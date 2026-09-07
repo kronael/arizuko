@@ -11,6 +11,7 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/store"
+	"github.com/kronael/arizuko/tests/testutils"
 )
 
 // signUserHeaders supplies the proxyd-stamped identity headers webd's
@@ -83,11 +84,7 @@ func (m *mockRouter) sent() []chanlib.InboundMsg {
 // The mock router persists inbound messages to st (simulates routd).
 func newTestServer(t *testing.T) (*server, *mockRouter, *store.Store) {
 	t.Helper()
-	st, err := store.OpenMem()
-	if err != nil {
-		t.Fatalf("store: %v", err)
-	}
-	t.Cleanup(func() { st.Close() })
+	st := testutils.NewRoutdStore(t)
 
 	mr := newMockRouterWithStore(st)
 	t.Cleanup(mr.close)

@@ -16,6 +16,7 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/store"
+	"github.com/kronael/arizuko/tests/testutils"
 )
 
 // TestRouteToken_ResolvedInProcess pins the daemon boundary spec 5/W now
@@ -25,11 +26,7 @@ import (
 // used to claim the opposite (a POST /v1/route_tokens/resolve round trip),
 // and that endpoint had zero callers; this test is why it can stay deleted.
 func TestRouteToken_ResolvedInProcess(t *testing.T) {
-	st, err := store.OpenMem()
-	if err != nil {
-		t.Fatalf("store: %v", err)
-	}
-	t.Cleanup(func() { st.Close() })
+	st := testutils.NewRoutdStore(t)
 	seedGroup(t, st, "acme", "Acme")
 	tok := seedChatToken(t, st, "acme")
 

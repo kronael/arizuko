@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/store"
+	"github.com/kronael/arizuko/tests/testutils"
 )
 
 // BUGS P3: route matching read `proxyd_routes` and proxy selection read it
@@ -21,11 +22,7 @@ import (
 // every non-redirect route it lists, so a matched route can never be missing
 // its backend.
 func TestSnapshotCarriesAProxyForEveryRoute(t *testing.T) {
-	st, err := store.OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
+	st := testutils.NewRoutdStore(t)
 
 	if _, _, err := st.SyncProxydRoutes([]store.ProxydRoute{
 		{Path: "/chat/", Backend: "http://webd:8080", Auth: "public"},
@@ -67,11 +64,7 @@ func TestConcurrentRouteMutationNeverSplitsAcrossSnapshots(t *testing.T) {
 	}))
 	defer up.Close()
 
-	st, err := store.OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
+	st := testutils.NewRoutdStore(t)
 	route := store.ProxydRoute{Path: "/panel/", Backend: up.URL, Auth: "public"}
 	if _, _, err := st.SyncProxydRoutes([]store.ProxydRoute{route}); err != nil {
 		t.Fatal(err)

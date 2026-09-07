@@ -20,7 +20,8 @@ import (
 	"github.com/kronael/arizuko/tests/testutils"
 )
 
-// newIntegServer wires webd against a testutils.NewInstance-backed store and a
+// newIntegServer wires webd against a routd.db-schema store — the DB webd opens
+// in production (store.OpenRoutd in main.go) — and a
 // mock router. webd talks SSE + POST, not websockets — the spec's "websocket
 // echo" shape is mapped onto the real slink transport.
 type integInst struct {
@@ -32,7 +33,7 @@ type integInst struct {
 
 func newIntegServer(t *testing.T) *integInst {
 	t.Helper()
-	inst := testutils.NewInstance(t)
+	inst := testutils.NewRoutdInstance(t)
 	st := store.New(inst.DB)
 
 	mr := newMockRouterWithStore(st)

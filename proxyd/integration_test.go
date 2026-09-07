@@ -15,12 +15,12 @@ import (
 	"github.com/kronael/arizuko/tests/testutils"
 )
 
-// newIntegProxy wires a proxyd server against a testutils.NewInstance store,
-// a stub upstream, and a configurable auth secret. Returns server + upstream
-// (caller closes upstream).
+// newIntegProxy wires a proxyd server against a routd.db-schema store — the DB
+// proxyd opens in production (store.OpenRoutd in main.go) — a stub upstream, and
+// a configurable auth secret. Returns server + upstream (caller closes upstream).
 func newIntegProxy(t *testing.T, secret string) (*server, *httptest.Server, *testutils.Inst) {
 	t.Helper()
-	inst := testutils.NewInstance(t)
+	inst := testutils.NewRoutdInstance(t)
 	st := store.New(inst.DB)
 
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

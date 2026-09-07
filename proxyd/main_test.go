@@ -16,6 +16,7 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/store"
+	"github.com/kronael/arizuko/tests/testutils"
 )
 
 func testServer() *server {
@@ -365,11 +366,7 @@ func TestProxydPrivPathRequiresAuth(t *testing.T) {
 func TestProxydPrivPathWithJWTReachesUpstream(t *testing.T) {
 	s, up := testServerWithUpstream(t)
 	defer up.Close()
-	st, err := store.OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
+	st := testutils.NewRoutdStore(t)
 	// ES256 tokens carry no groups claim; the grant comes from the acl table.
 	if err := st.PutACLRow(core.ACLRow{Principal: "alice", Action: "*", Scope: "krons", Effect: "allow"}); err != nil {
 		t.Fatal(err)
@@ -564,11 +561,7 @@ func TestDavRouteForbidden(t *testing.T) {
 // unconfigured there is nothing to trade it for, so the caller is bounced to
 // login even though a matching user row exists.
 func TestProxydRequireAuthRefreshCookieIsNotIdentity(t *testing.T) {
-	st, err := store.OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
+	st := testutils.NewRoutdStore(t)
 	if err := st.CreateAuthUser("local:admin", "admin", "Admin"); err != nil {
 		t.Fatal(err)
 	}
@@ -598,11 +591,7 @@ func TestProxydRequireAuthRefreshCookieIsNotIdentity(t *testing.T) {
 // Unit-level twin of the above: tryAuth itself never reads the cookie. Only
 // tryRefreshViaAuthd (authd's /v1/refresh) turns a refresh token into identity.
 func TestTryAuthRefreshCookieRejected(t *testing.T) {
-	st, err := store.OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
+	st := testutils.NewRoutdStore(t)
 	if err := st.CreateAuthUser("local:bob", "bob", "Bob"); err != nil {
 		t.Fatal(err)
 	}
@@ -782,11 +771,7 @@ func TestMatchRouteMeBeatsSiblingPrefixes(t *testing.T) {
 
 // An ES256 access token minted by authd admits the request to the upstream.
 func TestProxydRouteWithES256BearerReachesUpstream(t *testing.T) {
-	st, err := store.OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
+	st := testutils.NewRoutdStore(t)
 	if err := st.CreateAuthUser("local:bob", "bob", "Bob"); err != nil {
 		t.Fatal(err)
 	}
@@ -816,11 +801,7 @@ func TestProxydRouteWithES256BearerReachesUpstream(t *testing.T) {
 // A refresh_token cookie no longer admits anyone: the cookie-session path is
 // gone, and with authd unconfigured there is nothing to trade the cookie for.
 func TestProxydRouteWithRefreshCookieRejected(t *testing.T) {
-	st, err := store.OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
+	st := testutils.NewRoutdStore(t)
 	if err := st.CreateAuthUser("local:bob", "bob", "Bob"); err != nil {
 		t.Fatal(err)
 	}
@@ -843,11 +824,7 @@ func TestProxydRouteWithRefreshCookieRejected(t *testing.T) {
 // raw-secret bypass: no cookie value is a credential, so the raw secret
 // can never match either.
 func TestProxydRouteRawSecretAsRefreshCookieRejected(t *testing.T) {
-	st, err := store.OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
+	st := testutils.NewRoutdStore(t)
 
 	s, up := testRouteServer(t, st, "rawsecret")
 	defer up.Close()
@@ -874,11 +851,7 @@ func TestProxydHandlerAuthProxiesToAuthd(t *testing.T) {
 	}))
 	defer authd.Close()
 
-	st, err := store.OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
+	st := testutils.NewRoutdStore(t)
 
 	s, up := testRouteServer(t, st, "testsecret")
 	defer up.Close()
@@ -1525,11 +1498,7 @@ func TestClientIP(t *testing.T) {
 // slot checks read these rows via groupsForSub.
 func aclStore(t *testing.T, principal string, scopes []string) *store.Store {
 	t.Helper()
-	st, err := store.OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { st.Close() })
+	st := testutils.NewRoutdStore(t)
 	for _, scope := range scopes {
 		if err := st.PutACLRow(core.ACLRow{Principal: principal, Action: "*", Scope: scope, Effect: "allow"}); err != nil {
 			t.Fatal(err)
@@ -1674,11 +1643,7 @@ func davES256Server(t *testing.T, st *store.Store) (*server, *httptest.Server, *
 // /dav/* with DB-backed group lookup via an ES256 bearer: groups come from the
 // acl table via UserScopes, not from JWT claims.
 func TestProxydDavAuthFlow_DBGroupLookup(t *testing.T) {
-	st, err := store.OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
+	st := testutils.NewRoutdStore(t)
 	// Create user + grant via acl row.
 	if err := st.CreateAuthUser("local:bob", "bob", "Bob"); err != nil {
 		t.Fatal(err)
@@ -1715,11 +1680,7 @@ func TestProxydDavAuthFlow_DBGroupLookup(t *testing.T) {
 
 // DB grant for group A does not grant access to group B.
 func TestProxydDavAuthFlow_DBCrossGroupDenied(t *testing.T) {
-	st, err := store.OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
+	st := testutils.NewRoutdStore(t)
 	if err := st.CreateAuthUser("local:carol", "carol", "Carol"); err != nil {
 		t.Fatal(err)
 	}

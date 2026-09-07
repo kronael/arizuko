@@ -15,6 +15,7 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/store"
+	"github.com/kronael/arizuko/tests/testutils"
 )
 
 // webdBearerKS mints the service:webd token webd presents to proxyd's /v1/proxyd_routes
@@ -42,11 +43,7 @@ var testWebdTok string
 
 func testResourceMux(t *testing.T, callerBuild resreg.CallerFromHTTPFunc) (*http.ServeMux, *routesResource, *store.Store) {
 	t.Helper()
-	st, err := store.OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { st.Close() })
+	st := testutils.NewRoutdStore(t)
 	// Seed ACL so the operator (predicate operator=1) admits everywhere.
 	// Spec 5/32 — operator is emergent from the `**` row, not a role.
 	if err := st.AddACLRow(core.ACLRow{
@@ -310,8 +307,7 @@ func TestRoutesResource_Durable(t *testing.T) {
 // function value the MCP tool dispatches to. Spec 5/5 §"One renderer,
 // many sinks" — structurally proves no duplication.
 func TestRoutesResource_SingleHandler(t *testing.T) {
-	st, _ := store.OpenMem()
-	defer st.Close()
+	st := testutils.NewRoutdStore(t)
 	rr := newRoutesResource(st, nil)
 	res := routesResourceDecl(rr)
 	if res.Handler == nil {
@@ -343,10 +339,7 @@ func jsonOf(v any) string {
 // must return an empty table rather than a stale partial — the error is
 // logged so a transient fault is a visible outage, not silent 404s.
 func TestRoutesResource_SnapshotDBError(t *testing.T) {
-	st, err := store.OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := testutils.NewRoutdStore(t)
 	rr := newRoutesResource(st, nil)
 	st.Close() // subsequent AllProxydRoutes/AllWebRoutes now error
 	if routes, procs := rr.snapshot(); routes != nil || procs != nil {

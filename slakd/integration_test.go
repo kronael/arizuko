@@ -321,11 +321,7 @@ func newRouterMock(t *testing.T, st *store.Store) *routerMock {
 
 func setupBot(t *testing.T, mock *slackMock) (*bot, *routerMock) {
 	t.Helper()
-	st, err := store.OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { st.Close() })
+	st := testutils.NewRoutdStore(t)
 	rm := newRouterMock(t, st)
 	cfg := config{
 		Name:          "slack",

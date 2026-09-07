@@ -7,7 +7,7 @@ import (
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/store"
+	"github.com/kronael/arizuko/tests/testutils"
 )
 
 // authd mints the JWT sub prefixed ("user:alice"), and proxyd stamps that claim
@@ -18,11 +18,7 @@ import (
 // The existing resource tests seed Principal "**", which matchPrincipal admits
 // for anything, so they could not see this. This one seeds a NAMED principal.
 func TestCallerSubIsBareSoANamedACLRowMatches(t *testing.T) {
-	st, err := store.OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { st.Close() })
+	st := testutils.NewRoutdStore(t)
 	if err := st.AddACLRow(core.ACLRow{
 		Principal: "alice", Action: "*", Scope: "**", Effect: "allow",
 	}); err != nil {

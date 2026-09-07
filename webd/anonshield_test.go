@@ -10,7 +10,7 @@ import (
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
-	"github.com/kronael/arizuko/store"
+	"github.com/kronael/arizuko/tests/testutils"
 )
 
 // The shield and these tests moved here from proxyd with the route-token
@@ -63,11 +63,7 @@ func TestAnonShieldSweepReclaims(t *testing.T) {
 // client per minute, with one chat token seeded.
 func shieldServer(t *testing.T, limit int, ks *auth.KeySet) (*httptest.Server, string) {
 	t.Helper()
-	st, err := store.OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { st.Close() })
+	st := testutils.NewRoutdStore(t)
 	seedGroup(t, st, "acme", "Acme")
 	tok := seedChatToken(t, st, "acme")
 

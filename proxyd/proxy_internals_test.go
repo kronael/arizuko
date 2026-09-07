@@ -18,7 +18,7 @@ import (
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
-	"github.com/kronael/arizuko/store"
+	"github.com/kronael/arizuko/tests/testutils"
 )
 
 // parseTrustedProxies handles CIDRs, bare IPs, and invalid entries.
@@ -538,11 +538,7 @@ func TestTryAuth_ES256RejectedWhenKeySetNil(t *testing.T) {
 // Soak step 2: ES256 sub `user:google:123` resolves grants under the bare
 // `google:123` principal — the leading `user:` is stripped before lookup.
 func TestTryAuth_ES256SubPrefixGrantLookup(t *testing.T) {
-	st, err := store.OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { st.Close() })
+	st := testutils.NewRoutdStore(t)
 	if err := st.AddACLRow(core.ACLRow{
 		Principal: "google:123", Action: "*", Scope: "atlas", Effect: "allow",
 	}); err != nil {
@@ -578,11 +574,7 @@ func TestTryAuth_ES256SubPrefixGrantLookup(t *testing.T) {
 // must NOT stamp only the token claim. Guards that backends (webd/onbod/dashd
 // reading injected headers) see operator scope for ES256 sessions too.
 func TestTryAuth_ES256OperatorGroupsFromDB(t *testing.T) {
-	st, err := store.OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { st.Close() })
+	st := testutils.NewRoutdStore(t)
 	// Operator grant: bare sub `google:999` holds `**` (cross-folder operator).
 	if err := st.AddACLRow(core.ACLRow{
 		Principal: "google:999", Action: "*", Scope: "**", Effect: "allow",
@@ -625,11 +617,7 @@ func TestTryAuth_ES256OperatorGroupsFromDB(t *testing.T) {
 // post-cutover grants stay invisible to scope stamping.
 func TestGroupsForSub_ReadsFromRoutdNotMessages(t *testing.T) {
 	// stRoutd simulates the live routd.db — has grants.
-	stRoutd, err := store.OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { stRoutd.Close() })
+	stRoutd := testutils.NewRoutdStore(t)
 	if err := stRoutd.PutACLRow(core.ACLRow{
 		Principal: "google:split", Action: "*", Scope: "new-grant", Effect: "allow",
 	}); err != nil {

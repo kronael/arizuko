@@ -10,6 +10,7 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/store"
+	"github.com/kronael/arizuko/tests/testutils"
 )
 
 // A suffixed JID resolves to the folder the mint RECORDED, not the folder its
@@ -20,11 +21,7 @@ import (
 // proxyd used to make this call and stamp the answer in X-Folder; specs/6/22
 // step 1 left the single resolution here, so the test came with it.
 func TestChatToken_SuffixedJIDServesTheMintedFolder(t *testing.T) {
-	st, err := store.OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { st.Close() })
+	st := testutils.NewRoutdStore(t)
 	for _, f := range []string{"a", "a/b"} {
 		if err := st.PutGroup(core.Group{Folder: f, AddedAt: time.Now()}); err != nil {
 			t.Fatal(err)

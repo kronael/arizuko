@@ -8,7 +8,7 @@ import (
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/store"
+	"github.com/kronael/arizuko/tests/testutils"
 )
 
 // proxyd reads routd's `acl` directly, per request, instead of calling routd's
@@ -26,11 +26,7 @@ import (
 // return 200, leaving a revoked grant live until the token refreshes
 // (accessTTL, 15 minutes).
 func TestGroupsForSub_RevokedGrantDeniedDespiteTokenScope(t *testing.T) {
-	st, err := store.OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
+	st := testutils.NewRoutdStore(t)
 	if err := st.CreateAuthUser("local:dave", "dave", "Dave"); err != nil {
 		t.Fatal(err)
 	}
