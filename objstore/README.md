@@ -7,9 +7,18 @@ engine is a second driver and no daemon changes (spec
 
 **Three daemons and one library run on this.** `authd/authstore`,
 `emaid/emaistore`, `chanlib/chanstore` and `runed/runstore` hold no SQL at all,
-and `store` has begun: `pane_sessions` and `secret_use_log` are entities inside
-a package whose other tables are still statements, which is what a PARTIAL move
-looks like — one implementation per table at every moment, never a fallback.
+and `store` has begun: `pane_sessions`, `secret_use_log`, `onboarding`,
+`onboarding_gates` and `invites` are entities inside a package whose other
+tables are still statements, which is what a PARTIAL move looks like — one
+implementation per table at every moment, never a fallback.
+
+The last three are the first registered `resreg` resources to move, which is a
+different threshold: a table `arizuko apply`/`export`/`plan`/`get`/`archive`
+reads could not become an entity until the engine stopped assuming every
+resource is an N-column table (BUGS `L259`). A resource now DECLARES its shape
+and the engine dispatches on the declaration (`resreg/entity.go`), so onbod's
+three moved without waiting for routd's thirteen. Both protocols below got
+their first production caller with them.
 
 emaid is the first that reaches storage ONLY through this package: nothing
 holds a statement against `emaid.db` any more, because chanlib's own two tables
