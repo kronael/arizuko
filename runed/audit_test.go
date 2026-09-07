@@ -283,12 +283,17 @@ func TestRunEmitsNoAuditRow(t *testing.T) {
 	}
 }
 
-// countSpawns returns the total spawns row count.
+// countSpawns returns how many spawns the database holds, of any state.
+//
+// It reads through the store rather than counting the entity's rows, so this
+// fixture cannot be the one place that still knows runed's storage is SQL — a
+// COUNT(*) works against a three-column entity table and would keep working
+// against the wrong thing.
 func countSpawns(t *testing.T, db *DB) int {
 	t.Helper()
-	var n int
-	if err := db.SQL().QueryRow("SELECT COUNT(*) FROM spawns").Scan(&n); err != nil {
+	rows, err := db.RecentSpawns(t.Context(), "", "", 500)
+	if err != nil {
 		t.Fatalf("count spawns: %v", err)
 	}
-	return n
+	return len(rows)
 }
