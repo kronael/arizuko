@@ -107,6 +107,7 @@ func main() {
 		"migrate-authstore": cmdMigrateAuthstore, // spec 6/37 step 7
 		"migrate-chanlib":   cmdMigrateChanlib,   // spec 6/37 step 7
 		"migrate-emaid":     cmdMigrateEmaid,     // spec 6/37 step 7
+		"migrate-onbod":     cmdMigrateOnbod,     // spec 6/37 step 7
 		"migrate-runed":     cmdMigrateRuned,     // spec 6/37 step 7
 		"migrate-store":     cmdMigrateStore,     // spec 6/37 step 7
 		"probe":             cmdProbe,            // spec 6/7 component contract

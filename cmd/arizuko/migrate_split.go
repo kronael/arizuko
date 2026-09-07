@@ -19,6 +19,7 @@ import (
 	"github.com/kronael/arizuko/audit"
 
 	"github.com/kronael/arizuko/objstore/sqlstore"
+	"github.com/kronael/arizuko/resreg"
 )
 
 // cmdMigrateSplit populates routd.db + runed.db + auth.db from an existing
@@ -179,77 +180,43 @@ var routdSpecs = []copySpec{
 // have (spec 6/37 rule 4). `spawns` and `circuit_breaker` have no pre-split
 // source at all.
 
-// onbodSpecs map messages.db → onbod.db. onbod now OWNS the onboarding admission
-// state machine, invite links and per-gate limits. Straight copies — identical
-// schema both sides. Neither bearer column is plaintext, and messages.db is only
-// ever opened via store.Open, which runs the hash-at-rest backfills first, so the
-// source is already hashed by the time this read-only ATTACH runs.
-var onbodSpecs = []copySpec{
-	{dst: "onboarding", src: "onboarding",
-		cols: "jid, status, prompted_at, created, token_ref, token_expires, user_sub, gate, queued_at, admitted_at",
-		sel:  "jid, status, prompted_at, created, token_ref, token_expires, user_sub, gate, queued_at, admitted_at"},
-	{dst: "invites", src: "invites",
-		cols: "ref, target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count",
-		sel:  "ref, target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count"},
-	{dst: "onboarding_gates", src: "onboarding_gates",
-		cols: "gate, limit_per_day, enabled",
-		sel:  "gate, limit_per_day, enabled"},
-}
+// onbod's three owned tables have NO copySpec, and they are the second set to
+// lose one: onboarding, onboarding_gates and invites are ENTITIES, so the
+// destination has no table to INSERT into and they travel through store's own
+// import (copyOnbodEntities), the way session_log and the panes already do.
+// Neither bearer column is plaintext, and messages.db is only ever opened via
+// store.Open, which runs the hash-at-rest backfills first, so the source is
+// already hashed by the time this read-only ATTACH runs.
 
-// onbodSchema mirrors onbod/migrations/*.sql's FINAL shape (0001 through the
-// onboarding hash-at-rest rework in 0004) so the migrator can bootstrap
-// onbod.db's owned tables before copying into them (onbod's migration FS is
-// package-private — onbod is package main; this one-shot DDL is the copy-target
-// bootstrap, IF NOT EXISTS so it's a no-op when onbod already migrated).
-const onbodSchema = `
-CREATE TABLE IF NOT EXISTS onboarding (
-  jid           TEXT PRIMARY KEY,
-  status        TEXT NOT NULL,
-  prompted_at   TEXT,
-  created       TEXT NOT NULL,
-  token_ref     TEXT,
-  token_expires TEXT,
-  user_sub      TEXT,
-  gate          TEXT,
-  queued_at     TEXT,
-  admitted_at   TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_onboarding_token_ref ON onboarding(token_ref);
-CREATE TABLE IF NOT EXISTS invites (
-  ref           TEXT PRIMARY KEY,
-  target_glob   TEXT NOT NULL,
-  issued_by_sub TEXT NOT NULL,
-  issued_at     TEXT NOT NULL,
-  expires_at    TEXT,
-  max_uses      INTEGER NOT NULL DEFAULT 1,
-  used_count    INTEGER NOT NULL DEFAULT 0
-);
-CREATE TABLE IF NOT EXISTS onboarding_gates (
-  gate          TEXT PRIMARY KEY,
-  limit_per_day INTEGER NOT NULL,
-  enabled       INTEGER NOT NULL DEFAULT 1
-);`
-
-// bootstrapOnbod builds onbod.db's owned tables and the entity audit records
-// into. The two halves are separate because they have separate owners: the DDL
-// above mirrors onbod's migration chain, and audit declares its entity beside
-// the code that writes it, so the driver creates that one.
+// bootstrapOnbod prepares onbod.db to receive the copy. It creates NO table:
+// onbod's own chain creates none either, so the three halves below are three
+// owners' entity declarations and nothing else — audit's log, store's three, and
+// the version marker resreg's apply claims.
+//
+// onbod's migration FS is package-private (onbod is package main), which is why
+// this is here rather than a call into it; there is no DDL left to mirror, so
+// there is nothing left to drift.
 func bootstrapOnbod(db *sql.DB) error {
-	if _, err := db.Exec(onbodSchema); err != nil {
+	ctx := context.Background()
+	obj := sqlstore.New(db)
+	if err := audit.EnsureEntities(ctx, obj); err != nil {
 		return err
 	}
-	return audit.EnsureEntities(context.Background(), sqlstore.New(db))
+	if err := store.EnsureEntities(ctx, obj, store.OwnerOnbod); err != nil {
+		return err
+	}
+	return resreg.EnsureSubsystem(ctx, obj, obj, resreg.SubsystemOnbod)
 }
 
-// onbodBootstrapVersion is the onbod migration version onbodSchema embodies IN
-// FULL. migrateSplit stamps exactly these rows into `migrations` so onbod's next
-// boot resumes AFTER them instead of replaying the chain over already-final tables
-// (BUGS Z3b): 0003/0004 RESHAPE, so a replay renamed the bootstrapped `invites` to
-// `invites_legacy` and onbod refused to boot.
+// onbodBootstrapVersion is how far onbod's chain bootstrapOnbod stands in for.
+// migrateSplit stamps exactly these rows into `migrations` so onbod's next boot
+// resumes after them.
 //
-// Claiming too FEW still replays the reshaping ones (Migrate demands contiguous
-// versions); claiming too MANY silently SKIPS a migration. So this number and
-// onbodSchema move together. TestOnbodSchemaMatchesMigrations pins the two.
+// It stays 4 because 0001..0004 now build nothing — each is a comment and a
+// `SELECT 1;`, since the three tables they created and reshaped are entities.
+// Claiming too FEW replays them harmlessly now; claiming too MANY would silently
+// skip 0005, which still creates invite_redemptions.
+// TestOnbodSchemaMatchesMigrations pins the two.
 const onbodBootstrapVersion = 4
 
 // orphanTables stay in messages.db post-cutover: no daemon reads them. Every table
@@ -266,7 +233,7 @@ var orphanTables = []string{
 }
 
 // recordOnbodBootstrap stamps `migrations` rows 1..onbodBootstrapVersion for
-// service "onbod", declaring what the onbodSchema bootstrap just created. Rows
+// service "onbod", declaring how far bootstrapOnbod stands in for. Rows
 // are written ONLY when onbod has recorded none of its own: a DB onbod already
 // migrated owns its own version, and overwriting it could claim past a
 // migration that DB has genuinely not applied. The table DDL matches
@@ -385,6 +352,37 @@ func copyStoreEntities(dst *sql.DB, msgPath string, dryRun bool) (store.Counts, 
 	return store.New(dst).Import(context.Background(), snap)
 }
 
+// copyOnbodEntities carries the monolith's onboarding, onboarding_gates and
+// invites into onbod.db's entities. It reuses migrate-onbod's reader, so the
+// cutover and the move cannot disagree about what a row holds — the same reason
+// copyStoreEntities reuses migrate-store's.
+func copyOnbodEntities(dst *sql.DB, msgPath string, dryRun bool) (store.OnbodCounts, error) {
+	src, err := db_utils.Open(db_utils.FileDSN(msgPath))
+	if err != nil {
+		return store.OnbodCounts{}, err
+	}
+	defer src.Close() //nolint:errcheck // read-only, and the process ends either way
+	sources, err := legacySources(src, onbodTables)
+	if err != nil {
+		return store.OnbodCounts{}, err
+	}
+	if len(sources) == 0 {
+		return store.OnbodCounts{}, nil
+	}
+	snap, err := readOnbodSnapshot(src, sources)
+	if err != nil {
+		return store.OnbodCounts{}, err
+	}
+	counts, err := store.CheckOnbodSnapshot(snap)
+	if err != nil {
+		return store.OnbodCounts{}, err
+	}
+	if dryRun {
+		return counts, nil
+	}
+	return store.New(dst).ImportOnbod(context.Background(), snap)
+}
+
 func migrateSplit(storeDir string, dryRun bool) error {
 	msgPath := filepath.Join(storeDir, "messages.db")
 	if _, err := os.Stat(msgPath); err != nil {
@@ -404,10 +402,9 @@ func migrateSplit(storeDir string, dryRun bool) error {
 		return fmt.Errorf("open runed.db: %w", err)
 	}
 	defer udb.Close()
-	// onbod.db: onbod OWNS onboarding/invites/onboarding_gates (onbod 0001).
-	// Bootstrap the schema (IF NOT EXISTS — no-op when onbod already migrated) so
-	// the copy target exists. onbod's migration FS is package-private (package
-	// main), hence the inline DDL (onbodSchema mirrors it verbatim).
+	// onbod.db: onbod OWNS onboarding/invites/onboarding_gates, and all three are
+	// entities, so what the copy target needs is the driver's declarations rather
+	// than a table (bootstrapOnbod).
 	odb, err := db_utils.Open(db_utils.FileDSN(filepath.Join(storeDir, "onbod.db")))
 	if err != nil {
 		return fmt.Errorf("open onbod.db: %w", err)
@@ -471,7 +468,9 @@ func migrateSplit(storeDir string, dryRun bool) error {
 	if err != nil {
 		return fmt.Errorf("runed.db: %w", err)
 	}
-	oN, err := copyInto(odb, msgPath, onbodSpecs, dryRun)
+	// The monolith's admissions, gates and invites land in onbod.db, and for the
+	// same reason they travel through store's own import rather than copyInto.
+	oN, err := copyOnbodEntities(odb, msgPath, dryRun)
 	if err != nil {
 		return fmt.Errorf("onbod.db: %w", err)
 	}
@@ -492,7 +491,8 @@ func migrateSplit(storeDir string, dryRun bool) error {
 	fmt.Printf("  routd.db audit_log: %d events\n", aN)
 	fmt.Printf("  routd.db pane_sessions: %d panes, secret_use_log: %d uses\n", sN.Panes, sN.Uses)
 	fmt.Printf("  runed.db session_log: %d sessions\n", uN)
-	fmt.Printf("  onbod.db rows: %s\n", fmtCounts(onbodSpecs, oN))
+	fmt.Printf("  onbod.db onboarding: %d admissions, onboarding_gates: %d gates, "+
+		"invites: %d\n", oN.Admissions, oN.Gates, oN.Invites)
 	fmt.Printf("\norphan tables LEFT IN messages.db (not copied — no daemon reads them):\n  %v\n",
 		orphanTables)
 	fmt.Println("  (messages.db is RETIRED — no daemon opens it after this run. The FILE is kept:")

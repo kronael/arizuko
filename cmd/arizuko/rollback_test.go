@@ -215,8 +215,21 @@ func TestRollback_SuccessfulApplyKeepsBothSubsystems(t *testing.T) {
 	if got := scalar(t, routdDB, `SELECT COUNT(*) FROM network_rules WHERE target='original.example.com'`); got != 0 {
 		t.Errorf("the old rule survived a successful apply (count=%d)", got)
 	}
-	if got := scalar(t, onbodDB, `SELECT COUNT(*) FROM onboarding_gates WHERE gate='invite_required'`); got != 1 {
-		t.Errorf("onbod gate not applied (count=%d)", got)
+	// The gate is an item, so it is read through the method onbod calls. This is
+	// the one assertion in this file that reaches an entity-backed resource, and
+	// it is what proves an apply on the OBJECT path landed rows a reader sees.
+	gates, err := store.New(onbodDB).ListGates()
+	if err != nil {
+		t.Fatalf("ListGates: %v", err)
+	}
+	found := false
+	for _, g := range gates {
+		if g.Gate == "invite_required" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("onbod gate not applied: %+v", gates)
 	}
 }
 

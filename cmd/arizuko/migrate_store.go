@@ -103,7 +103,7 @@ func migrateStore(path string, dryRun bool) error {
 		return err
 	}
 	s := sqlstore.New(db)
-	if err := store.EnsureEntities(ctx, s); err != nil {
+	if err := store.EnsureEntities(ctx, s, store.OwnerRoutd); err != nil {
 		return err
 	}
 	st := store.New(db)

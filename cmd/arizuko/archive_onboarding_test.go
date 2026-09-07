@@ -15,20 +15,65 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/resreg"
+	"github.com/kronael/arizuko/store"
 )
 
-// seedAdmission inserts one pending admission, then proves it landed.
+// seedAdmission writes one queued admission through the import the migration
+// tool uses, then proves it landed by reading it back through the method onbod
+// itself calls. An admission is an item, so there is no row to INSERT and no
+// column to COUNT — and a fixture that reached past the reader could seed a
+// shape the reader never returns.
 func seedAdmission(t *testing.T, db *sql.DB, jid string) {
 	t.Helper()
-	if _, err := db.Exec(
-		`INSERT INTO onboarding (jid, status, created, gate, queued_at)
-		 VALUES (?, 'queued', '2026-08-06T00:00:00Z', 'invite_required', '2026-08-06T00:01:00Z')`,
-		jid); err != nil {
+	st := store.New(db)
+	if _, err := st.ImportOnbod(t.Context(), store.OnbodSnapshot{
+		Admissions: []store.OnboardingRow{{
+			JID:      jid,
+			Status:   "queued",
+			Created:  "2026-08-06T00:00:00Z",
+			Gate:     "invite_required",
+			QueuedAt: "2026-08-06T00:01:00Z",
+		}},
+	}); err != nil {
 		t.Fatalf("seed admission: %v", err)
 	}
-	if got := scalar(t, db, `SELECT COUNT(*) FROM onboarding WHERE jid='`+jid+`'`); got != 1 {
-		t.Fatalf("seeded admission did not land (count=%d)", got)
+	rows, err := st.ListOnboarding("")
+	if err != nil {
+		t.Fatalf("read the seeded admission back: %v", err)
 	}
+	if len(rows) != 1 || rows[0].JID != jid {
+		t.Fatalf("seeded admission did not land: %+v", rows)
+	}
+}
+
+// countAdmissions answers how many admissions one database holds, through the
+// reader rather than a COUNT(*) the entity has no columns for.
+func countAdmissions(t *testing.T, db *sql.DB) int {
+	t.Helper()
+	return len(admissions(t, db))
+}
+
+// admissions reads every admission one database holds, through the method onbod
+// itself calls.
+func admissions(t *testing.T, db *sql.DB) []store.OnboardingRow {
+	t.Helper()
+	rows, err := store.New(db).ListOnboarding("")
+	if err != nil {
+		t.Fatalf("ListOnboarding: %v", err)
+	}
+	return rows
+}
+
+// admission reads ONE admission by jid, and fails when it is not there — which
+// is what every raw `SELECT ... WHERE jid = ?` in this file used to do.
+func admission(t *testing.T, db *sql.DB, jid string) (store.OnboardingRow, bool) {
+	t.Helper()
+	for _, r := range admissions(t, db) {
+		if r.JID == jid {
+			return r, true
+		}
+	}
+	return store.OnboardingRow{}, false
 }
 
 // TestArchiveOnboarding_TravelsAndRestores: the whole point — an admission
@@ -49,7 +94,7 @@ func TestArchiveOnboarding_TravelsAndRestores(t *testing.T) {
 
 	dstDataDir, dstStores := openInstance(t)
 	dstDB := dstStores[resreg.SubsystemOnbod].DB()
-	if got := scalar(t, dstDB, `SELECT COUNT(*) FROM onboarding`); got != 0 {
+	if got := countAdmissions(t, dstDB); got != 0 {
 		t.Fatalf("destination is not fresh (count=%d)", got)
 	}
 
@@ -59,15 +104,11 @@ func TestArchiveOnboarding_TravelsAndRestores(t *testing.T) {
 	if err != nil {
 		t.Fatalf("applyArchive: %v\n%s", err, report)
 	}
-	if got := scalar(t, dstDB, `SELECT COUNT(*) FROM onboarding WHERE jid='telegram:user/12345'`); got != 1 {
-		t.Fatalf("admission not restored (count=%d)\n%s", got, report)
+	got, ok := admission(t, dstDB, "telegram:user/12345")
+	if !ok {
+		t.Fatalf("admission not restored\n%s", report)
 	}
-	var status, gate, queuedAt string
-	if err := dstDB.QueryRow(
-		`SELECT status, gate, COALESCE(queued_at,'') FROM onboarding WHERE jid='telegram:user/12345'`).
-		Scan(&status, &gate, &queuedAt); err != nil {
-		t.Fatal(err)
-	}
+	status, gate, queuedAt := got.Status, got.Gate, got.QueuedAt
 	if status != "queued" || gate != "invite_required" {
 		t.Errorf("admission state lost: status=%q gate=%q", status, gate)
 	}
@@ -103,7 +144,7 @@ func TestArchiveOnboarding_SkippedWithoutForce(t *testing.T) {
 	// bootstrapped instances, so the config phase may fail first; either way
 	// the admission must not have been written.
 	_ = err
-	if got := scalar(t, dstDB, `SELECT COUNT(*) FROM onboarding`); got != 0 {
+	if got := countAdmissions(t, dstDB); got != 0 {
 		t.Errorf("admission imported without --force (count=%d)\n%s", got, report)
 	}
 }
@@ -131,11 +172,11 @@ func TestArchiveOnboarding_RefusesNonEmptyTarget(t *testing.T) {
 	if !strings.Contains(report, "onboarding: skipped") {
 		t.Errorf("report must say the admissions were skipped: %s", report)
 	}
-	if got := scalar(t, dstDB, `SELECT COUNT(*) FROM onboarding WHERE jid='telegram:user/12345'`); got != 0 {
-		t.Errorf("admission imported onto a non-empty target (count=%d)", got)
+	if _, ok := admission(t, dstDB, "telegram:user/12345"); ok {
+		t.Error("admission imported onto a non-empty target")
 	}
-	if got := scalar(t, dstDB, `SELECT COUNT(*) FROM onboarding WHERE jid='telegram:user/99999'`); got != 1 {
-		t.Errorf("the target's own admission was disturbed (count=%d)", got)
+	if _, ok := admission(t, dstDB, "telegram:user/99999"); !ok {
+		t.Error("the target's own admission was disturbed")
 	}
 }
 
@@ -165,11 +206,11 @@ func TestArchiveOnboarding_ConfigApplyStillNeverTouchesIt(t *testing.T) {
 	if _, err := resreg.Apply(context.Background(), resreg.OnDB(db), resreg.SubsystemOnbod, sum, false, manifest, nil); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
-	var status string
-	if err := db.QueryRow(`SELECT status FROM onboarding WHERE jid='telegram:user/12345'`).Scan(&status); err != nil {
-		t.Fatalf("config apply deleted the live admission — SkipApplyRebuild is off: %v", err)
+	got, ok := admission(t, db, "telegram:user/12345")
+	if !ok {
+		t.Fatal("config apply deleted the live admission — SkipApplyRebuild is off")
 	}
-	if status != "queued" {
-		t.Errorf("status = %q, want queued", status)
+	if got.Status != "queued" {
+		t.Errorf("status = %q, want queued", got.Status)
 	}
 }

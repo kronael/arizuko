@@ -20,6 +20,7 @@ import (
 	"github.com/kronael/arizuko/audit"
 
 	"github.com/kronael/arizuko/objstore/sqlstore"
+	"github.com/kronael/arizuko/resreg"
 )
 
 // seedMessagesDB creates a migrated messages.db at storeDir and inserts a row
@@ -124,7 +125,26 @@ func seedMessagesDB(t *testing.T, storeDir string) {
 	exec(`INSERT INTO pane_sessions(team_id, user_id, thread_ts, channel_id, context_jid, opened_at)
 		VALUES('T1','U99','1700.1','D0XY','slack:T1/channel/C42','2026-01-01T00:00:00Z')`)
 
-	// onboarding + invites + onboarding_gates: onbod OWNS these now → copied to onbod.db.
+	// onboarding + invites + onboarding_gates: onbod OWNS these now → copied to
+	// onbod.db. Same shape as secret_use_log and pane_sessions above — the
+	// monolith's TABLES, rebuilt over the entities that replaced them, because
+	// the split tool's source IS a pre-split file and a fixture that was not one
+	// would prove nothing about it. onbod.db's own move is a second step
+	// (`arizuko migrate-onbod`), which is why this hands over columns.
+	exec(`DROP TABLE onboarding`)
+	exec(`CREATE TABLE onboarding (
+	  jid TEXT PRIMARY KEY, status TEXT NOT NULL, prompted_at TEXT,
+	  created TEXT NOT NULL, token_ref TEXT, token_expires TEXT,
+	  user_sub TEXT, gate TEXT, queued_at TEXT, admitted_at TEXT)`)
+	exec(`DROP TABLE invites`)
+	exec(`CREATE TABLE invites (
+	  ref TEXT PRIMARY KEY, target_glob TEXT NOT NULL, issued_by_sub TEXT NOT NULL,
+	  issued_at TEXT NOT NULL, expires_at TEXT,
+	  max_uses INTEGER NOT NULL DEFAULT 1, used_count INTEGER NOT NULL DEFAULT 0)`)
+	exec(`DROP TABLE onboarding_gates`)
+	exec(`CREATE TABLE onboarding_gates (
+	  gate TEXT PRIMARY KEY, limit_per_day INTEGER NOT NULL,
+	  enabled INTEGER NOT NULL DEFAULT 1)`)
 	exec(`INSERT INTO onboarding(jid, status, created, user_sub, gate, queued_at, admitted_at)
 		VALUES('tg:1','approved','2026-01-01T00:00:00Z','github:alice','*','2026-01-01T00:00:00Z','2026-01-01T01:00:00Z')`)
 	// messages.db is opened via store.Open above, which already runs the I1
@@ -364,15 +384,16 @@ func TestMigrateSplit(t *testing.T) {
 			t.Errorf("onbod.%s: got %d rows, want %d", tbl, got, want)
 		}
 	}
-	var invGlob string
-	var invMax, invUsed int
-	if err := odb.QueryRow(
-		`SELECT target_glob, max_uses, used_count FROM invites WHERE ref=?`, store.TokenRef("inv-tok")).
-		Scan(&invGlob, &invMax, &invUsed); err != nil {
-		t.Fatalf("read onbod.invites: %v", err)
+	// The invite is an ITEM in onbod.db now, so it is read back through the
+	// method onbod itself calls — which is also what proves the copy wrote the
+	// attributes the reader looks for and not just some document.
+	inv, ok := inviteByRef(t, odb, store.TokenRef("inv-tok"))
+	if !ok {
+		t.Fatalf("the copied invite is not in onbod.db")
 	}
-	if invGlob != "main/" || invMax != 5 || invUsed != 2 {
-		t.Errorf("invites row wrong: glob=%q max=%d used=%d", invGlob, invMax, invUsed)
+	if inv.TargetGlob != "main/" || inv.MaxUses != 5 || inv.UsedCount != 2 {
+		t.Errorf("invite wrong: glob=%q max=%d used=%d",
+			inv.TargetGlob, inv.MaxUses, inv.UsedCount)
 	}
 
 	// FTS index rebuilt from copied messages → searchable.
@@ -606,13 +627,15 @@ func schemaOf(t *testing.T, db *sql.DB) map[string]string {
 	return out
 }
 
-// TestOnbodSchemaMatchesMigrations pins onbodSchema to onbodBootstrapVersion:
-// the bootstrap DDL must produce EXACTLY the shape onbod's migrations 0001..N
-// produce, where N is what migrateSplit claims in `migrations`. Claiming a
-// version the DDL does not fully embody silently SKIPS that migration on
-// onbod's next boot — how onbodSchema came to omit 0002's audit_log indexes.
-// A new onbod migration that onbodSchema does not mirror fails here, forcing
-// the choice: extend the DDL and bump the constant, or touch neither.
+// TestOnbodSchemaMatchesMigrations pins bootstrapOnbod to
+// onbodBootstrapVersion: the bootstrap must produce EXACTLY the shape onbod's
+// migrations 0001..N produce, where N is what migrateSplit claims in
+// `migrations`. Claiming a version the bootstrap does not fully embody silently
+// SKIPS that migration on onbod's next boot.
+//
+// Both sides now build only entities, so what this catches is an edit to
+// 0001..N that puts a TABLE back — which would leave a database migrate-split
+// produced without it, and onbod's next boot would not create it either.
 func TestOnbodSchemaMatchesMigrations(t *testing.T) {
 	files := onbodMigrationFiles(t)
 	if len(files) < onbodBootstrapVersion {
@@ -622,14 +645,24 @@ func TestOnbodSchemaMatchesMigrations(t *testing.T) {
 
 	bootstrapped := dbtest.Open(t)
 	if err := bootstrapOnbod(bootstrapped); err != nil {
-		t.Fatalf("exec onbodSchema: %v", err)
+		t.Fatalf("bootstrapOnbod: %v", err)
 	}
 
 	migrated := dbtest.Open(t)
-	// The entity audit records into is not part of the chain on either side: the
-	// driver creates it, from one declaration, wherever an owner database is
-	// opened. bootstrapOnbod does that too, so the comparison sees it on both.
-	if err := audit.EnsureEntities(t.Context(), sqlstore.New(migrated)); err != nil {
+	// No entity is part of the chain on either side: the driver creates each,
+	// from one declaration, wherever an owner database is opened. bootstrapOnbod
+	// does all three, so the comparison sees all three on both — audit's log,
+	// store's three tables, and the version marker resreg's apply claims. What is
+	// left to compare is the DDL, and there is none: onbod 0001..0004 build
+	// nothing now, so this pins that they still build nothing.
+	obj := sqlstore.New(migrated)
+	if err := audit.EnsureEntities(t.Context(), obj); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.EnsureEntities(t.Context(), obj, store.OwnerOnbod); err != nil {
+		t.Fatal(err)
+	}
+	if err := resreg.EnsureSubsystem(t.Context(), obj, obj, resreg.SubsystemOnbod); err != nil {
 		t.Fatal(err)
 	}
 	for _, f := range files[:onbodBootstrapVersion] {
@@ -653,17 +686,17 @@ func TestOnbodSchemaMatchesMigrations(t *testing.T) {
 	for k, wantCols := range want {
 		gotCols, ok := got[k]
 		if !ok {
-			t.Errorf("onbodSchema is missing %s, which onbod migrations 0001..%d create "+
+			t.Errorf("bootstrapOnbod is missing %s, which onbod migrations 0001..%d create "+
 				"— the bootstrap claims a version it does not embody", k, onbodBootstrapVersion)
 			continue
 		}
 		if gotCols != wantCols {
-			t.Errorf("%s shape differs:\n  onbodSchema: %s\n  migrations:  %s", k, gotCols, wantCols)
+			t.Errorf("%s shape differs:\n  bootstrapOnbod: %s\n  migrations:    %s", k, gotCols, wantCols)
 		}
 	}
 	for k := range got {
 		if _, ok := want[k]; !ok {
-			t.Errorf("onbodSchema creates %s that onbod migrations 0001..%d do not",
+			t.Errorf("bootstrapOnbod creates %s that onbod migrations 0001..%d do not",
 				k, onbodBootstrapVersion)
 		}
 	}
@@ -726,14 +759,26 @@ func TestMigrateSplitSkipsOnbodReplay(t *testing.T) {
 			t.Errorf("%s exists after boot — a reshaping migration replayed over the bootstrap", legacy)
 		}
 	}
-	var n int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM invites WHERE ref=?`,
-		store.TokenRef("inv-tok")).Scan(&n); err != nil {
-		t.Fatalf("read invites: %v", err)
+	if _, ok := inviteByRef(t, db, store.TokenRef("inv-tok")); !ok {
+		t.Error("the copied invite did not survive onbod's boot")
 	}
-	if n != 1 {
-		t.Errorf("copied invite rows surviving onbod's boot = %d, want 1", n)
+}
+
+// inviteByRef reads one invite out of a database through the reader onbod uses.
+// An invite is an item, so there is no `WHERE ref = ?` to run: the ref is the
+// coordinate, and the read that finds it is the one production makes.
+func inviteByRef(t *testing.T, db *sql.DB, ref string) (store.Invite, bool) {
+	t.Helper()
+	rows, err := store.New(db).ListInvites("")
+	if err != nil {
+		t.Fatalf("ListInvites: %v", err)
 	}
+	for _, inv := range rows {
+		if inv.Ref == ref {
+			return inv, true
+		}
+	}
+	return store.Invite{}, false
 }
 
 // TestMigrateSplitKeepsOnbodOwnVersion: when onbod already migrated onbod.db,

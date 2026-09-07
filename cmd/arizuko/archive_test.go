@@ -100,8 +100,14 @@ func TestArchive_RoundTrip_ConfigSecretsMessagesGroups(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := srcOnbod.DB().Exec(`INSERT INTO invites(ref, target_glob, issued_by_sub, issued_at, max_uses, used_count)
-		VALUES ('ref1', 'atlas/*', 'user:admin', '2026-01-01T00:00:00Z', 5, 0)`); err != nil {
+	// An invite is an item, so the fixture writes it through the import the
+	// migration tool uses rather than an INSERT the entity has no columns for.
+	if _, err := store.New(srcOnbod.DB()).ImportOnbod(t.Context(), store.OnbodSnapshot{
+		Invites: []store.ArchiveInviteRow{{
+			Ref: "ref1", TargetGlob: "atlas/*", IssuedBySub: "user:admin",
+			IssuedAt: "2026-01-01T00:00:00Z", MaxUses: 5,
+		}},
+	}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -189,12 +195,18 @@ func TestArchive_RoundTrip_ConfigSecretsMessagesGroups(t *testing.T) {
 		t.Errorf("apply report should report the restore:\n%s", applyReport)
 	}
 	dstOnbod := dstStores[resreg.SubsystemOnbod]
-	var inviteGlob string
-	if err := dstOnbod.DB().QueryRow("SELECT target_glob FROM invites WHERE ref='ref1'").Scan(&inviteGlob); err != nil {
-		t.Fatalf("invite not restored: %v", err)
+	restored, err := dstOnbod.ListInvites("")
+	if err != nil {
+		t.Fatalf("read the restored invites: %v", err)
+	}
+	inviteGlob := ""
+	for _, inv := range restored {
+		if inv.Ref == "ref1" {
+			inviteGlob = inv.TargetGlob
+		}
 	}
 	if inviteGlob != "atlas/*" {
-		t.Errorf("restored invite target_glob = %q", inviteGlob)
+		t.Errorf("restored invite target_glob = %q, want atlas/*", inviteGlob)
 	}
 
 	// Messages present, full column fidelity (link_context survived).
