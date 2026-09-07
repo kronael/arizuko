@@ -7,6 +7,44 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L252 — three folder-containment filters build the LIKE wildcard in Go, so `L122`'s "all six fixed" grep could not see them (2026-09-07, open)
+
+MEASURED 2026-09-07. `L122` closed on 2026-08-29 by adopting
+`groupfolder.SQLSubtree` at six sites, and verified itself with
+`grep "LIKE ?||'/%'"` over the tree. That grep matches the wildcard built in
+SQL. Three sites build it in Go and pass it as a bind value, so the grep
+returned clean over code that still uses `LIKE` for containment:
+
+| site | what it scopes | what widens |
+| ---- | -------------- | ----------- |
+| `routd/dead_letters_db.go:27` | `routed_to` on a grant-scoped read | a grant on `acme` also returns `acme_x`'s dead letters, and `ACME/...` |
+| `dashd/dashstore/pages.go:91` | the dashboard's routes-into-folder panel | a sibling `a_b`/`axb` pair, and `Coach`/`coach` |
+| `store/groups.go:307` | `SiblingFolders`, the open-sibling list | same two shapes |
+
+`dead_letters_db.go:27` carries the comment "Subtree, not exact: a grant on
+`acme` covers `acme/support`", which names the intent exactly and then spells it
+with the wrong predicate. `isValidFolder` (`groupfolder/folder.go:59`) rejects
+only `..`, backslash, NUL, empty segments, over-128-byte segments and the
+reserved names, so `%` and `_` are both legal in a folder name, and SQLite
+`LIKE` folds ASCII case — a live instance has carried a `Coach`/`coach` pair.
+
+The dashd one predates the storage move: `dashd/main.go:1204` held the same
+predicate before `359da435`, and the extraction carried it across unchanged.
+
+The lesson is the verification, not the three sites. A fix that proves itself
+with a grep proves only what the grep can express. `SQLSubtree` adoption has a
+mechanical test — mutate the helper back to `LIKE` and every adopter goes red —
+and these three sites do not participate in it because they never call it.
+
+- **Severity:** high (`dead_letters_db.go` is a grant-scoped cross-folder read)
+- **Scope:** `routd/dead_letters_db.go`, `dashd/dashstore/pages.go`, `store/groups.go`
+- **Affected:** any instance with a folder name differing only by case or holding `_`/`%`
+- **Source:** `grep '+ "/%"'` over non-test Go, 2026-09-07
+- **Status:** open
+- **Fix:** the same adoption `L122` made — `groupfolder.SQLSubtree(col, "/")` plus
+  `SubtreeArgs`. Then extend `store/subtree_filter_test.go`'s mutation test to
+  cover all three, so the next site cannot hide from the check.
+
 ## L251 — the storage-layer guard reads string literals, so it cannot see a daemon hand its raw handle to a package that writes the SQL for it (2026-09-07, open — proposal, needs sign-off)
 
 MEASURED 2026-09-07 with `go/parser` over non-test `.go` files, the same
@@ -44,15 +82,26 @@ Three shapes answer it, and the choice is the decision:
 2. Each daemon's storage layer wraps the shared calls and stops exporting
    `SQL()`. Smallest per daemon, and it writes the same wrapper seven times.
 3. `audit_log` stops being per-daemon SQL and becomes the submission endpoint
-   phase 7 already wants, which removes `audit` from every daemon and leaves
-   `store` and `resreg`.
+   phase 7 already wants. **This one is unsound as stated.** A remote submission
+   cannot commit atomically with the mutation it records, and
+   `dashd/dashstore/groups.go:61` writes the audit row inside the same
+   transaction as the group insert, which is what `6/40` §"the audit row"
+   requires. It becomes possible only behind a same-backend batch or a
+   transactional outbox — which is the pending/done audit row `6/40` already
+   designs, not a plain endpoint.
+
+Fix 1 also has a condition: an interface exposing `Exec`, `Query`, `*sql.Rows`
+or `*sql.Tx` renames `database/sql` and buys nothing. `resreg.Querier`
+(`resreg/engine.go:173`) and `Execution.Tx` (`resreg/resreg.go:156`) leak
+exactly that way today. The boundary has to be semantic — named operations, or
+`6/40`'s backend-neutral `Query(shape)` and `GuardedBatch`.
 
 - **Severity:** high (`6/37` step 1's guarantee does not hold for a moved daemon)
 - **Scope:** `db_utils/sql_layer_test.go`, `audit/`, `resreg/`, `store/`, `SQL()` on routd and runed
 - **Affected:** dashd and runed today; every later daemon by the same route
 - **Source:** go/parser census of statement literals vs the 36 `.SQL()` call sites
 - **Status:** open — proposal, needs sign-off
-- **Fix:** 3 first (it deletes statements), then 1 for what remains; 2 only if neither lands
+- **Fix:** 1, with a semantic interface; 2 as the per-daemon containment step that gets there; 3 only through `6/40`'s pending/done audit row, never a plain endpoint
 
 ## L249 — the archive export carries the config plane, not the runtime plane, so export/import cannot yet carry a daemon's port (2026-09-07, open — proposal, needs sign-off)
 
