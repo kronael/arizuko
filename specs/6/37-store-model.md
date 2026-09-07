@@ -460,19 +460,37 @@ new one, export again and compare — that is the migration and its own test, an
 it is a property rather than an example, so it catches the drift a bespoke
 script introduces.
 
-**The gap in that path is the prerequisite, and it is work already owed.**
-Measured: 20 of routd's 34 live tables have a resreg resource; fourteen do not.
-Five of those fourteen are cold-tier management entities that root `CLAUDE.md`
-already requires to be resreg resources — `chats`, `chat_proactive`,
-`group_watchers`, `pane_sessions`, `user_profiles` — and "a management resource
-without a resreg registration is a review-blocker". That is the `5/16` debt,
-and closing it is step 3a rather than a separate project.
+**The lane runs today, and what it carries is measured.** On 2026-09-07 all
+three live instances were snapshotted with `sqlite3 .backup`, migrated to routd
+0046, and exported with `arizuko archive export <instance> --quiesced`. Every
+export succeeded. `routd.yaml` carries thirteen resources — `acl`,
+`acl_membership`, `github_sources`, `groups`, `installed_packages`,
+`network_rules`, `pending_actions`, `proxyd_routes`, `route_tokens`, `routes`,
+`scheduled_tasks`, `secrets`, `web_routes` — beside `routd.messages.jl`,
+`routd.secrets.yaml` and `onbod.yaml`.
 
-The remaining nine are hot-tier or operational — `sessions`, `turn_context`,
-`turn_results`, `task_run_logs`, `secret_use_log`, `system_messages`,
-`chat_reply_state`, `cost_log`, `migrations`. They are not management
-resources and must not become them; each needs an explicit verdict on whether
-it moves, is rebuilt, or is left behind.
+**The gap in that path is the prerequisite, and it is work already owed.** Ten
+routd tables hold rows and travel in no dump. Four are runtime state the port
+must carry: `chats` (which holds `agent_cursor`), `sessions` (which holds
+`observed_cursor`), `chat_reply_state` and `system_messages`. An import that
+drops the first two re-feeds every consumed message — the same failure
+`0044`'s migration order exists to avoid. Three more are cold-tier management
+entities root `CLAUDE.md` already requires to be resreg resources —
+`chat_proactive`, `group_watchers`, `pane_sessions`, `user_profiles` — and "a
+management resource without a resreg registration is a review-blocker". That is
+the `5/16` debt, and closing it is step 3a rather than a separate project.
+
+The rest are history, and history is a separate decision from state:
+`audit_log` (163,750 rows on krons) has its own hash-chained archive design,
+`cost_log_archive` is deliberately left behind by `6/39`, and `turn_results`
+and `task_run_logs` each need an explicit verdict on whether they move, are
+rebuilt, or stay in the database the port leaves behind.
+
+**The SQLite files stay.** A port copies out; it does not consume. Every
+instance keeps its `routd.db`, `onbod.db`, `auth.db` and `runed.db` byte for
+byte, so the old code path reads them unchanged for as long as an operator
+wants a second opinion. The dump is a snapshot beside the database, never
+instead of it.
 
 Steps 1 to 3 change no engine and no data, and revert with `git revert`. Step 4
 is per-daemon and reverts per daemon, which is the whole point of doing it this

@@ -7,6 +7,76 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L249 — the archive export carries the config plane, not the runtime plane, so export/import cannot yet carry a daemon's port (2026-09-07, open — proposal, needs sign-off)
+
+MEASURED 2026-09-07. Snapshots of all three live instances were taken with
+`sqlite3 .backup`, migrated to routd 0046, then exported with
+`arizuko archive export <inst> --quiesced`. All three exports succeed.
+
+`routd.yaml` carries 13 resources — `acl`, `acl_membership`, `github_sources`,
+`groups`, `installed_packages`, `network_rules`, `pending_actions`,
+`proxyd_routes`, `route_tokens`, `routes`, `scheduled_tasks`, `secrets`,
+`web_routes` — plus `routd.messages.jl` (24,013 rows on krons),
+`routd.secrets.yaml` and `onbod.yaml`.
+
+Ten routd tables hold rows and travel in no dump (krons counts):
+
+| table               | rows    | plane   |
+| ------------------- | ------- | ------- |
+| `audit_log`         | 163,750 | history |
+| `turn_results`      | 4,242   | history |
+| `cost_log_archive`  | 3,632   | history |
+| `turn_context`      | 2,954   | runtime |
+| `task_run_logs`     | 1,451   | history |
+| `chat_reply_state`  | 310     | runtime |
+| `sessions`          | 248     | runtime |
+| `chats`             | 136     | runtime |
+| `system_messages`   | 2       | runtime |
+
+`chats` is the one that decides the port: it holds `agent_cursor`. An import
+that does not carry it re-feeds every consumed message, which is the failure
+`0044`'s migration order already had to avoid. `sessions.observed_cursor` is
+the same shape, and `chat_reply_state` decides whether a reply is still owed.
+
+So the export/import lane `6/37` step 4 relies on covers the operator's
+declared configuration and the message history, and stops exactly where the
+runtime state begins. Either the four runtime tables gain resreg resources
+(`chats`, `chat_reply_state`, `sessions`, `system_messages` — `6/37` already
+names three of them plus `chat_proactive`, `group_watchers`, `pane_sessions`,
+`user_profiles` as the resreg gap), or the port carries them by a second
+mechanism, which is a second format for the same facts.
+
+The history plane is a separate decision: `audit_log` has its own archive
+design, and `cost_log_archive` is deliberately left behind by `6/39`.
+
+- **Severity:** high (blocks `6/37` step 4 — the per-daemon export/import port)
+- **Scope:** `resreg/resources/`, `cmd/arizuko/archive.go`, `specs/6/37`
+- **Affected:** every daemon port after `dashd`; a cutover would reset cursors
+- **Source:** measured `arizuko archive export` vs `routd.db` table census
+- **Status:** open — proposal, needs sign-off
+- **Fix:** resreg resources for the four runtime tables, so one lane carries them
+
+## L250 — migration 0044 pads RFC3339 timestamps and silently leaves any other shape unpadded (2026-09-07, open)
+
+MEASURED on a migrated krons snapshot: after `routd/0044`, two `messages` rows
+still carry a 19-character timestamp, `'2026-04-02 12:38:47'` — SQLite's
+`datetime()` shape, no `T` and no zone. Their ids are `test-trigger-1775133527`
+and `debug-1775135388`, so a person inserted them by hand in April 2026.
+
+`core.TSLayout` is fixed width precisely so string order is time order. A space
+(0x20) sorts before `T` (0x54), so these two rows sort ahead of every real
+message of that date. Both are long behind every cursor, so nothing is wrong
+today. The defect is that `0044` reports success over rows it did not convert
+and no check exists that would find the next one.
+
+- **Severity:** low (two rows, both already consumed, one instance)
+- **Scope:** `routd/migrations/0044-fixed-width-timestamps.sql`
+- **Affected:** krons only, measured
+- **Source:** `SELECT count(*) FROM messages WHERE length(timestamp) <> 30` = 2
+- **Status:** open
+- **Fix:** a post-migration assertion that the padded column has one width, so a
+  shape the pad does not recognise fails the migration instead of passing it
+
 ## L240 — the egress proxy and its spawn draw random addresses independently, so ~1 run in 250 collides (2026-09-06)
 
 `randomIP` (`container/egress.go:150-183`) picks a host from the folder's /24
