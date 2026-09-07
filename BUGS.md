@@ -7,6 +7,43 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L251 — the storage-layer guard stops a daemon writing SQL, not a daemon handing its raw handle to a package that writes SQL for it (2026-09-07, open — proposal, needs sign-off)
+
+MEASURED 2026-09-07. `dashd` and `runed` both pass
+`TestSQLLivesOnlyInTheStorageLayer`: neither holds a statement outside its
+storage layer. Both still reach the engine directly, because `DB.SQL()` returns
+the `*sql.DB` and four shared packages run statements against it —
+`store` (282 statements), `resreg` (69), `audit` (10), `groupfolder` (2).
+
+runed shows the shape in three lines: `runed/audit.go:70` hands `s.db.SQL()` to
+`audit.EmitDB`, and `runed/audit_resource.go:43` and `:102` hand it to
+`store.New` and `audit.Query`. runed's own 23 statements all live in
+`runed/db.go`, so the guard is green while 363 statements still run against
+runed's database from outside runed.
+
+The guard is not wrong — it enforces what it says. The gap is that `6/37` step 1
+reads "a second driver reimplements one package and no handler changes", and a
+handler that passes `*sql.DB` to `audit.EmitDB` changes under a second driver
+just as much as one holding the statement itself.
+
+Three shapes answer it, and the choice is the decision:
+1. `audit`, `resreg` and `groupfolder` take an interface, not `*sql.DB`. That
+   is the `6/40` two-primitive surface arriving early, and it moves the work
+   into the packages every daemon shares rather than into each daemon.
+2. Each daemon's storage layer wraps the shared calls, so `runed/db.go` gains
+   `EmitAudit` and `QueryAudit` and `SQL()` stops being exported. Smallest per
+   daemon, and it writes the same wrapper seven times.
+3. `audit_log` stops being per-daemon SQL and becomes the submission endpoint
+   `7/` already wants, which removes `audit`'s 10 statements from every
+   daemon and leaves `store` and `resreg`.
+
+- **Severity:** high (`6/37` step 1's guarantee does not hold for a moved daemon)
+- **Scope:** `db_utils/sql_layer_test.go`, `audit/`, `resreg/`, `store/`, every daemon's `SQL()`
+- **Affected:** dashd and runed today; every later daemon by the same route
+- **Source:** measured `.SQL()` call sites vs statement counts in the shared packages
+- **Status:** open — proposal, needs sign-off
+- **Fix:** 3 first (it deletes work), then 1 for what remains; 2 only if neither lands
+
 ## L249 — the archive export carries the config plane, not the runtime plane, so export/import cannot yet carry a daemon's port (2026-09-07, open — proposal, needs sign-off)
 
 MEASURED 2026-09-07. Snapshots of all three live instances were taken with

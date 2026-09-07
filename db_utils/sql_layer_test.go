@@ -11,11 +11,9 @@ package db_utils
 // that quotes a query is prose, not a statement — dashd carries two, and a
 // line-based reader would have to be lied to about them.
 //
-// sqlLayers is the covered set. dashd is the only daemon that has moved; the
-// others still hold statements in their handlers and would fail this test for
-// work nobody has started, so they are added one line at a time as each one
-// moves. When the second daemon lands, this test belongs somewhere neither
-// daemon owns.
+// sqlLayers is the covered set. Daemons are added one line at a time as each
+// one moves; an uncovered daemon still holds statements in its handlers and
+// would fail this test for work nobody has started.
 
 import (
 	"go/ast"
@@ -29,14 +27,18 @@ import (
 )
 
 // sqlLayer is one daemon that has moved: the package tree that must hold no
-// SQL, and the storage package inside it that holds all of it.
+// SQL, and the one place inside it that holds all of it. That place is a
+// package where the daemon grew large enough to need one, and a single file
+// where it did not — the guarantee is the same either way, that a second
+// driver rewrites one named thing and no handler changes.
 type sqlLayer struct {
 	daemon  string // directory, relative to the repo root
-	storage string // the one package under it that may run statements
+	storage string // the one package or file under it that may run statements
 }
 
 var sqlLayers = []sqlLayer{
 	{daemon: "dashd", storage: "dashd/dashstore"},
+	{daemon: "runed", storage: "runed/db.go"},
 }
 
 // sqlVerbs open a statement. A literal is SQL when one of these starts it or
@@ -76,6 +78,9 @@ func TestSQLLivesOnlyInTheStorageLayer(t *testing.T) {
 				if rel == layer.storage {
 					return filepath.SkipDir
 				}
+				return nil
+			}
+			if rel == layer.storage {
 				return nil
 			}
 			// A test builds the state it reads, so its fixtures write rows
