@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -275,4 +276,103 @@ func (s *Store) RepromptOnboarding(jid string) error {
 		     user_sub=NULL, gate=NULL, queued_at=NULL, admitted_at=NULL
 		 WHERE jid=?`, jid)
 	return err
+}
+
+// --- the archive lane (spec 5/8 "Message history", Z3) --------------------
+
+// ArchiveOnboardingRow is one row of the archive's onboarding document — the
+// same shape OnboardingRow (resreg/resources/onboarding.go) publishes. It used
+// to carry token_ref/token_expires too, the hash-at-rest verifier and its
+// expiry; onbod 0006 dropped both columns once the 5/31 fold left nothing
+// writing them (BUGS F40), so there is no longer a credential in this document.
+//
+// Admissions still need this archive-only lane because they cannot ride the
+// config lane and cannot be rederived. `onboarding` is SkipApplyRebuild —
+// admissions are runtime state driven by chat traffic and the gate limiter,
+// never declared in a manifest — so `arizuko apply` never writes the table at
+// all. And rederiving is impossible: routeMiss advances agent_cursor past a
+// route-missed message whether or not the admission insert succeeded (a
+// deliberate fail-forward — a re-fed miss would replay forever), and import
+// reproduces that by setting agent_cursor, so a pending admission not
+// independently in the archive is gone for good: the person is neither in the
+// queue nor going to message again.
+//
+// It keeps riding the same off-by-default gate as route_tokens and invites.
+// The reason is no longer a verifier but the verdicts: importing admission
+// decisions onto a live instance is a merge, not a restore.
+type ArchiveOnboardingRow struct {
+	JID        string `yaml:"jid"`
+	Status     string `yaml:"status"`
+	UserSub    string `yaml:"user_sub,omitempty"`
+	Gate       string `yaml:"gate,omitempty"`
+	Created    string `yaml:"created"`
+	PromptedAt string `yaml:"prompted_at,omitempty"`
+	QueuedAt   string `yaml:"queued_at,omitempty"`
+	AdmittedAt string `yaml:"admitted_at,omitempty"`
+}
+
+// ExportOnboarding reads every admission row, ordered by jid for deterministic
+// output.
+func (s *Store) ExportOnboarding(ctx context.Context) ([]ArchiveOnboardingRow, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT jid, status, COALESCE(user_sub,''), COALESCE(gate,''), created,
+		        COALESCE(prompted_at,''), COALESCE(queued_at,''), COALESCE(admitted_at,'')
+		 FROM onboarding ORDER BY jid`)
+	if err != nil {
+		return nil, fmt.Errorf("query onboarding: %w", err)
+	}
+	defer rows.Close()
+	var out []ArchiveOnboardingRow
+	for rows.Next() {
+		var r ArchiveOnboardingRow
+		if err := rows.Scan(&r.JID, &r.Status, &r.UserSub, &r.Gate, &r.Created,
+			&r.PromptedAt, &r.QueuedAt, &r.AdmittedAt); err != nil {
+			return nil, fmt.Errorf("scan onboarding: %w", err)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// ImportOnboarding UPSERTs by jid (the PK), never DELETE+INSERT — matching
+// ImportRouteTokens/ImportInvites. INSERT OR IGNORE is the right shape: an
+// admission's history (created, prompted_at, queued_at, admitted_at) is
+// append-only in practice, and a jid already present on the target is a live
+// admission this restore must not walk backwards.
+//
+// Performs NO gating — the off-by-default / --force / proven-empty-target
+// policy is `archive apply` orchestration in cmd/arizuko, not this
+// primitive's job.
+func (s *Store) ImportOnboarding(ctx context.Context, rows []ArchiveOnboardingRow) (int, error) {
+	if len(rows) == 0 {
+		return 0, nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback() //nolint:errcheck // the commit below is the success path
+	for _, r := range rows {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT OR IGNORE INTO onboarding
+			 (jid, status, user_sub, gate, created, prompted_at, queued_at, admitted_at)
+			 VALUES (?,?,?,?,?,?,?,?)`,
+			r.JID, r.Status, archiveNullStr(r.UserSub), archiveNullStr(r.Gate), r.Created,
+			archiveNullStr(r.PromptedAt), archiveNullStr(r.QueuedAt), archiveNullStr(r.AdmittedAt),
+		); err != nil {
+			return 0, fmt.Errorf("insert onboarding %s: %w", r.JID, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return len(rows), nil
+}
+
+// CountOnboarding counts every admission row — the proven-empty-target gate's
+// third twin, alongside CountRouteTokens and CountInvites.
+func (s *Store) CountOnboarding(ctx context.Context) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM onboarding").Scan(&n)
+	return n, err
 }

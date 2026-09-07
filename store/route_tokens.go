@@ -1,9 +1,11 @@
 package store
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -278,4 +280,114 @@ func (s *Store) RevokeRouteToken(jid, ownerFolder string) (bool, error) {
 		}, nil
 	})
 	return hit, err
+}
+
+// --- the archive lane (spec 5/8 "Secret and token values") ----------------
+//
+// The archive carries a route token's VALUE, which the config manifest never
+// does, so the three functions below are this table's second reader and they
+// live beside its first. `secrets` already had its pair here
+// (ExportSecretRows / ValidateAndImportSecrets); route_tokens', invites' and
+// onboarding's sat in resreg instead, which made a generic engine the owner of
+// four tables it does not know anything else about.
+
+// ArchiveRouteTokenRow is one row of the archive's route_tokens document:
+// RouteTokensRow's shape (resreg/resources/route_tokens.go — jid,
+// owner_folder, created_at, context) plus TokenHash, the verifier the
+// config manifest never carries.
+// Restricted to kind='route' at read time — pairing tokens (kind='pair')
+// are excluded entirely, the same RowFilter the config-manifest resource
+// already applies (10-minute single-use credentials, no archival value,
+// reviving one actively harmful).
+type ArchiveRouteTokenRow struct {
+	TokenHash    string `yaml:"token_hash"`
+	JID          string `yaml:"jid"`
+	OwnerFolder  string `yaml:"owner_folder"`
+	TargetFolder string `yaml:"target_folder,omitempty"`
+	CreatedAt    string `yaml:"created_at"`
+	Context      string `yaml:"context,omitempty"`
+}
+
+// ExportRouteTokens reads every kind='route' row (jid delivery bearers —
+// never kind='pair' pairing links) with its token_hash verifier, hex-encoded
+// for YAML transport — which is exactly TokenRef, since token_hash is
+// TokenRefBytes of the same digest.
+func (s *Store) ExportRouteTokens(ctx context.Context) ([]ArchiveRouteTokenRow, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT token_hash, jid, owner_folder, created_at, COALESCE(context,''),
+		        COALESCE(target_folder,'')
+		 FROM route_tokens WHERE kind = 'route' ORDER BY jid`)
+	if err != nil {
+		return nil, fmt.Errorf("query route_tokens: %w", err)
+	}
+	defer rows.Close()
+	var out []ArchiveRouteTokenRow
+	for rows.Next() {
+		var hashBytes []byte
+		var r ArchiveRouteTokenRow
+		if err := rows.Scan(&hashBytes, &r.JID, &r.OwnerFolder, &r.CreatedAt, &r.Context, &r.TargetFolder); err != nil {
+			return nil, fmt.Errorf("scan route_token: %w", err)
+		}
+		r.TokenHash = hex.EncodeToString(hashBytes)
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// ImportRouteTokens UPSERTs by token_hash (the PK) — a route token's row
+// content never legitimately changes once minted, so INSERT OR IGNORE is
+// equivalent to UPSERT here. Every imported row's kind is forced to
+// 'route': this function never writes a pairing token (rows carrying one
+// were never exported in the first place, but the write side stays
+// explicit rather than trusting the archive's own claim).
+//
+// Performs NO gating — the off-by-default / --force / proven-empty-target
+// policy (spec 5/8 "Secret and token values" (2)) is `archive apply`
+// orchestration in cmd/arizuko, not this primitive's job.
+func (s *Store) ImportRouteTokens(ctx context.Context, rows []ArchiveRouteTokenRow) (int, error) {
+	if len(rows) == 0 {
+		return 0, nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback() //nolint:errcheck // the commit below is the success path
+	for _, r := range rows {
+		hashBytes, herr := hex.DecodeString(r.TokenHash)
+		if herr != nil {
+			return 0, fmt.Errorf("route_token %s: bad token_hash: %w", r.JID, herr)
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT OR IGNORE INTO route_tokens (token_hash, jid, owner_folder, created_at, context, kind, target_folder)
+			 VALUES (?, ?, ?, ?, ?, 'route', ?)`,
+			hashBytes, r.JID, r.OwnerFolder, r.CreatedAt, archiveNullStr(r.Context), archiveNullStr(r.TargetFolder),
+		); err != nil {
+			return 0, fmt.Errorf("insert route_token %s: %w", r.JID, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return len(rows), nil
+}
+
+// CountRouteTokens counts EVERY row (both kind='route' and kind='pair') —
+// the proven-empty-target gate (spec 5/8 "Secret and token values" (2))
+// wants a genuinely fresh table, not merely zero route-kind rows.
+func (s *Store) CountRouteTokens(ctx context.Context) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM route_tokens").Scan(&n)
+	return n, err
+}
+
+// archiveNullStr maps an empty string to a bind-time NULL, matching the
+// nullable TEXT columns the archive's tables declare (route_tokens.context,
+// messages.sender_name, …). It is the same rule nilIfEmptyString states for
+// the resreg row types, spelled for a bind argument.
+func archiveNullStr(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }

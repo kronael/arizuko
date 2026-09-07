@@ -260,10 +260,10 @@ func TestArchive_RoundTrip_ConfigSecretsMessagesGroups(t *testing.T) {
 func TestArchive_Apply_ForceRestoresTokensOntoEmptyTarget(t *testing.T) {
 	ctx := context.Background()
 	doc := archiveSecretsDoc{
-		RouteTokens: []resreg.ArchiveRouteTokenRow{
+		RouteTokens: []store.ArchiveRouteTokenRow{
 			{TokenHash: "aabbcc", JID: "web:atlas", OwnerFolder: "atlas", CreatedAt: "2026-01-01T00:00:00Z"},
 		},
-		Invites: []resreg.ArchiveInviteRow{
+		Invites: []store.ArchiveInviteRow{
 			{Ref: "ref1", TargetGlob: "atlas/*", IssuedBySub: "user:admin", IssuedAt: "2026-01-01T00:00:00Z", MaxUses: 5},
 		},
 	}

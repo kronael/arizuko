@@ -5,18 +5,11 @@
 // convention is exactly the escape hatch for that.
 package resreg_test
 
-// Archive primitive tests — spec 5/8 "The full-instance archive". The fixture is
-// the FROZEN pre-split schema because these tests read groups and route_tokens
-// (routd.db) and invites (onbod.db) from one database, and that chain is the only
-// one carrying both. onbod embeds and migrates its chain from `package main`, so
-// no test outside onbod can build the invites table any other way.
-//
-// The messages/agent_cursor tests (Finding 4) are NOT here: store's frozen
-// schema predates routd/migrations/0019 (link_context) and was never
-// backported for it, so a full-column round-trip against this fixture would
-// silently under-test. cmd/arizuko/archive_test.go uses the REAL routd.Open
-// schema (the same bootstrap apply_test.go already established) and covers
-// them there instead.
+// Archive index tests — spec 5/8 "The full-instance archive". What is left in
+// this file is the part of the archive that is not any one table: the
+// subsystem snapshot and the checksum it stamps. Each table's own export and
+// import lane is a method on the owner of that table (store/route_tokens.go,
+// store/invites.go, store/onboarding.go, store/messages.go), tested there.
 
 import (
 	"context"
@@ -71,117 +64,5 @@ func TestExportSnapshot_MatchesChecksum(t *testing.T) {
 	}
 	if checksum != want {
 		t.Errorf("checksum = %s, want %s (resreg.Checksum())", checksum, want)
-	}
-}
-
-func TestRouteTokens_ArchiveRoundTrip_ExcludesPairing(t *testing.T) {
-	db := archiveTestDB(t)
-	ctx := context.Background()
-	if _, err := db.Exec(`INSERT INTO groups(folder, added_at) VALUES('atlas','2026-01-01T00:00:00Z')`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT INTO route_tokens(token_hash, jid, owner_folder, created_at, kind)
-		VALUES (x'aabbcc', 'web:atlas', 'atlas', '2026-01-01T00:00:00Z', 'route')`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT INTO route_tokens(token_hash, jid, owner_folder, created_at, kind)
-		VALUES (x'ddeeff', 'telegram:user/1', 'atlas', '2026-01-01T00:00:00Z', 'pair')`); err != nil {
-		t.Fatal(err)
-	}
-	rows, err := resreg.ExportRouteTokens(ctx, db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(rows) != 1 {
-		t.Fatalf("exported %d route_tokens, want 1 (pairing excluded)", len(rows))
-	}
-	if rows[0].TokenHash != "aabbcc" {
-		t.Errorf("token_hash = %q, want aabbcc", rows[0].TokenHash)
-	}
-
-	dst := archiveTestDB(t)
-	if _, err := dst.Exec(`INSERT INTO groups(folder, added_at) VALUES('atlas','2026-01-01T00:00:00Z')`); err != nil {
-		t.Fatal(err)
-	}
-	n, err := resreg.ImportRouteTokens(ctx, dst, rows)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n != 1 {
-		t.Fatalf("imported %d, want 1", n)
-	}
-	var jid, kind string
-	if err := dst.QueryRow("SELECT jid, kind FROM route_tokens WHERE hex(token_hash)='AABBCC' OR hex(token_hash)='aabbcc'").
-		Scan(&jid, &kind); err != nil {
-		t.Fatal(err)
-	}
-	if jid != "web:atlas" || kind != "route" {
-		t.Errorf("restored row = jid=%q kind=%q", jid, kind)
-	}
-	count, err := resreg.CountRouteTokens(ctx, dst)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if count != 1 {
-		t.Errorf("CountRouteTokens = %d, want 1", count)
-	}
-}
-
-func TestRouteTokens_ImportIdempotent(t *testing.T) {
-	db := archiveTestDB(t)
-	ctx := context.Background()
-	if _, err := db.Exec(`INSERT INTO groups(folder, added_at) VALUES('atlas','2026-01-01T00:00:00Z')`); err != nil {
-		t.Fatal(err)
-	}
-	rows := []resreg.ArchiveRouteTokenRow{{TokenHash: "aabbcc", JID: "web:atlas", OwnerFolder: "atlas", CreatedAt: "2026-01-01T00:00:00Z"}}
-	if _, err := resreg.ImportRouteTokens(ctx, db, rows); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := resreg.ImportRouteTokens(ctx, db, rows); err != nil {
-		t.Fatalf("re-import errored: %v", err)
-	}
-	n, _ := resreg.CountRouteTokens(ctx, db)
-	if n != 1 {
-		t.Errorf("count = %d, want 1 (no duplicate)", n)
-	}
-}
-
-func TestInvites_ArchiveRoundTrip(t *testing.T) {
-	db := archiveTestDB(t)
-	ctx := context.Background()
-	if _, err := db.Exec(`INSERT INTO invites(ref, target_glob, issued_by_sub, issued_at, max_uses, used_count)
-		VALUES ('ref1', 'atlas/*', 'user:admin', '2026-01-01T00:00:00Z', 5, 1)`); err != nil {
-		t.Fatal(err)
-	}
-	rows, err := resreg.ExportInvites(ctx, db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(rows) != 1 || rows[0].Ref != "ref1" {
-		t.Fatalf("exported invites = %+v", rows)
-	}
-
-	dst := archiveTestDB(t)
-	n, err := resreg.ImportInvites(ctx, dst, rows)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n != 1 {
-		t.Fatalf("imported %d, want 1", n)
-	}
-	var glob string
-	var used int
-	if err := dst.QueryRow("SELECT target_glob, used_count FROM invites WHERE ref='ref1'").Scan(&glob, &used); err != nil {
-		t.Fatal(err)
-	}
-	if glob != "atlas/*" || used != 1 {
-		t.Errorf("restored invite = glob=%q used=%d", glob, used)
-	}
-	count, err := resreg.CountInvites(ctx, dst)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if count != 1 {
-		t.Errorf("CountInvites = %d, want 1", count)
 	}
 }

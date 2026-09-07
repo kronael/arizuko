@@ -336,3 +336,77 @@ func (s *Store) consumeInvite(token, userSub string, grantACL bool) (*Invite, er
 	}
 	return inv, nil
 }
+
+// --- the archive lane (spec 5/8 "Secret and token values") ----------------
+
+// ArchiveInviteRow is one row of the archive's invites document: InvitesRow's
+// shape (resreg/resources/invites.go) with Ref emitted — the config
+// manifest hides it (yaml:"-") because Ref is the hash-at-rest PK, but the
+// archive's UPSERT lane needs it as the conflict key.
+type ArchiveInviteRow struct {
+	Ref         string `yaml:"ref"`
+	TargetGlob  string `yaml:"target_glob"`
+	IssuedBySub string `yaml:"issued_by_sub"`
+	IssuedAt    string `yaml:"issued_at"`
+	ExpiresAt   string `yaml:"expires_at,omitempty"`
+	MaxUses     int    `yaml:"max_uses"`
+	UsedCount   int    `yaml:"used_count"`
+}
+
+// ExportInvites reads every invites row (onbod.db) with its ref hash-at-rest
+// PK.
+func (s *Store) ExportInvites(ctx context.Context) ([]ArchiveInviteRow, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT ref, target_glob, issued_by_sub, issued_at, COALESCE(expires_at,''), max_uses, used_count
+		 FROM invites ORDER BY ref`)
+	if err != nil {
+		return nil, fmt.Errorf("query invites: %w", err)
+	}
+	defer rows.Close()
+	var out []ArchiveInviteRow
+	for rows.Next() {
+		var r ArchiveInviteRow
+		if err := rows.Scan(&r.Ref, &r.TargetGlob, &r.IssuedBySub, &r.IssuedAt, &r.ExpiresAt, &r.MaxUses, &r.UsedCount); err != nil {
+			return nil, fmt.Errorf("scan invite: %w", err)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// ImportInvites UPSERTs by ref (the PK) — matching ImportRouteTokens'
+// reasoning: an invite's content never legitimately changes once issued
+// (used_count moves via redemption, a separate imperative path, not via
+// archive restore), so INSERT OR IGNORE is equivalent to UPSERT here.
+// Performs NO gating — same split of responsibility as ImportRouteTokens.
+func (s *Store) ImportInvites(ctx context.Context, rows []ArchiveInviteRow) (int, error) {
+	if len(rows) == 0 {
+		return 0, nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback() //nolint:errcheck // the commit below is the success path
+	for _, r := range rows {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT OR IGNORE INTO invites (ref, target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count)
+			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			r.Ref, r.TargetGlob, r.IssuedBySub, r.IssuedAt, archiveNullStr(r.ExpiresAt), r.MaxUses, r.UsedCount,
+		); err != nil {
+			return 0, fmt.Errorf("insert invite %s: %w", r.Ref, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return len(rows), nil
+}
+
+// CountInvites counts every row — the proven-empty-target gate's onbod-side
+// twin of CountRouteTokens.
+func (s *Store) CountInvites(ctx context.Context) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM invites").Scan(&n)
+	return n, err
+}

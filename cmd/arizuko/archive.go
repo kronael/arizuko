@@ -56,15 +56,15 @@ const (
 // export` reader is never handed one. It composes types from both store and resreg
 // because it is a cross-subsystem, archive-only document neither package owns.
 type archiveSecretsDoc struct {
-	Secrets     []store.ArchiveSecretRow      `yaml:"secrets,omitempty"`
-	RouteTokens []resreg.ArchiveRouteTokenRow `yaml:"route_tokens,omitempty"`
-	Invites     []resreg.ArchiveInviteRow     `yaml:"invites,omitempty"`
+	Secrets     []store.ArchiveSecretRow     `yaml:"secrets,omitempty"`
+	RouteTokens []store.ArchiveRouteTokenRow `yaml:"route_tokens,omitempty"`
+	Invites     []store.ArchiveInviteRow     `yaml:"invites,omitempty"`
 	// Onboarding carries pending admissions. They cannot ride the config lane (that
 	// resource is SkipApplyRebuild — admissions are runtime state) and cannot be
 	// rederived on import (agent_cursor marks the route-missed message seen, so it is
 	// never re-offered). It used to carry the token_ref verifier too; onbod 0006
 	// dropped that column (BUGS F40).
-	Onboarding []resreg.ArchiveOnboardingRow `yaml:"onboarding,omitempty"`
+	Onboarding []store.ArchiveOnboardingRow `yaml:"onboarding,omitempty"`
 }
 
 func cmdArchive(args []string) {
@@ -278,21 +278,20 @@ func buildArchive(ctx context.Context, stores map[string]*store.Store, dataDir s
 	}
 
 	routdDB := stores[resreg.SubsystemRoutd].DB()
-	onbodDB := stores[resreg.SubsystemOnbod].DB()
 
 	secretRows, err := stores[resreg.SubsystemRoutd].ExportSecretRows(ctx)
 	if err != nil {
 		return "", fmt.Errorf("export secrets: %w", err)
 	}
-	tokenRows, err := resreg.ExportRouteTokens(ctx, routdDB)
+	tokenRows, err := stores[resreg.SubsystemRoutd].ExportRouteTokens(ctx)
 	if err != nil {
 		return "", fmt.Errorf("export route_tokens: %w", err)
 	}
-	onboardingRows, err := resreg.ExportOnboarding(ctx, onbodDB)
+	onboardingRows, err := stores[resreg.SubsystemOnbod].ExportOnboarding(ctx)
 	if err != nil {
 		return report.String(), err
 	}
-	inviteRows, err := resreg.ExportInvites(ctx, onbodDB)
+	inviteRows, err := stores[resreg.SubsystemOnbod].ExportInvites(ctx)
 	if err != nil {
 		return "", fmt.Errorf("export invites: %w", err)
 	}
@@ -609,18 +608,18 @@ func applySecretsDoc(ctx context.Context, stores map[string]*store.Store, doc ar
 	fmt.Fprintf(report, "secrets: %d rows validated + imported\n", n)
 
 	if err := restoreGated(report, "route_tokens", len(doc.RouteTokens), force,
-		func() (int, error) { return resreg.CountRouteTokens(ctx, routdSt.DB()) },
-		func() (int, error) { return resreg.ImportRouteTokens(ctx, routdSt.DB(), doc.RouteTokens) }); err != nil {
+		func() (int, error) { return routdSt.CountRouteTokens(ctx) },
+		func() (int, error) { return routdSt.ImportRouteTokens(ctx, doc.RouteTokens) }); err != nil {
 		return err
 	}
 	if err := restoreGated(report, "invites", len(doc.Invites), force,
-		func() (int, error) { return resreg.CountInvites(ctx, onbodSt.DB()) },
-		func() (int, error) { return resreg.ImportInvites(ctx, onbodSt.DB(), doc.Invites) }); err != nil {
+		func() (int, error) { return onbodSt.CountInvites(ctx) },
+		func() (int, error) { return onbodSt.ImportInvites(ctx, doc.Invites) }); err != nil {
 		return err
 	}
 	if err := restoreGated(report, "onboarding", len(doc.Onboarding), force,
-		func() (int, error) { return resreg.CountOnboarding(ctx, onbodSt.DB()) },
-		func() (int, error) { return resreg.ImportOnboarding(ctx, onbodSt.DB(), doc.Onboarding) }); err != nil {
+		func() (int, error) { return onbodSt.CountOnboarding(ctx) },
+		func() (int, error) { return onbodSt.ImportOnboarding(ctx, doc.Onboarding) }); err != nil {
 		return err
 	}
 	return nil
