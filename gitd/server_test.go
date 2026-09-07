@@ -66,18 +66,18 @@ func newTestEnv(t *testing.T, secrets secretMap) *testEnv {
 	up := httptest.NewServer(routd)
 	t.Cleanup(up.Close)
 	rc := chanlib.NewRouterClient(up.URL)
-	db, err := chanlib.OpenAdapterDB(t.TempDir(), "gitd")
+	db, chanStore, err := chanlib.OpenAdapterDB(t.TempDir(), "gitd")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	rc.RetainInbound(ctx, db)
+	rc.RetainInbound(ctx, chanStore)
 	cfg := config{Name: "github", APIBase: "http://gh.invalid"}
 	b := newBot(cfg)
 	b.connected.Store(true)
-	s := newServer(cfg, b, secrets, db, rc)
+	s := newServer(cfg, b, secrets, chanStore, rc)
 	s.now = func() time.Time { return fixedNow }
 	return &testEnv{srv: s, h: s.handler(), routd: routd, up: up}
 }
@@ -116,7 +116,7 @@ func TestWebhook_PushDelivered(t *testing.T) {
 	if e.srv.bot.LastInboundAt() != fixedNow.Unix() {
 		t.Errorf("last inbound = %d", e.srv.bot.LastInboundAt())
 	}
-	if n, _ := chanlib.PendingInboundCount(e.srv.db); n != 0 {
+	if n, _ := chanlib.PendingInboundCount(t.Context(), e.srv.chanStore); n != 0 {
 		t.Errorf("pending inbound = %d after a delivered event", n)
 	}
 }
@@ -206,7 +206,7 @@ func TestWebhook_RetainedWhenRoutdDown(t *testing.T) {
 	if w.Code != 202 || !strings.Contains(w.Body.String(), `"retained":true`) {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
-	if n, _ := chanlib.PendingInboundCount(e.srv.db); n != 1 {
+	if n, _ := chanlib.PendingInboundCount(t.Context(), e.srv.chanStore); n != 1 {
 		t.Fatalf("pending inbound = %d, want 1", n)
 	}
 }
@@ -218,7 +218,7 @@ func TestWebhook_PermanentRefusalNotRetained(t *testing.T) {
 	if w.Code != 400 || !strings.Contains(w.Body.String(), "routd refused") {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
-	if n, _ := chanlib.PendingInboundCount(e.srv.db); n != 0 {
+	if n, _ := chanlib.PendingInboundCount(t.Context(), e.srv.chanStore); n != 0 {
 		t.Fatalf("pending inbound = %d, want 0", n)
 	}
 }

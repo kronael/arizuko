@@ -57,13 +57,13 @@ func main() {
 			b.cancel = cancel
 			// Outbound dedup is a delivery guarantee, not a nicety: without the
 			// DB routd's re-send of a still-pending row posts a second message.
-			db, err := chanlib.OpenAdapterDB(cfg.DataDir, "teled")
+			db, chanStore, err := chanlib.OpenAdapterDB(cfg.DataDir, "teled")
 			if err != nil {
 				slog.Error("adapter db open failed", "dir", cfg.DataDir, "err", err)
 				return nil, nil, err
 			}
 			go b.poll(pollCtx, rc, offset)
-			return newServer(cfg, b, db, b.isConnected, b.LastInboundAt).handler(),
+			return newServer(cfg, b, chanStore, b.isConnected, b.LastInboundAt).handler(),
 				func() { b.stop(); db.Close() }, nil
 		},
 	})

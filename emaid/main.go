@@ -34,7 +34,7 @@ func main() {
 		Prefixes:   []string{"email:"},
 		Caps:       caps,
 		Start: func(ctx context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
-			db, st, err := openStorage(cfg.DataDir)
+			db, chanStore, st, err := openStorage(cfg.DataDir)
 			if err != nil {
 				slog.Error("db open failed", "err", err)
 				return nil, nil, err
@@ -42,7 +42,7 @@ func main() {
 			reg := newAttRegistry()
 			p := newPoller(cfg, st, reg)
 			go p.run(ctx, rc)
-			return newServer(cfg, db, st, reg, p.isConnected, p.LastInboundAt).handler(), func() { db.Close() }, nil
+			return newServer(cfg, chanStore, st, reg, p.isConnected, p.LastInboundAt).handler(), func() { db.Close() }, nil
 		},
 	})
 }

@@ -42,20 +42,20 @@ func main() {
 				return nil, nil, err
 			}
 			st.SetSecretKeys(keyring...)
-			db, err := chanlib.OpenAdapterDB(cfg.DataDir, "gitd")
+			db, chanStore, err := chanlib.OpenAdapterDB(cfg.DataDir, "gitd")
 			if err != nil {
 				slog.Error("adapter db open failed", "dir", cfg.DataDir, "err", err)
 				return nil, nil, err
 			}
 			// GitHub never retries a delivery on its own, so a routd that is
 			// restarting must not lose the event: retain and re-deliver.
-			rc.RetainInbound(ctx, db)
+			rc.RetainInbound(ctx, chanStore)
 			b := newBot(cfg)
 			if err := b.start(ctx); err != nil {
 				slog.Error("github token check failed", "err", err)
 				return nil, nil, err
 			}
-			srv := newServer(cfg, b, st, db, rc)
+			srv := newServer(cfg, b, st, chanStore, rc)
 			return srv.handler(), func() { b.stop(); db.Close(); st.Close() }, nil
 		},
 	})

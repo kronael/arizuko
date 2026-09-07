@@ -1,7 +1,6 @@
 package chanlib
 
 import (
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/kronael/arizuko/chanlib/chanstore"
 )
 
 type SendRequest struct {
@@ -303,7 +304,7 @@ func (NoVoiceSender) SendVoice(_, _, _, _ string) (string, error) {
 // NewAdapterMux wires up the standard adapter HTTP surface.
 // isConnected: platform link is up (websocket/polling/IMAP IDLE); /health → 503 when false.
 // lastInboundAt: unix seconds of last successful inbound delivery; /health → stale when old.
-func NewAdapterMux(name string, prefixes []string, bot BotHandler, isConnected func() bool, lastInboundAt func() int64, db *sql.DB) *http.ServeMux {
+func NewAdapterMux(name string, prefixes []string, bot BotHandler, isConnected func() bool, lastInboundAt func() int64, st *chanstore.Store) *http.ServeMux {
 	if isConnected == nil {
 		panic("chanlib.NewAdapterMux: isConnected must not be nil")
 	}
@@ -311,8 +312,8 @@ func NewAdapterMux(name string, prefixes []string, bot BotHandler, isConnected f
 		panic("chanlib.NewAdapterMux: lastInboundAt must not be nil")
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /send", Auth(handleSend(bot, db)))
-	mux.HandleFunc("POST /send-file", Auth(handleSendFile(bot, db)))
+	mux.HandleFunc("POST /send", Auth(handleSend(bot, st)))
+	mux.HandleFunc("POST /send-file", Auth(handleSendFile(bot, st)))
 	mux.HandleFunc("POST /send-voice", Auth(handleSendVoice(bot)))
 	mux.HandleFunc("POST /typing", Auth(handleTyping(bot)))
 	mux.HandleFunc("POST /post", Auth(handlePost(bot)))
@@ -325,7 +326,7 @@ func NewAdapterMux(name string, prefixes []string, bot BotHandler, isConnected f
 	mux.HandleFunc("POST /edit", Auth(handleEdit(bot)))
 	mux.HandleFunc("POST /pin", Auth(handlePin(bot)))
 	mux.HandleFunc("POST /unpin", Auth(handleUnpin(bot)))
-	mux.HandleFunc("GET /health", handleHealth(name, prefixes, isConnected, lastInboundAt, db))
+	mux.HandleFunc("GET /health", handleHealth(name, prefixes, isConnected, lastInboundAt, st))
 	// The operator dashboard (spec 6/31), mounted here so every Go adapter gets
 	// it from the mux it already builds — one renderer, no per-adapter edit.
 	// Routed by DAEMON name: the 5/8 manifest publishes /dash/teled/, while
@@ -398,11 +399,11 @@ func idless[T any](f func(T) error) func(T) (string, error) {
 	return func(req T) (string, error) { return "", f(req) }
 }
 
-func handleSend(bot BotHandler, db *sql.DB) http.HandlerFunc {
+func handleSend(bot BotHandler, st *chanstore.Store) http.HandlerFunc {
 	return jsonVerb("chat_jid and content required",
 		func(req SendRequest) bool { return req.ChatJID != "" && req.Content != "" },
 		func(req SendRequest) (string, error) {
-			return deliverOnce(db, req.IdempotencyKey, req.ChatJID, func() (string, error) {
+			return deliverOnce(st, req.IdempotencyKey, req.ChatJID, func() (string, error) {
 				return bot.Send(req)
 			})
 		})
@@ -458,7 +459,7 @@ func receiveUpload(w http.ResponseWriter, r *http.Request, tmpPrefix string) (ji
 	return jid, localPath, name, caption, func() { os.RemoveAll(dir) }, true
 }
 
-func handleSendFile(bot BotHandler, db *sql.DB) http.HandlerFunc {
+func handleSendFile(bot BotHandler, st *chanstore.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		jid, localPath, name, caption, cleanup, ok := receiveUpload(w, r, "chan-")
 		if !ok {
@@ -467,7 +468,7 @@ func handleSendFile(bot BotHandler, db *sql.DB) http.HandlerFunc {
 		defer cleanup()
 		replyTo := r.FormValue("reply_to")
 		threadID := r.FormValue("thread_id")
-		id, err := deliverOnce(db, r.FormValue("idempotency_key"), jid, func() (string, error) {
+		id, err := deliverOnce(st, r.FormValue("idempotency_key"), jid, func() (string, error) {
 			return bot.SendFile(jid, localPath, name, caption, replyTo, threadID)
 		})
 		writeBotResult(w, id, err)
@@ -627,12 +628,12 @@ var staleThresholds = map[string]time.Duration{
 // the watchdog's auth.test-gated os.Exit job; a quiet workspace must not 503.
 const defaultStaleThreshold = 5 * time.Minute
 
-func handleHealth(name string, prefixes []string, isConnected func() bool, lastInboundAt func() int64, db *sql.DB) http.HandlerFunc {
+func handleHealth(name string, prefixes []string, isConnected func() bool, lastInboundAt func() int64, st *chanstore.Store) http.HandlerFunc {
 	threshold := defaultStaleThreshold
 	if t, ok := staleThresholds[name]; ok {
 		threshold = t
 	}
-	return func(w http.ResponseWriter, _ *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
 		status, code := "ok", http.StatusOK
 		last := lastInboundAt()
 		var staleSec int64
@@ -654,7 +655,7 @@ func handleHealth(name string, prefixes []string, isConnected func() bool, lastI
 		}
 		// Inbound routd has not accepted yet (BUGS L25). Reported, not fatal:
 		// the sweep is working through it and the adapter is otherwise healthy.
-		if n, err := PendingInboundCount(db); err != nil {
+		if n, err := PendingInboundCount(r.Context(), st); err != nil {
 			slog.Error("health: pending inbound count failed", "err", err)
 		} else if n > 0 {
 			resp["pending_inbound"] = n

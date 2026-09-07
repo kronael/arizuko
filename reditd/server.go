@@ -1,13 +1,13 @@
 package main
 
 import (
-	"database/sql"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/chanlib/chanstore"
 )
 
 var allowedRedditHosts = map[string]bool{
@@ -23,18 +23,18 @@ type server struct {
 	cfg           config
 	rc            chanlib.BotHandler
 	files         *chanlib.URLCache
-	db            *sql.DB
+	chanStore     *chanstore.Store
 	safeFetch     func(string) bool
 	isConnected   func() bool
 	lastInboundAt func() int64
 }
 
-func newServer(cfg config, rc chanlib.BotHandler, files *chanlib.URLCache, db *sql.DB, isConnected func() bool, lastInboundAt func() int64) *server {
-	return &server{cfg: cfg, rc: rc, files: files, db: db, safeFetch: isSafeFetchURL, isConnected: isConnected, lastInboundAt: lastInboundAt}
+func newServer(cfg config, rc chanlib.BotHandler, files *chanlib.URLCache, chanStore *chanstore.Store, isConnected func() bool, lastInboundAt func() int64) *server {
+	return &server{cfg: cfg, rc: rc, files: files, chanStore: chanStore, safeFetch: isSafeFetchURL, isConnected: isConnected, lastInboundAt: lastInboundAt}
 }
 
 func (s *server) handler() http.Handler {
-	mux := chanlib.NewAdapterMux(s.cfg.Name, []string{"reddit:"}, s.rc, s.isConnected, s.lastInboundAt, s.db)
+	mux := chanlib.NewAdapterMux(s.cfg.Name, []string{"reddit:"}, s.rc, s.isConnected, s.lastInboundAt, s.chanStore)
 	mux.HandleFunc("GET /files/", chanlib.Auth(chanlib.FileProxyHandler(chanlib.FileProxyOpts{
 		Resolve:  s.files.Get,
 		Validate: s.safeFetch,

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -10,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/chanlib/chanstore"
 )
 
 const maxEventBody = 1 << 20
@@ -18,18 +18,18 @@ type server struct {
 	cfg           config
 	bot           *bot
 	files         *chanlib.URLCache
-	db            *sql.DB
+	chanStore     *chanstore.Store
 	isConnected   func() bool
 	lastInboundAt func() int64
 	now           func() time.Time
 }
 
-func newServer(cfg config, b *bot, db *sql.DB, isConnected func() bool, lastInboundAt func() int64) *server {
+func newServer(cfg config, b *bot, chanStore *chanstore.Store, isConnected func() bool, lastInboundAt func() int64) *server {
 	return &server{
 		cfg:           cfg,
 		bot:           b,
 		files:         chanlib.NewURLCache(0),
-		db:            db,
+		chanStore:     chanStore,
 		isConnected:   isConnected,
 		lastInboundAt: lastInboundAt,
 		now:           time.Now,
@@ -37,7 +37,7 @@ func newServer(cfg config, b *bot, db *sql.DB, isConnected func() bool, lastInbo
 }
 
 func (s *server) handler() http.Handler {
-	mux := chanlib.NewAdapterMux(s.cfg.Name, []string{"slack:"}, s.bot, s.isConnected, s.lastInboundAt, s.db)
+	mux := chanlib.NewAdapterMux(s.cfg.Name, []string{"slack:"}, s.bot, s.isConnected, s.lastInboundAt, s.chanStore)
 	// Events webhook is signature-verified, not chanlib.Auth-gated; file proxy adds Bearer xoxb upstream.
 	mux.HandleFunc("POST /slack/events", s.handleEvents)
 	// Slack posts a button press to its own request URL with its own encoding

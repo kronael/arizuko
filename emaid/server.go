@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"fmt"
 	"log/slog"
 	"mime"
@@ -14,6 +13,7 @@ import (
 	"github.com/emersion/go-imap/v2/imapclient"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/chanlib/chanstore"
 	"github.com/kronael/arizuko/emaid/mailstore"
 )
 
@@ -23,10 +23,10 @@ type server struct {
 	chanlib.NoPinSupport
 
 	cfg config
-	// db is chanlib's: the adapter mux dedups outbound sends against
-	// `outbound_dedup` in emaid.db, and chanlib runs those statements itself.
-	// Nothing in emaid reads it.
-	db            *sql.DB
+	// chanStore is chanlib's: the adapter mux dedups outbound sends through it
+	// and reports the retained-inbound backlog on /health. Nothing in emaid
+	// reads it.
+	chanStore     *chanstore.Store
 	st            *mailstore.Store
 	reg           *attRegistry
 	dialTLS       func(string, *imapclient.Options) (*imapclient.Client, error)
@@ -34,8 +34,8 @@ type server struct {
 	lastInboundAt func() int64
 }
 
-func newServer(cfg config, db *sql.DB, st *mailstore.Store, reg *attRegistry, isConnected func() bool, lastInboundAt func() int64) *server {
-	return &server{cfg: cfg, db: db, st: st, reg: reg, dialTLS: imapclient.DialTLS, isConnected: isConnected, lastInboundAt: lastInboundAt}
+func newServer(cfg config, chanStore *chanstore.Store, st *mailstore.Store, reg *attRegistry, isConnected func() bool, lastInboundAt func() int64) *server {
+	return &server{cfg: cfg, chanStore: chanStore, st: st, reg: reg, dialTLS: imapclient.DialTLS, isConnected: isConnected, lastInboundAt: lastInboundAt}
 }
 
 // Email is chat-only: no feed, no reactions, sent mail is immutable, and
@@ -74,7 +74,7 @@ func (s *server) Edit(chanlib.EditRequest) error {
 }
 
 func (s *server) handler() http.Handler {
-	mux := chanlib.NewAdapterMux(s.cfg.Name, []string{"email:"}, s, s.isConnected, s.lastInboundAt, s.db)
+	mux := chanlib.NewAdapterMux(s.cfg.Name, []string{"email:"}, s, s.isConnected, s.lastInboundAt, s.chanStore)
 	mux.HandleFunc("GET /files/", chanlib.Auth(s.handleFile))
 	return mux
 }

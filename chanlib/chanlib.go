@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -19,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kronael/arizuko/chanlib/chanstore"
 	"github.com/kronael/arizuko/obs"
 )
 
@@ -97,10 +97,10 @@ type RouterClient struct {
 	regCaps     map[string]bool
 	regMu       sync.Mutex
 
-	// pending is the adapter's own database holding inbound_pending. nil until
-	// RetainInbound wires it, which only the adapters that consume a platform
-	// event on arrival do (inbound.go).
-	pending *sql.DB
+	// pending is the adapter's own storage holding the retained inbound. nil
+	// until RetainInbound wires it, which only the adapters that consume a
+	// platform event on arrival do (inbound.go).
+	pending *chanstore.Store
 }
 
 func NewRouterClient(url string) *RouterClient {
@@ -242,7 +242,7 @@ func (r *RouterClient) Deregister() error {
 
 // SendMessage delivers one inbound to routd. When the adapter wired
 // RetainInbound, a transient failure is ALSO written to the adapter's own
-// inbound_pending table before the error returns, so the sweep re-delivers it
+// retained inbound before the error returns, so the sweep re-delivers it
 // (spec 5/34, BUGS L25). The error still returns either way: an adapter that
 // gates a platform cursor on delivery must keep seeing the failure.
 func (r *RouterClient) SendMessage(msg InboundMsg) error {

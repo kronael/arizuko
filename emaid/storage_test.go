@@ -6,22 +6,22 @@ package main
 // the adapter it tests holds none.
 
 import (
-	"database/sql"
 	"testing"
 
+	"github.com/kronael/arizuko/chanlib/chanstore"
 	"github.com/kronael/arizuko/emaid/mailstore"
 )
 
-// newTestStorage hands a test emaid's two halves over a fresh emaid.db: the
-// pool chanlib dedups against, and the store emaid reads.
-func newTestStorage(t *testing.T) (*sql.DB, *mailstore.Store) {
+// newTestStorage hands a test the two stores over a fresh emaid.db: chanlib's,
+// which the adapter mux dedups against, and mailstore's, which emaid reads.
+func newTestStorage(t *testing.T) (*chanstore.Store, *mailstore.Store) {
 	t.Helper()
-	db, st, err := openStorage(t.TempDir())
+	db, chanStore, st, err := openStorage(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	return db, st
+	return chanStore, st
 }
 
 // newTestMailstore is newTestStorage for a body that needs only the store — the

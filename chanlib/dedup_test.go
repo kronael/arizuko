@@ -1,20 +1,23 @@
 package chanlib
 
 import (
-	"database/sql"
 	"errors"
 	"fmt"
 	"testing"
+
+	"github.com/kronael/arizuko/chanlib/chanstore"
 )
 
-func testDedupDB(t *testing.T) *sql.DB {
+// testStore opens a real adapter database and hands back the store chanlib's
+// own code is given, so these bodies exercise the opener too.
+func testStore(t *testing.T) *chanstore.Store {
 	t.Helper()
-	db, err := OpenAdapterDB(t.TempDir(), "testadapter")
+	db, st, err := OpenAdapterDB(t.TempDir(), "testadapter")
 	if err != nil {
 		t.Fatalf("open adapter db: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	return db
+	return st
 }
 
 // counter records how many times the platform was actually called.
@@ -33,14 +36,14 @@ func (c *counter) post() (string, error) {
 // second platform call. This is the whole point of D5: routd re-sends a row
 // that stays `pending`, so the same key arrives twice by design.
 func TestDeliverOnceReturnsTheRecordedIDWithoutPostingAgain(t *testing.T) {
-	db := testDedupDB(t)
+	st := testStore(t)
 	c := &counter{id: "plat-1"}
 
-	id, err := deliverOnce(db, "row-1", "slack:c/1", c.post)
+	id, err := deliverOnce(st, "row-1", "slack:c/1", c.post)
 	if err != nil || id != "plat-1" {
 		t.Fatalf("first delivery = (%q, %v), want (plat-1, nil)", id, err)
 	}
-	id, err = deliverOnce(db, "row-1", "slack:c/1", c.post)
+	id, err = deliverOnce(st, "row-1", "slack:c/1", c.post)
 	if err != nil || id != "plat-1" {
 		t.Fatalf("redelivery = (%q, %v), want (plat-1, nil)", id, err)
 	}
@@ -53,14 +56,14 @@ func TestDeliverOnceReturnsTheRecordedIDWithoutPostingAgain(t *testing.T) {
 // tell a lost response from a lost request, so it reports the ambiguity and
 // routd dead-letters the row.
 func TestDeliverOnceRefusesAnUnsettledRedelivery(t *testing.T) {
-	db := testDedupDB(t)
+	st := testStore(t)
 	boom := &counter{err: errors.New("connection reset")}
 
-	if _, err := deliverOnce(db, "row-2", "slack:c/1", boom.post); err == nil {
+	if _, err := deliverOnce(st, "row-2", "slack:c/1", boom.post); err == nil {
 		t.Fatal("first delivery must surface the platform error")
 	}
 	next := &counter{id: "plat-2"}
-	_, err := deliverOnce(db, "row-2", "slack:c/1", next.post)
+	_, err := deliverOnce(st, "row-2", "slack:c/1", next.post)
 	if !errors.Is(err, ErrDeliveryUnresolved) {
 		t.Fatalf("redelivery err = %v, want ErrDeliveryUnresolved", err)
 	}
@@ -72,14 +75,14 @@ func TestDeliverOnceRefusesAnUnsettledRedelivery(t *testing.T) {
 // ErrPermanent is the one failure that proves nothing was posted, so it frees
 // the key. Holding it would dead-letter a message the operator can still fix.
 func TestDeliverOncePermanentFailureFreesTheKey(t *testing.T) {
-	db := testDedupDB(t)
+	st := testStore(t)
 	refused := &counter{err: fmt.Errorf("bad channel: %w", ErrPermanent)}
 
-	if _, err := deliverOnce(db, "row-3", "slack:c/1", refused.post); err == nil {
+	if _, err := deliverOnce(st, "row-3", "slack:c/1", refused.post); err == nil {
 		t.Fatal("permanent failure must surface")
 	}
 	next := &counter{id: "plat-3"}
-	id, err := deliverOnce(db, "row-3", "slack:c/1", next.post)
+	id, err := deliverOnce(st, "row-3", "slack:c/1", next.post)
 	if err != nil || id != "plat-3" {
 		t.Fatalf("retry after a permanent failure = (%q, %v), want (plat-3, nil)", id, err)
 	}
@@ -93,14 +96,14 @@ func TestDeliverOncePermanentFailureFreesTheKey(t *testing.T) {
 // retry on a fresh claim. Holding it turned every adapter-side rate limit
 // into a guaranteed dead-letter.
 func TestDeliverOnceNotDeliveredFreesTheKey(t *testing.T) {
-	db := testDedupDB(t)
+	st := testStore(t)
 	limited := &counter{err: fmt.Errorf("slack send: status 429: %w", ErrNotDelivered)}
 
-	if _, err := deliverOnce(db, "row-5", "slack:c/1", limited.post); err == nil {
+	if _, err := deliverOnce(st, "row-5", "slack:c/1", limited.post); err == nil {
 		t.Fatal("not-delivered failure must surface")
 	}
 	next := &counter{id: "plat-5"}
-	id, err := deliverOnce(db, "row-5", "slack:c/1", next.post)
+	id, err := deliverOnce(st, "row-5", "slack:c/1", next.post)
 	if err != nil || id != "plat-5" {
 		t.Fatalf("retry after a not-delivered failure = (%q, %v), want (plat-5, nil)", id, err)
 	}
@@ -109,21 +112,21 @@ func TestDeliverOnceNotDeliveredFreesTheKey(t *testing.T) {
 	}
 }
 
-// No DB and no key both mean "no dedup": a local-dev adapter with no state
+// No store and no key both mean "no dedup": a local-dev adapter with no state
 // mount, and a send routd issued without a key, must still deliver every time.
 func TestDeliverOnceWithoutDedupAlwaysPosts(t *testing.T) {
 	for _, c := range []struct {
 		name string
-		db   *sql.DB
+		st   *chanstore.Store
 		key  string
 	}{
-		{"no db", nil, "row-4"},
-		{"no key", testDedupDB(t), ""},
+		{"no store", nil, "row-4"},
+		{"no key", testStore(t), ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			p := &counter{id: "plat-4"}
 			for i := range 2 {
-				if _, err := deliverOnce(c.db, c.key, "slack:c/1", p.post); err != nil {
+				if _, err := deliverOnce(c.st, c.key, "slack:c/1", p.post); err != nil {
 					t.Fatalf("delivery %d: %v", i, err)
 				}
 			}

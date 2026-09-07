@@ -18,7 +18,7 @@ import (
 //   - SMTP dial is attempted against cfg.SMTPHost:cfg.SMTPPort
 //   - the caller gets a wrapped "smtp dial" error on connection failure
 func TestBotHandler_Send(t *testing.T) {
-	db, st := newTestStorage(t)
+	chanStore, st := newTestStorage(t)
 	if err := st.LinkMessageToThread("root-msg-id", "thread-1", "user@example.com", "root-msg-id"); err != nil {
 		t.Fatalf("seed thread: %v", err)
 	}
@@ -39,7 +39,7 @@ func TestBotHandler_Send(t *testing.T) {
 		SMTPHost: "127.0.0.1",
 		SMTPPort: itoa(addr.Port),
 	}
-	s := newServer(cfg, db, st, newAttRegistry(), func() bool { return true }, func() int64 { return time.Now().Unix() })
+	s := newServer(cfg, chanStore, st, newAttRegistry(), func() bool { return true }, func() int64 { return time.Now().Unix() })
 
 	_, err = s.Send(chanlib.SendRequest{ChatJID: "email:thread-1", Content: "hello"})
 	if err == nil {
@@ -53,8 +53,8 @@ func TestBotHandler_Send(t *testing.T) {
 // TestBotHandler_Send_ThreadNotFound asserts the missing-thread branch returns
 // a clear error before any network activity.
 func TestBotHandler_Send_ThreadNotFound(t *testing.T) {
-	db, st := newTestStorage(t)
-	s := newServer(config{Name: "email"}, db, st, newAttRegistry(), func() bool { return true }, func() int64 { return time.Now().Unix() })
+	chanStore, st := newTestStorage(t)
+	s := newServer(config{Name: "email"}, chanStore, st, newAttRegistry(), func() bool { return true }, func() int64 { return time.Now().Unix() })
 	_, err := s.Send(chanlib.SendRequest{ChatJID: "email:missing", Content: "x"})
 	if err == nil || !strings.Contains(err.Error(), "thread not found") {
 		t.Errorf("err = %v, want 'thread not found'", err)
@@ -67,7 +67,7 @@ func TestBotHandler_Send_ThreadNotFound(t *testing.T) {
 // In-Reply-To/References) and body, and that envelope addresses + auth
 // credentials are forwarded intact.
 func TestBotHandler_Send_Success(t *testing.T) {
-	db, st := newTestStorage(t)
+	chanStore, st := newTestStorage(t)
 	if err := st.LinkMessageToThread("root-123@example.com", "thread-ok", "user@example.com", "root-123@example.com"); err != nil {
 		t.Fatalf("seed thread: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestBotHandler_Send_Success(t *testing.T) {
 		SMTPHost: "smtp.example.com",
 		SMTPPort: "587",
 	}
-	s := newServer(cfg, db, st, newAttRegistry(), func() bool { return true }, func() int64 { return time.Now().Unix() })
+	s := newServer(cfg, chanStore, st, newAttRegistry(), func() bool { return true }, func() int64 { return time.Now().Unix() })
 
 	resp, err := s.Send(chanlib.SendRequest{ChatJID: "email:thread-ok", Content: "hello body"})
 	if err != nil {
@@ -149,7 +149,7 @@ func TestBotHandler_Send_Success(t *testing.T) {
 // target threads under that message (In-Reply-To = ReplyTo) rather than
 // flattening to the thread root. References lists root then the parent.
 func TestBotHandler_Send_ExplicitReplyTo(t *testing.T) {
-	db, st := newTestStorage(t)
+	chanStore, st := newTestStorage(t)
 	if err := st.LinkMessageToThread("root-1@example.com", "thr", "user@example.com", "root-1@example.com"); err != nil {
 		t.Fatalf("seed thread: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestBotHandler_Send_ExplicitReplyTo(t *testing.T) {
 	defer func() { smtpSender = orig }()
 
 	cfg := config{Name: "email", Account: "bot@example.com", Password: "pw", SMTPHost: "smtp.example.com", SMTPPort: "587"}
-	s := newServer(cfg, db, st, newAttRegistry(), func() bool { return true }, func() int64 { return time.Now().Unix() })
+	s := newServer(cfg, chanStore, st, newAttRegistry(), func() bool { return true }, func() int64 { return time.Now().Unix() })
 
 	if _, err := s.Send(chanlib.SendRequest{
 		ChatJID: "email:thr", Content: "body", ReplyTo: "mid-9@example.com",

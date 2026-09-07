@@ -2,14 +2,15 @@ package chanlib
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
-	"github.com/kronael/arizuko/core"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/kronael/arizuko/chanlib/chanstore"
+	"github.com/kronael/arizuko/core"
 )
 
 // routdStub answers /v1/messages with whatever status the test dials in, and
@@ -39,13 +40,30 @@ func newRoutdStub(status int) (*routdStub, *httptest.Server) {
 
 func (s *routdStub) ids() []string { return s.got.Load().([]string) }
 
-func pendingRows(t *testing.T, db *sql.DB) int {
+func pendingRows(t *testing.T, st *chanstore.Store) int {
 	t.Helper()
-	var n int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM inbound_pending`).Scan(&n); err != nil {
-		t.Fatalf("count inbound_pending: %v", err)
+	n, err := PendingInboundCount(t.Context(), st)
+	if err != nil {
+		t.Fatalf("count the retained inbound: %v", err)
 	}
 	return n
+}
+
+// held reads one retained message back through the sweep's own read, by asking
+// for everything due far enough in the future that the backoff cannot hide it.
+// That is how a body checks the attempt count without naming a table.
+func held(t *testing.T, st *chanstore.Store, id string) (chanstore.Held, bool) {
+	t.Helper()
+	due, err := st.DueForRedelivery(t.Context(), core.TS(time.Now().Add(24*time.Hour)), 0)
+	if err != nil {
+		t.Fatalf("read the retained inbound: %v", err)
+	}
+	for _, d := range due {
+		if d.ID == id {
+			return d, true
+		}
+	}
+	return chanstore.Held{}, false
 }
 
 // The L25 shape: routd is down, the adapter already told the platform 200, and
@@ -53,32 +71,29 @@ func pendingRows(t *testing.T, db *sql.DB) int {
 func TestRetainedInboundIsDeliveredAfterRoutdRecovers(t *testing.T) {
 	stub, srv := newRoutdStub(503)
 	defer srv.Close()
-	db := testDedupDB(t)
+	st := testStore(t)
 	rc := NewRouterClient(srv.URL)
-	rc.RetainInbound(context.Background(), db)
+	rc.RetainInbound(context.Background(), st)
 
 	msg := InboundMsg{ID: "slack:c/1/17", ChatJID: "slack:c/1", Content: "hello"}
 	if err := rc.SendMessage(msg); err == nil {
 		t.Fatal("SendMessage reported success while routd answered 503")
 	}
-	if n := pendingRows(t, db); n != 1 {
-		t.Fatalf("inbound_pending rows = %d, want 1 — the message was dropped", n)
-	}
-	if n, err := PendingInboundCount(db); err != nil || n != 1 {
-		t.Fatalf("PendingInboundCount() = %d, %v; want 1, nil", n, err)
+	if n := pendingRows(t, st); n != 1 {
+		t.Fatalf("retained inbound = %d, want 1 — the message was dropped", n)
 	}
 
 	// routd comes back; the sweep re-delivers with the SAME id, which is what
-	// makes routd's INSERT OR IGNORE a no-op rather than a duplicate.
+	// makes routd's own create-if-absent a no-op rather than a duplicate.
 	stub.status.Store(200)
-	dueNow(t, db)
+	dueNow(t, st, msg.ID)
 	rc.SweepInboundOnce(context.Background())
 
-	if n := pendingRows(t, db); n != 0 {
-		t.Fatalf("inbound_pending rows = %d after recovery, want 0", n)
+	if n := pendingRows(t, st); n != 0 {
+		t.Fatalf("retained inbound = %d after recovery, want 0", n)
 	}
 	// Every post carried the SAME id (postInbound's own second attempt included),
-	// which is what makes routd's INSERT OR IGNORE collapse them to one row.
+	// which is what makes routd collapse them to one message.
 	ids := stub.ids()
 	if len(ids) < 2 {
 		t.Fatalf("routd saw %d posts, want the live attempts plus the sweep's", len(ids))
@@ -95,15 +110,15 @@ func TestRetainedInboundIsDeliveredAfterRoutdRecovers(t *testing.T) {
 func TestRefusedInboundIsNotRetained(t *testing.T) {
 	_, srv := newRoutdStub(400)
 	defer srv.Close()
-	db := testDedupDB(t)
+	st := testStore(t)
 	rc := NewRouterClient(srv.URL)
-	rc.RetainInbound(context.Background(), db)
+	rc.RetainInbound(context.Background(), st)
 
 	if err := rc.SendMessage(InboundMsg{ID: "x", ChatJID: "slack:c/1", Content: "hi"}); err == nil {
 		t.Fatal("SendMessage reported success on a 400")
 	}
-	if n := pendingRows(t, db); n != 0 {
-		t.Fatalf("inbound_pending rows = %d, want 0 — a 400 must not be retried", n)
+	if n := pendingRows(t, st); n != 0 {
+		t.Fatalf("retained inbound = %d, want 0 — a 400 must not be retried", n)
 	}
 }
 
@@ -112,19 +127,19 @@ func TestRefusedInboundIsNotRetained(t *testing.T) {
 func TestSweepDropsARowRoutdRefuses(t *testing.T) {
 	stub, srv := newRoutdStub(502)
 	defer srv.Close()
-	db := testDedupDB(t)
+	st := testStore(t)
 	rc := NewRouterClient(srv.URL)
-	rc.RetainInbound(context.Background(), db)
+	rc.RetainInbound(context.Background(), st)
 
 	_ = rc.SendMessage(InboundMsg{ID: "x", ChatJID: "slack:c/1", Content: "hi"})
-	if n := pendingRows(t, db); n != 1 {
-		t.Fatalf("inbound_pending rows = %d, want 1", n)
+	if n := pendingRows(t, st); n != 1 {
+		t.Fatalf("retained inbound = %d, want 1", n)
 	}
 	stub.status.Store(400)
-	dueNow(t, db)
+	dueNow(t, st, "x")
 	rc.SweepInboundOnce(context.Background())
-	if n := pendingRows(t, db); n != 0 {
-		t.Fatalf("inbound_pending rows = %d, want 0 — a refused row must be dropped", n)
+	if n := pendingRows(t, st); n != 0 {
+		t.Fatalf("retained inbound = %d, want 0 — a refused message must be dropped", n)
 	}
 }
 
@@ -132,29 +147,30 @@ func TestSweepDropsARowRoutdRefuses(t *testing.T) {
 func TestSweepBacksOffAStillFailingRow(t *testing.T) {
 	_, srv := newRoutdStub(503)
 	defer srv.Close()
-	db := testDedupDB(t)
+	st := testStore(t)
 	rc := NewRouterClient(srv.URL)
-	rc.RetainInbound(context.Background(), db)
+	rc.RetainInbound(context.Background(), st)
 
 	_ = rc.SendMessage(InboundMsg{ID: "x", ChatJID: "slack:c/1", Content: "hi"})
-	dueNow(t, db)
+	dueNow(t, st, "x")
 	rc.SweepInboundOnce(context.Background())
 
-	var attempts int
-	var next string
-	if err := db.QueryRow(
-		`SELECT attempts, next_attempt_at FROM inbound_pending WHERE id='x'`).Scan(&attempts, &next); err != nil {
-		t.Fatalf("read row: %v", err)
+	got, ok := held(t, st, "x")
+	if !ok {
+		t.Fatal("the still-failing message was dropped instead of backed off")
 	}
-	if attempts != 1 {
-		t.Fatalf("attempts = %d, want 1", attempts)
+	if got.Attempts != 1 {
+		t.Fatalf("attempts = %d, want 1", got.Attempts)
 	}
-	at, err := time.Parse(time.RFC3339Nano, next)
+	// The backoff is checked through the sweep's own read: nothing is due 30s
+	// from now, which is what "backed off beyond the base wait" means to the
+	// only caller that asks.
+	due, err := st.DueForRedelivery(t.Context(), core.TS(time.Now().Add(30*time.Second)), 0)
 	if err != nil {
-		t.Fatalf("parse next_attempt_at %q: %v", next, err)
+		t.Fatal(err)
 	}
-	if !at.After(time.Now().Add(30 * time.Second)) {
-		t.Fatalf("next_attempt_at = %s, want a backoff beyond 30s", next)
+	if len(due) != 0 {
+		t.Fatalf("%d messages are due 30s from now, want a backoff past that", len(due))
 	}
 }
 
@@ -167,7 +183,7 @@ func TestSendMessageWithoutRetentionStoresNothing(t *testing.T) {
 	if err := rc.SendMessage(InboundMsg{ID: "x", ChatJID: "slack:c/1", Content: "hi"}); err == nil {
 		t.Fatal("SendMessage reported success while routd answered 503")
 	}
-	if db := rc.pendingDB(); db != nil {
+	if st := rc.pendingStore(); st != nil {
 		t.Fatal("pending store wired without RetainInbound")
 	}
 }
@@ -176,25 +192,25 @@ func TestSendMessageWithoutRetentionStoresNothing(t *testing.T) {
 func TestRetainKeepsTheFirstRowsBackoff(t *testing.T) {
 	_, srv := newRoutdStub(503)
 	defer srv.Close()
-	db := testDedupDB(t)
+	st := testStore(t)
 	rc := NewRouterClient(srv.URL)
-	rc.RetainInbound(context.Background(), db)
+	rc.RetainInbound(context.Background(), st)
 
 	msg := InboundMsg{ID: "x", ChatJID: "slack:c/1", Content: "hi"}
 	_ = rc.SendMessage(msg)
-	dueNow(t, db)
+	dueNow(t, st, "x")
 	rc.SweepInboundOnce(context.Background())
 	_ = rc.SendMessage(msg) // Slack redelivers the same event
 
-	var attempts int
-	if err := db.QueryRow(`SELECT attempts FROM inbound_pending WHERE id='x'`).Scan(&attempts); err != nil {
-		t.Fatalf("read row: %v", err)
+	got, ok := held(t, st, "x")
+	if !ok {
+		t.Fatal("the redelivered message replaced the row instead of leaving it")
 	}
-	if attempts != 1 {
-		t.Fatalf("attempts = %d after a platform redelivery, want the sweep's 1", attempts)
+	if got.Attempts != 1 {
+		t.Fatalf("attempts = %d after a platform redelivery, want the sweep's 1", got.Attempts)
 	}
-	if n := pendingRows(t, db); n != 1 {
-		t.Fatalf("inbound_pending rows = %d, want 1", n)
+	if n := pendingRows(t, st); n != 1 {
+		t.Fatalf("retained inbound = %d, want 1", n)
 	}
 }
 
@@ -215,13 +231,14 @@ func TestPermanentIngressClassification(t *testing.T) {
 
 var errDial = &StatusError{Path: "/v1/messages", Code: 0}
 
-// dueNow makes every retained row due, so a test drives the sweep without
-// sleeping through the backoff.
-func dueNow(t *testing.T, db *sql.DB) {
+// dueNow makes one retained message due, so a test drives the sweep without
+// sleeping through the backoff. It resets the attempt count to zero along the
+// way, which every caller wants: each one forces a message the sweep has not
+// touched yet.
+func dueNow(t *testing.T, st *chanstore.Store, id string) {
 	t.Helper()
-	if _, err := db.Exec(
-		`UPDATE inbound_pending SET next_attempt_at=?`,
-		core.TS(time.Now().Add(-time.Hour))); err != nil {
+	if err := st.Reschedule(t.Context(), id, 0, core.TS(time.Now().Add(-time.Hour)),
+		"forced due by a test"); err != nil {
 		t.Fatalf("force due: %v", err)
 	}
 }

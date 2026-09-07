@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/kronael/arizuko/chanlib/chanstore"
 )
 
 // loadConfig and openStorage are emaid's whole bootstrap. The
@@ -62,12 +64,12 @@ func TestLoadConfigDefaults(t *testing.T) {
 
 // emaid.db is adapter-private state that `arizuko create` does not seed, so
 // openStorage must create the directory and the file itself, prepare BOTH the
-// entities emaid reads and the tables chanlib writes, and be safe to call again
+// entities emaid reads and the ones chanlib writes, and be safe to call again
 // on the next boot.
 func TestOpenStorageCreatesTheEntitiesAndReopens(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "nested", "emaid")
 
-	db, st, err := openStorage(dir)
+	db, chanStore, st, err := openStorage(dir)
 	if err != nil {
 		t.Fatalf("openStorage: %v", err)
 	}
@@ -82,15 +84,16 @@ func TestOpenStorageCreatesTheEntitiesAndReopens(t *testing.T) {
 		t.Fatalf("the entities were not created: %v", err)
 	}
 
-	// chanlib's outbound_dedup lands in the SAME file, and chanlib runs its own
-	// statements against it; without the table a send dedups against nothing.
-	var n int
-	if err := db.QueryRow(
-		"SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='outbound_dedup'").Scan(&n); err != nil {
-		t.Fatal(err)
+	// chanlib's entities land in the SAME file, and the adapter mux reads them;
+	// without them a send dedups against nothing. Asked through the store rather
+	// than through sqlite_master, because emaid's own driver is a choice this
+	// file must not encode.
+	claim, err := chanStore.ClaimDelivery(t.Context(), "boot-key", "email:boot")
+	if err != nil {
+		t.Fatalf("chanlib's entities were not created in emaid.db: %v", err)
 	}
-	if n != 1 {
-		t.Error("chanlib's outbound_dedup chain did not run in emaid.db")
+	if claim.State != chanstore.ClaimWon {
+		t.Errorf("the first claim on a fresh store is %v, want ClaimWon", claim.State)
 	}
 
 	var mode string
@@ -102,13 +105,19 @@ func TestOpenStorageCreatesTheEntitiesAndReopens(t *testing.T) {
 	}
 	db.Close()
 
-	// The second boot must not fail on the entities or the tables already there.
-	db2, st2, err := openStorage(dir)
+	// The second boot must not fail on the entities already there.
+	db2, chanStore2, st2, err := openStorage(dir)
 	if err != nil {
 		t.Fatalf("second openStorage on an existing file: %v", err)
 	}
 	if got, ok := st2.Thread("boot"); !ok || got.FromAddress != "alice@x.com" {
 		t.Errorf("the reopened store answers %+v (found=%v); the rows did not survive", got, ok)
+	}
+	// The claim survives too, which is the half that makes a redelivery after a
+	// restart return the recorded id rather than posting again.
+	if claim, err := chanStore2.ClaimDelivery(t.Context(), "boot-key", "email:boot"); err != nil ||
+		claim.State == chanstore.ClaimWon {
+		t.Errorf("the reopened claim is %v (err=%v); it must not be winnable again", claim.State, err)
 	}
 	db2.Close()
 }

@@ -40,7 +40,7 @@ func main() {
 			// inbound message with attachments dereferences nil b.files.
 			// Outbound dedup is a delivery guarantee, not a nicety: without the
 			// DB routd's re-send of a still-pending row posts a second message.
-			db, err := chanlib.OpenAdapterDB(cfg.DataDir, "discd")
+			db, chanStore, err := chanlib.OpenAdapterDB(cfg.DataDir, "discd")
 			if err != nil {
 				slog.Error("adapter db open failed", "dir", cfg.DataDir, "err", err)
 				return nil, nil, err
@@ -48,8 +48,8 @@ func main() {
 			// Inbound durability. The Discord gateway hands each event over
 			// exactly once and offers no replay, so a routd that is restarting
 			// used to drop the message (BUGS L25).
-			rc.RetainInbound(ctx, db)
-			srv := newServer(cfg, b, db, b.isConnected, b.LastInboundAt)
+			rc.RetainInbound(ctx, chanStore)
+			srv := newServer(cfg, b, chanStore, b.isConnected, b.LastInboundAt)
 			b.files = srv.files
 			if err := b.start(rc); err != nil {
 				slog.Error("discord connect failed", "err", err)

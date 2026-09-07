@@ -1,13 +1,13 @@
 package main
 
 import (
-	"database/sql"
 	"io"
 	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/chanlib/chanstore"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -21,20 +21,20 @@ type secretSource interface {
 }
 
 type server struct {
-	cfg config
-	bot *bot
-	st  secretSource
-	db  *sql.DB
-	rc  *chanlib.RouterClient
-	now func() time.Time
+	cfg       config
+	bot       *bot
+	st        secretSource
+	chanStore *chanstore.Store
+	rc        *chanlib.RouterClient
+	now       func() time.Time
 }
 
-func newServer(cfg config, b *bot, st secretSource, db *sql.DB, rc *chanlib.RouterClient) *server {
-	return &server{cfg: cfg, bot: b, st: st, db: db, rc: rc, now: time.Now}
+func newServer(cfg config, b *bot, st secretSource, chanStore *chanstore.Store, rc *chanlib.RouterClient) *server {
+	return &server{cfg: cfg, bot: b, st: st, chanStore: chanStore, rc: rc, now: time.Now}
 }
 
 func (s *server) handler() http.Handler {
-	mux := chanlib.NewAdapterMux(s.cfg.Name, []string{"github:"}, s.bot, s.bot.isConnected, s.bot.LastInboundAt, s.db)
+	mux := chanlib.NewAdapterMux(s.cfg.Name, []string{"github:"}, s.bot, s.bot.isConnected, s.bot.LastInboundAt, s.chanStore)
 	// The path names the registered source, which selects the secret; the
 	// payload never chooses its own verifier.
 	mux.HandleFunc("POST /github/{source...}", s.handleWebhook)

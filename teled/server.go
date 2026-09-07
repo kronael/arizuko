@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/chanlib/chanstore"
 )
 
 var httpClient = &http.Client{Timeout: 30 * time.Second}
@@ -28,17 +28,17 @@ func tgGet(ctx context.Context, url string) (*http.Response, error) {
 type server struct {
 	cfg           config
 	bot           chanlib.BotHandler
-	db            *sql.DB
+	chanStore     *chanstore.Store
 	isConnected   func() bool
 	lastInboundAt func() int64
 }
 
-func newServer(cfg config, b chanlib.BotHandler, db *sql.DB, isConnected func() bool, lastInboundAt func() int64) *server {
-	return &server{cfg: cfg, bot: b, db: db, isConnected: isConnected, lastInboundAt: lastInboundAt}
+func newServer(cfg config, b chanlib.BotHandler, chanStore *chanstore.Store, isConnected func() bool, lastInboundAt func() int64) *server {
+	return &server{cfg: cfg, bot: b, chanStore: chanStore, isConnected: isConnected, lastInboundAt: lastInboundAt}
 }
 
 func (s *server) handler() http.Handler {
-	mux := chanlib.NewAdapterMux(s.cfg.Name, []string{"telegram:"}, s.bot, s.isConnected, s.lastInboundAt, s.db)
+	mux := chanlib.NewAdapterMux(s.cfg.Name, []string{"telegram:"}, s.bot, s.isConnected, s.lastInboundAt, s.chanStore)
 	mux.HandleFunc("GET /files/", chanlib.Auth(s.handleFile))
 	return mux
 }

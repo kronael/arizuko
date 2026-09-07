@@ -53,7 +53,7 @@ func main() {
 			}
 			// Outbound dedup is a delivery guarantee, not a nicety: without the
 			// DB routd's re-send of a still-pending row posts a second message.
-			db, err := chanlib.OpenAdapterDB(cfg.DataDir, "slakd")
+			db, chanStore, err := chanlib.OpenAdapterDB(cfg.DataDir, "slakd")
 			if err != nil {
 				slog.Error("adapter db open failed", "dir", cfg.DataDir, "err", err)
 				return nil, nil, err
@@ -62,8 +62,8 @@ func main() {
 			// called (Slack wants the ack inside 3s and redelivers on non-2xx),
 			// so Slack will never hand the message over again and a routd that
 			// is restarting used to drop it (BUGS L25).
-			rc.RetainInbound(ctx, db)
-			srv := newServer(cfg, b, db, b.isConnected, b.LastInboundAt)
+			rc.RetainInbound(ctx, chanStore)
+			srv := newServer(cfg, b, chanStore, b.isConnected, b.LastInboundAt)
 			b.files = srv.files
 			if err := b.start(ctx, rc); err != nil {
 				slog.Error("slack auth.test failed", "err", err)

@@ -13,11 +13,9 @@ package main
 import (
 	"context"
 	"database/sql"
-	"os"
-	"path/filepath"
 
 	"github.com/kronael/arizuko/chanlib"
-	"github.com/kronael/arizuko/db_utils"
+	"github.com/kronael/arizuko/chanlib/chanstore"
 	"github.com/kronael/arizuko/emaid/mailstore"
 	"github.com/kronael/arizuko/objstore/sqlstore"
 	_ "modernc.org/sqlite"
@@ -28,28 +26,26 @@ import (
 // serve emaid. It creates a missing file itself: emaid.db is adapter-private
 // state, and `arizuko create` does not seed it.
 //
-// It hands back both halves because emaid needs both. The pool is chanlib's:
-// `outbound_dedup` lands in this same file and chanlib runs its own statements
-// against it, which is the ownership half of the seam (BUGS L251) and moves
-// when chanlib does. The store is emaid's own, and it is all emaid touches.
-func openStorage(dataDir string) (*sql.DB, *mailstore.Store, error) {
-	if err := os.MkdirAll(dataDir, 0o755); err != nil {
-		return nil, nil, err
-	}
-	db, err := db_utils.Open(db_utils.FileDSN(filepath.Join(dataDir, "emaid.db")))
+// It opens through chanlib's own adapter-database door, the same one the seven
+// other adapters use, so emaid.db is prepared exactly the way theirs are. That
+// door hands back the pool as well as chanlib's store, which is what lets emaid
+// put its OWN entities in the same file — the alternative was a second opener
+// for the one daemon that needs the pool, and two openers drift.
+//
+// It hands back all three halves because emaid needs all three: the pool to
+// close, chanlib's store for the adapter mux's outbound dedup, and mailstore's
+// for emaid's own threading.
+func openStorage(dataDir string) (*sql.DB, *chanstore.Store, *mailstore.Store, error) {
+	db, chanStore, err := chanlib.OpenAdapterDB(dataDir, "emaid")
 	if err != nil {
-		return nil, nil, err
-	}
-	if err := chanlib.MigrateAdapterDB(db); err != nil {
-		db.Close()
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	s := sqlstore.New(db)
 	for _, entity := range mailstore.Entities {
 		if err := s.CreateEntity(context.Background(), entity); err != nil {
-			db.Close()
-			return nil, nil, err
+			db.Close() //nolint:errcheck // the open already failed
+			return nil, nil, nil, err
 		}
 	}
-	return db, mailstore.New(s), nil
+	return db, chanStore, mailstore.New(s), nil
 }

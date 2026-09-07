@@ -22,14 +22,13 @@ package chanlib
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
 
+	"github.com/kronael/arizuko/chanlib/chanstore"
 	"github.com/kronael/arizuko/core"
 )
 
@@ -46,23 +45,22 @@ const (
 )
 
 // RetainInbound makes this client's inbound durable and starts the re-delivery
-// sweep, which runs until ctx is done. db is the adapter's OWN database (the
-// one OpenAdapterDB returns); chanlib ships the schema, the adapter owns the
-// file.
+// sweep, which runs until ctx is done. st is the adapter's OWN storage (the one
+// OpenAdapterDB returns); chanlib ships the entities, the adapter owns the file.
 //
 // Wire it ONLY from an adapter that consumes its platform event on arrival —
 // see the file comment for why the cursor-gated adapters must not.
-func (r *RouterClient) RetainInbound(ctx context.Context, db *sql.DB) {
-	if db == nil {
-		panic("chanlib.RetainInbound: db must not be nil")
+func (r *RouterClient) RetainInbound(ctx context.Context, st *chanstore.Store) {
+	if st == nil {
+		panic("chanlib.RetainInbound: the store must not be nil")
 	}
 	r.regMu.Lock()
-	r.pending = db
+	r.pending = st
 	r.regMu.Unlock()
 	go r.sweepInbound(ctx)
 }
 
-func (r *RouterClient) pendingDB() *sql.DB {
+func (r *RouterClient) pendingStore() *chanstore.Store {
 	r.regMu.Lock()
 	defer r.regMu.Unlock()
 	return r.pending
@@ -86,13 +84,12 @@ func PermanentIngress(err error) bool {
 	return false
 }
 
-// retainInbound writes msg to inbound_pending so the sweep can re-deliver it.
-// A permanent refusal is NOT retained — replaying it would fail identically
-// forever — but it is logged at ERROR, because that message is now lost and an
-// operator has to know.
+// retainInbound holds msg so the sweep can re-deliver it. A permanent refusal is
+// NOT retained — replaying it would fail identically forever — but it is logged
+// at ERROR, because that message is now lost and an operator has to know.
 func (r *RouterClient) retainInbound(msg InboundMsg, cause error) {
-	db := r.pendingDB()
-	if db == nil {
+	st := r.pendingStore()
+	if st == nil {
 		return
 	}
 	if PermanentIngress(cause) {
@@ -116,14 +113,11 @@ func (r *RouterClient) retainInbound(msg InboundMsg, cause error) {
 		return
 	}
 	now := time.Now().UTC()
-	// INSERT OR IGNORE, not upsert: a row already held keeps its attempt count
-	// and its backoff. A platform that re-delivers the same id (Slack retries a
-	// non-2xx ack) must not reset the clock.
-	if _, err := db.Exec(
-		`INSERT OR IGNORE INTO inbound_pending
-		   (id, payload, attempts, first_seen_at, next_attempt_at, last_error)
-		 VALUES (?,?,0,?,?,?)`,
-		msg.ID, string(payload), rfc(now), rfc(now.Add(inboundBackoffBase)), cause.Error()); err != nil {
+	// Retain leaves a message already held exactly as it is, so a platform that
+	// re-delivers the same id (Slack retries a non-2xx ack) does not reset the
+	// clock — the row keeps its attempt count and its backoff.
+	if err := st.Retain(context.Background(), msg.ID, string(payload),
+		rfc(now), rfc(now.Add(inboundBackoffBase)), cause.Error()); err != nil {
 		slog.Error("inbound retain failed; the message is lost",
 			"id", msg.ID, "chat_jid", msg.ChatJID, "err", err, "cause", cause)
 		return
@@ -159,72 +153,53 @@ func (r *RouterClient) sweepInbound(ctx context.Context) {
 	}
 }
 
-// SweepInboundOnce re-delivers every due row once. Exported so a test drives
+// SweepInboundOnce re-delivers every due message once. Exported so a test drives
 // the sweep instead of waiting on the ticker.
 func (r *RouterClient) SweepInboundOnce(ctx context.Context) {
-	db := r.pendingDB()
-	if db == nil {
+	st := r.pendingStore()
+	if st == nil {
 		return
 	}
-	rows, err := db.Query(
-		`SELECT id, payload, attempts FROM inbound_pending
-		 WHERE next_attempt_at <= ? ORDER BY first_seen_at LIMIT ?`,
-		rfc(time.Now()), inboundSweepBatch)
+	batch, err := st.DueForRedelivery(ctx, rfc(time.Now()), inboundSweepBatch)
 	if err != nil {
 		slog.Error("inbound sweep: read failed", "err", err)
 		return
 	}
-	type due struct {
-		id, payload string
-		attempts    int
-	}
-	var batch []due
-	for rows.Next() {
-		var d due
-		if err := rows.Scan(&d.id, &d.payload, &d.attempts); err != nil {
-			slog.Error("inbound sweep: scan failed", "err", err)
-			continue
-		}
-		batch = append(batch, d)
-	}
-	rows.Close()
 	for _, d := range batch {
 		if ctx.Err() != nil {
 			return
 		}
 		var msg InboundMsg
-		if err := json.Unmarshal([]byte(d.payload), &msg); err != nil {
-			// A row we cannot decode can never be delivered; keeping it would
-			// re-fail every 15s forever.
-			slog.Error("inbound sweep: undecodable row dropped", "id", d.id, "err", err)
-			r.dropPending(db, d.id)
+		if err := json.Unmarshal([]byte(d.Payload), &msg); err != nil {
+			// A held message we cannot decode can never be delivered; keeping it
+			// would re-fail every 15s forever.
+			slog.Error("inbound sweep: undecodable row dropped", "id", d.ID, "err", err)
+			r.dropPending(ctx, st, d.ID)
 			continue
 		}
 		err := r.postInbound(msg)
 		switch {
 		case err == nil:
-			r.dropPending(db, d.id)
-			slog.Info("retained inbound delivered", "id", d.id, "chat_jid", msg.ChatJID,
-				"attempts", d.attempts+1)
+			r.dropPending(ctx, st, d.ID)
+			slog.Info("retained inbound delivered", "id", d.ID, "chat_jid", msg.ChatJID,
+				"attempts", d.Attempts+1)
 		case PermanentIngress(err):
 			slog.Error("retained inbound refused by routd and dropped; a retry cannot repair it",
-				"id", d.id, "chat_jid", msg.ChatJID, "attempts", d.attempts+1, "err", err)
-			r.dropPending(db, d.id)
+				"id", d.ID, "chat_jid", msg.ChatJID, "attempts", d.Attempts+1, "err", err)
+			r.dropPending(ctx, st, d.ID)
 		default:
-			next := time.Now().Add(inboundBackoff(d.attempts + 1))
-			if _, uerr := db.Exec(
-				`UPDATE inbound_pending SET attempts=attempts+1, next_attempt_at=?, last_error=?
-				 WHERE id=?`, rfc(next), err.Error(), d.id); uerr != nil {
-				slog.Error("inbound sweep: backoff update failed", "id", d.id, "err", uerr)
+			next := time.Now().Add(inboundBackoff(d.Attempts + 1))
+			if uerr := st.Reschedule(ctx, d.ID, d.Attempts+1, rfc(next), err.Error()); uerr != nil {
+				slog.Error("inbound sweep: backoff update failed", "id", d.ID, "err", uerr)
 			}
-			slog.Warn("retained inbound still undelivered", "id", d.id,
-				"chat_jid", msg.ChatJID, "attempts", d.attempts+1, "retry_at", rfc(next), "err", err)
+			slog.Warn("retained inbound still undelivered", "id", d.ID,
+				"chat_jid", msg.ChatJID, "attempts", d.Attempts+1, "retry_at", rfc(next), "err", err)
 		}
 	}
 }
 
-func (r *RouterClient) dropPending(db *sql.DB, id string) {
-	if _, err := db.Exec(`DELETE FROM inbound_pending WHERE id=?`, id); err != nil {
+func (r *RouterClient) dropPending(ctx context.Context, st *chanstore.Store, id string) {
+	if err := st.Drop(ctx, id); err != nil {
 		slog.Error("inbound sweep: delete failed; the row will be re-delivered",
 			"id", id, "err", err)
 	}
@@ -233,13 +208,9 @@ func (r *RouterClient) dropPending(db *sql.DB, id string) {
 // PendingInboundCount reports how many inbound messages the adapter is holding
 // undelivered. /health reports it so the backlog is visible where an operator
 // already looks, rather than only in a WARN line nobody reads.
-func PendingInboundCount(db *sql.DB) (int, error) {
-	if db == nil {
+func PendingInboundCount(ctx context.Context, st *chanstore.Store) (int, error) {
+	if st == nil {
 		return 0, nil
 	}
-	var n int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM inbound_pending`).Scan(&n); err != nil {
-		return 0, fmt.Errorf("count pending inbound: %w", err)
-	}
-	return n, nil
+	return st.HeldCount(ctx)
 }

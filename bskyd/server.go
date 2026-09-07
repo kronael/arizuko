@@ -1,13 +1,13 @@
 package main
 
 import (
-	"database/sql"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/chanlib/chanstore"
 )
 
 var proxyClient = &http.Client{Timeout: 30 * time.Second}
@@ -15,17 +15,17 @@ var proxyClient = &http.Client{Timeout: 30 * time.Second}
 type server struct {
 	cfg           config
 	bc            chanlib.BotHandler
-	db            *sql.DB
+	chanStore     *chanstore.Store
 	isConnected   func() bool
 	lastInboundAt func() int64
 }
 
-func newServer(cfg config, bc chanlib.BotHandler, db *sql.DB, isConnected func() bool, lastInboundAt func() int64) *server {
-	return &server{cfg: cfg, bc: bc, db: db, isConnected: isConnected, lastInboundAt: lastInboundAt}
+func newServer(cfg config, bc chanlib.BotHandler, chanStore *chanstore.Store, isConnected func() bool, lastInboundAt func() int64) *server {
+	return &server{cfg: cfg, bc: bc, chanStore: chanStore, isConnected: isConnected, lastInboundAt: lastInboundAt}
 }
 
 func (s *server) handler() http.Handler {
-	mux := chanlib.NewAdapterMux(s.cfg.Name, []string{"bluesky:"}, s.bc, s.isConnected, s.lastInboundAt, s.db)
+	mux := chanlib.NewAdapterMux(s.cfg.Name, []string{"bluesky:"}, s.bc, s.isConnected, s.lastInboundAt, s.chanStore)
 	mux.HandleFunc("GET /files/", chanlib.Auth(s.handleFile))
 	return mux
 }
