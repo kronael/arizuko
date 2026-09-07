@@ -303,7 +303,7 @@ standalone daemon owning its own DB:
   (SIGUSR1). It brokers no token: the agent is credentialed by the
   per-turn MCP unix socket routd hosts, which `SO_PEERCRED` binds to the
   spawned process. Owns `runed.db` (`spawns`, `session_log`,
-  `circuit_breaker`). Spec
+  `circuit_breaker`, as objstore entities — `runed/runstore`). Spec
   [`specs/5/P-runed.md`](specs/5/P-runed.md).
 - **`authd`** — auth authority. The sole ES256 token minter; serves
   JWKS so every daemon verifies offline via the `auth/` library. Acts
@@ -358,9 +358,9 @@ Durable rules the package layout obeys.
 
 - **DB ownership.** Each daemon owns its own DB + migrations + REST/MCP
   APIs: `routd` owns `routd.db` (`routd/migrations/`), `runed` owns
-  `runed.db` (`runed/migrations/`), `authd` owns `auth.db`
-  (entities, no migrations — `authd/authstore`), `onbod` owns `onbod.db`
-  (`onbod/migrations/`).
+  `runed.db` (entities, no migrations — `runed/runstore`), `authd` owns
+  `auth.db` (entities, no migrations — `authd/authstore`), `onbod` owns
+  `onbod.db` (`onbod/migrations/`).
   Libraries own no DB, no API, no migrations — a library that writes
   rows takes the caller's `*sql.Tx` (`audit/` is the model). Cross-daemon
   data access goes through the receiving daemon's `api/v1/` (REST for
@@ -457,8 +457,11 @@ each daemon re-sequences its own `migrations/` from `0001`.
   `secret_use_log`, `turn_context`, `turn_results`, `cost_log_archive`,
   `network_rules`, `web_routes`, `group_watchers`,
   `pane_sessions`, `installed_packages`.
-- **`runed.db`** (`runed/migrations/`): `spawns`, `session_log`,
-  `circuit_breaker`.
+- **`runed.db`** (`runed/runstore`, objstore entities): `spawns`, `session_log`,
+  `circuit_breaker`. runed holds no SQL and no DDL, and the three entities make
+  three different partition choices — one constant for `spawns`, the folder for
+  `session_log`, the folder as the whole coordinate for `circuit_breaker` — each
+  written down in its own file.
 - **`auth.db`** (`authd/authstore`, objstore entities): `signing_keys`,
   `signing_key_slot`, `auth_users`, `oauth_identities`, `refresh_tokens`,
   `refresh_families`. authd is the first daemon holding no SQL and no DDL
@@ -496,8 +499,8 @@ each daemon re-sequences its own `migrations/` from `0001`.
 | `pane_sessions`      | team_id + user_id + thread_ts (PK), channel_id, context_jid, opened_at (routd.db, migration 0010)                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `installed_packages` | (folder, name) PK — folder `''` = instance-wide — source, revision, manifest (JSON: asset-kind → owned identities), asset_hashes (JSON: asset-id → content hash), installed_at — one row per installed package; the record `upgrade`/`remove`/dirty-detection read (routd.db, migrations 0020 + 0031, spec 5/28)                                                                                                                                                                                       |
 | `audit_log`          | objstore entity, one per owner DB (routd.db, runed.db, auth.db, onbod.db); correlation across them is `turn_id`. The id is the sort key and IS the instant, at `core.TS`'s fixed width plus a suffix, so ordering and the page cursor are one value; the attributes are created_at, category, action, actor, actor_sub, resource, scope, surface, outcome, duration_ms, turn_id, folder, instance, request_id, source_ip. proxyd/webd/dashd own no audit DB and record via a sibling `routd.db` handle |
-| `session_log`        | id, group_folder, session_id, started_at, ended_at, result, error, message_count (runed.db)                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `spawns`             | run_id (PK), folder, topic, container_name, session_log_id, session_id, kind, state, outcome, exit_code, steered, created_at, started_at, ended_at (runed.db)                                                                                                                                                                                                                                                                                                                                          |
+| `session_log`        | id, group_folder, session_id, started_at, ended_at, result, error, message_count (runed.db). The id is the instant it started at `core.TS`'s width plus a suffix, not a sequence                                                                                                                                                                                                                                                                                                                       |
+| `spawns`             | run_id (key), folder, topic, container_name, session_log_id, session_id, kind, state, outcome, exit_code, steered, created_at, started_at, ended_at (runed.db)                                                                                                                                                                                                                                                                                                                                         |
 | `circuit_breaker`    | folder (PK), failures, last_failure — per-folder consecutive-failure count, survives restarts (runed.db)                                                                                                                                                                                                                                                                                                                                                                                               |
 | `auth_users`         | user_id (PK), name, created_at (auth.db)                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `oauth_identities`   | user_id + provider (unique), provider_sub, linked_at (auth.db)                                                                                                                                                                                                                                                                                                                                                                                                                                         |
@@ -683,8 +686,8 @@ runed Manager (`runed/manager.go`):
 - `MaxConcurrent` global cap (`MAX_CONCURRENT_CONTAINERS`, default 5),
   one live spawn per folder
 - circuit breaker: 3 consecutive folder failures opens; reset by a new run
-- run TTL (`RUNED_RUN_TIMEOUT`, default 20m); hourly GC of expired
-  spawns + tokens
+- run TTL (`RUNED_RUN_TIMEOUT`, default 20m); hourly sweep of spawns past a
+  seven-day retention, which is what keeps their one partition a window
 - steer into a live spawn via `docker kill --signal=SIGUSR1` + IPC write
 
 Delegation, escalation, and `#topic` routing are not special — each writes

@@ -45,9 +45,12 @@ func TestMigrationsAreFrozen(t *testing.T) {
 		t.Fatalf("read migrations: %v", err)
 	}
 	const why = "store/migrations is the FROZEN pre-split messages.db schema — no " +
-		"daemon runs it, so a table added here reaches no live database. Put the " +
-		"migration in the chain of the daemon that owns the table (routd/migrations, " +
-		"onbod/migrations, authd/migrations, runed/migrations, chanlib/migrations)"
+		"daemon runs it, so a table added here reaches no live database. Put it in " +
+		"the chain of the daemon that owns the table (routd/migrations, " +
+		"onbod/migrations) — or, for an owner that has moved onto objstore, declare " +
+		"it as an entity beside the code that reads it (authd/authstore, " +
+		"runed/runstore, chanlib/chanstore, emaid/mailstore), where there is no " +
+		"chain at all"
 
 	seen := map[int]string{}
 	var versions []int

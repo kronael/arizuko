@@ -20,17 +20,32 @@ in-process `ServeMCP`. Spec: `specs/5/P-runed.md`.
   no agent turn can start in that folder until it is released.
 - Per-spawn Docker lifecycle: `docker run --rm`, egress allowlist,
   steer via `docker kill --signal=SIGUSR1`, kill via stop→kill→`rm -f`.
-- Enforce `RUNED_RUN_TIMEOUT` per run; hourly GC of expired spawns.
+- Enforce `RUNED_RUN_TIMEOUT` per run; hourly sweep of spawns older than the
+  seven-day retention, which is what bounds the one partition they share.
 - Graceful shutdown detaches in-flight runs (containers outlive the daemon).
 
-## Tables owned
+## Entities owned
 
 `runed.db` (separate from routd's `routd.db`): `spawns`, `session_log`,
-`circuit_breaker`, `audit_log` — runtime
-execution state with no home in routd. Migrations in
-`runed/migrations/`. These are runtime tables, not manifest-addressable
-config, so `/openapi.json` exposes only the `audit` read path (emitted also for
-aggregator uniformity).
+`circuit_breaker`, `audit_log` — runtime execution state with no home in routd.
+These are runtime state, not manifest-addressable config, so `/openapi.json`
+exposes only the `audit` read path (emitted also for aggregator uniformity).
+
+There is no migration set. Each is an objstore ENTITY, declared beside the code
+that reads it — `runed/runstore` for the first three, `audit` for the fourth —
+and created by whichever driver the opener holds, so a second engine is a second
+driver and no handler changes (spec `6/37` step 5). `runed` itself holds no SQL
+statement at all; `db_utils/sql_layer_test.go` fails the build if one appears
+anywhere under `runed/`, including `runstore`.
+
+Each entity's file states its own COORDINATE and what that choice costs:
+`spawns` takes one partition and the run id as its sort key, because six
+operations address a spawn by run id with no folder in hand and three of them
+are guarded transitions; `session_log` takes the folder and a time key, because
+every read is "the n newest in this folder" and nothing sweeps it; and
+`circuit_breaker` takes the folder as the whole coordinate.
+
+Moving an existing file: `arizuko migrate-runed <instance>` (`--dry-run` first).
 
 ## Entry points
 
@@ -90,9 +105,8 @@ Spec: `specs/5/O-observability.md`.
 
 ### Audit trail
 
-runed writes `audit_log` rows into its OWN `runed.db` (migration `0005`);
-each daemon owns and migrates its own audit table, and correlation across
-them is `turn_id` (spec `5/I`). Two actions, category `agent`, surface
+runed writes `audit_log` rows into its OWN `runed.db`; each daemon owns its own
+audit trail and correlation across them is `turn_id` (spec `5/I`). Two actions, category `agent`, surface
 `rest`:
 
 - `run.hold` — `POST /v1/holds` claimed (or was refused) a folder's run slot

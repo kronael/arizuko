@@ -5,8 +5,8 @@ engine is a second driver and no daemon changes (spec
 [`6/37`](../specs/6/37-store-model.md), surface
 [`6/40`](../specs/6/40-store-surface.md)).
 
-**Two daemons and one library run on this.** `authd/authstore`,
-`emaid/mailstore` and `chanlib/chanstore` hold no SQL at all.
+**Three daemons and one library run on this.** `authd/authstore`,
+`emaid/mailstore`, `chanlib/chanstore` and `runed/runstore` hold no SQL at all.
 
 emaid is the first that reaches storage ONLY through this package: nothing
 holds a statement against `emaid.db` any more, because chanlib's own two tables
@@ -16,6 +16,13 @@ a library rather than a daemon, so the driver is picked by the opener the
 adapters share. `authd` still hands its pool to `audit` and `store`, so the
 daemon around `authstore` stays SQLite-only even though `authstore` itself does
 not.
+
+runed is the move measured on a second ENGINE end to end: 91 of its 114 tests
+failed on `AUTOINCREMENT` against PostgreSQL 17.11 before it, and none do after.
+It is also the one whose three entities take three DIFFERENT partitions —
+`spawns` one constant, `session_log` the folder, `circuit_breaker` the folder as
+the whole coordinate — because they answer three different questions. authd took
+one constant for a whole daemon and `6/37` step 3 writes that up as a mistake.
 
 ## Two primitives
 
