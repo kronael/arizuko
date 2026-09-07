@@ -481,8 +481,124 @@ func (c *clearAfterWrite) GuardedBatch(ctx context.Context, checks []objstore.Ch
 	return committed, derr
 }
 
+// THE COMPARE-AND-SWAP ITSELF, made deterministic. A counter that another
+// caller moved between this call's read and its write must be RE-READ, not
+// overwritten — the lost update.
+//
+// The concurrent body below is the same property and it does not prove it on
+// its own: with the swap replaced by a plain read-then-write, `go test -short`
+// stays GREEN because the goroutines never interleave on an in-memory SQLite,
+// and only `-race` widens the window enough to catch it (`make test` passes no
+// -race). This body forces the interleave instead of hoping for it.
+func TestAMovedCounterIsRereadRatherThanOverwritten(t *testing.T) {
+	driver := newDriver(t)
+	bump := &bumpBeforeWrite{Store: driver, folder: "acme"}
+	st := runstore.New(bump)
+	seed := runstore.New(driver)
+	if n, err := seed.RecordFailure(t.Context(), "acme"); err != nil || n != 1 {
+		t.Fatalf("seeding the streak = (%d, %v)", n, err)
+	}
+
+	// The wrapper bumps the counter to 2 between this call's read and its
+	// write, so the write must be refused and the call must come back with 3.
+	got, err := st.RecordFailure(t.Context(), "acme")
+	if err != nil {
+		t.Fatalf("RecordFailure: %v", err)
+	}
+	if !bump.fired {
+		t.Fatal("the wrapper never got a write to race, so this body proved nothing")
+	}
+	if got != 3 {
+		t.Fatalf("RecordFailure answered %d, want 3 — a counter someone else moved was "+
+			"overwritten instead of re-read, so one folder's failure went uncounted", got)
+	}
+	if n, _ := seed.FailureStreak(t.Context(), "acme"); n != 3 {
+		t.Fatalf("the stored streak is %d, want 3: the racing increment was lost", n)
+	}
+}
+
+// bumpBeforeWrite increments one folder's counter out of band the first time an
+// UPDATE reaches it, standing in for a second caller that got there first.
+//
+// It waits for the Update rather than firing on the first write of any kind,
+// because the first write RecordFailure makes is the create-if-absent probe.
+// Firing on that one bumps the counter BEFORE the increment reads it, which is
+// not a race at all — and a first draft that did exactly that stayed green
+// against a deliberately broken implementation.
+type bumpBeforeWrite struct {
+	*sqlstore.Store
+	folder string
+	fired  bool
+}
+
+func (b *bumpBeforeWrite) GuardedBatch(ctx context.Context, checks []objstore.Check,
+	writes []objstore.Write) (bool, error) {
+	if !b.fired && len(writes) == 1 && writes[0].Op == objstore.Update {
+		b.fired = true
+		if _, _, err := objstore.Increment(ctx, b.Store, runstore.CircuitBreaker,
+			objstore.Key{Partition: b.folder, Sort: b.folder}, "failures", 1, nil, nil); err != nil {
+			return false, err
+		}
+	}
+	return b.Store.GuardedBatch(ctx, checks, writes)
+}
+
+// A RESET LANDING MID-INCREMENT counts from the zero it wrote instead of failing
+// on a counter that is not there.
+//
+// That is why the reset writes a zero rather than removing the item:
+// objstore.Increment refuses a counter with no value — "a counter with no zero
+// is a modelling gap rather than a value to invent" — and a delete is the one
+// thing that could take it away under a concurrent failure. Manager.Run clears
+// an open breaker while the previous run's endRun is still counting, so the two
+// really do overlap.
+func TestAResetMidIncrementCountsFromItsZero(t *testing.T) {
+	driver := newDriver(t)
+	raw := runstore.New(driver)
+	if _, err := raw.RecordFailure(t.Context(), "acme"); err != nil {
+		t.Fatal(err)
+	}
+	clear := &clearAfterRefusedCreate{Store: driver, st: raw, folder: "acme"}
+	got, err := runstore.New(clear).RecordFailure(t.Context(), "acme")
+	if err != nil {
+		t.Fatalf("a reset landing mid-increment failed the count: %v", err)
+	}
+	if !clear.fired {
+		t.Fatal("the wrapper never got a refused create to race, so this proved nothing")
+	}
+	if got != 1 {
+		t.Fatalf("RecordFailure answered %d after a reset landed under it, want 1", got)
+	}
+}
+
+// clearAfterRefusedCreate clears the folder's streak the moment RecordFailure's
+// create-if-absent probe is refused, which is the gap between that probe and the
+// increment's own read. It calls ClearFailures rather than deleting, so it
+// follows whichever reset is compiled.
+type clearAfterRefusedCreate struct {
+	*sqlstore.Store
+	st     *runstore.Store
+	folder string
+	fired  bool
+}
+
+func (c *clearAfterRefusedCreate) GuardedBatch(ctx context.Context, checks []objstore.Check,
+	writes []objstore.Write) (bool, error) {
+	committed, err := c.Store.GuardedBatch(ctx, checks, writes)
+	if err != nil || committed || c.fired ||
+		len(writes) != 1 || writes[0].Op != objstore.Put {
+		return committed, err
+	}
+	c.fired = true
+	return committed, c.st.ClearFailures(ctx, c.folder)
+}
+
 // Concurrent failures each count once. The compare-and-swap is what makes the
 // answers a permutation of 1..N rather than N callers reading the same number.
+//
+// It is the live shape of the body above and it is only PROVEN under -race: a
+// deliberate lost update leaves this green on an in-memory SQLite and turns it
+// red under the flag. Read them as a pair.
 func TestConcurrentFailuresEachCountOnce(t *testing.T) {
 	st := newStore(t)
 	const n = 8

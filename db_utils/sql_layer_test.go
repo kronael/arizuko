@@ -50,13 +50,18 @@ type sqlLayer struct {
 // carry its entity — routd's, authd's, onbod's and runed's — and it is the last
 // package that could put a statement into a daemon holding none of its own. A
 // DDL here is also what made a Postgres database refuse to boot.
+//
+// runed is the first DAEMON in that group rather than a library: its storage is
+// runed/runstore, which is objstore's two primitives and no SQL, so naming that
+// package as the exempt place would say statements MAY live there when they may
+// not. Its entry is a path that does not exist for the same reason emaid's is.
 var sqlLayers = []sqlLayer{
 	{daemon: "audit", storage: "audit/none"},
 	{daemon: "authd", storage: "authd/authstore"},
 	{daemon: "chanlib", storage: "chanlib/none"},
 	{daemon: "dashd", storage: "dashd/dashstore"},
 	{daemon: "emaid", storage: "emaid/none"},
-	{daemon: "runed", storage: "runed/runstore"},
+	{daemon: "runed", storage: "runed/none"},
 }
 
 // sqlVerbs open a statement. A literal is SQL when one of these starts it or
