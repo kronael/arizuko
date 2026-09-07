@@ -1,4 +1,4 @@
-package resreg_test
+package store_test
 
 // The archive is the one place a foreign string reaches messages.timestamp, a
 // column whose whole guarantee is that its string order is its time order
@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/resreg"
+	"github.com/kronael/arizuko/store"
 )
 
 // ts renders a time on the fixtures' shared day through core.TS. A fixture is a
@@ -37,14 +37,14 @@ func instant(t *testing.T, hhmm string) time.Time {
 // archiveOf renders rows the way a real archive is rendered: seed a routd.db
 // and let ExportMessagesJSONL write the document. Only the timestamps are
 // handed in verbatim, because their width is the subject.
-func archiveOf(t *testing.T, rows []resreg.ArchiveMessageRow) []byte {
+func archiveOf(t *testing.T, rows []store.ArchiveMessageRow) []byte {
 	t.Helper()
-	src := routdDB(t)
+	srcSt, src := routdMessages(t)
 	for _, m := range rows {
 		insertMsg(t, src, m)
 	}
 	var buf bytes.Buffer
-	if _, err := resreg.ExportMessagesJSONL(context.Background(), src, &buf); err != nil {
+	if _, err := srcSt.ExportMessagesJSONL(context.Background(), &buf); err != nil {
 		t.Fatalf("export: %v", err)
 	}
 	return buf.Bytes()
@@ -68,17 +68,17 @@ func TestImportedHistoryLeavesNoRowBehindTheCursorItDerives(t *testing.T) {
 	newest := instant(t, "19:06").Add(41*time.Second + 882458214*time.Nanosecond)
 	oldest := instant(t, "19:06").Add(41 * time.Second)
 
-	doc := archiveOf(t, []resreg.ArchiveMessageRow{
+	doc := archiveOf(t, []store.ArchiveMessageRow{
 		{ID: "whole", ChatJID: "slack:C1", Sender: "u", Content: "older",
 			Timestamp: oldest.Format(time.RFC3339Nano)},
 		{ID: "frac", ChatJID: "slack:C1", Sender: "u", Content: "the newest message",
 			Timestamp: newest.Format(time.RFC3339Nano)},
 	})
 
-	dst := routdDB(t)
-	if _, touched, _, err := resreg.ImportMessagesJSONL(context.Background(), dst, bytes.NewReader(doc), 0); err != nil {
+	dstSt, dst := routdMessages(t)
+	if _, touched, _, err := dstSt.ImportMessagesJSONL(context.Background(), bytes.NewReader(doc), 0); err != nil {
 		t.Fatalf("import: %v", err)
-	} else if _, err := resreg.DeriveAgentCursors(context.Background(), dst, touched); err != nil {
+	} else if _, err := dstSt.DeriveAgentCursors(context.Background(), touched); err != nil {
 		t.Fatalf("DeriveAgentCursors: %v", err)
 	}
 
@@ -116,15 +116,15 @@ func TestImportRendersEveryArchivedWidthThroughTheOneRenderer(t *testing.T) {
 		{"padded", core.TS(base.Add(882458214 * time.Nanosecond)), base.Add(882458214 * time.Nanosecond)},
 		{"offset", base.In(time.FixedZone("CET", 3600)).Format(time.RFC3339Nano), base},
 	}
-	var rows []resreg.ArchiveMessageRow
+	var rows []store.ArchiveMessageRow
 	for _, c := range cases {
-		rows = append(rows, resreg.ArchiveMessageRow{
+		rows = append(rows, store.ArchiveMessageRow{
 			ID: c.id, ChatJID: "slack:C1", Sender: "u", Content: c.id, Timestamp: c.raw,
 		})
 	}
 
-	dst := routdDB(t)
-	if _, _, _, err := resreg.ImportMessagesJSONL(context.Background(), dst, bytes.NewReader(archiveOf(t, rows)), 0); err != nil {
+	dstSt, dst := routdMessages(t)
+	if _, _, _, err := dstSt.ImportMessagesJSONL(context.Background(), bytes.NewReader(archiveOf(t, rows)), 0); err != nil {
 		t.Fatalf("import: %v", err)
 	}
 	for _, c := range cases {
@@ -150,14 +150,14 @@ func TestImportRefusesTheUnorderableRowAndNamesIt(t *testing.T) {
 	// invent a zone for. Two rows carry it on krons today.
 	const handEdited = "2026-04-02 12:38:47"
 
-	doc := archiveOf(t, []resreg.ArchiveMessageRow{
+	doc := archiveOf(t, []store.ArchiveMessageRow{
 		{ID: "good-1", ChatJID: "slack:C1", Sender: "u", Content: "a", Timestamp: ts(t, "10:00")},
 		{ID: "hand-edited", ChatJID: "slack:C1", Sender: "u", Content: "b", Timestamp: handEdited},
 		{ID: "good-2", ChatJID: "slack:C1", Sender: "u", Content: "c", Timestamp: ts(t, "10:02")},
 	})
 
-	dst := routdDB(t)
-	imported, touched, refused, err := resreg.ImportMessagesJSONL(context.Background(), dst, bytes.NewReader(doc), 0)
+	dstSt, dst := routdMessages(t)
+	imported, touched, refused, err := dstSt.ImportMessagesJSONL(context.Background(), bytes.NewReader(doc), 0)
 	if err != nil {
 		t.Fatalf("one unorderable row failed the whole restore: %v", err)
 	}
@@ -180,12 +180,12 @@ func TestImportRefusesTheUnorderableRowAndNamesIt(t *testing.T) {
 
 	// The way back: correct the row, re-run, and the archive completes without
 	// duplicating what already landed.
-	fixed := archiveOf(t, []resreg.ArchiveMessageRow{
+	fixed := archiveOf(t, []store.ArchiveMessageRow{
 		{ID: "good-1", ChatJID: "slack:C1", Sender: "u", Content: "a", Timestamp: ts(t, "10:00")},
 		{ID: "hand-edited", ChatJID: "slack:C1", Sender: "u", Content: "b", Timestamp: ts(t, "10:01")},
 		{ID: "good-2", ChatJID: "slack:C1", Sender: "u", Content: "c", Timestamp: ts(t, "10:02")},
 	})
-	if _, _, refused, err := resreg.ImportMessagesJSONL(context.Background(), dst, bytes.NewReader(fixed), 0); err != nil {
+	if _, _, refused, err := dstSt.ImportMessagesJSONL(context.Background(), bytes.NewReader(fixed), 0); err != nil {
 		t.Fatalf("re-run: %v", err)
 	} else if len(refused) != 0 {
 		t.Errorf("re-run refused %v", refused)

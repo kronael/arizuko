@@ -277,8 +277,6 @@ func buildArchive(ctx context.Context, stores map[string]*store.Store, dataDir s
 		fmt.Fprintf(&report, "%s: exported (checksum %s)\n", subsystem, meta.Subsystems[subsystem].Checksum)
 	}
 
-	routdDB := stores[resreg.SubsystemRoutd].DB()
-
 	secretRows, err := stores[resreg.SubsystemRoutd].ExportSecretRows(ctx)
 	if err != nil {
 		return "", fmt.Errorf("export secrets: %w", err)
@@ -307,7 +305,7 @@ func buildArchive(ctx context.Context, stores map[string]*store.Store, dataDir s
 	fmt.Fprintf(&report, "secrets: %d rows, route_tokens: %d, invites: %d\n", len(secretRows), len(tokenRows), len(inviteRows))
 
 	var msgBuf bytes.Buffer
-	nMsg, err := resreg.ExportMessagesJSONL(ctx, routdDB, &msgBuf)
+	nMsg, err := stores[resreg.SubsystemRoutd].ExportMessagesJSONL(ctx, &msgBuf)
 	if err != nil {
 		return "", fmt.Errorf("export messages: %w", err)
 	}
@@ -544,12 +542,12 @@ func applyArchive(ctx context.Context, stores map[string]*store.Store, dataDir s
 			}
 
 		case archiveMessagesEntry:
-			routdDB := stores[resreg.SubsystemRoutd].DB()
-			imported, chatJIDs, refused, ierr := resreg.ImportMessagesJSONL(ctx, routdDB, tr, 0)
+			routdSt := stores[resreg.SubsystemRoutd]
+			imported, chatJIDs, refused, ierr := routdSt.ImportMessagesJSONL(ctx, tr, 0)
 			if ierr != nil {
 				return report.String(), fmt.Errorf("messages: %w", ierr)
 			}
-			nc, cerr := resreg.DeriveAgentCursors(ctx, routdDB, chatJIDs)
+			nc, cerr := routdSt.DeriveAgentCursors(ctx, chatJIDs)
 			if cerr != nil {
 				return report.String(), fmt.Errorf("agent_cursor: %w", cerr)
 			}
