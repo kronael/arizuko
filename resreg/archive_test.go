@@ -5,12 +5,11 @@
 // convention is exactly the escape hatch for that.
 package resreg_test
 
-// Archive primitive tests — spec 5/8 "The full-instance archive". Uses
-// store.Migrate's frozen-messages.db schema as the test fixture: per the
-// same convention resreg/resources/resources_test.go documents, that schema
-// is kept in lockstep with routd.db/onbod.db for most tables (store/
-// migrations/0078 mirrors routd's route_tokens.kind, 0077 mirrors onbod's
-// invites hash-at-rest).
+// Archive primitive tests — spec 5/8 "The full-instance archive". The fixture is
+// the FROZEN pre-split schema because these tests read groups and route_tokens
+// (routd.db) and invites (onbod.db) from one database, and that chain is the only
+// one carrying both. onbod embeds and migrates its chain from `package main`, so
+// no test outside onbod can build the invites table any other way.
 //
 // The messages/agent_cursor tests (Finding 4) are NOT here: store's frozen
 // schema predates routd/migrations/0019 (link_context) and was never

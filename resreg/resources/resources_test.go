@@ -4,9 +4,17 @@ package resources
 // DB. Each resource registers via init(); this verifies the engine can SELECT/INSERT
 // every one against the real schema.
 //
-// store.Migrate's schema carries every table BOTH routd.db and onbod.db own, which
-// makes it a convenient single-DB testbed. It is NOT standing in for the split
-// topology: Export/Apply/Plan below are always called with an EXPLICIT subsystem.
+// The DB is built by store.Migrate — the FROZEN pre-split chain — for two reasons
+// that are both structural, not preference. The resources registered here span
+// three owners (routd's acl/groups/routes, onbod's invites/onboarding, authd's
+// keys), and that frozen chain is the only one carrying more than one owner's
+// tables in a single file. And onbod embeds and migrates its chain from
+// `package main`, so no test outside onbod can build invites or onboarding at
+// all. This file is additionally barred from routd.OpenMem: routd imports
+// resreg/resources, so an internal test here cannot import routd back.
+//
+// It is NOT standing in for the split topology: Export/Apply/Plan below are
+// always called with an EXPLICIT subsystem.
 
 import (
 	"bytes"

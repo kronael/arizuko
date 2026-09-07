@@ -1,7 +1,6 @@
 // seed: prepare a throwaway DATA_DIR for the playwright dashd suite.
 //
-// Creates the dir layout, runs migrations on routd.db (routd.Open) and
-// messages.db (store.Open), and seeds:
+// Creates the dir layout, runs migrations on routd.db (routd.Open) and seeds:
 //   - group `inbox` in routd.db
 //   - route targeting it in routd.db
 //   - ACL grant: testadmin → admin on ** (operator); testuser has none
@@ -56,13 +55,6 @@ func main() {
 		log.Fatalf("seed: open routd.db: %v", err)
 	}
 	defer rdb.Close()
-
-	// messages.db — apply schema so dashd opens it without errors.
-	sdb, err := store.Open(storeDir)
-	if err != nil {
-		log.Fatalf("seed: open messages.db: %v", err)
-	}
-	defer sdb.Close()
 
 	// onbod.db — /dash/invites/ reads it. onbod is package main so the seed
 	// cannot import its opener; it applies onbod's OWN migration files instead
