@@ -53,6 +53,17 @@ func (s *Store) CreateEntity(ctx context.Context, entity string) error {
 	if err != nil {
 		return fmt.Errorf("create entity %s: %w", entity, err)
 	}
+	// IF NOT EXISTS is silent about a table of ANOTHER shape under the same
+	// name, and an entity keeps the name of the table it replaces — so a
+	// database whose data has not been moved yet would boot healthy here and
+	// fail on every write instead, which for audit_log means a dropped row and
+	// a warning nobody reads (BUGS F29). The probe selects the three columns and
+	// no rows: it costs one statement at boot and it names the file.
+	if _, err := s.db.ExecContext(ctx,
+		"SELECT part, sort, attrs FROM "+entity+" WHERE 1 = 0"); err != nil {
+		return fmt.Errorf("%s is a table of another shape, so the entity cannot be served "+
+			"from it; move its rows first (arizuko migrate-*): %w", entity, err)
+	}
 	return nil
 }
 

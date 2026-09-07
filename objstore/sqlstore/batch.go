@@ -16,6 +16,22 @@ import (
 	"github.com/kronael/arizuko/objstore"
 )
 
+// execer is what a batch's statements run on. A batch that opens its own
+// transaction runs on the connection holding it; a batch that joins a caller's
+// runs on that transaction. Both are the same statements in the same order, so
+// the body below takes either and there is one implementation of a batch.
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// plan is a batch's statements, generated before any lock is taken.
+type plan struct {
+	checks  []*stmt
+	writes  []*stmt
+	guarded []bool
+}
+
 // GuardedBatch applies every write or none of them.
 //
 // The transaction is opened as a WRITER before the first check runs. A check
@@ -23,29 +39,10 @@ import (
 // can no longer assume, which is the whole failure the guarded transition
 // exists to prevent.
 func (s *Store) GuardedBatch(ctx context.Context, checks []objstore.Check, writes []objstore.Write) (bool, error) {
-	if err := objstore.ValidateBatch(checks, writes); err != nil {
+	p, err := s.planBatch(checks, writes)
+	if err != nil {
 		return false, err
 	}
-	// Every statement is generated before a lock is taken: a malformed batch is
-	// a programming error, and it must not hold the writer while it is found.
-	checkStmts := make([]*stmt, len(checks))
-	for i, c := range checks {
-		b, err := s.checkStmt(c)
-		if err != nil {
-			return false, err
-		}
-		checkStmts[i] = b
-	}
-	writeStmts := make([]*stmt, len(writes))
-	guarded := make([]bool, len(writes))
-	for i, w := range writes {
-		b, g, err := s.writeStmt(w)
-		if err != nil {
-			return false, err
-		}
-		writeStmts[i], guarded[i] = b, g
-	}
-
 	conn, err := s.db.Conn(ctx)
 	if err != nil {
 		return false, err
@@ -54,7 +51,7 @@ func (s *Store) GuardedBatch(ctx context.Context, checks []objstore.Check, write
 	if _, err := conn.ExecContext(ctx, s.dialect.begin); err != nil {
 		return false, fmt.Errorf("open the batch: %w", err)
 	}
-	committed, err := s.runBatch(ctx, conn, checkStmts, writeStmts, guarded)
+	committed, err := s.runBatch(ctx, conn, p)
 	if err != nil || !committed {
 		if _, rerr := conn.ExecContext(ctx, "ROLLBACK"); rerr != nil && err == nil {
 			return false, fmt.Errorf("roll the refused batch back: %w", rerr)
@@ -67,14 +64,72 @@ func (s *Store) GuardedBatch(ctx context.Context, checks []objstore.Check, write
 	return true, nil
 }
 
-// runBatch is the body inside the transaction, so GuardedBatch owns the ROLLBACK
-// and COMMIT in one place. committed=false is a REFUSAL — a condition did not
-// hold — and never a fault.
-func (s *Store) runBatch(ctx context.Context, conn *sql.Conn,
-	checkStmts, writeStmts []*stmt, guarded []bool) (bool, error) {
-	for _, b := range checkStmts {
+// GuardedBatchInTx applies the same batch inside a transaction the CALLER owns,
+// and it is deliberately not on objstore.Store: an engine with no interactive
+// transaction has nothing to implement, and a caller that reached for this
+// through the interface would be writing code only this driver can run.
+//
+// It exists for the audited write. An audit row commits or rolls back with the
+// mutation it records, and a caller that still runs its mutation as SQL holds
+// that mutation on a *sql.Tx — so the row joins the caller's transaction rather
+// than opening a second one, which could not be atomic with it. When such a
+// caller moves its mutation onto Query and GuardedBatch, its audit row rides in
+// the same batch and this entry point loses that caller.
+//
+// TWO THINGS ARE THE CALLER'S, and both follow from the caller owning the
+// transaction. The isolation is whatever the caller's BeginTx took, not the
+// writer lock GuardedBatch opens with; and a refusal — committed=false — leaves
+// the writes before it applied INSIDE the caller's transaction, so a caller that
+// does not roll back on a refusal commits half a batch.
+func (s *Store) GuardedBatchInTx(ctx context.Context, tx *sql.Tx, checks []objstore.Check,
+	writes []objstore.Write) (bool, error) {
+	if tx == nil {
+		return false, errors.New("batch in a transaction that is nil")
+	}
+	p, err := s.planBatch(checks, writes)
+	if err != nil {
+		return false, err
+	}
+	return s.runBatch(ctx, tx, p)
+}
+
+// planBatch validates the batch and generates every statement it runs.
+//
+// Generation happens before a lock is taken: a malformed batch is a programming
+// error, and it must not hold the writer while it is found.
+func (s *Store) planBatch(checks []objstore.Check, writes []objstore.Write) (plan, error) {
+	if err := objstore.ValidateBatch(checks, writes); err != nil {
+		return plan{}, err
+	}
+	p := plan{
+		checks:  make([]*stmt, len(checks)),
+		writes:  make([]*stmt, len(writes)),
+		guarded: make([]bool, len(writes)),
+	}
+	for i, c := range checks {
+		b, err := s.checkStmt(c)
+		if err != nil {
+			return plan{}, err
+		}
+		p.checks[i] = b
+	}
+	for i, w := range writes {
+		b, g, err := s.writeStmt(w)
+		if err != nil {
+			return plan{}, err
+		}
+		p.writes[i], p.guarded[i] = b, g
+	}
+	return p, nil
+}
+
+// runBatch is the body inside the transaction, whoever opened it, so the two
+// entry points above run the identical statements in the identical order.
+// committed=false is a REFUSAL — a condition did not hold — and never a fault.
+func (s *Store) runBatch(ctx context.Context, on execer, p plan) (bool, error) {
+	for _, b := range p.checks {
 		var one int
-		err := conn.QueryRowContext(ctx, b.String(), b.args...).Scan(&one)
+		err := on.QueryRowContext(ctx, b.String(), b.args...).Scan(&one)
 		if errors.Is(err, sql.ErrNoRows) {
 			return false, nil
 		}
@@ -82,12 +137,12 @@ func (s *Store) runBatch(ctx context.Context, conn *sql.Conn,
 			return false, fmt.Errorf("check: %w", err)
 		}
 	}
-	for i, b := range writeStmts {
-		res, err := conn.ExecContext(ctx, b.String(), b.args...)
+	for i, b := range p.writes {
+		res, err := on.ExecContext(ctx, b.String(), b.args...)
 		if err != nil {
 			return false, fmt.Errorf("write: %w", err)
 		}
-		if !guarded[i] {
+		if !p.guarded[i] {
 			continue
 		}
 		n, err := res.RowsAffected()
