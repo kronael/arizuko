@@ -338,6 +338,17 @@ exactly which operation binds arizuko to a relational engine, which is
 worth knowing whether or not anyone ever moves. The measurement is
 free; a facade is not.
 
+**Search is the one that is answered by leaving, not by modelling.**
+`store/messages.go:630` and `routd/reads.go:110` are the same FTS5 query
+written twice — `bm25` ranking, `snippet`, a rowid join to a virtual table, and
+three triggers that keep `messages_fts` in step with `messages`. No document
+store has ranked full-text search, and no denormalisation produces one. Every
+other hard shape the review found is a model change: 36 aggregates become
+maintained rollups, 18 `IN` lists become N queries, 13 `OR`s become two queries
+or a stored attribute. Search is not on that list. **It is a second service
+behind its own interface, not a store operation** — which is why the two
+primitives are right to lack it rather than wrong.
+
 ## What the three redesigns are worth now
 
 They are the price of surviving without an interactive multi-table
@@ -380,6 +391,20 @@ layers; the filing is worth doing once, for its method names, and never again.
    database, one two-table transaction. Filed by entity, every method renamed
    for the question it answers. It is the only daemon that gets a SQL layer,
    and it gets one because step 4 is derived from it.
+
+   **It was the wrong daemon to derive from, and the reason is one constant.**
+   `authd/authstore/authstore.go:77` is `const Partition = "authd"` — one
+   partition for the whole daemon, holding 3 signing keys, 2 accounts and 78
+   refresh tokens fleet-wide. Every read is a point read or a whole-partition
+   scan sorted in Go, so no read orders, ranges, pages or aggregates. A daemon
+   that never exercises a constraint cannot find the constraint's holes, and a
+   review of the first interface against 401 statements found six the derivation
+   could not have surfaced. The message cluster in `routd` — `messages`,
+   `sessions`, `chat_reply_state`, `chats` — is where the partition, the range,
+   the cursor, the volume and the hot path all live, and it is the honest
+   derivation set. Nothing here reverses: `authd` still holds no SQL, and the
+   interface it produced is the one the review widened.
+
 4. **The interface and its conformance suite**, derived from `authd`'s
    questions and `6/40`'s three operations over `Query(shape)` and
    `GuardedBatch`. The suite runs every test body against every driver, and an

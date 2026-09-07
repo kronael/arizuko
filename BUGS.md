@@ -7,6 +7,123 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L253 — three tables survive a folder delete on the strength of an `ON DELETE CASCADE` a document store does not have (2026-09-07, open — proposal, needs sign-off)
+
+`store/folder_scope.go` is a TOTAL classification of every table into purge or
+keep, with a completeness test in both `store` and `routd`. Three tables sit in
+`folderScopeKeep` and the reason given IS the mechanism:
+
+```
+"web_routes":     "FK groups(folder) ON DELETE CASCADE"
+"route_tokens":   "FK groups(folder) ON DELETE CASCADE; a token naming a gone target is refused at webd ingress (BUGS L5)"
+"github_sources": "FK groups(folder) ON DELETE CASCADE"
+```
+
+`store.DeleteGroup` therefore issues no statement for them: SQLite's foreign
+keys do the work, and `db_utils.FileDSN` turns `foreign_keys` on so they fire.
+
+A key-value engine has no foreign keys and no cascade. The moment `groups`
+becomes an entity behind `objstore`, those three tables stop being cleaned by
+anything — and the completeness test still passes, because the tables are still
+CLASSIFIED. The guard checks that every table has a verdict, not that the
+verdict's mechanism exists.
+
+`route_tokens` is the one that matters: it is a live ingress credential for
+`/chat/<token>/` and `/hook/<token>`. Its keep-reason names a second guard —
+webd refuses a token whose target folder is gone — so the credential does not
+become a live door. It becomes an orphan row that no delete removes, forever,
+on a surface whose whole point is that deleting a folder removes the tenant.
+
+- **Severity:** high (a folder delete stops being complete the moment routd moves)
+- **Scope:** `store/folder_scope.go`, `store/groups.go` `DeleteGroup`, `specs/6/40` §3
+- **Affected:** every instance, once `routd` moves onto the object store
+- **Source:** `store/folder_scope.go:123-125`; `db_utils.FileDSN` sets `foreign_keys(on)`
+- **Status:** open — proposal, needs sign-off
+- **Fix:** the classification records the MECHANISM, not just the verdict, and the
+  completeness test refuses a keep-reason naming a cascade once the owning table
+  is an entity. Then those three move to `folderScopePurge` with the rest.
+
+## L254 — "the point of no return arrives once per daemon" is false for anything that reaches through `store` (2026-09-07, open — proposal, needs sign-off)
+
+`6/37`'s order says each daemon moves on its own and reverts on its own.
+Measured 2026-09-07: **18 packages import `store`** — auth, authd, cmd/arizuko,
+compose, container, dashd, dashd/dashstore, gitd, onbod, proxycfg, proxyd,
+resreg, routd, runed, slakd, webd and two test packages — and **18 packages
+name `routd.db`**. `store` runs 150 to 178 statements depending on how they are
+counted, `resreg` 18, `audit` 2.
+
+So a daemon does not move alone. It moves when the shared package it reads
+through moves, and the shared package cannot move until every consumer is ready.
+`6/37` step 6 puts `store` LAST, which schedules the eighteen-consumer change as
+the final step — the one big bang the per-daemon order exists to avoid.
+
+The order that actually reverts per daemon is the opposite: the shared packages
+move FIRST, behind an interface each consumer already calls, so a consumer's own
+move is then local. That is a different plan, not a reordering of this one, and
+it is the decision this entry asks for.
+
+- **Severity:** high (the order's central property does not hold)
+- **Scope:** `specs/6/37-store-model.md` §Order, `store/`, `resreg/`, `audit/`
+- **Affected:** every unit after `authd`
+- **Source:** measured importer census, 2026-09-07
+- **Status:** open — proposal, needs sign-off
+- **Fix:** move `store`, `resreg` and `audit` first, or accept that the port is
+  one cutover for eighteen packages and plan the rehearsal accordingly
+
+## L255 — `objstore`'s package doc and README say three protocols are "written once over the two primitives", and none of them exists (2026-09-07, open)
+
+`6/40` answers its own three hardest shapes — the versioned replace, the
+reachability guard, and claim-and-return — by making them PROTOCOLS: package
+functions written once over `Query` and `GuardedBatch`, shared by every driver.
+`objstore`'s documentation repeats that.
+
+`grep '^func ' objstore/*.go` returns exactly one function, `ValidateBatch`.
+
+Nothing is wrong with the design; the documentation states a thing that has not
+been built as though it had been, which is the shape that makes a reader stop
+looking. The three shapes are also the ones every later daemon needs:
+`resreg.Apply` is the only versioned-replace caller, the membership walk has
+four copies, and `routd/pending_actions.go:421` already has the claim-and-return
+form in SQL.
+
+- **Severity:** medium (documentation asserts unbuilt code)
+- **Scope:** `objstore/objstore.go` package doc, `objstore/README.md`
+- **Affected:** anyone reading the package to find the protocols
+- **Source:** `grep '^func ' objstore/*.go` → one result, 2026-09-07
+- **Status:** open
+- **Fix:** write the three, or state plainly that they are the next thing and
+  which caller each one is derived from
+
+## L256 — the membership cycle check runs inside its own insert's transaction, and `Check` cannot express the graph frontier it needs (2026-09-07, open — proposal, needs sign-off)
+
+`store/membership.go:36`, `:151`, `:199`, `routd/acl_resource.go:361` and
+`resreg/resources/membership.go:88` all run the same recursive walk — four
+copies of one query — and the insert path runs it INSIDE the transaction that
+adds the edge, so a cycle cannot be created.
+
+`objstore.Check` binds an ITEM: this key, this condition. A cycle check is a
+condition on a graph frontier, which is not an item. Two concurrent calls that
+each close the cycle from opposite ends would both walk a graph without the
+other's edge, both pass, and both commit.
+
+Today SQLite's single writer hides this: the second transaction waits and walks
+the graph the first one left. Postgres at READ COMMITTED does not, and neither
+does a key-value engine.
+
+`specs/15/h` measured the graph on all three live instances: 58 edges, exactly
+two parents, and no parent is ever itself a child. So there is no cycle to close
+today and this is latent, not live. It stops being latent the moment a folder is
+made a member of something.
+
+- **Severity:** medium (latent; the graph has no depth on any live instance)
+- **Scope:** `store/membership.go`, `routd/acl_resource.go`, `resreg/resources/membership.go`
+- **Affected:** any instance whose membership graph gains a second level
+- **Source:** four copies of the recursive walk; `objstore/batch.go` `Check`
+- **Status:** open — proposal, needs sign-off
+- **Fix:** a version attribute on the graph that every edge insert conditions on,
+  so two concurrent inserts serialise. That is `6/40`'s reachability protocol,
+  and `L255` is why it does not exist yet.
+
 ## ✅ FIXED 2026-09-07 L252 — three folder-containment filters build the LIKE wildcard in Go, so `L122`'s "all six fixed" grep could not see them (2026-09-07)
 
 MEASURED 2026-09-07. `L122` closed on 2026-08-29 by adopting
