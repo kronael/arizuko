@@ -409,10 +409,17 @@ layers; the filing is worth doing once, for its method names, and never again.
    API surface — so each driver implements those directly, with no wire
    protocol translated in between.
 
-   **SQLite gets no driver.** It is the SOURCE, not a target: today's data is
-   read out of it by the code that already exists, and the daemon that has
-   moved never opens it again. Keeping a third driver would mean carrying the
-   engine arizuko is leaving for the lifetime of the interface.
+   **There is no SQLite-specific driver, and SQLite still runs.** The SQL driver
+   generates its own statements, so serving SQLite and Postgres is a dialect
+   switch inside one driver — placeholders, `substr` versus `substring`,
+   `json_extract` versus `->>`, `INSERT OR IGNORE` versus `ON CONFLICT` — not a
+   second implementation. `db_utils.Open` already selects the engine from the
+   DSN. That is what dissolves `L228`: the dialect distance stops being 156
+   hand-written DDL files to port and becomes one generator with two emitters.
+
+   SQLite is still the SOURCE rather than a destination. A daemon that has moved
+   runs on whichever DSN it is given, and the pre-port `.db` file stays on disk
+   unread, so the code that exists today can still open it.
 
    **No surrogate database.** Two were examined and both answer a question this
    design no longer has. ScyllaDB Alternator is production-supported since 2020
