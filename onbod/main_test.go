@@ -20,6 +20,7 @@ import (
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/db_utils/dbtest"
+	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -29,15 +30,23 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// migratedDB opens an empty database and runs the canonical store
-// migrations. Use for tests that exercise the full schema.
-func migratedDB(t *testing.T) *sql.DB {
+// migratedDB returns the two databases onbod runs against, in the order every
+// handler takes them: xdb is routd.db (user_profiles, groups, route_tokens, acl),
+// obdb is onbod.db (onboarding, onboarding_gates, invites). Each is built by the
+// chain its owner ships, so a rename on either side reaches this test.
+func migratedDB(t *testing.T) (xdb, obdb *sql.DB) {
 	t.Helper()
-	db := dbtest.Open(t)
-	if err := store.Migrate(db); err != nil {
-		t.Fatalf("migrate: %v", err)
+	rdb, err := routd.OpenMem()
+	if err != nil {
+		t.Fatalf("routd.OpenMem: %v", err)
 	}
-	return db
+	t.Cleanup(func() { rdb.Close() })
+
+	ob := dbtest.Open(t)
+	if err := migrateOwned(ob); err != nil {
+		t.Fatalf("onbod migrate: %v", err)
+	}
+	return rdb.SQL(), ob
 }
 
 func testDB(t *testing.T) *sql.DB {
@@ -1560,44 +1569,44 @@ func TestLoadGatesEnabledFilter(t *testing.T) {
 // (RedeemPairing writes the edge) → (observer) → queued (gated) →
 // (admit) → approved. `token_used` is gone with the token it named.
 func TestStateMachineMigrated(t *testing.T) {
-	db := migratedDB(t)
+	xdb, obdb := migratedDB(t)
 	// Seed auth user + existing world for the JID to link to.
-	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
+	xdb.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
 		VALUES ('github:alice', 'alice', 'Alice', '2026-01-01')`)
-	db.Exec(`INSERT INTO onboarding_gates (gate, limit_per_day) VALUES ('*', 5)`)
-	db.Exec(`INSERT INTO onboarding (jid, status, created)
+	obdb.Exec(`INSERT INTO onboarding_gates (gate, limit_per_day) VALUES ('*', 5)`)
+	obdb.Exec(`INSERT INTO onboarding (jid, status, created)
 		VALUES ('telegram:7', 'awaiting_message', '2026-01-01')`)
 
 	cfg := config{authBaseURL: "https://example.com"}
 
 	// 1) prompt → a kind='pair' token exists for the jid, and the row is claimed
-	promptUnprompted(db, db, cfg)
+	promptUnprompted(xdb, obdb, cfg)
 	var pairTokens int
-	db.QueryRow(`SELECT COUNT(*) FROM route_tokens WHERE jid = 'telegram:7' AND kind = ?`,
+	xdb.QueryRow(`SELECT COUNT(*) FROM route_tokens WHERE jid = 'telegram:7' AND kind = ?`,
 		store.RouteTokenKindPair).Scan(&pairTokens)
 	if pairTokens != 1 {
 		t.Fatalf("prompt minted %d pairing tokens, want 1", pairTokens)
 	}
 	var st string
-	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 'telegram:7'`).Scan(&st)
+	obdb.QueryRow(`SELECT status FROM onboarding WHERE jid = 'telegram:7'`).Scan(&st)
 	if st != "awaiting_message" {
 		t.Fatalf("prompting must not advance status, got %s", st)
 	}
 
 	// 2) redemption writes the edge — in routd's DB, by RedeemPairing, not onbod
-	db.Exec(`INSERT INTO acl_membership (child, parent, added_at, added_by)
+	xdb.Exec(`INSERT INTO acl_membership (child, parent, added_at, added_by)
 		VALUES ('telegram:7', 'github:alice', '2026-01-01', ?)`, store.PairingAddedBy)
 
 	// 3) the observer discovers it → queued (a gate is configured)
-	observePairings(db, db, cfg)
-	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 'telegram:7'`).Scan(&st)
+	observePairings(xdb, obdb, cfg)
+	obdb.QueryRow(`SELECT status FROM onboarding WHERE jid = 'telegram:7'`).Scan(&st)
 	if st != "queued" {
 		t.Fatalf("after observe+gate want queued, got %s", st)
 	}
 
 	// 4) admit from queue → approved
-	admitFromQueue(db)
-	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 'telegram:7'`).Scan(&st)
+	admitFromQueue(obdb)
+	obdb.QueryRow(`SELECT status FROM onboarding WHERE jid = 'telegram:7'`).Scan(&st)
 	if st != "approved" {
 		t.Fatalf("after admit want approved, got %s", st)
 	}
@@ -1873,7 +1882,7 @@ func TestAdmitFromQueueDailyLimitPersists(t *testing.T) {
 // limit. The buggy queued_at-scoped count saw 0 admitted today and drained the
 // whole backlog every poll, making the daily limit unbounded across days.
 func TestAdmitFromQueuePriorDayBacklogCounts(t *testing.T) {
-	db := migratedDB(t)
+	_, db := migratedDB(t)
 	// Two entries queued yesterday, limit 1/day. First admit takes one.
 	yesterday := time.Now().Add(-24 * time.Hour).Format("2006-01-02")
 	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)

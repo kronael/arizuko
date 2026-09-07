@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kronael/arizuko/db_utils/dbtest"
+	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/tests/testutils"
 )
@@ -35,11 +37,36 @@ func tokenFromLink(t *testing.T, body string) string {
 	return strings.TrimSpace(tok)
 }
 
-// newOnbodServer wires the real mux against a migrated DB and a fake
-// gated /v1/outbound endpoint. Returns server + a recorder of outbound calls.
-func newOnbodServer(t *testing.T) (*httptest.Server, *testutils.Inst, *testutils.FakePlatform, config) {
+// onbodInst is the pair of databases onbod runs against: X is routd.db
+// (user_profiles, groups, acl, acl_membership, routes, route_tokens), Ob is
+// onbod.db (onboarding, onboarding_gates, invites, invite_redemptions). Each is
+// built by the chain its owner ships and migrates, so a rename on either side
+// reaches these tests instead of passing against a single stand-in schema.
+type onbodInst struct {
+	X   *sql.DB
+	Ob  *sql.DB
+	Tmp string
+}
+
+func newOnbodInst(t *testing.T) *onbodInst {
 	t.Helper()
-	inst := testutils.NewInstance(t)
+	rdb, err := routd.OpenMem()
+	if err != nil {
+		t.Fatalf("routd.OpenMem: %v", err)
+	}
+	t.Cleanup(func() { rdb.Close() })
+	ob := dbtest.Open(t)
+	if err := migrateOwned(ob); err != nil {
+		t.Fatalf("onbod migrate: %v", err)
+	}
+	return &onbodInst{X: rdb.SQL(), Ob: ob, Tmp: t.TempDir()}
+}
+
+// newOnbodServer wires the real mux against onbod's two databases and a fake
+// gated /v1/outbound endpoint. Returns server + a recorder of outbound calls.
+func newOnbodServer(t *testing.T) (*httptest.Server, *onbodInst, *testutils.FakePlatform, config) {
+	t.Helper()
+	inst := newOnbodInst(t)
 
 	fake := testutils.NewFakePlatform()
 	t.Cleanup(fake.Close)
@@ -65,13 +92,13 @@ func newOnbodServer(t *testing.T) (*httptest.Server, *testutils.Inst, *testutils
 		w.WriteHeader(http.StatusOK)
 	})
 	mux.HandleFunc("GET /onboard", func(w http.ResponseWriter, r *http.Request) {
-		handleOnboard(w, r, inst.DB, inst.DB, cfg)
+		handleOnboard(w, r, inst.X, inst.Ob, cfg)
 	})
 	mux.HandleFunc("POST /onboard", func(w http.ResponseWriter, r *http.Request) {
-		handleOnboardPost(w, r, inst.DB, inst.DB, cfg)
+		handleOnboardPost(w, r, inst.X, inst.Ob, cfg)
 	})
 	mux.HandleFunc("GET /invite/{token}", func(w http.ResponseWriter, r *http.Request) {
-		handleInvite(w, r, inst.DB, inst.DB, cfg)
+		handleInvite(w, r, inst.X, inst.Ob, cfg)
 	})
 
 	srv := httptest.NewServer(mux)
@@ -87,7 +114,7 @@ func TestOnboardingFlow(t *testing.T) {
 	srv, inst, fake, cfg := newOnbodServer(t)
 
 	jid := "telegram:42"
-	if _, err := inst.DB.Exec(
+	if _, err := inst.Ob.Exec(
 		`INSERT INTO onboarding (jid, status, created) VALUES (?, 'awaiting_message', ?)`,
 		jid, time.Now().Format(time.RFC3339)); err != nil {
 		t.Fatal(err)
@@ -95,7 +122,7 @@ func TestOnboardingFlow(t *testing.T) {
 
 	// Trigger the poll step: promptUnprompted mints the pairing token, issues a
 	// POST to gatedURL and stamps prompted_at on the row.
-	promptUnprompted(inst.DB, inst.DB, cfg)
+	promptUnprompted(inst.X, inst.Ob, cfg)
 
 	reqs := fake.Requests()
 	if len(reqs) != 1 {
@@ -115,9 +142,9 @@ func TestOnboardingFlow(t *testing.T) {
 	if len(token) != 64 {
 		t.Fatalf("want 64-char token, got %d", len(token))
 	}
-	st := store.New(inst.DB)
+	st := store.New(inst.X)
 	var stored []byte
-	if err := inst.DB.QueryRow(
+	if err := inst.X.QueryRow(
 		`SELECT token_hash FROM route_tokens WHERE jid = ? AND kind = ?`,
 		jid, store.RouteTokenKindPair).Scan(&stored); err != nil {
 		t.Fatalf("read minted pairing row: %v", err)
@@ -127,7 +154,7 @@ func TestOnboardingFlow(t *testing.T) {
 	}
 	// onbod mints no onboarding token of its own any more.
 	var legacy sql.NullString
-	inst.DB.QueryRow(`SELECT token_ref FROM onboarding WHERE jid = ?`, jid).Scan(&legacy)
+	inst.Ob.QueryRow(`SELECT token_ref FROM onboarding WHERE jid = ?`, jid).Scan(&legacy)
 	if legacy.Valid {
 		t.Errorf("onboarding.token_ref = %q; the pairing link is the only credential", legacy.String)
 	}
@@ -135,7 +162,7 @@ func TestOnboardingFlow(t *testing.T) {
 	// GET /pair is webd's and is side-effect-free; the redemption POST it fronts
 	// is store.RedeemPairing, which is what writes the edge.
 	sub := "github:alice"
-	if _, err := inst.DB.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
+	if _, err := inst.X.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
 		VALUES (?, ?, ?, ?)`, sub, sub, "Alice", time.Now().Format(time.RFC3339)); err != nil {
 		t.Fatalf("seed user_profiles: %v", err)
 	}
@@ -146,7 +173,7 @@ func TestOnboardingFlow(t *testing.T) {
 		t.Fatalf("RedeemPairing = (%q, %v)", paired, err)
 	}
 	var addedBy string
-	inst.DB.QueryRow(`SELECT added_by FROM acl_membership WHERE child = ?`, jid).Scan(&addedBy)
+	inst.X.QueryRow(`SELECT added_by FROM acl_membership WHERE child = ?`, jid).Scan(&addedBy)
 	if addedBy != store.PairingAddedBy {
 		t.Errorf("edge added_by = %q, want %q — one writer, reachable by unpair",
 			addedBy, store.PairingAddedBy)
@@ -154,15 +181,15 @@ func TestOnboardingFlow(t *testing.T) {
 
 	// Admission is a poll now, not part of redemption.
 	var status string
-	inst.DB.QueryRow(`SELECT status FROM onboarding WHERE jid = ?`, jid).Scan(&status)
+	inst.Ob.QueryRow(`SELECT status FROM onboarding WHERE jid = ?`, jid).Scan(&status)
 	if status != "awaiting_message" {
 		t.Errorf("redemption advanced admission on its own: status=%q", status)
 	}
-	observePairings(inst.DB, inst.DB, cfg)
+	observePairings(inst.X, inst.Ob, cfg)
 
 	// Confirm onboarding row now approved and user_sub bound.
 	var gotSub, gotStatus string
-	inst.DB.QueryRow(`SELECT user_sub, status FROM onboarding WHERE jid = ?`,
+	inst.Ob.QueryRow(`SELECT user_sub, status FROM onboarding WHERE jid = ?`,
 		jid).Scan(&gotSub, &gotStatus)
 	if gotSub != sub {
 		t.Errorf("onboarding.user_sub = %q, want %q", gotSub, sub)
@@ -199,7 +226,7 @@ func TestOnboardingFlow(t *testing.T) {
 
 	// POST create_world. The authority is a redeemed top-level invite, recorded
 	// in invite_redemptions — there is no cookie to bring along (BUGS F50).
-	seedRedemption(t, inst.DB, sub, "/")
+	seedRedemption(t, inst.Ob, sub, "/")
 	form := url.Values{
 		"action":   {"create_world"},
 		"username": {"alice"},
@@ -221,12 +248,12 @@ func TestOnboardingFlow(t *testing.T) {
 
 	// Group row, user_groups row, and route present.
 	var folder string
-	inst.DB.QueryRow(`SELECT folder FROM groups WHERE folder = 'alice'`).Scan(&folder)
+	inst.X.QueryRow(`SELECT folder FROM groups WHERE folder = 'alice'`).Scan(&folder)
 	if folder != "alice" {
 		t.Errorf("groups row missing, got %q", folder)
 	}
 	var ug string
-	inst.DB.QueryRow(`SELECT scope FROM acl WHERE principal = ?`, sub).Scan(&ug)
+	inst.X.QueryRow(`SELECT scope FROM acl WHERE principal = ?`, sub).Scan(&ug)
 	// Subtree scope: an exact-folder grant authorizes the world and nothing
 	// under it, so the creator could never reach their own subgroups (W1).
 	if ug != "alice/**" {
@@ -235,7 +262,7 @@ func TestOnboardingFlow(t *testing.T) {
 	// create_world itself writes no route (5/18 step 7) — the route is the act
 	// the /onboard landing performs, and it names who did it.
 	var routeN int
-	inst.DB.QueryRow(`SELECT COUNT(*) FROM routes`).Scan(&routeN)
+	inst.X.QueryRow(`SELECT COUNT(*) FROM routes`).Scan(&routeN)
 	if routeN != 0 {
 		t.Errorf("create_world wrote %d route(s) as a side effect; want 0", routeN)
 	}
@@ -253,7 +280,7 @@ func TestOnboardingFlow(t *testing.T) {
 		t.Fatalf("post-create landing: status=%d body=%s", respR.StatusCode, rbody)
 	}
 	var routeAddedBy, addedVia string
-	if err := inst.DB.QueryRow(
+	if err := inst.X.QueryRow(
 		`SELECT COALESCE(added_by, ''), COALESCE(added_via, '') FROM routes
 		 WHERE target = 'alice' AND match = 'room=42'`,
 	).Scan(&routeAddedBy, &addedVia); err != nil {
@@ -265,9 +292,6 @@ func TestOnboardingFlow(t *testing.T) {
 	}
 
 	// SetupGroup side-effect: group folder + .claude dir exist on disk.
-	if _, err := inst.DB.Exec(`SELECT 1`); err != nil {
-		t.Fatal(err)
-	}
 	groupDir := filepath.Join(inst.Tmp, "groups", "alice")
 	if st, err := os.Stat(groupDir); err != nil || !st.IsDir() {
 		t.Errorf("expected group dir %s on disk: err=%v", groupDir, err)
@@ -279,7 +303,7 @@ func TestOnboardingFlow(t *testing.T) {
 func TestGateRateLimit(t *testing.T) {
 	_, inst, _, _ := newOnbodServer(t)
 
-	if _, err := inst.DB.Exec(
+	if _, err := inst.Ob.Exec(
 		`INSERT INTO onboarding_gates (gate, limit_per_day, enabled) VALUES ('*', 2, 1)`,
 	); err != nil {
 		t.Fatal(err)
@@ -288,24 +312,24 @@ func TestGateRateLimit(t *testing.T) {
 	now := time.Now().Format(time.RFC3339)
 	for i, jid := range []string{"telegram:1", "telegram:2", "telegram:3"} {
 		sub := "github:u" + string(rune('a'+i))
-		inst.DB.Exec(`INSERT INTO onboarding (jid, status, created)
+		inst.Ob.Exec(`INSERT INTO onboarding (jid, status, created)
 			VALUES (?, 'awaiting_message', ?)`, jid, now)
-		admitJID(inst.DB, config{}, jid, sub)
+		admitJID(inst.Ob, config{}, jid, sub)
 	}
 
 	var queued int
-	inst.DB.QueryRow(
+	inst.Ob.QueryRow(
 		`SELECT COUNT(*) FROM onboarding WHERE status = 'queued'`).Scan(&queued)
 	if queued != 3 {
 		t.Fatalf("all 3 should be queued before admission, got %d", queued)
 	}
 
-	admitFromQueue(inst.DB)
+	admitFromQueue(inst.Ob)
 
 	var approved, stillQueued int
-	inst.DB.QueryRow(
+	inst.Ob.QueryRow(
 		`SELECT COUNT(*) FROM onboarding WHERE status = 'approved'`).Scan(&approved)
-	inst.DB.QueryRow(
+	inst.Ob.QueryRow(
 		`SELECT COUNT(*) FROM onboarding WHERE status = 'queued'`).Scan(&stillQueued)
 	if approved != 2 {
 		t.Errorf("approved = %d, want 2 (rate limit)", approved)
@@ -315,8 +339,8 @@ func TestGateRateLimit(t *testing.T) {
 	}
 
 	// Second admission pass same day must not exceed the limit.
-	admitFromQueue(inst.DB)
-	inst.DB.QueryRow(
+	admitFromQueue(inst.Ob)
+	inst.Ob.QueryRow(
 		`SELECT COUNT(*) FROM onboarding WHERE status = 'approved'`).Scan(&approved)
 	if approved != 2 {
 		t.Errorf("after re-admit, approved = %d, want 2 (persisted limit)", approved)

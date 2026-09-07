@@ -31,22 +31,28 @@ func openOwnedDB(ownDSN string) (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := db_utils.Migrate(db, onbodMigrationFS, "migrations", onbodServiceName); err != nil {
-		db.Close()
-		return nil, err
-	}
-	// Migrations 0003 (invites) and 0004 (onboarding) only reshape their tables;
-	// these two Go steps finish the job and drop the renamed-out-of-the-way
-	// invites_legacy / onboarding_legacy (store/invites.go, store/onboarding.go).
-	// BackfillInviteRefs also hashes plaintext invites at rest, which SQL cannot
-	// do — SQLite has no sha256().
-	if err := store.BackfillInviteRefs(db); err != nil {
-		db.Close()
-		return nil, err
-	}
-	if err := store.CarryOnboardingLegacy(db); err != nil {
+	if err := migrateOwned(db); err != nil {
 		db.Close()
 		return nil, err
 	}
 	return db, nil
+}
+
+// migrateOwned builds onbod's OWN schema in db: the embedded chain, then the two
+// Go steps a reshaping migration cannot do. Migrations 0003 (invites) and 0004
+// (onboarding) only reshape their tables; these finish the job and drop the
+// renamed-out-of-the-way invites_legacy / onboarding_legacy (store/invites.go,
+// store/onboarding.go). BackfillInviteRefs also hashes plaintext invites at rest,
+// which SQL cannot do — SQLite has no sha256().
+//
+// Split out of openOwnedDB so a test builds the schema onbod ships from the one
+// declaration of it, rather than a second one that drifts.
+func migrateOwned(db *sql.DB) error {
+	if err := db_utils.Migrate(db, onbodMigrationFS, "migrations", onbodServiceName); err != nil {
+		return err
+	}
+	if err := store.BackfillInviteRefs(db); err != nil {
+		return err
+	}
+	return store.CarryOnboardingLegacy(db)
 }
