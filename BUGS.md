@@ -232,11 +232,24 @@ or `*sql.Tx` renames `database/sql` and buys nothing. `resreg.Querier`
 exactly that way today. The boundary has to be semantic — named operations, or
 `6/40`'s backend-neutral `Query(shape)` and `GuardedBatch`.
 
+**`audit`'s share is closed** (2026-09-07). `audit_log` is an objstore entity,
+`audit` holds no statement and no DDL, and `ErrNotPortable` is gone with the
+condition it reported. `go test ./authd/...` passes on PostgreSQL, where 112
+tests failed on `audit_log is SQLite-only` the day before. What bounded it was
+not a second path: `sqlstore` already generated its statements and then ran
+them, so splitting generation from execution gives `GuardedBatchInTx`, which
+runs the identical statements inside a transaction the caller already holds.
+`audit` names no driver — `EmitInTx` takes the capability as an interface over
+`objstore.Write`.
+
+`store` (172 statements) and `resreg` (17) still take a daemon's `*sql.DB`, so
+the entry stays open for them.
+
 - **Severity:** high (`6/37` step 1's guarantee does not hold for a moved daemon)
-- **Scope:** `db_utils/sql_layer_test.go`, `audit/`, `resreg/`, `store/`, `SQL()` on routd and runed
-- **Affected:** dashd and runed today; every later daemon by the same route
-- **Source:** go/parser census of statement literals vs the 36 `.SQL()` call sites
-- **Status:** open — proposal, needs sign-off
+- **Scope:** `db_utils/sql_layer_test.go`, `resreg/`, `store/`, `SQL()` on routd and runed
+- **Affected:** every daemon that reads through `store`
+- **Source:** go/parser census of statement literals vs the `.SQL()` call sites
+- **Status:** open — audit closed 2026-09-07; `store` and `resreg` remain
 - **Fix:** 1, with a semantic interface; 2 as the per-daemon containment step that gets there; 3 only through `6/40`'s pending/done audit row, never a plain endpoint
 
 ## L249 — the archive export carries the config plane, not the runtime plane, so export/import cannot yet carry a daemon's port (2026-09-07, open — proposal, needs sign-off)
