@@ -91,9 +91,19 @@ func seedMessagesDB(t *testing.T, storeDir string) {
 	exec(`INSERT INTO session_log(group_folder, session_id, started_at, message_count)
 		VALUES('main','sess-1','2026-01-02T00:00:00Z',7)`)
 
-	// secrets + secret_use_log: routd OWNS these now → copied to routd.db.
+	// secrets: routd OWNS it now → copied to routd.db.
 	exec(`INSERT INTO secrets(scope_kind, scope_id, key, value, created_at)
 		VALUES('folder','main','API_KEY','v2:cipherbytes','2026-01-01T00:00:00Z')`)
+	// A pre-split monolith carries the TABLE secret_use_log used to be, which
+	// nothing creates any more — so the fixture builds it, then fills it. The
+	// entity of the same name is what store.Open made, and only one of the two
+	// can hold the name.
+	exec(`DROP TABLE secret_use_log`)
+	exec(`CREATE TABLE secret_use_log (
+	  ts TEXT NOT NULL, spawn_id TEXT NOT NULL DEFAULT '',
+	  caller_sub TEXT NOT NULL DEFAULT '', folder TEXT NOT NULL DEFAULT '',
+	  tool TEXT NOT NULL, key TEXT NOT NULL, scope TEXT NOT NULL,
+	  status TEXT NOT NULL, latency_ms INTEGER NOT NULL DEFAULT 0)`)
 	exec(`INSERT INTO secret_use_log(ts, tool, key, scope, status)
 		VALUES('2026-01-01T00:00:00Z','get_secret','API_KEY','folder','ok')`)
 
@@ -103,7 +113,14 @@ func seedMessagesDB(t *testing.T, storeDir string) {
 	exec(`INSERT INTO task_run_logs(task_id, run_at, duration_ms, status)
 		VALUES('task-1','2026-01-02T09:00:00Z',12,'ok')`)
 
-	// pane_sessions: routd OWNS this now → copied to routd.db.
+	// pane_sessions: routd OWNS this now → copied to routd.db. Same shape as
+	// secret_use_log above — the monolith's TABLE, rebuilt over the entity that
+	// replaced it.
+	exec(`DROP TABLE pane_sessions`)
+	exec(`CREATE TABLE pane_sessions (
+	  team_id TEXT NOT NULL, user_id TEXT NOT NULL, thread_ts TEXT NOT NULL,
+	  channel_id TEXT NOT NULL, context_jid TEXT, opened_at TEXT NOT NULL,
+	  PRIMARY KEY (team_id, user_id, thread_ts))`)
 	exec(`INSERT INTO pane_sessions(team_id, user_id, thread_ts, channel_id, context_jid, opened_at)
 		VALUES('T1','U99','1700.1','D0XY','slack:T1/channel/C42','2026-01-01T00:00:00Z')`)
 
@@ -313,15 +330,19 @@ func TestMigrateSplit(t *testing.T) {
 		t.Errorf("task_run_logs status = %q want ok", runStatus)
 	}
 
-	// pane_sessions: copied to routd.db (routd OWNS it now) — the context_jid
-	// keyed by channel_id resolves the way paneHints reads it back.
-	var paneCtx string
-	if err := r.QueryRow(
-		`SELECT context_jid FROM pane_sessions WHERE channel_id='D0XY'`).Scan(&paneCtx); err != nil {
-		t.Fatalf("read routd.pane_sessions: %v", err)
+	// pane_sessions: an entity in routd.db (routd OWNS it now), read back
+	// through the method paneHints itself calls — an import that wrote the wrong
+	// attribute name would report its count happily and only this catches it.
+	pane, ok := store.New(r).PaneInChannel("D0XY")
+	if !ok {
+		t.Fatalf("routd.pane_sessions: D0XY names no pane")
 	}
-	if paneCtx != "slack:T1/channel/C42" {
-		t.Errorf("pane_sessions context_jid = %q want slack:T1/channel/C42", paneCtx)
+	if pane.ContextJID != "slack:T1/channel/C42" {
+		t.Errorf("pane context_jid = %q want slack:T1/channel/C42", pane.ContextJID)
+	}
+	if pane.TeamID != "T1" || pane.UserID != "U99" || pane.ThreadTS != "1700.1" {
+		t.Errorf("pane triple = %s/%s/%s want T1/U99/1700.1",
+			pane.TeamID, pane.UserID, pane.ThreadTS)
 	}
 
 	// onboarding + invites + onboarding_gates: copied to onbod.db (onbod OWNS them

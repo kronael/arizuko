@@ -108,6 +108,7 @@ func main() {
 		"migrate-chanlib":   cmdMigrateChanlib,   // spec 6/37 step 7
 		"migrate-emaid":     cmdMigrateEmaid,     // spec 6/37 step 7
 		"migrate-runed":     cmdMigrateRuned,     // spec 6/37 step 7
+		"migrate-store":     cmdMigrateStore,     // spec 6/37 step 7
 		"probe":             cmdProbe,            // spec 6/7 component contract
 	}
 	fn, ok := cmds[os.Args[1]]

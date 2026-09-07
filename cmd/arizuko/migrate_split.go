@@ -117,15 +117,12 @@ var routdSpecs = []copySpec{
 	{dst: "acl_membership", src: "acl_membership",
 		cols: "child, parent, added_by, added_at",
 		sel:  "child, parent, added_by, added_at"},
-	// secrets + secret_use_log: routd now OWNS these (routd migration 0008
-	// mirrors store 0034/0047/0048 final shape). Straight copies — encrypted
-	// `value` bytes move verbatim (same SECRETS_KEY decrypts on the routd side).
+	// secrets: routd now OWNS it (routd migration 0008 mirrors store 0034/0047
+	// final shape). Straight copy — encrypted `value` bytes move verbatim (same
+	// SECRETS_KEY decrypts on the routd side).
 	{dst: "secrets", src: "secrets",
 		cols: "scope_kind, scope_id, key, value, created_at",
 		sel:  "scope_kind, scope_id, key, value, created_at"},
-	{dst: "secret_use_log", src: "secret_use_log",
-		cols: "ts, spawn_id, caller_sub, folder, tool, key, scope, status, latency_ms",
-		sel:  "ts, spawn_id, caller_sub, folder, tool, key, scope, status, latency_ms"},
 	// scheduled_tasks + task_run_logs: routd now OWNS these (routd migration 0009
 	// mirrors store 0001/0011 final shape). Straight copies — identical schema
 	// both sides. task_run_logs.id is AUTOINCREMENT but copied verbatim so the
@@ -136,12 +133,6 @@ var routdSpecs = []copySpec{
 	{dst: "task_run_logs", src: "task_run_logs",
 		cols: "id, task_id, run_at, duration_ms, status, result, error",
 		sel:  "id, task_id, run_at, duration_ms, status, result, error"},
-	// pane_sessions: routd now OWNS this (routd migration 0010 mirrors store 0056
-	// final shape). Straight copy — identical schema both sides. This was the LAST
-	// messages.db sibling-read in routd; after it routd opens NO sibling DB.
-	{dst: "pane_sessions", src: "pane_sessions",
-		cols: "team_id, user_id, thread_ts, channel_id, context_jid, opened_at",
-		sel:  "team_id, user_id, thread_ts, channel_id, context_jid, opened_at"},
 	// user_profiles: routd.db OWNS it (routd migrations 0011 + 0025; the cap column
 	// references it). Split onbod reads+writes it cross-DB on routd.db (xdb), so it MUST
 	// be copied — left an orphan, every existing user vanishes from onboarding /
@@ -162,10 +153,11 @@ var routdSpecs = []copySpec{
 	{dst: "proxyd_routes", src: "proxyd_routes",
 		cols: "path, backend, auth, gated_by, preserve_headers, strip_prefix, redirect_to",
 		sel:  "path, backend, auth, gated_by, preserve_headers, strip_prefix, redirect_to"},
-	// audit_log is NOT here: it is an objstore entity, so it is not a column
-	// list and no INSERT … SELECT can carry it. copyAuditLog below reads the
-	// monolith's rows through the same source reader `arizuko migrate-audit`
-	// uses and hands them to audit.Import, which owns the item shape.
+	// audit_log, pane_sessions and secret_use_log are NOT here: each is an
+	// objstore entity, so none is a column list and no INSERT … SELECT can carry
+	// one. copyAuditLog and copyStoreEntities below read the monolith's rows
+	// through the same source readers `arizuko migrate-audit` and `arizuko
+	// migrate-store` use, and hand them to the packages that own the item shape.
 	// cost_log_archive: the spend a pre-split instance recorded, landing in the
 	// table that holds spend history (spec 6/39 — the model gateway is the ledger,
 	// and these rows predate one metering anything).
@@ -363,6 +355,36 @@ func copySessionLog(dst *sql.DB, msgPath string, dryRun bool) (int, error) {
 	return counts.Sessions, err
 }
 
+// copyStoreEntities moves the monolith's panes and secret uses into routd.db's
+// entities and answers what landed. The source half is the reader `arizuko
+// migrate-store` already has, so the two tools read one schema one way.
+func copyStoreEntities(dst *sql.DB, msgPath string, dryRun bool) (store.Counts, error) {
+	src, err := db_utils.Open(db_utils.FileDSN(msgPath))
+	if err != nil {
+		return store.Counts{}, err
+	}
+	defer src.Close() //nolint:errcheck // read-only, and the process ends either way
+	sources, err := legacySources(src, storeTables)
+	if err != nil {
+		return store.Counts{}, err
+	}
+	if len(sources) == 0 {
+		return store.Counts{}, nil
+	}
+	snap, err := readStoreSnapshot(src, sources)
+	if err != nil {
+		return store.Counts{}, err
+	}
+	counts, err := store.CheckSnapshot(snap)
+	if err != nil {
+		return store.Counts{}, err
+	}
+	if dryRun {
+		return counts, nil
+	}
+	return store.New(dst).Import(context.Background(), snap)
+}
+
 func migrateSplit(storeDir string, dryRun bool) error {
 	msgPath := filepath.Join(storeDir, "messages.db")
 	if _, err := os.Stat(msgPath); err != nil {
@@ -439,6 +461,12 @@ func migrateSplit(storeDir string, dryRun bool) error {
 			}
 		}
 	}
+	// The monolith's panes and secret uses land in routd.db too, and for the same
+	// reason they travel through store's own import rather than copyInto.
+	sN, err := copyStoreEntities(rdb.SQL(), msgPath, dryRun)
+	if err != nil {
+		return fmt.Errorf("routd.db: %w", err)
+	}
 	uN, err := copySessionLog(udb.SQL(), msgPath, dryRun)
 	if err != nil {
 		return fmt.Errorf("runed.db: %w", err)
@@ -462,6 +490,7 @@ func migrateSplit(storeDir string, dryRun bool) error {
 	fmt.Println("\nsummary:")
 	fmt.Printf("  routd.db rows: %s\n", fmtCounts(routdSpecs, rN))
 	fmt.Printf("  routd.db audit_log: %d events\n", aN)
+	fmt.Printf("  routd.db pane_sessions: %d panes, secret_use_log: %d uses\n", sN.Panes, sN.Uses)
 	fmt.Printf("  runed.db session_log: %d sessions\n", uN)
 	fmt.Printf("  onbod.db rows: %s\n", fmtCounts(onbodSpecs, oN))
 	fmt.Printf("\norphan tables LEFT IN messages.db (not copied — no daemon reads them):\n  %v\n",
