@@ -323,8 +323,11 @@ every one of them. Five survive, and three cannot be carried by a
 key-value engine. A tier that is a thin passthrough over `database/sql`
 remains the indirection this spec rejects.
 
-**Tier 3 — each daemon's own queries.** They stay SQL against the pool.
-A query one daemon issues is not an interface.
+**Tier 3 — each daemon's own queries.** A query one daemon issues is not an
+interface, so it never joins tier 2. It is still not the daemon's to hold:
+every statement lives in that daemon's storage layer, and the driver behind the
+interface is what a second engine reimplements. Tier 3 names who OWNS a query,
+not where the SQL sits.
 
 **What the key-value question becomes.** It stops being an API to adopt
 and becomes a property to measure: can tier 2 be expressed inside
@@ -360,26 +363,35 @@ Not one schema migration. Each daemon moves on its own, and the interface is
 proven before anything moves at all.
 
 1. **The storage-layer rule and its guard.** SQL only inside a daemon's storage
-   package, enforced by a test that fails the build — the way
-   `db_utils/opener_test.go` fails on a stray `sql.Open`. Measured today:
-   `webd` already holds zero SQL statements and is the target shape; `dashd`
-   holds 13 files and has no storage layer at all, so it goes first; `routd`
-   has 12 outside `db.go`.
-2. **The interface and its conformance suite**, derived from `6/40`'s five
-   operations. The suite runs every test body against every driver. The SQLite
-   driver is written to it, and SQL MOVES rather than changes.
-3. **`L195` settled** before anything is carried forward: `store/`'s 88
-   migration files are a second declaration of routd's schema that nothing
-   runs, and porting a schema no daemon executes is wasted work.
-4. **Daemon by daemon**, in the order their size sets. Measured on krons:
-   `emaid` 1 migration and `chanlib` 2 are the pilot; `runed` 6 tables,
-   `onbod` 7 and `authd` 7 are the middle; `routd` is last at 35 tables,
-   because every hard invariant in `6/40` lives there.
-5. **A hand-written script per daemon** reads the old tables and writes the
-   objects. One-way, small, and reviewable precisely because each daemon is
-   small — the reason for step 4's order. It is rehearsed against a copy of a
-   live database before it is believed, and "0 rows matched" is a red flag,
-   never an all-clear.
+   layer, enforced by a test that fails the build — the way
+   `db_utils/opener_test.go` fails on a stray `sql.Open`.
+   `db_utils/sql_layer_test.go` is that test, and `sqlLayers` is the covered
+   set, one line per daemon that has moved. **The guard reads string literals,
+   so it proves placement and not ownership**: a daemon that hands its raw
+   `*sql.DB` to `store` or `audit` passes it while 178 statements still run
+   against its database. That is `L251`, and closing it is what makes step 1's
+   guarantee true rather than merely enforced.
+2. **The interface and its conformance suite**, derived from `6/40`'s
+   operations. The suite runs every test body against every driver, and an
+   operation that cannot be expressed for both does not go on the interface.
+3. **`L195` settled** before anything is carried forward. `store/migrations/`
+   is the frozen legacy pre-split schema: `migrate-split` migrates FROM it and
+   nothing else runs it, so no daemon's port carries it.
+   `store/migrations_frozen_test.go` fails the build on a file added to it.
+4. **Daemon by daemon**, in the order their SQL sets. Measured 2026-09-07 with
+   `go/parser` over non-test files: **eighteen daemons hold no SQL at all** —
+   `webd`, `slakd`, `timed`, `gitd`, every adapter — because they reach storage
+   through `store` or over HTTP, so "every daemon" is nine units, not
+   twenty-one. `proxyd` 3 statements, `emaid` 5, `chanlib` 9 and `authd` 15 are
+   the pilots; `cmd/arizuko` 8 and `onbod` 39 are the middle; `resreg` 18 is
+   the engine that is half a driver already; `routd` 140 and `store` 178 are
+   last. `store` is last not because it is hardest to file but because every
+   other daemon reaches through it, so its surface has to be right before
+   anyone can stop passing `*sql.DB`.
+5. **Export from the old backend, import into the new one**, through the lane
+   below rather than a script per daemon. One-way, and rehearsed against a
+   snapshot of a live database before it is believed — "0 rows matched" is a red
+   flag, never an all-clear.
 6. **Two drivers: Postgres and DynamoDB.** The interface is `6/40`'s five
    operations — arizuko's own vocabulary, not a vendor's API surface — so each
    driver implements five things directly, with no wire protocol translated in
@@ -409,6 +421,49 @@ proven before anything moves at all.
    versioned replace's per-scope version, membership's materialised ancestor
    closure, and `resreg.Apply`'s lock object with bounded batches, which gives
    up the pre-image rollback it carries today (`L44`).
+
+## How a storage layer is organized
+
+A storage layer is organized the way the HTTP surface is: one file per thing,
+named for the thing. Three rules, and the third is the one that stops the first
+two from being wrong.
+
+**1. One file per entity.** `spawns.go` holds every read and write of `spawns`.
+A reader looking for how a table is used opens one file and finds all of it,
+and a driver rewriting that entity rewrites one file. Measured 2026-09-07:
+**38 of the 67 files that hold statements already touch exactly one table**, so
+this is mostly filing, not redesign. The work concentrates in nine files, and
+`routd/db.go` is the job — 76 statements over 10 tables.
+
+**2. Methods are named for the question, not the verb.** `SelectTurns` names
+the SQL; `PendingTurnsForFolder` names what the caller wants to know, which is
+the thing a second driver has to answer some other way. Of 312 exported methods
+holding SQL, 157 are named for the question and 137 for the verb. The verb
+names hide predicates the caller depends on: `store/messages.go:61`
+`NewMessages` returns at most 200 messages and excludes bot senders, and
+`routd/db.go:318` `NewMessages` — the same name, a different type — does
+neither. `UpdateObservedCursor` (`store/sessions.go:93`) is a forward-only
+guarded transition, which is `6/40` §2 and not an update.
+
+**3. An operation that carries an invariant stays whole, in the file of the
+entity it protects.** This is the limit of rule 1, and ignoring it is how the
+filing becomes a bug. `CreateGroupWithAdmin` writes `groups`,
+`acl_membership`, `acl` and `audit_log` in one transaction because a group row
+that exists without its admin grant is an escalation (`L119`); it belongs in
+`groups.go` whole, never split across four entity files. Sixteen operations
+span two or more domain tables, and `store.DeleteGroup` spans eighteen —
+`6/40` §3 already names that one as the operation a key-value engine cannot
+carry, so `folderScopePurge` keeps its own home rather than scattering.
+
+Two file kinds are entity-free by design and stay that way: the generic engine
+(`resreg/engine.go` builds its statement from `r.Table`) and the total
+classification (`store/folder_scope.go` iterates the scope list). Splitting
+either by entity would destroy the property that makes it correct.
+
+**Neither shipped layer has reached this yet.** `dashd/dashstore` is 6 files
+over 10 tables and `runed/db.go` is one file over 3. What both reached is one
+named layer per daemon, which is what the guard enforces. One file per entity
+is the step after, and it is filing plus about 130 renames.
 
 ## How a daemon's tables become documents — five rules
 
@@ -445,11 +500,18 @@ document store has. Order by a time key the writer produces, fixed width so
 string order is time order. That is `core.TS` and the reason `L97` cost every
 approval in the system.
 
-**5. Separate history from state.** `audit_log` and `session_log` are
-append-only history; `spawns` and `circuit_breaker` are mutable state. History
-is write-once, needs none of the transactional guarantees state does, and
-partitions by time or folder without contention. Modelling them alike makes the
-cheap thing pay the expensive thing's costs.
+**5. Separate history from state.** `audit_log` and `session_log` are history;
+`spawns` and `circuit_breaker` are mutable state. History needs none of the
+transactional guarantees state does and partitions by time or folder without
+contention. Modelling them alike makes the cheap thing pay the expensive thing's
+costs.
+
+History is not always one write. `audit_log` is: one row, appended, never
+touched again. `session_log` is opened when a run starts and closed when it
+exits — `runed/db.go:116` sets `ended_at`, `result`, `error` and
+`message_count` on the row `StartSession` created. That is two writes to one
+key with no read-modify-write of content, which every engine carries, and it is
+still history: nothing else ever writes that row, and no invariant spans it.
 
 ## The migration is an export and an import, through infrastructure that exists
 
