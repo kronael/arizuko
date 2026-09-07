@@ -7,6 +7,27 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L263 — `discd`'s typing-off test is flaky: it saw one API call where it asserts none (2026-09-07, open)
+
+`TestTyping_Off_NoSend` (`discd/integration_test.go:460`) failed once in a full
+`go test ./... -short` run with `typing=off without on should not call API;
+calls = 1`, then passed 5 of 5 on `-count=5` immediately afterwards. No commit
+in the last twelve touched `discd`.
+
+So the test observes a call that a previous case in the same file started, or
+the typing goroutine outlives the case that spawned it. A flake in a test that
+asserts "nothing happened" is the shape that hides a real leak: it fails only
+when the earlier work is slow enough to land inside the next case's window.
+
+- **Severity:** low (test-only, and it fails open — a leak shows as a failure)
+- **Scope:** `discd/integration_test.go`
+- **Affected:** CI and any full-suite run
+- **Source:** one failure in `./tmp/v11.log`, 2026-09-07; 5 of 5 pass on re-run
+- **Status:** open
+- **Fix:** find what still holds the typing timer when the case ends — the
+  assertion is right, and making it wait or resetting the recorder would hide
+  the thing it caught
+
 ## L260 — `route_tokens.PKFields` is not unique in live data, so `resreg.Diff` collapses 15 of 43 tokens (2026-09-07, open)
 
 MEASURED on krons 2026-09-07: `route_tokens` holds 43 rows over 27 distinct
