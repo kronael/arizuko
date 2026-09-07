@@ -357,45 +357,57 @@ audit_log SET id = id WHERE 1 = 0`, a RESERVED lock in SQLite and a
   recheck races. That substitution is mandatory on the move; the marker
   is not.
 
-## Order — daemon by daemon, smallest first
+## Order — one daemon reaches no-SQL, then the rest go straight there
 
-Not one schema migration. Each daemon moves on its own, and the interface is
-proven before anything moves at all.
+Not one schema migration, and not nine SQL layers either. **Exactly one daemon
+is filed into a SQL layer**, because the interface is derived from the questions
+that filing exposes. Every other daemon moves onto the interface directly. A
+plan that files all nine first writes nine layers in SQL and then rewrites nine
+layers; the filing is worth doing once, for its method names, and never again.
 
 1. **The storage-layer rule and its guard.** SQL only inside a daemon's storage
    layer, enforced by a test that fails the build — the way
    `db_utils/opener_test.go` fails on a stray `sql.Open`.
    `db_utils/sql_layer_test.go` is that test, and `sqlLayers` is the covered
-   set, one line per daemon that has moved. **The guard reads string literals,
-   so it proves placement and not ownership**: a daemon that hands its raw
-   `*sql.DB` to `store` or `audit` passes it while 178 statements still run
-   against its database. That is `L251`, and closing it is what makes step 1's
-   guarantee true rather than merely enforced.
-2. **The interface and its conformance suite**, derived from `6/40`'s
-   operations. The suite runs every test body against every driver, and an
-   operation that cannot be expressed for both does not go on the interface.
-3. **`L195` settled** before anything is carried forward. `store/migrations/`
+   set. **The guard reads string literals, so it proves placement and not
+   ownership**: a daemon that hands its raw `*sql.DB` to `store` or `audit`
+   passes it while 178 statements still run against its database (`L251`).
+2. **`L195` settled** before anything is carried forward. `store/migrations/`
    is the frozen legacy pre-split schema: `migrate-split` migrates FROM it and
    nothing else runs it, so no daemon's port carries it.
    `store/migrations_frozen_test.go` fails the build on a file added to it.
-4. **Daemon by daemon**, in the order their SQL sets. Measured 2026-09-07 with
-   `go/parser` over non-test files: **eighteen daemons hold no SQL at all** —
-   `webd`, `slakd`, `timed`, `gitd`, every adapter — because they reach storage
-   through `store` or over HTTP, so "every daemon" is nine units, not
-   twenty-one. `proxyd` 3 statements, `emaid` 5, `chanlib` 9 and `authd` 15 are
-   the pilots; `cmd/arizuko` 8 and `onbod` 39 are the middle; `resreg` 18 is
-   the engine that is half a driver already; `routd` 140 and `store` 178 are
-   last. `store` is last not because it is hardest to file but because every
-   other daemon reaches through it, so its surface has to be right before
-   anyone can stop passing `*sql.DB`.
-5. **Export from the old backend, import into the new one**, through the lane
+3. **`authd` states its questions.** 15 statements, 3 files, 4 tables, its own
+   database, one two-table transaction. Filed by entity, every method renamed
+   for the question it answers. It is the only daemon that gets a SQL layer,
+   and it gets one because step 4 is derived from it.
+4. **The interface and its conformance suite**, derived from `authd`'s
+   questions and `6/40`'s three operations over `Query(shape)` and
+   `GuardedBatch`. The suite runs every test body against every driver, and an
+   operation that cannot be expressed for both does not go on the interface.
+5. **`authd` moves onto the interface.** Its method names do not change; the
+   bodies stop being SQL. This is the first daemon that genuinely holds none,
+   and it is the proof the interface carries a real daemon. `L251` closes here:
+   `audit_log` becomes one entity behind the interface, implemented once per
+   driver instead of twice in every daemon.
+6. **Every other unit moves straight to the interface**, never through a SQL
+   layer. Measured 2026-09-07 with `go/parser` over non-test files: **eighteen
+   daemons hold no SQL at all** — `webd`, `slakd`, `timed`, `gitd`, every
+   adapter — because they reach storage through `store` or over HTTP, so "every
+   daemon" is nine units, not twenty-one. `proxyd` 3 statements, `emaid` 5,
+   `cmd/arizuko` 8 and `chanlib` 9 come first; `resreg` 18 and `onbod` 39
+   next; `routd` 140 and `store` 178 last, `store` last of all because every
+   other unit reaches through it. `dashd` and `runed` already hold one named
+   layer each, so they re-do like any other unit: the bodies change, the names
+   stay. Each unit may add an operation the interface lacks, which is the
+   expected cost of deriving the surface from one daemon rather than nine.
+7. **Export from the old backend, import into the new one**, through the lane
    below rather than a script per daemon. One-way, and rehearsed against a
    snapshot of a live database before it is believed — "0 rows matched" is a red
    flag, never an all-clear.
-6. **Two drivers: Postgres and DynamoDB.** The interface is `6/40`'s five
-   operations — arizuko's own vocabulary, not a vendor's API surface — so each
-   driver implements five things directly, with no wire protocol translated in
-   between.
+8. **Two drivers: Postgres and DynamoDB.** The interface is `6/40`'s three
+   operations over two primitives — arizuko's own vocabulary, not a vendor's
+   API surface — so each driver implements those directly, with no wire
+   protocol translated in between.
 
    **SQLite gets no driver.** It is the SOURCE, not a target: today's data is
    read out of it by the code that already exists, and the daemon that has
@@ -409,7 +421,7 @@ proven before anything moves at all.
    development, testing, and experimentation" by AWS's own words. Either would
    be needed only to serve the FULL DynamoDB API — 58 operations, four
    expression grammars, a typed attribute model and pagination semantics.
-   Five operations need none of it, and a partial implementation written here
+   Two primitives need none of it, and a partial implementation written here
    beats a complete one written for a surface arizuko never calls.
 
    What a vendor API would have imposed for free is portability discipline.
@@ -554,10 +566,10 @@ byte, so the old code path reads them unchanged for as long as an operator
 wants a second opinion. The dump is a snapshot beside the database, never
 instead of it.
 
-Steps 1 to 3 change no engine and no data, and revert with `git revert`. Step 4
-is per-daemon and reverts per daemon, which is the whole point of doing it this
-way: the point of no return arrives once per daemon instead of once for the
-system.
+Steps 1 to 4 change no engine and no data, and revert with `git revert`. Steps
+5 and 6 are per-daemon and revert per daemon, which is the whole point of doing
+it this way: the point of no return arrives once per daemon instead of once for
+the system.
 
 **The open question this does not answer.** Seven owners and 156 versioned DDL
 files are a relational discipline, and an object store has no DDL past creating
