@@ -1,6 +1,6 @@
 # store
 
-SQLite access layer. Shared schema library for the split topology.
+The access layer for the tables the split topology shares.
 
 ## Purpose
 
@@ -10,10 +10,32 @@ the split is owned by routd; `onbod.db` by onbod; `auth.db` by authd —
 each runs its own migrations). WAL mode + 5 s busy timeout tolerate
 concurrent readers on the same file.
 
+## Two tables are entities, and the rest are still SQL
+
+`pane_sessions` and `secret_use_log` hold no statement: they are objstore
+entities, declared in `entities.go` and read and written through objstore's
+two primitives (spec [`6/37`](../specs/6/37-store-model.md) step 7). They are
+the two whose whole surface this package owns — nothing outside it runs a
+statement against either, and neither is a resreg resource. Every other table
+here still reaches the database through SQL.
+
+During the move a `*Store` holds BOTH a `*sql.DB` and, through `Store.Obj`,
+the driver over the same pool. Each table has exactly one implementation at
+every moment: a moved one reads through objstore, an unmoved one through SQL.
+There is no fallback and no dual read.
+
+An entity keeps the NAME of the table it replaces, so a database carrying rows
+is moved by `arizuko migrate-store` and the driver refuses to serve the entity
+until it has been. The two files say what their coordinates cost:
+`pane_sessions.go` takes one constant partition and the (team, user, thread)
+triple as its sort key; `secret_use_log.go` takes audit_log's shape, and says
+plainly that no read decided it because it has no reader.
+
 ## Public API
 
 - `Open(dir string) (*Store, error)` — opens `<dir>/messages.db`, runs migrations
-- `OpenMem() (*Store, error)` — in-memory (tests)
+- `OpenMem() (*Store, error)` — a private test database on the FROZEN pre-split chain
+- `EnsureEntities(ctx, driver)` — the entity half, which every opener also asks for
 - `Migrate(db *sql.DB) error` — migrations only (test fixtures)
 - `New(db *sql.DB) *Store` — wrap an existing connection
 

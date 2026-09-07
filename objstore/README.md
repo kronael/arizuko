@@ -6,7 +6,10 @@ engine is a second driver and no daemon changes (spec
 [`6/40`](../specs/6/40-store-surface.md)).
 
 **Three daemons and one library run on this.** `authd/authstore`,
-`emaid/mailstore`, `chanlib/chanstore` and `runed/runstore` hold no SQL at all.
+`emaid/mailstore`, `chanlib/chanstore` and `runed/runstore` hold no SQL at all,
+and `store` has begun: `pane_sessions` and `secret_use_log` are entities inside
+a package whose other tables are still statements, which is what a PARTIAL move
+looks like — one implementation per table at every moment, never a fallback.
 
 emaid is the first that reaches storage ONLY through this package: nothing
 holds a statement against `emaid.db` any more, because chanlib's own two tables
