@@ -165,6 +165,25 @@ func TestReleaseLeavesASettledClaim(t *testing.T) {
 	}
 }
 
+// The read the data move's verify uses answers about a key without CREATING it,
+// which is the whole reason it is not ClaimDelivery: a check that wrote its own
+// evidence would report every missing row as present.
+func TestRecordedClaimWritesNothing(t *testing.T) {
+	st := newStore(t)
+	if _, held, err := st.RecordedClaim(t.Context(), "out-7"); err != nil || held {
+		t.Fatalf("RecordedClaim on a fresh key is (held=%v, %v), want (false, nil)", held, err)
+	}
+	claim, err := st.ClaimDelivery(t.Context(), "out-7", "slack:c/1")
+	if err != nil || claim.State != chanstore.ClaimWon {
+		t.Fatalf("the read left a claim behind: the first claim is (%v, %v)", claim.State, err)
+	}
+	got, held, err := st.RecordedClaim(t.Context(), "out-7")
+	if err != nil || !held || got.State != chanstore.ClaimInflight {
+		t.Fatalf("RecordedClaim on a claimed key is (%v, held=%v, %v), want ClaimInflight",
+			got.State, held, err)
+	}
+}
+
 // Recording a delivery against a claim that is not there is a fault, not a
 // no-op: the next attempt on that key would be free to post the message again.
 func TestRecordDeliveredRefusesAMissingClaim(t *testing.T) {

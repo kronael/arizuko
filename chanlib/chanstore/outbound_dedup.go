@@ -110,9 +110,9 @@ func (s *Store) ClaimDelivery(ctx context.Context, key, jid string) (Claim, erro
 	if won {
 		return Claim{State: ClaimWon}, nil
 	}
-	it, held, err := s.point(ctx, OutboundDedup, dedupKey(key), attrState, attrPlatformID)
+	claim, held, err := s.RecordedClaim(ctx, key)
 	if err != nil {
-		return Claim{}, fmt.Errorf("read delivery claim %s: %w", key, err)
+		return Claim{}, err
 	}
 	if !held {
 		// The claim was refused because the item exists, so a read that misses
@@ -121,10 +121,31 @@ func (s *Store) ClaimDelivery(ctx context.Context, key, jid string) (Claim, erro
 		return Claim{}, fmt.Errorf("read delivery claim %s: the put was refused because the "+
 			"item is there and the read did not find it", key)
 	}
-	if it.Attrs[attrState] == stateSent {
-		return Claim{State: ClaimSent, PlatformID: it.Attrs[attrPlatformID]}, nil
+	return claim, nil
+}
+
+// RecordedClaim answers what a key's record holds, writing nothing.
+//
+// It is the read ClaimDelivery performs after a refused claim, and the two share
+// it rather than each having their own — a second reader of the same item that
+// classified `state` differently is exactly the drift that would let one path
+// call a message unsent and the other call it delivered.
+//
+// The caller that needs it WITHOUT the claim is the data move's verify: reading
+// a key back through ClaimDelivery would CREATE the record for any row the
+// import missed, so a check would repair its own evidence.
+func (s *Store) RecordedClaim(ctx context.Context, key string) (Claim, bool, error) {
+	it, held, err := s.point(ctx, OutboundDedup, dedupKey(key), attrState, attrPlatformID)
+	if err != nil {
+		return Claim{}, false, fmt.Errorf("read delivery claim %s: %w", key, err)
 	}
-	return Claim{State: ClaimInflight}, nil
+	if !held {
+		return Claim{}, false, nil
+	}
+	if it.Attrs[attrState] == stateSent {
+		return Claim{State: ClaimSent, PlatformID: it.Attrs[attrPlatformID]}, true, nil
+	}
+	return Claim{State: ClaimInflight}, true, nil
 }
 
 // RecordDelivered records that the platform accepted the message.
