@@ -90,15 +90,15 @@ func key(sort string) objstore.Key { return objstore.Key{Partition: Partition, S
 // kind. It answers "is it there, and what does it carry" — never "is it live",
 // which every caller here decides for itself from the tombstones.
 func (s *Store) point(entity, sort string, project ...string) (objstore.Item, bool, error) {
-	page, err := s.s.Query(ctx(), objstore.Query{
+	items, err := s.s.Query(ctx(), objstore.Query{
 		Entity: entity, Partition: Partition,
 		Key:     objstore.KeyPredicate{Op: objstore.ExactKey, Value: sort},
 		Project: project,
 	})
-	if err != nil || len(page.Items) == 0 {
+	if err != nil || len(items) == 0 {
 		return objstore.Item{}, false, err
 	}
-	return page.Items[0], true, nil
+	return items[0], true, nil
 }
 
 // HashToken maps a raw credential to the value stored for it. A refresh token

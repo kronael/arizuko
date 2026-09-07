@@ -18,35 +18,20 @@ type Query struct {
 	// Where filters on attributes AFTER the key has selected. It narrows a
 	// result; it never widens one, and it is NOT an index.
 	//
-	// "Not an index" is a cost, not a slogan. The page bound applies to the
-	// items the read EXAMINED, before Where sees them, so a filter that keeps
-	// one row in ten thousand still walks ten thousand and still pages. That is
-	// DynamoDB's behaviour and the driver reproduces it rather than hiding it:
-	// a selective read belongs in Key, on the sort key, where it costs nothing.
+	// "Not an index" is a cost, not a slogan: on a key-value engine a filter
+	// that keeps one row in ten thousand still reads ten thousand, because the
+	// engine's own page cap is measured before the filter sees them. A
+	// selective read belongs in Key, on the sort key, where it costs nothing.
 	Where []Cmp
 	// Descending reads the sort key backwards. Ascending is the zero value.
 	Descending bool
-	// Limit caps the items the read EXAMINES, not the items it returns.
+	// Limit caps the items the read RETURNS. Zero is uncapped.
 	//
-	// That is DynamoDB's Limit, applied with the 1 MB cap and before the
-	// filter: "when you use a FilterExpression, Query applies the 1 MB/Limit
-	// page cap to the items it reads before applying the filter, so a page can
-	// return zero matching items and still include a LastEvaluatedKey"
-	// (Query.Pagination). A driver that capped the RETURNED rows instead — SQL's
-	// LIMIT after WHERE — would answer a filtered read completely on one engine
-	// and partially on the other, and no fixture small enough to unit-test would
-	// show the difference. Zero is uncapped, bounded only by MaxPageBytes.
+	// It is the caller's bound and the only one there is: a driver answers the
+	// whole selection otherwise, so a read that comes back short of its Limit
+	// came back complete. With Descending it is the newest-N read, which is the
+	// shape a history page asks for.
 	Limit int
-	// After resumes a read AFTER this sort key, inside whatever Key selects.
-	//
-	// It is DynamoDB's ExclusiveStartKey, and Page.More is the LastEvaluatedKey
-	// to put in it: "the LastEvaluatedKey from a Query response should be used
-	// as the ExclusiveStartKey for the next Query request"
-	// (Query.Pagination). It is a separate field rather than a key operator
-	// because it COMPOSES with one — paging a subtree read is PrefixKey plus
-	// After, which a single operator cannot say — and because it follows
-	// Descending, where a bare Gt would page the wrong way.
-	After string
 	// Project names the attributes to return; empty returns all of them.
 	//
 	// It is a security boundary, not an optimisation. authd's
@@ -59,16 +44,20 @@ type Query struct {
 
 // KeyOp is how a query selects inside a partition.
 //
-// The set is DynamoDB's sort-key condition set and nothing beyond it. "The sort
-// key condition must use one of the following comparison operators: =, <, <=,
-// >, >=, BETWEEN" plus "the following function is also supported: begins_with"
-// https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Query.KeyConditionExpressions.html
+// The four inequalities are here because four production reads are made of
+// them: the poll loop's cursor (routd/db.go:315), history (routd/reads.go:28),
+// bot activity (routd/db.go:1181) and the retry feed (routd/db.go:406). Without
+// them every history read is a whole-partition transfer, and the largest chat
+// partition measured is 10,688 rows.
 //
-// All seven are here because all seven are free: a key-value engine runs each
-// one natively on the sort key, and a SQL emitter renders each one as the
-// comparison it already is. Shipping two of them cost the callers the other
-// five — a time-window read (routd's poll cursor is `timestamp > ?`) and paging
-// both come back through this door.
+// DynamoDB's sort-key condition set also carries BETWEEN — "the sort key
+// condition must use one of the following comparison operators: =, <, <=, >,
+// >=, BETWEEN" plus begins_with
+// https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Query.KeyConditionExpressions.html
+// — and arizuko has no caller for it. No statement in store, routd, onbod,
+// dashd or resreg asks for a two-sided range. It goes on when one does; a
+// shipped operator whose only caller is this package's own test suite is the
+// accretion 6/40 §"What gets on the surface" refuses.
 type KeyOp uint8
 
 const (
@@ -88,10 +77,6 @@ const (
 	GtKey
 	// GeKey takes Value and everything after it: sort >= Value.
 	GeKey
-	// BetweenKey takes the closed range from Value to Upper. DynamoDB's
-	// BETWEEN is inclusive at both ends: "true if a is greater than or equal to
-	// b, and less than or equal to c".
-	BetweenKey
 	// PrefixKey takes an item and everything below it: begins_with.
 	PrefixKey
 )
@@ -115,7 +100,7 @@ const (
 // that — sqlite's LIKE folds ASCII and Postgres's does not — and a live
 // instance HAS carried a Coach/coach pair (BUGS L66, L122, L252).
 //
-// The five ordered operators are exact on both, because every stored value is
+// The four ordered operators are exact on both, because every stored value is
 // TEXT and an ordered one is fixed-width by declaration (ordered.go). That
 // declaration is what an ordered key predicate rests on: `timestamp > ?` over
 // the seven widths krons' messages table actually carries answers by byte
@@ -123,9 +108,6 @@ const (
 type KeyPredicate struct {
 	Op    KeyOp
 	Value string
-	// Upper is BetweenKey's inclusive high bound and means nothing to any other
-	// operator.
-	Upper string
 	// Sep is PrefixKey's subtree separator and means nothing to any other
 	// operator.
 	Sep string
@@ -180,23 +162,11 @@ func ValidateQuery(q Query) error {
 		return fmt.Errorf("query on %s carries a subtree separator %q on a %s predicate, "+
 			"which does not have one", q.Entity, q.Key.Sep, q.Key.Op)
 	}
-	if q.Key.Upper != "" && q.Key.Op != BetweenKey {
-		return fmt.Errorf("query on %s carries an upper bound %q on a %s predicate, "+
-			"which does not have one", q.Entity, q.Key.Upper, q.Key.Op)
-	}
 	switch q.Key.Op {
 	case AnyKey:
 		if q.Key.Value != "" {
 			return fmt.Errorf("query on %s carries a key value %q on an AnyKey predicate, "+
 				"which selects the whole partition", q.Entity, q.Key.Value)
-		}
-	case BetweenKey:
-		// DynamoDB refuses an inverted BETWEEN rather than returning nothing, and
-		// so does this: an empty answer to a swapped pair reads as "no data",
-		// which is the wrong thing to go and investigate.
-		if q.Key.Value > q.Key.Upper {
-			return fmt.Errorf("query on %s asks for the range %q..%q, whose lower bound is "+
-				"above its upper; BETWEEN is inclusive and ordered", q.Entity, q.Key.Value, q.Key.Upper)
 		}
 	case ExactKey, LtKey, LeKey, GtKey, GeKey, PrefixKey:
 	default:
@@ -204,13 +174,6 @@ func ValidateQuery(q Query) error {
 	}
 	if err := checkOrderedSort(q.Entity, keyBounds(q.Key)...); err != nil {
 		return err
-	}
-	// An empty cursor is the ABSENCE of one, which is how every first page is
-	// asked for, so it is not a key and carries no width.
-	if q.After != "" {
-		if err := checkOrderedSort(q.Entity, q.After); err != nil {
-			return err
-		}
 	}
 	for _, c := range q.Where {
 		if c.Op == Absent || c.Op == Present {
@@ -229,8 +192,6 @@ func keyBounds(k KeyPredicate) []string {
 	switch k.Op {
 	case AnyKey:
 		return nil
-	case BetweenKey:
-		return []string{k.Value, k.Upper}
 	case PrefixKey:
 		// A prefix is deliberately NOT width-checked: a subtree read compares a
 		// leading fragment of the key, which is shorter than a whole key by
@@ -257,8 +218,6 @@ func (o KeyOp) String() string {
 		return "GtKey"
 	case GeKey:
 		return "GeKey"
-	case BetweenKey:
-		return "BetweenKey"
 	case PrefixKey:
 		return "PrefixKey"
 	default:

@@ -11,32 +11,6 @@ import (
 	"strconv"
 )
 
-// QueryAll walks every page of q and returns the whole selection.
-//
-// It exists because Query returns a PAGE, and a caller that genuinely wants the
-// selection must say so rather than discover the truncation in production. Two
-// things make that discovery unlikely without this: a page boundary needs more
-// data than any unit fixture holds, and a filtered read can return an EMPTY page
-// with more to come, which reads exactly like an empty selection.
-//
-// It is a protocol and not a driver method for the reason every protocol here
-// is: the loop is identical on every engine, so a driver that wrote its own
-// could only get it wrong.
-func QueryAll(ctx context.Context, s Store, q Query) ([]Item, error) {
-	var out []Item
-	for {
-		page, err := s.Query(ctx, q)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, page.Items...)
-		if page.More == "" {
-			return out, nil
-		}
-		q.After = page.More
-	}
-}
-
 // maxCASAttempts bounds Increment's retry.
 //
 // A refusal here is a LOST RACE and nothing else — the condition is the value
@@ -71,31 +45,49 @@ const maxCASAttempts = 8
 // separate from the increment cannot go stale between them — invite redemption
 // conditions on `used_count < max_uses`, and that term is evaluated by the
 // engine against the row this write changes.
-func Increment(ctx context.Context, s Store, entity string, key Key, attr string, delta int, cond []Cmp) (int, Outcome, error) {
+//
+// also carries the companion actions that must land WITH the counter. A
+// redemption is not a counter: store/invites.go:265 increments `used_count` and
+// writes the redemption, ACL and audit state in the SAME transaction, and a
+// helper that committed only the counter would burn an invite with no grant —
+// which is the failure store.RestoreInvite exists to compensate for across two
+// databases. They ride in this protocol's own batch, so the whole set commits
+// or none of it does; the batch bounds apply to them (MaxBatchActions counts
+// the counter's write too, and no companion may name the counter's own item).
+// A retry re-sends them, which is safe because a refused batch wrote nothing.
+func Increment(ctx context.Context, s Store, entity string, key Key, attr string, delta int,
+	cond []Cmp, also []Write) (value int, committed bool, err error) {
 	width, fixed := orderedWidth(entity, attr)
-	for attempt := 0; attempt < maxCASAttempts; attempt++ {
-		page, err := s.Query(ctx, Query{
+	read := func() (string, int, error) {
+		items, err := s.Query(ctx, Query{
 			Entity: entity, Partition: key.Partition,
 			Key:     KeyPredicate{Op: ExactKey, Value: key.Sort},
 			Project: []string{attr},
 		})
 		if err != nil {
-			return 0, Outcome{}, err
+			return "", 0, err
 		}
-		if len(page.Items) == 0 {
-			return 0, Outcome{}, fmt.Errorf("increment %s.%s on %s/%s: no such item",
+		if len(items) == 0 {
+			return "", 0, fmt.Errorf("increment %s.%s on %s/%s: no such item",
 				entity, attr, key.Partition, key.Sort)
 		}
-		was, ok := page.Items[0].Attrs[attr]
+		was, ok := items[0].Attrs[attr]
 		if !ok {
-			return 0, Outcome{}, fmt.Errorf("increment %s.%s on %s/%s: the item carries no "+
+			return "", 0, fmt.Errorf("increment %s.%s on %s/%s: the item carries no "+
 				"such attribute, and a counter with no zero is a modelling gap rather than a "+
 				"value to invent", entity, attr, key.Partition, key.Sort)
 		}
 		n, err := strconv.Atoi(was)
 		if err != nil {
-			return 0, Outcome{}, fmt.Errorf("increment %s.%s on %s/%s: %q is not a number: %w",
+			return "", 0, fmt.Errorf("increment %s.%s on %s/%s: %q is not a number: %w",
 				entity, attr, key.Partition, key.Sort, was, err)
+		}
+		return was, n, nil
+	}
+	for range maxCASAttempts {
+		was, n, err := read()
+		if err != nil {
+			return 0, false, err
 		}
 		next := n + delta
 		// The width the value was WRITTEN at is the width it is compared at, so a
@@ -108,23 +100,35 @@ func Increment(ctx context.Context, s Store, entity string, key Key, attr string
 		// The read value IS the condition. Anyone who incremented in between
 		// changed it, so this write refuses and the loop reads again.
 		guard := append([]Cmp{{Attr: attr, Op: Eq, Value: was}}, cond...)
-		out, err := s.GuardedBatch(ctx, nil, []Write{{
+		writes := append([]Write{{
 			Op: Update, Entity: entity, Key: key,
 			Attrs: map[string]string{attr: text},
 			Cond:  Cond{Where: guard},
-		}})
+		}}, also...)
+		ok, err := s.GuardedBatch(ctx, nil, writes)
 		if err != nil {
-			return 0, Outcome{}, err
+			return 0, false, err
 		}
-		if out.Committed {
-			return next, out, nil
+		if ok {
+			return next, true, nil
 		}
-		// A refusal the CALLER asked for is the answer, not a race: only a
-		// changed counter is worth reading again.
-		if out.Refused != nil && out.Refused.Item != nil && out.Refused.Item.Attrs[attr] == was {
-			return n, out, nil
+		// A refused batch is a lost race only if the counter MOVED. Anything
+		// else — the caller's own cond, a companion write's condition — refused
+		// on a counter this call still holds the value of, and re-reading is how
+		// this protocol tells the two apart now that a refusal is one bit.
+		//
+		// The re-read is outside the refused transaction, so a third caller
+		// incrementing in the gap makes a caller-refusal look like a lost race.
+		// That costs one more attempt and then answers correctly, because every
+		// attempt re-evaluates both the counter and the conditions.
+		again, n, err := read()
+		if err != nil {
+			return 0, false, err
+		}
+		if again == was {
+			return n, false, nil
 		}
 	}
-	return 0, Outcome{}, fmt.Errorf("increment %s.%s on %s/%s lost %d races in a row",
+	return 0, false, fmt.Errorf("increment %s.%s on %s/%s lost %d races in a row",
 		entity, attr, key.Partition, key.Sort, maxCASAttempts)
 }

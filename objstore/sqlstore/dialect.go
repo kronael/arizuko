@@ -66,22 +66,6 @@ type dialect struct {
 	// attribute rule.
 	attr func(name string) string
 
-	// docBytes renders the SIZE of the stored document, which is what a page
-	// bound is measured in.
-	//
-	// It is the size of the item as the engine holds it, not of what the query
-	// projected, because DynamoDB's 1 MB "applies before any FilterExpression or
-	// ProjectionExpression is applied". A driver that measured the projected
-	// bytes would page later than the engine it is modelled on, and the caller
-	// that relied on the longer page would break on the other one.
-	docBytes string
-
-	// boolInt renders a boolean expression as 0 or 1, so one scan reads the
-	// filter verdict on both engines: SQLite yields an integer, Postgres a
-	// boolean, and a comparison against a missing attribute yields NULL on
-	// both — which is FALSE for a filter and must not arrive as a scan error.
-	boolInt func(expr string) string
-
 	// remove renders the document that results from taking names out of doc.
 	//
 	// The names are written into the statement rather than bound, for the same
@@ -111,8 +95,6 @@ var sqliteDialect = dialect{
 	lockRead:    "",
 	attrsColumn: "TEXT NOT NULL",
 	attr:        func(name string) string { return "json_extract(attrs, '$." + name + "')" },
-	docBytes:    "octet_length(attrs)",
-	boolInt:     func(expr string) string { return "COALESCE(" + expr + ", 0)" },
 	remove: func(doc string, names []string) string {
 		out := "json_remove(" + doc
 		for _, n := range names {
@@ -130,8 +112,6 @@ var postgresDialect = dialect{
 	lockRead:    " FOR UPDATE",
 	attrsColumn: "JSONB NOT NULL",
 	attr:        func(name string) string { return "attrs ->> '" + name + "'" },
-	docBytes:    "octet_length(attrs::text)",
-	boolInt:     func(expr string) string { return "(COALESCE(" + expr + ", FALSE))::int" },
 	remove: func(doc string, names []string) string {
 		out := "(" + doc + ")"
 		for _, n := range names {

@@ -25,7 +25,7 @@ func newTestStore(db *sql.DB) *authstore.Store { return authstore.New(sqlstore.N
 // entityItems reads every item of one entity, narrowed by the comparisons given.
 func entityItems(t *testing.T, db *sql.DB, entity string, where ...objstore.Cmp) []objstore.Item {
 	t.Helper()
-	items, err := objstore.QueryAll(t.Context(), sqlstore.New(db), objstore.Query{
+	items, err := sqlstore.New(db).Query(t.Context(), objstore.Query{
 		Entity: entity, Partition: authstore.Partition, Where: where,
 	})
 	if err != nil {
@@ -37,7 +37,7 @@ func entityItems(t *testing.T, db *sql.DB, entity string, where ...objstore.Cmp)
 // entityItem reads one item by its coordinate.
 func entityItem(t *testing.T, db *sql.DB, entity, sort string) (objstore.Item, bool) {
 	t.Helper()
-	items, err := objstore.QueryAll(t.Context(), sqlstore.New(db), objstore.Query{
+	items, err := sqlstore.New(db).Query(t.Context(), objstore.Query{
 		Entity: entity, Partition: authstore.Partition,
 		Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: sort},
 	})
@@ -60,27 +60,27 @@ func entityCount(t *testing.T, db *sql.DB, entity string) int {
 // manufacture a state the daemon never writes needs.
 func putItem(t *testing.T, db *sql.DB, entity, sort string, attrs map[string]string) {
 	t.Helper()
-	out, err := sqlstore.New(db).GuardedBatch(t.Context(), nil, []objstore.Write{{
+	committed, err := sqlstore.New(db).GuardedBatch(t.Context(), nil, []objstore.Write{{
 		Op: objstore.Put, Entity: entity,
 		Key:   objstore.Key{Partition: authstore.Partition, Sort: sort},
 		Attrs: attrs,
 	}})
-	if err != nil || !out.Committed {
-		t.Fatalf("write %s/%s: committed=%v err=%v", entity, sort, out.Committed, err)
+	if err != nil || !committed {
+		t.Fatalf("write %s/%s: committed=%v err=%v", entity, sort, committed, err)
 	}
 }
 
 // mergeAttrs sets attributes on an item that already exists.
 func mergeAttrs(t *testing.T, db *sql.DB, entity, sort string, attrs map[string]string) {
 	t.Helper()
-	out, err := sqlstore.New(db).GuardedBatch(t.Context(), nil, []objstore.Write{{
+	committed, err := sqlstore.New(db).GuardedBatch(t.Context(), nil, []objstore.Write{{
 		Op: objstore.Update, Entity: entity,
 		Key:   objstore.Key{Partition: authstore.Partition, Sort: sort},
 		Attrs: attrs,
 		Cond:  objstore.Cond{Item: objstore.ItemPresent},
 	}})
-	if err != nil || !out.Committed {
-		t.Fatalf("update %s/%s: committed=%v err=%v", entity, sort, out.Committed, err)
+	if err != nil || !committed {
+		t.Fatalf("update %s/%s: committed=%v err=%v", entity, sort, committed, err)
 	}
 }
 

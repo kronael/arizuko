@@ -34,20 +34,20 @@ func claim(key objstore.Key) objstore.Write {
 // put stores one item.
 func put(t *testing.T, s objstore.Store, entity string, key objstore.Key, attrs map[string]string) {
 	t.Helper()
-	out, err := s.GuardedBatch(context.Background(), nil, []objstore.Write{
+	committed, err := s.GuardedBatch(context.Background(), nil, []objstore.Write{
 		{Op: objstore.Put, Entity: entity, Key: key, Attrs: attrs},
 	})
 	if err != nil {
 		t.Fatalf("put %s/%s: %v", entity, key.Sort, err)
 	}
-	if !out.Committed {
+	if !committed {
 		t.Fatalf("put %s/%s was refused; an unconditional put has nothing to refuse", entity, key.Sort)
 	}
 }
 
 // putAll stores many items, in batches no larger than one transaction holds. A
-// body that needs more rows than a page carries needs this; a body that wrote
-// them one at a time would spend its runtime on round trips.
+// body that needs a selection larger than any engine's own page needs this; a
+// body that wrote them one at a time would spend its runtime on round trips.
 func putAll(t *testing.T, s objstore.Store, entity string, items []objstore.Item) {
 	t.Helper()
 	for len(items) > 0 {
@@ -56,33 +56,33 @@ func putAll(t *testing.T, s objstore.Store, entity string, items []objstore.Item
 		for i, it := range items[:n] {
 			writes[i] = objstore.Write{Op: objstore.Put, Entity: entity, Key: it.Key, Attrs: it.Attrs}
 		}
-		out, err := s.GuardedBatch(context.Background(), nil, writes)
+		committed, err := s.GuardedBatch(context.Background(), nil, writes)
 		if err != nil {
 			t.Fatalf("put %d items into %s: %v", n, entity, err)
 		}
-		if !out.Committed {
+		if !committed {
 			t.Fatalf("a bulk put into %s was refused", entity)
 		}
 		items = items[n:]
 	}
 }
 
-// commit runs one write and reports the outcome. An ERROR fails the test on the
-// spot: a refusal and a fault are different answers, and a body that let one
-// stand for the other would prove nothing.
-func commit(t *testing.T, s objstore.Store, ctx context.Context, w objstore.Write) objstore.Outcome {
+// commit runs one write and reports whether it committed. An ERROR fails the
+// test on the spot: a refusal and a fault are different answers, and a body that
+// let one stand for the other would prove nothing.
+func commit(t *testing.T, s objstore.Store, ctx context.Context, w objstore.Write) bool {
 	t.Helper()
-	out, err := s.GuardedBatch(ctx, nil, []objstore.Write{w})
+	committed, err := s.GuardedBatch(ctx, nil, []objstore.Write{w})
 	if err != nil {
 		t.Fatalf("write %s/%s: %v", w.Entity, w.Key.Sort, err)
 	}
-	return out
+	return committed
 }
 
 // mustCommit runs one write and fails unless it commits.
 func mustCommit(t *testing.T, s objstore.Store, ctx context.Context, w objstore.Write) {
 	t.Helper()
-	if !commit(t, s, ctx, w).Committed {
+	if !commit(t, s, ctx, w) {
 		t.Fatalf("write %s/%s was refused", w.Entity, w.Key.Sort)
 	}
 }
@@ -91,7 +91,7 @@ func mustCommit(t *testing.T, s objstore.Store, ctx context.Context, w objstore.
 // kind — the shape of authd's RefreshTokenBySecret.
 func point(t *testing.T, s objstore.Store, entity string, key objstore.Key) []objstore.Item {
 	t.Helper()
-	items, err := objstore.QueryAll(context.Background(), s, objstore.Query{
+	items, err := s.Query(context.Background(), objstore.Query{
 		Entity: entity, Partition: key.Partition,
 		Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: key.Sort},
 	})
@@ -111,26 +111,15 @@ func one(t *testing.T, s objstore.Store, entity string, key objstore.Key) objsto
 	return items[0]
 }
 
-// s2keys runs a query to exhaustion and returns the sort keys it selected, in
-// the order the driver returned them.
+// s2keys runs a query and returns the sort keys it selected, in the order the
+// driver returned them.
 func s2keys(t *testing.T, s objstore.Store, q objstore.Query) []string {
 	t.Helper()
-	items, err := objstore.QueryAll(context.Background(), s, q)
+	items, err := s.Query(context.Background(), q)
 	if err != nil {
 		t.Fatalf("query %s: %v", q.Entity, err)
 	}
 	return keysOf(items)
-}
-
-// page runs ONE query and returns its page, unpaged. A body that is about the
-// page boundary has to see the boundary, which QueryAll exists to hide.
-func page(t *testing.T, s objstore.Store, q objstore.Query) objstore.Page {
-	t.Helper()
-	p, err := s.Query(context.Background(), q)
-	if err != nil {
-		t.Fatalf("query %s: %v", q.Entity, err)
-	}
-	return p
 }
 
 // keysOf lists the sort keys of some items, in the order they came.

@@ -18,9 +18,13 @@ import (
 // row, whose five-attribute reset is the reason Update has a REMOVE half.
 const onboarding = "onboarding"
 
-// invites is the entity the counter body writes: store/invites.go's row, whose
+// invites is the entity the counter bodies write: store/invites.go's row, whose
 // used_count is the increment the interface deliberately does not carry.
 const invites = "invites"
+
+// redemptions is the entity the companion write lands in: the row a redemption
+// records beside the counter it moves.
+const redemptions = "redemptions"
 
 // counted is the entity the ordered-width body writes.
 const counted = "ordered_log"
@@ -88,14 +92,14 @@ func RemovalTakesTheAttributeAwayRatherThanEmptyingIt(t *testing.T, newStore Fac
 	// A removal is still an Update, so it obeys the condition it carries and it
 	// requires the item to exist.
 	missing := objstore.Key{Partition: tenant, Sort: "web:chat/none"}
-	if out := commit(t, s, ctx, objstore.Write{Op: objstore.Update, Entity: onboarding,
-		Key: missing, Remove: []string{"gate"}}); out.Committed {
+	if commit(t, s, ctx, objstore.Write{Op: objstore.Update, Entity: onboarding,
+		Key: missing, Remove: []string{"gate"}}) {
 		t.Error("a removal on a missing item committed")
 	}
-	if out := commit(t, s, ctx, objstore.Write{Op: objstore.Update, Entity: onboarding, Key: key,
+	if commit(t, s, ctx, objstore.Write{Op: objstore.Update, Entity: onboarding, Key: key,
 		Remove: []string{"paired"},
 		Cond:   objstore.Cond{Where: []objstore.Cmp{{Attr: "status", Op: objstore.Eq, Value: "admitted"}}},
-	}); out.Committed {
+	}) {
 		t.Error("a conditional removal committed against a condition that does not hold")
 	}
 	if got = one(t, s, onboarding, key); got.Attrs["paired"] != "yes" {
@@ -116,156 +120,6 @@ func RemovalTakesTheAttributeAwayRatherThanEmptyingIt(t *testing.T, newStore Fac
 		Op: objstore.Put, Entity: onboarding, Key: key,
 		Attrs: map[string]string{"status": "x"}, Remove: []string{"paired"}}}); err == nil {
 		t.Error("a Put carrying a REMOVE half was accepted")
-	}
-}
-
-// ConditionalReplaceNeedsTheItemItReplaces is the Put a caller reaches for when
-// the new document is not a function of the old one — a whole-item replace under
-// a condition on the item being replaced.
-//
-// DynamoDB's transactional Put takes "an optional condition expression that must
-// be satisfied for the write to succeed", and it fails the same way against an
-// item that is not there: an absent item carries no attribute a condition could
-// hold on. So the condition implies presence, and a driver that let the insert
-// branch run would commit exactly the write the condition existed to refuse.
-func ConditionalReplaceNeedsTheItemItReplaces(t *testing.T, newStore Factory) {
-	ctx := context.Background()
-	s := newStore(t, tokens)
-	key := objstore.Key{Partition: tenant, Sort: "tok/live"}
-	put(t, s, tokens, key, map[string]string{"family": "f1", "sub": "alice", "gen": "1"})
-
-	if out := commit(t, s, ctx, objstore.Write{Op: objstore.Put, Entity: tokens, Key: key,
-		Attrs: map[string]string{"family": "f2", "gen": "2"},
-		Cond:  objstore.Cond{Where: []objstore.Cmp{{Attr: "gen", Op: objstore.Eq, Value: "9"}}},
-	}); out.Committed {
-		t.Error("a conditional replace committed against a generation that does not hold")
-	}
-	if got := one(t, s, tokens, key); got.Attrs["gen"] != "1" || got.Attrs["sub"] != "alice" {
-		t.Errorf("the refused replace changed the item: %v", got.Attrs)
-	}
-
-	mustCommit(t, s, ctx, objstore.Write{Op: objstore.Put, Entity: tokens, Key: key,
-		Attrs: map[string]string{"family": "f2", "gen": "2"},
-		Cond:  objstore.Cond{Where: []objstore.Cmp{{Attr: "gen", Op: objstore.Eq, Value: "1"}}}})
-	got := one(t, s, tokens, key)
-	if len(got.Attrs) != 2 || got.Attrs["gen"] != "2" {
-		t.Errorf("the conditional replace did not replace the whole document: %v", got.Attrs)
-	}
-
-	// The condition implies presence, whatever it says. An item that is not
-	// there must not be CREATED by a write whose condition was about an item.
-	missing := objstore.Key{Partition: tenant, Sort: "tok/absent"}
-	if out := commit(t, s, ctx, objstore.Write{Op: objstore.Put, Entity: tokens, Key: missing,
-		Attrs: map[string]string{"family": "f3"},
-		Cond:  objstore.Cond{Where: []objstore.Cmp{{Attr: "gen", Op: objstore.Absent}}},
-	}); out.Committed {
-		t.Error("a conditional replace created an item that was not there")
-	}
-	if items := point(t, s, tokens, missing); len(items) != 0 {
-		t.Errorf("the refused conditional replace inserted %v", items)
-	}
-	if out := commit(t, s, ctx, objstore.Write{Op: objstore.Put, Entity: tokens, Key: missing,
-		Attrs: map[string]string{"family": "f3"},
-		Cond:  objstore.Cond{Item: objstore.ItemPresent}}); out.Committed {
-		t.Error("a replace asking for presence created the item")
-	}
-	// Absent AND carrying attributes can never hold, so it is a caller mistake
-	// rather than a condition that always refuses.
-	if _, err := s.GuardedBatch(ctx, nil, []objstore.Write{{
-		Op: objstore.Put, Entity: tokens, Key: missing, Attrs: map[string]string{"family": "f3"},
-		Cond: objstore.Cond{Item: objstore.ItemAbsent,
-			Where: []objstore.Cmp{{Attr: "gen", Op: objstore.Eq, Value: "1"}}}}}); err == nil {
-		t.Error("a Put asking the item to be absent AND to carry an attribute was accepted")
-	}
-}
-
-// RefusalNamesWhatDidNotHold is the answer a bare false could not give.
-//
-// Any failed check and any zero-row write both refuse, and callers read that one
-// bit as a semantic verdict. It cannot carry one: "someone else won the race"
-// and "the row was already in that state" are the same bit and different
-// incidents — the first is a contended claim working, the second is reuse of a
-// spent credential, which kills a family.
-//
-// So the refusal names the action and carries the item as the engine held it,
-// which is DynamoDB's ReturnValuesOnConditionCheckFailure plus the
-// CancellationReasons index.
-func RefusalNamesWhatDidNotHold(t *testing.T, newStore Factory) {
-	ctx := context.Background()
-	s := newStore(t, tokens)
-	live := objstore.Key{Partition: tenant, Sort: "tok/live"}
-	spent := objstore.Key{Partition: tenant, Sort: "tok/spent"}
-	gate := objstore.Key{Partition: tenant, Sort: "tok/gate"}
-	put(t, s, tokens, live, map[string]string{"family": "f1"})
-	put(t, s, tokens, spent, map[string]string{"family": "f1", "used_at": "T0"})
-	put(t, s, tokens, gate, map[string]string{"family": "f1", "state": "open"})
-
-	// A write whose own condition did not hold: the index is the write's, the
-	// kind is WriteRefused, and the item is the pre-image the condition saw.
-	out := commit(t, s, ctx, claim(spent))
-	if out.Committed || out.Refused == nil {
-		t.Fatalf("claiming a spent token gave %+v, want an attributed refusal", out)
-	}
-	if out.Refused.Kind != objstore.WriteRefused || out.Refused.Index != 0 {
-		t.Errorf("the refusal is %v at %d, want a WriteRefused at 0",
-			out.Refused.Kind, out.Refused.Index)
-	}
-	if out.Refused.Entity != tokens || out.Refused.Key != spent {
-		t.Errorf("the refusal names %s/%v, want %s/%v",
-			out.Refused.Entity, out.Refused.Key, tokens, spent)
-	}
-	if out.Refused.Item == nil || out.Refused.Item.Attrs["used_at"] != "T0" {
-		t.Fatalf("the refusal carries %v, want the pre-image with its used_at — without it "+
-			"a lost race and a reused credential are the same answer", out.Refused.Item)
-	}
-
-	// The same refusal against an item that is NOT there carries no pre-image,
-	// which is a third answer again: nobody won a race, the coordinate is empty.
-	out = commit(t, s, ctx, claim(objstore.Key{Partition: tenant, Sort: "tok/never"}))
-	if out.Committed || out.Refused == nil {
-		t.Fatalf("claiming a token that was never issued gave %+v", out)
-	}
-	if out.Refused.Item != nil {
-		t.Errorf("a refusal on a missing item carried the item %v", out.Refused.Item)
-	}
-
-	// A CHECK that did not hold names the check's index, in the check list, and
-	// the item the batch does not modify. Without the kind, index 0 of the
-	// checks and index 0 of the writes are the same number.
-	res, err := s.GuardedBatch(ctx,
-		[]objstore.Check{{Entity: tokens, Key: gate,
-			Cond: objstore.Cond{Where: []objstore.Cmp{{Attr: "state", Op: objstore.Eq, Value: "closed"}}}}},
-		[]objstore.Write{claim(live)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.Committed || res.Refused == nil {
-		t.Fatalf("a batch whose check does not hold gave %+v", res)
-	}
-	if res.Refused.Kind != objstore.CheckRefused || res.Refused.Key != gate {
-		t.Errorf("the refusal is %v on %v, want a CheckRefused on the gate",
-			res.Refused.Kind, res.Refused.Key)
-	}
-	if res.Refused.Item == nil || res.Refused.Item.Attrs["state"] != "open" {
-		t.Errorf("the check refusal carries %v, want the gate as the engine held it",
-			res.Refused.Item)
-	}
-	if got := one(t, s, tokens, live); got.Attrs["used_at"] != "" {
-		t.Error("the refused batch still applied its write")
-	}
-
-	// The index is the position in its own list, not in the batch, so a caller
-	// with several writes learns WHICH one refused.
-	res, err = s.GuardedBatch(ctx, nil, []objstore.Write{claim(live), claim(spent)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.Committed || res.Refused == nil || res.Refused.Index != 1 {
-		t.Fatalf("the second write refused the batch and the refusal reports %+v", res.Refused)
-	}
-	// A committed batch refuses nothing, so the two answers cannot be confused.
-	if res = commit(t, s, ctx, claim(live)); !res.Committed || res.Refused != nil {
-		t.Errorf("a committed claim reported %+v", res)
 	}
 }
 
@@ -307,14 +161,14 @@ func CountersAreACompareAndSwapProtocol(t *testing.T, newStore Factory) {
 			// The caller's own guard rides on the same write, so the redemption
 			// bound is decided by the engine against the row this write changes
 			// and not by a read that has since gone stale.
-			n, out, err := objstore.Increment(ctx, s, invites, key, "used_count", 1,
-				[]objstore.Cmp{{Attr: "used_count", Op: objstore.Lt, Value: "5"}})
+			n, committed, err := objstore.Increment(ctx, s, invites, key, "used_count", 1,
+				[]objstore.Cmp{{Attr: "used_count", Op: objstore.Lt, Value: "5"}}, nil)
 			mu.Lock()
 			defer mu.Unlock()
 			switch {
 			case err != nil:
 				errs = append(errs, err)
-			case !out.Committed:
+			case !committed:
 				refused++
 			default:
 				seen[n]++
@@ -340,6 +194,77 @@ func CountersAreACompareAndSwapProtocol(t *testing.T, newStore Factory) {
 	if got := one(t, s, invites, key); got.Attrs["used_count"] != "5" {
 		t.Errorf("used_count is %q after %d contended redemptions, want 5",
 			got.Attrs["used_count"], callers)
+	}
+}
+
+// CountersCarryTheirCompanionWrites is the other half of a redemption, and the
+// reason Increment takes companion actions at all.
+//
+// store/invites.go:265 increments `used_count` and writes the redemption, ACL
+// and audit state in the SAME transaction. A counter helper that committed only
+// the counter would burn an invite with no grant — the failure
+// store.RestoreInvite exists to compensate for across two databases, by
+// decrementing after the fact. Inside one store the compensation is
+// unnecessary: the companions ride in the protocol's own batch.
+//
+// Both halves of the assertion matter. A win writes the companion, and a
+// REFUSAL writes nothing — not the counter, not the companion — because the
+// batch is the unit.
+func CountersCarryTheirCompanionWrites(t *testing.T, newStore Factory) {
+	ctx := context.Background()
+	s := newStore(t, invites, redemptions)
+	key := objstore.Key{Partition: tenant, Sort: "inv/party"}
+	put(t, s, invites, key, map[string]string{"used_count": "0", "max_uses": "1"})
+
+	record := func(who string) objstore.Write {
+		return objstore.Write{
+			Op: objstore.Put, Entity: redemptions,
+			Key:   objstore.Key{Partition: tenant, Sort: "red/" + who},
+			Attrs: map[string]string{"user_sub": who},
+			Cond:  objstore.Cond{Item: objstore.ItemAbsent},
+		}
+	}
+	bound := []objstore.Cmp{{Attr: "used_count", Op: objstore.Lt, Value: "1"}}
+
+	n, committed, err := objstore.Increment(ctx, s, invites, key, "used_count", 1,
+		bound, []objstore.Write{record("alice")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !committed || n != 1 {
+		t.Fatalf("the first redemption reported committed=%v count=%d, want true and 1", committed, n)
+	}
+	if got := s2keys(t, s, objstore.Query{Entity: redemptions, Partition: tenant}); !sameOrder(
+		got, []string{"red/alice"}) {
+		t.Errorf("the redemption record is %v, want red/alice — a counter that commits without "+
+			"its companion burns the invite and grants nothing", got)
+	}
+
+	// The bound is spent, so the next redemption is refused — and its companion
+	// must not land on its own, which is exactly the state RestoreInvite was
+	// written to clean up after.
+	_, committed, err = objstore.Increment(ctx, s, invites, key, "used_count", 1,
+		bound, []objstore.Write{record("bob")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if committed {
+		t.Error("a redemption past max_uses committed")
+	}
+	if got := s2keys(t, s, objstore.Query{Entity: redemptions, Partition: tenant}); !sameOrder(
+		got, []string{"red/alice"}) {
+		t.Errorf("the refused redemption left %v; a refused batch writes nothing", got)
+	}
+	if got := one(t, s, invites, key); got.Attrs["used_count"] != "1" {
+		t.Errorf("used_count is %q after a refused redemption, want 1", got.Attrs["used_count"])
+	}
+
+	// A companion naming the counter's own item is two actions on one item,
+	// which is the bound every driver carries.
+	if _, _, err := objstore.Increment(ctx, s, invites, key, "used_count", 1, nil,
+		[]objstore.Write{{Op: objstore.Update, Entity: invites, Key: key,
+			Attrs: map[string]string{"max_uses": "9"}}}); err == nil {
+		t.Error("a companion write on the counter's own item was accepted")
 	}
 }
 
@@ -394,15 +319,14 @@ func OrderedWidthsAreRefusedRatherThanMisSorted(t *testing.T, newStore Factory) 
 	}{
 		{"a short range bound", objstore.Query{Entity: counted, Partition: tenant,
 			Key: objstore.KeyPredicate{Op: objstore.GtKey, Value: short}}},
-		{"a short BETWEEN bound", objstore.Query{Entity: counted, Partition: tenant,
-			Key: objstore.KeyPredicate{Op: objstore.BetweenKey, Value: short, Upper: good}}},
-		{"a short cursor", objstore.Query{Entity: counted, Partition: tenant, After: short}},
+		{"a short exact key", objstore.Query{Entity: counted, Partition: tenant,
+			Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: short}}},
 		{"a short filter value", objstore.Query{Entity: counted, Partition: tenant,
 			Where: []objstore.Cmp{{Attr: "at", Op: objstore.Ge, Value: short}}}},
 	} {
 		if _, err := s.Query(ctx, c.q); err == nil {
-			t.Errorf("%s was accepted; a cursor that compares the wrong width skips rows "+
-				"permanently, because a cursor only moves forward", c.name)
+			t.Errorf("%s was accepted; a comparison at the wrong width answers by byte order "+
+				"instead of failing, so a watermark read skips rows permanently", c.name)
 		}
 	}
 

@@ -24,22 +24,21 @@ const (
 // Cond is what one item must look like for the batch to commit. The zero value
 // asks nothing.
 //
-// Every write op carries one, a Put included: DynamoDB's transactional Put
-// takes "an optional condition expression that must be satisfied for the write
-// to succeed"
-// https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_TransactWriteItems.html
-// A Put with a Where is a whole-item REPLACE under a condition on the item it
-// replaces, which is the compare-and-swap a caller reaches for when the new
-// document is not a function of the old one. It implies presence: an item that
-// is not there carries no attribute a condition could hold on, so ItemAbsent
-// with a Where can never commit and is refused as the mistake it is.
-//
 // Where's terms are conjuncts, and each one closes a different hole. authd's
 // refresh claim needs both of its two: `used_at` Absent picks a single winner
 // out of N concurrent redeems, and `revoked_at` Absent refuses a token whose
 // family died between the caller's lookup and this write. Dropping the second
 // let a logout that committed in that gap go unseen, and a family killed for
 // reuse walked away with a live 30-day credential (BUGS F36).
+//
+// A Put is the exception and carries at most ItemAbsent. DynamoDB's
+// transactional Put does take a full condition expression, and a Put under one
+// is a whole-item REPLACE of the item it conditions on — but arizuko writes no
+// such replace. Every conditional put in production is create-if-absent
+// (authd/authstore signing_keys.go, auth_users.go, refresh_tokens.go), and the
+// replace shape existed only in a conformance body (6/40 §"What gets on the
+// surface"). validateWrite refuses it rather than leaving a second way to
+// express a compare-and-swap that Update already carries.
 type Cond struct {
 	Item  ItemCond
 	Where []Cmp
@@ -50,8 +49,8 @@ type WriteOp uint8
 
 const (
 	// Put stores Attrs as the item's whole attribute set, replacing whatever
-	// was there. Its Cond may require the item to be absent (create-if-absent)
-	// or may state attributes the item it replaces must already have.
+	// was there. With no Cond it is an upsert; with ItemAbsent it is the
+	// create-if-absent every engine has, decided by the engine's own uniqueness.
 	Put WriteOp = iota
 	// Update merges Attrs into the item's existing attributes and takes the
 	// attributes named in Remove away, leaving the rest alone. It writes
@@ -173,6 +172,11 @@ func validateWrite(w Write) error {
 	}
 	if err := validateCond(w.Entity, w.Cond); err != nil {
 		return err
+	}
+	if w.Op == Put && (len(w.Cond.Where) > 0 || w.Cond.Item == ItemPresent) {
+		return fmt.Errorf("put on %s/%s conditions on the item it replaces; a Put carries at "+
+			"most ItemAbsent, and a compare-and-swap on an item that must already be there "+
+			"is an Update", w.Entity, w.Key.Sort)
 	}
 	if len(w.Remove) == 0 {
 		return nil

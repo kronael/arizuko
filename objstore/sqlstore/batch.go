@@ -22,9 +22,9 @@ import (
 // that read outside the write lock would be answering about a state the write
 // can no longer assume, which is the whole failure the guarded transition
 // exists to prevent.
-func (s *Store) GuardedBatch(ctx context.Context, checks []objstore.Check, writes []objstore.Write) (objstore.Outcome, error) {
+func (s *Store) GuardedBatch(ctx context.Context, checks []objstore.Check, writes []objstore.Write) (bool, error) {
 	if err := objstore.ValidateBatch(checks, writes); err != nil {
-		return objstore.Outcome{}, err
+		return false, err
 	}
 	// Every statement is generated before a lock is taken: a malformed batch is
 	// a programming error, and it must not hold the writer while it is found.
@@ -32,7 +32,7 @@ func (s *Store) GuardedBatch(ctx context.Context, checks []objstore.Check, write
 	for i, c := range checks {
 		b, err := s.checkStmt(c)
 		if err != nil {
-			return objstore.Outcome{}, err
+			return false, err
 		}
 		checkStmts[i] = b
 	}
@@ -41,103 +41,64 @@ func (s *Store) GuardedBatch(ctx context.Context, checks []objstore.Check, write
 	for i, w := range writes {
 		b, g, err := s.writeStmt(w)
 		if err != nil {
-			return objstore.Outcome{}, err
+			return false, err
 		}
 		writeStmts[i], guarded[i] = b, g
 	}
 
 	conn, err := s.db.Conn(ctx)
 	if err != nil {
-		return objstore.Outcome{}, err
+		return false, err
 	}
 	defer conn.Close() //nolint:errcheck // the pool reclaims it either way
 	if _, err := conn.ExecContext(ctx, s.dialect.begin); err != nil {
-		return objstore.Outcome{}, fmt.Errorf("open the batch: %w", err)
+		return false, fmt.Errorf("open the batch: %w", err)
 	}
-	out, err := s.runBatch(ctx, conn, checks, writes, checkStmts, writeStmts, guarded)
-	if err != nil || !out.Committed {
+	committed, err := s.runBatch(ctx, conn, checkStmts, writeStmts, guarded)
+	if err != nil || !committed {
 		if _, rerr := conn.ExecContext(ctx, "ROLLBACK"); rerr != nil && err == nil {
-			return objstore.Outcome{}, fmt.Errorf("roll the refused batch back: %w", rerr)
+			return false, fmt.Errorf("roll the refused batch back: %w", rerr)
 		}
-		return out, err
+		return committed, err
 	}
 	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
-		return objstore.Outcome{}, fmt.Errorf("commit the batch: %w", err)
+		return false, fmt.Errorf("commit the batch: %w", err)
 	}
-	return out, nil
+	return true, nil
 }
 
 // runBatch is the body inside the transaction, so GuardedBatch owns the ROLLBACK
-// and COMMIT in one place. A refused Outcome is a REFUSAL — a condition did not
+// and COMMIT in one place. committed=false is a REFUSAL — a condition did not
 // hold — and never a fault.
-//
-// The pre-image is read INSIDE the transaction, before the rollback, so it is
-// the state the condition was evaluated against and not whatever the row looks
-// like by the time the caller asks. It costs one read on the refusal path and
-// nothing on the committing one.
 func (s *Store) runBatch(ctx context.Context, conn *sql.Conn,
-	checks []objstore.Check, writes []objstore.Write,
-	checkStmts, writeStmts []*stmt, guarded []bool) (objstore.Outcome, error) {
-	for i, b := range checkStmts {
+	checkStmts, writeStmts []*stmt, guarded []bool) (bool, error) {
+	for _, b := range checkStmts {
 		var one int
 		err := conn.QueryRowContext(ctx, b.String(), b.args...).Scan(&one)
 		if errors.Is(err, sql.ErrNoRows) {
-			return s.refusal(ctx, conn, objstore.CheckRefused, i, checks[i].Entity, checks[i].Key)
+			return false, nil
 		}
 		if err != nil {
-			return objstore.Outcome{}, fmt.Errorf("check: %w", err)
+			return false, fmt.Errorf("check: %w", err)
 		}
 	}
 	for i, b := range writeStmts {
 		res, err := conn.ExecContext(ctx, b.String(), b.args...)
 		if err != nil {
-			return objstore.Outcome{}, fmt.Errorf("write: %w", err)
+			return false, fmt.Errorf("write: %w", err)
 		}
 		if !guarded[i] {
 			continue
 		}
 		n, err := res.RowsAffected()
 		if err != nil {
-			return objstore.Outcome{}, fmt.Errorf("write: %w", err)
+			return false, fmt.Errorf("write: %w", err)
 		}
 		if n == 0 {
-			return s.refusal(ctx, conn, objstore.WriteRefused, i, writes[i].Entity, writes[i].Key)
+			return false, nil
 		}
 	}
-	return objstore.Committed, nil
-}
-
-// refusal reads the item the condition was evaluated against and reports it with
-// the refusal.
-//
-// This is what turns "false" into an answer. A claim that lost a race and a
-// claim on a row that was already spent are the same bool and different
-// incidents, and only the item the engine held tells them apart. DynamoDB gives
-// the same thing through ReturnValuesOnConditionCheckFailure.
-func (s *Store) refusal(ctx context.Context, conn *sql.Conn, kind objstore.RefusalKind,
-	index int, entity string, key objstore.Key) (objstore.Outcome, error) {
-	b := &stmt{d: s.dialect}
-	b.write("SELECT attrs FROM " + entity + " WHERE part = ")
-	b.bind(key.Partition)
-	b.write(" AND sort = ")
-	b.bind(key.Sort)
-	var doc []byte
-	err := conn.QueryRowContext(ctx, b.String(), b.args...).Scan(&doc)
-	if errors.Is(err, sql.ErrNoRows) {
-		// The item is not there, which is a third answer again: nobody won a
-		// race, the coordinate is simply empty.
-		return objstore.Refused(kind, index, entity, key, nil), nil
-	}
-	if err != nil {
-		return objstore.Outcome{}, fmt.Errorf("read the refused item %s/%s: %w",
-			entity, key.Sort, err)
-	}
-	item := objstore.Item{Key: key, Attrs: map[string]string{}}
-	if err := json.Unmarshal(doc, &item.Attrs); err != nil {
-		return objstore.Outcome{}, fmt.Errorf("decode the refused item %s/%s: %w",
-			entity, key.Sort, err)
-	}
-	return objstore.Refused(kind, index, entity, key, &item), nil
+	return true, nil
 }
 
 // checkStmt generates the read that decides one check.
@@ -193,39 +154,16 @@ func (s *Store) writeStmt(w objstore.Write) (*stmt, bool, error) {
 	}
 }
 
-// putStmt stores an item's whole attribute set, in one of three shapes.
+// putStmt stores an item's whole attribute set, in one of two shapes.
 //
 // With no condition it is an upsert. With ItemAbsent it is the create-if-absent
-// every engine has, and the engine's own uniqueness decides it. With a condition
-// on the item's ATTRIBUTES it is a whole-document replace that requires the item
-// to be there and to look a certain way — DynamoDB's conditional PutItem, which
-// fails the same way against an item that is not there, because an absent item
-// carries no attribute a condition could hold on.
-//
-// The third shape is an UPDATE rather than an upsert for exactly that reason: an
-// INSERT … ON CONFLICT DO UPDATE … WHERE would take the INSERT branch when the
-// item is missing, and commit the write the condition was there to refuse.
+// every engine has, and the engine's own uniqueness decides it — never a read
+// this driver performed. ValidateBatch has already refused any other condition,
+// so there is no third shape to generate.
 func (s *Store) putStmt(w objstore.Write) (*stmt, bool, error) {
 	doc, err := encodeAttrs(w.Attrs)
 	if err != nil {
 		return nil, false, fmt.Errorf("put on %s/%s: %w", w.Entity, w.Key.Sort, err)
-	}
-	if len(w.Cond.Where) > 0 || w.Cond.Item == objstore.ItemPresent {
-		if w.Cond.Item == objstore.ItemAbsent {
-			return nil, false, fmt.Errorf("put on %s/%s asks the item to be absent AND to "+
-				"carry attributes; an absent item carries none", w.Entity, w.Key.Sort)
-		}
-		b := &stmt{d: s.dialect}
-		b.write("UPDATE " + w.Entity + " SET attrs = ")
-		b.bind(doc)
-		b.write(" WHERE part = ")
-		b.bind(w.Key.Partition)
-		b.write(" AND sort = ")
-		b.bind(w.Key.Sort)
-		if err := b.where(w.Cond.Where); err != nil {
-			return nil, false, err
-		}
-		return b, true, nil
 	}
 	b := &stmt{d: s.dialect}
 	b.write("INSERT INTO " + w.Entity + " (part, sort, attrs) VALUES (")

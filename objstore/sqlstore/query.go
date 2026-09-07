@@ -16,54 +16,42 @@ import (
 	"github.com/kronael/arizuko/objstore"
 )
 
-// Query reads one page of the items q selects.
+// Query reads every item q selects.
 //
-// The page bound is applied to the items the read EXAMINES, before the filter
-// narrows them, because that is where DynamoDB applies it: "This limit applies
-// before any FilterExpression or ProjectionExpression is applied to the
-// results." So the filter cannot be a SQL WHERE term — a WHERE would let the
-// engine discard rows this driver still has to count against the bound, and the
-// same read would then come back complete on SQL and partial on the other
-// engine, at a fixture size no unit test reaches.
+// The whole selection, in one statement. A SQL engine has no page cap of its
+// own, so this driver pages by not needing to: the rows stream and the caller
+// gets all of them. An engine that answers a read a page at a time walks its
+// own cursor here instead — the completeness is the contract, and where the
+// loop lives is the driver's business (objstore.Store).
 //
-// It is emitted as a SELECTED COLUMN instead: the engine still evaluates the
-// comparison, so a projection still leaves what it does not name inside the
-// engine, and this driver still learns the verdict per row. The cost is that a
-// filtered read walks its key selection, which is what a filter costs on every
-// engine and the reason a selective predicate belongs on the sort key.
-func (s *Store) Query(ctx context.Context, q objstore.Query) (objstore.Page, error) {
+// Limit is therefore a plain SQL LIMIT: the bound is on the rows RETURNED, and
+// the filter is a WHERE term the engine applies before counting them.
+func (s *Store) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
 	if err := objstore.ValidateQuery(q); err != nil {
-		return objstore.Page{}, err
+		return nil, err
 	}
 	if err := checkIdent("entity", q.Entity); err != nil {
-		return objstore.Page{}, err
+		return nil, err
 	}
 	b := &stmt{d: s.dialect}
 	b.write("SELECT part, sort")
 	for _, name := range q.Project {
 		if err := checkIdent("attribute", name); err != nil {
-			return objstore.Page{}, err
+			return nil, err
 		}
 		b.write(", " + s.dialect.attr(name))
 	}
 	if len(q.Project) == 0 {
 		b.write(", attrs")
 	}
-	b.write(", " + s.dialect.docBytes)
-	if len(q.Where) > 0 {
-		b.write(", ")
-		keep, err := b.conjunction(q.Where)
-		if err != nil {
-			return objstore.Page{}, err
-		}
-		b.write(s.dialect.boolInt(keep))
-	}
 	b.write(" FROM " + q.Entity + " WHERE part = ")
 	b.bind(q.Partition)
 	if err := b.keyPredicate(q.Key); err != nil {
-		return objstore.Page{}, err
+		return nil, err
 	}
-	b.after(q.After, q.Descending)
+	if err := b.where(q.Where); err != nil {
+		return nil, err
+	}
 	b.write(" ORDER BY sort")
 	if q.Descending {
 		b.write(" DESC")
@@ -74,69 +62,41 @@ func (s *Store) Query(ctx context.Context, q objstore.Query) (objstore.Page, err
 
 	rows, err := s.db.QueryContext(ctx, b.String(), b.args...)
 	if err != nil {
-		return objstore.Page{}, fmt.Errorf("query %s: %w", q.Entity, err)
+		return nil, fmt.Errorf("query %s: %w", q.Entity, err)
 	}
 	defer rows.Close()
-	page, err := drain(rows, q)
+	items, err := drain(rows, q)
 	if err != nil {
-		return objstore.Page{}, fmt.Errorf("query %s: %w", q.Entity, err)
+		return nil, fmt.Errorf("query %s: %w", q.Entity, err)
 	}
-	return page, nil
+	return items, nil
 }
 
-// drain reads rows until the page bound stops it, keeping the ones the filter
-// column marked.
-//
-// The bound is checked AFTER the item is taken, so a page always makes progress:
-// an item bigger than the whole budget would otherwise be unreadable, and the
-// cursor would point at it forever.
-func drain(rows *sql.Rows, q objstore.Query) (objstore.Page, error) {
-	page := objstore.Page{Items: []objstore.Item{}}
-	var bytes int
-	last := ""
+// drain reads every row the statement returned.
+func drain(rows *sql.Rows, q objstore.Query) ([]objstore.Item, error) {
+	items := []objstore.Item{}
 	for rows.Next() {
-		item, size, keep, err := scanItem(rows, q)
+		item, err := scanItem(rows, q)
 		if err != nil {
-			return objstore.Page{}, err
+			return nil, err
 		}
-		page.Examined++
-		bytes += size
-		last = item.Key.Sort
-		if keep {
-			page.Items = append(page.Items, item)
-		}
-		if bytes >= objstore.MaxPageBytes {
-			// The read stopped on the bound, so there may be more. Whether there
-			// IS more is a question only the next page answers, which is the
-			// contract LastEvaluatedKey states.
-			page.More = last
-			return page, nil
-		}
+		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
-		return objstore.Page{}, err
+		return nil, err
 	}
-	if q.Limit > 0 && page.Examined == q.Limit {
-		// The examined-items limit is a page boundary too, and it is the one a
-		// caller sets deliberately. A read that stopped there has to say so, or
-		// paging by Limit silently loses the tail.
-		page.More = last
-	}
-	return page, nil
+	return items, nil
 }
 
-// scanItem reads one row into an item, its stored size, and whether the filter
-// kept it. A projected attribute the item does not carry comes back NULL and
-// stays ABSENT from the map, so a projected read and a whole read report a
-// missing attribute the same way.
-func scanItem(rows *sql.Rows, q objstore.Query) (objstore.Item, int, bool, error) {
+// scanItem reads one row into an item. A projected attribute the item does not
+// carry comes back NULL and stays ABSENT from the map, so a projected read and
+// a whole read report a missing attribute the same way.
+func scanItem(rows *sql.Rows, q objstore.Query) (objstore.Item, error) {
 	item := objstore.Item{Attrs: map[string]string{}}
 	var (
 		doc   []byte
 		cells = make([]sql.NullString, len(q.Project))
-		size  int
-		keep  = 1
-		dest  = make([]any, 0, len(q.Project)+4)
+		dest  = make([]any, 0, len(q.Project)+3)
 	)
 	dest = append(dest, &item.Key.Partition, &item.Key.Sort)
 	if len(q.Project) == 0 {
@@ -145,25 +105,21 @@ func scanItem(rows *sql.Rows, q objstore.Query) (objstore.Item, int, bool, error
 	for i := range cells {
 		dest = append(dest, &cells[i])
 	}
-	dest = append(dest, &size)
-	if len(q.Where) > 0 {
-		dest = append(dest, &keep)
-	}
 	if err := rows.Scan(dest...); err != nil {
-		return item, 0, false, err
+		return item, err
 	}
 	if len(q.Project) == 0 {
 		if err := json.Unmarshal(doc, &item.Attrs); err != nil {
-			return item, 0, false, fmt.Errorf("decode the document at %q: %w", item.Key.Sort, err)
+			return item, fmt.Errorf("decode the document at %q: %w", item.Key.Sort, err)
 		}
-		return item, size, keep == 1, nil
+		return item, nil
 	}
 	for i, name := range q.Project {
 		if cells[i].Valid {
 			item.Attrs[name] = cells[i].String
 		}
 	}
-	return item, size, keep == 1, nil
+	return item, nil
 }
 
 // keyPredicate appends the sort-key selection, opening with " AND " when it
@@ -178,10 +134,8 @@ func scanItem(rows *sql.Rows, q objstore.Query) (objstore.Item, int, bool, error
 // The self-match disjunct is what makes a subtree include its own root: `a`
 // contains `a` and everything under `a/`, and not `ab`.
 //
-// The five ordered operators need no such care: `<`, `<=`, `>`, `>=` and a
-// closed range are the same comparison in both dialects on a TEXT column, which
-// is why widening the predicate set cost this file five lines and no
-// portability.
+// The four ordered operators need no such care: `<`, `<=`, `>` and `>=` are the
+// same comparison in both dialects on a TEXT column.
 func (b *stmt) keyPredicate(k objstore.KeyPredicate) error {
 	cmp := func(op, value string) {
 		b.write(" AND sort " + op + " ")
@@ -200,9 +154,6 @@ func (b *stmt) keyPredicate(k objstore.KeyPredicate) error {
 		cmp(">", k.Value)
 	case objstore.GeKey:
 		cmp(">=", k.Value)
-	case objstore.BetweenKey:
-		cmp(">=", k.Value)
-		cmp("<=", k.Upper)
 	case objstore.PrefixKey:
 		prefix := k.Value + k.Sep
 		b.write(" AND (sort = ")
@@ -218,30 +169,18 @@ func (b *stmt) keyPredicate(k objstore.KeyPredicate) error {
 	return nil
 }
 
-// after appends the resume bound, which follows the read's DIRECTION: a
-// descending page resumes BELOW its cursor, and a driver that always emitted `>`
-// would replay the page it just returned, forever.
-func (b *stmt) after(cursor string, descending bool) {
-	if cursor == "" {
-		return
-	}
-	if descending {
-		b.write(" AND sort < ")
-	} else {
-		b.write(" AND sort > ")
-	}
-	b.bind(cursor)
-}
-
 // conjunction renders the attribute comparisons as ONE boolean expression and
 // returns it, binding its values into this statement in the order they are
 // written.
 //
-// It returns the text instead of appending it because the same conjunction has
-// two sinks: a WHERE term on the write path, where the engine decides the row,
-// and a SELECTED COLUMN on the read path, where the engine decides the row but
-// this driver counts it against the page bound first. One renderer, two sinks —
-// a fix to a comparison cannot land on the write path and miss the read.
+// It returns the text instead of appending it so that `where` owns the
+// parenthesis and the leading AND: a filter on a read and a condition on a
+// write reach the identical renderer, so a fix to a comparison cannot land on
+// the write path and miss the read.
+//
+// A comparison against an attribute the item does not carry yields NULL on both
+// engines, which is not TRUE, so the row is excluded — the same answer Absent
+// states explicitly.
 func (b *stmt) conjunction(cmps []objstore.Cmp) (string, error) {
 	held := b.sql
 	b.sql = nil
