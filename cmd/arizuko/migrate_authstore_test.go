@@ -22,9 +22,9 @@ import (
 	"github.com/kronael/arizuko/objstore/sqlstore"
 )
 
-// legacySchema is the shape measured on krons, marinade and sloth on
+// authstoreLegacySchema is the shape measured on krons, marinade and sloth on
 // 2026-09-07: byte-identical on all three.
-const legacySchema = `
+const authstoreLegacySchema = `
 CREATE TABLE signing_keys (
   kid TEXT PRIMARY KEY, priv_pem TEXT NOT NULL, pub_pem TEXT NOT NULL,
   active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, retired_at TEXT);
@@ -38,12 +38,12 @@ CREATE TABLE refresh_tokens (
   scope TEXT NOT NULL DEFAULT '', aud TEXT NOT NULL DEFAULT '',
   issued_at TEXT NOT NULL, expires_at TEXT NOT NULL, used_at TEXT, revoked_at TEXT);`
 
-// legacyDB writes a file-backed auth.db carrying the old schema and returns its
-// path plus the open handle. It is a file rather than a memory database because
-// the tool opens the path itself.
-func legacyDB(t *testing.T) (string, *sql.DB) {
+// legacyDB writes a file-backed database named file, carrying schema, and
+// returns its path plus the open handle. It is a file rather than a memory
+// database because a migration tool opens the path itself.
+func legacyDB(t *testing.T, file, schema string) (string, *sql.DB) {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "auth.db")
+	path := filepath.Join(t.TempDir(), file)
 	if err := db_utils.CreateDBFile(path); err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func legacyDB(t *testing.T) (string, *sql.DB) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	if _, err := db.Exec(legacySchema); err != nil {
+	if _, err := db.Exec(schema); err != nil {
 		t.Fatal(err)
 	}
 	return path, db
@@ -61,7 +61,7 @@ func legacyDB(t *testing.T) (string, *sql.DB) {
 // A login and everything it rotated into becomes one family carrying the two
 // numbers the correlated subqueries used to compute.
 func TestMigrateAuthstoreDerivesFamiliesFromRotations(t *testing.T) {
-	path, db := legacyDB(t)
+	path, db := legacyDB(t, "auth.db", authstoreLegacySchema)
 	k, err := auth.NewSigningKey("1780785261-8c676f92")
 	if err != nil {
 		t.Fatal(err)
@@ -217,7 +217,7 @@ func TestMigrateAuthstoreLeavesAnAlreadyMigratedDatabaseAlone(t *testing.T) {
 // nothing. Two live credentials in one lineage is the shape that matters: the
 // import must not pick one of them to call current.
 func TestMigrateAuthstoreRefusesAForkedFamily(t *testing.T) {
-	path, db := legacyDB(t)
+	path, db := legacyDB(t, "auth.db", authstoreLegacySchema)
 	for _, hash := range []string{"h1", "h2"} {
 		if _, err := db.Exec(
 			`INSERT INTO refresh_tokens

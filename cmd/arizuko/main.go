@@ -104,6 +104,7 @@ func main() {
 		"archive":           cmdArchive, // spec 5/8
 		"migrate-split":     cmdMigrateSplit,
 		"migrate-authstore": cmdMigrateAuthstore, // spec 6/37 step 7
+		"migrate-emaid":     cmdMigrateEmaid,     // spec 6/37 step 7
 		"probe":             cmdProbe,            // spec 6/7 component contract
 	}
 	fn, ok := cmds[os.Args[1]]

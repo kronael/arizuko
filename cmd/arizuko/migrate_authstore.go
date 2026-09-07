@@ -30,9 +30,9 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// legacyTables are the four authd used to own. The suffix is what a migrated
-// database carries them under.
-var legacyTables = []string{"signing_keys", "auth_users", "oauth_identities", "refresh_tokens"}
+// authstoreTables are the four authd used to own. The suffix is what a migrated
+// database carries any set-aside table under, whichever daemon moved.
+var authstoreTables = []string{"signing_keys", "auth_users", "oauth_identities", "refresh_tokens"}
 
 const legacySuffix = "_v1"
 
@@ -67,20 +67,25 @@ func migrateAuthstore(path string, dryRun bool) error {
 	}
 	defer db.Close() //nolint:errcheck // the process is about to end either way
 
-	sources, err := legacySources(db)
+	sources, err := legacySources(db, authstoreTables)
 	if err != nil {
 		return err
 	}
 	if len(sources) == 0 {
 		fmt.Printf("%s carries none of %s: nothing to migrate.\n",
-			path, strings.Join(legacyTables, ", "))
+			path, strings.Join(authstoreTables, ", "))
 		return nil
 	}
-	snap, err := readSnapshot(db, sources)
+	snap, err := readAuthstoreSnapshot(db, sources)
 	if err != nil {
 		return err
 	}
-	reportSource(path, sources, snap)
+	reportSource(path, authstoreTables, sources, map[string]int{
+		"signing_keys":     len(snap.Keys),
+		"auth_users":       len(snap.Users),
+		"oauth_identities": len(snap.Identities),
+		"refresh_tokens":   len(snap.Tokens),
+	})
 	if dryRun {
 		// The check runs on a dry run too, so an operator learns that a family
 		// cannot be represented BEFORE the run that would stop half way.
@@ -92,14 +97,8 @@ func migrateAuthstore(path string, dryRun bool) error {
 	}
 
 	ctx := context.Background()
-	for _, table := range legacyTables {
-		if sources[table] != table {
-			continue // already set aside by an earlier run, or absent
-		}
-		if _, err := db.Exec("ALTER TABLE " + table + " RENAME TO " + table + legacySuffix); err != nil {
-			return fmt.Errorf("set %s aside: %w", table, err)
-		}
-		fmt.Printf("  set aside: %s -> %s\n", table, table+legacySuffix)
+	if err := setAside(db, authstoreTables, sources); err != nil {
+		return err
 	}
 	s := sqlstore.New(db)
 	for _, entity := range authstore.Entities {
@@ -115,12 +114,12 @@ func migrateAuthstore(path string, dryRun bool) error {
 	fmt.Printf("\nwrote %d signing keys (%d holding the slot), %d accounts, %d identities, "+
 		"%d refresh tokens in %d families\n",
 		counts.Keys, counts.Slot, counts.Users, counts.Identities, counts.Tokens, counts.Families)
-	return verify(st, snap)
+	return verifyAuthstore(st, snap)
 }
 
-// legacySources maps each legacy table to the name it is readable under: its
-// own if the move has not run, the `_v1` name if it has. A table under neither
-// name is absent from the map, which is how a database authd created after the
+// legacySources maps each of tables to the name it is readable under: its own
+// if the move has not run, the `_v1` name if it has. A table under neither name
+// is absent from the map, which is how a database a daemon created after the
 // move reports that there is nothing to read.
 //
 // PRESENCE IS NOT ENOUGH, and finding that out cost a confusing failure. An
@@ -129,9 +128,9 @@ func migrateAuthstore(path string, dryRun bool) error {
 // has since deleted and the read asks the three-column entity for `kid`. So a
 // table counts as a source only if it is NOT an entity, and the shape is what
 // says which.
-func legacySources(db *sql.DB) (map[string]string, error) {
+func legacySources(db *sql.DB, tables []string) (map[string]string, error) {
 	out := map[string]string{}
-	for _, table := range legacyTables {
+	for _, table := range tables {
 		for _, name := range []string{table + legacySuffix, table} {
 			legacy, err := isLegacyShape(db, name)
 			if err != nil {
@@ -172,9 +171,25 @@ func isLegacyShape(db *sql.DB, name string) (bool, error) {
 	return strings.Join(cols, ",") != "part,sort,attrs", nil
 }
 
-// readSnapshot reads every legacy row. A NULL column arrives as the empty
-// string, which is what an absent attribute means on the other side.
-func readSnapshot(db *sql.DB, src map[string]string) (authstore.Snapshot, error) {
+// setAside renames each table the move is about to replace, so the rows an
+// operator may need as evidence stay on disk and the entity can keep the name
+// of the table it replaces.
+func setAside(db *sql.DB, tables []string, src map[string]string) error {
+	for _, table := range tables {
+		if src[table] != table {
+			continue // already set aside by an earlier run, or absent
+		}
+		if _, err := db.Exec("ALTER TABLE " + table + " RENAME TO " + table + legacySuffix); err != nil {
+			return fmt.Errorf("set %s aside: %w", table, err)
+		}
+		fmt.Printf("  set aside: %s -> %s\n", table, table+legacySuffix)
+	}
+	return nil
+}
+
+// readAuthstoreSnapshot reads every legacy row. A NULL column arrives as the
+// empty string, which is what an absent attribute means on the other side.
+func readAuthstoreSnapshot(db *sql.DB, src map[string]string) (authstore.Snapshot, error) {
 	var snap authstore.Snapshot
 	if t, ok := src["signing_keys"]; ok {
 		rows, err := db.Query(`SELECT kid, priv_pem, pub_pem, active, created_at, retired_at FROM ` + t)
@@ -262,26 +277,15 @@ func readSnapshot(db *sql.DB, src map[string]string) (authstore.Snapshot, error)
 // compare it with what the import writes. Zero of something is worth seeing:
 // "0 rows matched" is the shape of a migration that read the wrong database,
 // and it is never an all-clear on its own.
-func reportSource(path string, src map[string]string, snap authstore.Snapshot) {
+func reportSource(path string, tables []string, src map[string]string, rows map[string]int) {
 	fmt.Printf("%s\n", path)
-	for _, table := range legacyTables {
+	for _, table := range tables {
 		name, ok := src[table]
 		if !ok {
 			fmt.Printf("  %-17s absent\n", table)
 			continue
 		}
-		var n int
-		switch table {
-		case "signing_keys":
-			n = len(snap.Keys)
-		case "auth_users":
-			n = len(snap.Users)
-		case "oauth_identities":
-			n = len(snap.Identities)
-		case "refresh_tokens":
-			n = len(snap.Tokens)
-		}
-		fmt.Printf("  %-17s %4d rows (reading %s)\n", table, n, name)
+		fmt.Printf("  %-17s %4d rows (reading %s)\n", table, rows[table], name)
 	}
 }
 
@@ -289,7 +293,7 @@ func reportSource(path string, src map[string]string, snap authstore.Snapshot) {
 // compares them with the source. It is the "export again and compare" half of
 // the move: an import that wrote the wrong attribute name would still report
 // its counts happily, and only a read through the real methods catches it.
-func verify(st *authstore.Store, snap authstore.Snapshot) error {
+func verifyAuthstore(st *authstore.Store, snap authstore.Snapshot) error {
 	keys, err := st.SigningKeysWithMaterial()
 	if err != nil {
 		return fmt.Errorf("read the signing keys back: %w", err)
