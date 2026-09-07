@@ -282,3 +282,42 @@ func TestDeadLetterReplayRESTRequiresWriteScope(t *testing.T) {
 		t.Fatalf("replay with dead_letters:write = %d, want 200", code)
 	}
 }
+
+// DeadLetters scopes on `routed_to` for a grant, so a widened predicate is a
+// cross-folder read, not a wrong list. A folder name may hold `_` and `%` and
+// SQL LIKE folds ASCII case, so the predicate is substr (BUGS L252).
+func TestDeadLettersFolderScopeIsNotWidenedByLikeMetacharacters(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	// The decoys need CHILDREN: `LIKE 'a_b/%'` widens on the subtree half of
+	// the predicate, so a decoy with no child is matched by neither predicate
+	// and proves nothing.
+	folders := []string{"a_b", "a_b/one", "aXb", "aXb/two", "A_B", "A_B/three"}
+	for i, f := range folders {
+		if err := db.PutGroup(core.Group{Folder: f}); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.PutMessage(core.Message{
+			ID: "dl-" + f, ChatJID: "slack:T/C" + string(rune('0'+i)) + "/U",
+			Content: "lost text", Timestamp: time.Now(),
+			BotMsg: true, RoutedTo: f, Status: core.MessageStatusFailed,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rows, err := db.DeadLetters("a_b", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("DeadLetters(a_b) returned %d rows, want 2 — a_b and a_b/one only", len(rows))
+	}
+	for _, r := range rows {
+		if r.RoutedTo != "a_b" && r.RoutedTo != "a_b/one" {
+			t.Errorf("DeadLetters(a_b) leaked %q, which a grant on a_b does not cover", r.RoutedTo)
+		}
+	}
+}

@@ -19,7 +19,7 @@ returned clean over code that still uses `LIKE` for containment:
 | ---- | -------------- | ----------- |
 | `routd/dead_letters_db.go:27` | `routed_to` on a grant-scoped read | a grant on `acme` also returns `acme_x`'s dead letters, and `ACME/...` |
 | `dashd/dashstore/pages.go:91` | the dashboard's routes-into-folder panel | a sibling `a_b`/`axb` pair, and `Coach`/`coach` |
-| `store/groups.go:307` | `SiblingFolders`, the open-sibling list | same two shapes |
+| `store/groups.go:307` | `SiblingFolders`, the open-sibling list | nothing — see below |
 
 `dead_letters_db.go:27` carries the comment "Subtree, not exact: a grant on
 `acme` covers `acme/support`", which names the intent exactly and then spells it
@@ -46,11 +46,23 @@ and these three sites do not participate in it because they never call it.
   cover all three, so the next site cannot hide from the check.
 
 Fixed 2026-09-07 (`5f5fdd7a`). All three call `SQLSubtree`/`SubtreeArgs`.
-`SiblingFolders` excludes the parent by name, because `SQLSubtree` matches the
-parent itself and `LIKE parent||'/%'` did not.
-`TestSiblingFoldersAreNotWidenedByLikeMetacharacters` joins the two existing
-cases; mutating `SQLSubtree` back to `LIKE` turns all three red, which is what
-proves they share one predicate now.
+`SiblingFolders` also excludes the parent by name, because `SQLSubtree` matches
+the parent itself and `LIKE parent||'/%'` did not.
+
+**Two of the three were live; `SiblingFolders` was not.** Measured by mutating
+`SQLSubtree` back to `LIKE` and re-running: `dead_letters`, the dashd routes
+panel, the FTS folder scope, the errored-chat list and `ListRoutes` all go red.
+`SiblingFolders` stays green, because `store/groups.go:326` already re-checked
+every returned row with `groupfolder.ParentOf(f) != parent` — an exact,
+case-sensitive Go comparison that rejects exactly what the widened predicate
+returned. The SQL widened and the Go filter caught it, so no caller ever saw a
+stranger's folder.
+
+That makes its test unfalsifiable by the mutation, so it is named for what it
+can prove — `TestSiblingFoldersKeepOnlyExactChildren` — rather than claiming a
+predicate guarantee it does not carry. Adopting `SQLSubtree` there is still
+right: one predicate, one declaration, and the Go filter stops being the only
+thing standing between a widened scope and the caller.
 
 ## L251 — the storage-layer guard reads string literals, so it cannot see a daemon hand its raw handle to a package that writes the SQL for it (2026-09-07, open — proposal, needs sign-off)
 
