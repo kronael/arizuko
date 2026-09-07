@@ -7,7 +7,7 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
-## L252 — three folder-containment filters build the LIKE wildcard in Go, so `L122`'s "all six fixed" grep could not see them (2026-09-07, open)
+## ✅ FIXED 2026-09-07 L252 — three folder-containment filters build the LIKE wildcard in Go, so `L122`'s "all six fixed" grep could not see them (2026-09-07)
 
 MEASURED 2026-09-07. `L122` closed on 2026-08-29 by adopting
 `groupfolder.SQLSubtree` at six sites, and verified itself with
@@ -44,6 +44,13 @@ and these three sites do not participate in it because they never call it.
 - **Fix:** the same adoption `L122` made — `groupfolder.SQLSubtree(col, "/")` plus
   `SubtreeArgs`. Then extend `store/subtree_filter_test.go`'s mutation test to
   cover all three, so the next site cannot hide from the check.
+
+Fixed 2026-09-07 (`5f5fdd7a`). All three call `SQLSubtree`/`SubtreeArgs`.
+`SiblingFolders` excludes the parent by name, because `SQLSubtree` matches the
+parent itself and `LIKE parent||'/%'` did not.
+`TestSiblingFoldersAreNotWidenedByLikeMetacharacters` joins the two existing
+cases; mutating `SQLSubtree` back to `LIKE` turns all three red, which is what
+proves they share one predicate now.
 
 ## L251 — the storage-layer guard reads string literals, so it cannot see a daemon hand its raw handle to a package that writes the SQL for it (2026-09-07, open — proposal, needs sign-off)
 

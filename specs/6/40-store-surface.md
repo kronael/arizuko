@@ -1,7 +1,6 @@
 ---
-status: defected
+status: shipped
 shipped: 2026-09-06
-defects: [L252]
 depends: [37-store-model, 38-storage-seam, ../5/33-paths-roles]
 ---
 
@@ -20,19 +19,18 @@ This spec derives the surface from invariants instead. **Three operations.**
 ## 1. Containment — is this coordinate inside that one
 
 Every scoped read asks it, and `groupfolder.SQLSubtree` is the one answer, at
-11 call sites:
+14 call sites:
 
 ```go
 "(" + col + " = ? OR substr(" + col + ", 1, ?) = ?)"
 ```
 
-**Three scoped reads still spell containment with `LIKE` and so do not get that
-answer** — `routd/dead_letters_db.go:27`, `dashd/dashstore/pages.go:91` and
-`store/groups.go:307`. They build the wildcard in Go and bind it as a value,
-which is why the grep that closed `L122` could not see them (`L252`). `LIKE`
-folds ASCII case and treats `_` and `%` as wildcards, and a folder name may
-carry both, so all three read a neighbour's rows. The `dead_letters` one is
-grant-scoped, which makes it a cross-folder read rather than a wrong list.
+The count is what a mutation proves, not what a grep reports. Three reads
+spelled containment with `LIKE` and bound the wildcard from Go, so the grep that
+closed `L122` read clean over them (`L252`, fixed). The check that holds is
+`store/subtree_filter_test.go`: mutate `SQLSubtree` itself back to `LIKE` and
+every adopter goes red. A site that does not call the helper cannot fail that
+test, which is why adoption is the guarantee and the grep never was.
 
 A subtree is a **string prefix on the path column**, and nothing else — no
 closure table, no adjacency list, no nested set. The separator is `/` between
