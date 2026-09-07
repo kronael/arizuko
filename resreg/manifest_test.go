@@ -222,7 +222,7 @@ func TestKnownFoldersUnionsTheLiveDBAndEveryManifest(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := KnownFolders(db,
+	got, err := KnownFolders(OnDB(db),
 		map[string]any{GroupsResource: []GroupRow{{Folder: "doc-a", JID: "x:2"}}},
 		map[string]any{GroupsResource: []GroupRow{{Folder: "doc-b", JID: "x:3"}}},
 	)
@@ -239,7 +239,7 @@ func TestKnownFoldersUnionsTheLiveDBAndEveryManifest(t *testing.T) {
 	}
 
 	// Live-only, no manifests at all.
-	got, err = KnownFolders(db)
+	got, err = KnownFolders(OnDB(db))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +251,7 @@ func TestKnownFoldersUnionsTheLiveDBAndEveryManifest(t *testing.T) {
 func TestKnownFoldersErrorsWhenGroupsIsNotRegistered(t *testing.T) {
 	reset()
 	db := dbtest.Open(t)
-	if _, err := KnownFolders(db); err == nil {
+	if _, err := KnownFolders(OnDB(db)); err == nil {
 		t.Fatal("KnownFolders succeeded with no groups resource; every folder would read as unknown")
 	}
 }

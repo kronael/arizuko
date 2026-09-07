@@ -48,7 +48,7 @@ func TestExportSnapshot_MatchesChecksum(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO groups(folder, added_at) VALUES('atlas', '2026-01-01T00:00:00Z')`); err != nil {
 		t.Fatal(err)
 	}
-	manifest, checksum, snapshotAt, err := resreg.ExportSnapshot(ctx, db, resreg.SubsystemRoutd)
+	manifest, checksum, snapshotAt, err := resreg.ExportSnapshot(ctx, resreg.OnDB(db), resreg.SubsystemRoutd)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestExportSnapshot_MatchesChecksum(t *testing.T) {
 	if snapshotAt == "" {
 		t.Error("snapshotAt empty")
 	}
-	want, err := resreg.Checksum(db, resreg.SubsystemRoutd)
+	want, err := resreg.Checksum(resreg.OnDB(db), resreg.SubsystemRoutd)
 	if err != nil {
 		t.Fatal(err)
 	}

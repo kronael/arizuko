@@ -662,7 +662,7 @@ func removePkgRows(dataDir string, rdb *routd.DB, rec routd.InstalledPackage) {
 // unmentioned resource alone, so naming the other ten would rebuild ten tables
 // (and count them in the audit row) to no purpose.
 func pkgProjection(st *store.Store, subsystem string) map[string]any {
-	live, err := resreg.Export(st.DB(), subsystem)
+	live, err := resreg.Export(resreg.OnDB(st.DB()), subsystem)
 	if err != nil {
 		die("Failed: read %s config: %v", subsystem, err)
 	}
@@ -672,7 +672,7 @@ func pkgProjection(st *store.Store, subsystem string) map[string]any {
 // pkgDoc stamps the projection with the checksum it was read at, so the apply's
 // in-tx recheck refuses instead of clobbering a concurrent writer.
 func pkgDoc(st *store.Store, subsystem string, manifest map[string]any, prune ...string) parsedDoc {
-	sum, err := resreg.Checksum(st.DB(), subsystem)
+	sum, err := resreg.Checksum(resreg.OnDB(st.DB()), subsystem)
 	if err != nil {
 		die("Failed: checksum %s: %v", subsystem, err)
 	}

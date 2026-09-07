@@ -22,6 +22,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"time"
+
+	"github.com/kronael/arizuko/objstore"
 )
 
 // ArchiveFormatVersion is archive.yaml's own format version — a small
@@ -66,22 +68,83 @@ type ArchiveSnapshot struct {
 // resource. Returns the same manifest map Export always has, plus the
 // content-hash checksum (the same value Checksum computes, without a
 // second Export pass) and the snapshot's start timestamp.
-func ExportSnapshot(ctx context.Context, db *sql.DB, subsystem string) (manifest map[string]any, checksum string, snapshotAt string, err error) {
-	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+func ExportSnapshot(ctx context.Context, be Backend, subsystem string) (manifest map[string]any, checksum string, snapshotAt string, err error) {
+	shape, err := subsystemShape(subsystem)
+	if err != nil {
+		return nil, "", "", err
+	}
+	if shape == shapeEntity {
+		return snapshotEntities(ctx, be, subsystem)
+	}
+	if be.DB == nil {
+		return nil, "", "", fmt.Errorf("resreg: %s is column-backed and the backend carries "+
+			"no SQL handle", subsystem)
+	}
+	tx, err := be.DB.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, "", "", fmt.Errorf("begin read tx: %w", err)
 	}
 	defer tx.Rollback()
 	snapshotAt = time.Now().UTC().Format(time.RFC3339)
-	manifest, err = Export(tx, subsystem)
+	manifest, err = exportRows(reader{sql: tx, obj: be.Obj}, subsystem)
 	if err != nil {
 		return nil, "", "", err
 	}
+	checksum, err = hashManifest(manifest)
+	if err != nil {
+		return nil, "", "", err
+	}
+	return manifest, checksum, snapshotAt, nil
+}
+
+// snapshotEntities is ExportSnapshot for a subsystem whose resources are
+// entities: objstore.ReadConsistent in place of the read transaction, because
+// there is no snapshot across N reads to open (objstore/consistent.go).
+//
+// It reads the subsystem's version marker, runs the same Export, and reads the
+// marker again; a marker that moved means a writer committed during the read and
+// the export runs again. What it detects is exactly the writers that carry
+// objstore.Bump, which is a discipline rather than an engine property (BUGS
+// L264) — a bounded writer that forgets it is invisible here, the same silent
+// way a missing audit row is.
+//
+// The manifest is rebuilt from nothing on every attempt, because the read may
+// run more than once and a retry that appended to the first attempt's map would
+// answer a document neither state ever had.
+func snapshotEntities(ctx context.Context, be Backend, subsystem string) (map[string]any, string, string, error) {
+	if be.Obj == nil {
+		return nil, "", "", fmt.Errorf("resreg: %s is entity-backed and the backend carries "+
+			"no object store", subsystem)
+	}
+	var manifest map[string]any
+	snapshotAt := time.Now().UTC().Format(time.RFC3339)
+	err := objstore.ReadConsistent(ctx, be.Obj, SubsystemScope(subsystem), func(ctx context.Context) error {
+		m, err := exportRows(be.read(), subsystem)
+		if err != nil {
+			return err
+		}
+		manifest = m
+		return nil
+	})
+	if err != nil {
+		return nil, "", "", err
+	}
+	checksum, err := hashManifest(manifest)
+	if err != nil {
+		return nil, "", "", err
+	}
+	return manifest, checksum, snapshotAt, nil
+}
+
+// hashManifest is the content hash of one exported document — the same value
+// Checksum computes, without a second Export pass. One renderer, so the two
+// paths above cannot produce checksums that disagree with each other or with
+// Checksum.
+func hashManifest(manifest map[string]any) (string, error) {
 	b, err := EmitYAML(manifest)
 	if err != nil {
-		return nil, "", "", err
+		return "", err
 	}
 	sum := sha256.Sum256(b)
-	checksum = "sha256:" + hex.EncodeToString(sum[:])
-	return manifest, checksum, snapshotAt, nil
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }

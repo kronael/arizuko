@@ -26,11 +26,11 @@ func TestFreshInstancesAgreeOnSeedChecksum(t *testing.T) {
 	time.Sleep(1100 * time.Millisecond)
 	_, b := openInstance(t)
 
-	sumA, err := resreg.Checksum(a[resreg.SubsystemRoutd].DB(), resreg.SubsystemRoutd)
+	sumA, err := resreg.Checksum(resreg.OnDB(a[resreg.SubsystemRoutd].DB()), resreg.SubsystemRoutd)
 	if err != nil {
 		t.Fatal(err)
 	}
-	sumB, err := resreg.Checksum(b[resreg.SubsystemRoutd].DB(), resreg.SubsystemRoutd)
+	sumB, err := resreg.Checksum(resreg.OnDB(b[resreg.SubsystemRoutd].DB()), resreg.SubsystemRoutd)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -119,7 +119,7 @@ func TestPreflightFolders_ExportRoundTripPasses(t *testing.T) {
 		t.Fatal("fixture is vacuous: a fresh routd.db must carry the seeded folder='' rules")
 	}
 
-	manifest, err := resreg.Export(stores[resreg.SubsystemRoutd].DB(), resreg.SubsystemRoutd)
+	manifest, err := resreg.Export(resreg.OnDB(stores[resreg.SubsystemRoutd].DB()), resreg.SubsystemRoutd)
 	if err != nil {
 		t.Fatalf("export: %v", err)
 	}

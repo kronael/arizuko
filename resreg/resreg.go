@@ -258,10 +258,34 @@ type Resource struct {
 	// engine.go. Resources without RowType are forwarders or custom-
 	// shape — still valid, just not engine-driven.
 	RowType  reflect.Type // canonical row struct (zero-value)
-	Table    string       // physical SQL table
+	Table    string       // where the rows live: the SQL table, or the entity of the same name
 	PKFields []string     // Go field names making up the natural PK
-	Scope    ScopeSpec    // DeleteScope filter; zero = no per-scope op
-	Hooks    Hooks        // optional semantics callbacks
+
+	// EntitySortKey declares this resource's SHAPE. Naming a RowType field here
+	// makes the rows objstore ITEMS — Table is an entity, each `db:` tag is an
+	// attribute name, and this field's value is the item's sort key. Empty is
+	// the column path. There is exactly one shape per resource at any moment and
+	// this is the only place it is written down; the engine reads it and never
+	// probes, and there is no try-the-entity-then-try-the-table (spec 6/37
+	// step 6, BUGS L259).
+	//
+	// It is SEPARATE from PKFields because they answer different questions.
+	// PKFields is the MANIFEST identity Diff matches rows on and EmitRows sorts
+	// by, and it is not required to be unique: krons' route_tokens holds 43 rows
+	// over 27 distinct jids with PKFields {"JID"}, so a sort key derived from it
+	// would collide 15 live ingress credentials onto one item (BUGS L260). The
+	// sort key IS the coordinate, so it is argued per resource against the rows
+	// the instance actually holds.
+	//
+	// The PARTITION is not declared: it is DB, the owner subsystem. Every read
+	// the engine makes — Export, Checksum, Plan, Diff, Apply — is per subsystem,
+	// and the partition is the coordinate a read filters on (objstore.Key). So
+	// an entity-backed resource must name its subsystem, and initMeta refuses one
+	// that does not rather than issuing a query no driver accepts.
+	EntitySortKey string
+
+	Scope ScopeSpec // DeleteScope filter; zero = no per-scope op
+	Hooks Hooks     // optional semantics callbacks
 
 	// DB names the owner subsystem (SubsystemRoutd | SubsystemOnbod) whose
 	// physical DB file holds Table. Required for any resource with a

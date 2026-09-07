@@ -150,7 +150,7 @@ func TestArchiveOnboarding_ConfigApplyStillNeverTouchesIt(t *testing.T) {
 	db := stores[resreg.SubsystemOnbod].DB()
 	seedAdmission(t, db, "telegram:user/12345")
 
-	manifest, err := resreg.Export(db, resreg.SubsystemOnbod)
+	manifest, err := resreg.Export(resreg.OnDB(db), resreg.SubsystemOnbod)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,11 +158,11 @@ func TestArchiveOnboarding_ConfigApplyStillNeverTouchesIt(t *testing.T) {
 		t.Fatal("fixture is vacuous: onboarding must be in the export projection")
 	}
 	manifest["onboarding"] = []any{} // the operator declared no admissions
-	sum, err := resreg.Checksum(db, resreg.SubsystemOnbod)
+	sum, err := resreg.Checksum(resreg.OnDB(db), resreg.SubsystemOnbod)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := resreg.Apply(context.Background(), db, resreg.SubsystemOnbod, sum, false, manifest, nil); err != nil {
+	if _, err := resreg.Apply(context.Background(), resreg.OnDB(db), resreg.SubsystemOnbod, sum, false, manifest, nil); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
 	var status string

@@ -81,7 +81,7 @@ func TestScanAll_RoundTrip(t *testing.T) {
 		TestRow{Kind: "a", Name: "y", Value: "2"},
 		TestRow{Kind: "b", Name: "z", Value: "3"},
 	)
-	got, err := r.ScanAll(db)
+	got, err := r.ScanAll(OnDB(db))
 	if err != nil {
 		t.Fatalf("ScanAll: %v", err)
 	}
@@ -165,21 +165,21 @@ func TestRowFilter_ExcludesFromScanDeleteAndChecksum(t *testing.T) {
 		TestRow{Kind: "a", Name: "x", Value: "1"},
 		TestRow{Kind: "excluded", Name: "hidden", Value: "9"},
 	)
-	got, err := r.ScanAll(db)
+	got, err := r.ScanAll(OnDB(db))
 	if err != nil {
 		t.Fatalf("ScanAll: %v", err)
 	}
 	if rows := got.([]TestRow); len(rows) != 1 || rows[0].Kind != "a" {
 		t.Fatalf("ScanAll = %v, want only kind=a (excluded row must not appear)", rows)
 	}
-	c1, err := Checksum(db, testSubsystem)
+	c1, err := Checksum(OnDB(db), testSubsystem)
 	if err != nil {
 		t.Fatalf("Checksum: %v", err)
 	}
 	// A checksum computed after inserting MORE excluded-kind rows must be
 	// unchanged — excluded rows never enter the projection Checksum hashes.
 	insertRaw(t, db, TestRow{Kind: "excluded", Name: "hidden2", Value: "10"})
-	c2, err := Checksum(db, testSubsystem)
+	c2, err := Checksum(OnDB(db), testSubsystem)
 	if err != nil {
 		t.Fatalf("Checksum 2: %v", err)
 	}
@@ -358,7 +358,7 @@ func TestYAMLEmit_Deterministic(t *testing.T) {
 		TestRow{Kind: "a", Name: "x", Value: "1"},
 		TestRow{Kind: "a", Name: "y", Value: "2"},
 	)
-	m1, err := Export(db, testSubsystem)
+	m1, err := Export(OnDB(db), testSubsystem)
 	if err != nil {
 		t.Fatalf("Export 1: %v", err)
 	}
@@ -366,7 +366,7 @@ func TestYAMLEmit_Deterministic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Emit 1: %v", err)
 	}
-	m2, err := Export(db, testSubsystem)
+	m2, err := Export(OnDB(db), testSubsystem)
 	if err != nil {
 		t.Fatalf("Export 2: %v", err)
 	}
@@ -391,7 +391,7 @@ func TestYAMLEmit_Deterministic(t *testing.T) {
 func TestApply_ChecksumMismatch(t *testing.T) {
 	db, _ := freshEngine(t)
 	// db's testrows table is empty; a bogus checksum can never match it.
-	_, err := Apply(context.Background(), db, testSubsystem, "sha256:bogus", false, map[string]any{
+	_, err := Apply(context.Background(), OnDB(db), testSubsystem, "sha256:bogus", false, map[string]any{
 		"testrows": []TestRow{{Kind: "a", Name: "x", Value: "1"}},
 	}, nil)
 	if err == nil {
@@ -411,11 +411,11 @@ func TestApply_RoundTrip(t *testing.T) {
 		{Kind: "a", Name: "x", Value: "1"},
 		{Kind: "b", Name: "z", Value: "3"},
 	}
-	c0, err := Checksum(db, testSubsystem)
+	c0, err := Checksum(OnDB(db), testSubsystem)
 	if err != nil {
 		t.Fatalf("Checksum: %v", err)
 	}
-	c1, err := Apply(context.Background(), db, testSubsystem, c0, false, map[string]any{
+	c1, err := Apply(context.Background(), OnDB(db), testSubsystem, c0, false, map[string]any{
 		"testrows": rows,
 	}, nil)
 	if err != nil {
@@ -426,7 +426,7 @@ func TestApply_RoundTrip(t *testing.T) {
 	}
 	// re-apply the SAME content, CAS'd against the checksum Apply just
 	// returned → idempotent, checksum unchanged.
-	c2, err := Apply(context.Background(), db, testSubsystem, c1, false, map[string]any{
+	c2, err := Apply(context.Background(), OnDB(db), testSubsystem, c1, false, map[string]any{
 		"testrows": rows,
 	}, nil)
 	if err != nil {
@@ -454,22 +454,22 @@ func TestExportApply_FullRoundTrip(t *testing.T) {
 		TestRow{Kind: "a", Name: "y", Value: "2"},
 		TestRow{Kind: "b", Name: "z", Value: "3"},
 	)
-	m1, err := Export(db1, testSubsystem)
+	m1, err := Export(OnDB(db1), testSubsystem)
 	if err != nil {
 		t.Fatalf("Export db1: %v", err)
 	}
 
 	db2, _ := freshEngine(t) // fresh empty DB; registry re-registers testrows
-	c0, err := Checksum(db2, testSubsystem)
+	c0, err := Checksum(OnDB(db2), testSubsystem)
 	if err != nil {
 		t.Fatalf("Checksum db2: %v", err)
 	}
-	if _, err := Apply(context.Background(), db2, testSubsystem, c0, false, map[string]any{
+	if _, err := Apply(context.Background(), OnDB(db2), testSubsystem, c0, false, map[string]any{
 		"testrows": m1["testrows"],
 	}, nil); err != nil {
 		t.Fatalf("Apply exported manifest to a fresh DB: %v", err)
 	}
-	m2, err := Export(db2, testSubsystem)
+	m2, err := Export(OnDB(db2), testSubsystem)
 	if err != nil {
 		t.Fatalf("Export db2: %v", err)
 	}
@@ -494,11 +494,11 @@ func TestApply_EmptyScopedListClears(t *testing.T) {
 	)
 
 	// Manifest MENTIONS testrows with an empty list → clears every row.
-	c0, err := Checksum(db, testSubsystem)
+	c0, err := Checksum(OnDB(db), testSubsystem)
 	if err != nil {
 		t.Fatalf("Checksum: %v", err)
 	}
-	if _, err := Apply(context.Background(), db, testSubsystem, c0, false, map[string]any{
+	if _, err := Apply(context.Background(), OnDB(db), testSubsystem, c0, false, map[string]any{
 		"testrows": []TestRow{},
 	}, nil); err != nil {
 		t.Fatalf("Apply empty: %v", err)
@@ -516,11 +516,11 @@ func TestApply_EmptyScopedListClears(t *testing.T) {
 	// missed (spec 5/8 §"Content-hash CAS": "it catches a manual sqlite3
 	// edit").
 	insertRaw(t, db, TestRow{Kind: "a", Name: "x", Value: "1"})
-	c1, err := Checksum(db, testSubsystem)
+	c1, err := Checksum(OnDB(db), testSubsystem)
 	if err != nil {
 		t.Fatalf("Checksum 2: %v", err)
 	}
-	if _, err := Apply(context.Background(), db, testSubsystem, c1, false, map[string]any{}, nil); err != nil {
+	if _, err := Apply(context.Background(), OnDB(db), testSubsystem, c1, false, map[string]any{}, nil); err != nil {
 		t.Fatalf("Apply absent: %v", err)
 	}
 	db.QueryRow(`SELECT COUNT(*) FROM testrows`).Scan(&n)
@@ -538,7 +538,7 @@ func TestPlan_EmptyScopedListMatchesApply(t *testing.T) {
 		TestRow{Kind: "a", Name: "x", Value: "1"},
 		TestRow{Kind: "b", Name: "z", Value: "3"},
 	)
-	d, err := r.Diff(db, []TestRow{})
+	d, err := r.Diff(OnDB(db), []TestRow{})
 	if err != nil {
 		t.Fatalf("Diff: %v", err)
 	}
@@ -553,12 +553,12 @@ func TestPlan_EmptyScopedListMatchesApply(t *testing.T) {
 func TestApply_Force(t *testing.T) {
 	db, _ := freshEngine(t)
 	// testrows is empty; manifest claims a bogus checksum → without force, error.
-	_, err := Apply(context.Background(), db, testSubsystem, "sha256:bogus", false, map[string]any{}, nil)
+	_, err := Apply(context.Background(), OnDB(db), testSubsystem, "sha256:bogus", false, map[string]any{}, nil)
 	if err == nil {
 		t.Fatal("want error without force")
 	}
 	// With force → bypass CAS.
-	sum, err := Apply(context.Background(), db, testSubsystem, "sha256:bogus", true, map[string]any{}, nil)
+	sum, err := Apply(context.Background(), OnDB(db), testSubsystem, "sha256:bogus", true, map[string]any{}, nil)
 	if err != nil {
 		t.Fatalf("Apply --force: %v", err)
 	}
@@ -586,7 +586,7 @@ func TestApply_UnknownSubsystem(t *testing.T) {
 		PKFields: []string{"Kind", "Name"},
 		Scope:    ScopeSpec{Field: "Kind"},
 	})
-	_, err := Apply(context.Background(), db, testSubsystem, "", true, map[string]any{
+	_, err := Apply(context.Background(), OnDB(db), testSubsystem, "", true, map[string]any{
 		"testrows": []TestRow{{Kind: "a", Name: "x", Value: "1"}},
 	}, nil)
 	if err == nil {
@@ -613,7 +613,7 @@ func TestDiff_AddUpdateRemove(t *testing.T) {
 		{Kind: "a", Name: "y", Value: "2"},       // identical → unchanged
 		{Kind: "c", Name: "new", Value: "9"},     // absent from DB → add
 	}
-	d, err := r.Diff(db, manifest)
+	d, err := r.Diff(OnDB(db), manifest)
 	if err != nil {
 		t.Fatalf("Diff: %v", err)
 	}
@@ -648,7 +648,7 @@ func TestDiff_ScopedRemoveLeavesOutOfScope(t *testing.T) {
 	manifest := []TestRow{
 		{Kind: "a", Name: "keep", Value: "9"}, // mentions only scope "a"
 	}
-	d, err := r.Diff(db, manifest)
+	d, err := r.Diff(OnDB(db), manifest)
 	if err != nil {
 		t.Fatalf("Diff: %v", err)
 	}
@@ -668,14 +668,14 @@ func TestPlan_NoChangeAfterApply(t *testing.T) {
 			{Kind: "b", Name: "z", Value: "3"},
 		},
 	}
-	c0, err := Checksum(db, testSubsystem)
+	c0, err := Checksum(OnDB(db), testSubsystem)
 	if err != nil {
 		t.Fatalf("Checksum: %v", err)
 	}
-	if _, err := Apply(context.Background(), db, testSubsystem, c0, false, manifest, nil); err != nil {
+	if _, err := Apply(context.Background(), OnDB(db), testSubsystem, c0, false, manifest, nil); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
-	deltas, err := Plan(db, testSubsystem, manifest)
+	deltas, err := Plan(OnDB(db), testSubsystem, manifest)
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
@@ -695,7 +695,7 @@ func TestGetResource_RoundTrip(t *testing.T) {
 		TestRow{Kind: "a", Name: "x", Value: "1"},
 		TestRow{Kind: "b", Name: "z", Value: "3"},
 	)
-	frag, err := GetResource(db, "testrows")
+	frag, err := GetResource(OnDB(db), "testrows")
 	if err != nil {
 		t.Fatalf("GetResource: %v", err)
 	}
@@ -714,15 +714,15 @@ func TestGetResource_RoundTrip(t *testing.T) {
 		t.Fatalf("ParseYAML: %v", err)
 	}
 	r := Lookup("testrows")
-	d, err := r.Diff(db, parsed["testrows"])
+	d, err := r.Diff(OnDB(db), parsed["testrows"])
 	if err != nil {
 		t.Fatalf("Diff: %v", err)
 	}
 	if d.Changed() {
 		t.Errorf("get fragment is not a no-op on re-apply: %+v", d)
 	}
-	if _, err := GetResource(db, "nope"); err == nil {
-		t.Error("GetResource(unknown) should error")
+	if _, err := GetResource(OnDB(db), "nope"); err == nil {
+		t.Error("GetResource(OnDB(unknown)) should error")
 	}
 }
 

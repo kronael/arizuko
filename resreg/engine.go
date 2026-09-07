@@ -12,9 +12,7 @@ package resreg
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -81,6 +79,10 @@ type resourceMeta struct {
 	// stores, so inventing a value would overwrite a deliberate NULL. Server-OWNED
 	// and server-INVENTED are different claims (BUGS F49).
 	autoStampIdx []int
+	// entity is the object path's metadata, non-nil for exactly the resources
+	// that declared EntitySortKey. It IS the shape switch every read and write
+	// below branches on (entity.go).
+	entity *entityMeta
 }
 
 type fieldMeta struct {
@@ -164,6 +166,7 @@ func (r *Resource) initMeta() {
 			m.autoStampIdx = append(m.autoStampIdx, m.fields[i].idx)
 		}
 	}
+	r.initEntity(m, dbToField)
 	r.meta = m
 }
 
@@ -199,15 +202,35 @@ func (r *Resource) andFilter() string {
 	return " AND (" + r.RowFilter + ")"
 }
 
-// ScanAll reads every row in the table, ordered by PK columns (or by
-// the first column when PKFields is empty). Rows excluded by RowFilter
-// never appear. Returns a `[]RowType`.
-func (r *Resource) ScanAll(q Querier) (any, error) {
+// ScanAll reads every row of the resource and returns a `[]RowType`.
+//
+// It is the SINGLE row reader every verb goes through, and the one place the
+// two shapes part: a resource that declared EntitySortKey is read as items and
+// one that did not is read as columns (entity.go). The branch is on the
+// DECLARATION, so which statement runs is decided at registration and not by
+// anything the storage says back.
+//
+// On the column path the order is PK columns (or the first column when PKFields
+// is empty) and RowFilter-excluded rows never appear. On the object path the
+// order is the sort key's; EmitRows sorts by PK before emitting either way, so
+// the checksum does not see the difference.
+func (r *Resource) ScanAll(be Backend) (any, error) { return r.scanAll(be.read()) }
+
+// scanAll is ScanAll over the handles one read holds, so Apply's in-transaction
+// recheck reads the same rows through its own *sql.Tx.
+func (r *Resource) scanAll(rd reader) (any, error) {
 	if r.meta == nil {
 		return nil, fmt.Errorf("resreg: %s has no schema (RowType unset)", r.Name)
 	}
+	if r.meta.entity != nil {
+		return r.scanEntities(rd)
+	}
+	if rd.sql == nil {
+		return nil, fmt.Errorf("resreg: %s is column-backed and the backend carries no "+
+			"SQL handle", r.Name)
+	}
 	query := "SELECT " + strings.Join(r.meta.columns, ", ") + " FROM " + r.Table + r.whereFilter() + r.orderBy()
-	rows, err := q.Query(query)
+	rows, err := rd.sql.Query(query)
 	if err != nil {
 		return nil, fmt.Errorf("%s: query: %w", r.Name, err)
 	}
@@ -654,12 +677,12 @@ const GroupsResource = "groups"
 //
 // Pass every document of the restore, not one: a folder-scoped row may sit in a
 // different document from the groups row that declares it.
-func KnownFolders(q Querier, manifests ...map[string]any) (map[string]bool, error) {
+func KnownFolders(be Backend, manifests ...map[string]any) (map[string]bool, error) {
 	g := Lookup(GroupsResource)
 	if g == nil {
 		return nil, fmt.Errorf("resreg: %s resource is not registered", GroupsResource)
 	}
-	live, err := g.ScanAll(q)
+	live, err := g.scanAll(be.read())
 	if err != nil {
 		return nil, fmt.Errorf("read live %s: %w", GroupsResource, err)
 	}
@@ -778,17 +801,18 @@ const (
 // projection: sha256 of the canonical EmitYAML bytes of Export, minus the
 // checksum field itself. Recomputed fresh from live rows at read time: no
 // counter, no table, nothing for a writer to remember to bump.
-func Checksum(q Querier, subsystem string) (string, error) {
-	m, err := Export(q, subsystem)
+func Checksum(be Backend, subsystem string) (string, error) {
+	return checksum(be.read(), subsystem)
+}
+
+// checksum is Checksum over the handles one read holds — Apply's in-transaction
+// recheck and its post-write re-read reach it through the *sql.Tx they write in.
+func checksum(rd reader, subsystem string) (string, error) {
+	m, err := exportRows(rd, subsystem)
 	if err != nil {
 		return "", err
 	}
-	b, err := EmitYAML(m)
-	if err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256(b)
-	return "sha256:" + hex.EncodeToString(sum[:]), nil
+	return hashManifest(m)
 }
 
 // Apply runs the scoped-rebuild lifecycle for ONE subsystem (one owner DB) in one
@@ -803,7 +827,11 @@ func Checksum(q Querier, subsystem string) (string, error) {
 // resources rebuild wholesale. SkipApplyRebuild resources (secrets, route_tokens,
 // invites) are never wiped. RowFilter-excluded rows never enter the checksum, the
 // DELETE, or the recomputed checksum.
-func Apply(ctx context.Context, db *sql.DB, subsystem string, wantChecksum string, force bool, manifestRows map[string]any, opts *ApplyOpts) (string, error) {
+func Apply(ctx context.Context, be Backend, subsystem string, wantChecksum string, force bool, manifestRows map[string]any, opts *ApplyOpts) (string, error) {
+	shape, err := subsystemShape(subsystem)
+	if err != nil {
+		return "", err
+	}
 	for name := range manifestRows {
 		r := Lookup(name)
 		if r == nil {
@@ -818,12 +846,19 @@ func Apply(ctx context.Context, db *sql.DB, subsystem string, wantChecksum strin
 	// 2nd connection that, for :memory: DBs, can't see the schema.
 	var counts map[string]any
 	if opts != nil {
-		c, err := applyCounts(db, subsystem, manifestRows)
+		c, err := applyCounts(be.read(), subsystem, manifestRows)
 		if err != nil {
 			return "", err
 		}
 		counts = c
 	}
+	if shape == shapeEntity {
+		return applyEntities(ctx, be, subsystem, wantChecksum, force, manifestRows, opts, counts)
+	}
+	if be.DB == nil {
+		return "", fmt.Errorf("resreg: %s is column-backed and the backend carries no SQL handle", subsystem)
+	}
+	db := be.DB
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return "", fmt.Errorf("begin: %w", err)
@@ -832,7 +867,8 @@ func Apply(ctx context.Context, db *sql.DB, subsystem string, wantChecksum strin
 	if _, err := tx.ExecContext(ctx, "UPDATE "+lockTable+" SET "+lockColumn+" = "+lockColumn+" WHERE 1 = 0"); err != nil {
 		return "", fmt.Errorf("acquire write lock: %w", err)
 	}
-	current, err := Checksum(tx, subsystem)
+	inTx := reader{sql: tx, obj: be.Obj}
+	current, err := checksum(inTx, subsystem)
 	if err != nil {
 		return "", fmt.Errorf("checksum: %w", err)
 	}
@@ -872,7 +908,7 @@ func Apply(ctx context.Context, db *sql.DB, subsystem string, wantChecksum strin
 			return current, err
 		}
 	}
-	newChecksum, err := Checksum(tx, subsystem)
+	newChecksum, err := checksum(inTx, subsystem)
 	if err != nil {
 		return current, fmt.Errorf("checksum after write: %w", err)
 	}
@@ -910,7 +946,7 @@ func mergeScopes(a, b []string) []string {
 // applyCounts diffs the manifest against the pre-tx live DB for every
 // mentioned, rebuildable resource in subsystem and returns per-resource
 // {add,update,delete} counts for the audit summary. Read-only.
-func applyCounts(db *sql.DB, subsystem string, manifestRows map[string]any) (map[string]any, error) {
+func applyCounts(rd reader, subsystem string, manifestRows map[string]any) (map[string]any, error) {
 	counts := map[string]any{}
 	for _, r := range BySubsystem(subsystem) {
 		if r.RowType == nil || r.SkipApplyRebuild {
@@ -920,7 +956,7 @@ func applyCounts(db *sql.DB, subsystem string, manifestRows map[string]any) (map
 		if !mentioned {
 			continue
 		}
-		d, err := r.Diff(db, rows)
+		d, err := r.diff(rd, rows)
 		if err != nil {
 			return nil, err
 		}
@@ -936,6 +972,15 @@ func applyCounts(db *sql.DB, subsystem string, manifestRows map[string]any) (map
 // per-resource add/update/delete counts, final checksum.
 func emitApplyAudit(ctx context.Context, sink audit.TxSink, tx *sql.Tx, opts *ApplyOpts,
 	counts map[string]any, newChecksum string) error {
+	return audit.EmitInTx(ctx, sink, tx, applyEvent(opts, counts, newChecksum))
+}
+
+// applyEvent builds that row. Both shapes record the identical event and only
+// the way it commits differs — inside the apply's transaction on the column
+// path, as the last fenced write of the replace on the object path — so the
+// event has one renderer and an operator reading `audit` cannot tell which
+// engine wrote the rows apart from the fields that genuinely differ.
+func applyEvent(opts *ApplyOpts, counts map[string]any, newChecksum string) audit.Event {
 	params := map[string]any{}
 	for k, v := range opts.Extra {
 		params[k] = v
@@ -943,7 +988,7 @@ func emitApplyAudit(ctx context.Context, sink audit.TxSink, tx *sql.Tx, opts *Ap
 	params["manifest_digest"] = opts.ManifestDigest
 	params["checksum"] = newChecksum
 	params["resources"] = counts
-	return audit.EmitInTx(ctx, sink, tx, audit.Event{
+	return audit.Event{
 		Category:      audit.CategoryMutation,
 		Action:        "config.apply",
 		Actor:         opts.Actor,
@@ -951,20 +996,25 @@ func emitApplyAudit(ctx context.Context, sink audit.TxSink, tx *sql.Tx, opts *Ap
 		Resource:      "manifest",
 		Outcome:       audit.OutcomeOK,
 		ParamsSummary: params,
-	})
+	}
 }
 
 // Export reads every registered resource of ONE subsystem via ScanAll and
 // assembles a manifest map keyed by Resource.Name. No checksum key — Export IS
 // the projection Checksum hashes, so baking one in would hash itself.
 // Deterministic per canonical key order.
-func Export(q Querier, subsystem string) (map[string]any, error) {
+func Export(be Backend, subsystem string) (map[string]any, error) {
+	return exportRows(be.read(), subsystem)
+}
+
+// exportRows is Export over the handles one read holds.
+func exportRows(rd reader, subsystem string) (map[string]any, error) {
 	out := map[string]any{}
 	for _, r := range BySubsystem(subsystem) {
 		if r.RowType == nil {
 			continue
 		}
-		rows, err := r.ScanAll(q)
+		rows, err := r.scanAll(rd)
 		if err != nil {
 			return nil, err
 		}
@@ -976,12 +1026,12 @@ func Export(q Querier, subsystem string) (map[string]any, error) {
 // GetResource emits a single-resource manifest fragment, shaped exactly as Export
 // would nest it so the fragment re-applies to a no-op. No checksum is stamped —
 // a fragment is scoped, not a full subsystem dump.
-func GetResource(q Querier, name string) (map[string]any, error) {
+func GetResource(be Backend, name string) (map[string]any, error) {
 	r := Lookup(name)
 	if r == nil || r.RowType == nil {
 		return nil, fmt.Errorf("resreg: unknown or schema-less resource %q", name)
 	}
-	rows, err := r.ScanAll(q)
+	rows, err := r.scanAll(be.read())
 	if err != nil {
 		return nil, err
 	}
@@ -1018,12 +1068,17 @@ func (d ResourceDelta) Changed() bool {
 // Scope-aware, matching scoped apply: for a scoped resource only live rows within
 // the folders the manifest mentions are candidates for Remove. SkipApplyRebuild
 // resources still diff — the apply path is what skips the write, not the diff.
-func (r *Resource) Diff(q Querier, manifestRows any) (ResourceDelta, error) {
+func (r *Resource) Diff(be Backend, manifestRows any) (ResourceDelta, error) {
+	return r.diff(be.read(), manifestRows)
+}
+
+// diff is Diff over the handles one read holds.
+func (r *Resource) diff(rd reader, manifestRows any) (ResourceDelta, error) {
 	d := ResourceDelta{Resource: r.Name, SkipApplyRebuild: r.SkipApplyRebuild}
 	if r.meta == nil {
 		return d, fmt.Errorf("resreg: %s has no schema (RowType unset)", r.Name)
 	}
-	live, err := r.ScanAll(q)
+	live, err := r.scanAll(rd)
 	if err != nil {
 		return d, err
 	}
@@ -1172,7 +1227,8 @@ func (r *Resource) byPK(rv reflect.Value) map[string]reflect.Value {
 // Plan diffs a parsed manifest against the live DB for every resource in
 // subsystem the manifest mentions, in catalog order. Non-mutating. Resources the
 // manifest omits are skipped, because apply leaves them untouched.
-func Plan(q Querier, subsystem string, manifest map[string]any) ([]ResourceDelta, error) {
+func Plan(be Backend, subsystem string, manifest map[string]any) ([]ResourceDelta, error) {
+	rd := be.read()
 	var out []ResourceDelta
 	for _, r := range BySubsystem(subsystem) {
 		if r.RowType == nil {
@@ -1182,7 +1238,7 @@ func Plan(q Querier, subsystem string, manifest map[string]any) ([]ResourceDelta
 		if !ok {
 			continue
 		}
-		d, err := r.Diff(q, rows)
+		d, err := r.diff(rd, rows)
 		if err != nil {
 			return nil, err
 		}

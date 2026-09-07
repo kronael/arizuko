@@ -242,7 +242,7 @@ func buildArchive(ctx context.Context, stores map[string]*store.Store, dataDir s
 	}
 	manifests := map[string]map[string]any{}
 	for _, subsystem := range subsystemOrder() {
-		manifest, checksum, snapshotAt, err := resreg.ExportSnapshot(ctx, stores[subsystem].DB(), subsystem)
+		manifest, checksum, snapshotAt, err := resreg.ExportSnapshot(ctx, resreg.OnDB(stores[subsystem].DB()), subsystem)
 		if err != nil {
 			return "", fmt.Errorf("export snapshot %s: %w", subsystem, err)
 		}

@@ -78,7 +78,7 @@ func TestArchive_RoundTrip_ConfigSecretsMessagesGroups(t *testing.T) {
 	srcRoutd.SetSecretKeys([]byte("archive-round-trip-key"))
 
 	c0 := routdChecksum(t, srcRoutd)
-	if _, err := resreg.Apply(ctx, srcRoutd.DB(), resreg.SubsystemRoutd, c0, false, map[string]any{
+	if _, err := resreg.Apply(ctx, resreg.OnDB(srcRoutd.DB()), resreg.SubsystemRoutd, c0, false, map[string]any{
 		"groups": []resources.GroupsRow{{Folder: "atlas", Product: "assistant"}},
 		"routes": []resources.RoutesRow{{Seq: 0, Match: "platform=tele", Target: "atlas"}},
 	}, nil); err != nil {
@@ -150,14 +150,14 @@ func TestArchive_RoundTrip_ConfigSecretsMessagesGroups(t *testing.T) {
 	}
 
 	// Config landed.
-	groupsGot, err := resreg.Lookup("groups").ScanAll(dstRoutd.DB())
+	groupsGot, err := resreg.Lookup("groups").ScanAll(resreg.OnDB(dstRoutd.DB()))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if rows := groupsGot.([]resources.GroupsRow); len(rows) != 1 || rows[0].Folder != "atlas" {
 		t.Errorf("groups after restore = %+v", rows)
 	}
-	routesGot, _ := resreg.Lookup("routes").ScanAll(dstRoutd.DB())
+	routesGot, _ := resreg.Lookup("routes").ScanAll(resreg.OnDB(dstRoutd.DB()))
 	if rows := routesGot.([]resources.RoutesRow); len(rows) != 1 || rows[0].Target != "atlas" {
 		t.Errorf("routes after restore = %+v", rows)
 	}
@@ -272,7 +272,7 @@ func TestArchive_Apply_ForceRestoresTokensOntoEmptyTarget(t *testing.T) {
 	dstRoutd := dstStores[resreg.SubsystemRoutd]
 	dstOnbod := dstStores[resreg.SubsystemOnbod]
 	c0 := routdChecksum(t, dstRoutd)
-	if _, err := resreg.Apply(ctx, dstRoutd.DB(), resreg.SubsystemRoutd, c0, false, map[string]any{
+	if _, err := resreg.Apply(ctx, resreg.OnDB(dstRoutd.DB()), resreg.SubsystemRoutd, c0, false, map[string]any{
 		"groups": []resources.GroupsRow{{Folder: "atlas", Product: "assistant"}},
 	}, nil); err != nil {
 		t.Fatal(err) // route_tokens.owner_folder FK-references groups(folder)
@@ -426,7 +426,7 @@ func TestArchive_Apply_ForceOverwritesNonEmptyFolder(t *testing.T) {
 	srcDataDir, srcStores := openInstance(t)
 	srcRoutd := srcStores[resreg.SubsystemRoutd]
 	c0 := routdChecksum(t, srcRoutd)
-	if _, err := resreg.Apply(ctx, srcRoutd.DB(), resreg.SubsystemRoutd, c0, false, map[string]any{
+	if _, err := resreg.Apply(ctx, resreg.OnDB(srcRoutd.DB()), resreg.SubsystemRoutd, c0, false, map[string]any{
 		"groups": []resources.GroupsRow{{Folder: "atlas", Product: "assistant"}},
 	}, nil); err != nil {
 		t.Fatal(err)
@@ -470,7 +470,7 @@ func TestCLI_ArchiveExportApply_RealFiles(t *testing.T) {
 	srcDir, srcStores := openInstance(t)
 	srcRoutd := srcStores[resreg.SubsystemRoutd]
 	c0 := routdChecksum(t, srcRoutd)
-	if _, err := resreg.Apply(context.Background(), srcRoutd.DB(), resreg.SubsystemRoutd, c0, false, map[string]any{
+	if _, err := resreg.Apply(context.Background(), resreg.OnDB(srcRoutd.DB()), resreg.SubsystemRoutd, c0, false, map[string]any{
 		"groups": []resources.GroupsRow{{Folder: "atlas", Product: "assistant"}},
 		"routes": []resources.RoutesRow{{Seq: 0, Match: "platform=tele", Target: "atlas"}},
 	}, nil); err != nil {
@@ -516,7 +516,7 @@ func TestCLI_ArchiveExportApply_RealFiles(t *testing.T) {
 		t.Fatalf("open destination routd.db: %v", err)
 	}
 	defer dstSt.Close()
-	got, err := resreg.Lookup("routes").ScanAll(dstSt.DB())
+	got, err := resreg.Lookup("routes").ScanAll(resreg.OnDB(dstSt.DB()))
 	if err != nil {
 		t.Fatal(err)
 	}

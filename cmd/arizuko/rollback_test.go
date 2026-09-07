@@ -70,7 +70,7 @@ func scalar(t *testing.T, db *sql.DB, q string) int {
 // that only re-applied the pre-image would leave new/team's rows behind.
 func forwardDocs(t *testing.T, stores map[string]*store.Store) []parsedDoc {
 	t.Helper()
-	routdSum, err := resreg.Checksum(stores[resreg.SubsystemRoutd].DB(), resreg.SubsystemRoutd)
+	routdSum, err := resreg.Checksum(resreg.OnDB(stores[resreg.SubsystemRoutd].DB()), resreg.SubsystemRoutd)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestRollback_LaterSubsystemFailureRestoresTheEarlierOne(t *testing.T) {
 	routdDB := stores[resreg.SubsystemRoutd].DB()
 	seedRoutdConfig(t, routdDB)
 
-	before, err := resreg.Checksum(routdDB, resreg.SubsystemRoutd)
+	before, err := resreg.Checksum(resreg.OnDB(routdDB), resreg.SubsystemRoutd)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestRollback_LaterSubsystemFailureRestoresTheEarlierOne(t *testing.T) {
 		t.Errorf("new/team's rules survived the rollback (count=%d)", got)
 	}
 
-	after, err := resreg.Checksum(routdDB, resreg.SubsystemRoutd)
+	after, err := resreg.Checksum(resreg.OnDB(routdDB), resreg.SubsystemRoutd)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +193,7 @@ func TestRollback_SuccessfulApplyKeepsBothSubsystems(t *testing.T) {
 	docs := forwardDocs(t, stores)
 	// Give the onbod document the checksum onbod.db actually has, so both
 	// transactions commit.
-	onbodSum, err := resreg.Checksum(onbodDB, resreg.SubsystemOnbod)
+	onbodSum, err := resreg.Checksum(resreg.OnDB(onbodDB), resreg.SubsystemOnbod)
 	if err != nil {
 		t.Fatal(err)
 	}
