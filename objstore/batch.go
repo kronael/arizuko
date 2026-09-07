@@ -24,6 +24,16 @@ const (
 // Cond is what one item must look like for the batch to commit. The zero value
 // asks nothing.
 //
+// Every write op carries one, a Put included: DynamoDB's transactional Put
+// takes "an optional condition expression that must be satisfied for the write
+// to succeed"
+// https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_TransactWriteItems.html
+// A Put with a Where is a whole-item REPLACE under a condition on the item it
+// replaces, which is the compare-and-swap a caller reaches for when the new
+// document is not a function of the old one. It implies presence: an item that
+// is not there carries no attribute a condition could hold on, so ItemAbsent
+// with a Where can never commit and is refused as the mistake it is.
+//
 // Where's terms are conjuncts, and each one closes a different hole. authd's
 // refresh claim needs both of its two: `used_at` Absent picks a single winner
 // out of N concurrent redeems, and `revoked_at` Absent refuses a token whose
@@ -40,22 +50,45 @@ type WriteOp uint8
 
 const (
 	// Put stores Attrs as the item's whole attribute set, replacing whatever
-	// was there.
+	// was there. Its Cond may require the item to be absent (create-if-absent)
+	// or may state attributes the item it replaces must already have.
 	Put WriteOp = iota
-	// Update merges Attrs into the item's existing attributes, leaving the
-	// rest alone. It writes nothing when the item is missing, which its Cond
-	// reports as a refusal.
+	// Update merges Attrs into the item's existing attributes and takes the
+	// attributes named in Remove away, leaving the rest alone. It writes
+	// nothing when the item is missing, which its Cond reports as a refusal.
 	Update
-	// Delete removes the item. Attrs is ignored.
+	// Delete removes the item. Attrs and Remove are ignored.
 	Delete
 )
 
 // Write is one mutation, with the condition it must satisfy.
+//
+// Attrs and Remove are the two halves of an Update, and DynamoDB writes them as
+// one expression: "If you want to modify an attribute's value and completely
+// remove another attribute, you could use a SET and a REMOVE action in a single
+// statement."
+// https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Expressions.UpdateExpressions.html
+//
+// One statement is the point. store.RepromptOnboarding clears five attributes
+// together and its comment says why: after the fold the observer only advances a
+// row with `user_sub IS NULL`, so a reset that left one of the five behind would
+// re-greet the chat forever and never admit it (BUGS O1). Five writes cannot
+// give that; one can.
 type Write struct {
 	Op     WriteOp
 	Entity string
 	Key    Key
-	Attrs  map[string]string
+	// Attrs are the attributes to set. On a Put they are the item's whole
+	// attribute set.
+	Attrs map[string]string
+	// Remove names attributes to take away, and only an Update has them.
+	//
+	// Taking an attribute AWAY is the only way to make it missing, because
+	// absent is the only null: writing "" leaves an attribute that Present
+	// still finds and that a tombstone test still reads as set. DynamoDB's
+	// REMOVE is the same operation and it is equally forgiving of a name the
+	// item does not carry — "if the attributes don't exist, nothing happens".
+	Remove []string
 	Cond   Cond
 }
 
@@ -112,11 +145,82 @@ func ValidateBatch(checks []Check, writes []Write) error {
 		if err := claim(c.Entity, c.Key); err != nil {
 			return err
 		}
+		if err := validateCond(c.Entity, c.Cond); err != nil {
+			return err
+		}
 	}
 	for _, w := range writes {
 		if err := claim(w.Entity, w.Key); err != nil {
 			return err
 		}
+		if err := validateWrite(w); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// validateWrite refuses one mutation no driver may accept, so the rules hold on
+// every engine rather than wherever a driver happened to notice.
+func validateWrite(w Write) error {
+	if err := checkOrderedSort(w.Entity, w.Key.Sort); err != nil {
+		return err
+	}
+	for attr, value := range w.Attrs {
+		if err := checkOrderedAttr(w.Entity, attr, value); err != nil {
+			return err
+		}
+	}
+	if err := validateCond(w.Entity, w.Cond); err != nil {
+		return err
+	}
+	if len(w.Remove) == 0 {
+		return nil
+	}
+	if w.Op != Update {
+		return fmt.Errorf("%s/%s removes attributes on a %s; only an Update has a REMOVE half, "+
+			"because a Put already replaces the whole document and a Delete takes the item",
+			w.Entity, w.Key.Sort, w.Op)
+	}
+	for _, attr := range w.Remove {
+		if attr == "" {
+			return fmt.Errorf("update on %s/%s removes an unnamed attribute", w.Entity, w.Key.Sort)
+		}
+		if _, both := w.Attrs[attr]; both {
+			// DynamoDB refuses the overlap outright: "Two document paths overlap
+			// with each other". Setting and removing one attribute in one write
+			// has no answer that is obviously right, so neither engine guesses.
+			return fmt.Errorf("update on %s/%s both sets and removes %q", w.Entity, w.Key.Sort, attr)
+		}
+	}
+	return nil
+}
+
+// validateCond width-checks the values a condition compares against. A read
+// that compares the wrong width is BUGS L97 on the guard rather than on the
+// cursor, and it fails the same silent way.
+func validateCond(entity string, c Cond) error {
+	for _, cmp := range c.Where {
+		if cmp.Op == Absent || cmp.Op == Present {
+			continue
+		}
+		if err := checkOrderedAttr(entity, cmp.Attr, cmp.Value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// String names a write op in an error a human reads.
+func (o WriteOp) String() string {
+	switch o {
+	case Put:
+		return "Put"
+	case Update:
+		return "Update"
+	case Delete:
+		return "Delete"
+	default:
+		return fmt.Sprintf("WriteOp(%d)", uint8(o))
+	}
 }

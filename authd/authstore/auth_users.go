@@ -103,11 +103,11 @@ func (s *Store) LinkOAuthIdentity(userID, name, provider, providerSub string) er
 		return err
 	}
 	writes = append(writes, displaced...)
-	committed, err := s.s.GuardedBatch(ctx(), nil, writes)
+	out, err := s.s.GuardedBatch(ctx(), nil, writes)
 	if err != nil {
 		return err
 	}
-	if !committed {
+	if !out.Committed {
 		return fmt.Errorf("linking %s to %s was refused: another writer changed the "+
 			"identity or the account first", sub, userID)
 	}
@@ -165,7 +165,7 @@ func (s *Store) displaced(userID, provider, keep string) ([]objstore.Write, erro
 // sort key opens with the provider, so the engine's own order is the one the
 // caller wants.
 func (s *Store) identitiesOf(userID string) ([]objstore.Item, error) {
-	return s.s.Query(ctx(), objstore.Query{
+	return objstore.QueryAll(ctx(), s.s, objstore.Query{
 		Entity: OAuthIdentities, Partition: Partition,
 		Where:   []objstore.Cmp{{Attr: "user_id", Op: objstore.Eq, Value: userID}},
 		Project: []string{"user_id"},

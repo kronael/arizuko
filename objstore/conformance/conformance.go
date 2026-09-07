@@ -8,9 +8,17 @@
 // expressed for every driver does not belong on the interface, and the only way
 // to know is to run the same assertions against each one.
 //
-// The five bodies below are the behaviours authd depends on today, each derived
-// from a statement in authd/authstore rather than from what an interface might
-// plausibly need.
+// Every body is derived from a statement a daemon runs today rather than from
+// what an interface might plausibly need. conformance.go holds the ones authd
+// depends on; reads.go holds what a Query selects and how much of it comes
+// back; writes.go holds what a GuardedBatch changes and what it says when it
+// changes nothing.
+//
+// A body earns its place by being able to FAIL. Three of the ones in reads.go
+// exist because the first cut of this suite could not have caught what they
+// test: Where appeared in none of the bodies, Limit appeared once without a
+// filter, and the largest fixture was 13 items — a size at which two engines
+// cannot disagree about a page boundary.
 package conformance
 
 import (
@@ -43,6 +51,16 @@ func Run(t *testing.T, newStore Factory) {
 		{"ProjectionLeavesUnprojectedAttributesInTheEngine", ProjectionLeavesUnprojectedAttributesInTheEngine},
 		{"WriteSemanticsAreTheSameOnEveryDriver", WriteSemanticsAreTheSameOnEveryDriver},
 		{"BatchRefusesWhatNoDriverMayAccept", BatchRefusesWhatNoDriverMayAccept},
+		{"KeyRangeSelectsAWindowRatherThanAScan", KeyRangeSelectsAWindowRatherThanAScan},
+		{"FilterNarrowsWhatTheKeyAlreadySelected", FilterNarrowsWhatTheKeyAlreadySelected},
+		{"PagingIsBoundedBeforeTheFilter", PagingIsBoundedBeforeTheFilter},
+		{"LimitBoundsWhatTheReadExaminesRatherThanWhatItReturns", LimitBoundsWhatTheReadExaminesRatherThanWhatItReturns},
+		{"WholePartitionScanPagesRatherThanReturningEverything", WholePartitionScanPagesRatherThanReturningEverything},
+		{"RemovalTakesTheAttributeAwayRatherThanEmptyingIt", RemovalTakesTheAttributeAwayRatherThanEmptyingIt},
+		{"ConditionalReplaceNeedsTheItemItReplaces", ConditionalReplaceNeedsTheItemItReplaces},
+		{"RefusalNamesWhatDidNotHold", RefusalNamesWhatDidNotHold},
+		{"CountersAreACompareAndSwapProtocol", CountersAreACompareAndSwapProtocol},
+		{"OrderedWidthsAreRefusedRatherThanMisSorted", OrderedWidthsAreRefusedRatherThanMisSorted},
 	} {
 		t.Run(c.name, func(t *testing.T) { c.body(t, newStore) })
 	}
@@ -84,7 +102,7 @@ func OneClaimWinsAndTheLosersAreNotErrors(t *testing.T, newStore Factory) {
 	for i := 0; i < callers; i++ {
 		go func() {
 			defer wg.Done()
-			ok, err := s.GuardedBatch(ctx, nil, []objstore.Write{claim(key)})
+			out, err := s.GuardedBatch(ctx, nil, []objstore.Write{claim(key)})
 			mu.Lock()
 			defer mu.Unlock()
 			switch {
@@ -92,7 +110,7 @@ func OneClaimWinsAndTheLosersAreNotErrors(t *testing.T, newStore Factory) {
 				if firstErr == nil {
 					firstErr = err
 				}
-			case ok:
+			case out.Committed:
 				won++
 			default:
 				refused++
@@ -145,7 +163,7 @@ func ClaimAndInsertHappenTogetherOrNotAtAll(t *testing.T, newStore Factory) {
 		successor := objstore.Key{Partition: tenant, Sort: "tok/next-" + string(rune('a'+i))}
 		go func() {
 			defer wg.Done()
-			ok, err := s.GuardedBatch(ctx, nil, []objstore.Write{
+			out, err := s.GuardedBatch(ctx, nil, []objstore.Write{
 				claim(presented),
 				{Op: objstore.Put, Entity: tokens, Key: successor,
 					Attrs: map[string]string{"family": "f1", "sub": "alice"},
@@ -156,7 +174,7 @@ func ClaimAndInsertHappenTogetherOrNotAtAll(t *testing.T, newStore Factory) {
 			switch {
 			case err != nil:
 				errs = append(errs, err)
-			case ok:
+			case out.Committed:
 				won++
 				winner = successor.Sort
 			}
@@ -182,7 +200,7 @@ func ClaimAndInsertHappenTogetherOrNotAtAll(t *testing.T, newStore Factory) {
 	// The deterministic half: the token is spent now, so the same batch must
 	// leave NOTHING behind, not even the half that would succeed on its own.
 	orphan := objstore.Key{Partition: tenant, Sort: "tok/next-z"}
-	ok, err := s.GuardedBatch(ctx, nil, []objstore.Write{
+	out, err := s.GuardedBatch(ctx, nil, []objstore.Write{
 		claim(presented),
 		{Op: objstore.Put, Entity: tokens, Key: orphan,
 			Attrs: map[string]string{"family": "f1"},
@@ -191,7 +209,7 @@ func ClaimAndInsertHappenTogetherOrNotAtAll(t *testing.T, newStore Factory) {
 	if err != nil {
 		t.Fatalf("re-claiming a spent token: %v", err)
 	}
-	if ok {
+	if out.Committed {
 		t.Fatal("a spent token was claimed a second time")
 	}
 	if items := point(t, s, tokens, orphan); len(items) != 0 {
@@ -309,10 +327,14 @@ func SortKeyOrderIsTimeOrder(t *testing.T, newStore Factory) {
 	if !sameOrder(got, reversed(want)) {
 		t.Errorf("descending read = %v, want %v", got, reversed(want))
 	}
-	if limited := s2keys(t, s, objstore.Query{
+	// The newest row is ONE PAGE of one examined item, not a whole read capped at
+	// one: Limit bounds the page, so a caller that walked the cursor would get
+	// the whole log a page at a time.
+	newest := page(t, s, objstore.Query{
 		Entity: "session_log", Partition: tenant, Descending: true, Limit: 1,
-	}); len(limited) != 1 || limited[0] != want[len(want)-1] {
-		t.Errorf("the newest row is %v, want %q", limited, want[len(want)-1])
+	})
+	if !sameOrder(keysOf(newest.Items), want[len(want)-1:]) {
+		t.Errorf("the newest row is %v, want %q", keysOf(newest.Items), want[len(want)-1])
 	}
 }
 
@@ -325,7 +347,7 @@ func ProjectionLeavesUnprojectedAttributesInTheEngine(t *testing.T, newStore Fac
 	s := newStore(t, "signing_keys")
 	put(t, s, "signing_keys", objstore.Key{Partition: tenant, Sort: "kid-1"},
 		map[string]string{"priv_pem": "SECRET", "pub_pem": "public", "active": "1"})
-	items, err := s.Query(context.Background(), objstore.Query{
+	items, err := objstore.QueryAll(context.Background(), s, objstore.Query{
 		Entity: "signing_keys", Partition: tenant, Project: []string{"pub_pem", "active", "retired_at"},
 	})
 	if err != nil {
@@ -403,12 +425,12 @@ func WriteSemanticsAreTheSameOnEveryDriver(t *testing.T, newStore Factory) {
 	live := objstore.Key{Partition: tenant, Sort: "tok/live"}
 	put(t, s, tokens, live, map[string]string{"family": "f1", "sub": "alice"})
 
-	if ok := commit(t, s, ctx, objstore.Write{Op: objstore.Update, Entity: tokens, Key: missing,
-		Attrs: map[string]string{"used_at": core.NowTS()}}); ok {
+	if out := commit(t, s, ctx, objstore.Write{Op: objstore.Update, Entity: tokens, Key: missing,
+		Attrs: map[string]string{"used_at": core.NowTS()}}); out.Committed {
 		t.Error("an update of a missing item committed; Update always requires the item to exist")
 	}
-	if ok := commit(t, s, ctx, objstore.Write{Op: objstore.Put, Entity: tokens, Key: live,
-		Attrs: map[string]string{"family": "f2"}, Cond: objstore.Cond{Item: objstore.ItemAbsent}}); ok {
+	if out := commit(t, s, ctx, objstore.Write{Op: objstore.Put, Entity: tokens, Key: live,
+		Attrs: map[string]string{"family": "f2"}, Cond: objstore.Cond{Item: objstore.ItemAbsent}}); out.Committed {
 		t.Error("a create-if-absent overwrote an item that was there")
 	}
 	if got := one(t, s, tokens, live); got.Attrs["family"] != "f1" {
@@ -426,11 +448,11 @@ func WriteSemanticsAreTheSameOnEveryDriver(t *testing.T, newStore Factory) {
 		t.Errorf("Put did not replace the document: %v", got.Attrs)
 	}
 
-	if ok := commit(t, s, ctx, objstore.Write{Op: objstore.Delete, Entity: tokens, Key: missing}); !ok {
+	if out := commit(t, s, ctx, objstore.Write{Op: objstore.Delete, Entity: tokens, Key: missing}); !out.Committed {
 		t.Error("deleting a missing item was refused; a delete with no condition is idempotent")
 	}
-	if ok := commit(t, s, ctx, objstore.Write{Op: objstore.Delete, Entity: tokens, Key: missing,
-		Cond: objstore.Cond{Item: objstore.ItemPresent}}); ok {
+	if out := commit(t, s, ctx, objstore.Write{Op: objstore.Delete, Entity: tokens, Key: missing,
+		Cond: objstore.Cond{Item: objstore.ItemPresent}}); out.Committed {
 		t.Error("deleting a missing item committed while asking for its presence")
 	}
 	mustCommit(t, s, ctx, objstore.Write{Op: objstore.Delete, Entity: tokens, Key: live})

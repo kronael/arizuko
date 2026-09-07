@@ -74,11 +74,11 @@ func TestPartitionAndSortAreValuesRatherThanText(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t, "routes")
 	nasty := objstore.Key{Partition: "acme'; DROP TABLE routes--", Sort: `a" OR 1=1 --`}
-	ok, err := s.GuardedBatch(ctx, nil, []objstore.Write{
+	out, err := s.GuardedBatch(ctx, nil, []objstore.Write{
 		{Op: objstore.Put, Entity: "routes", Key: nasty, Attrs: map[string]string{"seq": "1"}},
 	})
-	if err != nil || !ok {
-		t.Fatalf("put with a hostile key: ok=%v err=%v", ok, err)
+	if err != nil || !out.Committed {
+		t.Fatalf("put with a hostile key: committed=%v err=%v", out.Committed, err)
 	}
 	got, err := s.Query(ctx, objstore.Query{
 		Entity: "routes", Partition: nasty.Partition,
@@ -87,10 +87,10 @@ func TestPartitionAndSortAreValuesRatherThanText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].Key != nasty {
-		t.Fatalf("read back %v, want the item written at %v", got, nasty)
+	if len(got.Items) != 1 || got.Items[0].Key != nasty {
+		t.Fatalf("read back %v, want the item written at %v", got.Items, nasty)
 	}
-	if strings.Contains(got[0].Attrs["seq"], "DROP") {
+	if strings.Contains(got.Items[0].Attrs["seq"], "DROP") {
 		t.Fatal("the key reached the attributes")
 	}
 }

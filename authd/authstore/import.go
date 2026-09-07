@@ -102,11 +102,11 @@ func (s *Store) Import(snap Snapshot) (Counts, error) {
 	// lands and a chunk that does not leave a partial import a re-run finishes.
 	for len(writes) > 0 {
 		n := min(len(writes), objstore.MaxBatchActions)
-		committed, err := s.s.GuardedBatch(ctx(), nil, writes[:n])
+		out, err := s.s.GuardedBatch(ctx(), nil, writes[:n])
 		if err != nil {
 			return Counts{}, err
 		}
-		if !committed {
+		if !out.Committed {
 			return Counts{}, fmt.Errorf("the import batch was refused; nothing in it conditions "+
 				"on anything, so the store rejected %d unconditional writes", n)
 		}

@@ -72,7 +72,7 @@ func (s *Store) StartRefreshFamily(sub string, scope []string, aud string, ttl t
 	}
 	fam := newFamilyID()
 	issued, expires := now(), time.Now().Add(ttl).UTC().Format(time.RFC3339)
-	committed, err := s.s.GuardedBatch(ctx(), nil, []objstore.Write{
+	out, err := s.s.GuardedBatch(ctx(), nil, []objstore.Write{
 		{
 			Op: objstore.Put, Entity: RefreshFamilies, Key: key(fam),
 			Attrs: map[string]string{
@@ -87,7 +87,7 @@ func (s *Store) StartRefreshFamily(sub string, scope []string, aud string, ttl t
 	if err != nil {
 		return "", err
 	}
-	if !committed {
+	if !out.Committed {
 		return "", errStartRefused
 	}
 	obs.RecordTokenMint("refresh")
@@ -160,9 +160,10 @@ func (s *Store) ClaimRefreshToken(raw string) (won bool, err error) {
 	if err != nil || !ok {
 		return false, err
 	}
-	return s.s.GuardedBatch(ctx(),
+	out, err := s.s.GuardedBatch(ctx(),
 		[]objstore.Check{familyLive(it.Attrs["family_id"])},
 		[]objstore.Write{claimWrite(hash)})
+	return out.Committed, err
 }
 
 // ClaimAndRotateRefresh claims raw and, on a win, writes its successor and the
@@ -190,7 +191,7 @@ func (s *Store) ClaimAndRotateRefresh(raw, fam, sub string, scope []string, aud 
 		return "", false, err
 	}
 	issued, expires := now(), time.Now().Add(ttl).UTC().Format(time.RFC3339)
-	committed, err := s.s.GuardedBatch(ctx(), nil, []objstore.Write{
+	out, err := s.s.GuardedBatch(ctx(), nil, []objstore.Write{
 		{
 			Op: objstore.Update, Entity: RefreshFamilies, Key: key(fam),
 			Attrs: map[string]string{
@@ -206,7 +207,7 @@ func (s *Store) ClaimAndRotateRefresh(raw, fam, sub string, scope []string, aud 
 		claimWrite(HashToken(raw)),
 		refreshTokenPut(HashToken(newRaw), fam, sub, scope, aud, issued, expires),
 	})
-	if err != nil || !committed {
+	if err != nil || !out.Committed {
 		return "", false, err
 	}
 	obs.RecordTokenMint("refresh")
@@ -225,13 +226,14 @@ func (s *Store) ClaimAndRotateRefresh(raw, fam, sub string, scope []string, aud 
 // live session", because an operator mistyping an id during an incident must
 // not be told the session is dead.
 func (s *Store) RevokeFamily(familyID string) (killed bool, err error) {
-	return s.s.GuardedBatch(ctx(), nil, []objstore.Write{{
+	out, err := s.s.GuardedBatch(ctx(), nil, []objstore.Write{{
 		Op: objstore.Update, Entity: RefreshFamilies, Key: key(familyID),
 		Attrs: map[string]string{"revoked_at": now()},
 		Cond: objstore.Cond{Where: []objstore.Cmp{
 			{Attr: "revoked_at", Op: objstore.Absent},
 		}},
 	}})
+	return out.Committed, err
 }
 
 // maxSessionsLimit caps one page, matching audit's own ceiling.
@@ -263,7 +265,7 @@ func (s *Store) SessionsByFamily(sub string, limit int, at time.Time) ([]resourc
 	if sub != "" {
 		q.Where = []objstore.Cmp{{Attr: "sub", Op: objstore.Eq, Value: sub}}
 	}
-	items, err := s.s.Query(ctx(), q)
+	items, err := objstore.QueryAll(ctx(), s.s, q)
 	if err != nil {
 		return nil, err
 	}

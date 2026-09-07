@@ -57,7 +57,7 @@ func (s *Store) SigningKeysWithMaterial() ([]StoredKey, error) {
 	if err != nil {
 		return nil, err
 	}
-	items, err := s.s.Query(ctx(), objstore.Query{Entity: SigningKeys, Partition: Partition})
+	items, err := objstore.QueryAll(ctx(), s.s, objstore.Query{Entity: SigningKeys, Partition: Partition})
 	if err != nil {
 		return nil, err
 	}
@@ -125,11 +125,11 @@ func (s *Store) RotateActiveKey(k *auth.SigningKey, at time.Time) error {
 				Cond:  objstore.Cond{Item: objstore.ItemPresent},
 			})
 	}
-	committed, err := s.s.GuardedBatch(ctx(), nil, writes)
+	out, err := s.s.GuardedBatch(ctx(), nil, writes)
 	if err != nil {
 		return err
 	}
-	if !committed {
+	if !out.Committed {
 		return ErrRotationLost
 	}
 	return nil
@@ -184,7 +184,7 @@ func (s *Store) SigningKeyMetadata(maxAccessTTL time.Duration, at time.Time) ([]
 	if err != nil {
 		return nil, err
 	}
-	items, err := s.s.Query(ctx(), objstore.Query{
+	items, err := objstore.QueryAll(ctx(), s.s, objstore.Query{
 		Entity: SigningKeys, Partition: Partition, Descending: true,
 		Project: []string{"created_at", "retired_at"},
 	})

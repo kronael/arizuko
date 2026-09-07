@@ -22,9 +22,9 @@ import (
 // that read outside the write lock would be answering about a state the write
 // can no longer assume, which is the whole failure the guarded transition
 // exists to prevent.
-func (s *Store) GuardedBatch(ctx context.Context, checks []objstore.Check, writes []objstore.Write) (bool, error) {
+func (s *Store) GuardedBatch(ctx context.Context, checks []objstore.Check, writes []objstore.Write) (objstore.Outcome, error) {
 	if err := objstore.ValidateBatch(checks, writes); err != nil {
-		return false, err
+		return objstore.Outcome{}, err
 	}
 	// Every statement is generated before a lock is taken: a malformed batch is
 	// a programming error, and it must not hold the writer while it is found.
@@ -32,7 +32,7 @@ func (s *Store) GuardedBatch(ctx context.Context, checks []objstore.Check, write
 	for i, c := range checks {
 		b, err := s.checkStmt(c)
 		if err != nil {
-			return false, err
+			return objstore.Outcome{}, err
 		}
 		checkStmts[i] = b
 	}
@@ -41,63 +41,103 @@ func (s *Store) GuardedBatch(ctx context.Context, checks []objstore.Check, write
 	for i, w := range writes {
 		b, g, err := s.writeStmt(w)
 		if err != nil {
-			return false, err
+			return objstore.Outcome{}, err
 		}
 		writeStmts[i], guarded[i] = b, g
 	}
 
 	conn, err := s.db.Conn(ctx)
 	if err != nil {
-		return false, err
+		return objstore.Outcome{}, err
 	}
 	defer conn.Close() //nolint:errcheck // the pool reclaims it either way
 	if _, err := conn.ExecContext(ctx, s.dialect.begin); err != nil {
-		return false, fmt.Errorf("open the batch: %w", err)
+		return objstore.Outcome{}, fmt.Errorf("open the batch: %w", err)
 	}
-	committed, err := s.runBatch(ctx, conn, checkStmts, writeStmts, guarded)
-	if err != nil || !committed {
+	out, err := s.runBatch(ctx, conn, checks, writes, checkStmts, writeStmts, guarded)
+	if err != nil || !out.Committed {
 		if _, rerr := conn.ExecContext(ctx, "ROLLBACK"); rerr != nil && err == nil {
-			return false, fmt.Errorf("roll the refused batch back: %w", rerr)
+			return objstore.Outcome{}, fmt.Errorf("roll the refused batch back: %w", rerr)
 		}
-		return false, err
+		return out, err
 	}
 	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
-		return false, fmt.Errorf("commit the batch: %w", err)
+		return objstore.Outcome{}, fmt.Errorf("commit the batch: %w", err)
 	}
-	return true, nil
+	return out, nil
 }
 
 // runBatch is the body inside the transaction, so GuardedBatch owns the ROLLBACK
-// and COMMIT in one place. A false return is a REFUSAL — a condition did not
+// and COMMIT in one place. A refused Outcome is a REFUSAL — a condition did not
 // hold — and never a fault.
-func (s *Store) runBatch(ctx context.Context, conn *sql.Conn, checks, writes []*stmt, guarded []bool) (bool, error) {
-	for _, b := range checks {
+//
+// The pre-image is read INSIDE the transaction, before the rollback, so it is
+// the state the condition was evaluated against and not whatever the row looks
+// like by the time the caller asks. It costs one read on the refusal path and
+// nothing on the committing one.
+func (s *Store) runBatch(ctx context.Context, conn *sql.Conn,
+	checks []objstore.Check, writes []objstore.Write,
+	checkStmts, writeStmts []*stmt, guarded []bool) (objstore.Outcome, error) {
+	for i, b := range checkStmts {
 		var one int
 		err := conn.QueryRowContext(ctx, b.String(), b.args...).Scan(&one)
 		if errors.Is(err, sql.ErrNoRows) {
-			return false, nil
+			return s.refusal(ctx, conn, objstore.CheckRefused, i, checks[i].Entity, checks[i].Key)
 		}
 		if err != nil {
-			return false, fmt.Errorf("check: %w", err)
+			return objstore.Outcome{}, fmt.Errorf("check: %w", err)
 		}
 	}
-	for i, b := range writes {
+	for i, b := range writeStmts {
 		res, err := conn.ExecContext(ctx, b.String(), b.args...)
 		if err != nil {
-			return false, fmt.Errorf("write: %w", err)
+			return objstore.Outcome{}, fmt.Errorf("write: %w", err)
 		}
 		if !guarded[i] {
 			continue
 		}
 		n, err := res.RowsAffected()
 		if err != nil {
-			return false, fmt.Errorf("write: %w", err)
+			return objstore.Outcome{}, fmt.Errorf("write: %w", err)
 		}
 		if n == 0 {
-			return false, nil
+			return s.refusal(ctx, conn, objstore.WriteRefused, i, writes[i].Entity, writes[i].Key)
 		}
 	}
-	return true, nil
+	return objstore.Committed, nil
+}
+
+// refusal reads the item the condition was evaluated against and reports it with
+// the refusal.
+//
+// This is what turns "false" into an answer. A claim that lost a race and a
+// claim on a row that was already spent are the same bool and different
+// incidents, and only the item the engine held tells them apart. DynamoDB gives
+// the same thing through ReturnValuesOnConditionCheckFailure.
+func (s *Store) refusal(ctx context.Context, conn *sql.Conn, kind objstore.RefusalKind,
+	index int, entity string, key objstore.Key) (objstore.Outcome, error) {
+	b := &stmt{d: s.dialect}
+	b.write("SELECT attrs FROM " + entity + " WHERE part = ")
+	b.bind(key.Partition)
+	b.write(" AND sort = ")
+	b.bind(key.Sort)
+	var doc []byte
+	err := conn.QueryRowContext(ctx, b.String(), b.args...).Scan(&doc)
+	if errors.Is(err, sql.ErrNoRows) {
+		// The item is not there, which is a third answer again: nobody won a
+		// race, the coordinate is simply empty.
+		return objstore.Refused(kind, index, entity, key, nil), nil
+	}
+	if err != nil {
+		return objstore.Outcome{}, fmt.Errorf("read the refused item %s/%s: %w",
+			entity, key.Sort, err)
+	}
+	item := objstore.Item{Key: key, Attrs: map[string]string{}}
+	if err := json.Unmarshal(doc, &item.Attrs); err != nil {
+		return objstore.Outcome{}, fmt.Errorf("decode the refused item %s/%s: %w",
+			entity, key.Sort, err)
+	}
+	return objstore.Refused(kind, index, entity, key, &item), nil
 }
 
 // checkStmt generates the read that decides one check.
@@ -153,21 +193,39 @@ func (s *Store) writeStmt(w objstore.Write) (*stmt, bool, error) {
 	}
 }
 
-// putStmt stores an item's whole attribute set.
+// putStmt stores an item's whole attribute set, in one of three shapes.
 //
-// It carries no attribute condition: a Put replaces the document, so a condition
-// on the document it replaces is a read-modify-write wearing a Put's name, and
-// Update is that operation. What a Put may condition on is the item's existence,
-// which is the create-if-absent every engine has.
+// With no condition it is an upsert. With ItemAbsent it is the create-if-absent
+// every engine has, and the engine's own uniqueness decides it. With a condition
+// on the item's ATTRIBUTES it is a whole-document replace that requires the item
+// to be there and to look a certain way — DynamoDB's conditional PutItem, which
+// fails the same way against an item that is not there, because an absent item
+// carries no attribute a condition could hold on.
+//
+// The third shape is an UPDATE rather than an upsert for exactly that reason: an
+// INSERT … ON CONFLICT DO UPDATE … WHERE would take the INSERT branch when the
+// item is missing, and commit the write the condition was there to refuse.
 func (s *Store) putStmt(w objstore.Write) (*stmt, bool, error) {
-	if len(w.Cond.Where) > 0 || w.Cond.Item == objstore.ItemPresent {
-		return nil, false, fmt.Errorf("put on %s/%s: a Put conditions only on the item's "+
-			"existence; to change an item under a condition on its attributes, use Update",
-			w.Entity, w.Key.Sort)
-	}
 	doc, err := encodeAttrs(w.Attrs)
 	if err != nil {
 		return nil, false, fmt.Errorf("put on %s/%s: %w", w.Entity, w.Key.Sort, err)
+	}
+	if len(w.Cond.Where) > 0 || w.Cond.Item == objstore.ItemPresent {
+		if w.Cond.Item == objstore.ItemAbsent {
+			return nil, false, fmt.Errorf("put on %s/%s asks the item to be absent AND to "+
+				"carry attributes; an absent item carries none", w.Entity, w.Key.Sort)
+		}
+		b := &stmt{d: s.dialect}
+		b.write("UPDATE " + w.Entity + " SET attrs = ")
+		b.bind(doc)
+		b.write(" WHERE part = ")
+		b.bind(w.Key.Partition)
+		b.write(" AND sort = ")
+		b.bind(w.Key.Sort)
+		if err := b.where(w.Cond.Where); err != nil {
+			return nil, false, err
+		}
+		return b, true, nil
 	}
 	b := &stmt{d: s.dialect}
 	b.write("INSERT INTO " + w.Entity + " (part, sort, attrs) VALUES (")
@@ -185,26 +243,46 @@ func (s *Store) putStmt(w objstore.Write) (*stmt, bool, error) {
 	return b, false, nil
 }
 
-// updateStmt merges attributes into an item that must already exist.
+// updateStmt merges attributes into an item that must already exist, and takes
+// the named ones away.
 //
 // Presence is implied rather than optional. SQL's UPDATE touches nothing when
 // the row is missing and DynamoDB's UpdateItem CREATES it, so a driver-neutral
 // Update has to pick one, and "the item must exist" is the one both engines can
 // state exactly — `attribute_exists(pk)` there, a row count of zero here.
+//
+// The two halves compose into ONE document expression, which is what makes a
+// five-attribute reset atomic. Their names are disjoint (ValidateBatch refuses
+// the overlap DynamoDB also refuses), so merging before removing and removing
+// before merging give the same document, and neither can leave the item half
+// reset.
 func (s *Store) updateStmt(w objstore.Write) (*stmt, bool, error) {
 	if w.Cond.Item == objstore.ItemAbsent {
 		return nil, false, fmt.Errorf("update on %s/%s: an Update always requires the item to "+
 			"exist, so ItemAbsent can never hold", w.Entity, w.Key.Sort)
 	}
-	if len(w.Attrs) == 0 {
+	if len(w.Attrs) == 0 && len(w.Remove) == 0 {
 		return nil, false, fmt.Errorf("update on %s/%s sets nothing", w.Entity, w.Key.Sort)
+	}
+	for _, name := range w.Remove {
+		if err := checkIdent("attribute", name); err != nil {
+			return nil, false, err
+		}
 	}
 	patch, err := encodeAttrs(w.Attrs)
 	if err != nil {
 		return nil, false, fmt.Errorf("update on %s/%s: %w", w.Entity, w.Key.Sort, err)
 	}
 	b := &stmt{d: s.dialect}
-	b.write("UPDATE " + w.Entity + " SET attrs = " + s.dialect.merge(b.mark(patch)))
+	b.write("UPDATE " + w.Entity + " SET attrs = ")
+	doc := "attrs"
+	if len(w.Attrs) > 0 {
+		doc = s.dialect.merge(b.mark(patch))
+	}
+	if len(w.Remove) > 0 {
+		doc = s.dialect.remove(doc, w.Remove)
+	}
+	b.write(doc)
 	b.write(" WHERE part = ")
 	b.bind(w.Key.Partition)
 	b.write(" AND sort = ")
