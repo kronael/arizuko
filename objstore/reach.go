@@ -60,7 +60,9 @@ type ParentsFunc func(ctx context.Context, node string) ([]string, error)
 //
 // It INCLUDES from itself, which is the `SELECT ?` seed of the recursive CTE
 // both copies run, so an edge from a node to itself is a cycle of length one
-// and needs no separate test.
+// and needs no separate test. A caller that answers a self edge in its own
+// terms — store.AddMembership returns ErrSelfMembership — keeps its own check
+// ahead of this one, because the answer here is ErrCycle.
 //
 // This is the half a caller adopts when it does not own the write:
 // resreg/resources/membership.go:88 is a ValidateRow hook and resreg's engine
