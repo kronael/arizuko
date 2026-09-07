@@ -25,7 +25,7 @@ func secretUses(t *testing.T, s *Store) []objstore.Item {
 }
 
 func TestLogSecretUse_RoundTrip(t *testing.T) {
-	s := openMemSealed(t)
+	s := openEntities(t)
 
 	ts := time.Date(2026, 5, 13, 12, 0, 0, 0, time.UTC)
 	row := SecretUseRow{
@@ -60,7 +60,7 @@ func TestLogSecretUse_RoundTrip(t *testing.T) {
 // is not stored beside it. Two declarations of one fact are two things that can
 // disagree, and the ordering guarantee rests on the key.
 func TestLogSecretUse_TheIDCarriesTheInstant(t *testing.T) {
-	s := openMemSealed(t)
+	s := openEntities(t)
 
 	ts := time.Date(2026, 5, 13, 12, 0, 0, 0, time.UTC)
 	if err := s.LogSecretUse(SecretUseRow{
@@ -89,7 +89,7 @@ func TestLogSecretUse_TheIDCarriesTheInstant(t *testing.T) {
 // GuardedBatch rather than one transaction, so they commit together or not at
 // all on every engine (spec 6/40).
 func TestLogSecretUse_AuditPairAtomic(t *testing.T) {
-	s := openMemSealed(t)
+	s := openEntities(t)
 
 	row := SecretUseRow{
 		SpawnID: "spawn-9", CallerSub: "github:bob", Folder: "atlas/eng",
@@ -119,7 +119,7 @@ func TestLogSecretUse_AuditPairAtomic(t *testing.T) {
 // taken must not leave an audit row behind claiming a read that recorded
 // nothing.
 func TestLogSecretUse_ARefusedPairRecordsNeither(t *testing.T) {
-	s := openMemSealed(t)
+	s := openEntities(t)
 
 	// Claim an id, then make the live write reach for the same one.
 	ts := time.Date(2026, 5, 13, 12, 0, 0, 0, time.UTC)
@@ -146,7 +146,7 @@ func TestLogSecretUse_ARefusedPairRecordsNeither(t *testing.T) {
 }
 
 func TestLogSecretUse_AutoTimestamp(t *testing.T) {
-	s := openMemSealed(t)
+	s := openEntities(t)
 
 	if err := s.LogSecretUse(SecretUseRow{Tool: "t", Key: "K", Scope: "missing", Status: "ok"}); err != nil {
 		t.Fatalf("LogSecretUse: %v", err)

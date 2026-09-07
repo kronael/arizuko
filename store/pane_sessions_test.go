@@ -10,11 +10,7 @@ import (
 )
 
 func TestPaneSessions_OpenAndReadByChannel(t *testing.T) {
-	s, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
+	s := openEntities(t)
 
 	if err := s.OpenPane("T1", "U1", "1700000000.000100", "D1"); err != nil {
 		t.Fatalf("open: %v", err)
@@ -35,11 +31,7 @@ func TestPaneSessions_OpenAndReadByChannel(t *testing.T) {
 }
 
 func TestPaneSessions_OpenIsIdempotent(t *testing.T) {
-	s, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
+	s := openEntities(t)
 
 	if err := s.OpenPane("T1", "U1", "1700.001", "D1"); err != nil {
 		t.Fatal(err)
@@ -62,11 +54,7 @@ func TestPaneSessions_OpenIsIdempotent(t *testing.T) {
 }
 
 func TestPaneSessions_SetContext(t *testing.T) {
-	s, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
+	s := openEntities(t)
 	if err := s.OpenPane("T1", "U1", "1700.001", "D1"); err != nil {
 		t.Fatal(err)
 	}
@@ -91,11 +79,7 @@ func TestPaneSessions_SetContext(t *testing.T) {
 // has, so a cleared context must leave nothing behind — an empty string is a
 // value that Present still finds.
 func TestPaneSessions_ClearingTheContextRemovesTheAttribute(t *testing.T) {
-	s, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
+	s := openEntities(t)
 	if err := s.OpenPane("T1", "U1", "1700.001", "D1"); err != nil {
 		t.Fatal(err)
 	}
@@ -119,11 +103,7 @@ func TestPaneSessions_ClearingTheContextRemovesTheAttribute(t *testing.T) {
 }
 
 func TestPaneSessions_ReadByChannelMissing(t *testing.T) {
-	s, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
+	s := openEntities(t)
 	if _, ok := s.PaneInChannel("Dnope"); ok {
 		t.Fatalf("expected missing")
 	}
@@ -134,11 +114,7 @@ func TestPaneSessions_ReadByChannelMissing(t *testing.T) {
 // not hypothetical: 79 of marinade's 81 live panes share five channel ids, one
 // of them across 31 panes.
 func TestPaneSessions_AChannelNamingSeveralPanesReadsTheNewest(t *testing.T) {
-	s, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
+	s := openEntities(t)
 	ctx := context.Background()
 	// Written directly so the instants are chosen rather than raced: three panes
 	// in one channel, and the newest is deliberately NOT the last one written.
@@ -172,11 +148,7 @@ func TestPaneSessions_AChannelNamingSeveralPanesReadsTheNewest(t *testing.T) {
 // took the context. A reader-side loop that stopped at the first would silently
 // leave the other thirty.
 func TestPaneSessions_SetContextByChannelReachesEveryPane(t *testing.T) {
-	s, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
+	s := openEntities(t)
 	for _, thread := range []string{"1700.001", "1700.002", "1700.003"} {
 		if err := s.OpenPane("T1", "U1", thread, "C1"); err != nil {
 			t.Fatal(err)
@@ -203,11 +175,7 @@ func TestPaneSessions_SetContextByChannelReachesEveryPane(t *testing.T) {
 // answer the UPDATE gave by affecting no rows: slakd opens the pane and routd
 // sets the context, and the two arrive over different transports.
 func TestPaneSessions_SetContextByChannelIsANoOpForAnUnknownChannel(t *testing.T) {
-	s, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
+	s := openEntities(t)
 	if err := s.SetPaneContextByChannel("Cnope", "slack:T1/channel/C42"); err != nil {
 		t.Fatalf("a channel naming no pane must not be an error: %v", err)
 	}
@@ -217,11 +185,7 @@ func TestPaneSessions_SetContextByChannelIsANoOpForAnUnknownChannel(t *testing.T
 // answer reached by the triple. objstore's Update REFUSES a missing item, and
 // the refusal must not become an error the caller sees.
 func TestPaneSessions_SetContextOnAPaneThatIsNotThereIsNotAnError(t *testing.T) {
-	s, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
+	s := openEntities(t)
 	if err := s.SetPaneContext("T1", "U1", "1700.001", "slack:T1/channel/C42"); err != nil {
 		t.Fatalf("setting the context of an unopened pane must not be an error: %v", err)
 	}
@@ -231,12 +195,8 @@ func TestPaneSessions_SetContextOnAPaneThatIsNotThereIsNotAnError(t *testing.T) 
 // addressing one item. Slack ids carry no slash today; a field that did would
 // otherwise join into a key some other triple also builds.
 func TestPaneSessions_TheKeySeparatorIsRefusedInAField(t *testing.T) {
-	s, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	err = s.OpenPane("T1", "U1/U2", "1700.001", "D1")
+	s := openEntities(t)
+	err := s.OpenPane("T1", "U1/U2", "1700.001", "D1")
 	if err == nil {
 		t.Fatalf("a user_id carrying %q was accepted", paneKeySep)
 	}
@@ -259,11 +219,7 @@ func TestPaneSessions_TheOrderedWidthIsTheTimestampLayout(t *testing.T) {
 // another width sorts by bytes into the wrong place rather than failing — which
 // is BUGS L97 on the attribute the channel read picks its winner by.
 func TestPaneSessions_AShortOpenedAtIsRefused(t *testing.T) {
-	s, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
+	s := openEntities(t)
 	key, err := paneKey("T1", "U1", "1700.001")
 	if err != nil {
 		t.Fatal(err)
