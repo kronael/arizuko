@@ -316,6 +316,60 @@ thing the port ADDS rather than moves, and it is an improvement arizuko would
 want under SQL too: `revoked_at` on 1 row instead of on every row a login ever
 rotated through.
 
+## What gets on the surface, and the test that keeps it small
+
+The surface was widened once and had to be trimmed back the same day, so the
+rule is written down rather than re-derived.
+
+**An operation goes on the interface only when a PRODUCTION call site needs it
+and the caller cannot do it over what is already there.** Not a test, not a
+conformance body, not a helper this package wrote for itself. Two independent
+reviews of the widened surface found the same thing: `BetweenKey`, the exposed
+page (`After`, `More`, `Examined`), the attributed refusal and the conditional
+whole-item replace were each consumed by exactly one thing — `objstore`'s own
+protocol helpers and its own tests. A type that exists to serve the package
+that defines it is accretion, and accretion is how a two-primitive seam becomes
+a database API nobody chose.
+
+What survived that test, and why:
+
+- **Four sort-key inequalities** — `Gt`, `Ge`, `Lt`, `Le`. Four measured
+  callers: the poll loop's cursor (`routd/db.go:315`), history
+  (`routd/reads.go:28`), bot activity (`routd/db.go:1181`) and the retry feed
+  (`routd/db.go:406`). Without them every history read is a whole-partition
+  transfer; the largest chat partition measured is 10,688 rows.
+- **`Write.Remove`** — attribute removal. An empty string is PRESENT, not
+  absent, so writing one collapses the `Absent`/`Present` pair the interface
+  already carries. `store/onboarding.go:262` sets a status, removes five
+  admission fields and preserves pairing in one write; query-plus-replace loses
+  a concurrent attribute and delete-plus-put cannot share a batch, because one
+  item may carry only one action.
+
+What did not, and what replaces it:
+
+- **`Between`** has no caller. No statement anywhere in `store`, `routd`,
+  `onbod`, `dashd` or `resreg` uses a two-sided range. It returns when one does.
+- **The exposed page.** `Query` returns the COMPLETE result and a driver pages
+  internally to produce it. DynamoDB's 1 MB cap and its filter-before-cap rule
+  do not go away — they become the driver's problem, which is where they
+  belong. `Limit` is the caller's bound. A streaming caller would change this;
+  none exists.
+- **The attributed refusal.** `GuardedBatch` answers `committed` and nothing
+  else. `authd/authstore/refresh_tokens.go` deliberately collapses "another
+  claimant won" and "the family is dead" into one answer, because from the
+  caller's side both are reuse. The one consumer of a richer answer was
+  `Increment`, and it re-reads on the path that already lost a race.
+- **The conditional whole-item replace.** Production's conditional puts are
+  create-if-absent. The whole-replace case existed only in a conformance body.
+
+**Atomic increment is a protocol, not an operation, and the reason is the type
+system.** DynamoDB's in-place increment needs a Number — `SET Price = Price +
+:p` — and `ADD` supports only numbers and sets. Every value here is a string.
+So the operation does not exist on the engine this interface is measured
+against, and putting it on the interface would mean either a typed attribute
+model or a method only the SQL driver honours. `objstore.Increment` reads,
+writes under the value it read as its condition, and retries the lost race.
+
 ## Portability, stated once
 
 **First, what this table is not.** arizuko is NOT key-value ready, and `6/38`
