@@ -87,6 +87,19 @@ func mustCommit(t *testing.T, s objstore.Store, ctx context.Context, w objstore.
 	}
 }
 
+// commit2 runs one batch with checks and reports whether it committed. An ERROR
+// fails the test, for the reason commit does: a refusal and a fault are
+// different answers.
+func commit2(t *testing.T, s objstore.Store, ctx context.Context,
+	checks []objstore.Check, writes []objstore.Write) bool {
+	t.Helper()
+	committed, err := s.GuardedBatch(ctx, checks, writes)
+	if err != nil {
+		t.Fatalf("batch of %d checks and %d writes: %v", len(checks), len(writes), err)
+	}
+	return committed
+}
+
 // point reads one item by its exact coordinate, applying no predicate of any
 // kind — the shape of authd's RefreshTokenBySecret.
 func point(t *testing.T, s objstore.Store, entity string, key objstore.Key) []objstore.Item {

@@ -123,6 +123,25 @@ func RemovalTakesTheAttributeAwayRatherThanEmptyingIt(t *testing.T, newStore Fac
 	}
 }
 
+// slipOnce is a driver that lets one writer in between a read and the write
+// that follows it, firing at most once. It is the only test double in this
+// suite, and it is here because a compare-and-swap can only be proved by an
+// interleave a race makes likely and this makes certain.
+type slipOnce struct {
+	objstore.Store
+	at   func()
+	done bool
+}
+
+func (s *slipOnce) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
+	items, err := s.Store.Query(ctx, q)
+	if err == nil && !s.done {
+		s.done = true
+		s.at()
+	}
+	return items, err
+}
+
 // CountersAreACompareAndSwapProtocol is the decision about the atomic
 // increment, run as a test rather than written down as an intention.
 //
@@ -138,13 +157,45 @@ func RemovalTakesTheAttributeAwayRatherThanEmptyingIt(t *testing.T, newStore Fac
 // So it is objstore.Increment, a protocol over the two primitives: read the
 // value, write with the read value as the condition, retry the lost race. This
 // body is the proof that the protocol gives what the one statement gave — no
-// lost update under contention — because a CAS whose condition were dropped
-// would pass every single-threaded assertion above.
+// lost update — because a CAS whose condition were dropped would pass every
+// single-threaded assertion above.
+//
+// The first half FORCES the interleave rather than racing for it. Measured
+// 2026-09-07: dropping the compare-and-swap and running only the concurrent
+// half below turned this body red 3 times in 12, because SQLite serialises
+// writers and the collision has to fall in the window between a read and its
+// write. A mutation that changes the answer for a third of runs reads as
+// absence, so the interleave is made certain instead of likely.
 func CountersAreACompareAndSwapProtocol(t *testing.T, newStore Factory) {
 	ctx := context.Background()
 	s := newStore(t, invites)
 	key := objstore.Key{Partition: tenant, Sort: "inv/party"}
 	put(t, s, invites, key, map[string]string{"used_count": "0", "max_uses": "5"})
+
+	// One writer moves the counter between the protocol's read and the write
+	// that follows it, which is exactly the interleave the condition exists to
+	// lose. The guard then does not hold, the protocol reads again, and the
+	// increment lands on the value it actually found: 7 + 1. A protocol that
+	// wrote without the condition clobbers the 7 with 0 + 1, and the other
+	// writer's update is gone.
+	slipped := &slipOnce{Store: s, at: func() {
+		mustCommit(t, s, ctx, objstore.Write{Op: objstore.Update, Entity: invites, Key: key,
+			Attrs: map[string]string{"used_count": "7"}})
+	}}
+	n, committed, err := objstore.Increment(ctx, slipped, invites, key, "used_count", 1, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !committed || n != 8 {
+		t.Fatalf("an increment over a counter that moved under it reported committed=%v n=%d, "+
+			"want true and 8; a write that landed on 1 overwrote the other writer's 7, which "+
+			"is the lost update the condition on the read value exists to stop", committed, n)
+	}
+	if got := one(t, s, invites, key); got.Attrs["used_count"] != "8" {
+		t.Fatalf("used_count is %q, want 8", got.Attrs["used_count"])
+	}
+	mustCommit(t, s, ctx, objstore.Write{Op: objstore.Update, Entity: invites, Key: key,
+		Attrs: map[string]string{"used_count": "0"}})
 
 	const callers = 8
 	var (

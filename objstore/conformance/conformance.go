@@ -50,6 +50,7 @@ func Run(t *testing.T, newStore Factory) {
 		{"SortKeyOrderIsTimeOrder", SortKeyOrderIsTimeOrder},
 		{"ProjectionLeavesUnprojectedAttributesInTheEngine", ProjectionLeavesUnprojectedAttributesInTheEngine},
 		{"WriteSemanticsAreTheSameOnEveryDriver", WriteSemanticsAreTheSameOnEveryDriver},
+		{"ACheckGatesAWriteToAnotherItem", ACheckGatesAWriteToAnotherItem},
 		{"BatchRefusesWhatNoDriverMayAccept", BatchRefusesWhatNoDriverMayAccept},
 		{"KeyRangeSelectsAWindowRatherThanAScan", KeyRangeSelectsAWindowRatherThanAScan},
 		{"FilterNarrowsWhatTheKeyAlreadySelected", FilterNarrowsWhatTheKeyAlreadySelected},
@@ -361,6 +362,89 @@ func ProjectionLeavesUnprojectedAttributesInTheEngine(t *testing.T, newStore Fac
 	}
 	if _, present := items[0].Attrs["retired_at"]; present {
 		t.Errorf("an attribute the item does not carry came back present: %v", items[0].Attrs)
+	}
+}
+
+// ACheckGatesAWriteToAnotherItem is authd's ClaimRefreshToken, whose second
+// conjunct moved from a column to a Check when the family became its own item.
+//
+// A Check is a condition on an item the batch does NOT modify, and it is what
+// lets one item's state decide another item's write: `revoked_at` Absent on the
+// FAMILY refuses a claim on a token whose family died between the caller's
+// lookup and this write. A revoke that commits BEFORE the batch opens is not an
+// interleave, so the claim itself has to look — and dropping that conjunct let a
+// family killed for reuse walk away with a live 30-day credential (BUGS F36).
+//
+// Three answers, and a driver that collapsed any two of them would break authd:
+// the check holds and the write lands; the check fails and NOTHING lands; the
+// checked item is missing, which is also a refusal and not a pass.
+func ACheckGatesAWriteToAnotherItem(t *testing.T, newStore Factory) {
+	ctx := context.Background()
+	s := newStore(t, tokens)
+	live := objstore.Key{Partition: tenant, Sort: "tok/live"}
+	other := objstore.Key{Partition: tenant, Sort: "tok/second"}
+	gate := objstore.Key{Partition: tenant, Sort: "fam/gate"}
+	put(t, s, tokens, live, map[string]string{"family": "f1"})
+	put(t, s, tokens, other, map[string]string{"family": "f1"})
+	put(t, s, tokens, gate, map[string]string{"family": "f1", "state": "open"})
+
+	openGate := func(state string) objstore.Check {
+		return objstore.Check{Entity: tokens, Key: gate,
+			Cond: objstore.Cond{Item: objstore.ItemPresent, Where: []objstore.Cmp{
+				{Attr: "state", Op: objstore.Eq, Value: state}}}}
+	}
+
+	// The check does not hold, so the write it gates does not land.
+	committed, err := s.GuardedBatch(ctx, []objstore.Check{openGate("closed")},
+		[]objstore.Write{claim(live)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if committed {
+		t.Error("a batch whose check does not hold committed")
+	}
+	if got := one(t, s, tokens, live); got.Attrs["used_at"] != "" {
+		t.Errorf("the refused batch still applied its write: %v", got.Attrs)
+	}
+
+	// The checked item is not there at all. That is a refusal too: a condition
+	// on a missing item does not hold, and a driver that read the absence as
+	// "nothing to object to" would let every claim past a family it cannot find.
+	committed, err = s.GuardedBatch(ctx,
+		[]objstore.Check{{Entity: tokens, Key: objstore.Key{Partition: tenant, Sort: "fam/none"},
+			Cond: objstore.Cond{Item: objstore.ItemPresent}}},
+		[]objstore.Write{claim(live)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if committed {
+		t.Error("a batch checking an item that is not there committed")
+	}
+	if got := one(t, s, tokens, live); got.Attrs["used_at"] != "" {
+		t.Errorf("the batch with a missing checked item still wrote: %v", got.Attrs)
+	}
+
+	// The check holds, so the write lands — and the checked item is untouched,
+	// which is what makes it a check rather than a write.
+	if !commit2(t, s, ctx, []objstore.Check{openGate("open")}, []objstore.Write{claim(live)}) {
+		t.Fatal("a batch whose check holds was refused")
+	}
+	if got := one(t, s, tokens, live); got.Attrs["used_at"] == "" {
+		t.Errorf("the gated write did not land: %v", got.Attrs)
+	}
+	if got := one(t, s, tokens, gate); got.Attrs["state"] != "open" || len(got.Attrs) != 2 {
+		t.Errorf("the checked item was modified: %v", got.Attrs)
+	}
+
+	// A gate that holds cannot rescue a write whose OWN condition does not: the
+	// batch needs every condition, and the second claim below is on a token this
+	// body already spent.
+	if commit2(t, s, ctx, []objstore.Check{openGate("open")},
+		[]objstore.Write{claim(other), claim(live)}) {
+		t.Error("a batch committed although one of its writes was refused")
+	}
+	if got := one(t, s, tokens, other); got.Attrs["used_at"] != "" {
+		t.Errorf("the refused batch applied the write that would have succeeded: %v", got.Attrs)
 	}
 }
 
