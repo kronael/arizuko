@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/store"
+	"github.com/kronael/arizuko/tests/testutils"
 )
 
 // operatorInject (follow=false) writes the message straight into the DB as an
@@ -13,8 +13,7 @@ import (
 // token. Verify the injected row's shape (the gateway routes web:<folder> 1:1
 // to the group and runs it because no observe route applies).
 func TestOperatorInject_Folder(t *testing.T) {
-	s, _ := store.OpenMem()
-	defer s.Close()
+	s := testutils.NewRoutdStore(t)
 	if err := s.PutGroup(core.Group{Folder: "krons"}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}

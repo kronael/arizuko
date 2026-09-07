@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/store"
+	"github.com/kronael/arizuko/tests/testutils"
 )
 
 // seedLegacyPlaintext writes an unencrypted row the way a build before BUGS S2
@@ -24,11 +25,7 @@ func seedLegacyPlaintext(t *testing.T, s *store.Store, scopeID, key, value strin
 
 func sealTestStore(t *testing.T) *store.Store {
 	t.Helper()
-	s, err := store.OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { s.Close() })
+	s := testutils.NewRoutdStore(t)
 	s.SetSecretKeys([]byte("seal-legacy-test-key"))
 	return s
 }
@@ -119,11 +116,7 @@ func TestSealLegacyOnACleanTableIsANoOp(t *testing.T) {
 // is its only job. A caller that cannot tell "nothing to seal" from "no key" is
 // how this went unnoticed in the first place.
 func TestSealLegacyWithoutAKeyRefuses(t *testing.T) {
-	s, err := store.OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
+	s := testutils.NewRoutdStore(t)
 
 	if _, err := s.EncryptPlaintextSecrets(context.Background()); !errors.Is(err, store.ErrNoSecretsKey) {
 		t.Errorf("err = %v, want ErrNoSecretsKey", err)

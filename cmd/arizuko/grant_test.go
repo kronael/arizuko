@@ -7,16 +7,16 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/store"
+	"github.com/kronael/arizuko/tests/testutils"
 )
 
+// newMem is the routd.db the grant, grant-action and route verbs write in
+// production: every one of them reaches it through mustOpenACL → store.OpenRoutd.
+// acl and routes live there, and routd's chain seeds role:member and
+// role:operator into acl where the frozen pre-split chain seeds neither.
 func newMem(t *testing.T) *store.Store {
 	t.Helper()
-	s, err := store.OpenMem()
-	if err != nil {
-		t.Fatalf("OpenMem: %v", err)
-	}
-	t.Cleanup(func() { s.Close() })
-	return s
+	return testutils.NewRoutdStore(t)
 }
 
 func TestGrantThenList(t *testing.T) {
