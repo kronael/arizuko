@@ -485,15 +485,17 @@ live, both empty on krons at time of writing (verify on every instance
 before the rename below). The fix is renaming routd's copy, not merging the
 schemas; see the auth decision.
 
-`emaid`'s `emaid.db` is a **separate owner**, also outside this table: emaid
-owns and migrates it (`emaid/migrations/`, service `emaid`) inside the
-adapter's private `store/emaid/` dir. It holds two adapter-internal threading
-tables — `email_threads`, `email_msg_ids` — that map an inbound message id to
-its thread. These rows are not operator-managed cold-tier entities and have
-no agent/REST CRUD face, so "every management entity is a resreg resource"
-does not apply; the DB stays out of the resource map for the same reason
-`auth.db`'s identity tables do. Unlike the seeded owners, emaid creates the
-file itself — `arizuko create` does not seed adapter-private state (`F55`).
+`emaid`'s `emaid.db` is a **separate owner**, also outside this table, inside
+the adapter's private `store/emaid/` dir. It holds two adapter-internal
+threading entities — `email_threads`, `email_msg_ids` — that map an inbound
+message id to its thread, and `emaid/mailstore` is the layer that reads them.
+emaid runs no SQL and carries no migration chain: the entities are created by
+the `objstore` driver, which owns schema (`6/37`). These records are not
+operator-managed cold-tier entities and have no agent/REST CRUD face, so "every
+management entity is a resreg resource" does not apply; the DB stays out of the
+resource map for the same reason `auth.db`'s identity tables do. Unlike the
+seeded owners, emaid creates the file itself — `arizuko create` does not seed
+adapter-private state (`F55`).
 
 ### The auth decision — routd stays the policy decision point
 
