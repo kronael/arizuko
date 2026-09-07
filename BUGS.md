@@ -7,6 +7,44 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L259 — `resreg` has one row reader and it builds column SQL, so no registered table can become an entity until resreg moves (2026-09-07, open — proposal, needs sign-off)
+
+MEASURED 2026-09-07 while moving `store`'s first slice. `resreg/engine.go:209`
+`ScanAll` is the single reader for every registered resource:
+
+```go
+query := "SELECT " + strings.Join(r.meta.columns, ", ") + " FROM " + r.Table + …
+```
+
+The column list comes from `RowType` reflection at registration. An objstore
+entity replaces those columns with `(part, sort, attrs)`, so the moment a
+registered table becomes an entity every `arizuko apply`, `export`, `plan`,
+`get`, `packages` and `archive` verb reads a table whose columns no longer
+exist — at RUNTIME, because the statement is assembled from a string.
+
+Seven of the ten tables in `store`'s first slice are registered: `acl`,
+`routes`, `route_tokens`, `network_rules`, `web_routes`, `proxyd_routes` and
+`secrets`. Only `pane_sessions` and `secret_use_log` had no registration and no
+statement outside `store/`, and those two are what shipped.
+
+`audit_log` got through its own move by declaring `DB: ""`
+(`resreg/resources/audit.go:101`), which drops it from `BySubsystem` and so
+from every one of those verbs. That is right for an append-only log — it is
+evidence, not declarative config — and wrong for `acl` and `routes`, where it
+would delete the operator's declarative surface.
+
+So the port's order changes: **`resreg` moves before any registered table
+does.** It is 17 statements, and it gates seven entities in `store` plus
+whatever `routd` and `onbod` register.
+
+- **Severity:** high (blocks the whole `store` and `routd` move)
+- **Scope:** `resreg/engine.go`, `resreg/archive.go`, `resreg/resources/`
+- **Affected:** every resreg-registered table, which is most of routd.db
+- **Source:** `resreg/engine.go:209` `ScanAll`; the seven registrations
+- **Status:** open — proposal, needs sign-off
+- **Fix:** `ScanAll` and its write twin read through `objstore`, so a resource's
+  rows are items and `RowType` describes attributes rather than columns
+
 ## L257 — 39 session rows on sloth carry a `started_at` that runs backwards against their id sequence (2026-09-07, open)
 
 MEASURED 2026-09-07 while rehearsing `arizuko migrate-runed` against copies of

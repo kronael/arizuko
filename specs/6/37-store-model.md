@@ -414,7 +414,16 @@ layers; the filing is worth doing once, for its method names, and never again.
    and it is the proof the interface carries a real daemon. `L251` closes here:
    `audit_log` becomes one entity behind the interface, implemented once per
    driver instead of twice in every daemon.
-6. **Every other unit moves straight to the interface**, never through a SQL
+6. **`resreg` moves before any registered table does.** `resreg/engine.go:209`
+   is the ONE row reader for every registered resource and it builds
+   `SELECT <columns> FROM <table>` from `RowType` reflection. An entity has
+   three columns, so the moment a registered table becomes one, every
+   `apply`, `export`, `plan`, `get`, `packages` and `archive` verb breaks at
+   runtime. `audit_log` escaped by declaring `DB: ""` and leaving the config
+   lane entirely, which is right for evidence and wrong for `acl` and `routes`.
+   Seven of `store`'s ten single-table files are registered; that is why only
+   two of them moved (`L259`).
+7. **Every other unit moves straight to the interface**, never through a SQL
    layer. Measured 2026-09-07 with `go/parser` over non-test files: **eighteen
    daemons hold no SQL at all** — `webd`, `slakd`, `timed`, `gitd`, every
    adapter — because they reach storage through `store` or over HTTP, so "every
@@ -425,11 +434,11 @@ layers; the filing is worth doing once, for its method names, and never again.
    layer each, so they re-do like any other unit: the bodies change, the names
    stay. Each unit may add an operation the interface lacks, which is the
    expected cost of deriving the surface from one daemon rather than nine.
-7. **Export from the old backend, import into the new one**, through the lane
+8. **Export from the old backend, import into the new one**, through the lane
    below rather than a script per daemon. One-way, and rehearsed against a
    snapshot of a live database before it is believed — "0 rows matched" is a red
    flag, never an all-clear.
-8. **Two drivers: Postgres and DynamoDB.** The interface is `6/40`'s three
+9. **Two drivers: Postgres and DynamoDB.** The interface is `6/40`'s three
    operations over two primitives — arizuko's own vocabulary, not a vendor's
    API surface — so each driver implements those directly, with no wire
    protocol translated in between.
