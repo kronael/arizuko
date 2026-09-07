@@ -65,8 +65,27 @@ func NewRoutdInstance(t *testing.T) *Inst {
 	return inst
 }
 
-// NewInstance builds an Inst on the STORE (pre-split messages.db) schema.
-// Registers t.Cleanup to close the DB.
+// NewRoutdStore is NewRoutdInstance for the many tests that want only the
+// *store.Store: routd.db's own schema, wrapped in the shared read/write library
+// six daemons hold in production. It is what a test reaches for instead of
+// store.OpenMem, whose chain is the frozen pre-split messages.db (see
+// store.Migrate). Registers t.Cleanup to release the database.
+func NewRoutdStore(t *testing.T) *store.Store {
+	t.Helper()
+	d, err := routd.OpenMem()
+	if err != nil {
+		t.Fatalf("routd.OpenMem: %v", err)
+	}
+	t.Cleanup(func() { d.Close() })
+	return store.New(d.SQL())
+}
+
+// NewInstance builds an Inst on the FROZEN pre-split messages.db schema. It is
+// for a caller whose subject IS that database — `arizuko migrate-split` and the
+// fixtures that simulate an old instance for it. Every other test wants
+// NewRoutdInstance or NewRoutdStore: routd.db is the schema production has, and
+// the two chains have already drifted (routd seeds role:member and role:operator
+// into acl, store's chain seeds neither). Registers t.Cleanup to close the DB.
 func NewInstance(t *testing.T) *Inst {
 	t.Helper()
 	tmp := t.TempDir()

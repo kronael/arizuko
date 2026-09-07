@@ -88,6 +88,8 @@ func (s *Store) SetSecretKeys(raws ...[]byte) {
 	s.secretKeys = keys
 }
 
+// Open creates and migrates dir/messages.db — the FROZEN pre-split monolith. Only
+// a caller whose subject IS that database wants it; see Migrate.
 func Open(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, err
@@ -151,10 +153,11 @@ func openOwned(path, file, table, owner string) (*Store, error) {
 	return &Store{db: db}, nil
 }
 
-// OpenMem opens a fresh, private, empty store for one test and migrates it.
-// db_utils.OpenTestDB owns the engine and the DSN, so ARIZUKO_TEST_PG_DSN moves
-// this and every other test database together (spec 6/37 step 6). Close releases
-// the database.
+// OpenMem opens a fresh, private, empty store for one test and migrates it — on
+// the FROZEN pre-split schema, so it belongs to a test whose subject is that
+// database and to no other (see Migrate). db_utils.OpenTestDB owns the engine and
+// the DSN, so ARIZUKO_TEST_PG_DSN moves this and every other test database
+// together (spec 6/37 step 6). Close releases the database.
 func OpenMem() (*Store, error) {
 	db, release, err := db_utils.OpenTestDB("store")
 	if err != nil {
@@ -177,8 +180,19 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
-// Migrate applies store's embedded SQL migrations to db. Used by test
-// fixtures in other packages that open a raw *sql.DB.
+// Migrate applies store's embedded SQL migrations to db — the FROZEN pre-split
+// messages.db schema, and nothing else. No daemon runs this chain: routd, onbod,
+// authd, runed and chanlib each own and migrate their own file. The callers are
+// `arizuko migrate-split` (which reads the monolith it builds) and the tests that
+// simulate an old instance for it.
+//
+// So this is not a general test fixture. A test that opens it to get a `messages`
+// or an `acl` table is asserting against a schema production does not have, and it
+// stays green while the live one drifts: `arizuko budget set` wrote its cap here
+// while routd's gate read routd.db, and every cap the verb reported as set was
+// invisible to enforcement (BUGS Q1). A test whose subject is a live schema opens
+// that daemon's own chain — routd.OpenMem, testutils.NewRoutdStore, or the
+// equivalent. TestMigrationsAreFrozen keeps the chain from growing again.
 func Migrate(db *sql.DB) error {
 	return migrate(db)
 }
