@@ -13,7 +13,7 @@ reflective engine + manifests).
 
 ## Reflective engine (shipped)
 
-`engine.go` drives SELECT / INSERT / DELETE, YAML parse/emit, and
+`engine.go` drives the reads and writes, YAML parse/emit, and
 OpenAPI schema generation off `Resource.RowType` reflection (struct
 field → column via `json:` tag). `resreg/resources/` declares one Go
 file per cold-tier resource — a `Row` struct plus an `init()` block
@@ -22,6 +22,58 @@ calling `resreg.Register`. The 10 resources registered today: `acl`,
 `proxyd_routes`, `routes`, `scheduled_tasks`, `secrets`, `web_routes`.
 Token resources (`invites`, `route_tokens`) are parked out of v1
 manifests — CLI/MCP only.
+
+## Two shapes, and the resource declares which
+
+A resource's rows are either SQL columns or `objstore` items, and
+`Resource.EntitySortKey` is the whole declaration: naming a `RowType` field
+there makes `Table` an entity, every `db:` tag an attribute name, and that
+field's value the item's sort key. `ScanAll` is still the single row reader
+and it branches on that field — never on what the storage answers, and never
+one path as a fallback for the other (`entity.go`, spec
+[`6/37`](../specs/6/37-store-model.md) step 6, BUGS `L259`).
+
+The PARTITION is not declared. It is `Resource.DB`, the owner subsystem, because
+every read the engine makes is per subsystem and the partition is the coordinate
+a read filters on. `SubsystemRoutd`/`SubsystemOnbod` ARE `store`'s owner names,
+so the daemon's own storage layer writes items at the coordinate the engine
+reads them from.
+
+The sort key is SEPARATE from `PKFields` because they answer different
+questions. `PKFields` is the manifest identity `Diff` matches on and it is not
+required to be unique — krons' `route_tokens` holds 43 rows over 27 distinct
+jids — so a coordinate derived from it would collide 15 live ingress
+credentials onto one item (BUGS `L260`).
+
+What the object path REFUSES, it refuses at `Register`, which is process start,
+and each refusal carries the reason it cannot cross:
+
+| declaration                                 | why not                                                                                                                                                                                        |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `RowFilter`                                 | `Query.Where` is a conjunction with no `OR`, and the filter also gates `DeleteScope`/`DeleteAll` — a reader-side predicate cannot narrow a write                                               |
+| `ScopeSpec`                                 | a scoped delete over items is an unbounded read-then-delete, so it belongs inside the replace                                                                                                  |
+| `StampedFields`                             | an absent attribute is the only null, so server-OWNED and server-INVENTED cannot be told apart (`F49`)                                                                                         |
+| `Hooks`                                     | `ColumnOverride.Read` is a SQL expression, `.Write` is the bind conversion absent-is-null already makes unnecessary, and `BeforeInsert`/`ValidateRow` take a `*sql.Tx` this path does not open |
+| an attribute that is not a string or an int | every attribute value is text, and a bool or a slice needs a rendering its first caller should choose                                                                                          |
+
+`Apply` and `ExportSnapshot` become `objstore.Replace` and
+`objstore.ReadConsistent` (spec [`6/40`](../specs/6/40-store-surface.md) §3 and
+§"The consistent multi-read"). **That gives up the pre-image rollback `L44`
+carries**: the column path runs every DELETE and INSERT in one transaction, and
+a marker-gated sequence has none — a replace that dies after it has written
+leaves the subsystem part-applied with its claim held, and recovery is to run
+the apply again. `arizuko apply` says so before it writes.
+
+A subsystem must therefore be ONE shape, checked before any write: a mixed one
+would roll the columns back and leave the items part-written, with no way to
+tell an operator which half landed. That is what lets onbod's three resources
+move without waiting for routd's thirteen.
+
+A daemon prepares its database with `resreg.EnsureSubsystem`, beside the
+`CreateEntity` calls it already makes — the entity behind each resource, the
+entity the version marker lives in, and the marker itself. It is a no-op for a
+subsystem still on the column path, so the set follows the registrations rather
+than a second list beside them.
 
 `arizuko apply`/`plan`/`get`/`export` (`cmd/arizuko/apply.go`) are the
 operator CLI over the engine:
