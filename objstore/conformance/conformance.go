@@ -60,6 +60,11 @@ func Run(t *testing.T, newStore Factory) {
 		{"CountersAreACompareAndSwapProtocol", CountersAreACompareAndSwapProtocol},
 		{"CountersCarryTheirCompanionWrites", CountersCarryTheirCompanionWrites},
 		{"OrderedWidthsAreRefusedRatherThanMisSorted", OrderedWidthsAreRefusedRatherThanMisSorted},
+		{"AVersionedReplaceIsFencedByItsMarker", AVersionedReplaceIsFencedByItsMarker},
+		{"AConsistentMultiReadRetriesWhenTheScopeMovesUnderIt",
+			AConsistentMultiReadRetriesWhenTheScopeMovesUnderIt},
+		{"AnEdgeThatWouldCloseACycleIsRefusedFromBothEnds",
+			AnEdgeThatWouldCloseACycleIsRefusedFromBothEnds},
 	} {
 		t.Run(c.name, func(t *testing.T) { c.body(t, newStore) })
 	}

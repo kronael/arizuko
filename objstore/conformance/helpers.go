@@ -174,3 +174,32 @@ func reversed(keys []string) []string {
 	}
 	return out
 }
+
+// slip is a driver that lets another writer in between a read and the write
+// that follows it. It is the only test double in this suite, and it is here
+// because a compare-and-swap can only be PROVED by an interleave that a race
+// makes likely and this makes certain: two concurrency bodies in this project
+// stayed green against deliberately broken code because the collision has to
+// fall in one window and usually does not.
+//
+// at fires after a Query returns and before its caller uses the answer, which
+// is the window every protocol here compare-and-swaps across. left bounds how
+// many times it may fire; on names the entity whose read fires it, so a
+// protocol that reads a marker and then walks a graph can be interleaved at the
+// walk rather than at the marker. An empty on fires at the first read of
+// anything.
+type slip struct {
+	objstore.Store
+	on   string
+	at   func()
+	left int
+}
+
+func (s *slip) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
+	items, err := s.Store.Query(ctx, q)
+	if err == nil && s.left > 0 && (s.on == "" || s.on == q.Entity) {
+		s.left--
+		s.at()
+	}
+	return items, err
+}

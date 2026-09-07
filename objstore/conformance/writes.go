@@ -123,25 +123,6 @@ func RemovalTakesTheAttributeAwayRatherThanEmptyingIt(t *testing.T, newStore Fac
 	}
 }
 
-// slipOnce is a driver that lets one writer in between a read and the write
-// that follows it, firing at most once. It is the only test double in this
-// suite, and it is here because a compare-and-swap can only be proved by an
-// interleave a race makes likely and this makes certain.
-type slipOnce struct {
-	objstore.Store
-	at   func()
-	done bool
-}
-
-func (s *slipOnce) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
-	items, err := s.Store.Query(ctx, q)
-	if err == nil && !s.done {
-		s.done = true
-		s.at()
-	}
-	return items, err
-}
-
 // CountersAreACompareAndSwapProtocol is the decision about the atomic
 // increment, run as a test rather than written down as an intention.
 //
@@ -178,7 +159,7 @@ func CountersAreACompareAndSwapProtocol(t *testing.T, newStore Factory) {
 	// increment lands on the value it actually found: 7 + 1. A protocol that
 	// wrote without the condition clobbers the 7 with 0 + 1, and the other
 	// writer's update is gone.
-	slipped := &slipOnce{Store: s, at: func() {
+	slipped := &slip{Store: s, left: 1, at: func() {
 		mustCommit(t, s, ctx, objstore.Write{Op: objstore.Update, Entity: invites, Key: key,
 			Attrs: map[string]string{"used_count": "7"}})
 	}}

@@ -130,18 +130,9 @@ func ValidateBatch(checks []Check, writes []Write) error {
 		return fmt.Errorf("batch carries %d actions, more than the %d one transaction may hold",
 			n, MaxBatchActions)
 	}
-	seen := make(map[[3]string]bool, len(checks)+len(writes))
-	claim := func(entity string, k Key) error {
-		id := [3]string{entity, k.Partition, k.Sort}
-		if seen[id] {
-			return fmt.Errorf("batch acts twice on %s/%s/%s; one transaction holds at most "+
-				"one action per item", entity, k.Partition, k.Sort)
-		}
-		seen[id] = true
-		return nil
-	}
+	seen := make(itemClaims, len(checks)+len(writes))
 	for _, c := range checks {
-		if err := claim(c.Entity, c.Key); err != nil {
+		if err := seen.claim(c.Entity, c.Key); err != nil {
 			return err
 		}
 		if err := validateCond(c.Entity, c.Cond); err != nil {
@@ -149,10 +140,39 @@ func ValidateBatch(checks []Check, writes []Write) error {
 		}
 	}
 	for _, w := range writes {
-		if err := claim(w.Entity, w.Key); err != nil {
+		if err := seen.claim(w.Entity, w.Key); err != nil {
 			return err
 		}
 		if err := validateWrite(w); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// itemClaims records the items one transaction has already acted on, so the
+// one-action-per-item rule has a single implementation whatever asks it.
+type itemClaims map[[3]string]bool
+
+// claim records one action on one item and refuses a second.
+func (c itemClaims) claim(entity string, k Key) error {
+	id := [3]string{entity, k.Partition, k.Sort}
+	if c[id] {
+		return fmt.Errorf("batch acts twice on %s/%s/%s; one transaction holds at most "+
+			"one action per item", entity, k.Partition, k.Sort)
+	}
+	c[id] = true
+	return nil
+}
+
+// oneActionPerItem refuses a write set that names an item twice, ahead of any
+// batching. The versioned replace splits its writes across transactions, so
+// which of them share one is not the caller's to see — a set that would collide
+// in one batch has to be refused whatever the split turns out to be.
+func oneActionPerItem(writes []Write) error {
+	seen := make(itemClaims, len(writes))
+	for _, w := range writes {
+		if err := seen.claim(w.Entity, w.Key); err != nil {
 			return err
 		}
 	}
