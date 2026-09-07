@@ -320,6 +320,22 @@ func Emit(ctx context.Context, e Event) string {
 	return id
 }
 
+// WriteFor renders one event as the write that records it, and answers the id
+// that write takes. It is what a caller uses when its OWN mutation is already a
+// GuardedBatch: the row rides in that batch, so the mutation and its record
+// commit together without a transaction carrying them (spec 6/40 §"The audited
+// write commits in a GuardedBatch"). That is how EmitInTx loses a caller, and
+// store.LogSecretUse is the first to leave.
+//
+// It exists because the alternative is a second renderer. This package owns the
+// attribute names and the redaction, and a caller assembling the item itself
+// would be a second declaration of both — so the write crosses the boundary,
+// never the shape.
+func WriteFor(e Event) (string, objstore.Write) {
+	id := NewID(time.Now())
+	return id, writeFor(id, stamped(e), marshalParams(e.ParamsSummary))
+}
+
 // EmitTo records one event in the store the CALLER names, for a daemon that
 // holds its own and wants no dependency on Init. Errors are returned, not
 // warned.
@@ -327,8 +343,8 @@ func EmitTo(ctx context.Context, s objstore.Store, e Event) (string, error) {
 	if s == nil {
 		return "", fmt.Errorf("audit: store is nil")
 	}
-	id := NewID(time.Now())
-	committed, err := s.GuardedBatch(ctx, nil, []objstore.Write{writeFor(id, stamped(e), marshalParams(e.ParamsSummary))})
+	id, w := WriteFor(e)
+	committed, err := s.GuardedBatch(ctx, nil, []objstore.Write{w})
 	if err != nil {
 		return "", err
 	}
@@ -353,8 +369,8 @@ func EmitInTx(ctx context.Context, s TxSink, tx *sql.Tx, e Event) error {
 	if tx == nil {
 		return fmt.Errorf("audit: tx is nil")
 	}
-	id := NewID(time.Now())
-	committed, err := s.GuardedBatchInTx(ctx, tx, nil, []objstore.Write{writeFor(id, stamped(e), marshalParams(e.ParamsSummary))})
+	id, w := WriteFor(e)
+	committed, err := s.GuardedBatchInTx(ctx, tx, nil, []objstore.Write{w})
 	if err != nil {
 		return err
 	}
