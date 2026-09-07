@@ -34,15 +34,15 @@ func main() {
 		Prefixes:   []string{"email:"},
 		Caps:       caps,
 		Start: func(ctx context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
-			db, err := openDB(cfg.DataDir)
+			db, st, err := openStorage(cfg.DataDir)
 			if err != nil {
 				slog.Error("db open failed", "err", err)
 				return nil, nil, err
 			}
 			reg := newAttRegistry()
-			p := newPoller(cfg, db, reg)
+			p := newPoller(cfg, st, reg)
 			go p.run(ctx, rc)
-			return newServer(cfg, db, reg, p.isConnected, p.LastInboundAt).handler(), func() { db.Close() }, nil
+			return newServer(cfg, db, st, reg, p.isConnected, p.LastInboundAt).handler(), func() { db.Close() }, nil
 		},
 	})
 }

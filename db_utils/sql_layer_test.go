@@ -36,9 +36,14 @@ type sqlLayer struct {
 	storage string // the one package or file under it that may run statements
 }
 
+// A daemon that holds NO statement at all names a storage path that does not
+// exist, so the walk skips nothing and the whole tree is checked. emaid is the
+// first: its storage is emaid/mailstore, which is objstore's two primitives and
+// no SQL, so there is no place left to exempt.
 var sqlLayers = []sqlLayer{
 	{daemon: "authd", storage: "authd/authstore"},
 	{daemon: "dashd", storage: "dashd/dashstore"},
+	{daemon: "emaid", storage: "emaid/none"},
 	{daemon: "runed", storage: "runed/db.go"},
 }
 

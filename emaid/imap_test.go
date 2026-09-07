@@ -193,7 +193,7 @@ func TestRunIdle_ContextCancel_DeadTCP(t *testing.T) {
 			Account:  "user",
 			Password: "pass",
 		},
-		db:  newTestDB(t),
+		st:  newTestMailstore(t),
 		reg: newAttRegistry(),
 		dialTLS: func(_ string, opts *imapclient.Options) (*imapclient.Client, error) {
 			return imapclient.New(clientConn, opts), nil
@@ -238,7 +238,7 @@ func TestFetchUnseen_RouterFailure_NotMarkedSeen(t *testing.T) {
 
 	p := &poller{
 		cfg: config{IMAPHost: "fake", IMAPPort: "993", Account: "user", Password: "pass"},
-		db:  newTestDB(t),
+		st:  newTestMailstore(t),
 		reg: newAttRegistry(),
 		dialTLS: func(_ string, opts *imapclient.Options) (*imapclient.Client, error) {
 			return imapclient.New(clientConn, opts), nil

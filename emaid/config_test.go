@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// loadConfig and openDB are emaid's whole bootstrap, and both were 0%. The
+// loadConfig and openStorage are emaid's whole bootstrap. The
 // defaults matter: an operator who sets only the four credentials gets these,
 // and a wrong port or an empty data dir is a daemon that starts and then never
 // receives a message.
@@ -61,23 +61,29 @@ func TestLoadConfigDefaults(t *testing.T) {
 }
 
 // emaid.db is adapter-private state that `arizuko create` does not seed, so
-// openDB must create the directory and the file itself, migrate BOTH chains
-// into it, and be safe to call again on the next boot.
-func TestOpenDBCreatesMigratesAndReopens(t *testing.T) {
+// openStorage must create the directory and the file itself, prepare BOTH the
+// entities emaid reads and the tables chanlib writes, and be safe to call again
+// on the next boot.
+func TestOpenStorageCreatesTheEntitiesAndReopens(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "nested", "emaid")
 
-	db, err := openDB(dir)
+	db, st, err := openStorage(dir)
 	if err != nil {
-		t.Fatalf("openDB: %v", err)
+		t.Fatalf("openStorage: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "emaid.db")); err != nil {
-		t.Fatalf("openDB did not create the file: %v", err)
+		t.Fatalf("openStorage did not create the file: %v", err)
 	}
 
-	// chanlib's outbound_dedup lands in the SAME file as emaid's own chain,
-	// keyed on (service, version). store_test.go covers emaid's tables; this
-	// is the second chain, without which a send dedups against a table that
-	// is not there.
+	// The store answers, which is the only thing emaid asks of it. mailstore's
+	// own bodies cover what it answers; this is that the driver was given its
+	// entities at all, without which every link fails on a missing table.
+	if err := st.LinkMessageToThread("boot@x.com", "boot", "alice@x.com", "boot@x.com"); err != nil {
+		t.Fatalf("the entities were not created: %v", err)
+	}
+
+	// chanlib's outbound_dedup lands in the SAME file, and chanlib runs its own
+	// statements against it; without the table a send dedups against nothing.
 	var n int
 	if err := db.QueryRow(
 		"SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='outbound_dedup'").Scan(&n); err != nil {
@@ -96,10 +102,13 @@ func TestOpenDBCreatesMigratesAndReopens(t *testing.T) {
 	}
 	db.Close()
 
-	// The second boot must not re-run a migration or fail on an existing table.
-	db2, err := openDB(dir)
+	// The second boot must not fail on the entities or the tables already there.
+	db2, st2, err := openStorage(dir)
 	if err != nil {
-		t.Fatalf("second openDB on an existing file: %v", err)
+		t.Fatalf("second openStorage on an existing file: %v", err)
+	}
+	if got, ok := st2.Thread("boot"); !ok || got.FromAddress != "alice@x.com" {
+		t.Errorf("the reopened store answers %+v (found=%v); the rows did not survive", got, ok)
 	}
 	db2.Close()
 }

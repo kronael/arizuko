@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +19,7 @@ import (
 	gomessage "github.com/emersion/go-message/mail"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/emaid/mailstore"
 )
 
 var errIdleNotSupported = errors.New("IDLE not supported")
@@ -60,7 +60,7 @@ func (r *attRegistry) get(key string) (attMeta, bool) {
 
 type poller struct {
 	cfg     config
-	db      *sql.DB
+	st      *mailstore.Store
 	dialTLS func(string, *imapclient.Options) (*imapclient.Client, error)
 	reg     *attRegistry
 	// connected reflects IMAP liveness: true between successful imapConnect
@@ -69,8 +69,8 @@ type poller struct {
 	lastInboundAt atomic.Int64
 }
 
-func newPoller(cfg config, db *sql.DB, reg *attRegistry) *poller {
-	p := &poller{cfg: cfg, db: db, dialTLS: imapclient.DialTLS, reg: reg}
+func newPoller(cfg config, st *mailstore.Store, reg *attRegistry) *poller {
+	p := &poller{cfg: cfg, st: st, dialTLS: imapclient.DialTLS, reg: reg}
 	p.lastInboundAt.Store(time.Now().Unix())
 	return p
 }
@@ -310,7 +310,7 @@ func (p *poller) handleMsg(
 	// Try all In-Reply-To values; use first match (step 14).
 	for _, irt := range env.InReplyTo {
 		parentID := strings.Trim(irt, "<>")
-		if t := getThreadByMsgID(p.db, parentID); t != nil {
+		if t, ok := p.st.ThreadForMessage(parentID); ok {
 			threadID = t.ThreadID
 			rootMsgID = t.RootMsgID
 			break
@@ -325,7 +325,7 @@ func (p *poller) handleMsg(
 	// recorded reads as a broken conversation to the user (the next reply opens
 	// a second thread). Returning here leaves the UID unseen, so the next poll
 	// retries the whole message; the router dedups on msgID.
-	if err := upsertThread(p.db, msgID, threadID, fromAddr, rootMsgID); err != nil {
+	if err := p.st.LinkMessageToThread(msgID, threadID, fromAddr, rootMsgID); err != nil {
 		return fmt.Errorf("record thread mapping for %s: %w", msgID, err)
 	}
 

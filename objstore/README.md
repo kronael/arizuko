@@ -5,8 +5,15 @@ engine is a second driver and no daemon changes (spec
 [`6/37`](../specs/6/37-store-model.md), surface
 [`6/40`](../specs/6/40-store-surface.md)).
 
-**One daemon runs on this.** `authd/authstore` holds no SQL at all; the other
-eight are still to move.
+**Two daemons run on this.** `authd/authstore` and `emaid/mailstore` hold no
+SQL at all; the other seven are still to move.
+
+emaid is the first that reaches storage ONLY through this package. It imports
+neither `audit` nor `store` directly and hands its pool to neither, so the only
+other statements against `emaid.db` are chanlib's own two tables — which is
+`L251`'s ownership half, and it moves when chanlib does. `authd` still hands its
+pool to `audit` and `store`, so the daemon around `authstore` stays SQLite-only
+even though `authstore` itself does not.
 
 ## Two primitives
 

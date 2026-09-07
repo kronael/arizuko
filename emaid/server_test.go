@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -16,13 +15,14 @@ import (
 	"github.com/emersion/go-imap/v2/imapclient"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/emaid/mailstore"
 )
 
-func testServer(t *testing.T, secret string) (*server, *sql.DB) {
+func testServer(t *testing.T, secret string) (*server, *mailstore.Store) {
 	t.Helper()
-	db := newTestDB(t)
+	db, st := newTestStorage(t)
 	cfg := config{Name: "email", DataDir: t.TempDir()}
-	return newServer(cfg, db, newAttRegistry(), func() bool { return true }, func() int64 { return time.Now().Unix() }), db
+	return newServer(cfg, db, st, newAttRegistry(), func() bool { return true }, func() int64 { return time.Now().Unix() }), st
 }
 
 func TestHandleSend_NoThread(t *testing.T) {
@@ -57,8 +57,8 @@ func TestHandleHealth(t *testing.T) {
 }
 
 func TestHandleHealthDisconnected(t *testing.T) {
-	db := newTestDB(t)
-	s := newServer(config{Name: "email"}, db, newAttRegistry(), func() bool { return false }, func() int64 { return time.Now().Unix() })
+	db, st := newTestStorage(t)
+	s := newServer(config{Name: "email"}, db, st, newAttRegistry(), func() bool { return false }, func() int64 { return time.Now().Unix() })
 	req := httptest.NewRequest("GET", "/health", nil)
 	w := httptest.NewRecorder()
 	s.handler().ServeHTTP(w, req)
@@ -90,8 +90,10 @@ func TestHandleTyping(t *testing.T) {
 }
 
 func TestAuthPassthrough(t *testing.T) {
-	s, db := testServer(t, "tok")
-	upsertThread(db, "root@x.com", "abc123def456", "alice@x.com", "root@x.com")
+	s, st := testServer(t, "tok")
+	if err := st.LinkMessageToThread("root@x.com", "abc123def456", "alice@x.com", "root@x.com"); err != nil {
+		t.Fatal(err)
+	}
 
 	// /typing always ok with valid auth
 	body, _ := json.Marshal(map[string]any{"chat_jid": "email:tid", "on": false})
@@ -113,10 +115,11 @@ func TestFileProxy(t *testing.T) {
 	serverConn, clientConn := net.Pipe()
 	go serveAttachmentIMAP(t, serverConn, []int{2}, []byte("hello pdf"))
 
-	db := newTestDB(t)
+	db, st := newTestStorage(t)
 	s := &server{
 		cfg: config{Name: "email", IMAPHost: "fake", IMAPPort: "993", Account: "user", Password: "pass"},
 		db:  db,
+		st:  st,
 		reg: reg,
 		dialTLS: func(_ string, _ *imapclient.Options) (*imapclient.Client, error) {
 			return imapclient.New(clientConn, nil), nil
@@ -166,10 +169,11 @@ func TestFileProxyIMAPError(t *testing.T) {
 	reg := newAttRegistry()
 	reg.put("10-0", attMeta{Mime: "image/png", Filename: "img.png", Size: 5, Part: []int{1}})
 
-	db := newTestDB(t)
+	db, st := newTestStorage(t)
 	s := &server{
 		cfg: config{Name: "email", IMAPHost: "fake", IMAPPort: "993", Account: "user", Password: "pass"},
 		db:  db,
+		st:  st,
 		reg: reg,
 		dialTLS: func(_ string, _ *imapclient.Options) (*imapclient.Client, error) {
 			return nil, fmt.Errorf("connection refused")

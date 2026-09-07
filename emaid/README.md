@@ -5,8 +5,8 @@ Email (IMAP inbound, SMTP outbound) channel adapter.
 ## Purpose
 
 Polls IMAP for new messages (IDLE when supported, fallback poll), posts
-inbound to the router. Sends outbound via SMTP. Tracks email threads in
-a local SQLite DB so replies preserve the conversation JID and thread
+inbound to the router. Sends outbound via SMTP. Tracks email threads in its
+own store so replies preserve the conversation JID and thread
 References/In-Reply-To headers.
 
 ## Responsibilities
@@ -15,7 +15,8 @@ References/In-Reply-To headers.
 - Classify inbound sender trust (Authentication-Results DMARC + optional From-domain allowlist)
 - Post inbound to router with `message` (trusted) or `untrusted` Verb
 - Send outbound via SMTP with correct In-Reply-To/References threading
-- Track threads: `thread_id → (from_address, root_msg_id)` in local SQLite
+- Track threads: `thread_id → (from_address, root_msg_id)`, and every seen
+  `Message-ID → thread_id`, in `emaid/mailstore`
 - Serve `/send`, `/v1/history`, `/files/{uid}/{part}` endpoints
 - Re-fetch attachments from IMAP on-demand (transient in-memory registry, no local storage)
 
@@ -67,9 +68,33 @@ References/In-Reply-To headers.
 - `main.go` — wiring, config
 - `imap.go` — IMAP poll loop, IDLE support, attachment registry
 - `smtp.go` — SMTP outbound
-- `store.go` — local thread tracking DB
+- `storage.go` — opens `emaid.db` and picks the driver
+- `mailstore/` — the storage layer: two entities, no SQL
 - `server.go` — adapter handlers (`/send`, `/v1/history`, `/files/{uid}/{part}`)
 - `auth.go` — inbound sender trust classifier (Authentication-Results + From-domain allowlist)
+
+## Storage
+
+emaid holds NO SQL and no `CREATE TABLE`; `db_utils/sql_layer_test.go` fails the
+build if a statement appears anywhere under `emaid/`. Its storage is
+`emaid/mailstore`, which is `objstore`'s two primitives over two entities:
+
+| entity          | coordinate                     | attributes                    |
+| --------------- | ------------------------------ | ----------------------------- |
+| `email_threads` | the thread id, as both halves  | `from_address`, `root_msg_id` |
+| `email_msg_ids` | the Message-ID, as both halves | `thread_id`                   |
+
+Every read is a point read, so the partition is the identifier rather than a
+constant naming the daemon: nothing wants two items co-located, and
+`email_msg_ids` gains an item per inbound mail with no sweep.
+
+`arizuko migrate-emaid --db <path>/emaid.db` moves a database from the two
+tables emaid used to own onto those entities, setting the old tables aside as
+`_v1`. `--dry-run` reads and checks without writing.
+
+chanlib's `outbound_dedup` and `inbound_pending` share the same `emaid.db` file
+and are chanlib's own: it runs those statements, and they move when chanlib
+does (BUGS `L251`).
 
 ## Related docs
 
@@ -77,8 +102,10 @@ References/In-Reply-To headers.
 
 ## Coverage
 
-Config, the two-chain DB bootstrap, the MIME/attachment extraction, the thread
+Config, the storage bootstrap, the MIME/attachment extraction, the thread
 store, the outbound path and every unimplemented-verb refusal are covered.
+`mailstore`'s own bodies run against whichever engine `ARIZUKO_TEST_PG_DSN`
+names, so the store is proven on SQLite and PostgreSQL alike.
 
 The number stops around 66% because the IMAP poller — `newPoller`, `run`,
 `runPoll`, `FetchHistory` — needs a real IMAP server, and `defaultSMTPSender`

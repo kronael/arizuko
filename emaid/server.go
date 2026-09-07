@@ -14,6 +14,7 @@ import (
 	"github.com/emersion/go-imap/v2/imapclient"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/emaid/mailstore"
 )
 
 const historyLimitMax = 50
@@ -21,16 +22,20 @@ const historyLimitMax = 50
 type server struct {
 	chanlib.NoPinSupport
 
-	cfg           config
+	cfg config
+	// db is chanlib's: the adapter mux dedups outbound sends against
+	// `outbound_dedup` in emaid.db, and chanlib runs those statements itself.
+	// Nothing in emaid reads it.
 	db            *sql.DB
+	st            *mailstore.Store
 	reg           *attRegistry
 	dialTLS       func(string, *imapclient.Options) (*imapclient.Client, error)
 	isConnected   func() bool
 	lastInboundAt func() int64
 }
 
-func newServer(cfg config, db *sql.DB, reg *attRegistry, isConnected func() bool, lastInboundAt func() int64) *server {
-	return &server{cfg: cfg, db: db, reg: reg, dialTLS: imapclient.DialTLS, isConnected: isConnected, lastInboundAt: lastInboundAt}
+func newServer(cfg config, db *sql.DB, st *mailstore.Store, reg *attRegistry, isConnected func() bool, lastInboundAt func() int64) *server {
+	return &server{cfg: cfg, db: db, st: st, reg: reg, dialTLS: imapclient.DialTLS, isConnected: isConnected, lastInboundAt: lastInboundAt}
 }
 
 // Email is chat-only: no feed, no reactions, sent mail is immutable, and
@@ -165,10 +170,8 @@ func threadIDFromJID(jid string) string {
 
 func (s *server) Send(req chanlib.SendRequest) (string, error) {
 	threadID := threadIDFromJID(req.ChatJID)
-	var t emailThread
-	row := s.db.QueryRow(
-		`SELECT thread_id, from_address, root_msg_id FROM email_threads WHERE thread_id = ?`, threadID)
-	if err := row.Scan(&t.ThreadID, &t.FromAddress, &t.RootMsgID); err != nil {
+	t, ok := s.st.Thread(threadID)
+	if !ok {
 		return "", fmt.Errorf("thread not found")
 	}
 	// Prefer the explicit reply target so a reply to a specific message in the
@@ -187,10 +190,8 @@ func (s *server) Typing(string, bool) {}
 // Returns `platform` source with the most recent `Limit` messages.
 func (s *server) FetchHistory(req chanlib.HistoryRequest) (chanlib.HistoryResponse, error) {
 	threadID := threadIDFromJID(req.ChatJID)
-	var t emailThread
-	row := s.db.QueryRow(
-		`SELECT thread_id, from_address, root_msg_id FROM email_threads WHERE thread_id = ?`, threadID)
-	if err := row.Scan(&t.ThreadID, &t.FromAddress, &t.RootMsgID); err != nil {
+	t, ok := s.st.Thread(threadID)
+	if !ok {
 		return chanlib.HistoryResponse{}, fmt.Errorf("thread not found: %s", threadID)
 	}
 
