@@ -28,6 +28,32 @@ when the earlier work is slow enough to land inside the next case's window.
   assertion is right, and making it wait or resetting the recorder would hide
   the thing it caught
 
+## L264 — `ReadConsistent` sees only the writers that remember to carry `Bump`, and one that forgets is silent (2026-09-07, open — proposal, needs sign-off)
+
+`objstore.ReadConsistent` detects a concurrent write by reading a scope's
+version marker before and after its queries. The marker moves only because a
+writer put `objstore.Bump(scope)` into its own batch. So the guarantee is a
+DISCIPLINE, not an engine property: a bounded writer that forgets the extra
+action is invisible, and the export it raced reads as consistent.
+
+This is the shape of a missing audit row — the failure is silence, and it shows
+up as data that disagrees rather than as an error. `store/audit_helpers.go`
+solved the same problem by funnelling every audited mutation through one
+`runAudited`, so no caller could forget.
+
+The conformance suite asserts the limit honestly (a write without a `Bump` is
+invisible, and the body says so), which is the right first move. It is not a
+fix.
+
+- **Severity:** medium (silent, and only under concurrency)
+- **Scope:** `objstore/marker.go`, `objstore/consistent.go`, every future scope writer
+- **Affected:** nothing today — no production caller has adopted the protocol yet
+- **Source:** the protocol's own conformance body, 2026-09-07
+- **Status:** open — proposal, needs sign-off
+- **Fix:** a scope's writes go through one helper that adds the `Bump`, the way
+  `runAudited` owns the audit row, so forgetting is not expressible. Adopt it
+  with the first real caller rather than before one exists.
+
 ## L260 — `route_tokens.PKFields` is not unique in live data, so `resreg.Diff` collapses 15 of 43 tokens (2026-09-07, open)
 
 MEASURED on krons 2026-09-07: `route_tokens` holds 43 rows over 27 distinct
@@ -240,7 +266,7 @@ it is the decision this entry asks for.
 - **Fix:** move `store`, `resreg` and `audit` first, or accept that the port is
   one cutover for eighteen packages and plan the rehearsal accordingly
 
-## L255 — `objstore`'s package doc and README say three protocols are "written once over the two primitives", and none of them exists (2026-09-07, open)
+## ✅ FIXED 2026-09-07 L255 — `objstore`'s package doc and README say three protocols are "written once over the two primitives", and none of them exists (2026-09-07)
 
 `6/40` answers its own three hardest shapes — the versioned replace, the
 reachability guard, and claim-and-return — by making them PROTOCOLS: package
@@ -263,6 +289,22 @@ form in SQL.
 - **Status:** open
 - **Fix:** write the three, or state plainly that they are the next thing and
   which caller each one is derived from
+
+Fixed 2026-09-07. `objstore/marker.go` carries the item all three share — a
+scope with a `version` every writer moves and a `holder` present only while a
+replace runs. `replace.go` is the versioned replace, `consistent.go` the read
+twin, `reach.go` the reachability guard. Sixteen mutations turn a conformance
+body red on both engines, and two of them found real gaps rather than noise: the
+claim's `holder Absent` conjunct was dead because every claim moves `version` in
+the same write, and the finish CAS was unprotected because the fence test's body
+returned an error before reaching it. Both conjuncts deleted, both bodies
+rewritten.
+
+The fourth, claim-and-return, is deliberately NOT written: its caller
+(`routd/pending_actions.go:421`) has not moved, and the package doc now names it
+as absent rather than claiming it. No adoption happened — `acl_membership` is
+raw SQL at eight sites in `onbod/main.go` alone, and `resreg.Apply` still takes
+a `*sql.DB` (`L259`).
 
 ## L256 — the membership cycle check runs inside its own insert's transaction, and `Check` cannot express the graph frontier it needs (2026-09-07, open — proposal, needs sign-off)
 
