@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/authd/authstore"
 	"github.com/kronael/arizuko/resreg/resources"
 )
 
@@ -68,7 +69,7 @@ func TestSessionsNeverServeTokenValues(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hash := hashToken(raw)
+	hash := authstore.HashToken(raw)
 	var stored string
 	if err := a.db.QueryRow(
 		`SELECT token_hash FROM refresh_tokens WHERE token_hash = ?`, hash).Scan(&stored); err != nil {
@@ -237,7 +238,7 @@ func TestSessionsRevokeKillsTheFamilyAndAudits(t *testing.T) {
 		t.Fatalf("audit params_summary does not name the family: %s", params)
 	}
 	// And it must not name the credential.
-	if strings.Contains(params, raw) || strings.Contains(params, hashToken(raw)) {
+	if strings.Contains(params, raw) || strings.Contains(params, authstore.HashToken(raw)) {
 		t.Fatalf("audit params_summary leaked the token: %s", params)
 	}
 }
@@ -272,9 +273,9 @@ func TestSessionsRevokeUnknownFamilyIs404(t *testing.T) {
 	}
 }
 
-// TestSessionsRowPerFamilyInvariant pins what selectSessions' `used_at IS NULL`
+// TestSessionsRowPerFamilyInvariant pins what SessionsByFamily's `used_at IS NULL`
 // WHERE clause relies on: a family has exactly ONE unredeemed row, however many
-// times it has rotated. issueRefresh starts one, and each rotation marks the
+// times it has rotated. StartRefreshFamily starts one, and each rotation marks the
 // presented row used while inserting a single unused successor. If that ever
 // forked, the listing would show one session twice and the count would be a lie.
 func TestSessionsRowPerFamilyInvariant(t *testing.T) {
@@ -293,7 +294,7 @@ func TestSessionsRowPerFamilyInvariant(t *testing.T) {
 		raw = next
 	}
 
-	rows, err := selectSessions(db, "", 0, time.Now())
+	rows, err := authstore.New(db).SessionsByFamily("", 0, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}

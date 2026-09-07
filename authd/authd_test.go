@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/authd/authstore"
 	"github.com/kronael/arizuko/db_utils/dbtest"
 )
 
@@ -193,7 +194,8 @@ func TestRefreshUnknownTokenRejected(t *testing.T) {
 
 func TestOAuthUserUpsertUniqueProvider(t *testing.T) {
 	db := testDB(t)
-	if err := upsertOAuthUser(db, "user:abc", "Alice", "github", "12345"); err != nil {
+	st := authstore.New(db)
+	if err := st.LinkOAuthIdentity("user:abc", "Alice", "github", "12345"); err != nil {
 		t.Fatal(err)
 	}
 	if !userExists(db, "user:abc") {
@@ -201,7 +203,7 @@ func TestOAuthUserUpsertUniqueProvider(t *testing.T) {
 	}
 	// Re-linking the same provider updates provider_sub, does not duplicate
 	// (UNIQUE(user_id, provider)).
-	if err := upsertOAuthUser(db, "user:abc", "Alice", "github", "12345"); err != nil {
+	if err := st.LinkOAuthIdentity("user:abc", "Alice", "github", "12345"); err != nil {
 		t.Fatal(err)
 	}
 	var n int

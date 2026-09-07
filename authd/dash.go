@@ -5,8 +5,8 @@ package main
 // dashd's copy already read through authd's /v1 face rather than a direct DB
 // handle, so this move fixes no read-path defect — it puts the page in the
 // daemon that owns the data, which is what 6/28 asks for, and drops an HTTP hop
-// on every render: the handlers here call the SAME selectSigningKeys and
-// selectSessions the /v1 resources call, in process.
+// on every render: the handlers here call the SAME authstore methods the /v1
+// resources call, in process.
 
 import (
 	"fmt"
@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/authd/authstore"
 	"github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/theme"
 )
@@ -37,7 +38,7 @@ func (s *server) handleDash(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(&b, `<div class="crumb"><a href="/dash/services/">arizuko hub</a> › authd</div>`)
 	fmt.Fprint(&b, `<h1>authd</h1>`)
 
-	keys, err := selectSigningKeys(s.a.db, s.a.maxAccessTTL, now)
+	keys, err := s.a.st.SigningKeyMetadata(s.a.maxAccessTTL, now)
 	if err != nil {
 		slog.Error("dash: signing keys", "err", err)
 		b.WriteString(`<div class="banner-err">Could not read the signing keys.</div>`)
@@ -45,7 +46,7 @@ func (s *server) handleDash(w http.ResponseWriter, r *http.Request) {
 		b.WriteString(signingKeyTable(keys))
 	}
 
-	sessions, err := selectSessions(s.a.db, "", sessionsShown, now)
+	sessions, err := s.a.st.SessionsByFamily("", sessionsShown, now)
 	if err != nil {
 		slog.Error("dash: sessions", "err", err)
 		b.WriteString(`<div class="banner-err">Could not read the session list.</div>`)
@@ -75,7 +76,7 @@ func (s *server) handleDashRevoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
-	n, err := revokeFamilyTx(tx, family)
+	n, err := authstore.RevokeFamilyTx(tx, family)
 	if err != nil {
 		slog.Error("dash revoke", "family_id", family, "err", err)
 		http.Error(w, "write failed", http.StatusInternalServerError)

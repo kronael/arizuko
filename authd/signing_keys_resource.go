@@ -2,8 +2,8 @@ package main
 
 // signing_keys_resource.go publishes signing-key METADATA at
 // GET /v1/signing_keys — kid, algorithm, lifecycle timestamps, and whether the
-// key still verifies. Never key material: see selectSigningKeys below, whose
-// column list is the enforcement.
+// key still verifies. Never key material: authstore.SigningKeyMetadata's column
+// list is the enforcement.
 //
 // It closes the first of spec 5/1's open items. `GET /v1/keys` serves the JWK
 // Set and `auth.PublicJWKS` emits {kty,crv,x,y,kid,alg,use} — everything needed
@@ -17,7 +17,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"net/http"
 	"time"
 
@@ -48,66 +47,9 @@ func (s *server) signingKeysHandler(_ context.Context, x resreg.Execution) (any,
 	if x.Action != resreg.ActionList {
 		return nil, resreg.Errorf(http.StatusBadRequest, "unknown action %q", x.Action)
 	}
-	rows, err := selectSigningKeys(s.a.db, s.a.maxAccessTTL, time.Now())
+	rows, err := s.a.st.SigningKeyMetadata(s.a.maxAccessTTL, time.Now())
 	if err != nil {
 		return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 	}
 	return rows, nil
-}
-
-// selectSigningKeys reads the metadata columns of signing_keys and derives each
-// key's serving state.
-//
-// The SELECT list is the security boundary of this whole file. `priv_pem` is
-// not in it, `pub_pem` is not in it, and there is no argument, filter or action
-// that can add a column — the statement is a constant. loadKeys (store.go) is
-// the only reader that takes priv_pem, and it is in-process and feeds the
-// signer.
-//
-// Status is the time-based window spec 5/1 pins, computed once here rather than
-// left for each reader to re-derive: a key serves while active, OR while
-// now < retired_at + maxAccessTTL. `retiring` is a retired key whose
-// already-issued tokens still verify; `retired` no longer verifies anything and
-// is waiting on GC.
-func selectSigningKeys(db *sql.DB, maxAccessTTL time.Duration, at time.Time) ([]resources.SigningKeysRow, error) {
-	rows, err := db.Query(
-		`SELECT kid, active, created_at, retired_at FROM signing_keys ORDER BY kid DESC`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []resources.SigningKeysRow{}
-	for rows.Next() {
-		var (
-			kid       string
-			active    int
-			createdAt string
-			retiredAt sql.NullString
-		)
-		if err := rows.Scan(&kid, &active, &createdAt, &retiredAt); err != nil {
-			return nil, err
-		}
-		r := resources.SigningKeysRow{
-			Kid:       kid,
-			Alg:       "ES256",
-			Active:    active == 1,
-			CreatedAt: createdAt,
-			Status:    "retired",
-		}
-		if retiredAt.Valid {
-			r.RetiredAt = retiredAt.String
-			if t, err := time.Parse(time.RFC3339, retiredAt.String); err == nil {
-				serves := t.Add(maxAccessTTL)
-				r.ServesUntil = serves.Format(time.RFC3339)
-				if at.Before(serves) {
-					r.Status = "retiring"
-				}
-			}
-		}
-		if r.Active {
-			r.Status = "active"
-		}
-		out = append(out, r)
-	}
-	return out, rows.Err()
 }

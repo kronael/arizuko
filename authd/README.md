@@ -112,14 +112,20 @@ scrubbed from history by migration `0007`.
 ## Files
 
 - `main.go` — boot, migrate, OAuth mount, signal handling
+- `migrate.go` — the embedded `migrations/*.sql` and their runner
 - `server.go` — `Authd` signer: key rotation, mint/downscope, refresh lineage
 - `http.go` — `/v1/*` handlers + mux
-- `store.go` — key + refresh-token persistence
+- `authstore/` — the storage layer: every statement authd runs, one file per
+  table (`signing_keys.go`, `refresh_tokens.go`, `auth_users.go`, which also
+  carries `oauth_identities` because no operation touches one without the
+  other). A second driver reimplements this package and no handler changes
+  (spec `specs/6/37-store-model.md` step 1, enforced by
+  `db_utils/sql_layer_test.go`).
 - `oauth.go` — OAuth provider dance → ES256 mint
 - `audit_resource.go` — the `GET /v1/audit` resreg mount, plus `scopeGate` /
   `instanceWideGate`, the two gate builders every authd resource injects
-- `signing_keys_resource.go` — `GET /v1/signing_keys`; its constant SELECT list
-  is what keeps key material off the wire
+- `signing_keys_resource.go` — `GET /v1/signing_keys`; the constant SELECT list
+  in `authstore.SigningKeyMetadata` is what keeps key material off the wire
 - `sessions_resource.go` — `GET /v1/sessions` + the operator revoke
 - `grants.go` — HTTP grants fetcher (login-time scope snapshot)
 

@@ -5,7 +5,6 @@ import (
 	"crypto/ecdsa"
 	"crypto/rand"
 	"database/sql"
-	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -14,14 +13,22 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/authd/authstore"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/obs"
 )
 
+var errReuse = errors.New("refresh token reuse detected")
+
 // Authd is the sole signer. It holds the active ES256 key in memory plus every
-// key still inside its serving window, and persists keys/refresh state to the
-// shared DB.
+// key still inside its serving window, and persists keys/refresh state through
+// authstore.
 type Authd struct {
+	// st is where every statement authd runs lives (spec 6/37 step 1). db is
+	// the same handle, kept because audit.Init, audit.Query and store.New take
+	// one and run their own statements against auth.db — the ownership half of
+	// the seam, tracked as BUGS L251 — and because the health check pings it.
+	st           *authstore.Store
 	db           *sql.DB
 	accessTTL    time.Duration // short access JWT lifetime (~15m)
 	refreshTTL   time.Duration // rotating refresh lifetime
@@ -33,12 +40,12 @@ type Authd struct {
 	grants GrantsFetcher
 
 	mu      sync.RWMutex
-	active  *auth.SigningKey // current signing key
-	serving []keyRow         // all keys whose verify window is open (active + recently retired)
+	active  *auth.SigningKey      // current signing key
+	serving []authstore.StoredKey // all keys whose verify window is open (active + recently retired)
 }
 
 func newAuthd(db *sql.DB, accessTTL, refreshTTL, maxAccessTTL time.Duration) (*Authd, error) {
-	a := &Authd{db: db, accessTTL: accessTTL, refreshTTL: refreshTTL, maxAccessTTL: maxAccessTTL}
+	a := &Authd{st: authstore.New(db), db: db, accessTTL: accessTTL, refreshTTL: refreshTTL, maxAccessTTL: maxAccessTTL}
 	if err := a.reload(); err != nil {
 		return nil, err
 	}
@@ -53,7 +60,7 @@ func newAuthd(db *sql.DB, accessTTL, refreshTTL, maxAccessTTL time.Duration) (*A
 // reload pulls keys from the DB and rebuilds the in-memory active + serving set
 // using the time-based window (active OR now < retired_at + maxAccessTTL).
 func (a *Authd) reload() error {
-	keys, err := loadKeys(a.db)
+	keys, err := a.st.SigningKeysWithMaterial()
 	if err != nil {
 		return err
 	}
@@ -63,12 +70,12 @@ func (a *Authd) reload() error {
 	a.serving = a.serving[:0]
 	cutoff := time.Now()
 	for _, kr := range keys {
-		if kr.active {
-			a.active = kr.key
+		if kr.Active {
+			a.active = kr.Key
 			a.serving = append(a.serving, kr)
 			continue
 		}
-		if kr.retiredAt != nil && cutoff.Before(kr.retiredAt.Add(a.maxAccessTTL)) {
+		if kr.RetiredAt != nil && cutoff.Before(kr.RetiredAt.Add(a.maxAccessTTL)) {
 			a.serving = append(a.serving, kr)
 		}
 	}
@@ -85,7 +92,7 @@ func (a *Authd) Rotate() error {
 	if err != nil {
 		return err
 	}
-	if err := rotateActiveKey(a.db, k, time.Now()); err != nil {
+	if err := a.st.RotateActiveKey(k, time.Now()); err != nil {
 		return err
 	}
 	return a.reload()
@@ -104,7 +111,7 @@ func genKid(created time.Time) string {
 // closing verification of all currently-issued tokens immediately, then mints a
 // fresh active key. This is the emergency-revoke path.
 func (a *Authd) RevokeAllNow() error {
-	if err := retireActiveKeys(a.db, time.Now().Add(-a.maxAccessTTL-time.Second)); err != nil {
+	if err := a.st.RetireActiveKeys(time.Now().Add(-a.maxAccessTTL - time.Second)); err != nil {
 		return err
 	}
 	return a.Rotate()
@@ -117,7 +124,7 @@ func (a *Authd) PublicKeys() map[string]*ecdsa.PublicKey {
 	defer a.mu.RUnlock()
 	out := map[string]*ecdsa.PublicKey{}
 	for _, kr := range a.serving {
-		out[kr.key.Kid] = &kr.key.Priv.PublicKey
+		out[kr.Key.Kid] = &kr.Key.Priv.PublicKey
 	}
 	return out
 }
@@ -130,8 +137,8 @@ func (a *Authd) retiredKeys() map[string]time.Time {
 	defer a.mu.RUnlock()
 	out := map[string]time.Time{}
 	for _, kr := range a.serving {
-		if kr.retiredAt != nil {
-			out[kr.key.Kid] = *kr.retiredAt
+		if kr.RetiredAt != nil {
+			out[kr.Key.Kid] = *kr.RetiredAt
 		}
 	}
 	return out
@@ -269,7 +276,7 @@ func folderWithin(parent, child string) bool {
 
 // IssueRefresh starts a new refresh-token family for sub.
 func (a *Authd) IssueRefresh(sub string, scope []string, aud string) (string, error) {
-	return issueRefresh(a.db, sub, scope, aud, a.refreshTTL)
+	return a.st.StartRefreshFamily(sub, scope, aud, a.refreshTTL)
 }
 
 // Refresh rotates a refresh token: verifies it is live and unused, mints a new
@@ -278,25 +285,25 @@ func (a *Authd) IssueRefresh(sub string, scope []string, aud string) (string, er
 // returned. ctx bounds the grants re-snapshot so an abandoned HTTP request
 // (client gone) doesn't hold a goroutine for the full FetchGrants timeout.
 func (a *Authd) Refresh(ctx context.Context, raw string) (access, newRefresh string, err error) {
-	r, ok := lookupRefresh(a.db, raw)
+	r, ok := a.st.RefreshTokenBySecret(raw)
 	if !ok {
 		return "", "", auth.ErrInvalidToken
 	}
-	if r.revoked {
+	if r.Revoked {
 		return "", "", auth.ErrInvalidToken
 	}
-	if r.used {
+	if r.Used {
 		// Reuse of a spent token: revoke the lineage. A failure here is the one
 		// that matters — the token is known-stolen and the family stays live —
 		// so it is logged loud rather than dropped. The caller still gets
 		// errReuse: this request is refused either way.
-		if err := revokeFamily(a.db, r.family); err != nil {
+		if _, err := a.st.RevokeFamily(r.Family); err != nil {
 			slog.Error("refresh-token family NOT revoked after reuse detection; a stolen token may still mint",
-				"family", r.family, "sub", r.sub, "err", err)
+				"family", r.Family, "sub", r.Sub, "err", err)
 		}
 		return "", "", errReuse
 	}
-	if time.Now().After(r.expires) {
+	if time.Now().After(r.Expires) {
 		return "", "", auth.ErrExpiredToken
 	}
 	// Re-snapshot grants on refresh so a revoked user does not keep scope up to the
@@ -311,14 +318,14 @@ func (a *Authd) Refresh(ctx context.Context, raw string) (access, newRefresh str
 	// Two accepted consequences: a grants outage no longer burns the presented token,
 	// and the window in which two redeems both pass the used_at check widens to one RTT
 	// — so simultaneous redeems are more likely to be seen as the reuse they are.
-	scope := r.scope
+	scope := r.Scope
 	if a.grants != nil {
-		// r.sub is ALREADY the bare canonical sub (issueSession stores it bare,
+		// r.Sub is ALREADY the bare canonical sub (issueSession stores it bare,
 		// spec 5/1 "sub prefix rule"). For an OAuth sub the canonical form IS
 		// "google:<id>" (9-acl-unified.md), so re-stripping at ":" would query
-		// the wrong principal "<id>" → empty scope. Query r.sub as-is, matching
+		// the wrong principal "<id>" → empty scope. Query r.Sub as-is, matching
 		// the login snapshot.
-		snap, gerr := a.grants.FetchGrants(ctx, r.sub)
+		snap, gerr := a.grants.FetchGrants(ctx, r.Sub)
 		switch {
 		case gerr == nil:
 			scope = snap.Scope
@@ -332,30 +339,22 @@ func (a *Authd) Refresh(ctx context.Context, raw string) (access, newRefresh str
 	// caller that flips used_at NULL->now wins the right to rotate, and no family kill
 	// can land between its win and its insert. A lost race means concurrent redeem of a
 	// one-time token, which is reuse — revoke the family and fail.
-	newRefresh, won, err := claimAndRotateRefresh(a.db, raw, r.family, r.sub, scope, r.aud, a.refreshTTL)
+	newRefresh, won, err := a.st.ClaimAndRotateRefresh(raw, r.Family, r.Sub, scope, r.Aud, a.refreshTTL)
 	if err != nil {
 		return "", "", err
 	}
 	if !won {
-		if err := revokeFamily(a.db, r.family); err != nil {
+		if _, err := a.st.RevokeFamily(r.Family); err != nil {
 			slog.Error("refresh-token family NOT revoked after lost rotation race; a stolen token may still mint",
-				"family", r.family, "sub", r.sub, "err", err)
+				"family", r.Family, "sub", r.Sub, "err", err)
 		}
 		return "", "", errReuse
 	}
-	// r.sub is the BARE canonical sub (spec 5/1 "sub prefix rule"); the user:
+	// r.Sub is the BARE canonical sub (spec 5/1 "sub prefix rule"); the user:
 	// prefix is added ONLY here at mint, so the access claim stays "user:<sub>".
-	access, err = a.MintForSubject("user:"+r.sub, "user", scope, scope, r.aud)
+	access, err = a.MintForSubject("user:"+r.Sub, "user", scope, scope, r.Aud)
 	if err != nil {
 		return "", "", err
 	}
 	return access, newRefresh, nil
-}
-
-func genRefresh() (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(b), nil
 }

@@ -4,8 +4,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -194,13 +196,22 @@ func TestAuthdAuditFolderClaimPinsRows(t *testing.T) {
 // A new authd emit site with a new params key fails here, before the column it
 // writes into is served to anyone.
 func TestAuthdParamsSummaryHasOneWriter(t *testing.T) {
+	// Every non-test source in the daemon AND in its storage layer, walked
+	// rather than listed: a file the list did not name could emit unaudited.
 	var src strings.Builder
-	for _, f := range []string{"main.go", "oauth.go", "http.go", "server.go", "grants.go", "store.go"} {
-		b, err := os.ReadFile(f)
-		if err != nil {
-			t.Fatal(err)
+	if err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") ||
+			strings.HasSuffix(path, "_test.go") {
+			return err
+		}
+		b, rerr := os.ReadFile(path)
+		if rerr != nil {
+			return rerr
 		}
 		src.Write(b)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 	if n := strings.Count(src.String(), "ParamsSummary:"); n != 1 {
 		t.Fatalf("authd sets ParamsSummary at %d sites, want 1 (daemon.start) — "+

@@ -203,7 +203,7 @@ func (s *server) servingKeys() []*auth.SigningKey {
 	defer s.a.mu.RUnlock()
 	out := make([]*auth.SigningKey, 0, len(s.a.serving))
 	for _, kr := range s.a.serving {
-		out = append(out, kr.key)
+		out = append(out, kr.Key)
 	}
 	return out
 }
@@ -477,7 +477,7 @@ func (s *server) handleIdentity(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "bad_request", "sub required")
 		return
 	}
-	userID, name, createdAt, subs, ok := oauthIdentityForSub(s.a.db, sub)
+	userID, name, createdAt, subs, ok := s.a.st.OAuthIdentityForSub(sub)
 	if !ok {
 		writeJSON(w, map[string]any{"identity": nil, "subs": []string{}})
 		return

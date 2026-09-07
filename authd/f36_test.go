@@ -17,6 +17,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"github.com/kronael/arizuko/authd/authstore"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -54,7 +55,7 @@ func familyOf(t *testing.T, db *sql.DB, raw string) string {
 	t.Helper()
 	var fam string
 	if err := db.QueryRow(
-		`SELECT family_id FROM refresh_tokens WHERE token_hash = ?`, hashToken(raw)).
+		`SELECT family_id FROM refresh_tokens WHERE token_hash = ?`, authstore.HashToken(raw)).
 		Scan(&fam); err != nil {
 		t.Fatalf("family of issued token: %v", err)
 	}
@@ -82,8 +83,8 @@ func familyRows(t *testing.T, db *sql.DB, fam string) (total, live int) {
 //
 // The forced ordering, pre-fix, is the exact sequence BUGS F36 describes:
 //
-//	redeem A: lookup -> markRefreshUsed WINS -> [parked in FetchGrants]
-//	redeem B: lookup sees used_at set -> revokeFamily -> errReuse
+//	redeem A: lookup -> ClaimRefreshToken WINS -> [parked in FetchGrants]
+//	redeem B: lookup sees used_at set -> RevokeFamily -> errReuse
 //	redeem A: unparked -> rotateRefresh INSERTs the successor, revoked_at NULL
 //
 // The family was killed and a live 30-day credential walked out of it.
@@ -160,7 +161,7 @@ func TestRefreshFamilyKillOutrunsNoSuccessor(t *testing.T) {
 	}
 }
 
-// The transaction in claimAndRotateRefresh, pinned without any timing.
+// The transaction in ClaimAndRotateRefresh, pinned without any timing.
 //
 // The barrier tests above are the end-to-end F36 regression, but neither of
 // them falsifies the TRANSACTION on its own: moving the grants re-snapshot
@@ -178,7 +179,7 @@ func TestRefreshFamilyKillOutrunsNoSuccessor(t *testing.T) {
 // logged out by an error that changed nothing else.
 func TestRefreshClaimRollsBackWhenSuccessorInsertFails(t *testing.T) {
 	db := concurrentDB(t)
-	raw, err := issueRefresh(db, "1", []string{"tasks:read"}, "", time.Hour)
+	raw, err := authstore.New(db).StartRefreshFamily("1", []string{"tasks:read"}, "", time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +190,7 @@ func TestRefreshClaimRollsBackWhenSuccessorInsertFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	newRaw, won, err := claimAndRotateRefresh(db, raw, fam, "1", []string{"tasks:read"}, "", time.Hour)
+	newRaw, won, err := authstore.New(db).ClaimAndRotateRefresh(raw, fam, "1", []string{"tasks:read"}, "", time.Hour)
 	if err == nil {
 		t.Fatal("a blocked successor INSERT must surface as an error, not a silent no-op")
 	}
@@ -210,7 +211,7 @@ func TestRefreshClaimRollsBackWhenSuccessorInsertFails(t *testing.T) {
 	}
 }
 
-// The second kill source is logout (authd/oauth.go:413 — `revokeFamily` on the
+// The second kill source is logout (authd/oauth.go — `RevokeFamily` on the
 // caller's own cookie). It races the same insert, and the transaction alone
 // does not stop it: a revoke that commits BEFORE the rotation's transaction
 // opens is not an interleave at all, so the claim has to observe the family's
@@ -220,7 +221,7 @@ func TestRefreshClaimRollsBackWhenSuccessorInsertFails(t *testing.T) {
 // Forced ordering:
 //
 //	redeem:  lookup (family live) -> [parked in FetchGrants]
-//	logout:  revokeFamily -> every row revoked
+//	logout:  RevokeFamily -> every row revoked
 //	redeem:  unparked -> claim must FAIL and mint nothing
 func TestRefreshAfterLogoutRevokeMintsNoSuccessor(t *testing.T) {
 	db := concurrentDB(t)
@@ -245,7 +246,7 @@ func TestRefreshAfterLogoutRevokeMintsNoSuccessor(t *testing.T) {
 
 	<-g.entered
 	// This is verbatim what oauth.logout does with the caller's cookie.
-	if err := revokeFamily(db, fam); err != nil {
+	if _, err := authstore.New(db).RevokeFamily(fam); err != nil {
 		t.Fatal(err)
 	}
 	close(g.release)

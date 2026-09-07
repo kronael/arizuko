@@ -126,12 +126,12 @@ func TestRefreshRowStoresBareSubMintAddsPrefix(t *testing.T) {
 
 	// The stored refresh row holds the BARE sub (no user: prefix).
 	refresh := jsonField(t, rec.Body.Bytes(), "refresh_token")
-	row, ok := lookupRefresh(a.db, refresh)
+	row, ok := a.st.RefreshTokenBySecret(refresh)
 	if !ok {
 		t.Fatal("refresh row must exist")
 	}
-	if row.sub != "google:g-bare" {
-		t.Fatalf("stored refresh sub = %q want bare google:g-bare (no user: prefix)", row.sub)
+	if row.Sub != "google:g-bare" {
+		t.Fatalf("stored refresh sub = %q want bare google:g-bare (no user: prefix)", row.Sub)
 	}
 
 	// Refreshing re-adds the prefix at mint: the access sub is unchanged.

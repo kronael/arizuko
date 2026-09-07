@@ -4,9 +4,10 @@ package main
 // kills one at DELETE /v1/sessions/{family_id}.
 //
 // It closes the other two of spec 5/1's open items. Before it, `FROM
-// refresh_tokens` had exactly ONE reader in the tree — lookupRefresh, `WHERE
-// token_hash = ?` — so there was no way to ask who was logged in; and
-// `revokeFamily` fired only from reuse detection and from the user's own
+// refresh_tokens` had exactly ONE reader in the tree —
+// authstore.RefreshTokenBySecret, `WHERE token_hash = ?` — so there was no way
+// to ask who was logged in; and the family revoke fired only from reuse
+// detection and from the user's own
 // `/auth/logout` cookie, so an operator holding a compromised account could not
 // cut the session off. Self-service logout was never the gap; admin-initiated
 // revocation was (BUGS F15).
@@ -26,10 +27,10 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"net/http"
 	"time"
 
+	"github.com/kronael/arizuko/authd/authstore"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
 )
@@ -65,7 +66,7 @@ func (s *server) sessionsGate(x resreg.Execution, scope string, params map[strin
 func (s *server) sessionsHandler(_ context.Context, x resreg.Execution) (any, error) {
 	switch x.Action {
 	case resreg.ActionList:
-		rows, err := selectSessions(s.a.db, x.Args.Str("sub"), int(x.Args.Int("limit")), time.Now())
+		rows, err := s.a.st.SessionsByFamily(x.Args.Str("sub"), int(x.Args.Int("limit")), time.Now())
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
@@ -89,7 +90,7 @@ func (s *server) revokeSession(x resreg.Execution) (any, error) {
 	if fam == "" {
 		return nil, resreg.Errorf(http.StatusBadRequest, "family_id required")
 	}
-	n, err := revokeFamilyTx(x.Tx, fam)
+	n, err := authstore.RevokeFamilyTx(x.Tx, fam)
 	if err != nil {
 		return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 	}
@@ -97,81 +98,4 @@ func (s *server) revokeSession(x resreg.Execution) (any, error) {
 		return nil, resreg.Errorf(http.StatusNotFound, "no live session %q", fam)
 	}
 	return map[string]any{"family_id": fam, "revoked": n}, nil
-}
-
-// revokeFamilyTx is the ONE writer that kills a refresh family, on a
-// caller-owned transaction. The REST face and the dashboard both call it, so
-// there is no second UPDATE that could drift from this one's
-// `revoked_at IS NULL` guard — the guard is what makes re-revoking an
-// already-dead family report zero rather than a fresh success.
-func revokeFamilyTx(tx interface {
-	Exec(string, ...any) (sql.Result, error)
-}, familyID string) (int64, error) {
-	res, err := tx.Exec(
-		`UPDATE refresh_tokens SET revoked_at = ? WHERE family_id = ? AND revoked_at IS NULL`,
-		now(), familyID)
-	if err != nil {
-		return 0, err
-	}
-	return res.RowsAffected()
-}
-
-// maxSessionsLimit caps one page, matching audit's own ceiling.
-const maxSessionsLimit = 200
-
-// selectSessions projects one row per family off refresh_tokens.
-//
-// The family's CURRENT row is the one with `used_at IS NULL`, and there is
-// exactly one per family by construction: issueRefresh starts a family with a
-// single unused row, and each rotation marks the presented row used while
-// inserting one unused successor — atomically, since F36. That invariant is
-// what lets this be a plain WHERE instead of a window function, and
-// TestSessionsRowPerFamilyInvariant pins it.
-//
-// `token_hash` appears in no SELECT list here. The `sub` filter is a bound
-// parameter, never interpolated.
-func selectSessions(db *sql.DB, sub string, limit int, at time.Time) ([]resources.SessionsRow, error) {
-	if limit <= 0 || limit > maxSessionsLimit {
-		limit = 50
-	}
-	rows, err := db.Query(
-		`SELECT r.family_id, r.sub, r.scope, r.aud, r.issued_at, r.expires_at, r.revoked_at,
-		        (SELECT COUNT(*)        FROM refresh_tokens f WHERE f.family_id = r.family_id),
-		        (SELECT MIN(issued_at)  FROM refresh_tokens f WHERE f.family_id = r.family_id)
-		   FROM refresh_tokens r
-		  WHERE r.used_at IS NULL AND (? = '' OR r.sub = ?)
-		  ORDER BY r.issued_at DESC
-		  LIMIT ?`, sub, sub, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []resources.SessionsRow{}
-	for rows.Next() {
-		var (
-			r         resources.SessionsRow
-			revokedAt sql.NullString
-		)
-		if err := rows.Scan(&r.FamilyID, &r.Sub, &r.Scope, &r.Aud, &r.RenewedAt,
-			&r.ExpiresAt, &revokedAt, &r.Rotations, &r.StartedAt); err != nil {
-			return nil, err
-		}
-		r.Status = sessionStatus(revokedAt.Valid, r.ExpiresAt, at)
-		out = append(out, r)
-	}
-	return out, rows.Err()
-}
-
-// sessionStatus collapses the tombstone columns plus the clock into one word.
-// Revoked outranks expired: how a session ended is what an incident review
-// asks, and a family killed a day before its natural expiry must not be
-// reported as having merely timed out.
-func sessionStatus(revoked bool, expiresAt string, at time.Time) string {
-	if revoked {
-		return "revoked"
-	}
-	if exp, err := time.Parse(time.RFC3339, expiresAt); err == nil && !at.Before(exp) {
-		return "expired"
-	}
-	return "active"
 }

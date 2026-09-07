@@ -23,6 +23,7 @@ import (
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/authd/authstore"
 	"github.com/kronael/arizuko/db_utils"
 )
 
@@ -121,7 +122,7 @@ func concurrentDB(t *testing.T) *sql.DB {
 
 // One refresh token redeemed by many goroutines must yield EXACTLY ONE
 // successor; the losers are a reuse signal that kills the whole family. Without
-// the atomic used_at compare-and-set, multiple goroutines lookupRefresh before
+// the atomic used_at compare-and-set, multiple goroutines read the row before
 // any writes used_at and several rotate → forked live chains, reuse never
 // fires.
 func TestRefreshRotationRaceSingleWinner(t *testing.T) {
@@ -165,14 +166,14 @@ func TestRefreshRotationRaceSingleWinner(t *testing.T) {
 	}
 }
 
-// markRefreshUsed is the atomic primitive behind the race fix: N concurrent
+// ClaimRefreshToken is the atomic primitive behind the race fix: N concurrent
 // claims of one token, exactly one wins (rows-affected == 1). This is
 // deterministic regardless of goroutine scheduling — the SQL `used_at IS NULL`
 // guard makes it so. A regression to an unconditional UPDATE would let every
 // caller "win".
 func TestMarkRefreshUsedAtomicSingleWinner(t *testing.T) {
 	db := concurrentDB(t)
-	raw, err := issueRefresh(db, "user:1", []string{"a:read"}, "", time.Hour)
+	raw, err := authstore.New(db).StartRefreshFamily("user:1", []string{"a:read"}, "", time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +186,7 @@ func TestMarkRefreshUsedAtomicSingleWinner(t *testing.T) {
 	for range n {
 		go func() {
 			defer wg.Done()
-			won, err := markRefreshUsed(db, raw)
+			won, err := authstore.New(db).ClaimRefreshToken(raw)
 			if err != nil {
 				return
 			}
@@ -246,10 +247,10 @@ func TestOneActiveKeyIndexEnforced(t *testing.T) {
 		t.Fatal(err)
 	}
 	k, _ := auth.NewSigningKey(genKid(time.Now()))
-	privPEM, pubPEM, _ := encodeKey(k.Priv)
+	privPEM, pubPEM, _ := authstore.EncodeKey(k.Priv)
 	_, err := db.Exec(
 		`INSERT INTO signing_keys (kid, priv_pem, pub_pem, active, created_at) VALUES (?, ?, ?, 1, ?)`,
-		k.Kid, privPEM, pubPEM, now())
+		k.Kid, privPEM, pubPEM, time.Now().Format(time.RFC3339))
 	if err == nil {
 		t.Fatal("inserting a second active key must violate the unique index")
 	}

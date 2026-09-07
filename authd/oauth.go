@@ -310,10 +310,10 @@ func (o *oauth) dispatch(w http.ResponseWriter, r *http.Request, provider, provi
 	canonical := login
 	if intent.Intent == "link" && intent.LinkFrom != "" {
 		canonical = intent.LinkFrom
-	} else if owner, _, _, _, linked := oauthIdentityForSub(o.a.db, login); linked {
+	} else if owner, _, _, _, linked := o.a.st.OAuthIdentityForSub(login); linked {
 		canonical = owner
 	}
-	if err := upsertOAuthUser(o.a.db, canonical, name, provider, providerSub); err != nil {
+	if err := o.a.st.LinkOAuthIdentity(canonical, name, provider, providerSub); err != nil {
 		// UNIQUE(provider, provider_sub) fires when a link targets an identity
 		// another account already owns — the hard fail of spec 5/1, not a merge.
 		slog.Error("oauth upsert user", "user", canonical, "login", login, "err", err)
@@ -414,13 +414,13 @@ func (o *oauth) snapshot(ctx context.Context, bareSub string) (scope []string, f
 // logout revokes the refresh token's family and clears the cookie.
 func (o *oauth) logout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie("refresh_token"); err == nil && c.Value != "" {
-		if row, found := lookupRefresh(o.a.db, c.Value); found {
+		if row, found := o.a.st.RefreshTokenBySecret(c.Value); found {
 			// The user asked to be logged out. If the family survives, they are
 			// not — say so in the log; the cookie is cleared regardless, so the
 			// browser cannot tell the difference on its own.
-			if err := revokeFamily(o.a.db, row.family); err != nil {
+			if _, err := o.a.st.RevokeFamily(row.Family); err != nil {
 				slog.Error("logout did not revoke the refresh-token family; the session may still refresh",
-					"family", row.family, "err", err)
+					"family", row.Family, "err", err)
 			}
 		}
 	}

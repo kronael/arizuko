@@ -37,6 +37,7 @@ type sqlLayer struct {
 }
 
 var sqlLayers = []sqlLayer{
+	{daemon: "authd", storage: "authd/authstore"},
 	{daemon: "dashd", storage: "dashd/dashstore"},
 	{daemon: "runed", storage: "runed/db.go"},
 }

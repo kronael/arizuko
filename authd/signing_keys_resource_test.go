@@ -176,7 +176,7 @@ func TestSigningKeysStatusTracksTheServingWindow(t *testing.T) {
 	}
 
 	at := time.Now()
-	rows, err := selectSigningKeys(a.db, a.maxAccessTTL, at)
+	rows, err := a.st.SigningKeyMetadata(a.maxAccessTTL, at)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +192,7 @@ func TestSigningKeysStatusTracksTheServingWindow(t *testing.T) {
 	}
 
 	// Same rows, read past the retired key's serving window.
-	later, err := selectSigningKeys(a.db, a.maxAccessTTL, at.Add(a.maxAccessTTL+time.Minute))
+	later, err := a.st.SigningKeyMetadata(a.maxAccessTTL, at.Add(a.maxAccessTTL+time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
