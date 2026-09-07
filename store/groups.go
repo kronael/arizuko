@@ -300,11 +300,17 @@ func (s *Store) SiblingFolders(folder string) []string {
 	if parent == "" {
 		return nil
 	}
+	// substr, never LIKE: `_` and `%` are legal in a folder name and LIKE
+	// folds ASCII case, so LIKE lists a stranger's folder as a sibling
+	// (BUGS L252). SQLSubtree matches the parent itself too, so both the
+	// parent and the asking folder are excluded by name.
+	args := append(groupfolder.SubtreeArgs(parent, "/"), folder, parent)
 	rows, err := s.db.Query(
 		`SELECT folder FROM groups
-		 WHERE folder LIKE ? AND folder != ?
+		 WHERE `+groupfolder.SQLSubtree("folder", "/")+`
+		   AND folder != ? AND folder != ?
 		   AND COALESCE(json_extract(config, '$.open'), 1) = 1`,
-		parent+"/%", folder,
+		args...,
 	)
 	if err != nil {
 		return nil

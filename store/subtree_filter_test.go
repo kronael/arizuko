@@ -54,3 +54,19 @@ func TestListRoutesIsNotWidenedByLikeMetacharacters(t *testing.T) {
 		t.Errorf("ListRoutes(a_b) returned %d rows, want its own 3", n)
 	}
 }
+
+// SiblingFolders scopes on the PARENT's subtree and must exclude the parent
+// itself, so it exercises both halves of the predicate at once.
+func TestSiblingFoldersAreNotWidenedByLikeMetacharacters(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+	for _, f := range []string{"a_b", "a_b/one", "a_b/two", "aXb", "aXb/three"} {
+		if err := s.PutGroup(core.Group{Folder: f}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := s.SiblingFolders("a_b/one")
+	if len(got) != 1 || got[0] != "a_b/two" {
+		t.Errorf("SiblingFolders(a_b/one) = %v, want [a_b/two] — the parent and aXb's child are not siblings", got)
+	}
+}

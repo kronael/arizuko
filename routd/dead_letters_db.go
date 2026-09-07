@@ -5,7 +5,10 @@ package routd
 // because they are one view of `messages` (status='failed' AND
 // is_bot_message=1), not a new store.
 
-import "github.com/kronael/arizuko/core"
+import (
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
+)
 
 // DeadLetters returns outbound rows routd gave up on, newest first, optionally
 // narrowed to a folder subtree. 'failed' IS the dead-letter state and the row
@@ -22,9 +25,12 @@ func (d *DB) DeadLetters(folder string, limit int) ([]core.Message, error) {
 		FROM messages WHERE status=? AND is_bot_message=1`
 	args := []any{core.MessageStatusFailed}
 	if folder != "" {
-		// Subtree, not exact: a grant on `acme` covers `acme/support`.
-		q += ` AND (routed_to = ? OR routed_to LIKE ?)`
-		args = append(args, folder, folder+"/%")
+		// Subtree, not exact: a grant on `acme` covers `acme/support`. The
+		// predicate is substr, never LIKE — `_` and `%` are legal in a folder
+		// name and LIKE folds ASCII case, so LIKE hands one folder's failed
+		// messages to a neighbour's grant (BUGS L252).
+		q += ` AND ` + groupfolder.SQLSubtree("routed_to", "/")
+		args = append(args, groupfolder.SubtreeArgs(folder, "/")...)
 	}
 	q += ` ORDER BY timestamp DESC LIMIT ?`
 	args = append(args, limit)

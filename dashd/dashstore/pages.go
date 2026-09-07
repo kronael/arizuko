@@ -1,6 +1,10 @@
 package dashstore
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/kronael/arizuko/groupfolder"
+)
 
 // InstalledPackage is one installed_packages row (spec 5/28). Folder is empty
 // for an instance-wide install and names the group a product was blended into
@@ -87,8 +91,10 @@ type GroupRoute struct {
 // in dispatch order, up to the panel's page size.
 func (s *Store) RoutesIntoFolder(folder string) ([]GroupRoute, error) {
 	rows, err := s.db.Query(
-		`SELECT seq, match, target FROM routes WHERE target=? OR target LIKE ? ORDER BY seq LIMIT 200`,
-		folder, folder+"/%")
+		`SELECT seq, match, target FROM routes WHERE `+
+			groupfolder.SQLSubtree("target", "/")+
+			` ORDER BY seq LIMIT 200`,
+		groupfolder.SubtreeArgs(folder, "/")...)
 	if err != nil {
 		return nil, err
 	}
