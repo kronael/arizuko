@@ -7,6 +7,48 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L257 — 39 session rows on sloth carry a `started_at` that runs backwards against their id sequence (2026-09-07, open)
+
+MEASURED 2026-09-07 while rehearsing `arizuko migrate-runed` against copies of
+all three live snapshots. On sloth, 39 `session_log` rows in one folder on one
+day carry a `started_at` one to three seconds EARLIER than the row before them
+in the id sequence. krons and marinade have none.
+
+`session_log`'s identity becomes a time key on the move, so the id order and
+the clock order must agree, and here they do not. The migration is right and the
+first verifier was wrong: every reader of this history renders `started_at`, so
+the instant is the order a reader means. The tool now compares against the key's
+order and reports what moved — 118 sessions change position across the fleet.
+
+What is not explained is why the clock ran backwards for one folder on one day.
+`StartSession` stamps `started_at` from the daemon's own clock, so either the
+host's clock stepped, or rows were written out of order by something that does
+not stamp at insert time.
+
+- **Severity:** low (history only; no cursor reads `session_log`)
+- **Scope:** `runed/runstore/session_log.go`, `cmd/arizuko/migrate_runed.go`
+- **Affected:** sloth, measured; 39 rows
+- **Source:** the migration's own order check, 2026-09-07
+- **Status:** open
+- **Fix:** none needed for the port. Worth knowing whether the host clock stepped,
+  because anything else stamped from the same clock moved with it.
+
+## L258 — `dashd` opens `runed.db` and nothing reads the handle (2026-09-07, open)
+
+`dashd/main.go:278` opens `runed.db` into `dash.dbRuned`, and no code reads that
+field. `/dash/runed/` moved into runed itself, and the mount stayed.
+
+It is a live FS mount on another daemon's database with no reader — the exact
+shape `5/16`'s split write-discipline exists to remove, and it also means `dashd`
+must be given a path it does not use, which a deployment can get wrong silently.
+
+- **Severity:** low (a dead handle, not a wrong read)
+- **Scope:** `dashd/main.go`
+- **Affected:** every instance
+- **Source:** found during the runed move, 2026-09-07
+- **Status:** open
+- **Fix:** delete the field, its opener and the env var that feeds it
+
 ## L253 — three tables survive a folder delete on the strength of an `ON DELETE CASCADE` a document store does not have (2026-09-07, open — proposal, needs sign-off)
 
 `store/folder_scope.go` is a TOTAL classification of every table into purge or

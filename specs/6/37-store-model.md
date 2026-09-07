@@ -519,11 +519,22 @@ one domain entity (`spawns`, 232 rows, 56 references), one mandated
 survive the move.
 
 **1. Partition by the coordinate you filter on, not the identifier you look up
-by.** `spawns.run_id` is the SQL primary key, but the queries are
-`WHERE folder=?` and `WHERE folder=? AND state IN ('queued','running')`. Make
-`folder` the partition and `run_id` the sort key, or every real query becomes a
-scan. The tenancy coordinate is almost always the right partition, which is the
-same fact `6/40` §1 states about containment.
+by — but count the WRITES, not only the reads.** `spawns.run_id` is the SQL
+primary key, and the reads are `WHERE folder=?` and `WHERE folder=? AND state
+IN ('queued','running')`, which argues for `folder` as the partition. Building
+it proved that wrong for this table. Six operations address a spawn by run id
+with NO folder in hand — `GET` and `DELETE /v1/runs/{run_id}` receive one path
+value, and `Manager.Kill` is the thing that RESOLVES a run to its folder — and
+three of them carry invariants. A guarded write names one item, so under a
+folder partition the condition would run after a scan had found the row, which
+is exactly the read-then-write the condition exists to replace. `spawns` takes
+one constant partition and the run id as its sort key; folder reads and
+newest-first ordering become the reader's, and what makes that affordable is
+drainage — 232 items over 53 folders behind a seven-day sweep.
+
+The tenancy coordinate is still usually right, and `session_log` takes it: no
+drainage, 15,008 items with 11,993 in one folder, read per turn with a
+descending limit, so the folder partition makes it a range instead of a scan.
 
 **2. Count the queries that carry no partition key before designing.** runed
 has three: `state IN ('queued','running')`, `kind='agent' AND state IN (…)`,

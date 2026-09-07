@@ -57,7 +57,7 @@ type sqlLayer struct {
 // not. Its entry is a path that does not exist for the same reason emaid's is.
 var sqlLayers = []sqlLayer{
 	{daemon: "audit", storage: "audit/none"},
-	{daemon: "authd", storage: "authd/authstore"},
+	{daemon: "authd", storage: "authd/none"},
 	{daemon: "chanlib", storage: "chanlib/none"},
 	{daemon: "dashd", storage: "dashd/dashstore"},
 	{daemon: "emaid", storage: "emaid/none"},
