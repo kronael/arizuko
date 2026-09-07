@@ -248,10 +248,20 @@ var postgresDialect = dialect{
 }
 
 func dialectFor(db *sql.DB) dialect {
-	if _, ok := db.Driver().(*stdlib.Driver); ok {
+	if IsPostgres(db) {
 		return postgresDialect
 	}
 	return sqliteDialect
+}
+
+// IsPostgres reports whether db is a Postgres pool. The DSN chose the engine at
+// Open, and a caller that must EMIT different SQL — the migration runner below,
+// objstore's SQL driver — reads the choice back from the pool rather than
+// re-parsing a DSN it no longer holds. One reader of the driver type, here,
+// beside the opener that set it.
+func IsPostgres(db *sql.DB) bool {
+	_, ok := db.Driver().(*stdlib.Driver)
+	return ok
 }
 
 // beginLocked opens the critical section on conn. The caller owns the ROLLBACK
