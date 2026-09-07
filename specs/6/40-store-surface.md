@@ -246,6 +246,61 @@ generated ids, and result-dependent audit writes — `runAudited` builds its
 precomputed audit data, paging, and CAS batches. Schema migration stays
 driver-local.
 
+## What authd asks, and what the two primitives owe it
+
+`6/37` derives the interface from one real daemon rather than from nine, and
+`authd` is that daemon: 14 statements, 4 tables, its own database, and the
+system's hardest small invariant — a refresh token that may be redeemed exactly
+once. `authd/authstore/` states its questions; this is what each one costs.
+
+**Eleven of fifteen methods are `Query` or a one-item `GuardedBatch`.**
+`RefreshTokenBySecret` is a point read on the hash. `SigningKeysWithMaterial`
+and `SigningKeyMetadata` scan one small table with a projection.
+`OAuthIdentityForSub` is a point read plus that user's identity list.
+`StartRefreshFamily` is one put. `LinkOAuthIdentity` is two puts in one batch,
+because there must be no identity row without its user row.
+
+**`ClaimRefreshToken` is the guarded transition, exactly.** `UPDATE
+refresh_tokens SET used_at = ? WHERE token_hash = ? AND used_at IS NULL AND
+revoked_at IS NULL`, and the winner is the caller that changed one row. Both
+conjuncts are load-bearing (`F36`): the first picks one winner out of N
+concurrent redeems, the second refuses a token whose family died between the
+caller's lookup and the write. On DynamoDB that is one `ConditionExpression`
+with two `attribute_not_exists` terms, and the loser gets
+`ConditionalCheckFailed`. It ports with no redesign.
+
+**`ClaimAndRotateRefresh` is `GuardedBatch` at its intended size** — claim the
+presented token and insert its successor together, or neither. Two rows, one
+account, one region, well inside `TransactWriteItems`' hundred. It ports.
+
+**Three do not port as written, and each names a modelling gap rather than an
+engine limit.**
+
+1. **`SessionsByFamily` runs two correlated subqueries** — `COUNT(*)` and
+   `MIN(issued_at)` over every row sharing a `family_id` — to report how many
+   rotations a login has had and when it started. No key-value engine answers
+   that. Both numbers are known at write time by the rotation that already
+   writes the successor, so they belong on the row as fields. The
+   denormalisation costs nothing: the write happens either way.
+2. **`RevokeFamily` is a conditional UPDATE over a whole family** and returns
+   how many rows it killed. The family has no item of its own, so revocation
+   has to reach every row of an unbounded set — the shape §3 already refuses.
+   The fix is not a protocol, it is a missing entity: **a refresh family is a
+   thing, and revocation is one field on it.** Then killing a family is one
+   guarded write, reuse detection is one read, and the returned count stops
+   being the answer to "did this work" — which it never should have been,
+   because re-revoking a dead family legitimately affects zero rows.
+3. **`RetireActiveKeys` updates every active signing key.** Same set-wide
+   shape, but the set is bounded and tiny — one active key fleet-wide, measured
+   — so it is `Query` plus a guarded batch, and it needs no new model.
+
+**What that buys.** One daemon, chosen for being small, produced one
+denormalisation, one genuinely missing entity, and zero changes to the two
+primitives. The interface holds. The `refresh_families` entity is the first
+thing the port ADDS rather than moves, and it is an improvement arizuko would
+want under SQL too: `revoked_at` on 1 row instead of on every row a login ever
+rotated through.
+
 ## Portability, stated once
 
 **First, what this table is not.** arizuko is NOT key-value ready, and `6/38`
