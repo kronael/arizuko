@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/objstore/sqlstore"
 )
@@ -32,8 +33,15 @@ func openEntities(t *testing.T) *Store {
 			t.Errorf("release the test database: %v", err)
 		}
 	})
-	if err := EnsureEntities(context.Background(), sqlstore.New(db)); err != nil {
+	ctx, driver := context.Background(), sqlstore.New(db)
+	if err := EnsureEntities(ctx, driver); err != nil {
 		t.Fatalf("create the entities: %v", err)
+	}
+	// audit owns its own declaration, and a real opener asks for it separately
+	// (store.migrate, routd/db.go). An audited write lands in the same database,
+	// so this stand-in opener asks for both too.
+	if err := audit.EnsureEntities(ctx, driver); err != nil {
+		t.Fatalf("create the audit entity: %v", err)
 	}
 	return New(db)
 }

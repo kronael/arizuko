@@ -210,8 +210,13 @@ func migrate(db *sql.DB) error {
 	}
 	// The moved tables are entities rather than migrations, so they are created
 	// by the driver here — the audited writers in this package record into
-	// whichever database they were opened over (entities.go).
-	if err := EnsureEntities(context.Background(), sqlstore.New(db)); err != nil {
+	// whichever database they were opened over (entities.go). audit owns its own
+	// declaration and every opener asks for it separately.
+	ctx := context.Background()
+	if err := EnsureEntities(ctx, sqlstore.New(db)); err != nil {
+		return err
+	}
+	if err := audit.EnsureEntities(ctx, sqlstore.New(db)); err != nil {
 		return err
 	}
 	if err := BackfillInviteRefs(db); err != nil {

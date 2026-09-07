@@ -139,7 +139,12 @@ func open(dsn string) (*DB, error) {
 	// and dashd, webd and proxyd all record into it without opening it
 	// themselves. store owns the declaration of the three (store/entities.go),
 	// because store is what reads and writes them.
-	if err := store.EnsureEntities(context.Background(), sqlstore.New(sqldb)); err != nil {
+	ctx := context.Background()
+	if err := store.EnsureEntities(ctx, sqlstore.New(sqldb)); err != nil {
+		sqldb.Close()
+		return nil, err
+	}
+	if err := audit.EnsureEntities(ctx, sqlstore.New(sqldb)); err != nil {
 		sqldb.Close()
 		return nil, err
 	}

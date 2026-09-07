@@ -19,7 +19,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/objstore"
 )
 
@@ -47,13 +46,17 @@ type EntityMaker interface {
 	CreateEntity(ctx context.Context, entity string) error
 }
 
-// EnsureEntities prepares a database to hold this package's entities, audit's
-// included, so an opener names one call rather than two lists. Asking twice is
-// a no-op.
+// EnsureEntities prepares a database to hold this package's entities. Two
+// openers reach it — store's own migrate and the migration tool — and a loop
+// copied into each is two places for the set to drift. Asking twice is a no-op.
+//
+// audit's entity is NOT created here even though every database that holds
+// these also holds one. audit owns that declaration, four owners share it, and
+// `arizuko migrate-audit` moves all four in one run — so a caller that needs
+// both calls both, the way runed/db.go does. Bundling them made this package's
+// migration tool refuse to run until audit's had, on a database where the two
+// moves are independent.
 func EnsureEntities(ctx context.Context, m EntityMaker) error {
-	if err := audit.EnsureEntities(ctx, m); err != nil {
-		return err
-	}
 	for _, entity := range Entities {
 		if err := m.CreateEntity(ctx, entity); err != nil {
 			return err
