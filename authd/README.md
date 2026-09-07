@@ -26,12 +26,28 @@ successful login for an ES256 access + refresh token. Spec: `specs/5/1`.
   via `GET /v1/identities/{sub}` (reads `auth_users` + `oauth_identities`, the
   model the OAuth login path populates)
 
-## Tables owned
+## Entities owned
 
-`signing_keys`, `refresh_tokens`, `auth_users`, `oauth_identities` —
-created by authd's own migrations in `authd/migrations/`. authd owns `auth.db` and runs
-its own migrations; it MUST NOT touch another daemon's DB (CLAUDE.md
-DB-ownership rule).
+`signing_keys`, `signing_key_slot`, `refresh_tokens`, `refresh_families`,
+`auth_users`, `oauth_identities` — declared by `authstore.Entities` and created
+through the driver at boot. authd runs no statement and holds no DDL (spec
+`specs/6/37-store-model.md` step 5); it owns `auth.db` and MUST NOT touch
+another daemon's DB (CLAUDE.md DB-ownership rule).
+
+Two of the six have no table behind them in the old schema, and each carries an
+invariant a column could not:
+
+- **`signing_key_slot`** holds ONE item naming the kid that signs. "Exactly one
+  active key" used to be a partial-unique index, which no key-value engine has;
+  as a slot, two signers are unrepresentable.
+- **`refresh_families`** holds one item per login, carrying `revoked_at` plus
+  the rotation count and start instant a session listing reports. Killing a
+  family is one guarded write instead of an UPDATE across every row the login
+  ever rotated through.
+
+`arizuko migrate-authstore <instance>` moves an existing `auth.db` onto them,
+one way, with the daemon stopped. It sets the old tables aside as
+`<name>_v1` rather than dropping them.
 
 ## Entry points
 
@@ -107,19 +123,21 @@ slog → journald (always on). OTLP export when `OTEL_EXPORTER_OTLP_ENDPOINT` se
 `sessions:delete` for an operator revoke) and served read-only at
 `GET /v1/audit`, which `/dash/audit/` federates. `params_summary` has exactly one writer,
 `daemon.start`; its DSN field is redacted at the writer (`audit.redactRE`) and
-scrubbed from history by migration `0007`.
+scrubbed from history by the migration that ran on every live instance before
+authd stopped carrying one.
 
 ## Files
 
-- `main.go` — boot, migrate, OAuth mount, signal handling
-- `migrate.go` — the embedded `migrations/*.sql` and their runner
+- `main.go` — boot, OAuth mount, signal handling
+- `storage.go` — the driver choice and the entity creation it applies
 - `server.go` — `Authd` signer: key rotation, mint/downscope, refresh lineage
 - `http.go` — `/v1/*` handlers + mux
-- `authstore/` — the storage layer: every statement authd runs, one file per
-  table (`signing_keys.go`, `refresh_tokens.go`, `auth_users.go`, which also
-  carries `oauth_identities` because no operation touches one without the
-  other). A second driver reimplements this package and no handler changes
-  (spec `specs/6/37-store-model.md` step 1, enforced by
+- `authstore/` — the storage layer, and it holds no SQL: every method is
+  `objstore.Query` or `objstore.GuardedBatch`. One file per entity
+  (`signing_keys.go`, `refresh_tokens.go`, `auth_users.go`, which also carries
+  `oauth_identities` because no operation touches one without the other), plus
+  `import.go` for the one-way move. A second driver changes nothing here
+  (spec `specs/6/37-store-model.md` step 5, enforced by
   `db_utils/sql_layer_test.go`).
 - `oauth.go` — OAuth provider dance → ES256 mint
 - `audit_resource.go` — the `GET /v1/audit` resreg mount, plus `scopeGate` /

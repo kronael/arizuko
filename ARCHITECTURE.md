@@ -359,7 +359,8 @@ Durable rules the package layout obeys.
 - **DB ownership.** Each daemon owns its own DB + migrations + REST/MCP
   APIs: `routd` owns `routd.db` (`routd/migrations/`), `runed` owns
   `runed.db` (`runed/migrations/`), `authd` owns `auth.db`
-  (`authd/migrations/`), `onbod` owns `onbod.db` (`onbod/migrations/`).
+  (entities, no migrations — `authd/authstore`), `onbod` owns `onbod.db`
+  (`onbod/migrations/`).
   Libraries own no DB, no API, no migrations — a library that writes
   rows takes the caller's `*sql.Tx` (`audit/` is the model). Cross-daemon
   data access goes through the receiving daemon's `api/v1/` (REST for
@@ -458,8 +459,11 @@ each daemon re-sequences its own `migrations/` from `0001`.
   `pane_sessions`, `installed_packages`.
 - **`runed.db`** (`runed/migrations/`): `spawns`, `session_log`,
   `circuit_breaker`, `audit_log`.
-- **`auth.db`** (`authd/migrations/`): `signing_keys`, `auth_users`,
-  `oauth_identities`, `refresh_tokens`.
+- **`auth.db`** (`authd/authstore`, objstore entities): `signing_keys`,
+  `signing_key_slot`, `auth_users`, `oauth_identities`, `refresh_tokens`,
+  `refresh_families`. authd is the first daemon holding no SQL and no DDL
+  (spec `specs/6/37-store-model.md` step 5); `audit_log` in the same file is
+  still statements audit runs (BUGS `L251`).
 - **`onbod.db`** (`onbod/migrations/`): `onboarding`, `onboarding_gates`,
   `invites`.
 

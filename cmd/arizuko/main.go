@@ -76,34 +76,35 @@ func main() {
 	}
 
 	cmds := map[string]func([]string){
-		"run":           cmdRun,
-		"generate":      cmdGenerate,
-		"proxy-config":  cmdProxyConfig,
-		"create":        cmdCreate,
-		"github":        cmdGithub,
-		"group":         cmdGroup,
-		"gate":          cmdGate,
-		"invite":        cmdInvite,
-		"chat":          cmdChat,
-		"send":          cmdSend,
-		"talk":          cmdTalk, // spec 6/26 gap 1
-		"status":        cmdStatus,
-		"pair":          cmdPair,
-		"network":       cmdNetwork,
-		"route":         cmdRoute,
-		"packages":      cmdPackages, // spec 5/27
-		"products":      cmdProducts, // spec 5/28 composition
-		"secret":        cmdSecret,
-		"user-secret":   cmdUserSecret,
-		"budget":        cmdBudget,
-		"token":         cmdToken,
-		"apply":         cmdApply,   // spec 5/8
-		"plan":          cmdPlan,    // spec 5/8
-		"get":           cmdGet,     // spec 5/8
-		"export":        cmdExport,  // spec 5/8
-		"archive":       cmdArchive, // spec 5/8
-		"migrate-split": cmdMigrateSplit,
-		"probe":         cmdProbe, // spec 6/7 component contract
+		"run":               cmdRun,
+		"generate":          cmdGenerate,
+		"proxy-config":      cmdProxyConfig,
+		"create":            cmdCreate,
+		"github":            cmdGithub,
+		"group":             cmdGroup,
+		"gate":              cmdGate,
+		"invite":            cmdInvite,
+		"chat":              cmdChat,
+		"send":              cmdSend,
+		"talk":              cmdTalk, // spec 6/26 gap 1
+		"status":            cmdStatus,
+		"pair":              cmdPair,
+		"network":           cmdNetwork,
+		"route":             cmdRoute,
+		"packages":          cmdPackages, // spec 5/27
+		"products":          cmdProducts, // spec 5/28 composition
+		"secret":            cmdSecret,
+		"user-secret":       cmdUserSecret,
+		"budget":            cmdBudget,
+		"token":             cmdToken,
+		"apply":             cmdApply,   // spec 5/8
+		"plan":              cmdPlan,    // spec 5/8
+		"get":               cmdGet,     // spec 5/8
+		"export":            cmdExport,  // spec 5/8
+		"archive":           cmdArchive, // spec 5/8
+		"migrate-split":     cmdMigrateSplit,
+		"migrate-authstore": cmdMigrateAuthstore, // spec 6/37 step 7
+		"probe":             cmdProbe,            // spec 6/7 component contract
 	}
 	fn, ok := cmds[os.Args[1]]
 	if !ok {

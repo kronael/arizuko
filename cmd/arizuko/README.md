@@ -40,6 +40,7 @@ beyond `docker` for `run` and `pair`).
   - `arizuko export <inst> [out.yaml]` — dump cold-tier config to canonical-ordered YAML
   - `arizuko archive export <inst> [out.tar] [--quiesced]` — full-instance backup: the config dump plus secret values, message history, pending onboarding admissions and every `groups/<folder>/` tree, as one tar (spec 5/8)
   - `arizuko archive apply <inst> <archive.tar> [--force] [--stopped]` — full restore. Claims each folder's runed run slot before touching its tree, so an unreachable runed is fatal; `--stopped` asserts the instance is down instead. Credential-bearing documents (`route_tokens`, `invites`, `onboarding`) restore only with `--force` onto a proven-empty target
+  - `arizuko migrate-authstore <instance> [--dry-run]` (or `--db <path>`) — move an existing `auth.db` from the four tables authd used to run statements against onto the entities `authd/authstore` reads (spec `6/37` step 7). One way, with the daemon stopped. It reads the old rows, sets those tables aside as `<name>_v1`, writes the entities, then reads them back through authstore's own methods and checks the counts — the rotations summed over the families must equal the token count, which is the aggregate the old listing computed. `--dry-run` reports the source and checks it can be represented without writing. Idempotent, and it leaves a database that already holds only entities alone
   - `arizuko chat <instance>` — interactive Claude Code session bound to root MCP socket
   - `arizuko talk [@name] [-g <folder>] [-t <thread>] [-p [prompt]] [--url U] [--token T]` — hold a conversation with the agent from a terminal, spec `6/26` gap 1. No instance argument and no DB: it POSTs `<url>/mcp` (`list_groups` + `send`) and reads the round off `<url>/me/chats/<folder>/<thread>/sse`, both through the PUBLIC proxyd URL, so it runs from a second machine. Config `~/.config/arizuko/talk.toml` (`url`/`token`/optional `group` at the top level are the one chat; a `[work]` section is `@work`), refused unless mode `0600`. Precedence flag > `@name` > top-level > `ARIZUKO_CHAT_URL`+`ARIZUKO_CHAT_TOKEN` > an error that prints the file to write. `-p` runs one turn (prompt inline or on stdin) and is ONE ITERATION of the REPL loop, never a second send path; `-t` defaults to the fixed literal `talk`. Note `-t` is the THREAD here, not the token as in `send` — the bearer flag is `--token` only
 
@@ -68,6 +69,7 @@ beyond `docker` for `run` and `pair`).
 - `talk.go` / `talk_config.go` — `talk`: argument grammar, the MCP+SSE turn, and the `~/.config/arizuko/talk.toml` reader
 - `token.go` — `token` route-token management
 - `github.go` — `github` webhook-source management for gitd (spec `6/27`)
+- `migrate_authstore.go` — `migrate-authstore`: the SOURCE half of authd's move onto objstore, and the only half that knows the old schema. `authstore.Import` owns the item shape; a `Snapshot` of plain values is all that crosses
 
 ## What is tested, and what is not
 
