@@ -419,7 +419,7 @@ func TestOAuthLoginAuditRecordsTheActualLogin(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
 	o := newOAuth(t, a, nil, nil)
-	audit.Init(db, "test")
+	audit.Init(newObjectStore(db), "test")
 	t.Cleanup(func() { audit.Init(nil, "") })
 
 	o.dispatch(httptest.NewRecorder(), jsonReq(), "google", "g-1", "Alice", auth.StateIntent{})
@@ -432,19 +432,23 @@ func TestOAuthLoginAuditRecordsTheActualLogin(t *testing.T) {
 		t.Fatalf("alias login status %d", rec.Code)
 	}
 
-	var actor, resource string
-	err := db.QueryRow(
-		`SELECT actor, resource FROM audit_log
-		  WHERE category = ? AND action = 'login' ORDER BY id DESC LIMIT 1`,
-		audit.CategoryAuthN).Scan(&actor, &resource)
+	rows, err := audit.Query(t.Context(), newObjectStore(db),
+		audit.Filter{Category: audit.CategoryAuthN})
 	if err != nil {
-		t.Fatalf("no login audit row: %v", err)
+		t.Fatal(err)
 	}
-	if actor != "user:google:g-1" {
-		t.Fatalf("audit actor = %q, want the canonical user:google:g-1", actor)
+	var latest audit.Row
+	for _, r := range rows {
+		if r.Action == "login" {
+			latest = r
+			break // newest first
+		}
 	}
-	if resource != "github:gh-1" {
-		t.Fatalf("audit resource = %q, want the presented login github:gh-1", resource)
+	if latest.Actor != "user:google:g-1" {
+		t.Fatalf("audit actor = %q, want the canonical user:google:g-1", latest.Actor)
+	}
+	if latest.Resource != "github:gh-1" {
+		t.Fatalf("audit resource = %q, want the presented login github:gh-1", latest.Resource)
 	}
 }
 

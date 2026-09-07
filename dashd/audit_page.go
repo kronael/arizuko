@@ -178,7 +178,7 @@ type auditFilters struct {
 // service:dashd holds. dashd does not forward X-User-* here — the operator check
 // already happened at the top of this handler and no audit daemon consults a forwarded
 // header. The two gates in series are requireOperator (human) and audit:read (transit).
-func (d *dash) auditFetch(ctx context.Context, src auditSource, f auditFilters, before int64) ([]audit.Row, error) {
+func (d *dash) auditFetch(ctx context.Context, src auditSource, f auditFilters, before string) ([]audit.Row, error) {
 	v := url.Values{}
 	// One more than the page: the merge needs to know a source had more behind
 	// it even when another source supplied every rendered row.
@@ -192,8 +192,8 @@ func (d *dash) auditFetch(ctx context.Context, src auditSource, f auditFilters, 
 	if f.folder != "" {
 		v.Set("folder", f.folder)
 	}
-	if before > 0 {
-		v.Set("before_id", strconv.FormatInt(before, 10))
+	if before != "" {
+		v.Set("before_id", before)
 	}
 
 	buf, status, err := d.bearerCall(ctx, src.url, http.MethodGet, "/v1/audit?"+v.Encode(), nil)
@@ -210,24 +210,25 @@ func (d *dash) auditFetch(ctx context.Context, src auditSource, f auditFilters, 
 	return rows, nil
 }
 
-// parseAuditCursor decodes `routd:123,runed:45` into per-source row ids. The cursor is
-// COMPOSITE because `id` is a per-DB AUTOINCREMENT: one integer cannot page three
-// independent sequences, and paginating on created_at silently drops rows sharing a
-// millisecond across sources. Unparseable pairs are skipped, which reads as "start that
-// source from the newest row" rather than failing the page on a hand-edited URL.
-func parseAuditCursor(raw string) map[string]int64 {
-	out := map[string]int64{}
+// parseAuditCursor decodes `routd:<id>,runed:<id>` into per-source row ids. The cursor
+// is COMPOSITE because an id is unique within one daemon's log and not across them: one
+// value cannot page four independent sources, and paginating on created_at alone
+// silently drops rows sharing an instant across sources. A pair whose id is not one is
+// skipped, which reads as "start that source from the newest row" rather than failing
+// the page on a hand-edited URL.
+//
+// Cut takes the FIRST colon, so the id keeps the ones inside its own timestamp.
+func parseAuditCursor(raw string) map[string]string {
+	out := map[string]string{}
 	for part := range strings.SplitSeq(raw, ",") {
-		name, idStr, ok := strings.Cut(strings.TrimSpace(part), ":")
+		name, id, ok := strings.Cut(strings.TrimSpace(part), ":")
 		// An empty name (":9") parses as a valid pair and would ride into the
 		// NEXT cursor as a phantom source that matches no daemon, growing the
 		// link on every page turn.
-		if !ok || name == "" {
+		if !ok || name == "" || len(id) != audit.IDWidth {
 			continue
 		}
-		if id, err := strconv.ParseInt(idStr, 10, 64); err == nil && id > 0 {
-			out[name] = id
-		}
+		out[name] = id
 	}
 	return out
 }
@@ -236,8 +237,8 @@ func parseAuditCursor(raw string) map[string]int64 {
 // contributed to the rendered page. A source that contributed none keeps its
 // previous cursor: it was outbid on this page, not exhausted, and resetting it
 // would replay its newest rows forever.
-func nextAuditCursor(prev map[string]int64, rendered []auditRow) string {
-	next := map[string]int64{}
+func nextAuditCursor(prev map[string]string, rendered []auditRow) string {
+	next := map[string]string{}
 	for k, v := range prev {
 		next[k] = v
 	}
@@ -253,7 +254,7 @@ func nextAuditCursor(prev map[string]int64, rendered []auditRow) string {
 	slices.Sort(names) // stable link text across reloads
 	parts := make([]string, 0, len(names))
 	for _, name := range names {
-		parts = append(parts, name+":"+strconv.FormatInt(next[name], 10))
+		parts = append(parts, name+":"+next[name])
 	}
 	return strings.Join(parts, ",")
 }

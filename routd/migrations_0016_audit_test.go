@@ -22,7 +22,7 @@ func TestMigration0016AuditLogIgnoresLegacy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open messages.db: %v", err)
 	}
-	if _, err := audit.EmitDB(context.Background(), msg.DB(), audit.Event{
+	if _, err := audit.EmitTo(context.Background(), msg.Obj(), audit.Event{
 		Category: audit.CategoryAuthZ,
 		Action:   "acl.add",
 		Actor:    "system",
@@ -39,18 +39,13 @@ func TestMigration0016AuditLogIgnoresLegacy(t *testing.T) {
 	}
 	defer d.Close()
 
-	var n int
-	if err := d.SQL().QueryRow(
-		`SELECT COUNT(*) FROM audit_log WHERE action='acl.add'`).Scan(&n); err != nil {
-		t.Fatalf("read audit_log from routd.db: %v", err)
-	}
-	if n != 0 {
+	if n := auditRows(t, d, "acl.add"); n != 0 {
 		t.Errorf("routd.Open read the retired messages.db: got %d audit rows, want 0", n)
 	}
 
 	// A fresh emit against routd.db lands (routd's own mutation paths depend on
 	// the table existing — previously it did not, forcing audit-free variants).
-	if _, err := audit.EmitDB(context.Background(), d.SQL(), audit.Event{
+	if _, err := audit.EmitTo(context.Background(), d.Obj(), audit.Event{
 		Category: audit.CategoryMutation,
 		Action:   "route.add",
 		Actor:    "system",
@@ -73,7 +68,7 @@ func TestRoutdMutationsAudit(t *testing.T) {
 	d.SetSecretKeys([]byte("audit-test-key")) // the store refuses unsealed writes (BUGS S2)
 	// Route emissions into routd.db (EmitInTx writes the mutation's own tx; Init
 	// only stamps the instance column — set it so the row carries it).
-	audit.Init(d.SQL(), "test")
+	audit.Init(d.Obj(), "test")
 	t.Cleanup(func() { audit.Init(nil, "") })
 
 	if err := addACLRow(d, core.ACLRow{
@@ -92,24 +87,41 @@ func TestRoutdMutationsAudit(t *testing.T) {
 		t.Errorf("secret.set audit rows = %d, want 1", n)
 	}
 	// The row carries the instance stamp Init supplied.
-	var inst string
-	if err := d.SQL().QueryRow(
-		`SELECT instance FROM audit_log WHERE action='secret.set'`).Scan(&inst); err != nil {
-		t.Fatalf("read instance: %v", err)
-	}
-	if inst != "test" {
+	if inst := auditRowsFor(t, d, "secret.set")[0].Instance; inst != "test" {
 		t.Errorf("audit instance = %q, want test", inst)
 	}
 }
 
+// auditRowsFor reads back every recorded row carrying one action, newest first,
+// through the method /v1/audit answers with.
+func auditRowsFor(t *testing.T, d *DB, action string) []audit.Row {
+	t.Helper()
+	rows, err := audit.Query(context.Background(), d.Obj(), audit.Filter{Limit: audit.MaxLimit})
+	if err != nil {
+		t.Fatalf("read the audit trail: %v", err)
+	}
+	var out []audit.Row
+	for _, r := range rows {
+		if r.Action == action {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 func auditRows(t *testing.T, d *DB, action string) int {
 	t.Helper()
-	var n int
-	if err := d.SQL().QueryRow(
-		`SELECT COUNT(*) FROM audit_log WHERE action=?`, action).Scan(&n); err != nil {
-		t.Fatalf("count audit_log %s: %v", action, err)
+	return len(auditRowsFor(t, d, action))
+}
+
+// allAuditRows reads back everything recorded, newest first.
+func allAuditRows(t *testing.T, d *DB) []audit.Row {
+	t.Helper()
+	rows, err := audit.Query(context.Background(), d.Obj(), audit.Filter{Limit: audit.MaxLimit})
+	if err != nil {
+		t.Fatalf("read the audit trail: %v", err)
 	}
-	return n
+	return rows
 }
 
 // TestMigration0016AuditLogNoLegacyDB proves routd.Open is a clean no-op when
@@ -121,11 +133,7 @@ func TestMigration0016AuditLogNoLegacyDB(t *testing.T) {
 		t.Fatalf("routd.Open on fresh dir: %v", err)
 	}
 	defer d.Close()
-	var n int
-	if err := d.SQL().QueryRow("SELECT COUNT(*) FROM audit_log").Scan(&n); err != nil {
-		t.Fatalf("read audit_log: %v", err)
-	}
-	if n != 0 {
-		t.Errorf("fresh audit_log = %d rows, want 0", n)
+	if n := len(allAuditRows(t, d)); n != 0 {
+		t.Errorf("a fresh audit trail holds %d rows, want 0", n)
 	}
 }

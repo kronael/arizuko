@@ -183,7 +183,7 @@ type GroupRow struct {
 }
 
 const folderSchema = `
-CREATE TABLE audit_log (id INTEGER PRIMARY KEY AUTOINCREMENT);
+CREATE TABLE audit_log (part TEXT NOT NULL, sort TEXT NOT NULL, attrs TEXT NOT NULL, PRIMARY KEY (part, sort));
 CREATE TABLE groups (folder TEXT PRIMARY KEY, jid TEXT NOT NULL);
 CREATE TABLE testrows (
   kind  TEXT NOT NULL,

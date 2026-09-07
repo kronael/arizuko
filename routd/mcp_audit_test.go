@@ -17,7 +17,7 @@ func TestBuildStoreFnsLogsIPCAudit(t *testing.T) {
 		t.Fatalf("OpenMem: %v", err)
 	}
 	defer d.Close()
-	audit.Init(d.SQL(), "test")
+	audit.Init(d.Obj(), "test")
 	t.Cleanup(func() { audit.Init(nil, "") })
 
 	s := NewServer(d, nil, nil, nil, 0, "")
@@ -34,23 +34,21 @@ func TestBuildStoreFnsLogsIPCAudit(t *testing.T) {
 		t.Fatalf("LogIPCAudit denied: %v", err)
 	}
 
-	var n int
-	if err := d.SQL().QueryRow(
-		`SELECT COUNT(*) FROM audit_log WHERE action='mcp.tool.invoke' AND surface=?`,
-		audit.SurfaceMCP).Scan(&n); err != nil {
-		t.Fatalf("read audit_log: %v", err)
+	n := 0
+	var denial audit.Row
+	for _, r := range auditRowsFor(t, d, "mcp.tool.invoke") {
+		if r.Surface == audit.SurfaceMCP {
+			n++
+		}
+		if r.Resource == "mcp/reply" {
+			denial = r
+		}
 	}
 	if n != 2 {
 		t.Fatalf("mcp.tool.invoke rows = %d, want 2", n)
 	}
-
-	var outcome, resource, folder string
-	if err := d.SQL().QueryRow(
-		`SELECT outcome, resource, folder FROM audit_log WHERE resource='mcp/reply'`).
-		Scan(&outcome, &resource, &folder); err != nil {
-		t.Fatalf("read denial row: %v", err)
-	}
-	if outcome != audit.OutcomeDenied || folder != "atlas/support" {
-		t.Errorf("denial row outcome=%q folder=%q, want %q on atlas/support", outcome, folder, audit.OutcomeDenied)
+	if denial.Outcome != audit.OutcomeDenied || denial.Folder != "atlas/support" {
+		t.Errorf("denial row outcome=%q folder=%q, want %q on atlas/support",
+			denial.Outcome, denial.Folder, audit.OutcomeDenied)
 	}
 }

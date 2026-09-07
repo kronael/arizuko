@@ -19,6 +19,10 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/ipc"
+
+	"github.com/kronael/arizuko/audit"
+
+	"context"
 )
 
 // auditFixture opens a routd DB with two sibling groups and a nested child.
@@ -53,6 +57,9 @@ func auditFixture(t *testing.T) *DB {
 // vacuous this week for exactly that reason.
 func seedAuditRows(t *testing.T, db *DB) {
 	t.Helper()
+	// Whatever the daemon recorded while it was being built is not what these
+	// assertions count, and a leak assertion reads "row X is absent" — so the
+	// trail starts empty and holds exactly the four rows below.
 	if _, err := db.SQL().Exec(`DELETE FROM audit_log`); err != nil {
 		t.Fatal(err)
 	}
@@ -62,21 +69,19 @@ func seedAuditRows(t *testing.T, db *DB) {
 		{"rival-secret-row", "rival"},
 		{"instance-wide-row", ""},
 	}
+	snap := audit.Snapshot{}
 	for i, r := range rows {
-		if _, err := db.SQL().Exec(
-			`INSERT INTO audit_log (created_at, category, action, actor, folder, outcome)
-			 VALUES (?, 'mutation', ?, 'github:op', NULLIF(?,''), 'ok')`,
-			"2026-08-01T00:0"+string(rune('0'+i))+":00.000Z", r[0], r[1]); err != nil {
-			t.Fatal(err)
-		}
+		snap.Rows = append(snap.Rows, audit.LegacyRow{
+			ID:        int64(i + 1),
+			CreatedAt: "2026-08-01T00:0" + string(rune('0'+i)) + ":00.000Z",
+			Category:  "mutation", Action: r[0], Actor: "github:op",
+			Folder: r[1], Outcome: "ok",
+		})
 	}
-	var n int
-	if err := db.SQL().QueryRow(`SELECT COUNT(*) FROM audit_log`).Scan(&n); err != nil {
-		t.Fatal(err)
-	}
-	if n != len(rows) {
-		t.Fatalf("fixture wrote %d audit rows, want %d — every assertion below "+
-			"would pass vacuously", n, len(rows))
+	n, err := audit.Import(context.Background(), db.Obj(), snap)
+	if err != nil || n != len(rows) {
+		t.Fatalf("the fixture wrote %d audit rows, want %d (%v) — every assertion below "+
+			"would pass vacuously", n, len(rows), err)
 	}
 }
 

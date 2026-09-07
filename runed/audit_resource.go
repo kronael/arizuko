@@ -93,13 +93,13 @@ func (s *Server) auditHandler(ctx context.Context, x resreg.Execution) (any, err
 		Folder:   x.Args.Str("folder"),
 		Category: x.Args.Str("category"),
 		Actor:    x.Args.Str("actor"),
-		BeforeID: x.Args.Int("before_id"),
+		Before:   x.Args.Str("before_id"),
 		Limit:    int(x.Args.Int("limit")),
 	}
 	if x.Caller.Folder != "" {
 		f.Folder = x.Caller.Folder
 	}
-	rows, err := audit.Query(ctx, s.db.SQL(), f)
+	rows, err := audit.Query(ctx, s.db.Obj(), f)
 	if err != nil {
 		return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 	}

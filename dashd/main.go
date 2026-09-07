@@ -251,7 +251,7 @@ func main() {
 	// audit_log lives in routd.db (its owner, routd migration 0016), which is the
 	// handle opened above — so the audit sink, the /dash/audit/ reader, and every
 	// admin mutation share one connection.
-	audit.Init(dbRoutd, os.Getenv("ARIZUKO_INSTANCE"))
+	audit.Init(routdStore.Obj(), os.Getenv("ARIZUKO_INSTANCE"))
 	audit.Emit(context.Background(), audit.Event{
 		Category: audit.CategorySystem,
 		Action:   "daemon.start",

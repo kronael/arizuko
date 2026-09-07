@@ -381,14 +381,13 @@ func TestScheduledTasksMCP_AuditRowLands(t *testing.T) {
 	}); e != "" {
 		t.Fatalf("schedule_task errored: %s", e)
 	}
-	var n int
-	err = db.SQL().QueryRow(
-		`SELECT count(*) FROM audit_log WHERE action='scheduled_tasks:schedule' AND outcome='ok' AND folder='hq' AND surface='mcp'`,
-	).Scan(&n)
-	if err != nil {
-		t.Fatalf("query audit_log: %v", err)
+	n := 0
+	for _, r := range auditRowsFor(t, db, "scheduled_tasks:schedule") {
+		if r.Outcome == "ok" && r.Folder == "hq" && r.Surface == "mcp" {
+			n++
+		}
 	}
 	if n != 1 {
-		t.Fatalf("audit_log has %d scheduled_tasks:schedule rows, want 1", n)
+		t.Fatalf("the audit trail holds %d scheduled_tasks:schedule rows, want 1", n)
 	}
 }

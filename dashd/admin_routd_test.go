@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/tests/testutils"
 	_ "modernc.org/sqlite"
 )
@@ -27,7 +28,7 @@ func splitAdminDash(t *testing.T, adminSub string) (*dash, *sql.DB) {
 	// without the same wiring here the handlers that use audit.Emit (rather than
 	// an in-tx write) would silently drop their rows and a missing-audit
 	// regression would read as a pass.
-	audit.Init(routd, "test")
+	audit.Init(sqlstore.New(routd), "test")
 	t.Cleanup(func() { audit.Init(nil, "") })
 	// Operator grant lives in routd.db only.
 	if _, err := routd.Exec(

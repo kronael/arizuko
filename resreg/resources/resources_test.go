@@ -32,6 +32,8 @@ import (
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resregtest"
 	"github.com/kronael/arizuko/store"
+
+	"github.com/kronael/arizuko/objstore/sqlstore"
 )
 
 func openMem(t *testing.T) *sql.DB {
@@ -494,17 +496,11 @@ func TestApply_WritesOneAuditRow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
-	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM audit_log WHERE action='config.apply'`).Scan(&n)
-	if n != 1 {
-		t.Fatalf("audit_log config.apply rows = %d, want exactly 1", n)
+	applied := applyAuditRows(t, db)
+	if len(applied) != 1 {
+		t.Fatalf("recorded config.apply rows = %d, want exactly 1", len(applied))
 	}
-	var actor, params string
-	if err := db.QueryRow(
-		`SELECT actor, params_summary FROM audit_log WHERE action='config.apply'`,
-	).Scan(&actor, &params); err != nil {
-		t.Fatal(err)
-	}
+	actor, params := applied[0].Actor, applied[0].ParamsSummary
 	if actor != "op" {
 		t.Errorf("actor = %q, want op", actor)
 	}
@@ -880,4 +876,21 @@ func TestSecrets_NoAgentTool(t *testing.T) {
 		return
 	}
 	t.Fatal("secrets resource not registered — this guard would pass vacuously")
+}
+
+// applyAuditRows reads back the rows one apply recorded, through the method
+// every daemon answers GET /v1/audit with.
+func applyAuditRows(t *testing.T, db *sql.DB) []audit.Row {
+	t.Helper()
+	rows, err := audit.Query(t.Context(), sqlstore.New(db), audit.Filter{Limit: audit.MaxLimit})
+	if err != nil {
+		t.Fatalf("read the audit trail: %v", err)
+	}
+	var out []audit.Row
+	for _, r := range rows {
+		if r.Action == "config.apply" {
+			out = append(out, r)
+		}
+	}
+	return out
 }

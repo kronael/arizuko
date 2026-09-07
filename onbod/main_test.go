@@ -22,6 +22,8 @@ import (
 	"github.com/kronael/arizuko/db_utils/dbtest"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
+
+	"github.com/kronael/arizuko/audit"
 )
 
 func TestMain(m *testing.M) {
@@ -66,9 +68,13 @@ func testDB(t *testing.T) *sql.DB {
 		CREATE TABLE onboarding_gates (gate TEXT PRIMARY KEY, limit_per_day INTEGER NOT NULL, enabled INTEGER NOT NULL DEFAULT 1);
 		CREATE TABLE invites (ref TEXT PRIMARY KEY, target_glob TEXT NOT NULL, issued_by_sub TEXT NOT NULL, issued_at TEXT NOT NULL, expires_at TEXT, max_uses INTEGER NOT NULL DEFAULT 1, used_count INTEGER NOT NULL DEFAULT 0);
 		CREATE TABLE invite_redemptions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_sub TEXT NOT NULL, target_glob TEXT NOT NULL, redeemed_at TEXT NOT NULL);
-		CREATE TABLE audit_log (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')), category TEXT NOT NULL, action TEXT NOT NULL, actor TEXT NOT NULL, actor_sub TEXT, resource TEXT, scope TEXT, surface TEXT, params_summary TEXT, outcome TEXT NOT NULL, error_msg TEXT, duration_ms INTEGER, turn_id TEXT, folder TEXT, instance TEXT, request_id TEXT, source_ip TEXT);
 	`)
 	if err != nil {
+		t.Fatal(err)
+	}
+	// audit_log is an entity, so the fixture asks the driver for it exactly as
+	// an owner's opener does.
+	if err := audit.EnsureEntities(t.Context(), newObjectStore(db)); err != nil {
 		t.Fatal(err)
 	}
 	return db

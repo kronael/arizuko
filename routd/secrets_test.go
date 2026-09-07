@@ -35,16 +35,16 @@ func doDelete(t *testing.T, h http.Handler, path string) *httptest.ResponseRecor
 	return rec
 }
 
-// auditParamsHasCanary reports whether any audit_log row's params_summary
+// auditParamsHasCanary reports whether any recorded row's params_summary
 // mentions the plaintext canary — the leak assertion's read surface.
 func auditParamsHasCanary(t *testing.T, db *DB, canary string) bool {
 	t.Helper()
-	var n int
-	if err := db.SQL().QueryRow(
-		`SELECT COUNT(*) FROM audit_log WHERE params_summary LIKE '%' || ? || '%'`, canary).Scan(&n); err != nil {
-		t.Fatalf("scan audit_log: %v", err)
+	for _, r := range allAuditRows(t, db) {
+		if strings.Contains(r.ParamsSummary, canary) {
+			return true
+		}
 	}
-	return n > 0
+	return false
 }
 
 // TestSecretSetEndpoint: POST /v1/secrets (secrets:write) seals + writes a

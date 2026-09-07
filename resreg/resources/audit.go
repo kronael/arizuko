@@ -29,10 +29,10 @@ import (
 // is exactly what makes dashd's federation a fan-out of one path rather than
 // four bespoke clients.
 //
-// There is no GET /v1/audit/{id}. `id` is a per-DB AUTOINCREMENT, so
-// /v1/audit/5 names a different row on each of the four daemons — a path key
-// that is not an identity would be a lie in the federated page, and an
-// append-only log's unit of use is a filtered window anyway.
+// There is no GET /v1/audit/{id}. An id is unique inside one daemon's log and
+// says nothing about the others, so a path key would name a different row on
+// each of the four — a lie in the federated page — and an append-only log's
+// unit of use is a filtered window anyway.
 var AuditEndpoints = []resreg.Endpoint{
 	{Verb: "GET", Path: "/v1/audit", Action: resreg.ActionList, Status: http.StatusOK},
 }
@@ -61,8 +61,9 @@ var AuditMCPArgs = map[resreg.Action][]resreg.MCPArg{
 			Description: "Exact category: authn, authz, access, mutation, system, network, channel, agent, secret, scheduler."},
 		{Name: "actor", Type: "string",
 			Description: "Substring match on the actor principal (e.g. google:114alice, service:dashd)."},
-		{Name: "before_id", Type: "number",
-			Description: "Pagination cursor: return only rows older than this row id. Omit for the newest page."},
+		{Name: "before_id", Type: "string",
+			Description: "Pagination cursor: the id of the oldest row already seen, so the call " +
+				"returns only rows older than it. Omit for the newest page."},
 		{Name: "limit", Type: "number",
 			Description: "Rows to return, newest first. Default 50, maximum 200."},
 	},

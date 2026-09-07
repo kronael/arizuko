@@ -189,7 +189,7 @@ func (s *Store) SetSecret(scope SecretScope, scopeID, key, value string) error {
 	// an audit trail an operator reads is not a place to put the thing the trail
 	// exists to protect.
 	actor, actorSub, surface := s.auditIdentity()
-	if err := audit.EmitInTx(ctx, tx, audit.Event{
+	if err := audit.EmitInTx(ctx, s.Obj(), tx, audit.Event{
 		Category: audit.CategorySecret,
 		Action:   "secret.set",
 		Actor:    actor,
@@ -334,7 +334,7 @@ func (s *Store) DeleteSecret(scope SecretScope, scopeID, key string) error {
 		folder = scopeID
 	}
 	actor, actorSub, surface := s.auditIdentity()
-	if err := audit.EmitInTx(ctx, tx, audit.Event{
+	if err := audit.EmitInTx(ctx, s.Obj(), tx, audit.Event{
 		Category: audit.CategorySecret,
 		Action:   "secret.delete",
 		Actor:    actor,

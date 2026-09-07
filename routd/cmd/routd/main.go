@@ -54,7 +54,7 @@ func main() {
 	// audit_log sink: routd owns audit_log in routd.db (migration 0016), so its own
 	// ACL/secret/task mutations emit through the audited store variants. Init wires
 	// the instance name onto those rows (EmitInTx writes into the mutation's own tx).
-	audit.Init(db.SQL(), os.Getenv("ARIZUKO_INSTANCE"))
+	audit.Init(db.Obj(), os.Getenv("ARIZUKO_INSTANCE"))
 
 	// SECRETS_KEY keyring: routd OWNS secrets in routd.db. The key is REQUIRED —
 	// routd refuses to start without it. An earlier build only logged a warning and

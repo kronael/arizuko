@@ -22,7 +22,7 @@ func (s *Store) runAudited(mutate func(tx *sql.Tx) (audit.Event, error)) error {
 	if err != nil {
 		return err
 	}
-	if err := audit.EmitInTx(ctx, tx, ev); err != nil {
+	if err := audit.EmitInTx(ctx, s.Obj(), tx, ev); err != nil {
 		return err
 	}
 	return tx.Commit()

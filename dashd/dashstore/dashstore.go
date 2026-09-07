@@ -12,7 +12,11 @@
 // banner.
 package dashstore
 
-import "database/sql"
+import (
+	"database/sql"
+
+	"github.com/kronael/arizuko/objstore/sqlstore"
+)
 
 // Store holds the routd.db handle every statement in this package runs against.
 type Store struct{ db *sql.DB }
@@ -26,3 +30,9 @@ func New(db *sql.DB) *Store {
 	}
 	return &Store{db: db}
 }
+
+// obj is the driver the audit row of an audited write reaches routd.db through.
+// The mutations here run as SQL on a transaction of their own and the row that
+// records one joins that transaction, so audit needs the driver that can write
+// into it and this is where the pool that chose it lives.
+func (s *Store) obj() *sqlstore.Store { return sqlstore.New(s.db) }

@@ -48,12 +48,8 @@ func TestUpdateRoute_MissingIDRecordsNothing(t *testing.T) {
 	if err != nil || n != 0 {
 		t.Fatalf("UpdateRoute(missing) = %d, %v; want 0, nil", n, err)
 	}
-	var rows int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM audit_log WHERE action='route.update'`).Scan(&rows); err != nil {
-		t.Fatal(err)
-	}
-	if rows != 0 {
-		t.Errorf("audit rows for an update that matched nothing: %d", rows)
+	if rows := auditRowsFor(t, s, "route.update"); len(rows) != 0 {
+		t.Errorf("audit rows for an update that matched nothing: %d", len(rows))
 	}
 }
 

@@ -29,16 +29,13 @@ type TestRow struct {
 // "testrows" under — content-hash CAS (Apply/Export/Plan) is per subsystem.
 const testSubsystem = "test"
 
-// testSchema carries an audit_log table (id PK only) because Apply's write-
-// lock trick issues one no-op UPDATE against it (spec 5/8 §"Content-hash
-// CAS" — the real table exists in routd.db/onbod.db; resreg's own invoke()
-// already assumes it for every mutation's audit row, so a synthetic test DB
-// must too). No columns beyond `id` are needed here since every Apply call
-// in this file passes opts=nil (no audit row insert, which needs the full
-// column set — covered instead by resreg/resources' integration tests
-// against the real schema).
+// testSchema carries audit_log because Apply's write-lock trick issues one
+// no-op UPDATE against it (spec 5/8 §"Content-hash CAS"): the entity exists in
+// every owner database, and resreg's own invoke() already assumes it for every
+// mutation's audit row, so a synthetic test DB must carry it too. It is the
+// entity's three columns, which is what sqlstore.CreateEntity writes.
 const testSchema = `
-CREATE TABLE audit_log (id INTEGER PRIMARY KEY AUTOINCREMENT);
+CREATE TABLE audit_log (part TEXT NOT NULL, sort TEXT NOT NULL, attrs TEXT NOT NULL, PRIMARY KEY (part, sort));
 CREATE TABLE testrows (
   kind  TEXT NOT NULL,
   name  TEXT NOT NULL,

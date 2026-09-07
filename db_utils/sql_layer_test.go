@@ -45,7 +45,13 @@ type sqlLayer struct {
 // chanlib/chanstore, which holds no SQL either, and the entities it ships land
 // in EIGHT adapter databases. A statement that reappeared in chanlib would put
 // itself in all of them at once.
+//
+// audit is here for the strongest form of that reason: FOUR owner databases
+// carry its entity — routd's, authd's, onbod's and runed's — and it is the last
+// package that could put a statement into a daemon holding none of its own. A
+// DDL here is also what made a Postgres database refuse to boot.
 var sqlLayers = []sqlLayer{
+	{daemon: "audit", storage: "audit/none"},
 	{daemon: "authd", storage: "authd/authstore"},
 	{daemon: "chanlib", storage: "chanlib/none"},
 	{daemon: "dashd", storage: "dashd/dashstore"},

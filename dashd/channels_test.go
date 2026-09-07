@@ -13,6 +13,7 @@ import (
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore/sqlstore"
 )
 
 func TestDash_WhatsappPair_NonAdminDenied(t *testing.T) {
@@ -63,7 +64,7 @@ func TestDash_WhatsappPairStart_AdminProxiesAndAudits(t *testing.T) {
 
 	srv, inst, _ := newRWDashServer(t)
 	// audit.Emit writes through the process-global sink main() wires to routd.db.
-	audit.Init(inst.DB, "test")
+	audit.Init(sqlstore.New(inst.DB), "test")
 	t.Cleanup(func() { audit.Init(nil, "") })
 	s := inst.Store
 	if err := s.AddACLRow(core.ACLRow{
@@ -92,17 +93,15 @@ func TestDash_WhatsappPairStart_AdminProxiesAndAudits(t *testing.T) {
 
 	// The event landed in audit_log (routd.db's sink) with the operator sub +
 	// phone — not as a synthetic `messages` row in the retired monolith.
-	var auditCount int
-	row := inst.DB.QueryRow(
-		`SELECT COUNT(*) FROM audit_log
-		  WHERE category='channel' AND action='channel.pair.start'
-		    AND actor_sub='alice@x'
-		    AND params_summary LIKE '%+420735544891%'`)
-	if err := row.Scan(&auditCount); err != nil {
-		t.Fatal(err)
+	auditCount := 0
+	for _, r := range auditRowsFor(t, inst.DB, "channel.pair.start") {
+		if r.Category == "channel" && r.ActorSub == "alice@x" &&
+			strings.Contains(r.ParamsSummary, "+420735544891") {
+			auditCount++
+		}
 	}
 	if auditCount != 1 {
-		t.Errorf("audit rows = %d, want 1", auditCount)
+		t.Errorf("recorded rows = %d, want 1", auditCount)
 	}
 }
 

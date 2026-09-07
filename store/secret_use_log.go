@@ -50,7 +50,7 @@ func (s *Store) LogSecretUse(r SecretUseRow) error {
 		out = audit.OutcomeError
 		errMsg = r.Status
 	}
-	if err := audit.EmitInTx(ctx, tx, audit.Event{
+	if err := audit.EmitInTx(ctx, s.Obj(), tx, audit.Event{
 		Category:   audit.CategorySecret,
 		Action:     "secret.read",
 		Actor:      r.CallerSub,

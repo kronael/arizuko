@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+
+	"github.com/kronael/arizuko/audit"
 )
 
 // FK enforcement rides the DSN (`_pragma=foreign_keys(on)`) so every
@@ -186,10 +188,10 @@ func TestFK_HistoryTablesStrandOnGroupDelete(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(
-		`INSERT INTO audit_log (category, action, actor, folder, outcome)
-		 VALUES ('mutation', 'group.test', 'system', 'acme', 'ok')`,
-	); err != nil {
+	if _, err := audit.EmitTo(t.Context(), s.Obj(), audit.Event{
+		Category: "mutation", Action: "group.test", Actor: "system",
+		Folder: "acme", Outcome: "ok",
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.DeleteGroup("acme"); err != nil {
@@ -203,10 +205,13 @@ func TestFK_HistoryTablesStrandOnGroupDelete(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("messages stranded count: want 1, got %d", n)
 	}
-	if err := db.QueryRow(`SELECT COUNT(*) FROM audit_log WHERE folder='acme' AND action='group.test'`).Scan(&n); err != nil {
-		t.Fatal(err)
+	stranded := 0
+	for _, r := range auditRowsFor(t, s, "group.test") {
+		if r.Folder == "acme" {
+			stranded++
+		}
 	}
-	if n != 1 {
-		t.Fatalf("audit_log stranded count: want 1, got %d", n)
+	if stranded != 1 {
+		t.Fatalf("stranded audit rows: want 1, got %d", stranded)
 	}
 }

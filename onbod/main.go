@@ -111,7 +111,7 @@ func main() {
 	xdb = stRoutd.DB()
 	slog.Info("onbod cross-reads routd.db", "path", cfg.routdDSN)
 
-	audit.Init(obdb, os.Getenv("ARIZUKO_INSTANCE"))
+	audit.Init(newObjectStore(obdb), os.Getenv("ARIZUKO_INSTANCE"))
 	audit.Emit(context.Background(), audit.Event{
 		Category: audit.CategorySystem,
 		Action:   "daemon.start",

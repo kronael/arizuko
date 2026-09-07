@@ -15,6 +15,7 @@ import (
 	"github.com/kronael/arizuko/auth/surrogate"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/db_utils"
+	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
 )
@@ -133,6 +134,13 @@ func open(dsn string) (*DB, error) {
 		sqldb.Close()
 		return nil, err
 	}
+	// audit_log is an entity rather than a migration, so it is created by the
+	// driver here — routd owns this file, and dashd, webd and proxyd all record
+	// into it without opening it themselves.
+	if err := audit.EnsureEntities(context.Background(), sqlstore.New(sqldb)); err != nil {
+		sqldb.Close()
+		return nil, err
+	}
 	// role:member (the 5/33 messaging floor) is seeded by migration 0023; every
 	// folder is bound to it at group creation (PutGroup). No open-time grant seeding
 	// or backfill — auth.Authorize reads the acl rows directly.
@@ -148,6 +156,11 @@ func (d *DB) Close() error {
 
 // SQL returns the raw handle for callers that need it (tests).
 func (d *DB) SQL() *sql.DB { return d.db }
+
+// Obj is this database through objstore's two primitives, which is how audit
+// reaches it — and, for an audited write, how the row joins the transaction the
+// mutation runs on.
+func (d *DB) Obj() *sqlstore.Store { return sqlstore.New(d.db) }
 
 func nowTS() string { return core.NowTS() }
 
@@ -680,7 +693,7 @@ func (d *DB) SetEngagementAudited(ctx context.Context, jid, topic, folder string
 	if _, err := tx.ExecContext(ctx, engagementUpsert, engagementArgs(jid, topic, folder, ttl)...); err != nil {
 		return err
 	}
-	if err := audit.EmitInTx(ctx, tx, ev); err != nil {
+	if err := audit.EmitInTx(ctx, d.Obj(), tx, ev); err != nil {
 		return err
 	}
 	return tx.Commit()

@@ -83,7 +83,7 @@ func main() {
 	// runed's audit sink is its OWN DB (migration 0005) — each daemon owns and
 	// migrates its own audit_log; correlation across them is turn_id, not a
 	// shared table (spec 5/I).
-	audit.Init(db.SQL(), os.Getenv("ARIZUKO_INSTANCE"))
+	audit.Init(db.Obj(), os.Getenv("ARIZUKO_INSTANCE"))
 	if n, err := db.ExpireOrphans(); err != nil {
 		slog.Error("expire orphan spawns", "err", err)
 	} else if n > 0 {

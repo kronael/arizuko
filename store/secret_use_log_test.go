@@ -64,15 +64,14 @@ func TestLogSecretUse_AuditPairAtomic(t *testing.T) {
 		t.Errorf("secret_use_log rows: want 1, got %d", nUse)
 	}
 
-	var nAudit int
-	if err := s.db.QueryRow(
-		`SELECT COUNT(*) FROM audit_log WHERE action = 'secret.read' AND actor_sub = ?`,
-		"github:bob",
-	).Scan(&nAudit); err != nil {
-		t.Fatal(err)
+	nAudit := 0
+	for _, r := range auditRowsFor(t, s, "secret.read") {
+		if r.ActorSub == "github:bob" {
+			nAudit++
+		}
 	}
 	if nAudit != 1 {
-		t.Errorf("audit_log rows: want 1, got %d (audit pair not atomic)", nAudit)
+		t.Errorf("recorded rows: want 1, got %d (audit pair not atomic)", nAudit)
 	}
 }
 

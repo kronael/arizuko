@@ -77,28 +77,28 @@ func TestRefreshUsesFullOAuthPrincipal(t *testing.T) {
 	}
 }
 
-// Bug 2: authd emits audit into auth.db, which only has audit_log because
-// audit.EnsureTable creates it there — store/migrations/0066 lands in
-// messages.db, which authd never touches. An emitted event must persist (no
-// "no such table" drop).
+// Bug 2: authd records into auth.db, which has the audit entity only because
+// authd's own opener asks the driver for it — no migration in this daemon
+// creates one. An emitted event must persist rather than being warned about and
+// dropped.
 func TestAuditLandsInAuthDB(t *testing.T) {
 	db := testDB(t)
-	audit.Init(db, "test")
+	audit.Init(newObjectStore(db), "test")
 	id := audit.Emit(context.Background(), audit.Event{
 		Category: audit.CategorySystem,
 		Action:   "daemon.start",
 		Actor:    "system",
 		Outcome:  audit.OutcomeOK,
 	})
-	if id == 0 {
-		t.Fatal("audit emit returned id 0 — event dropped (audit_log missing from auth.db)")
+	if id == "" {
+		t.Fatal("audit emit returned no id — the event was dropped")
 	}
-	var action string
-	if err := db.QueryRow(`SELECT action FROM audit_log WHERE id = ?`, id).Scan(&action); err != nil {
+	rows, err := audit.Query(context.Background(), newObjectStore(db), audit.Filter{})
+	if err != nil {
 		t.Fatalf("audit row not persisted in auth.db: %v", err)
 	}
-	if action != "daemon.start" {
-		t.Fatalf("persisted action = %q want daemon.start", action)
+	if len(rows) != 1 || rows[0].ID != id || rows[0].Action != "daemon.start" {
+		t.Fatalf("auth.db holds %+v, want the daemon.start row %s", rows, id)
 	}
 }
 

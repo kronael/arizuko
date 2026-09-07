@@ -27,6 +27,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/objstore/sqlstore"
 )
 
 // ScopeSpec declares how DeleteScope filters rows. Field is the Go
@@ -759,12 +760,19 @@ func ManifestScopes(subsystem string, manifest map[string]any) []string {
 	return out
 }
 
-// lockTable is a table guaranteed present in every owner DB. Apply issues one
-// no-op UPDATE against it to upgrade its DEFERRED tx to a write lock immediately:
-// a write statement, even matching zero rows, forces SQLite's RESERVED lock as
-// soon as it runs, so the checksum recheck and the following writes become one
-// atomic critical section and concurrent applies block rather than race.
-const lockTable = "audit_log"
+// lockTable is a table guaranteed present in every owner DB, and lockColumn one
+// of its columns. Apply issues one no-op UPDATE against it to upgrade its
+// DEFERRED tx to a write lock immediately: a write statement, even matching zero
+// rows, forces SQLite's RESERVED lock as soon as it runs, so the checksum
+// recheck and the following writes become one atomic critical section and
+// concurrent applies block rather than race.
+//
+// audit_log is an objstore entity, so its columns are the entity's three and
+// the column named here is one of them.
+const (
+	lockTable  = "audit_log"
+	lockColumn = "sort"
+)
 
 // Checksum computes the content hash of one subsystem's manifest-visible
 // projection: sha256 of the canonical EmitYAML bytes of Export, minus the
@@ -821,7 +829,7 @@ func Apply(ctx context.Context, db *sql.DB, subsystem string, wantChecksum strin
 		return "", fmt.Errorf("begin: %w", err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, "UPDATE "+lockTable+" SET id = id WHERE 1 = 0"); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE "+lockTable+" SET "+lockColumn+" = "+lockColumn+" WHERE 1 = 0"); err != nil {
 		return "", fmt.Errorf("acquire write lock: %w", err)
 	}
 	current, err := Checksum(tx, subsystem)
@@ -869,7 +877,7 @@ func Apply(ctx context.Context, db *sql.DB, subsystem string, wantChecksum strin
 		return current, fmt.Errorf("checksum after write: %w", err)
 	}
 	if opts != nil {
-		if err := emitApplyAudit(ctx, tx, opts, counts, newChecksum); err != nil {
+		if err := emitApplyAudit(ctx, sqlstore.New(db), tx, opts, counts, newChecksum); err != nil {
 			return current, fmt.Errorf("audit: %w", err)
 		}
 	}
@@ -926,7 +934,8 @@ func applyCounts(db *sql.DB, subsystem string, manifestRows map[string]any) (map
 // emitApplyAudit writes the single per-apply summary row in-tx
 // (spec 5/8 §"CAS implementation" (3)): actor, manifest digest,
 // per-resource add/update/delete counts, final checksum.
-func emitApplyAudit(ctx context.Context, tx *sql.Tx, opts *ApplyOpts, counts map[string]any, newChecksum string) error {
+func emitApplyAudit(ctx context.Context, sink audit.TxSink, tx *sql.Tx, opts *ApplyOpts,
+	counts map[string]any, newChecksum string) error {
 	params := map[string]any{}
 	for k, v := range opts.Extra {
 		params[k] = v
@@ -934,7 +943,7 @@ func emitApplyAudit(ctx context.Context, tx *sql.Tx, opts *ApplyOpts, counts map
 	params["manifest_digest"] = opts.ManifestDigest
 	params["checksum"] = newChecksum
 	params["resources"] = counts
-	return audit.EmitInTx(ctx, tx, audit.Event{
+	return audit.EmitInTx(ctx, sink, tx, audit.Event{
 		Category:      audit.CategoryMutation,
 		Action:        "config.apply",
 		Actor:         opts.Actor,

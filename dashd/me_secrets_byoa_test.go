@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/objstore/sqlstore"
 )
 
 // TestMeSecrets_SealsAtRest proves a POST under a configured keyring stores the
@@ -76,7 +77,7 @@ func TestMeSecrets_UpdateSealsAtRest(t *testing.T) {
 func TestMeSecrets_AuditOmitsValue(t *testing.T) {
 	const canary = "super-secret-val"
 	d := meSecretsTestDB(t)
-	audit.Init(d.dbRoutd, "test")
+	audit.Init(sqlstore.New(d.dbRoutd), "test")
 	t.Cleanup(func() { audit.Init(nil, "") })
 	mux := newMux(d)
 

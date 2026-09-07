@@ -58,7 +58,7 @@ func (s *Store) CreateGroupWithAdmin(ctx context.Context, folder, product, admin
 		admin, folder); err != nil {
 		return fmt.Errorf("%w: %w", ErrGrantAdmin, err)
 	}
-	if err := audit.EmitInTx(ctx, tx, ev); err != nil {
+	if err := audit.EmitInTx(ctx, s.obj(), tx, ev); err != nil {
 		return fmt.Errorf("audit: %w", err)
 	}
 	if err := tx.Commit(); err != nil {

@@ -24,31 +24,19 @@ type socialRow struct {
 	outcome, errMsg, params          string
 }
 
-// socialRows returns every audit_log row in the store, oldest first, with every
-// column that could hold a leak concatenated into params for the no-content
-// assertion.
+// socialRows returns every recorded row in the store, oldest first, with every
+// field that could hold a leak available for the no-content assertion.
 func socialRows(t *testing.T, db *DB) []socialRow {
 	t.Helper()
-	rows, err := db.SQL().Query(
-		`SELECT category, action, actor, COALESCE(surface,''), COALESCE(resource,''),
-		        COALESCE(folder,''), COALESCE(turn_id,''), outcome,
-		        COALESCE(error_msg,''), COALESCE(params_summary,'')
-		 FROM audit_log ORDER BY id`)
-	if err != nil {
-		t.Fatalf("query audit_log: %v", err)
-	}
-	defer rows.Close()
-	var out []socialRow
-	for rows.Next() {
-		var r socialRow
-		if err := rows.Scan(&r.category, &r.action, &r.actor, &r.surface, &r.resource,
-			&r.folder, &r.turnID, &r.outcome, &r.errMsg, &r.params); err != nil {
-			t.Fatalf("scan audit_log: %v", err)
-		}
-		out = append(out, r)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("audit_log rows: %v", err)
+	newest := allAuditRows(t, db)
+	out := make([]socialRow, 0, len(newest))
+	for i := len(newest) - 1; i >= 0; i-- {
+		r := newest[i]
+		out = append(out, socialRow{
+			category: r.Category, action: r.Action, actor: r.Actor, surface: r.Surface,
+			resource: r.Resource, folder: r.Folder, turnID: r.TurnID,
+			outcome: r.Outcome, errMsg: r.ErrorMsg, params: r.ParamsSummary,
+		})
 	}
 	return out
 }

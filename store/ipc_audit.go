@@ -21,7 +21,7 @@ func (s *Store) LogIPCAudit(folder, sub, tool, params, outcome string) error {
 	if params != "" && params != "{}" {
 		_ = json.Unmarshal([]byte(params), &paramsMap)
 	}
-	_, err := audit.EmitDB(context.Background(), s.db, audit.Event{
+	_, err := audit.EmitTo(context.Background(), s.Obj(), audit.Event{
 		Category:      audit.CategoryAgent,
 		Action:        "mcp.tool.invoke",
 		Actor:         sub,

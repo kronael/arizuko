@@ -78,7 +78,7 @@ func (s *Store) taskTransition(ctx context.Context, ev audit.Event, move func(*s
 	if n == 0 {
 		return ErrTaskState
 	}
-	if err := audit.EmitInTx(ctx, tx, ev); err != nil {
+	if err := audit.EmitInTx(ctx, s.obj(), tx, ev); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -121,7 +121,7 @@ func (s *Store) CreateTask(ctx context.Context, t NewTask, ev audit.Event) error
 		t.ID, t.Owner, t.ChatJID, t.Prompt, t.Cron, t.NextRun); err != nil {
 		return err
 	}
-	if err := audit.EmitInTx(ctx, tx, ev); err != nil {
+	if err := audit.EmitInTx(ctx, s.obj(), tx, ev); err != nil {
 		return err
 	}
 	return tx.Commit()

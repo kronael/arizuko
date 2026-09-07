@@ -8,6 +8,9 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/auth"
+
+	"context"
+	"github.com/kronael/arizuko/audit"
 )
 
 // forwarderTok mints a service token for sub under the same key webdBearerKS
@@ -78,12 +81,19 @@ func TestRoutesResource_AuditNamesStampedOperator(t *testing.T) {
 		t.Fatalf("POST status = %d body=%s", w.Code, w.Body.String())
 	}
 
+	rows, err := audit.Query(context.Background(), st.Obj(), audit.Filter{Limit: audit.MaxLimit})
+	if err != nil {
+		t.Fatal(err)
+	}
 	var actorSub, resource string
-	if err := st.DB().QueryRow(
-		`SELECT COALESCE(actor_sub,''), COALESCE(resource,'') FROM audit_log
-		 WHERE action = 'proxyd_routes:create' ORDER BY id DESC LIMIT 1`,
-	).Scan(&actorSub, &resource); err != nil {
-		t.Fatalf("no proxyd_routes:create audit row: %v", err)
+	for _, r := range rows {
+		if r.Action == "proxyd_routes:create" {
+			actorSub, resource = r.ActorSub, r.Resource
+			break // newest first
+		}
+	}
+	if resource == "" {
+		t.Fatal("no proxyd_routes:create audit row")
 	}
 	if actorSub != "op@example" {
 		t.Errorf("audit actor_sub = %q, want op@example (the forwarder must not be the actor)", actorSub)

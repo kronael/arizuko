@@ -231,28 +231,21 @@ func postEngagement(t *testing.T, h http.Handler, body apiv1.EngagementRequest) 
 	return rec
 }
 
-// engagementAudit reads the audit_log rows this surface writes, in order.
-// Distinct from auditRows (migrations_0016_audit_test.go), which counts one
-// action: the assertions below need the row CONTENTS, not just how many.
+// engagementAudit reads the rows this surface records, in order. Distinct from
+// auditRows (migrations_0016_audit_test.go), which counts one action: the
+// assertions below need the row CONTENTS, not just how many.
 func engagementAudit(t *testing.T, db *DB) []struct{ Action, Actor, Resource, Folder, Params string } {
 	t.Helper()
-	rows, err := db.SQL().Query(
-		`SELECT action, actor, COALESCE(resource,''), COALESCE(folder,''), COALESCE(params_summary,'')
-		 FROM audit_log WHERE action LIKE 'engagement.%' ORDER BY id`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
+	newest := allAuditRows(t, db)
 	var out []struct{ Action, Actor, Resource, Folder, Params string }
-	for rows.Next() {
-		var r struct{ Action, Actor, Resource, Folder, Params string }
-		if err := rows.Scan(&r.Action, &r.Actor, &r.Resource, &r.Folder, &r.Params); err != nil {
-			t.Fatal(err)
+	for i := len(newest) - 1; i >= 0; i-- {
+		r := newest[i]
+		if !strings.HasPrefix(r.Action, "engagement.") {
+			continue
 		}
-		out = append(out, r)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatal(err)
+		out = append(out, struct{ Action, Actor, Resource, Folder, Params string }{
+			r.Action, r.Actor, r.Resource, r.Folder, r.ParamsSummary,
+		})
 	}
 	return out
 }

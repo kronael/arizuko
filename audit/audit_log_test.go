@@ -1,0 +1,271 @@
+package audit
+
+// The guarantees the entity itself carries: the id orders by time, a recorded
+// row is never overwritten, an audited write is one commit with its mutation,
+// and a database still holding the table an entity replaces refuses to serve it.
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/objstore/sqlstore"
+)
+
+// rowsOf reads everything a store holds, newest first, through the method an
+// operator's page reads it through.
+func rowsOf(t *testing.T, s *sqlstore.Store) []Row {
+	t.Helper()
+	rows, err := Query(context.Background(), s, Filter{Limit: MaxLimit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rows
+}
+
+// routeCount counts the scratch mutation the audited-write test records.
+func routeCount(t *testing.T, db *sql.DB) int {
+	t.Helper()
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM routes`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// The declared width has to be the layout's, or every write is refused rather
+// than one being guarded. It is a constant here because the driver's ordered
+// check needs it at init, and this is what keeps it honest.
+func TestTheOrderedWidthIsTheTimestampLayout(t *testing.T) {
+	if got := len(core.TS(time.Now())); got != tsWidth {
+		t.Fatalf("core.TS renders %d bytes and this package declares %d", got, tsWidth)
+	}
+	if got := len(NewID(time.Now())); got != IDWidth {
+		t.Fatalf("an id is %d bytes and IDWidth says %d", got, IDWidth)
+	}
+}
+
+// Byte order is time order, which is the whole reason a string id can be the
+// page cursor. RFC3339Nano would fail this: it strips trailing zeros, so a whole
+// second sorts after a fraction of the same second (BUGS L97).
+func TestTheIdSortsByTime(t *testing.T) {
+	base := time.Date(2026, 9, 7, 5, 20, 57, 0, time.UTC)
+	earlier := NewID(base)
+	later := NewID(base.Add(time.Nanosecond))
+	if !(earlier < later) {
+		t.Fatalf("%q does not sort before %q", earlier, later)
+	}
+	if got := createdAt(later); got != core.TS(base.Add(time.Nanosecond)) {
+		t.Fatalf("the id reads back the instant %q, want %q", got, core.TS(base.Add(time.Nanosecond)))
+	}
+}
+
+// An audit log is evidence: a second write on an id that is already there must
+// refuse rather than replace the row under it.
+func TestARecordedRowIsNeverOverwritten(t *testing.T) {
+	s := openTestDB(t)
+	ctx := context.Background()
+	id := NewID(time.Now())
+
+	ok, err := s.GuardedBatch(ctx, nil, []objstore.Write{
+		writeFor(id, Event{Category: "mcp", Action: "first", Actor: "x"}, ""),
+	})
+	if err != nil || !ok {
+		t.Fatalf("the first write did not land: ok=%v err=%v", ok, err)
+	}
+	ok, err = s.GuardedBatch(ctx, nil, []objstore.Write{
+		writeFor(id, Event{Category: "mcp", Action: "second", Actor: "x"}, ""),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Fatal("a second write on a recorded id committed; the record is editable")
+	}
+	if got := only(t, s).Action; got != "first" {
+		t.Fatalf("the row now reads %q, so the record was rewritten", got)
+	}
+}
+
+// THE INVARIANT: the audit row commits or rolls back with the mutation it
+// records. Break the coupling — emit outside the caller's transaction, or
+// commit the mutation without the row — and one of these two halves goes red.
+func TestTheAuditRowIsOneCommitWithItsMutation(t *testing.T) {
+	db, s := openTestStore(t)
+	ctx := context.Background()
+	if _, err := db.Exec(`CREATE TABLE routes (id TEXT PRIMARY KEY)`); err != nil {
+		t.Fatal(err)
+	}
+	mutate := func(id string) (*sql.Tx, error) {
+		tx, err := db.Begin()
+		if err != nil {
+			return nil, err
+		}
+		// The literal is interpolated rather than bound because the two engines
+		// spell a placeholder differently and this fixture runs on both.
+		if _, err := tx.Exec(`INSERT INTO routes (id) VALUES ('` + id + `')`); err != nil {
+			tx.Rollback() //nolint:errcheck // the caller gets the first error
+			return nil, err
+		}
+		if err := EmitInTx(ctx, s, tx, Event{
+			Category: CategoryMutation, Action: "route.create", Actor: "operator:o",
+			Resource: "routes/" + id,
+		}); err != nil {
+			tx.Rollback() //nolint:errcheck
+			return nil, err
+		}
+		return tx, nil
+	}
+
+	rolled, err := mutate("abandoned")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rolled.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if n := routeCount(t, db); n != 0 {
+		t.Fatalf("%d routes survived the rollback", n)
+	}
+	if n := len(rowsOf(t, s)); n != 0 {
+		t.Fatalf("%d audit rows survived the rollback, so the row outlived a write that "+
+			"never happened", n)
+	}
+
+	kept, err := mutate("kept")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := kept.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if n := routeCount(t, db); n != 1 {
+		t.Fatalf("%d routes after the commit, want 1", n)
+	}
+	rows := rowsOf(t, s)
+	if len(rows) != 1 || rows[0].Resource != "routes/kept" {
+		t.Fatalf("the commit left %d audit rows (%+v); a mutation without its record is "+
+			"the unrecorded mutation this coupling exists to stop", len(rows), rows)
+	}
+}
+
+// A database still holding the table an entity replaces must refuse to serve
+// it, loudly, at boot. Serving it silently means every Emit warns and drops the
+// row while the daemon reports healthy (BUGS F29).
+func TestEnsureEntitiesRefusesTheTableAnEntityReplaces(t *testing.T) {
+	db, _ := openTestStore(t)
+	if _, err := db.Exec(`DROP TABLE audit_log`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE audit_log (id INTEGER PRIMARY KEY, category TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	err := EnsureEntities(context.Background(), sqlstore.New(db))
+	if err == nil {
+		t.Fatal("a database holding the old table reported ready; every row would be dropped")
+	}
+	if got := err.Error(); !strings.Contains(got, "audit_log") {
+		t.Fatalf("the refusal does not name the entity: %v", got)
+	}
+}
+
+// The read fills its limit past a chunk boundary and stops at the end of the
+// partition, which is what makes a short page mean "nothing older" rather than
+// "the read gave up".
+func TestQueryFillsTheLimitAcrossChunks(t *testing.T) {
+	s := openTestDB(t)
+	was := scanChunk
+	scanChunk = 2
+	t.Cleanup(func() { scanChunk = was })
+
+	// Twelve rows, every third one in the folder asked for, so the filter that
+	// the reader applies has to survive six chunks to find four of them.
+	for i := range 12 {
+		e := Event{Category: "mcp", Action: fmt.Sprint(i), Actor: "x"}
+		if i%3 == 0 {
+			e.Folder = "acme"
+		}
+		seed(t, s, e)
+	}
+	got, err := Query(context.Background(), s, Filter{Folder: "acme", Limit: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("got %d rows, want the whole limit of 3: %v", len(got), idsOf(got))
+	}
+	all, err := Query(context.Background(), s, Filter{Folder: "acme", Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 4 {
+		t.Fatalf("got %d rows, want the 4 in the folder", len(all))
+	}
+}
+
+// The import carries the order the sequence had, including rows that shared an
+// instant — which 59 of krons' 163,750 rows do.
+func TestImportKeepsTheOrderTheSequenceHad(t *testing.T) {
+	s := openTestDB(t)
+	const instant = "2026-09-07T05:20:57.277Z"
+	snap := Snapshot{Rows: []LegacyRow{
+		{ID: 1, CreatedAt: instant, Category: "mcp", Action: "first", Actor: "x", Outcome: "ok"},
+		{ID: 2, CreatedAt: instant, Category: "mcp", Action: "second", Actor: "x", Outcome: "ok",
+			ParamsSummary: `{"folder":"acme"}`},
+		{ID: 3, CreatedAt: "2026-09-07T05:20:58.000Z", Category: "mcp", Action: "third",
+			Actor: "x", Outcome: "ok"},
+	}}
+	if n, err := CheckSnapshot(snap); err != nil || n != 3 {
+		t.Fatalf("CheckSnapshot = %d, %v", n, err)
+	}
+	if n, err := Import(context.Background(), s, snap); err != nil || n != 3 {
+		t.Fatalf("Import = %d, %v", n, err)
+	}
+	rows := rowsOf(t, s)
+	want := []string{"third", "second", "first"}
+	for i, w := range want {
+		if rows[i].Action != w {
+			t.Fatalf("row %d reads %q, want %q — the sequence order was lost",
+				i, rows[i].Action, w)
+		}
+	}
+	if rows[1].ParamsSummary != `{"folder":"acme"}` {
+		t.Fatalf("params read back as %q, want the document the writer stored",
+			rows[1].ParamsSummary)
+	}
+	if rows[0].CreatedAt != core.TS(mustTime(t, "2026-09-07T05:20:58.000Z")) {
+		t.Fatalf("created_at reads back as %q", rows[0].CreatedAt)
+	}
+}
+
+// A migration is re-runnable, so importing the same source twice leaves the
+// same trail rather than a doubled one or a failure.
+func TestImportIsIdempotent(t *testing.T) {
+	s := openTestDB(t)
+	snap := Snapshot{Rows: []LegacyRow{
+		{ID: 1, CreatedAt: "2026-09-07T05:20:57.277Z", Category: "mcp", Action: "a",
+			Actor: "x", Outcome: "ok"},
+	}}
+	for range 2 {
+		if n, err := Import(context.Background(), s, snap); err != nil || n != 1 {
+			t.Fatalf("Import = %d, %v", n, err)
+		}
+	}
+	if rows := rowsOf(t, s); len(rows) != 1 || rows[0].Action != "a" {
+		t.Fatalf("the trail holds %d rows after two imports of one: %+v", len(rows), rows)
+	}
+}
+
+func mustTime(t *testing.T, text string) time.Time {
+	t.Helper()
+	at, err := time.Parse(time.RFC3339Nano, text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return at
+}

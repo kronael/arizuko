@@ -7,64 +7,65 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/db_utils/dbtest"
+	"github.com/kronael/arizuko/objstore/sqlstore"
 )
 
-// schemaSQL mirrors store/migrations/0066-audit-log.sql for the audit
-// package's own tests, which can't import the store package (store
-// imports audit since LogIPCAudit/LogCLIAudit funnel through here).
-const schemaSQL = `
-CREATE TABLE audit_log (
-  id              INTEGER PRIMARY KEY AUTOINCREMENT,
-  created_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  category        TEXT    NOT NULL,
-  action          TEXT    NOT NULL,
-  actor           TEXT    NOT NULL,
-  actor_sub       TEXT,
-  resource        TEXT,
-  scope           TEXT,
-  surface         TEXT,
-  params_summary  TEXT,
-  outcome         TEXT    NOT NULL,
-  error_msg       TEXT,
-  duration_ms     INTEGER,
-  turn_id         TEXT,
-  folder          TEXT,
-  instance        TEXT,
-  request_id      TEXT,
-  source_ip       TEXT
-);`
-
-func openTestDB(t *testing.T) *sql.DB {
+// openTestStore reserves a database and prepares it the way an owner's opener
+// does — through the one applier, so a test records into the entity a daemon
+// records into rather than into a shape only tests have.
+func openTestStore(t *testing.T) (*sql.DB, *sqlstore.Store) {
 	t.Helper()
 	db := dbtest.Open(t)
-	if _, err := db.Exec(schemaSQL); err != nil {
+	s := sqlstore.New(db)
+	if err := EnsureEntities(context.Background(), s); err != nil {
 		t.Fatal(err)
 	}
-	return db
+	return db, s
+}
+
+// openTestDB is openTestStore for a test that only needs the store.
+func openTestDB(t *testing.T) *sqlstore.Store {
+	t.Helper()
+	_, s := openTestStore(t)
+	return s
 }
 
 func resetInit(t *testing.T) {
 	t.Cleanup(func() {
 		logMu.Lock()
-		logDB = nil
+		logStore = nil
 		logInstance = ""
 		logMu.Unlock()
 	})
 }
 
+// only reports the single row the store holds, read back through the same
+// method an operator's page reads it through.
+func only(t *testing.T, s *sqlstore.Store) Row {
+	t.Helper()
+	rows, err := Query(context.Background(), s, Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("the store holds %d rows, want exactly 1", len(rows))
+	}
+	return rows[0]
+}
+
 func TestEmit_NoInit(t *testing.T) {
-	// No Init → Emit returns 0, no panic.
+	// No Init → Emit records nothing and answers no id, without panicking.
 	if got := Emit(context.Background(), Event{
 		Category: CategoryAuthN, Action: "login", Actor: "u:1",
-	}); got != 0 {
-		t.Errorf("Emit without Init returned id=%d, want 0", got)
+	}); got != "" {
+		t.Errorf("Emit without Init returned id=%q, want none", got)
 	}
 }
 
 func TestEmit_Inserts(t *testing.T) {
-	db := openTestDB(t)
+	s := openTestDB(t)
 	resetInit(t)
-	Init(db, "test")
+	Init(s, "test")
 
 	id := Emit(context.Background(), Event{
 		Category: CategoryAuthN, Action: "login",
@@ -72,39 +73,34 @@ func TestEmit_Inserts(t *testing.T) {
 		Surface: SurfaceREST, Outcome: OutcomeOK,
 		ParamsSummary: map[string]any{"method": "oauth"},
 	})
-	if id == 0 {
-		t.Fatal("expected non-zero id")
+	if id == "" {
+		t.Fatal("expected an id")
 	}
-
-	var category, action, actor, outcome, params, instance string
-	err := db.QueryRow(
-		`SELECT category, action, actor, outcome, params_summary, instance
-		 FROM audit_log WHERE id = ?`, id).
-		Scan(&category, &action, &actor, &outcome, &params, &instance)
-	if err != nil {
-		t.Fatal(err)
+	row := only(t, s)
+	if row.ID != id {
+		t.Errorf("the row reads back as %q, want the id Emit answered %q", row.ID, id)
 	}
-	if category != CategoryAuthN || action != "login" {
-		t.Errorf("cat/action=%q/%q want authn/login", category, action)
+	if row.Category != CategoryAuthN || row.Action != "login" {
+		t.Errorf("cat/action=%q/%q want authn/login", row.Category, row.Action)
 	}
-	if instance != "test" {
-		t.Errorf("instance=%q want test", instance)
+	if row.Instance != "test" {
+		t.Errorf("instance=%q want test", row.Instance)
 	}
-	if !strings.Contains(params, "oauth") {
-		t.Errorf("params=%q missing oauth", params)
+	if !strings.Contains(row.ParamsSummary, "oauth") {
+		t.Errorf("params=%q missing oauth", row.ParamsSummary)
 	}
 }
 
 func TestEmitInTx_RollsBackOnTxFailure(t *testing.T) {
-	db := openTestDB(t)
+	db, s := openTestStore(t)
 	resetInit(t)
-	Init(db, "test")
+	Init(s, "test")
 
 	tx, err := db.Begin()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := EmitInTx(context.Background(), tx, Event{
+	if err := EmitInTx(context.Background(), s, tx, Event{
 		Category: CategoryMutation, Action: "route.create",
 		Actor: "operator:ondrej", Outcome: OutcomeOK,
 		Resource: "routes/42",
@@ -115,23 +111,25 @@ func TestEmitInTx_RollsBackOnTxFailure(t *testing.T) {
 	if err := tx.Rollback(); err != nil {
 		t.Fatal(err)
 	}
-	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM audit_log`).Scan(&n)
-	if n != 0 {
-		t.Errorf("audit_log rows after rollback=%d, want 0", n)
+	rows, err := Query(context.Background(), s, Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 {
+		t.Errorf("audit rows after rollback=%d, want 0", len(rows))
 	}
 }
 
 func TestEmitInTx_PersistsOnCommit(t *testing.T) {
-	db := openTestDB(t)
+	db, s := openTestStore(t)
 	resetInit(t)
-	Init(db, "test")
+	Init(s, "test")
 
 	tx, err := db.Begin()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := EmitInTx(context.Background(), tx, Event{
+	if err := EmitInTx(context.Background(), s, tx, Event{
 		Category: CategorySecret, Action: "secret.set",
 		Actor: "operator:ondrej", Outcome: OutcomeOK,
 		Resource: "secrets/folder/atlas/support/OPENAI_API_KEY",
@@ -141,10 +139,8 @@ func TestEmitInTx_PersistsOnCommit(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	var action string
-	db.QueryRow(`SELECT action FROM audit_log LIMIT 1`).Scan(&action)
-	if action != "secret.set" {
-		t.Errorf("action=%q want secret.set", action)
+	if got := only(t, s).Action; got != "secret.set" {
+		t.Errorf("action=%q want secret.set", got)
 	}
 }
 
@@ -176,21 +172,19 @@ func TestMarshalParams_TruncatesOversize(t *testing.T) {
 }
 
 func TestEmit_DeniedOutcome(t *testing.T) {
-	db := openTestDB(t)
+	s := openTestDB(t)
 	resetInit(t)
-	Init(db, "test")
+	Init(s, "test")
 
 	id := Emit(context.Background(), Event{
 		Category: CategoryAuthZ, Action: "authz.deny",
 		Actor: "agent:atlas/support", Outcome: OutcomeDenied,
 		Resource: "mcp/secret.set", Folder: "atlas/support",
 	})
-	if id == 0 {
-		t.Fatal("denied event not inserted")
+	if id == "" {
+		t.Fatal("denied event not recorded")
 	}
-	var outcome string
-	db.QueryRow(`SELECT outcome FROM audit_log WHERE id = ?`, id).Scan(&outcome)
-	if outcome != OutcomeDenied {
-		t.Errorf("outcome=%q want denied", outcome)
+	if got := only(t, s).Outcome; got != OutcomeDenied {
+		t.Errorf("outcome=%q want denied", got)
 	}
 }

@@ -67,7 +67,7 @@ func (s *Server) auditRunSlot(ctx context.Context, sub, action, folder, runID st
 		ev.Outcome = audit.OutcomeError
 		ev.ErrorMsg = err.Error()
 	}
-	if _, dbErr := audit.EmitDB(ctx, s.db.SQL(), ev); dbErr != nil {
+	if _, dbErr := audit.EmitTo(ctx, s.db.Obj(), ev); dbErr != nil {
 		slog.Error("runed audit emit", "action", action, "folder", folder, "run_id", runID, "err", dbErr)
 	}
 }

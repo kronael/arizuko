@@ -12,7 +12,10 @@ import (
 
 	_ "modernc.org/sqlite"
 
+	"sync/atomic"
+
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/objstore/sqlstore"
 )
 
 // The audit page no longer reads routd.db: it fans GET /v1/audit out to routd,
@@ -27,22 +30,26 @@ import (
 // the honest source for all of them.
 func auditDB(t *testing.T) *sql.DB { return routdDB(t) }
 
-// seedAudit inserts one row at an explicit timestamp. ts is explicit because
+// seedAuditSeq numbers the rows a seed writes. An id separates two rows that
+// share an instant, which is what the sequence did in the table the entity
+// replaces, so the fixture supplies one rather than leaving the order to chance.
+var seedAuditSeq atomic.Int64
+
+// seedAudit records one row at an explicit timestamp. ts is explicit because
 // the merge orders on created_at across sources; a default-now stamp would make
-// cross-source ordering a race on insert speed.
+// cross-source ordering a race on insert speed. It goes in through audit's own
+// import, so the item a fixture writes is the item a daemon writes.
 func seedAudit(t *testing.T, db *sql.DB, ts, category, action, actor, folder, outcome string) {
 	t.Helper()
-	if _, err := db.Exec(
-		`INSERT INTO audit_log (created_at, category, action, actor, folder, outcome)
-		 VALUES (?, ?, ?, ?, ?, ?)`, ts, category, action, actor, folder, outcome); err != nil {
-		t.Fatal(err)
-	}
-	// A seed that inserted nothing must fail the test, not pass it silently:
+	n, err := audit.Import(context.Background(), sqlstore.New(db), audit.Snapshot{Rows: []audit.LegacyRow{{
+		ID: seedAuditSeq.Add(1), CreatedAt: ts, Category: category, Action: action,
+		Actor: actor, Folder: folder, Outcome: outcome,
+	}}})
+	// A seed that wrote nothing must fail the test, not pass it silently:
 	// four vacuous audit tests shipped this week because the table they
 	// asserted about was empty.
-	var n int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM audit_log`).Scan(&n); err != nil || n == 0 {
-		t.Fatalf("seedAudit wrote no row (count=%d, err=%v)", n, err)
+	if err != nil || n != 1 {
+		t.Fatalf("seedAudit wrote %d rows: %v", n, err)
 	}
 }
 
@@ -53,14 +60,13 @@ func auditSourceOf(t *testing.T, db *sql.DB) *httptest.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/audit", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		var before, limit int64
-		fmt.Sscanf(q.Get("before_id"), "%d", &before)
+		var limit int64
 		fmt.Sscanf(q.Get("limit"), "%d", &limit)
-		rows, err := audit.Query(context.Background(), db, audit.Filter{
+		rows, err := audit.Query(context.Background(), sqlstore.New(db), audit.Filter{
 			Folder:   q.Get("folder"),
 			Category: q.Get("category"),
 			Actor:    q.Get("actor"),
-			BeforeID: before,
+			Before:   q.Get("before_id"),
 			Limit:    int(limit),
 		})
 		if err != nil {
@@ -308,11 +314,9 @@ func TestAuditFolderFilterIsSubtree(t *testing.T) {
 // remaining 10 AND the runed row, each exactly once.
 func TestAuditPaginationCompositeCursor(t *testing.T) {
 	rdb, ndb := auditDB(t), auditDB(t)
-	// Timestamps ascend with the id, which is the real shape of an append-only
-	// log: both created_at and the AUTOINCREMENT id are assigned at insert and
-	// no writer supplies created_at. audit.Query pages on id while the merge
-	// orders on created_at, and that co-monotonicity is what makes the two
-	// agree within one source.
+	// Timestamps ascend, which is the real shape of an append-only log: an id
+	// IS the instant it records, so audit.Query pages on the id while the merge
+	// orders on created_at and the two cannot disagree within one source.
 	for i := range 60 {
 		seedAudit(t, rdb, fmt.Sprintf("2026-08-01T00:%02d:00.000Z", i),
 			"mutation", fmt.Sprintf("routd-act%02d", i), "actor", "f", "ok")
@@ -388,11 +392,17 @@ func TestAuditNonOperatorForbidden(t *testing.T) {
 }
 
 func TestParseAuditCursor(t *testing.T) {
-	got := parseAuditCursor("routd:123,runed:45, authd:7 ")
-	want := map[string]int64{"routd": 123, "runed": 45, "authd": 7}
+	// An id carries colons of its own, so the pair splits on the FIRST one.
+	want := map[string]string{
+		"routd": auditID(t, "2026-08-01T10:00:00Z", 123),
+		"runed": auditID(t, "2026-08-01T11:00:00Z", 45),
+		"authd": auditID(t, "2026-08-01T12:00:00Z", 7),
+	}
+	raw := fmt.Sprintf("routd:%s,runed:%s, authd:%s ", want["routd"], want["runed"], want["authd"])
+	got := parseAuditCursor(raw)
 	for k, v := range want {
 		if got[k] != v {
-			t.Errorf("cursor[%s] = %d, want %d", k, got[k], v)
+			t.Errorf("cursor[%s] = %q, want %q", k, got[k], v)
 		}
 	}
 	// Garbage is skipped, not fatal — a hand-edited URL must not 500 the page.
@@ -401,19 +411,35 @@ func TestParseAuditCursor(t *testing.T) {
 	}
 }
 
+// auditID builds the id a row recorded at ts with sequence n carries, through
+// audit's own renderer rather than a second spelling of the layout.
+func auditID(t *testing.T, ts string, n int64) string {
+	t.Helper()
+	id, err := audit.LegacyID(audit.LegacyRow{ID: n, CreatedAt: ts})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
 // TestNextAuditCursorHoldsUncontributedSource: a source that contributed no row
 // to this page keeps its previous cursor. Resetting it would replay its newest
 // rows on every "older" click — an infinite page that never reaches the past.
 func TestNextAuditCursorHoldsUncontributedSource(t *testing.T) {
-	prev := map[string]int64{"routd": 100, "runed": 7}
+	newest := auditID(t, "2026-08-01T10:00:02Z", 100)
+	middle := auditID(t, "2026-08-01T10:00:01Z", 90)
+	oldest := auditID(t, "2026-08-01T10:00:00Z", 80)
+	held := auditID(t, "2026-07-01T00:00:00Z", 7)
+
+	prev := map[string]string{"routd": newest, "runed": held}
 	got := nextAuditCursor(prev, []auditRow{
-		{Row: audit.Row{ID: 90}, Source: "routd"},
-		{Row: audit.Row{ID: 80}, Source: "routd"},
+		{Row: audit.Row{ID: middle}, Source: "routd"},
+		{Row: audit.Row{ID: oldest}, Source: "routd"},
 	})
-	if !strings.Contains(got, "routd:80") {
-		t.Errorf("routd cursor should advance to its oldest rendered id (80): %s", got)
+	if !strings.Contains(got, "routd:"+oldest) {
+		t.Errorf("routd cursor should advance to its oldest rendered id: %s", got)
 	}
-	if !strings.Contains(got, "runed:7") {
-		t.Errorf("runed contributed nothing and must keep cursor 7: %s", got)
+	if !strings.Contains(got, "runed:"+held) {
+		t.Errorf("runed contributed nothing and must keep its cursor: %s", got)
 	}
 }

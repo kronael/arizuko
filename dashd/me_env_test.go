@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -81,12 +82,13 @@ func captureSlog(t *testing.T) *lockedBuf {
 	return b
 }
 
-// auditDump returns (rowCount, every column of every audit_log row joined). It
-// reads columns generically so a value leaking into ANY column — not just
-// params_summary — is caught, including a column added later.
+// auditDump returns (rowCount, every stored byte of every recorded row joined).
+// It reads the columns generically so a value leaking into ANY of them — not
+// just params_summary — is caught, and the entity's document column carries
+// every attribute, so an attribute added later is covered without an edit here.
 func auditDump(t *testing.T, db *sql.DB) (int, string) {
 	t.Helper()
-	rows, err := db.Query(`SELECT * FROM audit_log ORDER BY id`)
+	rows, err := db.Query(`SELECT * FROM audit_log ORDER BY sort`)
 	if err != nil {
 		t.Fatalf("read audit_log: %v", err)
 	}
@@ -289,7 +291,7 @@ func TestMeEnv_ScopeValidationRejectsBadScope(t *testing.T) {
 func TestMeEnv_NoPlaintextInLogsOrAudit(t *testing.T) {
 	const canary = "sk-ant-ENV_PLAINTEXT_CANARY_4d21"
 	d := meSecretsTestDB(t)
-	audit.Init(d.dbRoutd, "test")
+	audit.Init(sqlstore.New(d.dbRoutd), "test")
 	t.Cleanup(func() { audit.Init(nil, "") })
 	logs := captureSlog(t)
 	mux := newMux(d)

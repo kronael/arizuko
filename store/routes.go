@@ -69,7 +69,7 @@ func (s *Store) AddRoute(r core.Route) (int64, error) {
 		return 0, err
 	}
 	actor, actorSub, surface := s.auditIdentity()
-	if err := audit.EmitInTx(ctx, tx, audit.Event{
+	if err := audit.EmitInTx(ctx, s.Obj(), tx, audit.Event{
 		Category: audit.CategoryMutation,
 		Action:   "route.create",
 		Actor:    actor,
@@ -124,7 +124,7 @@ func (s *Store) DeleteRoute(id int64) (int64, error) {
 		return 0, nil
 	}
 	actor, actorSub, surface := s.auditIdentity()
-	if err := audit.EmitInTx(ctx, tx, audit.Event{
+	if err := audit.EmitInTx(ctx, s.Obj(), tx, audit.Event{
 		Category: audit.CategoryMutation,
 		Action:   "route.delete",
 		Actor:    actor,
@@ -194,7 +194,7 @@ func (s *Store) UpdateRoute(id int64, r core.Route) (int64, error) {
 		return 0, nil
 	}
 	actor, actorSub, surface := s.auditIdentity()
-	if err := audit.EmitInTx(ctx, tx, audit.Event{
+	if err := audit.EmitInTx(ctx, s.Obj(), tx, audit.Event{
 		Category: audit.CategoryMutation,
 		Action:   "route.update",
 		Actor:    actor,

@@ -29,27 +29,42 @@ func auditTestAuthd(t *testing.T) (*sql.DB, *Authd) {
 	return db, a
 }
 
-// seedAuthdAudit inserts rows and COUNTS them. The leak tests below assert a
-// string is absent from a response, which an empty table satisfies just as
-// well — the exact way four audit tests shipped vacuous this week.
+// seedAuthdAudit records rows and COUNTS them. The leak tests below assert a
+// string is absent from a response, which an empty log satisfies just as well —
+// the exact way four audit tests shipped vacuous this week.
 func seedAuthdAudit(t *testing.T, db *sql.DB, rows ...[3]string) {
 	t.Helper()
+	snap := audit.Snapshot{}
 	for i, r := range rows {
-		if _, err := db.Exec(
-			`INSERT INTO audit_log (created_at, category, action, actor, folder, outcome, params_summary)
-			 VALUES (?, 'authn', ?, 'user:google:114', ?, 'ok', ?)`,
-			"2026-08-01T00:0"+string(rune('0'+i))+":00.000Z", r[0], r[1], r[2]); err != nil {
-			t.Fatal(err)
-		}
+		snap.Rows = append(snap.Rows, audit.LegacyRow{
+			ID:        int64(i + 1),
+			CreatedAt: "2026-08-01T00:0" + string(rune('0'+i)) + ":00.000Z",
+			Category:  "authn", Action: r[0], Actor: "user:google:114",
+			Folder: r[1], Outcome: "ok", ParamsSummary: r[2],
+		})
 	}
-	var n int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM audit_log`).Scan(&n); err != nil {
+	n, err := audit.Import(t.Context(), newObjectStore(db), snap)
+	if err != nil || n != len(rows) {
+		t.Fatalf("fixture wrote %d rows, want %d (%v) — every assertion below would "+
+			"pass vacuously on an empty log", n, len(rows), err)
+	}
+}
+
+// auditRowsFor reads back every recorded row carrying one action, through the
+// method /v1/audit answers with.
+func auditRowsFor(t *testing.T, db *sql.DB, action string) []audit.Row {
+	t.Helper()
+	rows, err := audit.Query(t.Context(), newObjectStore(db), audit.Filter{Limit: audit.MaxLimit})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if n != len(rows) {
-		t.Fatalf("fixture wrote %d rows, want %d — every assertion below would "+
-			"pass vacuously on an empty table", n, len(rows))
+	var out []audit.Row
+	for _, r := range rows {
+		if r.Action == action {
+			out = append(out, r)
+		}
 	}
+	return out
 }
 
 func auditGET(t *testing.T, base, path, token string) (int, string) {
@@ -236,7 +251,7 @@ func TestAuthdDSNIsRedactedAtTheWriter(t *testing.T) {
 	const dsn = "/srv/data/arizuko_krons/store/auth.db"
 	// Written through the real emitter, not hand-inserted: the claim under test
 	// is that the WRITE path redacts.
-	if _, err := audit.EmitDB(t.Context(), db, audit.Event{
+	if _, err := audit.EmitTo(t.Context(), newObjectStore(db), audit.Event{
 		Category: audit.CategorySystem, Action: "daemon.start", Actor: "system",
 		Outcome: audit.OutcomeOK,
 		ParamsSummary: map[string]any{

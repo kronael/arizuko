@@ -198,7 +198,7 @@ func TestSessionsRefuseFolderClaim(t *testing.T) {
 func TestSessionsRevokeKillsTheFamilyAndAudits(t *testing.T) {
 	db, a := auditTestAuthd(t)
 	_, ts := newServer(t, a)
-	audit.Init(db, "test")
+	audit.Init(newObjectStore(db), "test")
 	t.Cleanup(func() { audit.Init(nil, "") })
 
 	raw, err := a.IssueRefresh("google:114alice", []string{"acme/**"}, "")
@@ -228,22 +228,13 @@ func TestSessionsRevokeKillsTheFamilyAndAudits(t *testing.T) {
 		t.Fatal("a revoked session still refreshes")
 	}
 
-	// The audit row. Counted before it is read — an empty table would satisfy
+	// The audit row. Counted before it is read — an empty log would satisfy
 	// any "the row says X" assertion written as a scan-and-compare.
-	var n int
-	if err := db.QueryRow(
-		`SELECT COUNT(*) FROM audit_log WHERE action = 'sessions:delete'`).Scan(&n); err != nil {
-		t.Fatal(err)
+	got := auditRowsFor(t, db, "sessions:delete")
+	if len(got) != 1 {
+		t.Fatalf("want exactly 1 sessions:delete audit row, got %d", len(got))
 	}
-	if n != 1 {
-		t.Fatalf("want exactly 1 sessions:delete audit row, got %d", n)
-	}
-	var actor, outcome, params, category string
-	if err := db.QueryRow(
-		`SELECT actor, outcome, params_summary, category FROM audit_log
-		  WHERE action = 'sessions:delete'`).Scan(&actor, &outcome, &params, &category); err != nil {
-		t.Fatal(err)
-	}
+	actor, outcome, params, category := got[0].Actor, got[0].Outcome, got[0].ParamsSummary, got[0].Category
 	if actor != "service:dashd" || outcome != audit.OutcomeOK || category != audit.CategoryMutation {
 		t.Fatalf("audit row = actor %q outcome %q category %q", actor, outcome, category)
 	}

@@ -32,26 +32,41 @@ func auditAdmin(t *testing.T, ks *auth.KeySet) *admin {
 	return &admin{db: db, ks: ks}
 }
 
-// seedOnbodAudit inserts rows and COUNTS them: an assertion that a row IS
-// returned passes vacuously on an empty table, and so does one that a string is
+// seedOnbodAudit records rows and COUNTS them: an assertion that a row IS
+// returned passes vacuously on an empty log, and so does one that a string is
 // absent.
 func seedOnbodAudit(t *testing.T, db *sql.DB, rows ...[2]string) {
 	t.Helper()
+	snap := audit.Snapshot{}
 	for i, r := range rows {
-		if _, err := db.Exec(
-			`INSERT INTO audit_log (created_at, category, action, actor, folder, outcome, params_summary)
-			 VALUES (?, 'mutation', ?, 'system', ?, 'ok', '{"jid":"telegram:user/42"}')`,
-			"2026-08-01T00:0"+string(rune('0'+i))+":00.000Z", r[0], r[1]); err != nil {
-			t.Fatal(err)
-		}
+		snap.Rows = append(snap.Rows, audit.LegacyRow{
+			ID:        int64(i + 1),
+			CreatedAt: "2026-08-01T00:0" + string(rune('0'+i)) + ":00.000Z",
+			Category:  "mutation", Action: r[0], Actor: "system", Folder: r[1],
+			Outcome: "ok", ParamsSummary: `{"jid":"telegram:user/42"}`,
+		})
 	}
-	var n int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM audit_log`).Scan(&n); err != nil {
+	n, err := audit.Import(t.Context(), newObjectStore(db), snap)
+	if err != nil || n != len(rows) {
+		t.Fatalf("fixture wrote %d rows, want %d (%v)", n, len(rows), err)
+	}
+}
+
+// auditRowsFor reads back every recorded row carrying one action, through the
+// method /v1/audit answers with.
+func auditRowsFor(t *testing.T, db *sql.DB, action string) []audit.Row {
+	t.Helper()
+	rows, err := audit.Query(t.Context(), newObjectStore(db), audit.Filter{Limit: audit.MaxLimit})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if n != len(rows) {
-		t.Fatalf("fixture wrote %d rows, want %d", n, len(rows))
+	var out []audit.Row
+	for _, r := range rows {
+		if r.Action == action {
+			out = append(out, r)
+		}
 	}
+	return out
 }
 
 func auditGET(t *testing.T, a *admin, target string) (int, []audit.Row, string) {

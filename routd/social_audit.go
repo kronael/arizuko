@@ -71,7 +71,7 @@ func (s *Server) auditSocial(action, folder, turnID, jid, targetID, surface stri
 		ev.Outcome = audit.OutcomeError
 		ev.ErrorMsg = err.Error()
 	}
-	if _, dbErr := audit.EmitDB(context.Background(), s.db.SQL(), ev); dbErr != nil {
+	if _, dbErr := audit.EmitTo(context.Background(), s.db.Obj(), ev); dbErr != nil {
 		slog.Error("social audit emit", "action", action, "folder", folder, "err", dbErr)
 	}
 }

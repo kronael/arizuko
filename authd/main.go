@@ -73,7 +73,7 @@ func main() {
 		slog.Info("GRANTS_URL unset: grants unwired, sessions are empty-scope")
 	}
 
-	audit.Init(db, os.Getenv("ARIZUKO_INSTANCE"))
+	audit.Init(newObjectStore(db), os.Getenv("ARIZUKO_INSTANCE"))
 	audit.Emit(context.Background(), audit.Event{
 		Category: audit.CategorySystem,
 		Action:   "daemon.start",

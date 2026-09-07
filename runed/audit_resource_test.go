@@ -1,40 +1,38 @@
 package runed
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/kronael/arizuko/audit"
+	"time"
 )
 
-// seedAuditRows writes rows straight into runed.db's audit_log.
+// seedAuditRows records rows at chosen instants, through the import that carries
+// an existing trail, so the fixture writes the item runed writes.
 //
-// It writes them RATHER than calling audit.EmitDB because audit.Emit's
-// package-level DB is process-global test state; the point of the fixture is
-// that the rows are certainly there. It then COUNTS them, because the
-// containment tests below assert that a folder's rows are ABSENT from a
-// response, and "absent" is satisfied just as well by an empty table — that is
-// precisely how four audit tests shipped vacuous this week.
+// It goes in directly RATHER than through audit.Emit because Emit's store is
+// process-global test state; the point of the fixture is that the rows are
+// certainly there. It then COUNTS them, because the containment tests below
+// assert that a folder's rows are ABSENT from a response, and "absent" is
+// satisfied just as well by an empty trail — that is precisely how four audit
+// tests shipped vacuous this week.
 func seedAuditRows(t *testing.T, db *DB, rows ...[2]string) {
 	t.Helper()
+	snap := audit.Snapshot{}
 	for i, r := range rows {
-		if _, err := db.SQL().Exec(
-			`INSERT INTO audit_log (created_at, category, action, actor, folder, outcome)
-			 VALUES (?, 'agent', ?, 'github:op', ?, 'ok')`,
-			"2026-08-01T00:0"+string(rune('0'+i))+":00.000Z", r[0], r[1]); err != nil {
-			t.Fatal(err)
-		}
+		snap.Rows = append(snap.Rows, audit.LegacyRow{
+			ID:        int64(i + 1),
+			CreatedAt: "2026-08-01T00:0" + string(rune('0'+i)) + ":00.000Z",
+			Category:  "agent", Action: r[0], Actor: "github:op", Folder: r[1], Outcome: "ok",
+		})
 	}
-	var n int
-	if err := db.SQL().QueryRow(`SELECT COUNT(*) FROM audit_log`).Scan(&n); err != nil {
-		t.Fatal(err)
-	}
-	if n != len(rows) {
-		t.Fatalf("fixture wrote %d audit rows, want %d — every assertion below "+
-			"would pass vacuously on an empty table", n, len(rows))
+	n, err := audit.Import(t.Context(), db.Obj(), snap)
+	if err != nil || n != len(rows) {
+		t.Fatalf("the fixture wrote %d audit rows, want %d (%v) — every assertion below "+
+			"would pass vacuously on an empty trail", n, len(rows), err)
 	}
 }
 
@@ -164,14 +162,18 @@ func TestAuditLimitIsClamped(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	snap := audit.Snapshot{}
 	for i := range audit.MaxLimit + 10 {
-		if _, err := db.SQL().Exec(
-			`INSERT INTO audit_log (category, action, actor, outcome)
-			 VALUES ('agent', ?, 'op', 'ok')`, "act"+string(rune('a'+i%26))); err != nil {
-			t.Fatal(err)
-		}
+		snap.Rows = append(snap.Rows, audit.LegacyRow{
+			ID:        int64(i + 1),
+			CreatedAt: time.Unix(int64(i), 0).UTC().Format(time.RFC3339Nano),
+			Category:  "agent", Action: "act" + string(rune('a'+i%26)), Actor: "op", Outcome: "ok",
+		})
 	}
-	rows, err := audit.Query(context.Background(), db.SQL(), audit.Filter{Limit: 100000})
+	if _, err := audit.Import(t.Context(), db.Obj(), snap); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := audit.Query(t.Context(), db.Obj(), audit.Filter{Limit: 100000})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,11 +194,7 @@ func TestAuditReadWritesNoRow(t *testing.T) {
 			t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
 		}
 	}
-	var n int
-	if err := db.SQL().QueryRow(`SELECT COUNT(*) FROM audit_log`).Scan(&n); err != nil {
-		t.Fatal(err)
-	}
-	if n != 1 {
-		t.Errorf("audit_log grew to %d rows after 3 reads, want 1 — a read is auditing itself", n)
+	if n := countAudit(t, db); n != 1 {
+		t.Errorf("the trail grew to %d rows after 3 reads, want 1 — a read is auditing itself", n)
 	}
 }

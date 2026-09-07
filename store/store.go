@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"embed"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/db_utils"
+	"github.com/kronael/arizuko/objstore/sqlstore"
 	_ "modernc.org/sqlite"
 )
 
@@ -206,6 +208,12 @@ func migrate(db *sql.DB) error {
 	if err := db_utils.Migrate(db, migrationFS, "migrations", serviceName); err != nil {
 		return err
 	}
+	// audit_log is an entity rather than a migration, so it is created by the
+	// driver here — the audited writers in this package record into whichever
+	// database they were opened over.
+	if err := audit.EnsureEntities(context.Background(), sqlstore.New(db)); err != nil {
+		return err
+	}
 	if err := BackfillInviteRefs(db); err != nil {
 		return err
 	}
@@ -221,6 +229,18 @@ func New(db *sql.DB) *Store {
 // DB returns the underlying *sql.DB for callers that need raw query access
 // (e.g. audit poll goroutine). The caller must not close it.
 func (s *Store) DB() *sql.DB { return s.db }
+
+// Obj is this database through objstore's two primitives (spec 6/37 step 5).
+// The audited writers below run their mutation as SQL on a transaction of their
+// own and the row that records it joins that transaction, so audit needs the
+// driver that can write into one — and dashd, webd and proxyd, which hold this
+// store over routd's file, reach the same driver for their own audit sink
+// rather than each naming one.
+//
+// It is built per call rather than held: sqlstore.New reads the engine off the
+// pool with a type assertion, and a field would have to be filled in at four
+// constructors and survive every shallow copy AsUser makes.
+func (s *Store) Obj() *sqlstore.Store { return sqlstore.New(s.db) }
 
 // sqlPH returns n comma-separated `?` placeholders for use in SQL IN (...).
 // e.g. sqlPH(3) == "?,?,?"

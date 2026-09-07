@@ -316,7 +316,7 @@ func (s *Store) consumeInvite(token, userSub string, grantACL bool) (*Invite, er
 			return nil, err
 		}
 	}
-	if err := audit.EmitInTx(context.Background(), tx, audit.Event{
+	if err := audit.EmitInTx(context.Background(), s.Obj(), tx, audit.Event{
 		Category: audit.CategoryAuthN,
 		Action:   "invite.consume",
 		Actor:    "user:" + userSub,

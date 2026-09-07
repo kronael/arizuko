@@ -7,6 +7,11 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/kronael/arizuko/audit"
+
+	"database/sql"
+	"github.com/kronael/arizuko/objstore/sqlstore"
 )
 
 // Every dashboard mutation must persist an audit_log row naming the operator who
@@ -24,14 +29,28 @@ import (
 // when the mutation recorded nothing.
 func auditActor(t *testing.T, d *dash, action string) string {
 	t.Helper()
-	var sub string
-	err := d.adminDB().QueryRow(
-		`SELECT COALESCE(actor_sub, '') FROM audit_log
-		 WHERE action = ? ORDER BY id DESC LIMIT 1`, action).Scan(&sub)
-	if err != nil {
+	rows := auditRowsFor(t, d.adminDB(), action)
+	if len(rows) == 0 {
 		return ""
 	}
-	return sub
+	return rows[0].ActorSub // newest first
+}
+
+// auditRowsFor reads back every recorded row carrying one action, newest first,
+// through the method every daemon answers GET /v1/audit with.
+func auditRowsFor(t *testing.T, db *sql.DB, action string) []audit.Row {
+	t.Helper()
+	rows, err := audit.Query(t.Context(), sqlstore.New(db), audit.Filter{Limit: audit.MaxLimit})
+	if err != nil {
+		t.Fatalf("read the audit trail: %v", err)
+	}
+	var out []audit.Row
+	for _, r := range rows {
+		if r.Action == action {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 func TestGrantAdd_Audited(t *testing.T) {
@@ -154,14 +173,14 @@ func TestGroupDelete_Audited(t *testing.T) {
 // folder whose child row blocks the cascade must leave audit_log untouched.
 func TestGroupDelete_AuditRollsBackWithMutation(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
-	before := count(t, routd, `SELECT COUNT(*) FROM audit_log WHERE action='group.delete'`)
+	before := len(auditRowsFor(t, routd, "group.delete"))
 	mux := newMux(d)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, adminReq("POST", "/dash/groups/nosuchfolder/delete", "", "alice@x"))
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("delete missing folder = %d, want 404", w.Code)
 	}
-	after := count(t, routd, `SELECT COUNT(*) FROM audit_log WHERE action='group.delete'`)
+	after := len(auditRowsFor(t, routd, "group.delete"))
 	if after != before {
 		t.Errorf("audit rows for a delete that did not happen: %d -> %d", before, after)
 	}
@@ -182,7 +201,7 @@ func TestRouteDelete_Audited(t *testing.T) {
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("POST route delete = %d body=%q", w.Code, w.Body.String())
 	}
-	if n := count(t, routd, `SELECT COUNT(*) FROM audit_log WHERE action='route.delete'`); n != 1 {
+	if n := len(auditRowsFor(t, routd, "route.delete")); n != 1 {
 		t.Errorf("route.delete audit rows = %d, want 1", n)
 	}
 	if got := auditActor(t, d, "route.delete"); got != "alice@x" {

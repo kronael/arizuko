@@ -14,7 +14,7 @@ import (
 // for backfill. New callers should prefer audit.Emit / audit.EmitDB
 // for richer Event fields (turn_id, source_ip, ...).
 func (s *Store) LogCLIAudit(osUser, command, args string) error {
-	_, err := audit.EmitDB(context.Background(), s.db, audit.Event{
+	_, err := audit.EmitTo(context.Background(), s.Obj(), audit.Event{
 		Category: audit.CategoryMutation,
 		Action:   "cli." + command,
 		Actor:    "cli:" + osUser,

@@ -36,6 +36,7 @@ import (
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -583,7 +584,7 @@ func invoke(ctx context.Context, r Resource, x Execution) (any, int, error) {
 		var err error
 		scope, params, err = r.Authz(x.Caller, x.Action, x.Args)
 		if err != nil {
-			emitAudit(ctx, nil, x, scope, params, outcomeFor(err), err.Error(), start, forward)
+			emitAudit(ctx, nil, nil, x, scope, params, outcomeFor(err), err.Error(), start, forward)
 			return nil, errStatus(err), err
 		}
 	}
@@ -593,39 +594,39 @@ func invoke(ctx context.Context, r Resource, x Execution) (any, int, error) {
 			gate = r.defaultGate
 		}
 		if gerr := gate(x, scope, params); gerr != nil {
-			emitAudit(ctx, nil, x, scope, params, audit.OutcomeDenied, gerr.Error(), start, false)
+			emitAudit(ctx, nil, nil, x, scope, params, audit.OutcomeDenied, gerr.Error(), start, false)
 			return nil, errStatus(gerr), gerr
 		}
 	}
 	if !x.Action.Mutates() || forward {
 		res, herr := r.Handler(ctx, x)
 		if herr != nil {
-			emitAudit(ctx, nil, x, scope, params, audit.OutcomeError, herr.Error(), start, forward)
+			emitAudit(ctx, nil, nil, x, scope, params, audit.OutcomeError, herr.Error(), start, forward)
 			return nil, errStatus(herr), herr
 		}
-		emitAudit(ctx, nil, x, scope, params, audit.OutcomeOK, "", start, forward)
+		emitAudit(ctx, nil, nil, x, scope, params, audit.OutcomeOK, "", start, forward)
 		return res, 0, nil
 	}
 	tx, txErr := r.Store.DB().BeginTx(ctx, nil)
 	if txErr != nil {
-		emitAudit(ctx, nil, x, scope, params, audit.OutcomeError, txErr.Error(), start, false)
+		emitAudit(ctx, nil, nil, x, scope, params, audit.OutcomeError, txErr.Error(), start, false)
 		return nil, http.StatusInternalServerError, Errorf(http.StatusInternalServerError, "begin tx: %v", txErr)
 	}
 	x.Tx = tx
 	res, herr := r.Handler(ctx, x)
 	if herr != nil {
 		_ = tx.Rollback()
-		emitAudit(ctx, nil, x, scope, params, audit.OutcomeError, herr.Error(), start, false)
+		emitAudit(ctx, nil, nil, x, scope, params, audit.OutcomeError, herr.Error(), start, false)
 		return nil, errStatus(herr), herr
 	}
-	if aerr := emitAudit(ctx, tx, x, scope, params, audit.OutcomeOK, "", start, false); aerr != nil {
+	if aerr := emitAudit(ctx, sqlstore.New(r.Store.DB()), tx, x, scope, params, audit.OutcomeOK, "", start, false); aerr != nil {
 		_ = tx.Rollback()
 		slog.Error("resreg: audit emit failed; mutation rolled back",
 			"resource", r.Name, "action", x.Action, "err", aerr)
 		return nil, http.StatusInternalServerError, Errorf(http.StatusInternalServerError, "audit emit: %v", aerr)
 	}
 	if cerr := tx.Commit(); cerr != nil {
-		emitAudit(ctx, nil, x, scope, params, audit.OutcomeError, cerr.Error(), start, false)
+		emitAudit(ctx, nil, nil, x, scope, params, audit.OutcomeError, cerr.Error(), start, false)
 		return nil, http.StatusInternalServerError, Errorf(http.StatusInternalServerError, "commit: %v", cerr)
 	}
 	return res, 0, nil
@@ -657,13 +658,13 @@ func authCaller(c Caller) auth.Caller {
 // DB row entirely — the downstream daemon writes it. Returns the
 // EmitInTx error so the caller can roll back the mutation if audit
 // insert fails.
-func emitAudit(ctx context.Context, tx *sql.Tx, x Execution, scope string, params map[string]string, outcome, errMsg string, start time.Time, forwarder bool) error {
+func emitAudit(ctx context.Context, sink audit.TxSink, tx *sql.Tx, x Execution, scope string, params map[string]string, outcome, errMsg string, start time.Time, forwarder bool) error {
 	e := buildEvent(x, scope, params, outcome, errMsg, start)
 	slog.Info("resreg",
 		"caller", e.ActorSub, "resource", e.Resource, "action", e.Action,
 		"surface", e.Surface, "outcome", e.Outcome, "duration_ms", e.DurationMS)
 	if tx != nil {
-		return audit.EmitInTx(ctx, tx, e)
+		return audit.EmitInTx(ctx, sink, tx, e)
 	}
 	if forwarder {
 		return nil

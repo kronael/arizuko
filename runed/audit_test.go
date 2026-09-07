@@ -11,8 +11,8 @@ import (
 
 // auditServer is serverWith plus the KindHold executor — the exact wiring
 // runed/cmd/runed/main.go does, so the hold route is reachable over HTTP.
-// audit.Init is deliberately NOT called: the handlers emit through EmitDB on
-// runed's own handle, so a row landing here proves the write path, not the
+// audit.Init is deliberately NOT called: the handlers record through EmitTo on
+// runed's own store, so a row landing here proves the write path, not the
 // package-state one.
 func auditServer(t *testing.T, rt Runtime, v Verifier) (*DB, *Server) {
 	t.Helper()
@@ -29,38 +29,30 @@ func auditServer(t *testing.T, rt Runtime, v Verifier) (*DB, *Server) {
 	return db, NewServer(mgr, db, v)
 }
 
-// auditRow is one audit_log row, read back with the NULLable columns coalesced
-// so a test compares strings rather than sql.NullString.
-type auditRow struct {
-	Category, Action, Actor, ActorSub string
-	Resource, Surface, Outcome        string
-	Folder, Params, ErrorMsg          string
+// allAuditRows reads everything runed recorded, oldest first, through the method
+// /v1/audit answers with — the assertion is about what an operator can read
+// back, which is the only thing a stored row is for.
+func allAuditRows(t *testing.T, db *DB) []audit.Row {
+	t.Helper()
+	newest, err := audit.Query(t.Context(), db.Obj(), audit.Filter{Limit: audit.MaxLimit})
+	if err != nil {
+		t.Fatalf("read the audit trail: %v", err)
+	}
+	out := make([]audit.Row, 0, len(newest))
+	for i := len(newest) - 1; i >= 0; i-- {
+		out = append(out, newest[i])
+	}
+	return out
 }
 
-// auditRows reads every audit_log row for an action, oldest first. Reading
-// through raw SQL (not a Go helper) is deliberate: the assertion is about what
-// actually landed in the table.
-func auditRows(t *testing.T, db *DB, action string) []auditRow {
+// auditRows reads every recorded row for an action, oldest first.
+func auditRows(t *testing.T, db *DB, action string) []audit.Row {
 	t.Helper()
-	rows, err := db.SQL().Query(`SELECT category, action, actor,
-		COALESCE(actor_sub,''), COALESCE(resource,''), COALESCE(surface,''),
-		outcome, COALESCE(folder,''), COALESCE(params_summary,''),
-		COALESCE(error_msg,'') FROM audit_log WHERE action=? ORDER BY id`, action)
-	if err != nil {
-		t.Fatalf("query audit_log: %v", err)
-	}
-	defer rows.Close()
-	var out []auditRow
-	for rows.Next() {
-		var r auditRow
-		if err := rows.Scan(&r.Category, &r.Action, &r.Actor, &r.ActorSub,
-			&r.Resource, &r.Surface, &r.Outcome, &r.Folder, &r.Params, &r.ErrorMsg); err != nil {
-			t.Fatalf("scan audit_log: %v", err)
+	var out []audit.Row
+	for _, r := range allAuditRows(t, db) {
+		if r.Action == action {
+			out = append(out, r)
 		}
-		out = append(out, r)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate audit_log: %v", err)
 	}
 	return out
 }
@@ -68,23 +60,19 @@ func auditRows(t *testing.T, db *DB, action string) []auditRow {
 // oneRow asserts EXACTLY one row exists for an action and returns it. Every
 // content assertion goes through this: an empty table must fail the test
 // rather than vacuously satisfy "no row contains a secret".
-func oneRow(t *testing.T, db *DB, action string) auditRow {
+func oneRow(t *testing.T, db *DB, action string) audit.Row {
 	t.Helper()
 	got := auditRows(t, db, action)
 	if len(got) != 1 {
-		t.Fatalf("audit_log rows for action=%q: %d, want exactly 1 (%+v)", action, len(got), got)
+		t.Fatalf("recorded rows for action=%q: %d, want exactly 1 (%+v)", action, len(got), got)
 	}
 	return got[0]
 }
 
-// countAudit returns the total audit_log row count, whatever the action.
+// countAudit returns the total recorded row count, whatever the action.
 func countAudit(t *testing.T, db *DB) int {
 	t.Helper()
-	var n int
-	if err := db.SQL().QueryRow("SELECT COUNT(*) FROM audit_log").Scan(&n); err != nil {
-		t.Fatalf("count audit_log: %v", err)
-	}
-	return n
+	return len(allAuditRows(t, db))
 }
 
 // TestHoldEmitsAuditRow: POST /v1/holds records WHO paused the folder. The
@@ -120,8 +108,8 @@ func TestHoldEmitsAuditRow(t *testing.T) {
 	if row.Folder != "demo" || row.Surface != audit.SurfaceREST || row.Outcome != audit.OutcomeOK {
 		t.Errorf("folder=%q surface=%q outcome=%q want demo/rest/ok", row.Folder, row.Surface, row.Outcome)
 	}
-	if row.Params != `{"reason":"restore"}` {
-		t.Errorf("params_summary=%q want the hold reason", row.Params)
+	if row.ParamsSummary != `{"reason":"restore"}` {
+		t.Errorf("params_summary=%q want the hold reason", row.ParamsSummary)
 	}
 
 	// release so the detached hold goroutine exits before the DB closes.
@@ -169,8 +157,8 @@ func TestHoldBusyEmitsAuditRow(t *testing.T) {
 	if row.Actor != "service:backupd" || row.ActorSub != "backupd" {
 		t.Errorf("actor=%q actor_sub=%q want service:backupd/backupd", row.Actor, row.ActorSub)
 	}
-	if row.Params != `{"busy":true,"reason":"vacuum"}` {
-		t.Errorf("params_summary=%q want busy + the rejected reason", row.Params)
+	if row.ParamsSummary != `{"busy":true,"reason":"vacuum"}` {
+		t.Errorf("params_summary=%q want busy + the rejected reason", row.ParamsSummary)
 	}
 
 	req(t, h, "DELETE", "/v1/runs/"+held.RunID)
@@ -200,8 +188,8 @@ func TestKillEmitsAuditRow(t *testing.T) {
 	if row.Resource != "runs/run_k" || row.Folder != "demo" {
 		t.Errorf("resource=%q folder=%q want runs/run_k + demo", row.Resource, row.Folder)
 	}
-	if row.Params != `{"killed":true}` {
-		t.Errorf("params_summary=%q want killed:true", row.Params)
+	if row.ParamsSummary != `{"killed":true}` {
+		t.Errorf("params_summary=%q want killed:true", row.ParamsSummary)
 	}
 }
 
@@ -226,8 +214,8 @@ func TestKillOfTerminalRunEmitsAuditRow(t *testing.T) {
 	}
 
 	row := oneRow(t, db, "run.kill")
-	if row.Params != `{"killed":false}` {
-		t.Errorf("params_summary=%q want killed:false — nothing was live to stop", row.Params)
+	if row.ParamsSummary != `{"killed":false}` {
+		t.Errorf("params_summary=%q want killed:false — nothing was live to stop", row.ParamsSummary)
 	}
 	if row.Resource != "runs/run_done" || row.Outcome != audit.OutcomeOK {
 		t.Errorf("resource=%q outcome=%q want runs/run_done + ok", row.Resource, row.Outcome)
@@ -255,8 +243,8 @@ func TestStopIdleFolderEmitsAuditRow(t *testing.T) {
 	if row.Resource != "" {
 		t.Errorf("resource=%q want empty — no run was resolved", row.Resource)
 	}
-	if row.Params != `{"killed":false}` {
-		t.Errorf("params_summary=%q want killed:false", row.Params)
+	if row.ParamsSummary != `{"killed":false}` {
+		t.Errorf("params_summary=%q want killed:false", row.ParamsSummary)
 	}
 }
 

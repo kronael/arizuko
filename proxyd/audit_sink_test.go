@@ -34,7 +34,7 @@ func TestAuditSinkWritesRoutdDB(t *testing.T) {
 	}
 	defer stRoutd.Close()
 
-	audit.Init(stRoutd.DB(), "test")
+	audit.Init(stRoutd.Obj(), "test")
 	t.Cleanup(func() { audit.Init(nil, "") })
 
 	audit.Emit(context.Background(), audit.Event{
@@ -46,14 +46,18 @@ func TestAuditSinkWritesRoutdDB(t *testing.T) {
 		Outcome:  audit.OutcomeOK,
 	})
 
-	var n int
-	if err := stRoutd.DB().QueryRow(
-		`SELECT COUNT(*) FROM audit_log WHERE action='daemon.start' AND resource='daemons/proxyd'`,
-	).Scan(&n); err != nil {
-		t.Fatalf("read audit_log from routd.db: %v", err)
+	rows, err := audit.Query(context.Background(), stRoutd.Obj(), audit.Filter{})
+	if err != nil {
+		t.Fatalf("read the audit trail from routd.db: %v", err)
+	}
+	n := 0
+	for _, r := range rows {
+		if r.Action == "daemon.start" && r.Resource == "daemons/proxyd" {
+			n++
+		}
 	}
 	if n != 1 {
-		t.Fatalf("audit_log rows = %d, want 1 (proxyd's audit sink must write to routd.db)", n)
+		t.Fatalf("recorded rows = %d, want 1 (proxyd's audit sink must write to routd.db)", n)
 	}
 
 	// messages.db must never be created by this path — proxyd opens exactly

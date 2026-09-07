@@ -5,14 +5,17 @@
 package runed
 
 import (
+	"context"
 	"database/sql"
 	"embed"
 	"errors"
 	"fmt"
 	"time"
 
+	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
 )
@@ -86,6 +89,12 @@ func open(dsn string) (*DB, error) {
 		sqldb.Close()
 		return nil, err
 	}
+	// audit_log is an entity rather than a migration, so it is created by the
+	// driver here.
+	if err := audit.EnsureEntities(context.Background(), sqlstore.New(sqldb)); err != nil {
+		sqldb.Close()
+		return nil, err
+	}
 	return &DB{db: sqldb}, nil
 }
 
@@ -95,6 +104,10 @@ func (d *DB) Close() error {
 	}
 	return d.db.Close()
 }
+
+// Obj is this database through objstore's two primitives, which is how audit
+// reaches it.
+func (d *DB) Obj() *sqlstore.Store { return sqlstore.New(d.db) }
 
 // SQL returns the raw handle for callers that need it (tests).
 func (d *DB) SQL() *sql.DB { return d.db }

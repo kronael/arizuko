@@ -1,13 +1,20 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"embed"
 
+	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/db_utils"
+	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
 )
+
+// newObjectStore is onbod's driver choice, in one place: sqlstore serves both
+// SQLite and Postgres off the DSN db_utils.Open already read.
+func newObjectStore(db *sql.DB) *sqlstore.Store { return sqlstore.New(db) }
 
 //go:embed migrations/*.sql
 var onbodMigrationFS embed.FS
@@ -49,6 +56,12 @@ func openOwnedDB(ownDSN string) (*sql.DB, error) {
 // declaration of it, rather than a second one that drifts.
 func migrateOwned(db *sql.DB) error {
 	if err := db_utils.Migrate(db, onbodMigrationFS, "migrations", onbodServiceName); err != nil {
+		return err
+	}
+	// audit_log is an entity rather than a migration, so it is created by the
+	// driver here — the invite and gate writers record inside their own
+	// transactions against this file.
+	if err := audit.EnsureEntities(context.Background(), newObjectStore(db)); err != nil {
 		return err
 	}
 	if err := store.BackfillInviteRefs(db); err != nil {

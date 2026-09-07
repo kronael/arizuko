@@ -45,7 +45,7 @@ func (s *Store) AddACLRow(row core.ACLRow) error {
 	if s.auditSub == "" && row.GrantedBy != "" {
 		actor, actorSub = row.GrantedBy, row.GrantedBy
 	}
-	if err := audit.EmitInTx(ctx, tx, audit.Event{
+	if err := audit.EmitInTx(ctx, s.Obj(), tx, audit.Event{
 		Category: audit.CategoryAuthZ,
 		Action:   "acl.add",
 		Actor:    actor,
@@ -91,7 +91,7 @@ func (s *Store) RemoveACLRow(row core.ACLRow) error {
 		return err
 	}
 	actor, actorSub, surface := s.auditIdentity()
-	if err := audit.EmitInTx(ctx, tx, audit.Event{
+	if err := audit.EmitInTx(ctx, s.Obj(), tx, audit.Event{
 		Category: audit.CategoryAuthZ,
 		Action:   "acl.remove",
 		Actor:    actor,

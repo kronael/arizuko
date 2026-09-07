@@ -72,7 +72,7 @@ func main() {
 
 	// audit_log lives in routd.db (its owner, routd migration 0016) — not the
 	// frozen messages.db.
-	audit.Init(stRoutd.DB(), os.Getenv("ARIZUKO_INSTANCE"))
+	audit.Init(stRoutd.Obj(), os.Getenv("ARIZUKO_INSTANCE"))
 	audit.Emit(context.Background(), audit.Event{
 		Category: audit.CategorySystem,
 		Action:   "daemon.start",

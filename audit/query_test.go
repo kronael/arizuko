@@ -2,8 +2,9 @@ package audit
 
 import (
 	"context"
-	"database/sql"
 	"testing"
+
+	"github.com/kronael/arizuko/objstore/sqlstore"
 )
 
 // Query is the read side of the compliance record: dashd's audit page, the
@@ -12,13 +13,13 @@ import (
 // another tenant's folder appearing here is a cross-tenant disclosure of who
 // did what, where.
 
-func seed(t *testing.T, db *sql.DB, rows ...Event) []int64 {
+func seed(t *testing.T, s *sqlstore.Store, rows ...Event) []string {
 	t.Helper()
-	var ids []int64
+	var ids []string
 	for _, e := range rows {
-		id, err := EmitDB(context.Background(), db, e)
+		id, err := EmitTo(context.Background(), s, e)
 		if err != nil {
-			t.Fatalf("EmitDB: %v", err)
+			t.Fatalf("EmitTo: %v", err)
 		}
 		ids = append(ids, id)
 	}
@@ -51,8 +52,8 @@ func has(rows []Row, folder string) bool {
 // sibling whose name merely starts with the same characters is a different
 // tenant.
 func TestQueryFolderFilterIsSubtreeContainment(t *testing.T) {
-	db := openTestDB(t)
-	seed(t, db,
+	s := openTestDB(t)
+	seed(t, s,
 		Event{Category: "mcp", Action: "a", Actor: "x", Folder: "acme"},
 		Event{Category: "mcp", Action: "b", Actor: "x", Folder: "acme/eng"},
 		Event{Category: "mcp", Action: "c", Actor: "x", Folder: "acme/eng/sre"},
@@ -62,7 +63,7 @@ func TestQueryFolderFilterIsSubtreeContainment(t *testing.T) {
 		Event{Category: "mcp", Action: "g", Actor: "x"}, // instance scope, folder NULL
 	)
 
-	got, err := Query(context.Background(), db, Filter{Folder: "acme"})
+	got, err := Query(context.Background(), s, Filter{Folder: "acme"})
 	if err != nil {
 		t.Fatalf("Query: %v", err)
 	}
@@ -81,7 +82,7 @@ func TestQueryFolderFilterIsSubtreeContainment(t *testing.T) {
 	}
 
 	// A deeper filter narrows further and never widens.
-	got, err = Query(context.Background(), db, Filter{Folder: "acme/eng"})
+	got, err = Query(context.Background(), s, Filter{Folder: "acme/eng"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,12 +94,12 @@ func TestQueryFolderFilterIsSubtreeContainment(t *testing.T) {
 // An instance-scope row has folder NULL. Surfacing it to a tenant because the
 // column is NULL is the same leak in the other direction.
 func TestQueryFolderFilterExcludesInstanceScopeRows(t *testing.T) {
-	db := openTestDB(t)
-	seed(t, db,
+	s := openTestDB(t)
+	seed(t, s,
 		Event{Category: "cli", Action: "restart", Actor: "root"},
 		Event{Category: "mcp", Action: "reply", Actor: "agent", Folder: "acme"},
 	)
-	got, err := Query(context.Background(), db, Filter{Folder: "acme"})
+	got, err := Query(context.Background(), s, Filter{Folder: "acme"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +108,7 @@ func TestQueryFolderFilterExcludesInstanceScopeRows(t *testing.T) {
 	}
 
 	// With no folder filter the operator sees everything, including those rows.
-	all, err := Query(context.Background(), db, Filter{})
+	all, err := Query(context.Background(), s, Filter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,8 +126,8 @@ func TestQueryFolderFilterExcludesInstanceScopeRows(t *testing.T) {
 // Skipped rather than deleted: the entry is open and this is the assertion its
 // fix has to satisfy. Un-skip with the fix.
 func TestQueryFolderFilterIsNotWidenedByLikeMetacharacters(t *testing.T) {
-	db := openTestDB(t)
-	seed(t, db,
+	s := openTestDB(t)
+	seed(t, s,
 		Event{Category: "mcp", Action: "a", Actor: "x", Folder: "a_b/one"},
 		Event{Category: "mcp", Action: "b", Actor: "x", Folder: "aXb/two"},
 		Event{Category: "mcp", Action: "c", Actor: "x", Folder: "coach/k"},
@@ -135,7 +136,7 @@ func TestQueryFolderFilterIsNotWidenedByLikeMetacharacters(t *testing.T) {
 	)
 	ctx := context.Background()
 
-	got, err := Query(ctx, db, Filter{Folder: "a_b"})
+	got, err := Query(ctx, s, Filter{Folder: "a_b"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +148,7 @@ func TestQueryFolderFilterIsNotWidenedByLikeMetacharacters(t *testing.T) {
 	}
 
 	// `%` is legal in a folder name and matches everything under LIKE.
-	got, err = Query(ctx, db, Filter{Folder: "%"})
+	got, err = Query(ctx, s, Filter{Folder: "%"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +157,7 @@ func TestQueryFolderFilterIsNotWidenedByLikeMetacharacters(t *testing.T) {
 	}
 
 	// A live instance has carried a Coach/coach pair; LIKE is case-insensitive.
-	got, err = Query(ctx, db, Filter{Folder: "coach"})
+	got, err = Query(ctx, s, Filter{Folder: "coach"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,15 +167,15 @@ func TestQueryFolderFilterIsNotWidenedByLikeMetacharacters(t *testing.T) {
 }
 
 func TestQueryFiltersByCategoryAndActor(t *testing.T) {
-	db := openTestDB(t)
-	seed(t, db,
+	s := openTestDB(t)
+	seed(t, s,
 		Event{Category: "mcp", Action: "reply", Actor: "user:alice", Folder: "f"},
 		Event{Category: "cli", Action: "group-add", Actor: "user:alice", Folder: "f"},
 		Event{Category: "mcp", Action: "reply", Actor: "user:bob", Folder: "f"},
 	)
 	ctx := context.Background()
 
-	got, err := Query(ctx, db, Filter{Category: "mcp"})
+	got, err := Query(ctx, s, Filter{Category: "mcp"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +189,7 @@ func TestQueryFiltersByCategoryAndActor(t *testing.T) {
 	}
 
 	// Actor is a substring search — an operator types a name, not a full sub.
-	got, err = Query(ctx, db, Filter{Actor: "alice"})
+	got, err = Query(ctx, s, Filter{Actor: "alice"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +198,7 @@ func TestQueryFiltersByCategoryAndActor(t *testing.T) {
 	}
 
 	// The filters combine rather than replace one another.
-	got, err = Query(ctx, db, Filter{Category: "mcp", Actor: "alice"})
+	got, err = Query(ctx, s, Filter{Category: "mcp", Actor: "alice"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,8 +212,8 @@ func TestQueryFiltersByCategoryAndActor(t *testing.T) {
 // created_at has millisecond resolution, so several rows in one insert burst
 // share it and a created_at cursor would skip or repeat them.
 func TestQueryOrdersNewestFirstAndPagesOnID(t *testing.T) {
-	db := openTestDB(t)
-	ids := seed(t, db,
+	s := openTestDB(t)
+	ids := seed(t, s,
 		Event{Category: "mcp", Action: "1", Actor: "x"},
 		Event{Category: "mcp", Action: "2", Actor: "x"},
 		Event{Category: "mcp", Action: "3", Actor: "x"},
@@ -221,7 +222,7 @@ func TestQueryOrdersNewestFirstAndPagesOnID(t *testing.T) {
 	)
 	ctx := context.Background()
 
-	page1, err := Query(ctx, db, Filter{Limit: 2})
+	page1, err := Query(ctx, s, Filter{Limit: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +230,7 @@ func TestQueryOrdersNewestFirstAndPagesOnID(t *testing.T) {
 		t.Fatalf("page 1 = %v, want the two newest ids descending", idsOf(page1))
 	}
 
-	page2, err := Query(ctx, db, Filter{Limit: 2, BeforeID: page1[1].ID})
+	page2, err := Query(ctx, s, Filter{Limit: 2, Before: page1[1].ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,17 +239,17 @@ func TestQueryOrdersNewestFirstAndPagesOnID(t *testing.T) {
 	}
 
 	// No row appears on two pages, and none is skipped.
-	seen := map[int64]bool{}
+	seen := map[string]bool{}
 	for _, r := range append(page1, page2...) {
 		if seen[r.ID] {
-			t.Errorf("row %d appeared on two pages", r.ID)
+			t.Errorf("row %s appeared on two pages", r.ID)
 		}
 		seen[r.ID] = true
 	}
 }
 
-func idsOf(rows []Row) []int64 {
-	out := make([]int64, len(rows))
+func idsOf(rows []Row) []string {
+	out := make([]string, len(rows))
 	for i, r := range rows {
 		out[i] = r.ID
 	}
@@ -259,9 +260,9 @@ func idsOf(rows []Row) []int64 {
 // — an unbounded audit query on a live instance reads the whole table into
 // memory.
 func TestQueryClampsTheLimit(t *testing.T) {
-	db := openTestDB(t)
+	s := openTestDB(t)
 	for i := 0; i < DefaultLimit+5; i++ {
-		seed(t, db, Event{Category: "mcp", Action: "x", Actor: "x"})
+		seed(t, s, Event{Category: "mcp", Action: "x", Actor: "x"})
 	}
 	ctx := context.Background()
 
@@ -269,7 +270,7 @@ func TestQueryClampsTheLimit(t *testing.T) {
 		"zero":     {Limit: 0},
 		"negative": {Limit: -1},
 	} {
-		got, err := Query(ctx, db, f)
+		got, err := Query(ctx, s, f)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -278,7 +279,7 @@ func TestQueryClampsTheLimit(t *testing.T) {
 		}
 	}
 
-	got, err := Query(ctx, db, Filter{Limit: MaxLimit + 1000})
+	got, err := Query(ctx, s, Filter{Limit: MaxLimit + 1000})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,8 +289,8 @@ func TestQueryClampsTheLimit(t *testing.T) {
 }
 
 func TestQueryReturnsAnEmptySliceNotNil(t *testing.T) {
-	db := openTestDB(t)
-	got, err := Query(context.Background(), db, Filter{Folder: "nobody"})
+	s := openTestDB(t)
+	got, err := Query(context.Background(), s, Filter{Folder: "nobody"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -301,47 +302,53 @@ func TestQueryReturnsAnEmptySliceNotNil(t *testing.T) {
 	}
 }
 
-// EmitDB is the no-package-state writer daemons with their own handle use. It
-// must never write through a nil handle silently: an audit call that logs
+// EmitTo is the no-package-state writer daemons with their own store use. It
+// must never write through a nil store silently: an audit call that records
 // nothing and reports success is a hole in the record.
-func TestEmitDBRefusesANilHandle(t *testing.T) {
-	if _, err := EmitDB(context.Background(), nil, Event{Category: "mcp", Action: "x", Actor: "y"}); err == nil {
-		t.Fatal("EmitDB(nil) reported success; the event vanished")
+func TestEmitToRefusesANilStore(t *testing.T) {
+	if _, err := EmitTo(context.Background(), nil, Event{Category: "mcp", Action: "x", Actor: "y"}); err == nil {
+		t.Fatal("EmitTo(nil) reported success; the event vanished")
 	}
 }
 
 // The instance stamp comes from package state when the event does not carry
 // one, so a row written by a daemon that called Init is attributable without
 // every call site repeating it. An explicit instance always wins.
-func TestEmitDBStampsTheInstance(t *testing.T) {
-	db := openTestDB(t)
+func TestEmitToStampsTheInstance(t *testing.T) {
+	s := openTestDB(t)
 	resetInit(t)
 	logMu.Lock()
 	logInstance = "krons"
 	logMu.Unlock()
 
-	id, err := EmitDB(context.Background(), db, Event{Category: "mcp", Action: "x", Actor: "y"})
-	if err != nil {
+	if _, err := EmitTo(context.Background(), s, Event{Category: "mcp", Action: "x", Actor: "y"}); err != nil {
 		t.Fatal(err)
 	}
-	var inst sql.NullString
-	if err := db.QueryRow("SELECT instance FROM audit_log WHERE id = ?", id).Scan(&inst); err != nil {
-		t.Fatal(err)
-	}
-	if inst.String != "krons" {
-		t.Errorf("instance = %q, want the package's", inst.String)
+	if got := instanceOf(t, s); got != "krons" {
+		t.Errorf("instance = %q, want the package's", got)
 	}
 
-	id, err = EmitDB(context.Background(), db, Event{Category: "mcp", Action: "x", Actor: "y", Instance: "sloth"})
+	own := openTestDB(t)
+	if _, err := EmitTo(context.Background(), own,
+		Event{Category: "mcp", Action: "x", Actor: "y", Instance: "sloth"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := instanceOf(t, own); got != "sloth" {
+		t.Errorf("instance = %q, want the event's own", got)
+	}
+}
+
+// instanceOf reads the instance off the one row a store holds.
+func instanceOf(t *testing.T, s *sqlstore.Store) string {
+	t.Helper()
+	rows, err := Query(context.Background(), s, Filter{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.QueryRow("SELECT instance FROM audit_log WHERE id = ?", id).Scan(&inst); err != nil {
-		t.Fatal(err)
+	if len(rows) != 1 {
+		t.Fatalf("the store holds %d rows, want 1", len(rows))
 	}
-	if inst.String != "sloth" {
-		t.Errorf("instance = %q, want the event's own", inst.String)
-	}
+	return rows[0].Instance
 }
 
 // LoadConfig

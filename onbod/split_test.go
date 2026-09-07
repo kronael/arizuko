@@ -233,24 +233,20 @@ func TestSplitInviteGrantAudited(t *testing.T) {
 		t.Fatalf("want 303, got %d; body: %s", w.Code, w.Body.String())
 	}
 
-	var actor, folder string
-	if err := xdb.QueryRow(
-		`SELECT COALESCE(actor, ''), COALESCE(folder, '') FROM audit_log
-		 WHERE action = 'acl.add' ORDER BY id DESC LIMIT 1`).Scan(&actor, &folder); err != nil {
-		t.Fatalf("invite grant left no acl.add row in routd.db: %v", err)
+	granted := auditRowsFor(t, xdb, "acl.add")
+	if len(granted) == 0 {
+		t.Fatal("invite grant left no acl.add row in routd.db")
 	}
 	// GrantedBy stands in as the actor for callers that never set AsUser.
-	if actor != "invite" {
-		t.Errorf("acl.add actor = %q, want invite", actor)
+	if granted[0].Actor != "invite" {
+		t.Errorf("acl.add actor = %q, want invite", granted[0].Actor)
 	}
-	if folder != "alice" {
-		t.Errorf("acl.add folder = %q, want alice", folder)
+	if granted[0].Folder != "alice" {
+		t.Errorf("acl.add folder = %q, want alice", granted[0].Folder)
 	}
 
 	// The audit row belongs with the grant, in routd.db — not onbod.db.
-	var inOnbod int
-	obdb.QueryRow(`SELECT COUNT(*) FROM audit_log WHERE action = 'acl.add'`).Scan(&inOnbod)
-	if inOnbod != 0 {
-		t.Errorf("acl.add audit row landed in onbod.db (%d rows); want it in routd.db", inOnbod)
+	if inOnbod := auditRowsFor(t, obdb, "acl.add"); len(inOnbod) != 0 {
+		t.Errorf("acl.add audit row landed in onbod.db (%d rows); want it in routd.db", len(inOnbod))
 	}
 }

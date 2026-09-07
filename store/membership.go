@@ -66,7 +66,7 @@ func (s *Store) AddMembership(child, parent, addedBy string) error {
 	if s.auditSub == "" && addedBy != "" {
 		actor, actorSub = addedBy, addedBy
 	}
-	if err := audit.EmitInTx(context.Background(), tx, audit.Event{
+	if err := audit.EmitInTx(context.Background(), s.Obj(), tx, audit.Event{
 		Category: audit.CategoryAuthZ,
 		Action:   "membership.add",
 		Actor:    actor,

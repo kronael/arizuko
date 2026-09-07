@@ -972,7 +972,7 @@ func main() {
 	// FS-mounted but owns no DB of its own, so it writes into the owner DB via
 	// the same stRoutd handle used for routing + auth (no proxyd.db, no
 	// messages.db straddle — BUGS.md Y1, split write-discipline).
-	audit.Init(stRoutd.DB(), coreCfg.Name)
+	audit.Init(stRoutd.Obj(), coreCfg.Name)
 	audit.Emit(context.Background(), audit.Event{
 		Category: audit.CategorySystem,
 		Action:   "daemon.start",
