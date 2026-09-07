@@ -8,7 +8,7 @@ import (
 // Message actions (spec 5/Z) mutate an already-delivered platform message and
 // append no messages row, so until now a delete or an edit left no trace
 // anywhere — the spec claimed an audit category `social` that has never existed
-// (the enum in audit/log.go is closed and has no such member) and no handler
+// (the enum in audit/event.go is closed and has no such member) and no handler
 // emitted anything at all.
 //
 // The agent drives these over the MCP socket (routd/mcp.go buildGatedFns).

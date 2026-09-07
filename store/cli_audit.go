@@ -11,7 +11,7 @@ import (
 // caller before passing in. Spec 5/I + audit/PLAN.md.
 //
 // The legacy cli_audit table is not written to; existing rows remain
-// for backfill. New callers should prefer audit.Emit / audit.EmitDB
+// for backfill. New callers should prefer audit.Emit / audit.EmitTo
 // for richer Event fields (turn_id, source_ip, ...).
 func (s *Store) LogCLIAudit(osUser, command, args string) error {
 	_, err := audit.EmitTo(context.Background(), s.Obj(), audit.Event{

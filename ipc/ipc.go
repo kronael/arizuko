@@ -277,10 +277,10 @@ type StoreFns struct {
 	// call was suspended.
 	CheckHold func(tool string, args map[string]any) (id string, held bool)
 
-	// LogIPCAudit persists one audit_log row (surface=mcp, action=mcp.tool.invoke)
-	// via audit.EmitDB — the name is legacy, the destination is not. The ipc_audit
-	// table is retired and unwritten; a comment claiming otherwise cost a review
-	// (BUGS F34). Nil = no-op.
+	// LogIPCAudit records one audit_log row (surface=mcp, action=mcp.tool.invoke)
+	// through audit.EmitTo — the name is legacy, the destination is not. The
+	// ipc_audit table is retired and unwritten; a comment claiming otherwise cost
+	// a review (BUGS F34). Nil = no-op.
 	LogIPCAudit func(folder, sub, tool, params, outcome string) error
 }
 

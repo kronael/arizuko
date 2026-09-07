@@ -11,7 +11,7 @@ package routd
 // FORWARDER, not tx-backed (Store nil). Every other cold-tier fold sets Store
 // non-nil so resreg opens the mutation+audit tx. secrets does NOT, for one
 // reason: resreg.invoke copies ALL call args into the audit_log params_summary,
-// and the audit redaction regex (audit/log.go) matches `key`/`token`/`secret`
+// and the audit redaction regex (audit/event.go) matches `key`/`token`/`secret`
 // but NOT a bare `value` — so routing the write through resreg's own audit would
 // write the plaintext secret into audit_log on every path (success, deny, error).
 // As a forwarder resreg writes no audit row and opens no tx; the handler calls

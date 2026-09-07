@@ -1,11 +1,14 @@
 package authstore_test
 
-// The storage layer's own bodies. authd's tests exercise it through the daemon,
-// but the daemon carries audit_log, which is SQLite-only (audit.ErrNotPortable),
-// so these are the ones that run on WHATEVER engine ARIZUKO_TEST_PG_DSN names:
+// The storage layer's own bodies, run against WHATEVER engine
+// ARIZUKO_TEST_PG_DSN names:
 //
 //	go test ./authd/authstore/...                                   # SQLite
 //	ARIZUKO_TEST_PG_DSN=postgres://… go test ./authd/authstore/...  # Postgres
+//
+// The whole daemon runs on both too — authd holds no SQL and neither does the
+// audit trail it records into — so these are the layer's own invariants rather
+// than the only thing a second engine reaches.
 //
 // They are about the invariants, not the coverage. A refresh token redeemed
 // exactly once, a family whose death reaches everything it minted, and one

@@ -39,14 +39,13 @@ func turnPrincipal(folder string) string { return "folder:" + folder }
 // answer "what changed in my config". `agent` is the per-turn band (container
 // lifecycle, turn boundaries, state-changing tool calls), which is what these
 // are and where per-turn volume already lives. There is no `social` category
-// and this does not add one: the enum is closed (audit/log.go).
+// and this does not add one: the enum is closed (audit/event.go).
 //
-// Emit, not EmitInTx: the mutation lands on a REMOTE platform, so no local
-// transaction exists for the row to ride (audit/log.go — "Non-transactional
-// emitters ... call Emit"). EmitDB rather than Emit so the insert goes to
-// routd's own handle and does not depend on audit.Init's package state.
+// EmitTo, not EmitInTx: the mutation lands on a REMOTE platform, so no local
+// transaction exists for the row to ride. EmitTo rather than Emit so the write
+// goes to routd's own store and does not depend on audit.Init's package state.
 //
-// A failed insert is logged, not returned: the platform message is already
+// A failed write is logged, not returned: the platform message is already
 // changed, and answering 500 would make the agent retry and mutate it twice.
 func (s *Server) auditSocial(action, folder, turnID, jid, targetID, surface string, params map[string]any, err error) {
 	if s.deliver == nil {

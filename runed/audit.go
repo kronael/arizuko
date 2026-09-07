@@ -41,11 +41,11 @@ const (
 // Category `agent`, not `mutation`: PLAN.md scopes `mutation` to CRUD on a registry
 // resource, and a run slot is the per-turn execution band.
 //
-// EmitDB, not EmitInTx: Manager.Kill's mutation lands on the docker daemon and
-// Manager.Hold's detaches into a goroutine, so neither opens a *sql.Tx for the row to
-// ride. EmitDB rather than Emit so the insert goes to runed's own handle. A failed
-// insert is logged, not returned — answering 500 would make the caller retry a
-// non-idempotent act.
+// EmitTo, not EmitInTx: Manager.Kill's mutation lands on the docker daemon and
+// Manager.Hold's detaches into a goroutine, so neither opens a transaction for the
+// row to ride. EmitTo rather than Emit so the write goes to runed's own store. A
+// failed write is logged, not returned — answering 500 would make the caller retry
+// a non-idempotent act.
 func (s *Server) auditRunSlot(ctx context.Context, sub, action, folder, runID string, params map[string]any, err error) {
 	actor, actorSub := auditActor(sub)
 	resource := ""
