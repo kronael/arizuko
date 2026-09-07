@@ -1,19 +1,16 @@
-package auth
+package auth_test
 
 import (
 	"testing"
 
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/store"
 )
 
 func scopesEnv(t *testing.T, rows ...core.ACLRow) *store.Store {
 	t.Helper()
-	s, err := store.OpenMem()
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
-	t.Cleanup(func() { s.Close() })
+	s := openMem(t)
 	for _, r := range rows {
 		if err := s.AddACLRow(r); err != nil {
 			t.Fatalf("seed %+v: %v", r, err)
@@ -35,12 +32,12 @@ func eqScopes(t *testing.T, got []string, want ...string) {
 }
 
 func TestUserScopesNoRows(t *testing.T) {
-	eqScopes(t, mustScopes(UserScopes(scopesEnv(t), "nobody")))
+	eqScopes(t, mustScopes(auth.UserScopes(scopesEnv(t), "nobody")))
 }
 
 func TestUserScopesEmptyInputs(t *testing.T) {
-	eqScopes(t, mustScopes(UserScopes(scopesEnv(t), "")))
-	eqScopes(t, mustScopes(UserScopes(nil, "somebody")))
+	eqScopes(t, mustScopes(auth.UserScopes(scopesEnv(t), "")))
+	eqScopes(t, mustScopes(auth.UserScopes(nil, "somebody")))
 }
 
 func TestUserScopesSpecificFolders(t *testing.T) {
@@ -49,7 +46,7 @@ func TestUserScopesSpecificFolders(t *testing.T) {
 		core.ACLRow{Principal: "u1", Action: "admin", Scope: "alpha", Effect: "allow"},
 	)
 	s.CreateAuthUser("u1", "u1", "User One")
-	eqScopes(t, mustScopes(UserScopes(s, "u1")), "alpha", "beta")
+	eqScopes(t, mustScopes(auth.UserScopes(s, "u1")), "alpha", "beta")
 }
 
 func TestUserScopesOperatorViaMembership(t *testing.T) {
@@ -60,7 +57,7 @@ func TestUserScopesOperatorViaMembership(t *testing.T) {
 	if err := s.AddMembership("op", "role:operator", "test"); err != nil {
 		t.Fatal(err)
 	}
-	eqScopes(t, mustScopes(UserScopes(s, "op")), "**")
+	eqScopes(t, mustScopes(auth.UserScopes(s, "op")), "**")
 }
 
 // The bug that came with the raw `principal IN (...)` query in store/: a
@@ -71,14 +68,14 @@ func TestUserScopesIncludesWildcardPrincipalGrants(t *testing.T) {
 	s := scopesEnv(t,
 		core.ACLRow{Principal: "google:*", Action: "admin", Scope: "atlas", Effect: "allow"},
 	)
-	eqScopes(t, mustScopes(UserScopes(s, "google:114")), "atlas")
+	eqScopes(t, mustScopes(auth.UserScopes(s, "google:114")), "atlas")
 
 	// Authorize agrees — that is the point of reading one row set.
-	if !Authorize(s, Caller{Principal: "google:114"}, "admin", "atlas", nil) {
+	if !auth.Authorize(s, auth.Caller{Principal: "google:114"}, "admin", "atlas", nil) {
 		t.Error("Authorize must honour the same wildcard-principal row")
 	}
 	// The glob is segment-wise on ':', so another namespace gets nothing.
-	eqScopes(t, mustScopes(UserScopes(s, "github:114")))
+	eqScopes(t, mustScopes(auth.UserScopes(s, "github:114")))
 }
 
 func TestUserScopesExcludesDenyOnlyRows(t *testing.T) {
@@ -86,7 +83,7 @@ func TestUserScopesExcludesDenyOnlyRows(t *testing.T) {
 		core.ACLRow{Principal: "u1", Action: "admin", Scope: "alpha", Effect: "allow"},
 		core.ACLRow{Principal: "u1", Action: "admin", Scope: "blocked", Effect: "deny"},
 	)
-	eqScopes(t, mustScopes(UserScopes(s, "u1")), "alpha")
+	eqScopes(t, mustScopes(auth.UserScopes(s, "u1")), "alpha")
 }
 
 // A []string cannot carry a deny, so a scope with BOTH an allow and a deny row
@@ -98,8 +95,8 @@ func TestUserScopesCannotRepresentDenyAndSoCannotGate(t *testing.T) {
 		core.ACLRow{Principal: "u1", Action: "*", Scope: "alpha", Effect: "allow"},
 		core.ACLRow{Principal: "u1", Action: "admin", Scope: "alpha", Effect: "deny"},
 	)
-	eqScopes(t, mustScopes(UserScopes(s, "u1")), "alpha")
-	if Authorize(s, Caller{Principal: "u1"}, "admin", "alpha", nil) {
+	eqScopes(t, mustScopes(auth.UserScopes(s, "u1")), "alpha")
+	if auth.Authorize(s, auth.Caller{Principal: "u1"}, "admin", "alpha", nil) {
 		t.Error("deny must win at the gate even though the scope still lists")
 	}
 }
@@ -109,8 +106,8 @@ func TestUserScopesIgnoresActionSoTheGateMustNot(t *testing.T) {
 	s := scopesEnv(t,
 		core.ACLRow{Principal: "u1", Action: "mcp:reply", Scope: "alpha", Effect: "allow"},
 	)
-	eqScopes(t, mustScopes(UserScopes(s, "u1")), "alpha")
-	if Authorize(s, Caller{Principal: "u1"}, "admin", "alpha", nil) {
+	eqScopes(t, mustScopes(auth.UserScopes(s, "u1")), "alpha")
+	if auth.Authorize(s, auth.Caller{Principal: "u1"}, "admin", "alpha", nil) {
 		t.Error("mcp:reply must not authorize admin")
 	}
 }
@@ -125,7 +122,7 @@ func TestUserScopesFailsClosedOnBrokenTable(t *testing.T) {
 	if _, err := s.DB().Exec(`DROP TABLE acl`); err != nil {
 		t.Fatalf("drop acl: %v", err)
 	}
-	got, err := UserScopes(s, "google:alice")
+	got, err := auth.UserScopes(s, "google:alice")
 	if err == nil {
 		t.Error("a broken acl table must surface an error, not an empty scope list")
 	}
@@ -140,16 +137,16 @@ func TestAuthorizeDeniesOnBrokenTable(t *testing.T) {
 	s := scopesEnv(t, core.ACLRow{
 		Principal: "u1", Action: "*", Scope: "**", Effect: "allow",
 	})
-	if !Authorize(s, Caller{Principal: "u1"}, "admin", "alpha", nil) {
+	if !auth.Authorize(s, auth.Caller{Principal: "u1"}, "admin", "alpha", nil) {
 		t.Fatal("fixture is vacuous: the grant does not authorize before the drop")
 	}
 	if _, err := s.DB().Exec(`DROP TABLE acl`); err != nil {
 		t.Fatalf("drop acl: %v", err)
 	}
-	if Authorize(s, Caller{Principal: "u1"}, "admin", "alpha", nil) {
+	if auth.Authorize(s, auth.Caller{Principal: "u1"}, "admin", "alpha", nil) {
 		t.Error("Authorize allowed with an unreadable policy")
 	}
-	if EffectiveActions(s, Caller{Principal: "u1"})("mcp:reply") {
+	if auth.EffectiveActions(s, auth.Caller{Principal: "u1"})("mcp:reply") {
 		t.Error("EffectiveActions advertised a tool with an unreadable policy")
 	}
 }
@@ -162,13 +159,13 @@ func TestDelegateRefusesOnBrokenTable(t *testing.T) {
 		Principal: "u1", Action: "*", Scope: "**", Effect: "allow", GrantOption: true,
 	})
 	want := []core.ACLRow{{Principal: "u2", Action: "mcp:reply", Scope: "alpha", Effect: "allow"}}
-	if err := Delegate(s, "u1", want); err != nil {
+	if err := auth.Delegate(s, "u1", want); err != nil {
 		t.Fatalf("fixture is vacuous: delegation already refused before the drop: %v", err)
 	}
 	if _, err := s.DB().Exec(`DROP TABLE acl`); err != nil {
 		t.Fatalf("drop acl: %v", err)
 	}
-	if err := Delegate(s, "u1", want); err == nil {
+	if err := auth.Delegate(s, "u1", want); err == nil {
 		t.Error("Delegate allowed a grant with an unreadable policy")
 	}
 }
