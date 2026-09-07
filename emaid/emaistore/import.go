@@ -1,4 +1,4 @@
-package mailstore
+package emaistore
 
 // import.go writes a whole emaid.db into the entities this package reads. It is
 // the destination half of the one-way data move (spec 6/37 step 7); the source

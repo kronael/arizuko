@@ -25,7 +25,7 @@ stay thin — `main.go` calls `chanlib.Run` with a `Start` hook.
 - `OpenAdapterDB(dataDir, service) (*sql.DB, *chanstore.Store)` — opens
   `<dataDir>/<service>.db` and prepares chanlib's entities. The ONE door: the
   store is what the mux and `RetainInbound` take, the pool is the engine handle
-  the adapter closes and emaid adds `mailstore`'s entities to.
+  the adapter closes and emaid adds `emaistore`'s entities to.
 - `PendingInboundCount(ctx, st)` — undelivered inbound backlog; `/health` reports it
 - `NewAdapterMux(name, prefixes, bot, isConnected, lastInboundAt, st) *http.ServeMux`
   — standard handler tree: `/send`, `/send-file`, `/send-voice`,

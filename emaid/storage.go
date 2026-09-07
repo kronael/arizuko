@@ -2,13 +2,13 @@ package main
 
 // storage.go is where emaid picks its storage driver and makes sure the store
 // can answer. It is the composition root and the only file in the adapter that
-// names a driver: mailstore holds the interface, so a second engine is a second
+// names a driver: emaistore holds the interface, so a second engine is a second
 // driver and one line here (spec 6/37 step 5).
 //
 // There is no migration set and no DDL of emaid's own. An entity is a name the
 // driver resolves however it must — a table on SQL, nothing at all on an engine
 // with no schema — so preparing the storage is asking the driver for the
-// entities mailstore declares, and asking twice is a no-op.
+// entities emaistore declares, and asking twice is a no-op.
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/chanlib/chanstore"
-	"github.com/kronael/arizuko/emaid/mailstore"
+	"github.com/kronael/arizuko/emaid/emaistore"
 	"github.com/kronael/arizuko/objstore/sqlstore"
 	_ "modernc.org/sqlite"
 )
@@ -33,19 +33,19 @@ import (
 // for the one daemon that needs the pool, and two openers drift.
 //
 // It hands back all three halves because emaid needs all three: the pool to
-// close, chanlib's store for the adapter mux's outbound dedup, and mailstore's
+// close, chanlib's store for the adapter mux's outbound dedup, and emaistore's
 // for emaid's own threading.
-func openStorage(dataDir string) (*sql.DB, *chanstore.Store, *mailstore.Store, error) {
+func openStorage(dataDir string) (*sql.DB, *chanstore.Store, *emaistore.Store, error) {
 	db, chanStore, err := chanlib.OpenAdapterDB(dataDir, "emaid")
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	s := sqlstore.New(db)
-	for _, entity := range mailstore.Entities {
+	for _, entity := range emaistore.Entities {
 		if err := s.CreateEntity(context.Background(), entity); err != nil {
 			db.Close() //nolint:errcheck // the open already failed
 			return nil, nil, nil, err
 		}
 	}
-	return db, chanStore, mailstore.New(s), nil
+	return db, chanStore, emaistore.New(s), nil
 }

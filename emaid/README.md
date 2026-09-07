@@ -16,7 +16,7 @@ References/In-Reply-To headers.
 - Post inbound to router with `message` (trusted) or `untrusted` Verb
 - Send outbound via SMTP with correct In-Reply-To/References threading
 - Track threads: `thread_id → (from_address, root_msg_id)`, and every seen
-  `Message-ID → thread_id`, in `emaid/mailstore`
+  `Message-ID → thread_id`, in `emaid/emaistore`
 - Serve `/send`, `/v1/history`, `/files/{uid}/{part}` endpoints
 - Re-fetch attachments from IMAP on-demand (transient in-memory registry, no local storage)
 
@@ -69,7 +69,7 @@ References/In-Reply-To headers.
 - `imap.go` — IMAP poll loop, IDLE support, attachment registry
 - `smtp.go` — SMTP outbound
 - `storage.go` — opens `emaid.db` and picks the driver
-- `mailstore/` — the storage layer: two entities, no SQL
+- `emaistore/` — the storage layer: two entities, no SQL
 - `server.go` — adapter handlers (`/send`, `/v1/history`, `/files/{uid}/{part}`)
 - `auth.go` — inbound sender trust classifier (Authentication-Results + From-domain allowlist)
 
@@ -77,7 +77,7 @@ References/In-Reply-To headers.
 
 emaid holds NO SQL and no `CREATE TABLE`; `db_utils/sql_layer_test.go` fails the
 build if a statement appears anywhere under `emaid/`. Its storage is
-`emaid/mailstore`, which is `objstore`'s two primitives over two entities:
+`emaid/emaistore`, which is `objstore`'s two primitives over two entities:
 
 | entity          | coordinate                     | attributes                    |
 | --------------- | ------------------------------ | ----------------------------- |
@@ -106,7 +106,7 @@ adapters use, and adds its own entities to the pool that door hands back.
 
 Config, the storage bootstrap, the MIME/attachment extraction, the thread
 store, the outbound path and every unimplemented-verb refusal are covered.
-`mailstore`'s own bodies run against whichever engine `ARIZUKO_TEST_PG_DSN`
+`emaistore`'s own bodies run against whichever engine `ARIZUKO_TEST_PG_DSN`
 names, so the store is proven on SQLite and PostgreSQL alike.
 
 The number stops around 66% because the IMAP poller — `newPoller`, `run`,

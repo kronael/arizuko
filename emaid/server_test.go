@@ -15,10 +15,10 @@ import (
 	"github.com/emersion/go-imap/v2/imapclient"
 
 	"github.com/kronael/arizuko/chanlib"
-	"github.com/kronael/arizuko/emaid/mailstore"
+	"github.com/kronael/arizuko/emaid/emaistore"
 )
 
-func testServer(t *testing.T, secret string) (*server, *mailstore.Store) {
+func testServer(t *testing.T, secret string) (*server, *emaistore.Store) {
 	t.Helper()
 	chanStore, st := newTestStorage(t)
 	cfg := config{Name: "email", DataDir: t.TempDir()}

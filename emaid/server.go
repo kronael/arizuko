@@ -14,7 +14,7 @@ import (
 
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/chanlib/chanstore"
-	"github.com/kronael/arizuko/emaid/mailstore"
+	"github.com/kronael/arizuko/emaid/emaistore"
 )
 
 const historyLimitMax = 50
@@ -27,14 +27,14 @@ type server struct {
 	// and reports the retained-inbound backlog on /health. Nothing in emaid
 	// reads it.
 	chanStore     *chanstore.Store
-	st            *mailstore.Store
+	st            *emaistore.Store
 	reg           *attRegistry
 	dialTLS       func(string, *imapclient.Options) (*imapclient.Client, error)
 	isConnected   func() bool
 	lastInboundAt func() int64
 }
 
-func newServer(cfg config, chanStore *chanstore.Store, st *mailstore.Store, reg *attRegistry, isConnected func() bool, lastInboundAt func() int64) *server {
+func newServer(cfg config, chanStore *chanstore.Store, st *emaistore.Store, reg *attRegistry, isConnected func() bool, lastInboundAt func() int64) *server {
 	return &server{cfg: cfg, chanStore: chanStore, st: st, reg: reg, dialTLS: imapclient.DialTLS, isConnected: isConnected, lastInboundAt: lastInboundAt}
 }
 

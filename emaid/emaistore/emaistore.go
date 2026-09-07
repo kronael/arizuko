@@ -1,4 +1,4 @@
-// Package mailstore is emaid's storage layer: the adapter asks it what a
+// Package emaistore is emaid's storage layer: the adapter asks it what a
 // message or a thread needs and it answers, so a second driver reimplements
 // this package and no handler changes (spec 6/37 step 1).
 // db_utils/sql_layer_test.go fails the build if a statement appears anywhere in
@@ -16,7 +16,7 @@
 // "which thread does this message belong to", and no operation touches it
 // without the thread it points at — so email_threads.go carries both, which is
 // 6/37's third rule keeping the write that spans them whole.
-package mailstore
+package emaistore
 
 import (
 	"context"

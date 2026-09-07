@@ -49,7 +49,7 @@ func TestMigrationsAreFrozen(t *testing.T) {
 		"the chain of the daemon that owns the table (routd/migrations, " +
 		"onbod/migrations) — or, for an owner that has moved onto objstore, declare " +
 		"it as an entity beside the code that reads it (authd/authstore, " +
-		"runed/runstore, chanlib/chanstore, emaid/mailstore), where there is no " +
+		"runed/runstore, chanlib/chanstore, emaid/emaistore), where there is no " +
 		"chain at all"
 
 	seen := map[int]string{}

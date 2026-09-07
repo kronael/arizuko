@@ -514,7 +514,7 @@ classification (`store/folder_scope.go` iterates the scope list). Splitting
 either by entity would destroy the property that makes it correct.
 
 **Where the layer lives: a daemon gets a package, a library already is one.**
-`authd/authstore`, `emaid/mailstore`, `chanlib/chanstore`, `runed/runstore` and
+`authd/authstore`, `emaid/emaistore`, `chanlib/chanstore`, `runed/runstore` and
 `dashd/dashstore` are separate packages because each daemon has handler code
 that must stay free of statements, and a package boundary is the thing the
 compiler and `db_utils/sql_layer_test.go` can both enforce. `audit` and `store`
@@ -523,7 +523,7 @@ from, so `audit/audit_log.go` IS the layer and an `auditstore/` directory would
 add nothing but a path. The test is whether the package holds anything that is
 not storage.
 
-The prefixes — `authstore`, `mailstore`, `runstore` — exist because Go cannot
+The prefixes — `authstore`, `emaistore`, `runstore` — exist because Go cannot
 have two packages named `store` imported into one file, and today's shared
 `store` holds that name. When `store` stops being shared and becomes routd's
 own layer, each owner's package can take its owner's name and the prefixes stop

@@ -29,7 +29,7 @@ import (
 // It hands back BOTH halves and it is the only door: the store is what every
 // adapter passes to NewAdapterMux and RetainInbound, and the pool is the
 // engine handle whose lifetime the adapter owns — it closes it on shutdown, and
-// emaid builds its own mailstore on the same file (emaid/storage.go). A second
+// emaid builds its own emaistore on the same file (emaid/storage.go). A second
 // opener for the daemon that needs the pool is how the two would drift.
 //
 // This function names a driver, which is the composition root's job (spec 6/37

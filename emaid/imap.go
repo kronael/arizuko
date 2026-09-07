@@ -19,7 +19,7 @@ import (
 	gomessage "github.com/emersion/go-message/mail"
 
 	"github.com/kronael/arizuko/chanlib"
-	"github.com/kronael/arizuko/emaid/mailstore"
+	"github.com/kronael/arizuko/emaid/emaistore"
 )
 
 var errIdleNotSupported = errors.New("IDLE not supported")
@@ -60,7 +60,7 @@ func (r *attRegistry) get(key string) (attMeta, bool) {
 
 type poller struct {
 	cfg     config
-	st      *mailstore.Store
+	st      *emaistore.Store
 	dialTLS func(string, *imapclient.Options) (*imapclient.Client, error)
 	reg     *attRegistry
 	// connected reflects IMAP liveness: true between successful imapConnect
@@ -69,7 +69,7 @@ type poller struct {
 	lastInboundAt atomic.Int64
 }
 
-func newPoller(cfg config, st *mailstore.Store, reg *attRegistry) *poller {
+func newPoller(cfg config, st *emaistore.Store, reg *attRegistry) *poller {
 	p := &poller{cfg: cfg, st: st, dialTLS: imapclient.DialTLS, reg: reg}
 	p.lastInboundAt.Store(time.Now().Unix())
 	return p

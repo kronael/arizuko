@@ -1,12 +1,12 @@
 package main
 
 // migrate_emaid.go moves an existing emaid.db from the two tables emaid used to
-// run statements against onto the entities mailstore reads (spec 6/37 step 7).
+// run statements against onto the entities emaistore reads (spec 6/37 step 7).
 // One way, once, with the adapter stopped.
 //
 // It is the SOURCE half of the move and the only half that knows the old
 // schema: it reads the tables into plain values and hands them to
-// mailstore.Import, which owns the item shape. mailstore holds no SQL, so the
+// emaistore.Import, which owns the item shape. emaistore holds no SQL, so the
 // statements below are here.
 //
 // The old tables are RENAMED, not dropped. `email_threads_v1` is the evidence
@@ -27,7 +27,7 @@ import (
 	"strings"
 
 	"github.com/kronael/arizuko/db_utils"
-	"github.com/kronael/arizuko/emaid/mailstore"
+	"github.com/kronael/arizuko/emaid/emaistore"
 	"github.com/kronael/arizuko/objstore/sqlstore"
 )
 
@@ -56,7 +56,7 @@ func cmdMigrateEmaid(args []string) {
 }
 
 // migrateEmaid reads path's legacy tables, writes the entities, and reads them
-// back through mailstore's own methods to check what landed.
+// back through emaistore's own methods to check what landed.
 func migrateEmaid(path string, dryRun bool) error {
 	if err := db_utils.RequireDBFile(path); err != nil {
 		return err
@@ -84,7 +84,7 @@ func migrateEmaid(path string, dryRun bool) error {
 		"email_threads": len(snap.Threads),
 		"email_msg_ids": len(snap.MsgIDs),
 	})
-	counts, err := mailstore.CheckSnapshot(snap)
+	counts, err := emaistore.CheckSnapshot(snap)
 	if err != nil {
 		// The check runs on a real run too, so a row the entities cannot address
 		// is named BEFORE the run that would stop half way.
@@ -105,12 +105,12 @@ func migrateEmaid(path string, dryRun bool) error {
 		return err
 	}
 	s := sqlstore.New(db)
-	for _, entity := range mailstore.Entities {
+	for _, entity := range emaistore.Entities {
 		if err := s.CreateEntity(ctx, entity); err != nil {
 			return err
 		}
 	}
-	st := mailstore.New(s)
+	st := emaistore.New(s)
 	written, err := st.Import(snap)
 	if err != nil {
 		return err
@@ -121,8 +121,8 @@ func migrateEmaid(path string, dryRun bool) error {
 
 // readEmaidSnapshot reads every legacy row. A NULL column arrives as the empty
 // string, which is what an absent attribute means on the other side.
-func readEmaidSnapshot(db *sql.DB, src map[string]string) (mailstore.Snapshot, error) {
-	var snap mailstore.Snapshot
+func readEmaidSnapshot(db *sql.DB, src map[string]string) (emaistore.Snapshot, error) {
+	var snap emaistore.Snapshot
 	if t, ok := src["email_threads"]; ok {
 		rows, err := db.Query(`SELECT thread_id, from_address, root_msg_id FROM ` + t)
 		if err != nil {
@@ -130,7 +130,7 @@ func readEmaidSnapshot(db *sql.DB, src map[string]string) (mailstore.Snapshot, e
 		}
 		defer rows.Close()
 		for rows.Next() {
-			var r mailstore.ThreadRow
+			var r emaistore.ThreadRow
 			if err := rows.Scan(&r.ThreadID, &r.FromAddress, &r.RootMsgID); err != nil {
 				return snap, err
 			}
@@ -147,7 +147,7 @@ func readEmaidSnapshot(db *sql.DB, src map[string]string) (mailstore.Snapshot, e
 		}
 		defer rows.Close()
 		for rows.Next() {
-			var r mailstore.MsgIDRow
+			var r emaistore.MsgIDRow
 			if err := rows.Scan(&r.MsgID, &r.ThreadID); err != nil {
 				return snap, err
 			}
@@ -168,8 +168,8 @@ func readEmaidSnapshot(db *sql.DB, src map[string]string) (mailstore.Snapshot, e
 // It walks the INDEX rather than the threads, because the index read is the one
 // that decides whether an inbound reply joins its conversation, and it exercises
 // both entities on the way.
-func verifyEmaid(st *mailstore.Store, snap mailstore.Snapshot) error {
-	threads := map[string]mailstore.ThreadRow{}
+func verifyEmaid(st *emaistore.Store, snap emaistore.Snapshot) error {
+	threads := map[string]emaistore.ThreadRow{}
 	for _, t := range snap.Threads {
 		got, ok := st.Thread(t.ThreadID)
 		if !ok {

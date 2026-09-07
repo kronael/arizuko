@@ -1,4 +1,4 @@
-package mailstore
+package emaistore
 
 // email_threads.go holds every read and write of `email_threads` AND of
 // `email_msg_ids`. The two are one entity here: the index exists only to reach

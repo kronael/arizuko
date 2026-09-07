@@ -1,11 +1,11 @@
-package mailstore_test
+package emaistore_test
 
 // The storage layer's own bodies. emaid's tests exercise it through the
 // adapter, and those open a file, so these are the ones that run on WHATEVER
 // engine ARIZUKO_TEST_PG_DSN names:
 //
-//	go test ./emaid/mailstore/...                                   # SQLite
-//	ARIZUKO_TEST_PG_DSN=postgres://… go test ./emaid/mailstore/...  # Postgres
+//	go test ./emaid/emaistore/...                                   # SQLite
+//	ARIZUKO_TEST_PG_DSN=postgres://… go test ./emaid/emaistore/...  # Postgres
 //
 // They are about the one invariant emaid would be dangerous without: a thread
 // and the Message-ID index that reaches it are written together. Without it the
@@ -20,7 +20,7 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/db_utils/dbtest"
-	"github.com/kronael/arizuko/emaid/mailstore"
+	"github.com/kronael/arizuko/emaid/emaistore"
 	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/objstore/sqlstore"
 )
@@ -29,7 +29,7 @@ import (
 func newDriver(t *testing.T) *sqlstore.Store {
 	t.Helper()
 	s := sqlstore.New(dbtest.Open(t))
-	for _, entity := range mailstore.Entities {
+	for _, entity := range emaistore.Entities {
 		if err := s.CreateEntity(t.Context(), entity); err != nil {
 			t.Fatalf("create entity %s: %v", entity, err)
 		}
@@ -37,9 +37,9 @@ func newDriver(t *testing.T) *sqlstore.Store {
 	return s
 }
 
-func newStore(t *testing.T) *mailstore.Store {
+func newStore(t *testing.T) *emaistore.Store {
 	t.Helper()
-	return mailstore.New(newDriver(t))
+	return emaistore.New(newDriver(t))
 }
 
 // A linked message reads back as its thread, with the address and root a reply
@@ -53,7 +53,7 @@ func TestLinkedMessageReadsBackAsItsThread(t *testing.T) {
 	if !ok {
 		t.Fatal("the message just linked resolves to no thread")
 	}
-	want := mailstore.Thread{ThreadID: "aabbcc112233", FromAddress: "alice@x.com", RootMsgID: "msg-1@x.com"}
+	want := emaistore.Thread{ThreadID: "aabbcc112233", FromAddress: "alice@x.com", RootMsgID: "msg-1@x.com"}
 	if got != want {
 		t.Fatalf("thread reads back as %+v, want %+v", got, want)
 	}
@@ -144,7 +144,7 @@ func TestConcurrentLinksOfOneMessageBothSucceed(t *testing.T) {
 // this body goes red: the thread commits and the index does not.
 func TestTheThreadAndItsIndexLandTogether(t *testing.T) {
 	driver := newDriver(t)
-	st := mailstore.New(refuseWrites{Store: driver, entity: mailstore.EmailMsgIDs})
+	st := emaistore.New(refuseWrites{Store: driver, entity: emaistore.EmailMsgIDs})
 
 	err := st.LinkMessageToThread("msg-2@x.com", "tid2", "bob@x.com", "msg-2@x.com")
 	if err == nil {
@@ -154,7 +154,7 @@ func TestTheThreadAndItsIndexLandTogether(t *testing.T) {
 	if !strings.Contains(err.Error(), "msg-2@x.com") {
 		t.Errorf("error %q does not name the message that was lost", err)
 	}
-	if got, ok := mailstore.New(driver).Thread("tid2"); ok {
+	if got, ok := emaistore.New(driver).Thread("tid2"); ok {
 		t.Fatalf("the thread landed without its index (%+v): the two writes are not one "+
 			"batch, so the next reply to this mail opens a second thread", got)
 	}
@@ -183,11 +183,11 @@ func (r refuseWrites) GuardedBatch(ctx context.Context, checks []objstore.Check,
 // would report its counts happily.
 func TestImportReadsBackThroughTheStore(t *testing.T) {
 	st := newStore(t)
-	counts, err := st.Import(mailstore.Snapshot{
-		Threads: []mailstore.ThreadRow{
+	counts, err := st.Import(emaistore.Snapshot{
+		Threads: []emaistore.ThreadRow{
 			{ThreadID: "t1", FromAddress: "alice@x.com", RootMsgID: "root@x.com"},
 		},
-		MsgIDs: []mailstore.MsgIDRow{
+		MsgIDs: []emaistore.MsgIDRow{
 			{MsgID: "root@x.com", ThreadID: "t1"},
 			{MsgID: "reply@x.com", ThreadID: "t1"},
 			{MsgID: "orphan@x.com", ThreadID: "gone"},
@@ -213,13 +213,13 @@ func TestImportReadsBackThroughTheStore(t *testing.T) {
 // Import refuses what the store cannot address rather than writing an item no
 // read can ever reach, and it names every such row at once.
 func TestImportRefusesRowsItCannotAddress(t *testing.T) {
-	_, err := mailstore.CheckSnapshot(mailstore.Snapshot{
-		Threads: []mailstore.ThreadRow{
+	_, err := emaistore.CheckSnapshot(emaistore.Snapshot{
+		Threads: []emaistore.ThreadRow{
 			{ThreadID: "", FromAddress: "alice@x.com"},
 			{ThreadID: "t1"},
 			{ThreadID: "t1"},
 		},
-		MsgIDs: []mailstore.MsgIDRow{{MsgID: "", ThreadID: "t1"}},
+		MsgIDs: []emaistore.MsgIDRow{{MsgID: "", ThreadID: "t1"}},
 	})
 	if err == nil {
 		t.Fatal("a snapshot with an unaddressable id was accepted")

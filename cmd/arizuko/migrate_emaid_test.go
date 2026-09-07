@@ -13,7 +13,7 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/db_utils"
-	"github.com/kronael/arizuko/emaid/mailstore"
+	"github.com/kronael/arizuko/emaid/emaistore"
 	"github.com/kronael/arizuko/objstore/sqlstore"
 )
 
@@ -64,12 +64,12 @@ func TestMigrateEmaidMovesTheRowsAndSetsTheTablesAside(t *testing.T) {
 		t.Fatalf("migrate: %v", err)
 	}
 
-	st := mailstore.New(sqlstore.New(db))
+	st := emaistore.New(sqlstore.New(db))
 	got, ok := st.ThreadForMessage("reply@x.com")
 	if !ok {
 		t.Fatal("a migrated reply resolves to no thread")
 	}
-	want := mailstore.Thread{ThreadID: "aabbcc112233", FromAddress: "alice@x.com", RootMsgID: "root@x.com"}
+	want := emaistore.Thread{ThreadID: "aabbcc112233", FromAddress: "alice@x.com", RootMsgID: "root@x.com"}
 	if got != want {
 		t.Fatalf("the reply resolves to %+v, want %+v", got, want)
 	}
@@ -127,12 +127,12 @@ func TestMigrateEmaidDryRunWritesNothing(t *testing.T) {
 func TestMigrateEmaidLeavesAnAlreadyMigratedDatabaseAlone(t *testing.T) {
 	path, db := legacyDB(t, "emaid.db", "")
 	s := sqlstore.New(db)
-	for _, entity := range mailstore.Entities {
+	for _, entity := range emaistore.Entities {
 		if err := s.CreateEntity(t.Context(), entity); err != nil {
 			t.Fatal(err)
 		}
 	}
-	st := mailstore.New(s)
+	st := emaistore.New(s)
 	if err := st.LinkMessageToThread("root@x.com", "tid", "alice@x.com", "root@x.com"); err != nil {
 		t.Fatal(err)
 	}

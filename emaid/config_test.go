@@ -77,7 +77,7 @@ func TestOpenStorageCreatesTheEntitiesAndReopens(t *testing.T) {
 		t.Fatalf("openStorage did not create the file: %v", err)
 	}
 
-	// The store answers, which is the only thing emaid asks of it. mailstore's
+	// The store answers, which is the only thing emaid asks of it. emaistore's
 	// own bodies cover what it answers; this is that the driver was given its
 	// entities at all, without which every link fails on a missing table.
 	if err := st.LinkMessageToThread("boot@x.com", "boot", "alice@x.com", "boot@x.com"); err != nil {
