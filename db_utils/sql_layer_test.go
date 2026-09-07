@@ -159,11 +159,18 @@ func sqlLiteralLines(t *testing.T, path string) []sqlHit {
 
 // sqlVerb returns the verb that opens the literal or one of its lines, empty
 // when the literal is not a statement.
+//
+// The match is CASE-SENSITIVE. Every statement in this tree is written with an
+// upper-case verb, so folding buys nothing, and it costs a false positive on
+// ordinary prose: an MCP tool description reading "Update fields on an existing
+// proxyd route." is not a statement, and folding made it one (BUGS L262). The
+// literal is already parsed with go/parser so a comment quoting a query is not
+// mistaken for one — the fold threw that precision away again.
 func sqlVerb(s string) string {
 	for _, line := range strings.Split(s, "\n") {
-		up := strings.ToUpper(strings.TrimLeft(line, " \t"))
+		head := strings.TrimLeft(line, " \t")
 		for _, verb := range sqlVerbs {
-			if strings.HasPrefix(up, verb) {
+			if strings.HasPrefix(head, verb) {
 				return strings.TrimSpace(verb)
 			}
 		}

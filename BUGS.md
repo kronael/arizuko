@@ -50,7 +50,7 @@ value; the point is that it must stop being the ORDER.
 - **Fix:** `seq` carries a declared order — the route verbs set it — and the
   entity sorts on a padded `seq` so string order is numeric order
 
-## L262 — the storage-layer guard uppercases a line before matching, so prose reads as SQL (2026-09-07, open)
+## ✅ FIXED 2026-09-07 L262 — the storage-layer guard uppercases a line before matching, so prose reads as SQL (2026-09-07)
 
 `db_utils/sql_layer_test.go:164` does `strings.ToUpper` before testing a string
 literal against the SQL verb list. So an MCP tool description beginning "Update
@@ -68,6 +68,13 @@ is not mistaken for one, and then throws that precision away on the case fold.
 - **Status:** open
 - **Fix:** match the verb case-sensitively. Every statement in the tree is
   written in upper case, so the fold buys nothing and costs this.
+
+Fixed 2026-09-07. Verified both ways rather than asserted: a lowercase
+`select kid from signing_keys` pasted into an authd handler is now MISSED, and
+the upper-case form is caught — so the change is a real narrowing and the
+comment says so. The narrowing is safe because it was measured: every SQL-verb
+string literal in the tree outside `third_party/` and `refs/` is upper case, and
+every lower-case hit is an error message or a test fixture.
 
 ## L259 — `resreg` has one row reader and it builds column SQL, so no registered table can become an entity until resreg moves (2026-09-07, open — proposal, needs sign-off)
 
