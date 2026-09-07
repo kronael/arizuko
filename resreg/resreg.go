@@ -57,9 +57,15 @@ const (
 // Owner-subsystem keys for Resource.DB — spec 5/8's "one subsystem = one
 // owner DB" (routd.db, onbod.db; the only two owner DBs with resreg
 // resources per 5/16's owner-DB map).
+//
+// They ARE store's owner names rather than two look-alike literals, because an
+// entity-backed resource's PARTITION is its subsystem (Resource.EntitySortKey)
+// and the daemon's own storage layer writes items at that same coordinate. Two
+// spellings would put the writer's items in one partition and the engine's read
+// in another, and the export would come back empty with nothing to say why.
 const (
-	SubsystemRoutd = "routd"
-	SubsystemOnbod = "onbod"
+	SubsystemRoutd = store.OwnerRoutd
+	SubsystemOnbod = store.OwnerOnbod
 )
 
 // Mutates reports whether an action writes state. Read-only actions
