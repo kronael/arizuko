@@ -7,13 +7,25 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
-## L265 — `pending_actions`' resreg `RowType` declares 12 of the table's 18 columns, and six of them are written by routd (2026-09-08, open)
+## L265 — two registrations declare fewer columns than their table has, and `routes` already loses two of them on every apply (2026-09-08, open)
 
-MEASURED 2026-09-08. `pending_actions` on krons has 18 columns. The
-registration's `RowType` (`resreg/resources/pending_actions.go:13-24`) declares
-twelve. Undeclared: `reviewer_note`, `result`, `error`, `expires_at`, `mode`,
-`notice_id`. routd writes `mode` and `notice_id` at
-`routd/pending_actions.go:176` and `:215`.
+MEASURED 2026-09-08, and my first count was wrong — I read a truncated grep and
+reported 12. `pending_actions` declares **16 of 18**; only `mode` and
+`notice_id` are missing, and routd writes both
+(`routd/pending_actions.go:176`, `:215`).
+
+**`routes` is the one that is already broken.** It declares 5 of 8 — `seq`,
+`match`, `target`, `observe_window_messages`, `observe_window_chars` — and
+omits `id`, `added_by` and `added_via`. It is NOT `SkipApplyRebuild`, so
+`Apply` runs `DeleteAll` then `InsertAll` over five columns, and `added_by` and
+`added_via` take their DDL defaults on every apply. The route attribution an
+operator can see in the dashboard is erased by a config apply today, on the
+column path, with no entity anywhere near it.
+
+Three more resources declare fewer columns and are safe, because all three are
+`SkipApplyRebuild` and the omitted columns hold sealed material:
+`github_sources.secret`, `route_tokens.kind`/`token_hash`, and `secrets`'
+five.
 
 Today the column path writes only the columns it declares, so an `apply` leaves
 the other six alone. That is why nobody noticed. The moment the resource becomes
@@ -26,10 +38,11 @@ incomplete `RowType` is also an incomplete export: a held action round-tripped
 through `export` and `apply` loses six fields today at the manifest level, even
 though the row keeps them.
 
-- **Severity:** medium now, high at the entity move
-- **Scope:** `resreg/resources/pending_actions.go`, `routd/pending_actions.go`
-- **Affected:** every instance; 2 rows fleet-wide today
-- **Source:** `pragma table_info(pending_actions)` against the RowType, 2026-09-08
+- **Severity:** high for `routes` (live attribution loss), medium for `pending_actions`
+- **Scope:** `resreg/resources/routes.go`, `resreg/resources/pending_actions.go`
+- **Affected:** every instance; `routes` holds 58 rows on krons
+- **Source:** `routd/resource_columns_test.go` compares every `db:` tag against
+  the live schema, and it is the check that should have existed all along
 - **Status:** open
 - **Fix:** the `RowType` declares every column, or the registration says which
   columns are deliberately outside the manifest and the entity writer preserves

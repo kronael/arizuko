@@ -431,6 +431,23 @@ deletes ride inside `Replace`'s claimed scope rather than beside it. Without
 this the next tenant of a folder path inherits the last one's egress rules, cron
 tasks, held actions and web routes.
 
+**5. A `BeforeInsert` default is the writer's, like a stamp.** `acl`, `groups`
+and `scheduled_tasks` use a hook to fill a default the operator may omit —
+`effect='allow'`, `product='assistant'`, `status='active'`. That is the same
+answer as the stamped field: an entity has no engine between caller and item, so
+the storage layer applies the default, and the declaration stays because it is
+what tells a manifest the field is optional.
+
+**6. A `RowFilter` is a declared predicate, not a hook.** `6/40` refused it
+because a reader-side filter cannot narrow a `DeleteScope`, and a half-answer
+would silently widen an apply's delete. The scoped delete is now a declared
+predicate chosen at registration, and `RowFilter` takes the same form: one
+declaration the read and the delete both honour, so they cannot disagree.
+`route_tokens`' `kind = 'route'` is a `Where`. `acl_membership`'s
+`(added_by IS NULL OR added_by != 'pairing')` is not — `Where` is a conjunction
+— so it is the one that becomes an attribute the writer sets, which is what it
+was describing all along.
+
 **And one precondition that is not a contract question.** A `RowType` that
 declares fewer columns than the table has is survivable under the column path
 and is data loss under an entity, because a `Put` replaces the whole attribute
