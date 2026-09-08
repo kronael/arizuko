@@ -28,7 +28,7 @@ when the earlier work is slow enough to land inside the next case's window.
   assertion is right, and making it wait or resetting the recorder would hide
   the thing it caught
 
-## L264 — `ReadConsistent` sees only the writers that remember to carry `Bump`, and one that forgets is silent (2026-09-07, open — proposal, needs sign-off)
+## ✅ FIXED 2026-09-08 L264 — `ReadConsistent` sees only the writers that remember to carry `Bump`, and one that forgets is silent (2026-09-07)
 
 `objstore.ReadConsistent` detects a concurrent write by reading a scope's
 version marker before and after its queries. The marker moves only because a
@@ -66,7 +66,29 @@ importing `resreg` at all.
 - **Scope:** `objstore/marker.go`, `objstore/consistent.go`, `store/invites.go`, `store/onboarding.go`, `resreg/archive.go`
 - **Affected:** `arizuko archive export` and `export` on onbod, today
 - **Source:** `grep objstore.Bump` over non-test code, 2026-09-07
-- **Status:** open — the regression is live
+- **Status:** fixed 2026-09-08
+
+Fixed by enforcement rather than by three call sites. `store/scopes.go` holds
+`writeEntities`, `writeEntitiesInTx` and `incrementEntity`, and they are the ONLY
+places in `store` that reach `GuardedBatch` — each derives the bump from the
+entities its batch touches, so a writer cannot leave it out. `EnsureEntities`
+creates the marker, so no opener can write into a scope that has none.
+
+The scope declaration lives in `store/scopes.go` because `store` cannot import
+`resreg` (`resreg/resreg.go:40` imports store); `resreg` reads
+`store.OwnerScope` at its three call sites, the same way it already reads
+`store.OwnerOnbod`.
+
+The test was written FIRST and watched fail against unmodified HEAD — "the
+consistent read reported 1 invites, want 2: a mint committed between the two
+marker reads and the read did not run again" — then passed on both engines with
+the interleave forced by `conformance.SlipAt` rather than raced. Four mutations
+name it, including one that puts a raw `GuardedBatch` back into a writer:
+`onboarding.go:697:18 calls GuardedBatch directly; it must call writeEntities`.
+
+The scoped set is a declaration, not "every entity": `pane_sessions` and
+`secret_use_log` are projected by no resource, and bumping routd for a secret
+use would spend one of `ReadConsistent`'s attempts on every tool call.
 - **Fix:** a scope's writes go through one helper that adds the `Bump`, the way
   `runAudited` owns the audit row, so forgetting is not expressible. Adopt it
   with the first real caller rather than before one exists.
