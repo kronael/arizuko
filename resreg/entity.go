@@ -296,6 +296,16 @@ func (r *Resource) initEntity(m *resourceMeta, byField map[string]int) {
 		e.attrs = append(e.attrs, fm)
 	}
 	e.scope = r.entityScopeOf(m, sortFields)
+	if e.scope != nil {
+		for _, fm := range e.attrs {
+			if e.stamped[fm.idx] && m.rowType.Field(fm.idx).Type.Kind() == reflect.Int {
+				panic(fmt.Sprintf("resreg: %s stamps the number %s and declares a scope; "+
+					"a scoped apply wipes only the scopes its manifest mentions, so a number "+
+					"minted against that manifest would collide with a row it never touched",
+					r.Name, fm.col))
+			}
+		}
+	}
 	m.entity = e
 }
 
@@ -602,6 +612,7 @@ func (r *Resource) entityPuts(rows any) ([]objstore.Write, error) {
 	if err != nil {
 		return nil, err
 	}
+	rv = r.mintNumbers(rv)
 	out := make([]objstore.Write, 0, rv.Len())
 	seen := make(map[string]bool, rv.Len())
 	for i := range rv.Len() {
@@ -617,6 +628,56 @@ func (r *Resource) entityPuts(rows any) ([]objstore.Write, error) {
 		out = append(out, w)
 	}
 	return out, nil
+}
+
+// mintNumbers hands a value to every NUMERIC stamped field a row leaves unset.
+//
+// It is the object path's AUTOINCREMENT, and routes.id is why it exists: the id
+// is the handle `delete_route(id)` addresses, a live agent wire contract, and a
+// manifest is not required to state one. An entity has no engine between the
+// caller and the item and no sequence to draw from, so the writer mints — the
+// same answer a stamped instant gets (itemFor), for a number instead of a time.
+//
+// The number is one past the LARGEST the set already states, so a set that
+// carries its ids round-trips them unchanged and a hand-written one gets ids
+// nothing else in it holds. The set is the whole answer because the apply wipes
+// the resource first: afterwards the resource IS this set. initEntity refuses
+// the pairing that would break that — a scoped resource wipes only the scopes
+// its manifest mentions, so a number minted against this set could collide with
+// a row the apply never touched.
+//
+// Zero is the unset value and not a stated one: SQLite's AUTOINCREMENT hands out
+// 1 first, so no live row carries 0.
+func (r *Resource) mintNumbers(rv reflect.Value) reflect.Value {
+	var fields []int
+	for _, fm := range r.meta.entity.attrs {
+		if r.meta.entity.stamped[fm.idx] && r.meta.rowType.Field(fm.idx).Type.Kind() == reflect.Int {
+			fields = append(fields, fm.idx)
+		}
+	}
+	if len(fields) == 0 {
+		return rv
+	}
+	// The rows belong to the caller's slice and every later resource's checksum
+	// and Diff read the same one, so the mint lands in a copy — the answer
+	// itemFor already gives a row a BeforeInsert hook would edit.
+	out := reflect.MakeSlice(rv.Type(), rv.Len(), rv.Len())
+	reflect.Copy(out, rv)
+	for _, idx := range fields {
+		next := int64(0)
+		for i := range out.Len() {
+			next = max(next, out.Index(i).Field(idx).Int())
+		}
+		for i := range out.Len() {
+			f := out.Index(i).Field(idx)
+			if f.Int() != 0 {
+				continue
+			}
+			next++
+			f.SetInt(next)
+		}
+	}
+	return out
 }
 
 // entityWipe reads the resource's live items and renders the writes that remove

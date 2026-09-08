@@ -942,6 +942,105 @@ func TestEntity_StampedFieldIsIgnoredByDiff(t *testing.T) {
 	}
 }
 
+// --- the minted number --------------------------------------------------
+
+// NumberedRow is routes' id in miniature: a coordinate, and a server-owned
+// number the manifest may omit.
+type NumberedRow struct {
+	Key string `db:"key" yaml:"key"`
+	ID  int    `db:"id"  yaml:"id,omitempty"`
+}
+
+func freshNumbered(t *testing.T) (Backend, *Resource) {
+	t.Helper()
+	reset()
+	db := dbtest.Open(t)
+	s := sqlstore.New(db)
+	if err := s.CreateEntity(t.Context(), "audit_log"); err != nil {
+		t.Fatalf("audit_log: %v", err)
+	}
+	r := Register(Resource{
+		Name:          "numberedrows",
+		Table:         "numberedrows",
+		DB:            entitySubsystem,
+		RowType:       reflect.TypeFor[NumberedRow](),
+		PKFields:      []string{"Key"},
+		EntitySortKey: []string{"Key"},
+		StampedFields: []string{"ID"},
+	})
+	if err := EnsureSubsystem(t.Context(), s, s, entitySubsystem); err != nil {
+		t.Fatalf("EnsureSubsystem: %v", err)
+	}
+	return Backend{DB: db, Obj: s}, r
+}
+
+// A row that states a number keeps it, and a row that omits one gets a number
+// nothing else in the set holds — which is what AUTOINCREMENT gave the column
+// path and what `delete_route(id)` addresses.
+func TestEntity_StampedNumberIsMintedByTheWriter(t *testing.T) {
+	be, r := freshNumbered(t)
+	rows := []NumberedRow{{Key: "stated", ID: 7}, {Key: "omitted"}, {Key: "also-omitted"}}
+	if _, err := Apply(t.Context(), be, entitySubsystem, "", true,
+		map[string]any{"numberedrows": rows}, nil); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	got, err := r.ScanAll(be)
+	if err != nil {
+		t.Fatalf("ScanAll: %v", err)
+	}
+	by := map[string]int{}
+	for _, row := range got.([]NumberedRow) {
+		by[row.Key] = row.ID
+	}
+	if by["stated"] != 7 {
+		t.Errorf("stated id = %d, want the value the row carried", by["stated"])
+	}
+	seen := map[int]string{7: "stated"}
+	for _, key := range []string{"omitted", "also-omitted"} {
+		id := by[key]
+		if id == 0 {
+			t.Errorf("%s kept id 0; an entity has no sequence, so the writer mints one", key)
+		}
+		if other, dup := seen[id]; dup {
+			t.Errorf("%s and %s both carry id %d, so delete_route(%d) names two rows",
+				key, other, id, id)
+		}
+		seen[id] = key
+	}
+	if rows[1].ID != 0 {
+		t.Errorf("the manifest row now carries id %d; the mint was written into the "+
+			"caller's own slice", rows[1].ID)
+	}
+}
+
+// A resource that mints a number may not scope its apply: a scoped apply wipes
+// only the scopes its manifest names, so the largest number the manifest states
+// is not the largest one the resource holds.
+func TestEntity_RegisterRefusesAMintedNumberOnAScopedResource(t *testing.T) {
+	type scopedNumberRow struct {
+		Key    string `db:"key"`
+		Folder string `db:"folder"`
+		ID     int    `db:"id"`
+	}
+	reset()
+	defer func() {
+		got := recover()
+		if got == nil {
+			t.Fatal("Register accepted a minted number beside a scope")
+		}
+		if msg, _ := got.(string); !strings.Contains(msg, "would collide with a row it never touched") {
+			t.Errorf("panic = %v, want it to name the collision", got)
+		}
+	}()
+	Register(Resource{
+		Name: "bad", Table: "bad", DB: entitySubsystem,
+		RowType: reflect.TypeFor[scopedNumberRow](), PKFields: []string{"Key"},
+		EntitySortKey: []string{"Key"},
+		Scope:         ScopeSpec{Field: "Folder"},
+		StampedFields: []string{"ID"},
+	})
+}
+
 // --- the declared row filter --------------------------------------------
 //
 // A filter narrows the manifest-visible projection, and the SAME declaration has
