@@ -195,6 +195,14 @@ type slip struct {
 	left int
 }
 
+// SlipAt is slip for a caller outside this package: store's own bodies prove
+// that a write CARRIES the marker a consistent read compares, and that is the
+// same interleave these bodies force, so it is the same double rather than a
+// second one beside it.
+func SlipAt(s objstore.Store, on string, times int, at func()) objstore.Store {
+	return &slip{Store: s, on: on, left: times, at: at}
+}
+
 func (s *slip) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
 	items, err := s.Store.Query(ctx, q)
 	if err == nil && s.left > 0 && (s.on == "" || s.on == q.Entity) {

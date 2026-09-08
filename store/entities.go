@@ -72,10 +72,16 @@ var EntitiesByOwner = map[string][]string{
 	OwnerOnbod: {Onboarding, OnboardingGates, Invites},
 }
 
-// EntityMaker is a driver that needs its entities declared before they answer.
-// An engine with no DDL implements it as a no-op, which is why it is not on
-// objstore.Store: schema is driver-local (spec 6/40).
-type EntityMaker interface {
+// Driver is what preparing this package's entities takes: an engine that
+// declares them, and the store that writes through them.
+//
+// CreateEntity is not on objstore.Store because schema is driver-local and an
+// engine with no DDL implements it as a no-op (spec 6/40). It is joined to the
+// store here because one of the things prepared is not a table but an ITEM —
+// the version marker every scoped write moves, which has to be there before the
+// first of them (scopes.go).
+type Driver interface {
+	objstore.Store
 	CreateEntity(ctx context.Context, entity string) error
 }
 
@@ -96,17 +102,17 @@ type EntityMaker interface {
 // both calls both, the way runed/db.go does. Bundling them made this package's
 // migration tool refuse to run until audit's had, on a database where the two
 // moves are independent.
-func EnsureEntities(ctx context.Context, m EntityMaker, owner string) error {
+func EnsureEntities(ctx context.Context, d Driver, owner string) error {
 	entities, ok := EntitiesByOwner[owner]
 	if !ok {
 		return fmt.Errorf("store: %q owns none of this package's entities", owner)
 	}
 	for _, entity := range entities {
-		if err := m.CreateEntity(ctx, entity); err != nil {
+		if err := d.CreateEntity(ctx, entity); err != nil {
 			return err
 		}
 	}
-	return nil
+	return ensureScopes(ctx, d, owner)
 }
 
 // tsWidth is core.TS's width. A test checks it against core.TS itself, because
@@ -133,18 +139,22 @@ func setAttr(attrs map[string]string, name, value string) {
 func (s *Store) applyInChunks(ctx context.Context, what string,
 	writes []objstore.Write) (int, error) {
 	return applyChunks(ctx, what, writes, func(ctx context.Context, chunk []objstore.Write) (bool, error) {
-		return s.Obj().GuardedBatch(ctx, nil, chunk)
+		return s.writeEntities(ctx, nil, chunk...)
 	})
 }
 
 // applyChunks is the body of the sweep, taking the commit as a parameter so a
 // caller that owns a transaction runs the identical chunking rather than a
 // second loop beside it (CarryOnboardingLegacy, BackfillInviteRefs).
+//
+// A chunk is one action short of the bound, because every commit here carries
+// the version marker its writes move as one more action (scopes.go) and a chunk
+// filled to MaxBatchActions would be refused with it.
 func applyChunks(ctx context.Context, what string, writes []objstore.Write,
 	commit func(context.Context, []objstore.Write) (bool, error)) (int, error) {
 	done := 0
 	for len(writes) > 0 {
-		n := min(len(writes), objstore.MaxBatchActions)
+		n := min(len(writes), objstore.MaxBatchActions-1)
 		committed, err := commit(ctx, writes[:n])
 		if err != nil {
 			return done, fmt.Errorf("%s: %w", what, err)

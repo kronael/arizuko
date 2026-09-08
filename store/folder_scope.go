@@ -169,6 +169,7 @@ var folderScopeKeep = map[string]keepReason{
 	"proxyd_routes":    keep("owner is a package or the instance, never a folder"),
 	"idempotency_keys": keep("keyed by request"),
 	"router_state":     keep("instance-wide"),
+	"resreg_scopes":    keep("one version marker per subsystem, instance-wide"),
 	"config_meta":      keep("instance-wide"),
 	"migrations":       keep("schema bookkeeping"),
 	"sqlite_sequence":  keep("schema bookkeeping"),

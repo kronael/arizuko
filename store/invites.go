@@ -50,7 +50,6 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/objstore"
-	"github.com/kronael/arizuko/objstore/sqlstore"
 )
 
 // Invite is one invite row. It carries no raw-token field — the bearer is
@@ -229,7 +228,7 @@ func BackfillInviteRefs(db *sql.DB) error {
 	}
 	if _, err := applyChunks(context.Background(), "carry invites forward", writes,
 		func(ctx context.Context, chunk []objstore.Write) (bool, error) {
-			return sqlstore.New(db).GuardedBatchInTx(ctx, tx, nil, chunk)
+			return New(db).writeEntitiesInTx(ctx, tx, nil, chunk...)
 		}); err != nil {
 		return err
 	}
@@ -287,7 +286,7 @@ func (s *Store) InsertInviteTx(ctx context.Context, tx *sql.Tx, inv Invite) erro
 		return err
 	}
 	w.Cond = objstore.Cond{Item: objstore.ItemAbsent}
-	stored, err := s.Obj().GuardedBatchInTx(ctx, tx, nil, []objstore.Write{w})
+	stored, err := s.writeEntitiesInTx(ctx, tx, nil, w)
 	if err != nil {
 		return fmt.Errorf("store the invite: %w", err)
 	}
@@ -390,10 +389,10 @@ func (s *Store) RevokeInviteByRefTx(ctx context.Context, tx *sql.Tx, ref string)
 	if err != nil {
 		return err
 	}
-	revoked, err := s.Obj().GuardedBatchInTx(ctx, tx, nil, []objstore.Write{{
+	revoked, err := s.writeEntitiesInTx(ctx, tx, nil, objstore.Write{
 		Op: objstore.Delete, Entity: Invites, Key: key,
 		Cond: objstore.Cond{Item: objstore.ItemPresent},
-	}})
+	})
 	if err != nil {
 		return fmt.Errorf("revoke invite %s: %w", ref, err)
 	}
@@ -475,7 +474,7 @@ func (s *Store) RestoreInvite(token string) error {
 	}
 	// A refusal is NOT an error: it means the counter is already zero, which is
 	// what the statement's `used_count > 0` said about a row it did not touch.
-	if _, _, err := objstore.Increment(context.Background(), s.Obj(), Invites, key,
+	if _, _, err := s.incrementEntity(context.Background(), Invites, key,
 		attrInvUsedCount, -1,
 		[]objstore.Cmp{{Attr: attrInvUsedCount, Op: objstore.Ne, Value: "0"}}, nil); err != nil {
 		return fmt.Errorf("release a use of invite %s: %w", key.Sort, err)
@@ -517,8 +516,8 @@ func (s *Store) consumeInvite(token, userSub string, grantACL bool) (*Invite, er
 	}
 	defer tx.Rollback() //nolint:errcheck // the commit below is the success path
 
-	claimed, err := s.Obj().GuardedBatchInTx(ctx, tx, nil,
-		[]objstore.Write{usedCountWrite(key, inv.UsedCount, inv.UsedCount+1)})
+	claimed, err := s.writeEntitiesInTx(ctx, tx, nil,
+		usedCountWrite(key, inv.UsedCount, inv.UsedCount+1))
 	if err != nil {
 		return nil, err
 	}

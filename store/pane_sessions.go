@@ -133,24 +133,24 @@ func (s *Store) OpenPane(teamID, userID, threadTS, channelID string) error {
 		return err
 	}
 	ctx := context.Background()
-	opened, err := s.Obj().GuardedBatch(ctx, nil, []objstore.Write{{
+	opened, err := s.writeEntities(ctx, nil, objstore.Write{
 		Op: objstore.Put, Entity: PaneSessions, Key: key,
 		Attrs: map[string]string{
 			attrPaneChannel:  channelID,
 			attrPaneOpenedAt: core.NowTS(),
 		},
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},
-	}})
+	})
 	if err != nil {
 		return fmt.Errorf("open the pane in %s: %w", channelID, err)
 	}
 	if opened {
 		return nil
 	}
-	if _, err := s.Obj().GuardedBatch(ctx, nil, []objstore.Write{{
+	if _, err := s.writeEntities(ctx, nil, objstore.Write{
 		Op: objstore.Update, Entity: PaneSessions, Key: key,
 		Attrs: map[string]string{attrPaneChannel: channelID},
-	}}); err != nil {
+	}); err != nil {
 		return fmt.Errorf("move the pane to %s: %w", channelID, err)
 	}
 	return nil
@@ -198,8 +198,8 @@ func (s *Store) SetPaneContext(teamID, userID, threadTS, contextJID string) erro
 	if err != nil {
 		return err
 	}
-	if _, err := s.Obj().GuardedBatch(context.Background(), nil,
-		[]objstore.Write{paneContextWrite(key, contextJID)}); err != nil {
+	if _, err := s.writeEntities(context.Background(), nil,
+		paneContextWrite(key, contextJID)); err != nil {
 		return fmt.Errorf("set the pane's context: %w", err)
 	}
 	return nil

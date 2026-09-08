@@ -17,6 +17,7 @@ import (
 	"github.com/kronael/arizuko/db_utils/dbtest"
 	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/objstore/sqlstore"
+	"github.com/kronael/arizuko/store"
 )
 
 // EntityRow is the synthetic entity-backed schema: a unique string coordinate,
@@ -244,7 +245,7 @@ func TestEntity_ApplyIsFencedByItsMarker(t *testing.T) {
 	release := make(chan struct{})
 	done := make(chan error, 1)
 	go func() {
-		_, err := objstore.Replace(t.Context(), s, SubsystemScope(entitySubsystem), "",
+		_, err := objstore.Replace(t.Context(), s, store.OwnerScope(entitySubsystem), "",
 			func(ctx context.Context, rp *objstore.Replacer) error {
 				close(held)
 				<-release
@@ -306,7 +307,7 @@ func TestEntity_ExportSnapshotRefusesAHeldScope(t *testing.T) {
 	release := make(chan struct{})
 	done := make(chan error, 1)
 	go func() {
-		_, err := objstore.Replace(t.Context(), s, SubsystemScope(entitySubsystem), "",
+		_, err := objstore.Replace(t.Context(), s, store.OwnerScope(entitySubsystem), "",
 			func(ctx context.Context, rp *objstore.Replacer) error {
 				close(held)
 				<-release
@@ -451,11 +452,11 @@ func TestEntity_EnsureSubsystemIsQuietForColumnShapes(t *testing.T) {
 	var n int
 	if err := db.QueryRow(
 		"SELECT count(*) FROM sqlite_master WHERE type='table' AND name = ?",
-		ScopeEntity).Scan(&n); err != nil {
+		store.ScopeEntity).Scan(&n); err != nil {
 		t.Skipf("shape probe is SQLite's: %v", err)
 	}
 	if n != 0 {
-		t.Errorf("%s was created for a subsystem with no entity-backed resource", ScopeEntity)
+		t.Errorf("%s was created for a subsystem with no entity-backed resource", store.ScopeEntity)
 	}
 }
 

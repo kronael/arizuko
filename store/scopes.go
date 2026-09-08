@@ -1,0 +1,181 @@
+package store
+
+// scopes.go is the version marker this package's manifest-visible entities move
+// on every write, and the ONE site that moves it.
+//
+// WHY IT IS A MARKER AT ALL. resreg reads a subsystem's projection through
+// objstore.ReadConsistent, which reads a scope's marker, runs its queries, and
+// reads the marker again — there is no snapshot across N reads to open on a
+// key-value engine (objstore/consistent.go). So it detects exactly the writers
+// that put objstore.Bump into their own batch, and a writer that leaves it out
+// is invisible to every export: the export then reports itself consistent over
+// a state no writer ever saw. BUGS L264, live from the day onbod's three
+// resources became entities and the read transaction that had EXCLUDED a
+// concurrent write went with them.
+//
+// WHY THE DECLARATION IS HERE rather than beside its reader. resreg imports
+// store, so a scope declared in resreg cannot be reached by the writers, which
+// are in this package. It lives here for the reason resreg.SubsystemOnbod IS
+// store.OwnerOnbod: one declaration, and the reader that needs it at another
+// time or in another shape reads it.
+//
+// FORGETTING IS NOT EXPRESSIBLE. No writer in this package names a Bump. The
+// helpers below derive it from the entities the batch touches, and
+// scopes_test.go fails on any driver write that goes round them — the shape
+// runAudited gives the audit row (audit_helpers.go), for the same reason: the
+// failure is silence, and silence is not caught by review.
+
+import (
+	"context"
+	"database/sql"
+	"maps"
+	"slices"
+
+	"github.com/kronael/arizuko/objstore"
+)
+
+// ScopeEntity holds one item per subsystem: the version marker a replace claims
+// and a consistent read compares (objstore.Scope).
+//
+// It is an entity of its OWN rather than an item beside the rows it versions,
+// because a marker sitting inside a resource's own partition would arrive in
+// that resource's ScanAll as an item with no attributes it recognises.
+const ScopeEntity = "resreg_scopes"
+
+// scopePartition is the one partition every subsystem's marker lives in. There
+// is one item per subsystem and two subsystems, so the whole-partition read this
+// costs is a read of at most two items.
+const scopePartition = "resreg"
+
+// OwnerScope names the item carrying one owner's version marker.
+//
+// The owner is the unit because that is the unit resreg's two unbounded
+// protocols operate on: `arizuko apply` replaces one subsystem's
+// manifest-visible projection and `archive export` reads one subsystem's
+// document, and a subsystem IS an owner database (resreg.SubsystemOnbod).
+// A finer scope would let two applies to one owner database interleave, which
+// is exactly what the column path's write lock prevents.
+func OwnerScope(owner string) objstore.Scope {
+	return objstore.Scope{
+		Entity: ScopeEntity,
+		Key:    objstore.Key{Partition: scopePartition, Sort: owner},
+	}
+}
+
+// scopedEntities names each entity whose writes move a marker, and the owner
+// whose scope they move.
+//
+// It is a declaration of its own rather than EntitiesByOwner read twice,
+// because the marker versions a subsystem's MANIFEST-VISIBLE projection and not
+// its database. PaneSessions and SecretUseLog are absent deliberately: no
+// resreg resource reads them, so no export ever compares a marker over them,
+// and a secret use — one per tool call that resolves a secret — would move
+// routd's marker under an export that does not read it, spending one of
+// ReadConsistent's eight attempts every time. audit_log is absent for the same
+// reason and one more: four owner databases carry it and it is append-only.
+//
+// An entity-backed resreg resource missing from here is a resource an export
+// cannot see the writes to. resreg/resources proves the set covers every one it
+// registers, because that is where the registrations are known.
+var scopedEntities = map[string]string{
+	Onboarding:      OwnerOnbod,
+	OnboardingGates: OwnerOnbod,
+	Invites:         OwnerOnbod,
+}
+
+// EntityScope answers the scope an entity's writes move, and whether it has one.
+func EntityScope(entity string) (objstore.Scope, bool) {
+	owner, ok := scopedEntities[entity]
+	if !ok {
+		return objstore.Scope{}, false
+	}
+	return OwnerScope(owner), true
+}
+
+// scopeBumps renders the marker writes a batch owes, one per distinct scope it
+// touches, in owner order.
+//
+// The order is sorted rather than the order the writes arrived in, because a
+// batch is compared and replayed and two runs of the same mutation must render
+// the same actions. One per scope, because a batch may name each item once
+// (objstore.ValidateBatch) and a second bump of one marker is that same item.
+func scopeBumps(writes []objstore.Write) []objstore.Write {
+	var owners []string
+	for _, w := range writes {
+		owner, ok := scopedEntities[w.Entity]
+		if ok && !slices.Contains(owners, owner) {
+			owners = append(owners, owner)
+		}
+	}
+	slices.Sort(owners)
+	bumps := make([]objstore.Write, 0, len(owners))
+	for _, owner := range owners {
+		bumps = append(bumps, objstore.Bump(OwnerScope(owner)))
+	}
+	return bumps
+}
+
+// withBumps is the caller's writes followed by the markers they move.
+//
+// It COPIES, because a caller chunking a larger slice hands over writes[:n] and
+// appending in place would overwrite the first write of the next chunk with a
+// marker — a mutation dropped, silently, on exactly the sweeps that carry the
+// most of them (applyChunks).
+func withBumps(writes []objstore.Write) []objstore.Write {
+	return append(slices.Clone(writes), scopeBumps(writes)...)
+}
+
+// writeEntities is this package's GuardedBatch: the caller's writes plus the
+// marker every scoped one of them moves, in the caller's own batch, so the
+// mutation and the version go in together or neither does.
+//
+// It answers what GuardedBatch answers — committed=false is the caller's own
+// condition refusing, and nothing here adds a condition of its own.
+func (s *Store) writeEntities(ctx context.Context, checks []objstore.Check,
+	writes ...objstore.Write) (bool, error) {
+	return s.Obj().GuardedBatch(ctx, checks, withBumps(writes))
+}
+
+// writeEntitiesInTx is writeEntities on a transaction the CALLER owns, for the
+// audited writers whose audit row commits with their mutation.
+func (s *Store) writeEntitiesInTx(ctx context.Context, tx *sql.Tx, checks []objstore.Check,
+	writes ...objstore.Write) (bool, error) {
+	return s.Obj().GuardedBatchInTx(ctx, tx, checks, withBumps(writes))
+}
+
+// incrementEntity is objstore.Increment with the marker among its companion
+// writes, so a counter that moves is as visible to a consistent read as a put
+// is.
+//
+// The version is rendered once, when the call starts, and every retry re-sends
+// that same companion — which is what the protocol wants: a refused attempt
+// wrote nothing, and the attempt that commits leaves a value no other call
+// produced, which is all a reader comparing two point reads asks for.
+func (s *Store) incrementEntity(ctx context.Context, entity string, key objstore.Key,
+	attr string, delta int, cond []objstore.Cmp, also []objstore.Write) (int, bool, error) {
+	counted := append([]objstore.Write{{Entity: entity, Key: key}}, also...)
+	return objstore.Increment(ctx, s.Obj(), entity, key, attr, delta, cond,
+		append(slices.Clone(also), scopeBumps(counted)...))
+}
+
+// ensureScopes creates the marker every scoped entity of one owner moves, and
+// the entity it lives in.
+//
+// EnsureEntities calls it, so every opener that creates these entities creates
+// the item their writes update. It has to exist BEFORE any write: a Bump is an
+// Update, an Update against a missing item writes nothing, and the refusal
+// takes the whole batch it rides in — the mutation lost with it
+// (objstore.EnsureScope).
+//
+// An owner with no scoped entity gets nothing, which is what makes
+// resreg.EnsureSubsystem's own answer for a column-shaped subsystem the same
+// answer: the scope entity is not created where no marker is compared.
+func ensureScopes(ctx context.Context, d Driver, owner string) error {
+	if !slices.Contains(slices.Sorted(maps.Values(scopedEntities)), owner) {
+		return nil
+	}
+	if err := d.CreateEntity(ctx, ScopeEntity); err != nil {
+		return err
+	}
+	return objstore.EnsureScope(ctx, d, OwnerScope(owner))
+}

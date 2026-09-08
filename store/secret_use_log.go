@@ -168,10 +168,8 @@ func (s *Store) LogSecretUse(r SecretUseRow) error {
 	}
 	id := newSecretUseID(r.TS)
 	_, record := audit.WriteFor(ev)
-	committed, err := s.Obj().GuardedBatch(context.Background(), nil, []objstore.Write{
-		secretUseWrite(id, r),
-		record,
-	})
+	committed, err := s.writeEntities(context.Background(), nil,
+		secretUseWrite(id, r), record)
 	if err != nil {
 		return fmt.Errorf("record the use of %s: %w", r.Key, err)
 	}

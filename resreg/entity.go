@@ -36,6 +36,7 @@ import (
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/objstore/sqlstore"
+	"github.com/kronael/arizuko/store"
 )
 
 // OnDB is the Backend for one owner database: the pool itself for a
@@ -389,32 +390,11 @@ func subsystemShape(subsystem string) (shape, error) {
 
 // --- the version marker one subsystem's projection is replaced under ----
 
-// ScopeEntity holds one item per subsystem: the version marker a replace claims
-// and a consistent read compares (objstore.Scope).
-//
-// It is an entity of its OWN rather than an item beside the rows it versions,
-// because a marker sitting inside a resource's own partition would arrive in
-// that resource's ScanAll as an item with no attributes it recognises.
-const ScopeEntity = "resreg_scopes"
-
-// scopePartition is the one partition every subsystem's marker lives in. There
-// is one item per subsystem and two subsystems, so the whole-partition read this
-// costs is a read of at most two items.
-const scopePartition = "resreg"
-
-// SubsystemScope names the item carrying one subsystem's version marker.
-//
-// The subsystem is the unit because that is the unit Apply and ExportSnapshot
-// operate on: `arizuko apply` replaces one subsystem's manifest-visible
-// projection, and `archive export` reads one subsystem's document. A finer scope
-// would let two applies to one owner database interleave, which is exactly what
-// the column path's write lock prevents.
-func SubsystemScope(subsystem string) objstore.Scope {
-	return objstore.Scope{
-		Entity: ScopeEntity,
-		Key:    objstore.Key{Partition: scopePartition, Sort: subsystem},
-	}
-}
+// The scope this engine claims and compares is store.OwnerScope, declared
+// THERE rather than here for the reason SubsystemOnbod IS store.OwnerOnbod: a
+// subsystem is an owner database, store holds the writers whose every mutation
+// has to move that subsystem's marker, and store cannot import this package
+// (BUGS L264). One declaration, two readers.
 
 // EntityMaker is a driver that needs its entities declared before they answer.
 // An engine with no DDL implements it as a no-op, which is why it is not on
@@ -445,12 +425,12 @@ func EnsureSubsystem(ctx context.Context, m EntityMaker, s objstore.Store, subsy
 	if len(entities) == 0 {
 		return nil
 	}
-	for _, entity := range append(entities, ScopeEntity) {
+	for _, entity := range append(entities, store.ScopeEntity) {
 		if err := m.CreateEntity(ctx, entity); err != nil {
 			return err
 		}
 	}
-	return objstore.EnsureScope(ctx, s, SubsystemScope(subsystem))
+	return objstore.EnsureScope(ctx, s, store.OwnerScope(subsystem))
 }
 
 // --- the object path's apply -------------------------------------------
@@ -480,7 +460,7 @@ func applyEntities(ctx context.Context, be Backend, subsystem, wantChecksum stri
 	}
 	rd := be.read()
 	var current, applied string
-	_, err := objstore.Replace(ctx, be.Obj, SubsystemScope(subsystem), "",
+	_, err := objstore.Replace(ctx, be.Obj, store.OwnerScope(subsystem), "",
 		func(ctx context.Context, rp *objstore.Replacer) error {
 			var err error
 			// Read under the claim, so the checksum this compares is the state the
