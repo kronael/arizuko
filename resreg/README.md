@@ -26,12 +26,25 @@ manifests — CLI/MCP only.
 ## Two shapes, and the resource declares which
 
 A resource's rows are either SQL columns or `objstore` items, and
-`Resource.EntitySortKey` is the whole declaration: naming a `RowType` field
-there makes `Table` an entity, every `db:` tag an attribute name, and that
-field's value the item's sort key. `ScanAll` is still the single row reader
-and it branches on that field — never on what the storage answers, and never
-one path as a fallback for the other (`entity.go`, spec
+`Resource.EntitySortKey` is the whole declaration: naming `RowType` fields
+there makes `Table` an entity, every other `db:` tag an attribute name, and
+those fields' values the item's sort key. `ScanAll` is still the single row
+reader and it branches on that declaration — never on what the storage answers,
+and never one path as a fallback for the other (`entity.go`, spec
 [`6/37`](../specs/6/37-store-model.md) step 6, BUGS `L259`).
+
+The coordinate is a LIST, because two resources have no single-field identity:
+`network_rules` is keyed `(folder, target)` — 15 rows over 10 targets on krons,
+so `target` alone would collide five of them — and `installed_packages` is
+`(folder, name)`. `Resource.EntityKeySep` joins them and no value of any of them
+may carry it: a write that does is REFUSED, which is the only end that can see
+two rows joining onto one key, and the read refuses a stored key that does not
+split into as many parts as the coordinate has. The separator is declared per
+resource because which byte no value carries is a fact about the rows — `/`
+separates a Slack team, user and thread (`store/pane_sessions`) and can never
+separate a folder from anything, because a folder path is made of them. An
+EMPTY part is a coordinate: `folder: ""` is how both composite resources spell
+an instance-wide row.
 
 The PARTITION is not declared. It is `Resource.DB`, the owner subsystem, because
 every read the engine makes is per subsystem and the partition is the coordinate

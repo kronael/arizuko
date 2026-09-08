@@ -55,7 +55,7 @@ func init() {
 		DB:            resreg.SubsystemOnbod,
 		RowType:       reflect.TypeOf(InvitesRow{}),
 		PKFields:      []string{"Ref"},
-		EntitySortKey: "Ref",
+		EntitySortKey: []string{"Ref"},
 		Endpoints:     InvitesEndpoints,
 		// Invite tokens are minted imperatively (invite_create / POST /v1/invites)
 		// and never round-trip through a manifest — Apply must never DELETE+INSERT

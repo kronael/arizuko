@@ -54,7 +54,7 @@ func freshEntity(t *testing.T) (*sql.DB, objstore.Store, *Resource) {
 		DB:            entitySubsystem,
 		RowType:       reflect.TypeFor[EntityRow](),
 		PKFields:      []string{"Key"},
-		EntitySortKey: "Key",
+		EntitySortKey: []string{"Key"},
 	})
 	if err := EnsureSubsystem(t.Context(), s, s, entitySubsystem); err != nil {
 		t.Fatalf("EnsureSubsystem: %v", err)
@@ -388,7 +388,7 @@ func TestEntity_RegisterRefusesAMisdeclaredShape(t *testing.T) {
 		return Resource{
 			Name: "bad", Table: "bad", DB: entitySubsystem,
 			RowType: reflect.TypeFor[EntityRow](), PKFields: []string{"Key"},
-			EntitySortKey: "Key",
+			EntitySortKey: []string{"Key"},
 		}
 	}
 	type badRow struct {
@@ -403,9 +403,9 @@ func TestEntity_RegisterRefusesAMisdeclaredShape(t *testing.T) {
 		{"no subsystem", "names no owner subsystem",
 			func(r Resource) Resource { r.DB = ""; return r }},
 		{"sort key is not a field", "is not a field",
-			func(r Resource) Resource { r.EntitySortKey = "Nope"; return r }},
+			func(r Resource) Resource { r.EntitySortKey = []string{"Nope"}; return r }},
 		{"sort key is not text", "coordinate is text",
-			func(r Resource) Resource { r.EntitySortKey = "Count"; return r }},
+			func(r Resource) Resource { r.EntitySortKey = []string{"Count"}; return r }},
 		{"row filter", "conjunction with no OR",
 			func(r Resource) Resource { r.RowFilter = "count > 0"; return r }},
 		{"scope", "unbounded read-then-delete",
@@ -488,5 +488,200 @@ func TestEntity_ColumnWritesRefuseAnEntityResource(t *testing.T) {
 		if !strings.Contains(err.Error(), "is entity-backed") {
 			t.Errorf("%s err = %v, want it to name the shape", tc.name, err)
 		}
+	}
+}
+
+// --- the composite coordinate ------------------------------------------
+//
+// network_rules is keyed (folder, target) and installed_packages (folder,
+// name), so a coordinate is a LIST of fields joined by a declared separator
+// (spec 6/40 §1). The bodies below pin the three things that makes true: the
+// tuple survives the round trip through the key, an instance-wide row whose
+// first field is empty still has a coordinate, and a value carrying the
+// separator is REFUSED rather than joined.
+
+// CompositeRow is a synthetic (folder, target) resource: two coordinate fields
+// and one ordinary attribute.
+type CompositeRow struct {
+	Folder string `db:"folder" yaml:"folder"`
+	Target string `db:"target" yaml:"target"`
+	By     string `db:"by"     yaml:"by,omitempty"`
+}
+
+// compositeSep is a byte no folder and no hostname carries. It is NOT "/",
+// because a folder path is made of those — which is the whole reason the
+// separator is declared per resource rather than fixed by the engine.
+const compositeSep = "\x1f"
+
+func freshComposite(t *testing.T) (*sql.DB, objstore.Store, *Resource) {
+	t.Helper()
+	reset()
+	db := dbtest.Open(t)
+	s := sqlstore.New(db)
+	if err := s.CreateEntity(t.Context(), "audit_log"); err != nil {
+		t.Fatalf("audit_log: %v", err)
+	}
+	r := Register(Resource{
+		Name:          "composites",
+		Table:         "composites",
+		DB:            entitySubsystem,
+		RowType:       reflect.TypeFor[CompositeRow](),
+		PKFields:      []string{"Folder", "Target"},
+		EntitySortKey: []string{"Folder", "Target"},
+		EntityKeySep:  compositeSep,
+	})
+	if err := EnsureSubsystem(t.Context(), s, s, entitySubsystem); err != nil {
+		t.Fatalf("EnsureSubsystem: %v", err)
+	}
+	return db, s, r
+}
+
+// The pair is the coordinate, so two rows sharing ONE of the two are two items.
+// This is what `target` alone could not give: krons carries 15 network_rules
+// rows over 10 targets, so a key on target would have collided five of them.
+func TestEntity_CompositeCoordinateKeepsRowsApart(t *testing.T) {
+	db, s, r := freshComposite(t)
+	be := Backend{DB: db, Obj: s}
+	rows := []CompositeRow{
+		{Folder: "corp/eng", Target: "api.example.com", By: "sre"},
+		{Folder: "corp/sre", Target: "api.example.com", By: "sre"},
+		// The instance-wide rule: folder "" is the sentinel network_rules and
+		// installed_packages both use, and it still has a coordinate.
+		{Folder: "", Target: "api.example.com", By: "migration"},
+	}
+	if _, err := Apply(t.Context(), be, entitySubsystem, "", true,
+		map[string]any{"composites": rows}, nil); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	got, err := r.ScanAll(be)
+	if err != nil {
+		t.Fatalf("ScanAll: %v", err)
+	}
+	back := got.([]CompositeRow)
+	if len(back) != 3 {
+		t.Fatalf("read %d rows, want 3 — one item per (folder, target): %v", len(back), back)
+	}
+	want := map[string]string{"corp/eng": "sre", "corp/sre": "sre", "": "migration"}
+	for _, row := range back {
+		if row.Target != "api.example.com" {
+			t.Errorf("target = %q, want it back out of the coordinate", row.Target)
+		}
+		if by, ok := want[row.Folder]; !ok || by != row.By {
+			t.Errorf("row %+v: folder did not come back out of the coordinate", row)
+		}
+		delete(want, row.Folder)
+	}
+	if len(want) > 0 {
+		t.Errorf("rows never came back: %v", want)
+	}
+}
+
+// A value carrying the separator is REFUSED at write time.
+//
+// There are two guards, one at each end, and this is the one that keeps a
+// corrupt coordinate OUT OF THE STORE: the read below refuses a key that does
+// not split into as many parts as the coordinate has, so without this refusal
+// the row is written and then unreadable — an export that fails over a row an
+// apply put there. Two rows joining to ONE key is the other half, and that one
+// the read cannot see at all, because the key it produced splits cleanly.
+func TestEntity_CompositeRefusesASeparatorInAValue(t *testing.T) {
+	db, s, r := freshComposite(t)
+	be := Backend{DB: db, Obj: s}
+
+	// One row, nothing to collide with: the damage is entirely in the write.
+	lone := []CompositeRow{{Folder: "corp/eng", Target: "a" + compositeSep + "b", By: "sre"}}
+	_, err := r.entityPuts(lone)
+	if err == nil {
+		t.Fatal("entityPuts joined a value that carries the separator, so the key it " +
+			"wrote does not split back into the row it came from")
+	}
+	for _, want := range []string{"separates", "one item", "target"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %v, want it to contain %q", err, want)
+		}
+	}
+	// The refusal reaches an operator through Apply, not only the renderer, and
+	// it lands BEFORE anything is written: the projection is still empty.
+	if _, err := Apply(t.Context(), be, entitySubsystem, "", true,
+		map[string]any{"composites": lone}, nil); err == nil {
+		t.Fatal("Apply wrote a row whose coordinate carries the separator")
+	}
+	got, err := r.ScanAll(be)
+	if err != nil {
+		t.Fatalf("ScanAll after the refused apply: %v", err)
+	}
+	if n := len(got.([]CompositeRow)); n != 0 {
+		t.Errorf("%d rows are stored after a refused apply, want 0", n)
+	}
+
+	// Two rows joining to one key: the read cannot tell, because "a<sep>b<sep>c"
+	// is a key of the right shape for a three-field coordinate and this one has
+	// two. The write is the only place to catch it.
+	collide := []CompositeRow{
+		{Folder: "a" + compositeSep + "b", Target: "c", By: "first"},
+		{Folder: "a", Target: "b" + compositeSep + "c", By: "second"},
+	}
+	if _, err := r.entityPuts(collide); err == nil {
+		t.Fatal("entityPuts joined two rows onto one coordinate")
+	}
+}
+
+// A stored key that does not split into as many parts as the coordinate has is
+// a LOUD read fault. Half a coordinate is a row nobody wrote, and answering it
+// as one would put it in an export the operator then applies.
+func TestEntity_CompositeRefusesAKeyThatDoesNotSplit(t *testing.T) {
+	db, s, r := freshComposite(t)
+	committed, err := s.GuardedBatch(t.Context(), nil, []objstore.Write{{
+		Op: objstore.Put, Entity: "composites",
+		Key:   objstore.Key{Partition: entitySubsystem, Sort: "no-separator-here"},
+		Attrs: map[string]string{"by": "somebody else"},
+	}})
+	if err != nil || !committed {
+		t.Fatalf("put: committed=%v err=%v", committed, err)
+	}
+	if _, err := r.ScanAll(Backend{DB: db, Obj: s}); err == nil ||
+		!strings.Contains(err.Error(), "splits on") {
+		t.Errorf("ScanAll err = %v, want it to name the key that does not split", err)
+	}
+}
+
+// The declaration's own refusals: a composite key with nothing to join it, a
+// separator beside a single field, and a field named twice.
+func TestEntity_RegisterRefusesAMisdeclaredCoordinate(t *testing.T) {
+	base := func() Resource {
+		return Resource{
+			Name: "bad", Table: "bad", DB: entitySubsystem,
+			RowType: reflect.TypeFor[CompositeRow](), PKFields: []string{"Folder"},
+			EntitySortKey: []string{"Folder", "Target"}, EntityKeySep: compositeSep,
+		}
+	}
+	cases := []struct {
+		name string
+		want string
+		of   func(Resource) Resource
+	}{
+		{"composite with no separator", "declares no EntityKeySep",
+			func(r Resource) Resource { r.EntityKeySep = ""; return r }},
+		{"separator with one field", "there is nothing to join",
+			func(r Resource) Resource { r.EntitySortKey = []string{"Folder"}; return r }},
+		{"separator with no key", "a separator with nothing to join",
+			func(r Resource) Resource { r.EntitySortKey = nil; return r }},
+		{"one field twice", "cannot be two parts of a coordinate",
+			func(r Resource) Resource { r.EntitySortKey = []string{"Folder", "Folder"}; return r }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			reset()
+			defer func() {
+				got := recover()
+				if got == nil {
+					t.Fatalf("Register accepted %s", tc.name)
+				}
+				if msg, _ := got.(string); !strings.Contains(msg, tc.want) {
+					t.Errorf("panic = %v, want it to contain %q", got, tc.want)
+				}
+			}()
+			Register(tc.of(base()))
+		})
 	}
 }

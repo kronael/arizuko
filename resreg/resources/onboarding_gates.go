@@ -40,7 +40,7 @@ func init() {
 		DB:            resreg.SubsystemOnbod,
 		RowType:       reflect.TypeFor[OnboardingGatesRow](),
 		PKFields:      []string{"Gate"},
-		EntitySortKey: "Gate",
+		EntitySortKey: []string{"Gate"},
 		Endpoints:     OnboardingGatesEndpoints,
 	})
 }

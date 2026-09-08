@@ -91,7 +91,7 @@ func init() {
 		DB:            resreg.SubsystemOnbod,
 		RowType:       reflect.TypeFor[OnboardingRow](),
 		PKFields:      []string{"JID"},
-		EntitySortKey: "JID",
+		EntitySortKey: []string{"JID"},
 		Endpoints:     OnboardingEndpoints,
 		MCPDoc:        OnboardingMCPDoc,
 		MCPArgs:       OnboardingMCPArgs,

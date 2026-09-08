@@ -267,13 +267,19 @@ type Resource struct {
 	Table    string       // where the rows live: the SQL table, or the entity of the same name
 	PKFields []string     // Go field names making up the natural PK
 
-	// EntitySortKey declares this resource's SHAPE. Naming a RowType field here
+	// EntitySortKey declares this resource's SHAPE. Naming RowType fields here
 	// makes the rows objstore ITEMS — Table is an entity, each `db:` tag is an
-	// attribute name, and this field's value is the item's sort key. Empty is
-	// the column path. There is exactly one shape per resource at any moment and
-	// this is the only place it is written down; the engine reads it and never
-	// probes, and there is no try-the-entity-then-try-the-table (spec 6/37
-	// step 6, BUGS L259).
+	// attribute name, and these fields' values joined by EntityKeySep are the
+	// item's sort key. Empty is the column path. There is exactly one shape per
+	// resource at any moment and this is the only place it is written down; the
+	// engine reads it and never probes, and there is no
+	// try-the-entity-then-try-the-table (spec 6/37 step 6, BUGS L259).
+	//
+	// It is a LIST because a coordinate can be composite and two resources have
+	// no single-field identity: network_rules is keyed (folder, target) and
+	// target alone is not unique in live data — 15 rows over 10 targets on krons
+	// — and installed_packages is (folder, name). store/pane_sessions and
+	// chanlib/chanstore already build a key this way (spec 6/40 §1).
 	//
 	// It is SEPARATE from PKFields because they answer different questions.
 	// PKFields is the MANIFEST identity Diff matches rows on and EmitRows sorts
@@ -288,7 +294,20 @@ type Resource struct {
 	// and the partition is the coordinate a read filters on (objstore.Key). So
 	// an entity-backed resource must name its subsystem, and initMeta refuses one
 	// that does not rather than issuing a query no driver accepts.
-	EntitySortKey string
+	EntitySortKey []string
+
+	// EntityKeySep joins the fields of a composite EntitySortKey, and no value
+	// of any of them may contain it — a write that carries it is REFUSED rather
+	// than splitting the key somewhere the read would not put it back together.
+	//
+	// It is declared per resource because which byte no value carries is a fact
+	// about the rows, not about the engine: "/" separates a Slack team, user and
+	// thread (store/pane_sessions) and cannot separate a folder from anything,
+	// because a folder path is made of them.
+	//
+	// A single-field key has nothing to join, so a separator declared beside one
+	// is refused: it would be a fact no reader uses.
+	EntityKeySep string
 
 	Scope ScopeSpec // DeleteScope filter; zero = no per-scope op
 	Hooks Hooks     // optional semantics callbacks

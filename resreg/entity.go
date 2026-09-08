@@ -5,11 +5,17 @@ package resreg
 // BUGS L259).
 //
 // THERE IS ONE SHAPE PER RESOURCE AND THE RESOURCE DECLARES IT. Resource.
-// EntitySortKey is the whole declaration: naming a field there makes Table an
-// entity and every `db:` tag an attribute name. The engine reads that field and
-// branches; it never probes the storage, never asks the database what shape it
-// found, and never falls back from one path to the other. A fallback would be
-// two paths for one table, and two paths drift.
+// EntitySortKey is the whole declaration: naming fields there makes Table an
+// entity and every other `db:` tag an attribute name. The engine reads that
+// declaration and branches; it never probes the storage, never asks the database
+// what shape it found, and never falls back from one path to the other. A
+// fallback would be two paths for one table, and two paths drift.
+//
+// THE COORDINATE IS A LIST, joined by a separator the resource declares, because
+// two resources have no single-field identity: network_rules is keyed
+// (folder, target) and installed_packages (folder, name). A value carrying the
+// separator is refused at WRITE, which is the only end that can see two rows
+// joining onto one key (spec 6/40 §1).
 //
 // WHAT THE OBJECT PATH DELETES, and it is the reason the move is a
 // simplification rather than a translation. An attribute an item does not carry
@@ -84,13 +90,27 @@ func (b Backend) read() reader { return reader{sql: b.DB, obj: b.Obj} }
 // built only for a resource that declared EntitySortKey, so a column-shaped
 // resource carries none of it.
 type entityMeta struct {
-	// sort is the field whose value IS the item's sort key. It is not among
-	// attrs: storing the coordinate twice is two facts that can disagree, and
-	// the read puts it back from the key it came from.
-	sort fieldMeta
+	// sort is the fields whose values, joined by sep, ARE the item's sort key.
+	// None of them is among attrs: storing the coordinate twice is two facts
+	// that can disagree, and the read puts them back from the key they came
+	// from.
+	sort []fieldMeta
+	// sep joins them, and is empty for a single-field key. No value of any sort
+	// field may contain it (Resource.EntityKeySep).
+	sep string
 	// attrs is every other `db:`-tagged field, one attribute each, named by the
 	// tag.
 	attrs []fieldMeta
+}
+
+// sortCols names the coordinate the way an error message has to spell it: one
+// column, or the joined list a composite key is made of.
+func (e *entityMeta) sortCols() string {
+	cols := make([]string, len(e.sort))
+	for i, fm := range e.sort {
+		cols[i] = fm.col
+	}
+	return strings.Join(cols, ",")
 }
 
 // initEntity builds the object path's metadata, or refuses the declaration.
@@ -100,7 +120,11 @@ type entityMeta struct {
 // Every one of them names what the object path would need, because a "not
 // supported" with no reason is the kind of gap somebody works around.
 func (r *Resource) initEntity(m *resourceMeta, byField map[string]int) {
-	if r.EntitySortKey == "" {
+	if len(r.EntitySortKey) == 0 {
+		if r.EntityKeySep != "" {
+			panic(fmt.Sprintf("resreg: %s declares EntityKeySep %q and no EntitySortKey; "+
+				"a separator with nothing to join is a fact no reader uses", r.Name, r.EntityKeySep))
+		}
 		return
 	}
 	if r.DB == "" {
@@ -108,16 +132,40 @@ func (r *Resource) initEntity(m *resourceMeta, byField map[string]int) {
 			"the subsystem IS the partition every read filters on, and a query without "+
 			"one is refused by every driver", r.Name))
 	}
-	i, ok := byField[r.EntitySortKey]
-	if !ok {
-		panic(fmt.Sprintf("resreg: %s EntitySortKey %q is not a field of %s, or has no db: tag",
-			r.Name, r.EntitySortKey, m.rowType))
+	// The separator is what makes a composite key readable back: the read splits
+	// on it and expects exactly as many parts as there are fields. One field has
+	// nothing to join, so a separator beside it is refused rather than ignored —
+	// an ignored declaration is one a later reader believes.
+	if len(r.EntitySortKey) > 1 && r.EntityKeySep == "" {
+		panic(fmt.Sprintf("resreg: %s has a composite EntitySortKey %v and declares no "+
+			"EntityKeySep; the fields would run together into one key no read can split",
+			r.Name, r.EntitySortKey))
 	}
-	sort := m.fields[i]
-	if m.rowType.Field(sort.idx).Type.Kind() != reflect.String {
-		panic(fmt.Sprintf("resreg: %s EntitySortKey %q is a %s; a sort key is the item's "+
-			"coordinate and every coordinate is text", r.Name, r.EntitySortKey,
-			m.rowType.Field(sort.idx).Type.Kind()))
+	if len(r.EntitySortKey) == 1 && r.EntityKeySep != "" {
+		panic(fmt.Sprintf("resreg: %s declares EntityKeySep %q for the single-field "+
+			"EntitySortKey %q; there is nothing to join", r.Name, r.EntityKeySep,
+			r.EntitySortKey[0]))
+	}
+	var sortFields []fieldMeta
+	seen := map[string]bool{}
+	for _, name := range r.EntitySortKey {
+		if seen[name] {
+			panic(fmt.Sprintf("resreg: %s names %q twice in EntitySortKey; one field cannot "+
+				"be two parts of a coordinate", r.Name, name))
+		}
+		seen[name] = true
+		i, ok := byField[name]
+		if !ok {
+			panic(fmt.Sprintf("resreg: %s EntitySortKey %q is not a field of %s, or has no db: tag",
+				r.Name, name, m.rowType))
+		}
+		fm := m.fields[i]
+		if m.rowType.Field(fm.idx).Type.Kind() != reflect.String {
+			panic(fmt.Sprintf("resreg: %s EntitySortKey %q is a %s; a sort key is the item's "+
+				"coordinate and every coordinate is text", r.Name, name,
+				m.rowType.Field(fm.idx).Type.Kind()))
+		}
+		sortFields = append(sortFields, fm)
 	}
 	if r.RowFilter != "" {
 		// Query.Where is a CONJUNCTION and acl_membership's filter is
@@ -158,9 +206,13 @@ func (r *Resource) initEntity(m *resourceMeta, byField map[string]int) {
 			"conversion the absent-attribute model already makes unnecessary, and "+
 			"BeforeInsert/ValidateRow take the *sql.Tx this path does not open", r.Name))
 	}
-	e := &entityMeta{sort: sort}
+	e := &entityMeta{sort: sortFields, sep: r.EntityKeySep}
+	inKey := map[int]bool{}
+	for _, fm := range sortFields {
+		inKey[fm.idx] = true
+	}
 	for _, fm := range m.fields {
-		if fm.idx == sort.idx {
+		if inKey[fm.idx] {
 			continue
 		}
 		switch k := m.rowType.Field(fm.idx).Type.Kind(); k {
@@ -218,8 +270,13 @@ func (r *Resource) scanEntities(rd reader) (any, error) {
 	return slice.Interface(), nil
 }
 
-// rowFrom builds one row from one stored item. The sort-key field comes back out
-// of the KEY, which is where it was written.
+// rowFrom builds one row from one stored item. The sort-key fields come back out
+// of the KEY, which is where they were written.
+//
+// A composite key is SPLIT on the declared separator and the parts have to count
+// exactly, because no value may carry the separator (itemFor refuses one that
+// does). A key that does not split is a LOUD fault rather than a partly-filled
+// row: half a coordinate names a row nobody wrote.
 //
 // An attribute the item does not carry leaves its field at the zero value, which
 // is what absent means. A numeric attribute that is not a number is an ERROR
@@ -229,7 +286,20 @@ func (r *Resource) rowFrom(it objstore.Item) (reflect.Value, error) {
 	e := r.meta.entity
 	ptr := reflect.New(r.meta.rowType)
 	row := ptr.Elem()
-	row.Field(e.sort.idx).SetString(it.Key.Sort)
+	if len(e.sort) == 1 {
+		row.Field(e.sort[0].idx).SetString(it.Key.Sort)
+	} else {
+		parts := strings.Split(it.Key.Sort, e.sep)
+		if len(parts) != len(e.sort) {
+			return reflect.Value{}, fmt.Errorf("%s item %q splits on %q into %d parts and "+
+				"its coordinate (%s) has %d; the key was written by something that does not "+
+				"share this declaration", r.Name, it.Key.Sort, e.sep, len(parts),
+				e.sortCols(), len(e.sort))
+		}
+		for i, fm := range e.sort {
+			row.Field(fm.idx).SetString(parts[i])
+		}
+	}
 	for _, fm := range e.attrs {
 		text, ok := it.Attrs[fm.col]
 		if !ok {
@@ -243,11 +313,43 @@ func (r *Resource) rowFrom(it objstore.Item) (reflect.Value, error) {
 		n, err := strconv.Atoi(text)
 		if err != nil {
 			return reflect.Value{}, fmt.Errorf("%s %s=%q: %s is %q, which is not a number: %w",
-				r.Name, e.sort.col, it.Key.Sort, fm.col, text, err)
+				r.Name, e.sortCols(), it.Key.Sort, fm.col, text, err)
 		}
 		f.SetInt(int64(n))
 	}
 	return row, nil
+}
+
+// sortKeyFor renders one row's coordinate: the sort field, or the declared
+// join of the several that make it up.
+//
+// A value CARRYING the separator is refused rather than joined, which is the
+// rule store/pane_sessions already enforces over its three fields. Joined, two
+// different rows would address one item and the last write would win, and the
+// read that splits the key back apart would answer a tuple neither row has.
+//
+// An EMPTY part is allowed and an empty whole key is not. network_rules spells
+// an instance-wide rule folder="" and installed_packages spells an
+// instance-wide package the same way, so refusing the part would refuse every
+// global row; the parts still separate, because the separator count is fixed.
+func (r *Resource) sortKeyFor(v reflect.Value) (string, error) {
+	e := r.meta.entity
+	parts := make([]string, len(e.sort))
+	for i, fm := range e.sort {
+		parts[i] = v.Field(fm.idx).String()
+		if e.sep != "" && strings.Contains(parts[i], e.sep) {
+			return "", fmt.Errorf("%s row carries %s=%q, and %q separates the %d fields of "+
+				"its coordinate (%s); two rows would address one item",
+				r.Name, fm.col, parts[i], e.sep, len(e.sort), e.sortCols())
+		}
+	}
+	key := strings.Join(parts, e.sep)
+	if key == "" {
+		return "", fmt.Errorf("%s row carries no %s, which is its sort key; "+
+			"every such row would address one item and the last write would win",
+			r.Name, e.sortCols())
+	}
+	return key, nil
 }
 
 // itemFor renders one row as the item it is stored as.
@@ -258,11 +360,9 @@ func (r *Resource) rowFrom(it objstore.Item) (reflect.Value, error) {
 // the row states rather than one it omits.
 func (r *Resource) itemFor(v reflect.Value) (objstore.Write, error) {
 	e := r.meta.entity
-	sort := v.Field(e.sort.idx).String()
-	if sort == "" {
-		return objstore.Write{}, fmt.Errorf("%s row carries no %s, which is its sort key; "+
-			"every such row would address one item and the last write would win",
-			r.Name, e.sort.col)
+	sort, err := r.sortKeyFor(v)
+	if err != nil {
+		return objstore.Write{}, err
 	}
 	attrs := make(map[string]string, len(e.attrs))
 	for _, fm := range e.attrs {
@@ -303,7 +403,7 @@ func (r *Resource) entityPuts(rows any) ([]objstore.Write, error) {
 		}
 		if seen[w.Key.Sort] {
 			return nil, fmt.Errorf("%s: two rows carry %s=%q, so one would overwrite the other",
-				r.Name, r.meta.entity.sort.col, w.Key.Sort)
+				r.Name, r.meta.entity.sortCols(), w.Key.Sort)
 		}
 		seen[w.Key.Sort] = true
 		out = append(out, w)
