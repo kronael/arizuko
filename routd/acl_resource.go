@@ -356,19 +356,14 @@ func addMembershipTx(ctx context.Context, tx *sql.Tx, child, parent, addedBy str
 	if child == parent {
 		return store.ErrSelfMembership
 	}
-	var hits int
-	if err := tx.QueryRowContext(ctx,
-		`WITH RECURSIVE up(p) AS (
-		   SELECT ? UNION
-		   SELECT acl_membership.parent FROM acl_membership JOIN up ON acl_membership.child = up.p
-		 ) SELECT COUNT(*) FROM up WHERE p = ?`,
-		parent, child).Scan(&hits); err != nil {
+	cycles, err := store.MembershipWouldCycle(ctx, tx, child, parent)
+	if err != nil {
 		return err
 	}
-	if hits > 0 {
+	if cycles {
 		return store.ErrCycle
 	}
-	_, err := tx.ExecContext(ctx,
+	_, err = tx.ExecContext(ctx,
 		`INSERT OR IGNORE INTO acl_membership (child, parent, added_by, added_at) VALUES (?, ?, ?, ?)`,
 		child, parent, addedBy, time.Now().Format(time.RFC3339))
 	return err

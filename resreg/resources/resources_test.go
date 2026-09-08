@@ -280,6 +280,21 @@ func TestMembership_CycleRejected(t *testing.T) {
 	if err == nil {
 		t.Errorf("Apply with cycle: want error, got nil")
 	}
+	// A TRANSITIVE ring is the case a one-level check answers wrong, and the
+	// manifest is where an operator would write one: three edges, none of them a
+	// cycle on its own (BUGS L256).
+	c2 := routdChecksum(t, db)
+	_, err = resreg.Apply(context.Background(), resreg.OnDB(db), resreg.SubsystemRoutd, c2, false, map[string]any{
+		"acl_membership": []ACLMembershipRow{
+			{Child: "a", Parent: "b"},
+			{Child: "b", Parent: "c"},
+			{Child: "c", Parent: "a"},
+		},
+	}, nil)
+	if err == nil {
+		t.Errorf("Apply with a three-edge ring: want error, got nil; every member of a " +
+			"ring holds the union of the whole ring's authority")
+	}
 }
 
 // TestMembership_PairingRowsExcludedFromChecksumAndRebuild: added_by='pairing'

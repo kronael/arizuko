@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/objstore"
 )
 
 // ErrCycle: adding the edge would create a cycle in acl_membership.
@@ -14,6 +15,50 @@ var ErrCycle = errors.New("acl_membership: cycle")
 
 // ErrSelfMembership: child == parent.
 var ErrSelfMembership = errors.New("acl_membership: self")
+
+// edgeQuerier is the read the cycle guard walks, satisfied by both *sql.DB and
+// *sql.Tx: the writers that need the guard hold different handles, and the guard
+// has to run inside the transaction that adds the edge.
+type edgeQuerier interface {
+	Query(query string, args ...any) (*sql.Rows, error)
+}
+
+// MembershipParents answers which principals sit directly above one — the
+// callback objstore.Reachable walks (objstore/reach.go).
+//
+// It is EXPORTED because the same guard decides four writes, and it was four
+// copies of one recursive CTE: this package's two edge writers, routd's
+// agent-facing add, and the manifest apply's per-row validation. A walk written
+// four times is a walk that can disagree with itself (BUGS L256).
+func MembershipParents(q edgeQuerier) objstore.ParentsFunc {
+	return func(_ context.Context, node string) ([]string, error) {
+		rows, err := q.Query(`SELECT parent FROM acl_membership WHERE child = ?`, node)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		var out []string
+		for rows.Next() {
+			var parent string
+			if err := rows.Scan(&parent); err != nil {
+				return nil, err
+			}
+			out = append(out, parent)
+		}
+		return out, rows.Err()
+	}
+}
+
+// MembershipWouldCycle reports whether the edge (child → parent) would make
+// child its own ancestor.
+//
+// The walk starts at parent and asks whether child is already at or above it,
+// which is what the recursive CTE asked. Reachable seeds with the node itself,
+// so a self edge answers true here too — the callers still check it first,
+// because ErrSelfMembership is a different answer for the operator.
+func MembershipWouldCycle(ctx context.Context, q edgeQuerier, child, parent string) (bool, error) {
+	return objstore.Reachable(ctx, MembershipParents(q), parent, child)
+}
 
 // AddMembership inserts (child → parent) idempotently. Rejects
 // self-membership and any edge that would close a cycle.
@@ -31,20 +76,11 @@ func (s *Store) AddMembership(child, parent, addedBy string) error {
 	}
 	defer tx.Rollback()
 
-	var hits int
-	err = tx.QueryRow(
-		`WITH RECURSIVE up(p) AS (
-		   SELECT ? UNION
-		   SELECT acl_membership.parent FROM acl_membership
-		     JOIN up ON acl_membership.child = up.p
-		 )
-		 SELECT COUNT(*) FROM up WHERE p = ?`,
-		parent, child,
-	).Scan(&hits)
+	cycles, err := MembershipWouldCycle(context.Background(), tx, child, parent)
 	if err != nil {
 		return err
 	}
-	if hits > 0 {
+	if cycles {
 		return ErrCycle
 	}
 
@@ -142,22 +178,14 @@ func putMembershipTx(tx *sql.Tx, child, parent, addedBy string) error {
 	if child == parent {
 		return ErrSelfMembership
 	}
-	var hits int
-	if err := tx.QueryRow(
-		`WITH RECURSIVE up(p) AS (
-		   SELECT ? UNION
-		   SELECT acl_membership.parent FROM acl_membership
-		     JOIN up ON acl_membership.child = up.p
-		 )
-		 SELECT COUNT(*) FROM up WHERE p = ?`,
-		parent, child,
-	).Scan(&hits); err != nil {
+	cycles, err := MembershipWouldCycle(context.Background(), tx, child, parent)
+	if err != nil {
 		return err
 	}
-	if hits > 0 {
+	if cycles {
 		return ErrCycle
 	}
-	_, err := tx.Exec(
+	_, err = tx.Exec(
 		`INSERT OR IGNORE INTO acl_membership (child, parent, added_by, added_at)
 		 VALUES (?, ?, ?, ?)`,
 		child, parent, addedBy, time.Now().Format(time.RFC3339),

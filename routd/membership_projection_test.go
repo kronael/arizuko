@@ -14,6 +14,7 @@ package routd
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/kronael/arizuko/resreg"
@@ -112,5 +113,36 @@ func TestMembership_AddedByIsNotNullable(t *testing.T) {
 		"a", "b", "2026-01-01T00:00:00Z"); err == nil {
 		t.Error("acl_membership accepted a NULL added_by; the row filter cannot compare " +
 			"one, so the edge would be invisible to every export and every apply")
+	}
+}
+
+// The cycle guard is one walk with four callers (objstore.Reachable), and this
+// is routd's — the agent-facing add. A transitive cycle is the case a
+// single-level check answers wrong, so it is the one worth stating (BUGS L256).
+func TestMembership_TransitiveCycleIsRefused(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	tx, err := db.SQL().Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := addMembershipTx(ctx, tx, "a", "b", "cli"); err != nil {
+		t.Fatalf("a -> b: %v", err)
+	}
+	if err := addMembershipTx(ctx, tx, "b", "c", "cli"); err != nil {
+		t.Fatalf("b -> c: %v", err)
+	}
+	if err := addMembershipTx(ctx, tx, "c", "a", "cli"); !errors.Is(err, store.ErrCycle) {
+		t.Errorf("c -> a returned %v, want store.ErrCycle: a is already two edges above c, "+
+			"and an edge that closes the loop hands every member of it the union of the "+
+			"whole ring's authority", err)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
 	}
 }

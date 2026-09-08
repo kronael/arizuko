@@ -8,6 +8,7 @@ import (
 
 	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/resreg"
+	"github.com/kronael/arizuko/store"
 )
 
 // ACLMembershipRow mirrors acl_membership: composite (child, parent)
@@ -91,20 +92,11 @@ func init() {
 				if r.Child == r.Parent {
 					return ErrMembershipSelf
 				}
-				var hits int
-				err := tx.QueryRowContext(ctx,
-					`WITH RECURSIVE up(p) AS (
-					   SELECT ? UNION
-					   SELECT acl_membership.parent FROM acl_membership
-					     JOIN up ON acl_membership.child = up.p
-					 )
-					 SELECT COUNT(*) FROM up WHERE p = ?`,
-					r.Parent, r.Child,
-				).Scan(&hits)
+				cycles, err := store.MembershipWouldCycle(ctx, tx, r.Child, r.Parent)
 				if err != nil {
 					return err
 				}
-				if hits > 0 {
+				if cycles {
 					return ErrMembershipCycle
 				}
 				return nil
