@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/db_utils/dbtest"
 	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/objstore/conformance"
@@ -821,14 +822,46 @@ CREATE TABLE codecrows (
 );
 `
 
-// freshCodecPair registers the same RowType both ways over one database and
-// returns (column resource, entity resource).
+// freshCodecEntity registers the entity half alone. It is engine-neutral, so
+// every body that only reads or writes ITEMS runs on both drivers.
+func freshCodecEntity(t *testing.T) (*sql.DB, objstore.Store, *Resource) {
+	t.Helper()
+	reset()
+	db := dbtest.Open(t)
+	s := sqlstore.New(db)
+	if err := s.CreateEntity(t.Context(), "audit_log"); err != nil {
+		t.Fatalf("audit_log: %v", err)
+	}
+	obj := Register(Resource{
+		Name:          "codecrows_obj",
+		Table:         "codecitems",
+		DB:            codecEntitySubsystem,
+		RowType:       reflect.TypeFor[CodecRow](),
+		PKFields:      []string{"Path"},
+		EntitySortKey: []string{"Path"},
+	})
+	if err := EnsureSubsystem(t.Context(), s, s, codecEntitySubsystem); err != nil {
+		t.Fatalf("EnsureSubsystem: %v", err)
+	}
+	return db, s, obj
+}
+
+// freshCodecPair adds the COLUMN half over the same database, so one RowType is
+// registered both ways and the two stored forms can be compared.
+//
+// It skips on Postgres, and that is not this body's limit: resreg's engine
+// renders `?` placeholders (engine.go Insert), so every column-path body in this
+// package answers "unused argument: 0" there. The entity half above runs on both.
 func freshCodecPair(t *testing.T) (*sql.DB, objstore.Store, *Resource, *Resource) {
 	t.Helper()
 	reset()
 	db := dbtest.Open(t)
+	if db_utils.IsPostgres(db) {
+		t.Skip("resreg's column path emits ? placeholders; the whole column half " +
+			"of this package is SQLite's dialect")
+	}
 	if _, err := db.Exec(codecColumnSchema); err != nil {
-		t.Skipf("the column half of this pair is SQLite's placeholder dialect: %v", err)
+		t.Fatalf("schema: %v", err)
 	}
 	s := sqlstore.New(db)
 	col := Register(Resource{
@@ -955,7 +988,7 @@ func TestCodec_BothShapesStoreTheSameText(t *testing.T) {
 // object path, not a zero: a row read wrong goes into an export the operator
 // then applies.
 func TestCodec_RefusesTextItCannotRead(t *testing.T) {
-	db, s, _, obj := freshCodecPair(t)
+	db, s, obj := freshCodecEntity(t)
 	for _, tc := range []struct {
 		name  string
 		attrs map[string]string
