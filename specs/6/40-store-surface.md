@@ -448,6 +448,25 @@ declaration the read and the delete both honour, so they cannot disagree.
 — so it is the one that becomes an attribute the writer sets, which is what it
 was describing all along.
 
+**The four coordinates that looked missing, measured 2026-09-08.** Each is a
+composite under rule 1, and the separator refusal built for it is what makes
+them safe going forward rather than merely safe today.
+
+- `acl` — the six-field identity joined. No value on any of the three live
+  instances contains the separator.
+- `acl_membership` — `child` and `parent` joined. Same, zero hits.
+- `route_tokens` — `token_hash`, which IS the key and is unique on all three
+  instances. It sits outside the `RowType` today because it is a credential
+  digest; the coordinate declaration is separate from the manifest identity,
+  which is exactly why `PKFields` could not supply it (`L260`).
+- `routes` — `(seq, target, match)`, unique on all three. `seq` is an integer,
+  so it takes the codec and a padded rendering, because string order must be
+  numeric order.
+
+Measuring today's rows is not the guarantee; the refusal is. A write whose value
+carries the separator fails rather than splitting a key, and that check is
+mutation-proven.
+
 **And one precondition that is not a contract question.** A `RowType` that
 declares fewer columns than the table has is survivable under the column path
 and is data loss under an entity, because a `Put` replaces the whole attribute
