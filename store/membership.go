@@ -48,14 +48,10 @@ func (s *Store) AddMembership(child, parent, addedBy string) error {
 		return ErrCycle
 	}
 
-	var grantedBy any
-	if addedBy != "" {
-		grantedBy = addedBy
-	}
 	if _, err := tx.Exec(
 		`INSERT OR IGNORE INTO acl_membership (child, parent, added_by, added_at)
 		 VALUES (?, ?, ?, ?)`,
-		child, parent, grantedBy, time.Now().Format(time.RFC3339),
+		child, parent, addedBy, time.Now().Format(time.RFC3339),
 	); err != nil {
 		return err
 	}
@@ -161,14 +157,10 @@ func putMembershipTx(tx *sql.Tx, child, parent, addedBy string) error {
 	if hits > 0 {
 		return ErrCycle
 	}
-	var grantedBy any
-	if addedBy != "" {
-		grantedBy = addedBy
-	}
 	_, err := tx.Exec(
 		`INSERT OR IGNORE INTO acl_membership (child, parent, added_by, added_at)
 		 VALUES (?, ?, ?, ?)`,
-		child, parent, grantedBy, time.Now().Format(time.RFC3339),
+		child, parent, addedBy, time.Now().Format(time.RFC3339),
 	)
 	return err
 }

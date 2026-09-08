@@ -368,12 +368,8 @@ func addMembershipTx(ctx context.Context, tx *sql.Tx, child, parent, addedBy str
 	if hits > 0 {
 		return store.ErrCycle
 	}
-	var by any
-	if addedBy != "" {
-		by = addedBy
-	}
 	_, err := tx.ExecContext(ctx,
 		`INSERT OR IGNORE INTO acl_membership (child, parent, added_by, added_at) VALUES (?, ?, ?, ?)`,
-		child, parent, by, time.Now().Format(time.RFC3339))
+		child, parent, addedBy, time.Now().Format(time.RFC3339))
 	return err
 }

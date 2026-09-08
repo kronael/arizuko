@@ -10,7 +10,7 @@ import (
 )
 
 // ACLMembershipRow mirrors acl_membership: composite (child, parent)
-// PK + nullable added_by. ValidateRow runs the recursive cycle check
+// PK + added_by, which every writer sets. ValidateRow runs the recursive cycle check
 // in-tx; the same query the imperative AddMembership uses, but the
 // engine wires it on the apply path too so manifests can't introduce
 // cycles silently.
@@ -76,7 +76,14 @@ func init() {
 		// rebuild, and (once built) the pre-image/rollback set. Without this,
 		// rollback re-applying a pre-image taken before a caller unpaired
 		// would silently resurrect authority they deliberately revoked.
-		RowFilter: "(added_by IS NULL OR added_by != 'pairing')",
+		//
+		// The predicate is `added_by <> 'pairing'` and not `IS NULL OR <>`,
+		// because the same declaration has to narrow the read AND both deletes on
+		// both shapes, and an object-path filter is a conjunction of attribute
+		// comparisons with no OR (objstore.Query.Where). The two forms answer
+		// alike for every row that carries a value; `added_by` is NOT NULL from
+		// routd migration 0047, so every row does.
+		RowFilter: "added_by <> 'pairing'",
 		Hooks: resreg.Hooks{
 			ValidateRow: func(ctx context.Context, tx *sql.Tx, row any) error {
 				r := row.(*ACLMembershipRow)
@@ -102,10 +109,13 @@ func init() {
 				return nil
 			},
 			ColumnOverride: map[string]resreg.ColumnHook{
-				"AddedBy": {
-					Read:  "COALESCE(added_by, '')",
-					Write: nilIfEmptyString,
-				},
+				// Read only. The write half stored an empty actor as NULL, and
+				// NULL is the one value the row filter above cannot compare —
+				// a row the writer left unattributed would fall out of its own
+				// resource's projection. routd.db has no such row (migration
+				// 0047); the COALESCE stays for the frozen pre-split chain,
+				// which store's tests still build.
+				"AddedBy": {Read: "COALESCE(added_by, '')"},
 			},
 		},
 	})
