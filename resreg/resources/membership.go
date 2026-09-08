@@ -6,6 +6,7 @@ import (
 	"errors"
 	"reflect"
 
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/resreg"
 )
 
@@ -83,7 +84,7 @@ func init() {
 		// comparisons with no OR (objstore.Query.Where). The two forms answer
 		// alike for every row that carries a value; `added_by` is NOT NULL from
 		// routd migration 0047, so every row does.
-		RowFilter: "added_by <> 'pairing'",
+		RowFilter: []objstore.Cmp{{Attr: "added_by", Op: objstore.Ne, Value: "pairing"}},
 		Hooks: resreg.Hooks{
 			ValidateRow: func(ctx context.Context, tx *sql.Tx, row any) error {
 				r := row.(*ACLMembershipRow)

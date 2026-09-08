@@ -410,8 +410,11 @@ func TestEntity_RegisterRefusesAMisdeclaredShape(t *testing.T) {
 			func(r Resource) Resource { r.EntitySortKey = []string{"Nope"}; return r }},
 		{"sort key is not text", "coordinate is text",
 			func(r Resource) Resource { r.EntitySortKey = []string{"Count"}; return r }},
-		{"row filter", "conjunction with no OR",
-			func(r Resource) Resource { r.RowFilter = "count > 0"; return r }},
+		{"a filter on the coordinate", "part of its coordinate",
+			func(r Resource) Resource {
+				r.RowFilter = []objstore.Cmp{{Attr: "key", Op: objstore.Eq, Value: "a"}}
+				return r
+			}},
 		{"a scope column of its own", "named by its db: tag and nothing else",
 			func(r Resource) Resource {
 				r.Scope = ScopeSpec{Field: "Note", Column: "other"}
@@ -790,6 +793,184 @@ func TestEntity_StampedFieldIsIgnoredByDiff(t *testing.T) {
 	}
 	if d.Changed() {
 		t.Errorf("a manifest that omits the stamped field reads as changed: %+v", d)
+	}
+}
+
+// --- the declared row filter --------------------------------------------
+//
+// A filter narrows the manifest-visible projection, and the SAME declaration has
+// to narrow the read and both deletes: a filter the read honours but a delete
+// does not widens that delete past the projection it was computed from. On this
+// path a delete set is a READ, so all three are one Where (spec 6/40 answer 6).
+
+// FilteredRow carries a scope and the attribute its own filter compares.
+type FilteredRow struct {
+	Key    string `db:"key"    yaml:"key"`
+	Folder string `db:"folder" yaml:"folder,omitempty"`
+	Kind   string `db:"kind"   yaml:"kind,omitempty"`
+}
+
+func freshFiltered(t *testing.T) (*sql.DB, objstore.Store, *Resource) {
+	t.Helper()
+	reset()
+	db := dbtest.Open(t)
+	s := sqlstore.New(db)
+	if err := s.CreateEntity(t.Context(), "audit_log"); err != nil {
+		t.Fatalf("audit_log: %v", err)
+	}
+	r := Register(Resource{
+		Name:          "filteredrows",
+		Table:         "filteredrows",
+		DB:            entitySubsystem,
+		RowType:       reflect.TypeFor[FilteredRow](),
+		PKFields:      []string{"Key"},
+		EntitySortKey: []string{"Key"},
+		Scope:         ScopeSpec{Field: "Folder"},
+		RowFilter:     []objstore.Cmp{{Attr: "kind", Op: objstore.Ne, Value: "excluded"}},
+	})
+	if err := EnsureSubsystem(t.Context(), s, s, entitySubsystem); err != nil {
+		t.Fatalf("EnsureSubsystem: %v", err)
+	}
+	return db, s, r
+}
+
+func putFiltered(t *testing.T, s objstore.Store, sort string, attrs map[string]string) {
+	t.Helper()
+	committed, err := s.GuardedBatch(t.Context(), nil, []objstore.Write{{
+		Op: objstore.Put, Entity: "filteredrows",
+		Key:   objstore.Key{Partition: entitySubsystem, Sort: sort},
+		Attrs: attrs,
+	}})
+	if err != nil || !committed {
+		t.Fatalf("put %s: committed=%v err=%v", sort, committed, err)
+	}
+}
+
+func TestEntity_RowFilterNarrowsTheRead(t *testing.T) {
+	db, s, r := freshFiltered(t)
+	putFiltered(t, s, "kept", map[string]string{"folder": "f1", "kind": "config"})
+	putFiltered(t, s, "hidden", map[string]string{"folder": "f1", "kind": "excluded"})
+
+	got, err := r.ScanAll(Backend{DB: db, Obj: s})
+	if err != nil {
+		t.Fatalf("ScanAll: %v", err)
+	}
+	rows := got.([]FilteredRow)
+	if len(rows) != 1 || rows[0].Key != "kept" {
+		t.Fatalf("ScanAll = %+v, want only the unfiltered item", rows)
+	}
+}
+
+// The wipe is the delete half, and it is built from a read — so the filter that
+// narrows the read narrows it, and an excluded item survives an apply that
+// replaces everything else.
+func TestEntity_RowFilterNarrowsTheWipeAndTheScopedDelete(t *testing.T) {
+	db, s, r := freshFiltered(t)
+	be := Backend{DB: db, Obj: s}
+	putFiltered(t, s, "hidden", map[string]string{"folder": "f1", "kind": "excluded"})
+	putFiltered(t, s, "stale", map[string]string{"folder": "f1", "kind": "config"})
+	putFiltered(t, s, "other", map[string]string{"folder": "f2", "kind": "config"})
+
+	// A manifest naming f1 only: the scoped delete takes f1's unfiltered rows.
+	if _, err := Apply(t.Context(), be, entitySubsystem, "", true,
+		map[string]any{"filteredrows": []FilteredRow{{Key: "fresh", Folder: "f1", Kind: "config"}}},
+		nil); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	live, err := s.Query(t.Context(), objstore.Query{
+		Entity: "filteredrows", Partition: entitySubsystem})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	keys := map[string]bool{}
+	for _, it := range live {
+		keys[it.Key.Sort] = true
+	}
+	if !keys["hidden"] {
+		t.Error("the apply deleted an excluded item; a filter the read honours and the " +
+			"delete does not takes rows the manifest never saw")
+	}
+	if keys["stale"] {
+		t.Error("the apply left f1's replaced row behind")
+	}
+	if !keys["other"] {
+		t.Error("the apply reached a scope the manifest never mentioned")
+	}
+	if !keys["fresh"] {
+		t.Error("the apply did not write the manifest's row")
+	}
+
+	got, err := r.ScanAll(be)
+	if err != nil {
+		t.Fatalf("ScanAll: %v", err)
+	}
+	if len(got.([]FilteredRow)) != 2 {
+		t.Errorf("projection = %+v, want the two unfiltered rows", got)
+	}
+}
+
+// The wholesale wipe is the other delete, reached by an explicitly-empty row
+// list — the operator declaring "no rows for this resource". It is built from a
+// read too, so the same filter narrows it.
+func TestEntity_RowFilterNarrowsTheWipe(t *testing.T) {
+	db, s, r := freshFiltered(t)
+	be := Backend{DB: db, Obj: s}
+	putFiltered(t, s, "hidden", map[string]string{"folder": "f1", "kind": "excluded"})
+	putFiltered(t, s, "stale", map[string]string{"folder": "f1", "kind": "config"})
+
+	if _, err := Apply(t.Context(), be, entitySubsystem, "", true,
+		map[string]any{"filteredrows": []FilteredRow{}}, nil); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	live, err := s.Query(t.Context(), objstore.Query{
+		Entity: "filteredrows", Partition: entitySubsystem})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if len(live) != 1 || live[0].Key.Sort != "hidden" {
+		t.Fatalf("after the wipe the entity holds %+v, want only the excluded item; a "+
+			"wipe that ignores the filter takes rows the manifest never saw", live)
+	}
+	got, err := r.ScanAll(be)
+	if err != nil {
+		t.Fatalf("ScanAll: %v", err)
+	}
+	if n := len(got.([]FilteredRow)); n != 0 {
+		t.Errorf("projection holds %d rows after an empty manifest, want 0", n)
+	}
+}
+
+// An absent attribute answers no comparison, so a row that omitted the one its
+// own filter tests would write itself out of the projection: invisible to every
+// export, and untouched by the apply that should have replaced it. The writer
+// therefore stores it even when it is empty — the reason routd migration 0047
+// makes the column path say the same thing.
+func TestEntity_RowFilterAttributeIsWrittenEvenWhenEmpty(t *testing.T) {
+	db, s, r := freshFiltered(t)
+	be := Backend{DB: db, Obj: s}
+	if _, err := Apply(t.Context(), be, entitySubsystem, "", true,
+		map[string]any{"filteredrows": []FilteredRow{{Key: "bare", Folder: "f1"}}},
+		nil); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	items, err := s.Query(t.Context(), objstore.Query{
+		Entity: "filteredrows", Partition: entitySubsystem})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("stored %d items, want 1", len(items))
+	}
+	if _, ok := items[0].Attrs["kind"]; !ok {
+		t.Error("the item carries no `kind` attribute; the filter compares it, and an " +
+			"item without it is a row no export shows and no apply replaces")
+	}
+	got, err := r.ScanAll(be)
+	if err != nil {
+		t.Fatalf("ScanAll: %v", err)
+	}
+	if len(got.([]FilteredRow)) != 1 {
+		t.Errorf("projection = %+v, want the row back", got)
 	}
 }
 

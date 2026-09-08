@@ -115,9 +115,15 @@ var routdSpecs = []copySpec{
 	{dst: "acl", src: "acl",
 		cols: "principal, action, scope, effect, params, predicate, granted_by, granted_at",
 		sel:  "principal, action, scope, effect, params, predicate, granted_by, granted_at"},
+	// added_by is NOT NULL on the routd side (routd migration 0047): it is the
+	// value acl_membership's own row filter compares, and an absent one answers
+	// no comparison, so an edge carrying NULL would land invisible to every
+	// export and untouched by every apply. The pre-split column is nullable, so
+	// the copy normalises on the way — the same NULL → '' the in-place upgrade
+	// does, because both say the writer recorded no actor.
 	{dst: "acl_membership", src: "acl_membership",
 		cols: "child, parent, added_by, added_at",
-		sel:  "child, parent, added_by, added_at"},
+		sel:  "child, parent, COALESCE(added_by, ''), added_at"},
 	// secrets: routd now OWNS it (routd migration 0008 mirrors store 0034/0047
 	// final shape). Straight copy — encrypted `value` bytes move verbatim (same
 	// SECRETS_KEY decrypts on the routd side).

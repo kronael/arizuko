@@ -36,6 +36,7 @@ import (
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/store"
 )
@@ -320,13 +321,26 @@ type Resource struct {
 	// Identity is configured, never derived (root CLAUDE.md).
 	DB string
 
-	// RowFilter is an optional SQL boolean WHERE-fragment (a compile-time
-	// constant, never operator input) ANDed into ScanAll, DeleteScope and
-	// DeleteAll. It excludes rows that must never enter the manifest-visible
-	// projection: acl_membership excludes added_by='pairing' edges (consented
-	// runtime state, not declarative config), route_tokens excludes kind='pair'
-	// (10-minute single-use credentials). Empty = no filter.
-	RowFilter string
+	// RowFilter narrows the manifest-visible projection: the rows an export
+	// shows, a checksum covers, and an apply's DELETE reaches. acl_membership
+	// leaves out the edges pairing consented to and route_tokens leaves out the
+	// 10-minute pairing credentials, because both are runtime state a manifest
+	// must never carry or replace.
+	//
+	// It is a DECLARED PREDICATE and not a SQL string, because the same
+	// declaration has to hold on both shapes and in three places — ScanAll,
+	// DeleteAll and DeleteScope — and a filter the read honours but a delete does
+	// not silently widens that delete past the projection it was computed from
+	// (spec 6/40 §"What a registered resource still needs", answer 6). The terms
+	// are objstore's own, so the object path passes them to Query.Where verbatim
+	// and the column path renders them as bound SQL; there is one declaration and
+	// two readers, never two spellings.
+	//
+	// The terms are a CONJUNCTION and the operators are Eq and Ne, which is what
+	// both engines answer alike. A predicate needing an OR has no form here, and
+	// the answer is an attribute the writer sets rather than a wider read
+	// (routd migration 0047). Nil = no filter.
+	RowFilter []objstore.Cmp
 
 	// SkipApplyRebuild causes Apply to skip DELETE+INSERT for this resource.
 	// Set true for resources whose tables hold operator data that the engine

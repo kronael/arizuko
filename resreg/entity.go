@@ -111,6 +111,12 @@ type entityMeta struct {
 	// scope is how a scoped delete SELECTS one scope's items, nil for a
 	// resource that declares no ScopeSpec.
 	scope *entityScope
+	// filtered is the struct-field index of every attribute the resource's own
+	// RowFilter compares. itemFor writes those even when they are EMPTY, because
+	// an absent attribute answers no comparison: a row that left one off would
+	// write itself out of its own projection, where no export shows it and no
+	// apply replaces it.
+	filtered map[int]bool
 }
 
 // entityScope is the read that stands in for `DELETE FROM t WHERE scope = ?`.
@@ -199,17 +205,19 @@ func (r *Resource) initEntity(m *resourceMeta, byField map[string]int) {
 		}
 		sortFields = append(sortFields, fm)
 	}
-	if r.RowFilter != "" {
-		// Query.Where is a CONJUNCTION and acl_membership's filter is
-		// `(added_by IS NULL OR added_by != 'pairing')`, which has no conjunctive
-		// form. The read half could be done in Go over the items; the DELETE half
-		// could not, because a reader-side filter does not narrow a write, and
-		// RowFilter gates DeleteScope and DeleteAll as well as ScanAll. So a
-		// half-answer here would widen an apply's delete silently, which is the
-		// worst of the three outcomes.
-		panic(fmt.Sprintf("resreg: %s is entity-backed and declares a RowFilter; "+
-			"a filter that also has to gate a DELETE cannot be a reader-side "+
-			"predicate, and Where is a conjunction with no OR", r.Name))
+	// A filter term reaches an item as a Where, which compares an ATTRIBUTE. The
+	// coordinate is not one: it is the key, and a key predicate reaches a leading
+	// fragment of it, never one field in the middle. So a filter on a sort field
+	// is refused rather than answered by a read that ignores it — the same
+	// refusal entityScopeOf makes, for the same reason.
+	for _, c := range r.RowFilter {
+		for _, fm := range sortFields {
+			if fm.col == c.Attr {
+				panic(fmt.Sprintf("resreg: %s filters on %q, which is part of its coordinate "+
+					"(%s); a filter is a Where over attributes and the coordinate is the key",
+					r.Name, c.Attr, strings.Join(r.EntitySortKey, ",")))
+			}
+		}
 	}
 	for _, name := range r.StampedFields {
 		if seen[name] {
@@ -232,9 +240,17 @@ func (r *Resource) initEntity(m *resourceMeta, byField map[string]int) {
 			"or ColumnOverride; the first two take the *sql.Tx this path does not open, and "+
 			"a column override is a SQL expression with no column to name", r.Name))
 	}
-	e := &entityMeta{sort: sortFields, sep: r.EntityKeySep, stamped: map[int]bool{}}
+	e := &entityMeta{sort: sortFields, sep: r.EntityKeySep, stamped: map[int]bool{},
+		filtered: map[int]bool{}}
 	for _, idx := range m.stampedIdx {
 		e.stamped[idx] = true
+	}
+	for _, c := range r.RowFilter {
+		for _, fm := range m.fields {
+			if fm.col == c.Attr {
+				e.filtered[fm.idx] = true
+			}
+		}
 	}
 	inKey := map[int]bool{}
 	for _, fm := range sortFields {
@@ -303,16 +319,16 @@ func (r *Resource) entityScopeOf(m *resourceMeta, sortFields []fieldMeta) *entit
 // entityScopeQuery is the read that finds one scope's items.
 func (r *Resource) entityScopeQuery(scope string) objstore.Query {
 	e := r.meta.entity
-	q := objstore.Query{Entity: r.Table, Partition: r.entityPartition()}
+	q := objstore.Query{Entity: r.Table, Partition: r.entityPartition(), Where: r.RowFilter}
 	switch {
 	case e.scope.attr != "" && scope == "":
 		// An empty string is an ABSENT attribute on this path (itemFor), so the
 		// scope every resource spells "" — instance-wide — is selected by Absent
 		// and not by Eq "", which matches no item at all and would leave the
 		// scope's rows behind while the puts went in over them.
-		q.Where = []objstore.Cmp{{Attr: e.scope.attr, Op: objstore.Absent}}
+		q.Where = append([]objstore.Cmp{{Attr: e.scope.attr, Op: objstore.Absent}}, q.Where...)
 	case e.scope.attr != "":
-		q.Where = []objstore.Cmp{{Attr: e.scope.attr, Op: objstore.Eq, Value: scope}}
+		q.Where = append([]objstore.Cmp{{Attr: e.scope.attr, Op: objstore.Eq, Value: scope}}, q.Where...)
 	case e.scope.prefix:
 		// The separator is part of the prefix, not Query.Key.Sep: the subtree
 		// separator matches the value ITSELF as well, and `folder` alone is not
@@ -366,6 +382,7 @@ func (r *Resource) scanEntities(rd reader) (any, error) {
 	items, err := rd.obj.Query(context.Background(), objstore.Query{
 		Entity:    r.Table,
 		Partition: r.entityPartition(),
+		Where:     r.RowFilter,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("%s: query: %w", r.Name, err)
@@ -525,7 +542,7 @@ func (r *Resource) itemFor(v reflect.Value) (objstore.Write, error) {
 			if s == "" && e.stamped[fm.idx] {
 				s = core.NowTS()
 			}
-			if s != "" {
+			if s != "" || e.filtered[fm.idx] {
 				attrs[fm.col] = s
 			}
 			continue
@@ -582,6 +599,7 @@ func (r *Resource) entityWipe(rd reader) ([]objstore.Write, error) {
 	items, err := rd.obj.Query(context.Background(), objstore.Query{
 		Entity:    r.Table,
 		Partition: r.entityPartition(),
+		Where:     r.RowFilter,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("%s: query: %w", r.Name, err)

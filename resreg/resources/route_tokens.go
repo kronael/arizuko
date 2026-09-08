@@ -3,6 +3,7 @@ package resources
 import (
 	"reflect"
 
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/resreg"
 )
 
@@ -129,7 +130,7 @@ func init() {
 		// archival value, and reviving one is actively harmful (spec 5/8) — exclude them
 		// from every manifest-visible read so they never appear in a YAML document.
 		// kind='route' delivery bearers are unaffected.
-		RowFilter: "kind = 'route'",
+		RowFilter: []objstore.Cmp{{Attr: "kind", Op: objstore.Eq, Value: "route"}},
 		Hooks: resreg.Hooks{
 			ColumnOverride: map[string]resreg.ColumnHook{
 				// context is nullable with no default ("NULL = pre-context token"), so every

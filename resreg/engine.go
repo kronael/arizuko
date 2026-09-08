@@ -25,6 +25,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/objstore/sqlstore"
 )
 
@@ -113,6 +114,7 @@ type fieldMeta struct {
 // panics on misconfiguration (caller-fault, not runtime fault).
 func (r *Resource) initMeta() {
 	r.checkMCPArgTypes()
+	r.checkRowFilter()
 	if r.RowType == nil {
 		return
 	}
@@ -198,24 +200,87 @@ type Querier interface {
 	Query(query string, args ...any) (*sql.Rows, error)
 }
 
-// whereFilter returns "" or " WHERE (RowFilter)" — the shared RowFilter
-// clause ScanAll/DeleteScope/DeleteAll all apply, so a resource's excluded
-// rows (pairing edges, pairing tokens) stay uniformly out of every
-// manifest-visible read AND write path.
-func (r *Resource) whereFilter() string {
-	if r.RowFilter == "" {
-		return ""
+// filterSQL renders the declared RowFilter as a bound SQL expression: the
+// conjunction and the values it compares against, so a filter value reaches the
+// engine as a BIND and never as text spliced into a statement.
+//
+// It is the column path's reading of the one declaration the object path passes
+// straight to Query.Where. The operator set is the one Register admits, so a
+// term this cannot render cannot have been registered.
+func (r *Resource) filterSQL() (string, []any) {
+	if len(r.RowFilter) == 0 {
+		return "", nil
 	}
-	return " WHERE (" + r.RowFilter + ")"
+	terms := make([]string, len(r.RowFilter))
+	args := make([]any, len(r.RowFilter))
+	for i, c := range r.RowFilter {
+		op := "="
+		if c.Op == objstore.Ne {
+			op = "<>"
+		}
+		terms[i] = c.Attr + " " + op + " ?"
+		args[i] = c.Value
+	}
+	return strings.Join(terms, " AND "), args
 }
 
-// andFilter returns "" or " AND (RowFilter)", for appending after an
-// existing WHERE clause (DeleteScope already has one).
-func (r *Resource) andFilter() string {
-	if r.RowFilter == "" {
-		return ""
+// whereFilter opens a statement's WHERE with the RowFilter, or adds nothing.
+// ScanAll and DeleteAll reach it, so a resource's excluded rows stay uniformly
+// out of every manifest-visible read AND write path.
+func (r *Resource) whereFilter() (string, []any) {
+	expr, args := r.filterSQL()
+	if expr == "" {
+		return "", nil
 	}
-	return " AND (" + r.RowFilter + ")"
+	return " WHERE (" + expr + ")", args
+}
+
+// andFilter appends the RowFilter after an existing WHERE clause (DeleteScope
+// already has one).
+func (r *Resource) andFilter() (string, []any) {
+	expr, args := r.filterSQL()
+	if expr == "" {
+		return "", nil
+	}
+	return " AND (" + expr + ")", args
+}
+
+// checkRowFilter refuses a filter no reader can honour, at Register.
+//
+// The operators are Eq and Ne because those are what both shapes answer alike
+// and what the two declared filters ask for. An attribute name is spliced into
+// SQL rather than bound — it is a column name, which no dialect binds — so it
+// has to be an identifier and nothing else.
+func (r *Resource) checkRowFilter() {
+	for _, c := range r.RowFilter {
+		if c.Op != objstore.Eq && c.Op != objstore.Ne {
+			panic(fmt.Sprintf("resreg: %s filters on %s with comparison %d; a row filter is "+
+				"Eq or Ne, which is what the column path renders and the object path passes "+
+				"to Query.Where", r.Name, c.Attr, c.Op))
+		}
+		if !plainIdent(c.Attr) {
+			panic(fmt.Sprintf("resreg: %s filters on %q, which is not a column name; the "+
+				"attribute is spliced into SQL because no dialect binds an identifier",
+				r.Name, c.Attr))
+		}
+	}
+}
+
+// plainIdent reports whether s is a bare column name: a letter or underscore,
+// then letters, digits and underscores.
+func plainIdent(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i, ch := range s {
+		switch {
+		case ch >= 'a' && ch <= 'z', ch >= 'A' && ch <= 'Z', ch == '_':
+		case i > 0 && ch >= '0' && ch <= '9':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // ScanAll reads every row of the resource and returns a `[]RowType`.
@@ -245,8 +310,9 @@ func (r *Resource) scanAll(rd reader) (any, error) {
 		return nil, fmt.Errorf("resreg: %s is column-backed and the backend carries no "+
 			"SQL handle", r.Name)
 	}
-	query := "SELECT " + strings.Join(r.meta.columns, ", ") + " FROM " + r.Table + r.whereFilter() + r.orderBy()
-	rows, err := rd.sql.Query(query)
+	where, args := r.whereFilter()
+	query := "SELECT " + strings.Join(r.meta.columns, ", ") + " FROM " + r.Table + where + r.orderBy()
+	rows, err := rd.sql.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("%s: query: %w", r.Name, err)
 	}
@@ -368,8 +434,9 @@ func (r *Resource) DeleteScope(ctx context.Context, tx *sql.Tx, scope string) er
 	if r.meta.scopeField == nil {
 		return fmt.Errorf("resreg: %s has no ScopeSpec; use DeleteAll", r.Name)
 	}
-	q := "DELETE FROM " + r.Table + " WHERE " + r.meta.scopeField.col + " = ?" + r.andFilter()
-	_, err := tx.ExecContext(ctx, q, scope)
+	and, args := r.andFilter()
+	q := "DELETE FROM " + r.Table + " WHERE " + r.meta.scopeField.col + " = ?" + and
+	_, err := tx.ExecContext(ctx, q, append([]any{scope}, args...)...)
 	if err != nil {
 		return fmt.Errorf("%s: delete-scope: %w", r.Name, err)
 	}
@@ -381,7 +448,8 @@ func (r *Resource) DeleteAll(ctx context.Context, tx *sql.Tx) error {
 	if err := r.columnsOnly("DeleteAll"); err != nil {
 		return err
 	}
-	_, err := tx.ExecContext(ctx, "DELETE FROM "+r.Table+r.whereFilter())
+	where, args := r.whereFilter()
+	_, err := tx.ExecContext(ctx, "DELETE FROM "+r.Table+where, args...)
 	if err != nil {
 		return fmt.Errorf("%s: delete-all: %w", r.Name, err)
 	}

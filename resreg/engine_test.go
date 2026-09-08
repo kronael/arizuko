@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/db_utils/dbtest"
+	"github.com/kronael/arizuko/objstore"
 	"gopkg.in/yaml.v3"
 )
 
@@ -159,7 +160,7 @@ func TestRowFilter_ExcludesFromScanDeleteAndChecksum(t *testing.T) {
 		RowType:   reflect.TypeFor[TestRow](),
 		PKFields:  []string{"Kind", "Name"},
 		Scope:     ScopeSpec{Field: "Kind"},
-		RowFilter: "kind != 'excluded'",
+		RowFilter: []objstore.Cmp{{Attr: "kind", Op: objstore.Ne, Value: "excluded"}},
 	})
 	insertRaw(t, db,
 		TestRow{Kind: "a", Name: "x", Value: "1"},
@@ -201,6 +202,54 @@ func TestRowFilter_ExcludesFromScanDeleteAndChecksum(t *testing.T) {
 	db.QueryRow(`SELECT COUNT(*) FROM testrows`).Scan(&total)
 	if total != 2 {
 		t.Errorf("total rows = %d, want 2 (only the non-excluded row was deleted)", total)
+	}
+}
+
+// The scoped delete is the third reader of the one declaration, and the only one
+// whose statement already carries a bind — so it is also the one an argument in
+// the wrong order would corrupt silently.
+func TestRowFilter_NarrowsTheScopedDelete(t *testing.T) {
+	reset()
+	db := dbtest.Open(t)
+	if _, err := db.Exec(testSchema); err != nil {
+		t.Fatal(err)
+	}
+	r := Register(Resource{
+		Name:      "testrows",
+		Table:     "testrows",
+		DB:        testSubsystem,
+		RowType:   reflect.TypeFor[TestRow](),
+		PKFields:  []string{"Kind", "Name"},
+		Scope:     ScopeSpec{Field: "Name"},
+		RowFilter: []objstore.Cmp{{Attr: "kind", Op: objstore.Ne, Value: "excluded"}},
+	})
+	insertRaw(t, db,
+		TestRow{Kind: "a", Name: "f1", Value: "1"},
+		TestRow{Kind: "excluded", Name: "f1", Value: "9"},
+		TestRow{Kind: "a", Name: "f2", Value: "2"},
+	)
+	tx, _ := db.Begin()
+	if err := r.DeleteScope(context.Background(), tx, "f1"); err != nil {
+		t.Fatalf("DeleteScope: %v", err)
+	}
+	tx.Commit()
+
+	var left []string
+	rows, err := db.Query(`SELECT kind || '/' || name FROM testrows ORDER BY 1`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			t.Fatal(err)
+		}
+		left = append(left, v)
+	}
+	if len(left) != 2 || left[0] != "a/f2" || left[1] != "excluded/f1" {
+		t.Errorf("remaining = %v, want [a/f2 excluded/f1]: the scoped delete takes the "+
+			"scope's unfiltered rows and nothing else", left)
 	}
 }
 
