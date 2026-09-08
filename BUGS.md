@@ -7,6 +7,50 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L266 — `arizuko apply` of an UNMODIFIED export destroys every route token and every github source (2026-09-08, open — needs sign-off)
+
+REPRODUCED 2026-09-08 on a copy of marinade's routd.db, read-only against the
+snapshot, with the binary from before any of today's work:
+
+```
+before: groups=7 route_tokens=2 web_routes=2 github_sources=0
+DELETE FROM groups;          -- what Apply does to rebuild the resource
+after:  route_tokens=0 web_routes=0 github_sources=0
+```
+
+`resreg.Apply` rebuilds a resource with `DeleteAll` then `InsertAll`.
+`groups` is rebuilt that way. `route_tokens.owner_folder`,
+`web_routes.folder` and `github_sources.owner_folder` all carry
+`ON DELETE CASCADE` to `groups(folder)`, and `db_utils.FileDSN` sets
+`foreign_keys(on)`, so the delete takes them with it.
+
+`web_routes` survives because the manifest re-inserts it. **`route_tokens` and
+`github_sources` are `SkipApplyRebuild`** (`resreg/resources/route_tokens.go:128`,
+`github_sources.go:73`), so nothing puts them back. They are gone.
+
+Both are live ingress credentials: a route token is the bearer in
+`/chat/<token>/` and `/hook/<token>`, and a github source holds the webhook
+secret gitd unseals. Applying a config manifest an operator just exported —
+changing nothing — revokes every one of them silently, and the apply reports
+success.
+
+This is the same cascade `store/folder_scope.go` records in three `keepReason`
+verdicts, which is how `DeleteGroup` gets away with issuing no statement for
+them (`L253`). Deleting ONE group cascading to that group's tokens is correct.
+Deleting every group to rebuild the table is not a tenant delete, and the
+cascade cannot tell the two apart.
+
+- **Severity:** high (silent credential loss on a routine operator action)
+- **Scope:** `resreg/engine.go` `Apply`, `resreg/resources/{route_tokens,github_sources}.go`
+- **Affected:** every instance; measured on marinade, 2 tokens
+- **Source:** reproduced against a snapshot copy, 2026-09-08
+- **Status:** open — needs sign-off
+- **Fix:** a rebuild is not a tenant delete. `Apply` must not rebuild a table
+  whose rows other resources hang off — either `groups` stops being
+  delete-all/insert-all and becomes a diffed upsert, or the rebuild runs with the
+  cascade suppressed and the dependent rows re-attached. The second is the
+  smaller change and the first is the right one.
+
 ## L265 — two registrations declare fewer columns than their table has, and `routes` already loses two of them on every apply (2026-09-08, open)
 
 MEASURED 2026-09-08, and my first count was wrong — I read a truncated grep and
