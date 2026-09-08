@@ -419,7 +419,7 @@ func TestEntity_RegisterRefusesAMisdeclaredShape(t *testing.T) {
 				"Note": {Read: "COALESCE(note,'')"}}}
 			return r
 		}},
-		{"unrenderable attribute", "renders string and int only", func(r Resource) Resource {
+		{"unrenderable attribute", "declares its encoding in the db: tag", func(r Resource) Resource {
 			r.RowType = reflect.TypeFor[badRow]()
 			r.PKFields = []string{"Key"}
 			return r
@@ -779,5 +779,253 @@ func TestEntity_StampedFieldIsIgnoredByDiff(t *testing.T) {
 	}
 	if d.Changed() {
 		t.Errorf("a manifest that omits the stamped field reads as changed: %+v", d)
+	}
+}
+
+// --- the declared codec -------------------------------------------------
+//
+// Every attribute value is a string, so proxyd_routes' `preserve_headers
+// []string` and `strip_prefix bool` do not survive the object path without a
+// rendering. The claim the bodies below hold is not "it round-trips" but "the
+// two shapes store the SAME TEXT": one renderer, so a migration carrying a
+// table from columns to items cannot change a value on the way (spec 6/40
+// §"What a registered resource still needs", answer 3).
+
+// CodecRow is proxyd_routes' two awkward fields on their own columns — no
+// shadow column, no Hooks — plus a string to anchor the row.
+type CodecRow struct {
+	Path            string   `db:"path"                  yaml:"path"`
+	PreserveHeaders []string `db:"preserve_headers,json" yaml:"preserve_headers,omitempty"`
+	StripPrefix     bool     `db:"strip_prefix,bool"     yaml:"strip_prefix,omitempty"`
+}
+
+// codecSubsystems are two owner tags because a subsystem is ONE shape: the same
+// RowType is registered twice, once each way, and Apply refuses a mixed one.
+const (
+	codecColumnSubsystem = "codeccol"
+	codecEntitySubsystem = "codecobj"
+)
+
+// codecColumnSchema is the codec'd column's type: TEXT, on both engines,
+// because the codec's output IS the bind value (codec.go).
+const codecColumnSchema = `
+CREATE TABLE audit_log (part TEXT NOT NULL, sort TEXT NOT NULL, attrs TEXT NOT NULL, PRIMARY KEY (part, sort));
+CREATE TABLE codecrows (
+  path             TEXT PRIMARY KEY,
+  preserve_headers TEXT NOT NULL DEFAULT '[]',
+  strip_prefix     TEXT NOT NULL DEFAULT '0'
+);
+`
+
+// freshCodecPair registers the same RowType both ways over one database and
+// returns (column resource, entity resource).
+func freshCodecPair(t *testing.T) (*sql.DB, objstore.Store, *Resource, *Resource) {
+	t.Helper()
+	reset()
+	db := dbtest.Open(t)
+	if _, err := db.Exec(codecColumnSchema); err != nil {
+		t.Skipf("the column half of this pair is SQLite's placeholder dialect: %v", err)
+	}
+	s := sqlstore.New(db)
+	col := Register(Resource{
+		Name:     "codecrows_col",
+		Table:    "codecrows",
+		DB:       codecColumnSubsystem,
+		RowType:  reflect.TypeFor[CodecRow](),
+		PKFields: []string{"Path"},
+	})
+	obj := Register(Resource{
+		Name:          "codecrows_obj",
+		Table:         "codecitems",
+		DB:            codecEntitySubsystem,
+		RowType:       reflect.TypeFor[CodecRow](),
+		PKFields:      []string{"Path"},
+		EntitySortKey: []string{"Path"},
+	})
+	if err := EnsureSubsystem(t.Context(), s, s, codecEntitySubsystem); err != nil {
+		t.Fatalf("EnsureSubsystem: %v", err)
+	}
+	return db, s, col, obj
+}
+
+// codecRows are the values that have to survive: a populated list, an empty
+// one, and both settings of the flag.
+var codecRows = []CodecRow{
+	{Path: "/a", PreserveHeaders: []string{"X-Api-Key", "Authorization"}, StripPrefix: true},
+	{Path: "/b", PreserveHeaders: []string{}, StripPrefix: false},
+	{Path: "/c", StripPrefix: true},
+}
+
+// The two shapes store the SAME TEXT for the same row. That is the claim the
+// cutover rests on: the column a migration reads and the attribute it writes
+// hold one value, because one renderer produced both.
+func TestCodec_BothShapesStoreTheSameText(t *testing.T) {
+	db, s, col, obj := freshCodecPair(t)
+
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	if err := col.InsertAll(t.Context(), tx, codecRows); err != nil {
+		t.Fatalf("InsertAll: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	if _, err := Apply(t.Context(), Backend{DB: db, Obj: s}, codecEntitySubsystem, "", true,
+		map[string]any{"codecrows_obj": codecRows}, nil); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	// The stored text, read past both engines rather than through them.
+	columnText := map[string][2]string{}
+	rows, err := db.Query(`SELECT path, preserve_headers, strip_prefix FROM codecrows`)
+	if err != nil {
+		t.Fatalf("read columns: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var path, headers, strip string
+		if err := rows.Scan(&path, &headers, &strip); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		columnText[path] = [2]string{headers, strip}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate: %v", err)
+	}
+	items, err := s.Query(t.Context(), objstore.Query{
+		Entity: "codecitems", Partition: codecEntitySubsystem})
+	if err != nil {
+		t.Fatalf("query items: %v", err)
+	}
+	if len(items) != len(codecRows) || len(columnText) != len(codecRows) {
+		t.Fatalf("stored %d items and %d rows, want %d of each",
+			len(items), len(columnText), len(codecRows))
+	}
+	for _, it := range items {
+		attrText := [2]string{it.Attrs["preserve_headers"], it.Attrs["strip_prefix"]}
+		if got := columnText[it.Key.Sort]; got != attrText {
+			t.Errorf("%s: the column holds %q and the attribute holds %q; one renderer "+
+				"is what makes a migration between the two shapes lossless",
+				it.Key.Sort, got, attrText)
+		}
+	}
+
+	// And the value comes back the same through both readers.
+	fromColumns, err := col.ScanAll(OnDB(db))
+	if err != nil {
+		t.Fatalf("ScanAll columns: %v", err)
+	}
+	fromItems, err := obj.ScanAll(Backend{DB: db, Obj: s})
+	if err != nil {
+		t.Fatalf("ScanAll items: %v", err)
+	}
+	if !reflect.DeepEqual(fromColumns, fromItems) {
+		t.Errorf("columns read back %v and items read back %v", fromColumns, fromItems)
+	}
+	want := []CodecRow{
+		{Path: "/a", PreserveHeaders: []string{"X-Api-Key", "Authorization"}, StripPrefix: true},
+		{Path: "/b", PreserveHeaders: []string{}, StripPrefix: false},
+		{Path: "/c", PreserveHeaders: []string{}, StripPrefix: true},
+	}
+	if !reflect.DeepEqual(fromItems, want) {
+		t.Errorf("read back %#v, want %#v", fromItems, want)
+	}
+	// /c carries a NIL list, and it is stored as the EMPTY DOCUMENT rather than
+	// as JSON null: proxyd_routes' column is TEXT NOT NULL DEFAULT '[]' and
+	// store.ProxydRoutes json.Unmarshals it on every proxyd start, so `null` is
+	// a value a second reader of the same column cannot use.
+	if got := columnText["/c"][0]; got != "[]" {
+		t.Errorf("a nil list stored as %q, want %q", got, "[]")
+	}
+	for _, it := range items {
+		if it.Key.Sort == "/c" && it.Attrs["preserve_headers"] != "[]" {
+			t.Errorf("a nil list stored as the attribute %q, want %q",
+				it.Attrs["preserve_headers"], "[]")
+		}
+	}
+}
+
+// Stored text that is not the value it claims to be is a LOUD fault on the
+// object path, not a zero: a row read wrong goes into an export the operator
+// then applies.
+func TestCodec_RefusesTextItCannotRead(t *testing.T) {
+	db, s, _, obj := freshCodecPair(t)
+	for _, tc := range []struct {
+		name  string
+		attrs map[string]string
+		want  string
+	}{
+		{"not json", map[string]string{"preserve_headers": "X-Api-Key"},
+			"is not the JSON this field holds"},
+		{"not a bool", map[string]string{"preserve_headers": "[]", "strip_prefix": "yes"},
+			"is not a bool"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			committed, err := s.GuardedBatch(t.Context(), nil, []objstore.Write{{
+				Op: objstore.Put, Entity: "codecitems",
+				Key:   objstore.Key{Partition: codecEntitySubsystem, Sort: "/x"},
+				Attrs: tc.attrs,
+			}})
+			if err != nil || !committed {
+				t.Fatalf("put: committed=%v err=%v", committed, err)
+			}
+			_, err = obj.ScanAll(Backend{DB: db, Obj: s})
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("ScanAll err = %v, want it to contain %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// The declaration's own refusals. The set of encodings is CLOSED, and a string
+// or an int may not declare one: both shapes already render those the same way,
+// and a second rendering of a value that has one is the drift the codec exists
+// to prevent.
+func TestCodec_RegisterRefusesAMisdeclaredEncoding(t *testing.T) {
+	type badJSON struct {
+		Key  string `db:"key"`
+		Note string `db:"note,nope"`
+	}
+	type stringCodec struct {
+		Key  string `db:"key"`
+		Note string `db:"note,json"`
+	}
+	type intCodec struct {
+		Key   string `db:"key"`
+		Count int    `db:"count,json"`
+	}
+	type boolOnASlice struct {
+		Key  string   `db:"key"`
+		List []string `db:"list,bool"`
+	}
+	cases := []struct {
+		name string
+		want string
+		row  reflect.Type
+	}{
+		{"unknown encoding", "the set is json and bool", reflect.TypeFor[badJSON]()},
+		{"encoding on a string", "already render a string and an int", reflect.TypeFor[stringCodec]()},
+		{"encoding on an int", "already render a string and an int", reflect.TypeFor[intCodec]()},
+		{"bool on a slice", "declares the bool encoding", reflect.TypeFor[boolOnASlice]()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			reset()
+			defer func() {
+				got := recover()
+				if got == nil {
+					t.Fatalf("Register accepted %s", tc.name)
+				}
+				if msg, _ := got.(string); !strings.Contains(msg, tc.want) {
+					t.Errorf("panic = %v, want it to contain %q", got, tc.want)
+				}
+			}()
+			Register(Resource{
+				Name: "bad", Table: "bad", DB: entitySubsystem,
+				RowType: tc.row, PKFields: []string{"Key"},
+			})
+		})
 	}
 }

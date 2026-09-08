@@ -61,12 +61,29 @@ credentials onto one item (BUGS `L260`).
 What the object path REFUSES, it refuses at `Register`, which is process start,
 and each refusal carries the reason it cannot cross:
 
-| declaration                                 | why not                                                                                                                                                                                        |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `RowFilter`                                 | `Query.Where` is a conjunction with no `OR`, and the filter also gates `DeleteScope`/`DeleteAll` — a reader-side predicate cannot narrow a write                                               |
-| `ScopeSpec`                                 | a scoped delete over items is an unbounded read-then-delete, so it belongs inside the replace                                                                                                  |
-| `Hooks`                                     | `ColumnOverride.Read` is a SQL expression, `.Write` is the bind conversion absent-is-null already makes unnecessary, and `BeforeInsert`/`ValidateRow` take a `*sql.Tx` this path does not open |
-| an attribute that is not a string or an int | every attribute value is text, and a bool or a slice needs a rendering its first caller should choose                                                                                          |
+| declaration                                                                    | why not                                                                                                                                                                                        |
+| ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `RowFilter`                                                                    | `Query.Where` is a conjunction with no `OR`, and the filter also gates `DeleteScope`/`DeleteAll` — a reader-side predicate cannot narrow a write                                               |
+| `ScopeSpec`                                                                    | a scoped delete over items is an unbounded read-then-delete, so it belongs inside the replace                                                                                                  |
+| `Hooks`                                                                        | `ColumnOverride.Read` is a SQL expression, `.Write` is the bind conversion absent-is-null already makes unnecessary, and `BeforeInsert`/`ValidateRow` take a `*sql.Tx` this path does not open |
+| an attribute that is not a string, an int, or a field with a declared encoding | every attribute value is text, so a bool, a slice or a map declares its encoding in the `db:` tag (`codec.go`)                                                                                 |
+
+A field whose Go type is not text declares its ENCODING in the `db:` tag, after
+the column name — `db:"preserve_headers,json"`. The set is closed (`json`,
+`bool`), never a caller's function, so a resource cannot invent a rendering only
+it can read; an unknown name stops the process at `Register`, and so does one on
+a string or an int, which both shapes already render the same way.
+
+The codec applies to BOTH shapes and that is the point: the text a column holds
+and the text an attribute holds are the SAME text, so a migration carrying a
+table from one to the other cannot change a value on the way. It is what
+`proxyd_routes`' two `Hooks` do today — a `BeforeInsert` that marshals into a
+shadow column and an `AfterScan` that unmarshals back — so dropping them at the
+cutover without this would strip the preserved headers from every proxied
+route, read once per request over 26 live rows. A codec'd COLUMN is `TEXT`,
+because the codec's output is the bind value: `preserve_headers TEXT NOT NULL
+DEFAULT '[]'` is, while `strip_prefix INTEGER` and `acl.grant_option INTEGER`
+can carry one only once they are attributes.
 
 A `StampedField` is filled by the STORAGE LAYER on this path, because an entity
 has no engine between the caller and the item — there is no `Insert` to hang a

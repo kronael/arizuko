@@ -22,7 +22,7 @@ type DeadLetterRow struct {
 	ChatJID          string `db:"chat_jid"          json:"chat_jid"`
 	Content          string `db:"content"           json:"content"`
 	Timestamp        string `db:"timestamp"         json:"timestamp"`
-	Topic            string `db:"topic,omitempty"   json:"topic,omitempty"`
+	Topic            string `db:"topic"             json:"topic,omitempty"`
 	RoutedTo         string `db:"routed_to"         json:"routed_to,omitempty"`
 	Source           string `db:"source"            json:"source,omitempty"`
 	TurnID           string `db:"turn_id"           json:"turn_id,omitempty"`

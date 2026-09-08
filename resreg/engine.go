@@ -92,6 +92,11 @@ type fieldMeta struct {
 	readExpr   string // SELECT expression (col, or COALESCE(col,'') via override)
 	writeHook  func(fieldVal any) (any, error)
 	scanTarget func(rowVal reflect.Value) any // returns &row.field for sql.Rows.Scan
+	// codec is the declared encoding of a field whose Go type is not text, nil
+	// for one that needs none. It is the SAME rendering on both shapes, which is
+	// what makes a column-backed and an entity-backed resource agree about what
+	// a value IS (codec.go).
+	codec *codec
 }
 
 // initMeta builds resourceMeta from RowType + tags. Called at Register;
@@ -119,8 +124,9 @@ func (r *Resource) initMeta() {
 		if tag == "" || tag == "-" {
 			continue
 		}
-		col, _, _ := strings.Cut(tag, ",")
-		fm := fieldMeta{idx: i, name: sf.Name, col: col, readExpr: col}
+		col, encoding, _ := strings.Cut(tag, ",")
+		fm := fieldMeta{idx: i, name: sf.Name, col: col, readExpr: col,
+			codec: codecFor(r.Name, sf.Name, encoding, sf.Type.Kind())}
 		idx := i
 		fm.scanTarget = func(rowVal reflect.Value) any {
 			return rowVal.Field(idx).Addr().Interface()
@@ -238,9 +244,12 @@ func (r *Resource) scanAll(rd reader) (any, error) {
 	slice := reflect.MakeSlice(reflect.SliceOf(r.meta.rowType), 0, 16)
 	for rows.Next() {
 		ptr := r.newRowPtr()
-		targets := r.scanTargets(ptr.Elem())
+		targets, decode := r.scanTargets(ptr.Elem())
 		if err := rows.Scan(targets...); err != nil {
 			return nil, fmt.Errorf("%s: scan: %w", r.Name, err)
+		}
+		if err := decode(); err != nil {
+			return nil, fmt.Errorf("%s: %w", r.Name, err)
 		}
 		if r.Hooks.AfterScan != nil {
 			if err := r.Hooks.AfterScan(ptr.Interface()); err != nil {
@@ -642,21 +651,60 @@ func (r *Resource) orderBy() string {
 	return " ORDER BY " + strings.Join(names, ", ")
 }
 
-// scanTargets returns []any of pointer addresses into rowVal's fields,
-// in column order, suitable for sql.Rows.Scan.
-func (r *Resource) scanTargets(rowVal reflect.Value) []any {
+// scanTargets returns []any of pointer addresses into rowVal's fields, in
+// column order, suitable for sql.Rows.Scan — and the function that finishes the
+// row.
+//
+// A codec'd field is scanned into a STAGING sql.NullString and decoded after,
+// because a driver hands back the stored text and only the codec knows the
+// value it stands for. NULL and the empty string both leave the zero value,
+// which is the one null this model has and the same answer the object path's
+// absent attribute gives (codec.go).
+func (r *Resource) scanTargets(rowVal reflect.Value) ([]any, func() error) {
 	out := make([]any, len(r.meta.fields))
+	var staged []func() error
 	for i, fm := range r.meta.fields {
-		out[i] = fm.scanTarget(rowVal)
+		if fm.codec == nil {
+			out[i] = fm.scanTarget(rowVal)
+			continue
+		}
+		text := new(sql.NullString)
+		out[i] = text
+		field, dec, col := rowVal.Field(fm.idx), fm.codec.decode, fm.col
+		staged = append(staged, func() error {
+			if err := dec(text.String, field); err != nil {
+				return fmt.Errorf("%s: %w", col, err)
+			}
+			return nil
+		})
 	}
-	return out
+	return out, func() error {
+		for _, fn := range staged {
+			if err := fn(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 }
 
-// insertValues returns []any of bind values, applying ColumnOverride.Write
-// where set.
+// insertValues returns []any of bind values, applying a declared codec or a
+// ColumnOverride.Write where set.
+//
+// A codec'd field binds the TEXT the codec renders, which is the same text the
+// object path stores as an attribute — that identity is the whole point of one
+// renderer, and it is why a codec'd column is TEXT (codec.go).
 func (r *Resource) insertValues(rowVal reflect.Value) ([]any, error) {
 	out := make([]any, len(r.meta.fields))
 	for i, fm := range r.meta.fields {
+		if fm.codec != nil {
+			text, err := fm.codec.encode(rowVal.Field(fm.idx))
+			if err != nil {
+				return nil, fmt.Errorf("%s.%s: %w", r.Name, fm.name, err)
+			}
+			out[i] = text
+			continue
+		}
 		v := rowVal.Field(fm.idx).Interface()
 		if fm.writeHook != nil {
 			conv, err := fm.writeHook(v)

@@ -225,16 +225,18 @@ func (r *Resource) initEntity(m *resourceMeta, byField map[string]int) {
 		if inKey[fm.idx] {
 			continue
 		}
-		switch k := m.rowType.Field(fm.idx).Type.Kind(); k {
-		case reflect.String, reflect.Int:
+		switch k := m.rowType.Field(fm.idx).Type.Kind(); {
+		case k == reflect.String, k == reflect.Int, fm.codec != nil:
 		default:
 			// Every attribute value is a string (objstore). A bool, a slice and a
-			// map each need a rendering somebody has to choose and a reader has to
-			// agree with, and no entity-backed resource carries one — so the
-			// encoding goes in with the row that needs it rather than being
-			// guessed here.
+			// map each need a rendering somebody has to choose and every reader has
+			// to agree with, so the field DECLARES one in its `db:` tag
+			// (codec.go) and a field with neither a renderable type nor a
+			// declaration is refused here rather than stored as whatever
+			// fmt.Sprint happened to make of it.
 			panic(fmt.Sprintf("resreg: %s.%s is a %s and %s is entity-backed; an "+
-				"attribute value is text, and this path renders string and int only",
+				"attribute value is text, so this path renders string and int, and "+
+				"anything else declares its encoding in the db: tag",
 				r.Name, fm.name, k, r.Name))
 		}
 		e.attrs = append(e.attrs, fm)
@@ -316,6 +318,13 @@ func (r *Resource) rowFrom(it objstore.Item) (reflect.Value, error) {
 			continue
 		}
 		f := row.Field(fm.idx)
+		if fm.codec != nil {
+			if err := fm.codec.decode(text, f); err != nil {
+				return reflect.Value{}, fmt.Errorf("%s %s=%q: %s: %w",
+					r.Name, e.sortCols(), it.Key.Sort, fm.col, err)
+			}
+			continue
+		}
 		if f.Kind() == reflect.String {
 			f.SetString(text)
 			continue
@@ -367,7 +376,8 @@ func (r *Resource) sortKeyFor(v reflect.Value) (string, error) {
 // An empty STRING attribute is left OFF the item, because absent is the only
 // null and an empty string written into the document is a value a tombstone test
 // still finds. An INT is always written: a Go int has no unset, so 0 is a value
-// the row states rather than one it omits.
+// the row states rather than one it omits — and a CODEC'D field is written for
+// the same reason, its zero value rendered as its own text (codec.go).
 //
 // A STAMPED field the row leaves empty is filled HERE, because an entity has no
 // engine between the caller and the item — there is no Insert to hang a
@@ -392,6 +402,14 @@ func (r *Resource) itemFor(v reflect.Value) (objstore.Write, error) {
 	attrs := make(map[string]string, len(e.attrs))
 	for _, fm := range e.attrs {
 		f := v.Field(fm.idx)
+		if fm.codec != nil {
+			text, err := fm.codec.encode(f)
+			if err != nil {
+				return objstore.Write{}, fmt.Errorf("%s.%s: %w", r.Name, fm.name, err)
+			}
+			attrs[fm.col] = text
+			continue
+		}
 		if f.Kind() == reflect.String {
 			s := f.String()
 			if s == "" && e.stamped[fm.idx] {
