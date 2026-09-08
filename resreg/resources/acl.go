@@ -1,8 +1,6 @@
 package resources
 
 import (
-	"context"
-	"database/sql"
 	"reflect"
 
 	"github.com/kronael/arizuko/resreg"
@@ -111,7 +109,7 @@ func init() {
 		// Apply rebuilds acl wholesale; per-glob scoped delete is not v1.
 		StampedFields: []string{"GrantedAt"},
 		Hooks: resreg.Hooks{
-			BeforeInsert: func(ctx context.Context, tx *sql.Tx, row any) error {
+			BeforeInsert: func(row any) error {
 				r := row.(*ACLRow)
 				if r.Effect == "" {
 					r.Effect = "allow"

@@ -1,8 +1,6 @@
 package resources
 
 import (
-	"context"
-	"database/sql"
 	"reflect"
 
 	"github.com/kronael/arizuko/resreg"
@@ -104,7 +102,7 @@ func init() {
 		// neither is column-equal to a folder. Apply rebuilds wholesale.
 		StampedFields: []string{"Created"},
 		Hooks: resreg.Hooks{
-			BeforeInsert: func(_ context.Context, _ *sql.Tx, row any) error {
+			BeforeInsert: func(row any) error {
 				r := row.(*ScheduledTasksRow)
 				if r.Status == "" {
 					r.Status = "active"

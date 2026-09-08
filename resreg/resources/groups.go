@@ -1,8 +1,6 @@
 package resources
 
 import (
-	"context"
-	"database/sql"
 	"encoding/json"
 	"reflect"
 
@@ -84,7 +82,7 @@ func init() {
 		MCPArgs:   GroupsMCPArgs,
 		MCPNames:  GroupsMCPNames,
 		Hooks: resreg.Hooks{
-			BeforeInsert: func(_ context.Context, _ *sql.Tx, row any) error {
+			BeforeInsert: func(row any) error {
 				r := row.(*GroupsRow)
 				if r.Product == "" {
 					r.Product = "assistant"

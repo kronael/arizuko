@@ -221,12 +221,16 @@ func (r *Resource) initEntity(m *resourceMeta, byField map[string]int) {
 				r.Name, name))
 		}
 	}
-	if r.Hooks.BeforeInsert != nil || r.Hooks.AfterScan != nil ||
-		r.Hooks.ValidateRow != nil || len(r.Hooks.ColumnOverride) > 0 {
-		panic(fmt.Sprintf("resreg: %s is entity-backed and declares Hooks; "+
-			"ColumnOverride.Read is a SQL expression and .Write is a bind "+
-			"conversion the absent-attribute model already makes unnecessary, and "+
-			"BeforeInsert/ValidateRow take the *sql.Tx this path does not open", r.Name))
+	if r.Hooks.AfterScan != nil || r.Hooks.ValidateRow != nil || len(r.Hooks.ColumnOverride) > 0 {
+		// BeforeInsert is NOT here: a row default is the writer's on this path
+		// too, and itemFor applies it (spec 6/40 answer 5). These three still
+		// take something this path does not have. ColumnOverride.Read is a SQL
+		// expression and .Write is a bind conversion the absent-attribute model
+		// already makes unnecessary; ValidateRow takes the *sql.Tx an entity's
+		// apply never opens, because it holds a claim instead.
+		panic(fmt.Sprintf("resreg: %s is entity-backed and declares AfterScan, ValidateRow "+
+			"or ColumnOverride; the first two take the *sql.Tx this path does not open, and "+
+			"a column override is a SQL expression with no column to name", r.Name))
 	}
 	e := &entityMeta{sort: sortFields, sep: r.EntityKeySep, stamped: map[int]bool{}}
 	for _, idx := range m.stampedIdx {
@@ -490,6 +494,17 @@ func (r *Resource) sortKeyFor(v reflect.Value) (string, error) {
 // when comparing payloads).
 func (r *Resource) itemFor(v reflect.Value) (objstore.Write, error) {
 	e := r.meta.entity
+	if r.Hooks.BeforeInsert != nil {
+		// The row is COPIED first: the hook mutates a pointer, and the value
+		// handed in belongs to the caller's slice — filling a default in place
+		// would edit the manifest the apply is still reading.
+		ptr := reflect.New(r.meta.rowType)
+		ptr.Elem().Set(v)
+		if err := r.Hooks.BeforeInsert(ptr.Interface()); err != nil {
+			return objstore.Write{}, fmt.Errorf("%s: before-insert: %w", r.Name, err)
+		}
+		v = ptr.Elem()
+	}
 	sort, err := r.sortKeyFor(v)
 	if err != nil {
 		return objstore.Write{}, err

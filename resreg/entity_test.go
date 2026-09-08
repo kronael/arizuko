@@ -419,11 +419,17 @@ func TestEntity_RegisterRefusesAMisdeclaredShape(t *testing.T) {
 			}},
 		{"a stamped coordinate", "invents addresses a new item",
 			func(r Resource) Resource { r.StampedFields = []string{"Key"}; return r }},
-		{"hooks", "declares Hooks", func(r Resource) Resource {
-			r.Hooks = Hooks{ColumnOverride: map[string]ColumnHook{
-				"Note": {Read: "COALESCE(note,'')"}}}
-			return r
-		}},
+		{"a column override", "declares AfterScan, ValidateRow or ColumnOverride",
+			func(r Resource) Resource {
+				r.Hooks = Hooks{ColumnOverride: map[string]ColumnHook{
+					"Note": {Read: "COALESCE(note,'')"}}}
+				return r
+			}},
+		{"an after-scan hook", "declares AfterScan, ValidateRow or ColumnOverride",
+			func(r Resource) Resource {
+				r.Hooks = Hooks{AfterScan: func(any) error { return nil }}
+				return r
+			}},
 		{"unrenderable attribute", "declares its encoding in the db: tag", func(r Resource) Resource {
 			r.RowType = reflect.TypeFor[badRow]()
 			r.PKFields = []string{"Key"}
@@ -784,6 +790,97 @@ func TestEntity_StampedFieldIsIgnoredByDiff(t *testing.T) {
 	}
 	if d.Changed() {
 		t.Errorf("a manifest that omits the stamped field reads as changed: %+v", d)
+	}
+}
+
+// --- the declared default -----------------------------------------------
+//
+// `acl`, `groups` and `scheduled_tasks` fill a value an operator's manifest may
+// omit — effect='allow', product='assistant', status='active' — with a hook the
+// column path runs inside its INSERT. An entity has no engine between the caller
+// and the item, so the storage layer applies it, exactly as it applies a stamp
+// (spec 6/40 §"What a registered resource still needs", answer 5).
+
+// DefaultedRow is one field the writer fills when the row leaves it empty.
+type DefaultedRow struct {
+	Key    string `db:"key"    yaml:"key"`
+	Effect string `db:"effect" yaml:"effect,omitempty"`
+}
+
+func freshDefaulted(t *testing.T) (*sql.DB, objstore.Store, *Resource) {
+	t.Helper()
+	reset()
+	db := dbtest.Open(t)
+	s := sqlstore.New(db)
+	if err := s.CreateEntity(t.Context(), "audit_log"); err != nil {
+		t.Fatalf("audit_log: %v", err)
+	}
+	r := Register(Resource{
+		Name:          "defaultedrows",
+		Table:         "defaultedrows",
+		DB:            entitySubsystem,
+		RowType:       reflect.TypeFor[DefaultedRow](),
+		PKFields:      []string{"Key"},
+		EntitySortKey: []string{"Key"},
+		Hooks: Hooks{
+			BeforeInsert: func(row any) error {
+				p := row.(*DefaultedRow)
+				if p.Effect == "" {
+					p.Effect = "allow"
+				}
+				return nil
+			},
+		},
+	})
+	if err := EnsureSubsystem(t.Context(), s, s, entitySubsystem); err != nil {
+		t.Fatalf("EnsureSubsystem: %v", err)
+	}
+	return db, s, r
+}
+
+// A row that omits the field gets the default, and a row that states one keeps
+// it — the same two answers Insert gives on the column path.
+func TestEntity_DeclaredDefaultIsFilledByTheWriter(t *testing.T) {
+	db, s, r := freshDefaulted(t)
+	be := Backend{DB: db, Obj: s}
+	rows := []DefaultedRow{{Key: "omitted"}, {Key: "stated", Effect: "deny"}}
+	if _, err := Apply(t.Context(), be, entitySubsystem, "", true,
+		map[string]any{"defaultedrows": rows}, nil); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	got, err := r.ScanAll(be)
+	if err != nil {
+		t.Fatalf("ScanAll: %v", err)
+	}
+	by := map[string]string{}
+	for _, row := range got.([]DefaultedRow) {
+		by[row.Key] = row.Effect
+	}
+	if by["omitted"] != "allow" {
+		t.Errorf("effect = %q, want the declared default; nothing else fills it on this "+
+			"path, because an entity has no engine between the caller and the item", by["omitted"])
+	}
+	if by["stated"] != "deny" {
+		t.Errorf("effect = %q, want the value the row carried — the writer fills an EMPTY "+
+			"field, it does not overwrite one", by["stated"])
+	}
+}
+
+// The hook mutates a row POINTER, and the rows it is handed are the manifest
+// the apply is still reading — every later resource's checksum, its Diff and
+// its audit counts read the same slice. So the row is copied first, and this is
+// the check that it is.
+func TestEntity_DeclaredDefaultDoesNotEditTheManifest(t *testing.T) {
+	db, s, _ := freshDefaulted(t)
+	be := Backend{DB: db, Obj: s}
+	rows := []DefaultedRow{{Key: "omitted"}}
+	if _, err := Apply(t.Context(), be, entitySubsystem, "", true,
+		map[string]any{"defaultedrows": rows}, nil); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if rows[0].Effect != "" {
+		t.Errorf("the manifest row now carries effect=%q; the default was written into "+
+			"the caller's own slice", rows[0].Effect)
 	}
 }
 

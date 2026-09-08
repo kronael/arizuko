@@ -38,9 +38,19 @@ type ScopeSpec struct {
 
 // Hooks are optional per-resource semantics callbacks. All are nil-safe.
 type Hooks struct {
-	// BeforeInsert mutates a row pointer before INSERT (set timestamps,
-	// JSON-encode blobs, encrypt). Runs inside the tx.
-	BeforeInsert func(ctx context.Context, tx *sql.Tx, row any) error
+	// BeforeInsert fills a row's declared defaults before it is stored — the
+	// value an operator's manifest may omit, like `effect='allow'` on an acl row
+	// or `status='active'` on a scheduled task.
+	//
+	// It runs on BOTH shapes: before the column INSERT, and before the item is
+	// rendered on the object path (entity.go). That is why it takes the ROW and
+	// nothing else. It held a ctx and a *sql.Tx and no hook ever read either,
+	// while the tx was what made the whole declaration unavailable to a resource
+	// whose rows are items — an entity's apply holds a claim, not a transaction.
+	// A default the storage layer applies is the writer's, exactly as a stamp is
+	// (StampedFields), and the declaration is what tells a manifest the field is
+	// optional (spec 6/40 §"What a registered resource still needs", answer 5).
+	BeforeInsert func(row any) error
 
 	// AfterScan mutates a row pointer after SELECT (decrypt, JSON-decode).
 	AfterScan func(row any) error
@@ -294,7 +304,7 @@ func (r *Resource) Insert(ctx context.Context, tx *sql.Tx, row any) error {
 	rowPtr := reflect.New(r.meta.rowType)
 	rowPtr.Elem().Set(rv)
 	if r.Hooks.BeforeInsert != nil {
-		if err := r.Hooks.BeforeInsert(ctx, tx, rowPtr.Interface()); err != nil {
+		if err := r.Hooks.BeforeInsert(rowPtr.Interface()); err != nil {
 			return fmt.Errorf("%s: before-insert: %w", r.Name, err)
 		}
 	}

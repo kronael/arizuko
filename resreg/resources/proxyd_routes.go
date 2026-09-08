@@ -1,8 +1,6 @@
 package resources
 
 import (
-	"context"
-	"database/sql"
 	"encoding/json"
 	"net/http"
 	"reflect"
@@ -94,7 +92,7 @@ func init() {
 		MCPDoc:    ProxydRoutesMCPDoc,
 		MCPArgs:   ProxydRoutesMCPArgs,
 		Hooks: resreg.Hooks{
-			BeforeInsert: func(_ context.Context, _ *sql.Tx, row any) error {
+			BeforeInsert: func(row any) error {
 				r := row.(*ProxydRoutesRow)
 				headers := r.PreserveHeaders
 				if headers == nil {

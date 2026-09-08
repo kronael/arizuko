@@ -784,7 +784,7 @@ func TestHooks_BeforeInsert(t *testing.T) {
 		RowType:  reflect.TypeFor[TestRow](),
 		PKFields: []string{"Kind", "Name"},
 		Hooks: Hooks{
-			BeforeInsert: func(ctx context.Context, tx *sql.Tx, row any) error {
+			BeforeInsert: func(row any) error {
 				p := row.(*TestRow)
 				p.Value = "hooked:" + p.Value
 				return nil
