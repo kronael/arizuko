@@ -18,6 +18,7 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/db_utils/dbtest"
 	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/objstore/conformance"
 	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/store"
 )
@@ -410,8 +411,11 @@ func TestEntity_RegisterRefusesAMisdeclaredShape(t *testing.T) {
 			func(r Resource) Resource { r.EntitySortKey = []string{"Count"}; return r }},
 		{"row filter", "conjunction with no OR",
 			func(r Resource) Resource { r.RowFilter = "count > 0"; return r }},
-		{"scope", "unbounded read-then-delete",
-			func(r Resource) Resource { r.Scope = ScopeSpec{Field: "Note"}; return r }},
+		{"a scope column of its own", "named by its db: tag and nothing else",
+			func(r Resource) Resource {
+				r.Scope = ScopeSpec{Field: "Note", Column: "other"}
+				return r
+			}},
 		{"a stamped coordinate", "invents addresses a new item",
 			func(r Resource) Resource { r.StampedFields = []string{"Key"}; return r }},
 		{"hooks", "declares Hooks", func(r Resource) Resource {
@@ -1027,5 +1031,300 @@ func TestCodec_RegisterRefusesAMisdeclaredEncoding(t *testing.T) {
 				RowType: tc.row, PKFields: []string{"Key"},
 			})
 		})
+	}
+}
+
+// --- the scoped delete, inside the replace ------------------------------
+//
+// Five of the six simplest routd resources sit in store.folderScopePurge or
+// claim a cascade off `groups`, and an entity has neither a table to delete
+// from nor a foreign key (BUGS L253). A folder purge becomes a Query on the
+// scope plus guarded deletes, and for Apply those deletes ride INSIDE the
+// replace's claimed scope rather than beside it (spec 6/40 §"What a registered
+// resource still needs", answer 4).
+
+// ScopedRow scopes on an ATTRIBUTE: web_routes' shape, keyed on path_prefix
+// with the folder beside it.
+type ScopedRow struct {
+	Path   string `db:"path"   yaml:"path"`
+	Folder string `db:"folder" yaml:"folder"`
+	Access string `db:"access" yaml:"access,omitempty"`
+}
+
+// KeyScopedRow scopes on the WHOLE coordinate: groups' shape, where the folder
+// is the key.
+type KeyScopedRow struct {
+	Folder  string `db:"folder"  yaml:"folder"`
+	Product string `db:"product" yaml:"product,omitempty"`
+}
+
+// PrefixScopedRow scopes on the FIRST field of a composite coordinate:
+// network_rules' (folder, target).
+type PrefixScopedRow struct {
+	Folder string `db:"folder" yaml:"folder"`
+	Target string `db:"target" yaml:"target"`
+}
+
+// registerScoped registers one entity-backed scoped resource over a fresh
+// database and returns it ready to apply.
+func registerScoped(t *testing.T, r Resource) (Backend, *Resource) {
+	t.Helper()
+	reset()
+	db := dbtest.Open(t)
+	s := sqlstore.New(db)
+	if err := s.CreateEntity(t.Context(), "audit_log"); err != nil {
+		t.Fatalf("audit_log: %v", err)
+	}
+	out := Register(r)
+	if err := EnsureSubsystem(t.Context(), s, s, entitySubsystem); err != nil {
+		t.Fatalf("EnsureSubsystem: %v", err)
+	}
+	return Backend{DB: db, Obj: s}, out
+}
+
+// A scoped apply takes the MENTIONED folders' items and leaves every other
+// folder's alone — the same answer the column path's DeleteScope gives, over
+// all three shapes a scope can have on this path.
+func TestEntity_ScopedApplyTouchesOnlyTheMentionedScopes(t *testing.T) {
+	t.Run("scope is an attribute", func(t *testing.T) {
+		be, r := registerScoped(t, Resource{
+			Name: "scopedrows", Table: "scopedrows", DB: entitySubsystem,
+			RowType: reflect.TypeFor[ScopedRow](), PKFields: []string{"Path"},
+			EntitySortKey: []string{"Path"}, Scope: ScopeSpec{Field: "Folder"},
+		})
+		all := []ScopedRow{
+			{Path: "/a", Folder: "corp/eng", Access: "public"},
+			{Path: "/b", Folder: "corp/sre", Access: "auth"},
+		}
+		applyRows(t, be, r, all)
+		// A manifest naming ONE folder, with a different row under it.
+		applyRows(t, be, r, []ScopedRow{{Path: "/c", Folder: "corp/eng", Access: "deny"}})
+		got := scanRows[ScopedRow](t, be, r)
+		want := []ScopedRow{
+			{Path: "/b", Folder: "corp/sre", Access: "auth"},
+			{Path: "/c", Folder: "corp/eng", Access: "deny"},
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("rows = %v, want %v — corp/sre was never mentioned", got, want)
+		}
+	})
+
+	t.Run("scope is an absent attribute", func(t *testing.T) {
+		be, r := registerScoped(t, Resource{
+			Name: "scopedrows", Table: "scopedrows", DB: entitySubsystem,
+			RowType: reflect.TypeFor[ScopedRow](), PKFields: []string{"Path"},
+			EntitySortKey: []string{"Path"}, Scope: ScopeSpec{Field: "Folder"},
+		})
+		applyRows(t, be, r, []ScopedRow{
+			{Path: "/a", Folder: "", Access: "public"},
+			{Path: "/b", Folder: "corp/eng", Access: "auth"},
+		})
+		applyRows(t, be, r, []ScopedRow{{Path: "/c", Folder: "", Access: "deny"}})
+		got := scanRows[ScopedRow](t, be, r)
+		want := []ScopedRow{
+			{Path: "/b", Folder: "corp/eng", Access: "auth"},
+			{Path: "/c", Folder: "", Access: "deny"},
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("rows = %v, want %v — an empty scope is an ABSENT attribute, so "+
+				"Eq \"\" would select nothing and leave /a behind", got, want)
+		}
+	})
+
+	t.Run("scope is the coordinate", func(t *testing.T) {
+		be, r := registerScoped(t, Resource{
+			Name: "keyscopedrows", Table: "keyscopedrows", DB: entitySubsystem,
+			RowType: reflect.TypeFor[KeyScopedRow](), PKFields: []string{"Folder"},
+			EntitySortKey: []string{"Folder"}, Scope: ScopeSpec{Field: "Folder"},
+		})
+		applyRows(t, be, r, []KeyScopedRow{
+			{Folder: "corp/eng", Product: "one"},
+			{Folder: "corp/sre", Product: "two"},
+		})
+		applyRows(t, be, r, []KeyScopedRow{{Folder: "corp/eng", Product: "three"}})
+		got := scanRows[KeyScopedRow](t, be, r)
+		want := []KeyScopedRow{
+			{Folder: "corp/eng", Product: "three"},
+			{Folder: "corp/sre", Product: "two"},
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("rows = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("scope is the first field of a composite coordinate", func(t *testing.T) {
+		be, r := registerScoped(t, Resource{
+			Name: "prefixscopedrows", Table: "prefixscopedrows", DB: entitySubsystem,
+			RowType: reflect.TypeFor[PrefixScopedRow](), PKFields: []string{"Folder", "Target"},
+			EntitySortKey: []string{"Folder", "Target"}, EntityKeySep: compositeSep,
+			Scope: ScopeSpec{Field: "Folder"},
+		})
+		applyRows(t, be, r, []PrefixScopedRow{
+			{Folder: "corp/eng", Target: "a.example.com"},
+			{Folder: "corp/eng", Target: "b.example.com"},
+			{Folder: "corp/engineering", Target: "c.example.com"},
+			{Folder: "", Target: "base.example.com"},
+		})
+		applyRows(t, be, r, []PrefixScopedRow{{Folder: "corp/eng", Target: "d.example.com"}})
+		got := scanRows[PrefixScopedRow](t, be, r)
+		want := []PrefixScopedRow{
+			{Folder: "", Target: "base.example.com"},
+			{Folder: "corp/eng", Target: "d.example.com"},
+			{Folder: "corp/engineering", Target: "c.example.com"},
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("rows = %v, want %v — the prefix is scope+separator, so corp/eng "+
+				"does not reach corp/engineering and the instance-wide row stays", got, want)
+		}
+	})
+}
+
+// A folder the manifest does NOT mention is purged when the caller names it in
+// PruneScopes: the cross-subsystem rollback's reach, and the thing that stops a
+// folder a forward apply created from outliving the rollback (ApplyOpts).
+func TestEntity_ScopedApplyPrunesTheScopesTheCallerNames(t *testing.T) {
+	be, r := registerScoped(t, Resource{
+		Name: "scopedrows", Table: "scopedrows", DB: entitySubsystem,
+		RowType: reflect.TypeFor[ScopedRow](), PKFields: []string{"Path"},
+		EntitySortKey: []string{"Path"}, Scope: ScopeSpec{Field: "Folder"},
+	})
+	applyRows(t, be, r, []ScopedRow{
+		{Path: "/a", Folder: "corp/eng", Access: "public"},
+		{Path: "/b", Folder: "corp/gone", Access: "public"},
+	})
+	rows := []ScopedRow{{Path: "/a", Folder: "corp/eng", Access: "auth"}}
+	if _, err := Apply(t.Context(), be, entitySubsystem, "", true,
+		map[string]any{"scopedrows": rows},
+		&ApplyOpts{Actor: "test", PruneScopes: []string{"corp/gone"}}); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	got := scanRows[ScopedRow](t, be, r)
+	want := []ScopedRow{{Path: "/a", Folder: "corp/eng", Access: "auth"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("rows = %v, want %v — corp/gone is named in PruneScopes, and a row "+
+			"left there is authority the next tenant of the path inherits", got, want)
+	}
+}
+
+// A scoped resource the manifest mentions with an EMPTY list still wipes the
+// whole entity: the operator is declaring "no rows for this resource", which is
+// the column path's answer too.
+func TestEntity_ScopedApplyWipesOnAnEmptyList(t *testing.T) {
+	be, r := registerScoped(t, Resource{
+		Name: "scopedrows", Table: "scopedrows", DB: entitySubsystem,
+		RowType: reflect.TypeFor[ScopedRow](), PKFields: []string{"Path"},
+		EntitySortKey: []string{"Path"}, Scope: ScopeSpec{Field: "Folder"},
+	})
+	applyRows(t, be, r, []ScopedRow{
+		{Path: "/a", Folder: "corp/eng"},
+		{Path: "/b", Folder: "corp/sre"},
+	})
+	applyRows(t, be, r, []ScopedRow{})
+	if got := scanRows[ScopedRow](t, be, r); len(got) != 0 {
+		t.Errorf("rows = %v, want none", got)
+	}
+}
+
+// A scope sitting INSIDE a coordinate rather than at the front of it has no
+// predicate: a key operator reaches a leading fragment, and the coordinate is
+// not an attribute a Where can filter on.
+func TestEntity_RegisterRefusesAScopeInsideACoordinate(t *testing.T) {
+	reset()
+	defer func() {
+		got := recover()
+		if got == nil {
+			t.Fatal("Register accepted a scope on the second field of a coordinate")
+		}
+		if msg, _ := got.(string); !strings.Contains(msg, "has to be the first field of it") {
+			t.Errorf("panic = %v, want it to name the leading-fragment rule", got)
+		}
+	}()
+	Register(Resource{
+		Name: "bad", Table: "bad", DB: entitySubsystem,
+		RowType: reflect.TypeFor[PrefixScopedRow](), PKFields: []string{"Folder", "Target"},
+		EntitySortKey: []string{"Folder", "Target"}, EntityKeySep: compositeSep,
+		Scope: ScopeSpec{Field: "Target"},
+	})
+}
+
+// applyRows applies one resource's rows and fails the test on any error.
+func applyRows(t *testing.T, be Backend, r *Resource, rows any) {
+	t.Helper()
+	if _, err := Apply(t.Context(), be, entitySubsystem, "", true,
+		map[string]any{r.Name: rows}, nil); err != nil {
+		t.Fatalf("Apply %s: %v", r.Name, err)
+	}
+}
+
+// scanRows reads one resource's rows back, in sort-key order.
+func scanRows[T any](t *testing.T, be Backend, r *Resource) []T {
+	t.Helper()
+	got, err := r.ScanAll(be)
+	if err != nil {
+		t.Fatalf("ScanAll %s: %v", r.Name, err)
+	}
+	return got.([]T)
+}
+
+// The scoped deletes ride INSIDE the replace's claim, not beside it.
+//
+// That is the whole of answer 4: the scope's items are READ and then deleted —
+// an entity has no predicate delete — so between the read and the write there
+// is a window, and a second replace taking the scope in that window must stop
+// these deletes rather than let them land on a projection somebody else is
+// part-way through replacing. conformance.SlipAt forces the interleave instead
+// of racing for it: two concurrency bodies in this project stayed green against
+// deliberately broken code because the collision has to fall in one window and
+// usually does not.
+func TestEntity_ScopedDeletesRideInsideTheClaim(t *testing.T) {
+	reset()
+	db := dbtest.Open(t)
+	s := sqlstore.New(db)
+	if err := s.CreateEntity(t.Context(), "audit_log"); err != nil {
+		t.Fatalf("audit_log: %v", err)
+	}
+	r := Register(Resource{
+		Name: "scopedrows", Table: "scopedrows", DB: entitySubsystem,
+		RowType: reflect.TypeFor[ScopedRow](), PKFields: []string{"Path"},
+		EntitySortKey: []string{"Path"}, Scope: ScopeSpec{Field: "Folder"},
+	})
+	if err := EnsureSubsystem(t.Context(), s, s, entitySubsystem); err != nil {
+		t.Fatalf("EnsureSubsystem: %v", err)
+	}
+	before := []ScopedRow{
+		{Path: "/a", Folder: "corp/eng", Access: "public"},
+		{Path: "/b", Folder: "corp/sre", Access: "auth"},
+	}
+	applyRows(t, Backend{DB: db, Obj: s}, r, before)
+
+	// Read 1 is the checksum's scan; read 2 is the scope query whose answer the
+	// deletes are built from. Steal the claim at read 2, which is the window.
+	reads := 0
+	slipped := conformance.SlipAt(s, "scopedrows", 2, func() {
+		reads++
+		if reads != 2 {
+			return
+		}
+		committed, err := s.GuardedBatch(t.Context(), nil, []objstore.Write{{
+			Op: objstore.Update, Entity: store.ScopeEntity,
+			Key:   store.OwnerScope(entitySubsystem).Key,
+			Attrs: map[string]string{"holder": "somebody-else", "since": core.NowTS()},
+		}})
+		if err != nil || !committed {
+			t.Errorf("steal the claim: committed=%v err=%v", committed, err)
+		}
+	})
+
+	_, err := Apply(t.Context(), Backend{DB: db, Obj: slipped}, entitySubsystem, "", true,
+		map[string]any{"scopedrows": []ScopedRow{{Path: "/c", Folder: "corp/eng"}}}, nil)
+	if !errors.Is(err, objstore.ErrClaimLost) {
+		t.Fatalf("Apply err = %v, want ErrClaimLost: the deletes were built from a read "+
+			"taken under a claim this apply no longer holds", err)
+	}
+	if reads < 2 {
+		t.Fatalf("the scope query never ran (%d reads), so the interleave proved nothing", reads)
+	}
+	if got := scanRows[ScopedRow](t, Backend{DB: db, Obj: s}, r); !reflect.DeepEqual(got, before) {
+		t.Errorf("rows = %v, want %v — a fenced delete writes nothing", got, before)
 	}
 }

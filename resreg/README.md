@@ -64,9 +64,28 @@ and each refusal carries the reason it cannot cross:
 | declaration                                                                    | why not                                                                                                                                                                                        |
 | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `RowFilter`                                                                    | `Query.Where` is a conjunction with no `OR`, and the filter also gates `DeleteScope`/`DeleteAll` — a reader-side predicate cannot narrow a write                                               |
-| `ScopeSpec`                                                                    | a scoped delete over items is an unbounded read-then-delete, so it belongs inside the replace                                                                                                  |
 | `Hooks`                                                                        | `ColumnOverride.Read` is a SQL expression, `.Write` is the bind conversion absent-is-null already makes unnecessary, and `BeforeInsert`/`ValidateRow` take a `*sql.Tx` this path does not open |
 | an attribute that is not a string, an int, or a field with a declared encoding | every attribute value is text, so a bool, a slice or a map declares its encoding in the `db:` tag (`codec.go`)                                                                                 |
+
+A `ScopeSpec` is the scoped delete, and on this path it is a QUERY plus one
+guarded delete per item — an entity has no table to delete from and no
+predicate delete. Which query the DECLARATION decides, at `Register`, because
+where the scope value lives is what can select on it: an attribute is a `Where`
+term (an EMPTY scope is `Absent`, because an empty string is an absent
+attribute), a sort key is an exact key, and the first field of a composite
+coordinate is a `begins_with` on `scope+sep` — exact, because no value may carry
+the separator, which is what makes `network_rules`' `(folder, target)` purgeable
+by folder at all. A scope in the MIDDLE of a coordinate is refused: a key
+operator reaches a leading fragment and a coordinate is not an attribute.
+
+Those deletes ride INSIDE `objstore.Replace`'s claim rather than beside it. The
+delete set is read and then written, so a second replace taking the scope in
+that window has to stop them — otherwise they land on a projection somebody else
+is part-way through replacing. `ApplyOpts.PruneScopes` joins the mentioned
+scopes exactly as on the column path, so the cross-subsystem rollback still
+reaches the folders a forward apply created. Without all of this a folder purge
+leaves the next tenant of the path the last one's egress rules, cron tasks, held
+actions and web routes (BUGS `L253`).
 
 A field whose Go type is not text declares its ENCODING in the `db:` tag, after
 the column name — `db:"preserve_headers,json"`. The set is closed (`json`,

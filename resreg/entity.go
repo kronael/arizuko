@@ -108,6 +108,31 @@ type entityMeta struct {
 	// ColumnOverride is refused here and that override is the only thing that
 	// ever separated them (BUGS F49).
 	stamped map[int]bool
+	// scope is how a scoped delete SELECTS one scope's items, nil for a
+	// resource that declares no ScopeSpec.
+	scope *entityScope
+}
+
+// entityScope is the read that stands in for `DELETE FROM t WHERE scope = ?`.
+//
+// An entity has no table to delete from and no predicate delete, so a scoped
+// delete is a QUERY and then one guarded delete per item — an unbounded
+// read-then-delete, which is why it belongs inside the versioned replace beside
+// the wipe rather than in a DeleteScope of its own (spec 6/40 §3).
+//
+// There are three shapes and the DECLARATION picks which, at Register, because
+// where the scope value lives decides what can select on it. An attribute is a
+// Where term. A sort key IS the coordinate, so it is an exact key. The first
+// field of a composite coordinate is a begins_with on `scope+sep`, which is
+// exact because no value may carry the separator — that is what makes
+// network_rules' (folder, target) purgeable by folder at all.
+type entityScope struct {
+	// attr is the attribute the scope value equals, and is empty when the scope
+	// is part of the coordinate.
+	attr string
+	// prefix is true when the scope is the FIRST field of a composite
+	// coordinate; false with an empty attr means the coordinate IS the scope.
+	prefix bool
 }
 
 // sortCols names the coordinate the way an error message has to spell it: one
@@ -186,16 +211,6 @@ func (r *Resource) initEntity(m *resourceMeta, byField map[string]int) {
 			"a filter that also has to gate a DELETE cannot be a reader-side "+
 			"predicate, and Where is a conjunction with no OR", r.Name))
 	}
-	if r.Scope.Field != "" {
-		// A scoped delete over an entity is an unbounded row set — read the
-		// scope's items, then delete them — so it belongs inside the versioned
-		// replace beside the wipe, not in a DeleteScope of its own. No
-		// entity-backed resource declares a Scope, so the shape goes in with the
-		// first one that does.
-		panic(fmt.Sprintf("resreg: %s is entity-backed and declares a ScopeSpec; "+
-			"a scoped delete over items is an unbounded read-then-delete and "+
-			"belongs inside the replace", r.Name))
-	}
 	for _, name := range r.StampedFields {
 		if seen[name] {
 			// A stamped coordinate is one the SERVER invents, so the same row
@@ -241,7 +256,87 @@ func (r *Resource) initEntity(m *resourceMeta, byField map[string]int) {
 		}
 		e.attrs = append(e.attrs, fm)
 	}
+	e.scope = r.entityScopeOf(m, sortFields)
 	m.entity = e
+}
+
+// entityScopeOf resolves the ScopeSpec into the predicate a scoped delete runs,
+// or refuses the declaration.
+//
+// A scope the object path cannot SELECT on is refused here rather than answered
+// by a wider delete: a scoped apply that deleted more than the scope would take
+// a folder's rows the manifest never mentioned, which is the worst of the three
+// outcomes the RowFilter refusal above names.
+func (r *Resource) entityScopeOf(m *resourceMeta, sortFields []fieldMeta) *entityScope {
+	if m.scopeField == nil {
+		return nil
+	}
+	if r.Scope.Column != "" {
+		// On this path the attribute name IS the `db:` tag, so a second spelling
+		// would name an attribute no item carries and the delete would select
+		// nothing — silently, because an empty result is a legal answer.
+		panic(fmt.Sprintf("resreg: %s is entity-backed and its ScopeSpec names the column "+
+			"%q; an attribute is named by its db: tag and nothing else", r.Name, r.Scope.Column))
+	}
+	for i, fm := range sortFields {
+		if fm.idx != m.scopeField.idx {
+			continue
+		}
+		if i == 0 {
+			return &entityScope{prefix: len(sortFields) > 1}
+		}
+		// A begins_with reaches a leading fragment of the key and nothing else,
+		// and the coordinate is not an attribute a Where can filter on. So a
+		// scope sitting in the middle of a coordinate has no predicate at all,
+		// and the answer is to put it first.
+		panic(fmt.Sprintf("resreg: %s scopes on %q, which is part %d of its coordinate; "+
+			"a key predicate reaches a LEADING fragment, so a scope inside a "+
+			"coordinate has to be the first field of it", r.Name, r.Scope.Field, i+1))
+	}
+	return &entityScope{attr: m.scopeField.col}
+}
+
+// entityScopeQuery is the read that finds one scope's items.
+func (r *Resource) entityScopeQuery(scope string) objstore.Query {
+	e := r.meta.entity
+	q := objstore.Query{Entity: r.Table, Partition: r.entityPartition()}
+	switch {
+	case e.scope.attr != "" && scope == "":
+		// An empty string is an ABSENT attribute on this path (itemFor), so the
+		// scope every resource spells "" — instance-wide — is selected by Absent
+		// and not by Eq "", which matches no item at all and would leave the
+		// scope's rows behind while the puts went in over them.
+		q.Where = []objstore.Cmp{{Attr: e.scope.attr, Op: objstore.Absent}}
+	case e.scope.attr != "":
+		q.Where = []objstore.Cmp{{Attr: e.scope.attr, Op: objstore.Eq, Value: scope}}
+	case e.scope.prefix:
+		// The separator is part of the prefix, not Query.Key.Sep: the subtree
+		// separator matches the value ITSELF as well, and `folder` alone is not
+		// a coordinate here — every item's key carries the separator after it.
+		q.Key = objstore.KeyPredicate{Op: objstore.PrefixKey, Value: scope + e.sep}
+	default:
+		q.Key = objstore.KeyPredicate{Op: objstore.ExactKey, Value: scope}
+	}
+	return q
+}
+
+// entityScopeDeletes reads one scope's live items and renders the writes that
+// remove them — the object path's DeleteScope, and a READ then a write for the
+// same reason entityWipe is.
+func (r *Resource) entityScopeDeletes(rd reader, scope string) ([]objstore.Write, error) {
+	if rd.obj == nil {
+		return nil, fmt.Errorf("resreg: %s is entity-backed and the backend carries no "+
+			"object store", r.Name)
+	}
+	items, err := rd.obj.Query(context.Background(), r.entityScopeQuery(scope))
+	if err != nil {
+		return nil, fmt.Errorf("%s: query scope %q: %w", r.Name, scope, err)
+	}
+	out := make([]objstore.Write, 0, len(items))
+	for _, it := range items {
+		out = append(out, objstore.Write{Op: objstore.Delete, Entity: r.Table, Key: it.Key})
+	}
+	return out, nil
 }
 
 // IsEntity reports the shape a resource declared: true when its rows are
@@ -483,6 +578,32 @@ func (r *Resource) entityWipe(rd reader) ([]objstore.Write, error) {
 	return out, nil
 }
 
+// entityDeletes is the delete set one resource's apply issues: the mentioned
+// scopes' items for a scoped resource with rows, and every item otherwise.
+//
+// The two branches and the empty-list case are the column path's, restated over
+// items rather than re-derived — an explicitly-present empty list is the
+// operator declaring "no rows for this resource" and falls to the total wipe,
+// while a resource absent from the manifest never reaches here at all.
+func (r *Resource) entityDeletes(rd reader, rows any, opts *ApplyOpts) ([]objstore.Write, error) {
+	scopes := r.manifestScopes(rows)
+	if !r.HasScope() || len(scopes) == 0 {
+		return r.entityWipe(rd)
+	}
+	if opts != nil {
+		scopes = mergeScopes(scopes, opts.PruneScopes)
+	}
+	var out []objstore.Write
+	for _, scope := range scopes {
+		dels, err := r.entityScopeDeletes(rd, scope)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, dels...)
+	}
+	return out, nil
+}
+
 // --- the subsystem's shape --------------------------------------------
 
 // shape is which of the two paths a subsystem's resources declared.
@@ -620,7 +741,7 @@ func applyEntities(ctx context.Context, be Backend, subsystem, wantChecksum stri
 				// leaving the scope wedged over an operator's stale manifest.
 				return fmt.Errorf("%w: db=%s manifest=%s", ErrChecksumMismatch, current, wantChecksum)
 			}
-			if err := replaceRows(ctx, rp, rd, subsystem, manifestRows); err != nil {
+			if err := replaceRows(ctx, rp, rd, subsystem, manifestRows, opts); err != nil {
 				return err
 			}
 			if applied, err = checksum(rd, subsystem); err != nil {
@@ -654,13 +775,18 @@ func applyEntities(ctx context.Context, be Backend, subsystem, wantChecksum stri
 // pair outright rather than answering differently depending on the row count.
 // That is the same order the column path runs, DeleteAll then InsertAll.
 //
-// There is no scoped branch and no ApplyOpts.PruneScopes here, and neither is
-// silently dropped: an entity-backed resource cannot declare a ScopeSpec
-// (initEntity), so HasScope is false for every one of them, ManifestScopes
-// answers nothing for such a subsystem, and the rollback that fills PruneScopes
-// has nothing to put in it. The wipe is already total.
+// The SCOPED branch is the same one the column path takes and the reason it has
+// to exist here is the same: a manifest naming two folders must not take a
+// third folder's rows, and a folder purge that leaves them behind hands the next
+// tenant of the path the last one's egress rules, cron tasks, held actions and
+// web routes (BUGS L253). What differs is that a scope's delete set is READ
+// first — an entity has no predicate delete — and that read runs UNDER THE
+// CLAIM, which is what keeps a second replace's rows out of this one's delete
+// set. ApplyOpts.PruneScopes joins the mentioned scopes exactly as it does on
+// the column path, so the cross-subsystem rollback still reaches the folders a
+// forward apply created.
 func replaceRows(ctx context.Context, rp *objstore.Replacer, rd reader, subsystem string,
-	manifestRows map[string]any) error {
+	manifestRows map[string]any, opts *ApplyOpts) error {
 	for _, r := range BySubsystem(subsystem) {
 		if r.RowType == nil || r.SkipApplyRebuild {
 			continue
@@ -669,7 +795,7 @@ func replaceRows(ctx context.Context, rp *objstore.Replacer, rd reader, subsyste
 		if !mentioned {
 			continue // resource absent from manifest → untouched
 		}
-		wipe, err := r.entityWipe(rd)
+		wipe, err := r.entityDeletes(rd, rows, opts)
 		if err != nil {
 			return err
 		}
