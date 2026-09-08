@@ -2,20 +2,18 @@ package resources
 
 import (
 	"context"
-	"database/sql"
 	"errors"
+	"fmt"
 	"reflect"
 
 	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/resreg"
-	"github.com/kronael/arizuko/store"
 )
 
 // ACLMembershipRow mirrors acl_membership: composite (child, parent)
-// PK + added_by, which every writer sets. ValidateRow runs the recursive cycle check
-// in-tx; the same query the imperative AddMembership uses, but the
-// engine wires it on the apply path too so manifests can't introduce
-// cycles silently.
+// PK + added_by, which every writer sets. ValidateRows runs the same cycle walk
+// the imperative AddMembership runs, over the manifest's own edges, so a
+// manifest cannot introduce a cycle silently.
 type ACLMembershipRow struct {
 	Child   string `db:"child"    yaml:"child"    json:"child"`
 	Parent  string `db:"parent"   yaml:"parent"   json:"parent"`
@@ -86,30 +84,45 @@ func init() {
 		// alike for every row that carries a value; `added_by` is NOT NULL from
 		// routd migration 0047, so every row does.
 		RowFilter: []objstore.Cmp{{Attr: "added_by", Op: objstore.Ne, Value: "pairing"}},
-		Hooks: resreg.Hooks{
-			ValidateRow: func(ctx context.Context, tx *sql.Tx, row any) error {
-				r := row.(*ACLMembershipRow)
-				if r.Child == r.Parent {
-					return ErrMembershipSelf
-				}
-				cycles, err := store.MembershipWouldCycle(ctx, tx, r.Child, r.Parent)
-				if err != nil {
-					return err
-				}
-				if cycles {
-					return ErrMembershipCycle
-				}
-				return nil
-			},
-			ColumnOverride: map[string]resreg.ColumnHook{
-				// Read only. The write half stored an empty actor as NULL, and
-				// NULL is the one value the row filter above cannot compare —
-				// a row the writer left unattributed would fall out of its own
-				// resource's projection. routd.db has no such row (migration
-				// 0047); the COALESCE stays for the frozen pre-split chain,
-				// which store's tests still build.
-				"AddedBy": {Read: "COALESCE(added_by, '')"},
-			},
-		},
+		Hooks:     resreg.Hooks{ValidateRows: noMembershipCycle},
 	})
+}
+
+// noMembershipCycle refuses a manifest whose edges make a principal its own
+// ancestor. It is the same walk store.AddMembership runs (objstore.Reachable),
+// over the graph the apply is about to make this resource EQUAL TO.
+//
+// The graph is the MANIFEST's and nothing else, because an apply wipes the
+// resource's whole manifest-visible projection before it writes: after the wipe
+// the only edges are the ones below. The rows the RowFilter excludes — the
+// pairing edges — survive that wipe and are outside this graph by the same
+// declaration that keeps them out of every export, so an apply cannot reason
+// about them and does not pretend to (spec 5/31).
+//
+// It runs BEFORE the wipe, which is what makes a refused manifest leave the
+// subsystem untouched on the object path, where there is no rollback.
+func noMembershipCycle(ctx context.Context, rows any) error {
+	edges, ok := rows.([]ACLMembershipRow)
+	if !ok {
+		return fmt.Errorf("acl_membership rows are %T, not %T", rows, []ACLMembershipRow{})
+	}
+	up := make(map[string][]string, len(edges))
+	for _, e := range edges {
+		if e.Child == e.Parent {
+			return fmt.Errorf("%w: %s", ErrMembershipSelf, e.Child)
+		}
+		up[e.Child] = append(up[e.Child], e.Parent)
+	}
+	parents := func(_ context.Context, node string) ([]string, error) { return up[node], nil }
+	for _, e := range edges {
+		hit, err := objstore.Reachable(ctx, parents, e.Parent, e.Child)
+		if err != nil {
+			return err
+		}
+		if hit {
+			return fmt.Errorf("%w: %s is already at or above %s",
+				ErrMembershipCycle, e.Child, e.Parent)
+		}
+	}
+	return nil
 }

@@ -25,11 +25,19 @@ package resreg
 // cannot invent a rendering only it can read. An unknown name stops the process
 // at Register.
 //
-// WHAT IT DOES NOT COVER. A string and an int need no codec: both paths already
-// render them the same way, SQL binds them natively and the object path writes
-// an int with strconv. Declaring one on either is refused rather than accepted,
-// because a second rendering of a value that already has one is the drift this
-// file exists to prevent.
+// WHAT IT DOES NOT COVER. A string and an int ATTRIBUTE need no codec: both
+// paths already render them the same way, SQL binds them natively and the
+// object path writes an int with strconv. Declaring one on either is refused
+// rather than accepted, because a second rendering of a value that already has
+// one is the drift this file exists to prevent.
+//
+// THE ONE EXCEPTION IS A NUMBER IN A COORDINATE, and it is an exception because
+// strconv's rendering is WRONG there rather than merely different: a sort key is
+// compared as text, so "10" sorts before "2" and routes' (seq, target, match)
+// would read back in an order the route table's own meaning contradicts. `pad`
+// is that rendering, it is refused anywhere but a sort key, and no
+// column-shaped resource may declare it — its output is the bind value, and the
+// column is an INTEGER.
 //
 // A codec'd COLUMN is TEXT, on both engines, because the codec's output is the
 // bind value. proxyd_routes' `preserve_headers TEXT NOT NULL DEFAULT '[]'` is;
@@ -41,6 +49,7 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+	"strings"
 )
 
 // codec is one encoding: a Go field value to the single text both shapes store,
@@ -66,7 +75,23 @@ type codec struct {
 var codecs = map[string]codec{
 	"json": {name: "json", encode: encodeJSON, decode: decodeJSON},
 	"bool": {name: "bool", encode: encodeBool, decode: decodeBool},
+	"pad":  {name: padCodec, encode: encodePad, decode: decodePad},
 }
+
+// padCodec is the one encoding that belongs to a COORDINATE and not to an
+// attribute, and initEntity refuses it anywhere else.
+//
+// routes is keyed (seq, target, match) and `seq` is an integer, so the key it
+// joins into is compared as TEXT: strconv's rendering puts 10 before 2 and the
+// route table's whole meaning is "lower seq wins, first match". A fixed-width
+// zero-padded decimal makes byte order and numeric order the same thing, which
+// is the rule objstore.OrderedSort already enforces for a stored instant
+// (BUGS L97) applied to a number.
+const padCodec = "pad"
+
+// padWidth is that width. Ten digits holds every non-negative int32, and the
+// widest `seq` any live instance carries is 3 digits.
+const padWidth = 10
 
 // encodeJSON renders a slice, map or struct field as its JSON text.
 //
@@ -128,6 +153,43 @@ func decodeBool(text string, into reflect.Value) error {
 	return nil
 }
 
+// encodePad renders a non-negative int at the declared width.
+//
+// A NEGATIVE value is refused rather than rendered: "-000000001" sorts before
+// "-000000002", so the padding inverts the order it exists to preserve, and a
+// coordinate that sorts wrong is the failure this codec prevents. No live route
+// carries one; a value that needs one needs a different encoding, chosen by
+// whoever needs it.
+func encodePad(v reflect.Value) (string, error) {
+	n := v.Int()
+	if n < 0 {
+		return "", fmt.Errorf("%d is negative, and this encoding pads to sort in numeric "+
+			"order, which padding a negative does not do", n)
+	}
+	text := strconv.FormatInt(n, 10)
+	if len(text) > padWidth {
+		return "", fmt.Errorf("%d is wider than the %d digits this encoding pads to, so it "+
+			"would sort below every shorter value", n, padWidth)
+	}
+	return strings.Repeat("0", padWidth-len(text)) + text, nil
+}
+
+// decodePad reads it back. Absent is the zero value, the one null this model
+// has; anything that is not a number at all is a LOUD fault, because a
+// coordinate read wrong names a row nobody wrote.
+func decodePad(text string, into reflect.Value) error {
+	if text == "" {
+		into.SetInt(0)
+		return nil
+	}
+	n, err := strconv.Atoi(text)
+	if err != nil {
+		return fmt.Errorf("%q is not a number: %w", text, err)
+	}
+	into.SetInt(int64(n))
+	return nil
+}
+
 // codecFor resolves one field's declared encoding, or refuses the declaration.
 //
 // It runs inside initMeta, so a refusal is a panic at Register — a misdeclared
@@ -142,6 +204,15 @@ func codecFor(resource, field, name string, kind reflect.Kind) *codec {
 		panic(fmt.Sprintf("resreg: %s.%s declares the encoding %q, and the set is "+
 			"json and bool; an encoding a caller invents is a rendering only it can read",
 			resource, field, name))
+	}
+	if name == padCodec {
+		// The one encoding an INT may declare, because an int's own rendering is
+		// wrong for a coordinate rather than merely different (padCodec).
+		if kind != reflect.Int {
+			panic(fmt.Sprintf("resreg: %s.%s is a %s and declares the %q encoding, which "+
+				"pads a number", resource, field, kind, name))
+		}
+		return &c
 	}
 	switch kind {
 	case reflect.String, reflect.Int:

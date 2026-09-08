@@ -56,8 +56,24 @@ type Hooks struct {
 	// AfterScan mutates a row pointer after SELECT (decrypt, JSON-decode).
 	AfterScan func(row any) error
 
-	// ValidateRow runs in-tx, post-decode. Returns engine-level error.
-	ValidateRow func(ctx context.Context, tx *sql.Tx, row any) error
+	// ValidateRows refuses a manifest whose row SET an apply must not store —
+	// the invariant that is a property of the whole set rather than of one row,
+	// which is why it takes the set and not a row.
+	//
+	// It runs on BOTH shapes, BEFORE the delete that precedes the writes, so a
+	// refused manifest leaves the subsystem untouched on the object path too:
+	// that path has no pre-image and no rollback, so a check that ran between
+	// the wipe and the puts would leave an operator with the rows deleted and
+	// none written (entity.go applyEntities).
+	//
+	// The set it checks is the one the apply is about to make the resource EQUAL
+	// TO — an apply replaces a resource's manifest-visible projection wholesale
+	// (RowFilter names what is outside it), so the graph, the counter or the
+	// uniqueness the hook tests is the manifest's own. It takes no transaction
+	// for the same reason BeforeInsert does not: an entity's apply holds a
+	// claim, and a hook that needed a *sql.Tx would be a declaration only one
+	// shape could honour.
+	ValidateRows func(ctx context.Context, rows any) error
 
 	// ColumnOverride remaps a struct field to a custom SQL expression on
 	// read (Read) and/or a custom write binder (Write). Use sparingly —
@@ -185,6 +201,18 @@ func (r *Resource) initMeta() {
 		}
 	}
 	r.initEntity(m, dbToField)
+	if m.entity == nil {
+		for _, fm := range m.fields {
+			if fm.codec != nil && fm.codec.name == padCodec {
+				// The padding renders a KEY, and a column-shaped resource has no
+				// key to render — it has an INTEGER column, and the codec's output
+				// IS the bind value (codec.go).
+				panic(fmt.Sprintf("resreg: %s.%s declares the %q encoding and %s is "+
+					"column-backed; padding orders a sort key, and this resource has none",
+					r.Name, fm.name, padCodec, r.Name))
+			}
+		}
+	}
 	r.meta = m
 }
 
@@ -355,7 +383,8 @@ func (r *Resource) columnsOnly(op string) error {
 }
 
 // Insert binds row (a struct value or pointer) and inserts via tx.
-// Runs Hooks.BeforeInsert + Hooks.ValidateRow if set.
+// Runs Hooks.BeforeInsert if set; Hooks.ValidateRows runs once over the whole
+// set, ahead of the delete this insert follows (Apply).
 func (r *Resource) Insert(ctx context.Context, tx *sql.Tx, row any) error {
 	if err := r.columnsOnly("Insert"); err != nil {
 		return err
@@ -385,11 +414,6 @@ func (r *Resource) Insert(ctx context.Context, tx *sql.Tx, row any) error {
 	for _, idx := range r.meta.autoStampIdx {
 		if f := rowPtr.Elem().Field(idx); f.Kind() == reflect.String && f.String() == "" {
 			f.SetString(stampNow)
-		}
-	}
-	if r.Hooks.ValidateRow != nil {
-		if err := r.Hooks.ValidateRow(ctx, tx, rowPtr.Interface()); err != nil {
-			return fmt.Errorf("%s: validate: %w", r.Name, err)
 		}
 	}
 	values, err := r.insertValues(rowPtr.Elem())
@@ -850,7 +874,7 @@ func KnownFolders(be Backend, manifests ...map[string]any) (map[string]bool, err
 // Checks exactly the references that are DECLARATIVELY folders: a resource's
 // ScopeSpec.Field column. It does not guess which other string column holds a
 // folder, for the same reason Retarget refuses to. A resource that CAN decide
-// that for its own polymorphic column adds a Hooks.ValidateRow.
+// that for its own polymorphic column adds a Hooks.ValidateRows.
 //
 // The empty scope is exempt: network_rules carries folder="" for instance-global
 // rules, which names no group by design.
@@ -1026,6 +1050,9 @@ func Apply(ctx context.Context, be Backend, subsystem string, wantChecksum strin
 		if !mentioned {
 			continue // resource absent from manifest → untouched
 		}
+		if err := r.validateRows(ctx, rows); err != nil {
+			return current, err
+		}
 		scopes := r.manifestScopes(rows)
 		if r.HasScope() && len(scopes) > 0 {
 			// Scoped resource with rows: prune the mentioned scopes, plus any
@@ -1064,6 +1091,21 @@ func Apply(ctx context.Context, be Backend, subsystem string, wantChecksum strin
 		return current, fmt.Errorf("commit: %w", err)
 	}
 	return newChecksum, nil
+}
+
+// validateRows runs the resource's declared set check, or nothing.
+//
+// It is a method rather than two call sites so the column path and the object
+// path cannot disagree about WHEN it runs: both call it before the delete that
+// precedes their writes (Hooks.ValidateRows).
+func (r *Resource) validateRows(ctx context.Context, rows any) error {
+	if r.Hooks.ValidateRows == nil {
+		return nil
+	}
+	if err := r.Hooks.ValidateRows(ctx, rows); err != nil {
+		return fmt.Errorf("%s: validate: %w", r.Name, err)
+	}
+	return nil
 }
 
 // mergeScopes returns the sorted union of two scope lists.

@@ -11,6 +11,7 @@ import (
 	"database/sql"
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -422,13 +423,13 @@ func TestEntity_RegisterRefusesAMisdeclaredShape(t *testing.T) {
 			}},
 		{"a stamped coordinate", "invents addresses a new item",
 			func(r Resource) Resource { r.StampedFields = []string{"Key"}; return r }},
-		{"a column override", "declares AfterScan, ValidateRow or ColumnOverride",
+		{"a column override", "declares AfterScan or ColumnOverride",
 			func(r Resource) Resource {
 				r.Hooks = Hooks{ColumnOverride: map[string]ColumnHook{
 					"Note": {Read: "COALESCE(note,'')"}}}
 				return r
 			}},
-		{"an after-scan hook", "declares AfterScan, ValidateRow or ColumnOverride",
+		{"an after-scan hook", "declares AfterScan or ColumnOverride",
 			func(r Resource) Resource {
 				r.Hooks = Hooks{AfterScan: func(any) error { return nil }}
 				return r
@@ -698,6 +699,151 @@ func TestEntity_RegisterRefusesAMisdeclaredCoordinate(t *testing.T) {
 				}
 			}()
 			Register(tc.of(base()))
+		})
+	}
+}
+
+// --- the padded coordinate ----------------------------------------------
+//
+// routes is keyed (seq, target, match) and `seq` is an integer. A key is
+// compared as TEXT, so the rendering has to make byte order and numeric order
+// the same thing — the rule objstore.OrderedSort enforces for an instant
+// (BUGS L97), applied to a number (spec 6/40 §"The four coordinates").
+
+// PaddedRow is that coordinate in miniature: a number first, a string second.
+type PaddedRow struct {
+	Seq    int    `db:"seq,pad" yaml:"seq"`
+	Target string `db:"target"  yaml:"target"`
+	By     string `db:"by"      yaml:"by,omitempty"`
+}
+
+func freshPadded(t *testing.T) (Backend, *Resource) {
+	t.Helper()
+	reset()
+	db := dbtest.Open(t)
+	s := sqlstore.New(db)
+	if err := s.CreateEntity(t.Context(), "audit_log"); err != nil {
+		t.Fatalf("audit_log: %v", err)
+	}
+	r := Register(Resource{
+		Name:          "paddedrows",
+		Table:         "paddedrows",
+		DB:            entitySubsystem,
+		RowType:       reflect.TypeFor[PaddedRow](),
+		PKFields:      []string{"Seq", "Target"},
+		EntitySortKey: []string{"Seq", "Target"},
+		EntityKeySep:  compositeSep,
+	})
+	if err := EnsureSubsystem(t.Context(), s, s, entitySubsystem); err != nil {
+		t.Fatalf("EnsureSubsystem: %v", err)
+	}
+	return Backend{DB: db, Obj: s}, r
+}
+
+// A driver answers in SORT-KEY order, so the read comes back in numeric order
+// or it does not. 2 before 10 is the whole claim: strconv's rendering puts "10"
+// first, and the route table's meaning is "lower seq wins, first match".
+func TestEntity_PaddedCoordinateSortsNumerically(t *testing.T) {
+	be, r := freshPadded(t)
+	rows := []PaddedRow{
+		{Seq: 100, Target: "z"},
+		{Seq: 2, Target: "b"},
+		{Seq: 10, Target: "c"},
+		{Seq: 0, Target: "a"},
+	}
+	if _, err := Apply(t.Context(), be, entitySubsystem, "", true,
+		map[string]any{"paddedrows": rows}, nil); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	got, err := r.ScanAll(be)
+	if err != nil {
+		t.Fatalf("ScanAll: %v", err)
+	}
+	var seqs []int
+	for _, row := range got.([]PaddedRow) {
+		seqs = append(seqs, row.Seq)
+	}
+	want := []int{0, 2, 10, 100}
+	if !slices.Equal(seqs, want) {
+		t.Errorf("seq order = %v, want %v — the key is compared as text, so the number "+
+			"has to be rendered at a fixed width", seqs, want)
+	}
+}
+
+// A value the padding cannot order is REFUSED rather than written, at the same
+// end the separator is: the write is the only place that can see it.
+func TestEntity_PaddedCoordinateRefusesWhatItCannotOrder(t *testing.T) {
+	be, r := freshPadded(t)
+	for _, tc := range []struct {
+		name string
+		row  PaddedRow
+		want string
+	}{
+		{"negative", PaddedRow{Seq: -1, Target: "a"}, "is negative"},
+		{"wider than the padding", PaddedRow{Seq: 12345678901, Target: "a"}, "wider than the 10 digits"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := r.entityPuts([]PaddedRow{tc.row})
+			if err == nil {
+				t.Fatal("entityPuts rendered a value that does not sort in numeric order")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("err = %v, want it to contain %q", err, tc.want)
+			}
+			if _, err := Apply(t.Context(), be, entitySubsystem, "", true,
+				map[string]any{"paddedrows": []PaddedRow{tc.row}}, nil); err == nil {
+				t.Error("Apply wrote it anyway")
+			}
+		})
+	}
+}
+
+// The padding belongs to a COORDINATE. Declaring it on an attribute, on a
+// column-shaped resource, or on a field that is not a number is refused at
+// Register — each of the three is a second rendering of a value that already
+// has one, which is the drift codec.go exists to prevent.
+func TestEntity_RegisterRefusesAMisplacedPadding(t *testing.T) {
+	type attrRow struct {
+		Key   string `db:"key"`
+		Count int    `db:"count,pad"`
+	}
+	type textRow struct {
+		Key  string `db:"key"`
+		Note string `db:"note,pad"`
+	}
+	cases := []struct {
+		name string
+		want string
+		of   func() Resource
+	}{
+		{"on an attribute", "not part of the coordinate", func() Resource {
+			return Resource{Name: "bad", Table: "bad", DB: entitySubsystem,
+				RowType: reflect.TypeFor[attrRow](), PKFields: []string{"Key"},
+				EntitySortKey: []string{"Key"}}
+		}},
+		{"on a column-backed resource", "column-backed", func() Resource {
+			return Resource{Name: "bad", Table: "bad", DB: entitySubsystem,
+				RowType: reflect.TypeFor[attrRow](), PKFields: []string{"Key"}}
+		}},
+		{"on a field that is not a number", "which pads a number", func() Resource {
+			return Resource{Name: "bad", Table: "bad", DB: entitySubsystem,
+				RowType: reflect.TypeFor[textRow](), PKFields: []string{"Key"},
+				EntitySortKey: []string{"Key"}}
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			reset()
+			defer func() {
+				got := recover()
+				if got == nil {
+					t.Fatalf("Register accepted %s", tc.name)
+				}
+				if msg, _ := got.(string); !strings.Contains(msg, tc.want) {
+					t.Errorf("panic = %v, want it to contain %q", got, tc.want)
+				}
+			}()
+			Register(tc.of())
 		})
 	}
 }
@@ -1062,6 +1208,72 @@ func TestEntity_DeclaredDefaultDoesNotEditTheManifest(t *testing.T) {
 	if rows[0].Effect != "" {
 		t.Errorf("the manifest row now carries effect=%q; the default was written into "+
 			"the caller's own slice", rows[0].Effect)
+	}
+}
+
+// --- the declared set check ---------------------------------------------
+
+// freshValidated registers a resource whose declared set check refuses any row
+// set carrying the key "bad".
+func freshValidated(t *testing.T) (Backend, *Resource) {
+	t.Helper()
+	reset()
+	db := dbtest.Open(t)
+	s := sqlstore.New(db)
+	if err := s.CreateEntity(t.Context(), "audit_log"); err != nil {
+		t.Fatalf("audit_log: %v", err)
+	}
+	r := Register(Resource{
+		Name:          "validatedrows",
+		Table:         "validatedrows",
+		DB:            entitySubsystem,
+		RowType:       reflect.TypeFor[DefaultedRow](),
+		PKFields:      []string{"Key"},
+		EntitySortKey: []string{"Key"},
+		Hooks: Hooks{
+			ValidateRows: func(_ context.Context, rows any) error {
+				for _, row := range rows.([]DefaultedRow) {
+					if row.Key == "bad" {
+						return errors.New("the set carries a row this resource refuses")
+					}
+				}
+				return nil
+			},
+		},
+	})
+	if err := EnsureSubsystem(t.Context(), s, s, entitySubsystem); err != nil {
+		t.Fatalf("EnsureSubsystem: %v", err)
+	}
+	return Backend{DB: db, Obj: s}, r
+}
+
+// A refused set leaves the resource EXACTLY as it was. That is the whole point
+// of running the check before the wipe: this path has no pre-image and no
+// rollback, so a check between the delete and the puts would hand an operator a
+// resource with its rows gone and none written.
+func TestEntity_ValidateRowsRefusesBeforeTheWipe(t *testing.T) {
+	be, r := freshValidated(t)
+	good := []DefaultedRow{{Key: "kept", Effect: "allow"}}
+	if _, err := Apply(t.Context(), be, entitySubsystem, "", true,
+		map[string]any{"validatedrows": good}, nil); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	_, err := Apply(t.Context(), be, entitySubsystem, "", true,
+		map[string]any{"validatedrows": []DefaultedRow{{Key: "bad"}}}, nil)
+	if err == nil {
+		t.Fatal("Apply accepted a row set the resource refuses")
+	}
+	if !strings.Contains(err.Error(), "validatedrows: validate") {
+		t.Errorf("err = %v, want it to name the resource and the check", err)
+	}
+	got, err := r.ScanAll(be)
+	if err != nil {
+		t.Fatalf("ScanAll: %v", err)
+	}
+	rows := got.([]DefaultedRow)
+	if len(rows) != 1 || rows[0].Key != "kept" {
+		t.Errorf("rows = %v, want the pre-apply set untouched; the check ran after the "+
+			"wipe, which on this path is a delete nothing undoes", rows)
 	}
 }
 

@@ -198,10 +198,17 @@ func (r *Resource) initEntity(m *resourceMeta, byField map[string]int) {
 				r.Name, name, m.rowType))
 		}
 		fm := m.fields[i]
-		if m.rowType.Field(fm.idx).Type.Kind() != reflect.String {
-			panic(fmt.Sprintf("resreg: %s EntitySortKey %q is a %s; a sort key is the item's "+
-				"coordinate and every coordinate is text", r.Name, name,
-				m.rowType.Field(fm.idx).Type.Kind()))
+		// A coordinate is TEXT, so a field that is not one needs a rendering the
+		// key can carry — and for a number that rendering is not strconv's,
+		// because the key is compared as text and "10" sorts before "2". The pad
+		// codec is that rendering and the only one a coordinate takes (codec.go).
+		if k := m.rowType.Field(fm.idx).Type.Kind(); k != reflect.String {
+			if fm.codec == nil || fm.codec.name != padCodec {
+				panic(fmt.Sprintf("resreg: %s EntitySortKey %q is a %s and declares no %q "+
+					"encoding; a sort key is the item's coordinate, every coordinate is "+
+					"text, and a number's own rendering does not sort like a number",
+					r.Name, name, k, padCodec))
+			}
 		}
 		sortFields = append(sortFields, fm)
 	}
@@ -229,16 +236,18 @@ func (r *Resource) initEntity(m *resourceMeta, byField map[string]int) {
 				r.Name, name))
 		}
 	}
-	if r.Hooks.AfterScan != nil || r.Hooks.ValidateRow != nil || len(r.Hooks.ColumnOverride) > 0 {
-		// BeforeInsert is NOT here: a row default is the writer's on this path
-		// too, and itemFor applies it (spec 6/40 answer 5). These three still
-		// take something this path does not have. ColumnOverride.Read is a SQL
-		// expression and .Write is a bind conversion the absent-attribute model
-		// already makes unnecessary; ValidateRow takes the *sql.Tx an entity's
-		// apply never opens, because it holds a claim instead.
-		panic(fmt.Sprintf("resreg: %s is entity-backed and declares AfterScan, ValidateRow "+
-			"or ColumnOverride; the first two take the *sql.Tx this path does not open, and "+
-			"a column override is a SQL expression with no column to name", r.Name))
+	if r.Hooks.AfterScan != nil || len(r.Hooks.ColumnOverride) > 0 {
+		// BeforeInsert and ValidateRows are NOT here. A row default is the
+		// writer's on this path too and itemFor applies it (spec 6/40 answer 5);
+		// a set check takes the manifest's own rows and no transaction, so
+		// replaceRows runs it before the wipe. These two still take something
+		// this path does not have: ColumnOverride.Read is a SQL expression and
+		// .Write a bind conversion the absent-attribute model already makes
+		// unnecessary, and AfterScan decodes a shadow COLUMN, which is what a
+		// declared codec does on both shapes instead (codec.go).
+		panic(fmt.Sprintf("resreg: %s is entity-backed and declares AfterScan or "+
+			"ColumnOverride; an override is a SQL expression with no column to name, and a "+
+			"post-scan decode is a codec the db: tag declares", r.Name))
 	}
 	e := &entityMeta{sort: sortFields, sep: r.EntityKeySep, stamped: map[int]bool{},
 		filtered: map[int]bool{}}
@@ -259,6 +268,16 @@ func (r *Resource) initEntity(m *resourceMeta, byField map[string]int) {
 	for _, fm := range m.fields {
 		if inKey[fm.idx] {
 			continue
+		}
+		if fm.codec != nil && fm.codec.name == padCodec {
+			// An ATTRIBUTE that is a number already has one rendering both
+			// shapes agree on, and padding it would be the second — the drift
+			// codec.go exists to prevent. The padding is for a key, where the
+			// comparison is the point.
+			panic(fmt.Sprintf("resreg: %s.%s declares the %q encoding and is not part of "+
+				"the coordinate (%s); padding orders a KEY, and an attribute that is a "+
+				"number is already rendered the same way on both shapes",
+				r.Name, fm.name, padCodec, strings.Join(r.EntitySortKey, ",")))
 		}
 		switch k := m.rowType.Field(fm.idx).Type.Kind(); {
 		case k == reflect.String, k == reflect.Int, fm.codec != nil:
@@ -414,19 +433,26 @@ func (r *Resource) rowFrom(it objstore.Item) (reflect.Value, error) {
 	e := r.meta.entity
 	ptr := reflect.New(r.meta.rowType)
 	row := ptr.Elem()
-	if len(e.sort) == 1 {
-		row.Field(e.sort[0].idx).SetString(it.Key.Sort)
-	} else {
-		parts := strings.Split(it.Key.Sort, e.sep)
+	parts := []string{it.Key.Sort}
+	if len(e.sort) > 1 {
+		parts = strings.Split(it.Key.Sort, e.sep)
 		if len(parts) != len(e.sort) {
 			return reflect.Value{}, fmt.Errorf("%s item %q splits on %q into %d parts and "+
 				"its coordinate (%s) has %d; the key was written by something that does not "+
 				"share this declaration", r.Name, it.Key.Sort, e.sep, len(parts),
 				e.sortCols(), len(e.sort))
 		}
-		for i, fm := range e.sort {
-			row.Field(fm.idx).SetString(parts[i])
+	}
+	for i, fm := range e.sort {
+		f := row.Field(fm.idx)
+		if fm.codec != nil {
+			if err := fm.codec.decode(parts[i], f); err != nil {
+				return reflect.Value{}, fmt.Errorf("%s item %q: %s: %w",
+					r.Name, it.Key.Sort, fm.col, err)
+			}
+			continue
 		}
+		f.SetString(parts[i])
 	}
 	for _, fm := range e.attrs {
 		text, ok := it.Attrs[fm.col]
@@ -471,7 +497,15 @@ func (r *Resource) sortKeyFor(v reflect.Value) (string, error) {
 	e := r.meta.entity
 	parts := make([]string, len(e.sort))
 	for i, fm := range e.sort {
-		parts[i] = v.Field(fm.idx).String()
+		if fm.codec != nil {
+			text, err := fm.codec.encode(v.Field(fm.idx))
+			if err != nil {
+				return "", fmt.Errorf("%s.%s: %w", r.Name, fm.name, err)
+			}
+			parts[i] = text
+		} else {
+			parts[i] = v.Field(fm.idx).String()
+		}
 		if e.sep != "" && strings.Contains(parts[i], e.sep) {
 			return "", fmt.Errorf("%s row carries %s=%q, and %q separates the %d fields of "+
 				"its coordinate (%s); two rows would address one item",
@@ -827,6 +861,9 @@ func replaceRows(ctx context.Context, rp *objstore.Replacer, rd reader, subsyste
 		rows, mentioned := manifestRows[r.Name]
 		if !mentioned {
 			continue // resource absent from manifest → untouched
+		}
+		if err := r.validateRows(ctx, rows); err != nil {
+			return err
 		}
 		wipe, err := r.entityDeletes(rd, rows, opts)
 		if err != nil {

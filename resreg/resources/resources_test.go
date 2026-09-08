@@ -21,6 +21,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"slices"
 	"strings"
@@ -309,6 +310,15 @@ func TestMembership_CycleRejected(t *testing.T) {
 	if err == nil {
 		t.Errorf("Apply with a three-edge ring: want error, got nil; every member of a " +
 			"ring holds the union of the whole ring's authority")
+	}
+	// A SELF edge is a ring of length one and gets its own answer, because
+	// "you are your own parent" is an operator mistake with a different fix.
+	c3 := routdChecksum(t, db)
+	_, err = resreg.Apply(context.Background(), resreg.OnDB(db), resreg.SubsystemRoutd, c3, false, map[string]any{
+		"acl_membership": []ACLMembershipRow{{Child: "a", Parent: "a"}},
+	}, nil)
+	if !errors.Is(err, ErrMembershipSelf) {
+		t.Errorf("Apply with a self edge: err = %v, want %v", err, ErrMembershipSelf)
 	}
 }
 
