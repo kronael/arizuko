@@ -61,11 +61,31 @@ credentials onto one item (BUGS `L260`).
 What the object path REFUSES, it refuses at `Register`, which is process start,
 and each refusal carries the reason it cannot cross:
 
-| declaration                                                                    | why not                                                                                                                                                                                        |
-| ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `RowFilter`                                                                    | `Query.Where` is a conjunction with no `OR`, and the filter also gates `DeleteScope`/`DeleteAll` — a reader-side predicate cannot narrow a write                                               |
-| `Hooks`                                                                        | `ColumnOverride.Read` is a SQL expression, `.Write` is the bind conversion absent-is-null already makes unnecessary, and `BeforeInsert`/`ValidateRow` take a `*sql.Tx` this path does not open |
-| an attribute that is not a string, an int, or a field with a declared encoding | every attribute value is text, so a bool, a slice or a map declares its encoding in the `db:` tag (`codec.go`)                                                                                 |
+| declaration                                                                    | why not                                                                                                                                                                        |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Hooks.AfterScan`, `Hooks.ValidateRow`, `Hooks.ColumnOverride`                 | `ColumnOverride.Read` is a SQL expression, `.Write` is the bind conversion absent-is-null already makes unnecessary, and `ValidateRow` takes a `*sql.Tx` this path never opens |
+| a `RowFilter` on a field of the coordinate                                     | a filter is a `Where` over ATTRIBUTES and the coordinate is the key; a key predicate reaches a leading fragment, never one field in the middle                                 |
+| an attribute that is not a string, an int, or a field with a declared encoding | every attribute value is text, so a bool, a slice or a map declares its encoding in the `db:` tag (`codec.go`)                                                                 |
+
+Two declarations the object path APPLIES rather than refuses, both because an
+entity has no engine between the caller and the item.
+
+`Hooks.BeforeInsert` fills a row's declared defaults — `effect='allow'`,
+`status='active'` — so `itemFor` runs it before it renders the item, exactly as
+it fills a `StampedField`. It takes the ROW and nothing else, which is what lets
+one declaration serve both shapes.
+
+`RowFilter` narrows the manifest-visible projection, and it is a declared
+predicate: `objstore.Cmp` terms the object path hands to `Query.Where` verbatim
+and the column path renders as bound SQL. One declaration, two readers. Here a
+delete set is a READ, so the same `Where` narrows the scan, the wholesale wipe
+AND the scoped delete — which is the whole reason it must not be a reader-side
+predicate, because such a predicate cannot narrow a write. The terms are a
+conjunction of `Eq` and `Ne`, so a predicate needing an `OR` has no form and the
+answer is an attribute the writer sets: `acl_membership.added_by` is NOT NULL
+(routd migration 0047), and `itemFor` writes a filtered attribute even when it is
+empty, because an absent attribute answers no comparison and a row without one
+would fall out of its own projection.
 
 A `ScopeSpec` is the scoped delete, and on this path it is a QUERY plus one
 guarded delete per item — an entity has no table to delete from and no
