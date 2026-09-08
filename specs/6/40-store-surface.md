@@ -390,6 +390,53 @@ than once. `resreg` already carries the ingredient: `ExportSnapshot` computes a
 checksum per subsystem, so a moved marker and a changed checksum are the same
 signal, and the export is already a read the operator repeats when it fails.
 
+## What a registered resource still needs before routd can move
+
+`resreg` dispatches per resource, which let onbod's three move alone. It does
+NOT let routd's thirteen move one at a time: `resreg/entity.go` refuses a
+subsystem that mixes shapes, because `Apply` is atomic per subsystem and a
+half-entity apply would roll the columns back while leaving the items written.
+So routd is one cutover of thirteen, and these four contract questions are what
+it waits on. Each is answered here so the cutover has no open decision in it.
+
+**1. A coordinate can be composite.** `EntitySortKey` names one field, and two
+resources have no single-field identity: `network_rules` is keyed
+`(folder, target)` and `target` alone is not unique in live data — 15 rows over
+10 targets on krons — and `installed_packages` is `(folder, name)`. The sort key
+takes a LIST of fields joined by a separator no value may contain, which is what
+`chanlib/chanstore` and `store/pane_sessions` already do (`team/user/thread`).
+The separator is declared, and a value containing it is refused at write time
+rather than silently splitting a key.
+
+**2. A stamped field is the writer's, not the engine's.** Six resources declare
+`StampedFields` so the engine fills `created_at` on insert (`F49`). An entity
+has no engine between the caller and the item, so the storage layer stamps it
+with `core.TS` — the same layout `OrderedSort` enforces — and the declaration
+stays, because it is what tells an operator's manifest the field is not theirs
+to set.
+
+**3. A non-string field needs a declared codec, and this is not optional.**
+Every attribute value is a string, so `proxyd_routes`' `preserve_headers
+[]string` and `strip_prefix bool` do not survive without one — and its two
+`Hooks` are exactly that codec today, not null handling. Dropping them strips
+preserved headers from every proxied route, read once per request over 26 rows.
+So `RowType` declares an encoding per non-string field, applied on both paths,
+and a field with neither a string type nor a codec is refused at registration.
+
+**4. The scoped delete moves inside the replace.** Five of the six simplest
+resources sit in `folderScopePurge` or claim a foreign-key cascade, and an
+entity has neither a table to delete from nor a cascade (`L253`). A folder purge
+becomes `Query` on the folder prefix plus guarded deletes, and for `Apply` those
+deletes ride inside `Replace`'s claimed scope rather than beside it. Without
+this the next tenant of a folder path inherits the last one's egress rules, cron
+tasks, held actions and web routes.
+
+**And one precondition that is not a contract question.** A `RowType` that
+declares fewer columns than the table has is survivable under the column path
+and is data loss under an entity, because a `Put` replaces the whole attribute
+set. `pending_actions` declares 12 of 18 (`L265`). Every resource's declaration
+is checked against the live schema before the cutover, not during it.
+
 ## Portability, stated once
 
 **First, what this table is not.** arizuko is NOT key-value ready, and `6/38`

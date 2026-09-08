@@ -7,6 +7,35 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L265 — `pending_actions`' resreg `RowType` declares 12 of the table's 18 columns, and six of them are written by routd (2026-09-08, open)
+
+MEASURED 2026-09-08. `pending_actions` on krons has 18 columns. The
+registration's `RowType` (`resreg/resources/pending_actions.go:13-24`) declares
+twelve. Undeclared: `reviewer_note`, `result`, `error`, `expires_at`, `mode`,
+`notice_id`. routd writes `mode` and `notice_id` at
+`routd/pending_actions.go:176` and `:215`.
+
+Today the column path writes only the columns it declares, so an `apply` leaves
+the other six alone. That is why nobody noticed. The moment the resource becomes
+an objstore entity it stops being survivable: an entity `Put` replaces the whole
+attribute set, so an apply would erase a held action's mode, its notice, its
+result and its expiry.
+
+The registration is the contract for what an operator's manifest carries, so an
+incomplete `RowType` is also an incomplete export: a held action round-tripped
+through `export` and `apply` loses six fields today at the manifest level, even
+though the row keeps them.
+
+- **Severity:** medium now, high at the entity move
+- **Scope:** `resreg/resources/pending_actions.go`, `routd/pending_actions.go`
+- **Affected:** every instance; 2 rows fleet-wide today
+- **Source:** `pragma table_info(pending_actions)` against the RowType, 2026-09-08
+- **Status:** open
+- **Fix:** the `RowType` declares every column, or the registration says which
+  columns are deliberately outside the manifest and the entity writer preserves
+  them. A test comparing `RowType`'s `db:` tags against the live schema would
+  have caught this and should exist for every resource.
+
 ## L263 — `discd`'s typing-off test is flaky: it saw one API call where it asserts none (2026-09-07, open)
 
 `TestTyping_Off_NoSend` (`discd/integration_test.go:460`) failed once in a full
