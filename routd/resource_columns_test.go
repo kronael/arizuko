@@ -101,24 +101,6 @@ var rowTypeGaps = map[string][]string{
 	// SkipApplyRebuild — "enc_value blobs are set imperatively, never via apply"
 	// — and `value`/`refresh_val` are the sealed secret itself.
 	"secrets": {"expires_at", "provider", "refresh_val", "scope_list", "value"},
-
-	// STILL OPEN, and the cutover has to close them. Neither resource is
-	// SkipApplyRebuild, so an apply DOES write these rows.
-	//
-	// `id` is INTEGER PRIMARY KEY AUTOINCREMENT and an entity has no engine-
-	// assigned key at all; `added_by`/`added_via` are the attribution migration
-	// 0028 added, and the column path's apply already drops them, because
-	// DeleteAll + InsertAll re-inserts the five declared columns and the other
-	// two take their defaults. The entity path does not make that worse — it
-	// makes it the same loss with no default to fall back to.
-	"routes": {"added_by", "added_via", "id"},
-	// routd writes BOTH: SetPendingMode and the notice UPDATE
-	// (routd/pending_actions.go:176, :215) plus the insert at :134. On the
-	// column path an apply's INSERT leaves them at their DDL defaults ('async',
-	// ''); under an entity a Put carries the item's whole attribute set, so the
-	// mode a hold was placed under and the notice it is waiting on are GONE.
-	// This is BUGS L265, measured: 16 of 18, not the 12 the entry claims.
-	"pending_actions": {"mode", "notice_id"},
 }
 
 // TestResourceRowTypesCoverTheirTable is the check: every column of every

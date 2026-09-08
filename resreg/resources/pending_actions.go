@@ -3,6 +3,7 @@ package resources
 import (
 	"reflect"
 
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/resreg"
 )
 
@@ -26,6 +27,14 @@ type PendingActionsRow struct {
 	Result       string `db:"result"        yaml:"result,omitempty"        json:"result,omitempty"`
 	Error        string `db:"error"         yaml:"error,omitempty"         json:"error,omitempty"`
 	ExpiresAt    string `db:"expires_at"    yaml:"expires_at,omitempty"    json:"expires_at,omitempty"`
+	// Mode is the effect the hold was placed under: auth.EffectHoldBlock means an
+	// agent's tool call is WAITING on this row right now, EffectHoldAsync that it
+	// already returned. It decides WHO runs the approved call — the waiter, or
+	// the agent re-issuing it — so exactly one of them does.
+	Mode string `db:"mode"      yaml:"mode,omitempty"      json:"mode,omitempty"`
+	// NoticeID is the platform id of the chat notice this row was announced in,
+	// which is what turns a reaction on that message into this call's verdict.
+	NoticeID string `db:"notice_id" yaml:"notice_id,omitempty" json:"notice_id,omitempty"`
 }
 
 // PendingActionsEndpoints — the operator reviews held calls over REST and the
@@ -91,5 +100,17 @@ func init() {
 		MCPArgs:   PendingActionsMCPArgs,
 		MCPNames:  PendingActionsMCPNames,
 		Scope:     resreg.ScopeSpec{Field: "GroupFolder"},
+		// `mode` is NOT NULL DEFAULT 'async' in the schema, and a manifest that
+		// omits it must land on the same value the DDL would have chosen — an
+		// empty mode is not one of the two answers the release path reads.
+		Hooks: resreg.Hooks{
+			BeforeInsert: func(row any) error {
+				r := row.(*PendingActionsRow)
+				if r.Mode == "" {
+					r.Mode = auth.EffectHoldAsync
+				}
+				return nil
+			},
+		},
 	})
 }

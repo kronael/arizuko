@@ -54,6 +54,21 @@ func openMem(t *testing.T) *sql.DB {
 			t.Fatalf("ensure %s: %v", subsystem, err)
 		}
 	}
+	// The frozen chain builds the PRE-SPLIT schema, so it genuinely predates
+	// every column an owner's chain added after the freeze. A resource
+	// registered here reads its OWNER's table, and a RowType that names all of
+	// it — which is what keeps an apply from resetting a column to its default
+	// (BUGS L265) — needs the fixture to carry the owner's columns rather than
+	// the resource pretending the live table is narrower than it is.
+	// routd migrations 0039 and 0040 are the two past the freeze.
+	for _, ddl := range []string{
+		`ALTER TABLE pending_actions ADD COLUMN mode TEXT NOT NULL DEFAULT 'async'`,
+		`ALTER TABLE pending_actions ADD COLUMN notice_id TEXT NOT NULL DEFAULT ''`,
+	} {
+		if _, err := db.Exec(ddl); err != nil {
+			t.Fatalf("routd-era column: %v", err)
+		}
+	}
 	return db
 }
 

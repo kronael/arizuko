@@ -6,16 +6,38 @@ import (
 	"github.com/kronael/arizuko/resreg"
 )
 
-// RoutesRow mirrors store/routes — `id` is omitted (AUTOINCREMENT
-// generated, not addressable via manifest). PK is (seq, match, target)
-// per spec catalog. Nullable observe_window columns map to int with
-// 0 → NULL on write.
+// RoutesRow mirrors store/routes — EVERY column of it. Apply rebuilds the table
+// wholesale, so a column this does not name is a column reset to its DDL default
+// by any apply that mentions routes (BUGS L265).
+//
+// `added_by`/`added_via` are that loss made real: migration 0028 added them so a
+// route records WHO exercised routing authority over its target and BY WHICH
+// ACT, onbod and routd both stamp them, and every one of the 84 rows on the
+// three live instances carries NULL in both — an apply reinserted five columns
+// and the other two took their defaults.
+//
+// `id` is the harder one, and it is DECLARED rather than left out. It is
+// AUTOINCREMENT, so nothing in a manifest has to state one, and it is also the
+// handle `delete_route(id)` addresses — a live agent wire contract, and
+// list_routes is where the agent reads it. Undeclared, an apply renumbers every
+// route, so an id the agent holds names a different rule afterwards. Declared,
+// the manifest carries the handle and the round trip preserves it: it is a
+// StampedField, so a hand-written manifest that omits it still reads as
+// unchanged and the engine assigns one. The object path has no AUTOINCREMENT and
+// no int coordinate, so the writer mints it there — which is the same answer
+// spec 6/40 gives for generated ids, and it needs this field to exist.
+//
+// PK is (seq, match, target) per the spec catalog; `id` is a handle, not
+// identity. Nullable columns map with 0/” → NULL on write.
 type RoutesRow struct {
+	ID                    int    `db:"id"                       yaml:"id,omitempty"             json:"id,omitempty"`
 	Seq                   int    `db:"seq"                      yaml:"seq"                      json:"seq"`
 	Match                 string `db:"match"                    yaml:"match"                    json:"match"`
 	Target                string `db:"target"                   yaml:"target"                   json:"target"`
 	ObserveWindowMessages int    `db:"observe_window_messages"  yaml:"observe_window_messages,omitempty"  json:"observe_window_messages,omitempty"`
 	ObserveWindowChars    int    `db:"observe_window_chars"     yaml:"observe_window_chars,omitempty"     json:"observe_window_chars,omitempty"`
+	AddedBy               string `db:"added_by"                 yaml:"added_by,omitempty"       json:"added_by,omitempty"`
+	AddedVia              string `db:"added_via"                yaml:"added_via,omitempty"      json:"added_via,omitempty"`
 }
 
 // RoutesEndpoints is the single owner of the routes REST endpoint set: routd's
@@ -78,8 +100,15 @@ func init() {
 		// No folder scope: routes.target carries #observe/#topic fragments
 		// (spec 5/8 §"FK posture") — not column-equal to a folder, so Apply
 		// rebuilds routes wholesale rather than per-folder.
+		// The engine assigns `id` when the row does not carry one, so Diff ignores
+		// it and it is never a create argument. The write hook below is what
+		// leaves the assignment to the engine: 0 binds as NULL, and AUTOINCREMENT
+		// answers. A stamped field with a write hook is never auto-filled (F49),
+		// which is what keeps an int out of the string stamp.
+		StampedFields: []string{"ID"},
 		Hooks: resreg.Hooks{
 			ColumnOverride: map[string]resreg.ColumnHook{
+				"ID": {Write: nilIfZeroInt},
 				"ObserveWindowMessages": {
 					Read:  "COALESCE(observe_window_messages, 0)",
 					Write: nilIfZeroInt,
@@ -88,6 +117,11 @@ func init() {
 					Read:  "COALESCE(observe_window_chars, 0)",
 					Write: nilIfZeroInt,
 				},
+				// NULL is what both stamping writers store for an unrecorded
+				// actor (routd/routes_resource.go, onbod/main.go), so the apply
+				// stores the same thing rather than a second spelling of absent.
+				"AddedBy":  {Read: "COALESCE(added_by, '')", Write: nilIfEmptyString},
+				"AddedVia": {Read: "COALESCE(added_via, '')", Write: nilIfEmptyString},
 			},
 		},
 	})
