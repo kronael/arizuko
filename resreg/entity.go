@@ -40,6 +40,7 @@ import (
 	"strings"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/store"
@@ -101,6 +102,12 @@ type entityMeta struct {
 	// attrs is every other `db:`-tagged field, one attribute each, named by the
 	// tag.
 	attrs []fieldMeta
+	// stamped is the struct-field index of every StampedField, which itemFor
+	// fills when the row leaves it empty. It is the same set resourceMeta
+	// carries: on this path stampedIdx and autoStampIdx are ONE set, because a
+	// ColumnOverride is refused here and that override is the only thing that
+	// ever separated them (BUGS F49).
+	stamped map[int]bool
 }
 
 // sortCols names the coordinate the way an error message has to spell it: one
@@ -189,15 +196,15 @@ func (r *Resource) initEntity(m *resourceMeta, byField map[string]int) {
 			"a scoped delete over items is an unbounded read-then-delete and "+
 			"belongs inside the replace", r.Name))
 	}
-	if len(r.StampedFields) > 0 {
-		// The column path's auto-stamp fills a stamped field that is EMPTY, and
-		// F49 made it skip one whose empty value stores a deliberate NULL. On an
-		// object an empty string and a NULL are the same thing — the attribute is
-		// absent — so that distinction has no representation here and the stamp
-		// would move a checksum the operator changed nothing to move.
-		panic(fmt.Sprintf("resreg: %s is entity-backed and declares StampedFields; "+
-			"an absent attribute is the only null an item has, so server-OWNED "+
-			"and server-INVENTED cannot be told apart on this path (BUGS F49)", r.Name))
+	for _, name := range r.StampedFields {
+		if seen[name] {
+			// A stamped coordinate is one the SERVER invents, so the same row
+			// would address a different item on every apply and the wipe before
+			// it would never find the one it replaced.
+			panic(fmt.Sprintf("resreg: %s stamps %q and names it in EntitySortKey; a "+
+				"coordinate the writer invents addresses a new item on every write",
+				r.Name, name))
+		}
 	}
 	if r.Hooks.BeforeInsert != nil || r.Hooks.AfterScan != nil ||
 		r.Hooks.ValidateRow != nil || len(r.Hooks.ColumnOverride) > 0 {
@@ -206,7 +213,10 @@ func (r *Resource) initEntity(m *resourceMeta, byField map[string]int) {
 			"conversion the absent-attribute model already makes unnecessary, and "+
 			"BeforeInsert/ValidateRow take the *sql.Tx this path does not open", r.Name))
 	}
-	e := &entityMeta{sort: sortFields, sep: r.EntityKeySep}
+	e := &entityMeta{sort: sortFields, sep: r.EntityKeySep, stamped: map[int]bool{}}
+	for _, idx := range m.stampedIdx {
+		e.stamped[idx] = true
+	}
 	inKey := map[int]bool{}
 	for _, fm := range sortFields {
 		inKey[fm.idx] = true
@@ -358,6 +368,21 @@ func (r *Resource) sortKeyFor(v reflect.Value) (string, error) {
 // null and an empty string written into the document is a value a tombstone test
 // still finds. An INT is always written: a Go int has no unset, so 0 is a value
 // the row states rather than one it omits.
+//
+// A STAMPED field the row leaves empty is filled HERE, because an entity has no
+// engine between the caller and the item — there is no Insert to hang a
+// BeforeInsert on, and the column path's auto-stamp runs in one (engine.go).
+// The layout is core.TS and not the column path's RFC3339: a stored instant is
+// compared as TEXT and core.TS is the fixed-width form that makes byte order and
+// time order the same thing, which is the rule objstore.OrderedSort enforces
+// where an attribute is declared ordered (BUGS L97). The two paths therefore
+// stamp DIFFERENT widths, and a table migrating from columns to items carries
+// its old 20-byte values with it — the migration normalises them, not this.
+//
+// The declaration STAYS on an entity-backed resource even though no engine
+// reads it to insert: it is what tells an operator's manifest the field is not
+// theirs to set (rowMCPArgsFor drops it from create and update, Diff ignores it
+// when comparing payloads).
 func (r *Resource) itemFor(v reflect.Value) (objstore.Write, error) {
 	e := r.meta.entity
 	sort, err := r.sortKeyFor(v)
@@ -368,7 +393,11 @@ func (r *Resource) itemFor(v reflect.Value) (objstore.Write, error) {
 	for _, fm := range e.attrs {
 		f := v.Field(fm.idx)
 		if f.Kind() == reflect.String {
-			if s := f.String(); s != "" {
+			s := f.String()
+			if s == "" && e.stamped[fm.idx] {
+				s = core.NowTS()
+			}
+			if s != "" {
 				attrs[fm.col] = s
 			}
 			continue

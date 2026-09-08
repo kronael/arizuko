@@ -13,7 +13,9 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/db_utils/dbtest"
 	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/objstore/sqlstore"
@@ -410,8 +412,8 @@ func TestEntity_RegisterRefusesAMisdeclaredShape(t *testing.T) {
 			func(r Resource) Resource { r.RowFilter = "count > 0"; return r }},
 		{"scope", "unbounded read-then-delete",
 			func(r Resource) Resource { r.Scope = ScopeSpec{Field: "Note"}; return r }},
-		{"stamped fields", "only null an item has",
-			func(r Resource) Resource { r.StampedFields = []string{"Note"}; return r }},
+		{"a stamped coordinate", "invents addresses a new item",
+			func(r Resource) Resource { r.StampedFields = []string{"Key"}; return r }},
 		{"hooks", "declares Hooks", func(r Resource) Resource {
 			r.Hooks = Hooks{ColumnOverride: map[string]ColumnHook{
 				"Note": {Read: "COALESCE(note,'')"}}}
@@ -683,5 +685,99 @@ func TestEntity_RegisterRefusesAMisdeclaredCoordinate(t *testing.T) {
 			}()
 			Register(tc.of(base()))
 		})
+	}
+}
+
+// --- the stamped field --------------------------------------------------
+//
+// Six routd resources declare StampedFields so the engine fills created_at on
+// insert (BUGS F49). An entity has no engine between the caller and the item,
+// so the storage layer stamps it — and the declaration stays, because it is
+// what tells an operator's manifest the field is not theirs to set (spec 6/40
+// §"What a registered resource still needs", answer 2).
+
+// StampedRow is a synthetic resource with one server-owned instant.
+type StampedRow struct {
+	Key     string `db:"key"     yaml:"key"`
+	Note    string `db:"note"    yaml:"note,omitempty"`
+	Created string `db:"created" yaml:"created,omitempty"`
+}
+
+func freshStamped(t *testing.T) (*sql.DB, objstore.Store, *Resource) {
+	t.Helper()
+	reset()
+	db := dbtest.Open(t)
+	s := sqlstore.New(db)
+	if err := s.CreateEntity(t.Context(), "audit_log"); err != nil {
+		t.Fatalf("audit_log: %v", err)
+	}
+	r := Register(Resource{
+		Name:          "stampedrows",
+		Table:         "stampedrows",
+		DB:            entitySubsystem,
+		RowType:       reflect.TypeFor[StampedRow](),
+		PKFields:      []string{"Key"},
+		EntitySortKey: []string{"Key"},
+		StampedFields: []string{"Created"},
+	})
+	if err := EnsureSubsystem(t.Context(), s, s, entitySubsystem); err != nil {
+		t.Fatalf("EnsureSubsystem: %v", err)
+	}
+	return db, s, r
+}
+
+// A row that leaves the stamped field empty gets one, and a row that carries a
+// value keeps it — the same two answers Insert gives on the column path.
+func TestEntity_StampedFieldIsFilledByTheWriter(t *testing.T) {
+	db, s, r := freshStamped(t)
+	be := Backend{DB: db, Obj: s}
+	rows := []StampedRow{
+		{Key: "fresh", Note: "no instant of its own"},
+		{Key: "kept", Created: "2020-01-01T00:00:00.000000000Z"},
+	}
+	if _, err := Apply(t.Context(), be, entitySubsystem, "", true,
+		map[string]any{"stampedrows": rows}, nil); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	got, err := r.ScanAll(be)
+	if err != nil {
+		t.Fatalf("ScanAll: %v", err)
+	}
+	by := map[string]StampedRow{}
+	for _, row := range got.([]StampedRow) {
+		by[row.Key] = row
+	}
+	if by["fresh"].Created == "" {
+		t.Error("the writer left the stamped field empty; nothing else fills it on this path")
+	}
+	if got, want := len(by["fresh"].Created), len(core.NowTS()); got != want {
+		t.Errorf("the stamp is %d bytes and core.TS is %d; a stored instant is compared "+
+			"as TEXT, so a short one sorts into the wrong place (BUGS L97)", got, want)
+	}
+	if _, err := time.Parse(core.TSLayout, by["fresh"].Created); err != nil {
+		t.Errorf("the stamp %q is not core.TS: %v", by["fresh"].Created, err)
+	}
+	if by["kept"].Created != "2020-01-01T00:00:00.000000000Z" {
+		t.Errorf("Created = %q, want the value the row carried — the writer fills an "+
+			"EMPTY field, it does not overwrite one", by["kept"].Created)
+	}
+}
+
+// The declaration stays for the reason it exists: Diff ignores a stamped field,
+// so a hand-written manifest that omits `created` reads as unchanged against a
+// live stamped item instead of phantom-updating on every plan (BUGS F49).
+func TestEntity_StampedFieldIsIgnoredByDiff(t *testing.T) {
+	db, s, r := freshStamped(t)
+	be := Backend{DB: db, Obj: s}
+	if _, err := Apply(t.Context(), be, entitySubsystem, "", true,
+		map[string]any{"stampedrows": []StampedRow{{Key: "a", Note: "n"}}}, nil); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	d, err := r.Diff(be, []StampedRow{{Key: "a", Note: "n"}})
+	if err != nil {
+		t.Fatalf("Diff: %v", err)
+	}
+	if d.Changed() {
+		t.Errorf("a manifest that omits the stamped field reads as changed: %+v", d)
 	}
 }

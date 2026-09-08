@@ -65,9 +65,19 @@ and each refusal carries the reason it cannot cross:
 | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `RowFilter`                                 | `Query.Where` is a conjunction with no `OR`, and the filter also gates `DeleteScope`/`DeleteAll` — a reader-side predicate cannot narrow a write                                               |
 | `ScopeSpec`                                 | a scoped delete over items is an unbounded read-then-delete, so it belongs inside the replace                                                                                                  |
-| `StampedFields`                             | an absent attribute is the only null, so server-OWNED and server-INVENTED cannot be told apart (`F49`)                                                                                         |
 | `Hooks`                                     | `ColumnOverride.Read` is a SQL expression, `.Write` is the bind conversion absent-is-null already makes unnecessary, and `BeforeInsert`/`ValidateRow` take a `*sql.Tx` this path does not open |
 | an attribute that is not a string or an int | every attribute value is text, and a bool or a slice needs a rendering its first caller should choose                                                                                          |
+
+A `StampedField` is filled by the STORAGE LAYER on this path, because an entity
+has no engine between the caller and the item — there is no `Insert` to hang a
+`BeforeInsert` on. The layout is `core.TS`, not the column path's RFC3339: a
+stored instant is compared as text and `core.TS` is the fixed-width form that
+makes byte order and time order the same thing (BUGS `L97`). The two paths
+therefore stamp different widths, and a table moving from columns to items
+carries its old values with it — the migration normalises them. The
+declaration STAYS on an entity-backed resource: it is what tells an operator's
+manifest the field is not theirs to set, so `Diff` ignores it and it is not a
+`create`/`update` argument.
 
 `Apply` and `ExportSnapshot` become `objstore.Replace` and
 `objstore.ReadConsistent` (spec [`6/40`](../specs/6/40-store-surface.md) §3 and
