@@ -61,10 +61,40 @@ func (s *Store) CreateEntity(ctx context.Context, entity string) error {
 	// no rows: it costs one statement at boot and it names the file.
 	if _, err := s.db.ExecContext(ctx,
 		"SELECT part, sort, attrs FROM "+entity+" WHERE 1 = 0"); err != nil {
-		return fmt.Errorf("%s is a table of another shape, so the entity cannot be served "+
-			"from it; move its rows first (arizuko migrate-*): %w", entity, err)
+		empty, cerr := s.emptyTable(ctx, entity)
+		if cerr != nil || !empty {
+			return fmt.Errorf("%s is a table of another shape, so the entity cannot be served "+
+				"from it; move its rows first (arizuko migrate-*): %w", entity, err)
+		}
+		// AN EMPTY TABLE OF THE OTHER SHAPE IS A SCHEMA CHAIN'S LEFTOVER, not
+		// data. A service's migration files are frozen once applied, so a chain
+		// that created a table before it became an entity goes on creating it in
+		// every database born after — routd's 0001 still creates turn_context,
+		// turn_results, group_watchers, task_run_logs and user_profiles. Refusing
+		// there would mean no new instance could open at all, and the refusal
+		// above exists to protect ROWS. There are none, so the table goes and the
+		// entity takes the name.
+		//
+		// The count and the drop are two statements, so a writer could insert
+		// between them. Nothing does: this runs while the daemon that owns the
+		// table is still opening it, before it serves anything.
+		if _, derr := s.db.ExecContext(ctx, "DROP TABLE "+entity); derr != nil {
+			return fmt.Errorf("%s is an empty table of another shape and the entity has to "+
+				"take its name: %w", entity, derr)
+		}
+		return s.CreateEntity(ctx, entity)
 	}
 	return nil
+}
+
+// emptyTable reports whether a table holds no rows, which is what decides
+// whether the shape refusal above is protecting anything.
+func (s *Store) emptyTable(ctx context.Context, entity string) (bool, error) {
+	var n int
+	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+entity).Scan(&n); err != nil {
+		return false, err
+	}
+	return n == 0, nil
 }
 
 // checkIdent refuses a name this package would write into a statement.
