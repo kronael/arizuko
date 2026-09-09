@@ -1,12 +1,114 @@
 package store
 
+// proxyd_routes.go holds every read and write of `proxyd_routes`: one item per
+// reverse-proxy route, addressed by its path.
+//
+// THE PARTITION IS OwnerRoutd AND IT IS NOT A CHOICE THIS FILE MAKES.
+// `proxyd_routes` is a registered resreg resource, and an entity-backed
+// resource's items live at its owner subsystem (resreg.SubsystemRoutd, which IS
+// store.OwnerRoutd). A second spelling would put this file's items in one
+// partition and the engine's read in another, and the failure is silent: a query
+// on a partition nobody wrote to is a legal query that selects nothing.
+//
+// THE PATH IS THE COORDINATE, which is what makes the whole read come back in
+// `ORDER BY path` with no sort of its own: proxyd snapshots the table once and
+// longest-prefix-matches in Go, so the order it arrives in is the order it
+// serves.
+//
+// TWO ATTRIBUTES ARE NOT TEXT AND EACH DECLARES ITS RENDERING.
+// `preserve_headers` is a []string written as its JSON text and `strip_prefix` a
+// bool written as "0" or "1" — the exact encodings the resource declares in its
+// `db:` tags (resreg/codec.go), because the two writers of these items have to
+// agree byte for byte. Both are ALWAYS written, empty included: a Go slice and a
+// Go bool have no unset, so the zero value renders as its own text ("[]", "0")
+// rather than as an absent attribute a reader would have to guess at. A nil
+// slice is normalised to the empty one first, so it renders `[]` and never
+// `null`.
+
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/objstore"
 )
+
+// The attributes a route item carries. `path` is NOT among them: it is the
+// coordinate.
+const (
+	attrPxBackend    = "backend"
+	attrPxAuth       = "auth"
+	attrPxGatedBy    = "gated_by"
+	attrPxHeaders    = "preserve_headers"
+	attrPxStrip      = "strip_prefix"
+	attrPxRedirectTo = "redirect_to"
+	attrPxOwner      = "owner"
+)
+
+// proxydRouteKey is the coordinate of one route.
+func proxydRouteKey(path string) (objstore.Key, error) {
+	if path == "" {
+		return objstore.Key{}, fmt.Errorf("proxyd route carries no path, which is its coordinate")
+	}
+	return objstore.Key{Partition: OwnerRoutd, Sort: path}, nil
+}
+
+// proxydRouteFrom reads one item back. A `preserve_headers` that is not the JSON
+// document it claims to be is a LOUD fault: a route read wrong is a header
+// stripped from every request it proxies.
+func proxydRouteFrom(it objstore.Item) (ProxydRoute, error) {
+	r := ProxydRoute{
+		Path:        it.Key.Sort,
+		Backend:     it.Attrs[attrPxBackend],
+		Auth:        it.Attrs[attrPxAuth],
+		GatedBy:     it.Attrs[attrPxGatedBy],
+		RedirectTo:  it.Attrs[attrPxRedirectTo],
+		Owner:       it.Attrs[attrPxOwner],
+		StripPrefix: it.Attrs[attrPxStrip] == "1",
+	}
+	if raw := it.Attrs[attrPxHeaders]; raw != "" {
+		if err := json.Unmarshal([]byte(raw), &r.PreserveHeaders); err != nil {
+			return ProxydRoute{}, fmt.Errorf("decode preserve_headers for %q: %w", r.Path, err)
+		}
+	}
+	return r, nil
+}
+
+// proxydRouteAttrs renders the attributes one route carries.
+func proxydRouteAttrs(r ProxydRoute) (map[string]string, error) {
+	headers := r.PreserveHeaders
+	if headers == nil {
+		headers = []string{}
+	}
+	doc, err := json.Marshal(headers)
+	if err != nil {
+		return nil, fmt.Errorf("encode preserve_headers for %q: %w", r.Path, err)
+	}
+	attrs := map[string]string{
+		attrPxHeaders: string(doc),
+		attrPxStrip:   "0",
+	}
+	if r.StripPrefix {
+		attrs[attrPxStrip] = "1"
+	}
+	setAttr(attrs, attrPxBackend, r.Backend)
+	setAttr(attrs, attrPxAuth, r.Auth)
+	setAttr(attrs, attrPxGatedBy, r.GatedBy)
+	setAttr(attrs, attrPxRedirectTo, r.RedirectTo)
+	setAttr(attrs, attrPxOwner, r.Owner)
+	return attrs, nil
+}
+
+// allProxydRouteItems is the whole table, in coordinate order.
+func (s *Store) allProxydRouteItems(ctx context.Context) ([]objstore.Item, error) {
+	items, err := s.Obj().Query(ctx, objstore.Query{Entity: ProxydRoutes, Partition: OwnerRoutd})
+	if err != nil {
+		return nil, fmt.Errorf("read proxyd routes: %w", err)
+	}
+	return items, nil
+}
 
 // Route ownership (BUGS L45, L46). Every proxyd_routes row is written by one of
 // three authorities, and `owner` records which:
@@ -54,56 +156,41 @@ type ProxydRoute struct {
 	Owner           string   `json:"owner,omitempty"`
 }
 
+// AllProxydRoutes is proxyd's snapshot of the whole table, in path order.
 func (s *Store) AllProxydRoutes() ([]ProxydRoute, error) {
-	rows, err := s.db.Query(`SELECT path, backend, auth, gated_by, preserve_headers, strip_prefix, redirect_to, owner
-	                         FROM proxyd_routes ORDER BY path`)
+	items, err := s.allProxydRouteItems(context.Background())
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []ProxydRoute
-	for rows.Next() {
-		var r ProxydRoute
-		var headers string
-		var strip int
-		if err := rows.Scan(&r.Path, &r.Backend, &r.Auth, &r.GatedBy, &headers, &strip, &r.RedirectTo, &r.Owner); err != nil {
+	out := make([]ProxydRoute, 0, len(items))
+	for _, it := range items {
+		r, err := proxydRouteFrom(it)
+		if err != nil {
 			return nil, err
 		}
-		if headers != "" {
-			if err := json.Unmarshal([]byte(headers), &r.PreserveHeaders); err != nil {
-				return nil, fmt.Errorf("decode preserve_headers for %q: %w", r.Path, err)
-			}
-		}
-		r.StripPrefix = strip != 0
 		out = append(out, r)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
-// putProxydRouteTx upserts one row. `path` is the primary key, so one
-// INSERT ... ON CONFLICT replaces every other column in place.
-// SyncProxydRoutes writes every row through it.
-func putProxydRouteTx(tx *sql.Tx, r ProxydRoute) error {
-	headers := "[]"
-	if len(r.PreserveHeaders) > 0 {
-		b, err := json.Marshal(r.PreserveHeaders)
-		if err != nil {
-			return err
-		}
-		headers = string(b)
+// putProxydRouteTx upserts one route on a transaction the caller owns.
+//
+// It is an UNCONDITIONAL Put, and that is exactly right here: the item carries
+// no attribute this file does not own, so replacing the whole set is what the
+// `ON CONFLICT(path) DO UPDATE` of every other column said. SyncProxydRoutes
+// writes every row through it.
+func (s *Store) putProxydRouteTx(ctx context.Context, tx *sql.Tx, r ProxydRoute) error {
+	key, err := proxydRouteKey(r.Path)
+	if err != nil {
+		return err
 	}
-	strip := 0
-	if r.StripPrefix {
-		strip = 1
+	attrs, err := proxydRouteAttrs(r)
+	if err != nil {
+		return err
 	}
-	_, err := tx.Exec(`INSERT INTO proxyd_routes
-		(path, backend, auth, gated_by, preserve_headers, strip_prefix, redirect_to, owner)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(path) DO UPDATE SET
-		  backend=excluded.backend, auth=excluded.auth, gated_by=excluded.gated_by,
-		  preserve_headers=excluded.preserve_headers, strip_prefix=excluded.strip_prefix,
-		  redirect_to=excluded.redirect_to, owner=excluded.owner`,
-		r.Path, r.Backend, r.Auth, r.GatedBy, headers, strip, r.RedirectTo, r.Owner)
+	_, err = s.writeEntitiesInTx(ctx, tx, nil, objstore.Write{
+		Op: objstore.Put, Entity: ProxydRoutes, Key: key, Attrs: attrs,
+	})
 	return err
 }
 
@@ -125,9 +212,10 @@ func putProxydRouteTx(tx *sql.Tx, r ProxydRoute) error {
 // shipped stays until the operator removes it. Audited once for the whole set —
 // 18 near-identical rows per generate would bury the mutation that matters.
 func (s *Store) SyncProxydRoutes(routes []ProxydRoute) (written, kept int, err error) {
+	ctx := context.Background()
 	actor, actorSub, surface := s.auditIdentity()
 	err = s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		owners, err := proxydRouteOwners(tx)
+		owners, err := s.proxydRouteOwners(ctx)
 		if err != nil {
 			return audit.Event{}, err
 		}
@@ -140,7 +228,7 @@ func (s *Store) SyncProxydRoutes(routes []ProxydRoute) (written, kept int, err e
 			if r.Owner == "" {
 				r.Owner = RouteOwnerArizuko
 			}
-			if err := putProxydRouteTx(tx, r); err != nil {
+			if err := s.putProxydRouteTx(ctx, tx, r); err != nil {
 				return audit.Event{}, fmt.Errorf("write route %q: %w", r.Path, err)
 			}
 			written++
@@ -162,22 +250,18 @@ func (s *Store) SyncProxydRoutes(routes []ProxydRoute) (written, kept int, err e
 	return written, kept, err
 }
 
-// proxydRouteOwners reads path→owner for every existing row. Drained fully
-// before the caller's writes: database/sql forbids an Exec on a tx while one of
-// its Query cursors is open.
-func proxydRouteOwners(tx *sql.Tx) (map[string]string, error) {
-	rows, err := tx.Query("SELECT path, owner FROM proxyd_routes")
+// proxydRouteOwners reads path→owner for every existing route. It reads through
+// the store's own driver rather than the caller's transaction, because an item
+// read needs no transaction and the answer it gives — which paths the operator
+// has taken over — is a decision made BEFORE the first write of the sweep.
+func (s *Store) proxydRouteOwners(ctx context.Context) (map[string]string, error) {
+	items, err := s.allProxydRouteItems(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	owners := map[string]string{}
-	for rows.Next() {
-		var path, owner string
-		if err := rows.Scan(&path, &owner); err != nil {
-			return nil, err
-		}
-		owners[path] = owner
+	owners := make(map[string]string, len(items))
+	for _, it := range items {
+		owners[it.Key.Sort] = it.Attrs[attrPxOwner]
 	}
-	return owners, rows.Err()
+	return owners, nil
 }

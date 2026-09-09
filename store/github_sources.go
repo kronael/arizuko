@@ -1,5 +1,34 @@
 package store
 
+// github_sources.go holds every read and write of `github_sources`: one item per
+// webhook delivery source, addressed by its source key.
+//
+// THE PARTITION IS OwnerRoutd AND IT IS NOT A CHOICE THIS FILE MAKES.
+// `github_sources` is a registered resreg resource, and an entity-backed
+// resource's items live at its owner subsystem (resreg.SubsystemRoutd, which IS
+// store.OwnerRoutd). A second spelling would put this file's items in one
+// partition and the engine's read in another, and the failure is silent: a query
+// on a partition nobody wrote to is a legal query that selects nothing.
+//
+// THE SOURCE KEY IS THE COORDINATE — "<kind>/<name>", the same string gitd
+// resolves an inbound delivery by, so the verification read is one exact key.
+// GitHubSourceKey validates it before it becomes one.
+//
+// LISTING BY OWNER IS A PARTITION SCAN. `owner_folder` is an attribute, and an
+// attribute is not a leading fragment of the key, so ListGitHubSources reads the
+// partition and filters; the read comes back in coordinate order, which IS
+// `ORDER BY source`.
+//
+// `secret` IS AN ATTRIBUTE THE RowType DOES NOT DECLARE
+// (routd/resource_columns_test.go rowTypeGaps), so this file is its only writer:
+// the sealed webhook credential must never reach the export an operator reads.
+// It seals through the same storeValue/open keyring a secret does.
+//
+// `created_at` IS core.TS, at 30 bytes. That is the width resreg's own entity
+// path stamps a StampedField at (resreg/entity.go itemFor), and the two writers
+// of these items have to agree byte for byte — a comparison over TEXT answers by
+// byte order (BUGS L97).
+
 import (
 	"context"
 	"database/sql"
@@ -11,7 +40,50 @@ import (
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 )
+
+// The attributes a source item carries. `source` is NOT among them: it is the
+// coordinate.
+const (
+	attrGHSecret      = "secret"
+	attrGHOwnerFolder = "owner_folder"
+	attrGHCreatedAt   = "created_at"
+)
+
+// githubSourceKey is the coordinate of one source.
+func githubSourceKey(source string) (objstore.Key, error) {
+	if source == "" {
+		return objstore.Key{}, errors.New("github source carries no key, which is its coordinate")
+	}
+	return objstore.Key{Partition: OwnerRoutd, Sort: source}, nil
+}
+
+// githubSourceFrom reads one item back.
+func githubSourceFrom(it objstore.Item) GitHubSource {
+	g := GitHubSource{Source: it.Key.Sort, OwnerFolder: it.Attrs[attrGHOwnerFolder]}
+	g.CreatedAt, _ = time.Parse(core.TSLayout, it.Attrs[attrGHCreatedAt])
+	return g
+}
+
+// githubSourceItem reads the item one source key names.
+func (s *Store) githubSourceItem(ctx context.Context, key string) (objstore.Item, bool, error) {
+	k, err := githubSourceKey(key)
+	if err != nil {
+		return objstore.Item{}, false, err
+	}
+	items, err := s.Obj().Query(ctx, objstore.Query{
+		Entity: GitHubSources, Partition: OwnerRoutd,
+		Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: k.Sort},
+	})
+	if err != nil {
+		return objstore.Item{}, false, fmt.Errorf("read github source %q: %w", key, err)
+	}
+	if len(items) == 0 {
+		return objstore.Item{}, false, nil
+	}
+	return items[0], true, nil
+}
 
 // GitHubSource is one webhook delivery source gitd verifies (spec 6/27). Source
 // is "<kind>/<name>": repo/<owner>/<repo>, org/<owner> or app/<slug>. The
@@ -126,19 +198,31 @@ func (s *Store) AddGitHubSourceTx(ctx context.Context, tx *sql.Tx, src GitHubSou
 	if ts.IsZero() {
 		ts = time.Now()
 	}
-	res, err := tx.ExecContext(ctx,
-		`INSERT OR IGNORE INTO github_sources (source, secret, owner_folder, created_at) VALUES (?, ?, ?, ?)`,
-		src.Source, sealed, src.OwnerFolder, core.TS(ts))
+	key, err := githubSourceKey(src.Source)
 	if err != nil {
 		return "", err
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
+	// Create-if-absent, which is what `INSERT OR IGNORE` plus the zero-rows check
+	// said: registering a source that is already there is REFUSED with
+	// ErrGitHubSourceExists rather than re-minting its secret, which would break
+	// every delivery GitHub is already signing with the first one.
+	created, err := s.writeEntitiesInTx(ctx, tx, nil, objstore.Write{
+		Op: objstore.Put, Entity: GitHubSources, Key: key,
+		Attrs: map[string]string{
+			attrGHSecret:      sealed,
+			attrGHOwnerFolder: src.OwnerFolder,
+			attrGHCreatedAt:   core.TS(ts),
+		},
+		Cond: objstore.Cond{Item: objstore.ItemAbsent},
+	})
+	if err != nil {
+		return "", err
+	}
+	if !created {
 		return "", fmt.Errorf("%w: %s", ErrGitHubSourceExists, src.Source)
 	}
 	for _, r := range routes {
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO routes (seq, match, target) VALUES (?, ?, ?)`,
-			r.Seq, r.Match, r.Target); err != nil {
+		if _, err := s.putRoute(ctx, tx, r, "", ""); err != nil {
 			return "", err
 		}
 	}
@@ -148,25 +232,66 @@ func (s *Store) AddGitHubSourceTx(ctx context.Context, tx *sql.Tx, src GitHubSou
 // RemoveGitHubSourceTx deletes the source owned by ownerFolder and the route
 // rows its registration seeded. A cross-folder key matches zero rows.
 func (s *Store) RemoveGitHubSourceTx(ctx context.Context, tx *sql.Tx, key, ownerFolder string) (bool, error) {
-	res, err := tx.ExecContext(ctx,
-		`DELETE FROM github_sources WHERE source = ? AND owner_folder = ?`, key, ownerFolder)
+	it, ok, err := s.githubSourceItem(ctx, key)
 	if err != nil {
 		return false, err
 	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
+	// The owner is part of the predicate and not of the coordinate, so it is
+	// compared here: a cross-folder key names an item this caller may not delete,
+	// and the answer is the same "no such row" the statement gave.
+	if !ok || it.Attrs[attrGHOwnerFolder] != ownerFolder {
 		return false, nil
+	}
+	if _, err := s.writeEntitiesInTx(ctx, tx, nil, objstore.Write{
+		Op: objstore.Delete, Entity: GitHubSources, Key: it.Key,
+	}); err != nil {
+		return false, err
 	}
 	routes, err := GitHubSourceRoutes(key, ownerFolder)
 	if err != nil {
 		return false, err
 	}
-	for _, r := range routes {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM routes WHERE match = ?`, r.Match); err != nil {
-			return false, err
-		}
+	// The seeded rules are deleted by MATCH, which is the third field of a
+	// route's coordinate rather than a leading fragment, so this reads the routes
+	// partition and compares. It is 58 rules on the largest live instance, and a
+	// revoke is an operator action.
+	if err := s.deleteRoutesMatchingTx(ctx, tx, routes); err != nil {
+		return false, err
 	}
 	return true, nil
+}
+
+// deleteRoutesMatchingTx removes every route rule whose `match` is one of the
+// rules a registration seeded. A rule the operator has since edited away is
+// simply not there, which is what the statement's zero matched rows said.
+func (s *Store) deleteRoutesMatchingTx(ctx context.Context, tx *sql.Tx, seeded []core.Route) error {
+	wanted := make(map[string]bool, len(seeded))
+	for _, r := range seeded {
+		wanted[r.Match] = true
+	}
+	items, err := s.Obj().Query(ctx, objstore.Query{Entity: Routes, Partition: OwnerRoutd})
+	if err != nil {
+		return fmt.Errorf("read routes: %w", err)
+	}
+	var writes []objstore.Write
+	for _, it := range items {
+		r, err := routeFrom(it)
+		if err != nil {
+			return err
+		}
+		if !wanted[r.Match] {
+			continue
+		}
+		writes = append(writes, objstore.Write{Op: objstore.Delete, Entity: Routes, Key: it.Key})
+	}
+	if len(writes) == 0 {
+		return nil
+	}
+	_, err = applyChunks(ctx, "remove seeded routes", writes,
+		func(ctx context.Context, chunk []objstore.Write) (bool, error) {
+			return s.writeEntitiesInTx(ctx, tx, nil, chunk...)
+		})
+	return err
 }
 
 func (s *Store) githubSourceEvent(action, key, owner string) audit.Event {
@@ -205,40 +330,33 @@ func (s *Store) RemoveGitHubSource(key, ownerFolder string) (bool, error) {
 	return hit, err
 }
 
-// ListGitHubSources returns the sources owned by ownerFolder; "" lists all.
+// ListGitHubSources returns the sources owned by ownerFolder; "" lists all. The
+// read comes back in coordinate order, which IS `ORDER BY source`.
 func (s *Store) ListGitHubSources(ownerFolder string) ([]GitHubSource, error) {
-	rows, err := s.db.Query(
-		`SELECT source, owner_folder, created_at FROM github_sources
-		 WHERE (? = '' OR owner_folder = ?) ORDER BY source`, ownerFolder, ownerFolder)
+	items, err := s.Obj().Query(context.Background(), objstore.Query{
+		Entity: GitHubSources, Partition: OwnerRoutd,
+	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read github sources: %w", err)
 	}
-	defer rows.Close()
 	var out []GitHubSource
-	for rows.Next() {
-		var g GitHubSource
-		var created string
-		if err := rows.Scan(&g.Source, &g.OwnerFolder, &created); err != nil {
-			return nil, err
+	for _, it := range items {
+		if ownerFolder != "" && it.Attrs[attrGHOwnerFolder] != ownerFolder {
+			continue
 		}
-		g.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
-		out = append(out, g)
+		out = append(out, githubSourceFrom(it))
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // GitHubSourceSecret returns the raw secret for key, unsealed. ok=false when no
 // such source exists.
 func (s *Store) GitHubSourceSecret(key string) (secret string, ok bool, err error) {
-	var sealed string
-	err = s.db.QueryRow(`SELECT secret FROM github_sources WHERE source = ?`, key).Scan(&sealed)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", false, nil
-	}
-	if err != nil {
+	it, ok, err := s.githubSourceItem(context.Background(), key)
+	if err != nil || !ok {
 		return "", false, err
 	}
-	secret, err = s.open(sealed)
+	secret, err = s.open(it.Attrs[attrGHSecret])
 	if err != nil {
 		return "", false, err
 	}

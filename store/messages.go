@@ -918,6 +918,17 @@ func (s *Store) DeriveAgentCursors(ctx context.Context, touched map[string]bool)
 	return n, nil
 }
 
+// archiveNullStr maps an empty string to a bind-time NULL, matching the nullable
+// TEXT columns `messages` declares (sender_name, forwarded_from, reply_to_*,
+// turn_id, platform_id, link_context). It lives beside its caller because
+// `messages` is the last archive lane whose target is a table of columns.
+func archiveNullStr(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
 // archiveB2I converts a bool to the 0/1 an INTEGER column stores.
 func archiveB2I(b bool) int {
 	if b {

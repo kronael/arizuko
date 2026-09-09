@@ -8,6 +8,7 @@ import (
 
 	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/resreg"
+	"github.com/kronael/arizuko/store"
 )
 
 // ACLMembershipRow mirrors acl_membership: composite (child, parent)
@@ -63,6 +64,8 @@ func init() {
 		DB:            resreg.SubsystemRoutd,
 		RowType:       reflect.TypeFor[ACLMembershipRow](),
 		PKFields:      []string{"Child", "Parent"},
+		EntitySortKey: []string{"Child", "Parent"},
+		EntityKeySep:  store.KeySep,
 		StampedFields: []string{"AddedAt"},
 		Endpoints:     ACLMembershipEndpoints,
 		MCPDoc:        ACLMembershipMCPDoc,

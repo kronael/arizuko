@@ -1,31 +1,30 @@
 package resources
 
 import (
-	"encoding/json"
 	"net/http"
 	"reflect"
 
 	"github.com/kronael/arizuko/resreg"
+	"github.com/kronael/arizuko/store"
 )
 
 // InstalledPackagesRow mirrors installed_packages (spec 5/28's installed-package
-// record). manifest + asset_hashes are JSON TEXT columns exposed as native Go
-// maps, so the engine keeps a raw shadow column per field and AfterScan decodes
-// it — the same trade-off ProxydRoutesRow pays for its JSON blob.
+// record). manifest + asset_hashes are native Go maps, and every stored value is
+// text, so each DECLARES the encoding that renders it (resreg/codec.go) — one
+// renderer, where a shadow column and an AfterScan were a rendering only this
+// file could read.
 //
 // The PK is composite (folder, name): composition blends a product mix per
 // GROUP, so the lock names which group (BUGS F30). Folder "" is instance-wide —
 // every row today — the same sentinel NetworkRulesRow uses for a global rule.
 type InstalledPackagesRow struct {
-	Folder         string              `db:"folder"       yaml:"folder"       json:"folder"`
-	Name           string              `db:"name"         yaml:"name"         json:"name"`
-	Source         string              `db:"source"       yaml:"source"       json:"source"`
-	Revision       string              `db:"revision"     yaml:"revision"     json:"revision"`
-	InstalledAt    string              `db:"installed_at" yaml:"installed_at" json:"installed_at"`
-	ManifestRaw    string              `db:"manifest"     yaml:"-"            json:"-"`
-	AssetHashesRaw string              `db:"asset_hashes" yaml:"-"            json:"-"`
-	Manifest       map[string][]string `db:"-"            yaml:"manifest,omitempty"     json:"manifest,omitempty"`
-	AssetHashes    map[string]string   `db:"-"            yaml:"asset_hashes,omitempty" json:"asset_hashes,omitempty"`
+	Folder      string              `db:"folder"       yaml:"folder"       json:"folder"`
+	Name        string              `db:"name"         yaml:"name"         json:"name"`
+	Source      string              `db:"source"       yaml:"source"       json:"source"`
+	Revision    string              `db:"revision"     yaml:"revision"     json:"revision"`
+	InstalledAt string              `db:"installed_at" yaml:"installed_at" json:"installed_at"`
+	Manifest    map[string][]string `db:"manifest,json"     yaml:"manifest,omitempty"     json:"manifest,omitempty"`
+	AssetHashes map[string]string   `db:"asset_hashes,json" yaml:"asset_hashes,omitempty" json:"asset_hashes,omitempty"`
 }
 
 // InstalledPackagesEndpoints is the single owner of the endpoint set that drives
@@ -96,29 +95,22 @@ var InstalledPackagesMCPDoc = map[resreg.Action]string{
 
 func init() {
 	resreg.Register(resreg.Resource{
-		Name:      InstalledPackagesName,
-		Table:     "installed_packages",
-		DB:        resreg.SubsystemRoutd,
-		RowType:   reflect.TypeFor[InstalledPackagesRow](),
-		PKFields:  []string{"Folder", "Name"},
-		Endpoints: InstalledPackagesEndpoints,
-		MCPDoc:    InstalledPackagesMCPDoc,
-		MCPArgs:   InstalledPackagesMCPArgs,
-		MCPNames:  InstalledPackagesMCPNames,
+		Name:          InstalledPackagesName,
+		Table:         "installed_packages",
+		DB:            resreg.SubsystemRoutd,
+		RowType:       reflect.TypeFor[InstalledPackagesRow](),
+		PKFields:      []string{"Folder", "Name"},
+		EntitySortKey: []string{"Folder", "Name"},
+		EntityKeySep:  store.KeySep,
+		Endpoints:     InstalledPackagesEndpoints,
+		MCPDoc:        InstalledPackagesMCPDoc,
+		MCPArgs:       InstalledPackagesMCPArgs,
+		MCPNames:      InstalledPackagesMCPNames,
 		// The record states what an install DID — a revision resolved from a git
 		// HEAD, hashes of files actually written. Rebuilding it from a manifest
 		// would forge a record of an install that never ran, and `remove` then
 		// reverses identities off that forgery. Export reads it; Apply never
 		// rewrites it (mirrors secrets + route_tokens).
 		SkipApplyRebuild: true,
-		Hooks: resreg.Hooks{
-			AfterScan: func(row any) error {
-				r := row.(*InstalledPackagesRow)
-				if err := json.Unmarshal([]byte(r.ManifestRaw), &r.Manifest); err != nil {
-					return err
-				}
-				return json.Unmarshal([]byte(r.AssetHashesRaw), &r.AssetHashes)
-			},
-		},
 	})
 }

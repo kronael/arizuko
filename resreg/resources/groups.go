@@ -72,6 +72,7 @@ func init() {
 		DB:            resreg.SubsystemRoutd,
 		RowType:       reflect.TypeFor[GroupsRow](),
 		PKFields:      []string{"Folder"},
+		EntitySortKey: []string{"Folder"},
 		Scope:         resreg.ScopeSpec{Field: "Folder"},
 		StampedFields: []string{"AddedAt", "UpdatedAt"},
 		// Agent-face metadata (spec 5/16): drives deriveMCPTools for register_group +
@@ -92,20 +93,6 @@ func init() {
 				r.ContainerConfig = canonJSON(r.ContainerConfig)
 				r.Config = canonJSON(r.Config)
 				return nil
-			},
-			ColumnOverride: map[string]resreg.ColumnHook{
-				"Config": {
-					Read:  "COALESCE(config, '')",
-					Write: nilIfEmptyString,
-				},
-				"ContainerConfig": {
-					Read:  "COALESCE(container_config, '')",
-					Write: nilIfEmptyString,
-				},
-				"UpdatedAt": {
-					Read:  "COALESCE(updated_at, '')",
-					Write: nilIfEmptyString,
-				},
 			},
 		},
 	})

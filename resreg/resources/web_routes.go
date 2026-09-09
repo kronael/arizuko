@@ -65,19 +65,12 @@ func init() {
 		DB:            resreg.SubsystemRoutd,
 		RowType:       reflect.TypeFor[WebRoutesRow](),
 		PKFields:      []string{"PathPrefix"},
+		EntitySortKey: []string{"PathPrefix"},
 		Endpoints:     WebRoutesEndpoints,
 		MCPDoc:        WebRoutesMCPDoc,
 		MCPArgs:       WebRoutesMCPArgs,
 		MCPNames:      WebRoutesMCPNames,
 		Scope:         resreg.ScopeSpec{Field: "Folder"},
 		StampedFields: []string{"CreatedAt"},
-		Hooks: resreg.Hooks{
-			ColumnOverride: map[string]resreg.ColumnHook{
-				"RedirectTo": {
-					Read:  "COALESCE(redirect_to, '')",
-					Write: nilIfEmptyString,
-				},
-			},
-		},
 	})
 }

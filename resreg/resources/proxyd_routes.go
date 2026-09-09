@@ -1,18 +1,17 @@
 package resources
 
 import (
-	"encoding/json"
 	"net/http"
 	"reflect"
 
 	"github.com/kronael/arizuko/resreg"
 )
 
-// ProxydRoutesRow mirrors proxyd_routes. PreserveHeaders is a JSON array string in DB
-// but []string on the Row, and StripPrefix is 0/1 INTEGER but a clean bool — the engine
-// uses two shadow columns for the raw representation and BeforeInsert/AfterScan keep
-// them in sync. JSON-blob columns force a hook (spec 5/8 §"What does NOT come for
-// free"); the public field shape stays natural and the conversion is paid here.
+// ProxydRoutesRow mirrors proxyd_routes. PreserveHeaders is a []string and
+// StripPrefix a bool, and every stored value is text, so both DECLARE the
+// encoding that renders them (resreg/codec.go). One renderer, so the text is
+// the same text whichever shape holds it — where the shadow column and its
+// BeforeInsert/AfterScan pair were a rendering only this file could read.
 type ProxydRoutesRow struct {
 	Path       string `db:"path"             yaml:"path"             json:"path"`
 	Backend    string `db:"backend"          yaml:"backend"          json:"backend"`
@@ -22,11 +21,9 @@ type ProxydRoutesRow struct {
 	// Owner is who may rewrite the row: "arizuko" (every `arizuko generate`
 	// does) or "operator" (generate never touches it). Read-only — the writer
 	// stamps it, which is why it appears in no MCPArgs list below.
-	Owner              string   `db:"owner"            yaml:"owner,omitempty"            json:"owner,omitempty"`
-	PreserveHeadersRaw string   `db:"preserve_headers" yaml:"-"                json:"-"`
-	StripPrefixRaw     int      `db:"strip_prefix"     yaml:"-"                json:"-"`
-	PreserveHeaders    []string `db:"-"                yaml:"preserve_headers,omitempty" json:"preserve_headers,omitempty"`
-	StripPrefix        bool     `db:"-"                yaml:"strip_prefix,omitempty"     json:"strip_prefix,omitempty"`
+	Owner           string   `db:"owner"            yaml:"owner,omitempty"            json:"owner,omitempty"`
+	PreserveHeaders []string `db:"preserve_headers,json" yaml:"preserve_headers,omitempty" json:"preserve_headers,omitempty"`
+	StripPrefix     bool     `db:"strip_prefix,bool"     yaml:"strip_prefix,omitempty"     json:"strip_prefix,omitempty"`
 }
 
 // ProxydRoutesMCPDoc is the single owner of proxyd_routes' per-action agent-facing
@@ -83,43 +80,14 @@ var ProxydRoutesEndpoints = []resreg.Endpoint{
 
 func init() {
 	resreg.Register(resreg.Resource{
-		Name:      ProxydRoutesName,
-		Table:     "proxyd_routes",
-		DB:        resreg.SubsystemRoutd,
-		RowType:   reflect.TypeFor[ProxydRoutesRow](),
-		PKFields:  []string{"Path"},
-		Endpoints: ProxydRoutesEndpoints,
-		MCPDoc:    ProxydRoutesMCPDoc,
-		MCPArgs:   ProxydRoutesMCPArgs,
-		Hooks: resreg.Hooks{
-			BeforeInsert: func(row any) error {
-				r := row.(*ProxydRoutesRow)
-				headers := r.PreserveHeaders
-				if headers == nil {
-					headers = []string{}
-				}
-				b, err := json.Marshal(headers)
-				if err != nil {
-					return err
-				}
-				r.PreserveHeadersRaw = string(b)
-				if r.StripPrefix {
-					r.StripPrefixRaw = 1
-				} else {
-					r.StripPrefixRaw = 0
-				}
-				return nil
-			},
-			AfterScan: func(row any) error {
-				r := row.(*ProxydRoutesRow)
-				if r.PreserveHeadersRaw != "" {
-					if err := json.Unmarshal([]byte(r.PreserveHeadersRaw), &r.PreserveHeaders); err != nil {
-						return err
-					}
-				}
-				r.StripPrefix = r.StripPrefixRaw != 0
-				return nil
-			},
-		},
+		Name:          ProxydRoutesName,
+		Table:         "proxyd_routes",
+		DB:            resreg.SubsystemRoutd,
+		RowType:       reflect.TypeFor[ProxydRoutesRow](),
+		PKFields:      []string{"Path"},
+		EntitySortKey: []string{"Path"},
+		Endpoints:     ProxydRoutesEndpoints,
+		MCPDoc:        ProxydRoutesMCPDoc,
+		MCPArgs:       ProxydRoutesMCPArgs,
 	})
 }

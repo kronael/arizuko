@@ -20,7 +20,7 @@ func TestIssuePairingLink_MintsFromBothTxAndDB(t *testing.T) {
 	defer s.Close()
 	seedFolder(t, s, "acme")
 
-	onDB, err := IssuePairingLink(context.Background(), s.db, "telegram:user/1", "acme")
+	onDB, err := s.IssuePairingLink(context.Background(), nil, "telegram:user/1", "acme")
 	if err != nil {
 		t.Fatalf("mint on *sql.DB: %v", err)
 	}
@@ -28,7 +28,7 @@ func TestIssuePairingLink_MintsFromBothTxAndDB(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	onTx, err := IssuePairingLink(context.Background(), tx, "telegram:user/2", "acme")
+	onTx, err := s.IssuePairingLink(context.Background(), tx, "telegram:user/2", "acme")
 	if err != nil {
 		t.Fatalf("mint on *sql.Tx: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestIssuePairingLink_StoresOnlyTheHash(t *testing.T) {
 	defer s.Close()
 	seedFolder(t, s, "acme")
 
-	raw, err := IssuePairingLink(context.Background(), s.db, "telegram:user/1", "acme")
+	raw, err := s.IssuePairingLink(context.Background(), nil, "telegram:user/1", "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestIssuePairingLink_EmptyOwnerFolderStoresNull(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 
-	raw, err := IssuePairingLink(context.Background(), s.db, "telegram:user/1", "")
+	raw, err := s.IssuePairingLink(context.Background(), nil, "telegram:user/1", "")
 	if err != nil {
 		t.Fatalf("mint with no owner folder: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestIssuePairingLink_NullOwnerStaysHiddenFromDelivery(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 
-	raw, err := IssuePairingLink(context.Background(), s.db, "telegram:user/1", "")
+	raw, err := s.IssuePairingLink(context.Background(), nil, "telegram:user/1", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestIssuePairingLink_RejectsEmptyJID(t *testing.T) {
 	// owner_folder produces the error and the guard is never exercised.
 	seedFolder(t, s, "acme")
 
-	if _, err := IssuePairingLink(context.Background(), s.db, "", "acme"); err == nil {
+	if _, err := s.IssuePairingLink(context.Background(), nil, "", "acme"); err == nil {
 		t.Fatal("minting a pairing for no jid must fail")
 	}
 	var n int

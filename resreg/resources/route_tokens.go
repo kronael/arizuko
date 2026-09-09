@@ -7,12 +7,22 @@ import (
 	"github.com/kronael/arizuko/resreg"
 )
 
-// RouteTokensRow mirrors route_tokens MINUS the token_hash BLOB PK: the raw token is
-// shown once at issue time and only sha256(token) is persisted (spec 5/W). Apply never
-// rebuilds this table, so the missing PK column is moot for the engine. TargetFolder is
-// the folder the token DELIVERS to; owner_folder only bounds revocation and may differ,
-// and is empty on a token minted before the mint recorded it.
+// RouteTokensRow mirrors route_tokens. TargetFolder is the folder the token
+// DELIVERS to; owner_folder only bounds revocation and may differ, and is empty
+// on a token minted before the mint recorded it.
+//
+// TOKEN_HASH IS THE COORDINATE AND NOTHING ELSE. It is hex(sha256(token)) — the
+// raw bearer is shown once at issue time and never persisted (spec 5/W) — and
+// it is the one field that is unique: krons carries 43 rows over 27 distinct
+// jids, so a key on the PK would collide 16 live ingress credentials onto one
+// item (BUGS L260). The manifest identity and the coordinate are two different
+// declarations here, which is exactly why PKFields could not supply the second.
+//
+// `yaml:"-"` keeps the digest out of `arizuko export` and `json:"-"` out of
+// every read surface, the way invites' `ref` is kept out of the export. Apply
+// never rebuilds this resource, so nothing writes it from a manifest either.
 type RouteTokensRow struct {
+	TokenHash    string `db:"token_hash"    yaml:"-"            json:"-"`
 	JID          string `db:"jid"           yaml:"jid"          json:"jid"`
 	OwnerFolder  string `db:"owner_folder"  yaml:"owner_folder" json:"owner_folder"`
 	TargetFolder string `db:"target_folder" yaml:"target_folder,omitempty" json:"target_folder,omitempty"`
@@ -113,15 +123,16 @@ var RouteTokensMCPArgs = map[resreg.Action][]resreg.MCPArg{
 
 func init() {
 	resreg.Register(resreg.Resource{
-		Name:      RouteTokensName,
-		Table:     "route_tokens",
-		DB:        resreg.SubsystemRoutd,
-		RowType:   reflect.TypeFor[RouteTokensRow](),
-		PKFields:  []string{"JID"},
-		Endpoints: RouteTokensEndpoints,
-		MCPDoc:    RouteTokensMCPDoc,
-		MCPArgs:   RouteTokensMCPArgs,
-		MCPNames:  RouteTokensMCPNames,
+		Name:          RouteTokensName,
+		Table:         "route_tokens",
+		DB:            resreg.SubsystemRoutd,
+		RowType:       reflect.TypeFor[RouteTokensRow](),
+		PKFields:      []string{"JID"},
+		EntitySortKey: []string{"TokenHash"},
+		Endpoints:     RouteTokensEndpoints,
+		MCPDoc:        RouteTokensMCPDoc,
+		MCPArgs:       RouteTokensMCPArgs,
+		MCPNames:      RouteTokensMCPNames,
 		// token_hash is minted imperatively and never round-trips through a
 		// manifest — Apply must never DELETE+INSERT this table (mirrors secrets).
 		StampedFields:    []string{"CreatedAt"},
@@ -131,24 +142,5 @@ func init() {
 		// from every manifest-visible read so they never appear in a YAML document.
 		// kind='route' delivery bearers are unaffected.
 		RowFilter: []objstore.Cmp{{Attr: "kind", Op: objstore.Eq, Value: "route"}},
-		Hooks: resreg.Hooks{
-			ColumnOverride: map[string]resreg.ColumnHook{
-				// context is nullable with no default ("NULL = pre-context token"), so every
-				// token minted before that migration scans NULL. Without this override ScanAll
-				// fails outright on any such row, which would crash export/get/plan on real
-				// instances.
-				"Context": {
-					Read:  "COALESCE(context, '')",
-					Write: nilIfEmptyString,
-				},
-				// target_folder is nullable for the same reason (routd/
-				// migrations/0035-route-token-target-folder.sql: "NULL = a row
-				// minted before this column"), and scans the same way.
-				"TargetFolder": {
-					Read:  "COALESCE(target_folder, '')",
-					Write: nilIfEmptyString,
-				},
-			},
-		},
 	})
 }

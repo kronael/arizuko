@@ -4,6 +4,7 @@ import (
 	"reflect"
 
 	"github.com/kronael/arizuko/resreg"
+	"github.com/kronael/arizuko/store"
 )
 
 // SecretsRow mirrors secrets metadata. The encrypted value blob is
@@ -41,12 +42,14 @@ var SecretsEndpoints = []resreg.Endpoint{
 
 func init() {
 	resreg.Register(resreg.Resource{
-		Name:      SecretsName,
-		Table:     "secrets",
-		DB:        resreg.SubsystemRoutd,
-		RowType:   reflect.TypeFor[SecretsRow](),
-		Endpoints: SecretsEndpoints,
-		PKFields:  []string{"ScopeKind", "ScopeID", "Key"},
+		Name:          SecretsName,
+		Table:         "secrets",
+		DB:            resreg.SubsystemRoutd,
+		RowType:       reflect.TypeFor[SecretsRow](),
+		Endpoints:     SecretsEndpoints,
+		PKFields:      []string{"ScopeKind", "ScopeID", "Key"},
+		EntitySortKey: []string{"ScopeKind", "ScopeID", "Key"},
+		EntityKeySep:  store.KeySep,
 		// No folder scope: scope_id is polymorphic by scope_kind (folder OR
 		// user, spec 5/8 §"FK posture"). Moot for apply anyway —
 		// SkipApplyRebuild means apply never DELETE+INSERTs this table.

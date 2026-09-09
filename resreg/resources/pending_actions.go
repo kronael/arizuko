@@ -90,16 +90,17 @@ var PendingActionsMCPArgs = map[resreg.Action][]resreg.MCPArg{
 
 func init() {
 	resreg.Register(resreg.Resource{
-		Name:      PendingActionsName,
-		Table:     "pending_actions",
-		DB:        resreg.SubsystemRoutd,
-		RowType:   reflect.TypeFor[PendingActionsRow](),
-		PKFields:  []string{"ID"},
-		Endpoints: PendingActionsEndpoints,
-		MCPDoc:    PendingActionsMCPDoc,
-		MCPArgs:   PendingActionsMCPArgs,
-		MCPNames:  PendingActionsMCPNames,
-		Scope:     resreg.ScopeSpec{Field: "GroupFolder"},
+		Name:          PendingActionsName,
+		Table:         "pending_actions",
+		DB:            resreg.SubsystemRoutd,
+		RowType:       reflect.TypeFor[PendingActionsRow](),
+		PKFields:      []string{"ID"},
+		EntitySortKey: []string{"ID"},
+		Endpoints:     PendingActionsEndpoints,
+		MCPDoc:        PendingActionsMCPDoc,
+		MCPArgs:       PendingActionsMCPArgs,
+		MCPNames:      PendingActionsMCPNames,
+		Scope:         resreg.ScopeSpec{Field: "GroupFolder"},
 		// `mode` is NOT NULL DEFAULT 'async' in the schema, and a manifest that
 		// omits it must land on the same value the DDL would have chosen — an
 		// empty mode is not one of the two answers the release path reads.

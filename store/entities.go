@@ -40,6 +40,89 @@ const (
 	OnboardingGates = "onboarding_gates"
 	// Invites holds one item per live invite, addressed by its ref.
 	Invites = "invites"
+
+	// routd's thirteen registered resources. Each one's coordinate is argued
+	// against the live rows in resreg/resources/<name>.go, because the
+	// coordinate is what an apply addresses a row BY and a wrong one collides
+	// two rows onto one item (BUGS L260). The separator six of them join on is
+	// KeySep below.
+
+	// ACL holds one grant, addressed by the six fields that ARE the grant:
+	// principal, action, scope, params, predicate and effect.
+	ACL = "acl"
+	// ACLMembership holds one membership edge, addressed by (child, parent).
+	ACLMembership = "acl_membership"
+	// Groups holds one group, addressed by its folder.
+	Groups = "groups"
+	// Routes holds one routing rule, addressed by (seq, target, match). `seq`
+	// is padded so the read comes back in precedence order.
+	Routes = "routes"
+	// RouteTokens holds one delivery or pairing credential, addressed by
+	// hex(sha256(token)) — the digest is the key, and the jid is not unique.
+	RouteTokens = "route_tokens"
+	// ScheduledTasks holds one scheduled prompt, addressed by its id.
+	ScheduledTasks = "scheduled_tasks"
+	// Secrets holds one sealed value, addressed by (scope_kind, scope_id, key).
+	Secrets = "secrets"
+	// PendingActions holds one held tool call, addressed by its id.
+	PendingActions = "pending_actions"
+	// NetworkRules holds one egress allowlist rule, addressed by
+	// (folder, target). The folder leads because it is also the purge scope.
+	NetworkRules = "network_rules"
+	// ProxydRoutes holds one reverse-proxy route, addressed by its path.
+	ProxydRoutes = "proxyd_routes"
+	// WebRoutes holds one web access rule, addressed by its path prefix.
+	WebRoutes = "web_routes"
+	// InstalledPackages holds one install record, addressed by (folder, name).
+	InstalledPackages = "installed_packages"
+	// GitHubSources holds one webhook source, addressed by its source key.
+	GitHubSources = "github_sources"
+
+	// Counters holds one item per server-minted number, addressed by the name
+	// of what it numbers, with the count in `n`.
+	//
+	// There is exactly one today and it is routes.id: AUTOINCREMENT is a SQL
+	// facility, an item has no server-minted identity, and two concurrent
+	// add_route calls reading `max(id) + 1` would mint the same handle for two
+	// rules — after which delete_route(id) names both. objstore.Increment over
+	// this item is the compare-and-swap that makes the mint one winner
+	// (protocol.go). The apply path mints differently and correctly, because it
+	// sees the whole row set at once (resreg/entity.go mintNumbers).
+	Counters = "counters"
+)
+
+// KeySep joins the fields of a composite coordinate, and it is declared HERE
+// because both readers of it are downstream of this package: the writers in
+// this file's neighbours, and the resource declarations in resreg/resources,
+// which reach it the way they already reach OwnerRoutd. Two spellings would put
+// one writer's items at a coordinate the other's read never names.
+//
+// Six of routd's thirteen resources join on it: acl is the six-field grant,
+// acl_membership is (child, parent), network_rules is (folder, target),
+// installed_packages is (folder, name), secrets is (scope_kind, scope_id, key)
+// and routes is (seq, target, match). No value of any of those fields may carry
+// it, and a write that does is REFUSED rather than splitting the key somewhere
+// the read would not put it back together.
+//
+// WHY THIS BYTE. The obvious candidates are all in the data: "/" separates a
+// folder from its children and a topic from its folder, ":" a principal's kind
+// from its name, "=" and "," the pairs inside an acl row's `params`, "#" a
+// topic inside a route target. Measured over every one of those fields on all
+// three live instances 2026-09-08, the whole character set is space,
+// `#*,-./0-9:=@_`, the letters, and one emoji. ASCII 0x1F is the unit
+// separator — the byte whose only job is this — and it is what
+// store/pane_sessions and the engine's own composite fixtures already use.
+//
+// Measuring today's rows is not the guarantee and is not meant to be. The
+// guarantee is the refusal.
+const KeySep = "\x1f"
+
+// The counters this package mints, and the attribute each is held in.
+const (
+	// CounterRouteID is the largest route id handed out.
+	CounterRouteID = "routes.id"
+	// counterAttr holds the count. One name, because one protocol reads it.
+	counterAttr = "n"
 )
 
 // EntitiesByOwner is the set a driver must be able to serve before this package
@@ -68,7 +151,12 @@ const (
 // make. It stays a table in onbod.db and store.consumeInvite keeps writing it
 // as SQL, inside the same transaction the invite's counter moves in.
 var EntitiesByOwner = map[string][]string{
-	OwnerRoutd: {PaneSessions, SecretUseLog},
+	OwnerRoutd: {
+		PaneSessions, SecretUseLog, Counters,
+		ACL, ACLMembership, Groups, Routes, RouteTokens, ScheduledTasks, Secrets,
+		PendingActions, NetworkRules, ProxydRoutes, WebRoutes, InstalledPackages,
+		GitHubSources,
+	},
 	OwnerOnbod: {Onboarding, OnboardingGates, Invites},
 }
 
@@ -112,7 +200,54 @@ func EnsureEntities(ctx context.Context, d Driver, owner string) error {
 			return err
 		}
 	}
+	if err := ensureCounters(ctx, d, owner); err != nil {
+		return err
+	}
 	return ensureScopes(ctx, d, owner)
+}
+
+// countersByOwner names the counters each owner mints. A counter has to EXIST
+// before the first increment: Increment reads the item and refuses one that is
+// not there, because "a counter with no zero is a modelling gap rather than a
+// value to invent" (objstore.Increment).
+var countersByOwner = map[string][]string{OwnerRoutd: {CounterRouteID}}
+
+// ensureCounters seeds each of one owner's counters at zero, once.
+//
+// It leaves an existing counter alone — the Put is conditioned on the item
+// being absent — so an opener calls it on every boot and a migration that set
+// the counter to the largest id it carried over keeps that value.
+func ensureCounters(ctx context.Context, d Driver, owner string) error {
+	for _, name := range countersByOwner[owner] {
+		err := putIfAbsent(ctx, d, objstore.Write{
+			Op:     objstore.Put,
+			Entity: Counters,
+			Key:    objstore.Key{Partition: owner, Sort: name},
+			Attrs:  map[string]string{counterAttr: "0"},
+		})
+		if err != nil {
+			return fmt.Errorf("seed counter %s/%s: %w", owner, name, err)
+		}
+	}
+	return nil
+}
+
+// nextNumber hands out the next value of one counter, or fails.
+//
+// It is the object path's AUTOINCREMENT for a single imperative write, where
+// resreg/entity.go's mintNumbers is the apply's: that one sees the whole row
+// set and can take one past its largest, and this one has a set of one, so the
+// serialisation has to come from the counter itself.
+func (s *Store) nextNumber(ctx context.Context, owner, name string) (int, error) {
+	n, committed, err := s.incrementEntity(ctx, Counters,
+		objstore.Key{Partition: owner, Sort: name}, counterAttr, 1, nil, nil)
+	if err != nil {
+		return 0, err
+	}
+	if !committed {
+		return 0, fmt.Errorf("counter %s/%s refused its own increment", owner, name)
+	}
+	return n, nil
 }
 
 // tsWidth is core.TS's width. A test checks it against core.TS itself, because

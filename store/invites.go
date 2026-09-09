@@ -552,11 +552,28 @@ func (s *Store) consumeInvite(token, userSub string, grantACL bool) (*Invite, er
 			return nil, err
 		}
 	} else if grantACL {
-		if _, err := tx.Exec(
-			`INSERT OR IGNORE INTO acl
-			 (principal, action, scope, effect, params, predicate, granted_at, granted_by)
-			 VALUES (?, 'admin', ?, 'allow', '', '', datetime('now'), 'invite')`,
-			userSub, inv.TargetGlob); err != nil {
+		// The grant is `acl`'s own write, rendered by `acl`'s own writer, so the
+		// coordinate and the three attributes are the ones AddACLRow and the
+		// manifest apply already write. Create-if-absent is what `INSERT OR
+		// IGNORE` said: redeeming a second invite onto a glob the caller already
+		// holds must not restamp who granted it or when.
+		//
+		// It rides in THIS transaction, which is the single-database topology's
+		// whole point — the claim and the grant commit together. The split
+		// topology cannot: `acl` is routd-owned and lives in another file, so
+		// onbod calls ConsumeInviteNoGrant and writes the row through AddACLRow
+		// against routd.db instead.
+		w, err := aclPut(aclDefaults(core.ACLRow{
+			Principal: userSub,
+			Action:    "admin",
+			Scope:     inv.TargetGlob,
+			Effect:    "allow",
+			GrantedBy: "invite",
+		}))
+		if err != nil {
+			return nil, err
+		}
+		if _, err := s.writeEntitiesInTx(ctx, tx, nil, w); err != nil {
 			return nil, err
 		}
 	}

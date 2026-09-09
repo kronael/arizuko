@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"testing"
 
 	"github.com/kronael/arizuko/core"
@@ -53,7 +54,7 @@ func TestSeedMemberRoleTxIsIdempotentOnACallerTx(t *testing.T) {
 	}
 	defer tx.Rollback()
 	for range 2 {
-		if err := SeedMemberRoleTx(tx, "world"); err != nil {
+		if err := SeedMemberRoleTx(context.Background(), s, tx, "world"); err != nil {
 			t.Fatalf("SeedMemberRoleTx: %v", err)
 		}
 	}

@@ -1,18 +1,171 @@
 package store
 
+// tasks.go holds every read and write of `scheduled_tasks`: one item per
+// scheduled prompt, addressed by its id.
+//
+// THE PARTITION IS OwnerRoutd AND IT IS NOT A CHOICE THIS FILE MAKES.
+// `scheduled_tasks` is a registered resreg resource, and an entity-backed
+// resource's items live at its owner subsystem (resreg.SubsystemRoutd, which IS
+// store.OwnerRoutd). A second spelling would put this file's items in one
+// partition and the engine's read in another, and the failure is silent: a
+// query on a partition nobody wrote to is a legal query that selects nothing.
+//
+// THE ID IS THE COORDINATE, and it is the handle every other surface already
+// holds: pause_task, resume_task, cancel_task and PATCH /v1/tasks/{taskId} all
+// name a task by it, and task_run_logs.task_id refers to it from a table that
+// has not moved.
+//
+// EVERY OTHER READ IS A PARTITION SCAN, and that is measured rather than
+// overlooked. `owner`, `status` and `next_run` are attributes, and an attribute
+// is not a leading fragment of the key, so listing a folder's tasks, counting
+// the active ones and claiming the due ones each read the partition and filter.
+// It is the same shape as `route_tokens`, whose partition is 43 items on the
+// largest live instance, and the fire loop runs once a tick.
+//
+// TWO INSTANTS, TWO LAYOUTS, AND THE SPLIT IS NOT AN ACCIDENT. `created_at` is
+// a StampedField, so it is core.TS at 30 bytes — the width resreg's own entity
+// path stamps one at (resreg/entity.go itemFor), and the two writers of these
+// items have to agree byte for byte. `next_run` is NOT stamped and this package
+// is not what decides its layout: timed computes it (timed/main.go
+// computeNextRun) and hands it to RescheduleTask as RFC3339 text in the
+// operator's own timezone, stored verbatim. So the read parses it as RFC3339,
+// which accepts both that and the fixed-width form, and the due comparison is
+// made on the PARSED instant — never on the bytes. That is what `datetime()`
+// gave: a non-UTC offset still orders right.
+//
+// A CLAIM IS ONE WRITE PER TASK, because a batch is all-or-nothing. `UPDATE …
+// SET status='firing' WHERE status='active'` skipped exactly the rows a
+// concurrent poller had already taken; a batch of N conditional claims would
+// instead be REFUSED whole the moment one of them was taken, and this poller
+// would fire nothing. One conditional write each keeps the per-task answer.
+
 import (
+	"context"
 	"database/sql"
+	"fmt"
+	"slices"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 )
+
+// The attributes a task item carries. `id` is NOT among them: it is the
+// coordinate, and storing it twice is two facts that can disagree.
+const (
+	attrTaskOwner       = "owner"
+	attrTaskChatJID     = "chat_jid"
+	attrTaskPrompt      = "prompt"
+	attrTaskCron        = "cron"
+	attrTaskNextRun     = "next_run"
+	attrTaskStatus      = "status"
+	attrTaskCreatedAt   = "created_at"
+	attrTaskContextMode = "context_mode"
+)
+
+// TaskContextGroup is the context_mode a task runs under unless it says
+// otherwise. It is the default resreg's own BeforeInsert hook fills
+// (resreg/resources/scheduled_tasks.go), and the two writers have to choose the
+// same one: a task with no mode is not one of the two answers the fire loop
+// reads.
+const TaskContextGroup = "group"
+
+// TaskStatusFiring marks a task one poller has claimed. It is a transient
+// state: the fire loop moves it back to active or paused, and
+// RecoverFiringTasks re-arms whatever a crash left in it.
+const TaskStatusFiring = "firing"
 
 type TaskPatch struct {
 	Status  *string
 	NextRun *time.Time
+}
+
+// taskKey is the coordinate of one task.
+func taskKey(id string) (objstore.Key, error) {
+	if id == "" {
+		return objstore.Key{}, fmt.Errorf("scheduled task carries no id, which is its coordinate")
+	}
+	return objstore.Key{Partition: OwnerRoutd, Sort: id}, nil
+}
+
+// taskFrom reads one item back. context_mode falls back to the same default the
+// insert fills, so a row written before the field existed still names one of the
+// two modes the fire loop reads.
+func taskFrom(it objstore.Item) core.Task {
+	t := core.Task{
+		ID:          it.Key.Sort,
+		Owner:       it.Attrs[attrTaskOwner],
+		ChatJID:     it.Attrs[attrTaskChatJID],
+		Prompt:      it.Attrs[attrTaskPrompt],
+		Cron:        it.Attrs[attrTaskCron],
+		Status:      it.Attrs[attrTaskStatus],
+		ContextMode: it.Attrs[attrTaskContextMode],
+	}
+	t.Created, _ = time.Parse(core.TSLayout, it.Attrs[attrTaskCreatedAt])
+	if run, ok := taskNextRun(it); ok {
+		t.NextRun = &run
+	}
+	if t.ContextMode == "" {
+		t.ContextMode = TaskContextGroup
+	}
+	return t
+}
+
+// taskNextRun parses `next_run`, and answers false for a task that carries none
+// — a one-shot that has fired. RFC3339 is the layout because timed writes it
+// (see the file header); it also reads the fixed-width form, so one parse serves
+// both writers.
+func taskNextRun(it objstore.Item) (time.Time, bool) {
+	raw := it.Attrs[attrTaskNextRun]
+	if raw == "" {
+		return time.Time{}, false
+	}
+	run, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return run, true
+}
+
+// taskAttrs renders the attributes one task carries.
+//
+// An empty `cron` or `next_run` is left OFF: absent is the only null this model
+// has, and it is exactly what the nullable column held for a one-shot task and
+// for one that has fired.
+func taskAttrs(t core.Task) map[string]string {
+	created := t.Created
+	if created.IsZero() {
+		created = time.Now()
+	}
+	attrs := map[string]string{
+		attrTaskOwner:       t.Owner,
+		attrTaskChatJID:     t.ChatJID,
+		attrTaskPrompt:      t.Prompt,
+		attrTaskStatus:      t.Status,
+		attrTaskCreatedAt:   core.TS(created),
+		attrTaskContextMode: t.ContextMode,
+	}
+	if attrs[attrTaskContextMode] == "" {
+		attrs[attrTaskContextMode] = TaskContextGroup
+	}
+	setAttr(attrs, attrTaskCron, t.Cron)
+	if t.NextRun != nil {
+		attrs[attrTaskNextRun] = t.NextRun.Format(time.RFC3339)
+	}
+	return attrs
+}
+
+// allTasks is the whole table, in coordinate order.
+func (s *Store) allTasks(ctx context.Context) ([]objstore.Item, error) {
+	items, err := s.Obj().Query(ctx, objstore.Query{
+		Entity: ScheduledTasks, Partition: OwnerRoutd,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read scheduled tasks: %w", err)
+	}
+	return items, nil
 }
 
 // CreateTask inserts one scheduled task. It is the ONE insert store owns.
@@ -20,43 +173,60 @@ type TaskPatch struct {
 // dashd's form and routd's `/v1` resource each emit their own row on their own
 // transaction — so this path emits none rather than a second, different record
 // of one act.
+//
+// The write is an unconditional Put, which is what a plain `INSERT` said: a
+// second create on one id replaces the task rather than being refused.
 func (s *Store) CreateTask(t core.Task) error {
-	var nextRun *string
-	if t.NextRun != nil {
-		v := t.NextRun.Format(time.RFC3339)
-		nextRun = &v
+	key, err := taskKey(t.ID)
+	if err != nil {
+		return err
 	}
-	cm := t.ContextMode
-	if cm == "" {
-		cm = "group"
-	}
-	_, err := s.db.Exec(
-		`INSERT INTO scheduled_tasks (`+taskCols+`)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		t.ID, t.Owner, t.ChatJID, t.Prompt, nilIfEmpty(t.Cron),
-		nextRun, t.Status, t.Created.Format(time.RFC3339), cm)
+	_, err = s.writeEntities(context.Background(), nil, objstore.Write{
+		Op: objstore.Put, Entity: ScheduledTasks, Key: key, Attrs: taskAttrs(t),
+	})
 	return err
 }
-
-const taskCols = `id, owner, chat_jid, prompt, cron, next_run, status, created_at, context_mode`
 
 // SetTaskStatus updates one task's status. The agent's pause and resume reach
 // routd's `/v1` resource, not this; what this exists for is the status half of
 // the DueTasks contract — a paused task must leave the due set and a resumed
 // one must return to it — which is asserted against DueTasks, the live reader.
+//
+// An Update writes nothing when the item is missing, which is what the
+// statement's zero matched rows said.
 func (s *Store) SetTaskStatus(id, status string) error {
-	_, err := s.db.Exec(`UPDATE scheduled_tasks SET status = ? WHERE id = ?`, status, id)
+	key, err := taskKey(id)
+	if err != nil {
+		return err
+	}
+	_, err = s.writeEntities(context.Background(), nil, objstore.Write{
+		Op: objstore.Update, Entity: ScheduledTasks, Key: key,
+		Attrs: map[string]string{attrTaskStatus: status},
+	})
 	return err
 }
 
 // RescheduleTask sets a fired task's next_run + status WITHOUT emitting an
 // audit_log row — the audit-free path behind POST /v1/tasks/{id}/reschedule,
-// the write half of timed's fire loop. An empty nextRun stores NULL (one-shot
-// completion); a non-empty value is stored verbatim.
+// the write half of timed's fire loop. An empty nextRun TAKES THE ATTRIBUTE
+// AWAY (one-shot completion), because absent is the only null this model has and
+// an empty string is a value a presence test still finds; a non-empty value is
+// stored verbatim.
 func (s *Store) RescheduleTask(id, nextRun, status string) error {
-	_, err := s.db.Exec(
-		`UPDATE scheduled_tasks SET status = ?, next_run = NULLIF(?, '') WHERE id = ?`,
-		status, nextRun, id)
+	key, err := taskKey(id)
+	if err != nil {
+		return err
+	}
+	w := objstore.Write{
+		Op: objstore.Update, Entity: ScheduledTasks, Key: key,
+		Attrs: map[string]string{attrTaskStatus: status},
+	}
+	if nextRun == "" {
+		w.Remove = []string{attrTaskNextRun}
+	} else {
+		w.Attrs[attrTaskNextRun] = nextRun
+	}
+	_, err = s.writeEntities(context.Background(), nil, w)
 	return err
 }
 
@@ -64,37 +234,72 @@ func (s *Store) RescheduleTask(id, nextRun, status string) error {
 // between claim and reschedule — the poll only claims 'active' rows, so a stuck
 // task never fires again (stranded main/trading's daily compaction for days
 // after a restart storm). Call ONLY at startup: nothing is legitimately
-// mid-fire then. Returns the count recovered.
+// mid-fire then, which is what makes the unconditional write safe. Returns the
+// count recovered.
 func (s *Store) RecoverFiringTasks() (int64, error) {
-	r, err := s.db.Exec(`UPDATE scheduled_tasks SET status = 'active' WHERE status = 'firing'`)
+	ctx := context.Background()
+	items, err := s.Obj().Query(ctx, objstore.Query{
+		Entity: ScheduledTasks, Partition: OwnerRoutd,
+		Where: []objstore.Cmp{{Attr: attrTaskStatus, Op: objstore.Eq, Value: TaskStatusFiring}},
+	})
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("read firing tasks: %w", err)
 	}
-	n, _ := r.RowsAffected()
-	return n, nil
+	writes := make([]objstore.Write, 0, len(items))
+	for _, it := range items {
+		writes = append(writes, objstore.Write{
+			Op: objstore.Update, Entity: ScheduledTasks, Key: it.Key,
+			Attrs: map[string]string{attrTaskStatus: core.TaskActive},
+		})
+	}
+	if len(writes) == 0 {
+		return 0, nil
+	}
+	n, err := s.applyInChunks(ctx, "recover firing tasks", writes)
+	return int64(n), err
 }
 
-// DueTasks atomically claims active tasks whose next_run has passed (marking
-// them 'firing' so concurrent pollers skip them) and returns them — the read
-// half of timed's fire loop, behind GET /v1/tasks/due. datetime() normalizes
-// RFC3339 offsets to UTC so a non-UTC next_run still orders right.
+// DueTasks claims active tasks whose next_run has passed, marking them 'firing'
+// so concurrent pollers skip them, and returns them — the read half of timed's
+// fire loop, behind GET /v1/tasks/due.
+//
+// The claim is per task and CONDITIONAL on the status still being 'active', so
+// a task another poller took between this read and this write is dropped from
+// the answer rather than fired twice. See the file header on why that is not one
+// batch.
 func (s *Store) DueTasks(now time.Time) ([]core.Task, error) {
-	nowStr := now.Format(time.RFC3339)
-	rows, err := s.db.Query(
-		`UPDATE scheduled_tasks SET status = 'firing'
-		 WHERE status = 'active' AND datetime(next_run) <= datetime(?)
-		 RETURNING `+taskCols, nowStr)
+	ctx := context.Background()
+	items, err := s.Obj().Query(ctx, objstore.Query{
+		Entity: ScheduledTasks, Partition: OwnerRoutd,
+		Where: []objstore.Cmp{{Attr: attrTaskStatus, Op: objstore.Eq, Value: core.TaskActive}},
+	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read due tasks: %w", err)
 	}
-	defer rows.Close()
 	var out []core.Task
-	for rows.Next() {
-		if t, ok := scanTask(rows); ok {
-			out = append(out, t)
+	for _, it := range items {
+		run, ok := taskNextRun(it)
+		if !ok || run.After(now) {
+			continue
 		}
+		claimed, err := s.writeEntities(ctx, nil, objstore.Write{
+			Op: objstore.Update, Entity: ScheduledTasks, Key: it.Key,
+			Attrs: map[string]string{attrTaskStatus: TaskStatusFiring},
+			Cond: objstore.Cond{Where: []objstore.Cmp{
+				{Attr: attrTaskStatus, Op: objstore.Eq, Value: core.TaskActive},
+			}},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("claim task %q: %w", it.Key.Sort, err)
+		}
+		if !claimed {
+			continue
+		}
+		t := taskFrom(it)
+		t.Status = TaskStatusFiring
+		out = append(out, t)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // RecordTaskRun appends one task_run_logs row WITHOUT emitting an audit_log row
@@ -109,58 +314,67 @@ func (s *Store) RecordTaskRun(l TaskRunLog) error {
 }
 
 func (s *Store) GetTask(id string) (core.Task, bool) {
-	row := s.db.QueryRow(`SELECT `+taskCols+` FROM scheduled_tasks WHERE id = ?`, id)
-	return scanTask(row)
+	key, err := taskKey(id)
+	if err != nil {
+		return core.Task{}, false
+	}
+	items, err := s.Obj().Query(context.Background(), objstore.Query{
+		Entity: ScheduledTasks, Partition: OwnerRoutd,
+		Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: key.Sort},
+	})
+	if err != nil || len(items) == 0 {
+		return core.Task{}, false
+	}
+	return taskFrom(items[0]), true
 }
 
+// ListTasks returns one owner's tasks, newest first, or every task for a root
+// caller. `owner` is an attribute, so this reads the partition and filters —
+// and the order is `created_at` DESC, applied after the read because the
+// coordinate is the id.
 func (s *Store) ListTasks(folder string, isRoot bool) []core.Task {
 	owner := folder
 	if isRoot {
 		owner = ""
 	}
-	rows, err := s.db.Query(
-		`SELECT `+taskCols+` FROM scheduled_tasks
-		 WHERE (? = '' OR owner = ?) ORDER BY created_at DESC`, owner, owner)
+	items, err := s.allTasks(context.Background())
 	if err != nil {
 		return nil
 	}
-	defer rows.Close()
-
 	var out []core.Task
-	for rows.Next() {
-		t, ok := scanTask(rows)
-		if ok {
-			out = append(out, t)
+	for _, it := range items {
+		if owner != "" && it.Attrs[attrTaskOwner] != owner {
+			continue
 		}
+		out = append(out, taskFrom(it))
 	}
+	slices.SortFunc(out, func(a, b core.Task) int { return b.Created.Compare(a.Created) })
 	return out
 }
 
 func (s *Store) UpdateTask(id string, p TaskPatch) error {
-	var sets []string
-	var args []any
+	key, err := taskKey(id)
+	if err != nil {
+		return err
+	}
+	attrs := map[string]string{}
+	params := map[string]any{}
 	if p.Status != nil {
-		sets = append(sets, "status = ?")
-		args = append(args, *p.Status)
+		attrs[attrTaskStatus] = *p.Status
+		params["status"] = *p.Status
 	}
 	if p.NextRun != nil {
-		sets = append(sets, "next_run = ?")
-		args = append(args, p.NextRun.Format(time.RFC3339))
+		attrs[attrTaskNextRun] = p.NextRun.Format(time.RFC3339)
+		params["next_run"] = attrs[attrTaskNextRun]
 	}
-	if len(sets) == 0 {
+	if len(attrs) == 0 {
 		return nil
 	}
-	args = append(args, id)
+	ctx := context.Background()
 	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		_, err := tx.Exec(
-			"UPDATE scheduled_tasks SET "+strings.Join(sets, ", ")+" WHERE id = ?", args...)
-		params := map[string]any{}
-		if p.Status != nil {
-			params["status"] = *p.Status
-		}
-		if p.NextRun != nil {
-			params["next_run"] = p.NextRun.Format(time.RFC3339)
-		}
+		_, err := s.writeEntitiesInTx(ctx, tx, nil, objstore.Write{
+			Op: objstore.Update, Entity: ScheduledTasks, Key: key, Attrs: attrs,
+		})
 		return audit.Event{
 			Category:      audit.CategoryMutation,
 			Action:        "task.update",
@@ -174,8 +388,15 @@ func (s *Store) UpdateTask(id string, p TaskPatch) error {
 }
 
 func (s *Store) DeleteTask(id string) error {
+	key, err := taskKey(id)
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
 	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		_, err := tx.Exec(`DELETE FROM scheduled_tasks WHERE id = ?`, id)
+		_, err := s.writeEntitiesInTx(ctx, tx, nil, objstore.Write{
+			Op: objstore.Delete, Entity: ScheduledTasks, Key: key,
+		})
 		return audit.Event{
 			Category: audit.CategoryMutation,
 			Action:   "task.delete",
@@ -188,9 +409,14 @@ func (s *Store) DeleteTask(id string) error {
 }
 
 func (s *Store) CountActiveTasks() int {
-	var n int
-	s.db.QueryRow(`SELECT COUNT(*) FROM scheduled_tasks WHERE status = ?`, core.TaskActive).Scan(&n)
-	return n
+	items, err := s.Obj().Query(context.Background(), objstore.Query{
+		Entity: ScheduledTasks, Partition: OwnerRoutd,
+		Where: []objstore.Cmp{{Attr: attrTaskStatus, Op: objstore.Eq, Value: core.TaskActive}},
+	})
+	if err != nil {
+		return 0
+	}
+	return len(items)
 }
 
 // Keep in sync with ant migration 055 which backfills legacy groups.
@@ -203,42 +429,37 @@ var defaultTasks = [...]struct{ prompt, cron string }{
 }
 
 // SeedDefaultTasks inserts the 5 compact-memories tasks for a new group.
-// Idempotent (INSERT OR IGNORE). New groups skip ant migration 055.
+// Idempotent — each write is create-if-absent, so re-seeding a group leaves the
+// task an operator has since edited alone. New groups skip ant migration 055.
+//
+// One write per task rather than one batch of five: a batch is all-or-nothing,
+// so a single task that is already there would refuse the four that are not,
+// which is not what `INSERT OR IGNORE` per row said.
 func (s *Store) SeedDefaultTasks(folder, chatJID string) error {
-	now := time.Now().Format(time.RFC3339)
+	ctx := context.Background()
+	now := time.Now()
 	for i, t := range defaultTasks {
-		id := folder + "-mem-" + strconv.Itoa(i)
-		_, err := s.db.Exec(
-			`INSERT OR IGNORE INTO scheduled_tasks
-			 (id, owner, chat_jid, prompt, cron, next_run, status, created_at, context_mode)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			id, folder, chatJID, t.prompt, t.cron, now, core.TaskActive, now, "isolated")
+		task := core.Task{
+			ID:          folder + "-mem-" + strconv.Itoa(i),
+			Owner:       folder,
+			ChatJID:     chatJID,
+			Prompt:      t.prompt,
+			Cron:        t.cron,
+			NextRun:     &now,
+			Status:      core.TaskActive,
+			Created:     now,
+			ContextMode: "isolated",
+		}
+		key, err := taskKey(task.ID)
 		if err != nil {
 			return err
 		}
+		if _, err := s.writeEntities(ctx, nil, objstore.Write{
+			Op: objstore.Put, Entity: ScheduledTasks, Key: key, Attrs: taskAttrs(task),
+			Cond: objstore.Cond{Item: objstore.ItemAbsent},
+		}); err != nil {
+			return fmt.Errorf("seed task %s: %w", task.ID, err)
+		}
 	}
 	return nil
-}
-
-func scanTask(r rowScanner) (core.Task, bool) {
-	var t core.Task
-	var cron, nextRun *string
-	var created string
-	err := r.Scan(&t.ID, &t.Owner, &t.ChatJID, &t.Prompt,
-		&cron, &nextRun, &t.Status, &created, &t.ContextMode)
-	if err != nil {
-		return t, false
-	}
-	t.Created, _ = time.Parse(time.RFC3339, created)
-	if cron != nil {
-		t.Cron = *cron
-	}
-	if nextRun != nil {
-		v, _ := time.Parse(time.RFC3339, *nextRun)
-		t.NextRun = &v
-	}
-	if t.ContextMode == "" {
-		t.ContextMode = "group"
-	}
-	return t, true
 }

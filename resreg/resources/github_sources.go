@@ -65,6 +65,7 @@ func init() {
 		DB:               resreg.SubsystemRoutd,
 		RowType:          reflect.TypeFor[GitHubSourcesRow](),
 		PKFields:         []string{"Source"},
+		EntitySortKey:    []string{"Source"},
 		Endpoints:        GitHubSourcesEndpoints,
 		MCPDoc:           GitHubSourcesMCPDoc,
 		MCPArgs:          GitHubSourcesMCPArgs,

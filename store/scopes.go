@@ -81,6 +81,28 @@ var scopedEntities = map[string]string{
 	Onboarding:      OwnerOnbod,
 	OnboardingGates: OwnerOnbod,
 	Invites:         OwnerOnbod,
+
+	// routd's thirteen. Every one of them is a registered resource with a
+	// RowType, so `archive export` reads all thirteen — SkipApplyRebuild keeps a
+	// resource out of the REBUILD, never out of the read.
+	//
+	// Counters is deliberately absent, and is the only routd entity this package
+	// writes that is: it holds no row any export reads, and the write that draws
+	// a number from it is always followed by the write that USES the number,
+	// which moves the marker itself.
+	ACL:               OwnerRoutd,
+	ACLMembership:     OwnerRoutd,
+	Groups:            OwnerRoutd,
+	Routes:            OwnerRoutd,
+	RouteTokens:       OwnerRoutd,
+	ScheduledTasks:    OwnerRoutd,
+	Secrets:           OwnerRoutd,
+	PendingActions:    OwnerRoutd,
+	NetworkRules:      OwnerRoutd,
+	ProxydRoutes:      OwnerRoutd,
+	WebRoutes:         OwnerRoutd,
+	InstalledPackages: OwnerRoutd,
+	GitHubSources:     OwnerRoutd,
 }
 
 // EntityScope answers the scope an entity's writes move, and whether it has one.
@@ -156,6 +178,20 @@ func (s *Store) incrementEntity(ctx context.Context, entity string, key objstore
 	counted := append([]objstore.Write{{Entity: entity, Key: key}}, also...)
 	return objstore.Increment(ctx, s.Obj(), entity, key, attr, delta, cond,
 		append(slices.Clone(also), scopeBumps(counted)...))
+}
+
+// putIfAbsent is the funnel's create-if-absent, for an opener holding a Driver
+// rather than a *Store: it seeds an item and leaves an existing one alone.
+//
+// It is HERE and not beside its caller for the reason the three writers above
+// are: a call that reached the driver itself would be invisible to every
+// consistent read over the scope it moves, and scopes_test.go is the lock on
+// that door. A refusal is the item already being there, which is the outcome
+// the caller wants — nothing else can refuse a create-if-absent.
+func putIfAbsent(ctx context.Context, d Driver, w objstore.Write) error {
+	w.Cond = objstore.Cond{Item: objstore.ItemAbsent}
+	_, err := d.GuardedBatch(ctx, nil, withBumps([]objstore.Write{w}))
+	return err
 }
 
 // ensureScopes creates the marker every scoped entity of one owner moves, and

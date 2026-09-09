@@ -1,19 +1,57 @@
 package store
 
+// route_tokens.go holds every read and write of `route_tokens`: one item per
+// ingress credential, addressed by hex(sha256(token)).
+//
+// THE PARTITION IS OwnerRoutd AND IT IS NOT A CHOICE THIS FILE MAKES.
+// `route_tokens` is a registered resreg resource, and an entity-backed
+// resource's items live at its owner subsystem (resreg.SubsystemRoutd, which IS
+// store.OwnerRoutd).
+//
+// THE DIGEST IS THE COORDINATE, and it is the only field that can be: krons
+// carries 43 rows over 27 distinct jids, so a key on the jid would collide 16
+// live ingress credentials onto one item and the last mint would win (BUGS
+// L260). The raw bearer is shown once and never stored; the digest is what
+// every resolution already looks the row up by.
+//
+// EVERY READ THAT IS NOT A RESOLUTION IS A SCAN, and that is measured. `jid`,
+// `owner_folder` and `kind` are attributes, and an attribute is not a leading
+// fragment of the key, so listing a folder's tokens or resolving a jid's target
+// reads the partition and filters. It is 43 items on the largest live instance,
+// and the two reads on the hot path — LookupRouteToken and PeekPairing — are
+// exact key reads that touch one item.
+//
+// `kind` IS ALWAYS WRITTEN. It is the resource's own row filter (`kind =
+// 'route'`), so an ABSENT attribute answers no comparison and a row that left
+// it off would fall out of its own manifest-visible projection: invisible to
+// export, and untouched by the apply that should replace it.
+
 import (
 	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
-	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/objstore"
+)
+
+// The attributes a token item carries. `token_hash` is NOT among them: it is
+// the coordinate.
+const (
+	attrTokJID          = "jid"
+	attrTokOwnerFolder  = "owner_folder"
+	attrTokTargetFolder = "target_folder"
+	attrTokCreatedAt    = "created_at"
+	attrTokContext      = "context"
+	attrTokKind         = "kind"
 )
 
 // RouteToken maps a bearer token to a single inbound JID + admin folder (spec 5/W).
@@ -28,15 +66,15 @@ type RouteToken struct {
 	// instructions (spec 5/W § link context). Empty = none.
 	Context string
 	// TargetFolder is the folder the token DELIVERS to, recorded by the mint.
-	// Empty for a token minted before the column existed; Folder falls back to
+	// Empty for a token minted before the mint recorded it; Folder falls back to
 	// the JID grammar for those.
 	TargetFolder string
 }
 
 // Folder returns the folder the token delivers to. The mint records the target
-// (spec 5/W); the JID grammar answers only for a token minted before the
-// target_folder column, because a suffixed JID is ambiguous — `web:t/sfx` reads
-// as folder `t/sfx`, and `hook:a/b/c` reads as folder `a/b`.
+// (spec 5/W); the JID grammar answers only for a token whose mint did not,
+// because a suffixed JID is ambiguous — `web:t/sfx` reads as folder `t/sfx`,
+// and `hook:a/b/c` reads as folder `a/b`.
 func (t RouteToken) Folder() string {
 	if t.TargetFolder != "" {
 		return t.TargetFolder
@@ -50,69 +88,54 @@ func (t RouteToken) Folder() string {
 // between the two answers.
 var ErrRouteTokenTargetTaken = errors.New("jid already delivers to a different folder")
 
-// RouteTokenQuerier is the *sql.DB / *sql.Tx subset the mint guard reads. Both
-// mint paths (store.InsertRouteToken, routd.issueRouteTokenTx) call the guard
-// through it, so one function holds the rule.
-type RouteTokenQuerier interface {
-	QueryRow(query string, args ...any) *sql.Row
-}
-
-// CheckRouteTokenTarget rejects a mint that would bind an existing JID to a
-// second delivery folder. A row minted before the target_folder column records
-// no target, so it never conflicts.
-func CheckRouteTokenTarget(q RouteTokenQuerier, jid, target string) error {
-	var other string
-	err := q.QueryRow(
-		`SELECT target_folder FROM route_tokens
-		 WHERE jid = ? AND kind = ? AND target_folder IS NOT NULL AND target_folder <> ?
-		 LIMIT 1`,
-		jid, RouteTokenKindRoute, target).Scan(&other)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	return fmt.Errorf("%w: %s delivers to %s", ErrRouteTokenTargetTaken, jid, other)
-}
-
-// RouteTokenTargetByJID returns the folder a web:/hook: JID delivers to, or "" when no
-// token records one. Callers fall back to groupfolder.JidFolder for "" — the rule those
-// rows were minted under.
-//
-// This is the single reader every folder-from-JID path goes through, so the grammar's
-// ambiguity is answered in one place. CheckRouteTokenTarget keeps a JID bound to ONE
-// folder, so LIMIT 1 is the whole answer.
-func RouteTokenTargetByJID(q RouteTokenQuerier, jid string) (string, error) {
-	var target string
-	err := q.QueryRow(
-		`SELECT target_folder FROM route_tokens
-		 WHERE jid = ? AND kind = ? AND target_folder IS NOT NULL LIMIT 1`,
-		jid, RouteTokenKindRoute).Scan(&target)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil
-	}
-	if err != nil {
-		return "", err
-	}
-	return target, nil
-}
-
 // The JID-derived kind of a route token: which inbound surface its JID names.
-// Distinct from the stored `kind` column below — that one says whether the row
-// is a delivery bearer at all.
+// Distinct from the stored `kind` attribute below — that one says whether the
+// row is a delivery bearer at all.
 const (
 	RouteTokenJIDKindChat = "chat" // jid prefix "web:"
 	RouteTokenJIDKindHook = "hook" // jid prefix "hook:"
 )
 
-// The stored `kind` column (spec 5/31). Route delivery resolves only
+// The stored `kind` attribute (spec 5/31). Route delivery resolves only
 // KindRoute rows and pairing redemption only KindPair rows, so neither
 // credential can be redeemed as the other.
 const (
 	RouteTokenKindRoute = "route"
 	RouteTokenKindPair  = "pair"
 )
+
+// routeTokenKey is the coordinate of one token: the digest of the raw bearer.
+func routeTokenKey(rawToken string) (objstore.Key, error) {
+	if rawToken == "" {
+		return objstore.Key{}, errors.New("route token is empty, so it has no coordinate")
+	}
+	return objstore.Key{Partition: OwnerRoutd, Sort: TokenRef(rawToken)}, nil
+}
+
+// routeTokenFrom reads one item back.
+func routeTokenFrom(it objstore.Item) RouteToken {
+	t := RouteToken{
+		JID:          it.Attrs[attrTokJID],
+		OwnerFolder:  it.Attrs[attrTokOwnerFolder],
+		TargetFolder: it.Attrs[attrTokTargetFolder],
+		Context:      it.Attrs[attrTokContext],
+	}
+	t.CreatedAt, _ = time.Parse(core.TSLayout, it.Attrs[attrTokCreatedAt])
+	return t
+}
+
+// routeTokensOfKind reads every token of one kind. It is the ONE scan the four
+// attribute reads below share, so they cannot disagree about which rows count.
+func routeTokensOfKind(ctx context.Context, s objstore.Store, kind string) ([]objstore.Item, error) {
+	items, err := s.Query(ctx, objstore.Query{
+		Entity: RouteTokens, Partition: OwnerRoutd,
+		Where: []objstore.Cmp{{Attr: attrTokKind, Op: objstore.Eq, Value: kind}},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read route tokens: %w", err)
+	}
+	return items, nil
+}
 
 // GenRouteToken returns a 256-bit base64url-encoded random token.
 // The raw token is returned to the caller exactly once; only the
@@ -138,14 +161,74 @@ func RouteTokenJIDKind(jid string) string {
 	}
 }
 
+// CheckRouteTokenTarget rejects a mint that would bind an existing JID to a
+// second delivery folder. A row whose mint recorded no target never conflicts.
+//
+// Both mint paths call it — store.InsertRouteToken and routd's own resreg face
+// — so one function holds the rule. It takes the object store rather than a
+// handle because an item read needs no transaction.
+func CheckRouteTokenTarget(ctx context.Context, s objstore.Store, jid, target string) error {
+	items, err := routeTokensOfKind(ctx, s, RouteTokenKindRoute)
+	if err != nil {
+		return err
+	}
+	for _, it := range items {
+		other := it.Attrs[attrTokTargetFolder]
+		if it.Attrs[attrTokJID] == jid && other != "" && other != target {
+			return fmt.Errorf("%w: %s delivers to %s", ErrRouteTokenTargetTaken, jid, other)
+		}
+	}
+	return nil
+}
+
+// RouteTokenTargetByJID returns the folder a web:/hook: JID delivers to, or ""
+// when no token records one. Callers fall back to groupfolder.JidFolder for "".
+//
+// This is the single reader every folder-from-JID path goes through, so the
+// grammar's ambiguity is answered in one place. CheckRouteTokenTarget keeps a
+// JID bound to ONE folder, so the first answer is the whole answer.
+func RouteTokenTargetByJID(ctx context.Context, s objstore.Store, jid string) (string, error) {
+	items, err := routeTokensOfKind(ctx, s, RouteTokenKindRoute)
+	if err != nil {
+		return "", err
+	}
+	for _, it := range items {
+		if it.Attrs[attrTokJID] == jid && it.Attrs[attrTokTargetFolder] != "" {
+			return it.Attrs[attrTokTargetFolder], nil
+		}
+	}
+	return "", nil
+}
+
+// routeTokenPut renders the write that stores one token.
+func routeTokenPut(rawToken string, t RouteToken, kind string) (objstore.Write, error) {
+	key, err := routeTokenKey(rawToken)
+	if err != nil {
+		return objstore.Write{}, err
+	}
+	ts := t.CreatedAt
+	if ts.IsZero() {
+		ts = time.Now()
+	}
+	attrs := map[string]string{
+		attrTokJID:       t.JID,
+		attrTokCreatedAt: core.TS(ts),
+		attrTokKind:      kind,
+	}
+	setAttr(attrs, attrTokOwnerFolder, t.OwnerFolder)
+	setAttr(attrs, attrTokTargetFolder, t.TargetFolder)
+	setAttr(attrs, attrTokContext, t.Context)
+	return objstore.Write{Op: objstore.Put, Entity: RouteTokens, Key: key, Attrs: attrs}, nil
+}
+
 // InsertRouteToken persists a new token. Caller chooses the raw token
 // (via GenRouteToken) and is responsible for returning it to the user;
 // the store only retains sha256(raw).
 //
 // Every mint MUST set TargetFolder — it is the folder the token delivers to,
-// and only the mint knows it. An empty TargetFolder stores NULL, the shape of a
-// row minted before the column, which reads back through the ambiguous JID
-// grammar (spec 5/W § Resolution).
+// and only the mint knows it. An empty TargetFolder writes no such attribute,
+// and a token carrying none reads back through the ambiguous JID grammar
+// (spec 5/W § Resolution).
 func (s *Store) InsertRouteToken(rawToken string, t RouteToken) error {
 	if rawToken == "" {
 		return fmt.Errorf("empty token")
@@ -156,19 +239,19 @@ func (s *Store) InsertRouteToken(rawToken string, t RouteToken) error {
 	if RouteTokenJIDKind(t.JID) == "" {
 		return fmt.Errorf("jid must start with web: or hook:")
 	}
-	if err := CheckRouteTokenTarget(s.db, t.JID, t.TargetFolder); err != nil {
+	ctx := context.Background()
+	if err := CheckRouteTokenTarget(ctx, s.Obj(), t.JID, t.TargetFolder); err != nil {
 		return err
 	}
-	ts := t.CreatedAt
-	if ts.IsZero() {
-		ts = time.Now()
+	w, err := routeTokenPut(rawToken, t, RouteTokenKindRoute)
+	if err != nil {
+		return err
 	}
 	actor, actorSub, surface := s.auditIdentity()
 	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		_, err := tx.Exec(
-			`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at, context, kind, target_folder) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			TokenRefBytes(rawToken), t.JID, t.OwnerFolder, core.TS(ts), nilIfEmpty(t.Context), RouteTokenKindRoute, nilIfEmpty(t.TargetFolder),
-		)
+		if _, err := s.writeEntitiesInTx(ctx, tx, nil, w); err != nil {
+			return audit.Event{}, err
+		}
 		return audit.Event{
 			Category: audit.CategoryChannel,
 			Action:   "route_token.mint",
@@ -182,92 +265,109 @@ func (s *Store) InsertRouteToken(rawToken string, t RouteToken) error {
 				"owner_folder": t.OwnerFolder,
 				"jid_kind":     RouteTokenJIDKind(t.JID),
 			},
-		}, err
+		}, nil
 	})
+}
+
+// routeTokenItem reads the item one raw token names, kind-scoped so a pairing
+// credential never resolves as a delivery bearer and the reverse.
+func routeTokenItem(ctx context.Context, s objstore.Store, rawToken, kind string) (objstore.Item, bool, error) {
+	key, err := routeTokenKey(rawToken)
+	if err != nil {
+		return objstore.Item{}, false, err
+	}
+	items, err := s.Query(ctx, objstore.Query{
+		Entity: RouteTokens, Partition: OwnerRoutd,
+		Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: key.Sort},
+	})
+	if err != nil {
+		return objstore.Item{}, false, fmt.Errorf("resolve route token: %w", err)
+	}
+	if len(items) == 0 || items[0].Attrs[attrTokKind] != kind {
+		return objstore.Item{}, false, nil
+	}
+	return items[0], true, nil
 }
 
 // LookupRouteToken resolves a raw DELIVERY bearer token to its row. Returns
 // (zero, false) when the token is unknown or is not a route-kind row — a
 // pairing token (spec 5/31) never resolves here.
 func (s *Store) LookupRouteToken(rawToken string) (RouteToken, bool) {
-	if rawToken == "" {
+	it, ok, err := routeTokenItem(context.Background(), s.Obj(), rawToken, RouteTokenKindRoute)
+	if err != nil || !ok {
 		return RouteToken{}, false
 	}
-	var t RouteToken
-	var createdAt string
-	err := s.db.QueryRow(
-		`SELECT jid, owner_folder, created_at, COALESCE(context,''), COALESCE(target_folder,'') FROM route_tokens WHERE token_hash = ? AND kind = ?`,
-		TokenRefBytes(rawToken), RouteTokenKindRoute,
-	).Scan(&t.JID, &t.OwnerFolder, &createdAt, &t.Context, &t.TargetFolder)
-	if err != nil {
-		return RouteToken{}, false
-	}
-	t.CreatedAt, _ = time.Parse(time.RFC3339Nano, createdAt)
-	return t, true
+	return routeTokenFrom(it), true
 }
 
-// ListRouteTokens returns the DELIVERY tokens owned by ownerFolder. Pairing
-// rows are excluded: enumerating ten-minute bearer attempts is surface nobody
-// needs (spec 5/31 § Unpair).
+// ListRouteTokens returns the DELIVERY tokens owned by ownerFolder, newest
+// first. Pairing rows are excluded: enumerating ten-minute bearer attempts is
+// surface nobody needs (spec 5/31 § Unpair).
 func (s *Store) ListRouteTokens(ownerFolder string) []RouteToken {
-	rows, err := s.db.Query(
-		`SELECT jid, owner_folder, created_at, COALESCE(context,''), COALESCE(target_folder,'') FROM route_tokens WHERE owner_folder = ? AND kind = ? ORDER BY created_at DESC`,
-		ownerFolder, RouteTokenKindRoute,
-	)
+	items, err := routeTokensOfKind(context.Background(), s.Obj(), RouteTokenKindRoute)
 	if err != nil {
 		return nil
 	}
-	defer rows.Close()
 	var out []RouteToken
-	for rows.Next() {
-		var t RouteToken
-		var createdAt string
-		if rows.Scan(&t.JID, &t.OwnerFolder, &createdAt, &t.Context, &t.TargetFolder) != nil {
+	for _, it := range items {
+		if it.Attrs[attrTokOwnerFolder] != ownerFolder {
 			continue
 		}
-		t.CreatedAt, _ = time.Parse(time.RFC3339Nano, createdAt)
-		out = append(out, t)
+		out = append(out, routeTokenFrom(it))
 	}
+	slices.SortFunc(out, func(a, b RouteToken) int { return b.CreatedAt.Compare(a.CreatedAt) })
 	return out
 }
 
 // RouteTokenOwner returns the owner_folder of the DELIVERY token with this jid.
 //
-// The owner is a COLUMN on the row, not something to parse back out of the JID:
-// `token issue chat <folder> <suffix>` mints `web:<folder>/<suffix>`, so a JID
-// parse yields `<folder>/<suffix>`, which is not a folder and matches no row
-// (BUGS L52). Callers that already hold the owner from a grant keep passing it;
-// the operator CLI reads it here.
+// The owner is an ATTRIBUTE of the row, not something to parse back out of the
+// JID: `token issue chat <folder> <suffix>` mints `web:<folder>/<suffix>`, so a
+// JID parse yields `<folder>/<suffix>`, which is not a folder and matches no row
+// (BUGS L52).
 func (s *Store) RouteTokenOwner(jid string) (string, bool) {
-	var owner string
-	err := s.db.QueryRow(
-		`SELECT owner_folder FROM route_tokens WHERE jid = ? AND kind = ?`,
-		jid, RouteTokenKindRoute,
-	).Scan(&owner)
+	items, err := routeTokensOfKind(context.Background(), s.Obj(), RouteTokenKindRoute)
 	if err != nil {
 		return "", false
 	}
-	return owner, true
+	for _, it := range items {
+		if it.Attrs[attrTokJID] == jid {
+			return it.Attrs[attrTokOwnerFolder], true
+		}
+	}
+	return "", false
 }
 
 // RevokeRouteToken deletes DELIVERY tokens with the given jid owned by
-// ownerFolder.
-// Returns (true, nil) if at least one row was deleted, (false, nil) when
-// no matching row existed. ACL scope: the caller's `owner_folder` MUST
-// match — agents in folder A cannot revoke folder B's tokens.
+// ownerFolder. Returns (true, nil) if at least one went, (false, nil) when no
+// matching row existed. ACL scope: the caller's `owner_folder` MUST match —
+// agents in folder A cannot revoke folder B's tokens.
 func (s *Store) RevokeRouteToken(jid, ownerFolder string) (bool, error) {
-	var hit bool
+	ctx := context.Background()
+	items, err := routeTokensOfKind(ctx, s.Obj(), RouteTokenKindRoute)
+	if err != nil {
+		return false, err
+	}
+	var writes []objstore.Write
+	for _, it := range items {
+		if it.Attrs[attrTokJID] != jid || it.Attrs[attrTokOwnerFolder] != ownerFolder {
+			continue
+		}
+		writes = append(writes, objstore.Write{
+			Op: objstore.Delete, Entity: RouteTokens, Key: it.Key,
+		})
+	}
+	if len(writes) == 0 {
+		return false, nil
+	}
 	actor, actorSub, surface := s.auditIdentity()
-	err := s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		res, err := tx.Exec(
-			`DELETE FROM route_tokens WHERE jid = ? AND owner_folder = ? AND kind = ?`,
-			jid, ownerFolder, RouteTokenKindRoute,
-		)
-		if err != nil {
+	err = s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
+		if _, err := applyChunks(ctx, "revoke "+jid, writes,
+			func(ctx context.Context, chunk []objstore.Write) (bool, error) {
+				return s.writeEntitiesInTx(ctx, tx, nil, chunk...)
+			}); err != nil {
 			return audit.Event{}, err
 		}
-		n, _ := res.RowsAffected()
-		hit = n > 0
 		return audit.Event{
 			Category: audit.CategoryChannel,
 			Action:   "route_token.revoke",
@@ -279,7 +379,7 @@ func (s *Store) RevokeRouteToken(jid, ownerFolder string) (bool, error) {
 			Outcome:  audit.OutcomeOK,
 		}, nil
 	})
-	return hit, err
+	return err == nil, err
 }
 
 // --- the archive lane (spec 5/8 "Secret and token values") ----------------
@@ -292,9 +392,8 @@ func (s *Store) RevokeRouteToken(jid, ownerFolder string) (bool, error) {
 // four tables it does not know anything else about.
 
 // ArchiveRouteTokenRow is one row of the archive's route_tokens document:
-// RouteTokensRow's shape (resreg/resources/route_tokens.go — jid,
-// owner_folder, created_at, context) plus TokenHash, the verifier the
-// config manifest never carries.
+// RouteTokensRow's shape (resreg/resources/route_tokens.go) plus TokenHash, the
+// verifier the config manifest never carries.
 // Restricted to kind='route' at read time — pairing tokens (kind='pair')
 // are excluded entirely, the same RowFilter the config-manifest resource
 // already applies (10-minute single-use credentials, no archival value,
@@ -309,37 +408,34 @@ type ArchiveRouteTokenRow struct {
 }
 
 // ExportRouteTokens reads every kind='route' row (jid delivery bearers —
-// never kind='pair' pairing links) with its token_hash verifier, hex-encoded
-// for YAML transport — which is exactly TokenRef, since token_hash is
-// TokenRefBytes of the same digest.
+// never kind='pair' pairing links) with its token_hash verifier, which IS the
+// item's coordinate: hex(sha256(token)), already in the form YAML carries.
 func (s *Store) ExportRouteTokens(ctx context.Context) ([]ArchiveRouteTokenRow, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT token_hash, jid, owner_folder, created_at, COALESCE(context,''),
-		        COALESCE(target_folder,'')
-		 FROM route_tokens WHERE kind = 'route' ORDER BY jid`)
+	items, err := routeTokensOfKind(ctx, s.Obj(), RouteTokenKindRoute)
 	if err != nil {
-		return nil, fmt.Errorf("query route_tokens: %w", err)
+		return nil, err
 	}
-	defer rows.Close()
-	var out []ArchiveRouteTokenRow
-	for rows.Next() {
-		var hashBytes []byte
-		var r ArchiveRouteTokenRow
-		if err := rows.Scan(&hashBytes, &r.JID, &r.OwnerFolder, &r.CreatedAt, &r.Context, &r.TargetFolder); err != nil {
-			return nil, fmt.Errorf("scan route_token: %w", err)
-		}
-		r.TokenHash = hex.EncodeToString(hashBytes)
-		out = append(out, r)
+	out := make([]ArchiveRouteTokenRow, 0, len(items))
+	for _, it := range items {
+		t := routeTokenFrom(it)
+		out = append(out, ArchiveRouteTokenRow{
+			TokenHash:    it.Key.Sort,
+			JID:          t.JID,
+			OwnerFolder:  t.OwnerFolder,
+			TargetFolder: t.TargetFolder,
+			CreatedAt:    it.Attrs[attrTokCreatedAt],
+			Context:      t.Context,
+		})
 	}
-	return out, rows.Err()
+	slices.SortFunc(out, func(a, b ArchiveRouteTokenRow) int { return strings.Compare(a.JID, b.JID) })
+	return out, nil
 }
 
-// ImportRouteTokens UPSERTs by token_hash (the PK) — a route token's row
-// content never legitimately changes once minted, so INSERT OR IGNORE is
-// equivalent to UPSERT here. Every imported row's kind is forced to
-// 'route': this function never writes a pairing token (rows carrying one
-// were never exported in the first place, but the write side stays
-// explicit rather than trusting the archive's own claim).
+// ImportRouteTokens writes each row create-if-absent by token_hash, which is the
+// coordinate — a route token's content never legitimately changes once minted.
+// Every imported row's kind is forced to 'route': this function never writes a
+// pairing token (rows carrying one were never exported in the first place, but
+// the write side stays explicit rather than trusting the archive's own claim).
 //
 // Performs NO gating — the off-by-default / --force / proven-empty-target
 // policy (spec 5/8 "Secret and token values" (2)) is `archive apply`
@@ -348,46 +444,39 @@ func (s *Store) ImportRouteTokens(ctx context.Context, rows []ArchiveRouteTokenR
 	if len(rows) == 0 {
 		return 0, nil
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return 0, err
-	}
-	defer tx.Rollback() //nolint:errcheck // the commit below is the success path
+	writes := make([]objstore.Write, 0, len(rows))
 	for _, r := range rows {
-		hashBytes, herr := hex.DecodeString(r.TokenHash)
-		if herr != nil {
-			return 0, fmt.Errorf("route_token %s: bad token_hash: %w", r.JID, herr)
+		if r.TokenHash == "" {
+			return 0, fmt.Errorf("route_token %s: no token_hash, which is its coordinate", r.JID)
 		}
-		if _, err := tx.ExecContext(ctx,
-			`INSERT OR IGNORE INTO route_tokens (token_hash, jid, owner_folder, created_at, context, kind, target_folder)
-			 VALUES (?, ?, ?, ?, ?, 'route', ?)`,
-			hashBytes, r.JID, r.OwnerFolder, r.CreatedAt, archiveNullStr(r.Context), archiveNullStr(r.TargetFolder),
-		); err != nil {
-			return 0, fmt.Errorf("insert route_token %s: %w", r.JID, err)
+		attrs := map[string]string{
+			attrTokJID:       r.JID,
+			attrTokCreatedAt: r.CreatedAt,
+			attrTokKind:      RouteTokenKindRoute,
 		}
+		setAttr(attrs, attrTokOwnerFolder, r.OwnerFolder)
+		setAttr(attrs, attrTokTargetFolder, r.TargetFolder)
+		setAttr(attrs, attrTokContext, r.Context)
+		writes = append(writes, objstore.Write{
+			Op: objstore.Put, Entity: RouteTokens,
+			Key:   objstore.Key{Partition: OwnerRoutd, Sort: r.TokenHash},
+			Attrs: attrs,
+			Cond:  objstore.Cond{Item: objstore.ItemAbsent},
+		})
 	}
-	if err := tx.Commit(); err != nil {
+	if _, err := s.applyInChunks(ctx, "import route tokens", writes); err != nil {
 		return 0, err
 	}
 	return len(rows), nil
 }
 
-// CountRouteTokens counts EVERY row (both kind='route' and kind='pair') —
+// CountRouteTokens counts EVERY item (both kind='route' and kind='pair') —
 // the proven-empty-target gate (spec 5/8 "Secret and token values" (2))
 // wants a genuinely fresh table, not merely zero route-kind rows.
 func (s *Store) CountRouteTokens(ctx context.Context) (int, error) {
-	var n int
-	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM route_tokens").Scan(&n)
-	return n, err
-}
-
-// archiveNullStr maps an empty string to a bind-time NULL, matching the
-// nullable TEXT columns the archive's tables declare (route_tokens.context,
-// messages.sender_name, …). It is the same rule nilIfEmptyString states for
-// the resreg row types, spelled for a bind argument.
-func archiveNullStr(s string) any {
-	if s == "" {
-		return nil
+	items, err := s.Obj().Query(ctx, objstore.Query{Entity: RouteTokens, Partition: OwnerRoutd})
+	if err != nil {
+		return 0, err
 	}
-	return s
+	return len(items), nil
 }

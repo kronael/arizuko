@@ -4,6 +4,7 @@ import (
 	"reflect"
 
 	"github.com/kronael/arizuko/resreg"
+	"github.com/kronael/arizuko/store"
 )
 
 // NetworkRulesRow mirrors network_rules: composite (folder, target) PK.
@@ -64,11 +65,18 @@ var NetworkRulesMCPArgs = map[resreg.Action][]resreg.MCPArg{
 
 func init() {
 	resreg.Register(resreg.Resource{
-		Name:          NetworkRulesName,
-		Table:         "network_rules",
-		DB:            resreg.SubsystemRoutd,
-		RowType:       reflect.TypeFor[NetworkRulesRow](),
-		PKFields:      []string{"Folder", "Target"},
+		Name:     NetworkRulesName,
+		Table:    "network_rules",
+		DB:       resreg.SubsystemRoutd,
+		RowType:  reflect.TypeFor[NetworkRulesRow](),
+		PKFields: []string{"Folder", "Target"},
+		// The folder leads, because it is also the SCOPE: a key predicate
+		// reaches a leading fragment, so a folder purge is a begins_with on
+		// `folder + separator` and nothing else can select it (resreg/entity.go
+		// entityScopeOf). `target` alone is not unique — 15 rows over 10 targets
+		// on krons.
+		EntitySortKey: []string{"Folder", "Target"},
+		EntityKeySep:  store.KeySep,
 		Endpoints:     NetworkRulesEndpoints,
 		MCPDoc:        NetworkRulesMCPDoc,
 		MCPArgs:       NetworkRulesMCPArgs,

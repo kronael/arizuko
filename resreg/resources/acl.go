@@ -4,18 +4,22 @@ import (
 	"reflect"
 
 	"github.com/kronael/arizuko/resreg"
+	"github.com/kronael/arizuko/store"
 )
 
-// ACLRow mirrors the acl table: full composite PK + nullable granted_by.
-// `granted_by` is read via COALESCE so the Go field can stay `string`
-// (empty = NULL); same shape as existing store/acl.go scanACLRow.
+// ACLRow mirrors the acl entity: the six-field grant is its coordinate and the
+// other three are its attributes. `granted_by` needs no null handling — an
+// attribute an item does not carry is absent, and absent is the only null this
+// model has.
 //
 // EVERY column, not just the interesting ones. acl has no folder scope, so
-// apply rebuilds it wholesale (DELETE + INSERT of the manifest's rows) — a
-// column missing here is a column silently reset to its DEFAULT by any apply
-// that mentions acl. `grant_option` (spec 5/33, WITH GRANT OPTION) was that
-// column: absent from the row type, so a rebuild dropped every holder's right
-// to re-delegate.
+// apply rebuilds it wholesale — and under an entity a Put replaces the item's
+// WHOLE attribute set, so a field this does not name is a value gone rather
+// than one reset to a DDL default. `grant_option` (spec 5/33, WITH GRANT
+// OPTION) was that column: absent from the row type, so a rebuild dropped every
+// holder's right to re-delegate. It is a bool and every attribute value is
+// text, so it declares the encoding both shapes render it with (resreg/codec.go
+// — "0"/"1", which is what the INTEGER column held).
 type ACLRow struct {
 	Principal   string `db:"principal" yaml:"principal" json:"principal"`
 	Action      string `db:"action"    yaml:"action"    json:"action"`
@@ -23,7 +27,7 @@ type ACLRow struct {
 	Effect      string `db:"effect"    yaml:"effect"    json:"effect,omitempty"`
 	Params      string `db:"params"    yaml:"params"    json:"params,omitempty"`
 	Predicate   string `db:"predicate" yaml:"predicate" json:"predicate,omitempty"`
-	GrantOption bool   `db:"grant_option" yaml:"grant_option,omitempty" json:"grant_option,omitempty"`
+	GrantOption bool   `db:"grant_option,bool" yaml:"grant_option,omitempty" json:"grant_option,omitempty"`
 	GrantedBy   string `db:"granted_by" yaml:"granted_by,omitempty" json:"granted_by,omitempty"`
 	GrantedAt   string `db:"granted_at" yaml:"granted_at,omitempty" json:"granted_at,omitempty"`
 }
@@ -95,15 +99,21 @@ var ACLMCPArgs = map[resreg.Action][]resreg.MCPArg{
 
 func init() {
 	resreg.Register(resreg.Resource{
-		Name:      ACLName,
-		Table:     "acl",
-		DB:        resreg.SubsystemRoutd,
-		RowType:   reflect.TypeFor[ACLRow](),
-		PKFields:  []string{"Principal", "Action", "Scope", "Params", "Predicate", "Effect"},
-		Endpoints: ACLEndpoints,
-		MCPDoc:    ACLMCPDoc,
-		MCPArgs:   ACLMCPArgs,
-		MCPNames:  ACLMCPNames,
+		Name:     ACLName,
+		Table:    "acl",
+		DB:       resreg.SubsystemRoutd,
+		RowType:  reflect.TypeFor[ACLRow](),
+		PKFields: []string{"Principal", "Action", "Scope", "Params", "Predicate", "Effect"},
+		// The identity IS the coordinate here, which is not the general rule
+		// (route_tokens' is not its PK). All six are needed: two rows differing
+		// only in `effect` are a grant and a denial of the same call, and
+		// `params` and `predicate` each narrow a row to a subset of it.
+		EntitySortKey: []string{"Principal", "Action", "Scope", "Params", "Predicate", "Effect"},
+		EntityKeySep:  store.KeySep,
+		Endpoints:     ACLEndpoints,
+		MCPDoc:        ACLMCPDoc,
+		MCPArgs:       ACLMCPArgs,
+		MCPNames:      ACLMCPNames,
 		// No folder scope: acl.scope is a glob (`atlas/`, `**`), not column-
 		// equal to a folder (spec 5/8 §"Schema-driven CRUD"/"FK posture").
 		// Apply rebuilds acl wholesale; per-glob scoped delete is not v1.
@@ -115,12 +125,6 @@ func init() {
 					r.Effect = "allow"
 				}
 				return nil
-			},
-			ColumnOverride: map[string]resreg.ColumnHook{
-				"GrantedBy": {
-					Read:  "COALESCE(granted_by, '')",
-					Write: nilIfEmptyString,
-				},
 			},
 		},
 	})

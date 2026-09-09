@@ -88,15 +88,16 @@ var ScheduledTasksMCPArgs = map[resreg.Action][]resreg.MCPArg{
 
 func init() {
 	resreg.Register(resreg.Resource{
-		Name:      ScheduledTasksName,
-		Table:     "scheduled_tasks",
-		DB:        resreg.SubsystemRoutd,
-		RowType:   reflect.TypeFor[ScheduledTasksRow](),
-		PKFields:  []string{"ID"},
-		Endpoints: ScheduledTasksEndpoints,
-		MCPDoc:    ScheduledTasksMCPDoc,
-		MCPArgs:   ScheduledTasksMCPArgs,
-		MCPNames:  ScheduledTasksMCPNames,
+		Name:          ScheduledTasksName,
+		Table:         "scheduled_tasks",
+		DB:            resreg.SubsystemRoutd,
+		RowType:       reflect.TypeFor[ScheduledTasksRow](),
+		PKFields:      []string{"ID"},
+		EntitySortKey: []string{"ID"},
+		Endpoints:     ScheduledTasksEndpoints,
+		MCPDoc:        ScheduledTasksMCPDoc,
+		MCPArgs:       ScheduledTasksMCPArgs,
+		MCPNames:      ScheduledTasksMCPNames,
 		// No folder scope: owner is system/user:sub and chat_jid is
 		// polymorphic (folder OR typed JID, spec 5/8 §"FK posture") —
 		// neither is column-equal to a folder. Apply rebuilds wholesale.
@@ -111,16 +112,6 @@ func init() {
 					r.ContextMode = "group"
 				}
 				return nil
-			},
-			ColumnOverride: map[string]resreg.ColumnHook{
-				"Cron": {
-					Read:  "COALESCE(cron, '')",
-					Write: nilIfEmptyString,
-				},
-				"NextRun": {
-					Read:  "COALESCE(next_run, '')",
-					Write: nilIfEmptyString,
-				},
 			},
 		},
 	})

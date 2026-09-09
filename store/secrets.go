@@ -1,5 +1,38 @@
 package store
 
+// secrets.go holds every read and write of `secrets`: one item per sealed
+// value, addressed by (scope_kind, scope_id, key).
+//
+// THE PARTITION IS OwnerRoutd AND IT IS NOT A CHOICE THIS FILE MAKES. `secrets`
+// is a registered resreg resource, and an entity-backed resource's items live at
+// its owner subsystem (resreg.SubsystemRoutd, which IS store.OwnerRoutd). A
+// second spelling would put this file's items in one partition and the engine's
+// read in another, and the failure is silent: a query on a partition nobody
+// wrote to is a legal query that selects nothing.
+//
+// THE SCOPE LEADS THE COORDINATE, which is what makes every resolution a key
+// predicate. `scope_kind + KeySep + scope_id + KeySep` is a leading fragment, so
+// reading one folder's or one user's secrets is a begins_with that touches
+// nothing else — exact, because no value of the three may carry the separator.
+// Ordering by that read IS `ORDER BY key`, because key is the last field.
+//
+// THIS FILE IS THE ONLY WRITER OF THE SEALED HALF. `value` holds the blob,
+// `provider`, `refresh_val`, `expires_at` and `scope_list` the surrogate-OAuth
+// state, and the resource's RowType deliberately names none of the five
+// (routd/resource_columns_test.go rowTypeGaps): a manifest that carried them
+// would carry a live credential into the export an operator reads. That is also
+// why every upsert here is TWO WRITES — a Put replaces the item's whole
+// attribute set, so one unconditional Put of the metadata would erase the OAuth
+// state beside it. The create-if-absent lands the whole row, and its refusal —
+// the secret is already there — selects the Update that merges only the fields
+// the caller owns. That is the shape store/groups.go already uses.
+//
+// `created_at` IS core.TS, at 30 bytes. That is the width resreg's own entity
+// path stamps a StampedField at (resreg/entity.go itemFor), and the two writers
+// of these items have to agree byte for byte — an apply that stamped 30 where
+// this file wrote 20 would put two widths in one attribute, and a comparison
+// over TEXT answers by byte order (BUGS L97).
+
 import (
 	"context"
 	"crypto/aes"
@@ -14,7 +47,153 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 )
+
+// The attributes a secret item carries. The three coordinate fields are NOT
+// among them: they are the key, and storing the coordinate twice is two facts
+// that can disagree.
+//
+// The last four belong to the surrogate-OAuth half (spec 5/15) and only
+// secrets_oauth.go writes them; a pasted PAT carries none of them, which is what
+// tells the two apart.
+const (
+	attrSecValue      = "value"
+	attrSecCreatedAt  = "created_at"
+	attrSecProvider   = "provider"
+	attrSecRefreshVal = "refresh_val"
+	attrSecExpiresAt  = "expires_at"
+	attrSecScopeList  = "scope_list"
+)
+
+// secretKey is the coordinate of one secret.
+//
+// A value carrying the separator is REFUSED rather than joined: two different
+// secrets would address one item, the last write would win, and the read that
+// splits the key back apart would name a scope neither of them holds. That is
+// the same refusal resreg's own entity path makes over the same three fields
+// (resreg/entity.go sortKeyFor), because both of them write these items.
+func secretKey(scope SecretScope, scopeID, key string) (objstore.Key, error) {
+	parts := []string{string(scope), scopeID, key}
+	for i, v := range parts {
+		if strings.Contains(v, KeySep) {
+			return objstore.Key{}, fmt.Errorf("secret carries %s=%q, and that byte separates "+
+				"the three fields of its coordinate (scope_kind,scope_id,key)",
+				[]string{"scope_kind", "scope_id", "key"}[i], v)
+		}
+	}
+	return objstore.Key{
+		Partition: OwnerRoutd,
+		Sort:      strings.Join(parts, KeySep),
+	}, nil
+}
+
+// secretScopePrefix is the leading fragment every one-scope read selects on.
+// The trailing separator is what keeps folder `a` from reaching folder `ab`.
+func secretScopePrefix(scope SecretScope, scopeID string) string {
+	return string(scope) + KeySep + scopeID + KeySep
+}
+
+// secretKeyOf reads the `key` back out of one item's coordinate. A coordinate
+// that does not split into three parts is a LOUD fault: half a coordinate names
+// a secret nobody wrote, and a resolution reading it would hand a container the
+// wrong credential.
+func secretKeyOf(it objstore.Item) (string, error) {
+	parts := strings.Split(it.Key.Sort, KeySep)
+	if len(parts) != 3 {
+		return "", fmt.Errorf("secret item %q splits into %d parts and its coordinate "+
+			"(scope_kind,scope_id,key) has 3", it.Key.Sort, len(parts))
+	}
+	return parts[2], nil
+}
+
+// secretsIn reads ONE scope's secrets, in key order — which IS the coordinate's
+// order, because `key` is its last field.
+func (s *Store) secretsIn(ctx context.Context, scope SecretScope, scopeID string) ([]objstore.Item, error) {
+	items, err := s.Obj().Query(ctx, objstore.Query{
+		Entity: Secrets, Partition: OwnerRoutd,
+		Key: objstore.KeyPredicate{Op: objstore.PrefixKey, Value: secretScopePrefix(scope, scopeID)},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read secrets of %s/%s: %w", scope, scopeID, err)
+	}
+	return items, nil
+}
+
+// secretUpsert renders the two writes one metadata upsert takes: create the
+// whole item, or — when it is already there — merge only the fields the caller
+// owns. See the file header on why a single Put would be data loss.
+func secretUpsert(scope SecretScope, scopeID, key string,
+	owned map[string]string) (create, merge objstore.Write, err error) {
+	k, err := secretKey(scope, scopeID, key)
+	if err != nil {
+		return objstore.Write{}, objstore.Write{}, err
+	}
+	return objstore.Write{
+			Op: objstore.Put, Entity: Secrets, Key: k, Attrs: owned,
+			Cond: objstore.Cond{Item: objstore.ItemAbsent},
+		}, objstore.Write{
+			Op: objstore.Update, Entity: Secrets, Key: k, Attrs: owned,
+		}, nil
+}
+
+// putSecret writes one upsert, on a transaction the caller owns when it has one.
+func (s *Store) putSecret(ctx context.Context, tx *sql.Tx, scope SecretScope, scopeID, key string,
+	owned map[string]string) error {
+	create, merge, err := secretUpsert(scope, scopeID, key, owned)
+	if err != nil {
+		return err
+	}
+	write := func(w objstore.Write) (bool, error) {
+		if tx != nil {
+			return s.writeEntitiesInTx(ctx, tx, nil, w)
+		}
+		return s.writeEntities(ctx, nil, w)
+	}
+	created, err := write(create)
+	if err != nil || created {
+		return err
+	}
+	_, err = write(merge)
+	return err
+}
+
+// sealedAttrs is what a pasted secret owns: the blob and the instant it landed.
+func (s *Store) sealedAttrs(value string) (map[string]string, error) {
+	stored, err := s.storeValue(value)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]string{attrSecValue: stored, attrSecCreatedAt: core.NowTS()}, nil
+}
+
+// deleteSecret removes one secret and reports ErrSecretNotFound when there was
+// none — the answer `RowsAffected() == 0` gave. The condition is what counts the
+// batch: a delete of a missing item is otherwise idempotent and says nothing.
+func (s *Store) deleteSecret(ctx context.Context, tx *sql.Tx, scope SecretScope, scopeID, key string) error {
+	k, err := secretKey(scope, scopeID, key)
+	if err != nil {
+		return err
+	}
+	w := objstore.Write{
+		Op: objstore.Delete, Entity: Secrets, Key: k,
+		Cond: objstore.Cond{Item: objstore.ItemPresent},
+	}
+	var gone bool
+	if tx != nil {
+		gone, err = s.writeEntitiesInTx(ctx, tx, nil, w)
+	} else {
+		gone, err = s.writeEntities(ctx, nil, w)
+	}
+	if err != nil {
+		return err
+	}
+	if !gone {
+		return ErrSecretNotFound
+	}
+	return nil
+}
 
 // secretV2Prefix marks an AES-256-GCM-encrypted secret value (spec 5/14
 // "Encryption at rest"). Stored form: "v2:" + base64(nonce||ciphertext).
@@ -92,8 +271,15 @@ func (s *Store) storeValue(plaintext string) (string, error) {
 // or an auth user sub. See specs/5/14-credentials.md.
 type SecretScope string
 
+// SecretScopeFolder is the `scope_kind` value of a folder-scoped secret,
+// spelled as the plain text the coordinate carries. It is declared as a string
+// rather than a SecretScope because the readers that need it hold a key
+// fragment and not a typed scope: folder_scope.go splits an item's coordinate
+// to decide whether a group delete takes the secret with it.
+const SecretScopeFolder = "folder"
+
 const (
-	ScopeFolder SecretScope = "folder"
+	ScopeFolder SecretScope = SecretScopeFolder
 	ScopeUser   SecretScope = "user"
 
 	// ScopeMissing is AUDIT-ONLY: it never names a stored row (SetSecret still
@@ -161,7 +347,7 @@ func (s *Store) SetSecret(scope SecretScope, scopeID, key, value string) error {
 	if err := validateScope(scope, scopeID, key); err != nil {
 		return err
 	}
-	stored, err := s.storeValue(value)
+	owned, err := s.sealedAttrs(value)
 	if err != nil {
 		return err
 	}
@@ -171,14 +357,7 @@ func (s *Store) SetSecret(scope SecretScope, scopeID, key, value string) error {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO secrets (scope_kind, scope_id, key, value, created_at)
-		 VALUES (?, ?, ?, ?, ?)
-		 ON CONFLICT(scope_kind, scope_id, key) DO UPDATE SET
-		   value = excluded.value,
-		   created_at = excluded.created_at`,
-		string(scope), scopeID, key, stored, time.Now().UTC().Format(time.RFC3339),
-	); err != nil {
+	if err := s.putSecret(ctx, tx, scope, scopeID, key, owned); err != nil {
 		return err
 	}
 	folder := ""
@@ -218,18 +397,11 @@ func (s *Store) PutSecretRow(scope SecretScope, scopeID, key, value string) erro
 	if err := validateScope(scope, scopeID, key); err != nil {
 		return err
 	}
-	stored, err := s.storeValue(value)
+	owned, err := s.sealedAttrs(value)
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(
-		`INSERT INTO secrets (scope_kind, scope_id, key, value, created_at)
-		 VALUES (?, ?, ?, ?, ?)
-		 ON CONFLICT(scope_kind, scope_id, key) DO UPDATE SET
-		   value = excluded.value,
-		   created_at = excluded.created_at`,
-		string(scope), scopeID, key, stored, time.Now().UTC().Format(time.RFC3339))
-	return err
+	return s.putSecret(context.Background(), nil, scope, scopeID, key, owned)
 }
 
 // DeleteSecretRow removes one secret WITHOUT emitting an audit_log row — the
@@ -240,42 +412,36 @@ func (s *Store) DeleteSecretRow(scope SecretScope, scopeID, key string) error {
 	if err := validateScope(scope, scopeID, key); err != nil {
 		return err
 	}
-	res, err := s.db.Exec(
-		`DELETE FROM secrets WHERE scope_kind = ? AND scope_id = ? AND key = ?`,
-		string(scope), scopeID, key)
-	if err != nil {
-		return err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrSecretNotFound
-	}
-	return nil
+	return s.deleteSecret(context.Background(), nil, scope, scopeID, key)
 }
 
 func (s *Store) GetSecret(scope SecretScope, scopeID, key string) (Secret, error) {
 	if err := validateScope(scope, scopeID, key); err != nil {
 		return Secret{}, err
 	}
-	var value, createdAt string
-	err := s.db.QueryRow(
-		`SELECT value, created_at FROM secrets
-		 WHERE scope_kind = ? AND scope_id = ? AND key = ?`,
-		string(scope), scopeID, key,
-	).Scan(&value, &createdAt)
-	if errors.Is(err, sql.ErrNoRows) {
+	k, err := secretKey(scope, scopeID, key)
+	if err != nil {
+		return Secret{}, err
+	}
+	items, err := s.Obj().Query(context.Background(), objstore.Query{
+		Entity: Secrets, Partition: OwnerRoutd,
+		Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: k.Sort},
+	})
+	if err != nil {
+		return Secret{}, fmt.Errorf("read secret %s/%s/%s: %w", scope, scopeID, key, err)
+	}
+	if len(items) == 0 {
 		return Secret{}, ErrSecretNotFound
 	}
+	value, err := s.open(items[0].Attrs[attrSecValue])
 	if err != nil {
 		return Secret{}, err
 	}
-	value, err = s.open(value)
-	if err != nil {
-		return Secret{}, err
-	}
-	t, _ := time.Parse(time.RFC3339, createdAt)
+	t, _ := time.Parse(core.TSLayout, items[0].Attrs[attrSecCreatedAt])
 	return Secret{ScopeKind: scope, ScopeID: scopeID, Key: key, Value: value, CreatedAt: t}, nil
 }
 
+// ListSecrets returns one scope's secrets, decrypted, in key order.
 func (s *Store) ListSecrets(scope SecretScope, scopeID string) ([]Secret, error) {
 	if scope != ScopeFolder && scope != ScopeUser {
 		return nil, fmt.Errorf("invalid scope_kind: %q", scope)
@@ -283,30 +449,24 @@ func (s *Store) ListSecrets(scope SecretScope, scopeID string) ([]Secret, error)
 	if scopeID == "" {
 		return nil, errors.New("scope_id required")
 	}
-	rows, err := s.db.Query(
-		`SELECT key, value, created_at FROM secrets
-		 WHERE scope_kind = ? AND scope_id = ?
-		 ORDER BY key ASC`,
-		string(scope), scopeID,
-	)
+	items, err := s.secretsIn(context.Background(), scope, scopeID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	var out []Secret
-	for rows.Next() {
-		var key, value, createdAt string
-		if err := rows.Scan(&key, &value, &createdAt); err != nil {
-			return nil, err
-		}
-		value, err = s.open(value)
+	for _, it := range items {
+		key, err := secretKeyOf(it)
 		if err != nil {
 			return nil, err
 		}
-		t, _ := time.Parse(time.RFC3339, createdAt)
+		value, err := s.open(it.Attrs[attrSecValue])
+		if err != nil {
+			return nil, err
+		}
+		t, _ := time.Parse(core.TSLayout, it.Attrs[attrSecCreatedAt])
 		out = append(out, Secret{ScopeKind: scope, ScopeID: scopeID, Key: key, Value: value, CreatedAt: t})
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 func (s *Store) DeleteSecret(scope SecretScope, scopeID, key string) error {
@@ -319,15 +479,8 @@ func (s *Store) DeleteSecret(scope SecretScope, scopeID, key string) error {
 		return err
 	}
 	defer tx.Rollback()
-	res, err := tx.ExecContext(ctx,
-		`DELETE FROM secrets WHERE scope_kind = ? AND scope_id = ? AND key = ?`,
-		string(scope), scopeID, key,
-	)
-	if err != nil {
+	if err := s.deleteSecret(ctx, tx, scope, scopeID, key); err != nil {
 		return err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrSecretNotFound
 	}
 	folder := ""
 	if scope == ScopeFolder {
@@ -350,71 +503,70 @@ func (s *Store) DeleteSecret(scope SecretScope, scopeID, key string) error {
 	return tx.Commit()
 }
 
+// plaintextSecrets reads every item whose blob is NOT sealed. The prefix test is
+// on the attribute's TEXT, so it reads the partition and compares — which is
+// what `value NOT LIKE 'v2:%'` was: an unindexed predicate over one table.
+func (s *Store) plaintextSecrets(ctx context.Context) ([]objstore.Item, error) {
+	items, err := s.Obj().Query(ctx, objstore.Query{Entity: Secrets, Partition: OwnerRoutd})
+	if err != nil {
+		return nil, fmt.Errorf("read secrets: %w", err)
+	}
+	out := make([]objstore.Item, 0, len(items))
+	for _, it := range items {
+		if !strings.HasPrefix(it.Attrs[attrSecValue], secretV2Prefix) {
+			out = append(out, it)
+		}
+	}
+	return out, nil
+}
+
 // CountPlaintextSecrets counts the legacy rows EncryptPlaintextSecrets would
 // seal. It backs `arizuko secret seal-legacy --dry-run`, so the operator sees
-// the blast radius BEFORE rewriting the column every credential lives in.
+// the blast radius BEFORE rewriting the attribute every credential lives in.
 func (s *Store) CountPlaintextSecrets(ctx context.Context) (int, error) {
-	var n int
-	err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM secrets WHERE value NOT LIKE 'v2:%'`).Scan(&n)
-	return n, err
+	items, err := s.plaintextSecrets(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return len(items), nil
 }
 
 // EncryptPlaintextSecrets encrypts every legacy-plaintext row in place under the
 // configured key (spec 5/14) and returns how many it sealed. Idempotent. Never
-// deletes — it replaces PurgeUnencryptedSecrets, which DELETEd plaintext rows and
-// so wiped every secret on each startup.
+// deletes — its whole job is to seal.
 //
-// Refuses without a key rather than reporting a silent success: its whole job is to
-// seal. It ran nowhere at all until 2026-08-15 (BUGS L16) — a caller that cannot
-// tell "sealed nothing, there was nothing to seal" from "sealed nothing, there was
-// no key" is how a migration goes unnoticed for months.
+// Refuses without a key rather than reporting a silent success. It ran nowhere
+// at all until 2026-08-15 (BUGS L16) — a caller that cannot tell "sealed
+// nothing, there was nothing to seal" from "sealed nothing, there was no key" is
+// how a migration goes unnoticed for months.
+//
+// The sweep commits a CHUNK at a time rather than all at once, because a batch
+// carries at most MaxBatchActions and one instance holds more secrets than that.
+// A chunk that lands and a chunk that does not leave work a re-run finishes: a
+// sealed value is already prefixed, so the next run does not see it.
 func (s *Store) EncryptPlaintextSecrets(ctx context.Context) (int, error) {
 	if len(s.secretKeys) == 0 {
 		return 0, ErrNoSecretsKey
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT rowid, value FROM secrets WHERE value NOT LIKE 'v2:%'`)
+	pending, err := s.plaintextSecrets(ctx)
 	if err != nil {
 		return 0, err
 	}
-	type todo struct {
-		rowid int64
-		value string
-	}
-	var pending []todo
-	for rows.Next() {
-		var t todo
-		if err := rows.Scan(&t.rowid, &t.value); err != nil {
-			rows.Close()
-			return 0, err
-		}
-		pending = append(pending, t)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return 0, err
-	}
-	if len(pending) == 0 {
-		return 0, nil
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return 0, err
-	}
-	defer tx.Rollback()
-	for _, t := range pending {
-		sealed, err := s.seal(t.value)
+	writes := make([]objstore.Write, 0, len(pending))
+	for _, it := range pending {
+		sealed, err := s.seal(it.Attrs[attrSecValue])
 		if err != nil {
 			return 0, err
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE secrets SET value = ? WHERE rowid = ?`, sealed, t.rowid); err != nil {
-			return 0, err
-		}
+		writes = append(writes, objstore.Write{
+			Op: objstore.Update, Entity: Secrets, Key: it.Key,
+			Attrs: map[string]string{attrSecValue: sealed},
+		})
 	}
-	if err := tx.Commit(); err != nil {
-		return 0, err
+	if len(writes) == 0 {
+		return 0, nil
 	}
-	return len(pending), nil
+	return s.applyInChunks(ctx, "seal legacy secrets", writes)
 }
 
 // ArchiveSecretRow is one row of the archive's routd.secrets.yaml document
@@ -435,22 +587,30 @@ type ArchiveSecretRow struct {
 // routd.secrets.yaml document. Unlike ListSecrets/GetSecret it does NOT
 // decrypt — the blob travels as-is (spec 5/8: "encrypted secret blobs travel
 // as-is. SECRETS_KEY never enters the archive").
+//
+// The partition read comes back in coordinate order, which IS
+// `ORDER BY scope_kind, scope_id, key`.
 func (s *Store) ExportSecretRows(ctx context.Context) ([]ArchiveSecretRow, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT scope_kind, scope_id, key, value, created_at FROM secrets ORDER BY scope_kind, scope_id, key`)
+	items, err := s.Obj().Query(ctx, objstore.Query{Entity: Secrets, Partition: OwnerRoutd})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read secrets: %w", err)
 	}
-	defer rows.Close()
-	var out []ArchiveSecretRow
-	for rows.Next() {
-		var r ArchiveSecretRow
-		if err := rows.Scan(&r.ScopeKind, &r.ScopeID, &r.Key, &r.Value, &r.CreatedAt); err != nil {
-			return nil, err
+	out := make([]ArchiveSecretRow, 0, len(items))
+	for _, it := range items {
+		parts := strings.Split(it.Key.Sort, KeySep)
+		if len(parts) != 3 {
+			return nil, fmt.Errorf("secret item %q splits into %d parts and its coordinate "+
+				"(scope_kind,scope_id,key) has 3", it.Key.Sort, len(parts))
 		}
-		out = append(out, r)
+		out = append(out, ArchiveSecretRow{
+			ScopeKind: parts[0],
+			ScopeID:   parts[1],
+			Key:       parts[2],
+			Value:     it.Attrs[attrSecValue],
+			CreatedAt: it.Attrs[attrSecCreatedAt],
+		})
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // ValidateAndImportSecrets validates EVERY row's blob against the configured
@@ -460,31 +620,21 @@ func (s *Store) ExportSecretRows(ctx context.Context) ([]ArchiveSecretRow, error
 // nothing about the rest. Refuses the WHOLE batch on the first failure, naming the
 // failing key without echoing the value. The plaintext open() yields is discarded
 // immediately.
+//
+// The write carries the archive's own created_at rather than stamping a new one,
+// because the instant the secret was set is part of what the archive restores.
 func (s *Store) ValidateAndImportSecrets(ctx context.Context, rows []ArchiveSecretRow) (int, error) {
 	for _, r := range rows {
 		if _, err := s.open(r.Value); err != nil {
 			return 0, fmt.Errorf("secret %s/%s/%s: %w", r.ScopeKind, r.ScopeID, r.Key, err)
 		}
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return 0, err
-	}
-	defer tx.Rollback()
 	for _, r := range rows {
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO secrets (scope_kind, scope_id, key, value, created_at)
-			 VALUES (?, ?, ?, ?, ?)
-			 ON CONFLICT(scope_kind, scope_id, key) DO UPDATE SET
-			   value = excluded.value,
-			   created_at = excluded.created_at`,
-			r.ScopeKind, r.ScopeID, r.Key, r.Value, r.CreatedAt,
-		); err != nil {
+		owned := map[string]string{attrSecValue: r.Value}
+		setAttr(owned, attrSecCreatedAt, r.CreatedAt)
+		if err := s.putSecret(ctx, nil, SecretScope(r.ScopeKind), r.ScopeID, r.Key, owned); err != nil {
 			return 0, fmt.Errorf("secret %s/%s/%s: %w", r.ScopeKind, r.ScopeID, r.Key, err)
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return 0, err
 	}
 	return len(rows), nil
 }
@@ -507,55 +657,36 @@ func folderAncestors(folder string) []string {
 
 // FolderSecretsResolved walks `folder` up through each parent to the "root"
 // catch-all and returns key=value with deepest-wins precedence.
+//
+// One read per ancestor rather than one read of the whole entity: a folder is at
+// most a handful deep, each read is an exact begins_with on the coordinate, and
+// a whole-partition read would examine every user's credentials to answer about
+// one folder. That is the shape ResolveAllowlist already uses.
 func (s *Store) FolderSecretsResolved(folder string) (map[string]string, error) {
+	ctx := context.Background()
 	paths := folderAncestors(folder)
-	if len(paths) == 0 {
-		return map[string]string{}, nil
-	}
-	args := make([]any, 0, len(paths)+1)
-	args = append(args, string(ScopeFolder))
+	out := map[string]string{}
+	// paths is deep→shallow, so the FIRST answer for a key is the deepest one
+	// and every shallower row for it is skipped.
 	for _, p := range paths {
-		args = append(args, p)
-	}
-	rows, err := s.db.Query(
-		`SELECT scope_id, key, value FROM secrets
-		 WHERE scope_kind = ? AND scope_id IN (`+sqlPH(len(paths))+`)`,
-		args...,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	// paths is deep→shallow; depth = (len-1) - i. Deepest value wins per key.
-	depthOf := make(map[string]int, len(paths))
-	for i, p := range paths {
-		depthOf[p] = len(paths) - 1 - i
-	}
-	type kv struct {
-		val   string
-		depth int
-	}
-	best := map[string]kv{}
-	for rows.Next() {
-		var scopeID, key, value string
-		if err := rows.Scan(&scopeID, &key, &value); err != nil {
+		items, err := s.secretsIn(ctx, ScopeFolder, p)
+		if err != nil {
 			return nil, err
 		}
-		d := depthOf[scopeID]
-		if cur, ok := best[key]; !ok || d > cur.depth {
-			plain, err := s.open(value)
+		for _, it := range items {
+			key, err := secretKeyOf(it)
 			if err != nil {
 				return nil, err
 			}
-			best[key] = kv{val: plain, depth: d}
+			if _, seen := out[key]; seen {
+				continue
+			}
+			plain, err := s.open(it.Attrs[attrSecValue])
+			if err != nil {
+				return nil, err
+			}
+			out[key] = plain
 		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	out := make(map[string]string, len(best))
-	for k, v := range best {
-		out[k] = v.val
 	}
 	return out, nil
 }
@@ -580,24 +711,21 @@ func (s *Store) FolderSecretsResolvedForUser(folder, userSub string) (map[string
 	if userSub == "" {
 		return out, scopes, nil
 	}
-	rows, err := s.db.Query(
-		`SELECT key, value FROM secrets WHERE scope_kind = ? AND scope_id = ?`,
-		string(ScopeUser), userSub)
+	items, err := s.secretsIn(context.Background(), ScopeUser, userSub)
 	if err != nil {
 		return nil, nil, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var key, value string
-		if err := rows.Scan(&key, &value); err != nil {
+	for _, it := range items {
+		key, err := secretKeyOf(it)
+		if err != nil {
 			return nil, nil, err
 		}
-		plain, err := s.open(value)
+		plain, err := s.open(it.Attrs[attrSecValue])
 		if err != nil {
 			return nil, nil, err
 		}
 		out[key] = plain
 		scopes[key] = ScopeUser
 	}
-	return out, scopes, rows.Err()
+	return out, scopes, nil
 }

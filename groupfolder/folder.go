@@ -21,11 +21,22 @@ import (
 // An empty parent contains nothing. Callers that mean "no constraint" (the
 // operator/service sentinel, a "**" scope) must say so themselves — silently
 // treating "" as "everything" here is how a missing folder becomes root.
-func Contains(parent, child string) bool {
+func Contains(parent, child string) bool { return ContainsSep(parent, child, "/") }
+
+// ContainsSep is Contains with the separator named, and it is the Go half of
+// the one containment predicate: SQLSubtree renders the same rule for a
+// statement, and every read that answers it in memory answers it here.
+//
+// The separator is a parameter because a folder opens its children with "/" and
+// its topics with "#", and `routes.target` carries both — so a subtree read over
+// that column asks the question twice, once per separator (store/routes.go).
+//
+// An empty parent contains nothing, for the reason Contains states.
+func ContainsSep(parent, child, sep string) bool {
 	if parent == "" {
 		return false
 	}
-	return child == parent || strings.HasPrefix(child, parent+"/")
+	return child == parent || strings.HasPrefix(child, parent+sep)
 }
 
 // ParentOf returns the immediate parent folder of folder, or "" if folder is root.

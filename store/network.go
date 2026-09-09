@@ -1,13 +1,48 @@
 package store
 
+// network.go holds every read and write of `network_rules`: one item per egress
+// allowlist entry, addressed by (folder, target).
+//
+// THE PARTITION IS OwnerRoutd AND IT IS NOT A CHOICE THIS FILE MAKES.
+// network_rules is a registered resreg resource, and an entity-backed
+// resource's items live at its owner subsystem (resreg.SubsystemRoutd, which IS
+// store.OwnerRoutd). A second spelling would put this file's items in one
+// partition and the engine's read in another, and the failure is silent: a
+// query on a partition nobody wrote to is a legal query that selects nothing.
+//
+// THE FOLDER LEADS THE COORDINATE, and that is what makes a subtree readable.
+// `folder` is also the resource's purge scope, and a key predicate reaches a
+// LEADING fragment of the key and nothing else — so every read below that
+// selects one folder is a begins_with on `folder + KeySep`, exact because no
+// value may carry the separator. Choosing `target` first would make each of
+// them a whole-partition scan with a filter.
+//
+// THE STORED INSTANT IS core.TS, at 30 bytes. That is the width resreg's own
+// entity path stamps a StampedField at (resreg/entity.go itemFor), and the two
+// writers of these items have to agree byte for byte — an apply that stamped 30
+// where this file wrote 20 would put two widths in one attribute, and a
+// comparison over TEXT answers by byte order (BUGS L97). `arizuko migrate-routd`
+// normalises the RFC3339 values the column path left behind.
+
 import (
+	"context"
 	"database/sql"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/egress/match"
+	"github.com/kronael/arizuko/objstore"
+)
+
+// The attributes a rule item carries. `folder` and `target` are NOT among them:
+// they are the coordinate, and storing it twice is two facts that can disagree.
+const (
+	attrNetCreatedAt = "created_at"
+	attrNetCreatedBy = "created_by"
 )
 
 type NetworkRule struct {
@@ -15,6 +50,63 @@ type NetworkRule struct {
 	Target    string
 	CreatedAt time.Time
 	CreatedBy string
+}
+
+// networkRuleKey is the coordinate of one rule. The instance-wide rule spells
+// its folder "" — the sentinel migration 0037 seeded — and that is a legal
+// coordinate: the separator still divides the two parts, so the read splits it
+// back the same way.
+func networkRuleKey(folder, target string) (objstore.Key, error) {
+	if target == "" {
+		return objstore.Key{}, fmt.Errorf("network rule for %q carries no target, "+
+			"which is half its coordinate", folder)
+	}
+	for name, v := range map[string]string{"folder": folder, "target": target} {
+		if strings.Contains(v, KeySep) {
+			return objstore.Key{}, fmt.Errorf("network rule %s=%q carries the separator "+
+				"that divides the two fields of its coordinate", name, v)
+		}
+	}
+	return objstore.Key{Partition: OwnerRoutd, Sort: folder + KeySep + target}, nil
+}
+
+// networkRuleFrom reads one item back. A key that does not split into two parts
+// is a LOUD fault rather than a half-filled rule: it names a row nobody wrote.
+func networkRuleFrom(it objstore.Item) (NetworkRule, error) {
+	folder, target, ok := strings.Cut(it.Key.Sort, KeySep)
+	if !ok {
+		return NetworkRule{}, fmt.Errorf("network rule %q does not split into "+
+			"(folder, target)", it.Key.Sort)
+	}
+	r := NetworkRule{Folder: folder, Target: target, CreatedBy: it.Attrs[attrNetCreatedBy]}
+	if ts := it.Attrs[attrNetCreatedAt]; ts != "" {
+		r.CreatedAt, _ = time.Parse(core.TSLayout, ts)
+	}
+	return r, nil
+}
+
+// networkRulesIn reads the rules of ONE folder, in target order.
+func (s *Store) networkRulesIn(ctx context.Context, folder string) ([]NetworkRule, error) {
+	items, err := s.Obj().Query(ctx, objstore.Query{
+		Entity: NetworkRules, Partition: OwnerRoutd,
+		Key: objstore.KeyPredicate{Op: objstore.PrefixKey, Value: folder + KeySep},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read network rules of %q: %w", folder, err)
+	}
+	return collectNetworkRules(items)
+}
+
+func collectNetworkRules(items []objstore.Item) ([]NetworkRule, error) {
+	out := make([]NetworkRule, 0, len(items))
+	for _, it := range items {
+		r, err := networkRuleFrom(it)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, nil
 }
 
 // AddNetworkRule validates target where the operator writes it — a rule that
@@ -26,6 +118,9 @@ type NetworkRule struct {
 // reaching the store. Targets are stored normalized (lowercase, `*.` glob
 // folded onto its apex), so a rule added as *.example.com is removed as
 // example.com.
+//
+// The write is create-if-absent, which is what `INSERT OR IGNORE` said: adding
+// a rule that is already there must not restamp who added it or when.
 func (s *Store) AddNetworkRule(folder, target, by string) error {
 	if target != "*" {
 		if err := match.ValidEntry(target); err != nil {
@@ -33,12 +128,17 @@ func (s *Store) AddNetworkRule(folder, target, by string) error {
 		}
 		target = match.NormalizeEntry(target)
 	}
+	key, err := networkRuleKey(folder, target)
+	if err != nil {
+		return err
+	}
+	attrs := map[string]string{attrNetCreatedAt: core.NowTS()}
+	setAttr(attrs, attrNetCreatedBy, by)
 	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		_, err := tx.Exec(
-			`INSERT OR IGNORE INTO network_rules (folder, target, created_at, created_by)
-			 VALUES (?, ?, ?, ?)`,
-			folder, target, time.Now().UTC().Format(time.RFC3339), by,
-		)
+		_, err := s.writeEntitiesInTx(context.Background(), tx, nil, objstore.Write{
+			Op: objstore.Put, Entity: NetworkRules, Key: key, Attrs: attrs,
+			Cond: objstore.Cond{Item: objstore.ItemAbsent},
+		})
 		actor := by
 		if actor == "" {
 			actor = "system"
@@ -65,11 +165,14 @@ func (s *Store) RemoveNetworkRule(folder, target string) error {
 	if target != "*" {
 		target = match.NormalizeEntry(target)
 	}
+	key, err := networkRuleKey(folder, target)
+	if err != nil {
+		return err
+	}
 	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		_, err := tx.Exec(
-			`DELETE FROM network_rules WHERE folder = ? AND target = ?`,
-			folder, target,
-		)
+		_, err := s.writeEntitiesInTx(context.Background(), tx, nil, objstore.Write{
+			Op: objstore.Delete, Entity: NetworkRules, Key: key,
+		})
 		return audit.Event{
 			Category: audit.CategoryNetwork,
 			Action:   "egress.allow.remove",
@@ -86,58 +189,45 @@ func (s *Store) RemoveNetworkRule(folder, target string) error {
 }
 
 func (s *Store) ListNetworkRules(folder string) ([]NetworkRule, error) {
-	rows, err := s.db.Query(
-		`SELECT folder, target, created_at, created_by
-		 FROM network_rules WHERE folder = ?
-		 ORDER BY target`,
-		folder,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	return scanNetworkRules(rows)
+	return s.networkRulesIn(context.Background(), folder)
 }
 
 func (s *Store) AllNetworkRules() ([]NetworkRule, error) {
-	rows, err := s.db.Query(
-		`SELECT folder, target, created_at, created_by
-		 FROM network_rules ORDER BY folder, target`,
-	)
+	items, err := s.Obj().Query(context.Background(), objstore.Query{
+		Entity: NetworkRules, Partition: OwnerRoutd,
+	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read network rules: %w", err)
 	}
-	defer rows.Close()
-	return scanNetworkRules(rows)
+	return collectNetworkRules(items)
 }
 
+// ResolveAllowlist is every host folder may reach: its own rules and those of
+// every ancestor, including the instance-wide "" folder.
+//
+// One read per ancestor rather than one read of the whole entity: a folder is
+// at most a handful deep, each read is an exact begins_with on the coordinate,
+// and a whole-partition read would examine every folder's rules to answer about
+// one. The union is de-duplicated and sorted here, which is what `SELECT
+// DISTINCT … ORDER BY target` did.
 func (s *Store) ResolveAllowlist(folder string) ([]string, error) {
-	folders := folderAncestry(folder)
-	placeholders := strings.Repeat("?,", len(folders))
-	placeholders = placeholders[:len(placeholders)-1]
-	args := make([]any, len(folders))
-	for i, f := range folders {
-		args[i] = f
-	}
-	rows, err := s.db.Query(
-		`SELECT DISTINCT target FROM network_rules
-		 WHERE folder IN (`+placeholders+`)
-		 ORDER BY target`,
-		args...,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var t string
-		if err := rows.Scan(&t); err != nil {
+	ctx := context.Background()
+	seen := map[string]bool{}
+	for _, f := range folderAncestry(folder) {
+		rules, err := s.networkRulesIn(ctx, f)
+		if err != nil {
 			return nil, err
 		}
+		for _, r := range rules {
+			seen[r.Target] = true
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for t := range seen {
 		out = append(out, t)
 	}
-	return out, rows.Err()
+	slices.Sort(out)
+	return out, nil
 }
 
 func folderAncestry(folder string) []string {
@@ -156,18 +246,4 @@ func folderAncestry(folder string) []string {
 		out = append(out, cur)
 	}
 	return out
-}
-
-func scanNetworkRules(rows *sql.Rows) ([]NetworkRule, error) {
-	var out []NetworkRule
-	for rows.Next() {
-		var r NetworkRule
-		var ts string
-		if err := rows.Scan(&r.Folder, &r.Target, &ts, &r.CreatedBy); err != nil {
-			return nil, err
-		}
-		r.CreatedAt, _ = time.Parse(time.RFC3339, ts)
-		out = append(out, r)
-	}
-	return out, rows.Err()
 }

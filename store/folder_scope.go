@@ -1,29 +1,49 @@
 package store
 
+// folder_scope.go is the scope predicate of the group delete: every place a row
+// CONFERS on a folder or ROUTES into it, declared once so no caller carries a
+// list of its own.
+//
+// It is the argument of the versioned replace (spec 6/40 §3): a group delete is
+// `replace(subtree(folder), ∅)`, so the scope predicate is all the operation
+// needs to name.
+//
+// TWO SHAPES, ONE CLASSIFICATION. Ten of the scopes are objstore entities and
+// four are SQL tables, and the completeness tests walk both through
+// FolderScopeClassified: a table or entity in neither list fails, so one joining
+// the schema cannot skip the question of whether it confers on a folder.
+//
+// AN ENTITY HAS NO FOREIGN KEY, so no verdict here may say "the groups row's
+// cascade removes it". Three tables were kept on exactly that claim —
+// web_routes, route_tokens.owner_folder and github_sources — and the claim
+// stops being true the moment the row stops being a SQL row: the row would then
+// be deleted by NOTHING while a completeness test still passed, because the
+// table is still classified (BUGS L253). All three are purged here now, by the
+// same predicate every other scope uses.
+//
+// THE ENTITY PURGE READS AND THEN DELETES, because an entity has no predicate
+// delete: the scope's items are queried, filtered by the containment predicate,
+// and removed one write each. That is the unbounded read-then-delete spec 6/40
+// costs, and a group delete is an operator action measured in ones per week.
+
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"strings"
 
 	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/objstore"
 )
 
-// folderScope names ONE column that carries a folder coordinate, and how the
-// folder is spelled inside it. It is the argument of the versioned replace
-// (spec 6/40 §3): a group delete is `replace(subtree(folder), ∅)`, so the scope
-// predicate is all the operation needs to name.
+// folderScope names ONE SQL column that carries a folder coordinate, and how
+// the folder is spelled inside it.
 type folderScope struct {
 	table string
 	col   string
-	// prefix precedes the folder inside col. "folder:" for the acl principal a
-	// folder holds its grants as — the row SeedMemberRoleTx writes.
-	prefix string
 	// seps are the characters that may follow the folder inside col. "/" opens a
-	// child folder; "#" opens a topic, which only routes.target carries.
+	// child folder; "#" opens a topic.
 	seps []string
-	// and restricts the rows this scope owns, for a table whose column holds
-	// more than folders.
-	and string
 	// set, when non-empty, is an UPDATE assignment applied instead of a DELETE:
 	// the row outlives the folder and only its binding to the folder goes.
 	set string
@@ -31,96 +51,134 @@ type folderScope struct {
 
 // stmt renders the statement that removes folder's rows from one scope.
 func (f folderScope) stmt(folder string) (string, []any) {
-	val := f.prefix + folder
 	preds := make([]string, 0, len(f.seps))
 	args := make([]any, 0, 3*len(f.seps))
 	for _, sep := range f.seps {
 		preds = append(preds, groupfolder.SQLSubtree(f.col, sep))
-		args = append(args, groupfolder.SubtreeArgs(val, sep)...)
+		args = append(args, groupfolder.SubtreeArgs(folder, sep)...)
 	}
 	where := strings.Join(preds, " OR ")
-	if f.and != "" {
-		where = f.and + " AND (" + where + ")"
-	}
 	if f.set != "" {
 		return "UPDATE " + f.table + " SET " + f.set + " WHERE " + where, args
 	}
 	return "DELETE FROM " + f.table + " WHERE " + where, args
 }
 
-// folderScopePurge is the scope predicate of the group delete: every column
-// holding a row that CONFERS on the folder or ROUTES into it. A row left here
-// is authority the next tenant of the same path inherits, which is why the list
-// is one declaration and not one per caller.
+// entityScope names ONE entity that carries a folder coordinate, and how to
+// read the folder out of one of its items.
 //
-// groups leads so the ON DELETE CASCADE hanging off it (web_routes,
-// route_tokens.owner_folder, github_sources — foreign_keys rides every DSN,
-// db_utils.FileDSN) fires inside the same transaction.
+// folderOf is a function rather than a coordinate convention because the folder
+// sits somewhere different in each: it is the whole key of a groups item, the
+// first field of network_rules' composite one, an attribute on web_routes, and
+// a `folder:`-prefixed principal inside acl_membership's child. The callback IS
+// that declaration, and it is checked by the same completeness test the SQL
+// half is.
+type entityScope struct {
+	entity   string
+	folderOf func(objstore.Item) (string, bool)
+	// seps are the characters that may follow the folder inside that value.
+	seps []string
+}
+
+// folderScopePurge is the SQL half: the tables that still hold columns.
+//
+// `chats` is the one UPDATE. The chat outlives the folder — it carries its own
+// cursor — so the binding is cleared and the row stays.
 var folderScopePurge = []folderScope{
+	{table: "chat_reply_state", col: "engaged_folder", seps: []string{"/"}},
+	{table: "sessions", col: "group_folder", seps: []string{"/"}},
+	{table: "group_watchers", col: "observer", seps: []string{"/"}},
+	{table: "group_watchers", col: "source", seps: []string{"/"}},
+	{table: "chats", col: "sticky_group", seps: []string{"/"},
+		set: "sticky_group = NULL, sticky_topic = NULL"},
+}
+
+// entityScopePurge is the object half.
+//
+// groups leads, so a reader sees the folder's own row go first; nothing depends
+// on the order, because an entity has no cascade to fire and every delete below
+// is issued explicitly.
+var entityScopePurge = []entityScope{
 	// The folder itself and its children. Deleting a parent and leaving the
 	// children is an orphan with grants of its own.
-	{table: "groups", col: "folder", seps: []string{"/"}},
+	{entity: Groups, seps: []string{"/"},
+		folderOf: func(it objstore.Item) (string, bool) { return it.Key.Sort, true }},
 
 	// Confers. An acl row scoped at the subtree names who may act on it; a
 	// membership edge gives the folder principal a parent's grants; a
 	// folder-scoped secret is a live credential; a network rule is egress.
-	{table: "acl", col: "scope", seps: []string{"/"}},
-	{table: "acl_membership", col: "child", prefix: "folder:", seps: []string{"/"}},
-	{table: "secrets", col: "scope_id", seps: []string{"/"}, and: "scope_kind = 'folder'"},
-	{table: "network_rules", col: "folder", seps: []string{"/"}},
+	{entity: ACL, seps: []string{"/"}, folderOf: func(it objstore.Item) (string, bool) {
+		parts := strings.Split(it.Key.Sort, KeySep)
+		if len(parts) != 6 {
+			return "", false
+		}
+		return parts[2], true // scope
+	}},
+	{entity: ACLMembership, seps: []string{"/"}, folderOf: func(it objstore.Item) (string, bool) {
+		child, _, ok := strings.Cut(it.Key.Sort, KeySep)
+		if !ok {
+			return "", false
+		}
+		return strings.CutPrefix(child, "folder:")
+	}},
+	{entity: Secrets, seps: []string{"/"}, folderOf: func(it objstore.Item) (string, bool) {
+		parts := strings.Split(it.Key.Sort, KeySep)
+		if len(parts) != 3 || parts[0] != SecretScopeFolder {
+			return "", false
+		}
+		return parts[1], true // scope_id
+	}},
+	{entity: NetworkRules, seps: []string{"/"}, folderOf: func(it objstore.Item) (string, bool) {
+		folder, _, ok := strings.Cut(it.Key.Sort, KeySep)
+		return folder, ok
+	}},
 
-	// Routes in. A route target, an engagement, a sticky binding and a
-	// scheduled task each deliver a message the next tenant answers.
-	{table: "routes", col: "target", seps: []string{"/", "#"}},
-	{table: "chat_reply_state", col: "engaged_folder", seps: []string{"/"}},
-	{table: "scheduled_tasks", col: "owner", seps: []string{"/"}},
-	// The chat outlives the folder — it carries its own cursor — so the
-	// binding is cleared and the row stays.
-	{table: "chats", col: "sticky_group", seps: []string{"/"},
-		set: "sticky_group = NULL, sticky_topic = NULL"},
+	// Routes in. A route target, a scheduled task and a held action each deliver
+	// a message or a call the next tenant answers. A target carries a topic, so
+	// it is the one scope whose folder may be followed by "#" as well as "/".
+	{entity: Routes, seps: []string{"/", "#"}, folderOf: func(it objstore.Item) (string, bool) {
+		parts := strings.SplitN(it.Key.Sort, KeySep, 3)
+		if len(parts) != 3 {
+			return "", false
+		}
+		return parts[1], true // target
+	}},
+	{entity: ScheduledTasks, seps: []string{"/"}, folderOf: attrScope(attrTaskOwner)},
+	{entity: PendingActions, seps: []string{"/"}, folderOf: attrScope(AttrPendGroupFolder)},
 
-	// Reaches the next tenant's agent. A session id resumes the previous
-	// tenant's transcript; a watched source is read straight into the prompt; a
-	// held action is released into the folder.
-	{table: "sessions", col: "group_folder", seps: []string{"/"}},
-	{table: "group_watchers", col: "observer", seps: []string{"/"}},
-	{table: "group_watchers", col: "source", seps: []string{"/"}},
-	{table: "pending_actions", col: "group_folder", seps: []string{"/"}},
+	// Reaches the next tenant. A web route publishes the folder's files, a route
+	// token delivers into it, and a github source seeds routes that do.
+	{entity: WebRoutes, seps: []string{"/"}, folderOf: attrScope(AttrWebFolder)},
+	{entity: RouteTokens, seps: []string{"/"}, folderOf: attrScope(attrTokOwnerFolder)},
+	{entity: GitHubSources, seps: []string{"/"}, folderOf: attrScope(attrGHOwnerFolder)},
 
 	// Owned assets, which name identities the folder installed.
-	{table: "installed_packages", col: "folder", seps: []string{"/"}},
+	{entity: InstalledPackages, seps: []string{"/"}, folderOf: func(it objstore.Item) (string, bool) {
+		folder, _, ok := strings.Cut(it.Key.Sort, KeySep)
+		return folder, ok
+	}},
+}
+
+// attrScope reads the folder out of one named attribute. An item that does not
+// carry it holds no folder coordinate, and absent is the only null this model
+// has — so it is skipped rather than read as the empty folder, which Contains
+// answers false for anyway.
+func attrScope(name string) func(objstore.Item) (string, bool) {
+	return func(it objstore.Item) (string, bool) {
+		v, ok := it.Attrs[name]
+		return v, ok
+	}
 }
 
 // keepReason is why a group delete leaves a table alone.
-//
-// It is a VALUE rather than a sentence because one of the reasons is a
-// MECHANISM and the rest are judgements. "history" is a decision this file
-// makes and nothing can invalidate it. "the groups row's ON DELETE CASCADE
-// removes it" is a claim about the SCHEMA, and it stops being true the moment
-// the table stops being a SQL table: an objstore entity has no foreign keys and
-// a key-value engine has no cascade at all, so the row would then be deleted by
-// NOTHING while the completeness test still passed, because the table is still
-// classified (BUGS L253). A mechanism is checkable; a sentence is not.
-type keepReason struct {
-	why string
-	// cascadesOn names the table whose own delete removes the row instead of
-	// this purge, and is empty when the reason is a judgement.
-	// TestFolderScope_EveryClaimedCascadeExists reads the schema through it, so
-	// the claim cannot outlive the constraint that makes it true.
-	cascadesOn string
-}
+type keepReason struct{ why string }
 
-// cascadeOffGroups is the one mechanism a keep verdict may name: the FK to
-// groups(folder) that fires inside this delete's own transaction.
-func cascadeOffGroups(why string) keepReason { return keepReason{why: why, cascadesOn: "groups"} }
-
-// keep is the ordinary verdict: a judgement, with no mechanism to check.
+// keep is the verdict: a judgement about what the rows mean.
 func keep(why string) keepReason { return keepReason{why: why} }
 
-// folderScopeKeep names every other table in the schema and why a group delete
-// leaves it alone. With folderScopePurge it is a TOTAL classification: the
-// completeness test fails on a table in neither list, so a table joining the
-// schema cannot skip the question of whether it confers on a folder.
+// folderScopeKeep names every other table and entity in the schema and why a
+// group delete leaves it alone. With the two purge lists it is a TOTAL
+// classification.
 var folderScopeKeep = map[string]keepReason{
 	// History. What happened is not the folder's to take away, and this
 	// transaction writes the delete's own row into audit_log.
@@ -129,7 +187,7 @@ var folderScopeKeep = map[string]keepReason{
 	"ipc_audit":      keep("history"),
 	"secret_use_log": keep("history"),
 	"session_log":    keep("history"),
-	"task_run_logs":  keep("history; cascaded by scheduled_tasks.id where a run is still linked"),
+	"task_run_logs":  keep("history; a run names a task id the next tenant never mints"),
 	"cost_log":       keep("the spend a deleted folder booked is still owed"),
 	// The gateway meters spend now (spec 6/39); this holds what arizuko
 	// booked before it, frozen, with no writer. A delete must not erase a
@@ -144,11 +202,6 @@ var folderScopeKeep = map[string]keepReason{
 	"messages_fts_idx":     keep("fts5 shadow table"),
 	"messages_fts_docsize": keep("fts5 shadow table"),
 	"messages_fts_config":  keep("fts5 shadow table"),
-
-	// Cascaded by the groups row this delete removes.
-	"web_routes":     cascadeOffGroups("FK groups(folder) ON DELETE CASCADE"),
-	"route_tokens":   cascadeOffGroups("FK groups(folder) ON DELETE CASCADE; a token naming a gone target is refused at webd ingress (BUGS L5)"),
-	"github_sources": cascadeOffGroups("FK groups(folder) ON DELETE CASCADE"),
 
 	// Turn state, keyed by a turn id the next tenant never mints.
 	"turn_context": keep("keyed by turn_id; a re-created folder mints new ones"),
@@ -170,6 +223,7 @@ var folderScopeKeep = map[string]keepReason{
 	"idempotency_keys": keep("keyed by request"),
 	"router_state":     keep("instance-wide"),
 	"resreg_scopes":    keep("one version marker per subsystem, instance-wide"),
+	"counters":         keep("one server-minted number per name, instance-wide"),
 	"config_meta":      keep("instance-wide"),
 	"migrations":       keep("schema bookkeeping"),
 	"sqlite_sequence":  keep("schema bookkeeping"),
@@ -197,23 +251,6 @@ var folderScopeUnpurged = map[string]string{
 	"invite_redemptions": "onbod owns it, in onbod.db",
 }
 
-// FolderScopeCascades answers, for every table whose keep verdict claims a
-// cascade, the table whose delete performs it.
-//
-// It is the second reader of the same declaration, and the reason there is one:
-// a verdict that names a MECHANISM is a claim about the schema, so something has
-// to go and look. Both completeness tests walk it against their own schema,
-// because routd.db and messages.db do not hold the same tables.
-func FolderScopeCascades() map[string]string {
-	out := map[string]string{}
-	for table, r := range folderScopeKeep {
-		if r.cascadesOn != "" {
-			out[table] = r.cascadesOn
-		}
-	}
-	return out
-}
-
 // FolderScopeClassified reports whether table carries a verdict in the
 // folder-scope declaration. The completeness tests — one per schema, because
 // routd.db and messages.db do not hold the same tables — walk sqlite_master
@@ -230,6 +267,11 @@ func FolderScopeClassified(table string) bool {
 			return true
 		}
 	}
+	for _, e := range entityScopePurge {
+		if e.entity == table {
+			return true
+		}
+	}
 	return false
 }
 
@@ -239,22 +281,53 @@ func FolderScopeClassified(table string) bool {
 var errNoSuchGroup = errors.New("store: no group row in subtree")
 
 // purgeFolder removes folder's subtree from every scope, and returns how many
-// groups rows went with it. One transaction: a partial purge IS the state this
-// exists to prevent.
-func purgeFolder(tx *sql.Tx, folder string) (int, error) {
+// groups items went with it.
+//
+// ONE transaction: the caller owns it, every entity write rides in it through
+// writeEntitiesInTx, and a partial purge IS the state this exists to prevent.
+// The entity deletes are chunked, because a batch carries at most
+// MaxBatchActions and a large folder's subtree can exceed one.
+func (s *Store) purgeFolder(ctx context.Context, tx *sql.Tx, folder string) (int, error) {
+	if folder == "" {
+		return 0, errNoSuchGroup
+	}
 	removed := 0
-	for _, f := range folderScopePurge {
-		q, args := f.stmt(folder)
-		res, err := tx.Exec(q, args...)
+	for _, e := range entityScopePurge {
+		items, err := s.Obj().Query(ctx, objstore.Query{Entity: e.entity, Partition: OwnerRoutd})
 		if err != nil {
 			return 0, err
 		}
-		if f.table == "groups" {
-			n, err := res.RowsAffected()
-			if err != nil {
-				return 0, err
+		var writes []objstore.Write
+		for _, it := range items {
+			v, ok := e.folderOf(it)
+			if !ok {
+				continue
 			}
-			removed = int(n)
+			inside := false
+			for _, sep := range e.seps {
+				inside = inside || groupfolder.ContainsSep(folder, v, sep)
+			}
+			if !inside {
+				continue
+			}
+			writes = append(writes, objstore.Write{
+				Op: objstore.Delete, Entity: e.entity, Key: it.Key,
+			})
+		}
+		if e.entity == Groups {
+			removed = len(writes)
+		}
+		if _, err := applyChunks(ctx, "purge "+e.entity+" of "+folder, writes,
+			func(ctx context.Context, chunk []objstore.Write) (bool, error) {
+				return s.writeEntitiesInTx(ctx, tx, nil, chunk...)
+			}); err != nil {
+			return 0, err
+		}
+	}
+	for _, f := range folderScopePurge {
+		q, args := f.stmt(folder)
+		if _, err := tx.ExecContext(ctx, q, args...); err != nil {
+			return 0, err
 		}
 	}
 	return removed, nil
