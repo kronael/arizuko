@@ -103,7 +103,12 @@ func migrateStore(path string, dryRun bool) error {
 		return err
 	}
 	s := sqlstore.New(db)
-	if err := store.EnsureEntities(ctx, s, store.OwnerRoutd); err != nil {
+	// The TWO this tool moves and nothing else: CreateEntity probes the three
+	// columns it needs, so asking for routd's whole set would fail on `acl` when
+	// `arizuko migrate-routd` has not run yet — and that tool would fail on
+	// `pane_sessions` for the same reason. Naming the subset is what lets either
+	// run first.
+	if err := store.EnsureEntitySet(ctx, s, store.OwnerRoutd, storeTables...); err != nil {
 		return err
 	}
 	st := store.New(db)

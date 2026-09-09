@@ -195,6 +195,21 @@ func EnsureEntities(ctx context.Context, d Driver, owner string) error {
 	if !ok {
 		return fmt.Errorf("store: %q owns none of this package's entities", owner)
 	}
+	return EnsureEntitySet(ctx, d, owner, entities...)
+}
+
+// EnsureEntitySet prepares exactly the entities NAMED, plus the owner's counters
+// and version marker. It is the migration tools' door, and it exists because
+// CreateEntity PROBES the three columns it needs: a tool that asked for the
+// whole owner's set would fail on a table a DIFFERENT tool has not moved yet,
+// and both tools would refuse each other forever.
+//
+// `arizuko migrate-store` names the two tables it moves and `migrate-routd` the
+// thirteen it moves, so either may run first. An opener still asks for the whole
+// set through EnsureEntities, which is where the set is declared — this takes a
+// list because a migration is the one caller that knows a subset is all it may
+// touch.
+func EnsureEntitySet(ctx context.Context, d Driver, owner string, entities ...string) error {
 	for _, entity := range entities {
 		if err := d.CreateEntity(ctx, entity); err != nil {
 			return err
@@ -218,7 +233,18 @@ var countersByOwner = map[string][]string{OwnerRoutd: {CounterRouteID}}
 // being absent — so an opener calls it on every boot and a migration that set
 // the counter to the largest id it carried over keeps that value.
 func ensureCounters(ctx context.Context, d Driver, owner string) error {
-	for _, name := range countersByOwner[owner] {
+	names := countersByOwner[owner]
+	if len(names) == 0 {
+		return nil
+	}
+	// The entity its own seeding needs, created here for the reason ensureScopes
+	// creates the marker's: a caller naming a SUBSET of the owner's entities — a
+	// migration tool — has no reason to name this one, and the seed below writes
+	// into it.
+	if err := d.CreateEntity(ctx, Counters); err != nil {
+		return err
+	}
+	for _, name := range names {
 		err := putIfAbsent(ctx, d, objstore.Write{
 			Op:     objstore.Put,
 			Entity: Counters,
