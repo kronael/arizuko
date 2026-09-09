@@ -717,14 +717,14 @@ func mayCreateFirstWorld(obdb *sql.DB, userSub string) bool {
 	return n > 0
 }
 
-// pendingRedemption is the row store.consumeInvite wrote when this caller
+// latestRedemption returns the item store.consumeInvite wrote when this caller
 // redeemed a subgroup invite. It is the ONLY thing that can name a parent
 // folder: the request names none, so a caller can no longer ask for a world
 // inside a subtree nobody invited them into (BUGS F50).
-// latestRedemption returns the caller's most recent unspent subgroup-invite
-// redemption. Most recent because a caller holding two is answering the invite
-// they just followed; each is spent on its own, so two invites still yield two
-// worlds.
+//
+// It answers the caller's MOST RECENT unspent one, because a caller holding two
+// is answering the invite they just followed; each is spent on its own, so two
+// invites still yield two worlds.
 //
 // Fails closed like mayCreateFirstWorld: an unreadable partition is no
 // authority.
