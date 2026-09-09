@@ -283,3 +283,68 @@ func TestDeriveAgentCursorsNeverWalksALiveCursorBackward(t *testing.T) {
 		t.Errorf("cursor = %q, want it advanced to the new tail", got)
 	}
 }
+
+// TestDeriveAgentCursorsDerivesEveryChatItCanAndNamesTheRest is the resilience
+// the sweep needs, and the reason is one row shape.
+//
+// Migration 0044 deliberately leaves a hand-written `2026-04-02 12:38:47` alone,
+// because padding a ROW would invent a zone it never had — two krons rows carry
+// exactly that. MAX(timestamp) over such a chat is nineteen bytes, and the
+// dispatch cursor is declared at core.TS's width, so the write refuses it. The
+// chats are swept in sorted order, so a sweep that stopped there left every
+// alphabetically later chat with NO cursor at all, and the poll loop reads a
+// restored history with no cursor as entirely unread — the state this operation
+// exists to prevent (spec 5/8 Finding 4).
+func TestDeriveAgentCursorsDerivesEveryChatItCanAndNamesTheRest(t *testing.T) {
+	dbSt, db := routdMessages(t)
+	// "slack:A" sorts before "slack:Z", so the unreadable chat is swept first.
+	insertMsg(t, db, store.ArchiveMessageRow{ID: "a1", ChatJID: "slack:A", Sender: "u",
+		Content: "poked in by hand", Timestamp: "not an instant at all"})
+	insertMsg(t, db, store.ArchiveMessageRow{ID: "z1", ChatJID: "slack:Z", Sender: "u",
+		Content: "ordinary", Timestamp: ts(t, "12:00")})
+
+	moved, err := dbSt.DeriveAgentCursors(context.Background(),
+		map[string]bool{"slack:A": true, "slack:Z": true})
+	if err == nil {
+		t.Fatal("a chat this cannot derive was not reported; a restore that derived only " +
+			"some cursors must say which ones it missed")
+	}
+	if !strings.Contains(err.Error(), "slack:A") {
+		t.Errorf("the report does not name the chat it could not derive: %v", err)
+	}
+	if moved != 1 {
+		t.Errorf("moved %d cursors, want 1", moved)
+	}
+	if got := cursorOf(t, dbSt, "slack:Z"); got != ts(t, "12:00") {
+		t.Fatalf("the later chat's cursor = %q, want %q — one unreadable chat stopped the "+
+			"sweep, and every chat after it reads its whole restored history as unread", got,
+			ts(t, "12:00"))
+	}
+}
+
+// TestDeriveAgentCursorsRendersTheInstantItFinds pins the other half: the raw
+// column value is whatever the writer left, and the cursor attribute is declared
+// at one width.
+//
+// Rendering a CURSOR is safe where rendering the row is not — a rendered instant
+// sorts at or above the row it came from, so the poller still parks at the end
+// of the restored history, which is what this is for.
+func TestDeriveAgentCursorsRendersTheInstantItFinds(t *testing.T) {
+	dbSt, db := routdMessages(t)
+	const handWritten = "2026-04-02 12:38:47"
+	insertMsg(t, db, store.ArchiveMessageRow{ID: "h1", ChatJID: "slack:H", Sender: "u",
+		Content: "poked in by hand", Timestamp: handWritten})
+
+	if _, err := dbSt.DeriveAgentCursors(context.Background(),
+		map[string]bool{"slack:H": true}); err != nil {
+		t.Fatalf("DeriveAgentCursors: %v", err)
+	}
+	got := cursorOf(t, dbSt, "slack:H")
+	if got != "2026-04-02T12:38:47.000000000Z" {
+		t.Fatalf("cursor = %q, want the rendered instant", got)
+	}
+	if !(got > handWritten) {
+		t.Errorf("the cursor %q sorts below the row %q it came from, so the poller re-feeds it",
+			got, handWritten)
+	}
+}

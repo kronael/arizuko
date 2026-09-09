@@ -16,10 +16,12 @@ package store
 // TestAdvancingToACursorAlreadyHeldIsANoOpAndNotAnError drives that window.
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 )
 
 // at renders an instant at core.TS's width, which is the only width a declared
@@ -177,5 +179,91 @@ func TestACursorRefusesAValueOfAnotherWidth(t *testing.T) {
 	// The same rule on the other cursor, and on the two instants beside them.
 	if err := s.AdvanceObservedCursor("team", "#x", "2026-09-09T12:00:00Z"); err == nil {
 		t.Error("sessions.observed_cursor accepted a twenty-byte value")
+	}
+}
+
+// TestBumpEngagementWithNoFolderUnclaimsTheWindow pins what an empty folder
+// means. The column it replaces was NOT NULL DEFAULT ” and this write
+// overwrote it unconditionally, so an empty folder meant UNCLAIMED — and absent
+// is how this model spells that.
+//
+// Take the Remove out of store/chat_reply_state.go's bumpEngagement and this
+// goes red with the previous folder still holding a window an operator released.
+// POST /v1/engagement reaches it: ownsFolder reports true for an empty target.
+func TestBumpEngagementWithNoFolderUnclaimsTheWindow(t *testing.T) {
+	s := openEntities(t)
+	const jid = "slack:c/1"
+	until := time.Now().Add(time.Hour)
+
+	if err := s.BumpEngagement(jid, "", "corp/eng", until); err != nil {
+		t.Fatal(err)
+	}
+	if e, live := s.Engagement(jid, ""); !live || e.Folder != "corp/eng" {
+		t.Fatalf("seed: %+v live=%v", e, live)
+	}
+	if err := s.BumpEngagement(jid, "", "", until); err != nil {
+		t.Fatal(err)
+	}
+	e, live := s.Engagement(jid, "")
+	if !live {
+		t.Fatal("the window ended; only a zero deadline ends one")
+	}
+	if e.Folder != "" {
+		t.Fatalf("the window is still claimed by %q after a bump that named no folder", e.Folder)
+	}
+}
+
+// TestRecordingADirectChatOpensItsRow pins what the flag write is FOR. routd
+// calls SetChatIsGroup on every inbound, so it is what records that the instance
+// has seen a chat at all — the upsert it replaces always created the row.
+func TestRecordingADirectChatOpensItsRow(t *testing.T) {
+	s := openEntities(t)
+	ctx := context.Background()
+	if err := s.SetChatIsGroup("slack:NEW", false); err != nil {
+		t.Fatal(err)
+	}
+	n, err := s.CountChats(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("the partition holds %d chats, want 1: recording a direct chat left no row, "+
+			"so the instance has no record it saw the chat", n)
+	}
+	if is, _ := s.ChatIsGroup("slack:NEW"); is {
+		t.Error("a direct chat reads as multi-party")
+	}
+}
+
+// TestTheProactiveCooldownMergesRatherThanReplaces pins the one write among the
+// five that was a bare whole-item Put. It costs nothing while the item carries
+// one attribute; it drops the second one the day this entity grows a field.
+func TestTheProactiveCooldownMergesRatherThanReplaces(t *testing.T) {
+	s := openEntities(t)
+	ctx := context.Background()
+	const jid = "slack:T/C/P"
+	key, err := proactiveKey(jid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A second attribute, standing in for the field this entity has not grown yet.
+	if _, err := s.WriteEntities(ctx, nil, objstore.Write{
+		Op: objstore.Put, Entity: ChatProactive, Key: key,
+		Attrs: map[string]string{"cooldown_hours": "48"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordProactiveFireInTx(ctx, nil, jid, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	it, ok, err := s.itemAt(ctx, ChatProactive, key)
+	if err != nil || !ok {
+		t.Fatalf("the item went: ok=%v err=%v", ok, err)
+	}
+	if it.Attrs["cooldown_hours"] != "48" {
+		t.Errorf("the stamp replaced the whole item: attrs = %v", it.Attrs)
+	}
+	if it.Attrs[AttrProactiveFiredAt] == "" {
+		t.Error("the stamp did not land")
 	}
 }
