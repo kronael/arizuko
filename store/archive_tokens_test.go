@@ -15,7 +15,9 @@ import (
 	"database/sql"
 	"fmt"
 	"testing"
+	"time"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/db_utils/dbtest"
 	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
@@ -23,8 +25,8 @@ import (
 
 // archiveStore opens a *Store over the frozen schema. The archive lane is a
 // method on the owner, so the test holds the owner; the raw pool comes back
-// alongside it because the FIXTURES are raw inserts of columns no accessor
-// writes (a pairing token, an admission mid-flight).
+// alongside it because some FIXTURES are raw inserts of columns no accessor
+// writes (an admission mid-flight).
 func archiveStore(t *testing.T) (*store.Store, *sql.DB) {
 	t.Helper()
 	db := dbtest.Open(t)
@@ -35,17 +37,16 @@ func archiveStore(t *testing.T) (*store.Store, *sql.DB) {
 }
 
 func TestExportRouteTokensExcludesPairingAndImportRestoresTheVerifier(t *testing.T) {
-	src, db := archiveStore(t)
+	src, _ := archiveStore(t)
 	ctx := context.Background()
-	if _, err := db.Exec(`INSERT INTO groups(folder, added_at) VALUES('atlas','2026-01-01T00:00:00Z')`); err != nil {
+	seedArchiveGroup(t, src, "atlas")
+	delivery := store.GenRouteToken()
+	if err := src.InsertRouteToken(delivery, store.RouteToken{
+		JID: "web:atlas", OwnerFolder: "atlas", TargetFolder: "atlas",
+	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO route_tokens(token_hash, jid, owner_folder, created_at, kind)
-		VALUES (x'aabbcc', 'web:atlas', 'atlas', '2026-01-01T00:00:00Z', 'route')`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT INTO route_tokens(token_hash, jid, owner_folder, created_at, kind)
-		VALUES (x'ddeeff', 'telegram:user/1', 'atlas', '2026-01-01T00:00:00Z', 'pair')`); err != nil {
+	if _, err := src.IssuePairingLink(ctx, nil, "telegram:user/1", "atlas"); err != nil {
 		t.Fatal(err)
 	}
 	rows, err := src.ExportRouteTokens(ctx)
@@ -55,14 +56,13 @@ func TestExportRouteTokensExcludesPairingAndImportRestoresTheVerifier(t *testing
 	if len(rows) != 1 {
 		t.Fatalf("exported %d route_tokens, want 1 (pairing excluded)", len(rows))
 	}
-	if rows[0].TokenHash != "aabbcc" {
-		t.Errorf("token_hash = %q, want aabbcc", rows[0].TokenHash)
+	if rows[0].TokenHash != store.TokenRef(delivery) {
+		t.Errorf("token_hash = %q, want the bearer's digest %q",
+			rows[0].TokenHash, store.TokenRef(delivery))
 	}
 
-	dstSt, dst := archiveStore(t)
-	if _, err := dst.Exec(`INSERT INTO groups(folder, added_at) VALUES('atlas','2026-01-01T00:00:00Z')`); err != nil {
-		t.Fatal(err)
-	}
+	dstSt, _ := archiveStore(t)
+	seedArchiveGroup(t, dstSt, "atlas")
 	n, err := dstSt.ImportRouteTokens(ctx, rows)
 	if err != nil {
 		t.Fatal(err)
@@ -70,13 +70,14 @@ func TestExportRouteTokensExcludesPairingAndImportRestoresTheVerifier(t *testing
 	if n != 1 {
 		t.Fatalf("imported %d, want 1", n)
 	}
-	var jid, kind string
-	if err := dst.QueryRow("SELECT jid, kind FROM route_tokens WHERE hex(token_hash)='AABBCC' OR hex(token_hash)='aabbcc'").
-		Scan(&jid, &kind); err != nil {
-		t.Fatal(err)
+	// The verifier travelled, so the ORIGINAL bearer resolves on the target —
+	// and it resolves as a delivery token, which is kind-scoped.
+	got, ok := dstSt.LookupRouteToken(delivery)
+	if !ok {
+		t.Fatal("the imported verifier does not resolve the bearer it was minted for")
 	}
-	if jid != "web:atlas" || kind != "route" {
-		t.Errorf("restored row = jid=%q kind=%q", jid, kind)
+	if got.JID != "web:atlas" {
+		t.Errorf("restored row = jid=%q, want web:atlas", got.JID)
 	}
 	count, err := dstSt.CountRouteTokens(ctx)
 	if err != nil {
@@ -87,12 +88,19 @@ func TestExportRouteTokensExcludesPairingAndImportRestoresTheVerifier(t *testing
 	}
 }
 
-func TestImportRouteTokensIsIdempotent(t *testing.T) {
-	st, db := archiveStore(t)
-	ctx := context.Background()
-	if _, err := db.Exec(`INSERT INTO groups(folder, added_at) VALUES('atlas','2026-01-01T00:00:00Z')`); err != nil {
-		t.Fatal(err)
+// seedArchiveGroup lands the group a token names, through the writer every
+// creating caller reaches.
+func seedArchiveGroup(t *testing.T, s *store.Store, folder string) {
+	t.Helper()
+	if err := s.PutGroupRow(core.Group{Folder: folder, AddedAt: time.Now()}); err != nil {
+		t.Fatalf("seed group %s: %v", folder, err)
 	}
+}
+
+func TestImportRouteTokensIsIdempotent(t *testing.T) {
+	st, _ := archiveStore(t)
+	ctx := context.Background()
+	seedArchiveGroup(t, st, "atlas")
 	rows := []store.ArchiveRouteTokenRow{{TokenHash: "aabbcc", JID: "web:atlas", OwnerFolder: "atlas", CreatedAt: "2026-01-01T00:00:00Z"}}
 	if _, err := st.ImportRouteTokens(ctx, rows); err != nil {
 		t.Fatal(err)

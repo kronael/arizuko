@@ -1,10 +1,12 @@
 package store
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 )
 
 // BUGS A4, the sharp half: individual scan failures used to be SKIPPED
@@ -13,8 +15,9 @@ import (
 // drop a DENY row and the allow rows above it survive, so the caller is granted
 // something an operator explicitly forbade.
 //
-// Forced by widening a column's stored type: `grant_option` scans into a bool,
-// so a text value there fails that row's scan and nothing else.
+// Forced by writing an item whose coordinate splits into FIVE parts: the six
+// fields are the key, so a short one names a grant nobody wrote and aclRowFrom
+// refuses that item and nothing else.
 func TestACLReadRefusesToReturnAPartialPolicy(t *testing.T) {
 	s := openMem(t)
 	rows := []core.ACLRow{
@@ -31,9 +34,17 @@ func TestACLReadRefusesToReturnAPartialPolicy(t *testing.T) {
 		t.Fatalf("fixture: rows=%d err=%v, want 2 rows", len(got), err)
 	}
 
-	// Corrupt ONLY the deny row's grant_option so its scan fails.
-	if _, err := s.db.Exec(
-		`UPDATE acl SET grant_option = 'not-a-bool' WHERE effect = 'deny'`); err != nil {
+	// Corrupt ONLY the deny row: re-address it at a five-part coordinate, which
+	// is the one item ACLRowsFor's prefix read still reaches and cannot read.
+	deny := aclKeyOf(t, core.ACLRow{
+		Principal: "google:alice", Action: "mcp:send", Scope: "atlas/secret", Effect: "deny"})
+	short := strings.Join([]string{"google:alice", "mcp:send", "atlas/secret", "", "deny"}, KeySep)
+	if _, err := s.WriteEntities(context.Background(), nil,
+		objstore.Write{Op: objstore.Delete, Entity: ACL, Key: deny},
+		objstore.Write{Op: objstore.Put, Entity: ACL,
+			Key:   objstore.Key{Partition: OwnerRoutd, Sort: short},
+			Attrs: map[string]string{attrACLGrantOption: "0"}},
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -44,7 +55,18 @@ func TestACLReadRefusesToReturnAPartialPolicy(t *testing.T) {
 	if len(got) != 0 {
 		t.Errorf("partial policy returned alongside the error: %+v", got)
 	}
-	if !strings.Contains(err.Error(), "ACLRowsFor") {
+	if !strings.Contains(err.Error(), "read rows for principals") {
 		t.Errorf("error should name the failing reader, got: %v", err)
 	}
+}
+
+// aclKeyOf is the coordinate of one grant, for a fixture that has to address an
+// item the writers already wrote.
+func aclKeyOf(t *testing.T, r core.ACLRow) objstore.Key {
+	t.Helper()
+	k, err := aclKey(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return k
 }

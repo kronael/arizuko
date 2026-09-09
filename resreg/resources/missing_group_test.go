@@ -1,9 +1,9 @@
 package resources
 
-// The missing-group rule (spec 5/8 §"The missing-group rule") against the
-// REAL resource declarations and the REAL schema — the point of the rule is
-// which columns SQLite does and does not catch, so a synthetic resource
-// would prove nothing.
+// The missing-group rule (spec 5/8 §"The missing-group rule") against the REAL
+// resource declarations and the REAL schema — nothing under the rule binds a
+// folder reference to a group, so the rule is the only thing that catches one,
+// and a synthetic resource would prove nothing.
 
 import (
 	"context"
@@ -11,46 +11,52 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/resreg"
+	"github.com/kronael/arizuko/store"
 )
 
-// seedGroup inserts a groups row with direct SQL — the fixture must not go
-// through the engine under test.
+// seedGroup lands a groups row through store's own writer — the fixture must
+// not go through the engine under test.
 func seedGroup(t *testing.T, db *sql.DB, folder string) {
 	t.Helper()
-	if _, err := db.Exec(
-		`INSERT INTO groups (folder, added_at, product) VALUES (?, '2026-08-06T00:00:00Z', 'assistant')`,
-		folder); err != nil {
+	s := store.New(db)
+	if err := s.PutGroupRow(core.Group{
+		Folder: folder, Product: "assistant",
+		AddedAt: time.Date(2026, 8, 6, 0, 0, 0, 0, time.UTC),
+	}); err != nil {
 		t.Fatalf("seed group %s: %v", folder, err)
 	}
-	var n int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM groups WHERE folder = ?`, folder).Scan(&n); err != nil {
-		t.Fatal(err)
-	}
-	if n != 1 {
-		t.Fatalf("seed group %s did not land (count=%d)", folder, n)
+	if _, ok := s.GroupByFolder(folder); !ok {
+		t.Fatalf("seed group %s did not land", folder)
 	}
 }
 
+// folderRules counts one folder's egress rules.
+func folderRules(t *testing.T, db *sql.DB, folder string) int {
+	t.Helper()
+	rules, err := store.New(db).ListNetworkRules(folder)
+	if err != nil {
+		t.Fatalf("ListNetworkRules(%q): %v", folder, err)
+	}
+	return len(rules)
+}
+
 // TestMissingGroup_NetworkRulesOrphanIsRealToday proves the gap the rule
-// closes is real, not hypothetical: network_rules.folder has NO foreign key
-// (folder=” instance-global rows would fail one), so an apply naming a
-// folder that is not a group commits a silently orphaned row. This test
-// asserts the ORPHAN LANDS when the preflight is bypassed — if a future
-// migration adds the FK, this test fails and the rule's justification must be
-// re-read, which is exactly the signal wanted.
+// closes is real, not hypothetical: nothing binds a network rule's folder to a
+// group, so an apply naming a folder that is not a group commits a silently
+// orphaned row. This test asserts the ORPHAN LANDS when the preflight is
+// bypassed — if a binding is ever added, this test fails and the rule's
+// justification must be re-read, which is exactly the signal wanted.
 func TestMissingGroup_NetworkRulesOrphanIsRealToday(t *testing.T) {
 	db := openMem(t)
 	seedGroup(t, db, "corp/eng")
 
-	// Migration 0005 seeds two folder='' instance-global rows, so scope the
-	// before/after counts to the folder under test rather than the table.
-	var before int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM network_rules WHERE folder = 'corp/typo'`).Scan(&before); err != nil {
-		t.Fatal(err)
-	}
-	if before != 0 {
+	// store.SeedRoutdFloor lands two folder='' instance-global rows, so scope
+	// the before/after counts to the folder under test rather than the entity.
+	if before := folderRules(t, db, "corp/typo"); before != 0 {
 		t.Fatalf("corp/typo must start with no rules, got %d", before)
 	}
 
@@ -61,11 +67,7 @@ func TestMissingGroup_NetworkRulesOrphanIsRealToday(t *testing.T) {
 		}, nil); err != nil {
 		t.Fatalf("apply without preflight should succeed today (that IS the gap): %v", err)
 	}
-	var after int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM network_rules WHERE folder = 'corp/typo'`).Scan(&after); err != nil {
-		t.Fatal(err)
-	}
-	if after != 1 {
+	if after := folderRules(t, db, "corp/typo"); after != 1 {
 		t.Fatalf("orphan network_rules row count = %d, want 1 — the gap this rule closes", after)
 	}
 }
@@ -121,18 +123,14 @@ func TestMissingGroup_AcceptsFolderDeclaredInTheSameManifest(t *testing.T) {
 		routdChecksum(t, db), false, manifest, nil); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
-	var n int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM network_rules WHERE folder = 'new/team'`).Scan(&n); err != nil {
-		t.Fatal(err)
-	}
-	if n != 1 {
+	if n := folderRules(t, db, "new/team"); n != 1 {
 		t.Fatalf("network_rules rows for new/team = %d, want 1", n)
 	}
 }
 
 // TestMissingGroup_InstanceGlobalFolderExempt: network_rules carries
-// folder=” for instance-global egress rules — the very reason that column
-// has no FK. The rule must not reject them.
+// folder=” for instance-global egress rules — the very reason the folder is
+// bound to nothing. The rule must not reject them.
 func TestMissingGroup_InstanceGlobalFolderExempt(t *testing.T) {
 	db := openMem(t)
 	manifest := map[string]any{
@@ -147,12 +145,11 @@ func TestMissingGroup_InstanceGlobalFolderExempt(t *testing.T) {
 	}
 }
 
-// TestMissingGroup_CatchesWebRoutesBeforeTheFKWould: web_routes.folder DOES
-// have an FK, so an apply would fail mid-write. The rule's value here is
-// timing, not detection — it refuses before any transaction opens. Asserts
-// both halves: the rule names it, AND an unguarded apply of the same
-// manifest fails (proving the row never silently lands either way).
-func TestMissingGroup_CatchesWebRoutesBeforeTheFKWould(t *testing.T) {
+// TestMissingGroup_CatchesWebRoutesFolder: web_routes names a folder the same
+// way network_rules does, and this is the second resource the rule reads — so
+// a rule that only ever looked at one of them would pass its own tests. It
+// refuses before any transaction opens, and names the resource and the folder.
+func TestMissingGroup_CatchesWebRoutesFolder(t *testing.T) {
 	db := openMem(t)
 	seedGroup(t, db, "corp/eng")
 	manifest := map[string]any{

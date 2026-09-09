@@ -1,10 +1,13 @@
 package store
 
 import (
+	"context"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 )
 
 // putBareGroup is a test helper: minimal PutGroup that lands a row with
@@ -147,9 +150,18 @@ func TestGroupByFolder_IgnoresLeftoverMaxChildren(t *testing.T) {
 	}
 	defer s.Close()
 	putBareGroup(t, s, "rhias")
-	if _, err := s.DB().Exec(
-		`UPDATE groups SET container_config = ? WHERE folder = ?`,
-		`{"Mounts":null,"Timeout":90000000000,"MaxChildren":16}`, "rhias"); err != nil {
+	// core.GroupConfig cannot render the leftover key, so the fixture writes the
+	// attribute groups.go declares for the spawn document.
+	key, err := groupKey("rhias")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.WriteEntities(context.Background(), nil, objstore.Write{
+		Op: objstore.Update, Entity: Groups, Key: key,
+		Attrs: map[string]string{
+			attrGrpContainerConfig: `{"Mounts":null,"Timeout":90000000000,"MaxChildren":16}`,
+		},
+	}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -200,38 +212,31 @@ func TestDeleteGroup_CascadesEveryPointerAtomically(t *testing.T) {
 		t.Fatalf("DeleteGroup: %v", err)
 	}
 
+	if _, ok := s.GroupByFolder("doomed"); ok {
+		t.Error("the groups row survived its own delete")
+	}
 	for _, c := range []struct {
 		what string
-		sql  string
+		got  int
 		want int
 	}{
-		{"groups", `SELECT COUNT(*) FROM groups WHERE folder='doomed'`, 0},
-		{"routes", `SELECT COUNT(*) FROM routes WHERE target='doomed' OR target LIKE 'doomed#%'`, 0},
-		{"tasks", `SELECT COUNT(*) FROM scheduled_tasks WHERE owner='doomed'`, 0},
+		{"routes aimed at doomed", routesTo(t, s, "doomed"), 0},
+		{"doomed's tasks", tasksOwnedBy(t, s, "doomed"), 0},
 	} {
-		var n int
-		if err := s.DB().QueryRow(c.sql).Scan(&n); err != nil {
-			t.Fatalf("%s: %v", c.what, err)
-		}
-		if n != c.want {
-			t.Errorf("%s left %d row(s), want %d", c.what, n, c.want)
+		if c.got != c.want {
+			t.Errorf("%s left %d row(s), want %d", c.what, c.got, c.want)
 		}
 	}
-	// A sibling folder must not be touched: the cascade keys on the exact
+	// A sibling folder must not be touched: the purge keys on the exact
 	// folder, and `doomed` is a prefix of nothing here by accident.
-	var kept int
-	if err := s.DB().QueryRow(`SELECT COUNT(*) FROM routes WHERE target='keeper'`).Scan(&kept); err != nil {
-		t.Fatal(err)
+	if _, ok := s.GroupByFolder("keeper"); !ok {
+		t.Error("keeper's group row went with doomed's")
 	}
-	if kept != 1 {
+	if kept := routesTo(t, s, "keeper"); kept != 1 {
 		t.Errorf("keeper's route count = %d, want 1", kept)
 	}
-	var keptTasks int
-	if err := s.DB().QueryRow(`SELECT COUNT(*) FROM scheduled_tasks WHERE owner='keeper'`).Scan(&keptTasks); err != nil {
-		t.Fatal(err)
-	}
-	if keptTasks == 0 {
-		t.Error("keeper lost its tasks: the cascade is not scoped to the deleted folder")
+	if keptTasks := tasksOwnedBy(t, s, "keeper"); keptTasks == 0 {
+		t.Error("keeper lost its tasks: the purge is not scoped to the deleted folder")
 	}
 }
 
@@ -296,4 +301,33 @@ func TestGroupRowTracksTheSetters(t *testing.T) {
 	if again.Open || again.ObserveWindowMessages != 12 {
 		t.Errorf("a PutGroup round-trip clobbered config values: %+v", again)
 	}
+}
+
+// routesTo counts the rules aimed at one folder, its topics included.
+func routesTo(t *testing.T, s *Store, folder string) int {
+	t.Helper()
+	rows, err := s.RouteTable()
+	if err != nil {
+		t.Fatalf("RouteTable: %v", err)
+	}
+	n := 0
+	for _, r := range rows {
+		if r.Target == folder || strings.HasPrefix(r.Target, folder+"#") {
+			n++
+		}
+	}
+	return n
+}
+
+// tasksOwnedBy counts one folder's scheduled tasks, read as root so the count
+// is the whole table's and not a scope's.
+func tasksOwnedBy(t *testing.T, s *Store, folder string) int {
+	t.Helper()
+	n := 0
+	for _, task := range s.ListTasks("", true) {
+		if task.Owner == folder {
+			n++
+		}
+	}
+	return n
 }

@@ -109,11 +109,18 @@ func TestConsumeInviteHappyPath(t *testing.T) {
 		t.Errorf("used_count = %d, want 1", got.UsedCount)
 	}
 
-	var n int
-	s.db.QueryRow(`SELECT COUNT(*) FROM acl WHERE principal=? AND action='admin' AND scope=?`,
-		"github:bob", "alice").Scan(&n)
+	rows, err := s.ListACL("github:bob")
+	if err != nil {
+		t.Fatalf("ListACL: %v", err)
+	}
+	n := 0
+	for _, r := range rows {
+		if r.Action == "admin" && r.Scope == "alice" {
+			n++
+		}
+	}
 	if n != 1 {
-		t.Errorf("acl rows for bob/alice = %d, want 1", n)
+		t.Errorf("acl rows for bob/alice = %d, want 1 (of %+v)", n, rows)
 	}
 }
 

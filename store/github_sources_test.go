@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/kronael/arizuko/objstore"
 )
 
 func TestGitHubSourceKey(t *testing.T) {
@@ -88,10 +90,7 @@ func TestGitHubSource_AddListSecretRemove(t *testing.T) {
 	if len(secret) < 40 {
 		t.Fatalf("secret too short: %q", secret)
 	}
-	var stored string
-	if err := s.db.QueryRow(`SELECT secret FROM github_sources WHERE source='org/kronael'`).Scan(&stored); err != nil {
-		t.Fatal(err)
-	}
+	stored := storedGitHubSecret(t, s, "org/kronael")
 	if !strings.HasPrefix(stored, secretV2Prefix) || strings.Contains(stored, secret) {
 		t.Fatalf("secret stored in plaintext: %q", stored)
 	}
@@ -146,4 +145,26 @@ func TestGitHubSource_NoKeyRefuses(t *testing.T) {
 	if _, err := s.AddGitHubSourceTx(context.Background(), tx, GitHubSource{Source: "app/x", OwnerFolder: "eng"}, "eng"); !errors.Is(err, ErrNoSecretsKey) {
 		t.Fatalf("err = %v, want ErrNoSecretsKey", err)
 	}
+}
+
+// storedGitHubSecret reads the sealed value off the item. No reader hands back
+// the value at rest — GitHubSourceSecret opens it — so the at-rest assertion
+// addresses the coordinate and the attribute name github_sources.go declares.
+func storedGitHubSecret(t *testing.T, s *Store, source string) string {
+	t.Helper()
+	key, err := githubSourceKey(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := s.Obj().Query(context.Background(), objstore.Query{
+		Entity: GitHubSources, Partition: OwnerRoutd,
+		Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: key.Sort},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("github_sources items for %q = %d, want 1", source, len(items))
+	}
+	return items[0].Attrs[attrGHSecret]
 }

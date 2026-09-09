@@ -6,9 +6,10 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"testing"
+
+	"github.com/kronael/arizuko/objstore"
 )
 
 // IssuePairingLink is the one pairing minter, and both shapes of caller reach
@@ -55,21 +56,18 @@ func TestIssuePairingLink_StoresOnlyTheHash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var stored []byte
-	if err := s.db.QueryRow(`SELECT token_hash FROM route_tokens`).Scan(&stored); err != nil {
-		t.Fatal(err)
-	}
-	if string(stored) == raw {
+	stored := onlyRouteTokenItem(t, s).Key.Sort
+	if stored == raw {
 		t.Fatal("the bearer itself was stored")
 	}
-	if _, err := s.PeekPairing(string(stored)); !errors.Is(err, ErrPairingUnavailable) {
+	if _, err := s.PeekPairing(stored); !errors.Is(err, ErrPairingUnavailable) {
 		t.Errorf("the stored hash redeemed as if it were the bearer: %v", err)
 	}
 }
 
 // onbod's greeting has no folder to name — the whole reason blocker 2 relaxed
-// owner_folder. An empty ownerFolder must insert as NULL and stay redeemable;
-// against the pre-migration schema this INSERT failed the NOT NULL constraint.
+// owner_folder. An empty ownerFolder must write NO owner_folder attribute,
+// which is the only null this model has, and stay redeemable.
 func TestIssuePairingLink_EmptyOwnerFolderStoresNull(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
@@ -78,12 +76,8 @@ func TestIssuePairingLink_EmptyOwnerFolderStoresNull(t *testing.T) {
 	if err != nil {
 		t.Fatalf("mint with no owner folder: %v", err)
 	}
-	var owner sql.NullString
-	if err := s.db.QueryRow(`SELECT owner_folder FROM route_tokens`).Scan(&owner); err != nil {
-		t.Fatal(err)
-	}
-	if owner.Valid {
-		t.Errorf("owner_folder = %q, want NULL", owner.String)
+	if owner, ok := onlyRouteTokenItem(t, s).Attrs[attrTokOwnerFolder]; ok {
+		t.Errorf("owner_folder = %q, want the attribute absent", owner)
 	}
 	if jid, err := s.PeekPairing(raw); err != nil || jid != "telegram:user/1" {
 		t.Errorf("an owner-less pairing did not resolve: (%q, %v)", jid, err)
@@ -116,16 +110,34 @@ func TestIssuePairingLink_NullOwnerStaysHiddenFromDelivery(t *testing.T) {
 func TestIssuePairingLink_RejectsEmptyJID(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
-	// Seeded, so the only thing left to reject is the jid. Without it the FK on
-	// owner_folder produces the error and the guard is never exercised.
+	// Seeded so the owner folder is a real group and the only thing left to
+	// reject is the jid.
 	seedFolder(t, s, "acme")
 
 	if _, err := s.IssuePairingLink(context.Background(), nil, "", "acme"); err == nil {
 		t.Fatal("minting a pairing for no jid must fail")
 	}
-	var n int
-	s.db.QueryRow(`SELECT COUNT(*) FROM route_tokens`).Scan(&n)
+	n, err := s.CountRouteTokens(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if n != 0 {
 		t.Errorf("a refused mint still wrote %d rows", n)
 	}
+}
+
+// onlyRouteTokenItem is the one credential the store holds, for the two
+// assertions that read what is AT REST rather than what a reader hands back.
+func onlyRouteTokenItem(t *testing.T, s *Store) objstore.Item {
+	t.Helper()
+	items, err := s.Obj().Query(context.Background(), objstore.Query{
+		Entity: RouteTokens, Partition: OwnerRoutd,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("route_tokens items = %d, want 1", len(items))
+	}
+	return items[0]
 }

@@ -6,6 +6,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 )
 
 // openMemSealed opens an in-memory store that carries a keyring, like every
@@ -22,16 +25,30 @@ func openMemSealed(t *testing.T) *Store {
 	return s
 }
 
+// rawSecretValue is what is AT REST: no reader hands the sealed blob back, so
+// the encryption assertions read the item at the coordinate secrets.go declares.
 func rawSecretValue(t *testing.T, s *Store, scope SecretScope, scopeID, key string) string {
 	t.Helper()
-	var v string
-	if err := s.db.QueryRow(
-		`SELECT value FROM secrets WHERE scope_kind=? AND scope_id=? AND key=?`,
-		string(scope), scopeID, key,
-	).Scan(&v); err != nil {
-		t.Fatalf("rawSecretValue: %v", err)
+	return secretItem(t, s, scope, scopeID, key).Attrs[attrSecValue]
+}
+
+func secretItem(t *testing.T, s *Store, scope SecretScope, scopeID, key string) objstore.Item {
+	t.Helper()
+	k, err := secretKey(scope, scopeID, key)
+	if err != nil {
+		t.Fatal(err)
 	}
-	return v
+	items, err := s.Obj().Query(context.Background(), objstore.Query{
+		Entity: Secrets, Partition: OwnerRoutd,
+		Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: k.Sort},
+	})
+	if err != nil {
+		t.Fatalf("read secret %s/%s/%s: %v", scope, scopeID, key, err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("secret items at %s/%s/%s = %d, want 1", scope, scopeID, key, len(items))
+	}
+	return items[0]
 }
 
 // TestValidateAndImportSecrets_ValidatesAllBeforeWritingAny is Finding 5
@@ -183,10 +200,17 @@ func TestSecret_EncryptionAtRest_RoundTrip(t *testing.T) {
 // read-through tests must insert it directly.
 func seedLegacyPlaintext(t *testing.T, s *Store, scope SecretScope, scopeID, key, value string) {
 	t.Helper()
-	if _, err := s.db.Exec(
-		`INSERT INTO secrets (scope_kind, scope_id, key, value, created_at) VALUES (?, ?, ?, ?, ?)`,
-		string(scope), scopeID, key, value, time.Now().UTC().Format(time.RFC3339),
-	); err != nil {
+	k, err := secretKey(scope, scopeID, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.WriteEntities(context.Background(), nil, objstore.Write{
+		Op: objstore.Put, Entity: Secrets, Key: k,
+		Attrs: map[string]string{
+			attrSecValue:     value,
+			attrSecCreatedAt: core.NowTS(),
+		},
+	}); err != nil {
 		t.Fatalf("seedLegacyPlaintext: %v", err)
 	}
 }
@@ -384,10 +408,18 @@ func TestSetSecret_Overwrites(t *testing.T) {
 		t.Errorf("Value = %q, want v2", got.Value)
 	}
 
-	var n int
-	s.db.QueryRow(`SELECT COUNT(*) FROM secrets WHERE scope_kind='folder' AND scope_id='atlas' AND key='K'`).Scan(&n)
+	keys, err := s.SecretKeysIn(ScopeFolder, "atlas")
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, k := range keys {
+		if k.Key == "K" {
+			n++
+		}
+	}
 	if n != 1 {
-		t.Errorf("rows = %d, want 1", n)
+		t.Errorf("rows = %d, want 1 (of %+v)", n, keys)
 	}
 }
 

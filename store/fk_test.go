@@ -1,37 +1,55 @@
 package store
 
 import (
+	"context"
 	"path/filepath"
-	"strings"
 	"testing"
-	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 
 	"github.com/kronael/arizuko/audit"
 )
 
-// FK enforcement rides the DSN (`_pragma=foreign_keys(on)`) so every
-// pooled connection has it on — both Open() and OpenMem(). Drop that DSN
-// pragma and the CASCADE assertions below go red, which is the regression
-// guard: a one-shot `PRAGMA foreign_keys=ON` only covers one connection.
+// What a group delete takes away, and what it leaves.
+//
+// AN ENTITY HAS NO FOREIGN KEY, so nothing here rides on a cascade: every row a
+// delete removes is removed by store/folder_scope.go's purge, explicitly, by
+// the same containment predicate for every scope. web_routes and route_tokens
+// are two of the scopes it names (BUGS L253).
 
-// These two write and count web_routes with raw SQL on purpose. The subject is
-// the migration's FOREIGN KEY, not any Go method, and routd owns the writer —
-// reaching for one here would test the wrong package.
-func insertWebRoute(s *Store, prefix, folder string) error {
-	_, err := s.db.Exec(
-		`INSERT INTO web_routes (path_prefix, access, redirect_to, folder, created_at)
-		 VALUES (?, 'public', '', ?, ?)`,
-		prefix, folder, time.Now().UTC().Format(time.RFC3339))
-	return err
+// seedWebRoute writes one web_route item. routd owns every write of this
+// entity (web_routes.go says so), so the fixture addresses the coordinate and
+// the attribute names that file EXPORTS rather than minting a second spelling.
+func seedWebRoute(t *testing.T, s *Store, prefix, folder string) {
+	t.Helper()
+	key, err := WebRouteKey(prefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.WriteEntities(context.Background(), nil, objstore.Write{
+		Op: objstore.Put, Entity: WebRoutes, Key: key,
+		Attrs: map[string]string{
+			AttrWebAccess:    "public",
+			AttrWebFolder:    folder,
+			AttrWebCreatedAt: core.NowTS(),
+		},
+	}); err != nil {
+		t.Fatalf("seed web route %s: %v", prefix, err)
+	}
 }
 
-func countWebRoutes(s *Store, folder string) int {
-	var n int
-	if err := s.db.QueryRow(
-		`SELECT COUNT(*) FROM web_routes WHERE folder = ?`, folder).Scan(&n); err != nil {
-		return -1
+func countWebRoutes(t *testing.T, s *Store, folder string) int {
+	t.Helper()
+	all, err := s.AllWebRoutes()
+	if err != nil {
+		t.Fatalf("AllWebRoutes: %v", err)
+	}
+	n := 0
+	for _, wr := range all {
+		if wr.Folder == folder {
+			n++
+		}
 	}
 	return n
 }
@@ -47,65 +65,28 @@ func openFKStore(t *testing.T) *Store {
 	return s
 }
 
-// TestFK_WebRoutes_RejectsUnknownFolder verifies migration 0068:
-// web_routes.folder → groups.folder rejects rows whose folder has
-// no parent group.
-func TestFK_WebRoutes_RejectsUnknownFolder(t *testing.T) {
-	s := openFKStore(t)
-	err := insertWebRoute(s, "/pub/ghost/", "ghost-folder-with-no-group")
-	if err == nil {
-		t.Fatal("expected FK violation, got nil")
-	}
-	if !strings.Contains(err.Error(), "FOREIGN KEY") &&
-		!strings.Contains(err.Error(), "constraint") {
-		t.Fatalf("expected FK error, got: %v", err)
-	}
-}
-
-// TestFK_WebRoutes_CascadeOnGroupDelete verifies that deleting a group
-// cascades to its web_routes (migration 0068, ON DELETE CASCADE).
-func TestFK_WebRoutes_CascadeOnGroupDelete(t *testing.T) {
+// TestWebRoutes_PurgedOnGroupDelete: deleting a group removes its web_routes.
+func TestWebRoutes_PurgedOnGroupDelete(t *testing.T) {
 	s := openFKStore(t)
 	if err := s.PutGroup(core.Group{Folder: "acme"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := insertWebRoute(s, "/pub/acme/", "acme"); err != nil {
-		t.Fatal(err)
-	}
-	if got := countWebRoutes(s, "acme"); got != 1 {
+	seedWebRoute(t, s, "/pub/acme/", "acme")
+	if got := countWebRoutes(t, s, "acme"); got != 1 {
 		t.Fatalf("seed: want 1 web_route, got %d", got)
 	}
 
 	if _, err := s.DeleteGroup("acme"); err != nil {
 		t.Fatal(err)
 	}
-	if got := countWebRoutes(s, "acme"); got != 0 {
-		t.Fatalf("after group delete: want 0 web_routes (CASCADE), got %d", got)
+	if got := countWebRoutes(t, s, "acme"); got != 0 {
+		t.Fatalf("after group delete: want 0 web_routes, got %d", got)
 	}
 }
 
-// TestFK_RouteTokens_RejectsUnknownFolder verifies migration 0069:
-// route_tokens.owner_folder → groups.folder rejects rows whose
-// owner_folder has no parent group.
-func TestFK_RouteTokens_RejectsUnknownFolder(t *testing.T) {
-	s := openFKStore(t)
-	raw := GenRouteToken()
-	err := s.InsertRouteToken(raw, RouteToken{
-		JID:         "web:ghost",
-		OwnerFolder: "ghost-folder-with-no-group",
-	})
-	if err == nil {
-		t.Fatal("expected FK violation, got nil")
-	}
-	if !strings.Contains(err.Error(), "FOREIGN KEY") &&
-		!strings.Contains(err.Error(), "constraint") {
-		t.Fatalf("expected FK error, got: %v", err)
-	}
-}
-
-// TestFK_RouteTokens_CascadeOnGroupDelete verifies that deleting a group
-// cascades to its route_tokens (migration 0069, ON DELETE CASCADE).
-func TestFK_RouteTokens_CascadeOnGroupDelete(t *testing.T) {
+// TestRouteTokens_PurgedOnGroupDelete: deleting a group removes the delivery
+// bearers it owns, so a revoked folder's token stops resolving.
+func TestRouteTokens_PurgedOnGroupDelete(t *testing.T) {
 	s := openFKStore(t)
 	if err := s.PutGroup(core.Group{Folder: "acme"}); err != nil {
 		t.Fatal(err)
@@ -125,57 +106,16 @@ func TestFK_RouteTokens_CascadeOnGroupDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := s.ListRouteTokens("acme"); len(got) != 0 {
-		t.Fatalf("after group delete: want 0 route_tokens (CASCADE), got %d", len(got))
+		t.Fatalf("after group delete: want 0 route_tokens, got %d", len(got))
 	}
 	if _, ok := s.LookupRouteToken(raw); ok {
-		t.Fatal("after group delete: token still resolves (CASCADE didn't fire)")
-	}
-}
-
-// TestFK_TaskRunLogs_CascadeOnTaskDelete verifies the pre-existing FK
-// from migration 0011: task_run_logs.task_id → scheduled_tasks.id
-// ON DELETE CASCADE. Pin the contract.
-func TestFK_TaskRunLogs_CascadeOnTaskDelete(t *testing.T) {
-	s := openFKStore(t)
-	db := s.DB()
-	_, err := db.Exec(
-		`INSERT INTO scheduled_tasks (id, owner, chat_jid, prompt, status, created_at)
-		 VALUES (?, ?, ?, ?, ?, datetime('now'))`,
-		"task-1", "system", "acme", "noop", "active",
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = db.Exec(
-		`INSERT INTO task_run_logs (task_id, run_at, status)
-		 VALUES (?, datetime('now'), 'ok')`,
-		"task-1",
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var n int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM task_run_logs WHERE task_id='task-1'`).Scan(&n); err != nil {
-		t.Fatal(err)
-	}
-	if n != 1 {
-		t.Fatalf("seed: want 1 run log, got %d", n)
-	}
-	if _, err := db.Exec(`DELETE FROM scheduled_tasks WHERE id='task-1'`); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.QueryRow(`SELECT COUNT(*) FROM task_run_logs WHERE task_id='task-1'`).Scan(&n); err != nil {
-		t.Fatal(err)
-	}
-	if n != 0 {
-		t.Fatalf("after task delete: want 0 run logs (CASCADE), got %d", n)
+		t.Fatal("after group delete: token still resolves (the purge did not fire)")
 	}
 }
 
 // TestFK_HistoryTablesStrandOnGroupDelete verifies that history tables
-// (messages, audit_log, cost_log) are NOT cascade-deleted on group
-// removal — per spec 5/8 they must strand. This pins the absence of
-// a FK on these tables.
+// (messages, audit_log, cost_log) are NOT deleted on group removal — per spec
+// 5/8 they must strand. This pins the absence of a FK on these tables.
 func TestFK_HistoryTablesStrandOnGroupDelete(t *testing.T) {
 	s := openFKStore(t)
 	db := s.DB()

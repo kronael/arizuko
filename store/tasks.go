@@ -179,17 +179,41 @@ func (s *Store) allTasks(ctx context.Context) ([]objstore.Item, error) {
 // transaction — so this path emits none rather than a second, different record
 // of one act.
 //
-// The write is an unconditional Put, which is what a plain `INSERT` said: a
-// second create on one id replaces the task rather than being refused.
+// The write is create-if-absent and a refusal is an ERROR, because the id is a
+// caller-chosen handle: `arizuko task add` and the agent's create both name it,
+// and a create that silently replaced one would take over a live schedule's
+// prompt and cron under the operator who owns it.
 func (s *Store) CreateTask(t core.Task) error {
-	key, err := taskKey(t.ID)
+	w, err := taskCreate(t)
 	if err != nil {
 		return err
 	}
-	_, err = s.WriteEntities(context.Background(), nil, objstore.Write{
+	committed, err := s.WriteEntities(context.Background(), nil, w)
+	if err != nil {
+		return err
+	}
+	return taskCreateRefusal(committed, t.ID)
+}
+
+// taskCreate renders the create-if-absent write both creators issue.
+func taskCreate(t core.Task) (objstore.Write, error) {
+	key, err := taskKey(t.ID)
+	if err != nil {
+		return objstore.Write{}, err
+	}
+	return objstore.Write{
 		Op: objstore.Put, Entity: ScheduledTasks, Key: key, Attrs: taskAttrs(t),
-	})
-	return err
+		Cond: objstore.Cond{Item: objstore.ItemAbsent},
+	}, nil
+}
+
+// taskCreateRefusal names what a refused create means: the id is taken. It is
+// the only thing that can refuse a create-if-absent.
+func taskCreateRefusal(committed bool, id string) error {
+	if committed {
+		return nil
+	}
+	return fmt.Errorf("scheduled task %q already exists", id)
 }
 
 // SetTaskStatus updates one task's status. The agent's pause and resume reach
@@ -546,18 +570,18 @@ func (s *Store) SeedDefaultTasks(folder, chatJID string) error {
 // audited twins there would open a second transaction on the same database and
 // record one act twice.
 
-// CreateTaskTx inserts one scheduled task on a transaction the caller owns. The
-// write is an unconditional Put, which is what a plain `INSERT` said: a second
-// create on one id replaces the task rather than being refused.
+// CreateTaskTx inserts one scheduled task on a transaction the caller owns. It
+// is CreateTask's tx-bound twin and refuses a taken id for the same reason.
 func (s *Store) CreateTaskTx(ctx context.Context, tx *sql.Tx, t core.Task) error {
-	key, err := taskKey(t.ID)
+	w, err := taskCreate(t)
 	if err != nil {
 		return err
 	}
-	_, err = s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
-		Op: objstore.Put, Entity: ScheduledTasks, Key: key, Attrs: taskAttrs(t),
-	})
-	return err
+	committed, err := s.WriteEntitiesInTx(ctx, tx, nil, w)
+	if err != nil {
+		return err
+	}
+	return taskCreateRefusal(committed, t.ID)
 }
 
 // SetTaskStatusTx flips one task's status on a transaction the caller owns —

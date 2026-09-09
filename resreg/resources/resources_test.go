@@ -55,20 +55,11 @@ func openMem(t *testing.T) *sql.DB {
 			t.Fatalf("ensure %s: %v", subsystem, err)
 		}
 	}
-	// The frozen chain builds the PRE-SPLIT schema, so it genuinely predates
-	// every column an owner's chain added after the freeze. A resource
-	// registered here reads its OWNER's table, and a RowType that names all of
-	// it — which is what keeps an apply from resetting a column to its default
-	// (BUGS L265) — needs the fixture to carry the owner's columns rather than
-	// the resource pretending the live table is narrower than it is.
-	// routd migrations 0039 and 0040 are the two past the freeze.
-	for _, ddl := range []string{
-		`ALTER TABLE pending_actions ADD COLUMN mode TEXT NOT NULL DEFAULT 'async'`,
-		`ALTER TABLE pending_actions ADD COLUMN notice_id TEXT NOT NULL DEFAULT ''`,
-	} {
-		if _, err := db.Exec(ddl); err != nil {
-			t.Fatalf("routd-era column: %v", err)
-		}
+	// The floor a routd.db is BORN with. routd's own opener calls it and
+	// store.Migrate does not, because a seed is a row an entity holds and the
+	// driver makes the entity after the chain has run (store/seed.go).
+	if err := store.SeedRoutdFloor(context.Background(), obj); err != nil {
+		t.Fatalf("seed the routd floor: %v", err)
 	}
 	return db
 }
@@ -108,17 +99,29 @@ func TestExport_FreshDB(t *testing.T) {
 	if !ok {
 		t.Fatalf("Export missing network_rules key")
 	}
-	// Fresh DB: 2 seeded global network_rules rows.
+	// The floor: two instance-wide egress rules (store.SeedRoutdFloor).
 	if len(nr) != 2 {
-		t.Errorf("network_rules = %d rows, want 2 (seeded globals)", len(nr))
+		t.Errorf("network_rules = %d rows, want 2 (the seeded floor)", len(nr))
 	}
 	acl, ok := m["acl"].([]ACLRow)
 	if !ok {
 		t.Fatalf("Export missing acl key")
 	}
-	// Fresh DB: 1 seeded acl row (`role:operator,*,**`).
-	if len(acl) != 1 {
-		t.Errorf("acl = %d rows, want 1 (seeded operator role)", len(acl))
+	// The floor: role:operator's root grant plus role:member's twelve verbs.
+	if len(acl) != 13 {
+		t.Errorf("acl = %d rows, want 13 (the seeded floor)", len(acl))
+	}
+	root := false
+	for _, r := range acl {
+		if r.Principal == store.RoleOperator && r.Action == "*" && r.Scope == "**" {
+			root = true
+			if !r.GrantOption {
+				t.Error("the delegation root exported without its grant option")
+			}
+		}
+	}
+	if !root {
+		t.Error("Export dropped role:operator's root grant")
 	}
 }
 
@@ -246,29 +249,38 @@ func TestApply_Groups_WithJSONBlob(t *testing.T) {
 
 func TestApply_Secrets_SkipsRebuild(t *testing.T) {
 	db := openMem(t)
-	// Manually insert a value row (the imperative path).
-	_, err := db.Exec(
-		`INSERT INTO secrets (scope_kind, scope_id, key, value, created_at)
-		 VALUES (?, ?, ?, ?, ?)`,
-		"folder", "atlas", "openai", "v1:ciphertext",
-		time.Now().UTC().Format(time.RFC3339),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// The imperative path: one live secret, written through its own writer.
+	seedSecret(t, db, "atlas", "openai")
 	c0 := routdChecksum(t, db)
 	// Apply with EMPTY secrets list — must NOT wipe the row.
-	_, err = resreg.Apply(context.Background(), resreg.OnDB(db), resreg.SubsystemRoutd, c0, false, map[string]any{
+	if _, err := resreg.Apply(context.Background(), resreg.OnDB(db), resreg.SubsystemRoutd, c0, false, map[string]any{
 		"secrets": []SecretsRow{},
-	}, nil)
-	if err != nil {
+	}, nil); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
-	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM secrets`).Scan(&n)
-	if n != 1 {
+	if n := countSecrets(t, db, "atlas"); n != 1 {
 		t.Errorf("secrets preserved? count=%d, want 1", n)
 	}
+}
+
+// seedSecret writes one folder-scoped secret through store's own writer, which
+// seals it: the value never travels, so what it is does not matter here.
+func seedSecret(t *testing.T, db *sql.DB, folder, key string) {
+	t.Helper()
+	s := store.New(db)
+	s.SetSecretKeys([]byte("resources-test-key"))
+	if err := s.SetSecret(store.ScopeFolder, folder, key, "ciphertext"); err != nil {
+		t.Fatalf("seed secret %s/%s: %v", folder, key, err)
+	}
+}
+
+func countSecrets(t *testing.T, db *sql.DB, folder string) int {
+	t.Helper()
+	keys, err := store.New(db).SecretKeysIn(store.ScopeFolder, folder)
+	if err != nil {
+		t.Fatalf("SecretKeysIn(%q): %v", folder, err)
+	}
+	return len(keys)
 }
 
 func TestMembership_CycleRejected(t *testing.T) {
@@ -337,13 +349,11 @@ func TestMembership_PairingRowsExcludedFromChecksumAndRebuild(t *testing.T) {
 		t.Fatalf("seed role membership: %v", err)
 	}
 	c1 := routdChecksum(t, db)
-	// Insert a pairing edge directly (the imperative redemption path, not
-	// through resreg.Insert — mirrors how routd's pairing redemption writes
-	// it: raw SQL, added_by='pairing').
-	if _, err := db.Exec(
-		`INSERT INTO acl_membership (child, parent, added_by, added_at) VALUES (?, ?, 'pairing', ?)`,
-		"telegram:user/1", "google:alice", time.Now().UTC().Format(time.RFC3339),
-	); err != nil {
+	// Write a pairing edge the imperative way, not through resreg.Insert —
+	// store's own membership writer, stamped added_by='pairing' exactly as the
+	// redemption stamps it.
+	if err := store.New(db).PutMembership(
+		"telegram:user/1", "google:alice", store.PairingAddedBy); err != nil {
 		t.Fatal(err)
 	}
 	c2 := routdChecksum(t, db)
@@ -366,14 +376,18 @@ func TestMembership_PairingRowsExcludedFromChecksumAndRebuild(t *testing.T) {
 	}, nil); err != nil {
 		t.Fatalf("rebuild apply: %v", err)
 	}
-	var n int
-	if err := db.QueryRow(
-		`SELECT COUNT(*) FROM acl_membership WHERE child='telegram:user/1' AND parent='google:alice' AND added_by='pairing'`,
-	).Scan(&n); err != nil {
+	edges, err := store.New(db).ParentEdges("telegram:user/1")
+	if err != nil {
 		t.Fatal(err)
 	}
+	n := 0
+	for _, e := range edges {
+		if e.Parent == "google:alice" && e.AddedBy == store.PairingAddedBy {
+			n++
+		}
+	}
 	if n != 1 {
-		t.Errorf("pairing edge survived count = %d, want 1 (apply's rebuild must not touch it)", n)
+		t.Errorf("pairing edge survived count = %d, want 1 (apply's rebuild must not touch it): %+v", n, edges)
 	}
 }
 
@@ -461,14 +475,7 @@ func TestDiff_IgnoresStampedTimestamp(t *testing.T) {
 // plan reports no change for secrets (spec 5/8 §"Secret safety").
 func TestPlanApplyAgree_Secrets(t *testing.T) {
 	db := openMem(t)
-	if _, err := db.Exec(
-		`INSERT INTO secrets (scope_kind, scope_id, key, value, created_at)
-		 VALUES (?, ?, ?, ?, ?)`,
-		"folder", "atlas", "openai", "v1:ciphertext",
-		time.Now().UTC().Format(time.RFC3339),
-	); err != nil {
-		t.Fatal(err)
-	}
+	seedSecret(t, db, "atlas", "openai")
 	// Manifest declares a DIFFERENT secret triple than what's live.
 	manifest := map[string]any{
 		"secrets": []SecretsRow{{ScopeKind: "folder", ScopeID: "ops", Key: "github_token"}},
@@ -488,9 +495,7 @@ func TestPlanApplyAgree_Secrets(t *testing.T) {
 	if _, err := resreg.Apply(context.Background(), resreg.OnDB(db), resreg.SubsystemRoutd, c0, false, manifest, nil); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
-	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM secrets WHERE scope_id='atlas' AND key='openai'`).Scan(&n)
-	if n != 1 {
+	if n := countSecrets(t, db, "atlas"); n != 1 {
 		t.Errorf("live secret wiped by apply (count=%d); plan said no change", n)
 	}
 }
@@ -880,21 +885,14 @@ func TestExport_OmitsInviteToken(t *testing.T) {
 // archival value, and must never appear in a YAML document at all.
 func TestRouteTokens_PairingExcludedFromExport(t *testing.T) {
 	db := openMem(t)
-	if _, err := db.Exec(`INSERT INTO groups (folder, added_at, product) VALUES ('atlas', ?, 'assistant')`,
-		time.Now().UTC().Format(time.RFC3339)); err != nil {
+	seedGroup(t, db, "atlas")
+	s := store.New(db)
+	if err := s.InsertRouteToken(store.GenRouteToken(), store.RouteToken{
+		JID: "web:atlas", OwnerFolder: "atlas", TargetFolder: "atlas",
+	}); err != nil {
 		t.Fatal(err)
 	}
-	now := time.Now().UTC().Format(time.RFC3339)
-	if _, err := db.Exec(
-		`INSERT INTO route_tokens (jid, owner_folder, token_hash, created_at, kind) VALUES (?, ?, ?, ?, ?)`,
-		"web:atlas", "atlas", "hash-route", now, "route",
-	); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(
-		`INSERT INTO route_tokens (jid, owner_folder, token_hash, created_at, kind) VALUES (?, ?, ?, ?, ?)`,
-		"telegram:user/1", "atlas", "hash-pair", now, "pair",
-	); err != nil {
+	if _, err := s.IssuePairingLink(context.Background(), nil, "telegram:user/1", "atlas"); err != nil {
 		t.Fatal(err)
 	}
 	got, err := resreg.Lookup("route_tokens").ScanAll(resreg.OnDB(db))

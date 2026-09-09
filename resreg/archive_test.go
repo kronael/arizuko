@@ -15,7 +15,9 @@ import (
 	"context"
 	"database/sql"
 	"testing"
+	"time"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/db_utils/dbtest"
 	"github.com/kronael/arizuko/resreg"
 	_ "github.com/kronael/arizuko/resreg/resources" // side-effect: register cold-tier resources
@@ -45,7 +47,7 @@ func archiveTestDB(t *testing.T) *sql.DB {
 func TestExportSnapshot_MatchesChecksum(t *testing.T) {
 	db := archiveTestDB(t)
 	ctx := context.Background()
-	if _, err := db.Exec(`INSERT INTO groups(folder, added_at) VALUES('atlas', '2026-01-01T00:00:00Z')`); err != nil {
+	if err := store.New(db).PutGroupRow(core.Group{Folder: "atlas", AddedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	manifest, checksum, snapshotAt, err := resreg.ExportSnapshot(ctx, resreg.OnDB(db), resreg.SubsystemRoutd)

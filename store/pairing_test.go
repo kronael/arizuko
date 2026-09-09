@@ -1,42 +1,50 @@
 package store
 
 import (
+	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
+
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 )
 
-// seedPairing inserts a kind='pair' route token created at `created` and
-// returns the raw token. Production mints through routd's issueRouteTokenTx
-// (one minter for both kinds); this is the test-side twin so age can be dialled.
+// seedPairing mints a pairing token through the one minter and dials its age,
+// returning the raw token. `created_at` is the only thing the minter does not
+// take, and it is what a TTL test has to move.
 func seedPairing(t *testing.T, s *Store, jid, ownerFolder string, created time.Time) string {
 	t.Helper()
-	raw := GenRouteToken()
-	if _, err := s.db.Exec(
-		`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at, kind) VALUES (?, ?, ?, ?, ?)`,
-		TokenRefBytes(raw), jid, ownerFolder, created.Format(time.RFC3339Nano), RouteTokenKindPair,
-	); err != nil {
+	ctx := context.Background()
+	raw, err := s.IssuePairingLink(ctx, nil, jid, ownerFolder)
+	if err != nil {
 		t.Fatalf("seed pairing token: %v", err)
+	}
+	key, err := routeTokenKey(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.WriteEntities(ctx, nil, objstore.Write{
+		Op: objstore.Update, Entity: RouteTokens, Key: key,
+		Attrs: map[string]string{attrTokCreatedAt: core.TS(created)},
+	}); err != nil {
+		t.Fatalf("age the pairing token: %v", err)
 	}
 	return raw
 }
 
 func parentOf(t *testing.T, s *Store, child string) []string {
 	t.Helper()
-	rows, err := s.db.Query(
-		`SELECT parent FROM acl_membership WHERE child = ? ORDER BY parent`, child)
+	edges, err := s.ParentEdges(child)
 	if err != nil {
 		t.Fatalf("read parents: %v", err)
 	}
-	defer rows.Close()
 	var out []string
-	for rows.Next() {
-		var p string
-		if err := rows.Scan(&p); err != nil {
-			t.Fatalf("scan parent: %v", err)
-		}
-		out = append(out, p)
+	for _, e := range edges {
+		out = append(out, e.Parent)
 	}
+	slices.Sort(out)
 	return out
 }
 
@@ -216,13 +224,17 @@ func TestPairing_EdgeStampedAddedBy(t *testing.T) {
 	if _, err := s.RedeemPairing(raw, "google:alice"); err != nil {
 		t.Fatal(err)
 	}
-	var addedBy string
-	if err := s.db.QueryRow(
-		`SELECT COALESCE(added_by,'') FROM acl_membership WHERE child = ? AND parent = ?`,
-		"telegram:user/1", "google:alice").Scan(&addedBy); err != nil {
+	edges, err := s.ParentEdges("telegram:user/1")
+	if err != nil {
 		t.Fatal(err)
 	}
+	addedBy := ""
+	for _, e := range edges {
+		if e.Parent == "google:alice" {
+			addedBy = e.AddedBy
+		}
+	}
 	if addedBy != PairingAddedBy {
-		t.Errorf("added_by = %q, want %q", addedBy, PairingAddedBy)
+		t.Errorf("added_by = %q, want %q (edges %+v)", addedBy, PairingAddedBy, edges)
 	}
 }

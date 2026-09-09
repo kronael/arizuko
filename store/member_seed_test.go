@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 )
 
 // The invariant is "a groups row implies the member edge". It used to live in
@@ -18,13 +19,7 @@ func TestPutGroupRowSeedsTheMemberEdge(t *testing.T) {
 	if err := s.PutGroupRow(core.Group{Folder: "acme"}); err != nil {
 		t.Fatal(err)
 	}
-	var n int
-	if err := s.DB().QueryRow(
-		`SELECT COUNT(*) FROM acl_membership WHERE child=? AND parent=?`,
-		"folder:acme", RoleMember).Scan(&n); err != nil {
-		t.Fatal(err)
-	}
-	if n != 1 {
+	if n := edgesTo(t, s.reads(nil), "folder:acme", RoleMember); n != 1 {
 		t.Fatalf("acl_membership rows for folder:acme = %d, want 1", n)
 	}
 
@@ -33,12 +28,7 @@ func TestPutGroupRowSeedsTheMemberEdge(t *testing.T) {
 	if err := s.PutGroupRow(core.Group{Folder: "acme", Product: "container"}); err != nil {
 		t.Fatalf("second PutGroupRow: %v", err)
 	}
-	if err := s.DB().QueryRow(
-		`SELECT COUNT(*) FROM acl_membership WHERE child=? AND parent=?`,
-		"folder:acme", RoleMember).Scan(&n); err != nil {
-		t.Fatal(err)
-	}
-	if n != 1 {
+	if n := edgesTo(t, s.reads(nil), "folder:acme", RoleMember); n != 1 {
 		t.Fatalf("after a re-put, rows = %d, want 1", n)
 	}
 }
@@ -58,13 +48,26 @@ func TestSeedMemberRoleTxIsIdempotentOnACallerTx(t *testing.T) {
 			t.Fatalf("SeedMemberRoleTx: %v", err)
 		}
 	}
-	var n int
-	if err := tx.QueryRow(
-		`SELECT COUNT(*) FROM acl_membership WHERE child=? AND parent=?`,
-		"folder:world", RoleMember).Scan(&n); err != nil {
-		t.Fatal(err)
-	}
-	if n != 1 {
+	// Read through the caller's own transaction: the edges are not committed
+	// yet, so the pool would not see them.
+	if n := edgesTo(t, s.reads(tx), "folder:world", RoleMember); n != 1 {
 		t.Errorf("rows = %d, want 1", n)
 	}
+}
+
+// edgesTo counts the membership items at one (child, parent) coordinate.
+func edgesTo(t *testing.T, q EntityQuerier, child, parent string) int {
+	t.Helper()
+	key, err := membershipKey(child, parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := q.Query(context.Background(), objstore.Query{
+		Entity: ACLMembership, Partition: OwnerRoutd,
+		Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: key.Sort},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return len(items)
 }

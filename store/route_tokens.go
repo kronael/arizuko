@@ -441,15 +441,32 @@ func (s *Store) ExportRouteTokens(ctx context.Context) ([]ArchiveRouteTokenRow, 
 // Performs NO gating — the off-by-default / --force / proven-empty-target
 // policy (spec 5/8 "Secret and token values" (2)) is `archive apply`
 // orchestration in cmd/arizuko, not this primitive's job.
+//
+// The rows already there are read FIRST and left out of the batch, which is
+// what makes a re-import a no-op instead of an error: a batch is all-or-nothing,
+// so one create-if-absent whose item exists refuses every other write riding
+// with it. That is the shape ImportInvites and ImportOnboarding already have.
 func (s *Store) ImportRouteTokens(ctx context.Context, rows []ArchiveRouteTokenRow) (int, error) {
 	if len(rows) == 0 {
 		return 0, nil
+	}
+	have, err := s.Obj().Query(ctx, objstore.Query{Entity: RouteTokens, Partition: OwnerRoutd})
+	if err != nil {
+		return 0, fmt.Errorf("read the route tokens already there: %w", err)
+	}
+	seen := make(map[string]bool, len(have)+len(rows))
+	for _, it := range have {
+		seen[it.Key.Sort] = true
 	}
 	writes := make([]objstore.Write, 0, len(rows))
 	for _, r := range rows {
 		if r.TokenHash == "" {
 			return 0, fmt.Errorf("route_token %s: no token_hash, which is its coordinate", r.JID)
 		}
+		if seen[r.TokenHash] {
+			continue
+		}
+		seen[r.TokenHash] = true
 		attrs := map[string]string{
 			attrTokJID:       r.JID,
 			attrTokCreatedAt: r.CreatedAt,

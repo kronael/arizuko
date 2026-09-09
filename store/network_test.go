@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"reflect"
 	"sort"
 	"testing"
@@ -90,8 +91,12 @@ func TestResolveAllowlistAncestry(t *testing.T) {
 		t.Fatalf("OpenMem: %v", err)
 	}
 	defer s.Close()
+	// The instance-wide floor a routd.db is born with (store.SeedRoutdFloor,
+	// which routd's opener calls): anthropic.com, api.anthropic.com.
+	if err := SeedRoutdFloor(context.Background(), s.Obj()); err != nil {
+		t.Fatalf("SeedRoutdFloor: %v", err)
+	}
 
-	// root defaults from migration: anthropic.com, api.anthropic.com
 	if err := s.AddNetworkRule("acme", "github.com", "test"); err != nil {
 		t.Fatalf("Add: %v", err)
 	}

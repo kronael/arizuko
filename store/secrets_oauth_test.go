@@ -1,28 +1,21 @@
 package store
 
 import (
-	"database/sql"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/kronael/arizuko/db_utils/dbtest"
 )
 
-// oauthStore builds a Store on a fresh secrets table that carries the
-// surrogate-OAuth columns routd migration 0017 adds (store's own migrations
-// predate them; routd owns the live table).
+// oauthStore builds a keyed Store over the secrets entity. The surrogate-OAuth
+// half is four attributes secrets_oauth.go writes, so nothing has to be added
+// beside the entity every opener already creates.
 func oauthStore(t *testing.T) *Store {
 	t.Helper()
-	db := dbtest.Open(t)
-	if _, err := db.Exec(`CREATE TABLE secrets (
-		scope_kind TEXT NOT NULL, scope_id TEXT NOT NULL, key TEXT NOT NULL,
-		value BLOB NOT NULL, created_at TEXT NOT NULL,
-		provider TEXT, refresh_val BLOB, expires_at DATETIME, scope_list TEXT,
-		PRIMARY KEY (scope_kind, scope_id, key));`); err != nil {
-		t.Fatal(err)
+	s, err := OpenMem()
+	if err != nil {
+		t.Fatalf("OpenMem: %v", err)
 	}
-	s := New(db)
+	t.Cleanup(func() { s.Close() })
 	s.SetSecretKeys([]byte("oauth-test-key"))
 	return s
 }
@@ -35,12 +28,8 @@ func TestPutOAuthSecret_RoundTripSealed(t *testing.T) {
 	}
 
 	// value + refresh_val sealed at rest (v2:), never plaintext.
-	var rawVal, rawRef string
-	if err := s.db.QueryRow(
-		`SELECT value, refresh_val FROM secrets WHERE scope_id='github:alice' AND key='GITHUB_TOKEN'`,
-	).Scan(&rawVal, &rawRef); err != nil {
-		t.Fatal(err)
-	}
+	at := secretItem(t, s, ScopeUser, "github:alice", "GITHUB_TOKEN")
+	rawVal, rawRef := at.Attrs[attrSecValue], at.Attrs[attrSecRefreshVal]
 	if !strings.HasPrefix(rawVal, "v2:") || strings.Contains(rawVal, "acc-tok") {
 		t.Errorf("value not sealed: %q", rawVal)
 	}
@@ -119,14 +108,13 @@ func TestClearOAuthSecret_NullsExpiryAndRefresh(t *testing.T) {
 	if err := s.ClearOAuthSecret("github:alice", "GITHUB_TOKEN"); err != nil {
 		t.Fatal(err)
 	}
-	var exp, ref sql.NullString
-	if err := s.db.QueryRow(
-		`SELECT expires_at, refresh_val FROM secrets WHERE scope_id='github:alice' AND key='GITHUB_TOKEN'`,
-	).Scan(&exp, &ref); err != nil {
-		t.Fatal(err)
-	}
-	if exp.Valid || ref.Valid {
-		t.Errorf("expires_at/refresh_val not nulled: exp=%v ref=%v", exp, ref)
+	// Absent is the only null this model has: the clear TAKES both attributes
+	// away rather than writing an empty one a presence test would still find.
+	at := secretItem(t, s, ScopeUser, "github:alice", "GITHUB_TOKEN")
+	exp, expSet := at.Attrs[attrSecExpiresAt]
+	ref, refSet := at.Attrs[attrSecRefreshVal]
+	if expSet || refSet {
+		t.Errorf("expires_at/refresh_val not cleared: exp=%q ref=%q", exp, ref)
 	}
 	// The row (value+provider) survives so the UI can show a reconnect prompt.
 	conns, _ := s.ListUserConnections("github:alice")
