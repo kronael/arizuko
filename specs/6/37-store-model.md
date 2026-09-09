@@ -414,6 +414,26 @@ layers; the filing is worth doing once, for its method names, and never again.
    and it is the proof the interface carries a real daemon. `L251` closes here:
    `audit_log` becomes one entity behind the interface, implemented once per
    driver instead of twice in every daemon.
+   **Where this stands, measured 2026-09-09.** The config plane is done. All
+   sixteen registered resources are objstore entities — onbod's three and routd's
+   thirteen — and `authd`, `emaid`, `chanlib`, `audit`, `runed` hold no statement
+   at all. Eighteen daemons never held one.
+
+What still runs SQL is the hot tier, and it is the set this spec always said
+would need a verdict rather than a port: `messages` (139 statements, plus its
+FTS virtual table and three triggers), `user_profiles` 38, `sessions` 26,
+`chats` 19, `turn_context` 18, `chat_reply_state` 12, `task_run_logs` 11,
+`invite_redemptions` 6, `group_watchers` 6, `turn_results` 4, `chat_proactive`
+4, `system_messages` 3, `session_log` 3. None is a management resource and none
+should become one.
+
+Three of those decide the port's shape rather than its size. `chats` holds
+`agent_cursor` and `sessions` holds `observed_cursor`, so an import that drops
+them re-feeds every consumed message — the failure `0044`'s migration order
+exists to avoid. And `messages` carries ranked search, which §"Search is the one
+that is answered by leaving" already sends to its own service rather than
+modelling.
+
 6. **`resreg` moves before any registered table does.** `resreg/engine.go:209`
    is the ONE row reader for every registered resource and it builds
    `SELECT <columns> FROM <table>` from `RowType` reflection. An entity has
