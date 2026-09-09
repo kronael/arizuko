@@ -33,10 +33,11 @@
 --
 -- THE CHAT REWRITES ARE GONE WITH THE TABLE. `chats` and `chat_reply_state` are
 -- objstore entities rather than tables this chain creates (store.EnsureEntities,
--- spec 6/37 step 7), so a jid that is half of a coordinate is rewritten by
--- `arizuko migrate-hot`, which reads the tables this chain left behind. This
+-- spec 6/37 step 7), and a jid is half of an item's coordinate rather than a
+-- column. `arizuko migrate-hot` carries those jids VERBATIM and rewrites none of
+-- them: a database that still holds untyped jids has not run this file, and this
 -- chain only ever runs whole against an EMPTY database, where every UPDATE in it
--- is a no-op.
+-- is a no-op. Every live instance applied this version years before the split.
 
 -- ============================================================================
 -- TELEGRAM: split signed integer into user/group kinds; drop sign bit.

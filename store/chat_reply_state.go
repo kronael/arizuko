@@ -202,7 +202,16 @@ func (s *Store) bumpEngagement(ctx context.Context, tx *sql.Tx,
 	} else {
 		attrs[AttrReplyEngagedUntil] = core.TS(until)
 	}
-	setAttr(attrs, AttrReplyEngagedFolder, folder)
+	// The folder is written whatever it is, and an EMPTY one un-claims the
+	// window. The column it replaces was NOT NULL DEFAULT '' and this write
+	// overwrote it unconditionally, so an empty folder meant unclaimed — and
+	// absent is how this model spells that. Leaving the attribute alone instead
+	// would let the previous folder keep a window an operator just released.
+	if folder == "" {
+		remove = append(remove, AttrReplyEngagedFolder)
+	} else {
+		attrs[AttrReplyEngagedFolder] = folder
+	}
 	if _, err := s.upsertReplyState(ctx, tx, key, attrs, remove); err != nil {
 		return fmt.Errorf("move the engagement window on %s#%s: %w", jid, topic, err)
 	}

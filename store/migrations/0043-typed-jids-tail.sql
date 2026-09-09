@@ -11,7 +11,8 @@
 -- reads the tables this chain left behind.
 --
 -- `chat_reply_state` is one as well, and the whole of this file was its rewrite:
--- the jid is half of an item's coordinate now, not a column, so
--- `arizuko migrate-hot` re-keys a pre-move database's rows where it carries
--- them, reading the table this chain left behind.
+-- the jid is half of an item's coordinate now, not a column. `arizuko migrate-hot`
+-- carries those jids VERBATIM and rewrites none of them — a database that still
+-- holds untyped jids has not run this file, and every live instance applied this
+-- version years before the split.
 SELECT 1;

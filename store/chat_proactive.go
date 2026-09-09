@@ -89,11 +89,24 @@ func (s *Store) RecordProactiveFireInTx(ctx context.Context, tx *sql.Tx, jid str
 	if err != nil {
 		return err
 	}
-	if _, err := s.writeVia(ctx, tx, nil, objstore.Write{
-		Op: objstore.Put, Entity: ChatProactive, Key: key,
-		Attrs: map[string]string{AttrProactiveFiredAt: core.TS(at)},
-	}); err != nil {
+	attrs := map[string]string{AttrProactiveFiredAt: core.TS(at)}
+	// Create-if-absent, then merge on the refusal. A bare Put would be a
+	// whole-item replace: it costs nothing while the item carries one attribute
+	// and drops the second one the day this entity grows a field.
+	created, err := s.writeVia(ctx, tx, nil, objstore.Write{
+		Op: objstore.Put, Entity: ChatProactive, Key: key, Attrs: attrs,
+		Cond: objstore.Cond{Item: objstore.ItemAbsent},
+	})
+	if err != nil {
 		return fmt.Errorf("stamp the proactive cooldown of %s: %w", jid, err)
+	}
+	if created {
+		return nil
+	}
+	if _, err := s.writeVia(ctx, tx, nil, objstore.Write{
+		Op: objstore.Update, Entity: ChatProactive, Key: key, Attrs: attrs,
+	}); err != nil {
+		return fmt.Errorf("move the proactive cooldown of %s: %w", jid, err)
 	}
 	return nil
 }

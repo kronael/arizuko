@@ -39,6 +39,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/kronael/arizuko/objstore"
 )
@@ -199,6 +200,20 @@ func (s *Store) SetChatIsGroup(jid string, isGroup bool) error {
 		}
 		return nil
 	}
+	// A direct chat still OPENS the item, and that is not bookkeeping: routd
+	// calls this on every inbound, so it is what records that the instance has
+	// seen a chat at all. The false flag is the attribute's absence, so a created
+	// item already says it and only an existing one has anything to clear.
+	created, err := s.WriteEntities(ctx, nil, objstore.Write{
+		Op: objstore.Put, Entity: Chats, Key: key, Attrs: map[string]string{},
+		Cond: objstore.Cond{Item: objstore.ItemAbsent},
+	})
+	if err != nil {
+		return fmt.Errorf("record %s as a direct chat: %w", jid, err)
+	}
+	if created {
+		return nil
+	}
 	if err := s.clearChatAttrs(ctx, key, attrChatIsGroup); err != nil {
 		return fmt.Errorf("record %s as a direct chat: %w", jid, err)
 	}
@@ -315,6 +330,21 @@ func (s *Store) clearChatAttrs(ctx context.Context, key objstore.Key, attrs ...s
 // says nothing about another's — and each is idempotent because it only ever
 // moves forward, so a run that dies leaves work a re-run finishes rather than a
 // half-applied transaction.
+//
+// THE INSTANT IS RE-RENDERED, because MAX(timestamp) is whatever the column
+// holds and this attribute is declared at core.TS's width. Two krons rows carry
+// a hand-written `2026-04-02 12:38:47` that migration 0044 deliberately does not
+// pad — padding a ROW would invent a zone it never had — so the raw maximum of
+// such a chat is nineteen bytes and the write refuses it. Rendering the CURSOR
+// is safe where rendering the row is not: a rendered instant sorts at or above
+// the row it came from, so the poller parks at the end of the history, which is
+// what this operation is for.
+//
+// ONE BAD CHAT DOES NOT STOP THE REST. The sweep runs every chat it can and
+// reports the ones it could not at the end, because the alternative is the state
+// this exists to prevent: a restore that imported the messages and derived only
+// the cursors alphabetically before the first failure, after which the poll loop
+// treats the whole remaining history as unread.
 func (s *Store) DeriveAgentCursors(ctx context.Context, touched map[string]bool) (int, error) {
 	jids := make([]string, 0, len(touched))
 	for jid := range touched {
@@ -322,25 +352,37 @@ func (s *Store) DeriveAgentCursors(ctx context.Context, touched map[string]bool)
 	}
 	sort.Strings(jids)
 	moved := 0
+	var failed []string
 	for _, jid := range jids {
-		newest, err := s.newestMessageAt(ctx, jid)
+		raw, err := s.newestMessageAt(ctx, jid)
 		if err != nil {
 			return moved, err
 		}
-		if newest == "" {
+		if raw == "" {
+			continue
+		}
+		newest, err := normaliseInstant(Chats, AttrChatAgentCursor, raw)
+		if err != nil {
+			failed = append(failed, fmt.Sprintf("%s (%v)", jid, err))
 			continue
 		}
 		key, err := chatKey(jid)
 		if err != nil {
-			return moved, err
+			failed = append(failed, fmt.Sprintf("%s (%v)", jid, err))
+			continue
 		}
 		did, err := s.advanceCursor(ctx, Chats, key, AttrChatAgentCursor, newest, nil)
 		if err != nil {
-			return moved, fmt.Errorf("derive the agent cursor of %s: %w", jid, err)
+			failed = append(failed, fmt.Sprintf("%s (%v)", jid, err))
+			continue
 		}
 		if did {
 			moved++
 		}
+	}
+	if len(failed) > 0 {
+		return moved, fmt.Errorf("%d of %d chats kept no cursor, so the poll loop reads their "+
+			"restored history as unread: %s", len(failed), len(jids), strings.Join(failed, "; "))
 	}
 	return moved, nil
 }

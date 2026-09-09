@@ -371,6 +371,13 @@ func copyRoutdEntities(dst *sql.DB, msgPath string, dryRun bool) (store.RoutdCou
 // hotColumnAlias renames the pre-split monolith's system_messages columns onto
 // the names routd.db gave them. It is the one place the two schemas differ over
 // the five, and it is a declaration rather than a second reader.
+//
+// IT NAMES NO COLUMN TO DROP, and that is deliberate. The monolith's
+// system_messages carries an unused `attrs` column that the copySpec this
+// replaces listed away; readHotSnapshot takes its column list from the SCHEMA, so
+// that column now travels as an attribute nothing reads. A drop list would be a
+// second declaration of which columns matter, which is the shape BUGS L265 is: a
+// column nobody named, silently reset. Dead payload is the cheaper mistake.
 var hotColumnAlias = map[string]map[string]string{
 	"system_messages": {"group_id": "folder", "origin": "source", "event": "kind",
 		"created_at": "created"},
@@ -413,7 +420,25 @@ func copyHotEntities(dst *sql.DB, msgPath string, dryRun bool) (store.RoutdCount
 	if dryRun {
 		return counts, nil
 	}
-	return store.New(dst).ImportHot(context.Background(), snap)
+	// The source's cursors, read before the import, so the check below compares
+	// what the monolith held against what routd.db serves.
+	before, err := readCursors(src, sources)
+	if err != nil {
+		return nil, err
+	}
+	st := store.New(dst)
+	written, err := st.ImportHot(context.Background(), snap)
+	if err != nil {
+		return nil, err
+	}
+	// The counts are the easy half and migrateSplit prints them. This is the
+	// other half, and this path needs it MOST: it runs once, on a real monolith,
+	// and a cursor that arrived naming a different instant would re-feed or skip
+	// everything between the two values with nothing to say so.
+	if err := verifyCursors(st, before); err != nil {
+		return nil, err
+	}
+	return written, nil
 }
 
 func migrateSplit(storeDir string, dryRun bool) error {

@@ -316,12 +316,19 @@ func verifyHot(ctx context.Context, st *store.Store, snap store.RoutdSnapshot,
 		}
 		fmt.Printf("  verified %-19s %d\n", c.entity, got)
 	}
-	// THE CURSORS, WHICH ARE THE HALF THAT MATTERS. A count says every row
-	// travelled; only the value says none of them moved in TIME. A cursor may
-	// change its RENDERING here — a whole second is padded to core.TS's width,
-	// which is the move's whole job — and it may never change the instant it
-	// names, because everything between the two values is either re-fed to the
-	// agent or skipped for good.
+	return verifyCursors(st, before)
+}
+
+// verifyCursors reads every carried cursor back and reports whether any names a
+// different instant than it did.
+//
+// IT IS THE HALF THAT MATTERS, and it is a function of its own because BOTH
+// tools that carry these rows owe it: a count says every row travelled, and only
+// the value says none of them moved in TIME. A cursor may change its RENDERING —
+// a whole second is padded to core.TS's width, which is the move's whole job —
+// and it may never change the instant it names, because everything between the
+// two values is either re-fed to the agent or skipped for good.
+func verifyCursors(st *store.Store, before map[string][]cursorRow) error {
 	moved := 0
 	for _, entity := range store.HotEntities {
 		rows := before[entity]

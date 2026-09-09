@@ -401,7 +401,8 @@ func TestMigrateSplit(t *testing.T) {
 		t.Errorf("errored chats after the split = %v (err %v), want none", flagged, ferr)
 	}
 
-	// transform: system_messages remapped correctly, attrs dropped. The three
+	// transform: system_messages remapped correctly. The monolith's unused
+	// `attrs` column travels as an attribute nothing reads (hotColumnAlias). The three
 	// values come back through the reader the prompt build calls; the folder and
 	// the queue instant are the item's COORDINATE, so they are read off the key
 	// the migration wrote.

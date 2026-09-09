@@ -116,8 +116,9 @@ func (s *Store) SetSession(folder, topic, id string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := s.upsertSession(context.Background(), key,
-		map[string]string{attrSessID: id}); err != nil {
+	attrs := map[string]string{}
+	setAttr(attrs, attrSessID, id)
+	if _, err := s.upsertSession(context.Background(), key, attrs); err != nil {
 		return fmt.Errorf("record the session of %s#%s: %w", folder, topic, err)
 	}
 	return nil
