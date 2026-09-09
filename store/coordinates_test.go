@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore"
@@ -52,6 +53,171 @@ func TestCoordinateRefusesTheSeparatorInAValue(t *testing.T) {
 		sealed := openEntities(t)
 		sealed.SetSecretKeys([]byte("coordinate-test-key"))
 		requireSeparatorRefusal(t, sealed.SetSecret(SecretScopeFolder, bad, "API_KEY", "v"))
+	})
+
+	// The hot tier's three composite coordinates. A folder, a topic and a chat
+	// jid are all operator- or platform-supplied, so each is a value the byte
+	// can arrive in.
+	t.Run("sessions/folder", func(t *testing.T) {
+		requireSeparatorRefusal(t, s.SetSession(bad, "#deploy", "sess-1"))
+	})
+	t.Run("sessions/topic", func(t *testing.T) {
+		requireSeparatorRefusal(t, s.SetSession("team", bad, "sess-1"))
+	})
+	t.Run("chat_reply_state/jid", func(t *testing.T) {
+		requireSeparatorRefusal(t, s.SetLastReply(bad, "", "m1", "team"))
+	})
+	t.Run("chat_reply_state/topic", func(t *testing.T) {
+		requireSeparatorRefusal(t, s.SetLastReply("slack:c/1", bad, "m1", "team"))
+	})
+	t.Run("system_messages/folder", func(t *testing.T) {
+		requireSeparatorRefusal(t, s.EnqueueSystemMessage(bad, "system", "note", "hi"))
+	})
+}
+
+// TestTheHotTierRoundTripsEveryAttributeItCarries reads each of the five back
+// through the method its daemon calls, because a Put replaces an item's whole
+// attribute set: a writer that forgot a field would report success and lose it,
+// and only a read through the real method sees that.
+func TestTheHotTierRoundTripsEveryAttributeItCarries(t *testing.T) {
+	s := openEntities(t)
+	ctx := context.Background()
+
+	t.Run("chats", func(t *testing.T) {
+		const jid = "slack:T/C/U"
+		if err := s.SetStickyGroup(jid, "corp/eng"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetStickyTopic(jid, "#deploy"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetChatIsGroup(jid, true); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.MarkChatErrored(jid); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetAgentCursor(jid, core.NowTS()); err != nil {
+			t.Fatal(err)
+		}
+		group, topic, err := s.StickyPins(jid)
+		if err != nil || group != "corp/eng" || topic != "#deploy" {
+			t.Errorf("pins = (%q, %q), err %v — a later write replaced the item", group, topic, err)
+		}
+		if is, _ := s.ChatIsGroup(jid); !is {
+			t.Error("the multi-party flag did not survive the writes after it")
+		}
+		if flagged, _ := s.ErroredChatJIDs(); len(flagged) != 1 || flagged[0] != jid {
+			t.Errorf("errored chats = %v, want [%s]", flagged, jid)
+		}
+		if cur, _ := s.AgentCursor(jid); cur == "" {
+			t.Error("the dispatch cursor did not survive")
+		}
+		// The false flag is ABSENT and not "0", which is the only null this
+		// model has.
+		if err := s.SetChatIsGroup(jid, false); err != nil {
+			t.Fatal(err)
+		}
+		if is, _ := s.ChatIsGroup(jid); is {
+			t.Error("a chat set back to direct still reads as a group")
+		}
+	})
+
+	t.Run("sessions", func(t *testing.T) {
+		if err := s.ForkTopic("team", "", "#deploy", "child-uuid", false); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetSession("team", "#deploy", "resumed-uuid"); err != nil {
+			t.Fatal(err)
+		}
+		line, ok := s.TopicLineage("team", "#deploy")
+		if !ok {
+			t.Fatal("the forked topic has no lineage")
+		}
+		if line.ParentTopic == nil || *line.ParentTopic != "" {
+			t.Errorf("parent topic = %v, want the main timeline's empty string: absent is "+
+				"the only null, so an empty parent needs the fork instant to say it is one",
+				line.ParentTopic)
+		}
+		if line.ForkedAt == "" || line.ObservedCursor == "" {
+			t.Errorf("fork instant %q / cursor %q: SetSession replaced the item instead of "+
+				"merging into it", line.ForkedAt, line.ObservedCursor)
+		}
+		if id, _ := s.GetSession("team", "#deploy"); id != "resumed-uuid" {
+			t.Errorf("session id = %q, want resumed-uuid", id)
+		}
+	})
+
+	t.Run("chat_reply_state", func(t *testing.T) {
+		const jid = "slack:T/C/E"
+		until := time.Now().Add(time.Hour)
+		if err := s.SetLastReply(jid, "", "m-1", "team"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.BumpEngagement(jid, "", "team", until); err != nil {
+			t.Fatal(err)
+		}
+		if got := s.LastReplyID(jid, ""); got != "m-1" {
+			t.Errorf("reply anchor = %q, want m-1 — the engagement write replaced the item", got)
+		}
+		e, live := s.Engagement(jid, "")
+		if !live || e.Folder != "team" {
+			t.Errorf("engagement = %+v live=%v, want team", e, live)
+		}
+		// Ending it takes the deadline away and leaves the anchor.
+		if err := s.BumpEngagement(jid, "", "team", time.Time{}); err != nil {
+			t.Fatal(err)
+		}
+		if _, live := s.Engagement(jid, ""); live {
+			t.Error("the window is still live after it was ended")
+		}
+		if got := s.LastReplyID(jid, ""); got != "m-1" {
+			t.Errorf("reply anchor = %q after the window ended, want m-1", got)
+		}
+	})
+
+	t.Run("chat_proactive", func(t *testing.T) {
+		fired := time.Date(2026, 9, 9, 9, 0, 0, 0, time.UTC)
+		if err := s.RecordProactiveFireInTx(ctx, nil, "slack:T/C/P", fired); err != nil {
+			t.Fatal(err)
+		}
+		if got := s.ProactiveLastFired("slack:T/C/P"); !got.Equal(fired) {
+			t.Errorf("cooldown = %v, want %v", got, fired)
+		}
+		rows, err := s.ProactiveCooldowns(10)
+		if err != nil || len(rows) != 1 || rows[0].JID != "slack:T/C/P" {
+			t.Errorf("cooldown panel = %v, err %v", rows, err)
+		}
+	})
+
+	t.Run("system_messages", func(t *testing.T) {
+		for _, body := range []string{"first", "second", "third"} {
+			if err := s.EnqueueSystemMessage("team", "system", "note", body); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := s.EnqueueSystemMessage("other", "system", "note", "not ours"); err != nil {
+			t.Fatal(err)
+		}
+		queued, err := s.QueuedSystemMessagesTx(ctx, nil, "team")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(queued) != 3 {
+			t.Fatalf("the queue holds %d events for team, want 3 — the folder prefix took "+
+				"the wrong set", len(queued))
+		}
+		// The queue is read in the order it was written, which is what the
+		// AUTOINCREMENT id it replaced gave.
+		for i, want := range []string{"first", "second", "third"} {
+			if queued[i].Body != want {
+				t.Errorf("event %d = %q, want %q: the queue position does not order", i,
+					queued[i].Body, want)
+			}
+		}
+		if n, _ := s.CountSystemMessages(ctx); n != 4 {
+			t.Errorf("the entity holds %d events, want 4", n)
+		}
 	})
 }
 

@@ -35,7 +35,9 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/store"
@@ -314,25 +316,74 @@ func verifyHot(ctx context.Context, st *store.Store, snap store.RoutdSnapshot,
 		}
 		fmt.Printf("  verified %-19s %d\n", c.entity, got)
 	}
+	// THE CURSORS, WHICH ARE THE HALF THAT MATTERS. A count says every row
+	// travelled; only the value says none of them moved in TIME. A cursor may
+	// change its RENDERING here — a whole second is padded to core.TS's width,
+	// which is the move's whole job — and it may never change the instant it
+	// names, because everything between the two values is either re-fed to the
+	// agent or skipped for good.
 	moved := 0
-	for entity, rows := range before {
+	for _, entity := range store.HotEntities {
+		rows := before[entity]
+		if len(rows) == 0 {
+			continue
+		}
+		repadded := 0
 		for _, row := range rows {
 			now, err := cursorNow(st, entity, row.coord)
 			if err != nil {
 				return err
 			}
-			if now != row.value {
+			same, err := sameInstant(row.value, now)
+			if err != nil {
+				return fmt.Errorf("%s %s: %w", entity, row.coord, err)
+			}
+			if !same {
 				fmt.Printf("  MOVED    %s %s: %q -> %q\n", entity, row.coord, row.value, now)
 				moved++
+				continue
+			}
+			if now != row.value {
+				repadded++
 			}
 		}
-		fmt.Printf("  verified %-19s %d cursors, unchanged\n", entity, len(rows)-moved)
+		fmt.Printf("  verified %-19s %d cursors, same instant (%d re-rendered)\n",
+			entity, len(rows), repadded)
 	}
 	if moved > 0 {
-		return fmt.Errorf("%d cursors moved; a cursor that moved back re-feeds every message "+
-			"between the two values, and one that moved forward skips them", moved)
+		return fmt.Errorf("%d cursors name a different instant than they did; a cursor that "+
+			"moved back re-feeds every message between the two values, and one that moved "+
+			"forward skips them", moved)
 	}
 	return nil
+}
+
+// sameInstant reports whether two renderings name the same moment. An empty
+// value on both sides is the same absence.
+func sameInstant(was, now string) (bool, error) {
+	if was == "" || now == "" {
+		return was == now, nil
+	}
+	a, err := readInstant(was)
+	if err != nil {
+		return false, err
+	}
+	b, err := readInstant(now)
+	if err != nil {
+		return false, err
+	}
+	return a.Equal(b), nil
+}
+
+// readInstant parses one stored cursor. The layouts are the ones a cursor can
+// hold: core.TS's, and the two RFC3339 shapes routd's migration 0044 pads.
+func readInstant(raw string) (time.Time, error) {
+	for _, layout := range []string{core.TSLayout, time.RFC3339Nano, time.RFC3339} {
+		if t, err := time.Parse(layout, raw); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("%q is not an instant this move can read", raw)
 }
 
 // cursorNow reads one cursor back through the entity.

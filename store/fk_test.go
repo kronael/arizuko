@@ -155,3 +155,106 @@ func TestFK_HistoryTablesStrandOnGroupDelete(t *testing.T) {
 		t.Fatalf("stranded audit rows: want 1, got %d", stranded)
 	}
 }
+
+// TestHotTier_PurgedOnGroupDelete pins the four verdicts the hot tier's move
+// changed, and the one it did not.
+//
+// Three of them are a straight purge: a session resumes the last tenant's agent
+// transcript, a reply state hands it a live engagement window, and a queued
+// system event arrives in its first prompt. `system_messages` is the one whose
+// verdict CHANGED — its blocker was "the column is `folder` in routd.db and
+// `group_id` in messages.db", and an item has no column (BUGS L253's shape).
+//
+// `chats` is the fourth and it is the one that is CLEARED rather than deleted:
+// the chat outlives the folder because it carries its own dispatch cursor, so
+// what goes is the binding and not the item. A purge that deleted it would throw
+// the cursor away and the next inbound would re-feed the chat's whole history.
+func TestHotTier_PurgedOnGroupDelete(t *testing.T) {
+	s := openFKStore(t)
+	ctx := context.Background()
+	if err := s.PutGroup(core.Group{Folder: "acme"}); err != nil {
+		t.Fatal(err)
+	}
+	// A sibling sharing the leading characters: a green result must mean the
+	// subtree went, not the table.
+	if err := s.PutGroup(core.Group{Folder: "acmeworks"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSession("acme/inbox", "#deploy", "sess-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSession("acmeworks", "", "sess-2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetLastReply("web:acme", "", "m-1", "acme"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetLastReply("web:other", "", "m-2", "acmeworks"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.EnqueueSystemMessage("acme/inbox", "system", "note", "queued"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.EnqueueSystemMessage("acmeworks", "system", "note", "kept"); err != nil {
+		t.Fatal(err)
+	}
+	const jid = "slack:T/C/A"
+	if err := s.SetStickyGroup(jid, "acme/inbox"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetStickyTopic(jid, "#deploy"); err != nil {
+		t.Fatal(err)
+	}
+	cursor := core.NowTS()
+	if err := s.SetAgentCursor(jid, cursor); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.DeleteGroup("acme"); err != nil {
+		t.Fatal(err)
+	}
+
+	if id, ok := s.GetSession("acme/inbox", "#deploy"); ok {
+		t.Errorf("the deleted subtree's session survived (%q): the next tenant resumes the "+
+			"last one's transcript", id)
+	}
+	if got := s.LastReplyID("web:acme", ""); got != "" {
+		t.Errorf("the deleted folder's reply state survived: %q", got)
+	}
+	queued, err := s.QueuedSystemMessagesTx(ctx, nil, "acme/inbox")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(queued) != 0 {
+		t.Errorf("%d queued system events survived the delete; they arrive in the next "+
+			"tenant's first prompt", len(queued))
+	}
+
+	group, topic, err := s.StickyPins(jid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if group != "" || topic != "" {
+		t.Errorf("the chat still points at the deleted folder: (%q, %q)", group, topic)
+	}
+	if got, _ := s.AgentCursor(jid); got != cursor {
+		t.Errorf("the chat's dispatch cursor = %q, want %q — the purge deleted the item "+
+			"instead of clearing the binding, and the chat re-feeds its whole history",
+			got, cursor)
+	}
+
+	// The sibling is untouched, or the purge widened onto the whole table.
+	if _, ok := s.GetSession("acmeworks", ""); !ok {
+		t.Error("the purge widened onto the sibling folder's session")
+	}
+	if got := s.LastReplyID("web:other", ""); got != "m-2" {
+		t.Errorf("the purge widened onto the sibling folder's reply state: %q", got)
+	}
+	kept, err := s.QueuedSystemMessagesTx(ctx, nil, "acmeworks")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(kept) != 1 {
+		t.Errorf("the purge widened onto the sibling folder's queue: %d events left", len(kept))
+	}
+}
