@@ -41,7 +41,7 @@ Spec: `specs/5/E`.
 
 `routd.db` (routd owns + migrates its own schema):
 
-- Message store: `messages`, `chats`, `engagement`
+- Message store: `messages`; `chats` and `chat_reply_state` are entities
 - Routing: `routes`, `web_routes`, `route_tokens` (`kind='route'`
   delivery bearers + `kind='pair'` identity-pairing links, spec 5/31)
 - Orchestration: `turn_context`, `turn_results`
@@ -239,7 +239,7 @@ optional observability webhook — not the source of truth.
 - `{routes,web_routes,network_rules,scheduled_tasks,acl}_resource.go` — spec 5/16 shared handlers (one resource each; agent MCP + operator REST ride the same handler + injected Gate)
 - `packages_store.go` — `installed_packages` CRUD (the record the CLI's `packages install|upgrade|remove` reads/writes, spec 5/28)
 - `db.go` — `routd.db` writes (PutMessage, turn claims, routing)
-- `reads.go` — `routd.db` reads (messages, chats, sessions)
+- `reads.go` — `routd.db` reads (messages; the chat, session and reply-state reads go through `store`)
 - `session.go`, `identity.go`, `onbod.go` — federation to runed/authd/onbod
 - `connectors.go` — MCP connector catalog loader
 - `enrich.go` — inbound media download + Whisper transcription

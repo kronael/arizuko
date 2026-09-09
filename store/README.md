@@ -10,14 +10,17 @@ the split is owned by routd; `onbod.db` by onbod; `auth.db` by authd —
 each runs its own migrations). WAL mode + 5 s busy timeout tolerate
 concurrent readers on the same file.
 
-## Two tables are entities, and the rest are still SQL
+## Which tables are entities, and which are still SQL
 
-`pane_sessions` and `secret_use_log` hold no statement: they are objstore
-entities, declared in `entities.go` and read and written through objstore's
-two primitives (spec [`6/37`](../specs/6/37-store-model.md) step 7). They are
-the two whose whole surface this package owns — nothing outside it runs a
-statement against either, and neither is a resreg resource. Every other table
-here still reaches the database through SQL.
+`entities.go` names every table this package holds as an objstore entity,
+read and written through objstore's two primitives (spec
+[`6/37`](../specs/6/37-store-model.md) step 7): `pane_sessions`,
+`secret_use_log` and `counters`, routd's thirteen registered resources,
+onbod's three, and the hot tier's five — `chats`, `sessions`,
+`chat_reply_state`, `chat_proactive` and `system_messages`. Every other table
+here still reaches the database through SQL, `messages` and its FTS index
+foremost: ranked search leaves the store and becomes its own service, so that
+one waits for the decision rather than for a port.
 
 During the move a `*Store` holds BOTH a `*sql.DB` and, through `Store.Obj`,
 the driver over the same pool. Each table has exactly one implementation at
@@ -25,11 +28,20 @@ every moment: a moved one reads through objstore, an unmoved one through SQL.
 There is no fallback and no dual read.
 
 An entity keeps the NAME of the table it replaces, so a database carrying rows
-is moved by `arizuko migrate-store` and the driver refuses to serve the entity
-until it has been. The two files say what their coordinates cost:
-`pane_sessions.go` takes one constant partition and the (team, user, thread)
-triple as its sort key; `secret_use_log.go` takes audit_log's shape, and says
-plainly that no read decided it because it has no reader.
+is moved by `arizuko migrate-store`, `migrate-routd` or `migrate-hot`, and the
+driver refuses to serve the entity until it has been. Each file argues its own
+coordinate in its header: what the partition costs, which reads become the
+reader's work, and which attribute is ordered and why.
+
+The two cursors are the reason the hot tier moved together.
+`chats.agent_cursor` and `sessions.observed_cursor` are copies of a
+`messages.timestamp` compared back against that column, so both are declared
+ordered at `core.TS`'s width and `cursor.go` moves each one forward and only
+forward — a guarded transition rather than an update
+([`6/40`](../specs/6/40-store-surface.md) §2). `arizuko migrate-hot` refuses to
+carry a cursor until the message rows it compares against are padded, because
+padding a cursor first is what re-feeds consumed messages (BUGS `L97`, routd
+migration `0044`).
 
 ## Public API
 
@@ -68,13 +80,14 @@ is `<folder>[#<mode>]`; per-route caps `observe_window_messages` and
 `observe_window_chars` override the env defaults. Spec:
 `specs/5/B-route-mode-ingestion.md`.
 
-`sessions` (migration 0055) carries topic lineage: `parent_topic`,
-`forked_at`, `observed_cursor`. `EnsureTopicLineage` seeds a row
-idempotently on first turn; `ForkTopic` branches explicitly. Parent
-context arrives via a `cp` of the parent's Claude Code session jsonl
-(`container.CopySession`) — no inline injection. `ObservedSince` feeds
-the `<observed>` block, advancing each topic's cursor independently.
-Spec: `specs/5/F-topic-lineage.md`.
+`sessions` carries topic lineage as attributes: `parent_topic`,
+`forked_at`, `observed_cursor`. `EnsureTopicLineage` seeds an item
+idempotently on first turn, inheriting the parent's cursor rather than
+stamping now; `ForkTopic` branches explicitly. Parent context arrives via a
+`cp` of the parent's Claude Code session jsonl (`container.CopySession`) — no
+inline injection. `ObservedSince` feeds the `<observed>` block, and
+`AdvanceObservedCursor` moves each topic's cursor independently and forward
+only. Spec: `specs/5/F-topic-lineage.md`.
 
 ## Dependencies
 
@@ -83,7 +96,11 @@ Spec: `specs/5/F-topic-lineage.md`.
 ## Files
 
 - `store.go` — `Open`, `OpenMem`, `Migrate`, connection setup
-- `messages.go`, `groups.go`, `sessions.go`, `tasks.go`, `auth.go`, `acl.go`, `membership.go`, `routes.go`, `onboarding.go`, `invites.go`, `secrets.go`, `inspect.go`
+- `messages.go`, `groups.go`, `tasks.go`, `auth.go`, `acl.go`, `membership.go`, `routes.go`, `onboarding.go`, `invites.go`, `secrets.go`, `inspect.go`
+- `chats.go`, `sessions.go`, `chat_reply_state.go`, `chat_proactive.go`, `system_messages.go` — the hot tier, one file per entity
+- `cursor.go` — the forward-only guarded transition the two cursors share
+- `session_log.go` — the run history beside `sessions`, still a table of columns
+- `import_routd.go`, `import_hot.go` — the target halves of the two moves
 - `migrations/NNNN-*.sql` — numbered migrations
 
 ## Related docs
