@@ -1,6 +1,7 @@
 package routd
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -12,41 +13,30 @@ import (
 // system-message flush, the per-topic observed-context window, topic lineage, and
 // the group's observe-window override.
 
-// FlushSysMsgs renders queued system_messages for folder as <system> lines and
-// deletes them in the same tx (at-most-once delivery). Columns (source, kind,
-// body) render as (origin, event, body). Rows that fail to render are left for
-// the next flush.
+// FlushSysMsgs renders the system events queued for folder as <system> lines and
+// removes exactly those, in one transaction — at-most-once delivery. The stored
+// (source, kind, body) render as (origin, event, body).
+//
+// The read and the drain share the transaction so no event is rendered into one
+// prompt and taken by another, and the drain names the events this read produced
+// rather than the folder, so an event queued while the prompt was being built is
+// left for the next flush instead of being deleted unread.
 func (d *DB) FlushSysMsgs(folder string) string {
-	tx, err := d.db.Begin()
+	ctx := context.Background()
+	tx, err := d.db.BeginTx(ctx, nil)
 	if err != nil {
 		return ""
 	}
 	defer tx.Rollback()
-
-	rows, err := tx.Query(
-		`SELECT source, kind, body FROM system_messages WHERE folder = ? ORDER BY id ASC`, folder)
-	if err != nil {
+	msgs, err := d.store().QueuedSystemMessagesTx(ctx, tx, folder)
+	if err != nil || len(msgs) == 0 {
 		return ""
 	}
 	var b strings.Builder
-	for rows.Next() {
-		var source, kind, body string
-		if err := rows.Scan(&source, &kind, &body); err != nil {
-			rows.Close()
-			return ""
-		}
-		fmt.Fprintf(&b, "<system origin=%q event=%q>%s</system>\n", source, kind, body)
+	for _, m := range msgs {
+		fmt.Fprintf(&b, "<system origin=%q event=%q>%s</system>\n", m.Source, m.Kind, m.Body)
 	}
-	scanErr := rows.Err()
-	rows.Close()
-	// Never delete rows we failed to render: leave them for the next flush.
-	if scanErr != nil {
-		return ""
-	}
-	if b.Len() == 0 {
-		return ""
-	}
-	if _, err := tx.Exec(`DELETE FROM system_messages WHERE folder = ?`, folder); err != nil {
+	if err := d.store().DrainSystemMessagesTx(ctx, tx, folder, msgs); err != nil {
 		return ""
 	}
 	if err := tx.Commit(); err != nil {
@@ -55,55 +45,28 @@ func (d *DB) FlushSysMsgs(folder string) string {
 	return b.String()
 }
 
-// EnqueueSysMsg appends one system_messages row for folder. emitSystemEvents is
+// EnqueueSysMsg appends one system event to folder's queue. emitSystemEvents is
 // the producer; FlushSysMsgs (above) is the consumer.
 func (d *DB) EnqueueSysMsg(folder, source, kind, body string) error {
-	_, err := d.db.Exec(
-		`INSERT INTO system_messages (folder, source, kind, body, created)
-		 VALUES (?, ?, ?, ?, ?)`,
-		folder, source, kind, body, nowTS())
-	return err
+	return d.store().EnqueueSystemMessage(folder, source, kind, body)
 }
 
 // TopicLineage returns the lineage row for (folder, topic); the prompt path
 // consumes only ObservedCursor (parent + forked_at are audit metadata).
 // ok=false when no row exists.
 func (d *DB) TopicLineage(folder, topic string) (core.TopicLineage, bool) {
-	var parent, forked, cursor *string
-	err := d.db.QueryRow(
-		`SELECT parent_topic, forked_at, observed_cursor
-		 FROM sessions WHERE group_folder = ? AND topic = ?`,
-		folder, topic,
-	).Scan(&parent, &forked, &cursor)
-	if err != nil {
-		return core.TopicLineage{}, false
-	}
-	out := core.TopicLineage{Folder: folder, Topic: topic, ParentTopic: parent}
-	if forked != nil {
-		out.ForkedAt = *forked
-	}
-	if cursor != nil {
-		out.ObservedCursor = *cursor
-	}
-	return out, true
+	return d.store().TopicLineage(folder, topic)
 }
 
-// UpdateObservedCursor advances a topic's observed cursor to ts (core.TSLayout
-// UTC), monotonically (only when the new value is strictly greater, or NULL).
-// UPSERT, not UPDATE: buildAgentPrompt advances the cursor BEFORE PutSession
-// creates the (folder,topic) row, so a plain UPDATE would match zero rows on a
-// topic's first turns and re-include the observed window. The inserted row
-// carries session_id=” (PutSession fills it post-run without clobbering
-// observed_cursor).
-func (d *DB) UpdateObservedCursor(folder, topic, ts string) error {
-	_, err := d.db.Exec(
-		`INSERT INTO sessions(group_folder, topic, session_id, observed_cursor)
-		 VALUES(?,?,'',?)
-		 ON CONFLICT(group_folder, topic) DO UPDATE SET observed_cursor = excluded.observed_cursor
-		   WHERE sessions.observed_cursor IS NULL OR sessions.observed_cursor < excluded.observed_cursor`,
-		folder, topic, ts,
-	)
-	return err
+// AdvanceObservedCursor moves a topic's ambient watermark to ts (core.TSLayout
+// UTC) and only forward, creating the topic's row when it has none.
+//
+// It is named for the transition rather than for the verb because the condition
+// IS the operation: buildAgentPrompt advances the cursor BEFORE PutSession
+// creates the row, so a write that only updated matched nothing on a topic's
+// first turns and re-included the whole observed window.
+func (d *DB) AdvanceObservedCursor(folder, topic, ts string) error {
+	return d.store().AdvanceObservedCursor(folder, topic, ts)
 }
 
 // ClearObservedCursor drops a topic's observed watermark, so the next prompt
@@ -111,10 +74,7 @@ func (d *DB) UpdateObservedCursor(folder, topic, ts string) error {
 // The fork path calls it when the child could not inherit the parent transcript
 // — without it that child starts its first turn with no context at all.
 func (d *DB) ClearObservedCursor(folder, topic string) error {
-	_, err := d.db.Exec(
-		`UPDATE sessions SET observed_cursor = NULL
-		 WHERE group_folder = ? AND topic = ?`, folder, topic)
-	return err
+	return d.store().ClearObservedCursor(folder, topic)
 }
 
 // GroupObserveWindow returns the group's stored observe-window override as

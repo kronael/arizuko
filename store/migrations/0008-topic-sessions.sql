@@ -7,18 +7,10 @@
 -- spec 6/37 step 7). A rule is addressed by (seq, target, match), so the
 -- coordinate IS the uniqueness a second insert of the same rule would have
 -- collided with, and there is no index to declare.
-
-CREATE TABLE sessions_new (
-  group_folder TEXT NOT NULL,
-  topic        TEXT NOT NULL DEFAULT '',
-  session_id   TEXT NOT NULL,
-  PRIMARY KEY (group_folder, topic)
-);
-
-INSERT INTO sessions_new (group_folder, topic, session_id)
-  SELECT group_folder, '', session_id FROM sessions;
-
-DROP TABLE sessions;
-ALTER TABLE sessions_new RENAME TO sessions;
+--
+-- `sessions` is one too, and its coordinate is (group_folder, topic) — the
+-- composite key this file reshaped the table to hold. An entity keeps the name
+-- of the table it replaces, so a database carrying rows here is moved by
+-- `arizuko migrate-hot` and refuses to open until it has been.
 
 ALTER TABLE messages ADD COLUMN topic TEXT NOT NULL DEFAULT '';

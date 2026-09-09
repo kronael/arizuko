@@ -239,8 +239,8 @@ func TestArchive_RoundTrip_ConfigSecretsMessagesGroups(t *testing.T) {
 
 	// Finding 4: agent_cursor derived from the imported history's MAX
 	// timestamp for the touched chat.
-	var cursor string
-	if err := dstRoutd.DB().QueryRow("SELECT agent_cursor FROM chats WHERE jid='web:atlas'").Scan(&cursor); err != nil {
+	cursor, err := store.New(dstRoutd.DB()).AgentCursor("web:atlas")
+	if err != nil {
 		t.Fatal(err)
 	}
 	if cursor != core.TS(msgAt(t, "2026-01-02")) {

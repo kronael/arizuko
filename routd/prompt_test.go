@@ -380,7 +380,7 @@ func TestBuildAgentPrompt_DoesNotConsumeTheObservedWindow(t *testing.T) {
 
 	// Only an explicit advance consumes it — the caller's job, on the same
 	// success path that advances the message cursor.
-	if err := db.UpdateObservedCursor("main", "", mark); err != nil {
+	if err := db.AdvanceObservedCursor("main", "", mark); err != nil {
 		t.Fatal(err)
 	}
 	third, mark3 := loop.buildAgentPrompt("main", "", trigger)

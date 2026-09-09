@@ -161,21 +161,21 @@ func TestPollOnceDoesNotSkipTheChatHoldingATrigger(t *testing.T) {
 	}
 }
 
-// TestMigration0044NormalisesTheCursorColumns pins the other half: the code fix
-// alone does not reach a deployed instance, whose chats hold cursors written at
-// whatever width they were written. A nanosecond row arriving in the second a
-// stored whole-second cursor names still sorts behind it.
-func TestMigration0044NormalisesTheCursorColumns(t *testing.T) {
+// TestMigration0044NormalisesTheMessageRows pins the half of L97 that lives in
+// the migration chain: the ROWS a cursor is compared against.
+//
+// The cursors themselves are no longer columns — `chats` and `sessions` are
+// objstore entities — so the migration pads the rows and `arizuko migrate-hot`
+// pads the cursors as it carries them, refusing to run until this has. The
+// cursor half is proved there, over the same legacy state; what is proved here
+// is that this half still happens, and that it leaves alone the one shape it
+// must not touch.
+func TestMigration0044NormalisesTheMessageRows(t *testing.T) {
 	db := memDB(t)
 	const chatJID = "slack:T/C/U"
 
-	// The state a pre-migration instance holds: a whole-second cursor and a
-	// nanosecond row in that same second.
-	if _, err := db.SQL().Exec(
-		`INSERT INTO chats (jid, agent_cursor) VALUES (?, '2026-08-26T19:06:41Z')`, chatJID,
-	); err != nil {
-		t.Fatalf("seed legacy cursor: %v", err)
-	}
+	// The state a pre-migration instance holds: a nanosecond row and a
+	// whole-second row in the same second.
 	if _, err := db.SQL().Exec(
 		`INSERT INTO messages (id, chat_jid, sender, sender_name, content, timestamp,
 		    is_from_me, is_bot_message, reply_to_id, reply_to_text, reply_to_sender,
@@ -185,6 +185,16 @@ func TestMigration0044NormalisesTheCursorColumns(t *testing.T) {
 		chatJID,
 	); err != nil {
 		t.Fatalf("seed legacy trigger: %v", err)
+	}
+	if _, err := db.SQL().Exec(
+		`INSERT INTO messages (id, chat_jid, sender, sender_name, content, timestamp,
+		    is_from_me, is_bot_message, reply_to_id, reply_to_text, reply_to_sender,
+		    topic, routed_to, verb, attachments, source, is_observed, status, chat_name)
+		 VALUES ('whole-second', ?, 'u1', '', 'same second, no fraction',
+		    '2026-08-26T19:06:41Z', 0, 0, '', '', '', '', '', 'message', '', '', 0, 'sent', '')`,
+		chatJID,
+	); err != nil {
+		t.Fatalf("seed whole-second row: %v", err)
 	}
 	// A row nothing in the codebase can produce: it must survive untouched
 	// rather than have a zone invented for it.
@@ -198,44 +208,21 @@ func TestMigration0044NormalisesTheCursorColumns(t *testing.T) {
 	); err != nil {
 		t.Fatalf("seed malformed row: %v", err)
 	}
-	if _, err := db.SQL().Exec(
-		`INSERT INTO sessions (group_folder, topic, session_id, observed_cursor)
-		 VALUES ('atlas', 'main', 's1', '2026-08-26T19:06:41Z')`,
-	); err != nil {
-		t.Fatalf("seed legacy observed cursor: %v", err)
-	}
-
-	msgs, err := db.MessagesSince(chatJID, db.GetAgentCursor(chatJID))
-	if err != nil {
-		t.Fatalf("messages since: %v", err)
-	}
-	if containsID(msgs, "hitl-legacy") {
-		t.Fatal("precondition: the legacy trigger must start out invisible")
-	}
 
 	applyMigration(t, db, "migrations/0044-fixed-width-timestamps.sql")
 
-	msgs, err = db.MessagesSince(chatJID, db.GetAgentCursor(chatJID))
-	if err != nil {
-		t.Fatalf("messages since: %v", err)
-	}
-	if !containsID(msgs, "hitl-legacy") {
-		t.Fatalf("the migration left the legacy trigger behind the cursor %q",
-			db.GetAgentCursor(chatJID))
-	}
-
-	for col, want := range map[string]string{
-		"(SELECT agent_cursor FROM chats WHERE jid = '" + chatJID + "')":                     "2026-08-26T19:06:41.000000000Z",
-		"(SELECT timestamp FROM messages WHERE id = 'hitl-legacy')":                          "2026-08-26T19:06:41.882458214Z",
-		"(SELECT timestamp FROM messages WHERE id = 'hand-written')":                         "2026-04-02 12:38:47",
-		"(SELECT observed_cursor FROM sessions WHERE group_folder='atlas' AND topic='main')": "2026-08-26T19:06:41.000000000Z",
+	for id, want := range map[string]string{
+		"hitl-legacy":  "2026-08-26T19:06:41.882458214Z",
+		"whole-second": "2026-08-26T19:06:41.000000000Z",
+		"hand-written": "2026-04-02 12:38:47",
 	} {
 		var got string
-		if err := db.SQL().QueryRow("SELECT " + col).Scan(&got); err != nil {
-			t.Fatalf("read %s: %v", col, err)
+		if err := db.SQL().QueryRow(
+			"SELECT timestamp FROM messages WHERE id = ?", id).Scan(&got); err != nil {
+			t.Fatalf("read %s: %v", id, err)
 		}
 		if got != want {
-			t.Errorf("%s = %q, want %q", col, got, want)
+			t.Errorf("%s = %q, want %q", id, got, want)
 		}
 	}
 

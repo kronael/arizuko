@@ -1,21 +1,12 @@
--- Normalize JID format: add channel prefix where missing
-
-UPDATE chats SET jid = 'telegram:' || jid
-  WHERE jid GLOB '[0-9]*' AND channel = 'telegram';
-
-UPDATE messages SET chat_jid = 'telegram:' || chat_jid
-  WHERE chat_jid GLOB '[0-9]*'
-  AND EXISTS (
-    SELECT 1 FROM chats
-    WHERE chats.jid = 'telegram:' || messages.chat_jid
-    AND chats.channel = 'telegram'
-  );
+-- Normalize JID format: add channel prefix where missing.
+--
+-- The chat rewrites are gone with the table: `chats` is an objstore entity
+-- rather than a table this chain creates (store.EnsureEntities, spec 6/37
+-- step 7), and the messages rewrite below keyed off `chats.channel`, which is an
+-- attribute now. This chain only ever runs whole against an EMPTY database, so
+-- every UPDATE in it is a no-op there; a database that carried these rows
+-- recorded this version years before the move, and `arizuko migrate-hot` reads
+-- the table this chain left behind.
 
 UPDATE registered_groups SET jid = 'telegram:' || jid
   WHERE jid GLOB '[0-9]*';
-
-UPDATE chats SET jid = 'whatsapp:' || jid
-  WHERE jid NOT LIKE '%:%' AND channel = 'whatsapp';
-
-UPDATE chats SET jid = 'discord:' || jid
-  WHERE jid NOT LIKE '%:%' AND channel = 'discord';

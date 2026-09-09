@@ -2,21 +2,13 @@
 -- DB and its own migration sequence (service="routd"). Times are
 -- RFC3339Nano UTC TEXT throughout — the Go layer computes every timestamp.
 --
--- `groups`, `routes`, `web_routes` and `route_tokens` are objstore entities
--- rather than tables this chain creates: the driver makes each one, from the
--- declaration that sits beside the code writing it (store.EnsureEntities, spec
--- 6/37 step 7). An entity keeps the name of the table it replaces, so a
--- database carrying rows here is moved by `arizuko migrate-routd` and refuses
+-- `groups`, `routes`, `web_routes`, `route_tokens`, `chats`, `sessions`,
+-- `chat_reply_state` and `system_messages` are objstore entities rather than
+-- tables this chain creates: the driver makes each one, from the declaration
+-- that sits beside the code writing it (store.EnsureEntities, spec 6/37 step 7).
+-- An entity keeps the name of the table it replaces, so a database carrying rows
+-- here is moved by `arizuko migrate-routd` or `arizuko migrate-hot` and refuses
 -- to open until it has been.
-
-CREATE TABLE chats (
-  jid          TEXT PRIMARY KEY,
-  errored      INTEGER NOT NULL DEFAULT 0,
-  agent_cursor TEXT,
-  sticky_group TEXT,
-  sticky_topic TEXT,
-  is_group     INTEGER NOT NULL DEFAULT 0
-);
 
 CREATE TABLE messages (
   id              TEXT PRIMARY KEY,
@@ -62,26 +54,6 @@ CREATE TRIGGER messages_fts_au AFTER UPDATE ON messages BEGIN
   INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
 END;
 
-CREATE TABLE sessions (
-  group_folder    TEXT NOT NULL,
-  topic           TEXT NOT NULL DEFAULT '',
-  session_id      TEXT NOT NULL,
-  parent_topic    TEXT,
-  forked_at       TEXT,
-  observed_cursor TEXT,
-  PRIMARY KEY (group_folder, topic)
-);
-CREATE INDEX idx_sessions_lineage ON sessions(group_folder, parent_topic);
-
-CREATE TABLE chat_reply_state (
-  jid            TEXT NOT NULL,
-  topic          TEXT NOT NULL DEFAULT '',
-  last_reply_id  TEXT NOT NULL,
-  engaged_until  TEXT,
-  engaged_folder TEXT NOT NULL DEFAULT '',
-  PRIMARY KEY (jid, topic)
-);
-
 CREATE TABLE turn_context (
   turn_id        TEXT PRIMARY KEY,
   folder         TEXT NOT NULL,
@@ -113,15 +85,6 @@ CREATE TABLE cost_log (
   PRIMARY KEY (folder, turn_id, model)
 );
 CREATE INDEX idx_cost_log_folder_day ON cost_log(folder, recorded_at);
-
-CREATE TABLE system_messages (
-  id      INTEGER PRIMARY KEY AUTOINCREMENT,
-  folder  TEXT NOT NULL,
-  source  TEXT NOT NULL,
-  kind    TEXT NOT NULL,
-  body    TEXT NOT NULL,
-  created TEXT NOT NULL
-);
 
 CREATE TABLE group_watchers (
   observer TEXT NOT NULL,

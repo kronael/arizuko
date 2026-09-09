@@ -448,10 +448,12 @@ func TestRunErrorMarksAndNotifies(t *testing.T) {
 	if len(dl.sends) != 1 || dl.sends[0].text != runFailureNotice {
 		t.Fatalf("expected one failure notice, got %+v", dl.sends)
 	}
-	var errored int
-	db.SQL().QueryRow("SELECT errored FROM chats WHERE jid=?", "slack:T/C/U").Scan(&errored)
-	if errored != 1 {
-		t.Fatal("chat not marked errored after outcome:error")
+	errored, eerr := db.ErroredChats("", true)
+	if eerr != nil {
+		t.Fatalf("errored chats: %v", eerr)
+	}
+	if len(errored) != 1 || errored[0].ChatJID != "slack:T/C/U" {
+		t.Fatalf("chat not marked errored after outcome:error: %+v", errored)
 	}
 	// run_returned set so a late callback 409s.
 	if tc, _ := db.GetTurnContext("e"); !tc.RunReturned {
@@ -1297,10 +1299,11 @@ func TestEnsureTopicLineage_InheritsParentObservedCursor(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 
-	const parentCursor = "2026-08-23T15:10:44Z"
-	if _, err := db.SQL().Exec(
-		`INSERT INTO sessions(group_folder, topic, session_id, observed_cursor)
-		 VALUES('main/trading','', 'root-uuid', ?)`, parentCursor); err != nil {
+	parentCursor := core.TS(time.Date(2026, 8, 23, 15, 10, 44, 0, time.UTC))
+	if err := db.PutSession("main/trading", "", "root-uuid"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AdvanceObservedCursor("main/trading", "", parentCursor); err != nil {
 		t.Fatal(err)
 	}
 

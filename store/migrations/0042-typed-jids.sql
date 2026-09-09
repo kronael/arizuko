@@ -30,6 +30,13 @@
 -- UPDATE. A pre-move database's admissions are re-keyed by
 -- `arizuko migrate-onbod` and its rules by `arizuko migrate-routd`, each
 -- reading the table this chain left behind.
+--
+-- THE CHAT REWRITES ARE GONE WITH THE TABLE. `chats` and `chat_reply_state` are
+-- objstore entities rather than tables this chain creates (store.EnsureEntities,
+-- spec 6/37 step 7), so a jid that is half of a coordinate is rewritten by
+-- `arizuko migrate-hot`, which reads the tables this chain left behind. This
+-- chain only ever runs whole against an EMPTY database, where every UPDATE in it
+-- is a no-op.
 
 -- ============================================================================
 -- TELEGRAM: split signed integer into user/group kinds; drop sign bit.
@@ -69,16 +76,6 @@ UPDATE messages SET reply_to_sender = 'telegram:group/' || substr(reply_to_sende
   WHERE reply_to_sender LIKE 'telegram:-%'
     AND reply_to_sender NOT LIKE 'telegram:%/%';
 
-UPDATE chats SET jid = 'telegram:user/' || substr(jid, 10)
-  WHERE jid LIKE 'telegram:%'
-    AND jid NOT LIKE 'telegram:-%'
-    AND jid NOT LIKE 'telegram:%/%'
-    AND substr(jid, 10) GLOB '[0-9]*';
-
-UPDATE chats SET jid = 'telegram:group/' || substr(jid, 11)
-  WHERE jid LIKE 'telegram:-%'
-    AND jid NOT LIKE 'telegram:%/%';
-
 UPDATE user_jids SET jid = 'telegram:user/' || substr(jid, 10)
   WHERE jid LIKE 'telegram:%'
     AND jid NOT LIKE 'telegram:-%'
@@ -102,15 +99,12 @@ UPDATE grants SET jid = 'telegram:group/' || substr(jid, 11)
 
 
 -- ============================================================================
--- DISCORD: split via chats.is_group. DMs → discord:dm/<channel>;
--- guild channels → discord:_/<channel> (placeholder; legacy rows have no
--- guild_id, new inbound from discd MUST emit discord:<guild>/<channel>).
+-- DISCORD: guild channels → discord:_/<channel> (placeholder; legacy rows have
+-- no guild_id, new inbound from discd MUST emit discord:<guild>/<channel>).
+--
+-- The DM split this section performed read `chats.is_group`, which is an
+-- attribute now rather than a column (store.EnsureEntities, spec 6/37 step 7).
 -- ============================================================================
-UPDATE messages SET chat_jid = 'discord:dm/' || substr(chat_jid, 9)
-  WHERE chat_jid LIKE 'discord:%'
-    AND chat_jid NOT LIKE 'discord:%/%'
-    AND chat_jid IN (SELECT jid FROM chats WHERE is_group = 0);
-
 UPDATE messages SET chat_jid = 'discord:_/' || substr(chat_jid, 9)
   WHERE chat_jid LIKE 'discord:%'
     AND chat_jid NOT LIKE 'discord:%/%';
@@ -122,15 +116,6 @@ UPDATE messages SET sender = 'discord:user/' || substr(sender, 9)
 UPDATE messages SET reply_to_sender = 'discord:user/' || substr(reply_to_sender, 9)
   WHERE reply_to_sender LIKE 'discord:%'
     AND reply_to_sender NOT LIKE 'discord:%/%';
-
-UPDATE chats SET jid = 'discord:dm/' || substr(jid, 9)
-  WHERE jid LIKE 'discord:%'
-    AND jid NOT LIKE 'discord:%/%'
-    AND is_group = 0;
-
-UPDATE chats SET jid = 'discord:_/' || substr(jid, 9)
-  WHERE jid LIKE 'discord:%'
-    AND jid NOT LIKE 'discord:%/%';
 
 UPDATE user_jids SET jid = 'discord:user/' || substr(jid, 9)
   WHERE jid LIKE 'discord:%'
@@ -159,11 +144,6 @@ UPDATE messages SET reply_to_sender = 'mastodon:account/' || substr(reply_to_sen
   WHERE reply_to_sender LIKE 'mastodon:%'
     AND reply_to_sender NOT LIKE 'mastodon:account/%'
     AND reply_to_sender NOT LIKE 'mastodon:status/%';
-
-UPDATE chats SET jid = 'mastodon:account/' || substr(jid, 10)
-  WHERE jid LIKE 'mastodon:%'
-    AND jid NOT LIKE 'mastodon:account/%'
-    AND jid NOT LIKE 'mastodon:status/%';
 
 UPDATE user_jids SET jid = 'mastodon:account/' || substr(jid, 10)
   WHERE jid LIKE 'mastodon:%'
@@ -200,10 +180,6 @@ UPDATE messages SET reply_to_sender = 'reddit:user/' || substr(reply_to_sender, 
 UPDATE messages SET reply_to_sender = 'reddit:submission/' || substr(reply_to_sender, 11)
   WHERE reply_to_sender LIKE 'reddit:t3_%';
 
-UPDATE chats SET jid = 'reddit:comment/' || substr(jid, 11) WHERE jid LIKE 'reddit:t1_%';
-UPDATE chats SET jid = 'reddit:user/' || substr(jid, 11) WHERE jid LIKE 'reddit:t2_%';
-UPDATE chats SET jid = 'reddit:submission/' || substr(jid, 11) WHERE jid LIKE 'reddit:t3_%';
-
 UPDATE user_jids SET jid = 'reddit:user/' || substr(jid, 11) WHERE jid LIKE 'reddit:t2_%';
 
 UPDATE grants SET jid = 'reddit:user/' || substr(jid, 11) WHERE jid LIKE 'reddit:t2_%';
@@ -235,11 +211,6 @@ UPDATE messages SET reply_to_sender = 'bluesky:user/' || replace(substr(reply_to
   WHERE reply_to_sender LIKE 'bluesky:%'
     AND reply_to_sender NOT LIKE 'bluesky:user/%'
     AND reply_to_sender NOT LIKE 'bluesky:post/%';
-
-UPDATE chats SET jid = 'bluesky:user/' || replace(substr(jid, 9), ':', '%3A')
-  WHERE jid LIKE 'bluesky:%'
-    AND jid NOT LIKE 'bluesky:user/%'
-    AND jid NOT LIKE 'bluesky:post/%';
 
 UPDATE user_jids SET jid = 'bluesky:user/' || replace(substr(jid, 9), ':', '%3A')
   WHERE jid LIKE 'bluesky:%' AND jid NOT LIKE 'bluesky:user/%';
@@ -284,9 +255,6 @@ UPDATE messages SET sender = 'linkedin:user/' || substr(sender, 10)
 
 UPDATE messages SET reply_to_sender = 'linkedin:user/' || substr(reply_to_sender, 10)
   WHERE reply_to_sender LIKE 'linkedin:%' AND reply_to_sender NOT LIKE 'linkedin:user/%' AND reply_to_sender NOT LIKE 'linkedin:post/%';
-
-UPDATE chats SET jid = 'linkedin:user/' || substr(jid, 10)
-  WHERE jid LIKE 'linkedin:%' AND jid NOT LIKE 'linkedin:user/%' AND jid NOT LIKE 'linkedin:post/%';
 
 UPDATE user_jids SET jid = 'linkedin:user/' || substr(jid, 10)
   WHERE jid LIKE 'linkedin:%' AND jid NOT LIKE 'linkedin:user/%';

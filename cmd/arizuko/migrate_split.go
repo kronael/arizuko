@@ -62,11 +62,6 @@ type copySpec struct {
 // see migrateSplit's summary for the deltas found.
 var routdSpecs = []copySpec{
 	// straight copies (shared column intersection)
-	// messages.db chats has no `errored` column (dropped in store 0023);
-	// routd.db chats adds it → defaults to 0.
-	{dst: "chats", src: "chats",
-		cols: "jid, agent_cursor, sticky_group, sticky_topic, is_group",
-		sel:  "jid, agent_cursor, sticky_group, sticky_topic, is_group"},
 	// messages.db messages has `errored` (store 0030); routd.db lacks it → dropped.
 	// transform: COALESCE every nullable column to routd's runtime default. routd's
 	// own inserts use '' (FireProactive/PutMessage), but legacy gated rows carry
@@ -83,15 +78,9 @@ var routdSpecs = []copySpec{
 			"COALESCE(topic,''), COALESCE(routed_to,''), COALESCE(verb,'message'), " +
 			"COALESCE(attachments,''), COALESCE(source,''), COALESCE(is_observed,0), " +
 			"COALESCE(turn_id,''), COALESCE(status,'sent'), COALESCE(platform_id,''), COALESCE(chat_name,'')"},
-	{dst: "sessions", src: "sessions",
-		cols: "group_folder, topic, session_id, parent_topic, forked_at, observed_cursor",
-		sel:  "group_folder, topic, session_id, parent_topic, forked_at, observed_cursor"},
 	{dst: "turn_results", src: "turn_results",
 		cols: "folder, turn_id, session_id, status, recorded_at",
 		sel:  "folder, turn_id, session_id, status, recorded_at"},
-	{dst: "chat_reply_state", src: "chat_reply_state",
-		cols: "jid, topic, last_reply_id, engaged_until, engaged_folder",
-		sel:  "jid, topic, last_reply_id, engaged_until, engaged_folder"},
 	{dst: "group_watchers", src: "group_watchers",
 		cols: "observer, source",
 		sel:  "observer, source"},
@@ -112,17 +101,13 @@ var routdSpecs = []copySpec{
 		cols: "id, sub, username, name, created_at, cost_cap_cents_per_day",
 		sel:  "id, sub, username, name, created_at, cost_cap_cents_per_day"},
 
-	// transforms (schemas differ — explicit column remap)
-	// system_messages: group_id→folder, origin→source, event→kind, created_at→created; `attrs` dropped.
-	{dst: "system_messages", src: "system_messages", transfm: true,
-		cols: "id, folder, source, kind, body, created",
-		sel:  "id, group_id, origin, event, body, created_at"},
-	// audit_log, pane_sessions, secret_use_log and routd's own thirteen are NOT
-	// here: each is an objstore entity, so none is a column list and no
-	// INSERT … SELECT can carry one. copyAuditLog, copyStoreEntities and
-	// copyRoutdEntities below read the monolith's rows through the same source
-	// readers `arizuko migrate-audit`, `migrate-store` and `migrate-routd` use,
-	// and hand them to the packages that own the item shape.
+	// audit_log, pane_sessions, secret_use_log, routd's own thirteen and the hot
+	// tier's five are NOT here: each is an objstore entity, so none is a column
+	// list and no INSERT … SELECT can carry one. copyAuditLog, copyStoreEntities,
+	// copyRoutdEntities and copyHotEntities below read the monolith's rows
+	// through the same source readers `arizuko migrate-audit`, `migrate-store`,
+	// `migrate-routd` and `migrate-hot` use, and hand them to the packages that
+	// own the item shape.
 	// cost_log_archive: the spend a pre-split instance recorded, landing in the
 	// table that holds spend history (spec 6/39 — the model gateway is the ledger,
 	// and these rows predate one metering anything).
@@ -383,6 +368,54 @@ func copyRoutdEntities(dst *sql.DB, msgPath string, dryRun bool) (store.RoutdCou
 	return store.New(dst).ImportRoutd(context.Background(), snap)
 }
 
+// hotColumnAlias renames the pre-split monolith's system_messages columns onto
+// the names routd.db gave them. It is the one place the two schemas differ over
+// the five, and it is a declaration rather than a second reader.
+var hotColumnAlias = map[string]map[string]string{
+	"system_messages": {"group_id": "folder", "origin": "source", "event": "kind",
+		"created_at": "created"},
+}
+
+// copyHotEntities carries the monolith's five hot-tier tables into routd.db as
+// items, through the same source reader `arizuko migrate-hot` uses.
+//
+// IT RUNS AFTER THE MESSAGE ROWS ARE NORMALISED, and that order is the whole
+// reason it is a separate step rather than four more copySpecs: the two cursors
+// it carries are compared against messages.timestamp, and a cursor that moves
+// relative to its rows re-feeds or skips everything between the two values
+// (routd migration 0044). The reader refuses a cursor of the wrong width and
+// this step refuses to run while any destination message row is still unpadded,
+// so neither order can be got wrong by accident.
+func copyHotEntities(dst *sql.DB, msgPath string, dryRun bool) (store.RoutdCounts, error) {
+	src, err := db_utils.Open(db_utils.FileDSN(msgPath))
+	if err != nil {
+		return nil, err
+	}
+	defer src.Close() //nolint:errcheck // read-only, and the process ends either way
+	sources, err := legacySources(src, store.HotEntities)
+	if err != nil {
+		return nil, err
+	}
+	if len(sources) == 0 {
+		return store.RoutdCounts{}, nil
+	}
+	if err := requirePaddedMessageRows(dst, sources); err != nil {
+		return nil, err
+	}
+	snap, err := readHotSnapshot(src, sources, hotColumnAlias)
+	if err != nil {
+		return nil, err
+	}
+	counts, err := store.CheckHotSnapshot(snap)
+	if err != nil {
+		return nil, err
+	}
+	if dryRun {
+		return counts, nil
+	}
+	return store.New(dst).ImportHot(context.Background(), snap)
+}
+
 func migrateSplit(storeDir string, dryRun bool) error {
 	msgPath := filepath.Join(storeDir, "messages.db")
 	if _, err := os.Stat(msgPath); err != nil {
@@ -454,6 +487,13 @@ func migrateSplit(storeDir string, dryRun bool) error {
 	if err != nil {
 		return fmt.Errorf("routd.db: %w", err)
 	}
+	// The hot tier's five, after the normaliser above and never before it: two of
+	// them carry a cursor into messages.timestamp, and the reader refuses one
+	// whose width the rows no longer match.
+	hN, err := copyHotEntities(rdb.SQL(), msgPath, dryRun)
+	if err != nil {
+		return fmt.Errorf("routd.db: %w", err)
+	}
 	// 5/33: bind every migrated folder to role:member (the messaging floor). The
 	// import writes group items directly, so no creating writer ran and no edge
 	// came with them — a migrated agent would have no grants and could not even
@@ -498,6 +538,9 @@ func migrateSplit(storeDir string, dryRun bool) error {
 	fmt.Printf("  routd.db rows: %s\n", fmtCounts(routdSpecs, rN))
 	for _, entity := range store.RoutdEntities {
 		fmt.Printf("  routd.db %-19s %d\n", entity+":", eN[entity])
+	}
+	for _, entity := range store.HotEntities {
+		fmt.Printf("  routd.db %-19s %d\n", entity+":", hN[entity])
 	}
 	fmt.Printf("  routd.db audit_log: %d events\n", aN)
 	fmt.Printf("  routd.db pane_sessions: %d panes, secret_use_log: %d uses\n", sN.Panes, sN.Uses)

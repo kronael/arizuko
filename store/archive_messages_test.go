@@ -212,17 +212,16 @@ func TestMessagesImportRejectsMalformedJSONL(t *testing.T) {
 
 // DeriveAgentCursors
 
-func cursorOf(t *testing.T, db *sql.DB, jid string) string {
+// cursorOf reads a chat's dispatch cursor through the entity, which is where it
+// lives: the fixture asserts what the poll loop would read, not what a column
+// holds (spec 6/37 step 7).
+func cursorOf(t *testing.T, st *store.Store, jid string) string {
 	t.Helper()
-	var c sql.NullString
-	err := db.QueryRow("SELECT agent_cursor FROM chats WHERE jid = ?", jid).Scan(&c)
-	if err == sql.ErrNoRows {
-		return "<no row>"
-	}
+	c, err := st.AgentCursor(jid)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return c.String
+	return c
 }
 
 // Without a cursor the poller re-opens every restored message as new: a turn
@@ -241,10 +240,10 @@ func TestDeriveAgentCursorsParksThePollerAtTheEndOfTheHistory(t *testing.T) {
 	if n != 2 {
 		t.Errorf("moved %d cursors, want 2", n)
 	}
-	if got := cursorOf(t, db, "slack:C1"); got != ts(t, "12:00") {
+	if got := cursorOf(t, dbSt, "slack:C1"); got != ts(t, "12:00") {
 		t.Errorf("slack:C1 cursor = %q, want the chat's MAX(timestamp)", got)
 	}
-	if got := cursorOf(t, db, "slack:C2"); got != ts(t, "09:00") {
+	if got := cursorOf(t, dbSt, "slack:C2"); got != ts(t, "09:00") {
 		t.Errorf("slack:C2 cursor = %q", got)
 	}
 
@@ -260,8 +259,7 @@ func TestDeriveAgentCursorsParksThePollerAtTheEndOfTheHistory(t *testing.T) {
 func TestDeriveAgentCursorsNeverWalksALiveCursorBackward(t *testing.T) {
 	dbSt, db := routdMessages(t)
 	insertMsg(t, db, store.ArchiveMessageRow{ID: "old", ChatJID: "slack:C1", Sender: "u", Content: "x", Timestamp: ts(t, "08:00")})
-	if _, err := db.Exec(
-		`INSERT INTO chats(jid, agent_cursor) VALUES ('slack:C1',?)`, ts(t, "20:00")); err != nil {
+	if err := dbSt.SetAgentCursor("slack:C1", ts(t, "20:00")); err != nil {
 		t.Fatal(err)
 	}
 
@@ -269,7 +267,7 @@ func TestDeriveAgentCursorsNeverWalksALiveCursorBackward(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DeriveAgentCursors: %v", err)
 	}
-	if got := cursorOf(t, db, "slack:C1"); got != ts(t, "20:00") {
+	if got := cursorOf(t, dbSt, "slack:C1"); got != ts(t, "20:00") {
 		t.Fatalf("the live cursor was walked back to %q; the agent would answer its whole recent history", got)
 	}
 	if n != 0 {
@@ -281,7 +279,7 @@ func TestDeriveAgentCursorsNeverWalksALiveCursorBackward(t *testing.T) {
 	if _, err := dbSt.DeriveAgentCursors(context.Background(), map[string]bool{"slack:C1": true}); err != nil {
 		t.Fatal(err)
 	}
-	if got := cursorOf(t, db, "slack:C1"); got != ts(t, "22:00") {
+	if got := cursorOf(t, dbSt, "slack:C1"); got != ts(t, "22:00") {
 		t.Errorf("cursor = %q, want it advanced to the new tail", got)
 	}
 }

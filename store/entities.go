@@ -78,6 +78,28 @@ const (
 	// GitHubSources holds one webhook source, addressed by its source key.
 	GitHubSources = "github_sources"
 
+	// The hot tier's five, which no resreg resource projects: they are runtime
+	// state rather than configuration, so nothing exports them and no version
+	// marker moves with them (scopes.go).
+
+	// Chats holds one item per chat routd has seen, addressed by its jid, and
+	// carries `agent_cursor` — the dispatch watermark that decides whether a
+	// message has already been fed to an agent.
+	Chats = "chats"
+	// Sessions holds one topic's continuity, addressed by (group_folder, topic),
+	// and carries `observed_cursor` — the other watermark, over the ambient
+	// window a prompt is built from.
+	Sessions = "sessions"
+	// ChatReplyState holds whether a reply is still owed on (jid, topic) and
+	// which folder holds the conversation.
+	ChatReplyState = "chat_reply_state"
+	// ChatProactive holds one chat's unprompted-turn cooldown, addressed by its
+	// jid.
+	ChatProactive = "chat_proactive"
+	// SystemMessages holds one queued system event, addressed by the folder it
+	// is queued for and the instant it was queued.
+	SystemMessages = "system_messages"
+
 	// Counters holds one item per server-minted number, addressed by the name
 	// of what it numbers, with the count in `n`.
 	//
@@ -156,6 +178,7 @@ var EntitiesByOwner = map[string][]string{
 		ACL, ACLMembership, Groups, Routes, RouteTokens, ScheduledTasks, Secrets,
 		PendingActions, NetworkRules, ProxydRoutes, WebRoutes, InstalledPackages,
 		GitHubSources,
+		Chats, Sessions, ChatReplyState, ChatProactive, SystemMessages,
 	},
 	OwnerOnbod: {Onboarding, OnboardingGates, Invites},
 }

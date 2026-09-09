@@ -136,7 +136,7 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	// (BUGS L58). Every early return above re-feeds the batch, and a re-fed turn
 	// must still see the ambient context the failed attempt was shown.
 	for _, m := range marks {
-		if err := l.db.UpdateObservedCursor(folder, m.topic, m.ts); err != nil {
+		if err := l.db.AdvanceObservedCursor(folder, m.topic, m.ts); err != nil {
 			slog.Error("observed cursor advance failed — the topic re-sees this window next turn",
 				"folder", folder, "topic", m.topic, "ts", m.ts, "err", err)
 		}

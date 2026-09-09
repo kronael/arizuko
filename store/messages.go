@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"sort"
 	"strings"
 	"time"
 
@@ -400,98 +399,6 @@ func (s *Store) ObservedSince(folder, cursor string, maxMsgs, maxChars int) []co
 	return out
 }
 
-func (s *Store) GetLastReplyID(jid, topic string) string {
-	var id string
-	s.db.QueryRow(
-		`SELECT last_reply_id FROM chat_reply_state WHERE jid=? AND topic=?`,
-		jid, topic,
-	).Scan(&id)
-	return id
-}
-
-// SetLastReply upserts last_reply_id AND engaged_folder for (jid, topic). Called by
-// every conversational outbound site; the engagement bump is a separate call so
-// timed-* turns can skip it while still recording the last reply (spec 5/G).
-//
-// Empty replyID leaves last_reply_id unchanged on existing rows. folder is recorded
-// as engaged_folder so EngagedFolder() is a single-row read independent of any prior
-// reply having succeeded.
-func (s *Store) SetLastReply(jid, topic, replyID, folder string) error {
-	_, err := s.db.Exec(
-		`INSERT INTO chat_reply_state (jid, topic, last_reply_id, engaged_folder)
-		 VALUES (?,?,?,?)
-		 ON CONFLICT(jid, topic) DO UPDATE SET
-		   last_reply_id = CASE WHEN excluded.last_reply_id != ''
-		                        THEN excluded.last_reply_id
-		                        ELSE chat_reply_state.last_reply_id END,
-		   engaged_folder = CASE WHEN excluded.engaged_folder != ''
-		                         THEN excluded.engaged_folder
-		                         ELSE chat_reply_state.engaged_folder END`,
-		jid, topic, replyID, folder,
-	)
-	return err
-}
-
-// BumpEngagement upserts engaged_until and engaged_folder for (jid, topic).
-// Called only by sites that know the trigger sender is not timed-*; the
-// timed-skip policy lives at the call sites (spec 5/G: scheduled / autonomous
-// turns must not extend engagement). Zero `until` clears (writes NULL).
-// `folder` is the bot folder claiming the conversation.
-func (s *Store) BumpEngagement(jid, topic, folder string, until time.Time) error {
-	var engaged any
-	if !until.IsZero() {
-		engaged = core.TS(until)
-	}
-	_, err := s.db.Exec(
-		`INSERT INTO chat_reply_state (jid, topic, last_reply_id, engaged_until, engaged_folder)
-		 VALUES (?,?,'',?,?)
-		 ON CONFLICT(jid, topic) DO UPDATE SET
-		   engaged_until = excluded.engaged_until,
-		   engaged_folder = CASE WHEN excluded.engaged_folder != ''
-		                         THEN excluded.engaged_folder
-		                         ELSE chat_reply_state.engaged_folder END`,
-		jid, topic, engaged, folder,
-	)
-	return err
-}
-
-// SetEngagement is BumpEngagement under the name the mention write site and
-// the engage/disengage MCP tools call it by.
-func (s *Store) SetEngagement(jid, topic, folder string, until time.Time) error {
-	return s.BumpEngagement(jid, topic, folder, until)
-}
-
-// IsEngaged returns true when (jid, topic) has a non-NULL engaged_until
-// strictly after `now`. Missing row → false.
-func (s *Store) IsEngaged(jid, topic string, now time.Time) bool {
-	var s_ string
-	err := s.db.QueryRow(
-		`SELECT COALESCE(engaged_until,'') FROM chat_reply_state WHERE jid=? AND topic=?`,
-		jid, topic,
-	).Scan(&s_)
-	if err != nil || s_ == "" {
-		return false
-	}
-	t, err := time.Parse(time.RFC3339Nano, s_)
-	if err != nil {
-		return false
-	}
-	return t.After(now)
-}
-
-// EngagedFolder returns the folder claiming (jid, topic), or "" if none.
-// Reads engaged_folder directly (single row, no JOIN) so the value survives
-// turn-by-turn rewrites and is correct even when verb=mention engaged the
-// pair before any bot reply has succeeded.
-func (s *Store) EngagedFolder(jid, topic string) string {
-	var f string
-	s.db.QueryRow(
-		`SELECT COALESCE(engaged_folder,'') FROM chat_reply_state WHERE jid=? AND topic=?`,
-		jid, topic,
-	).Scan(&f)
-	return f
-}
-
 func (s *Store) RoutedToByMessageID(id string) string {
 	var routedTo string
 	s.db.QueryRow(`SELECT COALESCE(routed_to,'') FROM messages WHERE id=? AND routed_to!=''`,
@@ -877,45 +784,21 @@ func (s *Store) ImportMessagesJSONL(ctx context.Context, r io.Reader, batchSize 
 	return imported, chatJIDs, refused, nil
 }
 
-// DeriveAgentCursors sets chats.agent_cursor = MAX(messages.timestamp) for every
-// chat_jid in touched (spec 5/8 Finding 4). Without it, restoring message history
-// makes routd's poller treat the whole import as unseen and dispatch a turn for
-// every restored chat — the agent answering every historical message.
+// newestMessageAt answers the instant of the newest message a chat holds, or
+// empty when it holds none.
 //
-// Never moves an EXISTING cursor backward: a populated target's poller must not be
-// walked back to re-open messages it already consumed.
-func (s *Store) DeriveAgentCursors(ctx context.Context, touched map[string]bool) (int, error) {
-	if len(touched) == 0 {
-		return 0, nil
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
+// It is the `messages` half of chats.go's DeriveAgentCursors, and it stays here
+// because `messages` is the entity it reads: the cursor write belongs to the
+// entity whose invariant it carries, and the question "what is the newest thing
+// said in this chat" belongs to the one that answers it.
+func (s *Store) newestMessageAt(ctx context.Context, jid string) (string, error) {
+	var newest sql.NullString
+	err := s.db.QueryRowContext(ctx,
+		`SELECT MAX(timestamp) FROM messages WHERE chat_jid = ?`, jid).Scan(&newest)
 	if err != nil {
-		return 0, fmt.Errorf("begin cursor tx: %w", err)
+		return "", fmt.Errorf("newest message in %s: %w", jid, err)
 	}
-	defer tx.Rollback()
-	jids := make([]string, 0, len(touched))
-	for j := range touched {
-		jids = append(jids, j)
-	}
-	sort.Strings(jids)
-	n := 0
-	for _, jid := range jids {
-		res, uerr := tx.ExecContext(ctx, `INSERT INTO chats(jid, agent_cursor)
-			SELECT ?, MAX(timestamp) FROM messages WHERE chat_jid = ?
-			ON CONFLICT(jid) DO UPDATE SET agent_cursor = excluded.agent_cursor
-			WHERE excluded.agent_cursor > COALESCE(chats.agent_cursor, '')`,
-			jid, jid)
-		if uerr != nil {
-			return n, fmt.Errorf("derive agent_cursor for %s: %w", jid, uerr)
-		}
-		if aff, _ := res.RowsAffected(); aff > 0 {
-			n++
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return n, fmt.Errorf("commit cursor tx: %w", err)
-	}
-	return n, nil
+	return newest.String, nil
 }
 
 // archiveNullStr maps an empty string to a bind-time NULL, matching the nullable

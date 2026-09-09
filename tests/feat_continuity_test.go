@@ -105,10 +105,8 @@ func TestFeature_ForkContinuity(t *testing.T) {
 		// hand that exact cursor down: stamping `now` instead discarded the
 		// backlog at the moment a thread was created, so a new thread opened
 		// blind to everything said before it existed (BUGS L87).
-		const parentCursor = "2026-08-24T06:00:00Z"
-		if _, err := f.routdDB.SQL().Exec(
-			`UPDATE sessions SET observed_cursor=? WHERE group_folder=? AND topic=?`,
-			parentCursor, "demo", ""); err != nil {
+		parentCursor := core.TS(time.Date(2026, 8, 24, 6, 0, 0, 0, time.UTC))
+		if err := f.routdDB.AdvanceObservedCursor("demo", "", parentCursor); err != nil {
 			t.Fatalf("seed parent cursor: %v", err)
 		}
 		projDir := transcriptDir(groupsDir, "demo")

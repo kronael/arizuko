@@ -14,19 +14,11 @@
 -- messages.source already exists (added in 0005). It is now repurposed
 -- as the adapter that handled the row: receiver for inbound, empty
 -- string for outbound.
-
-CREATE TABLE chats_new (
-  jid          TEXT PRIMARY KEY,
-  errored      INTEGER NOT NULL DEFAULT 0,
-  agent_cursor TEXT,
-  sticky_group TEXT,
-  sticky_topic TEXT
-);
-INSERT INTO chats_new (jid, errored, agent_cursor, sticky_group, sticky_topic)
-  SELECT jid, COALESCE(errored, 0), agent_cursor, sticky_group, sticky_topic
-  FROM chats;
-DROP TABLE chats;
-ALTER TABLE chats_new RENAME TO chats;
+--
+-- The chats rebuild is gone with the table: `chats` is an objstore entity rather
+-- than a table this chain creates (store.EnsureEntities, spec 6/37 step 7), and
+-- an attribute an item does not carry is simply absent, so there are no dead
+-- columns to drop.
 
 CREATE TABLE messages_new (
   id              TEXT PRIMARY KEY,

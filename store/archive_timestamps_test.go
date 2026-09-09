@@ -82,7 +82,7 @@ func TestImportedHistoryLeavesNoRowBehindTheCursorItDerives(t *testing.T) {
 		t.Fatalf("DeriveAgentCursors: %v", err)
 	}
 
-	cursor := cursorOf(t, dst, "slack:C1")
+	cursor := cursorOf(t, dstSt, "slack:C1")
 	if cursor != core.TS(newest) {
 		t.Errorf("cursor = %q, want the newest instant %q", cursor, core.TS(newest))
 	}

@@ -1,15 +1,11 @@
 -- v0.40.0: topic lineage — fork primitive + per-topic observed cursor.
 -- Spec: specs/5/F-topic-lineage.md.
 --
--- Three nullable columns on sessions. Format invariant: RFC3339Nano
--- UTC for every timestamp arizuko writes to the schema. Go layer
--- computes timestamps; no strftime in SQL (would diverge format).
--- All NULL on existing rows; ObservedSince treats NULL cursor as
--- "no lower bound; window-cap still applies" — zero behavior change
--- at migration. First turn after upgrade writes the cursor.
-
-ALTER TABLE sessions ADD COLUMN parent_topic    TEXT;
-ALTER TABLE sessions ADD COLUMN forked_at       TEXT;
-ALTER TABLE sessions ADD COLUMN observed_cursor TEXT;
-
-CREATE INDEX idx_sessions_lineage ON sessions(group_folder, parent_topic);
+-- `sessions` is an objstore entity rather than a table this chain creates: the
+-- driver makes it, from the declaration that sits beside the code writing it
+-- (store.EnsureEntities, spec 6/37 step 7). The three columns are attributes,
+-- and the lineage index is gone with them: the entity's sort key leads with the
+-- folder, so the reads this index served are a key prefix. A database carrying
+-- rows here is moved by `arizuko migrate-hot` and refuses to open until it has
+-- been.
+SELECT 1;

@@ -636,21 +636,6 @@ func (s *Store) WatchedSources(observer string) []string {
 	return out
 }
 
-func (s *Store) SetStickyTopic(jid, topic string) error {
-	_, err := s.db.Exec(
-		`INSERT INTO chats (jid, sticky_topic) VALUES (?, ?)
-		 ON CONFLICT(jid) DO UPDATE SET sticky_topic = excluded.sticky_topic`,
-		jid, nilIfEmpty(topic),
-	)
-	return err
-}
-
-func (s *Store) GetStickyTopic(jid string) string {
-	var topic sql.NullString
-	s.db.QueryRow(`SELECT sticky_topic FROM chats WHERE jid = ?`, jid).Scan(&topic)
-	return topic.String
-}
-
 // GroupConfig answers the two fields a spawn forwards to runed: the per-group
 // model override, and `container_config` as the opaque document it is on the
 // wire. It stays a map rather than core.GroupConfig because runed round-trips it

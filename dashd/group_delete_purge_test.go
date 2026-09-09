@@ -28,9 +28,7 @@ func TestGroupDeletePage_RecreatedFolderInheritsNothing(t *testing.T) {
 		ID: "team-nightly", Owner: "team", ChatJID: "web:team", Prompt: "/compact",
 		Cron: "0 2 * * *", NextRun: &nightly, Status: "active",
 	})
-	if _, err := routd.Exec(
-		`INSERT INTO chat_reply_state (jid, topic, last_reply_id, engaged_folder)
-		 VALUES ('web:team', '', 'm1', 'team')`); err != nil {
+	if err := store.New(routd).SetLastReply("web:team", "", "m1", "team"); err != nil {
 		t.Fatalf("seed engagement: %v", err)
 	}
 	// A sibling sharing the leading characters: a green result must mean the
@@ -66,8 +64,8 @@ func TestGroupDeletePage_RecreatedFolderInheritsNothing(t *testing.T) {
 	if n := countTasks(t, routd, func(task core.Task) bool { return task.Owner == "team" }); n != 0 {
 		t.Errorf("scheduled_tasks for the deleted folder survived: %d", n)
 	}
-	if n := count(t, routd, `SELECT COUNT(*) FROM chat_reply_state WHERE engaged_folder = 'team'`); n != 0 {
-		t.Errorf("chat_reply_state for the deleted folder survived: %d", n)
+	if id := store.New(routd).LastReplyID("web:team", ""); id != "" {
+		t.Errorf("the deleted folder's reply state survived: last_reply_id = %q", id)
 	}
 	if !hasFolder(t, routd, "teamwork") {
 		t.Error("the purge widened onto the sibling folder, which is gone")

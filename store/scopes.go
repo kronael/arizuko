@@ -176,6 +176,22 @@ func (s *Store) WriteEntitiesInTx(ctx context.Context, tx *sql.Tx, checks []objs
 	return s.Obj().GuardedBatchInTx(ctx, tx, checks, withBumps(writes))
 }
 
+// writeVia is WriteEntities on a transaction the caller owns when it owns one,
+// and on the pool when it does not.
+//
+// It is the write-side twin of reads() below, and it exists for the same reason:
+// a body that has to run both ways — the engagement window, which one caller
+// commits beside its audit row and every other caller commits alone — is written
+// once instead of twice. Both doors carry the marker, so neither can be the one
+// that forgets.
+func (s *Store) writeVia(ctx context.Context, tx *sql.Tx, checks []objstore.Check,
+	writes ...objstore.Write) (bool, error) {
+	if tx == nil {
+		return s.WriteEntities(ctx, checks, writes...)
+	}
+	return s.WriteEntitiesInTx(ctx, tx, checks, writes...)
+}
+
 // incrementEntity is objstore.Increment with the marker among its companion
 // writes, so a counter that moves is as visible to a consistent read as a put
 // is.

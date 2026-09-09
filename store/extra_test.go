@@ -280,7 +280,7 @@ func TestSetLastReply_EmptyReplyIDPreservesExisting(t *testing.T) {
 	if err := s.SetLastReply("jid1", "", "", "folderA"); err != nil {
 		t.Fatal(err)
 	}
-	if got := s.GetLastReplyID("jid1", ""); got != "rid-1" {
+	if got := s.LastReplyID("jid1", ""); got != "rid-1" {
 		t.Errorf("last_reply_id = %q, want rid-1 (preserved)", got)
 	}
 }

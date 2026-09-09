@@ -79,7 +79,7 @@ func TestChatUpsertsPreserveTheOtherColumns(t *testing.T) {
 	if err := db.SetStickyTopic(jid, "billing"); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.SetAgentCursor(jid, "2026-01-01T00:00:00Z"); err != nil {
+	if err := db.SetAgentCursor(jid, "2026-01-01T00:00:00.000000000Z"); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.SetChatIsGroup(jid, true); err != nil {
@@ -93,7 +93,7 @@ func TestChatUpsertsPreserveTheOtherColumns(t *testing.T) {
 	if topic != "billing" {
 		t.Errorf("sticky_topic = %q, want billing — a later upsert cleared it", topic)
 	}
-	if got := db.GetAgentCursor(jid); got != "2026-01-01T00:00:00Z" {
+	if got := db.GetAgentCursor(jid); got != "2026-01-01T00:00:00.000000000Z" {
 		t.Errorf("agent_cursor = %q, want the value set — a later upsert cleared it", got)
 	}
 	if !db.ChatIsGroup(jid) {

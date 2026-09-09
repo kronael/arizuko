@@ -1,20 +1,12 @@
 -- Initial schema: all core tables at baseline state.
 --
--- `scheduled_tasks` and `routes` are objstore entities rather than tables this
--- chain creates: the driver makes each one, from the declaration that sits
--- beside the code writing it (store.EnsureEntities, spec 6/37 step 7). An
--- entity keeps the name of the table it replaces, so a database carrying rows
--- here is moved by `arizuko migrate-routd` and refuses to open until it has
--- been.
-
-CREATE TABLE IF NOT EXISTS chats (
-  jid TEXT PRIMARY KEY,
-  name TEXT,
-  channel TEXT,
-  is_group INTEGER DEFAULT 0,
-  last_message_time TEXT,
-  errored INTEGER DEFAULT 0
-);
+-- `scheduled_tasks`, `routes`, `chats`, `sessions` and `system_messages` are
+-- objstore entities rather than tables this chain creates: the driver makes each
+-- one, from the declaration that sits beside the code writing it
+-- (store.EnsureEntities, spec 6/37 step 7). An entity keeps the name of the
+-- table it replaces, so a database carrying rows here is moved by
+-- `arizuko migrate-routd` or `arizuko migrate-hot` and refuses to open until it
+-- has been.
 
 CREATE TABLE IF NOT EXISTS messages (
   id TEXT PRIMARY KEY,
@@ -44,11 +36,6 @@ CREATE TABLE IF NOT EXISTS registered_groups (
   routing_rules TEXT
 );
 
-CREATE TABLE IF NOT EXISTS sessions (
-  group_folder TEXT PRIMARY KEY,
-  session_id TEXT NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS session_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   group_folder TEXT NOT NULL,
@@ -58,16 +45,6 @@ CREATE TABLE IF NOT EXISTS session_log (
   result TEXT,
   error TEXT,
   message_count INTEGER
-);
-
-CREATE TABLE IF NOT EXISTS system_messages (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  group_id TEXT NOT NULL,
-  origin TEXT NOT NULL,
-  event TEXT NOT NULL,
-  attrs TEXT,
-  body TEXT NOT NULL DEFAULT '',
-  created_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS router_state (

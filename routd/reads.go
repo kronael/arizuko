@@ -232,29 +232,32 @@ type ErroredChat struct {
 // `folder` (isRoot sees all). Scopes by the live route resolution since routd
 // has no per-chat folder column.
 func (d *DB) ErroredChats(folder string, isRoot bool) ([]ErroredChat, error) {
-	rows, err := d.db.Query(`SELECT c.jid,
-		(SELECT COUNT(*) FROM messages m WHERE m.chat_jid=c.jid AND m.is_from_me=0),
-		(SELECT MAX(m.timestamp) FROM messages m WHERE m.chat_jid=c.jid)
-		FROM chats c WHERE c.errored=1`)
+	// The flagged chats come from the entity and the per-chat numbers from
+	// `messages`, which is still a table: a join is not an operation the store
+	// has, so the scope filter runs before the counts and only a flagged,
+	// visible chat costs a read. Krons carries 136 chats and flags a handful.
+	jids, err := d.store().ErroredChatJIDs()
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	var out []ErroredChat
-	for rows.Next() {
-		var ec ErroredChat
-		var lastAt sql.NullString
-		if err := rows.Scan(&ec.ChatJID, &ec.Count, &lastAt); err != nil {
-			return out, err
-		}
-		ec.RoutedTo = d.DefaultFolderForJID(ec.ChatJID)
+	for _, jid := range jids {
+		ec := ErroredChat{ChatJID: jid, RoutedTo: d.DefaultFolderForJID(jid)}
 		if !isRoot && ec.RoutedTo != folder && !strings.HasPrefix(ec.RoutedTo, folder+"/") {
 			continue
+		}
+		// The count is inbound rows and the instant is the newest row of any
+		// kind, which is what the two correlated subqueries this replaces asked.
+		var lastAt sql.NullString
+		if err := d.db.QueryRow(
+			`SELECT COALESCE(SUM(CASE WHEN is_from_me = 0 THEN 1 ELSE 0 END), 0), MAX(timestamp)
+			 FROM messages WHERE chat_jid = ?`, jid).Scan(&ec.Count, &lastAt); err != nil {
+			return out, err
 		}
 		if lastAt.Valid {
 			ec.LastAt, _ = time.Parse(time.RFC3339Nano, lastAt.String)
 		}
 		out = append(out, ec)
 	}
-	return out, rows.Err()
+	return out, nil
 }

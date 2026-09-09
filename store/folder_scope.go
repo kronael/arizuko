@@ -8,10 +8,11 @@ package store
 // `replace(subtree(folder), ∅)`, so the scope predicate is all the operation
 // needs to name.
 //
-// TWO SHAPES, ONE CLASSIFICATION. Ten of the scopes are objstore entities and
-// four are SQL tables, and the completeness tests walk both through
-// FolderScopeClassified: a table or entity in neither list fails, so one joining
-// the schema cannot skip the question of whether it confers on a folder.
+// TWO SHAPES, ONE CLASSIFICATION. Sixteen of the scopes are objstore entities
+// and one is a SQL table — `group_watchers`, under two columns — and the
+// completeness tests walk both through FolderScopeClassified: a table or entity
+// in neither list fails, so one joining the schema cannot skip the question of
+// whether it confers on a folder.
 //
 // AN ENTITY HAS NO FOREIGN KEY, so no verdict here may say "the groups row's
 // cascade removes it". Three tables were kept on exactly that claim —
@@ -78,19 +79,17 @@ type entityScope struct {
 	folderOf func(objstore.Item) (string, bool)
 	// seps are the characters that may follow the folder inside that value.
 	seps []string
+	// clear, when non-empty, names the attributes to take away INSTEAD of
+	// deleting the item: the item outlives the folder and only its binding to
+	// the folder goes. It is the entity half of folderScope.set, and there is one
+	// — `chats`, which carries the chat's own dispatch cursor.
+	clear []string
 }
 
 // folderScopePurge is the SQL half: the tables that still hold columns.
-//
-// `chats` is the one UPDATE. The chat outlives the folder — it carries its own
-// cursor — so the binding is cleared and the row stays.
 var folderScopePurge = []folderScope{
-	{table: "chat_reply_state", col: "engaged_folder", seps: []string{"/"}},
-	{table: "sessions", col: "group_folder", seps: []string{"/"}},
 	{table: "group_watchers", col: "observer", seps: []string{"/"}},
 	{table: "group_watchers", col: "source", seps: []string{"/"}},
-	{table: "chats", col: "sticky_group", seps: []string{"/"},
-		set: "sticky_group = NULL, sticky_topic = NULL"},
 }
 
 // entityScopePurge is the object half.
@@ -157,6 +156,26 @@ var entityScopePurge = []entityScope{
 		folder, _, ok := strings.Cut(it.Key.Sort, KeySep)
 		return folder, ok
 	}},
+
+	// The hot tier. A topic's continuity, an owed reply and a queued system
+	// event each carry a folder coordinate and each would be inherited by the
+	// next tenant of the path: the session resumes the last tenant's agent
+	// transcript, the reply state hands it a live engagement window, and the
+	// queued events arrive in its first prompt.
+	{entity: Sessions, seps: []string{"/"}, folderOf: func(it objstore.Item) (string, bool) {
+		folder, _, err := sessionCoord(it.Key.Sort)
+		return folder, err == nil
+	}},
+	{entity: ChatReplyState, seps: []string{"/"}, folderOf: attrScope(AttrReplyEngagedFolder)},
+	{entity: SystemMessages, seps: []string{"/"}, folderOf: func(it objstore.Item) (string, bool) {
+		return SysMsgFolder(it.Key.Sort)
+	}},
+
+	// The chat outlives the folder — it carries its own dispatch cursor — so
+	// what goes is the binding and not the item. This is the one scope that
+	// clears rather than deletes, and it is why entityScope has a `clear` half.
+	{entity: Chats, seps: []string{"/"}, folderOf: attrScope(AttrChatStickyGroup),
+		clear: []string{AttrChatStickyGroup, AttrChatStickyTopic}},
 }
 
 // attrScope reads the folder out of one named attribute. An item that does not
@@ -233,14 +252,6 @@ var folderScopeKeep = map[string]keepReason{
 // does NOT remove, and what blocks it. A row here outlives its folder and the
 // next tenant of the path sees it.
 var folderScopeUnpurged = map[string]string{
-	// routd.db keys the queue on `folder`, messages.db on the pre-split
-	// `group_id`, and one statement cannot name both. Renaming messages.db's
-	// column moves it out from under cmd/arizuko/migrate_split.go, which reads
-	// `group_id, origin, event, created_at` by name. FlushSysMsgs drains the
-	// queue into the agent's prompt, so what survives is the previous tenant's
-	// queued events.
-	"system_messages": "the column is `folder` in routd.db and `group_id` in messages.db",
-
 	// onbod owns both, in onbod.db. `target_glob` names a folder subtree — an
 	// unredeemed invite admits someone to the path, and a redemption record
 	// authorizes handleCreateWorld under it — but the purge is one transaction
@@ -308,6 +319,12 @@ func (s *Store) purgeFolder(ctx context.Context, tx *sql.Tx, folder string) (int
 				inside = inside || groupfolder.ContainsSep(folder, v, sep)
 			}
 			if !inside {
+				continue
+			}
+			if len(e.clear) > 0 {
+				writes = append(writes, objstore.Write{
+					Op: objstore.Update, Entity: e.entity, Key: it.Key, Remove: e.clear,
+				})
 				continue
 			}
 			writes = append(writes, objstore.Write{

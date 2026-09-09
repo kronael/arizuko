@@ -8,14 +8,10 @@
 -- database's registered_groups implies are written by `arizuko migrate-routd`,
 -- which reads that table and writes the items. An entity keeps the name of the
 -- table it replaces, and the database refuses to open until it has been moved.
+--
+-- `chats` is one as well, so the dispatch cursor this file moved onto it is an
+-- attribute rather than a column: there is nothing to add and nothing to copy,
+-- and `arizuko migrate-hot` carries the cursor from the table this chain left
+-- behind.
 
--- 1. Add agent_cursor column to chats
-ALTER TABLE chats ADD COLUMN agent_cursor TEXT;
-
--- 2. Copy agent_cursor values from registered_groups into chats (upsert)
-INSERT INTO chats (jid, agent_cursor)
-  SELECT jid, agent_cursor FROM registered_groups WHERE agent_cursor IS NOT NULL AND agent_cursor != ''
-  ON CONFLICT(jid) DO UPDATE SET agent_cursor = excluded.agent_cursor;
-
--- 3. Drop the JID-keyed table
 DROP TABLE registered_groups;

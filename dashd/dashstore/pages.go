@@ -79,33 +79,21 @@ func (s *Store) HeldApprovalCount(now string) (int, error) {
 	return n, nil
 }
 
-// ChatCooldown is one chat's last unprompted message.
-type ChatCooldown struct {
-	JID     string
-	FiredAt string
-}
+// ChatCooldown is one chat's last unprompted message. It is an ALIAS: the item
+// is store's, and a second copy of its two fields is a second place to drift.
+type ChatCooldown = store.ChatCooldown
+
+// cooldownPanelSize bounds the panel: past this many the answer is a report,
+// not a panel.
+const cooldownPanelSize = 50
 
 // ProactiveCooldowns lists the chats that have spoken unprompted, most recent
-// first, up to the table's page size.
+// first, up to the panel's page size.
+//
+// The item's coordinate and attribute name are store's, so the read goes through
+// store rather than rendering a second copy of them here (dashstore.st).
 func (s *Store) ProactiveCooldowns() ([]ChatCooldown, error) {
-	rows, err := s.db.Query(
-		`SELECT jid, COALESCE(proactive_last_fired_at,'')
-		 FROM chat_proactive
-		 WHERE proactive_last_fired_at IS NOT NULL
-		 ORDER BY proactive_last_fired_at DESC LIMIT 50`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []ChatCooldown
-	for rows.Next() {
-		var c ChatCooldown
-		if err := rows.Scan(&c.JID, &c.FiredAt); err != nil {
-			continue
-		}
-		out = append(out, c)
-	}
-	return out, rows.Err()
+	return s.st().ProactiveCooldowns(cooldownPanelSize)
 }
 
 // GroupRoute is one route on the group detail panel: enough to show where a

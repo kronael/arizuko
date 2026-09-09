@@ -25,6 +25,16 @@
 -- Scoped by GLOB to the RFC3339-with-Z shapes and nothing else. Two krons rows
 -- carry a hand-inserted `2026-04-02 12:38:47` (space separator, no zone); they do
 -- not match, and padding them would invent a zone they never had.
+--
+-- ONLY THE ROWS ARE HERE NOW, and the order this file's comment argues is now
+-- enforced across two tools instead of stated inside one. `chats` and `sessions`
+-- are objstore entities and their cursors are attributes, so the two UPDATEs
+-- that padded them cannot run against a table of three columns.
+-- `arizuko migrate-hot` pads them where it carries them, and it REFUSES to start
+-- until every message row this file would pad is already padded — so cursors
+-- can never be normalised ahead of their rows, which is the state that re-fed 28
+-- consumed messages on krons. Rows before cursors is a precondition the tool
+-- checks, not an order somebody has to preserve.
 UPDATE messages
    SET timestamp = substr(timestamp, 1, 19) || '.' ||
        substr(CASE WHEN substr(timestamp, 20, 1) = '.'
@@ -32,19 +42,3 @@ UPDATE messages
                    ELSE '' END || '000000000', 1, 9) || 'Z'
  WHERE timestamp GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]*Z'
    AND timestamp NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]Z';
-
-UPDATE chats
-   SET agent_cursor = substr(agent_cursor, 1, 19) || '.' ||
-       substr(CASE WHEN substr(agent_cursor, 20, 1) = '.'
-                   THEN substr(agent_cursor, 21, length(agent_cursor) - 21)
-                   ELSE '' END || '000000000', 1, 9) || 'Z'
- WHERE agent_cursor GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]*Z'
-   AND agent_cursor NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]Z';
-
-UPDATE sessions
-   SET observed_cursor = substr(observed_cursor, 1, 19) || '.' ||
-       substr(CASE WHEN substr(observed_cursor, 20, 1) = '.'
-                   THEN substr(observed_cursor, 21, length(observed_cursor) - 21)
-                   ELSE '' END || '000000000', 1, 9) || 'Z'
- WHERE observed_cursor GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]*Z'
-   AND observed_cursor NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]Z';

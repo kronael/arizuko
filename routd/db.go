@@ -433,9 +433,7 @@ func (d *DB) TopicByID(chatJID, id string) string {
 // flag surfaces in inspection; it does not block re-feed (the cursor advance
 // past the failed batch is the starvation guard).
 func (d *DB) MarkChatErrored(chatJID string) error {
-	_, err := d.db.Exec(`INSERT INTO chats(jid, errored) VALUES(?,1)
-		ON CONFLICT(jid) DO UPDATE SET errored=1`, chatJID)
-	return err
+	return d.store().MarkChatErrored(chatJID)
 }
 
 // ClearErrored un-flags a chat's errored rows so the dispatch loop feeds them
@@ -486,69 +484,68 @@ func (d *DB) DeleteErroredMessages(chatJID string) error {
 // chats.errored (the coarse per-chat flag; messages.errored is the row-level
 // prune target for the breaker).
 func (d *DB) CountErroredChats() int {
-	var n int
-	d.db.QueryRow("SELECT COUNT(*) FROM chats WHERE errored=1").Scan(&n)
-	return n
+	jids, err := d.store().ErroredChatJIDs()
+	if err != nil {
+		return 0
+	}
+	return len(jids)
 }
 
 // GetAgentCursor reads the per-chat high-water mark fed to the agent.
 func (d *DB) GetAgentCursor(chatJID string) string {
-	var cur sql.NullString
-	d.db.QueryRow("SELECT agent_cursor FROM chats WHERE jid=?", chatJID).Scan(&cur)
-	return cur.String
+	cur, err := d.store().AgentCursor(chatJID)
+	if err != nil {
+		return ""
+	}
+	return cur
 }
 
 // SetAgentCursor advances the per-chat cursor (upsert).
 func (d *DB) SetAgentCursor(chatJID, cursor string) error {
-	_, err := d.db.Exec(`INSERT INTO chats(jid, agent_cursor) VALUES(?,?)
-		ON CONFLICT(jid) DO UPDATE SET agent_cursor=excluded.agent_cursor`, chatJID, cursor)
-	return err
+	return d.store().SetAgentCursor(chatJID, cursor)
 }
 
 // MinAgentCursor returns the lowest agent_cursor across chats — the poll
 // loop's global floor. Empty when no chat has advanced yet (feed from the
 // beginning). Per-chat cursors gate the actual dispatch.
 func (d *DB) MinAgentCursor() string {
-	var cur sql.NullString
-	d.db.QueryRow("SELECT MIN(agent_cursor) FROM chats WHERE agent_cursor IS NOT NULL").Scan(&cur)
-	return cur.String
+	low, err := d.store().LowestAgentCursor()
+	if err != nil {
+		return ""
+	}
+	return low
 }
 
 // SetChatIsGroup records whether a chat is a multi-party group.
 func (d *DB) SetChatIsGroup(chatJID string, isGroup bool) error {
-	_, err := d.db.Exec(`INSERT INTO chats(jid, is_group) VALUES(?,?)
-		ON CONFLICT(jid) DO UPDATE SET is_group=excluded.is_group`, chatJID, b2i(isGroup))
-	return err
+	return d.store().SetChatIsGroup(chatJID, isGroup)
 }
 
 // ChatIsGroup reads the multi-party flag for a chat; unknown chats are false.
 func (d *DB) ChatIsGroup(chatJID string) bool {
-	var v sql.NullInt64
-	d.db.QueryRow("SELECT is_group FROM chats WHERE jid=?", chatJID).Scan(&v)
-	return v.Valid && v.Int64 == 1
+	is, err := d.store().ChatIsGroup(chatJID)
+	return err == nil && is
 }
 
 // StickyState returns the @group / #topic navigation pins for a chat.
 func (d *DB) StickyState(chatJID string) (group, topic string) {
-	var g, t sql.NullString
-	d.db.QueryRow("SELECT sticky_group, sticky_topic FROM chats WHERE jid=?", chatJID).Scan(&g, &t)
-	return g.String, t.String
+	g, t, err := d.store().StickyPins(chatJID)
+	if err != nil {
+		return "", ""
+	}
+	return g, t
 }
 
 // SetStickyGroup pins (or clears, when folder=="") the @group navigation
 // target for a chat — subsequent messages route to it until reset.
 func (d *DB) SetStickyGroup(chatJID, folder string) error {
-	_, err := d.db.Exec(`INSERT INTO chats(jid, sticky_group) VALUES(?,?)
-		ON CONFLICT(jid) DO UPDATE SET sticky_group=excluded.sticky_group`, chatJID, folder)
-	return err
+	return d.store().SetStickyGroup(chatJID, folder)
 }
 
 // SetStickyTopic pins (or clears, when topic=="") the #topic navigation
 // target for a chat.
 func (d *DB) SetStickyTopic(chatJID, topic string) error {
-	_, err := d.db.Exec(`INSERT INTO chats(jid, sticky_topic) VALUES(?,?)
-		ON CONFLICT(jid) DO UPDATE SET sticky_topic=excluded.sticky_topic`, chatJID, topic)
-	return err
+	return d.store().SetStickyTopic(chatJID, topic)
 }
 
 // RoutedToByMessageID returns the folder a stored message was routed to
@@ -602,17 +599,6 @@ func (d *DB) AddRoute(r core.Route) (int64, error) {
 // ErrNotFound signals an absent row to the HTTP layer (404).
 var ErrNotFound = errors.New("not found")
 
-// engagementUpsert is the ONE statement that moves an engagement window. Both
-// SetEngagement and SetEngagementAudited execute it, so the audited and
-// un-audited entrypoints cannot drift into writing different rows.
-const engagementUpsert = `INSERT INTO chat_reply_state(jid, topic, last_reply_id, engaged_until, engaged_folder)
-	VALUES(?,?,'',?,?)
-	ON CONFLICT(jid, topic) DO UPDATE SET engaged_until=excluded.engaged_until, engaged_folder=excluded.engaged_folder`
-
-func engagementArgs(jid, topic, folder string, ttl time.Duration) []any {
-	return []any{jid, topic, core.TS(time.Now().Add(ttl)), folder}
-}
-
 // SetEngagement claims an engagement window for (jid, topic) by folder until
 // now+ttl.
 //
@@ -621,8 +607,7 @@ func engagementArgs(jid, topic, folder string, ttl time.Duration) []any {
 // would bury the operator trail in the noise it exists to make findable.
 // Operator-originated writes take SetEngagementAudited instead.
 func (d *DB) SetEngagement(jid, topic, folder string, ttl time.Duration) error {
-	_, err := d.db.Exec(engagementUpsert, engagementArgs(jid, topic, folder, ttl)...)
-	return err
+	return d.store().BumpEngagement(jid, topic, folder, time.Now().Add(ttl))
 }
 
 // SetEngagementAudited is SetEngagement plus its audit_log row, both in ONE
@@ -639,7 +624,7 @@ func (d *DB) SetEngagementAudited(ctx context.Context, jid, topic, folder string
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, engagementUpsert, engagementArgs(jid, topic, folder, ttl)...); err != nil {
+	if err := d.store().BumpEngagementInTx(ctx, tx, jid, topic, folder, time.Now().Add(ttl)); err != nil {
 		return err
 	}
 	if err := audit.EmitInTx(ctx, d.Obj(), tx, ev); err != nil {
@@ -648,30 +633,18 @@ func (d *DB) SetEngagementAudited(ctx context.Context, jid, topic, folder string
 	return tx.Commit()
 }
 
-// Engagement is one LIVE chat_reply_state window: which folder claims
-// (jid, topic) and until when. Spec 5/G.
-type Engagement struct {
-	JID    string
-	Topic  string
-	Folder string
-	Until  time.Time
-}
+// Engagement is one LIVE engagement window: which folder claims (jid, topic) and
+// until when. Spec 5/G.
+//
+// It is an ALIAS rather than a struct of its own, because the item it describes
+// is store's and a second copy of the same four fields is a second place for the
+// shape to drift.
+type Engagement = store.Engagement
 
 // Engagement returns the live window for (jid, topic). Not live: no row, a NULL
 // deadline or folder, an unparseable deadline, or a deadline already past.
 func (d *DB) Engagement(jid, topic string) (Engagement, bool) {
-	var until sql.NullString
-	var folder string
-	err := d.db.QueryRow("SELECT engaged_until, engaged_folder FROM chat_reply_state WHERE jid=? AND topic=?",
-		jid, topic).Scan(&until, &folder)
-	if err != nil || !until.Valid {
-		return Engagement{}, false
-	}
-	t, perr := time.Parse(time.RFC3339Nano, until.String)
-	if perr != nil || !t.After(time.Now()) {
-		return Engagement{}, false
-	}
-	return Engagement{JID: jid, Topic: topic, Folder: folder, Until: t}, true
+	return d.store().Engagement(jid, topic)
 }
 
 // Engaged returns (folder, true) when (jid, topic) has a live engagement.
@@ -692,31 +665,18 @@ func (d *DB) Engaged(jid, topic string) (string, bool) {
 // containment has ONE implementation instead of a LIKE pattern that a folder name
 // containing _ or % would silently widen.
 func (d *DB) ListEngaged(folder string, all bool) ([]Engagement, error) {
-	rows, err := d.db.Query(
-		`SELECT jid, topic, engaged_until, engaged_folder FROM chat_reply_state
-		 WHERE engaged_until IS NOT NULL AND engaged_folder IS NOT NULL
-		 ORDER BY engaged_until DESC`)
+	live, err := d.store().LiveEngagements(time.Now())
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	now := time.Now()
 	out := []Engagement{}
-	for rows.Next() {
-		var jid, topic, until, owner string
-		if err := rows.Scan(&jid, &topic, &until, &owner); err != nil {
-			return nil, err
-		}
-		t, perr := time.Parse(time.RFC3339Nano, until)
-		if perr != nil || !t.After(now) {
+	for _, e := range live {
+		if !all && !descendant(e.Folder, folder) {
 			continue
 		}
-		if !all && !descendant(owner, folder) {
-			continue
-		}
-		out = append(out, Engagement{JID: jid, Topic: topic, Folder: owner, Until: t})
+		out = append(out, e)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // SetLastReply seeds the reply-to-bot threading anchor for (jid, topic).
@@ -724,18 +684,12 @@ func (d *DB) ListEngaged(folder string, all bool) ([]Engagement, error) {
 // existing row, since an active engagement window (set by SetEngagement) would
 // be silently hijacked by a broadcast send from a different group.
 func (d *DB) SetLastReply(jid, topic, msgID, folder string) error {
-	_, err := d.db.Exec(`INSERT INTO chat_reply_state(jid, topic, last_reply_id, engaged_folder)
-		VALUES(?,?,?,?)
-		ON CONFLICT(jid, topic) DO UPDATE SET last_reply_id=excluded.last_reply_id`,
-		jid, topic, msgID, folder)
-	return err
+	return d.store().SetLastReply(jid, topic, msgID, folder)
 }
 
 // LastReplyID returns the thread anchor for (jid, topic).
 func (d *DB) LastReplyID(jid, topic string) string {
-	var id sql.NullString
-	d.db.QueryRow("SELECT last_reply_id FROM chat_reply_state WHERE jid=? AND topic=?", jid, topic).Scan(&id)
-	return id.String
+	return d.store().LastReplyID(jid, topic)
 }
 
 // PutTurnContext records a turn's (folder, topic, chat_jid) at dispatch so late
@@ -951,19 +905,14 @@ func (d *DB) TurnResultRecorded(folder, turnID string) bool {
 
 // PutSession persists the session_id runed produced for (folder, topic).
 func (d *DB) PutSession(folder, topic, sessionID string) error {
-	_, err := d.db.Exec(`INSERT INTO sessions(group_folder, topic, session_id) VALUES(?,?,?)
-		ON CONFLICT(group_folder, topic) DO UPDATE SET session_id=excluded.session_id`,
-		folder, topic, sessionID)
-	return err
+	return d.store().SetSession(folder, topic, sessionID)
 }
 
 // GetSession returns the persisted session id for (folder, topic) and whether a
 // row exists. copyParentSession reads the parent topic's session id through this
 // before copying its jsonl.
 func (d *DB) GetSession(folder, topic string) (string, bool) {
-	var id sql.NullString
-	err := d.db.QueryRow("SELECT session_id FROM sessions WHERE group_folder=? AND topic=?", folder, topic).Scan(&id)
-	return id.String, err == nil
+	return d.store().GetSession(folder, topic)
 }
 
 // EnsureTopicLineage inserts a sessions row for (folder, topic) with lineage if
@@ -972,35 +921,13 @@ func (d *DB) GetSession(folder, topic string) (string, bool) {
 // Returns inserted=true when a new row was created — the caller then copies the
 // parent session file.
 func (d *DB) EnsureTopicLineage(folder, topic, parentTopic, newSessionID string) (bool, error) {
-	if topic == "" {
-		return false, nil
-	}
-	// The child inherits the PARENT's observed cursor, not `now`. Stamping now
-	// discarded the channel's whole ambient backlog at the moment a thread was
-	// created: the copied transcript carries only turns that RAN in the parent, and a
-	// busy channel's chatter is `is_observed=1` rows that never ran one, so a new
-	// Discord thread opened blind to everything said before it existed (BUGS L87).
-	//
-	// No parent row (cold root) leaves it empty, the normal cold path. Re-showing a
-	// message the parent already saw is benign — observed messages are context, not
-	// requests.
-	res, err := d.db.Exec(
-		`INSERT OR IGNORE INTO sessions(group_folder, topic, session_id, parent_topic, forked_at, observed_cursor)
-		 VALUES(?,?,?,?,?,
-		   COALESCE((SELECT observed_cursor FROM sessions WHERE group_folder=? AND topic=?), ''))`,
-		folder, topic, newSessionID, parentTopic, nowTS(), folder, parentTopic)
-	if err != nil {
-		return false, err
-	}
-	n, _ := res.RowsAffected()
-	return n > 0, nil
+	return d.store().EnsureTopicLineage(folder, topic, parentTopic, newSessionID)
 }
 
 // DeleteSession drops the persisted session for (folder, topic) — the /new
 // command's session reset.
 func (d *DB) DeleteSession(folder, topic string) error {
-	_, err := d.db.Exec("DELETE FROM sessions WHERE group_folder=? AND topic=?", folder, topic)
-	return err
+	return d.store().DeleteSession(folder, topic)
 }
 
 // ForkTopic seeds a fresh session row for child, recording its parent topic +
@@ -1008,38 +935,19 @@ func (d *DB) DeleteSession(folder, topic string) error {
 // force overwrites an existing child; otherwise a collision returns
 // core.ErrTopicExists.
 func (d *DB) ForkTopic(folder, parent, child, newSessionID string, force bool) error {
-	if child == "" {
-		return fmt.Errorf("fork: child topic empty")
-	}
-	now := nowTS()
-	if force {
-		_, err := d.db.Exec(
-			`INSERT INTO sessions(group_folder, topic, session_id, parent_topic, forked_at, observed_cursor)
-			 VALUES(?,?,?,?,?,?)
-			 ON CONFLICT(group_folder, topic) DO UPDATE SET
-			   session_id=excluded.session_id, parent_topic=excluded.parent_topic,
-			   forked_at=excluded.forked_at, observed_cursor=excluded.observed_cursor`,
-			folder, child, newSessionID, parent, now, now)
-		return err
-	}
-	res, err := d.db.Exec(
-		`INSERT OR IGNORE INTO sessions(group_folder, topic, session_id, parent_topic, forked_at, observed_cursor)
-		 VALUES(?,?,?,?,?,?)`,
-		folder, child, newSessionID, parent, now, now)
-	if err != nil {
-		return err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return core.ErrTopicExists
-	}
-	return nil
+	return d.store().ForkTopic(folder, parent, child, newSessionID, force)
+}
+
+// TopicsPerFolder answers how many topics each folder holds — the Status page's
+// session tally.
+func (d *DB) TopicsPerFolder() (map[string]int, error) {
+	return d.store().TopicsPerFolder()
 }
 
 // SessionID returns the persisted session id for (folder, topic).
 func (d *DB) SessionID(folder, topic string) string {
-	var id sql.NullString
-	d.db.QueryRow("SELECT session_id FROM sessions WHERE group_folder=? AND topic=?", folder, topic).Scan(&id)
-	return id.String
+	id, _ := d.store().GetSession(folder, topic)
+	return id
 }
 
 // SetTurnGatewayKey records the sha256 of the key the gateway minted for this
@@ -1169,13 +1077,7 @@ func (d *DB) LastInbound(jid string) (content string, ts time.Time, ok bool) {
 // ProactiveLastFired returns when a proactive turn last fired on a chat, or
 // zero time when never (the mandatory 24h cooldown).
 func (d *DB) ProactiveLastFired(jid string) time.Time {
-	var ts sql.NullString
-	d.db.QueryRow("SELECT proactive_last_fired_at FROM chat_proactive WHERE jid=?", jid).Scan(&ts)
-	if !ts.Valid {
-		return time.Time{}
-	}
-	t, _ := time.Parse(time.RFC3339Nano, ts.String)
-	return t
+	return d.store().ProactiveLastFired(jid)
 }
 
 // FireProactive appends the synthetic inbound row AND sets the chat's
@@ -1185,7 +1087,8 @@ func (d *DB) ProactiveLastFired(jid string) time.Time {
 // (the turn_id).
 func (d *DB) FireProactive(jid string) (string, error) {
 	id := "proactive-" + randHex(8)
-	now := nowTS()
+	firedAt := time.Now()
+	now := core.TS(firedAt)
 	tx, err := d.db.Begin()
 	if err != nil {
 		return "", err
@@ -1199,9 +1102,7 @@ func (d *DB) FireProactive(jid string) (string, error) {
 		id, jid, proactiveSelfSender, now, core.MessageStatusSent); err != nil {
 		return "", err
 	}
-	if _, err := tx.Exec(`INSERT INTO chat_proactive(jid, proactive_last_fired_at)
-		VALUES(?,?) ON CONFLICT(jid) DO UPDATE SET proactive_last_fired_at=excluded.proactive_last_fired_at`,
-		jid, now); err != nil {
+	if err := d.store().RecordProactiveFireInTx(context.Background(), tx, jid, firedAt); err != nil {
 		return "", err
 	}
 	if err := tx.Commit(); err != nil {

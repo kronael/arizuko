@@ -15,6 +15,7 @@ package routd
 import (
 	"net/http"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -29,31 +30,24 @@ type sessionCount struct {
 }
 
 // handleSessionCounts serves GET /v1/sessions/counts — the Status page's
-// per-folder session tally, which used to be a direct `SELECT … FROM sessions`
-// against routd.db from dashd.
+// per-folder session tally, in folder order.
 func (s *Server) handleSessionCounts(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r, "sessions:read", "chats:read", "messages:read") {
 		return
 	}
-	rows, err := s.db.SQL().Query(
-		`SELECT group_folder, COUNT(*) FROM sessions GROUP BY group_folder ORDER BY group_folder`)
+	perFolder, err := s.db.TopicsPerFolder()
 	if err != nil {
 		writeErr(w, 500, "db_error", err.Error())
 		return
 	}
-	defer rows.Close()
-	out := []sessionCount{}
-	for rows.Next() {
-		var c sessionCount
-		if err := rows.Scan(&c.Folder, &c.Count); err != nil {
-			writeErr(w, 500, "db_error", err.Error())
-			return
-		}
-		out = append(out, c)
+	folders := make([]string, 0, len(perFolder))
+	for folder := range perFolder {
+		folders = append(folders, folder)
 	}
-	if err := rows.Err(); err != nil {
-		writeErr(w, 500, "db_error", err.Error())
-		return
+	sort.Strings(folders)
+	out := make([]sessionCount, 0, len(folders))
+	for _, folder := range folders {
+		out = append(out, sessionCount{Folder: folder, Count: perFolder[folder]})
 	}
 	writeJSON(w, 200, out)
 }

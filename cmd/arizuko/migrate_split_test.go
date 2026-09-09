@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"os"
 	"path/filepath"
@@ -121,12 +122,45 @@ CREATE TABLE github_sources (
   created_at TEXT NOT NULL);
 `
 
+// legacyHotSchema is the pre-split shape of the four hot-tier tables the
+// monolith carries. They are entities in routd.db now, so store.Open makes them
+// as (part, sort, attrs) and the fixture has to put the columns back to have
+// something legacy for the migrator to find.
+//
+// `system_messages` is the one whose column NAMES differ from routd.db's — the
+// monolith spells them group_id/origin/event/created_at — which is what
+// hotColumnAlias renames. `chat_proactive` has no monolith table at all.
+const legacyHotSchema = `
+DROP TABLE IF EXISTS chats;
+DROP TABLE IF EXISTS sessions;
+DROP TABLE IF EXISTS chat_reply_state;
+DROP TABLE IF EXISTS system_messages;
+CREATE TABLE chats (
+  jid TEXT PRIMARY KEY, agent_cursor TEXT, sticky_group TEXT,
+  sticky_topic TEXT, is_group INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE sessions (
+  group_folder TEXT NOT NULL, topic TEXT NOT NULL DEFAULT '',
+  session_id TEXT NOT NULL, parent_topic TEXT, forked_at TEXT,
+  observed_cursor TEXT, PRIMARY KEY (group_folder, topic));
+CREATE TABLE chat_reply_state (
+  jid TEXT NOT NULL, topic TEXT NOT NULL DEFAULT '',
+  last_reply_id TEXT NOT NULL, engaged_until TEXT,
+  engaged_folder TEXT NOT NULL DEFAULT '', PRIMARY KEY (jid, topic));
+CREATE TABLE system_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, group_id TEXT NOT NULL,
+  origin TEXT NOT NULL, event TEXT NOT NULL, attrs TEXT,
+  body TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL);
+`
+
 // seedLegacyRoutdTables gives the monolith the thirteen tables a pre-split
 // instance carries, so the migrator has something legacy to find.
 func seedLegacyRoutdTables(t *testing.T, db *sql.DB) {
 	t.Helper()
 	if _, err := db.Exec(legacyRoutdSchema); err != nil {
 		t.Fatalf("build the pre-split shape of routd's thirteen: %v", err)
+	}
+	if _, err := db.Exec(legacyHotSchema); err != nil {
+		t.Fatalf("build the pre-split shape of the hot tier's four: %v", err)
 	}
 }
 
@@ -361,25 +395,35 @@ func TestMigrateSplit(t *testing.T) {
 		t.Errorf("messages m1 payload wrong: %q %q %q %q %q", content, status, turnID, platformID, chatName)
 	}
 
-	// chats.errored defaulted to 0 (source had no such column).
-	var errored int
-	if err := r.QueryRow(`SELECT errored FROM chats WHERE jid='tg:1'`).Scan(&errored); err != nil {
-		t.Fatalf("read routd.chats: %v", err)
-	}
-	if errored != 0 {
-		t.Errorf("chats.errored = %d, want 0 (default)", errored)
+	// The errored flag is ABSENT, not "0": the source had no such column, and a
+	// flag an item does not carry is the only way this model spells false.
+	if flagged, ferr := store.New(r).ErroredChatJIDs(); ferr != nil || len(flagged) != 0 {
+		t.Errorf("errored chats after the split = %v (err %v), want none", flagged, ferr)
 	}
 
-	// transform: system_messages remapped correctly, attrs dropped.
-	var folder, source, kind, body, created string
-	if err := r.QueryRow(
-		`SELECT folder, source, kind, body, created FROM system_messages LIMIT 1`).
-		Scan(&folder, &source, &kind, &body, &created); err != nil {
-		t.Fatalf("read routd.system_messages: %v", err)
+	// transform: system_messages remapped correctly, attrs dropped. The three
+	// values come back through the reader the prompt build calls; the folder and
+	// the queue instant are the item's COORDINATE, so they are read off the key
+	// the migration wrote.
+	queued, qerr := store.New(r).QueuedSystemMessagesTx(context.Background(), nil, "main")
+	if qerr != nil {
+		t.Fatalf("read routd.system_messages: %v", qerr)
 	}
-	if folder != "main" || source != "system" || kind != "migrate" || body != "hello" || created != "2026-01-03T00:00:00Z" {
-		t.Errorf("system_messages remap wrong: folder=%q source=%q kind=%q body=%q created=%q",
-			folder, source, kind, body, created)
+	if len(queued) != 1 {
+		t.Fatalf("routd.system_messages holds %d events for main, want 1", len(queued))
+	}
+	if queued[0].Source != "system" || queued[0].Kind != "migrate" || queued[0].Body != "hello" {
+		t.Errorf("system_messages remap wrong: %+v", queued[0])
+	}
+	var sortKey string
+	if err := r.QueryRow(`SELECT sort FROM system_messages LIMIT 1`).Scan(&sortKey); err != nil {
+		t.Fatalf("read the system_messages coordinate: %v", err)
+	}
+	wantKey := "main\x1f" + core.TS(time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC)) + "-00000001"
+	if sortKey != wantKey {
+		t.Errorf("system_messages coordinate = %q, want %q — the folder, the queue instant "+
+			"at core.TS's width, and the legacy id that keeps two events in one instant apart",
+			sortKey, wantKey)
 	}
 
 	// transform: the legacy spend lands in cost_log_archive, remapped; turn_id
@@ -1039,33 +1083,40 @@ func TestMigrateSplitLandsTimestampsFixedWidth(t *testing.T) {
 	defer rdb.Close()
 
 	// The message is later in time, so it has to sort after the cursor — the
-	// whole point of the column's width.
-	var visible int
-	if err := rdb.SQL().QueryRow(
-		`SELECT COUNT(*) FROM messages m JOIN chats c ON m.chat_jid = c.jid
-		 WHERE m.id = 'mfrac' AND m.timestamp > c.agent_cursor`).Scan(&visible); err != nil {
+	// whole point of the fixed width. The cursor is an attribute now, so the
+	// probe reads it back through the entity and compares in Go, which is what
+	// the poll loop's own read does.
+	cursor, err := store.New(rdb.SQL()).AgentCursor("tg:1")
+	if err != nil {
 		t.Fatalf("visibility probe: %v", err)
 	}
-	if visible != 1 {
-		t.Error("the copied message sorts behind the copied cursor; the agent never sees it")
+	var frac string
+	if err := rdb.SQL().QueryRow(
+		`SELECT timestamp FROM messages WHERE id = 'mfrac'`).Scan(&frac); err != nil {
+		t.Fatalf("visibility probe: %v", err)
+	}
+	if !(frac > cursor) {
+		t.Errorf("the copied message %q sorts behind the copied cursor %q; the agent never "+
+			"sees it", frac, cursor)
 	}
 
-	// Every value in each of the three columns, not just the pair above.
+	// Every value, not just the pair above: the message column by SQL, and the
+	// two cursors through the entity that now holds them.
 	width := len(core.TS(time.Now()))
-	for _, c := range []struct{ table, col string }{
-		{"messages", "timestamp"},
-		{"chats", "agent_cursor"},
-		{"sessions", "observed_cursor"},
-	} {
-		var mixed int
-		if err := rdb.SQL().QueryRow(
-			`SELECT COUNT(*) FROM `+c.table+
-				` WHERE `+c.col+` IS NOT NULL AND `+c.col+` != '' AND length(`+c.col+`) != ?`,
-			width).Scan(&mixed); err != nil {
-			t.Fatalf("width probe %s.%s: %v", c.table, c.col, err)
-		}
-		if mixed != 0 {
-			t.Errorf("%s.%s: %d copied values are not the column's fixed width", c.table, c.col, mixed)
-		}
+	var mixed int
+	if err := rdb.SQL().QueryRow(
+		`SELECT COUNT(*) FROM messages WHERE timestamp IS NOT NULL AND timestamp != ''
+		 AND length(timestamp) != ?`, width).Scan(&mixed); err != nil {
+		t.Fatalf("width probe messages.timestamp: %v", err)
+	}
+	if mixed != 0 {
+		t.Errorf("messages.timestamp: %d copied values are not fixed width", mixed)
+	}
+	st := store.New(rdb.SQL())
+	if got, _ := st.AgentCursor("tg:1"); len(got) != width {
+		t.Errorf("chats.agent_cursor = %q, %d bytes and not the fixed %d", got, len(got), width)
+	}
+	if line, ok := st.TopicLineage("main", ""); !ok || len(line.ObservedCursor) != width {
+		t.Errorf("sessions.observed_cursor = %q, want %d bytes", line.ObservedCursor, width)
 	}
 }

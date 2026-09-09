@@ -4,6 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/kronael/arizuko/core"
 )
 
 // newForkLoop builds a Loop on an in-memory DB with a temp groups dir so
@@ -155,10 +158,8 @@ func TestEnsureTopicWithFork_CopiedSessionKeepsParentCursor(t *testing.T) {
 	folder := "main"
 
 	seedParentSession(t, loop, db, folder, "", "main-uuid", []byte("parent\n"))
-	const parentCursor = "2026-08-24T06:00:00Z"
-	if _, err := db.db.Exec(
-		`UPDATE sessions SET observed_cursor=? WHERE group_folder=? AND topic=?`,
-		parentCursor, folder, ""); err != nil {
+	parentCursor := core.TS(time.Date(2026, 8, 24, 6, 0, 0, 0, time.UTC))
+	if err := db.AdvanceObservedCursor(folder, "", parentCursor); err != nil {
 		t.Fatalf("seed parent cursor: %v", err)
 	}
 

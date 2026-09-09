@@ -1,9 +1,11 @@
 -- Proactive interjection (spec 5/6). One chat-scoped runtime row: the
 -- per-chat 24h cooldown for the proactive trigger. Mode is group business
 -- state read from the group's CLAUDE.md frontmatter, NOT a column (single
--- source, no DB/file drift). Times are RFC3339Nano UTC TEXT.
-
-CREATE TABLE chat_proactive (
-  jid                     TEXT PRIMARY KEY,   -- the chat (chats.jid)
-  proactive_last_fired_at TEXT                -- NULL = never fired
-);
+-- source, no DB/file drift). Times are core.TSLayout UTC TEXT.
+--
+-- `chat_proactive` is an objstore entity rather than a table this chain creates:
+-- the driver makes it, from the declaration that sits beside the code writing it
+-- (store.EnsureEntities, spec 6/37 step 7). An entity keeps the name of the
+-- table it replaces, so a database carrying rows here is moved by
+-- `arizuko migrate-hot` and refuses to open until it has been.
+SELECT 1;

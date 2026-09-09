@@ -569,25 +569,25 @@ func TestEngagement_SetAndCheck(t *testing.T) {
 	defer s.Close()
 
 	now := time.Now()
-	if s.IsEngaged("jid1", "", now) {
+	if engagedNow(s, "jid1", "") {
 		t.Fatal("missing row should be idle")
 	}
-	if err := s.SetEngagement("jid1", "", "folderA", now.Add(10*time.Minute)); err != nil {
+	if err := s.BumpEngagement("jid1", "", "folderA", now.Add(10*time.Minute)); err != nil {
 		t.Fatalf("SetEngagement: %v", err)
 	}
-	if !s.IsEngaged("jid1", "", now) {
+	if !engagedNow(s, "jid1", "") {
 		t.Fatal("expected engaged after SetEngagement")
 	}
-	if err := s.SetEngagement("jid1", "", "folderA", time.Time{}); err != nil {
+	if err := s.BumpEngagement("jid1", "", "folderA", time.Time{}); err != nil {
 		t.Fatalf("clear: %v", err)
 	}
-	if s.IsEngaged("jid1", "", now) {
+	if engagedNow(s, "jid1", "") {
 		t.Fatal("expected idle after clear")
 	}
-	if err := s.SetEngagement("jid1", "", "folderA", now.Add(-time.Second)); err != nil {
+	if err := s.BumpEngagement("jid1", "", "folderA", now.Add(-time.Second)); err != nil {
 		t.Fatalf("past: %v", err)
 	}
-	if s.IsEngaged("jid1", "", now) {
+	if engagedNow(s, "jid1", "") {
 		t.Fatal("expected idle for past deadline")
 	}
 }
@@ -606,38 +606,45 @@ func TestEngagement_SetLastReplyAndBump(t *testing.T) {
 	if err := s.BumpEngagement("jid1", "", "folderA", now.Add(5*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	if got := s.GetLastReplyID("jid1", ""); got != "rid-1" {
+	if got := s.LastReplyID("jid1", ""); got != "rid-1" {
 		t.Fatalf("last_reply_id = %q", got)
 	}
-	if !s.IsEngaged("jid1", "", now) {
+	if !engagedNow(s, "jid1", "") {
 		t.Fatal("expected engaged")
 	}
 	if err := s.BumpEngagement("jid1", "", "folderA", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
-	if got := s.GetLastReplyID("jid1", ""); got != "rid-1" {
+	if got := s.LastReplyID("jid1", ""); got != "rid-1" {
 		t.Fatalf("last_reply_id should be preserved, got %q", got)
 	}
-	if s.IsEngaged("jid1", "", now) {
+	if engagedNow(s, "jid1", "") {
 		t.Fatal("expected cleared")
 	}
 }
 
-// EngagedFolder reads engaged_folder directly — no prior reply needed.
+// The window names its folder with no prior reply: BumpEngagement writes both.
 // A SetEngagement on a fresh (jid, topic) still surfaces the folder.
-func TestEngagement_EngagedFolder(t *testing.T) {
+func TestEngagement_WindowNamesItsFolder(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 	now := time.Now()
 
-	if got := s.EngagedFolder("jid1", ""); got != "" {
-		t.Fatalf("EngagedFolder empty case = %q", got)
+	if e, live := s.Engagement("jid1", ""); live || e.Folder != "" {
+		t.Fatalf("empty case = %q, live=%v", e.Folder, live)
 	}
 
-	if err := s.SetEngagement("jid1", "", "folderA", now.Add(time.Minute)); err != nil {
+	if err := s.BumpEngagement("jid1", "", "folderA", now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	if got := s.EngagedFolder("jid1", ""); got != "folderA" {
-		t.Fatalf("EngagedFolder (no prior reply) = %q, want folderA", got)
+	if e, live := s.Engagement("jid1", ""); !live || e.Folder != "folderA" {
+		t.Fatalf("engaged folder (no prior reply) = %q live=%v, want folderA", e.Folder, live)
 	}
+}
+
+// engagedNow reports whether (jid, topic) has a live window, which is what the
+// three-argument IsEngaged this replaces asked with its own clock.
+func engagedNow(s *Store, jid, topic string) bool {
+	_, live := s.Engagement(jid, topic)
+	return live
 }

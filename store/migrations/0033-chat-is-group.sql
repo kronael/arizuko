@@ -3,7 +3,11 @@
 -- single-user predicate (Chat.IsSingleUser); without this column there
 -- is no way to distinguish a DM from a group chat at spawn time.
 --
--- Default 0 (not group). Adapters set the correct value on the next
--- inbound for any chat_jid; rows that never see another inbound stay
--- conservative — user secrets simply don't inject.
-ALTER TABLE chats ADD COLUMN is_group INTEGER NOT NULL DEFAULT 0;
+-- `chats` is an objstore entity rather than a table this chain creates: the
+-- driver makes it, from the declaration that sits beside the code writing it
+-- (store.EnsureEntities, spec 6/37 step 7). The flag is an attribute an item
+-- carries when it is TRUE and does not carry otherwise — absent is the only null
+-- this model has — which is the same conservative default this column declared.
+-- A database carrying rows here is moved by `arizuko migrate-hot` and refuses to
+-- open until it has been.
+SELECT 1;

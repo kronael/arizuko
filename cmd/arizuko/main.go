@@ -108,6 +108,7 @@ func main() {
 		"migrate-chanlib":   cmdMigrateChanlib,   // spec 6/37 step 7
 		"migrate-emaid":     cmdMigrateEmaid,     // spec 6/37 step 7
 		"migrate-onbod":     cmdMigrateOnbod,     // spec 6/37 step 7
+		"migrate-hot":       cmdMigrateHot,       // spec 6/37 step 7
 		"migrate-routd":     cmdMigrateRoutd,     // spec 6/37 step 7
 		"migrate-runed":     cmdMigrateRuned,     // spec 6/37 step 7
 		"migrate-store":     cmdMigrateStore,     // spec 6/37 step 7

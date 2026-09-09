@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"net/http"
 	"net/http/httptest"
@@ -8,7 +9,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
 )
 
@@ -142,9 +146,9 @@ func TestProactivePageRendersCooldown(t *testing.T) {
 	defer db.Close()
 	groupsDir := t.TempDir()
 	seedGroup(t, db, groupsDir, "corp/eng", "proactive:\n  mode: lurk")
-	if _, err := db.Exec(
-		`INSERT INTO chat_proactive(jid, proactive_last_fired_at) VALUES(?,?)`,
-		"slack:T1/C1", "2026-08-06T09:00:00Z"); err != nil {
+	firedAt := time.Date(2026, 8, 6, 9, 0, 0, 0, time.UTC)
+	if err := store.New(db).RecordProactiveFireInTx(
+		context.Background(), nil, "slack:T1/C1", firedAt); err != nil {
 		t.Fatal(err)
 	}
 
@@ -153,7 +157,7 @@ func TestProactivePageRendersCooldown(t *testing.T) {
 	if !strings.Contains(cooldown, "slack:T1/C1") {
 		t.Fatalf("fired chat missing from the cooldown table:\n%s", cooldown)
 	}
-	if !strings.Contains(cooldown, "2026-08-06T09:00:00Z") {
+	if !strings.Contains(cooldown, core.TS(firedAt)) {
 		t.Errorf("fire timestamp missing from the cooldown table:\n%s", cooldown)
 	}
 	// The jid must not leak into the modes table above it.
