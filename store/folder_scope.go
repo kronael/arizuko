@@ -64,9 +64,8 @@ type entityScope struct {
 //
 // AN ENTITY MAY APPEAR TWICE, and `group_watchers` is why the list is a slice
 // rather than a map: a subscription carries TWO folder coordinates and folderOf
-// answers one, so the two halves are two entries. That is the same two statements
-// the column path issued, and the second pass reads through the caller's own
-// transaction, so it sees what the first one deleted.
+// answers one, so the two halves are two entries. The second pass reads through
+// the caller's own transaction, so it sees what the first one deleted.
 var entityScopePurge = []entityScope{
 	// The folder itself and its children. Deleting a parent and leaving the
 	// children is an orphan with grants of its own.
