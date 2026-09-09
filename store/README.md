@@ -89,6 +89,18 @@ inline injection. `ObservedSince` feeds the `<observed>` block, and
 `AdvanceObservedCursor` moves each topic's cursor independently and forward
 only. Spec: `specs/5/F-topic-lineage.md`.
 
+## Coverage
+
+`go test ./store/ -short -cover` reports 65.6% (2026-09-09), and the gap is
+one file rather than a thin spread: `import_routd.go` and `import_hot.go` are
+the TARGET halves of two one-way moves, and neither has a caller in this
+package. They are exercised from `cmd/arizuko`, whose tests drive the whole
+move end to end — `go test ./cmd/arizuko/ -coverpkg=./store/...` reports 86.9%
+over `import_hot.go`'s six functions.
+
+The rest of the shortfall is error returns on paths the engine decides: a
+driver refusal every caller reports and no test provokes.
+
 ## Dependencies
 
 - `core`, `db_utils`, `groupfolder`, `modernc.org/sqlite`
