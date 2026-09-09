@@ -5,10 +5,10 @@ package store
 // parent subtree the operator invited them into.
 //
 // IT IS THE AUTHORITY handleCreateWorld DERIVES A PARENT FOLDER FROM, and that
-// is why it is a row at all: the parent used to ride in a cookie the caller
-// owned, so `Cookie: pending_target=victim/` created victim/<name> and took
-// admin over it for any authenticated caller holding no grant anywhere (BUGS
-// F50). An item written by the redemption is not forgeable by the redeemer.
+// is why it exists at all: an item the redemption writes is not forgeable by the
+// redeemer, where a `pending_target` cookie was — `Cookie:
+// pending_target=victim/` created victim/<name> and took admin over it for any
+// authenticated caller holding no grant anywhere (BUGS F50).
 //
 // THE PARTITION IS THE PERSON AND THE SORT KEY IS THE INSTANT. Every one of the
 // three operations names the sub — the write, the "my most recent unspent one"
