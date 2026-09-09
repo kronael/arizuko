@@ -151,24 +151,13 @@ func stubRoutd(t *testing.T, db *sql.DB) string {
 		writeStubJSON(w, out)
 	})
 
-	// TWO reads and a merge, exactly as routd's handlePrincipals does it:
-	// `user_profiles` is a column table and an edge is an objstore item, so there
-	// is no join to run. A `role:` child is a role, not a person.
+	// TWO reads and a merge, exactly as routd's handlePrincipals does it: two
+	// entities and no join to run. A `role:` child is a role, not a person.
 	mux.HandleFunc("GET /v1/principals", func(w http.ResponseWriter, r *http.Request) {
-		names := map[string]string{}
-		rows, err := db.Query(`SELECT sub, COALESCE(name,'') FROM user_profiles`)
+		names, err := store.New(db).ProfileNames(r.Context())
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var sub, name string
-			if err := rows.Scan(&sub, &name); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			names[sub] = name
 		}
 		items, err := stubItems(r, db, store.ACLMembership)
 		if err != nil {

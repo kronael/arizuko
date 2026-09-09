@@ -3,13 +3,14 @@ package main
 import (
 	"context"
 	"database/sql"
-	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/dashd/dashstore"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/dashd/dashstore"
 
 	_ "modernc.org/sqlite"
 )

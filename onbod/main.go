@@ -581,8 +581,13 @@ func handleOnboard(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg
 // csrf is the double-submit token GET /onboard just minted; every form this
 // renders MUST echo it, because handleOnboardPost rejects a POST without it.
 func handleDashboard(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, userSub, csrf string) {
-	var username string
-	if err := db.QueryRow(`SELECT username FROM user_profiles WHERE sub = ?`, userSub).Scan(&username); err != nil {
+	username, known, err := store.New(db).Username(userSub)
+	if err != nil {
+		// A read failure is not "no such user": it is reported, and the page still
+		// stops, because every branch below is named after this person.
+		slog.Error("username lookup", "user", userSub, "err", err)
+	}
+	if !known || err != nil {
 		renderPage(w, "Error", template.HTML("<p>User not found.</p>"))
 		return
 	}
@@ -875,8 +880,7 @@ func createWorldTx(db *sql.DB, folder, username, userSub string) error {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`UPDATE user_profiles SET username = ? WHERE sub = ?`,
-		username, userSub); err != nil {
+	if err := st.SetUsernameTx(ctx, tx, userSub, username); err != nil {
 		return err
 	}
 	created, err := st.CreateGroupTx(ctx, tx, core.Group{

@@ -45,7 +45,7 @@ func TestUserScopesSpecificFolders(t *testing.T) {
 		core.ACLRow{Principal: "u1", Action: "admin", Scope: "beta", Effect: "allow"},
 		core.ACLRow{Principal: "u1", Action: "admin", Scope: "alpha", Effect: "allow"},
 	)
-	s.CreateAuthUser("u1", "u1", "User One")
+	s.CreateUserProfile("u1", "u1", "User One")
 	eqScopes(t, mustScopes(auth.UserScopes(s, "u1")), "alpha", "beta")
 }
 
@@ -53,7 +53,7 @@ func TestUserScopesOperatorViaMembership(t *testing.T) {
 	s := scopesEnv(t,
 		core.ACLRow{Principal: "role:operator", Action: "*", Scope: "**", Effect: "allow"},
 	)
-	s.CreateAuthUser("op", "op", "Operator")
+	s.CreateUserProfile("op", "op", "Operator")
 	if err := s.AddMembership("op", "role:operator", "test"); err != nil {
 		t.Fatal(err)
 	}

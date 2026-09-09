@@ -29,8 +29,7 @@ import (
 // asserting a refusal caused by an absent row rather than by the gate rule.
 func seedStranger(t *testing.T, db *sql.DB, sub, status string) {
 	t.Helper()
-	if _, err := db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
-		VALUES (?, ?, 'Stranger', '2026-01-01')`, sub, sub); err != nil {
+	if err := store.New(db).CreateUserProfile(sub, sub, "Stranger"); err != nil {
 		t.Fatalf("seed user_profiles: %v", err)
 	}
 	seedAdmission(t, db, store.ArchiveOnboardingRow{

@@ -1,7 +1,7 @@
 package main
 
-// migrate_hot.go moves routd's five hot-tier tables onto the entities they are
-// now (spec 6/37 step 7). One way, once, with routd stopped.
+// migrate_hot.go moves routd's hot-tier tables onto the entities they are now
+// (spec 6/37 step 7). One way, once, with routd stopped.
 //
 // It is the SOURCE half of the move and the only half that knows the old schema:
 // it reads the tables into plain values and hands them to store.ImportHot, which
@@ -114,7 +114,7 @@ func migrateHot(path string, dryRun bool) error {
 		return err
 	}
 	s := sqlstore.New(db)
-	// The FIVE and nothing else: CreateEntity probes the three columns it needs,
+	// THIS SET and nothing else: CreateEntity probes the three columns it needs,
 	// so asking for routd's whole set would fail on a table a different tool has
 	// not moved yet, and that tool would fail on these for the same reason.
 	// Naming the subset is what lets either run first.
@@ -305,6 +305,7 @@ func verifyHot(ctx context.Context, st *store.Store, snap store.RoutdSnapshot,
 		{store.ChatReplyState, func() (int, error) { return st.CountReplyStates(ctx) }},
 		{store.ChatProactive, func() (int, error) { return st.CountProactiveChats(ctx) }},
 		{store.SystemMessages, func() (int, error) { return st.CountSystemMessages(ctx) }},
+		{store.UserProfiles, func() (int, error) { return st.CountUserProfiles(ctx) }},
 	}
 	for _, c := range counts {
 		got, err := c.count()

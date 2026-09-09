@@ -449,13 +449,28 @@ func TestMigrateSplit(t *testing.T) {
 	if costN != 2 {
 		t.Errorf("cost_log_archive rows = %d, want 2 (turn_id collapse dropped history)", costN)
 	}
-	// #6: user_profiles copied to routd.db (split onbod reads it cross-DB).
-	var auName string
-	if err := r.QueryRow(`SELECT username FROM user_profiles WHERE sub='github:alice'`).Scan(&auName); err != nil {
-		t.Fatalf("user_profiles not copied to routd.db: %v", err)
+	// #6: user_profiles copied to routd.db (split onbod reads it cross-DB), read
+	// back through the method onbod itself calls.
+	auName, known, err := store.New(r).Username("github:alice")
+	if err != nil || !known {
+		t.Fatalf("user_profiles not copied to routd.db: known=%v err=%v", known, err)
 	}
 	if auName != "alice" {
 		t.Errorf("user_profiles.username = %q, want alice", auName)
+	}
+	// The password digest the monolith carried does NOT travel: nothing reads it,
+	// and a secret carried into a document by default is one nothing scrubs.
+	profiles, err := store.New(r).ProfileNames(t.Context())
+	if err != nil || len(profiles) != 1 {
+		t.Fatalf("profiles = %v, err = %v, want one", profiles, err)
+	}
+	var carried int
+	if err := r.QueryRow(`SELECT COUNT(*) FROM user_profiles WHERE attrs LIKE '%hash%'`).
+		Scan(&carried); err != nil {
+		t.Fatalf("look for a carried digest: %v", err)
+	}
+	if carried != 0 {
+		t.Errorf("%d profile items carry the monolith's password digest", carried)
 	}
 
 	// acl, secrets and scheduled_tasks are entities in routd.db, read back

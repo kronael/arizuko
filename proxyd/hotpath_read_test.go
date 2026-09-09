@@ -27,7 +27,7 @@ import (
 // (accessTTL, 15 minutes).
 func TestGroupsForSub_RevokedGrantDeniedDespiteTokenScope(t *testing.T) {
 	st := testutils.NewRoutdStore(t)
-	if err := st.CreateAuthUser("local:dave", "dave", "Dave"); err != nil {
+	if err := st.CreateUserProfile("local:dave", "dave", "Dave"); err != nil {
 		t.Fatal(err)
 	}
 	row := core.ACLRow{Principal: "local:dave", Action: "*", Scope: "workspace-z", Effect: "allow"}

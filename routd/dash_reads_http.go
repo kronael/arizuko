@@ -159,11 +159,10 @@ type principal struct {
 // `user_profiles` plus the non-role children of `acl_membership`. It exists so
 // the grants form and the profile page stop reading routd.db directly.
 //
-// It is TWO reads and a merge, because the two halves are two shapes:
-// `user_profiles` is still a column table and an edge is an objstore item, so
-// there is no join to run. A sub named by both is listed once, and the profile's
-// own name wins — an edge carries no name, so taking the edge's would blank a
-// label the form has.
+// It is TWO reads and a merge, because the two halves are two entities and an
+// entity has no join. A sub named by both is listed once, and the profile's own
+// name wins — an edge carries no name, so taking the edge's would blank a label
+// the form has.
 //
 // Names and subs only. No email, no tokens, no profile body: the form needs a
 // label and an identifier, so that is the whole projection.
@@ -171,22 +170,8 @@ func (s *Server) handlePrincipals(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r, "grants:read", "messages:read") {
 		return
 	}
-	names := map[string]string{}
-	rows, err := s.db.SQL().Query(`SELECT sub, COALESCE(name,'') FROM user_profiles`)
+	names, err := s.db.ProfileNames(r.Context())
 	if err != nil {
-		writeErr(w, 500, "db_error", err.Error())
-		return
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var sub, name string
-		if err := rows.Scan(&sub, &name); err != nil {
-			writeErr(w, 500, "db_error", err.Error())
-			return
-		}
-		names[sub] = name
-	}
-	if err := rows.Err(); err != nil {
 		writeErr(w, 500, "db_error", err.Error())
 		return
 	}

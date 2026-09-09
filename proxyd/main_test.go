@@ -562,7 +562,7 @@ func TestDavRouteForbidden(t *testing.T) {
 // login even though a matching user row exists.
 func TestProxydRequireAuthRefreshCookieIsNotIdentity(t *testing.T) {
 	st := testutils.NewRoutdStore(t)
-	if err := st.CreateAuthUser("local:admin", "admin", "Admin"); err != nil {
+	if err := st.CreateUserProfile("local:admin", "admin", "Admin"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -592,7 +592,7 @@ func TestProxydRequireAuthRefreshCookieIsNotIdentity(t *testing.T) {
 // tryRefreshViaAuthd (authd's /v1/refresh) turns a refresh token into identity.
 func TestTryAuthRefreshCookieRejected(t *testing.T) {
 	st := testutils.NewRoutdStore(t)
-	if err := st.CreateAuthUser("local:bob", "bob", "Bob"); err != nil {
+	if err := st.CreateUserProfile("local:bob", "bob", "Bob"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -772,7 +772,7 @@ func TestMatchRouteMeBeatsSiblingPrefixes(t *testing.T) {
 // An ES256 access token minted by authd admits the request to the upstream.
 func TestProxydRouteWithES256BearerReachesUpstream(t *testing.T) {
 	st := testutils.NewRoutdStore(t)
-	if err := st.CreateAuthUser("local:bob", "bob", "Bob"); err != nil {
+	if err := st.CreateUserProfile("local:bob", "bob", "Bob"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -802,7 +802,7 @@ func TestProxydRouteWithES256BearerReachesUpstream(t *testing.T) {
 // gone, and with authd unconfigured there is nothing to trade the cookie for.
 func TestProxydRouteWithRefreshCookieRejected(t *testing.T) {
 	st := testutils.NewRoutdStore(t)
-	if err := st.CreateAuthUser("local:bob", "bob", "Bob"); err != nil {
+	if err := st.CreateUserProfile("local:bob", "bob", "Bob"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1645,7 +1645,7 @@ func davES256Server(t *testing.T, st *store.Store) (*server, *httptest.Server, *
 func TestProxydDavAuthFlow_DBGroupLookup(t *testing.T) {
 	st := testutils.NewRoutdStore(t)
 	// Create user + grant via acl row.
-	if err := st.CreateAuthUser("local:bob", "bob", "Bob"); err != nil {
+	if err := st.CreateUserProfile("local:bob", "bob", "Bob"); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.PutACLRow(core.ACLRow{
@@ -1681,7 +1681,7 @@ func TestProxydDavAuthFlow_DBGroupLookup(t *testing.T) {
 // DB grant for group A does not grant access to group B.
 func TestProxydDavAuthFlow_DBCrossGroupDenied(t *testing.T) {
 	st := testutils.NewRoutdStore(t)
-	if err := st.CreateAuthUser("local:carol", "carol", "Carol"); err != nil {
+	if err := st.CreateUserProfile("local:carol", "carol", "Carol"); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.PutACLRow(core.ACLRow{

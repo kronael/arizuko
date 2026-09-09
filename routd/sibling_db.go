@@ -1,6 +1,7 @@
 package routd
 
 import (
+	"context"
 	"slices"
 	"time"
 
@@ -87,6 +88,13 @@ func (d *DB) UserCap(userSub string) (int, error) {
 // row budgetGate reads.
 func (d *DB) SetUserCap(userSub string, cents int) error {
 	return d.store().SetUserCap(userSub, cents)
+}
+
+// ProfileNames answers every sub the instance knows a profile for and the name
+// it holds, backing GET /v1/principals — the datalist an operator's grant form
+// offers, which dashd reads over HTTP rather than opening routd.db for it.
+func (d *DB) ProfileNames(ctx context.Context) (map[string]string, error) {
+	return d.store().ProfileNames(ctx)
 }
 
 // EnvProfileSecrets resolves the caller's OWN user-scoped model credentials (BYOA)

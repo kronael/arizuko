@@ -22,6 +22,7 @@ import (
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/resreg/resources"
+	"github.com/kronael/arizuko/store"
 )
 
 // TestPickerRouteCarriesAttribution — path 1, the step-6 picker. Replays the
@@ -93,8 +94,9 @@ func TestSoleWorldRouteCarriesAttribution(t *testing.T) {
 // claim, not "the dashboard does".
 func TestInviteRedemptionRouteCarriesAttribution(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
-		VALUES ('github:bob', 'bob', 'Bob', '2026-01-01')`)
+	if err := store.New(db).CreateUserProfile("github:bob", "bob", "Bob"); err != nil {
+		t.Fatalf("seed user_profiles: %v", err)
+	}
 	seedFolder(t, db, "alice")
 	seedMembership(t, db, "telegram:77", "github:bob", "")
 
@@ -132,8 +134,9 @@ func TestInviteRedemptionRouteCarriesAttribution(t *testing.T) {
 // itself must write nothing.
 func TestCreateWorldRouteCarriesAttribution(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
-		VALUES ('github:new', 'github:new', 'New', '2026-01-01')`)
+	if err := store.New(db).CreateUserProfile("github:new", "github:new", "New"); err != nil {
+		t.Fatalf("seed user_profiles: %v", err)
+	}
 	seedMembership(t, db, "telegram:10", "github:new", "")
 	seedRedemption(t, db, "github:new", "/")
 
@@ -170,8 +173,9 @@ func TestCreateWorldRouteCarriesAttribution(t *testing.T) {
 // never mentioned into a world he had only just been invited to.
 func TestInviteRedemptionRoutesOnlyTheJIDItConcerns(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
-		VALUES ('github:bob', 'bob', 'Bob', '2026-01-01')`)
+	if err := store.New(db).CreateUserProfile("github:bob", "bob", "Bob"); err != nil {
+		t.Fatalf("seed user_profiles: %v", err)
+	}
 	seedFolder(t, db, "alpha")
 	seedFolder(t, db, "alice")
 	// Already settled, at a seq the old seq-0 write would have outranked.

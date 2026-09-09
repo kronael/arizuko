@@ -2,12 +2,13 @@ package main
 
 import (
 	"database/sql"
-	"github.com/kronael/arizuko/core"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kronael/arizuko/core"
 )
 
 func seedInbound(t *testing.T, db *sql.DB, id, jid, sender string, at time.Time) {

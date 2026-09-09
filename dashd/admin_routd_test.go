@@ -438,9 +438,7 @@ func TestErroredCount_ReadsRoutdDB(t *testing.T) {
 // (routd owns it post-split per routd/migrations 0011 + 0025), not messages.db.
 func TestProfile_ReadsRoutdDB(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
-	if _, err := routd.Exec(
-		`INSERT INTO user_profiles (sub, username, name, created_at)
-		 VALUES ('google:bob', 'bob', 'Bob Live', '')`); err != nil {
+	if err := store.New(routd).CreateUserProfile("google:bob", "bob", "Bob Live"); err != nil {
 		t.Fatal(err)
 	}
 	mux := newMux(d)

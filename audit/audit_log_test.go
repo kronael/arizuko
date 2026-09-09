@@ -154,9 +154,14 @@ func TestTheAuditRowIsOneCommitWithItsMutation(t *testing.T) {
 	}
 }
 
-// A database still holding the table an entity replaces must refuse to serve
-// it, loudly, at boot. Serving it silently means every Emit warns and drops the
-// row while the daemon reports healthy (BUGS F29).
+// A database still holding UNMOVED ROWS in the table an entity replaces must
+// refuse to serve it, loudly, at boot. Serving it silently means every Emit
+// warns and drops the row while the daemon reports healthy (BUGS F29).
+//
+// The row is what the refusal is about, so the row is what this seeds. An empty
+// table of the old shape is a frozen chain's leftover rather than data, and the
+// entity takes its name — objstore/sqlstore owns that decision and proves both
+// halves of it.
 func TestEnsureEntitiesRefusesTheTableAnEntityReplaces(t *testing.T) {
 	db, _ := openTestStore(t)
 	if _, err := db.Exec(`DROP TABLE audit_log`); err != nil {
@@ -165,12 +170,19 @@ func TestEnsureEntitiesRefusesTheTableAnEntityReplaces(t *testing.T) {
 	if _, err := db.Exec(`CREATE TABLE audit_log (id INTEGER PRIMARY KEY, category TEXT)`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec(`INSERT INTO audit_log (id, category) VALUES (1, 'mutation')`); err != nil {
+		t.Fatal(err)
+	}
 	err := EnsureEntities(context.Background(), sqlstore.New(db))
 	if err == nil {
 		t.Fatal("a database holding the old table reported ready; every row would be dropped")
 	}
 	if got := err.Error(); !strings.Contains(got, "audit_log") {
 		t.Fatalf("the refusal does not name the entity: %v", got)
+	}
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM audit_log`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("the unmoved row did not survive the refusal: n=%d err=%v", n, err)
 	}
 }
 

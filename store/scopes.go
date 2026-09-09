@@ -74,13 +74,13 @@ func OwnerScope(owner string) objstore.Scope {
 // ReadConsistent's eight attempts every time. audit_log is absent for the same
 // reason and one more: four owner databases carry it and it is append-only.
 //
-// THE HOT TIER'S FIVE ARE ABSENT FOR THAT REASON AND HARDER. Chats, Sessions,
-// ChatReplyState, ChatProactive and SystemMessages are runtime state rather than
-// configuration, so no resreg resource projects them and no export reads them —
-// and they are written on the HOT PATH: a cursor moves once per inbound message
-// and an engagement window once per turn. Marking them would move routd's marker
-// under every export that does not read them, which on a busy instance is an
-// export that never completes.
+// THE HOT TIER IS ABSENT FOR THAT REASON AND HARDER. Chats, Sessions,
+// ChatReplyState, ChatProactive, SystemMessages and UserProfiles are runtime
+// state rather than configuration, so no resreg resource projects them and no
+// export reads them — and most are written on the HOT PATH: a cursor moves once
+// per inbound message and an engagement window once per turn. Marking them would
+// move routd's marker under every export that does not read them, which on a
+// busy instance is an export that never completes.
 //
 // An entity-backed resreg resource missing from here is a resource an export
 // cannot see the writes to. resreg/resources proves the set covers every one it

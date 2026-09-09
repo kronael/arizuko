@@ -90,8 +90,7 @@ func seedTenant(t *testing.T, db *sql.DB, folder, owner string) {
 
 func seedProfile(t *testing.T, db *sql.DB, sub string) {
 	t.Helper()
-	if _, err := db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
-		VALUES (?, ?, 'User', '2026-01-01')`, sub, sub); err != nil {
+	if err := store.New(db).CreateUserProfile(sub, sub, "User"); err != nil {
 		t.Fatalf("seed user_profiles: %v", err)
 	}
 }

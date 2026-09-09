@@ -99,6 +99,10 @@ const (
 	// SystemMessages holds one queued system event, addressed by the folder it
 	// is queued for and the instant it was queued.
 	SystemMessages = "system_messages"
+	// UserProfiles holds one item per person the instance knows a name for,
+	// addressed by their sub, and carries the username their folder is named
+	// after and their per-day spend cap.
+	UserProfiles = "user_profiles"
 
 	// Counters holds one item per server-minted number, addressed by the name
 	// of what it numbers, with the count in `n`.
@@ -178,7 +182,7 @@ var EntitiesByOwner = map[string][]string{
 		ACL, ACLMembership, Groups, Routes, RouteTokens, ScheduledTasks, Secrets,
 		PendingActions, NetworkRules, ProxydRoutes, WebRoutes, InstalledPackages,
 		GitHubSources,
-		Chats, Sessions, ChatReplyState, ChatProactive, SystemMessages,
+		Chats, Sessions, ChatReplyState, ChatProactive, SystemMessages, UserProfiles,
 	},
 	OwnerOnbod: {Onboarding, OnboardingGates, Invites},
 }

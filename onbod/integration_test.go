@@ -16,7 +16,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/kronael/arizuko/db_utils/dbtest"
 	"github.com/kronael/arizuko/routd"
@@ -151,8 +150,7 @@ func TestOnboardingFlow(t *testing.T) {
 	// GET /pair is webd's and is side-effect-free; the redemption POST it fronts
 	// is store.RedeemPairing, which is what writes the edge.
 	sub := "github:alice"
-	if _, err := inst.X.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
-		VALUES (?, ?, ?, ?)`, sub, sub, "Alice", time.Now().Format(time.RFC3339)); err != nil {
+	if err := store.New(inst.X).CreateUserProfile(sub, sub, "Alice"); err != nil {
 		t.Fatalf("seed user_profiles: %v", err)
 	}
 	if peeked, err := st.PeekPairing(token); err != nil || peeked != jid {

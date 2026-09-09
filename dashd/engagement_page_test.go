@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/kronael/arizuko/core"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kronael/arizuko/core"
 
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	_ "modernc.org/sqlite"

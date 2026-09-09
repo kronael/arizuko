@@ -272,8 +272,9 @@ func TestPromptUnpromptedLinkRedeemsAsAPairing(t *testing.T) {
 
 func TestDashboardShowsUsernamePicker(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
-		VALUES ('github:new', 'github:new', 'New User', '2026-01-01')`)
+	if err := store.New(db).CreateUserProfile("github:new", "github:new", "New User"); err != nil {
+		t.Fatalf("seed user_profiles: %v", err)
+	}
 
 	seedRedemption(t, db, "github:new", "/")
 
@@ -299,8 +300,9 @@ func TestDashboardShowsUsernamePicker(t *testing.T) {
 // catch a form that omits the field — which is how BUGS F1 shipped.
 func TestUsernamePickerFormSatisfiesCSRFCheck(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
-		VALUES ('github:new', 'newbie', 'New User', '2026-01-01')`)
+	if err := store.New(db).CreateUserProfile("github:new", "newbie", "New User"); err != nil {
+		t.Fatalf("seed user_profiles: %v", err)
+	}
 
 	seedRedemption(t, db, "github:new", "/")
 
@@ -368,8 +370,9 @@ func formInputs(page string) url.Values {
 func twoWorldUser(t *testing.T) *sql.DB {
 	t.Helper()
 	db := testDB(t)
-	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
-		VALUES ('github:alice', 'alice', 'Alice', '2026-01-01')`)
+	if err := store.New(db).CreateUserProfile("github:alice", "alice", "Alice"); err != nil {
+		t.Fatalf("seed user_profiles: %v", err)
+	}
 	seedFolder(t, db, "acme")
 	seedFolder(t, db, "beta")
 	seedGrant(t, db, "github:alice", "admin", "acme")
@@ -481,8 +484,9 @@ func TestSingleWorldRoutesWithoutAsking(t *testing.T) {
 // nowhere to go.
 func TestNoAdminWorldIsAnExplicitDeadEnd(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
-		VALUES ('github:alice', 'alice', 'Alice', '2026-01-01')`)
+	if err := store.New(db).CreateUserProfile("github:alice", "alice", "Alice"); err != nil {
+		t.Fatalf("seed user_profiles: %v", err)
+	}
 	// alice holds a scope (so she is past the invite gate) but administers
 	// nothing: her grant names a folder that is not a group.
 	seedGrant(t, db, "github:alice", "admin", "ghost")
@@ -500,8 +504,9 @@ func TestNoAdminWorldIsAnExplicitDeadEnd(t *testing.T) {
 
 func TestCreateWorldValidUsername(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
-		VALUES ('github:new', 'github:new', 'New User', '2026-01-01')`)
+	if err := store.New(db).CreateUserProfile("github:new", "github:new", "New User"); err != nil {
+		t.Fatalf("seed user_profiles: %v", err)
+	}
 
 	seedRedemption(t, db, "github:new", "/")
 
@@ -531,8 +536,10 @@ func TestCreateWorldValidUsername(t *testing.T) {
 		t.Errorf("creator grant should be subtree-scoped, got %q", ug)
 	}
 
-	var un string
-	db.QueryRow(`SELECT username FROM user_profiles WHERE sub = 'github:new'`).Scan(&un)
+	un, _, err := store.New(db).Username("github:new")
+	if err != nil {
+		t.Fatalf("read the username back: %v", err)
+	}
 	if un != "alice" {
 		t.Errorf("username not updated, got %q", un)
 	}
@@ -745,8 +752,9 @@ func TestObservePairingsIgnoresAgentMintedPairings(t *testing.T) {
 // to routes the ONE unrouted JID, and the next landing the next.
 func TestCreateWorldRoutesNoJIDs(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
-		VALUES ('github:new', 'github:new', 'New User', '2026-01-01')`)
+	if err := store.New(db).CreateUserProfile("github:new", "github:new", "New User"); err != nil {
+		t.Fatalf("seed user_profiles: %v", err)
+	}
 	seedMembership(t, db, "telegram:10", "github:new", "")
 	seedMembership(t, db, "discord:20", "github:new", "")
 
@@ -788,8 +796,9 @@ func TestCreateWorldRoutesNoJIDs(t *testing.T) {
 
 func TestCreateWorldNoLinkedJIDs(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
-		VALUES ('github:lonely', 'github:lonely', 'Lonely', '2026-01-01')`)
+	if err := store.New(db).CreateUserProfile("github:lonely", "github:lonely", "Lonely"); err != nil {
+		t.Fatalf("seed user_profiles: %v", err)
+	}
 
 	seedRedemption(t, db, "github:lonely", "/")
 
@@ -828,8 +837,9 @@ func TestCreateWorldNoLinkedJIDs(t *testing.T) {
 // The world is the assertion; routes are not written here at all (5/18 step 7).
 func TestCreateWorldOperatorAllowed(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
-		VALUES ('github:op', 'op', 'Op', '2026-01-01')`)
+	if err := store.New(db).CreateUserProfile("github:op", "op", "Op"); err != nil {
+		t.Fatalf("seed user_profiles: %v", err)
+	}
 	seedGrant(t, db, "github:op", "admin", "**")
 	seedMembership(t, db, "telegram:99", "github:op", "")
 
@@ -1056,8 +1066,9 @@ func TestQueuePositionRendering(t *testing.T) {
 		Gate: "*", QueuedAt: "2026-04-17T10:00:00Z", UserSub: "github:first"})
 	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "t:2", Status: "queued",
 		Gate: "*", QueuedAt: "2026-04-17T10:01:00Z", UserSub: "github:second"})
-	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
-		VALUES ('github:second', 'second', 'Second', '2026-01-01')`)
+	if err := store.New(db).CreateUserProfile("github:second", "second", "Second"); err != nil {
+		t.Fatalf("seed user_profiles: %v", err)
+	}
 
 	seedGateRow(t, db, "*", 100, true)
 
@@ -1131,8 +1142,9 @@ func TestInviteCreation(t *testing.T) {
 
 func TestInviteConsume(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
-		VALUES ('github:bob', 'bob', 'Bob', '2026-01-01')`)
+	if err := store.New(db).CreateUserProfile("github:bob", "bob", "Bob"); err != nil {
+		t.Fatalf("seed user_profiles: %v", err)
+	}
 	seedFolder(t, db, "alice")
 	seedMembership(t, db, "telegram:99", "github:bob", "")
 
@@ -1416,8 +1428,9 @@ func TestCSRFRejected(t *testing.T) {
 // after the first returns the "used" page.
 func TestInviteAtomicConsume(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
-		VALUES ('github:bob', 'bob', 'Bob', '2026-01-01')`)
+	if err := store.New(db).CreateUserProfile("github:bob", "bob", "Bob"); err != nil {
+		t.Fatalf("seed user_profiles: %v", err)
+	}
 	seedFolder(t, db, "alice")
 	tok := createInvite(t, db, "alice", "telegram:1", 1)
 
@@ -1432,8 +1445,9 @@ func TestInviteAtomicConsume(t *testing.T) {
 	}
 
 	// Second consume — uses is now 1 == max_uses; must fail.
-	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
-		VALUES ('github:eve', 'eve', 'Eve', '2026-01-01')`)
+	if err := store.New(db).CreateUserProfile("github:eve", "eve", "Eve"); err != nil {
+		t.Fatalf("seed user_profiles: %v", err)
+	}
 	req2 := httptest.NewRequest("GET", "/invite/"+tok, nil)
 	req2.SetPathValue("token", tok)
 	req2.Header.Set("X-User-Sub", "github:eve")
@@ -1477,8 +1491,9 @@ func TestAddRouteWrongTarget(t *testing.T) {
 func TestDashboardXSSEscape(t *testing.T) {
 	db := testDB(t)
 	attacker := `<script>alert(1)</script>`
-	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
-		VALUES (?, ?, '', '2026-01-01')`, attacker, attacker)
+	if err := store.New(db).CreateUserProfile(attacker, attacker, ""); err != nil {
+		t.Fatalf("seed user_profiles: %v", err)
+	}
 	seedGrant(t, db, attacker, "admin", "room")
 	// The paired jid is attacker-controlled too, and the dashboard lists it.
 	seedMembership(t, db, "telegram:"+attacker, attacker, "")
@@ -1500,8 +1515,9 @@ func TestDashboardXSSEscape(t *testing.T) {
 // Queue position render must escape the gate string (user-controlled via DB).
 func TestQueuePositionXSSEscape(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
-		VALUES ('github:x', 'x', 'X', '2026-01-01')`)
+	if err := store.New(db).CreateUserProfile("github:x", "x", "X"); err != nil {
+		t.Fatalf("seed user_profiles: %v", err)
+	}
 	// gate value itself is stored, but the eta-msg is server-side formatted;
 	// ensure no raw DB reflection occurs in HTML without escape.
 	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "t:1", Status: "queued",
@@ -1675,8 +1691,9 @@ func TestLoadGatesEnabledFilter(t *testing.T) {
 func TestStateMachineMigrated(t *testing.T) {
 	xdb, obdb := migratedDB(t)
 	// Seed auth user + existing world for the JID to link to.
-	xdb.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
-		VALUES ('github:alice', 'alice', 'Alice', '2026-01-01')`)
+	if err := store.New(xdb).CreateUserProfile("github:alice", "alice", "Alice"); err != nil {
+		t.Fatalf("seed user_profiles: %v", err)
+	}
 	seedGateRow(t, obdb, "*", 5, true)
 	seedAdmission(t, obdb, store.ArchiveOnboardingRow{JID: "telegram:7", Status: "awaiting_message"})
 
@@ -1925,8 +1942,9 @@ func TestUserOwnsMatchRejectsNonRoomPrefix(t *testing.T) {
 // "hours" wording (covers the >=60min branch).
 func TestQueuePositionETAHours(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
-		VALUES ('github:x', 'x', 'X', '2026-01-01')`)
+	if err := store.New(db).CreateUserProfile("github:x", "x", "X"); err != nil {
+		t.Fatalf("seed user_profiles: %v", err)
+	}
 	seedGateRow(t, db, "*", 1, true)
 	// 4 earlier queued entries + the caller → position 5, 5*1440/1 = 7200 min.
 	for i, jid := range []string{"t:a", "t:b", "t:c", "t:d"} {

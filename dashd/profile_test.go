@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/kronael/arizuko/store"
 )
 
 // user_profiles is routd-owned (routd/migrations 0011 + 0025); dashd reads it
@@ -16,11 +18,7 @@ func profileTestDB(t *testing.T) *dash {
 
 func seedAuthUser(t *testing.T, d *dash, sub, name string) {
 	t.Helper()
-	_, err := d.adminDB().Exec(
-		`INSERT INTO user_profiles (sub, username, name, created_at)
-		 VALUES (?, ?, ?, '2026-05-01T00:00:00Z')`,
-		sub, sub, name)
-	if err != nil {
+	if err := store.New(d.adminDB()).CreateUserProfile(sub, sub, name); err != nil {
 		t.Fatal(err)
 	}
 }

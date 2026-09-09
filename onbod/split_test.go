@@ -24,15 +24,14 @@ func TestSplitDashboardReadsCrossFromRoutd(t *testing.T) {
 	xdb := testDB(t)  // routd.db side
 	obdb := testDB(t) // onbod.db side
 
-	xdb.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
-		VALUES ('github:alice', 'alice', 'Alice', '2026-01-01')`)
+	if err := store.New(xdb).CreateUserProfile("github:alice", "alice", "Alice"); err != nil {
+		t.Fatalf("seed user_profiles: %v", err)
+	}
 	seedFolder(t, xdb, "alice")
 	seedGrant(t, xdb, "github:alice", "admin", "alice")
 
 	// The onbod-owned DB must NOT carry the cross rows (proving the read is xdb).
-	var n int
-	obdb.QueryRow(`SELECT COUNT(*) FROM user_profiles WHERE sub = 'github:alice'`).Scan(&n)
-	if n != 0 {
+	if _, known, _ := store.New(obdb).Username("github:alice"); known {
 		t.Fatalf("test setup: user_profiles leaked into obdb")
 	}
 
@@ -57,8 +56,9 @@ func TestSplitInviteGrantLandsInRoutd(t *testing.T) {
 	xdb := testDB(t)
 	obdb := testDB(t)
 
-	xdb.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
-		VALUES ('github:bob', 'bob', 'Bob', '2026-01-01')`)
+	if err := store.New(xdb).CreateUserProfile("github:bob", "bob", "Bob"); err != nil {
+		t.Fatalf("seed user_profiles: %v", err)
+	}
 	seedFolder(t, xdb, "alice")
 	seedMembership(t, xdb, "telegram:99", "github:bob", "")
 
@@ -105,8 +105,9 @@ func TestSplitCreateWorldWritesCrossToRoutd(t *testing.T) {
 	xdb := testDB(t)
 	obdb := testDB(t)
 
-	xdb.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
-		VALUES ('github:new', 'github:new', 'New', '2026-01-01')`)
+	if err := store.New(xdb).CreateUserProfile("github:new", "github:new", "New"); err != nil {
+		t.Fatalf("seed user_profiles: %v", err)
+	}
 	seedMembership(t, xdb, "telegram:10", "github:new", "")
 	// The create authority is onbod-OWNED: the redemption is read from obdb even
 	// though every write below lands in xdb.
@@ -145,8 +146,9 @@ func TestSplitInviteGrantFailureRollsBack(t *testing.T) {
 	xdb := testDB(t)
 	obdb := testDB(t)
 
-	xdb.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
-		VALUES ('github:bob', 'bob', 'Bob', '2026-01-01')`)
+	if err := store.New(xdb).CreateUserProfile("github:bob", "bob", "Bob"); err != nil {
+		t.Fatalf("seed user_profiles: %v", err)
+	}
 	seedFolder(t, xdb, "alice")
 	// Break the routd.db acl write so PutACLRow errors after the consume.
 	if _, err := xdb.Exec(`DROP TABLE acl`); err != nil {
@@ -199,8 +201,9 @@ func TestSplitInviteGrantAudited(t *testing.T) {
 	xdb := testDB(t)
 	obdb := testDB(t)
 
-	xdb.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
-		VALUES ('github:bob', 'bob', 'Bob', '2026-01-01')`)
+	if err := store.New(xdb).CreateUserProfile("github:bob", "bob", "Bob"); err != nil {
+		t.Fatalf("seed user_profiles: %v", err)
+	}
 	seedFolder(t, xdb, "alice")
 
 	token := createInvite(t, obdb, "alice", "telegram:1", 1)

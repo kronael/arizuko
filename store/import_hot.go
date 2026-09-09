@@ -1,8 +1,8 @@
 package store
 
-// import_hot.go is the target half of the move that carries routd's five hot
-// tier tables — the two cursors and their neighbours — onto the entities they
-// are now (spec 6/37 step 7).
+// import_hot.go is the target half of the move that carries routd's hot tier
+// tables — the two cursors and their neighbours — onto the entities they are
+// now (spec 6/37 step 7).
 //
 // It is the twin of import_routd.go and it reuses that file's row shape, its
 // instant reader and its chunked writer, because the only thing that differs is
@@ -47,10 +47,13 @@ import (
 	"github.com/kronael/arizuko/objstore"
 )
 
-// HotEntities is the order the five are read, reported and written in. `chats`
+// HotEntities is the order they are read, reported and written in. `chats`
 // leads because an operator reads the report that way; nothing else depends on
 // it, because an entity has no foreign key to satisfy.
-var HotEntities = []string{Chats, Sessions, ChatReplyState, ChatProactive, SystemMessages}
+var HotEntities = []string{
+	Chats, Sessions, ChatReplyState, ChatProactive, SystemMessages,
+	UserProfiles,
+}
 
 // hotKeyFields names each entity's coordinate fields, in order, so the source
 // half can build its SELECT and this half can say which column was short.
@@ -66,6 +69,7 @@ var hotKeyFields = map[string][]string{
 	ChatReplyState: {"jid", "topic"},
 	ChatProactive:  {"jid"},
 	SystemMessages: {"folder", "created", "id"},
+	UserProfiles:   {"sub"},
 }
 
 // HotKeyFields answers one entity's coordinate fields, for the reader that has
@@ -73,6 +77,24 @@ var hotKeyFields = map[string][]string{
 func HotKeyFields(entity string) ([]string, bool) {
 	f, ok := hotKeyFields[entity]
 	return f, ok
+}
+
+// hotDropped names the legacy columns an entity does NOT keep. A column this
+// file does not name still travels, under its own name, so a column that has no
+// place in the item has to be named here or it arrives as an attribute nothing
+// reads.
+//
+// `user_profiles.id` is an INTEGER PRIMARY KEY the engine handed out, which no
+// statement in the tree ever selected: an item has no server-minted identity,
+// and the sub is the coordinate. `hash` and `linked_to_sub` are the two columns
+// a PRE-SPLIT database still carries under this table's older name — a password
+// digest nothing reads and a link nothing ever wrote — and a secret carried into
+// a document by default is a secret nothing scrubs later.
+//
+// Naming a column no source has is not an error, so one list covers both
+// spellings of the source.
+var hotDropped = map[string][]string{
+	UserProfiles: {"id", "hash", "linked_to_sub"},
 }
 
 // hotStamped names, per entity, the attributes this move re-renders at core.TS's
@@ -128,7 +150,7 @@ var hotFlags = map[string][]string{
 func hotKey(entity string, key []string) (objstore.Key, error) {
 	want := hotKeyFields[entity]
 	if len(want) == 0 {
-		return objstore.Key{}, fmt.Errorf("%s is not one of the hot tier's five entities", entity)
+		return objstore.Key{}, fmt.Errorf("%s is not one of the hot tier's entities", entity)
 	}
 	if len(key) != len(want) {
 		return objstore.Key{}, fmt.Errorf("%s row carries %d coordinate fields and its "+
@@ -143,6 +165,8 @@ func hotKey(entity string, key []string) (objstore.Key, error) {
 		return replyStateKey(key[0], key[1])
 	case ChatProactive:
 		return proactiveKey(key[0])
+	case UserProfiles:
+		return profileKey(key[0])
 	case SystemMessages:
 		at, err := normaliseInstant(entity, "created", key[1])
 		if err != nil {
@@ -170,6 +194,9 @@ func hotWrite(entity string, r RoutdRow) (objstore.Write, error) {
 			continue // absent is the only null this model has
 		}
 		attrs[name] = v
+	}
+	for _, col := range hotDropped[entity] {
+		delete(attrs, col)
 	}
 	for _, flag := range hotFlags[entity] {
 		if attrs[flag] == "0" {
@@ -232,7 +259,7 @@ func CheckHotSnapshot(snap RoutdSnapshot) (RoutdCounts, error) {
 	for entity := range snap {
 		if !slices.Contains(HotEntities, entity) {
 			return nil, fmt.Errorf("the snapshot carries %q, which is not one of the hot "+
-				"tier's five entities", entity)
+				"tier's entities", entity)
 		}
 	}
 	return counts, nil

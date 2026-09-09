@@ -91,18 +91,8 @@ var routdSpecs = []copySpec{
 	{dst: "task_run_logs", src: "task_run_logs",
 		cols: "id, task_id, run_at, duration_ms, status, result, error",
 		sel:  "id, task_id, run_at, duration_ms, status, result, error"},
-	// user_profiles: routd.db OWNS it (routd migrations 0011 + 0025; the cap column
-	// references it). Split onbod reads+writes it cross-DB on routd.db (xdb), so it MUST
-	// be copied — left an orphan, every existing user vanishes from onboarding /
-	// world-create. The source is a PRE-split messages.db: there the table predates the
-	// rename and is still auth_users; `hash` (dropped by 0025) and `linked_to_sub`
-	// (dropped by 0027 — nothing ever wrote it) are not copied.
-	{dst: "user_profiles", src: "auth_users", transfm: true,
-		cols: "id, sub, username, name, created_at, cost_cap_cents_per_day",
-		sel:  "id, sub, username, name, created_at, cost_cap_cents_per_day"},
-
 	// audit_log, pane_sessions, secret_use_log, routd's own thirteen and the hot
-	// tier's five are NOT here: each is an objstore entity, so none is a column
+	// tier are NOT here: each is an objstore entity, so none is a column
 	// list and no INSERT … SELECT can carry one. copyAuditLog, copyStoreEntities,
 	// copyRoutdEntities and copyHotEntities below read the monolith's rows
 	// through the same source readers `arizuko migrate-audit`, `migrate-store`,
@@ -383,8 +373,41 @@ var hotColumnAlias = map[string]map[string]string{
 		"created_at": "created"},
 }
 
-// copyHotEntities carries the monolith's five hot-tier tables into routd.db as
-// items, through the same source reader `arizuko migrate-hot` uses.
+// hotTableAlias names the monolith's own spelling of a table the entity is named
+// after. `user_profiles` is the one: routd's chain renamed `auth_users` to it,
+// and a pre-split messages.db predates that rename — so the entity's name finds
+// nothing there and the source has to be asked for under the old one.
+//
+// It sits beside the column alias for the same reason that one is here: the
+// monolith's spelling is this tool's business and no other reader's.
+var hotTableAlias = map[string]string{"user_profiles": "auth_users"}
+
+// monolithHotSources is legacySources over a pre-split database, which spells
+// some of these tables differently. An entity already resolved under its own
+// name is left alone: the alias is the FALLBACK, so a monolith that had already
+// been renamed forward reads the same either way.
+func monolithHotSources(src *sql.DB) (map[string]string, error) {
+	sources, err := legacySources(src, store.HotEntities)
+	if err != nil {
+		return nil, err
+	}
+	for entity, legacy := range hotTableAlias {
+		if _, found := sources[entity]; found {
+			continue
+		}
+		aliased, err := legacySources(src, []string{legacy})
+		if err != nil {
+			return nil, err
+		}
+		if table, ok := aliased[legacy]; ok {
+			sources[entity] = table
+		}
+	}
+	return sources, nil
+}
+
+// copyHotEntities carries the monolith's hot-tier tables into routd.db as items,
+// through the same source reader `arizuko migrate-hot` uses.
 //
 // IT RUNS AFTER THE MESSAGE ROWS ARE NORMALISED, and that order is the whole
 // reason it is a separate step rather than four more copySpecs: the two cursors
@@ -399,7 +422,7 @@ func copyHotEntities(dst *sql.DB, msgPath string, dryRun bool) (store.RoutdCount
 		return nil, err
 	}
 	defer src.Close() //nolint:errcheck // read-only, and the process ends either way
-	sources, err := legacySources(src, store.HotEntities)
+	sources, err := monolithHotSources(src)
 	if err != nil {
 		return nil, err
 	}
