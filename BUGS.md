@@ -651,7 +651,15 @@ message of that date. Both are long behind every cursor, so nothing is wrong
 today. The defect is that `0044` reports success over rows it did not convert
 and no check exists that would find the next one.
 
-- **Severity:** low (two rows, both already consumed, one instance)
+**It was not harmless, and I said it was** (2026-09-09). Those two rows are what
+`DeriveAgentCursors` met when `chats` became an entity: `MAX(timestamp)` returned
+the 19-byte value, the ordered-width declaration refused it, and the operation
+aborted — leaving every alphabetically LATER chat with no cursor at all, which is
+the precise state deriving cursors exists to prevent. A review caught it before
+it shipped and the migration now normalises the width. A row one migration
+"leaves alone" is a row the next migration meets.
+
+- **Severity:** medium — two rows on one instance, and they aborted a fleet operation
 - **Scope:** `routd/migrations/0044-fixed-width-timestamps.sql`
 - **Affected:** krons only, measured
 - **Source:** `SELECT count(*) FROM messages WHERE length(timestamp) <> 30` = 2
