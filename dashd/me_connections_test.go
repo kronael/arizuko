@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/auth/surrogate"
+	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
 )
 
@@ -88,20 +89,18 @@ func TestConnections_ConnectRoundTrip(t *testing.T) {
 		t.Errorf("callback redirect = %q", loc)
 	}
 
-	// 3. row persisted with provider + non-NULL expires_at + refresh_val.
-	var provider string
-	var exp, ref sql.NullString
-	if err := db.QueryRow(
-		`SELECT provider, expires_at, refresh_val FROM secrets
-		 WHERE scope_kind='user' AND scope_id='github:alice' AND key='GITHUB_TOKEN'`,
-	).Scan(&provider, &exp, &ref); err != nil {
-		t.Fatalf("no row persisted: %v", err)
+	// 3. row persisted with provider + an expiry + a refresh credential.
+	conns, err := store.New(db).UserOAuthSecrets("github:alice", []string{"GITHUB_TOKEN"})
+	if err != nil || len(conns) != 1 {
+		t.Fatalf("no row persisted: %d rows, err=%v", len(conns), err)
 	}
-	if provider != "github" {
-		t.Errorf("provider = %q, want github", provider)
+	got := conns[0]
+	if got.Provider != "github" {
+		t.Errorf("provider = %q, want github", got.Provider)
 	}
-	if !exp.Valid || !ref.Valid {
-		t.Errorf("expires_at/refresh_val NULL after connect: exp=%v ref=%v", exp, ref)
+	if got.ExpiresAt.IsZero() || got.Refresh == "" {
+		t.Errorf("expires_at/refresh_val absent after connect: exp=%v ref=%q",
+			got.ExpiresAt, got.Refresh)
 	}
 }
 

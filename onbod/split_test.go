@@ -26,9 +26,8 @@ func TestSplitDashboardReadsCrossFromRoutd(t *testing.T) {
 
 	xdb.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
 		VALUES ('github:alice', 'alice', 'Alice', '2026-01-01')`)
-	xdb.Exec(`INSERT INTO groups (folder, added_at) VALUES ('alice', '2026-01-01')`)
-	xdb.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at)
-		VALUES ('github:alice', 'admin', 'alice', 'allow', '2026-01-01')`)
+	seedFolder(t, xdb, "alice")
+	seedGrant(t, xdb, "github:alice", "admin", "alice")
 
 	// The onbod-owned DB must NOT carry the cross rows (proving the read is xdb).
 	var n int
@@ -60,9 +59,8 @@ func TestSplitInviteGrantLandsInRoutd(t *testing.T) {
 
 	xdb.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
 		VALUES ('github:bob', 'bob', 'Bob', '2026-01-01')`)
-	xdb.Exec(`INSERT INTO groups (folder, added_at) VALUES ('alice', '2026-01-01')`)
-	xdb.Exec(`INSERT INTO acl_membership (parent, child, added_at)
-		VALUES ('github:bob', 'telegram:99', '2026-01-01')`)
+	seedFolder(t, xdb, "alice")
+	seedMembership(t, xdb, "telegram:99", "github:bob", "")
 
 	token := createInvite(t, obdb, "alice", "telegram:1", 1)
 
@@ -78,15 +76,11 @@ func TestSplitInviteGrantLandsInRoutd(t *testing.T) {
 	}
 
 	// acl grant must be in routd.db (xdb), absent from onbod.db (obdb).
-	var inRoutd int
-	xdb.QueryRow(`SELECT COUNT(*) FROM acl WHERE principal = 'github:bob' AND scope = 'alice'`).Scan(&inRoutd)
-	if inRoutd != 1 {
-		t.Errorf("acl grant not in routd.db, got %d rows", inRoutd)
+	if got := aclScopes(t, xdb, "github:bob"); len(got) != 1 || got[0] != "alice" {
+		t.Errorf("acl grant not in routd.db, got %v", got)
 	}
-	var inOnbod int
-	obdb.QueryRow(`SELECT COUNT(*) FROM acl WHERE principal = 'github:bob'`).Scan(&inOnbod)
-	if inOnbod != 0 {
-		t.Errorf("acl grant leaked into onbod.db, got %d rows", inOnbod)
+	if got := aclScopes(t, obdb, "github:bob"); len(got) != 0 {
+		t.Errorf("acl grant leaked into onbod.db, got %v", got)
 	}
 
 	// invites used_count increments in onbod.db (obdb). Keyed by ref, not the
@@ -100,9 +94,7 @@ func TestSplitInviteGrantLandsInRoutd(t *testing.T) {
 	// Redemption grants authority and writes NO route (5/18 step 7). It used to
 	// route every paired JID at the target; /onboard's step-6 branch routes the
 	// one unrouted JID instead, as an attributed act.
-	var routes int
-	xdb.QueryRow(`SELECT COUNT(*) FROM routes`).Scan(&routes)
-	if routes != 0 {
+	if routes := countRoutes(t, xdb); routes != 0 {
 		t.Errorf("invite redemption wrote %d route(s); want 0", routes)
 	}
 }
@@ -115,8 +107,7 @@ func TestSplitCreateWorldWritesCrossToRoutd(t *testing.T) {
 
 	xdb.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
 		VALUES ('github:new', 'github:new', 'New', '2026-01-01')`)
-	xdb.Exec(`INSERT INTO acl_membership (parent, child, added_at)
-		VALUES ('github:new', 'telegram:10', '2026-01-01')`)
+	seedMembership(t, xdb, "telegram:10", "github:new", "")
 	// The create authority is onbod-OWNED: the redemption is read from obdb even
 	// though every write below lands in xdb.
 	seedRedemption(t, obdb, "github:new", "/")
@@ -128,27 +119,19 @@ func TestSplitCreateWorldWritesCrossToRoutd(t *testing.T) {
 		t.Fatalf("want 303, got %d; body: %s", w.Code, w.Body.String())
 	}
 
-	var folder string
-	xdb.QueryRow(`SELECT folder FROM groups WHERE folder = 'newworld'`).Scan(&folder)
-	if folder != "newworld" {
+	if folder := folderName(t, xdb, "newworld"); folder != "newworld" {
 		t.Errorf("group not created in routd.db")
 	}
-	var scope string
-	xdb.QueryRow(`SELECT scope FROM acl WHERE principal = 'github:new'`).Scan(&scope)
-	if scope != "newworld/**" {
+	if scope := firstScope(t, xdb, "github:new"); scope != "newworld/**" {
 		t.Errorf("acl grant should be subtree-scoped in routd.db, got %q", scope)
 	}
 	// create_world writes NO route (5/18 step 7) — the caller asked for a world,
 	// not for their chats to move. The redirect lands on /onboard, which routes
 	// the one unrouted JID.
-	var routes int
-	xdb.QueryRow(`SELECT COUNT(*) FROM routes`).Scan(&routes)
-	if routes != 0 {
+	if routes := countRoutes(t, xdb); routes != 0 {
 		t.Errorf("create_world wrote %d route(s); want 0", routes)
 	}
-	var leaked int
-	obdb.QueryRow(`SELECT COUNT(*) FROM groups WHERE folder = 'newworld'`).Scan(&leaked)
-	if leaked != 0 {
+	if folderName(t, obdb, "newworld") != "" {
 		t.Errorf("group leaked into onbod.db")
 	}
 }
@@ -164,7 +147,7 @@ func TestSplitInviteGrantFailureRollsBack(t *testing.T) {
 
 	xdb.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
 		VALUES ('github:bob', 'bob', 'Bob', '2026-01-01')`)
-	xdb.Exec(`INSERT INTO groups (folder, added_at) VALUES ('alice', '2026-01-01')`)
+	seedFolder(t, xdb, "alice")
 	// Break the routd.db acl write so PutACLRow errors after the consume.
 	if _, err := xdb.Exec(`DROP TABLE acl`); err != nil {
 		t.Fatalf("drop acl: %v", err)
@@ -218,7 +201,7 @@ func TestSplitInviteGrantAudited(t *testing.T) {
 
 	xdb.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
 		VALUES ('github:bob', 'bob', 'Bob', '2026-01-01')`)
-	xdb.Exec(`INSERT INTO groups (folder, added_at) VALUES ('alice', '2026-01-01')`)
+	seedFolder(t, xdb, "alice")
 
 	token := createInvite(t, obdb, "alice", "telegram:1", 1)
 

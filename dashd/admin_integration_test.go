@@ -486,12 +486,10 @@ func TestDash_TaskPauseResume(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	now := time.Now().Format(time.RFC3339)
-	if _, err := inst.DB.Exec(
-		`INSERT INTO scheduled_tasks (id, owner, chat_jid, prompt, cron, status, created_at)
-		 VALUES ('t1', 'alice', 'alice@s.whatsapp.net', 'ping', '* * * * *', 'active', ?)`, now); err != nil {
-		t.Fatal(err)
-	}
+	seedScheduledTask(t, inst.DB, core.Task{
+		ID: "t1", Owner: "alice", ChatJID: "alice@s.whatsapp.net", Prompt: "ping",
+		Cron: "* * * * *", Status: "active",
+	})
 
 	post := func(path string) int {
 		req, _ := http.NewRequest("POST", srv.URL+path, nil)
@@ -507,17 +505,14 @@ func TestDash_TaskPauseResume(t *testing.T) {
 	if code := post("/dash/tasks/t1/pause"); code != http.StatusSeeOther {
 		t.Errorf("pause: status = %d, want 303", code)
 	}
-	var status string
-	inst.DB.QueryRow(`SELECT status FROM scheduled_tasks WHERE id='t1'`).Scan(&status)
-	if status != "paused" {
+	if status := statusOf(t, inst.DB, "t1"); status != "paused" {
 		t.Errorf("after pause: status = %q, want paused", status)
 	}
 
 	if code := post("/dash/tasks/t1/resume"); code != http.StatusSeeOther {
 		t.Errorf("resume: status = %d, want 303", code)
 	}
-	inst.DB.QueryRow(`SELECT status FROM scheduled_tasks WHERE id='t1'`).Scan(&status)
-	if status != "active" {
+	if status := statusOf(t, inst.DB, "t1"); status != "active" {
 		t.Errorf("after resume: status = %q, want active", status)
 	}
 }
@@ -531,12 +526,10 @@ func TestDash_TaskCancel(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	now := time.Now().Format(time.RFC3339)
-	if _, err := inst.DB.Exec(
-		`INSERT INTO scheduled_tasks (id, owner, chat_jid, prompt, cron, status, created_at)
-		 VALUES ('t2', 'alice', 'alice@s.whatsapp.net', 'ping', '* * * * *', 'active', ?)`, now); err != nil {
-		t.Fatal(err)
-	}
+	seedScheduledTask(t, inst.DB, core.Task{
+		ID: "t2", Owner: "alice", ChatJID: "alice@s.whatsapp.net", Prompt: "ping",
+		Cron: "* * * * *", Status: "active",
+	})
 
 	req, _ := http.NewRequest("POST", srv.URL+"/dash/tasks/t2/cancel", nil)
 	req.Header.Set("X-User-Sub", "alice@x")
@@ -548,9 +541,7 @@ func TestDash_TaskCancel(t *testing.T) {
 	if resp.StatusCode != http.StatusSeeOther {
 		t.Errorf("cancel: status = %d, want 303", resp.StatusCode)
 	}
-	var status string
-	inst.DB.QueryRow(`SELECT status FROM scheduled_tasks WHERE id='t2'`).Scan(&status)
-	if status != "cancelled" {
+	if status := statusOf(t, inst.DB, "t2"); status != "cancelled" {
 		t.Errorf("after cancel: status = %q, want cancelled", status)
 	}
 }
@@ -558,12 +549,10 @@ func TestDash_TaskCancel(t *testing.T) {
 // TestDash_TaskAction_DenyNonAdmin: non-admin cannot pause a task.
 func TestDash_TaskAction_DenyNonAdmin(t *testing.T) {
 	srv, inst, _ := newRWDashServer(t)
-	now := time.Now().Format(time.RFC3339)
-	if _, err := inst.DB.Exec(
-		`INSERT INTO scheduled_tasks (id, owner, chat_jid, prompt, cron, status, created_at)
-		 VALUES ('t3', 'alice', 'alice@s.whatsapp.net', 'ping', '* * * * *', 'active', ?)`, now); err != nil {
-		t.Fatal(err)
-	}
+	seedScheduledTask(t, inst.DB, core.Task{
+		ID: "t3", Owner: "alice", ChatJID: "alice@s.whatsapp.net", Prompt: "ping",
+		Cron: "* * * * *", Status: "active",
+	})
 
 	req, _ := http.NewRequest("POST", srv.URL+"/dash/tasks/t3/pause", nil)
 	req.Header.Set("X-User-Sub", "stranger@x")
@@ -581,11 +570,10 @@ func TestDash_TaskAction_DenyNonAdmin(t *testing.T) {
 func TestDash_TaskDetail_RunLogs(t *testing.T) {
 	_, inst, _ := newRWDashServer(t)
 	now := time.Now().Format(time.RFC3339)
-	if _, err := inst.DB.Exec(
-		`INSERT INTO scheduled_tasks (id, owner, chat_jid, prompt, cron, status, created_at)
-		 VALUES ('t4', 'bob', 'bob@s.whatsapp.net', 'daily report', '0 8 * * *', 'active', ?)`, now); err != nil {
-		t.Fatal(err)
-	}
+	seedScheduledTask(t, inst.DB, core.Task{
+		ID: "t4", Owner: "bob", ChatJID: "bob@s.whatsapp.net", Prompt: "daily report",
+		Cron: "0 8 * * *", Status: "active",
+	})
 	for i := range 3 {
 		if _, err := inst.DB.Exec(
 			`INSERT INTO task_run_logs (task_id, run_at, duration_ms, status, error)
@@ -616,12 +604,10 @@ func TestDash_TaskDetail_RunLogs(t *testing.T) {
 // TestDash_TasksPage_PromptColumn: tasks list page includes Prompt column.
 func TestDash_TasksPage_PromptColumn(t *testing.T) {
 	_, inst, _ := newRWDashServer(t)
-	now := time.Now().Format(time.RFC3339)
-	if _, err := inst.DB.Exec(
-		`INSERT INTO scheduled_tasks (id, owner, chat_jid, prompt, cron, status, created_at)
-		 VALUES ('t5', 'carol', 'carol@s.whatsapp.net', 'send summary', '0 7 * * *', 'active', ?)`, now); err != nil {
-		t.Fatal(err)
-	}
+	seedScheduledTask(t, inst.DB, core.Task{
+		ID: "t5", Owner: "carol", ChatJID: "carol@s.whatsapp.net", Prompt: "send summary",
+		Cron: "0 7 * * *", Status: "active",
+	})
 
 	d := &dash{dbRoutd: inst.DB, dbPath: "memory", routdURL: stubRoutd(t, inst.DB),
 		groupsDir: filepath.Join(inst.Tmp, "groups")}

@@ -1,6 +1,8 @@
 package routd
 
 import (
+	"context"
+	"fmt"
 	"testing"
 
 	"github.com/kronael/arizuko/store"
@@ -90,12 +92,23 @@ func TestMigration0015NoLegacyDB(t *testing.T) {
 	}
 }
 
-// seedProxydRoute inserts one proxyd_routes row via raw SQL (store has no
-// standalone insert helper outside the tx-aware proxyd path).
+// seedProxydRoute lands one proxyd_routes row through the writer proxyd's own
+// POST commits with, on a transaction of its own — store offers no writer
+// outside the tx-aware proxyd path.
 func seedProxydRoute(t *testing.T, s *store.Store, path, backend string) error {
 	t.Helper()
-	_, err := s.DB().Exec(
-		`INSERT INTO proxyd_routes (path, backend, auth) VALUES (?,?,'user')`,
-		path, backend)
-	return err
+	tx, err := s.DB().Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	created, err := s.CreateProxydRouteTx(context.Background(), tx,
+		store.ProxydRoute{Path: path, Backend: backend, Auth: "user"})
+	if err != nil {
+		return err
+	}
+	if !created {
+		return fmt.Errorf("seed proxyd route %s: the path was already taken", path)
+	}
+	return tx.Commit()
 }

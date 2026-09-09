@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
 )
 
@@ -148,9 +149,9 @@ func TestMeSecrets_Delete(t *testing.T) {
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("status = %d", w.Code)
 	}
-	var n int
-	d.dbRoutd.QueryRow(`SELECT COUNT(*) FROM secrets WHERE scope_id='github:alice'`).Scan(&n)
-	if n != 0 {
+	if n := countSecrets(t, d.dbRoutd, func(r store.ArchiveSecretRow) bool {
+		return r.ScopeID == "github:alice"
+	}); n != 0 {
 		t.Errorf("rows after delete = %d, want 0", n)
 	}
 }

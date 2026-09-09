@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/tests/testutils"
 )
 
@@ -410,12 +411,10 @@ func TestIso_VisiblePredicate(t *testing.T) {
 
 func seedTask(t *testing.T, inst *testutils.Inst, id, owner string) {
 	t.Helper()
-	if _, err := inst.DB.Exec(
-		`INSERT INTO scheduled_tasks (id, owner, chat_jid, prompt, cron, status, created_at)
-		 VALUES (?, ?, ?, 'p', '0 9 * * *', 'active', datetime('now'))`,
-		id, owner, "web:"+owner); err != nil {
-		t.Fatalf("seed task %s: %v", id, err)
-	}
+	seedScheduledTask(t, inst.DB, core.Task{
+		ID: id, Owner: owner, ChatJID: "web:" + owner, Prompt: "p",
+		Cron: "0 9 * * *", Status: "active",
+	})
 }
 
 func seedMsg(t *testing.T, inst *testutils.Inst, id, jid, content string) {
@@ -451,12 +450,9 @@ func TestIso_JidFolder_ReadsTheMintedTarget(t *testing.T) {
 	_, inst := isoEnv(t)
 	d := &dash{dbRoutd: inst.DB, routdURL: stubRoutd(t, inst.DB)}
 
-	if _, err := inst.DB.Exec(
-		`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at, kind, target_folder)
-		 VALUES (?, ?, ?, datetime('now'), 'route', ?)`,
-		[]byte("h1"), "web:"+folderSre, folderEng, folderEng); err != nil {
-		t.Fatal(err)
-	}
+	seedRouteToken(t, inst.DB, store.RouteToken{
+		JID: "web:" + folderSre, OwnerFolder: folderEng, TargetFolder: folderEng,
+	})
 	if got := d.jidFolder("web:" + folderSre); got != folderEng {
 		t.Errorf("jidFolder(web:%s) = %q, want %q (the grammar answers %s)",
 			folderSre, got, folderEng, folderSre)

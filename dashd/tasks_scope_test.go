@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/kronael/arizuko/core"
 )
 
 // TestTaskRows_WindowAppliesAfterTheVisibilityFilter is the bug the old SQL
@@ -23,18 +25,16 @@ func TestTaskRows_WindowAppliesAfterTheVisibilityFilter(t *testing.T) {
 
 	// taskPageSize other-owner rows that sort ahead of the caller's one task.
 	for i := 0; i < taskPageSize+50; i++ {
-		if _, err := db.Exec(
-			`INSERT INTO scheduled_tasks(id, owner, chat_jid, prompt, cron, status, created_at)
-			 VALUES(?, 'aaa-other', 'web:aaa-other', 'noise', '* * * * *', 'active', '')`,
-			fmt.Sprintf("noise-%04d", i)); err != nil {
-			t.Fatal(err)
-		}
+		seedScheduledTask(t, db, core.Task{
+			ID: fmt.Sprintf("noise-%04d", i), Owner: "aaa-other",
+			ChatJID: "web:aaa-other", Prompt: "noise", Cron: "* * * * *",
+			Status: "active",
+		})
 	}
-	if _, err := db.Exec(
-		`INSERT INTO scheduled_tasks(id, owner, chat_jid, prompt, cron, status, created_at)
-		 VALUES('zzz-mine', 'zzz-mine', 'web:zzz-mine', 'the caller''s own task', '* * * * *', 'active', '')`); err != nil {
-		t.Fatal(err)
-	}
+	seedScheduledTask(t, db, core.Task{
+		ID: "zzz-mine", Owner: "zzz-mine", ChatJID: "web:zzz-mine",
+		Prompt: "the caller's own task", Cron: "* * * * *", Status: "active",
+	})
 
 	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
 	var w strings.Builder
@@ -56,11 +56,10 @@ func TestTaskRows_WindowAppliesAfterTheVisibilityFilter(t *testing.T) {
 func TestTaskRows_RenderThroughRoutd(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
-	if _, err := db.Exec(
-		`INSERT INTO scheduled_tasks(id, owner, chat_jid, prompt, cron, status, created_at)
-		 VALUES('t1', 'alpha', 'web:alpha', 'water the plants', '0 8 * * *', 'active', '')`); err != nil {
-		t.Fatal(err)
-	}
+	seedScheduledTask(t, db, core.Task{
+		ID: "t1", Owner: "alpha", ChatJID: "web:alpha",
+		Prompt: "water the plants", Cron: "0 8 * * *", Status: "active",
+	})
 	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
 	var w strings.Builder
 	d.writeTaskRows(t.Context(), &stringResponse{&w}, nil, true)

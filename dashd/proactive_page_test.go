@@ -17,12 +17,9 @@ func proactiveDB(t *testing.T) *sql.DB { return routdDB(t) }
 
 func seedGroup(t *testing.T, db *sql.DB, groupsDir, folder, frontmatter string) {
 	t.Helper()
-	// routd's `groups` has no name/parent column — the hand-written fixture
+	// routd's `groups` carries no name and no parent — the hand-written fixture
 	// invented both, and the parent is the folder path itself (BUGS F44).
-	if _, err := db.Exec(`INSERT INTO groups(folder, added_at) VALUES(?,?)`,
-		folder, "2026-08-06T10:00:00Z"); err != nil {
-		t.Fatalf("seed group: %v", err)
-	}
+	seedFolder(t, db, folder)
 	if frontmatter == "" {
 		return
 	}

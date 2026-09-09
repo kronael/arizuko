@@ -10,6 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/objstore/sqlstore"
+	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
 )
 
@@ -174,10 +177,26 @@ func TestPortalCountsHeldApprovals(t *testing.T) {
 		{"p2", "held", past},
 		{"p3", "rejected", ""},
 	} {
-		if _, err := d.dbRoutd.Exec(
-			`INSERT INTO pending_actions (id, group_folder, caller_agent, tool, status, created_at, expires_at)
-			 VALUES (?, 'demo', 'agent:demo', 'send_file', ?, '2026-08-09T00:00:00Z', ?)`,
-			row[0], row[1], row[2]); err != nil {
+		// routd writes these items, so the fixture addresses them the way
+		// routd does — the id is the coordinate, and an empty expires_at is
+		// left OFF, which is what "waits forever" means to the reader.
+		attrs := map[string]string{
+			store.AttrPendGroupFolder: "demo",
+			store.AttrPendCallerAgent: "agent:demo",
+			store.AttrPendTool:        "send_file",
+			store.AttrPendStatus:      row[1],
+			store.AttrPendCreatedAt:   "2026-08-09T00:00:00Z",
+		}
+		if row[2] != "" {
+			attrs[store.AttrPendExpiresAt] = row[2]
+		}
+		if _, err := sqlstore.New(d.dbRoutd).GuardedBatch(t.Context(), nil,
+			[]objstore.Write{{
+				Op:     objstore.Put,
+				Entity: store.PendingActions,
+				Key:    objstore.Key{Partition: store.OwnerRoutd, Sort: row[0]},
+				Attrs:  attrs,
+			}}); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -16,9 +16,6 @@ import (
 // routd's own chain builds. routd owns the tables and migrates them; a reader
 // here runs statements only.
 
-const timedFireSQL = `SELECT id, chat_jid, prompt, cron FROM scheduled_tasks
- WHERE status = 'active' AND next_run <= ?`
-
 const timedInsertMsg = `INSERT INTO messages (id, chat_jid, sender, content, timestamp)
  VALUES (?, ?, 'timed', ?, ?)`
 
@@ -30,8 +27,12 @@ func openSharedDB(t *testing.T) (*store.Store, *sql.DB) {
 	return s, s.DB()
 }
 
-func TestTimedFireQueryWorksOnStoreSchema(t *testing.T) {
-	s, db := openSharedDB(t)
+// The fire loop's READ is store.DueTasks, which routd serves at
+// GET /v1/tasks/due and timed polls — timed opens no database of its own. A task
+// written through store must come back from it carrying the cron the fire is
+// scheduled by.
+func TestTimedFireReadClaimsADueTask(t *testing.T) {
+	s, _ := openSharedDB(t)
 
 	now := time.Now()
 	past := now.Add(-time.Minute)
@@ -43,27 +44,18 @@ func TestTimedFireQueryWorksOnStoreSchema(t *testing.T) {
 		t.Fatal("CreateTask:", err)
 	}
 
-	rows, err := db.Query(timedFireSQL, time.Now().Format(time.RFC3339))
+	due, err := s.DueTasks(time.Now())
 	if err != nil {
-		t.Fatal("timed fire query:", err)
+		t.Fatal("DueTasks:", err)
 	}
-	defer rows.Close()
-
-	var found int
-	for rows.Next() {
-		var id, jid, prompt string
-		var cronExpr *string
-		rows.Scan(&id, &jid, &prompt, &cronExpr)
-		found++
-		if id != "cross-1" {
-			t.Errorf("task id = %q", id)
-		}
-		if cronExpr == nil || *cronExpr != "0 9 * * *" {
-			t.Errorf("cron = %v, want '0 9 * * *'", cronExpr)
-		}
+	if len(due) != 1 {
+		t.Fatalf("expected 1 due task, got %d", len(due))
 	}
-	if found != 1 {
-		t.Errorf("expected 1 due task, got %d", found)
+	if due[0].ID != "cross-1" {
+		t.Errorf("task id = %q", due[0].ID)
+	}
+	if due[0].Cron != "0 9 * * *" {
+		t.Errorf("cron = %q, want '0 9 * * *'", due[0].Cron)
 	}
 }
 
@@ -127,7 +119,7 @@ func TestTimedMultipleMessagesOrdered(t *testing.T) {
 }
 
 func TestTaskNextRunUpdate(t *testing.T) {
-	s, db := openSharedDB(t)
+	s, _ := openSharedDB(t)
 
 	now := time.Now()
 	past := now.Add(-time.Minute)
@@ -138,8 +130,8 @@ func TestTaskNextRunUpdate(t *testing.T) {
 	})
 
 	future := now.Add(24 * time.Hour).Format(time.RFC3339)
-	if _, err := db.Exec(`UPDATE scheduled_tasks SET next_run = ? WHERE id = ?`, future, "nextrun-1"); err != nil {
-		t.Fatal("update next_run:", err)
+	if err := s.RescheduleTask("nextrun-1", future, core.TaskActive); err != nil {
+		t.Fatal("reschedule:", err)
 	}
 
 	got, ok := s.GetTask("nextrun-1")
@@ -169,36 +161,22 @@ func TestCronFiresMessage(t *testing.T) {
 		t.Fatal("CreateTask:", err)
 	}
 
-	// Replicate timed.fire(): atomic claim due rows then insert a message
-	// per claimed task. gated's messages loop consumes inserted rows.
-	claimAt := time.Now().Format(time.RFC3339)
-	if _, err := db.Exec(
-		`UPDATE scheduled_tasks SET status='firing'
-		 WHERE status='active' AND next_run <= ?`, claimAt,
-	); err != nil {
+	// Replicate timed's fire: claim the due tasks through the read routd serves
+	// at GET /v1/tasks/due, then insert a message per claimed task. The messages
+	// loop consumes the inserted rows.
+	claimed, err := s.DueTasks(time.Now())
+	if err != nil {
 		t.Fatal("claim:", err)
 	}
-	rows, err := db.Query(
-		`SELECT id, chat_jid, prompt FROM scheduled_tasks WHERE status='firing'`)
-	if err != nil {
-		t.Fatal("select firing:", err)
-	}
-	defer rows.Close()
-	var fired int
-	for rows.Next() {
-		var id, jid, prompt string
-		if err := rows.Scan(&id, &jid, &prompt); err != nil {
-			t.Fatal("scan:", err)
-		}
-		fired++
+	for _, task := range claimed {
 		if _, err := db.Exec(timedInsertMsg,
-			"sched-"+id, jid, prompt, time.Now().Format(time.RFC3339),
+			"sched-"+task.ID, task.ChatJID, task.Prompt, time.Now().Format(time.RFC3339),
 		); err != nil {
 			t.Fatal("insert msg:", err)
 		}
 	}
-	if fired != 1 {
-		t.Fatalf("fired = %d, want 1", fired)
+	if len(claimed) != 1 {
+		t.Fatalf("fired = %d, want 1", len(claimed))
 	}
 
 	msgs, _, err := s.NewMessages([]string{"tg:500"}, time.Time{}, "Bot")
@@ -217,7 +195,7 @@ func TestCronFiresMessage(t *testing.T) {
 }
 
 func TestOneShotTaskNullsNextRun(t *testing.T) {
-	s, db := openSharedDB(t)
+	s, _ := openSharedDB(t)
 
 	now := time.Now()
 	past := now.Add(-time.Minute)
@@ -227,7 +205,11 @@ func TestOneShotTaskNullsNextRun(t *testing.T) {
 		NextRun: &past, Status: "active", Created: now,
 	})
 
-	db.Exec(`UPDATE scheduled_tasks SET next_run = NULL WHERE id = ?`, "oneshot-1")
+	// A one-shot that has fired carries NO next_run: an empty reschedule takes
+	// the attribute away, and absent is the only null this model has.
+	if err := s.RescheduleTask("oneshot-1", "", core.TaskActive); err != nil {
+		t.Fatal("reschedule:", err)
+	}
 
 	got, ok := s.GetTask("oneshot-1")
 	if !ok {
@@ -237,11 +219,7 @@ func TestOneShotTaskNullsNextRun(t *testing.T) {
 		t.Errorf("next_run should be nil, got %v", got.NextRun)
 	}
 
-	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM scheduled_tasks
-		WHERE status = 'active' AND next_run <= ?`,
-		time.Now().Format(time.RFC3339)).Scan(&n)
-	if n != 0 {
+	if n := dueCount(t, s); n != 0 {
 		t.Errorf("one-shot task still due: count=%d", n)
 	}
 }

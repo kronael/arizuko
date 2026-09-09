@@ -219,7 +219,7 @@ func TestPreviousSessionXML_Empty(t *testing.T) {
 
 // TestSiblingTasks_RootVsChild: a root group sees every task; a child sees
 // only its own (port of store.ListTasks owner-filter semantics). routd OWNS
-// scheduled_tasks (migration 0009), so the rows seed into routd's OWN db.
+// scheduled_tasks, so the rows seed into routd's OWN db.
 func TestSiblingTasks_RootVsChild(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -241,7 +241,7 @@ func TestSiblingTasks_RootVsChild(t *testing.T) {
 // TestRunTurn_WritesSpawnSnapshots drives a turn with a real ipc dir and
 // asserts the per-spawn snapshot files land in the folder's ipc dir
 // (available_groups.json always; current_tasks.json carrying the task). routd
-// OWNS scheduled_tasks (migration 0009), so the task seeds into routd's OWN db.
+// OWNS scheduled_tasks, so the task seeds into routd's OWN db.
 // G5: gated writes these right before spawn; routd's twin is runTurn.
 func TestRunTurn_WritesSpawnSnapshots(t *testing.T) {
 	db, err := OpenMem()

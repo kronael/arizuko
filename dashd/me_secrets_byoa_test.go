@@ -8,6 +8,7 @@ import (
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/objstore/sqlstore"
+	"github.com/kronael/arizuko/store"
 )
 
 // TestMeSecrets_SealsAtRest proves a POST under a configured keyring stores the
@@ -26,12 +27,7 @@ func TestMeSecrets_SealsAtRest(t *testing.T) {
 		t.Fatalf("POST = %d body=%q", w.Code, w.Body.String())
 	}
 
-	var raw string
-	if err := d.dbRoutd.QueryRow(
-		`SELECT value FROM secrets WHERE scope_kind='user' AND scope_id='github:alice' AND key='GITHUB_TOKEN'`,
-	).Scan(&raw); err != nil {
-		t.Fatal(err)
-	}
+	raw := rawSecretValue(t, d.dbRoutd, store.ScopeUser, "github:alice", "GITHUB_TOKEN")
 	if !strings.HasPrefix(raw, "v2:") {
 		t.Errorf("stored value not sealed: %q", raw)
 	}
@@ -59,10 +55,7 @@ func TestMeSecrets_UpdateSealsAtRest(t *testing.T) {
 		t.Fatalf("PATCH = %d body=%q", w.Code, w.Body.String())
 	}
 
-	var raw string
-	d.dbRoutd.QueryRow(
-		`SELECT value FROM secrets WHERE scope_kind='user' AND scope_id='github:alice' AND key='TOKEN'`,
-	).Scan(&raw)
+	raw := rawSecretValue(t, d.dbRoutd, store.ScopeUser, "github:alice", "TOKEN")
 	if !strings.HasPrefix(raw, "v2:") || strings.Contains(raw, "v2-secret") {
 		t.Errorf("updated value not sealed: %q", raw)
 	}

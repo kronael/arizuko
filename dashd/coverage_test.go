@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/kronael/arizuko/core"
 	_ "modernc.org/sqlite"
 )
 
@@ -17,17 +19,18 @@ import (
 func TestTasksPartialRows(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
-	if _, err := db.Exec(
-		`INSERT INTO scheduled_tasks(id, owner, chat_jid, prompt, cron, next_run, status, created_at)
-		 VALUES('t1', 'g1', 'c', 'p', '* * * * *', '2030-01-01', 'active', '2026-01-01')`); err != nil {
-		t.Fatal(err)
-	}
-	// row with NULL cron/next_run to exercise nullStr branch
-	if _, err := db.Exec(
-		`INSERT INTO scheduled_tasks(id, owner, chat_jid, prompt, status, created_at)
-		 VALUES('t2', 'g2', 'c', 'p', 'paused', '2026-01-02')`); err != nil {
-		t.Fatal(err)
-	}
+	nextRun := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
+	seedScheduledTask(t, db, core.Task{
+		ID: "t1", Owner: "g1", ChatJID: "c", Prompt: "p", Cron: "* * * * *",
+		NextRun: &nextRun, Status: "active",
+		Created: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+	})
+	// A task carrying NO cron and no next_run — the one-shot that has fired, and
+	// the branch that renders an absent attribute.
+	seedScheduledTask(t, db, core.Task{
+		ID: "t2", Owner: "g2", ChatJID: "c", Prompt: "p", Status: "paused",
+		Created: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC),
+	})
 	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
@@ -48,11 +51,9 @@ func TestTasksPartialRows(t *testing.T) {
 func TestTasksPartialXSS(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
-	if _, err := db.Exec(
-		`INSERT INTO scheduled_tasks(id, owner, chat_jid, prompt, cron, status, created_at)
-		 VALUES('<script>', '</td>', '', '', 'x', 'active', '<b>')`); err != nil {
-		t.Fatal(err)
-	}
+	seedScheduledTask(t, db, core.Task{
+		ID: "<script>", Owner: "</td>", Cron: "x", Status: "active",
+	})
 	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
@@ -209,22 +210,10 @@ func TestActivityPartialXSS(t *testing.T) {
 func TestGroupsWithRoutes(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
-	if _, err := db.Exec(
-		`INSERT INTO groups(folder, added_at) VALUES('root', '')`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(
-		`INSERT INTO groups(folder, added_at) VALUES('root/child', '')`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(
-		`INSERT INTO routes(seq, match, target) VALUES(1, 'tel:*', 'root')`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(
-		`INSERT INTO routes(seq, match, target) VALUES(2, 'disc:*', 'root/child')`); err != nil {
-		t.Fatal(err)
-	}
+	seedFolder(t, db, "root")
+	seedFolder(t, db, "root/child")
+	seedRoute(t, db, core.Route{Seq: 1, Match: "tel:*", Target: "root"})
+	seedRoute(t, db, core.Route{Seq: 2, Match: "disc:*", Target: "root/child"})
 	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
@@ -245,10 +234,7 @@ func TestGroupsWithRoutes(t *testing.T) {
 func TestGroupsRoutesEmpty(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
-	if _, err := db.Exec(
-		`INSERT INTO groups(folder, added_at) VALUES('g1', '')`); err != nil {
-		t.Fatal(err)
-	}
+	seedFolder(t, db, "g1")
 	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
@@ -283,14 +269,8 @@ func TestWriteGroupRoutesQueryError(t *testing.T) {
 func TestHandleMemoryDropdown(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
-	if _, err := db.Exec(
-		`INSERT INTO groups(folder, added_at) VALUES('alpha', '')`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(
-		`INSERT INTO groups(folder, added_at) VALUES('beta', '')`); err != nil {
-		t.Fatal(err)
-	}
+	seedFolder(t, db, "alpha")
+	seedFolder(t, db, "beta")
 	d := &dash{dbRoutd: db, groupsDir: t.TempDir(), routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
@@ -322,10 +302,7 @@ func TestHandleMemorySelectedGroup(t *testing.T) {
 	}
 	db := routdDB(t)
 	defer db.Close()
-	if _, err := db.Exec(
-		`INSERT INTO groups(folder, added_at) VALUES(?, '')`, folder); err != nil {
-		t.Fatal(err)
-	}
+	seedFolder(t, db, folder)
 	d := &dash{dbRoutd: db, groupsDir: groups, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
@@ -588,14 +565,9 @@ func TestPortalAllDotsOk(t *testing.T) {
 func TestPortalFailedTasksDot(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
-	// task_run_logs.task_id is a real FK in routd's chain; the hand-written
-	// fixture had no constraint, so a run log for a task that never existed
-	// used to insert fine (BUGS F44).
-	if _, err := db.Exec(
-		`INSERT INTO scheduled_tasks(id, owner, chat_jid, prompt, created_at)
-		 VALUES('t','op','web:a','p','')`); err != nil {
-		t.Fatal(err)
-	}
+	seedScheduledTask(t, db, core.Task{
+		ID: "t", Owner: "op", ChatJID: "web:a", Prompt: "p",
+	})
 	for range 3 {
 		if _, err := db.Exec(
 			`INSERT INTO task_run_logs(task_id, run_at, status) VALUES('t', datetime('now'), 'error')`); err != nil {

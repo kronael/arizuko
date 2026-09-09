@@ -3,7 +3,9 @@ package dashstore
 import (
 	"testing"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/routd"
+	"github.com/kronael/arizuko/store"
 )
 
 // RoutesIntoFolder scopes the dashboard's route panel on `target`. A folder
@@ -18,9 +20,9 @@ func TestRoutesIntoFolderIsNotWidenedByLikeMetacharacters(t *testing.T) {
 	defer d.Close()
 	db := d.SQL()
 	for i, target := range []string{"a_b", "a_b/one", "aXb", "aXb/two"} {
-		if _, err := db.Exec(
-			`INSERT INTO routes(seq, match, target) VALUES(?,?,?)`,
-			i+1, "platform=slack", target); err != nil {
+		if _, err := store.New(db).PutRouteRow(core.Route{
+			Seq: i + 1, Match: "platform=slack", Target: target,
+		}); err != nil {
 			t.Fatal(err)
 		}
 	}

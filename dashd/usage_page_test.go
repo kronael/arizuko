@@ -22,9 +22,7 @@ func usageRoutdDB(t *testing.T, folders ...string) *sql.DB {
 	t.Helper()
 	db := routdDB(t)
 	for _, f := range folders {
-		if _, err := db.Exec(`INSERT INTO groups (folder, added_at) VALUES (?, '')`, f); err != nil {
-			t.Fatal(err)
-		}
+		seedFolder(t, db, f)
 	}
 	return db
 }

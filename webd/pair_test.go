@@ -8,24 +8,33 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sort"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
 )
 
-// seedPairingToken inserts a kind='pair' row created at `created`. Production
-// mints through routd's issueRouteTokenTx; webd only ever reads and redeems.
+// seedPairingToken mints one pairing credential through the SINGLE minter both
+// production paths use, then backdates it: `created` is what the TTL is measured
+// from, and the minter stamps the instant it runs. webd only ever reads and
+// redeems.
 func seedPairingToken(t *testing.T, st *store.Store, jid, folder string, created time.Time) string {
 	t.Helper()
-	raw := store.GenRouteToken()
-	if _, err := st.DB().Exec(
-		`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at, kind) VALUES (?, ?, ?, ?, ?)`,
-		store.TokenRefBytes(raw), jid, folder, created.Format(time.RFC3339Nano), store.RouteTokenKindPair,
-	); err != nil {
+	raw, err := st.IssuePairingLink(t.Context(), nil, jid, folder)
+	if err != nil {
 		t.Fatalf("seed pairing token: %v", err)
+	}
+	if _, err := st.Obj().GuardedBatch(t.Context(), nil, []objstore.Write{{
+		Op: objstore.Update, Entity: store.RouteTokens,
+		Key:   objstore.Key{Partition: store.OwnerRoutd, Sort: store.TokenRef(raw)},
+		Attrs: map[string]string{"created_at": core.TS(created)},
+	}}); err != nil {
+		t.Fatalf("backdate pairing token: %v", err)
 	}
 	return raw
 }
@@ -58,19 +67,15 @@ func pairPOST(t *testing.T, s *server, token, sub, csrf string) *httptest.Respon
 
 func parentsOf(t *testing.T, st *store.Store, child string) []string {
 	t.Helper()
-	rows, err := st.DB().Query(`SELECT parent FROM acl_membership WHERE child = ? ORDER BY parent`, child)
+	edges, err := st.ParentEdges(child)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var p string
-		if err := rows.Scan(&p); err != nil {
-			t.Fatal(err)
-		}
-		out = append(out, p)
+	out := make([]string, 0, len(edges))
+	for _, e := range edges {
+		out = append(out, e.Parent)
 	}
+	sort.Strings(out)
 	return out
 }
 

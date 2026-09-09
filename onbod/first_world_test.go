@@ -67,11 +67,7 @@ func createWorld(t *testing.T, db *sql.DB, sub, username string) *httptest.Respo
 
 func folderExists(t *testing.T, db *sql.DB, folder string) bool {
 	t.Helper()
-	var n int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM groups WHERE folder = ?`, folder).Scan(&n); err != nil {
-		t.Fatalf("groups lookup: %v", err)
-	}
-	return n > 0
+	return folderName(t, db, folder) != ""
 }
 
 func TestApprovedStrangerWithGateSeesPicker(t *testing.T) {
@@ -110,29 +106,18 @@ func TestApprovedStrangerWithGateCreatesTopLevelWorld(t *testing.T) {
 	// Containment: the approved admission authorizes a TOP-LEVEL folder. Assert
 	// on every folder that exists, not just on the expected name — a folder
 	// created at "victim/newworld" would satisfy a lookup for the suffix.
-	rows, err := db.Query(`SELECT folder FROM groups`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var f string
-		if err := rows.Scan(&f); err != nil {
-			t.Fatal(err)
-		}
+	for _, f := range allFolders(t, db) {
 		if strings.Contains(f, "/") {
 			t.Errorf("approved admission created a NESTED folder %q; it authorizes top-level only", f)
 		}
 	}
 
-	var scope string
-	if err := db.QueryRow(
-		`SELECT scope FROM acl WHERE principal = ? AND action = 'admin'`,
-		"github:new").Scan(&scope); err != nil {
-		t.Fatalf("no admin grant for the created world: %v", err)
+	scopes := adminScopes(t, db, "github:new")
+	if len(scopes) != 1 {
+		t.Fatalf("admin grants for the created world = %v, want exactly one", scopes)
 	}
-	if scope != "newworld/**" {
-		t.Errorf("admin scope = %q, want %q", scope, "newworld/**")
+	if scopes[0] != "newworld/**" {
+		t.Errorf("admin scope = %q, want %q", scopes[0], "newworld/**")
 	}
 }
 

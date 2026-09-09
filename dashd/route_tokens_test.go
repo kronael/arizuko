@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
+
+	"github.com/kronael/arizuko/store"
 )
 
 // encodeJID must be reversible via standard URL unescaping (which Go's mux does
@@ -37,11 +39,9 @@ func TestEncodeJID_roundTrip(t *testing.T) {
 func TestRouteTokenRevoke_dashDashLabelExact(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
 	for _, jid := range []string{"hook:team/a--b", "hook:team/a/b"} {
-		if _, err := routd.Exec(
-			`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at)
-			 VALUES (?, ?, 'team', '')`, []byte(jid), jid); err != nil {
-			t.Fatal(err)
-		}
+		seedRouteToken(t, routd, store.RouteToken{
+			JID: jid, OwnerFolder: "team", TargetFolder: "team",
+		})
 	}
 	mux := newMux(d)
 	w := httptest.NewRecorder()
@@ -49,10 +49,14 @@ func TestRouteTokenRevoke_dashDashLabelExact(t *testing.T) {
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("revoke = %d body=%q", w.Code, w.Body.String())
 	}
-	if n := count(t, routd, `SELECT COUNT(*) FROM route_tokens WHERE jid='hook:team/a--b'`); n != 0 {
+	if n := countRouteTokens(t, routd, "team", func(tok store.RouteToken) bool {
+		return tok.JID == "hook:team/a--b"
+	}); n != 0 {
 		t.Errorf("target token still present (%d rows) — revoke missed it", n)
 	}
-	if n := count(t, routd, `SELECT COUNT(*) FROM route_tokens WHERE jid='hook:team/a/b'`); n != 1 {
+	if n := countRouteTokens(t, routd, "team", func(tok store.RouteToken) bool {
+		return tok.JID == "hook:team/a/b"
+	}); n != 1 {
 		t.Errorf("collision twin was wrongly deleted (%d rows, want 1)", n)
 	}
 }

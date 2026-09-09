@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/store"
 )
@@ -58,12 +59,10 @@ func TestHandleInviteCreateAndList(t *testing.T) {
 	db := testDBWithInvites(t)
 	defer db.Close()
 	// Grant operator (**) admin so requireAdmin passes.
-	if _, err := db.Exec(
-		`INSERT INTO acl (principal, action, scope, effect, params, predicate, granted_at, granted_by)
-		 VALUES ('github:operator', 'admin', '**', 'allow', '', '', datetime('now'), 'test')`,
-	); err != nil {
-		t.Fatal(err)
-	}
+	seedGrant(t, db, core.ACLRow{
+		Principal: "github:operator", Action: "admin", Scope: "**",
+		Effect: "allow", GrantedBy: "test",
+	})
 
 	d := &dash{dbRoutd: db, dbOnbod: db, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
@@ -148,12 +147,10 @@ func TestHandleInviteCreateForbiddenWithoutAdminGrant(t *testing.T) {
 func TestHandleInviteRevokeAndGone(t *testing.T) {
 	db := testDBWithInvites(t)
 	defer db.Close()
-	if _, err := db.Exec(
-		`INSERT INTO acl (principal, action, scope, effect, params, predicate, granted_at, granted_by)
-		 VALUES ('github:operator', 'admin', '**', 'allow', '', '', datetime('now'), 'test')`,
-	); err != nil {
-		t.Fatal(err)
-	}
+	seedGrant(t, db, core.ACLRow{
+		Principal: "github:operator", Action: "admin", Scope: "**",
+		Effect: "allow", GrantedBy: "test",
+	})
 	// Seed one invite through its owner, keyed by ref (I1) — token here is just
 	// the would-be bearer, never itself persisted (long enough for the [:8]
 	// display slice).

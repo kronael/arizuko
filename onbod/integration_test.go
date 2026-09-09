@@ -139,13 +139,13 @@ func TestOnboardingFlow(t *testing.T) {
 		t.Fatalf("want 64-char token, got %d", len(token))
 	}
 	st := store.New(inst.X)
-	var stored []byte
-	if err := inst.X.QueryRow(
-		`SELECT token_hash FROM route_tokens WHERE jid = ? AND kind = ?`,
-		jid, store.RouteTokenKindPair).Scan(&stored); err != nil {
-		t.Fatalf("read minted pairing row: %v", err)
+	pairs := pairingTokensFor(t, inst.X, jid)
+	if len(pairs) != 1 {
+		t.Fatalf("minted %d pairing rows for %s, want 1", len(pairs), jid)
 	}
-	if string(stored) == token {
+	// The coordinate IS the verifier, so a table that kept the bearer would
+	// address the item by it.
+	if pairs[0].Key.Sort == token {
 		t.Fatal("token stored in the clear — route_tokens must keep the hash, not the bearer")
 	}
 	// GET /pair is webd's and is side-effect-free; the redemption POST it fronts
@@ -161,9 +161,7 @@ func TestOnboardingFlow(t *testing.T) {
 	if paired, err := st.RedeemPairing(token, sub); err != nil || paired != jid {
 		t.Fatalf("RedeemPairing = (%q, %v)", paired, err)
 	}
-	var addedBy string
-	inst.X.QueryRow(`SELECT added_by FROM acl_membership WHERE child = ?`, jid).Scan(&addedBy)
-	if addedBy != store.PairingAddedBy {
+	if addedBy := edgeAddedBy(t, inst.X, jid); addedBy != store.PairingAddedBy {
 		t.Errorf("edge added_by = %q, want %q — one writer, reachable by unpair",
 			addedBy, store.PairingAddedBy)
 	}
@@ -234,23 +232,17 @@ func TestOnboardingFlow(t *testing.T) {
 	}
 
 	// Group row, user_groups row, and route present.
-	var folder string
-	inst.X.QueryRow(`SELECT folder FROM groups WHERE folder = 'alice'`).Scan(&folder)
-	if folder != "alice" {
+	if folder := folderName(t, inst.X, "alice"); folder != "alice" {
 		t.Errorf("groups row missing, got %q", folder)
 	}
-	var ug string
-	inst.X.QueryRow(`SELECT scope FROM acl WHERE principal = ?`, sub).Scan(&ug)
 	// Subtree scope: an exact-folder grant authorizes the world and nothing
 	// under it, so the creator could never reach their own subgroups (W1).
-	if ug != "alice/**" {
+	if ug := firstScope(t, inst.X, sub); ug != "alice/**" {
 		t.Errorf("creator grant should be subtree-scoped, got %q", ug)
 	}
 	// create_world itself writes no route (5/18 step 7) — the route is the act
 	// the /onboard landing performs, and it names who did it.
-	var routeN int
-	inst.X.QueryRow(`SELECT COUNT(*) FROM routes`).Scan(&routeN)
-	if routeN != 0 {
+	if routeN := countRoutes(t, inst.X); routeN != 0 {
 		t.Errorf("create_world wrote %d route(s) as a side effect; want 0", routeN)
 	}
 
@@ -266,12 +258,9 @@ func TestOnboardingFlow(t *testing.T) {
 	if respR.StatusCode != http.StatusOK {
 		t.Fatalf("post-create landing: status=%d body=%s", respR.StatusCode, rbody)
 	}
-	var routeAddedBy, addedVia string
-	if err := inst.X.QueryRow(
-		`SELECT COALESCE(added_by, ''), COALESCE(added_via, '') FROM routes
-		 WHERE target = 'alice' AND match = 'room=42'`,
-	).Scan(&routeAddedBy, &addedVia); err != nil {
-		t.Fatalf("expected the linked jid routed after the landing: %v; page: %s", err, rbody)
+	routeAddedBy, addedVia, ok := routeAttribution(t, inst.X, "room=42")
+	if !ok {
+		t.Fatalf("expected the linked jid routed after the landing; page: %s", rbody)
 	}
 	if routeAddedBy != sub || addedVia != routeViaSoleWorld {
 		t.Errorf("route attribution = (%q, %q), want (%q, %q)",

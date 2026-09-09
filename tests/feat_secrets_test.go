@@ -152,11 +152,20 @@ func TestFeature_Secrets(t *testing.T) {
 			t.Fatalf("precondition: resolution returned %q, want the plaintext back", got)
 		}
 
-		var stored string
-		if err := f.routdDB.SQL().QueryRow(
-			`SELECT value FROM secrets WHERE scope_id = ? AND key = ?`, "acme", key,
-		).Scan(&stored); err != nil {
+		// The archive projection is the one read that hands back the blob AS IT
+		// IS AT REST; every other reader decrypts.
+		rows, err := store.New(f.routdDB.SQL()).ExportSecretRows(t.Context())
+		if err != nil {
 			t.Fatal(err)
+		}
+		var stored string
+		for _, r := range rows {
+			if r.ScopeID == "acme" && r.Key == key {
+				stored = r.Value
+			}
+		}
+		if stored == "" {
+			t.Fatal("no secret stored for acme")
 		}
 		if strings.Contains(stored, plaintext) {
 			t.Error("the secrets row holds the plaintext; SECRETS_KEY sealing is not engaged")

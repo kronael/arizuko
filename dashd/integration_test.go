@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/tests/testutils"
 )
 
@@ -65,11 +66,7 @@ func TestMemoryEndpoint(t *testing.T) {
 	srv, inst, groupsDir := newDashServer(t)
 
 	folder := "alice"
-	if _, err := inst.DB.Exec(
-		`INSERT INTO groups (folder, added_at) VALUES (?, ?)`,
-		folder, folder, time.Now().Format(time.RFC3339)); err != nil {
-		t.Fatal(err)
-	}
+	seedFolder(t, inst.DB, folder)
 	if err := os.MkdirAll(filepath.Join(groupsDir, folder), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -103,13 +100,8 @@ func TestMemoryEndpoint(t *testing.T) {
 func TestGroupList(t *testing.T) {
 	srv, inst, _ := newDashServer(t)
 
-	now := time.Now().Format(time.RFC3339)
 	for _, f := range []string{"alpha", "bravo"} {
-		if _, err := inst.DB.Exec(
-			`INSERT INTO groups (folder, added_at) VALUES (?, ?)`,
-			f, f, now); err != nil {
-			t.Fatal(err)
-		}
+		seedFolder(t, inst.DB, f)
 	}
 
 	resp, err := opGet(t, srv.URL+"/dash/groups/")
@@ -136,10 +128,7 @@ func TestGroupListUsage(t *testing.T) {
 
 	folder := "eng"
 	now := time.Now().Format(time.RFC3339)
-	if _, err := inst.DB.Exec(
-		`INSERT INTO groups (folder, added_at) VALUES (?, ?)`, folder, now); err != nil {
-		t.Fatal(err)
-	}
+	seedFolder(t, inst.DB, folder)
 	// What the gateway metered today: 700 tokens, 15 cents.
 	stubMeter(t, true, stubSpendRow{Folder: folder, Tokens: 700, CostCents: 15})
 	// Insert 3 messages routed to this folder.
@@ -176,7 +165,6 @@ func TestGroupListUsage(t *testing.T) {
 func TestTaskList(t *testing.T) {
 	srv, inst, _ := newDashServer(t)
 
-	now := time.Now().Format(time.RFC3339)
 	tasks := []struct {
 		id, owner, cron string
 	}{
@@ -184,13 +172,10 @@ func TestTaskList(t *testing.T) {
 		{"task-two", "bob", "0 9 * * *"},
 	}
 	for _, tk := range tasks {
-		if _, err := inst.DB.Exec(
-			`INSERT INTO scheduled_tasks
-			 (id, owner, chat_jid, prompt, cron, status, created_at)
-			 VALUES (?, ?, ?, ?, ?, 'active', ?)`,
-			tk.id, tk.owner, tk.owner, "do stuff", tk.cron, now); err != nil {
-			t.Fatal(err)
-		}
+		seedScheduledTask(t, inst.DB, core.Task{
+			ID: tk.id, Owner: tk.owner, ChatJID: tk.owner, Prompt: "do stuff",
+			Cron: tk.cron, Status: "active",
+		})
 	}
 
 	resp, err := opGet(t, srv.URL+"/dash/tasks/")

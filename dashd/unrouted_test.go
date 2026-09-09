@@ -39,10 +39,7 @@ func TestRoutes_UnroutedSectionOperatorOnly(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
 	seedFolderAdmin(t, d, "bob@x", "bob")
 	now := time.Now()
-	if _, err := routd.Exec(
-		`INSERT INTO routes (seq, match, target) VALUES (0, 'chat_jid=telegram:group/1', 'team')`); err != nil {
-		t.Fatal(err)
-	}
+	seedRoute(t, routd, core.Route{Seq: 0, Match: "chat_jid=telegram:group/1", Target: "team"})
 	seedInbound(t, routd, "r1", "telegram:group/1", "u1", now)
 	seedInbound(t, routd, "h1", "telegram:user/7", "u7", now.Add(-time.Minute))
 	seedInbound(t, routd, "h2", "telegram:user/7", "u7", now)
@@ -78,7 +75,9 @@ func TestRoutes_ClaimWritesTheRoute(t *testing.T) {
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("claim = %d, want 303; body=%q", w.Code, w.Body.String())
 	}
-	if n := count(t, routd, `SELECT COUNT(*) FROM routes WHERE match='chat_jid=telegram:user/7' AND target='team'`); n != 1 {
+	if n := countRoutes(t, routd, func(r core.Route) bool {
+		return r.Match == "chat_jid=telegram:user/7" && r.Target == "team"
+	}); n != 1 {
 		t.Fatalf("route rows after claim = %d, want 1", n)
 	}
 	if body := routesPage(t, d, "alice@x"); strings.Contains(body, `value="chat_jid=telegram:user/7"`) {

@@ -11,7 +11,10 @@ import (
 	"github.com/kronael/arizuko/audit"
 
 	"database/sql"
+
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore/sqlstore"
+	"github.com/kronael/arizuko/store"
 )
 
 // Every dashboard mutation must persist an audit_log row naming the operator who
@@ -71,11 +74,9 @@ func TestGrantAdd_Audited(t *testing.T) {
 
 func TestGrantRevoke_Audited(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
-	if _, err := routd.Exec(
-		`INSERT INTO acl (principal, action, scope, effect, granted_at)
-		 VALUES ('bob@x', 'send', 'team', 'allow', '')`); err != nil {
-		t.Fatal(err)
-	}
+	seedGrant(t, routd, core.ACLRow{
+		Principal: "bob@x", Action: "send", Scope: "team", Effect: "allow",
+	})
 	mux := newMux(d)
 	form := url.Values{"principal": {"bob@x"}, "action": {"send"}, "effect": {"allow"}}.Encode()
 	w := httptest.NewRecorder()
@@ -83,7 +84,7 @@ func TestGrantRevoke_Audited(t *testing.T) {
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("POST grants/revoke = %d body=%q", w.Code, w.Body.String())
 	}
-	if n := count(t, routd, `SELECT COUNT(*) FROM acl WHERE principal='bob@x' AND action='send'`); n != 0 {
+	if n := countGrants(t, routd, "bob@x", "send"); n != 0 {
 		t.Fatalf("grant not revoked (%d rows)", n)
 	}
 	if got := auditActor(t, d, "acl.remove"); got != "alice@x" {
@@ -120,7 +121,11 @@ func TestRouteTokenMint_NotInCockpit(t *testing.T) {
 	if w.Code == http.StatusOK {
 		t.Fatalf("POST /dash/tokens/{folder}/ returned 200 — the mint route is back")
 	}
-	if n := count(t, d.dbRoutd, `SELECT COUNT(*) FROM route_tokens`); n != 0 {
+	n, err := store.New(d.dbRoutd).CountRouteTokens(t.Context())
+	if err != nil {
+		t.Fatalf("count the route tokens: %v", err)
+	}
+	if n != 0 {
 		t.Fatalf("route_tokens = %d rows, want 0 — the cockpit minted a token", n)
 	}
 
@@ -136,11 +141,9 @@ func TestRouteTokenMint_NotInCockpit(t *testing.T) {
 
 func TestRouteTokenRevoke_Audited(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
-	if _, err := routd.Exec(
-		`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at, kind)
-		 VALUES (?, 'web:team', 'team', '', 'route')`, []byte("h1")); err != nil {
-		t.Fatal(err)
-	}
+	seedRouteToken(t, routd, store.RouteToken{
+		JID: "web:team", OwnerFolder: "team", TargetFolder: "team",
+	})
 	mux := newMux(d)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, adminReq("POST", "/dash/tokens/team/"+encodeJID("web:team")+"/revoke", "", "alice@x"))
@@ -160,7 +163,7 @@ func TestGroupDelete_Audited(t *testing.T) {
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("POST delete = %d body=%q", w.Code, w.Body.String())
 	}
-	if n := count(t, routd, `SELECT COUNT(*) FROM groups WHERE folder='team'`); n != 0 {
+	if hasFolder(t, routd, "team") {
 		t.Fatalf("group not deleted")
 	}
 	if got := auditActor(t, d, "group.delete"); got != "alice@x" {
@@ -190,11 +193,7 @@ func TestGroupDelete_AuditRollsBackWithMutation(t *testing.T) {
 // a handler that emits its own row as the daemon ("rest:dashd") fails these.
 func TestRouteDelete_Audited(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
-	var id int64
-	if err := routd.QueryRow(
-		`INSERT INTO routes (seq, match, target) VALUES (1, 'm=1', 'team') RETURNING id`).Scan(&id); err != nil {
-		t.Fatal(err)
-	}
+	id := seedRoute(t, routd, core.Route{Seq: 1, Match: "m=1", Target: "team"})
 	mux := newMux(d)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, adminReq("POST", "/dash/routes/"+strconv.FormatInt(id, 10)+"/delete", "", "alice@x"))
@@ -211,11 +210,7 @@ func TestRouteDelete_Audited(t *testing.T) {
 
 func TestRouteUpdate_Audited(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
-	var id int64
-	if err := routd.QueryRow(
-		`INSERT INTO routes (seq, match, target) VALUES (1, 'm=1', 'team') RETURNING id`).Scan(&id); err != nil {
-		t.Fatal(err)
-	}
+	id := seedRoute(t, routd, core.Route{Seq: 1, Match: "m=1", Target: "team"})
 	form := url.Values{"seq": {"7"}, "match": {"m=updated"}, "target": {"team"}}.Encode()
 	w := httptest.NewRecorder()
 	newMux(d).ServeHTTP(w, adminReq("PATCH", "/dash/routes/"+strconv.FormatInt(id, 10), form, "alice@x"))

@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/kronael/arizuko/store"
 )
 
 // BUGS F50. handleCreateWorld took the parent folder from the `pending_target`
@@ -44,23 +46,11 @@ func postCreateWorld(db *sql.DB, sub, username, forgedTarget string) *httptest.R
 // "SELECT ... WHERE folder = 'newworld'" cannot see "victim/newworld".
 func allFolders(t *testing.T, db *sql.DB) []string {
 	t.Helper()
-	rows, err := db.Query(`SELECT folder FROM groups ORDER BY folder`)
+	folders, err := store.New(db).GroupFolders(0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var f string
-		if err := rows.Scan(&f); err != nil {
-			t.Fatal(err)
-		}
-		out = append(out, f)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatal(err)
-	}
-	return out
+	return folders
 }
 
 // aclScopes lists every scope granted to a principal. A 303 with no folder is
@@ -68,21 +58,13 @@ func allFolders(t *testing.T, db *sql.DB) []string {
 // because the escalation was the pair.
 func aclScopes(t *testing.T, db *sql.DB, principal string) []string {
 	t.Helper()
-	rows, err := db.Query(`SELECT scope FROM acl WHERE principal = ? ORDER BY scope`, principal)
+	rows, err := store.New(db).ListACL(principal)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
 	var out []string
-	for rows.Next() {
-		var s string
-		if err := rows.Scan(&s); err != nil {
-			t.Fatal(err)
-		}
-		out = append(out, s)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatal(err)
+	for _, r := range rows {
+		out = append(out, r.Scope)
 	}
 	sort.Strings(out)
 	return out
@@ -102,15 +84,8 @@ func redemptionCount(t *testing.T, db *sql.DB, sub string) int {
 // the attacker aims at.
 func seedTenant(t *testing.T, db *sql.DB, folder, owner string) {
 	t.Helper()
-	if _, err := db.Exec(
-		`INSERT INTO groups (folder, added_at) VALUES (?, '2026-01-01')`, folder); err != nil {
-		t.Fatalf("seed tenant group: %v", err)
-	}
-	if _, err := db.Exec(
-		`INSERT INTO acl (principal, action, scope, effect, granted_at)
-		 VALUES (?, 'admin', ?, 'allow', '2026-01-01')`, owner, folder+"/**"); err != nil {
-		t.Fatalf("seed tenant grant: %v", err)
-	}
+	seedFolder(t, db, folder)
+	seedGrant(t, db, owner, "admin", folder+"/**")
 }
 
 func seedProfile(t *testing.T, db *sql.DB, sub string) {

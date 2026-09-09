@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
 )
 
@@ -34,9 +35,9 @@ func TestMeSecrets_WriteTargetsRoutdDB(t *testing.T) {
 		t.Fatalf("POST = %d body=%q", w.Code, w.Body.String())
 	}
 
-	var n int
-	routd.QueryRow(`SELECT COUNT(*) FROM secrets WHERE scope_id='github:alice' AND key='GITHUB_TOKEN'`).Scan(&n)
-	if n != 1 {
+	if n := countSecrets(t, routd, func(r store.ArchiveSecretRow) bool {
+		return r.ScopeID == "github:alice" && r.Key == "GITHUB_TOKEN"
+	}); n != 1 {
 		t.Errorf("routd.db secret rows = %d, want 1", n)
 	}
 }
@@ -58,9 +59,9 @@ func TestMeSecrets_DeleteTargetsRoutdDB(t *testing.T) {
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("DELETE = %d body=%q", w.Code, w.Body.String())
 	}
-	var n int
-	routd.QueryRow(`SELECT COUNT(*) FROM secrets WHERE scope_id='github:bob'`).Scan(&n)
-	if n != 0 {
+	if n := countSecrets(t, routd, func(r store.ArchiveSecretRow) bool {
+		return r.ScopeID == "github:bob"
+	}); n != 0 {
 		t.Errorf("routd.db secret rows after delete = %d, want 0", n)
 	}
 }

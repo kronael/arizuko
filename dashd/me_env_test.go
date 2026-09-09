@@ -276,11 +276,7 @@ func TestMeEnv_ScopeValidationRejectsBadScope(t *testing.T) {
 			t.Errorf("%s: DeleteSecretRow accepted a bad scope", c.name)
 		}
 	}
-	var n int
-	if err := d.dbRoutd.QueryRow(`SELECT COUNT(*) FROM secrets`).Scan(&n); err != nil {
-		t.Fatal(err)
-	}
-	if n != 0 {
+	if n := countSecrets(t, d.dbRoutd, nil); n != 0 {
 		t.Errorf("rejected writes still landed %d rows", n)
 	}
 }
@@ -341,14 +337,9 @@ func TestMeEnv_SealsAtRest(t *testing.T) {
 		`{"key":"CLAUDE_CODE_OAUTH_TOKEN","value":"oauth-plaintext"}`); w.Code != http.StatusNoContent {
 		t.Fatalf("POST = %d body=%q", w.Code, w.Body.String())
 	}
-	// Read the column raw: this test is about the at-rest encoding, so it must
-	// not go through secretValue, which decrypts.
-	var raw string
-	if err := d.dbRoutd.QueryRow(
-		`SELECT value FROM secrets WHERE scope_kind='user' AND scope_id='github:alice' AND key='CLAUDE_CODE_OAUTH_TOKEN'`,
-	).Scan(&raw); err != nil {
-		t.Fatal(err)
-	}
+	// Read the blob raw: this test is about the at-rest encoding, so it must not
+	// go through secretValue, which decrypts.
+	raw := rawSecretValue(t, d.dbRoutd, store.ScopeUser, "github:alice", "CLAUDE_CODE_OAUTH_TOKEN")
 	if !strings.HasPrefix(raw, "v2:") || strings.Contains(raw, "oauth-plaintext") {
 		t.Errorf("stored value not sealed: %q", raw)
 	}

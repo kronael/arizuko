@@ -77,9 +77,9 @@ func aclRowCount(t *testing.T, db *DB, scope string) int {
 		t.Fatal(err)
 	}
 	for _, r := range allRows {
-		// Exclude seeded role:* infrastructure (role:operator from migration 0022,
-		// role:member's messaging floor from 0023) — these helpers assert what a
-		// REST/MCP WRITE produced, not the seeds.
+		// Exclude the seeded role:* infrastructure — role:operator's root grant
+		// and role:member's messaging floor, both from store.SeedRoutdFloor.
+		// These helpers assert what a REST/MCP WRITE produced, not the floor.
 		if strings.HasPrefix(r.Principal, "role:") {
 			continue
 		}

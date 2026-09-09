@@ -6,21 +6,16 @@ import (
 	"net/url"
 	"strconv"
 	"testing"
+
+	"github.com/kronael/arizuko/core"
 )
 
 // seedFolderAdmin grants sub admin on exactly one folder (and creates it), so a
 // caller can be an admin of B while holding nothing on A.
 func seedFolderAdmin(t *testing.T, d *dash, sub, folder string) {
 	t.Helper()
-	if _, err := d.adminDB().Exec(
-		`INSERT OR IGNORE INTO groups (folder, added_at) VALUES (?, '')`, folder); err != nil {
-		t.Fatalf("seed group %s: %v", folder, err)
-	}
-	if _, err := d.adminDB().Exec(
-		`INSERT INTO acl (principal, action, scope, effect, granted_at)
-		 VALUES (?, 'admin', ?, 'allow', '')`, sub, folder); err != nil {
-		t.Fatalf("seed admin grant %s/%s: %v", sub, folder, err)
-	}
+	seedFolder(t, d.adminDB(), folder)
+	seedAdmin(t, d.adminDB(), sub, folder)
 }
 
 // handleRouteUpdate must gate on the EXISTING row's target folder, not only on
@@ -32,11 +27,7 @@ func TestRouteUpdate_deniesAdminOfOtherFolder(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
 	seedFolderAdmin(t, d, "mallory@x", "mallory")
 
-	var id int64
-	if err := routd.QueryRow(
-		`INSERT INTO routes (seq, match, target) VALUES (1, 'm=1', 'team') RETURNING id`).Scan(&id); err != nil {
-		t.Fatal(err)
-	}
+	id := seedRoute(t, routd, core.Route{Seq: 1, Match: "m=1", Target: "team"})
 
 	form := url.Values{"seq": {"1"}, "match": {"m=1"}, "target": {"mallory"}}.Encode()
 	w := httptest.NewRecorder()
@@ -44,7 +35,9 @@ func TestRouteUpdate_deniesAdminOfOtherFolder(t *testing.T) {
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("PATCH of another folder's route = %d, want 403; body=%q", w.Code, w.Body.String())
 	}
-	if n := count(t, routd, `SELECT COUNT(*) FROM routes WHERE id=? AND target='team'`, id); n != 1 {
+	if n := countRoutes(t, routd, func(r core.Route) bool {
+		return r.ID == id && r.Target == "team"
+	}); n != 1 {
 		t.Error("route was repointed despite the denial")
 	}
 }
@@ -56,11 +49,7 @@ func TestRouteUpdate_deniesMoveToUnownedFolder(t *testing.T) {
 	seedFolderAdmin(t, d, "mallory@x", "mallory")
 	seedFolderAdmin(t, d, "bob@x", "bob")
 
-	var id int64
-	if err := routd.QueryRow(
-		`INSERT INTO routes (seq, match, target) VALUES (2, 'm=2', 'mallory') RETURNING id`).Scan(&id); err != nil {
-		t.Fatal(err)
-	}
+	id := seedRoute(t, routd, core.Route{Seq: 2, Match: "m=2", Target: "mallory"})
 
 	form := url.Values{"seq": {"2"}, "match": {"m=2"}, "target": {"bob"}}.Encode()
 	w := httptest.NewRecorder()
@@ -68,7 +57,9 @@ func TestRouteUpdate_deniesMoveToUnownedFolder(t *testing.T) {
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("PATCH donating a route into an unowned folder = %d, want 403; body=%q", w.Code, w.Body.String())
 	}
-	if n := count(t, routd, `SELECT COUNT(*) FROM routes WHERE id=? AND target='mallory'`, id); n != 1 {
+	if n := countRoutes(t, routd, func(r core.Route) bool {
+		return r.ID == id && r.Target == "mallory"
+	}); n != 1 {
 		t.Error("route was donated despite the denial")
 	}
 }
@@ -79,11 +70,7 @@ func TestRouteUpdate_allowsOwnFolder(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
 	seedFolderAdmin(t, d, "mallory@x", "mallory")
 
-	var id int64
-	if err := routd.QueryRow(
-		`INSERT INTO routes (seq, match, target) VALUES (3, 'm=3', 'mallory') RETURNING id`).Scan(&id); err != nil {
-		t.Fatal(err)
-	}
+	id := seedRoute(t, routd, core.Route{Seq: 3, Match: "m=3", Target: "mallory"})
 
 	form := url.Values{"seq": {"7"}, "match": {"m=updated"}, "target": {"mallory"}}.Encode()
 	w := httptest.NewRecorder()
@@ -91,7 +78,9 @@ func TestRouteUpdate_allowsOwnFolder(t *testing.T) {
 	if w.Code != http.StatusOK && w.Code != http.StatusNoContent && w.Code != http.StatusSeeOther {
 		t.Fatalf("PATCH of own folder's route = %d, want 2xx/303; body=%q", w.Code, w.Body.String())
 	}
-	if n := count(t, routd, `SELECT COUNT(*) FROM routes WHERE id=? AND match='m=updated'`, id); n != 1 {
+	if n := countRoutes(t, routd, func(r core.Route) bool {
+		return r.ID == id && r.Match == "m=updated"
+	}); n != 1 {
 		t.Error("own-folder update did not land")
 	}
 }
@@ -102,18 +91,14 @@ func TestRouteDelete_deniesAdminOfOtherFolder(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
 	seedFolderAdmin(t, d, "mallory@x", "mallory")
 
-	var id int64
-	if err := routd.QueryRow(
-		`INSERT INTO routes (seq, match, target) VALUES (4, 'm=4', 'team') RETURNING id`).Scan(&id); err != nil {
-		t.Fatal(err)
-	}
+	id := seedRoute(t, routd, core.Route{Seq: 4, Match: "m=4", Target: "team"})
 
 	w := httptest.NewRecorder()
 	newMux(d).ServeHTTP(w, adminReq("POST", "/dash/routes/"+strconv.FormatInt(id, 10)+"/delete", "", "mallory@x"))
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("delete of another folder's route = %d, want 403; body=%q", w.Code, w.Body.String())
 	}
-	if n := count(t, routd, `SELECT COUNT(*) FROM routes WHERE id=?`, id); n != 1 {
+	if n := countRoutes(t, routd, func(r core.Route) bool { return r.ID == id }); n != 1 {
 		t.Error("route was deleted despite the denial")
 	}
 }

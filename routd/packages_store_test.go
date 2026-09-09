@@ -1,11 +1,6 @@
 package routd
 
-import (
-	"database/sql"
-	"testing"
-
-	"github.com/kronael/arizuko/db_utils/dbtest"
-)
+import "testing"
 
 // TestInstalledPackageCRUD exercises the installed-package record (spec 5/28):
 // absent → put → get roundtrip (incl. JSON manifest + hashes) → upsert/upgrade
@@ -69,11 +64,11 @@ func TestInstalledPackageCRUD(t *testing.T) {
 	}
 }
 
-// TestInstalledPackageFolderIsPartOfKey is the whole point of migration 0031
+// TestInstalledPackageFolderIsPartOfKey is why the folder LEADS the coordinate
 // (BUGS F30): spec 5/28's composition blends a product mix per GROUP, so two
-// groups must be able to hold the SAME package name independently. Under the old
-// `name TEXT PRIMARY KEY` the second Put silently UPDATED the first — one lock
-// for two subjects. Falsified by reverting the PK to name alone: the second Put
+// groups must be able to hold the SAME package name independently. A coordinate
+// of the name alone is one lock for two subjects — the second Put addresses the
+// first record. Falsified by dropping the folder from the key: the second Put
 // overwrites, len(list) is 1 not 3, and the per-folder gets return each other's
 // revision.
 func TestInstalledPackageFolderIsPartOfKey(t *testing.T) {
@@ -133,91 +128,4 @@ func TestInstalledPackageFolderIsPartOfKey(t *testing.T) {
 	if _, ok, _ := d.InstalledPackage("acme/eng", "ttsd"); !ok {
 		t.Error("deleting acme's row also removed acme/eng's")
 	}
-}
-
-// TestInstalledPackagesMigration0031PreservesRows is the migration rehearsal as
-// a test. It writes the PRE-0031 table, fills it, then runs 0031's body and
-// asserts every row survives with byte-identical content on the instance-wide
-// sentinel. The fleet lost its tools to a migration whose rehearsal "matched 0
-// rows and looked fine", so this asserts content BEFORE and AFTER, not just that
-// the DDL ran. Falsified by changing 0031's INSERT ... SELECT to add a WHERE
-// that matches nothing: count goes 3 -> 0 and this fails alone.
-func TestInstalledPackagesMigration0031PreservesRows(t *testing.T) {
-	db := dbtest.Open(t)
-
-	// The shape 0020 shipped, verbatim.
-	if _, err := db.Exec(`CREATE TABLE installed_packages (
-		name TEXT PRIMARY KEY, source TEXT NOT NULL, revision TEXT NOT NULL,
-		manifest TEXT NOT NULL DEFAULT '{}', asset_hashes TEXT NOT NULL DEFAULT '{}',
-		installed_at TEXT NOT NULL)`); err != nil {
-		t.Fatalf("create 0020 table: %v", err)
-	}
-	seed := [][]string{
-		{"ttsd", "https://github.com/kronael/ttsd", "a1b2c3",
-			`{"compose_fragment":["ttsd.yml"],"proxyd_route":["/tts/"]}`, `{"file:ttsd.yml":"deadbeef"}`, "2026-08-01T10:00:00Z"},
-		{"slakd", "/srv/pkgs/slakd", "v2", `{"compose_fragment":["slakd.yml"]}`, `{"file:slakd.yml":"cafe"}`, "2026-08-02T11:00:00Z"},
-		{"zzz", "https://example.com/zzz", "rev9", "{}", "{}", "2026-08-03T12:00:00Z"},
-	}
-	for _, r := range seed {
-		if _, err := db.Exec(`INSERT INTO installed_packages
-			(name, source, revision, manifest, asset_hashes, installed_at) VALUES (?,?,?,?,?,?)`,
-			r[0], r[1], r[2], r[3], r[4], r[5]); err != nil {
-			t.Fatalf("seed %s: %v", r[0], err)
-		}
-	}
-	const dump = `SELECT name||'|'||source||'|'||revision||'|'||manifest||'|'||asset_hashes||'|'||installed_at
-		FROM installed_packages ORDER BY name`
-	before := scanStrings(t, db, dump)
-	if len(before) != len(seed) {
-		t.Fatalf("seed did not land: %d rows", len(before))
-	}
-
-	raw, err := migrationFS.ReadFile("migrations/0031-installed-packages-folder.sql")
-	if err != nil {
-		t.Fatalf("read migration: %v", err)
-	}
-	if _, err := db.Exec(string(raw)); err != nil {
-		t.Fatalf("apply 0031: %v", err)
-	}
-
-	after := scanStrings(t, db, dump)
-	if len(after) != len(before) {
-		t.Fatalf("row count %d -> %d: the migration dropped rows", len(before), len(after))
-	}
-	for i := range before {
-		if before[i] != after[i] {
-			t.Errorf("row %d changed:\n before %s\n after  %s", i, before[i], after[i])
-		}
-	}
-	for _, f := range scanStrings(t, db, `SELECT folder FROM installed_packages`) {
-		if f != InstanceWide {
-			t.Errorf("pre-0031 row landed on folder %q, want the instance-wide sentinel", f)
-		}
-	}
-	if pk := scanStrings(t, db,
-		`SELECT name FROM pragma_table_info('installed_packages') WHERE pk > 0 ORDER BY pk`); len(pk) != 2 ||
-		pk[0] != "folder" || pk[1] != "name" {
-		t.Errorf("primary key = %v, want [folder name]", pk)
-	}
-}
-
-func scanStrings(t *testing.T, db *sql.DB, query string) []string {
-	t.Helper()
-	rows, err := db.Query(query)
-	if err != nil {
-		t.Fatalf("query %q: %v", query, err)
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var s string
-		if err := rows.Scan(&s); err != nil {
-			t.Fatalf("scan: %v", err)
-		}
-		out = append(out, s)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("rows: %v", err)
-	}
-	return out
 }

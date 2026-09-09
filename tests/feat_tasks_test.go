@@ -4,11 +4,11 @@
 package tests
 
 import (
-	"database/sql"
 	"testing"
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/store"
 )
 
 func TestFeature_Tasks(t *testing.T) {
@@ -33,24 +33,24 @@ func TestFeature_Tasks(t *testing.T) {
 
 	// pause → hidden from due query; resume → visible again; cancel → deleted.
 	t.Run("pause-resume-cancel", func(t *testing.T) {
-		s, db := openSharedDB(t)
+		s, _ := openSharedDB(t)
 		now := time.Now()
 		past := now.Add(-time.Minute)
 		s.CreateTask(core.Task{ID: "t-sm", Owner: "main", ChatJID: "tg:1", Prompt: "p", Cron: "* * * * *", NextRun: &past, Status: "active", Created: now})
 
-		if n := dueCount(t, db); n != 1 {
+		if n := dueCount(t, s); n != 1 {
 			t.Fatalf("active due = %d, want 1", n)
 		}
 		if err := s.SetTaskStatus("t-sm", "paused"); err != nil {
 			t.Fatal(err)
 		}
-		if n := dueCount(t, db); n != 0 {
+		if n := dueCount(t, s); n != 0 {
 			t.Fatalf("paused due = %d, want 0", n)
 		}
 		if err := s.SetTaskStatus("t-sm", "active"); err != nil {
 			t.Fatal(err)
 		}
-		if n := dueCount(t, db); n != 1 {
+		if n := dueCount(t, s); n != 1 {
 			t.Fatalf("resumed due = %d, want 1", n)
 		}
 		if err := s.DeleteTask("t-sm"); err != nil {
@@ -65,7 +65,7 @@ func TestFeature_Tasks(t *testing.T) {
 	// empty next_run makes datetime(next_run)<=datetime(now) never true, killing
 	// the task forever (.diary/20260618 krons incident).
 	t.Run("reschedule-sets-future-next-run", func(t *testing.T) {
-		s, db := openSharedDB(t)
+		s, _ := openSharedDB(t)
 		now := time.Now()
 		past := now.Add(-time.Minute)
 		s.CreateTask(core.Task{ID: "t-resched", Owner: "main", ChatJID: "tg:1", Prompt: "p", Cron: "0 9 * * *", NextRun: &past, Status: "active", Created: now})
@@ -77,7 +77,7 @@ func TestFeature_Tasks(t *testing.T) {
 		if got.NextRun == nil || !got.NextRun.After(now) {
 			t.Fatalf("next_run %v should be future", got.NextRun)
 		}
-		if n := dueCount(t, db); n != 0 {
+		if n := dueCount(t, s); n != 0 {
 			t.Fatalf("future task still due: %d", n)
 		}
 	})
@@ -85,11 +85,13 @@ func TestFeature_Tasks(t *testing.T) {
 	// A task stuck in 'firing' (crash mid-turn) is recovered back to 'active'
 	// on the next timed boot — crash-safe restart.
 	t.Run("firing-recovery", func(t *testing.T) {
-		s, db := openSharedDB(t)
+		s, _ := openSharedDB(t)
 		now := time.Now()
 		past := now.Add(-time.Minute)
 		s.CreateTask(core.Task{ID: "t-fire", Owner: "main", ChatJID: "tg:1", Prompt: "p", Cron: "* * * * *", NextRun: &past, Status: "active", Created: now})
-		db.Exec(`UPDATE scheduled_tasks SET status='firing' WHERE id=?`, "t-fire")
+		if err := s.SetTaskStatus("t-fire", store.TaskStatusFiring); err != nil {
+			t.Fatal(err)
+		}
 		if n, err := s.RecoverFiringTasks(); err != nil || n != 1 {
 			t.Fatalf("recovered = %d err=%v, want 1", n, err)
 		}
@@ -103,14 +105,14 @@ func TestFeature_Tasks(t *testing.T) {
 	// rescheduled — verified end-to-end via the real timed fire loop.
 	// Full cron-fire end-to-end (timed→routd) is in microservice_test.go::TestCronFiresMessage.
 	t.Run("one-shot-completes", func(t *testing.T) {
-		s, db := openSharedDB(t)
+		s, _ := openSharedDB(t)
 		now := time.Now()
 		past := now.Add(-time.Second)
 		s.CreateTask(core.Task{ID: "t-oneshot", Owner: "main", ChatJID: "tg:1", Prompt: "once", Cron: "", NextRun: &past, Status: "active", Created: now})
 		if err := s.RescheduleTask("t-oneshot", "", "completed"); err != nil {
 			t.Fatal(err)
 		}
-		if n := dueCount(t, db); n != 0 {
+		if n := dueCount(t, s); n != 0 {
 			t.Fatalf("completed task appeared due: %d", n)
 		}
 		got, _ := s.GetTask("t-oneshot")
@@ -121,25 +123,33 @@ func TestFeature_Tasks(t *testing.T) {
 
 	// Multiple tasks with overlapping next_run are all returned by the due query.
 	t.Run("due-query-returns-all-eligible", func(t *testing.T) {
-		s, db := openSharedDB(t)
+		s, _ := openSharedDB(t)
 		now := time.Now()
 		past := now.Add(-time.Minute)
 		for _, id := range []string{"bulk-1", "bulk-2", "bulk-3"} {
 			s.CreateTask(core.Task{ID: id, Owner: "main", ChatJID: "tg:1", Prompt: "p", Cron: "* * * * *", NextRun: &past, Status: "active", Created: now})
 		}
-		if n := dueCount(t, db); n != 3 {
+		if n := dueCount(t, s); n != 3 {
 			t.Fatalf("due count = %d, want 3", n)
 		}
 	})
 }
 
-func dueCount(t *testing.T, db *sql.DB) int {
+// dueCount counts what the fire read WOULD claim, without claiming it:
+// store.DueTasks marks every task it answers 'firing', so a caller that only
+// wants the number cannot use it twice. The predicate is the same one — active,
+// with a next_run that has passed.
+func dueCount(t *testing.T, s *store.Store) int {
 	t.Helper()
-	var n int
-	if err := db.QueryRow(
-		`SELECT COUNT(*) FROM scheduled_tasks WHERE status='active' AND datetime(next_run) <= datetime(?)`,
-		time.Now().Format(time.RFC3339)).Scan(&n); err != nil {
-		t.Fatalf("dueCount: %v", err)
+	now := time.Now()
+	n := 0
+	for _, task := range s.ListTasks("", true) {
+		if task.Status != core.TaskActive || task.NextRun == nil {
+			continue
+		}
+		if !task.NextRun.After(now) {
+			n++
+		}
 	}
 	return n
 }

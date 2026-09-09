@@ -6,6 +6,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/objstore/sqlstore"
+	"github.com/kronael/arizuko/store"
 )
 
 func packagesDB(t *testing.T) *sql.DB { return routdDB(t) }
@@ -37,10 +41,8 @@ func TestPackagesPageEmpty(t *testing.T) {
 func TestPackagesPageRows(t *testing.T) {
 	db := packagesDB(t)
 	defer db.Close()
-	if _, err := db.Exec(`INSERT INTO installed_packages(name, source, revision, installed_at)
-		VALUES('slakd','github.com/org/slakd','abc123','2026-07-29T00:00:00Z')`); err != nil {
-		t.Fatal(err)
-	}
+	seedInstalledPackage(t, db, "", "slakd", "github.com/org/slakd", "abc123",
+		"2026-07-29T00:00:00Z")
 	body := packagesGet(t, db)
 	for _, want := range []string{"slakd", "github.com/org/slakd", "abc123"} {
 		if !strings.Contains(body, want) {
@@ -56,16 +58,39 @@ func TestPackagesPageRows(t *testing.T) {
 func TestPackagesPageShowsScope(t *testing.T) {
 	db := packagesDB(t)
 	defer db.Close()
-	if _, err := db.Exec(`INSERT INTO installed_packages(folder, name, source, revision, installed_at)
-		VALUES('','slakd','github.com/org/slakd','abc123','2026-07-29T00:00:00Z'),
-		      ('atlas/support','trip','ant/examples/trip','local','2026-08-07T00:00:00Z')`); err != nil {
-		t.Fatal(err)
-	}
+	seedInstalledPackage(t, db, "", "slakd", "github.com/org/slakd", "abc123",
+		"2026-07-29T00:00:00Z")
+	seedInstalledPackage(t, db, "atlas/support", "trip", "ant/examples/trip", "local",
+		"2026-08-07T00:00:00Z")
 	body := packagesGet(t, db)
 	if !strings.Contains(body, "<code>atlas/support</code>") {
 		t.Errorf("group-scoped product does not show its folder: %s", body)
 	}
 	if !strings.Contains(body, `<span class="dim">instance</span>`) {
 		t.Errorf("instance-wide package does not say so: %s", body)
+	}
+}
+
+// seedInstalledPackage lands one install record. routd writes these items, so
+// the fixture addresses them the way routd does — (folder, name) is the
+// coordinate and the two document attributes hold their empty document, never
+// null.
+func seedInstalledPackage(t *testing.T, db *sql.DB, folder, name, source, revision, at string) {
+	t.Helper()
+	key, err := store.InstalledPackageKey(folder, name)
+	if err != nil {
+		t.Fatalf("coordinate of %s/%s: %v", folder, name, err)
+	}
+	if _, err := sqlstore.New(db).GuardedBatch(t.Context(), nil, []objstore.Write{{
+		Op: objstore.Put, Entity: store.InstalledPackages, Key: key,
+		Attrs: map[string]string{
+			store.AttrPkgSource:      source,
+			store.AttrPkgRevision:    revision,
+			store.AttrPkgInstalledAt: at,
+			store.AttrPkgManifest:    "{}",
+			store.AttrPkgAssetHashes: "{}",
+		},
+	}}); err != nil {
+		t.Fatalf("seed installed package %s/%s: %v", folder, name, err)
 	}
 }

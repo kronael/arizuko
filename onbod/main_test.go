@@ -19,12 +19,12 @@ import (
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/db_utils/dbtest"
 	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
-
-	"github.com/kronael/arizuko/audit"
 )
 
 func TestMain(m *testing.M) {
@@ -52,34 +52,22 @@ func migratedDB(t *testing.T) (xdb, obdb *sql.DB) {
 	return rdb.SQL(), ob
 }
 
+// testDB fuses onbod's two owners into ONE handle, for the handlers these tests
+// drive with a single database. Both halves are built by the chain their owner
+// ships — routd's for groups/routes/route_tokens/acl/acl_membership and the
+// tables beside them, onbod's own migrateOwned for its three entities, its
+// audit_log and its invite_redemptions — so a rename on either side reaches
+// here. A CREATE TABLE of its own would build a shape production does not have.
 func testDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db := dbtest.Open(t)
-	_, err := db.Exec(`
-		CREATE TABLE routes (id INTEGER PRIMARY KEY AUTOINCREMENT, seq INTEGER, match TEXT, target TEXT, observe_window_messages INTEGER, observe_window_chars INTEGER, added_by TEXT, added_via TEXT);
-		CREATE TABLE groups (folder TEXT PRIMARY KEY, parent TEXT, name TEXT, added_at TEXT, slink_token TEXT, product TEXT);
-		CREATE TABLE route_tokens (token_hash BLOB PRIMARY KEY, jid TEXT NOT NULL, owner_folder TEXT REFERENCES groups(folder) ON DELETE CASCADE, created_at TEXT NOT NULL, context TEXT, kind TEXT NOT NULL DEFAULT 'route');
-		CREATE TABLE messages (id TEXT PRIMARY KEY, chat_jid TEXT, sender TEXT, content TEXT, timestamp TEXT, is_from_me INTEGER, is_bot_message INTEGER, source TEXT NOT NULL DEFAULT '');
-		CREATE TABLE scheduled_tasks (id TEXT PRIMARY KEY, owner TEXT, chat_jid TEXT, prompt TEXT, cron TEXT, next_run TEXT, status TEXT, created_at TEXT, context_mode TEXT);
-		CREATE TABLE acl (principal TEXT NOT NULL, action TEXT NOT NULL, scope TEXT NOT NULL, effect TEXT NOT NULL DEFAULT 'allow', params TEXT NOT NULL DEFAULT '', predicate TEXT NOT NULL DEFAULT '', granted_by TEXT, granted_at TEXT NOT NULL, grant_option INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (principal, action, scope, params, predicate, effect));
-		CREATE TABLE acl_membership (child TEXT NOT NULL, parent TEXT NOT NULL, added_by TEXT, added_at TEXT NOT NULL, PRIMARY KEY (child, parent));
-		CREATE TABLE user_profiles (id INTEGER PRIMARY KEY AUTOINCREMENT, sub TEXT UNIQUE, username TEXT, name TEXT, created_at TEXT);
-		CREATE TABLE channels (name TEXT PRIMARY KEY, url TEXT, capabilities TEXT);
-		CREATE TABLE invite_redemptions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_sub TEXT NOT NULL, target_glob TEXT NOT NULL, redeemed_at TEXT NOT NULL);
-	`)
+	rdb, err := routd.OpenMem()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("routd.OpenMem: %v", err)
 	}
-	// onbod's own three tables and audit_log are entities, so the fixture asks
-	// the driver for them exactly as an owner's opener does (onbod/db.go
-	// migrateOwned) — never with a CREATE TABLE of its own, which would build a
-	// shape production does not have.
-	obj := newObjectStore(db)
-	if err := audit.EnsureEntities(t.Context(), obj); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.EnsureEntities(t.Context(), obj, store.OwnerOnbod); err != nil {
-		t.Fatal(err)
+	t.Cleanup(func() { rdb.Close() })
+	db := rdb.SQL()
+	if err := migrateOwned(db); err != nil {
+		t.Fatalf("onbod migrate: %v", err)
 	}
 	return db
 }
@@ -234,18 +222,17 @@ func TestPromptUnpromptedMintsPairingTokenWithNullOwner(t *testing.T) {
 	cfg := config{greeting: "Welcome!", authBaseURL: "https://example.com"}
 	promptUnprompted(db, db, cfg)
 
-	var kind string
-	var owner sql.NullString
-	if err := db.QueryRow(
-		`SELECT kind, owner_folder FROM route_tokens WHERE jid = 'telegram:1'`,
-	).Scan(&kind, &owner); err != nil {
-		t.Fatalf("no route_tokens row minted for the greeting: %v", err)
+	// A pairing credential is the one a DELIVERY read does not answer, so the
+	// two reads together say which kind was minted.
+	pairs := pairingTokensFor(t, db, "telegram:1")
+	if len(pairs) != 1 {
+		t.Fatalf("the greeting minted %d pairing tokens for telegram:1, want 1", len(pairs))
 	}
-	if kind != store.RouteTokenKindPair {
-		t.Errorf("greeting minted kind=%q, want %q", kind, store.RouteTokenKindPair)
+	if n := countRouteTokens(t, db); n != 1 {
+		t.Errorf("the greeting left %d credentials in the table, want the 1 pairing token", n)
 	}
-	if owner.Valid {
-		t.Errorf("owner_folder = %q, want NULL — no folder exists at greet time", owner.String)
+	if owner, ok := pairs[0].Attrs["owner_folder"]; ok {
+		t.Errorf("owner_folder = %q, want absent — no folder exists at greet time", owner)
 	}
 
 	if admission(t, db, "telegram:1").PromptedAt == "" {
@@ -383,12 +370,11 @@ func twoWorldUser(t *testing.T) *sql.DB {
 	db := testDB(t)
 	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
 		VALUES ('github:alice', 'alice', 'Alice', '2026-01-01')`)
-	db.Exec(`INSERT INTO groups (folder, added_at) VALUES ('acme', '2026-01-01'), ('beta', '2026-01-01')`)
-	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES
-		('github:alice', 'admin', 'acme', 'allow', '2026-01-01'),
-		('github:alice', 'admin', 'beta', 'allow', '2026-01-01')`)
-	db.Exec(`INSERT INTO acl_membership (parent, child, added_at)
-		VALUES ('github:alice', 'telegram:42', '2026-01-01')`)
+	seedFolder(t, db, "acme")
+	seedFolder(t, db, "beta")
+	seedGrant(t, db, "github:alice", "admin", "acme")
+	seedGrant(t, db, "github:alice", "admin", "beta")
+	seedMembership(t, db, "telegram:42", "github:alice", "")
 	return db
 }
 
@@ -422,7 +408,7 @@ func TestUnroutedJIDOffersEveryAdminWorld(t *testing.T) {
 	}
 
 	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM routes`).Scan(&n)
+	n = countRoutes(t, db)
 	if n != 0 {
 		t.Errorf("auto-picked a world before the owner chose: %d routes written", n)
 	}
@@ -465,7 +451,7 @@ func TestWorldPickerFormSatisfiesCSRFCheck(t *testing.T) {
 	}
 
 	var target string
-	db.QueryRow(`SELECT target FROM routes WHERE match = 'room=42'`).Scan(&target)
+	target = routeTarget(t, db, "room=42")
 	if target != form.Get("target") {
 		t.Errorf("route target = %q, want the chosen %q", target, form.Get("target"))
 	}
@@ -474,7 +460,7 @@ func TestWorldPickerFormSatisfiesCSRFCheck(t *testing.T) {
 // One world is not a choice — asking would be a page with a single radio.
 func TestSingleWorldRoutesWithoutAsking(t *testing.T) {
 	db := twoWorldUser(t)
-	db.Exec(`DELETE FROM groups WHERE folder = 'beta'`)
+	deleteFolder(t, db, "beta")
 
 	w := getOnboard(db, "github:alice")
 	if w.Code != http.StatusOK {
@@ -484,7 +470,7 @@ func TestSingleWorldRoutesWithoutAsking(t *testing.T) {
 		t.Error("asked the owner to choose between one world")
 	}
 	var target string
-	db.QueryRow(`SELECT target FROM routes WHERE match = 'room=42'`).Scan(&target)
+	target = routeTarget(t, db, "room=42")
 	if target != "acme" {
 		t.Errorf("single world not routed automatically, target=%q", target)
 	}
@@ -494,10 +480,13 @@ func TestSingleWorldRoutesWithoutAsking(t *testing.T) {
 // a dashboard that quietly omits the chat: the owner must be told the chat has
 // nowhere to go.
 func TestNoAdminWorldIsAnExplicitDeadEnd(t *testing.T) {
-	db := twoWorldUser(t)
-	// alice keeps a scope (so she is past the invite gate) but administers
-	// nothing: her grants name folders that do not exist as groups.
-	db.Exec(`DELETE FROM groups`)
+	db := testDB(t)
+	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
+		VALUES ('github:alice', 'alice', 'Alice', '2026-01-01')`)
+	// alice holds a scope (so she is past the invite gate) but administers
+	// nothing: her grant names a folder that is not a group.
+	seedGrant(t, db, "github:alice", "admin", "ghost")
+	seedMembership(t, db, "telegram:42", "github:alice", "")
 
 	w := getOnboard(db, "github:alice")
 	body := w.Body.String()
@@ -531,13 +520,13 @@ func TestCreateWorldValidUsername(t *testing.T) {
 	}
 
 	var folder string
-	db.QueryRow(`SELECT folder FROM groups WHERE folder = 'alice'`).Scan(&folder)
+	folder = folderName(t, db, "alice")
 	if folder != "alice" {
 		t.Errorf("group not created")
 	}
 
 	var ug string
-	db.QueryRow(`SELECT scope FROM acl WHERE principal = 'github:new'`).Scan(&ug)
+	ug = firstScope(t, db, "github:new")
 	if ug != "alice/**" {
 		t.Errorf("creator grant should be subtree-scoped, got %q", ug)
 	}
@@ -568,7 +557,7 @@ func TestCreateWorldInvalidUsername(t *testing.T) {
 
 func TestCreateWorldDuplicateUsername(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO groups (folder, added_at) VALUES ('alice', '2026-01-01')`)
+	seedFolder(t, db, "alice")
 	cfg := config{}
 	form := url.Values{"action": {"create_world"}, "username": {"alice"}}
 	form.Set("csrf", "c")
@@ -610,7 +599,7 @@ func TestAdmitJIDApprovesAndWritesNoEdge(t *testing.T) {
 	admitJID(db, config{}, "telegram:1", "github:alice")
 
 	var edges int
-	db.QueryRow(`SELECT COUNT(*) FROM acl_membership WHERE child = 'telegram:1'`).Scan(&edges)
+	edges = parentCount(t, db, "telegram:1")
 	if edges != 0 {
 		t.Errorf("admitJID wrote %d acl_membership rows; the edge belongs to RedeemPairing alone", edges)
 	}
@@ -630,8 +619,7 @@ func TestAdmitJIDApprovesAndWritesNoEdge(t *testing.T) {
 func TestObservePairingsAdmitsAPairedJID(t *testing.T) {
 	db := testDB(t)
 	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "telegram:1", Status: "awaiting_message"})
-	db.Exec(`INSERT INTO acl_membership (child, parent, added_at, added_by)
-		VALUES ('telegram:1', 'github:alice', '2026-01-01', ?)`, store.PairingAddedBy)
+	seedMembership(t, db, "telegram:1", "github:alice", store.PairingAddedBy)
 
 	observePairings(db, db, config{})
 
@@ -662,8 +650,7 @@ func TestObservePairingsLeavesUnpairedRowsAlone(t *testing.T) {
 func TestObservePairingsAdmitsOnlyOnce(t *testing.T) {
 	db := testDB(t)
 	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "telegram:1", Status: "awaiting_message"})
-	db.Exec(`INSERT INTO acl_membership (child, parent, added_at, added_by)
-		VALUES ('telegram:1', 'github:alice', '2026-01-01', ?)`, store.PairingAddedBy)
+	seedMembership(t, db, "telegram:1", "github:alice", store.PairingAddedBy)
 
 	observePairings(db, db, config{})
 	first := admission(t, db, "telegram:1").AdmittedAt
@@ -689,8 +676,7 @@ func TestObservePairingsSkipsARowThatAlreadyNamesAUser(t *testing.T) {
 	db := testDB(t)
 	seedAdmission(t, db, store.ArchiveOnboardingRow{
 		JID: "telegram:1", Status: "awaiting_message", UserSub: "github:old"})
-	db.Exec(`INSERT INTO acl_membership (child, parent, added_at, added_by)
-		VALUES ('telegram:1', 'github:alice', '2026-01-01', ?)`, store.PairingAddedBy)
+	seedMembership(t, db, "telegram:1", "github:alice", store.PairingAddedBy)
 
 	observePairings(db, db, config{})
 
@@ -708,8 +694,7 @@ func TestRepromptLeavesAnAdmittableRow(t *testing.T) {
 	seedAdmission(t, db, store.ArchiveOnboardingRow{
 		JID: "telegram:1", Status: "approved", UserSub: "github:alice", Gate: "*",
 		AdmittedAt: "2026-01-02T00:00:00Z", PromptedAt: "2026-01-02T00:00:00Z"})
-	db.Exec(`INSERT INTO acl_membership (child, parent, added_at, added_by)
-		VALUES ('telegram:1', 'github:alice', '2026-01-01', ?)`, store.PairingAddedBy)
+	seedMembership(t, db, "telegram:1", "github:alice", store.PairingAddedBy)
 
 	if err := store.New(db).RepromptOnboarding("telegram:1"); err != nil {
 		t.Fatal(err)
@@ -730,8 +715,7 @@ func TestRepromptLeavesAnAdmittableRow(t *testing.T) {
 func TestObservePairingsIgnoresNonPairingEdges(t *testing.T) {
 	db := testDB(t)
 	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "telegram:1", Status: "awaiting_message"})
-	db.Exec(`INSERT INTO acl_membership (child, parent, added_at, added_by)
-		VALUES ('telegram:1', 'role:operator', '2026-01-01', 'migration-0053')`)
+	seedMembership(t, db, "telegram:1", "role:operator", "migration-0053")
 
 	observePairings(db, db, config{})
 
@@ -745,8 +729,7 @@ func TestObservePairingsIgnoresNonPairingEdges(t *testing.T) {
 // the observer never sees it. The scan is over `onboarding`, not over edges.
 func TestObservePairingsIgnoresAgentMintedPairings(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO acl_membership (child, parent, added_at, added_by)
-		VALUES ('telegram:9', 'github:alice', '2026-01-01', ?)`, store.PairingAddedBy)
+	seedMembership(t, db, "telegram:9", "github:alice", store.PairingAddedBy)
 
 	observePairings(db, db, config{})
 
@@ -764,8 +747,8 @@ func TestCreateWorldRoutesNoJIDs(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
 		VALUES ('github:new', 'github:new', 'New User', '2026-01-01')`)
-	db.Exec(`INSERT INTO acl_membership (parent, child, added_at) VALUES ('github:new', 'telegram:10', '2026-01-01')`)
-	db.Exec(`INSERT INTO acl_membership (parent, child, added_at) VALUES ('github:new', 'discord:20', '2026-01-01')`)
+	seedMembership(t, db, "telegram:10", "github:new", "")
+	seedMembership(t, db, "discord:20", "github:new", "")
 
 	seedRedemption(t, db, "github:new", "/")
 
@@ -784,20 +767,20 @@ func TestCreateWorldRoutesNoJIDs(t *testing.T) {
 	}
 
 	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM routes`).Scan(&n)
+	n = countRoutes(t, db)
 	if n != 0 {
 		t.Fatalf("create_world wrote %d route(s) as a side effect; want 0", n)
 	}
 
 	// One landing, one route — not one per paired chat.
 	getOnboard(db, "github:new")
-	db.QueryRow(`SELECT COUNT(*) FROM routes WHERE target = 'newworld'`).Scan(&n)
+	n = len(routesMatching(t, db, func(r resources.RoutesRow) bool { return r.Target == "newworld" }))
 	if n != 1 {
 		t.Fatalf("landing routed %d chats; the act concerns one", n)
 	}
 	// The other chat is not stranded: the next landing reaches it, one act each.
 	getOnboard(db, "github:new")
-	db.QueryRow(`SELECT COUNT(*) FROM routes WHERE target = 'newworld'`).Scan(&n)
+	n = len(routesMatching(t, db, func(r resources.RoutesRow) bool { return r.Target == "newworld" }))
 	if n != 2 {
 		t.Errorf("second landing left %d routes; the remaining chat is stranded", n)
 	}
@@ -825,13 +808,13 @@ func TestCreateWorldNoLinkedJIDs(t *testing.T) {
 	}
 
 	var folder string
-	db.QueryRow(`SELECT folder FROM groups WHERE folder = 'lonely'`).Scan(&folder)
+	folder = folderName(t, db, "lonely")
 	if folder != "lonely" {
 		t.Error("group not created")
 	}
 
 	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM routes WHERE target = 'lonely'`).Scan(&n)
+	n = len(routesMatching(t, db, func(r resources.RoutesRow) bool { return r.Target == "lonely" }))
 	if n != 0 {
 		t.Errorf("expected 0 routes, got %d", n)
 	}
@@ -847,9 +830,8 @@ func TestCreateWorldOperatorAllowed(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
 		VALUES ('github:op', 'op', 'Op', '2026-01-01')`)
-	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('github:op', 'admin', '**', 'allow', '2026-01-01')`)
-	db.Exec(`INSERT INTO acl_membership (parent, child, added_at)
-		VALUES ('github:op', 'telegram:99', '2026-01-01')`)
+	seedGrant(t, db, "github:op", "admin", "**")
+	seedMembership(t, db, "telegram:99", "github:op", "")
 
 	seedRedemption(t, db, "github:op", "/")
 
@@ -867,12 +849,12 @@ func TestCreateWorldOperatorAllowed(t *testing.T) {
 		t.Fatalf("want 303, got %d; body: %s", w.Code, w.Body.String())
 	}
 	var folder string
-	db.QueryRow(`SELECT folder FROM groups WHERE folder = 'opworld'`).Scan(&folder)
+	folder = folderName(t, db, "opworld")
 	if folder != "opworld" {
 		t.Errorf("operator's world not created")
 	}
 	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM routes`).Scan(&n)
+	n = countRoutes(t, db)
 	if n != 0 {
 		t.Errorf("create_world wrote %d route(s) as a side effect; want 0", n)
 	}
@@ -1151,9 +1133,8 @@ func TestInviteConsume(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
 		VALUES ('github:bob', 'bob', 'Bob', '2026-01-01')`)
-	db.Exec(`INSERT INTO groups (folder, added_at) VALUES ('alice', '2026-01-01')`)
-	db.Exec(`INSERT INTO acl_membership (parent, child, added_at)
-		VALUES ('github:bob', 'telegram:99', '2026-01-01')`)
+	seedFolder(t, db, "alice")
+	seedMembership(t, db, "telegram:99", "github:bob", "")
 
 	token := createInvite(t, db, "alice", "telegram:1", 1)
 
@@ -1172,7 +1153,7 @@ func TestInviteConsume(t *testing.T) {
 	}
 
 	var folder string
-	db.QueryRow(`SELECT scope FROM acl WHERE principal = 'github:bob'`).Scan(&folder)
+	folder = firstScope(t, db, "github:bob")
 	if folder != "alice" {
 		t.Errorf("want user_groups folder=alice, got %q", folder)
 	}
@@ -1181,7 +1162,7 @@ func TestInviteConsume(t *testing.T) {
 	// every paired JID at the target; the /onboard it redirects to routes the
 	// one unrouted chat, attributed.
 	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM routes`).Scan(&n)
+	n = countRoutes(t, db)
 	if n != 0 {
 		t.Errorf("redemption wrote %d route(s) as a side effect; want 0", n)
 	}
@@ -1308,11 +1289,11 @@ func cloneVals(v url.Values) url.Values {
 func TestDeleteRoute(t *testing.T) {
 	db := testDB(t)
 	cfg := config{}
-	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('alice', 'admin', 'myroom', 'allow', '2026-01-01')`)
-	db.Exec(`INSERT INTO routes (seq, match, target) VALUES (0, 'room=1', 'myroom')`)
+	seedGrant(t, db, "alice", "admin", "myroom")
+	seedRoute(t, db, 0, "room=1", "myroom")
 
 	var id int64
-	db.QueryRow(`SELECT id FROM routes WHERE target = 'myroom'`).Scan(&id)
+	id = routeIDInto(t, db, "myroom")
 
 	w := postOnboard(db, cfg, "alice", url.Values{
 		"action":   {"delete_route"},
@@ -1323,7 +1304,7 @@ func TestDeleteRoute(t *testing.T) {
 	}
 
 	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM routes WHERE id = ?`, id).Scan(&n)
+	n = boolCount(routeExists(t, db, id))
 	if n != 0 {
 		t.Error("route should be deleted")
 	}
@@ -1332,11 +1313,11 @@ func TestDeleteRoute(t *testing.T) {
 func TestDeleteRouteWrongUser(t *testing.T) {
 	db := testDB(t)
 	cfg := config{}
-	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('bob', 'admin', 'bobroom', 'allow', '2026-01-01')`)
-	db.Exec(`INSERT INTO routes (seq, match, target) VALUES (0, 'room=1', 'aliceroom')`)
+	seedGrant(t, db, "bob", "admin", "bobroom")
+	seedRoute(t, db, 0, "room=1", "aliceroom")
 
 	var id int64
-	db.QueryRow(`SELECT id FROM routes WHERE target = 'aliceroom'`).Scan(&id)
+	id = routeIDInto(t, db, "aliceroom")
 
 	w := postOnboard(db, cfg, "bob", url.Values{
 		"action":   {"delete_route"},
@@ -1347,7 +1328,7 @@ func TestDeleteRouteWrongUser(t *testing.T) {
 	}
 
 	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM routes WHERE id = ?`, id).Scan(&n)
+	n = boolCount(routeExists(t, db, id))
 	if n != 1 {
 		t.Error("route should still exist")
 	}
@@ -1356,9 +1337,9 @@ func TestDeleteRouteWrongUser(t *testing.T) {
 func TestAddRoute(t *testing.T) {
 	db := testDB(t)
 	cfg := config{}
-	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('alice', 'admin', 'myroom', 'allow', '2026-01-01')`)
+	seedGrant(t, db, "alice", "admin", "myroom")
 	// Alice must own a JID whose room matches the add_route match pattern.
-	db.Exec(`INSERT INTO acl_membership (parent, child, added_at) VALUES ('alice', 'telegram:999', '2026-01-01')`)
+	seedMembership(t, db, "telegram:999", "alice", "")
 
 	w := postOnboard(db, cfg, "alice", url.Values{
 		"action": {"add_route"},
@@ -1369,12 +1350,9 @@ func TestAddRoute(t *testing.T) {
 		t.Fatalf("want 303, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var match, target string
-	db.QueryRow(
-		`SELECT match, target FROM routes WHERE target = 'myroom'`,
-	).Scan(&match, &target)
-	if match != "room=999" || target != "myroom" {
-		t.Errorf("route: match=%q target=%q", match, target)
+	rules := routesMatching(t, db, func(r resources.RoutesRow) bool { return r.Target == "myroom" })
+	if len(rules) != 1 || rules[0].Match != "room=999" {
+		t.Errorf("routes into myroom = %+v, want one matching room=999", rules)
 	}
 }
 
@@ -1383,7 +1361,7 @@ func TestAddRoute(t *testing.T) {
 func TestAddRouteMatchNotOwned(t *testing.T) {
 	db := testDB(t)
 	cfg := config{}
-	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('alice', 'admin', 'myroom', 'allow', '2026-01-01')`)
+	seedGrant(t, db, "alice", "admin", "myroom")
 	// alice has NO user_jids; attempt to claim victim's room.
 	w := postOnboard(db, cfg, "alice", url.Values{
 		"action": {"add_route"},
@@ -1394,7 +1372,7 @@ func TestAddRouteMatchNotOwned(t *testing.T) {
 		t.Fatalf("want 403, got %d: %s", w.Code, w.Body.String())
 	}
 	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM routes`).Scan(&n)
+	n = countRoutes(t, db)
 	if n != 0 {
 		t.Errorf("no route should have been created, got %d", n)
 	}
@@ -1404,7 +1382,7 @@ func TestAddRouteMatchNotOwned(t *testing.T) {
 func TestAddRouteInvalidMatchChars(t *testing.T) {
 	db := testDB(t)
 	cfg := config{}
-	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('alice', 'admin', 'myroom', 'allow', '2026-01-01')`)
+	seedGrant(t, db, "alice", "admin", "myroom")
 	for _, bad := range []string{"room=* *", "room=a b", "** match"} {
 		w := postOnboard(db, cfg, "alice", url.Values{
 			"action": {"add_route"},
@@ -1420,7 +1398,7 @@ func TestAddRouteInvalidMatchChars(t *testing.T) {
 func TestCSRFRejected(t *testing.T) {
 	db := testDB(t)
 	cfg := config{}
-	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('alice', 'admin', 'myroom', 'allow', '2026-01-01')`)
+	seedGrant(t, db, "alice", "admin", "myroom")
 	// No csrf cookie/field → must be rejected even with X-User-Sub.
 	form := url.Values{"action": {"add_route"}, "match": {"room=1"}, "target": {"myroom"}}
 	req := httptest.NewRequest("POST", "/onboard", strings.NewReader(form.Encode()))
@@ -1440,7 +1418,7 @@ func TestInviteAtomicConsume(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
 		VALUES ('github:bob', 'bob', 'Bob', '2026-01-01')`)
-	db.Exec(`INSERT INTO groups (folder, added_at) VALUES ('alice', '2026-01-01')`)
+	seedFolder(t, db, "alice")
 	tok := createInvite(t, db, "alice", "telegram:1", 1)
 
 	// First consume.
@@ -1466,7 +1444,7 @@ func TestInviteAtomicConsume(t *testing.T) {
 	}
 	// Eve should not have user_groups row.
 	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM acl WHERE principal = 'github:eve'`).Scan(&n)
+	n = len(aclScopes(t, db, "github:eve"))
 	if n != 0 {
 		t.Errorf("eve must not be granted access, got %d rows", n)
 	}
@@ -1475,7 +1453,7 @@ func TestInviteAtomicConsume(t *testing.T) {
 func TestAddRouteWrongTarget(t *testing.T) {
 	db := testDB(t)
 	cfg := config{}
-	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('bob', 'admin', 'bobroom', 'allow', '2026-01-01')`)
+	seedGrant(t, db, "bob", "admin", "bobroom")
 
 	w := postOnboard(db, cfg, "bob", url.Values{
 		"action": {"add_route"},
@@ -1487,7 +1465,7 @@ func TestAddRouteWrongTarget(t *testing.T) {
 	}
 
 	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM routes`).Scan(&n)
+	n = countRoutes(t, db)
 	if n != 0 {
 		t.Error("no route should have been created")
 	}
@@ -1501,9 +1479,9 @@ func TestDashboardXSSEscape(t *testing.T) {
 	attacker := `<script>alert(1)</script>`
 	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
 		VALUES (?, ?, '', '2026-01-01')`, attacker, attacker)
-	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES (?, 'admin', 'room', 'allow', '2026-01-01')`, attacker)
-	db.Exec(`INSERT INTO acl_membership (parent, child, added_at) VALUES (?, ?, '2026-01-01')`,
-		attacker, attacker)
+	seedGrant(t, db, attacker, "admin", "room")
+	// The paired jid is attacker-controlled too, and the dashboard lists it.
+	seedMembership(t, db, "telegram:"+attacker, attacker, "")
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/onboard", nil)
@@ -1559,7 +1537,7 @@ func TestHandleOnboardPostUnknownAction(t *testing.T) {
 
 func TestAddRouteMissingFields(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('alice', 'admin', 'myroom', 'allow', '2026-01-01')`)
+	seedGrant(t, db, "alice", "admin", "myroom")
 
 	w := postOnboard(db, config{}, "alice", url.Values{"action": {"add_route"}})
 	if w.Code != http.StatusBadRequest {
@@ -1575,7 +1553,7 @@ func TestAddRouteMissingFields(t *testing.T) {
 
 func TestDeleteRouteInvalidID(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('alice', 'admin', 'myroom', 'allow', '2026-01-01')`)
+	seedGrant(t, db, "alice", "admin", "myroom")
 
 	w := postOnboard(db, config{}, "alice", url.Values{
 		"action": {"delete_route"}, "route_id": {"not-a-number"},
@@ -1587,7 +1565,7 @@ func TestDeleteRouteInvalidID(t *testing.T) {
 
 func TestDeleteRouteNotFound(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('alice', 'admin', 'myroom', 'allow', '2026-01-01')`)
+	seedGrant(t, db, "alice", "admin", "myroom")
 	w := postOnboard(db, config{}, "alice", url.Values{
 		"action": {"delete_route"}, "route_id": {"99999"},
 	})
@@ -1600,11 +1578,11 @@ func TestDeleteRouteNotFound(t *testing.T) {
 // auth.MatchGroups integration in folderAllowed.
 func TestOperatorCanManageAnyRoute(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('op', 'admin', '**', 'allow', '2026-01-01')`)
-	db.Exec(`INSERT INTO routes (seq, match, target) VALUES (0, 'room=X', 'any-world')`)
+	seedGrant(t, db, "op", "admin", "**")
+	seedRoute(t, db, 0, "room=X", "any-world")
 
 	var id int64
-	db.QueryRow(`SELECT id FROM routes WHERE target = 'any-world'`).Scan(&id)
+	id = routeIDInto(t, db, "any-world")
 	w := postOnboard(db, config{}, "op", url.Values{
 		"action": {"delete_route"}, "route_id": {strconv.FormatInt(id, 10)},
 	})
@@ -1623,10 +1601,10 @@ func TestOperatorCanManageAnyRoute(t *testing.T) {
 // Non-operator with zero grants (empty user_groups) must get 403.
 func TestNonOperatorNoGrantsDenied(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO routes (seq, match, target) VALUES (0, 'room=1', 'someroom')`)
+	seedRoute(t, db, 0, "room=1", "someroom")
 
 	var id int64
-	db.QueryRow(`SELECT id FROM routes WHERE target = 'someroom'`).Scan(&id)
+	id = routeIDInto(t, db, "someroom")
 	// bob has no user_groups rows → userFolders returns nil → denied.
 	// Operator is emergent only from a `**` grant row.
 	w := postOnboard(db, config{}, "bob", url.Values{
@@ -1706,10 +1684,7 @@ func TestStateMachineMigrated(t *testing.T) {
 
 	// 1) prompt → a kind='pair' token exists for the jid, and the row is claimed
 	promptUnprompted(xdb, obdb, cfg)
-	var pairTokens int
-	xdb.QueryRow(`SELECT COUNT(*) FROM route_tokens WHERE jid = 'telegram:7' AND kind = ?`,
-		store.RouteTokenKindPair).Scan(&pairTokens)
-	if pairTokens != 1 {
+	if pairTokens := len(pairingTokensFor(t, xdb, "telegram:7")); pairTokens != 1 {
 		t.Fatalf("prompt minted %d pairing tokens, want 1", pairTokens)
 	}
 	st := admissionStatus(t, obdb, "telegram:7")
@@ -1718,8 +1693,7 @@ func TestStateMachineMigrated(t *testing.T) {
 	}
 
 	// 2) redemption writes the edge — in routd's DB, by RedeemPairing, not onbod
-	xdb.Exec(`INSERT INTO acl_membership (child, parent, added_at, added_by)
-		VALUES ('telegram:7', 'github:alice', '2026-01-01', ?)`, store.PairingAddedBy)
+	seedMembership(t, xdb, "telegram:7", "github:alice", store.PairingAddedBy)
 
 	// 3) the observer discovers it → queued (a gate is configured)
 	observePairings(xdb, obdb, cfg)
@@ -1883,7 +1857,7 @@ func TestInviteEmptyToken(t *testing.T) {
 // handleAddRoute: match/target longer than 256 chars is rejected before touching DB.
 func TestAddRouteTooLong(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('op', 'admin', '**', 'allow', '2026-01-01')`)
+	seedGrant(t, db, "op", "admin", "**")
 	long := strings.Repeat("a", 257)
 	w := postOnboard(db, config{}, "op", url.Values{
 		"action": {"add_route"}, "match": {"room=1"}, "target": {long},
@@ -1902,7 +1876,7 @@ func TestAddRouteTooLong(t *testing.T) {
 // handleAddRoute: invalid pattern characters (spaces, wildcards) are rejected.
 func TestAddRouteInvalidMatchChars2(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('op', 'admin', '**', 'allow', '2026-01-01')`)
+	seedGrant(t, db, "op", "admin", "**")
 	// Note: "room=a\n" (trailing newline) is accepted by the current regex —
 	// Go's default `$` matches before a final \n. Logged in bugs.md.
 	for _, bad := range []string{"room=a b", "room=*", "room=a%", "room=a\nb"} {
@@ -1918,7 +1892,7 @@ func TestAddRouteInvalidMatchChars2(t *testing.T) {
 // handleAddRoute: non-operator must own the room referenced in match.
 func TestAddRouteNonOperatorForbiddenOnUnownedMatch(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('alice', 'admin', 'alice', 'allow', '2026-01-01')`)
+	seedGrant(t, db, "alice", "admin", "alice")
 	// alice has no user_jids → cannot claim any room=<id>.
 	w := postOnboard(db, config{}, "alice", url.Values{
 		"action": {"add_route"}, "match": {"room=9999"}, "target": {"alice"},
@@ -1932,7 +1906,7 @@ func TestAddRouteNonOperatorForbiddenOnUnownedMatch(t *testing.T) {
 // return false.
 func TestUserOwnsMatchRejectsNonRoomPrefix(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO acl_membership (parent, child, added_at) VALUES ('alice','telegram:42','2026-01-01')`)
+	seedMembership(t, db, "telegram:42", "alice", "")
 	if userOwnsMatch(db, "alice", "peer=42") {
 		t.Error("non-room prefix must not match")
 	}
@@ -2122,10 +2096,15 @@ func TestIsOperator(t *testing.T) {
 }
 
 // userFolders filters out empty-string rows (defensive — migration scars).
+//
+// The scar is written as a raw item, because store's own writer REFUSES an
+// empty scope: a grant that names nothing has no coordinate (store/acl.go
+// aclKey). What is under test is the reader's defence against a row no writer
+// here produces.
 func TestUserFoldersSkipsEmpty(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('alice', 'admin', 'real', 'allow', '2026-01-01')`)
-	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('alice', 'admin', '', 'allow', '2026-01-01')`)
+	seedGrant(t, db, "alice", "admin", "real")
+	seedACLScar(t, db, core.ACLRow{Principal: "alice", Action: "admin", Effect: "allow"})
 	got := userFolders(db, "alice")
 	for _, f := range got {
 		if f == "" {
@@ -2162,9 +2141,7 @@ func TestPromptUnprompted_DoesNotRegreetAPromptedRow(t *testing.T) {
 	cfg := config{authBaseURL: "https://example.com"}
 	promptUnprompted(db, db, cfg)
 
-	var minted int
-	db.QueryRow(`SELECT COUNT(*) FROM route_tokens WHERE jid = 'telegram:1'`).Scan(&minted)
-	if minted != 0 {
+	if minted := countRouteTokens(t, db); minted != 0 {
 		t.Errorf("re-greeted a row already prompted %s ago: %d tokens minted", "31m", minted)
 	}
 	prompted := admission(t, db, "telegram:1").PromptedAt
@@ -2187,9 +2164,7 @@ func TestPromptUnprompted_DoesNotResetClaimedRow(t *testing.T) {
 	if status := admissionStatus(t, db, "telegram:1"); status != "approved" {
 		t.Errorf("claimed row was reset: status=%s", status)
 	}
-	var minted int
-	db.QueryRow(`SELECT COUNT(*) FROM route_tokens WHERE jid = 'telegram:1'`).Scan(&minted)
-	if minted != 0 {
+	if minted := countRouteTokens(t, db); minted != 0 {
 		t.Errorf("claimed row got a link re-minted: %d tokens", minted)
 	}
 }
@@ -2218,14 +2193,9 @@ func readAll(r interface{ Read(p []byte) (int, error) }) ([]byte, error) {
 // matched neither `acme` against `acme/eng` nor `acme/**` against anything.
 func TestAdminFolders_HonoursSubtreeGrant(t *testing.T) {
 	db := testDB(t)
-	if _, err := db.Exec(`INSERT INTO groups (folder, added_at)
-		VALUES ('acme', datetime('now')), ('acme/eng', datetime('now'))`); err != nil {
-		t.Fatalf("groups fixture: %v", err)
-	}
-	if _, err := db.Exec(`INSERT INTO acl (principal, action, scope, effect, params, predicate, granted_at, granted_by)
-		VALUES ('github:owner', 'admin', 'acme/**', 'allow', '', '', datetime('now'), 'test')`); err != nil {
-		t.Fatalf("acl fixture: %v", err)
-	}
+	seedFolder(t, db, "acme")
+	seedFolder(t, db, "acme/eng")
+	seedGrant(t, db, "github:owner", "admin", "acme/**")
 
 	// Both the world AND its subgroup are choices the owner may be offered.
 	if got := adminFolders(db, "github:owner"); len(got) != 2 {

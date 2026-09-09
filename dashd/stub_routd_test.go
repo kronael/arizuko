@@ -5,16 +5,19 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/resreg/resources"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	"github.com/kronael/arizuko/router"
+	"github.com/kronael/arizuko/store"
 )
 
 // stubRoutd stands in for routd's /v1 read face, serving from the SAME
@@ -38,42 +41,35 @@ func stubRoutd(t *testing.T, db *sql.DB) string {
 	// /v1/groups answers, which is what dashd's pages now read instead of the
 	// table (BUGS L142).
 	mux.HandleFunc("GET /v1/groups", func(w http.ResponseWriter, _ *http.Request) {
-		rows, err := db.Query(`SELECT folder FROM groups ORDER BY folder`)
+		// The folder IS the coordinate, so the read arrives in folder order.
+		folders, err := store.New(db).GroupFolders(0)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		defer rows.Close()
 		out := []map[string]string{}
-		for rows.Next() {
-			var f string
-			if err := rows.Scan(&f); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
+		for _, f := range folders {
 			out = append(out, map[string]string{"folder": f})
 		}
 		writeStubJSON(w, out)
 	})
 
-	mux.HandleFunc("GET /v1/tasks", func(w http.ResponseWriter, _ *http.Request) {
-		rows, err := db.Query(`SELECT id, owner, COALESCE(prompt,''), COALESCE(cron,''),
-			status, created_at, COALESCE(next_run,'') FROM scheduled_tasks ORDER BY owner, id`)
+	mux.HandleFunc("GET /v1/tasks", func(w http.ResponseWriter, r *http.Request) {
+		items, err := stubItems(r, db, store.ScheduledTasks)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		defer rows.Close()
 		out := []resources.ScheduledTasksRow{}
-		for rows.Next() {
-			var t resources.ScheduledTasksRow
-			if err := rows.Scan(&t.ID, &t.Owner, &t.Prompt, &t.Cron,
-				&t.Status, &t.Created, &t.NextRun); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			out = append(out, t)
+		for _, it := range items {
+			out = append(out, stubTaskRow(it))
 		}
+		slices.SortFunc(out, func(a, b resources.ScheduledTasksRow) int {
+			if a.Owner != b.Owner {
+				return strings.Compare(a.Owner, b.Owner)
+			}
+			return strings.Compare(a.ID, b.ID)
+		})
 		writeStubJSON(w, out)
 	})
 
@@ -155,44 +151,58 @@ func stubRoutd(t *testing.T, db *sql.DB) string {
 		writeStubJSON(w, out)
 	})
 
-	mux.HandleFunc("GET /v1/principals", func(w http.ResponseWriter, _ *http.Request) {
-		rows, err := db.Query(`SELECT sub, COALESCE(name,'') FROM user_profiles
-			UNION SELECT child, '' FROM acl_membership WHERE child NOT LIKE 'role:%' ORDER BY 1`)
+	// TWO reads and a merge, exactly as routd's handlePrincipals does it:
+	// `user_profiles` is a column table and an edge is an objstore item, so there
+	// is no join to run. A `role:` child is a role, not a person.
+	mux.HandleFunc("GET /v1/principals", func(w http.ResponseWriter, r *http.Request) {
+		names := map[string]string{}
+		rows, err := db.Query(`SELECT sub, COALESCE(name,'') FROM user_profiles`)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		defer rows.Close()
-		out := []map[string]string{}
 		for rows.Next() {
 			var sub, name string
 			if err := rows.Scan(&sub, &name); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
-			out = append(out, map[string]string{"sub": sub, "name": name})
+			names[sub] = name
 		}
-		writeStubJSON(w, out)
-	})
-
-	mux.HandleFunc("GET /v1/routes", func(w http.ResponseWriter, _ *http.Request) {
-		rows, err := db.Query(`SELECT id, seq, match, target,
-			COALESCE(observe_window_messages,0), COALESCE(observe_window_chars,0)
-			FROM routes ORDER BY seq, id`)
+		items, err := stubItems(r, db, store.ACLMembership)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		defer rows.Close()
-		out := []core.Route{}
-		for rows.Next() {
-			var r core.Route
-			if err := rows.Scan(&r.ID, &r.Seq, &r.Match, &r.Target,
-				&r.ObserveWindowMessages, &r.ObserveWindowChars); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
+		for _, it := range items {
+			child, _, ok := strings.Cut(it.Key.Sort, store.KeySep)
+			if !ok || strings.HasPrefix(child, "role:") {
+				continue
 			}
-			out = append(out, r)
+			if _, seen := names[child]; !seen {
+				names[child] = ""
+			}
+		}
+		out := []map[string]string{}
+		for sub, name := range names {
+			out = append(out, map[string]string{"sub": sub, "name": name})
+		}
+		slices.SortFunc(out, func(a, b map[string]string) int {
+			return strings.Compare(a["sub"], b["sub"])
+		})
+		writeStubJSON(w, out)
+	})
+
+	mux.HandleFunc("GET /v1/routes", func(w http.ResponseWriter, _ *http.Request) {
+		// RouteTable is `ORDER BY seq, id` — precedence, then write order.
+		out, err := store.New(db).RouteTable()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if out == nil {
+			out = []core.Route{}
 		}
 		writeStubJSON(w, out)
 	})
@@ -203,22 +213,11 @@ func stubRoutd(t *testing.T, db *sql.DB) string {
 	// routd's loop calls at its route-table step — so the stub cannot list a
 	// chat the real reader would not.
 	mux.HandleFunc("GET /v1/routing/unrouted", func(w http.ResponseWriter, _ *http.Request) {
-		rrows, err := db.Query(`SELECT seq, match, target FROM routes ORDER BY seq, id`)
+		routes, err := store.New(db).RouteTable()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		var routes []core.Route
-		for rrows.Next() {
-			var rt core.Route
-			if err := rrows.Scan(&rt.Seq, &rt.Match, &rt.Target); err != nil {
-				rrows.Close()
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			routes = append(routes, rt)
-		}
-		rrows.Close()
 		// One MAX() so the bare sender/verb columns come from the newest row
 		// (SQLite's single-max rule); MIN() rides a subquery for that reason.
 		rows, err := db.Query(`SELECT chat_jid, sender, verb, COUNT(*),
@@ -253,25 +252,29 @@ func stubRoutd(t *testing.T, db *sql.DB) string {
 	})
 
 	mux.HandleFunc("GET /v1/route_tokens", func(w http.ResponseWriter, r *http.Request) {
-		rows, err := db.Query(`SELECT jid, owner_folder, COALESCE(target_folder,''),
-			COALESCE(created_at,''), COALESCE(context,'')
-			FROM route_tokens WHERE owner_folder = ? ORDER BY created_at DESC`,
-			r.URL.Query().Get("folder"))
+		folder := r.URL.Query().Get("folder")
+		items, err := stubItems(r, db, store.RouteTokens)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		defer rows.Close()
 		out := []resources.RouteTokensRow{}
-		for rows.Next() {
-			var t resources.RouteTokensRow
-			if err := rows.Scan(&t.JID, &t.OwnerFolder, &t.TargetFolder,
-				&t.CreatedAt, &t.Context); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
+		for _, it := range items {
+			if it.Attrs["owner_folder"] != folder {
+				continue
 			}
-			out = append(out, t)
+			out = append(out, resources.RouteTokensRow{
+				TokenHash:    it.Key.Sort,
+				JID:          it.Attrs["jid"],
+				OwnerFolder:  it.Attrs["owner_folder"],
+				TargetFolder: it.Attrs["target_folder"],
+				CreatedAt:    it.Attrs["created_at"],
+				Context:      it.Attrs["context"],
+			})
 		}
+		slices.SortFunc(out, func(a, b resources.RouteTokensRow) int {
+			return strings.Compare(b.CreatedAt, a.CreatedAt)
+		})
 		writeStubJSON(w, out)
 	})
 
@@ -281,24 +284,17 @@ func stubRoutd(t *testing.T, db *sql.DB) string {
 	// serve.
 	mux.HandleFunc("GET /v1/acl", func(w http.ResponseWriter, r *http.Request) {
 		folder := r.URL.Query().Get("folder")
-		rows, err := db.Query(`SELECT principal, action, scope, effect,
-			COALESCE(params,''), COALESCE(predicate,'')
-			FROM acl WHERE scope = ? ORDER BY principal, action`, folder)
+		out, err := store.New(db).ListACLByScope(folder)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		defer rows.Close()
-		out := []core.ACLRow{}
-		for rows.Next() {
-			var a core.ACLRow
-			if err := rows.Scan(&a.Principal, &a.Action, &a.Scope, &a.Effect,
-				&a.Params, &a.Predicate); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
+		slices.SortFunc(out, func(a, b core.ACLRow) int {
+			if a.Principal != b.Principal {
+				return strings.Compare(a.Principal, b.Principal)
 			}
-			out = append(out, a)
-		}
+			return strings.Compare(a.Action, b.Action)
+		})
 		writeStubJSON(w, map[string]any{"folder": folder, "acl": out})
 	})
 
@@ -327,52 +323,23 @@ func stubRoutd(t *testing.T, db *sql.DB) string {
 	// and 0 would let a page pass while showing every group as closed and capped
 	// at nothing.
 	mux.HandleFunc("GET /v1/groups/{folder...}", func(w http.ResponseWriter, r *http.Request) {
-		folder := r.PathValue("folder")
-		var addedAt string
-		var cfgJSON *string
-		var open, owM, owC sql.NullInt64
-		g := core.Group{Folder: folder}
-		err := db.QueryRow(`SELECT added_at, container_config, product,
-			COALESCE(json_extract(config,'$.model'),''),
-			json_extract(config,'$.open'),
-			json_extract(config,'$.observe_window_messages'),
-			json_extract(config,'$.observe_window_chars')
-			FROM groups WHERE folder = ?`, folder).
-			Scan(&addedAt, &cfgJSON, &g.Product, &g.Model, &open, &owM, &owC)
-		if err != nil {
+		g, ok := store.New(db).GroupByFolder(r.PathValue("folder"))
+		if !ok {
 			http.NotFound(w, r)
 			return
-		}
-		g.Open = !open.Valid || open.Int64 != 0
-		g.ObserveWindowMessages, g.ObserveWindowChars = -1, -1
-		if owM.Valid {
-			g.ObserveWindowMessages = int(owM.Int64)
-		}
-		if owC.Valid {
-			g.ObserveWindowChars = int(owC.Int64)
 		}
 		writeStubJSON(w, g)
 	})
 
 	mux.HandleFunc("GET /v1/tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
-		id := r.PathValue("id")
-		var t core.Task
-		var cron, nextRun, ctxMode sql.NullString
-		var created string
-		err := db.QueryRow(`SELECT owner, chat_jid, COALESCE(prompt,''), cron,
-			next_run, status, created_at, context_mode
-			FROM scheduled_tasks WHERE id = ?`, id).
-			Scan(&t.Owner, &t.ChatJID, &t.Prompt, &cron, &nextRun, &t.Status, &created, &ctxMode)
+		t, ok, err := store.New(db).TaskByID(r.PathValue("id"))
 		if err != nil {
-			http.NotFound(w, r)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		t.ID, t.Cron, t.ContextMode = id, cron.String, ctxMode.String
-		t.Created, _ = time.Parse(time.RFC3339, created)
-		if nextRun.Valid {
-			if nr, perr := time.Parse(time.RFC3339, nextRun.String); perr == nil {
-				t.NextRun = &nr
-			}
+		if !ok {
+			http.NotFound(w, r)
+			return
 		}
 		writeStubJSON(w, t)
 	})
@@ -406,6 +373,31 @@ func stubRoutd(t *testing.T, db *sql.DB) string {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv.URL
+}
+
+// stubItems reads one whole entity partition, for the two endpoints whose
+// projection store has no reader for: the tasks list keys on (owner, id) and
+// the token list has to carry the digest the resource declares.
+func stubItems(r *http.Request, db *sql.DB, entity string) ([]objstore.Item, error) {
+	return sqlstore.New(db).Query(r.Context(), objstore.Query{
+		Entity: entity, Partition: store.OwnerRoutd,
+	})
+}
+
+// stubTaskRow renders one task item the way resreg's own entity read does: the
+// attributes as they are stored, with the coordinate as the id.
+func stubTaskRow(it objstore.Item) resources.ScheduledTasksRow {
+	return resources.ScheduledTasksRow{
+		ID:          it.Key.Sort,
+		Owner:       it.Attrs["owner"],
+		ChatJID:     it.Attrs["chat_jid"],
+		Prompt:      it.Attrs["prompt"],
+		Cron:        it.Attrs["cron"],
+		NextRun:     it.Attrs["next_run"],
+		Status:      it.Attrs["status"],
+		Created:     it.Attrs["created_at"],
+		ContextMode: it.Attrs["context_mode"],
+	}
 }
 
 func writeStubJSON(w http.ResponseWriter, v any) {

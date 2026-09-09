@@ -14,7 +14,6 @@ package main
 //     JID, as an attributed act.
 
 import (
-	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -22,34 +21,8 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/resreg/resources"
 )
-
-// routeAttribution reads the (added_by, added_via) pair off the route matching
-// `match`. Missing row → ("", "", false); a NULL column → "".
-func routeAttribution(t *testing.T, db *sql.DB, match string) (string, string, bool) {
-	t.Helper()
-	var by, via sql.NullString
-	err := db.QueryRow(
-		`SELECT added_by, added_via FROM routes WHERE match = ?`, match).Scan(&by, &via)
-	if err == sql.ErrNoRows {
-		return "", "", false
-	}
-	if err != nil {
-		t.Fatalf("read route attribution for %q: %v", match, err)
-	}
-	return by.String, via.String, true
-}
-
-// countRoutes is the blast-radius probe: the whole point is how MANY rows an act
-// wrote, not just whether the one it was about exists.
-func countRoutes(t *testing.T, db *sql.DB) int {
-	t.Helper()
-	var n int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM routes`).Scan(&n); err != nil {
-		t.Fatalf("count routes: %v", err)
-	}
-	return n
-}
 
 // TestPickerRouteCarriesAttribution — path 1, the step-6 picker. Replays the
 // form the page actually renders (the F1 discipline) so the assertion covers the
@@ -92,7 +65,7 @@ func TestPickerRouteCarriesAttribution(t *testing.T) {
 // what added_via has to record, or an operator cannot tell the two apart.
 func TestSoleWorldRouteCarriesAttribution(t *testing.T) {
 	db := twoWorldUser(t)
-	db.Exec(`DELETE FROM groups WHERE folder = 'beta'`)
+	deleteFolder(t, db, "beta")
 
 	if w := getOnboard(db, "github:alice"); w.Code != http.StatusOK {
 		t.Fatalf("want 200 dashboard, got %d: %s", w.Code, w.Body.String())
@@ -122,9 +95,8 @@ func TestInviteRedemptionRouteCarriesAttribution(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
 		VALUES ('github:bob', 'bob', 'Bob', '2026-01-01')`)
-	db.Exec(`INSERT INTO groups (folder, added_at) VALUES ('alice', '2026-01-01')`)
-	db.Exec(`INSERT INTO acl_membership (parent, child, added_at)
-		VALUES ('github:bob', 'telegram:77', '2026-01-01')`)
+	seedFolder(t, db, "alice")
+	seedMembership(t, db, "telegram:77", "github:bob", "")
 
 	token := createInvite(t, db, "alice", "telegram:1", 1)
 	req := httptest.NewRequest("GET", "/invite/"+token, nil)
@@ -162,8 +134,7 @@ func TestCreateWorldRouteCarriesAttribution(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
 		VALUES ('github:new', 'github:new', 'New', '2026-01-01')`)
-	db.Exec(`INSERT INTO acl_membership (parent, child, added_at)
-		VALUES ('github:new', 'telegram:10', '2026-01-01')`)
+	seedMembership(t, db, "telegram:10", "github:new", "")
 	seedRedemption(t, db, "github:new", "/")
 
 	if w := postOnboardSplit(db, db, "github:new", url.Values{
@@ -201,14 +172,12 @@ func TestInviteRedemptionRoutesOnlyTheJIDItConcerns(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
 		VALUES ('github:bob', 'bob', 'Bob', '2026-01-01')`)
-	db.Exec(`INSERT INTO groups (folder, added_at) VALUES ('alpha', '2026-01-01')`)
-	db.Exec(`INSERT INTO groups (folder, added_at) VALUES ('alice', '2026-01-01')`)
+	seedFolder(t, db, "alpha")
+	seedFolder(t, db, "alice")
 	// Already settled, at a seq the old seq-0 write would have outranked.
-	db.Exec(`INSERT INTO routes (seq, match, target) VALUES (5, 'room=99', 'alpha')`)
-	db.Exec(`INSERT INTO acl_membership (parent, child, added_at)
-		VALUES ('github:bob', 'telegram:99', '2026-01-01')`)
-	db.Exec(`INSERT INTO acl_membership (parent, child, added_at)
-		VALUES ('github:bob', 'telegram:77', '2026-01-02')`)
+	seedRoute(t, db, 5, "room=99", "alpha")
+	seedMembership(t, db, "telegram:99", "github:bob", "")
+	seedMembership(t, db, "telegram:77", "github:bob", "")
 
 	token := createInvite(t, db, "alice", "telegram:1", 1)
 	req := httptest.NewRequest("GET", "/invite/"+token, nil)
@@ -233,14 +202,12 @@ func TestInviteRedemptionRoutesOnlyTheJIDItConcerns(t *testing.T) {
 	if n := countRoutes(t, db); n != 2 {
 		t.Errorf("landing wrote %d rows total, want 2 (the seeded one + room=77)", n)
 	}
-	var rows int
-	db.QueryRow(`SELECT COUNT(*) FROM routes WHERE match = 'room=99'`).Scan(&rows)
-	if rows != 1 {
-		t.Errorf("room=99 has %d routes; the settled chat gained a competing row", rows)
+	if rows := routesMatching(t, db, func(r resources.RoutesRow) bool {
+		return r.Match == "room=99"
+	}); len(rows) != 1 {
+		t.Errorf("room=99 has %d routes; the settled chat gained a competing row", len(rows))
 	}
-	var target string
-	db.QueryRow(`SELECT target FROM routes WHERE match = 'room=99'`).Scan(&target)
-	if target != "alpha" {
+	if target := routeTarget(t, db, "room=99"); target != "alpha" {
 		t.Errorf("room=99 now targets %q; a chat bob never named was moved", target)
 	}
 	if _, _, ok := routeAttribution(t, db, "room=77"); !ok {
@@ -252,7 +219,7 @@ func TestInviteRedemptionRoutesOnlyTheJIDItConcerns(t *testing.T) {
 // sentinel. NULL means "no actor recorded" and must not read as a real one.
 func TestPreAttributionRoutesStayNull(t *testing.T) {
 	db := twoWorldUser(t)
-	db.Exec(`INSERT INTO routes (seq, match, target) VALUES (0, 'room=1', 'acme')`)
+	seedRoute(t, db, 0, "room=1", "acme")
 
 	by, via, ok := routeAttribution(t, db, "room=1")
 	if !ok {
@@ -268,18 +235,13 @@ func TestPreAttributionRoutesStayNull(t *testing.T) {
 // no actor. Any row onbod produced in this suite's flows must name one.
 func TestUnattributedRouteCannotBeWritten(t *testing.T) {
 	db := twoWorldUser(t)
-	db.Exec(`DELETE FROM groups WHERE folder = 'beta'`)
+	deleteFolder(t, db, "beta")
 	getOnboard(db, "github:alice")
 
-	rows, err := db.Query(`SELECT match FROM routes WHERE added_by IS NULL OR added_via IS NULL`)
-	if err != nil {
-		t.Fatalf("query: %v", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var match string
-		rows.Scan(&match)
-		t.Errorf("onbod wrote an unattributed route: match=%q", match)
+	for _, r := range routesMatching(t, db, func(r resources.RoutesRow) bool {
+		return r.AddedBy == "" || r.AddedVia == ""
+	}) {
+		t.Errorf("onbod wrote an unattributed route: match=%q", r.Match)
 	}
 }
 
@@ -288,7 +250,7 @@ func TestUnattributedRouteCannotBeWritten(t *testing.T) {
 // leave an attributed row behind claiming otherwise.
 func TestPickerRefusesAForeignWorldAndWritesNothing(t *testing.T) {
 	db := twoWorldUser(t)
-	db.Exec(`INSERT INTO groups (folder, added_at) VALUES ('someone-else', '2026-01-01')`)
+	seedFolder(t, db, "someone-else")
 
 	post := httptest.NewRequest("POST", "/onboard", strings.NewReader(url.Values{
 		"action": {"add_route"}, "match": {"room=42"}, "target": {"someone-else"},
