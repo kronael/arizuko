@@ -84,24 +84,10 @@ func (d *DB) GroupObserveWindow(folder string) (int, int) {
 	return store.New(d.db).GroupObserveWindow(folder)
 }
 
-// WatchedSources returns the source folders folder watches (group_watchers
-// rows where observer=folder) — the observe_group ambient join. Empty slice
-// when folder watches nothing.
+// WatchedSources returns the source folders folder watches — the observe_group
+// ambient join. Empty slice when folder watches nothing.
 func (d *DB) WatchedSources(folder string) []string {
-	rows, err := d.db.Query(`SELECT source FROM group_watchers WHERE observer = ?`, folder)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var s string
-		if err := rows.Scan(&s); err != nil {
-			return out
-		}
-		out = append(out, s)
-	}
-	return out
+	return store.New(d.db).WatchedSources(folder)
 }
 
 // ObservedSince returns the trailing window of observed messages for folder

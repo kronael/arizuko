@@ -138,6 +138,7 @@ DROP TABLE IF EXISTS sessions;
 DROP TABLE IF EXISTS chat_reply_state;
 DROP TABLE IF EXISTS system_messages;
 DROP TABLE IF EXISTS turn_results;
+DROP TABLE IF EXISTS group_watchers;
 CREATE TABLE chats (
   jid TEXT PRIMARY KEY, agent_cursor TEXT, sticky_group TEXT,
   sticky_topic TEXT, is_group INTEGER NOT NULL DEFAULT 0);
@@ -157,6 +158,8 @@ CREATE TABLE turn_results (
   folder TEXT NOT NULL, turn_id TEXT NOT NULL, session_id TEXT,
   status TEXT NOT NULL, recorded_at TEXT NOT NULL,
   PRIMARY KEY (folder, turn_id));
+CREATE TABLE group_watchers (
+  observer TEXT NOT NULL, source TEXT NOT NULL, PRIMARY KEY (observer, source));
 `
 
 // seedLegacyRoutdTables gives the monolith the thirteen tables a pre-split
@@ -361,7 +364,7 @@ func TestMigrateSplit(t *testing.T) {
 		"groups": 1, "messages": 2, "chats": 1, "routes": 1, "sessions": 1,
 		"route_tokens": 1, "web_routes": 1,
 		// network_rules: routd seeds 2 base rows (folder='') + our 1 → 3.
-		"network_rules": 3, "chat_reply_state": 1, "group_watchers": 1,
+		"network_rules": 3, "chat_reply_state": 1,
 		// cost_log_archive: 2 same-(folder,model) rows BOTH survive (synthetic
 		// per-row turn_id).
 		"system_messages": 1, "cost_log_archive": 2,

@@ -107,6 +107,9 @@ const (
 	// outcome for. Its create-if-absent is the claim that makes one report one
 	// delivery.
 	TurnResults = "turn_results"
+	// GroupWatchers holds one item per (observer, source) subscription and no
+	// attributes at all: the pair IS the fact.
+	GroupWatchers = "group_watchers"
 
 	// Counters holds one item per server-minted number, addressed by the name
 	// of what it numbers, with the count in `n`.
@@ -187,7 +190,7 @@ var EntitiesByOwner = map[string][]string{
 		PendingActions, NetworkRules, ProxydRoutes, WebRoutes, InstalledPackages,
 		GitHubSources,
 		Chats, Sessions, ChatReplyState, ChatProactive, SystemMessages, UserProfiles,
-		TurnResults,
+		TurnResults, GroupWatchers,
 	},
 	OwnerOnbod: {Onboarding, OnboardingGates, Invites},
 }

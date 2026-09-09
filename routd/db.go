@@ -245,16 +245,12 @@ func (d *DB) SetGroupObserveWindow(folder string, msgs, chars int) error {
 
 // AddGroupWatcher subscribes observer to source's ambient context (idempotent).
 func (d *DB) AddGroupWatcher(observer, source string) error {
-	_, err := d.db.Exec(
-		"INSERT OR IGNORE INTO group_watchers(observer, source) VALUES(?,?)", observer, source)
-	return err
+	return d.store().AddGroupWatcher(observer, source)
 }
 
 // RemoveGroupWatcher drops the observe_group subscription.
 func (d *DB) RemoveGroupWatcher(observer, source string) error {
-	_, err := d.db.Exec(
-		"DELETE FROM group_watchers WHERE observer=? AND source=?", observer, source)
-	return err
+	return d.store().RemoveGroupWatcher(observer, source)
 }
 
 // execer is the shared subset of *sql.DB and *sql.Tx PutMessage uses, so the

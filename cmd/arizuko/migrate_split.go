@@ -78,9 +78,6 @@ var routdSpecs = []copySpec{
 			"COALESCE(topic,''), COALESCE(routed_to,''), COALESCE(verb,'message'), " +
 			"COALESCE(attachments,''), COALESCE(source,''), COALESCE(is_observed,0), " +
 			"COALESCE(turn_id,''), COALESCE(status,'sent'), COALESCE(platform_id,''), COALESCE(chat_name,'')"},
-	{dst: "group_watchers", src: "group_watchers",
-		cols: "observer, source",
-		sel:  "observer, source"},
 	// scheduled_tasks + task_run_logs: routd now OWNS these (routd migration 0009
 	// mirrors store 0001/0011 final shape). Straight copies — identical schema
 	// both sides. task_run_logs.id is AUTOINCREMENT but copied verbatim so the

@@ -48,36 +48,3 @@ func TestFolderScope_ClassifiesEverySchemaTable(t *testing.T) {
 			strings.Join(missing, ", "))
 	}
 }
-
-// TestFolderScope_EveryPurgeScopeRuns pins the declaration against the schema:
-// a scope naming a column the schema lacks would fail every delete, and a scope
-// whose SQL is malformed would too. Executing each statement is the only way to
-// learn that, since nothing else parses them.
-func TestFolderScope_EveryPurgeScopeRuns(t *testing.T) {
-	s := openFKStore(t)
-	tx, err := s.db.Begin()
-	if err != nil {
-		t.Fatalf("begin: %v", err)
-	}
-	defer tx.Rollback()
-	for _, f := range folderScopePurge {
-		q, args := f.stmt("acme")
-		if _, err := tx.Exec(q, args...); err != nil {
-			t.Errorf("%s.%s: %v\n%s", f.table, f.col, err, q)
-		}
-	}
-}
-
-// TestFolderScope_SubtreeIsExact: the predicate is `substr`, not `LIKE`, so `_`
-// and `%` are literals and the compare is case-sensitive. A folder named `a_b`
-// deleting `axb`'s rows is BUGS L122, and every scope here shares the one
-// renderer, so one scope proves the shape.
-func TestFolderScope_SubtreeIsExact(t *testing.T) {
-	q, args := folderScope{table: "acl", col: "scope", seps: []string{"/"}}.stmt("a_b")
-	if strings.Contains(strings.ToUpper(q), "LIKE") {
-		t.Fatalf("subtree predicate uses LIKE: %s", q)
-	}
-	if len(args) != 3 || args[2] != "a_b/" {
-		t.Fatalf("args = %v, want the folder, its prefix length and `a_b/`", args)
-	}
-}

@@ -52,7 +52,7 @@ import (
 // it, because an entity has no foreign key to satisfy.
 var HotEntities = []string{
 	Chats, Sessions, ChatReplyState, ChatProactive, SystemMessages,
-	UserProfiles, TurnResults,
+	UserProfiles, TurnResults, GroupWatchers,
 }
 
 // hotKeyFields names each entity's coordinate fields, in order, so the source
@@ -71,6 +71,7 @@ var hotKeyFields = map[string][]string{
 	SystemMessages: {"folder", "created", "id"},
 	UserProfiles:   {"sub"},
 	TurnResults:    {"folder", "turn_id"},
+	GroupWatchers:  {"observer", "source"},
 }
 
 // HotKeyFields answers one entity's coordinate fields, for the reader that has
@@ -171,6 +172,8 @@ func hotKey(entity string, key []string) (objstore.Key, error) {
 		return profileKey(key[0])
 	case TurnResults:
 		return turnResultKey(key[0], key[1])
+	case GroupWatchers:
+		return watcherKey(key[0], key[1])
 	case SystemMessages:
 		at, err := normaliseInstant(entity, "created", key[1])
 		if err != nil {

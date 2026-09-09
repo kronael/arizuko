@@ -8,11 +8,9 @@ package store
 // `replace(subtree(folder), ∅)`, so the scope predicate is all the operation
 // needs to name.
 //
-// TWO SHAPES, ONE CLASSIFICATION. Sixteen of the scopes are objstore entities
-// and one is a SQL table — `group_watchers`, under two columns — and the
-// completeness tests walk both through FolderScopeClassified: a table or entity
-// in neither list fails, so one joining the schema cannot skip the question of
-// whether it confers on a folder.
+// EVERY SCOPE IS AN ENTITY, and the completeness tests walk the whole schema
+// through FolderScopeClassified: a table or entity in neither list fails, so one
+// joining the schema cannot skip the question of whether it confers on a folder.
 //
 // AN ENTITY HAS NO FOREIGN KEY, so no verdict here may say "the groups row's
 // cascade removes it". Three tables were kept on exactly that claim —
@@ -37,34 +35,6 @@ import (
 	"github.com/kronael/arizuko/objstore"
 )
 
-// folderScope names ONE SQL column that carries a folder coordinate, and how
-// the folder is spelled inside it.
-type folderScope struct {
-	table string
-	col   string
-	// seps are the characters that may follow the folder inside col. "/" opens a
-	// child folder; "#" opens a topic.
-	seps []string
-	// set, when non-empty, is an UPDATE assignment applied instead of a DELETE:
-	// the row outlives the folder and only its binding to the folder goes.
-	set string
-}
-
-// stmt renders the statement that removes folder's rows from one scope.
-func (f folderScope) stmt(folder string) (string, []any) {
-	preds := make([]string, 0, len(f.seps))
-	args := make([]any, 0, 3*len(f.seps))
-	for _, sep := range f.seps {
-		preds = append(preds, groupfolder.SQLSubtree(f.col, sep))
-		args = append(args, groupfolder.SubtreeArgs(folder, sep)...)
-	}
-	where := strings.Join(preds, " OR ")
-	if f.set != "" {
-		return "UPDATE " + f.table + " SET " + f.set + " WHERE " + where, args
-	}
-	return "DELETE FROM " + f.table + " WHERE " + where, args
-}
-
 // entityScope names ONE entity that carries a folder coordinate, and how to
 // read the folder out of one of its items.
 //
@@ -72,8 +42,8 @@ func (f folderScope) stmt(folder string) (string, []any) {
 // sits somewhere different in each: it is the whole key of a groups item, the
 // first field of network_rules' composite one, an attribute on web_routes, and
 // a `folder:`-prefixed principal inside acl_membership's child. The callback IS
-// that declaration, and it is checked by the same completeness test the SQL
-// half is.
+// that declaration, and the completeness test is what checks it against the
+// schema.
 type entityScope struct {
 	entity   string
 	folderOf func(objstore.Item) (string, bool)
@@ -81,22 +51,22 @@ type entityScope struct {
 	seps []string
 	// clear, when non-empty, names the attributes to take away INSTEAD of
 	// deleting the item: the item outlives the folder and only its binding to
-	// the folder goes. It is the entity half of folderScope.set, and there is one
-	// — `chats`, which carries the chat's own dispatch cursor.
+	// the folder goes. There is one — `chats`, which carries the chat's own
+	// dispatch cursor.
 	clear []string
 }
 
-// folderScopePurge is the SQL half: the tables that still hold columns.
-var folderScopePurge = []folderScope{
-	{table: "group_watchers", col: "observer", seps: []string{"/"}},
-	{table: "group_watchers", col: "source", seps: []string{"/"}},
-}
-
-// entityScopePurge is the object half.
+// entityScopePurge is every scope.
 //
 // groups leads, so a reader sees the folder's own row go first; nothing depends
 // on the order, because an entity has no cascade to fire and every delete below
 // is issued explicitly.
+//
+// AN ENTITY MAY APPEAR TWICE, and `group_watchers` is why the list is a slice
+// rather than a map: a subscription carries TWO folder coordinates and folderOf
+// answers one, so the two halves are two entries. That is the same two statements
+// the column path issued, and the second pass reads through the caller's own
+// transaction, so it sees what the first one deleted.
 var entityScopePurge = []entityScope{
 	// The folder itself and its children. Deleting a parent and leaving the
 	// children is an orphan with grants of its own.
@@ -169,6 +139,18 @@ var entityScopePurge = []entityScope{
 	{entity: ChatReplyState, seps: []string{"/"}, folderOf: attrScope(AttrReplyEngagedFolder)},
 	{entity: SystemMessages, seps: []string{"/"}, folderOf: func(it objstore.Item) (string, bool) {
 		return SysMsgFolder(it.Key.Sort)
+	}},
+
+	// Watches. A subscription hands the next tenant of either path the other
+	// one's inbound messages as ambient context, so it goes whichever end the
+	// deleted folder is.
+	{entity: GroupWatchers, seps: []string{"/"}, folderOf: func(it objstore.Item) (string, bool) {
+		observer, _, err := watcherCoord(it.Key.Sort)
+		return observer, err == nil
+	}},
+	{entity: GroupWatchers, seps: []string{"/"}, folderOf: func(it objstore.Item) (string, bool) {
+		_, source, err := watcherCoord(it.Key.Sort)
+		return source, err == nil
 	}},
 
 	// The chat outlives the folder — it carries its own dispatch cursor — so
@@ -273,11 +255,6 @@ func FolderScopeClassified(table string) bool {
 	if _, ok := folderScopeUnpurged[table]; ok {
 		return true
 	}
-	for _, f := range folderScopePurge {
-		if f.table == table {
-			return true
-		}
-	}
 	for _, e := range entityScopePurge {
 		if e.entity == table {
 			return true
@@ -338,12 +315,6 @@ func (s *Store) purgeFolder(ctx context.Context, tx *sql.Tx, folder string) (int
 			func(ctx context.Context, chunk []objstore.Write) (bool, error) {
 				return s.WriteEntitiesInTx(ctx, tx, nil, chunk...)
 			}); err != nil {
-			return 0, err
-		}
-	}
-	for _, f := range folderScopePurge {
-		q, args := f.stmt(folder)
-		if _, err := tx.ExecContext(ctx, q, args...); err != nil {
 			return 0, err
 		}
 	}
