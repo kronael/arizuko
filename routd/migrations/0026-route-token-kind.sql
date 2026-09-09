@@ -4,5 +4,9 @@
 -- 'pair' — so neither can be redeemed as the other. Pairing is a kind of route
 -- token, not a table of its own, which puts the token and the acl_membership
 -- edge it writes in ONE database and therefore ONE transaction.
--- Every pre-existing row is a route token; the DEFAULT covers them.
-ALTER TABLE route_tokens ADD COLUMN kind TEXT NOT NULL DEFAULT 'route';
+--
+-- `route_tokens` is an objstore entity rather than a table this chain creates:
+-- the driver makes it, from the one declaration that sits beside the code
+-- writing it (store.EnsureEntities, spec 6/37 step 7). An item needs no ALTER
+-- to start carrying an attribute.
+SELECT 1;

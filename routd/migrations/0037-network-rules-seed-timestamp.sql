@@ -1,18 +1,21 @@
--- Z5: 0005-network-rules.sql seeded its two default rows with CURRENT_TIMESTAMP,
--- SQLite's wall clock at MIGRATION-RUN time. created_at is part of network_rules'
--- resreg Export projection, and resreg.Checksum hashes that projection verbatim, so
--- two independently-bootstrapped routd.db files whose migrations crossed a wall-clock
--- second got permanently unequal checksums from identical operator intent.
+-- Z5: the two instance-wide network_rules seeds carry a FIXED created_at
+-- literal, not a wall-clock reading. created_at is part of network_rules'
+-- resreg Export projection and resreg.Checksum hashes that projection verbatim,
+-- so two independently-bootstrapped instances whose bootstraps crossed a
+-- wall-clock second would get permanently unequal checksums from identical
+-- operator intent. store.SeedRoutdFloor writes the literal.
 --
--- Normalise the seed to a fixed literal, matching 0022-seed-operator-grant-option.sql
--- (the other "seed a default row" migration, which got this right). Scoped to the two
--- system-seeded rows by their exact PK plus created_by='system', so an operator who
--- re-added either target keeps their own stamp.
+-- The fix is there and NOT in Checksum: the CAS hash must stay sha256 of the
+-- exact EmitYAML bytes Export produces (one renderer, spec 5/8), so the cure
+-- for a non-deterministic seed is a deterministic seed, not a weaker hash. Diff
+-- already ignores StampedFields because it answers a different question (did
+-- INTENT change).
 --
--- The fix is here and NOT in Checksum: the CAS hash must stay sha256 of the exact
--- EmitYAML bytes Export produces (one renderer, spec 5/8), so the cure for a
--- non-deterministic seed is a deterministic seed, not a weaker hash. Diff already
--- ignores StampedFields because it answers a different question (did INTENT change).
-UPDATE network_rules SET created_at = '2026-08-04T00:00:00Z'
- WHERE folder = '' AND created_by = 'system'
-   AND target IN ('anthropic.com', 'api.anthropic.com');
+-- Normalising the stamp an already-bootstrapped instance carries is a write
+-- over live rows, so it belongs to `arizuko migrate-routd`, which is the run
+-- that rewrites every network_rules timestamp at core.TS's width anyway.
+--
+-- `network_rules` is an objstore entity rather than a table this chain creates:
+-- the driver makes it, from the one declaration that sits beside the code
+-- writing it (store.EnsureEntities, spec 6/37 step 7).
+SELECT 1;

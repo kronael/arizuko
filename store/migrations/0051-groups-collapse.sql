@@ -1,25 +1,11 @@
--- v0.37.0: path is identity. Drop `parent` and `name` from groups.
--- Derive parent via filepath.Dir(folder), display via filepath.Base(folder).
+-- v0.37.0: path is identity. A group carries no `parent` and no `name` — the
+-- parent is filepath.Dir(folder) and the display name filepath.Base(folder).
 --
--- Operators with legacy flat-slug rows (slug not matching parent path)
--- must rename on-disk dirs + aux-table refs manually before this migration
--- runs. See specs/6/X-groups-collapse.md for the brute-force shell snippet.
-
-CREATE TABLE groups_new (
-  folder                 TEXT PRIMARY KEY,
-  added_at               TEXT NOT NULL,
-  container_config       TEXT,
-  slink_token            TEXT,
-  updated_at             TEXT,
-  product                TEXT NOT NULL DEFAULT 'assistant',
-  cost_cap_cents_per_day INTEGER NOT NULL DEFAULT 0
-);
-
-INSERT INTO groups_new (folder, added_at, container_config, slink_token,
-                        updated_at, product, cost_cap_cents_per_day)
-SELECT folder, added_at, container_config, slink_token,
-       updated_at, product, cost_cap_cents_per_day
-FROM groups;
-
-DROP TABLE groups;
-ALTER TABLE groups_new RENAME TO groups;
+-- `groups` is an objstore entity rather than a table this chain creates: the
+-- driver makes it, from the one declaration that sits beside the code writing
+-- it (store.EnsureEntities, spec 6/37 step 7), addressed by its folder. An
+-- attribute an item does not carry is simply absent, so there is no rebuild to
+-- do. An operator holding flat-slug folders (slug not matching parent path)
+-- renames the on-disk dirs and the references to them before the move; see
+-- specs/6/X-groups-collapse.md for the brute-force shell snippet.
+SELECT 1;

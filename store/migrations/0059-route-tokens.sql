@@ -1,8 +1,12 @@
-CREATE TABLE route_tokens (
-  token_hash    BLOB PRIMARY KEY,
-  jid           TEXT NOT NULL,
-  owner_folder  TEXT NOT NULL,
-  created_at    TEXT NOT NULL
-);
-CREATE INDEX route_tokens_jid ON route_tokens(jid);
-ALTER TABLE groups DROP COLUMN slink_token;
+-- route_tokens: one delivery or pairing credential, addressed by
+-- hex(sha256(token)) — the digest is the key, and the jid is not unique. It is
+-- also where a group's delivery link lives, so a group carries no
+-- `slink_token`.
+--
+-- `route_tokens` is an objstore entity rather than a table this chain creates,
+-- and neither is `groups`: the driver makes each one, from the declaration that
+-- sits beside the code writing it (store.EnsureEntities, spec 6/37 step 7). An
+-- entity keeps the name of the table it replaces, so a database carrying rows
+-- here is moved by `arizuko migrate-routd` and refuses to open until it has
+-- been.
+SELECT 1;

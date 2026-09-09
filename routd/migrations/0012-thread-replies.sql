@@ -1,6 +1,11 @@
--- Reply-into-thread: the reply path roots a new platform thread on the
--- turn's trigger message. trigger_msg_id records that message's platform id
--- at dispatch; groups.thread_replies is the per-group preference (NULL =
--- default: thread in multi-user chats, inline in DMs).
+-- Reply-into-thread: the reply path roots a new platform thread on the turn's
+-- trigger message. trigger_msg_id records that message's platform id at
+-- dispatch.
+--
+-- The per-group preference rides along as the group's `thread_replies`
+-- attribute (absent = default: thread in multi-user chats, inline in DMs).
+-- `groups` is an objstore entity rather than a table this chain creates — the
+-- driver makes it, from the one declaration that sits beside the code writing
+-- it (store.EnsureEntities, spec 6/37 step 7) — and an item needs no ALTER to
+-- start carrying an attribute.
 ALTER TABLE turn_context ADD COLUMN trigger_msg_id TEXT;
-ALTER TABLE groups ADD COLUMN thread_replies INTEGER;

@@ -1,27 +1,11 @@
--- messages.db twin of routd/migrations/0014: collapse the per-group
--- behavioral columns (model, observe_window_messages, observe_window_chars,
--- open) into one `config` JSON column. messages.db's groups table never had
--- thread_replies (that column lives only in routd.db), so it is absent here.
--- container_config stays its own column (spawn-specific, core.GroupConfig).
+-- Twin of routd/migrations/0014: a group's behavioral settings — model,
+-- observe_window_messages, observe_window_chars, open — ride in one `config`
+-- JSON attribute, and container_config stays its own (spawn-specific,
+-- core.GroupConfig).
 --
--- DROP COLUMN edits groups in place; only non-NULL source values become
--- config keys so json_extract yields NULL for an unset field and the Go
--- layer applies its default.
-
-ALTER TABLE groups ADD COLUMN config TEXT;
-
-UPDATE groups SET config = (
-  SELECT json_group_object(k, v) FROM (
-    SELECT 'model' AS k, model AS v WHERE model IS NOT NULL
-    UNION ALL SELECT 'observe_window_messages', observe_window_messages
-      WHERE observe_window_messages IS NOT NULL
-    UNION ALL SELECT 'observe_window_chars', observe_window_chars
-      WHERE observe_window_chars IS NOT NULL
-    UNION ALL SELECT 'open', open WHERE open IS NOT NULL
-  )
-);
-
-ALTER TABLE groups DROP COLUMN model;
-ALTER TABLE groups DROP COLUMN observe_window_messages;
-ALTER TABLE groups DROP COLUMN observe_window_chars;
-ALTER TABLE groups DROP COLUMN open;
+-- `groups` is an objstore entity rather than a table this chain creates: the
+-- driver makes it, from the one declaration that sits beside the code writing
+-- it (store.EnsureEntities, spec 6/37 step 7). An attribute an item does not
+-- carry is simply absent, so json_extract yields NULL for an unset field and
+-- the Go layer applies its default, with no column to add and none to drop.
+SELECT 1;

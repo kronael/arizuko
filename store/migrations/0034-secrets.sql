@@ -1,13 +1,10 @@
--- Phase C of specs/7/35: encrypted secrets table.
--- scope_kind = "folder" (path glob) or "user" (auth_users.sub).
--- enc_value is AES-GCM(AUTH_SECRET) of the plaintext value.
-CREATE TABLE secrets (
-  scope_kind  TEXT NOT NULL,
-  scope_id    TEXT NOT NULL,
-  key         TEXT NOT NULL,
-  enc_value   BLOB NOT NULL,
-  created_at  TEXT NOT NULL,
-  PRIMARY KEY (scope_kind, scope_id, key)
-);
-CREATE INDEX idx_secrets_folder ON secrets(scope_id) WHERE scope_kind = 'folder';
-CREATE INDEX idx_secrets_user   ON secrets(scope_id) WHERE scope_kind = 'user';
+-- Per-scope secrets: scope_kind = "folder" (path glob) or "user"
+-- (auth_users.sub), sealed under the AES-256-GCM keyring routd holds.
+--
+-- `secrets` is an objstore entity rather than a table this chain creates: the
+-- driver makes it, from the one declaration that sits beside the code writing
+-- it (store.EnsureEntities, spec 6/37 step 7), addressed by (scope_kind,
+-- scope_id, key). An entity keeps the name of the table it replaces, so a
+-- database carrying rows here is moved by `arizuko migrate-routd` and refuses
+-- to open until it has been.
+SELECT 1;

@@ -1,8 +1,11 @@
--- Schema parity with routd migration 0041 so store's github_sources read/write
--- paths (gitd, the CLI, tests) see the same columns routd owns.
-CREATE TABLE github_sources (
-    source       TEXT PRIMARY KEY,
-    secret       TEXT NOT NULL,
-    owner_folder TEXT NOT NULL REFERENCES groups(folder) ON DELETE CASCADE,
-    created_at   TEXT NOT NULL
-);
+-- gitd delivery sources (spec 6/27): one item per webhook secret, addressed by
+-- its source key. Rationale is in routd/migrations/0041.
+--
+-- `github_sources` is an objstore entity rather than a table this chain
+-- creates: the driver makes it, from the one declaration that sits beside the
+-- code writing it (store.EnsureEntities, spec 6/37 step 7). owner_folder names
+-- a group but declares no foreign key, because `groups` is an entity too and an
+-- entity has no column a REFERENCES clause can name. An entity keeps the name
+-- of the table it replaces, so a database carrying rows here is moved by
+-- `arizuko migrate-routd` and refuses to open until it has been.
+SELECT 1;

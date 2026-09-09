@@ -23,12 +23,13 @@
 --   chats.jid (PK; agent_cursor follows because it's a column on chats)
 --   user_jids.jid
 --   grants.jid
---   routes.match (chat_jid=/sender= clauses)
 --
--- onboarding.jid was in that lockstep and is not any more: an admission is an
--- objstore item whose jid IS its sort key, and a coordinate is not rewritten in
--- place by an UPDATE. A pre-move database's admissions are re-keyed by
--- `arizuko migrate-onbod`, which reads the table this chain left behind.
+-- onboarding.jid and routes.match are NOT in that lockstep: an admission is an
+-- objstore item whose jid IS its sort key, a routing rule's match is a fragment
+-- of its own coordinate, and a coordinate is not rewritten in place by an
+-- UPDATE. A pre-move database's admissions are re-keyed by
+-- `arizuko migrate-onbod` and its rules by `arizuko migrate-routd`, each
+-- reading the table this chain left behind.
 
 -- ============================================================================
 -- TELEGRAM: split signed integer into user/group kinds; drop sign bit.
@@ -292,44 +293,3 @@ UPDATE user_jids SET jid = 'linkedin:user/' || substr(jid, 10)
 
 UPDATE grants SET jid = 'linkedin:user/' || substr(jid, 10)
   WHERE jid LIKE 'linkedin:%' AND jid NOT LIKE 'linkedin:user/%';
-
--- ============================================================================
--- ROUTES.MATCH: rewrite chat_jid= and sender= predicates that contain legacy
--- JID patterns. We rewrite the literal-prefix forms to the new
--- kind-discriminator forms; leave any operator-edited globs alone (they'll
--- need manual review and re-issuance).
--- ============================================================================
--- Discord: chat_jid=discord:* becomes chat_jid=discord:*/* (* per segment).
--- Operators who routed by legacy guild-less form lose specificity but keep
--- coverage. New rules they add post-migration use the typed form.
-UPDATE routes SET match = replace(match, 'chat_jid=discord:*', 'chat_jid=discord:*/*')
-  WHERE match LIKE '%chat_jid=discord:*%'
-    AND match NOT LIKE '%chat_jid=discord:*/*%';
-
--- Telegram: sender=telegram:* keeps shape (the * matches user/<id> too in
--- path.Match since path.Match treats * as "any non-/" — telegram:*  matches
--- only telegram:user_or_group_with_no_slashes which is now empty). Rewrite
--- to telegram:*/* to keep semantics.
-UPDATE routes SET match = replace(match, 'chat_jid=telegram:*', 'chat_jid=telegram:*/*')
-  WHERE match LIKE '%chat_jid=telegram:*%'
-    AND match NOT LIKE '%chat_jid=telegram:*/*%';
-UPDATE routes SET match = replace(match, 'sender=telegram:*', 'sender=telegram:*/*')
-  WHERE match LIKE '%sender=telegram:*%'
-    AND match NOT LIKE '%sender=telegram:*/*%';
-
--- Mastodon, reddit, web, bluesky, linkedin: same trick.
-UPDATE routes SET match = replace(match, 'chat_jid=mastodon:*', 'chat_jid=mastodon:*/*')
-  WHERE match LIKE '%chat_jid=mastodon:*%' AND match NOT LIKE '%chat_jid=mastodon:*/*%';
-UPDATE routes SET match = replace(match, 'sender=mastodon:*', 'sender=mastodon:*/*')
-  WHERE match LIKE '%sender=mastodon:*%' AND match NOT LIKE '%sender=mastodon:*/*%';
-
-UPDATE routes SET match = replace(match, 'chat_jid=reddit:*', 'chat_jid=reddit:*/*')
-  WHERE match LIKE '%chat_jid=reddit:*%' AND match NOT LIKE '%chat_jid=reddit:*/*%';
-UPDATE routes SET match = replace(match, 'sender=reddit:*', 'sender=reddit:*/*')
-  WHERE match LIKE '%sender=reddit:*%' AND match NOT LIKE '%sender=reddit:*/*%';
-
-UPDATE routes SET match = replace(match, 'chat_jid=bluesky:*', 'chat_jid=bluesky:*/*')
-  WHERE match LIKE '%chat_jid=bluesky:*%' AND match NOT LIKE '%chat_jid=bluesky:*/*%';
-
-UPDATE routes SET match = replace(match, 'chat_jid=linkedin:*', 'chat_jid=linkedin:*/*')
-  WHERE match LIKE '%chat_jid=linkedin:*%' AND match NOT LIKE '%chat_jid=linkedin:*/*%';

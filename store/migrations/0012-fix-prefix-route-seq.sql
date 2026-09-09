@@ -1,4 +1,12 @@
--- Fix @ and # prefix route seq values so they evaluate before the default
--- route (seq 0). Old values were 9998/9999 (after default), should be -2/-1.
-UPDATE routes SET seq = -2 WHERE type = 'prefix' AND match = '@' AND seq = 9998;
-UPDATE routes SET seq = -1 WHERE type = 'prefix' AND match = '#' AND seq = 9999;
+-- The @ and # prefix rules evaluate BEFORE the default rule: they sit at seq -2
+-- and -1, where the default sits at 0.
+--
+-- `seq` is the leading fragment of a route's coordinate and it is padded so the
+-- read comes back in precedence order, which makes re-seq'ing a rule a
+-- re-addressing rather than an UPDATE. Rules a pre-move database left behind
+-- are re-keyed by `arizuko migrate-routd`.
+--
+-- `routes` is an objstore entity rather than a table this chain creates: the
+-- driver makes it, from the one declaration that sits beside the code writing
+-- it (store.EnsureEntities, spec 6/37 step 7).
+SELECT 1;

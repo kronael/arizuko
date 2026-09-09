@@ -1,4 +1,11 @@
--- Initial schema: all core tables at baseline state
+-- Initial schema: all core tables at baseline state.
+--
+-- `scheduled_tasks` and `routes` are objstore entities rather than tables this
+-- chain creates: the driver makes each one, from the declaration that sits
+-- beside the code writing it (store.EnsureEntities, spec 6/37 step 7). An
+-- entity keeps the name of the table it replaces, so a database carrying rows
+-- here is moved by `arizuko migrate-routd` and refuses to open until it has
+-- been.
 
 CREATE TABLE IF NOT EXISTS chats (
   jid TEXT PRIMARY KEY,
@@ -63,18 +70,6 @@ CREATE TABLE IF NOT EXISTS system_messages (
   created_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS scheduled_tasks (
-  id TEXT PRIMARY KEY,
-  owner TEXT NOT NULL,
-  chat_jid TEXT NOT NULL,
-  prompt TEXT NOT NULL,
-  cron TEXT,
-  next_run TEXT,
-  status TEXT NOT NULL DEFAULT 'active',
-  created_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_tasks_next ON scheduled_tasks(status, next_run);
-
 CREATE TABLE IF NOT EXISTS router_state (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -102,13 +97,3 @@ CREATE TABLE IF NOT EXISTS email_threads (
   subject TEXT,
   last_message_id TEXT
 );
-
-CREATE TABLE IF NOT EXISTS routes (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  jid TEXT NOT NULL,
-  seq INTEGER NOT NULL DEFAULT 0,
-  type TEXT NOT NULL DEFAULT 'default',
-  match TEXT,
-  target TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_routes_jid_seq ON routes(jid, seq);

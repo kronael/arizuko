@@ -1,13 +1,11 @@
--- installed_packages mirrors routd migration 0020 into the shared schema
--- library. routd.db owns the table (spec 5/28); store.Migrate carries every
--- table routd.db and onbod.db own, and this one was never mirrored across —
--- so resreg.Export(SubsystemRoutd) could not scan the resource that declares
--- it. Definition is identical to routd/migrations/0020-installed-packages.sql.
-CREATE TABLE IF NOT EXISTS installed_packages (
-    name         TEXT PRIMARY KEY,
-    source       TEXT NOT NULL,
-    revision     TEXT NOT NULL,
-    manifest     TEXT NOT NULL DEFAULT '{}',   -- JSON: asset-kind -> [owned identities]
-    asset_hashes TEXT NOT NULL DEFAULT '{}',   -- JSON: asset-id -> content hash
-    installed_at TEXT NOT NULL
-);
+-- installed_packages: one item per package installed on this instance (spec
+-- 5/28) — the source and resolved revision, the manifest of identities the
+-- install owns, and a per-asset content hash. Rationale is in
+-- routd/migrations/0020.
+--
+-- `installed_packages` is an objstore entity rather than a table this chain
+-- creates: the driver makes it, from the one declaration that sits beside the
+-- code writing it (store.EnsureEntities, spec 6/37 step 7). An entity keeps the
+-- name of the table it replaces, so a database carrying rows here is moved by
+-- `arizuko migrate-routd` and refuses to open until it has been.
+SELECT 1;

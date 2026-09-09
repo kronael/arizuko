@@ -1,13 +1,16 @@
-CREATE TABLE network_rules (
-  folder      TEXT NOT NULL,
-  target      TEXT NOT NULL,
-  created_at  TEXT NOT NULL,
-  created_by  TEXT NOT NULL DEFAULT '',
-  PRIMARY KEY (folder, target)
-);
-
-CREATE INDEX idx_network_rules_folder ON network_rules(folder);
-
-INSERT INTO network_rules (folder, target, created_at, created_by) VALUES
-  ('', 'anthropic.com',     CURRENT_TIMESTAMP, 'system'),
-  ('', 'api.anthropic.com', CURRENT_TIMESTAMP, 'system');
+-- network_rules: one item per egress allowlist entry, addressed by
+-- (folder, target). The folder leads because it is also the purge scope, and
+-- folder='' is the instance-wide base allowlist every folder inherits.
+--
+-- The two instance-wide rows an instance is born with — anthropic.com and
+-- api.anthropic.com — are written by store.SeedRoutdFloor on open, at a fixed
+-- created_at literal so two independently-bootstrapped instances hash to the
+-- same resreg checksum. A seed is a row, and a row an entity holds goes in
+-- through that entity's own writer.
+--
+-- `network_rules` is an objstore entity rather than a table this chain creates:
+-- the driver makes it, from the one declaration that sits beside the code
+-- writing it (store.EnsureEntities, spec 6/37 step 7). An entity keeps the name
+-- of the table it replaces, so a database carrying rows here is moved by
+-- `arizuko migrate-routd` and refuses to open until it has been.
+SELECT 1;

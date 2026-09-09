@@ -1,8 +1,11 @@
 -- spec 4/R: WITH GRANT OPTION. grant_option=1 → the holder may re-delegate this
--- acl row (or a subset). Default 0 is safe for every existing row. Mirrors
--- routd/migrations/0021-acl-grant-option.sql verbatim (same acl schema, two DBs).
-ALTER TABLE acl ADD COLUMN grant_option INTEGER NOT NULL DEFAULT 0;
-
--- role:operator is the root of every delegation chain (spec 4/R): (*, **) WITH
--- GRANT OPTION. Mirrors routd/migrations/0021-acl-grant-option.sql.
-UPDATE acl SET grant_option = 1 WHERE principal = 'role:operator' AND action = '*';
+-- grant (or a subset). Rationale is in routd/migrations/0021.
+--
+-- `acl` is an objstore entity rather than a table this chain creates: the
+-- driver makes it, from the one declaration that sits beside the code writing
+-- it (store.EnsureEntities, spec 6/37 step 7). An item needs no ALTER to start
+-- carrying an attribute, and raising the option on role:operator's (*, **) root
+-- is a write over live grants — store.SeedRoutdFloor writes the root of a fresh
+-- database with the option already set, and `arizuko migrate-routd` carries the
+-- grants a pre-move database left behind.
+SELECT 1;

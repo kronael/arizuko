@@ -1,19 +1,17 @@
 -- network_rules: the per-folder egress allowlist routd resolves at dispatch and
--- passes to runed (RunRequest.EgressAllowlist) so the spawned container is
--- attached to the crackbox network with the right allowed targets. Ported from
--- store/migrations/0037 (gated owned it pre-split; routd owns it post-split, per
--- the resreg resource catalog). folder='' is the instance-wide base allowlist
--- inherited by every folder (folderAncestry).
-CREATE TABLE network_rules (
-  folder      TEXT NOT NULL,
-  target      TEXT NOT NULL,
-  created_at  TEXT NOT NULL,
-  created_by  TEXT NOT NULL DEFAULT '',
-  PRIMARY KEY (folder, target)
-);
-
-CREATE INDEX idx_network_rules_folder ON network_rules(folder);
-
-INSERT INTO network_rules (folder, target, created_at, created_by) VALUES
-  ('', 'anthropic.com',     CURRENT_TIMESTAMP, 'system'),
-  ('', 'api.anthropic.com', CURRENT_TIMESTAMP, 'system');
+-- passes to runed (RunRequest.EgressAllowlist), so the spawned container joins
+-- the crackbox network with the right allowed targets. folder='' is the
+-- instance-wide base allowlist every folder inherits (folderAncestry).
+--
+-- The two instance-wide rows this instance is born with — anthropic.com and
+-- api.anthropic.com, without which no spawned agent reaches a model — are
+-- written by store.SeedRoutdFloor on open. A seed is a row, and a row an entity
+-- holds goes in through that entity's own writer; a statement in this chain has
+-- no table to put it in.
+--
+-- `network_rules` is an objstore entity rather than a table this chain creates:
+-- the driver makes it, from the one declaration that sits beside the code
+-- writing it (store.EnsureEntities, spec 6/37 step 7). An entity keeps the name
+-- of the table it replaces, so a database carrying rows here is moved by
+-- `arizuko migrate-routd` and refuses to open until it has been.
+SELECT 1;

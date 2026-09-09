@@ -1,7 +1,9 @@
-CREATE TABLE IF NOT EXISTS web_routes (
-    path_prefix TEXT PRIMARY KEY,
-    access TEXT NOT NULL CHECK(access IN ('public','auth','deny','redirect')),
-    redirect_to TEXT,
-    folder TEXT NOT NULL,
-    created_at TEXT NOT NULL
-);
+-- web_routes: one item per web access rule, addressed by its path prefix —
+-- public, auth, deny, or a redirect to somewhere else.
+--
+-- `web_routes` is an objstore entity rather than a table this chain creates:
+-- the driver makes it, from the one declaration that sits beside the code
+-- writing it (store.EnsureEntities, spec 6/37 step 7). An entity keeps the name
+-- of the table it replaces, so a database carrying rows here is moved by
+-- `arizuko migrate-routd` and refuses to open until it has been.
+SELECT 1;

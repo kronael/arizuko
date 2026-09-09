@@ -1,8 +1,8 @@
 -- BUGS L45: routes shipped in a release never reached an existing instance.
 -- `PROXYD_ROUTES_JSON` seeded proxyd_routes once and was ignored forever after,
 -- so krons ran 12 rows while the release shipped 18 (/invite/, /pair/, /me,
--- /me/, /panel/, /dash/onbod/, /dash/timed/ never arrived). The env var is gone;
--- `arizuko generate` now writes the rows, and `owner` says who may rewrite them.
+-- /me/, /panel/, /dash/onbod/, /dash/timed/ never arrived). `arizuko generate`
+-- writes the rows now, and `owner` says who may rewrite them.
 --
 --   'arizuko'  — written by generate from the release's coreProxydRoutes plus
 --                the installed packages' route assets. Generate REWRITES these
@@ -10,11 +10,16 @@
 --   'operator' — declared through proxyd's /v1/proxyd_routes surface. Generate
 --                never touches these, at any path.
 --
--- Backfill is 'arizuko' by DEFAULT, deliberately: at the cutover no row records
--- who declared it, and the signed-off decision is that arizuko wins on the paths
--- it ships. Generate only ever writes paths it ships, so a hand-added route at a
--- path arizuko does not ship (krons has /arizuko) survives untouched. An
--- operator who had edited a SHIPPED route in place loses that edit on the next
--- generate; taking a path over is DELETE + POST on /v1/proxyd_routes, which
--- stamps 'operator'.
-ALTER TABLE proxyd_routes ADD COLUMN owner TEXT NOT NULL DEFAULT 'arizuko';
+-- A route that names no owner reads as 'arizuko', deliberately: nothing records
+-- who declared it, and the signed-off decision is that arizuko wins on the
+-- paths it ships. Generate only ever writes paths it ships, so a
+-- hand-added route at a path arizuko does not ship (krons has /arizuko)
+-- survives untouched. An operator who had edited a SHIPPED route in place loses
+-- that edit on the next generate; taking a path over is DELETE + POST on
+-- /v1/proxyd_routes, which stamps 'operator'.
+--
+-- `proxyd_routes` is an objstore entity rather than a table this chain creates:
+-- the driver makes it, from the one declaration that sits beside the code
+-- writing it (store.EnsureEntities, spec 6/37 step 7), addressed by its path.
+-- An item needs no ALTER to start carrying an attribute.
+SELECT 1;

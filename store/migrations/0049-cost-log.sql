@@ -14,8 +14,11 @@ CREATE TABLE IF NOT EXISTS cost_log (
 CREATE INDEX IF NOT EXISTS idx_cost_log_folder_ts ON cost_log(folder, ts);
 CREATE INDEX IF NOT EXISTS idx_cost_log_user_ts ON cost_log(user_sub, ts);
 
--- Per-folder cap lives on groups (folder-keyed); per-user cap on auth_users (sub-keyed).
--- The 5/34 spec mentioned chats; chats is JID-keyed today (post-0023) so folder-level
--- config belongs on groups.
-ALTER TABLE groups     ADD COLUMN cost_cap_cents_per_day INTEGER NOT NULL DEFAULT 0;
+-- Per-user cap on auth_users (sub-keyed). The per-folder cap is the group's own
+-- `cost_cap_cents_per_day` attribute: `groups` is an objstore entity rather
+-- than a table this chain creates — the driver makes it, from the one
+-- declaration that sits beside the code writing it (store.EnsureEntities, spec
+-- 6/37 step 7) — and an item needs no ALTER to start carrying an attribute. The
+-- 5/34 spec mentioned chats; chats is JID-keyed, so folder-level config belongs
+-- to the group.
 ALTER TABLE auth_users ADD COLUMN cost_cap_cents_per_day INTEGER NOT NULL DEFAULT 0;

@@ -1,7 +1,9 @@
--- Mirror of routd/migrations/0028-route-attribution.sql. routd owns `routes` in
--- the split and store.Migrate has no production caller left (only
--- tests/testutils), but the two sequences must still describe the same table or
--- every test on a store-migrated DB tests a schema that no longer ships.
--- Rationale for the columns lives in the routd file.
-ALTER TABLE routes ADD COLUMN added_by  TEXT;
-ALTER TABLE routes ADD COLUMN added_via TEXT;
+-- routes.added_by / added_via (spec 5/18 step 7): a route records WHO exercised
+-- routing authority over its target and BY WHICH ACT. Rationale is in
+-- routd/migrations/0028.
+--
+-- `routes` is an objstore entity rather than a table this chain creates: the
+-- driver makes it, from the one declaration that sits beside the code writing
+-- it (store.EnsureEntities, spec 6/37 step 7). An item needs no ALTER to start
+-- carrying an attribute.
+SELECT 1;

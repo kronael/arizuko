@@ -1,19 +1,13 @@
 -- routd.db initial schema (spec 5/E § routd.db schema). routd owns this
 -- DB and its own migration sequence (service="routd"). Times are
 -- RFC3339Nano UTC TEXT throughout — the Go layer computes every timestamp.
-
-CREATE TABLE groups (
-  folder                  TEXT PRIMARY KEY,
-  added_at                TEXT NOT NULL,
-  container_config        TEXT,
-  updated_at              TEXT,
-  product                 TEXT NOT NULL DEFAULT 'assistant',
-  cost_cap_cents_per_day  INTEGER NOT NULL DEFAULT 0,
-  open                    INTEGER NOT NULL DEFAULT 1,
-  observe_window_messages INTEGER,
-  observe_window_chars    INTEGER,
-  model                   TEXT
-);
+--
+-- `groups`, `routes`, `web_routes` and `route_tokens` are objstore entities
+-- rather than tables this chain creates: the driver makes each one, from the
+-- declaration that sits beside the code writing it (store.EnsureEntities, spec
+-- 6/37 step 7). An entity keeps the name of the table it replaces, so a
+-- database carrying rows here is moved by `arizuko migrate-routd` and refuses
+-- to open until it has been.
 
 CREATE TABLE chats (
   jid          TEXT PRIMARY KEY,
@@ -68,16 +62,6 @@ CREATE TRIGGER messages_fts_au AFTER UPDATE ON messages BEGIN
   INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
 END;
 
-CREATE TABLE routes (
-  id                       INTEGER PRIMARY KEY AUTOINCREMENT,
-  seq                      INTEGER NOT NULL DEFAULT 0,
-  match                    TEXT    NOT NULL DEFAULT '',
-  target                   TEXT    NOT NULL,
-  observe_window_messages  INTEGER,
-  observe_window_chars     INTEGER
-);
-CREATE INDEX idx_routes_seq ON routes(seq);
-
 CREATE TABLE sessions (
   group_folder    TEXT NOT NULL,
   topic           TEXT NOT NULL DEFAULT '',
@@ -129,22 +113,6 @@ CREATE TABLE cost_log (
   PRIMARY KEY (folder, turn_id, model)
 );
 CREATE INDEX idx_cost_log_folder_day ON cost_log(folder, recorded_at);
-
-CREATE TABLE web_routes (
-  path_prefix TEXT PRIMARY KEY,
-  access      TEXT NOT NULL CHECK(access IN ('public','auth','deny','redirect')),
-  redirect_to TEXT,
-  folder      TEXT NOT NULL REFERENCES groups(folder) ON DELETE CASCADE,
-  created_at  TEXT NOT NULL
-);
-
-CREATE TABLE route_tokens (
-  token_hash    BLOB PRIMARY KEY,
-  jid           TEXT NOT NULL,
-  owner_folder  TEXT NOT NULL REFERENCES groups(folder) ON DELETE CASCADE,
-  created_at    TEXT NOT NULL
-);
-CREATE INDEX route_tokens_jid ON route_tokens(jid);
 
 CREATE TABLE system_messages (
   id      INTEGER PRIMARY KEY AUTOINCREMENT,

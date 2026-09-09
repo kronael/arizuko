@@ -1,12 +1,11 @@
--- Spec 6/2 Phase-3: runtime-mutable proxyd routes. Mirror of the in-memory
--- `Route` struct (proxyd/routes.go). proxyd seeds this table from
--- PROXYD_ROUTES_JSON on first boot when the table is empty; thereafter
--- the table is authoritative and PROXYD_ROUTES_JSON is ignored.
-CREATE TABLE IF NOT EXISTS proxyd_routes (
-  path             TEXT PRIMARY KEY,
-  backend          TEXT NOT NULL,
-  auth             TEXT NOT NULL,                  -- 'public' | 'user' | 'operator'
-  gated_by         TEXT NOT NULL DEFAULT '',
-  preserve_headers TEXT NOT NULL DEFAULT '[]',     -- JSON array
-  strip_prefix     INTEGER NOT NULL DEFAULT 0      -- 0/1
-);
+-- Spec 6/2 Phase-3: proxyd's reverse-proxy table, one item per route addressed
+-- by its path — the mirror of the in-memory `Route` struct (proxyd/routes.go).
+-- The table is authoritative: `arizuko generate` writes the rows it ships and
+-- an operator declares the rest through /v1/proxyd_routes.
+--
+-- `proxyd_routes` is an objstore entity rather than a table this chain creates:
+-- the driver makes it, from the one declaration that sits beside the code
+-- writing it (store.EnsureEntities, spec 6/37 step 7). An entity keeps the name
+-- of the table it replaces, so a database carrying rows here is moved by
+-- `arizuko migrate-routd` and refuses to open until it has been.
+SELECT 1;

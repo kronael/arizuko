@@ -1,32 +1,13 @@
--- 0068 — Declared FK: web_routes.folder → groups.folder ON DELETE CASCADE.
+-- 0068 — web_routes.folder names the group whose content the rule protects, and
+-- it declares no foreign key.
 --
--- Spec 5/8 "FK posture": web_routes is row-shaped (folder column always
--- non-empty, single writer in store/web_routes.go) and group removal MUST
--- invalidate URL routes that pin to the dead group. CASCADE delivers that
--- inside the apply tx without per-caller cleanup.
---
--- SQLite cannot ALTER TABLE ... ADD CONSTRAINT FOREIGN KEY. Rebuild the
--- table via CREATE _new + INSERT SELECT + DROP + RENAME (the pattern used
--- in 0020, 0051, 0054).
---
--- Orphan filter: rows whose folder doesn't exist in groups are dropped
--- (INNER JOIN). Such rows are already broken — they pin a URL to a group
--- that doesn't exist. Logged for posterity via the audit_log emit at the
--- end of this migration would be ideal but the migration runner doesn't
--- have that surface; a count-row warning lives in the migration log only.
-
-CREATE TABLE web_routes_new (
-    path_prefix TEXT PRIMARY KEY,
-    access      TEXT NOT NULL CHECK(access IN ('public','auth','deny','redirect')),
-    redirect_to TEXT,
-    folder      TEXT NOT NULL REFERENCES groups(folder) ON DELETE CASCADE,
-    created_at  TEXT NOT NULL
-);
-
-INSERT INTO web_routes_new (path_prefix, access, redirect_to, folder, created_at)
-SELECT w.path_prefix, w.access, w.redirect_to, w.folder, w.created_at
-FROM web_routes w
-INNER JOIN groups g ON g.folder = w.folder;
-
-DROP TABLE web_routes;
-ALTER TABLE web_routes_new RENAME TO web_routes;
+-- `web_routes` and `groups` are both objstore entities rather than tables this
+-- chain creates — the driver makes each one, from the declaration that sits
+-- beside the code writing it (store.EnsureEntities, spec 6/37 step 7) — and an
+-- entity has no column a REFERENCES clause can name, so there is no CASCADE to
+-- declare and no table to rebuild. Spec 5/8's "FK posture" reasoning does not
+-- go away with the constraint: removing a group MUST invalidate the URL rules
+-- pinned to it, and store/folder_scope.go is where that verdict is recorded and
+-- checked against the schema (BUGS L253 is the failure a keep verdict naming a
+-- mechanism that has stopped existing produces).
+SELECT 1;
