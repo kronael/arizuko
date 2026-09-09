@@ -9,6 +9,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"unicode/utf8"
@@ -27,6 +28,43 @@ import (
 // Limit is therefore a plain SQL LIMIT: the bound is on the rows RETURNED, and
 // the filter is a WHERE term the engine applies before counting them.
 func (s *Store) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
+	return s.query(ctx, s.db, q)
+}
+
+// QueryInTx answers the same read inside a transaction the CALLER owns, and it
+// is deliberately not on objstore.Store for the reason GuardedBatchInTx is not:
+// an engine with no interactive transaction has nothing to implement, and a
+// caller reaching for this through the interface would write code only this
+// driver can run.
+//
+// IT EXISTS FOR THE WRITER THAT READS ITS OWN DECISION. A group delete queries
+// each scope and deletes what it finds; a membership write walks the graph and
+// then adds an edge; an upsert reads the settings document it is about to merge
+// into. Every one of those runs on a transaction the caller opened, and reading
+// through the POOL instead is wrong twice over. It is a torn read — the writes
+// this transaction has already made are not visible, so the delete set misses
+// the row the same transaction just wrote. And on the engine the tests run,
+// SQLite in shared-cache memory, it does not merely tear: the transaction holds
+// the write lock and a read on another connection of the same cache waits for
+// it, so the caller waits for itself. That is a hang, not an error, and it is
+// how `arizuko group rm` and every group creation stopped answering.
+//
+// The isolation is whatever the caller's BeginTx took, which is the same thing
+// GuardedBatchInTx says about its writes.
+func (s *Store) QueryInTx(ctx context.Context, tx *sql.Tx, q objstore.Query) ([]objstore.Item, error) {
+	if tx == nil {
+		return nil, errors.New("query in a transaction that is nil")
+	}
+	return s.query(ctx, tx, q)
+}
+
+// querier is the read subset *sql.DB and *sql.Tx both satisfy, so one statement
+// generator serves the pool and a caller's transaction.
+type querier interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+func (s *Store) query(ctx context.Context, q0 querier, q objstore.Query) ([]objstore.Item, error) {
 	if err := objstore.ValidateQuery(q); err != nil {
 		return nil, err
 	}
@@ -60,7 +98,7 @@ func (s *Store) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, e
 		b.write(" LIMIT " + strconv.Itoa(q.Limit))
 	}
 
-	rows, err := s.db.QueryContext(ctx, b.String(), b.args...)
+	rows, err := q0.QueryContext(ctx, b.String(), b.args...)
 	if err != nil {
 		return nil, fmt.Errorf("query %s: %w", q.Entity, err)
 	}

@@ -116,9 +116,9 @@ func membershipPut(child, parent, addedBy string) (objstore.Write, error) {
 // It reads through the store's own driver rather than taking a handle, because
 // an item read needs no transaction: the guard that makes the walk and the
 // write one decision is the marker, not a snapshot.
-func MembershipParents(s objstore.Store) objstore.ParentsFunc {
+func MembershipParents(q EntityQuerier) objstore.ParentsFunc {
 	return func(ctx context.Context, node string) ([]string, error) {
-		items, err := s.Query(ctx, objstore.Query{
+		items, err := q.Query(ctx, objstore.Query{
 			Entity: ACLMembership, Partition: OwnerRoutd,
 			Key: objstore.KeyPredicate{Op: objstore.PrefixKey, Value: node + KeySep},
 		})
@@ -144,8 +144,8 @@ func MembershipParents(s objstore.Store) objstore.ParentsFunc {
 // which is what the recursive CTE asked. Reachable seeds with the node itself,
 // so a self edge answers true here too — the callers still check it first,
 // because ErrSelfMembership is a different answer for the operator.
-func MembershipWouldCycle(ctx context.Context, s objstore.Store, child, parent string) (bool, error) {
-	return objstore.Reachable(ctx, MembershipParents(s), parent, child)
+func MembershipWouldCycle(ctx context.Context, q EntityQuerier, child, parent string) (bool, error) {
+	return objstore.Reachable(ctx, MembershipParents(q), parent, child)
 }
 
 // AddMembership writes (child → parent) idempotently, unless the edge would
@@ -273,7 +273,10 @@ func (s *Store) PutMembershipTx(ctx context.Context, tx *sql.Tx, child, parent, 
 	if child == parent {
 		return ErrSelfMembership
 	}
-	cycles, err := MembershipWouldCycle(ctx, s.Obj(), child, parent)
+	// The walk reads through the CALLER'S transaction: this body has already
+	// written into it in some callers, and a read on another connection would both
+	// miss those writes and wait on the write lock they hold (scopes.go reads).
+	cycles, err := MembershipWouldCycle(ctx, s.reads(tx), child, parent)
 	if err != nil {
 		return err
 	}

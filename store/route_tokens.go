@@ -127,8 +127,8 @@ func routeTokenFrom(it objstore.Item) RouteToken {
 
 // routeTokensOfKind reads every token of one kind. It is the ONE scan the four
 // attribute reads below share, so they cannot disagree about which rows count.
-func routeTokensOfKind(ctx context.Context, s objstore.Store, kind string) ([]objstore.Item, error) {
-	items, err := s.Query(ctx, objstore.Query{
+func routeTokensOfKind(ctx context.Context, q EntityQuerier, kind string) ([]objstore.Item, error) {
+	items, err := q.Query(ctx, objstore.Query{
 		Entity: RouteTokens, Partition: OwnerRoutd,
 		Where: []objstore.Cmp{{Attr: attrTokKind, Op: objstore.Eq, Value: kind}},
 	})

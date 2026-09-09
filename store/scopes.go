@@ -191,6 +191,44 @@ func (s *Store) incrementEntity(ctx context.Context, entity string, key objstore
 		append(slices.Clone(also), scopeBumps(counted)...))
 }
 
+// EntityQuerier is one read's handle. objstore.Store satisfies it, and so does
+// the transaction-bound reader below, which is what lets a body that reads and
+// then writes be written once and run either way.
+//
+// It is exported because routd's cycle guard hands its own handle to
+// MembershipWouldCycle.
+type EntityQuerier interface {
+	Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error)
+}
+
+// txReader reads through a transaction the caller owns.
+type txReader struct {
+	s  *Store
+	tx *sql.Tx
+}
+
+func (r txReader) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
+	return r.s.Obj().QueryInTx(ctx, r.tx, q)
+}
+
+// reads is the handle a body should read through: the pool when it owns no
+// transaction, and the caller's transaction when it does.
+//
+// A WRITER THAT READS ITS OWN DECISION MUST READ THROUGH ITS OWN TRANSACTION.
+// Reading through the pool instead is wrong twice: it is a torn read — the
+// writes this transaction has already made are invisible, so a delete set
+// misses the row the same transaction just wrote — and on the engine the tests
+// run, SQLite in shared-cache memory, the transaction holds the write lock and a
+// read on another connection of the same cache waits for it. The caller waits
+// for itself, forever. That is how `arizuko group rm` and every group creation
+// stopped answering.
+func (s *Store) reads(tx *sql.Tx) EntityQuerier {
+	if tx == nil {
+		return s.Obj()
+	}
+	return txReader{s: s, tx: tx}
+}
+
 // putIfAbsent is the funnel's create-if-absent, for an opener holding a Driver
 // rather than a *Store: it seeds an item and leaves an existing one alone.
 //

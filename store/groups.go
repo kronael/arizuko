@@ -137,11 +137,18 @@ func groupFrom(it objstore.Item) core.Group {
 
 // groupItem reads one group's item, or reports that there is none.
 func (s *Store) groupItem(ctx context.Context, folder string) (objstore.Item, bool, error) {
+	return s.groupItemVia(ctx, nil, folder)
+}
+
+// groupItemVia is groupItem through a transaction the caller owns, for the
+// upsert that reads the settings document it is about to merge into
+// (scopes.go reads).
+func (s *Store) groupItemVia(ctx context.Context, tx *sql.Tx, folder string) (objstore.Item, bool, error) {
 	key, err := groupKey(folder)
 	if err != nil {
 		return objstore.Item{}, false, err
 	}
-	items, err := s.Obj().Query(ctx, objstore.Query{
+	items, err := s.reads(tx).Query(ctx, objstore.Query{
 		Entity: Groups, Partition: OwnerRoutd,
 		Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: key.Sort},
 	})
@@ -225,7 +232,7 @@ func (s *Store) putGroup(ctx context.Context, tx *sql.Tx, g core.Group) error {
 		return nil
 	}
 	if g.Model != "" {
-		it, ok, ierr := s.groupItem(ctx, g.Folder)
+		it, ok, ierr := s.groupItemVia(ctx, tx, g.Folder)
 		if ierr != nil {
 			return ierr
 		}

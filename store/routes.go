@@ -216,8 +216,8 @@ func (s *Store) RouteTable() ([]core.Route, error) {
 // routeByID finds the item one id names. The id is an ATTRIBUTE, not a leading
 // fragment of the key, so this reads the table and compares — which is what an
 // unindexed `WHERE id = ?` over 58 rows was.
-func (s *Store) routeByID(ctx context.Context, id int64) (objstore.Item, core.Route, bool, error) {
-	items, err := s.Obj().Query(ctx, objstore.Query{Entity: Routes, Partition: OwnerRoutd})
+func (s *Store) routeByID(ctx context.Context, tx *sql.Tx, id int64) (objstore.Item, core.Route, bool, error) {
+	items, err := s.reads(tx).Query(ctx, objstore.Query{Entity: Routes, Partition: OwnerRoutd})
 	if err != nil {
 		return objstore.Item{}, core.Route{}, false, fmt.Errorf("read routes: %w", err)
 	}
@@ -246,7 +246,7 @@ func (s *Store) GetRoute(id int64) (core.Route, bool) {
 // because an operator told 404 about a route that still exists goes and
 // recreates it, and then two rules answer one chat.
 func (s *Store) RouteByID(id int64) (core.Route, bool, error) {
-	_, r, ok, err := s.routeByID(context.Background(), id)
+	_, r, ok, err := s.routeByID(context.Background(), nil, id)
 	return r, ok, err
 }
 
@@ -345,7 +345,7 @@ func (s *Store) PutRouteRow(r core.Route) (int64, error) {
 // mutation).
 func (s *Store) DeleteRoute(id int64) (int64, error) {
 	ctx := context.Background()
-	it, r, ok, err := s.routeByID(ctx, id)
+	it, r, ok, err := s.routeByID(ctx, nil, id)
 	if err != nil {
 		return 0, err
 	}
@@ -388,7 +388,7 @@ func (s *Store) UpdateRoute(id int64, r core.Route) (int64, error) {
 		return 0, ErrWebJIDRouted
 	}
 	ctx := context.Background()
-	it, _, ok, err := s.routeByID(ctx, id)
+	it, _, ok, err := s.routeByID(ctx, nil, id)
 	if err != nil {
 		return 0, err
 	}
@@ -502,7 +502,7 @@ func (s *Store) PutRouteTx(ctx context.Context, tx *sql.Tx, r core.Route, addedB
 // reading the table; the delete then conditions on the item still being there,
 // so a rule another caller removed in between answers false rather than OK.
 func (s *Store) DeleteRouteTx(ctx context.Context, tx *sql.Tx, id int64) (bool, error) {
-	it, _, ok, err := s.routeByID(ctx, id)
+	it, _, ok, err := s.routeByID(ctx, tx, id)
 	if err != nil || !ok {
 		return false, err
 	}
@@ -552,7 +552,7 @@ func (s *Store) ReplaceFolderRoutesTx(ctx context.Context, tx *sql.Tx, folder st
 			Op: objstore.Put, Entity: Routes, Key: key, Attrs: routeAttrs(r, addedBy, addedVia),
 		})
 	}
-	items, err := s.Obj().Query(ctx, objstore.Query{Entity: Routes, Partition: OwnerRoutd})
+	items, err := s.reads(tx).Query(ctx, objstore.Query{Entity: Routes, Partition: OwnerRoutd})
 	if err != nil {
 		return fmt.Errorf("read routes: %w", err)
 	}

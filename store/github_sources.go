@@ -283,7 +283,7 @@ func (s *Store) deleteRoutesMatchingTx(ctx context.Context, tx *sql.Tx, seeded [
 	for _, r := range seeded {
 		wanted[r.Match] = true
 	}
-	items, err := s.Obj().Query(ctx, objstore.Query{Entity: Routes, Partition: OwnerRoutd})
+	items, err := s.reads(tx).Query(ctx, objstore.Query{Entity: Routes, Partition: OwnerRoutd})
 	if err != nil {
 		return fmt.Errorf("read routes: %w", err)
 	}

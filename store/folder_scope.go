@@ -293,7 +293,7 @@ func (s *Store) purgeFolder(ctx context.Context, tx *sql.Tx, folder string) (int
 	}
 	removed := 0
 	for _, e := range entityScopePurge {
-		items, err := s.Obj().Query(ctx, objstore.Query{Entity: e.entity, Partition: OwnerRoutd})
+		items, err := s.reads(tx).Query(ctx, objstore.Query{Entity: e.entity, Partition: OwnerRoutd})
 		if err != nil {
 			return 0, err
 		}
