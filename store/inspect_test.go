@@ -47,39 +47,3 @@ func TestErroredChats_ScopedByFolder(t *testing.T) {
 		t.Errorf("scoped world/b: want [tg:2], got %+v", b)
 	}
 }
-
-func TestTaskRunLogs(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-
-	now := time.Now()
-	task := core.Task{
-		ID: "t1", Owner: "world/a", ChatJID: "tg:1",
-		Prompt: "p", Status: core.TaskActive, Created: now,
-	}
-	if err := s.CreateTask(task); err != nil {
-		t.Fatal(err)
-	}
-	for i := range 3 {
-		_, err := s.db.Exec(
-			`INSERT INTO task_run_logs (task_id, run_at, duration_ms, status, error)
-			 VALUES (?, ?, ?, ?, ?)`,
-			"t1", now.Add(time.Duration(i)*time.Second).Format(time.RFC3339), 100+i, "ok", "")
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	logs := s.TaskRunLogs("t1", 10)
-	if len(logs) != 3 {
-		t.Fatalf("want 3 logs, got %d", len(logs))
-	}
-	if logs[0].DurationMS != 102 {
-		t.Errorf("want newest first (duration=102), got %d", logs[0].DurationMS)
-	}
-	if got := s.TaskRunLogs("t1", 2); len(got) != 2 {
-		t.Errorf("limit=2: got %d", len(got))
-	}
-	if got := s.TaskRunLogs("missing", 10); len(got) != 0 {
-		t.Errorf("unknown task: want 0, got %d", len(got))
-	}
-}

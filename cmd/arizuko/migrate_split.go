@@ -78,13 +78,6 @@ var routdSpecs = []copySpec{
 			"COALESCE(topic,''), COALESCE(routed_to,''), COALESCE(verb,'message'), " +
 			"COALESCE(attachments,''), COALESCE(source,''), COALESCE(is_observed,0), " +
 			"COALESCE(turn_id,''), COALESCE(status,'sent'), COALESCE(platform_id,''), COALESCE(chat_name,'')"},
-	// scheduled_tasks + task_run_logs: routd now OWNS these (routd migration 0009
-	// mirrors store 0001/0011 final shape). Straight copies — identical schema
-	// both sides. task_run_logs.id is AUTOINCREMENT but copied verbatim so the
-	// FK to scheduled_tasks(id) stays intact.
-	{dst: "task_run_logs", src: "task_run_logs",
-		cols: "id, task_id, run_at, duration_ms, status, result, error",
-		sel:  "id, task_id, run_at, duration_ms, status, result, error"},
 	// audit_log, pane_sessions, secret_use_log, routd's own thirteen and the hot
 	// tier are NOT here: each is an objstore entity, so none is a column
 	// list and no INSERT … SELECT can carry one. copyAuditLog, copyStoreEntities,

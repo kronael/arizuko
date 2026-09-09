@@ -334,9 +334,9 @@ func TestIso_PortalCounts_Scoped(t *testing.T) {
 		{"ft-eng", folderEng}, {"ft-sre", folderSre}, {"ft-sales", folderSales},
 	} {
 		seedTask(t, inst, ft.taskID, ft.owner)
-		if _, err := inst.DB.Exec(
-			`INSERT INTO task_run_logs (task_id, run_at, status) VALUES (?, datetime('now'), 'error')`,
-			ft.taskID); err != nil {
+		if err := store.New(inst.DB).RecordTaskRun(store.TaskRunLog{
+			TaskID: ft.taskID, Status: "error",
+		}); err != nil {
 			t.Fatal(err)
 		}
 	}

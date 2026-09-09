@@ -303,9 +303,9 @@ func TestListTasks_OwnDB(t *testing.T) {
 	}
 
 	// inspect_tasks also reads tasks + per-task run logs from routd's own db.
-	if _, err := db.SQL().Exec(
-		`INSERT INTO task_run_logs (task_id, run_at, duration_ms, status)
-		 VALUES (?, ?, ?, ?)`, "task-1", time.Now().Format(time.RFC3339), 12, "ok"); err != nil {
+	if err := store.New(db.SQL()).RecordTaskRun(store.TaskRunLog{
+		TaskID: "task-1", DurationMS: 12, Status: "ok",
+	}); err != nil {
 		t.Fatalf("seed task_run_logs: %v", err)
 	}
 	payload, errText := callToolOverSock(t, sock, "inspect_tasks", map[string]any{"task_id": "task-1"})

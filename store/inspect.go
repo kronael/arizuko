@@ -1,7 +1,14 @@
 package store
 
+// inspect.go is the `messages` aggregate an operator's inspection reads: which
+// chats a run has failed in, how often, and when last.
+//
+// It is a `messages` read and nothing else. The task run history that shared
+// this file is an entity now and lives in task_run_logs.go; the two were here
+// together because one operator page reads both, and no statement ever joined
+// them.
+
 import (
-	"database/sql"
 	"time"
 
 	"github.com/kronael/arizuko/groupfolder"
@@ -40,63 +47,4 @@ func (s *Store) ErroredChats(folder string, isRoot bool) []ErroredChat {
 		out = append(out, e)
 	}
 	return out
-}
-
-// TaskRunLog is a single row from task_run_logs, surfaced to operators.
-type TaskRunLog struct {
-	ID         int64     `json:"id"`
-	TaskID     string    `json:"task_id"`
-	RunAt      time.Time `json:"run_at"`
-	DurationMS int64     `json:"duration_ms"`
-	Status     string    `json:"status"`
-	Result     string    `json:"result,omitempty"`
-	Error      string    `json:"error,omitempty"`
-}
-
-func (s *Store) TaskRunLogs(taskID string, limit int) []TaskRunLog {
-	if limit <= 0 || limit > 200 {
-		limit = 50
-	}
-	rows, err := s.db.Query(
-		`SELECT id, task_id, run_at, COALESCE(duration_ms,0), status,
-		        COALESCE(result,''), COALESCE(error,'')
-		 FROM task_run_logs WHERE task_id = ?
-		 ORDER BY id DESC LIMIT ?`, taskID, limit)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-	return collectTaskRunLogs(rows)
-}
-
-func collectTaskRunLogs(rows *sql.Rows) []TaskRunLog {
-	var out []TaskRunLog
-	for rows.Next() {
-		var l TaskRunLog
-		var runAt string
-		if err := rows.Scan(&l.ID, &l.TaskID, &runAt, &l.DurationMS,
-			&l.Status, &l.Result, &l.Error); err != nil {
-			continue
-		}
-		l.RunAt, _ = time.Parse(time.RFC3339, runAt)
-		out = append(out, l)
-	}
-	return out
-}
-
-// AllRunLogs returns the most recent task_run_logs rows across all tasks.
-func (s *Store) AllRunLogs(limit int) []TaskRunLog {
-	if limit <= 0 || limit > 200 {
-		limit = 50
-	}
-	rows, err := s.db.Query(
-		`SELECT id, task_id, run_at, COALESCE(duration_ms,0), status,
-		        COALESCE(result,''), COALESCE(error,'')
-		 FROM task_run_logs
-		 ORDER BY id DESC LIMIT ?`, limit)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-	return collectTaskRunLogs(rows)
 }

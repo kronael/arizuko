@@ -324,7 +324,9 @@ type ErroredChat struct {
 
 // TaskRunLog mirrors store.TaskRunLog.
 type TaskRunLog struct {
-	ID         int64     `json:"id"`
+	// ID is the run's position, which is its identity: a fixed-width instant
+	// and a suffix. It is what the reads order by.
+	ID         string    `json:"id"`
 	TaskID     string    `json:"task_id"`
 	RunAt      time.Time `json:"run_at"`
 	DurationMS int64     `json:"duration_ms"`

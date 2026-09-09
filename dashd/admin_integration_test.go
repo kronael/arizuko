@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/tests/testutils"
 )
 
@@ -569,16 +570,14 @@ func TestDash_TaskAction_DenyNonAdmin(t *testing.T) {
 // TestDash_TaskDetail_RunLogs: seed task + run logs, verify they appear.
 func TestDash_TaskDetail_RunLogs(t *testing.T) {
 	_, inst, _ := newRWDashServer(t)
-	now := time.Now().Format(time.RFC3339)
 	seedScheduledTask(t, inst.DB, core.Task{
 		ID: "t4", Owner: "bob", ChatJID: "bob@s.whatsapp.net", Prompt: "daily report",
 		Cron: "0 8 * * *", Status: "active",
 	})
 	for i := range 3 {
-		if _, err := inst.DB.Exec(
-			`INSERT INTO task_run_logs (task_id, run_at, duration_ms, status, error)
-			 VALUES ('t4', ?, ?, 'ok', '')`,
-			now, (i+1)*100); err != nil {
+		if err := store.New(inst.DB).RecordTaskRun(store.TaskRunLog{
+			TaskID: "t4", DurationMS: int64((i + 1) * 100), Status: "ok",
+		}); err != nil {
 			t.Fatal(err)
 		}
 	}

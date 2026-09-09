@@ -1,5 +1,12 @@
 package dashstore
 
+import (
+	"context"
+	"time"
+
+	"github.com/kronael/arizuko/store"
+)
+
 // The portal's status dots. Each one comes as a pair: a total for an operator,
 // who sees everything, and the folder-bearing column for a scoped caller, whom
 // authz.go filters row by row. The pair is what makes the two answers the same
@@ -34,31 +41,38 @@ func (s *Store) ErroredChatJIDs() ([]string, error) {
 	return s.strings(`SELECT DISTINCT chat_jid FROM messages WHERE errored=1 LIMIT 1000`)
 }
 
+// failedRunWindow is how far back the failed-run dot looks.
+const failedRunWindow = 24 * time.Hour
+
+// failedRunCeiling is the dot's own limit: past it the number is "at least this
+// many" and the page still renders.
+const failedRunCeiling = 1000
+
 // FailedTaskRunCount is the number of task runs that errored in the last day.
 func (s *Store) FailedTaskRunCount() (int, error) {
-	var n int
-	err := s.db.QueryRow(
-		`SELECT COUNT(*) FROM task_run_logs WHERE status='error' AND run_at > datetime('now','-1 day')`).Scan(&n)
-	return n, err
+	runs, err := s.failedRuns()
+	return len(runs), err
 }
 
 // FailedTaskOwners lists the owning folder of each of those runs, one row per
 // run rather than per task: the count above counts runs too, and a pair that
-// aggregated differently would disagree with itself.
+// aggregated differently would disagree with itself. They read through ONE
+// method for that reason.
 //
 // It is the one read here that crosses the boundary, and it CANNOT be one
-// statement: `task_run_logs` is not a registered resource and stays a SQL table,
-// while `scheduled_tasks` is an entity. So the log names the task ids and the
-// task partition answers who owns them. A run whose task is gone is dropped,
-// which is what the inner join did.
+// statement: a run log and a task are two entities, and an entity has no join.
+// So the log names the task ids and the task partition answers who owns them. A
+// run whose task is gone is dropped, which is what the inner join did.
 func (s *Store) FailedTaskOwners() ([]string, error) {
-	ids, err := s.strings(
-		`SELECT task_id FROM task_run_logs
-		 WHERE status='error' AND run_at > datetime('now','-1 day') LIMIT 1000`)
+	runs, err := s.failedRuns()
 	if err != nil {
 		return nil, err
 	}
 	st := s.st()
+	ids := make([]string, 0, len(runs))
+	for _, r := range runs {
+		ids = append(ids, r.TaskID)
+	}
 	owners := map[string]string{}
 	out := make([]string, 0, len(ids))
 	for _, id := range ids {
@@ -77,6 +91,13 @@ func (s *Store) FailedTaskOwners() ([]string, error) {
 		out = append(out, owner)
 	}
 	return out, nil
+}
+
+// failedRuns is the window both halves of the dot read, so neither can drift
+// from the other about which runs it counts.
+func (s *Store) failedRuns() ([]store.TaskRunLog, error) {
+	return s.st().FailedRunsSince(context.Background(),
+		time.Now().Add(-failedRunWindow), failedRunCeiling)
 }
 
 // strings runs a single-column query and collects the column. A row that fails

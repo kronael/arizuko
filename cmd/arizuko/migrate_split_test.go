@@ -139,6 +139,7 @@ DROP TABLE IF EXISTS chat_reply_state;
 DROP TABLE IF EXISTS system_messages;
 DROP TABLE IF EXISTS turn_results;
 DROP TABLE IF EXISTS group_watchers;
+DROP TABLE IF EXISTS task_run_logs;
 CREATE TABLE chats (
   jid TEXT PRIMARY KEY, agent_cursor TEXT, sticky_group TEXT,
   sticky_topic TEXT, is_group INTEGER NOT NULL DEFAULT 0);
@@ -160,6 +161,9 @@ CREATE TABLE turn_results (
   PRIMARY KEY (folder, turn_id));
 CREATE TABLE group_watchers (
   observer TEXT NOT NULL, source TEXT NOT NULL, PRIMARY KEY (observer, source));
+CREATE TABLE task_run_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, run_at TEXT NOT NULL,
+  duration_ms INTEGER, status TEXT NOT NULL, result TEXT, error TEXT);
 `
 
 // seedLegacyRoutdTables gives the monolith the thirteen tables a pre-split
@@ -533,13 +537,12 @@ func TestMigrateSplit(t *testing.T) {
 		t.Errorf("scheduled_tasks row wrong: owner=%q cron=%q status=%q",
 			task.Owner, task.Cron, task.Status)
 	}
-	var runStatus string
-	if err := r.QueryRow(
-		`SELECT status FROM task_run_logs WHERE task_id='task-1'`).Scan(&runStatus); err != nil {
-		t.Fatalf("read routd.task_run_logs: %v", err)
+	runs := store.New(r).TaskRunLogs("task-1", 10)
+	if len(runs) != 1 {
+		t.Fatalf("task_run_logs = %v, want the migrated run", runs)
 	}
-	if runStatus != "ok" {
-		t.Errorf("task_run_logs status = %q want ok", runStatus)
+	if runs[0].Status != "ok" {
+		t.Errorf("task_run_logs status = %q want ok", runs[0].Status)
 	}
 
 	// pane_sessions: an entity in routd.db (routd OWNS it now), read back

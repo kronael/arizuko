@@ -110,6 +110,9 @@ const (
 	// GroupWatchers holds one item per (observer, source) subscription and no
 	// attributes at all: the pair IS the fact.
 	GroupWatchers = "group_watchers"
+	// TaskRunLogs holds one item per execution of a scheduled task, addressed by
+	// the instant it ran — which IS its identity, so no separate `run_at`.
+	TaskRunLogs = "task_run_logs"
 
 	// Counters holds one item per server-minted number, addressed by the name
 	// of what it numbers, with the count in `n`.
@@ -190,7 +193,7 @@ var EntitiesByOwner = map[string][]string{
 		PendingActions, NetworkRules, ProxydRoutes, WebRoutes, InstalledPackages,
 		GitHubSources,
 		Chats, Sessions, ChatReplyState, ChatProactive, SystemMessages, UserProfiles,
-		TurnResults, GroupWatchers,
+		TurnResults, GroupWatchers, TaskRunLogs,
 	},
 	OwnerOnbod: {Onboarding, OnboardingGates, Invites},
 }

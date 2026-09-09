@@ -29,7 +29,7 @@ func TestInspectToolsRegistered(t *testing.T) {
 			return nil
 		},
 		TaskRunLogs: func(id string, n int) []TaskRunLog {
-			return []TaskRunLog{{ID: 1, TaskID: id, RunAt: now, Status: "ok"}}
+			return []TaskRunLog{{ID: "2026-09-09T00:00:00.000000000Z-00000001", TaskID: id, RunAt: now, Status: "ok"}}
 		},
 		RecentSessions: func(f string, n int) []core.SessionRecord {
 			return []core.SessionRecord{{ID: "sess-1", Folder: f, SessionID: "s1", StartedAt: now}}

@@ -385,17 +385,6 @@ func (s *Store) DueTasks(now time.Time) ([]core.Task, error) {
 	return out, nil
 }
 
-// RecordTaskRun appends one task_run_logs row WITHOUT emitting an audit_log row
-// — the write half of timed's fire loop, moved behind POST /v1/tasks/runlog.
-// Mirrors timed.logRun (NULLIF on empty error).
-func (s *Store) RecordTaskRun(l TaskRunLog) error {
-	_, err := s.db.Exec(
-		`INSERT INTO task_run_logs (task_id, run_at, duration_ms, status, result, error)
-		 VALUES (?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''))`,
-		l.TaskID, time.Now().UTC().Format(time.RFC3339), l.DurationMS, l.Status, l.Result, l.Error)
-	return err
-}
-
 func (s *Store) GetTask(id string) (core.Task, bool) {
 	t, ok, err := s.TaskByID(id)
 	if err != nil {

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
 )
 
@@ -569,8 +570,9 @@ func TestPortalFailedTasksDot(t *testing.T) {
 		ID: "t", Owner: "op", ChatJID: "web:a", Prompt: "p",
 	})
 	for range 3 {
-		if _, err := db.Exec(
-			`INSERT INTO task_run_logs(task_id, run_at, status) VALUES('t', datetime('now'), 'error')`); err != nil {
+		if err := store.New(db).RecordTaskRun(store.TaskRunLog{
+			TaskID: "t", Status: "error",
+		}); err != nil {
 			t.Fatal(err)
 		}
 	}

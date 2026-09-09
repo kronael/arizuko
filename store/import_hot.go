@@ -52,17 +52,17 @@ import (
 // it, because an entity has no foreign key to satisfy.
 var HotEntities = []string{
 	Chats, Sessions, ChatReplyState, ChatProactive, SystemMessages,
-	UserProfiles, TurnResults, GroupWatchers,
+	UserProfiles, TurnResults, GroupWatchers, TaskRunLogs,
 }
 
 // hotKeyFields names each entity's coordinate fields, in order, so the source
 // half can build its SELECT and this half can say which column was short.
 //
-// `system_messages` names three for a two-part coordinate, and that is rule 4
-// made concrete: its position is the instant it was queued plus a suffix, and
-// the suffix carried here is the AUTOINCREMENT id the old table ordered by. Two
-// events queued in one nanosecond keep the order they had, and no two rows can
-// collide, because an id is unique.
+// `system_messages` names three for a two-part coordinate and `task_run_logs`
+// names two for a one-part one, and that is rule 4 made concrete: each position
+// is an instant plus a suffix, and the suffix carried here is the AUTOINCREMENT
+// id the old table ordered by. Two rows written in one nanosecond keep the order
+// they had, and no two can collide, because an id is unique.
 var hotKeyFields = map[string][]string{
 	Chats:          {"jid"},
 	Sessions:       {"group_folder", "topic"},
@@ -72,6 +72,7 @@ var hotKeyFields = map[string][]string{
 	UserProfiles:   {"sub"},
 	TurnResults:    {"folder", "turn_id"},
 	GroupWatchers:  {"observer", "source"},
+	TaskRunLogs:    {"run_at", "id"},
 }
 
 // HotKeyFields answers one entity's coordinate fields, for the reader that has
@@ -148,6 +149,23 @@ var hotFlags = map[string][]string{
 	Chats: {attrChatErrored, attrChatIsGroup},
 }
 
+// legacyRunLogKey builds a run's position out of the two columns that were its
+// order: the instant it ran and the row number that broke a tie. `run_at` is
+// second-precision on every live instance, so the id is what keeps two runs of
+// one second in the order the operator read them in.
+func legacyRunLogKey(runAt, id string) (objstore.Key, error) {
+	at, err := normaliseInstant(TaskRunLogs, "run_at", runAt)
+	if err != nil {
+		return objstore.Key{}, err
+	}
+	n, err := strconv.ParseInt(id, 10, 64)
+	if err != nil || n < 0 {
+		return objstore.Key{}, fmt.Errorf("task run log id %q is not a row number, and it is "+
+			"what keeps two runs recorded in one second apart", id)
+	}
+	return runLogKey(RunStamp(at, fmt.Sprintf("%08x", n)))
+}
+
 // hotKey renders one row's coordinate through the SAME builder the entity's own
 // writer calls, so a migrated item lands where a live write would put it.
 func hotKey(entity string, key []string) (objstore.Key, error) {
@@ -174,6 +192,8 @@ func hotKey(entity string, key []string) (objstore.Key, error) {
 		return turnResultKey(key[0], key[1])
 	case GroupWatchers:
 		return watcherKey(key[0], key[1])
+	case TaskRunLogs:
+		return legacyRunLogKey(key[0], key[1])
 	case SystemMessages:
 		at, err := normaliseInstant(entity, "created", key[1])
 		if err != nil {

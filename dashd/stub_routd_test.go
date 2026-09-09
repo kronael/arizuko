@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
@@ -333,28 +334,23 @@ func stubRoutd(t *testing.T, db *sql.DB) string {
 		writeStubJSON(w, t)
 	})
 
+	// The per-task run history, read the way routd's own handler reads it: the
+	// entity, newest first, through the one method that renders a run log.
 	mux.HandleFunc("GET /v1/tasks/{id}/runs", func(w http.ResponseWriter, r *http.Request) {
-		rows, err := db.Query(`SELECT run_at, status, COALESCE(duration_ms,0), COALESCE(error,'')
-			FROM task_run_logs WHERE task_id = ? ORDER BY run_at DESC LIMIT 20`, r.PathValue("id"))
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		defer rows.Close()
 		type run struct {
 			RunAt      string `json:"run_at"`
 			Status     string `json:"status"`
-			DurationMS int    `json:"duration_ms"`
+			DurationMS int64  `json:"duration_ms"`
 			Error      string `json:"error"`
 		}
 		out := []run{}
-		for rows.Next() {
-			var x run
-			if err := rows.Scan(&x.RunAt, &x.Status, &x.DurationMS, &x.Error); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			out = append(out, x)
+		for _, l := range store.New(db).TaskRunLogs(r.PathValue("id"), 20) {
+			out = append(out, run{
+				RunAt:      l.RunAt.Format(time.RFC3339),
+				Status:     l.Status,
+				DurationMS: l.DurationMS,
+				Error:      l.Error,
+			})
 		}
 		writeStubJSON(w, out)
 	})
