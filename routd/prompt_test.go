@@ -227,11 +227,7 @@ func TestSiblingTasks_RootVsChild(t *testing.T) {
 	}
 	defer db.Close()
 	for _, r := range [][2]string{{"t-main", "main"}, {"t-sub", "main/sub"}} {
-		if _, err := db.SQL().Exec(
-			`INSERT INTO scheduled_tasks(id,owner,chat_jid,prompt,status,created_at,context_mode)
-			 VALUES(?,?,'jid','do it','active','2026-01-01T00:00:00Z','group')`, r[0], r[1]); err != nil {
-			t.Fatal(err)
-		}
+		seedTask(t, db, r[0], r[1], "jid", "do it")
 	}
 	if got := db.Tasks("main", true); len(got) != 2 {
 		t.Errorf("root: want 2 tasks, got %d", len(got))
@@ -254,11 +250,7 @@ func TestRunTurn_WritesSpawnSnapshots(t *testing.T) {
 	}
 	defer db.Close()
 	_ = db.PutGroup(core.Group{Folder: "demo"})
-	if _, err := db.SQL().Exec(
-		`INSERT INTO scheduled_tasks(id,owner,chat_jid,prompt,status,created_at,context_mode)
-		 VALUES('t1','demo','jid','do it','active','2026-01-01T00:00:00Z','group')`); err != nil {
-		t.Fatal(err)
-	}
+	seedTask(t, db, "t1", "demo", "jid", "do it")
 
 	ipcDir := t.TempDir()
 	runner := runnerFn(func(_ context.Context, _ runedv1.RunRequest) (runedv1.RunOutcome, error) {

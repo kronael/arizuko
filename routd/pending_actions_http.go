@@ -24,7 +24,6 @@ import (
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
-	"github.com/kronael/arizuko/store"
 )
 
 const (
@@ -38,7 +37,7 @@ const (
 func (s *Server) pendingActionsResource() resreg.Resource {
 	r := resreg.Mount(resources.PendingActionsName)
 	r.Handler = s.pendingActionsHandler
-	r.Store = store.New(s.db.SQL())
+	r.Store = s.db.store()
 	return r
 }
 
@@ -109,7 +108,7 @@ func (s *Server) pendingActionsHandler(ctx context.Context, x resreg.Execution) 
 		// answer lives in acl (spec 6/26 § Decision 5). Meaningless on reject,
 		// and there is no standing reject — see resolveHoldTx.
 		standing := x.Action == actionApprove && x.Args.Bool("standing")
-		p, _, err := resolveHoldTx(ctx, x.Tx, id, verdict, reviewer, x.Args.Str("note"), standing)
+		p, _, err := s.db.resolveHoldTx(ctx, x.Tx, id, verdict, reviewer, x.Args.Str("note"), standing)
 		switch {
 		case errors.Is(err, ErrPendingNotFound):
 			return nil, resreg.Errorf(http.StatusNotFound, "%v", err)

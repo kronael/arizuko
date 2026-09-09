@@ -298,12 +298,13 @@ func TestPreColumnRouteTokenResolvesByGrammar(t *testing.T) {
 	loop.SetOnbodClient(fo)
 	_ = db.PutGroup(core.Group{Folder: "acme"})
 
-	// A pre-migration row: every column the mint wrote back then, no target.
-	if _, err := db.SQL().Exec(
-		`INSERT INTO route_tokens(token_hash, jid, owner_folder, created_at, kind)
-		 VALUES(?,?,?,?,?)`,
-		[]byte("oldhash"), "hook:acme/github", "acme", nowTS(), store.RouteTokenKindRoute); err != nil {
-		t.Fatalf("seed pre-column row: %v", err)
+	// A token whose mint recorded no target: the shape every row carried before
+	// the mint started recording one, and the shape the JID grammar has to answer
+	// for.
+	if err := db.store().InsertRouteToken(store.GenRouteToken(), store.RouteToken{
+		JID: "hook:acme/github", OwnerFolder: "acme",
+	}); err != nil {
+		t.Fatalf("seed a token with no recorded target: %v", err)
 	}
 	if target := db.RouteTokenTarget("hook:acme/github"); target != "" {
 		t.Fatalf("pre-column row reported target %q, want none", target)
@@ -493,9 +494,9 @@ func TestSteeredPartialBatchNoRedispatch(t *testing.T) {
 	}
 }
 
-// doSetRoutes replaces the whole route table through setRoutesTx, the writer
-// the routes resource uses. routd.DB's SetRoutes twin had no production caller
-// and is gone (BUGS L14).
+// doSetRoutes replaces the whole route table through store.ReplaceFolderRoutesTx,
+// the writer the routes resource uses. routd.DB's SetRoutes twin had no
+// production caller and is gone (BUGS L14).
 func doSetRoutes(t *testing.T, db *DB, routes []core.Route) {
 	t.Helper()
 	tx, err := db.SQL().Begin()
@@ -503,7 +504,8 @@ func doSetRoutes(t *testing.T, db *DB, routes []core.Route) {
 		t.Fatalf("begin: %v", err)
 	}
 	defer tx.Rollback()
-	if err := setRoutesTx(context.Background(), tx, "", routes, "test", "test"); err != nil {
+	if err := db.store().ReplaceFolderRoutesTx(
+		context.Background(), tx, "", routes, "test", "test"); err != nil {
 		t.Fatalf("set routes: %v", err)
 	}
 	if err := tx.Commit(); err != nil {

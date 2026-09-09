@@ -14,6 +14,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
 )
@@ -32,6 +33,22 @@ func routdManifest(t *testing.T, be resreg.Backend) ([]byte, map[string]any) {
 	return b, m
 }
 
+// routeRows reads the routes resource's manifest-visible projection, which is
+// where `added_by`, `added_via` and the minted `id` live: they are attributes of
+// the item, not fields of core.Route.
+func routeRows(t *testing.T, be resreg.Backend) []resources.RoutesRow {
+	t.Helper()
+	r := resreg.Lookup(resources.RoutesName)
+	if r == nil {
+		t.Fatal("routes is not registered")
+	}
+	got, err := r.ScanAll(be)
+	if err != nil {
+		t.Fatalf("ScanAll: %v", err)
+	}
+	return got.([]resources.RoutesRow)
+}
+
 func TestApply_RoundTripsEveryColumnItRebuilds(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -42,24 +59,25 @@ func TestApply_RoundTripsEveryColumnItRebuilds(t *testing.T) {
 	ctx := context.Background()
 
 	// A route with the attribution both stamping writers record, and a held call
-	// with the mode it was placed under and the notice it waits on.
+	// with the mode it was placed under and the notice it waits on — each written
+	// by the face production writes it with.
 	tx, err := db.SQL().Begin()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.Exec(
-		`INSERT INTO routes (seq, match, target, added_by, added_via) VALUES (0,?,?,?,?)`,
-		"platform=telegram", "atlas/main", "google:alice", "chat"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.Exec(
-		`INSERT INTO pending_actions (id, group_folder, caller_agent, tool, status, created_at, mode, notice_id)
-		 VALUES (?,?,?,?,?,?,?,?)`,
-		"pa1", "atlas/main", "agent", "send", "held",
-		"2026-01-01T00:00:00.000000000Z", "block", "tg:99"); err != nil {
+	if _, err := db.store().PutRouteTx(ctx, tx, core.Route{
+		Seq: 0, Match: "platform=telegram", Target: "atlas/main",
+	}, "google:alice", "chat"); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PutPendingAction(PendingAction{
+		ID: "pa1", GroupFolder: "atlas/main", CallerAgent: "agent", Tool: "send",
+		Status: "held", CreatedAt: "2026-01-01T00:00:00.000000000Z",
+		Mode: "block", NoticeID: "tg:99",
+	}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -84,13 +102,11 @@ func TestApply_RoundTripsEveryColumnItRebuilds(t *testing.T) {
 
 	// Named, so the failure says which fact was erased rather than only that the
 	// bytes differ.
-	var by, via string
-	var id int
-	if err := db.SQL().QueryRow(
-		`SELECT id, COALESCE(added_by,''), COALESCE(added_via,'') FROM routes`).
-		Scan(&id, &by, &via); err != nil {
-		t.Fatal(err)
+	routes := routeRows(t, be)
+	if len(routes) != 1 {
+		t.Fatalf("the apply left %d routes, want the one that was written", len(routes))
 	}
+	by, via, id := routes[0].AddedBy, routes[0].AddedVia, routes[0].ID
 	if by != "google:alice" || via != "chat" {
 		t.Errorf("route attribution after the apply = (%q, %q), want (google:alice, chat): "+
 			"an operator's record of who routed a chat where, erased by a config apply", by, via)
@@ -99,11 +115,11 @@ func TestApply_RoundTripsEveryColumnItRebuilds(t *testing.T) {
 		t.Errorf("route id after the apply = %d, want 1: delete_route(id) addresses this "+
 			"handle and an apply that renumbers it points the agent at another rule", id)
 	}
-	var mode, notice string
-	if err := db.SQL().QueryRow(`SELECT mode, notice_id FROM pending_actions`).
-		Scan(&mode, &notice); err != nil {
-		t.Fatal(err)
+	held, ok := db.GetPendingAction("pa1")
+	if !ok {
+		t.Fatal("the apply removed the held call it was built from")
 	}
+	mode, notice := held.Mode, held.NoticeID
 	if mode != "block" || notice != "tg:99" {
 		t.Errorf("held call after the apply = (mode %q, notice %q), want (block, tg:99): "+
 			"the mode decides who runs the approved call, and the notice is what turns a "+
@@ -133,11 +149,11 @@ func TestApply_FillsTheHoldModeAManifestOmits(t *testing.T) {
 		}}}, nil); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
-	var mode string
-	if err := db.SQL().QueryRow(`SELECT mode FROM pending_actions`).Scan(&mode); err != nil {
-		t.Fatal(err)
+	held, ok := db.GetPendingAction("pa1")
+	if !ok {
+		t.Fatal("the apply wrote no held call")
 	}
-	if mode != "async" {
+	if mode := held.Mode; mode != "async" {
 		t.Errorf("mode = %q, want async — the default the schema states", mode)
 	}
 }

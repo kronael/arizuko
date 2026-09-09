@@ -210,7 +210,7 @@ func (s *Store) RemoveMembership(child, parent string) error {
 	}
 	actor, actorSub, surface := s.auditIdentity()
 	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		if _, err := s.writeEntitiesInTx(context.Background(), tx, nil, objstore.Write{
+		if _, err := s.WriteEntitiesInTx(context.Background(), tx, nil, objstore.Write{
 			Op: objstore.Delete, Entity: ACLMembership, Key: key,
 		}); err != nil {
 			return audit.Event{}, err
@@ -240,7 +240,7 @@ const RoleMember = "role:member"
 // zero allow rows and comes up with no messaging tools at all (BUGS L119).
 // Idempotent — the underlying write is create-if-absent.
 func SeedMemberRoleTx(ctx context.Context, s *Store, tx *sql.Tx, folder string) error {
-	return s.putMembershipTx(ctx, tx, "folder:"+folder, RoleMember, "system:4r-member")
+	return s.PutMembershipTx(ctx, tx, "folder:"+folder, RoleMember, "system:4r-member")
 }
 
 // PutMembership writes (child → parent) idempotently WITHOUT emitting an
@@ -258,17 +258,18 @@ func (s *Store) PutMembership(child, parent, addedBy string) error {
 	return s.addEdge(child, parent, edge)
 }
 
-// putMembershipTx is the edge write on a transaction the CALLER owns, for the
-// one writer that has to consume something else in the same commit: pairing
-// redemption spends its token and writes the edge together, and AddMembership
-// opens no transaction to join.
+// PutMembershipTx is the edge write on a transaction the CALLER owns, for the
+// writers that have to commit something else with it: pairing redemption spends
+// its token in the same commit, a group creation seeds the member edge with the
+// groups row, and routd's `/v1/acl` face lands the operator edge with
+// resreg.invoke's audit row. AddMembership opens no transaction to join.
 //
-// Its cycle guard is the same walk, run inside the transaction. What it gives
-// up against AddMembership is the marker's compare-and-swap, so two edges
+// Its cycle guard is the same walk, run through the store's own driver. What it
+// gives up against AddMembership is the marker's compare-and-swap, so two edges
 // closing a ring from opposite ends are serialised by the engine's write lock
 // rather than by the version — which is what SQLite gives and Postgres at READ
 // COMMITTED does not (BUGS L256).
-func (s *Store) putMembershipTx(ctx context.Context, tx *sql.Tx, child, parent, addedBy string) error {
+func (s *Store) PutMembershipTx(ctx context.Context, tx *sql.Tx, child, parent, addedBy string) error {
 	if child == parent {
 		return ErrSelfMembership
 	}
@@ -283,31 +284,95 @@ func (s *Store) putMembershipTx(ctx context.Context, tx *sql.Tx, child, parent, 
 	if err != nil {
 		return err
 	}
-	_, err = s.writeEntitiesInTx(ctx, tx, nil, w)
+	_, err = s.WriteEntitiesInTx(ctx, tx, nil, w)
 	return err
 }
 
-// Members returns direct children of `parent`.
+// MembershipEdge is one edge with the two attributes the item carries: who
+// wrote it, and when. It is the shape the readers that need MORE than the two
+// ends take — onbod's account page prints the instant a chat was claimed, and
+// its admission tick asks which parent PAIRING bound a jid to.
+type MembershipEdge struct {
+	Child   string
+	Parent  string
+	AddedBy string
+	AddedAt string
+}
+
+// edgesFrom turns items into edges. One unreadable key fails the whole read: a
+// half-split coordinate names an edge nobody wrote, and a caller reading it
+// would confer authority nobody granted.
+func edgesFrom(items []objstore.Item) ([]MembershipEdge, error) {
+	out := make([]MembershipEdge, 0, len(items))
+	for _, it := range items {
+		child, parent, err := membershipEdgeOf(it)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, MembershipEdge{
+			Child:   child,
+			Parent:  parent,
+			AddedBy: it.Attrs[attrMemAddedBy],
+			AddedAt: it.Attrs[attrMemAddedAt],
+		})
+	}
+	return out, nil
+}
+
+// MemberEdges returns the edges directly under `parent`, in child order.
 //
 // The parent is the SECOND field of the coordinate, so this reads the partition
 // and filters: a key predicate reaches a leading fragment and nothing else. The
 // whole graph is 58 edges on the largest live instance.
-func (s *Store) Members(parent string) []string {
+func (s *Store) MemberEdges(parent string) ([]MembershipEdge, error) {
 	items, err := s.Obj().Query(context.Background(), objstore.Query{
 		Entity: ACLMembership, Partition: OwnerRoutd,
 	})
 	if err != nil {
+		return nil, fmt.Errorf("read the members of %q: %w", parent, err)
+	}
+	all, err := edgesFrom(items)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]MembershipEdge, 0, len(all))
+	for _, e := range all {
+		if e.Parent == parent {
+			out = append(out, e)
+		}
+	}
+	slices.SortFunc(out, func(a, b MembershipEdge) int { return strings.Compare(a.Child, b.Child) })
+	return out, nil
+}
+
+// ParentEdges returns the edges directly above `child`, with their attributes —
+// one begins_with, because the child leads the coordinate.
+//
+// MembershipParents answers the same direction for the cycle walk and carries
+// only the names; this is for the caller that has to read `added_by` off the
+// edge, where a role membership and a pairing are two different facts about one
+// principal.
+func (s *Store) ParentEdges(child string) ([]MembershipEdge, error) {
+	items, err := s.Obj().Query(context.Background(), objstore.Query{
+		Entity: ACLMembership, Partition: OwnerRoutd,
+		Key: objstore.KeyPredicate{Op: objstore.PrefixKey, Value: child + KeySep},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read the parents of %q: %w", child, err)
+	}
+	return edgesFrom(items)
+}
+
+// Members returns direct children of `parent`.
+func (s *Store) Members(parent string) []string {
+	edges, err := s.MemberEdges(parent)
+	if err != nil {
 		return nil
 	}
-	var out []string
-	for _, it := range items {
-		child, p, err := membershipEdgeOf(it)
-		if err != nil || p != parent {
-			continue
-		}
-		out = append(out, child)
+	out := make([]string, 0, len(edges))
+	for _, e := range edges {
+		out = append(out, e.Child)
 	}
-	slices.Sort(out)
 	return out
 }
 
@@ -338,4 +403,23 @@ func (s *Store) Ancestors(child string) []string {
 	}
 	slices.Sort(out)
 	return out
+}
+
+// RemoveMembershipTx drops ONE edge on a transaction the caller owns and reports
+// whether an edge went, for routd's `/v1/acl` face: revoking the operator-role
+// overload is a revoke, and a revoke that removed nothing must not answer OK.
+// The delete is conditioned on the item being there, so the refusal IS the
+// not-found answer.
+//
+// Unlike UnpairTx it carries no `added_by` condition: this reaches role
+// membership, which is exactly the edge the operator overload writes.
+func (s *Store) RemoveMembershipTx(ctx context.Context, tx *sql.Tx, child, parent string) (bool, error) {
+	key, err := membershipKey(child, parent)
+	if err != nil {
+		return false, err
+	}
+	return s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+		Op: objstore.Delete, Entity: ACLMembership, Key: key,
+		Cond: objstore.Cond{Item: objstore.ItemPresent},
+	})
 }

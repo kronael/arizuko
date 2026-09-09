@@ -163,7 +163,7 @@ func (s *Store) AddACLRow(row core.ACLRow) error {
 		return err
 	}
 	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		if _, err := s.writeEntitiesInTx(context.Background(), tx, nil, w); err != nil {
+		if _, err := s.WriteEntitiesInTx(context.Background(), tx, nil, w); err != nil {
 			return audit.Event{}, err
 		}
 		// GrantedBy is the grantor recorded in the row itself; it stands in as the
@@ -205,7 +205,7 @@ func (s *Store) RemoveACLRow(row core.ACLRow) error {
 		return err
 	}
 	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		if _, err := s.writeEntitiesInTx(context.Background(), tx, nil, objstore.Write{
+		if _, err := s.WriteEntitiesInTx(context.Background(), tx, nil, objstore.Write{
 			Op: objstore.Delete, Entity: ACL, Key: key,
 		}); err != nil {
 			return audit.Event{}, err
@@ -237,7 +237,7 @@ func (s *Store) PutACLRow(row core.ACLRow) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.writeEntities(context.Background(), nil, w)
+	_, err = s.WriteEntities(context.Background(), nil, w)
 	return err
 }
 
@@ -355,5 +355,42 @@ func aclOrder(rows []core.ACLRow) {
 		return strings.Compare(
 			strings.Join([]string{a.Principal, a.Action, a.Scope, a.Params, a.Predicate, a.Effect}, KeySep),
 			strings.Join([]string{b.Principal, b.Action, b.Scope, b.Params, b.Predicate, b.Effect}, KeySep))
+	})
+}
+
+// PutACLRowTx grants a row create-if-absent on a transaction the CALLER owns,
+// for routd's `/v1/acl` face: the grant and resreg.invoke's single audit_log row
+// commit together, and AddACLRow would open a second transaction on the same
+// database and record the act twice.
+//
+// It renders through aclPut, so the row this writes carries the same coordinate
+// and the same three attributes the audited writer does. A grant with no
+// `granted_at` is stamped here rather than left off — the one omission an
+// operator surface reads as "nobody granted this".
+func (s *Store) PutACLRowTx(ctx context.Context, tx *sql.Tx, row core.ACLRow) error {
+	w, err := aclPut(aclDefaults(row))
+	if err != nil {
+		return err
+	}
+	_, err = s.WriteEntitiesInTx(ctx, tx, nil, w)
+	return err
+}
+
+// RemoveACLRowTx revokes ONE row on a transaction the caller owns and reports
+// whether a grant went.
+//
+// The answer is load-bearing: a revoke is the one operation where "did nothing"
+// must never read as success, so the delete is conditioned on the item being
+// there and the refusal IS the not-found answer. The six coordinate fields
+// address the row exactly, `params` and `predicate` included — a revoke that
+// matched on fewer would remove a wider grant than the caller named (BUGS L79).
+func (s *Store) RemoveACLRowTx(ctx context.Context, tx *sql.Tx, row core.ACLRow) (bool, error) {
+	key, err := aclKey(aclDefaults(row))
+	if err != nil {
+		return false, err
+	}
+	return s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+		Op: objstore.Delete, Entity: ACL, Key: key,
+		Cond: objstore.Cond{Item: objstore.ItemPresent},
 	})
 }

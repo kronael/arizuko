@@ -90,14 +90,8 @@ func aclRowCount(t *testing.T, db *DB, scope string) int {
 	return n
 }
 
-func operatorMembershipExists(t *testing.T, db *DB, child string) bool {
-	t.Helper()
-	var n int
-	if err := db.SQL().QueryRow(
-		`SELECT COUNT(*) FROM acl_membership WHERE child=? AND parent='role:operator'`, child).Scan(&n); err != nil {
-		t.Fatalf("membership query: %v", err)
-	}
-	return n > 0
+func operatorMembershipExists(_ *testing.T, db *DB, child string) bool {
+	return hasEdge(db, child, "role:operator")
 }
 
 // TestACLMCP_AddListRemove — happy path for a folder DELEGATED the acl tools over
@@ -116,9 +110,10 @@ func TestACLMCP_AddListRemove(t *testing.T) {
 	grantMCPTools(t, db, "root", "add_acl", "remove_acl", "list_acl")
 	// 5/33: folder:root was DELEGATED "read" over its subtree WITH the grant option,
 	// so it may re-delegate a subset (auth.Delegate). Without this the add is refused.
-	if _, err := db.SQL().Exec(
-		`INSERT INTO acl (principal, action, scope, effect, params, predicate, granted_by, granted_at, grant_option)
-		 VALUES ('folder:root', 'read', 'root/**', 'allow', '', '', 'test', ?, 1)`, nowTS()); err != nil {
+	if err := addACLRow(db, core.ACLRow{
+		Principal: "folder:root", Action: "read", Scope: "root/**", Effect: "allow",
+		GrantedBy: "test", GrantOption: true,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	sock := serveACLMCP(t, db, "root", "folder:root")
@@ -190,17 +185,19 @@ func TestACLMCP_ContainmentDenied(t *testing.T) {
 	}
 	// Delegate folder:world/a the add_acl tool over the `world` subtree. That scope
 	// is exactly the caller's authority: the tool's `scope` arg must fall inside it.
-	if _, err := db.SQL().Exec(
-		`INSERT INTO acl (principal, action, scope, effect, params, predicate, granted_by, granted_at)
-		 VALUES ('folder:world/a', 'mcp:add_acl', 'world/**', 'allow', '', '', 'test', ?)`, nowTS()); err != nil {
+	if err := addACLRow(db, core.ACLRow{
+		Principal: "folder:world/a", Action: "mcp:add_acl", Scope: "world/**",
+		Effect: "allow", GrantedBy: "test",
+	}); err != nil {
 		t.Fatal(err)
 	}
 	// 5/33: folder:world/a was delegated "read" over world/** WITH the grant option —
 	// so it may re-delegate read within world/**, and the auth.Delegate scope-check
 	// itself refuses a cross-subtree scope (other/x), reinforcing the denial below.
-	if _, err := db.SQL().Exec(
-		`INSERT INTO acl (principal, action, scope, effect, params, predicate, granted_by, granted_at, grant_option)
-		 VALUES ('folder:world/a', 'read', 'world/**', 'allow', '', '', 'test', ?, 1)`, nowTS()); err != nil {
+	if err := addACLRow(db, core.ACLRow{
+		Principal: "folder:world/a", Action: "read", Scope: "world/**", Effect: "allow",
+		GrantedBy: "test", GrantOption: true,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	sock := serveACLMCP(t, db, "world/a", "folder:world/a")
@@ -271,15 +268,17 @@ func TestACLMCP_NonRootCannotWriteADenyRow(t *testing.T) {
 	for _, f := range []string{"world", "world/a", "world/b"} {
 		_ = db.PutGroup(core.Group{Folder: f})
 	}
-	if _, err := db.SQL().Exec(
-		`INSERT INTO acl (principal, action, scope, effect, params, predicate, granted_by, granted_at)
-		 VALUES ('folder:world/a', 'mcp:add_acl', 'world/**', 'allow', '', '', 'test', ?)`, nowTS()); err != nil {
+	if err := addACLRow(db, core.ACLRow{
+		Principal: "folder:world/a", Action: "mcp:add_acl", Scope: "world/**",
+		Effect: "allow", GrantedBy: "test",
+	}); err != nil {
 		t.Fatal(err)
 	}
 	// Held WITH the grant option, so the allow half below is genuinely delegable.
-	if _, err := db.SQL().Exec(
-		`INSERT INTO acl (principal, action, scope, effect, params, predicate, granted_by, granted_at, grant_option)
-		 VALUES ('folder:world/a', 'read', 'world/**', 'allow', '', '', 'test', ?, 1)`, nowTS()); err != nil {
+	if err := addACLRow(db, core.ACLRow{
+		Principal: "folder:world/a", Action: "read", Scope: "world/**", Effect: "allow",
+		GrantedBy: "test", GrantOption: true,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	sock := serveACLMCP(t, db, "world/a", "folder:world/a")
@@ -296,10 +295,11 @@ func TestACLMCP_NonRootCannotWriteADenyRow(t *testing.T) {
 	}); e == "" {
 		t.Fatal("a non-root caller wrote a deny row; auth.Delegate bans one")
 	}
-	var denies int
-	if err := db.SQL().QueryRow(
-		`SELECT COUNT(*) FROM acl WHERE effect='deny' AND scope='world/b'`).Scan(&denies); err != nil {
-		t.Fatal(err)
+	denies := 0
+	for _, r := range aclRows(t, db, "") {
+		if r.Effect == "deny" && r.Scope == "world/b" {
+			denies++
+		}
 	}
 	if denies != 0 {
 		t.Fatalf("the refused call still wrote %d deny rows", denies)

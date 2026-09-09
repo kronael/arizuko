@@ -20,9 +20,7 @@ func TestResolveAllowlist(t *testing.T) {
 		{"acme", "acme.com"},
 		{"acme/eng", "github.com"},
 	} {
-		if _, err := db.SQL().Exec(
-			`INSERT INTO network_rules(folder, target, created_at) VALUES(?,?,?)`,
-			r.folder, r.target, nowTS()); err != nil {
+		if err := db.store().AddNetworkRule(r.folder, r.target, "test"); err != nil {
 			t.Fatal(err)
 		}
 	}

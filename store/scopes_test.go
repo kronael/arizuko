@@ -98,14 +98,14 @@ func TestTheMarkerMovesOnlyForAScopedEntity(t *testing.T) {
 // reports a state no writer ever saw.
 //
 // So the funnel is the only door, and this is the lock on it: every driver write
-// in this package goes through writeEntities, writeEntitiesInTx or
+// in this package goes through writeEntities, WriteEntitiesInTx or
 // incrementEntity, all three of which live in scopes.go and all three of which
 // carry the marker.
 func TestNoWriterGoesRoundTheBump(t *testing.T) {
 	const funnel = "scopes.go"
 	round := map[string]string{
 		"GuardedBatch":     "writeEntities",
-		"GuardedBatchInTx": "writeEntitiesInTx",
+		"GuardedBatchInTx": "WriteEntitiesInTx",
 		"Increment":        "incrementEntity",
 	}
 	entries, err := os.ReadDir(".")

@@ -284,7 +284,7 @@ var errNoSuchGroup = errors.New("store: no group row in subtree")
 // groups items went with it.
 //
 // ONE transaction: the caller owns it, every entity write rides in it through
-// writeEntitiesInTx, and a partial purge IS the state this exists to prevent.
+// WriteEntitiesInTx, and a partial purge IS the state this exists to prevent.
 // The entity deletes are chunked, because a batch carries at most
 // MaxBatchActions and a large folder's subtree can exceed one.
 func (s *Store) purgeFolder(ctx context.Context, tx *sql.Tx, folder string) (int, error) {
@@ -319,7 +319,7 @@ func (s *Store) purgeFolder(ctx context.Context, tx *sql.Tx, folder string) (int
 		}
 		if _, err := applyChunks(ctx, "purge "+e.entity+" of "+folder, writes,
 			func(ctx context.Context, chunk []objstore.Write) (bool, error) {
-				return s.writeEntitiesInTx(ctx, tx, nil, chunk...)
+				return s.WriteEntitiesInTx(ctx, tx, nil, chunk...)
 			}); err != nil {
 			return 0, err
 		}

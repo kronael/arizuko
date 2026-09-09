@@ -55,7 +55,7 @@ func (s *Store) PutOAuthSecret(userSub, key, value, provider, refresh string, ex
 	if err != nil {
 		return err
 	}
-	owned[attrSecProvider] = provider
+	setAttr(owned, attrSecProvider, provider)
 	owned[attrSecCreatedAt] = core.NowTS()
 	return s.putSecret(context.Background(), nil, ScopeUser, userSub, key, owned)
 }
@@ -85,7 +85,7 @@ func (s *Store) UpdateOAuthSecret(userSub, key, value, refresh string, expiresAt
 			w.Remove = append(w.Remove, name)
 		}
 	}
-	updated, err := s.writeEntities(context.Background(), nil, w)
+	updated, err := s.WriteEntities(context.Background(), nil, w)
 	if err != nil {
 		return err
 	}
@@ -107,7 +107,7 @@ func (s *Store) ClearOAuthSecret(userSub, key string) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.writeEntities(context.Background(), nil, objstore.Write{
+	_, err = s.WriteEntities(context.Background(), nil, objstore.Write{
 		Op: objstore.Update, Entity: Secrets, Key: k,
 		Remove: []string{attrSecExpiresAt, attrSecRefreshVal},
 	})

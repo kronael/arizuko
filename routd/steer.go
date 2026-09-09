@@ -585,7 +585,7 @@ func (l *Loop) cmdResolveHold(chatJID, folder, arg, sender, verdict string, stan
 		return
 	}
 	defer tx.Rollback()
-	p, enqueueJID, err := resolveHoldTx(context.Background(), tx, id, verdict, sender,
+	p, enqueueJID, err := l.db.resolveHoldTx(context.Background(), tx, id, verdict, sender,
 		strings.TrimSpace(note), standing)
 	if err != nil {
 		l.ack(chatJID, "Failed: "+err.Error())

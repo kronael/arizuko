@@ -183,6 +183,14 @@ func groupUpsert(g core.Group) (create, merge objstore.Write, err error) {
 	for k, v := range owned {
 		whole[k] = v
 	}
+	if g.Model != "" {
+		raw, merr := json.Marshal(map[string]any{cfgModel: g.Model})
+		if merr != nil {
+			return objstore.Write{}, objstore.Write{}, fmt.Errorf("group %q model: %w",
+				g.Folder, merr)
+		}
+		whole[attrGrpConfig] = string(raw)
+	}
 	return objstore.Write{
 			Op: objstore.Put, Entity: Groups, Key: key, Attrs: whole,
 			Cond: objstore.Cond{Item: objstore.ItemAbsent},
@@ -192,19 +200,46 @@ func groupUpsert(g core.Group) (create, merge objstore.Write, err error) {
 }
 
 // putGroup writes the upsert, on a transaction the caller owns.
+//
+// THE MODEL IS PART OF THE UPSERT, and it is the one field of the settings
+// document an upsert states: register_group carries it, and dispatchRun reads it
+// back to tell runed which model to spawn. On a create it rides the whole-row
+// Put; on a merge it is folded INTO the existing settings rather than replacing
+// them, because an Update of `config` carries the whole document and the open
+// flag and the two observe windows live in the same one.
+//
+// An EMPTY model states nothing and clears nothing. SetGroupModel("") is the
+// explicit clear, and a caller that names a group without naming a model — the
+// CLI's `group add`, register_group's two arguments — is not asking for the
+// override to go.
 func (s *Store) putGroup(ctx context.Context, tx *sql.Tx, g core.Group) error {
 	create, merge, err := groupUpsert(g)
 	if err != nil {
 		return err
 	}
-	created, err := s.writeEntitiesInTx(ctx, tx, nil, create)
+	created, err := s.WriteEntitiesInTx(ctx, tx, nil, create)
 	if err != nil {
 		return err
 	}
 	if created {
 		return nil
 	}
-	_, err = s.writeEntitiesInTx(ctx, tx, nil, merge)
+	if g.Model != "" {
+		it, ok, ierr := s.groupItem(ctx, g.Folder)
+		if ierr != nil {
+			return ierr
+		}
+		if ok {
+			cfg := settingsOf(it)
+			cfg[cfgModel] = g.Model
+			raw, merr := json.Marshal(cfg)
+			if merr != nil {
+				return fmt.Errorf("group %q settings: %w", g.Folder, merr)
+			}
+			merge.Attrs[attrGrpConfig] = string(raw)
+		}
+	}
+	_, err = s.WriteEntitiesInTx(ctx, tx, nil, merge)
 	return err
 }
 
@@ -250,7 +285,7 @@ func (s *Store) PutGroupRow(g core.Group) error {
 	// rows and comes up with no messaging tools at all. The tx-bound writer is
 	// what makes that one commit, at the cost of the marker's compare-and-swap
 	// on the cycle walk — the engine's write lock is the serialisation instead
-	// (membership.go putMembershipTx).
+	// (membership.go PutMembershipTx).
 	if err := SeedMemberRoleTx(ctx, s, tx, g.Folder); err != nil {
 		return err
 	}
@@ -309,6 +344,48 @@ func (s *Store) DeleteGroup(folder string) (int, error) {
 		return 0, err
 	}
 	return removed, nil
+}
+
+// GroupFolders lists every group's folder in path order, capped at limit — 0 is
+// uncapped. The folder IS the coordinate, so the read arrives in that order with
+// no sort of its own, which is what `ORDER BY folder` gave.
+//
+// It answers with an ERROR where AllGroups answers with a nil map, because its
+// three callers count on the difference: dashd's portal dot renders "at least
+// this many" and must not print 0 for a store it could not reach, and onbod's
+// world picker must not offer a caller an empty list of worlds it merely failed
+// to read.
+func (s *Store) GroupFolders(limit int) ([]string, error) {
+	items, err := s.Obj().Query(context.Background(), objstore.Query{
+		Entity: Groups, Partition: OwnerRoutd, Limit: limit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read group folders: %w", err)
+	}
+	out := make([]string, 0, len(items))
+	for _, it := range items {
+		out = append(out, it.Key.Sort)
+	}
+	return out, nil
+}
+
+// CreateGroupTx writes one group row on a transaction the CALLER owns and
+// reports whether it landed, for the two creators that carry more than the row:
+// dashd's create writes the member edge and the creator's admin grant beside it,
+// onbod's world creation the username and the same grant, and each needs all of
+// it in ONE commit — a group row with no edge expands to nothing (BUGS L119) and
+// a group row with no grant is a folder nobody can open.
+//
+// created=false is the folder ALREADY BEING THERE, and it is the answer both
+// callers refuse on: the write is create-if-absent, so a second creator racing
+// the first loses here rather than taking over a world it did not make. PutGroup
+// is an upsert and would hand it over silently.
+func (s *Store) CreateGroupTx(ctx context.Context, tx *sql.Tx, g core.Group) (bool, error) {
+	create, _, err := groupUpsert(g)
+	if err != nil {
+		return false, err
+	}
+	return s.WriteEntitiesInTx(ctx, tx, nil, create)
 }
 
 func (s *Store) AllGroups() map[string]core.Group {
@@ -381,7 +458,7 @@ func (s *Store) setSetting(folder, key string, value any, remove bool) error {
 	if err != nil {
 		return fmt.Errorf("group %q settings: %w", folder, err)
 	}
-	_, err = s.writeEntities(ctx, nil, objstore.Write{
+	_, err = s.WriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Update, Entity: Groups, Key: it.Key,
 		Attrs: map[string]string{attrGrpConfig: string(raw)},
 	})
@@ -439,7 +516,7 @@ func (s *Store) SetGroupObserveWindow(folder string, msgs, chars int) error {
 	if err != nil {
 		return fmt.Errorf("group %q settings: %w", folder, err)
 	}
-	_, err = s.writeEntities(ctx, nil, objstore.Write{
+	_, err = s.WriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Update, Entity: Groups, Key: it.Key,
 		Attrs: map[string]string{attrGrpConfig: string(raw)},
 	})
@@ -565,4 +642,77 @@ func (s *Store) GetStickyTopic(jid string) string {
 	var topic sql.NullString
 	s.db.QueryRow(`SELECT sticky_topic FROM chats WHERE jid = ?`, jid).Scan(&topic)
 	return topic.String
+}
+
+// GroupConfig answers the two fields a spawn forwards to runed: the per-group
+// model override, and `container_config` as the opaque document it is on the
+// wire. It stays a map rather than core.GroupConfig because runed round-trips it
+// verbatim, and a struct would silently drop a key it does not declare.
+//
+// An unknown group answers ("", nil), which the caller reads as "use the
+// instance defaults".
+func (s *Store) GroupConfig(folder string) (model string, cfg map[string]any) {
+	it, ok, err := s.groupItem(context.Background(), folder)
+	if err != nil || !ok {
+		return "", nil
+	}
+	if m, isStr := settingsOf(it)[cfgModel].(string); isStr {
+		model = m
+	}
+	if raw := it.Attrs[attrGrpContainerConfig]; raw != "" && raw != "{}" {
+		if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+			return model, nil
+		}
+	}
+	return model, cfg
+}
+
+// ThreadReplies reads the group's thread_replies preference — the read twin of
+// SetThreadReplies. A key that is not there (and an unknown group) yields dflt,
+// which the caller sets from the chat's own kind: group chats thread by default,
+// DMs do not.
+func (s *Store) ThreadReplies(folder string, dflt bool) bool {
+	it, ok, err := s.groupItem(context.Background(), folder)
+	if err != nil || !ok {
+		return dflt
+	}
+	on, set := settingNum(settingsOf(it), cfgThreadReplies)
+	if !set {
+		return dflt
+	}
+	return on == 1
+}
+
+// FolderCap returns the folder's per-day spend cap in cents. Zero means
+// uncapped, which is also what an unknown group answers — the budget gate treats
+// both as "no cap", and inventing one for a group that does not exist would stop
+// turns nobody capped.
+func (s *Store) FolderCap(folder string) (int, error) {
+	it, ok, err := s.groupItem(context.Background(), folder)
+	if err != nil || !ok {
+		return 0, err
+	}
+	return costCapOf(it), nil
+}
+
+// SetFolderCap writes the folder's per-day spend cap. Zero is uncapped and TAKES
+// THE ATTRIBUTE AWAY, because absent is the only null this model has and
+// costCapOf reads an absent cap as no cap — leaving "0" behind would state a cap
+// of nothing where the operator meant none.
+//
+// An Update writes nothing when the group is missing, which is what the
+// statement's zero matched rows said.
+func (s *Store) SetFolderCap(folder string, cents int) error {
+	key, err := groupKey(folder)
+	if err != nil {
+		return err
+	}
+	w := objstore.Write{Op: objstore.Update, Entity: Groups, Key: key}
+	if cents == 0 {
+		w.Remove = []string{attrGrpCostCap}
+	} else {
+		w.Attrs = map[string]string{attrGrpCostCap: strconv.Itoa(cents)}
+	}
+	_, err = s.WriteEntities(context.Background(), nil, w)
+	return err
 }

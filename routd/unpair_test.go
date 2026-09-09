@@ -65,15 +65,8 @@ func unpairFixture(t *testing.T) *DB {
 	return db
 }
 
-func edgeExists(t *testing.T, db *DB, child, parent string) bool {
-	t.Helper()
-	var n int
-	if err := db.SQL().QueryRow(
-		`SELECT COUNT(*) FROM acl_membership WHERE child = ? AND parent = ?`, child, parent,
-	).Scan(&n); err != nil {
-		t.Fatal(err)
-	}
-	return n > 0
+func edgeExists(_ *testing.T, db *DB, child, parent string) bool {
+	return hasEdge(db, child, parent)
 }
 
 // The agent handling the chat may unpair it; the role membership on the same

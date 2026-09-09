@@ -81,7 +81,7 @@ type containFn func(c resreg.Caller, a resreg.Action, target string) error
 // seam closed into the handler.
 func (s *Server) routesResource(contain containFn) resreg.Resource {
 	r := resreg.Mount(resources.RoutesName)
-	r.Store = store.New(s.db.SQL())
+	r.Store = s.db.store()
 	r.Handler = func(ctx context.Context, x resreg.Execution) (any, error) {
 		return s.routesHandler(ctx, x, contain)
 	}
@@ -136,7 +136,7 @@ func (s *Server) routesHandler(ctx context.Context, x resreg.Execution, contain 
 		if err := contain(x.Caller, routesActionAdd, route.Target); err != nil {
 			return nil, err
 		}
-		rid, err := addRouteTx(ctx, x.Tx, route, x.Caller.Sub, routesMCPNames[routesActionAdd])
+		rid, err := s.db.store().PutRouteTx(ctx, x.Tx, route, x.Caller.Sub, routesMCPNames[routesActionAdd])
 		if errors.Is(err, store.ErrWebJIDRouted) {
 			return nil, resreg.Errorf(http.StatusBadRequest, "%v", err)
 		}
@@ -195,7 +195,7 @@ func (s *Server) routesHandler(ctx context.Context, x resreg.Execution, contain 
 				return nil, resreg.Errorf(http.StatusForbidden, "cannot delete own default route")
 			}
 		}
-		if err := setRoutesTx(ctx, x.Tx, folder, routes,
+		if err := s.db.store().ReplaceFolderRoutesTx(ctx, x.Tx, folder, routes,
 			x.Caller.Sub, routesMCPNames[routesActionSet]); err != nil {
 			if errors.Is(err, store.ErrWebJIDRouted) {
 				return nil, resreg.Errorf(http.StatusBadRequest, "%v", err)
@@ -231,8 +231,12 @@ func (s *Server) routesHandler(ctx context.Context, x resreg.Execution, contain 
 		if err := contain(x.Caller, routesActionDelete, route.Target); err != nil {
 			return nil, err
 		}
-		if err := deleteRouteTx(ctx, x.Tx, rid); err != nil {
+		gone, err := s.db.store().DeleteRouteTx(ctx, x.Tx, rid)
+		if err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
+		}
+		if !gone {
+			return nil, resreg.Errorf(http.StatusNotFound, "route not found: %d", rid)
 		}
 		slog.Info("route deleted", "id", rid)
 		return map[string]any{"deleted": true, "id": rid}, nil
@@ -299,74 +303,17 @@ func argJSONString(args resreg.Args, key string) string {
 	return ""
 }
 
-// addRouteTx appends one route row on tx (mirrors DB.AddRoute so the mutation lands
-// in resreg.invoke's tx alongside its audit_log row), returning the new id.
+// The three writes are store.PutRouteTx, store.ReplaceFolderRoutesTx and
+// store.DeleteRouteTx, on resreg.invoke's tx so each lands with the call's single
+// audit_log row. They live there because a rule's coordinate is (seq, target,
+// match) — with `seq` padded so text order IS precedence order — and because its
+// `id` is minted from a counter store owns: two concurrent adds reading a maximum
+// would hand one handle to two rules, after which delete_route names both.
 //
 // added_by/added_via carry the same (who, act) pair onbod stamps (spec 5/18 step
 // 7). Redundant here with resreg's audit_log row — same DB, same tx — but a
-// reader must not need to know which daemon wrote a row to learn who wrote it;
-// one query over `routes` answers for every attributed writer.
-func addRouteTx(ctx context.Context, tx *sql.Tx, r core.Route, by, via string) (int64, error) {
-	if store.MatchesWebJID(r.Match) {
-		return 0, store.ErrWebJIDRouted
-	}
-	res, err := tx.ExecContext(ctx,
-		`INSERT INTO routes(seq, match, target, observe_window_messages, observe_window_chars, added_by, added_via)
-		 VALUES(?,?,?,?,?,?,?)`,
-		r.Seq, r.Match, r.Target, nz(r.ObserveWindowMessages), nz(r.ObserveWindowChars),
-		nullStr(by), nullStr(via))
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
-}
-
-// setRoutesTx replaces the routes whose target (sans #fragment) is `folder` or under
-// `folder/`, then inserts `routes`, on tx (mirrors DB.SetRoutes). An empty folder
-// replaces the whole table; the folder-scoped delete keeps a scoped caller from
-// wiping another folder's routes.
-//
-// Every inserted row is stamped with this caller: set_routes does not edit rows,
-// it replaces them, so the caller genuinely created each survivor and inheriting
-// the replaced rows' attribution would be a lie.
-func setRoutesTx(ctx context.Context, tx *sql.Tx, folder string, routes []core.Route, by, via string) error {
-	if folder == "" {
-		if _, err := tx.ExecContext(ctx, "DELETE FROM routes"); err != nil {
-			return err
-		}
-	} else if _, err := tx.ExecContext(ctx,
-		`DELETE FROM routes WHERE `+groupfolder.SQLSubtree("target", "#")+
-			` OR `+groupfolder.SQLSubtree("target", "/"),
-		append(groupfolder.SubtreeArgs(folder, "#"), groupfolder.SubtreeArgs(folder, "/")...)...); err != nil {
-		return err
-	}
-	for _, r := range routes {
-		if store.MatchesWebJID(r.Match) {
-			return store.ErrWebJIDRouted
-		}
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO routes(seq, match, target, observe_window_messages, observe_window_chars, added_by, added_via)
-			 VALUES(?,?,?,?,?,?,?)`,
-			r.Seq, r.Match, r.Target, nz(r.ObserveWindowMessages), nz(r.ObserveWindowChars),
-			nullStr(by), nullStr(via)); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// deleteRouteTx removes one route by id on tx so the mutation lands in
-// resreg.invoke's tx alongside its audit_log row; ErrNotFound when the row is absent.
-func deleteRouteTx(ctx context.Context, tx *sql.Tx, id int64) error {
-	res, err := tx.ExecContext(ctx, "DELETE FROM routes WHERE id=?", id)
-	if err != nil {
-		return err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
-	}
-	return nil
-}
+// reader must not need to know which daemon wrote a rule to learn who wrote it;
+// one read of `routes` answers for every attributed writer.
 
 // routeTargetWithin reports whether a route's target folder is the caller's own
 // folder or a descendant. Spec 5/34 gives targets no PREFIX vocabulary, so a target

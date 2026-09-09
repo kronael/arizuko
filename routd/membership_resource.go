@@ -30,7 +30,6 @@ import (
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
-	"github.com/kronael/arizuko/store"
 )
 
 // membershipResource is the single renderer for both unpair faces. contain is
@@ -38,7 +37,7 @@ import (
 // the child's routing folder for the agent, the row's parent for REST.
 func (s *Server) membershipResource(contain containFn) resreg.Resource {
 	r := resreg.Mount(resources.ACLMembershipName)
-	r.Store = store.New(s.db.SQL())
+	r.Store = s.db.store()
 	r.Handler = func(ctx context.Context, x resreg.Execution) (any, error) {
 		return s.membershipHandler(ctx, x, contain)
 	}
@@ -69,7 +68,7 @@ func (s *Server) membershipHandler(ctx context.Context, x resreg.Execution, cont
 	}
 	// added_by='pairing' is the whole scope: a role membership row (or any
 	// manifest-applied edge) matches zero rows and is reported as not-found.
-	removed, err := store.UnpairTx(ctx, x.Tx, child, parent)
+	removed, err := s.db.store().UnpairTx(ctx, x.Tx, child, parent)
 	if err != nil {
 		return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 	}

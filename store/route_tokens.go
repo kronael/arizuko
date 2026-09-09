@@ -31,6 +31,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"slices"
@@ -249,7 +250,7 @@ func (s *Store) InsertRouteToken(rawToken string, t RouteToken) error {
 	}
 	actor, actorSub, surface := s.auditIdentity()
 	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		if _, err := s.writeEntitiesInTx(ctx, tx, nil, w); err != nil {
+		if _, err := s.WriteEntitiesInTx(ctx, tx, nil, w); err != nil {
 			return audit.Event{}, err
 		}
 		return audit.Event{
@@ -364,7 +365,7 @@ func (s *Store) RevokeRouteToken(jid, ownerFolder string) (bool, error) {
 	err = s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
 		if _, err := applyChunks(ctx, "revoke "+jid, writes,
 			func(ctx context.Context, chunk []objstore.Write) (bool, error) {
-				return s.writeEntitiesInTx(ctx, tx, nil, chunk...)
+				return s.WriteEntitiesInTx(ctx, tx, nil, chunk...)
 			}); err != nil {
 			return audit.Event{}, err
 		}
@@ -479,4 +480,73 @@ func (s *Store) CountRouteTokens(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	return len(items), nil
+}
+
+// MintRouteTokenTx mints a DELIVERY token for jid on a transaction the CALLER
+// owns and returns the raw bearer ONCE — only its digest is stored, which is the
+// item's coordinate. It is routd's `/v1/route_tokens` minter: the row and
+// resreg.invoke's single audit_log row commit together, and InsertRouteToken
+// would open a second transaction on the same database and record the mint twice.
+//
+// It is IssuePairingLink's delivery twin, and both render through routeTokenPut,
+// so the two kinds of credential differ only in the `kind` attribute that keeps
+// each from resolving as the other.
+//
+// target is the folder the token DELIVERS to. The JID grammar cannot recover it
+// once a suffix is present (spec 5/W), so the mint is the only place it is known,
+// and CheckRouteTokenTarget refuses a JID that already delivers somewhere else.
+func (s *Store) MintRouteTokenTx(ctx context.Context, tx *sql.Tx, jid, ownerFolder,
+	targetFolder, linkContext string) (string, error) {
+	if jid == "" {
+		return "", errors.New("route token: jid required")
+	}
+	if err := CheckRouteTokenTarget(ctx, s.Obj(), jid, targetFolder); err != nil {
+		return "", err
+	}
+	var b [32]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", fmt.Errorf("route token: generate token for %s: %w", jid, err)
+	}
+	raw := hex.EncodeToString(b[:])
+	w, err := routeTokenPut(raw, RouteToken{
+		JID: jid, OwnerFolder: ownerFolder, TargetFolder: targetFolder, Context: linkContext,
+	}, RouteTokenKindRoute)
+	if err != nil {
+		return "", fmt.Errorf("route token: mint for %s: %w", jid, err)
+	}
+	if _, err := s.WriteEntitiesInTx(ctx, tx, nil, w); err != nil {
+		return "", fmt.Errorf("route token: mint for %s: %w", jid, err)
+	}
+	return raw, nil
+}
+
+// RevokeRouteTokenTx deletes the DELIVERY tokens for jid owned by ownerFolder on
+// a transaction the caller owns, and reports whether any went. The owner_folder
+// match IS the containment: a JID owned by another folder selects no item, so a
+// cross-folder revoke answers false rather than removing somebody else's bearer.
+//
+// One JID may hold several tokens, so this is a read then one delete per item,
+// chunked because a batch carries at most objstore.MaxBatchActions.
+func (s *Store) RevokeRouteTokenTx(ctx context.Context, tx *sql.Tx, jid, ownerFolder string) (bool, error) {
+	items, err := routeTokensOfKind(ctx, s.Obj(), RouteTokenKindRoute)
+	if err != nil {
+		return false, err
+	}
+	var writes []objstore.Write
+	for _, it := range items {
+		if it.Attrs[attrTokJID] != jid || it.Attrs[attrTokOwnerFolder] != ownerFolder {
+			continue
+		}
+		writes = append(writes, objstore.Write{
+			Op: objstore.Delete, Entity: RouteTokens, Key: it.Key,
+		})
+	}
+	if len(writes) == 0 {
+		return false, nil
+	}
+	_, err = applyChunks(ctx, "revoke "+jid, writes,
+		func(ctx context.Context, chunk []objstore.Write) (bool, error) {
+			return s.WriteEntitiesInTx(ctx, tx, nil, chunk...)
+		})
+	return err == nil, err
 }

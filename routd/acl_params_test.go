@@ -32,10 +32,10 @@ func aclRowParams(t *testing.T, db *DB, scope, action string) (string, bool) {
 // auth.Delegate has something to find a subset of.
 func grantWithOption(t *testing.T, db *DB, principal, action, scope, params string) {
 	t.Helper()
-	if _, err := db.SQL().Exec(
-		`INSERT INTO acl (principal, action, scope, effect, params, predicate, granted_by, granted_at, grant_option)
-		 VALUES (?, ?, ?, 'allow', ?, '', 'test', ?, 1)`,
-		principal, action, scope, params, nowTS()); err != nil {
+	if err := addACLRow(db, core.ACLRow{
+		Principal: principal, Action: action, Scope: scope, Effect: "allow",
+		Params: params, GrantedBy: "test", GrantOption: true,
+	}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -141,27 +141,23 @@ func TestGrantACLTx_NarrowedTreeScopeIsNotOperator(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if err := grantACLTx(t.Context(), tx, core.ACLRow{
+	if err := db.grantACLTx(t.Context(), tx, core.ACLRow{
 		Principal: "user:p", Scope: "**", Params: "jid=telegram:*", GrantedBy: "test",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	var members int
-	if err := tx.QueryRow(
-		`SELECT COUNT(*) FROM acl_membership WHERE child='user:p' AND parent='role:operator'`,
-	).Scan(&members); err != nil {
+	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	if members != 0 {
+	if hasEdge(db, "user:p", "role:operator") {
 		t.Error("a narrowed ** row minted operator membership")
 	}
-	var params string
-	if err := tx.QueryRow(
-		`SELECT params FROM acl WHERE principal='user:p' AND scope='**'`).Scan(&params); err != nil {
-		t.Fatalf("the narrowed ** row was not written as an ordinary acl row: %v", err)
+	rows := aclRows(t, db, "user:p")
+	if len(rows) != 1 || rows[0].Scope != "**" {
+		t.Fatalf("the narrowed ** row was not written as an ordinary acl row: %+v", rows)
 	}
-	if params != "jid=telegram:*" {
-		t.Errorf("stored params = %q, want the narrowing", params)
+	if rows[0].Params != "jid=telegram:*" {
+		t.Errorf("stored params = %q, want the narrowing", rows[0].Params)
 	}
 }
 

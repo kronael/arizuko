@@ -147,20 +147,31 @@ func withBumps(writes []objstore.Write) []objstore.Write {
 	return append(slices.Clone(writes), scopeBumps(writes)...)
 }
 
-// writeEntities is this package's GuardedBatch: the caller's writes plus the
-// marker every scoped one of them moves, in the caller's own batch, so the
-// mutation and the version go in together or neither does.
+// WriteEntities is the GuardedBatch every writer of a scoped entity issues: the
+// caller's writes plus the marker every scoped one of them moves, in the
+// caller's own batch, so the mutation and the version go in together or neither
+// does.
+//
+// It is EXPORTED because three of routd's thirteen entities — `pending_actions`,
+// `web_routes` and `installed_packages` — are declared here and WRITTEN by routd
+// (pending_actions.go, web_routes.go, installed_packages.go each say so). A
+// writer that reached objstore directly would be invisible to
+// objstore.ReadConsistent and therefore to every `arizuko export` of routd's
+// projection (BUGS L264), so the marker is not the caller's to remember: it is
+// derived here from the entities the batch touches.
 //
 // It answers what GuardedBatch answers — committed=false is the caller's own
 // condition refusing, and nothing here adds a condition of its own.
-func (s *Store) writeEntities(ctx context.Context, checks []objstore.Check,
+func (s *Store) WriteEntities(ctx context.Context, checks []objstore.Check,
 	writes ...objstore.Write) (bool, error) {
 	return s.Obj().GuardedBatch(ctx, checks, withBumps(writes))
 }
 
-// writeEntitiesInTx is writeEntities on a transaction the CALLER owns, for the
-// audited writers whose audit row commits with their mutation.
-func (s *Store) writeEntitiesInTx(ctx context.Context, tx *sql.Tx, checks []objstore.Check,
+// WriteEntitiesInTx is WriteEntities on a transaction the CALLER owns, for the
+// writers whose audit row commits with their mutation — this package's audited
+// ones, and routd's resreg faces, which run on the transaction resreg.invoke
+// opened for the mutation and its single audit_log row.
+func (s *Store) WriteEntitiesInTx(ctx context.Context, tx *sql.Tx, checks []objstore.Check,
 	writes ...objstore.Write) (bool, error) {
 	return s.Obj().GuardedBatchInTx(ctx, tx, checks, withBumps(writes))
 }

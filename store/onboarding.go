@@ -146,7 +146,7 @@ func (s *Store) InsertOnboarding(jid string) error {
 	}
 	ctx := context.Background()
 	now := time.Now().UTC()
-	created, err := s.writeEntities(ctx, nil, objstore.Write{
+	created, err := s.WriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Put, Entity: Onboarding, Key: key,
 		Attrs: map[string]string{
 			attrOnbStatus:  statusAwaitingMessage,
@@ -163,7 +163,7 @@ func (s *Store) InsertOnboarding(jid string) error {
 	// A comparison against an attribute the item does not carry is not TRUE on
 	// either engine, so `prompted_at <` already excludes a row that was never
 	// greeted; it needs no Present term of its own.
-	if _, err := s.writeEntities(ctx, nil, objstore.Write{
+	if _, err := s.WriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Update, Entity: Onboarding, Key: key,
 		Remove: []string{attrOnbPromptedAt},
 		Cond: objstore.Cond{Where: []objstore.Cmp{
@@ -241,7 +241,7 @@ func CarryOnboardingLegacy(db *sql.DB) error {
 	}
 	if _, err := applyChunks(context.Background(), "carry onboarding rows forward", writes,
 		func(ctx context.Context, chunk []objstore.Write) (bool, error) {
-			return New(db).writeEntitiesInTx(ctx, tx, nil, chunk...)
+			return New(db).WriteEntitiesInTx(ctx, tx, nil, chunk...)
 		}); err != nil {
 		return err
 	}
@@ -365,7 +365,7 @@ func (s *Store) PutGateTx(ctx context.Context, tx *sql.Tx, gate string, limitPer
 	if err != nil {
 		return err
 	}
-	created, err := s.writeEntitiesInTx(ctx, tx, nil, objstore.Write{
+	created, err := s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
 		Op: objstore.Put, Entity: OnboardingGates, Key: key,
 		Attrs: map[string]string{
 			attrGateLimitPerDay: strconv.Itoa(limitPerDay),
@@ -379,7 +379,7 @@ func (s *Store) PutGateTx(ctx context.Context, tx *sql.Tx, gate string, limitPer
 	if created {
 		return nil
 	}
-	if _, err := s.writeEntitiesInTx(ctx, tx, nil, objstore.Write{
+	if _, err := s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
 		Op: objstore.Update, Entity: OnboardingGates, Key: key,
 		Attrs: map[string]string{attrGateLimitPerDay: strconv.Itoa(limitPerDay)},
 	}); err != nil {
@@ -397,7 +397,7 @@ func (s *Store) EnableGateTx(ctx context.Context, tx *sql.Tx, gate string, enabl
 	if err != nil {
 		return err
 	}
-	if _, err := s.writeEntitiesInTx(ctx, tx, nil, objstore.Write{
+	if _, err := s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
 		Op: objstore.Update, Entity: OnboardingGates, Key: key,
 		Attrs: map[string]string{attrGateEnabled: strconv.Itoa(btoi(enabled))},
 	}); err != nil {
@@ -413,7 +413,7 @@ func (s *Store) DeleteGateTx(ctx context.Context, tx *sql.Tx, gate string) error
 	if err != nil {
 		return err
 	}
-	if _, err := s.writeEntitiesInTx(ctx, tx, nil, objstore.Write{
+	if _, err := s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
 		Op: objstore.Delete, Entity: OnboardingGates, Key: key,
 	}); err != nil {
 		return fmt.Errorf("delete gate %s: %w", gate, err)
@@ -694,7 +694,7 @@ func (s *Store) ClaimOnboardingPrompt(jid string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	claimed, err := s.writeEntities(context.Background(), nil, objstore.Write{
+	claimed, err := s.WriteEntities(context.Background(), nil, objstore.Write{
 		Op: objstore.Update, Entity: Onboarding, Key: key,
 		Attrs: map[string]string{attrOnbPromptedAt: onbodTS(time.Now())},
 		Cond: objstore.Cond{Where: []objstore.Cmp{
@@ -749,7 +749,7 @@ func (s *Store) setOnboarding(jid, what string, attrs map[string]string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := s.writeEntities(context.Background(), nil, objstore.Write{
+	if _, err := s.WriteEntities(context.Background(), nil, objstore.Write{
 		Op: objstore.Update, Entity: Onboarding, Key: key, Attrs: attrs,
 	}); err != nil {
 		return fmt.Errorf("%s %s: %w", what, jid, err)
@@ -796,7 +796,7 @@ func (s *Store) ApproveOnboarding(jid string) error {
 		if err != nil {
 			return audit.Event{}, err
 		}
-		approved, err := s.writeEntitiesInTx(context.Background(), tx, nil, objstore.Write{
+		approved, err := s.WriteEntitiesInTx(context.Background(), tx, nil, objstore.Write{
 			Op: objstore.Update, Entity: Onboarding, Key: key,
 			Attrs: map[string]string{
 				attrOnbStatus:     statusApproved,
@@ -824,7 +824,7 @@ func (s *Store) DenyOnboarding(jid string) error {
 		if err != nil {
 			return audit.Event{}, err
 		}
-		_, err = s.writeEntitiesInTx(context.Background(), tx, nil, objstore.Write{
+		_, err = s.WriteEntitiesInTx(context.Background(), tx, nil, objstore.Write{
 			Op: objstore.Delete, Entity: Onboarding, Key: key,
 		})
 		return audit.Event{
@@ -853,7 +853,7 @@ func (s *Store) RepromptOnboarding(jid string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := s.writeEntities(context.Background(), nil, objstore.Write{
+	if _, err := s.WriteEntities(context.Background(), nil, objstore.Write{
 		Op: objstore.Update, Entity: Onboarding, Key: key,
 		Attrs: map[string]string{attrOnbStatus: statusAwaitingMessage},
 		Remove: []string{

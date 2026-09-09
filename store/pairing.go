@@ -21,7 +21,7 @@ package store
 // database, so the redemption spends the credential and writes the edge in ONE
 // transaction the caller owns. What that gives up against AddMembership is the
 // marker's compare-and-swap on the cycle walk; the engine's write lock is the
-// serialisation instead (store/membership.go putMembershipTx).
+// serialisation instead (store/membership.go PutMembershipTx).
 
 import (
 	"context"
@@ -86,9 +86,9 @@ func (s *Store) IssuePairingLink(ctx context.Context, tx *sql.Tx, jid, ownerFold
 		return "", fmt.Errorf("pairing: mint token for %s: %w", jid, err)
 	}
 	if tx != nil {
-		_, err = s.writeEntitiesInTx(ctx, tx, nil, w)
+		_, err = s.WriteEntitiesInTx(ctx, tx, nil, w)
 	} else {
-		_, err = s.writeEntities(ctx, nil, w)
+		_, err = s.WriteEntities(ctx, nil, w)
 	}
 	if err != nil {
 		return "", fmt.Errorf("pairing: mint token for %s: %w", jid, err)
@@ -177,10 +177,10 @@ func (s *Store) RedeemPairing(rawToken, parentSub string) (string, error) {
 	// commit already succeeded on the happy path; rollback is best-effort
 	defer tx.Rollback() //nolint:errcheck
 
-	if err := s.putMembershipTx(ctx, tx, jid, parentSub, PairingAddedBy); err != nil {
+	if err := s.PutMembershipTx(ctx, tx, jid, parentSub, PairingAddedBy); err != nil {
 		return "", err
 	}
-	spent, err := s.writeEntitiesInTx(ctx, tx, nil, objstore.Write{
+	spent, err := s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
 		Op: objstore.Delete, Entity: RouteTokens, Key: it.Key,
 		Cond: objstore.Cond{Item: objstore.ItemPresent},
 	})
@@ -210,7 +210,7 @@ func (s *Store) UnpairTx(ctx context.Context, tx *sql.Tx, child, parent string) 
 	if err != nil {
 		return false, err
 	}
-	return s.writeEntitiesInTx(ctx, tx, nil, objstore.Write{
+	return s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
 		Op: objstore.Delete, Entity: ACLMembership, Key: key,
 		Cond: objstore.Cond{Where: []objstore.Cmp{
 			{Attr: attrMemAddedBy, Op: objstore.Eq, Value: PairingAddedBy},

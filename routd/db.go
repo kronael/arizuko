@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"embed"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -150,9 +149,21 @@ func open(dsn string) (*DB, error) {
 		sqldb.Close()
 		return nil, err
 	}
-	// role:member (the 5/33 messaging floor) is seeded by migration 0023; every
-	// folder is bound to it at group creation (PutGroup). No open-time grant seeding
-	// or backfill — auth.Authorize reads the acl rows directly.
+	// The floor a routd.db is born with: role:operator's root grant, role:member's
+	// twelve messaging verbs and the two instance-wide egress rules. A seed is a
+	// row and a row an entity holds goes in through that entity's own writer, so
+	// it cannot be a statement in the chain above — the driver makes the entity
+	// after the chain has run. It writes only into a database whose acl entity is
+	// EMPTY, so an operator's manifest is never fought (store/seed.go).
+	//
+	// Every folder is bound to role:member at group creation, in the same
+	// transaction as its groups row (store.PutGroupRow, BUGS L119). There is no
+	// open-time backfill above the floor — auth.Authorize reads the acl rows
+	// directly.
+	if err := store.SeedRoutdFloor(ctx, sqlstore.New(sqldb)); err != nil {
+		sqldb.Close()
+		return nil, err
+	}
 	return &DB{db: sqldb}, nil
 }
 
@@ -175,34 +186,22 @@ func nowTS() string { return core.NowTS() }
 
 // PutGroup upserts a group identity row, persisting the per-group model +
 // container_config so dispatchRun can forward them to runed (GroupConfig reads
-// them back). A zero Config marshals to a small JSON object — harmless; runed's
-// round-trip yields the same zero core.GroupConfig.
+// them back), and binds the new folder to role:member in the SAME transaction.
+//
+// store.PutGroupRow is the whole body: it is the ONE upsert, and the create-time
+// default role rides its transaction because a groups row implies the member
+// edge — a folder with no edge expands to nothing, matches zero allow rows and
+// comes up with no messaging tools at all (BUGS L119). register_group itself is
+// gated by db.Authorize and calls no Delegate; it seeds the floor, it does not
+// delegate above it.
 func (d *DB) PutGroup(g core.Group) error {
-	cfgJSON, _ := json.Marshal(g.Config)
-	var model any
-	if g.Model != "" {
-		model = g.Model
-	}
-	if _, err := d.db.Exec(`INSERT INTO groups(folder, added_at, product, config, container_config)
-		VALUES(?,?,?, json_set('{}', '$.model', ?), ?)
-		ON CONFLICT(folder) DO UPDATE SET product=excluded.product,
-			config=json_set(COALESCE(groups.config, '{}'), '$.model', ?),
-			container_config=excluded.container_config, updated_at=?`,
-		g.Folder, nowTS(), g.Product, model, string(cfgJSON), model, nowTS()); err != nil {
-		return err
-	}
-	// Create-time default role (5/33): bind the new folder to role:member so it holds
-	// the messaging floor immediately. Everything above the floor is an explicit acl
-	// row. register_group itself is gated by db.Authorize and calls no Delegate — it
-	// seeds this floor, it does not delegate anything above it.
-	return assignDefaultRole(store.New(d.db), g.Folder)
+	return d.store().PutGroupRow(g)
 }
 
 // GroupExists reports whether folder is a registered group.
 func (d *DB) GroupExists(folder string) bool {
-	var n int
-	d.db.QueryRow("SELECT 1 FROM groups WHERE folder=?", folder).Scan(&n)
-	return n == 1
+	_, ok := d.store().GroupByFolder(folder)
+	return ok
 }
 
 // DeleteGroup removes a group's subtree and every row that confers on it or
@@ -210,79 +209,38 @@ func (d *DB) GroupExists(folder string) bool {
 // transaction and its audit row all live in store.DeleteGroup — the ONE delete,
 // shared with the operator's `arizuko group rm` and dashd's delete page.
 func (d *DB) DeleteGroup(folder string) (int, error) {
-	return d.userStore().DeleteGroup(folder)
+	return d.store().DeleteGroup(folder)
 }
 
 // GroupConfig returns the per-group model override + the opaque container_config
-// (parsed from its JSON TEXT column) for dispatchRun to forward to runed. Empty
-// model / nil config when the group is unknown or unset → runed uses the
-// instance defaults.
+// for dispatchRun to forward to runed. Empty model / nil config when the group is
+// unknown or unset → runed uses the instance defaults.
 func (d *DB) GroupConfig(folder string) (model string, cfg map[string]any) {
-	var m sql.NullString
-	var c sql.NullString
-	d.db.QueryRow(
-		"SELECT json_extract(config, '$.model'), container_config FROM groups WHERE folder=?",
-		folder).Scan(&m, &c)
-	model = m.String
-	if c.Valid && c.String != "" {
-		_ = json.Unmarshal([]byte(c.String), &cfg)
-	}
-	return model, cfg
+	return d.store().GroupConfig(folder)
 }
 
 // AllGroups returns every registered group keyed by folder. Backs the agent's
-// get_groups MCP tool.
+// get_groups MCP tool. A read failure answers nil — the caller fails closed.
 func (d *DB) AllGroups() map[string]core.Group {
-	rows, err := d.db.Query("SELECT folder, added_at, product, COALESCE(json_extract(config, '$.model'), ''), COALESCE(container_config, '{}') FROM groups")
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-	out := map[string]core.Group{}
-	for rows.Next() {
-		var g core.Group
-		var added string
-		var cfgJSON string
-		if err := rows.Scan(&g.Folder, &added, &g.Product, &g.Model, &cfgJSON); err != nil {
-			slog.Error("AllGroups scan failed; failing closed", "err", err)
-			return nil
-		}
-		g.AddedAt, _ = time.Parse(time.RFC3339Nano, added)
-		if cfgJSON != "" && cfgJSON != "{}" {
-			_ = json.Unmarshal([]byte(cfgJSON), &g.Config)
-		}
-		out[g.Folder] = g
-	}
-	if err := rows.Err(); err != nil {
-		slog.Error("AllGroups iteration failed; failing closed", "err", err)
-		return nil
-	}
-	return out
+	return d.store().AllGroups()
 }
 
 // SetGroupOpen toggles the group's open flag (ambient turn admission).
 func (d *DB) SetGroupOpen(folder string, open bool) error {
-	return store.New(d.db).SetGroupOpen(folder, open)
+	return d.store().SetGroupOpen(folder, open)
 }
 
-// ThreadReplies reads the group's thread_replies preference; an unset key
-// (NULL / unknown group) yields dflt (the caller passes the chat's multi-user
-// flag: group chats thread by default, DMs don't).
+// ThreadReplies reads the group's thread_replies preference; an unset key (or an
+// unknown group) yields dflt (the caller passes the chat's multi-user flag:
+// group chats thread by default, DMs don't).
 func (d *DB) ThreadReplies(folder string, dflt bool) bool {
-	var v sql.NullInt64
-	d.db.QueryRow(
-		"SELECT json_extract(config, '$.thread_replies') FROM groups WHERE folder=?",
-		folder).Scan(&v)
-	if !v.Valid {
-		return dflt
-	}
-	return v.Int64 == 1
+	return d.store().ThreadReplies(folder, dflt)
 }
 
 // SetGroupObserveWindow overrides the group's observe-window (messages, chars).
-// A negative value clears the key (json NULL) so the cfg default wins.
+// A negative value clears the key so the cfg default wins.
 func (d *DB) SetGroupObserveWindow(folder string, msgs, chars int) error {
-	return store.New(d.db).SetGroupObserveWindow(folder, msgs, chars)
+	return d.store().SetGroupObserveWindow(folder, msgs, chars)
 }
 
 // AddGroupWatcher subscribes observer to source's ambient context (idempotent).
@@ -628,35 +586,17 @@ func (d *DB) MarkMessagesObserved(folder string, ids []string) error {
 	return err
 }
 
-// Routes returns the route table by ascending seq.
+// Routes returns the route table in the order the router resolves it: seq
+// first, then the id that records which rule was written first. store.AllRoutes
+// already sorts that way — every live rule sits at seq 0, so insertion order is
+// what decides which one answers a chat.
 func (d *DB) Routes() ([]core.Route, error) {
-	rows, err := d.db.Query(`SELECT id, seq, match, target,
-		COALESCE(observe_window_messages,0), COALESCE(observe_window_chars,0)
-		FROM routes ORDER BY seq ASC, id ASC`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []core.Route
-	for rows.Next() {
-		var r core.Route
-		if err := rows.Scan(&r.ID, &r.Seq, &r.Match, &r.Target,
-			&r.ObserveWindowMessages, &r.ObserveWindowChars); err != nil {
-			return nil, err
-		}
-		out = append(out, r)
-	}
-	return out, rows.Err()
+	return d.store().AllRoutes(), nil
 }
 
-// AddRoute appends one route, returning the assigned id.
+// AddRoute appends one route, returning the id it holds.
 func (d *DB) AddRoute(r core.Route) (int64, error) {
-	res, err := d.db.Exec(`INSERT INTO routes(seq, match, target, observe_window_messages, observe_window_chars)
-		VALUES(?,?,?,?,?)`, r.Seq, r.Match, r.Target, nz(r.ObserveWindowMessages), nz(r.ObserveWindowChars))
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
+	return d.store().PutRouteRow(r)
 }
 
 // ErrNotFound signals an absent row to the HTTP layer (404).
@@ -1124,25 +1064,17 @@ func (d *DB) TurnGatewayKey(turnID string) (string, error) {
 	return hash, err
 }
 
-// FolderCap returns the per-day spend cap for a folder in cents
-// (groups.cost_cap_cents_per_day). Zero means uncapped (the default).
+// FolderCap returns the per-day spend cap for a folder in cents. Zero means
+// uncapped (the default).
 func (d *DB) FolderCap(folder string) (int, error) {
-	var cents int
-	err := d.db.QueryRow(
-		"SELECT COALESCE(cost_cap_cents_per_day, 0) FROM groups WHERE folder=?", folder).Scan(&cents)
-	if err == sql.ErrNoRows {
-		return 0, nil
-	}
-	return cents, err
+	return d.store().FolderCap(folder)
 }
 
 // SetFolderCap writes the per-day spend cap on the groups row for folder.
 // Zero = uncapped. The operator write half of FolderCap, so `arizuko budget
 // set folder` lands on the row budgetGate reads.
 func (d *DB) SetFolderCap(folder string, cents int) error {
-	_, err := d.db.Exec(
-		"UPDATE groups SET cost_cap_cents_per_day = ? WHERE folder=?", cents, folder)
-	return err
+	return d.store().SetFolderCap(folder, cents)
 }
 
 // proactiveSelfSender is the synthetic inbound's sender. Rows from it never

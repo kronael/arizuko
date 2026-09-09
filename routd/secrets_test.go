@@ -1,10 +1,14 @@
 package routd
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/store"
 )
 
 // REST-face tests for the spec 5/16 secrets fold: POST /v1/secrets (create =
@@ -65,11 +69,7 @@ func TestSecretSetEndpoint(t *testing.T) {
 		t.Errorf("FolderSecrets after POST = %q, want ghp_via_http", got)
 	}
 	// Sealed at rest (v2:), never plaintext on disk.
-	var raw string
-	if err := db.SQL().QueryRow(
-		`SELECT value FROM secrets WHERE scope_id='main/eng' AND key='GITHUB_TOKEN'`).Scan(&raw); err != nil {
-		t.Fatalf("read raw: %v", err)
-	}
+	raw := rawSecret(t, db, store.ScopeFolder, "main/eng", "GITHUB_TOKEN").Attrs["value"]
 	if !strings.HasPrefix(raw, "v2:") {
 		t.Errorf("stored value not sealed: %q", raw)
 	}
@@ -187,11 +187,7 @@ func TestSecretRESTNoLeakOnSuccess(t *testing.T) {
 		t.Fatalf("response body leaked the plaintext value: %s", rec.Body.String())
 	}
 	// Stored sealed, not plaintext.
-	var raw string
-	if err := db.SQL().QueryRow(
-		`SELECT value FROM secrets WHERE scope_id='main' AND key='GITHUB_TOKEN'`).Scan(&raw); err != nil {
-		t.Fatalf("read raw: %v", err)
-	}
+	raw := rawSecret(t, db, store.ScopeFolder, "main", "GITHUB_TOKEN").Attrs["value"]
 	if strings.Contains(raw, canary) || !strings.HasPrefix(raw, "v2:") {
 		t.Fatalf("stored value not sealed / leaked plaintext: %q", raw)
 	}
@@ -220,4 +216,23 @@ func TestSecretRESTNoLeakOnDeny(t *testing.T) {
 	if auditParamsHasCanary(t, db, canary) {
 		t.Fatal("denied POST leaked the plaintext value into audit_log")
 	}
+}
+
+// rawSecret reads one secret item as it is STORED — sealed, never opened. The
+// coordinate is (scope_kind, scope_id, key), so the whole partition is read and
+// the coordinate compared: what a test asserts about here is the value at rest.
+func rawSecret(t *testing.T, d *DB, scope store.SecretScope, scopeID, key string) objstore.Item {
+	t.Helper()
+	items, err := d.Obj().Query(context.Background(), objstore.Query{
+		Entity: store.Secrets, Partition: store.OwnerRoutd,
+		Key: objstore.KeyPredicate{Op: objstore.ExactKey,
+			Value: string(scope) + store.KeySep + scopeID + store.KeySep + key},
+	})
+	if err != nil {
+		t.Fatalf("read secret %s/%s/%s: %v", scope, scopeID, key, err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("secret %s/%s/%s: %d items, want one", scope, scopeID, key, len(items))
+	}
+	return items[0]
 }

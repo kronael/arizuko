@@ -12,14 +12,14 @@ import (
 
 // addACL seeds an operator acl row into routd's OWN routd.db — routd owns the acl
 // tables (spec 5/5), so the evaluator (auth.Authorize / auth.EffectiveActions /
-// db.UserScopes) reads them from there, not the sibling messages.db. A raw INSERT
-// (not store.AddACLRow) so it doesn't depend on the audit_log table.
+// db.UserScopes) reads them from there, not the sibling messages.db.
+// store.PutACLRow is the audit-free writer, so this does not depend on audit_log.
 func addACL(t *testing.T, d *DB, principal, action, scope, effect string) {
 	t.Helper()
-	if _, err := d.SQL().Exec(
-		`INSERT OR IGNORE INTO acl(principal, action, scope, effect, granted_at)
-		 VALUES(?,?,?,?,?)`,
-		principal, action, scope, effect, "2026-01-01T00:00:00Z"); err != nil {
+	if err := store.New(d.SQL()).PutACLRow(core.ACLRow{
+		Principal: principal, Action: action, Scope: scope, Effect: effect,
+		GrantedAt: "2026-01-01T00:00:00.000000000Z",
+	}); err != nil {
 		t.Fatalf("seed acl %s %s %s: %v", principal, action, scope, err)
 	}
 }

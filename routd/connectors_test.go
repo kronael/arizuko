@@ -151,12 +151,7 @@ func TestFolderSecrets_DecryptsV2(t *testing.T) {
 	if err := s.PutSecretRow(store.ScopeFolder, "main/trading", "GITHUB_TOKEN", "ghp_plaintext42"); err != nil {
 		t.Fatalf("PutSecretRow: %v", err)
 	}
-	var raw string
-	if err := db.SQL().QueryRow(
-		`SELECT value FROM secrets WHERE scope_kind='folder' AND scope_id='main/trading' AND key='GITHUB_TOKEN'`,
-	).Scan(&raw); err != nil {
-		t.Fatalf("read raw: %v", err)
-	}
+	raw := rawSecret(t, db, store.ScopeFolder, "main/trading", "GITHUB_TOKEN").Attrs["value"]
 	if !strings.HasPrefix(raw, "v2:") {
 		t.Fatalf("stored value not encrypted: %q", raw)
 	}
@@ -183,8 +178,8 @@ func TestFolderSecrets_DecryptsV2(t *testing.T) {
 // spec 5/13 §Trust model). Only the caller's OWN model credentials qualify. A
 // folder capability credential must not appear, nor a user's own capability
 // credential, nor a folder row for a model key restored past validateScope by
-// ValidateAndImportSecrets (seeded here with raw SQL, which is the only way that
-// row shape exists).
+// ValidateAndImportSecrets (seeded here as the item itself, because no writer
+// with a scope check produces that shape).
 func TestEnvProfileSecrets_OnlyUserModelCredentials(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -202,10 +197,14 @@ func TestEnvProfileSecrets_OnlyUserModelCredentials(t *testing.T) {
 	if err := s.PutSecretRow(store.ScopeUser, "telegram:user/7", "ANTHROPIC_API_KEY", "sk-user7"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.SQL().Exec(
-		`INSERT INTO secrets (scope_kind, scope_id, key, value, created_at)
-		 VALUES ('folder', 'atlas', 'ANTHROPIC_API_KEY', 'sk-folder', '2026-08-09T00:00:00Z')`,
-	); err != nil {
+	if _, err := db.store().WriteEntities(context.Background(), nil, objstore.Write{
+		Op: objstore.Put, Entity: store.Secrets,
+		Key: objstore.Key{Partition: store.OwnerRoutd,
+			Sort: store.SecretScopeFolder + store.KeySep + "atlas" + store.KeySep + "ANTHROPIC_API_KEY"},
+		Attrs: map[string]string{
+			"value": "sk-folder", "created_at": "2026-08-09T00:00:00.000000000Z",
+		},
+	}); err != nil {
 		t.Fatal(err)
 	}
 

@@ -179,7 +179,7 @@ func TestResolveHold_BlockingWritesNoTrigger(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, enqueue, err := resolveHoldTx(context.Background(), tx, id, PendingApproved, "google:op", "", false)
+		_, enqueue, err := d.resolveHoldTx(context.Background(), tx, id, PendingApproved, "google:op", "", false)
 		if err != nil {
 			tx.Rollback()
 			t.Fatal(err)

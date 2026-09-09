@@ -228,7 +228,7 @@ func BackfillInviteRefs(db *sql.DB) error {
 	}
 	if _, err := applyChunks(context.Background(), "carry invites forward", writes,
 		func(ctx context.Context, chunk []objstore.Write) (bool, error) {
-			return New(db).writeEntitiesInTx(ctx, tx, nil, chunk...)
+			return New(db).WriteEntitiesInTx(ctx, tx, nil, chunk...)
 		}); err != nil {
 		return err
 	}
@@ -286,7 +286,7 @@ func (s *Store) InsertInviteTx(ctx context.Context, tx *sql.Tx, inv Invite) erro
 		return err
 	}
 	w.Cond = objstore.Cond{Item: objstore.ItemAbsent}
-	stored, err := s.writeEntitiesInTx(ctx, tx, nil, w)
+	stored, err := s.WriteEntitiesInTx(ctx, tx, nil, w)
 	if err != nil {
 		return fmt.Errorf("store the invite: %w", err)
 	}
@@ -389,7 +389,7 @@ func (s *Store) RevokeInviteByRefTx(ctx context.Context, tx *sql.Tx, ref string)
 	if err != nil {
 		return err
 	}
-	revoked, err := s.writeEntitiesInTx(ctx, tx, nil, objstore.Write{
+	revoked, err := s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
 		Op: objstore.Delete, Entity: Invites, Key: key,
 		Cond: objstore.Cond{Item: objstore.ItemPresent},
 	})
@@ -516,7 +516,7 @@ func (s *Store) consumeInvite(token, userSub string, grantACL bool) (*Invite, er
 	}
 	defer tx.Rollback() //nolint:errcheck // the commit below is the success path
 
-	claimed, err := s.writeEntitiesInTx(ctx, tx, nil,
+	claimed, err := s.WriteEntitiesInTx(ctx, tx, nil,
 		usedCountWrite(key, inv.UsedCount, inv.UsedCount+1))
 	if err != nil {
 		return nil, err
@@ -573,7 +573,7 @@ func (s *Store) consumeInvite(token, userSub string, grantACL bool) (*Invite, er
 		if err != nil {
 			return nil, err
 		}
-		if _, err := s.writeEntitiesInTx(ctx, tx, nil, w); err != nil {
+		if _, err := s.WriteEntitiesInTx(ctx, tx, nil, w); err != nil {
 			return nil, err
 		}
 	}

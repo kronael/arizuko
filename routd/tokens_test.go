@@ -25,7 +25,7 @@ func TestRouteTokenResolve_RejectsPairingKind(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pair, err := store.IssuePairingLink(context.Background(), tx, "telegram:user/1", "acme")
+	pair, err := db.store().IssuePairingLink(context.Background(), tx, "telegram:user/1", "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,14 +44,14 @@ func TestRouteTokenResolve_RejectsPairingKind(t *testing.T) {
 		t.Errorf("delivery revoke removed %d pairing rows, want 0", n)
 	}
 
-	// A delivery token still resolves. The two kinds now have one minter each
-	// (store.IssuePairingLink / issueRouteTokenTx) so a pairing can be minted
-	// from onbod's process too; kind-scoping is what keeps them apart.
+	// A delivery token still resolves. The two kinds have one minter each
+	// (store.IssuePairingLink / store.MintRouteTokenTx) so a pairing can be
+	// minted from onbod's process too; kind-scoping is what keeps them apart.
 	tx2, err := db.SQL().Begin()
 	if err != nil {
 		t.Fatal(err)
 	}
-	route, err := issueRouteTokenTx(context.Background(), tx2, "web:acme", "acme", "acme", "")
+	route, err := db.store().MintRouteTokenTx(context.Background(), tx2, "web:acme", "acme", "acme", "")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -135,7 +135,7 @@ func (s *Store) AddNetworkRule(folder, target, by string) error {
 	attrs := map[string]string{attrNetCreatedAt: core.NowTS()}
 	setAttr(attrs, attrNetCreatedBy, by)
 	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		_, err := s.writeEntitiesInTx(context.Background(), tx, nil, objstore.Write{
+		_, err := s.WriteEntitiesInTx(context.Background(), tx, nil, objstore.Write{
 			Op: objstore.Put, Entity: NetworkRules, Key: key, Attrs: attrs,
 			Cond: objstore.Cond{Item: objstore.ItemAbsent},
 		})
@@ -170,7 +170,7 @@ func (s *Store) RemoveNetworkRule(folder, target string) error {
 		return err
 	}
 	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		_, err := s.writeEntitiesInTx(context.Background(), tx, nil, objstore.Write{
+		_, err := s.WriteEntitiesInTx(context.Background(), tx, nil, objstore.Write{
 			Op: objstore.Delete, Entity: NetworkRules, Key: key,
 		})
 		return audit.Event{
@@ -246,4 +246,50 @@ func folderAncestry(folder string) []string {
 		out = append(out, cur)
 	}
 	return out
+}
+
+// AddNetworkRuleTx appends one rule create-if-absent on a transaction the CALLER
+// owns, for routd's agent-facing `network_allow`: the rule and resreg.invoke's
+// single audit_log row commit together, and AddNetworkRule would open a second
+// transaction on the same database and record the act twice.
+//
+// It validates and normalizes through the same match grammar AddNetworkRule
+// does, so a rule reaching the table through either writer is the same string:
+// one added as *.example.com is removable as example.com whichever surface wrote
+// it.
+func (s *Store) AddNetworkRuleTx(ctx context.Context, tx *sql.Tx, folder, target, by string) error {
+	if target != "*" {
+		if err := match.ValidEntry(target); err != nil {
+			return fmt.Errorf("network rule: %w", err)
+		}
+		target = match.NormalizeEntry(target)
+	}
+	key, err := networkRuleKey(folder, target)
+	if err != nil {
+		return err
+	}
+	attrs := map[string]string{attrNetCreatedAt: core.NowTS()}
+	setAttr(attrs, attrNetCreatedBy, by)
+	_, err = s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+		Op: objstore.Put, Entity: NetworkRules, Key: key, Attrs: attrs,
+		Cond: objstore.Cond{Item: objstore.ItemAbsent},
+	})
+	return err
+}
+
+// RemoveNetworkRuleTx drops one rule on a transaction the caller owns. A rule
+// that is not there is not an error — closing egress that is already closed is
+// the outcome the caller asked for.
+func (s *Store) RemoveNetworkRuleTx(ctx context.Context, tx *sql.Tx, folder, target string) error {
+	if target != "*" {
+		target = match.NormalizeEntry(target)
+	}
+	key, err := networkRuleKey(folder, target)
+	if err != nil {
+		return err
+	}
+	_, err = s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+		Op: objstore.Delete, Entity: NetworkRules, Key: key,
+	})
+	return err
 }

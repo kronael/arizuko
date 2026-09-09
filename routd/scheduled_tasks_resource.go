@@ -12,6 +12,12 @@ package routd
 //     resolution is a DB read the handler already performs — splitting it would
 //     duplicate the read AND reorder validation ahead of the containment decision.
 //
+// The four writes are store.CreateTaskTx, SetTaskStatusTx, PatchTaskTx and
+// DeleteTaskTx, on resreg.invoke's tx so each lands with the call's single
+// audit_log row. They live there because a task's coordinate is its id and its
+// attribute names are store's — the same items timed's fire loop claims, which
+// reads `next_run` as the operator's own RFC3339 text rather than as bytes.
+//
 // The operator REST face ALSO rides this handler. Both faces read ONE
 // resources.ScheduledTasksEndpoints: the REST verbs carry a Verb+Path, the agent-only
 // actions carry MCPOnly, and get/patch carry no MCPDoc. mountTasks mounts that slice
@@ -20,7 +26,6 @@ package routd
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -34,7 +39,6 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
-	"github.com/kronael/arizuko/store"
 )
 
 // Task actions are resource-specific verbs, not the CRUD shape. list reuses
@@ -64,7 +68,7 @@ var tasksMCPNames = resources.ScheduledTasksMCPNames
 // mutation+audit tx there. contain is the per-face target-containment seam.
 func (s *Server) scheduledTasksResource(contain containFn, elevated bool) resreg.Resource {
 	r := resreg.Mount(resources.ScheduledTasksName)
-	r.Store = store.New(s.db.SQL())
+	r.Store = s.db.store()
 	r.Handler = func(ctx context.Context, x resreg.Execution) (any, error) {
 		return s.scheduledTasksHandler(ctx, x, contain, elevated)
 	}
@@ -133,7 +137,7 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, 
 			}
 		}
 		taskID := fmt.Sprintf("task-%d-%s", time.Now().UnixMilli(), uuid.New().String()[:8])
-		if err := insertTaskTx(ctx, x.Tx, core.Task{
+		if err := s.db.store().CreateTaskTx(ctx, x.Tx, core.Task{
 			ID: taskID, Owner: targetFolder, ChatJID: targetJid,
 			Prompt: prompt, Cron: cronStore, NextRun: nextRun,
 			Status: core.TaskActive, Created: time.Now(), ContextMode: contextMode,
@@ -158,11 +162,11 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, 
 		var err error
 		switch x.Action {
 		case tasksActionPause:
-			err = setTaskStatusTx(ctx, x.Tx, taskID, core.TaskPaused)
+			err = s.db.store().SetTaskStatusTx(ctx, x.Tx, taskID, core.TaskPaused)
 		case tasksActionResume:
-			err = setTaskStatusTx(ctx, x.Tx, taskID, core.TaskActive)
+			err = s.db.store().SetTaskStatusTx(ctx, x.Tx, taskID, core.TaskActive)
 		case tasksActionCancel:
-			err = deleteTaskTx(ctx, x.Tx, taskID)
+			err = s.db.store().DeleteTaskTx(ctx, x.Tx, taskID)
 		}
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
@@ -201,7 +205,7 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, 
 		if status == "" && nextRun == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "status or next_run required")
 		}
-		if err := patchTaskTx(ctx, x.Tx, taskID, status, nextRun); err != nil {
+		if err := s.db.store().PatchTaskTx(ctx, x.Tx, taskID, status, nextRun); err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
 		// Echo the updated task (the tx has not committed, so a plain GetTask
@@ -263,57 +267,4 @@ func parseTaskSchedule(cronExpr string) (*time.Time, string, error) {
 	}
 	t := sched.Next(time.Now())
 	return &t, cronExpr, nil
-}
-
-// insertTaskTx inserts one scheduled_tasks row on tx (mirrors store.PutTaskRow so
-// the mutation lands in resreg.invoke's tx alongside its audit_log row). An empty
-// cron/next_run stores NULL, matching PutTaskRow.
-func insertTaskTx(ctx context.Context, tx *sql.Tx, t core.Task) error {
-	var nextRun *string
-	if t.NextRun != nil {
-		v := t.NextRun.Format(time.RFC3339)
-		nextRun = &v
-	}
-	cm := t.ContextMode
-	if cm == "" {
-		cm = "group"
-	}
-	_, err := tx.ExecContext(ctx,
-		`INSERT INTO scheduled_tasks
-		 (id, owner, chat_jid, prompt, cron, next_run, status, created_at, context_mode)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		t.ID, t.Owner, t.ChatJID, t.Prompt, nullStr(t.Cron),
-		nextRun, t.Status, t.Created.Format(time.RFC3339), cm)
-	return err
-}
-
-// setTaskStatusTx flips one task's status on tx (mirrors store.SetTaskStatus).
-func setTaskStatusTx(ctx context.Context, tx *sql.Tx, id, status string) error {
-	_, err := tx.ExecContext(ctx, `UPDATE scheduled_tasks SET status = ? WHERE id = ?`, status, id)
-	return err
-}
-
-// deleteTaskTx removes one task on tx (mirrors store.RemoveTask).
-func deleteTaskTx(ctx context.Context, tx *sql.Tx, id string) error {
-	_, err := tx.ExecContext(ctx, `DELETE FROM scheduled_tasks WHERE id = ?`, id)
-	return err
-}
-
-// patchTaskTx applies the REST PATCH partial update on tx (mirrors
-// store.PatchTask): status and/or next_run, at least one non-empty. next_run is
-// stored verbatim (RFC3339). Backs the tasksActionPatch handler branch so the
-// mutation lands in resreg.invoke's tx alongside its audit_log row.
-func patchTaskTx(ctx context.Context, tx *sql.Tx, id, status, nextRun string) error {
-	switch {
-	case status != "" && nextRun != "":
-		_, err := tx.ExecContext(ctx, `UPDATE scheduled_tasks SET status=?, next_run=? WHERE id=?`, status, nextRun, id)
-		return err
-	case status != "":
-		_, err := tx.ExecContext(ctx, `UPDATE scheduled_tasks SET status=? WHERE id=?`, status, id)
-		return err
-	case nextRun != "":
-		_, err := tx.ExecContext(ctx, `UPDATE scheduled_tasks SET next_run=? WHERE id=?`, nextRun, id)
-		return err
-	}
-	return nil
 }

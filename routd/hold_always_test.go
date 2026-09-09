@@ -45,7 +45,7 @@ func always(t *testing.T, d *DB, id, reviewer string) error {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if _, _, err := resolveHoldTx(context.Background(), tx, id, PendingApproved, reviewer, "", true); err != nil {
+	if _, _, err := d.resolveHoldTx(context.Background(), tx, id, PendingApproved, reviewer, "", true); err != nil {
 		return err
 	}
 	return tx.Commit()

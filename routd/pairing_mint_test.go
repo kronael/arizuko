@@ -7,11 +7,13 @@ package routd
 // — each test delegates it explicitly with grantMCPTools.
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -75,14 +77,14 @@ func TestPairingMint_RoutedJID(t *testing.T) {
 		t.Error("a pairing token resolved as a delivery route token")
 	}
 
-	var owner, kind string
-	if err := db.SQL().QueryRow(
-		`SELECT owner_folder, kind FROM route_tokens WHERE jid = ?`, "telegram:user/42",
-	).Scan(&owner, &kind); err != nil {
-		t.Fatal(err)
+	items := tokenItems(t, db)
+	if len(items) != 1 {
+		t.Fatalf("the mint wrote %d token items, want one", len(items))
 	}
-	if owner != "hq" || kind != store.RouteTokenKindPair {
-		t.Errorf("row = (owner %q, kind %q), want (hq, pair)", owner, kind)
+	owner, kind := items[0].Attrs["owner_folder"], items[0].Attrs["kind"]
+	if items[0].Attrs["jid"] != "telegram:user/42" || owner != "hq" ||
+		kind != store.RouteTokenKindPair {
+		t.Errorf("item = %v, want jid telegram:user/42, owner hq, kind pair", items[0].Attrs)
 	}
 }
 
@@ -105,12 +107,8 @@ func TestPairingMint_ForeignJIDRefused(t *testing.T) {
 	if !strings.Contains(e, "not permitted") {
 		t.Errorf("error = %q, want a permission refusal", e)
 	}
-	var n int
-	if err := db.SQL().QueryRow(`SELECT COUNT(*) FROM route_tokens`).Scan(&n); err != nil {
-		t.Fatal(err)
-	}
-	if n != 0 {
-		t.Errorf("refused mint still wrote %d token rows", n)
+	if n := len(tokenItems(t, db)); n != 0 {
+		t.Errorf("refused mint still wrote %d token items", n)
 	}
 }
 
@@ -137,12 +135,8 @@ func TestPairingMint_IngressSurfacesRefused(t *testing.T) {
 			t.Errorf("issue_pairing_link(%q) was allowed", jid)
 		}
 	}
-	var n int
-	if err := db.SQL().QueryRow(`SELECT COUNT(*) FROM route_tokens`).Scan(&n); err != nil {
-		t.Fatal(err)
-	}
-	if n != 0 {
-		t.Errorf("refused mints wrote %d token rows", n)
+	if n := len(tokenItems(t, db)); n != 0 {
+		t.Errorf("refused mints wrote %d token items", n)
 	}
 }
 
@@ -224,4 +218,19 @@ func TestIssuedURLsNotDoubleSchemed(t *testing.T) {
 		t.Fatalf("url = %q, want exactly one scheme", url)
 	}
 	_ = db
+}
+
+// tokenItems reads every route_tokens item, both kinds. The digest is the
+// coordinate and jid/owner_folder/kind are attributes, so a test asserting about
+// a mint reads the whole partition — which is 43 items on the largest live
+// instance and one or none here.
+func tokenItems(t *testing.T, db *DB) []objstore.Item {
+	t.Helper()
+	items, err := db.Obj().Query(context.Background(), objstore.Query{
+		Entity: store.RouteTokens, Partition: store.OwnerRoutd,
+	})
+	if err != nil {
+		t.Fatalf("read route tokens: %v", err)
+	}
+	return items
 }

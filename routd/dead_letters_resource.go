@@ -39,7 +39,6 @@ import (
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
-	"github.com/kronael/arizuko/store"
 )
 
 const actionReplay = resreg.Action("replay")
@@ -53,7 +52,7 @@ var deadLettersMCPNames = resources.DeadLettersMCPNames
 func (s *Server) deadLettersResource() resreg.Resource {
 	r := resreg.Mount(resources.DeadLettersName)
 	r.Handler = s.deadLettersHandler
-	r.Store = store.New(s.db.SQL())
+	r.Store = s.db.store()
 	return r
 }
 

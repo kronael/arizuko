@@ -224,11 +224,20 @@ func (s *Store) routeByID(ctx context.Context, id int64) (objstore.Item, core.Ro
 }
 
 func (s *Store) GetRoute(id int64) (core.Route, bool) {
-	_, r, ok, err := s.routeByID(context.Background(), id)
+	r, ok, err := s.RouteByID(id)
 	if err != nil {
 		return core.Route{}, false
 	}
 	return r, ok
+}
+
+// RouteByID answers the rule one id names, and SEPARATES "no such rule" from
+// "the table could not be read" — the distinction dashd's route pages gate on,
+// because an operator told 404 about a route that still exists goes and
+// recreates it, and then two rules answer one chat.
+func (s *Store) RouteByID(id int64) (core.Route, bool, error) {
+	_, r, ok, err := s.routeByID(context.Background(), id)
+	return r, ok, err
 }
 
 // putRoute writes one rule create-if-absent, minting an id when the caller
@@ -253,9 +262,9 @@ func (s *Store) putRoute(ctx context.Context, tx *sql.Tx, r core.Route, addedBy,
 	}
 	var created bool
 	if tx != nil {
-		created, err = s.writeEntitiesInTx(ctx, tx, nil, w)
+		created, err = s.WriteEntitiesInTx(ctx, tx, nil, w)
 	} else {
-		created, err = s.writeEntities(ctx, nil, w)
+		created, err = s.WriteEntities(ctx, nil, w)
 	}
 	if err != nil {
 		return 0, err
@@ -335,7 +344,7 @@ func (s *Store) DeleteRoute(id int64) (int64, error) {
 	}
 	actor, actorSub, surface := s.auditIdentity()
 	err = s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		if _, err := s.writeEntitiesInTx(ctx, tx, nil, objstore.Write{
+		if _, err := s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
 			Op: objstore.Delete, Entity: Routes, Key: it.Key,
 		}); err != nil {
 			return audit.Event{}, err
@@ -393,7 +402,7 @@ func (s *Store) UpdateRoute(id int64, r core.Route) (int64, error) {
 	}
 	actor, actorSub, surface := s.auditIdentity()
 	err = s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		if _, err := s.writeEntitiesInTx(ctx, tx, nil, writes...); err != nil {
+		if _, err := s.WriteEntitiesInTx(ctx, tx, nil, writes...); err != nil {
 			return audit.Event{}, err
 		}
 		return audit.Event{
@@ -460,4 +469,106 @@ func (s *Store) ListRoutes(folder string, isRoot bool) []core.Route {
 		}
 	}
 	return out
+}
+
+// PutRouteTx writes one rule create-if-absent on a transaction the CALLER owns
+// and answers the id the rule holds, for routd's `/v1/routes` face: the rule and
+// resreg.invoke's single audit_log row commit together, and AddRoute would open
+// a second transaction on the same database and record the act twice.
+//
+// The id is minted BEFORE anything is written to tx. The counter is a
+// compare-and-swap of its own (entities.go nextNumber), so it runs outside the
+// caller's transaction — and a transaction already holding the engine's write
+// lock would block its own mint.
+func (s *Store) PutRouteTx(ctx context.Context, tx *sql.Tx, r core.Route, addedBy, addedVia string) (int64, error) {
+	if MatchesWebJID(r.Match) {
+		return 0, ErrWebJIDRouted
+	}
+	return s.putRoute(ctx, tx, r, addedBy, addedVia)
+}
+
+// DeleteRouteTx removes one rule by id on a transaction the caller owns and
+// reports whether a rule went. The id is an attribute, so the item is found by
+// reading the table; the delete then conditions on the item still being there,
+// so a rule another caller removed in between answers false rather than OK.
+func (s *Store) DeleteRouteTx(ctx context.Context, tx *sql.Tx, id int64) (bool, error) {
+	it, _, ok, err := s.routeByID(ctx, id)
+	if err != nil || !ok {
+		return false, err
+	}
+	return s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+		Op: objstore.Delete, Entity: Routes, Key: it.Key,
+		Cond: objstore.Cond{Item: objstore.ItemPresent},
+	})
+}
+
+// ReplaceFolderRoutesTx replaces the rules whose target is `folder` or under it
+// with `routes`, on a transaction the CALLER owns — routd's set_routes. An empty
+// folder replaces the whole table, which is the operator/root shape.
+//
+// EVERY REPLACEMENT RULE IS MINTED A NEW id. set_routes does not edit rules, it
+// replaces them, so a survivor genuinely was created by this call and carrying a
+// replaced rule's handle across would hand `delete_route(id)` an identity nobody
+// wrote. The mints all run BEFORE the first write to tx, because the counter is
+// its own compare-and-swap outside the transaction and a transaction holding the
+// write lock would block it.
+//
+// A replacement whose coordinate an existing rule already holds is written as an
+// unconditional Put and that rule is NOT deleted: a batch may name each item
+// once (objstore.ValidateBatch), and a Put replaces the whole item anyway.
+func (s *Store) ReplaceFolderRoutesTx(ctx context.Context, tx *sql.Tx, folder string,
+	routes []core.Route, addedBy, addedVia string) error {
+	puts := make([]objstore.Write, 0, len(routes))
+	replaced := make(map[string]bool, len(routes))
+	for _, r := range routes {
+		if MatchesWebJID(r.Match) {
+			return ErrWebJIDRouted
+		}
+		n, err := s.nextNumber(ctx, OwnerRoutd, CounterRouteID)
+		if err != nil {
+			return fmt.Errorf("mint a route id: %w", err)
+		}
+		r.ID = int64(n)
+		key, err := routeKey(r)
+		if err != nil {
+			return err
+		}
+		if replaced[key.Sort] {
+			return fmt.Errorf("route set carries seq=%d target=%q match=%q twice; "+
+				"two rules would address one item", r.Seq, r.Target, r.Match)
+		}
+		replaced[key.Sort] = true
+		puts = append(puts, objstore.Write{
+			Op: objstore.Put, Entity: Routes, Key: key, Attrs: routeAttrs(r, addedBy, addedVia),
+		})
+	}
+	items, err := s.Obj().Query(ctx, objstore.Query{Entity: Routes, Partition: OwnerRoutd})
+	if err != nil {
+		return fmt.Errorf("read routes: %w", err)
+	}
+	writes := make([]objstore.Write, 0, len(items)+len(puts))
+	for _, it := range items {
+		if replaced[it.Key.Sort] {
+			continue
+		}
+		if folder != "" {
+			r, err := routeFrom(it)
+			if err != nil {
+				return err
+			}
+			// The same containment ListRoutes reads with: a target is the folder
+			// itself, a child under "/" or a topic under "#".
+			if !groupfolder.ContainsSep(folder, r.Target, "/") &&
+				!groupfolder.ContainsSep(folder, r.Target, "#") {
+				continue
+			}
+		}
+		writes = append(writes, objstore.Write{Op: objstore.Delete, Entity: Routes, Key: it.Key})
+	}
+	writes = append(writes, puts...)
+	_, err = applyChunks(ctx, "replace the routes of "+folder, writes,
+		func(ctx context.Context, chunk []objstore.Write) (bool, error) {
+			return s.WriteEntitiesInTx(ctx, tx, nil, chunk...)
+		})
+	return err
 }

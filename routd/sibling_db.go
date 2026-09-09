@@ -18,18 +18,18 @@ import (
 // Tasks reads scheduled_tasks for the tasks.json spawn snapshot: a root group
 // sees every task (owner filter empty); a child sees only its own.
 func (d *DB) Tasks(folder string, isRoot bool) []core.Task {
-	return d.taskStore().ListTasks(folder, isRoot)
+	return d.store().ListTasks(folder, isRoot)
 }
 
 // CountActiveTasks counts active scheduled_tasks for the /status surface.
 func (d *DB) CountActiveTasks() int {
-	return d.taskStore().CountActiveTasks()
+	return d.store().CountActiveTasks()
 }
 
 // PaneContextJID returns (contextJID, true) when a Slack assistant pane exists
 // for the DM channelID. No row → ("", false).
 func (d *DB) PaneContextJID(channelID string) (string, bool) {
-	p, ok := d.paneStore().PaneInChannel(channelID)
+	p, ok := d.store().PaneInChannel(channelID)
 	if !ok {
 		return "", false
 	}
@@ -39,59 +39,54 @@ func (d *DB) PaneContextJID(channelID string) (string, bool) {
 // SetPaneContext upserts the workspace-channel context for the pane keyed by
 // channelID (behind POST /v1/pane).
 func (d *DB) SetPaneContext(channelID, contextJID string) error {
-	return d.paneStore().SetPaneContextByChannel(channelID, contextJID)
+	return d.store().SetPaneContextByChannel(channelID, contextJID)
 }
 
 // UpsertPane creates/refreshes the pane row keyed by (team, user, thread) (behind
 // POST /v1/pane upsert=open). slakd calls this over HTTP.
 func (d *DB) UpsertPane(teamID, userID, threadTS, channelID string) error {
-	return d.paneStore().OpenPane(teamID, userID, threadTS, channelID)
+	return d.store().OpenPane(teamID, userID, threadTS, channelID)
 }
 
 // SetPaneContextByTriple updates the pane's workspace-channel context keyed by
 // (team, user, thread) — slakd's context-change path, served by POST /v1/pane.
 // Empty contextJID clears it.
 func (d *DB) SetPaneContextByTriple(teamID, userID, threadTS, contextJID string) error {
-	return d.paneStore().SetPaneContext(teamID, userID, threadTS, contextJID)
+	return d.store().SetPaneContext(teamID, userID, threadTS, contextJID)
 }
 
-// aclEval wraps routd.db as a *store.Store for the ACL evaluator (auth.Authorize)
-// + readers (ListACL, UserScopes). An empty acl table denies everything — there is
-// no fallback grant set.
-func (d *DB) aclEval() *store.Store { return store.New(d.db) }
+// store wraps routd.db as a *store.Store. It is the ONE seam routd reaches its
+// own tables through: acl and acl_membership (auth.Authorize and its readers),
+// groups, routes, route_tokens, scheduled_tasks, network_rules, pane_sessions
+// and the per-user cap. Every one of those is an objstore entity whose
+// coordinate and attribute names are declared in store, so a reader here that
+// went to the driver itself would be a second spelling of a format store owns.
+//
+// An empty acl table denies everything — there is no fallback grant set.
+func (d *DB) store() *store.Store { return store.New(d.db) }
 
-// secretStore wraps routd.db as a *store.Store with the SECRETS_KEY keyring set,
-// so secret reads decrypt `v2:` values and writes seal them.
+// secretStore is the one variant: the same handle with the SECRETS_KEY keyring
+// set, so secret reads decrypt `v2:` values and writes seal them. Every other
+// caller wants the plain handle.
 func (d *DB) secretStore() *store.Store {
-	s := store.New(d.db)
+	s := d.store()
 	if len(d.secretKeyring) > 0 {
 		s.SetSecretKeys(d.secretKeyring...)
 	}
 	return s
 }
 
-// taskStore wraps routd.db as a *store.Store for the task readers/writers.
-func (d *DB) taskStore() *store.Store { return store.New(d.db) }
-
-// paneStore wraps routd.db as a *store.Store for the pane readers/writers.
-func (d *DB) paneStore() *store.Store { return store.New(d.db) }
-
-// userStore wraps routd.db as a *store.Store for the per-user cap reader/writer
-// against user_profiles. Reads only the cap column; authd owns the full identity
-// record.
-func (d *DB) userStore() *store.Store { return store.New(d.db) }
-
 // UserCap returns the per-day cap for a user_sub in cents. Zero means uncapped
 // (the default).
 func (d *DB) UserCap(userSub string) (int, error) {
-	return d.userStore().UserCap(userSub)
+	return d.store().UserCap(userSub)
 }
 
 // SetUserCap writes the per-day cap for one user_sub. 0 = uncapped. The
 // operator write half of UserCap, so `arizuko budget set user` lands on the
 // row budgetGate reads.
 func (d *DB) SetUserCap(userSub string, cents int) error {
-	return d.userStore().SetUserCap(userSub, cents)
+	return d.store().SetUserCap(userSub, cents)
 }
 
 // EnvProfileSecrets resolves the caller's OWN user-scoped model credentials (BYOA)
@@ -147,7 +142,7 @@ func (d *DB) ShellEnvSecrets(folder, userSub string) map[string]string {
 		keys = append(keys, k)
 	}
 	caller := auth.Caller{Principal: "folder:" + folder}
-	for _, k := range auth.ShellEnvKeys(d.aclEval(), caller, folder, keys) {
+	for _, k := range auth.ShellEnvKeys(d.store(), caller, folder, keys) {
 		out[k] = vals[k]
 	}
 	return out
@@ -257,14 +252,14 @@ func (d *DB) connectorSecrets(folder, callerSub string, required []string, force
 // mcp:<tool> operator overlay (deriveFolderGrants) and the list_acl tool.
 // A read failure is an error, never an empty list (BUGS A4).
 func (d *DB) ListACL(principal string) ([]core.ACLRow, error) {
-	return d.aclEval().ListACL(principal)
+	return d.store().ListACL(principal)
 }
 
 // UserScopes returns the distinct allow-scopes a sub has, expanding membership
 // transitively. Backs GET /v1/users/{sub}/scopes (authd snapshots it at login).
 // A listing, never a verdict — see auth.UserScopes.
 func (d *DB) UserScopes(sub string) ([]string, error) {
-	return auth.UserScopes(d.aclEval(), sub)
+	return auth.UserScopes(d.store(), sub)
 }
 
 // Authorize is the per-call row-ACL check for a caller that IS its own principal —
@@ -273,7 +268,7 @@ func (d *DB) UserScopes(sub string) ([]string, error) {
 // denies. The agent turn does not use this: see AuthorizeTurn.
 func (d *DB) Authorize(sub, folder, action string, params map[string]string) bool {
 	caller := auth.Caller{Principal: sub}
-	return auth.Authorize(d.aclEval(), caller, action, folder, params)
+	return auth.Authorize(d.store(), caller, action, folder, params)
 }
 
 // AuthorizeTurn is the per-call row-ACL check for an in-container agent tool call,
@@ -289,14 +284,14 @@ func (d *DB) Authorize(sub, folder, action string, params map[string]string) boo
 // apart.
 func (d *DB) AuthorizeTurn(senderSub, turnFolder, scope, action string, params map[string]string) bool {
 	caller := auth.Caller{Principal: senderSub, Route: turnFolder}
-	return auth.Authorize(d.aclEval(), caller, action, scope, params)
+	return auth.Authorize(d.store(), caller, action, scope, params)
 }
 
 // CheckHold asks whether this folder's call must wait for a human (spec 5/19).
 // Deliberately NOT routed through Authorize — see auth.CheckHold for why the
 // operator's (*, **) row would otherwise hold every tool.
 func (d *DB) CheckHold(sub, folder, tool string, params map[string]string) string {
-	return auth.CheckHold(d.aclEval(), auth.Caller{Principal: sub}, tool, folder, params)
+	return auth.CheckHold(d.store(), auth.Caller{Principal: sub}, tool, folder, params)
 }
 
 // IsOperator reports whether sub carries the operator `**` grant. Operators are
@@ -309,40 +304,40 @@ func (d *DB) IsOperator(sub string) bool {
 	if sub == "" {
 		return false
 	}
-	if slices.Contains(d.aclEval().Ancestors(sub), "role:operator") {
+	if slices.Contains(d.store().Ancestors(sub), "role:operator") {
 		return true
 	}
-	return auth.Authorize(d.aclEval(), auth.Caller{Principal: sub}, "admin", "**", nil)
+	return auth.Authorize(d.store(), auth.Caller{Principal: sub}, "admin", "**", nil)
 }
 
 // GetTask reads one scheduled_tasks row by id, for the inspect_tasks per-task
 // authz check. No row → (zero, false).
 func (d *DB) GetTask(id string) (core.Task, bool) {
-	return d.taskStore().GetTask(id)
+	return d.store().GetTask(id)
 }
 
 // DueTasks atomically claims + returns the tasks ready to fire, backing
 // GET /v1/tasks/due (timed's read half).
-func (d *DB) DueTasks(now time.Time) ([]core.Task, error) { return d.taskStore().DueTasks(now) }
+func (d *DB) DueTasks(now time.Time) ([]core.Task, error) { return d.store().DueTasks(now) }
 
 // RecoverFiringTasks re-arms tasks stranded in 'firing' by a crash mid-fire.
 // Called once at routd startup (crash recovery).
-func (d *DB) RecoverFiringTasks() (int64, error) { return d.taskStore().RecoverFiringTasks() }
+func (d *DB) RecoverFiringTasks() (int64, error) { return d.store().RecoverFiringTasks() }
 
 // RecordTaskRun appends one task_run_logs row, backing POST /v1/tasks/runlog
 // (timed's write half).
-func (d *DB) RecordTaskRun(l store.TaskRunLog) error { return d.taskStore().RecordTaskRun(l) }
+func (d *DB) RecordTaskRun(l store.TaskRunLog) error { return d.store().RecordTaskRun(l) }
 
 // RescheduleTask sets a fired task's next_run + status, backing POST
 // /v1/tasks/{id}/reschedule (timed's reschedule half).
 func (d *DB) RescheduleTask(id, nextRun, status string) error {
-	return d.taskStore().RescheduleTask(id, nextRun, status)
+	return d.store().RescheduleTask(id, nextRun, status)
 }
 
 // TaskRunLogs reads task_run_logs rows for the inspect_tasks per-task run history,
 // translating store.TaskRunLog → ipc.TaskRunLog.
 func (d *DB) TaskRunLogs(taskID string, limit int) []ipc.TaskRunLog {
-	rows := d.taskStore().TaskRunLogs(taskID, limit)
+	rows := d.store().TaskRunLogs(taskID, limit)
 	out := make([]ipc.TaskRunLog, len(rows))
 	for i, r := range rows {
 		out[i] = ipc.TaskRunLog{
@@ -357,7 +352,7 @@ func (d *DB) TaskRunLogs(taskID string, limit int) []ipc.TaskRunLog {
 // AllRunLogs returns recent task_run_logs rows across all tasks, for
 // GET /v1/tasks/runs (timed's dashboard cross-task run feed).
 func (d *DB) AllRunLogs(limit int) []ipc.TaskRunLog {
-	rows := d.taskStore().AllRunLogs(limit)
+	rows := d.store().AllRunLogs(limit)
 	out := make([]ipc.TaskRunLog, len(rows))
 	for i, r := range rows {
 		out[i] = ipc.TaskRunLog{

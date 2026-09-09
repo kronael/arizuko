@@ -44,7 +44,6 @@ import (
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
-	"github.com/kronael/arizuko/store"
 )
 
 // auditMCPNames is the action→flat-tool-name map, single-sourced in
@@ -57,7 +56,7 @@ var auditMCPNames = resources.AuditMCPNames
 func (s *Server) auditResource() resreg.Resource {
 	r := resreg.Mount(resources.AuditName)
 	r.Handler = s.auditHandler
-	r.Store = store.New(s.db.SQL())
+	r.Store = s.db.store()
 	return r
 }
 

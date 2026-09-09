@@ -274,7 +274,7 @@ func setAttr(attrs map[string]string, name, value string) {
 func (s *Store) applyInChunks(ctx context.Context, what string,
 	writes []objstore.Write) (int, error) {
 	return applyChunks(ctx, what, writes, func(ctx context.Context, chunk []objstore.Write) (bool, error) {
-		return s.writeEntities(ctx, nil, chunk...)
+		return s.WriteEntities(ctx, nil, chunk...)
 	})
 }
 

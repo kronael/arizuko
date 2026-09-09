@@ -1,6 +1,7 @@
 package routd
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -56,20 +57,19 @@ func revokeTokens(t *testing.T, d *DB, jid, owner string) int {
 	return want
 }
 
-// putWebRoute seeds one row. routd's own writer is tx-scoped behind resreg and
-// this is a fixture, not the subject, so it writes the row directly rather than
-// reaching into another package for a writer that does not run in production.
+// putWebRoute seeds one rule through routd's own upsert, on a transaction of its
+// own — the shape resreg gives that writer in production.
 func putWebRoute(t *testing.T, d *DB, r WebRouteRow) {
 	t.Helper()
-	_, err := d.SQL().Exec(
-		`INSERT INTO web_routes (path_prefix, access, redirect_to, folder, created_at)
-		 VALUES (?, ?, ?, ?, ?)
-		 ON CONFLICT(path_prefix) DO UPDATE SET
-		   access = excluded.access, redirect_to = excluded.redirect_to,
-		   folder = excluded.folder`,
-		r.PathPrefix, r.Access, r.RedirectTo, r.Folder,
-		time.Now().UTC().Format(time.RFC3339))
+	tx, err := d.SQL().Begin()
 	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+	if err := d.putWebRouteTx(context.Background(), tx, r); err != nil {
 		t.Fatalf("put web route %s: %v", r.PathPrefix, err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
 	}
 }

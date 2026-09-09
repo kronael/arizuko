@@ -120,7 +120,7 @@ func TestAddACLToAnAliasStillWritesTheRowAsAsked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := grantACLTx(t.Context(), tx, core.ACLRow{Principal: "github:Y", Scope: "atlas", Action: "admin", Effect: "allow", GrantedBy: "operator"}); err != nil {
+	if err := db.grantACLTx(t.Context(), tx, core.ACLRow{Principal: "github:Y", Scope: "atlas", Action: "admin", Effect: "allow", GrantedBy: "operator"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {

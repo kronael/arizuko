@@ -9,14 +9,15 @@ package routd
 // the apply that should have replaced it.
 //
 // It runs HERE for the reason TestResourceRowTypesCoverTheirTable does: routd.db
-// is the schema these rows live on, and it is routd migration 0047 that makes
-// `added_by` NOT NULL.
+// is the schema these rows live on, and routd's agent-facing grant is one of the
+// writers that has to store the value the filter compares.
 
 import (
 	"context"
 	"errors"
 	"testing"
 
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/store"
@@ -46,15 +47,8 @@ func TestMembership_UnattributedEdgeStaysInTheProjection(t *testing.T) {
 	}
 	defer db.Close()
 
-	tx, err := db.SQL().Begin()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := addMembershipTx(context.Background(), tx, "user:alice", "role:operator", ""); err != nil {
-		t.Fatalf("addMembershipTx: %v", err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
+	if err := putEdge(t, db, "user:alice", "role:operator", ""); err != nil {
+		t.Fatalf("put edge: %v", err)
 	}
 
 	rows := membershipRows(t, db)
@@ -77,20 +71,11 @@ func TestMembership_PairingEdgeStaysOutOfTheProjection(t *testing.T) {
 	}
 	defer db.Close()
 
-	tx, err := db.SQL().Begin()
-	if err != nil {
-		t.Fatal(err)
+	if err := putEdge(t, db, "telegram:user/42", "google:alice", store.PairingAddedBy); err != nil {
+		t.Fatalf("put pairing edge: %v", err)
 	}
-	if err := addMembershipTx(context.Background(), tx,
-		"telegram:user/42", "google:alice", store.PairingAddedBy); err != nil {
-		t.Fatalf("addMembershipTx: %v", err)
-	}
-	if err := addMembershipTx(context.Background(), tx,
-		"user:alice", "role:operator", "cli:kron"); err != nil {
-		t.Fatalf("addMembershipTx: %v", err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
+	if err := putEdge(t, db, "user:alice", "role:operator", "cli:kron"); err != nil {
+		t.Fatalf("put role edge: %v", err)
 	}
 
 	rows := membershipRows(t, db)
@@ -100,19 +85,32 @@ func TestMembership_PairingEdgeStaysOutOfTheProjection(t *testing.T) {
 	}
 }
 
-// The column carries no NULL, so the filter has a value to compare on every row.
-func TestMembership_AddedByIsNotNullable(t *testing.T) {
+// `added_by` is written even when it is EMPTY, so the filter has a value to
+// compare on every edge. Absent is the only null this model has, and an item
+// that left the attribute off would answer no comparison at all.
+func TestMembership_AddedByIsAlwaysWritten(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 
-	if _, err := db.SQL().Exec(
-		`INSERT INTO acl_membership (child, parent, added_by, added_at) VALUES (?,?,NULL,?)`,
-		"a", "b", "2026-01-01T00:00:00Z"); err == nil {
-		t.Error("acl_membership accepted a NULL added_by; the row filter cannot compare " +
-			"one, so the edge would be invisible to every export and every apply")
+	if err := putEdge(t, db, "a", "b", ""); err != nil {
+		t.Fatalf("put edge: %v", err)
+	}
+	items, err := db.Obj().Query(context.Background(), objstore.Query{
+		Entity: store.ACLMembership, Partition: store.OwnerRoutd,
+	})
+	if err != nil {
+		t.Fatalf("read edges: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("the partition holds %d edges, want the one that was written", len(items))
+	}
+	if _, ok := items[0].Attrs["added_by"]; !ok {
+		t.Error("the edge carries no added_by attribute; the row filter cannot compare " +
+			"one that is not there, so the edge would be invisible to every export and " +
+			"every apply")
 	}
 }
 
@@ -126,23 +124,33 @@ func TestMembership_TransitiveCycleIsRefused(t *testing.T) {
 	}
 	defer db.Close()
 
-	tx, err := db.SQL().Begin()
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := context.Background()
-	if err := addMembershipTx(ctx, tx, "a", "b", "cli"); err != nil {
+	if err := putEdge(t, db, "a", "b", "cli"); err != nil {
 		t.Fatalf("a -> b: %v", err)
 	}
-	if err := addMembershipTx(ctx, tx, "b", "c", "cli"); err != nil {
+	if err := putEdge(t, db, "b", "c", "cli"); err != nil {
 		t.Fatalf("b -> c: %v", err)
 	}
-	if err := addMembershipTx(ctx, tx, "c", "a", "cli"); !errors.Is(err, store.ErrCycle) {
+	if err := putEdge(t, db, "c", "a", "cli"); !errors.Is(err, store.ErrCycle) {
 		t.Errorf("c -> a returned %v, want store.ErrCycle: a is already two edges above c, "+
 			"and an edge that closes the loop hands every member of it the union of the "+
 			"whole ring's authority", err)
 	}
-	if err := tx.Rollback(); err != nil {
+}
+
+// putEdge writes one edge the way routd's agent-facing grant does: through
+// store.PutMembershipTx on a transaction of its own. One edge per transaction is
+// what production issues — the walk that refuses a cycle reads committed edges,
+// so a ring built inside ONE transaction is a shape no caller produces and no
+// walk can see.
+func putEdge(t *testing.T, db *DB, child, parent, addedBy string) error {
+	t.Helper()
+	tx, err := db.SQL().Begin()
+	if err != nil {
 		t.Fatal(err)
 	}
+	defer tx.Rollback() //nolint:errcheck
+	if err := db.store().PutMembershipTx(context.Background(), tx, child, parent, addedBy); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

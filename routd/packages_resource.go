@@ -41,7 +41,6 @@ import (
 
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
-	"github.com/kronael/arizuko/store"
 )
 
 // installedPackagesScope is the target BOTH faces authorize against. The record
@@ -62,7 +61,7 @@ var installedPackagesMCPNames = resources.InstalledPackagesMCPNames
 func (s *Server) installedPackagesResource() resreg.Resource {
 	r := resreg.Mount(resources.InstalledPackagesName)
 	r.Handler = s.installedPackagesHandler
-	r.Store = store.New(s.db.SQL())
+	r.Store = s.db.store()
 	return r
 }
 

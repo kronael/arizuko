@@ -7,23 +7,28 @@ package routd
 // audit_log for half the table.
 
 import (
+	"context"
 	"testing"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/resreg"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
+	"github.com/kronael/arizuko/store"
 )
 
 // routeAttribution reads (added_by, added_via) for the route matching `match`.
-// COALESCE, so a NULL column reads "" — the pre-attribution value.
+// They are attributes of the item, so an unstamped rule carries neither and both
+// read "" — the value that means "no actor recorded".
 func routeAttribution(t *testing.T, db *DB, match string) (string, string) {
 	t.Helper()
-	var by, via string
-	if err := db.SQL().QueryRow(
-		`SELECT COALESCE(added_by, ''), COALESCE(added_via, '') FROM routes WHERE match = ?`,
-		match).Scan(&by, &via); err != nil {
-		t.Fatalf("read attribution for %q: %v", match, err)
+	for _, r := range routeRows(t, resreg.OnDB(db.SQL())) {
+		if r.Match == match {
+			return r.AddedBy, r.AddedVia
+		}
 	}
-	return by, via
+	t.Fatalf("no route matching %q", match)
+	return "", ""
 }
 
 // TestRoutesMCP_AddStampsAttribution: the agent socket's caller is the folder
@@ -64,9 +69,8 @@ func TestRoutesMCP_SetStampsEveryReplacedRow(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	_ = db.PutGroup(core.Group{Folder: "hq"})
 	grantMCPTools(t, db, "hq", routeToolNames...)
-	// A pre-attribution row, written the way every live instance's rows were.
-	if _, err := db.SQL().Exec(
-		`INSERT INTO routes (seq, match, target) VALUES (0, 'platform=old', 'hq')`); err != nil {
+	// An unstamped rule, written the way every live instance's rows were.
+	if _, err := db.store().PutRouteRow(core.Route{Seq: 0, Match: "platform=old", Target: "hq"}); err != nil {
 		t.Fatal(err)
 	}
 	sock := serveRoutesMCP(t, db, "hq", "folder:hq")
@@ -77,25 +81,15 @@ func TestRoutesMCP_SetStampsEveryReplacedRow(t *testing.T) {
 		t.Fatalf("set_routes errored: %s", e)
 	}
 
-	rows, err := db.SQL().Query(
-		`SELECT match, COALESCE(added_by, ''), COALESCE(added_via, '') FROM routes`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
-	n := 0
-	for rows.Next() {
-		var match, by, via string
-		if err := rows.Scan(&match, &by, &via); err != nil {
-			t.Fatal(err)
-		}
-		n++
-		if by != "folder:hq" || via != "set_routes" {
-			t.Errorf("row %q attribution = (%q, %q), want (folder:hq, set_routes)", match, by, via)
+	rows := routeRows(t, resreg.OnDB(db.SQL()))
+	for _, r := range rows {
+		if r.AddedBy != "folder:hq" || r.AddedVia != "set_routes" {
+			t.Errorf("row %q attribution = (%q, %q), want (folder:hq, set_routes)",
+				r.Match, r.AddedBy, r.AddedVia)
 		}
 	}
-	if n != 2 {
-		t.Errorf("set_routes left %d rows, want the 2 it wrote", n)
+	if len(rows) != 2 {
+		t.Errorf("set_routes left %d rows, want the 2 it wrote", len(rows))
 	}
 }
 
@@ -121,25 +115,30 @@ func TestRESTRouteStampsAttribution(t *testing.T) {
 	}
 }
 
-// TestPreAttributionRoutesStayNull: no backfill. A row written before the
-// columns existed keeps NULL, which means "no actor recorded" and must not be
-// mistaken for one.
-func TestPreAttributionRoutesStayNull(t *testing.T) {
+// TestUnattributedRoutesCarryNoActor: no backfill. A rule written by a caller
+// that named neither field carries NEITHER attribute — absent is the only null
+// this model has — and that must not be mistaken for an actor.
+func TestUnattributedRoutesCarryNoActor(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	if _, err := db.SQL().Exec(
-		`INSERT INTO routes (seq, match, target) VALUES (0, 'platform=legacy', 'hq')`); err != nil {
+	if _, err := db.store().PutRouteRow(core.Route{Seq: 0, Match: "platform=legacy", Target: "hq"}); err != nil {
 		t.Fatal(err)
 	}
-	var n int
-	if err := db.SQL().QueryRow(
-		`SELECT COUNT(*) FROM routes WHERE added_by IS NULL AND added_via IS NULL`).Scan(&n); err != nil {
+	items, err := db.Obj().Query(context.Background(), objstore.Query{
+		Entity: store.Routes, Partition: store.OwnerRoutd,
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if n != 1 {
-		t.Errorf("pre-attribution row is not NULL/NULL; got %d such rows", n)
+	if len(items) != 1 {
+		t.Fatalf("the partition holds %d rules, want the one that was written", len(items))
+	}
+	_, by := items[0].Attrs["added_by"]
+	_, via := items[0].Attrs["added_via"]
+	if by || via {
+		t.Errorf("an unattributed rule carries added_by=%v added_via=%v, want neither", by, via)
 	}
 }

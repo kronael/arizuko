@@ -1,7 +1,6 @@
 package routd
 
 import (
-	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -119,15 +118,13 @@ func TestBroker_RefreshRejectedSignalsReconnect(t *testing.T) {
 	if _, ok := got["GITHUB_TOKEN"]; ok {
 		t.Error("revoked key must be dropped from the resolved set")
 	}
-	// expires_at + refresh_val nulled; value + provider survive.
-	var exp, ref sql.NullString
-	if err := db.SQL().QueryRow(
-		`SELECT expires_at, refresh_val FROM secrets WHERE scope_id='github:alice' AND key='GITHUB_TOKEN'`,
-	).Scan(&exp, &ref); err != nil {
-		t.Fatal(err)
-	}
-	if exp.Valid || ref.Valid {
-		t.Errorf("oauth columns not nulled after revoke: exp=%v ref=%v", exp, ref)
+	// expires_at + refresh_val taken away; value + provider survive. Absent is
+	// the only null this model has, so "gone" is the attribute not being there.
+	attrs := rawSecret(t, db, store.ScopeUser, "github:alice", "GITHUB_TOKEN").Attrs
+	_, exp := attrs["expires_at"]
+	_, ref := attrs["refresh_val"]
+	if exp || ref {
+		t.Errorf("oauth attributes still present after revoke: expires_at=%v refresh_val=%v", exp, ref)
 	}
 }
 

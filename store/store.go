@@ -252,19 +252,3 @@ func (s *Store) DB() *sql.DB { return s.db }
 // pool with a type assertion, and a field would have to be filled in at four
 // constructors and survive every shallow copy AsUser makes.
 func (s *Store) Obj() *sqlstore.Store { return sqlstore.New(s.db) }
-
-// sqlPH returns n comma-separated `?` placeholders for use in SQL IN (...).
-// e.g. sqlPH(3) == "?,?,?"
-func sqlPH(n int) string {
-	if n <= 0 {
-		return ""
-	}
-	b := make([]byte, 0, n*2-1)
-	for i := range n {
-		if i > 0 {
-			b = append(b, ',')
-		}
-		b = append(b, '?')
-	}
-	return string(b)
-}

@@ -5,6 +5,13 @@ package routd
 // allow/deny/list are resource-specific verbs mapped to the flat live tool names via
 // MCPNames.
 //
+// The two writes are store.AddNetworkRuleTx and store.RemoveNetworkRuleTx, on
+// resreg.invoke's tx so the rule and the call's single audit_log row commit
+// together. They live there because a rule's coordinate is (folder, target) and
+// its attribute names are store's, and because both writers have to normalize a
+// target through the same grammar — a rule added as *.example.com is removable
+// as example.com whichever surface wrote it.
+//
 // allow/deny take an optional `folder` TARGET arg (defaulting to the caller's own
 // folder), so a caller may open or close egress for its own folder OR any folder its
 // grant scope covers — the documented egress-escalation path. Containment is the
@@ -14,17 +21,14 @@ package routd
 
 import (
 	"context"
-	"database/sql"
 	"log/slog"
 	"net/http"
-	"time"
 
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/kronael/arizuko/egress/match"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
-	"github.com/kronael/arizuko/store"
 )
 
 // Egress-allowlist actions are resource-specific verbs, not the CRUD shape. list
@@ -48,7 +52,7 @@ var networkMCPNames = resources.NetworkRulesMCPNames
 func (s *Server) networkRulesResource() resreg.Resource {
 	r := resreg.Mount(resources.NetworkRulesName)
 	r.Handler = s.networkRulesHandler
-	r.Store = store.New(s.db.SQL())
+	r.Store = s.db.store()
 	return r
 }
 
@@ -88,7 +92,7 @@ func (s *Server) networkRulesHandler(ctx context.Context, x resreg.Execution) (a
 				"%v — write a bare domain (example.com) or subdomain glob (*.example.com)", err)
 		}
 		host := match.NormalizeEntry(raw)
-		if err := addNetworkRuleTx(ctx, x.Tx, folder, host, x.Caller.Sub); err != nil {
+		if err := s.db.store().AddNetworkRuleTx(ctx, x.Tx, folder, host, x.Caller.Sub); err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
 		slog.Info("egress allowed", "folder", folder, "host", host)
@@ -102,7 +106,7 @@ func (s *Server) networkRulesHandler(ctx context.Context, x resreg.Execution) (a
 		if host == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "host required")
 		}
-		if err := removeNetworkRuleTx(ctx, x.Tx, folder, host); err != nil {
+		if err := s.db.store().RemoveNetworkRuleTx(ctx, x.Tx, folder, host); err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
 		slog.Info("egress denied", "folder", folder, "host", host)
@@ -142,21 +146,4 @@ func (s *Server) networkRulesPostBuild(folder, callerSub string, authorize autho
 		return nil
 	}
 	return mountAgentResource(res, callerSub, folder, visible)
-}
-
-// addNetworkRuleTx appends one egress allowlist row on tx (mirrors
-// store.AddNetworkRule so the mutation lands in resreg.invoke's tx alongside its
-// audit_log row). INSERT OR IGNORE keeps the append idempotent.
-func addNetworkRuleTx(ctx context.Context, tx *sql.Tx, folder, target, by string) error {
-	_, err := tx.ExecContext(ctx,
-		`INSERT OR IGNORE INTO network_rules (folder, target, created_at, created_by) VALUES (?, ?, ?, ?)`,
-		folder, target, time.Now().UTC().Format(time.RFC3339), by)
-	return err
-}
-
-// removeNetworkRuleTx drops one egress allowlist row on tx (mirrors
-// store.RemoveNetworkRule). No error if the row is absent.
-func removeNetworkRuleTx(ctx context.Context, tx *sql.Tx, folder, target string) error {
-	_, err := tx.ExecContext(ctx, `DELETE FROM network_rules WHERE folder = ? AND target = ?`, folder, target)
-	return err
 }

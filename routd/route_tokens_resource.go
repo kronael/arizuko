@@ -27,10 +27,6 @@ package routd
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"database/sql"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -73,7 +69,7 @@ var routeTokensMCPNames = resources.RouteTokensMCPNames
 func (s *Server) routeTokensResource() resreg.Resource {
 	r := resreg.Mount(resources.RouteTokensName)
 	r.Handler = s.routeTokensHandler
-	r.Store = store.New(s.db.SQL())
+	r.Store = s.db.store()
 	return r
 }
 
@@ -123,7 +119,7 @@ func (s *Server) routeTokensHandler(ctx context.Context, x resreg.Execution) (an
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusBadRequest, "%v", err)
 		}
-		raw, err := issueRouteTokenTx(ctx, x.Tx, jid, folder, target,
+		raw, err := s.db.store().MintRouteTokenTx(ctx, x.Tx, jid, folder, target,
 			strings.TrimSpace(argString(x.Args, "context")))
 		if errors.Is(err, store.ErrRouteTokenTargetTaken) {
 			return nil, resreg.Errorf(http.StatusConflict, "%v", err)
@@ -155,7 +151,7 @@ func (s *Server) routeTokensHandler(ctx context.Context, x resreg.Execution) (an
 			return nil, resreg.Errorf(http.StatusInternalServerError,
 				"cannot mint a pairing link: WEB_HOST is unset, so there is no URL to hand out")
 		}
-		raw, err := store.IssuePairingLink(ctx, x.Tx, jid, target)
+		raw, err := s.db.store().IssuePairingLink(ctx, x.Tx, jid, target)
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
@@ -170,7 +166,7 @@ func (s *Server) routeTokensHandler(ctx context.Context, x resreg.Execution) (an
 		// Ownership containment: DELETE scoped to owner_folder = the caller's folder,
 		// so a cross-folder JID matches zero rows (deleted=false) — never another
 		// folder's token.
-		deleted, err := revokeRouteTokenTx(ctx, x.Tx, jid, folder)
+		deleted, err := s.db.store().RevokeRouteTokenTx(ctx, x.Tx, jid, folder)
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
@@ -274,43 +270,10 @@ func routeTokenJID(kind, targetFolder, sourceLabel, jidSuffix string) (jid, urlP
 	return jid, urlPrefix, nil
 }
 
-// issueRouteTokenTx mints a 32-byte hex DELIVERY token for jid under owner and
-// inserts sha256(token) on tx, so the mutation lands in resreg.invoke's tx alongside
-// its audit_log row. It returns the raw token once. target is the folder the token
-// delivers to, which the JID grammar cannot recover once a suffix is present (spec
-// 5/W). The pairing kind is NOT minted here — it has a second caller in another
-// process (onbod's greeting) that cannot reach this tx, so it lives in
-// store.IssuePairingLink where both callers can hold it.
-func issueRouteTokenTx(ctx context.Context, tx *sql.Tx, jid, owner, target, context string) (string, error) {
-	if err := store.CheckRouteTokenTarget(tx, jid, target); err != nil {
-		return "", err
-	}
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	raw := hex.EncodeToString(b)
-	h := sha256.Sum256([]byte(raw))
-	_, err := tx.ExecContext(ctx,
-		`INSERT INTO route_tokens(token_hash, jid, owner_folder, created_at, context, kind, target_folder) VALUES(?,?,?,?,?,?,?)`,
-		h[:], jid, owner, nowTS(), nullStr(context), store.RouteTokenKindRoute, nullStr(target))
-	if err != nil {
-		return "", err
-	}
-	return raw, nil
-}
-
-// revokeRouteTokenTx deletes delivery tokens for jid owned by owner on tx,
-// returning whether any row was removed. The
-// owner_folder predicate is the ownership containment — a cross-folder jid
-// matches nothing.
-func revokeRouteTokenTx(ctx context.Context, tx *sql.Tx, jid, owner string) (bool, error) {
-	res, err := tx.ExecContext(ctx,
-		`DELETE FROM route_tokens WHERE jid=? AND owner_folder=? AND kind=?`,
-		jid, owner, store.RouteTokenKindRoute)
-	if err != nil {
-		return false, err
-	}
-	n, _ := res.RowsAffected()
-	return n > 0, nil
-}
+// The mint and the revoke are store.MintRouteTokenTx and
+// store.RevokeRouteTokenTx, on resreg.invoke's tx so the item and the call's
+// single audit_log row commit together. They live there because the token's
+// coordinate is its digest and its attribute names are store's, and because the
+// pairing minter beside them (IssuePairingLink, which onbod's greeting also
+// reaches) has to render the same item with a different `kind` — one renderer,
+// two credentials, so neither can be redeemed as the other.

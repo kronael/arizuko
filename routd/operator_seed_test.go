@@ -17,14 +17,22 @@ func TestOperatorSeededWithGrantOption(t *testing.T) {
 	}
 	defer db.Close()
 
-	var got int
-	if err := db.SQL().QueryRow(
-		`SELECT grant_option FROM acl WHERE principal='role:operator' AND action='*'`,
-	).Scan(&got); err != nil {
-		t.Fatalf("role:operator (*, **) row missing from fresh routd.db: %v", err)
+	rows, err := store.New(db.SQL()).ListACL("role:operator")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got != 1 {
-		t.Fatalf("role:operator grant_option = %d, want 1", got)
+	seeded := false
+	for _, r := range rows {
+		if r.Action != "*" {
+			continue
+		}
+		seeded = true
+		if !r.GrantOption {
+			t.Fatalf("role:operator (*, %s) carries no grant option", r.Scope)
+		}
+	}
+	if !seeded {
+		t.Fatal("role:operator (*, **) row missing from a fresh routd.db")
 	}
 
 	// End-to-end: the operator (via membership) can delegate anything.

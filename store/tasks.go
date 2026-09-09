@@ -131,25 +131,30 @@ func taskNextRun(it objstore.Item) (time.Time, bool) {
 
 // taskAttrs renders the attributes one task carries.
 //
-// An empty `cron` or `next_run` is left OFF: absent is the only null this model
-// has, and it is exactly what the nullable column held for a one-shot task and
-// for one that has fired.
+// EVERY EMPTY STRING IS LEFT OFF, which is what resreg's own entity path does
+// with one (resreg/entity.go itemFor) and therefore what the two writers of
+// these items have to agree on. Absent is the only null this model has, and it
+// is exactly what the nullable `cron` and `next_run` columns held for a one-shot
+// task and for one that has fired. `context_mode` is the exception because the
+// resource's own BeforeInsert hook fills it, so both writers store the default
+// rather than nothing.
 func taskAttrs(t core.Task) map[string]string {
 	created := t.Created
 	if created.IsZero() {
 		created = time.Now()
 	}
+	mode := t.ContextMode
+	if mode == "" {
+		mode = TaskContextGroup
+	}
 	attrs := map[string]string{
-		attrTaskOwner:       t.Owner,
-		attrTaskChatJID:     t.ChatJID,
-		attrTaskPrompt:      t.Prompt,
-		attrTaskStatus:      t.Status,
 		attrTaskCreatedAt:   core.TS(created),
-		attrTaskContextMode: t.ContextMode,
+		attrTaskContextMode: mode,
 	}
-	if attrs[attrTaskContextMode] == "" {
-		attrs[attrTaskContextMode] = TaskContextGroup
-	}
+	setAttr(attrs, attrTaskOwner, t.Owner)
+	setAttr(attrs, attrTaskChatJID, t.ChatJID)
+	setAttr(attrs, attrTaskPrompt, t.Prompt)
+	setAttr(attrs, attrTaskStatus, t.Status)
 	setAttr(attrs, attrTaskCron, t.Cron)
 	if t.NextRun != nil {
 		attrs[attrTaskNextRun] = t.NextRun.Format(time.RFC3339)
@@ -181,7 +186,7 @@ func (s *Store) CreateTask(t core.Task) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.writeEntities(context.Background(), nil, objstore.Write{
+	_, err = s.WriteEntities(context.Background(), nil, objstore.Write{
 		Op: objstore.Put, Entity: ScheduledTasks, Key: key, Attrs: taskAttrs(t),
 	})
 	return err
@@ -199,7 +204,7 @@ func (s *Store) SetTaskStatus(id, status string) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.writeEntities(context.Background(), nil, objstore.Write{
+	_, err = s.WriteEntities(context.Background(), nil, objstore.Write{
 		Op: objstore.Update, Entity: ScheduledTasks, Key: key,
 		Attrs: map[string]string{attrTaskStatus: status},
 	})
@@ -226,8 +231,62 @@ func (s *Store) RescheduleTask(id, nextRun, status string) error {
 	} else {
 		w.Attrs[attrTaskNextRun] = nextRun
 	}
-	_, err = s.writeEntities(context.Background(), nil, w)
+	_, err = s.WriteEntities(context.Background(), nil, w)
 	return err
+}
+
+// attrIs compares one attribute against the value a caller READ off the item.
+// An empty value is ABSENT and not the empty string, because absent is the only
+// null this model has: an attribute a writer left off answers no Eq, so a guard
+// spelled Eq "" would refuse every row it was meant to let through.
+func attrIs(name, value string) objstore.Cmp {
+	if value == "" {
+		return objstore.Cmp{Attr: name, Op: objstore.Absent}
+	}
+	return objstore.Cmp{Attr: name, Op: objstore.Eq, Value: value}
+}
+
+// MoveTaskTx moves one task into `to` on a transaction the CALLER owns and
+// reports whether it moved — the three state transitions dashd's operator pages
+// make, each committing with its own audit row.
+//
+// `t` is the task the caller READ, and the write is CONDITIONED on the two
+// fields that decision rests on still holding: the status the transition starts
+// from, and the cron a next_run was computed from. The first is what `UPDATE …
+// WHERE id = ? AND status = 'active'` gave — a task another surface moved in
+// between answers false rather than being moved twice. The second is the
+// guarantee dashd's resume asked its transaction for: a task cannot resume
+// against a cron line that changed underneath it.
+//
+// nextRun is nil for a move that does not touch the fire time. A non-nil empty
+// one TAKES THE ATTRIBUTE AWAY, the way RescheduleTask does, because an empty
+// string is a value a presence test still finds.
+//
+// Which statuses a task may move FROM is the caller's state machine and not
+// this method's: dashd refuses the transition before it asks, so the operator
+// is told "invalid state transition" rather than "somebody else moved it".
+func (s *Store) MoveTaskTx(ctx context.Context, tx *sql.Tx, t core.Task, to string,
+	nextRun *string) (bool, error) {
+	key, err := taskKey(t.ID)
+	if err != nil {
+		return false, err
+	}
+	w := objstore.Write{
+		Op: objstore.Update, Entity: ScheduledTasks, Key: key,
+		Attrs: map[string]string{attrTaskStatus: to},
+		Cond: objstore.Cond{Where: []objstore.Cmp{
+			attrIs(attrTaskStatus, t.Status),
+			attrIs(attrTaskCron, t.Cron),
+		}},
+	}
+	if nextRun != nil {
+		if *nextRun == "" {
+			w.Remove = []string{attrTaskNextRun}
+		} else {
+			w.Attrs[attrTaskNextRun] = *nextRun
+		}
+	}
+	return s.WriteEntitiesInTx(ctx, tx, nil, w)
 }
 
 // RecoverFiringTasks re-arms tasks stranded in 'firing' by a crash/restart
@@ -282,7 +341,7 @@ func (s *Store) DueTasks(now time.Time) ([]core.Task, error) {
 		if !ok || run.After(now) {
 			continue
 		}
-		claimed, err := s.writeEntities(ctx, nil, objstore.Write{
+		claimed, err := s.WriteEntities(ctx, nil, objstore.Write{
 			Op: objstore.Update, Entity: ScheduledTasks, Key: it.Key,
 			Attrs: map[string]string{attrTaskStatus: TaskStatusFiring},
 			Cond: objstore.Cond{Where: []objstore.Cmp{
@@ -314,18 +373,33 @@ func (s *Store) RecordTaskRun(l TaskRunLog) error {
 }
 
 func (s *Store) GetTask(id string) (core.Task, bool) {
-	key, err := taskKey(id)
+	t, ok, err := s.TaskByID(id)
 	if err != nil {
 		return core.Task{}, false
+	}
+	return t, ok
+}
+
+// TaskByID answers the task one id names, and SEPARATES "no such task" from
+// "the partition could not be read" — the distinction dashd's transitions gate
+// on, because an operator told "no such task" about one that still fires goes
+// and creates a second.
+func (s *Store) TaskByID(id string) (core.Task, bool, error) {
+	key, err := taskKey(id)
+	if err != nil {
+		return core.Task{}, false, err
 	}
 	items, err := s.Obj().Query(context.Background(), objstore.Query{
 		Entity: ScheduledTasks, Partition: OwnerRoutd,
 		Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: key.Sort},
 	})
-	if err != nil || len(items) == 0 {
-		return core.Task{}, false
+	if err != nil {
+		return core.Task{}, false, fmt.Errorf("read task %q: %w", id, err)
 	}
-	return taskFrom(items[0]), true
+	if len(items) == 0 {
+		return core.Task{}, false, nil
+	}
+	return taskFrom(items[0]), true, nil
 }
 
 // ListTasks returns one owner's tasks, newest first, or every task for a root
@@ -348,7 +422,9 @@ func (s *Store) ListTasks(folder string, isRoot bool) []core.Task {
 		}
 		out = append(out, taskFrom(it))
 	}
-	slices.SortFunc(out, func(a, b core.Task) int { return b.Created.Compare(a.Created) })
+	// Stable, so two tasks stamped in the same instant keep coordinate order
+	// rather than an order that changes between reads of one unchanged table.
+	slices.SortStableFunc(out, func(a, b core.Task) int { return b.Created.Compare(a.Created) })
 	return out
 }
 
@@ -372,7 +448,7 @@ func (s *Store) UpdateTask(id string, p TaskPatch) error {
 	}
 	ctx := context.Background()
 	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		_, err := s.writeEntitiesInTx(ctx, tx, nil, objstore.Write{
+		_, err := s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
 			Op: objstore.Update, Entity: ScheduledTasks, Key: key, Attrs: attrs,
 		})
 		return audit.Event{
@@ -394,7 +470,7 @@ func (s *Store) DeleteTask(id string) error {
 	}
 	ctx := context.Background()
 	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		_, err := s.writeEntitiesInTx(ctx, tx, nil, objstore.Write{
+		_, err := s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
 			Op: objstore.Delete, Entity: ScheduledTasks, Key: key,
 		})
 		return audit.Event{
@@ -454,7 +530,7 @@ func (s *Store) SeedDefaultTasks(folder, chatJID string) error {
 		if err != nil {
 			return err
 		}
-		if _, err := s.writeEntities(ctx, nil, objstore.Write{
+		if _, err := s.WriteEntities(ctx, nil, objstore.Write{
 			Op: objstore.Put, Entity: ScheduledTasks, Key: key, Attrs: taskAttrs(task),
 			Cond: objstore.Cond{Item: objstore.ItemAbsent},
 		}); err != nil {
@@ -462,4 +538,72 @@ func (s *Store) SeedDefaultTasks(folder, chatJID string) error {
 		}
 	}
 	return nil
+}
+
+// The four writers below are the tx-bound twins of CreateTask, SetTaskStatus,
+// UpdateTask and DeleteTask, for routd's `/v1/tasks` face: the mutation and
+// resreg.invoke's single audit_log row commit on ONE transaction. Calling the
+// audited twins there would open a second transaction on the same database and
+// record one act twice.
+
+// CreateTaskTx inserts one scheduled task on a transaction the caller owns. The
+// write is an unconditional Put, which is what a plain `INSERT` said: a second
+// create on one id replaces the task rather than being refused.
+func (s *Store) CreateTaskTx(ctx context.Context, tx *sql.Tx, t core.Task) error {
+	key, err := taskKey(t.ID)
+	if err != nil {
+		return err
+	}
+	_, err = s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+		Op: objstore.Put, Entity: ScheduledTasks, Key: key, Attrs: taskAttrs(t),
+	})
+	return err
+}
+
+// SetTaskStatusTx flips one task's status on a transaction the caller owns —
+// pause and resume. An Update writes nothing when the item is missing, which is
+// what the statement's zero matched rows said.
+func (s *Store) SetTaskStatusTx(ctx context.Context, tx *sql.Tx, id, status string) error {
+	key, err := taskKey(id)
+	if err != nil {
+		return err
+	}
+	_, err = s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+		Op: objstore.Update, Entity: ScheduledTasks, Key: key,
+		Attrs: map[string]string{attrTaskStatus: status},
+	})
+	return err
+}
+
+// PatchTaskTx applies the REST PATCH partial update on a transaction the caller
+// owns: status and/or next_run, at least one non-empty. `next_run` is stored
+// VERBATIM, because this package does not decide its layout — the operator hands
+// it in and the read parses it as RFC3339 (see the file header).
+func (s *Store) PatchTaskTx(ctx context.Context, tx *sql.Tx, id, status, nextRun string) error {
+	key, err := taskKey(id)
+	if err != nil {
+		return err
+	}
+	attrs := map[string]string{}
+	setAttr(attrs, attrTaskStatus, status)
+	setAttr(attrs, attrTaskNextRun, nextRun)
+	if len(attrs) == 0 {
+		return nil
+	}
+	_, err = s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+		Op: objstore.Update, Entity: ScheduledTasks, Key: key, Attrs: attrs,
+	})
+	return err
+}
+
+// DeleteTaskTx removes one task on a transaction the caller owns — cancel.
+func (s *Store) DeleteTaskTx(ctx context.Context, tx *sql.Tx, id string) error {
+	key, err := taskKey(id)
+	if err != nil {
+		return err
+	}
+	_, err = s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+		Op: objstore.Delete, Entity: ScheduledTasks, Key: key,
+	})
+	return err
 }

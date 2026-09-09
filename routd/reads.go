@@ -185,27 +185,34 @@ func (d *DB) JIDRoutableToFolder(jid, folder string) bool {
 // GetRoute returns one route by id. The error is sql.ErrNoRows when the route
 // doesn't exist (caller → 404) vs a real store error (caller → 500) — callers
 // MUST distinguish them with errors.Is so a DB fault isn't reported as not-found.
+//
+// The id is an ATTRIBUTE of a route item, not its coordinate, so store finds it
+// by reading the table and comparing. store.GetRoute collapses both misses into
+// ok=false; this face keeps them apart, which is what the 404-vs-500 split rests
+// on, so it reads the table here.
 func (d *DB) GetRoute(id int64) (core.Route, error) {
-	var r core.Route
-	err := d.db.QueryRow(`SELECT id, seq, match, target,
-		COALESCE(observe_window_messages,0), COALESCE(observe_window_chars,0)
-		FROM routes WHERE id=?`, id).Scan(&r.ID, &r.Seq, &r.Match, &r.Target,
-		&r.ObserveWindowMessages, &r.ObserveWindowChars)
-	if err != nil {
-		return core.Route{}, err
+	for _, r := range d.store().AllRoutes() {
+		if r.ID == id {
+			return r, nil
+		}
 	}
-	return r, nil
+	return core.Route{}, sql.ErrNoRows
 }
 
 // WebRouteOwner reports which folder owns an exact path_prefix row, if any
-// (backs set_web_route first-claim).
+// (backs set_web_route first-claim). The path prefix IS the coordinate, so the
+// answer is one item.
 func (d *DB) WebRouteOwner(pathPrefix string) (string, bool) {
-	var folder string
-	err := d.db.QueryRow("SELECT folder FROM web_routes WHERE path_prefix=?", pathPrefix).Scan(&folder)
+	routes, err := d.store().AllWebRoutes()
 	if err != nil {
 		return "", false
 	}
-	return folder, true
+	for _, r := range routes {
+		if r.PathPrefix == pathPrefix {
+			return r.Folder, true
+		}
+	}
+	return "", false
 }
 
 // ErroredChat is one chat in the errored set with its inbound-since-error count

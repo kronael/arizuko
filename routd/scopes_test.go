@@ -49,11 +49,10 @@ func TestUserScopesEndpoint(t *testing.T) {
 func TestUserScopesEndpoint_Membership(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "service:authd", scope: []string{"grants:read"}})
 	addACL(t, db, "role:operator", "*", "**", "allow")
-	// membership edge: alice IS-A operator → inherits the `**` scope. Raw INSERT
-	// (not store.AddMembership) to avoid the audit_log dependency.
-	if _, err := db.SQL().Exec(
-		`INSERT INTO acl_membership(child, parent, added_at) VALUES(?,?,?)`,
-		"user:alice", "role:operator", "2026-01-01T00:00:00Z"); err != nil {
+	// membership edge: alice IS-A operator → inherits the `**` scope.
+	// store.PutMembership is the audit-free writer, so this does not depend on
+	// audit_log.
+	if err := addMembership(db, "user:alice", "role:operator", ""); err != nil {
 		t.Fatal(err)
 	}
 

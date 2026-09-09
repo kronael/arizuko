@@ -319,7 +319,9 @@ func TestObservedMessages_GetEnriched(t *testing.T) {
 
 	// Set up an observe route: tg:** → demo#observe (observe mode, no agent turn)
 	// Route target "demo#observe" parses to {Folder:"demo", Mode:"observe"}
-	db.SQL().Exec(`INSERT INTO routes(seq, match, target) VALUES(1, 'tg:**', 'demo#observe')`)
+	if _, err := db.store().PutRouteRow(core.Route{Seq: 1, Match: "tg:**", Target: "demo#observe"}); err != nil {
+		t.Fatal(err)
+	}
 
 	// Simulate an inbound message with attachment to the observed JID
 	att, _ := json.Marshal([]chanlib.InboundAttachment{{URL: mediaSrv.URL + "/img.png", Mime: "image/png", Filename: "img.png"}})

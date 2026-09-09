@@ -27,7 +27,6 @@ import (
 	"database/sql"
 	"log/slog"
 	"net/http"
-	"time"
 
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
@@ -36,7 +35,6 @@ import (
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
-	"github.com/kronael/arizuko/store"
 )
 
 // aclMCPNames is the action→flat-tool-name map, single-sourced in resreg/
@@ -49,7 +47,7 @@ var aclMCPNames = resources.ACLMCPNames
 func (s *Server) aclResource() resreg.Resource {
 	r := resreg.Mount(resources.ACLName)
 	r.Handler = s.aclHandler
-	r.Store = store.New(s.db.SQL())
+	r.Store = s.db.store()
 	return r
 }
 
@@ -125,7 +123,7 @@ func (s *Server) aclHandler(ctx context.Context, x resreg.Execution) (any, error
 		}
 		warning := s.nonCanonicalWarning(row.Principal)
 		row.GrantedBy = "agent:" + x.Caller.Folder
-		if err := grantACLTx(ctx, x.Tx, row); err != nil {
+		if err := s.db.grantACLTx(ctx, x.Tx, row); err != nil {
 			return nil, resreg.Errorf(http.StatusConflict, "%v", err)
 		}
 		return aclAddResult{OK: true, Warning: warning}, nil
@@ -135,11 +133,11 @@ func (s *Server) aclHandler(ctx context.Context, x resreg.Execution) (any, error
 		if row.Principal == "" || row.Scope == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "principal and scope required")
 		}
-		n, err := revokeACLTx(ctx, x.Tx, row)
+		removed, err := s.db.revokeACLTx(ctx, x.Tx, row)
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusConflict, "%v", err)
 		}
-		if n == 0 {
+		if !removed {
 			return nil, resreg.Errorf(http.StatusNotFound,
 				"no matching grant for principal %q scope %q params %q — params must match the row EXACTLY; "+
 					"a grant carrying a predicate must be revoked where it was created",
@@ -181,7 +179,7 @@ func (s *Server) aclPostBuild(folder, callerSub string, authorize authorizeFn, v
 			// caller holding only `mcp:t(repo=mine/*)` write the unnarrowed
 			// `mcp:t`, since auth.paramsCover reads an empty spec as no constraint.
 			want := aclDefaults(aclArgsRow(x.Args))
-			if err := auth.Delegate(store.New(s.db.SQL()), callerSub, []core.ACLRow{want}); err != nil {
+			if err := auth.Delegate(s.db.store(), callerSub, []core.ACLRow{want}); err != nil {
 				return resreg.Errorf(http.StatusForbidden, "%v", err)
 			}
 		}
@@ -295,25 +293,20 @@ func aclOperatorShape(r core.ACLRow) bool {
 // reachable only through `resreg.Apply`. The Gate is what keeps it honest: a
 // non-root writer passes auth.Delegate, whose grantableRows only ever holds
 // rows the caller itself holds WITH the option.
-func grantACLTx(ctx context.Context, tx *sql.Tx, row core.ACLRow) error {
+func (d *DB) grantACLTx(ctx context.Context, tx *sql.Tx, row core.ACLRow) error {
 	grantedBy := row.GrantedBy
 	if grantedBy == "" {
 		grantedBy = "routd"
 	}
 	if aclOperatorShape(row) {
-		return addMembershipTx(ctx, tx, row.Principal, "role:operator", grantedBy)
+		// The edge is the operator role itself, so the walk that refuses a cycle
+		// runs here too — store.PutMembershipTx is that walk plus the
+		// create-if-absent write, on this call's transaction.
+		return d.store().PutMembershipTx(ctx, tx, row.Principal, "role:operator", grantedBy)
 	}
 	row = aclDefaults(row)
-	grantOption := 0
-	if row.GrantOption {
-		grantOption = 1
-	}
-	_, err := tx.ExecContext(ctx,
-		`INSERT OR IGNORE INTO acl (principal, action, scope, effect, params, predicate, granted_by, granted_at, grant_option)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		row.Principal, row.Action, row.Scope, row.Effect, row.Params, row.Predicate,
-		grantedBy, nowTS(), grantOption)
-	return err
+	row.GrantedBy = grantedBy
+	return d.store().PutACLRowTx(ctx, tx, row)
 }
 
 // revokeACLTx is the remove_acl/DELETE twin of grantACLTx. It reports how many
@@ -326,45 +319,15 @@ func grantACLTx(ctx context.Context, tx *sql.Tx, row core.ACLRow) error {
 // {"ok":true} for any narrowed row (BUGS L79) — leaving it would have re-created
 // that hole the day `params` became writable. `predicate=”` stays hardcoded:
 // this face has no predicate argument to write one with.
-func revokeACLTx(ctx context.Context, tx *sql.Tx, row core.ACLRow) (int64, error) {
+func (d *DB) revokeACLTx(ctx context.Context, tx *sql.Tx, row core.ACLRow) (bool, error) {
 	// Mirror of the grant guard, same raw-row test: keying on scope alone let a
 	// narrow-row revoke strip an operator membership granted separately.
 	if aclOperatorShape(row) {
-		res, err := tx.ExecContext(ctx,
-			`DELETE FROM acl_membership WHERE child=? AND parent=?`, row.Principal, "role:operator")
-		if err != nil {
-			return 0, err
-		}
-		n, _ := res.RowsAffected()
-		return n, nil
+		return d.store().RemoveMembershipTx(ctx, tx, row.Principal, "role:operator")
 	}
-	row = aclDefaults(row)
-	res, err := tx.ExecContext(ctx,
-		`DELETE FROM acl WHERE principal=? AND action=? AND scope=? AND effect=? AND params=? AND predicate=''`,
-		row.Principal, row.Action, row.Scope, row.Effect, row.Params)
-	if err != nil {
-		return 0, err
-	}
-	n, _ := res.RowsAffected()
-	return n, nil
-}
-
-// addMembershipTx inserts (child → parent) on tx, PRESERVING store.AddMembership's
-// self + cycle rejection. Runs the recursive reachability walk on the same tx so
-// the check + insert are atomic; no audit row (invoke writes the one audit row).
-func addMembershipTx(ctx context.Context, tx *sql.Tx, child, parent, addedBy string) error {
-	if child == parent {
-		return store.ErrSelfMembership
-	}
-	cycles, err := store.MembershipWouldCycle(ctx, tx, child, parent)
-	if err != nil {
-		return err
-	}
-	if cycles {
-		return store.ErrCycle
-	}
-	_, err = tx.ExecContext(ctx,
-		`INSERT OR IGNORE INTO acl_membership (child, parent, added_by, added_at) VALUES (?, ?, ?, ?)`,
-		child, parent, addedBy, time.Now().Format(time.RFC3339))
-	return err
+	// The six coordinate fields address exactly one grant, and `predicate` is the
+	// empty string on every row this face can write. The delete conditions on the
+	// item being there, so its refusal IS the "no matching grant" answer the
+	// caller must not read as success.
+	return d.store().RemoveACLRowTx(ctx, tx, aclDefaults(row))
 }

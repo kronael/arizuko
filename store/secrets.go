@@ -147,9 +147,9 @@ func (s *Store) putSecret(ctx context.Context, tx *sql.Tx, scope SecretScope, sc
 	}
 	write := func(w objstore.Write) (bool, error) {
 		if tx != nil {
-			return s.writeEntitiesInTx(ctx, tx, nil, w)
+			return s.WriteEntitiesInTx(ctx, tx, nil, w)
 		}
-		return s.writeEntities(ctx, nil, w)
+		return s.WriteEntities(ctx, nil, w)
 	}
 	created, err := write(create)
 	if err != nil || created {
@@ -182,9 +182,9 @@ func (s *Store) deleteSecret(ctx context.Context, tx *sql.Tx, scope SecretScope,
 	}
 	var gone bool
 	if tx != nil {
-		gone, err = s.writeEntitiesInTx(ctx, tx, nil, w)
+		gone, err = s.WriteEntitiesInTx(ctx, tx, nil, w)
 	} else {
-		gone, err = s.writeEntities(ctx, nil, w)
+		gone, err = s.WriteEntities(ctx, nil, w)
 	}
 	if err != nil {
 		return err
@@ -465,6 +465,48 @@ func (s *Store) ListSecrets(scope SecretScope, scopeID string) ([]Secret, error)
 		}
 		t, _ := time.Parse(core.TSLayout, it.Attrs[attrSecCreatedAt])
 		out = append(out, Secret{ScopeKind: scope, ScopeID: scopeID, Key: key, Value: value, CreatedAt: t})
+	}
+	return out, nil
+}
+
+// SecretKeyRow names one stored secret WITHOUT its value: the key, and the
+// instant it landed as its writer stamped it (core.TS).
+type SecretKeyRow struct {
+	Key       string
+	CreatedAt string
+}
+
+// SecretKeysIn lists the key names one scope holds, in key order, and the value
+// NEVER LEAVES THE ENGINE: `value` is not in the projection, so the sealed blob
+// is not read, not decrypted and not put on the wire. That is authority the
+// pages asking this question have no use for — /dash/me mirrors GitHub SSH keys,
+// names visible and secrets opaque — and projecting after the read would hand it
+// to them anyway (objstore Query.Project).
+//
+// The order is the coordinate's, because `key` is the last of its three fields,
+// which is what `ORDER BY key` gave.
+func (s *Store) SecretKeysIn(scope SecretScope, scopeID string) ([]SecretKeyRow, error) {
+	if scope != ScopeFolder && scope != ScopeUser {
+		return nil, fmt.Errorf("invalid scope_kind: %q", scope)
+	}
+	if scopeID == "" {
+		return nil, errors.New("scope_id required")
+	}
+	items, err := s.Obj().Query(context.Background(), objstore.Query{
+		Entity: Secrets, Partition: OwnerRoutd,
+		Key:     objstore.KeyPredicate{Op: objstore.PrefixKey, Value: secretScopePrefix(scope, scopeID)},
+		Project: []string{attrSecCreatedAt},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read the secret keys of %s/%s: %w", scope, scopeID, err)
+	}
+	out := make([]SecretKeyRow, 0, len(items))
+	for _, it := range items {
+		key, err := secretKeyOf(it)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, SecretKeyRow{Key: key, CreatedAt: it.Attrs[attrSecCreatedAt]})
 	}
 	return out, nil
 }

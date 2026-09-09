@@ -7,6 +7,23 @@ package routd
 // Release matches on (folder, tool, args_hash). The agent re-issues the call in its
 // own next turn, so the released call runs as the ORIGINAL agent — same container,
 // session, grants and secrets — with no second path around ipc's discipline.
+//
+// THE COORDINATE AND THE ATTRIBUTE NAMES ARE store's (store/pending_actions.go)
+// AND THE WRITES ARE routd's. That file declares the shape because a group delete
+// reads the folder off the item; this file writes it because the suspended call is
+// routd's. One declaration, two readers — never two spellings, which would leave a
+// deleted folder holding held calls the next tenant of the path answers.
+//
+// THE ID IS THE COORDINATE and every other selection is on an attribute, so
+// listing a folder's calls, the reaction lookup and the release match each read
+// the partition and filter. The writes go through *store.Store rather than the
+// driver, because a write that reached objstore itself would move no version
+// marker and be invisible to every `arizuko export` of routd's projection
+// (BUGS L264).
+//
+// `created_at`, `reviewed_at` and `expires_at` are NOT stamped fields — the
+// resource declares none — so this file decides their layout and it is RFC3339,
+// which is what applyExpiry parses and what every stored row carries.
 
 import (
 	"context"
@@ -26,6 +43,8 @@ import (
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/store"
 )
 
 // PendingAction is one suspended call.
@@ -114,10 +133,18 @@ func ArgsHash(args map[string]any) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// PutPendingAction records a held call and returns its id.
+// PutPendingAction records a held call.
+//
+// The write is an unconditional Put: the id is minted per call, so a second Put
+// on one id is a caller mistake rather than a race, and the whole item is this
+// call's own answer.
 func (d *DB) PutPendingAction(p PendingAction) error {
 	if p.ID == "" || p.GroupFolder == "" || p.Tool == "" {
 		return fmt.Errorf("pending action needs id, folder and tool")
+	}
+	key, err := store.PendingActionKey(p.ID)
+	if err != nil {
+		return err
 	}
 	if p.Status == "" {
 		p.Status = PendingHeld
@@ -128,52 +155,118 @@ func (d *DB) PutPendingAction(p PendingAction) error {
 	if p.Mode == "" {
 		p.Mode = auth.EffectHoldAsync
 	}
-	_, err := d.db.Exec(`
-		INSERT INTO pending_actions
-		  (id, group_folder, caller_agent, tool, args, args_final, args_hash,
-		   status, chat_jid, created_at, expires_at, mode, notice_id)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		p.ID, p.GroupFolder, p.CallerAgent, p.Tool, p.Args, p.ArgsFinal, p.ArgsHash,
-		p.Status, p.ChatJID, p.CreatedAt, p.ExpiresAt, p.Mode, p.NoticeID)
+	_, err = d.store().WriteEntities(context.Background(), nil, objstore.Write{
+		Op: objstore.Put, Entity: store.PendingActions, Key: key, Attrs: pendingAttrs(p),
+	})
 	return err
 }
 
-const pendingCols = `id, group_folder, caller_agent, tool, args, args_final, args_hash,
-	status, chat_jid, created_at, reviewed_by, reviewed_at, reviewer_note, result, error, expires_at,
-	mode, notice_id`
-
-func scanPending(sc interface{ Scan(...any) error }) (PendingAction, error) {
-	var p PendingAction
-	err := sc.Scan(&p.ID, &p.GroupFolder, &p.CallerAgent, &p.Tool, &p.Args, &p.ArgsFinal,
-		&p.ArgsHash, &p.Status, &p.ChatJID, &p.CreatedAt, &p.ReviewedBy, &p.ReviewedAt,
-		&p.ReviewerNote, &p.Result, &p.Error, &p.ExpiresAt, &p.Mode, &p.NoticeID)
-	return p, err
+// pendingAttrs renders the attributes a held call carries. `id` is not among
+// them: it is the coordinate, and storing it twice is two facts that can
+// disagree.
+//
+// An empty field is left OFF the item — absent is the only null this model has,
+// and it is the same rule resreg's own writer of these items follows
+// (resreg/entity.go itemFor), so a row written by either is read the same way.
+func pendingAttrs(p PendingAction) map[string]string {
+	attrs := map[string]string{}
+	for name, v := range map[string]string{
+		store.AttrPendGroupFolder:  p.GroupFolder,
+		store.AttrPendCallerAgent:  p.CallerAgent,
+		store.AttrPendTool:         p.Tool,
+		store.AttrPendArgs:         p.Args,
+		store.AttrPendArgsFinal:    p.ArgsFinal,
+		store.AttrPendArgsHash:     p.ArgsHash,
+		store.AttrPendStatus:       p.Status,
+		store.AttrPendChatJID:      p.ChatJID,
+		store.AttrPendCreatedAt:    p.CreatedAt,
+		store.AttrPendReviewedBy:   p.ReviewedBy,
+		store.AttrPendReviewedAt:   p.ReviewedAt,
+		store.AttrPendReviewerNote: p.ReviewerNote,
+		store.AttrPendResult:       p.Result,
+		store.AttrPendError:        p.Error,
+		store.AttrPendExpiresAt:    p.ExpiresAt,
+		store.AttrPendMode:         p.Mode,
+		store.AttrPendNoticeID:     p.NoticeID,
+	} {
+		if v != "" {
+			attrs[name] = v
+		}
+	}
+	return attrs
 }
 
-// queryExecer is the *sql.DB / *sql.Tx subset the resolve path runs on, so the
-// chat command and the REST face share one implementation across their
-// different transaction scopes.
-type queryExecer interface {
-	Exec(query string, args ...any) (sql.Result, error)
-	QueryRow(query string, args ...any) *sql.Row
+// pendingFrom reads one item back, with the expiry applied and the derived
+// verdict fields filled — the shape every reader of a held call wants.
+func pendingFrom(it objstore.Item) PendingAction {
+	p := PendingAction{
+		ID:           it.Key.Sort,
+		GroupFolder:  it.Attrs[store.AttrPendGroupFolder],
+		CallerAgent:  it.Attrs[store.AttrPendCallerAgent],
+		Tool:         it.Attrs[store.AttrPendTool],
+		Args:         it.Attrs[store.AttrPendArgs],
+		ArgsFinal:    it.Attrs[store.AttrPendArgsFinal],
+		ArgsHash:     it.Attrs[store.AttrPendArgsHash],
+		Status:       it.Attrs[store.AttrPendStatus],
+		ChatJID:      it.Attrs[store.AttrPendChatJID],
+		CreatedAt:    it.Attrs[store.AttrPendCreatedAt],
+		ReviewedBy:   it.Attrs[store.AttrPendReviewedBy],
+		ReviewedAt:   it.Attrs[store.AttrPendReviewedAt],
+		ReviewerNote: it.Attrs[store.AttrPendReviewerNote],
+		Result:       it.Attrs[store.AttrPendResult],
+		Error:        it.Attrs[store.AttrPendError],
+		ExpiresAt:    it.Attrs[store.AttrPendExpiresAt],
+		Mode:         it.Attrs[store.AttrPendMode],
+		NoticeID:     it.Attrs[store.AttrPendNoticeID],
+	}
+	return withMatcher(applyExpiry(p))
 }
 
-func pendingActionOn(q queryExecer, id string) (PendingAction, bool) {
-	p, err := scanPending(q.QueryRow(
-		`SELECT `+pendingCols+` FROM pending_actions WHERE id = ?`, id))
+// pendingItems reads a selection of the partition. Every selection but the id is
+// on an attribute, and an attribute is not a leading fragment of the key, so the
+// callers below read the partition and filter in Go.
+func (d *DB) pendingItems(where ...objstore.Cmp) ([]objstore.Item, error) {
+	return d.Obj().Query(context.Background(), objstore.Query{
+		Entity: store.PendingActions, Partition: store.OwnerRoutd, Where: where,
+	})
+}
+
+// pendingAction reads one held call by its coordinate.
+func (d *DB) pendingAction(id string) (PendingAction, bool) {
+	key, err := store.PendingActionKey(id)
 	if err != nil {
 		return PendingAction{}, false
 	}
-	return withMatcher(applyExpiry(p)), true
+	items, err := d.Obj().Query(context.Background(), objstore.Query{
+		Entity: store.PendingActions, Partition: store.OwnerRoutd,
+		Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: key.Sort},
+	})
+	if err != nil || len(items) == 0 {
+		return PendingAction{}, false
+	}
+	return pendingFrom(items[0]), true
 }
 
 // GetPendingAction reads one row by id, for the blocking waiter.
-func (d *DB) GetPendingAction(id string) (PendingAction, bool) { return pendingActionOn(d.db, id) }
+func (d *DB) GetPendingAction(id string) (PendingAction, bool) { return d.pendingAction(id) }
 
 // SetPendingNotice records which chat message announced this row, so a reaction
 // on that message can be read as its verdict.
 func (d *DB) SetPendingNotice(id, noticeID string) error {
-	_, err := d.db.Exec(`UPDATE pending_actions SET notice_id = ? WHERE id = ?`, noticeID, id)
+	return d.setPendingAttr(id, store.AttrPendNoticeID, noticeID)
+}
+
+// setPendingAttr merges one attribute into a held call. An Update writes nothing
+// when the item is missing, which is what the statement's zero matched rows said.
+func (d *DB) setPendingAttr(id, name, value string) error {
+	key, err := store.PendingActionKey(id)
+	if err != nil {
+		return err
+	}
+	_, err = d.store().WriteEntities(context.Background(), nil, objstore.Write{
+		Op: objstore.Update, Entity: store.PendingActions, Key: key,
+		Attrs: map[string]string{name: value},
+	})
 	return err
 }
 
@@ -186,15 +279,14 @@ func (d *DB) VerdictForReaction(chatJID, target, emoji string) string {
 	if verb == "" || chatJID == "" || noticeID == "" {
 		return ""
 	}
-	var id string
-	err := d.db.QueryRow(
-		`SELECT id FROM pending_actions
-		  WHERE chat_jid = ? AND notice_id = ? AND status = ?`,
-		chatJID, noticeID, PendingHeld).Scan(&id)
-	if err != nil {
+	items, err := d.pendingItems(
+		objstore.Cmp{Attr: store.AttrPendChatJID, Op: objstore.Eq, Value: chatJID},
+		objstore.Cmp{Attr: store.AttrPendNoticeID, Op: objstore.Eq, Value: noticeID},
+		objstore.Cmp{Attr: store.AttrPendStatus, Op: objstore.Eq, Value: PendingHeld})
+	if err != nil || len(items) == 0 {
 		return ""
 	}
-	return verb + " " + id
+	return verb + " " + items[0].Key.Sort
 }
 
 // platformID reduces a reaction's target to the bare platform message id the
@@ -212,42 +304,38 @@ func platformID(target string) string {
 // SetPendingMode records that nobody is waiting on this row any more, so the
 // approval has to travel as a re-issue trigger instead.
 func (d *DB) SetPendingMode(id, mode string) error {
-	_, err := d.db.Exec(`UPDATE pending_actions SET mode = ? WHERE id = ?`, mode, id)
-	return err
+	return d.setPendingAttr(id, store.AttrPendMode, mode)
 }
 
 // ListPendingActions returns a folder's rows, newest first. An empty folder
 // lists every folder's — the operator face; the caller binds the folder.
 func (d *DB) ListPendingActions(folder, status string) ([]PendingAction, error) {
-	q := `SELECT ` + pendingCols + ` FROM pending_actions WHERE 1=1`
-	var args []any
+	var where []objstore.Cmp
 	if folder != "" {
-		q += ` AND group_folder = ?`
-		args = append(args, folder)
+		where = append(where, objstore.Cmp{
+			Attr: store.AttrPendGroupFolder, Op: objstore.Eq, Value: folder})
 	}
-	q += ` ORDER BY created_at DESC`
-	rows, err := d.db.Query(q, args...)
+	items, err := d.pendingItems(where...)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	var out []PendingAction
-	for rows.Next() {
-		p, err := scanPending(rows)
-		if err != nil {
-			return nil, err
-		}
-		// Expiry is applied BEFORE the status filter. Filtering in SQL compared
-		// the STORED status, so `status=expired` returned nothing while
+	for _, it := range items {
+		// Expiry is applied BEFORE the status filter. Filtering in the read
+		// compares the STORED status, so `status=expired` returned nothing while
 		// `status=held` returned rows this function then relabelled expired —
 		// each filter answering with the other's rows (BUGS J7).
-		p = applyExpiry(p)
+		p := pendingFrom(it)
 		if status != "" && p.Status != status {
 			continue
 		}
-		out = append(out, withMatcher(p))
+		out = append(out, p)
 	}
-	return out, rows.Err()
+	// Newest first. `created_at` is an attribute, not a leading fragment of the
+	// key, so the order is applied here — over the RFC3339 text this file writes,
+	// which is fixed-width and therefore orders by byte comparison.
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt > out[j].CreatedAt })
+	return out, nil
 }
 
 func applyExpiry(p PendingAction) PendingAction {
@@ -271,11 +359,18 @@ var (
 	ErrPendingResolved = errors.New("already resolved")
 )
 
-func resolvePendingActionOn(q queryExecer, id, status, reviewer, note string) (PendingAction, error) {
+// resolvePendingActionTx records one verdict on a transaction the CALLER owns —
+// the chat command's and the REST face's, which differ only in whose transaction
+// it is.
+func (d *DB) resolvePendingActionTx(ctx context.Context, tx *sql.Tx, id, status, reviewer, note string) (PendingAction, error) {
 	if status != PendingApproved && status != PendingRejected {
 		return PendingAction{}, fmt.Errorf("verdict must be approved or rejected, got %q", status)
 	}
-	cur, ok := pendingActionOn(q, id)
+	key, err := store.PendingActionKey(id)
+	if err != nil {
+		return PendingAction{}, err
+	}
+	cur, ok := d.pendingAction(id)
 	if !ok {
 		return PendingAction{}, fmt.Errorf("no pending action %q: %w", id, ErrPendingNotFound)
 	}
@@ -283,24 +378,27 @@ func resolvePendingActionOn(q queryExecer, id, status, reviewer, note string) (P
 		return PendingAction{}, fmt.Errorf("pending action %q %w (%s)", id, ErrPendingResolved, cur.Status)
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	// The read above is advisory — two operators can both pass it. The UPDATE's
-	// `status = held` predicate is what actually serializes them, so the row
-	// count IS the verdict: without checking it, both callers were told
-	// "approved", two resolution messages were enqueued, and the agent was asked
-	// twice to re-issue one call.
-	res, err := q.Exec(`
-		UPDATE pending_actions
-		   SET status = ?, reviewed_by = ?, reviewed_at = ?, reviewer_note = ?
-		 WHERE id = ? AND status = ?`,
-		status, reviewer, now, note, id, PendingHeld)
+	// The read above is advisory — two operators can both pass it. The write's
+	// `status = held` CONDITION is what actually serializes them, so its refusal
+	// IS the verdict: without it, both callers were told "approved", two
+	// resolution messages were enqueued, and the agent was asked twice to
+	// re-issue one call.
+	won, err := d.store().WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+		Op: objstore.Update, Entity: store.PendingActions, Key: key,
+		Attrs: map[string]string{
+			store.AttrPendStatus:       status,
+			store.AttrPendReviewedBy:   reviewer,
+			store.AttrPendReviewedAt:   now,
+			store.AttrPendReviewerNote: note,
+		},
+		Cond: objstore.Cond{Where: []objstore.Cmp{
+			{Attr: store.AttrPendStatus, Op: objstore.Eq, Value: PendingHeld},
+		}},
+	})
 	if err != nil {
 		return PendingAction{}, err
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return PendingAction{}, err
-	}
-	if n != 1 {
+	if !won {
 		return PendingAction{}, fmt.Errorf("pending action %q %w (by someone else)", id, ErrPendingResolved)
 	}
 	cur.Status, cur.ReviewedBy, cur.ReviewedAt, cur.ReviewerNote = status, reviewer, now, note
@@ -370,8 +468,8 @@ func skipApprovalRow(p PendingAction, reviewer string) core.ACLRow {
 // also writes, and acl rows carry no verdict identity, so a revoke could not
 // tell that deny from standing policy that predates it (spec 6/26 § "Revocation
 // needs provenance"). That is an unresolved design question, not an omission.
-func resolveHoldTx(ctx context.Context, tx *sql.Tx, id, verdict, reviewer, note string, standing bool) (PendingAction, string, error) {
-	p, err := resolvePendingActionOn(tx, id, verdict, reviewer, note)
+func (d *DB) resolveHoldTx(ctx context.Context, tx *sql.Tx, id, verdict, reviewer, note string, standing bool) (PendingAction, string, error) {
+	p, err := d.resolvePendingActionTx(ctx, tx, id, verdict, reviewer, note)
 	if err != nil {
 		return PendingAction{}, "", err
 	}
@@ -389,7 +487,7 @@ func resolveHoldTx(ctx context.Context, tx *sql.Tx, id, verdict, reviewer, note 
 			return PendingAction{}, "", fmt.Errorf(
 				"cannot make this a standing answer: the held row names no caller, tool or folder")
 		}
-		if err := grantACLTx(ctx, tx, skipApprovalRow(p, reviewer)); err != nil {
+		if err := d.grantACLTx(ctx, tx, skipApprovalRow(p, reviewer)); err != nil {
 			return PendingAction{}, "", fmt.Errorf("record the skip-approval rule: %w", err)
 		}
 	}
@@ -411,33 +509,38 @@ func resolveHoldTx(ctx context.Context, tx *sql.Tx, id, verdict, reviewer, note 
 // row matching (folder, tool, args_hash) to `released` and reports whether it
 // found one — the LoadAndDelete shape, so two concurrent re-issues cannot both
 // pass on a single approval.
+//
+// It is a claim-and-return, and objstore has no protocol for one: the read picks
+// the newest candidate and the write CONDITIONS on the status it was read at, so
+// a second releaser that got there first makes this one refuse rather than
+// release the same approval twice. The read is advisory; the condition is the
+// serialisation.
 func (d *DB) ConsumeApprovedAction(folder, tool, argsHash string) (string, bool) {
-	tx, err := d.db.Begin()
-	if err != nil {
+	items, err := d.pendingItems(
+		objstore.Cmp{Attr: store.AttrPendGroupFolder, Op: objstore.Eq, Value: folder},
+		objstore.Cmp{Attr: store.AttrPendTool, Op: objstore.Eq, Value: tool},
+		objstore.Cmp{Attr: store.AttrPendArgsHash, Op: objstore.Eq, Value: argsHash},
+		objstore.Cmp{Attr: store.AttrPendStatus, Op: objstore.Eq, Value: PendingApproved})
+	if err != nil || len(items) == 0 {
 		return "", false
 	}
-	defer tx.Rollback()
-	var id string
-	err = tx.QueryRow(`
-		SELECT id FROM pending_actions
-		 WHERE group_folder = ? AND tool = ? AND args_hash = ? AND status = ?
-		 ORDER BY created_at DESC LIMIT 1`,
-		folder, tool, argsHash, PendingApproved).Scan(&id)
-	if err != nil {
+	newest := items[0]
+	for _, it := range items[1:] {
+		if it.Attrs[store.AttrPendCreatedAt] > newest.Attrs[store.AttrPendCreatedAt] {
+			newest = it
+		}
+	}
+	claimed, err := d.store().WriteEntities(context.Background(), nil, objstore.Write{
+		Op: objstore.Update, Entity: store.PendingActions, Key: newest.Key,
+		Attrs: map[string]string{store.AttrPendStatus: PendingReleased},
+		Cond: objstore.Cond{Where: []objstore.Cmp{
+			{Attr: store.AttrPendStatus, Op: objstore.Eq, Value: PendingApproved},
+		}},
+	})
+	if err != nil || !claimed {
 		return "", false
 	}
-	res, err := tx.Exec(`UPDATE pending_actions SET status = ? WHERE id = ? AND status = ?`,
-		PendingReleased, id, PendingApproved)
-	if err != nil {
-		return "", false
-	}
-	if n, _ := res.RowsAffected(); n != 1 {
-		return "", false
-	}
-	if err := tx.Commit(); err != nil {
-		return "", false
-	}
-	return id, true
+	return newest.Key.Sort, true
 }
 
 // NewPendingID is short on purpose: an operator types it into chat as

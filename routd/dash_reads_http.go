@@ -14,7 +14,12 @@ package routd
 
 import (
 	"net/http"
+	"slices"
 	"strconv"
+	"strings"
+
+	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/store"
 )
 
 // sessionCount is one folder's live session tally.
@@ -160,34 +165,60 @@ type principal struct {
 // `user_profiles` plus the non-role children of `acl_membership`. It exists so
 // the grants form and the profile page stop reading routd.db directly.
 //
+// It is TWO reads and a merge, because the two halves are two shapes:
+// `user_profiles` is still a column table and an edge is an objstore item, so
+// there is no join to run. A sub named by both is listed once, and the profile's
+// own name wins — an edge carries no name, so taking the edge's would blank a
+// label the form has.
+//
 // Names and subs only. No email, no tokens, no profile body: the form needs a
 // label and an identifier, so that is the whole projection.
 func (s *Server) handlePrincipals(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r, "grants:read", "messages:read") {
 		return
 	}
-	rows, err := s.db.SQL().Query(`
-		SELECT sub, COALESCE(name,'') FROM user_profiles
-		UNION
-		SELECT child, '' FROM acl_membership WHERE child NOT LIKE 'role:%'
-		ORDER BY 1`)
+	names := map[string]string{}
+	rows, err := s.db.SQL().Query(`SELECT sub, COALESCE(name,'') FROM user_profiles`)
 	if err != nil {
 		writeErr(w, 500, "db_error", err.Error())
 		return
 	}
 	defer rows.Close()
-	out := []principal{}
 	for rows.Next() {
-		var p principal
-		if err := rows.Scan(&p.Sub, &p.Name); err != nil {
+		var sub, name string
+		if err := rows.Scan(&sub, &name); err != nil {
 			writeErr(w, 500, "db_error", err.Error())
 			return
 		}
-		out = append(out, p)
+		names[sub] = name
 	}
 	if err := rows.Err(); err != nil {
 		writeErr(w, 500, "db_error", err.Error())
 		return
 	}
+	// The child leads an edge's coordinate, so every child is read off the key.
+	// A `role:` child is a role, not a person, and naming one in a grant would
+	// hand the form a principal no token ever carries.
+	items, err := s.db.Obj().Query(r.Context(), objstore.Query{
+		Entity: store.ACLMembership, Partition: store.OwnerRoutd,
+	})
+	if err != nil {
+		writeErr(w, 500, "db_error", err.Error())
+		return
+	}
+	for _, it := range items {
+		child, _, ok := strings.Cut(it.Key.Sort, store.KeySep)
+		if !ok || strings.HasPrefix(child, "role:") {
+			continue
+		}
+		if _, seen := names[child]; !seen {
+			names[child] = ""
+		}
+	}
+	out := make([]principal, 0, len(names))
+	for sub, name := range names {
+		out = append(out, principal{Sub: sub, Name: name})
+	}
+	slices.SortFunc(out, func(a, b principal) int { return strings.Compare(a.Sub, b.Sub) })
 	writeJSON(w, 200, out)
 }

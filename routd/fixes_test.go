@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1259,10 +1260,12 @@ func TestDeleteGroup_CascadesTasks(t *testing.T) {
 		{"atlas/support-mem-0", "atlas/support"},
 		{"atlaswhatever-mem-0", "atlaswhatever"},
 	} {
-		if _, err := db.SQL().Exec(
-			`INSERT INTO scheduled_tasks (id, owner, chat_jid, prompt, cron, next_run, status, created_at, context_mode)
-			 VALUES (?,?,?,?,?,?,?,?,?)`,
-			tk.id, tk.owner, tk.owner, "/compact-memories", "0 2 * * *", "2026-01-01", "active", "2026-01-01", "isolated"); err != nil {
+		next := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+		if err := db.store().CreateTask(core.Task{
+			ID: tk.id, Owner: tk.owner, ChatJID: tk.owner, Prompt: "/compact-memories",
+			Cron: "0 2 * * *", NextRun: &next, Status: "active",
+			Created: next, ContextMode: "isolated",
+		}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -1272,18 +1275,10 @@ func TestDeleteGroup_CascadesTasks(t *testing.T) {
 	}
 
 	var ids []string
-	rows, err := db.SQL().Query(`SELECT id FROM scheduled_tasks ORDER BY id`)
-	if err != nil {
-		t.Fatal(err)
+	for _, task := range db.Tasks("", true) {
+		ids = append(ids, task.ID)
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			t.Fatal(err)
-		}
-		ids = append(ids, id)
-	}
+	slices.Sort(ids)
 	if len(ids) != 1 || ids[0] != "atlaswhatever-mem-0" {
 		t.Fatalf("only the sibling folder's task may survive, got %v", ids)
 	}
