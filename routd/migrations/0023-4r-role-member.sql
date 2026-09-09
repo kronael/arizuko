@@ -11,11 +11,11 @@
 -- folder's authority is exactly what its lineage delegated — depth confers
 -- nothing.
 --
--- store.SeedRoutdFloor writes the twelve grants, on every open, idempotently:
--- the floor an instance cannot run without is one seeder beside the code that
--- reads it. Re-pointing a live instance's memberships at role:member is a write
--- over rows a pre-move database left behind, so it belongs to
--- `arizuko migrate-routd`.
+-- store.SeedRoutdFloor writes the twelve grants, once, into a routd.db whose
+-- acl entity is EMPTY: the floor an instance cannot run without is one seeder
+-- beside the code that reads it. Re-pointing a live instance's memberships at
+-- role:member is a write over rows a pre-move database left behind, so it
+-- belongs to `arizuko migrate-routd`.
 --
 -- Neither `acl` nor `acl_membership` is a table this chain creates: the driver
 -- makes each one, from the declaration that sits beside the code writing it

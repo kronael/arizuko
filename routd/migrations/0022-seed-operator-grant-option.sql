@@ -1,10 +1,11 @@
 -- F1 (adversary audit 2026-07-30): role:operator is the delegation root (spec
 -- 4/R) and holds (*, **) WITH GRANT OPTION, so it may delegate anything. Every
 -- other grant starts without the option and gains it only when explicitly
--- granted. Without that root grant auth.Delegate's grantableRows('role:operator')
--- is empty and the root can delegate nothing.
+-- granted. Without that root grant auth.Delegate's
+-- grantableRows('role:operator') is empty and the root can delegate nothing.
 --
--- store.SeedRoutdFloor writes it, on every open, idempotently. The floor an
+-- store.SeedRoutdFloor writes it, once, into a routd.db whose acl entity is
+-- EMPTY — the one state that cannot be an operator's intent. The floor an
 -- instance cannot run without is one seeder beside the code that reads it, not
 -- a statement in a chain: `acl` is an objstore entity rather than a table this
 -- chain creates — the driver makes it, from the one declaration that sits
