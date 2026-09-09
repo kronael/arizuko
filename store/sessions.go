@@ -29,9 +29,11 @@ package store
 // copy of a message timestamp compared back against `messages.timestamp`, so it
 // is declared at core.TS's width and a short value is refused at write time
 // rather than sorting by width (BUGS L97, migration 0044). `forked_at` is read
-// back and rendered and never compared, so it keeps whatever layout its writer
-// chose — which on the live instances is three widths, and declaring it would
-// refuse rows that are correct.
+// back and rendered and never compared by anything, so it carries no
+// declaration — a declaration is a promise about every value in the entity, and
+// this one has nothing resting on it. The move normalises it anyway, because
+// there is no reason for the one instant it touches to keep the three widths the
+// column path left (28, 29 and 30 bytes on all three live instances).
 
 import (
 	"context"
