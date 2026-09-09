@@ -153,11 +153,15 @@ var hotFlags = map[string][]string{
 }
 
 // hotZeros names the columns whose "0" is the attribute's ABSENCE rather than a
-// value. `turn_context.retry_count` is NOT NULL DEFAULT 0, so nearly every row
-// carries a zero the live writer never stores — a turn that has not been retried
-// has no such attribute. Carrying the zeros would put two shapes on one fact.
+// value, because both are NOT NULL DEFAULT 0 and both have a live writer that
+// stores no attribute at all for the zero: a turn that has not been retried
+// carries no count, and SetUserCap(0) REMOVES the cap rather than writing one.
+// Carrying the zeros would put two shapes on one fact — measured: every one of
+// marinade's 2 and sloth's 3 profiles carries `cost_cap_cents_per_day":"0"`, and
+// 2,938 of krons' 2,954 turns carry a zero retry count.
 var hotZeros = map[string][]string{
 	TurnContexts: {attrTurnRetryCount},
+	UserProfiles: {attrProfCostCap},
 }
 
 // legacyRunLogKey builds a run's position out of the two columns that were its
