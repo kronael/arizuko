@@ -55,12 +55,14 @@ Primary methods (by domain):
 
 - Messages: `PutMessage`, `NewMessages`, `MessagesSince`, `EnrichMessage`, `MarkMessagesErrored`, `DeleteErroredMessages`, `LatestSource`
 - Groups: `PutGroup`, `DeleteGroup`, `AllGroups`, `GroupByFolder`, `SetGroupModel`, `GroupUsageBulk`
-- Sessions: `GetSession`, `SetSession`, `RecordSession`, `EndSession`, `RecentSessions`
+- Sessions: `GetSession`, `SetSession`, `EnsureTopicLineage`, `ForkTopic`, `TopicLineage` — the run history is runed's, over its own `/v1`
 - Sticky: `SetStickyGroup`, `GetStickyGroup`, `SetStickyTopic`, `GetStickyTopic`
-- Auth: `CreateAuthUser` — one row per sub in `user_profiles`. Account linking lives in authd (`auth.db`'s `auth_users` + `oauth_identities`), not here.
+- People: `CreateUserProfile`, `Username`, `SetUsernameTx`, `ProfileNames`, `UserCap`, `SetUserCap` — one item per sub in `user_profiles`. Account linking lives in authd (`auth.db`'s `auth_users` + `oauth_identities`), not here.
 - ACL (spec 6/9): `AddACLRow`, `RemoveACLRow`, `ListACL`, `ListACLByScope`, `ACLRowsFor`, `ACLWildcardRows` (scope listing is `auth.UserScopes` — a projection of these, not a second query)
 - Membership: `AddMembership`, `RemoveMembership`, `Members`, `Ancestors` — roles + JID→sub claims (`acl_membership` table)
-- Tasks: `CreateTask`, `GetTask`, `ListTasks`, `UpdateTask`, `DeleteTask`, `TaskRunLogs`
+- Tasks: `CreateTask`, `GetTask`, `ListTasks`, `UpdateTask`, `DeleteTask`
+- Task runs: `RecordTaskRun`, `TaskRunLogs`, `AllRunLogs`, `FailedRunsSince`
+- Turns: `OpenTurnContext`, `TurnContextOf`, `RecordRetryAttempt`, `SweepExpiredRunning`, `RunningTurns`, `TurnGatewayKey`, `RecordTurnResult`, `GetTurnResult`
 - Secrets: `SetSecret`, `GetSecret`, `ListSecrets`, `DeleteSecret`,
   `FolderSecretsResolved` (walk parents → root), `UserSecrets`
   (per-user overlay), `CountPlaintextSecrets` + `EncryptPlaintextSecrets`
@@ -108,10 +110,10 @@ driver refusal every caller reports and no test provokes.
 ## Files
 
 - `store.go` — `Open`, `OpenMem`, `Migrate`, connection setup
-- `messages.go`, `groups.go`, `tasks.go`, `auth.go`, `acl.go`, `membership.go`, `routes.go`, `onboarding.go`, `invites.go`, `secrets.go`, `inspect.go`
-- `chats.go`, `sessions.go`, `chat_reply_state.go`, `chat_proactive.go`, `system_messages.go` — the hot tier, one file per entity
+- `messages.go`, `groups.go`, `tasks.go`, `acl.go`, `membership.go`, `routes.go`, `onboarding.go`, `invites.go`, `secrets.go`
+- `chats.go`, `sessions.go`, `chat_reply_state.go`, `chat_proactive.go`, `system_messages.go`, `user_profiles.go`, `turn_results.go`, `group_watchers.go`, `task_run_logs.go`, `turn_context.go`, `invite_redemptions.go` — the hot tier, one file per entity
 - `cursor.go` — the forward-only guarded transition the two cursors share
-- `session_log.go` — the run history beside `sessions`, still a table of columns
+- `inspect.go`, `turn_frames.go` — the two `messages` reads an operator page and a browser stream ask for
 - `import_routd.go`, `import_hot.go` — the target halves of the two moves
 - `migrations/NNNN-*.sql` — numbered migrations
 

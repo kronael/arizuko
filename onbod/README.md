@@ -53,7 +53,7 @@ through onbod's `/v1/*` admin surface (routd), or write `onbod.db`
 directly with the same FS-access discipline (host CLI `arizuko
 invite`/`gate`, FS-mounted dashd).
 
-`invite_redemptions` is the one owned table with no resreg resource and no
+`invite_redemptions` is the one owned entity with no resreg resource and no
 `/v1` path, deliberately. It is not a management entity: it holds one
 in-flight authority between redeeming a subgroup invite and naming the
 workspace, written by `store.consumeInvite` and deleted by
