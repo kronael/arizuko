@@ -5,20 +5,29 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/tests/testutils"
 )
 
-// seedLegacyPlaintext writes an unencrypted row the way a build before BUGS S2
-// wrote one. No write path can still produce it, so this inserts directly.
+// seedLegacyPlaintext writes an unencrypted secret the way a build before BUGS
+// S2 wrote one. No write path can still produce it — the seal is unconditional —
+// so this writes the item itself, at the coordinate and under the attribute
+// names the resource declares.
 func seedLegacyPlaintext(t *testing.T, s *store.Store, scopeID, key, value string) {
 	t.Helper()
-	if _, err := s.DB().Exec(
-		`INSERT INTO secrets (scope_kind, scope_id, key, value, created_at) VALUES (?, ?, ?, ?, ?)`,
-		string(store.ScopeFolder), scopeID, key, value, time.Now().UTC().Format(time.RFC3339),
-	); err != nil {
+	if _, err := s.WriteEntities(context.Background(), nil, objstore.Write{
+		Op:     objstore.Put,
+		Entity: store.Secrets,
+		Key: objstore.Key{
+			Partition: store.OwnerRoutd,
+			Sort: strings.Join([]string{string(store.ScopeFolder), scopeID, key},
+				store.KeySep),
+		},
+		Attrs: map[string]string{"value": value, "created_at": core.NowTS()},
+	}); err != nil {
 		t.Fatalf("seedLegacyPlaintext: %v", err)
 	}
 }

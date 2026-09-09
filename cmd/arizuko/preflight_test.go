@@ -25,12 +25,7 @@ func countNetworkRules(t *testing.T, dataDir, folder string) int {
 		t.Fatalf("reopen stores: %v", err)
 	}
 	defer closeStores(stores)
-	var n int
-	if err := stores[resreg.SubsystemRoutd].DB().
-		QueryRow(`SELECT COUNT(*) FROM network_rules WHERE folder = ?`, folder).Scan(&n); err != nil {
-		t.Fatalf("count network_rules: %v", err)
-	}
-	return n
+	return ruleCount(t, stores[resreg.SubsystemRoutd].DB(), folder, "")
 }
 
 // twoDocManifest is a routd document plus an onbod document, the shape
@@ -103,19 +98,14 @@ func TestPreflightFolders_AcceptsFolderDeclaredInAnotherDocument(t *testing.T) {
 }
 
 // TestPreflightFolders_ExportRoundTripPasses is the regression this rule is
-// most likely to break: migration 0005 seeds two folder=” instance-global
-// network_rules into every routd.db, so a plain export of a FRESH instance
+// most likely to break: store.SeedRoutdFloor writes two folder=” instance-global
+// network_rules into every routd.db born empty, so a plain export of a FRESH instance
 // carries them. If the rule did not exempt the empty folder, `arizuko export
 // | arizuko apply` would refuse on a stock instance.
 func TestPreflightFolders_ExportRoundTripPasses(t *testing.T) {
 	dataDir, stores := openInstance(t)
 
-	var globals int
-	if err := stores[resreg.SubsystemRoutd].DB().
-		QueryRow(`SELECT COUNT(*) FROM network_rules WHERE folder = ''`).Scan(&globals); err != nil {
-		t.Fatal(err)
-	}
-	if globals == 0 {
+	if globals := countNetworkRules(t, dataDir, ""); globals == 0 {
 		t.Fatal("fixture is vacuous: a fresh routd.db must carry the seeded folder='' rules")
 	}
 

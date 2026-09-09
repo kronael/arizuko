@@ -4,7 +4,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/resreg"
+	"github.com/kronael/arizuko/store"
 )
 
 // BUGS Z5: `0005-network-rules.sql` seeded its two default rows with
@@ -44,33 +46,27 @@ func TestFreshInstancesAgreeOnSeedChecksum(t *testing.T) {
 // checksum test only while both bootstraps stayed inside one second.
 func TestNetworkRulesSeedStampIsLiteral(t *testing.T) {
 	_, stores := openInstance(t)
-	rows, err := stores[resreg.SubsystemRoutd].DB().Query(
-		`SELECT target, created_at FROM network_rules WHERE folder = '' AND created_by = 'system' ORDER BY target`)
+	rules, err := store.New(stores[resreg.SubsystemRoutd].DB()).ListNetworkRules("")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
 	got := map[string]string{}
-	for rows.Next() {
-		var target, createdAt string
-		if err := rows.Scan(&target, &createdAt); err != nil {
-			t.Fatal(err)
+	for _, r := range rules {
+		if r.CreatedBy != "system" {
+			continue
 		}
-		got[target] = createdAt
+		got[r.Target] = core.TS(r.CreatedAt)
 	}
-	if err := rows.Err(); err != nil {
-		t.Fatal(err)
-	}
-	want := map[string]string{
-		"anthropic.com":     "2026-08-04T00:00:00Z",
-		"api.anthropic.com": "2026-08-04T00:00:00Z",
-	}
+	// The stamp is core.TS of a fixed instant, because a fresh instance's config
+	// checksum has to be the same value on every machine.
+	stamp := core.TS(time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC))
+	want := map[string]string{"anthropic.com": stamp, "api.anthropic.com": stamp}
 	if len(got) != len(want) {
 		t.Fatalf("seed rows = %v, want %v", got, want)
 	}
-	for target, stamp := range want {
-		if got[target] != stamp {
-			t.Errorf("network_rules[%s].created_at = %q, want %q", target, got[target], stamp)
+	for target, at := range want {
+		if got[target] != at {
+			t.Errorf("network_rules[%s].created_at = %q, want %q", target, got[target], at)
 		}
 	}
 }

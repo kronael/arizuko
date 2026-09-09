@@ -90,13 +90,22 @@ func TestArchive_RoundTrip_ConfigSecretsMessagesGroups(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// route_tokens (kind=route) + a pairing token that must NOT travel.
-	if _, err := srcRoutd.DB().Exec(`INSERT INTO route_tokens(token_hash, jid, owner_folder, created_at, kind)
-		VALUES (x'aabbcc', 'web:atlas', 'atlas', '2026-01-01T00:00:00Z', 'route')`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := srcRoutd.DB().Exec(`INSERT INTO route_tokens(token_hash, jid, owner_folder, created_at, kind)
-		VALUES (x'ddeeff', 'telegram:user/1', 'atlas', '2026-01-01T00:00:00Z', 'pair')`); err != nil {
+	// route_tokens (kind=route) + a pairing token that must NOT travel. Both are
+	// items, and `kind` is the resource's own row filter, so the fixture writes
+	// them through the import the migration tool uses — an INSERT has no columns
+	// to name and a raw item write would have to spell the coordinate twice.
+	if _, err := store.New(srcRoutd.DB()).ImportRoutd(t.Context(), store.RoutdSnapshot{
+		store.RouteTokens: {
+			{Key: []string{"aabbcc"}, Attrs: map[string]string{
+				"jid": "web:atlas", "owner_folder": "atlas",
+				"created_at": "2026-01-01T00:00:00Z", "kind": store.RouteTokenKindRoute,
+			}},
+			{Key: []string{"ddeeff"}, Attrs: map[string]string{
+				"jid": "telegram:user/1", "owner_folder": "atlas",
+				"created_at": "2026-01-01T00:00:00Z", "kind": store.RouteTokenKindPair,
+			}},
+		},
+	}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -179,15 +188,20 @@ func TestArchive_RoundTrip_ConfigSecretsMessagesGroups(t *testing.T) {
 
 	// route_tokens/invites: --force onto a PROVEN-EMPTY target restores
 	// them (Finding 3) — only the kind=route token, never the pairing one.
-	var tokenJID, tokenKind string
-	if err := dstRoutd.DB().QueryRow("SELECT jid, kind FROM route_tokens").Scan(&tokenJID, &tokenKind); err != nil {
+	// The read is ExportRouteTokens', which is kind-scoped to 'route' — so the
+	// count below is the whole table, and the two together say the delivery
+	// bearer came back and the pairing credential did not.
+	tokens, err := store.New(dstRoutd.DB()).ExportRouteTokens(t.Context())
+	if err != nil {
 		t.Fatalf("route_token not restored: %v", err)
 	}
-	if tokenJID != "web:atlas" || tokenKind != "route" {
-		t.Errorf("restored route_token = jid=%q kind=%q", tokenJID, tokenKind)
+	if len(tokens) != 1 || tokens[0].JID != "web:atlas" {
+		t.Errorf("restored route_tokens = %v, want one web:atlas delivery bearer", tokens)
 	}
-	var tokenCount int
-	dstRoutd.DB().QueryRow("SELECT COUNT(*) FROM route_tokens").Scan(&tokenCount)
+	tokenCount, err := store.New(dstRoutd.DB()).CountRouteTokens(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if tokenCount != 1 {
 		t.Errorf("route_tokens count = %d, want exactly 1 (pairing token must never restore)", tokenCount)
 	}

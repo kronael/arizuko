@@ -32,6 +32,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
@@ -180,15 +181,15 @@ routes:
 func TestApply_FullRebuild(t *testing.T) {
 	_, stores := openInstance(t)
 	st := stores[resreg.SubsystemRoutd]
-	// Insert a row outside the manifest path; Apply must wipe it.
+	// A rule written outside the manifest path; Apply must wipe it. It goes in
+	// through routes' own writer, which is where a rule an operator did not
+	// declare actually comes from — add_route, a package install, a seed.
 	r := resreg.Lookup("routes")
-	tx, _ := st.DB().Begin()
-	if err := r.Insert(context.Background(), tx, resources.RoutesRow{
+	if _, err := store.New(st.DB()).PutRouteRow(core.Route{
 		Seq: 99, Match: "stale", Target: "atlas",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	tx.Commit()
 	c0 := routdChecksum(t, st)
 	_, err := resreg.Apply(context.Background(), resreg.OnDB(st.DB()), resreg.SubsystemRoutd, c0, false, map[string]any{
 		"routes": []resources.RoutesRow{

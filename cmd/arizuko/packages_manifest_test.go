@@ -109,18 +109,16 @@ func TestPackageInstallsTaskAndNetworkRule(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer rdb.Close()
-	var target string
-	if err := rdb.SQL().QueryRow(
-		`SELECT target FROM network_rules WHERE folder = '' AND target = 'api.example.com'`).Scan(&target); err != nil {
-		t.Fatalf("package network rule not installed: %v", err)
+	rst := store.New(rdb.SQL())
+	if n := ruleCount(t, rdb.SQL(), "", "api.example.com"); n != 1 {
+		t.Fatalf("package network rule not installed: %d rules name api.example.com", n)
 	}
-	var prompt string
-	if err := rdb.SQL().QueryRow(
-		`SELECT prompt FROM scheduled_tasks WHERE id = 'tnpkg-nightly'`).Scan(&prompt); err != nil {
+	task, ok, err := rst.TaskByID("tnpkg-nightly")
+	if err != nil || !ok {
 		t.Fatalf("package scheduled task not installed: %v", err)
 	}
-	if prompt != "run the nightly report" {
-		t.Fatalf("task prompt = %q", prompt)
+	if task.Prompt != "run the nightly report" {
+		t.Fatalf("task prompt = %q", task.Prompt)
 	}
 	rec, ok, _ := rdb.InstalledPackage(routd.InstanceWide, "tnpkg")
 	if !ok || len(rec.Manifest["network_rules"]) != 1 || len(rec.Manifest["scheduled_tasks"]) != 1 {
@@ -158,10 +156,11 @@ func TestFailedInstallLeavesNoPartialRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer rdb.Close()
-	var n int
-	if err := rdb.SQL().QueryRow(`SELECT COUNT(*) FROM acl WHERE principal = '@first'`).Scan(&n); err != nil {
+	rows, err := store.New(rdb.SQL()).ListACL("@first")
+	if err != nil {
 		t.Fatal(err)
 	}
+	n := len(rows)
 	if n != 0 {
 		t.Fatalf("acl rows from a failed install = %d, want 0 (die() mid-loop is what L44 fixes)", n)
 	}
@@ -197,10 +196,11 @@ func TestFailedInstallUnwindsWrittenFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer rdb.Close()
-	var n int
-	if err := rdb.SQL().QueryRow(`SELECT COUNT(*) FROM acl WHERE principal = '@late'`).Scan(&n); err != nil {
+	rows, err := store.New(rdb.SQL()).ListACL("@late")
+	if err != nil {
 		t.Fatal(err)
 	}
+	n := len(rows)
 	if n != 0 {
 		t.Fatalf("acl rows from a refused install = %d, want 0", n)
 	}
@@ -386,11 +386,7 @@ func TestRemoveWithdrawsTheLastRowInAScope(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer rdb.Close()
-		var n int
-		if err := rdb.SQL().QueryRow(
-			`SELECT COUNT(*) FROM network_rules WHERE target = ?`, "scpkg.example.com").Scan(&n); err != nil {
-			t.Fatal(err)
-		}
+		n := ruleCount(t, rdb.SQL(), "", "scpkg.example.com")
 		return n
 	}
 

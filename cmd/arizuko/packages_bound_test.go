@@ -162,17 +162,24 @@ func assertNothingInstalled(t *testing.T, dataDir, name string) {
 		t.Fatal(err)
 	}
 	defer rdb.Close()
-	for _, q := range []string{
-		`SELECT COUNT(*) FROM acl WHERE granted_by = 'package:` + name + `'`,
-		`SELECT COUNT(*) FROM proxyd_routes`,
-	} {
-		var n int
-		if err := rdb.SQL().QueryRow(q).Scan(&n); err != nil {
-			t.Fatal(err)
+	rst := store.New(rdb.SQL())
+	grants, err := rst.ListACL("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// `granted_by` is an ATTRIBUTE, not part of the coordinate, so the grants a
+	// package owns are found by reading the projection and comparing.
+	for _, g := range grants {
+		if g.GrantedBy == "package:"+name {
+			t.Errorf("a refused install left a grant behind: %+v", g)
 		}
-		if n != 0 {
-			t.Errorf("a refused install left rows behind: %s = %d", q, n)
-		}
+	}
+	routes, err := rst.AllProxydRoutes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(routes) != 0 {
+		t.Errorf("a refused install left proxyd routes behind: %d", len(routes))
 	}
 	if _, ok, _ := rdb.InstalledPackage(routd.InstanceWide, name); ok {
 		t.Error("a refused install left an installed-package record")

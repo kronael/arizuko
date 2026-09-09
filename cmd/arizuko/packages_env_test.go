@@ -48,15 +48,15 @@ func TestPackagesAddProvisionsEnvAndAppliesRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer rdb.Close()
-	var target string
-	if err := rdb.SQL().QueryRow(
-		`SELECT target FROM network_rules WHERE folder = '' AND target = 'api.anthropic.com'`).Scan(&target); err != nil {
-		t.Fatalf("catalog package's network rule not applied: %v", err)
+	// The floor a routd.db is born with carries this very rule, and the package
+	// declares it too — so the count is one either way and what `remove` has to
+	// prove is that the row it recorded is gone.
+	if n := ruleCount(t, rdb.SQL(), "", "api.anthropic.com"); n != 1 {
+		t.Fatalf("catalog package's network rule not applied: %d rules name it", n)
 	}
 
 	cmdPackages([]string{"mint", "remove", "litellm"})
-	if err := rdb.SQL().QueryRow(
-		`SELECT target FROM network_rules WHERE target = 'api.anthropic.com'`).Scan(&target); err == nil {
+	if n := ruleCount(t, rdb.SQL(), "", "api.anthropic.com"); n != 0 {
 		t.Error("remove must withdraw the row the record names")
 	}
 	if _, err := os.Lstat(filepath.Join(dataDir, "services", "litellm.yml")); err == nil {
