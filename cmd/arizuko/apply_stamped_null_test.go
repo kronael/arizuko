@@ -4,41 +4,64 @@ import (
 	"context"
 	"testing"
 
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
+	"github.com/kronael/arizuko/store"
 )
 
 // BUGS F49 / spec 5/8 §"Round-trip honesty": `export` must emit something that
-// re-applies to a no-op, and the content-hash CAS depends on it. It did not
-// hold on the FIRST pass for a row whose server-stamped column was NULL.
+// re-applies to a no-op, and the content-hash CAS depends on it. It does not
+// hold for a row whose server-owned instant is ABSENT unless the writer knows
+// not to invent one.
 //
-// `groups.updated_at` is nullable, has no default, and is in StampedFields with
-// a `nilIfEmptyString` write hook — so a NULL exports as `updated_at: ""`, and
-// re-inserting that unmodified row used to hit Insert's auto-stamp, which read
-// "" as "unset, invent one" and wrote a fresh now(). The operator got a
-// checksum shift they did not cause, and 5/8's cross-subsystem rollback
-// guarantee held only once every stamped column was non-NULL.
+// `groups.updated_at` is when the group was last changed, and a group nobody
+// has changed carries none. `groups.added_at` is when it was made, and every
+// group has one. Both are in StampedFields — server-OWNED — and only the second
+// is server-INVENTED, which is what AbsentStamps declares. Without that, the
+// first `export | apply` writes a fresh now() into the first and the operator
+// gets a checksum shift they did not cause.
+
+// updatedAtOf answers whether the group item carries an updated_at attribute at
+// all. Absent is the only null this model has, so "is it there" is the whole
+// question.
+func updatedAtOf(t *testing.T, st *store.Store, folder string) (string, bool) {
+	t.Helper()
+	items, err := st.Obj().Query(context.Background(), objstore.Query{
+		Entity: store.Groups, Partition: store.OwnerRoutd,
+		Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: folder},
+	})
+	if err != nil {
+		t.Fatalf("read the group item: %v", err)
+	}
+	if len(items) == 0 {
+		t.Fatalf("group %q has no item", folder)
+	}
+	v, ok := items[0].Attrs["updated_at"]
+	return v, ok
+}
 
 // TestExportApplyIsNoOpForNullStampedColumn: pass ZERO must not move the
-// checksum, and must leave the NULL a NULL.
+// checksum, and must leave the absent instant absent.
 func TestExportApplyIsNoOpForNullStampedColumn(t *testing.T) {
 	_, stores := openInstance(t)
 	st := stores[resreg.SubsystemRoutd]
 
-	// A group written the way store.RegisterGroup writes one: added_at set,
-	// updated_at never touched. This is the NORMAL state, not a corrupt row.
-	if _, err := st.DB().Exec(
-		`INSERT INTO groups (folder, added_at, product) VALUES ('acme', '2026-08-01T00:00:00Z', 'assistant')`,
-	); err != nil {
-		t.Fatal(err)
+	// A group carrying added_at and no updated_at. That is what a migrated
+	// instance holds — `arizuko migrate-routd` drops an attribute whose column
+	// was NULL — so the import is what puts the fixture in the real state
+	// rather than a hand-made one.
+	if _, err := st.ImportRoutd(context.Background(), store.RoutdSnapshot{
+		store.Groups: {{
+			Key:   []string{"acme"},
+			Attrs: map[string]string{"added_at": "2026-08-01T00:00:00Z", "product": "assistant"},
+		}},
+	}); err != nil {
+		t.Fatalf("seed the migrated group: %v", err)
 	}
-	var nulls int
-	if err := st.DB().QueryRow(
-		`SELECT COUNT(*) FROM groups WHERE updated_at IS NULL`).Scan(&nulls); err != nil {
-		t.Fatal(err)
-	}
-	if nulls != 1 {
-		t.Fatalf("fixture is vacuous: %d rows with a NULL updated_at, want 1", nulls)
+	if _, ok := updatedAtOf(t, st, "acme"); ok {
+		t.Fatal("fixture is vacuous: the seeded group already carries an updated_at")
 	}
 
 	before, err := resreg.Checksum(resreg.OnDB(st.DB()), resreg.SubsystemRoutd)
@@ -67,21 +90,17 @@ func TestExportApplyIsNoOpForNullStampedColumn(t *testing.T) {
 		t.Errorf("first export|apply moved the checksum with nothing changed: %s -> %s", before, after)
 	}
 
-	// The NULL survived rather than becoming now(): "" round-trips to NULL,
-	// which is exactly what the resource's empty→NULL write hook declares.
-	if err := st.DB().QueryRow(
-		`SELECT COUNT(*) FROM groups WHERE updated_at IS NULL`).Scan(&nulls); err != nil {
-		t.Fatal(err)
-	}
-	if nulls != 1 {
-		t.Errorf("re-apply stamped the NULL updated_at: %d NULL rows, want 1", nulls)
+	// The absence survived rather than becoming now(), which is what the
+	// resource's AbsentStamps declares.
+	if v, ok := updatedAtOf(t, st, "acme"); ok {
+		t.Errorf("re-apply invented an updated_at: %q, want the attribute still absent", v)
 	}
 }
 
-// TestApplyStillStampsAFieldWithNoWriteHook is the converse guard: the fix
-// narrows the auto-stamp, it must not disable it. `groups.added_at` is NOT NULL
-// with no write hook, so a hand-written manifest that omits it still gets a
-// server timestamp rather than an empty string.
+// TestApplyStillStampsAFieldWithNoWriteHook is the converse guard: the
+// declaration narrows the auto-stamp, it must not disable it. `groups.added_at`
+// is not in AbsentStamps, so a hand-written manifest that omits it still gets a
+// server timestamp rather than nothing.
 func TestApplyStillStampsAFieldWithNoWriteHook(t *testing.T) {
 	_, stores := openInstance(t)
 	st := stores[resreg.SubsystemRoutd]
@@ -96,12 +115,11 @@ func TestApplyStillStampsAFieldWithNoWriteHook(t *testing.T) {
 		t.Fatalf("apply: %v", err)
 	}
 
-	var addedAt string
-	if err := st.DB().QueryRow(
-		`SELECT COALESCE(added_at,'') FROM groups WHERE folder = 'acme'`).Scan(&addedAt); err != nil {
-		t.Fatal(err)
+	g, ok := st.GroupByFolder("acme")
+	if !ok {
+		t.Fatal("the applied group has no item")
 	}
-	if addedAt == "" {
+	if addedAt := core.TS(g.AddedAt); g.AddedAt.IsZero() || addedAt == "" {
 		t.Error("added_at was not auto-stamped: the fix disabled the stamp instead of narrowing it")
 	}
 }

@@ -349,12 +349,30 @@ type Resource struct {
 	// in this state still appear in Export output (metadata only).
 	SkipApplyRebuild bool
 
-	// StampedFields names the Go struct fields a BeforeInsert hook stamps
-	// server-side (created_at, granted_at, added_at, …). Diff ignores them
-	// when comparing payloads, so a hand-written manifest that omits them
-	// reads as `unchanged` against a live stamped row instead of phantom-
-	// updating on every plan (spec 5/8 §"Apply lifecycle" step 3).
+	// StampedFields names the Go struct fields the STORAGE LAYER owns
+	// (created_at, granted_at, added_at, …). Diff ignores them when comparing
+	// payloads, so a hand-written manifest that omits them reads as `unchanged`
+	// against a live stamped row instead of phantom-updating on every plan
+	// (spec 5/8 §"Apply lifecycle" step 3). A row that leaves one empty gets one
+	// invented, on both shapes.
 	StampedFields []string
+
+	// AbsentStamps is the subset of StampedFields the writer does NOT invent,
+	// because ABSENCE IS A VALUE THE ROW STATES rather than a gap to fill.
+	//
+	// Server-OWNED and server-INVENTED are different claims, and `groups` needs
+	// both on one resource: `added_at` is when the group was made and a manifest
+	// omitting it must get one, while `updated_at` is when it was last changed
+	// and a group nobody has changed legitimately has none. Inventing the second
+	// makes the FIRST `export | apply` write a fresh timestamp — a checksum
+	// shift the operator did not cause, and the guarantee spec 5/8's
+	// cross-subsystem rollback rests on (BUGS F49).
+	//
+	// It is a DECLARATION because the shapes have nothing else to read it from.
+	// On the column path the signal was "this field has a ColumnOverride.Write",
+	// which was a fact about SQL binding that happened to correlate; an entity
+	// has no column to override, so the claim has to be stated.
+	AbsentStamps []string
 
 	meta *resourceMeta // populated by Register; reflection-derived
 }

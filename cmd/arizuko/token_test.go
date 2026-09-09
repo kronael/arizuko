@@ -14,6 +14,7 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -118,12 +119,14 @@ func TestTokenLandsInRoutdDB(t *testing.T) {
 	tokenIssue(s, "", []string{"chat", "main"})
 	s.Close()
 
-	if n := countRows(t, dir, store.OwnerRoutd,
-		"SELECT COUNT(*) FROM route_tokens WHERE jid='web:main'"); n != 1 {
+	// The jid is an ATTRIBUTE — the coordinate is the digest — so the match reads
+	// it off the item rather than out of the key.
+	jidIsWebMain := func(it objstore.Item) bool { return it.Attrs["jid"] == "web:main" }
+	if n := countItems(t, dir, store.OwnerRoutd, store.RouteTokens, jidIsWebMain); n != 1 {
 		t.Errorf("routd.db route_tokens = %d, want 1", n)
 	}
-	if n := countRows(t, dir, "messages.db",
-		"SELECT COUNT(*) FROM route_tokens"); n != 0 {
+	if n := countItems(t, dir, "messages.db", store.RouteTokens,
+		func(objstore.Item) bool { return true }); n != 0 {
 		t.Errorf("messages.db route_tokens = %d, want 0 (CLI must not write the monolith)", n)
 	}
 
@@ -134,8 +137,7 @@ func TestTokenLandsInRoutdDB(t *testing.T) {
 	}
 	tokenRevoke(s2, []string{"web:main"})
 	s2.Close()
-	if n := countRows(t, dir, store.OwnerRoutd,
-		"SELECT COUNT(*) FROM route_tokens WHERE jid='web:main'"); n != 0 {
+	if n := countItems(t, dir, store.OwnerRoutd, store.RouteTokens, jidIsWebMain); n != 0 {
 		t.Errorf("routd.db route_tokens after revoke = %d, want 0", n)
 	}
 }

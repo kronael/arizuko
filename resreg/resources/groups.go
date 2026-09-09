@@ -75,6 +75,11 @@ func init() {
 		EntitySortKey: []string{"Folder"},
 		Scope:         resreg.ScopeSpec{Field: "Folder"},
 		StampedFields: []string{"AddedAt", "UpdatedAt"},
+		// `updated_at` is server-OWNED and never server-INVENTED: a group nobody
+		// has changed legitimately carries none, and stamping one makes the first
+		// `export | apply` move a checksum the operator did not cause (BUGS F49).
+		// `added_at` is the converse — a manifest that omits it still gets one.
+		AbsentStamps: []string{"UpdatedAt"},
 		// Agent-face metadata (spec 5/16): drives deriveMCPTools for register_group +
 		// refresh_groups. The manifest CRUD path uses RowType/Table only; these are
 		// inert to it (Apply/Export ignore Endpoints/MCP*).

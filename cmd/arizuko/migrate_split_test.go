@@ -23,6 +23,113 @@ import (
 	"github.com/kronael/arizuko/resreg"
 )
 
+// legacyRoutdSchema is the pre-split shape of the thirteen tables routd owns,
+// as a monolith on disk carries them.
+//
+// THE FIXTURE BUILDS IT, and that is the point rather than a workaround. The
+// subject of every test below is what `arizuko migrate-split` does with a
+// database an instance ALREADY HAS, and `store.Migrate` builds the schema this
+// tree ships — which for these thirteen is the entities they are now. A source
+// the migrator would find nothing legacy in cannot exercise the migrator. So the
+// legacy shape is stated here, where the test that needs it can see it, and the
+// tool's own `isLegacyShape` probe decides what to read.
+//
+// The columns are the final pre-split ones, measured against all three live
+// instances: every column each table carries, including the four the split's
+// own column lists never named (`secrets.provider` and its three OAuth
+// siblings) and the two `installed_packages` gained.
+//
+// The entities `store.Migrate` created for these thirteen are DROPPED first,
+// because a pre-split monolith holds one shape per name and it is the column
+// one. No FOREIGN KEY either: nothing in the thirteen references another of
+// them, and the split reads each table on its own.
+const legacyRoutdSchema = `
+DROP TABLE IF EXISTS groups;
+DROP TABLE IF EXISTS acl;
+DROP TABLE IF EXISTS acl_membership;
+DROP TABLE IF EXISTS routes;
+DROP TABLE IF EXISTS route_tokens;
+DROP TABLE IF EXISTS scheduled_tasks;
+DROP TABLE IF EXISTS secrets;
+DROP TABLE IF EXISTS pending_actions;
+DROP TABLE IF EXISTS network_rules;
+DROP TABLE IF EXISTS proxyd_routes;
+DROP TABLE IF EXISTS web_routes;
+DROP TABLE IF EXISTS installed_packages;
+DROP TABLE IF EXISTS github_sources;
+CREATE TABLE groups (
+  folder TEXT PRIMARY KEY, added_at TEXT NOT NULL, container_config TEXT,
+  updated_at TEXT, product TEXT NOT NULL DEFAULT 'assistant',
+  cost_cap_cents_per_day INTEGER NOT NULL DEFAULT 0, config TEXT);
+CREATE TABLE acl (
+  principal TEXT NOT NULL, action TEXT NOT NULL, scope TEXT NOT NULL,
+  effect TEXT NOT NULL DEFAULT 'allow', params TEXT NOT NULL DEFAULT '',
+  predicate TEXT NOT NULL DEFAULT '', granted_by TEXT, granted_at TEXT NOT NULL,
+  grant_option INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (principal, action, scope, params, predicate, effect));
+CREATE TABLE acl_membership (
+  child TEXT NOT NULL, parent TEXT NOT NULL, added_by TEXT, added_at TEXT NOT NULL,
+  PRIMARY KEY (child, parent));
+CREATE TABLE routes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, seq INTEGER NOT NULL DEFAULT 0,
+  match TEXT NOT NULL DEFAULT '', target TEXT NOT NULL,
+  observe_window_messages INTEGER, observe_window_chars INTEGER,
+  added_by TEXT, added_via TEXT);
+CREATE TABLE route_tokens (
+  token_hash BLOB PRIMARY KEY, jid TEXT NOT NULL, owner_folder TEXT,
+  created_at TEXT NOT NULL, context TEXT, kind TEXT NOT NULL DEFAULT 'route',
+  target_folder TEXT);
+CREATE TABLE scheduled_tasks (
+  id TEXT PRIMARY KEY, owner TEXT NOT NULL, chat_jid TEXT NOT NULL,
+  prompt TEXT NOT NULL, cron TEXT, next_run TEXT,
+  status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL,
+  context_mode TEXT NOT NULL DEFAULT 'group');
+CREATE TABLE secrets (
+  scope_kind TEXT NOT NULL, scope_id TEXT NOT NULL, key TEXT NOT NULL,
+  value BLOB NOT NULL, created_at TEXT NOT NULL, provider TEXT,
+  refresh_val BLOB, expires_at TEXT, scope_list TEXT,
+  PRIMARY KEY (scope_kind, scope_id, key));
+CREATE TABLE pending_actions (
+  id TEXT PRIMARY KEY, group_folder TEXT NOT NULL, caller_agent TEXT NOT NULL,
+  tool TEXT NOT NULL, args TEXT NOT NULL DEFAULT '{}',
+  args_final TEXT NOT NULL DEFAULT '{}', args_hash TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'held', chat_jid TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL, reviewed_by TEXT NOT NULL DEFAULT '',
+  reviewed_at TEXT NOT NULL DEFAULT '', reviewer_note TEXT NOT NULL DEFAULT '',
+  result TEXT NOT NULL DEFAULT '', error TEXT NOT NULL DEFAULT '',
+  expires_at TEXT NOT NULL DEFAULT '', mode TEXT NOT NULL DEFAULT 'async',
+  notice_id TEXT NOT NULL DEFAULT '');
+CREATE TABLE network_rules (
+  folder TEXT NOT NULL, target TEXT NOT NULL, created_at TEXT NOT NULL,
+  created_by TEXT NOT NULL DEFAULT '', PRIMARY KEY (folder, target));
+CREATE TABLE proxyd_routes (
+  path TEXT PRIMARY KEY, backend TEXT NOT NULL, auth TEXT NOT NULL,
+  gated_by TEXT NOT NULL DEFAULT '', preserve_headers TEXT NOT NULL DEFAULT '[]',
+  strip_prefix INTEGER NOT NULL DEFAULT 0, redirect_to TEXT,
+  owner TEXT NOT NULL DEFAULT 'arizuko');
+CREATE TABLE web_routes (
+  path_prefix TEXT PRIMARY KEY,
+  access TEXT NOT NULL CHECK(access IN ('public','auth','deny','redirect')),
+  redirect_to TEXT, folder TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE installed_packages (
+  folder TEXT NOT NULL DEFAULT '', name TEXT NOT NULL, source TEXT NOT NULL,
+  revision TEXT NOT NULL, manifest TEXT NOT NULL DEFAULT '{}',
+  asset_hashes TEXT NOT NULL DEFAULT '{}', installed_at TEXT NOT NULL,
+  PRIMARY KEY (folder, name));
+CREATE TABLE github_sources (
+  source TEXT PRIMARY KEY, secret TEXT NOT NULL, owner_folder TEXT NOT NULL,
+  created_at TEXT NOT NULL);
+`
+
+// seedLegacyRoutdTables gives the monolith the thirteen tables a pre-split
+// instance carries, so the migrator has something legacy to find.
+func seedLegacyRoutdTables(t *testing.T, db *sql.DB) {
+	t.Helper()
+	if _, err := db.Exec(legacyRoutdSchema); err != nil {
+		t.Fatalf("build the pre-split shape of routd's thirteen: %v", err)
+	}
+}
+
 // seedMessagesDB creates a migrated messages.db at storeDir and inserts a row
 // (or two) into each source table the migrator reads, including the two
 // transform tables and the `errored`-column edge (messages.errored present,
@@ -39,6 +146,8 @@ func seedMessagesDB(t *testing.T, storeDir string) {
 			t.Fatalf("seed %q: %v", q, err)
 		}
 	}
+
+	seedLegacyRoutdTables(t, db)
 
 	exec(`INSERT INTO groups(folder, added_at, product) VALUES('main','2026-01-01T00:00:00Z','assistant')`)
 	// messages.errored is set on this row — must copy WITHOUT it (routd has no such column).
@@ -304,42 +413,55 @@ func TestMigrateSplit(t *testing.T) {
 		t.Errorf("user_profiles.username = %q, want alice", auName)
 	}
 
-	// acl: copied to routd.db (routd OWNS it now) with columns intact.
-	var aclPrin, aclAction, aclScope, aclEffect string
-	// Scope to the migrated legacy row specifically — the 5/33 backfill adds other
-	// folder:main rows (scoped containment) that would otherwise shadow it.
-	if err := r.QueryRow(
-		`SELECT principal, action, scope, effect FROM acl WHERE principal='folder:main' AND action='mcp:send'`).
-		Scan(&aclPrin, &aclAction, &aclScope, &aclEffect); err != nil {
+	// acl, secrets and scheduled_tasks are entities in routd.db, read back
+	// through the methods routd itself calls — an import that wrote the wrong
+	// attribute name would report its counts happily, and only a read through
+	// the real methods catches it.
+	rst := store.New(r)
+	// Scope to the migrated legacy row specifically — the 5/33 floor adds other
+	// role rows that would otherwise shadow it.
+	aclRows, err := rst.ListACL("folder:main")
+	if err != nil {
 		t.Fatalf("read routd.acl: %v", err)
 	}
-	if aclPrin != "folder:main" || aclAction != "mcp:send" || aclScope != "main" || aclEffect != "allow" {
-		t.Errorf("acl row wrong: principal=%q action=%q scope=%q effect=%q",
-			aclPrin, aclAction, aclScope, aclEffect)
+	var aclFound bool
+	for _, row := range aclRows {
+		if row.Action != "mcp:send" {
+			continue
+		}
+		aclFound = true
+		if row.Scope != "main" || row.Effect != "allow" {
+			t.Errorf("acl row wrong: principal=%q action=%q scope=%q effect=%q",
+				row.Principal, row.Action, row.Scope, row.Effect)
+		}
+	}
+	if !aclFound {
+		t.Errorf("acl rows for folder:main = %v, want the migrated mcp:send grant", aclRows)
 	}
 
-	// secrets: copied to routd.db (routd OWNS it now) with the encrypted `value`
-	// bytes intact — same SECRETS_KEY decrypts on the routd side.
-	var secScope, secKey, secVal string
-	if err := r.QueryRow(
-		`SELECT scope_kind, key, value FROM secrets WHERE scope_id='main'`).
-		Scan(&secScope, &secKey, &secVal); err != nil {
+	// secrets: the encrypted `value` bytes move verbatim — the same SECRETS_KEY
+	// decrypts on the routd side, so the read is of the sealed text itself.
+	secs, err := rst.ListSecrets(store.SecretScopeFolder, "main")
+	if err != nil {
 		t.Fatalf("read routd.secrets: %v", err)
 	}
-	if secScope != "folder" || secKey != "API_KEY" || secVal != "v2:cipherbytes" {
-		t.Errorf("secrets row wrong: scope=%q key=%q value=%q", secScope, secKey, secVal)
+	if len(secs) != 1 || secs[0].Key != "API_KEY" {
+		t.Fatalf("secrets for main = %v, want one API_KEY", secs)
 	}
 
-	// scheduled_tasks: copied to routd.db (routd OWNS it now) verbatim, FK to the
-	// task intact for the copied task_run_logs row.
-	var taskOwner, taskCron, taskStatus string
-	if err := r.QueryRow(
-		`SELECT owner, cron, status FROM scheduled_tasks WHERE id='task-1'`).
-		Scan(&taskOwner, &taskCron, &taskStatus); err != nil {
-		t.Fatalf("read routd.scheduled_tasks: %v", err)
+	tasks := rst.ListTasks("", true)
+	var task core.Task
+	for _, tk := range tasks {
+		if tk.ID == "task-1" {
+			task = tk
+		}
 	}
-	if taskOwner != "main" || taskCron != "0 9 * * *" || taskStatus != "active" {
-		t.Errorf("scheduled_tasks row wrong: owner=%q cron=%q status=%q", taskOwner, taskCron, taskStatus)
+	if task.ID == "" {
+		t.Fatalf("scheduled_tasks = %v, want the migrated task-1", tasks)
+	}
+	if task.Owner != "main" || task.Cron != "0 9 * * *" || task.Status != "active" {
+		t.Errorf("scheduled_tasks row wrong: owner=%q cron=%q status=%q",
+			task.Owner, task.Cron, task.Status)
 	}
 	var runStatus string
 	if err := r.QueryRow(

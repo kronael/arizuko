@@ -103,7 +103,7 @@ func TestPreflightFolders_AcceptsFolderDeclaredInAnotherDocument(t *testing.T) {
 }
 
 // TestPreflightFolders_ExportRoundTripPasses is the regression this rule is
-// most likely to break: migration 0005 seeds two folder='' instance-global
+// most likely to break: migration 0005 seeds two folder=” instance-global
 // network_rules into every routd.db, so a plain export of a FRESH instance
 // carries them. If the rule did not exempt the empty folder, `arizuko export
 // | arizuko apply` would refuse on a stock instance.

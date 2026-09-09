@@ -18,6 +18,7 @@ import (
 	"io"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -190,14 +191,22 @@ func (r *Resource) initMeta() {
 		}
 		m.scopeField = &fm
 	}
+	absent := nameSet(r.AbsentStamps)
 	for _, name := range r.StampedFields {
 		i, ok := dbToField[name]
 		if !ok {
 			panic(fmt.Sprintf("resreg: %s StampedFields %q not found or missing db: tag", r.Name, name))
 		}
 		m.stampedIdx = append(m.stampedIdx, m.fields[i].idx)
-		if m.fields[i].writeHook == nil {
+		if m.fields[i].writeHook == nil && !absent[name] {
 			m.autoStampIdx = append(m.autoStampIdx, m.fields[i].idx)
+		}
+	}
+	for _, name := range r.AbsentStamps {
+		if !slices.Contains(r.StampedFields, name) {
+			panic(fmt.Sprintf("resreg: %s names %q in AbsentStamps and not in StampedFields; "+
+				"the second is the subset of the first the writer does not invent, and a "+
+				"field nobody stamps has no invention to refuse", r.Name, name))
 		}
 	}
 	r.initEntity(m, dbToField)

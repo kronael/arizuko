@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -153,12 +154,16 @@ func TestRouteLandsInRoutdDB(t *testing.T) {
 	}
 	s.Close()
 
-	if n := countRows(t, dir, store.OwnerRoutd,
-		"SELECT COUNT(*) FROM routes WHERE target='main'"); n != 1 {
+	// The target is the SECOND field of a route's coordinate, so the match reads
+	// the middle of the key rather than a leading fragment.
+	targetIsMain := func(it objstore.Item) bool {
+		parts := strings.SplitN(it.Key.Sort, store.KeySep, 3)
+		return len(parts) == 3 && parts[1] == "main"
+	}
+	if n := countItems(t, dir, store.OwnerRoutd, store.Routes, targetIsMain); n != 1 {
 		t.Errorf("routd.db routes = %d, want 1", n)
 	}
-	if n := countRows(t, dir, "messages.db",
-		"SELECT COUNT(*) FROM routes WHERE target='main'"); n != 0 {
+	if n := countItems(t, dir, "messages.db", store.Routes, targetIsMain); n != 0 {
 		t.Errorf("messages.db routes = %d, want 0 (CLI must not write the monolith)", n)
 	}
 
@@ -172,8 +177,7 @@ func TestRouteLandsInRoutdDB(t *testing.T) {
 		t.Fatalf("runRouteRm: %v", err)
 	}
 	s2.Close()
-	if n := countRows(t, dir, store.OwnerRoutd,
-		"SELECT COUNT(*) FROM routes WHERE target='main'"); n != 0 {
+	if n := countItems(t, dir, store.OwnerRoutd, store.Routes, targetIsMain); n != 0 {
 		t.Errorf("routd.db routes after rm = %d, want 0", n)
 	}
 }

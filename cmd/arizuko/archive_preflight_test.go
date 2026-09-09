@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/resreg"
+	"github.com/kronael/arizuko/store"
 )
 
 // TestArchiveApply_RefusesFolderThatIsNotAGroup: an archive whose routd
@@ -25,14 +26,13 @@ func TestArchiveApply_RefusesFolderThatIsNotAGroup(t *testing.T) {
 	ctx := context.Background()
 	srcDataDir, srcStores := openInstance(t)
 	srcDB := srcStores[resreg.SubsystemRoutd].DB()
-	// A rule for a folder with no group. Direct SQL, because the whole point
-	// is a row SQLite itself accepts (network_rules.folder has no FK).
-	if _, err := srcDB.Exec(
-		`INSERT INTO network_rules (folder, target, created_at, created_by)
-		 VALUES ('corp/ghost', 'api.example.com', '2026-08-06T00:00:00Z', 'seed')`); err != nil {
+	// A rule for a folder with no group. The writer accepts it, which is the
+	// whole point: nothing binds network_rules.folder to a group, so the refusal
+	// below has to come from the preflight rather than from storage.
+	if err := store.New(srcDB).AddNetworkRule("corp/ghost", "api.example.com", "seed"); err != nil {
 		t.Fatal(err)
 	}
-	if got := scalar(t, srcDB, `SELECT COUNT(*) FROM network_rules WHERE folder='corp/ghost'`); got != 1 {
+	if got := ruleCount(t, srcDB, "corp/ghost", ""); got != 1 {
 		t.Fatalf("source fixture did not land (count=%d)", got)
 	}
 
@@ -43,7 +43,7 @@ func TestArchiveApply_RefusesFolderThatIsNotAGroup(t *testing.T) {
 
 	dstDataDir, dstStores := openInstance(t)
 	dstDB := dstStores[resreg.SubsystemRoutd].DB()
-	beforeGroups := scalar(t, dstDB, `SELECT COUNT(*) FROM groups`)
+	beforeGroups := groupCount(t, dstDB, "")
 
 	// --force is on deliberately: it overrides the CAS, and must NOT override
 	// the missing-group rule.
@@ -55,10 +55,10 @@ func TestArchiveApply_RefusesFolderThatIsNotAGroup(t *testing.T) {
 		t.Errorf("error %q must name the offending folder", err.Error())
 	}
 
-	if got := scalar(t, dstDB, `SELECT COUNT(*) FROM network_rules WHERE folder='corp/ghost'`); got != 0 {
+	if got := ruleCount(t, dstDB, "corp/ghost", ""); got != 0 {
 		t.Errorf("the orphan rule was imported anyway (count=%d)", got)
 	}
-	if got := scalar(t, dstDB, `SELECT COUNT(*) FROM groups`); got != beforeGroups {
+	if got := groupCount(t, dstDB, ""); got != beforeGroups {
 		t.Errorf("groups moved on a refused restore: %d -> %d", beforeGroups, got)
 	}
 }
@@ -80,7 +80,7 @@ func TestArchiveApply_CleanArchiveStillApplies(t *testing.T) {
 
 	dstDataDir, dstStores := openInstance(t)
 	dstDB := dstStores[resreg.SubsystemRoutd].DB()
-	if got := scalar(t, dstDB, `SELECT COUNT(*) FROM groups WHERE folder='corp/eng'`); got != 0 {
+	if got := groupCount(t, dstDB, "corp/eng"); got != 0 {
 		t.Fatalf("destination is not fresh (count=%d)", got)
 	}
 
@@ -88,10 +88,10 @@ func TestArchiveApply_CleanArchiveStillApplies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("applyArchive: %v\n%s", err, report)
 	}
-	if got := scalar(t, dstDB, `SELECT COUNT(*) FROM groups WHERE folder='corp/eng'`); got != 1 {
+	if got := groupCount(t, dstDB, "corp/eng"); got != 1 {
 		t.Errorf("group not restored (count=%d)", got)
 	}
-	if got := scalar(t, dstDB, `SELECT COUNT(*) FROM network_rules WHERE folder='corp/eng' AND target='original.example.com'`); got != 1 {
+	if got := ruleCount(t, dstDB, "corp/eng", "original.example.com"); got != 1 {
 		t.Errorf("egress rule not restored (count=%d)", got)
 	}
 	if !strings.Contains(report, "routd: applied") {

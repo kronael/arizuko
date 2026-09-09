@@ -11,6 +11,7 @@ import (
 
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
+	"github.com/kronael/arizuko/store"
 )
 
 // oneFolderDocs is a single-folder routd manifest: the shape --as-folder
@@ -92,7 +93,7 @@ func TestRetarget_RefusesMultiFolderManifest(t *testing.T) {
 	}
 }
 
-// TestRetarget_RefusesInstanceGlobalRows: network_rules' folder='' rows are
+// TestRetarget_RefusesInstanceGlobalRows: network_rules' folder=” rows are
 // the instance-wide egress allowlist. Retargeting them would narrow an
 // instance-wide allowlist to one folder — a privilege change, not a rename —
 // so a manifest mixing them with a folder's rows is refused.
@@ -135,18 +136,28 @@ func TestRetarget_AppliesUnderTheNewFolder(t *testing.T) {
 		t.Fatalf("applyDocs: %v", err)
 	}
 
-	if got := scalar(t, db, `SELECT COUNT(*) FROM groups WHERE folder='corp/newteam'`); got != 1 {
+	if got := groupCount(t, db, "corp/newteam"); got != 1 {
 		t.Errorf("group not created under the new folder (count=%d)", got)
 	}
-	if got := scalar(t, db, `SELECT COUNT(*) FROM groups WHERE folder='corp/eng'`); got != 0 {
+	if got := groupCount(t, db, "corp/eng"); got != 0 {
 		t.Errorf("the source folder was created too (count=%d)", got)
 	}
-	if got := scalar(t, db, `SELECT COUNT(*) FROM network_rules WHERE folder='corp/newteam'`); got != 1 {
+	if got := ruleCount(t, db, "corp/newteam", ""); got != 1 {
 		t.Errorf("egress rule not under the new folder (count=%d)", got)
 	}
+	routes, err := store.New(db).AllWebRoutes()
+	if err != nil {
+		t.Fatalf("read web routes: %v", err)
+	}
 	var redirect string
-	if err := db.QueryRow(`SELECT redirect_to FROM web_routes WHERE folder='corp/newteam'`).Scan(&redirect); err != nil {
-		t.Fatalf("web_route not applied: %v", err)
+	var found bool
+	for _, wr := range routes {
+		if wr.Folder == "corp/newteam" {
+			redirect, found = wr.RedirectTo, true
+		}
+	}
+	if !found {
+		t.Fatalf("web_route not applied: %v carries none under corp/newteam", routes)
 	}
 	if strings.Contains(redirect, "corp/eng") {
 		t.Errorf("redirect_to %q still points at the source folder's web root", redirect)

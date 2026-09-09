@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/db_utils"
+	"github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
 )

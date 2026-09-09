@@ -22,7 +22,7 @@ import (
 // rather than guessing which of several the operator meant — the same
 // discipline Retarget itself applies to columns it cannot decide. The empty
 // scope counts as a distinct folder here on purpose: network_rules carries
-// folder='' for instance-global rules, and silently retargeting those would
+// folder=” for instance-global rules, and silently retargeting those would
 // convert an instance-wide egress allowlist into one folder's, which is a
 // privilege change, not a rename.
 func retargetDocs(docs []parsedDoc, newFolder string) (string, error) {

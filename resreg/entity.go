@@ -102,11 +102,11 @@ type entityMeta struct {
 	// attrs is every other `db:`-tagged field, one attribute each, named by the
 	// tag.
 	attrs []fieldMeta
-	// stamped is the struct-field index of every StampedField, which itemFor
-	// fills when the row leaves it empty. It is the same set resourceMeta
-	// carries: on this path stampedIdx and autoStampIdx are ONE set, because a
-	// ColumnOverride is refused here and that override is the only thing that
-	// ever separated them (BUGS F49).
+	// stamped is the struct-field index of every StampedField the writer may
+	// INVENT — resourceMeta.autoStampIdx, not stampedIdx. The two differ where a
+	// resource declares AbsentStamps: `groups.updated_at` is server-owned and
+	// legitimately absent, and inventing one makes the first `export | apply`
+	// move a checksum the operator did not (BUGS F49).
 	stamped map[int]bool
 	// scope is how a scoped delete SELECTS one scope's items, nil for a
 	// resource that declares no ScopeSpec.
@@ -251,7 +251,7 @@ func (r *Resource) initEntity(m *resourceMeta, byField map[string]int) {
 	}
 	e := &entityMeta{sort: sortFields, sep: r.EntityKeySep, stamped: map[int]bool{},
 		filtered: map[int]bool{}}
-	for _, idx := range m.stampedIdx {
+	for _, idx := range m.autoStampIdx {
 		e.stamped[idx] = true
 	}
 	for _, c := range r.RowFilter {

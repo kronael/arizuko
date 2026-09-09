@@ -16,40 +16,77 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/store"
+	"time"
 )
 
 // seedRoutdConfig puts a group and one egress rule into routd.db with direct
 // SQL, then proves both landed — a fixture that silently failed would make
 // every assertion below vacuous.
 //
-// updated_at is seeded deliberately. The engine auto-stamps any EMPTY
-// StampedField on insert, so a groups row with a NULL updated_at gets a fresh
-// timestamp on every re-insert — which makes even a plain no-op `export |
-// apply` move the subsystem checksum once (BUGS F41, pre-existing and not
-// about rollback). Seeding it puts the fixture in the state any instance that
-// has been through the config lane once is already in, so the checksum
-// assertion below measures the rollback and not F41.
+// The seed goes through store's own writers, which is what puts `updated_at` on
+// the group: `groups.updated_at` is server-owned and never invented (its
+// AbsentStamps declaration), so a group written any other way carries none and
+// the checksum assertion below would be measuring that instead of the rollback.
 func seedRoutdConfig(t *testing.T, db *sql.DB) {
 	t.Helper()
-	if _, err := db.Exec(
-		`INSERT INTO groups (folder, added_at, updated_at, product)
-		 VALUES ('corp/eng', '2026-08-06T00:00:00Z', '2026-08-06T00:00:00Z', 'assistant')`); err != nil {
+	st := store.New(db)
+	if err := st.PutGroupRow(core.Group{
+		Folder:  "corp/eng",
+		AddedAt: time.Date(2026, 8, 6, 0, 0, 0, 0, time.UTC),
+		Product: "assistant",
+	}); err != nil {
 		t.Fatalf("seed group: %v", err)
 	}
-	if _, err := db.Exec(
-		`INSERT INTO network_rules (folder, target, created_at, created_by)
-		 VALUES ('corp/eng', 'original.example.com', '2026-08-06T00:00:00Z', 'seed')`); err != nil {
+	if err := st.AddNetworkRule("corp/eng", "original.example.com", "seed"); err != nil {
 		t.Fatalf("seed rule: %v", err)
 	}
-	if got := scalar(t, db, `SELECT COUNT(*) FROM groups WHERE folder='corp/eng'`); got != 1 {
+	if got := groupCount(t, db, "corp/eng"); got != 1 {
 		t.Fatalf("seeded group count = %d, want 1", got)
 	}
-	if got := scalar(t, db, `SELECT COUNT(*) FROM network_rules WHERE folder='corp/eng' AND target='original.example.com'`); got != 1 {
+	if got := ruleCount(t, db, "corp/eng", "original.example.com"); got != 1 {
 		t.Fatalf("seeded rule count = %d, want 1", got)
 	}
+}
+
+// groupCount answers how many group items name folder. An empty folder counts
+// every group. It reads through store's own reader, so a fixture cannot agree
+// with a bug the daemon has.
+func groupCount(t *testing.T, db *sql.DB, folder string) int {
+	t.Helper()
+	all := store.New(db).AllGroups()
+	if folder == "" {
+		return len(all)
+	}
+	if _, ok := all[folder]; ok {
+		return 1
+	}
+	return 0
+}
+
+// ruleCount answers how many egress rules match folder and target. An empty
+// folder or target is a wildcard for that half, which is what the `WHERE`
+// clauses these replace left out.
+func ruleCount(t *testing.T, db *sql.DB, folder, target string) int {
+	t.Helper()
+	rules, err := store.New(db).AllNetworkRules()
+	if err != nil {
+		t.Fatalf("read network rules: %v", err)
+	}
+	n := 0
+	for _, r := range rules {
+		if folder != "" && r.Folder != folder {
+			continue
+		}
+		if target != "" && r.Target != target {
+			continue
+		}
+		n++
+	}
+	return n
 }
 
 func scalar(t *testing.T, db *sql.DB, q string) int {
@@ -113,7 +150,7 @@ func TestRollback_LaterSubsystemFailureRestoresTheEarlierOne(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	beforeOriginal := scalar(t, routdDB, `SELECT COUNT(*) FROM network_rules WHERE folder='corp/eng' AND target='original.example.com'`)
+	beforeOriginal := ruleCount(t, routdDB, "corp/eng", "original.example.com")
 	if beforeOriginal != 1 {
 		t.Fatalf("pre-state wrong: original rule count = %d", beforeOriginal)
 	}
@@ -133,16 +170,16 @@ func TestRollback_LaterSubsystemFailureRestoresTheEarlierOne(t *testing.T) {
 	// Content-level assertions, not just the hash: a hash-only check would
 	// pass for a rollback that got lucky on a collision, and says nothing
 	// about WHICH rows moved.
-	if got := scalar(t, routdDB, `SELECT COUNT(*) FROM network_rules WHERE folder='corp/eng' AND target='original.example.com'`); got != 1 {
+	if got := ruleCount(t, routdDB, "corp/eng", "original.example.com"); got != 1 {
 		t.Errorf("corp/eng's original rule not restored (count=%d)", got)
 	}
-	if got := scalar(t, routdDB, `SELECT COUNT(*) FROM network_rules WHERE target='replaced.example.com'`); got != 0 {
+	if got := ruleCount(t, routdDB, "", "replaced.example.com"); got != 0 {
 		t.Errorf("the forward apply's replacement rule survived the rollback (count=%d)", got)
 	}
-	if got := scalar(t, routdDB, `SELECT COUNT(*) FROM groups WHERE folder='new/team'`); got != 0 {
+	if got := groupCount(t, routdDB, "new/team"); got != 0 {
 		t.Errorf("the folder the forward apply CREATED survived the rollback (count=%d) — PruneScopes is not working", got)
 	}
-	if got := scalar(t, routdDB, `SELECT COUNT(*) FROM network_rules WHERE folder='new/team'`); got != 0 {
+	if got := ruleCount(t, routdDB, "new/team", ""); got != 0 {
 		t.Errorf("new/team's rules survived the rollback (count=%d)", got)
 	}
 
@@ -206,13 +243,13 @@ func TestRollback_SuccessfulApplyKeepsBothSubsystems(t *testing.T) {
 	if len(report) != 2 {
 		t.Fatalf("report has %d lines, want one per subsystem", len(report))
 	}
-	if got := scalar(t, routdDB, `SELECT COUNT(*) FROM groups WHERE folder='new/team'`); got != 1 {
+	if got := groupCount(t, routdDB, "new/team"); got != 1 {
 		t.Errorf("new/team not created (count=%d)", got)
 	}
-	if got := scalar(t, routdDB, `SELECT COUNT(*) FROM network_rules WHERE target='replaced.example.com'`); got != 1 {
+	if got := ruleCount(t, routdDB, "", "replaced.example.com"); got != 1 {
 		t.Errorf("corp/eng's rule not replaced (count=%d)", got)
 	}
-	if got := scalar(t, routdDB, `SELECT COUNT(*) FROM network_rules WHERE target='original.example.com'`); got != 0 {
+	if got := ruleCount(t, routdDB, "", "original.example.com"); got != 0 {
 		t.Errorf("the old rule survived a successful apply (count=%d)", got)
 	}
 	// The gate is an item, so it is read through the method onbod calls. This is

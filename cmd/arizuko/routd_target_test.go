@@ -7,10 +7,14 @@ import (
 	"testing"
 	"time"
 
+	"context"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/db_utils"
+	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
+	"strings"
 )
 
 // setupSplitStore creates BOTH a migrated routd.db (routd owns acl/secrets in the
@@ -55,6 +59,52 @@ func countRows(t *testing.T, dir, owner, q string, args ...any) int {
 	return n
 }
 
+// countItems opens a raw handle on the named owner's DB under the store dir and
+// counts the items of one entity whose attributes and coordinate satisfy match.
+// Pass "" as owner for a flat file such as the retired messages.db.
+//
+// It is the entity twin of countRows, and every assertion below that names one
+// of routd's thirteen goes through it: a `SELECT … WHERE principal=` has no
+// column to name, and the question those tests ask — "did the row land HERE and
+// not THERE" — is the same question over items.
+func countItems(t *testing.T, dir, owner, entity string, match func(objstore.Item) bool) int {
+	t.Helper()
+	file := filepath.Join(dir, owner)
+	if _, ok := store.OwnerDBs[owner]; ok {
+		file = store.OwnerDBPath(dir, owner)
+	}
+	db, err := db_utils.Open(db_utils.FileDSN(file))
+	if err != nil {
+		t.Fatalf("open %s: %v", file, err)
+	}
+	defer db.Close()
+	items, err := sqlstore.New(db).Query(context.Background(), objstore.Query{
+		Entity: entity, Partition: store.OwnerRoutd,
+	})
+	if err != nil {
+		t.Fatalf("read %s in %s: %v", entity, file, err)
+	}
+	n := 0
+	for _, it := range items {
+		if match(it) {
+			n++
+		}
+	}
+	return n
+}
+
+// keyIs matches an item whose coordinate joins to exactly these fields.
+func keyIs(parts ...string) func(objstore.Item) bool {
+	want := strings.Join(parts, store.KeySep)
+	return func(it objstore.Item) bool { return it.Key.Sort == want }
+}
+
+// keyLeads matches an item whose coordinate begins with these fields.
+func keyLeads(parts ...string) func(objstore.Item) bool {
+	want := strings.Join(parts, store.KeySep) + store.KeySep
+	return func(it objstore.Item) bool { return strings.HasPrefix(it.Key.Sort, want) }
+}
+
 // TestGrantLandsInRoutdDB proves `arizuko grant` (runGrant via mustOpenACL/
 // OpenRoutd) writes the acl row into routd.db and leaves messages.db empty.
 func TestGrantLandsInRoutdDB(t *testing.T) {
@@ -73,21 +123,18 @@ func TestGrantLandsInRoutdDB(t *testing.T) {
 	}
 	s.Close()
 
-	if n := countRows(t, dir, store.OwnerRoutd,
-		"SELECT COUNT(*) FROM acl WHERE principal='github:42'"); n != 1 {
+	if n := countItems(t, dir, store.OwnerRoutd, store.ACL, keyLeads("github:42")); n != 1 {
 		t.Errorf("routd.db acl rows = %d, want 1", n)
 	}
-	if n := countRows(t, dir, store.OwnerRoutd,
-		"SELECT COUNT(*) FROM acl_membership WHERE child='github:42' AND parent='role:operator'"); n != 1 {
+	if n := countItems(t, dir, store.OwnerRoutd, store.ACLMembership,
+		keyIs("github:42", "role:operator")); n != 1 {
 		t.Errorf("routd.db membership rows = %d, want 1", n)
 	}
 	// messages.db must be untouched by the CLI grant path.
-	if n := countRows(t, dir, "messages.db",
-		"SELECT COUNT(*) FROM acl WHERE principal='github:42'"); n != 0 {
+	if n := countItems(t, dir, "messages.db", store.ACL, keyLeads("github:42")); n != 0 {
 		t.Errorf("messages.db acl rows = %d, want 0 (CLI must not write the monolith)", n)
 	}
-	if n := countRows(t, dir, "messages.db",
-		"SELECT COUNT(*) FROM acl_membership WHERE child='github:42'"); n != 0 {
+	if n := countItems(t, dir, "messages.db", store.ACLMembership, keyLeads("github:42")); n != 0 {
 		t.Errorf("messages.db membership rows = %d, want 0", n)
 	}
 }
@@ -111,12 +158,10 @@ func TestUngrantRemovesFromRoutdDB(t *testing.T) {
 	}
 	s.Close()
 
-	if n := countRows(t, dir, store.OwnerRoutd,
-		"SELECT COUNT(*) FROM acl WHERE principal='u1'"); n != 0 {
+	if n := countItems(t, dir, store.OwnerRoutd, store.ACL, keyLeads("u1")); n != 0 {
 		t.Errorf("routd.db acl rows after ungrant = %d, want 0", n)
 	}
-	if n := countRows(t, dir, store.OwnerRoutd,
-		"SELECT COUNT(*) FROM acl_membership WHERE child='u1'"); n != 0 {
+	if n := countItems(t, dir, store.OwnerRoutd, store.ACLMembership, keyLeads("u1")); n != 0 {
 		t.Errorf("routd.db membership rows after ungrant = %d, want 0", n)
 	}
 }
@@ -137,12 +182,12 @@ func TestSecretLandsInRoutdDB(t *testing.T) {
 	}
 	s.Close()
 
-	if n := countRows(t, dir, store.OwnerRoutd,
-		"SELECT COUNT(*) FROM secrets WHERE scope_kind='folder' AND scope_id='main' AND key='GITHUB_TOKEN'"); n != 1 {
+	if n := countItems(t, dir, store.OwnerRoutd, store.Secrets,
+		keyIs("folder", "main", "GITHUB_TOKEN")); n != 1 {
 		t.Errorf("routd.db secret rows = %d, want 1", n)
 	}
-	if n := countRows(t, dir, "messages.db",
-		"SELECT COUNT(*) FROM secrets WHERE key='GITHUB_TOKEN'"); n != 0 {
+	if n := countItems(t, dir, "messages.db", store.Secrets,
+		keyIs("folder", "main", "GITHUB_TOKEN")); n != 0 {
 		t.Errorf("messages.db secret rows = %d, want 0 (CLI must not write the monolith)", n)
 	}
 
@@ -155,8 +200,8 @@ func TestSecretLandsInRoutdDB(t *testing.T) {
 		t.Fatalf("runSecretDelete: %v", err)
 	}
 	s2.Close()
-	if n := countRows(t, dir, store.OwnerRoutd,
-		"SELECT COUNT(*) FROM secrets WHERE key='GITHUB_TOKEN'"); n != 0 {
+	if n := countItems(t, dir, store.OwnerRoutd, store.Secrets,
+		keyIs("folder", "main", "GITHUB_TOKEN")); n != 0 {
 		t.Errorf("routd.db secret rows after delete = %d, want 0", n)
 	}
 }

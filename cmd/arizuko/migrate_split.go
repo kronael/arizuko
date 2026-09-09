@@ -62,9 +62,6 @@ type copySpec struct {
 // see migrateSplit's summary for the deltas found.
 var routdSpecs = []copySpec{
 	// straight copies (shared column intersection)
-	{dst: "groups", src: "groups",
-		cols: "folder, added_at, container_config, updated_at, product, cost_cap_cents_per_day, config",
-		sel:  "folder, added_at, container_config, updated_at, product, cost_cap_cents_per_day, config"},
 	// messages.db chats has no `errored` column (dropped in store 0023);
 	// routd.db chats adds it → defaults to 0.
 	{dst: "chats", src: "chats",
@@ -86,57 +83,22 @@ var routdSpecs = []copySpec{
 			"COALESCE(topic,''), COALESCE(routed_to,''), COALESCE(verb,'message'), " +
 			"COALESCE(attachments,''), COALESCE(source,''), COALESCE(is_observed,0), " +
 			"COALESCE(turn_id,''), COALESCE(status,'sent'), COALESCE(platform_id,''), COALESCE(chat_name,'')"},
-	{dst: "routes", src: "routes",
-		cols: "id, seq, match, target, observe_window_messages, observe_window_chars",
-		sel:  "id, seq, match, target, observe_window_messages, observe_window_chars"},
 	{dst: "sessions", src: "sessions",
 		cols: "group_folder, topic, session_id, parent_topic, forked_at, observed_cursor",
 		sel:  "group_folder, topic, session_id, parent_topic, forked_at, observed_cursor"},
-	{dst: "route_tokens", src: "route_tokens",
-		cols: "token_hash, jid, owner_folder, created_at",
-		sel:  "token_hash, jid, owner_folder, created_at"},
 	{dst: "turn_results", src: "turn_results",
 		cols: "folder, turn_id, session_id, status, recorded_at",
 		sel:  "folder, turn_id, session_id, status, recorded_at"},
-	{dst: "web_routes", src: "web_routes",
-		cols: "path_prefix, access, redirect_to, folder, created_at",
-		sel:  "path_prefix, access, redirect_to, folder, created_at"},
-	{dst: "network_rules", src: "network_rules",
-		cols: "folder, target, created_at, created_by",
-		sel:  "folder, target, created_at, created_by"},
 	{dst: "chat_reply_state", src: "chat_reply_state",
 		cols: "jid, topic, last_reply_id, engaged_until, engaged_folder",
 		sel:  "jid, topic, last_reply_id, engaged_until, engaged_folder"},
 	{dst: "group_watchers", src: "group_watchers",
 		cols: "observer, source",
 		sel:  "observer, source"},
-	// acl + acl_membership: routd now OWNS these (routd migration 0007 mirrors
-	// store 0052). Straight copies — identical schema both sides.
-	{dst: "acl", src: "acl",
-		cols: "principal, action, scope, effect, params, predicate, granted_by, granted_at",
-		sel:  "principal, action, scope, effect, params, predicate, granted_by, granted_at"},
-	// added_by is NOT NULL on the routd side (routd migration 0047): it is the
-	// value acl_membership's own row filter compares, and an absent one answers
-	// no comparison, so an edge carrying NULL would land invisible to every
-	// export and untouched by every apply. The pre-split column is nullable, so
-	// the copy normalises on the way — the same NULL → '' the in-place upgrade
-	// does, because both say the writer recorded no actor.
-	{dst: "acl_membership", src: "acl_membership",
-		cols: "child, parent, added_by, added_at",
-		sel:  "child, parent, COALESCE(added_by, ''), added_at"},
-	// secrets: routd now OWNS it (routd migration 0008 mirrors store 0034/0047
-	// final shape). Straight copy — encrypted `value` bytes move verbatim (same
-	// SECRETS_KEY decrypts on the routd side).
-	{dst: "secrets", src: "secrets",
-		cols: "scope_kind, scope_id, key, value, created_at",
-		sel:  "scope_kind, scope_id, key, value, created_at"},
 	// scheduled_tasks + task_run_logs: routd now OWNS these (routd migration 0009
 	// mirrors store 0001/0011 final shape). Straight copies — identical schema
 	// both sides. task_run_logs.id is AUTOINCREMENT but copied verbatim so the
 	// FK to scheduled_tasks(id) stays intact.
-	{dst: "scheduled_tasks", src: "scheduled_tasks",
-		cols: "id, owner, chat_jid, prompt, cron, next_run, status, created_at, context_mode",
-		sel:  "id, owner, chat_jid, prompt, cron, next_run, status, created_at, context_mode"},
 	{dst: "task_run_logs", src: "task_run_logs",
 		cols: "id, task_id, run_at, duration_ms, status, result, error",
 		sel:  "id, task_id, run_at, duration_ms, status, result, error"},
@@ -155,16 +117,12 @@ var routdSpecs = []copySpec{
 	{dst: "system_messages", src: "system_messages", transfm: true,
 		cols: "id, folder, source, kind, body, created",
 		sel:  "id, group_id, origin, event, body, created_at"},
-	// proxyd_routes: routd.db OWNS it (routd migration 0015 mirrors store
-	// 0050 + 0072 redirect_to); proxyd resolves routes there. Straight copy.
-	{dst: "proxyd_routes", src: "proxyd_routes",
-		cols: "path, backend, auth, gated_by, preserve_headers, strip_prefix, redirect_to",
-		sel:  "path, backend, auth, gated_by, preserve_headers, strip_prefix, redirect_to"},
-	// audit_log, pane_sessions and secret_use_log are NOT here: each is an
-	// objstore entity, so none is a column list and no INSERT … SELECT can carry
-	// one. copyAuditLog and copyStoreEntities below read the monolith's rows
-	// through the same source readers `arizuko migrate-audit` and `arizuko
-	// migrate-store` use, and hand them to the packages that own the item shape.
+	// audit_log, pane_sessions, secret_use_log and routd's own thirteen are NOT
+	// here: each is an objstore entity, so none is a column list and no
+	// INSERT … SELECT can carry one. copyAuditLog, copyStoreEntities and
+	// copyRoutdEntities below read the monolith's rows through the same source
+	// readers `arizuko migrate-audit`, `migrate-store` and `migrate-routd` use,
+	// and hand them to the packages that own the item shape.
 	// cost_log_archive: the spend a pre-split instance recorded, landing in the
 	// table that holds spend history (spec 6/39 — the model gateway is the ledger,
 	// and these rows predate one metering anything).
@@ -389,6 +347,42 @@ func copyOnbodEntities(dst *sql.DB, msgPath string, dryRun bool) (store.OnbodCou
 	return store.New(dst).ImportOnbod(context.Background(), snap)
 }
 
+// copyRoutdEntities carries the monolith's thirteen routd tables into routd.db's
+// entities. It reuses migrate-routd's reader, so the cutover and the in-place
+// move cannot disagree about what a row holds — the same reason
+// copyOnbodEntities reuses migrate-onbod's.
+//
+// The reader takes every column the monolith's table HAS, from the schema, so a
+// column the pre-split chain carried and the split chain did not still travels
+// as the attribute it becomes. That is what the fifteen hand-written column
+// lists above could not promise.
+func copyRoutdEntities(dst *sql.DB, msgPath string, dryRun bool) (store.RoutdCounts, error) {
+	src, err := db_utils.Open(db_utils.FileDSN(msgPath))
+	if err != nil {
+		return nil, err
+	}
+	defer src.Close() //nolint:errcheck // read-only, and the process ends either way
+	sources, err := legacySources(src, store.RoutdEntities)
+	if err != nil {
+		return nil, err
+	}
+	if len(sources) == 0 {
+		return store.RoutdCounts{}, nil
+	}
+	snap, err := readRoutdSnapshot(src, sources)
+	if err != nil {
+		return nil, err
+	}
+	counts, err := store.CheckRoutdSnapshot(snap)
+	if err != nil {
+		return nil, err
+	}
+	if dryRun {
+		return counts, nil
+	}
+	return store.New(dst).ImportRoutd(context.Background(), snap)
+}
+
 func migrateSplit(storeDir string, dryRun bool) error {
 	msgPath := filepath.Join(storeDir, "messages.db")
 	if _, err := os.Stat(msgPath); err != nil {
@@ -453,9 +447,17 @@ func migrateSplit(storeDir string, dryRun bool) error {
 	if err != nil {
 		return fmt.Errorf("routd.db: %w", err)
 	}
-	// 5/33: bind every migrated folder to role:member (the messaging floor). copyInto
-	// copies group rows raw (no PutGroup → no assignDefaultRole), so a migrated agent
-	// would have no grants and couldn't even send. Idempotent (INSERT OR IGNORE).
+	// The monolith's thirteen routd tables land in routd.db as entities, and for
+	// the same reason the audit trail does: none of them is a column list any
+	// more, so none can travel through an INSERT … SELECT.
+	eN, err := copyRoutdEntities(rdb.SQL(), msgPath, dryRun)
+	if err != nil {
+		return fmt.Errorf("routd.db: %w", err)
+	}
+	// 5/33: bind every migrated folder to role:member (the messaging floor). The
+	// import writes group items directly, so no creating writer ran and no edge
+	// came with them — a migrated agent would have no grants and could not even
+	// send. Idempotent: the edge write is create-if-absent.
 	if !dryRun {
 		st := store.New(rdb.SQL())
 		for f := range rdb.AllGroups() {
@@ -494,6 +496,9 @@ func migrateSplit(storeDir string, dryRun bool) error {
 
 	fmt.Println("\nsummary:")
 	fmt.Printf("  routd.db rows: %s\n", fmtCounts(routdSpecs, rN))
+	for _, entity := range store.RoutdEntities {
+		fmt.Printf("  routd.db %-19s %d\n", entity+":", eN[entity])
+	}
 	fmt.Printf("  routd.db audit_log: %d events\n", aN)
 	fmt.Printf("  routd.db pane_sessions: %d panes, secret_use_log: %d uses\n", sN.Panes, sN.Uses)
 	fmt.Printf("  runed.db session_log: %d sessions\n", uN)
