@@ -125,7 +125,11 @@ func (s *Store) LastReplyID(jid, topic string) string {
 // it, because that is the write an engagement decision made.
 //
 // An empty anchor leaves the stored one alone, which is what an Update already
-// means: a merge carries the attributes it names and leaves the rest.
+// means: a merge carries the attributes it names and leaves the rest. No
+// production caller can reach that branch — ipc/ipc.go putOutboundRow calls this
+// only when the platform returned an id, and routd's two sites pass a stored
+// row's own id — so it is the behaviour of the empty case and not a change to
+// any live one.
 func (s *Store) SetLastReply(jid, topic, replyID, folder string) error {
 	key, err := replyStateKey(jid, topic)
 	if err != nil {
