@@ -40,6 +40,9 @@ const (
 	OnboardingGates = "onboarding_gates"
 	// Invites holds one item per live invite, addressed by its ref.
 	Invites = "invites"
+	// InviteRedemptions holds one unspent subgroup-invite redemption, addressed
+	// by the person who followed it and the instant they did.
+	InviteRedemptions = "invite_redemptions"
 
 	// routd's thirteen registered resources. Each one's coordinate is argued
 	// against the live rows in resreg/resources/<name>.go, because the
@@ -182,15 +185,13 @@ const (
 // audit_log is NOT here: four owner databases carry it, `audit` owns the
 // declaration, and every opener reaches it through audit.EnsureEntities.
 //
-// `invite_redemptions` is NOT here either, and that is a modelling answer
-// rather than an unfinished move. Its identity is an AUTOINCREMENT rowid the
-// engine hands out, and the two operations on it are "the caller's most recent
-// unspent row" and "delete exactly that row" — a claim that has to pick one of
-// several rows one caller owns (onbod/main.go latestRedemption, spendRedemption).
-// An item has no server-minted identity, so a coordinate for it would have to
-// be invented, and inventing one is a decision the row that needs it should
-// make. It stays a table in onbod.db and store.consumeInvite keeps writing it
-// as SQL, inside the same transaction the invite's counter moves in.
+// `invite_redemptions` carries a coordinate this package INVENTED, because an
+// item has no server-minted identity and its two operations needed one: "the
+// caller's most recent unspent redemption" and "spend exactly that one"
+// (onbod/main.go). The person is the partition and the instant is the sort key,
+// so the first is a descending range of one item and the second a point delete
+// whose refusal IS the claim. Its write joins the transaction the invite's
+// counter moves in, through WriteEntitiesInTx.
 var EntitiesByOwner = map[string][]string{
 	OwnerRoutd: {
 		PaneSessions, SecretUseLog, Counters,
@@ -200,7 +201,7 @@ var EntitiesByOwner = map[string][]string{
 		Chats, Sessions, ChatReplyState, ChatProactive, SystemMessages, UserProfiles,
 		TurnResults, GroupWatchers, TaskRunLogs, TurnContexts,
 	},
-	OwnerOnbod: {Onboarding, OnboardingGates, Invites},
+	OwnerOnbod: {Onboarding, OnboardingGates, Invites, InviteRedemptions},
 }
 
 // Driver is what preparing this package's entities takes: an engine that

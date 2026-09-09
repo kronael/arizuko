@@ -20,12 +20,13 @@
 -- No expiry column. The cookie's MaxAge=600 was a lockout, not a control — an
 -- invite consumed by a user who took eleven minutes to choose a username was
 -- burned with the authority already expired.
-CREATE TABLE IF NOT EXISTS invite_redemptions (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_sub    TEXT NOT NULL,
-  target_glob TEXT NOT NULL,
-  redeemed_at TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_invite_redemptions_user
-  ON invite_redemptions(user_sub);
+--
+-- `invite_redemptions` is an objstore entity rather than a table this chain
+-- creates: the driver makes it, from the one declaration that sits beside the
+-- code writing it (store.EnsureEntities, spec 6/37 step 7). The person is the
+-- partition and the instant they redeemed at is the sort key, so "my most recent
+-- unspent redemption" is a descending range of one item and spending it is a
+-- point delete whose refusal is the claim. An entity keeps the name of the table
+-- it replaces, so a database carrying rows here is moved by
+-- `arizuko migrate-onbod` and refuses to open until it has been.
+SELECT 1;

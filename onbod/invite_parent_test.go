@@ -72,9 +72,8 @@ func aclScopes(t *testing.T, db *sql.DB, principal string) []string {
 
 func redemptionCount(t *testing.T, db *sql.DB, sub string) int {
 	t.Helper()
-	var n int
-	if err := db.QueryRow(
-		`SELECT COUNT(*) FROM invite_redemptions WHERE user_sub = ?`, sub).Scan(&n); err != nil {
+	n, err := store.New(db).CountRedemptions(t.Context(), sub)
+	if err != nil {
 		t.Fatalf("invite_redemptions count: %v", err)
 	}
 	return n
@@ -302,9 +301,9 @@ func seedRedemption(t *testing.T, db *sql.DB, sub, targetGlob string) {
 }
 
 // The hand-written schema in testDB is a model of onbod.db, not onbod.db. This
-// runs the real migration chain so a table the tests above rely on cannot exist
-// only in the model.
-func TestInviteRedemptionsTableMigrates(t *testing.T) {
+// opens the real thing so an entity the tests above rely on cannot exist only in
+// the model.
+func TestInviteRedemptionsEntityIsServedByARealOnbodDB(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "onbod.db")
 	mustSeedDB(t, path)
 	db, err := openOwnedDB(path)
@@ -313,17 +312,13 @@ func TestInviteRedemptionsTableMigrates(t *testing.T) {
 	}
 	defer db.Close()
 
-	if _, err := db.Exec(
-		`INSERT INTO invite_redemptions (user_sub, target_glob, redeemed_at)
-		 VALUES ('github:bob', 'acme/', '2026-08-07T00:00:00Z')`); err != nil {
-		t.Fatalf("migrated table does not accept a redemption row: %v", err)
+	st := store.New(db)
+	seedRedemption(t, db, "github:bob", "acme/")
+	r, held, err := st.LatestRedemption(t.Context(), "github:bob")
+	if err != nil || !held {
+		t.Fatalf("read back: held=%v err=%v", held, err)
 	}
-	var glob string
-	if err := db.QueryRow(
-		`SELECT target_glob FROM invite_redemptions WHERE user_sub = 'github:bob'`).Scan(&glob); err != nil {
-		t.Fatalf("read back: %v", err)
-	}
-	if glob != "acme/" {
-		t.Errorf("target_glob = %q, want %q", glob, "acme/")
+	if r.TargetGlob != "acme/" {
+		t.Errorf("target_glob = %q, want %q", r.TargetGlob, "acme/")
 	}
 }

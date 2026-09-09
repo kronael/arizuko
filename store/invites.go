@@ -30,11 +30,10 @@ package store
 // THE READ SAW. A caller that loses that condition lost the race, and losing is
 // ErrInviteUnavailable — the same answer the statement's zero rows gave.
 //
-// `invite_redemptions` does NOT move with it. Its identity is a rowid the
-// engine hands out and its claim picks one of several rows one caller owns, so
-// it stays a table in onbod.db — and consumeInvite stays ONE transaction, with
-// the counter's guarded batch and the redemption's INSERT and the audit row all
-// riding it (entities.go).
+// `invite_redemptions` is its own entity, in invite_redemptions.go, and it goes
+// in on THIS transaction: consumeInvite is one commit carrying the counter's
+// guarded batch, the redemption and the audit row, so a redemption cannot exist
+// for an invite whose counter did not move.
 
 import (
 	"context"
@@ -540,16 +539,25 @@ func (s *Store) consumeInvite(token, userSub string, grantACL bool) (*Invite, er
 	// operator invited this caller into, and that fact has to be recorded: it is
 	// the authority handleCreateWorld derives the parent folder from. It used to
 	// ride in the `pending_target` cookie, which the caller owns and could forge
-	// to name any tenant's subtree (BUGS F50). The row goes in regardless of
+	// to name any tenant's subtree (BUGS F50). The item goes in regardless of
 	// grantACL — invite_redemptions is onbod-owned, so it lands in the same DB
 	// the invites item just moved in, split or not.
-	nowText := onbodTS(now)
 	if strings.HasSuffix(inv.TargetGlob, "/") {
-		if _, err := tx.Exec(
-			`INSERT INTO invite_redemptions (user_sub, target_glob, redeemed_at)
-			 VALUES (?, ?, ?)`,
-			userSub, inv.TargetGlob, nowText); err != nil {
+		at, err := redemptionNowStamp()
+		if err != nil {
 			return nil, err
+		}
+		w, err := redemptionWrite(userSub, at, inv.TargetGlob)
+		if err != nil {
+			return nil, err
+		}
+		recorded, err := s.WriteEntitiesInTx(ctx, tx, nil, w)
+		if err != nil {
+			return nil, err
+		}
+		if !recorded {
+			return nil, fmt.Errorf("record %s's redemption: position %s is taken, so two "+
+				"redemptions were minted at one instant with one suffix", userSub, at)
 		}
 	} else if grantACL {
 		// The grant is `acl`'s own write, rendered by `acl`'s own writer, so the

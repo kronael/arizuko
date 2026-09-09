@@ -5,7 +5,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"html"
 	"html/template"
@@ -722,44 +721,28 @@ func mayCreateFirstWorld(obdb *sql.DB, userSub string) bool {
 // redeemed a subgroup invite. It is the ONLY thing that can name a parent
 // folder: the request names none, so a caller can no longer ask for a world
 // inside a subtree nobody invited them into (BUGS F50).
-type pendingRedemption struct {
-	id   int64
-	glob string
-}
-
 // latestRedemption returns the caller's most recent unspent subgroup-invite
 // redemption. Most recent because a caller holding two is answering the invite
-// they just followed; each row is spent on its own, so two invites still yield
-// two worlds.
+// they just followed; each is spent on its own, so two invites still yield two
+// worlds.
 //
-// Fails closed like mayCreateFirstWorld: an unreadable table is no authority.
-func latestRedemption(obdb *sql.DB, userSub string) (pendingRedemption, bool) {
-	if userSub == "" {
-		return pendingRedemption{}, false
-	}
-	var p pendingRedemption
-	err := obdb.QueryRow(
-		`SELECT id, target_glob FROM invite_redemptions
-		 WHERE user_sub = ? ORDER BY id DESC LIMIT 1`, userSub).Scan(&p.id, &p.glob)
+// Fails closed like mayCreateFirstWorld: an unreadable partition is no
+// authority.
+func latestRedemption(obdb *sql.DB, userSub string) (store.Redemption, bool) {
+	r, held, err := store.New(obdb).LatestRedemption(context.Background(), userSub)
 	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			slog.Error("invite redemption lookup", "user", userSub, "err", err)
-		}
-		return pendingRedemption{}, false
+		slog.Error("invite redemption lookup", "user", userSub, "err", err)
+		return store.Redemption{}, false
 	}
-	return p, true
+	return r, held
 }
 
-// spendRedemption consumes the row, making a redemption single-use. RowsAffected
-// is the claim, not a report: two create_world posts that derived the same row
-// cannot both spend it, so one invite redemption is one world.
-func spendRedemption(obdb *sql.DB, p pendingRedemption) (bool, error) {
-	res, err := obdb.Exec(`DELETE FROM invite_redemptions WHERE id = ?`, p.id)
-	if err != nil {
-		return false, err
-	}
-	n, err := res.RowsAffected()
-	return n > 0, err
+// spendRedemption consumes the redemption, making it single-use. The delete's
+// own refusal is the claim, not a report: two create_world posts that derived
+// the same redemption cannot both spend it, so one invite redemption is one
+// world.
+func spendRedemption(obdb *sql.DB, userSub string, r store.Redemption) (bool, error) {
+	return store.New(obdb).SpendRedemption(context.Background(), userSub, r)
 }
 
 func handleCreateWorld(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg config, userSub string) {
@@ -780,7 +763,7 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB,
 	// cannot be combined into a deeper one.
 	var parent string
 	if invited {
-		parent = strings.TrimSuffix(redemption.glob, "/")
+		parent = strings.TrimSuffix(redemption.TargetGlob, "/")
 	}
 
 	username := strings.TrimSpace(r.FormValue("username"))
@@ -807,7 +790,7 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB,
 	// replay of the same redemption — a resubmitted form, a second tab — finds
 	// nothing to derive a parent from and creates no second world.
 	if invited {
-		spent, err := spendRedemption(obdb, redemption)
+		spent, err := spendRedemption(obdb, userSub, redemption)
 		if err != nil {
 			slog.Error("create world: spend invite redemption", "user", userSub, "err", err)
 			http.Error(w, "create world failed", http.StatusInternalServerError)

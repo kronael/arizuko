@@ -224,9 +224,20 @@ func normalizeTS(what, value string) (string, error) {
 // tables as the source reads them. The row types are this package's own plain
 // values, so the tool that reads the columns never learns the item shape.
 type OnbodSnapshot struct {
-	Admissions []OnboardingRow
-	Gates      []OnboardingGate
-	Invites    []ArchiveInviteRow
+	Admissions  []OnboardingRow
+	Gates       []OnboardingGate
+	Invites     []ArchiveInviteRow
+	Redemptions []RedemptionRow
+}
+
+// RedemptionRow is one legacy `invite_redemptions` row, carrying the rowid its
+// position's suffix is built from. Two redemptions of one second kept the order
+// the id gave them, and no two can collide, because an id is unique.
+type RedemptionRow struct {
+	RowID      int64
+	UserSub    string
+	TargetGlob string
+	RedeemedAt string
 }
 
 // OnbodCounts is what an import wrote, per entity, for the operator to check
@@ -239,9 +250,10 @@ type OnbodSnapshot struct {
 // against a count taken from the source, which is the only reading that
 // distinguishes the two.
 type OnbodCounts struct {
-	Admissions int
-	Gates      int
-	Invites    int
+	Admissions  int
+	Gates       int
+	Invites     int
+	Redemptions int
 }
 
 // CheckOnbodSnapshot reports whether the entities can represent snap, writing
@@ -285,7 +297,7 @@ func onbodWrites(snap OnbodSnapshot) ([]objstore.Write, OnbodCounts, error) {
 	// One claimed-coordinate set per entity, because the three share a partition
 	// and a jid that happens to equal a gate key is not a collision.
 	claimed := map[string]map[string]bool{
-		Onboarding: {}, OnboardingGates: {}, Invites: {},
+		Onboarding: {}, OnboardingGates: {}, Invites: {}, InviteRedemptions: {},
 	}
 	take := func(entity, sort, what string) bool {
 		if claimed[entity][sort] {
@@ -333,6 +345,21 @@ func onbodWrites(snap OnbodSnapshot) ([]objstore.Write, OnbodCounts, error) {
 		}
 		if add(archiveInvitePut(inv)) {
 			counts.Invites++
+		}
+	}
+	for _, r := range snap.Redemptions {
+		w, err := redemptionRowPut(r)
+		if err != nil {
+			refused = append(refused, err.Error())
+			continue
+		}
+		// The person is the PARTITION here, so two people may hold one position
+		// and only a repeat inside one partition is a collision.
+		if !take(InviteRedemptions, w.Key.Partition+KeySep+w.Key.Sort, "redemption") {
+			continue
+		}
+		if add(w, nil) {
+			counts.Redemptions++
 		}
 	}
 	if len(refused) > 0 {

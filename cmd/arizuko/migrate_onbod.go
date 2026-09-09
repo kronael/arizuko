@@ -21,10 +21,11 @@ package main
 // four in one run. Two tools that both claimed it would be two things that can
 // disagree about one table.
 //
-// `invite_redemptions` is not here either, and that one is not moving at all:
-// it is written inside the same transaction as an invite's counter, and
-// GuardedBatchInTx puts the counter's write into that transaction rather than
-// splitting the redemption out of it.
+// `invite_redemptions` is here too, and its coordinate is INVENTED: the rows
+// were addressed by an AUTOINCREMENT id nothing outside onbod's own read-then-
+// delete pair ever held, so the move carries the instant they were redeemed at
+// and that id as the suffix which keeps two of one second in the order the
+// operator read them in.
 
 import (
 	"context"
@@ -43,7 +44,7 @@ import (
 
 // onbodTables are the three onbod used to own as columns in onbod.db. The order
 // is the order an operator reads the report in.
-var onbodTables = []string{"onboarding", "invites", "onboarding_gates"}
+var onbodTables = []string{"onboarding", "invites", "onboarding_gates", "invite_redemptions"}
 
 // cmdMigrateOnbod is `arizuko migrate-onbod`.
 func cmdMigrateOnbod(args []string) {
@@ -90,9 +91,10 @@ func migrateOnbod(path string, dryRun bool) error {
 		return err
 	}
 	reportSource(path, onbodTables, sources, map[string]int{
-		"onboarding":       len(snap.Admissions),
-		"invites":          len(snap.Invites),
-		"onboarding_gates": len(snap.Gates),
+		"onboarding":         len(snap.Admissions),
+		"invites":            len(snap.Invites),
+		"onboarding_gates":   len(snap.Gates),
+		"invite_redemptions": len(snap.Redemptions),
 	})
 	if _, err := store.CheckOnbodSnapshot(snap); err != nil {
 		// The check runs on a real run too, so a row the entities cannot address
@@ -123,8 +125,8 @@ func migrateOnbod(path string, dryRun bool) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("\nwrote %d admissions, %d invites, %d gates\n",
-		counts.Admissions, counts.Invites, counts.Gates)
+	fmt.Printf("\nwrote %d admissions, %d invites, %d gates, %d redemptions\n",
+		counts.Admissions, counts.Invites, counts.Gates, counts.Redemptions)
 	return verifyOnbod(st, snap)
 }
 
@@ -201,6 +203,23 @@ func readOnbodSnapshot(db *sql.DB, src map[string]string) (store.OnbodSnapshot, 
 			return snap, err
 		}
 	}
+	if t, ok := src["invite_redemptions"]; ok {
+		rows, err := db.Query(`SELECT id, user_sub, target_glob, redeemed_at FROM ` + t)
+		if err != nil {
+			return snap, err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var r store.RedemptionRow
+			if err := rows.Scan(&r.RowID, &r.UserSub, &r.TargetGlob, &r.RedeemedAt); err != nil {
+				return snap, err
+			}
+			snap.Redemptions = append(snap.Redemptions, r)
+		}
+		if err := rows.Err(); err != nil {
+			return snap, err
+		}
+	}
 	return snap, nil
 }
 
@@ -245,7 +264,26 @@ func verifyOnbod(st *store.Store, snap store.OnbodSnapshot) error {
 	if len(gates) != len(snap.Gates) {
 		return fmt.Errorf("%d gates read back, %d were written", len(gates), len(snap.Gates))
 	}
-	fmt.Printf("  verified: %d admissions, %d invites, %d gates\n",
-		len(got), len(invites), len(gates))
+	// The redemptions are read back PER PERSON, because the person is the
+	// partition: there is no whole-entity read, and the read onbod itself calls
+	// names one sub. A redemption that landed under the wrong sub is invisible to
+	// its own owner, which is exactly what this catches.
+	held := map[string]int{}
+	for _, r := range snap.Redemptions {
+		held[r.UserSub]++
+	}
+	redemptions := 0
+	for sub, n := range held {
+		back, err := st.CountRedemptions(context.Background(), sub)
+		if err != nil {
+			return fmt.Errorf("read %s's redemptions back: %w", sub, err)
+		}
+		if back != n {
+			return fmt.Errorf("%d redemptions read back for %s, %d were written", back, sub, n)
+		}
+		redemptions += back
+	}
+	fmt.Printf("  verified: %d admissions, %d invites, %d gates, %d redemptions\n",
+		len(got), len(invites), len(gates), redemptions)
 	return nil
 }
