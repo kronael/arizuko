@@ -73,7 +73,7 @@ func TestRecoverPending_ReEnqueuesRunningTurns(t *testing.T) {
 	if _, err := db.RecordTurnResult("demo", "t3", "s", "success"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.SQL().Exec("UPDATE turn_context SET state='done' WHERE turn_id='t3'"); err != nil {
+	if err := db.SetTurnState("t3", "done"); err != nil {
 		t.Fatal(err)
 	}
 

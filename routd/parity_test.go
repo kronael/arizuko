@@ -88,12 +88,12 @@ func TestTurnContextRunIDPersisted(t *testing.T) {
 	if _, err := loop.processGroupMessages("web:demo"); err != nil {
 		t.Fatalf("process: %v", err)
 	}
-	var runID string
-	if err := db.SQL().QueryRow("SELECT run_id FROM turn_context WHERE turn_id='a'").Scan(&runID); err != nil {
-		t.Fatalf("read turn_context.run_id: %v", err)
-	}
-	if runID != "r" {
-		t.Fatalf("turn_context.run_id=%q want r (recRunner's RunID)", runID)
+	// The run id is read back through the reader that joins on it: a run whose
+	// handle did not land owns no typing indicator.
+	owned := db.TypingJIDsForRun("r")
+	if len(owned) != 1 || owned[0] != "web:demo" {
+		t.Fatalf("TypingJIDsForRun(\"r\") = %v, want [web:demo]: the run handle recRunner "+
+			"returned did not land on the turn", owned)
 	}
 }
 

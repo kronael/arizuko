@@ -688,90 +688,50 @@ func (d *DB) LastReplyID(jid, topic string) string {
 	return d.store().LastReplyID(jid, topic)
 }
 
-// PutTurnContext records a turn's (folder, topic, chat_jid) at dispatch so late
-// callbacks resolve their topic from turn_id alone. returnTo is the delegation
-// return-address: when set, the callback surface delivers back to it instead of
-// the child folder JID.
+// PutTurnContext binds a turn to the (folder, topic, chat_jid) it came from so
+// late callbacks resolve their target from turn_id alone. returnTo is the
+// delegation return-address: when set, the callback surface delivers back to it
+// instead of the child folder JID.
 //
-// Returns live=false when the turn is ALREADY terminal — a re-fed batch whose run
-// completed must NOT be resurrected. When an earlier batch finishes and a later
-// batch in the same poll steers, the cursor does not advance, so the next poll
-// re-feeds the completed batch.
+// Returns live=false when the turn is ALREADY terminal — a re-fed batch whose
+// run completed must NOT be resurrected. When an earlier batch finishes and a
+// later batch in the same poll steers, the cursor does not advance, so the next
+// poll re-feeds the completed batch.
 func (d *DB) PutTurnContext(turnID, folder, topic, chatJID, trigger, returnTo string) (bool, error) {
-	res, err := d.db.Exec(`INSERT INTO turn_context(turn_id, folder, topic, chat_jid, trigger_sender, return_to, started_at, state)
-		VALUES(?,?,?,?,?,?,?, 'running')
-		ON CONFLICT(turn_id) DO UPDATE SET folder=excluded.folder, topic=excluded.topic,
-		chat_jid=excluded.chat_jid, trigger_sender=excluded.trigger_sender, return_to=excluded.return_to,
-		state='running', run_returned=0
-		WHERE turn_context.state != 'done'`,
-		turnID, folder, topic, chatJID, trigger, returnTo, nowTS())
-	if err != nil {
-		return false, err
-	}
-	// A done turn matched the conflict but the WHERE clause suppressed the
-	// reset → zero rows changed → not live.
-	n, _ := res.RowsAffected()
-	return n > 0, nil
+	return d.store().OpenTurnContext(turnID, folder, topic, chatJID, trigger, returnTo)
 }
 
 // TurnContext is a turn's bound run-start context.
-type TurnContext struct {
-	TurnID       string
-	Folder       string
-	Topic        string
-	ChatJID      string
-	Trigger      string
-	TriggerMsgID string
-	ReturnTo     string
-	State        string
-	RunReturned  bool
-	RetryCount   int
-}
+type TurnContext = store.TurnContext
 
 // GetTurnContext recovers a turn's context by turn_id.
 func (d *DB) GetTurnContext(turnID string) (TurnContext, bool) {
-	var tc TurnContext
-	var trigMsg sql.NullString
-	var runReturned int
-	err := d.db.QueryRow(`SELECT turn_id, folder, topic, chat_jid, trigger_sender, trigger_msg_id, return_to, state, run_returned, retry_count
-		FROM turn_context WHERE turn_id=?`, turnID).Scan(
-		&tc.TurnID, &tc.Folder, &tc.Topic, &tc.ChatJID, &tc.Trigger, &trigMsg, &tc.ReturnTo, &tc.State, &runReturned, &tc.RetryCount)
-	if err != nil {
-		return TurnContext{}, false
-	}
-	tc.TriggerMsgID = trigMsg.String
-	tc.RunReturned = runReturned == 1
-	return tc, true
+	return d.store().TurnContextOf(turnID)
 }
 
-// SetTurnTriggerMsg records the trigger message's platform id for a turn
-// (turn_context.trigger_msg_id) — the message a threaded reply roots a new
-// platform thread on. Set at dispatch right after PutTurnContext (the
-// SetTurnRunID pattern).
+// SetTurnTriggerMsg records the trigger message's platform id for a turn — the
+// message a threaded reply roots a new platform thread on. Set at dispatch right
+// after PutTurnContext (the SetTurnRunID pattern).
 func (d *DB) SetTurnTriggerMsg(turnID, msgID string) error {
-	_, err := d.db.Exec("UPDATE turn_context SET trigger_msg_id=? WHERE turn_id=?", msgID, turnID)
-	return err
+	return d.store().SetTurnTriggerMsg(turnID, msgID)
 }
 
 // SetTurnState flips a turn's lifecycle state (running|done|expired).
 func (d *DB) SetTurnState(turnID, state string) error {
-	_, err := d.db.Exec("UPDATE turn_context SET state=? WHERE turn_id=?", state, turnID)
-	return err
+	return d.store().SetTurnState(turnID, state)
 }
 
 // SetRunReturned marks that POST /v1/runs has returned for a turn. After this,
 // late callbacks 409 turn_done (the run is no longer live); before it, trailing
 // frames from a still-live run stay valid even past an early submit_turn.
 func (d *DB) SetRunReturned(turnID string) error {
-	_, err := d.db.Exec("UPDATE turn_context SET run_returned=1 WHERE turn_id=?", turnID)
-	return err
+	return d.store().SetRunReturned(turnID)
 }
 
-// SetTurnRunID records the runed-assigned run_id for a turn (turn_context.run_id),
-// the reconciliation handle linking routd's turn to runed's spawn.
+// SetTurnRunID records the runed-assigned run_id for a turn, the reconciliation
+// handle linking routd's turn to runed's spawn.
 func (d *DB) SetTurnRunID(turnID, runID string) error {
-	_, err := d.db.Exec("UPDATE turn_context SET run_id=? WHERE turn_id=?", runID, turnID)
-	return err
+	return d.store().SetTurnRunID(turnID, runID)
 }
 
 // TypingJIDsForRun returns the chats whose typing indicator a run owns: one per
@@ -783,64 +743,26 @@ func (d *DB) SetTurnRunID(turnID, runID string) error {
 // turn's chat. Its indicator was handed to a submit_turn that never fires when the
 // run dies at the timeout wall (BUGS T1).
 func (d *DB) TypingJIDsForRun(runID string) []string {
-	rows, err := d.db.Query(
-		`SELECT DISTINCT COALESCE(NULLIF(return_to,''), chat_jid)
-		 FROM turn_context WHERE run_id=?`, runID)
-	if err != nil {
-		slog.Error("typing jids for run", "run_id", runID, "err", err)
-		return nil
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var jid string
-		if err := rows.Scan(&jid); err != nil {
-			slog.Error("typing jids for run: scan", "run_id", runID, "err", err)
-			continue
-		}
-		out = append(out, jid)
-	}
-	return out
+	return d.store().TypingJIDsForRun(runID)
 }
 
-// IncrementRetryCount bumps a turn's retry_count and sets state to pending_retry.
-// Returns the new count.
+// IncrementRetryCount moves a turn to its next attempt and returns which
+// attempt that is. The count and the pending_retry state land in ONE write: a
+// turn whose count moved but whose state stayed running has burned an attempt
+// and is still fed to crash recovery as live.
 func (d *DB) IncrementRetryCount(turnID string) (int, error) {
-	_, err := d.db.Exec("UPDATE turn_context SET retry_count=retry_count+1, state='pending_retry' WHERE turn_id=?", turnID)
-	if err != nil {
-		return 0, err
-	}
-	var count int
-	d.db.QueryRow("SELECT retry_count FROM turn_context WHERE turn_id=?", turnID).Scan(&count)
-	return count, nil
+	return d.store().RecordRetryAttempt(turnID)
 }
 
 // ResetTurnForRetry resets a turn's state to running for the next retry attempt.
 func (d *DB) ResetTurnForRetry(turnID string) error {
-	_, err := d.db.Exec("UPDATE turn_context SET state='running', run_returned=0 WHERE turn_id=?", turnID)
-	return err
+	return d.store().ResetTurnForRetry(turnID)
 }
 
 // RunningTurns lists turn_ids still in state=running or pending_retry
 // (crash-recovery feed).
 func (d *DB) RunningTurns() ([]TurnContext, error) {
-	rows, err := d.db.Query(`SELECT turn_id, folder, topic, chat_jid, trigger_sender, return_to, state, run_returned
-		FROM turn_context WHERE state IN ('running', 'pending_retry')`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []TurnContext
-	for rows.Next() {
-		var tc TurnContext
-		var runReturned int
-		if err := rows.Scan(&tc.TurnID, &tc.Folder, &tc.Topic, &tc.ChatJID, &tc.Trigger, &tc.ReturnTo, &tc.State, &runReturned); err != nil {
-			return nil, err
-		}
-		tc.RunReturned = runReturned == 1
-		out = append(out, tc)
-	}
-	return out, rows.Err()
+	return d.store().RunningTurns()
 }
 
 // SweepExpiredRunning flips stale state='running' turns older than the run
@@ -848,12 +770,7 @@ func (d *DB) RunningTurns() ([]TurnContext, error) {
 // re-fed by crash recovery, without tripping the done-guard against a legitimate
 // re-dispatch. Returns the count swept.
 func (d *DB) SweepExpiredRunning(timeout time.Duration) (int64, error) {
-	cutoff := core.TS(time.Now().Add(-timeout))
-	res, err := d.db.Exec("UPDATE turn_context SET state='expired' WHERE state='running' AND started_at < ?", cutoff)
-	if err != nil {
-		return 0, err
-	}
-	return res.RowsAffected()
+	return d.store().SweepExpiredRunning(timeout)
 }
 
 // RecordTurnResult records the agent-submitted outcome for one turn. Returns
@@ -950,25 +867,17 @@ func (d *DB) SessionID(folder, topic string) string {
 }
 
 // SetTurnGatewayKey records the sha256 of the key the gateway minted for this
-// turn (turn_context.gateway_key_hash). LiteLLM names a key in its spend log by
-// that hash and never by the key itself, so this is the handle that resolves a
-// turn to the gateway's own numbers — the pointer arizuko keeps in place of the
-// copy it used to write (spec 6/39).
+// turn. The gateway names a key in its spend log by that hash and never by the
+// key itself, so this is the handle that resolves a turn to the gateway's own
+// numbers — the pointer arizuko keeps in place of a copy of them (spec 6/39).
 func (d *DB) SetTurnGatewayKey(turnID, keyHash string) error {
-	_, err := d.db.Exec("UPDATE turn_context SET gateway_key_hash=? WHERE turn_id=?", keyHash, turnID)
-	return err
+	return d.store().SetTurnGatewayKey(turnID, keyHash)
 }
 
 // TurnGatewayKey returns the key hash that metered a turn. Empty means the turn
 // ran with no gateway, so no meter holds a number for it.
 func (d *DB) TurnGatewayKey(turnID string) (string, error) {
-	var hash string
-	err := d.db.QueryRow(
-		"SELECT COALESCE(gateway_key_hash,'') FROM turn_context WHERE turn_id=?", turnID).Scan(&hash)
-	if err == sql.ErrNoRows {
-		return "", nil
-	}
-	return hash, err
+	return d.store().TurnGatewayKey(turnID)
 }
 
 // FolderCap returns the per-day spend cap for a folder in cents. Zero means
@@ -1114,9 +1023,7 @@ func (d *DB) FireProactive(jid string) (string, error) {
 // 'running' — the scan skips it (the per-folder queue serializes; a
 // proactive inbound never steers a live turn).
 func (d *DB) ChatHasRunningTurn(jid string) bool {
-	var n int
-	d.db.QueryRow("SELECT 1 FROM turn_context WHERE chat_jid=? AND state='running' LIMIT 1", jid).Scan(&n)
-	return n == 1
+	return d.store().ChatHasRunningTurn(jid)
 }
 
 // ThreadHasBotMessage reports whether the bot has posted in (chatJID, topic).

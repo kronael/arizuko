@@ -52,7 +52,7 @@ import (
 // it, because an entity has no foreign key to satisfy.
 var HotEntities = []string{
 	Chats, Sessions, ChatReplyState, ChatProactive, SystemMessages,
-	UserProfiles, TurnResults, GroupWatchers, TaskRunLogs,
+	UserProfiles, TurnResults, GroupWatchers, TaskRunLogs, TurnContexts,
 }
 
 // hotKeyFields names each entity's coordinate fields, in order, so the source
@@ -73,6 +73,7 @@ var hotKeyFields = map[string][]string{
 	TurnResults:    {"folder", "turn_id"},
 	GroupWatchers:  {"observer", "source"},
 	TaskRunLogs:    {"run_at", "id"},
+	TurnContexts:   {"turn_id"},
 }
 
 // HotKeyFields answers one entity's coordinate fields, for the reader that has
@@ -107,6 +108,7 @@ var hotStamped = map[string][]string{
 	ChatReplyState: {AttrReplyEngagedUntil},
 	ChatProactive:  {AttrProactiveFiredAt},
 	TurnResults:    {AttrTurnRecordedAt},
+	TurnContexts:   {AttrTurnStartedAt},
 }
 
 // hotCursors names, per entity, the attribute that is a cursor into
@@ -146,7 +148,16 @@ func normaliseCursor(entity, attr, raw string) (string, error) {
 // null this model has, so a stored "0" would be a false flag every reader finds
 // set.
 var hotFlags = map[string][]string{
-	Chats: {attrChatErrored, attrChatIsGroup},
+	Chats:        {attrChatErrored, attrChatIsGroup},
+	TurnContexts: {attrTurnRunReturned},
+}
+
+// hotZeros names the columns whose "0" is the attribute's ABSENCE rather than a
+// value. `turn_context.retry_count` is NOT NULL DEFAULT 0, so nearly every row
+// carries a zero the live writer never stores — a turn that has not been retried
+// has no such attribute. Carrying the zeros would put two shapes on one fact.
+var hotZeros = map[string][]string{
+	TurnContexts: {attrTurnRetryCount},
 }
 
 // legacyRunLogKey builds a run's position out of the two columns that were its
@@ -194,6 +205,8 @@ func hotKey(entity string, key []string) (objstore.Key, error) {
 		return watcherKey(key[0], key[1])
 	case TaskRunLogs:
 		return legacyRunLogKey(key[0], key[1])
+	case TurnContexts:
+		return turnKey(key[0])
 	case SystemMessages:
 		at, err := normaliseInstant(entity, "created", key[1])
 		if err != nil {
@@ -224,6 +237,11 @@ func hotWrite(entity string, r RoutdRow) (objstore.Write, error) {
 	}
 	for _, col := range hotDropped[entity] {
 		delete(attrs, col)
+	}
+	for _, attr := range hotZeros[entity] {
+		if attrs[attr] == "0" {
+			delete(attrs, attr)
+		}
 	}
 	for _, flag := range hotFlags[entity] {
 		if attrs[flag] == "0" {

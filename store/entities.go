@@ -113,6 +113,11 @@ const (
 	// TaskRunLogs holds one item per execution of a scheduled task, addressed by
 	// the instant it ran — which IS its identity, so no separate `run_at`.
 	TaskRunLogs = "task_run_logs"
+	// TurnContexts holds one item per turn routd has dispatched, addressed by
+	// its turn id — the only handle a late callback carries. The name is plural
+	// where the table it replaces is singular, because the singular one is the
+	// struct a caller reads back.
+	TurnContexts = "turn_context"
 
 	// Counters holds one item per server-minted number, addressed by the name
 	// of what it numbers, with the count in `n`.
@@ -193,7 +198,7 @@ var EntitiesByOwner = map[string][]string{
 		PendingActions, NetworkRules, ProxydRoutes, WebRoutes, InstalledPackages,
 		GitHubSources,
 		Chats, Sessions, ChatReplyState, ChatProactive, SystemMessages, UserProfiles,
-		TurnResults, GroupWatchers, TaskRunLogs,
+		TurnResults, GroupWatchers, TaskRunLogs, TurnContexts,
 	},
 	OwnerOnbod: {Onboarding, OnboardingGates, Invites},
 }

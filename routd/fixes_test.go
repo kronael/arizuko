@@ -821,10 +821,20 @@ func TestSweepExpiredRunning(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	// a turn started 2h ago, still running.
-	db.PutTurnContext("old", "demo", "", "slack:T/C/U", "u1", "")
-	db.SQL().Exec("UPDATE turn_context SET started_at=? WHERE turn_id='old'",
-		core.TS(time.Now().Add(-2*time.Hour)))
+	// A turn started 2h ago, still running. Only one writer can place a turn in
+	// the past — the move that carries a legacy row — because the live one stamps
+	// the instant itself, and that is the point: `started_at` is written once.
+	if _, err := store.New(db.SQL()).ImportHot(t.Context(), store.RoutdSnapshot{
+		store.TurnContexts: []store.RoutdRow{{
+			Key: []string{"old"},
+			Attrs: map[string]string{
+				"folder": "demo", "chat_jid": "slack:T/C/U", "trigger_sender": "u1",
+				"state": "running", "started_at": core.TS(time.Now().Add(-2 * time.Hour)),
+			},
+		}},
+	}); err != nil {
+		t.Fatalf("seed the stale turn: %v", err)
+	}
 	// a turn started just now, still running.
 	db.PutTurnContext("new", "demo", "", "slack:T/C/U2", "u1", "")
 
