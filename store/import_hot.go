@@ -28,12 +28,12 @@ package store
 // is one it would shift relative to a row it did not touch. normaliseCursor
 // names it instead of guessing.
 //
-// `chat_reply_state.engaged_until`, `chat_proactive.proactive_last_fired_at` and
-// `sessions.forked_at` are re-rendered outright, because none is compared
-// against a stored column — the first two against `now` and the third against
-// nothing — and the live rows carry three widths (28, 29 and 30 bytes on all
-// three instances, 2026-09-09), which for the engagement list's ordering is BUGS
-// L97 sitting unread on the operator's page.
+// `chat_reply_state.engaged_until`, `chat_proactive.proactive_last_fired_at`,
+// `sessions.forked_at` and `turn_results.recorded_at` are re-rendered outright,
+// because none is compared against a stored column — the first two against `now`
+// and the others against nothing — and the live rows carry three and four widths
+// (27 to 30 bytes across all three instances, 2026-09-09), which for the
+// engagement list's ordering is BUGS L97 sitting unread on the operator's page.
 
 import (
 	"context"
@@ -52,7 +52,7 @@ import (
 // it, because an entity has no foreign key to satisfy.
 var HotEntities = []string{
 	Chats, Sessions, ChatReplyState, ChatProactive, SystemMessages,
-	UserProfiles,
+	UserProfiles, TurnResults,
 }
 
 // hotKeyFields names each entity's coordinate fields, in order, so the source
@@ -70,6 +70,7 @@ var hotKeyFields = map[string][]string{
 	ChatProactive:  {"jid"},
 	SystemMessages: {"folder", "created", "id"},
 	UserProfiles:   {"sub"},
+	TurnResults:    {"folder", "turn_id"},
 }
 
 // HotKeyFields answers one entity's coordinate fields, for the reader that has
@@ -103,6 +104,7 @@ var hotStamped = map[string][]string{
 	Sessions:       {attrSessForked},
 	ChatReplyState: {AttrReplyEngagedUntil},
 	ChatProactive:  {AttrProactiveFiredAt},
+	TurnResults:    {AttrTurnRecordedAt},
 }
 
 // hotCursors names, per entity, the attribute that is a cursor into
@@ -167,6 +169,8 @@ func hotKey(entity string, key []string) (objstore.Key, error) {
 		return proactiveKey(key[0])
 	case UserProfiles:
 		return profileKey(key[0])
+	case TurnResults:
+		return turnResultKey(key[0], key[1])
 	case SystemMessages:
 		at, err := normaliseInstant(entity, "created", key[1])
 		if err != nil {

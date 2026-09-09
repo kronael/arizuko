@@ -122,19 +122,22 @@ CREATE TABLE github_sources (
   created_at TEXT NOT NULL);
 `
 
-// legacyHotSchema is the pre-split shape of the four hot-tier tables the
-// monolith carries. They are entities in routd.db now, so store.Open makes them
-// as (part, sort, attrs) and the fixture has to put the columns back to have
+// legacyHotSchema is the pre-split shape of the hot-tier tables the monolith
+// carries. They are entities in routd.db now, so store.Open makes them as
+// (part, sort, attrs) and the fixture has to put the columns back to have
 // something legacy for the migrator to find.
 //
 // `system_messages` is the one whose column NAMES differ from routd.db's — the
 // monolith spells them group_id/origin/event/created_at — which is what
-// hotColumnAlias renames. `chat_proactive` has no monolith table at all.
+// hotColumnAlias renames; `user_profiles` is the one whose TABLE name differs,
+// and it is built by hand beside the other pre-rename shapes. `chat_proactive`
+// has no monolith table at all.
 const legacyHotSchema = `
 DROP TABLE IF EXISTS chats;
 DROP TABLE IF EXISTS sessions;
 DROP TABLE IF EXISTS chat_reply_state;
 DROP TABLE IF EXISTS system_messages;
+DROP TABLE IF EXISTS turn_results;
 CREATE TABLE chats (
   jid TEXT PRIMARY KEY, agent_cursor TEXT, sticky_group TEXT,
   sticky_topic TEXT, is_group INTEGER NOT NULL DEFAULT 0);
@@ -150,6 +153,10 @@ CREATE TABLE system_messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT, group_id TEXT NOT NULL,
   origin TEXT NOT NULL, event TEXT NOT NULL, attrs TEXT,
   body TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL);
+CREATE TABLE turn_results (
+  folder TEXT NOT NULL, turn_id TEXT NOT NULL, session_id TEXT,
+  status TEXT NOT NULL, recorded_at TEXT NOT NULL,
+  PRIMARY KEY (folder, turn_id));
 `
 
 // seedLegacyRoutdTables gives the monolith the thirteen tables a pre-split
@@ -160,7 +167,7 @@ func seedLegacyRoutdTables(t *testing.T, db *sql.DB) {
 		t.Fatalf("build the pre-split shape of routd's thirteen: %v", err)
 	}
 	if _, err := db.Exec(legacyHotSchema); err != nil {
-		t.Fatalf("build the pre-split shape of the hot tier's four: %v", err)
+		t.Fatalf("build the pre-split shape of the hot tier: %v", err)
 	}
 }
 
@@ -352,7 +359,7 @@ func TestMigrateSplit(t *testing.T) {
 	// straight-copy counts
 	for tbl, want := range map[string]int{
 		"groups": 1, "messages": 2, "chats": 1, "routes": 1, "sessions": 1,
-		"route_tokens": 1, "turn_results": 1, "web_routes": 1,
+		"route_tokens": 1, "web_routes": 1,
 		// network_rules: routd seeds 2 base rows (folder='') + our 1 → 3.
 		"network_rules": 3, "chat_reply_state": 1, "group_watchers": 1,
 		// cost_log_archive: 2 same-(folder,model) rows BOTH survive (synthetic

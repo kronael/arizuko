@@ -860,16 +860,11 @@ func (d *DB) SweepExpiredRunning(timeout time.Duration) (int64, error) {
 	return res.RowsAffected()
 }
 
-// RecordTurnResult inserts the agent-submitted outcome idempotently
-// (PK folder,turn_id). Returns true on the FIRST record, false on a dup.
+// RecordTurnResult records the agent-submitted outcome for one turn. Returns
+// true on the FIRST record, false on a repeat — the claim that makes one report
+// one delivery.
 func (d *DB) RecordTurnResult(folder, turnID, sessionID, status string) (bool, error) {
-	res, err := d.db.Exec(`INSERT OR IGNORE INTO turn_results(folder, turn_id, session_id, status, recorded_at)
-		VALUES(?,?,?,?,?)`, folder, turnID, sessionID, status, nowTS())
-	if err != nil {
-		return false, err
-	}
-	n, _ := res.RowsAffected()
-	return n == 1, nil
+	return d.store().RecordTurnResult(folder, turnID, sessionID, status)
 }
 
 // TurnHasBotReply reports whether the agent already delivered a bot message for
@@ -897,10 +892,18 @@ func (d *DB) LastStatusPlatformID(turnID string) string {
 // TurnResultRecorded reports whether submit_turn already recorded an outcome for
 // (folder, turn_id). The run-response path checks this before persisting its
 // session_id backstop so submit_turn's value wins.
+//
+// A read that FAILED answers false, which is what the statement it replaces did
+// by discarding its scan error — but it says so now, because both consumers act
+// on a false: the backstop overwrites the agent's own session id and the
+// silent-turn alarm fires at an operator.
 func (d *DB) TurnResultRecorded(folder, turnID string) bool {
-	var n int
-	d.db.QueryRow("SELECT 1 FROM turn_results WHERE folder=? AND turn_id=?", folder, turnID).Scan(&n)
-	return n == 1
+	recorded, err := d.store().TurnResultRecorded(folder, turnID)
+	if err != nil {
+		slog.Error("turn result lookup", "folder", folder, "turn_id", turnID, "err", err)
+		return false
+	}
+	return recorded
 }
 
 // PutSession persists the session_id runed produced for (folder, topic).

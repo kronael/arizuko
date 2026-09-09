@@ -103,6 +103,10 @@ const (
 	// addressed by their sub, and carries the username their folder is named
 	// after and their per-day spend cap.
 	UserProfiles = "user_profiles"
+	// TurnResults holds one item per (folder, turn) the agent has reported an
+	// outcome for. Its create-if-absent is the claim that makes one report one
+	// delivery.
+	TurnResults = "turn_results"
 
 	// Counters holds one item per server-minted number, addressed by the name
 	// of what it numbers, with the count in `n`.
@@ -183,6 +187,7 @@ var EntitiesByOwner = map[string][]string{
 		PendingActions, NetworkRules, ProxydRoutes, WebRoutes, InstalledPackages,
 		GitHubSources,
 		Chats, Sessions, ChatReplyState, ChatProactive, SystemMessages, UserProfiles,
+		TurnResults,
 	},
 	OwnerOnbod: {Onboarding, OnboardingGates, Invites},
 }

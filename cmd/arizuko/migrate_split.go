@@ -78,9 +78,6 @@ var routdSpecs = []copySpec{
 			"COALESCE(topic,''), COALESCE(routed_to,''), COALESCE(verb,'message'), " +
 			"COALESCE(attachments,''), COALESCE(source,''), COALESCE(is_observed,0), " +
 			"COALESCE(turn_id,''), COALESCE(status,'sent'), COALESCE(platform_id,''), COALESCE(chat_name,'')"},
-	{dst: "turn_results", src: "turn_results",
-		cols: "folder, turn_id, session_id, status, recorded_at",
-		sel:  "folder, turn_id, session_id, status, recorded_at"},
 	{dst: "group_watchers", src: "group_watchers",
 		cols: "observer, source",
 		sel:  "observer, source"},

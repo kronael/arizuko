@@ -306,6 +306,7 @@ func verifyHot(ctx context.Context, st *store.Store, snap store.RoutdSnapshot,
 		{store.ChatProactive, func() (int, error) { return st.CountProactiveChats(ctx) }},
 		{store.SystemMessages, func() (int, error) { return st.CountSystemMessages(ctx) }},
 		{store.UserProfiles, func() (int, error) { return st.CountUserProfiles(ctx) }},
+		{store.TurnResults, func() (int, error) { return st.CountTurnResults(ctx) }},
 	}
 	for _, c := range counts {
 		got, err := c.count()

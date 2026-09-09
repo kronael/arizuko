@@ -1,54 +1,15 @@
 package store
 
-import (
-	"database/sql"
-	"errors"
+// turn_frames.go is the messages read a turn's frames come from: the bot rows
+// one turn stamped, paged in time order.
+//
+// It is a `messages` read and nothing else. The turn's OUTCOME is an entity and
+// lives in turn_results.go; these two shared a file because their names rhyme,
+// and no statement or transaction ever spanned them.
 
+import (
 	"github.com/kronael/arizuko/core"
 )
-
-// RecordTurnResult inserts a row keyed on (folder, turn_id). Returns
-// recorded=true on first call, false if the key already exists.
-func (s *Store) RecordTurnResult(folder, turnID, sessionID, status string) (bool, error) {
-	r, err := s.db.Exec(
-		`INSERT OR IGNORE INTO turn_results
-		 (folder, turn_id, session_id, status, recorded_at)
-		 VALUES (?, ?, ?, ?, ?)`,
-		folder, turnID, nilIfEmpty(sessionID), status,
-		core.NowTS(),
-	)
-	if err != nil {
-		return false, err
-	}
-	n, _ := r.RowsAffected()
-	return n == 1, nil
-}
-
-// TurnInfo is the durable summary of a round (one container spawn).
-// Status is "pending" when no turn_results row exists yet.
-type TurnInfo struct {
-	Folder    string
-	TurnID    string
-	SessionID string
-	Status    string
-}
-
-func (s *Store) GetTurnResult(folder, turnID string) (TurnInfo, error) {
-	row := s.db.QueryRow(
-		`SELECT folder, turn_id, COALESCE(session_id,''), status
-		 FROM turn_results WHERE folder = ? AND turn_id = ?`,
-		folder, turnID,
-	)
-	var ti TurnInfo
-	err := row.Scan(&ti.Folder, &ti.TurnID, &ti.SessionID, &ti.Status)
-	if errors.Is(err, sql.ErrNoRows) {
-		return TurnInfo{Folder: folder, TurnID: turnID, Status: "pending"}, nil
-	}
-	if err != nil {
-		return TurnInfo{}, err
-	}
-	return ti, nil
-}
 
 // TurnFrames returns the bot messages stamped with turnID, ordered by
 // timestamp ASC. Pass afterID="" to fetch from the start; pass an
