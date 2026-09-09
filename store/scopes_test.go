@@ -73,6 +73,11 @@ func TestAConsistentReadSeesAnInviteMintedUnderIt(t *testing.T) {
 func TestTheMarkerMovesOnlyForAScopedEntity(t *testing.T) {
 	bumps := scopeBumps([]objstore.Write{
 		{Entity: PaneSessions}, {Entity: SecretUseLog}, {Entity: "audit_log"},
+		// The hot tier's five, which are written per inbound message and per
+		// turn: a marker on any of them would move routd's version under every
+		// export that does not read them.
+		{Entity: Chats}, {Entity: Sessions}, {Entity: ChatReplyState},
+		{Entity: ChatProactive}, {Entity: SystemMessages},
 	})
 	if len(bumps) != 0 {
 		t.Errorf("an unscoped batch rendered %d markers, want none", len(bumps))
