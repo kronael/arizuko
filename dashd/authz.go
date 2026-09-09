@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -100,7 +101,8 @@ func (d *dash) jidFolder(jid string) string {
 		return ""
 	}
 	if strings.HasPrefix(jid, "web:") || strings.HasPrefix(jid, "hook:") {
-		target, err := store.RouteTokenTargetByJID(d.adminDB(), jid)
+		target, err := store.RouteTokenTargetByJID(
+			context.Background(), store.New(d.adminDB()).Obj(), jid)
 		if err != nil {
 			// Fail closed: the grammar's answer can name another tenant, and
 			// this gate decides who sees the message.

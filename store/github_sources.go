@@ -176,8 +176,15 @@ func GitHubSourceRoutes(key, folder string) ([]core.Route, error) {
 
 var ErrGitHubSourceExists = errors.New("github source already registered")
 
-// AddGitHubSourceTx mints the secret, seals it, inserts the source row and the
-// route rows to target on tx. The raw secret is returned exactly once.
+// AddGitHubSourceTx mints the secret, seals it, and writes the source item and
+// the route rows to target on tx. The raw secret is returned exactly once.
+//
+// EVERY ROUTE ID IS MINTED BEFORE THE FIRST WRITE TO tx, and the order is
+// load-bearing rather than tidy. The counter is a compare-and-swap of its own
+// (entities.go nextNumber) and runs OUTSIDE the caller's transaction, so a
+// transaction that has already written holds the engine's write lock and its own
+// mint waits on it forever — a registration that never returns, on a lock the
+// whole daemon's writes then queue behind.
 func (s *Store) AddGitHubSourceTx(ctx context.Context, tx *sql.Tx, src GitHubSource, target string) (string, error) {
 	if _, _, err := ParseGitHubSourceKey(src.Source); err != nil {
 		return "", err
@@ -188,6 +195,13 @@ func (s *Store) AddGitHubSourceTx(ctx context.Context, tx *sql.Tx, src GitHubSou
 	routes, err := GitHubSourceRoutes(src.Source, target)
 	if err != nil {
 		return "", err
+	}
+	for i := range routes {
+		n, err := s.nextNumber(ctx, OwnerRoutd, CounterRouteID)
+		if err != nil {
+			return "", fmt.Errorf("mint a route id: %w", err)
+		}
+		routes[i].ID = int64(n)
 	}
 	secret := GenRouteToken()
 	sealed, err := s.storeValue(secret)

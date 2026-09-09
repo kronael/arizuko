@@ -28,6 +28,7 @@ import (
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/db_utils"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/resreg"
 	_ "github.com/kronael/arizuko/resreg/resources"
@@ -115,15 +116,23 @@ func main() {
 	}
 
 	sqlDB := rdb.SQL()
+	// routd's registered resources are objstore entities, and store owns every
+	// coordinate and attribute name they carry. The fixture writes through it so
+	// the items dashd reads are the items the daemons write — a second rendering
+	// here would put a row where the page's read does not look, and the suite
+	// would report an empty page as a product bug.
+	rst := store.New(sqlDB)
 
-	if _, err := sqlDB.Exec(`INSERT INTO routes (seq, match, target) VALUES (?, ?, ?)`,
-		0, "chat_jid=telegram:user/seed", "inbox"); err != nil {
+	if _, err := rst.PutRouteRow(core.Route{
+		Seq: 0, Match: "chat_jid=telegram:user/seed", Target: "inbox",
+	}); err != nil {
 		log.Fatalf("seed: insert route: %v", err)
 	}
 
-	if _, err := sqlDB.Exec(
-		`INSERT INTO acl (principal, action, scope, effect, granted_at, granted_by)
-		 VALUES ('testadmin', 'admin', '**', 'allow', ?, 'seed')`, nowS); err != nil {
+	if err := rst.PutACLRow(core.ACLRow{
+		Principal: "testadmin", Action: "admin", Scope: "**",
+		Effect: "allow", GrantedAt: core.TS(now), GrantedBy: "seed",
+	}); err != nil {
 		log.Fatalf("seed: insert acl: %v", err)
 	}
 
@@ -144,30 +153,55 @@ func main() {
 	// tokens are minted where they are owned), so the page cannot create its
 	// own fixture any more and the suite's create-then-revoke test had quietly
 	// degraded into an early return.
-	if _, err := sqlDB.Exec(
-		`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at, kind)
-		 VALUES (?, 'web:inbox', 'inbox', ?, ?)`,
-		[]byte("seed-token-hash-32-bytes-padding"), nowS, store.RouteTokenKindRoute,
-	); err != nil {
+	// The digest IS the item's coordinate, so the fixture names one directly
+	// through the import path rather than minting a token nothing reads back:
+	// the page lists and revokes by owner folder, and InsertRouteToken would add
+	// an audit row this fixture never had.
+	if _, err := rst.ImportRouteTokens(context.Background(), []store.ArchiveRouteTokenRow{{
+		TokenHash:   "seed-token-hash-32-bytes-padding",
+		JID:         "web:inbox",
+		OwnerFolder: "inbox",
+		CreatedAt:   core.TS(now),
+	}}); err != nil {
 		log.Fatalf("seed: insert route_token: %v", err)
 	}
 
 	// pending_actions for /dash/approvals/ and the portal's held-approvals
 	// banner. The banner counts straight out of routd.db; the page itself reads
 	// routd over HTTP, which the stub upstream answers.
+	// `pending_actions` is declared by store and WRITTEN by routd, so the fixture
+	// renders the item through store's exported coordinate and attribute names —
+	// the same two the daemon writes it with. An empty reviewed_by is left OFF:
+	// absent is the only null this model has.
+	var held []objstore.Write
 	for _, pa := range []struct{ id, tool, args, status, reviewedBy string }{
 		{"seedheld", "like", `{"chatJid":"telegram:user/seed","targetId":"1","reaction":"+1"}`, "held", ""},
 		{"seedgone", "delete", `{"chatJid":"telegram:user/seed","targetId":"2"}`, "rejected", "testadmin"},
 	} {
-		if _, err := sqlDB.Exec(
-			`INSERT INTO pending_actions
-			   (id, group_folder, caller_agent, tool, args, args_final, args_hash,
-			    status, chat_jid, created_at, reviewed_by)
-			 VALUES (?, 'inbox', 'folder:inbox', ?, ?, ?, ?, ?, 'telegram:user/seed', ?, ?)`,
-			pa.id, pa.tool, pa.args, pa.args, pa.id+"-hash", pa.status, nowS, pa.reviewedBy,
-		); err != nil {
-			log.Fatalf("seed: insert pending_action %s: %v", pa.id, err)
+		key, err := store.PendingActionKey(pa.id)
+		if err != nil {
+			log.Fatalf("seed: pending_action %s: %v", pa.id, err)
 		}
+		attrs := map[string]string{
+			store.AttrPendGroupFolder: "inbox",
+			store.AttrPendCallerAgent: "folder:inbox",
+			store.AttrPendTool:        pa.tool,
+			store.AttrPendArgs:        pa.args,
+			store.AttrPendArgsFinal:   pa.args,
+			store.AttrPendArgsHash:    pa.id + "-hash",
+			store.AttrPendStatus:      pa.status,
+			store.AttrPendChatJID:     "telegram:user/seed",
+			store.AttrPendCreatedAt:   nowS,
+		}
+		if pa.reviewedBy != "" {
+			attrs[store.AttrPendReviewedBy] = pa.reviewedBy
+		}
+		held = append(held, objstore.Write{
+			Op: objstore.Put, Entity: store.PendingActions, Key: key, Attrs: attrs,
+		})
+	}
+	if _, err := rst.WriteEntities(context.Background(), nil, held...); err != nil {
+		log.Fatalf("seed: insert pending_actions: %v", err)
 	}
 
 	if err := os.WriteFile(

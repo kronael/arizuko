@@ -16,6 +16,7 @@ import (
 	"database/sql"
 
 	"github.com/kronael/arizuko/objstore/sqlstore"
+	"github.com/kronael/arizuko/store"
 )
 
 // Store holds the routd.db handle every statement in this package runs against.
@@ -31,8 +32,15 @@ func New(db *sql.DB) *Store {
 	return &Store{db: db}
 }
 
+// st is routd.db as the store package reads and writes it. routd's thirteen
+// registered resources are objstore entities whose coordinate and attribute
+// names store OWNS, so a page that needs one asks store rather than rendering a
+// second copy of the same item — two renderings of one coordinate put a write
+// where the other's read does not look, and the failure is silent.
+func (s *Store) st() *store.Store { return store.New(s.db) }
+
 // obj is the driver the audit row of an audited write reaches routd.db through.
-// The mutations here run as SQL on a transaction of their own and the row that
-// records one joins that transaction, so audit needs the driver that can write
-// into it and this is where the pool that chose it lives.
-func (s *Store) obj() *sqlstore.Store { return sqlstore.New(s.db) }
+// The mutation and the row that records it commit on one transaction, so audit
+// needs the driver that can write into it, and it is the SAME driver the store
+// above writes its entities through.
+func (s *Store) obj() *sqlstore.Store { return s.st().Obj() }

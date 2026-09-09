@@ -114,7 +114,7 @@ func (s *server) writeRoute(ctx context.Context, rt store.ProxydRoute) error {
 		return err
 	}
 	defer tx.Rollback()
-	if err := insertProxydRouteTx(ctx, tx, rt); err != nil {
+	if err := insertProxydRouteTx(ctx, s.stRoutd, tx, rt); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -126,7 +126,7 @@ func (s *server) deleteRoute(ctx context.Context, path string) (bool, error) {
 		return false, err
 	}
 	defer tx.Rollback()
-	ok, err := deleteProxydRouteTx(ctx, tx, path)
+	ok, err := deleteProxydRouteTx(ctx, s.stRoutd, tx, path)
 	if err != nil || !ok {
 		return false, err
 	}

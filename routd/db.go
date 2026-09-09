@@ -591,7 +591,7 @@ func (d *DB) MarkMessagesObserved(folder string, ids []string) error {
 // already sorts that way — every live rule sits at seq 0, so insertion order is
 // what decides which one answers a chat.
 func (d *DB) Routes() ([]core.Route, error) {
-	return d.store().AllRoutes(), nil
+	return d.store().RouteTable()
 }
 
 // AddRoute appends one route, returning the id it holds.

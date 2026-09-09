@@ -214,7 +214,7 @@ func (rr *routesResource) handle(ctx context.Context, x resreg.Execution) (any, 
 		// caller does not get to pick — a body carrying `owner` would otherwise
 		// let an agent hand its own route to arizuko, or to nobody.
 		r.Owner = store.RouteOwnerOperator
-		if err := insertProxydRouteTx(ctx, x.Tx, toStoreRoute(r)); err != nil {
+		if err := insertProxydRouteTx(ctx, rr.st, x.Tx, toStoreRoute(r)); err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "persist: %v", err)
 		}
 		return r, nil
@@ -270,7 +270,7 @@ func (rr *routesResource) handle(ctx context.Context, x resreg.Execution) (any, 
 		if err := validateRoute(merged, routes, true); err != nil {
 			return nil, err
 		}
-		if err := updateProxydRouteTx(ctx, x.Tx, toStoreRoute(merged)); err != nil {
+		if err := updateProxydRouteTx(ctx, rr.st, x.Tx, toStoreRoute(merged)); err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "persist: %v", err)
 		}
 		return merged, nil
@@ -280,7 +280,7 @@ func (rr *routesResource) handle(ctx context.Context, x resreg.Execution) (any, 
 		if path == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "path required")
 		}
-		if _, err := deleteProxydRouteTx(ctx, x.Tx, path); err != nil {
+		if _, err := deleteProxydRouteTx(ctx, rr.st, x.Tx, path); err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "delete: %v", err)
 		}
 		return nil, nil
@@ -376,52 +376,37 @@ func callerFromHTTP(ks *auth.KeySet) resreg.CallerFromHTTPFunc {
 	}
 }
 
-// Tx-aware store helpers — proxyd-local until store/ exposes them
-// uniformly. Keeps the mutation + audit row in one transaction.
-func insertProxydRouteTx(ctx context.Context, tx *sql.Tx, r store.ProxydRoute) error {
-	headers, strip := proxydRouteJSON(r)
-	_, err := tx.ExecContext(ctx, `INSERT INTO proxyd_routes
-		(path, backend, auth, gated_by, preserve_headers, strip_prefix, redirect_to, owner)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.Path, r.Backend, r.Auth, r.GatedBy, headers, strip, r.RedirectTo, r.Owner)
-	return err
+// insertProxydRouteTx and its two siblings are the writes both proxyd faces make
+// — the /v1 resource and the dashboard form — so each mutation and the audit row
+// beside it commit on ONE transaction. The coordinate and every attribute belong
+// to store, which is why the write itself is store's (store/proxyd_routes.go):
+// two renderings of one route would put proxyd's write where the engine's read
+// does not look.
+func insertProxydRouteTx(ctx context.Context, st *store.Store, tx *sql.Tx, r store.ProxydRoute) error {
+	created, err := st.CreateProxydRouteTx(ctx, tx, r)
+	if err != nil {
+		return err
+	}
+	if !created {
+		return fmt.Errorf("proxyd route %q is already taken", r.Path)
+	}
+	return nil
 }
 
 // updateProxydRouteTx writes the mutable fields. `owner` is not among them:
 // ownership is stamped by whoever created the row, so an update can never
 // change who may rewrite it.
-func updateProxydRouteTx(ctx context.Context, tx *sql.Tx, r store.ProxydRoute) error {
-	headers, strip := proxydRouteJSON(r)
-	res, err := tx.ExecContext(ctx, `UPDATE proxyd_routes
-		SET backend=?, auth=?, gated_by=?, preserve_headers=?, strip_prefix=?, redirect_to=?
-		WHERE path=?`,
-		r.Backend, r.Auth, r.GatedBy, headers, strip, r.RedirectTo, r.Path)
+func updateProxydRouteTx(ctx context.Context, st *store.Store, tx *sql.Tx, r store.ProxydRoute) error {
+	found, err := st.UpdateProxydRouteTx(ctx, tx, r)
 	if err != nil {
 		return err
 	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
+	if !found {
 		return fmt.Errorf("proxyd route %q not found", r.Path)
 	}
 	return nil
 }
 
-func deleteProxydRouteTx(ctx context.Context, tx *sql.Tx, path string) (bool, error) {
-	res, err := tx.ExecContext(ctx, `DELETE FROM proxyd_routes WHERE path = ?`, path)
-	if err != nil {
-		return false, err
-	}
-	n, _ := res.RowsAffected()
-	return n > 0, nil
-}
-
-func proxydRouteJSON(r store.ProxydRoute) (headers string, strip int) {
-	b, _ := json.Marshal(r.PreserveHeaders)
-	if r.PreserveHeaders == nil {
-		b = []byte("[]")
-	}
-	if r.StripPrefix {
-		strip = 1
-	}
-	return string(b), strip
+func deleteProxydRouteTx(ctx context.Context, st *store.Store, tx *sql.Tx, path string) (bool, error) {
+	return st.DeleteProxydRouteTx(ctx, tx, path)
 }

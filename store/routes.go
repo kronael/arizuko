@@ -196,11 +196,21 @@ func (s *Store) allRoutes(ctx context.Context) ([]core.Route, error) {
 }
 
 func (s *Store) AllRoutes() []core.Route {
-	rs, err := s.allRoutes(context.Background())
+	rs, err := s.RouteTable()
 	if err != nil {
 		return nil
 	}
 	return rs
+}
+
+// RouteTable is the whole table in the order the router resolves it, and an
+// ERROR where AllRoutes answers with a nil table.
+//
+// The difference decides an act: onbod offers to route a JID it finds in no
+// rule, so a table it merely failed to read must not read as "this chat goes
+// nowhere" — that offer writes a second rule for a chat that already had one.
+func (s *Store) RouteTable() ([]core.Route, error) {
+	return s.allRoutes(context.Background())
 }
 
 // routeByID finds the item one id names. The id is an ATTRIBUTE, not a leading

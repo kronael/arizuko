@@ -1,9 +1,12 @@
 package dashstore
 
 import (
+	"context"
 	"strings"
 
 	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/store"
 )
 
 // InstalledPackage is one installed_packages row (spec 5/28). Folder is empty
@@ -19,35 +22,61 @@ type InstalledPackage struct {
 }
 
 // InstalledPackages lists the instance's packages, instance-wide rows first.
+//
+// The coordinate is (folder, name) joined by store.KeySep, and the read arrives
+// in coordinate order, which IS `ORDER BY folder, name`: the separator sorts
+// below every byte a folder or a package name carries, so a shorter folder
+// always precedes a longer one that extends it. Instance-wide rows carry the
+// empty folder and therefore come first.
 func (s *Store) InstalledPackages() ([]InstalledPackage, error) {
-	rows, err := s.db.Query(`SELECT folder, name, source, revision, installed_at
-		FROM installed_packages ORDER BY folder, name`)
+	items, err := s.obj().Query(context.Background(), objstore.Query{
+		Entity: store.InstalledPackages, Partition: store.OwnerRoutd,
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []InstalledPackage
-	for rows.Next() {
-		var p InstalledPackage
-		if err := rows.Scan(&p.Folder, &p.Name, &p.Source, &p.Revision, &p.InstalledAt); err != nil {
-			continue
+	out := make([]InstalledPackage, 0, len(items))
+	for _, it := range items {
+		folder, name, err := store.InstalledPackageCoord(it)
+		if err != nil {
+			return nil, err
 		}
-		out = append(out, p)
+		out = append(out, InstalledPackage{
+			Folder:      folder,
+			Name:        name,
+			Source:      it.Attrs[store.AttrPkgSource],
+			Revision:    it.Attrs[store.AttrPkgRevision],
+			InstalledAt: it.Attrs[store.AttrPkgInstalledAt],
+		})
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // HeldApprovalCount counts calls still waiting for a verdict — the portal
 // banner's number. The predicate mirrors routd's lazy expiry (applyExpiry: a
 // held row past expires_at is expired, not waiting), and both timestamps are
 // RFC3339 UTC, so string order is time order.
+//
+// A call with NO deadline waits forever, and there is exactly one way to say
+// that: absent is the only null this model has, and routd leaves an empty field
+// off the item (routd/pending_actions.go pendingAttrs), so a held call with no
+// deadline carries no expires_at at all. The comparison itself runs in Go
+// because the predicate is an OR and Where terms are conjuncts.
 func (s *Store) HeldApprovalCount(now string) (int, error) {
-	var n int
-	err := s.db.QueryRow(
-		`SELECT COUNT(*) FROM pending_actions
-		  WHERE status='held' AND (expires_at IS NULL OR expires_at='' OR expires_at > ?)`,
-		now).Scan(&n)
-	return n, err
+	items, err := s.obj().Query(context.Background(), objstore.Query{
+		Entity: store.PendingActions, Partition: store.OwnerRoutd,
+		Where: []objstore.Cmp{{Attr: store.AttrPendStatus, Op: objstore.Eq, Value: "held"}},
+	})
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, it := range items {
+		if exp := it.Attrs[store.AttrPendExpiresAt]; exp == "" || exp > now {
+			n++
+		}
+	}
+	return n, nil
 }
 
 // ChatCooldown is one chat's last unprompted message.
@@ -87,27 +116,35 @@ type GroupRoute struct {
 	Target string
 }
 
+// routesPanelSize bounds the panel: a group detail page shows where messages
+// land, and past this many the answer is a routing table, not a panel.
+const routesPanelSize = 200
+
 // RoutesIntoFolder lists the routes that land in a folder or anywhere under it,
 // in dispatch order, up to the panel's page size.
+//
+// The target is the second field of the routes coordinate, so containment is a
+// comparison and not a key predicate: the read takes the table and filters on
+// the SAME predicate the SQL half rendered — groupfolder's, with "/" as the
+// separator, so the panel shows a folder and its children and never a topic.
+// AllRoutes arrives in (seq, id) order, which is the order the router resolves
+// in and therefore which 200 the panel keeps.
 func (s *Store) RoutesIntoFolder(folder string) ([]GroupRoute, error) {
-	rows, err := s.db.Query(
-		`SELECT seq, match, target FROM routes WHERE `+
-			groupfolder.SQLSubtree("target", "/")+
-			` ORDER BY seq LIMIT 200`,
-		groupfolder.SubtreeArgs(folder, "/")...)
+	all, err := s.st().RouteTable()
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []GroupRoute
-	for rows.Next() {
-		var g GroupRoute
-		if err := rows.Scan(&g.Seq, &g.Match, &g.Target); err != nil {
+	out := make([]GroupRoute, 0, len(all))
+	for _, r := range all {
+		if !groupfolder.ContainsSep(folder, r.Target, "/") {
 			continue
 		}
-		out = append(out, g)
+		out = append(out, GroupRoute{Seq: r.Seq, Match: r.Match, Target: r.Target})
+		if len(out) == routesPanelSize {
+			break
+		}
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // MessageActivity is a folder's all-time message count and the timestamp of the

@@ -11,14 +11,14 @@ package dashstore
 
 // GroupCount is every group on the instance.
 func (s *Store) GroupCount() (int, error) {
-	var n int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM groups`).Scan(&n)
-	return n, err
+	folders, err := s.st().GroupFolders(0)
+	return len(folders), err
 }
 
-// GroupFolders lists group folders in path order, up to the dot's ceiling.
+// GroupFolders lists group folders in path order, up to the dot's ceiling. The
+// folder IS the groups coordinate, so the read arrives in path order.
 func (s *Store) GroupFolders() ([]string, error) {
-	return s.strings(`SELECT folder FROM groups ORDER BY folder LIMIT 500`)
+	return s.st().GroupFolders(500)
 }
 
 // ErroredChatCount is the number of distinct chats holding an errored message.
@@ -45,10 +45,38 @@ func (s *Store) FailedTaskRunCount() (int, error) {
 // FailedTaskOwners lists the owning folder of each of those runs, one row per
 // run rather than per task: the count above counts runs too, and a pair that
 // aggregated differently would disagree with itself.
+//
+// It is the one read here that crosses the boundary, and it CANNOT be one
+// statement: `task_run_logs` is not a registered resource and stays a SQL table,
+// while `scheduled_tasks` is an entity. So the log names the task ids and the
+// task partition answers who owns them. A run whose task is gone is dropped,
+// which is what the inner join did.
 func (s *Store) FailedTaskOwners() ([]string, error) {
-	return s.strings(
-		`SELECT t.owner FROM task_run_logs l JOIN scheduled_tasks t ON t.id = l.task_id
-		 WHERE l.status='error' AND l.run_at > datetime('now','-1 day') LIMIT 1000`)
+	ids, err := s.strings(
+		`SELECT task_id FROM task_run_logs
+		 WHERE status='error' AND run_at > datetime('now','-1 day') LIMIT 1000`)
+	if err != nil {
+		return nil, err
+	}
+	st := s.st()
+	owners := map[string]string{}
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		owner, known := owners[id]
+		if !known {
+			t, ok, err := st.TaskByID(id)
+			if err != nil {
+				return nil, err
+			}
+			if !ok {
+				continue
+			}
+			owner = t.Owner
+			owners[id] = owner
+		}
+		out = append(out, owner)
+	}
+	return out, nil
 }
 
 // strings runs a single-column query and collects the column. A row that fails

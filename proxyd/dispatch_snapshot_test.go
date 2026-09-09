@@ -137,9 +137,9 @@ func churnRoute(db *sql.DB, r store.ProxydRoute, add bool) {
 	}
 	defer tx.Rollback()
 	if add {
-		err = insertProxydRouteTx(context.Background(), tx, r)
+		err = insertProxydRouteTx(context.Background(), store.New(db), tx, r)
 	} else {
-		_, err = deleteProxydRouteTx(context.Background(), tx, r.Path)
+		_, err = deleteProxydRouteTx(context.Background(), store.New(db), tx, r.Path)
 	}
 	if err != nil {
 		return

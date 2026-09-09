@@ -695,10 +695,15 @@ func (s *Store) FolderCap(folder string) (int, error) {
 	return costCapOf(it), nil
 }
 
-// SetFolderCap writes the folder's per-day spend cap. Zero is uncapped and TAKES
-// THE ATTRIBUTE AWAY, because absent is the only null this model has and
-// costCapOf reads an absent cap as no cap — leaving "0" behind would state a cap
-// of nothing where the operator meant none.
+// SetFolderCap writes the folder's per-day spend cap. Zero is uncapped and it is
+// WRITTEN as "0" rather than taken away.
+//
+// That is the exception to "absent is the only null", and it is not this file's
+// choice: a Go int has no unset, so resreg's own writer of these items renders
+// every int field always (resreg/entity.go itemFor), and the two writers of one
+// item have to agree byte for byte. An `arizuko apply` of a manifest naming no
+// cap would otherwise store "0" where this writer stored nothing, and a later
+// diff of the two would report a change neither made.
 //
 // An Update writes nothing when the group is missing, which is what the
 // statement's zero matched rows said.
@@ -707,12 +712,9 @@ func (s *Store) SetFolderCap(folder string, cents int) error {
 	if err != nil {
 		return err
 	}
-	w := objstore.Write{Op: objstore.Update, Entity: Groups, Key: key}
-	if cents == 0 {
-		w.Remove = []string{attrGrpCostCap}
-	} else {
-		w.Attrs = map[string]string{attrGrpCostCap: strconv.Itoa(cents)}
-	}
-	_, err = s.WriteEntities(context.Background(), nil, w)
+	_, err = s.WriteEntities(context.Background(), nil, objstore.Write{
+		Op: objstore.Update, Entity: Groups, Key: key,
+		Attrs: map[string]string{attrGrpCostCap: strconv.Itoa(cents)},
+	})
 	return err
 }

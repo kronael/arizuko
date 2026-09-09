@@ -191,7 +191,11 @@ func (d *DB) JIDRoutableToFolder(jid, folder string) bool {
 // ok=false; this face keeps them apart, which is what the 404-vs-500 split rests
 // on, so it reads the table here.
 func (d *DB) GetRoute(id int64) (core.Route, error) {
-	for _, r := range d.store().AllRoutes() {
+	routes, err := d.store().RouteTable()
+	if err != nil {
+		return core.Route{}, err
+	}
+	for _, r := range routes {
 		if r.ID == id {
 			return r, nil
 		}

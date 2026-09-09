@@ -421,7 +421,7 @@ func promptUnprompted(xdb, obdb *sql.DB, cfg config) {
 		// user: a mint failure leaves the row unclaimed for the next tick, while
 		// a lost claim race leaves a token nobody was ever told, which expires in
 		// PairingTTL. Claiming first would stamp prompted_at with no link sent.
-		token, err := store.IssuePairingLink(context.Background(), xdb, jid, "")
+		token, err := store.New(xdb).IssuePairingLink(context.Background(), nil, jid, "")
 		if err != nil {
 			slog.Error("promptUnprompted mint pairing link", "jid", jid, "err", err)
 			continue
@@ -476,19 +476,23 @@ func observePairings(xdb, obdb *sql.DB, cfg config) {
 		return
 	}
 
+	xst := store.New(xdb)
 	for _, jid := range awaiting {
-		var parent string
-		err := xdb.QueryRow(
-			`SELECT parent FROM acl_membership WHERE child = ? AND added_by = ?`,
-			jid, store.PairingAddedBy).Scan(&parent)
-		if errors.Is(err, sql.ErrNoRows) {
-			continue
-		}
+		// The PAIRING edge and not any edge above the jid: a role membership is
+		// not a consent, and reading one as the parent would admit the chat to
+		// whoever the role names.
+		edges, err := xst.ParentEdges(jid)
 		if err != nil {
 			slog.Error("observePairings read pairing edge", "jid", jid, "err", err)
 			continue
 		}
-		admitJID(obdb, cfg, jid, parent)
+		for _, e := range edges {
+			if e.AddedBy != store.PairingAddedBy {
+				continue
+			}
+			admitJID(obdb, cfg, jid, e.Parent)
+			break
+		}
 	}
 }
 
@@ -787,9 +791,7 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB,
 		folder = parent + "/" + username
 	}
 
-	var exists int
-	db.QueryRow(`SELECT COUNT(*) FROM groups WHERE folder = ?`, folder).Scan(&exists)
-	if exists > 0 {
+	if _, taken := store.New(db).GroupByFolder(folder); taken {
 		renderPage(w, "Username Taken",
 			template.HTML("<p>That username is already in use.</p>"+
 				`<p><a href="/onboard">Try again</a></p>`))
@@ -835,8 +837,7 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB,
 	// (messages.db in monolith, routd.db in the split) → one tx makes the
 	// world atomic. The race guard is INSERT OR IGNORE + RowsAffected on
 	// groups, not the TOCTOU check above (that's a fast-path UX hint only).
-	now := time.Now().Format(time.RFC3339)
-	if err := createWorldTx(db, folder, username, userSub, now); err != nil {
+	if err := createWorldTx(db, folder, username, userSub); err != nil {
 		slog.Error("create world: db tx", "folder", folder, "err", err)
 		http.Error(w, "create world failed", http.StatusInternalServerError)
 		return
@@ -852,20 +853,11 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB,
 	http.Redirect(w, r, "/onboard", http.StatusSeeOther)
 }
 
-// membershipJIDs lists the platform JIDs bound to userSub (acl_membership).
+// membershipJIDs lists the platform JIDs bound to userSub (acl_membership), in
+// jid order — the parent is the second field of the edge coordinate, so the read
+// takes the graph and filters, and the order it answers in is the child's.
 func membershipJIDs(db *sql.DB, userSub string) []string {
-	rows, err := db.Query(`SELECT child FROM acl_membership WHERE parent = ?`, userSub)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-	var jids []string
-	for rows.Next() {
-		var jid string
-		rows.Scan(&jid)
-		jids = append(jids, jid)
-	}
-	return jids
+	return store.New(db).Members(userSub)
 }
 
 // createWorldTx writes the username + group + admin grant in one tx. The groups
@@ -875,7 +867,9 @@ func membershipJIDs(db *sql.DB, userSub string) []string {
 // It writes NO routes (spec 5/18 step 7): it used to route every JID the sub had
 // ever paired at the new folder, which is a blast radius, not an act. The redirect
 // lands on /onboard, whose step-6 branch routes the ONE unrouted JID at hand.
-func createWorldTx(db *sql.DB, folder, username, userSub, now string) error {
+func createWorldTx(db *sql.DB, folder, username, userSub string) error {
+	ctx := context.Background()
+	st := store.New(db)
 	tx, err := db.Begin()
 	if err != nil {
 		return err
@@ -885,23 +879,24 @@ func createWorldTx(db *sql.DB, folder, username, userSub, now string) error {
 		username, userSub); err != nil {
 		return err
 	}
-	res, err := tx.Exec(`INSERT OR IGNORE INTO groups (folder, added_at, product) VALUES (?, ?, ?)`,
-		folder, now, core.DefaultProduct)
+	created, err := st.CreateGroupTx(ctx, tx, core.Group{
+		Folder: folder, AddedAt: time.Now(), Product: core.DefaultProduct,
+	})
 	if err != nil {
 		return err
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
+	if !created {
 		return fmt.Errorf("folder %q already exists", folder)
 	}
 	// A groups row implies the member edge: without it the new world expands to
 	// nothing and comes up mute (BUGS L119).
-	if err := store.SeedMemberRoleTx(tx, folder); err != nil {
+	if err := store.SeedMemberRoleTx(ctx, st, tx, folder); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`INSERT OR IGNORE INTO acl
-		(principal, action, scope, effect, params, predicate, granted_at, granted_by)
-		VALUES (?, 'admin', ?, 'allow', '', '', datetime('now'), 'onbod')`,
-		userSub, folder+"/**"); err != nil {
+	if err := st.PutACLRowTx(ctx, tx, core.ACLRow{
+		Principal: userSub, Action: "admin", Scope: folder + "/**",
+		Effect: "allow", GrantedBy: "onbod",
+	}); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -955,22 +950,79 @@ func adminFolders(db *sql.DB, userSub string) []string {
 	return out
 }
 
+// jidRoutes returns the rules that name one JID's room. It is the ONE routing
+// predicate onbod asks, so the page that reports a chat as routed and the check
+// that calls it unrouted cannot disagree.
+//
+// `match` is an ATTRIBUTE of a route item and half the predicate is a LIKE, so
+// this reads the table and filters. THE WILDCARD SEMANTICS ARE KEPT: `_` and `%`
+// are legal in a room id and are LIKE wildcards, and sqlite folds ASCII case on
+// top, so a room carrying one matches rules that do not name it — narrowing that
+// here would silently change which chats count as routed, in the direction that
+// leaves a live chat looking unrouted and re-onboards it.
+func jidRoutes(routes []core.Route, jid string) []core.Route {
+	room := core.JidRoom(jid)
+	exact := "room=" + room
+	pattern := exact + " %"
+	var out []core.Route
+	for _, r := range routes {
+		if r.Match == exact || likeMatch(r.Match, pattern) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// likeMatch is sqlite's LIKE: `%` takes any run of characters, `_` takes exactly
+// one, and everything else compares with ASCII case folded. The comparison is
+// over RUNES because `_` counts characters, not bytes.
+func likeMatch(text, pattern string) bool {
+	t, p := []rune(text), []rune(pattern)
+	ti, pi, star, mark := 0, 0, -1, 0
+	for ti < len(t) {
+		switch {
+		case pi < len(p) && (p[pi] == '_' || foldASCII(p[pi]) == foldASCII(t[ti])):
+			ti++
+			pi++
+		case pi < len(p) && p[pi] == '%':
+			star, mark = pi, ti
+			pi++
+		case star >= 0:
+			// Backtrack: the last `%` swallows one more character.
+			mark++
+			ti, pi = mark, star+1
+		default:
+			return false
+		}
+	}
+	for pi < len(p) && p[pi] == '%' {
+		pi++
+	}
+	return pi == len(p)
+}
+
+// foldASCII lowercases one ASCII letter and leaves every other rune alone —
+// which is exactly how far sqlite's LIKE folds.
+func foldASCII(r rune) rune {
+	if r >= 'A' && r <= 'Z' {
+		return r + ('a' - 'A')
+	}
+	return r
+}
+
 // unroutedJID returns the sub's first paired JID that no route names, or "".
 // That state IS the silence spec 5/18 opens with: the chat is proven and
-// linked, its messages land in routd.db, and nothing surfaces them. The match
-// predicate mirrors renderDashboard's routing table so the page that asks and
-// the page that reports agree on what "routed" means.
+// linked, its messages land in routd.db, and nothing surfaces them.
 func unroutedJID(db *sql.DB, sub string) string {
+	routes, err := store.New(db).RouteTable()
+	if err != nil {
+		// A table nobody could read is not a table with no rules in it: offering
+		// to route a JID that already has one writes a second rule for one chat.
+		slog.Error("unroutedJID route lookup", "sub", sub, "err", err)
+		return ""
+	}
 	for _, jid := range membershipJIDs(db, sub) {
-		room := core.JidRoom(jid)
-		var n int
-		if err := db.QueryRow(
-			`SELECT COUNT(*) FROM routes WHERE match = ? OR match LIKE ?`,
-			"room="+room, "room="+room+" %").Scan(&n); err != nil {
-			slog.Error("unroutedJID route lookup", "jid", jid, "err", err)
-			return ""
-		}
-		if n == 0 {
+		if len(jidRoutes(routes, jid)) == 0 {
 			return jid
 		}
 	}
@@ -978,20 +1030,7 @@ func unroutedJID(db *sql.DB, sub string) string {
 }
 
 func scanFolders(db *sql.DB) ([]string, error) {
-	rows, err := db.Query(`SELECT folder FROM groups ORDER BY folder`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var f string
-		if err := rows.Scan(&f); err != nil {
-			return nil, err
-		}
-		out = append(out, f)
-	}
-	return out, rows.Err()
+	return store.New(db).GroupFolders(0)
 }
 
 func renderQueuePosition(w http.ResponseWriter, db *sql.DB, gateStr, queuedAt string) {
@@ -1239,22 +1278,32 @@ func renderNoWorld(w http.ResponseWriter, jid string) {
 func renderDashboard(w http.ResponseWriter, db *sql.DB, userSub, username string) {
 	esc := html.EscapeString
 
+	st := store.New(db)
+
 	var jidsHTML string
-	if rows, err := db.Query(
-		`SELECT child, added_at FROM acl_membership WHERE parent = ? ORDER BY added_at`, userSub,
-	); err == nil {
-		for rows.Next() {
-			var jid, claimed string
-			rows.Scan(&jid, &claimed)
-			platform := jid
-			if i := strings.Index(jid, ":"); i > 0 {
-				platform = jid[:i]
+	if edges, err := st.MemberEdges(userSub); err == nil {
+		// Oldest claim first. `added_at` is an attribute, so the read arrives in
+		// child order and the sort is here.
+		slices.SortStableFunc(edges, func(a, b store.MembershipEdge) int {
+			return strings.Compare(a.AddedAt, b.AddedAt)
+		})
+		for _, e := range edges {
+			platform := e.Child
+			if i := strings.Index(e.Child, ":"); i > 0 {
+				platform = e.Child[:i]
+			}
+			// The date, and only from an edge that carries one: an edge with no
+			// added_at renders an empty cell rather than slicing a short string.
+			claimed := e.AddedAt
+			if len(claimed) >= 10 {
+				claimed = claimed[:10]
+			} else {
+				claimed = ""
 			}
 			jidsHTML += fmt.Sprintf(
 				`<tr><td><span class="dot dot-ok"></span> %s</td><td>%s</td><td class="dim">%s</td></tr>`,
-				esc(platform), esc(jid), esc(claimed[:10]))
+				esc(platform), esc(e.Child), esc(claimed))
 		}
-		rows.Close()
 	}
 	if jidsHTML == "" {
 		jidsHTML = `<tr><td colspan="3" class="empty">No linked accounts. Message the bot from any platform to link it.</td></tr>`
@@ -1267,19 +1316,22 @@ func renderDashboard(w http.ResponseWriter, db *sql.DB, userSub, username string
 	}
 
 	var routesHTML string
-	if rows, err := db.Query(`
-		SELECT am.child, r.target FROM acl_membership am
-		JOIN routes r ON r.match = 'room=' || SUBSTR(am.child, INSTR(am.child, ':')+1)
-		   OR r.match LIKE 'room=' || SUBSTR(am.child, INSTR(am.child, ':')+1) || ' %'
-		WHERE am.parent = ?
-		ORDER BY am.child, r.target`, userSub); err == nil {
-		for rows.Next() {
-			var jid, target string
-			rows.Scan(&jid, &target)
-			routesHTML += fmt.Sprintf(
-				`<tr><td>%s</td><td>%s</td></tr>`, esc(jid), esc(target))
+	if routes, err := st.RouteTable(); err == nil {
+		// One row per (jid, rule) pair, ordered by jid then target — the join's
+		// order, rebuilt here because the rule that names a jid is found by the
+		// same predicate unroutedJID asks and not by a key.
+		for _, jid := range st.Members(userSub) {
+			matched := jidRoutes(routes, jid)
+			targets := make([]string, 0, len(matched))
+			for _, r := range matched {
+				targets = append(targets, r.Target)
+			}
+			slices.Sort(targets)
+			for _, target := range targets {
+				routesHTML += fmt.Sprintf(
+					`<tr><td>%s</td><td>%s</td></tr>`, esc(jid), esc(target))
+			}
 		}
-		rows.Close()
 	}
 	if routesHTML == "" {
 		routesHTML = `<tr><td colspan="2" class="empty">No routes configured.</td></tr>`
@@ -1362,67 +1414,28 @@ func userFolders(db *sql.DB, sub string) []string {
 	if sub == "" {
 		return nil
 	}
-	principals := []string{sub}
-	// Walk acl_membership transitively from sub upward.
-	queue := []string{sub}
-	seen := map[string]bool{sub: true}
-	for len(queue) > 0 {
-		next := queue[0]
-		queue = queue[1:]
-		rows, err := db.Query(`SELECT parent FROM acl_membership WHERE child = ?`, next)
-		if err != nil {
-			slog.Error("userFolders membership walk", "child", next, "err", err)
-			return nil
-		}
-		for rows.Next() {
-			var p string
-			if err := rows.Scan(&p); err != nil {
-				rows.Close()
-				slog.Error("userFolders membership scan", "child", next, "err", err)
-				return nil
-			}
-			if p != "" && !seen[p] {
-				seen[p] = true
-				principals = append(principals, p)
-				queue = append(queue, p)
-			}
-		}
-		if err := rows.Err(); err != nil {
-			rows.Close()
-			slog.Error("userFolders membership rows", "child", next, "err", err)
-			return nil
-		}
-		rows.Close()
-	}
-	placeholders := strings.Repeat("?,", len(principals))
-	placeholders = placeholders[:len(placeholders)-1]
-	args := make([]any, 0, len(principals))
-	for _, p := range principals {
-		args = append(args, p)
-	}
-	rows, err := db.Query(
-		`SELECT DISTINCT scope FROM acl
-		 WHERE effect='allow' AND principal IN (`+placeholders+`)
-		 ORDER BY scope`, args...)
+	st := store.New(db)
+	// Every principal the sub speaks as: itself, and the transitive closure of
+	// acl_membership above it.
+	principals := append([]string{sub}, st.Ancestors(sub)...)
+	// One begins_with per principal, which is the exactness `principal IN (…)`
+	// had: the separator ends the principal, so `folder:a` cannot reach
+	// `folder:ab`.
+	rows, err := st.ACLRowsFor(principals)
 	if err != nil {
+		slog.Error("userFolders read grants", "sub", sub, "err", err)
 		return nil
 	}
-	defer rows.Close()
 	var folders []string
-	for rows.Next() {
-		var f string
-		if err := rows.Scan(&f); err != nil {
-			slog.Error("userFolders scope scan", "err", err)
-			return nil
+	for _, r := range rows {
+		if r.Effect != "allow" || r.Scope == "" {
+			continue
 		}
-		if f != "" {
-			folders = append(folders, f)
+		if !slices.Contains(folders, r.Scope) {
+			folders = append(folders, r.Scope)
 		}
 	}
-	if err := rows.Err(); err != nil {
-		slog.Error("userFolders scope rows", "err", err)
-		return nil
-	}
+	slices.Sort(folders)
 	return folders
 }
 
@@ -1438,19 +1451,22 @@ func handleDeleteRoute(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	var target string
-	err = db.QueryRow(
-		`SELECT target FROM routes WHERE id = ?`, id).Scan(&target)
-	if err != nil {
+	st := store.New(db)
+	route, ok := st.GetRoute(id)
+	if !ok {
 		http.Error(w, "route not found", http.StatusNotFound)
 		return
 	}
-	if !auth.MatchGroups(folders, target) {
+	if !auth.MatchGroups(folders, route.Target) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 
-	db.Exec(`DELETE FROM routes WHERE id = ?`, id)
+	if err := deleteRoute(r.Context(), db, st, id); err != nil {
+		slog.Error("route delete", "id", id, "sub", sub, "err", err)
+		http.Error(w, "delete failed", http.StatusInternalServerError)
+		return
+	}
 	slog.Info("route deleted", "id", id, "sub", sub)
 	http.Redirect(w, r, "/onboard", http.StatusSeeOther)
 }
@@ -1472,15 +1488,7 @@ func userOwnsMatch(db *sql.DB, sub, match string) bool {
 	if room == "" {
 		return false
 	}
-	rows, err := db.Query(
-		`SELECT child FROM acl_membership WHERE parent = ?`, sub)
-	if err != nil {
-		return false
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var jid string
-		rows.Scan(&jid)
+	for _, jid := range store.New(db).Members(sub) {
 		if i := strings.Index(jid, ":"); i > 0 && jid[i+1:] == room {
 			return true
 		}
@@ -1500,13 +1508,32 @@ const (
 
 // insertRoute is onbod's ONLY routes writer, so no onbod path can produce an
 // unattributed row. Authorization belongs to the caller; this records who acted
-// and how. Plain INSERT, not INSERT OR IGNORE: `routes` carries no UNIQUE
-// constraint, so OR IGNORE ignored nothing and only swallowed genuine errors.
+// and how.
+//
+// (seq, target, match) is the rule's COORDINATE, so a rule onbod already wrote
+// is not written twice: the write is create-if-absent and answers with the id
+// the existing rule holds. That is what a routing table addressed by its own
+// content means — two rules that dispatch identically are one rule, and a second
+// id for it would hand delete_route(id) a handle that removes somebody else's.
 func insertRoute(db *sql.DB, match, target, sub, via string) error {
-	_, err := db.Exec(
-		`INSERT INTO routes (seq, match, target, added_by, added_via) VALUES (0, ?, ?, ?, ?)`,
-		match, target, sub, via)
+	_, err := store.New(db).PutRouteTx(context.Background(), nil,
+		core.Route{Seq: 0, Match: match, Target: target}, sub, via)
 	return err
+}
+
+// deleteRoute removes one rule and NO audit row: onbod's route writers are the
+// onboarding form's two acts, and the row that records them is the onboarding
+// state, not an audit_log entry the other writers of this table emit.
+func deleteRoute(ctx context.Context, db *sql.DB, st *store.Store, id int64) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := st.DeleteRouteTx(ctx, tx, id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func handleAddRoute(w http.ResponseWriter, r *http.Request,
