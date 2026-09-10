@@ -251,6 +251,7 @@ func TestEntity_ApplyIsFencedByItsMarker(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		_, err := objstore.Replace(t.Context(), s, store.OwnerScope(entitySubsystem), "",
+			objstore.Claim{Intent: "not an apply"},
 			func(ctx context.Context, rp *objstore.Replacer) error {
 				close(held)
 				<-release
@@ -313,6 +314,7 @@ func TestEntity_ExportSnapshotRefusesAHeldScope(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		_, err := objstore.Replace(t.Context(), s, store.OwnerScope(entitySubsystem), "",
+			objstore.Claim{Intent: "not an apply"},
 			func(ctx context.Context, rp *objstore.Replacer) error {
 				close(held)
 				<-release

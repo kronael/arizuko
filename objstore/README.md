@@ -70,7 +70,8 @@ Three of the four rest on one item per scope, because all three are UNBOUNDED �
 the row set, the read set or the graph frontier is not known before the call
 begins, so none of them fits in one all-or-nothing batch. The marker carries
 `version` (a value every writer changes), `holder` (present only while a replace
-runs, and its value is the fencing token) and `since`.
+runs, and its value is the fencing token), `intent` (what that holder is
+writing) and `since`.
 
 `EnsureScope` creates it where a daemon already calls `CreateEntity`, and a
 BOUNDED writer adds `Bump(scope)` to its own batch so that an export can see it.
@@ -84,6 +85,18 @@ subsystem back to its pre-image — the rollback `L44` depends on. A marker-gate
 sequence has none. A replace that dies half-way leaves the scope part-written
 with its claim held, and recovery is to run it again, never to undo it. That is
 what buys the unbounded row set, and it is the price `6/38` costed.
+
+**Roll-forward is what gives the claim back.** Nothing releases one: a released
+half-written scope reads as settled and correct, which is the silent corruption
+the claim exists to stop. So a `Claim` names the WORK — the intent, derived from
+the document — and a replace whose intent matches the holder's takes the claim
+over and finishes it. That is a proof about the document, never about the dead
+replace's process: a slow replace on another host and a dead one look identical,
+so `since` stays what an OPERATOR reads and never a predicate this package
+evaluates. `Claim.Take` is where the operator asserts what cannot be inferred,
+and it costs what the intent match buys — rows outside the taking document's own
+delete set stay part-written. Without this, one failed `arizuko apply` disabled
+a subsystem's config lane for good (`L267`).
 
 ## What gets on the surface
 
@@ -164,7 +177,7 @@ key, where it costs nothing.
 | `ordered.go`    | the declared widths every driver refuses a value against          |
 | `protocol.go`   | `Increment` — the counter, and what a protocol looks like         |
 | `marker.go`     | `Scope`, `EnsureScope`, `Bump` — the version marker three share   |
-| `replace.go`    | `Replace` — the versioned replace, and the claim it writes under  |
+| `replace.go`    | `Replace` — the versioned replace and the claim it rolls forward  |
 | `consistent.go` | `ReadConsistent` — the multi-read that retries a moved scope      |
 | `reach.go`      | `Reachable`, `AddEdge` — the graph walk and its version guard     |
 | `sqlstore/`     | the SQL driver: one generator, two dialects                       |
@@ -218,10 +231,11 @@ the STATEMENT rather than the answer does not count — a body that goes red
 because Postgres refused to parse the query has proved nothing.
 
 The protocols were watched the same way, and **the mutation is what sized the
-code**: two conjuncts survived being deleted, so they were deleted. The sixteen
+code**: two conjuncts survived being deleted, so they were deleted. The eighteen
 that turn a body red are the claim's compare-and-swap, its held-scope refusal,
 the fence on every batch a replace writes, the plan's version guard, the finish
-compare-and-swap, keeping a claim after a partial write, the batch bound, the
+compare-and-swap, keeping a claim after a partial write, the intent a takeover
+has to match, the intent a claim must carry, the batch bound, the
 whole-set duplicate check, `EnsureScope`, `Bump`'s changed value, the second
 marker read, the retry, the held and missing refusals on a consistent read, the
 graph's version guard, its retry, the transitive frontier and the walk's own

@@ -688,7 +688,7 @@ func pkgApply(stores map[string]*store.Store, docs []parsedDoc, name, digest str
 		return fmt.Errorf("%s names folders that are not groups; create the groups first: %w",
 			name, errors.Join(bad...))
 	}
-	if _, err := applyDocs(context.Background(), stores, docs, false, cliActor(), digest, extra); err != nil {
+	if _, err := applyDocs(context.Background(), stores, docs, applyRun{actor: cliActor(), digest: digest, extra: extra}); err != nil {
 		return err
 	}
 	return nil

@@ -843,6 +843,15 @@ func EnsureSubsystem(ctx context.Context, m EntityMaker, s objstore.Store, subsy
 // is the price 6/38 costed for an unbounded row set, and objstore.Replace's own
 // error says it in the words the operator sees.
 //
+// THE ROLL-FORWARD IS THE SAME CALL, which is why the claim carries an intent.
+// Re-running this apply carries the intent the interrupted one recorded, so it
+// takes that claim over and finishes the work instead of answering ErrScopeHeld
+// for good (BUGS L267). It is sound because THIS is the operation that converges:
+// every delete set below is derived from the manifest's own scopes and re-read
+// live, so deleting whatever is there now and putting the document over it lands
+// on the state a clean run would have produced, whether the dead apply stopped
+// at the first row or the last.
+//
 // The reads inside the body run UNDER the claim, which is what keeps a second
 // apply's rows out of this one's delete set. It does not exclude an ordinary
 // writer: the claim gates replaces, so a daemon writing one of these entities
@@ -854,9 +863,13 @@ func applyEntities(ctx context.Context, be Backend, subsystem, wantChecksum stri
 		return "", fmt.Errorf("resreg: %s is entity-backed and the backend carries no object store",
 			subsystem)
 	}
+	claim, err := applyClaim(subsystem, manifestRows, opts)
+	if err != nil {
+		return "", err
+	}
 	rd := be.read()
 	var current, applied string
-	_, err := objstore.Replace(ctx, be.Obj, store.OwnerScope(subsystem), "",
+	_, err = objstore.Replace(ctx, be.Obj, store.OwnerScope(subsystem), "", claim,
 		func(ctx context.Context, rp *objstore.Replacer) error {
 			var err error
 			// Read under the claim, so the checksum this compares is the state the
@@ -864,7 +877,11 @@ func applyEntities(ctx context.Context, be Backend, subsystem, wantChecksum stri
 			if current, err = checksum(rd, subsystem); err != nil {
 				return fmt.Errorf("checksum: %w", err)
 			}
-			if !force && current != wantChecksum {
+			// A takeover has no pre-image left to compare: the checksum the
+			// operator planned against is exactly what the interrupted apply
+			// began overwriting, so the CAS would refuse the only action that can
+			// settle the scope.
+			if !force && !rp.TookOver() && current != wantChecksum {
 				// Before any write, so Replace releases the claim rather than
 				// leaving the scope wedged over an operator's stale manifest.
 				return fmt.Errorf("%w: db=%s manifest=%s", ErrChecksumMismatch, current, wantChecksum)
@@ -892,6 +909,36 @@ func applyEntities(ctx context.Context, be Backend, subsystem, wantChecksum stri
 		return current, err
 	}
 	return applied, nil
+}
+
+// applyClaim renders what one apply is about to write, so a later apply of the
+// same work can take a claim this one leaves behind and finish it
+// (objstore.Claim).
+//
+// It is DERIVED from the material that decides the write set — the document and
+// the scopes ApplyOpts asks pruned — rather than passed in by each caller. A
+// caller-chosen value would be the same mistake in both directions: a fresh one
+// per run could never take its own claim back, and a constant would take over an
+// apply whose rows this one does not cover. The digest is the same renderer the
+// checksum uses, so two callers that would write the same rows agree without
+// coordinating.
+//
+// `force` and wantChecksum are absent because neither changes a single write:
+// they gate whether the apply runs, not what it lays down.
+func applyClaim(subsystem string, manifestRows map[string]any, opts *ApplyOpts) (objstore.Claim, error) {
+	sum, err := hashManifest(manifestRows)
+	if err != nil {
+		return objstore.Claim{}, fmt.Errorf("intent: %w", err)
+	}
+	var prune []string
+	if opts != nil {
+		prune = append(prune, opts.PruneScopes...)
+		sort.Strings(prune)
+	}
+	return objstore.Claim{
+		Intent: "apply " + subsystem + " " + sum + " prune=" + strings.Join(prune, ","),
+		Take:   opts != nil && opts.TakeOver,
+	}, nil
 }
 
 // replaceRows issues one entity-backed subsystem's deletes and puts under the

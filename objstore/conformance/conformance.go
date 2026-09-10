@@ -61,6 +61,7 @@ func Run(t *testing.T, newStore Factory) {
 		{"CountersCarryTheirCompanionWrites", CountersCarryTheirCompanionWrites},
 		{"OrderedWidthsAreRefusedRatherThanMisSorted", OrderedWidthsAreRefusedRatherThanMisSorted},
 		{"AVersionedReplaceIsFencedByItsMarker", AVersionedReplaceIsFencedByItsMarker},
+		{"AnAbandonedClaimIsFinishedByTheSameWork", AnAbandonedClaimIsFinishedByTheSameWork},
 		{"AConsistentMultiReadRetriesWhenTheScopeMovesUnderIt",
 			AConsistentMultiReadRetriesWhenTheScopeMovesUnderIt},
 		{"AnEdgeThatWouldCloseACycleIsRefusedFromBothEnds",

@@ -65,7 +65,7 @@ func AVersionedReplaceIsFencedByItsMarker(t *testing.T, newStore Factory) {
 	v0 := markerAttr(t, s, sc, "version")
 
 	now := scopeRows("now", 150)
-	v1, err := objstore.Replace(ctx, s, sc, v0, func(ctx context.Context, r *objstore.Replacer) error {
+	v1, err := objstore.Replace(ctx, s, sc, v0, work("the document"), func(ctx context.Context, r *objstore.Replacer) error {
 		// The scope is read UNDER the claim, which is what keeps a second
 		// replace's rows out of this one's delete set.
 		held := s2keys(t, s, objstore.Query{Entity: config, Partition: tenant})
@@ -95,7 +95,7 @@ func AVersionedReplaceIsFencedByItsMarker(t *testing.T, newStore Factory) {
 	// manifest planned against a checksum the database has moved past, and this
 	// is that refusal in the marker's terms.
 	ran := false
-	if _, err := objstore.Replace(ctx, s, sc, v0, func(context.Context, *objstore.Replacer) error {
+	if _, err := objstore.Replace(ctx, s, sc, v0, work("the document"), func(context.Context, *objstore.Replacer) error {
 		ran = true
 		return nil
 	}); !errors.Is(err, objstore.ErrScopeMoved) {
@@ -109,8 +109,8 @@ func AVersionedReplaceIsFencedByItsMarker(t *testing.T, newStore Factory) {
 	// A second replace cannot start while one holds the claim. FORCED: the
 	// second runs inside the first's body, so the interleave is certain.
 	var inner error
-	if _, err := objstore.Replace(ctx, s, sc, "", func(ctx context.Context, r *objstore.Replacer) error {
-		_, inner = objstore.Replace(ctx, s, sc, "", func(context.Context, *objstore.Replacer) error {
+	if _, err := objstore.Replace(ctx, s, sc, "", work("the document"), func(ctx context.Context, r *objstore.Replacer) error {
+		_, inner = objstore.Replace(ctx, s, sc, "", work("another document"), func(context.Context, *objstore.Replacer) error {
 			t.Error("a second replace ran its body while the first held the scope; two of " +
 				"them interleaving their writes is the corruption the claim exists to stop")
 			return nil
@@ -127,7 +127,7 @@ func AVersionedReplaceIsFencedByItsMarker(t *testing.T, newStore Factory) {
 	// because each batch carries a check on the marker. Nothing takes a claim
 	// today; this is what a sweeper would do to an abandoned one.
 	err = nil
-	_, err = objstore.Replace(ctx, s, sc, "", func(ctx context.Context, r *objstore.Replacer) error {
+	_, err = objstore.Replace(ctx, s, sc, "", work("the document"), func(ctx context.Context, r *objstore.Replacer) error {
 		if _, werr := r.Write(ctx, puts(scopeRows("kept", 1))...); werr != nil {
 			return werr
 		}
@@ -158,7 +158,7 @@ func AVersionedReplaceIsFencedByItsMarker(t *testing.T, newStore Factory) {
 	// caller is told rather than the scope quietly declared correct.
 	taken := scope("slakd")
 	ensure(t, s, taken)
-	if _, err := objstore.Replace(ctx, s, taken, "", func(
+	if _, err := objstore.Replace(ctx, s, taken, "", work("the document"), func(
 		ctx context.Context, r *objstore.Replacer) error {
 		if _, werr := r.Write(ctx, puts(scopeRows("early", 1))...); werr != nil {
 			return werr
@@ -180,7 +180,7 @@ func AVersionedReplaceIsFencedByItsMarker(t *testing.T, newStore Factory) {
 	// correct — the silent half of not having Apply's pre-image rollback (L44).
 	partial := scope("timed")
 	ensure(t, s, partial)
-	if _, err := objstore.Replace(ctx, s, partial, "", func(
+	if _, err := objstore.Replace(ctx, s, partial, "", work("the document"), func(
 		ctx context.Context, r *objstore.Replacer) error {
 		if _, werr := r.Write(ctx, puts(scopeRows("half", 2))...); werr != nil {
 			return werr
@@ -193,7 +193,7 @@ func AVersionedReplaceIsFencedByItsMarker(t *testing.T, newStore Factory) {
 		t.Error("a replace that wrote and then failed gave its claim back, so a scope left " +
 			"part-written now reads as settled and correct")
 	}
-	if _, err := objstore.Replace(ctx, s, partial, "", func(
+	if _, err := objstore.Replace(ctx, s, partial, "", work("another document"), func(
 		context.Context, *objstore.Replacer) error {
 		t.Error("a replace started on a scope an abandoned claim still holds")
 		return nil
@@ -205,7 +205,7 @@ func AVersionedReplaceIsFencedByItsMarker(t *testing.T, newStore Factory) {
 	// wedging the scope would be a fault this call invented.
 	clean := scope("dashd")
 	ensure(t, s, clean)
-	if _, err := objstore.Replace(ctx, s, clean, "", func(
+	if _, err := objstore.Replace(ctx, s, clean, "", work("the document"), func(
 		context.Context, *objstore.Replacer) error {
 		return errBody
 	}); !errors.Is(err, errBody) {
@@ -221,7 +221,7 @@ func AVersionedReplaceIsFencedByItsMarker(t *testing.T, newStore Factory) {
 	// same coordinate 150 writes later fall in DIFFERENT batches, so a driver
 	// checking one batch at a time would let the pair through and the caller
 	// would be told nothing.
-	if _, err := objstore.Replace(ctx, s, clean, "", func(
+	if _, err := objstore.Replace(ctx, s, clean, "", work("the document"), func(
 		ctx context.Context, r *objstore.Replacer) error {
 		rows := scopeRows("acl", 150)
 		both := append(deletes(keysOf(rows)), puts(rows)...)
@@ -246,7 +246,7 @@ func AVersionedReplaceIsFencedByItsMarker(t *testing.T, newStore Factory) {
 		mustCommit(t, s, ctx, objstore.Write{Op: objstore.Update, Entity: markers, Key: race.Key,
 			Attrs: map[string]string{"holder": other, "version": "claimed by " + other}})
 	}}
-	if _, err := objstore.Replace(ctx, raced, race, "", func(
+	if _, err := objstore.Replace(ctx, raced, race, "", work("the document"), func(
 		context.Context, *objstore.Replacer) error {
 		t.Error("a replace ran its body after another one claimed the scope between its " +
 			"marker read and its own claim")
@@ -263,7 +263,7 @@ func AVersionedReplaceIsFencedByItsMarker(t *testing.T, newStore Factory) {
 	// engine's own uniqueness decides that race. Only the read protocols refuse
 	// a missing marker.
 	fresh := scope("onbod")
-	if _, err := objstore.Replace(ctx, s, fresh, "", func(
+	if _, err := objstore.Replace(ctx, s, fresh, "", work("the document"), func(
 		ctx context.Context, r *objstore.Replacer) error {
 		_, werr := r.Write(ctx, puts(scopeRows("new", 2))...)
 		return werr
@@ -272,6 +272,199 @@ func AVersionedReplaceIsFencedByItsMarker(t *testing.T, newStore Factory) {
 	}
 	if h := markerAttr(t, s, fresh, "holder"); h != "" {
 		t.Errorf("the replace of a fresh scope left the claim %q", h)
+	}
+}
+
+// AnAbandonedClaimIsFinishedByTheSameWork is the recovery the body above says
+// the protocol has and BUGS L267 found it did not: a replace that died after
+// writing held its scope for good, so one failed `arizuko apply` disabled the
+// config lane until an operator edited the marker by hand.
+//
+// The claim comes back one way — somebody FINISHES the work — and the proof it
+// is the same work is the intent recorded beside the fencing token. That is a
+// claim about the DOCUMENT, never about the dead replace's process: a slow
+// replace on another host and a dead one look identical, so nothing here reads
+// `since` and decides.
+//
+// EVERY INTERLEAVE IS FORCED. The takeover's compare-and-swap is proved by slip
+// putting a third claim between the recovering replace's marker read and its own
+// claim write, and the fence by running the takeover INSIDE the body it fences.
+// A body that raced for either would pass against a takeover that simply
+// overwrote whatever it found.
+func AnAbandonedClaimIsFinishedByTheSameWork(t *testing.T, newStore Factory) {
+	ctx := context.Background()
+	s := newStore(t, markers, config)
+	all := func(prefix string) []string {
+		t.Helper()
+		return s2keys(t, s, objstore.Query{Entity: config, Partition: tenant,
+			Key: objstore.KeyPredicate{Op: objstore.PrefixKey, Value: prefix, Sep: "/"}})
+	}
+
+	// A replace dies after writing PART of its document, which is the state an
+	// interrupted apply leaves behind.
+	sc := scope("routd")
+	ensure(t, s, sc)
+	document := scopeRows("now", 150)
+	if _, err := objstore.Replace(ctx, s, sc, "", work("the document"), func(
+		ctx context.Context, r *objstore.Replacer) error {
+		if _, werr := r.Write(ctx, puts(document[:60])...); werr != nil {
+			return werr
+		}
+		return errBody
+	}); !errors.Is(err, errBody) {
+		t.Fatalf("the replace reported %v, want the body's own error", err)
+	}
+	if markerAttr(t, s, sc, "holder") == "" {
+		t.Fatal("the replace that wrote and then failed gave its claim back, so there is " +
+			"no abandoned claim here to recover from")
+	}
+
+	// A DIFFERENT document may NOT finish it, and this is the assertion a wrong
+	// fix turns red: its own delete set covers the rows it names and nothing
+	// else, so settling the scope here would declare correct a scope still
+	// part-written outside it.
+	if _, err := objstore.Replace(ctx, s, sc, "", work("another document"), func(
+		ctx context.Context, r *objstore.Replacer) error {
+		_, werr := r.Write(ctx, puts(scopeRows("other", 3))...)
+		return werr
+	}); !errors.Is(err, objstore.ErrScopeHeld) {
+		t.Errorf("a replace of another document over a part-written scope returned %v, "+
+			"want ErrScopeHeld", err)
+	}
+	if h := markerAttr(t, s, sc, "holder"); h == "" {
+		t.Error("a scope 60 rows into a 150-row document now reads as SETTLED, because a " +
+			"replace that cannot prove it writes the same rows released the claim anyway")
+	}
+	if got := all("other"); len(got) != 0 {
+		t.Errorf("the refused replace left %v behind", got)
+	}
+
+	// The SAME work finishes it. Its writes span several batches, so the claim it
+	// took over carries the whole roll-forward rather than the first chunk.
+	if _, err := objstore.Replace(ctx, s, sc, "", work("the document"), func(
+		ctx context.Context, r *objstore.Replacer) error {
+		if _, werr := r.Write(ctx, deletes(all("now"))...); werr != nil {
+			return werr
+		}
+		_, werr := r.Write(ctx, puts(document)...)
+		return werr
+	}); err != nil {
+		t.Fatalf("the same work could not finish the claim it left behind: %v; one failed "+
+			"replace then holds the scope for good", err)
+	}
+	if got := all("now"); !sameKeys(got, keysOf(document)) {
+		t.Errorf("the rolled-forward scope holds %d rows, want the document's %d",
+			len(got), len(document))
+	}
+	if h := markerAttr(t, s, sc, "holder"); h != "" {
+		t.Errorf("the roll-forward left the claim %q on the scope", h)
+	}
+
+	// The replace whose claim is taken over is FENCED, which is what makes a
+	// takeover safe against a holder that is not dead after all. FORCED: the
+	// takeover runs inside the body it fences.
+	fenced := scope("onbod")
+	ensure(t, s, fenced)
+	var inner, late error
+	if _, err := objstore.Replace(ctx, s, fenced, "", work("the document"), func(
+		ctx context.Context, r *objstore.Replacer) error {
+		if _, werr := r.Write(ctx, puts(scopeRows("first", 2))...); werr != nil {
+			return werr
+		}
+		_, inner = objstore.Replace(ctx, s, fenced, "", work("the document"), func(
+			ctx context.Context, r2 *objstore.Replacer) error {
+			_, werr := r2.Write(ctx, puts(scopeRows("second", 2))...)
+			return werr
+		})
+		_, late = r.Write(ctx, puts(scopeRows("late", 2))...)
+		return nil
+	}); !errors.Is(err, objstore.ErrClaimLost) {
+		t.Errorf("the replace whose claim was taken over returned %v, want ErrClaimLost", err)
+	}
+	if inner != nil {
+		t.Errorf("the takeover of the same work failed: %v", inner)
+	}
+	if !errors.Is(late, objstore.ErrClaimLost) {
+		t.Errorf("a write under a claim another replace took over returned %v, want "+
+			"ErrClaimLost", late)
+	}
+	if got := all("late"); len(got) != 0 {
+		t.Errorf("the writes of the fenced replace landed anyway: %v", got)
+	}
+
+	// The takeover is a COMPARE-AND-SWAP. FORCED: a third claim lands between the
+	// recovering replace's marker read and its own claim write, and it carries
+	// the SAME intent, so only the swap can stop it.
+	wedged := scope("timed")
+	ensure(t, s, wedged)
+	if _, err := objstore.Replace(ctx, s, wedged, "", work("the document"), func(
+		ctx context.Context, r *objstore.Replacer) error {
+		if _, werr := r.Write(ctx, puts(scopeRows("wedged", 2))...); werr != nil {
+			return werr
+		}
+		return errBody
+	}); !errors.Is(err, errBody) {
+		t.Fatalf("the replace reported %v, want the body's own error", err)
+	}
+	fired := 0
+	const rival = "another recovery"
+	slipped := SlipAt(s, markers, 1, func() {
+		fired++
+		mustCommit(t, s, ctx, objstore.Write{Op: objstore.Update, Entity: markers,
+			Key: wedged.Key, Attrs: map[string]string{"holder": rival,
+				"intent": "the document", "version": "claimed by " + rival}})
+	})
+	if _, err := objstore.Replace(ctx, slipped, wedged, "", work("the document"), func(
+		context.Context, *objstore.Replacer) error {
+		t.Error("a replace ran its body after another one took the claim between its " +
+			"marker read and its own claim")
+		return nil
+	}); !errors.Is(err, objstore.ErrScopeHeld) {
+		t.Errorf("a takeover that lost the claim race returned %v, want ErrScopeHeld", err)
+	}
+	if fired != 1 {
+		t.Fatalf("the interleave fired %d times, so this proved nothing about the swap", fired)
+	}
+	if h := markerAttr(t, s, wedged, "holder"); h != rival {
+		t.Errorf("the scope's holder is %q, want %q: the losing takeover wrote over the "+
+			"winner's claim, so two replaces are recovering the same part-written scope "+
+			"at once", h, rival)
+	}
+
+	// Claim.Take is the operator's own assertion, and the ONLY way a document
+	// that cannot prove it covers the interrupted work may finish it.
+	adopted := scope("slakd")
+	ensure(t, s, adopted)
+	if _, err := objstore.Replace(ctx, s, adopted, "", work("the document"), func(
+		ctx context.Context, r *objstore.Replacer) error {
+		if _, werr := r.Write(ctx, puts(scopeRows("adopted", 2))...); werr != nil {
+			return werr
+		}
+		return errBody
+	}); !errors.Is(err, errBody) {
+		t.Fatalf("the replace reported %v, want the body's own error", err)
+	}
+	if _, err := objstore.Replace(ctx, s, adopted, "",
+		objstore.Claim{Intent: "another document", Take: true},
+		func(ctx context.Context, r *objstore.Replacer) error {
+			_, werr := r.Write(ctx, puts(scopeRows("operator", 2))...)
+			return werr
+		}); err != nil {
+		t.Errorf("a claim the operator took over returned %v, so a scope whose interrupted "+
+			"work nobody can reproduce has no escape at all", err)
+	}
+	if h := markerAttr(t, s, adopted, "holder"); h != "" {
+		t.Errorf("the operator's takeover left the claim %q on the scope", h)
+	}
+
+	// A claim with no intent is refused, because the claim it would leave behind
+	// could never be proved to be its own work.
+	if _, err := objstore.Replace(ctx, s, scope("dashd"), "", objstore.Claim{},
+		func(context.Context, *objstore.Replacer) error {
+			t.Error("a replace with no intent ran its body")
+			return nil
+		}); err == nil {
+		t.Error("a replace with no intent was accepted")
 	}
 }
 
@@ -333,7 +526,7 @@ func AConsistentMultiReadRetriesWhenTheScopeMovesUnderIt(t *testing.T, newStore 
 	// that claimed before the first read and settles after the second shows the
 	// same version at both — with every one of its row writes in between.
 	var held error
-	if _, err := objstore.Replace(ctx, s, sc, "", func(
+	if _, err := objstore.Replace(ctx, s, sc, "", work("the document"), func(
 		ctx context.Context, r *objstore.Replacer) error {
 		held = objstore.ReadConsistent(ctx, s, sc, func(context.Context) error {
 			t.Error("a consistent read ran its queries across a scope being replaced")
@@ -476,6 +669,11 @@ func AnEdgeThatWouldCloseACycleIsRefusedFromBothEnds(t *testing.T, newStore Fact
 func scope(name string) objstore.Scope {
 	return objstore.Scope{Entity: markers, Key: objstore.Key{Partition: tenant, Sort: name}}
 }
+
+// work is a claim naming what a replace will write. Two replaces that would
+// make the scope equal the same document carry the same value, and that is the
+// whole proof one of them may finish what the other left (objstore.Claim).
+func work(intent string) objstore.Claim { return objstore.Claim{Intent: intent} }
 
 // ensure creates a scope's marker.
 func ensure(t *testing.T, s objstore.Store, sc objstore.Scope) {

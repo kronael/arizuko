@@ -934,6 +934,17 @@ type ApplyOpts struct {
 	// handed out (BUGS Q5/F2/L36). Keep values short — the summary caps at 512
 	// bytes. The three engine keys always win a name collision.
 	Extra map[string]any
+
+	// TakeOver finishes an entity-backed subsystem whose claim a DIFFERENT
+	// apply left behind, for the operator who cannot run that apply again.
+	//
+	// The ordinary recovery needs nothing here: an apply of the same manifest
+	// carries the same intent, so it takes its own claim over and rolls forward
+	// (objstore.Claim). This is the other case, and it costs what that one does
+	// not — the rows the interrupted apply was writing OUTSIDE this manifest's
+	// delete set stay part-written, and the scope is settled over them. Column
+	// shapes ignore it: they roll back rather than forward.
+	TakeOver bool
 }
 
 // ManifestScopes returns every scope value a manifest's rows mention across

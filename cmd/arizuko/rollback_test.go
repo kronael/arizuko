@@ -156,7 +156,7 @@ func TestRollback_LaterSubsystemFailureRestoresTheEarlierOne(t *testing.T) {
 	}
 
 	docs := forwardDocs(t, stores)
-	_, aerr := applyDocs(context.Background(), stores, docs, false, "test", "", nil)
+	_, aerr := applyDocs(context.Background(), stores, docs, applyRun{actor: "test"})
 	if aerr == nil {
 		t.Fatal("applyDocs must fail: the onbod document's checksum does not match onbod.db")
 	}
@@ -210,7 +210,7 @@ func TestRollback_MessagesSurviveTheRollback(t *testing.T) {
 		t.Fatalf("seeded message count = %d, want 1", got)
 	}
 
-	if _, err := applyDocs(context.Background(), stores, forwardDocs(t, stores), false, "test", "", nil); err == nil {
+	if _, err := applyDocs(context.Background(), stores, forwardDocs(t, stores), applyRun{actor: "test"}); err == nil {
 		t.Fatal("applyDocs must fail")
 	}
 	if got := scalar(t, routdDB, `SELECT COUNT(*) FROM messages WHERE id='m1' AND content='hello'`); got != 1 {
@@ -236,7 +236,7 @@ func TestRollback_SuccessfulApplyKeepsBothSubsystems(t *testing.T) {
 	}
 	docs[1].checksum = onbodSum
 
-	report, aerr := applyDocs(context.Background(), stores, docs, false, "test", "", nil)
+	report, aerr := applyDocs(context.Background(), stores, docs, applyRun{actor: "test"})
 	if aerr != nil {
 		t.Fatalf("applyDocs: %v", aerr)
 	}

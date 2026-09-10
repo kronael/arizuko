@@ -143,6 +143,16 @@ a marker-gated sequence has none — a replace that dies after it has written
 leaves the subsystem part-applied with its claim held, and recovery is to run
 the apply again. `arizuko apply` says so before it writes.
 
+**Running it again is what gives the claim back.** The claim records the apply's
+INTENT — `applyClaim`, derived from the document and the scopes it prunes — so
+the same apply takes its own claim over and rolls forward. It converges because
+this is the operation that does: every delete set is read live from the
+manifest's own scopes, so deleting whatever is there and putting the document
+over it lands where a clean run would, whether the dead apply stopped at the
+first row or the last. An apply of a DIFFERENT document is refused, because its
+delete set covers only the rows it names; `apply --take-over` is the operator
+asserting the interrupted work is not coming back (`L267`).
+
 A subsystem must therefore be ONE shape, checked before any write: a mixed one
 would roll the columns back and leave the items part-written, with no way to
 tell an operator which half landed. That is what lets onbod's three resources

@@ -11,16 +11,29 @@ package objstore
 // 6/40 §"The audited write" names that item and says it is ONE mechanism
 // serving those callers rather than a scheme imposed on the other forty writes.
 //
-// The marker carries at most three attributes:
+// The marker carries at most four attributes:
 //
 //	version  a value that CHANGES on every write to the scope
 //	holder   present only while a Replace holds the scope, and its value is the
 //	         fencing token that replace writes under
+//	intent   present with holder, and its value names the WORK that holder is
+//	         doing, so a later replace can prove it would write the same rows
+//	         and finish what this one left (replace.go)
 //	since    when that holder claimed the scope, so an operator reading a stuck
 //	         scope can tell an abandoned claim from one still in flight
 //
 // Absent is the only null (objstore.go), so "settled" is `holder` absent and
 // needs no second value to say it.
+//
+// HOLDER AND INTENT ARE TWO VALUES BECAUSE THEY ANSWER TWO QUESTIONS, and one
+// value cannot answer both. The fence wants a value UNIQUE to one attempt: every
+// batch a replace writes carries a check that the holder is still its own, so a
+// second attempt of the same work must not be able to pass the first one's fence
+// (replace.go Write). The roll-forward wants a value STABLE across attempts:
+// that is the whole proof that finishing another replace's work is safe rather
+// than merely available. A single attribute would have to be both, and a marker
+// that made two attempts indistinguishable would let a dead replace's last
+// in-flight batch land inside the one recovering from it.
 
 import (
 	"context"
@@ -49,6 +62,7 @@ type Scope struct {
 const (
 	markerVersion = "version"
 	markerHolder  = "holder"
+	markerIntent  = "intent"
 	markerSince   = "since"
 )
 
@@ -121,10 +135,12 @@ func Bump(sc Scope) Write {
 }
 
 // marker is one point read of a scope's marker. version is what a reader
-// compares; holder is empty when the scope is settled.
+// compares; holder is empty when the scope is settled, and intent says what the
+// holder is writing.
 type marker struct {
 	version string
 	holder  string
+	intent  string
 	since   string
 	present bool
 }
@@ -139,7 +155,7 @@ func readMarker(ctx context.Context, s Store, sc Scope) (marker, error) {
 	items, err := s.Query(ctx, Query{
 		Entity: sc.Entity, Partition: sc.Key.Partition,
 		Key:     KeyPredicate{Op: ExactKey, Value: sc.Key.Sort},
-		Project: []string{markerVersion, markerHolder, markerSince},
+		Project: []string{markerVersion, markerHolder, markerIntent, markerSince},
 	})
 	if err != nil {
 		return marker{}, fmt.Errorf("read the marker for %s/%s/%s: %w",
@@ -151,6 +167,7 @@ func readMarker(ctx context.Context, s Store, sc Scope) (marker, error) {
 	return marker{
 		version: items[0].Attrs[markerVersion],
 		holder:  items[0].Attrs[markerHolder],
+		intent:  items[0].Attrs[markerIntent],
 		since:   items[0].Attrs[markerSince],
 		present: true,
 	}, nil

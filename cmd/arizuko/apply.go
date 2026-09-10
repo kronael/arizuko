@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/resreg"
 	_ "github.com/kronael/arizuko/resreg/resources" // side-effect: register cold-tier resources
 	"github.com/kronael/arizuko/store"
@@ -158,6 +159,21 @@ type committed struct {
 	scopes    []string
 }
 
+// applyRun is what one apply run carries beyond its documents: the two guards an
+// operator may lower, and the three fields that reach the audit row.
+//
+// It is a struct rather than more parameters because `force` and `takeOver` are
+// adjacent booleans that lower DIFFERENT guards — force ignores the checksum the
+// manifest was planned against, takeOver adopts a claim an interrupted apply left
+// — and a call site spelling them `false, false` says which is which to nobody.
+type applyRun struct {
+	force    bool
+	takeOver bool
+	actor    string
+	digest   string
+	extra    map[string]any
+}
+
 // applyDocs applies every document, one transaction per subsystem, and puts every
 // already-committed subsystem back to its pre-apply projection if a later one
 // fails.
@@ -166,13 +182,22 @@ type committed struct {
 // transaction opens: capturing lazily would still be valid but would make the
 // ordering a silent correctness dependency instead of an obvious one.
 //
+// A SUBSYSTEM AN INTERRUPTED APPLY STILL HOLDS HAS NO PRE-IMAGE, and that is not
+// a reason to refuse here. Its rows are part-written by definition, so a
+// consistent read over them would describe a state no writer ever saw and
+// resreg.ExportSnapshot says so rather than inventing one (BUGS L267). Refusing
+// the whole run on it would put the operator's error one call too early: the
+// apply itself knows whether this manifest may roll that scope forward, and
+// its answer names the work the claim is holding. So this records that there is
+// no pre-image, says it, and keeps the subsystem out of the rollback set — a
+// scope with nothing to go back to must never be silently "restored" to an empty
+// document.
+//
 // The rollback restores the manifest PROJECTION, not the database: a whole-DB swap
 // would discard messages that arrived and memory a turn wrote during the apply
 // window.
-//
-// extra is caller context for the apply's single audit row; nil for a plain apply.
-func applyDocs(ctx context.Context, stores map[string]*store.Store, docs []parsedDoc, force bool,
-	actor, digest string, extra map[string]any) ([]string, error) {
+func applyDocs(ctx context.Context, stores map[string]*store.Store, docs []parsedDoc,
+	run applyRun) ([]string, error) {
 	pre := map[string]map[string]any{}
 	for _, d := range docs {
 		st, ok := stores[d.subsystem]
@@ -180,6 +205,11 @@ func applyDocs(ctx context.Context, stores map[string]*store.Store, docs []parse
 			return nil, fmt.Errorf("no store for subsystem %q", d.subsystem)
 		}
 		snapshot, _, _, err := resreg.ExportSnapshot(ctx, resreg.OnDB(st.DB()), d.subsystem)
+		if errors.Is(err, objstore.ErrScopeHeld) {
+			fmt.Fprintf(os.Stderr, "%s is part-applied and still claimed (%v), so it has no "+
+				"pre-image: it cannot be rolled back if a later subsystem fails\n", d.subsystem, err)
+			continue
+		}
 		if err != nil {
 			return nil, fmt.Errorf("pre-image %s: %w", d.subsystem, err)
 		}
@@ -190,21 +220,24 @@ func applyDocs(ctx context.Context, stores map[string]*store.Store, docs []parse
 	var done []committed
 	for _, d := range docs {
 		st := stores[d.subsystem]
-		newSum, aerr := resreg.Apply(ctx, resreg.OnDB(st.DB()), d.subsystem, d.checksum, force, d.manifest,
-			&resreg.ApplyOpts{Actor: actor, ManifestDigest: digest, Extra: extra, PruneScopes: d.pruneScopes})
+		newSum, aerr := resreg.Apply(ctx, resreg.OnDB(st.DB()), d.subsystem, d.checksum, run.force, d.manifest,
+			&resreg.ApplyOpts{Actor: run.actor, ManifestDigest: run.digest, Extra: run.extra,
+				PruneScopes: d.pruneScopes, TakeOver: run.takeOver})
 		if aerr != nil {
-			if rerr := rollback(ctx, stores, done, actor); rerr != nil {
+			if rerr := rollback(ctx, stores, done, run.actor); rerr != nil {
 				return report, fmt.Errorf("apply %s: %w; ROLLBACK ALSO FAILED, the instance is half-applied: %v",
 					d.subsystem, aerr, rerr)
 			}
 			return report, fmt.Errorf("apply %s: %w", d.subsystem, aerr)
 		}
-		done = append(done, committed{
-			subsystem: d.subsystem,
-			pre:       pre[d.subsystem],
-			postSum:   newSum,
-			scopes:    resreg.ManifestScopes(d.subsystem, d.manifest),
-		})
+		if snapshot, ok := pre[d.subsystem]; ok {
+			done = append(done, committed{
+				subsystem: d.subsystem,
+				pre:       snapshot,
+				postSum:   newSum,
+				scopes:    resreg.ManifestScopes(d.subsystem, d.manifest),
+			})
+		}
 		report = append(report, fmt.Sprintf("%s: applied (checksum %s -> %s)", d.subsystem, d.checksum, newSum))
 	}
 	return report, nil
@@ -228,17 +261,20 @@ func rollback(ctx context.Context, stores map[string]*store.Store, done []commit
 
 func cmdApply(args []string) {
 	if len(args) < 2 {
-		fmt.Println("usage: arizuko apply <instance> <manifest.yaml> [--force|-f] [--as-folder <folder>]")
+		fmt.Println("usage: arizuko apply <instance> <manifest.yaml> [--force|-f] [--take-over] [--as-folder <folder>]")
 		os.Exit(1)
 	}
 	instance := args[0]
 	file := args[1]
 	force := false
+	takeOver := false
 	asFolder := ""
 	for i := 2; i < len(args); i++ {
 		switch args[i] {
 		case "--force", "-f":
 			force = true
+		case "--take-over":
+			takeOver = true
 		case "--as-folder":
 			if i+1 >= len(args) {
 				die("Failed: --as-folder needs a folder")
@@ -297,14 +333,25 @@ func cmdApply(args []string) {
 	// Apply writes its own single audit_log summary row in-tx (actor +
 	// manifest digest + per-resource counts + final checksum), spec 5/8
 	// §"CAS implementation" (3). No separate auditCLI — one row per apply.
-	report, aerr := applyDocs(context.Background(), stores, docs, force,
-		cliActor(), hex.EncodeToString(digest[:]), nil)
+	report, aerr := applyDocs(context.Background(), stores, docs, applyRun{
+		force: force, takeOver: takeOver, actor: cliActor(),
+		digest: hex.EncodeToString(digest[:]),
+	})
 	for _, line := range report {
 		fmt.Printf("applied %s — %s\n", file, line)
 	}
 	if aerr != nil {
 		if errors.Is(aerr, resreg.ErrChecksumMismatch) {
 			fmt.Fprintf(os.Stderr, "%v\nRe-export and re-apply, or use --force.\n", aerr)
+			os.Exit(2)
+		}
+		if errors.Is(aerr, objstore.ErrScopeHeld) {
+			// The subsystem is part-applied by work this manifest does not
+			// cover, so nothing here may settle it. Naming both escapes is the
+			// whole point of L267: the alternative was editing `resreg_scopes`.
+			fmt.Fprintf(os.Stderr, "%v\nRun the interrupted manifest again to roll it "+
+				"forward, or re-run this one with --take-over to make it the scope's "+
+				"contents and accept that rows outside it stay part-written.\n", aerr)
 			os.Exit(2)
 		}
 		die("Failed: %v", aerr)
