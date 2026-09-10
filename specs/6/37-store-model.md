@@ -414,10 +414,24 @@ layers; the filing is worth doing once, for its method names, and never again.
    and it is the proof the interface carries a real daemon. `L251` closes here:
    `audit_log` becomes one entity behind the interface, implemented once per
    driver instead of twice in every daemon.
-   **Where this stands, measured 2026-09-09.** The config plane is done. All
-   sixteen registered resources are objstore entities — onbod's three and routd's
-   thirteen — and `authd`, `emaid`, `chanlib`, `audit`, `runed` hold no statement
-   at all. Eighteen daemons never held one.
+   **Where this stands, measured 2026-09-10. One table is left.** Every table in
+   arizuko is an objstore entity except `messages` and its FTS twin. The census
+   over non-test Go finds 138 statements against `messages`, and after that only
+   `sqlite_master` probes, the `migrations` bookkeeping and test fixtures. Sixteen
+   registered resources, the five cursor tables, and the six remaining hot-tier
+   tables all moved; `session_log` turned out to be dead in `store` — `runed` has
+   owned that entity since its own move and `routd` federates over HTTP — and was
+   deleted rather than ported.
+
+`messages` waits on one decision that is already recorded rather than open:
+ranked search leaves the store for its own service (§"Search is the one that is
+answered by leaving"), because no document store answers bm25 and no
+denormalisation produces one. `messages` moves with that service, not before it.
+
+**Where this stood, measured 2026-09-09.** The config plane is done. All
+sixteen registered resources are objstore entities — onbod's three and routd's
+thirteen — and `authd`, `emaid`, `chanlib`, `audit`, `runed` hold no statement
+at all. Eighteen daemons never held one.
 
 What still runs SQL is the hot tier, and it is the set this spec always said
 would need a verdict rather than a port: `messages` (139 statements, plus its
