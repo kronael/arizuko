@@ -7,7 +7,7 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
-## L266 — `arizuko apply` of an UNMODIFIED export destroys every route token and every github source (2026-09-08, open — needs sign-off)
+## ✅ FIXED 2026-09-10 L266 — `arizuko apply` of an UNMODIFIED export destroys every route token and every github source (2026-09-08)
 
 REPRODUCED 2026-09-08 on a copy of marinade's routd.db, read-only against the
 snapshot, with the binary from before any of today's work:
@@ -44,12 +44,60 @@ cascade cannot tell the two apart.
 - **Scope:** `resreg/engine.go` `Apply`, `resreg/resources/{route_tokens,github_sources}.go`
 - **Affected:** every instance; measured on marinade, 2 tokens
 - **Source:** reproduced against a snapshot copy, 2026-09-08
-- **Status:** open — needs sign-off
+- **Status:** fixed 2026-09-10 by the port, not by a redesign
+
+Fixed as a side effect of the objstore move, and verified rather than assumed.
+An entity has no foreign key, so the cascade has no mechanism left:
+`grep 'REFERENCES groups' routd/migrations/*.sql` returns nothing, and a
+migrated marinade copy carries no table whose DDL mentions it.
+
+Rehearsed end to end on a copy: `migrate-routd`, `migrate-hot`,
+`migrate-onbod`, `migrate-audit`, then `arizuko export` and `arizuko apply` of
+the unmodified export. `route_tokens` stayed at 2 and `web_routes` at 2 across
+every attempt, including two that failed for other reasons. The redesign this
+entry asked for is not needed: the cascade is gone.
 - **Fix:** a rebuild is not a tenant delete. `Apply` must not rebuild a table
   whose rows other resources hang off — either `groups` stops being
   delete-all/insert-all and becomes a diffed upsert, or the rebuild runs with the
   cascade suppressed and the dependent rows re-attached. The second is the
   smaller change and the first is the right one.
+
+## L267 — a failed `arizuko apply` holds its scope forever, and no operator command releases it (2026-09-10, open)
+
+REPRODUCED 2026-09-10 on a migrated copy of marinade. An `apply` that fails
+part-way leaves the subsystem's version marker CLAIMED, which is by design —
+`objstore/replace.go` says a half-written scope must not read as settled. Every
+later apply then refuses:
+
+```
+Failed: pre-image routd: read resreg_scopes/routd consistently: another replace
+holds the scope since 2026-09-10T09:48:39.745116010Z, so its rows are
+part-replaced
+```
+
+`Replace`'s own doc says recovery is roll-forward. **Nothing implements
+roll-forward.** `--force` does not clear it — `objstore/replace.go:49` notes
+that Apply's force is an empty `wantVersion`, which defeats the version check
+and not the holder check. `grep` finds no takeover, release or resume path
+anywhere.
+
+So one failed apply bricks `arizuko apply` for that subsystem permanently, and
+the only escape is editing `resreg_scopes` by hand — which is exactly the
+operator-reaching-into-the-database this whole layer exists to remove.
+
+The failure that produced it is ordinary: I applied before running
+`migrate-audit`, so the audit write hit a column table. Any half-finished
+migration, any interrupted apply, any crash reaches the same state.
+
+- **Severity:** high (one failure disables the config lane, no recovery)
+- **Scope:** `objstore/replace.go`, `objstore/marker.go`, `resreg/engine.go` `Apply`, `cmd/arizuko/apply.go`
+- **Affected:** every instance, the first time an apply fails
+- **Source:** reproduced on a migrated marinade copy, 2026-09-10
+- **Status:** open
+- **Fix:** the holder is recorded, so an apply of the same manifest can take its
+  own claim over and roll forward. Failing that, an explicit operator command to
+  release a claim it can prove is abandoned. A claim with no release is a lock,
+  and `6/40` chose a marker precisely so it would not be one.
 
 ## L265 — two registrations declare fewer columns than their table has, and `routes` already loses two of them on every apply (2026-09-08, open)
 
