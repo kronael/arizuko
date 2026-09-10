@@ -62,7 +62,7 @@ entry asked for is not needed: the cascade is gone.
   cascade suppressed and the dependent rows re-attached. The second is the
   smaller change and the first is the right one.
 
-## L267 — a failed `arizuko apply` holds its scope forever, and no operator command releases it (2026-09-10, open)
+## ✅ FIXED 2026-09-10 L267 — a failed `arizuko apply` holds its scope forever, and no operator command releases it (2026-09-10)
 
 REPRODUCED 2026-09-10 on a migrated copy of marinade. An `apply` that fails
 part-way leaves the subsystem's version marker CLAIMED, which is by design —
@@ -93,7 +93,43 @@ migration, any interrupted apply, any crash reaches the same state.
 - **Scope:** `objstore/replace.go`, `objstore/marker.go`, `resreg/engine.go` `Apply`, `cmd/arizuko/apply.go`
 - **Affected:** every instance, the first time an apply fails
 - **Source:** reproduced on a migrated marinade copy, 2026-09-10
-- **Status:** open
+- **Status:** fixed 2026-09-10
+
+Fixed, and the shape is the interesting part: **a claim is not a lock and there
+is no release.** Releasing a claim over a part-written scope is the exact silent
+corruption the claim exists to prevent, so recovery is not "release" but
+"finish".
+
+The marker gained an `intent` beside `holder`, and two values are needed because
+they answer two questions: the fence needs a value unique per ATTEMPT, so a
+recovering replace does not pass the dead one's check, while the roll-forward
+needs a value stable across attempts, because that stability IS the proof. A
+replace whose intent matches the held one takes the claim over. Re-running the
+same manifest, with no flags, rolls it forward.
+
+The takeover is safe without proving anything about the dead process: a replace
+makes a scope EQUAL a document, and the delete set is derived from the
+manifest's own scopes and re-read live, so it lands where a clean run would
+whether the dead apply stopped at row 1 or row 400. If the "dead" replace is
+actually alive it gets `ErrClaimLost` and writes nothing.
+
+**Liveness is deliberately not inferred.** A slow replace on another host and a
+dead one look identical, and a sweeper acting on a timeout takes the scope from
+a replace still writing it. `since` stays what an operator reads, never a
+predicate the code evaluates. The other escape is an assertion, not an
+inference: `arizuko apply <file> --take-over`, which settles the scope and
+accepts that rows outside this document stay part-written. The refusal names
+both intents and both escapes.
+
+Reproduction written FIRST and watched fail at HEAD, with the real trigger (the
+audit entity absent, so the last write dies after every row write lands). Two
+mutations, both red on SQLite and Postgres: releasing a claim it cannot prove is
+its own turns a 60-of-150-row scope SETTLED, and dropping the takeover's CAS
+lets two recoveries hold one scope. Interleaves forced, never raced.
+
+Rehearsed end to end on a marinade copy: apply fails, a DIFFERENT manifest is
+refused naming both intents, then the same manifest with no flags exits 0 and
+the second apply is a fixed point.
 - **Fix:** the holder is recorded, so an apply of the same manifest can take its
   own claim over and roll forward. Failing that, an explicit operator command to
   release a claim it can prove is abandoned. A claim with no release is a lock,
