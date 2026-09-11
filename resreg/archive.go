@@ -18,7 +18,6 @@ package resreg
 import (
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"time"
@@ -70,32 +69,10 @@ type ArchiveSnapshot struct {
 // content-hash checksum (the same value Checksum computes, without a
 // second Export pass) and the snapshot's start timestamp.
 func ExportSnapshot(ctx context.Context, be Backend, subsystem string) (manifest map[string]any, checksum string, snapshotAt string, err error) {
-	shape, err := subsystemShape(subsystem)
-	if err != nil {
+	if err := requireEntities(subsystem); err != nil {
 		return nil, "", "", err
 	}
-	if shape == shapeEntity {
-		return snapshotEntities(ctx, be, subsystem)
-	}
-	if be.DB == nil {
-		return nil, "", "", fmt.Errorf("resreg: %s is column-backed and the backend carries "+
-			"no SQL handle", subsystem)
-	}
-	tx, err := be.DB.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
-	if err != nil {
-		return nil, "", "", fmt.Errorf("begin read tx: %w", err)
-	}
-	defer tx.Rollback()
-	snapshotAt = time.Now().UTC().Format(time.RFC3339)
-	manifest, err = exportRows(reader{sql: tx, obj: be.Obj}, subsystem)
-	if err != nil {
-		return nil, "", "", err
-	}
-	checksum, err = hashManifest(manifest)
-	if err != nil {
-		return nil, "", "", err
-	}
-	return manifest, checksum, snapshotAt, nil
+	return snapshotEntities(ctx, be, subsystem)
 }
 
 // snapshotEntities is ExportSnapshot for a subsystem whose resources are

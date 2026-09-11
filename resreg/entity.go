@@ -17,13 +17,12 @@ package resreg
 // separator is refused at WRITE, which is the only end that can see two rows
 // joining onto one key (spec 6/40 §1).
 //
-// WHAT THE OBJECT PATH DELETES, and it is the reason the move is a
+// WHAT AN ITEM MAKES UNNECESSARY, and it is the reason the shape is a
 // simplification rather than a translation. An attribute an item does not carry
-// is ABSENT, and absent is the only null this model has (objstore.Item), so the
-// COALESCE-on-read / nil-on-write pair every nullable column needed on the
-// column path has nothing left to do: invites' `expires_at` and onboarding's
-// five optional columns are simply attributes the item does not carry. That is
-// six ColumnOverride hooks gone with the shape, not ported to it.
+// is ABSENT, and absent is the only null this model has (objstore.Item), so a
+// nullable value needs no COALESCE on read and no nil on write: invites'
+// `expires_at` and onboarding's five optional columns are simply attributes the
+// item does not carry, and no resource declares a ColumnOverride for one.
 //
 // WHAT IT REFUSES it refuses at Register, which is process start, because a
 // misdeclared resource is a caller fault and must stop the binary rather than
@@ -52,33 +51,31 @@ import (
 //
 // The driver is chosen HERE rather than by the caller because a *sql.DB has
 // exactly one driver that can serve it, and resreg already builds the same one
-// for the audit row it writes into an apply's transaction. A caller holding a
-// handle to some other engine builds the Backend itself; there is nothing to
-// derive then.
+// for the audit row an apply writes. A caller holding a handle to some other
+// engine builds the Backend itself; there is nothing to derive then.
 func OnDB(db *sql.DB) Backend { return Backend{DB: db, Obj: sqlstore.New(db)} }
 
-// Backend is one owner database, reachable BOTH ways, because a subsystem's
-// resources declare which way each of them answers.
+// Backend is one owner database, reachable BOTH ways, because a resource
+// declares which way it answers.
 //
 // Exactly one half serves any given resource and the declaration decides which
-// (Resource.EntitySortKey). Carrying both is not a fallback: it is that a verb
-// holds one database handle and the resources inside it do not all have to have
-// moved on the same day.
+// (Resource.EntitySortKey). Carrying both is not a fallback: a verb holds one
+// database handle and the resources it reads through it need not all be the
+// same shape. Apply and ExportSnapshot are the exception, and requireEntities is
+// where they say so.
 type Backend struct {
-	// DB reads and writes a column-shaped resource, and it is also what Apply
-	// opens its transaction on.
+	// DB reads a column-shaped resource.
 	DB *sql.DB
 	// Obj reads and writes an entity-shaped resource.
 	Obj objstore.Store
 }
 
-// reader is one read's handles.
+// reader is one read's handles: the Querier a column-shaped resource is read
+// through, and the store an entity-shaped one is read from.
 //
-// It is not Backend because Apply's in-transaction checksum recheck reads
-// through the *sql.Tx it is about to write in, and a transaction is not a pool
-// — Querier is the interface both satisfy (engine.go). The object half needs no
-// such distinction: an entity-backed subsystem's Apply takes a claim rather than
-// a transaction, so nothing on that path ever reads through one.
+// It is not Backend because the SQL half is a Querier rather than a pool — the
+// read subset a *sql.DB and a *sql.Tx both satisfy (engine.go). Exactly one half
+// serves any given resource.
 type reader struct {
 	sql Querier
 	obj objstore.Store
@@ -87,9 +84,9 @@ type reader struct {
 // read is the reader for a whole Backend.
 func (b Backend) read() reader { return reader{sql: b.DB, obj: b.Obj} }
 
-// entityMeta is the object path's half of the reflection Register does. It is
-// built only for a resource that declared EntitySortKey, so a column-shaped
-// resource carries none of it.
+// entityMeta is the item half of the reflection Register does. It is built only
+// for a resource that declared EntitySortKey, so a column-shaped resource
+// carries none of it.
 type entityMeta struct {
 	// sort is the fields whose values, joined by sep, ARE the item's sort key.
 	// None of them is among attrs: storing the coordinate twice is two facts
@@ -151,12 +148,12 @@ func (e *entityMeta) sortCols() string {
 	return strings.Join(cols, ",")
 }
 
-// initEntity builds the object path's metadata, or refuses the declaration.
+// initEntity builds the item metadata, or refuses the declaration.
 //
 // It runs inside initMeta, so every refusal is a panic at Register: the process
 // stops at boot rather than serving a resource whose rows it would read wrong.
-// Every one of them names what the object path would need, because a "not
-// supported" with no reason is the kind of gap somebody works around.
+// Every one of them names what an item would need, because a "not supported"
+// with no reason is the kind of gap somebody works around.
 func (r *Resource) initEntity(m *resourceMeta, byField map[string]int) {
 	if len(r.EntitySortKey) == 0 {
 		if r.EntityKeySep != "" {
@@ -238,13 +235,12 @@ func (r *Resource) initEntity(m *resourceMeta, byField map[string]int) {
 	}
 	if r.Hooks.AfterScan != nil || len(r.Hooks.ColumnOverride) > 0 {
 		// BeforeInsert and ValidateRows are NOT here. A row default is the
-		// writer's on this path too and itemFor applies it (spec 6/40 answer 5);
-		// a set check takes the manifest's own rows and no transaction, so
-		// replaceRows runs it before the wipe. These two still take something
-		// this path does not have: ColumnOverride.Read is a SQL expression and
-		// .Write a bind conversion the absent-attribute model already makes
-		// unnecessary, and AfterScan decodes a shadow COLUMN, which is what a
-		// declared codec does on both shapes instead (codec.go).
+		// writer's and itemFor applies it (spec 6/40 answer 5); a set check takes
+		// the manifest's own rows and no transaction, so replaceRows runs it
+		// before the wipe. These two ask for something an item has not got:
+		// ColumnOverride.Read is a SQL expression and .Write a bind conversion the
+		// absent-attribute model already makes unnecessary, and AfterScan decodes
+		// a shadow COLUMN, which is what a declared codec does instead (codec.go).
 		panic(fmt.Sprintf("resreg: %s is entity-backed and declares AfterScan or "+
 			"ColumnOverride; an override is a SQL expression with no column to name, and a "+
 			"post-scan decode is a codec the db: tag declares", r.Name))
@@ -270,10 +266,9 @@ func (r *Resource) initEntity(m *resourceMeta, byField map[string]int) {
 			continue
 		}
 		if fm.codec != nil && fm.codec.name == padCodec {
-			// An ATTRIBUTE that is a number already has one rendering both
-			// shapes agree on, and padding it would be the second — the drift
-			// codec.go exists to prevent. The padding is for a key, where the
-			// comparison is the point.
+			// The padding orders a KEY, and an attribute is not one. A number
+			// stored as an attribute already has a rendering, and a second one is
+			// the drift codec.go exists to prevent.
 			panic(fmt.Sprintf("resreg: %s.%s declares the %q encoding and is not part of "+
 				"the coordinate (%s); padding orders a KEY, and an attribute that is a "+
 				"number is already rendered the same way on both shapes",
@@ -312,8 +307,8 @@ func (r *Resource) initEntity(m *resourceMeta, byField map[string]int) {
 // entityScopeOf resolves the ScopeSpec into the predicate a scoped delete runs,
 // or refuses the declaration.
 //
-// A scope the object path cannot SELECT on is refused here rather than answered
-// by a wider delete: a scoped apply that deleted more than the scope would take
+// A scope no query can SELECT on is refused here rather than answered by a
+// wider delete: a scoped apply that deleted more than the scope would take
 // a folder's rows the manifest never mentioned, which is the worst of the three
 // outcomes the RowFilter refusal above names.
 func (r *Resource) entityScopeOf(m *resourceMeta, sortFields []fieldMeta) *entityScope {
@@ -370,8 +365,7 @@ func (r *Resource) entityScopeQuery(scope string) objstore.Query {
 }
 
 // entityScopeDeletes reads one scope's live items and renders the writes that
-// remove them — the object path's DeleteScope, and a READ then a write for the
-// same reason entityWipe is.
+// remove them. It is a READ then a write for the same reason entityWipe is.
 func (r *Resource) entityScopeDeletes(rd reader, scope string) ([]objstore.Write, error) {
 	if rd.obj == nil {
 		return nil, fmt.Errorf("resreg: %s is entity-backed and the backend carries no "+
@@ -539,15 +533,13 @@ func (r *Resource) sortKeyFor(v reflect.Value) (string, error) {
 // the row states rather than one it omits — and a CODEC'D field is written for
 // the same reason, its zero value rendered as its own text (codec.go).
 //
-// A STAMPED field the row leaves empty is filled HERE, because an entity has no
-// engine between the caller and the item — there is no Insert to hang a
-// BeforeInsert on, and the column path's auto-stamp runs in one (engine.go).
-// The layout is core.TS and not the column path's RFC3339: a stored instant is
-// compared as TEXT and core.TS is the fixed-width form that makes byte order and
-// time order the same thing, which is the rule objstore.OrderedSort enforces
-// where an attribute is declared ordered (BUGS L97). The two paths therefore
-// stamp DIFFERENT widths, and a table migrating from columns to items carries
-// its old 20-byte values with it — the migration normalises them, not this.
+// A STAMPED field the row leaves empty is filled HERE, because there is no
+// engine between the caller and the item to hang the fill on. The layout is
+// core.TS: a stored instant is compared as TEXT and core.TS is the fixed-width
+// form that makes byte order and time order the same thing, which is the rule
+// objstore.OrderedSort enforces where an attribute is declared ordered (BUGS
+// L97). A table a migration carries into items brings its 20-byte values with
+// it — the migration normalises those, not this.
 //
 // The declaration STAYS on an entity-backed resource even though no engine
 // reads it to insert: it is what tells an operator's manifest the field is not
@@ -632,7 +624,7 @@ func (r *Resource) entityPuts(rows any) ([]objstore.Write, error) {
 
 // mintNumbers hands a value to every NUMERIC stamped field a row leaves unset.
 //
-// It is the object path's AUTOINCREMENT, and routes.id is why it exists: the id
+// It stands in for AUTOINCREMENT, and routes.id is why it exists: the id
 // is the handle `delete_route(id)` addresses, a live agent wire contract, and a
 // manifest is not required to state one. An entity has no engine between the
 // caller and the item and no sequence to draw from, so the writer mints — the
@@ -681,7 +673,7 @@ func (r *Resource) mintNumbers(rv reflect.Value) reflect.Value {
 }
 
 // entityWipe reads the resource's live items and renders the writes that remove
-// them — the object path's DeleteAll.
+// them.
 //
 // It is a READ then a write because the delete set is unbounded and no engine
 // deletes by predicate here. Reading it inside the replace's claim is what keeps
@@ -709,10 +701,10 @@ func (r *Resource) entityWipe(rd reader) ([]objstore.Write, error) {
 // entityDeletes is the delete set one resource's apply issues: the mentioned
 // scopes' items for a scoped resource with rows, and every item otherwise.
 //
-// The two branches and the empty-list case are the column path's, restated over
-// items rather than re-derived — an explicitly-present empty list is the
-// operator declaring "no rows for this resource" and falls to the total wipe,
-// while a resource absent from the manifest never reaches here at all.
+// The two branches and the empty-list case are the MANIFEST's and not the
+// storage's — an explicitly-present empty list is the operator declaring "no
+// rows for this resource" and falls to the total wipe, while a resource absent
+// from the manifest never reaches here at all.
 func (r *Resource) entityDeletes(rd reader, rows any, opts *ApplyOpts) ([]objstore.Write, error) {
 	scopes := r.manifestScopes(rows)
 	if !r.HasScope() || len(scopes) == 0 {
@@ -732,56 +724,37 @@ func (r *Resource) entityDeletes(rd reader, rows any, opts *ApplyOpts) ([]objsto
 	return out, nil
 }
 
-// --- the subsystem's shape --------------------------------------------
+// --- what a subsystem's resources have to be --------------------------
 
-// shape is which of the two paths a subsystem's resources declared.
-type shape uint8
-
-const (
-	shapeColumn shape = iota
-	shapeEntity
-)
-
-// subsystemShape answers which shape one subsystem's registered resources
-// declared, and REFUSES a subsystem whose resources disagree.
+// requireEntities refuses a subsystem holding a resource that declares no entity
+// shape. Apply and ExportSnapshot read and write ITEMS — a marker-gated sequence
+// over objstore — and a resource that is not an entity has nothing for them to
+// run it through.
 //
-// The declaration is per RESOURCE and the refusal is per SUBSYSTEM, and the
-// difference is Apply's. Apply's atomicity is a subsystem-wide property: the
-// column path runs every DELETE and INSERT in ONE transaction, so a failure
-// part-way rolls the whole subsystem back to its pre-image (BUGS L44), while the
-// object path is a marker-gated sequence with no pre-image at all and recovery
-// is to run it again. A MIXED subsystem would give an operator half of each —
-// the columns undone and the items part-written — with no way to say which half
-// their apply landed in. So the shapes may differ between subsystems and never
-// inside one, which is what lets onbod's three resources move without waiting
-// for routd's thirteen.
+// The refusal is per SUBSYSTEM because Apply's atomicity is: the whole
+// subsystem's projection is replaced under one version marker, and recovery from
+// a failure part-way is to run it again. A subsystem holding one column-shaped
+// resource would leave the operator with the items replaced and that one
+// resource untouched, with nothing to say which half their apply landed in.
 //
-// A subsystem with no schema-bearing resource is shapeColumn, which is what its
-// empty transaction has always been.
-func subsystemShape(subsystem string) (shape, error) {
-	var columns, entities []string
+// resreg/resources/shape_test.go is where the registered set is held to this;
+// here it is the gate in front of the two verbs.
+func requireEntities(subsystem string) error {
+	var columns []string
 	for _, r := range BySubsystem(subsystem) {
-		if r.RowType == nil {
+		if r.RowType == nil || r.IsEntity() {
 			continue
 		}
-		if r.IsEntity() {
-			entities = append(entities, r.Name)
-		} else {
-			columns = append(columns, r.Name)
-		}
+		columns = append(columns, r.Name)
 	}
-	if len(entities) > 0 && len(columns) > 0 {
-		sort.Strings(columns)
-		sort.Strings(entities)
-		return shapeColumn, fmt.Errorf("resreg: subsystem %s mixes shapes — %s are entities "+
-			"and %s are columns; apply is atomic per subsystem, and a mixed one would roll "+
-			"the columns back and leave the items part-written",
-			subsystem, strings.Join(entities, ", "), strings.Join(columns, ", "))
+	if len(columns) == 0 {
+		return nil
 	}
-	if len(entities) > 0 {
-		return shapeEntity, nil
-	}
-	return shapeColumn, nil
+	sort.Strings(columns)
+	return fmt.Errorf("resreg: subsystem %s holds %s, which declare no EntitySortKey; "+
+		"apply replaces a subsystem's items under one version marker and there is "+
+		"nothing to replace a column-shaped resource under",
+		subsystem, strings.Join(columns, ", "))
 }
 
 // --- the version marker one subsystem's projection is replaced under ----
@@ -808,9 +781,9 @@ type EntityMaker interface {
 // refuses the WHOLE batch it rides in, so a bounded writer bumping a marker
 // nobody created would lose its mutation with it (objstore.EnsureScope).
 //
-// It is a no-op for a subsystem still on the column path, so an opener calls it
-// unconditionally and the set it creates follows the registrations rather than a
-// second list beside them.
+// It creates nothing for a subsystem no entity-backed resource names, so an
+// opener calls it unconditionally and the set it creates follows the
+// registrations rather than a second list beside them.
 func EnsureSubsystem(ctx context.Context, m EntityMaker, s objstore.Store, subsystem string) error {
 	var entities []string
 	for _, r := range BySubsystem(subsystem) {
@@ -829,19 +802,17 @@ func EnsureSubsystem(ctx context.Context, m EntityMaker, s objstore.Store, subsy
 	return objstore.EnsureScope(ctx, s, store.OwnerScope(subsystem))
 }
 
-// --- the object path's apply -------------------------------------------
+// --- the apply ----------------------------------------------------------
 
 // applyEntities is Apply for a subsystem whose resources are entities: the
-// versioned replace of spec 6/40 §3, in place of the one transaction the column
-// path opens.
+// versioned replace of spec 6/40 §3.
 //
-// WHAT IT GIVES UP, said plainly because an operator pays it. The column path
-// rolls the whole subsystem back to its pre-image when anything fails part-way
-// (BUGS L44). This has no pre-image and no rollback: a replace that dies after
-// it has written leaves the subsystem PART-APPLIED with its claim still held,
-// and recovery is to run the same apply again — roll forward, never undo. That
-// is the price 6/38 costed for an unbounded row set, and objstore.Replace's own
-// error says it in the words the operator sees.
+// WHAT IT COSTS, said plainly because an operator pays it. There is no
+// pre-image and no rollback: a replace that dies after it has written leaves the
+// subsystem PART-APPLIED with its claim still held, and recovery is to run the
+// same apply again — roll forward, never undo. That is the price 6/38 costed for
+// an unbounded row set, and objstore.Replace's own error says it in the words
+// the operator sees.
 //
 // THE ROLL-FORWARD IS THE SAME CALL, which is why the claim carries an intent.
 // Re-running this apply carries the intent the interrupted one recorded, so it
@@ -855,8 +826,7 @@ func EnsureSubsystem(ctx context.Context, m EntityMaker, s objstore.Store, subsy
 // The reads inside the body run UNDER the claim, which is what keeps a second
 // apply's rows out of this one's delete set. It does not exclude an ordinary
 // writer: the claim gates replaces, so a daemon writing one of these entities
-// during an apply still commits, where the column path's write lock would have
-// blocked it. That is the second thing the shape costs.
+// during an apply still commits. That is the second thing an apply costs.
 func applyEntities(ctx context.Context, be Backend, subsystem, wantChecksum string, force bool,
 	manifestRows map[string]any, opts *ApplyOpts, counts map[string]any) (string, error) {
 	if be.Obj == nil {
@@ -948,18 +918,16 @@ func applyClaim(subsystem string, manifestRows map[string]any, opts *ApplyOpts) 
 // the same coordinate cannot ride one call: which two writes share a batch is
 // decided by where the batch boundary falls, so objstore.Replacer refuses the
 // pair outright rather than answering differently depending on the row count.
-// That is the same order the column path runs, DeleteAll then InsertAll.
+// The delete goes first and the puts follow.
 //
-// The SCOPED branch is the same one the column path takes and the reason it has
-// to exist here is the same: a manifest naming two folders must not take a
-// third folder's rows, and a folder purge that leaves them behind hands the next
-// tenant of the path the last one's egress rules, cron tasks, held actions and
-// web routes (BUGS L253). What differs is that a scope's delete set is READ
-// first — an entity has no predicate delete — and that read runs UNDER THE
-// CLAIM, which is what keeps a second replace's rows out of this one's delete
-// set. ApplyOpts.PruneScopes joins the mentioned scopes exactly as it does on
-// the column path, so the cross-subsystem rollback still reaches the folders a
-// forward apply created.
+// The SCOPED branch exists because a manifest naming two folders must not take
+// a third folder's rows, and a folder purge that leaves them behind hands the
+// next tenant of the path the last one's egress rules, cron tasks, held actions
+// and web routes (BUGS L253). A scope's delete set is READ first — an entity has
+// no predicate delete — and that read runs UNDER THE CLAIM, which is what keeps
+// a second replace's rows out of this one's delete set. ApplyOpts.PruneScopes
+// joins the mentioned scopes, so the cross-subsystem rollback still reaches the
+// folders a forward apply created.
 func replaceRows(ctx context.Context, rp *objstore.Replacer, rd reader, subsystem string,
 	manifestRows map[string]any, opts *ApplyOpts) error {
 	for _, r := range BySubsystem(subsystem) {

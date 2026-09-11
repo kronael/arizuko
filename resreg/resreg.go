@@ -328,13 +328,13 @@ type Resource struct {
 	// must never carry or replace.
 	//
 	// It is a DECLARED PREDICATE and not a SQL string, because the same
-	// declaration has to hold on both shapes and in three places — ScanAll,
-	// DeleteAll and DeleteScope — and a filter the read honours but a delete does
-	// not silently widens that delete past the projection it was computed from
-	// (spec 6/40 §"What a registered resource still needs", answer 6). The terms
-	// are objstore's own, so the object path passes them to Query.Where verbatim
-	// and the column path renders them as bound SQL; there is one declaration and
-	// two readers, never two spellings.
+	// declaration has to narrow the READ and both of the deletes an apply issues,
+	// and a filter the read honours but a delete does not silently widens that
+	// delete past the projection it was computed from (spec 6/40 §"What a
+	// registered resource still needs", answer 6). The terms are objstore's own,
+	// so an item read passes them to Query.Where verbatim and a column read
+	// renders them as bound SQL; there is one declaration and two readers, never
+	// two spellings.
 	//
 	// The terms are a CONJUNCTION and the operators are Eq and Ne, which is what
 	// both engines answer alike. A predicate needing an OR has no form here, and
@@ -354,7 +354,7 @@ type Resource struct {
 	// payloads, so a hand-written manifest that omits them reads as `unchanged`
 	// against a live stamped row instead of phantom-updating on every plan
 	// (spec 5/8 §"Apply lifecycle" step 3). A row that leaves one empty gets one
-	// invented, on both shapes.
+	// invented.
 	StampedFields []string
 
 	// AbsentStamps is the subset of StampedFields the writer does NOT invent,
@@ -368,10 +368,9 @@ type Resource struct {
 	// shift the operator did not cause, and the guarantee spec 5/8's
 	// cross-subsystem rollback rests on (BUGS F49).
 	//
-	// It is a DECLARATION because the shapes have nothing else to read it from.
-	// On the column path the signal was "this field has a ColumnOverride.Write",
-	// which was a fact about SQL binding that happened to correlate; an entity
-	// has no column to override, so the claim has to be stated.
+	// It is a DECLARATION because there is nothing else to read it from: an item
+	// has no column to override, so the claim has to be stated rather than
+	// inferred from a fact about SQL binding that happens to correlate.
 	AbsentStamps []string
 
 	meta *resourceMeta // populated by Register; reflection-derived

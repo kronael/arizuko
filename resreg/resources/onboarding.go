@@ -13,12 +13,11 @@ import (
 // too.
 //
 // FIVE OF THE EIGHT FIELDS ARE OPTIONAL AND NEED NO NULL HANDLING, which is
-// what the entity shape deletes. store.InsertOnboarding writes only jid, status
-// and created, so an item carries none of the other five until a verdict lands
-// — and absent is the only null an item has (objstore.Item). On the column path
-// every one of them needed a COALESCE on read and a nil conversion on write,
-// and the first pending admission on an instance made ScanAll fail outright
-// until they got them, taking Export, Checksum and therefore `arizuko
+// what the item shape gives. store.InsertOnboarding writes only jid, status and
+// created, so an item carries none of the other five until a verdict lands —
+// and absent is the only null an item has (objstore.Item). A nullable value that
+// needs a COALESCE on read is what made the first pending admission on an
+// instance fail ScanAll outright, taking Export, Checksum and therefore `arizuko
 // export`/`plan`/`apply`/`archive export` for the whole onbod subsystem with it
 // (BUGS F42).
 //

@@ -12,12 +12,12 @@ import (
 // handling — this row drives the /openapi.json schema only (onbod's handler
 // does its own read via store.ListInvites).
 //
-// EXPIRES_AT NEEDS NO NULL HANDLING, and that is what the entity shape deletes.
-// An invite minted with no --expires simply does not carry the attribute, and
-// absent is the only null an item has (objstore.Item) — where the column path
-// needed a COALESCE on read and a nil conversion on write, and crashed
-// `arizuko export`/`get`/`plan` on onbod for every instance holding one until
-// it got them (found by the 5/8 archive round-trip test).
+// EXPIRES_AT NEEDS NO NULL HANDLING, and that is what the item shape gives. An
+// invite minted with no --expires simply does not carry the attribute, and
+// absent is the only null an item has (objstore.Item). A nullable value that
+// needs a COALESCE on read is what crashed `arizuko export`/`get`/`plan` on
+// onbod for every instance holding one (found by the 5/8 archive round-trip
+// test).
 //
 // `ref` (store.TokenRef = hex(sha256(token))) IS the DB primary key (I1) —
 // the raw bearer is never persisted, so there is no token field to leak here

@@ -75,15 +75,15 @@ func init() {
 		// consented runtime state made and undone through
 		// issue_pairing_link/unpair (spec 5/31), never declarative operator
 		// intent — they must stay OUT of every manifest-visible read AND
-		// write: the content-hash checksum, the CAS-scoped DELETE+INSERT
-		// rebuild, and (once built) the pre-image/rollback set. Without this,
+		// write: the content-hash checksum, the CAS-scoped rebuild, and
+		// (once built) the pre-image/rollback set. Without this,
 		// rollback re-applying a pre-image taken before a caller unpaired
 		// would silently resurrect authority they deliberately revoked.
 		//
 		// The predicate is `added_by <> 'pairing'` and not `IS NULL OR <>`,
-		// because the same declaration has to narrow the read AND both deletes on
-		// both shapes, and an object-path filter is a conjunction of attribute
-		// comparisons with no OR (objstore.Query.Where). The two forms answer
+		// because the same declaration has to narrow the read AND both deletes,
+		// and a filter is a conjunction of attribute comparisons with no OR
+		// (objstore.Query.Where). The two forms answer
 		// alike for every row that carries a value; `added_by` is NOT NULL from
 		// routd migration 0047, so every row does.
 		RowFilter: []objstore.Cmp{{Attr: "added_by", Op: objstore.Ne, Value: "pairing"}},
@@ -103,7 +103,7 @@ func init() {
 // about them and does not pretend to (spec 5/31).
 //
 // It runs BEFORE the wipe, which is what makes a refused manifest leave the
-// subsystem untouched on the object path, where there is no rollback.
+// subsystem untouched. An apply has no rollback.
 func noMembershipCycle(ctx context.Context, rows any) error {
 	edges, ok := rows.([]ACLMembershipRow)
 	if !ok {

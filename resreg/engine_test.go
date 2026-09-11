@@ -1,12 +1,19 @@
 package resreg
 
-// Engine isolation tests — no arizuko-specific resource. Uses a synthetic
-// `TestResource` struct + an in-memory SQLite to exercise scan/insert/
-// delete/parse/emit/apply round-trips. Per spec 5/8 §"Testability".
+// Engine isolation tests — no arizuko-specific resource. A synthetic `TestRow`
+// struct over an in-memory database exercises the manifest lifecycle: scan,
+// parse, emit, plan, diff, retarget, and the content-hash CAS an apply turns
+// on. Per spec 5/8 §"Testability".
+//
+// The fixture is ENTITY-shaped, because that is the shape Apply and
+// ExportSnapshot serve (requireEntities, entity.go) and the shape every
+// registered resource declares (resreg/resources/shape_test.go). What the
+// object path does with a row — the coordinate, the codec, the scoped delete
+// inside the claim — is entity_test.go's; what is here is the lifecycle around
+// it.
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"reflect"
 	"strings"
@@ -14,11 +21,13 @@ import (
 
 	"github.com/kronael/arizuko/db_utils/dbtest"
 	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/objstore/sqlstore"
 	"gopkg.in/yaml.v3"
 )
 
-// TestRow is the synthetic schema. Composite PK on (kind, name); scope
-// is "kind" so per-scope delete works. Mirrors the shape of acl_membership
+// TestRow is the synthetic schema. The coordinate is (kind, name) and the scope
+// is "kind", its leading field, so a scoped apply reaches one kind's items the
+// way a folder purge reaches one folder's. Mirrors the shape of acl_membership
 // without depending on any arizuko code.
 type TestRow struct {
 	Kind  string `db:"kind"  yaml:"kind"`
@@ -26,63 +35,85 @@ type TestRow struct {
 	Value string `db:"value" yaml:"value"`
 }
 
-// testSubsystem is the synthetic owner-DB tag these tests register
-// "testrows" under — content-hash CAS (Apply/Export/Plan) is per subsystem.
+// testSubsystem is the synthetic owner-DB tag these tests register "testrows"
+// under. Export, Checksum, Plan and Apply are per subsystem, and the subsystem
+// is also the partition every item of the resource lives in.
 const testSubsystem = "test"
 
-// testSchema carries audit_log because Apply's write-lock trick issues one
-// no-op UPDATE against it (spec 5/8 §"Content-hash CAS"): the entity exists in
-// every owner database, and resreg's own invoke() already assumes it for every
-// mutation's audit row, so a synthetic test DB must carry it too. It is the
-// entity's three columns, which is what sqlstore.CreateEntity writes.
-const testSchema = `
-CREATE TABLE audit_log (part TEXT NOT NULL, sort TEXT NOT NULL, attrs TEXT NOT NULL, PRIMARY KEY (part, sort));
-CREATE TABLE testrows (
-  kind  TEXT NOT NULL,
-  name  TEXT NOT NULL,
-  value TEXT NOT NULL,
-  PRIMARY KEY (kind, name)
-);
-`
+// testKeySep joins the two coordinate fields. No kind and no name below carries
+// it, which is what the declaration requires of every resource
+// (Resource.EntityKeySep).
+const testKeySep = "\x1f"
 
-// freshEngine resets the package registry, registers TestRow, and
-// returns an in-memory SQLite with schema applied.
-func freshEngine(t *testing.T) (*sql.DB, *Resource) {
+// freshEngine resets the package registry, registers TestRow as an
+// entity-backed resource, and returns a database prepared to serve it.
+//
+// The preparation goes through EnsureSubsystem — the call a daemon's opener
+// makes — so a missing entity or a missing version marker fails here the way it
+// would fail at boot.
+func freshEngine(t *testing.T) (Backend, *Resource) {
 	t.Helper()
 	reset()
 	db := dbtest.Open(t)
-	if _, err := db.Exec(testSchema); err != nil {
-		t.Fatalf("schema: %v", err)
+	s := sqlstore.New(db)
+	if err := s.CreateEntity(t.Context(), "audit_log"); err != nil {
+		t.Fatalf("audit_log: %v", err)
 	}
 	r := Register(Resource{
-		Name:     "testrows",
-		Table:    "testrows",
-		DB:       testSubsystem,
-		RowType:  reflect.TypeFor[TestRow](),
-		PKFields: []string{"Kind", "Name"},
-		Scope:    ScopeSpec{Field: "Kind"},
+		Name:          "testrows",
+		Table:         "testrows",
+		DB:            testSubsystem,
+		RowType:       reflect.TypeFor[TestRow](),
+		PKFields:      []string{"Kind", "Name"},
+		EntitySortKey: []string{"Kind", "Name"},
+		EntityKeySep:  testKeySep,
+		Scope:         ScopeSpec{Field: "Kind"},
 	})
-	return db, r
+	if err := EnsureSubsystem(t.Context(), s, s, testSubsystem); err != nil {
+		t.Fatalf("EnsureSubsystem: %v", err)
+	}
+	return Backend{DB: db, Obj: s}, r
 }
 
-func insertRaw(t *testing.T, db *sql.DB, rows ...TestRow) {
+// insertRaw writes items straight through the driver, deliberately bypassing
+// the engine under test.
+func insertRaw(t *testing.T, be Backend, rows ...TestRow) {
 	t.Helper()
-	for _, r := range rows {
-		if _, err := db.Exec(`INSERT INTO testrows (kind, name, value) VALUES (?, ?, ?)`,
-			r.Kind, r.Name, r.Value); err != nil {
-			t.Fatalf("insert raw: %v", err)
+	for _, row := range rows {
+		committed, err := be.Obj.GuardedBatch(t.Context(), nil, []objstore.Write{{
+			Op: objstore.Put, Entity: "testrows",
+			Key: objstore.Key{
+				Partition: testSubsystem,
+				Sort:      row.Kind + testKeySep + row.Name,
+			},
+			Attrs: map[string]string{"value": row.Value},
+		}})
+		if err != nil || !committed {
+			t.Fatalf("insert raw %s/%s: committed=%v err=%v", row.Kind, row.Name, committed, err)
 		}
 	}
 }
 
+// liveRows reads a resource's rows back through the engine. A count taken past
+// the engine would have to restate the item layout here, and the layout is what
+// the engine owns.
+func liveRows(t *testing.T, be Backend, r *Resource) []TestRow {
+	t.Helper()
+	got, err := r.ScanAll(be)
+	if err != nil {
+		t.Fatalf("ScanAll: %v", err)
+	}
+	return got.([]TestRow)
+}
+
 func TestScanAll_RoundTrip(t *testing.T) {
-	db, r := freshEngine(t)
-	insertRaw(t, db,
+	be, r := freshEngine(t)
+	insertRaw(t, be,
 		TestRow{Kind: "a", Name: "x", Value: "1"},
 		TestRow{Kind: "a", Name: "y", Value: "2"},
 		TestRow{Kind: "b", Name: "z", Value: "3"},
 	)
-	got, err := r.ScanAll(OnDB(db))
+	got, err := r.ScanAll(be)
 	if err != nil {
 		t.Fatalf("ScanAll: %v", err)
 	}
@@ -99,157 +130,59 @@ func TestScanAll_RoundTrip(t *testing.T) {
 	}
 }
 
-func TestInsert_PlaceholderOrder(t *testing.T) {
-	db, r := freshEngine(t)
-	tx, err := db.Begin()
-	if err != nil {
-		t.Fatalf("begin: %v", err)
-	}
-	defer tx.Rollback()
-	if err := r.Insert(context.Background(), tx,
-		TestRow{Kind: "a", Name: "x", Value: "v"}); err != nil {
-		t.Fatalf("Insert: %v", err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatalf("commit: %v", err)
-	}
-	var k, n, v string
-	if err := db.QueryRow(`SELECT kind, name, value FROM testrows`).Scan(&k, &n, &v); err != nil {
-		t.Fatalf("query: %v", err)
-	}
-	if k != "a" || n != "x" || v != "v" {
-		t.Errorf("got (%q,%q,%q), want (a,x,v)", k, n, v)
-	}
-}
-
-func TestDeleteScope_CompositePK(t *testing.T) {
-	db, r := freshEngine(t)
-	insertRaw(t, db,
-		TestRow{Kind: "a", Name: "x", Value: "1"},
-		TestRow{Kind: "a", Name: "y", Value: "2"},
-		TestRow{Kind: "b", Name: "z", Value: "3"},
-	)
-	tx, _ := db.Begin()
-	if err := r.DeleteScope(context.Background(), tx, "a"); err != nil {
-		t.Fatalf("DeleteScope: %v", err)
-	}
-	tx.Commit()
-	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM testrows`).Scan(&n)
-	if n != 1 {
-		t.Errorf("count = %d, want 1 (only kind=b left)", n)
-	}
-}
-
-// TestRowFilter_ExcludesFromScanDeleteAndChecksum: a resource's RowFilter
-// keeps matching rows out of ScanAll, DeleteAll/DeleteScope, and therefore
-// the content-hash checksum (Export/Checksum are built on ScanAll) — the
-// same mechanism spec 5/8's CRITICAL finding uses to keep acl_membership
-// pairing edges and route_tokens pairing tokens out of every
-// manifest-visible read AND write.
-func TestRowFilter_ExcludesFromScanDeleteAndChecksum(t *testing.T) {
+// TestRowFilter_ExcludesFromScanAndChecksum: a resource's RowFilter keeps
+// matching rows out of ScanAll and therefore out of the content-hash checksum
+// (Export and Checksum are built on ScanAll) — the same mechanism spec 5/8's
+// CRITICAL finding uses to keep acl_membership pairing edges and route_tokens
+// pairing tokens out of every manifest-visible read. What the same declaration
+// does to the two deletes is TestEntity_RowFilterNarrowsTheWipe and
+// TestEntity_RowFilterNarrowsTheWipeAndTheScopedDelete.
+//
+// The filter compares `value` because the other two fields are the coordinate,
+// and a coordinate is a key rather than an attribute a Where can reach
+// (initEntity).
+func TestRowFilter_ExcludesFromScanAndChecksum(t *testing.T) {
 	reset()
 	db := dbtest.Open(t)
-	if _, err := db.Exec(testSchema); err != nil {
-		t.Fatal(err)
+	s := sqlstore.New(db)
+	if err := s.CreateEntity(t.Context(), "audit_log"); err != nil {
+		t.Fatalf("audit_log: %v", err)
 	}
 	r := Register(Resource{
-		Name:      "testrows",
-		Table:     "testrows",
-		DB:        testSubsystem,
-		RowType:   reflect.TypeFor[TestRow](),
-		PKFields:  []string{"Kind", "Name"},
-		Scope:     ScopeSpec{Field: "Kind"},
-		RowFilter: []objstore.Cmp{{Attr: "kind", Op: objstore.Ne, Value: "excluded"}},
+		Name:          "testrows",
+		Table:         "testrows",
+		DB:            testSubsystem,
+		RowType:       reflect.TypeFor[TestRow](),
+		PKFields:      []string{"Kind", "Name"},
+		EntitySortKey: []string{"Kind", "Name"},
+		EntityKeySep:  testKeySep,
+		Scope:         ScopeSpec{Field: "Kind"},
+		RowFilter:     []objstore.Cmp{{Attr: "value", Op: objstore.Ne, Value: "excluded"}},
 	})
-	insertRaw(t, db,
+	if err := EnsureSubsystem(t.Context(), s, s, testSubsystem); err != nil {
+		t.Fatalf("EnsureSubsystem: %v", err)
+	}
+	be := Backend{DB: db, Obj: s}
+	insertRaw(t, be,
 		TestRow{Kind: "a", Name: "x", Value: "1"},
-		TestRow{Kind: "excluded", Name: "hidden", Value: "9"},
+		TestRow{Kind: "a", Name: "hidden", Value: "excluded"},
 	)
-	got, err := r.ScanAll(OnDB(db))
-	if err != nil {
-		t.Fatalf("ScanAll: %v", err)
+	if rows := liveRows(t, be, r); len(rows) != 1 || rows[0].Name != "x" {
+		t.Fatalf("ScanAll = %v, want only the unfiltered row", rows)
 	}
-	if rows := got.([]TestRow); len(rows) != 1 || rows[0].Kind != "a" {
-		t.Fatalf("ScanAll = %v, want only kind=a (excluded row must not appear)", rows)
-	}
-	c1, err := Checksum(OnDB(db), testSubsystem)
+	c1, err := Checksum(be, testSubsystem)
 	if err != nil {
 		t.Fatalf("Checksum: %v", err)
 	}
-	// A checksum computed after inserting MORE excluded-kind rows must be
-	// unchanged — excluded rows never enter the projection Checksum hashes.
-	insertRaw(t, db, TestRow{Kind: "excluded", Name: "hidden2", Value: "10"})
-	c2, err := Checksum(OnDB(db), testSubsystem)
+	// A checksum computed after writing MORE excluded rows must be unchanged —
+	// excluded rows never enter the projection Checksum hashes.
+	insertRaw(t, be, TestRow{Kind: "a", Name: "hidden2", Value: "excluded"})
+	c2, err := Checksum(be, testSubsystem)
 	if err != nil {
 		t.Fatalf("Checksum 2: %v", err)
 	}
 	if c1 != c2 {
-		t.Errorf("checksum changed after inserting an excluded row: %s -> %s", c1, c2)
-	}
-	// DeleteAll must never touch excluded rows.
-	tx, _ := db.Begin()
-	if err := r.DeleteAll(context.Background(), tx); err != nil {
-		t.Fatalf("DeleteAll: %v", err)
-	}
-	tx.Commit()
-	var remaining int
-	db.QueryRow(`SELECT COUNT(*) FROM testrows WHERE kind = 'excluded'`).Scan(&remaining)
-	if remaining != 2 {
-		t.Errorf("excluded rows remaining = %d, want 2 (DeleteAll must not touch them)", remaining)
-	}
-	var total int
-	db.QueryRow(`SELECT COUNT(*) FROM testrows`).Scan(&total)
-	if total != 2 {
-		t.Errorf("total rows = %d, want 2 (only the non-excluded row was deleted)", total)
-	}
-}
-
-// The scoped delete is the third reader of the one declaration, and the only one
-// whose statement already carries a bind — so it is also the one an argument in
-// the wrong order would corrupt silently.
-func TestRowFilter_NarrowsTheScopedDelete(t *testing.T) {
-	reset()
-	db := dbtest.Open(t)
-	if _, err := db.Exec(testSchema); err != nil {
-		t.Fatal(err)
-	}
-	r := Register(Resource{
-		Name:      "testrows",
-		Table:     "testrows",
-		DB:        testSubsystem,
-		RowType:   reflect.TypeFor[TestRow](),
-		PKFields:  []string{"Kind", "Name"},
-		Scope:     ScopeSpec{Field: "Name"},
-		RowFilter: []objstore.Cmp{{Attr: "kind", Op: objstore.Ne, Value: "excluded"}},
-	})
-	insertRaw(t, db,
-		TestRow{Kind: "a", Name: "f1", Value: "1"},
-		TestRow{Kind: "excluded", Name: "f1", Value: "9"},
-		TestRow{Kind: "a", Name: "f2", Value: "2"},
-	)
-	tx, _ := db.Begin()
-	if err := r.DeleteScope(context.Background(), tx, "f1"); err != nil {
-		t.Fatalf("DeleteScope: %v", err)
-	}
-	tx.Commit()
-
-	var left []string
-	rows, err := db.Query(`SELECT kind || '/' || name FROM testrows ORDER BY 1`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var v string
-		if err := rows.Scan(&v); err != nil {
-			t.Fatal(err)
-		}
-		left = append(left, v)
-	}
-	if len(left) != 2 || left[0] != "a/f2" || left[1] != "excluded/f1" {
-		t.Errorf("remaining = %v, want [a/f2 excluded/f1]: the scoped delete takes the "+
-			"scope's unfiltered rows and nothing else", left)
+		t.Errorf("checksum changed after writing an excluded row: %s -> %s", c1, c2)
 	}
 }
 
@@ -401,13 +334,13 @@ func TestParseManifest_EnvStrict(t *testing.T) {
 }
 
 func TestYAMLEmit_Deterministic(t *testing.T) {
-	db, _ := freshEngine(t)
-	insertRaw(t, db,
+	be, _ := freshEngine(t)
+	insertRaw(t, be,
 		TestRow{Kind: "b", Name: "z", Value: "3"},
 		TestRow{Kind: "a", Name: "x", Value: "1"},
 		TestRow{Kind: "a", Name: "y", Value: "2"},
 	)
-	m1, err := Export(OnDB(db), testSubsystem)
+	m1, err := Export(be, testSubsystem)
 	if err != nil {
 		t.Fatalf("Export 1: %v", err)
 	}
@@ -415,7 +348,7 @@ func TestYAMLEmit_Deterministic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Emit 1: %v", err)
 	}
-	m2, err := Export(OnDB(db), testSubsystem)
+	m2, err := Export(be, testSubsystem)
 	if err != nil {
 		t.Fatalf("Export 2: %v", err)
 	}
@@ -438,9 +371,9 @@ func TestYAMLEmit_Deterministic(t *testing.T) {
 }
 
 func TestApply_ChecksumMismatch(t *testing.T) {
-	db, _ := freshEngine(t)
+	be, _ := freshEngine(t)
 	// db's testrows table is empty; a bogus checksum can never match it.
-	_, err := Apply(context.Background(), OnDB(db), testSubsystem, "sha256:bogus", false, map[string]any{
+	_, err := Apply(context.Background(), be, testSubsystem, "sha256:bogus", false, map[string]any{
 		"testrows": []TestRow{{Kind: "a", Name: "x", Value: "1"}},
 	}, nil)
 	if err == nil {
@@ -455,16 +388,16 @@ func TestApply_ChecksumMismatch(t *testing.T) {
 // checksum (content-hash CAS's headline property over the old counter,
 // which advanced even on an idempotent re-apply of identical rows).
 func TestApply_RoundTrip(t *testing.T) {
-	db, _ := freshEngine(t)
+	be, r := freshEngine(t)
 	rows := []TestRow{
 		{Kind: "a", Name: "x", Value: "1"},
 		{Kind: "b", Name: "z", Value: "3"},
 	}
-	c0, err := Checksum(OnDB(db), testSubsystem)
+	c0, err := Checksum(be, testSubsystem)
 	if err != nil {
 		t.Fatalf("Checksum: %v", err)
 	}
-	c1, err := Apply(context.Background(), OnDB(db), testSubsystem, c0, false, map[string]any{
+	c1, err := Apply(context.Background(), be, testSubsystem, c0, false, map[string]any{
 		"testrows": rows,
 	}, nil)
 	if err != nil {
@@ -475,7 +408,7 @@ func TestApply_RoundTrip(t *testing.T) {
 	}
 	// re-apply the SAME content, CAS'd against the checksum Apply just
 	// returned → idempotent, checksum unchanged.
-	c2, err := Apply(context.Background(), OnDB(db), testSubsystem, c1, false, map[string]any{
+	c2, err := Apply(context.Background(), be, testSubsystem, c1, false, map[string]any{
 		"testrows": rows,
 	}, nil)
 	if err != nil {
@@ -484,10 +417,8 @@ func TestApply_RoundTrip(t *testing.T) {
 	if c2 != c1 {
 		t.Errorf("checksum changed on idempotent re-apply of identical content: %s -> %s", c1, c2)
 	}
-	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM testrows`).Scan(&n)
-	if n != 2 {
-		t.Errorf("row count = %d, want 2", n)
+	if live := liveRows(t, be, r); len(live) != 2 {
+		t.Errorf("row count = %d, want 2", len(live))
 	}
 }
 
@@ -497,28 +428,28 @@ func TestApply_RoundTrip(t *testing.T) {
 // guarantee — `arizuko export` → git → `arizuko apply` reproduces the config
 // exactly.
 func TestExportApply_FullRoundTrip(t *testing.T) {
-	db1, _ := freshEngine(t)
-	insertRaw(t, db1,
+	be1, _ := freshEngine(t)
+	insertRaw(t, be1,
 		TestRow{Kind: "a", Name: "x", Value: "1"},
 		TestRow{Kind: "a", Name: "y", Value: "2"},
 		TestRow{Kind: "b", Name: "z", Value: "3"},
 	)
-	m1, err := Export(OnDB(db1), testSubsystem)
+	m1, err := Export(be1, testSubsystem)
 	if err != nil {
 		t.Fatalf("Export db1: %v", err)
 	}
 
-	db2, _ := freshEngine(t) // fresh empty DB; registry re-registers testrows
-	c0, err := Checksum(OnDB(db2), testSubsystem)
+	be2, _ := freshEngine(t) // fresh empty DB; registry re-registers testrows
+	c0, err := Checksum(be2, testSubsystem)
 	if err != nil {
 		t.Fatalf("Checksum db2: %v", err)
 	}
-	if _, err := Apply(context.Background(), OnDB(db2), testSubsystem, c0, false, map[string]any{
+	if _, err := Apply(context.Background(), be2, testSubsystem, c0, false, map[string]any{
 		"testrows": m1["testrows"],
 	}, nil); err != nil {
 		t.Fatalf("Apply exported manifest to a fresh DB: %v", err)
 	}
-	m2, err := Export(OnDB(db2), testSubsystem)
+	m2, err := Export(be2, testSubsystem)
 	if err != nil {
 		t.Fatalf("Export db2: %v", err)
 	}
@@ -536,26 +467,24 @@ func TestExportApply_FullRoundTrip(t *testing.T) {
 // untouched (Bug 7 — an empty list produced zero scopes, so DeleteScope
 // never ran and stale rows survived; absent must still be a no-op).
 func TestApply_EmptyScopedListClears(t *testing.T) {
-	db, _ := freshEngine(t)
-	insertRaw(t, db,
+	be, r := freshEngine(t)
+	insertRaw(t, be,
 		TestRow{Kind: "a", Name: "x", Value: "1"},
 		TestRow{Kind: "b", Name: "z", Value: "3"},
 	)
 
 	// Manifest MENTIONS testrows with an empty list → clears every row.
-	c0, err := Checksum(OnDB(db), testSubsystem)
+	c0, err := Checksum(be, testSubsystem)
 	if err != nil {
 		t.Fatalf("Checksum: %v", err)
 	}
-	if _, err := Apply(context.Background(), OnDB(db), testSubsystem, c0, false, map[string]any{
+	if _, err := Apply(context.Background(), be, testSubsystem, c0, false, map[string]any{
 		"testrows": []TestRow{},
 	}, nil); err != nil {
 		t.Fatalf("Apply empty: %v", err)
 	}
-	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM testrows`).Scan(&n)
-	if n != 0 {
-		t.Fatalf("rows after empty-list apply = %d, want 0 (empty list clears)", n)
+	if live := liveRows(t, be, r); len(live) != 0 {
+		t.Fatalf("rows after empty-list apply = %d, want 0 (empty list clears)", len(live))
 	}
 
 	// Re-seed, then apply a manifest that does NOT mention testrows at all →
@@ -564,17 +493,16 @@ func TestApply_EmptyScopedListClears(t *testing.T) {
 	// fresh — exactly the class of drift a counter-based CAS would have
 	// missed (spec 5/8 §"Content-hash CAS": "it catches a manual sqlite3
 	// edit").
-	insertRaw(t, db, TestRow{Kind: "a", Name: "x", Value: "1"})
-	c1, err := Checksum(OnDB(db), testSubsystem)
+	insertRaw(t, be, TestRow{Kind: "a", Name: "x", Value: "1"})
+	c1, err := Checksum(be, testSubsystem)
 	if err != nil {
 		t.Fatalf("Checksum 2: %v", err)
 	}
-	if _, err := Apply(context.Background(), OnDB(db), testSubsystem, c1, false, map[string]any{}, nil); err != nil {
+	if _, err := Apply(context.Background(), be, testSubsystem, c1, false, map[string]any{}, nil); err != nil {
 		t.Fatalf("Apply absent: %v", err)
 	}
-	db.QueryRow(`SELECT COUNT(*) FROM testrows`).Scan(&n)
-	if n != 1 {
-		t.Fatalf("rows after absent-from-manifest apply = %d, want 1 (untouched)", n)
+	if live := liveRows(t, be, r); len(live) != 1 {
+		t.Fatalf("rows after absent-from-manifest apply = %d, want 1 (untouched)", len(live))
 	}
 }
 
@@ -582,12 +510,12 @@ func TestApply_EmptyScopedListClears(t *testing.T) {
 // resource must report every live row as a Remove — plan and apply must
 // agree (Bug 7: scopeFilter used to return an empty set, hiding the wipe).
 func TestPlan_EmptyScopedListMatchesApply(t *testing.T) {
-	db, r := freshEngine(t)
-	insertRaw(t, db,
+	be, r := freshEngine(t)
+	insertRaw(t, be,
 		TestRow{Kind: "a", Name: "x", Value: "1"},
 		TestRow{Kind: "b", Name: "z", Value: "3"},
 	)
-	d, err := r.Diff(OnDB(db), []TestRow{})
+	d, err := r.Diff(be, []TestRow{})
 	if err != nil {
 		t.Fatalf("Diff: %v", err)
 	}
@@ -600,14 +528,14 @@ func TestPlan_EmptyScopedListMatchesApply(t *testing.T) {
 }
 
 func TestApply_Force(t *testing.T) {
-	db, _ := freshEngine(t)
+	be, _ := freshEngine(t)
 	// testrows is empty; manifest claims a bogus checksum → without force, error.
-	_, err := Apply(context.Background(), OnDB(db), testSubsystem, "sha256:bogus", false, map[string]any{}, nil)
+	_, err := Apply(context.Background(), be, testSubsystem, "sha256:bogus", false, map[string]any{}, nil)
 	if err == nil {
 		t.Fatal("want error without force")
 	}
 	// With force → bypass CAS.
-	sum, err := Apply(context.Background(), OnDB(db), testSubsystem, "sha256:bogus", true, map[string]any{}, nil)
+	sum, err := Apply(context.Background(), be, testSubsystem, "sha256:bogus", true, map[string]any{}, nil)
 	if err != nil {
 		t.Fatalf("Apply --force: %v", err)
 	}
@@ -621,21 +549,19 @@ func TestApply_Force(t *testing.T) {
 // touching the DB — spec 5/8 §"Document schema": a document meant for one
 // owner DB must not carry another subsystem's rows.
 func TestApply_UnknownSubsystem(t *testing.T) {
-	freshEngine(t)
+	be, _ := freshEngine(t)
 	reset()
-	db := dbtest.Open(t)
-	if _, err := db.Exec(testSchema); err != nil {
-		t.Fatal(err)
-	}
 	Register(Resource{
-		Name:     "testrows",
-		Table:    "testrows",
-		DB:       "other-subsystem",
-		RowType:  reflect.TypeFor[TestRow](),
-		PKFields: []string{"Kind", "Name"},
-		Scope:    ScopeSpec{Field: "Kind"},
+		Name:          "testrows",
+		Table:         "testrows",
+		DB:            "other-subsystem",
+		RowType:       reflect.TypeFor[TestRow](),
+		PKFields:      []string{"Kind", "Name"},
+		EntitySortKey: []string{"Kind", "Name"},
+		EntityKeySep:  testKeySep,
+		Scope:         ScopeSpec{Field: "Kind"},
 	})
-	_, err := Apply(context.Background(), OnDB(db), testSubsystem, "", true, map[string]any{
+	_, err := Apply(context.Background(), be, testSubsystem, "", true, map[string]any{
 		"testrows": []TestRow{{Kind: "a", Name: "x", Value: "1"}},
 	}, nil)
 	if err == nil {
@@ -651,8 +577,8 @@ func TestApply_UnknownSubsystem(t *testing.T) {
 // PK in both with a differing payload is an update, identical is
 // unchanged. Per spec 5/8 §"Apply lifecycle" step 3.
 func TestDiff_AddUpdateRemove(t *testing.T) {
-	db, r := freshEngine(t)
-	insertRaw(t, db,
+	be, r := freshEngine(t)
+	insertRaw(t, be,
 		TestRow{Kind: "a", Name: "x", Value: "1"}, // update target (payload differs below)
 		TestRow{Kind: "a", Name: "y", Value: "2"}, // unchanged
 		TestRow{Kind: "a", Name: "z", Value: "3"}, // remove (absent from manifest, scope "a" is mentioned)
@@ -662,7 +588,7 @@ func TestDiff_AddUpdateRemove(t *testing.T) {
 		{Kind: "a", Name: "y", Value: "2"},       // identical → unchanged
 		{Kind: "c", Name: "new", Value: "9"},     // absent from DB → add
 	}
-	d, err := r.Diff(OnDB(db), manifest)
+	d, err := r.Diff(be, manifest)
 	if err != nil {
 		t.Fatalf("Diff: %v", err)
 	}
@@ -689,15 +615,15 @@ func TestDiff_AddUpdateRemove(t *testing.T) {
 // TestRow's scope is "kind"; a manifest touching only kind "a" leaves a
 // kind "b" row untouched.
 func TestDiff_ScopedRemoveLeavesOutOfScope(t *testing.T) {
-	db, r := freshEngine(t)
-	insertRaw(t, db,
+	be, r := freshEngine(t)
+	insertRaw(t, be,
 		TestRow{Kind: "a", Name: "x", Value: "1"}, // in-scope, absent from manifest → remove
 		TestRow{Kind: "b", Name: "z", Value: "3"}, // out-of-scope → must NOT remove
 	)
 	manifest := []TestRow{
 		{Kind: "a", Name: "keep", Value: "9"}, // mentions only scope "a"
 	}
-	d, err := r.Diff(OnDB(db), manifest)
+	d, err := r.Diff(be, manifest)
 	if err != nil {
 		t.Fatalf("Diff: %v", err)
 	}
@@ -710,21 +636,21 @@ func TestDiff_ScopedRemoveLeavesOutOfScope(t *testing.T) {
 // same manifest reports zero changes (idempotent plan, the no-op
 // acceptance criterion's non-mutating half).
 func TestPlan_NoChangeAfterApply(t *testing.T) {
-	db, _ := freshEngine(t)
+	be, _ := freshEngine(t)
 	manifest := map[string]any{
 		"testrows": []TestRow{
 			{Kind: "a", Name: "x", Value: "1"},
 			{Kind: "b", Name: "z", Value: "3"},
 		},
 	}
-	c0, err := Checksum(OnDB(db), testSubsystem)
+	c0, err := Checksum(be, testSubsystem)
 	if err != nil {
 		t.Fatalf("Checksum: %v", err)
 	}
-	if _, err := Apply(context.Background(), OnDB(db), testSubsystem, c0, false, manifest, nil); err != nil {
+	if _, err := Apply(context.Background(), be, testSubsystem, c0, false, manifest, nil); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
-	deltas, err := Plan(OnDB(db), testSubsystem, manifest)
+	deltas, err := Plan(be, testSubsystem, manifest)
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
@@ -739,12 +665,12 @@ func TestPlan_NoChangeAfterApply(t *testing.T) {
 // rows equal the live rows, so re-applying it is a no-op. Per spec 5/8
 // §"arizuko get round-trip".
 func TestGetResource_RoundTrip(t *testing.T) {
-	db, _ := freshEngine(t)
-	insertRaw(t, db,
+	be, _ := freshEngine(t)
+	insertRaw(t, be,
 		TestRow{Kind: "a", Name: "x", Value: "1"},
 		TestRow{Kind: "b", Name: "z", Value: "3"},
 	)
-	frag, err := GetResource(OnDB(db), "testrows")
+	frag, err := GetResource(be, "testrows")
 	if err != nil {
 		t.Fatalf("GetResource: %v", err)
 	}
@@ -763,14 +689,14 @@ func TestGetResource_RoundTrip(t *testing.T) {
 		t.Fatalf("ParseYAML: %v", err)
 	}
 	r := Lookup("testrows")
-	d, err := r.Diff(OnDB(db), parsed["testrows"])
+	d, err := r.Diff(be, parsed["testrows"])
 	if err != nil {
 		t.Fatalf("Diff: %v", err)
 	}
 	if d.Changed() {
 		t.Errorf("get fragment is not a no-op on re-apply: %+v", d)
 	}
-	if _, err := GetResource(OnDB(db), "nope"); err == nil {
+	if _, err := GetResource(be, "nope"); err == nil {
 		t.Error("GetResource(OnDB(unknown)) should error")
 	}
 }
@@ -806,99 +732,18 @@ func TestRetarget_RewritesScopeFieldOnly(t *testing.T) {
 func TestRetarget_RefusesUnscopedResource(t *testing.T) {
 	reset()
 	r := Register(Resource{
-		Name:     "testrows",
-		Table:    "testrows",
-		DB:       testSubsystem,
-		RowType:  reflect.TypeFor[TestRow](),
-		PKFields: []string{"Kind", "Name"},
+		Name:          "testrows",
+		Table:         "testrows",
+		DB:            testSubsystem,
+		RowType:       reflect.TypeFor[TestRow](),
+		PKFields:      []string{"Kind", "Name"},
+		EntitySortKey: []string{"Kind", "Name"},
+		EntityKeySep:  testKeySep,
 		// No Scope set.
 	})
 	_, err := r.Retarget([]TestRow{{Kind: "a", Name: "x", Value: "1"}}, "b")
 	if err == nil {
 		t.Fatal("want error: resource has no ScopeSpec")
-	}
-}
-
-// TestHooks_BeforeInsert exercises the write-side hook chain.
-func TestHooks_BeforeInsert(t *testing.T) {
-	reset()
-	db := dbtest.Open(t)
-	if _, err := db.Exec(testSchema); err != nil {
-		t.Fatal(err)
-	}
-	r := Register(Resource{
-		Name:     "testrows",
-		Table:    "testrows",
-		DB:       testSubsystem,
-		RowType:  reflect.TypeFor[TestRow](),
-		PKFields: []string{"Kind", "Name"},
-		Hooks: Hooks{
-			BeforeInsert: func(row any) error {
-				p := row.(*TestRow)
-				p.Value = "hooked:" + p.Value
-				return nil
-			},
-		},
-	})
-	tx, _ := db.Begin()
-	if err := r.Insert(context.Background(), tx, TestRow{Kind: "a", Name: "x", Value: "v"}); err != nil {
-		t.Fatalf("Insert: %v", err)
-	}
-	tx.Commit()
-	var v string
-	db.QueryRow(`SELECT value FROM testrows`).Scan(&v)
-	if v != "hooked:v" {
-		t.Errorf("hook did not run; value=%q", v)
-	}
-}
-
-// TestColumnOverride_Write exercises the per-field write hook (e.g.
-// nil-coalescing empty strings to NULL for nullable columns).
-func TestColumnOverride_Write(t *testing.T) {
-	reset()
-	db := dbtest.Open(t)
-	if _, err := db.Exec(`
-		CREATE TABLE nullable (
-		  name  TEXT PRIMARY KEY,
-		  model TEXT  -- nullable
-		);
-	`); err != nil {
-		t.Fatal(err)
-	}
-	type Row struct {
-		Name  string `db:"name"`
-		Model string `db:"model"`
-	}
-	r := Register(Resource{
-		Name:     "nullable",
-		Table:    "nullable",
-		DB:       testSubsystem,
-		RowType:  reflect.TypeFor[Row](),
-		PKFields: []string{"Name"},
-		Hooks: Hooks{
-			ColumnOverride: map[string]ColumnHook{
-				"Model": {
-					Read: "COALESCE(model, '')",
-					Write: func(v any) (any, error) {
-						s := v.(string)
-						if s == "" {
-							return nil, nil
-						}
-						return s, nil
-					},
-				},
-			},
-		},
-	})
-	tx, _ := db.Begin()
-	if err := r.Insert(context.Background(), tx, Row{Name: "a", Model: ""}); err != nil {
-		t.Fatalf("Insert: %v", err)
-	}
-	tx.Commit()
-	var isNull int
-	db.QueryRow(`SELECT model IS NULL FROM nullable WHERE name='a'`).Scan(&isNull)
-	if isNull != 1 {
-		t.Errorf("empty Model should write NULL, got non-null")
 	}
 }
 

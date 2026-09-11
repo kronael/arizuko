@@ -1,10 +1,10 @@
 package resreg
 
-// The object path, in isolation — a synthetic entity-backed resource, no
-// arizuko-specific declaration. The column path's twin bodies are in
-// engine_test.go, and where a body here asserts the SAME answer as one there
-// (the checksum, the apply round-trip) it says so, because "both shapes agree"
-// is the claim the dispatch rests on.
+// What the engine does with a row whose storage is an ITEM, in isolation — a
+// synthetic entity-backed resource, no arizuko-specific declaration. The
+// coordinate, the codec, the stamped field, the declared default and the scoped
+// delete inside the claim are here; the manifest lifecycle around them is
+// engine_test.go's.
 
 import (
 	"context"
@@ -117,9 +117,8 @@ func TestEntity_SortKeyComesFromTheCoordinate(t *testing.T) {
 	}
 }
 
-// An absent attribute IS the empty string, in both directions. That is what
-// deletes the COALESCE-on-read / nil-on-write pair every nullable column needed
-// on the column path.
+// An absent attribute IS the empty string, in both directions. That is why a
+// nullable value needs no COALESCE on read and no nil on write.
 func TestEntity_EmptyStringIsAnAbsentAttribute(t *testing.T) {
 	db, s, r := freshEntity(t)
 	putItem(t, s, "a", map[string]string{"count": "7"})
@@ -237,7 +236,7 @@ func TestEntity_ApplyRefusesAStaleChecksumAndForceOverrides(t *testing.T) {
 }
 
 // The claim IS the lock. A scope somebody else holds refuses the apply and names
-// them, where the column path would have blocked on a write lock.
+// them rather than blocking on it.
 func TestEntity_ApplyIsFencedByItsMarker(t *testing.T) {
 	db, s, _ := freshEntity(t)
 	be := Backend{DB: db, Obj: s}
@@ -367,8 +366,11 @@ func TestEntity_ApplyRefusesARowWithNoCoordinate(t *testing.T) {
 	}
 }
 
-// Apply is atomic per SUBSYSTEM, so the two shapes may not share one.
-func TestEntity_MixedSubsystemIsRefused(t *testing.T) {
+// Apply and ExportSnapshot run over ITEMS, so a subsystem holding a resource
+// that declares no entity shape is refused before either of them writes
+// anything. resreg/resources/shape_test.go holds the REGISTERED set to the same
+// rule; this is the gate in front of the two verbs.
+func TestEntity_AColumnShapedResourceRefusesTheSubsystem(t *testing.T) {
 	db, s, _ := freshEntity(t)
 	Register(Resource{
 		Name:     "columnrows",
@@ -379,12 +381,14 @@ func TestEntity_MixedSubsystemIsRefused(t *testing.T) {
 	})
 	be := Backend{DB: db, Obj: s}
 	_, err := Apply(t.Context(), be, entitySubsystem, "", true, map[string]any{}, nil)
-	if err == nil || !strings.Contains(err.Error(), "mixes shapes") {
-		t.Fatalf("Apply err = %v, want the mixed-subsystem refusal", err)
+	if err == nil || !strings.Contains(err.Error(), "columnrows") ||
+		!strings.Contains(err.Error(), "declare no EntitySortKey") {
+		t.Fatalf("Apply err = %v, want a refusal naming columnrows and what it failed to "+
+			"declare", err)
 	}
 	if _, _, _, err := ExportSnapshot(t.Context(), be, entitySubsystem); err == nil ||
-		!strings.Contains(err.Error(), "mixes shapes") {
-		t.Errorf("ExportSnapshot err = %v, want the mixed-subsystem refusal", err)
+		!strings.Contains(err.Error(), "columnrows") {
+		t.Errorf("ExportSnapshot err = %v, want the same refusal", err)
 	}
 }
 
@@ -459,54 +463,31 @@ func TestEntity_RegisterRefusesAMisdeclaredShape(t *testing.T) {
 	}
 }
 
-// EnsureSubsystem is a NO-OP for a subsystem still on the column path, so an
-// opener calls it unconditionally and the entity set follows the registrations
-// rather than a second list beside them.
-func TestEntity_EnsureSubsystemIsQuietForColumnShapes(t *testing.T) {
-	db, _ := freshEngine(t)
+// EnsureSubsystem creates NOTHING for a subsystem no entity-backed resource
+// names, so an opener calls it unconditionally and the entity set follows the
+// registrations rather than a second list beside them.
+func TestEntity_EnsureSubsystemIsQuietWithNoEntityBackedResource(t *testing.T) {
+	reset()
+	db := dbtest.Open(t)
 	s := sqlstore.New(db)
-	if err := EnsureSubsystem(t.Context(), s, s, testSubsystem); err != nil {
-		t.Fatalf("EnsureSubsystem on a column subsystem: %v", err)
+	Register(Resource{
+		Name:     "columnrows",
+		Table:    "columnrows",
+		DB:       entitySubsystem,
+		RowType:  reflect.TypeFor[TestRow](),
+		PKFields: []string{"Kind", "Name"},
+	})
+	if err := EnsureSubsystem(t.Context(), s, s, entitySubsystem); err != nil {
+		t.Fatalf("EnsureSubsystem: %v", err)
 	}
-	var n int
-	if err := db.QueryRow(
-		"SELECT count(*) FROM sqlite_master WHERE type='table' AND name = ?",
-		store.ScopeEntity).Scan(&n); err != nil {
-		t.Skipf("shape probe is SQLite's: %v", err)
-	}
-	if n != 0 {
-		t.Errorf("%s was created for a subsystem with no entity-backed resource", store.ScopeEntity)
-	}
-}
-
-// The four column writes take a *sql.Tx, and an entity-backed subsystem's apply
-// takes a claim rather than a transaction — so reaching one means a caller went
-// round the dispatch, and the answer names the shape rather than a column the
-// engine cannot find.
-func TestEntity_ColumnWritesRefuseAnEntityResource(t *testing.T) {
-	db, _, r := freshEntity(t)
-	tx, err := db.Begin()
+	// db_utils.TableExists asks whichever engine holds this database, so the
+	// assertion runs on both rather than skipping on one.
+	exists, err := db_utils.TableExists(db, store.ScopeEntity)
 	if err != nil {
-		t.Fatalf("begin: %v", err)
+		t.Fatalf("look for %s: %v", store.ScopeEntity, err)
 	}
-	defer tx.Rollback() //nolint:errcheck // nothing here commits
-	for _, tc := range []struct {
-		name string
-		run  func() error
-	}{
-		{"Insert", func() error { return r.Insert(t.Context(), tx, EntityRow{Key: "a"}) }},
-		{"InsertAll", func() error { return r.InsertAll(t.Context(), tx, []EntityRow{{Key: "a"}}) }},
-		{"DeleteScope", func() error { return r.DeleteScope(t.Context(), tx, "a") }},
-		{"DeleteAll", func() error { return r.DeleteAll(t.Context(), tx) }},
-	} {
-		err := tc.run()
-		if err == nil {
-			t.Errorf("%s wrote columns to an entity-backed resource", tc.name)
-			continue
-		}
-		if !strings.Contains(err.Error(), "is entity-backed") {
-			t.Errorf("%s err = %v, want it to name the shape", tc.name, err)
-		}
+	if exists {
+		t.Errorf("%s was created for a subsystem with no entity-backed resource", store.ScopeEntity)
 	}
 }
 
@@ -889,7 +870,7 @@ func freshStamped(t *testing.T) (*sql.DB, objstore.Store, *Resource) {
 }
 
 // A row that leaves the stamped field empty gets one, and a row that carries a
-// value keeps it — the same two answers Insert gives on the column path.
+// value keeps it.
 func TestEntity_StampedFieldIsFilledByTheWriter(t *testing.T) {
 	db, s, r := freshStamped(t)
 	be := Backend{DB: db, Obj: s}
@@ -1190,8 +1171,8 @@ func TestEntity_RowFilterNarrowsTheWipe(t *testing.T) {
 // An absent attribute answers no comparison, so a row that omitted the one its
 // own filter tests would write itself out of the projection: invisible to every
 // export, and untouched by the apply that should have replaced it. The writer
-// therefore stores it even when it is empty — the reason routd migration 0047
-// makes the column path say the same thing.
+// therefore stores it even when it is empty, which is the same guarantee routd
+// migration 0047 gives the rows it touched.
 func TestEntity_RowFilterAttributeIsWrittenEvenWhenEmpty(t *testing.T) {
 	db, s, r := freshFiltered(t)
 	be := Backend{DB: db, Obj: s}
@@ -1224,10 +1205,10 @@ func TestEntity_RowFilterAttributeIsWrittenEvenWhenEmpty(t *testing.T) {
 // --- the declared default -----------------------------------------------
 //
 // `acl`, `groups` and `scheduled_tasks` fill a value an operator's manifest may
-// omit — effect='allow', product='assistant', status='active' — with a hook the
-// column path runs inside its INSERT. An entity has no engine between the caller
-// and the item, so the storage layer applies it, exactly as it applies a stamp
-// (spec 6/40 §"What a registered resource still needs", answer 5).
+// omit — effect='allow', product='assistant', status='active' — with a declared
+// hook. An entity has no engine between the caller and the item, so the storage
+// layer applies it, exactly as it applies a stamp (spec 6/40 §"What a registered
+// resource still needs", answer 5).
 
 // DefaultedRow is one field the writer fills when the row leaves it empty.
 type DefaultedRow struct {
@@ -1267,7 +1248,7 @@ func freshDefaulted(t *testing.T) (*sql.DB, objstore.Store, *Resource) {
 }
 
 // A row that omits the field gets the default, and a row that states one keeps
-// it — the same two answers Insert gives on the column path.
+// it.
 func TestEntity_DeclaredDefaultIsFilledByTheWriter(t *testing.T) {
 	db, s, r := freshDefaulted(t)
 	be := Backend{DB: db, Obj: s}
@@ -1381,11 +1362,11 @@ func TestEntity_ValidateRowsRefusesBeforeTheWipe(t *testing.T) {
 // --- the declared codec -------------------------------------------------
 //
 // Every attribute value is a string, so proxyd_routes' `preserve_headers
-// []string` and `strip_prefix bool` do not survive the object path without a
-// rendering. The claim the bodies below hold is not "it round-trips" but "the
-// two shapes store the SAME TEXT": one renderer, so a migration carrying a
-// table from columns to items cannot change a value on the way (spec 6/40
-// §"What a registered resource still needs", answer 3).
+// []string` and `strip_prefix bool` do not survive as items without a rendering.
+// The claim the bodies below hold is not "it round-trips" but "the stored TEXT
+// is what the codec rendered": one renderer, so a migration carrying a table
+// into items cannot change a value on the way (spec 6/40 §"What a registered
+// resource still needs", answer 3).
 
 // CodecRow is proxyd_routes' two awkward fields on their own columns — no
 // shadow column, no Hooks — plus a string to anchor the row.
@@ -1395,23 +1376,9 @@ type CodecRow struct {
 	StripPrefix     bool     `db:"strip_prefix,bool"     yaml:"strip_prefix,omitempty"`
 }
 
-// codecSubsystems are two owner tags because a subsystem is ONE shape: the same
-// RowType is registered twice, once each way, and Apply refuses a mixed one.
-const (
-	codecColumnSubsystem = "codeccol"
-	codecEntitySubsystem = "codecobj"
-)
-
-// codecColumnSchema is the codec'd column's type: TEXT, on both engines,
-// because the codec's output IS the bind value (codec.go).
-const codecColumnSchema = `
-CREATE TABLE audit_log (part TEXT NOT NULL, sort TEXT NOT NULL, attrs TEXT NOT NULL, PRIMARY KEY (part, sort));
-CREATE TABLE codecrows (
-  path             TEXT PRIMARY KEY,
-  preserve_headers TEXT NOT NULL DEFAULT '[]',
-  strip_prefix     TEXT NOT NULL DEFAULT '0'
-);
-`
+// codecEntitySubsystem is the synthetic owner tag the codec'd resource is
+// registered under, and the partition its items live in.
+const codecEntitySubsystem = "codecobj"
 
 // freshCodecEntity registers the entity half alone. It is engine-neutral, so
 // every body that only reads or writes ITEMS runs on both drivers.
@@ -1437,45 +1404,6 @@ func freshCodecEntity(t *testing.T) (*sql.DB, objstore.Store, *Resource) {
 	return db, s, obj
 }
 
-// freshCodecPair adds the COLUMN half over the same database, so one RowType is
-// registered both ways and the two stored forms can be compared.
-//
-// It skips on Postgres, and that is not this body's limit: resreg's engine
-// renders `?` placeholders (engine.go Insert), so every column-path body in this
-// package answers "unused argument: 0" there. The entity half above runs on both.
-func freshCodecPair(t *testing.T) (*sql.DB, objstore.Store, *Resource, *Resource) {
-	t.Helper()
-	reset()
-	db := dbtest.Open(t)
-	if db_utils.IsPostgres(db) {
-		t.Skip("resreg's column path emits ? placeholders; the whole column half " +
-			"of this package is SQLite's dialect")
-	}
-	if _, err := db.Exec(codecColumnSchema); err != nil {
-		t.Fatalf("schema: %v", err)
-	}
-	s := sqlstore.New(db)
-	col := Register(Resource{
-		Name:     "codecrows_col",
-		Table:    "codecrows",
-		DB:       codecColumnSubsystem,
-		RowType:  reflect.TypeFor[CodecRow](),
-		PKFields: []string{"Path"},
-	})
-	obj := Register(Resource{
-		Name:          "codecrows_obj",
-		Table:         "codecitems",
-		DB:            codecEntitySubsystem,
-		RowType:       reflect.TypeFor[CodecRow](),
-		PKFields:      []string{"Path"},
-		EntitySortKey: []string{"Path"},
-	})
-	if err := EnsureSubsystem(t.Context(), s, s, codecEntitySubsystem); err != nil {
-		t.Fatalf("EnsureSubsystem: %v", err)
-	}
-	return db, s, col, obj
-}
-
 // codecRows are the values that have to survive: a populated list, an empty
 // one, and both settings of the flag.
 var codecRows = []CodecRow{
@@ -1484,73 +1412,21 @@ var codecRows = []CodecRow{
 	{Path: "/c", StripPrefix: true},
 }
 
-// The two shapes store the SAME TEXT for the same row. That is the claim the
-// cutover rests on: the column a migration reads and the attribute it writes
-// hold one value, because one renderer produced both.
-func TestCodec_BothShapesStoreTheSameText(t *testing.T) {
-	db, s, col, obj := freshCodecPair(t)
-
-	tx, err := db.Begin()
-	if err != nil {
-		t.Fatalf("begin: %v", err)
-	}
-	if err := col.InsertAll(t.Context(), tx, codecRows); err != nil {
-		t.Fatalf("InsertAll: %v", err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatalf("commit: %v", err)
-	}
-	if _, err := Apply(t.Context(), Backend{DB: db, Obj: s}, codecEntitySubsystem, "", true,
+// The stored text is what the codec rendered, and the value comes back through
+// the reader unchanged. One renderer is what lets a second reader of the same
+// value — proxyd's own start-up read of a route — agree with the engine about
+// what the value IS (codec.go).
+func TestCodec_ItemsHoldTheRenderedText(t *testing.T) {
+	db, s, obj := freshCodecEntity(t)
+	be := Backend{DB: db, Obj: s}
+	if _, err := Apply(t.Context(), be, codecEntitySubsystem, "", true,
 		map[string]any{"codecrows_obj": codecRows}, nil); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
 
-	// The stored text, read past both engines rather than through them.
-	columnText := map[string][2]string{}
-	rows, err := db.Query(`SELECT path, preserve_headers, strip_prefix FROM codecrows`)
-	if err != nil {
-		t.Fatalf("read columns: %v", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var path, headers, strip string
-		if err := rows.Scan(&path, &headers, &strip); err != nil {
-			t.Fatalf("scan: %v", err)
-		}
-		columnText[path] = [2]string{headers, strip}
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate: %v", err)
-	}
-	items, err := s.Query(t.Context(), objstore.Query{
-		Entity: "codecitems", Partition: codecEntitySubsystem})
-	if err != nil {
-		t.Fatalf("query items: %v", err)
-	}
-	if len(items) != len(codecRows) || len(columnText) != len(codecRows) {
-		t.Fatalf("stored %d items and %d rows, want %d of each",
-			len(items), len(columnText), len(codecRows))
-	}
-	for _, it := range items {
-		attrText := [2]string{it.Attrs["preserve_headers"], it.Attrs["strip_prefix"]}
-		if got := columnText[it.Key.Sort]; got != attrText {
-			t.Errorf("%s: the column holds %q and the attribute holds %q; one renderer "+
-				"is what makes a migration between the two shapes lossless",
-				it.Key.Sort, got, attrText)
-		}
-	}
-
-	// And the value comes back the same through both readers.
-	fromColumns, err := col.ScanAll(OnDB(db))
-	if err != nil {
-		t.Fatalf("ScanAll columns: %v", err)
-	}
-	fromItems, err := obj.ScanAll(Backend{DB: db, Obj: s})
+	fromItems, err := obj.ScanAll(be)
 	if err != nil {
 		t.Fatalf("ScanAll items: %v", err)
-	}
-	if !reflect.DeepEqual(fromColumns, fromItems) {
-		t.Errorf("columns read back %v and items read back %v", fromColumns, fromItems)
 	}
 	want := []CodecRow{
 		{Path: "/a", PreserveHeaders: []string{"X-Api-Key", "Authorization"}, StripPrefix: true},
@@ -1560,12 +1436,18 @@ func TestCodec_BothShapesStoreTheSameText(t *testing.T) {
 	if !reflect.DeepEqual(fromItems, want) {
 		t.Errorf("read back %#v, want %#v", fromItems, want)
 	}
-	// /c carries a NIL list, and it is stored as the EMPTY DOCUMENT rather than
-	// as JSON null: proxyd_routes' column is TEXT NOT NULL DEFAULT '[]' and
-	// store.ProxydRoutes json.Unmarshals it on every proxyd start, so `null` is
-	// a value a second reader of the same column cannot use.
-	if got := columnText["/c"][0]; got != "[]" {
-		t.Errorf("a nil list stored as %q, want %q", got, "[]")
+
+	// The stored text, read past the engine rather than through it. /c carries a
+	// NIL list, and it is stored as the EMPTY DOCUMENT rather than as JSON null:
+	// proxyd_routes' value is json.Unmarshalled by store.ProxydRoutes on every
+	// proxyd start, so `null` is a value a second reader cannot use.
+	items, err := s.Query(t.Context(), objstore.Query{
+		Entity: "codecitems", Partition: codecEntitySubsystem})
+	if err != nil {
+		t.Fatalf("query items: %v", err)
+	}
+	if len(items) != len(codecRows) {
+		t.Fatalf("stored %d items, want %d", len(items), len(codecRows))
 	}
 	for _, it := range items {
 		if it.Key.Sort == "/c" && it.Attrs["preserve_headers"] != "[]" {
@@ -1608,9 +1490,8 @@ func TestCodec_RefusesTextItCannotRead(t *testing.T) {
 }
 
 // The declaration's own refusals. The set of encodings is CLOSED, and a string
-// or an int may not declare one: both shapes already render those the same way,
-// and a second rendering of a value that has one is the drift the codec exists
-// to prevent.
+// or an int may not declare one: both are already rendered, and a second
+// rendering of a value that has one is the drift the codec exists to prevent.
 func TestCodec_RegisterRefusesAMisdeclaredEncoding(t *testing.T) {
 	type badJSON struct {
 		Key  string `db:"key"`
@@ -1707,8 +1588,7 @@ func registerScoped(t *testing.T, r Resource) (Backend, *Resource) {
 }
 
 // A scoped apply takes the MENTIONED folders' items and leaves every other
-// folder's alone — the same answer the column path's DeleteScope gives, over
-// all three shapes a scope can have on this path.
+// folder's alone, over all three shapes a scope can have.
 func TestEntity_ScopedApplyTouchesOnlyTheMentionedScopes(t *testing.T) {
 	t.Run("scope is an attribute", func(t *testing.T) {
 		be, r := registerScoped(t, Resource{
@@ -1831,8 +1711,7 @@ func TestEntity_ScopedApplyPrunesTheScopesTheCallerNames(t *testing.T) {
 }
 
 // A scoped resource the manifest mentions with an EMPTY list still wipes the
-// whole entity: the operator is declaring "no rows for this resource", which is
-// the column path's answer too.
+// whole entity: the operator is declaring "no rows for this resource".
 func TestEntity_ScopedApplyWipesOnAnEmptyList(t *testing.T) {
 	be, r := registerScoped(t, Resource{
 		Name: "scopedrows", Table: "scopedrows", DB: entitySubsystem,

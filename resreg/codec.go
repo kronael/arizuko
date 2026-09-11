@@ -1,22 +1,19 @@
 package resreg
 
-// codec.go is the ONE rendering of a field whose Go type is not text, used by
-// BOTH shapes (spec 6/40 §"What a registered resource still needs", answer 3).
+// codec.go is the ONE rendering of a field whose Go type is not text (spec 6/40
+// §"What a registered resource still needs", answer 3).
 //
 // WHY IT EXISTS AT ALL. Every objstore attribute value is a string, so
 // proxyd_routes' `preserve_headers []string` and `strip_prefix bool` have no
-// representation on the object path without one. Its two Hooks ARE that codec
-// today — a BeforeInsert that json.Marshals into a shadow column and an
-// AfterScan that unmarshals back — which is why dropping them at the cutover
-// would strip the preserved headers from every proxied route, read once per
-// request over 26 live rows. Null handling is not what they do.
+// representation as an item without one, and losing that rendering strips the
+// preserved headers from every proxied route, read once per request over 26 live
+// rows. Null handling is not what it does.
 //
-// WHY IT APPLIES TO BOTH SHAPES, and this is the part that is not optional. The
-// codec is what makes a column-backed and an entity-backed resource agree about
-// what a value IS: one renderer, so the text a column holds and the text an
-// attribute holds are the SAME text, and the migration that carries a table from
-// one to the other cannot change a value on the way. Two renderings would be two
-// paths, and two paths drift.
+// WHY IT IS ONE RENDERING, and this is the part that is not optional. It is what
+// the engine writes a value through and what it reads the value back through, so
+// a stored text has a single meaning — including for a migration carrying a
+// table into items, which has to land the same text the engine reads. Two
+// renderings would be two paths, and two paths drift.
 //
 // WHERE IT IS DECLARED. In the `db:` tag, after the column name —
 // `db:"preserve_headers,json"` — because the encoding is a fact about the FIELD
@@ -25,24 +22,21 @@ package resreg
 // cannot invent a rendering only it can read. An unknown name stops the process
 // at Register.
 //
-// WHAT IT DOES NOT COVER. A string and an int ATTRIBUTE need no codec: both
-// paths already render them the same way, SQL binds them natively and the
-// object path writes an int with strconv. Declaring one on either is refused
-// rather than accepted, because a second rendering of a value that already has
-// one is the drift this file exists to prevent.
+// WHAT IT DOES NOT COVER. A string and an int ATTRIBUTE need no codec: a string
+// is already text and an int is written with strconv. Declaring one on either is
+// refused rather than accepted, because a second rendering of a value that
+// already has one is the drift this file exists to prevent.
 //
 // THE ONE EXCEPTION IS A NUMBER IN A COORDINATE, and it is an exception because
 // strconv's rendering is WRONG there rather than merely different: a sort key is
 // compared as text, so "10" sorts before "2" and routes' (seq, target, match)
 // would read back in an order the route table's own meaning contradicts. `pad`
 // is that rendering, it is refused anywhere but a sort key, and no
-// column-shaped resource may declare it — its output is the bind value, and the
-// column is an INTEGER.
+// column-shaped resource may declare it — such a resource has no key to order.
 //
-// A codec'd COLUMN is TEXT, on both engines, because the codec's output is the
-// bind value. proxyd_routes' `preserve_headers TEXT NOT NULL DEFAULT '[]'` is;
-// its `strip_prefix INTEGER` and acl's `grant_option INTEGER` are not, so those
-// two can carry a codec only once they are attributes and the column is gone.
+// A codec'd COLUMN is TEXT, on both engines, because the read scans the stored
+// text and hands it to the codec; an INTEGER column would arrive as a number the
+// codec has no text to decode.
 
 import (
 	"encoding/json"
@@ -52,8 +46,7 @@ import (
 	"strings"
 )
 
-// codec is one encoding: a Go field value to the single text both shapes store,
-// and back.
+// codec is one encoding: a Go field value to the text it is stored as, and back.
 //
 // It is a value in a closed table rather than a pair of caller-supplied
 // functions, so every reader of a stored value can name the rendering that
@@ -131,9 +124,8 @@ func decodeJSON(text string, into reflect.Value) error {
 // encodeBool renders a bool as "0" or "1".
 //
 // Those two and not "true"/"false": the columns this codec is for are INTEGER
-// 0/1 on both engines (migrations 0015, 0021), an int attribute is already
-// written with strconv on the object path, and the two readers of a migrated
-// value have to agree byte for byte.
+// 0/1 on both engines (migrations 0015, 0021), an int attribute is written with
+// strconv, and the two readers of a migrated value have to agree byte for byte.
 func encodeBool(v reflect.Value) (string, error) {
 	return strconv.Itoa(map[bool]int{false: 0, true: 1}[v.Bool()]), nil
 }

@@ -21,13 +21,11 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"time"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/objstore"
-	"github.com/kronael/arizuko/objstore/sqlstore"
 )
 
 // ScopeSpec declares how DeleteScope filters rows. Field is the Go
@@ -44,12 +42,10 @@ type Hooks struct {
 	// value an operator's manifest may omit, like `effect='allow'` on an acl row
 	// or `status='active'` on a scheduled task.
 	//
-	// It runs on BOTH shapes: before the column INSERT, and before the item is
-	// rendered on the object path (entity.go). That is why it takes the ROW and
-	// nothing else. It held a ctx and a *sql.Tx and no hook ever read either,
-	// while the tx was what made the whole declaration unavailable to a resource
-	// whose rows are items — an entity's apply holds a claim, not a transaction.
-	// A default the storage layer applies is the writer's, exactly as a stamp is
+	// It runs where the item is rendered (entity.go), and it takes the ROW and
+	// nothing else: an apply holds a claim rather than a transaction, so a hook
+	// asking for a *sql.Tx would be a declaration nothing could honour. A default
+	// the storage layer applies is the writer's, exactly as a stamp is
 	// (StampedFields), and the declaration is what tells a manifest the field is
 	// optional (spec 6/40 §"What a registered resource still needs", answer 5).
 	BeforeInsert func(row any) error
@@ -61,19 +57,17 @@ type Hooks struct {
 	// the invariant that is a property of the whole set rather than of one row,
 	// which is why it takes the set and not a row.
 	//
-	// It runs on BOTH shapes, BEFORE the delete that precedes the writes, so a
-	// refused manifest leaves the subsystem untouched on the object path too:
-	// that path has no pre-image and no rollback, so a check that ran between
-	// the wipe and the puts would leave an operator with the rows deleted and
-	// none written (entity.go applyEntities).
+	// It runs BEFORE the delete that precedes the writes, so a refused manifest
+	// leaves the subsystem untouched: an apply has no pre-image and no rollback,
+	// so a check that ran between the wipe and the puts would leave an operator
+	// with the rows deleted and none written (entity.go applyEntities).
 	//
 	// The set it checks is the one the apply is about to make the resource EQUAL
 	// TO — an apply replaces a resource's manifest-visible projection wholesale
 	// (RowFilter names what is outside it), so the graph, the counter or the
 	// uniqueness the hook tests is the manifest's own. It takes no transaction
-	// for the same reason BeforeInsert does not: an entity's apply holds a
-	// claim, and a hook that needed a *sql.Tx would be a declaration only one
-	// shape could honour.
+	// for the same reason BeforeInsert does not: an apply holds a claim, and a
+	// hook that needed a *sql.Tx would be a declaration nothing could honour.
 	ValidateRows func(ctx context.Context, rows any) error
 
 	// ColumnOverride remaps a struct field to a custom SQL expression on
@@ -100,16 +94,15 @@ type resourceMeta struct {
 	pkFields   []fieldMeta
 	scopeField *fieldMeta // nil if ScopeSpec unset
 	columns    []string   // SELECT column list (with overrides applied)
-	colsRaw    []string   // raw column names (for INSERT/DELETE)
 	stampedIdx []int      // struct-field indices Diff ignores (server-stamped)
-	// autoStampIdx is the subset of stampedIdx Insert may FILL with now(). A stamped
-	// field carrying a ColumnOverride.Write has already declared what its empty value
-	// stores, so inventing a value would overwrite a deliberate NULL. Server-OWNED
-	// and server-INVENTED are different claims (BUGS F49).
+	// autoStampIdx is the subset of stampedIdx the writer may FILL with now(). A
+	// stamped field that has already declared what its empty value stores is not
+	// one of them, because inventing a value would overwrite a deliberate absence.
+	// Server-OWNED and server-INVENTED are different claims (BUGS F49).
 	autoStampIdx []int
-	// entity is the object path's metadata, non-nil for exactly the resources
-	// that declared EntitySortKey. It IS the shape switch every read and write
-	// below branches on (entity.go).
+	// entity is the item metadata, non-nil for exactly the resources that declared
+	// EntitySortKey. It IS the shape switch ScanAll branches on, and the
+	// declaration Apply requires of every resource in a subsystem (entity.go).
 	entity *entityMeta
 }
 
@@ -121,9 +114,9 @@ type fieldMeta struct {
 	writeHook  func(fieldVal any) (any, error)
 	scanTarget func(rowVal reflect.Value) any // returns &row.field for sql.Rows.Scan
 	// codec is the declared encoding of a field whose Go type is not text, nil
-	// for one that needs none. It is the SAME rendering on both shapes, which is
-	// what makes a column-backed and an entity-backed resource agree about what
-	// a value IS (codec.go).
+	// for one that needs none. It is the rendering the engine writes a value
+	// through and the one it reads the value back through, so a stored text has a
+	// single meaning (codec.go).
 	codec *codec
 }
 
@@ -169,7 +162,6 @@ func (r *Resource) initMeta() {
 			}
 		}
 		m.fields = append(m.fields, fm)
-		m.colsRaw = append(m.colsRaw, col)
 		m.columns = append(m.columns, fm.readExpr)
 		dbToField[sf.Name] = len(m.fields) - 1
 	}
@@ -262,24 +254,14 @@ func (r *Resource) filterSQL() (string, []any) {
 }
 
 // whereFilter opens a statement's WHERE with the RowFilter, or adds nothing.
-// ScanAll and DeleteAll reach it, so a resource's excluded rows stay uniformly
-// out of every manifest-visible read AND write path.
+// ScanAll reaches it, so a resource's excluded rows stay out of every
+// manifest-visible read.
 func (r *Resource) whereFilter() (string, []any) {
 	expr, args := r.filterSQL()
 	if expr == "" {
 		return "", nil
 	}
 	return " WHERE (" + expr + ")", args
-}
-
-// andFilter appends the RowFilter after an existing WHERE clause (DeleteScope
-// already has one).
-func (r *Resource) andFilter() (string, []any) {
-	expr, args := r.filterSQL()
-	if expr == "" {
-		return "", nil
-	}
-	return " AND (" + expr + ")", args
 }
 
 // checkRowFilter refuses a filter no reader can honour, at Register.
@@ -372,121 +354,6 @@ func (r *Resource) scanAll(rd reader) (any, error) {
 		slice = reflect.Append(slice, ptr.Elem())
 	}
 	return slice.Interface(), rows.Err()
-}
-
-// columnsOnly refuses an entity-backed resource at a write built out of
-// columns. The four writes below take a *sql.Tx, and an entity-backed
-// subsystem's apply takes a claim rather than a transaction (entity.go), so
-// reaching one of them means a caller went round the dispatch. Without this the
-// answer is a "no such column" from the engine, which reads as a schema fault
-// rather than as the shape mistake it is.
-func (r *Resource) columnsOnly(op string) error {
-	if r.meta == nil {
-		return fmt.Errorf("resreg: %s has no schema (RowType unset)", r.Name)
-	}
-	if r.meta.entity != nil {
-		return fmt.Errorf("resreg: %s is entity-backed and %s writes columns; an entity's "+
-			"rows are replaced under a claim, not inside a transaction", r.Name, op)
-	}
-	return nil
-}
-
-// Insert binds row (a struct value or pointer) and inserts via tx.
-// Runs Hooks.BeforeInsert if set; Hooks.ValidateRows runs once over the whole
-// set, ahead of the delete this insert follows (Apply).
-func (r *Resource) Insert(ctx context.Context, tx *sql.Tx, row any) error {
-	if err := r.columnsOnly("Insert"); err != nil {
-		return err
-	}
-	rv := reflect.ValueOf(row)
-	if rv.Kind() == reflect.Pointer {
-		rv = rv.Elem()
-	}
-	if rv.Type() != r.meta.rowType {
-		return fmt.Errorf("%s: Insert wants %s, got %s", r.Name, r.meta.rowType, rv.Type())
-	}
-	rowPtr := reflect.New(r.meta.rowType)
-	rowPtr.Elem().Set(rv)
-	if r.Hooks.BeforeInsert != nil {
-		if err := r.Hooks.BeforeInsert(rowPtr.Interface()); err != nil {
-			return fmt.Errorf("%s: before-insert: %w", r.Name, err)
-		}
-	}
-	// Auto-stamp: any string-typed StampedField still empty gets an RFC3339 now().
-	// An explicit BeforeInsert value wins, since it ran above.
-	//
-	// autoStampIdx, not stampedIdx: a field with a declared empty→NULL write exports
-	// as "" when the column is NULL, and stamping that on re-insert made the FIRST
-	// `export | apply` write a fresh timestamp — moving a checksum the operator
-	// changed nothing to move (BUGS F49).
-	stampNow := time.Now().UTC().Format(time.RFC3339)
-	for _, idx := range r.meta.autoStampIdx {
-		if f := rowPtr.Elem().Field(idx); f.Kind() == reflect.String && f.String() == "" {
-			f.SetString(stampNow)
-		}
-	}
-	values, err := r.insertValues(rowPtr.Elem())
-	if err != nil {
-		return err
-	}
-	placeholders := strings.Repeat("?,", len(r.meta.fields))
-	placeholders = placeholders[:len(placeholders)-1]
-	q := "INSERT INTO " + r.Table + " (" + strings.Join(r.meta.colsRaw, ", ") + ") VALUES (" + placeholders + ")"
-	_, err = tx.ExecContext(ctx, q, values...)
-	if err != nil {
-		return fmt.Errorf("%s: insert: %w", r.Name, err)
-	}
-	return nil
-}
-
-// InsertAll iterates a slice (RowType-shaped) and calls Insert on each
-// row. Stops on first error.
-func (r *Resource) InsertAll(ctx context.Context, tx *sql.Tx, rows any) error {
-	if rows == nil {
-		return nil
-	}
-	rv := reflect.ValueOf(rows)
-	if rv.Kind() != reflect.Slice {
-		return fmt.Errorf("%s: InsertAll wants slice, got %s", r.Name, rv.Kind())
-	}
-	for i := 0; i < rv.Len(); i++ {
-		if err := r.Insert(ctx, tx, rv.Index(i).Interface()); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// DeleteScope deletes rows whose scope column equals scope. Resources
-// without a ScopeSpec return an error — caller must use DeleteAll for
-// global resources.
-func (r *Resource) DeleteScope(ctx context.Context, tx *sql.Tx, scope string) error {
-	if err := r.columnsOnly("DeleteScope"); err != nil {
-		return err
-	}
-	if r.meta.scopeField == nil {
-		return fmt.Errorf("resreg: %s has no ScopeSpec; use DeleteAll", r.Name)
-	}
-	and, args := r.andFilter()
-	q := "DELETE FROM " + r.Table + " WHERE " + r.meta.scopeField.col + " = ?" + and
-	_, err := tx.ExecContext(ctx, q, append([]any{scope}, args...)...)
-	if err != nil {
-		return fmt.Errorf("%s: delete-scope: %w", r.Name, err)
-	}
-	return nil
-}
-
-// DeleteAll wipes every row in the table. Used by full-rebuild apply.
-func (r *Resource) DeleteAll(ctx context.Context, tx *sql.Tx) error {
-	if err := r.columnsOnly("DeleteAll"); err != nil {
-		return err
-	}
-	where, args := r.whereFilter()
-	_, err := tx.ExecContext(ctx, "DELETE FROM "+r.Table+where, args...)
-	if err != nil {
-		return fmt.Errorf("%s: delete-all: %w", r.Name, err)
-	}
-	return nil
 }
 
 // HasScope reports whether the resource declares a clean folder-scope
@@ -799,37 +666,6 @@ func (r *Resource) scanTargets(rowVal reflect.Value) ([]any, func() error) {
 	}
 }
 
-// insertValues returns []any of bind values, applying a declared codec or a
-// ColumnOverride.Write where set.
-//
-// A codec'd field binds the TEXT the codec renders, which is the same text the
-// object path stores as an attribute — that identity is the whole point of one
-// renderer, and it is why a codec'd column is TEXT (codec.go).
-func (r *Resource) insertValues(rowVal reflect.Value) ([]any, error) {
-	out := make([]any, len(r.meta.fields))
-	for i, fm := range r.meta.fields {
-		if fm.codec != nil {
-			text, err := fm.codec.encode(rowVal.Field(fm.idx))
-			if err != nil {
-				return nil, fmt.Errorf("%s.%s: %w", r.Name, fm.name, err)
-			}
-			out[i] = text
-			continue
-		}
-		v := rowVal.Field(fm.idx).Interface()
-		if fm.writeHook != nil {
-			conv, err := fm.writeHook(v)
-			if err != nil {
-				return nil, fmt.Errorf("%s.%s: write hook: %w", r.Name, fm.name, err)
-			}
-			out[i] = conv
-		} else {
-			out[i] = v
-		}
-	}
-	return out, nil
-}
-
 // ErrChecksumMismatch is returned by Apply when the manifest's declared
 // checksum does not match the live DB's recomputed content hash and force
 // is false.
@@ -970,20 +806,6 @@ func ManifestScopes(subsystem string, manifest map[string]any) []string {
 	return out
 }
 
-// lockTable is a table guaranteed present in every owner DB, and lockColumn one
-// of its columns. Apply issues one no-op UPDATE against it to upgrade its
-// DEFERRED tx to a write lock immediately: a write statement, even matching zero
-// rows, forces SQLite's RESERVED lock as soon as it runs, so the checksum
-// recheck and the following writes become one atomic critical section and
-// concurrent applies block rather than race.
-//
-// audit_log is an objstore entity, so its columns are the entity's three and
-// the column named here is one of them.
-const (
-	lockTable  = "audit_log"
-	lockColumn = "sort"
-)
-
 // Checksum computes the content hash of one subsystem's manifest-visible
 // projection: sha256 of the canonical EmitYAML bytes of Export, minus the
 // checksum field itself. Recomputed fresh from live rows at read time: no
@@ -1015,8 +837,7 @@ func checksum(rd reader, subsystem string) (string, error) {
 // invites) are never wiped. RowFilter-excluded rows never enter the checksum, the
 // DELETE, or the recomputed checksum.
 func Apply(ctx context.Context, be Backend, subsystem string, wantChecksum string, force bool, manifestRows map[string]any, opts *ApplyOpts) (string, error) {
-	shape, err := subsystemShape(subsystem)
-	if err != nil {
+	if err := requireEntities(subsystem); err != nil {
 		return "", err
 	}
 	for name := range manifestRows {
@@ -1028,9 +849,8 @@ func Apply(ctx context.Context, be Backend, subsystem string, wantChecksum strin
 			return "", fmt.Errorf("resreg: resource %q belongs to subsystem %q, not %q", name, r.DB, subsystem)
 		}
 	}
-	// Audit counts are computed from the pre-tx snapshot (a plain read on
-	// the primary connection) before BeginTx — an in-tx read would open a
-	// 2nd connection that, for :memory: DBs, can't see the schema.
+	// Audit counts are read BEFORE the replace claims the scope, so they describe
+	// the state the writes below are about to replace.
 	var counts map[string]any
 	if opts != nil {
 		c, err := applyCounts(be.read(), subsystem, manifestRows)
@@ -1039,85 +859,13 @@ func Apply(ctx context.Context, be Backend, subsystem string, wantChecksum strin
 		}
 		counts = c
 	}
-	if shape == shapeEntity {
-		return applyEntities(ctx, be, subsystem, wantChecksum, force, manifestRows, opts, counts)
-	}
-	if be.DB == nil {
-		return "", fmt.Errorf("resreg: %s is column-backed and the backend carries no SQL handle", subsystem)
-	}
-	db := be.DB
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return "", fmt.Errorf("begin: %w", err)
-	}
-	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, "UPDATE "+lockTable+" SET "+lockColumn+" = "+lockColumn+" WHERE 1 = 0"); err != nil {
-		return "", fmt.Errorf("acquire write lock: %w", err)
-	}
-	inTx := reader{sql: tx, obj: be.Obj}
-	current, err := checksum(inTx, subsystem)
-	if err != nil {
-		return "", fmt.Errorf("checksum: %w", err)
-	}
-	if !force && current != wantChecksum {
-		return current, fmt.Errorf("%w: db=%s manifest=%s", ErrChecksumMismatch, current, wantChecksum)
-	}
-	for _, r := range BySubsystem(subsystem) {
-		if r.RowType == nil || r.SkipApplyRebuild {
-			continue
-		}
-		rows, mentioned := manifestRows[r.Name]
-		if !mentioned {
-			continue // resource absent from manifest → untouched
-		}
-		if err := r.validateRows(ctx, rows); err != nil {
-			return current, err
-		}
-		scopes := r.manifestScopes(rows)
-		if r.HasScope() && len(scopes) > 0 {
-			// Scoped resource with rows: prune the mentioned scopes, plus any
-			// the caller named explicitly (rollback — see ApplyOpts.PruneScopes).
-			// An empty row list still falls to DeleteAll below, which already
-			// covers every scope.
-			if opts != nil {
-				scopes = mergeScopes(scopes, opts.PruneScopes)
-			}
-			for _, scope := range scopes {
-				if err := r.DeleteScope(ctx, tx, scope); err != nil {
-					return current, err
-				}
-			}
-		} else if err := r.DeleteAll(ctx, tx); err != nil {
-			// Global resource, OR a scoped resource mentioned with an empty
-			// list: an explicitly-present empty list is the operator declaring
-			// "no rows for this resource" — wipe the whole table. (A resource
-			// absent from the manifest is already skipped above and untouched.)
-			return current, err
-		}
-		if err := r.InsertAll(ctx, tx, rows); err != nil {
-			return current, err
-		}
-	}
-	newChecksum, err := checksum(inTx, subsystem)
-	if err != nil {
-		return current, fmt.Errorf("checksum after write: %w", err)
-	}
-	if opts != nil {
-		if err := emitApplyAudit(ctx, sqlstore.New(db), tx, opts, counts, newChecksum); err != nil {
-			return current, fmt.Errorf("audit: %w", err)
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return current, fmt.Errorf("commit: %w", err)
-	}
-	return newChecksum, nil
+	return applyEntities(ctx, be, subsystem, wantChecksum, force, manifestRows, opts, counts)
 }
 
 // validateRows runs the resource's declared set check, or nothing.
 //
-// It is a method rather than two call sites so the column path and the object
-// path cannot disagree about WHEN it runs: both call it before the delete that
-// precedes their writes (Hooks.ValidateRows).
+// It runs before the delete that precedes the writes, so a refused manifest
+// leaves the resource exactly as it was (Hooks.ValidateRows).
 func (r *Resource) validateRows(ctx context.Context, rows any) error {
 	if r.Hooks.ValidateRows == nil {
 		return nil
@@ -1172,19 +920,10 @@ func applyCounts(rd reader, subsystem string, manifestRows map[string]any) (map[
 	return counts, nil
 }
 
-// emitApplyAudit writes the single per-apply summary row in-tx
-// (spec 5/8 §"CAS implementation" (3)): actor, manifest digest,
-// per-resource add/update/delete counts, final checksum.
-func emitApplyAudit(ctx context.Context, sink audit.TxSink, tx *sql.Tx, opts *ApplyOpts,
-	counts map[string]any, newChecksum string) error {
-	return audit.EmitInTx(ctx, sink, tx, applyEvent(opts, counts, newChecksum))
-}
-
-// applyEvent builds that row. Both shapes record the identical event and only
-// the way it commits differs — inside the apply's transaction on the column
-// path, as the last fenced write of the replace on the object path — so the
-// event has one renderer and an operator reading `audit` cannot tell which
-// engine wrote the rows apart from the fields that genuinely differ.
+// applyEvent builds the single per-apply summary row (spec 5/8 §"CAS
+// implementation" (3)): actor, manifest digest, per-resource add/update/delete
+// counts, final checksum. It commits as the last fenced write of the replace
+// (entity.go), which is what makes the row and the projection one act.
 func applyEvent(opts *ApplyOpts, counts map[string]any, newChecksum string) audit.Event {
 	params := map[string]any{}
 	for k, v := range opts.Extra {

@@ -18,8 +18,7 @@ import (
 // than one reset to a DDL default. `grant_option` (spec 5/33, WITH GRANT
 // OPTION) was that column: absent from the row type, so a rebuild dropped every
 // holder's right to re-delegate. It is a bool and every attribute value is
-// text, so it declares the encoding both shapes render it with (resreg/codec.go
-// — "0"/"1", which is what the INTEGER column held).
+// text, so it declares its own encoding (resreg/codec.go — "0"/"1").
 type ACLRow struct {
 	Principal   string `db:"principal" yaml:"principal" json:"principal"`
 	Action      string `db:"action"    yaml:"action"    json:"action"`
