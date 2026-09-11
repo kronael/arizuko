@@ -65,7 +65,7 @@ func openInstance(t *testing.T) (string, map[string]*store.Store) {
 	if err := db_utils.CreateDBFile(onbodPath); err != nil {
 		t.Fatalf("seed onbod.db: %v", err)
 	}
-	odb, err := db_utils.Open(db_utils.FileDSN(onbodPath))
+	odb, err := db_utils.Open(onbodPath)
 	if err != nil {
 		t.Fatalf("open onbod.db (bootstrap): %v", err)
 	}

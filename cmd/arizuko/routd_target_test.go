@@ -47,7 +47,7 @@ func countRows(t *testing.T, dir, owner, q string, args ...any) int {
 	if _, ok := store.OwnerDBs[owner]; ok {
 		file = store.OwnerDBPath(dir, owner)
 	}
-	db, err := db_utils.Open(db_utils.FileDSN(file))
+	db, err := db_utils.Open(file)
 	if err != nil {
 		t.Fatalf("open %s: %v", file, err)
 	}
@@ -73,7 +73,7 @@ func countItems(t *testing.T, dir, owner, entity string, match func(objstore.Ite
 	if _, ok := store.OwnerDBs[owner]; ok {
 		file = store.OwnerDBPath(dir, owner)
 	}
-	db, err := db_utils.Open(db_utils.FileDSN(file))
+	db, err := db_utils.Open(file)
 	if err != nil {
 		t.Fatalf("open %s: %v", file, err)
 	}

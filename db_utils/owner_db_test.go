@@ -12,28 +12,28 @@ import (
 // owner daemon pointed at the wrong path — a typo'd mount, a store/<owner>/
 // move that never happened — would boot GREEN on a fully-migrated instance
 // holding none of the operator's data (spec 5/16 step 7).
-func TestRequireDBFileRefusesAMissingDatabase(t *testing.T) {
+func TestRequireDBRefusesAMissingDatabase(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "routd", "routd.db")
-	err := RequireDBFile(missing)
+	err := RequireDB(missing)
 	if err == nil {
-		t.Fatal("RequireDBFile accepted a path with no database; a daemon would migrate an empty one there")
+		t.Fatal("RequireDB accepted a path with no database; a daemon would migrate an empty one there")
 	}
 	// The operator reads this in journalctl and has to know which path to fix.
 	if !strings.Contains(err.Error(), missing) {
 		t.Errorf("error must name the missing path, got: %v", err)
 	}
 	if _, statErr := os.Stat(missing); !os.IsNotExist(statErr) {
-		t.Error("RequireDBFile created the file it was supposed to refuse")
+		t.Error("RequireDB created the file it was supposed to refuse")
 	}
 }
 
-func TestRequireDBFileAcceptsAnExistingDatabase(t *testing.T) {
+func TestRequireDBAcceptsAnExistingDatabase(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "routd", "routd.db")
 	if err := CreateDBFile(path); err != nil {
 		t.Fatalf("CreateDBFile: %v", err)
 	}
-	if err := RequireDBFile(path); err != nil {
-		t.Errorf("RequireDBFile rejected a seeded database: %v", err)
+	if err := RequireDB(path); err != nil {
+		t.Errorf("RequireDB rejected a seeded database: %v", err)
 	}
 }
 

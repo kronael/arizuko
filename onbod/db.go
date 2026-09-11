@@ -32,10 +32,10 @@ func openOwnedDB(ownDSN string) (*sql.DB, error) {
 	// a missing file on first query, so a wrong path would migrate a fresh empty
 	// file and drop every invite and gate while onbod reports healthy
 	// (spec 5/16 step 7, BUGS F52). `arizuko create` seeds the file.
-	if err := db_utils.RequireDBFile(ownDSN); err != nil {
+	if err := db_utils.RequireDB(ownDSN); err != nil {
 		return nil, err
 	}
-	db, err := db_utils.Open(db_utils.FileDSN(ownDSN))
+	db, err := db_utils.Open(ownDSN)
 	if err != nil {
 		return nil, err
 	}

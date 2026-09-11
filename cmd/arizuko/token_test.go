@@ -55,7 +55,7 @@ func TestMintBearer(t *testing.T) {
 
 func TestMintBearerNoActiveKey(t *testing.T) {
 	storeDir := t.TempDir()
-	adb, err := db_utils.Open(db_utils.FileDSN(filepath.Join(storeDir, "auth.db")))
+	adb, err := db_utils.Open(filepath.Join(storeDir, "auth.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func seedAuthDB(t *testing.T, storeDir string, key *auth.SigningKey) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	adb, err := db_utils.Open(db_utils.FileDSN(path))
+	adb, err := db_utils.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}

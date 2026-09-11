@@ -218,7 +218,7 @@ func recordOnbodBootstrap(db *sql.DB) error {
 // answers how many events landed. The source half is the reader migrate-audit
 // already has, so the two tools read one table one way.
 func copyAuditLog(dst *sql.DB, msgPath string, dryRun bool) (int, error) {
-	src, err := db_utils.Open(db_utils.FileDSN(msgPath))
+	src, err := db_utils.Open(msgPath)
 	if err != nil {
 		return 0, err
 	}
@@ -247,7 +247,7 @@ func copyAuditLog(dst *sql.DB, msgPath string, dryRun bool) (int, error) {
 // answers how many sessions landed. The source half is the reader migrate-runed
 // already has, so the two tools read one table one way.
 func copySessionLog(dst *sql.DB, msgPath string, dryRun bool) (int, error) {
-	src, err := db_utils.Open(db_utils.FileDSN(msgPath))
+	src, err := db_utils.Open(msgPath)
 	if err != nil {
 		return 0, err
 	}
@@ -277,7 +277,7 @@ func copySessionLog(dst *sql.DB, msgPath string, dryRun bool) (int, error) {
 // entities and answers what landed. The source half is the reader `arizuko
 // migrate-store` already has, so the two tools read one schema one way.
 func copyStoreEntities(dst *sql.DB, msgPath string, dryRun bool) (store.Counts, error) {
-	src, err := db_utils.Open(db_utils.FileDSN(msgPath))
+	src, err := db_utils.Open(msgPath)
 	if err != nil {
 		return store.Counts{}, err
 	}
@@ -308,7 +308,7 @@ func copyStoreEntities(dst *sql.DB, msgPath string, dryRun bool) (store.Counts, 
 // cutover and the move cannot disagree about what a row holds — the same reason
 // copyStoreEntities reuses migrate-store's.
 func copyOnbodEntities(dst *sql.DB, msgPath string, dryRun bool) (store.OnbodCounts, error) {
-	src, err := db_utils.Open(db_utils.FileDSN(msgPath))
+	src, err := db_utils.Open(msgPath)
 	if err != nil {
 		return store.OnbodCounts{}, err
 	}
@@ -344,7 +344,7 @@ func copyOnbodEntities(dst *sql.DB, msgPath string, dryRun bool) (store.OnbodCou
 // as the attribute it becomes. That is what the fifteen hand-written column
 // lists above could not promise.
 func copyRoutdEntities(dst *sql.DB, msgPath string, dryRun bool) (store.RoutdCounts, error) {
-	src, err := db_utils.Open(db_utils.FileDSN(msgPath))
+	src, err := db_utils.Open(msgPath)
 	if err != nil {
 		return nil, err
 	}
@@ -429,7 +429,7 @@ func monolithHotSources(src *sql.DB) (map[string]string, error) {
 // this step refuses to run while any destination message row is still unpadded,
 // so neither order can be got wrong by accident.
 func copyHotEntities(dst *sql.DB, msgPath string, dryRun bool) (store.RoutdCounts, error) {
-	src, err := db_utils.Open(db_utils.FileDSN(msgPath))
+	src, err := db_utils.Open(msgPath)
 	if err != nil {
 		return nil, err
 	}
@@ -498,7 +498,7 @@ func migrateSplit(storeDir string, dryRun bool) error {
 	// onbod.db: onbod OWNS onboarding/invites/onboarding_gates, and all three are
 	// entities, so what the copy target needs is the driver's declarations rather
 	// than a table (bootstrapOnbod).
-	odb, err := db_utils.Open(db_utils.FileDSN(filepath.Join(storeDir, "onbod.db")))
+	odb, err := db_utils.Open(filepath.Join(storeDir, "onbod.db"))
 	if err != nil {
 		return fmt.Errorf("open onbod.db: %w", err)
 	}

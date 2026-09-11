@@ -294,13 +294,13 @@ func TestCheckVersionsRejectsAFilenameTooShortToCarryAVersion(t *testing.T) {
 // The operator failure this guards is a typo'd mount path. When a parent
 // component is a regular file the stat fails with ENOTDIR, not ENOENT — a
 // different branch, and one that must still refuse rather than fall through.
-func TestRequireDBFileReportsANonExistErrorAsIs(t *testing.T) {
+func TestRequireDBReportsANonExistErrorAsIs(t *testing.T) {
 	dir := t.TempDir()
 	blocker := filepath.Join(dir, "routd")
 	if err := os.WriteFile(blocker, []byte("not a directory"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	err := RequireDBFile(filepath.Join(blocker, "routd.db"))
+	err := RequireDB(filepath.Join(blocker, "routd.db"))
 	if err == nil {
 		t.Fatal("a path whose parent is a regular file was accepted")
 	}

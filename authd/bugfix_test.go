@@ -109,7 +109,7 @@ func TestAuditLandsInAuthDB(t *testing.T) {
 // so the test observes the fix's invariant, not transient lock noise.
 func concurrentDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := db_utils.Open(db_utils.FileDSN(filepath.Join(t.TempDir(), "auth.db")))
+	db, err := db_utils.Open(filepath.Join(t.TempDir(), "auth.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

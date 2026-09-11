@@ -85,11 +85,18 @@ func (d *DB) SetSecretKeys(raws ...[]byte) { d.secretKeyring = raws }
 // (identity → authd, session_log → runed). The one-time monolith→split copy
 // belongs to `arizuko migrate-split`, the sole tool that reads messages.db.
 func Open(dir string) (*DB, error) {
-	path := store.OwnerDBPath(dir, store.OwnerRoutd)
-	if err := db_utils.RequireDBFile(path); err != nil {
+	return OpenAt(store.OwnerDBPath(dir, store.OwnerRoutd))
+}
+
+// OpenAt is Open against an explicitly configured target — routd's DATABASE env
+// — which may name either engine, because db_utils.Open reads the engine off the
+// DSN and nothing here names one (spec 6/37 step 6). store.OpenRoutdAt is the
+// same door onto the same database for a daemon that only reads it.
+func OpenAt(target string) (*DB, error) {
+	if err := db_utils.RequireDB(target); err != nil {
 		return nil, err
 	}
-	return open(db_utils.FileDSN(path))
+	return open(target)
 }
 
 // Create seeds dir/routd.db when absent, then migrates it. `arizuko create` and
@@ -100,7 +107,7 @@ func Create(dir string) (*DB, error) {
 	if err := db_utils.CreateDBFile(path); err != nil {
 		return nil, err
 	}
-	return open(db_utils.FileDSN(path))
+	return open(path)
 }
 
 // OpenMem opens a fresh, private, empty routd.db for one test and migrates it.

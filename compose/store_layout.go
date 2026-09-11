@@ -25,7 +25,7 @@ import (
 // Without it a live instance goes DOWN on the deploy that ships the new
 // layout: `store.OwnerDBPath` resolves into a directory the tree does not have,
 // and every owner daemon now refuses to boot rather than manufacture an empty
-// database (db_utils.RequireDBFile).
+// database (db_utils.RequireDB).
 //
 // Idempotent — a DB already in place is left alone and a second run moves
 // nothing. A file present in BOTH places is an error, never a guess: one of the

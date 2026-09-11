@@ -90,7 +90,7 @@ func NewRoutdStore(t *testing.T) *store.Store {
 func NewInstance(t *testing.T) *Inst {
 	t.Helper()
 	tmp := t.TempDir()
-	db, err := db_utils.Open(db_utils.FileDSN(filepath.Join(tmp, "test.db")))
+	db, err := db_utils.Open(filepath.Join(tmp, "test.db"))
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}

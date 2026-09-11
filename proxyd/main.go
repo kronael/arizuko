@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"log/slog"
@@ -927,7 +928,12 @@ func main() {
 	// those for scope resolution (verified sub → scopes) + route resolution, and
 	// writes its audit rows here too (audit.Init below) — one store, no
 	// messages.db straddle.
-	stRoutd, err := store.OpenRoutd(coreCfg.StoreDir)
+	//
+	// DB_PATH is the door: it names routd's database and may be a postgres:// URL,
+	// the same env gitd, slakd and dashd already read (spec 6/37 step 6). Unset, it
+	// is the owner file under the store dir.
+	stRoutd, err := store.OpenRoutdAt(cmp.Or(os.Getenv("DB_PATH"),
+		store.OwnerDBPath(coreCfg.StoreDir, store.OwnerRoutd)))
 	if err != nil {
 		slog.Error("open routd.db", "err", err)
 		os.Exit(1)

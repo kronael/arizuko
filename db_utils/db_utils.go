@@ -7,6 +7,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -21,19 +22,29 @@ import (
 	sqlite3 "modernc.org/sqlite/lib"
 )
 
-// RequireDBFile errors unless path already holds a SQLite file. Owner daemons
-// call it before sql.Open: SQLite creates a missing file silently and Migrate
-// then fills it with a complete empty schema, so a daemon pointed at the wrong
-// path — a typo'd mount, an unfinished store/<owner>/ move — boots green as a
-// fresh instance holding none of the operator's data (spec 5/16 step 7).
-// Creation is an explicit act: CreateDBFile, called by `arizuko create`.
-func RequireDBFile(path string) error {
-	if _, err := os.Stat(path); err != nil {
+// RequireDB errors unless target already holds a database. Owner daemons call it
+// before Open, on whatever target they were configured with.
+//
+// A SQLite target must be a file that is already there: SQLite creates a missing
+// one silently and the owner's schema step then fills it with a complete empty
+// one, so a daemon pointed at the wrong path — a typo'd mount, an unfinished
+// store/<owner>/ move — boots green as a fresh instance holding none of the
+// operator's data (spec 5/16 step 7). Creation is an explicit act: CreateDBFile,
+// called by `arizuko create`.
+//
+// A Postgres server refuses a database that is not there, and Open's ping
+// carries the refusal at boot, so on that engine the guard is already the
+// engine's own and this asks nothing further.
+func RequireDB(target string) error {
+	if isPostgresURL(target) {
+		return nil
+	}
+	if _, err := os.Stat(target); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("%s does not exist: an owner daemon never creates its own "+
-				"database (run `arizuko create`, or move the existing .db + -wal + -shm here)", path)
+				"database (run `arizuko create`, or move the existing .db + -wal + -shm here)", target)
 		}
-		return fmt.Errorf("stat %s: %w", path, err)
+		return fmt.Errorf("stat %s: %w", target, err)
 	}
 	return nil
 }
@@ -54,12 +65,48 @@ func CreateDBFile(path string) error {
 	return f.Close()
 }
 
-// FileDSN is the on-disk DSN every owner daemon and adapter opens. foreign_keys
-// must ride the DSN: modernc.org/sqlite defaults FK enforcement OFF per
-// connection and database/sql pools many, so a one-shot PRAGMA covers one of
-// them and ON DELETE CASCADE silently no-ops on the rest.
-func FileDSN(path string) string {
-	return path + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)"
+// sqlitePragmas is the configuration every SQLite database in arizuko runs, and
+// openSQLite is the one place it is applied. foreign_keys must ride the DSN:
+// modernc.org/sqlite defaults FK enforcement OFF per connection and database/sql
+// pools many, so a one-shot PRAGMA covers one of them and ON DELETE CASCADE
+// silently no-ops on the rest.
+var sqlitePragmas = []string{"busy_timeout(5000)", "foreign_keys(on)"}
+
+// sqliteDSN puts the pragma set on target, leaving alone any pragma target
+// already names. A DSN that sets one twice is not an override: the driver sorts
+// the whole set before applying it (modernc.org/sqlite conn.go), so which of two
+// busy_timeout values lands is unspecified. Supplying only what is missing is
+// what lets a caller that means a different value — a test that wants the lock
+// error the wait would have hidden — actually get it.
+func sqliteDSN(target string) (string, error) {
+	_, query, _ := strings.Cut(target, "?")
+	q, err := url.ParseQuery(query)
+	if err != nil {
+		return "", fmt.Errorf("parse the query of %q: %w", target, err)
+	}
+	named := map[string]bool{}
+	for _, p := range q["_pragma"] {
+		named[pragmaName(p)] = true
+	}
+	sep := "?"
+	if strings.ContainsRune(target, '?') {
+		sep = "&"
+	}
+	for _, p := range sqlitePragmas {
+		if named[pragmaName(p)] {
+			continue
+		}
+		target += sep + "_pragma=" + p
+		sep = "&"
+	}
+	return target, nil
+}
+
+// pragmaName is the pragma one `_pragma=` value sets, without its argument.
+func pragmaName(pragma string) string {
+	name, _, _ := strings.Cut(pragma, "(")
+	name, _, _ = strings.Cut(name, "=")
+	return strings.ToLower(strings.TrimSpace(name))
 }
 
 // maxOpenConns caps every Postgres pool. A Postgres connection is a share of one
@@ -83,12 +130,14 @@ const maxOpenConns = 4
 
 // Open opens dsn and returns a pool. The DSN selects the engine: `postgres://`
 // and `postgresql://` open Postgres through pgx, and every other DSN is a SQLite
-// path or `file:` URI.
+// path or `file:` URI. A caller passes the target it was configured with and
+// names no engine of its own — that is what lets one env var move a daemon
+// between the two (spec 6/37 step 6).
 //
-// SQLite is opened in WAL mode and the pragma failure is an error, not a
-// warning: a store in rollback-journal mode looks identical to a healthy one.
-// Postgres is pinged before the handle is returned, so a wrong DSN fails at
-// boot rather than on the first query.
+// SQLite gets the pragma set and WAL mode here, and the pragma failure is an
+// error, not a warning: a store in rollback-journal mode looks identical to a
+// healthy one. Postgres is pinged before the handle is returned, so a wrong DSN
+// fails at boot rather than on the first query.
 func Open(dsn string) (*sql.DB, error) {
 	if isPostgresURL(dsn) {
 		return openPostgres(dsn)
@@ -100,7 +149,11 @@ func Open(dsn string) (*sql.DB, error) {
 	return openSQLite(dsn)
 }
 
-func openSQLite(dsn string) (*sql.DB, error) {
+func openSQLite(target string) (*sql.DB, error) {
+	dsn, err := sqliteDSN(target)
+	if err != nil {
+		return nil, err
+	}
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
@@ -155,8 +208,8 @@ func isLibpqKeywordDSN(dsn string) bool {
 // programming error — throws on the first attempt.
 //
 // SQLite contributes SQLITE_BUSY and SQLITE_LOCKED, which reach a caller only
-// after FileDSN's busy_timeout has already waited. Postgres contributes 40001
-// serialization_failure and 40P01 deadlock_detected
+// after the busy_timeout in sqlitePragmas has already waited. Postgres
+// contributes 40001 serialization_failure and 40P01 deadlock_detected
 // (postgresql.org/docs/17/errcodes-appendix.html), plus the connection faults a
 // managed failover produces when it re-points the endpoint. Deadlock has no
 // SQLite counterpart: one writer per file means two transactions can never wait

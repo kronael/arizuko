@@ -78,7 +78,7 @@ func main() {
 	if err := os.MkdirAll(filepath.Dir(onbodFile), 0o755); err != nil {
 		log.Fatalf("seed: mkdir onbod dir: %v", err)
 	}
-	onbodDB, err := db_utils.Open(db_utils.FileDSN(onbodFile))
+	onbodDB, err := db_utils.Open(onbodFile)
 	if err != nil {
 		log.Fatalf("seed: open onbod.db: %v", err)
 	}

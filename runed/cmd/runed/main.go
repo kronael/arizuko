@@ -6,6 +6,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"log/slog"
 	"net/http"
@@ -22,6 +23,7 @@ import (
 	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/runed"
+	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/substrate"
 )
 
@@ -80,7 +82,10 @@ func main() {
 	authdURL := os.Getenv("AUTHD_URL")
 	runTTL := core.DurOr("RUNED_RUN_TIMEOUT", 20*time.Minute)
 
-	db, err := runed.Open(cfg.StoreDir)
+	// DATABASE is the door: it names runed's own database and may be a postgres://
+	// URL (spec 6/37 step 6). Unset, it is the owner file under the store dir.
+	db, err := runed.OpenAt(cmp.Or(os.Getenv("DATABASE"),
+		store.OwnerDBPath(cfg.StoreDir, store.OwnerRuned)))
 	if err != nil {
 		slog.Error("open runed.db", "err", err)
 		os.Exit(1)

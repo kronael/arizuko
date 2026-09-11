@@ -50,7 +50,7 @@ CREATE INDEX inbound_pending_due ON inbound_pending(next_attempt_at);`
 // call never settled, and one inbound message routd has not taken.
 func seedChanlibLegacy(t *testing.T, path string) {
 	t.Helper()
-	db, err := db_utils.Open(db_utils.FileDSN(path))
+	db, err := db_utils.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}

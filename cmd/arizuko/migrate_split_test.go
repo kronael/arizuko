@@ -567,7 +567,7 @@ func TestMigrateSplit(t *testing.T) {
 		`SELECT name FROM sqlite_master WHERE type='table' AND name='invites'`).Scan(&invTbl); err != sql.ErrNoRows {
 		t.Errorf("routd.db must not contain an `invites` table (federated to onbod), found %q (err=%v)", invTbl, err)
 	}
-	odb, err := db_utils.Open(db_utils.FileDSN(filepath.Join(storeDir, "onbod.db")))
+	odb, err := db_utils.Open(filepath.Join(storeDir, "onbod.db"))
 	if err != nil {
 		t.Fatalf("open onbod.db: %v", err)
 	}
@@ -636,7 +636,7 @@ func TestMigrateSplitCoalescesNullMessageCols(t *testing.T) {
 	// The seeded monolith carries the TABLE audit_log used to be, so it is opened
 	// the way `arizuko migrate-split` opens it — the pool, not store.Open, whose
 	// job is to CREATE a monolith rather than to reopen one.
-	s, err := db_utils.Open(db_utils.FileDSN(filepath.Join(storeDir, "messages.db")))
+	s, err := db_utils.Open(filepath.Join(storeDir, "messages.db"))
 	if err != nil {
 		t.Fatalf("open messages.db: %v", err)
 	}
@@ -737,7 +737,7 @@ func TestMigrateSplitMigrationsIdempotent(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read %s: %v", c.mig, err)
 		}
-		db, err := db_utils.Open(db_utils.FileDSN(filepath.Join(storeDir, c.db)))
+		db, err := db_utils.Open(filepath.Join(storeDir, c.db))
 		if err != nil {
 			t.Fatalf("open %s: %v", c.db, err)
 		}
@@ -910,7 +910,7 @@ func TestMigrateSplitSkipsOnbodReplay(t *testing.T) {
 		t.Fatalf("migrateSplit: %v", err)
 	}
 
-	db, err := db_utils.Open(db_utils.FileDSN(filepath.Join(storeDir, "onbod.db")))
+	db, err := db_utils.Open(filepath.Join(storeDir, "onbod.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -986,7 +986,7 @@ func TestMigrateSplitKeepsOnbodOwnVersion(t *testing.T) {
 	if err := os.MkdirAll(storeDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	pre, err := db_utils.Open(db_utils.FileDSN(filepath.Join(storeDir, "onbod.db")))
+	pre, err := db_utils.Open(filepath.Join(storeDir, "onbod.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1002,7 +1002,7 @@ func TestMigrateSplitKeepsOnbodOwnVersion(t *testing.T) {
 		t.Fatalf("migrateSplit: %v", err)
 	}
 
-	db, err := db_utils.Open(db_utils.FileDSN(filepath.Join(storeDir, "onbod.db")))
+	db, err := db_utils.Open(filepath.Join(storeDir, "onbod.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1041,7 +1041,7 @@ func TestMigrateSplitToleratesOrphanRunLog(t *testing.T) {
 	// The seeded monolith carries the TABLE audit_log used to be, so it is opened
 	// the way `arizuko migrate-split` opens it — the pool, not store.Open, whose
 	// job is to CREATE a monolith rather than to reopen one.
-	s, err := db_utils.Open(db_utils.FileDSN(filepath.Join(storeDir, "messages.db")))
+	s, err := db_utils.Open(filepath.Join(storeDir, "messages.db"))
 	if err != nil {
 		t.Fatalf("open messages.db: %v", err)
 	}
@@ -1084,7 +1084,7 @@ func TestMigrateSplitLandsTimestampsFixedWidth(t *testing.T) {
 	// The seeded monolith carries the TABLE audit_log used to be, so it is opened
 	// the way `arizuko migrate-split` opens it — the pool, not store.Open, whose
 	// job is to CREATE a monolith rather than to reopen one.
-	s, err := db_utils.Open(db_utils.FileDSN(filepath.Join(storeDir, "messages.db")))
+	s, err := db_utils.Open(filepath.Join(storeDir, "messages.db"))
 	if err != nil {
 		t.Fatalf("open messages.db: %v", err)
 	}

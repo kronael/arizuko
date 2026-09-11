@@ -18,7 +18,7 @@ func bootstrapOnbodDB(t *testing.T, dir string) {
 	if err := db_utils.CreateDBFile(path); err != nil {
 		t.Fatalf("seed onbod.db: %v", err)
 	}
-	db, err := db_utils.Open(db_utils.FileDSN(path))
+	db, err := db_utils.Open(path)
 	if err != nil {
 		t.Fatalf("open onbod.db: %v", err)
 	}
@@ -115,7 +115,7 @@ func openOnbodFile(t *testing.T, dir, owner string) *store.Store {
 	if _, ok := store.OwnerDBs[owner]; ok {
 		file = store.OwnerDBPath(dir, owner)
 	}
-	db, err := db_utils.Open(db_utils.FileDSN(file))
+	db, err := db_utils.Open(file)
 	if err != nil {
 		t.Fatalf("open %s: %v", file, err)
 	}

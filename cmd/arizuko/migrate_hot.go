@@ -65,10 +65,10 @@ func cmdMigrateHot(args []string) {
 // migrateHot reads path's legacy tables, writes the entities, and reads them
 // back through the methods routd itself calls to check what landed.
 func migrateHot(path string, dryRun bool) error {
-	if err := db_utils.RequireDBFile(path); err != nil {
+	if err := db_utils.RequireDB(path); err != nil {
 		return err
 	}
-	db, err := db_utils.Open(db_utils.FileDSN(path))
+	db, err := db_utils.Open(path)
 	if err != nil {
 		return err
 	}

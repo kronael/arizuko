@@ -44,7 +44,7 @@ import (
 // for action in dir/routd.db, oldest first.
 func aclAuditRows(t *testing.T, dir, action string) [][3]string {
 	t.Helper()
-	db, err := db_utils.Open(db_utils.FileDSN(store.OwnerDBPath(dir, store.OwnerRoutd)))
+	db, err := db_utils.Open(store.OwnerDBPath(dir, store.OwnerRoutd))
 	if err != nil {
 		t.Fatalf("open routd.db: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestPackageGrantsAuditNamesPackage(t *testing.T) {
 // mustSQL opens dir's routd.db for a read-only assertion.
 func mustSQL(t *testing.T, dir string) *sql.DB {
 	t.Helper()
-	db, err := db_utils.Open(db_utils.FileDSN(store.OwnerDBPath(dir, store.OwnerRoutd)))
+	db, err := db_utils.Open(store.OwnerDBPath(dir, store.OwnerRoutd))
 	if err != nil {
 		t.Fatal(err)
 	}

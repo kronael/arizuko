@@ -18,7 +18,7 @@ import (
 // DSN means SQLite creating a file named after the connection string and the
 // daemon booting green on an empty schema.
 func TestOpenSelectsTheEngineFromTheDSN(t *testing.T) {
-	db := mustOpen(t, FileDSN(filepath.Join(t.TempDir(), "x.db")))
+	db := mustOpen(t, filepath.Join(t.TempDir(), "x.db"))
 	if got := dialectFor(db); got.selectVersion != sqliteDialect.selectVersion {
 		t.Errorf("a file path opened %v, want SQLite", got.selectVersion)
 	}
@@ -42,7 +42,7 @@ func TestOpenSelectsTheEngineFromTheDSN(t *testing.T) {
 
 // sql.Open on a Postgres DSN connects to nothing, so a daemon handed a wrong
 // host, port or password would boot green and fail on its first query — the
-// same silent-green failure RequireDBFile refuses on the SQLite side.
+// same silent-green failure RequireDB refuses on the SQLite side.
 func TestOpenRefusesAnUnreachablePostgres(t *testing.T) {
 	// Port 1 refuses immediately, so this needs no server and cannot hang.
 	_, err := Open("postgres://arizuko@127.0.0.1:1/nope?sslmode=disable&connect_timeout=2")
@@ -57,7 +57,7 @@ func TestOpenRefusesAnUnreachablePostgres(t *testing.T) {
 // WAL is a hard error, not a warning: a store in rollback-journal mode looks
 // identical to a healthy one and serialises every reader against the writer.
 func TestOpenPutsSQLiteInWAL(t *testing.T) {
-	db := mustOpen(t, FileDSN(filepath.Join(t.TempDir(), "x.db")))
+	db := mustOpen(t, filepath.Join(t.TempDir(), "x.db"))
 	var mode string
 	if err := db.QueryRow("PRAGMA journal_mode").Scan(&mode); err != nil {
 		t.Fatal(err)
@@ -106,7 +106,7 @@ func (e errStack) Unwrap() error { return e.err }
 // is given is green on a table and useless in production.
 func TestIsTransientSeesARealSQLiteLock(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "x.db")
-	holder := mustOpen(t, FileDSN(path))
+	holder := mustOpen(t, path)
 	if _, err := holder.Exec("CREATE TABLE t (id INTEGER PRIMARY KEY)"); err != nil {
 		t.Fatal(err)
 	}

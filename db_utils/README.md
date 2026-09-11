@@ -30,12 +30,16 @@ importing `store/`.
 SQLite path or `file:` URI — and it owns the three things a call site
 must not each decide for itself:
 
-- **The SQLite pragma set.** `FileDSN` puts `busy_timeout(5000)` and
+- **The SQLite pragma set.** `Open` puts `busy_timeout(5000)` and
   `foreign_keys(on)` in the DSN, because modernc.org/sqlite defaults
   foreign-key enforcement OFF per connection and `database/sql` pools
-  many, so a one-shot `PRAGMA` covers one of them. WAL is a hard error,
-  not a warning: a store in rollback-journal mode looks identical to a
-  healthy one.
+  many, so a one-shot `PRAGMA` covers one of them. A caller passes the
+  target it was configured with and builds no DSN, which is what lets
+  `DATABASE=postgres://…` move a daemon without editing a call site. A
+  target that already names a pragma keeps its own value: the driver
+  sorts the set before applying it, so naming one twice is not an
+  override. WAL is a hard error, not a warning: a store in
+  rollback-journal mode looks identical to a healthy one.
 - **The Postgres connection cap.** A Postgres connection is a share of
   one server-wide budget; the arithmetic behind the number is at
   `maxOpenConns`. pgx runs on the simple protocol so a transaction-mode
@@ -45,6 +49,27 @@ must not each decide for itself:
   SQLITE_BUSY, SQLITE_LOCKED, Postgres `40001` and `40P01`, and a
   connection fault the driver can prove reached no server. Everything
   else throws on the first attempt.
+
+## The door every daemon has
+
+A daemon is configured with a TARGET, never with an engine: `DATABASE`
+names its own database and `DB_PATH` / `<OWNER>_DB_PATH` a sibling's,
+and any of them may be a `postgres://` URL or a SQLite path. `Open`
+reads the engine off it, so nothing in a daemon changes when the engine
+does (spec `6/37` step 6).
+
+`RequireDB(target)` is the guard that runs before `Open`. A SQLite
+target must be a file that is already there, because SQLite creates a
+missing one silently and the owner's schema step then fills it with a
+complete empty schema — a daemon pointed at a typo'd mount boots green
+holding none of the operator's data (spec `5/16` step 7). A Postgres
+server refuses a database that is not there and `Open` pings before it
+returns a handle, so on that engine the guard is the engine's own and
+`RequireDB` asks nothing further.
+
+`TableExists(db, name)` is the one catalog probe in the tree: SQLite
+answers from `sqlite_master` and Postgres from `pg_catalog`, so a caller
+that wrote either query by hand would boot on one engine only.
 
 ## The database a test opens
 
@@ -64,9 +89,9 @@ their own package, because a production package must not link
 
 ## Public API
 
-- `Open(dsn string) (*sql.DB, error)`
-- `FileDSN(path string) string`
-- `RequireDBFile(path string) error` / `CreateDBFile(path string) error`
+- `Open(target string) (*sql.DB, error)`
+- `RequireDB(target string) error` / `CreateDBFile(path string) error`
+- `TableExists(db *sql.DB, name string) (bool, error)`
 - `IsTransient(err error) bool`
 - `Migrate(db *sql.DB, fsys embed.FS, dir, service string) error`
 - `NewTestDB(name string) (dsn string, release func() error, err error)`

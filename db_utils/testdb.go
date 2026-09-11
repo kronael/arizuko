@@ -71,10 +71,10 @@ func NewTestDB(name string) (string, func() error, error) {
 	}
 	// A bare `:memory:` database is per CONNECTION and database/sql pools many,
 	// so a second query lands on an empty one. A named memdb with cache=shared is
-	// shared across this pool's connections and private to this DSN. The pragma
-	// set is production's, so a test runs the configuration a daemon runs.
-	dsn := "file:" + dbName + "?mode=memory&cache=shared" +
-		"&_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)"
+	// shared across this pool's connections and private to this DSN. Open adds the
+	// pragma set, so a test runs the configuration a daemon runs and there is one
+	// declaration of it.
+	dsn := "file:" + dbName + "?mode=memory&cache=shared"
 	return dsn, func() error { return nil }, nil
 }
 

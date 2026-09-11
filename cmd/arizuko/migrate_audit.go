@@ -78,10 +78,10 @@ func cmdMigrateAudit(args []string) {
 // migrateAudit reads path's legacy table, writes the entity, and reads it back
 // through audit's own Query to check what landed.
 func migrateAudit(path string, dryRun bool) error {
-	if err := db_utils.RequireDBFile(path); err != nil {
+	if err := db_utils.RequireDB(path); err != nil {
 		return err
 	}
-	db, err := db_utils.Open(db_utils.FileDSN(path))
+	db, err := db_utils.Open(path)
 	if err != nil {
 		return err
 	}

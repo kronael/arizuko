@@ -44,10 +44,11 @@ func sqliteFixture(t *testing.T) *engineFixture {
 		name: "sqlite",
 		open: func(t *testing.T, key string) *sql.DB {
 			t.Helper()
-			// FileDSN is the DSN every owner daemon opens. busy_timeout is what
-			// makes the concurrent case block instead of returning SQLITE_BUSY,
-			// so a bare path would test a configuration nothing ships.
-			db, err := Open(FileDSN(filepath.Join(root, dbKey(key)+".db")))
+			// Open adds the pragma set every owner daemon runs. busy_timeout is
+			// what makes the concurrent case block instead of returning
+			// SQLITE_BUSY, so a database without it would test a configuration
+			// nothing ships.
+			db, err := Open(filepath.Join(root, dbKey(key)+".db"))
 			if err != nil {
 				t.Fatalf("open sqlite %s: %v", key, err)
 			}

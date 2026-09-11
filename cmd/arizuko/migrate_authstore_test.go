@@ -47,7 +47,7 @@ func legacyDB(t *testing.T, file, schema string) (string, *sql.DB) {
 	if err := db_utils.CreateDBFile(path); err != nil {
 		t.Fatal(err)
 	}
-	db, err := db_utils.Open(db_utils.FileDSN(path))
+	db, err := db_utils.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ func TestMigrateAuthstoreLeavesAnAlreadyMigratedDatabaseAlone(t *testing.T) {
 	if err := db_utils.CreateDBFile(path); err != nil {
 		t.Fatal(err)
 	}
-	db, err := db_utils.Open(db_utils.FileDSN(path))
+	db, err := db_utils.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}

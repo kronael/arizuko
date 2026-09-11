@@ -63,7 +63,12 @@ func main() {
 	// plus audit_log (routd migration 0016). webd reads those for route-token
 	// resolution + history and writes its audit rows there — one store, no
 	// messages.db straddle (webd owns no DB; split write-discipline).
-	stRoutd, err := store.OpenRoutd(cfg.storeDir)
+	//
+	// DB_PATH is the door: it names routd's database and may be a postgres:// URL,
+	// the same env gitd, slakd and dashd already read (spec 6/37 step 6). Unset, it
+	// is the owner file under the store dir.
+	stRoutd, err := store.OpenRoutdAt(chanlib.EnvOr("DB_PATH",
+		store.OwnerDBPath(cfg.storeDir, store.OwnerRoutd)))
 	if err != nil {
 		slog.Error("open routd.db", "err", err)
 		os.Exit(1)

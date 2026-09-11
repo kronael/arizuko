@@ -60,11 +60,17 @@ type DB struct {
 // Open attaches to an EXISTING runed.db at dir/runed.db. It never creates the
 // file — see Create.
 func Open(dir string) (*DB, error) {
-	path := store.OwnerDBPath(dir, store.OwnerRuned)
-	if err := db_utils.RequireDBFile(path); err != nil {
+	return OpenAt(store.OwnerDBPath(dir, store.OwnerRuned))
+}
+
+// OpenAt is Open against an explicitly configured target — runed's DATABASE env
+// — which may name either engine, because db_utils.Open reads the engine off the
+// DSN and nothing here names one (spec 6/37 step 6).
+func OpenAt(target string) (*DB, error) {
+	if err := db_utils.RequireDB(target); err != nil {
 		return nil, err
 	}
-	return open(db_utils.FileDSN(path))
+	return open(target)
 }
 
 // Create seeds dir/runed.db when absent. `arizuko create` and the split-cutover
@@ -75,7 +81,7 @@ func Create(dir string) (*DB, error) {
 	if err := db_utils.CreateDBFile(path); err != nil {
 		return nil, err
 	}
-	return open(db_utils.FileDSN(path))
+	return open(path)
 }
 
 // OpenMem opens a fresh, private, empty runed.db for one test.

@@ -58,10 +58,10 @@ func cmdMigrateEmaid(args []string) {
 // migrateEmaid reads path's legacy tables, writes the entities, and reads them
 // back through emaistore's own methods to check what landed.
 func migrateEmaid(path string, dryRun bool) error {
-	if err := db_utils.RequireDBFile(path); err != nil {
+	if err := db_utils.RequireDB(path); err != nil {
 		return err
 	}
-	db, err := db_utils.Open(db_utils.FileDSN(path))
+	db, err := db_utils.Open(path)
 	if err != nil {
 		return err
 	}

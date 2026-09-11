@@ -67,7 +67,7 @@ func hotLegacyRoutd(t *testing.T) string {
 // openHot reopens the file without running anything, the way the tool does.
 func openHot(t *testing.T, path string) *sql.DB {
 	t.Helper()
-	db, err := db_utils.Open(db_utils.FileDSN(path))
+	db, err := db_utils.Open(path)
 	if err != nil {
 		t.Fatalf("open %s: %v", filepath.Base(path), err)
 	}

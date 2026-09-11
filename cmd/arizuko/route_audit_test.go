@@ -26,7 +26,7 @@ import (
 // action in dir/routd.db, or zero values when the mutation recorded nothing.
 func routeAudit(t *testing.T, dir, action string) (actor, actorSub, surface string) {
 	t.Helper()
-	db, err := db_utils.Open(db_utils.FileDSN(store.OwnerDBPath(dir, store.OwnerRoutd)))
+	db, err := db_utils.Open(store.OwnerDBPath(dir, store.OwnerRoutd))
 	if err != nil {
 		t.Fatalf("open routd.db: %v", err)
 	}

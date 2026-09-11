@@ -32,7 +32,7 @@ CREATE TABLE email_msg_ids (
 // declared no foreign key.
 func seedEmaidLegacy(t *testing.T, path string) {
 	t.Helper()
-	db, err := db_utils.Open(db_utils.FileDSN(path))
+	db, err := db_utils.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}

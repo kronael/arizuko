@@ -105,10 +105,10 @@ func adapterDBs(storeDir string) ([]string, error) {
 // migrateChanlib reads path's legacy tables, writes the entities, and reads them
 // back through chanstore's own methods to check what landed.
 func migrateChanlib(path string, dryRun bool) error {
-	if err := db_utils.RequireDBFile(path); err != nil {
+	if err := db_utils.RequireDB(path); err != nil {
 		return err
 	}
-	db, err := db_utils.Open(db_utils.FileDSN(path))
+	db, err := db_utils.Open(path)
 	if err != nil {
 		return err
 	}

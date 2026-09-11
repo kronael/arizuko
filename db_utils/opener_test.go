@@ -76,9 +76,9 @@ func TestEveryOpenGoesThroughThisPackage(t *testing.T) {
 		}
 		for i, line := range strings.Split(string(src), "\n") {
 			if strings.Contains(line, `sql.Open("sqlite"`) {
-				t.Errorf("%s:%d opens SQLite directly — call db_utils.Open(db_utils.FileDSN(path)) "+
-					"for a file, or dbtest.Open(t) for a test database, so the pragma set and the "+
-					"engine have one owner (spec 6/37)", filepath.ToSlash(rel), i+1)
+				t.Errorf("%s:%d opens SQLite directly — call db_utils.Open(target) "+
+					"for a configured database, or dbtest.Open(t) for a test database, so the "+
+					"pragma set and the engine have one owner (spec 6/37)", filepath.ToSlash(rel), i+1)
 			}
 			for _, open := range postgresOpens {
 				if strings.Contains(line, open) {

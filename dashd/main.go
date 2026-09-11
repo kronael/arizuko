@@ -441,12 +441,12 @@ func openSiblingOwner(env, dataDir, owner string) *sql.DB {
 		}
 		path = store.OwnerDBPath(filepath.Join(dataDir, "store"), owner)
 	}
-	if _, err := os.Stat(path); err != nil {
+	if err := db_utils.RequireDB(path); err != nil {
 		slog.Info("owner DB absent; its dashd view will banner as unavailable",
 			"owner", owner, "path", path, "env", env)
 		return nil
 	}
-	db, err := db_utils.Open(db_utils.FileDSN(path))
+	db, err := db_utils.Open(path)
 	if err != nil {
 		slog.Error("open owner DB", "owner", owner, "path", path, "err", err)
 		return nil
