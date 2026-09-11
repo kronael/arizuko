@@ -62,6 +62,43 @@ entry asked for is not needed: the cascade is gone.
   cascade suppressed and the dependent rows re-attached. The second is the
   smaller change and the first is the right one.
 
+## L268 — a guarded write's `committed` verdict is discarded at 15 call sites, so `PUT /v1/gates/<gate>` answers 200 and writes nothing (2026-09-11, open)
+
+`objstore.GuardedBatch` answers `(committed bool, err error)`, and `committed=false`
+with a nil error is the NORMAL outcome of a condition that did not hold — an
+`Update` on an item that does not exist, a claim someone else won. It is not an
+error and it never will be; that is the design.
+
+So a caller that writes `if _, err := …; err != nil` reports success for a write
+that did not happen. Measured 2026-09-11: **15 of 59 `WriteEntitiesInTx` call
+sites in `store/` discard the bool.**
+
+Reproduced on a live onbod running against PostgreSQL:
+`PUT /v1/gates/github:org=acme` carrying only `{"enabled":true}`, against a gate
+that does not exist, answers `HTTP 200 {"ok":true}` and writes zero rows.
+`store/onboarding.go:401` `EnableGateTx` is the site. The operator sees success,
+the gate stays absent, and nothing logs.
+
+This is engine-independent — the write is unguarded at
+`objstore/sqlstore/batch.go:145` — and it is the exact shape WISDOM's "fail loud,
+fail to the user" exists to stop: a logged-but-invisible failure is still silent,
+and here not even a log line is produced.
+
+Not every discard is a defect. A delete asking twice is legitimately
+unconditional, and some writes are create-if-absent where a refusal means the row
+is already right. Each of the 15 needs its own verdict; what is wrong is that the
+type lets a caller ignore the answer by accident and 15 did.
+
+- **Severity:** high (a user-facing write reports success and does nothing)
+- **Scope:** `store/onboarding.go:401` and 14 others; `store/scopes.go`'s writers
+- **Affected:** every instance; onbod's gate surface measured
+- **Source:** reproduced on onbod against PostgreSQL 17.11, 2026-09-11
+- **Status:** open
+- **Fix:** the writers stop returning a bool a caller can drop. Either the helper
+  takes what the caller expects and turns a mismatch into an error, or each site
+  is audited and the unconditional ones say so in the code. The first makes the
+  bug unexpressible; the second only fixes today's 15.
+
 ## ✅ FIXED 2026-09-10 L267 — a failed `arizuko apply` holds its scope forever, and no operator command releases it (2026-09-10)
 
 REPRODUCED 2026-09-10 on a migrated copy of marinade. An `apply` that fails
