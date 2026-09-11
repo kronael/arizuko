@@ -54,15 +54,3 @@ CREATE TRIGGER messages_fts_au AFTER UPDATE ON messages BEGIN
   INSERT INTO messages_fts(messages_fts, rowid, content) VALUES('delete', old.rowid, old.content);
   INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
 END;
-
-CREATE TABLE idempotency_keys (
-  endpoint     TEXT NOT NULL,
-  key          TEXT NOT NULL,
-  request_hash TEXT NOT NULL,
-  status       INTEGER NOT NULL,
-  response     TEXT NOT NULL,
-  created_at   TEXT NOT NULL,
-  expires_at   TEXT NOT NULL,
-  PRIMARY KEY (endpoint, key)
-);
-CREATE INDEX idx_idempotency_expiry ON idempotency_keys(expires_at);
