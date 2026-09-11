@@ -55,18 +55,6 @@ CREATE TRIGGER messages_fts_au AFTER UPDATE ON messages BEGIN
   INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
 END;
 
-CREATE TABLE cost_log (
-  folder       TEXT NOT NULL,
-  turn_id      TEXT NOT NULL,
-  model        TEXT NOT NULL,
-  input_tokens  INTEGER NOT NULL DEFAULT 0,
-  output_tokens INTEGER NOT NULL DEFAULT 0,
-  cost_cents   INTEGER NOT NULL DEFAULT 0,
-  recorded_at  TEXT NOT NULL,
-  PRIMARY KEY (folder, turn_id, model)
-);
-CREATE INDEX idx_cost_log_folder_day ON cost_log(folder, recorded_at);
-
 CREATE TABLE idempotency_keys (
   endpoint     TEXT NOT NULL,
   key          TEXT NOT NULL,

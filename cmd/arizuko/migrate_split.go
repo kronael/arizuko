@@ -87,7 +87,10 @@ var routdSpecs = []copySpec{
 	// own the item shape.
 	// cost_log_archive: the spend a pre-split instance recorded, landing in the
 	// table that holds spend history (spec 6/39 — the model gateway is the ledger,
-	// and these rows predate one metering anything).
+	// and these rows predate one metering anything). This copy is the only writer
+	// arizuko has left, so it declares its own destination below
+	// (createCostArchive) instead of routd's chain creating an empty archive in
+	// every database that never had a monolith to inherit one from.
 	//
 	// messages.db has no turn_id column (the archive's PK is folder,turn_id,model).
 	// Synthesize a UNIQUE turn_id per source row ('mig-'||rowid) — a constant ''
@@ -97,6 +100,28 @@ var routdSpecs = []copySpec{
 	{dst: "cost_log_archive", src: "cost_log", transfm: true,
 		cols: "folder, turn_id, model, input_tokens, output_tokens, cost_cents, recorded_at",
 		sel:  "folder, 'mig-'||rowid, model, input_tok, output_tok, cents, ts"},
+}
+
+// createCostArchive makes the table the ledger copy above lands in.
+//
+// It is HERE, beside the one copy that writes it, because it is the one thing
+// that writes it: the rows are history with no reader (spec 6/39), so an archive
+// in a database that inherited no monolith would hold nothing for ever. An
+// instance that already has the rows already has the table, under this name, so
+// this creates one exactly where one is about to be filled.
+func createCostArchive(db *sql.DB) error {
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS cost_log_archive (
+		folder        TEXT NOT NULL,
+		turn_id       TEXT NOT NULL,
+		model         TEXT NOT NULL,
+		input_tokens  INTEGER NOT NULL DEFAULT 0,
+		output_tokens INTEGER NOT NULL DEFAULT 0,
+		cost_cents    INTEGER NOT NULL DEFAULT 0,
+		recorded_at   TEXT NOT NULL,
+		PRIMARY KEY (folder, turn_id, model))`); err != nil {
+		return fmt.Errorf("create cost_log_archive: %w", err)
+	}
+	return nil
 }
 
 // The monolith's only runed-owned table is session_log, and it travels through
@@ -492,6 +517,11 @@ func migrateSplit(storeDir string, dryRun bool) error {
 		fmt.Println("  (dry-run: source row counts only, no writes)")
 	}
 
+	if !dryRun {
+		if err := createCostArchive(rdb.SQL()); err != nil {
+			return fmt.Errorf("routd.db: %w", err)
+		}
+	}
 	rN, err := copyInto(rdb.SQL(), msgPath, routdSpecs, dryRun)
 	if err != nil {
 		return fmt.Errorf("routd.db: %w", err)
