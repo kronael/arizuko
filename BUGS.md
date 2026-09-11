@@ -62,7 +62,37 @@ entry asked for is not needed: the cascade is gone.
   cascade suppressed and the dependent rows re-attached. The second is the
   smaller change and the first is the right one.
 
-## L268 — a guarded write's `committed` verdict is discarded at 15 call sites, so `PUT /v1/gates/<gate>` answers 200 and writes nothing (2026-09-11, open)
+## L269 — nothing in production creates a `user_profiles` item, so a person who signs up today stays nameless (2026-09-11, open)
+
+MEASURED 2026-09-11. `store.CreateUserProfile` has **zero non-test callers**:
+every one of its 51 call sites is a `_test.go` file, across `onbod`, `proxyd`,
+`dashd`, `routd`, `auth`, `cmd/arizuko` and `store` itself. The
+`CreateAuthUser` it replaced had none either.
+
+Live rows exist — krons 0, marinade 2, sloth 3 — so a writer existed once and is
+gone. `migrate-split` carries the table, which is how the surviving rows got
+there.
+
+The visible cost is `SetUsernameTx`: it renames a sub this instance has never
+recorded, so the write refuses and the person keeps no name. onbod's tests hide
+it because `onbod/integration_test.go:153` seeds the row the flow depends on —
+the fixture supplies what production does not.
+
+Found while fixing `L268`. That site now tolerates the refusal deliberately, with
+the measurement written above the line, because making it loud would answer
+`create_world` with a 500 and roll a whole world back — blocking a signup instead
+of restoring the missing writer.
+
+- **Severity:** medium (a name is cosmetic; the missing writer is not)
+- **Scope:** `store/user_profiles.go`, onboarding's world-creation path
+- **Affected:** every instance; every person admitted since the writer was lost
+- **Source:** `grep CreateUserProfile` over non-test Go returns nothing, 2026-09-11
+- **Status:** open
+- **Fix:** whichever path admits a person creates the profile, in the same
+  transaction as the membership it already writes. Then `SetUsernameTx` stops
+  needing to tolerate a refusal and becomes a guarded write like its neighbours.
+
+## ✅ FIXED 2026-09-11 L268 — a guarded write's `committed` verdict is discarded at 15 call sites, so `PUT /v1/gates/<gate>` answers 200 and writes nothing (2026-09-11)
 
 `objstore.GuardedBatch` answers `(committed bool, err error)`, and `committed=false`
 with a nil error is the NORMAL outcome of a condition that did not hold — an
@@ -93,7 +123,30 @@ type lets a caller ignore the answer by accident and 15 did.
 - **Scope:** `store/onboarding.go:401` and 14 others; `store/scopes.go`'s writers
 - **Affected:** every instance; onbod's gate surface measured
 - **Source:** reproduced on onbod against PostgreSQL 17.11, 2026-09-11
-- **Status:** open
+- **Status:** fixed 2026-09-11
+
+Fixed by making it a BUILD error. `store`'s three writers return `error` and no
+verdict, so `if _, err := …` no longer compiles — every dropped verdict became a
+compile failure, and so does the sixteenth. A refusal is `store.ErrRefused`,
+naming the batch. A caller that legitimately expects a refusal calls the `Try…`
+door, where the NAME is the record, and `store/scopes_test.go` walks the module
+refusing an unexplained `_` on it. `errcheck` could never have caught this: a
+bool is not an error.
+
+**My count of 15 was low — it is 54 in `store/` alone**, because the entry
+counted `WriteEntitiesInTx` and `WriteEntities` carries 27 more, plus 4 in
+`routd/`. Each got its own verdict: 18 unconditional (a delete asking twice),
+21 guarded where a refusal IS a failure, 15 deliberate where a refusal is the
+answer and the code now says what it means.
+
+The reproduction was written first and watched fail at `42bfc883`, at the HTTP
+level because the 200 is what made it a defect — and the audit line flipped from
+`outcome=ok` to `outcome=error` with it. One mutation turns two bodies red, one
+of which names the file and line.
+
+One assertion had encoded the bug: `store.TestTaskUpdateNonexistent` asserted
+that patching a task nobody created does NOT error. It now asserts `ErrRefused`.
+
 - **Fix:** the writers stop returning a bool a caller can drop. Either the helper
   takes what the caller expects and turns a mismatch into an error, or each site
   is audited and the unconditional ones say so in the code. The first makes the
