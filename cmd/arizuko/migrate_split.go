@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
-	"time"
 
 	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/routd"
@@ -139,14 +138,15 @@ func createCostArchive(db *sql.DB) error {
 // store.Open, which runs the hash-at-rest backfills first, so the source is
 // already hashed by the time this read-only ATTACH runs.
 
-// bootstrapOnbod prepares onbod.db to receive the copy. It creates NO table:
-// onbod's own chain creates none either, so the three halves below are three
-// owners' entity declarations and nothing else — audit's log, store's three, and
-// the version marker resreg's apply claims.
+// bootstrapOnbod prepares onbod.db to receive the copy. It creates NO table: the
+// three halves below are three owners' entity declarations and nothing else —
+// audit's log, store's four, and the version marker resreg's apply claims. That
+// is onbod's whole schema, because onbod has no migration chain.
 //
-// onbod's migration FS is package-private (onbod is package main), which is why
-// this is here rather than a call into it; there is no DDL left to mirror, so
-// there is nothing left to drift.
+// onbod is package main, so its own opener is unreachable from here. The
+// declarations are not: each is named where its reader lives, so this stands in
+// for onbod's boot by asking the same three owners rather than by holding a
+// second copy of the answer.
 func bootstrapOnbod(db *sql.DB) error {
 	ctx := context.Background()
 	obj := sqlstore.New(db)
@@ -159,17 +159,6 @@ func bootstrapOnbod(db *sql.DB) error {
 	return resreg.EnsureSubsystem(ctx, obj, obj, resreg.SubsystemOnbod)
 }
 
-// onbodBootstrapVersion is how far onbod's chain bootstrapOnbod stands in for.
-// migrateSplit stamps exactly these rows into `migrations` so onbod's next boot
-// resumes after them.
-//
-// It stays 4 because 0001..0004 now build nothing — each is a comment and a
-// `SELECT 1;`, since the three tables they created and reshaped are entities.
-// Claiming too FEW replays them harmlessly now; claiming too MANY would silently
-// skip 0005, which still creates invite_redemptions.
-// TestOnbodSchemaMatchesMigrations pins the two.
-const onbodBootstrapVersion = 4
-
 // orphanTables stay in messages.db post-cutover: no daemon reads them. Every table
 // a daemon still needs moved to routd.db / onbod.db / runed.db or is federated over
 // HTTP. onboarding/invites/onboarding_gates, auth_users and audit_log/proxyd_routes
@@ -181,37 +170,6 @@ const onbodBootstrapVersion = 4
 // operator's call.
 var orphanTables = []string{
 	"router_state", "config_meta", "cli_audit", "ipc_audit", "auth_sessions",
-}
-
-// recordOnbodBootstrap stamps `migrations` rows 1..onbodBootstrapVersion for
-// service "onbod", declaring how far bootstrapOnbod stands in for. Rows
-// are written ONLY when onbod has recorded none of its own: a DB onbod already
-// migrated owns its own version, and overwriting it could claim past a
-// migration that DB has genuinely not applied. The table DDL matches
-// db_utils.Migrate's, which creates it the same way on onbod's next boot.
-func recordOnbodBootstrap(db *sql.DB) error {
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS migrations (
-		service TEXT NOT NULL, version INTEGER NOT NULL, applied_at TEXT NOT NULL,
-		PRIMARY KEY (service, version))`); err != nil {
-		return fmt.Errorf("create migrations table: %w", err)
-	}
-	var n int
-	if err := db.QueryRow(
-		"SELECT COUNT(*) FROM migrations WHERE service='onbod'").Scan(&n); err != nil {
-		return fmt.Errorf("read onbod migration rows: %w", err)
-	}
-	if n > 0 {
-		return nil
-	}
-	now := time.Now().Format(time.RFC3339)
-	for v := 1; v <= onbodBootstrapVersion; v++ {
-		if _, err := db.Exec(
-			"INSERT INTO migrations (service, version, applied_at) VALUES (?,?,?)",
-			"onbod", v, now); err != nil {
-			return fmt.Errorf("record onbod migration %d: %w", v, err)
-		}
-	}
-	return nil
 }
 
 // copyAuditLog moves the monolith's audit trail into routd.db's entity and
@@ -506,9 +464,6 @@ func migrateSplit(storeDir string, dryRun bool) error {
 	if !dryRun {
 		if err := bootstrapOnbod(odb); err != nil {
 			return fmt.Errorf("onbod.db schema: %w", err)
-		}
-		if err := recordOnbodBootstrap(odb); err != nil {
-			return fmt.Errorf("onbod.db bootstrap version: %w", err)
 		}
 	}
 

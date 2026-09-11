@@ -5,8 +5,6 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
-	"sort"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -708,72 +706,6 @@ func TestMigrateSplitCoalescesNullMessageCols(t *testing.T) {
 	}
 }
 
-// TestMigrateSplitMigrationsIdempotent: migrate-split bootstraps onbod.db with
-// CREATE TABLE IF NOT EXISTS but records NO row in the `migrations(service,
-// version)` table. So on the next onbod boot, db_utils.Migrate sees version 0
-// and re-runs 0001-onboarding.sql against the already-bootstrapped tables. If
-// those CREATEs aren't idempotent, onbod crash-loops with `table already
-// exists`. This replays that exact boot by exec'ing the real migration .sql
-// against the migrate-split-bootstrapped DB — it must be a no-op, not an error.
-//
-// onbod is package main (its migration embed.FS is unreachable here), so we read
-// the migration file from disk — the same bytes db_utils.Migrate would exec.
-func TestMigrateSplitMigrationsIdempotent(t *testing.T) {
-	storeDir := filepath.Join(t.TempDir(), "store")
-	seedMessagesDB(t, storeDir)
-	if err := migrateSplit(storeDir, false); err != nil {
-		t.Fatalf("migrateSplit: %v", err)
-	}
-
-	cases := []struct {
-		db    string // file in storeDir bootstrapped by migrate-split
-		mig   string // the migration file db_utils.Migrate would re-run on boot
-		table string // a table both pre-create — the collision point
-	}{
-		{"onbod.db", "../../onbod/migrations/0001-onboarding.sql", "onboarding"},
-	}
-	for _, c := range cases {
-		raw, err := os.ReadFile(c.mig)
-		if err != nil {
-			t.Fatalf("read %s: %v", c.mig, err)
-		}
-		db, err := db_utils.Open(filepath.Join(storeDir, c.db))
-		if err != nil {
-			t.Fatalf("open %s: %v", c.db, err)
-		}
-		// Re-running the migration against the bootstrapped DB must NOT error
-		// (this is exactly what authd/onbod's db_utils.Migrate does at boot).
-		if _, err := db.Exec(string(raw)); err != nil {
-			t.Errorf("%s re-applied to migrate-split %s must be a no-op, got: %v", c.mig, c.db, err)
-		}
-		// Table still present and singular (no duplication, no drop).
-		var n int
-		if err := db.QueryRow(
-			`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, c.table).Scan(&n); err != nil {
-			t.Fatalf("count %s table in %s: %v", c.table, c.db, err)
-		}
-		if n != 1 {
-			t.Errorf("%s.%s table count = %d, want 1", c.db, c.table, n)
-		}
-		db.Close()
-	}
-}
-
-// onbodMigrationFiles returns onbod's migration files sorted by version, as
-// db_utils.Migrate reads them.
-func onbodMigrationFiles(t *testing.T) []string {
-	t.Helper()
-	got, err := filepath.Glob("../../onbod/migrations/*.sql")
-	if err != nil {
-		t.Fatalf("glob onbod migrations: %v", err)
-	}
-	if len(got) == 0 {
-		t.Fatal("no onbod migrations found")
-	}
-	sort.Strings(got)
-	return got
-}
-
 // schemaOf returns db's shape as object name -> column list (tables) or "index"
 // (indexes), skipping SQLite's implicit autoindexes. Comparing this instead of
 // sqlite_master.sql text tolerates formatting differences between a bootstrap
@@ -822,35 +754,21 @@ func schemaOf(t *testing.T, db *sql.DB) map[string]string {
 	return out
 }
 
-// TestOnbodSchemaMatchesMigrations pins bootstrapOnbod to
-// onbodBootstrapVersion: the bootstrap must produce EXACTLY the shape onbod's
-// migrations 0001..N produce, where N is what migrateSplit claims in
-// `migrations`. Claiming a version the bootstrap does not fully embody silently
-// SKIPS that migration on onbod's next boot.
+// TestOnbodBootstrapBuildsExactlyTheDeclaredEntities is what remains to guard
+// once onbod has no chain: bootstrapOnbod is a SECOND caller of the three
+// declarations onbod's own boot calls, and the two are in different packages. A
+// declaration added for onbod and not reached here leaves migrate-split producing
+// a database missing one of onbod's tables.
 //
-// Both sides now build only entities, so what this catches is an edit to
-// 0001..N that puts a TABLE back — which would leave a database migrate-split
-// produced without it, and onbod's next boot would not create it either.
-func TestOnbodSchemaMatchesMigrations(t *testing.T) {
-	files := onbodMigrationFiles(t)
-	if len(files) < onbodBootstrapVersion {
-		t.Fatalf("onbodBootstrapVersion = %d but only %d onbod migrations exist",
-			onbodBootstrapVersion, len(files))
-	}
-
+// The comparison is against the declarations themselves, not against a list
+// written here — a list would be the third copy.
+func TestOnbodBootstrapBuildsExactlyTheDeclaredEntities(t *testing.T) {
 	bootstrapped := dbtest.Open(t)
 	if err := bootstrapOnbod(bootstrapped); err != nil {
 		t.Fatalf("bootstrapOnbod: %v", err)
 	}
-
-	migrated := dbtest.Open(t)
-	// No entity is part of the chain on either side: the driver creates each,
-	// from one declaration, wherever an owner database is opened. bootstrapOnbod
-	// does all three, so the comparison sees all three on both — audit's log,
-	// store's three tables, and the version marker resreg's apply claims. What is
-	// left to compare is the DDL, and there is none: onbod 0001..0004 build
-	// nothing now, so this pins that they still build nothing.
-	obj := sqlstore.New(migrated)
+	declared := dbtest.Open(t)
+	obj := sqlstore.New(declared)
 	if err := audit.EnsureEntities(t.Context(), obj); err != nil {
 		t.Fatal(err)
 	}
@@ -860,102 +778,65 @@ func TestOnbodSchemaMatchesMigrations(t *testing.T) {
 	if err := resreg.EnsureSubsystem(t.Context(), obj, obj, resreg.SubsystemOnbod); err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range files[:onbodBootstrapVersion] {
-		raw, rerr := os.ReadFile(f)
-		if rerr != nil {
-			t.Fatalf("read %s: %v", f, rerr)
-		}
-		if _, eerr := migrated.Exec(string(raw)); eerr != nil {
-			t.Fatalf("apply %s: %v", f, eerr)
-		}
-	}
-	// 0003/0004 rename the old tables aside; onbod's backfills drop them.
-	for _, legacy := range []string{"invites_legacy", "onboarding_legacy"} {
-		if _, err := migrated.Exec("DROP TABLE IF EXISTS " + legacy); err != nil {
-			t.Fatalf("drop %s: %v", legacy, err)
-		}
-	}
 
-	want := schemaOf(t, migrated)
-	got := schemaOf(t, bootstrapped)
+	want, got := schemaOf(t, declared), schemaOf(t, bootstrapped)
 	for k, wantCols := range want {
 		gotCols, ok := got[k]
 		if !ok {
-			t.Errorf("bootstrapOnbod is missing %s, which onbod migrations 0001..%d create "+
-				"— the bootstrap claims a version it does not embody", k, onbodBootstrapVersion)
+			t.Errorf("bootstrapOnbod is missing %s, which onbod's own boot declares — "+
+				"migrate-split would hand onbod a database without it", k)
 			continue
 		}
 		if gotCols != wantCols {
-			t.Errorf("%s shape differs:\n  bootstrapOnbod: %s\n  migrations:    %s", k, gotCols, wantCols)
+			t.Errorf("%s shape differs:\n  bootstrapOnbod: %s\n  declarations:   %s", k, gotCols, wantCols)
 		}
 	}
 	for k := range got {
 		if _, ok := want[k]; !ok {
-			t.Errorf("bootstrapOnbod creates %s that onbod migrations 0001..%d do not",
-				k, onbodBootstrapVersion)
+			t.Errorf("bootstrapOnbod creates %s that onbod's own boot does not", k)
 		}
 	}
 }
 
-// TestMigrateSplitSkipsOnbodReplay is the Z3b regression. migrate-split
-// bootstrapped onbod.db's FINAL schema but recorded no `migrations` rows, so
-// onbod's next boot saw MAX(version)=0 and replayed the chain over already-final
-// tables. 0003 RESHAPES (ALTER ... RENAME TO invites_legacy + CREATE), so the
-// replay moved the freshly copied invites aside and left BackfillInviteRefs
-// reading a `token` column that no longer existed — onbod refused to boot.
-func TestMigrateSplitSkipsOnbodReplay(t *testing.T) {
+// TestMigrateSplitLeavesOnbodBootable replays onbod's next boot over the database
+// migrate-split produced. The boot builds the same entities again and runs the
+// two legacy carries, so it must be a no-op that moves no row — the Z3b failure
+// was a boot that reshaped the freshly copied invites and left onbod refusing to
+// start. Run twice, because a boot is not the last one.
+func TestMigrateSplitLeavesOnbodBootable(t *testing.T) {
 	storeDir := filepath.Join(t.TempDir(), "store")
 	seedMessagesDB(t, storeDir)
 	if err := migrateSplit(storeDir, false); err != nil {
 		t.Fatalf("migrateSplit: %v", err)
 	}
-
 	db, err := db_utils.Open(filepath.Join(storeDir, "onbod.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 
-	var maxVer int
-	if err := db.QueryRow(
-		"SELECT COALESCE(MAX(version),0) FROM migrations WHERE service='onbod'").Scan(&maxVer); err != nil {
-		t.Fatalf("read onbod migration version: %v", err)
-	}
-	if maxVer != onbodBootstrapVersion {
-		t.Fatalf("recorded onbod version = %d, want %d (bootstrap must declare what it created)",
-			maxVer, onbodBootstrapVersion)
-	}
-
-	// Replay onbod's boot: db_utils.Migrate applies only versions > maxVer.
-	for _, f := range onbodMigrationFiles(t) {
-		ver, aerr := strconv.Atoi(filepath.Base(f)[:4])
-		if aerr != nil {
-			t.Fatalf("version prefix of %s: %v", f, aerr)
+	for boot := 1; boot <= 2; boot++ {
+		if err := bootstrapOnbod(db); err != nil {
+			t.Fatalf("boot %d: schema: %v", boot, err)
 		}
-		if ver <= maxVer {
-			continue
+		if err := store.BackfillInviteRefs(db); err != nil {
+			t.Fatalf("boot %d: BackfillInviteRefs: %v", boot, err)
 		}
-		raw, rerr := os.ReadFile(f)
-		if rerr != nil {
-			t.Fatalf("read %s: %v", f, rerr)
+		if err := store.CarryOnboardingLegacy(db); err != nil {
+			t.Fatalf("boot %d: CarryOnboardingLegacy: %v", boot, err)
 		}
-		if _, eerr := db.Exec(string(raw)); eerr != nil {
-			t.Fatalf("onbod boot re-applied %s and failed: %v", f, eerr)
+		for _, legacy := range []string{"invites_legacy", "onboarding_legacy"} {
+			exists, eerr := db_utils.TableExists(db, legacy)
+			if eerr != nil {
+				t.Fatal(eerr)
+			}
+			if exists {
+				t.Errorf("boot %d left %s behind — something reshaped the copy", boot, legacy)
+			}
 		}
-	}
-
-	// The reshaping migrations must not have run: no *_legacy tables, and the
-	// copied rows are still addressable by their final-shape keys.
-	for _, legacy := range []string{"invites_legacy", "onboarding_legacy"} {
-		var name string
-		err := db.QueryRow(
-			`SELECT name FROM sqlite_master WHERE type='table' AND name=?`, legacy).Scan(&name)
-		if err != sql.ErrNoRows {
-			t.Errorf("%s exists after boot — a reshaping migration replayed over the bootstrap", legacy)
+		if _, ok := inviteByRef(t, db, store.TokenRef("inv-tok")); !ok {
+			t.Fatalf("boot %d: the copied invite is gone", boot)
 		}
-	}
-	if _, ok := inviteByRef(t, db, store.TokenRef("inv-tok")); !ok {
-		t.Error("the copied invite did not survive onbod's boot")
 	}
 }
 
@@ -974,47 +855,6 @@ func inviteByRef(t *testing.T, db *sql.DB, ref string) (store.Invite, bool) {
 		}
 	}
 	return store.Invite{}, false
-}
-
-// TestMigrateSplitKeepsOnbodOwnVersion: when onbod already migrated onbod.db,
-// its own recorded version stands. Overwriting it with the bootstrap's claim
-// could declare past a migration that DB genuinely has not applied.
-func TestMigrateSplitKeepsOnbodOwnVersion(t *testing.T) {
-	storeDir := filepath.Join(t.TempDir(), "store")
-	seedMessagesDB(t, storeDir)
-
-	if err := os.MkdirAll(storeDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	pre, err := db_utils.Open(filepath.Join(storeDir, "onbod.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := pre.Exec(`CREATE TABLE migrations (
-		service TEXT NOT NULL, version INTEGER NOT NULL, applied_at TEXT NOT NULL,
-		PRIMARY KEY (service, version));
-		INSERT INTO migrations VALUES ('onbod', 1, '2026-01-01T00:00:00Z');`); err != nil {
-		t.Fatalf("seed onbod's own migration row: %v", err)
-	}
-	pre.Close()
-
-	if err := migrateSplit(storeDir, false); err != nil {
-		t.Fatalf("migrateSplit: %v", err)
-	}
-
-	db, err := db_utils.Open(filepath.Join(storeDir, "onbod.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	var maxVer int
-	if err := db.QueryRow(
-		"SELECT COALESCE(MAX(version),0) FROM migrations WHERE service='onbod'").Scan(&maxVer); err != nil {
-		t.Fatal(err)
-	}
-	if maxVer != 1 {
-		t.Errorf("onbod version = %d, want 1 (the bootstrap must not overwrite onbod's own claim)", maxVer)
-	}
 }
 
 func TestMigrateSplitMissingDB(t *testing.T) {

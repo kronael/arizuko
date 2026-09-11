@@ -15,14 +15,11 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"flag"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
-	"sort"
-	"strings"
 	"time"
 
 	"github.com/kronael/arizuko/audit"
@@ -39,10 +36,8 @@ import (
 )
 
 func main() {
-	var dataDir, onbodMigrations string
+	var dataDir string
 	flag.StringVar(&dataDir, "data", "", "DATA_DIR to seed (required)")
-	flag.StringVar(&onbodMigrations, "onbod-migrations", "onbod/migrations",
-		"directory of onbod's .sql migrations, relative to the repo root")
 	flag.Parse()
 	if dataDir == "" {
 		log.Fatal("seed: -data required")
@@ -63,12 +58,12 @@ func main() {
 	defer rdb.Close()
 
 	// onbod.db — /dash/invites/ reads it. onbod is package main so the seed
-	// cannot import its opener; it applies onbod's OWN migration files instead
-	// of copying their DDL. A hand-copied schema is a second declaration of a
-	// table onbod already declares, and it had already drifted: invites moved to
-	// a `ref` primary key in 0003 while the copy here still said `token`, so
-	// every invites test failed on "no such column: ref" and read as a product
-	// bug.
+	// cannot import its opener, and it asks the three owners that DECLARE onbod's
+	// schema instead of holding a copy of it. A hand-copied schema is a second
+	// declaration of a table onbod already declares, and one had already drifted:
+	// invites moved to a `ref` primary key while the copy here still said
+	// `token`, so every invites test failed on "no such column: ref" and read as
+	// a product bug.
 	//
 	// The path comes from store.OwnerDBPath, never filepath.Join: since the
 	// owner-subdir split dashd resolves onbod.db as store/onbod/onbod.db, and a
@@ -83,12 +78,11 @@ func main() {
 		log.Fatalf("seed: open onbod.db: %v", err)
 	}
 	defer onbodDB.Close()
-	applySQLDir(onbodDB, onbodMigrations)
-	// onbod's owned tables are objstore ENTITIES, so the chain above creates
-	// none of them and the driver does. store.OpenOnbodAt probes for `invites`
-	// to prove the path, so a seed that stopped here would leave every
-	// /dash/invites/ page reporting "invites store unavailable" while the suite
-	// still called itself green — the same failure the comment above records.
+	// Every table onbod owns is an objstore ENTITY, so the driver builds all of
+	// them from these three declarations and there is nothing else to run.
+	// store.OpenOnbodAt probes for `invites` to prove the path, so a seed that
+	// skipped them would leave every /dash/invites/ page reporting "invites store
+	// unavailable" while the suite still called itself green.
 	obj := sqlstore.New(onbodDB)
 	if err := audit.EnsureEntities(context.Background(), obj); err != nil {
 		log.Fatalf("seed: onbod audit entity: %v", err)
@@ -213,35 +207,4 @@ func main() {
 	}
 
 	fmt.Printf("seeded %s\n", dataDir)
-}
-
-// applySQLDir runs every .sql file in dir, in name order — the same order
-// db_utils.Migrate walks an embed.FS. Reading from disk rather than embedding
-// is deliberate: the seed lives outside the daemons' package trees, and Go's
-// embed cannot reach across them, so the choice is "read the real files" or
-// "keep a copy that drifts".
-func applySQLDir(db *sql.DB, dir string) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		log.Fatalf("seed: read %s: %v", dir, err)
-	}
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".sql") {
-			names = append(names, e.Name())
-		}
-	}
-	if len(names) == 0 {
-		log.Fatalf("seed: no .sql files in %s", dir)
-	}
-	sort.Strings(names)
-	for _, n := range names {
-		body, rerr := os.ReadFile(filepath.Join(dir, n))
-		if rerr != nil {
-			log.Fatalf("seed: read %s: %v", n, rerr)
-		}
-		if _, eerr := db.Exec(string(body)); eerr != nil {
-			log.Fatalf("seed: apply %s: %v", n, eerr)
-		}
-	}
 }

@@ -360,7 +360,7 @@ Durable rules the package layout obeys.
   APIs: `routd` owns `routd.db` (`routd/migrations/`), `runed` owns
   `runed.db` (entities, no migrations — `runed/runstore`), `authd` owns
   `auth.db` (entities, no migrations — `authd/authstore`), `onbod` owns
-  `onbod.db` (`onbod/migrations/`).
+  `onbod.db` (entities, no migrations — `store/entities.go`).
   Libraries own no DB, no API, no migrations — a library that writes
   rows takes the caller's `*sql.Tx` (`audit/` is the model). Cross-daemon
   data access goes through the receiving daemon's `api/v1/` (REST for
@@ -466,8 +466,10 @@ each daemon re-sequences its own `migrations/` from `0001`.
   `signing_key_slot`, `auth_users`, `oauth_identities`, `refresh_tokens`,
   `refresh_families`. authd is the first daemon holding no SQL and no DDL
   (spec `specs/6/37-store-model.md` step 5).
-- **`onbod.db`** (`onbod/migrations/`): `onboarding`, `onboarding_gates`,
-  `invites`.
+- **`onbod.db`** (objstore entities, no migrations): `onboarding`,
+  `onboarding_gates`, `invites`, `invite_redemptions`. Declared in
+  `store/entities.go`, beside the reads and writes in `store/onboarding.go`
+  and `store/invites.go`.
 - **`audit_log`** is in all four of those files and is in no migration set:
   it is an objstore entity, created by the driver from the one declaration
   in `audit`, at whichever opener holds the database (`audit.EnsureEntities`).

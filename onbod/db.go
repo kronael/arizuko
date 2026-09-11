@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"embed"
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/db_utils"
@@ -17,21 +16,15 @@ import (
 // SQLite and Postgres off the DSN db_utils.Open already read.
 func newObjectStore(db *sql.DB) *sqlstore.Store { return sqlstore.New(db) }
 
-//go:embed migrations/*.sql
-var onbodMigrationFS embed.FS
-
-const onbodServiceName = "onbod"
-
-// openOwnedDB opens the DB that holds onbod's OWNED tables (onboarding, invites,
-// onboarding_gates) + its own audit_log, running the onbod migration sequence.
-// ownDSN points at <datadir>/store/onbod.db (onbod owns + migrates this DB).
-// Mirrors routd.Open / runed.Open: WAL, migrations first so the tables exist
-// before any read/write.
+// openOwnedDB opens the database that holds onbod's OWNED tables (onboarding,
+// invites, onboarding_gates, invite_redemptions) + its own audit_log, and builds
+// their schema. ownDSN is whatever onbod was configured with — a SQLite path or
+// a postgres:// URL — and db_utils.Open reads the engine off it.
 func openOwnedDB(ownDSN string) (*sql.DB, error) {
-	// Strict: onbod never creates onbod.db. sql.Open is lazy and SQLite creates
-	// a missing file on first query, so a wrong path would migrate a fresh empty
-	// file and drop every invite and gate while onbod reports healthy
-	// (spec 5/16 step 7, BUGS F52). `arizuko create` seeds the file.
+	// Strict: onbod never creates its own database. SQLite creates a missing file
+	// on first query, so a wrong path would build a fresh empty schema and drop
+	// every invite and gate while onbod reports healthy (spec 5/16 step 7, BUGS
+	// F52). `arizuko create` seeds the file.
 	if err := db_utils.RequireDB(ownDSN); err != nil {
 		return nil, err
 	}
@@ -46,25 +39,22 @@ func openOwnedDB(ownDSN string) (*sql.DB, error) {
 	return db, nil
 }
 
-// migrateOwned builds onbod's OWN schema in db: the embedded chain, the entities
-// the chain no longer creates, and the two Go steps a reshaping migration cannot
-// do. BackfillInviteRefs and CarryOnboardingLegacy carry the invites_legacy /
-// onboarding_legacy tables a pre-move database left behind and drop them
-// (store/invites.go, store/onboarding.go); BackfillInviteRefs also hashes
-// plaintext invites at rest, which SQL cannot do — SQLite has no sha256(). Both
-// are no-ops on a database created since the move, which never grows either
-// table.
+// migrateOwned builds onbod's OWN schema in db: the entities, and the two Go
+// steps that carry a pre-move database forward. BackfillInviteRefs and
+// CarryOnboardingLegacy take the invites_legacy / onboarding_legacy tables such a
+// database left behind and drop them (store/invites.go, store/onboarding.go);
+// BackfillInviteRefs also hashes plaintext invites at rest, which SQL cannot do.
+// Both are no-ops on a database that never grew either table.
+//
+// ONBOD HAS NO MIGRATION CHAIN. Every table it owns is an objstore entity, and
+// an entity is declared beside the code that reads it and built by the driver —
+// so there is no DDL for a chain to carry and no version for one to record
+// (spec 6/37 step 7). authd, runed, chanlib and emaid own their databases the
+// same way.
 //
 // Split out of openOwnedDB so a test builds the schema onbod ships from the one
 // declaration of it, rather than a second one that drifts.
 func migrateOwned(db *sql.DB) error {
-	if err := db_utils.Migrate(db, onbodMigrationFS, "migrations", onbodServiceName); err != nil {
-		return err
-	}
-	// Every one of onbod's own tables is an entity rather than a migration, so
-	// the driver creates them here — the chain above only records that it has
-	// nothing left to build (onbod/migrations/0001).
-	//
 	// THREE CALLS, THREE OWNERS. audit owns its entity and four databases carry
 	// it. store owns the declaration of onboarding/onboarding_gates/invites,
 	// because store is where they are read and written. resreg owns the version

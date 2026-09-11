@@ -47,8 +47,10 @@ resets the row (verdict included) so the observer can advance it.
 
 `onboarding`, `invites`, `invite_redemptions`, `onboarding_gates` (+ its own
 `audit_log`).
-Split topology only: onbod OWNS these in `onbod.db` (`ONBOD_DB_PATH`,
-migrations under `onbod/migrations/`). Writers reach the owned tables
+Split topology only: onbod OWNS these in the database `ONBOD_DB_PATH` names,
+which may be a SQLite path or a `postgres://` URL. All four are objstore
+entities and onbod has no migration chain: the driver builds them from the
+declarations in `store/entities.go`. Writers reach the owned tables
 through onbod's `/v1/*` admin surface (routd), or write `onbod.db`
 directly with the same FS-access discipline (host CLI `arizuko
 invite`/`gate`, FS-mounted dashd).

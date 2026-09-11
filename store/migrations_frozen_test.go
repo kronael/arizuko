@@ -46,11 +46,11 @@ func TestMigrationsAreFrozen(t *testing.T) {
 	}
 	const why = "store/migrations is the FROZEN pre-split messages.db schema — no " +
 		"daemon runs it, so a table added here reaches no live database. Put it in " +
-		"the chain of the daemon that owns the table (routd/migrations, " +
-		"onbod/migrations) — or, for an owner that has moved onto objstore, declare " +
-		"it as an entity beside the code that reads it (authd/authstore, " +
-		"runed/runstore, chanlib/chanstore, emaid/emaistore), where there is no " +
-		"chain at all"
+		"the chain of the daemon that owns the table (routd/migrations is the last " +
+		"one left) — or, for an owner that has moved onto objstore, declare it as " +
+		"an entity beside the code that reads it (authd/authstore, runed/runstore, " +
+		"chanlib/chanstore, emaid/emaistore, store/entities.go for onbod), where " +
+		"there is no chain at all"
 
 	seen := map[int]string{}
 	var versions []int
