@@ -3,12 +3,13 @@
 -- RFC3339Nano UTC TEXT throughout — the Go layer computes every timestamp.
 --
 -- `groups`, `routes`, `web_routes`, `route_tokens`, `chats`, `sessions`,
--- `chat_reply_state` and `system_messages` are objstore entities rather than
--- tables this chain creates: the driver makes each one, from the declaration
--- that sits beside the code writing it (store.EnsureEntities, spec 6/37 step 7).
--- An entity keeps the name of the table it replaces, so a database carrying rows
--- here is moved by `arizuko migrate-routd` or `arizuko migrate-hot` and refuses
--- to open until it has been.
+-- `chat_reply_state`, `system_messages`, `turn_context`, `turn_results` and
+-- `group_watchers` are objstore entities rather than tables this chain creates:
+-- the driver makes each one, from the declaration that sits beside the code
+-- writing it (store.EnsureEntities, spec 6/37 step 7). An entity keeps the name
+-- of the table it replaces, so a database carrying rows here is moved by
+-- `arizuko migrate-routd` or `arizuko migrate-hot` and refuses to open until it
+-- has been.
 
 CREATE TABLE messages (
   id              TEXT PRIMARY KEY,
@@ -54,26 +55,6 @@ CREATE TRIGGER messages_fts_au AFTER UPDATE ON messages BEGIN
   INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
 END;
 
-CREATE TABLE turn_context (
-  turn_id        TEXT PRIMARY KEY,
-  folder         TEXT NOT NULL,
-  topic          TEXT NOT NULL DEFAULT '',
-  chat_jid       TEXT NOT NULL,
-  trigger_sender TEXT NOT NULL,
-  started_at     TEXT NOT NULL,
-  run_id         TEXT,
-  state          TEXT NOT NULL DEFAULT 'running'
-);
-
-CREATE TABLE turn_results (
-  folder       TEXT NOT NULL,
-  turn_id      TEXT NOT NULL,
-  session_id   TEXT,
-  status       TEXT NOT NULL,
-  recorded_at  TEXT NOT NULL,
-  PRIMARY KEY (folder, turn_id)
-);
-
 CREATE TABLE cost_log (
   folder       TEXT NOT NULL,
   turn_id      TEXT NOT NULL,
@@ -85,12 +66,6 @@ CREATE TABLE cost_log (
   PRIMARY KEY (folder, turn_id, model)
 );
 CREATE INDEX idx_cost_log_folder_day ON cost_log(folder, recorded_at);
-
-CREATE TABLE group_watchers (
-  observer TEXT NOT NULL,
-  source   TEXT NOT NULL,
-  PRIMARY KEY (observer, source)
-);
 
 CREATE TABLE idempotency_keys (
   endpoint     TEXT NOT NULL,

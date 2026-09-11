@@ -1,17 +1,15 @@
--- routd.db's auth_users and authd's auth.db auth_users are different tables
--- that happened to share a name: authd's is keyed by user_id and anchors
--- oauth_identities; this one is keyed by sub and carries username,
--- linked_to_sub and the per-user spend cap. Rename ours so the collision
--- disappears; authd's is untouched.
+-- routd.db's user profiles and authd's auth.db `auth_users` are different
+-- things: authd's is keyed by user_id and anchors oauth_identities; this one is
+-- keyed by sub and carries the username and the per-user spend cap. The two
+-- names are distinct so the collision cannot come back; authd's is untouched.
 --
--- hash is dead — no SELECT anywhere, written only to satisfy NOT NULL.
--- username STAYS: onbod writes it in createWorldTx and reads it on every
--- GET /onboard (a failed scan renders "User not found."). The spend cap STAYS
--- on this table: a separate table for one integer keyed by the same sub buys
--- nothing. Rows carry across untouched.
-ALTER TABLE auth_users RENAME TO user_profiles;
-ALTER TABLE user_profiles DROP COLUMN hash;
-
-DROP INDEX IF EXISTS idx_auth_users_linked_to_sub;
-CREATE INDEX idx_user_profiles_linked_to_sub
-  ON user_profiles(linked_to_sub) WHERE linked_to_sub IS NOT NULL;
+-- The username STAYS: onbod writes it in createWorldTx and reads it on every
+-- GET /onboard (a failed read renders "User not found."). The spend cap STAYS
+-- beside it: a separate home for one integer keyed by the same sub buys nothing.
+--
+-- `user_profiles` is an objstore entity rather than a table this chain creates:
+-- the driver makes it, from the declaration that sits beside the code writing it
+-- (store.EnsureEntities, spec 6/37 step 7), addressed by the sub. An entity
+-- keeps the name of the table it replaces, so a database carrying rows here is
+-- moved by `arizuko migrate-hot` and refuses to open until it has been.
+SELECT 1;

@@ -5,6 +5,13 @@
 -- the turn's identity, not its cost: arizuko keeps no copy of what was spent,
 -- and GET /v1/cost?turn_id= answers by asking the gateway with this hash.
 --
--- Empty for a turn that ran with no gateway configured, which is the state that
+-- Absent for a turn that ran with no gateway configured, which is the state that
 -- has no meter and therefore no per-turn number to report.
-ALTER TABLE turn_context ADD COLUMN gateway_key_hash TEXT NOT NULL DEFAULT '';
+--
+-- `turn_context` is an objstore entity rather than a table this chain creates:
+-- the driver makes it, from the declaration that sits beside the code writing it
+-- (store.EnsureEntities, spec 6/37 step 7), and an item needs no ALTER to start
+-- carrying an attribute. An entity keeps the name of the table it replaces, so a
+-- database carrying rows here is moved by `arizuko migrate-hot` and refuses to
+-- open until it has been.
+SELECT 1;

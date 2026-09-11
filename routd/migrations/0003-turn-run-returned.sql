@@ -4,4 +4,11 @@
 -- when POST /v1/runs returns) gates the callback 409. An early submit_turn
 -- flips state→done but leaves run_returned=0, so trailing reply/send
 -- callbacks the still-live run emits stay valid until the run returns.
-ALTER TABLE turn_context ADD COLUMN run_returned INTEGER NOT NULL DEFAULT 0;
+--
+-- `turn_context` is an objstore entity rather than a table this chain creates:
+-- the driver makes it, from the declaration that sits beside the code writing it
+-- (store.EnsureEntities, spec 6/37 step 7), and an item needs no ALTER to start
+-- carrying an attribute. An entity keeps the name of the table it replaces, so a
+-- database carrying rows here is moved by `arizuko migrate-hot` and refuses to
+-- open until it has been.
+SELECT 1;
