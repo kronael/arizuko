@@ -423,6 +423,55 @@ layers; the filing is worth doing once, for its method names, and never again.
    owned that entity since its own move and `routd` federates over HTTP — and was
    deleted rather than ported.
 
+### How `messages` leaves, and how search stays in step
+
+**The coordinate is `chat_jid` as the partition, `core.TS(timestamp) + sep + id`
+as the sort key.** Twenty-five reads filter on the chat and range on the time,
+and the largest chat partition measured is 10,688 rows. The four sort-key
+inequalities on the interface were admitted for four of these reads, so this
+entity is the reason they exist.
+
+**The id has to be IN the sort key.** Thirty-two pairs on krons share a second,
+and a time-only key would put two messages on one item. That changes the cursor:
+`chats.agent_cursor` is 30 bytes compared `> timestamp` today, and under a
+composite key it must hold the whole sort key or a message at exactly the cursor
+instant is re-fed. The migration derives each chat's new cursor as the greatest
+sort key at or before the stored instant — the same position, a new rendering —
+and that derivation is checkable per chat against a snapshot.
+
+**The poll loop gets cheaper, not harder.** `NewMessages` is the one read with no
+partition key, and it does not need one: it reads from the lowest cursor across
+all chats and throws most rows away. `chats` IS the partition list — 136 items on
+krons — and already holds each chat's own cursor, so the loop reads each chat
+from its own watermark and `MinAgentCursor` goes.
+
+Three reads still carry no partition and each needs its own answer.
+`ObservedSince` reads by `routed_to` folder across siblings, and routing is
+dynamic so the historical set cannot be recovered from the route table — it needs
+a second entity keyed by folder, written by the same write that stamps
+`routed_to`. `PendingOutbound` is a work queue over a mutable status living in a
+history row; separating delivery state from the message is rule 5 and is what
+gives the retry feed a coordinate. `ProactiveChats` is a `DISTINCT chat_jid` that
+becomes an attribute on `chats`.
+
+**Search is a daemon with its own database and one verb** —
+`Search(text, scope, sender, since, limit)`, which is today's `FoundMessage`
+exactly, so the two duplicated FTS5 queries collapse to one owner. Its index
+stays FTS5 on a SQLite deployment; the point is that no other daemon runs its
+SQL.
+
+**The index tails, it is never told.** A trigger commits with the writer's
+transaction; a service has no such transaction, and "the writer notifies the
+index" fails silently when the write commits and the notification does not — the
+message is stored, the index lacks it, and search answers "no hits" rather than
+an error, for ever. An empty result is indistinguishable from a correct one, so
+nothing reports it. So the index holds one cursor per chat, the same shape as
+`agent_cursor`, and advances only after its own write commits. A lost
+notification then costs latency and never a gap; a crash between the index write
+and the cursor advance re-indexes one row, which is idempotent under the message
+coordinate. "Is the index in step" becomes `max(lag)`, a number an operator
+reads. A notification may arrive as a wake-up, never as the delivery.
+
 `messages` waits on one decision that is already recorded rather than open:
 ranked search leaves the store for its own service (§"Search is the one that is
 answered by leaving"), because no document store answers bm25 and no
