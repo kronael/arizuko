@@ -194,7 +194,7 @@ func main() {
 			Op: objstore.Put, Entity: store.PendingActions, Key: key, Attrs: attrs,
 		})
 	}
-	if _, err := rst.WriteEntities(context.Background(), nil, held...); err != nil {
+	if err := rst.WriteEntities(context.Background(), nil, held...); err != nil {
 		log.Fatalf("seed: insert pending_actions: %v", err)
 	}
 

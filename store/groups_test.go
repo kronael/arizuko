@@ -156,7 +156,7 @@ func TestGroupByFolder_IgnoresLeftoverMaxChildren(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.WriteEntities(context.Background(), nil, objstore.Write{
+	if err := s.WriteEntities(context.Background(), nil, objstore.Write{
 		Op: objstore.Update, Entity: Groups, Key: key,
 		Attrs: map[string]string{
 			attrGrpContainerConfig: `{"Mounts":null,"Timeout":90000000000,"MaxChildren":16}`,

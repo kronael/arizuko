@@ -14,6 +14,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -126,7 +127,14 @@ func (a *admin) gatesHandler(ctx context.Context, x resreg.Execution) (any, erro
 			}
 		}
 		if enabled, ok := x.Args["enabled"].(bool); ok {
-			if err := st.EnableGateTx(ctx, x.Tx, gate, enabled); err != nil {
+			// The Update requires the gate to exist, so its refusal is the only
+			// "no such gate" this surface gets. Dropping it answered 200 {"ok":true}
+			// over zero rows (BUGS L268).
+			switch err := st.EnableGateTx(ctx, x.Tx, gate, enabled); {
+			case errors.Is(err, store.ErrRefused):
+				return nil, resreg.Errorf(http.StatusNotFound,
+					"no gate %q: send limit_per_day to open one", gate)
+			case err != nil:
 				return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 			}
 		}

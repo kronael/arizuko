@@ -75,7 +75,7 @@ func (s *Store) advanceCursor(ctx context.Context, entity string, key objstore.K
 	}
 	for range cursorRounds {
 		for _, w := range attempts {
-			moved, err := s.WriteEntities(ctx, nil, w)
+			moved, err := s.TryWriteEntities(ctx, nil, w)
 			if err != nil {
 				return false, fmt.Errorf("advance %s on %s/%s: %w", attr, entity, key.Sort, err)
 			}

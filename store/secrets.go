@@ -147,9 +147,9 @@ func (s *Store) putSecret(ctx context.Context, tx *sql.Tx, scope SecretScope, sc
 	}
 	write := func(w objstore.Write) (bool, error) {
 		if tx != nil {
-			return s.WriteEntitiesInTx(ctx, tx, nil, w)
+			return s.TryWriteEntitiesInTx(ctx, tx, nil, w)
 		}
-		return s.WriteEntities(ctx, nil, w)
+		return s.TryWriteEntities(ctx, nil, w)
 	}
 	created, err := write(create)
 	if err != nil || created {
@@ -182,9 +182,9 @@ func (s *Store) deleteSecret(ctx context.Context, tx *sql.Tx, scope SecretScope,
 	}
 	var gone bool
 	if tx != nil {
-		gone, err = s.WriteEntitiesInTx(ctx, tx, nil, w)
+		gone, err = s.TryWriteEntitiesInTx(ctx, tx, nil, w)
 	} else {
-		gone, err = s.WriteEntities(ctx, nil, w)
+		gone, err = s.TryWriteEntities(ctx, nil, w)
 	}
 	if err != nil {
 		return err

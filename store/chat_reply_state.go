@@ -141,7 +141,7 @@ func (s *Store) SetLastReply(jid, topic, replyID, folder string) error {
 	anchor := map[string]string{}
 	setAttr(anchor, attrReplyLastID, replyID)
 	ctx := context.Background()
-	created, err := s.WriteEntities(ctx, nil, objstore.Write{
+	created, err := s.TryWriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Put, Entity: ChatReplyState, Key: key, Attrs: whole,
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},
 	})
@@ -151,7 +151,7 @@ func (s *Store) SetLastReply(jid, topic, replyID, folder string) error {
 	if created || len(anchor) == 0 {
 		return nil
 	}
-	if _, err := s.WriteEntities(ctx, nil, objstore.Write{
+	if err := s.WriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Update, Entity: ChatReplyState, Key: key, Attrs: anchor,
 	}); err != nil {
 		return fmt.Errorf("move the reply anchor of %s#%s: %w", jid, topic, err)
@@ -294,14 +294,14 @@ func engagementFrom(sortKey string, attrs map[string]string, now time.Time) (Eng
 // than by a read.
 func (s *Store) upsertReplyState(ctx context.Context, tx *sql.Tx, key objstore.Key,
 	attrs map[string]string, remove []string) (bool, error) {
-	created, err := s.writeVia(ctx, tx, nil, objstore.Write{
+	created, err := s.tryWriteVia(ctx, tx, nil, objstore.Write{
 		Op: objstore.Put, Entity: ChatReplyState, Key: key, Attrs: attrs,
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},
 	})
 	if err != nil || created {
 		return created, err
 	}
-	if _, err := s.writeVia(ctx, tx, nil, objstore.Write{
+	if err := s.writeVia(ctx, tx, nil, objstore.Write{
 		Op: objstore.Update, Entity: ChatReplyState, Key: key,
 		Attrs: attrs, Remove: remove,
 	}); err != nil {

@@ -197,7 +197,7 @@ func TestEnvProfileSecrets_OnlyUserModelCredentials(t *testing.T) {
 	if err := s.PutSecretRow(store.ScopeUser, "telegram:user/7", "ANTHROPIC_API_KEY", "sk-user7"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.store().WriteEntities(context.Background(), nil, objstore.Write{
+	if err := db.store().WriteEntities(context.Background(), nil, objstore.Write{
 		Op: objstore.Put, Entity: store.Secrets,
 		Key: objstore.Key{Partition: store.OwnerRoutd,
 			Sort: store.SecretScopeFolder + store.KeySep + "atlas" + store.KeySep + "ANTHROPIC_API_KEY"},

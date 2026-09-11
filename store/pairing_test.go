@@ -25,7 +25,7 @@ func seedPairing(t *testing.T, s *Store, jid, ownerFolder string, created time.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.WriteEntities(ctx, nil, objstore.Write{
+	if err := s.WriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Update, Entity: RouteTokens, Key: key,
 		Attrs: map[string]string{attrTokCreatedAt: core.TS(created)},
 	}); err != nil {

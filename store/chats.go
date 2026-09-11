@@ -204,7 +204,7 @@ func (s *Store) SetChatIsGroup(jid string, isGroup bool) error {
 	// calls this on every inbound, so it is what records that the instance has
 	// seen a chat at all. The false flag is the attribute's absence, so a created
 	// item already says it and only an existing one has anything to clear.
-	created, err := s.WriteEntities(ctx, nil, objstore.Write{
+	created, err := s.TryWriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Put, Entity: Chats, Key: key, Attrs: map[string]string{},
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},
 	})
@@ -291,14 +291,14 @@ func (s *Store) setChatPin(jid, attr, value string) error {
 // cursor.
 func (s *Store) upsertChat(ctx context.Context, key objstore.Key,
 	attrs map[string]string) (bool, error) {
-	created, err := s.WriteEntities(ctx, nil, objstore.Write{
+	created, err := s.TryWriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Put, Entity: Chats, Key: key, Attrs: attrs,
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},
 	})
 	if err != nil || created {
 		return created, err
 	}
-	if _, err := s.WriteEntities(ctx, nil, objstore.Write{
+	if err := s.WriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Update, Entity: Chats, Key: key, Attrs: attrs,
 	}); err != nil {
 		return false, err
@@ -310,7 +310,8 @@ func (s *Store) upsertChat(ctx context.Context, key objstore.Key,
 // never seen: there is nothing to clear on an item that does not exist, and an
 // Update refuses rather than creating one.
 func (s *Store) clearChatAttrs(ctx context.Context, key objstore.Key, attrs ...string) error {
-	_, err := s.WriteEntities(ctx, nil, objstore.Write{
+	// A refusal is a chat nobody has seen, which is already clear.
+	_, err := s.TryWriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Update, Entity: Chats, Key: key, Remove: attrs,
 	})
 	return err

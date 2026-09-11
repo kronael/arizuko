@@ -137,7 +137,7 @@ func (s *Store) SpendRedemption(ctx context.Context, userSub string, r Redemptio
 	if err != nil {
 		return false, err
 	}
-	spent, err := s.WriteEntities(ctx, nil, objstore.Write{
+	spent, err := s.TryWriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Delete, Entity: InviteRedemptions, Key: key,
 		Cond: objstore.Cond{Item: objstore.ItemPresent},
 	})

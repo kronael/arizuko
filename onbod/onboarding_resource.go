@@ -15,6 +15,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/kronael/arizuko/resreg"
@@ -97,7 +98,13 @@ func (a *admin) onboardingHandler(_ context.Context, x resreg.Execution) (any, e
 		if jid == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "jid required")
 		}
-		if err := s.RepromptOnboarding(jid); err != nil {
+		// The Update requires the row to exist, so its refusal is an unknown jid —
+		// the same 404 the approve branch above gives, rather than a typo reading
+		// as a successful re-greeting (BUGS L268).
+		switch err := s.RepromptOnboarding(jid); {
+		case errors.Is(err, store.ErrRefused):
+			return nil, resreg.Errorf(http.StatusNotFound, "no chat awaiting onboarding at %q", jid)
+		case err != nil:
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
 		return map[string]bool{"ok": true}, nil

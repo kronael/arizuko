@@ -18,7 +18,7 @@ import (
 // names the resource declares.
 func seedLegacyPlaintext(t *testing.T, s *store.Store, scopeID, key, value string) {
 	t.Helper()
-	if _, err := s.WriteEntities(context.Background(), nil, objstore.Write{
+	if err := s.WriteEntities(context.Background(), nil, objstore.Write{
 		Op:     objstore.Put,
 		Entity: store.Secrets,
 		Key: objstore.Key{

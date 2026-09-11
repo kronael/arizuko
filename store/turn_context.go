@@ -166,7 +166,7 @@ func (s *Store) OpenTurnContext(turnID, folder, topic, chatJID, trigger, returnT
 	for k, v := range bound {
 		fresh[k] = v
 	}
-	opened, err := s.WriteEntities(ctx, nil, objstore.Write{
+	opened, err := s.TryWriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Put, Entity: TurnContexts, Key: key, Attrs: fresh,
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},
 	})
@@ -183,7 +183,7 @@ func (s *Store) OpenTurnContext(turnID, folder, topic, chatJID, trigger, returnT
 	// The empty fields of `bound` are removed rather than left, because absent is
 	// the only null this model has and a stale return address would deliver the
 	// next answer to the previous delegator.
-	live, err := s.WriteEntities(ctx, nil, objstore.Write{
+	live, err := s.TryWriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Update, Entity: TurnContexts, Key: key, Attrs: bound,
 		Remove: append(missingAttrs(bound, attrTurnFolder, attrTurnTopic, attrTurnChatJID,
 			attrTurnTrigger, attrTurnReturnTo), attrTurnRunReturned),
@@ -231,7 +231,8 @@ func (s *Store) setTurnAttrs(turnID string, attrs map[string]string, remove ...s
 	if err != nil {
 		return err
 	}
-	if _, err := s.WriteEntities(context.Background(), nil, objstore.Write{
+	// A refusal is a turn nobody bound, which the doc above allows.
+	if _, err := s.TryWriteEntities(context.Background(), nil, objstore.Write{
 		Op: objstore.Update, Entity: TurnContexts, Key: key, Attrs: attrs, Remove: remove,
 	}); err != nil {
 		return fmt.Errorf("update turn %s: %w", turnID, err)
@@ -333,7 +334,7 @@ func (s *Store) RecordRetryAttempt(turnID string) (int, error) {
 		if was == "" {
 			guard = objstore.Cmp{Attr: attrTurnRetryCount, Op: objstore.Absent}
 		}
-		moved, err := s.WriteEntities(ctx, nil, objstore.Write{
+		moved, err := s.TryWriteEntities(ctx, nil, objstore.Write{
 			Op: objstore.Update, Entity: TurnContexts, Key: key,
 			Attrs: map[string]string{
 				attrTurnRetryCount: strconv.Itoa(next),
@@ -441,7 +442,7 @@ func (s *Store) SweepExpiredRunning(timeout time.Duration) (int64, error) {
 	}
 	var swept int64
 	for _, it := range items {
-		moved, err := s.WriteEntities(ctx, nil, objstore.Write{
+		moved, err := s.TryWriteEntities(ctx, nil, objstore.Write{
 			Op: objstore.Update, Entity: TurnContexts, Key: it.Key,
 			Attrs: map[string]string{attrTurnState: TurnExpired},
 			Cond: objstore.Cond{Where: []objstore.Cmp{

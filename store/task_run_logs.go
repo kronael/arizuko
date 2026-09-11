@@ -159,7 +159,7 @@ func (s *Store) RecordTaskRun(l TaskRunLog) error {
 	if l.DurationMS != 0 {
 		attrs[attrRunDurationMS] = strconv.FormatInt(l.DurationMS, 10)
 	}
-	recorded, err := s.WriteEntities(context.Background(), nil, objstore.Write{
+	recorded, err := s.TryWriteEntities(context.Background(), nil, objstore.Write{
 		Op: objstore.Put, Entity: TaskRunLogs, Key: key, Attrs: attrs,
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},
 	})

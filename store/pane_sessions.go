@@ -133,7 +133,7 @@ func (s *Store) OpenPane(teamID, userID, threadTS, channelID string) error {
 		return err
 	}
 	ctx := context.Background()
-	opened, err := s.WriteEntities(ctx, nil, objstore.Write{
+	opened, err := s.TryWriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Put, Entity: PaneSessions, Key: key,
 		Attrs: map[string]string{
 			attrPaneChannel:  channelID,
@@ -147,7 +147,7 @@ func (s *Store) OpenPane(teamID, userID, threadTS, channelID string) error {
 	if opened {
 		return nil
 	}
-	if _, err := s.WriteEntities(ctx, nil, objstore.Write{
+	if err := s.WriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Update, Entity: PaneSessions, Key: key,
 		Attrs: map[string]string{attrPaneChannel: channelID},
 	}); err != nil {
@@ -198,7 +198,8 @@ func (s *Store) SetPaneContext(teamID, userID, threadTS, contextJID string) erro
 	if err != nil {
 		return err
 	}
-	if _, err := s.WriteEntities(context.Background(), nil,
+	// A refusal is a pane slakd has not opened yet, which the doc above allows.
+	if _, err := s.TryWriteEntities(context.Background(), nil,
 		paneContextWrite(key, contextJID)); err != nil {
 		return fmt.Errorf("set the pane's context: %w", err)
 	}

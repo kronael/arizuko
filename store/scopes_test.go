@@ -103,13 +103,13 @@ func TestTheMarkerMovesOnlyForAScopedEntity(t *testing.T) {
 // reports a state no writer ever saw.
 //
 // So the funnel is the only door, and this is the lock on it: every driver write
-// in this package goes through writeEntities, WriteEntitiesInTx or
+// in this package goes through WriteEntities, WriteEntitiesInTx or
 // incrementEntity, all three of which live in scopes.go and all three of which
 // carry the marker.
 func TestNoWriterGoesRoundTheBump(t *testing.T) {
 	const funnel = "scopes.go"
 	round := map[string]string{
-		"GuardedBatch":     "writeEntities",
+		"GuardedBatch":     "WriteEntities",
 		"GuardedBatchInTx": "WriteEntitiesInTx",
 		"Increment":        "incrementEntity",
 	}
@@ -149,6 +149,132 @@ func TestNoWriterGoesRoundTheBump(t *testing.T) {
 				"row is (BUGS L264, %s)", fset.Position(call.Pos()), sel.Sel.Name, instead, funnel)
 			return true
 		})
+	}
+	if checked == 0 {
+		t.Fatal("no source file was checked, so this test asserts nothing")
+	}
+}
+
+// mustCommitDoors are the writers that answer an error and no verdict, and
+// tryDoors the ones that answer (committed, error). The two sets are what makes
+// BUGS L268 unwritable: the first has no verdict to drop, and the second says in
+// its NAME that a false is expected.
+var (
+	mustCommitDoors = map[string]bool{
+		"WriteEntities": true, "WriteEntitiesInTx": true, "writeVia": true,
+	}
+	tryDoors = map[string]bool{
+		"TryWriteEntities": true, "TryWriteEntitiesInTx": true, "tryWriteVia": true,
+	}
+)
+
+// TestNoCallerDropsTheVerdict is the other lock on the funnel, and it walks the
+// WHOLE module rather than this package alone: the bump rule above binds this
+// package's writers, because they are the ones that owe a marker, but the
+// verdict rule binds every caller of the doors, and routd, onbod and the
+// fixtures are among them.
+//
+// It refuses three shapes. A door called as a bare statement drops the error. A
+// `_` in the error position drops it too, and go vet does not see either. And a
+// `_` in a Try door's verdict position is allowed ONLY under a comment, because
+// a tolerated refusal is a claim about the data — "the row is already right",
+// "the observer read the work list one tick ago" — and a claim with no reason is
+// indistinguishable from the accident (objstore.EnsureScope writes its reason
+// down; so does RestoreInvite).
+//
+// The fourth shape needs no rule: a verdict bound to a name and never read is a
+// compile error, which Go gives for free.
+func TestNoCallerDropsTheVerdict(t *testing.T) {
+	fset := token.NewFileSet()
+	checked := 0
+	blank := func(e ast.Expr) bool {
+		id, ok := e.(*ast.Ident)
+		return ok && id.Name == "_"
+	}
+	err := filepath.WalkDir("..", func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			// .claude holds agent worktrees and refs holds reference checkouts of
+			// other projects; neither is this module's source (db_utils/opener_test.go
+			// skips the same set).
+			switch d.Name() {
+			case ".git", ".claude", "refs", "node_modules", "tmp":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if filepath.Ext(path) != ".go" {
+			return nil
+		}
+		f, perr := parser.ParseFile(fset, path, nil, parser.ParseComments)
+		if perr != nil {
+			return perr
+		}
+		checked++
+		// The comment that excuses a dropped verdict has to sit immediately above
+		// the statement, so the reason is read with the line it excuses.
+		reasoned := map[int]bool{}
+		for _, g := range f.Comments {
+			reasoned[fset.Position(g.End()).Line+1] = true
+		}
+		at := func(n ast.Node) string { return filepath.ToSlash(fset.Position(n.Pos()).String()) }
+		door := func(call *ast.CallExpr) string {
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok {
+				return ""
+			}
+			if mustCommitDoors[sel.Sel.Name] || tryDoors[sel.Sel.Name] {
+				return sel.Sel.Name
+			}
+			return ""
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			switch s := n.(type) {
+			case *ast.ExprStmt:
+				call, ok := s.X.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				if name := door(call); name != "" {
+					t.Errorf("%s calls %s and keeps nothing: the error goes with the "+
+						"verdict, and a write that failed reads as one that happened "+
+						"(BUGS L268)", at(s), name)
+				}
+			case *ast.AssignStmt:
+				if len(s.Rhs) != 1 {
+					return true
+				}
+				call, ok := s.Rhs[0].(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				name := door(call)
+				if name == "" {
+					return true
+				}
+				if blank(s.Lhs[len(s.Lhs)-1]) {
+					t.Errorf("%s drops the error of %s", at(s), name)
+					return true
+				}
+				if !tryDoors[name] || len(s.Lhs) != 2 || !blank(s.Lhs[0]) {
+					return true
+				}
+				if !reasoned[fset.Position(s.Pos()).Line] {
+					t.Errorf("%s drops %s's verdict with no reason above it: a refusal "+
+						"the caller tolerates is a claim about the data, and a claim with "+
+						"no reason reads exactly like the accident in BUGS L268. Write "+
+						"down what a refusal MEANS here, or call the must-commit door",
+						at(s), name)
+				}
+			}
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk the module: %v", err)
 	}
 	if checked == 0 {
 		t.Fatal("no source file was checked, so this test asserts nothing")

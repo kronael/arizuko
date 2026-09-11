@@ -312,7 +312,7 @@ func (s *Store) purgeFolder(ctx context.Context, tx *sql.Tx, folder string) (int
 		}
 		if _, err := applyChunks(ctx, "purge "+e.entity+" of "+folder, writes,
 			func(ctx context.Context, chunk []objstore.Write) (bool, error) {
-				return s.WriteEntitiesInTx(ctx, tx, nil, chunk...)
+				return s.TryWriteEntitiesInTx(ctx, tx, nil, chunk...)
 			}); err != nil {
 			return 0, err
 		}

@@ -85,7 +85,7 @@ func (s *Store) UpdateOAuthSecret(userSub, key, value, refresh string, expiresAt
 			w.Remove = append(w.Remove, name)
 		}
 	}
-	updated, err := s.WriteEntities(context.Background(), nil, w)
+	updated, err := s.TryWriteEntities(context.Background(), nil, w)
 	if err != nil {
 		return err
 	}
@@ -102,12 +102,16 @@ func (s *Store) UpdateOAuthSecret(userSub, key, value, refresh string, expiresAt
 // The two go in ONE write, because a reset that left one behind is a row the
 // broker still reads as refreshable. Taking them away is the only way to make
 // them missing: writing "" leaves an attribute a presence test still finds.
+//
+// A row that is not there is an ERROR: the refresh path read it a moment ago, so
+// a refusal is the row having gone under the clear, not a clear with nothing to
+// do.
 func (s *Store) ClearOAuthSecret(userSub, key string) error {
 	k, err := secretKey(ScopeUser, userSub, key)
 	if err != nil {
 		return err
 	}
-	_, err = s.WriteEntities(context.Background(), nil, objstore.Write{
+	err = s.WriteEntities(context.Background(), nil, objstore.Write{
 		Op: objstore.Update, Entity: Secrets, Key: k,
 		Remove: []string{attrSecExpiresAt, attrSecRefreshVal},
 	})

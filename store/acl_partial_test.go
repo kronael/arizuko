@@ -39,7 +39,7 @@ func TestACLReadRefusesToReturnAPartialPolicy(t *testing.T) {
 	deny := aclKeyOf(t, core.ACLRow{
 		Principal: "google:alice", Action: "mcp:send", Scope: "atlas/secret", Effect: "deny"})
 	short := strings.Join([]string{"google:alice", "mcp:send", "atlas/secret", "", "deny"}, KeySep)
-	if _, err := s.WriteEntities(context.Background(), nil,
+	if err := s.WriteEntities(context.Background(), nil,
 		objstore.Write{Op: objstore.Delete, Entity: ACL, Key: deny},
 		objstore.Write{Op: objstore.Put, Entity: ACL,
 			Key:   objstore.Key{Partition: OwnerRoutd, Sort: short},

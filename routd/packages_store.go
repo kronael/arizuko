@@ -84,7 +84,7 @@ func (d *DB) PutInstalledPackage(p InstalledPackage) error {
 	setPkgAttr(attrs, store.AttrPkgSource, p.Source)
 	setPkgAttr(attrs, store.AttrPkgRevision, p.Revision)
 	setPkgAttr(attrs, store.AttrPkgInstalledAt, p.InstalledAt)
-	_, err = d.store().WriteEntities(context.Background(), nil, objstore.Write{
+	err = d.store().WriteEntities(context.Background(), nil, objstore.Write{
 		Op: objstore.Put, Entity: store.InstalledPackages, Key: key, Attrs: attrs,
 	})
 	return err
@@ -173,7 +173,7 @@ func (d *DB) DeleteInstalledPackage(folder, name string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return d.store().WriteEntities(context.Background(), nil, objstore.Write{
+	return d.store().TryWriteEntities(context.Background(), nil, objstore.Write{
 		Op: objstore.Delete, Entity: store.InstalledPackages, Key: key,
 		Cond: objstore.Cond{Item: objstore.ItemPresent},
 	})

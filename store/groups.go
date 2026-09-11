@@ -224,7 +224,7 @@ func (s *Store) putGroup(ctx context.Context, tx *sql.Tx, g core.Group) error {
 	if err != nil {
 		return err
 	}
-	created, err := s.WriteEntitiesInTx(ctx, tx, nil, create)
+	created, err := s.TryWriteEntitiesInTx(ctx, tx, nil, create)
 	if err != nil {
 		return err
 	}
@@ -246,7 +246,7 @@ func (s *Store) putGroup(ctx context.Context, tx *sql.Tx, g core.Group) error {
 			merge.Attrs[attrGrpConfig] = string(raw)
 		}
 	}
-	_, err = s.WriteEntitiesInTx(ctx, tx, nil, merge)
+	err = s.WriteEntitiesInTx(ctx, tx, nil, merge)
 	return err
 }
 
@@ -392,7 +392,7 @@ func (s *Store) CreateGroupTx(ctx context.Context, tx *sql.Tx, g core.Group) (bo
 	if err != nil {
 		return false, err
 	}
-	return s.WriteEntitiesInTx(ctx, tx, nil, create)
+	return s.TryWriteEntitiesInTx(ctx, tx, nil, create)
 }
 
 func (s *Store) AllGroups() map[string]core.Group {
@@ -465,7 +465,7 @@ func (s *Store) setSetting(folder, key string, value any, remove bool) error {
 	if err != nil {
 		return fmt.Errorf("group %q settings: %w", folder, err)
 	}
-	_, err = s.WriteEntities(ctx, nil, objstore.Write{
+	err = s.WriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Update, Entity: Groups, Key: it.Key,
 		Attrs: map[string]string{attrGrpConfig: string(raw)},
 	})
@@ -523,7 +523,7 @@ func (s *Store) SetGroupObserveWindow(folder string, msgs, chars int) error {
 	if err != nil {
 		return fmt.Errorf("group %q settings: %w", folder, err)
 	}
-	_, err = s.WriteEntities(ctx, nil, objstore.Write{
+	err = s.WriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Update, Entity: Groups, Key: it.Key,
 		Attrs: map[string]string{attrGrpConfig: string(raw)},
 	})
@@ -658,14 +658,15 @@ func (s *Store) FolderCap(folder string) (int, error) {
 // cap would otherwise store "0" where this writer stored nothing, and a later
 // diff of the two would report a change neither made.
 //
-// An Update writes nothing when the group is missing, which is what the
-// statement's zero matched rows said.
+// An Update writes nothing when the group is missing, and that refusal is an
+// ERROR here: `arizuko budget set` names a folder, and a folder nobody created
+// must not print success over a cap that was never stored.
 func (s *Store) SetFolderCap(folder string, cents int) error {
 	key, err := groupKey(folder)
 	if err != nil {
 		return err
 	}
-	_, err = s.WriteEntities(context.Background(), nil, objstore.Write{
+	err = s.WriteEntities(context.Background(), nil, objstore.Write{
 		Op: objstore.Update, Entity: Groups, Key: key,
 		Attrs: map[string]string{attrGrpCostCap: strconv.Itoa(cents)},
 	})

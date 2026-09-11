@@ -160,7 +160,7 @@ func TestARetryWriteGuardedOnAStaleCountIsRefused(t *testing.T) {
 		t.Fatalf("the winning attempt reported %d err=%v", got, err)
 	}
 	// The write the loser was about to issue, with the guard it read.
-	moved, err := s.WriteEntities(ctx, nil, objstore.Write{
+	moved, err := s.TryWriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Update, Entity: TurnContexts, Key: key,
 		Attrs: map[string]string{
 			attrTurnRetryCount: "1",

@@ -188,7 +188,7 @@ func (s *Store) CreateTask(t core.Task) error {
 	if err != nil {
 		return err
 	}
-	committed, err := s.WriteEntities(context.Background(), nil, w)
+	committed, err := s.TryWriteEntities(context.Background(), nil, w)
 	if err != nil {
 		return err
 	}
@@ -221,14 +221,15 @@ func taskCreateRefusal(committed bool, id string) error {
 // the DueTasks contract — a paused task must leave the due set and a resumed
 // one must return to it — which is asserted against DueTasks, the live reader.
 //
-// An Update writes nothing when the item is missing, which is what the
-// statement's zero matched rows said.
+// An Update writes nothing when the task is missing, and that refusal is an
+// ERROR: the caller names a task by id, and a task that is not there has not
+// been paused.
 func (s *Store) SetTaskStatus(id, status string) error {
 	key, err := taskKey(id)
 	if err != nil {
 		return err
 	}
-	_, err = s.WriteEntities(context.Background(), nil, objstore.Write{
+	err = s.WriteEntities(context.Background(), nil, objstore.Write{
 		Op: objstore.Update, Entity: ScheduledTasks, Key: key,
 		Attrs: map[string]string{attrTaskStatus: status},
 	})
@@ -255,7 +256,7 @@ func (s *Store) RescheduleTask(id, nextRun, status string) error {
 	} else {
 		w.Attrs[attrTaskNextRun] = nextRun
 	}
-	_, err = s.WriteEntities(context.Background(), nil, w)
+	err = s.WriteEntities(context.Background(), nil, w)
 	return err
 }
 
@@ -310,7 +311,7 @@ func (s *Store) MoveTaskTx(ctx context.Context, tx *sql.Tx, t core.Task, to stri
 			w.Attrs[attrTaskNextRun] = *nextRun
 		}
 	}
-	return s.WriteEntitiesInTx(ctx, tx, nil, w)
+	return s.TryWriteEntitiesInTx(ctx, tx, nil, w)
 }
 
 // RecoverFiringTasks re-arms tasks stranded in 'firing' by a crash/restart
@@ -365,7 +366,7 @@ func (s *Store) DueTasks(now time.Time) ([]core.Task, error) {
 		if !ok || run.After(now) {
 			continue
 		}
-		claimed, err := s.WriteEntities(ctx, nil, objstore.Write{
+		claimed, err := s.TryWriteEntities(ctx, nil, objstore.Write{
 			Op: objstore.Update, Entity: ScheduledTasks, Key: it.Key,
 			Attrs: map[string]string{attrTaskStatus: TaskStatusFiring},
 			Cond: objstore.Cond{Where: []objstore.Cmp{
@@ -461,7 +462,7 @@ func (s *Store) UpdateTask(id string, p TaskPatch) error {
 	}
 	ctx := context.Background()
 	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		_, err := s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+		err := s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
 			Op: objstore.Update, Entity: ScheduledTasks, Key: key, Attrs: attrs,
 		})
 		return audit.Event{
@@ -483,7 +484,7 @@ func (s *Store) DeleteTask(id string) error {
 	}
 	ctx := context.Background()
 	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		_, err := s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+		err := s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
 			Op: objstore.Delete, Entity: ScheduledTasks, Key: key,
 		})
 		return audit.Event{
@@ -543,7 +544,9 @@ func (s *Store) SeedDefaultTasks(folder, chatJID string) error {
 		if err != nil {
 			return err
 		}
-		if _, err := s.WriteEntities(ctx, nil, objstore.Write{
+		// A refusal is the task already being seeded, which is what a seed means:
+		// the operator's own edits to it must survive the next start.
+		if _, err := s.TryWriteEntities(ctx, nil, objstore.Write{
 			Op: objstore.Put, Entity: ScheduledTasks, Key: key, Attrs: taskAttrs(task),
 			Cond: objstore.Cond{Item: objstore.ItemAbsent},
 		}); err != nil {
@@ -566,7 +569,7 @@ func (s *Store) CreateTaskTx(ctx context.Context, tx *sql.Tx, t core.Task) error
 	if err != nil {
 		return err
 	}
-	committed, err := s.WriteEntitiesInTx(ctx, tx, nil, w)
+	committed, err := s.TryWriteEntitiesInTx(ctx, tx, nil, w)
 	if err != nil {
 		return err
 	}
@@ -574,14 +577,14 @@ func (s *Store) CreateTaskTx(ctx context.Context, tx *sql.Tx, t core.Task) error
 }
 
 // SetTaskStatusTx flips one task's status on a transaction the caller owns —
-// pause and resume. An Update writes nothing when the item is missing, which is
-// what the statement's zero matched rows said.
+// pause and resume. An Update writes nothing when the task is missing, and that
+// refusal is an ERROR: `/v1/tasks/{id}` names a task the caller believes in.
 func (s *Store) SetTaskStatusTx(ctx context.Context, tx *sql.Tx, id, status string) error {
 	key, err := taskKey(id)
 	if err != nil {
 		return err
 	}
-	_, err = s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+	err = s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
 		Op: objstore.Update, Entity: ScheduledTasks, Key: key,
 		Attrs: map[string]string{attrTaskStatus: status},
 	})
@@ -603,7 +606,7 @@ func (s *Store) PatchTaskTx(ctx context.Context, tx *sql.Tx, id, status, nextRun
 	if len(attrs) == 0 {
 		return nil
 	}
-	_, err = s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+	err = s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
 		Op: objstore.Update, Entity: ScheduledTasks, Key: key, Attrs: attrs,
 	})
 	return err
@@ -615,7 +618,7 @@ func (s *Store) DeleteTaskTx(ctx context.Context, tx *sql.Tx, id string) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+	err = s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
 		Op: objstore.Delete, Entity: ScheduledTasks, Key: key,
 	})
 	return err

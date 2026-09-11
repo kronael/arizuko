@@ -89,7 +89,7 @@ func (s *Store) CreateUserProfile(sub, username, name string) error {
 	attrs := map[string]string{attrProfCreated: time.Now().Format(time.RFC3339)}
 	setAttr(attrs, attrProfUsername, username)
 	setAttr(attrs, AttrProfileName, name)
-	created, err := s.WriteEntities(ctx, nil, objstore.Write{
+	created, err := s.TryWriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Put, Entity: UserProfiles, Key: key, Attrs: attrs,
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},
 	})
@@ -125,9 +125,16 @@ func (s *Store) Username(sub string) (string, bool, error) {
 // ONE commit, so a caller who loses the race for a folder is not left renamed.
 // The other three are entity writes on the same transaction already.
 //
-// It writes the ATTRIBUTE ONLY and says nothing about a person with no item: an
-// Update against a missing item writes nothing, which is what the statement it
-// replaces did by matching no row.
+// It writes the ATTRIBUTE ONLY, onto a profile that has to be there already: an
+// Update against a missing item writes nothing.
+//
+// THAT REFUSAL IS TOLERATED AND IT IS NOT CORRECT. Nothing in production creates
+// a user_profiles item — CreateUserProfile has callers in tests only, and so did
+// the CreateAuthUser it replaced — so a sub the instance has never recorded is
+// renamed silently and stays nameless. Raising it HERE would answer create_world
+// 500 for that person and roll their whole world back, which blocks a signup
+// instead of fixing the missing writer. The writer is the fix and it is a
+// decision, not an edit.
 func (s *Store) SetUsernameTx(ctx context.Context, tx *sql.Tx, sub, username string) error {
 	key, err := profileKey(sub)
 	if err != nil {
@@ -136,7 +143,8 @@ func (s *Store) SetUsernameTx(ctx context.Context, tx *sql.Tx, sub, username str
 	if err := s.refuseTakenUsername(ctx, tx, sub, username); err != nil {
 		return err
 	}
-	if _, err := s.writeVia(ctx, tx, nil, objstore.Write{
+	// A refusal is the missing item the doc above measures.
+	if _, err := s.tryWriteVia(ctx, tx, nil, objstore.Write{
 		Op: objstore.Update, Entity: UserProfiles, Key: key,
 		Attrs: map[string]string{attrProfUsername: username},
 	}); err != nil {
@@ -233,7 +241,7 @@ func (s *Store) SetUserCap(userSub string, cents int) error {
 	} else {
 		w.Attrs = map[string]string{attrProfCostCap: strconv.Itoa(cents)}
 	}
-	if _, err := s.WriteEntities(context.Background(), nil, w); err != nil {
+	if err := s.WriteEntities(context.Background(), nil, w); err != nil {
 		return fmt.Errorf("cap %s at %d cents a day: %w", userSub, cents, err)
 	}
 	return nil

@@ -27,7 +27,7 @@ func seedWebRoute(t *testing.T, s *Store, prefix, folder string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.WriteEntities(context.Background(), nil, objstore.Write{
+	if err := s.WriteEntities(context.Background(), nil, objstore.Write{
 		Op: objstore.Put, Entity: WebRoutes, Key: key,
 		Attrs: map[string]string{
 			AttrWebAccess:    "public",

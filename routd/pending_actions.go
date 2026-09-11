@@ -155,7 +155,7 @@ func (d *DB) PutPendingAction(p PendingAction) error {
 	if p.Mode == "" {
 		p.Mode = auth.EffectHoldAsync
 	}
-	_, err = d.store().WriteEntities(context.Background(), nil, objstore.Write{
+	err = d.store().WriteEntities(context.Background(), nil, objstore.Write{
 		Op: objstore.Put, Entity: store.PendingActions, Key: key, Attrs: pendingAttrs(p),
 	})
 	return err
@@ -256,14 +256,17 @@ func (d *DB) SetPendingNotice(id, noticeID string) error {
 	return d.setPendingAttr(id, store.AttrPendNoticeID, noticeID)
 }
 
-// setPendingAttr merges one attribute into a held call. An Update writes nothing
-// when the item is missing, which is what the statement's zero matched rows said.
+// setPendingAttr merges one attribute into a held call, and a held call that is
+// not there is an ERROR. Nothing deletes a pending row — a verdict moves its
+// status — so a refusal is a row that was never written, and both callers act on
+// the answer: the waiter that gives up logs that a later approval will not reach
+// the agent, and the notice path binds the message a reaction is read from.
 func (d *DB) setPendingAttr(id, name, value string) error {
 	key, err := store.PendingActionKey(id)
 	if err != nil {
 		return err
 	}
-	_, err = d.store().WriteEntities(context.Background(), nil, objstore.Write{
+	err = d.store().WriteEntities(context.Background(), nil, objstore.Write{
 		Op: objstore.Update, Entity: store.PendingActions, Key: key,
 		Attrs: map[string]string{name: value},
 	})
@@ -383,7 +386,7 @@ func (d *DB) resolvePendingActionTx(ctx context.Context, tx *sql.Tx, id, status,
 	// IS the verdict: without it, both callers were told "approved", two
 	// resolution messages were enqueued, and the agent was asked twice to
 	// re-issue one call.
-	won, err := d.store().WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+	won, err := d.store().TryWriteEntitiesInTx(ctx, tx, nil, objstore.Write{
 		Op: objstore.Update, Entity: store.PendingActions, Key: key,
 		Attrs: map[string]string{
 			store.AttrPendStatus:       status,
@@ -530,7 +533,7 @@ func (d *DB) ConsumeApprovedAction(folder, tool, argsHash string) (string, bool)
 			newest = it
 		}
 	}
-	claimed, err := d.store().WriteEntities(context.Background(), nil, objstore.Write{
+	claimed, err := d.store().TryWriteEntities(context.Background(), nil, objstore.Write{
 		Op: objstore.Update, Entity: store.PendingActions, Key: newest.Key,
 		Attrs: map[string]string{store.AttrPendStatus: PendingReleased},
 		Cond: objstore.Cond{Where: []objstore.Cmp{

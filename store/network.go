@@ -135,7 +135,9 @@ func (s *Store) AddNetworkRule(folder, target, by string) error {
 	attrs := map[string]string{attrNetCreatedAt: core.NowTS()}
 	setAttr(attrs, attrNetCreatedBy, by)
 	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		_, err := s.WriteEntitiesInTx(context.Background(), tx, nil, objstore.Write{
+		// A refusal is the host already being allowed, which is the state the caller
+		// asked for, and keeps the instant and the author of the first grant.
+		_, err := s.TryWriteEntitiesInTx(context.Background(), tx, nil, objstore.Write{
 			Op: objstore.Put, Entity: NetworkRules, Key: key, Attrs: attrs,
 			Cond: objstore.Cond{Item: objstore.ItemAbsent},
 		})
@@ -170,7 +172,7 @@ func (s *Store) RemoveNetworkRule(folder, target string) error {
 		return err
 	}
 	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		_, err := s.WriteEntitiesInTx(context.Background(), tx, nil, objstore.Write{
+		err := s.WriteEntitiesInTx(context.Background(), tx, nil, objstore.Write{
 			Op: objstore.Delete, Entity: NetworkRules, Key: key,
 		})
 		return audit.Event{
@@ -270,7 +272,9 @@ func (s *Store) AddNetworkRuleTx(ctx context.Context, tx *sql.Tx, folder, target
 	}
 	attrs := map[string]string{attrNetCreatedAt: core.NowTS()}
 	setAttr(attrs, attrNetCreatedBy, by)
-	_, err = s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+	// A refusal is the host already being allowed, which is the state the caller
+	// asked for, and keeps the instant and the author of the first grant.
+	_, err = s.TryWriteEntitiesInTx(ctx, tx, nil, objstore.Write{
 		Op: objstore.Put, Entity: NetworkRules, Key: key, Attrs: attrs,
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},
 	})
@@ -288,7 +292,7 @@ func (s *Store) RemoveNetworkRuleTx(ctx context.Context, tx *sql.Tx, folder, tar
 	if err != nil {
 		return err
 	}
-	_, err = s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+	err = s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
 		Op: objstore.Delete, Entity: NetworkRules, Key: key,
 	})
 	return err

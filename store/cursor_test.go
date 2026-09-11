@@ -247,7 +247,7 @@ func TestTheProactiveCooldownMergesRatherThanReplaces(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A second attribute, standing in for the field this entity has not grown yet.
-	if _, err := s.WriteEntities(ctx, nil, objstore.Write{
+	if err := s.WriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Put, Entity: ChatProactive, Key: key,
 		Attrs: map[string]string{"cooldown_hours": "48"},
 	}); err != nil {

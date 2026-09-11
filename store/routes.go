@@ -272,9 +272,9 @@ func (s *Store) putRoute(ctx context.Context, tx *sql.Tx, r core.Route, addedBy,
 	}
 	var created bool
 	if tx != nil {
-		created, err = s.WriteEntitiesInTx(ctx, tx, nil, w)
+		created, err = s.TryWriteEntitiesInTx(ctx, tx, nil, w)
 	} else {
-		created, err = s.WriteEntities(ctx, nil, w)
+		created, err = s.TryWriteEntities(ctx, nil, w)
 	}
 	if err != nil {
 		return 0, err
@@ -354,7 +354,7 @@ func (s *Store) DeleteRoute(id int64) (int64, error) {
 	}
 	actor, actorSub, surface := s.auditIdentity()
 	err = s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		if _, err := s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+		if err := s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
 			Op: objstore.Delete, Entity: Routes, Key: it.Key,
 		}); err != nil {
 			return audit.Event{}, err
@@ -412,7 +412,7 @@ func (s *Store) UpdateRoute(id int64, r core.Route) (int64, error) {
 	}
 	actor, actorSub, surface := s.auditIdentity()
 	err = s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		if _, err := s.WriteEntitiesInTx(ctx, tx, nil, writes...); err != nil {
+		if err := s.WriteEntitiesInTx(ctx, tx, nil, writes...); err != nil {
 			return audit.Event{}, err
 		}
 		return audit.Event{
@@ -506,7 +506,7 @@ func (s *Store) DeleteRouteTx(ctx context.Context, tx *sql.Tx, id int64) (bool, 
 	if err != nil || !ok {
 		return false, err
 	}
-	return s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+	return s.TryWriteEntitiesInTx(ctx, tx, nil, objstore.Write{
 		Op: objstore.Delete, Entity: Routes, Key: it.Key,
 		Cond: objstore.Cond{Item: objstore.ItemPresent},
 	})
@@ -578,7 +578,7 @@ func (s *Store) ReplaceFolderRoutesTx(ctx context.Context, tx *sql.Tx, folder st
 	writes = append(writes, puts...)
 	_, err = applyChunks(ctx, "replace the routes of "+folder, writes,
 		func(ctx context.Context, chunk []objstore.Write) (bool, error) {
-			return s.WriteEntitiesInTx(ctx, tx, nil, chunk...)
+			return s.TryWriteEntitiesInTx(ctx, tx, nil, chunk...)
 		})
 	return err
 }

@@ -24,12 +24,44 @@ package store
 // scopes_test.go fails on any driver write that goes round them — the shape
 // runAudited gives the audit row (audit_helpers.go), for the same reason: the
 // failure is silence, and silence is not caught by review.
+//
+// NEITHER IS DROPPING THE ANSWER, for the same reason. GuardedBatch answers
+// (committed, error), and committed=false with a nil error is the NORMAL outcome
+// of a condition that did not hold — a claim someone else won, an Update on an
+// item that is not there. It is not a fault and it never will be
+// (objstore.Store). So `if _, err := …; err != nil` reports success for a write
+// that never happened, and fifty-four call sites in this package wrote exactly
+// that: `PUT /v1/gates/<gate>` carrying {"enabled":true} against a gate nobody
+// opened answered 200 {"ok":true} over zero rows (BUGS L268).
+//
+// It is ONE type problem and not fifty-four review problems, so the type is what
+// answers it. The three writers return an ERROR and no verdict, and a refusal is
+// ErrRefused naming the batch, so `if _, err := …` no longer compiles: the site
+// somebody writes next week is a build failure rather than a silent 200. A
+// caller whose condition may legitimately refuse — a claim another caller wins, a
+// create-if-absent whose refusal means the row is already right — calls the Try
+// door beside it, where the NAME says the false was expected.
+//
+// FIFTEEN of the fifty-four were that, and they are the reason the Try door
+// exists rather than an audit that fixed thirty-nine and left the rest looking
+// identical to the bug. scopes_test.go holds the line: no door may drop its
+// error, and a Try door's verdict may go to `_` only under a comment saying what
+// a refusal MEANS there. The fourth shape needs no rule — a verdict bound to a
+// name and never read is a compile error.
+//
+// incrementEntity keeps its verdict. It is unexported with three callers, two of
+// which raise a refusal the way these writers now do and one of which — the
+// invite decrement RestoreInvite compensates with — writes down why a refusal is
+// the answer it wants.
 
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/kronael/arizuko/objstore"
 )
@@ -155,6 +187,16 @@ func withBumps(writes []objstore.Write) []objstore.Write {
 	return append(slices.Clone(writes), scopeBumps(writes)...)
 }
 
+// ErrRefused is what the three must-commit writers below answer when a batch's
+// condition did not hold. It is the committed=false GuardedBatch reports, raised
+// to an error HERE and nowhere below: a driver that reported it would make every
+// claim unwrap a sentinel to learn that its own logic worked (objstore.Store).
+//
+// It is a sentinel because a caller one layer up reads it: onbod answers
+// `PUT /v1/gates/<gate>` 404 when the gate's Update is refused, which is the
+// answer the 200 in BUGS L268 was hiding.
+var ErrRefused = errors.New("a condition did not hold, so the batch wrote nothing")
+
 // WriteEntities is the GuardedBatch every writer of a scoped entity issues: the
 // caller's writes plus the marker every scoped one of them moves, in the
 // caller's own batch, so the mutation and the version go in together or neither
@@ -168,9 +210,21 @@ func withBumps(writes []objstore.Write) []objstore.Write {
 // projection (BUGS L264), so the marker is not the caller's to remember: it is
 // derived here from the entities the batch touches.
 //
-// It answers what GuardedBatch answers — committed=false is the caller's own
-// condition refusing, and nothing here adds a condition of its own.
+// It returns an ERROR and no verdict, because a verdict is what fifteen callers
+// dropped (the header above). A refusal is ErrRefused, naming the batch that
+// wrote nothing. A caller whose condition may legitimately refuse calls
+// TryWriteEntities.
 func (s *Store) WriteEntities(ctx context.Context, checks []objstore.Check,
+	writes ...objstore.Write) error {
+	ok, err := s.TryWriteEntities(ctx, checks, writes...)
+	return refusal(ok, err, checks, writes)
+}
+
+// TryWriteEntities is WriteEntities for the caller that ASKED a question: a
+// claim that another caller may win, a create-if-absent whose refusal means the
+// row is already right. It answers what GuardedBatch answers, and the name is
+// what says the false is expected.
+func (s *Store) TryWriteEntities(ctx context.Context, checks []objstore.Check,
 	writes ...objstore.Write) (bool, error) {
 	return s.Obj().GuardedBatch(ctx, checks, withBumps(writes))
 }
@@ -180,6 +234,13 @@ func (s *Store) WriteEntities(ctx context.Context, checks []objstore.Check,
 // ones, and routd's resreg faces, which run on the transaction resreg.invoke
 // opened for the mutation and its single audit_log row.
 func (s *Store) WriteEntitiesInTx(ctx context.Context, tx *sql.Tx, checks []objstore.Check,
+	writes ...objstore.Write) error {
+	ok, err := s.TryWriteEntitiesInTx(ctx, tx, checks, writes...)
+	return refusal(ok, err, checks, writes)
+}
+
+// TryWriteEntitiesInTx is TryWriteEntities on the caller's transaction.
+func (s *Store) TryWriteEntitiesInTx(ctx context.Context, tx *sql.Tx, checks []objstore.Check,
 	writes ...objstore.Write) (bool, error) {
 	return s.Obj().GuardedBatchInTx(ctx, tx, checks, withBumps(writes))
 }
@@ -193,11 +254,46 @@ func (s *Store) WriteEntitiesInTx(ctx context.Context, tx *sql.Tx, checks []objs
 // once instead of twice. Both doors carry the marker, so neither can be the one
 // that forgets.
 func (s *Store) writeVia(ctx context.Context, tx *sql.Tx, checks []objstore.Check,
+	writes ...objstore.Write) error {
+	ok, err := s.tryWriteVia(ctx, tx, checks, writes...)
+	return refusal(ok, err, checks, writes)
+}
+
+// tryWriteVia is writeVia for a caller that reads the verdict.
+func (s *Store) tryWriteVia(ctx context.Context, tx *sql.Tx, checks []objstore.Check,
 	writes ...objstore.Write) (bool, error) {
 	if tx == nil {
-		return s.WriteEntities(ctx, checks, writes...)
+		return s.TryWriteEntities(ctx, checks, writes...)
 	}
-	return s.WriteEntitiesInTx(ctx, tx, checks, writes...)
+	return s.TryWriteEntitiesInTx(ctx, tx, checks, writes...)
+}
+
+// refusal turns a verdict into the error a must-commit caller gets, so the three
+// doors above cannot hold different opinions of what a false means.
+//
+// The error names the batch rather than the write that refused, because the
+// driver does not say which one did — committed is ONE bit, deliberately
+// (objstore.Store). A batch whose own writes carry no condition can still be
+// refused: every scoped batch carries the version marker's Bump, which is an
+// Update, and an Update against a marker nobody created refuses the whole batch
+// (objstore.EnsureScope). Naming the caller's writes is what tells those two
+// apart in the log — a refusal on a list of unconditional writes is a missing
+// marker, not a missing row.
+func refusal(committed bool, err error, checks []objstore.Check, writes []objstore.Write) error {
+	if err != nil {
+		return err
+	}
+	if committed {
+		return nil
+	}
+	named := make([]string, 0, len(checks)+len(writes))
+	for _, c := range checks {
+		named = append(named, "check "+c.Entity+"/"+c.Key.Partition+"/"+c.Key.Sort)
+	}
+	for _, w := range writes {
+		named = append(named, w.Op.String()+" "+w.Entity+"/"+w.Key.Partition+"/"+w.Key.Sort)
+	}
+	return fmt.Errorf("%w: %s", ErrRefused, strings.Join(named, ", "))
 }
 
 // incrementEntity is objstore.Increment with the marker among its companion

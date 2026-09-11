@@ -250,7 +250,7 @@ func (s *Store) InsertRouteToken(rawToken string, t RouteToken) error {
 	}
 	actor, actorSub, surface := s.auditIdentity()
 	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		if _, err := s.WriteEntitiesInTx(ctx, tx, nil, w); err != nil {
+		if err := s.WriteEntitiesInTx(ctx, tx, nil, w); err != nil {
 			return audit.Event{}, err
 		}
 		return audit.Event{
@@ -365,7 +365,7 @@ func (s *Store) RevokeRouteToken(jid, ownerFolder string) (bool, error) {
 	err = s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
 		if _, err := applyChunks(ctx, "revoke "+jid, writes,
 			func(ctx context.Context, chunk []objstore.Write) (bool, error) {
-				return s.WriteEntitiesInTx(ctx, tx, nil, chunk...)
+				return s.TryWriteEntitiesInTx(ctx, tx, nil, chunk...)
 			}); err != nil {
 			return audit.Event{}, err
 		}
@@ -531,7 +531,7 @@ func (s *Store) MintRouteTokenTx(ctx context.Context, tx *sql.Tx, jid, ownerFold
 	if err != nil {
 		return "", fmt.Errorf("route token: mint for %s: %w", jid, err)
 	}
-	if _, err := s.WriteEntitiesInTx(ctx, tx, nil, w); err != nil {
+	if err := s.WriteEntitiesInTx(ctx, tx, nil, w); err != nil {
 		return "", fmt.Errorf("route token: mint for %s: %w", jid, err)
 	}
 	return raw, nil
@@ -563,7 +563,7 @@ func (s *Store) RevokeRouteTokenTx(ctx context.Context, tx *sql.Tx, jid, ownerFo
 	}
 	_, err = applyChunks(ctx, "revoke "+jid, writes,
 		func(ctx context.Context, chunk []objstore.Write) (bool, error) {
-			return s.WriteEntitiesInTx(ctx, tx, nil, chunk...)
+			return s.TryWriteEntitiesInTx(ctx, tx, nil, chunk...)
 		})
 	return err == nil, err
 }

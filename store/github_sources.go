@@ -220,7 +220,7 @@ func (s *Store) AddGitHubSourceTx(ctx context.Context, tx *sql.Tx, src GitHubSou
 	// said: registering a source that is already there is REFUSED with
 	// ErrGitHubSourceExists rather than re-minting its secret, which would break
 	// every delivery GitHub is already signing with the first one.
-	created, err := s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+	created, err := s.TryWriteEntitiesInTx(ctx, tx, nil, objstore.Write{
 		Op: objstore.Put, Entity: GitHubSources, Key: key,
 		Attrs: map[string]string{
 			attrGHSecret:      sealed,
@@ -256,7 +256,7 @@ func (s *Store) RemoveGitHubSourceTx(ctx context.Context, tx *sql.Tx, key, owner
 	if !ok || it.Attrs[attrGHOwnerFolder] != ownerFolder {
 		return false, nil
 	}
-	if _, err := s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+	if err := s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
 		Op: objstore.Delete, Entity: GitHubSources, Key: it.Key,
 	}); err != nil {
 		return false, err
@@ -303,7 +303,7 @@ func (s *Store) deleteRoutesMatchingTx(ctx context.Context, tx *sql.Tx, seeded [
 	}
 	_, err = applyChunks(ctx, "remove seeded routes", writes,
 		func(ctx context.Context, chunk []objstore.Write) (bool, error) {
-			return s.WriteEntitiesInTx(ctx, tx, nil, chunk...)
+			return s.TryWriteEntitiesInTx(ctx, tx, nil, chunk...)
 		})
 	return err
 }

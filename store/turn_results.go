@@ -96,7 +96,7 @@ func (s *Store) RecordTurnResult(folder, turnID, sessionID, status string) (bool
 	attrs := map[string]string{AttrTurnRecordedAt: core.NowTS()}
 	setAttr(attrs, attrTurnSessionID, sessionID)
 	setAttr(attrs, attrTurnStatus, status)
-	first, err := s.WriteEntities(context.Background(), nil, objstore.Write{
+	first, err := s.TryWriteEntities(context.Background(), nil, objstore.Write{
 		Op: objstore.Put, Entity: TurnResults, Key: key, Attrs: attrs,
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},
 	})

@@ -122,7 +122,7 @@ func (s *Store) EnqueueSystemMessage(folder, source, kind, body string) error {
 	setAttr(attrs, attrSysSource, source)
 	setAttr(attrs, attrSysKind, kind)
 	setAttr(attrs, attrSysBody, body)
-	queued, err := s.WriteEntities(context.Background(), nil, objstore.Write{
+	queued, err := s.TryWriteEntities(context.Background(), nil, objstore.Write{
 		Op: objstore.Put, Entity: SystemMessages, Key: key, Attrs: attrs,
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},
 	})
@@ -202,7 +202,7 @@ func (s *Store) DrainSystemMessagesTx(ctx context.Context, tx *sql.Tx,
 	}
 	_, err := applyChunks(ctx, "drain the system events of "+folder, writes,
 		func(ctx context.Context, chunk []objstore.Write) (bool, error) {
-			return s.WriteEntitiesInTx(ctx, tx, nil, chunk...)
+			return s.TryWriteEntitiesInTx(ctx, tx, nil, chunk...)
 		})
 	return err
 }

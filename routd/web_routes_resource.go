@@ -201,14 +201,14 @@ func (d *DB) putWebRouteTx(ctx context.Context, tx *sql.Tx, r WebRouteRow) error
 	whole := map[string]string{store.AttrWebCreatedAt: core.NowTS()}
 	maps.Copy(whole, owned)
 	st := d.store()
-	created, err := st.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+	created, err := st.TryWriteEntitiesInTx(ctx, tx, nil, objstore.Write{
 		Op: objstore.Put, Entity: store.WebRoutes, Key: key, Attrs: whole,
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},
 	})
 	if err != nil || created {
 		return err
 	}
-	_, err = st.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+	err = st.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
 		Op: objstore.Update, Entity: store.WebRoutes, Key: key, Attrs: owned, Remove: drop,
 	})
 	return err
@@ -234,5 +234,5 @@ func (d *DB) deleteWebRouteTx(ctx context.Context, tx *sql.Tx, pathPrefix, folde
 			{Attr: store.AttrWebFolder, Op: objstore.Eq, Value: folder},
 		}
 	}
-	return d.store().WriteEntitiesInTx(ctx, tx, nil, w)
+	return d.store().TryWriteEntitiesInTx(ctx, tx, nil, w)
 }

@@ -159,7 +159,7 @@ func (s *Store) EnsureTopicLineage(folder, topic, parentTopic, newSessionID stri
 	} else if ok {
 		setAttr(attrs, AttrSessObservedCursor, parent.Attrs[AttrSessObservedCursor])
 	}
-	created, err := s.WriteEntities(ctx, nil, objstore.Write{
+	created, err := s.TryWriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Put, Entity: Sessions, Key: key, Attrs: attrs,
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},
 	})
@@ -177,7 +177,7 @@ func (s *Store) DeleteSession(folder, topic string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := s.WriteEntities(context.Background(), nil, objstore.Write{
+	if err := s.WriteEntities(context.Background(), nil, objstore.Write{
 		Op: objstore.Delete, Entity: Sessions, Key: key,
 	}); err != nil {
 		return fmt.Errorf("reset the session of %s#%s: %w", folder, topic, err)
@@ -247,7 +247,7 @@ func (s *Store) ClearObservedCursor(folder, topic string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := s.WriteEntities(context.Background(), nil, objstore.Write{
+	if err := s.WriteEntities(context.Background(), nil, objstore.Write{
 		Op: objstore.Update, Entity: Sessions, Key: key,
 		Remove: []string{AttrSessObservedCursor},
 	}); err != nil {
@@ -278,7 +278,7 @@ func (s *Store) ForkTopic(folder, parent, child, newSessionID string, force bool
 	if !force {
 		w.Cond = objstore.Cond{Item: objstore.ItemAbsent}
 	}
-	forked, err := s.WriteEntities(context.Background(), nil, w)
+	forked, err := s.TryWriteEntities(context.Background(), nil, w)
 	if err != nil {
 		return fmt.Errorf("fork %s#%s from #%s: %w", folder, child, parent, err)
 	}
@@ -325,14 +325,14 @@ func (s *Store) CountTopics(ctx context.Context) (int, error) {
 // between them.
 func (s *Store) upsertSession(ctx context.Context, key objstore.Key,
 	attrs map[string]string) (bool, error) {
-	created, err := s.WriteEntities(ctx, nil, objstore.Write{
+	created, err := s.TryWriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Put, Entity: Sessions, Key: key, Attrs: attrs,
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},
 	})
 	if err != nil || created {
 		return created, err
 	}
-	if _, err := s.WriteEntities(ctx, nil, objstore.Write{
+	if err := s.WriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Update, Entity: Sessions, Key: key, Attrs: attrs,
 	}); err != nil {
 		return false, err

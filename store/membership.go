@@ -210,7 +210,7 @@ func (s *Store) RemoveMembership(child, parent string) error {
 	}
 	actor, actorSub, surface := s.auditIdentity()
 	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		if _, err := s.WriteEntitiesInTx(context.Background(), tx, nil, objstore.Write{
+		if err := s.WriteEntitiesInTx(context.Background(), tx, nil, objstore.Write{
 			Op: objstore.Delete, Entity: ACLMembership, Key: key,
 		}); err != nil {
 			return audit.Event{}, err
@@ -287,7 +287,9 @@ func (s *Store) PutMembershipTx(ctx context.Context, tx *sql.Tx, child, parent, 
 	if err != nil {
 		return err
 	}
-	_, err = s.WriteEntitiesInTx(ctx, tx, nil, w)
+	// A refusal is the edge already being there (membershipPut is create-if-absent),
+	// which must not restamp who added it or when.
+	_, err = s.TryWriteEntitiesInTx(ctx, tx, nil, w)
 	return err
 }
 
@@ -421,7 +423,7 @@ func (s *Store) RemoveMembershipTx(ctx context.Context, tx *sql.Tx, child, paren
 	if err != nil {
 		return false, err
 	}
-	return s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+	return s.TryWriteEntitiesInTx(ctx, tx, nil, objstore.Write{
 		Op: objstore.Delete, Entity: ACLMembership, Key: key,
 		Cond: objstore.Cond{Item: objstore.ItemPresent},
 	})

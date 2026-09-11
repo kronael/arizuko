@@ -163,7 +163,9 @@ func (s *Store) AddACLRow(row core.ACLRow) error {
 		return err
 	}
 	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		if _, err := s.WriteEntitiesInTx(context.Background(), tx, nil, w); err != nil {
+		// A refusal is the grant already being there, which is what aclPut's
+		// create-if-absent asks for: a re-grant must not restamp who granted it.
+		if _, err := s.TryWriteEntitiesInTx(context.Background(), tx, nil, w); err != nil {
 			return audit.Event{}, err
 		}
 		// GrantedBy is the grantor recorded in the row itself; it stands in as the
@@ -205,7 +207,7 @@ func (s *Store) RemoveACLRow(row core.ACLRow) error {
 		return err
 	}
 	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		if _, err := s.WriteEntitiesInTx(context.Background(), tx, nil, objstore.Write{
+		if err := s.WriteEntitiesInTx(context.Background(), tx, nil, objstore.Write{
 			Op: objstore.Delete, Entity: ACL, Key: key,
 		}); err != nil {
 			return audit.Event{}, err
@@ -237,7 +239,8 @@ func (s *Store) PutACLRow(row core.ACLRow) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.WriteEntities(context.Background(), nil, w)
+	// A refusal is the grant already being there (aclPut).
+	_, err = s.TryWriteEntities(context.Background(), nil, w)
 	return err
 }
 
@@ -372,7 +375,8 @@ func (s *Store) PutACLRowTx(ctx context.Context, tx *sql.Tx, row core.ACLRow) er
 	if err != nil {
 		return err
 	}
-	_, err = s.WriteEntitiesInTx(ctx, tx, nil, w)
+	// A refusal is the grant already being there (aclPut).
+	_, err = s.TryWriteEntitiesInTx(ctx, tx, nil, w)
 	return err
 }
 
@@ -389,7 +393,7 @@ func (s *Store) RemoveACLRowTx(ctx context.Context, tx *sql.Tx, row core.ACLRow)
 	if err != nil {
 		return false, err
 	}
-	return s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+	return s.TryWriteEntitiesInTx(ctx, tx, nil, objstore.Write{
 		Op: objstore.Delete, Entity: ACL, Key: key,
 		Cond: objstore.Cond{Item: objstore.ItemPresent},
 	})

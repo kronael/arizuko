@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -262,14 +263,18 @@ func TestTaskUpdateEmptyPatch(t *testing.T) {
 	}
 }
 
+// TestTaskUpdateNonexistent: patching a task nobody created is an ERROR. The
+// Update requires the item to exist, and this path writes an audit_log row
+// saying `task.update` succeeded — so a swallowed refusal records a change that
+// never happened (BUGS L268).
 func TestTaskUpdateNonexistent(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 
 	status := "paused"
 	err := s.UpdateTask("ghost", TaskPatch{Status: &status})
-	if err != nil {
-		t.Fatal("UpdateTask on nonexistent should not error:", err)
+	if !errors.Is(err, ErrRefused) {
+		t.Fatalf("UpdateTask on a task that is not there answered %v, want ErrRefused", err)
 	}
 }
 

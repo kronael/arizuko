@@ -76,7 +76,9 @@ func (s *Store) AddGroupWatcher(observer, source string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := s.WriteEntities(context.Background(), nil, objstore.Write{
+	// A refusal is the subscription already being there, which is the state the
+	// caller asked for.
+	if _, err := s.TryWriteEntities(context.Background(), nil, objstore.Write{
 		Op: objstore.Put, Entity: GroupWatchers, Key: key, Attrs: map[string]string{},
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},
 	}); err != nil {
@@ -92,7 +94,7 @@ func (s *Store) RemoveGroupWatcher(observer, source string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := s.WriteEntities(context.Background(), nil, objstore.Write{
+	if err := s.WriteEntities(context.Background(), nil, objstore.Write{
 		Op: objstore.Delete, Entity: GroupWatchers, Key: key,
 	}); err != nil {
 		return fmt.Errorf("unsubscribe %s from %s: %w", observer, source, err)

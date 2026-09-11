@@ -20,7 +20,7 @@ func seedRedemption(t *testing.T, s *Store, userSub, glob string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	recorded, err := s.WriteEntities(context.Background(), nil, w)
+	recorded, err := s.TryWriteEntities(context.Background(), nil, w)
 	if err != nil || !recorded {
 		t.Fatalf("seed a redemption for %s: recorded=%v err=%v", userSub, recorded, err)
 	}

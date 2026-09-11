@@ -238,6 +238,45 @@ func TestAdminGatePutListDelete(t *testing.T) {
 	}
 }
 
+// TestEnablingAGateThatIsNotThereIsNotASuccess is BUGS L268 at the surface that
+// makes it a defect. `PUT /v1/gates/<gate>` carrying only {"enabled":true},
+// against a gate nobody opened, answered 200 {"ok":true} and wrote no row: an
+// Update writes nothing when the item is missing, the refusal it reports was
+// discarded inside EnableGateTx, and the operator was told a write happened
+// that did not.
+//
+// It asserts BOTH halves, because either one alone passes against the bug: the
+// answer is not a success, and the gate is still absent afterwards.
+func TestEnablingAGateThatIsNotThereIsNotASuccess(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "store", "onbod.db")
+	mustSeedDB(t, path)
+	db, err := openOwnedDB(path)
+	if err != nil {
+		t.Fatalf("openOwnedDB: %v", err)
+	}
+	defer db.Close()
+	mux := http.NewServeMux()
+	(&admin{db: db, ks: nil}).mountGates(mux)
+
+	req := httptest.NewRequest("PUT", "/v1/gates/github:org=acme",
+		strings.NewReader(`{"enabled":true}`))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("enabling a gate that does not exist answered %d %s, want 404: the Update "+
+			"wrote no row, so a 200 tells the operator a write happened that did not "+
+			"(BUGS L268)", w.Code, strings.TrimSpace(w.Body.String()))
+	}
+
+	gates, err := store.New(db).ListGates()
+	if err != nil {
+		t.Fatalf("list gates: %v", err)
+	}
+	if len(gates) != 0 {
+		t.Errorf("the refused enable left %d gates behind, want none: %+v", len(gates), gates)
+	}
+}
+
 // gatesRESTGate reproduces the retired handlers' any-of scope check: gates:read
 // OR gates:write lists; only gates:write mutates. Non-nil ks makes it enforce
 // (the gate itself never touches ks, so an empty KeySet suffices). nil ks is

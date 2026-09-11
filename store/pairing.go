@@ -86,9 +86,9 @@ func (s *Store) IssuePairingLink(ctx context.Context, tx *sql.Tx, jid, ownerFold
 		return "", fmt.Errorf("pairing: mint token for %s: %w", jid, err)
 	}
 	if tx != nil {
-		_, err = s.WriteEntitiesInTx(ctx, tx, nil, w)
+		err = s.WriteEntitiesInTx(ctx, tx, nil, w)
 	} else {
-		_, err = s.WriteEntities(ctx, nil, w)
+		err = s.WriteEntities(ctx, nil, w)
 	}
 	if err != nil {
 		return "", fmt.Errorf("pairing: mint token for %s: %w", jid, err)
@@ -180,7 +180,7 @@ func (s *Store) RedeemPairing(rawToken, parentSub string) (string, error) {
 	if err := s.PutMembershipTx(ctx, tx, jid, parentSub, PairingAddedBy); err != nil {
 		return "", err
 	}
-	spent, err := s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+	spent, err := s.TryWriteEntitiesInTx(ctx, tx, nil, objstore.Write{
 		Op: objstore.Delete, Entity: RouteTokens, Key: it.Key,
 		Cond: objstore.Cond{Item: objstore.ItemPresent},
 	})
@@ -210,7 +210,7 @@ func (s *Store) UnpairTx(ctx context.Context, tx *sql.Tx, child, parent string) 
 	if err != nil {
 		return false, err
 	}
-	return s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+	return s.TryWriteEntitiesInTx(ctx, tx, nil, objstore.Write{
 		Op: objstore.Delete, Entity: ACLMembership, Key: key,
 		Cond: objstore.Cond{Where: []objstore.Cmp{
 			{Attr: attrMemAddedBy, Op: objstore.Eq, Value: PairingAddedBy},

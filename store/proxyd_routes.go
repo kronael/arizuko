@@ -188,7 +188,7 @@ func (s *Store) putProxydRouteTx(ctx context.Context, tx *sql.Tx, r ProxydRoute)
 	if err != nil {
 		return err
 	}
-	_, err = s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+	err = s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
 		Op: objstore.Put, Entity: ProxydRoutes, Key: key, Attrs: attrs,
 	})
 	return err
@@ -212,7 +212,7 @@ func (s *Store) CreateProxydRouteTx(ctx context.Context, tx *sql.Tx, r ProxydRou
 	if err != nil {
 		return false, err
 	}
-	return s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+	return s.TryWriteEntitiesInTx(ctx, tx, nil, objstore.Write{
 		Op: objstore.Put, Entity: ProxydRoutes, Key: key, Attrs: attrs,
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},
 	})
@@ -246,7 +246,7 @@ func (s *Store) UpdateProxydRouteTx(ctx context.Context, tx *sql.Tx, r ProxydRou
 			remove = append(remove, name)
 		}
 	}
-	return s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+	return s.TryWriteEntitiesInTx(ctx, tx, nil, objstore.Write{
 		Op: objstore.Update, Entity: ProxydRoutes, Key: key, Attrs: attrs, Remove: remove,
 		Cond: objstore.Cond{Item: objstore.ItemPresent},
 	})
@@ -261,7 +261,7 @@ func (s *Store) DeleteProxydRouteTx(ctx context.Context, tx *sql.Tx, path string
 	if err != nil {
 		return false, err
 	}
-	return s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+	return s.TryWriteEntitiesInTx(ctx, tx, nil, objstore.Write{
 		Op: objstore.Delete, Entity: ProxydRoutes, Key: key,
 		Cond: objstore.Cond{Item: objstore.ItemPresent},
 	})
