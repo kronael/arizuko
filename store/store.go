@@ -145,12 +145,15 @@ func openOwned(path, file, table, owner string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	var n int
-	if err := db.QueryRow(
-		"SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&n); err != nil {
+	exists, err := db_utils.TableExists(db, table)
+	if err != nil {
 		db.Close()
-		return nil, fmt.Errorf("%s at %s has no %s table (%s must boot to migrate it first): %w",
-			file, path, table, owner, err)
+		return nil, fmt.Errorf("%s at %s: look for the %s table: %w", file, path, table, err)
+	}
+	if !exists {
+		db.Close()
+		return nil, fmt.Errorf("%s at %s has no %s table (%s must boot to migrate it first)",
+			file, path, table, owner)
 	}
 	return &Store{db: db}, nil
 }

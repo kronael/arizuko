@@ -47,6 +47,7 @@ import (
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/objstore"
 )
@@ -171,15 +172,15 @@ func invitePut(inv Invite) (objstore.Write, error) {
 // migrations also runs this.
 //
 // The read stays SQL because its subject IS a table no entity has; the writes and
-// the DROP ride the read's own transaction.
+// the DROP ride the read's own transaction. db_utils.TableExists asks whichever
+// engine this database is on whether the table is there.
 func BackfillInviteRefs(db *sql.DB) error {
-	var exists int
-	err := db.QueryRow(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='invites_legacy'`).Scan(&exists)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil
-	}
+	exists, err := db_utils.TableExists(db, "invites_legacy")
 	if err != nil {
 		return err
+	}
+	if !exists {
+		return nil
 	}
 	tx, err := db.Begin()
 	if err != nil {

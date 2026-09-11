@@ -49,6 +49,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/objstore"
 )
 
@@ -184,18 +185,18 @@ func (s *Store) InsertOnboarding(jid string) error {
 //
 // The read stays SQL because its subject IS a table — a legacy shape no entity has
 // — and the write and the DROP ride the read's own transaction, so a crash between
-// them leaves the source recoverable rather than half moved.
+// them leaves the source recoverable rather than half moved. db_utils.TableExists
+// asks whichever engine this database is on whether the table is there.
 //
 // The token columns are deliberately NOT named here: onbod 0006 drops them, so
 // naming them would fail outright against the post-0006 schema (BUGS F40).
 func CarryOnboardingLegacy(db *sql.DB) error {
-	var exists int
-	err := db.QueryRow(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='onboarding_legacy'`).Scan(&exists)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil
-	}
+	exists, err := db_utils.TableExists(db, "onboarding_legacy")
 	if err != nil {
 		return err
+	}
+	if !exists {
+		return nil
 	}
 	tx, err := db.Begin()
 	if err != nil {

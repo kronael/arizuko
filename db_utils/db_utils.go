@@ -217,11 +217,12 @@ func checkVersions(files []string) error {
 // transaction-mode pooler allows and a session lock is not.
 const migrateLockKey = 6103702026090601
 
-// dialect is the SQL Migrate's own bookkeeping differs in between engines. The
-// migration runner is the one place in arizuko that speaks both: it applies the
-// SQLite sets an instance already carries and the Postgres baselines an instance
-// converts to (spec 6/37 step 7). Every other statement in the tree has one
-// dialect.
+// dialect is the SQL that differs between engines. Two readers share it: the
+// migration runner, which applies the SQLite sets an instance already carries and
+// the Postgres baselines an instance converts to (spec 6/37 step 7), and
+// TableExists, which asks the engine's own catalog whether a table is there. Both
+// are questions about the DATABASE rather than about arizuko's data, and every
+// statement about the data has one dialect — the driver emits it.
 type dialect struct {
 	// begin opens the critical section — one migrator at a time, so the version
 	// recheck inside it decides which one applies the file.
@@ -230,12 +231,16 @@ type dialect struct {
 	selectVersion string
 	// insertVersion records an applied migration.
 	insertVersion string
+	// tableExists asks the engine's catalog for one table by name, returning a
+	// row when it is there and none when it is not.
+	tableExists string
 }
 
 var sqliteDialect = dialect{
 	begin:         []string{"BEGIN EXCLUSIVE"},
 	selectVersion: "SELECT COALESCE(MAX(version),0) FROM migrations WHERE service=?",
 	insertVersion: "INSERT INTO migrations (service, version, applied_at) VALUES (?,?,?)",
+	tableExists:   "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
 }
 
 var postgresDialect = dialect{
@@ -245,6 +250,14 @@ var postgresDialect = dialect{
 	},
 	selectVersion: "SELECT COALESCE(MAX(version),0) FROM migrations WHERE service=$1",
 	insertVersion: "INSERT INTO migrations (service, version, applied_at) VALUES ($1,$2,$3)",
+	// pg_class rather than information_schema: the catalog answers for the
+	// schemas on the search path only, which is the same reach a query in this
+	// pool has. relkind 'r' is an ordinary table and 'p' a partitioned one; a
+	// view, an index and a sequence share the namespace and are not tables.
+	tableExists: "SELECT 1 FROM pg_catalog.pg_class c " +
+		"JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace " +
+		"WHERE c.relname = $1 AND c.relkind IN ('r','p') " +
+		"AND pg_catalog.pg_table_is_visible(c.oid)",
 }
 
 func dialectFor(db *sql.DB) dialect {
@@ -262,6 +275,26 @@ func dialectFor(db *sql.DB) dialect {
 func IsPostgres(db *sql.DB) bool {
 	_, ok := db.Driver().(*stdlib.Driver)
 	return ok
+}
+
+// TableExists reports whether db holds a table called name. The question is the
+// engine's, not arizuko's — SQLite answers from sqlite_master and Postgres from
+// pg_class — so it is asked here, beside the opener that chose the engine, and a
+// caller that hardcodes one catalog is a caller that boots on one engine.
+//
+// Its subject is always a table no entity has: a legacy shape left behind by a
+// reshaping migration, or the proof that a path names the owner database it
+// claims to. Everything else in the tree asks the driver for items instead.
+func TableExists(db *sql.DB, name string) (bool, error) {
+	var one int
+	err := db.QueryRow(dialectFor(db).tableExists, name).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // beginLocked opens the critical section on conn. The caller owns the ROLLBACK
