@@ -65,6 +65,27 @@ func TestRecordOutbound_StoresPlatformID(t *testing.T) {
 	}
 }
 
+// `routed_to` names the FOLDER the turn ran in, and the folder feed is
+// partitioned by it. A chat jid there makes the row invisible to every
+// folder-scoped read — find_messages cannot see the reply, the per-folder counts
+// understate it, and delegation refuses the jid as a target. The row already
+// carries the chat as ChatJID, so a jid in this field names nothing new.
+func TestRecordOutbound_RoutesToTheFolderNotTheChat(t *testing.T) {
+	var got core.Message
+	db := StoreFns{PutOutbound: func(m core.Message, _ string) error { got = m; return nil }}
+
+	const folder = "atlas/support"
+	const jid = "slack:T/channel/C0B4"
+	recordOutbound(GatedFns{}, db, jid, "hello", "1780300379.765170", folder)
+
+	if got.RoutedTo != folder {
+		t.Fatalf("recordOutbound RoutedTo = %q, want the turn's folder %q", got.RoutedTo, folder)
+	}
+	if got.ChatJID != jid {
+		t.Fatalf("recordOutbound ChatJID = %q, want the chat %q", got.ChatJID, jid)
+	}
+}
+
 // A suffixed web token belongs to the folder its MINT recorded, not to the
 // folder its JID spells. `web:acme/support` is byte-identical to a plain token
 // at a folder named `acme/support`, so reading the grammar lets an agent AT

@@ -177,8 +177,8 @@ type StoreFns struct {
 	// deciding which sweep owns it. It is a door of its own because a delivery
 	// status is not a field of a message: `sent` is the absence of a delivery
 	// item, so an already-delivered row goes through PutMessage.
-	PutOutbound func(m core.Message, status string) error
-	GetLastReplyID   func(jid, topic string) string
+	PutOutbound    func(m core.Message, status string) error
+	GetLastReplyID func(jid, topic string) string
 	// SetLastReply upserts last_reply_id and engaged_folder for (jid,
 	// topic). Always called on outbound; BumpEngagement is the separate
 	// timed-aware bump. Spec 5/G.
@@ -768,8 +768,12 @@ func putOutboundRow(gated GatedFns, db StoreFns, jid, text, platformID, folder, 
 			// promotion (spec 5/L) matches it. reply-tool sends were dropping it, so
 			// threads rooted on a tool reply never re-promoted.
 			PlatformID: platformID,
-			RoutedTo:   jid,
-			Topic:      topic,
+			// The folder the turn ran in, which is what `routed_to` names and what
+			// the folder feed is partitioned by. The chat's jid is already the
+			// row's ChatJID, and a jid here makes a folder-scoped read miss the
+			// reply it is looking for.
+			RoutedTo: folder,
+			Topic:    topic,
 		}, status)
 		if err != nil {
 			slog.Error("outbound row not stored", "folder", folder, "jid", jid,

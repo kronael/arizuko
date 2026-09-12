@@ -73,6 +73,31 @@ the daemon that spawns turns holds root-equivalent access to the host.
   unhardened. `--runtime=runsc` is the separate, larger question: it is one
   `daemon.json` line and changes no arizuko mechanism.
 
+## ✅ FIXED 2026-09-12 L285 — the agent's own reply records the chat as its folder, so half the folder feed is unreadable (2026-09-12)
+
+MEASURED on live krons: **2,710 of 5,605** message rows carrying `routed_to` hold
+a chat jid rather than a folder, and **42 of the 95** `message_folders`
+partitions are jids. That half of the index is written on every agent reply and
+read by nothing.
+
+Two writers build the same row. `routd/turns.go:118` writes `RoutedTo: tc.Folder`.
+`ipc/ipc.go` wrote `RoutedTo: jid`, with the turn's `folder` already in scope and
+already used one line away.
+
+`routed_to` names the folder the turn ran in, and the folder feed is partitioned
+by it, so a jid there makes the reply invisible to every folder-scoped read:
+`find_messages` cannot see it, the per-folder counts understate it, and
+`resolveTarget` refuses a jid as a delegation target and returns early, skipping
+the sticky-group and route-table fallbacks.
+
+- **Severity:** high — 48% of a live index is unreadable, on every instance
+- **Scope:** `ipc/ipc.go`
+- **Affected:** krons measured; marinade and sloth run the same code
+- **Status:** fixed
+- **Fix:** one token. `TestRecordOutbound_RoutesToTheFolderNotTheChat` pins it and
+  fails on the old value. The existing rows are a separate decision: a backfill
+  would rewrite 2,710 items and their feed entries, and nothing reads them today.
+
 ## L276 — re-running `migrate-hot` after routd has taken writes rolls every cursor back, and the refusal comes too late to stop it (2026-09-12, open)
 
 REPRODUCED on a migrated copy of sloth's `routd.db`. The move derives each chat's
