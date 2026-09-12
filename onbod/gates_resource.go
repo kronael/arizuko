@@ -21,7 +21,6 @@ import (
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
-	"github.com/kronael/arizuko/store"
 )
 
 // gateJSON is the wire shape for one gate row. enabled is a bool (the routd
@@ -47,7 +46,7 @@ func (a *admin) gatesResource() resreg.Resource {
 	r := resreg.Mount(resources.OnboardingGatesName)
 	r.Handler = a.gatesHandler
 	r.Gate = a.gatesRESTGate
-	r.Store = store.New(a.db)
+	r.Store = a.store()
 	return r
 }
 
@@ -96,7 +95,7 @@ func (a *admin) gatesRESTGate(x resreg.Execution, _ string, _ map[string]string)
 // ride resreg.invoke's one batch (calling store.PutGate/EnableGate/DeleteGate
 // here would send a batch of its own and double-audit).
 func (a *admin) gatesHandler(ctx context.Context, x resreg.Execution) (any, error) {
-	st := store.New(a.db)
+	st := a.store()
 	switch x.Action {
 	case resreg.ActionList:
 		gates, err := st.ListGates()

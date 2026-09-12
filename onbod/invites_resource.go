@@ -36,7 +36,7 @@ func (a *admin) invitesResource() resreg.Resource {
 	r := resreg.Mount(resources.InvitesName)
 	r.Handler = a.invitesHandler
 	r.Gate = a.invitesRESTGate
-	r.Store = store.New(a.db)
+	r.Store = a.store()
 	return r
 }
 
@@ -67,7 +67,7 @@ func (a *admin) invitesRESTGate(x resreg.Execution, _ string, _ map[string]strin
 // would send a batch of its own and double-audit). list is read-only and buffers
 // nothing.
 func (a *admin) invitesHandler(ctx context.Context, x resreg.Execution) (any, error) {
-	st := store.New(a.db)
+	st := a.store()
 	switch x.Action {
 	case resreg.ActionList:
 		invs, err := st.ListInvites(argString(x.Args, "issued_by"))
