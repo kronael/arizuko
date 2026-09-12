@@ -120,32 +120,84 @@ The next tenant of that path inherits the previous tenant's ambient window, sinc
   partition purge. `TestMessageFolders_ChildPartitionPurgedOnGroupDelete` pins it
   and fails on the old order.
 
-## L288 — `resreg` opens a transaction per mutating call, and it is the last one (2026-09-12, open — needs sign-off)
+## ✅ FIXED 2026-09-12 L288 — `resreg` opened a transaction per mutating call, and it was the last one (2026-09-12)
 
-`resreg.go:690` begins a transaction for every mutating call, hands it to the
-handler as `x.Tx`, and commits it with the audit row `emitAudit` writes. That is
-the same guarantee `store`'s writers just gave up in favour of one guarded batch,
-and it is now the only place in arizuko that opens a transaction for a mutation.
+`resreg.go` began a transaction for every mutating call, handed it to the handler
+as `x.Tx`, and committed it with the audit row `emitAudit` wrote. That was the
+same guarantee `store`'s writers had already given up in favour of one guarded
+batch, and it was the only place left in arizuko that opened a transaction for a
+mutation.
 
-It is what keeps **33** exported `store` functions naming a `*sql.Tx`, across
-`routd`, `onbod` and `proxyd`, and it is why the `…Tx` twins exist at all. Until
-it goes, `Store.Obj()` cannot return the interface and no daemon can be pointed
-at a driver that has no transactions.
-
-The difference from the store's writers is the contract. A `store` writer builds
-its writes and hands them over, so the batch is assembled in one place. A resreg
-`Handler` PERFORMS its writes and returns a rendered row, so `invoke` never sees
-them and cannot put them in a batch with the audit row.
+The difference was the contract. A `store` writer builds its writes and hands
+them over, so the batch is assembled in one place. A resreg `Handler` PERFORMED
+its writes and returned a rendered row, so `invoke` never saw them and could not
+put them in a batch with the audit row.
 
 - **Severity:** high — the last structural blocker for the storage port
-- **Scope:** `resreg/resreg.go`, and every handler that reads `x.Tx`
+- **Scope:** `resreg/resreg.go`, and every handler that read `x.Tx`
 - **Affected:** routd, onbod, proxyd
-- **Status:** open — it changes `Handler`'s contract, so it needs sign-off
-- **Fix (proposal):** `Handler` answers `([]objstore.Write, any, error)` instead
-  of performing its writes. `invoke` appends the audit row and sends ONE batch,
-  which restores the exact guarantee the transaction gave and removes every
-  `…Tx` twin behind it. Estimated 400-700 lines across three daemons; the store
-  conversion that just landed is the worked precedent.
+- **Status:** fixed
+- **Fix:** `Execution.Writes` carries a `store.WriteSet` where `x.Tx` was. Each
+  `…Tx` store method became a `…Into` twin that APPENDS its write, and `invoke`
+  sends the whole set plus the audit row as one `GuardedBatch`. A write whose
+  refusal is an answer goes in through `WriteSet.AddGuarded` with the error that
+  refusal means, because the handler has returned by the time the verdict exists;
+  a set holds at most one, since a batch reports one bit.
+
+  Three writes changed SHAPE to fit one batch, each because it named one item
+  twice or refused where a refusal had no meaning: the gate upsert folds its
+  limit and its flag into one Merge, the web-route upsert is a Merge rather than
+  a create-then-update pair, and the network-rule allow is a Merge rather than a
+  create-if-absent whose refusal was discarded.
+
+  Two write sets are sized by the CALLER — `set_routes` and a jid's token revoke
+  — and both go in WHOLE rather than in chunks: past `objstore.MaxBatchActions`
+  the batch is refused naming the count, which an operator can act on, where a
+  sweep would leave a half-replaced routing table or live bearers under an audit
+  row saying they were revoked. The largest live instance holds 58 route rules
+  and 43 route tokens, so neither bound is a live limit.
+
+  Exported `store` functions naming a `*sql.Tx`: **33 → 5**
+  (`WriteEntitiesInTx`, `TryWriteEntitiesInTx`, `QueuedSystemMessagesTx`,
+  `DrainSystemMessagesTx`, and their two callers' doors). `Store.Obj()` still
+  cannot return the interface — see `L289`.
+
+## L289 — `Obj()` still returns the SQL driver, and six call sites say why (2026-09-12, open)
+
+`Store.Obj()` answers `*sqlstore.Store` rather than `objstore.Store`. Making it
+answer the interface was tried and MEASURED (2026-09-12): the build stops at six
+call sites, on two separate causes.
+
+Four are the transaction, held by the two writers `resreg`'s removal left behind:
+
+- `store/scopes.go:245` — `TryWriteEntitiesInTx` needs `GuardedBatchInTx`. Its
+  callers are the invite REDEMPTION (`store/invites.go`), whose claim, membership
+  edge and audit row cross two databases on one transaction, and the
+  system-message drain (`store/system_messages.go`, `routd/prompt_db.go`), which
+  reads the queued events and removes exactly those so none is rendered into one
+  prompt and taken by another.
+- `store/scopes.go:341,357,362` — `txReader` needs `QueryInTx` and
+  `GuardedBatchInTx`; it exists to serve the same two.
+- `store/invites.go:542` — `audit.EmitInTx(ctx, s.Obj(), tx, …)` needs
+  `audit.TxSink`, which is why that interface still has a caller.
+
+The sixth is NOT the transaction and needs its own answer:
+
+- `store/message_folders.go:292` — `putIfAbsent(ctx, s.Obj(), w)` takes
+  `store.Driver`, which is wider than `objstore.Store` because it carries the DDL
+  (`CreateEntity`). Schema is driver-local by design (spec 6/40), so this one is
+  about which door an opener reaches, not about a transaction.
+
+- **Severity:** medium — the remaining blocker for a driver with no transactions
+- **Scope:** `store/scopes.go`, `store/invites.go`, `store/system_messages.go`,
+  `store/message_folders.go`
+- **Affected:** routd, onbod
+- **Status:** open
+- **Fix (proposal):** the drain is a claim-and-return, which is Query plus a
+  per-item guarded batch and needs no transaction. The redemption is the harder
+  one: it is a cross-database write, so it wants the outbox `6/40` already
+  designs rather than a batch. The `Driver` call site wants a separate opener
+  door, not a narrower `Obj()`.
 
 ## ✅ FIXED 2026-09-12 L286 — five writers needed an unbounded atomic delete, which the object store cannot give (2026-09-12)
 
