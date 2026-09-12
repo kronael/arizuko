@@ -245,12 +245,6 @@ func groupUpsert(g core.Group, settings map[string]any) (objstore.Write, error) 
 }
 
 // putGroup writes the upsert, on a transaction the caller owns when it has one.
-//
-// ONE WRITE, and the read above it happens only when the caller named a model:
-// the settings document is what a model override is folded into, and nothing
-// else here needs the item. The pair this replaces decided which of two writes
-// landed by the first one's REFUSAL, which is what made the upsert two actions
-// on one item and therefore a transaction (spec 6/40 §"Merge").
 func (s *Store) putGroup(ctx context.Context, tx *sql.Tx, g core.Group) error {
 	w, err := s.groupUpsertWrite(ctx, tx, g)
 	if err != nil {
@@ -260,10 +254,13 @@ func (s *Store) putGroup(ctx context.Context, tx *sql.Tx, g core.Group) error {
 }
 
 // groupUpsertWrite reads what the upsert needs and renders it, for both sinks
-// that write one: the caller's transaction and the audited batch. The read
-// stands ahead of the write rather than inside it — the settings document is
-// the only thing a model override is folded into, and the write that folds it
-// carries nothing the read decides.
+// that write one: the caller's transaction and the audited batch.
+//
+// ONE WRITE, and the read ahead of it happens only when the caller named a
+// model: the settings document is what a model override is folded into, and
+// nothing else here needs the item. The pair this replaces decided which of two
+// writes landed by the first one's REFUSAL, which is what made the upsert two
+// actions on one item and therefore a transaction (spec 6/40 §"Merge").
 func (s *Store) groupUpsertWrite(ctx context.Context, tx *sql.Tx, g core.Group) (objstore.Write, error) {
 	var settings map[string]any
 	if g.Model != "" {
