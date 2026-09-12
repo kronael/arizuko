@@ -90,20 +90,23 @@ Fix: `sudo docker restart arizuko_teled_${INSTANCE}` (or whichever adapter).
 ```bash
 DB=/srv/data/arizuko_${INSTANCE}/store/routd/routd.db  # split: routd owns messages/chats/routes/scheduled_tasks/groups
 
-# Agent cursors vs latest messages + errored count. errored moved to
-# the messages table in migration 0030 — chats.errored no longer exists.
+# Every table is an objstore entity: (part, sort, attrs). A chat's jid is its
+# `sort`, a message's position is its `sort` — the first 30 bytes are the
+# instant — and every other field is a JSON attribute. A flag is "1" when set
+# and ABSENT when not, so `= '1'` is the test and there is no stored zero.
 sudo sqlite3 $DB "
-  SELECT c.jid, c.agent_cursor,
-    (SELECT COUNT(*) FROM messages m WHERE m.chat_jid = c.jid AND m.errored = 1)
+  SELECT c.sort AS jid,
+    json_extract(c.attrs,'\$.agent_cursor') AS agent_cursor,
+    (SELECT COUNT(*) FROM messages m
+      WHERE m.part = c.sort AND json_extract(m.attrs,'\$.errored') = '1')
     AS errored_msgs,
-    (SELECT r.target FROM routes r
-     WHERE r.match LIKE '%room=' || substr(c.jid, instr(c.jid, ':') + 1) || '%'
-     ORDER BY r.seq LIMIT 1) AS group_folder,
-    (SELECT MAX(m.timestamp) FROM messages m WHERE m.chat_jid = c.jid
-     AND m.is_bot_message = 0 AND m.sender NOT LIKE 'arizuko%')
+    (SELECT MAX(substr(m.sort, 1, 30)) FROM messages m
+      WHERE m.part = c.sort
+        AND json_extract(m.attrs,'\$.is_bot_message') IS NULL
+        AND json_extract(m.attrs,'\$.sender') NOT LIKE 'arizuko%')
     AS latest_user_msg
   FROM chats c
-  ORDER BY c.jid;
+  ORDER BY c.sort;
 "
 ```
 
@@ -113,15 +116,19 @@ sudo sqlite3 $DB "
 If cursor is stalled, show the pending messages:
 ```bash
 sudo sqlite3 $DB "
-  SELECT timestamp, sender, is_bot_message, substr(content,1,120) as content
-  FROM messages WHERE chat_jid = '<jid>'
-  ORDER BY timestamp DESC LIMIT 10;
+  SELECT substr(sort,1,30) AS timestamp,
+         json_extract(attrs,'\$.sender') AS sender,
+         json_extract(attrs,'\$.is_bot_message') AS is_bot_message,
+         substr(json_extract(attrs,'\$.content'),1,120) AS content
+  FROM messages WHERE part = '<jid>'
+  ORDER BY sort DESC LIMIT 10;
 "
 ```
 
 If `errored_msgs > 0` and routd is healthy, clear the errored messages to unblock recovery:
 ```bash
-sudo sqlite3 $DB "DELETE FROM messages WHERE chat_jid = '<jid>' AND errored = 1;"
+sudo sqlite3 $DB "DELETE FROM messages
+  WHERE part = '<jid>' AND json_extract(attrs,'\$.errored') = '1';"
 sudo systemctl restart arizuko_${INSTANCE}
 ```
 
@@ -166,19 +173,27 @@ DB=/srv/data/arizuko_${INSTANCE}/store/routd/routd.db  # split: routd owns messa
 
 # Tasks and their next run
 sudo sqlite3 $DB "
-  SELECT id, folder, cron, next_run, status
+  SELECT sort AS id,
+         json_extract(attrs,'\$.owner') AS owner,
+         json_extract(attrs,'\$.cron') AS cron,
+         json_extract(attrs,'\$.next_run') AS next_run,
+         json_extract(attrs,'\$.status') AS status
   FROM scheduled_tasks
-  WHERE status = 'active'
-  ORDER BY next_run
+  WHERE json_extract(attrs,'\$.status') = 'active'
+  ORDER BY 4
   LIMIT 20;
 "
 
 # Recent task fires (last 24h)
+# A run log's instant is the lead of its `sort`, so the window is a string
+# comparison against the same fixed-width layout every stored instant carries.
 sudo sqlite3 $DB "
-  SELECT task_id, run_at, status
+  SELECT json_extract(attrs,'\$.task_id') AS task_id,
+         substr(sort,1,30) AS run_at,
+         json_extract(attrs,'\$.status') AS status
   FROM task_run_logs
-  WHERE run_at > datetime('now', '-24 hours')
-  ORDER BY run_at DESC
+  WHERE substr(sort,1,19) > strftime('%Y-%m-%dT%H:%M:%S', 'now', '-24 hours')
+  ORDER BY sort DESC
   LIMIT 20;
 "
 ```
@@ -405,7 +420,7 @@ sudo journalctl -u arizuko_${INSTANCE} --since "1 hour ago" --no-pager \
 DB=/srv/data/arizuko_${INSTANCE}/store/routd/routd.db  # split: routd owns messages/chats/routes/scheduled_tasks/groups
 SOURCE_COUNT=$(ls /home/onvos/app/arizuko/ant/skills/ | wc -l)
 # Only check groups registered in DB (skip orphan filesystem dirs like share/)
-for g in $(sudo sqlite3 $DB "SELECT folder FROM groups;  -- row existence = active; delete cascades the row (no state col)"); do
+for g in $(sudo sqlite3 $DB "SELECT sort FROM groups;  -- the folder IS the sort; row existence = active"); do
   gdir=$(echo "$g" | tr '/' '-')  # atlas/content → atlas-content (folder path)
   n=$(sudo ls /srv/data/arizuko_${INSTANCE}/groups/$g/.claude/skills/ 2>/dev/null | wc -l)
   echo "$g: $n skills (expected >= $SOURCE_COUNT)"
@@ -444,7 +459,7 @@ Fix: check the skill's SKILL.md frontmatter `description:` field.
 ```bash
 DB=/srv/data/arizuko_${INSTANCE}/store/routd/routd.db  # split: routd owns messages/chats/routes/scheduled_tasks/groups
 SOURCE_DIR=/home/onvos/app/arizuko/ant/skills
-for g in $(sudo sqlite3 $DB "SELECT folder FROM groups;  -- row existence = active; delete cascades the row (no state col)"); do
+for g in $(sudo sqlite3 $DB "SELECT sort FROM groups;  -- the folder IS the sort; row existence = active"); do
   missing=""
   for s in $(ls $SOURCE_DIR); do
     if ! sudo test -d /srv/data/arizuko_${INSTANCE}/groups/$g/.claude/skills/$s; then
@@ -467,7 +482,7 @@ Fix: trigger `/migrate` in the affected group (each group self-migrates), or man
 ```bash
 DB=/srv/data/arizuko_${INSTANCE}/store/routd/routd.db  # split: routd owns messages/chats/routes/scheduled_tasks/groups
 # Check that group CLAUDE.md has the solve instruction (seeded from ant/CLAUDE.md)
-for g in $(sudo sqlite3 $DB "SELECT folder FROM groups;  -- row existence = active; delete cascades the row (no state col)"); do
+for g in $(sudo sqlite3 $DB "SELECT sort FROM groups;  -- the folder IS the sort; row existence = active"); do
   has=$(sudo grep -c "solve" /srv/data/arizuko_${INSTANCE}/groups/$g/.claude/CLAUDE.md 2>/dev/null)
   if [ "$has" -lt 1 ]; then
     echo "$g: MISSING solve instruction in CLAUDE.md"
@@ -541,7 +556,7 @@ be judged by whether it drives the class to zero.
 | Channel not registering after a stack restart | Adapter holds stale connection | `sudo docker restart arizuko_teled_${INSTANCE}` |
 | Circuit breaker stuck open | 3+ consecutive container failures | Send a new message to the group to reset; check container logs |
 | Agent responds "let me fix this now" then stops | Container killed mid-task by 5s idle timer after final output | User must re-send to trigger another run |
-| Errored messages on a chat | Container timed out with no output, or stack crashed mid-run | Clear with `DELETE FROM messages WHERE chat_jid = '...' AND errored = 1` then restart |
+| Errored messages on a chat | Container timed out with no output, or stack crashed mid-run | Clear with `DELETE FROM messages WHERE part = '...' AND json_extract(attrs,'$.errored') = '1'` then restart |
 | Migration version mismatch | New migration not applied to instance | Run migration manually or `arizuko run` to regenerate compose + restart |
 | routd "connecting channels: count=0" | Adapters not yet registered | Wait 10s; if still 0, restart adapters |
 | Agent ignores skills, responds generically | Solve not firing: CLAUDE.md not seeded, or nudge missing from runner | Re-seed group via `SetupGroup`; verify `runner.go` has `[solve]` annotation |

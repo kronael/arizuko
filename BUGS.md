@@ -7,7 +7,7 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
-## L284 — `/eval` queries the pre-migration schema, so the debug loop goes blind the moment an instance migrates (2026-09-12, open)
+## ✅ FIXED 2026-09-12 L284 — `/eval` queries the pre-migration schema, so the debug loop goes blind the moment an instance migrates (2026-09-12)
 
 REPRODUCED on a migrated copy of krons' `routd.db`:
 
@@ -31,10 +31,21 @@ rather than a broken query.
 - **Severity:** high — the migration verification tool does not survive the migration
 - **Scope:** `.claude/skills/eval/SKILL.md`
 - **Affected:** any migrated instance
-- **Status:** open
-- **Fix:** the checks read the entity shape, through `arizuko` subcommands rather
-  than raw SQL where one exists, so the instrument cannot drift from the store
-  again. It must be fixed BEFORE krons migrates, not after.
+- **Status:** fixed
+- **Fix:** every check reads the entity shape — the jid is the `sort`, a message's
+  instant is the first 30 bytes of its `sort`, and a flag is `"1"` or absent, so
+  there is no stored zero to compare against.
+
+**It also fixed a latent miscount nobody had seen.** Check 7's window compared
+`run_at` (`2026-09-12T02:01:01Z`) against `datetime('now','-24 hours')`
+(`2026-09-11 16:34:24`). `T` is 0x54 and a space is 0x20, so rows from earlier
+days compared as greater: the check reported **25** runs in 24 hours where there
+were **11**, measured on krons. A scheduler that had stopped would have read as
+healthy. The window now compares one layout against itself. Same class as `L97`.
+
+VERIFIED against a migrated krons copy and the unmigrated original: chats 136,
+active tasks 61, groups 53, errored messages 12 — identical on both sides; runs
+in 24 h is 11 on both once each query compares one layout.
 
 ## L283 — the agent turn container runs unhardened while its own egress sidecar is locked down (2026-09-12, open — needs sign-off)
 
