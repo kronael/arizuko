@@ -473,6 +473,50 @@ and is data loss under an entity, because a `Put` replaces the whole attribute
 set. `pending_actions` declares 12 of 18 (`L265`). Every resource's declaration
 is checked against the live schema before the cutover, not during it.
 
+## `Merge`, the write op both engines have and the surface had no name for
+
+Re-measured 2026-09-12: the 47 transaction sites `6/38` counted are **20**, and a
+verdict on each says most are a `GuardedBatch` wearing a `*sql.Tx`. Three are
+already vestigial — they wrap a single conditional write. `resreg.Apply` is off
+the list entirely; it adopted the versioned replace and opens no transaction.
+
+**One missing write op is why seven of the twenty still hold a transaction.**
+`Update` means must-exist, deliberately, because the refusal IS the
+compare-and-swap. That left create-or-merge with no spelling, so five call sites
+spell it as two writes on one item — `putSecret`, `putGroup`, `upsertReplyState`,
+`RecordProactiveFireInTx` and `putMessage`'s chat-open — and `ValidateBatch`
+forbids two actions on one item in a batch, which forces the transaction.
+
+So add **`Merge`**: merge the attributes into the item, create it when absent,
+never refuse. It is `UpdateItem` on DynamoDB natively, and on SQL it is one
+statement from fragments already in the dialect — `ON CONFLICT DO UPDATE SET
+attrs = json_patch(attrs, excluded.attrs)` on SQLite, `attrs ||
+excluded.attrs::jsonb` on Postgres. `Update` keeps must-exist, so every existing
+CAS is untouched.
+
+**What it makes impossible:** a half-upserted item. And transitively it is the
+precondition for moving four callers back onto `AddEdge`, because a batch may
+name each item once — so `CreateGroupWithAdmin`, `createWorldTx`, `PutGroupRow`
+and `RedeemPairing` can only become single `AddEdge` calls once their upsert is
+one write. That move restores the cycle guard on PostgreSQL, which
+`store/membership.go` records as currently resting on SQLite's single writer
+(`L256`).
+
+**A trap worth recording, because a review nearly shipped it.** Collapsing
+create-or-merge into one unconditional `Put` looks equivalent and destroys data:
+a `Put` is a whole-item replace, and a secrets item carries six attributes of
+which surrogate OAuth owns two. The same trap sits in `putGroup`'s settings
+document and `upsertReplyState`. `Merge` exists precisely so nobody reaches for
+`Put` here.
+
+**Six transactions cannot go, and the list is short enough to state.** The
+migration critical section (DDL precedes entities); `resreg.invoke`, whose
+`Handler` performs writes rather than describing them — a contract redesign, not
+a refactor; `DeleteGroup`'s unbounded subtree purge; `SyncProxydRoutes`'
+result-dependent count; the unbounded half of the system-message drain; and two
+legacy backfills that carry a `DROP TABLE` and are deletable rather than
+fixable.
+
 ## Portability, stated once
 
 **First, what this table is not.** arizuko is NOT key-value ready, and `6/38`
