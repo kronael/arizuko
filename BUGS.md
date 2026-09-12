@@ -62,7 +62,7 @@ entry asked for is not needed: the cascade is gone.
   cascade suppressed and the dependent rows re-attached. The second is the
   smaller change and the first is the right one.
 
-## L271 — the world's own owner cannot approve anything in their world (2026-09-12, open)
+## ✅ FIXED 2026-09-12 L271 — the world's own owner cannot approve anything in their world (2026-09-12)
 
 `cmdResolveHold` (`routd/steer.go:574`) gates `/approve`, `/reject` and
 `/always` on `IsOperator(sender)` — `role:operator`, or `admin` on `**`. A world
@@ -82,12 +82,20 @@ expires.
 - **Affected:** every world; measured on sloth
 - **Source:** `IsOperator` vs the `admin <world>/**` row onbod writes
 - **Status:** open
+Fixed 2026-09-12. The reproduction was written first and failed as filed —
+`status = "held", want approved; the ack was "Permission denied: approving a
+held call requires an operator grant (**)"`. The gate now sits in
+`resolveHoldTx` and keys on the held row's folder, so chat and REST run ONE
+gate; `auth.Authorize` is the evaluator, so a deny row still wins unconfined.
+dashd forwards the proxyd-verified sub as the reviewer and routd accepts only
+folders that sub holds `admin` on.
+
 - **Fix:** the gate moves into `resolveHoldTx` and keys on the HELD row's folder
   — `Authorize(reviewer, "admin", p.GroupFolder, nil)`. One gate for chat and
   REST, replacing two readers of "operator". A deny row stays unconfined, so an
   operator refusal still wins.
 
-## L272 — `add_acl` writes any `effect` string, and `Authorize` reads every non-`deny` value as allow (2026-09-12, open)
+## ✅ FIXED 2026-09-12 L272 — `add_acl` writes any `effect` string, and `Authorize` reads every non-`deny` value as allow (2026-09-12)
 
 `routd/acl_resource.go` takes `Effect: argString(args, "effect")` verbatim and
 only substitutes `allow` when it is empty. `auth.EffectAllowed`
@@ -112,9 +120,51 @@ the three writers do not call it.
 - **Affected:** every instance
 - **Source:** `grep EffectAllowed` returns one non-test caller, 2026-09-12
 - **Status:** open
+Fixed 2026-09-12, with the escalation proved first: *"ESCALATION: the row
+spelled `denny` authorizes `read` on root/team"*. Validation now sits in
+`store`'s `aclPut`, which every door into the acl entity renders through —
+`PutACLRow`, `PutACLRowTx`, `ACLGrantWrite`, `AddACLRow` and the seed. `store`
+declares the vocabulary once and `auth` reads it.
+
 - **Fix:** validation moves to where the row is WRITTEN — `store`'s ACL writer —
   so no face can bypass it, and `EffectAllowed` stops being something a caller
   may forget.
+
+## L273 — the approval floor makes 22 tools unholdable for every folder, not only worlds (2026-09-12, open — needs sign-off)
+
+The allow-everything-with-approval default seeds skip rows on `role:member` so a
+world's agent is not made to ask permission to `reply`. Deny-wins is absolute,
+so those rows make each named tool **unholdable fleet-wide** — for every folder,
+not only world-tier ones:
+
+```
+hold:mcp:reply          → holds=false
+hold:mcp:delete         → holds=false
+hold:mcp:schedule_task  → holds=true
+```
+
+An operator can still FORBID a reply outright by denying `mcp:reply`. They can no
+longer gate one behind a person.
+
+The floor is 22 tools, not the 17 first proposed. Measured against what a world
+turn actually mounts — 42 tools, 25 held, 17 free — five reads the agent needs
+every turn were being held: `get_work`, `get_thread`, `fetch_history`,
+`find_messages`, `inspect_messages`. `invite_list` and `get_web_presence` stay
+held, and every write stays held.
+
+This is the price of "seed once on the role" instead of "22 rows per world". The
+alternative costs a row per tool per world and drifts the moment a tool is added.
+`TestWorld_HoldsOnlyWhatAPersonShouldSee` walks the mounted set and fails if a
+new tool lands on the wrong side, which is what keeps the choice honest.
+
+- **Severity:** medium (a capability an operator had is gone; nothing is exposed)
+- **Scope:** `store/seed.go` `SeedRoutdFloor`, `alwaysMountedTools`
+- **Affected:** every folder on every instance, once the floor is seeded
+- **Source:** measured against a world turn's mounted tool set, 2026-09-12
+- **Status:** open — needs sign-off
+- **Fix:** if gating a reply behind a person must stay possible, the skip rows go
+  per world instead of on `role:member`, and the guard test becomes the thing
+  that stops them drifting.
 
 ## L270 — nine adapter dashboards trust `X-User-*` without verifying proxyd stamped it (2026-09-12, open)
 
