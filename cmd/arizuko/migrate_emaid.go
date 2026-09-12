@@ -49,6 +49,13 @@ func cmdMigrateEmaid(args []string) {
 		// emaid.db is adapter-private state under the adapter's own DATA_DIR,
 		// which template/services/emaid.yml mounts at <instance>/store/emaid.
 		path = filepath.Join(mustInstanceDir(fs.Arg(0)), "store", "emaid", "emaid.db")
+		if _, err := os.Stat(path); err != nil {
+			// An instance that runs no email adapter is not a source that
+			// failed, and a run of every tool in turn must reach the next one.
+			// A path the operator NAMED is different: that one still fails.
+			fmt.Printf("%s: absent, nothing to migrate\n", path)
+			return
+		}
 	}
 	if err := migrateEmaid(path, *dryRun); err != nil {
 		die("Failed: %v", err)

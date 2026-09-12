@@ -64,9 +64,12 @@ func cmdMigrateChanlib(args []string) {
 			die("Failed: %v", err)
 		}
 		if len(found) == 0 {
-			die("Failed: no adapter database under %s/store; chanlib's entities live in one "+
-				"file per channel, so an instance with no channel has nothing to migrate",
+			// chanlib's entities live in one file per channel, so an instance
+			// with no channel has nothing to migrate. That is not a source that
+			// failed, and a run of every tool in turn must reach the next one.
+			fmt.Printf("%s/store: no adapter database, nothing to migrate\n",
 				mustInstanceDir(fs.Arg(0)))
+			return
 		}
 		paths = found
 	}

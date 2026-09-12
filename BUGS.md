@@ -74,7 +74,7 @@ check passed, while an attribute was missing from every one of them.
 - **Fix:** the verification iterates the DECLARED entity list rather than a
   hand-written subset, so a new entity cannot be added without a check.
 
-## L279 — `migrate-chanlib` and `migrate-emaid` exit 1 when the database does not exist, so a scripted migration stops before the audit step (2026-09-12, open)
+## ✅ FIXED 2026-09-12 L279 — `migrate-chanlib` and `migrate-emaid` exit 1 when the database does not exist, so a scripted migration stops before the audit step (2026-09-12)
 
 MEASURED: `migrate-chanlib` exits 1 against an absent database. The rehearsal saw
 it on marinade and sloth, and `migrate-emaid` on all three, because no instance
@@ -87,9 +87,12 @@ about the same situation.
 - **Severity:** medium — a correct scripted run stops half-way
 - **Scope:** `cmd/arizuko/migrate_chanlib.go`, `cmd/arizuko/migrate_emaid.go`
 - **Affected:** krons, marinade, sloth — measured
-- **Status:** open
+- **Status:** fixed
 - **Fix:** "this instance has no such database" exits 0 with a line saying so,
-  which is what `migrate-audit` already does.
+  which is what `migrate-audit` already does. A path the operator NAMED with
+  `--db` still fails, because that one is a mistake rather than an absence.
+  VERIFIED: both tools now exit 0 on all three instances, and an explicit
+  missing path still exits 1.
 
 ## L280 — `migrate-split --dry-run` writes three databases, puts `onbod.db` where no daemon reads it, carries no auth, and then cannot finish (2026-09-12, open)
 
