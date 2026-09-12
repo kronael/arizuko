@@ -98,6 +98,28 @@ the sticky-group and route-table fallbacks.
   fails on the old value. The existing rows are a separate decision: a backfill
   would rewrite 2,710 items and their feed entries, and nothing reads them today.
 
+## ✅ FIXED 2026-09-12 L287 — deleting a folder leaves every child folder's feed partition behind (2026-09-12)
+
+REPRODUCED with groups `acme` and `acme/support`, one feed item in each:
+partition `acme` emptied, partition `acme/support` kept its item.
+
+`purgeFolder` reads the subtree off `groups`, and `groups` is the FIRST entry in
+`entityScopePurge` — so by the time `purgeFolderPartitions` asked which folders
+the subtree owns, the rows that name them were already deleted and the read
+answered nothing. The doc comment claimed the opposite: "The read runs BEFORE the
+purge above deletes those rows."
+
+The next tenant of that path inherits the previous tenant's ambient window, since
+`ObservedSince` reads that partition. Same class as `L66` and `L67`.
+
+- **Severity:** high — state leaks between tenants of the same path
+- **Scope:** `store/folder_scope.go`
+- **Affected:** every instance
+- **Status:** fixed
+- **Fix:** the folder list is read once, before the purge loop, and handed to the
+  partition purge. `TestMessageFolders_ChildPartitionPurgedOnGroupDelete` pins it
+  and fails on the old order.
+
 ## L286 — five writers need an unbounded atomic delete, which the object store cannot give (2026-09-12, open — needs sign-off)
 
 Twenty-two writers in `store/` opened a transaction so their audit row would

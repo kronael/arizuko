@@ -259,3 +259,38 @@ func TestHotTier_PurgedOnGroupDelete(t *testing.T) {
 		t.Errorf("the purge widened onto the sibling folder's queue: %d events left", len(kept))
 	}
 }
+
+// Deleting a folder empties the feed partition of every folder UNDER it, not
+// only the named one. The subtree is read off `groups`, and the purge deletes
+// those very rows, so a read taken after it names nothing and each child's
+// partition survives for the next tenant of that path to inherit.
+func TestMessageFolders_ChildPartitionPurgedOnGroupDelete(t *testing.T) {
+	s := openFKStore(t)
+	for _, f := range []string{"acme", "acme/support"} {
+		if err := s.PutGroup(core.Group{Folder: f}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx := context.Background()
+	for _, f := range []string{"acme", "acme/support"} {
+		if err := s.WriteEntities(ctx, nil, objstore.Write{
+			Op: objstore.Put, Entity: MessageFolders,
+			Key:   objstore.Key{Partition: f, Sort: "2026-09-12T00:00:00.000000000Z\x1fm1"},
+			Attrs: map[string]string{"chat_jid": "telegram:1"},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.DeleteGroup("acme"); err != nil {
+		t.Fatalf("DeleteGroup: %v", err)
+	}
+	for _, f := range []string{"acme", "acme/support"} {
+		items, err := s.Obj().Query(ctx, objstore.Query{Entity: MessageFolders, Partition: f})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(items) != 0 {
+			t.Errorf("%s kept %d feed items after its tree was deleted", f, len(items))
+		}
+	}
+}

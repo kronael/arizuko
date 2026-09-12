@@ -308,6 +308,10 @@ func (s *Store) purgeFolder(ctx context.Context, tx *sql.Tx, folder string) (int
 	if folder == "" {
 		return 0, errNoSuchGroup
 	}
+	// The folders this purge owns are read FIRST, off `groups`, because the loop
+	// below deletes those very rows: a read after it answers nothing and every
+	// child folder's partitions survive for the next tenant to inherit.
+	owned := append([]string{folder}, s.subtreeFolders(ctx, tx, folder)...)
 	removed := 0
 	for _, e := range entityScopePurge {
 		items, err := s.reads(tx).Query(ctx, objstore.Query{Entity: e.entity, Partition: OwnerRoutd})
@@ -347,22 +351,19 @@ func (s *Store) purgeFolder(ctx context.Context, tx *sql.Tx, folder string) (int
 			return 0, err
 		}
 	}
-	if err := s.purgeFolderPartitions(ctx, tx, folder); err != nil {
+	if err := s.purgeFolderPartitions(ctx, tx, owned); err != nil {
 		return 0, err
 	}
 	return removed, nil
 }
 
-// purgeFolderPartitions empties the partitions the deleted subtree OWNS.
-//
-// The folders are read off `groups` rather than enumerated, because enumerating
-// partitions is not an operation the interface has — and `groups` is the
-// declaration of which folders exist, so it is the right list anyway. The read
-// runs BEFORE the purge above deletes those rows, which is why this takes the
-// subtree's folders as its own read rather than the caller's leftovers.
-func (s *Store) purgeFolderPartitions(ctx context.Context, tx *sql.Tx, folder string) error {
+// purgeFolderPartitions empties the partitions the deleted subtree OWNS. It
+// takes the folder list rather than reading it, because enumerating partitions
+// is not an operation the interface has and the rows that name them are gone by
+// the time this runs.
+func (s *Store) purgeFolderPartitions(ctx context.Context, tx *sql.Tx, folders []string) error {
 	for _, entity := range folderPartitionPurge {
-		for _, owned := range append([]string{folder}, s.subtreeFolders(ctx, tx, folder)...) {
+		for _, owned := range folders {
 			items, err := s.reads(tx).Query(ctx, objstore.Query{
 				Entity: entity, Partition: owned, Project: []string{},
 			})
