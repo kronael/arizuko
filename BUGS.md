@@ -62,6 +62,60 @@ entry asked for is not needed: the cascade is gone.
   cascade suppressed and the dependent rows re-attached. The second is the
   smaller change and the first is the right one.
 
+## L271 — the world's own owner cannot approve anything in their world (2026-09-12, open)
+
+`cmdResolveHold` (`routd/steer.go:574`) gates `/approve`, `/reject` and
+`/always` on `IsOperator(sender)` — `role:operator`, or `admin` on `**`. A world
+creator gets `admin <world>/**` (`onbod/main.go:884`), and `matchPattern`
+(`auth/acl.go:63`) does not read `main/**` as covering `**`.
+
+So the person who owns a world cannot answer a hold in it. On sloth the discord
+user holds exactly that row. The dashboard is no escape: it gates on the stamped
+groups carrying `**`, which is the same test by another reader.
+
+This is the mechanism behind "the trading group cannot set up crons". Granting
+the tools is only half — with nobody able to approve, a held call waits until it
+expires.
+
+- **Severity:** high (the approval feature has no reachable approver per world)
+- **Scope:** `routd/steer.go:574`, `dashd/approvals_page.go`, `auth/dashauth.go`
+- **Affected:** every world; measured on sloth
+- **Source:** `IsOperator` vs the `admin <world>/**` row onbod writes
+- **Status:** open
+- **Fix:** the gate moves into `resolveHoldTx` and keys on the HELD row's folder
+  — `Authorize(reviewer, "admin", p.GroupFolder, nil)`. One gate for chat and
+  REST, replacing two readers of "operator". A deny row stays unconfined, so an
+  operator refusal still wins.
+
+## L272 — `add_acl` writes any `effect` string, and `Authorize` reads every non-`deny` value as allow (2026-09-12, open)
+
+`routd/acl_resource.go` takes `Effect: argString(args, "effect")` verbatim and
+only substitutes `allow` when it is empty. `auth.EffectAllowed`
+(`auth/authorize.go:578`) is the validator, and it has exactly ONE caller —
+`dashd/grants_admin.go:208`. `Authorize` (`auth/authorize.go:99`) treats a row as
+allow unless the effect is literally `deny`.
+
+So a row written through the agent or REST face with a mistyped or invented
+effect becomes a GRANT. `effect: "denny"` is an allow. A `hold:` row written with
+a wrong effect stops holding.
+
+Today the blast radius is small because few callers hold `acl.write`. It becomes
+a privilege escalation the moment world-tier folders hold `mcp:*`, because
+`add_acl` is then one of the tools they hold — an agent could widen its own
+grants by writing a row whose effect nobody validates.
+
+This is "one declaration, many readers" failing: the validator exists, and two of
+the three writers do not call it.
+
+- **Severity:** medium now, high under the allow-everything-with-approval default
+- **Scope:** `routd/acl_resource.go`, `auth/authorize.go`, `dashd/grants_admin.go`
+- **Affected:** every instance
+- **Source:** `grep EffectAllowed` returns one non-test caller, 2026-09-12
+- **Status:** open
+- **Fix:** validation moves to where the row is WRITTEN — `store`'s ACL writer —
+  so no face can bypass it, and `EffectAllowed` stops being something a caller
+  may forget.
+
 ## L270 — nine adapter dashboards trust `X-User-*` without verifying proxyd stamped it (2026-09-12, open)
 
 `auth.RequireOperator` (`auth/dashauth.go:66`) is the one correct gate, and its
