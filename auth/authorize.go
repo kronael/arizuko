@@ -544,7 +544,10 @@ func ParamsSpec(values map[string]string) (string, error) {
 // HoldPrefix namespaces hold rules. A hold is NEVER an `effect` on a plain
 // `mcp:<tool>` row: Authorize treats every non-deny effect as ALLOW, so such a
 // row would silently GRANT the tool it meant to gate (spec 5/19 Hazard 1).
-const HoldPrefix = "hold:mcp:"
+//
+// store declares it, because the row is store's and the seed floor writes these
+// actions. One declaration, two readers.
+const HoldPrefix = store.HoldPrefix
 
 // EffectSkipApproval is the deny effect on a namespaced rule row — on a `hold:`
 // row it means "do not hold this shape", on a `shell:env:` row "do not grant

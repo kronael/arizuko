@@ -107,9 +107,11 @@ func TestExport_FreshDB(t *testing.T) {
 	if !ok {
 		t.Fatalf("Export missing acl key")
 	}
-	// The floor: role:operator's root grant plus role:member's twelve verbs.
-	if len(acl) != 13 {
-		t.Errorf("acl = %d rows, want 13 (the seeded floor)", len(acl))
+	// The floor: role:operator's root grant, role:member's twelve verbs, and the
+	// twenty-two skip-approval rows that keep those verbs and the always-mounted
+	// reads out of a folder's blanket hold.
+	if len(acl) != 35 {
+		t.Errorf("acl = %d rows, want 35 (the seeded floor)", len(acl))
 	}
 	root := false
 	for _, r := range acl {

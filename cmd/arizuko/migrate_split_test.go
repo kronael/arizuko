@@ -383,12 +383,14 @@ func TestMigrateSplit(t *testing.T) {
 		"system_messages": 1, "cost_log_archive": 2,
 		// user_profiles: routd.db owns it → copied (split onbod reads it cross-DB).
 		"user_profiles": 1,
-		// acl (5/33 unified evaluator): 1 seeded folder:main row + role:operator
-		// (migration 0022) + role:member's 12 messaging-verb rows (migration 0023) = 14.
-		// No per-tier bundles, no backfill containment rows — auth.Authorize reads the
-		// grant scope on the actual target. acl_membership: the test's 1 seeded edge +
-		// the migrate-time folder:main→role:member floor assignment = 2.
-		"acl": 14, "acl_membership": 2,
+		// acl (5/33 unified evaluator): 1 seeded folder:main row + role:operator's
+		// root grant + role:member's 12 messaging-verb rows + the 22 skip-approval
+		// rows that keep those verbs and the always-mounted reads out of a folder's
+		// blanket hold = 36. No per-tier bundles, no backfill containment rows —
+		// auth.Authorize reads the grant scope on the actual target. acl_membership:
+		// the test's 1 seeded edge + the migrate-time folder:main→role:member floor
+		// assignment = 2.
+		"acl": 36, "acl_membership": 2,
 		// secrets: routd OWNS them now → copied (1 row each).
 		"secrets": 1, "secret_use_log": 1,
 		// scheduled_tasks + task_run_logs: routd OWNS them now → copied (1 row each).

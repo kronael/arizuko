@@ -153,8 +153,10 @@ func TestAlways_RefusesAnUnstatableMatcher(t *testing.T) {
 	if listErr != nil {
 		t.Fatal(listErr)
 	}
+	// Only rows a VERDICT wrote: the seeded floor carries skip rows of its own,
+	// and they are not what this refusal is about.
 	for _, r := range rows {
-		if r.Effect == auth.EffectSkipApproval {
+		if strings.HasPrefix(r.GrantedBy, "always:") {
 			t.Fatalf("a refused always still wrote %+v", r)
 		}
 	}

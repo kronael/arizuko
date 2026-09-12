@@ -135,6 +135,12 @@ const (
 	EffectDeny  = "deny"
 )
 
+// HoldPrefix opens the namespace a hold rule's action lives in: `hold:mcp:reply`
+// answers "must a call to `reply` wait for a human?", never "may it run". The
+// declaration is here because the acl ROW is store's and the seed floor writes
+// these actions; auth reads the same constant to evaluate them.
+const HoldPrefix = "hold:mcp:"
+
 // EffectAllowed reports whether `effect` is a spelling every evaluator reads.
 func EffectAllowed(effect string) bool {
 	return effect == EffectAllow || effect == EffectDeny

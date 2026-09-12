@@ -754,6 +754,17 @@ it holds, and only those it holds WITH GRANT OPTION — so authority
 strictly decreases (`auth.Delegate`). Root is a grant the operator
 invokes with `/root`, not a folder.
 
+A **world** is granted two rows instead (`onbod` `writeWorld`): `mcp:*`
+and `hold:mcp:*`, both scoped to its own subtree. It may reach any tool
+inside itself, and a human answers for every call it makes — approval,
+not the grant, is what a person controls there. `role:member` carries
+the other half: a skip-approval row (`hold:mcp:<tool>` at `deny`) for
+each messaging verb and for the reads every turn mounts, so the agent
+still answers a message and reads its own notes without asking anyone.
+`store.SeedRoutdFloor` writes both halves; `routd`'s
+`TestWorld_HoldsOnlyWhatAPersonShouldSee` fails if a new tool lands on
+the wrong side of that line.
+
 To gate a new action: pick an action name (`mcp:<tool>` for MCP tools),
 bind it at registration through the injected `Gate` — `auth.Authorize`
 for the operator REST face, `db.AuthorizeTurn(sender, turn-folder,

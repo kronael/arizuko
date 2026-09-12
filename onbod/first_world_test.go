@@ -270,3 +270,43 @@ func TestTheWinnerIsNamedAndHoldsWhatTheFolderImplies(t *testing.T) {
 		t.Errorf("folder:newworld sits under %v, want role:member among them", up)
 	}
 }
+
+// A WORLD IS GRANTED ITS REACH AND ITS HOLD, in the same act that creates it. A
+// world granted no tools cannot create a cron and nobody can tell why; a world
+// granted every tool with no hold acts unwatched. Two rows carry both, and they
+// are scoped to the world's own subtree so neither reaches a sibling tenant.
+func TestAWorldIsGrantedItsReachAndItsHold(t *testing.T) {
+	db := testDB(t)
+	seedStranger(t, db, "github:new", "approved")
+
+	if err := writeWorld(db, "newworld", "newworld", "github:new"); err != nil {
+		t.Fatalf("create the world: %v", err)
+	}
+
+	rows, err := store.New(db).ListACL("folder:newworld")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"mcp:*":                "newworld/**",
+		store.HoldPrefix + "*": "newworld/**",
+	}
+	for _, r := range rows {
+		scope, ok := want[r.Action]
+		if !ok {
+			t.Errorf("the world was granted %q on %q, which nothing asked for", r.Action, r.Scope)
+			continue
+		}
+		if r.Scope != scope || r.Effect != store.EffectAllow {
+			t.Errorf("%s = (%q, %q), want (%q, allow)", r.Action, r.Scope, r.Effect, scope)
+		}
+		delete(want, r.Action)
+	}
+	for action := range want {
+		t.Errorf("the world holds no %q row: it can %s", action,
+			map[string]string{
+				"mcp:*":                "reach no tool it was not separately granted",
+				store.HoldPrefix + "*": "act without its owner ever being asked",
+			}[action])
+	}
+}

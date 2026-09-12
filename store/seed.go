@@ -30,6 +30,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/kronael/arizuko/core"
@@ -51,15 +52,47 @@ var memberVerbs = []string{
 	"mcp:like", "mcp:dislike", "mcp:edit", "mcp:delete",
 }
 
+// alwaysMountedTools are the READS every turn mounts, plus the memory
+// checkpoint — the class spec 5/33 exempts from grants entirely. They get no
+// ALLOW row because they need none; what they need is the skip row below, or a
+// folder holding a blanket hold would wait for a human before it could read its
+// own notes or the message it is answering.
+//
+// The list is the READS and only the reads. A write that happens to mount
+// unconditionally — invite_create, pin_message, reset_session — stays held: the
+// whole point of the blanket hold is that a person sees those.
+// routd's TestWorld_HoldsOnlyWhatAPersonShouldSee walks the mounted set and
+// fails if a new tool lands on the wrong side of this line.
+var alwaysMountedTools = []string{
+	"mcp:inspect_routing", "mcp:inspect_tasks", "mcp:inspect_session",
+	"mcp:inspect_identity", "mcp:inspect_messages", "mcp:find_messages",
+	"mcp:get_thread", "mcp:fetch_history", "mcp:get_work", "mcp:set_work",
+}
+
+// skipApprovalFloor names every tool role:member answers WITHOUT a human. It is
+// the other half of the inversion a world folder is granted (onbod writeWorld):
+// the world holds `hold:mcp:*`, so EVERY call it makes waits for its owner
+// unless a narrower rule says otherwise, and these are that rule.
+//
+// Deny on a `hold:` action means SKIP APPROVAL — it denies the hold, never the
+// tool (spec 6/26 § Decision 5). Deny-wins is absolute, so this floor beats the
+// world's wildcard however the world was granted.
+func skipApprovalFloor() []string {
+	out := make([]string, 0, len(memberVerbs)+len(alwaysMountedTools))
+	out = append(out, memberVerbs...)
+	return append(out, alwaysMountedTools...)
+}
+
 // baseAllowlist is the instance-wide egress every folder inherits
 // (folderAncestry). Without it a spawned container reaches no model at all.
 var baseAllowlist = []string{"anthropic.com", "api.anthropic.com"}
 
 // The instants the floor carries. Fixed, so two fresh instances agree.
 var (
-	operatorGrantedAt = time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC)
-	memberGrantedAt   = time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
-	allowlistAddedAt  = time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC)
+	operatorGrantedAt  = time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC)
+	memberGrantedAt    = time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	allowlistAddedAt   = time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC)
+	skipFloorGrantedAt = time.Date(2026, 9, 12, 0, 0, 0, 0, time.UTC)
 )
 
 // SeedRoutdFloor writes the floor into a routd.db that holds none of it.
@@ -79,8 +112,15 @@ func SeedRoutdFloor(ctx context.Context, d Driver) error {
 		}}
 		for _, verb := range memberVerbs {
 			rows = append(rows, core.ACLRow{
-				Principal: RoleMember, Action: verb, Scope: "**", Effect: "allow",
+				Principal: RoleMember, Action: verb, Scope: "**", Effect: EffectAllow,
 				GrantedBy: "system:4r", GrantedAt: core.TS(memberGrantedAt),
+			})
+		}
+		for _, verb := range skipApprovalFloor() {
+			rows = append(rows, core.ACLRow{
+				Principal: RoleMember, Action: HoldPrefix + strings.TrimPrefix(verb, "mcp:"),
+				Scope: "**", Effect: EffectDeny,
+				GrantedBy: "system:5r", GrantedAt: core.TS(skipFloorGrantedAt),
 			})
 		}
 		for _, r := range rows {

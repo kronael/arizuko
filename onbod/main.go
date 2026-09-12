@@ -882,12 +882,35 @@ func writeWorld(db *sql.DB, folder, username, userSub string) error {
 	// nothing and comes up mute (BUGS L119).
 	grant, err := store.ACLGrantWrite(core.ACLRow{
 		Principal: userSub, Action: "admin", Scope: folder + "/**",
-		Effect: "allow", GrantedBy: "onbod",
+		Effect: store.EffectAllow, GrantedBy: "onbod",
 	})
 	if err != nil {
 		return err
 	}
-	created, err := store.SeedMemberRole(ctx, st, folder, row, grant)
+	// A WORLD MAY DO EVERYTHING AND ITS OWNER ANSWERS FOR IT. Two rows, not one
+	// per tool: the tool grant says the world can reach any tool inside its own
+	// subtree, and the hold beside it says a human sees every one of those calls
+	// before it runs. A world granted nothing could not create a cron and nobody
+	// could tell why; a world granted everything with no hold would act unwatched.
+	//
+	// The messaging floor and the always-mounted reads carry skip rows
+	// (store.skipApprovalFloor), so the hold falls on what a person would want to
+	// see and not on the agent answering a message.
+	reach, err := store.ACLGrantWrite(core.ACLRow{
+		Principal: "folder:" + folder, Action: "mcp:*", Scope: folder + "/**",
+		Effect: store.EffectAllow, GrantedBy: "onbod",
+	})
+	if err != nil {
+		return err
+	}
+	hold, err := store.ACLGrantWrite(core.ACLRow{
+		Principal: "folder:" + folder, Action: store.HoldPrefix + "*", Scope: folder + "/**",
+		Effect: store.EffectAllow, GrantedBy: "onbod",
+	})
+	if err != nil {
+		return err
+	}
+	created, err := store.SeedMemberRole(ctx, st, folder, row, grant, reach, hold)
 	if err != nil {
 		return err
 	}
