@@ -130,11 +130,15 @@ type MessageRow struct {
 	RoutedTo      string `json:"routed_to"`
 	Verb          string `json:"verb"`
 	Source        string `json:"source"`
-	Status        string `json:"status"`
 	PlatformID    string `json:"platform_id"`
 	ChatName      string `json:"chat_name"`
 	ForwardedFrom string `json:"forwarded_from"`
 }
+
+// A message row carries NO delivery status. `sent` is the absence of a delivery
+// item rather than a value on the message, so the state a caller can act on is
+// the dead-letter resource — which is the set of rows that are not sent, and the
+// only set an operator does anything with (spec 6/37 §"How `messages` leaves").
 
 // MessagesResponse is GET /v1/messages/{inspect,thread}: full rows + count.
 type MessagesResponse struct {

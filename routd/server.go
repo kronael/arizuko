@@ -635,19 +635,20 @@ func (s *Server) handleOutbound(w http.ResponseWriter, r *http.Request) {
 	// says the platform refused it, and the pending sweep never retries it.
 	row := core.Message{
 		ID: "out-" + randHex(8), ChatJID: req.JID, Sender: sub, Content: req.Text,
-		Timestamp: time.Now().UTC(), BotMsg: true, FromMe: true, Status: core.MessageStatusPending,
+		Timestamp: time.Now().UTC(), BotMsg: true, FromMe: true,
 	}
+	status := core.MessageStatusSent
 	pid, sendErr := s.deliver.SendVia(req.Channel, req.JID, req.Text)
 	if sendErr != nil {
-		row.Status = core.MessageStatusFailed
+		status = core.MessageStatusFailed
 	} else {
-		row.PlatformID, row.Status = pid, core.MessageStatusSent
+		row.PlatformID = pid
 	}
 	// A store failure after a successful send is logged, not returned: the
 	// message already reached the platform, and a 5xx makes the caller send it
 	// twice.
-	if err := s.db.PutMessage(row); err != nil {
-		slog.Error("outbound row not stored", "jid", req.JID, "sender", sub, "status", row.Status, "err", err)
+	if err := s.db.PutOutbound(row, status); err != nil {
+		slog.Error("outbound row not stored", "jid", req.JID, "sender", sub, "status", status, "err", err)
 	}
 	if sendErr != nil {
 		writeErr(w, 502, "delivery_failed", sendErr.Error())

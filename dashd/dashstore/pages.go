@@ -2,7 +2,6 @@ package dashstore
 
 import (
 	"context"
-	"strings"
 
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/objstore"
@@ -153,42 +152,25 @@ const UsageBatch = 500
 // per folder, for the folders asked about and no others. A folder with no
 // messages is absent from the map rather than present with a zero, so the
 // caller can tell "never used" from "used and counted zero".
+//
+// THE COUNT IS AN ATTRIBUTE, NOT A GROUP BY. The statement this replaces scanned
+// every message and folded it by `routed_to`; the count now lives on the folder,
+// moved by the same write that files the message, so all 95 folders come back in
+// ONE read. The last-active instant is the newest key of each folder's feed —
+// one item each, never a scan of the folder's history.
 func (s *Store) MessageActivityByFolder(folders []string) (map[string]MessageActivity, error) {
-	out := map[string]MessageActivity{}
-	for start := 0; start < len(folders); start += UsageBatch {
-		batch := folders[start:min(start+UsageBatch, len(folders))]
-		if err := s.messageActivityBatch(batch, out); err != nil {
+	ctx := context.Background()
+	counts, err := s.st().FolderMessageCounts(ctx, folders)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]MessageActivity, len(counts))
+	for folder, n := range counts {
+		lastAt, err := s.st().FolderLastMessageAt(ctx, folder)
+		if err != nil {
 			return nil, err
 		}
+		out[folder] = MessageActivity{Count: n, LastAt: lastAt}
 	}
 	return out, nil
-}
-
-func (s *Store) messageActivityBatch(batch []string, out map[string]MessageActivity) error {
-	ph := make([]string, len(batch))
-	args := make([]any, len(batch))
-	for i, f := range batch {
-		ph[i] = "?"
-		args[i] = f
-	}
-	in := strings.Join(ph, ",")
-
-	rows, err := s.db.Query(
-		`SELECT routed_to, COUNT(*), COALESCE(MAX(timestamp),'')
-		 FROM messages
-		 WHERE routed_to IN (`+in+`)
-		 GROUP BY routed_to`, args...)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var folder, lastAt string
-		var cnt int
-		if err := rows.Scan(&folder, &cnt, &lastAt); err != nil {
-			return err
-		}
-		out[folder] = MessageActivity{Count: cnt, LastAt: lastAt}
-	}
-	return rows.Err()
 }

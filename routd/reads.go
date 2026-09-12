@@ -1,6 +1,7 @@
 package routd
 
 import (
+	"context"
 	"database/sql"
 	"strings"
 	"time"
@@ -14,61 +15,30 @@ import (
 // tools (federated via the /v1/messages, /v1/routing, /v1/engagement, /v1/cost
 // surfaces). routd owns the conversation/routing state.
 
-// Every nullable TEXT column is COALESCEd to ” so a NULL row never aborts the
-// scan (scanMessages reads into plain strings) — the shared store does the
-// same (store/messages.go). Without this, ONE legacy/NULL row kills routd's
-// whole poll loop, silently (cursor never advances; no turns; no breaker).
-const msgReadCols = `id, chat_jid, sender, COALESCE(sender_name,''), content, timestamp, is_from_me,
-	is_bot_message, COALESCE(reply_to_id,''), COALESCE(reply_to_text,''), COALESCE(reply_to_sender,''),
-	COALESCE(topic,''), COALESCE(routed_to,''),
-	COALESCE(verb,''), COALESCE(source,''), COALESCE(turn_id,''), COALESCE(status,''),
-	COALESCE(platform_id,''), COALESCE(chat_name,''), COALESCE(forwarded_from,''),
-	COALESCE(attachments,''), COALESCE(link_context,''), delivery_attempts`
+// msgFTSCols is the projection the FTS join still needs. `messages` is an entity
+// and this file holds no other statement against it: ranked search is the one
+// read that leaves for its own service, and until it does the FTS5 table and the
+// join back to the row stay here (spec 6/37 §"Search is the one that is answered
+// by leaving").
 
-// MessagesBefore returns rows for one chat_jid older than `before`, oldest
-// first (inspect_messages). before="" → now.
+// MessagesBefore returns rows for one chat_jid older than `before`, oldest first
+// (inspect_messages). before="" → now.
 func (d *DB) MessagesBefore(jid, before string, limit int) ([]core.Message, error) {
-	if limit <= 0 || limit > 200 {
-		limit = 100
-	}
-	if before == "" {
-		before = core.NowTS()
-	}
-	rows, err := d.db.Query(`SELECT `+msgReadCols+` FROM messages
-		WHERE chat_jid=? AND timestamp < ? ORDER BY timestamp DESC LIMIT ?`,
-		jid, before, limit)
+	t, err := readStoredInstant(before)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	msgs, _, err := scanMessages(rows, "")
-	if err != nil {
-		return nil, err
-	}
-	for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
-		msgs[i], msgs[j] = msgs[j], msgs[i]
-	}
-	return msgs, nil
+	return d.store().MessagesBefore(jid, t, limit)
 }
 
 // MessagesByThread returns rows for one (chat_jid, topic), newest first
 // (get_thread). before="" → now.
 func (d *DB) MessagesByThread(jid, topic, before string, limit int) ([]core.Message, error) {
-	if limit <= 0 || limit > 100 {
-		limit = 50
-	}
-	if before == "" {
-		before = core.NowTS()
-	}
-	rows, err := d.db.Query(`SELECT `+msgReadCols+` FROM messages
-		WHERE chat_jid=? AND topic=? AND timestamp < ? ORDER BY timestamp DESC LIMIT ?`,
-		jid, topic, before, limit)
+	t, err := readStoredInstant(before)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	msgs, _, err := scanMessages(rows, "")
-	return msgs, err
+	return d.store().MessagesByThread(jid, topic, t, limit)
 }
 
 // FoundMessage is one find_messages hit. Content is the FTS5 snippet
@@ -248,15 +218,11 @@ func (d *DB) ErroredChats(folder string, isRoot bool) ([]ErroredChat, error) {
 		}
 		// The count is inbound rows and the instant is the newest row of any
 		// kind, which is what the two correlated subqueries this replaces asked.
-		var lastAt sql.NullString
-		if err := d.db.QueryRow(
-			`SELECT COALESCE(SUM(CASE WHEN is_from_me = 0 THEN 1 ELSE 0 END), 0), MAX(timestamp)
-			 FROM messages WHERE chat_jid = ?`, jid).Scan(&ec.Count, &lastAt); err != nil {
+		count, lastAt, err := d.store().ChatActivity(context.Background(), jid)
+		if err != nil {
 			return out, err
 		}
-		if lastAt.Valid {
-			ec.LastAt, _ = time.Parse(time.RFC3339Nano, lastAt.String)
-		}
+		ec.Count, ec.LastAt = count, lastAt
 		out = append(out, ec)
 	}
 	return out, nil

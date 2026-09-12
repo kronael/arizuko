@@ -1,10 +1,30 @@
 ---
-status: shipped
+status: superseded
+superseded_by: 37-store-model
 shipped: 2026-09-05
 depends: [../5/16-mcp-rest-unification, ../5/33-paths-roles]
 ---
 
 # specs/6/38 — the storage seam: Postgres, and no seam
+
+> **This spec's VERDICT is reversed. Its MEASUREMENT is not, and that is why it
+> is kept rather than deleted.**
+>
+> It decided arizuko moves to Postgres and writes no `Store` interface.
+> [`6/37`](37-store-model.md) reverses that: storage is an object store behind
+> an interface, `objstore` ships with two primitives, and every table but
+> `messages` is an entity. The reversal is not a change of mind about the
+> evidence below — it is that this spec costed an interface against a POSTGRES
+> target, where it buys nothing because Postgres is already `database/sql`.
+> Against an object store the interface is not an indirection over the engine,
+> it IS the engine's shape.
+>
+> What survives, and what `6/37` and `6/40` are built on: the census in
+> §"Branch B, measured". 47 transaction sites, 26 multi-table, 19 that fit a
+> bounded conditional batch, 7 that do not and 3 of those security-bearing.
+> That count is why `GuardedBatch` caps at 100 actions with no two on one item,
+> and why the versioned replace exists for the seven. Read this spec for the
+> measurement; read `6/37` for the decision.
 
 Decision: superseded by [`6/37`](37-store-model.md) — arizuko's storage is an
 object store behind an interface, and this document is the MEASUREMENT that

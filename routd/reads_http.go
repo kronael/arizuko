@@ -39,7 +39,7 @@ func toMessageRow(m core.Message) apiv1.MessageRow {
 		Content: m.Content, Timestamp: m.Timestamp.UTC().Format(time.RFC3339Nano),
 		IsFromMe: m.FromMe, IsBotMsg: m.BotMsg, ReplyToID: m.ReplyToID,
 		Topic: m.Topic, RoutedTo: m.RoutedTo, Verb: m.Verb, Source: m.Source,
-		Status: m.Status, PlatformID: m.PlatformID, ChatName: m.ChatName,
+		PlatformID: m.PlatformID, ChatName: m.ChatName,
 		ForwardedFrom: m.ForwardedFrom,
 	}
 }

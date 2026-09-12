@@ -7,6 +7,7 @@ package routd
 // the operator, who claims a chat with the route write that already exists.
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -65,42 +66,23 @@ func (l *Loop) UnroutedChats() ([]UnroutedChat, error) {
 // and last timestamp. Bot rows and the operator's own phone (is_from_me) are
 // not traffic that needs a route.
 func (d *DB) inboundChatSummary() ([]UnroutedChat, error) {
-	rows, err := d.db.Query(`SELECT chat_jid, COUNT(*), MIN(timestamp), MAX(timestamp)
-		FROM messages WHERE is_from_me=0 AND is_bot_message=0
-		GROUP BY chat_jid ORDER BY MAX(timestamp) DESC`)
+	rows, err := d.store().InboundChatSummary(context.Background())
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []UnroutedChat
-	for rows.Next() {
-		var c UnroutedChat
-		var first, last string
-		if err := rows.Scan(&c.ChatJID, &c.Count, &first, &last); err != nil {
-			return nil, err
-		}
-		c.FirstAt, _ = time.Parse(time.RFC3339Nano, first)
-		c.LastAt, _ = time.Parse(time.RFC3339Nano, last)
-		out = append(out, c)
+	out := make([]UnroutedChat, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, UnroutedChat{
+			ChatJID: r.ChatJID, Count: r.Count, FirstAt: r.FirstAt, LastAt: r.LastAt,
+		})
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // lastInboundMessage is the chat's newest inbound human row — the message the
 // loop resolved last, and the one resolve is asked about again here.
 func (d *DB) lastInboundMessage(chatJID string) (core.Message, bool, error) {
-	rows, err := d.db.Query(`SELECT `+msgReadCols+` FROM messages
-		WHERE chat_jid=? AND is_from_me=0 AND is_bot_message=0
-		ORDER BY timestamp DESC LIMIT 1`, chatJID)
-	if err != nil {
-		return core.Message{}, false, err
-	}
-	defer rows.Close()
-	msgs, _, err := scanMessages(rows, "")
-	if err != nil || len(msgs) == 0 {
-		return core.Message{}, false, err
-	}
-	return msgs[0], true, nil
+	return d.store().LastInboundMessage(context.Background(), chatJID)
 }
 
 // handleUnroutedChats serves GET /v1/routing/unrouted.

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/kronael/arizuko/audit"
@@ -260,169 +259,83 @@ func (d *DB) RemoveGroupWatcher(observer, source string) error {
 	return d.store().RemoveGroupWatcher(observer, source)
 }
 
-// execer is the shared subset of *sql.DB and *sql.Tx PutMessage uses, so the
-// same INSERT serves both the auto-commit path and the in-tx re-issue
-// (pending_actions.go).
-type execer interface {
-	Exec(query string, args ...any) (sql.Result, error)
-}
+// PutMessage appends one message row. routd is the only writer, and store owns
+// the item shape and the three indexes one write fans out into.
+func (d *DB) PutMessage(m core.Message) error { return d.store().PutMessage(m) }
 
-func putMessage(x execer, m core.Message) error {
-	_, err := x.Exec(`INSERT OR IGNORE INTO messages
-		(id, chat_jid, sender, sender_name, content, timestamp, is_from_me,
-		 is_bot_message, forwarded_from, reply_to_id, reply_to_text, reply_to_sender,
-		 topic, routed_to, verb, attachments, source, is_observed, turn_id, status,
-		 platform_id, chat_name, link_context)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		m.ID, m.ChatJID, m.Sender, m.Name, m.Content, core.TS(m.Timestamp),
-		b2i(m.FromMe), b2i(m.BotMsg), m.ForwardedFrom, m.ReplyToID, m.ReplyToText, m.ReplyToSender,
-		m.Topic, m.RoutedTo, defaultVerb(m.Verb), m.Attachments, m.Source, b2i(false),
-		nullStr(m.TurnID), defaultStatus(m.Status), nullStr(m.PlatformID), m.ChatName,
-		nullStr(m.LinkContext))
-	return err
+// PutOutbound appends one outbound row and the delivery state it still owes.
+// `sent` writes no delivery item, which is what makes it the absence of one.
+func (d *DB) PutOutbound(m core.Message, status string) error {
+	return d.store().PutOutbound(context.Background(), m, status)
 }
-
-// PutMessage appends one messages row. routd is the only writer. A
-// duplicate id is a no-op (first-written row authoritative, append-only
-// log).
-func (d *DB) PutMessage(m core.Message) error { return putMessage(d.db, m) }
 
 // EnrichMessage replaces a message's content with the media-enriched body and
-// clears its attachments (the raw refs are now downloaded + inlined) so the
-// observed-context render on later turns sees the transcript, not the refs.
-func (d *DB) EnrichMessage(id, content string) error {
-	_, err := d.db.Exec(`UPDATE messages SET content=?, attachments='' WHERE id=?`, content, id)
-	return err
+// clears its attachments, so the observed-context render on later turns sees the
+// transcript rather than the raw refs.
+func (d *DB) EnrichMessage(m core.Message, content string) error {
+	return d.store().EnrichMessage(m, content)
 }
 
-// NewMessages returns rows with timestamp > since across all chats, plus the new
-// high-water mark (the pollOnce feed).
-func (d *DB) NewMessages(since string) ([]core.Message, string, error) {
-	rows, err := d.db.Query(`SELECT `+msgReadCols+`
-		FROM messages WHERE timestamp > ? ORDER BY timestamp ASC`, since)
-	if err != nil {
-		return nil, since, err
-	}
-	defer rows.Close()
-	msgs, hi, err := scanMessages(rows, since)
-	return msgs, hi, err
+// NewMessagesForChat returns one chat's rows after its own watermark, oldest
+// first — the poll loop's feed. The cursor is a whole message key, so a message
+// at exactly the cursor instant is consumed once.
+func (d *DB) NewMessagesForChat(jid, cursor string, limit int) ([]core.Message, error) {
+	return d.store().NewMessagesForChat(context.Background(), jid, cursor, limit)
 }
 
-// MessagesSince returns one chat's rows with timestamp > since.
+// MessagesSince returns one chat's rows strictly after an instant.
 func (d *DB) MessagesSince(chatJID, since string) ([]core.Message, error) {
-	rows, err := d.db.Query(`SELECT `+msgReadCols+`
-		FROM messages WHERE chat_jid=? AND timestamp > ? ORDER BY timestamp ASC`, chatJID, since)
+	t, err := readStoredInstant(since)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	msgs, _, err := scanMessages(rows, since)
-	return msgs, err
+	return d.store().MessagesSince(chatJID, t)
 }
 
-// scanMessages drains rows into core.Message values, tracking the high-water
-// mark from `since`. A row scan error ABORTS (returns the error) rather than
-// skipping the row: a silent skip past a malformed row would advance the
-// cursor over it and lose the message permanently.
-func scanMessages(rows *sql.Rows, since string) ([]core.Message, string, error) {
-	hi := since
-	var out []core.Message
-	for rows.Next() {
-		var m core.Message
-		var ts, turnID, platformID, fwdFrom sql.NullString
-		var fromMe, botMsg int
-		if err := rows.Scan(&m.ID, &m.ChatJID, &m.Sender, &m.Name, &m.Content, &ts,
-			&fromMe, &botMsg, &m.ReplyToID, &m.ReplyToText, &m.ReplyToSender,
-			&m.Topic, &m.RoutedTo, &m.Verb, &m.Source,
-			&turnID, &m.Status, &platformID, &m.ChatName, &fwdFrom, &m.Attachments,
-			&m.LinkContext, &m.DeliveryAttempts); err != nil {
-			return out, hi, err
-		}
-		m.ForwardedFrom = fwdFrom.String
-		m.FromMe = fromMe == 1
-		m.BotMsg = botMsg == 1
-		m.TurnID = turnID.String
-		m.PlatformID = platformID.String
-		if ts.Valid {
-			m.Timestamp, _ = time.Parse(time.RFC3339Nano, ts.String)
-			if ts.String > hi {
-				hi = ts.String
-			}
-		}
-		out = append(out, m)
+// readStoredInstant parses a cursor or bound the caller holds as text. An empty
+// value is the zero time, which is "no lower bound".
+func readStoredInstant(v string) (time.Time, error) {
+	if v == "" {
+		return time.Time{}, nil
 	}
-	return out, hi, rows.Err()
-}
-
-// MarkBotPlatformID stamps the platform id + sent status on an outbound row
-// once the adapter confirms delivery.
-func (d *DB) MarkBotPlatformID(id, platformID string) error {
-	_, err := d.db.Exec("UPDATE messages SET platform_id=?, status=? WHERE id=?",
-		platformID, core.MessageStatusSent, id)
-	return err
-}
-
-// MarkStatus sets a row's delivery status (pending→failed by the retry
-// loop).
-func (d *DB) MarkStatus(id, status string) error {
-	_, err := d.db.Exec("UPDATE messages SET status=? WHERE id=?", status, id)
-	return err
-}
-
-// RecordDeliveryFailure counts one transient delivery failure on an outbound row
-// and dead-letters the row when the count reaches maxAttempts. One statement does
-// both, so a crash between them is impossible. SQLite reads the SET expressions
-// from the pre-update row, so both uses of delivery_attempts + 1 give the same
-// new count.
-func (d *DB) RecordDeliveryFailure(id string, maxAttempts int) (int, bool, error) {
-	var attempts int
-	var status string
-	err := d.db.QueryRow(`UPDATE messages
-		SET delivery_attempts = delivery_attempts + 1,
-		    status = CASE WHEN delivery_attempts + 1 >= ? THEN ? ELSE status END
-		WHERE id = ?
-		RETURNING delivery_attempts, status`,
-		maxAttempts, core.MessageStatusFailed, id).Scan(&attempts, &status)
-	return attempts, status == core.MessageStatusFailed, err
-}
-
-// PendingOutbound returns bot rows still status='pending' whose timestamp is at
-// or before cutoff — the outbound retry feed.
-func (d *DB) PendingOutbound(cutoff time.Time, limit int) ([]core.Message, error) {
-	if limit <= 0 {
-		limit = 50
-	}
-	rows, err := d.db.Query(`SELECT `+msgReadCols+`
-		FROM messages WHERE status='pending' AND is_bot_message=1 AND timestamp <= ?
-		ORDER BY timestamp ASC LIMIT ?`, core.TS(cutoff), limit)
+	t, err := time.Parse(time.RFC3339Nano, v)
 	if err != nil {
-		return nil, err
+		return time.Time{}, fmt.Errorf("%q is not an instant", v)
 	}
-	defer rows.Close()
-	msgs, _, err := scanMessages(rows, "")
-	return msgs, err
+	return t, nil
 }
 
-// MessageByID returns the stored row matched by id OR platform_id: an adapter
-// names a reply's parent by the platform's id, which a bot row carries in
-// platform_id. ok=false when no row matches.
-// MessageByID resolves a reply target WITHIN one chat. The chat bound is not
-// optional: `platform_id` is a per-platform value, so an unscoped lookup can
-// resolve a reply id to a row in another chat and another folder, and the
-// caller then copies that row's sender, text and topic into this message.
+// MarkDelivered records that the platform accepted an outbound row: its delivery
+// item goes and the platform's own id lands on the message.
+func (d *DB) MarkDelivered(m core.Message, platformID string) error {
+	return d.store().MarkDelivered(context.Background(), m, platformID)
+}
+
+// DeadLetter moves an outbound row to the terminal state. attempts=0 says the
+// platform refused it permanently; the cap says the retries ran out.
+func (d *DB) DeadLetter(m core.Message, attempts int) error {
+	return d.store().DeadLetter(context.Background(), m, attempts)
+}
+
+// RecordDeliveryFailure counts one transient delivery failure and dead-letters
+// the row when the count reaches maxAttempts.
+func (d *DB) RecordDeliveryFailure(m core.Message, maxAttempts int) (int, bool, error) {
+	return d.store().RecordDeliveryFailure(context.Background(), m, maxAttempts)
+}
+
+// PendingOutbound returns the bot rows still owed a delivery whose position is at
+// or before cutoff — the outbound retry feed, with each row's attempt count.
+func (d *DB) PendingOutbound(cutoff time.Time, limit int) ([]store.PendingMessage, error) {
+	return d.store().PendingOutbound(context.Background(), cutoff, limit)
+}
+
+// MessageByID resolves a reply target WITHIN one chat, by the row's own id or by
+// the platform's id for it. The chat bound is not optional: `platform_id` is a
+// per-platform value, so an unscoped lookup resolves a reply id to a row in
+// another chat and another folder, and the caller then copies that row's sender,
+// text and topic into this message. The partition is what makes that impossible.
 func (d *DB) MessageByID(chatJID, id string) (core.Message, bool) {
-	rows, err := d.db.Query(`SELECT `+msgReadCols+`
-		FROM messages WHERE chat_jid=? AND (id=? OR platform_id=?) LIMIT 1`,
-		chatJID, id, id)
-	if err != nil {
-		return core.Message{}, false
-	}
-	defer rows.Close()
-	msgs, _, err := scanMessages(rows, "")
-	if err != nil || len(msgs) == 0 {
-		return core.Message{}, false
-	}
-	return msgs[0], true
+	return d.store().MessageByID(chatJID, id)
 }
 
 // TopicByID returns the topic of the row MessageByID matches, so a reply to a
@@ -440,47 +353,24 @@ func (d *DB) MarkChatErrored(chatJID string) error {
 }
 
 // ClearErrored un-flags a chat's errored rows so the dispatch loop feeds them
-// again — the operator's "retry this chat" action. Returns the number of rows
-// cleared so a caller can refuse to report success on zero (a retry that
-// retried nothing is not a retry).
-//
-// routd owns the messages table, so this is its writer. dashd used to do the
-// same UPDATE over a direct handle on routd.db, which is the cross-daemon read
-// path spec 6/28 retires.
+// again — the operator's "retry this chat". It answers how many rows moved, so a
+// caller can refuse to report success on zero: a retry that retried nothing is
+// not a retry.
 func (d *DB) ClearErrored(chatJID string) (int64, error) {
-	res, err := d.db.Exec("UPDATE messages SET errored=0 WHERE chat_jid=? AND errored=1", chatJID)
-	if err != nil {
-		return 0, err
-	}
-	n, _ := res.RowsAffected()
-	return n, nil
+	return d.store().ClearErrored(context.Background(), chatJID)
 }
 
-// MarkMessagesErrored flags a failed run's trigger rows errored=1 so the circuit
-// breaker can prune them (DeleteErroredMessages). The rows stay visible to a
-// later successful run until the breaker trips. Empty list is a no-op.
-func (d *DB) MarkMessagesErrored(ids []string) error {
-	if len(ids) == 0 {
-		return nil
-	}
-	tx, err := d.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	for _, id := range ids {
-		if _, err := tx.Exec("UPDATE messages SET errored=1 WHERE id=?", id); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
+// MarkMessagesErrored flags a failed run's trigger rows so the circuit breaker
+// can prune them. The rows stay visible to a later successful run until it
+// trips. An empty list is a no-op.
+func (d *DB) MarkMessagesErrored(msgs []core.Message) error {
+	return d.store().MarkMessagesErrored(context.Background(), msgs)
 }
 
-// DeleteErroredMessages drops a chat's errored=1 rows. The circuit-breaker
-// handler calls it so the next inbound starts the chat from a clean batch.
+// DeleteErroredMessages drops a chat's errored rows and the index entries that
+// point at them, so the next inbound starts the chat from a clean batch.
 func (d *DB) DeleteErroredMessages(chatJID string) error {
-	_, err := d.db.Exec("DELETE FROM messages WHERE chat_jid=? AND errored=1", chatJID)
-	return err
+	return d.store().DeleteErroredMessages(context.Background(), chatJID)
 }
 
 // CountErroredChats counts chats flagged errored — the /status surface. Reads
@@ -492,6 +382,30 @@ func (d *DB) CountErroredChats() int {
 		return 0
 	}
 	return len(jids)
+}
+
+// ChatJIDs lists every chat the instance has seen — the partition list the poll
+// loop feeds from and the archive exports.
+func (d *DB) ChatJIDs() ([]string, error) {
+	return d.store().ChatJIDs(context.Background())
+}
+
+// DailyVolume answers how many human messages each of the last `days` days
+// carried — the usage page's histogram, read off the activity feed.
+func (d *DB) DailyVolume(ctx context.Context, days int) (map[string]int, error) {
+	return d.store().DailyVolume(ctx, days)
+}
+
+// RecentActivity answers the newest messages across every chat, newest first,
+// optionally paged by an instant the caller has already read past.
+func (d *DB) RecentActivity(ctx context.Context, before string, limit int) ([]store.ActivityRow, error) {
+	return d.store().RecentActivity(ctx, before, limit)
+}
+
+// SweepActivity drops activity-feed entries past the retention window and
+// answers how many went. The hourly housekeeping calls it.
+func (d *DB) SweepActivity(now time.Time) (int, error) {
+	return d.store().SweepActivity(context.Background(), now)
 }
 
 // GetAgentCursor reads the per-chat high-water mark fed to the agent.
@@ -506,17 +420,6 @@ func (d *DB) GetAgentCursor(chatJID string) string {
 // SetAgentCursor advances the per-chat cursor (upsert).
 func (d *DB) SetAgentCursor(chatJID, cursor string) error {
 	return d.store().SetAgentCursor(chatJID, cursor)
-}
-
-// MinAgentCursor returns the lowest agent_cursor across chats — the poll
-// loop's global floor. Empty when no chat has advanced yet (feed from the
-// beginning). Per-chat cursors gate the actual dispatch.
-func (d *DB) MinAgentCursor() string {
-	low, err := d.store().LowestAgentCursor()
-	if err != nil {
-		return ""
-	}
-	return low
 }
 
 // SetChatIsGroup records whether a chat is a multi-party group.
@@ -551,13 +454,15 @@ func (d *DB) SetStickyTopic(chatJID, topic string) error {
 	return d.store().SetStickyTopic(chatJID, topic)
 }
 
-// RoutedToByMessageID returns the folder a stored message was routed to
-// (matched by id OR platform_id), or "" when absent. Delegation looks this
-// up to send a reply-to-bot back to the child that authored the reply.
-func (d *DB) RoutedToByMessageID(id string) string {
-	var routed string
-	d.db.QueryRow("SELECT routed_to FROM messages WHERE id=? OR platform_id=? LIMIT 1", id, id).Scan(&routed)
-	return routed
+// RoutedToByMessageID returns the folder a stored message of this chat was routed
+// to, or "" when absent. Delegation looks this up to send a reply-to-bot back to
+// the child that authored the reply.
+//
+// It is CHAT-SCOPED, and the reply path is why that is not a narrowing: a reply
+// names a message in the chat it was sent to, so the parent is in that partition
+// by construction. The statement it replaces searched every chat.
+func (d *DB) RoutedToByMessageID(chatJID, id string) string {
+	return d.store().RoutedToByMessageID(chatJID, id)
 }
 
 // IsEngaged reports whether (jid, topic) has a live engagement window — the
@@ -568,22 +473,12 @@ func (d *DB) IsEngaged(jid, topic string) bool {
 	return ok
 }
 
-// MarkMessagesObserved flags rows as is_observed=1 and stamps routed_to so a
-// route-table observe rule (target=folder#observe) ingests them silently into
-// the folder's ambient context without firing a turn.
-func (d *DB) MarkMessagesObserved(folder string, ids []string) error {
-	if len(ids) == 0 {
-		return nil
-	}
-	args := make([]any, 0, len(ids)+1)
-	args = append(args, folder)
-	for _, id := range ids {
-		args = append(args, id)
-	}
-	_, err := d.db.Exec(
-		"UPDATE messages SET is_observed=1, routed_to=? WHERE id IN (?"+
-			strings.Repeat(",?", len(ids)-1)+")", args...)
-	return err
+// MarkMessagesObserved flags rows as observed and stamps routed_to, so a route-
+// table observe rule (target=folder#observe) ingests them silently into the
+// folder's ambient context without firing a turn. The folder feed is stamped in
+// the same write, because that feed is what the ambient read asks.
+func (d *DB) MarkMessagesObserved(folder string, msgs []core.Message) error {
+	return d.store().MarkMessagesObserved(context.Background(), folder, msgs)
 }
 
 // Routes returns the route table in the order the router resolves it: seq
@@ -791,22 +686,18 @@ func (d *DB) RecordTurnResult(folder, turnID, sessionID, status string) (bool, e
 // this turn via the reply/send tools, so recordTurnResult does not double-send the
 // prose result. Interim verb="status" rows are excluded: an auto-status must NEVER
 // count as the reply, or the agent's real answer is swallowed (spec 5/24).
-func (d *DB) TurnHasBotReply(turnID string) bool {
-	var n int
-	d.db.QueryRow("SELECT 1 FROM messages WHERE turn_id=? AND is_bot_message=1 AND verb!='status' LIMIT 1", turnID).Scan(&n)
-	return n == 1
+//
+// The chat is a parameter because a message is addressed by its chat: every
+// caller holds the turn's own chat, on the turn context it just read.
+func (d *DB) TurnHasBotReply(chatJID, turnID string) bool {
+	return d.store().TurnHasBotReply(chatJID, turnID)
 }
 
 // LastStatusPlatformID returns the platform id of the most recent delivered
 // verb="status" (⏳) row for the turn, or "" if none landed yet. submit_status
 // edits that message in place instead of streaming a new notice (spec 5/24).
-func (d *DB) LastStatusPlatformID(turnID string) string {
-	var pid string
-	d.db.QueryRow(
-		"SELECT platform_id FROM messages WHERE turn_id=? AND verb='status' AND platform_id!='' ORDER BY rowid DESC LIMIT 1",
-		turnID,
-	).Scan(&pid)
-	return pid
+func (d *DB) LastStatusPlatformID(chatJID, turnID string) string {
+	return d.store().LastStatusPlatformID(chatJID, turnID)
 }
 
 // TurnResultRecorded reports whether submit_turn already recorded an outcome for
@@ -900,93 +791,43 @@ func (d *DB) SetFolderCap(folder string, cents int) error {
 	return d.store().SetFolderCap(folder, cents)
 }
 
-// proactiveSelfSender is the synthetic inbound's sender. Rows from it never
-// reset the silence clock and never count as recent activity (the trigger
-// must not feed itself). The `timed-` prefix also hits the engagement-skip
-// carve-out in dispatchRun.
-const proactiveSelfSender = "timed-proactive"
-
-// ProactiveChats lists distinct chat jids that carry at least one inbound
-// message — the universe the proactive scan iterates (then filters by the
-// group's cached mode). Bot rows and the proactive synthetic row don't make
-// a chat eligible on their own.
+// ProactiveChats lists the chats that have ever carried a real inbound message —
+// the universe the proactive scan iterates, then filtered by the group's cached
+// mode. It is an attribute of the chat now rather than a DISTINCT over every
+// message ever written.
 func (d *DB) ProactiveChats() ([]string, error) {
-	rows, err := d.db.Query(`SELECT DISTINCT chat_jid FROM messages
-		WHERE is_bot_message=0 AND sender<>?`, proactiveSelfSender)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var jid string
-		if err := rows.Scan(&jid); err != nil {
-			return nil, err
-		}
-		out = append(out, jid)
-	}
-	return out, rows.Err()
+	return d.store().ProactiveChats(context.Background())
 }
 
-// LastInboundAt returns the timestamp of the newest real inbound message on
-// a chat (bot rows and the proactive synthetic row excluded), or zero time
-// when none. The silence-debounce clock.
+// LastInboundAt returns the timestamp of the newest real inbound message on a
+// chat, or zero time when none. The silence-debounce clock.
 func (d *DB) LastInboundAt(jid string) time.Time {
-	var ts sql.NullString
-	d.db.QueryRow(`SELECT MAX(timestamp) FROM messages
-		WHERE chat_jid=? AND is_bot_message=0 AND sender<>?`, jid, proactiveSelfSender).Scan(&ts)
-	if !ts.Valid {
-		return time.Time{}
-	}
-	t, _ := time.Parse(time.RFC3339Nano, ts.String)
-	return t
+	return d.store().LastInboundAt(context.Background(), jid)
 }
 
 // LatestSource returns the adapter name that delivered the newest real inbound
-// row on a chat (the messages.source column), used by the Deliverer to route an
-// outbound back to the same adapter the conversation came in on. Empty when the
-// chat has no sourced inbound.
+// row on a chat, used by the Deliverer to route an outbound back to the adapter
+// the conversation came in on. Empty when the chat has no sourced inbound.
 func (d *DB) LatestSource(jid string) string {
-	var src string
-	d.db.QueryRow(
-		`SELECT source FROM messages
-		 WHERE chat_jid=? AND source<>'' AND is_bot_message=0
-		 ORDER BY timestamp DESC LIMIT 1`, jid).Scan(&src)
-	return src
+	return d.store().LatestSource(context.Background(), jid)
 }
 
-// BotSpokeSince reports whether a bot-authored row exists on a chat at or
-// after since (the BotQuiet veto).
+// BotSpokeSince reports whether a bot-authored row exists on a chat at or after
+// since (the BotQuiet veto).
 func (d *DB) BotSpokeSince(jid string, since time.Time) bool {
-	var n int
-	d.db.QueryRow(`SELECT 1 FROM messages WHERE chat_jid=? AND is_bot_message=1
-		AND timestamp>=? LIMIT 1`, jid, core.TS(since)).Scan(&n)
-	return n == 1
+	return d.store().BotSpokeSince(context.Background(), jid, since)
 }
 
-// InboundCountSince counts real inbound rows on a chat at or after since
-// (the RecentActivity floor).
+// InboundCountSince counts real inbound rows on a chat at or after since (the
+// RecentActivity floor).
 func (d *DB) InboundCountSince(jid string, since time.Time) int {
-	var n int
-	d.db.QueryRow(`SELECT COUNT(*) FROM messages WHERE chat_jid=?
-		AND is_bot_message=0 AND sender<>? AND timestamp>=?`,
-		jid, proactiveSelfSender, core.TS(since)).Scan(&n)
-	return n
+	return d.store().InboundCountSince(context.Background(), jid, since)
 }
 
 // LastInbound returns the newest real inbound row on a chat (content +
 // timestamp), used by positive signals. ok=false when the chat has none.
 func (d *DB) LastInbound(jid string) (content string, ts time.Time, ok bool) {
-	var c sql.NullString
-	var t sql.NullString
-	err := d.db.QueryRow(`SELECT content, timestamp FROM messages
-		WHERE chat_jid=? AND is_bot_message=0 AND sender<>?
-		ORDER BY timestamp DESC LIMIT 1`, jid, proactiveSelfSender).Scan(&c, &t)
-	if err != nil || !t.Valid {
-		return "", time.Time{}, false
-	}
-	tt, _ := time.Parse(time.RFC3339Nano, t.String)
-	return c.String, tt, true
+	return d.store().LastInbound(context.Background(), jid)
 }
 
 // ProactiveLastFired returns when a proactive turn last fired on a chat, or
@@ -995,32 +836,14 @@ func (d *DB) ProactiveLastFired(jid string) time.Time {
 	return d.store().ProactiveLastFired(jid)
 }
 
-// FireProactive appends the synthetic inbound row AND sets the chat's
-// proactive_last_fired_at in one transaction. The caller dispatches the run only
-// after this commits, so a crash before dispatch leaves the cooldown set — at
-// worst one missed turn, never a double-fire. Returns the synthetic row's id
-// (the turn_id).
+// FireProactive appends the synthetic inbound row AND sets the chat's proactive
+// cooldown in one transaction. The caller dispatches the run only after this
+// commits, so a crash before dispatch leaves the cooldown set — at worst one
+// missed turn, never a double-fire. Returns the synthetic row's id, which is the
+// turn id.
 func (d *DB) FireProactive(jid string) (string, error) {
 	id := "proactive-" + randHex(8)
-	firedAt := time.Now()
-	now := core.TS(firedAt)
-	tx, err := d.db.Begin()
-	if err != nil {
-		return "", err
-	}
-	defer tx.Rollback()
-	// sender_name + reply_to_id set to '' (not NULL) so scanMessages, which
-	// scans them into plain strings, sees a non-NULL value like PutMessage.
-	if _, err := tx.Exec(`INSERT INTO messages
-		(id, chat_jid, sender, sender_name, content, timestamp, reply_to_id, verb, status)
-		VALUES (?,?,?,'','',?,'','message',?)`,
-		id, jid, proactiveSelfSender, now, core.MessageStatusSent); err != nil {
-		return "", err
-	}
-	if err := d.store().RecordProactiveFireInTx(context.Background(), tx, jid, firedAt); err != nil {
-		return "", err
-	}
-	if err := tx.Commit(); err != nil {
+	if err := d.store().FireProactive(context.Background(), jid, id); err != nil {
 		return "", err
 	}
 	return id, nil
@@ -1036,15 +859,7 @@ func (d *DB) ChatHasRunningTurn(jid string) bool {
 // ThreadHasBotMessage reports whether the bot has posted in (chatJID, topic).
 // Empty topic → false (main timeline is not a thread).
 func (d *DB) ThreadHasBotMessage(chatJID, topic string) bool {
-	if topic == "" {
-		return false
-	}
-	var bot int
-	d.db.QueryRow(
-		"SELECT 1 FROM messages WHERE chat_jid=? AND (topic=? OR turn_id=?) AND is_bot_message=1 LIMIT 1",
-		chatJID, topic, topic,
-	).Scan(&bot)
-	return bot == 1
+	return d.store().ThreadHasBotMessage(chatJID, topic)
 }
 
 func b2i(b bool) int {

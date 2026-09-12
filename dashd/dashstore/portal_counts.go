@@ -28,17 +28,22 @@ func (s *Store) GroupFolders() ([]string, error) {
 	return s.st().GroupFolders(500)
 }
 
-// ErroredChatCount is the number of distinct chats holding an errored message.
+// ErroredChatCount is the number of chats flagged errored.
 func (s *Store) ErroredChatCount() (int, error) {
-	var n int
-	err := s.db.QueryRow(`SELECT COUNT(DISTINCT chat_jid) FROM messages WHERE errored=1`).Scan(&n)
-	return n, err
+	jids, err := s.ErroredChatJIDs()
+	return len(jids), err
 }
 
 // ErroredChatJIDs lists those chats' JIDs. The caller resolves each JID to the
 // folder it routes into, because a JID does not name its own folder.
+//
+// IT READS THE CHAT'S OWN FLAG rather than its messages. The two statements this
+// replaces asked `SELECT DISTINCT chat_jid FROM messages WHERE errored=1`, which
+// is a whole-table read for a question the chat already answers — and routd's own
+// twin has read the flag since the chats move, so the two surfaces disagreed
+// about which chats are errored until now.
 func (s *Store) ErroredChatJIDs() ([]string, error) {
-	return s.strings(`SELECT DISTINCT chat_jid FROM messages WHERE errored=1 LIMIT 1000`)
+	return s.st().ErroredChatJIDs()
 }
 
 // failedRunWindow is how far back the failed-run dot looks.

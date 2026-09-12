@@ -116,7 +116,6 @@ func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 			err := s.db.PutMessage(core.Message{
 				ID: id, ChatJID: jid, Sender: sender, Name: senderName,
 				Content: content, Timestamp: time.Now().UTC(), Verb: "message",
-				Status: core.MessageStatusSent,
 			})
 			// No explicit EnqueueMessageCheck: routd's loop polls new messages
 			// by timestamp, so the injected row is picked up on the next tick.
@@ -346,7 +345,7 @@ func (s *Server) mcpSubmitStatus(turnID, text string) error {
 	// the first status of the turn or when the adapter can't edit (email/WhatsApp/
 	// Reddit → ErrUnsupported). A real edit failure (401/500/timeout) surfaces — it
 	// is never silently re-posted as a duplicate (spec 5/24).
-	if id := s.db.LastStatusPlatformID(turnID); id != "" && s.deliver != nil {
+	if id := s.db.LastStatusPlatformID(tc.ChatJID, turnID); id != "" && s.deliver != nil {
 		err := s.deliver.Edit(jid, id, "⏳ "+text)
 		if err == nil {
 			return nil
@@ -503,6 +502,7 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 			return out
 		},
 		PutMessage:           s.db.PutMessage,
+		PutOutbound:          s.db.PutOutbound,
 		GetLastReplyID:       s.db.LastReplyID,
 		SetLastReply:         s.db.SetLastReply,
 		SetEngagement:        setEngagement,

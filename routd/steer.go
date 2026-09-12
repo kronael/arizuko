@@ -477,7 +477,7 @@ func (l *Loop) handlePrefixLayer(chatJID string, msg core.Message, folder string
 // table. Returns "" when the target is self or none applies.
 func (l *Loop) resolveTarget(chatJID string, msg core.Message, selfFolder string) string {
 	if msg.ReplyToID != "" {
-		if routed := l.db.RoutedToByMessageID(msg.ReplyToID); routed != "" {
+		if routed := l.db.RoutedToByMessageID(chatJID, msg.ReplyToID); routed != "" {
 			if routed != selfFolder {
 				return routed
 			}

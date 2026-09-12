@@ -11,6 +11,7 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/router"
+	"github.com/kronael/arizuko/store"
 	"gopkg.in/yaml.v3"
 )
 
@@ -237,7 +238,8 @@ func (l *Loop) emitSystemEvents(folder, chatJID string) {
 	today := time.Now().Format("2006-01-02")
 
 	if cur := l.db.GetAgentCursor(chatJID); cur != "" {
-		if t, err := time.Parse(time.RFC3339Nano, cur); err == nil &&
+		// The cursor is a message key, so the day is read off its lead.
+		if t, ok := store.CursorInstant(cur); ok &&
 			t.Format("2006-01-02") != today {
 			_ = l.db.EnqueueSysMsg(folder, "gateway", "new_day",
 				fmt.Sprintf("Date changed to %s", today))

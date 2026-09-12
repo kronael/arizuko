@@ -19,6 +19,7 @@ import (
 	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/queue"
 	"github.com/kronael/arizuko/router"
+	"github.com/kronael/arizuko/store"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 )
 
@@ -441,9 +442,9 @@ func backoffDelay(attempts int) time.Duration {
 	return d
 }
 
-// maybeRetryOutbound re-dispatches bot rows still 'pending', each gated by its own
-// backoffDelay. The adapter dedups on the row's stable message_id, so a
-// redelivered row never creates a second platform message.
+// maybeRetryOutbound re-dispatches bot rows that still owe a delivery, each gated
+// by its own backoffDelay. The adapter dedups on the row's stable message_id, so
+// a redelivered row never creates a second platform message.
 //
 // Two bounds stop an endless retry. A permanent refusal dead-letters the row at
 // once and spends no attempt; a transient failure spends one, and the row
@@ -459,27 +460,28 @@ func (l *Loop) maybeRetryOutbound(now time.Time) {
 		slog.Warn("retry outbound: list pending", "err", err)
 		return
 	}
-	for _, m := range rows {
+	for _, p := range rows {
+		m := p.Message
 		// backoffDelay grows with prior attempts, so a row that just failed
 		// waits longer than one on its first try — PendingOutbound's fixed
 		// 30s floor only bounds the youngest rows out of the query.
-		if now.Sub(m.Timestamp) < backoffDelay(m.DeliveryAttempts) {
+		if now.Sub(m.Timestamp) < backoffDelay(p.Attempts) {
 			continue
 		}
 		pid, derr := l.deliver.Send(m.ChatJID, m.Content, m.ReplyToID, m.Topic, "", m.ID)
 		switch {
 		case derr == nil:
-			if err := l.db.MarkBotPlatformID(m.ID, pid); err != nil {
+			if err := l.db.MarkDelivered(m, pid); err != nil {
 				slog.Error("retry outbound: mark sent", "id", m.ID, "err", err)
 			}
 		case errors.Is(derr, chanlib.ErrPermanent):
-			if err := l.db.MarkStatus(m.ID, core.MessageStatusFailed); err != nil {
+			if err := l.db.DeadLetter(m, 0); err != nil {
 				slog.Error("retry outbound: dead-letter", "id", m.ID, "err", err)
 			}
 			slog.Error("outbound dead-lettered: platform refused the message",
 				"id", m.ID, "jid", m.ChatJID, "err", derr)
 		default:
-			attempts, dead, err := l.db.RecordDeliveryFailure(m.ID, l.maxOutboundRetry)
+			attempts, dead, err := l.db.RecordDeliveryFailure(m, l.maxOutboundRetry)
 			if err != nil {
 				slog.Error("retry outbound: count attempt", "id", m.ID, "err", err)
 				continue
@@ -510,6 +512,13 @@ func (l *Loop) maybeGC(now time.Time) {
 		} else if n > 0 {
 			slog.Info("gc: swept stale running turns", "count", n)
 		}
+	}
+	// The activity feed is an index with a retention window, and this is where
+	// it drains. An index that only grows is the mistake turn_context records.
+	if n, err := l.db.SweepActivity(now); err != nil {
+		slog.Warn("gc: sweep the activity feed", "err", err)
+	} else if n > 0 {
+		slog.Info("gc: swept the activity feed", "count", n)
 	}
 }
 
@@ -597,28 +606,36 @@ func (l *Loop) folderForJid(chatJID string) string {
 	return g
 }
 
-// pollOnce reads new messages across all chats, groups by chat, resolves the
-// owning group, and enqueues each chat that routes. A route miss advances the
-// cursor and drops.
+// pollBatch bounds how many of one chat's messages a single poll takes. The
+// cursor is a whole message key, so a batch that stops mid-instant resumes
+// exactly where it stopped rather than re-feeding or skipping that instant.
+const pollBatch = 200
+
+// pollOnce reads each chat from its OWN watermark, resolves the owning group,
+// and enqueues each chat that routes. A route miss advances the cursor and drops.
+//
+// `chats` IS THE PARTITION LIST, which is what makes this cheaper than the global
+// read it replaces. That read fed from the LOWEST cursor across all chats and
+// threw most rows away: measured 2026-09-12, krons returned 23,936 of its 24,013
+// rows every two seconds because one chat's cursor had not moved since March,
+// against 0 rows when each chat is read from its own. sloth returned 18,091 of
+// 18,975 and marinade 8,060 of 10,267.
 func (l *Loop) pollOnce() {
-	msgs, _, err := l.db.NewMessages(l.pollCursor())
+	jids, err := l.db.ChatJIDs()
 	if err != nil {
 		slog.Warn("poll new messages", "err", err)
 		return
 	}
-	byChat := map[string][]core.Message{}
-	for _, m := range msgs {
-		byChat[m.ChatJID] = append(byChat[m.ChatJID], m)
-	}
-	for chatJID, chatMsgs := range byChat {
-		last := chatMsgs[len(chatMsgs)-1]
-		// Global poll feeds from the min cursor; skip chats already current on
-		// their own cursor — enqueuing them would (false,nil)→trip the queue
-		// breaker (cost a 3-attempt split cutover to find).
-		if core.TS(last.Timestamp) <= l.db.GetAgentCursor(chatJID) {
+	for _, chatJID := range jids {
+		chatMsgs, err := l.db.NewMessagesForChat(chatJID, l.db.GetAgentCursor(chatJID), pollBatch)
+		if err != nil {
+			slog.Warn("poll new messages", "jid", chatJID, "err", err)
 			continue
 		}
-		r := l.resolve(chatJID, last)
+		if len(chatMsgs) == 0 {
+			continue
+		}
+		r := l.resolve(chatJID, chatMsgs[len(chatMsgs)-1])
 		if !r.ok {
 			l.routeMiss(chatJID, chatMsgs, r)
 			continue
@@ -643,14 +660,12 @@ func (l *Loop) routeMiss(chatJID string, msgs []core.Message, r resolution) {
 		// ambient context (is_observed=1), no turn. Enrich attachments so
 		// later turns see downloaded media, not raw URLs (fix: observed
 		// messages were missing media enrichment, only triggers got it).
-		ids := make([]string, len(msgs))
 		for i := range msgs {
-			ids[i] = msgs[i].ID
 			if l.media.Enabled {
 				l.enrichAttachments(context.Background(), &msgs[i], r.Observe)
 			}
 		}
-		if err := l.db.MarkMessagesObserved(r.Observe, ids); err != nil {
+		if err := l.db.MarkMessagesObserved(r.Observe, msgs); err != nil {
 			slog.Warn("route miss: mark observed", "jid", chatJID, "err", err)
 		}
 	} else {
@@ -690,13 +705,6 @@ func (l *Loop) routeMiss(chatJID string, msgs []core.Message, r resolution) {
 // onboardingFailedNotice is sent to an unrouted chat when the admission-queue
 // insert fails — the alternative is permanent silence (see routeMiss).
 const onboardingFailedNotice = "⚠️ Couldn't register this chat for setup — please try again later."
-
-// pollCursor is the global high-water mark: the max agent_cursor across
-// chats. The simple poll feeds anything newer than the lowest unprocessed
-// row; per-chat cursors gate the actual dispatch in processGroupMessages.
-func (l *Loop) pollCursor() string {
-	return l.db.MinAgentCursor()
-}
 
 // resolution is the outcome of route resolution for one chat's latest
 // message. Exactly one of {ok, observe} is meaningful: ok=true → dispatch to
@@ -815,7 +823,7 @@ func (l *Loop) directFolder(jid string) string {
 func (l *Loop) advance(chatJID string, last core.Message) {
 	// Any cursor advance is progress past the batch a Busy refusal parked.
 	l.busyWait.Delete(chatJID)
-	_ = l.db.SetAgentCursor(chatJID, core.TS(last.Timestamp))
+	_ = l.db.SetAgentCursor(chatJID, store.MessageCursor(last))
 }
 
 // sessionIdleExpiry is the default spawn-time stale-session threshold.
@@ -830,8 +838,9 @@ func (l *Loop) sessionIdleExpired(chatJID string) bool {
 	if cur == "" {
 		return false
 	}
-	t, err := time.Parse(time.RFC3339Nano, cur)
-	if err != nil || t.IsZero() {
+	// The cursor is a message key, so the instant is its lead.
+	t, ok := store.CursorInstant(cur)
+	if !ok || t.IsZero() {
 		return false
 	}
 	return time.Since(t) > l.sessionIdle

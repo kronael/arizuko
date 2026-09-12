@@ -3,6 +3,7 @@ package routd
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/kronael/arizuko/core"
@@ -90,96 +91,23 @@ func (d *DB) WatchedSources(folder string) []string {
 	return store.New(d.db).WatchedSources(folder)
 }
 
-// ObservedSince returns the trailing window of observed messages for folder
-// whose timestamp is strictly greater than cursor (core.TSLayout UTC). Empty
-// cursor means "no lower bound; the window cap decides". Capped by maxMsgs and
-// maxChars; the oldest messages drop first when the char cap binds.
+// ObservedSince returns the trailing window of observed messages for folder whose
+// timestamp is strictly greater than cursor (core.TSLayout UTC). Empty cursor
+// means "no lower bound; the window cap decides". Capped by maxMsgs and maxChars;
+// the oldest messages drop first when the char cap binds.
 //
-// Two shapes UNION'd: (a) is_observed=1 rows routed to folder; (b) is_observed=0
-// primary-delivery rows routed to folder's watched sources (observe_group
-// ambient context).
+// Two shapes merged: the folder's own observed rows, and the primary-delivery
+// rows of the folders it watches (the observe_group ambient join). Both come out
+// of the folder feed, which is the index the `routed_to` write maintains.
 //
-// Isolated scheduled runs are excluded from BOTH. They already get their own
-// container and their own session so a folder's crons never enter the chat's
-// transcript (BUGS L54) — but their rows land routed_to the folder with
-// is_observed=1, so the ambient window served every cron prompt back to every
-// topic in the folder on its next turn. That re-opened the exact hole L54
-// closed, through a second door: on sloth's #trading the observed block was
-// dominated by 8-a-day "silent cron" prompts.
+// Isolated scheduled runs are excluded from BOTH (BUGS L54); store owns that
+// filter now, because the feed carries the sender it tests.
 func (d *DB) ObservedSince(folder, cursor string, maxMsgs, maxChars int) []core.Message {
-	if maxMsgs <= 0 || maxChars <= 0 {
-		return nil
-	}
-	watched := d.WatchedSources(folder)
-
-	args := []any{folder}
-	cursorClause := ""
-	if cursor != "" {
-		cursorClause = " AND timestamp > ?"
-	}
-
-	var q string
-	if len(watched) > 0 {
-		watchedPH := "?" + strings.Repeat(",?", len(watched)-1)
-		// Arg order matches placeholder order: folder, first cursor, watched
-		// folders, second cursor, LIMIT.
-		if cursor != "" {
-			args = append(args, cursor)
-		}
-		for _, f := range watched {
-			args = append(args, f)
-		}
-		if cursor != "" {
-			args = append(args, cursor)
-		}
-		args = append(args, maxMsgs)
-		q = `SELECT ` + msgReadCols + ` FROM messages
-		     WHERE routed_to = ? AND is_observed = 1
-		       AND is_bot_message = 0 AND content != ''
-		       AND sender NOT LIKE '` + core.IsolatedSenderPrefix + `%'` + cursorClause + `
-		     UNION ALL
-		     SELECT ` + msgReadCols + ` FROM messages
-		     WHERE routed_to IN (` + watchedPH + `) AND is_observed = 0
-		       AND is_bot_message = 0 AND content != ''
-		       AND sender NOT LIKE '` + core.IsolatedSenderPrefix + `%'` + cursorClause + `
-		     ORDER BY timestamp DESC
-		     LIMIT ?`
-	} else {
-		if cursor != "" {
-			args = append(args, cursor)
-		}
-		args = append(args, maxMsgs)
-		q = `SELECT ` + msgReadCols + ` FROM messages
-		     WHERE routed_to = ? AND is_observed = 1
-		       AND is_bot_message = 0 AND content != ''
-		       AND sender NOT LIKE '` + core.IsolatedSenderPrefix + `%'` + cursorClause + `
-		     ORDER BY timestamp DESC
-		     LIMIT ?`
-	}
-	rows, err := d.db.Query(q, args...)
+	msgs, err := d.store().ObservedSince(context.Background(), folder, cursor,
+		maxMsgs, maxChars, d.WatchedSources(folder))
 	if err != nil {
+		slog.Error("ambient window", "folder", folder, "err", err)
 		return nil
 	}
-	defer rows.Close()
-	// scanMessages drains newest-first into rev; take the youngest whose
-	// cumulative chars fit under maxChars, then reverse to chronological.
-	rev, _, err := scanMessages(rows, "")
-	if err != nil {
-		return nil
-	}
-	chars, cut := 0, 0
-	for i, m := range rev {
-		c := len(m.Content)
-		if chars+c > maxChars {
-			break
-		}
-		chars += c
-		cut = i + 1
-	}
-	rev = rev[:cut]
-	out := make([]core.Message, len(rev))
-	for i, m := range rev {
-		out[len(rev)-1-i] = m
-	}
-	return out
+	return msgs
 }

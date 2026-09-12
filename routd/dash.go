@@ -67,7 +67,10 @@ func (s *Server) snapshot() dashSnapshot {
 		snap.Pending = len(pending)
 	}
 	if dead, err := s.db.DeadLetters("", erroredPreview); err == nil {
-		snap.Dead = dead
+		snap.Dead = make([]core.Message, len(dead))
+		for i, p := range dead {
+			snap.Dead[i] = p.Message
+		}
 	}
 	return snap
 }
@@ -142,7 +145,12 @@ func (s *Server) handleDashReplay(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "id required", http.StatusBadRequest)
 		return
 	}
-	ok, err := s.db.ReplayDeadLetter(id)
+	msg, found := s.db.DeadLetterByID(id)
+	if !found {
+		auth.Forbidden(w, "routd", "No dead-lettered message "+id+".")
+		return
+	}
+	ok, err := s.db.ReplayDeadLetter(msg)
 	if err != nil {
 		slog.Error("dash replay", "id", id, "err", err)
 		http.Error(w, "write failed", http.StatusInternalServerError)

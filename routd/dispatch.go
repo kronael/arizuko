@@ -25,7 +25,7 @@ import (
 // outcome. Returns (hadOutput, err) per the queue's processMessagesFn.
 func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	cursor := l.db.GetAgentCursor(chatJID)
-	msgs, err := l.db.MessagesSince(chatJID, cursor)
+	msgs, err := l.db.NewMessagesForChat(chatJID, cursor, pollBatch)
 	if err != nil {
 		return false, err
 	}
@@ -476,7 +476,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		// runed marked Terminal is never retried — a retry cannot repair a
 		// misconfiguration and only burns spawns (spec 5/12).
 		tc, _ := l.db.GetTurnContext(turnID)
-		hasBotReply := l.db.TurnHasBotReply(turnID)
+		hasBotReply := l.db.TurnHasBotReply(tc.ChatJID, turnID)
 		if !out.Terminal && !hasBotReply && tc.RetryCount < l.maxTurnRetry {
 			newCount, err := l.db.IncrementRetryCount(turnID)
 			if err == nil {
@@ -493,11 +493,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		slog.Warn("run outcome error", "folder", folder, "turn_id", turnID, "err", out.Error,
 			"retry_count", tc.RetryCount)
 		_ = l.db.MarkChatErrored(chatJID)
-		ids := make([]string, len(trigger))
-		for i, m := range trigger {
-			ids[i] = m.ID
-		}
-		_ = l.db.MarkMessagesErrored(ids)
+		_ = l.db.MarkMessagesErrored(trigger)
 		if l.deliver != nil {
 			notice := runFailureNotice
 			// Use retry-exhausted notice only when retries were actually attempted.
@@ -532,7 +528,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 	// think-only included), so this fires only on a real malfunction: a 0-result
 	// SDK run, a config-less spawn, a swallowed submit_turn. Not transient — never
 	// retry; surface it loud AND to the chat so it can never be invisible again.
-	if out.Outcome == runedv1.OutcomeOK && !recorded && !l.db.TurnHasBotReply(turnID) {
+	if out.Outcome == runedv1.OutcomeOK && !recorded && !l.db.TurnHasBotReply(chatJID, turnID) {
 		slog.Error("silent turn: clean run delivered nothing",
 			"folder", folder, "turn_id", turnID, "jid", chatJID)
 		obs.RecordSilentTurn(folder)

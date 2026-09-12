@@ -27,16 +27,23 @@ package store
 // what bounds it is the number of chats an instance has ever been addressed
 // from, never its traffic.
 //
-// agent_cursor IS THE ONE ORDERED ATTRIBUTE. It is a copy of some message's
-// timestamp compared back against `messages.timestamp` with `>`, so a value of
-// another width sorts by width before it sorts by time and the poll loop skips
-// the row for good — BUGS L97, and the reason migration 0044 exists. The
-// declaration below refuses a short value at write time instead. The two flags
-// are "1" or ABSENT rather than "1"/"0": absent is the only null this model has,
-// and a false flag that is present is a value a tombstone test still finds.
+// agent_cursor IS THE ONE ORDERED ATTRIBUTE AND IT HOLDS A WHOLE MESSAGE KEY.
+// It was a bare thirty-byte instant compared against `messages.timestamp` with
+// `>`; under the message coordinate a bare instant sorts BELOW every message at
+// it, so `> cursor` would hand back a message the agent has already answered,
+// once per poll, for ever. It carries `core.TS + KeySep + id` now, which is the
+// same position rendered so the comparison still means it, and it also lets a
+// bounded poll stop between two messages of one instant. The declaration below
+// is the ordered LEAD, because the instant is fixed width and the id is not
+// (BUGS L97, and the reason migration 0044 exists).
+//
+// The two flags are "1" or ABSENT rather than "1"/"0": absent is the only null
+// this model has, and a false flag that is present is a value a tombstone test
+// still finds.
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"sort"
 	"strings"
@@ -56,15 +63,21 @@ const (
 	AttrChatAgentCursor = "agent_cursor"
 	AttrChatStickyGroup = "sticky_group"
 	AttrChatStickyTopic = "sticky_topic"
+	// attrChatHasInbound marks a chat that has ever carried a real inbound
+	// message — one no bot sent and the proactive trigger did not synthesise. It
+	// is the `SELECT DISTINCT chat_jid FROM messages` the proactive scan used to
+	// run over the whole table, moved to the fact's own row: the scan asks which
+	// chats are eligible, and that is a property of the chat.
+	attrChatHasInbound = "has_inbound"
 )
 
 // flagSet is what a true flag is stored as. False is the attribute's ABSENCE.
 const flagSet = "1"
 
 // The ordered declaration is what makes the dispatch cursor a cursor: every
-// driver refuses a key of another width, so a short one cannot sort into the
-// wrong place (BUGS L97).
-func init() { objstore.OrderedAttr(Chats, AttrChatAgentCursor, tsWidth) }
+// driver refuses a value whose instant is short, so it cannot sort by width
+// before it sorts by time (BUGS L97).
+func init() { objstore.OrderedLead(Chats, AttrChatAgentCursor, tsWidth) }
 
 // chatKey is the coordinate of one chat.
 func chatKey(jid string) (objstore.Key, error) {
@@ -76,11 +89,28 @@ func chatKey(jid string) (objstore.Key, error) {
 
 // chatItem reads one chat, if it has ever been seen.
 func (s *Store) chatItem(ctx context.Context, jid string) (objstore.Item, bool, error) {
+	return s.chatItemVia(ctx, nil, jid)
+}
+
+// chatItemVia reads one chat through a transaction the caller owns when it owns
+// one. A writer that reads its own decision must read through its own
+// transaction, or it tears — and on SQLite it waits for itself (scopes.go).
+func (s *Store) chatItemVia(ctx context.Context, tx *sql.Tx, jid string) (objstore.Item, bool, error) {
 	key, err := chatKey(jid)
 	if err != nil {
 		return objstore.Item{}, false, err
 	}
-	return s.itemAt(ctx, Chats, key)
+	items, err := s.reads(tx).Query(ctx, objstore.Query{
+		Entity: Chats, Partition: key.Partition,
+		Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: key.Sort},
+	})
+	if err != nil {
+		return objstore.Item{}, false, fmt.Errorf("read the chat %s: %w", jid, err)
+	}
+	if len(items) == 0 {
+		return objstore.Item{}, false, nil
+	}
+	return items[0], true, nil
 }
 
 // allChats reads the whole partition. The file header says what that costs and
@@ -121,28 +151,62 @@ func (s *Store) SetAgentCursor(jid, cursor string) error {
 	return nil
 }
 
-// LowestAgentCursor answers the floor the poll loop feeds from: the lowest
-// cursor any chat holds, or empty when none has advanced yet.
+// ChatJIDs answers every chat the instance has seen, in jid order.
 //
-// The minimum is taken HERE because a query orders on the sort key and the sort
-// key is the jid. That is the reader's work the constant partition buys, and the
-// statement it replaces walked the same rows.
-func (s *Store) LowestAgentCursor() (string, error) {
-	items, err := s.allChats(context.Background())
+// IT IS THE PARTITION LIST every whole-history reader walks: the poll loop feeds
+// each of these from its own watermark, and the archive exports each in turn.
+// PutMessage opens a chat item before it writes the first message of a chat, so
+// a message can never sit in a partition this list does not name.
+func (s *Store) ChatJIDs(ctx context.Context) ([]string, error) {
+	items, err := s.allChats(ctx)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	low := ""
+	out := make([]string, 0, len(items))
 	for _, it := range items {
-		cur := it.Attrs[AttrChatAgentCursor]
-		if cur == "" {
-			continue
-		}
-		if low == "" || cur < low {
-			low = cur
-		}
+		out = append(out, it.Key.Sort)
 	}
-	return low, nil
+	sort.Strings(out)
+	return out, nil
+}
+
+// MarkChatHasInbound records that a chat has carried a real inbound message. The
+// write is conditioned on the attribute being ABSENT, so it costs one refused
+// round trip on every message after a chat's first and never a read.
+func (s *Store) MarkChatHasInbound(ctx context.Context, tx *sql.Tx, jid string) error {
+	key, err := chatKey(jid)
+	if err != nil {
+		return err
+	}
+	// A refusal is the flag already being set, which is the outcome this wants.
+	_, err = s.tryWriteVia(ctx, tx, nil, objstore.Write{
+		Op: objstore.Update, Entity: Chats, Key: key,
+		Attrs: map[string]string{attrChatHasInbound: flagSet},
+		Cond: objstore.Cond{Where: []objstore.Cmp{
+			{Attr: attrChatHasInbound, Op: objstore.Absent}}},
+	})
+	return err
+}
+
+// ProactiveChats answers the chats that have ever carried a real inbound message
+// — the universe the proactive scan iterates before it filters by each group's
+// mode. A bot row and the proactive trigger's own synthetic row never make a
+// chat eligible, so neither sets the flag.
+func (s *Store) ProactiveChats(ctx context.Context) ([]string, error) {
+	items, err := s.Obj().Query(ctx, objstore.Query{
+		Entity: Chats, Partition: OwnerRoutd,
+		Where:   []objstore.Cmp{{Attr: attrChatHasInbound, Op: objstore.Present}},
+		Project: []string{},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read the proactive chats: %w", err)
+	}
+	out := make([]string, 0, len(items))
+	for _, it := range items {
+		out = append(out, it.Key.Sort)
+	}
+	sort.Strings(out)
+	return out, nil
 }
 
 // CountChats answers how many chats the partition holds. `arizuko migrate-hot`
@@ -332,14 +396,10 @@ func (s *Store) clearChatAttrs(ctx context.Context, key objstore.Key, attrs ...s
 // moves forward, so a run that dies leaves work a re-run finishes rather than a
 // half-applied transaction.
 //
-// THE INSTANT IS RE-RENDERED, because MAX(timestamp) is whatever the column
-// holds and this attribute is declared at core.TS's width. Two krons rows carry
-// a hand-written `2026-04-02 12:38:47` that migration 0044 deliberately does not
-// pad — padding a ROW would invent a zone it never had — so the raw maximum of
-// such a chat is nineteen bytes and the write refuses it. Rendering the CURSOR
-// is safe where rendering the row is not: a rendered instant sorts at or above
-// the row it came from, so the poller parks at the end of the history, which is
-// what this operation is for.
+// NOTHING IS RE-RENDERED ANY MORE. The cursor holds a whole message key and the
+// newest message's key IS one, so the value is copied rather than built: a chat
+// whose history ends at a row this cannot address has no key to copy, and the
+// message entity refused that row at write time rather than here.
 //
 // ONE BAD CHAT DOES NOT STOP THE REST. The sweep runs every chat it can and
 // reports the ones it could not at the end, because the alternative is the state
@@ -355,16 +415,11 @@ func (s *Store) DeriveAgentCursors(ctx context.Context, touched map[string]bool)
 	moved := 0
 	var failed []string
 	for _, jid := range jids {
-		raw, err := s.newestMessageAt(ctx, jid)
+		newest, err := s.newestMessageKey(ctx, jid)
 		if err != nil {
 			return moved, err
 		}
-		if raw == "" {
-			continue
-		}
-		newest, err := normaliseInstant(Chats, AttrChatAgentCursor, raw)
-		if err != nil {
-			failed = append(failed, fmt.Sprintf("%s (%v)", jid, err))
+		if newest == "" {
 			continue
 		}
 		key, err := chatKey(jid)

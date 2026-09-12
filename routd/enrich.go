@@ -143,7 +143,7 @@ func (l *Loop) enrichAttachments(ctx context.Context, msg *core.Message, folder 
 
 	msg.Content += extra.String()
 	msg.Attachments = ""
-	if err := l.db.EnrichMessage(msg.ID, msg.Content); err != nil {
+	if err := l.db.EnrichMessage(*msg, msg.Content); err != nil {
 		slog.Warn("enrich: store update failed", "id", msg.ID, "err", err)
 	}
 }

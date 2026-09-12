@@ -46,7 +46,6 @@ func buildMessageRow(m apiv1.Message, ts time.Time, verb string) core.Message {
 		// reply resolves back to the bot that received it (multi-account routing).
 		Source:      m.Source,
 		LinkContext: m.LinkContext,
-		Status:      core.MessageStatusSent,
 	}
 }
 

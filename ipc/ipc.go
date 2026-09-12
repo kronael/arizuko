@@ -173,6 +173,11 @@ type StoreFns struct {
 	// answer it — see authorizeJID. May be nil in tests.
 	RouteTokenTarget func(jid string) string
 	PutMessage       func(m core.Message) error
+	// PutOutbound appends a row that still owes a delivery, with the status
+	// deciding which sweep owns it. It is a door of its own because a delivery
+	// status is not a field of a message: `sent` is the absence of a delivery
+	// item, so an already-delivered row goes through PutMessage.
+	PutOutbound func(m core.Message, status string) error
 	GetLastReplyID   func(jid, topic string) string
 	// SetLastReply upserts last_reply_id and engaged_folder for (jid,
 	// topic). Always called on outbound; BumpEngagement is the separate
@@ -739,8 +744,8 @@ func putOutboundRow(gated GatedFns, db StoreFns, jid, text, platformID, folder, 
 	if db.CurrentTurnID != nil {
 		turnID = db.CurrentTurnID(folder)
 	}
-	if db.PutMessage != nil {
-		err := db.PutMessage(core.Message{
+	if db.PutOutbound != nil {
+		err := db.PutOutbound(core.Message{
 			ID:        core.MsgID("mcp"),
 			ChatJID:   jid,
 			Sender:    folder,
@@ -760,8 +765,7 @@ func putOutboundRow(gated GatedFns, db StoreFns, jid, text, platformID, folder, 
 			PlatformID: platformID,
 			RoutedTo:   jid,
 			Topic:      topic,
-			Status:     status,
-		})
+		}, status)
 		if err != nil {
 			slog.Error("outbound row not stored", "folder", folder, "jid", jid,
 				"status", status, "err", err)

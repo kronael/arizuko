@@ -15,37 +15,42 @@ import (
 // (types.UserSub / Folder / Tier / Scope) — see specs/5/A-primitives-framing.md.
 
 type Message struct {
-	ID               string
-	ChatJID          string
-	Sender           string
-	Name             string
-	Content          string
-	Timestamp        time.Time
-	FromMe           bool
-	BotMsg           bool
-	ForwardedFrom    string
-	ReplyToID        string
-	ReplyToText      string
-	ReplyToSender    string
-	PlatformID       string // platform-native message ID (Slack TS, Telegram msg_id, etc.) for outbound messages
-	Topic            string
-	RoutedTo         string
-	Verb             string // event type: "message" (default), "join", "edit", "delete", etc.
-	Attachments      string // JSON-encoded []chanlib.InboundAttachment
-	Source           string // adapter name that handled this row (inbound: receiver; outbound: deliverer)
-	Errored          bool   // set when a previous agent run failed on this message; re-fed tagged for retry
-	TurnID           string // for outbound: the inbound message id that triggered the run; for inbound: empty
-	Status           string // delivery state: 'sent' (default/inbound), 'pending' (outbound queued), 'failed' (terminal)
-	ChatName         string // human-readable channel/group name set by the adapter (e.g. "#general", "My Group")
-	LinkContext      string // route-token context snapshotted at ingest (spec 5/W); rendered as <link-context> in the prompt
-	DeliveryAttempts int    // outbound retry count (see messages.delivery_attempts below); 0 for inbound rows
+	ID            string
+	ChatJID       string
+	Sender        string
+	Name          string
+	Content       string
+	Timestamp     time.Time
+	FromMe        bool
+	BotMsg        bool
+	ForwardedFrom string
+	ReplyToID     string
+	ReplyToText   string
+	ReplyToSender string
+	PlatformID    string // platform-native message ID (Slack TS, Telegram msg_id, etc.) for outbound messages
+	Topic         string
+	RoutedTo      string
+	Verb          string // event type: "message" (default), "join", "edit", "delete", etc.
+	Attachments   string // JSON-encoded []chanlib.InboundAttachment
+	Source        string // adapter name that handled this row (inbound: receiver; outbound: deliverer)
+	Errored       bool   // set when a previous agent run failed on this message; re-fed tagged for retry
+	TurnID        string // for outbound: the inbound message id that triggered the run; for inbound: empty
+	ChatName      string // human-readable channel/group name set by the adapter (e.g. "#general", "My Group")
+	LinkContext   string // route-token context snapshotted at ingest (spec 5/W); rendered as <link-context> in the prompt
 }
 
 // Message status values for the poll-based outbound delivery path.
-// 'failed' IS the dead-letter state: the row stays in `messages` with its
-// content, and no sweep sends it again. The `messages.delivery_attempts`
-// column tells the two dead-letter causes apart — 0 means the platform
-// refused the message permanently, the cap means the retries ran out.
+//
+// They are not a FIELD of a message. Delivery state is mutable and a message is
+// history, so the status and the attempt count live in their own entity keyed by
+// the status — and 'sent' is the ABSENCE of an item there, because 98.4% of the
+// rows on krons are sent and an index holding all of them never sheds one
+// (spec 6/37 §"How `messages` leaves").
+//
+// 'failed' IS the dead-letter state: the message keeps its content and no sweep
+// sends it again. The attempt count tells the two dead-letter causes apart —
+// absent means the platform refused the message permanently, the cap means the
+// retries ran out.
 const (
 	MessageStatusSent    = "sent"
 	MessageStatusPending = "pending"

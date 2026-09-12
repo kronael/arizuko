@@ -502,7 +502,7 @@ func (d *DB) resolveHoldTx(ctx context.Context, tx *sql.Tx, id, verdict, reviewe
 		return p, "", nil
 	}
 	msg := resolutionMessage(p, reviewer)
-	if err := putMessage(tx, msg); err != nil {
+	if err := d.store().PutMessageInTx(ctx, tx, msg); err != nil {
 		return PendingAction{}, "", fmt.Errorf("record resolution message: %w", err)
 	}
 	return p, msg.ChatJID, nil

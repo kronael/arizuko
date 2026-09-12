@@ -122,6 +122,25 @@ const (
 	// struct a caller reads back.
 	TurnContexts = "turn_context"
 
+	// Messages holds one item per message routd has appended, addressed by the
+	// chat it is in and by `core.TS(timestamp) + KeySep + id` inside it. The id
+	// is in the key because 245 pairs share one instant inside one chat on
+	// krons, so a time-only key would put two messages on one item.
+	Messages = "messages"
+	// MessageFolders is the folder feed: one pointer per message that carries a
+	// `routed_to`, addressed by that folder and by the message's own position.
+	MessageFolders = "message_folders"
+	// MessageFolderCounts holds one folder's message count, addressed by the
+	// folder, so the usage page reads 95 items instead of 95 partitions.
+	MessageFolderCounts = "message_folder_counts"
+	// MessageActivity is the cross-chat feed: one projection per message in one
+	// constant partition, swept at ActivityRetention.
+	MessageActivity = "message_activity"
+	// MessageDelivery holds the delivery state of a row that is NOT sent,
+	// addressed by that status and by the message's own position. `sent` is the
+	// absence of an item.
+	MessageDelivery = "message_delivery"
+
 	// Counters holds one item per server-minted number, addressed by the name
 	// of what it numbers, with the count in `n`.
 	//
@@ -200,6 +219,7 @@ var EntitiesByOwner = map[string][]string{
 		GitHubSources,
 		Chats, Sessions, ChatReplyState, ChatProactive, SystemMessages, UserProfiles,
 		TurnResults, GroupWatchers, TaskRunLogs, TurnContexts,
+		Messages, MessageFolders, MessageFolderCounts, MessageActivity, MessageDelivery,
 	},
 	OwnerOnbod: {Onboarding, OnboardingGates, Invites, InviteRedemptions},
 }

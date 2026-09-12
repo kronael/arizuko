@@ -1,447 +1,410 @@
 package store
 
+// messages.go holds every read and write of `messages`: one item per message
+// routd has ever appended, inbound and outbound alike.
+//
+// THE PARTITION IS THE CHAT AND THE SORT KEY IS core.TS + KeySep + THE ID.
+// Twenty-five reads filter on the chat and range on the time, and the four sort
+// key inequalities on the interface were admitted for four of them. The largest
+// chat partition measured is 10,688 rows on krons (2026-09-12), against 24,013
+// in the table, so the partition is what keeps a history read off the other
+// 55 chats.
+//
+// THE ID IS IN THE KEY BECAUSE THE INSTANT IS NOT UNIQUE. On krons 1,195 pairs
+// carry an identical timestamp string and 245 of those pairs sit in ONE chat, so
+// a time-only key would put two messages on one item and the second Put would
+// erase the first. 10,488 pairs share a second inside one chat, which is what
+// the key's fixed-width lead answers: the instant decides the order and the id
+// only breaks a tie (objstore.OrderedLead).
+//
+// THE CURSOR IS A WHOLE KEY NOW. `chats.agent_cursor` held a bare 30-byte
+// instant compared `> timestamp`, and under a composite key a bare instant sorts
+// BELOW every message at it — so a message at exactly the cursor instant would
+// be fed a second time, once per poll, for ever. The cursor holds the whole sort
+// key and the poll loop reads `> cursor`, which is the same position it always
+// meant. `arizuko migrate-hot` derives it as the greatest key at or before the
+// stored instant, and that derivation is proven per chat against all three
+// snapshots (messages_migrate_test.go).
+//
+// platform_id STAYS HERE and is not delivery state. One writer stamps it, once,
+// when the adapter confirms delivery; no non-bot row on any of the three
+// instances carries one; and MessageByID resolves a reply's parent BY it inside
+// this partition. `status` and `delivery_attempts` are the mutable half and live
+// in message_delivery.go, where `sent` is the absence of an item.
+//
+// ONE WRITE FANS OUT. PutMessage writes this item and the three read-shaped
+// indexes in ONE batch, so an index can never hold a message the table does not
+// or the other way round. The fan-out lives here, with the entity that owns the
+// row, rather than in each index file: three writers would be three things that
+// can forget.
+
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/router"
 )
 
-func (s *Store) PutMessage(m core.Message) error {
-	if m.Topic == "" {
-		m.Topic = s.GetStickyTopic(m.ChatJID)
-	}
-	if m.Status == "" {
-		m.Status = core.MessageStatusSent
-	}
-	_, err := s.db.Exec(
-		`INSERT OR IGNORE INTO messages
-		 (id, chat_jid, sender, sender_name, content, timestamp,
-		  is_from_me, is_bot_message, forwarded_from,
-		  reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb, attachments, source, turn_id, status, chat_name, platform_id)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		m.ID, m.ChatJID, m.Sender, m.Name, m.Content,
-		core.TS(m.Timestamp),
-		btoi(m.FromMe), btoi(m.BotMsg),
-		nilIfEmpty(m.ForwardedFrom),
-		nilIfEmpty(m.ReplyToID), nilIfEmpty(m.ReplyToText), nilIfEmpty(m.ReplyToSender),
-		m.Topic, m.RoutedTo, m.Verb, m.Attachments, m.Source, nilIfEmpty(m.TurnID), m.Status, m.ChatName, nilIfEmpty(m.PlatformID),
-	)
-	return err
+// The attributes a message item carries. The chat, the instant and the id are
+// the coordinate and are not among them: storing one twice is two facts that can
+// disagree.
+const (
+	attrMsgSender        = "sender"
+	attrMsgSenderName    = "sender_name"
+	attrMsgContent       = "content"
+	attrMsgFromMe        = "is_from_me"
+	attrMsgBot           = "is_bot_message"
+	attrMsgForwardedFrom = "forwarded_from"
+	attrMsgReplyToID     = "reply_to_id"
+	attrMsgReplyToText   = "reply_to_text"
+	attrMsgReplyToSender = "reply_to_sender"
+	attrMsgTopic         = "topic"
+	attrMsgRoutedTo      = "routed_to"
+	attrMsgVerb          = "verb"
+	attrMsgAttachments   = "attachments"
+	attrMsgSource        = "source"
+	attrMsgObserved      = "is_observed"
+	attrMsgTurnID        = "turn_id"
+	attrMsgChatName      = "chat_name"
+	attrMsgErrored       = "errored"
+	attrMsgLinkContext   = "link_context"
+	// AttrMsgPlatformID is the platform's own id for a delivered row. It is
+	// exported because the delivery sweep stamps it and the archive carries it.
+	AttrMsgPlatformID = "platform_id"
+)
+
+// The ordered declaration is what makes a message key a position: every driver
+// refuses a key whose instant is short, so it cannot sort by width before it
+// sorts by time (BUGS L97).
+func init() { objstore.OrderedLead(Messages, "", tsWidth) }
+
+// MsgStamp assembles a message's position from a rendered instant and its id, so
+// the live writer, the three indexes and the move that carries an existing row
+// all build one shape.
+func MsgStamp(ts, id string) string { return ts + KeySep + id }
+
+// MsgCoord splits a position back into the instant and the id. A key that does
+// not split names an item nobody wrote.
+func MsgCoord(sortKey string) (ts, id string, ok bool) {
+	return strings.Cut(sortKey, KeySep)
 }
 
-func (s *Store) EnrichMessage(id, content string) error {
-	_, err := s.db.Exec(
-		`UPDATE messages SET content=?, attachments='' WHERE id=?`,
-		content, id,
-	)
-	return err
-}
+// MessageCursor is the position a consumer records after it has taken a message:
+// the message's own key. A cursor that held only the instant would sort below
+// every message at that instant and hand the whole second back on the next read.
+func MessageCursor(m core.Message) string { return MsgStamp(core.TS(m.Timestamp), m.ID) }
 
-func nilIfEmpty(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
-}
-
-const msgCols = `id, chat_jid, sender, COALESCE(sender_name,''), content, timestamp,
-	is_from_me, is_bot_message, COALESCE(forwarded_from,''),
-	COALESCE(reply_to_id,''), COALESCE(reply_to_text,''), COALESCE(reply_to_sender,''),
-	topic, routed_to, verb, attachments, source, errored, COALESCE(turn_id,''), COALESCE(chat_name,''), COALESCE(platform_id,'')`
-
-func (s *Store) NewMessages(jids []string, since time.Time, botName string) ([]core.Message, time.Time, error) {
-	var rows *sql.Rows
-	var err error
-	if len(jids) == 0 {
-		rows, err = s.db.Query(
-			`SELECT `+msgCols+` FROM messages
-			 WHERE timestamp > ?
-			   AND is_bot_message = 0
-			   AND sender NOT LIKE ?
-			 ORDER BY timestamp ASC
-			 LIMIT 200`,
-			core.TS(since), botName+"%",
-		)
-	} else {
-		args := make([]any, 0, len(jids)+2)
-		for _, jid := range jids {
-			args = append(args, jid)
-		}
-		args = append(args, core.TS(since), botName+"%")
-		ph := "(" + strings.TrimSuffix(strings.Repeat("?,", len(jids)), ",") + ")"
-		rows, err = s.db.Query(
-			`SELECT `+msgCols+` FROM messages
-			 WHERE chat_jid IN `+ph+`
-			   AND timestamp > ?
-			   AND is_bot_message = 0
-			   AND sender NOT LIKE ?
-			 ORDER BY timestamp ASC
-			 LIMIT 200`,
-			args...,
-		)
-	}
-	if err != nil {
-		return nil, since, err
-	}
-	defer rows.Close()
-
-	var msgs []core.Message
-	hi := since
-	for rows.Next() {
-		m, err := scanMessage(rows)
-		if err != nil {
-			return nil, since, err
-		}
-		msgs = append(msgs, m)
-		if m.Timestamp.After(hi) {
-			hi = m.Timestamp
-		}
-	}
-	return msgs, hi, rows.Err()
-}
-
-func (s *Store) MarkMessagesErrored(ids []string) error {
-	if len(ids) == 0 {
-		return nil
-	}
-	q := `UPDATE messages SET errored = 1 WHERE id IN (?` +
-		strings.Repeat(",?", len(ids)-1) + `)`
-	args := make([]any, len(ids))
-	for i, id := range ids {
-		args[i] = id
-	}
-	_, err := s.db.Exec(q, args...)
-	return err
-}
-
-func (s *Store) DeleteErroredMessages(chatJid string) error {
-	_, err := s.db.Exec(`DELETE FROM messages WHERE chat_jid = ? AND errored = 1`, chatJid)
-	return err
-}
-
-func (s *Store) MessagesSince(jid string, since time.Time, botName string) ([]core.Message, error) {
-	rows, err := s.db.Query(
-		`SELECT `+msgCols+` FROM messages
-		 WHERE chat_jid = ?
-		   AND timestamp > ?
-		   AND is_bot_message = 0
-		   AND sender NOT LIKE ?
-		 ORDER BY timestamp ASC
-		 LIMIT 100`,
-		jid, core.TS(since), botName+"%",
-	)
-	if err != nil {
-		return nil, err
-	}
-	return collectMessages(rows)
-}
-
-// BotRepliesSince returns the agent's outbound messages on a chat JID after a
-// timestamp, oldest first — the inverse filter of MessagesSince (which excludes
-// bot rows). Used by `arizuko send` operator-direct mode to surface the agent's
-// reply to a CLI-injected message.
-func (s *Store) BotRepliesSince(jid string, since time.Time) ([]core.Message, error) {
-	rows, err := s.db.Query(
-		`SELECT `+msgCols+` FROM messages
-		 WHERE chat_jid = ?
-		   AND timestamp > ?
-		   AND is_bot_message = 1
-		 ORDER BY timestamp ASC
-		 LIMIT 100`,
-		jid, core.TS(since),
-	)
-	if err != nil {
-		return nil, err
-	}
-	return collectMessages(rows)
-}
-
-type rowScanner interface {
-	Scan(dest ...any) error
-}
-
-func collectMessages(rows *sql.Rows) ([]core.Message, error) {
-	defer rows.Close()
-	var msgs []core.Message
-	for rows.Next() {
-		m, err := scanMessage(rows)
-		if err != nil {
-			return nil, err
-		}
-		msgs = append(msgs, m)
-	}
-	return msgs, rows.Err()
-}
-
-func scanMessage(r rowScanner) (core.Message, error) {
-	var m core.Message
-	var ts string
-	var fromMe, botMsg, errored int
-	if err := r.Scan(&m.ID, &m.ChatJID, &m.Sender, &m.Name, &m.Content,
-		&ts, &fromMe, &botMsg, &m.ForwardedFrom,
-		&m.ReplyToID, &m.ReplyToText, &m.ReplyToSender,
-		&m.Topic, &m.RoutedTo, &m.Verb, &m.Attachments, &m.Source, &errored, &m.TurnID, &m.ChatName, &m.PlatformID); err != nil {
-		return m, err
-	}
-	m.FromMe = fromMe != 0
-	m.BotMsg = botMsg != 0
-	m.Errored = errored != 0
-	m.Timestamp, _ = time.Parse(time.RFC3339Nano, ts)
-	return m, nil
-}
-
-type TopicSummary struct {
-	ID           string
-	Preview      string
-	LastAt       time.Time
-	MessageCount int
-}
-
-func (s *Store) Topics(folder string) ([]TopicSummary, error) {
-	jid := "web:" + folder
-	rows, err := s.db.Query(
-		`SELECT topic,
-		        substr(MIN(content),1,80) AS preview,
-		        MAX(timestamp) AS last_at,
-		        COUNT(*) AS cnt
-		 FROM messages
-		 WHERE chat_jid = ? AND topic != ''
-		 GROUP BY topic
-		 ORDER BY last_at DESC
-		 LIMIT 100`,
-		jid,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []TopicSummary
-	for rows.Next() {
-		var t TopicSummary
-		var lastAt string
-		rows.Scan(&t.ID, &t.Preview, &lastAt, &t.MessageCount)
-		t.LastAt, _ = time.Parse(time.RFC3339Nano, lastAt)
-		out = append(out, t)
-	}
-	return out, rows.Err()
-}
-
-func (s *Store) MessagesByTopic(folder, topic string, before time.Time, limit int) ([]core.Message, error) {
-	return s.MessagesByThread("web:"+folder, topic, before, limit)
-}
-
-func (s *Store) MessagesByThread(jid, topic string, before time.Time, limit int) ([]core.Message, error) {
-	if limit <= 0 || limit > 100 {
-		limit = 50
-	}
-	if before.IsZero() {
-		before = time.Now()
-	}
-	rows, err := s.db.Query(
-		`SELECT `+msgCols+` FROM messages
-		 WHERE chat_jid = ? AND topic = ? AND timestamp < ?
-		 ORDER BY timestamp DESC
-		 LIMIT ?`,
-		jid, topic, core.TS(before), limit,
-	)
-	if err != nil {
-		return nil, err
-	}
-	return collectMessages(rows)
-}
-
-func (s *Store) TopicByMessageID(id, jid string) string {
-	var topic string
-	s.db.QueryRow(`SELECT COALESCE(topic,'') FROM messages WHERE id=? AND chat_jid=?`,
-		id, jid).Scan(&topic)
-	return topic
-}
-
-func (s *Store) MessageTimestampByID(id, jid string) (time.Time, bool) {
-	var ts string
-	err := s.db.QueryRow(`SELECT timestamp FROM messages WHERE id=? AND chat_jid=?`,
-		id, jid).Scan(&ts)
-	if err != nil {
+// CursorInstant reads the instant out of a cursor, for the readers that ask when
+// rather than where — the new-day notice and the idle-session check.
+func CursorInstant(cursor string) (time.Time, bool) {
+	ts, _, ok := MsgCoord(cursor)
+	if !ok {
 		return time.Time{}, false
 	}
 	t, err := time.Parse(time.RFC3339Nano, ts)
 	return t, err == nil
 }
 
-func (s *Store) MessagesSinceTopic(jid, topic string, after time.Time, limit int) ([]core.Message, error) {
-	if limit <= 0 || limit > 100 {
-		limit = 50
+// msgStampAt is the bound that sorts at the START of an instant: below every
+// message key at it, because every key carries the separator and an id after the
+// instant. `timestamp < t` and `timestamp >= t` compare against this.
+func msgStampAt(t time.Time) string { return core.TS(t) }
+
+// msgStampPast is the bound that sorts just PAST an instant: above every message
+// key at it, because the byte after KeySep is greater than KeySep. `timestamp >
+// t` and `timestamp <= t` compare against this.
+//
+// It is derived from KeySep rather than written out, so the two cannot drift
+// into a bound that includes or excludes a whole instant by one byte.
+func msgStampPast(t time.Time) string { return core.TS(t) + string(KeySep[0]+1) }
+
+// MessageKey is the coordinate of one message, built from the values a caller
+// holds rather than from an id alone.
+//
+// A caller that has only an id has no coordinate, and every such caller in the
+// tree holds the chat too — the reply parent is in the chat being replied to,
+// the retry sweep holds the row it read, and an operator's dead-letter replay
+// passes what the list it read rendered.
+func MessageKey(chatJID, ts, id string) (objstore.Key, error) {
+	if chatJID == "" {
+		return objstore.Key{}, fmt.Errorf("message %q carries no chat, which is its "+
+			"partition", id)
 	}
-	rows, err := s.db.Query(
-		`SELECT `+msgCols+` FROM messages
-		 WHERE chat_jid = ? AND topic = ? AND timestamp > ?
-		 ORDER BY timestamp ASC
-		 LIMIT ?`,
-		jid, topic, core.TS(after), limit,
-	)
-	if err != nil {
-		return nil, err
+	if len(ts) != tsWidth {
+		return objstore.Key{}, fmt.Errorf("message %q carries the instant %q, which is %d "+
+			"bytes and a position's instant is %d; the chat is read in time order, so a short "+
+			"one sorts into the wrong place instead of failing (BUGS L97)", id, ts, len(ts), tsWidth)
 	}
-	return collectMessages(rows)
+	if id == "" {
+		return objstore.Key{}, fmt.Errorf("message at %s carries no id, and the id is what "+
+			"keeps two messages of one instant apart", ts)
+	}
+	if strings.Contains(id, KeySep) {
+		return objstore.Key{}, fmt.Errorf("message id %q carries the separator that divides "+
+			"the two halves of its position", id)
+	}
+	return objstore.Key{Partition: chatJID, Sort: MsgStamp(ts, id)}, nil
 }
 
-// MarkMessagesObserved records ids as ambient context for folder — the poll
-// loop calls it when the resolved route target is `folder#observe`.
-func (s *Store) MarkMessagesObserved(folder string, ids []string) error {
-	if len(ids) == 0 {
-		return nil
-	}
-	q := `UPDATE messages SET is_observed = 1, routed_to = ? WHERE id IN (?` +
-		strings.Repeat(",?", len(ids)-1) + `)`
-	args := make([]any, 0, len(ids)+1)
-	args = append(args, folder)
-	for _, id := range ids {
-		args = append(args, id)
-	}
-	_, err := s.db.Exec(q, args...)
-	return err
+// messageKeyOf is the coordinate of a message a caller already holds.
+func messageKeyOf(m core.Message) (objstore.Key, error) {
+	return MessageKey(m.ChatJID, core.TS(m.Timestamp), m.ID)
 }
 
-// ObservedSince returns the trailing window of observed messages for folder whose
-// timestamp is strictly greater than cursor. Empty cursor means no lower bound.
-// Capped by maxMsgs and maxChars; older messages drop first when the char cap binds.
-// Per spec 6/F the caller advances the topic's observed_cursor after rendering.
-func (s *Store) ObservedSince(folder, cursor string, maxMsgs, maxChars int) []core.Message {
-	if maxMsgs <= 0 || maxChars <= 0 {
-		return nil
-	}
-	// Spec 6/F ambient join: open siblings widen routed_to for is_observed=1 rows.
-	siblings := s.SiblingFolders(folder)
-	// observe_group: watched source folders contribute their primary-delivery
-	// messages (is_observed=0) as additional ambient context for the observer.
-	watched := s.WatchedSources(folder)
+// messageAttrs renders one message as the attributes its item carries. An empty
+// value is LEFT OFF: absent is the only null this model has, so a reader that
+// tests for a field's presence must not find an empty one.
+func messageAttrs(m core.Message) map[string]string {
+	attrs := map[string]string{}
+	setAttr(attrs, attrMsgSender, m.Sender)
+	setAttr(attrs, attrMsgSenderName, m.Name)
+	setAttr(attrs, attrMsgContent, m.Content)
+	setAttr(attrs, attrMsgForwardedFrom, m.ForwardedFrom)
+	setAttr(attrs, attrMsgReplyToID, m.ReplyToID)
+	setAttr(attrs, attrMsgReplyToText, m.ReplyToText)
+	setAttr(attrs, attrMsgReplyToSender, m.ReplyToSender)
+	setAttr(attrs, attrMsgTopic, m.Topic)
+	setAttr(attrs, attrMsgRoutedTo, m.RoutedTo)
+	setAttr(attrs, attrMsgVerb, defaultVerb(m.Verb))
+	setAttr(attrs, attrMsgAttachments, m.Attachments)
+	setAttr(attrs, attrMsgSource, m.Source)
+	setAttr(attrs, attrMsgTurnID, m.TurnID)
+	setAttr(attrs, attrMsgChatName, m.ChatName)
+	setAttr(attrs, attrMsgLinkContext, m.LinkContext)
+	setAttr(attrs, AttrMsgPlatformID, m.PlatformID)
+	setFlag(attrs, attrMsgFromMe, m.FromMe)
+	setFlag(attrs, attrMsgBot, m.BotMsg)
+	setFlag(attrs, attrMsgErrored, m.Errored)
+	return attrs
+}
 
-	observed := append([]string{folder}, siblings...)
-	observedPH := "?" + strings.Repeat(",?", len(observed)-1)
-	args := make([]any, 0, len(observed)+len(watched)+3)
-	for _, f := range observed {
-		args = append(args, f)
+// messageFrom reads one item back into the shape every caller renders.
+//
+// The instant comes out of the COORDINATE, because that is where it is stored.
+// A key this cannot split still yields a message — the attributes are the truth
+// and a zero time is visible — rather than dropping a row out of a feed.
+func messageFrom(it objstore.Item) core.Message {
+	ts, id, _ := MsgCoord(it.Key.Sort)
+	m := core.Message{
+		ID:            id,
+		ChatJID:       it.Key.Partition,
+		Sender:        it.Attrs[attrMsgSender],
+		Name:          it.Attrs[attrMsgSenderName],
+		Content:       it.Attrs[attrMsgContent],
+		ForwardedFrom: it.Attrs[attrMsgForwardedFrom],
+		ReplyToID:     it.Attrs[attrMsgReplyToID],
+		ReplyToText:   it.Attrs[attrMsgReplyToText],
+		ReplyToSender: it.Attrs[attrMsgReplyToSender],
+		Topic:         it.Attrs[attrMsgTopic],
+		RoutedTo:      it.Attrs[attrMsgRoutedTo],
+		Verb:          it.Attrs[attrMsgVerb],
+		Attachments:   it.Attrs[attrMsgAttachments],
+		Source:        it.Attrs[attrMsgSource],
+		TurnID:        it.Attrs[attrMsgTurnID],
+		ChatName:      it.Attrs[attrMsgChatName],
+		LinkContext:   it.Attrs[attrMsgLinkContext],
+		PlatformID:    it.Attrs[AttrMsgPlatformID],
+		FromMe:        it.Attrs[attrMsgFromMe] == flagSet,
+		BotMsg:        it.Attrs[attrMsgBot] == flagSet,
+		Errored:       it.Attrs[attrMsgErrored] == flagSet,
 	}
+	m.Timestamp, _ = time.Parse(time.RFC3339Nano, ts)
+	return m
+}
 
-	cursorClause := ""
-	if cursor != "" {
-		cursorClause = " AND timestamp > ?"
-	}
-
-	var q string
-	if len(watched) > 0 {
-		watchedPH := "?" + strings.Repeat(",?", len(watched)-1)
-		// Arg order must match placeholder order: observed folders, then the
-		// first SELECT's cursor, then watched folders, then the second
-		// SELECT's cursor, then LIMIT.
-		if cursor != "" {
-			args = append(args, cursor)
-		}
-		for _, f := range watched {
-			args = append(args, f)
-		}
-		if cursor != "" {
-			args = append(args, cursor)
-		}
-		args = append(args, maxMsgs)
-		q = `SELECT ` + msgCols + ` FROM messages
-		     WHERE routed_to IN (` + observedPH + `) AND is_observed = 1
-		       AND is_bot_message = 0 AND content != ''` + cursorClause + `
-		     UNION ALL
-		     SELECT ` + msgCols + ` FROM messages
-		     WHERE routed_to IN (` + watchedPH + `) AND is_observed = 0
-		       AND is_bot_message = 0 AND content != ''` + cursorClause + `
-		     ORDER BY timestamp DESC
-		     LIMIT ?`
-	} else {
-		if cursor != "" {
-			args = append(args, cursor)
-		}
-		args = append(args, maxMsgs)
-		q = `SELECT ` + msgCols + ` FROM messages
-		     WHERE routed_to IN (` + observedPH + `) AND is_observed = 1
-		       AND is_bot_message = 0 AND content != ''` + cursorClause + `
-		     ORDER BY timestamp DESC
-		     LIMIT ?`
-	}
-	rows, err := s.db.Query(q, args...)
-	if err != nil {
-		return nil
-	}
-	rev, err := collectMessages(rows)
-	if err != nil {
-		return nil
-	}
-	chars := 0
-	cut := 0
-	for i, m := range rev {
-		c := len(m.Content)
-		if chars+c > maxChars {
-			break
-		}
-		chars += c
-		cut = i + 1
-	}
-	rev = rev[:cut]
-	out := make([]core.Message, len(rev))
-	for i, m := range rev {
-		out[len(rev)-1-i] = m
+// messagesFrom reads a query's items back in the order the driver returned them.
+func messagesFrom(items []objstore.Item) []core.Message {
+	out := make([]core.Message, 0, len(items))
+	for _, it := range items {
+		out = append(out, messageFrom(it))
 	}
 	return out
 }
 
-func (s *Store) RoutedToByMessageID(id string) string {
-	var routedTo string
-	s.db.QueryRow(`SELECT COALESCE(routed_to,'') FROM messages WHERE id=? AND routed_to!=''`,
-		id).Scan(&routedTo)
-	return routedTo
+// setFlag records a true flag and leaves a false one OFF the item, because
+// absent is the only null this model has and a stored "0" is a flag every reader
+// finds set.
+func setFlag(attrs map[string]string, name string, on bool) {
+	if on {
+		attrs[name] = flagSet
+	}
 }
 
-// MessageByID returns one message by primary key, or ok=false if missing.
-// Light-weight read for tests and probes; production routing paths use
-// the bulk `NewMessages` window instead.
-func (s *Store) MessageByID(id string) (core.Message, bool) {
-	if id == "" {
-		return core.Message{}, false
+// defaultVerb is the event type a message with none carries.
+func defaultVerb(v string) string {
+	if v == "" {
+		return "message"
 	}
-	var m core.Message
-	var ts string
-	var fromMe, botMsg int
-	err := s.db.QueryRow(`
-		SELECT id, chat_jid, sender, COALESCE(sender_name,''), content, timestamp,
-		       is_from_me, is_bot_message, COALESCE(reply_to_id,''),
-		       topic, COALESCE(routed_to,''), verb, COALESCE(source,''),
-		       COALESCE(chat_name,'')
-		  FROM messages WHERE id=?`, id).Scan(
-		&m.ID, &m.ChatJID, &m.Sender, &m.Name, &m.Content, &ts,
-		&fromMe, &botMsg, &m.ReplyToID, &m.Topic, &m.RoutedTo,
-		&m.Verb, &m.Source, &m.ChatName,
-	)
+	return v
+}
+
+// PutMessage appends one message and the index entries it belongs in, in ONE
+// batch. routd is the only writer.
+//
+// A DUPLICATE ID IS A NO-OP, which is what the `INSERT OR IGNORE` it replaces
+// meant: the first row written is authoritative and the log is append-only. The
+// condition is on the message item, and a refusal takes the indexes with it, so
+// a re-delivered message cannot double-count a folder.
+func (s *Store) PutMessage(m core.Message) error {
+	return s.putMessage(context.Background(), nil, m, core.MessageStatusSent)
+}
+
+// PutMessageInTx is PutMessage on a transaction the CALLER owns, for the writer
+// whose message commits with the row it answers: the held-call resolution notice
+// lands with the pending row it resolves, so a rolled-back approval leaves no
+// notice claiming it happened.
+func (s *Store) PutMessageInTx(ctx context.Context, tx *sql.Tx, m core.Message) error {
+	return s.putMessage(ctx, tx, m, core.MessageStatusSent)
+}
+
+// putMessage is PutMessage's body. The status is a parameter rather than a field
+// of the message because it is not stored on the message: it decides whether a
+// delivery item exists at all (message_delivery.go).
+func (s *Store) putMessage(ctx context.Context, tx *sql.Tx, m core.Message, status string) error {
+	if m.Timestamp.IsZero() {
+		m.Timestamp = time.Now()
+	}
+	// ONE READ DOES TWO JOBS. An untopiced message inherits the chat's sticky
+	// pin, and a chat nobody has seen has to be OPENED — `chats` is the partition
+	// list the poll loop and the archive both walk, so a message in a chat it
+	// does not name would be a message nothing ever feeds and nothing ever
+	// exports. The open is a write of its own rather than a member of the batch
+	// below, because a create-if-absent REFUSES on the chat's second message and
+	// a refusal takes the whole batch it rides in.
+	chat, seen, err := s.chatItemVia(ctx, tx, m.ChatJID)
 	if err != nil {
-		return core.Message{}, false
+		return err
 	}
-	m.FromMe = fromMe != 0
-	m.BotMsg = botMsg != 0
-	m.Timestamp, _ = time.Parse(time.RFC3339Nano, ts)
-	return m, true
+	if m.Topic == "" {
+		m.Topic = chat.Attrs[AttrChatStickyTopic]
+	}
+	if !seen {
+		chatKey, kerr := chatKey(m.ChatJID)
+		if kerr != nil {
+			return kerr
+		}
+		// A refusal is another writer opening the same chat first, which is the
+		// outcome this wants.
+		if _, oerr := s.tryWriteVia(ctx, tx, nil, objstore.Write{
+			Op: objstore.Put, Entity: Chats, Key: chatKey, Attrs: map[string]string{},
+			Cond: objstore.Cond{Item: objstore.ItemAbsent},
+		}); oerr != nil {
+			return fmt.Errorf("open the chat %s: %w", m.ChatJID, oerr)
+		}
+	}
+	// A real inbound makes the chat eligible for a proactive turn, and that is a
+	// property of the CHAT rather than a scan of its messages.
+	if isRealInbound(m) && chat.Attrs[attrChatHasInbound] != flagSet {
+		if ferr := s.MarkChatHasInbound(ctx, tx, m.ChatJID); ferr != nil {
+			return ferr
+		}
+	}
+	key, err := messageKeyOf(m)
+	if err != nil {
+		return err
+	}
+	writes := []objstore.Write{{
+		Op: objstore.Put, Entity: Messages, Key: key, Attrs: messageAttrs(m),
+		Cond: objstore.Cond{Item: objstore.ItemAbsent},
+	}}
+	writes = append(writes, activityWrite(key, m))
+	if w, ok := deliveryWrite(key, m, status); ok {
+		writes = append(writes, w)
+	}
+	folderWrite, counted, err := folderFeedWrite(key, m)
+	if err != nil {
+		return err
+	}
+	if !counted {
+		// No routed_to, so no folder feed entry and no counter to move: the
+		// batch is the message and the feeds that take every row.
+		_, err := s.tryWriteVia(ctx, tx, nil, writes...)
+		return err
+	}
+	return s.countFolderMessage(ctx, tx, m.RoutedTo, append(writes, folderWrite))
 }
 
-func btoi(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
+// ProactiveSelfSender is the synthetic inbound's sender. Rows from it never
+// reset the silence clock and never count as recent activity, because the
+// trigger must not feed itself. It is declared here because the message writer
+// is what decides a row is not real traffic, and routd's scan reads the same
+// name.
+const ProactiveSelfSender = "timed-proactive"
+
+// isRealInbound reports whether a message is traffic a person sent. A bot row is
+// the agent's own output and the proactive row is the trigger's.
+func isRealInbound(m core.Message) bool {
+	return !m.BotMsg && m.Sender != ProactiveSelfSender
 }
 
+// EnrichMessage replaces a message's content with the media-enriched body and
+// clears its attachments, so the observed-context render on later turns sees the
+// transcript rather than the raw refs.
+//
+// It takes the MESSAGE rather than an id, because an item is addressed by its
+// coordinate and every caller holds the row it enriched.
+func (s *Store) EnrichMessage(m core.Message, content string) error {
+	key, err := messageKeyOf(m)
+	if err != nil {
+		return err
+	}
+	// A message nobody appended is nothing to enrich, and the Update says so by
+	// refusing rather than creating a half-built row.
+	_, err = s.TryWriteEntities(context.Background(), nil, objstore.Write{
+		Op: objstore.Update, Entity: Messages, Key: key,
+		Attrs:  map[string]string{attrMsgContent: content},
+		Remove: []string{attrMsgAttachments},
+	})
+	if err != nil {
+		return fmt.Errorf("enrich %s: %w", m.ID, err)
+	}
+	return nil
+}
+
+// NewMessagesForChat answers a chat's messages after its own watermark, oldest
+// first — the poll loop's feed.
+//
+// THE CURSOR IS A WHOLE MESSAGE KEY and the read is `> cursor`, so a message at
+// exactly the cursor instant is consumed once. An empty cursor feeds the chat
+// from the start, which is what a chat no turn has ever run on means.
+func (s *Store) NewMessagesForChat(ctx context.Context, jid, cursor string,
+	limit int) ([]core.Message, error) {
+	key := objstore.KeyPredicate{}
+	if cursor != "" {
+		key = objstore.KeyPredicate{Op: objstore.GtKey, Value: cursor}
+	}
+	items, err := s.Obj().Query(ctx, objstore.Query{
+		Entity: Messages, Partition: jid, Key: key, Limit: limit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read new messages in %s: %w", jid, err)
+	}
+	return messagesFrom(items), nil
+}
+
+// MessagesSince answers one chat's messages strictly after an instant, oldest
+// first.
+func (s *Store) MessagesSince(jid string, since time.Time) ([]core.Message, error) {
+	items, err := s.Obj().Query(context.Background(), objstore.Query{
+		Entity: Messages, Partition: jid,
+		Key: objstore.KeyPredicate{Op: objstore.GeKey, Value: msgStampPast(since)},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read %s since %s: %w", jid, core.TS(since), err)
+	}
+	return messagesFrom(items), nil
+}
+
+// MessagesBefore answers one chat's messages older than an instant, oldest
+// first. The read is newest-first and the caller wants the other order, so the
+// page is taken from the end and then reversed.
 func (s *Store) MessagesBefore(jid string, before time.Time, limit int) ([]core.Message, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 100
@@ -449,26 +412,443 @@ func (s *Store) MessagesBefore(jid string, before time.Time, limit int) ([]core.
 	if before.IsZero() {
 		before = time.Now()
 	}
-	rows, err := s.db.Query(
-		`SELECT `+msgCols+` FROM messages
-		 WHERE chat_jid = ? AND timestamp < ?
-		 ORDER BY timestamp DESC
-		 LIMIT ?`,
-		jid, core.TS(before), limit,
-	)
+	items, err := s.Obj().Query(context.Background(), objstore.Query{
+		Entity: Messages, Partition: jid,
+		Key:        objstore.KeyPredicate{Op: objstore.LtKey, Value: msgStampAt(before)},
+		Descending: true, Limit: limit,
+	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read %s before %s: %w", jid, core.TS(before), err)
 	}
-	msgs, err := collectMessages(rows)
+	return reversed(messagesFrom(items)), nil
+}
+
+// MessagesByThread answers one (chat, topic)'s messages older than an instant,
+// NEWEST first — the order the web transcript pages backwards in.
+func (s *Store) MessagesByThread(jid, topic string, before time.Time,
+	limit int) ([]core.Message, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	if before.IsZero() {
+		before = time.Now()
+	}
+	items, err := s.Obj().Query(context.Background(), objstore.Query{
+		Entity: Messages, Partition: jid,
+		Key:        objstore.KeyPredicate{Op: objstore.LtKey, Value: msgStampAt(before)},
+		Where:      []objstore.Cmp{{Attr: attrMsgTopic, Op: objstore.Eq, Value: topic}},
+		Descending: true, Limit: limit,
+	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read %s#%s before %s: %w", jid, topic, core.TS(before), err)
 	}
+	return messagesFrom(items), nil
+}
+
+// webChatJID is the chat a folder's web panel writes into. groupfolder.JidFolder
+// is the read half of the same grammar.
+func webChatJID(folder string) string { return "web:" + folder }
+
+// MessagesByTopic is MessagesByThread on a folder's web chat.
+func (s *Store) MessagesByTopic(folder, topic string, before time.Time,
+	limit int) ([]core.Message, error) {
+	return s.MessagesByThread(webChatJID(folder), topic, before, limit)
+}
+
+// MessagesSinceTopic answers one (chat, topic)'s messages strictly after an
+// instant, oldest first.
+func (s *Store) MessagesSinceTopic(jid, topic string, after time.Time,
+	limit int) ([]core.Message, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	items, err := s.Obj().Query(context.Background(), objstore.Query{
+		Entity: Messages, Partition: jid,
+		Key:   objstore.KeyPredicate{Op: objstore.GeKey, Value: msgStampPast(after)},
+		Where: []objstore.Cmp{{Attr: attrMsgTopic, Op: objstore.Eq, Value: topic}},
+		Limit: limit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read %s#%s since %s: %w", jid, topic, core.TS(after), err)
+	}
+	return messagesFrom(items), nil
+}
+
+// BotRepliesSince answers the agent's outbound rows on a chat after an instant,
+// oldest first — the inverse of the inbound feed, for `arizuko send`.
+func (s *Store) BotRepliesSince(jid string, since time.Time, limit int) ([]core.Message, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 100
+	}
+	items, err := s.Obj().Query(context.Background(), objstore.Query{
+		Entity: Messages, Partition: jid,
+		Key:   objstore.KeyPredicate{Op: objstore.GeKey, Value: msgStampPast(since)},
+		Where: []objstore.Cmp{{Attr: attrMsgBot, Op: objstore.Present}},
+		Limit: limit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read %s's bot replies since %s: %w", jid, core.TS(since), err)
+	}
+	return messagesFrom(items), nil
+}
+
+// reversed flips a page read newest-first into chronological order.
+func reversed(msgs []core.Message) []core.Message {
 	for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
 		msgs[i], msgs[j] = msgs[j], msgs[i]
 	}
-	return msgs, nil
+	return msgs
 }
 
+// TopicSummary is one thread of a folder's web chat, as the topic list renders
+// it.
+type TopicSummary struct {
+	ID           string
+	Preview      string
+	LastAt       time.Time
+	MessageCount int
+}
+
+// topicPreviewChars is how much of a topic's opening line the list shows.
+const topicPreviewChars = 80
+
+// maxTopics bounds the topic list.
+const maxTopics = 100
+
+// Topics answers a folder's web-chat threads, most recently active first.
+//
+// THE GROUPING IS THE READER'S, and that is the partition doing its job: the
+// statement this replaces was a GROUP BY over the same chat's rows, so the rows
+// examined are identical and only the place they are folded has moved. A web
+// chat is one chat, which bounds it.
+func (s *Store) Topics(folder string) ([]TopicSummary, error) {
+	items, err := s.Obj().Query(context.Background(), objstore.Query{
+		Entity: Messages, Partition: webChatJID(folder),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read %s's topics: %w", folder, err)
+	}
+	byTopic := map[string]*TopicSummary{}
+	for _, it := range items {
+		topic := it.Attrs[attrMsgTopic]
+		if topic == "" {
+			continue
+		}
+		t, seen := byTopic[topic]
+		if !seen {
+			t = &TopicSummary{ID: topic}
+			byTopic[topic] = t
+		}
+		t.MessageCount++
+		// The preview is the alphabetically first content, which is what
+		// MIN(content) answered, and the instant is the newest, which is what
+		// MAX(timestamp) answered. The read arrives in key order, so the last
+		// row of the partition is the newest.
+		if body := it.Attrs[attrMsgContent]; !seen || body < t.Preview {
+			t.Preview = body
+		}
+		if ts, _, ok := MsgCoord(it.Key.Sort); ok {
+			t.LastAt, _ = time.Parse(time.RFC3339Nano, ts)
+		}
+	}
+	out := make([]TopicSummary, 0, len(byTopic))
+	for _, t := range byTopic {
+		t.Preview = truncateRunes(t.Preview, topicPreviewChars)
+		out = append(out, *t)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].LastAt.After(out[j].LastAt) })
+	if len(out) > maxTopics {
+		out = out[:maxTopics]
+	}
+	return out, nil
+}
+
+// truncateRunes cuts a string to n characters, which is what SQLite's substr
+// counts.
+func truncateRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n])
+}
+
+// messageAt reads one message of a chat by its id.
+//
+// THE ID IS THE TAIL OF THE KEY, so this is a partition read with the id
+// compared in the reader rather than a point read. The statement it replaces was
+// the same shape — `WHERE id=? AND chat_jid=?` has no index past the chat, so
+// both examine the chat's rows — and the chat bounds it at 10,688 on krons.
+func (s *Store) messageAt(ctx context.Context, jid, id string) (objstore.Item, bool, error) {
+	if jid == "" || id == "" {
+		return objstore.Item{}, false, nil
+	}
+	items, err := s.Obj().Query(ctx, objstore.Query{Entity: Messages, Partition: jid})
+	if err != nil {
+		return objstore.Item{}, false, fmt.Errorf("read %s in %s: %w", id, jid, err)
+	}
+	for _, it := range items {
+		if _, got, ok := MsgCoord(it.Key.Sort); ok && got == id {
+			return it, true, nil
+		}
+	}
+	return objstore.Item{}, false, nil
+}
+
+// MessageByID answers one message of a chat named by its OWN id or by the
+// platform's id for it.
+//
+// THE CHAT BOUND IS NOT OPTIONAL. `platform_id` is a per-platform value, so an
+// unscoped lookup resolves a reply id to a row in another chat and another
+// folder, and the caller then copies that row's sender, text and topic into this
+// message. The partition is what makes that impossible rather than checked.
+func (s *Store) MessageByID(chatJID, id string) (core.Message, bool) {
+	if chatJID == "" || id == "" {
+		return core.Message{}, false
+	}
+	items, err := s.Obj().Query(context.Background(), objstore.Query{
+		Entity: Messages, Partition: chatJID,
+	})
+	if err != nil {
+		return core.Message{}, false
+	}
+	for _, it := range items {
+		_, own, ok := MsgCoord(it.Key.Sort)
+		if (ok && own == id) || it.Attrs[AttrMsgPlatformID] == id {
+			return messageFrom(it), true
+		}
+	}
+	return core.Message{}, false
+}
+
+// TopicByMessageID answers the topic of one message, so a reply to a threaded
+// row forks lineage from the parent's topic rather than from the main one.
+func (s *Store) TopicByMessageID(id, jid string) string {
+	it, ok, err := s.messageAt(context.Background(), jid, id)
+	if err != nil || !ok {
+		return ""
+	}
+	return it.Attrs[attrMsgTopic]
+}
+
+// MessageTimestampByID answers when one message of a chat was appended.
+func (s *Store) MessageTimestampByID(id, jid string) (time.Time, bool) {
+	it, ok, err := s.messageAt(context.Background(), jid, id)
+	if err != nil || !ok {
+		return time.Time{}, false
+	}
+	ts, _, split := MsgCoord(it.Key.Sort)
+	if !split {
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339Nano, ts)
+	return t, err == nil
+}
+
+// RoutedToByMessageID answers the folder one message of a chat was routed to, so
+// a reply to a bot row goes back to the child that authored it.
+//
+// IT IS CHAT-SCOPED, and the reply path is why that is not a narrowing: a reply
+// names a message in the chat it is sent to, so the parent is in this partition
+// by construction. The statement it replaces searched every chat, which is the
+// cross-chat resolution MessageByID's own comment warns about.
+func (s *Store) RoutedToByMessageID(chatJID, id string) string {
+	m, ok := s.MessageByID(chatJID, id)
+	if !ok {
+		return ""
+	}
+	return m.RoutedTo
+}
+
+// MarkMessagesErrored flags a failed run's trigger rows so the circuit breaker
+// can prune them. The rows stay visible to a later successful run until it
+// trips.
+//
+// It takes the MESSAGES rather than ids, for MessageKey's reason: the caller
+// holds the rows it dispatched.
+func (s *Store) MarkMessagesErrored(ctx context.Context, msgs []core.Message) error {
+	writes := make([]objstore.Write, 0, len(msgs))
+	for _, m := range msgs {
+		key, err := messageKeyOf(m)
+		if err != nil {
+			return err
+		}
+		writes = append(writes, objstore.Write{
+			Op: objstore.Update, Entity: Messages, Key: key,
+			Attrs: map[string]string{attrMsgErrored: flagSet},
+		})
+	}
+	if len(writes) == 0 {
+		return nil
+	}
+	_, err := s.applyInChunks(ctx, "flag messages errored", writes)
+	return err
+}
+
+// erroredItems reads one chat's flagged rows.
+func (s *Store) erroredItems(ctx context.Context, chatJID string) ([]objstore.Item, error) {
+	items, err := s.Obj().Query(ctx, objstore.Query{
+		Entity: Messages, Partition: chatJID,
+		Where: []objstore.Cmp{{Attr: attrMsgErrored, Op: objstore.Present}},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read %s's errored messages: %w", chatJID, err)
+	}
+	return items, nil
+}
+
+// ClearErrored un-flags a chat's errored rows so the dispatch loop feeds them
+// again — the operator's "retry this chat". It answers how many rows moved, so a
+// caller can refuse to report success on zero.
+//
+// AN ENTITY HAS NO PREDICATE UPDATE, so the rows are read and then written one
+// each. That is stricter than the statement it replaces, which could clear a row
+// flagged after the decision to clear was made.
+func (s *Store) ClearErrored(ctx context.Context, chatJID string) (int64, error) {
+	items, err := s.erroredItems(ctx, chatJID)
+	if err != nil {
+		return 0, err
+	}
+	writes := make([]objstore.Write, 0, len(items))
+	for _, it := range items {
+		writes = append(writes, objstore.Write{
+			Op: objstore.Update, Entity: Messages, Key: it.Key,
+			Remove: []string{attrMsgErrored},
+		})
+	}
+	if len(writes) == 0 {
+		return 0, nil
+	}
+	n, err := s.applyInChunks(ctx, "clear "+chatJID+"'s errored messages", writes)
+	return int64(n), err
+}
+
+// DeleteErroredMessages drops a chat's errored rows, and the index entries that
+// point at them, so the next inbound starts the chat from a clean batch.
+func (s *Store) DeleteErroredMessages(ctx context.Context, chatJID string) error {
+	items, err := s.erroredItems(ctx, chatJID)
+	if err != nil {
+		return err
+	}
+	var writes []objstore.Write
+	for _, it := range items {
+		writes = append(writes, objstore.Write{Op: objstore.Delete, Entity: Messages, Key: it.Key})
+		writes = append(writes, indexDeletes(it)...)
+	}
+	if len(writes) == 0 {
+		return nil
+	}
+	_, err = s.applyInChunks(ctx, "delete "+chatJID+"'s errored messages", writes)
+	return err
+}
+
+// TurnFrames answers the bot rows one turn stamped, oldest first, paged by the
+// message a caller last saw.
+//
+// PAGING IS A KEY RANGE NOW. The statement it replaces read the page anchor's
+// timestamp and then compared `(timestamp > ? OR (timestamp = ? AND id > ?))`,
+// which is the composite key written out by hand; the key IS that comparison, so
+// the second statement goes. An anchor this chat does not hold feeds from the
+// start, which is what a caller catching up wants.
+//
+// chatJID binds the turn to its chat: a turn id alone is guessable and is not
+// proof of ownership, so containment is the partition rather than a check in
+// each caller.
+func (s *Store) TurnFrames(chatJID, turnID, afterID string, limit int) ([]core.Message, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 200
+	}
+	if chatJID == "" {
+		return nil, nil
+	}
+	ctx := context.Background()
+	key := objstore.KeyPredicate{}
+	if afterID != "" {
+		if it, ok, err := s.messageAt(ctx, chatJID, afterID); err == nil && ok {
+			key = objstore.KeyPredicate{Op: objstore.GtKey, Value: it.Key.Sort}
+		}
+	}
+	items, err := s.Obj().Query(ctx, objstore.Query{
+		Entity: Messages, Partition: chatJID, Key: key,
+		Where: []objstore.Cmp{
+			{Attr: attrMsgTurnID, Op: objstore.Eq, Value: turnID},
+			{Attr: attrMsgBot, Op: objstore.Present},
+		},
+		Limit: limit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read turn %s's frames in %s: %w", turnID, chatJID, err)
+	}
+	return messagesFrom(items), nil
+}
+
+// TurnHasBotReply reports whether the agent already delivered a bot row for one
+// turn, so the result path does not send its prose a second time. Interim
+// verb="status" rows are excluded: an auto-status must never count as the reply,
+// or the agent's real answer is swallowed (spec 5/24).
+func (s *Store) TurnHasBotReply(chatJID, turnID string) bool {
+	items, err := s.Obj().Query(context.Background(), objstore.Query{
+		Entity: Messages, Partition: chatJID,
+		Where: []objstore.Cmp{
+			{Attr: attrMsgTurnID, Op: objstore.Eq, Value: turnID},
+			{Attr: attrMsgBot, Op: objstore.Present},
+			{Attr: attrMsgVerb, Op: objstore.Ne, Value: verbStatus},
+		},
+		Limit: 1,
+	})
+	return err == nil && len(items) > 0
+}
+
+// verbStatus is the interim ⏳ row's verb. submit_status edits that message in
+// place rather than streaming a new notice (spec 5/24).
+const verbStatus = "status"
+
+// LastStatusPlatformID answers the platform id of the newest delivered status
+// row of one turn, or empty when none landed yet.
+func (s *Store) LastStatusPlatformID(chatJID, turnID string) string {
+	items, err := s.Obj().Query(context.Background(), objstore.Query{
+		Entity: Messages, Partition: chatJID,
+		Where: []objstore.Cmp{
+			{Attr: attrMsgTurnID, Op: objstore.Eq, Value: turnID},
+			{Attr: attrMsgVerb, Op: objstore.Eq, Value: verbStatus},
+			{Attr: AttrMsgPlatformID, Op: objstore.Present},
+		},
+		Descending: true, Limit: 1,
+	})
+	if err != nil || len(items) == 0 {
+		return ""
+	}
+	return items[0].Attrs[AttrMsgPlatformID]
+}
+
+// ThreadHasBotMessage reports whether the bot has posted in one (chat, topic).
+// An empty topic is the main timeline and is not a thread.
+func (s *Store) ThreadHasBotMessage(chatJID, topic string) bool {
+	if topic == "" {
+		return false
+	}
+	// The statement this replaces matched `topic=? OR turn_id=?`, because a
+	// thread is named by either on the platforms that thread off a turn. A Cmp
+	// list is a conjunction, so the disjunction is two reads and the first hit
+	// answers.
+	for _, c := range []objstore.Cmp{
+		{Attr: attrMsgTopic, Op: objstore.Eq, Value: topic},
+		{Attr: attrMsgTurnID, Op: objstore.Eq, Value: topic},
+	} {
+		items, err := s.Obj().Query(context.Background(), objstore.Query{
+			Entity: Messages, Partition: chatJID,
+			Where: []objstore.Cmp{c, {Attr: attrMsgBot, Op: objstore.Present}},
+			Limit: 1,
+		})
+		if err == nil && len(items) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// JIDRoutedToFolder reports whether a chat's default route target is folder or a
+// descendant of it.
 func (s *Store) JIDRoutedToFolder(jid, folder string) bool {
 	target := s.DefaultFolderForJID(jid)
 	if target == "" {
@@ -478,344 +858,278 @@ func (s *Store) JIDRoutedToFolder(jid, folder string) bool {
 }
 
 // JIDRoutableToFolder reports whether folder (or a descendant) is the target of
-// any route matching jid when the verb predicate is ignored. Unlike
-// JIDRoutedToFolder — which only sees the default verb="message" resolution —
-// this recognizes a sub-folder that handles jid solely under a verb-scoped
-// route (e.g. verb=mention), so a mention-only agent may reply to its own chat.
+// any route matching jid when the verb predicate is ignored. It recognises a
+// sub-folder that handles jid only under a verb-scoped route, so a mention-only
+// agent may reply to its own chat.
 func (s *Store) JIDRoutableToFolder(jid, folder string) bool {
 	msg := core.Message{ChatJID: jid}
 	for _, r := range s.AllRoutes() {
 		if !router.RouteMatchesIgnoreVerb(r, msg) {
 			continue
 		}
-		t := core.ParseRouteTarget(r.Target).Folder
-		if groupfolder.Contains(folder, t) {
+		if groupfolder.Contains(folder, core.ParseRouteTarget(r.Target).Folder) {
 			return true
 		}
 	}
 	return false
 }
 
-// FoundMessage is one row of FindMessages output. Content is the
-// snippet returned by FTS5's `snippet()` (matched fragment with
-// «»-highlighting around the hit), not the full message body.
-// Rank is BM25 — lower is a better match.
-type FoundMessage struct {
-	ChatJID      string    `json:"chat_jid"`
-	Sender       string    `json:"sender"`
-	Timestamp    time.Time `json:"timestamp"`
-	IsFromMe     bool      `json:"is_from_me"`
-	IsBotMessage bool      `json:"is_bot_message"`
-	Content      string    `json:"content"`
-	Rank         float64   `json:"rank"`
-}
-
-// FindMessages runs an FTS5 MATCH against messages_fts and joins back to messages for
-// metadata. `query` is bound as a parameter — FTS5 parses it as its own syntax, so no
-// SQL escape is needed; a malformed query surfaces SQLITE_ERROR to the caller. ACL
-// filtering is the caller's job.
-//
-// `scope` is polymorphic: a string containing ':' matches chat_jid, otherwise it is a
-// folder subtree on `routed_to`. `sender` is exact match; `since` is an RFC3339 lower
-// bound (inclusive).
-func (s *Store) FindMessages(query, scope, sender, since string, limit int) ([]FoundMessage, error) {
-	if limit <= 0 || limit > 200 {
-		limit = 20
-	}
-	var scopeJID any
-	var scopeFolder string
-	if scope != "" {
-		if strings.Contains(scope, ":") {
-			scopeJID = scope
-		} else {
-			scopeFolder = scope
-		}
-	}
-	var senderArg any
-	if sender != "" {
-		senderArg = sender
-	}
-	var sinceArg any
-	if since != "" {
-		sinceArg = since
-	}
-	rows, err := s.db.Query(
-		`SELECT m.chat_jid, m.sender, m.timestamp, m.is_from_me, m.is_bot_message,
-		        snippet(messages_fts, 0, '«', '»', '…', 32) AS content,
-		        bm25(messages_fts) AS rank
-		 FROM messages_fts f
-		 JOIN messages m ON m.rowid = f.rowid
-		 WHERE messages_fts MATCH ?
-		   AND (? IS NULL OR m.chat_jid = ?)
-		   AND (? = '' OR `+groupfolder.SQLSubtree("m.routed_to", "/")+`)
-		   AND (? IS NULL OR m.sender = ?)
-		   AND (? IS NULL OR m.timestamp >= ?)
-		 ORDER BY rank, m.timestamp DESC
-		 LIMIT ?`,
-		append(append([]any{query, scopeJID, scopeJID, scopeFolder},
-			groupfolder.SubtreeArgs(scopeFolder, "/")...),
-			senderArg, senderArg, sinceArg, sinceArg, limit)...,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []FoundMessage
-	for rows.Next() {
-		var f FoundMessage
-		var ts string
-		var fromMe, botMsg int
-		if err := rows.Scan(&f.ChatJID, &f.Sender, &ts,
-			&fromMe, &botMsg, &f.Content, &f.Rank); err != nil {
-			return nil, err
-		}
-		f.IsFromMe = fromMe != 0
-		f.IsBotMessage = botMsg != 0
-		f.Timestamp, _ = time.Parse(time.RFC3339Nano, ts)
-		out = append(out, f)
-	}
-	return out, rows.Err()
-}
-
-// --- the archive lane (spec 5/8 "Message history") -----------------------
-//
-// The archive carries the WHOLE history, which no manifest does, so these
-// four are messages' second reader and they live beside its first. The cursor
-// derivation is here rather than with `chats` because it is the second half of
-// ONE operation: an import that did not park the poller makes the agent answer
-// every restored message.
-
-// ArchiveMessageRow is the FULL row shape of routd.db's messages table —
-// every column, unlike routd's own agent-facing read surface (msgReadCols,
-// routd/reads.go) which omits reply_to_text/reply_to_sender/is_observed/
-// errored because the agent never needs them. The archive is a full
-// backup, not a filtered view, so it carries all of them verbatim (spec
-// 5/8 "Message history": turn_id/chat_jid "carried verbatim").
-type ArchiveMessageRow struct {
-	ID            string `json:"id"`
-	ChatJID       string `json:"chat_jid"`
-	Sender        string `json:"sender"`
-	SenderName    string `json:"sender_name,omitempty"`
-	Content       string `json:"content"`
-	Timestamp     string `json:"timestamp"`
-	IsFromMe      bool   `json:"is_from_me"`
-	IsBotMessage  bool   `json:"is_bot_message"`
-	ForwardedFrom string `json:"forwarded_from,omitempty"`
-	ReplyToID     string `json:"reply_to_id,omitempty"`
-	ReplyToText   string `json:"reply_to_text,omitempty"`
-	ReplyToSender string `json:"reply_to_sender,omitempty"`
-	Topic         string `json:"topic,omitempty"`
-	RoutedTo      string `json:"routed_to,omitempty"`
-	Verb          string `json:"verb,omitempty"`
-	Attachments   string `json:"attachments,omitempty"`
-	Source        string `json:"source,omitempty"`
-	IsObserved    bool   `json:"is_observed"`
-	TurnID        string `json:"turn_id,omitempty"`
-	Status        string `json:"status,omitempty"`
-	PlatformID    string `json:"platform_id,omitempty"`
-	ChatName      string `json:"chat_name,omitempty"`
-	Errored       bool   `json:"errored"`
-	LinkContext   string `json:"link_context,omitempty"`
-}
-
-// archiveMessageCols mirrors every column of routd/migrations/0001-initial-
-// schema.sql's messages table plus 0006's errored and 0019's link_context —
-// the full row, not routd/reads.go's msgReadCols agent-facing projection.
-const archiveMessageCols = `id, chat_jid, sender, COALESCE(sender_name,''), content, timestamp,
-	is_from_me, is_bot_message, COALESCE(forwarded_from,''), COALESCE(reply_to_id,''),
-	COALESCE(reply_to_text,''), COALESCE(reply_to_sender,''), COALESCE(topic,''),
-	COALESCE(routed_to,''), COALESCE(verb,''), COALESCE(attachments,''), COALESCE(source,''),
-	is_observed, COALESCE(turn_id,''), COALESCE(status,''), COALESCE(platform_id,''),
-	COALESCE(chat_name,''), errored, COALESCE(link_context,'')`
-
-// ExportMessagesJSONL streams every messages row (one read tx — spec 5/8
-// "Consistency levels") to w as JSONL (repo convention: .jl, one JSON
-// object per line), ordered by rowid (insertion order) for deterministic
-// output on an unchanged DB. Returns the row count.
-func (s *Store) ExportMessagesJSONL(ctx context.Context, w io.Writer) (int, error) {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
-	if err != nil {
-		return 0, fmt.Errorf("begin read tx: %w", err)
-	}
-	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, "SELECT "+archiveMessageCols+" FROM messages ORDER BY rowid")
-	if err != nil {
-		return 0, fmt.Errorf("query messages: %w", err)
-	}
-	defer rows.Close()
-	enc := json.NewEncoder(w)
-	n := 0
-	for rows.Next() {
-		var m ArchiveMessageRow
-		var fromMe, botMsg, observed, errored int
-		if err := rows.Scan(&m.ID, &m.ChatJID, &m.Sender, &m.SenderName, &m.Content, &m.Timestamp,
-			&fromMe, &botMsg, &m.ForwardedFrom, &m.ReplyToID, &m.ReplyToText, &m.ReplyToSender,
-			&m.Topic, &m.RoutedTo, &m.Verb, &m.Attachments, &m.Source, &observed,
-			&m.TurnID, &m.Status, &m.PlatformID, &m.ChatName, &errored, &m.LinkContext); err != nil {
-			return n, fmt.Errorf("scan message: %w", err)
-		}
-		m.IsFromMe = fromMe != 0
-		m.IsBotMessage = botMsg != 0
-		m.IsObserved = observed != 0
-		m.Errored = errored != 0
-		if err := enc.Encode(m); err != nil {
-			return n, fmt.Errorf("encode message %s: %w", m.ID, err)
-		}
-		n++
-	}
-	return n, rows.Err()
-}
-
-// defaultImportBatch bounds how many messages ride one import transaction —
-// a multi-hour transfer must not hold routd.db's write lock for its whole
-// duration (spec 5/8 "Message history").
-const defaultImportBatch = 500
-
-// UnorderableMessage names one archived row this import refused: its
-// timestamp is not an RFC3339 instant, so there is no core.TS rendering of it
-// and it cannot be ordered against a cursor. The ID and the value as the
-// archive carried it are both reported, because fixing the archive by hand is
-// the operator's way back in.
-type UnorderableMessage struct {
-	ID        string
-	Timestamp string
-}
-
-// fixedWidthTS re-renders an archived timestamp into core.TSLayout. Parsing
-// with time.RFC3339Nano matches every reader of this column, and accepts each
-// width an archive can carry — a whole second, a stripped fraction, a padded
-// one — because they are all the same instant.
-func fixedWidthTS(s string) (string, error) {
-	t, err := time.Parse(time.RFC3339Nano, s)
-	if err != nil {
-		return "", err
-	}
-	return core.TS(t), nil
-}
-
-// ImportMessagesJSONL reads JSONL from r and appends every row via INSERT OR
-// IGNORE keyed on id (spec 5/8 "Message history": "idempotent bulk append,
-// not rebuild" — re-running the same archive, or restoring onto a target
-// that already has some of the same history, is a no-op on already-present
-// rows). Runs in batches of batchSize rows per tx (<=0 uses
-// defaultImportBatch). Returns the number of rows read, the set of chat_jids
-// touched for the caller to derive agent_cursor from (DeriveAgentCursors,
-// below — spec 5/8's Finding 4), and the rows it refused.
-//
-// Every timestamp is re-rendered through core.TS on the way in. An archive is
-// the one place a foreign string reaches messages.timestamp, whose guarantee is
-// that its string order is its time order, so this is where the value is
-// brought into core.TSLayout rather than trusted (BUGS L219, L97).
-//
-// A row whose timestamp is not an RFC3339 instant is REFUSED — never written —
-// and returned in refused for the caller to report. Per row, not per archive:
-// a restore is a sequence of committed phases over a streaming tar, so failing
-// here cannot roll back the config and secrets already applied, and the stream
-// is unbounded and batched, so it cannot be checked up front either. Failing
-// the whole restore would leave a half-restored instance while protecting
-// nothing the per-row refusal does not — neither path writes the bad value.
-// The import is idempotent, so correcting a named row and re-running completes
-// the archive without duplicating what already landed.
-func (s *Store) ImportMessagesJSONL(ctx context.Context, r io.Reader, batchSize int) (imported int, chatJIDs map[string]bool, refused []UnorderableMessage, err error) {
-	if batchSize <= 0 {
-		batchSize = defaultImportBatch
-	}
-	chatJIDs = map[string]bool{}
-	dec := json.NewDecoder(r)
-	var batch []ArchiveMessageRow
-	flush := func() error {
-		if len(batch) == 0 {
-			return nil
-		}
-		tx, terr := s.db.BeginTx(ctx, nil)
-		if terr != nil {
-			return fmt.Errorf("begin import tx: %w", terr)
-		}
-		defer tx.Rollback()
-		for _, m := range batch {
-			if _, ierr := tx.ExecContext(ctx, `INSERT OR IGNORE INTO messages
-				(id, chat_jid, sender, sender_name, content, timestamp, is_from_me,
-				 is_bot_message, forwarded_from, reply_to_id, reply_to_text, reply_to_sender,
-				 topic, routed_to, verb, attachments, source, is_observed, turn_id, status,
-				 platform_id, chat_name, errored, link_context)
-				VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-				m.ID, m.ChatJID, m.Sender, archiveNullStr(m.SenderName), m.Content, m.Timestamp,
-				archiveB2I(m.IsFromMe), archiveB2I(m.IsBotMessage), archiveNullStr(m.ForwardedFrom), archiveNullStr(m.ReplyToID),
-				archiveNullStr(m.ReplyToText), archiveNullStr(m.ReplyToSender), m.Topic, m.RoutedTo, m.Verb,
-				m.Attachments, m.Source, archiveB2I(m.IsObserved), archiveNullStr(m.TurnID), m.Status,
-				archiveNullStr(m.PlatformID), m.ChatName, archiveB2I(m.Errored), archiveNullStr(m.LinkContext),
-			); ierr != nil {
-				return fmt.Errorf("insert message %s: %w", m.ID, ierr)
-			}
-			chatJIDs[m.ChatJID] = true
-		}
-		if cerr := tx.Commit(); cerr != nil {
-			return fmt.Errorf("commit import batch: %w", cerr)
-		}
-		imported += len(batch)
-		batch = batch[:0]
-		return nil
-	}
-	for {
-		var m ArchiveMessageRow
-		derr := dec.Decode(&m)
-		if errors.Is(derr, io.EOF) {
-			break
-		}
-		if derr != nil {
-			return imported, chatJIDs, refused, fmt.Errorf("decode message: %w", derr)
-		}
-		ts, terr := fixedWidthTS(m.Timestamp)
-		if terr != nil {
-			refused = append(refused, UnorderableMessage{ID: m.ID, Timestamp: m.Timestamp})
-			continue
-		}
-		m.Timestamp = ts
-		batch = append(batch, m)
-		if len(batch) >= batchSize {
-			if ferr := flush(); ferr != nil {
-				return imported, chatJIDs, refused, ferr
-			}
-		}
-	}
-	if ferr := flush(); ferr != nil {
-		return imported, chatJIDs, refused, ferr
-	}
-	return imported, chatJIDs, refused, nil
-}
-
-// newestMessageAt answers the instant of the newest message a chat holds, or
+// newestMessageKey answers the position of the newest message a chat holds, or
 // empty when it holds none.
 //
-// It is the `messages` half of chats.go's DeriveAgentCursors, and it stays here
-// because `messages` is the entity it reads: the cursor write belongs to the
-// entity whose invariant it carries, and the question "what is the newest thing
-// said in this chat" belongs to the one that answers it.
-func (s *Store) newestMessageAt(ctx context.Context, jid string) (string, error) {
-	var newest sql.NullString
-	err := s.db.QueryRowContext(ctx,
-		`SELECT MAX(timestamp) FROM messages WHERE chat_jid = ?`, jid).Scan(&newest)
+// It is the `messages` half of chats.go's DeriveAgentCursors, and it answers a
+// KEY rather than an instant because that is what the cursor holds now.
+func (s *Store) newestMessageKey(ctx context.Context, jid string) (string, error) {
+	items, err := s.Obj().Query(ctx, objstore.Query{
+		Entity: Messages, Partition: jid, Descending: true, Limit: 1, Project: []string{},
+	})
 	if err != nil {
 		return "", fmt.Errorf("newest message in %s: %w", jid, err)
 	}
-	return newest.String, nil
+	if len(items) == 0 {
+		return "", nil
+	}
+	return items[0].Key.Sort, nil
 }
 
-// archiveNullStr maps an empty string to a bind-time NULL, matching the nullable
-// TEXT columns `messages` declares (sender_name, forwarded_from, reply_to_*,
-// turn_id, platform_id, link_context). It lives beside its caller because
-// `messages` is the last archive lane whose target is a table of columns.
-func archiveNullStr(s string) any {
-	if s == "" {
-		return nil
+// CursorAtOrBefore answers the greatest message key of a chat at or before an
+// instant, which is the cursor a stored instant becomes.
+//
+// IT IS THE MIGRATION'S DERIVATION AND IT IS EXACT. Every key at or before the
+// instant is at or below this one, and every key after it is above, so the set
+// the poll loop feeds is unchanged — proven per chat against all three snapshots
+// (messages_migrate_test.go). An empty answer is a cursor with no message at or
+// before it, which means the same as no cursor: feed from the start.
+func (s *Store) CursorAtOrBefore(ctx context.Context, jid, instant string) (string, error) {
+	if instant == "" {
+		return "", nil
 	}
-	return s
+	items, err := s.Obj().Query(ctx, objstore.Query{
+		Entity: Messages, Partition: jid,
+		Key:        objstore.KeyPredicate{Op: objstore.LtKey, Value: instant + string(KeySep[0]+1)},
+		Descending: true, Limit: 1, Project: []string{},
+	})
+	if err != nil {
+		return "", fmt.Errorf("derive %s's cursor at %s: %w", jid, instant, err)
+	}
+	if len(items) == 0 {
+		return "", nil
+	}
+	return items[0].Key.Sort, nil
 }
 
-// archiveB2I converts a bool to the 0/1 an INTEGER column stores.
-func archiveB2I(b bool) int {
-	if b {
-		return 1
+// --- the proactive scan's per-chat reads (spec 5/26) ---------------------
+//
+// Each is a bounded read of ONE chat, because the scan already holds the chat it
+// is deciding about: it walks the eligible chats from `chats` and then asks these
+// about each in turn. The statements they replace were the same shape.
+
+// LastInboundAt answers when a chat last carried a real inbound message, or the
+// zero time when it never has. It is the silence-debounce clock.
+func (s *Store) LastInboundAt(ctx context.Context, jid string) time.Time {
+	items, err := s.Obj().Query(ctx, objstore.Query{
+		Entity: Messages, Partition: jid,
+		Where:      realInboundFilter(),
+		Descending: true, Limit: 1, Project: []string{},
+	})
+	if err != nil || len(items) == 0 {
+		return time.Time{}
 	}
-	return 0
+	ts, _, _ := MsgCoord(items[0].Key.Sort)
+	t, _ := time.Parse(time.RFC3339Nano, ts)
+	return t
+}
+
+// LastInbound answers the newest real inbound row of a chat — its body and its
+// instant — which the positive signals read. ok=false when the chat has none.
+func (s *Store) LastInbound(ctx context.Context, jid string) (string, time.Time, bool) {
+	items, err := s.Obj().Query(ctx, objstore.Query{
+		Entity: Messages, Partition: jid,
+		Where:      realInboundFilter(),
+		Descending: true, Limit: 1,
+	})
+	if err != nil || len(items) == 0 {
+		return "", time.Time{}, false
+	}
+	m := messageFrom(items[0])
+	return m.Content, m.Timestamp, true
+}
+
+// LatestSource answers which adapter delivered the newest sourced inbound row of
+// a chat, so the Deliverer sends an outbound back the way the conversation came
+// in. Empty when the chat has none.
+func (s *Store) LatestSource(ctx context.Context, jid string) string {
+	items, err := s.Obj().Query(ctx, objstore.Query{
+		Entity: Messages, Partition: jid,
+		Where: []objstore.Cmp{
+			{Attr: attrMsgBot, Op: objstore.Absent},
+			{Attr: attrMsgSource, Op: objstore.Present},
+		},
+		Descending: true, Limit: 1, Project: []string{attrMsgSource},
+	})
+	if err != nil || len(items) == 0 {
+		return ""
+	}
+	return items[0].Attrs[attrMsgSource]
+}
+
+// BotSpokeSince reports whether a chat carries a bot row at or after an instant
+// — the BotQuiet veto.
+func (s *Store) BotSpokeSince(ctx context.Context, jid string, since time.Time) bool {
+	items, err := s.Obj().Query(ctx, objstore.Query{
+		Entity: Messages, Partition: jid,
+		Key:     objstore.KeyPredicate{Op: objstore.GeKey, Value: msgStampAt(since)},
+		Where:   []objstore.Cmp{{Attr: attrMsgBot, Op: objstore.Present}},
+		Limit:   1,
+		Project: []string{},
+	})
+	return err == nil && len(items) > 0
+}
+
+// InboundCountSince counts a chat's real inbound rows at or after an instant —
+// the RecentActivity floor.
+func (s *Store) InboundCountSince(ctx context.Context, jid string, since time.Time) int {
+	items, err := s.Obj().Query(ctx, objstore.Query{
+		Entity: Messages, Partition: jid,
+		Key:     objstore.KeyPredicate{Op: objstore.GeKey, Value: msgStampAt(since)},
+		Where:   realInboundFilter(),
+		Project: []string{},
+	})
+	if err != nil {
+		return 0
+	}
+	return len(items)
+}
+
+// realInboundFilter is the "traffic a person sent" predicate, written once
+// because four reads ask it and a fifth that spelled it differently would
+// disagree about what the scan is looking at.
+func realInboundFilter() []objstore.Cmp {
+	return []objstore.Cmp{
+		{Attr: attrMsgBot, Op: objstore.Absent},
+		{Attr: attrMsgSender, Op: objstore.Ne, Value: ProactiveSelfSender},
+	}
+}
+
+// FireProactive appends the synthetic inbound row AND sets the chat's proactive
+// cooldown in one transaction, then answers the row's id — which is the turn id.
+//
+// The caller dispatches the run only after this commits, so a crash before
+// dispatch leaves the cooldown set: at worst one missed turn, never a
+// double-fire.
+func (s *Store) FireProactive(ctx context.Context, jid, id string) error {
+	firedAt := time.Now()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("fire a proactive turn on %s: %w", jid, err)
+	}
+	defer tx.Rollback() //nolint:errcheck // the commit below is what decides
+	row := core.Message{
+		ID: id, ChatJID: jid, Sender: ProactiveSelfSender, Timestamp: firedAt,
+		Verb: "message",
+	}
+	if err := s.PutMessageInTx(ctx, tx, row); err != nil {
+		return fmt.Errorf("record the proactive trigger on %s: %w", jid, err)
+	}
+	if err := s.RecordProactiveFireInTx(ctx, tx, jid, firedAt); err != nil {
+		return fmt.Errorf("record the proactive cooldown on %s: %w", jid, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit the proactive turn on %s: %w", jid, err)
+	}
+	return nil
+}
+
+// ChatActivity answers how many inbound rows a chat holds and when its newest
+// row of any kind landed — the two numbers an errored-chat listing shows beside
+// each chat.
+//
+// It is one partition read where the statement it replaces was two correlated
+// subqueries over the same rows.
+func (s *Store) ChatActivity(ctx context.Context, jid string) (int, time.Time, error) {
+	items, err := s.Obj().Query(ctx, objstore.Query{
+		Entity: Messages, Partition: jid, Project: []string{attrMsgFromMe},
+	})
+	if err != nil {
+		return 0, time.Time{}, fmt.Errorf("read %s's activity: %w", jid, err)
+	}
+	inbound := 0
+	for _, it := range items {
+		if it.Attrs[attrMsgFromMe] != flagSet {
+			inbound++
+		}
+	}
+	var last time.Time
+	if len(items) > 0 {
+		ts, _, _ := MsgCoord(items[len(items)-1].Key.Sort)
+		last, _ = time.Parse(time.RFC3339Nano, ts)
+	}
+	return inbound, last, nil
+}
+
+// InboundChatSummary answers every chat's inbound human traffic: how many rows,
+// and the first and last instant. It is the held-set page's candidate list.
+//
+// IT WALKS THE PARTITION LIST, which is `chats` — 136 items on krons — and reads
+// each chat in turn. The statement it replaces was one GROUP BY over the whole
+// table, so the rows examined are the same and only the place they are folded
+// has moved.
+func (s *Store) InboundChatSummary(ctx context.Context) ([]ChatSummary, error) {
+	jids, err := s.ChatJIDs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ChatSummary, 0, len(jids))
+	for _, jid := range jids {
+		items, err := s.Obj().Query(ctx, objstore.Query{
+			Entity: Messages, Partition: jid,
+			Where: []objstore.Cmp{
+				{Attr: attrMsgFromMe, Op: objstore.Absent},
+				{Attr: attrMsgBot, Op: objstore.Absent},
+			},
+			Project: []string{},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("read %s's inbound rows: %w", jid, err)
+		}
+		if len(items) == 0 {
+			continue
+		}
+		c := ChatSummary{ChatJID: jid, Count: len(items)}
+		first, _, _ := MsgCoord(items[0].Key.Sort)
+		last, _, _ := MsgCoord(items[len(items)-1].Key.Sort)
+		c.FirstAt, _ = time.Parse(time.RFC3339Nano, first)
+		c.LastAt, _ = time.Parse(time.RFC3339Nano, last)
+		out = append(out, c)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].LastAt.After(out[j].LastAt) })
+	return out, nil
+}
+
+// ChatSummary is one chat's inbound traffic.
+type ChatSummary struct {
+	ChatJID string
+	Count   int
+	FirstAt time.Time
+	LastAt  time.Time
+}
+
+// LastInboundMessage answers a chat's newest inbound human row — the message the
+// loop resolved last, and the one a held-set reader asks resolve about again.
+func (s *Store) LastInboundMessage(ctx context.Context, jid string) (core.Message, bool, error) {
+	items, err := s.Obj().Query(ctx, objstore.Query{
+		Entity: Messages, Partition: jid,
+		Where: []objstore.Cmp{
+			{Attr: attrMsgFromMe, Op: objstore.Absent},
+			{Attr: attrMsgBot, Op: objstore.Absent},
+		},
+		Descending: true, Limit: 1,
+	})
+	if err != nil {
+		return core.Message{}, false, fmt.Errorf("read %s's newest inbound row: %w", jid, err)
+	}
+	if len(items) == 0 {
+		return core.Message{}, false, nil
+	}
+	return messageFrom(items[0]), true, nil
 }

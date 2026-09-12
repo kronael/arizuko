@@ -85,12 +85,12 @@ func (s *Server) appendAndDeliver(turnID, jid, text string) {
 	if !strings.HasPrefix(tc.Trigger, "timed-") {
 		_ = s.db.SetEngagement(tc.ChatJID, tc.Topic, tc.Folder, s.engagementT)
 	}
-	s.deliverTurn(tc, jid, &row)
+	status := s.deliverTurn(tc, jid, &row)
 	if s.deliver != nil {
 		_ = s.deliver.Typing(jid, false)
 	}
-	if err := s.db.PutMessage(row); err != nil {
-		slog.Error("appendAndDeliver: PutMessage failed; reply was delivered but not persisted, will be missing from history/audit",
+	if err := s.db.PutOutbound(row, status); err != nil {
+		slog.Error("appendAndDeliver: PutOutbound failed; reply was delivered but not persisted, will be missing from history/audit",
 			"folder", tc.Folder, "turn_id", turnID, "err", err)
 	}
 }
@@ -116,7 +116,7 @@ func (s *Server) outboundRow(tc TurnContext, jid, content, replyToID string) cor
 		ID: "out-" + randHex(8), ChatJID: jid, Sender: tc.Folder, Content: content,
 		Timestamp: time.Now().UTC(), BotMsg: true, FromMe: true,
 		ReplyToID: replyToID, Topic: tc.Topic, RoutedTo: tc.Folder,
-		TurnID: tc.TurnID, Status: core.MessageStatusPending,
+		TurnID: tc.TurnID,
 	}
 }
 
@@ -124,8 +124,8 @@ func (s *Server) outboundRow(tc TurnContext, jid, content, replyToID string) cor
 // replyThreadRoot — the single policy site that calls it — and threadID the
 // turn's topic. Both the reply row and a status row are threaded; the
 // top-level `send` verb never comes through here (mcp.go mcpDeliver).
-func (s *Server) deliverTurn(tc TurnContext, jid string, row *core.Message) {
-	s.deliverRow(tc, jid, row, s.replyThreadRoot(tc, jid), tc.Topic)
+func (s *Server) deliverTurn(tc TurnContext, jid string, row *core.Message) string {
+	return s.deliverRow(tc, jid, row, s.replyThreadRoot(tc, jid), tc.Topic)
 }
 
 // deliverStatus is the ONE renderer for an interim progress notice: build an
@@ -136,18 +136,25 @@ func (s *Server) deliverTurn(tc TurnContext, jid string, row *core.Message) {
 func (s *Server) deliverStatus(tc TurnContext, jid, text string) {
 	row := s.outboundRow(tc, jid, "⏳ "+text, "")
 	row.Verb = "status"
-	s.deliverTurn(tc, jid, &row)
-	_ = s.db.PutMessage(row)
+	status := s.deliverTurn(tc, jid, &row)
+	_ = s.db.PutOutbound(row, status)
 }
 
-// deliverRow attempts the platform send and stamps platform_id+sent on success.
-// threadRoot is non-empty only for a REPLY that should start a new platform thread;
-// threadID follows an existing one. A SEND_DISABLED_GROUPS folder skips the send but
-// still lands the row status=sent so the poll loop never retries it.
-func (s *Server) deliverRow(tc TurnContext, jid string, row *core.Message, threadRoot, threadID string) {
+// deliverRow attempts the platform send, stamps platform_id on success, and
+// ANSWERS the delivery status the caller must store the row under.
+//
+// The status is returned rather than set on the row, because a message does not
+// carry one: `sent` is the absence of a delivery item, and which of the three the
+// row takes is what decides whether an item is written at all
+// (store/message_delivery.go).
+//
+// threadRoot is non-empty only for a REPLY that should start a new platform
+// thread; threadID follows an existing one. A SEND_DISABLED_GROUPS folder skips
+// the send but still lands the row `sent`, so the retry sweep never sees it.
+func (s *Server) deliverRow(tc TurnContext, jid string, row *core.Message,
+	threadRoot, threadID string) string {
 	if s.mutedGroup(tc.Folder) {
-		row.Status = core.MessageStatusSent
-		return
+		return core.MessageStatusSent
 	}
 	// A bare-folder jid has no channel to deliver to — a system/auto turn or a
 	// mis-targeted delegation whose prose is not a user reply. Skip the Send: an
@@ -159,27 +166,27 @@ func (s *Server) deliverRow(tc TurnContext, jid string, row *core.Message, threa
 	// visible in the dead_letters surface instead of recording a delivery that never
 	// happened. Two operator alerts were lost to the `sent` stamp (BUGS L76).
 	if !strings.Contains(jid, ":") {
-		row.Status = core.MessageStatusFailed
 		slog.Warn("no channel for this jid; the message is dead-lettered, not delivered",
 			"jid", jid, "folder", tc.Folder, "msg_id", row.ID)
-		return
+		return core.MessageStatusFailed
 	}
 	if s.deliver == nil {
-		return
+		return core.MessageStatusPending
 	}
-	if pid, err := s.deliver.Send(jid, row.Content, row.ReplyToID, threadID, threadRoot, row.ID); err == nil {
-		row.PlatformID = pid
-		row.Status = core.MessageStatusSent
-		// A reply that started a new thread (threadRoot set) is now IN that thread.
-		// Record its topic so threadHasBotMessage finds it when subsequent messages
-		// in the thread arrive. The thread ID = threadRoot on both Discord (thread
-		// channel ID = root message ID) and Slack (thread_ts = root message ts).
-		if threadRoot != "" && row.Topic == "" {
-			row.Topic = threadRoot
-		}
-	} else {
+	pid, err := s.deliver.Send(jid, row.Content, row.ReplyToID, threadID, threadRoot, row.ID)
+	if err != nil {
 		slog.Error("deliver send failed", "jid", jid, "folder", tc.Folder, "err", err)
+		return core.MessageStatusPending
 	}
+	row.PlatformID = pid
+	// A reply that started a new thread (threadRoot set) is now IN that thread.
+	// Record its topic so threadHasBotMessage finds it when subsequent messages
+	// in the thread arrive. The thread ID = threadRoot on both Discord (thread
+	// channel ID = root message ID) and Slack (thread_ts = root message ts).
+	if threadRoot != "" && row.Topic == "" {
+		row.Topic = threadRoot
+	}
+	return core.MessageStatusSent
 }
 
 // gateway is the model gateway's client, or nil on an instance that names none
@@ -235,7 +242,7 @@ func (s *Server) recordTurnResult(turnID string, req apiv1.TurnResult) (bool, er
 		// delivered a row, and done BEFORE marking the turn done. Isolated cron turns are
 		// silent by design — their output is the file write, never a chat message.
 		isolated := strings.HasPrefix(tc.Trigger, "timed-isolated:")
-		if req.Result != "" && !isolated && !s.db.TurnHasBotReply(turnID) {
+		if req.Result != "" && !isolated && !s.db.TurnHasBotReply(tc.ChatJID, turnID) {
 			s.appendAndDeliver(turnID, tc.ChatJID, req.Result)
 		}
 		// An isolated turn holds no session lineage — it neither resumes the

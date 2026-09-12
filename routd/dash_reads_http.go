@@ -65,31 +65,21 @@ func (s *Server) handleMessageVolume(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r, "messages:read", "chats:read") {
 		return
 	}
-	rows, err := s.db.SQL().Query(
-		`SELECT DATE(timestamp) AS day, COUNT(*) AS cnt
-		   FROM messages
-		  WHERE is_bot_message=0 AND timestamp >= datetime('now', '-7 days')
-		  GROUP BY day ORDER BY day DESC`)
+	counts, err := s.db.DailyVolume(r.Context(), volumeDays)
 	if err != nil {
 		writeErr(w, 500, "db_error", err.Error())
 		return
 	}
-	defer rows.Close()
-	out := []dailyVolume{}
-	for rows.Next() {
-		var d dailyVolume
-		if err := rows.Scan(&d.Day, &d.Count); err != nil {
-			writeErr(w, 500, "db_error", err.Error())
-			return
-		}
-		out = append(out, d)
+	out := make([]dailyVolume, 0, len(counts))
+	for day, n := range counts {
+		out = append(out, dailyVolume{Day: day, Count: n})
 	}
-	if err := rows.Err(); err != nil {
-		writeErr(w, 500, "db_error", err.Error())
-		return
-	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Day > out[j].Day })
 	writeJSON(w, 200, out)
 }
+
+// volumeDays is the histogram's window.
+const volumeDays = 7
 
 // activityRow is one line of the cockpit's cross-folder activity feed. Content
 // is truncated by the OWNER at 80 characters: the page shows a preview, and a
@@ -104,11 +94,15 @@ type activityRow struct {
 }
 
 // handleActivity serves GET /v1/messages/activity?before=&limit= — the newest
-// messages across every chat, which the cockpit's activity page used to read
-// out of routd.db.
+// messages across every chat.
 //
-// The caller cannot widen the preview or the page: `limit` is clamped here, and
-// the substr is the owner's. dashd applies its own per-row folder visibility on
+// It reads the activity feed, which is the entity shaped like this question: one
+// partition, newest first, swept at its own retention. Answering it from the
+// chats would mean reading all 136 partitions and merging, which on krons
+// transfers 10,525 items to show 1,000.
+//
+// The caller cannot widen the preview or the page: `limit` is clamped here and
+// the preview is the writer's. dashd applies its own per-row folder visibility on
 // top, so this is the outer bound rather than the authorization.
 func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r, "messages:read", "chats:read") {
@@ -118,33 +112,17 @@ func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
 	if v, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && v > 0 && v < limit {
 		limit = v
 	}
-	q := `SELECT timestamp, source, chat_jid, sender, verb, substr(content,1,80) FROM messages`
-	args := []any{}
-	if before := r.URL.Query().Get("before"); before != "" {
-		q += ` WHERE timestamp < ?`
-		args = append(args, before)
-	}
-	q += ` ORDER BY timestamp DESC LIMIT ?`
-	args = append(args, limit)
-
-	rows, err := s.db.SQL().Query(q, args...)
+	rows, err := s.db.RecentActivity(r.Context(), r.URL.Query().Get("before"), limit)
 	if err != nil {
 		writeErr(w, 500, "db_error", err.Error())
 		return
 	}
-	defer rows.Close()
-	out := []activityRow{}
-	for rows.Next() {
-		var a activityRow
-		if err := rows.Scan(&a.Timestamp, &a.Source, &a.ChatJID, &a.Sender, &a.Verb, &a.Preview); err != nil {
-			writeErr(w, 500, "db_error", err.Error())
-			return
-		}
-		out = append(out, a)
-	}
-	if err := rows.Err(); err != nil {
-		writeErr(w, 500, "db_error", err.Error())
-		return
+	out := make([]activityRow, 0, len(rows))
+	for _, a := range rows {
+		out = append(out, activityRow{
+			Timestamp: a.Timestamp, Source: a.Source, ChatJID: a.ChatJID,
+			Sender: a.Sender, Verb: a.Verb, Preview: a.Preview,
+		})
 	}
 	writeJSON(w, 200, out)
 }

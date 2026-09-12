@@ -306,8 +306,18 @@ func refusal(committed bool, err error, checks []objstore.Check, writes []objsto
 // produced, which is all a reader comparing two point reads asks for.
 func (s *Store) incrementEntity(ctx context.Context, entity string, key objstore.Key,
 	attr string, delta int, cond []objstore.Cmp, also []objstore.Write) (int, bool, error) {
+	return s.incrementEntityVia(ctx, nil, entity, key, attr, delta, cond, also)
+}
+
+// incrementEntityVia is incrementEntity on a transaction the caller owns when it
+// owns one, and on the pool when it does not. It is the counter's twin of
+// writeVia, and it exists for the same reason: a body that has to run both ways
+// is written once.
+func (s *Store) incrementEntityVia(ctx context.Context, tx *sql.Tx, entity string,
+	key objstore.Key, attr string, delta int, cond []objstore.Cmp,
+	also []objstore.Write) (int, bool, error) {
 	counted := append([]objstore.Write{{Entity: entity, Key: key}}, also...)
-	return objstore.Increment(ctx, s.Obj(), entity, key, attr, delta, cond,
+	return objstore.Increment(ctx, s.objStore(tx), entity, key, attr, delta, cond,
 		append(slices.Clone(also), scopeBumps(counted)...))
 }
 
@@ -329,6 +339,36 @@ type txReader struct {
 
 func (r txReader) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
 	return r.s.Obj().QueryInTx(ctx, r.tx, q)
+}
+
+// txStore is objstore.Store bound to a transaction the caller owns, so a
+// PROTOCOL — which is written over the two primitives and knows nothing about
+// transactions — can run inside one.
+//
+// objstore.Increment is the caller: a message written on the resolution path
+// commits with the pending row it answers, and the folder count it moves has to
+// commit with both or a folder counts a message the transaction rolled back.
+type txStore struct {
+	s  *Store
+	tx *sql.Tx
+}
+
+func (t txStore) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
+	return t.s.Obj().QueryInTx(ctx, t.tx, q)
+}
+
+func (t txStore) GuardedBatch(ctx context.Context, checks []objstore.Check,
+	writes []objstore.Write) (bool, error) {
+	return t.s.Obj().GuardedBatchInTx(ctx, t.tx, checks, writes)
+}
+
+// objStore is the handle a protocol should run through: the pool when the caller
+// owns no transaction, and the caller's transaction when it does.
+func (s *Store) objStore(tx *sql.Tx) objstore.Store {
+	if tx == nil {
+		return s.Obj()
+	}
+	return txStore{s: s, tx: tx}
 }
 
 // reads is the handle a body should read through: the pool when it owns no

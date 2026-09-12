@@ -255,3 +255,12 @@ func (s *Store) DB() *sql.DB { return s.db }
 // pool with a type assertion, and a field would have to be filled in at four
 // constructors and survive every shallow copy AsUser makes.
 func (s *Store) Obj() *sqlstore.Store { return sqlstore.New(s.db) }
+
+// btoi converts a bool to the 0/1 an INTEGER column stores. It lives here rather
+// than beside one caller because the tables that still have columns share it.
+func btoi(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}

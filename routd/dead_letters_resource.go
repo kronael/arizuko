@@ -133,7 +133,7 @@ func (s *Server) deadLettersHandler(_ context.Context, x resreg.Execution) (any,
 				ID: m.ID, ChatJID: m.ChatJID, Content: m.Content,
 				Timestamp: m.Timestamp.UTC().Format(time.RFC3339Nano),
 				Topic:     m.Topic, RoutedTo: m.RoutedTo, Source: m.Source,
-				TurnID: m.TurnID, DeliveryAttempts: m.DeliveryAttempts,
+				TurnID: m.TurnID, DeliveryAttempts: m.Attempts,
 			}
 		}
 		return rows, nil
@@ -153,7 +153,7 @@ func (s *Server) deadLettersHandler(_ context.Context, x resreg.Execution) (any,
 			return nil, resreg.Errorf(http.StatusForbidden,
 				"message %s is routed outside the caller subtree", id)
 		}
-		moved, err := s.db.ReplayDeadLetter(id)
+		moved, err := s.db.ReplayDeadLetter(msg)
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}

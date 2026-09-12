@@ -193,7 +193,7 @@ func operatorInject(st *store.Store, folder, sender, msg, topic string, follow b
 	lastPrinted := "" // dedup the out-/bot- pair: one agent reply is stored twice
 	for {
 		time.Sleep(tick)
-		replies, err := st.BotRepliesSince(jid, cursor)
+		replies, err := st.BotRepliesSince(jid, cursor, 0)
 		if err != nil {
 			die("Failed: poll replies: %v", err)
 		}
