@@ -354,35 +354,31 @@ func (s *Store) PutGroupRow(g core.Group) error {
 // A folder with no groups row in its subtree returns 0 and writes nothing,
 // audit row included — there is no delete to record.
 func (s *Store) DeleteGroup(folder string) (int, error) {
-	actor, actorSub, surface := s.auditIdentity()
-	removed := 0
-	err := s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		ev := audit.Event{
-			Category: audit.CategoryMutation,
-			Action:   "group.delete",
-			Actor:    actor,
-			ActorSub: actorSub,
-			Surface:  surface,
-			Resource: "groups/" + folder,
-			Folder:   folder,
-			Outcome:  audit.OutcomeOK,
-		}
-		n, err := s.purgeFolder(context.Background(), tx, folder)
-		if err != nil {
-			return ev, err
-		}
-		if n == 0 {
-			return ev, errNoSuchGroup
-		}
-		removed = n
-		ev.ParamsSummary = map[string]any{"groups_removed": n}
-		return ev, nil
-	})
-	if errors.Is(err, errNoSuchGroup) {
+	ctx := context.Background()
+	// The purge removes more rows than one batch holds, so it runs as a sweep.
+	// `groups` goes first, which is what makes the folder unreachable: a failure
+	// part-way leaves rows nothing can find, and the next run collects them.
+	removed, err := s.purgeFolder(ctx, nil, folder)
+	if errors.Is(err, errNoSuchGroup) || removed == 0 {
 		return 0, nil
 	}
 	if err != nil {
 		return 0, err
+	}
+	actor, actorSub, surface := s.auditIdentity()
+	_, rec := audit.WriteFor(audit.Event{
+		Category:      audit.CategoryMutation,
+		Action:        "group.delete",
+		Actor:         actor,
+		ActorSub:      actorSub,
+		Surface:       surface,
+		Resource:      "groups/" + folder,
+		Folder:        folder,
+		Outcome:       audit.OutcomeOK,
+		ParamsSummary: map[string]any{"groups_removed": removed},
+	})
+	if err := s.WriteEntities(ctx, nil, rec); err != nil {
+		return removed, err
 	}
 	return removed, nil
 }

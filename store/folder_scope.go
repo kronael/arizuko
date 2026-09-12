@@ -346,7 +346,7 @@ func (s *Store) purgeFolder(ctx context.Context, tx *sql.Tx, folder string) (int
 		}
 		if _, err := applyChunks(ctx, "purge "+e.entity+" of "+folder, writes,
 			func(ctx context.Context, chunk []objstore.Write) (bool, error) {
-				return s.TryWriteEntitiesInTx(ctx, tx, nil, chunk...)
+				return s.tryWriteVia(ctx, tx, nil, chunk...)
 			}); err != nil {
 			return 0, err
 		}
@@ -378,7 +378,7 @@ func (s *Store) purgeFolderPartitions(ctx context.Context, tx *sql.Tx, folders [
 			}
 			if _, err := applyChunks(ctx, "purge "+entity+" of "+owned, writes,
 				func(ctx context.Context, chunk []objstore.Write) (bool, error) {
-					return s.TryWriteEntitiesInTx(ctx, tx, nil, chunk...)
+					return s.tryWriteVia(ctx, tx, nil, chunk...)
 				}); err != nil {
 				return err
 			}
