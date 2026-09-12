@@ -110,10 +110,10 @@ func Reachable(ctx context.Context, parents ParentsFunc, from, to string) (bool,
 // condition — a replace moves it in the same write that takes the scope, so an
 // edge cannot slip past a claim either.
 //
-// committed=false is the caller's own condition refusing — an edge already
-// there, under a Put with ItemAbsent — reported the way GuardedBatch reports
-// it. A lost race is retried here and never returned, because the answer to a
-// lost race is another walk.
+// committed=false is the CALLER'S OWN condition refusing, reported the way
+// GuardedBatch reports it — a folder already created, a pairing token already
+// spent. A lost race on the marker is retried here and never returned, because
+// the answer to a lost race is another walk.
 func AddEdge(ctx context.Context, s Store, sc Scope, parents ParentsFunc,
 	child, parent string, writes []Write) (bool, error) {
 	if len(writes) == 0 {
