@@ -134,18 +134,18 @@ func (s *Store) AddNetworkRule(folder, target, by string) error {
 	}
 	attrs := map[string]string{attrNetCreatedAt: core.NowTS()}
 	setAttr(attrs, attrNetCreatedBy, by)
-	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
+	_, err = s.tryWriteAudited(func() ([]objstore.Write, audit.Event, error) {
 		// A refusal is the host already being allowed, which is the state the caller
 		// asked for, and keeps the instant and the author of the first grant.
-		_, err := s.TryWriteEntitiesInTx(context.Background(), tx, nil, objstore.Write{
+		w := objstore.Write{
 			Op: objstore.Put, Entity: NetworkRules, Key: key, Attrs: attrs,
 			Cond: objstore.Cond{Item: objstore.ItemAbsent},
-		})
+		}
 		actor := by
 		if actor == "" {
 			actor = "system"
 		}
-		return audit.Event{
+		return []objstore.Write{w}, audit.Event{
 			Category: audit.CategoryNetwork,
 			Action:   "egress.allow.add",
 			Actor:    actor,
@@ -157,8 +157,9 @@ func (s *Store) AddNetworkRule(folder, target, by string) error {
 			ParamsSummary: map[string]any{
 				"target": target,
 			},
-		}, err
+		}, nil
 	})
+	return err
 }
 
 // RemoveNetworkRule normalizes target the same way AddNetworkRule stores it,
@@ -171,11 +172,9 @@ func (s *Store) RemoveNetworkRule(folder, target string) error {
 	if err != nil {
 		return err
 	}
-	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		err := s.WriteEntitiesInTx(context.Background(), tx, nil, objstore.Write{
-			Op: objstore.Delete, Entity: NetworkRules, Key: key,
-		})
-		return audit.Event{
+	return s.writeAudited(func() ([]objstore.Write, audit.Event, error) {
+		w := objstore.Write{Op: objstore.Delete, Entity: NetworkRules, Key: key}
+		return []objstore.Write{w}, audit.Event{
 			Category: audit.CategoryNetwork,
 			Action:   "egress.allow.remove",
 			Actor:    "system",
@@ -186,7 +185,7 @@ func (s *Store) RemoveNetworkRule(folder, target string) error {
 			ParamsSummary: map[string]any{
 				"target": target,
 			},
-		}, err
+		}, nil
 	})
 }
 
