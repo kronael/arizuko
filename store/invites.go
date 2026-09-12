@@ -461,26 +461,17 @@ func (s *Store) consumeInvite(token, userSub string, grantACL bool) (*Invite, er
 		return nil, ErrInviteUnavailable
 	}
 
-	tx, err := s.db.Begin()
-	if err != nil {
+	// The claim is the one write that may refuse, and winning it is what gives
+	// this caller the right to everything below: no second caller reaches here
+	// for the same use, so nothing after it needs a condition of its own.
+	ws := &WriteSet{}
+	if err := ws.AddGuarded(ErrInviteUnavailable,
+		usedCountWrite(key, inv.UsedCount, inv.UsedCount+1)); err != nil {
 		return nil, err
 	}
-	defer tx.Rollback() //nolint:errcheck // the commit below is the success path
 
-	claimed, err := s.TryWriteEntitiesInTx(ctx, tx, nil,
-		usedCountWrite(key, inv.UsedCount, inv.UsedCount+1))
-	if err != nil {
-		return nil, err
-	}
-	if !claimed {
-		// Somebody else moved the counter between this call's read and its
-		// write, so this caller lost — the same answer the statement gave by
-		// updating no row. The deferred rollback undoes nothing, because a
-		// refused batch stops before it writes.
-		return nil, ErrInviteUnavailable
-	}
-	// The row the caller gets back is the row AFTER the claim, which is what
-	// the statement's RETURNING handed over; the audit summary reads it.
+	// The row the caller gets back is the row AFTER the claim, and the audit
+	// summary reads it.
 	inv.UsedCount++
 
 	// The two halves of a redemption, split on the trailing slash.
@@ -503,14 +494,7 @@ func (s *Store) consumeInvite(token, userSub string, grantACL bool) (*Invite, er
 		if err != nil {
 			return nil, err
 		}
-		recorded, err := s.TryWriteEntitiesInTx(ctx, tx, nil, w)
-		if err != nil {
-			return nil, err
-		}
-		if !recorded {
-			return nil, fmt.Errorf("record %s's redemption: position %s is taken, so two "+
-				"redemptions were minted at one instant with one suffix", userSub, at)
-		}
+		ws.Add(w)
 	} else if grantACL {
 		// The grant is `acl`'s own write, rendered by `acl`'s own writer, so the
 		// coordinate and the three attributes are the ones AddACLRow and the
@@ -533,13 +517,9 @@ func (s *Store) consumeInvite(token, userSub string, grantACL bool) (*Invite, er
 		if err != nil {
 			return nil, err
 		}
-		// A refusal is the grant already being there, which is what aclPut's
-		// create-if-absent asks for: a second redemption must not restamp it.
-		if _, err := s.TryWriteEntitiesInTx(ctx, tx, nil, w); err != nil {
-			return nil, err
-		}
+		ws.Add(w)
 	}
-	if err := audit.EmitInTx(ctx, s.Obj(), tx, audit.Event{
+	_, rec := audit.WriteFor(audit.Event{
 		Category: audit.CategoryAuthN,
 		Action:   "invite.consume",
 		Actor:    "user:" + userSub,
@@ -551,10 +531,8 @@ func (s *Store) consumeInvite(token, userSub string, grantACL bool) (*Invite, er
 			"target_glob": inv.TargetGlob,
 			"used_count":  inv.UsedCount,
 		},
-	}); err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(); err != nil {
+	})
+	if err := s.Apply(ctx, ws, rec); err != nil {
 		return nil, err
 	}
 	return inv, nil
