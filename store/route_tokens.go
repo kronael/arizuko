@@ -249,11 +249,8 @@ func (s *Store) InsertRouteToken(rawToken string, t RouteToken) error {
 		return err
 	}
 	actor, actorSub, surface := s.auditIdentity()
-	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		if err := s.WriteEntitiesInTx(ctx, tx, nil, w); err != nil {
-			return audit.Event{}, err
-		}
-		return audit.Event{
+	return s.writeAudited(func() ([]objstore.Write, audit.Event, error) {
+		return []objstore.Write{w}, audit.Event{
 			Category: audit.CategoryChannel,
 			Action:   "route_token.mint",
 			Actor:    actor,
