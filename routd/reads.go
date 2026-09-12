@@ -9,17 +9,12 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/router"
+	"github.com/kronael/arizuko/store"
 )
 
 // reads.go holds the routd.DB query methods backing the agent's read/manage MCP
 // tools (federated via the /v1/messages, /v1/routing, /v1/engagement, /v1/cost
 // surfaces). routd owns the conversation/routing state.
-
-// msgFTSCols is the projection the FTS join still needs. `messages` is an entity
-// and this file holds no other statement against it: ranked search is the one
-// read that leaves for its own service, and until it does the FTS5 table and the
-// join back to the row stay here (spec 6/37 §"Search is the one that is answered
-// by leaving").
 
 // MessagesBefore returns rows for one chat_jid older than `before`, oldest first
 // (inspect_messages). before="" → now.
@@ -43,71 +38,23 @@ func (d *DB) MessagesByThread(jid, topic, before string, limit int) ([]core.Mess
 
 // FoundMessage is one find_messages hit. Content is the FTS5 snippet
 // (matched fragment with «»-highlight); Rank is BM25 (lower is better).
-type FoundMessage struct {
-	ChatJID      string    `json:"chat_jid"`
-	Sender       string    `json:"sender"`
-	Timestamp    time.Time `json:"timestamp"`
-	IsFromMe     bool      `json:"is_from_me"`
-	IsBotMessage bool      `json:"is_bot_message"`
-	Content      string    `json:"content"`
-	Rank         float64   `json:"rank"`
-}
+//
+// It is store's type under routd's name. The hit crosses no boundary — routd's
+// own MCP and REST handlers are the only readers — and a second declaration of
+// the same seven fields is a second thing to keep in step with the one query
+// that fills them.
+type FoundMessage = store.FoundMessage
 
 // FindMessages runs an FTS5 MATCH over messages_fts. `scope` is polymorphic:
 // contains ':' → chat_jid, else a `routed_to` folder subtree. sender is exact;
 // since is an RFC3339 lower bound. ACL filtering is the caller's job.
+//
+// The statement lives in store beside the index declaration and the three
+// triggers that fill it (store/messages_search.go), the way every other message
+// read in this file reaches store. Two copies of an FTS5 join that reads a
+// chat's coordinate is two chances to read the wrong chat's.
 func (d *DB) FindMessages(query, scope, sender, since string, limit int) ([]FoundMessage, error) {
-	if limit <= 0 || limit > 200 {
-		limit = 20
-	}
-	var scopeJID any
-	var scopeFolder string
-	if scope != "" {
-		if strings.Contains(scope, ":") {
-			scopeJID = scope
-		} else {
-			scopeFolder = scope
-		}
-	}
-	var senderArg, sinceArg any
-	if sender != "" {
-		senderArg = sender
-	}
-	if since != "" {
-		sinceArg = since
-	}
-	rows, err := d.db.Query(
-		`SELECT m.chat_jid, m.sender, m.timestamp, m.is_from_me, m.is_bot_message,
-		        snippet(messages_fts, 0, '«', '»', '…', 32) AS content,
-		        bm25(messages_fts) AS rank
-		 FROM messages_fts f JOIN messages m ON m.rowid = f.rowid
-		 WHERE messages_fts MATCH ?
-		   AND (? IS NULL OR m.chat_jid = ?)
-		   AND (? = '' OR `+groupfolder.SQLSubtree("m.routed_to", "/")+`)
-		   AND (? IS NULL OR m.sender = ?)
-		   AND (? IS NULL OR m.timestamp >= ?)
-		 ORDER BY rank, m.timestamp DESC LIMIT ?`,
-		append(append([]any{query, scopeJID, scopeJID, scopeFolder},
-			groupfolder.SubtreeArgs(scopeFolder, "/")...),
-			senderArg, senderArg, sinceArg, sinceArg, limit)...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []FoundMessage
-	for rows.Next() {
-		var fm FoundMessage
-		var ts string
-		var fromMe, botMsg int
-		if err := rows.Scan(&fm.ChatJID, &fm.Sender, &ts, &fromMe, &botMsg, &fm.Content, &fm.Rank); err != nil {
-			return out, err
-		}
-		fm.IsFromMe = fromMe == 1
-		fm.IsBotMessage = botMsg == 1
-		fm.Timestamp, _ = time.Parse(time.RFC3339Nano, ts)
-		out = append(out, fm)
-	}
-	return out, rows.Err()
+	return d.store().FindMessages(query, scope, sender, since, limit)
 }
 
 // DefaultFolderForJID resolves the routing target folder for jid against the

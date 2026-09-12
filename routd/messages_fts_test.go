@@ -199,11 +199,14 @@ func TestFTSFolderScopeIsNotWidenedByLikeMetacharacters(t *testing.T) {
 }
 
 // The AD trigger must drop the shadow row with its source. Without it a
-// deleted message keeps answering searches, content and all.
+// deleted message keeps answering searches, content and all. The delete runs
+// through the one path that removes a message in production — the retry sweep's
+// DeleteErroredMessages (routd/loop.go) — so what this proves is that the live
+// delete reaches the index, not that a hand-written statement does.
 func TestFTSDropsTheRowWhenTheMessageIsDeleted(t *testing.T) {
 	db := memDB(t)
 	if err := db.PutMessage(core.Message{
-		ID: "d1", ChatJID: "tg:err", Sender: "u",
+		ID: "d1", ChatJID: "tg:err", Sender: "u", Errored: true,
 		Content: "to be deleted soon", Timestamp: time.Now(),
 	}); err != nil {
 		t.Fatal(err)
@@ -212,12 +215,68 @@ func TestFTSDropsTheRowWhenTheMessageIsDeleted(t *testing.T) {
 	if len(out) != 1 {
 		t.Fatalf("pre-delete hits = %d, want 1", len(out))
 	}
-	if _, err := db.SQL().Exec(`DELETE FROM messages WHERE id = 'd1'`); err != nil {
+	if err := db.DeleteErroredMessages("tg:err"); err != nil {
 		t.Fatal(err)
 	}
 	out, _ = db.FindMessages("deleted", "", "", "", 10)
 	if len(out) != 0 {
 		t.Errorf("post-delete hits = %d, want 0", len(out))
+	}
+}
+
+// The index and the entity are two tables and their rowids are independent. The
+// schema chain fills the index over the legacy `messages` of columns and this
+// code's backfill fills it over the entity, and the two orders agree only by
+// accident of the scan — a refused row, a re-run or a partial restore shifts
+// every rowid after it. A join on the rowid then answers with whichever message
+// now sits there, the hit carries the wrong chat, and the ACL filter resolves the
+// route of THAT chat (ipc.find_messages), so a folder that never saw the message
+// is handed its snippet.
+//
+// The disagreement is built here by filling the index in KEY order while the
+// entity holds its rows in arrival order. What must hold is that each hit's
+// snippet belongs to the chat it is reported under.
+func TestFTSNeverReportsOneChatsSnippetUnderAnotherChat(t *testing.T) {
+	db := memDB(t)
+	now := time.Now()
+	// Alternating chats: the entity's rowids follow this order, its keys follow
+	// (chat, instant), and "tg:alpha" sorts before "tg:zulu".
+	for i, m := range []struct{ id, jid, mark string }{
+		{"z1", "tg:zulu", "zulu"},
+		{"a1", "tg:alpha", "alpha"},
+		{"z2", "tg:zulu", "zulu"},
+		{"a2", "tg:alpha", "alpha"},
+	} {
+		if err := db.PutMessage(core.Message{
+			ID: m.id, ChatJID: m.jid, Sender: "u",
+			Content:   "needle " + m.mark + " " + m.id,
+			Timestamp: now.Add(time.Duration(i) * time.Second),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.SQL().Exec(`DELETE FROM messages_fts`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.SQL().Exec(
+		`INSERT INTO messages_fts(content, part, sort)
+		 SELECT json_extract(attrs, '$.content'), part, sort
+		 FROM messages ORDER BY part, sort`); err != nil {
+		t.Fatal(err)
+	}
+
+	hits, err := db.FindMessages("needle", "", "", "", 50)
+	if err != nil {
+		t.Fatalf("FindMessages: %v", err)
+	}
+	if len(hits) != 4 {
+		t.Fatalf("hits = %d, want 4", len(hits))
+	}
+	for _, h := range hits {
+		mark := strings.TrimPrefix(h.ChatJID, "tg:")
+		if !strings.Contains(h.Content, mark) {
+			t.Errorf("%s answered with another chat's snippet: %q", h.ChatJID, h.Content)
+		}
 	}
 }
 

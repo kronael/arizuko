@@ -228,6 +228,13 @@ func migrate(db *sql.DB) error {
 	if err := audit.EnsureEntities(ctx, sqlstore.New(db)); err != nil {
 		return err
 	}
+	// The FTS5 index over a message's content is not an entity and the driver
+	// knows nothing about it: it is SQLite's, and a trigger on the message entity
+	// cannot be declared until that entity exists. So it is built here, after the
+	// entities, from its own declaration (messages_search.go).
+	if err := EnsureMessageSearch(ctx, db); err != nil {
+		return err
+	}
 	if err := BackfillInviteRefs(db); err != nil {
 		return err
 	}

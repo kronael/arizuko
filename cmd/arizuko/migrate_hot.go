@@ -23,10 +23,11 @@ package main
 // rows and a bound just past an instant is exactly what that meant.
 //
 // `messages` MOVES HERE TOO, and it is what makes the cursor derivable at all.
-// `messages_fts` does not: ranked search leaves the store and becomes its own
-// service (spec 6/37 §"Search is the one that is answered by leaving"), so the
-// FTS5 table, its three triggers and routd's migration chain stay where they are
-// and go on indexing a table this move empties.
+// `messages_fts` is not an entity and does not move: ranked search leaves the
+// store and becomes its own service (spec 6/37 §"Search is the one that is
+// answered by leaving"), so the FTS5 table stays where it is. It is REBUILT once
+// the rows have landed, because the index this run sets aside holds the legacy
+// table's rowids and the entity's rows are new ones (store.EnsureMessageSearch).
 
 import (
 	"context"
@@ -123,6 +124,11 @@ func migrateHot(path string, dryRun bool) error {
 	st := store.New(db)
 	counts, err := st.ImportHot(ctx, snap)
 	if err != nil {
+		return err
+	}
+	// The messages are items now, so the index over their content is built again
+	// from them: the one this run set aside indexes the legacy table's rowids.
+	if err := store.EnsureMessageSearch(ctx, db); err != nil {
 		return err
 	}
 	fmt.Println()

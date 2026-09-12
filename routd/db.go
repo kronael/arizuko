@@ -155,6 +155,15 @@ func open(dsn string) (*DB, error) {
 		sqldb.Close()
 		return nil, err
 	}
+	// Ranked search reads an FTS5 index over the message entity's content, which
+	// the driver knows nothing about: it is SQLite's, and its triggers cannot be
+	// declared until the entity they fire on exists. store owns the declaration
+	// beside the query that reads it (store/messages_search.go), and routd is the
+	// sole appender of messages, so this is where the index is kept in shape.
+	if err := store.EnsureMessageSearch(ctx, sqldb); err != nil {
+		sqldb.Close()
+		return nil, err
+	}
 	// The floor a routd.db is born with: role:operator's root grant, role:member's
 	// twelve messaging verbs and the two instance-wide egress rules. A seed is a
 	// row and a row an entity holds goes in through that entity's own writer, so

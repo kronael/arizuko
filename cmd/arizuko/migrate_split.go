@@ -522,13 +522,11 @@ func migrateSplit(storeDir string, dryRun bool) error {
 		return fmt.Errorf("onbod.db: %w", err)
 	}
 
-	// THE FTS REBUILD IS GONE WITH THE COLUMN COPY. `messages` is an entity, so
-	// the rows travel through copyHotEntities and land as items — and
-	// `messages_fts` indexes a table of columns that no longer exists under that
-	// name. Rebuilding it here would index the entity's three columns and answer
-	// every search with nothing. Ranked search moves with its own service (spec
-	// 6/37 §"Search is the one that is answered by leaving"), and it carries its
-	// own index when it does.
+	// THERE IS NO FTS REBUILD HERE BECAUSE THE INDEX PRECEDES THE ROWS.
+	// routd.Create above builds `messages_fts` and its three triggers over the
+	// message entity (store.EnsureMessageSearch), and copyHotEntities then writes
+	// the rows as items — so the insert trigger indexes each one as it lands. A
+	// rebuild would read an index that is already whole.
 
 	fmt.Println("\nsummary:")
 	fmt.Printf("  routd.db rows: %s\n", fmtCounts(routdSpecs, rN))

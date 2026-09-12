@@ -602,11 +602,18 @@ func TestMigrateSplit(t *testing.T) {
 			inv.TargetGlob, inv.MaxUses, inv.UsedCount)
 	}
 
-	// THE FTS REBUILD IS GONE and no assertion replaces it here. `messages` is an
-	// entity in the destination, so an index rebuilt from it would index three
-	// columns named part, sort and attrs and answer every search with nothing.
-	// Ranked search moves with its own service and carries its own index
-	// (spec 6/37 §"Search is the one that is answered by leaving").
+	// The split carries ranked search with the rows. routd.Create builds the
+	// index and its triggers over the message entity before copyHotEntities
+	// writes a single item, so each row is indexed as it lands and no rebuild
+	// runs here. A copy that landed the rows without the index would leave a
+	// migrated instance whose find_messages answers nothing, silently.
+	hits, ferr := rdb.FindMessages("hi", "", "", "", 10)
+	if ferr != nil {
+		t.Fatalf("FindMessages after the split: %v", ferr)
+	}
+	if len(hits) != 1 || hits[0].ChatJID != "tg:1" || !strings.Contains(hits[0].Content, "«hi»") {
+		t.Errorf("the split left the index empty or wrong: %+v", hits)
+	}
 
 	rdb.Close()
 	udb.Close()
