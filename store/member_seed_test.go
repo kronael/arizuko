@@ -41,8 +41,7 @@ func TestPutGroupRowSeedsTheMemberEdge(t *testing.T) {
 // It is idempotent, and the second run must not refuse: the edge is
 // create-if-absent and the caller's own write is what a false would be about.
 func TestSeedMemberRoleCarriesTheCreationItBelongsTo(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
+	s := openEntities(t)
 	ctx := context.Background()
 	row, err := GroupCreateWrite(core.Group{Folder: "world", AddedAt: time.Now()})
 	if err != nil {

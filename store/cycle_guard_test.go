@@ -28,7 +28,7 @@ import (
 // the marker compare-and-swaps across. Raced, this collision falls in that
 // window a few times in twelve and the body stays green against broken code.
 func TestTwoEdgesClosingARingAreSerialisedByTheMarker(t *testing.T) {
-	s := openMem(t)
+	s := openEntities(t)
 	ctx := context.Background()
 	obj := s.Obj()
 	sc := OwnerScope(OwnerRoutd)
@@ -117,7 +117,7 @@ func TestEveryEdgeWriterRefusesAGraphWithNoMarker(t *testing.T) {
 		}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			s := openMem(t)
+			s := openEntities(t)
 			if c.name != "RedeemPairing" {
 				dropMarker(t, s)
 			}
@@ -135,7 +135,7 @@ func TestEveryEdgeWriterRefusesAGraphWithNoMarker(t *testing.T) {
 // daemons that assemble the batch themselves. They live in their own packages,
 // so what is checked here is the door they call.
 func TestTheFolderCreationRefusesAGraphWithNoMarker(t *testing.T) {
-	s := openMem(t)
+	s := openEntities(t)
 	dropMarker(t, s)
 	row, err := GroupCreateWrite(core.Group{Folder: "atlas", AddedAt: time.Now()})
 	if err != nil {

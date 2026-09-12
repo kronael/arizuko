@@ -73,7 +73,7 @@ func TestSetSecretKeepsTheOAuthHalfItDoesNotName(t *testing.T) {
 // instant of the newest write — and the operator's group page, which reads it,
 // would report every folder as created just now.
 func TestAnUpsertLeavesTheInstantTheFolderAppeared(t *testing.T) {
-	s := openMem(t)
+	s := openEntities(t)
 	born := time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC)
 	if err := s.PutGroup(core.Group{Folder: "atlas/eng", AddedAt: born}); err != nil {
 		t.Fatalf("create the group: %v", err)
@@ -100,7 +100,7 @@ func TestAnUpsertLeavesTheInstantTheFolderAppeared(t *testing.T) {
 // one write: `config` holds ONE settings document, so a model override is folded
 // into what the group already has rather than replacing it.
 func TestAnUpsertKeepsTheSettingsItDoesNotState(t *testing.T) {
-	s := openMem(t)
+	s := openEntities(t)
 	if err := s.PutGroup(core.Group{Folder: "atlas", AddedAt: time.Now()}); err != nil {
 		t.Fatalf("create the group: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestAnUpsertKeepsTheSettingsItDoesNotState(t *testing.T) {
 // message nobody routed to it. Only BumpEngagement moves it, because that is the
 // write an engagement decision made.
 func TestSetLastReplyNeverMovesTheEngagedFolder(t *testing.T) {
-	s := openMem(t)
+	s := openEntities(t)
 	if err := s.SetLastReply("slack:T/C", "", "m-1", "atlas/eng"); err != nil {
 		t.Fatalf("record the first anchor: %v", err)
 	}
@@ -162,6 +162,44 @@ func TestSetLastReplyNeverMovesTheEngagedFolder(t *testing.T) {
 	}
 }
 
+// TestADisengageTakesBothAttributesAwayInOneWrite is the merge that carries
+// ONLY a removal — the operator's and the agent's disengage, which ends the
+// window and un-claims the folder together.
+//
+// Both go, and they go by being TAKEN AWAY rather than written empty: absent is
+// the only null this model has, so a cleared deadline still present would read
+// as a window with an unparseable end, and an empty folder left behind would let
+// the previous holder keep a window the operator just released. Five separate
+// writes are what BUGS O1 cost the onboarding reset; this is one.
+func TestADisengageTakesBothAttributesAwayInOneWrite(t *testing.T) {
+	s := openEntities(t)
+	ctx := context.Background()
+	if err := s.BumpEngagement("slack:T/C", "", "atlas", time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("claim the window: %v", err)
+	}
+	if _, live := s.Engagement("slack:T/C", ""); !live {
+		t.Fatal("the window is not live after the claim")
+	}
+	if err := s.BumpEngagement("slack:T/C", "", "", time.Time{}); err != nil {
+		t.Fatalf("disengage: %v", err)
+	}
+	it, ok, err := s.replyStateItem(ctx, "slack:T/C", "")
+	if err != nil || !ok {
+		t.Fatalf("the row is gone: ok=%v err=%v", ok, err)
+	}
+	for _, attr := range []string{AttrReplyEngagedUntil, AttrReplyEngagedFolder} {
+		if v, has := it.Attrs[attr]; has {
+			t.Errorf("%s is still there as %q after a disengage; absent is the only null",
+				attr, v)
+		}
+	}
+	// The same write against a pair with NO row creates one and refuses nothing,
+	// which is what lets a disengage run before any reply ever landed.
+	if err := s.BumpEngagement("slack:T/NEW", "", "", time.Time{}); err != nil {
+		t.Fatalf("disengage a pair that has no row: %v", err)
+	}
+}
+
 // TestAMergeOpensTheChatWithoutRefusingTheBatch is putMessage's chat-open.
 //
 // `chats` is the partition list the poll loop and the archive both walk, so a
@@ -171,7 +209,7 @@ func TestSetLastReplyNeverMovesTheEngagedFolder(t *testing.T) {
 // whole batch with it; a Merge has nothing to refuse, so the chat, its inbound
 // flag and the message now land together.
 func TestAMergeOpensTheChatWithoutRefusingTheBatch(t *testing.T) {
-	s := openMem(t)
+	s := openEntities(t)
 	ctx := context.Background()
 	for i, m := range []core.Message{
 		{ID: "m-1", ChatJID: "slack:T/C", Sender: "alice", Timestamp: time.Now(), Verb: "message"},
@@ -228,7 +266,7 @@ func TestAMergeOpensTheChatWithoutRefusingTheBatch(t *testing.T) {
 // the next tick, and a cooldown with no row silences a chat for a turn nobody
 // ran.
 func TestFireProactiveStampsTheCooldownWithTheRowItFires(t *testing.T) {
-	s := openMem(t)
+	s := openEntities(t)
 	ctx := context.Background()
 	before := time.Now().Add(-time.Second)
 	if err := s.FireProactive(ctx, "slack:T/C", "turn-1"); err != nil {
@@ -261,7 +299,7 @@ func TestFireProactiveStampsTheCooldownWithTheRowItFires(t *testing.T) {
 // making its row count an answer — which is what lets it ride in a batch some
 // other write's condition decides.
 func TestACreateOnlyMergeIsIdempotentOnTheEdgeItDraws(t *testing.T) {
-	s := openMem(t)
+	s := openEntities(t)
 	first, err := membershipPut("folder:atlas", RoleMember, "system:first")
 	if err != nil {
 		t.Fatalf("render the edge: %v", err)

@@ -8,14 +8,11 @@ import (
 
 // oauthStore builds a keyed Store over the secrets entity. The surrogate-OAuth
 // half is four attributes secrets_oauth.go writes, so nothing has to be added
-// beside the entity every opener already creates.
+// beside the entity every opener already creates — and an entity opener rather
+// than the frozen chain, so these run on both engines (entities_test.go).
 func oauthStore(t *testing.T) *Store {
 	t.Helper()
-	s, err := OpenMem()
-	if err != nil {
-		t.Fatalf("OpenMem: %v", err)
-	}
-	t.Cleanup(func() { s.Close() })
+	s := openEntities(t)
 	s.SetSecretKeys([]byte("oauth-test-key"))
 	return s
 }
