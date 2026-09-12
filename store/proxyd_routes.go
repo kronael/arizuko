@@ -194,9 +194,9 @@ func (s *Store) putProxydRouteTx(ctx context.Context, tx *sql.Tx, r ProxydRoute)
 	return err
 }
 
-// CreateProxydRouteTx writes ONE route on a transaction the caller owns and
-// reports whether it landed — proxyd's `/v1/proxyd_routes` POST and its
-// dashboard form, each committing with resreg.invoke's single audit row.
+// CreateProxydRouteTx writes ONE route and reports whether it landed — proxyd's
+// `/v1/proxyd_routes` POST, which commits with resreg.invoke's single audit row,
+// and its dashboard form, which has no second write and passes a nil tx.
 //
 // created=false is the PATH ALREADY BEING TAKEN, and it has to be an answer
 // rather than an overwrite: the path is the coordinate, so an unconditional Put
@@ -212,7 +212,7 @@ func (s *Store) CreateProxydRouteTx(ctx context.Context, tx *sql.Tx, r ProxydRou
 	if err != nil {
 		return false, err
 	}
-	return s.TryWriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+	return s.tryWriteVia(ctx, tx, nil, objstore.Write{
 		Op: objstore.Put, Entity: ProxydRoutes, Key: key, Attrs: attrs,
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},
 	})
@@ -252,16 +252,19 @@ func (s *Store) UpdateProxydRouteTx(ctx context.Context, tx *sql.Tx, r ProxydRou
 	})
 }
 
-// DeleteProxydRouteTx removes one route on a transaction the caller owns and
-// reports whether one went. The answer is load-bearing on both faces: the
-// dashboard tells the operator "no route at that path" rather than redirecting
-// as if the route were gone.
+// DeleteProxydRouteTx removes one route and reports whether one went. The answer
+// is load-bearing on both faces: the dashboard tells the operator "no route at
+// that path" rather than redirecting as if the route were gone.
+//
+// The transaction is the /v1 face's, carrying resreg.invoke's audit row. The
+// dashboard passes nil: a single conditional write is already all-or-nothing, so
+// a transaction around it would decide nothing.
 func (s *Store) DeleteProxydRouteTx(ctx context.Context, tx *sql.Tx, path string) (bool, error) {
 	key, err := proxydRouteKey(path)
 	if err != nil {
 		return false, err
 	}
-	return s.TryWriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+	return s.tryWriteVia(ctx, tx, nil, objstore.Write{
 		Op: objstore.Delete, Entity: ProxydRoutes, Key: key,
 		Cond: objstore.Cond{Item: objstore.ItemPresent},
 	})

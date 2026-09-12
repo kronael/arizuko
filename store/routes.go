@@ -497,16 +497,20 @@ func (s *Store) PutRouteTx(ctx context.Context, tx *sql.Tx, r core.Route, addedB
 	return s.putRoute(ctx, tx, r, addedBy, addedVia)
 }
 
-// DeleteRouteTx removes one rule by id on a transaction the caller owns and
-// reports whether a rule went. The id is an attribute, so the item is found by
-// reading the table; the delete then conditions on the item still being there,
-// so a rule another caller removed in between answers false rather than OK.
+// DeleteRouteTx removes one rule by id and reports whether a rule went. The id
+// is an attribute, so the item is found by reading the table; the delete then
+// conditions on the item still being there, so a rule another caller removed in
+// between answers false rather than OK.
+//
+// The transaction is the caller's when it HAS one — routd's /v1 face, carrying
+// resreg.invoke's audit row. onbod passes nil: it writes no audit row, and one
+// conditional write is already all-or-nothing.
 func (s *Store) DeleteRouteTx(ctx context.Context, tx *sql.Tx, id int64) (bool, error) {
 	it, _, ok, err := s.routeByID(ctx, tx, id)
 	if err != nil || !ok {
 		return false, err
 	}
-	return s.TryWriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+	return s.tryWriteVia(ctx, tx, nil, objstore.Write{
 		Op: objstore.Delete, Entity: Routes, Key: it.Key,
 		Cond: objstore.Cond{Item: objstore.ItemPresent},
 	})

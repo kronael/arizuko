@@ -1457,7 +1457,7 @@ func handleDeleteRoute(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	if err := deleteRoute(r.Context(), db, st, id); err != nil {
+	if err := deleteRoute(r.Context(), st, id); err != nil {
 		slog.Error("route delete", "id", id, "sub", sub, "err", err)
 		http.Error(w, "delete failed", http.StatusInternalServerError)
 		return
@@ -1519,16 +1519,12 @@ func insertRoute(db *sql.DB, match, target, sub, via string) error {
 // deleteRoute removes one rule and NO audit row: onbod's route writers are the
 // onboarding form's two acts, and the row that records them is the onboarding
 // state, not an audit_log entry the other writers of this table emit.
-func deleteRoute(ctx context.Context, db *sql.DB, st *store.Store, id int64) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if _, err := st.DeleteRouteTx(ctx, tx, id); err != nil {
-		return err
-	}
-	return tx.Commit()
+//
+// It opens no transaction, because one conditional write is already
+// all-or-nothing and there is no second write for a transaction to hold it with.
+func deleteRoute(ctx context.Context, st *store.Store, id int64) error {
+	_, err := st.DeleteRouteTx(ctx, nil, id)
+	return err
 }
 
 func handleAddRoute(w http.ResponseWriter, r *http.Request,

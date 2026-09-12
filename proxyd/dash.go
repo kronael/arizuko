@@ -106,31 +106,18 @@ func (s *server) handleDashRouteDelete(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/dash/proxyd/", http.StatusSeeOther)
 }
 
-// writeRoute and deleteRoute run the SAME tx writers the /v1 resource runs, so
-// the dashboard is a third face on one writer rather than a second one.
+// writeRoute and deleteRoute run the SAME writers the /v1 resource runs, so the
+// dashboard is a third face on one writer rather than a second one.
+//
+// They pass NO transaction. The /v1 face has one because resreg.invoke opened it
+// for the mutation and its audit row; the dashboard writes the route and nothing
+// else, and one conditional write is already all-or-nothing.
 func (s *server) writeRoute(ctx context.Context, rt store.ProxydRoute) error {
-	tx, err := s.stRoutd.DB().BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if err := insertProxydRouteTx(ctx, s.stRoutd, tx, rt); err != nil {
-		return err
-	}
-	return tx.Commit()
+	return insertProxydRouteTx(ctx, s.stRoutd, nil, rt)
 }
 
 func (s *server) deleteRoute(ctx context.Context, path string) (bool, error) {
-	tx, err := s.stRoutd.DB().BeginTx(ctx, nil)
-	if err != nil {
-		return false, err
-	}
-	defer tx.Rollback()
-	ok, err := deleteProxydRouteTx(ctx, s.stRoutd, tx, path)
-	if err != nil || !ok {
-		return false, err
-	}
-	return true, tx.Commit()
+	return deleteProxydRouteTx(ctx, s.stRoutd, nil, path)
 }
 
 // proxydRouteTable renders the table in MATCH order — longest prefix first,
