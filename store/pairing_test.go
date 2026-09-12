@@ -17,7 +17,7 @@ import (
 func seedPairing(t *testing.T, s *Store, jid, ownerFolder string, created time.Time) string {
 	t.Helper()
 	ctx := context.Background()
-	raw, err := s.IssuePairingLink(ctx, nil, jid, ownerFolder)
+	raw, err := s.IssuePairingLink(ctx, jid, ownerFolder)
 	if err != nil {
 		t.Fatalf("seed pairing token: %v", err)
 	}

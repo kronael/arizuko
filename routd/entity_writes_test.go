@@ -8,6 +8,7 @@ package routd
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/kronael/arizuko/core"
@@ -107,14 +108,13 @@ func TestWebRoute_CrossFolderDeleteRemovesNothing(t *testing.T) {
 	}
 	defer db.Close()
 	putWebRoute(t, db, WebRouteRow{PathPrefix: "/p/", Access: "public", Folder: "acme"})
-	tx, err := db.SQL().Begin()
-	if err != nil {
+	notMine := errors.New("no such route of this folder")
+	ws := &store.WriteSet{}
+	if err := db.deleteWebRouteInto(ws, "/p/", "rival", notMine); err != nil {
 		t.Fatal(err)
 	}
-	defer tx.Rollback() //nolint:errcheck
-	gone, err := db.deleteWebRouteTx(context.Background(), tx, "/p/", "rival")
-	if err != nil || gone {
-		t.Errorf("a cross-folder delete answered (%v, %v), want (false, nil)", gone, err)
+	if err := db.store().Apply(context.Background(), ws); !errors.Is(err, notMine) {
+		t.Errorf("a cross-folder delete answered %v, want the not-found answer", err)
 	}
 }
 

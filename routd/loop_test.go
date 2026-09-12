@@ -498,21 +498,17 @@ func TestSteeredPartialBatchNoRedispatch(t *testing.T) {
 	}
 }
 
-// doSetRoutes replaces the whole route table through store.ReplaceFolderRoutesTx,
-// the writer the routes resource uses. routd.DB's SetRoutes twin had no
-// production caller and is gone (BUGS L14).
+// doSetRoutes replaces the whole route table through
+// store.ReplaceFolderRoutesInto, the writer the routes resource uses. routd.DB's
+// SetRoutes twin had no production caller and is gone (BUGS L14).
 func doSetRoutes(t *testing.T, db *DB, routes []core.Route) {
 	t.Helper()
-	tx, err := db.SQL().Begin()
-	if err != nil {
-		t.Fatalf("begin: %v", err)
-	}
-	defer tx.Rollback()
-	if err := db.store().ReplaceFolderRoutesTx(
-		context.Background(), tx, "", routes, "test", "test"); err != nil {
+	ctx := context.Background()
+	ws := &store.WriteSet{}
+	if err := db.store().ReplaceFolderRoutesInto(ctx, ws, "", routes, "test", "test"); err != nil {
 		t.Fatalf("set routes: %v", err)
 	}
-	if err := tx.Commit(); err != nil {
-		t.Fatalf("commit routes: %v", err)
+	if err := db.store().Apply(ctx, ws); err != nil {
+		t.Fatalf("send routes: %v", err)
 	}
 }

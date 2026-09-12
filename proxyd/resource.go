@@ -10,7 +10,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -173,8 +172,9 @@ func argRoute(args resreg.Args) (Route, error) {
 }
 
 // handle is the single Handler called by both REST and MCP adapters.
-// Mutating actions run inside x.Tx — DB writes via tx-aware store
-// helpers. The DB is the source of truth; no in-memory swap needed.
+// A mutating action BUFFERS its write on x.Writes, which resreg sends in one
+// batch with the audit row. The DB is the source of truth; no in-memory swap
+// needed.
 func (rr *routesResource) handle(ctx context.Context, x resreg.Execution) (any, error) {
 	switch x.Action {
 	case resreg.ActionList:
@@ -214,7 +214,12 @@ func (rr *routesResource) handle(ctx context.Context, x resreg.Execution) (any, 
 		// caller does not get to pick — a body carrying `owner` would otherwise
 		// let an agent hand its own route to arizuko, or to nobody.
 		r.Owner = store.RouteOwnerOperator
-		if err := insertProxydRouteTx(ctx, rr.st, x.Tx, toStoreRoute(r)); err != nil {
+		// The path is the coordinate, so a create refuses when it is already
+		// taken — and that answer reaches the caller from the batch, which is why
+		// it is declared with the write.
+		if err := rr.st.CreateProxydRouteInto(x.Writes, toStoreRoute(r),
+			resreg.Errorf(http.StatusConflict,
+				"proxyd route %q is already taken", r.Path)); err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "persist: %v", err)
 		}
 		return r, nil
@@ -270,7 +275,8 @@ func (rr *routesResource) handle(ctx context.Context, x resreg.Execution) (any, 
 		if err := validateRoute(merged, routes, true); err != nil {
 			return nil, err
 		}
-		if err := updateProxydRouteTx(ctx, rr.st, x.Tx, toStoreRoute(merged)); err != nil {
+		if err := rr.st.UpdateProxydRouteInto(x.Writes, toStoreRoute(merged),
+			resreg.Errorf(http.StatusNotFound, "route %q not found", path)); err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "persist: %v", err)
 		}
 		return merged, nil
@@ -280,7 +286,9 @@ func (rr *routesResource) handle(ctx context.Context, x resreg.Execution) (any, 
 		if path == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "path required")
 		}
-		if _, err := deleteProxydRouteTx(ctx, rr.st, x.Tx, path); err != nil {
+		// Unconditional: this face declares DELETE idempotent, so a path with no
+		// route answers 204 rather than 404 (resource_test.go).
+		if err := rr.st.DeleteProxydRouteInto(x.Writes, path); err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "delete: %v", err)
 		}
 		return nil, nil
@@ -376,14 +384,16 @@ func callerFromHTTP(ks *auth.KeySet) resreg.CallerFromHTTPFunc {
 	}
 }
 
-// insertProxydRouteTx and its two siblings are the writes both proxyd faces make
-// — the /v1 resource and the dashboard form — so each mutation and the audit row
-// beside it commit on ONE transaction. The coordinate and every attribute belong
-// to store, which is why the write itself is store's (store/proxyd_routes.go):
-// two renderings of one route would put proxyd's write where the engine's read
-// does not look.
-func insertProxydRouteTx(ctx context.Context, st *store.Store, tx *sql.Tx, r store.ProxydRoute) error {
-	created, err := st.CreateProxydRouteTx(ctx, tx, r)
+// insertProxydRoute is the dashboard form's create, and it runs the SAME store
+// writer the /v1 resource buffers — the coordinate and every attribute belong to
+// store (store/proxyd_routes.go), because two renderings of one route would put
+// proxyd's write where the engine's read does not look.
+//
+// The form writes the route and nothing else, so its write goes in a batch of
+// its own; the /v1 face buffers instead, because its row has to ride with the
+// audit row resreg records.
+func insertProxydRoute(ctx context.Context, st *store.Store, r store.ProxydRoute) error {
+	created, err := st.CreateProxydRoute(ctx, r)
 	if err != nil {
 		return err
 	}
@@ -391,22 +401,4 @@ func insertProxydRouteTx(ctx context.Context, st *store.Store, tx *sql.Tx, r sto
 		return fmt.Errorf("proxyd route %q is already taken", r.Path)
 	}
 	return nil
-}
-
-// updateProxydRouteTx writes the mutable fields. `owner` is not among them:
-// ownership is stamped by whoever created the row, so an update can never
-// change who may rewrite it.
-func updateProxydRouteTx(ctx context.Context, st *store.Store, tx *sql.Tx, r store.ProxydRoute) error {
-	found, err := st.UpdateProxydRouteTx(ctx, tx, r)
-	if err != nil {
-		return err
-	}
-	if !found {
-		return fmt.Errorf("proxyd route %q not found", r.Path)
-	}
-	return nil
-}
-
-func deleteProxydRouteTx(ctx context.Context, st *store.Store, tx *sql.Tx, path string) (bool, error) {
-	return st.DeleteProxydRouteTx(ctx, tx, path)
 }

@@ -34,7 +34,7 @@ import (
 // Egress-allowlist actions are resource-specific verbs, not the CRUD shape. list
 // reuses resreg.ActionList (== "list") so it stays read-only (Mutates() false, no
 // tx); allow/deny are custom strings so Mutates() is true and each opens the
-// mutation+audit tx.
+// mutation+audit batch.
 const (
 	networkActionAllow = resreg.Action("allow")
 	networkActionDeny  = resreg.Action("deny")
@@ -48,7 +48,7 @@ var networkMCPNames = resources.NetworkRulesMCPNames
 // networkRulesResource is the single renderer for the agent's three egress tools.
 // Endpoints exist only to drive deriveMCPTools (Action ∩ MCPDoc) — the REST face
 // is NOT mounted from this resource (network is agent-only). Store is a
-// store.Store over routd.db so resreg.invoke opens the mutation+audit tx there.
+// store.Store over routd.db so resreg.invoke sends the mutation+audit batch there.
 func (s *Server) networkRulesResource() resreg.Resource {
 	r := resreg.Mount(resources.NetworkRulesName)
 	r.Handler = s.networkRulesHandler
@@ -92,7 +92,7 @@ func (s *Server) networkRulesHandler(ctx context.Context, x resreg.Execution) (a
 				"%v — write a bare domain (example.com) or subdomain glob (*.example.com)", err)
 		}
 		host := match.NormalizeEntry(raw)
-		if err := s.db.store().AddNetworkRuleTx(ctx, x.Tx, folder, host, x.Caller.Sub); err != nil {
+		if err := s.db.store().AddNetworkRuleInto(x.Writes, folder, host, x.Caller.Sub); err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
 		slog.Info("egress allowed", "folder", folder, "host", host)
@@ -106,7 +106,7 @@ func (s *Server) networkRulesHandler(ctx context.Context, x resreg.Execution) (a
 		if host == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "host required")
 		}
-		if err := s.db.store().RemoveNetworkRuleTx(ctx, x.Tx, folder, host); err != nil {
+		if err := s.db.store().RemoveNetworkRuleInto(x.Writes, folder, host); err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
 		slog.Info("egress denied", "folder", folder, "host", host)

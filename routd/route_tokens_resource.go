@@ -5,7 +5,7 @@ package routd
 // owns the plumbing; routd owns the auth POLICY. Two shapes are folded in:
 //
 //   - Custom actions: issue_chat/issue_hook/revoke are resource-specific verbs, so
-//     Mutates() is true and each opens the mutation+audit tx; list reuses
+//     Mutates() is true and each sends the mutation+audit batch; list reuses
 //     ActionList. MCPNames maps every action back to the flat live tool name, so no
 //     in-container tool is renamed.
 //   - CONTAINMENT is per face. issue binds the token's owner_folder to the caller's
@@ -48,7 +48,7 @@ import (
 // Route-token actions are resource-specific verbs, not the CRUD shape. list reuses
 // resreg.ActionList (== "list") so it stays read-only (Mutates() false, no tx);
 // issue_chat/issue_hook/revoke are custom strings so Mutates() is true and each
-// opens the mutation+audit tx.
+// sends the mutation+audit batch.
 const (
 	routeTokensActionIssueChat = resreg.Action("issue_chat")
 	routeTokensActionIssueHook = resreg.Action("issue_hook")
@@ -65,7 +65,7 @@ var routeTokensMCPNames = resources.RouteTokensMCPNames
 // token tools AND the operator REST face (/v1/route_tokens/*), mounted from this
 // same resource by tokens_http.go mountRouteTokens (5/16 fold). Endpoints drive
 // deriveMCPTools (Action ∩ MCPDoc) and the REST routes + /openapi.json. Store is
-// a store.Store over routd.db so resreg.invoke opens the mutation+audit tx there.
+// a store.Store over routd.db so resreg.invoke sends the mutation+audit batch there.
 func (s *Server) routeTokensResource() resreg.Resource {
 	r := resreg.Mount(resources.RouteTokensName)
 	r.Handler = s.routeTokensHandler
@@ -119,7 +119,7 @@ func (s *Server) routeTokensHandler(ctx context.Context, x resreg.Execution) (an
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusBadRequest, "%v", err)
 		}
-		raw, err := s.db.store().MintRouteTokenTx(ctx, x.Tx, jid, folder, target,
+		raw, err := s.db.store().MintRouteTokenInto(ctx, x.Writes, jid, folder, target,
 			strings.TrimSpace(argString(x.Args, "context")))
 		if errors.Is(err, store.ErrRouteTokenTargetTaken) {
 			return nil, resreg.Errorf(http.StatusConflict, "%v", err)
@@ -151,7 +151,7 @@ func (s *Server) routeTokensHandler(ctx context.Context, x resreg.Execution) (an
 			return nil, resreg.Errorf(http.StatusInternalServerError,
 				"cannot mint a pairing link: WEB_HOST is unset, so there is no URL to hand out")
 		}
-		raw, err := s.db.store().IssuePairingLink(ctx, x.Tx, jid, target)
+		raw, err := s.db.store().IssuePairingLinkInto(x.Writes, jid, target)
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
@@ -166,7 +166,7 @@ func (s *Server) routeTokensHandler(ctx context.Context, x resreg.Execution) (an
 		// Ownership containment: DELETE scoped to owner_folder = the caller's folder,
 		// so a cross-folder JID matches zero rows (deleted=false) — never another
 		// folder's token.
-		deleted, err := s.db.store().RevokeRouteTokenTx(ctx, x.Tx, jid, folder)
+		deleted, err := s.db.store().RevokeRouteTokenInto(ctx, x.Writes, jid, folder)
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
@@ -242,7 +242,7 @@ func pairingTargetFolder(db *DB, jid string) (string, error) {
 // routeTokenJID builds the (jid, url-prefix) for a mint exactly as the deleted
 // mcpIssueRouteToken did: segRe-validate the agent-supplied segments (or an agent
 // could inject `/`/`..` into the stored JID), then compose web:/hook: by kind. It
-// stops short of the DB write so the handler can do it on resreg.invoke's tx.
+// stops short of the write so the handler can buffer it on resreg.invoke's set.
 func routeTokenJID(kind, targetFolder, sourceLabel, jidSuffix string) (jid, urlPrefix string, err error) {
 	if targetFolder == "" {
 		return "", "", fmt.Errorf("target_folder required")
@@ -271,7 +271,7 @@ func routeTokenJID(kind, targetFolder, sourceLabel, jidSuffix string) (jid, urlP
 }
 
 // The mint and the revoke are store.MintRouteTokenTx and
-// store.RevokeRouteTokenTx, on resreg.invoke's tx so the item and the call's
+// store.RevokeRouteTokenInto, on resreg.invoke's write set so the item and the call's
 // single audit_log row commit together. They live there because the token's
 // coordinate is its digest and its attribute names are store's, and because the
 // pairing minter beside them (IssuePairingLink, which onbod's greeting also

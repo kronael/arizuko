@@ -137,12 +137,10 @@ func TestGitHubSource_NoKeyRefuses(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 	seedFolder(t, s, "eng")
-	tx, err := s.db.BeginTx(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	if _, err := s.AddGitHubSourceTx(context.Background(), tx, GitHubSource{Source: "app/x", OwnerFolder: "eng"}, "eng"); !errors.Is(err, ErrNoSecretsKey) {
+	ws := &WriteSet{}
+	if _, err := s.AddGitHubSourceInto(context.Background(), ws,
+		GitHubSource{Source: "app/x", OwnerFolder: "eng"}, "eng",
+		ErrGitHubSourceExists); !errors.Is(err, ErrNoSecretsKey) {
 		t.Fatalf("err = %v, want ErrNoSecretsKey", err)
 	}
 }

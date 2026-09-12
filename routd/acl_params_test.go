@@ -136,17 +136,9 @@ func TestGrantACLTx_NarrowedTreeScopeIsNotOperator(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	tx, err := db.SQL().Begin()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	if err := db.grantACLTx(t.Context(), tx, core.ACLRow{
+	if err := grantACL(db, core.ACLRow{
 		Principal: "user:p", Scope: "**", Params: "jid=telegram:*", GrantedBy: "test",
 	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
 	if hasEdge(db, "user:p", "role:operator") {

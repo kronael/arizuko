@@ -25,7 +25,6 @@ package store
 import (
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -56,14 +55,8 @@ var ErrPairingUnavailable = errors.New("pairing: link unavailable")
 var ErrPairingConflict = errors.New("pairing: channel identity is linked to another account")
 
 // IssuePairingLink mints a pairing token for jid and returns the raw token
-// ONCE — only sha256(raw) is stored. It is the single pairing minter: the agent
-// path (routd's issue_pairing_link) and the greeting path (onbod's poll tick)
-// both come here, so the credential cannot drift apart in hashing or storage.
-//
-// The write rides in the CALLER'S transaction when it has one — routd mints
-// inside resreg.invoke's mutation tx so the token lands with that call's audit
-// row — and in a batch of its own when tx is nil, which is what onbod's greeting
-// holds.
+// ONCE — only sha256(raw) is stored. It is onbod's greeting path, which has no
+// second write, so the credential goes in a batch of its own.
 //
 // ownerFolder is resolved entirely by the CALLER — routd binds it to the folder
 // the JID already routes to, onbod passes "" because a greeting is sent before
@@ -71,28 +64,49 @@ var ErrPairingConflict = errors.New("pairing: channel identity is linked to anot
 // owner_folder attribute, which is the only null this model has. Neither
 // PeekPairing nor RedeemPairing reads it, and pair-kind rows are already
 // excluded from listing and revocation, so its absence costs nothing.
-func (s *Store) IssuePairingLink(ctx context.Context, tx *sql.Tx, jid, ownerFolder string) (string, error) {
+func (s *Store) IssuePairingLink(ctx context.Context, jid, ownerFolder string) (string, error) {
+	raw, w, err := pairingMint(jid, ownerFolder)
+	if err != nil {
+		return "", err
+	}
+	if err := s.WriteEntities(ctx, nil, w); err != nil {
+		return "", fmt.Errorf("pairing: mint token for %s: %w", jid, err)
+	}
+	return raw, nil
+}
+
+// IssuePairingLinkInto mints a pairing token and buffers its write on the
+// caller's set — routd's issue_pairing_link, whose token lands in the batch that
+// carries that call's audit row.
+func (s *Store) IssuePairingLinkInto(ws *WriteSet, jid, ownerFolder string) (string, error) {
+	raw, w, err := pairingMint(jid, ownerFolder)
+	if err != nil {
+		return "", err
+	}
+	ws.Add(w)
+	return raw, nil
+}
+
+// pairingMint generates the bearer and renders the write that stores it. It is
+// the single pairing minter: the agent path and the greeting path both come
+// here, so the credential cannot drift apart in hashing or storage.
+//
+// The RAW token is answered before anything is written and never read back —
+// only its digest reaches the item, so reading the row could not recover it.
+func pairingMint(jid, ownerFolder string) (string, objstore.Write, error) {
 	if jid == "" {
-		return "", fmt.Errorf("pairing: jid required")
+		return "", objstore.Write{}, fmt.Errorf("pairing: jid required")
 	}
 	var b [32]byte
 	if _, err := rand.Read(b[:]); err != nil {
-		return "", fmt.Errorf("pairing: generate token: %w", err)
+		return "", objstore.Write{}, fmt.Errorf("pairing: generate token: %w", err)
 	}
 	raw := hex.EncodeToString(b[:])
 	w, err := routeTokenPut(raw, RouteToken{JID: jid, OwnerFolder: ownerFolder}, RouteTokenKindPair)
 	if err != nil {
-		return "", fmt.Errorf("pairing: mint token for %s: %w", jid, err)
+		return "", objstore.Write{}, fmt.Errorf("pairing: mint token for %s: %w", jid, err)
 	}
-	if tx != nil {
-		err = s.WriteEntitiesInTx(ctx, tx, nil, w)
-	} else {
-		err = s.WriteEntities(ctx, nil, w)
-	}
-	if err != nil {
-		return "", fmt.Errorf("pairing: mint token for %s: %w", jid, err)
-	}
-	return raw, nil
+	return raw, w, nil
 }
 
 // PeekPairing resolves a live pairing token to the channel JID it binds WITHOUT
@@ -188,21 +202,21 @@ func (s *Store) RedeemPairing(rawToken, parentSub string) (string, error) {
 	return jid, nil
 }
 
-// UnpairTx deletes ONE acl_membership edge on tx, scoped to added_by =
-// PairingAddedBy so it can never reach role membership or a manifest-applied
-// row. Returns whether an edge went. Takes effect on the identity's next tool
+// UnpairInto buffers the deletion of ONE acl_membership edge on the caller's
+// write set, scoped to added_by = PairingAddedBy so it can never reach role
+// membership or a manifest-applied row. Takes effect on the identity's next tool
 // call — Authorize reads the DB live (spec 5/32 § No caching).
 //
 // `added_by` is an attribute rather than part of the coordinate, so it is the
 // write's CONDITION: the delete names one item and commits only when that item
-// is pairing's, which is what the third term of the WHERE clause said. A refused
-// batch is the "no such edge" answer.
-func (s *Store) UnpairTx(ctx context.Context, tx *sql.Tx, child, parent string) (bool, error) {
+// is pairing's, which is what the third term of the WHERE clause said. refused is
+// the "no such edge" that refusal means.
+func (s *Store) UnpairInto(ws *WriteSet, child, parent string, refused error) error {
 	key, err := membershipKey(child, parent)
 	if err != nil {
-		return false, err
+		return err
 	}
-	return s.TryWriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+	return ws.AddGuarded(refused, objstore.Write{
 		Op: objstore.Delete, Entity: ACLMembership, Key: key,
 		Cond: objstore.Cond{Where: []objstore.Cmp{
 			{Attr: attrMemAddedBy, Op: objstore.Eq, Value: PairingAddedBy},

@@ -29,7 +29,6 @@ package store
 import (
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -500,11 +499,16 @@ func (s *Store) CountRouteTokens(ctx context.Context) (int, error) {
 	return len(items), nil
 }
 
-// MintRouteTokenTx mints a DELIVERY token for jid on a transaction the CALLER
-// owns and returns the raw bearer ONCE — only its digest is stored, which is the
-// item's coordinate. It is routd's `/v1/route_tokens` minter: the row and
-// resreg.invoke's single audit_log row commit together, and InsertRouteToken
-// would open a second transaction on the same database and record the mint twice.
+// MintRouteTokenInto mints a DELIVERY token for jid, buffers the write on the
+// caller's write set and returns the raw bearer ONCE — only its digest is
+// stored, which is the item's coordinate. It is routd's `/v1/route_tokens`
+// minter: the row rides the batch that carries resreg.invoke's single audit_log
+// row, and InsertRouteToken would send a batch of its own and record the mint
+// twice.
+//
+// THE BEARER IS GENERATED HERE and handed back before anything is written, so
+// the value the caller returns to the wire is never read out of the item — it
+// could not be, since the digest is what the item carries.
 //
 // It is IssuePairingLink's delivery twin, and both render through routeTokenPut,
 // so the two kinds of credential differ only in the `kind` attribute that keeps
@@ -513,7 +517,7 @@ func (s *Store) CountRouteTokens(ctx context.Context) (int, error) {
 // target is the folder the token DELIVERS to. The JID grammar cannot recover it
 // once a suffix is present (spec 5/W), so the mint is the only place it is known,
 // and CheckRouteTokenTarget refuses a JID that already delivers somewhere else.
-func (s *Store) MintRouteTokenTx(ctx context.Context, tx *sql.Tx, jid, ownerFolder,
+func (s *Store) MintRouteTokenInto(ctx context.Context, ws *WriteSet, jid, ownerFolder,
 	targetFolder, linkContext string) (string, error) {
 	if jid == "" {
 		return "", errors.New("route token: jid required")
@@ -532,20 +536,27 @@ func (s *Store) MintRouteTokenTx(ctx context.Context, tx *sql.Tx, jid, ownerFold
 	if err != nil {
 		return "", fmt.Errorf("route token: mint for %s: %w", jid, err)
 	}
-	if err := s.WriteEntitiesInTx(ctx, tx, nil, w); err != nil {
-		return "", fmt.Errorf("route token: mint for %s: %w", jid, err)
-	}
+	ws.Add(w)
 	return raw, nil
 }
 
-// RevokeRouteTokenTx deletes the DELIVERY tokens for jid owned by ownerFolder on
-// a transaction the caller owns, and reports whether any went. The owner_folder
-// match IS the containment: a JID owned by another folder selects no item, so a
+// RevokeRouteTokenInto buffers the deletion of every DELIVERY token for jid
+// owned by ownerFolder and reports whether any was there. The owner_folder match
+// IS the containment: a JID owned by another folder selects no item, so a
 // cross-folder revoke answers false rather than removing somebody else's bearer.
 //
-// One JID may hold several tokens, so this is a read then one delete per item,
-// chunked because a batch carries at most objstore.MaxBatchActions.
-func (s *Store) RevokeRouteTokenTx(ctx context.Context, tx *sql.Tx, jid, ownerFolder string) (bool, error) {
+// The answer comes from the READ, before one write is sent, which is what lets
+// the caller return it without waiting for the batch.
+//
+// ONE JID MAY HOLD SEVERAL TOKENS, so this is a buffered write set whose SIZE
+// the caller decides. It goes in WHOLE rather than in chunks: a revoke that
+// stopped part-way would leave live bearers behind under an audit row saying the
+// jid was revoked. Past objstore.MaxBatchActions the batch is refused, naming
+// the count — a loud answer the operator can act on, where a chunked sweep is a
+// quiet half-revocation. The fleet's largest instance holds 43 route tokens over
+// 27 jids (2026-09-07), so the bound is not a live limit.
+func (s *Store) RevokeRouteTokenInto(ctx context.Context, ws *WriteSet,
+	jid, ownerFolder string) (bool, error) {
 	items, err := routeTokensOfKind(ctx, s.Obj(), RouteTokenKindRoute)
 	if err != nil {
 		return false, err
@@ -562,9 +573,6 @@ func (s *Store) RevokeRouteTokenTx(ctx context.Context, tx *sql.Tx, jid, ownerFo
 	if len(writes) == 0 {
 		return false, nil
 	}
-	_, err = applyChunks(ctx, "revoke "+jid, writes,
-		func(ctx context.Context, chunk []objstore.Write) (bool, error) {
-			return s.TryWriteEntitiesInTx(ctx, tx, nil, chunk...)
-		})
-	return err == nil, err
+	ws.Add(writes...)
+	return true, nil
 }

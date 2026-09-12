@@ -61,15 +61,11 @@ func revokeTokens(t *testing.T, d *DB, jid, owner string) int {
 // own — the shape resreg gives that writer in production.
 func putWebRoute(t *testing.T, d *DB, r WebRouteRow) {
 	t.Helper()
-	tx, err := d.SQL().Begin()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback() //nolint:errcheck
-	if err := d.putWebRouteTx(context.Background(), tx, r); err != nil {
+	ws := &store.WriteSet{}
+	if err := d.putWebRouteInto(ws, r); err != nil {
 		t.Fatalf("put web route %s: %v", r.PathPrefix, err)
 	}
-	if err := tx.Commit(); err != nil {
+	if err := d.store().Apply(context.Background(), ws); err != nil {
 		t.Fatal(err)
 	}
 }

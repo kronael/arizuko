@@ -27,7 +27,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 
@@ -173,53 +172,51 @@ func (s *Store) AllProxydRoutes() ([]ProxydRoute, error) {
 	return out, nil
 }
 
-// putProxydRouteTx upserts one route on a transaction the caller owns.
-//
-// It is an UNCONDITIONAL Put, and that is exactly right here: the item carries
-// no attribute this file does not own, so replacing the whole set is what the
-// `ON CONFLICT(path) DO UPDATE` of every other column said. SyncProxydRoutes
-// writes every row through it.
-func (s *Store) putProxydRouteTx(ctx context.Context, tx *sql.Tx, r ProxydRoute) error {
-	key, err := proxydRouteKey(r.Path)
-	if err != nil {
-		return err
-	}
-	attrs, err := proxydRouteAttrs(r)
-	if err != nil {
-		return err
-	}
-	err = s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
-		Op: objstore.Put, Entity: ProxydRoutes, Key: key, Attrs: attrs,
-	})
-	return err
-}
-
-// CreateProxydRouteTx writes ONE route and reports whether it landed — proxyd's
-// `/v1/proxyd_routes` POST, which commits with resreg.invoke's single audit row,
-// and its dashboard form, which has no second write and passes a nil tx.
+// CreateProxydRoute writes ONE route and reports whether it landed — proxyd's
+// dashboard form, which has no second write to hold it with.
 //
 // created=false is the PATH ALREADY BEING TAKEN, and it has to be an answer
 // rather than an overwrite: the path is the coordinate, so an unconditional Put
 // would silently hand an arizuko- or package-owned route to the operator and
 // exempt it from every later generate (BUGS L45, L46). Taking a path over is
 // DELETE then POST, which is what the surface tells the caller.
-func (s *Store) CreateProxydRouteTx(ctx context.Context, tx *sql.Tx, r ProxydRoute) (bool, error) {
-	key, err := proxydRouteKey(r.Path)
+func (s *Store) CreateProxydRoute(ctx context.Context, r ProxydRoute) (bool, error) {
+	w, err := proxydRouteCreateWrite(r)
 	if err != nil {
 		return false, err
+	}
+	return s.TryWriteEntities(ctx, nil, w)
+}
+
+// CreateProxydRouteInto buffers the same create on the caller's write set —
+// proxyd's `/v1/proxyd_routes` POST, whose row rides one batch with
+// resreg.invoke's single audit row. refused is what a taken path means.
+func (s *Store) CreateProxydRouteInto(ws *WriteSet, r ProxydRoute, refused error) error {
+	w, err := proxydRouteCreateWrite(r)
+	if err != nil {
+		return err
+	}
+	return ws.AddGuarded(refused, w)
+}
+
+// proxydRouteCreateWrite renders the create both doors above issue.
+func proxydRouteCreateWrite(r ProxydRoute) (objstore.Write, error) {
+	key, err := proxydRouteKey(r.Path)
+	if err != nil {
+		return objstore.Write{}, err
 	}
 	attrs, err := proxydRouteAttrs(r)
 	if err != nil {
-		return false, err
+		return objstore.Write{}, err
 	}
-	return s.tryWriteVia(ctx, tx, nil, objstore.Write{
+	return objstore.Write{
 		Op: objstore.Put, Entity: ProxydRoutes, Key: key, Attrs: attrs,
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},
-	})
+	}, nil
 }
 
-// UpdateProxydRouteTx rewrites the mutable half of one route on a transaction
-// the caller owns and reports whether a route was there to rewrite.
+// UpdateProxydRouteInto buffers the rewrite of one route's mutable half on the
+// caller's write set; refused is what "no route at that path" means.
 //
 // `owner` is NOT among the fields it writes: ownership is stamped by whoever
 // created the row, so an update can never change who may rewrite it. That is
@@ -230,14 +227,14 @@ func (s *Store) CreateProxydRouteTx(ctx context.Context, tx *sql.Tx, r ProxydRou
 // because absent is the only null this model has: an empty `gated_by` left
 // behind still answers a presence test, and the gate would keep applying to a
 // route the operator opened.
-func (s *Store) UpdateProxydRouteTx(ctx context.Context, tx *sql.Tx, r ProxydRoute) (bool, error) {
+func (s *Store) UpdateProxydRouteInto(ws *WriteSet, r ProxydRoute, refused error) error {
 	key, err := proxydRouteKey(r.Path)
 	if err != nil {
-		return false, err
+		return err
 	}
 	attrs, err := proxydRouteAttrs(r)
 	if err != nil {
-		return false, err
+		return err
 	}
 	delete(attrs, attrPxOwner)
 	var remove []string
@@ -246,28 +243,51 @@ func (s *Store) UpdateProxydRouteTx(ctx context.Context, tx *sql.Tx, r ProxydRou
 			remove = append(remove, name)
 		}
 	}
-	return s.TryWriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+	return ws.AddGuarded(refused, objstore.Write{
 		Op: objstore.Update, Entity: ProxydRoutes, Key: key, Attrs: attrs, Remove: remove,
 		Cond: objstore.Cond{Item: objstore.ItemPresent},
 	})
 }
 
-// DeleteProxydRouteTx removes one route and reports whether one went. The answer
-// is load-bearing on both faces: the dashboard tells the operator "no route at
-// that path" rather than redirecting as if the route were gone.
-//
-// The transaction is the /v1 face's, carrying resreg.invoke's audit row. The
-// dashboard passes nil: a single conditional write is already all-or-nothing, so
-// a transaction around it would decide nothing.
-func (s *Store) DeleteProxydRouteTx(ctx context.Context, tx *sql.Tx, path string) (bool, error) {
-	key, err := proxydRouteKey(path)
+// DeleteProxydRoute removes one route and reports whether one went — proxyd's
+// dashboard form. The answer is load-bearing: the operator is told "no route at
+// that path" rather than redirected as if the route were gone.
+func (s *Store) DeleteProxydRoute(ctx context.Context, path string) (bool, error) {
+	w, err := proxydRouteDeleteWrite(path)
 	if err != nil {
 		return false, err
 	}
-	return s.tryWriteVia(ctx, tx, nil, objstore.Write{
+	return s.TryWriteEntities(ctx, nil, w)
+}
+
+// DeleteProxydRouteInto buffers the removal on the caller's write set —
+// proxyd's `/v1` face, whose delete rides one batch with resreg.invoke's audit
+// row.
+//
+// IT CARRIES NO CONDITION, and that is the difference from the door above: `/v1`
+// declares DELETE idempotent (a second delete of one path answers 204), so there
+// is no not-found for a condition to report — and a write that refused would
+// take the audit row beside it down with nothing said.
+func (s *Store) DeleteProxydRouteInto(ws *WriteSet, path string) error {
+	key, err := proxydRouteKey(path)
+	if err != nil {
+		return err
+	}
+	ws.Add(objstore.Write{Op: objstore.Delete, Entity: ProxydRoutes, Key: key})
+	return nil
+}
+
+// proxydRouteDeleteWrite renders the dashboard's delete, conditioned on the
+// route being there so its answer can be reported.
+func proxydRouteDeleteWrite(path string) (objstore.Write, error) {
+	key, err := proxydRouteKey(path)
+	if err != nil {
+		return objstore.Write{}, err
+	}
+	return objstore.Write{
 		Op: objstore.Delete, Entity: ProxydRoutes, Key: key,
 		Cond: objstore.Cond{Item: objstore.ItemPresent},
-	})
+	}, nil
 }
 
 // SyncProxydRoutes writes the release's route table into proxyd_routes and reports

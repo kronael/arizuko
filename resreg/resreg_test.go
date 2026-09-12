@@ -19,7 +19,7 @@ import (
 )
 
 // withAuditDB primes the audit package against a fresh in-memory store
-// so EmitInTx/Emit actually write rows. Returns the store so tests can
+// so Emit actually writes rows. Returns the store so tests can
 // assert table contents. Resets package state on cleanup.
 //
 // The schema is the frozen pre-split chain because routd imports resreg, so an
@@ -45,6 +45,22 @@ func withAuditDB(t *testing.T) *store.Store {
 		t.Fatal(err)
 	}
 	return st
+}
+
+// markerRow is the row the fake handler buffers. Counting it is how a test tells
+// a batch that landed from one that did not.
+var markerRow = core.ACLRow{
+	Principal: "test:marker", Action: "*", Scope: "**", Effect: "allow",
+}
+
+// markerRows counts the marker rows in the store.
+func markerRows(t *testing.T, st *store.Store) int {
+	t.Helper()
+	rows, err := st.ListACL(markerRow.Principal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return len(rows)
 }
 
 // fakeResource builds a Resource whose handler is observable from the
@@ -81,14 +97,10 @@ func fakeResource(st *store.Store, s *fakeState) Resource {
 			if s.fail.Load() {
 				return nil, Errorf(http.StatusConflict, "boom")
 			}
-			// Write a marker row via tx so we can prove tx-binding.
-			if x.Tx != nil {
-				if _, err := x.Tx.ExecContext(context.Background(),
-					`CREATE TABLE IF NOT EXISTS test_marker (n INTEGER)`); err != nil {
-					return nil, err
-				}
-				if _, err := x.Tx.ExecContext(context.Background(),
-					`INSERT INTO test_marker (n) VALUES (1)`); err != nil {
+			// Buffer a marker row so we can prove the batch carries the
+			// handler's writes and the audit row together.
+			if x.Writes != nil {
+				if err := st.PutACLRowInto(x.Writes, markerRow); err != nil {
 					return nil, err
 				}
 			}
@@ -266,10 +278,10 @@ func TestAuthz_ErrorShortCircuits(t *testing.T) {
 	}
 }
 
-// TestRESTHandler_HandlerErrorRollsBackTx — handler returning an error
-// AND a tx active: tx rolls back (test_marker row not visible) and the
-// audit row is emitted slog-only (Emit, no tx).
-func TestRESTHandler_HandlerErrorRollsBackTx(t *testing.T) {
+// TestRESTHandler_HandlerErrorSendsNoBatch — a handler returning an error had
+// only DESCRIBED its writes, so nothing was written, and the row that records
+// the attempt goes in alone.
+func TestRESTHandler_HandlerErrorSendsNoBatch(t *testing.T) {
 	st := withAuditDB(t)
 	s := &fakeState{}
 	s.fail.Store(true)
@@ -280,20 +292,16 @@ func TestRESTHandler_HandlerErrorRollsBackTx(t *testing.T) {
 	if w.Code != http.StatusConflict {
 		t.Fatalf("status = %d", w.Code)
 	}
-	// test_marker table either does not exist or has zero rows.
-	var n int
-	_ = st.DB().QueryRow(`SELECT COUNT(*) FROM test_marker`).Scan(&n)
-	if n != 0 {
-		t.Errorf("test_marker rows after rollback = %d, want 0", n)
+	if n := markerRows(t, st); n != 0 {
+		t.Errorf("marker rows after a failed handler = %d, want 0", n)
 	}
-	// Non-transactional audit row with outcome=error.
+	// The audit row rides no batch, and it carries outcome=error.
 	assertAudit(t, st, "error", 1)
 }
 
-// TestRESTHandler_MutationCommitsAuditInSameTx — happy path: handler
-// writes (test_marker row) AND audit_log row both commit; one audit
-// row with outcome=ok.
-func TestRESTHandler_MutationCommitsAuditInSameTx(t *testing.T) {
+// TestRESTHandler_MutationCommitsAuditInSameBatch — happy path: the handler's
+// write AND the audit_log row land together; one audit row with outcome=ok.
+func TestRESTHandler_MutationCommitsAuditInSameBatch(t *testing.T) {
 	st := withAuditDB(t)
 	s := &fakeState{}
 	mux := http.NewServeMux()
@@ -303,12 +311,44 @@ func TestRESTHandler_MutationCommitsAuditInSameTx(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
 	}
-	var markerN int
-	st.DB().QueryRow(`SELECT COUNT(*) FROM test_marker`).Scan(&markerN)
-	if markerN != 1 {
-		t.Errorf("test_marker rows = %d, want 1", markerN)
+	if n := markerRows(t, st); n != 1 {
+		t.Errorf("marker rows = %d, want 1", n)
 	}
 	assertAudit(t, st, "ok", 1)
+}
+
+// TestRESTHandler_RefusedBatchAnswersTheHandlersError — a guarded write whose
+// condition does not hold refuses the WHOLE batch: nothing lands, the caller
+// gets the error the handler declared WITH its status, and the only row recorded
+// says the call failed. That is what the rollback used to do.
+func TestRESTHandler_RefusedBatchAnswersTheHandlersError(t *testing.T) {
+	st := withAuditDB(t)
+	s := &fakeState{}
+	r := fakeResource(st, s)
+	r.Handler = func(_ context.Context, x Execution) (any, error) {
+		// The marker, which cannot refuse, beside a revoke of a grant nobody
+		// holds, which must.
+		if err := st.PutACLRowInto(x.Writes, markerRow); err != nil {
+			return nil, err
+		}
+		if err := st.RemoveACLRowInto(x.Writes, core.ACLRow{
+			Principal: "test:absent", Action: "read", Scope: "**",
+		}, Errorf(http.StatusNotFound, "no matching grant")); err != nil {
+			return nil, err
+		}
+		return map[string]any{"ok": true}, nil
+	}
+	mux := http.NewServeMux()
+	RegisterREST(mux, r, operatorBuilder)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest("POST", "/v1/routes", bytes.NewReader([]byte(`{"x":"y"}`))))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d body=%s, want the handler's own 404", w.Code, w.Body.String())
+	}
+	if n := markerRows(t, st); n != 0 {
+		t.Errorf("marker rows under a refused batch = %d, want 0", n)
+	}
+	assertAudit(t, st, "error", 1)
 }
 
 // TestReadOnly_NoAuditRow — list/get emit slog only, no DB row.
@@ -398,12 +438,9 @@ func TestForwarderResource_NoTx(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
 	}
-	// Forwarder: no tx, so test_marker NOT written by handler (handler
-	// only writes when Tx is non-nil).
-	var markerN int
-	_ = st.DB().QueryRow(`SELECT COUNT(*) FROM test_marker`).Scan(&markerN)
-	if markerN != 0 {
-		t.Errorf("test_marker rows = %d, want 0 (forwarder)", markerN)
+	// Forwarder: no write set, so the handler buffers nothing.
+	if n := markerRows(t, st); n != 0 {
+		t.Errorf("marker rows = %d, want 0 (forwarder)", n)
 	}
 	// And no audit row at this daemon's table.
 	var n int

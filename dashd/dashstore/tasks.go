@@ -2,7 +2,6 @@ package dashstore
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"slices"
@@ -10,6 +9,7 @@ import (
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/store"
 )
 
 // ErrTaskMissing reports that no scheduled task carries that id.
@@ -25,23 +25,23 @@ var (
 
 // PauseTask moves an active task to paused.
 func (s *Store) PauseTask(ctx context.Context, id string, ev audit.Event) error {
-	return s.taskTransition(ctx, ev, func(tx *sql.Tx) (bool, error) {
+	return s.taskTransition(ctx, ev, func(ws *store.WriteSet) error {
 		t, err := s.taskInState(id, core.TaskActive)
 		if err != nil {
-			return false, err
+			return err
 		}
-		return s.st().MoveTaskTx(ctx, tx, t, core.TaskPaused, nil)
+		return s.st().MoveTaskInto(ws, t, core.TaskPaused, nil, ErrTaskState)
 	})
 }
 
 // CancelTask moves an active or paused task to cancelled.
 func (s *Store) CancelTask(ctx context.Context, id string, ev audit.Event) error {
-	return s.taskTransition(ctx, ev, func(tx *sql.Tx) (bool, error) {
+	return s.taskTransition(ctx, ev, func(ws *store.WriteSet) error {
 		t, err := s.taskInState(id, core.TaskActive, core.TaskPaused)
 		if err != nil {
-			return false, err
+			return err
 		}
-		return s.st().MoveTaskTx(ctx, tx, t, "cancelled", nil)
+		return s.st().MoveTaskInto(ws, t, "cancelled", nil, ErrTaskState)
 	})
 }
 
@@ -52,22 +52,22 @@ func (s *Store) CancelTask(ctx context.Context, id string, ev audit.Event) error
 // cron line that changed underneath it. ErrTaskMissing means no such task,
 // ErrInvalidCron that the stored expression does not parse.
 func (s *Store) ResumeTask(ctx context.Context, id string, nextRun func(cron string) (string, bool), ev audit.Event) error {
-	return s.taskTransition(ctx, ev, func(tx *sql.Tx) (bool, error) {
+	return s.taskTransition(ctx, ev, func(ws *store.WriteSet) error {
 		t, ok, err := s.st().TaskByID(id)
 		if err != nil {
-			return false, err
+			return err
 		}
 		if !ok {
-			return false, ErrTaskMissing
+			return ErrTaskMissing
 		}
 		next, ok := nextRun(t.Cron)
 		if !ok {
-			return false, ErrInvalidCron
+			return ErrInvalidCron
 		}
 		if t.Status != core.TaskPaused {
-			return false, ErrTaskState
+			return ErrTaskState
 		}
-		return s.st().MoveTaskTx(ctx, tx, t, core.TaskActive, &next)
+		return s.st().MoveTaskInto(ws, t, core.TaskActive, &next, ErrTaskState)
 	})
 }
 
@@ -86,28 +86,17 @@ func (s *Store) taskInState(id string, from ...string) (core.Task, error) {
 	return t, nil
 }
 
-// taskTransition runs one state move and its audit row in a single
-// transaction: a crash between the two cannot leave a mutation without its
-// trail. A move that changed nothing reports ErrTaskState and commits nothing —
-// the task moved under the caller between the read and the write.
-func (s *Store) taskTransition(ctx context.Context, ev audit.Event, move func(*sql.Tx) (bool, error)) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
+// taskTransition sends one state move and its audit row in a single batch: a
+// crash between the two cannot leave a mutation without its trail. A move whose
+// condition no longer holds writes nothing and reports ErrTaskState — the task
+// moved under the caller between the read and the write.
+func (s *Store) taskTransition(ctx context.Context, ev audit.Event, move func(*store.WriteSet) error) error {
+	ws := &store.WriteSet{}
+	if err := move(ws); err != nil {
 		return err
 	}
-	defer tx.Rollback()
-
-	moved, err := move(tx)
-	if err != nil {
-		return err
-	}
-	if !moved {
-		return ErrTaskState
-	}
-	if err := audit.EmitInTx(ctx, s.obj(), tx, ev); err != nil {
-		return err
-	}
-	return tx.Commit()
+	_, rec := audit.WriteFor(ev)
+	return s.st().Apply(ctx, ws, rec)
 }
 
 // NewTaskID mints an id for a task the operator is about to create. The random
@@ -131,7 +120,7 @@ type NewTask struct {
 	NextRun string
 }
 
-// CreateTask writes the task and its audit row in one transaction. NextRun is
+// CreateTask writes the task and its audit row in one batch. NextRun is
 // computed before the write so the task fires without waiting for timed to
 // backfill it, and it arrives as RFC3339 text in the operator's own timezone —
 // which is the layout `next_run` carries, so the parse here round-trips the
@@ -154,17 +143,11 @@ func (s *Store) CreateTask(ctx context.Context, t NewTask, ev audit.Event) error
 		task.NextRun = &next
 	}
 
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
+	ws := &store.WriteSet{}
+	if err := s.st().CreateTaskInto(ws, task,
+		fmt.Errorf("scheduled task %q already exists", t.ID)); err != nil {
 		return err
 	}
-	defer tx.Rollback()
-
-	if err := s.st().CreateTaskTx(ctx, tx, task); err != nil {
-		return err
-	}
-	if err := audit.EmitInTx(ctx, s.obj(), tx, ev); err != nil {
-		return err
-	}
-	return tx.Commit()
+	_, rec := audit.WriteFor(ev)
+	return s.st().Apply(ctx, ws, rec)
 }

@@ -272,14 +272,6 @@ func (s *Store) PutMessage(m core.Message) error {
 	return s.putMessage(context.Background(), nil, m, core.MessageStatusSent)
 }
 
-// PutMessageInTx is PutMessage on a transaction the CALLER owns, for the writer
-// whose message commits with the row it answers: the held-call resolution notice
-// lands with the pending row it resolves, so a rolled-back approval leaves no
-// notice claiming it happened.
-func (s *Store) PutMessageInTx(ctx context.Context, tx *sql.Tx, m core.Message) error {
-	return s.putMessage(ctx, tx, m, core.MessageStatusSent)
-}
-
 // putMessage is PutMessage's body. The status is a parameter rather than a field
 // of the message because it is not stored on the message: it decides whether a
 // delivery item exists at all (message_delivery.go).

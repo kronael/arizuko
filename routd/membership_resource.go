@@ -68,13 +68,13 @@ func (s *Server) membershipHandler(ctx context.Context, x resreg.Execution, cont
 	}
 	// added_by='pairing' is the whole scope: a role membership row (or any
 	// manifest-applied edge) matches zero rows and is reported as not-found.
-	removed, err := s.db.store().UnpairTx(ctx, x.Tx, child, parent)
-	if err != nil {
+	// The delete conditions on the edge being pairing's, so its refusal IS the
+	// not-found answer — declared here because it reaches the caller from the
+	// batch rather than from this call.
+	if err := s.db.store().UnpairInto(x.Writes, child, parent,
+		resreg.Errorf(http.StatusNotFound,
+			"no pairing between %s and %s to remove", child, parent)); err != nil {
 		return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
-	}
-	if !removed {
-		return nil, resreg.Errorf(http.StatusNotFound,
-			"no pairing between %s and %s to remove", child, parent)
 	}
 	slog.Info("unpair", "child", child, "parent", parent, "surface", x.Surface)
 	return map[string]any{"removed": true, "child": child, "parent": parent}, nil

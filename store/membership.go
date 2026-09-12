@@ -31,7 +31,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"slices"
@@ -301,25 +300,24 @@ func (s *Store) PutMembership(child, parent, addedBy string) error {
 	return s.addEdge(child, parent, edge)
 }
 
-// PutMembershipTx is the edge write on a transaction the CALLER owns, for the
-// ONE writer that cannot render its companions: routd's `/v1/acl` face lands the
-// operator edge with resreg.invoke's audit row, and resreg's Handler contract
-// PERFORMS its writes rather than describing them, so there is nothing to hand
-// AddEdgeWith (spec 6/40 §"Six transactions cannot go").
+// PutMembershipInto buffers the edge write on the caller's write set, for
+// routd's `/v1/acl` face: the operator edge rides the batch that carries
+// resreg.invoke's audit row.
 //
 // Its cycle guard is the same walk, run through the store's own driver. What it
 // gives up against AddMembership is the marker's compare-and-swap, so two edges
 // closing a ring from opposite ends are serialised by the engine's write lock
 // rather than by the version — which is what SQLite gives and Postgres at READ
 // COMMITTED does not (BUGS L256). That is why it has one caller and not four.
-func (s *Store) PutMembershipTx(ctx context.Context, tx *sql.Tx, child, parent, addedBy string) error {
+//
+// The walk reads the LIVE table, which is what the set has not changed yet: a
+// caller buffers one edge per call, so there is no edge of its own for the walk
+// to miss.
+func (s *Store) PutMembershipInto(ctx context.Context, ws *WriteSet, child, parent, addedBy string) error {
 	if child == parent {
 		return ErrSelfMembership
 	}
-	// The walk reads through the CALLER'S transaction: this body has already
-	// written into it in some callers, and a read on another connection would both
-	// miss those writes and wait on the write lock they hold (scopes.go reads).
-	cycles, err := MembershipWouldCycle(ctx, s.reads(tx), child, parent)
+	cycles, err := MembershipWouldCycle(ctx, s.Obj(), child, parent)
 	if err != nil {
 		return err
 	}
@@ -330,9 +328,11 @@ func (s *Store) PutMembershipTx(ctx context.Context, tx *sql.Tx, child, parent, 
 	if err != nil {
 		return err
 	}
-	// The edge write is create-if-absent, so an edge already there is left exactly
-	// as it is rather than restamped.
-	return s.WriteEntitiesInTx(ctx, tx, nil, w)
+	// membershipPut is a Merge, so an edge already there is left exactly as it is
+	// rather than restamped, and it REFUSES NOTHING — which is what lets it ride
+	// beside a write whose own refusal is an answer.
+	ws.Add(w)
+	return nil
 }
 
 // MembershipEdge is one edge with the two attributes the item carries: who
@@ -452,20 +452,19 @@ func (s *Store) Ancestors(child string) []string {
 	return out
 }
 
-// RemoveMembershipTx drops ONE edge on a transaction the caller owns and reports
-// whether an edge went, for routd's `/v1/acl` face: revoking the operator-role
-// overload is a revoke, and a revoke that removed nothing must not answer OK.
-// The delete is conditioned on the item being there, so the refusal IS the
-// not-found answer.
+// RemoveMembershipInto buffers the removal of ONE edge on the caller's write
+// set, for routd's `/v1/acl` face: revoking the operator-role overload is a
+// revoke, and a revoke that removed nothing must not answer OK. The delete is
+// conditioned on the item being there, so refused is the not-found answer.
 //
-// Unlike UnpairTx it carries no `added_by` condition: this reaches role
+// Unlike UnpairInto it carries no `added_by` condition: this reaches role
 // membership, which is exactly the edge the operator overload writes.
-func (s *Store) RemoveMembershipTx(ctx context.Context, tx *sql.Tx, child, parent string) (bool, error) {
+func (s *Store) RemoveMembershipInto(ws *WriteSet, child, parent string, refused error) error {
 	key, err := membershipKey(child, parent)
 	if err != nil {
-		return false, err
+		return err
 	}
-	return s.TryWriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+	return ws.AddGuarded(refused, objstore.Write{
 		Op: objstore.Delete, Entity: ACLMembership, Key: key,
 		Cond: objstore.Cond{Item: objstore.ItemPresent},
 	})

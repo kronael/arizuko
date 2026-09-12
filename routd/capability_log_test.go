@@ -93,15 +93,8 @@ func TestDispatchLogsGrantedWebPublish(t *testing.T) {
 	defer db.Close()
 	_ = db.PutGroup(core.Group{Folder: "demo"})
 
-	tx, err := db.SQL().Begin()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.grantACLTx(t.Context(), tx, core.ACLRow{Principal: "folder:demo", Scope: "demo", Action: "web:publish", GrantedBy: "test"}); err != nil {
+	if err := grantACL(db, core.ACLRow{Principal: "folder:demo", Scope: "demo", Action: "web:publish", GrantedBy: "test"}); err != nil {
 		t.Fatalf("grant: %v", err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
 	}
 
 	logged := captureInfoLog(t)

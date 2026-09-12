@@ -1,7 +1,6 @@
 package routd
 
 import (
-	"context"
 	"strings"
 	"testing"
 	"time"
@@ -205,15 +204,7 @@ func TestResolveHold_WritesNoTrigger(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	tx, err := d.SQL().Begin()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := d.resolveHoldTx(context.Background(), tx, "id1", PendingApproved, "google:op", "", false); err != nil {
-		tx.Rollback() //nolint:errcheck
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
+	if _, err := resolveHold(d, "id1", PendingApproved, "google:op", "", false); err != nil {
 		t.Fatal(err)
 	}
 	if msgs := chatMessages(t, d, "tg:1"); len(msgs) != 0 {

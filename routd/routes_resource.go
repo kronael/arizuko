@@ -49,7 +49,7 @@ import (
 // Route actions are resource-specific verbs, not the CRUD shape. list reuses
 // resreg.ActionList (== "list") so it stays read-only (Mutates() false, no tx);
 // add/set/delete are custom strings so Mutates() is true and each opens the
-// mutation+audit tx. delete addresses a row by the autoincrement `id` arg (a
+// mutation+audit batch. delete addresses a row by the autoincrement `id` arg (a
 // number), NOT a PK path — matching the deleted ipc body.
 const (
 	routesActionAdd    = resreg.Action("add")
@@ -77,7 +77,7 @@ type containFn func(c resreg.Caller, a resreg.Action, target string) error
 // agent socket AND the operator REST face. There is NO RowType: args come from
 // MCPArgs as raw JSON strings plus the numeric id, preserving the exact wire names
 // the agent already sends. Store is a store.Store over routd.db so resreg.invoke
-// opens the mutation+audit tx there. contain is the per-face target-containment
+// sends the mutation+audit batch there. contain is the per-face target-containment
 // seam closed into the handler.
 func (s *Server) routesResource(contain containFn) resreg.Resource {
 	r := resreg.Mount(resources.RoutesName)
@@ -136,7 +136,14 @@ func (s *Server) routesHandler(ctx context.Context, x resreg.Execution, contain 
 		if err := contain(x.Caller, routesActionAdd, route.Target); err != nil {
 			return nil, err
 		}
-		rid, err := s.db.store().PutRouteTx(ctx, x.Tx, route, x.Caller.Sub, routesMCPNames[routesActionAdd])
+		// An add is idempotent — a rule already there answers with its own id — so
+		// the only refusal left is a rule another caller created between the read
+		// and the batch, and that is the 409.
+		raced := resreg.Errorf(http.StatusConflict,
+			"route seq=%d target=%q match=%q was created under this call; ask again for its id",
+			route.Seq, route.Target, route.Match)
+		rid, err := s.db.store().PutRouteInto(ctx, x.Writes, route, x.Caller.Sub,
+			routesMCPNames[routesActionAdd], raced)
 		if errors.Is(err, store.ErrWebJIDRouted) {
 			return nil, resreg.Errorf(http.StatusBadRequest, "%v", err)
 		}
@@ -195,7 +202,7 @@ func (s *Server) routesHandler(ctx context.Context, x resreg.Execution, contain 
 				return nil, resreg.Errorf(http.StatusForbidden, "cannot delete own default route")
 			}
 		}
-		if err := s.db.store().ReplaceFolderRoutesTx(ctx, x.Tx, folder, routes,
+		if err := s.db.store().ReplaceFolderRoutesInto(ctx, x.Writes, folder, routes,
 			x.Caller.Sub, routesMCPNames[routesActionSet]); err != nil {
 			if errors.Is(err, store.ErrWebJIDRouted) {
 				return nil, resreg.Errorf(http.StatusBadRequest, "%v", err)
@@ -231,12 +238,13 @@ func (s *Server) routesHandler(ctx context.Context, x resreg.Execution, contain 
 		if err := contain(x.Caller, routesActionDelete, route.Target); err != nil {
 			return nil, err
 		}
-		gone, err := s.db.store().DeleteRouteTx(ctx, x.Tx, rid)
+		notFound := resreg.Errorf(http.StatusNotFound, "route not found: %d", rid)
+		gone, err := s.db.store().DeleteRouteInto(ctx, x.Writes, rid, notFound)
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
 		if !gone {
-			return nil, resreg.Errorf(http.StatusNotFound, "route not found: %d", rid)
+			return nil, notFound
 		}
 		slog.Info("route deleted", "id", rid)
 		return map[string]any{"deleted": true, "id": rid}, nil
@@ -304,7 +312,7 @@ func argJSONString(args resreg.Args, key string) string {
 }
 
 // The three writes are store.PutRouteTx, store.ReplaceFolderRoutesTx and
-// store.DeleteRouteTx, on resreg.invoke's tx so each lands with the call's single
+// store.DeleteRouteInto, on resreg.invoke's write set so each lands with the call's single
 // audit_log row. They live there because a rule's coordinate is (seq, target,
 // match) — with `seq` padded so text order IS precedence order — and because its
 // `id` is minted from a counter store owns: two concurrent adds reading a maximum

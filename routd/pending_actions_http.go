@@ -3,7 +3,7 @@ package routd
 // pending_actions_http.go mounts the REST half of spec 5/19's resolution
 // contract — GET /v1/pending_actions plus POST /v1/pending_actions/{id}/
 // approve|reject — closing the "declared but not mounted" gap BUGS F66
-// records. Both verdicts funnel through resolveHoldTx, the same core the chat
+// records. Both verdicts funnel through resolveHoldInto, the same core the chat
 // /approve command runs, inside the tx resreg opens: verdict, standing rule and
 // audit row commit as one unit.
 //
@@ -53,7 +53,7 @@ func (s *Server) mountPendingActions(mux *http.ServeMux) {
 // unreachable by any human bearer (a user token's scope list holds folder
 // globs); the sole holder is service:dashd, which forwards the proxyd-verified
 // human as `reviewer`. This gate decides only that the TRANSPORT may speak for
-// a human; which folders that human may read and answer is resolveHoldTx's one
+// a human; which folders that human may read and answer is resolveHoldInto's one
 // admin gate, applied per row.
 func (s *Server) pendingActionsRESTGate(x resreg.Execution, _ string, _ map[string]string) error {
 	if s.verify == nil {
@@ -96,7 +96,7 @@ func (s *Server) pendingActionsHandler(ctx context.Context, x resreg.Execution) 
 		// reviewed_by records the HUMAN, not the transport: dashd calls with its
 		// service bearer and forwards the proxyd-verified sub as `reviewer`.
 		// Trusting the argument is bounded by the scope gate — the only
-		// pending_actions:write holder is service:dashd — and by resolveHoldTx,
+		// pending_actions:write holder is service:dashd — and by resolveHoldInto,
 		// which authorizes this exact string on the held row's folder, so a
 		// forwarded sub buys no authority the human does not hold. Absent (curl,
 		// local dev), the bearer's sub stands.
@@ -108,9 +108,14 @@ func (s *Server) pendingActionsHandler(ctx context.Context, x resreg.Execution) 
 		// rule, in this tx. It is an ARGUMENT of approve rather than a third
 		// action because pending_actions has no third status: the standing
 		// answer lives in acl (spec 6/26 § Decision 5). Meaningless on reject,
-		// and there is no standing reject — see resolveHoldTx.
+		// and there is no standing reject — see resolveHoldInto.
 		standing := x.Action == actionApprove && x.Args.Bool("standing")
-		p, err := s.db.resolveHoldTx(ctx, x.Tx, id, verdict, reviewer, x.Args.Str("note"), standing)
+		// A verdict another reviewer landed first refuses the write, and the loser
+		// learns it from the batch — so the 409 travels with the write.
+		lost := resreg.Errorf(http.StatusConflict,
+			"pending action %q %v (by someone else)", id, ErrPendingResolved)
+		p, err := s.db.resolveHoldInto(ctx, x.Writes, id, verdict, reviewer,
+			x.Args.Str("note"), standing, lost)
 		switch {
 		case errors.Is(err, ErrPendingNotFound):
 			return nil, resreg.Errorf(http.StatusNotFound, "%v", err)
@@ -127,7 +132,7 @@ func (s *Server) pendingActionsHandler(ctx context.Context, x resreg.Execution) 
 }
 
 // reviewable keeps the rows `reviewer` may actually answer — the SAME
-// admin-on-the-held-folder question resolveHoldTx asks, so the queue a human
+// admin-on-the-held-folder question resolveHoldInto asks, so the queue a human
 // reads and the verdicts that human can give are one decision rather than two.
 // Listing a folder the reader cannot act on is an invitation to a 403.
 //

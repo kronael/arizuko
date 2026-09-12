@@ -41,9 +41,9 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
+	"maps"
 	"sort"
 	"strconv"
 	"time"
@@ -280,21 +280,54 @@ func (s *Store) Gate(gate string) (OnboardingGate, bool, error) {
 	return g, true, nil
 }
 
-// PutGateTx sets a gate's daily admission limit on a transaction the CALLER
-// owns, so the mutation and the audit row that records it commit together.
-func (s *Store) PutGateTx(ctx context.Context, tx *sql.Tx, gate string, limitPerDay int) error {
+// SetGateInto buffers ONE gate change on the caller's write set, so the change
+// and the audit row that records it ride one batch.
+//
+// It is ONE write because a batch may name each item once
+// (objstore.ValidateBatch) and both halves of this call address the same gate.
+// limitPerDay 0 leaves the limit alone and enabled nil leaves enablement alone,
+// which is the tri-state `PUT /v1/gates/<gate>` carries: a body may set either,
+// both or neither.
+//
+// The SHAPE follows from what the caller named. A call that sets the limit
+// CREATES the gate, so it is a Merge and refuses nothing — `enabled` is an Init
+// there, the flag a gate is BORN with, because a caller that came to set the
+// limit must not re-enable a gate the operator disabled. A call that only flips
+// the flag must find the gate, so it is an Update, and refused is the "no such
+// gate" that refusal means: dropping it answered `PUT /v1/gates/<gate>` 200
+// {"ok":true} over zero rows (BUGS L268).
+func (s *Store) SetGateInto(ws *WriteSet, gate string, limitPerDay int, enabled *bool,
+	refused error) error {
+	if limitPerDay <= 0 {
+		if enabled == nil {
+			return nil
+		}
+		w, err := gateEnableWrite(gate, *enabled)
+		if err != nil {
+			return err
+		}
+		return ws.AddGuarded(refused, w)
+	}
 	w, err := gateUpsert(gate, limitPerDay)
 	if err != nil {
 		return err
 	}
-	if err := s.WriteEntitiesInTx(ctx, tx, nil, w); err != nil {
-		return fmt.Errorf("open gate %s: %w", gate, err)
+	if enabled != nil {
+		// An attribute has ONE writer per write (objstore.validateMerge), so the
+		// flag the caller named takes the place of the one the gate is born with.
+		flip, ferr := gateEnableWrite(gate, *enabled)
+		if ferr != nil {
+			return ferr
+		}
+		maps.Copy(w.Attrs, flip.Attrs)
+		delete(w.Init, attrGateEnabled)
 	}
+	ws.Add(w)
 	return nil
 }
 
 // gateUpsert renders "this gate exists and its limit is that" as ONE write, for
-// both sinks that write it: the caller's transaction and the audited batch.
+// both sinks that write it: the caller's write set and the audited batch.
 //
 // `enabled` is an Init because it is the flag a gate is BORN with — a caller
 // that came to set the limit must not re-enable a gate the operator disabled,
@@ -314,22 +347,6 @@ func gateUpsert(gate string, limitPerDay int) (objstore.Write, error) {
 	}, nil
 }
 
-// EnableGateTx flips a gate's enablement on the caller's transaction. A gate
-// that is not there is an ERROR: an Update requires the item to exist, and the
-// refusal it reports is the ONLY signal that the flag did not move. Dropping it
-// answered `PUT /v1/gates/<gate>` 200 {"ok":true} over zero rows, which onbod
-// now answers 404 (BUGS L268).
-func (s *Store) EnableGateTx(ctx context.Context, tx *sql.Tx, gate string, enabled bool) error {
-	w, err := gateEnableWrite(gate, enabled)
-	if err != nil {
-		return err
-	}
-	if err := s.WriteEntitiesInTx(ctx, tx, nil, w); err != nil {
-		return fmt.Errorf("set gate %s's enablement: %w", gate, err)
-	}
-	return nil
-}
-
 // gateEnableWrite renders one flip of the flag, for both sinks that flip it. The
 // Update is the must-exist half: a gate that is not there refuses, and that
 // refusal is the 404 (BUGS L268).
@@ -344,16 +361,14 @@ func gateEnableWrite(gate string, enabled bool) (objstore.Write, error) {
 	}, nil
 }
 
-// DeleteGateTx removes a gate on the caller's transaction. Unconditional, which
-// is what a delete means: asking twice is the same answer.
-func (s *Store) DeleteGateTx(ctx context.Context, tx *sql.Tx, gate string) error {
+// DeleteGateInto buffers one gate's removal on the caller's write set.
+// Unconditional, which is what a delete means: asking twice is the same answer.
+func (s *Store) DeleteGateInto(ws *WriteSet, gate string) error {
 	w, err := gateDeleteWrite(gate)
 	if err != nil {
 		return err
 	}
-	if err := s.WriteEntitiesInTx(ctx, tx, nil, w); err != nil {
-		return fmt.Errorf("delete gate %s: %w", gate, err)
-	}
+	ws.Add(w)
 	return nil
 }
 

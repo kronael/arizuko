@@ -41,7 +41,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"slices"
 	"strconv"
@@ -271,9 +270,9 @@ func attrIs(name, value string) objstore.Cmp {
 	return objstore.Cmp{Attr: name, Op: objstore.Eq, Value: value}
 }
 
-// MoveTaskTx moves one task into `to` on a transaction the CALLER owns and
-// reports whether it moved — the three state transitions dashd's operator pages
-// make, each committing with its own audit row.
+// MoveTaskInto buffers the move of one task into `to` on the caller's write set
+// — the three state transitions dashd's operator pages make, each riding one
+// batch with its own audit row.
 //
 // `t` is the task the caller READ, and the write is CONDITIONED on the two
 // fields that decision rests on still holding: the status the transition starts
@@ -290,11 +289,13 @@ func attrIs(name, value string) objstore.Cmp {
 // Which statuses a task may move FROM is the caller's state machine and not
 // this method's: dashd refuses the transition before it asks, so the operator
 // is told "invalid state transition" rather than "somebody else moved it".
-func (s *Store) MoveTaskTx(ctx context.Context, tx *sql.Tx, t core.Task, to string,
-	nextRun *string) (bool, error) {
+// refused is what the CONDITION failing means — the task moved under the caller
+// between the read and the write.
+func (s *Store) MoveTaskInto(ws *WriteSet, t core.Task, to string,
+	nextRun *string, refused error) error {
 	key, err := taskKey(t.ID)
 	if err != nil {
-		return false, err
+		return err
 	}
 	w := objstore.Write{
 		Op: objstore.Update, Entity: ScheduledTasks, Key: key,
@@ -311,7 +312,7 @@ func (s *Store) MoveTaskTx(ctx context.Context, tx *sql.Tx, t core.Task, to stri
 			w.Attrs[attrTaskNextRun] = *nextRun
 		}
 	}
-	return s.TryWriteEntitiesInTx(ctx, tx, nil, w)
+	return ws.AddGuarded(refused, w)
 }
 
 // RecoverFiringTasks re-arms tasks stranded in 'firing' by a crash/restart
@@ -552,46 +553,40 @@ func (s *Store) SeedDefaultTasks(folder, chatJID string) error {
 	return nil
 }
 
-// The four writers below are the tx-bound twins of CreateTask, SetTaskStatus,
-// UpdateTask and DeleteTask, for routd's `/v1/tasks` face: the mutation and
-// resreg.invoke's single audit_log row commit on ONE transaction. Calling the
-// audited twins there would open a second transaction on the same database and
-// record one act twice.
+// The four writers below buffer their mutation on the caller's write set, for
+// routd's `/v1/tasks` face: the mutation and the one audit_log row that records
+// it ride ONE batch. Calling the audited twins there would send a batch of their
+// own and record one act twice.
 
-// CreateTaskTx inserts one scheduled task on a transaction the caller owns. It
-// is CreateTask's tx-bound twin and refuses a taken id for the same reason.
-func (s *Store) CreateTaskTx(ctx context.Context, tx *sql.Tx, t core.Task) error {
+// CreateTaskInto buffers one scheduled task's creation. It is CreateTask's
+// write-set twin and refuses a taken id for the same reason.
+func (s *Store) CreateTaskInto(ws *WriteSet, t core.Task, refused error) error {
 	w, err := taskCreate(t)
 	if err != nil {
 		return err
 	}
-	committed, err := s.TryWriteEntitiesInTx(ctx, tx, nil, w)
-	if err != nil {
-		return err
-	}
-	return taskCreateRefusal(committed, t.ID)
+	return ws.AddGuarded(refused, w)
 }
 
-// SetTaskStatusTx flips one task's status on a transaction the caller owns —
-// pause and resume. An Update writes nothing when the task is missing, and that
-// refusal is an ERROR: `/v1/tasks/{id}` names a task the caller believes in.
-func (s *Store) SetTaskStatusTx(ctx context.Context, tx *sql.Tx, id, status string) error {
+// SetTaskStatusInto buffers one task's status flip — pause and resume. An Update
+// writes nothing when the task is missing, and refused is what that means:
+// `/v1/tasks/{id}` names a task the caller believes in.
+func (s *Store) SetTaskStatusInto(ws *WriteSet, id, status string, refused error) error {
 	key, err := taskKey(id)
 	if err != nil {
 		return err
 	}
-	err = s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+	return ws.AddGuarded(refused, objstore.Write{
 		Op: objstore.Update, Entity: ScheduledTasks, Key: key,
 		Attrs: map[string]string{attrTaskStatus: status},
 	})
-	return err
 }
 
-// PatchTaskTx applies the REST PATCH partial update on a transaction the caller
-// owns: status and/or next_run, at least one non-empty. `next_run` is stored
-// VERBATIM, because this package does not decide its layout — the operator hands
-// it in and the read parses it as RFC3339 (see the file header).
-func (s *Store) PatchTaskTx(ctx context.Context, tx *sql.Tx, id, status, nextRun string) error {
+// PatchTaskInto buffers the REST PATCH partial update: status and/or next_run,
+// at least one non-empty. `next_run` is stored VERBATIM, because this package
+// does not decide its layout — the operator hands it in and the read parses it
+// as RFC3339 (see the file header). A patch naming no field buffers nothing.
+func (s *Store) PatchTaskInto(ws *WriteSet, id, status, nextRun string, refused error) error {
 	key, err := taskKey(id)
 	if err != nil {
 		return err
@@ -602,20 +597,18 @@ func (s *Store) PatchTaskTx(ctx context.Context, tx *sql.Tx, id, status, nextRun
 	if len(attrs) == 0 {
 		return nil
 	}
-	err = s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+	return ws.AddGuarded(refused, objstore.Write{
 		Op: objstore.Update, Entity: ScheduledTasks, Key: key, Attrs: attrs,
 	})
-	return err
 }
 
-// DeleteTaskTx removes one task on a transaction the caller owns — cancel.
-func (s *Store) DeleteTaskTx(ctx context.Context, tx *sql.Tx, id string) error {
+// DeleteTaskInto buffers one task's removal — cancel. Unconditional, which is
+// what a delete means: asking twice is the same answer.
+func (s *Store) DeleteTaskInto(ws *WriteSet, id string) error {
 	key, err := taskKey(id)
 	if err != nil {
 		return err
 	}
-	err = s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
-		Op: objstore.Delete, Entity: ScheduledTasks, Key: key,
-	})
-	return err
+	ws.Add(objstore.Write{Op: objstore.Delete, Entity: ScheduledTasks, Key: key})
+	return nil
 }

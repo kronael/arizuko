@@ -138,19 +138,15 @@ func TestMembership_TransitiveCycleIsRefused(t *testing.T) {
 }
 
 // putEdge writes one edge the way routd's agent-facing grant does: through
-// store.PutMembershipTx on a transaction of its own. One edge per transaction is
-// what production issues — the walk that refuses a cycle reads committed edges,
-// so a ring built inside ONE transaction is a shape no caller produces and no
-// walk can see.
+// store.PutMembershipInto on a batch of its own. One edge per batch is what
+// production issues — the walk that refuses a cycle reads landed edges, so a ring
+// built inside ONE batch is a shape no caller produces and no walk can see.
 func putEdge(t *testing.T, db *DB, child, parent, addedBy string) error {
 	t.Helper()
-	tx, err := db.SQL().Begin()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback() //nolint:errcheck
-	if err := db.store().PutMembershipTx(context.Background(), tx, child, parent, addedBy); err != nil {
+	ctx := context.Background()
+	ws := &store.WriteSet{}
+	if err := db.store().PutMembershipInto(ctx, ws, child, parent, addedBy); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return db.store().Apply(ctx, ws)
 }

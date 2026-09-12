@@ -31,7 +31,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"regexp"
@@ -176,16 +175,20 @@ func GitHubSourceRoutes(key, folder string) ([]core.Route, error) {
 
 var ErrGitHubSourceExists = errors.New("github source already registered")
 
-// AddGitHubSourceTx mints the secret, seals it, and writes the source item and
-// the route rows to target on tx. The raw secret is returned exactly once.
+// AddGitHubSourceInto mints the secret, seals it, and buffers the source item
+// and the route rows to target on the caller's write set. The raw secret is
+// returned exactly once, and it is GENERATED here — never read back out of the
+// sealed attribute, which could not answer it.
 //
-// EVERY ROUTE ID IS MINTED BEFORE THE FIRST WRITE TO tx, and the order is
-// load-bearing rather than tidy. The counter is a compare-and-swap of its own
-// (entities.go nextNumber) and runs OUTSIDE the caller's transaction, so a
-// transaction that has already written holds the engine's write lock and its own
-// mint waits on it forever — a registration that never returns, on a lock the
-// whole daemon's writes then queue behind.
-func (s *Store) AddGitHubSourceTx(ctx context.Context, tx *sql.Tx, src GitHubSource, target string) (string, error) {
+// The source item is the one write that may refuse, so refused is
+// ErrGitHubSourceExists' place. The seeded RULES cannot refuse: each is a Merge
+// that leaves a rule already there exactly as it is — what a registration has
+// always tolerated — and that is what lets them ride beside the guarded item.
+//
+// EVERY ROUTE ID IS MINTED BEFORE ANYTHING IS BUFFERED, from the counter's own
+// compare-and-swap (entities.go nextNumber).
+func (s *Store) AddGitHubSourceInto(ctx context.Context, ws *WriteSet, src GitHubSource,
+	target string, refused error) (string, error) {
 	if _, _, err := ParseGitHubSourceKey(src.Source); err != nil {
 		return "", err
 	}
@@ -217,10 +220,10 @@ func (s *Store) AddGitHubSourceTx(ctx context.Context, tx *sql.Tx, src GitHubSou
 		return "", err
 	}
 	// Create-if-absent, which is what `INSERT OR IGNORE` plus the zero-rows check
-	// said: registering a source that is already there is REFUSED with
-	// ErrGitHubSourceExists rather than re-minting its secret, which would break
-	// every delivery GitHub is already signing with the first one.
-	created, err := s.tryWriteVia(ctx, tx, nil, objstore.Write{
+	// said: registering a source that is already there is REFUSED rather than
+	// re-minting its secret, which would break every delivery GitHub is already
+	// signing with the first one.
+	if err := ws.AddGuarded(refused, objstore.Write{
 		Op: objstore.Put, Entity: GitHubSources, Key: key,
 		Attrs: map[string]string{
 			attrGHSecret:      sealed,
@@ -228,24 +231,26 @@ func (s *Store) AddGitHubSourceTx(ctx context.Context, tx *sql.Tx, src GitHubSou
 			attrGHCreatedAt:   core.TS(ts),
 		},
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},
-	})
-	if err != nil {
+	}); err != nil {
 		return "", err
 	}
-	if !created {
-		return "", fmt.Errorf("%w: %s", ErrGitHubSourceExists, src.Source)
-	}
 	for _, r := range routes {
-		if _, err := s.putRoute(ctx, tx, r, "", ""); err != nil {
-			return "", err
+		w, werr := routeCreateWrite(r, "", "")
+		if werr != nil {
+			return "", werr
 		}
+		ws.Add(w)
 	}
 	return secret, nil
 }
 
-// RemoveGitHubSourceTx deletes the source owned by ownerFolder and the route
-// rows its registration seeded. A cross-folder key matches zero rows.
-func (s *Store) RemoveGitHubSourceTx(ctx context.Context, tx *sql.Tx, key, ownerFolder string) (bool, error) {
+// RemoveGitHubSourceInto buffers the deletion of the source owned by ownerFolder
+// and of the route rows its registration seeded. A cross-folder key matches zero
+// rows, and the answer comes from the READ — no buffered write has a verdict yet.
+//
+// Every write is unconditional, so the batch cannot refuse: a rule the operator
+// has since edited away is simply not among the items the read returned.
+func (s *Store) RemoveGitHubSourceInto(ctx context.Context, ws *WriteSet, key, ownerFolder string) (bool, error) {
 	it, ok, err := s.githubSourceItem(ctx, key)
 	if err != nil {
 		return false, err
@@ -256,11 +261,7 @@ func (s *Store) RemoveGitHubSourceTx(ctx context.Context, tx *sql.Tx, key, owner
 	if !ok || it.Attrs[attrGHOwnerFolder] != ownerFolder {
 		return false, nil
 	}
-	if err := s.writeVia(ctx, tx, nil, objstore.Write{
-		Op: objstore.Delete, Entity: GitHubSources, Key: it.Key,
-	}); err != nil {
-		return false, err
-	}
+	ws.Add(objstore.Write{Op: objstore.Delete, Entity: GitHubSources, Key: it.Key})
 	routes, err := GitHubSourceRoutes(key, ownerFolder)
 	if err != nil {
 		return false, err
@@ -269,21 +270,24 @@ func (s *Store) RemoveGitHubSourceTx(ctx context.Context, tx *sql.Tx, key, owner
 	// route's coordinate rather than a leading fragment, so this reads the routes
 	// partition and compares. It is 58 rules on the largest live instance, and a
 	// revoke is an operator action.
-	if err := s.deleteRoutesMatchingTx(ctx, tx, routes); err != nil {
+	if err := s.deleteRoutesMatchingInto(ctx, ws, routes); err != nil {
 		return false, err
 	}
 	return true, nil
 }
 
-// deleteRoutesMatchingTx removes every route rule whose `match` is one of the
-// rules a registration seeded. A rule the operator has since edited away is
-// simply not there, which is what the statement's zero matched rows said.
-func (s *Store) deleteRoutesMatchingTx(ctx context.Context, tx *sql.Tx, seeded []core.Route) error {
+// deleteRoutesMatchingInto buffers the removal of every route rule whose `match`
+// is one of the rules a registration seeded. A rule the operator has since edited
+// away is simply not there, which is what the statement's zero matched rows said.
+//
+// It is nine rules at most — GitHubSourceRoutes renders seven or nine per source
+// — so the set it adds is bounded by the grammar, not by the caller.
+func (s *Store) deleteRoutesMatchingInto(ctx context.Context, ws *WriteSet, seeded []core.Route) error {
 	wanted := make(map[string]bool, len(seeded))
 	for _, r := range seeded {
 		wanted[r.Match] = true
 	}
-	items, err := s.reads(tx).Query(ctx, objstore.Query{Entity: Routes, Partition: OwnerRoutd})
+	items, err := s.Obj().Query(ctx, objstore.Query{Entity: Routes, Partition: OwnerRoutd})
 	if err != nil {
 		return fmt.Errorf("read routes: %w", err)
 	}
@@ -298,14 +302,8 @@ func (s *Store) deleteRoutesMatchingTx(ctx context.Context, tx *sql.Tx, seeded [
 		}
 		writes = append(writes, objstore.Write{Op: objstore.Delete, Entity: Routes, Key: it.Key})
 	}
-	if len(writes) == 0 {
-		return nil
-	}
-	_, err = applyChunks(ctx, "remove seeded routes", writes,
-		func(ctx context.Context, chunk []objstore.Write) (bool, error) {
-			return s.tryWriteVia(ctx, tx, nil, chunk...)
-		})
-	return err
+	ws.Add(writes...)
+	return nil
 }
 
 func (s *Store) githubSourceEvent(action, key, owner string) audit.Event {
@@ -324,33 +322,36 @@ func (s *Store) githubSourceEvent(action, key, owner string) audit.Event {
 
 // AddGitHubSource registers a source and the rules that route it (the CLI path).
 //
-// The source row goes in first and the rules follow, each tolerating a rule that
-// is already there: a registration that stops part-way leaves a source reachable
-// by fewer rules than it asked for, and running it again adds the rest.
+// The source, its rules and the row that records them go in ONE batch, so a
+// source is never reachable by fewer rules than it asked for. Each rule
+// tolerates one already there.
 func (s *Store) AddGitHubSource(src GitHubSource, target string) (string, error) {
 	ctx := context.Background()
-	secret, err := s.AddGitHubSourceTx(ctx, nil, src, target)
+	ws := &WriteSet{}
+	secret, err := s.AddGitHubSourceInto(ctx, ws, src, target,
+		fmt.Errorf("%w: %s", ErrGitHubSourceExists, src.Source))
 	if err != nil {
 		return "", err
 	}
 	_, rec := audit.WriteFor(s.githubSourceEvent("github_source.register", src.Source, src.OwnerFolder))
-	if err := s.WriteEntities(ctx, nil, rec); err != nil {
-		return secret, err
+	if err := s.Apply(ctx, ws, rec); err != nil {
+		return "", err
 	}
 	return secret, nil
 }
 
-// RemoveGitHubSource removes a source and the rules that routed it. The source
-// row goes first, which is what stops it being routed at all, so a sweep that
-// stops part-way leaves rules nothing reaches and the next run collects them.
+// RemoveGitHubSource removes a source and the rules that routed it, in ONE batch
+// with the row that records it: the source's deliveries and the rules that
+// carried them stop together.
 func (s *Store) RemoveGitHubSource(key, ownerFolder string) (bool, error) {
 	ctx := context.Background()
-	hit, err := s.RemoveGitHubSourceTx(ctx, nil, key, ownerFolder)
+	ws := &WriteSet{}
+	hit, err := s.RemoveGitHubSourceInto(ctx, ws, key, ownerFolder)
 	if err != nil || !hit {
 		return hit, err
 	}
 	_, rec := audit.WriteFor(s.githubSourceEvent("github_source.revoke", key, ownerFolder))
-	if err := s.WriteEntities(ctx, nil, rec); err != nil {
+	if err := s.Apply(ctx, ws, rec); err != nil {
 		return true, err
 	}
 	return true, nil

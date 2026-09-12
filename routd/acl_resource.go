@@ -12,8 +12,8 @@ package routd
 //   - the operator-role overload: scope "**" with the action OMITTED writes an
 //     acl_membership operator edge, not an acl row. Any action the caller names at
 //     "**" is an ordinary row — matching on scope alone discarded it and
-//     over-granted. Done tx-aware here (s.db.AddMembership would open its own
-//     BeginTx and DEADLOCK inside invoke's tx) while preserving the cycle check.
+//     over-granted. Buffered here (s.db.AddMembership would send a batch of its
+//     own and record the act twice) while preserving the cycle check.
 //   - list_acl is advertised only to a caller holding mcp:list_acl and returns only
 //     rows whose scope == the queried folder.
 //
@@ -24,7 +24,6 @@ package routd
 
 import (
 	"context"
-	"database/sql"
 	"log/slog"
 	"net/http"
 
@@ -35,6 +34,7 @@ import (
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
+	"github.com/kronael/arizuko/store"
 )
 
 // aclMCPNames is the action→flat-tool-name map, single-sourced in resreg/
@@ -123,7 +123,7 @@ func (s *Server) aclHandler(ctx context.Context, x resreg.Execution) (any, error
 		}
 		warning := s.nonCanonicalWarning(row.Principal)
 		row.GrantedBy = "agent:" + x.Caller.Folder
-		if err := s.db.grantACLTx(ctx, x.Tx, row); err != nil {
+		if err := s.db.grantACLInto(ctx, x.Writes, row); err != nil {
 			return nil, resreg.Errorf(http.StatusConflict, "%v", err)
 		}
 		return aclAddResult{OK: true, Warning: warning}, nil
@@ -133,15 +133,15 @@ func (s *Server) aclHandler(ctx context.Context, x resreg.Execution) (any, error
 		if row.Principal == "" || row.Scope == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "principal and scope required")
 		}
-		removed, err := s.db.revokeACLTx(ctx, x.Tx, row)
-		if err != nil {
+		// The delete conditions on the row being there, so its refusal IS the
+		// not-found answer — declared here because it reaches the caller from the
+		// batch rather than from this call.
+		notFound := resreg.Errorf(http.StatusNotFound,
+			"no matching grant for principal %q scope %q params %q — params must match the row EXACTLY; "+
+				"a grant carrying a predicate must be revoked where it was created",
+			row.Principal, row.Scope, row.Params)
+		if err := s.db.revokeACLInto(x.Writes, row, notFound); err != nil {
 			return nil, resreg.Errorf(http.StatusConflict, "%v", err)
-		}
-		if !removed {
-			return nil, resreg.Errorf(http.StatusNotFound,
-				"no matching grant for principal %q scope %q params %q — params must match the row EXACTLY; "+
-					"a grant carrying a predicate must be revoked where it was created",
-				row.Principal, row.Scope, row.Params)
 		}
 		return apiv1.OK{OK: true}, nil
 	}
@@ -172,7 +172,7 @@ func (s *Server) aclPostBuild(folder, callerSub string, authorize authorizeFn, v
 		// the grant option (auth.Delegate — subset-of-held). Root delegates anything.
 		// This is what makes a group unable to hand out authority it wasn't delegated.
 		if x.Action == resreg.Action("add") && !callerID.IsRoot {
-			// The candidate MUST be the row grantACLTx will WRITE — same builder,
+			// The candidate MUST be the row grantACLInto will WRITE — same builder,
 			// same defaults. Hardcoding `allow` here validated an allow row while
 			// the write took the caller's effect, so Delegate's deny ban never saw
 			// a requested deny (BUGS L93); the same drift on `params` would let a
@@ -236,7 +236,7 @@ func (s *Server) nonCanonicalWarning(principal string) string {
 //
 // There is no `predicate` argument. This face writes rules over call ARGUMENTS;
 // a claim condition is a different question with a different vocabulary, and
-// revokeACLTx pins `predicate=”` to match.
+// revokeACLInto pins `predicate=”` to match.
 func aclArgsRow(args resreg.Args) core.ACLRow {
 	return core.ACLRow{
 		Principal:   argString(args, "principal"),
@@ -279,8 +279,8 @@ func aclOperatorShape(r core.ACLRow) bool {
 		r.Params == "" && r.Predicate == ""
 }
 
-// grantACLTx grants via tx so the mutation + invoke's audit row commit as one
-// unit. It takes the ROW rather than a positional argument list, so the
+// grantACLInto buffers the grant so the mutation + invoke's audit row ride one
+// batch. It takes the ROW rather than a positional argument list, so the
 // candidate the Gate hands auth.Delegate and the row this writes are one value.
 //
 // `params` is the `name=glob` narrowing (spec 5/32 § The row). It was INSERTed
@@ -293,25 +293,25 @@ func aclOperatorShape(r core.ACLRow) bool {
 // reachable only through `resreg.Apply`. The Gate is what keeps it honest: a
 // non-root writer passes auth.Delegate, whose grantableRows only ever holds
 // rows the caller itself holds WITH the option.
-func (d *DB) grantACLTx(ctx context.Context, tx *sql.Tx, row core.ACLRow) error {
+func (d *DB) grantACLInto(ctx context.Context, ws *store.WriteSet, row core.ACLRow) error {
 	grantedBy := row.GrantedBy
 	if grantedBy == "" {
 		grantedBy = "routd"
 	}
 	if aclOperatorShape(row) {
 		// The edge is the operator role itself, so the walk that refuses a cycle
-		// runs here too — store.PutMembershipTx is that walk plus the
-		// create-if-absent write, on this call's transaction.
-		return d.store().PutMembershipTx(ctx, tx, row.Principal, "role:operator", grantedBy)
+		// runs here too — store.PutMembershipInto is that walk plus the write.
+		return d.store().PutMembershipInto(ctx, ws, row.Principal, "role:operator", grantedBy)
 	}
 	row = aclDefaults(row)
 	row.GrantedBy = grantedBy
-	return d.store().PutACLRowTx(ctx, tx, row)
+	return d.store().PutACLRowInto(ws, row)
 }
 
-// revokeACLTx is the remove_acl/DELETE twin of grantACLTx. It reports how many
-// rows it removed, and the caller MUST refuse when that is zero: a revoke is the
-// one operation where "did nothing" must never read as success.
+// revokeACLInto is the remove_acl/DELETE twin of grantACLInto. Its write is
+// CONDITIONED on the row being there, and refused is what a revoke that removed
+// nothing means: a revoke is the one operation where "did nothing" must never
+// read as success.
 //
 // It matches `params` exactly, the empty string included, so revoking is the
 // inverse of granting on this face: a row this surface can write is a row it can
@@ -319,15 +319,15 @@ func (d *DB) grantACLTx(ctx context.Context, tx *sql.Tx, row core.ACLRow) error 
 // {"ok":true} for any narrowed row (BUGS L79) — leaving it would have re-created
 // that hole the day `params` became writable. `predicate=”` stays hardcoded:
 // this face has no predicate argument to write one with.
-func (d *DB) revokeACLTx(ctx context.Context, tx *sql.Tx, row core.ACLRow) (bool, error) {
+func (d *DB) revokeACLInto(ws *store.WriteSet, row core.ACLRow, refused error) error {
 	// Mirror of the grant guard, same raw-row test: keying on scope alone let a
 	// narrow-row revoke strip an operator membership granted separately.
 	if aclOperatorShape(row) {
-		return d.store().RemoveMembershipTx(ctx, tx, row.Principal, "role:operator")
+		return d.store().RemoveMembershipInto(ws, row.Principal, "role:operator", refused)
 	}
 	// The six coordinate fields address exactly one grant, and `predicate` is the
 	// empty string on every row this face can write. The delete conditions on the
 	// item being there, so its refusal IS the "no matching grant" answer the
 	// caller must not read as success.
-	return d.store().RemoveACLRowTx(ctx, tx, aclDefaults(row))
+	return d.store().RemoveACLRowInto(ws, aclDefaults(row), refused)
 }

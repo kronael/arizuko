@@ -304,7 +304,7 @@ func (d *DB) CheckHold(sub, folder, tool string, params map[string]string) bool 
 
 // IsOperator reports whether sub carries the operator `**` grant. Operators are
 // emergent from grants, never a role flag: the `**` grant is stored as a
-// role:operator acl_membership edge (grantACLTx), so operator status IS
+// role:operator acl_membership edge (grantACLInto), so operator status IS
 // transitive membership in role:operator. A direct `admin`/`*` grant on the whole
 // tree (`**`) also counts. This is the gate for /root elevation (steer.go
 // cmdRoot): only a `**` holder may raise a turn to root. Empty sub → false.

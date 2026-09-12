@@ -894,7 +894,7 @@ func TestRouteTokens_PairingExcludedFromExport(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.IssuePairingLink(context.Background(), nil, "telegram:user/1", "atlas"); err != nil {
+	if _, err := s.IssuePairingLink(context.Background(), "telegram:user/1", "atlas"); err != nil {
 		t.Fatal(err)
 	}
 	got, err := resreg.Lookup("route_tokens").ScanAll(resreg.OnDB(db))

@@ -4,7 +4,7 @@ package routd
 // (spec 5/16). resreg owns the plumbing; routd owns the auth POLICY. Two shapes:
 //
 //   - Custom actions: schedule/pause/resume/cancel are resource-specific verbs, so
-//     Mutates() is true and each opens the mutation+audit tx; list reuses ActionList.
+//     Mutates() is true and each sends the mutation+audit batch; list reuses ActionList.
 //     MCPNames maps every action back to the flat live tool name.
 //   - PER-TASK-ID containment. pause/resume/cancel take a task ID and MUST resolve
 //     the task's OWNER folder before the caller can be ruled on. The HANDLER runs the
@@ -13,7 +13,7 @@ package routd
 //     duplicate the read AND reorder validation ahead of the containment decision.
 //
 // The four writes are store.CreateTaskTx, SetTaskStatusTx, PatchTaskTx and
-// DeleteTaskTx, on resreg.invoke's tx so each lands with the call's single
+// DeleteTaskInto, on resreg.invoke's write set so each lands with the call's single
 // audit_log row. They live there because a task's coordinate is its id and its
 // attribute names are store's — the same items timed's fire loop claims, which
 // reads `next_run` as the operator's own RFC3339 text rather than as bytes.
@@ -44,7 +44,7 @@ import (
 // Task actions are resource-specific verbs, not the CRUD shape. list reuses
 // resreg.ActionList (== "list") so it stays read-only (Mutates() false, no tx);
 // schedule/pause/resume/cancel are custom strings so Mutates() is true and each
-// opens the mutation+audit tx.
+// sends the mutation+audit batch.
 const (
 	tasksActionSchedule = resreg.Action("schedule")
 	tasksActionPause    = resreg.Action("pause")
@@ -65,7 +65,7 @@ var tasksMCPNames = resources.ScheduledTasksMCPNames
 // scheduledTasksResource is the single renderer for BOTH faces: deriveMCPTools reads
 // Endpoints ∩ MCPDoc for the agent's five tools, RegisterREST mounts the same slice's
 // non-MCPOnly entries. Store is a store.Store over routd.db so resreg.invoke opens the
-// mutation+audit tx there. contain is the per-face target-containment seam.
+// mutation+audit batch there. contain is the per-face target-containment seam.
 func (s *Server) scheduledTasksResource(contain containFn, elevated bool) resreg.Resource {
 	r := resreg.Mount(resources.ScheduledTasksName)
 	r.Store = s.db.store()
@@ -137,11 +137,11 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, 
 			}
 		}
 		taskID := fmt.Sprintf("task-%d-%s", time.Now().UnixMilli(), uuid.New().String()[:8])
-		if err := s.db.store().CreateTaskTx(ctx, x.Tx, core.Task{
+		if err := s.db.store().CreateTaskInto(x.Writes, core.Task{
 			ID: taskID, Owner: targetFolder, ChatJID: targetJid,
 			Prompt: prompt, Cron: cronStore, NextRun: nextRun,
 			Status: core.TaskActive, Created: time.Now(), ContextMode: contextMode,
-		}); err != nil {
+		}, resreg.Errorf(http.StatusConflict, "scheduled task %q already exists", taskID)); err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
 		return map[string]any{"taskId": taskID}, nil
@@ -159,14 +159,17 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, 
 		if err := contain(x.Caller, x.Action, task.Owner); err != nil {
 			return nil, err
 		}
+		// A status flip is an Update, so a task removed between the read above and
+		// the batch refuses it — the 404 the read would have given.
+		gone := resreg.Errorf(http.StatusNotFound, "task not found")
 		var err error
 		switch x.Action {
 		case tasksActionPause:
-			err = s.db.store().SetTaskStatusTx(ctx, x.Tx, taskID, core.TaskPaused)
+			err = s.db.store().SetTaskStatusInto(x.Writes, taskID, core.TaskPaused, gone)
 		case tasksActionResume:
-			err = s.db.store().SetTaskStatusTx(ctx, x.Tx, taskID, core.TaskActive)
+			err = s.db.store().SetTaskStatusInto(x.Writes, taskID, core.TaskActive, gone)
 		case tasksActionCancel:
-			err = s.db.store().DeleteTaskTx(ctx, x.Tx, taskID)
+			err = s.db.store().DeleteTaskInto(x.Writes, taskID)
 		}
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
@@ -205,10 +208,11 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, 
 		if status == "" && nextRun == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "status or next_run required")
 		}
-		if err := s.db.store().PatchTaskTx(ctx, x.Tx, taskID, status, nextRun); err != nil {
+		if err := s.db.store().PatchTaskInto(x.Writes, taskID, status, nextRun,
+			resreg.Errorf(http.StatusNotFound, "task not found")); err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
-		// Echo the updated task (the tx has not committed, so a plain GetTask
+		// Echo the updated task (the batch has not been sent, so a plain GetTask
 		// would read the pre-patch row — mirror the write onto the fetched row).
 		if status != "" {
 			task.Status = status

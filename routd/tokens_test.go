@@ -21,15 +21,8 @@ func TestRouteTokenResolve_RejectsPairingKind(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tx, err := db.SQL().Begin()
+	pair, err := db.store().IssuePairingLink(context.Background(), "telegram:user/1", "acme")
 	if err != nil {
-		t.Fatal(err)
-	}
-	pair, err := db.store().IssuePairingLink(context.Background(), tx, "telegram:user/1", "acme")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -45,17 +38,15 @@ func TestRouteTokenResolve_RejectsPairingKind(t *testing.T) {
 	}
 
 	// A delivery token still resolves. The two kinds have one minter each
-	// (store.IssuePairingLink / store.MintRouteTokenTx) so a pairing can be
+	// (store.IssuePairingLink / store.MintRouteTokenInto) so a pairing can be
 	// minted from onbod's process too; kind-scoping is what keeps them apart.
-	tx2, err := db.SQL().Begin()
+	ctx := context.Background()
+	ws := &store.WriteSet{}
+	route, err := db.store().MintRouteTokenInto(ctx, ws, "web:acme", "acme", "acme", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	route, err := db.store().MintRouteTokenTx(context.Background(), tx2, "web:acme", "acme", "acme", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := tx2.Commit(); err != nil {
+	if err := db.store().Apply(ctx, ws); err != nil {
 		t.Fatal(err)
 	}
 	row, ok := resolveToken(db, route)

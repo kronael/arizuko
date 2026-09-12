@@ -46,7 +46,7 @@ func TestExportRouteTokensExcludesPairingAndImportRestoresTheVerifier(t *testing
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := src.IssuePairingLink(ctx, nil, "telegram:user/1", "atlas"); err != nil {
+	if _, err := src.IssuePairingLink(ctx, "telegram:user/1", "atlas"); err != nil {
 		t.Fatal(err)
 	}
 	rows, err := src.ExportRouteTokens(ctx)

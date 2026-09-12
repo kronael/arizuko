@@ -17,15 +17,8 @@ func TestGrantACLTx_NarrowActionAtTreeScopeIsNotOperator(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		tx, err := db.SQL().Begin()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := db.grantACLTx(t.Context(), tx, core.ACLRow{Principal: "user:a", Scope: "**", Action: action, GrantedBy: "test"}); err != nil {
+		if err := grantACL(db, core.ACLRow{Principal: "user:a", Scope: "**", Action: action, GrantedBy: "test"}); err != nil {
 			t.Fatalf("grant %s: %v", action, err)
-		}
-		if err := tx.Commit(); err != nil {
-			t.Fatal(err)
 		}
 
 		if hasEdge(db, "user:a", "role:operator") {
@@ -54,15 +47,8 @@ func TestGrantACLTx_OperatorShapeStillMintsMembership(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		tx, err := db.SQL().Begin()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := db.grantACLTx(t.Context(), tx, core.ACLRow{Principal: "user:b", Scope: "**", Action: action, GrantedBy: "test"}); err != nil {
+		if err := grantACL(db, core.ACLRow{Principal: "user:b", Scope: "**", Action: action, GrantedBy: "test"}); err != nil {
 			t.Fatalf("grant %q: %v", action, err)
-		}
-		if err := tx.Commit(); err != nil {
-			t.Fatal(err)
 		}
 
 		if !hasEdge(db, "user:b", "role:operator") {
@@ -80,25 +66,18 @@ func TestRevokeACLTx_NarrowRevokeLeavesOperatorMembership(t *testing.T) {
 	}
 	defer db.Close()
 
-	tx, err := db.SQL().Begin()
-	if err != nil {
+	if err := grantACL(db, core.ACLRow{Principal: "user:c", Scope: "**", GrantedBy: "test"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.grantACLTx(t.Context(), tx, core.ACLRow{Principal: "user:c", Scope: "**", GrantedBy: "test"}); err != nil {
+	if err := grantACL(db, core.ACLRow{Principal: "user:c", Scope: "**", Action: "read", GrantedBy: "test"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.grantACLTx(t.Context(), tx, core.ACLRow{Principal: "user:c", Scope: "**", Action: "read", GrantedBy: "test"}); err != nil {
-		t.Fatal(err)
-	}
-	removed, err := db.revokeACLTx(t.Context(), tx, core.ACLRow{Principal: "user:c", Scope: "**", Action: "read"})
+	removed, err := revokeACL(db, core.ACLRow{Principal: "user:c", Scope: "**", Action: "read"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !removed {
 		t.Fatal("revoke removed nothing, want the narrow row: a revoke that removes nothing must not read as success")
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
 	}
 
 	if !hasEdge(db, "user:c", "role:operator") {
@@ -122,21 +101,13 @@ func TestRevokeACLTx_ReportsZeroWhenNothingMatched(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	tx, err := db.SQL().Begin()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
 
-	removed, err := db.revokeACLTx(t.Context(), tx, core.ACLRow{Principal: "user:n", Scope: "acme", Action: "read", Effect: "allow"})
+	removed, err := revokeACL(db, core.ACLRow{Principal: "user:n", Scope: "acme", Action: "read", Effect: "allow"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if removed {
 		t.Fatal("revoke reported a row removed; the request named no narrowing")
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
 	}
 
 	if live := aclRows(t, db, "user:n"); len(live) != 1 {
@@ -162,13 +133,8 @@ func TestRevokeACLTx_ExactParamsRemovesTheNarrowedRow(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	tx, err := db.SQL().Begin()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
 
-	removed, err := db.revokeACLTx(t.Context(), tx, core.ACLRow{
+	removed, err := revokeACL(db, core.ACLRow{
 		Principal: "user:n", Scope: "acme", Action: "read", Effect: "allow",
 		Params: "jid=telegram:*",
 	})
@@ -177,9 +143,6 @@ func TestRevokeACLTx_ExactParamsRemovesTheNarrowedRow(t *testing.T) {
 	}
 	if !removed {
 		t.Fatal("revoke removed nothing: the exact narrowing must address its row")
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
 	}
 	// The un-narrowed twin survives: an exact match must not take the neighbour
 	// with it, or revoking one verdict would revoke a standing policy row.

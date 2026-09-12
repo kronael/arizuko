@@ -116,14 +116,7 @@ func TestAddACLToAnAliasStillWritesTheRowAsAsked(t *testing.T) {
 		sub:  "github:Y",
 	})
 
-	tx, err := db.SQL().Begin()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.grantACLTx(t.Context(), tx, core.ACLRow{Principal: "github:Y", Scope: "atlas", Action: "admin", Effect: "allow", GrantedBy: "operator"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
+	if err := grantACL(db, core.ACLRow{Principal: "github:Y", Scope: "atlas", Action: "admin", Effect: "allow", GrantedBy: "operator"}); err != nil {
 		t.Fatal(err)
 	}
 

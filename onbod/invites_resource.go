@@ -3,7 +3,7 @@ package main
 // invites_resource.go folds onbod's /v1/invites REST face onto the shared resreg
 // handler (spec 5/16), retiring the three hand-rolled invite handlers
 // (handleInvite{Create,List,Revoke}). resreg owns the plumbing (handler dispatch
-// + one tx wrapping the mutation AND its audit_log row); onbod owns the auth
+// + one batch carrying the mutation AND its audit_log row); onbod owns the auth
 // POLICY via the injected REST Caller + Gate. onbod has no agent socket, so this
 // is REST-only — there is no MCP twin to share the handler with.
 //
@@ -13,8 +13,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -32,7 +30,7 @@ func (a *admin) mountInvites(mux *http.ServeMux) {
 
 // invitesResource is the serving resreg.Resource for invites. Endpoints come
 // from resreg/resources (the same list the OpenAPI doc reads). Store is a
-// store.Store over onbod.db so resreg.invoke opens the mutation+audit tx there.
+// store.Store over onbod.db so resreg.invoke sends the mutation+audit batch there.
 // All policy lives in the injected Gate.
 func (a *admin) invitesResource() resreg.Resource {
 	r := resreg.Mount(resources.InvitesName)
@@ -63,11 +61,11 @@ func (a *admin) invitesRESTGate(x resreg.Execution, _ string, _ map[string]strin
 }
 
 // invitesHandler runs create/list/revoke against onbod.db. The mutating verbs
-// write on resreg's tx (x.Tx) via the store's *Tx methods — NOT its audited ones
-// — so the mutation and its single audit_log row land in resreg.invoke's one tx
-// (calling store.CreateInvite/RevokeInviteByRef here would open a second tx and
-// double-audit). The invite is an objstore item and the audit row is a SQL
-// insert, and both ride that same transaction. list is read-only (no tx).
+// BUFFER their write on resreg's set (x.Writes) via the store's *Into methods —
+// NOT its audited ones — so the mutation and its single audit_log row ride
+// resreg.invoke's one batch (calling store.CreateInvite/RevokeInviteByRef here
+// would send a batch of its own and double-audit). list is read-only and buffers
+// nothing.
 func (a *admin) invitesHandler(ctx context.Context, x resreg.Execution) (any, error) {
 	st := store.New(a.db)
 	switch x.Action {
@@ -83,7 +81,7 @@ func (a *admin) invitesHandler(ctx context.Context, x resreg.Execution) (any, er
 		return map[string]any{"invites": out}, nil
 
 	case resreg.ActionCreate:
-		inv, rawToken, err := createInviteTx(ctx, st, x.Tx, x.Args)
+		inv, rawToken, err := bufferInvite(st, x.Writes, x.Args)
 		if err != nil {
 			return nil, err
 		}
@@ -94,11 +92,12 @@ func (a *admin) invitesHandler(ctx context.Context, x resreg.Execution) (any, er
 		if ref == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "ref required")
 		}
-		// ref IS the coordinate (I1) — a direct delete, no resolve step.
-		if err := st.RevokeInviteByRefTx(ctx, x.Tx, ref); err != nil {
-			if errors.Is(err, store.ErrInviteRefUnknown) {
-				return nil, resreg.Errorf(http.StatusNotFound, "no invite with ref %q", ref)
-			}
+		// ref IS the coordinate (I1) — a direct delete, no resolve step. The
+		// delete conditions on the invite being there, and that refusal is the
+		// only "no such ref" this surface gets — it reaches the caller from the
+		// batch, which is why the 404 is declared here rather than tested for.
+		if err := st.RevokeInviteByRefInto(x.Writes, ref,
+			resreg.Errorf(http.StatusNotFound, "no invite with ref %q", ref)); err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
 		return map[string]bool{"ok": true}, nil
@@ -106,7 +105,7 @@ func (a *admin) invitesHandler(ctx context.Context, x resreg.Execution) (any, er
 	return nil, resreg.Errorf(http.StatusBadRequest, "unknown action %q", x.Action)
 }
 
-// createInviteTx mints an invite on resreg's tx. The mint's RULES are
+// bufferInvite mints an invite onto resreg's write set. The mint's RULES are
 // store.MintInvite's — target_glob required and folder-validated (trailing
 // slash = subworld-create mode, which skips folder validation), max_uses
 // floored at 1, the token server-generated and only its hash persisted (I1) —
@@ -117,7 +116,7 @@ func (a *admin) invitesHandler(ctx context.Context, x resreg.Execution) (any, er
 // expires_at) and the status codes. A rejected mint is the caller's fault, so
 // it is a 400 — the same answer the validation this delegates to used to give
 // inline.
-func createInviteTx(ctx context.Context, st *store.Store, tx *sql.Tx,
+func bufferInvite(st *store.Store, ws *store.WriteSet,
 	args resreg.Args) (store.Invite, string, error) {
 	issuedBySub := argString(args, "issued_by_sub")
 	if issuedBySub == "" {
@@ -136,7 +135,11 @@ func createInviteTx(ctx context.Context, st *store.Store, tx *sql.Tx,
 	if err != nil {
 		return store.Invite{}, "", resreg.Errorf(http.StatusBadRequest, "%v", err)
 	}
-	if err := st.InsertInviteTx(ctx, tx, inv); err != nil {
+	// A ref is 256 bits of hash, so a refused create is not a race to absorb: it
+	// means two callers minted the same bearer, and the batch refusing is what
+	// stops the second one revoking the first one's live invite.
+	if err := st.InsertInviteInto(ws, inv, resreg.Errorf(http.StatusInternalServerError,
+		"an invite already exists at ref %s", inv.Ref)); err != nil {
 		return store.Invite{}, "", resreg.Errorf(http.StatusInternalServerError, "%v", err)
 	}
 	return inv, token, nil

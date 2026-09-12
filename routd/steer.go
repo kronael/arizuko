@@ -11,6 +11,7 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/router"
+	"github.com/kronael/arizuko/store"
 )
 
 // steer consumes the latest message of a routed chat BEFORE it reaches a turn.
@@ -560,13 +561,13 @@ func (l *Loop) delegateViaMessage(targetFolder, prompt, originJID string) error 
 // out-of-turn dispatcher — the agent MCP server is per-turn, and a second path
 // would have to re-implement ipc's grant and audit discipline.
 //
-// Who may answer is decided inside resolveHoldTx, on the held row's folder —
+// Who may answer is decided inside resolveHoldInto, on the held row's folder —
 // the SAME core the REST face runs, so there is one gate rather than two
 // readers of "operator". A button press and a typed command converge here, and
 // the verdict commits together with the resolution message that triggers the
 // re-issue.
 //
-// `standing` is /always: `yes` plus the skip-approval rule, one transaction.
+// `standing` is /always: `yes` plus the skip-approval rule, one batch.
 // There is no /never — it would ALSO write a tool deny, and acl rows carry no
 // verdict identity, so nothing could later tell that deny from standing policy
 // (spec 6/26 § "Revocation needs provenance").
@@ -576,19 +577,15 @@ func (l *Loop) cmdResolveHold(chatJID, folder, arg, sender, verdict string, stan
 		l.ack(chatJID, "Usage: /approve <id> [note]  |  /reject <id> [note]  |  /always <id> [note]")
 		return
 	}
-	tx, err := l.db.SQL().Begin()
+	ctx := context.Background()
+	ws := &store.WriteSet{}
+	p, err := l.db.resolveHoldInto(ctx, ws, id, verdict, sender, strings.TrimSpace(note), standing,
+		fmt.Errorf("pending action %q %w (by someone else)", id, ErrPendingResolved))
 	if err != nil {
 		l.ack(chatJID, "Failed: "+err.Error())
 		return
 	}
-	defer tx.Rollback()
-	p, err := l.db.resolveHoldTx(context.Background(), tx, id, verdict, sender,
-		strings.TrimSpace(note), standing)
-	if err != nil {
-		l.ack(chatJID, "Failed: "+err.Error())
-		return
-	}
-	if err := tx.Commit(); err != nil {
+	if err := l.db.store().Apply(ctx, ws); err != nil {
 		l.ack(chatJID, "Failed: "+err.Error())
 		return
 	}

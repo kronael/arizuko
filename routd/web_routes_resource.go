@@ -24,9 +24,7 @@ package routd
 
 import (
 	"context"
-	"database/sql"
 	"log/slog"
-	"maps"
 	"net/http"
 	"strings"
 
@@ -49,7 +47,7 @@ var webRoutesMCPNames = resources.WebRoutesMCPNames
 // webRoutesResource is the single renderer for the agent's three web_route
 // tools. Endpoints exist only to drive deriveMCPTools (Action ∩ MCPDoc) — the
 // REST face is NOT mounted from this resource (see file header). Store is a
-// store.Store over routd.db so resreg.invoke opens the mutation+audit tx there.
+// store.Store over routd.db so resreg.invoke sends the mutation+audit batch there.
 func (s *Server) webRoutesResource() resreg.Resource {
 	r := resreg.Mount(resources.WebRoutesName)
 	r.Handler = s.webRoutesHandler
@@ -113,7 +111,7 @@ func (s *Server) webRoutesHandler(ctx context.Context, x resreg.Execution) (any,
 				return nil, resreg.Errorf(http.StatusForbidden, "path prefix already claimed by folder: %s", owner)
 			}
 		}
-		if err := s.db.putWebRouteTx(ctx, x.Tx, WebRouteRow{
+		if err := s.db.putWebRouteInto(x.Writes, WebRouteRow{
 			PathPrefix: p, Access: access, RedirectTo: redirectTo, Folder: folder,
 		}); err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
@@ -132,12 +130,13 @@ func (s *Server) webRoutesHandler(ctx context.Context, x resreg.Execution) (any,
 		// keyed this on tier-0, which a top-level tenant also held — that let a tenant
 		// delete and hijack a sibling's route. The agent socket folder is always a named
 		// group, so no agent widens.
-		ok, err := s.db.deleteWebRouteTx(ctx, x.Tx, p, folder)
-		if err != nil {
+		// The delete conditions on the rule being there AND on it being this
+		// folder's, so its refusal IS the not-found answer — declared here because
+		// it reaches the caller from the batch.
+		if err := s.db.deleteWebRouteInto(x.Writes, p, folder,
+			resreg.Errorf(http.StatusNotFound,
+				"route not found or not owned by this folder")); err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
-		}
-		if !ok {
-			return nil, resreg.Errorf(http.StatusNotFound, "route not found or not owned by this folder")
 		}
 		slog.Info("del_web_route", "folder", folder, "path", p)
 		return apiv1.OK{OK: true}, nil
@@ -170,26 +169,27 @@ func argString(args resreg.Args, key string) string {
 	return s
 }
 
-// putWebRouteTx upserts one web_routes item on tx, so the mutation lands in
-// resreg.invoke's tx alongside its audit_log row.
+// putWebRouteInto buffers one web_routes upsert on resreg's write set, so the
+// mutation rides the batch that carries its audit_log row.
 //
-// AN UPSERT IS TWO WRITES, because a Put carries the item's WHOLE attribute set:
-// one unconditional Put would restamp `created_at`, which the rule's first claim
-// recorded. The create-if-absent lands the whole item, and its refusal — the path
-// prefix is already claimed — selects the Update that merges the three fields an
-// upsert owns.
+// IT IS ONE WRITE, a Merge, and that is what makes it buffer-able at all: the
+// pair it replaces — a create-if-absent whose refusal selected an Update — named
+// one item twice, which no batch may do (objstore.ValidateBatch), and the
+// refusal it turned on could not answer for a write that has not been sent.
+// `created_at` is an Init, so the instant the rule's first claim recorded
+// survives every later upsert, which is what the Put half was for.
 //
 // `created_at` is core.TS at 30 bytes: that is the width resreg's own entity path
 // stamps a StampedField at, and every writer of these items has to agree byte for
 // byte because a comparison over TEXT answers by byte order (BUGS L97).
-func (d *DB) putWebRouteTx(ctx context.Context, tx *sql.Tx, r WebRouteRow) error {
+func (d *DB) putWebRouteInto(ws *store.WriteSet, r WebRouteRow) error {
 	key, err := store.WebRouteKey(r.PathPrefix)
 	if err != nil {
 		return err
 	}
 	owned := map[string]string{store.AttrWebAccess: r.Access, store.AttrWebFolder: r.Folder}
 	// Absent is the only null this model has, so an access rule that redirects
-	// nowhere carries no redirect_to at all — and an Update that leaves the
+	// nowhere carries no redirect_to at all — and a merge that leaves the
 	// attribute alone would keep the target of a rule the operator has since
 	// pointed elsewhere. It is REMOVED rather than emptied.
 	var drop []string
@@ -198,32 +198,23 @@ func (d *DB) putWebRouteTx(ctx context.Context, tx *sql.Tx, r WebRouteRow) error
 	} else {
 		owned[store.AttrWebRedirectTo] = r.RedirectTo
 	}
-	whole := map[string]string{store.AttrWebCreatedAt: core.NowTS()}
-	maps.Copy(whole, owned)
-	st := d.store()
-	created, err := st.TryWriteEntitiesInTx(ctx, tx, nil, objstore.Write{
-		Op: objstore.Put, Entity: store.WebRoutes, Key: key, Attrs: whole,
-		Cond: objstore.Cond{Item: objstore.ItemAbsent},
+	ws.Add(objstore.Write{
+		Op: objstore.Merge, Entity: store.WebRoutes, Key: key, Attrs: owned, Remove: drop,
+		Init: map[string]string{store.AttrWebCreatedAt: core.NowTS()},
 	})
-	if err != nil || created {
-		return err
-	}
-	err = st.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
-		Op: objstore.Update, Entity: store.WebRoutes, Key: key, Attrs: owned, Remove: drop,
-	})
-	return err
+	return nil
 }
 
-// deleteWebRouteTx removes one web_routes item on tx and reports whether a rule
-// went. The path prefix is the coordinate, so the read is one item; a non-empty
-// `folder` must match the item's own, which widens ONLY when folder is empty.
-// Containment therefore lives entirely in how the caller resolves its folder —
-// the agent socket's own group, or the REST target bounded to the JWT subtree —
-// never here.
-func (d *DB) deleteWebRouteTx(ctx context.Context, tx *sql.Tx, pathPrefix, folder string) (bool, error) {
+// deleteWebRouteInto buffers one web_routes removal on the caller's write set,
+// and refused is what "no such rule of yours" means. The path prefix is the
+// coordinate, so the delete names one item; a non-empty `folder` must match the
+// item's own, which widens ONLY when folder is empty. Containment therefore lives
+// entirely in how the caller resolves its folder — the agent socket's own group,
+// or the REST target bounded to the JWT subtree — never here.
+func (d *DB) deleteWebRouteInto(ws *store.WriteSet, pathPrefix, folder string, refused error) error {
 	key, err := store.WebRouteKey(pathPrefix)
 	if err != nil {
-		return false, err
+		return err
 	}
 	w := objstore.Write{
 		Op: objstore.Delete, Entity: store.WebRoutes, Key: key,
@@ -234,5 +225,5 @@ func (d *DB) deleteWebRouteTx(ctx context.Context, tx *sql.Tx, pathPrefix, folde
 			{Attr: store.AttrWebFolder, Op: objstore.Eq, Value: folder},
 		}
 	}
-	return d.store().TryWriteEntitiesInTx(ctx, tx, nil, w)
+	return ws.AddGuarded(refused, w)
 }

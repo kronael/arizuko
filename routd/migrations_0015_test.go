@@ -93,16 +93,10 @@ func TestMigration0015NoLegacyDB(t *testing.T) {
 }
 
 // seedProxydRoute lands one proxyd_routes row through the writer proxyd's own
-// POST commits with, on a transaction of its own — store offers no writer
-// outside the tx-aware proxyd path.
+// dashboard form runs, in a batch of its own.
 func seedProxydRoute(t *testing.T, s *store.Store, path, backend string) error {
 	t.Helper()
-	tx, err := s.DB().Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback() //nolint:errcheck
-	created, err := s.CreateProxydRouteTx(context.Background(), tx,
+	created, err := s.CreateProxydRoute(context.Background(),
 		store.ProxydRoute{Path: path, Backend: backend, Auth: "user"})
 	if err != nil {
 		return err
@@ -110,5 +104,5 @@ func seedProxydRoute(t *testing.T, s *store.Store, path, backend string) error {
 	if !created {
 		return fmt.Errorf("seed proxyd route %s: the path was already taken", path)
 	}
-	return tx.Commit()
+	return nil
 }

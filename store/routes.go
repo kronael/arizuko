@@ -254,7 +254,7 @@ func (s *Store) RouteByID(id int64) (core.Route, bool, error) {
 // carries none. It answers the id the rule now holds, whether it minted one or
 // found the rule already there — which is what an idempotent add owes its
 // caller, and what LastInsertId gave.
-func (s *Store) putRoute(ctx context.Context, tx *sql.Tx, r core.Route, addedBy, addedVia string) (int64, error) {
+func (s *Store) putRoute(ctx context.Context, r core.Route, addedBy, addedVia string) (int64, error) {
 	key, err := routeKey(r)
 	if err != nil {
 		return 0, err
@@ -270,7 +270,7 @@ func (s *Store) putRoute(ctx context.Context, tx *sql.Tx, r core.Route, addedBy,
 		Op: objstore.Put, Entity: Routes, Key: key, Attrs: routeAttrs(r, addedBy, addedVia),
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},
 	}
-	created, err := s.tryWriteVia(ctx, tx, nil, w)
+	created, err := s.TryWriteEntities(ctx, nil, w)
 	if err != nil {
 		return 0, err
 	}
@@ -280,14 +280,23 @@ func (s *Store) putRoute(ctx context.Context, tx *sql.Tx, r core.Route, addedBy,
 	// The rule is already there, so the coordinate names it and the id it
 	// already carries is the handle its caller has to be given: a second id for
 	// one rule is a handle that deletes somebody else's rule.
-	items, err := s.Obj().Query(ctx, objstore.Query{
-		Entity: Routes, Partition: OwnerRoutd,
-		Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: key.Sort},
-	})
-	if err != nil || len(items) == 0 {
-		return 0, fmt.Errorf("route %q refused its own create and is not there", key.Sort)
+	return s.routeIDAt(ctx, key.Sort)
+}
+
+// routeCreateWrite renders "this rule exists" as a write that CANNOT REFUSE:
+// every attribute is an Init, so a rule already there is left exactly as it is.
+// It is what a caller buffering several rules beside a write whose own refusal
+// is an answer needs — a github source's seeded rules, each of which tolerates a
+// rule that is already there (AddGitHubSource).
+func routeCreateWrite(r core.Route, addedBy, addedVia string) (objstore.Write, error) {
+	key, err := routeKey(r)
+	if err != nil {
+		return objstore.Write{}, err
 	}
-	return int64(attrInt(items[0], attrRouteID)), nil
+	return objstore.Write{
+		Op: objstore.Merge, Entity: Routes, Key: key,
+		Init: routeAttrs(r, addedBy, addedVia),
+	}, nil
 }
 
 func (s *Store) AddRoute(r core.Route) (int64, error) {
@@ -340,16 +349,29 @@ func (s *Store) AddRoute(r core.Route) (int64, error) {
 	return s.routeIDAt(ctx, key.Sort)
 }
 
-// routeIDAt answers the id the rule at sort already carries.
+// routeIDAt answers the id the rule at sort already carries, for the two writers
+// that get there by having their own create REFUSED — so a rule that is not
+// there is a contradiction and says so.
 func (s *Store) routeIDAt(ctx context.Context, sort string) (int64, error) {
+	id, ok, err := s.routeAt(ctx, sort)
+	if err != nil || !ok {
+		return 0, fmt.Errorf("route %q refused its own create and is not there", sort)
+	}
+	return id, nil
+}
+
+// routeAt answers the id the rule at one coordinate holds, and whether a rule is
+// there at all. The buffered add asks BEFORE it buffers anything, because a
+// write that has not been sent has no verdict to read back.
+func (s *Store) routeAt(ctx context.Context, sort string) (int64, bool, error) {
 	items, err := s.Obj().Query(ctx, objstore.Query{
 		Entity: Routes, Partition: OwnerRoutd,
 		Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: sort},
 	})
 	if err != nil || len(items) == 0 {
-		return 0, fmt.Errorf("route %q refused its own create and is not there", sort)
+		return 0, false, err
 	}
-	return int64(attrInt(items[0], attrRouteID)), nil
+	return int64(attrInt(items[0], attrRouteID)), true, nil
 }
 
 // PutRouteRow writes a route idempotently WITHOUT emitting an audit_log row —
@@ -359,7 +381,7 @@ func (s *Store) PutRouteRow(r core.Route) (int64, error) {
 	if MatchesWebJID(r.Match) {
 		return 0, ErrWebJIDRouted
 	}
-	return s.putRoute(context.Background(), nil, r, "", "")
+	return s.putRoute(context.Background(), r, "", "")
 }
 
 // DeleteRoute removes a rule by id and records it. Returns rows affected (0 →
@@ -496,56 +518,89 @@ func (s *Store) ListRoutes(folder string, isRoot bool) []core.Route {
 	return out
 }
 
-// PutRouteTx writes one rule create-if-absent on a transaction the CALLER owns
-// and answers the id the rule holds, for routd's `/v1/routes` face: the rule and
-// resreg.invoke's single audit_log row commit together, and AddRoute would open
-// a second transaction on the same database and record the act twice.
+// PutRouteInto buffers one rule's creation on the caller's write set and answers
+// the id the rule holds, for routd's `/v1/routes` face: the rule rides the batch
+// that carries resreg.invoke's single audit_log row, and AddRoute would send a
+// batch of its own and record the act twice.
 //
-// The id is minted BEFORE anything is written to tx. The counter is a
-// compare-and-swap of its own (entities.go nextNumber), so it runs outside the
-// caller's transaction — and a transaction already holding the engine's write
-// lock would block its own mint.
-func (s *Store) PutRouteTx(ctx context.Context, tx *sql.Tx, r core.Route, addedBy, addedVia string) (int64, error) {
+// THE RULE IS LOOKED UP BEFORE THE WRITE, never after it. An add is idempotent —
+// a rule already there answers with the id it holds rather than minting a second
+// handle for one rule — and a buffered write has no verdict to read back, so the
+// question is asked of the live table first. A rule another caller creates
+// between that read and the batch REFUSES the guarded create, which is refused:
+// loud, rather than an id no row carries.
+//
+// The id is minted BEFORE anything is buffered. The counter is a
+// compare-and-swap of its own (entities.go nextNumber), so the value the caller
+// returns to the wire is decided before the batch, not read out of it.
+func (s *Store) PutRouteInto(ctx context.Context, ws *WriteSet, r core.Route,
+	addedBy, addedVia string, refused error) (int64, error) {
 	if MatchesWebJID(r.Match) {
 		return 0, ErrWebJIDRouted
 	}
-	return s.putRoute(ctx, tx, r, addedBy, addedVia)
+	key, err := routeKey(r)
+	if err != nil {
+		return 0, err
+	}
+	held, there, err := s.routeAt(ctx, key.Sort)
+	if err != nil {
+		return 0, err
+	}
+	if there {
+		return held, nil
+	}
+	if r.ID == 0 {
+		n, nerr := s.nextNumber(ctx, OwnerRoutd, CounterRouteID)
+		if nerr != nil {
+			return 0, fmt.Errorf("mint a route id: %w", nerr)
+		}
+		r.ID = int64(n)
+	}
+	if err := ws.AddGuarded(refused, objstore.Write{
+		Op: objstore.Put, Entity: Routes, Key: key, Attrs: routeAttrs(r, addedBy, addedVia),
+		Cond: objstore.Cond{Item: objstore.ItemAbsent},
+	}); err != nil {
+		return 0, err
+	}
+	return r.ID, nil
 }
 
-// DeleteRouteTx removes one rule by id and reports whether a rule went. The id
-// is an attribute, so the item is found by reading the table; the delete then
-// conditions on the item still being there, so a rule another caller removed in
-// between answers false rather than OK.
-//
-// The transaction is the caller's when it HAS one — routd's /v1 face, carrying
-// resreg.invoke's audit row. onbod passes nil: it writes no audit row, and one
-// conditional write is already all-or-nothing.
-func (s *Store) DeleteRouteTx(ctx context.Context, tx *sql.Tx, id int64) (bool, error) {
-	it, _, ok, err := s.routeByID(ctx, tx, id)
+// DeleteRouteInto buffers the removal of one rule by id and reports whether a
+// rule was there to remove. The id is an attribute, so the item is found by
+// reading the table; the delete then conditions on the item still being there,
+// and refused is what a rule another caller removed in between means.
+func (s *Store) DeleteRouteInto(ctx context.Context, ws *WriteSet, id int64, refused error) (bool, error) {
+	it, _, ok, err := s.routeByID(ctx, nil, id)
 	if err != nil || !ok {
 		return false, err
 	}
-	return s.tryWriteVia(ctx, tx, nil, objstore.Write{
+	return true, ws.AddGuarded(refused, objstore.Write{
 		Op: objstore.Delete, Entity: Routes, Key: it.Key,
 		Cond: objstore.Cond{Item: objstore.ItemPresent},
 	})
 }
 
-// ReplaceFolderRoutesTx replaces the rules whose target is `folder` or under it
-// with `routes`, on a transaction the CALLER owns — routd's set_routes. An empty
-// folder replaces the whole table, which is the operator/root shape.
+// ReplaceFolderRoutesInto buffers the replacement of the rules whose target is
+// `folder` or under it with `routes` — routd's set_routes. An empty folder
+// replaces the whole table, which is the operator/root shape.
 //
 // EVERY REPLACEMENT RULE IS MINTED A NEW id. set_routes does not edit rules, it
 // replaces them, so a survivor genuinely was created by this call and carrying a
 // replaced rule's handle across would hand `delete_route(id)` an identity nobody
-// wrote. The mints all run BEFORE the first write to tx, because the counter is
-// its own compare-and-swap outside the transaction and a transaction holding the
-// write lock would block it.
+// wrote. The mints all run before anything is buffered, because the counter is
+// its own compare-and-swap.
 //
 // A replacement whose coordinate an existing rule already holds is written as an
 // unconditional Put and that rule is NOT deleted: a batch may name each item
 // once (objstore.ValidateBatch), and a Put replaces the whole item anyway.
-func (s *Store) ReplaceFolderRoutesTx(ctx context.Context, tx *sql.Tx, folder string,
+//
+// THE WHOLE REPLACEMENT IS ONE BATCH, because a routing table half replaced is
+// neither the old one nor the new one and nothing can tell which rules are which.
+// The caller decides the count, so past objstore.MaxBatchActions the batch is
+// REFUSED naming it — a loud answer to an operator who can split the call, where
+// a chunked sweep would leave the table in a state nobody asked for. The largest
+// live instance holds 58 rules in total (2026-09-07).
+func (s *Store) ReplaceFolderRoutesInto(ctx context.Context, ws *WriteSet, folder string,
 	routes []core.Route, addedBy, addedVia string) error {
 	puts := make([]objstore.Write, 0, len(routes))
 	replaced := make(map[string]bool, len(routes))
@@ -571,7 +626,7 @@ func (s *Store) ReplaceFolderRoutesTx(ctx context.Context, tx *sql.Tx, folder st
 			Op: objstore.Put, Entity: Routes, Key: key, Attrs: routeAttrs(r, addedBy, addedVia),
 		})
 	}
-	items, err := s.reads(tx).Query(ctx, objstore.Query{Entity: Routes, Partition: OwnerRoutd})
+	items, err := s.Obj().Query(ctx, objstore.Query{Entity: Routes, Partition: OwnerRoutd})
 	if err != nil {
 		return fmt.Errorf("read routes: %w", err)
 	}
@@ -594,10 +649,6 @@ func (s *Store) ReplaceFolderRoutesTx(ctx context.Context, tx *sql.Tx, folder st
 		}
 		writes = append(writes, objstore.Write{Op: objstore.Delete, Entity: Routes, Key: it.Key})
 	}
-	writes = append(writes, puts...)
-	_, err = applyChunks(ctx, "replace the routes of "+folder, writes,
-		func(ctx context.Context, chunk []objstore.Write) (bool, error) {
-			return s.TryWriteEntitiesInTx(ctx, tx, nil, chunk...)
-		})
-	return err
+	ws.Add(append(writes, puts...)...)
+	return nil
 }

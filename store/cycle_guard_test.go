@@ -107,7 +107,7 @@ func TestEveryEdgeWriterRefusesAGraphWithNoMarker(t *testing.T) {
 			return s.PutGroupRow(core.Group{Folder: "atlas", AddedAt: time.Now()})
 		}},
 		{"RedeemPairing", func(t *testing.T, s *Store) error {
-			raw, err := s.IssuePairingLink(context.Background(), nil, "telegram:user/7", "")
+			raw, err := s.IssuePairingLink(context.Background(), "telegram:user/7", "")
 			if err != nil {
 				t.Fatalf("mint the pairing link: %v", err)
 			}

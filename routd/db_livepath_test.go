@@ -2,6 +2,8 @@ package routd
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"slices"
 	"testing"
 
@@ -71,20 +73,61 @@ func pendingActionRow(d *DB, id string) (PendingAction, bool) {
 	return d.pendingAction(id)
 }
 
-// resolvePending records a verdict the way both production faces do: on a
-// transaction the caller owns, so the conditional write that serializes two
-// verdicts commits with whatever else the caller is writing.
+// resolvePending records a verdict the way both production faces do: onto a
+// write set the caller owns, so the conditional write that serializes two
+// verdicts rides whatever else the caller is writing.
 func resolvePending(d *DB, id, status, reviewer, note string) (PendingAction, error) {
-	tx, err := d.SQL().Begin()
+	ws := &store.WriteSet{}
+	p, err := d.resolvePendingActionInto(ws, id, status, reviewer, note, errVerdictLost(id))
 	if err != nil {
 		return PendingAction{}, err
 	}
-	defer tx.Rollback() //nolint:errcheck
-	p, err := d.resolvePendingActionTx(context.Background(), tx, id, status, reviewer, note)
+	return p, d.store().Apply(context.Background(), ws)
+}
+
+// errVerdictLost is what a refused verdict means, which production declares at
+// its own surface — a 409 on REST, a chat line in steer.
+func errVerdictLost(id string) error {
+	return fmt.Errorf("pending action %q %w (by someone else)", id, ErrPendingResolved)
+}
+
+// resolveHold runs the shared funnel and sends its batch, the way both faces do.
+func resolveHold(d *DB, id, verdict, reviewer, note string, standing bool) (PendingAction, error) {
+	ws := &store.WriteSet{}
+	p, err := d.resolveHoldInto(context.Background(), ws, id, verdict, reviewer, note,
+		standing, errVerdictLost(id))
 	if err != nil {
 		return PendingAction{}, err
 	}
-	return p, tx.Commit()
+	return p, d.store().Apply(context.Background(), ws)
+}
+
+// grantACL sends one grant as its own batch — production buffers it beside the
+// audit row resreg records.
+func grantACL(d *DB, row core.ACLRow) error {
+	ws := &store.WriteSet{}
+	if err := d.grantACLInto(context.Background(), ws, row); err != nil {
+		return err
+	}
+	return d.store().Apply(context.Background(), ws)
+}
+
+// revokeACL sends one revoke as its own batch and reports whether a row went.
+// The write conditions on the row being there, so the REFUSED batch is the
+// not-found answer — which is how production reads it too.
+func revokeACL(d *DB, row core.ACLRow) (bool, error) {
+	gone := errors.New("no matching grant")
+	ws := &store.WriteSet{}
+	if err := d.revokeACLInto(ws, row, gone); err != nil {
+		return false, err
+	}
+	switch err := d.store().Apply(context.Background(), ws); {
+	case errors.Is(err, gone):
+		return false, nil
+	case err != nil:
+		return false, err
+	}
+	return true, nil
 }
 
 // aclRows returns the grants held by one principal, through the reader the

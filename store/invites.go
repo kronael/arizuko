@@ -37,7 +37,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"sort"
@@ -196,25 +195,19 @@ func MintInvite(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Tim
 	}, token, nil
 }
 
-// InsertInviteTx stores a minted invite on a transaction the CALLER owns, so
-// the mutation and the audit row that records it commit together.
+// InsertInviteInto buffers a minted invite on the caller's write set, so the
+// mutation and the audit row that records it ride one batch.
 //
-// The write is create-if-absent and its refusal is an ERROR: a ref is 256 bits
-// of hash, so a collision is not a race to absorb — it means two callers minted
-// the same bearer, and overwriting would revoke the first one's live invite.
-func (s *Store) InsertInviteTx(ctx context.Context, tx *sql.Tx, inv Invite) error {
+// The write is create-if-absent and its refusal is an ERROR, which is what
+// refused says: a ref is 256 bits of hash, so a collision is not a race to
+// absorb — it means two callers minted the same bearer, and overwriting would
+// revoke the first one's live invite.
+func (s *Store) InsertInviteInto(ws *WriteSet, inv Invite, refused error) error {
 	w, err := inviteCreateWrite(inv)
 	if err != nil {
 		return err
 	}
-	stored, err := s.TryWriteEntitiesInTx(ctx, tx, nil, w)
-	if err != nil {
-		return fmt.Errorf("store the invite: %w", err)
-	}
-	if !stored {
-		return errInviteRefTaken(inv.Ref)
-	}
-	return nil
+	return ws.AddGuarded(refused, w)
 }
 
 // inviteCreateWrite renders a minted invite as the write that stores it, for
@@ -324,24 +317,18 @@ func (s *Store) ListInvites(forIssuer string) ([]Invite, error) {
 	return out, nil
 }
 
-// RevokeInviteByRefTx deletes the invite identified by ref (TokenRef) on a
-// transaction the CALLER owns — ref IS the coordinate (I1), so this is a direct
-// delete, no resolve step. Unknown ref → ErrInviteRefUnknown, so a caller cannot
-// mistake a no-op for a revocation; the condition is what the RowsAffected check
-// it replaces was.
-func (s *Store) RevokeInviteByRefTx(ctx context.Context, tx *sql.Tx, ref string) error {
+// RevokeInviteByRefInto buffers the deletion of the invite identified by ref
+// (TokenRef) on the caller's write set — ref IS the coordinate (I1), so this is
+// a direct delete, no resolve step. The delete is conditioned on the invite
+// being there, so a caller cannot mistake a no-op for a revocation, and refused
+// is the "no such ref" the surface answers; the condition is what the
+// RowsAffected check it replaces was.
+func (s *Store) RevokeInviteByRefInto(ws *WriteSet, ref string, refused error) error {
 	w, err := inviteRevokeWrite(ref)
 	if err != nil {
 		return err
 	}
-	revoked, err := s.TryWriteEntitiesInTx(ctx, tx, nil, w)
-	if err != nil {
-		return fmt.Errorf("revoke invite %s: %w", ref, err)
-	}
-	if !revoked {
-		return ErrInviteRefUnknown
-	}
-	return nil
+	return ws.AddGuarded(refused, w)
 }
 
 // inviteRevokeWrite renders the revocation of one ref, for both sinks that

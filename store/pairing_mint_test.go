@@ -12,32 +12,29 @@ import (
 	"github.com/kronael/arizuko/objstore"
 )
 
-// IssuePairingLink is the one pairing minter, and both shapes of caller reach
-// it: routd mints on resreg's mutation *sql.Tx, onbod's greeting on the raw
-// *sql.DB handle it already writes acl_membership through. If the two ever drift
-// into separate minters, one of these stops compiling.
-func TestIssuePairingLink_MintsFromBothTxAndDB(t *testing.T) {
+// pairingMint is the one pairing minter, and both shapes of caller reach it:
+// routd buffers its token on resreg's write set, onbod's greeting sends a batch
+// of its own. If the two ever drift into separate minters, one of these stops
+// compiling.
+func TestIssuePairingLink_MintsIntoBothBatchAndSet(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 	seedFolder(t, s, "acme")
 
-	onDB, err := s.IssuePairingLink(context.Background(), nil, "telegram:user/1", "acme")
+	alone, err := s.IssuePairingLink(context.Background(), "telegram:user/1", "acme")
 	if err != nil {
-		t.Fatalf("mint on *sql.DB: %v", err)
+		t.Fatalf("mint in a batch of its own: %v", err)
 	}
-	tx, err := s.db.Begin()
+	ws := &WriteSet{}
+	buffered, err := s.IssuePairingLinkInto(ws, "telegram:user/2", "acme")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("mint onto a write set: %v", err)
 	}
-	onTx, err := s.IssuePairingLink(context.Background(), tx, "telegram:user/2", "acme")
-	if err != nil {
-		t.Fatalf("mint on *sql.Tx: %v", err)
-	}
-	if err := tx.Commit(); err != nil {
+	if err := s.Apply(context.Background(), ws); err != nil {
 		t.Fatal(err)
 	}
 
-	for raw, want := range map[string]string{onDB: "telegram:user/1", onTx: "telegram:user/2"} {
+	for raw, want := range map[string]string{alone: "telegram:user/1", buffered: "telegram:user/2"} {
 		got, err := s.PeekPairing(raw)
 		if err != nil || got != want {
 			t.Errorf("PeekPairing = (%q, %v), want (%q, nil)", got, err, want)
@@ -52,7 +49,7 @@ func TestIssuePairingLink_StoresOnlyTheHash(t *testing.T) {
 	defer s.Close()
 	seedFolder(t, s, "acme")
 
-	raw, err := s.IssuePairingLink(context.Background(), nil, "telegram:user/1", "acme")
+	raw, err := s.IssuePairingLink(context.Background(), "telegram:user/1", "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +69,7 @@ func TestIssuePairingLink_EmptyOwnerFolderStoresNull(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 
-	raw, err := s.IssuePairingLink(context.Background(), nil, "telegram:user/1", "")
+	raw, err := s.IssuePairingLink(context.Background(), "telegram:user/1", "")
 	if err != nil {
 		t.Fatalf("mint with no owner folder: %v", err)
 	}
@@ -93,7 +90,7 @@ func TestIssuePairingLink_NullOwnerStaysHiddenFromDelivery(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 
-	raw, err := s.IssuePairingLink(context.Background(), nil, "telegram:user/1", "")
+	raw, err := s.IssuePairingLink(context.Background(), "telegram:user/1", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +111,7 @@ func TestIssuePairingLink_RejectsEmptyJID(t *testing.T) {
 	// reject is the jid.
 	seedFolder(t, s, "acme")
 
-	if _, err := s.IssuePairingLink(context.Background(), nil, "", "acme"); err == nil {
+	if _, err := s.IssuePairingLink(context.Background(), "", "acme"); err == nil {
 		t.Fatal("minting a pairing for no jid must fail")
 	}
 	n, err := s.CountRouteTokens(context.Background())

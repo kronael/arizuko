@@ -420,7 +420,7 @@ func promptUnprompted(xdb, obdb *sql.DB, cfg config) {
 		// user: a mint failure leaves the row unclaimed for the next tick, while
 		// a lost claim race leaves a token nobody was ever told, which expires in
 		// PairingTTL. Claiming first would stamp prompted_at with no link sent.
-		token, err := store.New(xdb).IssuePairingLink(context.Background(), nil, jid, "")
+		token, err := store.New(xdb).IssuePairingLink(context.Background(), jid, "")
 		if err != nil {
 			slog.Error("promptUnprompted mint pairing link", "jid", jid, "err", err)
 			continue
@@ -1534,20 +1534,31 @@ const (
 // content means — two rules that dispatch identically are one rule, and a second
 // id for it would hand delete_route(id) a handle that removes somebody else's.
 func insertRoute(db *sql.DB, match, target, sub, via string) error {
-	_, err := store.New(db).PutRouteTx(context.Background(), nil,
-		core.Route{Seq: 0, Match: match, Target: target}, sub, via)
-	return err
+	ctx := context.Background()
+	st := store.New(db)
+	ws := &store.WriteSet{}
+	_, err := st.PutRouteInto(ctx, ws, core.Route{Seq: 0, Match: match, Target: target},
+		sub, via, fmt.Errorf("route %s → %s was created under this call", match, target))
+	if err != nil {
+		return err
+	}
+	return st.Apply(ctx, ws)
 }
 
 // deleteRoute removes one rule and NO audit row: onbod's route writers are the
 // onboarding form's two acts, and the row that records them is the onboarding
 // state, not an audit_log entry the other writers of this table emit.
 //
-// It opens no transaction, because one conditional write is already
-// all-or-nothing and there is no second write for a transaction to hold it with.
+// A rule that is not there is not an error — the form is the only caller, and it
+// deletes a rule it just listed.
 func deleteRoute(ctx context.Context, st *store.Store, id int64) error {
-	_, err := st.DeleteRouteTx(ctx, nil, id)
-	return err
+	ws := &store.WriteSet{}
+	found, err := st.DeleteRouteInto(ctx, ws, id,
+		fmt.Errorf("route %d was removed under this call", id))
+	if err != nil || !found {
+		return err
+	}
+	return st.Apply(ctx, ws)
 }
 
 func handleAddRoute(w http.ResponseWriter, r *http.Request,

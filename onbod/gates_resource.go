@@ -3,7 +3,7 @@ package main
 // gates_resource.go is the /v1/gates REST face folded onto the shared resreg
 // handler (spec 5/16). It retires onbod's three hand-rolled gate handlers
 // (handleGate{List,Put,Delete}); resreg owns the plumbing (handler dispatch +
-// one tx wrapping the mutation AND its audit_log row), onbod owns the auth
+// one batch carrying the mutation AND its audit_log row), onbod owns the auth
 // POLICY via the injected REST Caller + Gate. onbod has NO agent socket, so this
 // is REST-only — there is no MCP twin to share the handler with; "shared" here
 // means the resreg engine path instead of raw mux handlers.
@@ -14,7 +14,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -42,7 +41,7 @@ func (a *admin) mountGates(mux *http.ServeMux) {
 // gatesResource is the serving resreg.Resource for onboarding_gates. Endpoints
 // come from resreg/resources (the same list the OpenAPI doc reads, so served
 // routes and doc cannot drift). Store is a store.Store over onbod.db so
-// resreg.invoke opens the mutation+audit tx there. Authz is a no-op; all policy
+// resreg.invoke sends the mutation+audit batch there. Authz is a no-op; all policy
 // lives in the injected Gate.
 func (a *admin) gatesResource() resreg.Resource {
 	r := resreg.Mount(resources.OnboardingGatesName)
@@ -92,12 +91,10 @@ func (a *admin) gatesRESTGate(x resreg.Execution, _ string, _ map[string]string)
 }
 
 // gatesHandler runs list/update(upsert)/delete against onbod.db. The mutating
-// verbs write on resreg's tx (x.Tx) via the store's *Tx methods — NOT its
-// audited ones — so the mutation and its single audit_log row land in
-// resreg.invoke's one tx (calling store.PutGate/EnableGate/DeleteGate here would
-// open a second tx and double-audit). The gates are objstore items and the
-// audit row is a SQL insert, and both ride that same transaction
-// (objstore/sqlstore.GuardedBatchInTx).
+// verbs BUFFER their write on resreg's set (x.Writes) via the store's *Into
+// methods — NOT its audited ones — so the mutation and its single audit_log row
+// ride resreg.invoke's one batch (calling store.PutGate/EnableGate/DeleteGate
+// here would send a batch of its own and double-audit).
 func (a *admin) gatesHandler(ctx context.Context, x resreg.Execution) (any, error) {
 	st := store.New(a.db)
 	switch x.Action {
@@ -120,23 +117,21 @@ func (a *admin) gatesHandler(ctx context.Context, x resreg.Execution) (any, erro
 		// Tri-state upsert (preserved from the retired handleGatePut): a body with
 		// limit_per_day>0 upserts the limit; enabled present flips the flag; enabled
 		// ABSENT leaves enablement untouched; both does both. resreg decodes the JSON
-		// body into Args, so an absent "enabled" key is simply not in the map.
-		if limit := argInt(x.Args, "limit_per_day"); limit > 0 {
-			if err := st.PutGateTx(ctx, x.Tx, gate, limit); err != nil {
-				return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
-			}
+		// body into Args, so an absent "enabled" key is simply not in the map. Both
+		// halves address ONE gate and a batch may name each item once, so the store
+		// renders them as one write.
+		var enabled *bool
+		if flag, ok := x.Args["enabled"].(bool); ok {
+			enabled = &flag
 		}
-		if enabled, ok := x.Args["enabled"].(bool); ok {
-			// The Update requires the gate to exist, so its refusal is the only
-			// "no such gate" this surface gets. Dropping it answered 200 {"ok":true}
-			// over zero rows (BUGS L268).
-			switch err := st.EnableGateTx(ctx, x.Tx, gate, enabled); {
-			case errors.Is(err, store.ErrRefused):
-				return nil, resreg.Errorf(http.StatusNotFound,
-					"no gate %q: send limit_per_day to open one", gate)
-			case err != nil:
-				return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
-			}
+		// A flip on its own requires the gate to exist, so its refusal is the only
+		// "no such gate" this surface gets — declared here because it reaches the
+		// caller from the batch. Dropping it answered 200 {"ok":true} over zero
+		// rows (BUGS L268).
+		if err := st.SetGateInto(x.Writes, gate, argInt(x.Args, "limit_per_day"), enabled,
+			resreg.Errorf(http.StatusNotFound,
+				"no gate %q: send limit_per_day to open one", gate)); err != nil {
+			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
 		slog.Info("gate set", "gate", gate)
 		return map[string]bool{"ok": true}, nil
@@ -146,7 +141,7 @@ func (a *admin) gatesHandler(ctx context.Context, x resreg.Execution) (any, erro
 		if gate == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "gate required")
 		}
-		if err := st.DeleteGateTx(ctx, x.Tx, gate); err != nil {
+		if err := st.DeleteGateInto(x.Writes, gate); err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
 		slog.Info("gate deleted", "gate", gate)

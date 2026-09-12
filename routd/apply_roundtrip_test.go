@@ -12,11 +12,13 @@ package routd
 import (
 	"bytes"
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
+	"github.com/kronael/arizuko/store"
 )
 
 // routdManifest is one subsystem's export rendered the way a manifest is.
@@ -61,16 +63,13 @@ func TestApply_RoundTripsEveryColumnItRebuilds(t *testing.T) {
 	// A route with the attribution both stamping writers record, and a held call
 	// with the notice it waits on — each written by the face production writes it
 	// with.
-	tx, err := db.SQL().Begin()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.store().PutRouteTx(ctx, tx, core.Route{
+	ws := &store.WriteSet{}
+	if _, err := db.store().PutRouteInto(ctx, ws, core.Route{
 		Seq: 0, Match: "platform=telegram", Target: "atlas/main",
-	}, "google:alice", "chat"); err != nil {
+	}, "google:alice", "chat", errors.New("the rule was created under this call")); err != nil {
 		t.Fatal(err)
 	}
-	if err := tx.Commit(); err != nil {
+	if err := db.store().Apply(ctx, ws); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.PutPendingAction(PendingAction{

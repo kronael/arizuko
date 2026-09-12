@@ -26,7 +26,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"slices"
 	"strings"
@@ -249,16 +248,22 @@ func folderAncestry(folder string) []string {
 	return out
 }
 
-// AddNetworkRuleTx appends one rule create-if-absent on a transaction the CALLER
-// owns, for routd's agent-facing `network_allow`: the rule and resreg.invoke's
-// single audit_log row commit together, and AddNetworkRule would open a second
-// transaction on the same database and record the act twice.
+// AddNetworkRuleInto buffers one rule on the caller's write set, for routd's
+// agent-facing `network_allow`: the rule rides the batch that carries
+// resreg.invoke's single audit_log row, and AddNetworkRule would send a batch of
+// its own and record the act twice.
+//
+// Every attribute is an Init, which states the idempotence in the write: a host
+// already allowed keeps the instant and the author of the FIRST grant. It is a
+// Merge rather than a guarded Put so it has nothing to refuse — allowing a host
+// twice is the state the caller asked for, not a race, and a write that refused
+// would take the audit row beside it down as well.
 //
 // It validates and normalizes through the same match grammar AddNetworkRule
 // does, so a rule reaching the table through either writer is the same string:
 // one added as *.example.com is removable as example.com whichever surface wrote
 // it.
-func (s *Store) AddNetworkRuleTx(ctx context.Context, tx *sql.Tx, folder, target, by string) error {
+func (s *Store) AddNetworkRuleInto(ws *WriteSet, folder, target, by string) error {
 	if target != "*" {
 		if err := match.ValidEntry(target); err != nil {
 			return fmt.Errorf("network rule: %w", err)
@@ -269,21 +274,18 @@ func (s *Store) AddNetworkRuleTx(ctx context.Context, tx *sql.Tx, folder, target
 	if err != nil {
 		return err
 	}
-	attrs := map[string]string{attrNetCreatedAt: core.NowTS()}
-	setAttr(attrs, attrNetCreatedBy, by)
-	// A refusal is the host already being allowed, which is the state the caller
-	// asked for, and keeps the instant and the author of the first grant.
-	_, err = s.TryWriteEntitiesInTx(ctx, tx, nil, objstore.Write{
-		Op: objstore.Put, Entity: NetworkRules, Key: key, Attrs: attrs,
-		Cond: objstore.Cond{Item: objstore.ItemAbsent},
+	born := map[string]string{attrNetCreatedAt: core.NowTS()}
+	setAttr(born, attrNetCreatedBy, by)
+	ws.Add(objstore.Write{
+		Op: objstore.Merge, Entity: NetworkRules, Key: key, Init: born,
 	})
-	return err
+	return nil
 }
 
-// RemoveNetworkRuleTx drops one rule on a transaction the caller owns. A rule
-// that is not there is not an error — closing egress that is already closed is
-// the outcome the caller asked for.
-func (s *Store) RemoveNetworkRuleTx(ctx context.Context, tx *sql.Tx, folder, target string) error {
+// RemoveNetworkRuleInto buffers one rule's removal on the caller's write set. A
+// rule that is not there is not an error — closing egress that is already closed
+// is the outcome the caller asked for.
+func (s *Store) RemoveNetworkRuleInto(ws *WriteSet, folder, target string) error {
 	if target != "*" {
 		target = match.NormalizeEntry(target)
 	}
@@ -291,8 +293,6 @@ func (s *Store) RemoveNetworkRuleTx(ctx context.Context, tx *sql.Tx, folder, tar
 	if err != nil {
 		return err
 	}
-	err = s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
-		Op: objstore.Delete, Entity: NetworkRules, Key: key,
-	})
-	return err
+	ws.Add(objstore.Write{Op: objstore.Delete, Entity: NetworkRules, Key: key})
+	return nil
 }

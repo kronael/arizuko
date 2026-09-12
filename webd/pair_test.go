@@ -25,7 +25,7 @@ import (
 // redeems.
 func seedPairingToken(t *testing.T, st *store.Store, jid, folder string, created time.Time) string {
 	t.Helper()
-	raw, err := st.IssuePairingLink(t.Context(), nil, jid, folder)
+	raw, err := st.IssuePairingLink(t.Context(), jid, folder)
 	if err != nil {
 		t.Fatalf("seed pairing token: %v", err)
 	}

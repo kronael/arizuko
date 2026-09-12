@@ -30,7 +30,6 @@ package routd
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -303,10 +302,11 @@ var (
 	ErrPendingForbidden = errors.New("not permitted")
 )
 
-// resolvePendingActionTx records one verdict on a transaction the CALLER owns —
-// the chat command's and the REST face's, which differ only in whose transaction
-// it is.
-func (d *DB) resolvePendingActionTx(ctx context.Context, tx *sql.Tx, id, status, reviewer, note string) (PendingAction, error) {
+// resolvePendingActionInto buffers one verdict on the caller's write set — the
+// chat command's and the REST face's, which differ only in whose set it is, and
+// in what a LOST race is called there (lost).
+func (d *DB) resolvePendingActionInto(ws *store.WriteSet, id, status, reviewer, note string,
+	lost error) (PendingAction, error) {
 	if status != PendingApproved && status != PendingRejected {
 		return PendingAction{}, fmt.Errorf("verdict must be approved or rejected, got %q", status)
 	}
@@ -326,8 +326,9 @@ func (d *DB) resolvePendingActionTx(ctx context.Context, tx *sql.Tx, id, status,
 	// `status = held` CONDITION is what actually serializes them, so its refusal
 	// IS the verdict: without it, both callers were told "approved", two
 	// resolution messages were enqueued, and the agent was asked twice to
-	// re-issue one call.
-	won, err := d.store().TryWriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+	// re-issue one call. The loser learns that from the BATCH, which is why the
+	// answer travels with the write instead of being returned here.
+	if err := ws.AddGuarded(lost, objstore.Write{
 		Op: objstore.Update, Entity: store.PendingActions, Key: key,
 		Attrs: map[string]string{
 			store.AttrPendStatus:       status,
@@ -338,12 +339,8 @@ func (d *DB) resolvePendingActionTx(ctx context.Context, tx *sql.Tx, id, status,
 		Cond: objstore.Cond{Where: []objstore.Cmp{
 			{Attr: store.AttrPendStatus, Op: objstore.Eq, Value: PendingHeld},
 		}},
-	})
-	if err != nil {
+	}); err != nil {
 		return PendingAction{}, err
-	}
-	if !won {
-		return PendingAction{}, fmt.Errorf("pending action %q %w (by someone else)", id, ErrPendingResolved)
 	}
 	cur.Status, cur.ReviewedBy, cur.ReviewedAt, cur.ReviewerNote = status, reviewer, now, note
 	return cur, nil
@@ -370,9 +367,10 @@ func skipApprovalRow(p PendingAction, reviewer string) core.ACLRow {
 	}
 }
 
-// resolveHoldTx is the one funnel both resolution faces run — chat /approve and REST
-// POST /v1/pending_actions/{id}/approve|reject. The verdict, and the skip-approval
-// rule an `always` adds, commit in ONE transaction.
+// resolveHoldInto is the one funnel both resolution faces run — chat /approve and
+// REST POST /v1/pending_actions/{id}/approve|reject. The verdict, and the
+// skip-approval rule an `always` adds, go into the caller's write set so ONE
+// batch carries them.
 //
 // It tells nobody to run anything. The agent's call is suspended on this row right
 // now, so the waiter that suspended it sees the verdict and runs the call itself.
@@ -381,8 +379,8 @@ func skipApprovalRow(p PendingAction, reviewer string) core.ACLRow {
 // write the skip-approval row so the next call of this shape runs inline. It is
 // NOT a third status — pending_actions keeps its states and the standing answer
 // lives in acl, where every other standing answer already lives — and the row
-// commits in THIS transaction, so a crash cannot leave a call approved with no
-// rule or a rule with no approved call.
+// rides THIS batch, so a crash cannot leave a call approved with no rule or a
+// rule with no approved call.
 //
 // `never` is deliberately absent. Undoing it means deleting the tool deny it
 // also writes, and acl rows carry no verdict identity, so a revoke could not
@@ -399,7 +397,8 @@ func skipApprovalRow(p PendingAction, reviewer string) core.ACLRow {
 // auth.Authorize is the evaluator, so a deny row is unconfined by scope
 // specificity and still wins: an operator can refuse a folder's own admin the
 // verdict, and no narrower allow restores it.
-func (d *DB) resolveHoldTx(ctx context.Context, tx *sql.Tx, id, verdict, reviewer, note string, standing bool) (PendingAction, error) {
+func (d *DB) resolveHoldInto(ctx context.Context, ws *store.WriteSet, id, verdict, reviewer,
+	note string, standing bool, lost error) (PendingAction, error) {
 	// The folder comes off the ROW, never off the reviewer's chat or the
 	// transport: the call names the folder it was held in, and that is what the
 	// verdict is authorized against. The read is advisory — the conditional
@@ -413,7 +412,7 @@ func (d *DB) resolveHoldTx(ctx context.Context, tx *sql.Tx, id, verdict, reviewe
 			"%w: answering a held call in %q needs an admin grant covering that folder",
 			ErrPendingForbidden, held.GroupFolder)
 	}
-	p, err := d.resolvePendingActionTx(ctx, tx, id, verdict, reviewer, note)
+	p, err := d.resolvePendingActionInto(ws, id, verdict, reviewer, note, lost)
 	if err != nil {
 		return PendingAction{}, err
 	}
@@ -430,7 +429,9 @@ func (d *DB) resolveHoldTx(ctx context.Context, tx *sql.Tx, id, verdict, reviewe
 		return PendingAction{}, fmt.Errorf(
 			"cannot make this a standing answer: the held row names no caller, tool or folder")
 	}
-	if err := d.grantACLTx(ctx, tx, skipApprovalRow(p, reviewer)); err != nil {
+	// The rule is a Merge and refuses nothing, so it rides beside the verdict's
+	// conditional write without a second meaning for one refusal bit.
+	if err := d.grantACLInto(ctx, ws, skipApprovalRow(p, reviewer)); err != nil {
 		return PendingAction{}, fmt.Errorf("record the skip-approval rule: %w", err)
 	}
 	return p, nil

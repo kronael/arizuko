@@ -126,23 +126,15 @@ func TestConcurrentRouteMutationNeverSplitsAcrossSnapshots(t *testing.T) {
 	}
 }
 
-// churnRoute adds or removes one route through the statements /v1/proxyd_routes
-// itself runs, each in its own committed transaction. A single transaction that
-// deleted and re-inserted would never let a concurrent reader see the row
-// absent, and the absent read is half of what this race needs.
+// churnRoute adds or removes one route through the writes /v1/proxyd_routes
+// itself runs, each as its own committed batch. One batch that deleted and
+// re-inserted would never let a concurrent reader see the row absent, and the
+// absent read is half of what this race needs.
 func churnRoute(db *sql.DB, r store.ProxydRoute, add bool) {
-	tx, err := db.Begin()
-	if err != nil {
-		return
-	}
-	defer tx.Rollback()
+	st := store.New(db)
 	if add {
-		err = insertProxydRouteTx(context.Background(), store.New(db), tx, r)
-	} else {
-		_, err = deleteProxydRouteTx(context.Background(), store.New(db), tx, r.Path)
-	}
-	if err != nil {
+		_ = insertProxydRoute(context.Background(), st, r)
 		return
 	}
-	_ = tx.Commit()
+	_, _ = st.DeleteProxydRoute(context.Background(), r.Path)
 }

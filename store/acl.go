@@ -35,7 +35,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"slices"
 	"strings"
@@ -396,39 +395,41 @@ func aclOrder(rows []core.ACLRow) {
 	})
 }
 
-// PutACLRowTx grants a row create-if-absent on a transaction the CALLER owns,
-// for routd's `/v1/acl` face: the grant and resreg.invoke's single audit_log row
-// commit together, and AddACLRow would open a second transaction on the same
-// database and record the act twice.
+// PutACLRowInto buffers a grant on the caller's write set, for routd's `/v1/acl`
+// face: the grant rides the batch that carries resreg.invoke's single audit_log
+// row, and AddACLRow would send a batch of its own and record the act twice.
 //
 // It renders through aclPut, so the row this writes carries the same coordinate
 // and the same three attributes the audited writer does. A grant with no
 // `granted_at` is stamped here rather than left off — the one omission an
 // operator surface reads as "nobody granted this".
-func (s *Store) PutACLRowTx(ctx context.Context, tx *sql.Tx, row core.ACLRow) error {
+//
+// aclPut is a Merge, so re-granting a row that is already there leaves it
+// exactly as it is and REFUSES NOTHING — which is what lets the grant ride
+// beside a write whose own refusal is an answer.
+func (s *Store) PutACLRowInto(ws *WriteSet, row core.ACLRow) error {
 	w, err := aclPut(aclDefaults(row))
 	if err != nil {
 		return err
 	}
-	// A refusal is the grant already being there (aclPut).
-	_, err = s.TryWriteEntitiesInTx(ctx, tx, nil, w)
-	return err
+	ws.Add(w)
+	return nil
 }
 
-// RemoveACLRowTx revokes ONE row on a transaction the caller owns and reports
-// whether a grant went.
+// RemoveACLRowInto buffers the revocation of ONE row on the caller's write set,
+// with the error its refusal means.
 //
 // The answer is load-bearing: a revoke is the one operation where "did nothing"
 // must never read as success, so the delete is conditioned on the item being
 // there and the refusal IS the not-found answer. The six coordinate fields
 // address the row exactly, `params` and `predicate` included — a revoke that
 // matched on fewer would remove a wider grant than the caller named (BUGS L79).
-func (s *Store) RemoveACLRowTx(ctx context.Context, tx *sql.Tx, row core.ACLRow) (bool, error) {
+func (s *Store) RemoveACLRowInto(ws *WriteSet, row core.ACLRow, refused error) error {
 	key, err := aclKey(aclDefaults(row))
 	if err != nil {
-		return false, err
+		return err
 	}
-	return s.TryWriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+	return ws.AddGuarded(refused, objstore.Write{
 		Op: objstore.Delete, Entity: ACL, Key: key,
 		Cond: objstore.Cond{Item: objstore.ItemPresent},
 	})

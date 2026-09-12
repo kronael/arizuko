@@ -9,16 +9,16 @@
 //     every call to one principal at registration time.
 //   - Canonical ACL gate. Resource.Authz returns (scope, params) and the adapter
 //     calls auth.Authorize per specs/5/32. No parallel scope machinery.
-//   - Tx-bound audit. A state-changing action runs inside one SQL transaction:
-//     the handler works via Execution.Tx and the adapter writes the audit_log
-//     row into the SAME tx, so the row never outlives the mutation.
-//   - Forwarder pattern. Resources with Store nil skip the tx/audit dance — the
-//     downstream daemon writes the row.
+//   - Batched audit. A state-changing action HANDS ITS WRITES OVER rather than
+//     performing them: the handler buffers them on Execution.Writes and the
+//     adapter sends them in one objstore batch with the audit_log row, so the
+//     row never outlives the mutation and neither needs a transaction.
+//   - Forwarder pattern. Resources with Store nil skip the batch/audit dance —
+//     the downstream daemon writes the row.
 package resreg
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -37,7 +37,6 @@ import (
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/objstore"
-	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -162,23 +161,31 @@ func (a Args) Bool(key string) bool {
 }
 
 // Execution carries everything a handler needs to act + emit audit.
-// The adapter constructs it once per request; handlers honour Tx for
-// mutating actions on store-backed resources and ignore it otherwise.
+// The adapter constructs it once per request; handlers buffer their writes on
+// Writes for mutating actions on store-backed resources and ignore it otherwise.
 type Execution struct {
 	Caller    Caller
 	Action    Action
 	Resource  string
 	Args      Args
-	TurnID    string  // X-Turn-Id header (REST) or _meta.turn_id (MCP)
-	RequestID string  // X-Request-Id (REST) or _meta.request_id (MCP)
-	SourceIP  string  // REST only
-	Surface   string  // "rest" | "mcp"
-	Tx        *sql.Tx // non-nil only when Resource.Store != nil and action mutates
+	TurnID    string // X-Turn-Id header (REST) or _meta.turn_id (MCP)
+	RequestID string // X-Request-Id (REST) or _meta.request_id (MCP)
+	SourceIP  string // REST only
+	Surface   string // "rest" | "mcp"
+	// Writes is the batch the mutation rides. Non-nil only when
+	// Resource.Store != nil and the action mutates; invoke sends it with the
+	// audit_log row after the handler returns.
+	Writes *store.WriteSet
 }
 
-// Handler is the single per-resource entry point. The adapter dispatches
-// on Execution.Action; the handler runs its mutation inside Execution.Tx
-// when Tx is non-nil.
+// Handler is the single per-resource entry point. The adapter dispatches on
+// Execution.Action; a mutating handler DESCRIBES its writes onto
+// Execution.Writes instead of performing them, so the adapter can send them in
+// one batch with the row that records the call.
+//
+// It may READ freely before it decides — a read takes no locks — but it must
+// never read a value its own buffered writes produce, because none of them has
+// happened when it returns.
 type Handler func(ctx context.Context, x Execution) (any, error)
 
 // Endpoint declares one REST face of an action. Path is a stdlib-mux pattern;
@@ -652,9 +659,9 @@ func MCPTools(srv *mcpserver.MCPServer, r Resource, callerFor CallerFromMCPFunc,
 	}
 }
 
-// invoke is the per-call core: authz → (optional tx) → handler →
-// audit → commit/rollback. Shared between REST and MCP adapters so
-// the path is provably one-rendered.
+// invoke is the per-call core: authz → gate → handler → one batch carrying the
+// handler's writes and the audit_log row. Shared between REST and MCP adapters
+// so the path is provably one-rendered.
 func invoke(ctx context.Context, r Resource, x Execution) (any, int, error) {
 	start := time.Now()
 	forward := r.Store == nil // forwarder: downstream daemon logs
@@ -664,7 +671,7 @@ func invoke(ctx context.Context, r Resource, x Execution) (any, int, error) {
 		var err error
 		scope, params, err = r.Authz(x.Caller, x.Action, x.Args)
 		if err != nil {
-			emitAudit(ctx, nil, nil, x, scope, params, outcomeFor(err), err.Error(), start, forward)
+			emitAudit(ctx, x, scope, params, outcomeFor(err), err.Error(), start, forward)
 			return nil, errStatus(err), err
 		}
 	}
@@ -674,41 +681,36 @@ func invoke(ctx context.Context, r Resource, x Execution) (any, int, error) {
 			gate = r.defaultGate
 		}
 		if gerr := gate(x, scope, params); gerr != nil {
-			emitAudit(ctx, nil, nil, x, scope, params, audit.OutcomeDenied, gerr.Error(), start, false)
+			emitAudit(ctx, x, scope, params, audit.OutcomeDenied, gerr.Error(), start, false)
 			return nil, errStatus(gerr), gerr
 		}
 	}
 	if !x.Action.Mutates() || forward {
 		res, herr := r.Handler(ctx, x)
 		if herr != nil {
-			emitAudit(ctx, nil, nil, x, scope, params, audit.OutcomeError, herr.Error(), start, forward)
+			emitAudit(ctx, x, scope, params, audit.OutcomeError, herr.Error(), start, forward)
 			return nil, errStatus(herr), herr
 		}
-		emitAudit(ctx, nil, nil, x, scope, params, audit.OutcomeOK, "", start, forward)
+		emitAudit(ctx, x, scope, params, audit.OutcomeOK, "", start, forward)
 		return res, 0, nil
 	}
-	tx, txErr := r.Store.DB().BeginTx(ctx, nil)
-	if txErr != nil {
-		emitAudit(ctx, nil, nil, x, scope, params, audit.OutcomeError, txErr.Error(), start, false)
-		return nil, http.StatusInternalServerError, Errorf(http.StatusInternalServerError, "begin tx: %v", txErr)
-	}
-	x.Tx = tx
+	x.Writes = &store.WriteSet{}
 	res, herr := r.Handler(ctx, x)
 	if herr != nil {
-		_ = tx.Rollback()
-		emitAudit(ctx, nil, nil, x, scope, params, audit.OutcomeError, herr.Error(), start, false)
+		// Nothing was written — the handler only described writes — so the row
+		// that records the attempt goes in alone.
+		emitAudit(ctx, x, scope, params, audit.OutcomeError, herr.Error(), start, false)
 		return nil, errStatus(herr), herr
 	}
-	if aerr := emitAudit(ctx, sqlstore.New(r.Store.DB()), tx, x, scope, params, audit.OutcomeOK, "", start, false); aerr != nil {
-		_ = tx.Rollback()
-		slog.Error("resreg: audit emit failed; mutation rolled back",
-			"resource", r.Name, "action", x.Action, "err", aerr)
-		return nil, http.StatusInternalServerError, Errorf(http.StatusInternalServerError, "audit emit: %v", aerr)
+	// One batch: every write the handler decided on plus the row that records the
+	// call. A refused or failed batch wrote NOTHING, so the failure is recorded
+	// the same way a handler's error is — alone, and after the fact.
+	ev, rec := auditRow(x, scope, params, start)
+	if aerr := r.Store.Apply(ctx, x.Writes, rec); aerr != nil {
+		emitAudit(ctx, x, scope, params, audit.OutcomeError, aerr.Error(), start, false)
+		return nil, errStatus(aerr), aerr
 	}
-	if cerr := tx.Commit(); cerr != nil {
-		emitAudit(ctx, nil, nil, x, scope, params, audit.OutcomeError, cerr.Error(), start, false)
-		return nil, http.StatusInternalServerError, Errorf(http.StatusInternalServerError, "commit: %v", cerr)
-	}
+	logCall(ev)
 	return res, 0, nil
 }
 
@@ -731,29 +733,43 @@ func authCaller(c Caller) auth.Caller {
 	return auth.Caller{Principal: c.Sub, Claims: c.Claims}
 }
 
-// emitAudit writes one audit_log row (via tx when non-nil, via the
-// package-level DB otherwise) AND a slog line. Read-only OK outcomes
-// skip the DB row (volume); denials and errors always land in the
-// table so privilege-escalation forensics work. Forwarders skip the
-// DB row entirely — the downstream daemon writes it. Returns the
-// EmitInTx error so the caller can roll back the mutation if audit
-// insert fails.
-func emitAudit(ctx context.Context, sink audit.TxSink, tx *sql.Tx, x Execution, scope string, params map[string]string, outcome, errMsg string, start time.Time, forwarder bool) error {
+// auditRow renders the row that records a SUCCESSFUL mutation. It PRODUCES the
+// write rather than performing it, so the row rides the same batch as the
+// mutation it records — audit.WriteFor is the single renderer of the item, here
+// as it is for store.
+//
+// The slog line is NOT written here. The batch has not been sent yet, and one
+// that is refused must not leave an "ok" line standing in front of the error
+// that follows it; the caller logs the event it gets back once the batch lands.
+func auditRow(x Execution, scope string, params map[string]string,
+	start time.Time) (audit.Event, objstore.Write) {
+	e := buildEvent(x, scope, params, audit.OutcomeOK, "", start)
+	_, w := audit.WriteFor(e)
+	return e, w
+}
+
+// emitAudit records an event that rides NO mutation — a denial, a handler's
+// error, a refused batch, a read, a forwarder's call — AND writes the slog line.
+// Read-only OK outcomes skip the row (volume); denials and errors always land in
+// the table so privilege-escalation forensics work. Forwarders skip the row
+// entirely — the downstream daemon writes it.
+func emitAudit(ctx context.Context, x Execution, scope string, params map[string]string, outcome, errMsg string, start time.Time, forwarder bool) {
 	e := buildEvent(x, scope, params, outcome, errMsg, start)
+	logCall(e)
+	if forwarder {
+		return
+	}
+	if !x.Action.Mutates() && outcome == audit.OutcomeOK {
+		return
+	}
+	audit.Emit(ctx, e)
+}
+
+// logCall is the slog line every call gets, whichever sink its row takes.
+func logCall(e audit.Event) {
 	slog.Info("resreg",
 		"caller", e.ActorSub, "resource", e.Resource, "action", e.Action,
 		"surface", e.Surface, "outcome", e.Outcome, "duration_ms", e.DurationMS)
-	if tx != nil {
-		return audit.EmitInTx(ctx, sink, tx, e)
-	}
-	if forwarder {
-		return nil
-	}
-	if !x.Action.Mutates() && outcome == audit.OutcomeOK {
-		return nil
-	}
-	audit.Emit(ctx, e)
-	return nil
 }
 
 func buildEvent(x Execution, scope string, params map[string]string, outcome, errMsg string, start time.Time) audit.Event {

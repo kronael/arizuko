@@ -7,7 +7,6 @@ package routd
 // of § "The predicate is part of the verdict".
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -47,15 +46,8 @@ func holdOnce(t *testing.T, tool string, args map[string]any) (*Server, *DB, *re
 // chat command and the REST face do.
 func always(t *testing.T, d *DB, id, reviewer string) error {
 	t.Helper()
-	tx, err := d.SQL().Begin()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	if _, err := d.resolveHoldTx(context.Background(), tx, id, PendingApproved, reviewer, "", true); err != nil {
-		return err
-	}
-	return tx.Commit()
+	_, err := resolveHold(d, id, PendingApproved, reviewer, "", true)
+	return err
 }
 
 // The acceptance case: `always` approves the call in hand AND writes the rule,

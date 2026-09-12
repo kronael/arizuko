@@ -69,10 +69,12 @@ func (s *Server) githubSourcesHandler(ctx context.Context, x resreg.Execution) (
 		if x.Surface == audit.SurfaceREST && !groupfolder.Contains(folder, target) {
 			return nil, resreg.Errorf(http.StatusForbidden, "target_folder must equal or descend from owner_folder")
 		}
-		secret, err := st.AddGitHubSourceTx(ctx, x.Tx, store.GitHubSource{Source: key, OwnerFolder: folder}, target)
-		if errors.Is(err, store.ErrGitHubSourceExists) {
-			return nil, resreg.Errorf(http.StatusConflict, "%v", err)
-		}
+		// A source already registered is the one refusal this batch can answer, and
+		// it reaches the caller from the batch rather than from this call — so the
+		// 409 is declared with the write.
+		taken := resreg.Errorf(http.StatusConflict, "%v: %s", store.ErrGitHubSourceExists, key)
+		secret, err := st.AddGitHubSourceInto(ctx, x.Writes,
+			store.GitHubSource{Source: key, OwnerFolder: folder}, target, taken)
 		if errors.Is(err, store.ErrNoSecretsKey) {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
@@ -91,7 +93,7 @@ func (s *Server) githubSourcesHandler(ctx context.Context, x resreg.Execution) (
 		if _, _, err := store.ParseGitHubSourceKey(key); err != nil {
 			return nil, resreg.Errorf(http.StatusBadRequest, "%v", err)
 		}
-		deleted, err := st.RemoveGitHubSourceTx(ctx, x.Tx, key, folder)
+		deleted, err := st.RemoveGitHubSourceInto(ctx, x.Writes, key, folder)
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}

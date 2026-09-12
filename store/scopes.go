@@ -230,9 +230,9 @@ func (s *Store) TryWriteEntities(ctx context.Context, checks []objstore.Check,
 }
 
 // WriteEntitiesInTx is WriteEntities on a transaction the CALLER owns, for the
-// writers whose audit row commits with their mutation — this package's audited
-// ones, and routd's resreg faces, which run on the transaction resreg.invoke
-// opened for the mutation and its single audit_log row.
+// three writers that still hold one: the invite redemption, whose claim and
+// membership edge cross two databases; the system-message drain, which reads and
+// removes the same events; and the release's proxyd route sync.
 func (s *Store) WriteEntitiesInTx(ctx context.Context, tx *sql.Tx, checks []objstore.Check,
 	writes ...objstore.Write) error {
 	ok, err := s.TryWriteEntitiesInTx(ctx, tx, checks, writes...)
