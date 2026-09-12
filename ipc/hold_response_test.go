@@ -9,27 +9,32 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-// TestHoldResponse_PendingIDIsTheContract — a recorded hold is a RESULT the
-// agent reports and moves on from; an unrecordable one (empty id, BUGS J3) is an
-// ERROR. Returning the pending shape without an id told the agent to wait for
-// `/approve ` on nothing, which no operator could ever resolve.
-func TestHoldResponse_PendingIDIsTheContract(t *testing.T) {
-	held := holdResponse(7, "ab12", "mcp:delete")
-	if held["error"] != nil {
-		t.Fatalf("a recorded hold is not a failure: %+v", held)
+// TestHoldResponse_RefusalIsTheContract — a call the gate did not run comes back
+// as a FAILED tool call carrying the verdict in words, so the agent cannot read
+// it as "done" and can repeat the reason to the user. An unrecordable hold (empty
+// refusal, BUGS J3) is a JSON-RPC error instead: there is no row, so there is no
+// id anyone could ever approve, and offering one told the agent to wait forever.
+func TestHoldResponse_RefusalIsTheContract(t *testing.T) {
+	refused := holdResponse(7, "NOT RUN (id ab12): a human rejected mcp:delete.", "mcp:delete")
+	if refused["error"] != nil {
+		t.Fatalf("an answered hold is not a transport failure: %+v", refused)
 	}
-	res, ok := held["result"].(map[string]any)
-	if !ok || res["pending"] != true || res["id"] != "ab12" {
-		t.Fatalf("a recorded hold must carry pending+id: %+v", held)
+	res, ok := refused["result"].(map[string]any)
+	if !ok || res["isError"] != true {
+		t.Fatalf("a call that did not run must be an error result: %+v", refused)
+	}
+	content, _ := res["content"].([]map[string]any)
+	if len(content) != 1 || !strings.Contains(content[0]["text"].(string), "rejected") {
+		t.Fatalf("the verdict must reach the agent verbatim: %+v", res)
 	}
 
 	lost := holdResponse(7, "", "mcp:delete")
 	if lost["result"] != nil {
-		t.Fatalf("a hold with no id must not look like a pending result: %+v", lost)
+		t.Fatalf("a hold with no row must not look like an answered call: %+v", lost)
 	}
 	e, ok := lost["error"].(map[string]any)
 	if !ok {
-		t.Fatalf("a hold with no id must be a JSON-RPC error: %+v", lost)
+		t.Fatalf("a hold with no row must be a JSON-RPC error: %+v", lost)
 	}
 	msg, _ := e["message"].(string)
 	if !strings.Contains(msg, "mcp:delete") || strings.Contains(msg, "/approve") {

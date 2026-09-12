@@ -59,8 +59,8 @@ func TestApply_RoundTripsEveryColumnItRebuilds(t *testing.T) {
 	ctx := context.Background()
 
 	// A route with the attribution both stamping writers record, and a held call
-	// with the mode it was placed under and the notice it waits on — each written
-	// by the face production writes it with.
+	// with the notice it waits on — each written by the face production writes it
+	// with.
 	tx, err := db.SQL().Begin()
 	if err != nil {
 		t.Fatal(err)
@@ -76,7 +76,7 @@ func TestApply_RoundTripsEveryColumnItRebuilds(t *testing.T) {
 	if err := db.PutPendingAction(PendingAction{
 		ID: "pa1", GroupFolder: "atlas/main", CallerAgent: "agent", Tool: "send",
 		Status: "held", CreatedAt: "2026-01-01T00:00:00.000000000Z",
-		Mode: "block", NoticeID: "tg:99",
+		NoticeID: "tg:99",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -119,18 +119,15 @@ func TestApply_RoundTripsEveryColumnItRebuilds(t *testing.T) {
 	if !ok {
 		t.Fatal("the apply removed the held call it was built from")
 	}
-	mode, notice := held.Mode, held.NoticeID
-	if mode != "block" || notice != "tg:99" {
-		t.Errorf("held call after the apply = (mode %q, notice %q), want (block, tg:99): "+
-			"the mode decides who runs the approved call, and the notice is what turns a "+
-			"reaction into its verdict", mode, notice)
+	if notice := held.NoticeID; notice != "tg:99" {
+		t.Errorf("held call after the apply carries notice %q, want tg:99: the notice is "+
+			"what turns a reaction into this call's verdict", notice)
 	}
 }
 
-// A manifest that states no mode still lands on the value the schema would have
-// chosen, because an empty mode is not one of the two answers the release path
-// reads.
-func TestApply_FillsTheHoldModeAManifestOmits(t *testing.T) {
+// A manifest states the fields a held call carries and nothing more. The row it
+// writes has to come back as a held call the review queue can answer.
+func TestApply_WritesAHeldCallAManifestStates(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
@@ -153,7 +150,7 @@ func TestApply_FillsTheHoldModeAManifestOmits(t *testing.T) {
 	if !ok {
 		t.Fatal("the apply wrote no held call")
 	}
-	if mode := held.Mode; mode != "async" {
-		t.Errorf("mode = %q, want async — the default the schema states", mode)
+	if held.Status != PendingHeld || held.Tool != "send" {
+		t.Errorf("held call = %+v, want the held send the manifest states", held)
 	}
 }

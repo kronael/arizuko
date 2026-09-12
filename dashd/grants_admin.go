@@ -204,9 +204,8 @@ func (d *dash) handleGroupGrantAdd(w http.ResponseWriter, r *http.Request) {
 	// take is a malformed submission, not a default.
 	if effect == "" {
 		effect = "allow"
-	} else if !store.EffectAllowed(action, effect) {
-		http.Error(w, "effect must be allow or deny, or async on a hold: rule",
-			http.StatusBadRequest)
+	} else if !store.EffectAllowed(effect) {
+		http.Error(w, "effect must be allow or deny", http.StatusBadRequest)
 		return
 	}
 	if scope == "" {

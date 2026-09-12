@@ -14,8 +14,7 @@ func putHeldWithNotice(t *testing.T, d *DB, id, noticeID string) {
 	t.Helper()
 	if err := d.PutPendingAction(PendingAction{
 		ID: id, GroupFolder: "atlas", CallerAgent: "folder:atlas", Tool: "mcp:like",
-		Args: `{}`, ArgsFinal: `{}`, ArgsHash: "h" + id, ChatJID: "tg:1",
-		Mode: auth.EffectHoldAsync, NoticeID: noticeID,
+		Args: `{}`, ChatJID: "tg:1", NoticeID: noticeID,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -99,16 +98,18 @@ func TestVerdictForReaction_OnlyWhileHeld(t *testing.T) {
 // row knows which message announced it. The notice is delivered straight to the
 // adapter and never becomes a `messages` row, so nothing else can supply it.
 func TestNotifyHeld_RecordsTheNoticeID(t *testing.T) {
+	waitForVerdict(t)
+
 	d := memDB(t)
 	dl := &recDeliverer{pid: "platform-77"}
 	srv := &Server{db: d, deliver: dl}
-	holdRule(t, d, "mcp:like", auth.EffectHoldAsync)
+	holdRule(t, d, "mcp:like", auth.EffectHoldBlock)
 	gate := srv.holdGate(turnMCP{folder: "atlas", chatJID: "tg:1", turnID: "t1"})
 
-	id, held := gate("mcp:like", map[string]any{"platform_id": "m1"})
-	if !held || id == "" {
-		t.Fatal("a matching hold rule must suspend the call")
-	}
+	// The call is still waiting while this runs: a reaction resolves a HELD row,
+	// and a row the waiter has already given up on is not one.
+	go gate("mcp:like", map[string]any{"platform_id": "m1"})
+	id := awaitHeldID(t, d)
 	row, _ := pendingActionRow(d, id)
 	if row.NoticeID != "platform-77" {
 		t.Fatalf("notice id = %q, want the id the delivery returned", row.NoticeID)

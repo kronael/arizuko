@@ -298,7 +298,7 @@ func (d *DB) AuthorizeTurn(senderSub, turnFolder, scope, action string, params m
 // CheckHold asks whether this folder's call must wait for a human (spec 5/19).
 // Deliberately NOT routed through Authorize — see auth.CheckHold for why the
 // operator's (*, **) row would otherwise hold every tool.
-func (d *DB) CheckHold(sub, folder, tool string, params map[string]string) string {
+func (d *DB) CheckHold(sub, folder, tool string, params map[string]string) bool {
 	return auth.CheckHold(d.store(), auth.Caller{Principal: sub}, tool, folder, params)
 }
 

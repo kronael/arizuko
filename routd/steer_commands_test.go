@@ -505,8 +505,8 @@ func TestCmdApproveOperatorResolves(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := db.PutPendingAction(PendingAction{
-		ID: "a1", GroupFolder: "root", Tool: "mcp:delete", ArgsHash: "h",
-		ArgsFinal: `{"target":"prod"}`,
+		ID: "a1", GroupFolder: "root", Tool: "mcp:delete",
+		Args: `{"target":"prod"}`,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -522,10 +522,12 @@ func TestCmdApproveOperatorResolves(t *testing.T) {
 	}
 }
 
-// TestCmdApproveTargetsHeldChat: the resolution message goes to the HELD call's
-// own chat (spec 5/19 §Resolution step 2), not the chat the /approve arrived
-// in — an approval typed elsewhere used to trigger the WRONG agent.
-func TestCmdApproveTargetsHeldChat(t *testing.T) {
+// TestCmdApproveFromAnotherChatWakesNobody: the verdict is delivered by the row
+// the agent is suspended on, never by a message, so an approval typed in some
+// other chat resolves the call and leaves BOTH chats silent. A verdict that
+// wrote a message woke a folder that was not waiting while the folder that was
+// stayed asleep (BUGS J5); nothing can do that now because nothing is written.
+func TestCmdApproveFromAnotherChatWakesNobody(t *testing.T) {
 	db, loop, _ := recLoop(t)
 	dl := &recDeliverer{}
 	loop.deliver = dl
@@ -534,7 +536,7 @@ func TestCmdApproveTargetsHeldChat(t *testing.T) {
 	}
 	if err := db.PutPendingAction(PendingAction{
 		ID: "a1", GroupFolder: "demo", Tool: "send_file", ChatJID: "tg:held",
-		ArgsHash: "h", ArgsFinal: `{"path":"/x"}`,
+		Args: `{"path":"/x"}`,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -542,14 +544,15 @@ func TestCmdApproveTargetsHeldChat(t *testing.T) {
 	if !steerOne(loop, "tg:other", "demo", "/approve a1") {
 		t.Fatal("/approve not consumed")
 	}
-	n := 0
-	for _, m := range chatMessages(t, db, "tg:held") {
-		if strings.Contains(m.Content, "send_file") {
-			n++
-		}
+	if row, _ := pendingActionRow(db, "a1"); row.Status != PendingApproved {
+		t.Fatalf("status = %q, want approved — the verdict is the row's", row.Status)
 	}
-	if n != 1 {
-		t.Fatalf("trigger rows in held chat = %d, want 1", n)
+	for _, jid := range []string{"tg:held", "tg:other"} {
+		for _, m := range chatMessages(t, db, jid) {
+			if !m.BotMsg {
+				t.Fatalf("the verdict wrote %q into %s; nothing may be woken", m.Content, jid)
+			}
+		}
 	}
 }
 

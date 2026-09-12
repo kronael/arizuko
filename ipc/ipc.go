@@ -272,15 +272,20 @@ type StoreFns struct {
 	// registerRaw/granted tool is advertised (the call-time Authorize still gates).
 	Visible func(name string) bool
 
-	// CheckHold answers "must this call wait for a human?" (spec 5/19). It runs at
-	// the single tools/call interception, so hot tools, resreg facade tools and
-	// timed-triggered turns are all covered by construction.
+	// CheckHold answers "may this call proceed?" (spec 5/19). It runs at the single
+	// tools/call interception, so hot tools, resreg facade tools and timed-triggered
+	// turns are all covered by construction.
+	//
+	// It BLOCKS: a held call suspends this connection until a human answers, and an
+	// approval returns held=false so the call runs here, in the turn that asked, with
+	// the arguments the human saw. `refusal` is what the agent is told when the call
+	// does not run — empty means the hold itself could not be recorded, which ipc
+	// reports as an error rather than a verdict.
 	//
 	// It runs BEFORE authz, which is safe: approval never substitutes for
-	// authorization. A released call re-enters the normal path and every in-handler
-	// grant and JID gate still runs (BUGS J2). Returns the pending-action id when the
-	// call was suspended.
-	CheckHold func(tool string, args map[string]any) (id string, held bool)
+	// authorization. An approved call re-enters the normal path and every in-handler
+	// grant and JID gate still runs (BUGS J2).
+	CheckHold func(tool string, args map[string]any) (refusal string, held bool)
 
 	// LogIPCAudit records one audit_log row (surface=mcp, action=mcp.tool.invoke)
 	// through audit.EmitTo — the name is legacy, the destination is not. The
@@ -521,8 +526,8 @@ func serveConn(ctx context.Context, c net.Conn, srv *server.MCPServer, gated Gat
 			// Spec 5/19: the hold gate sits here, before the call reaches
 			// HandleMessage, so no tool can route around it.
 			if db.CheckHold != nil && holdEligible(srv, db, p.Params.Name) {
-				if id, held := db.CheckHold(p.Params.Name, p.Params.Arguments); held {
-					reply(holdResponse(head.ID, id, p.Params.Name))
+				if refusal, held := db.CheckHold(p.Params.Name, p.Params.Arguments); held {
+					reply(holdResponse(head.ID, refusal, p.Params.Name))
 					continue
 				}
 			}
@@ -2416,8 +2421,8 @@ func auditParams(vals map[string]string) map[string]any {
 	return out
 }
 
-func holdResponse(id any, pendingID, tool string) map[string]any {
-	if pendingID == "" {
+func holdResponse(id any, refusal, tool string) map[string]any {
+	if refusal == "" {
 		return map[string]any{
 			"jsonrpc": "2.0", "id": id,
 			"error": map[string]any{
@@ -2428,19 +2433,14 @@ func holdResponse(id any, pendingID, tool string) map[string]any {
 			},
 		}
 	}
-	// Verdict-neutral on purpose: a BLOCKING hold reaches this line only after it
-	// already waited, so the call may be held, rejected or timed out and one text
-	// has to be true of all three. The verdict itself lands in the chat.
-	text := fmt.Sprintf(
-		"NOT RUN (id %s): %s needs human approval. Tell the user, and read the "+
-			"verdict in the chat; do not retry — a retry is held again.",
-		pendingID, tool)
+	// The call already has its answer by the time this frame is built — the gate
+	// waited for it — so the text NAMES the verdict rather than describing a wait.
+	// isError, because the call did not run: a plain result reads as "done".
 	return map[string]any{
 		"jsonrpc": "2.0", "id": id,
 		"result": map[string]any{
-			"content": []map[string]any{{"type": "text", "text": text}},
-			"pending": true,
-			"id":      pendingID,
+			"content": []map[string]any{{"type": "text", "text": refusal}},
+			"isError": true,
 		},
 	}
 }

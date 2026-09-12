@@ -4,9 +4,12 @@ package routd
 // until a human approves it. The hold RULE lives in `acl` as a `hold:mcp:<tool>` row
 // evaluated by auth.CheckHold; this file is only the suspended CALL's state.
 //
-// Release matches on (folder, tool, args_hash). The agent re-issues the call in its
-// own next turn, so the released call runs as the ORIGINAL agent — same container,
-// session, grants and secrets — with no second path around ipc's discipline.
+// A held call BLOCKS the agent's turn. The waiter that suspended the call is the
+// one that runs it on approval, inline, as the ORIGINAL agent — same container,
+// session, grants and secrets — so the agent reports the real result and there is
+// no second path around ipc's discipline. Returning the call as "held" and
+// letting the agent carry on let it report an action it had not taken, which is
+// why blocking became the only mode (spec 5/19, 2026-09-02).
 //
 // THE COORDINATE AND THE ATTRIBUTE NAMES ARE store's (store/pending_actions.go)
 // AND THE WRITES ARE routd's. That file declares the shape because a group delete
@@ -27,9 +30,7 @@ package routd
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -54,28 +55,19 @@ type PendingAction struct {
 	CallerAgent  string `json:"caller_agent"`
 	Tool         string `json:"tool"`
 	Args         string `json:"args"`
-	ArgsFinal    string `json:"args_final"`
-	ArgsHash     string `json:"args_hash"`
 	Status       string `json:"status"`
 	ChatJID      string `json:"chat_jid"`
 	CreatedAt    string `json:"created_at"`
 	ReviewedBy   string `json:"reviewed_by"`
 	ReviewedAt   string `json:"reviewed_at"`
 	ReviewerNote string `json:"reviewer_note"`
-	Result       string `json:"result"`
-	Error        string `json:"error"`
 	ExpiresAt    string `json:"expires_at"`
 	// NoticeID is the platform id of the chat notice this row was announced in.
 	// A reaction names the message it targets, so this is what turns a ✅ into
 	// this call's verdict.
 	NoticeID string `json:"notice_id"`
-	// Mode is the hold row's effect: auth.EffectHoldBlock means the agent's tool
-	// call is WAITING on this row right now, EffectHoldAsync that it already
-	// returned. It decides who runs the approved call — the waiter, or the agent
-	// re-issuing from resolutionMessage — so exactly one of them does.
-	Mode string `json:"mode"`
 
-	// The three fields below are DERIVED from ArgsFinal, never stored: they are
+	// The three fields below are DERIVED from Args, never stored: they are
 	// what an `always` verdict would write, computed by one renderer
 	// (withMatcher → holdMatcher) so the notice, the REST row and the writer
 	// cannot disagree about the rule. Spec 6/26 § "The predicate is part of the
@@ -90,48 +82,14 @@ type PendingAction struct {
 	MatcherError string `json:"matcher_error,omitempty"`
 }
 
+// The states a held call can be in. There is no `released`: the waiter runs an
+// approved call inline and the row's last word is the verdict itself.
 const (
 	PendingHeld     = "held"
 	PendingApproved = "approved"
 	PendingRejected = "rejected"
-	PendingReleased = "released"
 	PendingExpired  = "expired"
 )
-
-// ArgsHash is the canonical hash release matches on. Keys are sorted and BOTH key
-// and value are JSON-encoded, so an agent re-issuing the same call with its map in a
-// different order still matches while a changed VALUE does not — the edited-args
-// rule, enforced by the key rather than by a comparison someone must remember.
-//
-// The key is encoded, not written raw: the agent chooses the argument NAMES, so a
-// raw key containing the separators reproduces another map's serialization —
-// `{"a=\"1\"\nb": "x"}` hashed identically to `{"a":"1","b":"x"}`, a collision an
-// agent could steer an approval onto.
-func ArgsHash(args map[string]any) string {
-	keys := make([]string, 0, len(args))
-	for k := range args {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	var b strings.Builder
-	for _, k := range keys {
-		v, err := json.Marshal(args[k])
-		if err != nil {
-			// An unmarshalable arg must not collide with a well-formed one.
-			v = []byte(fmt.Sprintf("%q", fmt.Sprint(args[k])))
-		}
-		kj, err := json.Marshal(k)
-		if err != nil {
-			kj = []byte(fmt.Sprintf("%q", k))
-		}
-		b.Write(kj)
-		b.WriteByte('=')
-		b.Write(v)
-		b.WriteByte('\n')
-	}
-	sum := sha256.Sum256([]byte(b.String()))
-	return hex.EncodeToString(sum[:])
-}
 
 // PutPendingAction records a held call.
 //
@@ -151,9 +109,6 @@ func (d *DB) PutPendingAction(p PendingAction) error {
 	}
 	if p.CreatedAt == "" {
 		p.CreatedAt = time.Now().UTC().Format(time.RFC3339)
-	}
-	if p.Mode == "" {
-		p.Mode = auth.EffectHoldAsync
 	}
 	err = d.store().WriteEntities(context.Background(), nil, objstore.Write{
 		Op: objstore.Put, Entity: store.PendingActions, Key: key, Attrs: pendingAttrs(p),
@@ -175,18 +130,13 @@ func pendingAttrs(p PendingAction) map[string]string {
 		store.AttrPendCallerAgent:  p.CallerAgent,
 		store.AttrPendTool:         p.Tool,
 		store.AttrPendArgs:         p.Args,
-		store.AttrPendArgsFinal:    p.ArgsFinal,
-		store.AttrPendArgsHash:     p.ArgsHash,
 		store.AttrPendStatus:       p.Status,
 		store.AttrPendChatJID:      p.ChatJID,
 		store.AttrPendCreatedAt:    p.CreatedAt,
 		store.AttrPendReviewedBy:   p.ReviewedBy,
 		store.AttrPendReviewedAt:   p.ReviewedAt,
 		store.AttrPendReviewerNote: p.ReviewerNote,
-		store.AttrPendResult:       p.Result,
-		store.AttrPendError:        p.Error,
 		store.AttrPendExpiresAt:    p.ExpiresAt,
-		store.AttrPendMode:         p.Mode,
 		store.AttrPendNoticeID:     p.NoticeID,
 	} {
 		if v != "" {
@@ -205,18 +155,13 @@ func pendingFrom(it objstore.Item) PendingAction {
 		CallerAgent:  it.Attrs[store.AttrPendCallerAgent],
 		Tool:         it.Attrs[store.AttrPendTool],
 		Args:         it.Attrs[store.AttrPendArgs],
-		ArgsFinal:    it.Attrs[store.AttrPendArgsFinal],
-		ArgsHash:     it.Attrs[store.AttrPendArgsHash],
 		Status:       it.Attrs[store.AttrPendStatus],
 		ChatJID:      it.Attrs[store.AttrPendChatJID],
 		CreatedAt:    it.Attrs[store.AttrPendCreatedAt],
 		ReviewedBy:   it.Attrs[store.AttrPendReviewedBy],
 		ReviewedAt:   it.Attrs[store.AttrPendReviewedAt],
 		ReviewerNote: it.Attrs[store.AttrPendReviewerNote],
-		Result:       it.Attrs[store.AttrPendResult],
-		Error:        it.Attrs[store.AttrPendError],
 		ExpiresAt:    it.Attrs[store.AttrPendExpiresAt],
-		Mode:         it.Attrs[store.AttrPendMode],
 		NoticeID:     it.Attrs[store.AttrPendNoticeID],
 	}
 	return withMatcher(applyExpiry(p))
@@ -302,12 +247,6 @@ func platformID(target string) string {
 		return target[i+1:]
 	}
 	return target
-}
-
-// SetPendingMode records that nobody is waiting on this row any more, so the
-// approval has to travel as a re-issue trigger instead.
-func (d *DB) SetPendingMode(id, mode string) error {
-	return d.setPendingAttr(id, store.AttrPendMode, mode)
 }
 
 // ListPendingActions returns a folder's rows, newest first. An empty folder
@@ -410,31 +349,6 @@ func (d *DB) resolvePendingActionTx(ctx context.Context, tx *sql.Tx, id, status,
 	return cur, nil
 }
 
-// resolutionMessage is the approved-call trigger the agent re-issues from (spec 5/19
-// §Resolution step 2). One renderer for both resolution faces. The target is the
-// HELD call's own chat — not the chat the verdict arrived in, which routed an
-// approval typed elsewhere to the wrong agent — falling back to the bare folder.
-func resolutionMessage(p PendingAction, reviewer string) core.Message {
-	// The HELD CALL's chat, never the chat the operator typed the verdict in.
-	// Those differ whenever an operator approves from anywhere else, and using
-	// the command's chat woke a folder that was not waiting while the folder
-	// that was stayed asleep, holding an approval it could never consume
-	// (BUGS J5).
-	target := p.ChatJID
-	if target == "" {
-		target = p.GroupFolder
-	}
-	return core.Message{
-		ID:      core.MsgID("hitl-" + p.ID),
-		ChatJID: target,
-		Sender:  reviewer,
-		Content: fmt.Sprintf(
-			"Approved held call %s: re-issue %s with exactly these arguments and "+
-				"report the result.\n%s", p.ID, p.Tool, p.ArgsFinal),
-		Timestamp: time.Now().UTC(),
-	}
-}
-
 // skipApprovalRow is the acl row an `always` verdict writes: on the `hold:`
 // action, never on the tool. `deny` there means DO NOT HOLD this shape —
 // Authorize reads every other effect as ALLOW, so a third effect name would be
@@ -457,10 +371,11 @@ func skipApprovalRow(p PendingAction, reviewer string) core.ACLRow {
 }
 
 // resolveHoldTx is the one funnel both resolution faces run — chat /approve and REST
-// POST /v1/pending_actions/{id}/approve|reject. The verdict and, on approval, its
-// resolution message commit in the SAME transaction, so the poll can never dispatch
-// the re-issue before ConsumeApprovedAction can see the approval. Returns the chat
-// to enqueue ("" when nothing to trigger).
+// POST /v1/pending_actions/{id}/approve|reject. The verdict, and the skip-approval
+// rule an `always` adds, commit in ONE transaction.
+//
+// It tells nobody to run anything. The agent's call is suspended on this row right
+// now, so the waiter that suspended it sees the verdict and runs the call itself.
 //
 // `standing` is the `always` verdict: approve exactly as `yes`, and additionally
 // write the skip-approval row so the next call of this shape runs inline. It is
@@ -484,92 +399,62 @@ func skipApprovalRow(p PendingAction, reviewer string) core.ACLRow {
 // auth.Authorize is the evaluator, so a deny row is unconfined by scope
 // specificity and still wins: an operator can refuse a folder's own admin the
 // verdict, and no narrower allow restores it.
-func (d *DB) resolveHoldTx(ctx context.Context, tx *sql.Tx, id, verdict, reviewer, note string, standing bool) (PendingAction, string, error) {
+func (d *DB) resolveHoldTx(ctx context.Context, tx *sql.Tx, id, verdict, reviewer, note string, standing bool) (PendingAction, error) {
 	// The folder comes off the ROW, never off the reviewer's chat or the
 	// transport: the call names the folder it was held in, and that is what the
 	// verdict is authorized against. The read is advisory — the conditional
 	// write inside resolvePendingActionTx is what serializes two reviewers.
 	held, ok := d.pendingAction(id)
 	if !ok {
-		return PendingAction{}, "", fmt.Errorf("no pending action %q: %w", id, ErrPendingNotFound)
+		return PendingAction{}, fmt.Errorf("no pending action %q: %w", id, ErrPendingNotFound)
 	}
 	if !d.Authorize(reviewer, held.GroupFolder, "admin", nil) {
-		return PendingAction{}, "", fmt.Errorf(
+		return PendingAction{}, fmt.Errorf(
 			"%w: answering a held call in %q needs an admin grant covering that folder",
 			ErrPendingForbidden, held.GroupFolder)
 	}
 	p, err := d.resolvePendingActionTx(ctx, tx, id, verdict, reviewer, note)
 	if err != nil {
-		return PendingAction{}, "", err
+		return PendingAction{}, err
 	}
-	if verdict != PendingApproved {
-		return p, "", nil
+	if verdict != PendingApproved || !standing {
+		return p, nil
 	}
-	if standing {
-		// Refuse rather than approximate: an `always` whose full effective match
-		// could not be stated is a rule the operator was never shown.
-		if p.MatcherError != "" {
-			return PendingAction{}, "", fmt.Errorf(
-				"cannot make this a standing answer: %s", p.MatcherError)
-		}
-		if p.CallerAgent == "" || p.Tool == "" || p.GroupFolder == "" {
-			return PendingAction{}, "", fmt.Errorf(
-				"cannot make this a standing answer: the held row names no caller, tool or folder")
-		}
-		if err := d.grantACLTx(ctx, tx, skipApprovalRow(p, reviewer)); err != nil {
-			return PendingAction{}, "", fmt.Errorf("record the skip-approval rule: %w", err)
-		}
+	// Refuse rather than approximate: an `always` whose full effective match
+	// could not be stated is a rule the operator was never shown.
+	if p.MatcherError != "" {
+		return PendingAction{}, fmt.Errorf(
+			"cannot make this a standing answer: %s", p.MatcherError)
 	}
-	if p.Mode == auth.EffectHoldBlock {
-		// The agent's call is still suspended on this row: the waiter consumes the
-		// approval and runs it inline. A trigger here would make the agent re-issue
-		// a call the waiter already ran. A waiter that times out flips the row to
-		// async first, so a late approval still lands here.
-		return p, "", nil
+	if p.CallerAgent == "" || p.Tool == "" || p.GroupFolder == "" {
+		return PendingAction{}, fmt.Errorf(
+			"cannot make this a standing answer: the held row names no caller, tool or folder")
 	}
-	msg := resolutionMessage(p, reviewer)
-	if err := d.store().PutMessageInTx(ctx, tx, msg); err != nil {
-		return PendingAction{}, "", fmt.Errorf("record resolution message: %w", err)
+	if err := d.grantACLTx(ctx, tx, skipApprovalRow(p, reviewer)); err != nil {
+		return PendingAction{}, fmt.Errorf("record the skip-approval rule: %w", err)
 	}
-	return p, msg.ChatJID, nil
+	return p, nil
 }
 
-// ConsumeApprovedAction is the one-shot release. It flips exactly one approved
-// row matching (folder, tool, args_hash) to `released` and reports whether it
-// found one — the LoadAndDelete shape, so two concurrent re-issues cannot both
-// pass on a single approval.
+// expirePendingAction closes a call nobody answered in time. The write CONDITIONS
+// on the row still being held, so a verdict that landed in the same instant stands
+// and this one refuses — the same serialisation a second reviewer meets.
 //
-// It is a claim-and-return, and objstore has no protocol for one: the read picks
-// the newest candidate and the write CONDITIONS on the status it was read at, so
-// a second releaser that got there first makes this one refuse rather than
-// release the same approval twice. The read is advisory; the condition is the
-// serialisation.
-func (d *DB) ConsumeApprovedAction(folder, tool, argsHash string) (string, bool) {
-	items, err := d.pendingItems(
-		objstore.Cmp{Attr: store.AttrPendGroupFolder, Op: objstore.Eq, Value: folder},
-		objstore.Cmp{Attr: store.AttrPendTool, Op: objstore.Eq, Value: tool},
-		objstore.Cmp{Attr: store.AttrPendArgsHash, Op: objstore.Eq, Value: argsHash},
-		objstore.Cmp{Attr: store.AttrPendStatus, Op: objstore.Eq, Value: PendingApproved})
-	if err != nil || len(items) == 0 {
-		return "", false
+// The row is closed rather than left waiting: a held call the agent is no longer
+// suspended on can never run, and an approval typed against it would otherwise
+// look accepted and reach nobody.
+func (d *DB) expirePendingAction(id string) (bool, error) {
+	key, err := store.PendingActionKey(id)
+	if err != nil {
+		return false, err
 	}
-	newest := items[0]
-	for _, it := range items[1:] {
-		if it.Attrs[store.AttrPendCreatedAt] > newest.Attrs[store.AttrPendCreatedAt] {
-			newest = it
-		}
-	}
-	claimed, err := d.store().TryWriteEntities(context.Background(), nil, objstore.Write{
-		Op: objstore.Update, Entity: store.PendingActions, Key: newest.Key,
-		Attrs: map[string]string{store.AttrPendStatus: PendingReleased},
+	return d.store().TryWriteEntities(context.Background(), nil, objstore.Write{
+		Op: objstore.Update, Entity: store.PendingActions, Key: key,
+		Attrs: map[string]string{store.AttrPendStatus: PendingExpired},
 		Cond: objstore.Cond{Where: []objstore.Cmp{
-			{Attr: store.AttrPendStatus, Op: objstore.Eq, Value: PendingApproved},
+			{Attr: store.AttrPendStatus, Op: objstore.Eq, Value: PendingHeld},
 		}},
 	})
-	if err != nil || !claimed {
-		return "", false
-	}
-	return newest.Key.Sort, true
 }
 
 // NewPendingID is short on purpose: an operator types it into chat as
@@ -581,34 +466,28 @@ func NewPendingID() string {
 // holdGate builds the tools/call hold check for one turn (spec 5/19). Nil when the
 // turn cannot be held, so the ipc layer pays nothing.
 //
-// Order matters: the approved-row consume comes FIRST, because the agent re-issuing
-// an approved call must pass even though the hold rule still matches. Any argument
-// deviation misses the hash and falls through to the hold.
+// It answers one of two things: run the call, or do not run it and tell the agent
+// why. Nothing is deferred — the call the human approves is the call this gate is
+// still holding, so the approved arguments are the arguments that run and the
+// agent reports the real result.
 func (s *Server) holdGate(t turnMCP) func(string, map[string]any) (string, bool) {
 	if t.elevated || s.db == nil {
 		return nil
 	}
 	return func(tool string, args map[string]any) (string, bool) {
-		hash := ArgsHash(args)
-		if id, ok := s.db.ConsumeApprovedAction(t.folder, tool, hash); ok {
-			slog.Info("hitl released", "folder", t.folder, "tool", tool, "pending", id)
-			return "", false
-		}
-		mode := s.db.CheckHold("folder:"+t.folder, t.folder, tool, stringArgs(args))
-		if mode == "" {
+		if !s.db.CheckHold("folder:"+t.folder, t.folder, tool, stringArgs(args)) {
 			return "", false
 		}
 		id := NewPendingID()
 		raw, _ := json.Marshal(args)
 		p := PendingAction{
 			ID: id, GroupFolder: t.folder, CallerAgent: "folder:" + t.folder,
-			Tool: tool, Args: string(raw), ArgsFinal: string(raw), ArgsHash: hash,
-			Status: PendingHeld, ChatJID: t.chatJID, Mode: mode,
+			Tool: tool, Args: string(raw), Status: PendingHeld, ChatJID: t.chatJID,
 		}
 		if err := s.db.PutPendingAction(p); err != nil {
 			// Fail CLOSED: a hold rule exists and we could not record the call, so letting
-			// it run would silently defeat the gate. The EMPTY id is the signal ipc renders
-			// as an error rather than a pending result: with no row there is no id to
+			// it run would silently defeat the gate. The EMPTY refusal is the signal ipc
+			// renders as an error rather than a verdict: with no row there is no id to
 			// /approve (BUGS J3). The chat notice is the operator's only sign it happened.
 			slog.Error("hitl could not record pending action; blocking the call",
 				"folder", t.folder, "tool", tool, "err", err)
@@ -618,12 +497,7 @@ func (s *Server) holdGate(t turnMCP) func(string, map[string]any) (string, bool)
 		// The notice quotes the rule an `always` would write, so it runs through
 		// the same renderer the writer will read it from.
 		s.notifyHeld(t, withMatcher(p))
-		if mode == auth.EffectHoldAsync || s.awaitVerdict(id) {
-			return id, true
-		}
-		// Approved while the call waited, and the waiter consumed it: fall through
-		// and run the call the operator just said yes to.
-		return "", false
+		return s.awaitVerdict(id, tool)
 	}
 }
 
@@ -632,14 +506,16 @@ func (s *Server) holdGate(t turnMCP) func(string, map[string]any) (string, bool)
 // and the wait ends as a dead turn rather than as an answer.
 var HoldWait = chanlib.EnvDur("HITL_WAIT", 10*time.Minute)
 
-// awaitVerdict suspends a blocking hold until a human answers it, and reports
-// whether the call stays held. It returns false ONLY when the approval was
-// consumed here, which is the caller's signal to run the call inline.
+// awaitVerdict suspends the agent's tool call until a human answers it, and
+// reports (what to tell the agent, whether the call stays blocked). An approval
+// returns ("", false) — the caller runs the call and the agent gets the real
+// result. Everything else returns the reason the call did not run, in words the
+// agent can repeat to the user.
 //
-// Giving up flips the row to async so a late approval still reaches the agent as
-// a re-issue trigger — otherwise an approval typed after the timeout would sit
-// unused until some future call of the same shape silently consumed it.
-func (s *Server) awaitVerdict(id string) bool {
+// Giving up CLOSES the row. Nobody is suspended on it any more, so a verdict
+// typed later could never reach the agent, and a row left `held` would take that
+// verdict and look accepted.
+func (s *Server) awaitVerdict(id, tool string) (string, bool) {
 	deadline := time.Now().Add(HoldWait)
 	for time.Now().Before(deadline) {
 		time.Sleep(hitlPoll)
@@ -647,21 +523,40 @@ func (s *Server) awaitVerdict(id string) bool {
 		if !ok || p.Status == PendingHeld {
 			continue
 		}
-		if p.Status != PendingApproved {
-			slog.Info("hitl verdict", "pending", id, "status", p.Status)
-			return true
+		if p.Status == PendingApproved {
+			slog.Info("hitl approved; running inline", "pending", id, "tool", tool)
+			return "", false
 		}
-		if _, ok := s.db.ConsumeApprovedAction(p.GroupFolder, p.Tool, p.ArgsHash); !ok {
-			return true
+		slog.Info("hitl verdict", "pending", id, "status", p.Status)
+		return verdictRefusal(p, tool), true
+	}
+	if _, err := s.db.expirePendingAction(id); err != nil {
+		slog.Error("hitl wait ended and the row could not be closed; a verdict typed "+
+			"now will look accepted and reach nobody", "pending", id, "err", err)
+	}
+	return fmt.Sprintf(
+		"NOT RUN (id %s): %s waited for human approval and nobody answered in time. "+
+			"Tell the user it was not done. Do not retry — a retry is held again.",
+		id, tool), true
+}
+
+// verdictRefusal is what the agent is told about a call that will not run. The
+// reviewer's note rides along: a rejection without the reason reaches the user as
+// "it did not work", which is the failure the note exists to prevent.
+func verdictRefusal(p PendingAction, tool string) string {
+	switch p.Status {
+	case PendingRejected:
+		out := fmt.Sprintf("NOT RUN (id %s): a human rejected %s.", p.ID, tool)
+		if p.ReviewerNote != "" {
+			out += " Their note: " + p.ReviewerNote
 		}
-		slog.Info("hitl released inline", "pending", id, "tool", p.Tool)
-		return false
+		return out + " Tell the user, and do not retry — a retry is held again."
+	default:
+		return fmt.Sprintf(
+			"NOT RUN (id %s): %s needs human approval and the request is %s. "+
+				"Tell the user, and do not retry — a retry is held again.",
+			p.ID, tool, p.Status)
 	}
-	if err := s.db.SetPendingMode(id, auth.EffectHoldAsync); err != nil {
-		slog.Error("hitl wait expired and the row could not be marked async; a later "+
-			"approval will not reach the agent", "pending", id, "err", err)
-	}
-	return true
 }
 
 // hitlPoll is how often the waiter re-reads the row. A verdict arrives at human
@@ -672,12 +567,10 @@ var hitlPoll = 2 * time.Second
 // `always` would write. Every sink reads it here: the chat notice, the REST row
 // the dashboard renders, and resolveHoldTx's writer. A second renderer anywhere
 // would let a surface display one rule and store another, which spec 6/26 calls
-// a grant nobody agreed to.
+// a grant nobody agreed to. It reads the call's recorded arguments, which are the
+// arguments that will run: nothing edits them between the notice and the call.
 func withMatcher(p PendingAction) PendingAction {
-	raw := p.ArgsFinal
-	if raw == "" {
-		raw = p.Args
-	}
+	raw := p.Args
 	var args map[string]any
 	if raw != "" {
 		if err := json.Unmarshal([]byte(raw), &args); err != nil {

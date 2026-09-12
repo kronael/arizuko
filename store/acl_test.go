@@ -122,24 +122,24 @@ func mustACL(rows []core.ACLRow, err error) []core.ACLRow {
 	return rows
 }
 
-// TestEffectAllowed_AsyncOnlyOnAHoldRule — `async` on a plain mcp: row would
-// read as an ordinary ALLOW (spec 5/19 Hazard 1) and GRANT the tool it looks
-// like it is gating. Every writer refuses it there.
-func TestEffectAllowed_AsyncOnlyOnAHoldRule(t *testing.T) {
+// TestEffectAllowed_OnlyTwoSpellings — an acl row's effect decides whether the
+// row grants or refuses, and the evaluator reads every value that is not exactly
+// `deny` as ALLOW. Anything else is a grant nobody meant to write, so the writer
+// refuses it (BUGS L272).
+func TestEffectAllowed_OnlyTwoSpellings(t *testing.T) {
 	for _, c := range []struct {
-		action, effect string
-		want           bool
+		effect string
+		want   bool
 	}{
-		{HoldPrefix + "mcp:delete", EffectAsync, true},
-		{HoldPrefix + "mcp:delete", EffectAllow, true},
-		{HoldPrefix + "mcp:delete", EffectDeny, true},
-		{"mcp:delete", EffectAsync, false},
-		{"mcp:delete", EffectAllow, true},
-		{HoldPrefix + "mcp:delete", "maybe", false},
-		{"mcp:delete", "", false},
+		{EffectAllow, true},
+		{EffectDeny, true},
+		{"async", false},
+		{"denny", false},
+		{"maybe", false},
+		{"", false},
 	} {
-		if got := EffectAllowed(c.action, c.effect); got != c.want {
-			t.Errorf("EffectAllowed(%q, %q) = %v, want %v", c.action, c.effect, got, c.want)
+		if got := EffectAllowed(c.effect); got != c.want {
+			t.Errorf("EffectAllowed(%q) = %v, want %v", c.effect, got, c.want)
 		}
 	}
 }

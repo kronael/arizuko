@@ -1398,7 +1398,7 @@ your own — the row you create is operator-owned and generate leaves it.
 
 ### /dash/approvals/ — Held-Call Review Queue
 
-**Operator only.**
+**Any signed-in caller; each row needs `admin` on its folder.**
 
 #### Purpose
 
@@ -1408,10 +1408,10 @@ page is the queue an operator comes back to.
 
 #### User stories
 
-- As an operator, I want to see every call waiting on me — with its full
+- As a folder's admin, I want to see every call waiting on ME — with its full
   arguments — so I can review before anything runs.
-- As an operator, I want to approve or reject from the row, with an optional
-  note, so the verdict and its reason land in one action.
+- As a folder's admin, I want to approve or reject from the row, with an
+  optional note, so the verdict and its reason land in one action.
 
 #### Layout
 
@@ -1419,7 +1419,7 @@ page is the queue an operator comes back to.
 h1: approvals
 p.dim: A hold rule pauses a risky tool call until a human says go. …
 
-[banner-ok: "approved — the agent will re-issue the call in its next turn"]  (?msg=approved)
+[banner-ok: "approved — the waiting agent runs the call now"]                (?msg=approved)
 [banner-ok: "rejected — the call will not run"]                              (?msg=rejected)
 [banner-err: "<routd's own reason>"]                                         (?err=…)
 
@@ -1434,18 +1434,21 @@ h2: Recent verdicts   (omitted when none)
 
 #### Data shown
 
-`GET {ROUTER_URL}/v1/pending_actions` with the service:dashd bearer
-(`pending_actions:read`) — status, tool, full args JSON, chat, timestamps,
-reviewer fields. Arguments are shown in full inside a collapsed `<details>`:
-they are the material under review, never hover-only.
+`GET {ROUTER_URL}/v1/pending_actions?reviewer=<sub>` with the service:dashd
+bearer (`pending_actions:read`) — status, tool, full args JSON, chat,
+timestamps, reviewer fields. routd returns only the folders that sub holds
+`admin` on, which is the same question its verdict gate asks. Arguments are
+shown in full inside a collapsed `<details>`: they are the material under
+review, never hover-only.
 
 #### Actions
 
 - Approve/Reject → `POST /dash/approvals/{id}/resolve` (verdict from the
   pressed button, note rides along) → routd
-  `POST /v1/pending_actions/{id}/approve|reject` with the operator's sub as
-  `reviewer` → 303 back with `?msg=`. routd commits the verdict together with
-  the resolution message that makes the ORIGINAL agent re-issue the call.
+  `POST /v1/pending_actions/{id}/approve|reject` with the caller's sub as
+  `reviewer` → 303 back with `?msg=`. The agent is suspended on the call, so
+  the verdict reaching the row IS the delivery: the waiting turn runs it with
+  the arguments shown, or is told it was refused and why.
 
 #### Edge cases / empty states
 
@@ -1454,10 +1457,12 @@ they are the material under review, never hover-only.
 - routd unreachable / non-2xx: banner-err with routd's reason; page ends
 - Double verdict (raced with chat `/approve`): routd answers 409; the reason
   surfaces in the err banner
-- Non-operator: 403, and dashd makes no upstream call (dashd's bearer reads as
-  list-all — the page gate is the containment)
-- Portal shows a banner-warn "N tool calls held for your approval" linking here
-  (operators only)
+- Caller with no admin anywhere: the page renders empty, because routd returned
+  nothing for them; unauthenticated: 401 and dashd makes no upstream call
+- Verdict on a folder the caller does not hold: routd answers 403 and the
+  reason surfaces in the err banner
+- Portal shows a banner-warn "N tool calls held for your approval" linking
+  here, counting only the calls that caller may answer
 
 ---
 

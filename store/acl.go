@@ -127,32 +127,17 @@ func aclAttrs(r core.ACLRow) map[string]string {
 	return attrs
 }
 
-// The effect spellings an acl row may carry. This is the ONE declaration: the
-// evaluator reads these same three through auth, so a row can never hold a
-// fourth value that one side reads and the other does not.
-//
-// EffectAsync is legal only on a `hold:` action. Anywhere else it reads as an
-// ALLOW, because the evaluator treats every effect that is not exactly
-// EffectDeny as a grant (spec 5/19 Hazard 1).
+// The two effect spellings an acl row may carry. This is the ONE declaration:
+// the evaluator reads the same pair through auth, so a row can never hold a
+// third value that one side reads and the other does not.
 const (
 	EffectAllow = "allow"
 	EffectDeny  = "deny"
-	EffectAsync = "async"
 )
 
-// HoldPrefix opens the namespace a hold rule's action lives in. Declared here
-// because the acl ROW is store's; auth reads it.
-const HoldPrefix = "hold:mcp:"
-
-// EffectAllowed reports whether `effect` is a legal spelling on `action`.
-func EffectAllowed(action, effect string) bool {
-	switch effect {
-	case EffectAllow, EffectDeny:
-		return true
-	case EffectAsync:
-		return strings.HasPrefix(action, HoldPrefix)
-	}
-	return false
+// EffectAllowed reports whether `effect` is a spelling every evaluator reads.
+func EffectAllowed(effect string) bool {
+	return effect == EffectAllow || effect == EffectDeny
 }
 
 // aclPut renders the create-if-absent write both acl writers issue.
@@ -168,7 +153,7 @@ func EffectAllowed(action, effect string) bool {
 // the table and an evaluator never applies (BUGS L272). A guard in one face is
 // a guard the next face forgets.
 func aclPut(r core.ACLRow) (objstore.Write, error) {
-	if !EffectAllowed(r.Action, r.Effect) {
+	if !EffectAllowed(r.Effect) {
 		return objstore.Write{}, fmt.Errorf(
 			"acl: effect %q on action %q is not a spelling any evaluator reads; "+
 				"use %q or %q", r.Effect, r.Action, EffectAllow, EffectDeny)

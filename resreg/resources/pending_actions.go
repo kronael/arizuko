@@ -3,7 +3,6 @@ package resources
 import (
 	"reflect"
 
-	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/resreg"
 )
 
@@ -16,22 +15,13 @@ type PendingActionsRow struct {
 	CallerAgent  string `db:"caller_agent"  yaml:"caller_agent,omitempty"  json:"caller_agent,omitempty"`
 	Tool         string `db:"tool"          yaml:"tool"                    json:"tool"`
 	Args         string `db:"args"          yaml:"args,omitempty"          json:"args,omitempty"`
-	ArgsFinal    string `db:"args_final"    yaml:"args_final,omitempty"    json:"args_final,omitempty"`
-	ArgsHash     string `db:"args_hash"     yaml:"args_hash,omitempty"     json:"args_hash,omitempty"`
 	Status       string `db:"status"        yaml:"status"                  json:"status"`
 	ChatJID      string `db:"chat_jid"      yaml:"chat_jid,omitempty"      json:"chat_jid,omitempty"`
 	CreatedAt    string `db:"created_at"    yaml:"created_at,omitempty"    json:"created_at,omitempty"`
 	ReviewedBy   string `db:"reviewed_by"   yaml:"reviewed_by,omitempty"   json:"reviewed_by,omitempty"`
 	ReviewedAt   string `db:"reviewed_at"   yaml:"reviewed_at,omitempty"   json:"reviewed_at,omitempty"`
 	ReviewerNote string `db:"reviewer_note" yaml:"reviewer_note,omitempty" json:"reviewer_note,omitempty"`
-	Result       string `db:"result"        yaml:"result,omitempty"        json:"result,omitempty"`
-	Error        string `db:"error"         yaml:"error,omitempty"         json:"error,omitempty"`
 	ExpiresAt    string `db:"expires_at"    yaml:"expires_at,omitempty"    json:"expires_at,omitempty"`
-	// Mode is the effect the hold was placed under: auth.EffectHoldBlock means an
-	// agent's tool call is WAITING on this row right now, EffectHoldAsync that it
-	// already returned. It decides WHO runs the approved call — the waiter, or
-	// the agent re-issuing it — so exactly one of them does.
-	Mode string `db:"mode"      yaml:"mode,omitempty"      json:"mode,omitempty"`
 	// NoticeID is the platform id of the chat notice this row was announced in,
 	// which is what turns a reaction on that message into this call's verdict.
 	NoticeID string `db:"notice_id" yaml:"notice_id,omitempty" json:"notice_id,omitempty"`
@@ -59,16 +49,17 @@ var PendingActionsMCPNames = map[resreg.Action]string{
 var PendingActionsMCPDoc = map[resreg.Action]string{
 	resreg.ActionList: "List tool calls held for human approval in `folder`. " +
 		"Each row carries the tool, the exact arguments, who is waiting, and the status " +
-		"(held | approved | rejected | released | expired). Use it to tell a user what is " +
+		"(held | approved | rejected | expired). Use it to tell a user what is " +
 		"waiting on them and why.",
-	resreg.Action("approve"): "Approve a held tool call by `id`, releasing it one-shot. " +
-		"The ORIGINAL agent re-issues the call in its own next turn with the approved arguments; " +
-		"nothing runs out of turn. Different arguments are held again. " +
+	resreg.Action("approve"): "Approve a held tool call by `id`. The agent is suspended on " +
+		"the call right now, so it runs immediately, inside that agent's own turn, with the " +
+		"exact arguments shown — nothing runs out of turn and nothing is re-issued. " +
 		"`standing` also writes the rule that skips approval for this exact shape next time — " +
 		"the row is the `matcher` the held call reports, it constrains ONLY the arguments it names, " +
 		"and undoing it means removing that row.",
-	resreg.Action("reject"): "Reject a held tool call by `id`. The call is never run. " +
-		"`note` records why, for the audit trail.",
+	resreg.Action("reject"): "Reject a held tool call by `id`. The call is never run, and the " +
+		"agent is told so inside its turn. `note` records why, for the audit trail, and the " +
+		"agent repeats it to the user.",
 }
 
 var PendingActionsMCPArgs = map[resreg.Action][]resreg.MCPArg{
@@ -101,17 +92,5 @@ func init() {
 		MCPArgs:       PendingActionsMCPArgs,
 		MCPNames:      PendingActionsMCPNames,
 		Scope:         resreg.ScopeSpec{Field: "GroupFolder"},
-		// `mode` is NOT NULL DEFAULT 'async' in the schema, and a manifest that
-		// omits it must land on the same value the DDL would have chosen — an
-		// empty mode is not one of the two answers the release path reads.
-		Hooks: resreg.Hooks{
-			BeforeInsert: func(row any) error {
-				r := row.(*PendingActionsRow)
-				if r.Mode == "" {
-					r.Mode = auth.EffectHoldAsync
-				}
-				return nil
-			},
-		},
 	})
 }

@@ -15,7 +15,7 @@ func seedHeld(t *testing.T, db *DB, id, folder, chatJID string) {
 	t.Helper()
 	if err := db.PutPendingAction(PendingAction{
 		ID: id, GroupFolder: folder, Tool: "send_file", ChatJID: chatJID,
-		ArgsHash: "h", Args: `{"path":"/etc/x"}`, ArgsFinal: `{"path":"/etc/x"}`,
+		Args: `{"path":"/etc/x"}`,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -66,8 +66,9 @@ func TestPendingActionsListFiltersStatus(t *testing.T) {
 }
 
 // TestPendingActionsApprove: the REST verdict runs the same funnel as chat
-// /approve — the row moves, the reviewer from the body is recorded, and the
-// resolution message lands in the HELD call's chat in the same commit.
+// /approve — the row moves and the reviewer from the body is recorded. It tells
+// nobody to run anything: the agent is suspended on the row, so the verdict
+// reaching it IS the delivery.
 func TestPendingActionsApprove(t *testing.T) {
 	db, h := authSrv(t, nil)
 	seedHeld(t, db, "p1", "demo", "tg:9")
@@ -84,20 +85,15 @@ func TestPendingActionsApprove(t *testing.T) {
 	if row.ReviewedBy != "google:op@x" || row.ReviewerNote != "fine" {
 		t.Fatalf("reviewer not recorded: %+v", row)
 	}
-	n, content := triggerText(t, db, "tg:9")
-	if n != 1 {
-		t.Fatalf("resolution messages in held chat = %d, want 1", n)
-	}
-	for _, want := range []string{"p1", "send_file", `{"path":"/etc/x"}`} {
-		if !strings.Contains(content, want) {
-			t.Fatalf("resolution message missing %q: %s", want, content)
-		}
+	if n, content := triggerText(t, db, "tg:9"); n != 0 {
+		t.Fatalf("the verdict wrote %d message(s) into the held chat: %s", n, content)
 	}
 }
 
-// TestPendingActionsApproveChatlessFallsBackToFolder: a call held outside any
-// chat gets its trigger on the bare folder JID (the delegate shape).
-func TestPendingActionsApproveChatlessFallsBackToFolder(t *testing.T) {
+// TestPendingActionsApproveChatless: a call held outside any chat — the delegate
+// shape — is answerable exactly like any other, and the verdict still wakes
+// nobody.
+func TestPendingActionsApproveChatless(t *testing.T) {
 	db, h := authSrv(t, nil)
 	seedHeld(t, db, "p1", "demo", "")
 
@@ -105,8 +101,12 @@ func TestPendingActionsApproveChatlessFallsBackToFolder(t *testing.T) {
 		map[string]string{"reviewer": "op"}); rec.Code != 200 {
 		t.Fatalf("approve = %d body=%s", rec.Code, rec.Body.String())
 	}
-	if n, _ := triggerText(t, db, "demo"); n != 1 {
-		t.Fatalf("trigger on folder JID = %d messages, want 1", n)
+	row, _ := pendingActionRow(db, "p1")
+	if row.Status != PendingApproved {
+		t.Fatalf("status = %q, want approved", row.Status)
+	}
+	if n, _ := triggerText(t, db, "demo"); n != 0 {
+		t.Fatalf("the verdict wrote %d message(s) onto the folder JID, want none", n)
 	}
 }
 
@@ -148,8 +148,8 @@ func TestPendingActionsVerdictErrors(t *testing.T) {
 		map[string]string{"reviewer": "op"}); rec.Code != 409 {
 		t.Fatalf("second verdict = %d, want 409", rec.Code)
 	}
-	if n, _ := triggerText(t, db, "tg:9"); n != 1 {
-		t.Fatal("second verdict wrote a second trigger")
+	if n, _ := triggerText(t, db, "tg:9"); n != 0 {
+		t.Fatal("a verdict wrote a message into the held chat")
 	}
 }
 

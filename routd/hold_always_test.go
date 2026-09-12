@@ -19,6 +19,7 @@ import (
 // server, DB, delivered notices and the id of one held call.
 func holdOnce(t *testing.T, tool string, args map[string]any) (*Server, *DB, *recDeliverer, string) {
 	t.Helper()
+	waitForVerdict(t)
 	d := memDB(t)
 	dl := &recDeliverer{}
 	srv := &Server{db: d, deliver: dl}
@@ -32,10 +33,13 @@ func holdOnce(t *testing.T, tool string, args map[string]any) (*Server, *DB, *re
 	// tests use holds admin there (BUGS L271).
 	addACL(t, d, "google:op", "admin", "atlas", "allow")
 	gate := srv.holdGate(turnMCP{folder: "atlas", chatJID: "tg:1", turnID: "t1"})
-	id, held := gate(tool, args)
-	if !held || id == "" {
-		t.Fatal("a matching hold rule must suspend the call")
-	}
+	// The call is STILL WAITING while the test runs its verdict — that is what a
+	// hold is. The row has to exist and stay held, so the gate runs where it does
+	// in production, on the agent's own goroutine.
+	go gate(tool, args)
+	id := awaitHeldID(t, d)
+	// End the waiter even when the test leaves the call unanswered.
+	t.Cleanup(func() { _, _ = d.expirePendingAction(id) })
 	return srv, d, dl, id
 }
 
@@ -48,7 +52,7 @@ func always(t *testing.T, d *DB, id, reviewer string) error {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if _, _, err := d.resolveHoldTx(context.Background(), tx, id, PendingApproved, reviewer, "", true); err != nil {
+	if _, err := d.resolveHoldTx(context.Background(), tx, id, PendingApproved, reviewer, "", true); err != nil {
 		return err
 	}
 	return tx.Commit()

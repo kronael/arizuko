@@ -1,15 +1,18 @@
 package auth_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/store"
 )
 
 func TestCheckHold_NoRowsRunInline(t *testing.T) {
 	s := openMem(t)
-	if auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "mcp:send", "atlas", nil) != "" {
+	if auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "mcp:send", "atlas", nil) {
 		t.Fatal("no hold row should run inline")
 	}
 }
@@ -17,7 +20,7 @@ func TestCheckHold_NoRowsRunInline(t *testing.T) {
 func TestCheckHold_BareRuleAlwaysHolds(t *testing.T) {
 	s := openMem(t)
 	addRow(t, s, "folder:atlas", auth.HoldPrefix+"mcp:delete", "atlas", "allow")
-	if auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "mcp:delete", "atlas", nil) == "" {
+	if !auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "mcp:delete", "atlas", nil) {
 		t.Fatal("bare hold rule should hold")
 	}
 }
@@ -25,7 +28,7 @@ func TestCheckHold_BareRuleAlwaysHolds(t *testing.T) {
 func TestCheckHold_OtherToolUnaffected(t *testing.T) {
 	s := openMem(t)
 	addRow(t, s, "folder:atlas", auth.HoldPrefix+"mcp:delete", "atlas", "allow")
-	if auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "mcp:send", "atlas", nil) != "" {
+	if auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "mcp:send", "atlas", nil) {
 		t.Fatal("a hold on delete must not hold send")
 	}
 }
@@ -44,7 +47,7 @@ func TestCheckHold_OperatorStarDoesNotHoldEverything(t *testing.T) {
 	if !auth.Authorize(s, caller, "mcp:delete", "atlas", nil) {
 		t.Fatal("precondition: operator should be authorized for the tool")
 	}
-	if auth.CheckHold(s, caller, "mcp:delete", "atlas", nil) != "" {
+	if auth.CheckHold(s, caller, "mcp:delete", "atlas", nil) {
 		t.Fatal("operator (*, **) must NOT hold every tool")
 	}
 }
@@ -55,7 +58,7 @@ func TestCheckHold_OperatorStarDoesNotHoldEverything(t *testing.T) {
 func TestCheckHold_PlainAllowRowIsNotAHold(t *testing.T) {
 	s := openMem(t)
 	addRow(t, s, "folder:atlas", "mcp:delete", "atlas", "allow")
-	if auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "mcp:delete", "atlas", nil) != "" {
+	if auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "mcp:delete", "atlas", nil) {
 		t.Fatal("a plain grant row must not be read as a hold")
 	}
 }
@@ -67,10 +70,10 @@ func TestCheckHold_ParamsMakeItConditional(t *testing.T) {
 		Scope: "atlas", Effect: "allow", Params: "host=*.prod.example.com",
 	})
 	caller := auth.Caller{Principal: "folder:atlas"}
-	if auth.CheckHold(s, caller, "mcp:network_allow", "atlas", map[string]string{"host": "db.prod.example.com"}) == "" {
+	if !auth.CheckHold(s, caller, "mcp:network_allow", "atlas", map[string]string{"host": "db.prod.example.com"}) {
 		t.Fatal("matching param should hold")
 	}
-	if auth.CheckHold(s, caller, "mcp:network_allow", "atlas", map[string]string{"host": "docs.example.com"}) != "" {
+	if auth.CheckHold(s, caller, "mcp:network_allow", "atlas", map[string]string{"host": "docs.example.com"}) {
 		t.Fatal("non-matching param should run inline")
 	}
 }
@@ -79,10 +82,10 @@ func TestCheckHold_ScopeContains(t *testing.T) {
 	s := openMem(t)
 	addRow(t, s, "folder:atlas", auth.HoldPrefix+"mcp:delete", "atlas/**", "allow")
 	caller := auth.Caller{Principal: "folder:atlas"}
-	if auth.CheckHold(s, caller, "mcp:delete", "atlas/eng", nil) == "" {
+	if !auth.CheckHold(s, caller, "mcp:delete", "atlas/eng", nil) {
 		t.Fatal("subtree scope should cover the child folder")
 	}
-	if auth.CheckHold(s, caller, "mcp:delete", "other", nil) != "" {
+	if auth.CheckHold(s, caller, "mcp:delete", "other", nil) {
 		t.Fatal("scope must not reach outside the subtree")
 	}
 }
@@ -90,20 +93,20 @@ func TestCheckHold_ScopeContains(t *testing.T) {
 func TestCheckHold_WildcardToolRule(t *testing.T) {
 	s := openMem(t)
 	addRow(t, s, "folder:atlas", auth.HoldPrefix+"*", "atlas", "allow")
-	if auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "mcp:anything", "atlas", nil) == "" {
+	if !auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "mcp:anything", "atlas", nil) {
 		t.Fatal("hold:mcp:* should hold every tool for that folder")
 	}
 }
 
 func TestCheckHold_NilStoreAndEmptyInputs(t *testing.T) {
 	s := openMem(t)
-	if auth.CheckHold(nil, auth.Caller{Principal: "folder:atlas"}, "mcp:x", "atlas", nil) != "" {
+	if auth.CheckHold(nil, auth.Caller{Principal: "folder:atlas"}, "mcp:x", "atlas", nil) {
 		t.Fatal("nil store should not hold")
 	}
-	if auth.CheckHold(s, auth.Caller{}, "mcp:x", "atlas", nil) != "" {
+	if auth.CheckHold(s, auth.Caller{}, "mcp:x", "atlas", nil) {
 		t.Fatal("empty principal should not hold")
 	}
-	if auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "", "atlas", nil) != "" {
+	if auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "", "atlas", nil) {
 		t.Fatal("empty tool should not hold")
 	}
 }
@@ -122,10 +125,10 @@ func TestCheckHold_SkipApprovalRowBeatsMatchingHold(t *testing.T) {
 	})
 	c := auth.Caller{Principal: "folder:atlas"}
 
-	if auth.CheckHold(s, c, "mcp:delete", "atlas", map[string]string{"target": "staging"}) != "" {
+	if auth.CheckHold(s, c, "mcp:delete", "atlas", map[string]string{"target": "staging"}) {
 		t.Error("the skipped shape must run inline")
 	}
-	if auth.CheckHold(s, c, "mcp:delete", "atlas", map[string]string{"target": "prod"}) == "" {
+	if !auth.CheckHold(s, c, "mcp:delete", "atlas", map[string]string{"target": "prod"}) {
 		t.Error("every other shape must still be held")
 	}
 }
@@ -142,10 +145,10 @@ func TestCheckHold_BroadHoldDoesNotResurrectSkippedShape(t *testing.T) {
 	addRow(t, s, "folder:atlas", auth.HoldPrefix+"*", "atlas", "allow")
 	c := auth.Caller{Principal: "folder:atlas"}
 
-	if auth.CheckHold(s, c, "mcp:delete", "atlas", map[string]string{"target": "staging"}) != "" {
+	if auth.CheckHold(s, c, "mcp:delete", "atlas", map[string]string{"target": "staging"}) {
 		t.Error("a later broad hold must not override the exception")
 	}
-	if auth.CheckHold(s, c, "mcp:send", "atlas", nil) == "" {
+	if !auth.CheckHold(s, c, "mcp:send", "atlas", nil) {
 		t.Error("hold:mcp:* must still hold a tool the exception does not name")
 	}
 }
@@ -174,14 +177,14 @@ func TestCheckHold_RawToolNameIsWhatProductionSends(t *testing.T) {
 	s := openMem(t)
 	addRow(t, s, "folder:atlas", auth.HoldPrefix+"reply", "atlas", "allow")
 	c := auth.Caller{Principal: "folder:atlas"}
-	if auth.CheckHold(s, c, "reply", "atlas", nil) == "" {
+	if !auth.CheckHold(s, c, "reply", "atlas", nil) {
 		t.Fatal("a hold on the raw tool name must hold it")
 	}
 	addRowFull(t, s, core.ACLRow{
 		Principal: "folder:atlas", Action: auth.HoldPrefix + "reply",
 		Scope: "atlas", Effect: auth.EffectSkipApproval,
 	})
-	if auth.CheckHold(s, c, "reply", "atlas", nil) != "" {
+	if auth.CheckHold(s, c, "reply", "atlas", nil) {
 		t.Fatal("the skip-approval row must release the raw tool name too")
 	}
 }
@@ -209,7 +212,7 @@ func TestCheckHold_SkipWinsInEitherInsertOrder(t *testing.T) {
 			s := openMem(t)
 			addRowFull(t, s, tc.first)
 			addRowFull(t, s, tc.second)
-			if auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "deploy", "atlas", nil) != "" {
+			if auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "deploy", "atlas", nil) {
 				t.Error("a skip-approval row must win regardless of insert order")
 			}
 		})
@@ -229,28 +232,46 @@ func TestCheckHold_InheritedSkipBeatsDirectHold(t *testing.T) {
 	if err := s.AddMembership("folder:atlas", "role:release", "test"); err != nil {
 		t.Fatalf("AddMembership: %v", err)
 	}
-	if auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "deploy", "atlas", nil) != "" {
+	if auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "deploy", "atlas", nil) {
 		t.Error("an inherited skip-approval row must release the hold")
 	}
 }
 
-// TestCheckHold_AsyncRowSaysAsync — the non-blocking variant has to survive the
-// read, or `block by default` would silently become `block always`.
-func TestCheckHold_AsyncRowSaysAsync(t *testing.T) {
+// TestCheckHold_LegacyNonDenyEffectStillHolds — a hold row is a hold whatever
+// its allow is spelled. The writer now refuses every spelling but `allow` and
+// `deny`, so this is about rows a live database already carries: reading one as
+// "not a hold" would silently drop the gate it was written to apply.
+func TestCheckHold_LegacyNonDenyEffectStillHolds(t *testing.T) {
 	s := openMem(t)
-	addRow(t, s, "folder:atlas", auth.HoldPrefix+"mcp:delete", "atlas", auth.EffectHoldAsync)
-	if got := auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "mcp:delete", "atlas", nil); got != auth.EffectHoldAsync {
-		t.Fatalf("CheckHold = %q, want %q", got, auth.EffectHoldAsync)
+	addLegacyEffectRow(t, s, "folder:atlas", auth.HoldPrefix+"mcp:delete", "atlas", "async")
+	if !auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "mcp:delete", "atlas", nil) {
+		t.Fatal("a hold row stopped holding because of how its allow is spelled")
 	}
 }
 
-// TestCheckHold_BlockingWinsOverAsync — two rules match and they disagree. The
-// safer reading of a disagreement is the one that waits.
-func TestCheckHold_BlockingWinsOverAsync(t *testing.T) {
+// TestCheckHold_TwoMatchingRulesStillHold — two rules match. There is one answer
+// a hold rule can give, so they cannot disagree and the call waits.
+func TestCheckHold_TwoMatchingRulesStillHold(t *testing.T) {
 	s := openMem(t)
-	addRow(t, s, "folder:atlas", auth.HoldPrefix+"mcp:delete", "atlas", auth.EffectHoldAsync)
-	addRow(t, s, "folder:atlas", auth.HoldPrefix+"*", "atlas", "allow")
-	if got := auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "mcp:delete", "atlas", nil); got != auth.EffectHoldBlock {
-		t.Fatalf("CheckHold = %q, want the blocking effect %q", got, auth.EffectHoldBlock)
+	addRow(t, s, "folder:atlas", auth.HoldPrefix+"mcp:delete", "atlas", auth.EffectHoldBlock)
+	addRow(t, s, "folder:atlas", auth.HoldPrefix+"*", "atlas", auth.EffectHoldBlock)
+	if !auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "mcp:delete", "atlas", nil) {
+		t.Fatal("two matching hold rules must still hold")
+	}
+}
+
+// addLegacyEffectRow writes an acl item whose effect no writer would accept
+// today, straight at the coordinate. store.aclPut refuses the spelling now
+// (BUGS L272), and a database written before it did is exactly what this has to
+// stand in for.
+func addLegacyEffectRow(t *testing.T, s *store.Store, principal, action, scope, effect string) {
+	t.Helper()
+	sort := strings.Join([]string{principal, action, scope, "", "", effect}, store.KeySep)
+	if err := s.WriteEntities(t.Context(), nil, objstore.Write{
+		Op: objstore.Put, Entity: store.ACL,
+		Key:   objstore.Key{Partition: store.OwnerRoutd, Sort: sort},
+		Attrs: map[string]string{"grant_option": "0", "granted_by": "legacy"},
+	}); err != nil {
+		t.Fatalf("write the legacy row: %v", err)
 	}
 }

@@ -181,8 +181,6 @@ func main() {
 			store.AttrPendCallerAgent: "folder:inbox",
 			store.AttrPendTool:        pa.tool,
 			store.AttrPendArgs:        pa.args,
-			store.AttrPendArgsFinal:   pa.args,
-			store.AttrPendArgsHash:    pa.id + "-hash",
 			store.AttrPendStatus:      pa.status,
 			store.AttrPendChatJID:     "telegram:user/seed",
 			store.AttrPendCreatedAt:   nowS,

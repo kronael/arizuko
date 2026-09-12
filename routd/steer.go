@@ -554,11 +554,11 @@ func (l *Loop) delegateViaMessage(targetFolder, prompt, originJID string) error 
 	return nil
 }
 
-// cmdResolveHold records an operator's verdict on a held tool call and, on
-// approval, enqueues the held call's chat so the agent re-issues the call in
-// its OWN next turn (spec 5/19). There is no out-of-turn dispatcher: the agent
-// MCP server is per-turn, so a second path would have to re-implement ipc's
-// grant and audit discipline — the dual-path CLAUDE.md bans.
+// cmdResolveHold records a human's verdict on a held tool call (spec 5/19). The
+// agent's call is suspended on the row right now, so the verdict IS the answer:
+// the waiter reads it and runs or refuses the call inside that turn. There is no
+// out-of-turn dispatcher — the agent MCP server is per-turn, and a second path
+// would have to re-implement ipc's grant and audit discipline.
 //
 // Who may answer is decided inside resolveHoldTx, on the held row's folder —
 // the SAME core the REST face runs, so there is one gate rather than two
@@ -582,7 +582,7 @@ func (l *Loop) cmdResolveHold(chatJID, folder, arg, sender, verdict string, stan
 		return
 	}
 	defer tx.Rollback()
-	p, enqueueJID, err := l.db.resolveHoldTx(context.Background(), tx, id, verdict, sender,
+	p, err := l.db.resolveHoldTx(context.Background(), tx, id, verdict, sender,
 		strings.TrimSpace(note), standing)
 	if err != nil {
 		l.ack(chatJID, "Failed: "+err.Error())
@@ -596,14 +596,13 @@ func (l *Loop) cmdResolveHold(chatJID, folder, arg, sender, verdict string, stan
 		l.ack(chatJID, fmt.Sprintf("rejected %s (%s)", id, p.Tool))
 		return
 	}
-	msg := fmt.Sprintf("approved %s (%s) — the agent will re-issue it", id, p.Tool)
+	msg := fmt.Sprintf("approved %s (%s) — the agent runs it now", id, p.Tool)
 	if standing {
 		// Name the rule that was written AND how to undo it: revoking an
 		// `always` is removing this row, and no other row means the same thing.
 		msg += "\n" + standingWritten(p)
 	}
 	l.ack(chatJID, msg)
-	l.Enqueue(enqueueJID)
 }
 
 // standingWritten reports the skip-approval row an /always just wrote, spelled

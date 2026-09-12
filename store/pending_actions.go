@@ -19,14 +19,14 @@ package store
 // store.OwnerRoutd).
 //
 // THE ID IS THE COORDINATE. Every other selection — the folder's held calls, the
-// (folder, tool, args_hash) release match, the expiry sweep — is on an
-// attribute, and an attribute is not a leading fragment of the key, so each of
-// those is a partition read with a filter.
+// reaction lookup, the expiry sweep — is on an attribute, and an attribute is not
+// a leading fragment of the key, so each of those is a partition read with a
+// filter.
 //
 // THERE IS NO item→struct READER HERE, and that is the same rule: the struct is
-// routd's `PendingAction`, with three fields derived from `args_final` that no
-// item carries, and a second struct beside it would be a second format of the
-// row. The reader belongs with the struct.
+// routd's `PendingAction`, with three fields derived from `args` that no item
+// carries, and a second struct beside it would be a second format of the row.
+// The reader belongs with the struct.
 
 import (
 	"fmt"
@@ -46,18 +46,13 @@ const (
 	AttrPendCallerAgent  = "caller_agent"
 	AttrPendTool         = "tool"
 	AttrPendArgs         = "args"
-	AttrPendArgsFinal    = "args_final"
-	AttrPendArgsHash     = "args_hash"
 	AttrPendStatus       = "status"
 	AttrPendChatJID      = "chat_jid"
 	AttrPendCreatedAt    = "created_at"
 	AttrPendReviewedBy   = "reviewed_by"
 	AttrPendReviewedAt   = "reviewed_at"
 	AttrPendReviewerNote = "reviewer_note"
-	AttrPendResult       = "result"
-	AttrPendError        = "error"
 	AttrPendExpiresAt    = "expires_at"
-	AttrPendMode         = "mode"
 	AttrPendNoticeID     = "notice_id"
 )
 

@@ -129,8 +129,8 @@ func TestHoldE2E_ButtonPressReleasesTheBlockedCall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 1 || rows[0].Status != PendingReleased {
-		t.Fatalf("want one released row, got %+v", rows)
+	if len(rows) != 1 || rows[0].Status != PendingApproved {
+		t.Fatalf("want one approved row, got %+v", rows)
 	}
 }
 

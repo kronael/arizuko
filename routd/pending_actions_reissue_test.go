@@ -6,104 +6,68 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	"github.com/kronael/arizuko/store"
 )
 
-// holdOneCall arms a hold rule on the folder and suspends one `mcp:like` call
-// through the REAL gate, returning the pending id.
-func holdOneCall(t *testing.T, db *DB, srv *Server, folder, chatJID string) string {
+// cursorSecondRow writes one ordinary message at a nanosecond instant and parks
+// the chat's cursor at a position in that SAME second — the collision BUGS L97
+// reports, and the normal case: an adapter truncates its platform timestamp to
+// the second, so a row written in that second has only its fraction to keep it
+// on the right side of `timestamp > agent_cursor`.
+func cursorSecondRow(t *testing.T, db *DB, chatJID string) core.Message {
 	t.Helper()
-	if err := addACLRow(db, core.ACLRow{
-		Principal: "folder:" + folder, Action: auth.HoldPrefix + "mcp:like",
-		Scope: folder, Effect: auth.EffectHoldAsync,
-	}); err != nil {
-		t.Fatalf("arm the hold rule: %v", err)
+	m := core.Message{
+		ID: core.MsgID("cursor-second"), ChatJID: chatJID, Sender: "google:op",
+		Content: "answer the question", Timestamp: time.Now().UTC(), Verb: "message",
 	}
-	gate := srv.holdGate(turnMCP{folder: folder, chatJID: chatJID})
-	if gate == nil {
-		t.Fatal("a normal folder turn must get a gate")
+	if err := db.PutMessage(m); err != nil {
+		t.Fatalf("put the row: %v", err)
 	}
-	id, held := gate("mcp:like", map[string]any{"platform_id": "p1", "emoji": "👍"})
-	if !held || id == "" {
-		t.Fatalf("the hold rule must suspend the call (held=%v id=%q)", held, id)
+	if err := db.SetAgentCursor(chatJID,
+		store.MsgStamp(core.TS(m.Timestamp.Truncate(time.Second)), "platform-row")); err != nil {
+		t.Fatalf("set cursor: %v", err)
 	}
-	return id
+	return m
 }
 
-// approveInChat runs the chat `/approve <id>` command — the same
-// cmdResolveHold both the typed command and the dashboard button reach.
-func approveInChat(t *testing.T, db *DB, srv *Server, chatJID, folder, id string) {
+// routedChat stands up a group and the route that reaches it.
+func routedChat(t *testing.T, db *DB, srv *Server, chatJID string) {
 	t.Helper()
-	if err := addMembership(db, "google:op", "role:operator", "test"); err != nil {
-		t.Fatalf("make the reviewer an operator: %v", err)
-	}
-	srv.loop.cmdResolveHold(chatJID, folder, id, "google:op", PendingApproved, false)
-	p, ok := pendingActionRow(db, id)
-	if !ok || p.Status != PendingApproved {
-		t.Fatalf("the verdict did not commit: %+v ok=%v", p, ok)
-	}
-}
-
-// TestApproveReIssuesHeldCallInTheCursorSecond is BUGS L97 end to end.
-//
-// The operator types /approve, the verdict commits, and the re-issue trigger is
-// written with nanosecond precision. The chat's cursor is a platform timestamp,
-// which every adapter truncates to the second — so the trigger and the cursor
-// share a second, and only a fixed-width layout keeps the trigger on the right
-// side of `timestamp > agent_cursor`. Under a fraction-stripping layout the
-// dispatch scan steps over it and the held call is never re-issued.
-func TestApproveReIssuesHeldCallInTheCursorSecond(t *testing.T) {
-	db, srv, runner := newTestRoutd(t)
-	const chatJID = "slack:T/C/U"
 	if err := db.PutGroup(core.Group{Folder: "atlas"}); err != nil {
 		t.Fatalf("put group: %v", err)
 	}
 	doJSON(t, srv.Handler(), "PUT", "/v1/routes", "",
 		map[string]any{"routes": []apiv1.Route{{Match: "platform=slack", Target: "atlas"}}})
+}
 
-	id := holdOneCall(t, db, srv, "atlas", chatJID)
-	approveInChat(t, db, srv, chatJID, "atlas", id)
+// TestRowInTheCursorSecondReachesTheDispatchFeed is BUGS L97 end to end: a row
+// whose instant shares a second with the cursor must still be fed to the agent.
+// Under a fraction-stripping layout the dispatch scan steps over it and the turn
+// never sees the message at all.
+func TestRowInTheCursorSecondReachesTheDispatchFeed(t *testing.T) {
+	db, srv, runner := newTestRoutd(t)
+	const chatJID = "slack:T/C/U"
+	routedChat(t, db, srv, chatJID)
 
-	// The trigger row the approval wrote.
-	trigger := triggerRow(t, db, chatJID, id)
+	row := cursorSecondRow(t, db, chatJID)
 
-	// The adapter's half: a platform timestamp in the trigger's own second,
-	// stored as the chat's cursor. This is the collision L97 reports, and it is
-	// the normal case — the verdict and the platform row are the same second.
-	cursorAt := trigger.Timestamp.Truncate(time.Second)
-	// The cursor is a whole message position now, so it names the adapter's row
-	// at that second rather than the bare second. The trigger carries a fraction
-	// of the same second, so it sorts after ANY position at cursorAt whatever the
-	// id — which is the guarantee this test is about, made stronger.
-	if err := db.SetAgentCursor(chatJID, store.MsgStamp(core.TS(cursorAt), "platform-row")); err != nil {
-		t.Fatalf("set cursor: %v", err)
-	}
-
-	// The dispatch scan must see the trigger across that cursor.
 	msgs, err := db.NewMessagesForChat(chatJID, db.GetAgentCursor(chatJID), 100)
 	if err != nil {
 		t.Fatalf("messages since cursor: %v", err)
 	}
-	if !containsID(msgs, trigger.ID) {
-		t.Fatalf("the re-issue trigger is invisible to the dispatch feed: "+
-			"trigger %q vs cursor %q", core.TS(trigger.Timestamp), db.GetAgentCursor(chatJID))
+	if !containsID(msgs, row.ID) {
+		t.Fatalf("the row is invisible to the dispatch feed: row %q vs cursor %q",
+			core.TS(row.Timestamp), db.GetAgentCursor(chatJID))
 	}
 
-	// And the turn actually runs with the re-issue instruction in its batch.
+	// And the turn actually runs with it in its batch.
 	if _, err := srv.loop.processGroupMessages(chatJID); err != nil {
 		t.Fatalf("process: %v", err)
 	}
-	if !strings.Contains(runner.gotBatch, "re-issue mcp:like") {
-		t.Fatalf("the agent's batch carries no re-issue instruction: %q", runner.gotBatch)
-	}
-
-	// The re-issued call passes the gate exactly once — the approval is spent.
-	gate := srv.holdGate(turnMCP{folder: "atlas", chatJID: chatJID})
-	if _, held := gate("mcp:like", map[string]any{"platform_id": "p1", "emoji": "👍"}); held {
-		t.Fatal("the approved re-issue must run, not be held again")
+	if !strings.Contains(runner.gotBatch, "answer the question") {
+		t.Fatalf("the agent's batch does not carry the row: %q", runner.gotBatch)
 	}
 }
 
@@ -127,27 +91,17 @@ func TestPutMessageStoresAFixedWidthTimestamp(t *testing.T) {
 	}
 }
 
-// TestPollOnceDoesNotSkipTheChatHoldingATrigger covers the other gate on the
-// same second: pollOnce feeds from the global minimum cursor and skips any chat
-// already current on its own, comparing the batch tail against that cursor as
-// text. The trigger is the tail, so a stripped fraction makes the chat look
-// current and it is never enqueued.
-func TestPollOnceDoesNotSkipTheChatHoldingATrigger(t *testing.T) {
+// TestPollOnceDoesNotSkipAChatWithARowInTheCursorSecond covers the other gate on
+// the same second: pollOnce feeds from the global minimum cursor and skips any
+// chat already current on its own, comparing the batch tail against that cursor
+// as text. A stripped fraction makes the chat look current and it is never
+// enqueued.
+func TestPollOnceDoesNotSkipAChatWithARowInTheCursorSecond(t *testing.T) {
 	db, srv, runner := newTestRoutd(t)
 	const chatJID = "slack:T/C/U"
-	if err := db.PutGroup(core.Group{Folder: "atlas"}); err != nil {
-		t.Fatalf("put group: %v", err)
-	}
-	doJSON(t, srv.Handler(), "PUT", "/v1/routes", "",
-		map[string]any{"routes": []apiv1.Route{{Match: "platform=slack", Target: "atlas"}}})
+	routedChat(t, db, srv, chatJID)
 
-	id := holdOneCall(t, db, srv, "atlas", chatJID)
-	approveInChat(t, db, srv, chatJID, "atlas", id)
-
-	trigger := triggerRow(t, db, chatJID, id)
-	if err := db.SetAgentCursor(chatJID, store.MsgStamp(core.TS(trigger.Timestamp.Truncate(time.Second)), "platform-row")); err != nil {
-		t.Fatalf("set cursor: %v", err)
-	}
+	row := cursorSecondRow(t, db, chatJID)
 
 	// pollOnce enqueues; the queue is stopped in this harness, so drive the
 	// dispatch the enqueue would have reached and assert the turn ran.
@@ -155,9 +109,9 @@ func TestPollOnceDoesNotSkipTheChatHoldingATrigger(t *testing.T) {
 	if _, err := srv.loop.processGroupMessages(chatJID); err != nil {
 		t.Fatalf("process: %v", err)
 	}
-	if runner.gotTurn != trigger.ID {
-		t.Fatalf("the poll skipped the chat holding the trigger: turn_id=%q want %q",
-			runner.gotTurn, trigger.ID)
+	if runner.gotTurn != row.ID {
+		t.Fatalf("the poll skipped the chat holding the row: turn_id=%q want %q",
+			runner.gotTurn, row.ID)
 	}
 }
 
@@ -278,24 +232,6 @@ func containsID(msgs []core.Message, id string) bool {
 		}
 	}
 	return false
-}
-
-// triggerRow reads the re-issue trigger a verdict wrote for a pending id. The
-// row id is core.MsgID("hitl-"+id), so the pending id is its prefix — and the
-// row is in the chat the verdict was given in, which is its partition.
-func triggerRow(t *testing.T, db *DB, chatJID, pendingID string) core.Message {
-	t.Helper()
-	msgs, err := db.MessagesSince(chatJID, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, m := range msgs {
-		if strings.HasPrefix(m.ID, "hitl-"+pendingID+"-") {
-			return m
-		}
-	}
-	t.Fatalf("no re-issue trigger row for %s in %s", pendingID, chatJID)
-	return core.Message{}
 }
 
 // applyMigration runs a SHIPPED migration file. Reading the file rather than

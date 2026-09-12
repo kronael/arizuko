@@ -4,13 +4,12 @@ package routd
 // contract — GET /v1/pending_actions plus POST /v1/pending_actions/{id}/
 // approve|reject — closing the "declared but not mounted" gap BUGS F66
 // records. Both verdicts funnel through resolveHoldTx, the same core the chat
-// /approve command runs, inside the tx resreg opens: verdict, resolution
-// message and audit row commit as one unit.
+// /approve command runs, inside the tx resreg opens: verdict, standing rule and
+// audit row commit as one unit.
 //
-// There is deliberately no Enqueue here: resreg has no post-commit hook, and
-// an enqueue before commit can race the dispatch ahead of the approved row.
-// The loop's poll (pollEvery, 2s default) picks the committed resolution
-// message up — the same backstop every externally-written message row rides.
+// Nothing is dispatched from here. The agent is suspended on the held call, so
+// the verdict reaching the row IS the delivery: the waiter reads it within a
+// poll and runs or refuses the call inside the turn that asked.
 //
 // The agent-socket MCP face stays unmounted: approve on the held agent's own
 // socket would let it approve its own call, so that half of F66 waits for an
@@ -111,7 +110,7 @@ func (s *Server) pendingActionsHandler(ctx context.Context, x resreg.Execution) 
 		// answer lives in acl (spec 6/26 § Decision 5). Meaningless on reject,
 		// and there is no standing reject — see resolveHoldTx.
 		standing := x.Action == actionApprove && x.Args.Bool("standing")
-		p, _, err := s.db.resolveHoldTx(ctx, x.Tx, id, verdict, reviewer, x.Args.Str("note"), standing)
+		p, err := s.db.resolveHoldTx(ctx, x.Tx, id, verdict, reviewer, x.Args.Str("note"), standing)
 		switch {
 		case errors.Is(err, ErrPendingNotFound):
 			return nil, resreg.Errorf(http.StatusNotFound, "%v", err)

@@ -32,12 +32,12 @@ func (d *dash) handleApprovals(w http.ResponseWriter, r *http.Request) {
 	pageTopFor(w, r, "approvals")
 
 	fmt.Fprint(w, `<p class="dim">A hold rule pauses a risky tool call until a human says go. `+
-		`Review the arguments, then approve to let this exact call run once &mdash; `+
-		`the agent re-issues it with the arguments shown &mdash; or reject so it never runs. `+
-		`Changing even one argument puts the call back on hold.</p>`)
+		`The agent is waiting on it right now. Review the arguments, then approve `+
+		`&mdash; it runs immediately, with exactly these arguments &mdash; or reject, `+
+		`and the agent is told so and never runs it.</p>`)
 
 	writeFlash(w, r, map[string]flash{
-		"approved": {"ok", "approved — the agent will re-issue the call in its next turn"},
+		"approved": {"ok", "approved — the waiting agent runs the call now"},
 		"rejected": {"ok", "rejected — the call will not run"},
 		"always": {"ok", "approved, and this shape now skips approval — the rule is an acl row " +
 			"on the group's grants page, and removing it is the only way back"},
@@ -231,12 +231,11 @@ func alwaysCaveat(p pendingRow) string {
 	return s
 }
 
-// approvalStatusClass maps a resolved status to its color: released ran (ok),
-// approved is about to run (ok), rejected was stopped (err), expired lapsed
-// unanswered (unknown).
+// approvalStatusClass maps a resolved status to its color: approved ran (ok),
+// rejected was stopped (err), expired lapsed unanswered (unknown).
 func approvalStatusClass(status string) string {
 	switch status {
-	case "approved", "released":
+	case "approved":
 		return statusOK
 	case "rejected":
 		return statusErr
