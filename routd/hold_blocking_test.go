@@ -163,6 +163,7 @@ func TestAwaitVerdict_TimeoutHandsBackToTheTrigger(t *testing.T) {
 // agent run it a second time.
 func TestResolveHold_BlockingWritesNoTrigger(t *testing.T) {
 	d := memDB(t)
+	addACL(t, d, "google:op", "admin", "atlas", "allow")
 	for mode, wantTrigger := range map[string]bool{
 		auth.EffectHoldBlock: false,
 		auth.EffectHoldAsync: true,

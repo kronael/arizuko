@@ -8,7 +8,9 @@ import (
 	"testing"
 )
 
-// seedHeld inserts one held call for the REST tests.
+// seedHeld inserts one held call for the REST tests, and the admin row on its
+// folder that a verdict is authorized against (BUGS L271) for every reviewer
+// these tests speak as.
 func seedHeld(t *testing.T, db *DB, id, folder, chatJID string) {
 	t.Helper()
 	if err := db.PutPendingAction(PendingAction{
@@ -16,6 +18,9 @@ func seedHeld(t *testing.T, db *DB, id, folder, chatJID string) {
 		ArgsHash: "h", Args: `{"path":"/etc/x"}`, ArgsFinal: `{"path":"/etc/x"}`,
 	}); err != nil {
 		t.Fatal(err)
+	}
+	for _, sub := range []string{"op", "google:op@x"} {
+		addACL(t, db, sub, "admin", folder, "allow")
 	}
 }
 

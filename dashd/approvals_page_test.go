@@ -69,19 +69,39 @@ func TestApprovalsPage_RendersHeldQueue(t *testing.T) {
 	}
 }
 
-// A non-operator gets 403 before dashd makes any upstream call: routd
-// authorizes dashd's bearer as list-all, so the page gate IS the containment.
-func TestApprovalsPage_NonOperatorMakesNoUpstreamCall(t *testing.T) {
+// The queue a caller reads is bounded by WHO they are, and dashd says who that
+// is: the proxyd-verified sub rides as `reviewer` and routd returns only the
+// folders that human holds admin on. A page that asked routd without it would
+// render every tenant's held calls.
+func TestApprovalsPage_ForwardsTheReviewer(t *testing.T) {
 	u := newRoutdUpstream(t)
 	mux := approvalsDash(t, u)
 
 	req := httptest.NewRequest("GET", "/dash/approvals/", nil)
-	req.Header.Set("X-User-Sub", "google:someone")
+	req.Header.Set("X-User-Sub", "user:google:someone")
 	req.Header.Set("X-User-Groups", `["solo"]`)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want 403", w.Code)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	// The bare sub, the spelling acl rows carry — a `user:`-prefixed principal
+	// matches no row and would return an empty queue to a real admin.
+	if got := u.query; got != "reviewer=google%3Asomeone" {
+		t.Fatalf("routd query = %q, want the bare reviewer sub", got)
+	}
+}
+
+// An unauthenticated request never reaches routd: there is no human to filter
+// the queue for, so asking would be asking for everything.
+func TestApprovalsPage_AnonymousMakesNoUpstreamCall(t *testing.T) {
+	u := newRoutdUpstream(t)
+	mux := approvalsDash(t, u)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest("GET", "/dash/approvals/", nil))
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", w.Code)
 	}
 	if u.calls != 0 {
 		t.Fatalf("routd calls = %d, want 0", u.calls)
@@ -167,10 +187,12 @@ func pendingCountDB(t *testing.T) *dash {
 	return &dash{dbRoutd: routdDB(t)}
 }
 
-// The portal banner counts only calls still WAITING: a lazily-expired hold and
-// a resolved row are not asking the operator for anything.
+// The portal banner counts only calls still WAITING that this caller may
+// ANSWER: a lazily-expired hold and a resolved row ask nobody for anything, and
+// a call in a folder the caller holds no admin on is not theirs to answer.
 func TestPortalCountsHeldApprovals(t *testing.T) {
 	d := pendingCountDB(t)
+	seedAdmin(t, d.dbRoutd, "op@x", "**")
 	past := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
 	for _, row := range [][3]string{
 		{"p1", "held", ""},
@@ -200,8 +222,14 @@ func TestPortalCountsHeldApprovals(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if n := d.countHeldApprovals(); n != 1 {
+	if n := d.countHeldApprovals(asOperator(httptest.NewRequest("GET", "/dash/", nil))); n != 1 {
 		t.Fatalf("countHeldApprovals = %d, want 1 (expired + resolved excluded)", n)
+	}
+	// A signed-in caller holding nothing on `demo` is asked for no verdict.
+	stranger := httptest.NewRequest("GET", "/dash/", nil)
+	stranger.Header.Set("X-User-Sub", "nobody@x")
+	if n := d.countHeldApprovals(stranger); n != 0 {
+		t.Fatalf("countHeldApprovals for a stranger = %d, want 0", n)
 	}
 
 	w := httptest.NewRecorder()

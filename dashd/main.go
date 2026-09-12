@@ -642,7 +642,7 @@ var navLinks = []struct {
 	{"/dash/services/", "services", true},
 	{"/dash/packages/", "packages", true},
 	{"/dash/invites/", "invites", true},
-	{"/dash/approvals/", "approvals", true},
+	{"/dash/approvals/", "approvals", false},
 	{"/dash/audit/", "audit", true},
 	{"/dash/usage/", "usage", true},
 	{"/dash/proactive/", "proactive", true},
@@ -745,12 +745,11 @@ func (d *dash) handlePortal(w http.ResponseWriter, r *http.Request) {
 	erroredCount := d.countVisibleErroredChats(allowed, operator)
 	failedTasks := d.countVisibleFailedTasks(allowed, operator)
 
-	// Held approvals are an operator verdict (spec 5/19), so only the operator
-	// gets the nudge — non-operators cannot open the page it links to.
-	heldApprovals := 0
-	if operator {
-		heldApprovals = d.countHeldApprovals()
-	}
+	// The nudge counts only the calls this caller may answer, which is what the
+	// page it links to shows (spec 5/19): a verdict needs `admin` on the held
+	// call's folder, so a world owner is nudged about their own world and nobody
+	// is nudged toward a queue that renders empty for them.
+	heldApprovals := d.countHeldApprovals(r)
 
 	statusDot := "dot-ok"
 	if erroredCount > 0 {

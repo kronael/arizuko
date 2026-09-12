@@ -28,6 +28,9 @@ func holdOnce(t *testing.T, tool string, args map[string]any) (*Server, *DB, *re
 	}); err != nil {
 		t.Fatal(err)
 	}
+	// A verdict is authorized on the held call's folder, so the reviewer these
+	// tests use holds admin there (BUGS L271).
+	addACL(t, d, "google:op", "admin", "atlas", "allow")
 	gate := srv.holdGate(turnMCP{folder: "atlas", chatJID: "tg:1", turnID: "t1"})
 	id, held := gate(tool, args)
 	if !held || id == "" {

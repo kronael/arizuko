@@ -51,31 +51,33 @@ func (s *Store) InstalledPackages() ([]InstalledPackage, error) {
 	return out, nil
 }
 
-// HeldApprovalCount counts calls still waiting for a verdict — the portal
-// banner's number. The predicate mirrors routd's lazy expiry (applyExpiry: a
-// held row past expires_at is expired, not waiting), and both timestamps are
-// RFC3339 UTC, so string order is time order.
+// HeldApprovalFolders lists the folder of every call still waiting for a
+// verdict, one entry per call — the portal banner counts the ones its caller may
+// answer, and only the caller's own authorizer can decide that. The predicate
+// mirrors routd's lazy expiry (applyExpiry: a held row past expires_at is
+// expired, not waiting), and both timestamps are RFC3339 UTC, so string order is
+// time order.
 //
 // A call with NO deadline waits forever, and there is exactly one way to say
 // that: absent is the only null this model has, and routd leaves an empty field
 // off the item (routd/pending_actions.go pendingAttrs), so a held call with no
 // deadline carries no expires_at at all. The comparison itself runs in Go
 // because the predicate is an OR and Where terms are conjuncts.
-func (s *Store) HeldApprovalCount(now string) (int, error) {
+func (s *Store) HeldApprovalFolders(now string) ([]string, error) {
 	items, err := s.obj().Query(context.Background(), objstore.Query{
 		Entity: store.PendingActions, Partition: store.OwnerRoutd,
 		Where: []objstore.Cmp{{Attr: store.AttrPendStatus, Op: objstore.Eq, Value: "held"}},
 	})
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	n := 0
+	var out []string
 	for _, it := range items {
 		if exp := it.Attrs[store.AttrPendExpiresAt]; exp == "" || exp > now {
-			n++
+			out = append(out, it.Attrs[store.AttrPendGroupFolder])
 		}
 	}
-	return n, nil
+	return out, nil
 }
 
 // ChatCooldown is one chat's last unprompted message. It is an ALIAS: the item

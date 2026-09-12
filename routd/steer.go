@@ -560,20 +560,17 @@ func (l *Loop) delegateViaMessage(targetFolder, prompt, originJID string) error 
 // MCP server is per-turn, so a second path would have to re-implement ipc's
 // grant and audit discipline — the dual-path CLAUDE.md bans.
 //
-// Gated on IsOperator, the same `**` test as /root. A button press and a typed
-// command converge here, and the verdict itself funnels through resolveHoldTx
-// — the SAME core the REST face runs — so an approval always commits together
-// with the resolution message that triggers the re-issue.
+// Who may answer is decided inside resolveHoldTx, on the held row's folder —
+// the SAME core the REST face runs, so there is one gate rather than two
+// readers of "operator". A button press and a typed command converge here, and
+// the verdict commits together with the resolution message that triggers the
+// re-issue.
 //
 // `standing` is /always: `yes` plus the skip-approval rule, one transaction.
 // There is no /never — it would ALSO write a tool deny, and acl rows carry no
 // verdict identity, so nothing could later tell that deny from standing policy
 // (spec 6/26 § "Revocation needs provenance").
 func (l *Loop) cmdResolveHold(chatJID, folder, arg, sender, verdict string, standing bool) {
-	if !l.db.IsOperator(sender) {
-		l.ack(chatJID, "Permission denied: approving a held call requires an operator grant (**).")
-		return
-	}
 	id, note, _ := strings.Cut(strings.TrimSpace(arg), " ")
 	if id == "" {
 		l.ack(chatJID, "Usage: /approve <id> [note]  |  /reject <id> [note]  |  /always <id> [note]")

@@ -355,11 +355,13 @@ func applyExpiry(p PendingAction) PendingAction {
 	return p
 }
 
-// ErrPendingNotFound / ErrPendingResolved let the REST face map the two
-// verdict failures to 404/409 without string-matching the operator text.
+// ErrPendingNotFound / ErrPendingResolved / ErrPendingForbidden let the REST
+// face map the three verdict failures to 404/409/403 without string-matching
+// the operator text.
 var (
-	ErrPendingNotFound = errors.New("not found")
-	ErrPendingResolved = errors.New("already resolved")
+	ErrPendingNotFound  = errors.New("not found")
+	ErrPendingResolved  = errors.New("already resolved")
+	ErrPendingForbidden = errors.New("not permitted")
 )
 
 // resolvePendingActionTx records one verdict on a transaction the CALLER owns —
@@ -471,7 +473,31 @@ func skipApprovalRow(p PendingAction, reviewer string) core.ACLRow {
 // also writes, and acl rows carry no verdict identity, so a revoke could not
 // tell that deny from standing policy that predates it (spec 6/26 § "Revocation
 // needs provenance"). That is an unresolved design question, not an omission.
+//
+// WHO MAY ANSWER IS DECIDED HERE, on the HELD ROW's folder — `admin` there is
+// what "may answer this call" means, and this is the one gate both faces run.
+// Testing the CALLER for the operator `**` instead leaves a world creator, who
+// holds `admin <world>/**`, unable to answer a hold inside their own world:
+// `admin <world>/**` does not cover `**`, so the world has no reachable
+// approver and every held call in it waits until it expires (BUGS L271).
+//
+// auth.Authorize is the evaluator, so a deny row is unconfined by scope
+// specificity and still wins: an operator can refuse a folder's own admin the
+// verdict, and no narrower allow restores it.
 func (d *DB) resolveHoldTx(ctx context.Context, tx *sql.Tx, id, verdict, reviewer, note string, standing bool) (PendingAction, string, error) {
+	// The folder comes off the ROW, never off the reviewer's chat or the
+	// transport: the call names the folder it was held in, and that is what the
+	// verdict is authorized against. The read is advisory — the conditional
+	// write inside resolvePendingActionTx is what serializes two reviewers.
+	held, ok := d.pendingAction(id)
+	if !ok {
+		return PendingAction{}, "", fmt.Errorf("no pending action %q: %w", id, ErrPendingNotFound)
+	}
+	if !d.Authorize(reviewer, held.GroupFolder, "admin", nil) {
+		return PendingAction{}, "", fmt.Errorf(
+			"%w: answering a held call in %q needs an admin grant covering that folder",
+			ErrPendingForbidden, held.GroupFolder)
+	}
 	p, err := d.resolvePendingActionTx(ctx, tx, id, verdict, reviewer, note)
 	if err != nil {
 		return PendingAction{}, "", err

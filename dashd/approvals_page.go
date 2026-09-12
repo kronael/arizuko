@@ -17,12 +17,16 @@ import (
 //
 // It reads AND resolves over routd's /v1/pending_actions with the service:dashd
 // bearer, never in SQL: routd owns the resolution lifecycle — the verdict must
-// commit together with the resolution message that makes the agent re-issue
-// the call (routd resolveHoldTx), and a direct-DB verdict from here would
-// approve a row no agent is ever told about. Operator-only, and load-bearing:
-// routd authorizes the BEARER, whose empty folder claim reads as list-all.
+// commit together with the agent's answer (routd resolveHoldTx), and a
+// direct-DB verdict from here would decide a call no agent is ever told about.
+//
+// The page is open to any signed-in caller and shows NOTHING by default: dashd
+// forwards the proxyd-verified sub as `reviewer`, and routd returns only the
+// rows that human holds `admin` on — the same question its verdict gate asks.
+// A queue filtered by one rule and answered by another is how a reader gets a
+// row they can only be refused on.
 func (d *dash) handleApprovals(w http.ResponseWriter, r *http.Request) {
-	if !d.requireOperator(w, r) {
+	if _, ok := requireUser(w, r); !ok {
 		return
 	}
 	pageTopFor(w, r, "approvals")
@@ -69,7 +73,8 @@ type pendingRow struct {
 // renderApprovals writes the held-call queue and the recent verdicts off one
 // GET /v1/pending_actions.
 func (d *dash) renderApprovals(w http.ResponseWriter, r *http.Request) {
-	body, status, err := d.routdGet(r.Context(), "/v1/pending_actions")
+	body, status, err := d.routdGet(r.Context(),
+		"/v1/pending_actions?reviewer="+url.QueryEscape(reviewerSub(r)))
 	if err != nil {
 		slog.Warn("approvals page: routd call", "err", err)
 		fmt.Fprint(w, htmlBanner("err", "could not reach routd: "+err.Error()))
@@ -99,9 +104,10 @@ func (d *dash) renderApprovals(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// ?id=<id> is the deep link routd puts in the held notice (spec 6/26 § Gap 3).
-	// It names WHICH decision; the operator gate this page already applies names
-	// WHO. An id that no longer waits is reported, never silently ignored — the
-	// operator followed a link and must learn why the row is not there.
+	// It names WHICH decision; the `reviewer` filter above names WHO. An id that
+	// no longer waits — or that this reader may not answer — is reported, never
+	// silently ignored: the operator followed a link and must learn why the row
+	// is not there.
 	focus := r.URL.Query().Get("id")
 	if focus != "" {
 		held = focusFirst(held, focus)
@@ -241,10 +247,12 @@ func approvalStatusClass(status string) string {
 
 // handleApprovalResolve handles POST /dash/approvals/{id}/resolve — forward the
 // verdict to routd's POST /v1/pending_actions/{id}/approve|reject. The
-// proxyd-verified operator sub travels as `reviewer` so reviewed_by names the
-// human, not dashd's service principal.
+// proxyd-verified sub travels as `reviewer` so reviewed_by names the human, not
+// dashd's service principal, and so routd can authorize the verdict against the
+// held call's folder. routd refuses with 403 when the human holds no admin
+// there, and that refusal reaches the operator through approvalsRedirect.
 func (d *dash) handleApprovalResolve(w http.ResponseWriter, r *http.Request) {
-	if !d.requireOperator(w, r) {
+	if _, ok := requireUser(w, r); !ok {
 		return
 	}
 	if !requireSameOrigin(w, r) {
@@ -264,7 +272,7 @@ func (d *dash) handleApprovalResolve(w http.ResponseWriter, r *http.Request) {
 	// not a fourth endpoint, because pending_actions has no third status.
 	action, payload := verdict, map[string]string{
 		"note":     strings.TrimSpace(r.FormValue("note")),
-		"reviewer": strings.TrimSpace(r.Header.Get("X-User-Sub")),
+		"reviewer": reviewerSub(r),
 	}
 	if verdict == "always" {
 		action, payload["standing"] = "approve", "true"
@@ -300,22 +308,29 @@ func approvalsRedirect(w http.ResponseWriter, r *http.Request, msg, errMsg strin
 	http.Redirect(w, r, dest, http.StatusSeeOther)
 }
 
-// countHeldApprovals counts calls still waiting for a verdict — the portal
-// banner's number. A direct routd.db read like the portal's other counts; the
-// predicate mirrors routd's lazy expiry (applyExpiry: a held row past
-// expires_at is expired, not waiting; both timestamps are RFC3339 UTC, so
-// string order is time order). 0 on any failure — the banner is a nudge, and
+// countHeldApprovals counts the calls this caller may answer — the portal
+// banner's number, so it must agree with the page the banner links to. A direct
+// routd.db read like the portal's other counts; the expiry predicate is
+// dashstore's (a held row past expires_at is expired, not waiting), and the
+// folder predicate is auth.Authorize with action `admin`, the same one routd
+// applies to the verdict itself. 0 on any failure — the banner is a nudge, and
 // a deploy whose routd has not migrated the table yet must not break the
 // portal.
-func (d *dash) countHeldApprovals() int {
+func (d *dash) countHeldApprovals(r *http.Request) int {
 	st := d.ds()
 	if st == nil {
 		return 0
 	}
-	n, err := st.HeldApprovalCount(time.Now().UTC().Format(time.RFC3339))
+	folders, err := st.HeldApprovalFolders(time.Now().UTC().Format(time.RFC3339))
 	if err != nil {
 		slog.Warn("scope: held-approvals count", "err", err)
 		return 0
+	}
+	n := 0
+	for _, f := range folders {
+		if d.adminOn(r, f) {
+			n++
+		}
 	}
 	return n
 }

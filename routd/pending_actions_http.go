@@ -52,9 +52,10 @@ func (s *Server) mountPendingActions(mux *http.ServeMux) {
 // pendingActionsRESTGate requires pending_actions:read for the list and
 // pending_actions:write for a verdict. Like audit:read, both scopes are
 // unreachable by any human bearer (a user token's scope list holds folder
-// globs); the sole holder is service:dashd, whose /dash/approvals/ page is
-// requireOperator-gated — that gate is the whole containment, matching the
-// chat path's IsOperator.
+// globs); the sole holder is service:dashd, which forwards the proxyd-verified
+// human as `reviewer`. This gate decides only that the TRANSPORT may speak for
+// a human; which folders that human may read and answer is resolveHoldTx's one
+// admin gate, applied per row.
 func (s *Server) pendingActionsRESTGate(x resreg.Execution, _ string, _ map[string]string) error {
 	if s.verify == nil {
 		return nil // local-dev open mode, mirrors s.authz
@@ -74,8 +75,8 @@ func (s *Server) pendingActionsHandler(ctx context.Context, x resreg.Execution) 
 	case resreg.ActionList:
 		folder := x.Args.Str("folder")
 		// A folder-claimed caller is pinned to its own folder; the argument
-		// cannot widen it. An empty claim (service:dashd) lists all — safe only
-		// behind the operator gate, same reading as the audit face.
+		// cannot widen it. An empty claim (service:dashd) reads every folder,
+		// and `reviewer` is what narrows it back down.
 		if x.Caller.Folder != "" {
 			folder = x.Caller.Folder
 		}
@@ -83,7 +84,7 @@ func (s *Server) pendingActionsHandler(ctx context.Context, x resreg.Execution) 
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
-		return map[string]any{"pending": rows}, nil
+		return map[string]any{"pending": s.reviewable(x.Args.Str("reviewer"), rows)}, nil
 	case actionApprove, actionReject:
 		id := x.Args.Str("id")
 		if id == "" {
@@ -93,11 +94,13 @@ func (s *Server) pendingActionsHandler(ctx context.Context, x resreg.Execution) 
 		if x.Action == actionReject {
 			verdict = PendingRejected
 		}
-		// reviewed_by records the OPERATOR, not the transport: dashd calls with
-		// its service bearer and forwards the proxyd-verified operator sub as
-		// `reviewer`. Trusting the argument is bounded by the scope gate — the
-		// only pending_actions:write holder is service:dashd, whose page is
-		// operator-gated. Absent (curl, local dev), the bearer's sub stands.
+		// reviewed_by records the HUMAN, not the transport: dashd calls with its
+		// service bearer and forwards the proxyd-verified sub as `reviewer`.
+		// Trusting the argument is bounded by the scope gate — the only
+		// pending_actions:write holder is service:dashd — and by resolveHoldTx,
+		// which authorizes this exact string on the held row's folder, so a
+		// forwarded sub buys no authority the human does not hold. Absent (curl,
+		// local dev), the bearer's sub stands.
 		reviewer := x.Args.Str("reviewer")
 		if reviewer == "" {
 			reviewer = x.Caller.Sub
@@ -114,10 +117,32 @@ func (s *Server) pendingActionsHandler(ctx context.Context, x resreg.Execution) 
 			return nil, resreg.Errorf(http.StatusNotFound, "%v", err)
 		case errors.Is(err, ErrPendingResolved):
 			return nil, resreg.Errorf(http.StatusConflict, "%v", err)
+		case errors.Is(err, ErrPendingForbidden):
+			return nil, resreg.Errorf(http.StatusForbidden, "%v", err)
 		case err != nil:
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
 		return p, nil
 	}
 	return nil, resreg.Errorf(http.StatusBadRequest, "unknown action %q", x.Action)
+}
+
+// reviewable keeps the rows `reviewer` may actually answer — the SAME
+// admin-on-the-held-folder question resolveHoldTx asks, so the queue a human
+// reads and the verdicts that human can give are one decision rather than two.
+// Listing a folder the reader cannot act on is an invitation to a 403.
+//
+// An empty reviewer is the unfiltered read (curl with the service bearer, local
+// dev): the scope gate above is the whole containment there, unchanged.
+func (s *Server) reviewable(reviewer string, rows []PendingAction) []PendingAction {
+	if reviewer == "" {
+		return rows
+	}
+	out := make([]PendingAction, 0, len(rows))
+	for _, p := range rows {
+		if s.db.Authorize(reviewer, p.GroupFolder, "admin", nil) {
+			out = append(out, p)
+		}
+	}
+	return out
 }

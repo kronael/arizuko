@@ -469,21 +469,29 @@ func TestCmdGateFederated(t *testing.T) {
 	}
 }
 
-// TestCmdApproveReject: a non-operator cannot resolve a held call (spec 5/19 —
-// the same `**` gate /root uses). The command is still CONSUMED, so a denial
-// never leaks to the agent as a user message.
+// TestCmdApproveReject: a caller holding no admin on the held call's folder
+// cannot resolve it (spec 5/19), and is told which folder refused. The command
+// is still CONSUMED, so a denial never leaks to the agent as a user message.
 func TestCmdApproveReject(t *testing.T) {
-	_, loop, _ := recLoop(t)
+	db, loop, _ := recLoop(t)
 	dl := &recDeliverer{}
 	loop.deliver = dl
+	if err := db.PutPendingAction(PendingAction{
+		ID: "a1", GroupFolder: "demo", Tool: "mcp:delete",
+	}); err != nil {
+		t.Fatal(err)
+	}
 	for _, cmd := range []string{"/approve a1", "/reject a1"} {
 		if !steerOne(loop, "tg:1", "demo", cmd) {
 			t.Fatalf("%s not consumed", cmd)
 		}
-		want := "Permission denied: approving a held call requires an operator grant (**)."
-		if got := lastAck(t, dl); got != want {
-			t.Fatalf("%s ack=%q", cmd, got)
+		got := lastAck(t, dl)
+		if !strings.Contains(got, "not permitted") || !strings.Contains(got, `"demo"`) {
+			t.Fatalf("%s ack=%q, want a refusal naming the folder", cmd, got)
 		}
+	}
+	if row, _ := pendingActionRow(db, "a1"); row.Status != PendingHeld {
+		t.Fatalf("status = %q, want still held", row.Status)
 	}
 }
 

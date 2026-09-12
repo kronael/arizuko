@@ -174,10 +174,28 @@ func (d *dash) countVisibleFailedTasks(allowed []string, operator bool) int {
 		st.FailedTaskRunCount, st.FailedTaskOwners, folderIdentity)
 }
 
-// requireAdmin gates a write to scope (folder or "**" for global) via auth.Authorize
-// with action="admin"; deny-wins, no tier-default fallback. Caller principal is
-// X-User-Sub; X-User-Groups folds in as Extra principals so an operator with `**` admin
-// on a parent folder authorizes a child write. Returns false if the handler must abort.
+// reviewerSub is the proxyd-verified human behind this request, in the spelling
+// acl rows carry: ES256 subs arrive with a "user:" prefix and acl_membership
+// keys on the bare sub. Empty when the request carries no verified identity.
+func reviewerSub(r *http.Request) string {
+	return strings.TrimPrefix(strings.TrimSpace(r.Header.Get("X-User-Sub")), "user:")
+}
+
+// adminOn reports whether the caller holds `admin` over scope (a folder, or "**"
+// for global) — the ONE authority question dashd asks, so a page that only
+// COUNTS what a caller may act on asks it the same way the write gate does.
+// X-User-Groups folds in as Extra principals so an operator with `**` admin on a
+// parent folder authorizes a child write. No routd.db, no answer: false.
+func (d *dash) adminOn(r *http.Request, scope string) bool {
+	if d.adminDB() == nil {
+		return false
+	}
+	caller := auth.Caller{Principal: reviewerSub(r), Extra: auth.CallerGroups(r)}
+	return auth.Authorize(store.New(d.adminDB()), caller, "admin", scope, nil)
+}
+
+// requireAdmin gates a write to scope via adminOn; deny-wins, no tier-default
+// fallback. Returns false if the handler must abort.
 func (d *dash) requireAdmin(w http.ResponseWriter, r *http.Request, scope string) (string, bool) {
 	sub, ok := requireUser(w, r)
 	if !ok {
@@ -186,17 +204,13 @@ func (d *dash) requireAdmin(w http.ResponseWriter, r *http.Request, scope string
 	if !requireSameOrigin(w, r) {
 		return "", false
 	}
-	// ES256 subs carry a "user:" prefix; acl_membership keys on bare subs.
-	sub = strings.TrimPrefix(sub, "user:")
 	if d.adminDB() == nil {
 		http.Error(w, "backend unavailable", http.StatusServiceUnavailable)
 		return "", false
 	}
-	s := store.New(d.adminDB())
-	caller := auth.Caller{Principal: sub, Extra: auth.CallerGroups(r)}
-	if !auth.Authorize(s, caller, "admin", scope, nil) {
+	if !d.adminOn(r, scope) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return "", false
 	}
-	return sub, true
+	return strings.TrimPrefix(sub, "user:"), true
 }
