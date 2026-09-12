@@ -265,7 +265,7 @@ func TestTheProactiveCooldownMergesRatherThanReplaces(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RecordProactiveFireInTx(ctx, nil, jid, time.Now()); err != nil {
+	if err := s.RecordProactiveFire(ctx, jid, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	it, ok, err := s.itemAt(ctx, ChatProactive, key)

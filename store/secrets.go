@@ -21,11 +21,10 @@ package store
 // state, and the resource's RowType deliberately names none of the five
 // (routd/resource_columns_test.go rowTypeGaps): a manifest that carried them
 // would carry a live credential into the export an operator reads. That is also
-// why every upsert here is TWO WRITES — a Put replaces the item's whole
-// attribute set, so one unconditional Put of the metadata would erase the OAuth
-// state beside it. The create-if-absent lands the whole row, and its refusal —
-// the secret is already there — selects the Update that merges only the fields
-// the caller owns. That is the shape store/groups.go already uses.
+// why every upsert here is a MERGE — a Put replaces the item's whole attribute
+// set, so one unconditional Put of the metadata would erase the OAuth state
+// beside it, and the conformance body AMergeKeepsWhatTheWriterDidNotName is
+// what says which credential went.
 //
 // `created_at` IS core.TS, at 30 bytes. That is the width resreg's own entity
 // path stamps a StampedField at (resreg/entity.go itemFor), and the two writers
@@ -38,7 +37,6 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	"database/sql"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -121,42 +119,26 @@ func (s *Store) secretsIn(ctx context.Context, scope SecretScope, scopeID string
 	return items, nil
 }
 
-// secretUpsert renders the two writes one metadata upsert takes: create the
-// whole item, or — when it is already there — merge only the fields the caller
-// owns. See the file header on why a single Put would be data loss.
+// secretUpsert renders the ONE write a metadata upsert is: merge the fields the
+// caller owns into the item, creating it when the secret is new. See the file
+// header on why a single Put would be data loss.
 func secretUpsert(scope SecretScope, scopeID, key string,
-	owned map[string]string) (create, merge objstore.Write, err error) {
+	owned map[string]string) (objstore.Write, error) {
 	k, err := secretKey(scope, scopeID, key)
 	if err != nil {
-		return objstore.Write{}, objstore.Write{}, err
+		return objstore.Write{}, err
 	}
-	return objstore.Write{
-			Op: objstore.Put, Entity: Secrets, Key: k, Attrs: owned,
-			Cond: objstore.Cond{Item: objstore.ItemAbsent},
-		}, objstore.Write{
-			Op: objstore.Update, Entity: Secrets, Key: k, Attrs: owned,
-		}, nil
+	return objstore.Write{Op: objstore.Merge, Entity: Secrets, Key: k, Attrs: owned}, nil
 }
 
-// putSecret writes one upsert, on a transaction the caller owns when it has one.
-func (s *Store) putSecret(ctx context.Context, tx *sql.Tx, scope SecretScope, scopeID, key string,
+// putSecret writes one upsert.
+func (s *Store) putSecret(ctx context.Context, scope SecretScope, scopeID, key string,
 	owned map[string]string) error {
-	create, merge, err := secretUpsert(scope, scopeID, key, owned)
+	w, err := secretUpsert(scope, scopeID, key, owned)
 	if err != nil {
 		return err
 	}
-	write := func(w objstore.Write) (bool, error) {
-		if tx != nil {
-			return s.TryWriteEntitiesInTx(ctx, tx, nil, w)
-		}
-		return s.TryWriteEntities(ctx, nil, w)
-	}
-	created, err := write(create)
-	if err != nil || created {
-		return err
-	}
-	_, err = write(merge)
-	return err
+	return s.WriteEntities(ctx, nil, w)
 }
 
 // sealedAttrs is what a pasted secret owns: the blob and the instant it landed.
@@ -168,24 +150,30 @@ func (s *Store) sealedAttrs(value string) (map[string]string, error) {
 	return map[string]string{attrSecValue: stored, attrSecCreatedAt: core.NowTS()}, nil
 }
 
-// deleteSecret removes one secret and reports ErrSecretNotFound when there was
-// none — the answer `RowsAffected() == 0` gave. The condition is what counts the
-// batch: a delete of a missing item is otherwise idempotent and says nothing.
-func (s *Store) deleteSecret(ctx context.Context, tx *sql.Tx, scope SecretScope, scopeID, key string) error {
+// secretDelete renders the write that removes one secret. The condition is what
+// counts the batch: a delete of a missing item is otherwise idempotent and says
+// nothing, and `RowsAffected() == 0` is the ErrSecretNotFound the HTTP layer 404s
+// on.
+func secretDelete(scope SecretScope, scopeID, key string) (objstore.Write, error) {
 	k, err := secretKey(scope, scopeID, key)
+	if err != nil {
+		return objstore.Write{}, err
+	}
+	return objstore.Write{
+		Op: objstore.Delete, Entity: Secrets, Key: k,
+		Cond: objstore.Cond{Item: objstore.ItemPresent},
+	}, nil
+}
+
+// deleteSecret removes one secret and reports ErrSecretNotFound when there was
+// none, with `also` riding the same batch.
+func (s *Store) deleteSecret(ctx context.Context, scope SecretScope, scopeID, key string,
+	also ...objstore.Write) error {
+	w, err := secretDelete(scope, scopeID, key)
 	if err != nil {
 		return err
 	}
-	w := objstore.Write{
-		Op: objstore.Delete, Entity: Secrets, Key: k,
-		Cond: objstore.Cond{Item: objstore.ItemPresent},
-	}
-	var gone bool
-	if tx != nil {
-		gone, err = s.TryWriteEntitiesInTx(ctx, tx, nil, w)
-	} else {
-		gone, err = s.TryWriteEntities(ctx, nil, w)
-	}
+	gone, err := s.TryWriteEntities(ctx, nil, append([]objstore.Write{w}, also...)...)
 	if err != nil {
 		return err
 	}
@@ -343,6 +331,13 @@ func validateScope(scope SecretScope, scopeID, key string) error {
 	return nil
 }
 
+// SetSecret seals one secret and records the act, in ONE batch.
+//
+// The mutation and its audit row commit together or neither does, which is what
+// the transaction here gave: no write without its record, no record without its
+// write. The batch gives it without one, because the upsert is a single Merge
+// and a batch may name each item once (spec 6/40 §"The audited write commits in
+// a GuardedBatch").
 func (s *Store) SetSecret(scope SecretScope, scopeID, key, value string) error {
 	if err := validateScope(scope, scopeID, key); err != nil {
 		return err
@@ -351,13 +346,8 @@ func (s *Store) SetSecret(scope SecretScope, scopeID, key, value string) error {
 	if err != nil {
 		return err
 	}
-	ctx := context.Background()
-	tx, err := s.db.BeginTx(ctx, nil)
+	w, err := secretUpsert(scope, scopeID, key, owned)
 	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if err := s.putSecret(ctx, tx, scope, scopeID, key, owned); err != nil {
 		return err
 	}
 	folder := ""
@@ -368,7 +358,7 @@ func (s *Store) SetSecret(scope SecretScope, scopeID, key, value string) error {
 	// an audit trail an operator reads is not a place to put the thing the trail
 	// exists to protect.
 	actor, actorSub, surface := s.auditIdentity()
-	if err := audit.EmitInTx(ctx, s.Obj(), tx, audit.Event{
+	_, rec := audit.WriteFor(audit.Event{
 		Category: audit.CategorySecret,
 		Action:   "secret.set",
 		Actor:    actor,
@@ -381,10 +371,8 @@ func (s *Store) SetSecret(scope SecretScope, scopeID, key, value string) error {
 		ParamsSummary: map[string]any{
 			"encrypted": len(s.secretKeys) > 0,
 		},
-	}); err != nil {
-		return err
-	}
-	return tx.Commit()
+	})
+	return s.WriteEntities(context.Background(), nil, w, rec)
 }
 
 // PutSecretRow seals and upserts one secret WITHOUT emitting an audit_log row —
@@ -401,7 +389,7 @@ func (s *Store) PutSecretRow(scope SecretScope, scopeID, key, value string) erro
 	if err != nil {
 		return err
 	}
-	return s.putSecret(context.Background(), nil, scope, scopeID, key, owned)
+	return s.putSecret(context.Background(), scope, scopeID, key, owned)
 }
 
 // DeleteSecretRow removes one secret WITHOUT emitting an audit_log row — the
@@ -412,7 +400,7 @@ func (s *Store) DeleteSecretRow(scope SecretScope, scopeID, key string) error {
 	if err := validateScope(scope, scopeID, key); err != nil {
 		return err
 	}
-	return s.deleteSecret(context.Background(), nil, scope, scopeID, key)
+	return s.deleteSecret(context.Background(), scope, scopeID, key)
 }
 
 func (s *Store) GetSecret(scope SecretScope, scopeID, key string) (Secret, error) {
@@ -511,17 +499,10 @@ func (s *Store) SecretKeysIn(scope SecretScope, scopeID string) ([]SecretKeyRow,
 	return out, nil
 }
 
+// DeleteSecret removes one secret and records the act, in ONE batch — the twin
+// of SetSecret, and atomic for the same reason.
 func (s *Store) DeleteSecret(scope SecretScope, scopeID, key string) error {
 	if err := validateScope(scope, scopeID, key); err != nil {
-		return err
-	}
-	ctx := context.Background()
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if err := s.deleteSecret(ctx, tx, scope, scopeID, key); err != nil {
 		return err
 	}
 	folder := ""
@@ -529,7 +510,7 @@ func (s *Store) DeleteSecret(scope SecretScope, scopeID, key string) error {
 		folder = scopeID
 	}
 	actor, actorSub, surface := s.auditIdentity()
-	if err := audit.EmitInTx(ctx, s.Obj(), tx, audit.Event{
+	_, rec := audit.WriteFor(audit.Event{
 		Category: audit.CategorySecret,
 		Action:   "secret.delete",
 		Actor:    actor,
@@ -539,10 +520,8 @@ func (s *Store) DeleteSecret(scope SecretScope, scopeID, key string) error {
 		Scope:    string(scope),
 		Folder:   folder,
 		Outcome:  audit.OutcomeOK,
-	}); err != nil {
-		return err
-	}
-	return tx.Commit()
+	})
+	return s.deleteSecret(context.Background(), scope, scopeID, key, rec)
 }
 
 // plaintextSecrets reads every item whose blob is NOT sealed. The prefix test is
@@ -674,7 +653,7 @@ func (s *Store) ValidateAndImportSecrets(ctx context.Context, rows []ArchiveSecr
 	for _, r := range rows {
 		owned := map[string]string{attrSecValue: r.Value}
 		setAttr(owned, attrSecCreatedAt, r.CreatedAt)
-		if err := s.putSecret(ctx, nil, SecretScope(r.ScopeKind), r.ScopeID, r.Key, owned); err != nil {
+		if err := s.putSecret(ctx, SecretScope(r.ScopeKind), r.ScopeID, r.Key, owned); err != nil {
 			return 0, fmt.Errorf("secret %s/%s/%s: %w", r.ScopeKind, r.ScopeID, r.Key, err)
 		}
 	}

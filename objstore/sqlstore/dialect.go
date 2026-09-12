@@ -78,14 +78,17 @@ type dialect struct {
 	// happens".
 	remove func(doc string, names []string) string
 
-	// merge renders the document that results from merging patch into attrs.
+	// merge renders the document that results from merging patch into doc. doc is
+	// the document being merged INTO — the bare column for an UPDATE, and the
+	// column qualified by its table inside an upsert's DO UPDATE, where Postgres
+	// reads a bare name as ambiguous between the held row and the proposed one.
 	// patch is an already-rendered placeholder holding a JSON object.
 	//
 	// Neither form may carry a JSON null: SQLite's json_patch is RFC 7386
 	// merge-patch, where a null DELETES the key, and Postgres's || sets the key
 	// to null instead. objstore has no stored null, so the divergence is
 	// unreachable rather than handled.
-	merge func(patch string) string
+	merge func(doc, patch string) string
 }
 
 var sqliteDialect = dialect{
@@ -102,7 +105,7 @@ var sqliteDialect = dialect{
 		}
 		return out + ")"
 	},
-	merge: func(patch string) string { return "json_patch(attrs, " + patch + ")" },
+	merge: func(doc, patch string) string { return "json_patch(" + doc + ", " + patch + ")" },
 }
 
 var postgresDialect = dialect{
@@ -119,7 +122,7 @@ var postgresDialect = dialect{
 		}
 		return out
 	},
-	merge: func(patch string) string { return "attrs || (" + patch + ")::jsonb" },
+	merge: func(doc, patch string) string { return doc + " || (" + patch + ")::jsonb" },
 }
 
 // dialectFor reads the engine off the pool db_utils.Open returned. The DSN

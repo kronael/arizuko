@@ -202,6 +202,8 @@ func (s *Store) writeStmt(w objstore.Write) (*stmt, bool, error) {
 		return s.putStmt(w)
 	case objstore.Update:
 		return s.updateStmt(w)
+	case objstore.Merge:
+		return s.mergeStmt(w)
 	case objstore.Delete:
 		return s.deleteStmt(w)
 	default:
@@ -270,7 +272,7 @@ func (s *Store) updateStmt(w objstore.Write) (*stmt, bool, error) {
 	b.write("UPDATE " + w.Entity + " SET attrs = ")
 	doc := "attrs"
 	if len(w.Attrs) > 0 {
-		doc = s.dialect.merge(b.mark(patch))
+		doc = s.dialect.merge(doc, b.mark(patch))
 	}
 	if len(w.Remove) > 0 {
 		doc = s.dialect.remove(doc, w.Remove)
@@ -284,6 +286,71 @@ func (s *Store) updateStmt(w objstore.Write) (*stmt, bool, error) {
 		return nil, false, err
 	}
 	return b, true, nil
+}
+
+// mergeStmt merges attributes into an item and CREATES it when there is none,
+// in one statement, which is the whole reason this op exists: the pair it
+// replaces was two actions on one item, and a batch may name an item once.
+//
+// The insert carries Init and Attrs together — what the item is born with — and
+// the conflict branch carries Attrs alone, so a create-only attribute is stated
+// exactly where it applies. DynamoDB writes the same split as
+// `SET a = :a, b = if_not_exists(b, :b)` in one update expression.
+//
+// A merge with nothing to merge is DO NOTHING rather than a write of the
+// unchanged document: that is `INSERT OR IGNORE`, and it is the shape an edge
+// writer needs — land the row, leave an existing one alone, and do not make the
+// row count an answer.
+//
+// THE DOCUMENT IS QUALIFIED, and that is not decoration: Postgres refuses a bare
+// `attrs` inside DO UPDATE as ambiguous between the existing row and the
+// proposed one ("column reference \"attrs\" is ambiguous", measured on 17.11),
+// and SQLite accepts the same qualified name, so one spelling serves both.
+//
+// It reports FALSE for guarded, always. A merge cannot refuse, so its row count
+// answers nothing and a batch carrying one is decided by its other writes.
+func (s *Store) mergeStmt(w objstore.Write) (*stmt, bool, error) {
+	born := make(map[string]string, len(w.Init)+len(w.Attrs))
+	for name, value := range w.Init {
+		born[name] = value
+	}
+	for name, value := range w.Attrs {
+		born[name] = value
+	}
+	doc, err := encodeAttrs(born)
+	if err != nil {
+		return nil, false, fmt.Errorf("merge on %s/%s: %w", w.Entity, w.Key.Sort, err)
+	}
+	for _, name := range w.Remove {
+		if err := checkIdent("attribute", name); err != nil {
+			return nil, false, err
+		}
+	}
+	b := &stmt{d: s.dialect}
+	b.write("INSERT INTO " + w.Entity + " (part, sort, attrs) VALUES (")
+	b.bind(w.Key.Partition)
+	b.write(", ")
+	b.bind(w.Key.Sort)
+	b.write(", ")
+	b.bind(doc)
+	b.write(") ON CONFLICT (part, sort) DO ")
+	if len(w.Attrs) == 0 && len(w.Remove) == 0 {
+		b.write("NOTHING")
+		return b, false, nil
+	}
+	patch, err := encodeAttrs(w.Attrs)
+	if err != nil {
+		return nil, false, fmt.Errorf("merge on %s/%s: %w", w.Entity, w.Key.Sort, err)
+	}
+	held := w.Entity + ".attrs"
+	if len(w.Attrs) > 0 {
+		held = s.dialect.merge(held, b.mark(patch))
+	}
+	if len(w.Remove) > 0 {
+		held = s.dialect.remove(held, w.Remove)
+	}
+	b.write("UPDATE SET attrs = " + held)
+	return b, false, nil
 }
 
 // deleteStmt removes an item. With no condition it is idempotent, which is what

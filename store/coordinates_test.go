@@ -178,7 +178,7 @@ func TestTheHotTierRoundTripsEveryAttributeItCarries(t *testing.T) {
 
 	t.Run("chat_proactive", func(t *testing.T) {
 		fired := time.Date(2026, 9, 9, 9, 0, 0, 0, time.UTC)
-		if err := s.RecordProactiveFireInTx(ctx, nil, "slack:T/C/P", fired); err != nil {
+		if err := s.RecordProactiveFire(ctx, "slack:T/C/P", fired); err != nil {
 			t.Fatal(err)
 		}
 		if got := s.ProactiveLastFired("slack:T/C/P"); !got.Equal(fired) {

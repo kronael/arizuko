@@ -283,7 +283,13 @@ func (s *Store) PutMessageInTx(ctx context.Context, tx *sql.Tx, m core.Message) 
 // putMessage is PutMessage's body. The status is a parameter rather than a field
 // of the message because it is not stored on the message: it decides whether a
 // delivery item exists at all (message_delivery.go).
-func (s *Store) putMessage(ctx context.Context, tx *sql.Tx, m core.Message, status string) error {
+//
+// `also` rides the message's own batch, so a caller whose write BELONGS with the
+// append gets it atomically without a transaction — FireProactive's cooldown is
+// the one caller, and the atomicity is what makes a crash before dispatch cost
+// one missed turn rather than a double fire.
+func (s *Store) putMessage(ctx context.Context, tx *sql.Tx, m core.Message, status string,
+	also ...objstore.Write) error {
 	if m.Timestamp.IsZero() {
 		// A stamped-here instant would be the caller's SILENTLY: the coordinate
 		// is built from the message, so the caller would walk away holding a
@@ -293,46 +299,43 @@ func (s *Store) putMessage(ctx context.Context, tx *sql.Tx, m core.Message, stat
 		return fmt.Errorf("message %s in %s carries no instant, and the instant is half its "+
 			"position", m.ID, m.ChatJID)
 	}
-	// ONE READ DOES TWO JOBS. An untopiced message inherits the chat's sticky
-	// pin, and a chat nobody has seen has to be OPENED — `chats` is the partition
-	// list the poll loop and the archive both walk, so a message in a chat it
-	// does not name would be a message nothing ever feeds and nothing ever
-	// exports. The open is a write of its own rather than a member of the batch
-	// below, because a create-if-absent REFUSES on the chat's second message and
-	// a refusal takes the whole batch it rides in.
-	chat, seen, err := s.chatItemVia(ctx, tx, m.ChatJID)
+	// THE READ IS FOR THE STICKY PIN, and nothing else: an untopiced message
+	// inherits the chat's pin, which is an attribute only a read answers.
+	chat, _, err := s.chatItemVia(ctx, tx, m.ChatJID)
 	if err != nil {
 		return err
 	}
 	if m.Topic == "" {
 		m.Topic = chat.Attrs[AttrChatStickyTopic]
 	}
-	if !seen {
-		chatKey, kerr := chatKey(m.ChatJID)
-		if kerr != nil {
-			return kerr
-		}
-		// A refusal is another writer opening the same chat first, which is the
-		// outcome this wants.
-		if _, oerr := s.tryWriteVia(ctx, tx, nil, objstore.Write{
-			Op: objstore.Put, Entity: Chats, Key: chatKey, Attrs: map[string]string{},
-			Cond: objstore.Cond{Item: objstore.ItemAbsent},
-		}); oerr != nil {
-			return fmt.Errorf("open the chat %s: %w", m.ChatJID, oerr)
-		}
-	}
-	// A real inbound makes the chat eligible for a proactive turn, and that is a
-	// property of the CHAT rather than a scan of its messages.
-	if isRealInbound(m) && chat.Attrs[attrChatHasInbound] != flagSet {
-		if ferr := s.MarkChatHasInbound(ctx, tx, m.ChatJID); ferr != nil {
-			return ferr
-		}
+	chatKey, err := chatKey(m.ChatJID)
+	if err != nil {
+		return err
 	}
 	key, err := messageKeyOf(m)
 	if err != nil {
 		return err
 	}
+	// ONE WRITE OPENS THE CHAT AND FLAGS IT. `chats` is the partition list the
+	// poll loop and the archive both walk, so a message in a chat it does not
+	// name would be a message nothing ever feeds and nothing ever exports; and a
+	// real inbound makes the chat eligible for a proactive turn, which is a
+	// property of the CHAT rather than a scan of its messages.
+	//
+	// A Merge is what makes them ONE and lets them ride the batch below. The pair
+	// this replaces was a create-if-absent and a conditional Update on the SAME
+	// item, so neither could join it — a batch may name an item once, and a
+	// create-if-absent REFUSES on the chat's second message, which would take the
+	// whole batch with it.
+	// A chat that carries no real inbound is OPENED and nothing more: the item's
+	// existence is the whole fact there.
+	chatFlags := map[string]string{}
+	if isRealInbound(m) {
+		chatFlags[attrChatHasInbound] = flagSet
+	}
 	writes := []objstore.Write{{
+		Op: objstore.Merge, Entity: Chats, Key: chatKey, Attrs: chatFlags,
+	}, {
 		Op: objstore.Put, Entity: Messages, Key: key, Attrs: messageAttrs(m),
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},
 	}}
@@ -344,6 +347,7 @@ func (s *Store) putMessage(ctx context.Context, tx *sql.Tx, m core.Message, stat
 	if err != nil {
 		return err
 	}
+	writes = append(writes, also...)
 	if !counted {
 		// No routed_to, so no folder feed entry and no counter to move: the
 		// batch is the message and the feeds that take every row.
@@ -1034,30 +1038,24 @@ func realInboundFilter() []objstore.Cmp {
 }
 
 // FireProactive appends the synthetic inbound row AND sets the chat's proactive
-// cooldown in one transaction, then answers the row's id — which is the turn id.
+// cooldown in one batch, then answers the row's id — which is the turn id.
 //
 // The caller dispatches the run only after this commits, so a crash before
 // dispatch leaves the cooldown set: at worst one missed turn, never a
-// double-fire.
+// double-fire. The cooldown rides the message's own batch, which is
+// all-or-nothing, so the pair needs no transaction to be one commit.
 func (s *Store) FireProactive(ctx context.Context, jid, id string) error {
 	firedAt := time.Now()
-	tx, err := s.db.BeginTx(ctx, nil)
+	cooldown, err := proactiveFireWrite(jid, firedAt)
 	if err != nil {
 		return fmt.Errorf("fire a proactive turn on %s: %w", jid, err)
 	}
-	defer tx.Rollback() //nolint:errcheck // the commit below is what decides
 	row := core.Message{
 		ID: id, ChatJID: jid, Sender: ProactiveSelfSender, Timestamp: firedAt,
 		Verb: "message",
 	}
-	if err := s.PutMessageInTx(ctx, tx, row); err != nil {
+	if err := s.putMessage(ctx, nil, row, core.MessageStatusSent, cooldown); err != nil {
 		return fmt.Errorf("record the proactive trigger on %s: %w", jid, err)
-	}
-	if err := s.RecordProactiveFireInTx(ctx, tx, jid, firedAt); err != nil {
-		return fmt.Errorf("record the proactive cooldown on %s: %w", jid, err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit the proactive turn on %s: %w", jid, err)
 	}
 	return nil
 }

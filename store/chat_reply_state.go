@@ -38,7 +38,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"sort"
 	"strings"
@@ -124,37 +123,31 @@ func (s *Store) LastReplyID(jid, topic string) string {
 // sender, and the window would be silently hijacked. Only BumpEngagement moves
 // it, because that is the write an engagement decision made.
 //
-// An empty anchor leaves the stored one alone, which is what an Update already
-// means: a merge carries the attributes it names and leaves the rest. No
-// production caller can reach that branch — ipc/ipc.go putOutboundRow calls this
-// only when the platform returned an id, and routd's two sites pass a stored
-// row's own id — so it is the behaviour of the empty case and not a change to
-// any live one.
+// An empty anchor leaves the stored one alone, which is what a merge already
+// means: it carries the attributes it names and leaves the rest. No production
+// caller can reach that branch — ipc/ipc.go putOutboundRow calls this only when
+// the platform returned an id, and routd's two sites pass a stored row's own id
+// — so it is the behaviour of the empty case and not a change to any live one.
+//
+// The folder is Init and the anchor is the merged half, which is exactly the
+// "once, never overwritten" rule above, stated in the write rather than in the
+// control flow around two of them.
 func (s *Store) SetLastReply(jid, topic, replyID, folder string) error {
 	key, err := replyStateKey(jid, topic)
 	if err != nil {
 		return err
 	}
-	whole := map[string]string{}
-	setAttr(whole, attrReplyLastID, replyID)
-	setAttr(whole, AttrReplyEngagedFolder, folder)
 	anchor := map[string]string{}
 	setAttr(anchor, attrReplyLastID, replyID)
-	ctx := context.Background()
-	created, err := s.TryWriteEntities(ctx, nil, objstore.Write{
-		Op: objstore.Put, Entity: ChatReplyState, Key: key, Attrs: whole,
-		Cond: objstore.Cond{Item: objstore.ItemAbsent},
-	})
-	if err != nil {
-		return fmt.Errorf("record the reply anchor of %s#%s: %w", jid, topic, err)
-	}
-	if created || len(anchor) == 0 {
+	born := map[string]string{}
+	setAttr(born, AttrReplyEngagedFolder, folder)
+	if len(anchor) == 0 && len(born) == 0 {
 		return nil
 	}
-	if err := s.WriteEntities(ctx, nil, objstore.Write{
-		Op: objstore.Update, Entity: ChatReplyState, Key: key, Attrs: anchor,
+	if err := s.WriteEntities(context.Background(), nil, objstore.Write{
+		Op: objstore.Merge, Entity: ChatReplyState, Key: key, Attrs: anchor, Init: born,
 	}); err != nil {
-		return fmt.Errorf("move the reply anchor of %s#%s: %w", jid, topic, err)
+		return fmt.Errorf("record the reply anchor of %s#%s: %w", jid, topic, err)
 	}
 	return nil
 }
@@ -179,18 +172,24 @@ func (s *Store) CountReplyStates(ctx context.Context) (int, error) {
 // the only null this model has, so a cleared deadline that was still present
 // would read as a window with an unparseable end.
 func (s *Store) BumpEngagement(jid, topic, folder string, until time.Time) error {
-	return s.bumpEngagement(context.Background(), nil, jid, topic, folder, until)
+	return s.bumpEngagement(context.Background(), jid, topic, folder, until)
 }
 
-// BumpEngagementInTx is BumpEngagement on a transaction the CALLER owns, for the
-// operator's write, whose audit row commits with it.
-func (s *Store) BumpEngagementInTx(ctx context.Context, tx *sql.Tx,
-	jid, topic, folder string, until time.Time) error {
-	return s.bumpEngagement(ctx, tx, jid, topic, folder, until)
+// BumpEngagementWith is BumpEngagement carrying the caller's OWN writes in the
+// same batch, for the operator's /v1/engagement, whose audit row has to commit
+// with the window it records — an audit row that outlived a rolled-back write
+// would describe a window that never moved.
+//
+// It takes the companion writes rather than a transaction because the window is
+// ONE write now: a batch is all-or-nothing, so the pair needs no transaction to
+// be atomic (spec 6/40 §"The audited write commits in a GuardedBatch").
+func (s *Store) BumpEngagementWith(ctx context.Context, jid, topic, folder string,
+	until time.Time, also ...objstore.Write) error {
+	return s.bumpEngagement(ctx, jid, topic, folder, until, also...)
 }
 
-func (s *Store) bumpEngagement(ctx context.Context, tx *sql.Tx,
-	jid, topic, folder string, until time.Time) error {
+func (s *Store) bumpEngagement(ctx context.Context,
+	jid, topic, folder string, until time.Time, also ...objstore.Write) error {
 	key, err := replyStateKey(jid, topic)
 	if err != nil {
 		return err
@@ -202,6 +201,11 @@ func (s *Store) bumpEngagement(ctx context.Context, tx *sql.Tx,
 	} else {
 		attrs[AttrReplyEngagedUntil] = core.TS(until)
 	}
+	// The merge and the removal are ONE write, which is what makes an ended
+	// window and its folder land together: five separate writes are what BUGS O1
+	// cost the onboarding reset. It creates the row when the pair has none, so
+	// there is no refusal to branch on.
+	//
 	// The folder is written whatever it is, and an EMPTY one un-claims the
 	// window. The column it replaces was NOT NULL DEFAULT '' and this write
 	// overwrote it unconditionally, so an empty folder meant unclaimed — and
@@ -212,7 +216,10 @@ func (s *Store) bumpEngagement(ctx context.Context, tx *sql.Tx,
 	} else {
 		attrs[AttrReplyEngagedFolder] = folder
 	}
-	if _, err := s.upsertReplyState(ctx, tx, key, attrs, remove); err != nil {
+	writes := append([]objstore.Write{{
+		Op: objstore.Merge, Entity: ChatReplyState, Key: key, Attrs: attrs, Remove: remove,
+	}}, also...)
+	if err := s.WriteEntities(ctx, nil, writes...); err != nil {
 		return fmt.Errorf("move the engagement window on %s#%s: %w", jid, topic, err)
 	}
 	return nil
@@ -283,29 +290,4 @@ func engagementFrom(sortKey string, attrs map[string]string, now time.Time) (Eng
 	}
 	e.Until = t
 	return e, true
-}
-
-// upsertReplyState merges attrs into a pair's row and takes `remove` away,
-// creating the row when the pair has none.
-//
-// The two halves are ONE write, which is what makes an ended window and its
-// folder land together: five separate writes are what BUGS O1 cost the
-// onboarding reset. Which shape lands is decided by the create's REFUSAL rather
-// than by a read.
-func (s *Store) upsertReplyState(ctx context.Context, tx *sql.Tx, key objstore.Key,
-	attrs map[string]string, remove []string) (bool, error) {
-	created, err := s.tryWriteVia(ctx, tx, nil, objstore.Write{
-		Op: objstore.Put, Entity: ChatReplyState, Key: key, Attrs: attrs,
-		Cond: objstore.Cond{Item: objstore.ItemAbsent},
-	})
-	if err != nil || created {
-		return created, err
-	}
-	if err := s.writeVia(ctx, tx, nil, objstore.Write{
-		Op: objstore.Update, Entity: ChatReplyState, Key: key,
-		Attrs: attrs, Remove: remove,
-	}); err != nil {
-		return false, err
-	}
-	return false, nil
 }

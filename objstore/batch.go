@@ -55,8 +55,29 @@ const (
 	// Update merges Attrs into the item's existing attributes and takes the
 	// attributes named in Remove away, leaving the rest alone. It writes
 	// nothing when the item is missing, which its Cond reports as a refusal.
+	//
+	// Must-exist is the POINT: the refusal is the compare-and-swap every
+	// conditional caller here depends on. Create-or-merge is Merge.
 	Update
-	// Delete removes the item. Attrs and Remove are ignored.
+	// Merge is Update without must-exist: it merges Attrs into the item, takes
+	// Remove away, writes Init only if it CREATES the item, and never refuses.
+	// It is DynamoDB's UpdateItem, whose default is to create the item the
+	// expression addresses, with Init as its `if_not_exists(attr, :v)` half.
+	//
+	// It exists because create-or-merge had no spelling, so five call sites
+	// wrote it as two actions on ONE item — which ValidateBatch refuses, so each
+	// of them held a transaction to run the pair (spec 6/40 §"Merge, the write
+	// op both engines have and the surface had no name for"). What it makes
+	// impossible is a half-upserted item, and transitively it is what lets an
+	// edge write ride in someone else's batch: a batch may name each item once,
+	// so a create-if-absent that REFUSES cannot be a companion write.
+	//
+	// NOT A Put. A Put is a whole-item replace, so an unconditional one erases
+	// every attribute the writer did not name — and a secrets item carries six
+	// of which surrogate OAuth owns two, none of them the metadata writer's.
+	// Merge is the op that has no such trap.
+	Merge
+	// Delete removes the item. Attrs, Init and Remove are ignored.
 	Delete
 )
 
@@ -80,7 +101,21 @@ type Write struct {
 	// Attrs are the attributes to set. On a Put they are the item's whole
 	// attribute set.
 	Attrs map[string]string
-	// Remove names attributes to take away, and only an Update has them.
+	// Init are the attributes an item is BORN with: written when this write
+	// creates the item, and never written when it merges into one that is
+	// already there. Only a Merge has them.
+	//
+	// It is what separates the two halves of an upsert that today needs two
+	// writes: a group's `added_at` is the instant the folder appeared and an
+	// edge's `added_by` is who first drew it, so a merge that restated either
+	// would overwrite a fact with the instant of the latest write. DynamoDB
+	// spells it `if_not_exists(added_at, :t)` in the same update expression.
+	//
+	// A Merge carrying ONLY Init is create-if-absent that does not refuse —
+	// `INSERT ... ON CONFLICT DO NOTHING`, which is what `INSERT OR IGNORE`
+	// said before a guarded Put made its row count an answer.
+	Init map[string]string
+	// Remove names attributes to take away, and an Update or a Merge has them.
 	//
 	// Taking an attribute AWAY is the only way to make it missing, because
 	// absent is the only null: writing "" leaves an attribute that Present
@@ -198,17 +233,24 @@ func validateWrite(w Write) error {
 			"most ItemAbsent, and a compare-and-swap on an item that must already be there "+
 			"is an Update", w.Entity, w.Key.Sort)
 	}
+	if err := validateMerge(w); err != nil {
+		return err
+	}
 	if len(w.Remove) == 0 {
 		return nil
 	}
-	if w.Op != Update {
-		return fmt.Errorf("%s/%s removes attributes on a %s; only an Update has a REMOVE half, "+
-			"because a Put already replaces the whole document and a Delete takes the item",
-			w.Entity, w.Key.Sort, w.Op)
+	if w.Op != Update && w.Op != Merge {
+		return fmt.Errorf("%s/%s removes attributes on a %s; only an Update or a Merge has a "+
+			"REMOVE half, because a Put already replaces the whole document and a Delete takes "+
+			"the item", w.Entity, w.Key.Sort, w.Op)
 	}
 	for _, attr := range w.Remove {
 		if attr == "" {
 			return fmt.Errorf("update on %s/%s removes an unnamed attribute", w.Entity, w.Key.Sort)
+		}
+		if _, born := w.Init[attr]; born {
+			return fmt.Errorf("merge on %s/%s gives %q to the item it creates and takes it from "+
+				"the item it merges into", w.Entity, w.Key.Sort, attr)
 		}
 		if _, both := w.Attrs[attr]; both {
 			// DynamoDB refuses the overlap outright: "Two document paths overlap
@@ -217,6 +259,42 @@ func validateWrite(w Write) error {
 			return fmt.Errorf("update on %s/%s both sets and removes %q", w.Entity, w.Key.Sort, attr)
 		}
 	}
+	return nil
+}
+
+// validateMerge holds the rules Init and Merge carry, so a driver meets a write
+// it can generate rather than a shape it has to reject halfway.
+//
+// A Merge NEVER REFUSES, which is what makes it usable as a companion write in
+// someone else's batch, so it takes no condition at all: a conditional
+// create-or-merge is an Update, whose refusal is its answer.
+func validateMerge(w Write) error {
+	for attr, value := range w.Init {
+		if err := checkOrderedAttr(w.Entity, attr, value); err != nil {
+			return err
+		}
+		if _, both := w.Attrs[attr]; both {
+			return fmt.Errorf("merge on %s/%s gives %q one value on create and another on "+
+				"merge; an attribute has one writer per write", w.Entity, w.Key.Sort, attr)
+		}
+	}
+	if w.Op != Merge {
+		if len(w.Init) > 0 {
+			return fmt.Errorf("%s/%s carries create-only attributes on a %s; only a Merge has "+
+				"two halves, because a Put creates every time and an Update never does",
+				w.Entity, w.Key.Sort, w.Op)
+		}
+		return nil
+	}
+	if w.Cond.Item != ItemAny || len(w.Cond.Where) > 0 {
+		return fmt.Errorf("merge on %s/%s carries a condition; a Merge never refuses, and a "+
+			"create-or-merge that must be able to refuse is an Update", w.Entity, w.Key.Sort)
+	}
+	// A Merge naming NO attribute is not the mistake the same shape is on an
+	// Update, which would write nothing at all: it creates the item and leaves an
+	// existing one alone, and the item's EXISTENCE is the whole fact where the
+	// entity is a list — store.putMessage opens a chat that way, because `chats`
+	// is the partition list the poll loop and the archive walk.
 	return nil
 }
 
@@ -242,6 +320,8 @@ func (o WriteOp) String() string {
 		return "Put"
 	case Update:
 		return "Update"
+	case Merge:
+		return "Merge"
 	case Delete:
 		return "Delete"
 	default:

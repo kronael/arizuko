@@ -18,6 +18,12 @@ import (
 // row, whose five-attribute reset is the reason Update has a REMOVE half.
 const onboarding = "onboarding"
 
+// secrets is the entity the merge body writes: store/secrets.go's item, whose
+// six attributes have two writers — the metadata upsert owns two of them and
+// surrogate OAuth owns four — which is what makes a whole-item replace here data
+// loss rather than a shortcut.
+const secrets = "secrets"
+
 // invites is the entity the counter bodies write: store/invites.go's row, whose
 // used_count is the increment the interface deliberately does not carry.
 const invites = "invites"
@@ -378,4 +384,127 @@ func OrderedWidthsAreRefusedRatherThanMisSorted(t *testing.T, newStore Factory) 
 	other := newStore(t, tokens)
 	put(t, other, tokens, objstore.Key{Partition: tenant, Sort: short},
 		map[string]string{"at": short})
+}
+
+// AMergeKeepsWhatTheWriterDidNotName is store.SetSecret, and it is the body that
+// goes red for the shortcut a review nearly shipped.
+//
+// A secrets item carries six attributes and has TWO writers. The metadata upsert
+// owns `value` and `created_at`; surrogate OAuth owns `provider`,
+// `refresh_val`, `expires_at` and `scope_list`, and the resource's RowType names
+// none of them, because a manifest that carried them would carry a live
+// credential into an export (store/secrets.go header). Collapsing
+// create-or-merge into one unconditional Put looks equivalent and ERASES the
+// four the metadata writer never names — a Put is a whole-item replace. Swap the
+// Merge below for a Put and this body says exactly which credential went.
+//
+// The rest is what makes Merge worth an op. It creates the item it does not
+// find, so the pair it replaces — a create-if-absent and the Update that ran on
+// its refusal — is one action on one item, which is the rule that forced those
+// five callers to hold a transaction. It never refuses, so it can ride in a
+// batch somebody else's condition decides. And Init states the create-only half:
+// a group's `added_at` is the instant the folder appeared, so a merge that
+// restated it would overwrite a fact with the instant of the newest write.
+func AMergeKeepsWhatTheWriterDidNotName(t *testing.T, newStore Factory) {
+	ctx := context.Background()
+	s := newStore(t, secrets)
+	key := objstore.Key{Partition: tenant, Sort: "user\x1fgoogle:u1\x1fGH_TOKEN"}
+
+	// The surrogate-OAuth half, written by the other writer.
+	put(t, s, secrets, key, map[string]string{
+		"value": "v2:first", "created_at": core.NowTS(),
+		"provider": "github", "refresh_val": "v2:refresh",
+		"expires_at": core.NowTS(), "scope_list": "repo,read:org",
+	})
+
+	// The metadata writer names its own two and nothing else.
+	if !commit(t, s, ctx, objstore.Write{
+		Op: objstore.Merge, Entity: secrets, Key: key,
+		Attrs: map[string]string{"value": "v2:second", "created_at": "T-later"},
+	}) {
+		t.Fatal("a merge onto an item that is there was refused; a Merge never refuses")
+	}
+	got := one(t, s, secrets, key).Attrs
+	for _, owned := range []struct{ attr, want string }{
+		{"provider", "github"}, {"refresh_val", "v2:refresh"}, {"scope_list", "repo,read:org"},
+	} {
+		if got[owned.attr] != owned.want {
+			t.Errorf("after the merge %s is %q, want %q: a Merge carries the attributes it "+
+				"names and leaves the rest, and a Put here would hand the container a "+
+				"credential its owner never revoked (spec 6/40)", owned.attr, got[owned.attr],
+				owned.want)
+		}
+	}
+	if got["value"] != "v2:second" || got["created_at"] != "T-later" {
+		t.Errorf("after the merge value=%q created_at=%q, want the two the writer named",
+			got["value"], got["created_at"])
+	}
+
+	// The same write against an item that is not there CREATES it, which is the
+	// half a plain Update refuses and the reason the pair needed a transaction.
+	fresh := objstore.Key{Partition: tenant, Sort: "folder\x1facme\x1fPAT"}
+	if !commit(t, s, ctx, objstore.Write{
+		Op: objstore.Merge, Entity: secrets, Key: fresh,
+		Attrs: map[string]string{"value": "v2:pasted"},
+		Init:  map[string]string{"created_at": "T-born"},
+	}) {
+		t.Fatal("a merge onto a missing item was refused; a Merge creates what it does not find")
+	}
+	born := one(t, s, secrets, fresh).Attrs
+	if born["value"] != "v2:pasted" || born["created_at"] != "T-born" {
+		t.Fatalf("the created item is %v, want the merged half and the born half together", born)
+	}
+
+	// Init is the create-only half: the second write merges and leaves it alone.
+	if !commit(t, s, ctx, objstore.Write{
+		Op: objstore.Merge, Entity: secrets, Key: fresh,
+		Attrs: map[string]string{"value": "v2:replaced"},
+		Init:  map[string]string{"created_at": "T-restated"},
+	}) {
+		t.Fatal("the second merge was refused")
+	}
+	again := one(t, s, secrets, fresh).Attrs
+	if again["created_at"] != "T-born" {
+		t.Errorf("created_at is %q after a second merge, want T-born: Init is what the item "+
+			"is BORN with, so a merge that restated it would overwrite the instant the "+
+			"secret appeared with the instant of the newest write", again["created_at"])
+	}
+	if again["value"] != "v2:replaced" {
+		t.Errorf("value is %q, want the merged one", again["value"])
+	}
+
+	// A merge carrying ONLY Init is create-if-absent that does not refuse — the
+	// shape an edge write needs to ride in a batch somebody else's condition
+	// decides. INSERT OR IGNORE said this before a guarded Put made its row count
+	// an answer.
+	if !commit(t, s, ctx, objstore.Write{
+		Op: objstore.Merge, Entity: secrets, Key: fresh,
+		Init: map[string]string{"created_at": "T-third", "value": "v2:third"},
+	}) {
+		t.Fatal("a create-only merge onto an item that is there was refused; it has nothing " +
+			"to refuse, and a caller that batched it beside another write would lose both")
+	}
+	third := one(t, s, secrets, fresh).Attrs
+	if third["created_at"] != "T-born" || third["value"] != "v2:replaced" {
+		t.Errorf("the item is %v after a create-only merge, want it untouched", third)
+	}
+
+	// The REMOVE half travels with the merge, so a window that ends and the
+	// folder that held it land together (store.BumpEngagement).
+	if !commit(t, s, ctx, objstore.Write{
+		Op: objstore.Merge, Entity: secrets, Key: fresh,
+		Attrs:  map[string]string{"value": "v2:fourth"},
+		Remove: []string{"created_at"},
+	}) {
+		t.Fatal("a merge with a removal was refused")
+	}
+	left := one(t, s, secrets, fresh).Attrs
+	if _, still := left["created_at"]; still {
+		t.Errorf("created_at is %q after the merge removed it; absent is the only null",
+			left["created_at"])
+	}
+	if left["value"] != "v2:fourth" {
+		t.Errorf("value is %q, want the merged one: the two halves are ONE document "+
+			"expression", left["value"])
+	}
 }

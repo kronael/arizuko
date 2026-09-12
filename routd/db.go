@@ -518,26 +518,19 @@ func (d *DB) SetEngagement(jid, topic, folder string, ttl time.Duration) error {
 }
 
 // SetEngagementAudited is SetEngagement plus its audit_log row, both in ONE
-// transaction. This is the entrypoint for /v1/engagement: an operator ending
-// someone's conversation early leaves no message row and no turn behind, so this
-// row is the only durable trace.
+// batch. This is the entrypoint for /v1/engagement: an operator ending someone's
+// conversation early leaves no message row and no turn behind, so this row is
+// the only durable trace.
 //
-// EmitInTx rather than Emit: an audit row that outlived a rolled-back write would
-// describe a window that never moved, and a write whose audit insert failed would
-// be the unrecorded mutation this closes.
+// The row RIDES the window's own write rather than joining a transaction with
+// it: an audit row that outlived a rolled-back write would describe a window
+// that never moved, and a write whose audit insert failed would be the
+// unrecorded mutation this closes. A batch is all-or-nothing, so it gives both
+// without a transaction (spec 6/40 §"The audited write commits in a
+// GuardedBatch").
 func (d *DB) SetEngagementAudited(ctx context.Context, jid, topic, folder string, ttl time.Duration, ev audit.Event) error {
-	tx, err := d.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if err := d.store().BumpEngagementInTx(ctx, tx, jid, topic, folder, time.Now().Add(ttl)); err != nil {
-		return err
-	}
-	if err := audit.EmitInTx(ctx, d.Obj(), tx, ev); err != nil {
-		return err
-	}
-	return tx.Commit()
+	_, rec := audit.WriteFor(ev)
+	return d.store().BumpEngagementWith(ctx, jid, topic, folder, time.Now().Add(ttl), rec)
 }
 
 // Engagement is one LIVE engagement window: which folder claims (jid, topic) and

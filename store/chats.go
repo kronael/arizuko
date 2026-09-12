@@ -173,24 +173,6 @@ func (s *Store) ChatJIDs(ctx context.Context) ([]string, error) {
 	return out, nil
 }
 
-// MarkChatHasInbound records that a chat has carried a real inbound message. The
-// write is conditioned on the attribute being ABSENT, so it costs one refused
-// round trip on every message after a chat's first and never a read.
-func (s *Store) MarkChatHasInbound(ctx context.Context, tx *sql.Tx, jid string) error {
-	key, err := chatKey(jid)
-	if err != nil {
-		return err
-	}
-	// A refusal is the flag already being set, which is the outcome this wants.
-	_, err = s.tryWriteVia(ctx, tx, nil, objstore.Write{
-		Op: objstore.Update, Entity: Chats, Key: key,
-		Attrs: map[string]string{attrChatHasInbound: flagSet},
-		Cond: objstore.Cond{Where: []objstore.Cmp{
-			{Attr: attrChatHasInbound, Op: objstore.Absent}}},
-	})
-	return err
-}
-
 // ProactiveChats answers the chats that have ever carried a real inbound message
 // — the universe the proactive scan iterates before it filters by each group's
 // mode. A bot row and the proactive trigger's own synthetic row never make a

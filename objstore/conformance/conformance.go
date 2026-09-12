@@ -57,6 +57,7 @@ func Run(t *testing.T, newStore Factory) {
 		{"AReadReturnsTheWholeSelection", AReadReturnsTheWholeSelection},
 		{"LimitBoundsWhatTheReadReturns", LimitBoundsWhatTheReadReturns},
 		{"RemovalTakesTheAttributeAwayRatherThanEmptyingIt", RemovalTakesTheAttributeAwayRatherThanEmptyingIt},
+		{"AMergeKeepsWhatTheWriterDidNotName", AMergeKeepsWhatTheWriterDidNotName},
 		{"CountersAreACompareAndSwapProtocol", CountersAreACompareAndSwapProtocol},
 		{"CountersCarryTheirCompanionWrites", CountersCarryTheirCompanionWrites},
 		{"OrderedWidthsAreRefusedRatherThanMisSorted", OrderedWidthsAreRefusedRatherThanMisSorted},

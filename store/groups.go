@@ -161,93 +161,112 @@ func (s *Store) groupItemVia(ctx context.Context, tx *sql.Tx, folder string) (ob
 	return items[0], true, nil
 }
 
-// groupUpsert renders the two writes an upsert is: the whole row if the group
-// is new, and the three fields an upsert owns if it is not.
+// groupAttrs renders what an upsert STATES about a group: the three fields it
+// owns, and the settings document when the caller named a model.
 //
-// Which one lands is decided by the FIRST one's refusal, not by a read: a read
-// then a write is two decisions, and the item can appear between them.
-func groupUpsert(g core.Group) (create, merge objstore.Write, err error) {
-	key, err := groupKey(g.Folder)
-	if err != nil {
-		return objstore.Write{}, objstore.Write{}, err
-	}
-	cfgJSON, err := json.Marshal(g.Config)
-	if err != nil {
-		return objstore.Write{}, objstore.Write{}, fmt.Errorf("group %q container config: %w",
-			g.Folder, err)
-	}
-	product := g.Product
-	if product == "" {
-		product = core.DefaultProduct
-	}
-	now := core.NowTS()
-	owned := map[string]string{
-		attrGrpContainerConfig: string(cfgJSON),
-		attrGrpProduct:         product,
-		attrGrpUpdatedAt:       now,
-	}
-	whole := map[string]string{attrGrpAddedAt: core.TS(g.AddedAt)}
-	for k, v := range owned {
-		whole[k] = v
-	}
-	if g.Model != "" {
-		raw, merr := json.Marshal(map[string]any{cfgModel: g.Model})
-		if merr != nil {
-			return objstore.Write{}, objstore.Write{}, fmt.Errorf("group %q model: %w",
-				g.Folder, merr)
-		}
-		whole[attrGrpConfig] = string(raw)
-	}
-	return objstore.Write{
-			Op: objstore.Put, Entity: Groups, Key: key, Attrs: whole,
-			Cond: objstore.Cond{Item: objstore.ItemAbsent},
-		}, objstore.Write{
-			Op: objstore.Update, Entity: Groups, Key: key, Attrs: owned,
-		}, nil
-}
-
-// putGroup writes the upsert, on a transaction the caller owns.
-//
-// THE MODEL IS PART OF THE UPSERT, and it is the one field of the settings
-// document an upsert states: register_group carries it, and dispatchRun reads it
-// back to tell runed which model to spawn. On a create it rides the whole-row
-// Put; on a merge it is folded INTO the existing settings rather than replacing
-// them, because an Update of `config` carries the whole document and the open
-// flag and the two observe windows live in the same one.
+// THE MODEL IS THE ONE SETTING AN UPSERT STATES: register_group carries it, and
+// dispatchRun reads it back to tell runed which model to spawn. It is folded
+// INTO `settings` rather than replacing them, because `config` holds ONE
+// document and the open flag and the two observe windows live in the same one —
+// so the caller hands over the settings the group has today, and a folder with
+// none hands over nothing.
 //
 // An EMPTY model states nothing and clears nothing. SetGroupModel("") is the
 // explicit clear, and a caller that names a group without naming a model — the
 // CLI's `group add`, register_group's two arguments — is not asking for the
 // override to go.
+func groupAttrs(g core.Group, settings map[string]any) (map[string]string, error) {
+	cfgJSON, err := json.Marshal(g.Config)
+	if err != nil {
+		return nil, fmt.Errorf("group %q container config: %w", g.Folder, err)
+	}
+	product := g.Product
+	if product == "" {
+		product = core.DefaultProduct
+	}
+	attrs := map[string]string{
+		attrGrpContainerConfig: string(cfgJSON),
+		attrGrpProduct:         product,
+		attrGrpUpdatedAt:       core.NowTS(),
+	}
+	if g.Model == "" {
+		return attrs, nil
+	}
+	if settings == nil {
+		settings = map[string]any{}
+	}
+	settings[cfgModel] = g.Model
+	raw, err := json.Marshal(settings)
+	if err != nil {
+		return nil, fmt.Errorf("group %q settings: %w", g.Folder, err)
+	}
+	attrs[attrGrpConfig] = string(raw)
+	return attrs, nil
+}
+
+// groupCreate renders the create-if-absent a folder CREATION issues, whose
+// refusal is the "that folder is already someone's" answer its callers give.
+func groupCreate(g core.Group) (objstore.Write, error) {
+	key, err := groupKey(g.Folder)
+	if err != nil {
+		return objstore.Write{}, err
+	}
+	attrs, err := groupAttrs(g, nil)
+	if err != nil {
+		return objstore.Write{}, err
+	}
+	attrs[attrGrpAddedAt] = core.TS(g.AddedAt)
+	return objstore.Write{
+		Op: objstore.Put, Entity: Groups, Key: key, Attrs: attrs,
+		Cond: objstore.Cond{Item: objstore.ItemAbsent},
+	}, nil
+}
+
+// groupUpsert renders the ONE write an upsert is: merge the fields it owns into
+// the item, create the item when the folder is new, and stamp `added_at` only on
+// that create.
+//
+// `added_at` is Init because it is the instant the folder APPEARED. A merge that
+// restated it would overwrite that fact with the instant of the newest upsert,
+// and every caller but the CLI's `group add` passes time.Now().
+func groupUpsert(g core.Group, settings map[string]any) (objstore.Write, error) {
+	key, err := groupKey(g.Folder)
+	if err != nil {
+		return objstore.Write{}, err
+	}
+	attrs, err := groupAttrs(g, settings)
+	if err != nil {
+		return objstore.Write{}, err
+	}
+	return objstore.Write{
+		Op: objstore.Merge, Entity: Groups, Key: key, Attrs: attrs,
+		Init: map[string]string{attrGrpAddedAt: core.TS(g.AddedAt)},
+	}, nil
+}
+
+// putGroup writes the upsert, on a transaction the caller owns when it has one.
+//
+// ONE WRITE, and the read above it happens only when the caller named a model:
+// the settings document is what a model override is folded into, and nothing
+// else here needs the item. The pair this replaces decided which of two writes
+// landed by the first one's REFUSAL, which is what made the upsert two actions
+// on one item and therefore a transaction (spec 6/40 §"Merge").
 func (s *Store) putGroup(ctx context.Context, tx *sql.Tx, g core.Group) error {
-	create, merge, err := groupUpsert(g)
-	if err != nil {
-		return err
-	}
-	created, err := s.TryWriteEntitiesInTx(ctx, tx, nil, create)
-	if err != nil {
-		return err
-	}
-	if created {
-		return nil
-	}
+	var settings map[string]any
 	if g.Model != "" {
-		it, ok, ierr := s.groupItemVia(ctx, tx, g.Folder)
-		if ierr != nil {
-			return ierr
+		it, ok, err := s.groupItemVia(ctx, tx, g.Folder)
+		if err != nil {
+			return err
 		}
 		if ok {
-			cfg := settingsOf(it)
-			cfg[cfgModel] = g.Model
-			raw, merr := json.Marshal(cfg)
-			if merr != nil {
-				return fmt.Errorf("group %q settings: %w", g.Folder, merr)
-			}
-			merge.Attrs[attrGrpConfig] = string(raw)
+			settings = settingsOf(it)
 		}
 	}
-	err = s.WriteEntitiesInTx(ctx, tx, nil, merge)
-	return err
+	w, err := groupUpsert(g, settings)
+	if err != nil {
+		return err
+	}
+	return s.writeVia(ctx, tx, nil, w)
 }
 
 func (s *Store) PutGroup(g core.Group) error {
@@ -388,7 +407,7 @@ func (s *Store) GroupFolders(limit int) ([]string, error) {
 // the first loses here rather than taking over a world it did not make. PutGroup
 // is an upsert and would hand it over silently.
 func (s *Store) CreateGroupTx(ctx context.Context, tx *sql.Tx, g core.Group) (bool, error) {
-	create, _, err := groupUpsert(g)
+	create, err := groupCreate(g)
 	if err != nil {
 		return false, err
 	}

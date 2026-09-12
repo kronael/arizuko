@@ -27,7 +27,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"sort"
 	"time"
@@ -76,37 +75,37 @@ func (s *Store) ProactiveLastFired(jid string) time.Time {
 	return t
 }
 
-// RecordProactiveFireInTx stamps a chat's cooldown on a transaction the CALLER
-// owns.
+// proactiveFireWrite renders the ONE write a cooldown stamp is: merge the
+// instant into the chat's item, creating it when the chat has never fired.
 //
-// The transaction is the whole point and it is not this file's: routd appends
-// the synthetic inbound row and stamps this in ONE commit, so a crash before the
-// run is dispatched leaves the cooldown SET — at worst one missed turn, never a
-// double fire. The message is still a row of columns and this is an item, and
-// they commit together because the entity write joins the caller's transaction.
-func (s *Store) RecordProactiveFireInTx(ctx context.Context, tx *sql.Tx, jid string, at time.Time) error {
+// A bare Put would be a whole-item replace: it costs nothing while the item
+// carries one attribute and drops the second one the day this entity grows a
+// field. A Merge has no such trap, and — because it is ONE action on ONE item —
+// it can ride in the batch that appends the synthetic row it belongs with.
+func proactiveFireWrite(jid string, at time.Time) (objstore.Write, error) {
 	key, err := proactiveKey(jid)
+	if err != nil {
+		return objstore.Write{}, err
+	}
+	return objstore.Write{
+		Op: objstore.Merge, Entity: ChatProactive, Key: key,
+		Attrs: map[string]string{AttrProactiveFiredAt: core.TS(at)},
+	}, nil
+}
+
+// RecordProactiveFire stamps a chat's cooldown.
+//
+// FireProactive does NOT call it: the stamp and the synthetic inbound row go in
+// one batch there, so a crash before the run is dispatched leaves the cooldown
+// SET — at worst one missed turn, never a double fire. This is the door for a
+// caller stamping a cooldown alone.
+func (s *Store) RecordProactiveFire(ctx context.Context, jid string, at time.Time) error {
+	w, err := proactiveFireWrite(jid, at)
 	if err != nil {
 		return err
 	}
-	attrs := map[string]string{AttrProactiveFiredAt: core.TS(at)}
-	// Create-if-absent, then merge on the refusal. A bare Put would be a
-	// whole-item replace: it costs nothing while the item carries one attribute
-	// and drops the second one the day this entity grows a field.
-	created, err := s.tryWriteVia(ctx, tx, nil, objstore.Write{
-		Op: objstore.Put, Entity: ChatProactive, Key: key, Attrs: attrs,
-		Cond: objstore.Cond{Item: objstore.ItemAbsent},
-	})
-	if err != nil {
+	if err := s.WriteEntities(ctx, nil, w); err != nil {
 		return fmt.Errorf("stamp the proactive cooldown of %s: %w", jid, err)
-	}
-	if created {
-		return nil
-	}
-	if err := s.writeVia(ctx, tx, nil, objstore.Write{
-		Op: objstore.Update, Entity: ChatProactive, Key: key, Attrs: attrs,
-	}); err != nil {
-		return fmt.Errorf("move the proactive cooldown of %s: %w", jid, err)
 	}
 	return nil
 }

@@ -147,8 +147,8 @@ func TestProactivePageRendersCooldown(t *testing.T) {
 	groupsDir := t.TempDir()
 	seedGroup(t, db, groupsDir, "corp/eng", "proactive:\n  mode: lurk")
 	firedAt := time.Date(2026, 8, 6, 9, 0, 0, 0, time.UTC)
-	if err := store.New(db).RecordProactiveFireInTx(
-		context.Background(), nil, "slack:T1/C1", firedAt); err != nil {
+	if err := store.New(db).RecordProactiveFire(
+		context.Background(), "slack:T1/C1", firedAt); err != nil {
 		t.Fatal(err)
 	}
 
