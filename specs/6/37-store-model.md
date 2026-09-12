@@ -414,14 +414,24 @@ layers; the filing is worth doing once, for its method names, and never again.
    and it is the proof the interface carries a real daemon. `L251` closes here:
    `audit_log` becomes one entity behind the interface, implemented once per
    driver instead of twice in every daemon.
-   **Where this stands, measured 2026-09-10. One table is left.** Every table in
-   arizuko is an objstore entity except `messages` and its FTS twin. The census
-   over non-test Go finds 138 statements against `messages`, and after that only
-   `sqlite_master` probes, the `migrations` bookkeeping and test fixtures. Sixteen
-   registered resources, the five cursor tables, and the six remaining hot-tier
-   tables all moved; `session_log` turned out to be dead in `store` — `runed` has
-   owned that entity since its own move and `routd` federates over HTTP — and was
-   deleted rather than ported.
+   **The port is complete, measured 2026-09-12.** Every table in arizuko is an
+   objstore entity, including `messages` — 53,255 rows across three instances, 234
+   cursors verified at the same position, and zero chats whose unfed set changed.
+   71 packages green. Ranked search still runs FTS5 and now reads the entity's
+   coordinate rather than a rowid; it leaves for its own daemon next, which is the
+   last thing holding `routd` to SQLite.
+
+What remains of SQL in the tree: 13 schema probes, the FTS search, and the
+`migrations` bookkeeping row.
+
+**Where this stood, measured 2026-09-10. One table was left.** Every table in
+arizuko is an objstore entity except `messages` and its FTS twin. The census
+over non-test Go finds 138 statements against `messages`, and after that only
+`sqlite_master` probes, the `migrations` bookkeeping and test fixtures. Sixteen
+registered resources, the five cursor tables, and the six remaining hot-tier
+tables all moved; `session_log` turned out to be dead in `store` — `runed` has
+owned that entity since its own move and `routd` federates over HTTP — and was
+deleted rather than ported.
 
 ### How `messages` leaves, and how search stays in step
 
