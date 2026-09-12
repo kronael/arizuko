@@ -62,6 +62,44 @@ entry asked for is not needed: the cascade is gone.
   cascade suppressed and the dependent rows re-attached. The second is the
   smaller change and the first is the right one.
 
+## L270 — nine adapter dashboards trust `X-User-*` without verifying proxyd stamped it (2026-09-12, open)
+
+`auth.RequireOperator` (`auth/dashauth.go:66`) is the one correct gate, and its
+own comment names the attack: reading `X-User-*` without verifying proxyd's
+`service:proxyd` transit proof "lets anyone who can reach the port send
+`X-User-Groups: [\"**\"]` and receive the operator page". Seven daemons use it;
+`dashd` verifies `ProxydTransit` directly (`dashd/main.go:501`).
+
+Nine surfaces do not. `chanlib/dash.go:66` gates on `auth.IsOperator(r)` alone,
+and it sits inside the shared adapter handler, so **eight adapters inherit it**
+— the "one renderer, no per-adapter edit" shape working against us.
+`ttsd/dash.go:36` is the ninth.
+
+**It is documented, not forgotten.** `chanlib/dash.go:32` says the adapter
+"holds no keyset, so it cannot use the nil-KeySet form the core daemons use",
+and `dashEnforced()` — `AUTHD_URL` being set — is the substitute. So the gap is
+a missing capability, not a missed call.
+
+**And it is bounded, measured on sloth 2026-09-12:** the adapters publish NO
+host port. `docker ps` shows only `proxyd` (49176), `dashd` (8090) and `routd`
+(8080) reachable from the host, and all three verify the proof. Reaching an
+adapter dashboard means already being inside the compose network.
+
+So this is defence-in-depth that was never built, not an open door. It still
+matters: the network is the only thing holding it, one published port would end
+that, and the rule this project keeps is that a stamped header is worthless
+without the proof beside it.
+
+- **Severity:** medium (bounded by the network today; high the day a port is published)
+- **Scope:** `chanlib/dash.go`, `ttsd/dash.go`, `auth/dashauth.go`
+- **Affected:** 8 channel adapters plus ttsd, every instance
+- **Source:** `grep RequireOperator` vs `chanlib/dash.go:66`; `docker ps` on sloth
+- **Status:** open
+- **Fix:** give the adapter the keyset it says it lacks — it already reads
+  `AUTHD_URL` to decide whether to enforce, which is the same fact
+  `auth.NewKeySet` needs — then call `RequireOperator` like everyone else. One
+  renderer, one gate, and the `dashEnforced` substitute goes.
+
 ## L269 — nothing in production creates a `user_profiles` item, so a person who signs up today stays nameless (2026-09-11, open)
 
 MEASURED 2026-09-11. `store.CreateUserProfile` has **zero non-test callers**:
