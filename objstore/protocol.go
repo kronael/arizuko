@@ -57,7 +57,13 @@ const maxCASAttempts = 8
 // A retry re-sends them, which is safe because a refused batch wrote nothing.
 func Increment(ctx context.Context, s Store, entity string, key Key, attr string, delta int,
 	cond []Cmp, also []Write) (value int, committed bool, err error) {
-	width, fixed := orderedWidth(entity, attr)
+	// A counter that is declared ordered keeps its declared layout, and only a
+	// WHOLE-value declaration is a layout a number renders into: a lead rule says
+	// the value starts with an ordered field and carries a tiebreak after it,
+	// which a count does not.
+	r, declared := orderedRule(entity, attr)
+	fixed := declared && !r.lead
+	width := r.width
 	read := func() (string, int, error) {
 		items, err := s.Query(ctx, Query{
 			Entity: entity, Partition: key.Partition,

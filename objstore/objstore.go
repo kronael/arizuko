@@ -35,8 +35,9 @@
 // A typed attribute model buys ordered numbers and costs a comparison grammar
 // per driver — the vendor surface 6/37 §"No surrogate database" refuses. The
 // rule is not left to discipline: a writer DECLARES an ordered attribute's
-// width with OrderedAttr and every driver refuses a value of another width
-// (ordered.go).
+// width with OrderedAttr, or the width its value LEADS with when a tiebreak
+// follows the ordered field, and every driver refuses a value that does not
+// match (ordered.go).
 package objstore
 
 import "context"
