@@ -13,9 +13,11 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/authd/authstore"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore/dynstore"
 	"github.com/kronael/arizuko/routd"
+	"github.com/kronael/arizuko/runed/runstore"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -180,5 +182,43 @@ func TestRoutdRunsOverDynamo(t *testing.T) {
 	groups := rdb.AllGroups()
 	if _, ok := groups["acme"]; !ok || len(groups) != 1 {
 		t.Fatalf("AllGroups = %v, want just acme", groups)
+	}
+}
+
+// authd and runed take the handle directly, so this is what "wired" means for
+// them: their own stores, over the endpoint, doing their own work.
+func TestAuthdAndRunedRunOverDynamo(t *testing.T) {
+	addr := endpoint(t)
+	prefix := fmt.Sprintf("ar%d_", time.Now().UnixNano())
+	d, err := dynstore.Dial(context.Background(), addr, "us-east-1", prefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	for _, e := range append(authstore.Entities, runstore.Entities...) {
+		if err := d.CreateEntity(ctx, e); err != nil {
+			t.Fatalf("make %s: %v", e, err)
+		}
+	}
+
+	as := authstore.New(d)
+	if err := as.LinkOAuthIdentity("u1", "Alice", "google", "g-1"); err != nil {
+		t.Fatalf("authd links an identity: %v", err)
+	}
+	owner, name, _, _, ok := as.OAuthIdentityForSub("google:g-1")
+	if !ok || owner != "u1" || name != "Alice" {
+		t.Fatalf("the identity read back as %q/%q (found=%v)", owner, name, ok)
+	}
+
+	rs := runstore.New(d)
+	if err := rs.CreateSpawn(ctx, runstore.Spawn{RunID: "run_1", Folder: "acme"}); err != nil {
+		t.Fatalf("runed records a spawn: %v", err)
+	}
+	sp, err := rs.SpawnByRunID(ctx, "run_1")
+	if err != nil {
+		t.Fatalf("runed reads its spawn: %v", err)
+	}
+	if sp.Folder != "acme" {
+		t.Errorf("the spawn read back on folder %q, want acme", sp.Folder)
 	}
 }
