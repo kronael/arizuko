@@ -53,6 +53,28 @@ func TestUpdateRoute_MissingIDRecordsNothing(t *testing.T) {
 	}
 }
 
+// Adding the same rule twice creates one route and records one creation. The
+// second call hands back the id the rule already carries, because a second id
+// for one rule is a handle that deletes somebody else's rule.
+func TestAddRoute_DuplicateCreatesNothingAndRecordsNothing(t *testing.T) {
+	s := openMem(t)
+	r := core.Route{Match: "chat_jid=telegram:1", Target: "alpha"}
+	first, err := s.AddRoute(r)
+	if err != nil {
+		t.Fatalf("AddRoute: %v", err)
+	}
+	again, err := s.AddRoute(r)
+	if err != nil {
+		t.Fatalf("AddRoute(duplicate): %v", err)
+	}
+	if again != first {
+		t.Errorf("the duplicate answered id %d, want the rule's own id %d", again, first)
+	}
+	if rows := auditRowsFor(t, s, "route.create"); len(rows) != 1 {
+		t.Errorf("%d route.create rows for one created rule", len(rows))
+	}
+}
+
 func TestAddRoute_AllowsNonWebJID(t *testing.T) {
 	cases := []string{
 		"chat_jid=telegram:123",

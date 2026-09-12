@@ -300,21 +300,30 @@ func (s *Store) AddRoute(r core.Route) (int64, error) {
 		return 0, ErrWebJIDRouted
 	}
 	ctx := context.Background()
-	var id int64
-	err := s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		var err error
-		id, err = s.putRoute(ctx, tx, r, "", "")
+	key, err := routeKey(r)
+	if err != nil {
+		return 0, err
+	}
+	if r.ID == 0 {
+		n, err := s.nextNumber(ctx, OwnerRoutd, CounterRouteID)
 		if err != nil {
-			return audit.Event{}, err
+			return 0, fmt.Errorf("mint a route id: %w", err)
 		}
-		actor, actorSub, surface := s.auditIdentity()
-		return audit.Event{
+		r.ID = int64(n)
+	}
+	actor, actorSub, surface := s.auditIdentity()
+	created, err := s.tryWriteAudited(func() ([]objstore.Write, audit.Event, error) {
+		w := objstore.Write{
+			Op: objstore.Put, Entity: Routes, Key: key, Attrs: routeAttrs(r, "", ""),
+			Cond: objstore.Cond{Item: objstore.ItemAbsent},
+		}
+		return []objstore.Write{w}, audit.Event{
 			Category: audit.CategoryMutation,
 			Action:   "route.create",
 			Actor:    actor,
 			ActorSub: actorSub,
 			Surface:  surface,
-			Resource: fmt.Sprintf("routes/%d", id),
+			Resource: fmt.Sprintf("routes/%d", r.ID),
 			Folder:   r.Target,
 			Outcome:  audit.OutcomeOK,
 			ParamsSummary: map[string]any{
@@ -327,7 +336,25 @@ func (s *Store) AddRoute(r core.Route) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	return id, nil
+	if created {
+		return r.ID, nil
+	}
+	// The rule is already there, so the coordinate names it and the id it carries
+	// is the handle the caller has to be given. Nothing was created, so nothing
+	// is recorded.
+	return s.routeIDAt(ctx, key.Sort)
+}
+
+// routeIDAt answers the id the rule at sort already carries.
+func (s *Store) routeIDAt(ctx context.Context, sort string) (int64, error) {
+	items, err := s.Obj().Query(ctx, objstore.Query{
+		Entity: Routes, Partition: OwnerRoutd,
+		Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: sort},
+	})
+	if err != nil || len(items) == 0 {
+		return 0, fmt.Errorf("route %q refused its own create and is not there", sort)
+	}
+	return int64(attrInt(items[0], attrRouteID)), nil
 }
 
 // PutRouteRow writes a route idempotently WITHOUT emitting an audit_log row —
