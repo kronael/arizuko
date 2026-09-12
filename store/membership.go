@@ -251,13 +251,9 @@ func (s *Store) RemoveMembership(child, parent string) error {
 		return err
 	}
 	actor, actorSub, surface := s.auditIdentity()
-	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		if err := s.WriteEntitiesInTx(context.Background(), tx, nil, objstore.Write{
-			Op: objstore.Delete, Entity: ACLMembership, Key: key,
-		}); err != nil {
-			return audit.Event{}, err
-		}
-		return audit.Event{
+	return s.writeAudited(func() ([]objstore.Write, audit.Event, error) {
+		w := objstore.Write{Op: objstore.Delete, Entity: ACLMembership, Key: key}
+		return []objstore.Write{w}, audit.Event{
 			Category: audit.CategoryAuthZ,
 			Action:   "membership.remove",
 			Actor:    actor,
