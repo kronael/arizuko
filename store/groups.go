@@ -296,26 +296,34 @@ func (s *Store) PutGroup(g core.Group) error {
 // PutGroupRow upserts a group identity row WITHOUT emitting an audit_log row —
 // the audit-free twin of PutGroup, for the CLI `group add`, which records the
 // act itself with auditCLI; a second row would double-count one creation.
+//
+// A groups row implies the member edge, in the SAME batch as the row (BUGS
+// L119): a folder with no edge expands to nothing, matches zero allow rows and
+// comes up with no messaging tools at all. The batch carries the cycle walk's
+// marker compare-and-swap as well, which the transaction this replaces gave up
+// (membership.go AddEdgeWith).
 func (s *Store) PutGroupRow(g core.Group) error {
 	ctx := context.Background()
-	tx, err := s.db.Begin()
+	var settings map[string]any
+	if g.Model != "" {
+		it, ok, err := s.groupItem(ctx, g.Folder)
+		if err != nil {
+			return err
+		}
+		if ok {
+			settings = settingsOf(it)
+		}
+	}
+	row, err := groupUpsert(g, settings)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
-	if err := s.putGroup(ctx, tx, g); err != nil {
+	// The upsert is a Merge and the edge is create-if-absent, so nothing in this
+	// batch can refuse and the verdict says only that it ran.
+	if _, err := SeedMemberRole(ctx, s, g.Folder, row); err != nil {
 		return err
 	}
-	// A groups row implies the member edge, in the same transaction as the row
-	// (BUGS L119): a folder with no edge expands to nothing, matches zero allow
-	// rows and comes up with no messaging tools at all. The tx-bound writer is
-	// what makes that one commit, at the cost of the marker's compare-and-swap
-	// on the cycle walk — the engine's write lock is the serialisation instead
-	// (membership.go PutMembershipTx).
-	if err := SeedMemberRoleTx(ctx, s, tx, g.Folder); err != nil {
-		return err
-	}
-	return tx.Commit()
+	return nil
 }
 
 // DeleteGroup removes the folder's subtree and every row that confers on it or
@@ -395,24 +403,20 @@ func (s *Store) GroupFolders(limit int) ([]string, error) {
 	return out, nil
 }
 
-// CreateGroupTx writes one group row on a transaction the CALLER owns and
-// reports whether it landed, for the two creators that carry more than the row:
-// dashd's create writes the member edge and the creator's admin grant beside it,
-// onbod's world creation the username and the same grant, and each needs all of
-// it in ONE commit — a group row with no edge expands to nothing (BUGS L119) and
-// a group row with no grant is a folder nobody can open.
+// GroupCreateWrite hands the groups CREATE to the two daemons that assemble a
+// folder creation's whole batch themselves: dashd's operator page and onbod's
+// world creation each land the row, the member edge and an admin grant together
+// — a group row with no edge expands to nothing (BUGS L119) and a group row with
+// no grant is a folder nobody can open.
 //
-// created=false is the folder ALREADY BEING THERE, and it is the answer both
-// callers refuse on: the write is create-if-absent, so a second creator racing
-// the first loses here rather than taking over a world it did not make. PutGroup
-// is an upsert and would hand it over silently.
-func (s *Store) CreateGroupTx(ctx context.Context, tx *sql.Tx, g core.Group) (bool, error) {
-	create, err := groupCreate(g)
-	if err != nil {
-		return false, err
-	}
-	return s.TryWriteEntitiesInTx(ctx, tx, nil, create)
-}
+// It hands over the WRITE and not the shape, so this package stays the one place
+// a groups item is rendered.
+//
+// It is create-if-absent and it is the ONLY guarded write in either batch, so a
+// refused batch is the folder ALREADY BEING THERE — the answer both callers
+// refuse on, rather than taking over a world they did not make. PutGroup is an
+// upsert and would hand it over silently.
+func GroupCreateWrite(g core.Group) (objstore.Write, error) { return groupCreate(g) }
 
 func (s *Store) AllGroups() map[string]core.Group {
 	items, err := s.Obj().Query(context.Background(), objstore.Query{

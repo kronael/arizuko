@@ -398,7 +398,12 @@ func (s *Store) reads(tx *sql.Tx) EntityQuerier {
 // that door. A refusal is the item already being there, which is the outcome
 // the caller wants — nothing else can refuse a create-if-absent.
 func putIfAbsent(ctx context.Context, d Driver, w objstore.Write) error {
-	w.Cond = objstore.Cond{Item: objstore.ItemAbsent}
+	// A Merge already carries the semantics in its OP — it creates what it does
+	// not find and leaves what it does — and refuses a condition outright, so it
+	// is handed over as it came.
+	if w.Op != objstore.Merge {
+		w.Cond = objstore.Cond{Item: objstore.ItemAbsent}
+	}
 	_, err := d.GuardedBatch(ctx, nil, withBumps([]objstore.Write{w}))
 	return err
 }

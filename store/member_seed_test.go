@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore"
@@ -33,25 +34,43 @@ func TestPutGroupRowSeedsTheMemberEdge(t *testing.T) {
 	}
 }
 
-// SeedMemberRoleTx is what dashd's and onbod's own transactions call, so it has
-// to work on a caller-owned tx and be idempotent there too.
-func TestSeedMemberRoleTxIsIdempotentOnACallerTx(t *testing.T) {
+// SeedMemberRole is what dashd's and onbod's folder creations call, and it
+// carries THEIR writes: the groups row a member edge implies (BUGS L119) lands
+// in the same guarded batch as the edge, so neither can exist without the other.
+//
+// It is idempotent, and the second run must not refuse: the edge is
+// create-if-absent and the caller's own write is what a false would be about.
+func TestSeedMemberRoleCarriesTheCreationItBelongsTo(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
-	tx, err := s.DB().Begin()
+	ctx := context.Background()
+	row, err := GroupCreateWrite(core.Group{Folder: "world", AddedAt: time.Now()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer tx.Rollback()
-	for range 2 {
-		if err := SeedMemberRoleTx(context.Background(), s, tx, "world"); err != nil {
-			t.Fatalf("SeedMemberRoleTx: %v", err)
-		}
+	created, err := SeedMemberRole(ctx, s, "world", row)
+	if err != nil || !created {
+		t.Fatalf("the first creation reported created=%v err=%v", created, err)
 	}
-	// Read through the caller's own transaction: the edges are not committed
-	// yet, so the pool would not see them.
-	if n := edgesTo(t, s.reads(tx), "folder:world", RoleMember); n != 1 {
-		t.Errorf("rows = %d, want 1", n)
+	if n := edgesTo(t, s.reads(nil), "folder:world", RoleMember); n != 1 {
+		t.Fatalf("rows = %d, want 1", n)
+	}
+	if _, ok := s.GroupByFolder("world"); !ok {
+		t.Fatal("the groups row did not land with the edge it implies")
+	}
+
+	// A second creation loses: the groups write is the only guarded one in the
+	// batch, so a false names exactly the folder already being someone's.
+	again, err := SeedMemberRole(ctx, s, "world", row)
+	if err != nil {
+		t.Fatalf("the second creation errored: %v", err)
+	}
+	if again {
+		t.Error("a second creation of the same folder reported success; the caller would be " +
+			"granted admin on somebody else's world")
+	}
+	if n := edgesTo(t, s.reads(nil), "folder:world", RoleMember); n != 1 {
+		t.Errorf("rows = %d after a refused creation, want 1", n)
 	}
 }
 

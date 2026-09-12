@@ -34,50 +34,47 @@ func (s *Store) GroupExists(folder string) (bool, error) {
 	return false, nil
 }
 
-// CreateGroupWithAdmin writes the group row, its member edge and the creator's
-// admin grant in one transaction, with the audit row inside it.
+// CreateGroupWithAdmin writes the group row, its member edge, the creator's
+// admin grant and the audit row that records the act, in ONE guarded batch.
 //
-// The three belong together. A group row with no member edge expands to
-// nothing, matches zero allow rows and comes up with no messaging tools
-// (BUGS L119); a group row with no admin grant is a folder nobody can open.
-// store.PutGroup writes the row on a transaction of its own and so cannot
-// carry either, which is why the create is CreateGroupTx — the tx-bound writer
-// — rather than a call to it.
+// The four belong together. A group row with no member edge expands to nothing,
+// matches zero allow rows and comes up with no messaging tools (BUGS L119); a
+// group row with no admin grant is a folder nobody can open; and an audit row
+// that outlived a refused create would record a folder nobody got.
 //
-// A folder that is already there is refused rather than taken over: the create
-// is create-if-absent, so the operator racing another creator is told so
-// instead of being granted admin on somebody else's world.
+// The batch runs through store.SeedMemberRole, which is objstore.AddEdge: the
+// cycle walk decides the edge and compare-and-swaps routd's marker in the same
+// write, so the edge cannot land on a graph that moved under it. The
+// transaction this replaces rested on SQLite's single writer for that instead,
+// which Postgres at READ COMMITTED does not give (BUGS L256).
+//
+// A folder that is already there is refused rather than taken over: the groups
+// write is the ONLY guarded one in the batch — the edge and the grant are
+// create-if-absent merges and refuse nothing — so a refusal names exactly that,
+// and the operator racing another creator is told so instead of being granted
+// admin on somebody else's world.
 func (s *Store) CreateGroupWithAdmin(ctx context.Context, folder, product, admin string, ev audit.Event) error {
 	st := s.st()
-	tx, err := s.db.Begin()
-	if err != nil {
-		return fmt.Errorf("begin: %w", err)
-	}
-	defer tx.Rollback()
-
-	created, err := st.CreateGroupTx(ctx, tx, core.Group{
+	row, err := store.GroupCreateWrite(core.Group{
 		Folder: folder, AddedAt: time.Now(), Product: product,
 	})
 	if err != nil {
 		return fmt.Errorf("insert group: %w", err)
 	}
-	if !created {
-		return fmt.Errorf("insert group: folder %q already exists", folder)
-	}
-	if err := store.SeedMemberRoleTx(ctx, st, tx, folder); err != nil {
-		return fmt.Errorf("%w: %w", ErrSeedMemberRole, err)
-	}
-	if err := st.PutACLRowTx(ctx, tx, core.ACLRow{
+	grant, err := store.ACLGrantWrite(core.ACLRow{
 		Principal: admin, Action: "admin", Scope: folder,
 		Effect: "allow", GrantedBy: "dashd",
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("%w: %w", ErrGrantAdmin, err)
 	}
-	if err := audit.EmitInTx(ctx, s.obj(), tx, ev); err != nil {
-		return fmt.Errorf("audit: %w", err)
+	_, rec := audit.WriteFor(ev)
+	created, err := store.SeedMemberRole(ctx, st, folder, row, grant, rec)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrSeedMemberRole, err)
 	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit: %w", err)
+	if !created {
+		return fmt.Errorf("insert group: folder %q already exists", folder)
 	}
 	return nil
 }

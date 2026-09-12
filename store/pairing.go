@@ -19,9 +19,8 @@ package store
 // THE TOKEN AND THE EDGE COMMIT TOGETHER, and that is the whole reason pairing
 // is a kind of route token rather than a table of its own: both live in the same
 // database, so the redemption spends the credential and writes the edge in ONE
-// transaction the caller owns. What that gives up against AddMembership is the
-// marker's compare-and-swap on the cycle walk; the engine's write lock is the
-// serialisation instead (store/membership.go PutMembershipTx).
+// guarded batch, the cycle walk's marker compare-and-swap included
+// (store/membership.go AddEdgeWith).
 
 import (
 	"context"
@@ -132,15 +131,15 @@ func (s *Store) pairingItem(ctx context.Context, rawToken string) (objstore.Item
 }
 
 // RedeemPairing binds the channel identity named by rawToken to parentSub and
-// consumes the token, in one transaction: resolve + age check, reject a
+// consumes the token, in one batch: resolve + age check, reject a
 // different non-role parent, insert the edge, delete the token. Returns the
 // paired JID. The new authority is live on the identity's next tool call —
 // Authorize reads the DB live (spec 5/32 § No caching).
 //
 // The consume is CONDITIONAL on the token still being there, so two redeemers
-// racing on one link cannot both win: the loser's whole transaction rolls back,
-// edge included, and it is told the same ErrPairingUnavailable an expired link
-// gets. Single use is the credential's own rule, not a comment.
+// racing on one link cannot both win: the loser's whole batch is refused, edge
+// included, and it is told the same ErrPairingUnavailable an expired link gets.
+// Single use is the credential's own rule, not a comment.
 func (s *Store) RedeemPairing(rawToken, parentSub string) (string, error) {
 	if parentSub == "" {
 		return "", ErrPairingUnavailable
@@ -170,17 +169,13 @@ func (s *Store) RedeemPairing(rawToken, parentSub string) (string, error) {
 		}
 	}
 
-	tx, err := s.db.Begin()
-	if err != nil {
-		return "", err
-	}
-	// commit already succeeded on the happy path; rollback is best-effort
-	defer tx.Rollback() //nolint:errcheck
-
-	if err := s.PutMembershipTx(ctx, tx, jid, parentSub, PairingAddedBy); err != nil {
-		return "", err
-	}
-	spent, err := s.TryWriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+	// THE EDGE AND THE TOKEN GO IN ONE BATCH, under the cycle guard. The token
+	// delete is the only guarded write in it — the edge is create-if-absent and
+	// refuses nothing — so a false is the token being spent between the read
+	// above and this write, which is exactly ErrPairingUnavailable. The
+	// transaction this replaces bought the same atomicity and gave up the
+	// marker's compare-and-swap to get it (BUGS L256).
+	spent, err := s.AddEdgeWith(ctx, jid, parentSub, PairingAddedBy, objstore.Write{
 		Op: objstore.Delete, Entity: RouteTokens, Key: it.Key,
 		Cond: objstore.Cond{Item: objstore.ItemPresent},
 	})
@@ -189,9 +184,6 @@ func (s *Store) RedeemPairing(rawToken, parentSub string) (string, error) {
 	}
 	if !spent {
 		return "", ErrPairingUnavailable
-	}
-	if err := tx.Commit(); err != nil {
-		return "", err
 	}
 	return jid, nil
 }

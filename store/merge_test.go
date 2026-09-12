@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 )
 
 // TestSetSecretKeepsTheOAuthHalfItDoesNotName is the trap a review nearly
@@ -252,5 +253,42 @@ func TestFireProactiveStampsTheCooldownWithTheRowItFires(t *testing.T) {
 	if len(proactive) != 0 {
 		t.Errorf("%d chats carry has_inbound after a proactive fire, want 0: the trigger must "+
 			"not feed itself", len(proactive))
+	}
+}
+
+// TestACreateOnlyMergeIsIdempotentOnTheEdgeItDraws is membershipPut's shape:
+// the write lands an edge and leaves an existing one exactly as it was, without
+// making its row count an answer — which is what lets it ride in a batch some
+// other write's condition decides.
+func TestACreateOnlyMergeIsIdempotentOnTheEdgeItDraws(t *testing.T) {
+	s := openMem(t)
+	first, err := membershipPut("folder:atlas", RoleMember, "system:first")
+	if err != nil {
+		t.Fatalf("render the edge: %v", err)
+	}
+	if err := s.WriteEntities(context.Background(), nil, first); err != nil {
+		t.Fatalf("draw the edge: %v", err)
+	}
+	second, err := membershipPut("folder:atlas", RoleMember, "system:second")
+	if err != nil {
+		t.Fatalf("render the edge again: %v", err)
+	}
+	if second.Op != objstore.Merge {
+		t.Fatalf("the edge write is a %s; a create-if-absent Put REFUSES the batch it rides "+
+			"in, which is why the four edge writers each held a transaction", second.Op)
+	}
+	if err := s.WriteEntities(context.Background(), nil, second); err != nil {
+		t.Fatalf("re-draw the edge: %v", err)
+	}
+	edges, err := s.MemberEdges(RoleMember)
+	if err != nil {
+		t.Fatalf("read the edges: %v", err)
+	}
+	if len(edges) != 1 {
+		t.Fatalf("the graph holds %d edges, want 1", len(edges))
+	}
+	if edges[0].AddedBy != "system:first" {
+		t.Errorf("added_by is %q, want system:first: re-adding an edge that is there must not "+
+			"restamp who drew it", edges[0].AddedBy)
 	}
 }

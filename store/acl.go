@@ -137,11 +137,20 @@ func aclPut(r core.ACLRow) (objstore.Write, error) {
 	if err != nil {
 		return objstore.Write{}, err
 	}
+	// Every attribute is Init, which states the idempotence in the write: a
+	// re-grant leaves the row exactly as it is rather than restamping who granted
+	// it or when. It is a Merge rather than a guarded Put so it has NOTHING TO
+	// REFUSE, which is what lets a folder creation's admin grant ride in the same
+	// batch as the edge and the groups row it belongs with.
 	return objstore.Write{
-		Op: objstore.Put, Entity: ACL, Key: key, Attrs: aclAttrs(r),
-		Cond: objstore.Cond{Item: objstore.ItemAbsent},
+		Op: objstore.Merge, Entity: ACL, Key: key, Init: aclAttrs(r),
 	}, nil
 }
+
+// ACLGrantWrite is aclPut for the daemons that assemble a folder creation's
+// whole batch themselves, and it fills the defaults a caller may leave out, as
+// every other door into aclPut does.
+func ACLGrantWrite(row core.ACLRow) (objstore.Write, error) { return aclPut(aclDefaults(row)) }
 
 // aclDefaults fills what a caller may leave out: the effect every grant has
 // unless it says otherwise, and the instant it was granted.

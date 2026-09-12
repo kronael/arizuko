@@ -825,7 +825,7 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB,
 	// (messages.db in monolith, routd.db in the split) → one tx makes the
 	// world atomic. The race guard is INSERT OR IGNORE + RowsAffected on
 	// groups, not the TOCTOU check above (that's a fast-path UX hint only).
-	if err := createWorldTx(db, folder, username, userSub); err != nil {
+	if err := writeWorld(db, folder, username, userSub); err != nil {
 		slog.Error("create world: db tx", "folder", folder, "err", err)
 		http.Error(w, "create world failed", http.StatusInternalServerError)
 		return
@@ -848,45 +848,53 @@ func membershipJIDs(db *sql.DB, userSub string) []string {
 	return store.New(db).Members(userSub)
 }
 
-// createWorldTx writes the username + group + admin grant in one tx. The groups
-// INSERT OR IGNORE + RowsAffected==0 detects a concurrent creator and fails closed
-// instead of granting admin on someone else's world.
+// writeWorld writes the group + member edge + admin grant in ONE guarded batch,
+// then names the person. The groups write is create-if-absent and the only
+// guarded one in the batch, so a refusal detects a concurrent creator and fails
+// closed instead of granting admin on someone else's world.
+//
+// THE NAME IS WRITTEN AFTER THE FOLDER IS WON, and that is what the transaction
+// was protecting: a caller who loses the race must not be left renamed. Landing
+// it after the batch gives that directly — a lost race writes nothing at all —
+// where the transaction gave it by rolling both back. The rename is also the one
+// write here that cannot ride in the batch: it is an Update against a profile
+// that has to exist, its refusal is TOLERATED (store.SetUsernameTx says why, and
+// that nothing in production creates such an item), and a tolerated refusal
+// cannot sit in a batch that is all-or-nothing.
+//
+// The batch runs through store.SeedMemberRole, which is objstore.AddEdge, so the
+// cycle walk compare-and-swaps routd's marker in the write it decided (BUGS
+// L256).
 //
 // It writes NO routes (spec 5/18 step 7): it used to route every JID the sub had
 // ever paired at the new folder, which is a blast radius, not an act. The redirect
 // lands on /onboard, whose step-6 branch routes the ONE unrouted JID at hand.
-func createWorldTx(db *sql.DB, folder, username, userSub string) error {
+func writeWorld(db *sql.DB, folder, username, userSub string) error {
 	ctx := context.Background()
 	st := store.New(db)
-	tx, err := db.Begin()
+	row, err := store.GroupCreateWrite(core.Group{
+		Folder: folder, AddedAt: time.Now(), Product: core.DefaultProduct,
+	})
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
-	if err := st.SetUsernameTx(ctx, tx, userSub, username); err != nil {
+	// A groups row implies the member edge: without it the new world expands to
+	// nothing and comes up mute (BUGS L119).
+	grant, err := store.ACLGrantWrite(core.ACLRow{
+		Principal: userSub, Action: "admin", Scope: folder + "/**",
+		Effect: "allow", GrantedBy: "onbod",
+	})
+	if err != nil {
 		return err
 	}
-	created, err := st.CreateGroupTx(ctx, tx, core.Group{
-		Folder: folder, AddedAt: time.Now(), Product: core.DefaultProduct,
-	})
+	created, err := store.SeedMemberRole(ctx, st, folder, row, grant)
 	if err != nil {
 		return err
 	}
 	if !created {
 		return fmt.Errorf("folder %q already exists", folder)
 	}
-	// A groups row implies the member edge: without it the new world expands to
-	// nothing and comes up mute (BUGS L119).
-	if err := store.SeedMemberRoleTx(ctx, st, tx, folder); err != nil {
-		return err
-	}
-	if err := st.PutACLRowTx(ctx, tx, core.ACLRow{
-		Principal: userSub, Action: "admin", Scope: folder + "/**",
-		Effect: "allow", GrantedBy: "onbod",
-	}); err != nil {
-		return err
-	}
-	return tx.Commit()
+	return st.SetUsername(ctx, userSub, username)
 }
 
 func loadGates(db *sql.DB) []gate {

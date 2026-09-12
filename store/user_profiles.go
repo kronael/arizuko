@@ -118,15 +118,16 @@ func (s *Store) Username(sub string) (string, bool, error) {
 	return it.Attrs[attrProfUsername], true, nil
 }
 
-// SetUsernameTx names a person on a transaction the CALLER owns.
+// SetUsername names a person.
 //
-// The transaction is the whole point and it is not this file's: world creation
-// writes the username, the groups row, the member edge and the admin grant in
-// ONE commit, so a caller who loses the race for a folder is not left renamed.
-// The other three are entity writes on the same transaction already.
+// IT IS THE LAST WRITE OF A WORLD CREATION, and deliberately not part of its
+// batch. A caller who loses the race for a folder must not be left renamed, and
+// onbod gets that by naming the person only after the batch that won the folder
+// committed — where the transaction this replaces got it by rolling both back.
 //
 // It writes the ATTRIBUTE ONLY, onto a profile that has to be there already: an
-// Update against a missing item writes nothing.
+// Update against a missing item writes nothing, and that tolerated refusal is
+// the other reason it cannot ride in an all-or-nothing batch.
 //
 // THAT REFUSAL IS TOLERATED AND IT IS NOT CORRECT. Nothing in production creates
 // a user_profiles item — CreateUserProfile has callers in tests only, and so did
@@ -135,16 +136,16 @@ func (s *Store) Username(sub string) (string, bool, error) {
 // 500 for that person and roll their whole world back, which blocks a signup
 // instead of fixing the missing writer. The writer is the fix and it is a
 // decision, not an edit.
-func (s *Store) SetUsernameTx(ctx context.Context, tx *sql.Tx, sub, username string) error {
+func (s *Store) SetUsername(ctx context.Context, sub, username string) error {
 	key, err := profileKey(sub)
 	if err != nil {
 		return err
 	}
-	if err := s.refuseTakenUsername(ctx, tx, sub, username); err != nil {
+	if err := s.refuseTakenUsername(ctx, nil, sub, username); err != nil {
 		return err
 	}
 	// A refusal is the missing item the doc above measures.
-	if _, err := s.tryWriteVia(ctx, tx, nil, objstore.Write{
+	if _, err := s.TryWriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Update, Entity: UserProfiles, Key: key,
 		Attrs: map[string]string{attrProfUsername: username},
 	}); err != nil {

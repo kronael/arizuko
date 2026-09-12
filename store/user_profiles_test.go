@@ -102,7 +102,7 @@ func TestAUsernameAnotherSubHoldsIsRefused(t *testing.T) {
 	if err := s.CreateUserProfile("github:bob", "bobby", "Bob"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetUsernameTx(context.Background(), nil, "github:bob", "bob"); err == nil {
+	if err := s.SetUsername(context.Background(), "github:bob", "bob"); err == nil {
 		t.Fatal("a rename onto another sub's username was accepted")
 	}
 	name, _, err := s.Username("github:bob")
@@ -118,39 +118,8 @@ func TestASubKeepsItsOwnUsername(t *testing.T) {
 	if err := s.CreateUserProfile("github:alice", "alice", "Alice"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetUsernameTx(context.Background(), nil, "github:alice", "alice"); err != nil {
+	if err := s.SetUsername(context.Background(), "github:alice", "alice"); err != nil {
 		t.Fatalf("a sub was refused its own username: %v", err)
-	}
-}
-
-// SetUsernameTx runs on the CALLER'S transaction, which is what makes world
-// creation atomic: the username, the groups item, the member edge and the admin
-// grant commit together or not at all. A rollback that left the rename behind
-// would rename a person for a world that does not exist.
-func TestTheUsernameRollsBackWithTheWorldItNames(t *testing.T) {
-	s := openEntities(t)
-	ctx := context.Background()
-	if err := s.CreateUserProfile("github:alice", "github:alice", "Alice"); err != nil {
-		t.Fatal(err)
-	}
-	tx, err := s.db.Begin()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.SetUsernameTx(ctx, tx, "github:alice", "acme"); err != nil {
-		t.Fatalf("rename inside the transaction: %v", err)
-	}
-	if err := tx.Rollback(); err != nil {
-		t.Fatalf("roll the world back: %v", err)
-	}
-	name, _, err := s.Username("github:alice")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if name != "github:alice" {
-		t.Fatalf("username = %q after a rollback, want github:alice: the rename did not ride "+
-			"the caller's transaction, so a failed world creation renames the person anyway",
-			name)
 	}
 }
 

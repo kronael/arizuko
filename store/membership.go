@@ -16,14 +16,18 @@ package store
 // carry the separator. Members(parent) asks the other direction and is a
 // partition read with a filter: 58 edges on krons, 13 and 12 on the other two.
 //
-// THE CYCLE GUARD IS objstore.AddEdge WHERE THIS PACKAGE OWNS THE WRITE. A
+// THE CYCLE GUARD IS objstore.AddEdge, FOR EVERY WRITER THIS PACKAGE OWNS. A
 // Check binds one item and a cycle test is a condition on a graph frontier, so
 // two inserts closing a ring from opposite ends each walk a graph without the
 // other's edge and both commit; the marker's compare-and-swap is what
-// serialises them (objstore/reach.go, BUGS L256). The one writer that cannot
-// use it is the pairing redemption, which must consume its token in the SAME
-// transaction as the edge: it walks and writes inside that transaction, where
-// SQLite's single writer lock is the serialisation.
+// serialises them (objstore/reach.go, BUGS L256).
+//
+// The writers that used to hold a transaction instead — pairing consuming its
+// token, a group creation seeding the edge with its row — now hand those writes
+// to AddEdge as COMPANIONS, so the walk and everything it decides are one
+// guarded batch. What made that possible is the edge write being a Merge: a
+// batch may name each item once and a create-if-absent REFUSES on an edge that
+// is already there, so the old shape could not ride in anyone's batch.
 
 import (
 	"context"
@@ -90,18 +94,23 @@ func membershipEdgeOf(it objstore.Item) (child, parent string, err error) {
 // membershipPut renders the create-if-absent write every edge writer issues.
 // Create-if-absent is what `INSERT OR IGNORE` said: re-adding an edge that is
 // there must not restamp who added it or when.
+//
+// Both attributes are Init, which says exactly that — and it is a Merge rather
+// than a guarded Put so the write has NOTHING TO REFUSE. That is what lets it
+// ride in a batch beside the token a pairing spends or the groups row a folder
+// creation writes: a refusal would take those with it, so before Merge each of
+// those writers held a transaction and gave up the marker (BUGS L256).
 func membershipPut(child, parent, addedBy string) (objstore.Write, error) {
 	key, err := membershipKey(child, parent)
 	if err != nil {
 		return objstore.Write{}, err
 	}
 	return objstore.Write{
-		Op: objstore.Put, Entity: ACLMembership, Key: key,
-		Attrs: map[string]string{
+		Op: objstore.Merge, Entity: ACLMembership, Key: key,
+		Init: map[string]string{
 			attrMemAddedBy: addedBy,
 			attrMemAddedAt: core.NowTS(),
 		},
-		Cond: objstore.Cond{Item: objstore.ItemAbsent},
 	}, nil
 }
 
@@ -192,15 +201,48 @@ func (s *Store) AddMembership(child, parent, addedBy string) error {
 // It does NOT go through writeEntities, and that is not a way round the marker:
 // objstore.AddEdge writes the marker itself, as a compare-and-swap rather than
 // a bump, because the walk that decided this write has to be invalidated by any
-// graph move — which a plain bump would not catch (objstore/reach.go).
+// graph move — which a plain bump would not catch (objstore/reach.go). Every
+// entity these batches touch — acl_membership, acl, groups, route_tokens — is
+// routd-scoped, so that one marker is the one a bump would have moved.
 func (s *Store) addEdge(child, parent string, writes ...objstore.Write) error {
-	ctx := context.Background()
-	_, err := objstore.AddEdge(ctx, s.Obj(), OwnerScope(OwnerRoutd),
+	_, err := s.AddEdgeWith(context.Background(), child, parent, "", writes...)
+	return err
+}
+
+// AddEdgeWith draws one edge under the cycle guard with the caller's OWN writes
+// in the same batch, and answers whether the batch committed.
+//
+// The companions are what a transaction used to carry: the token a pairing
+// spends, the groups row a member edge implies (BUGS L119), the creator's admin
+// grant, the audit row that records the act. One guarded batch is all-or-nothing
+// and carries the marker's compare-and-swap, so the walk and everything it
+// decides are one decision — which is the guarantee PutMembershipTx gave up when
+// it rested on SQLite's single writer instead (BUGS L256).
+//
+// FALSE IS A COMPANION'S CONDITION REFUSING, never this edge's: the edge write
+// is a Merge and has nothing to refuse. So a caller reads a false as its own
+// answer — the folder is already someone's, the pairing token is spent.
+//
+// addedBy empty means the caller rendered the edge write itself and passed it in
+// writes, which is what the two audited writers above do.
+func (s *Store) AddEdgeWith(ctx context.Context, child, parent, addedBy string,
+	writes ...objstore.Write) (bool, error) {
+	if child == parent {
+		return false, ErrSelfMembership
+	}
+	if addedBy != "" {
+		edge, err := membershipPut(child, parent, addedBy)
+		if err != nil {
+			return false, err
+		}
+		writes = append([]objstore.Write{edge}, writes...)
+	}
+	ok, err := objstore.AddEdge(ctx, s.Obj(), OwnerScope(OwnerRoutd),
 		MembershipParents(s.Obj()), child, parent, writes)
 	if errors.Is(err, objstore.ErrCycle) {
-		return ErrCycle
+		return false, ErrCycle
 	}
-	return err
+	return ok, err
 }
 
 func (s *Store) RemoveMembership(child, parent string) error {
@@ -232,15 +274,20 @@ func (s *Store) RemoveMembership(child, parent string) error {
 // the floor is explicit delegation, never derived from path depth.
 const RoleMember = "role:member"
 
-// SeedMemberRoleTx binds a new folder to RoleMember on a caller-owned
-// transaction. It is the ONE writer of the create-time edge, because the
-// invariant is "a group row implies the member edge" and it used to live in
-// only one of four creating writers: the CLI, dashd and onbod each inserted a
-// groups row without it, and a folder with no edge expands to nothing, matches
-// zero allow rows and comes up with no messaging tools at all (BUGS L119).
-// Idempotent — the underlying write is create-if-absent.
-func SeedMemberRoleTx(ctx context.Context, s *Store, tx *sql.Tx, folder string) error {
-	return s.PutMembershipTx(ctx, tx, "folder:"+folder, RoleMember, "system:4r-member")
+// SeedMemberRole binds a new folder to RoleMember, with the creation's own
+// writes in the SAME batch. It is the ONE writer of the create-time edge,
+// because the invariant is "a group row implies the member edge" and it used to
+// live in only one of four creating writers: the CLI, dashd and onbod each
+// inserted a groups row without it, and a folder with no edge expands to
+// nothing, matches zero allow rows and comes up with no messaging tools at all
+// (BUGS L119). Idempotent — the edge write is create-if-absent.
+//
+// It answers what the batch answered, and a false is the CREATION's own
+// condition: the folder is already someone's, so the caller is told rather than
+// handed admin on it (AddEdgeWith).
+func SeedMemberRole(ctx context.Context, s *Store, folder string,
+	also ...objstore.Write) (bool, error) {
+	return s.AddEdgeWith(ctx, "folder:"+folder, RoleMember, "system:4r-member", also...)
 }
 
 // PutMembership writes (child → parent) idempotently WITHOUT emitting an
@@ -259,16 +306,16 @@ func (s *Store) PutMembership(child, parent, addedBy string) error {
 }
 
 // PutMembershipTx is the edge write on a transaction the CALLER owns, for the
-// writers that have to commit something else with it: pairing redemption spends
-// its token in the same commit, a group creation seeds the member edge with the
-// groups row, and routd's `/v1/acl` face lands the operator edge with
-// resreg.invoke's audit row. AddMembership opens no transaction to join.
+// ONE writer that cannot render its companions: routd's `/v1/acl` face lands the
+// operator edge with resreg.invoke's audit row, and resreg's Handler contract
+// PERFORMS its writes rather than describing them, so there is nothing to hand
+// AddEdgeWith (spec 6/40 §"Six transactions cannot go").
 //
 // Its cycle guard is the same walk, run through the store's own driver. What it
 // gives up against AddMembership is the marker's compare-and-swap, so two edges
 // closing a ring from opposite ends are serialised by the engine's write lock
 // rather than by the version — which is what SQLite gives and Postgres at READ
-// COMMITTED does not (BUGS L256).
+// COMMITTED does not (BUGS L256). That is why it has one caller and not four.
 func (s *Store) PutMembershipTx(ctx context.Context, tx *sql.Tx, child, parent, addedBy string) error {
 	if child == parent {
 		return ErrSelfMembership
@@ -287,10 +334,9 @@ func (s *Store) PutMembershipTx(ctx context.Context, tx *sql.Tx, child, parent, 
 	if err != nil {
 		return err
 	}
-	// A refusal is the edge already being there (membershipPut is create-if-absent),
-	// which must not restamp who added it or when.
-	_, err = s.TryWriteEntitiesInTx(ctx, tx, nil, w)
-	return err
+	// The edge write is create-if-absent, so an edge already there is left exactly
+	// as it is rather than restamped.
+	return s.WriteEntitiesInTx(ctx, tx, nil, w)
 }
 
 // MembershipEdge is one edge with the two attributes the item carries: who

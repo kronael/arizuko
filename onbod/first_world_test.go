@@ -5,9 +5,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -199,5 +202,71 @@ func TestRefusedStrangerGetsTheHonestPage(t *testing.T) {
 	}
 	if !strings.Contains(body, "invite") && !strings.Contains(body, "Invite") {
 		t.Errorf("refusal page does not tell the caller what to do; body: %s", body)
+	}
+}
+
+// A caller who LOSES the race for a folder must not be left renamed, and must
+// not be handed a grant on somebody else's world.
+//
+// That guarantee used to come from a transaction the four writes shared. It now
+// comes from the ORDER: the groups row, the member edge and the admin grant go
+// in one guarded batch whose only conditional write is the create-if-absent
+// groups row, so a loser writes nothing at all — and the rename runs afterwards,
+// on the folder it won, rather than before the folder is decided.
+//
+// It posts nothing, deliberately: the handler has a TOCTOU fast path that
+// answers "username taken" before it ever writes, so a form post proves that
+// check and not this ordering. writeWorld is the unit that owns the guarantee,
+// and moving store.SetUsername back above its batch turns this red.
+func TestALostRaceForAFolderLeavesTheCallerUnnamed(t *testing.T) {
+	db := testDB(t)
+	seedStranger(t, db, "github:new", "approved")
+	// Somebody else got there first.
+	if err := store.New(db).PutGroupRow(core.Group{Folder: "taken", AddedAt: time.Now()}); err != nil {
+		t.Fatalf("seed the folder the caller loses: %v", err)
+	}
+
+	if err := writeWorld(db, "taken", "taken", "github:new"); err == nil {
+		t.Fatal("creating a folder somebody else holds reported success")
+	}
+
+	name, _, err := store.New(db).Username("github:new")
+	if err != nil {
+		t.Fatalf("read the caller's name back: %v", err)
+	}
+	if name != "github:new" {
+		t.Errorf("the caller is named %q after losing the race, want the seeded github:new: a "+
+			"rename that runs before the folder is decided renames a person for a world "+
+			"that is not theirs", name)
+	}
+	if scopes := adminScopes(t, db, "github:new"); len(scopes) != 0 {
+		t.Errorf("the loser holds %v on a folder somebody else created", scopes)
+	}
+}
+
+// The winner IS named, and holds the grant and the member edge its folder
+// implies — the other half of the same ordering.
+func TestTheWinnerIsNamedAndHoldsWhatTheFolderImplies(t *testing.T) {
+	db := testDB(t)
+	seedStranger(t, db, "github:new", "approved")
+
+	if err := writeWorld(db, "newworld", "newworld", "github:new"); err != nil {
+		t.Fatalf("create the world: %v", err)
+	}
+
+	name, _, err := store.New(db).Username("github:new")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name != "newworld" {
+		t.Errorf("the winner is named %q, want newworld", name)
+	}
+	if scopes := adminScopes(t, db, "github:new"); len(scopes) != 1 || scopes[0] != "newworld/**" {
+		t.Errorf("admin scopes = %v, want one newworld/**", scopes)
+	}
+	// A groups row implies the member edge (BUGS L119): without it the world
+	// expands to nothing and comes up mute.
+	if up := store.New(db).Ancestors("folder:newworld"); !slices.Contains(up, store.RoleMember) {
+		t.Errorf("folder:newworld sits under %v, want role:member among them", up)
 	}
 }
