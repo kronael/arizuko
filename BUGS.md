@@ -7,6 +7,35 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L284 — `/eval` queries the pre-migration schema, so the debug loop goes blind the moment an instance migrates (2026-09-12, open)
+
+REPRODUCED on a migrated copy of krons' `routd.db`:
+
+```
+sqlite> SELECT c.jid, c.agent_cursor FROM chats c LIMIT 1;
+Error: in prepare, no such column: c.jid
+```
+
+`.claude/skills/eval/SKILL.md` reads columns the entity does not have, at lines
+96-106 (check 4, routing cursors), 117 and 124 (the stuck-chat drill-down and the
+errored-message clear), 170 and 179 (check 7, the task scheduler), and 408 and
+447 (checks 17 and 19, skill seeding and consistency). Six of the twenty checks
+stop working, and two of them are the ones a person runs when an instance looks
+stuck.
+
+This matters more than its severity suggests: `/eval` is the instrument for
+finding out whether a migration worked, and it breaks on exactly the databases
+it would be pointed at. An operator would read the errors as a broken instance
+rather than a broken query.
+
+- **Severity:** high — the migration verification tool does not survive the migration
+- **Scope:** `.claude/skills/eval/SKILL.md`
+- **Affected:** any migrated instance
+- **Status:** open
+- **Fix:** the checks read the entity shape, through `arizuko` subcommands rather
+  than raw SQL where one exists, so the instrument cannot drift from the store
+  again. It must be fixed BEFORE krons migrates, not after.
+
 ## L283 — the agent turn container runs unhardened while its own egress sidecar is locked down (2026-09-12, open — needs sign-off)
 
 MEASURED at `container/runner.go:678-700`: the `docker run` that executes an
