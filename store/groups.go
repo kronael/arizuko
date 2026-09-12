@@ -252,21 +252,30 @@ func groupUpsert(g core.Group, settings map[string]any) (objstore.Write, error) 
 // landed by the first one's REFUSAL, which is what made the upsert two actions
 // on one item and therefore a transaction (spec 6/40 §"Merge").
 func (s *Store) putGroup(ctx context.Context, tx *sql.Tx, g core.Group) error {
+	w, err := s.groupUpsertWrite(ctx, tx, g)
+	if err != nil {
+		return err
+	}
+	return s.writeVia(ctx, tx, nil, w)
+}
+
+// groupUpsertWrite reads what the upsert needs and renders it, for both sinks
+// that write one: the caller's transaction and the audited batch. The read
+// stands ahead of the write rather than inside it — the settings document is
+// the only thing a model override is folded into, and the write that folds it
+// carries nothing the read decides.
+func (s *Store) groupUpsertWrite(ctx context.Context, tx *sql.Tx, g core.Group) (objstore.Write, error) {
 	var settings map[string]any
 	if g.Model != "" {
 		it, ok, err := s.groupItemVia(ctx, tx, g.Folder)
 		if err != nil {
-			return err
+			return objstore.Write{}, err
 		}
 		if ok {
 			settings = settingsOf(it)
 		}
 	}
-	w, err := groupUpsert(g, settings)
-	if err != nil {
-		return err
-	}
-	return s.writeVia(ctx, tx, nil, w)
+	return groupUpsert(g, settings)
 }
 
 func (s *Store) PutGroup(g core.Group) error {
@@ -274,11 +283,12 @@ func (s *Store) PutGroup(g core.Group) error {
 	if product == "" {
 		product = core.DefaultProduct
 	}
-	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		if err := s.putGroup(context.Background(), tx, g); err != nil {
-			return audit.Event{}, err
+	return s.writeAudited(func() ([]objstore.Write, audit.Event, error) {
+		w, err := s.groupUpsertWrite(context.Background(), nil, g)
+		if err != nil {
+			return nil, audit.Event{}, err
 		}
-		return audit.Event{
+		return []objstore.Write{w}, audit.Event{
 			Category: audit.CategoryMutation,
 			Action:   "group.upsert",
 			Actor:    "system",
