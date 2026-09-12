@@ -544,7 +544,12 @@ func ParamsSpec(values map[string]string) (string, error) {
 // HoldPrefix namespaces hold rules. A hold is NEVER an `effect` on a plain
 // `mcp:<tool>` row: Authorize treats every non-deny effect as ALLOW, so such a
 // row would silently GRANT the tool it meant to gate (spec 5/19 Hazard 1).
-const HoldPrefix = "hold:mcp:"
+//
+// The acl ROW is store's, so store declares the vocabulary and every name below
+// reads it. One declaration: a spelling the writer accepts and the evaluator
+// does not is a row that means one thing in the table and another in the gate
+// (BUGS L272).
+const HoldPrefix = store.HoldPrefix
 
 // EffectSkipApproval is the deny effect on a namespaced rule row — on a `hold:`
 // row it means "do not hold this shape", on a `shell:env:` row "do not grant
@@ -552,7 +557,7 @@ const HoldPrefix = "hold:mcp:"
 // ALLOW (spec 5/19 Hazard 1), so a third effect name would be the same trap
 // wearing a friendlier word. The constant exists so the wire spelling and the
 // operator-facing wording ("skip approval") cannot drift apart.
-const EffectSkipApproval = "deny"
+const EffectSkipApproval = store.EffectDeny
 
 // A hold row's effect also chooses WHEN the agent learns the verdict, and the
 // two spellings are the whole vocabulary:
@@ -566,24 +571,9 @@ const EffectSkipApproval = "deny"
 // Blocking wins when both match: the safer reading of two rules is the one that
 // waits. A deny (skip approval) still beats both.
 const (
-	EffectHoldBlock = "allow"
-	EffectHoldAsync = "async"
+	EffectHoldBlock = store.EffectAllow
+	EffectHoldAsync = store.EffectAsync
 )
-
-// EffectAllowed reports whether `effect` is a legal spelling on `action`. Only
-// a hold rule takes EffectHoldAsync — on any other action it would read as an
-// ordinary ALLOW (spec 5/19 Hazard 1), which is the trap a friendlier third
-// effect name always is. Operator surfaces validate through here so the rule and
-// the message they show cannot drift apart.
-func EffectAllowed(action, effect string) bool {
-	switch effect {
-	case "allow", EffectSkipApproval:
-		return true
-	case EffectHoldAsync:
-		return strings.HasPrefix(action, HoldPrefix)
-	}
-	return false
-}
 
 // CheckHold answers "must this tool call wait for a human?" — a DIRECT scoped read of
 // `hold:mcp:`-prefixed rows, deliberately NOT routed through Authorize, whose action

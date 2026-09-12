@@ -234,27 +234,6 @@ func TestCheckHold_InheritedSkipBeatsDirectHold(t *testing.T) {
 	}
 }
 
-// TestEffectAllowed_AsyncOnlyOnAHoldRule — `async` on a plain mcp: row would
-// read as an ordinary ALLOW (spec 5/19 Hazard 1) and GRANT the tool it looks
-// like it is gating. Operator surfaces refuse it there.
-func TestEffectAllowed_AsyncOnlyOnAHoldRule(t *testing.T) {
-	for _, c := range []struct {
-		action, effect string
-		want           bool
-	}{
-		{auth.HoldPrefix + "mcp:delete", auth.EffectHoldAsync, true},
-		{auth.HoldPrefix + "mcp:delete", "allow", true},
-		{auth.HoldPrefix + "mcp:delete", auth.EffectSkipApproval, true},
-		{"mcp:delete", auth.EffectHoldAsync, false},
-		{"mcp:delete", "allow", true},
-		{auth.HoldPrefix + "mcp:delete", "maybe", false},
-	} {
-		if got := auth.EffectAllowed(c.action, c.effect); got != c.want {
-			t.Errorf("EffectAllowed(%q, %q) = %v, want %v", c.action, c.effect, got, c.want)
-		}
-	}
-}
-
 // TestCheckHold_AsyncRowSaysAsync — the non-blocking variant has to survive the
 // read, or `block by default` would silently become `block always`.
 func TestCheckHold_AsyncRowSaysAsync(t *testing.T) {

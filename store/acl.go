@@ -127,12 +127,52 @@ func aclAttrs(r core.ACLRow) map[string]string {
 	return attrs
 }
 
+// The effect spellings an acl row may carry. This is the ONE declaration: the
+// evaluator reads these same three through auth, so a row can never hold a
+// fourth value that one side reads and the other does not.
+//
+// EffectAsync is legal only on a `hold:` action. Anywhere else it reads as an
+// ALLOW, because the evaluator treats every effect that is not exactly
+// EffectDeny as a grant (spec 5/19 Hazard 1).
+const (
+	EffectAllow = "allow"
+	EffectDeny  = "deny"
+	EffectAsync = "async"
+)
+
+// HoldPrefix opens the namespace a hold rule's action lives in. Declared here
+// because the acl ROW is store's; auth reads it.
+const HoldPrefix = "hold:mcp:"
+
+// EffectAllowed reports whether `effect` is a legal spelling on `action`.
+func EffectAllowed(action, effect string) bool {
+	switch effect {
+	case EffectAllow, EffectDeny:
+		return true
+	case EffectAsync:
+		return strings.HasPrefix(action, HoldPrefix)
+	}
+	return false
+}
+
 // aclPut renders the create-if-absent write both acl writers issue.
 //
 // Create-if-absent is what `INSERT OR IGNORE` said, and it matters: granting a
 // row that is already there must not restamp who granted it or when, and must
 // not silently clear a grant option the holder already has.
+//
+// THE EFFECT IS VALIDATED HERE, at the write, because every door into the acl
+// entity renders through this function. The evaluator reads every effect that
+// is not exactly EffectDeny as a grant, so a face that passes its argument
+// straight through turns `denny` into an allow — a refusal an operator reads in
+// the table and an evaluator never applies (BUGS L272). A guard in one face is
+// a guard the next face forgets.
 func aclPut(r core.ACLRow) (objstore.Write, error) {
+	if !EffectAllowed(r.Action, r.Effect) {
+		return objstore.Write{}, fmt.Errorf(
+			"acl: effect %q on action %q is not a spelling any evaluator reads; "+
+				"use %q or %q", r.Effect, r.Action, EffectAllow, EffectDeny)
+	}
 	key, err := aclKey(r)
 	if err != nil {
 		return objstore.Write{}, err
@@ -156,7 +196,7 @@ func ACLGrantWrite(row core.ACLRow) (objstore.Write, error) { return aclPut(aclD
 // unless it says otherwise, and the instant it was granted.
 func aclDefaults(r core.ACLRow) core.ACLRow {
 	if r.Effect == "" {
-		r.Effect = "allow"
+		r.Effect = EffectAllow
 	}
 	if r.GrantedAt == "" {
 		r.GrantedAt = core.NowTS()
@@ -209,7 +249,7 @@ func (s *Store) AddACLRow(row core.ACLRow) error {
 
 func (s *Store) RemoveACLRow(row core.ACLRow) error {
 	if row.Effect == "" {
-		row.Effect = "allow"
+		row.Effect = EffectAllow
 	}
 	key, err := aclKey(row)
 	if err != nil {

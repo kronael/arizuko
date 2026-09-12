@@ -121,3 +121,25 @@ func mustACL(rows []core.ACLRow, err error) []core.ACLRow {
 	}
 	return rows
 }
+
+// TestEffectAllowed_AsyncOnlyOnAHoldRule — `async` on a plain mcp: row would
+// read as an ordinary ALLOW (spec 5/19 Hazard 1) and GRANT the tool it looks
+// like it is gating. Every writer refuses it there.
+func TestEffectAllowed_AsyncOnlyOnAHoldRule(t *testing.T) {
+	for _, c := range []struct {
+		action, effect string
+		want           bool
+	}{
+		{HoldPrefix + "mcp:delete", EffectAsync, true},
+		{HoldPrefix + "mcp:delete", EffectAllow, true},
+		{HoldPrefix + "mcp:delete", EffectDeny, true},
+		{"mcp:delete", EffectAsync, false},
+		{"mcp:delete", EffectAllow, true},
+		{HoldPrefix + "mcp:delete", "maybe", false},
+		{"mcp:delete", "", false},
+	} {
+		if got := EffectAllowed(c.action, c.effect); got != c.want {
+			t.Errorf("EffectAllowed(%q, %q) = %v, want %v", c.action, c.effect, got, c.want)
+		}
+	}
+}
