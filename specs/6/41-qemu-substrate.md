@@ -1,0 +1,497 @@
+---
+status: draft
+depends:
+  [
+    9-crackbox-sandboxing,
+    20-sandbox-lifecycle-decline,
+    24-crackbox-lightest,
+    25-qm-adoptions,
+    37-store-model,
+    ../5/P-runed,
+    ../5/14-credentials,
+    ../5/33-paths-roles,
+  ]
+---
+
+# specs/6/41 — the QEMU substrate: one turn, one guest kernel
+
+Decision (maintainer): **the turn substrate is a KVM virtual machine, one per
+turn, driven by `qemu-system-x86_64`, and it is the only substrate arizuko
+supports.** runed boots the release's guest kernel on `-M microvm`, exports the
+turn's files through one virtio-fs share, and reaches the guest over vsock.
+Docker leaves the turn path: no `docker run`, no per-folder docker network, no
+proxy container, no `docker.sock` in runed. The daemon fleet's packaging
+(compose) is outside this spec.
+
+The turn model of [`5/A`](../5/A-primitives-framing.md) holds unchanged: the guest is
+stateless, the folder and the database carry every fact across turns, and the
+container mount table in `ARCHITECTURE.md` §"Container mount layout" is the
+contract the agent sees — the same left column, delivered by a different
+right-hand side. `ant/` changes by zero lines.
+
+## What the design must answer — measured 2026-09-12 on hel1v5 (the krons host)
+
+These are constraints, not a verdict. A design that does not meet the first row
+is not shipped.
+
+| Constraint                     | Measured                                                                                                                                                                                                                      |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Boot budget                    | Docker `run --rm --entrypoint /bin/true arizuko-ant:latest`: **0.62 / 0.82 / 0.93 s** wall. The VM turn must reach `init` in **≤ 1.0 s p50** on the same host, measured the same way (§"The warm pool").                      |
+| Untuned QEMU, distro kernel    | `-M q35,accel=kvm` direct kernel boot, Debian 6.1.0-43 kernel, static Go init: **2.43 / 2.69 / 2.89 s** wall, 0.7–0.8 s guest uptime at init. `-M microvm`: **3.75–4.06 s**, 1.9–2.2 s guest uptime.                          |
+| The VMM itself                 | `qemu-system-x86_64 -M microvm -S` start and quit: **0.09–0.13 s**. The cost is the guest kernel, not QEMU.                                                                                                                   |
+| Tuned QEMU, literature         | Firecracker's NSDI'20 paper §5.1: Linux 4.14, no modules, qboot, 1 vCPU/256 MB — QEMU boots within ~50 ms of end-to-end Firecracker; pre-configured Firecracker p99 146 ms (usenix.org/system/files/nsdi20-paper-agache.pdf). |
+| Turn volume                    | krons: 162 turns in 7 days, 15 in the last 24 h (`container-*.log` count under `groups/`). Boot cost is per-turn latency the user sees, not throughput.                                                                       |
+| Host                           | 2 vCPU, 15 GB RAM, QEMU 7.2.22 (Debian 12), `/dev/kvm`, `/dev/vhost-vsock`, `/dev/net/tun` present; kernel ships `fs/fuse/virtiofs.ko` and the vsock transports; `socat 1.7.4.4` built `WITH_VSOCK`.                          |
+| QEMU 7.2 devices               | `-M microvm`, `vhost-user-fs-device`, `vhost-vsock-device`, `memory-backend-memfd`, `-sandbox on` all present (`-M help`, `-device help`, `-object help`).                                                                    |
+| Image                          | `arizuko-ant:latest` is **8.26 GB** (`node:22-slim` + ~40 tool installs, `ant/Dockerfile`). The rootfs pipeline moves this once per release, never per turn.                                                                  |
+| Packages the runed image needs | Alpine carries `qemu-system-x86_64`, `virtiofsd`, `socat` (`apk search` from `arizuko:latest`, 2026-09-12). `nftables`/`iptables` verified at build, §Open.                                                                   |
+
+## The engine: `qemu-system-x86_64`, owned by arizuko
+
+The VMM is the distro's QEMU binary, driven by `exec.Command` from `sandbox/`
+— the same process shape the turn path has today (`container/runtime.go:16`
+`const Bin = "docker"`), with a different binary. Three engines were read; one
+is taken.
+
+- **QEMU (taken).** Packaged on every Debian and Alpine host arizuko runs
+  on; `sandbox/internal/qemu.go` drives it today; `-M microvm` is "a
+  minimalist machine type without PCI nor ACPI support, designed for
+  short-lived guests … optimized for both boot time and footprint"
+  (qemu.org/docs/master/system/i386/microvm.html). The guest kernel is
+  arizuko's to build and pin, which is the cost §"The image and the guest
+  kernel" prices.
+- **libkrun (not taken).** Apache-2.0, Rust with a C API, virtio-fs, vsock and
+  TSI networking built in, kernel supplied by `libkrunfw`
+  (github.com/containers/libkrun). arizuko builds with `CGO_ENABLED=1`, so
+  the API is reachable. It is not taken because it is not packaged for the
+  hosts, it brings a Rust build into the image, and its kernel is a bundled
+  blob arizuko cannot configure — the pipeline exists either way, and with
+  QEMU it is arizuko's.
+- **smolvm / smol machines (not taken).** Apache-2.0 Rust engine over libkrun
+  (github.com/smol-machines/smolvm, v1.15.0 2026-09-11, repository created
+  2025-12-18); CLI plus Node and Python SDKs, no Go SDK
+  (github.com/smol-machines/smol); a 2026 YC company
+  (ycombinator.com/companies/smol-machines). A CLI from a nine-month-old
+  vendor is not a contract arizuko's turn path can rest on, and its
+  exec and socket transports are undocumented. `CelestoAI/SmolVM` is an
+  unrelated project with the same name.
+
+**Reopen trigger, one:** if the guest-kernel pipeline cannot deliver the boot
+budget on krons within its costed budget (§"The image and the guest kernel"),
+the engine question reopens for libkrun, whose bundled kernel is the thing the
+pipeline would have failed to produce.
+
+## The seam: one interface, one production type, one instance one substrate
+
+`runed.Runtime` (`runed/runtime.go:71-83`) is one interface with one
+production implementation chosen at startup (`runed/docker.go:46`) and one
+fake for tests (`runed/runtimes.go`). Three answers:
+
+- **Does this make the runner multi-machine? No.** runed spawns one VM per
+  turn on its own host, exactly as it spawns one container per turn on its own
+  host. The seam gains no scheduler and no notion of a second host; a second
+  host is a second instance, as today.
+- **What a second implementation means.** `runed/qemu.go` implements
+  `Runtime` over `sandbox/`. `container.Run` (`container/runner.go:161`)
+  splits into its envelope half — `seedSettings`, `seedSkills`, the `Input`
+  JSON, the output-style pick, the secret scrub, the turn log — which both
+  runtimes call, and its `docker run` half (`runner.go:678-745`,
+  `container/network.go`, `container/egress.go`'s container start), which
+  only the Docker runtime calls. `RunSpec` and `RunResult` do not change
+  shape; `RegisterSteer`'s closure is what each runtime makes of it.
+- **What selects it, and whether one instance may run both.** During the
+  transition, `RUNED_SUBSTRATE=docker|qemu` in the instance `.env`, read once
+  at runed start, logged once with the substrate line runed already prints
+  (`runed/docker.go:153`, `runed/dash.go:89`). It is instance-wide: never per
+  folder, never per turn, and an instance runs exactly one substrate. The
+  seam IS the transition. The last step of §"Order" deletes the Docker
+  runtime, the env var and `substrate.Docker`; `Runtime` survives as the test
+  seam with one production type, which is what "one backend" means for the
+  interface.
+
+## The turn
+
+routd binds the folder's `gated.sock` before the spawn, as today
+(`routd/mcp.go:578-591`). runed then:
+
+1. Allocates the VM's CID (`≥ 3`, unique among live VMs on the host) and two
+   vsock ports on the host side, `ctl` and `mcp`, and records all three in
+   the spawn's on-disk record (`sandbox/internal/metadata.go`) under the
+   `ContainerName` the Manager pinned.
+2. Builds the turn's staging tree (§"The files") and starts two `virtiofsd`
+   processes: `root` over the release's unpacked rootfs, read-only, and
+   `turn` over the staging tree.
+3. Brings up the tap with its rule set and starts the `egress` proxy on the
+   tap's host side (§"Egress").
+4. Binds the `ctl` and `mcp` listeners on `AF_VSOCK` (`unix.SockaddrVM`,
+   `golang.org/x/sys/unix`), each accepting only a peer whose CID is this
+   VM's.
+5. Starts QEMU: `-M microvm -enable-kvm -cpu host -smp 2 -m 4G` with
+   `-object memory-backend-memfd,share=on` (virtio-fs requires the shared
+   backend: virtio-fs.gitlab.io/howto-qemu.html), `-kernel`/`-initrd` from
+   the release, two `vhost-user-fs-device`s, one `vhost-vsock-device` with
+   the CID, one `virtio-net-device` on the tap, `-serial file:<turn log>`,
+   `-sandbox on`, `-pidfile`, `-no-reboot`. Four virtio-mmio devices of the
+   eight microvm allows.
+6. The guest's init (`guest-init`, a static Go binary in the initrd) mounts
+   `root` read-only with a tmpfs overlay upper (a virtio-fs share as
+   overlayfs **lower** is supported; as upper it is not —
+   github.com/kata-containers/kata-containers/blob/main/docs/how-to/how-to-run-docker-with-kata.md),
+   mounts `turn`, bind-mounts each family onto its canonical path, mounts a
+   1 GiB `/dev/shm` (the `--shm-size=1g` of `runner.go:682`), dials
+   `ctl`, and receives one JSON frame `{env, input}` — the environment
+   `runner.go:683-736` passes as `-e` and the envelope `runner.go:247`
+   writes to stdin.
+7. `guest-init` starts `socat UNIX-LISTEN:/run/ipc/gated.sock,fork
+VSOCK-CONNECT:2:<mcp>` on a guest-local tmpfs and execs ant as uid 1000
+   with the environment and the envelope on stdin. `settings.json`'s MCP
+   entry (`runner.go:912-915`) and `ant/src/mcp.ts:3` see the same path.
+8. Tool calls: ant → `gated.sock` → socat → vsock → runed's `mcp` bridge →
+   routd's `gated.sock`. Steer and stop arrive on `ctl` (§"Steer and stop").
+   ant's stderr streams over `ctl` as `{log}` frames into the turn log.
+9. ant exits; `guest-init` sends `{exit: code}` on `ctl` and powers the
+   guest off; QEMU exits; runed reaps in order: tap rules, tap, the two
+   `virtiofsd` (they exit with their socket), the staging tree, the record.
+   `RunTTL` expiry is `SIGKILL` on the QEMU pid, then the same reap.
+
+`RunResult.ExitCode` is the `{exit}` frame; `Outcome` and `NewSessionID`
+arrive by `submit_turn` over MCP, unchanged.
+
+## The mechanisms, one by one
+
+| Docker fact today                                                                                        | QEMU answer                                                                                                                                                                                            |
+| -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `docker run -i --rm --name … --shm-size=1g` (`runner.go:680-682`)                                        | one QEMU process per turn (§"The turn" step 5); `/dev/shm` sized by `guest-init`                                                                                                                       |
+| nine mount families as `-v` (`runner.go:539-669`, `741-744`)                                             | one staging tree, one `turn` share (§"The files")                                                                                                                                                      |
+| `-e KEY=VALUE` (`runner.go:683-736`) and the stdin envelope (`runner.go:247`)                            | the `{env, input}` frame on `ctl`; nothing touches the kernel command line or a file                                                                                                                   |
+| `--user uid:gid` when the host uid is not 1000 (`runner.go:731-737`)                                     | the guest agent is always uid 1000; `virtiofsd` carries the guest's credentials to the host, `--translate-uid` where a data dir is owned otherwise (§Open)                                             |
+| routd's socket visible through the bind-mounted `ipc/` dir (`ipc/ipc.go:361-363`, `runner.go:912-915`)   | vsock, CID-pinned, bridged by runed (§"The peer credential"); a unix socket does not cross virtio-fs — a bind-mounted socket answers "Operation not supported" (github.com/abiosoft/colima/issues/997) |
+| SO_PEERCRED uid check (`ipc/ipc.go:397-410`)                                                             | unchanged in routd; the bridge child runs as uid 1000 and the guest is bound by CID (§"The peer credential")                                                                                           |
+| `docker kill --signal=SIGUSR1` (`runed/docker.go:50-52`, `runner.go:378`)                                | a `{steer}` frame on `ctl` (§"Steer and stop")                                                                                                                                                         |
+| stop → `docker kill` → `rm -f` (`runner.go:288-299`, `runed/docker.go:57-63`)                            | `{stop}` frame → `SIGTERM` to ant → power-off; `SIGKILL` QEMU on the deadline; reap                                                                                                                    |
+| `docker network create --internal` + `--ip` (`container/network.go:157-163`, `runner.go:724-725`)        | one tap per turn; the guest's only route is the host side of its tap (§"Egress")                                                                                                                       |
+| the egress proxy as a sidecar container on two networks (`container/egress.go:238-274`)                  | the `egress` binary as a process on the tap's host side, `--client <guest ip>`; `EGRESS_IMAGE`, `EGRESS_UPLINK_NETWORK`, `EGRESS_NETWORK_PREFIX/_SUBNET` retire                                        |
+| `docker ps --filter=name=arizuko-` orphan sweep (`container/runtime.go:126-139`)                         | `sandbox.List()`: the on-disk record plus `detectState` on the pid — survives from `sandbox/`                                                                                                          |
+| `docker info` liveness (`container/runtime.go:116-124`)                                                  | `/dev/kvm` opens and `qemu-system-x86_64 -version` runs, checked once at runed start, refused loudly                                                                                                   |
+| stderr over the CLI's pipe, `docker logs` unused (`runner.go:245-253`)                                   | `{log}` frames on `ctl`; kernel console on `-serial file:` into the same `groups/<folder>/logs/container-<ts>.log`                                                                                     |
+| session copy is host-FS (`runner.go:1330-1360`); `docker cp`/`exec` unused                               | unchanged                                                                                                                                                                                              |
+| runed in a container with `/var/run/docker.sock` (`compose/compose.go:1004-1009`)                        | §"The runed deploy topology"                                                                                                                                                                           |
+| `arizuko-ant` built by `docker build`, distributed by being built on the deploy box (`Makefile:147-161`) | built the same way, then unpacked once per release to a host directory (§"The image and the guest kernel")                                                                                             |
+
+## The peer credential
+
+Today the turn's credential is the host kernel's `SO_PEERCRED`: routd rejects
+any peer whose uid is not the agent's (`ipc/ipc.go:397-410`, expected uid at
+`routd/mcp.go:589`), and the _folder_ binding is the mount — only the folder's
+container has the folder's `ipc/` dir. Across a VM boundary the uid is a guest
+fact and proves nothing, so the design moves the folder binding to a host
+kernel fact of the same weight.
+
+**The binding is the CID.** The host assigns the guest's CID
+(`VHOST_VSOCK_SET_GUEST_CID`) and the host's vhost driver drops every packet
+whose source is not that CID — "Only accept correctly addressed packets"
+(github.com/torvalds/linux/blob/master/drivers/vhost/vsock.c,
+`vhost_vsock_handle_tx_kick`). A guest cannot claim another guest's CID any
+more than a container can claim another uid. `vsock(7)` fixes the host at CID 2
+(man7.org/linux/man-pages/man7/vsock.7.html).
+
+**The bridge is a uid-1000 child of runed, one per turn.** It holds the `mcp`
+listener for exactly one VM, accepts a connection only from that CID
+(`getpeername` on the accepted socket), and dials exactly one path: that
+turn's folder socket. routd's check is byte-for-byte the check it runs today —
+the peer is uid 1000 — and `ipc.ServeMCP` does not change.
+
+Why this is at least as hard to forge as the mount: both links are host-kernel
+facts a guest cannot influence and a host process needs root to change. What
+moves is where the folder binding is stated — from a Docker mount set fixed at
+`docker create` to a CID fixed at QEMU start and a bridge whose dial target is
+fixed at fork. The threat the check exists for — an agent in folder A reaching
+folder B's tools (`SECURITY.md` §Model) — needs either B's CID (the host kernel
+denies) or A's bridge dialing B's socket (the bridge holds one path).
+
+What it does not defend: a host process that binds a vsock port before runed
+does receives that guest's traffic. The guest holds no secret, so the outcome
+is a failed turn, not a leak — the same trust the operator's host already
+carries. Whether a compose container can bind host vsock ports at all is an
+open question with a measurement (§Open).
+
+## Steer and stop
+
+The steer is a write to `/run/ipc/input` plus a signal (`runed/docker.go:213-224`,
+`ant/src/index.ts:39,93`). In the VM, `/run/ipc` is guest-local, so both halves
+travel on `ctl`: runed sends `{steer: batch}`; `guest-init` writes the batch
+into the guest's `/run/ipc/input/` and sends `SIGUSR1` to ant's pid. The
+closure `RegisterSteer` hands back returns false when `ctl` is closed — the
+same documented race, the same fall-through to a fresh spawn.
+
+`{stop}` sends ant `SIGTERM`; after the grace runed already uses for
+`docker stop`, `guest-init` powers off regardless. The deadline kill is
+`SIGKILL` on the QEMU pid from `-pidfile`. Only the host dials the guest's
+control path and only the guest dials the host's; there is no third party on
+either.
+
+## Egress by name, sealed below the kernel
+
+[`6/24`](24-crackbox-lightest.md) §"Two substrates, one design" states the VM
+case: put the proxy on the host side of the tap and the guest's only route is
+through it. This spec builds exactly that.
+
+- The tap carries a `/30`; the guest gets the low address, the host side the
+  high one. The rule set on the tap is **static**: accept guest → host-side
+  `:3128`; drop everything else, both directions, UDP/53 included.
+- runed starts `egress --listen <host side>:3128 --client <guest> --allow …`
+  as a process, from the binary the `arizuko` image carries. The proxy's
+  uplink is runed's own network. `--client` keeps its meaning: one proxy, one
+  guest.
+- The guest environment carries `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` as
+  today (`runner.go:725-728`) and **no resolver**: a name is meaningful only
+  in a `CONNECT` line. This settles `L136` on the VM path — the DNS side
+  channel the `--internal` network leaves open does not exist here, because
+  no packet leaves the tap except to the proxy.
+- IP literals in `network_rules` go to the proxy too (`egress/match` already
+  matches them), so `sandbox/internal/netfilter.go`'s allow-by-address rules
+  go, and `L189` closes by construction: a name never reaches netfilter, and
+  the proxy is the one matcher for names and addresses alike.
+- `sandbox.Profile.Egress` is delivered `domain`, and `Effective` says so
+  from the same one named function shape `6/25` §2 requires: the proxy
+  binary missing is an error at runed start, never a quiet open spawn.
+
+Cost accepted: a tool inside the guest that resolves a name itself before
+connecting fails. Which tools those are is measured, not guessed (§Open).
+
+## The files: one staging tree, one share
+
+`-M microvm` allows eight virtio-mmio devices, so nine families cannot be nine
+shares; and a share is a directory, so single-file read-only overmounts
+(`runner.go:601-611`) are not a share either. runed builds **one staging tree
+per turn** with bind mounts in its own mount namespace, and one `virtiofsd`
+exports it:
+
+| Family (`runner.go`)                  | Tree path               | Mode                  |
+| ------------------------------------- | ----------------------- | --------------------- |
+| group home `:539-542`                 | `home/`                 | rw                    |
+| staged `ant/` release `:548-552`      | `opt-arizuko/`          | ro                    |
+| world `share/` `:555-565`             | `share/`                | rw, ro on the grant   |
+| group `.codex/` `:601-611`            | `home/.codex/`          | rw                    |
+| `auth.json`, `config.toml` `:601-611` | `codex-ro/<file>`       | ro, one bind per file |
+| operator `/mnt/<name>` `:613-623`     | `mnt/<name>/`           | as declared           |
+| `/var/lib/www` + web slots `:625-645` | `www/`, `pub/`, `priv/` | ro, rw, rw            |
+| all groups, elevated only `:665-669`  | `groups/`               | rw                    |
+| `ipc/` `:574-578`                     | —                       | guest-local tmpfs     |
+
+`guest-init` bind-mounts each tree path onto the canonical container path
+and the two `codex-ro` files over their `home/.codex` names. Read-only is
+enforced on the host: a bind mount made `ro` before `virtiofsd` starts is
+`EROFS` to every write the daemon attempts, and the acceptance test writes to
+each ro family from the guest and expects `EROFS`. `mountsec.
+ValidateAdditionalMounts` runs where it runs today; the tree adds no path
+it did not validate. The `--sandbox=chroot` mode of `virtiofsd` is "intended
+for container environments where the container runtime has already set up
+the namespaces" (gitlab.com/virtio-fs/virtiofsd README), which is runed's
+situation. Host-side changes reach the guest as they happen — the
+`RegisterSteer` contract ("once the container + IPC dir are up") is satisfied
+by the `ctl` handshake, not by a mount becoming visible.
+
+`Persistence` stays `mounted_home`: the guest's own filesystem is a tmpfs
+overlay discarded at power-off; what the folder keeps, it keeps because it is
+a share.
+
+## The image and the guest kernel
+
+**A release is still an image.** `ant/Dockerfile` builds `arizuko-ant` as it
+does today; the turn substrate consumes it as a directory. `make images`
+gains one step: `docker create` + `docker export` of the image into
+`<data>/images/ant-<version>/rootfs/`, once per release on the deploy host,
+and `arizuko run` (initial setup) does the same. The 8.26 GB moves once. The
+`root` share is that directory; nothing per turn copies or converts it.
+
+**The guest kernel is part of the image.** A `kernel` stage in `ant/Dockerfile`
+builds a pinned Linux 6.1 from Firecracker's
+`microvm-kernel-ci-x86_64-6.1.config`
+(github.com/firecracker-microvm/firecracker/tree/main/resources/guest_configs)
+plus arizuko's fragment: `VIRTIO_FS`, `FUSE_FS`, `VIRTIO_VSOCKETS`,
+`OVERLAY_FS`, `VIRTIO_MMIO`, `VIRTIO_NET`, built in, no modules. The stage
+writes `vmlinux` and the initrd — `guest-init` and nothing else — to
+`/opt/arizuko/guest/` inside the image, so they come out of the same export
+and QEMU reads them from the unpacked directory. The paper's kernel is 4.0 MB
+compressed with no modules against a distro kernel's 6.7 MB plus 44 MB of
+modules, and its command line "disables the standard logging to the serial
+console (saving up to 70ms of boot time)" (NSDI'20 §5.1); the fragment and
+the command line follow it.
+
+Owner: arizuko, in `ant/`. Cost: **2–4 engineer-days** for the stage, the
+fragment and the bench target, plus the kernel build time on every image
+build. The gate it must pass is the boot budget in the first table.
+
+## The runed deploy topology
+
+runed stays a compose service, generated by `compose/compose.go` as today.
+Its service gains what a VMM needs and loses what Docker needed:
+
+- devices: `/dev/kvm`, `/dev/vhost-vsock`, `/dev/net/tun`;
+- `cap_add: [NET_ADMIN, SYS_ADMIN]` — taps and the tap rule set; the staging
+  tree's bind mounts in runed's own mount namespace;
+- runs as root inside its container so `virtiofsd` can carry guest
+  credentials to host files and the bind mounts can be made; `group_add`
+  of the docker gid and the `docker.sock` volume go;
+- the `arizuko` image carries `qemu-system-x86_64`, `virtiofsd`, `socat`
+  and the `egress` binary; `docker-cli` (`Dockerfile:15`) goes.
+
+The privilege runed holds does not rise: the docker socket it holds today is
+root-equivalent on the host. The privilege runed holds becomes explicit —
+three device nodes and two capabilities, listed in one generator.
+
+## The warm pool: not taken, and the gate that reopens it
+
+[`6/20`](20-sandbox-lifecycle-decline.md) declines the warm pool and names
+its reopen trigger: "a runtime whose boot cost is genuinely turn-dominant
+(KVM via `6/9`)". The untuned measurement (2.43–2.89 s q35, 3.75–4.06 s
+microvm, against 0.62–0.93 s) trips it. The design's answer is **the kernel
+pipeline, not the pool**, and the answer is conditional on a number:
+
+- `make bench-boot` runs the measurement from the first table — QEMU
+  process start to `guest-init`'s first frame, ten runs, on the deploy host
+  — and the result is written into the release's `CHANGELOG.md` entry.
+- **≤ 1.0 s p50 on krons keeps the pool declined.** The literature puts a
+  purpose-built kernel on QEMU within ~50 ms of Firecracker's class; the
+  bare VMM costs ~0.1 s here.
+- **Above 1.0 s after the pipeline lands, `6/20` reopens for this runtime,
+  and the pool comes as one unit with its consequences**, none inherited
+  quietly: the **claim seam** (a pooled guest boots with `root` only and is
+  bound to a folder afterwards, which means attaching `turn`, the tap and the
+  CID-pinned bridge to a running guest — `microvm` devices are configured at
+  start (qemu.org microvm doc), so a pool forces `q35` and PCI hot-plug,
+  which is unverified on QEMU 7.2 and would be measured first); the
+  **idle policy** (a claimed guest that outlives a turn is stopped, not
+  paused — nothing may accumulate across turns, `6/20` §"Ephemerality");
+  the **reaper** (a bounded pool size, an age cap, and `sandbox.List()`'s
+  disk scan as the observed state the reconcile function reads). `6/20`'s
+  two surviving shapes — the one-boolean I/O gate and the total
+  desired×observed plan — are the shapes it would take.
+
+## What survives of `sandbox/`
+
+`sandbox/` ships alone ([`6/9`](9-crackbox-sandboxing.md),
+`tests/components/imports_test.go:28`) and stays the library runed imports.
+Measured at `eb8eeaaeab7d`:
+
+Survives: the package and its ceiling (`New(instanceID, dataDir)`, `Spawn`,
+`Stop`, `List`), the instance-id namespacing and the on-disk VM record
+(`internal/metadata.go`), `List()` as a disk scan with `detectState` and
+`readPID`, the tap helper (`libexec/crackbox-tap`) and the rule renderer's
+skeleton (`internal/netfilter.go`), `Profile` in `sandbox.go`, and the
+`exec.Command("qemu-system-x86_64", …)` shape of `internal/qemu.go`.
+
+Rewritten: the QEMU argument list (`internal/qemu.go:79-94` — `q35`, a qcow2
+overlay, a cloud-init ISO, `virtio-net-pci`, `-daemonize`) becomes the
+microvm line of §"The turn" step 5; `VMConfig` becomes `{Rootfs, Kernel,
+Initrd, TurnDir, CID, Ports, TapRules}` — `Mounts` is declared
+(`sandbox.go:44-56`) and never read (`internal/manager.go:80-90` builds `Meta`
+without it; no `vhost-user-fs` flag exists in the tree), and `AllowList`
+leaves because the proxy holds it; `internal/cloudinit.go`, the Alpine
+download (`internal/qemu.go:33`, `internal/vm.go:52`) and SSH `Exec`
+(`sandbox.go:153`) are deleted — `Profile.Sessions` is false, a workload is
+one process from boot to power-off; `netfilter.go`'s per-address accept rules
+become the static proxy-only set. `crackbox run --kvm` follows the new
+`VMConfig` and stays the local-development command `6/24` makes it.
+
+`6/9`'s body describes the library as it stood before this spec; the ship
+step of §"Order" marks it `superseded` by `41` and closes `L125`.
+
+## Order, and the rule against the storage port
+
+[`6/37`](37-store-model.md)'s port is complete in code (every table an
+objstore entity, measured 2026-09-12) and has not been deployed to krons.
+`L276` (a re-run of `migrate-hot` rolls every cursor back) and `L277` (a
+killed migration boots holding part of the history) block an unattended
+migration. That port has no rollback lever except a backup. This spec's
+lever is `RUNED_SUBSTRATE=docker`, one restart. **Two levers are never in one
+deploy window**, and a substrate whose rollback is a restart never ships in
+the window of a port whose rollback is a restore.
+
+1. **Land behind the selector, default `docker`.** `runed/qemu.go`, the
+   `container.Run` split, the `sandbox/` rewrite, `guest-init`, the kernel
+   stage, the compose generator's device and capability lines. No file under
+   `runed/runstore`, `store/`, `objstore/`, `db_utils/` is touched. Tests
+   without a hypervisor cover the record, the argument rendering, the frame
+   codec and the tree builder; `make bench-boot` and the end-to-end turn
+   run on a host with `/dev/kvm`. **8–12 days.**
+2. **The kernel pipeline and the gate.** `bench-boot` on krons; the number
+   goes into the changelog. If it misses 1.0 s, §"The warm pool" decides
+   before step 3. **2–4 days.**
+3. **Flip krons**, after `6/37`'s migration has run there and
+   `anteval --smoke` is green on the ported store: `RUNED_SUBSTRATE=qemu`,
+   one restart, nothing else in that deploy. `anteval --smoke` again on the
+   VM substrate — the five post-deploy gates apply, and a fleet whose agents
+   answer nothing passes the first four. **2–3 days, including the
+   `SECURITY.md`, `ARCHITECTURE.md`, `EXTENDING.md` and `runed/README.md`
+   edits, the web docs, and the migration file with the
+   `MIGRATION_VERSION` bump.**
+4. **Delete Docker from the turn path**, after fourteen green days on krons
+   and a green smoke on a second instance: `dockerRuntime`,
+   `container.DockerRunner`, the `docker run` half of `container.Run`,
+   `container/network.go`, the container half of `container/egress.go`,
+   `EGRESS_IMAGE` and its three companions, the `docker.sock` and
+   `docker-cli` lines, `substrate.Docker`, `RUNED_SUBSTRATE`. `Runtime` keeps
+   `FakeRuntime` and one production type. **2–3 days.**
+
+Total **14–22 engineer-days**, plus what §"The warm pool" costs if the gate
+fails: the pool is a separate costing when and if its trigger fires.
+
+## Acceptance
+
+- `make bench-boot` on krons reports ≤ 1.0 s p50 to `guest-init`'s first
+  frame, and the number is in the changelog.
+- A turn on krons completes end to end over the VM substrate: prompt in,
+  `submit_turn` out, `RunResult.ExitCode` from the `{exit}` frame,
+  `anteval --smoke` green.
+- A guest whose bridge is pinned to CID _N_ cannot reach folder _B_'s socket
+  from a guest with CID _M_; the test is a second VM dialing the first VM's
+  `mcp` port and being refused at `accept`.
+- A write to every `ro` family from the guest returns `EROFS`; a write to
+  `home/` lands on the host as uid 1000.
+- From the guest: `curl` to an allowlisted name succeeds through the proxy;
+  `curl` to a listed-out name is refused by the proxy; `getent hosts
+example.com` fails; a raw `nc` to any address off the tap times out.
+- `sandbox/` has zero arizuko-internal imports (`tests/components`), and
+  `crackbox run --kvm` builds.
+- No `docker` string remains under `runed/` or `container/` after step 4;
+  `compose/compose_test.go:94-101` asserts that no service mounts
+  `docker.sock`.
+
+## Open questions — each with the measurement that settles it
+
+1. **Which guest tools resolve names locally** and therefore fail without a
+   resolver: run `anteval --smoke` on the VM substrate with the proxy-only
+   tap and read the failures. If a required tool resolves locally, the
+   proxy gains a `/etc/resolv.conf`-facing UDP/53 answerer that returns
+   `NXDOMAIN` for a name off the allowlist — the shape `L136` names.
+2. **Guest credentials on host files.** Write from the guest as uid 1000
+   with `virtiofsd --sandbox=chroot` as root and `stat` the host file; if it
+   is not uid 1000, `--translate-uid`/`--translate-gid` (virtiofsd README)
+   is the fix and the compose line carries it.
+3. **Is `AF_VSOCK` reachable from another compose container?** From a
+   sibling container, `socat VSOCK-LISTEN:5555` then a guest `VSOCK-CONNECT
+2:5555`. If it connects, the port squat is a local-host denial only, as
+   §"The peer credential" states; the spec then records it as accepted.
+4. **Peak guest memory.** Sample `docker stats` on krons over seven days for
+   the ant container's peak RSS; `-m 4G` is the placeholder and the memfd
+   backend commits pages on touch.
+5. **`nftables` versus `iptables` in the Alpine image.** `apk search`
+   listed `qemu-system-x86_64`, `virtiofsd`, `socat`; the rule renderer
+   uses `iptables` today. Verify the package at the first image build.
+6. **Boot with the pipeline's kernel on krons** — the whole gate; nothing
+   in this spec assumes the number.
+
+## Ties
+
+[`6/9`](9-crackbox-sandboxing.md) (the library this rewrites) ·
+[`6/20`](20-sandbox-lifecycle-decline.md) (the trigger and the pool's
+consequences) · [`6/24`](24-crackbox-lightest.md) (the VM case of the
+proxy) · [`6/25`](25-qm-adoptions.md) §2 (the declared substrate) ·
+[`6/37`](37-store-model.md) (the port this sequences against) ·
+[`5/P`](../5/P-runed.md) (the envelope) · [`5/14`](../5/14-credentials.md)
+(env-profile keys are the only credential in the `{env}` frame; capability
+credentials stay brokered) · [`5/33`](../5/33-paths-roles.md) (the grant
+decisions the tree renders) · BUGS `L125`, `L136`, `L137`, `L189`, `L276`,
+`L277`.
