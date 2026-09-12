@@ -530,9 +530,25 @@ func (s *Server) awaitVerdict(id, tool string) (string, bool) {
 		slog.Info("hitl verdict", "pending", id, "status", p.Status)
 		return verdictRefusal(p, tool), true
 	}
-	if _, err := s.db.expirePendingAction(id); err != nil {
+	won, err := s.db.expirePendingAction(id)
+	if err != nil {
 		slog.Error("hitl wait ended and the row could not be closed; a verdict typed "+
 			"now will look accepted and reach nobody", "pending", id, "err", err)
+	}
+	if !won {
+		// The expiry is conditioned on the row still being held, so losing it means
+		// a human answered in the same instant the wait ended. The ROW is the
+		// record: honour it, rather than telling the agent nobody answered while
+		// the queue shows an approval.
+		if p, ok := s.db.GetPendingAction(id); ok && p.Status != PendingHeld {
+			if p.Status == PendingApproved {
+				slog.Info("hitl approved as the wait ended; running inline", "pending", id)
+				return "", false
+			}
+			return verdictRefusal(p, tool), true
+		}
+		slog.Warn("hitl wait ended and the row was neither closed nor answered",
+			"pending", id)
 	}
 	return fmt.Sprintf(
 		"NOT RUN (id %s): %s waited for human approval and nobody answered in time. "+

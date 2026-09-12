@@ -269,3 +269,31 @@ func TestNotifyHeld_NoAlwaysButtonWithoutAnExactRule(t *testing.T) {
 		t.Fatalf("approve and reject stay on offer, got %d options", len(opts))
 	}
 }
+
+// TestAwaitVerdict_VerdictInTheClosingInstantWins — the expiry is conditioned on
+// the row still being held, so losing that write means a human answered exactly
+// as the wait ended. The ROW is the record: the agent must be told what the
+// person decided, not that nobody answered, or the queue shows an approval the
+// agent reported as a timeout.
+func TestAwaitVerdict_VerdictInTheClosingInstantWins(t *testing.T) {
+	d := memDB(t)
+	srv := &Server{db: d}
+	addACL(t, d, "google:op", "admin", "atlas", "allow")
+	if err := d.PutPendingAction(PendingAction{
+		ID: "a1", GroupFolder: "atlas", Tool: "mcp:delete", Args: `{"target":"prod"}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolvePending(d, "a1", PendingApproved, "google:op", ""); err != nil {
+		t.Fatal(err)
+	}
+	// HoldWait is 0 here (TestMain), so the wait ends before any poll — the same
+	// position the waiter is in when a verdict lands on its last pass.
+	refusal, held := srv.awaitVerdict("a1", "mcp:delete")
+	if held {
+		t.Fatalf("the approved call must run, the agent was told %q", refusal)
+	}
+	if row, _ := pendingActionRow(d, "a1"); row.Status != PendingApproved {
+		t.Fatalf("status = %q, want approved — the expiry must not overwrite a verdict", row.Status)
+	}
+}
