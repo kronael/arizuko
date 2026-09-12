@@ -294,7 +294,7 @@ func TestGateEnablementRoundTrips(t *testing.T) {
 		t.Fatalf("enabled gates = %+v, want one enabled gate at 10/day", gates)
 	}
 	// A second Put moves the LIMIT and must leave enablement alone, which is
-	// what the create-if-absent-then-update pair buys.
+	// what carrying `enabled` as the merge's Init half buys.
 	if err := s.EnableGate("github:org=co", false); err != nil {
 		t.Fatal(err)
 	}

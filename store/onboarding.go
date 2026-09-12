@@ -282,37 +282,36 @@ func (s *Store) Gate(gate string) (OnboardingGate, bool, error) {
 
 // PutGateTx sets a gate's daily admission limit on a transaction the CALLER
 // owns, so the mutation and the audit row that records it commit together.
-//
-// TWO WRITES for the reason InsertOnboarding has two: a Put carries the whole
-// attribute set, so an unconditional one would re-enable a gate the operator
-// disabled. The create-if-absent lands enabled, and its refusal — the gate is
-// already there — selects the update that touches only the limit.
 func (s *Store) PutGateTx(ctx context.Context, tx *sql.Tx, gate string, limitPerDay int) error {
-	key, err := gateKey(gate)
+	w, err := gateUpsert(gate, limitPerDay)
 	if err != nil {
 		return err
 	}
-	created, err := s.TryWriteEntitiesInTx(ctx, tx, nil, objstore.Write{
-		Op: objstore.Put, Entity: OnboardingGates, Key: key,
-		Attrs: map[string]string{
-			attrGateLimitPerDay: strconv.Itoa(limitPerDay),
-			attrGateEnabled:     "1",
-		},
-		Cond: objstore.Cond{Item: objstore.ItemAbsent},
-	})
-	if err != nil {
+	if err := s.WriteEntitiesInTx(ctx, tx, nil, w); err != nil {
 		return fmt.Errorf("open gate %s: %w", gate, err)
 	}
-	if created {
-		return nil
-	}
-	if err := s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
-		Op: objstore.Update, Entity: OnboardingGates, Key: key,
-		Attrs: map[string]string{attrGateLimitPerDay: strconv.Itoa(limitPerDay)},
-	}); err != nil {
-		return fmt.Errorf("set gate %s's limit: %w", gate, err)
-	}
 	return nil
+}
+
+// gateUpsert renders "this gate exists and its limit is that" as ONE write, for
+// both sinks that write it: the caller's transaction and the audited batch.
+//
+// `enabled` is an Init because it is the flag a gate is BORN with — a caller
+// that came to set the limit must not re-enable a gate the operator disabled,
+// which is why a Put is wrong here. A Merge is create-or-merge, so the pair this
+// replaces — a create-if-absent whose refusal selected an update — is one action
+// on one item again, and a pair on one item is what needed a transaction to run
+// it (objstore.Merge).
+func gateUpsert(gate string, limitPerDay int) (objstore.Write, error) {
+	key, err := gateKey(gate)
+	if err != nil {
+		return objstore.Write{}, err
+	}
+	return objstore.Write{
+		Op: objstore.Merge, Entity: OnboardingGates, Key: key,
+		Attrs: map[string]string{attrGateLimitPerDay: strconv.Itoa(limitPerDay)},
+		Init:  map[string]string{attrGateEnabled: "1"},
+	}, nil
 }
 
 // EnableGateTx flips a gate's enablement on the caller's transaction. A gate
@@ -321,40 +320,61 @@ func (s *Store) PutGateTx(ctx context.Context, tx *sql.Tx, gate string, limitPer
 // answered `PUT /v1/gates/<gate>` 200 {"ok":true} over zero rows, which onbod
 // now answers 404 (BUGS L268).
 func (s *Store) EnableGateTx(ctx context.Context, tx *sql.Tx, gate string, enabled bool) error {
-	key, err := gateKey(gate)
+	w, err := gateEnableWrite(gate, enabled)
 	if err != nil {
 		return err
 	}
-	if err := s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
-		Op: objstore.Update, Entity: OnboardingGates, Key: key,
-		Attrs: map[string]string{attrGateEnabled: strconv.Itoa(btoi(enabled))},
-	}); err != nil {
+	if err := s.WriteEntitiesInTx(ctx, tx, nil, w); err != nil {
 		return fmt.Errorf("set gate %s's enablement: %w", gate, err)
 	}
 	return nil
 }
 
+// gateEnableWrite renders one flip of the flag, for both sinks that flip it. The
+// Update is the must-exist half: a gate that is not there refuses, and that
+// refusal is the 404 (BUGS L268).
+func gateEnableWrite(gate string, enabled bool) (objstore.Write, error) {
+	key, err := gateKey(gate)
+	if err != nil {
+		return objstore.Write{}, err
+	}
+	return objstore.Write{
+		Op: objstore.Update, Entity: OnboardingGates, Key: key,
+		Attrs: map[string]string{attrGateEnabled: strconv.Itoa(btoi(enabled))},
+	}, nil
+}
+
 // DeleteGateTx removes a gate on the caller's transaction. Unconditional, which
 // is what a delete means: asking twice is the same answer.
 func (s *Store) DeleteGateTx(ctx context.Context, tx *sql.Tx, gate string) error {
-	key, err := gateKey(gate)
+	w, err := gateDeleteWrite(gate)
 	if err != nil {
 		return err
 	}
-	if err := s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
-		Op: objstore.Delete, Entity: OnboardingGates, Key: key,
-	}); err != nil {
+	if err := s.WriteEntitiesInTx(ctx, tx, nil, w); err != nil {
 		return fmt.Errorf("delete gate %s: %w", gate, err)
 	}
 	return nil
 }
 
+// gateDeleteWrite renders one gate's removal, for both sinks that remove one.
+func gateDeleteWrite(gate string) (objstore.Write, error) {
+	key, err := gateKey(gate)
+	if err != nil {
+		return objstore.Write{}, err
+	}
+	return objstore.Write{Op: objstore.Delete, Entity: OnboardingGates, Key: key}, nil
+}
+
 // PutGate is PutGateTx with a transaction and an audit row of its own, for the
 // CLI and the chat command, which hold neither.
 func (s *Store) PutGate(gate string, limitPerDay int) error {
-	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		err := s.PutGateTx(context.Background(), tx, gate, limitPerDay)
-		return audit.Event{
+	return s.writeAudited(func() ([]objstore.Write, audit.Event, error) {
+		w, err := gateUpsert(gate, limitPerDay)
+		if err != nil {
+			return nil, audit.Event{}, err
+		}
+		return []objstore.Write{w}, audit.Event{
 			Category: audit.CategoryMutation,
 			Action:   "gate.set",
 			Actor:    "system",
@@ -365,30 +385,36 @@ func (s *Store) PutGate(gate string, limitPerDay int) error {
 				"gate":          gate,
 				"limit_per_day": limitPerDay,
 			},
-		}, err
+		}, nil
 	})
 }
 
 // DeleteGate is DeleteGateTx with its own transaction and audit row.
 func (s *Store) DeleteGate(gate string) error {
-	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		err := s.DeleteGateTx(context.Background(), tx, gate)
-		return audit.Event{
+	return s.writeAudited(func() ([]objstore.Write, audit.Event, error) {
+		w, err := gateDeleteWrite(gate)
+		if err != nil {
+			return nil, audit.Event{}, err
+		}
+		return []objstore.Write{w}, audit.Event{
 			Category: audit.CategoryMutation,
 			Action:   "gate.delete",
 			Actor:    "system",
 			Surface:  audit.SurfaceGateway,
 			Resource: "onboarding_gates/" + gate,
 			Outcome:  audit.OutcomeOK,
-		}, err
+		}, nil
 	})
 }
 
 // EnableGate is EnableGateTx with its own transaction and audit row.
 func (s *Store) EnableGate(gate string, enabled bool) error {
-	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		err := s.EnableGateTx(context.Background(), tx, gate, enabled)
-		return audit.Event{
+	return s.writeAudited(func() ([]objstore.Write, audit.Event, error) {
+		w, err := gateEnableWrite(gate, enabled)
+		if err != nil {
+			return nil, audit.Event{}, err
+		}
+		return []objstore.Write{w}, audit.Event{
 			Category: audit.CategoryMutation,
 			Action:   "gate.set",
 			Actor:    "system",
@@ -398,7 +424,7 @@ func (s *Store) EnableGate(gate string, enabled bool) error {
 			ParamsSummary: map[string]any{
 				"enabled": enabled,
 			},
-		}, err
+		}, nil
 	})
 }
 
@@ -721,47 +747,46 @@ func (s *Store) AdmitQueued(jids []string) (int, error) {
 // — the refusal an Update reports for a missing item IS that answer, and it is
 // the same one the RowsAffected check it replaces gave.
 func (s *Store) ApproveOnboarding(jid string) error {
-	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
+	approved, err := s.tryWriteAudited(func() ([]objstore.Write, audit.Event, error) {
 		key, err := onboardingKey(jid)
 		if err != nil {
-			return audit.Event{}, err
+			return nil, audit.Event{}, err
 		}
-		approved, err := s.TryWriteEntitiesInTx(context.Background(), tx, nil, objstore.Write{
+		w := objstore.Write{
 			Op: objstore.Update, Entity: Onboarding, Key: key,
 			Attrs: map[string]string{
 				attrOnbStatus:     statusApproved,
 				attrOnbAdmittedAt: onbodTS(time.Now()),
 			},
-		})
-		if err != nil {
-			return audit.Event{}, err
 		}
-		if !approved {
-			return audit.Event{}, fmt.Errorf("onboarding row not found: %s", jid)
-		}
-		return audit.Event{
+		return []objstore.Write{w}, audit.Event{
 			Category: audit.CategoryMutation, Action: "onboarding.approve",
 			Actor: "operator", Surface: audit.SurfaceREST,
 			Resource: "onboarding/" + jid, Outcome: audit.OutcomeOK,
 		}, nil
 	})
+	if err != nil {
+		return err
+	}
+	if !approved {
+		return fmt.Errorf("onboarding row not found: %s", jid)
+	}
+	return nil
 }
 
 // DenyOnboarding deletes the onboarding row for jid (operator deny).
 func (s *Store) DenyOnboarding(jid string) error {
-	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
+	return s.writeAudited(func() ([]objstore.Write, audit.Event, error) {
 		key, err := onboardingKey(jid)
 		if err != nil {
-			return audit.Event{}, err
+			return nil, audit.Event{}, err
 		}
-		err = s.WriteEntitiesInTx(context.Background(), tx, nil, objstore.Write{
-			Op: objstore.Delete, Entity: Onboarding, Key: key,
-		})
-		return audit.Event{
+		w := objstore.Write{Op: objstore.Delete, Entity: Onboarding, Key: key}
+		return []objstore.Write{w}, audit.Event{
 			Category: audit.CategoryMutation, Action: "onboarding.deny",
 			Actor: "operator", Surface: audit.SurfaceREST,
 			Resource: "onboarding/" + jid, Outcome: audit.OutcomeOK,
-		}, err
+		}, nil
 	})
 }
 
