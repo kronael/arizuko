@@ -494,6 +494,16 @@ attrs = json_patch(attrs, excluded.attrs)` on SQLite, `attrs ||
 excluded.attrs::jsonb` on Postgres. `Update` keeps must-exist, so every existing
 CAS is untouched.
 
+**`Merge` needs one companion field, `Init`.** A single attribute map cannot say
+"set this every time, but only stamp that on creation", and four sites need
+exactly that: `putGroup`'s `added_at`, `SetLastReply`'s `engaged_folder`, and
+the membership and ACL writes that must not restamp who granted what. Without
+it, converting `putGroup` silently changes what `added_at` MEANS, and the
+`AddEdge` adoption is impossible — `RedeemPairing` with a guarded edge write
+refuses whenever a jid is re-paired to the parent it already has, and leaves the
+token unspent. `Init` is DynamoDB's `if_not_exists` and one more bind parameter
+in the same SQL statement. The interface is still two methods.
+
 **What it makes impossible:** a half-upserted item. And transitively it is the
 precondition for moving four callers back onto `AddEdge`, because a batch may
 name each item once — so `CreateGroupWithAdmin`, `createWorldTx`, `PutGroupRow`
@@ -508,6 +518,11 @@ a `Put` is a whole-item replace, and a secrets item carries six attributes of
 which surrogate OAuth owns two. The same trap sits in `putGroup`'s settings
 document and `upsertReplyState`. `Merge` exists precisely so nobody reaches for
 `Put` here.
+
+**Measured after the adoption: 20 transaction sites became 7**, and the tree
+lost 91 lines of non-test Go. What is left is `runAudited` (which carries
+`DeleteGroup`'s unbounded purge), `resreg.invoke`, the system-message drain,
+`cmdResolveHold`, `consumeInvite`, and two in dashd's task writer.
 
 **Six transactions cannot go, and the list is short enough to state.** The
 migration critical section (DDL precedes entities); `resreg.invoke`, whose
