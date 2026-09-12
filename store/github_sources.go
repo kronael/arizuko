@@ -220,7 +220,7 @@ func (s *Store) AddGitHubSourceTx(ctx context.Context, tx *sql.Tx, src GitHubSou
 	// said: registering a source that is already there is REFUSED with
 	// ErrGitHubSourceExists rather than re-minting its secret, which would break
 	// every delivery GitHub is already signing with the first one.
-	created, err := s.TryWriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+	created, err := s.tryWriteVia(ctx, tx, nil, objstore.Write{
 		Op: objstore.Put, Entity: GitHubSources, Key: key,
 		Attrs: map[string]string{
 			attrGHSecret:      sealed,
@@ -256,7 +256,7 @@ func (s *Store) RemoveGitHubSourceTx(ctx context.Context, tx *sql.Tx, key, owner
 	if !ok || it.Attrs[attrGHOwnerFolder] != ownerFolder {
 		return false, nil
 	}
-	if err := s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+	if err := s.writeVia(ctx, tx, nil, objstore.Write{
 		Op: objstore.Delete, Entity: GitHubSources, Key: it.Key,
 	}); err != nil {
 		return false, err
@@ -303,7 +303,7 @@ func (s *Store) deleteRoutesMatchingTx(ctx context.Context, tx *sql.Tx, seeded [
 	}
 	_, err = applyChunks(ctx, "remove seeded routes", writes,
 		func(ctx context.Context, chunk []objstore.Write) (bool, error) {
-			return s.TryWriteEntitiesInTx(ctx, tx, nil, chunk...)
+			return s.tryWriteVia(ctx, tx, nil, chunk...)
 		})
 	return err
 }
@@ -322,26 +322,38 @@ func (s *Store) githubSourceEvent(action, key, owner string) audit.Event {
 	}
 }
 
-// AddGitHubSource is AddGitHubSourceTx in its own audited tx (the CLI path).
+// AddGitHubSource registers a source and the rules that route it (the CLI path).
+//
+// The source row goes in first and the rules follow, each tolerating a rule that
+// is already there: a registration that stops part-way leaves a source reachable
+// by fewer rules than it asked for, and running it again adds the rest.
 func (s *Store) AddGitHubSource(src GitHubSource, target string) (string, error) {
-	var secret string
-	err := s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		var err error
-		secret, err = s.AddGitHubSourceTx(context.Background(), tx, src, target)
-		return s.githubSourceEvent("github_source.register", src.Source, src.OwnerFolder), err
-	})
-	return secret, err
+	ctx := context.Background()
+	secret, err := s.AddGitHubSourceTx(ctx, nil, src, target)
+	if err != nil {
+		return "", err
+	}
+	_, rec := audit.WriteFor(s.githubSourceEvent("github_source.register", src.Source, src.OwnerFolder))
+	if err := s.WriteEntities(ctx, nil, rec); err != nil {
+		return secret, err
+	}
+	return secret, nil
 }
 
-// RemoveGitHubSource is RemoveGitHubSourceTx in its own audited tx.
+// RemoveGitHubSource removes a source and the rules that routed it. The source
+// row goes first, which is what stops it being routed at all, so a sweep that
+// stops part-way leaves rules nothing reaches and the next run collects them.
 func (s *Store) RemoveGitHubSource(key, ownerFolder string) (bool, error) {
-	var hit bool
-	err := s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		var err error
-		hit, err = s.RemoveGitHubSourceTx(context.Background(), tx, key, ownerFolder)
-		return s.githubSourceEvent("github_source.revoke", key, ownerFolder), err
-	})
-	return hit, err
+	ctx := context.Background()
+	hit, err := s.RemoveGitHubSourceTx(ctx, nil, key, ownerFolder)
+	if err != nil || !hit {
+		return hit, err
+	}
+	_, rec := audit.WriteFor(s.githubSourceEvent("github_source.revoke", key, ownerFolder))
+	if err := s.WriteEntities(ctx, nil, rec); err != nil {
+		return true, err
+	}
+	return true, nil
 }
 
 // ListGitHubSources returns the sources owned by ownerFolder; "" lists all. The

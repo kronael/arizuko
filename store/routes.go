@@ -270,12 +270,7 @@ func (s *Store) putRoute(ctx context.Context, tx *sql.Tx, r core.Route, addedBy,
 		Op: objstore.Put, Entity: Routes, Key: key, Attrs: routeAttrs(r, addedBy, addedVia),
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},
 	}
-	var created bool
-	if tx != nil {
-		created, err = s.TryWriteEntitiesInTx(ctx, tx, nil, w)
-	} else {
-		created, err = s.TryWriteEntities(ctx, nil, w)
-	}
+	created, err := s.tryWriteVia(ctx, tx, nil, w)
 	if err != nil {
 		return 0, err
 	}
