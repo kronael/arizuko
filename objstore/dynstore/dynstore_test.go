@@ -28,6 +28,9 @@ var (
 // container starts one endpoint for the whole package and answers its address.
 func container(t *testing.T) string {
 	t.Helper()
+	if testing.Short() {
+		t.Skip("starts a container; run it through `make integration`")
+	}
 	once.Do(func() { endpoint, startErr = start() })
 	if startErr != nil {
 		t.Skipf("no endpoint: %v", startErr)

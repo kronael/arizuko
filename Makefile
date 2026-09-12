@@ -56,6 +56,7 @@ test:
 # CI runs: `make test && make integration`.
 integration:
 	go test ./tests/... -count=1 -timeout 120s
+	go test ./objstore/dynstore/... -count=1 -timeout 300s
 .PHONY: integration
 
 # test-all: full suite — unit + integration + Playwright. What CI runs on
