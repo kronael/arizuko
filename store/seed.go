@@ -100,7 +100,7 @@ var (
 // It runs where EnsureEntities does, so every opener of routd.db reaches it:
 // `arizuko create`, the split cutover, and every test database. An instance
 // that already carries grants or egress rules is left exactly as it is.
-func SeedRoutdFloor(ctx context.Context, d Driver) error {
+func SeedRoutdFloor(ctx context.Context, d objstore.Store) error {
 	empty, err := entityIsEmpty(ctx, d, ACL)
 	if err != nil {
 		return err

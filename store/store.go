@@ -11,6 +11,7 @@ import (
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/db_utils"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/objstore/sqlstore"
 	_ "modernc.org/sqlite"
 )
@@ -253,7 +254,7 @@ func (s *Store) DB() *sql.DB { return s.db }
 // It is built per call rather than held: sqlstore.New reads the engine off the
 // pool with a type assertion, and a field would have to be filled in at four
 // constructors and survive every shallow copy AsUser makes.
-func (s *Store) Obj() *sqlstore.Store { return sqlstore.New(s.db) }
+func (s *Store) Obj() objstore.Store { return sqlstore.New(s.db) }
 
 // btoi converts a bool to the 0/1 an INTEGER column stores. It lives here rather
 // than beside one caller because the tables that still have columns share it.

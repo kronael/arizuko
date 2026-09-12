@@ -24,24 +24,20 @@ import (
 // left for the next flush instead of being deleted unread.
 func (d *DB) FlushSysMsgs(folder string) string {
 	ctx := context.Background()
-	tx, err := d.db.BeginTx(ctx, nil)
-	if err != nil {
+	msgs, err := d.store().QueuedSystemMessages(ctx, folder)
+	if err != nil || len(msgs) == 0 {
 		return ""
 	}
-	defer tx.Rollback()
-	msgs, err := d.store().QueuedSystemMessagesTx(ctx, tx, folder)
-	if err != nil || len(msgs) == 0 {
+	// The drain claims exactly the events this read produced. A refusal means
+	// another flush took one of them, so this caller renders nothing and the
+	// events it did not claim stay queued for the reader that names them.
+	claimed, err := d.store().DrainSystemMessages(ctx, folder, msgs)
+	if err != nil || !claimed {
 		return ""
 	}
 	var b strings.Builder
 	for _, m := range msgs {
 		fmt.Fprintf(&b, "<system origin=%q event=%q>%s</system>\n", m.Source, m.Kind, m.Body)
-	}
-	if err := d.store().DrainSystemMessagesTx(ctx, tx, folder, msgs); err != nil {
-		return ""
-	}
-	if err := tx.Commit(); err != nil {
-		return ""
 	}
 	return b.String()
 }

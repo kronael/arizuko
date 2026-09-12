@@ -434,7 +434,7 @@ func TestMigrateSplit(t *testing.T) {
 	// values come back through the reader the prompt build calls; the folder and
 	// the queue instant are the item's COORDINATE, so they are read off the key
 	// the migration wrote.
-	queued, qerr := store.New(r).QueuedSystemMessagesTx(context.Background(), nil, "main")
+	queued, qerr := store.New(r).QueuedSystemMessages(context.Background(), "main")
 	if qerr != nil {
 		t.Fatalf("read routd.system_messages: %v", qerr)
 	}

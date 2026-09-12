@@ -15,7 +15,7 @@ package dashstore
 import (
 	"database/sql"
 
-	"github.com/kronael/arizuko/objstore/sqlstore"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -39,8 +39,6 @@ func New(db *sql.DB) *Store {
 // where the other's read does not look, and the failure is silent.
 func (s *Store) st() *store.Store { return store.New(s.db) }
 
-// obj is the driver the audit row of an audited write reaches routd.db through.
-// The mutation and the row that records it commit on one transaction, so audit
-// needs the driver that can write into it, and it is the SAME driver the store
-// above writes its entities through.
-func (s *Store) obj() *sqlstore.Store { return s.st().Obj() }
+// obj is the handle this store reads and writes routd.db through, and it is the
+// same handle the store above uses.
+func (s *Store) obj() objstore.Store { return s.st().Obj() }

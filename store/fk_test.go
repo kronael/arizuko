@@ -221,7 +221,7 @@ func TestHotTier_PurgedOnGroupDelete(t *testing.T) {
 	if got := s.LastReplyID("web:acme", ""); got != "" {
 		t.Errorf("the deleted folder's reply state survived: %q", got)
 	}
-	queued, err := s.QueuedSystemMessagesTx(ctx, nil, "acme/inbox")
+	queued, err := s.QueuedSystemMessages(ctx, "acme/inbox")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +251,7 @@ func TestHotTier_PurgedOnGroupDelete(t *testing.T) {
 	if got := s.LastReplyID("web:other", ""); got != "m-2" {
 		t.Errorf("the purge widened onto the sibling folder's reply state: %q", got)
 	}
-	kept, err := s.QueuedSystemMessagesTx(ctx, nil, "acmeworks")
+	kept, err := s.QueuedSystemMessages(ctx, "acmeworks")
 	if err != nil {
 		t.Fatal(err)
 	}

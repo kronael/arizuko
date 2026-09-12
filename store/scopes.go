@@ -242,7 +242,10 @@ func (s *Store) WriteEntitiesInTx(ctx context.Context, tx *sql.Tx, checks []objs
 // TryWriteEntitiesInTx is TryWriteEntities on the caller's transaction.
 func (s *Store) TryWriteEntitiesInTx(ctx context.Context, tx *sql.Tx, checks []objstore.Check,
 	writes ...objstore.Write) (bool, error) {
-	return s.Obj().GuardedBatchInTx(ctx, tx, checks, withBumps(writes))
+	if tx != nil {
+		return false, errors.New("store: a batch in a transaction, which this store does not open")
+	}
+	return s.Obj().GuardedBatch(ctx, checks, withBumps(writes))
 }
 
 // writeVia is WriteEntities on a transaction the caller owns when it owns one,
@@ -331,62 +334,19 @@ type EntityQuerier interface {
 	Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error)
 }
 
-// txReader reads through a transaction the caller owns.
-type txReader struct {
-	s  *Store
-	tx *sql.Tx
-}
-
-func (r txReader) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
-	return r.s.Obj().QueryInTx(ctx, r.tx, q)
-}
-
-// txStore is objstore.Store bound to a transaction the caller owns, so a
-// PROTOCOL — which is written over the two primitives and knows nothing about
-// transactions — can run inside one.
-//
-// objstore.Increment is the caller: a message written on the resolution path
-// commits with the pending row it answers, and the folder count it moves has to
-// commit with both or a folder counts a message the transaction rolled back.
-type txStore struct {
-	s  *Store
-	tx *sql.Tx
-}
-
-func (t txStore) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
-	return t.s.Obj().QueryInTx(ctx, t.tx, q)
-}
-
-func (t txStore) GuardedBatch(ctx context.Context, checks []objstore.Check,
-	writes []objstore.Write) (bool, error) {
-	return t.s.Obj().GuardedBatchInTx(ctx, t.tx, checks, writes)
-}
-
-// objStore is the handle a protocol should run through: the pool when the caller
-// owns no transaction, and the caller's transaction when it does.
+// objStore is the handle a protocol runs through. The store opens no
+// transaction, so there is one handle and it is the pool's.
 func (s *Store) objStore(tx *sql.Tx) objstore.Store {
-	if tx == nil {
-		return s.Obj()
-	}
-	return txStore{s: s, tx: tx}
+	_ = tx
+	return s.Obj()
 }
 
-// reads is the handle a body should read through: the pool when it owns no
-// transaction, and the caller's transaction when it does.
-//
-// A WRITER THAT READS ITS OWN DECISION MUST READ THROUGH ITS OWN TRANSACTION.
-// Reading through the pool instead is wrong twice: it is a torn read — the
-// writes this transaction has already made are invisible, so a delete set
-// misses the row the same transaction just wrote — and on the engine the tests
-// run, SQLite in shared-cache memory, the transaction holds the write lock and a
-// read on another connection of the same cache waits for it. The caller waits
-// for itself, forever. That is how `arizuko group rm` and every group creation
-// stopped answering.
+// reads is the handle a body reads through. A writer that decides from what it
+// read reads BEFORE it builds its writes, so there is one handle and it is the
+// pool's.
 func (s *Store) reads(tx *sql.Tx) EntityQuerier {
-	if tx == nil {
-		return s.Obj()
-	}
-	return txReader{s: s, tx: tx}
+	_ = tx
+	return s.Obj()
 }
 
 // putIfAbsent is the funnel's create-if-absent, for an opener holding a Driver
@@ -397,7 +357,7 @@ func (s *Store) reads(tx *sql.Tx) EntityQuerier {
 // consistent read over the scope it moves, and scopes_test.go is the lock on
 // that door. A refusal is the item already being there, which is the outcome
 // the caller wants — nothing else can refuse a create-if-absent.
-func putIfAbsent(ctx context.Context, d Driver, w objstore.Write) error {
+func putIfAbsent(ctx context.Context, d objstore.Store, w objstore.Write) error {
 	// A Merge already carries the semantics in its OP — it creates what it does
 	// not find and leaves what it does — and refuses a condition outright, so it
 	// is handed over as it came.

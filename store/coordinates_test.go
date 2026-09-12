@@ -199,7 +199,7 @@ func TestTheHotTierRoundTripsEveryAttributeItCarries(t *testing.T) {
 		if err := s.EnqueueSystemMessage("other", "system", "note", "not ours"); err != nil {
 			t.Fatal(err)
 		}
-		queued, err := s.QueuedSystemMessagesTx(ctx, nil, "team")
+		queued, err := s.QueuedSystemMessages(ctx, "team")
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -31,7 +31,6 @@ package store
 import (
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"strings"
@@ -151,14 +150,14 @@ func (s *Store) CountSystemMessages(ctx context.Context) (int, error) {
 // QueuedSystemMessagesTx reads a folder's queue in the order it was written, on
 // a transaction the CALLER owns — the same transaction the drain runs in, so no
 // event is rendered by one flush and deleted by another.
-func (s *Store) QueuedSystemMessagesTx(ctx context.Context, tx *sql.Tx, folder string) ([]SystemMessage, error) {
+func (s *Store) QueuedSystemMessages(ctx context.Context, folder string) ([]SystemMessage, error) {
 	if folder == "" {
 		return nil, nil
 	}
 	if strings.Contains(folder, KeySep) {
 		return nil, fmt.Errorf("system message folder %q carries the coordinate separator", folder)
 	}
-	items, err := s.reads(tx).Query(ctx, objstore.Query{
+	items, err := s.Obj().Query(ctx, objstore.Query{
 		Entity: SystemMessages, Partition: OwnerRoutd,
 		Key: objstore.KeyPredicate{Op: objstore.PrefixKey, Value: folder + KeySep},
 	})
@@ -182,27 +181,28 @@ func (s *Store) QueuedSystemMessagesTx(ctx context.Context, tx *sql.Tx, folder s
 	return out, nil
 }
 
-// DrainSystemMessagesTx removes exactly the events a read produced, on the
+// DrainSystemMessages removes exactly the events a read produced, and reports
+// whether it got them all. It replaces the
 // caller's transaction. Delivery is at most once, so the drain commits with the
 // prompt that carried them.
-func (s *Store) DrainSystemMessagesTx(ctx context.Context, tx *sql.Tx,
-	folder string, msgs []SystemMessage) error {
+func (s *Store) DrainSystemMessages(ctx context.Context,
+	folder string, msgs []SystemMessage) (bool, error) {
 	writes := make([]objstore.Write, 0, len(msgs))
 	for _, m := range msgs {
 		key, err := sysMsgKey(folder, m.at)
 		if err != nil {
-			return err
+			return false, err
 		}
+		// The delete IS the claim: an event another flush already took is gone,
+		// the condition refuses, and the whole set stays queued for a reader that
+		// can name it. No event reaches two prompts and none is lost.
 		writes = append(writes, objstore.Write{
 			Op: objstore.Delete, Entity: SystemMessages, Key: key,
+			Cond: objstore.Cond{Item: objstore.ItemPresent},
 		})
 	}
 	if len(writes) == 0 {
-		return nil
+		return false, nil
 	}
-	_, err := applyChunks(ctx, "drain the system events of "+folder, writes,
-		func(ctx context.Context, chunk []objstore.Write) (bool, error) {
-			return s.TryWriteEntitiesInTx(ctx, tx, nil, chunk...)
-		})
-	return err
+	return s.TryWriteEntities(ctx, nil, writes...)
 }
