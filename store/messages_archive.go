@@ -67,12 +67,10 @@ const naiveDatetime = "2006-01-02 15:04:05"
 // ReadMessageInstant parses a stored or archived timestamp into the instant a
 // message position is built from.
 //
-// A NAIVE DATETIME IS READ AS UTC. Migration 0044 deliberately left those two
-// rows alone, because padding a ROW in place would have invented a zone it never
-// had — but an item has no position without an instant, so the choice here is to
-// read them or to drop two messages. Reading them as UTC is what 0044 should have
-// done: the instance writes UTC and has always written UTC, so the zone is not
-// invented, it is the one the row was recorded in.
+// A NAIVE DATETIME IS READ AS UTC. An item has no position without an instant, so
+// the choice for the two krons rows that carry one is to read them or to drop two
+// messages. The instance writes UTC and has always written UTC, so the zone is
+// not invented, it is the one the row was recorded in.
 func ReadMessageInstant(raw string) (time.Time, error) {
 	for _, layout := range []string{time.RFC3339Nano, naiveDatetime} {
 		if t, err := time.Parse(layout, raw); err == nil {

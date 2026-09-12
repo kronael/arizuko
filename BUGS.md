@@ -7,6 +7,39 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## ✅ FIXED 2026-09-12 L274 — routd cannot open a migrated instance: the chain still ran an UPDATE against a column the move removed (2026-09-12)
+
+REPRODUCED on a copy of sloth's live `routd.db` (routd version 40; krons is 43,
+marinade 40 — all three below 44, so `0044` is pending on every instance):
+
+```
+$ arizuko migrate-hot --db ./routd.db
+  verified messages 19298 ... verified chats 53 cursors, same position
+$ routd.OpenAt("./routd.db")
+OPEN FAILED: 0044-fixed-width-timestamps.sql: no such column: timestamp
+```
+
+`migrate-hot` renames `messages` to `messages_v1` and the entity takes the name,
+so the three-column table is what the pending `UPDATE messages SET timestamp =
+...` meets. Every instance would have failed to start after its own migration,
+and recovery needs a backup — there is no rollback.
+
+The statement had nothing left to do. `migrate-hot` renders every instant through
+the writer that enforces the width, and it verifies the result by the SET of rows
+each cursor leaves unfed rather than by bytes. MEASURED on two copies of the same
+sloth database, one padded by the SQL first and one not — 7,592 rows of
+difference at the input — the `messages` keys and the `chats` items came out
+byte-identical, all 19,298 of them.
+
+- **Severity:** critical — no instance starts after its own migration
+- **Scope:** `routd/migrations/0044-fixed-width-timestamps.sql`, `routd/db.go`
+- **Affected:** krons, marinade, sloth — every instance, measured
+- **Status:** fixed
+- **Fix:** the chain entry holds no statement, like its neighbours whose tables
+  became entities. `NormalizeFixedWidthTimestamps` went with it: nothing called
+  it, and it executed the same file. Both orders — move-then-open and
+  open-then-move — now reach `OPEN OK` on a live sloth copy.
+
 ## ✅ FIXED 2026-09-10 L266 — `arizuko apply` of an UNMODIFIED export destroys every route token and every github source (2026-09-08)
 
 REPRODUCED 2026-09-08 on a copy of marinade's routd.db, read-only against the
@@ -954,7 +987,7 @@ design, and `cost_log_archive` is deliberately left behind by `6/39`.
 - **Status:** open — proposal, needs sign-off
 - **Fix:** resreg resources for the four runtime tables, so one lane carries them
 
-## L250 — migration 0044 pads RFC3339 timestamps and silently leaves any other shape unpadded (2026-09-07, open)
+## ✅ FIXED 2026-09-12 L250 — migration 0044 pads RFC3339 timestamps and silently leaves any other shape unpadded (2026-09-07)
 
 MEASURED on a migrated krons snapshot: after `routd/0044`, two `messages` rows
 still carry a 19-character timestamp, `'2026-04-02 12:38:47'` — SQLite's
@@ -963,26 +996,25 @@ and `debug-1775135388`, so a person inserted them by hand in April 2026.
 
 `core.TSLayout` is fixed width precisely so string order is time order. A space
 (0x20) sorts before `T` (0x54), so these two rows sort ahead of every real
-message of that date. Both are long behind every cursor, so nothing is wrong
-today. The defect is that `0044` reports success over rows it did not convert
-and no check exists that would find the next one.
+message of that date.
 
 **It was not harmless, and I said it was** (2026-09-09). Those two rows are what
 `DeriveAgentCursors` met when `chats` became an entity: `MAX(timestamp)` returned
 the 19-byte value, the ordered-width declaration refused it, and the operation
 aborted — leaving every alphabetically LATER chat with no cursor at all, which is
-the precise state deriving cursors exists to prevent. A review caught it before
-it shipped and the migration now normalises the width. A row one migration
-"leaves alone" is a row the next migration meets.
+the precise state deriving cursors exists to prevent.
 
 - **Severity:** medium — two rows on one instance, and they aborted a fleet operation
-- **Scope:** `routd/migrations/0044-fixed-width-timestamps.sql`
+- **Scope:** `store/import_hot.go`, `store/messages_archive.go`
 - **Affected:** krons only, measured
-- **Source:** `SELECT count(*) FROM messages WHERE length(timestamp) <> 30` = 2
-- **Status:** open
-- **Fix:** a post-migration assertion that the padded column has one width, so a
-  shape the pad does not recognise fails the migration instead of passing it
-
+- **Status:** fixed
+- **Fix:** the silence is gone because the pad is gone. `store.ReadMessageInstant`
+  is the one parser for a row and for a cursor; it reads the naive datetime as
+  UTC, which is the zone the instance has always written, and it REFUSES any
+  other shape by name. VERIFIED on a sloth copy with one row set to
+  `not-an-instant`: the move aborts with `message "255" in chat
+  "telegram:group/5069669817"` and sets nothing aside, so no half-moved database
+  exists to recover from.
 ## L240 — the egress proxy and its spawn draw random addresses independently, so ~1 run in 250 collides (2026-09-06)
 
 `randomIP` (`container/egress.go:150-183`) picks a host from the folder's /24

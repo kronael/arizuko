@@ -16,17 +16,17 @@ package store
 // back against that column with `>`, so re-rendering a cursor while its rows are
 // unrendered MOVES it relative to them: a padded cursor sorts before the
 // unpadded rows of its own second, which re-fed 28 consumed messages on krons
-// when it was measured (routd migration 0044). Rows before cursors is what that
-// migration did in one file, and the move splits it across two steps in the same
-// order: the chain pads the rows and `arizuko migrate-hot` refuses to start
-// until it has, then this file pads the cursors as it carries them.
+// when it was measured (BUGS L97). Rows before cursors is no longer an order to
+// preserve: this file writes the rows first, through the one writer that renders
+// every instant at the declared width, and then derives each chat's cursor from
+// the keys that landed. A cursor cannot be rendered ahead of its rows because it
+// is not carried at all.
 //
-// A CURSOR OF A SHAPE THE ROWS DO NOT SHARE IS REFUSED. Migration 0044 pads only
-// the RFC3339-with-Z values and leaves a hand-written `2026-04-02 12:38:47`
-// alone, because padding it would invent a zone it never had — so a cursor of
-// that shape must be left alone too, and a cursor this move cannot leave alone
-// is one it would shift relative to a row it did not touch. normaliseCursor
-// names it instead of guessing.
+// ONE READER SETTLES BOTH. A cursor and the rows it is a position among are
+// parsed by store.ReadMessageInstant and nothing else, so a value either side
+// can name — the hand-written `2026-04-02 12:38:47` two krons rows carry
+// included — is read the same way on both. A cursor of a shape no row can be
+// built from is refused by name rather than guessed at (normaliseCursor).
 //
 // `chat_reply_state.engaged_until`, `chat_proactive.proactive_last_fired_at`,
 // `sessions.forked_at` and `turn_results.recorded_at` are re-rendered outright,
@@ -148,11 +148,11 @@ var hotDerivedCursors = map[string]string{
 
 // normaliseCursor re-renders a cursor at core.TS's width, or names it.
 //
-// The layouts it accepts are exactly the ones routd's migration 0044 pads in
-// `messages`: an RFC3339 or RFC3339Nano instant ending in Z, which core.TSLayout
-// is the fixed-width member of. A value of any other shape — the hand-written
-// `2026-04-02 12:38:47` that migration deliberately skips — is refused, because
-// its rows were skipped too and moving the cursor alone is the whole failure.
+// It accepts exactly what a message row accepts, because store.ReadMessageInstant
+// is the one parser for both: an RFC3339 or RFC3339Nano instant ending in Z, of
+// which core.TSLayout is the fixed-width member, or a naive datetime read as UTC.
+// A value of any other shape is refused by name — a cursor this move cannot
+// render names a position among rows it cannot render either.
 func normaliseCursor(entity, attr, raw string) (string, error) {
 	if raw == "" {
 		return "", nil
@@ -236,7 +236,10 @@ func hotKey(entity string, key []string) (objstore.Key, error) {
 	case Messages:
 		t, err := ReadMessageInstant(key[1])
 		if err != nil {
-			return objstore.Key{}, err
+			// The abort is the operator's only way in, so it names the row: a
+			// value no layout reads is one a person put there by hand, and the
+			// id is what finds it again among twenty thousand.
+			return objstore.Key{}, fmt.Errorf("message %q in chat %q: %w", key[2], key[0], err)
 		}
 		return MessageKey(key[0], core.TS(t), key[2])
 	case SystemMessages:
@@ -473,11 +476,10 @@ func (s *Store) ImportHot(ctx context.Context, snap RoutdSnapshot) (RoutdCounts,
 // messageRowsFrom renders the legacy message rows as the archive's row shape, so
 // the move and the restore reach ONE writer.
 //
-// The naive datetimes two krons rows carry — `2026-04-02 12:38:47`, which
-// migration 0044 deliberately left alone because padding a ROW would invent a
-// zone — are read as UTC here. Every item needs a position and a position needs
-// an instant, so the choice is to read them or to drop two messages, and reading
-// them is what 0044 should have done.
+// The naive datetimes two krons rows carry — `2026-04-02 12:38:47` — are read as
+// UTC here. Every item needs a position and a position needs an instant, so the
+// choice is to read them or to drop two messages. The instance writes UTC and has
+// always written UTC, so the zone is the one the row was recorded in.
 func messageRowsFrom(rows []RoutdRow) []ArchiveMessageRow {
 	out := make([]ArchiveMessageRow, 0, len(rows))
 	for _, r := range rows {

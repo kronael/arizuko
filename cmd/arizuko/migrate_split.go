@@ -463,11 +463,10 @@ func migrateSplit(storeDir string, dryRun bool) error {
 	if err != nil {
 		return fmt.Errorf("routd.db: %w", err)
 	}
-	// THE NORMALISER IS GONE BECAUSE THE COLUMN IS. migration 0044 pads
-	// `messages.timestamp`, and `messages` is an entity: every instant is
-	// rendered through core.TS on the way in, by the one writer the move and the
-	// restore share, so there is no unpadded value left for it to find. Running
-	// it here now fails on a table of three columns. The two cursors travel with
+	// THERE IS NO NORMALISING STEP BECAUSE THERE IS NO COLUMN. `messages` is an
+	// entity: every instant is rendered through core.TS on the way in, by the one
+	// writer the move and the restore share, so no unpadded value can reach the
+	// other side (BUGS L97). The two cursors travel with
 	// copyHotEntities, which pads `sessions.observed_cursor` as it carries it and
 	// DERIVES `chats.agent_cursor` from the rows once they have landed (BUGS
 	// L219, L97).

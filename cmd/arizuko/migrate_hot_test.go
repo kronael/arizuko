@@ -1,14 +1,15 @@
 package main
 
-// migrate_hot_test.go proves the half of BUGS L97 that lives in the move rather
-// than in the migration chain: the CURSORS.
+// migrate_hot_test.go proves BUGS L97 where the move settles it: a cursor and the
+// rows it is a position among reach the fixed width TOGETHER.
 //
-// routd's migration 0044 pads the message rows and this tool pads the two
-// cursors that compare against them, in that order, and the order is what the
-// failure was: cursors normalised while rows are not re-fed 28 consumed messages
-// on krons. The tool refuses to start while the rows are unpadded, so the order
-// cannot be got wrong — and the refusal is proved here as well as the padding,
-// because a guard nobody fires is a guard nobody has.
+// The order is what the failure was. A cursor rendered while its rows are not
+// sorts before the unpadded rows of its own second, which re-fed 28 consumed
+// messages on krons. This tool cannot reach that state: it writes the rows
+// first, through the writer that renders every instant at core.TS's width, and
+// then derives each chat's cursor from the keys that landed. What is pinned here
+// is that the derivation lands on the same position the old cursor named, over
+// each legacy shape an instance actually holds.
 
 import (
 	"context"
@@ -166,8 +167,8 @@ func TestMigrateHotPadsACursorOntoItsAlreadyPaddedRows(t *testing.T) {
 }
 
 // TestMigrateHotCarriesAnUnpaddedRowAndItsCursorTogether is the order the
-// failure was, pinned where the shape now settles it. A pre-0044 instance holds
-// an unpadded row AND an unpadded cursor; both are rendered at core.TS's width
+// failure was, pinned where the shape now settles it. The instance holds an
+// unpadded row AND an unpadded cursor; both are rendered at core.TS's width
 // on the way in — the row by the message writer, the cursor by the derivation
 // that reads the keys the rows became — so neither can move relative to the
 // other, and the chat's unfed set is what it was.
@@ -176,7 +177,7 @@ func TestMigrateHotCarriesAnUnpaddedRowAndItsCursorTogether(t *testing.T) {
 	db := openHot(t, path)
 	const jid = "slack:T/C/U"
 
-	// A row 0044 would still pad: the state a pre-0044 instance is in.
+	// A row stored before the fixed width was enforced, and its cursor with it.
 	insertHotMessage(t, db, "unpadded", jid, "2026-08-26T19:06:41Z")
 	if _, err := db.Exec(
 		`INSERT INTO chats (jid, agent_cursor) VALUES (?, '2026-08-26T19:06:41Z')`, jid,
@@ -217,8 +218,7 @@ func mustCursor(t *testing.T, st *store.Store, jid string) string {
 // TestMigrateHotReadsACursorTheWayItReadsItsRows is the other half of the same
 // rule, and the rule changed with the rows.
 //
-// Migration 0044 left a hand-written `2026-04-02 12:38:47` alone because padding
-// a ROW in place would invent a zone it never had. An item has no position
+// A hand-written `2026-04-02 12:38:47` names no zone. An item has no position
 // without an instant, so the move reads such a row as UTC rather than dropping
 // it — and the moment it does, the cursor MUST be read the same way. One reader
 // for both is what stops the two drifting: a cursor refused while its rows were
