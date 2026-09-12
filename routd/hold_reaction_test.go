@@ -142,9 +142,10 @@ func TestReactionVerdict_RunsTheOrdinaryCommandPath(t *testing.T) {
 	}
 }
 
-// TestReactionVerdict_NonOperatorIsRefused — the gesture inherits the gate, it
-// does not bypass it. A reaction is a thing anyone in the chat can leave.
-func TestReactionVerdict_NonOperatorIsRefused(t *testing.T) {
+// TestReactionVerdict_BystanderIsRefused — the gesture inherits the gate, it
+// does not bypass it. A reaction is a thing anyone in the chat can leave, and
+// the gate asks whether that person holds admin on the held call's folder.
+func TestReactionVerdict_BystanderIsRefused(t *testing.T) {
 	db, loop, _ := recLoop(t)
 	loop.deliver = &recDeliverer{}
 	putHeldWithNotice(t, db, "ab12", "m7")
