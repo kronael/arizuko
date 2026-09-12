@@ -431,7 +431,9 @@ and the largest chat partition measured is 10,688 rows. The four sort-key
 inequalities on the interface were admitted for four of these reads, so this
 entity is the reason they exist.
 
-**The id has to be IN the sort key.** Thirty-two pairs on krons share a second,
+**The id has to be IN the sort key.** On krons 1,195 pairs carry an identical
+timestamp string, 245 of them inside one chat, and 10,488 pairs share a second
+inside one chat —
 and a time-only key would put two messages on one item. That changes the cursor:
 `chats.agent_cursor` is 30 bytes compared `> timestamp` today, and under a
 composite key it must hold the whole sort key or a message at exactly the cursor
@@ -445,14 +447,50 @@ all chats and throws most rows away. `chats` IS the partition list — 136 items
 krons — and already holds each chat's own cursor, so the loop reads each chat
 from its own watermark and `MinAgentCursor` goes.
 
-Three reads still carry no partition and each needs its own answer.
-`ObservedSince` reads by `routed_to` folder across siblings, and routing is
-dynamic so the historical set cannot be recovered from the route table — it needs
-a second entity keyed by folder, written by the same write that stamps
-`routed_to`. `PendingOutbound` is a work queue over a mutable status living in a
-history row; separating delivery state from the message is rule 5 and is what
-gives the retry feed a coordinate. `ProactiveChats` is a `DISTINCT chat_jid` that
-becomes an attribute on `chats`.
+**Sixteen live reads carry no `chat_jid`, not three.** The first count was wrong;
+gopls settles that six of `store/messages.go`'s copies are test-only, leaving
+sixteen live operations against twenty-one reads and ten writes. They are
+answered by ONE idea rather than sixteen: a document store fans out at write
+time into read-shaped indexes, and each index is an entity like any other.
+
+**Three indexes, and the message itself stays in one place.**
+
+- **The folder feed** answers `ObservedSince` and `DeadLetters(folder)`.
+  Partition the folder, sort `core.TS + sep + id`, and carry a POINTER — the
+  message's chat and the attributes the feed filters on (`sender`,
+  `is_observed`) — never a copy. A reader queries the folder partition and then
+  fetches the items it will actually render. One source of truth, and the index
+  costs what its filters cost. It carries a count too, maintained by
+  `objstore.Increment` on the same write, which is what answers
+  `MessageActivityByFolder` over 95 folders without reading any of them.
+  Its writers are BOTH sites that stamp `routed_to` — `PutMessage` as well as
+  the observed path — which the first version of this section missed.
+- **The activity feed** answers `handleActivity`, the newest thousand across
+  every chat. One constant partition, sort `core.TS + sep + id`. Affordable only
+  with a retention sweep, and the sweep is part of the entity rather than a
+  later idea: an index with no drainage is the mistake `turn_context` already
+  records.
+- **Delivery state leaves the message.** `status`, `platform_id` and
+  `delivery_attempts` are mutable state on a history row, which is rule 5 and
+  the reason the retry feed has no coordinate today. Partition the status, sort
+  `core.TS + sep + id`: the work queue then IS a partition, it drains, and
+  `RecordDeliveryFailure`'s read-modify-write becomes `objstore.Increment`.
+  `core.Message` stops carrying the three, and `msgReadCols`' callers read the
+  delivery item alongside when they need it.
+
+`ProactiveChats` is a `DISTINCT chat_jid` that becomes an attribute on `chats`.
+
+**An operator naming a bare message id** — `DeadLetterByID`, `ReplayDeadLetter` —
+passes the coordinate it just read, because every such id comes from a list the
+same surface rendered. No id-to-coordinate index is built for a caller that
+already holds the answer; if one ever genuinely starts from an id alone, that is
+when the index earns itself.
+
+**The two 19-byte rows** (`L250`, `2026-04-02 12:38:47` on krons) are read as
+UTC by the migration. Every item needs a `core.TS` sort key and the move cannot
+carry a naive datetime, so the choice is to normalise or to drop two messages.
+Normalising is what `0044` should have done, and the widening is recorded there
+rather than invented here.
 
 **Search is a daemon with its own database and one verb** —
 `Search(text, scope, sender, since, limit)`, which is today's `FoundMessage`
