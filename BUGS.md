@@ -7,6 +7,32 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L283 — the agent turn container runs unhardened while its own egress sidecar is locked down (2026-09-12, open — needs sign-off)
+
+MEASURED at `container/runner.go:678-700`: the `docker run` that executes an
+agent turn carries `--rm`, `--name` and `--shm-size=1g`, and nothing else. No
+`--cap-drop`, no `--security-opt`, no `--read-only`, no `--pids-limit`, no
+`--memory`. The egress sidecar beside it carries `--cap-drop ALL --read-only`
+(`container/egress.go:249-250`).
+
+The hardening sits on the process that proxies traffic and not on the process
+that runs whatever the model produced. `SECURITY.md:49` names "a malicious agent
+in group A" in the threat model, and today that agent holds the default Docker
+capability set on a shared kernel.
+
+`runed` also mounts `/var/run/docker.sock` (`compose/compose.go:1004-1009`), so
+the daemon that spawns turns holds root-equivalent access to the host.
+
+- **Severity:** high — the isolation boundary is weaker than the threat model states
+- **Scope:** `container/runner.go`, `compose/compose.go`
+- **Affected:** krons, marinade, sloth — every turn on every instance
+- **Status:** open — the flag set is a new contract for every spawn, so it needs
+  sign-off before it ships
+- **Fix:** the turn spawn declares the same restrictions the sidecar already
+  declares, from ONE place both read, so a new spawn site cannot be born
+  unhardened. `--runtime=runsc` is the separate, larger question: it is one
+  `daemon.json` line and changes no arizuko mechanism.
+
 ## L276 — re-running `migrate-hot` after routd has taken writes rolls every cursor back, and the refusal comes too late to stop it (2026-09-12, open)
 
 REPRODUCED on a migrated copy of sloth's `routd.db`. The move derives each chat's
