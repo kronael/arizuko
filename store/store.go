@@ -23,6 +23,11 @@ const serviceName = "store"
 
 type Store struct {
 	db *sql.DB
+
+	// obj is the handle every read and write goes through. A store built over a
+	// pool makes one for it; a store handed a handle uses that one and holds no
+	// pool at all, which is what lets it run over a store that is not SQL.
+	obj objstore.Store
 	// secretKeys is the AES-256 keyring for the secrets table. keys[0] is the
 	// active key used to seal new writes; the rest are decrypt-only, retained
 	// so an operator can rotate the active key without losing access to values
@@ -101,7 +106,7 @@ func Open(dir string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Store{db: db}
+	s := &Store{db: db, obj: sqlstore.New(db)}
 	if err := migrate(db); err != nil {
 		db.Close()
 		return nil, err
@@ -156,7 +161,7 @@ func openOwned(path, file, table, owner string) (*Store, error) {
 		return nil, fmt.Errorf("%s at %s has no %s table (%s must boot to migrate it first)",
 			file, path, table, owner)
 	}
-	return &Store{db: db}, nil
+	return &Store{db: db, obj: sqlstore.New(db)}, nil
 }
 
 // OpenMem opens a fresh, private, empty store for one test and migrates it — on
@@ -176,7 +181,7 @@ func OpenMem() (*Store, error) {
 		}
 		return nil, err
 	}
-	return &Store{db: db, release: release}, nil
+	return &Store{db: db, obj: sqlstore.New(db), release: release}, nil
 }
 
 func (s *Store) Close() error {
@@ -237,7 +242,14 @@ func migrate(db *sql.DB) error {
 // New wraps an already-open *sql.DB as a *Store. Caller owns the db lifetime
 // and must have run migrations.
 func New(db *sql.DB) *Store {
-	return &Store{db: db}
+	return &Store{db: db, obj: sqlstore.New(db)}
+}
+
+// NewOver wraps a handle the caller owns. The store holds no pool, so the
+// SQL-only doors on it — Close, DB and the ranked search index — are not
+// available and the reads and writes are.
+func NewOver(obj objstore.Store) *Store {
+	return &Store{obj: obj}
 }
 
 // DB returns the underlying *sql.DB for callers that need raw query access
@@ -254,7 +266,7 @@ func (s *Store) DB() *sql.DB { return s.db }
 // It is built per call rather than held: sqlstore.New reads the engine off the
 // pool with a type assertion, and a field would have to be filled in at four
 // constructors and survive every shallow copy AsUser makes.
-func (s *Store) Obj() objstore.Store { return sqlstore.New(s.db) }
+func (s *Store) Obj() objstore.Store { return s.obj }
 
 // btoi converts a bool to the 0/1 an INTEGER column stores. It lives here rather
 // than beside one caller because the tables that still have columns share it.
