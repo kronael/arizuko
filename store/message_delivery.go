@@ -58,13 +58,18 @@ func deliveryKey(status string, msgKey objstore.Key) objstore.Key {
 
 // deliveryWrite renders the delivery item a message takes, and reports whether
 // it takes one. A sent row takes none, which is what makes `sent` the absence.
-func deliveryWrite(msgKey objstore.Key, m core.Message, status string) (objstore.Write, bool) {
+func deliveryWrite(msgKey objstore.Key, m core.Message, status string,
+	attempts int) (objstore.Write, bool) {
 	if status == "" || status == core.MessageStatusSent {
 		return objstore.Write{}, false
 	}
+	attrs := map[string]string{attrDelChatJID: m.ChatJID}
+	if attempts > 0 {
+		attrs[attrDelAttempts] = strconv.Itoa(attempts)
+	}
 	return objstore.Write{
 		Op: objstore.Put, Entity: MessageDelivery, Key: deliveryKey(status, msgKey),
-		Attrs: map[string]string{attrDelChatJID: m.ChatJID},
+		Attrs: attrs,
 	}, true
 }
 

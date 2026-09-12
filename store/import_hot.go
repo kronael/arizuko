@@ -499,6 +499,10 @@ func messageRowsFrom(rows []RoutdRow) []ArchiveMessageRow {
 			IsObserved:   r.Attrs["is_observed"] == "1",
 			Errored:      r.Attrs["errored"] == "1",
 		}
+		// A parse this cannot make is a zero, because an attempt count is what
+		// the dead-letter page reports and not what any decision turns on: it
+		// must never be the reason a message does not travel.
+		m.DeliveryAttempts, _ = strconv.Atoi(r.Attrs["delivery_attempts"])
 		out = append(out, m)
 	}
 	return out

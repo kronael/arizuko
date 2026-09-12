@@ -58,6 +58,12 @@ type ArchiveMessageRow struct {
 	ChatName      string `json:"chat_name,omitempty"`
 	Errored       bool   `json:"errored"`
 	LinkContext   string `json:"link_context,omitempty"`
+
+	// DeliveryAttempts is how many sends this row has already cost. It belongs
+	// to the delivery item rather than the message, and it is what the operator's
+	// dead-letter page reports, so an archive that dropped it would restore a
+	// queue whose every row claims never to have been tried.
+	DeliveryAttempts int `json:"delivery_attempts,omitempty"`
 }
 
 // naiveDatetime is the layout of a hand-written timestamp with no zone. Two krons
@@ -96,19 +102,30 @@ type UnorderableMessage struct {
 	Timestamp string
 }
 
+// undelivered is one row's delivery state: the status stored as the ABSENCE of a
+// `sent` item, and the attempts already spent on it.
+type undelivered struct {
+	status   string
+	attempts int
+}
+
 // undeliveredStatus reads which rows are not `sent`, so the export can stamp a
-// status that is stored as an absence.
-func (s *Store) undeliveredStatus(ctx context.Context) (map[string]string, error) {
-	out := map[string]string{}
+// state that is stored as an absence.
+func (s *Store) undeliveredStatus(ctx context.Context) (map[string]undelivered, error) {
+	out := map[string]undelivered{}
 	for _, status := range []string{core.MessageStatusPending, core.MessageStatusFailed} {
 		items, err := s.Obj().Query(ctx, objstore.Query{
-			Entity: MessageDelivery, Partition: status, Project: []string{},
+			Entity: MessageDelivery, Partition: status,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("read the %s deliveries: %w", status, err)
 		}
 		for _, it := range items {
-			out[it.Key.Sort] = status
+			n, err := parseCount(it.Attrs[attrDelAttempts])
+			if err != nil {
+				return nil, fmt.Errorf("%s's attempt count: %w", it.Key.Sort, err)
+			}
+			out[it.Key.Sort] = undelivered{status: status, attempts: n}
 		}
 	}
 	return out, nil
@@ -135,8 +152,8 @@ func (s *Store) ExportMessagesJSONL(ctx context.Context, w io.Writer) (int, erro
 		}
 		for _, it := range items {
 			row := archiveRowFrom(it)
-			if st, undelivered := status[it.Key.Sort]; undelivered {
-				row.Status = st
+			if st, owed := status[it.Key.Sort]; owed {
+				row.Status, row.DeliveryAttempts = st.status, st.attempts
 			} else {
 				row.Status = core.MessageStatusSent
 			}
@@ -422,7 +439,7 @@ func importedMessageWrites(m ArchiveMessageRow) ([]objstore.Write, error) {
 		// target already holds must not double-count its folder.
 		writes = append(writes, feed)
 	}
-	if w, owes := deliveryWrite(key, msg, m.Status); owes {
+	if w, owes := deliveryWrite(key, msg, m.Status, m.DeliveryAttempts); owes {
 		writes = append(writes, w)
 	}
 	return writes, nil

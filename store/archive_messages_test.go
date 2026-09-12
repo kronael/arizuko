@@ -17,6 +17,7 @@ import (
 	"database/sql"
 	"path/filepath"
 	"strings"
+	"time"
 	"testing"
 
 	"github.com/kronael/arizuko/core"
@@ -103,8 +104,22 @@ func TestMessagesRoundTripEveryColumn(t *testing.T) {
 		ID: "m2", ChatJID: "slack:C1", Sender: "u9",
 		Content: "bare", Timestamp: ts(t, "10:01"),
 	}
-	insertMsg(t, srcSt, full)
+	// The attempt count lives on the delivery item rather than the message, and
+	// only exhausting the retries puts one there: the row is seeded pending and
+	// driven to the dead-letter set the way a real send fails. A dead letter that
+	// restores claiming never to have been tried is the shape this pins.
+	owed := full
+	owed.Status = core.MessageStatusPending
+	insertMsg(t, srcSt, owed)
 	insertMsg(t, srcSt, sparse)
+
+	dying := core.Message{ID: full.ID, ChatJID: full.ChatJID,
+		Timestamp: mustInstant(t, full.Timestamp)}
+	for range 2 {
+		if _, _, err := srcSt.RecordDeliveryFailure(context.Background(), dying, 2); err != nil {
+			t.Fatalf("record a delivery failure: %v", err)
+		}
+	}
 
 	var buf bytes.Buffer
 	n, err := srcSt.ExportMessagesJSONL(context.Background(), &buf)
@@ -140,6 +155,28 @@ func TestMessagesRoundTripEveryColumn(t *testing.T) {
 	if back.String() != buf.String() {
 		t.Errorf("the round trip changed the rows\n src: %s\ndest: %s", buf.String(), back.String())
 	}
+
+	dead, err := dstSt.DeadLetters(context.Background(), "", 0)
+	if err != nil {
+		t.Fatalf("read the restored dead letters: %v", err)
+	}
+	if len(dead) != 1 {
+		t.Fatalf("%d dead letters restored, want 1", len(dead))
+	}
+	if dead[0].Attempts != 2 {
+		t.Errorf("the restored dead letter reports %d attempts, want the 2 it cost",
+			dead[0].Attempts)
+	}
+}
+
+// mustInstant parses an archived timestamp or fails.
+func mustInstant(t *testing.T, raw string) time.Time {
+	t.Helper()
+	at, err := store.ReadMessageInstant(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return at
 }
 
 // "Idempotent bulk append, not rebuild": re-running the same archive, or

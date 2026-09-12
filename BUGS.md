@@ -7,6 +7,36 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## ✅ FIXED 2026-09-12 L275 — the move and the archive drop `delivery_attempts`, so every restored dead letter claims never to have been tried (2026-09-12)
+
+MEASURED on a copy of sloth's live `routd.db`: the legacy `messages` table
+carries a `delivery_attempts` column, 14 rows hold a non-zero count, and after
+`migrate-hot` the `message_delivery` items carried one attribute, `chat_jid`.
+`store.ArchiveMessageRow` had no field for it either, and its own doc comment
+claims to be "the FULL shape of one archived message: every attribute the item
+carries" — so a restore from the archive lost it as well.
+
+The count is what `DeadLetters` reports to the operator. Fleet-wide the
+dead-letter set is 922 rows on sloth, 395 on krons, 81 on marinade, with attempt
+counts up to 10.
+
+Nothing is re-sent: `PendingOutbound` reads the `pending` partition, the move
+puts every undelivered row in `failed`, and all three instances hold ZERO pending
+rows. The live path was always right — `DeadLetter` writes the count. Only the
+two bulk paths dropped it.
+
+- **Severity:** medium — operator-visible on 1,398 rows, no message is re-sent
+- **Scope:** `store/import_hot.go`, `store/messages_archive.go`, `store/message_delivery.go`
+- **Affected:** krons, marinade, sloth — measured
+- **Status:** fixed
+- **Fix:** `deliveryWrite` takes the count, which is the ONE renderer both bulk
+  paths and the live append already share, so neither can carry a delivery item
+  without it. `ArchiveMessageRow` gained the field and the export reads it back.
+  VERIFIED on a fresh sloth copy: 14 legacy rows with a count, 14 items carrying
+  it, values intact. `TestMessagesRoundTripEveryColumn` now drives a row to the
+  dead-letter set through real retries and reads the count back; it fails on the
+  unfixed export.
+
 ## ✅ FIXED 2026-09-12 L274 — routd cannot open a migrated instance: the chain still ran an UPDATE against a column the move removed (2026-09-12)
 
 REPRODUCED on a copy of sloth's live `routd.db` (routd version 40; krons is 43,

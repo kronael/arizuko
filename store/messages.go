@@ -340,7 +340,7 @@ func (s *Store) putMessage(ctx context.Context, tx *sql.Tx, m core.Message, stat
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},
 	}}
 	writes = append(writes, activityWrite(key, m))
-	if w, ok := deliveryWrite(key, m, status); ok {
+	if w, ok := deliveryWrite(key, m, status, 0); ok {
 		writes = append(writes, w)
 	}
 	folderWrite, counted, err := folderFeedWrite(key, m)
