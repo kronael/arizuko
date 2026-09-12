@@ -128,7 +128,7 @@ func secretUseWrite(id string, r SecretUseRow) objstore.Write {
 // LogSecretUse records one resolved secret and the audit_log row that reports
 // it, in ONE write.
 //
-// The two commit together or not at all, which is the guarantee runAudited gave
+// The two commit together or not at all, which is the guarantee one batch gives
 // through a transaction and this gives through the batch itself (spec 6/40
 // §"The audited write commits in a GuardedBatch"). Both items are entities in
 // one database, so a transaction is no longer what carries the pair — the batch
