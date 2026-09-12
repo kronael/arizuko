@@ -203,19 +203,35 @@ func MintInvite(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Tim
 // of hash, so a collision is not a race to absorb — it means two callers minted
 // the same bearer, and overwriting would revoke the first one's live invite.
 func (s *Store) InsertInviteTx(ctx context.Context, tx *sql.Tx, inv Invite) error {
-	w, err := invitePut(inv)
+	w, err := inviteCreateWrite(inv)
 	if err != nil {
 		return err
 	}
-	w.Cond = objstore.Cond{Item: objstore.ItemAbsent}
 	stored, err := s.TryWriteEntitiesInTx(ctx, tx, nil, w)
 	if err != nil {
 		return fmt.Errorf("store the invite: %w", err)
 	}
 	if !stored {
-		return fmt.Errorf("an invite already exists at ref %s", inv.Ref)
+		return errInviteRefTaken(inv.Ref)
 	}
 	return nil
+}
+
+// inviteCreateWrite renders a minted invite as the write that stores it, for
+// both sinks that store one: the caller's transaction and the audited batch.
+// The condition rides with the write because it is part of the same rule — a
+// ref that is already there is a collision, not a race to absorb.
+func inviteCreateWrite(inv Invite) (objstore.Write, error) {
+	w, err := invitePut(inv)
+	if err != nil {
+		return objstore.Write{}, err
+	}
+	w.Cond = objstore.Cond{Item: objstore.ItemAbsent}
+	return w, nil
+}
+
+func errInviteRefTaken(ref string) error {
+	return fmt.Errorf("an invite already exists at ref %s", ref)
 }
 
 // CreateInvite mints an invite and returns the row plus the raw bearer —
@@ -226,9 +242,12 @@ func (s *Store) CreateInvite(targetGlob, issuedBySub string, maxUses int, expire
 	if err != nil {
 		return nil, "", err
 	}
-	if err := s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		err := s.InsertInviteTx(context.Background(), tx, inv)
-		return audit.Event{
+	stored, err := s.tryWriteAudited(func() ([]objstore.Write, audit.Event, error) {
+		w, err := inviteCreateWrite(inv)
+		if err != nil {
+			return nil, audit.Event{}, err
+		}
+		return []objstore.Write{w}, audit.Event{
 			Category: audit.CategoryAuthN,
 			Action:   "invite.create",
 			Actor:    "user:" + issuedBySub,
@@ -240,9 +259,13 @@ func (s *Store) CreateInvite(targetGlob, issuedBySub string, maxUses int, expire
 				"target_glob": targetGlob,
 				"max_uses":    inv.MaxUses,
 			},
-		}, err
-	}); err != nil {
-		return nil, "", err
+		}, nil
+	})
+	if err != nil {
+		return nil, "", fmt.Errorf("store the invite: %w", err)
+	}
+	if !stored {
+		return nil, "", errInviteRefTaken(inv.Ref)
 	}
 	return &inv, token, nil
 }
@@ -307,14 +330,11 @@ func (s *Store) ListInvites(forIssuer string) ([]Invite, error) {
 // mistake a no-op for a revocation; the condition is what the RowsAffected check
 // it replaces was.
 func (s *Store) RevokeInviteByRefTx(ctx context.Context, tx *sql.Tx, ref string) error {
-	key, err := inviteKey(ref)
+	w, err := inviteRevokeWrite(ref)
 	if err != nil {
 		return err
 	}
-	revoked, err := s.TryWriteEntitiesInTx(ctx, tx, nil, objstore.Write{
-		Op: objstore.Delete, Entity: Invites, Key: key,
-		Cond: objstore.Cond{Item: objstore.ItemPresent},
-	})
+	revoked, err := s.TryWriteEntitiesInTx(ctx, tx, nil, w)
 	if err != nil {
 		return fmt.Errorf("revoke invite %s: %w", ref, err)
 	}
@@ -324,14 +344,29 @@ func (s *Store) RevokeInviteByRefTx(ctx context.Context, tx *sql.Tx, ref string)
 	return nil
 }
 
+// inviteRevokeWrite renders the revocation of one ref, for both sinks that
+// revoke: the caller's transaction and the audited batch. The condition is what
+// makes an unknown ref answerable — a delete of nothing reports nothing.
+func inviteRevokeWrite(ref string) (objstore.Write, error) {
+	key, err := inviteKey(ref)
+	if err != nil {
+		return objstore.Write{}, err
+	}
+	return objstore.Write{
+		Op: objstore.Delete, Entity: Invites, Key: key,
+		Cond: objstore.Cond{Item: objstore.ItemPresent},
+	}, nil
+}
+
 // RevokeInviteByRef is RevokeInviteByRefTx with a transaction and an audit row
 // of its own, for the CLI and the chat command, which hold neither.
 func (s *Store) RevokeInviteByRef(ref string) error {
-	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		if err := s.RevokeInviteByRefTx(context.Background(), tx, ref); err != nil {
-			return audit.Event{}, err
+	revoked, err := s.tryWriteAudited(func() ([]objstore.Write, audit.Event, error) {
+		w, err := inviteRevokeWrite(ref)
+		if err != nil {
+			return nil, audit.Event{}, err
 		}
-		return audit.Event{
+		return []objstore.Write{w}, audit.Event{
 			Category: audit.CategoryAuthN,
 			Action:   "invite.revoke",
 			Actor:    "system",
@@ -340,6 +375,13 @@ func (s *Store) RevokeInviteByRef(ref string) error {
 			Outcome:  audit.OutcomeOK,
 		}, nil
 	})
+	if err != nil {
+		return fmt.Errorf("revoke invite %s: %w", ref, err)
+	}
+	if !revoked {
+		return ErrInviteRefUnknown
+	}
+	return nil
 }
 
 // ConsumeInvite atomically claims one use (guarding max_uses and expiry)
