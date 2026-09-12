@@ -71,8 +71,7 @@ func TestTableExistsMatchesTheNameExactly(t *testing.T) {
 }
 
 // A view carries the name of a table and none of its guarantees. openOwned's
-// answer decides whether a daemon boots against the database it was pointed at,
-// and CarryOnboardingLegacy's decides whether a DROP runs.
+// answer decides whether a daemon boots against the database it was pointed at.
 func TestTableExistsRejectsAViewOfThatName(t *testing.T) {
 	forEachEngine(t, func(t *testing.T, e *engineFixture) {
 		db := e.open(t, t.Name())

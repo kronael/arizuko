@@ -816,10 +816,14 @@ func TestOnbodBootstrapBuildsExactlyTheDeclaredEntities(t *testing.T) {
 }
 
 // TestMigrateSplitLeavesOnbodBootable replays onbod's next boot over the database
-// migrate-split produced. The boot builds the same entities again and runs the
-// two legacy carries, so it must be a no-op that moves no row — the Z3b failure
-// was a boot that reshaped the freshly copied invites and left onbod refusing to
-// start. Run twice, because a boot is not the last one.
+// migrate-split produced. The boot builds the same entities again, so it must be
+// a no-op that moves no row — the Z3b failure was a boot that reshaped the
+// freshly copied invites and left onbod refusing to start. Run twice, because a
+// boot is not the last one.
+//
+// The `_legacy` assertion is what says the split produces neither table. It is
+// the check the two deleted Go backfills stood on: nothing in the chain reshapes
+// a table aside any more, so there is nothing left to carry.
 func TestMigrateSplitLeavesOnbodBootable(t *testing.T) {
 	storeDir := filepath.Join(t.TempDir(), "store")
 	seedMessagesDB(t, storeDir)
@@ -835,12 +839,6 @@ func TestMigrateSplitLeavesOnbodBootable(t *testing.T) {
 	for boot := 1; boot <= 2; boot++ {
 		if err := bootstrapOnbod(db); err != nil {
 			t.Fatalf("boot %d: schema: %v", boot, err)
-		}
-		if err := store.BackfillInviteRefs(db); err != nil {
-			t.Fatalf("boot %d: BackfillInviteRefs: %v", boot, err)
-		}
-		if err := store.CarryOnboardingLegacy(db); err != nil {
-			t.Fatalf("boot %d: CarryOnboardingLegacy: %v", boot, err)
 		}
 		for _, legacy := range []string{"invites_legacy", "onboarding_legacy"} {
 			exists, eerr := db_utils.TableExists(db, legacy)

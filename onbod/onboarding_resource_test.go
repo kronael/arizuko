@@ -9,7 +9,6 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -57,67 +56,6 @@ func TestOnboardingListLeaksNoToken(t *testing.T) {
 	}
 	if strings.Contains(body, "token") {
 		t.Errorf("REST list carries a token-shaped field: %s", body)
-	}
-}
-
-// A row a PRE-MOVE database left behind must survive openOwnedDB with its facts
-// intact. Its link is no longer redeemable anywhere — the fold moved redemption
-// to /pair/{token} (spec 5/31) — but the ROW is admission state, and losing it
-// would strand the chat behind its own jid coordinate.
-//
-// The fixture stages `onboarding_legacy` DIRECTLY, because that table is the
-// only thing left of the reshape: onbod 0003/0004/0006 are blanked now that the
-// three tables are entities, so nothing in the chain can produce one. What it
-// models is a database migrated by an older binary, which is exactly the state
-// CarryOnboardingLegacy exists for. Its extra token columns are staged too —
-// the carry must not name them (BUGS F40) and would fail outright if it did.
-func TestPreMigrationRowSurvivesTheBackfill(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "store", "onbod.db")
-	mustSeedDB(t, path)
-
-	db, err := openOwnedDB(path)
-	if err != nil {
-		t.Fatalf("openOwnedDB: %v", err)
-	}
-	// `created` is 20 bytes because it is a DECLARED ordered attribute: every
-	// driver refuses another width, so a carry of a short value fails loudly
-	// rather than sorting into the wrong place (BUGS L97).
-	if _, err := db.Exec(`
-		CREATE TABLE onboarding_legacy (jid TEXT PRIMARY KEY, status TEXT NOT NULL,
-			prompted_at TEXT, created TEXT NOT NULL, token TEXT, token_expires TEXT,
-			user_sub TEXT, gate TEXT, queued_at TEXT, admitted_at TEXT);
-		INSERT INTO onboarding_legacy (jid, status, created, token, token_expires, gate)
-			VALUES ('telegram:legacy', 'awaiting_message', '2026-01-01T00:00:00Z',
-			        'pre-migration-tok', '2099-01-01T00:00:00Z', 'invite_required');
-	`); err != nil {
-		t.Fatalf("stage legacy shape: %v", err)
-	}
-	db.Close()
-
-	// Re-open: CarryOnboardingLegacy moves the row across and cleans up after
-	// itself.
-	db, err = openOwnedDB(path)
-	if err != nil {
-		t.Fatalf("reopen after legacy stage: %v", err)
-	}
-	defer db.Close()
-
-	rows, err := store.New(db).ListOnboarding("")
-	if err != nil {
-		t.Fatalf("read admissions: %v", err)
-	}
-	if len(rows) != 1 {
-		t.Fatalf("row count after the carry = %d, want 1 (row was dropped, not carried)", len(rows))
-	}
-	if rows[0].JID != "telegram:legacy" || rows[0].Status != "awaiting_message" ||
-		rows[0].Gate != "invite_required" {
-		t.Errorf("admission facts lost: %+v", rows[0])
-	}
-	// onboarding_legacy is gone — the carry cleaned up after itself.
-	var legacy int
-	db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='onboarding_legacy'`).Scan(&legacy)
-	if legacy != 0 {
-		t.Error("onboarding_legacy survived the carry-forward")
 	}
 }
 

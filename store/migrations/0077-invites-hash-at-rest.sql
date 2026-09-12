@@ -1,9 +1,8 @@
 -- I1: invites.token was a bare TEXT PRIMARY KEY — plaintext at rest, so any
 -- read access to the DB could redeem any pending invite. `ref`
 -- (store.TokenRef = hex(sha256(token))) replaced it, and it is the item's sort
--- key now. store.BackfillInviteRefs still hashes and carries an
--- `invites_legacy` a pre-move database left behind; this file can no longer
--- produce one.
+-- key now. This file can no longer produce an `invites_legacy`, and no database
+-- in the fleet carries one.
 --
 -- `invites` is an objstore entity rather than a table this chain creates:
 -- the driver makes it, from the one declaration that sits beside the code

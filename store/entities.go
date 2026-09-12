@@ -370,7 +370,7 @@ func (s *Store) applyInChunks(ctx context.Context, what string,
 
 // applyChunks is the body of the sweep, taking the commit as a parameter so a
 // caller that owns a transaction runs the identical chunking rather than a
-// second loop beside it (CarryOnboardingLegacy, BackfillInviteRefs).
+// second loop beside it.
 //
 // A chunk is one action short of the bound, because every commit here carries
 // the version marker its writes move as one more action (scopes.go) and a chunk

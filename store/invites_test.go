@@ -264,57 +264,6 @@ func TestRestoreInviteRollsBackConsume(t *testing.T) {
 	}
 }
 
-// TestBackfillInviteRefsCarriesLegacyRows: a pre-I1 plaintext invites table
-// (renamed to invites_legacy by the SQL migration) is carried forward with
-// its content intact, keyed by the hash instead of the raw token, and the
-// legacy table is dropped. Simulates what store 0077 / onbod 0003 leave
-// behind on an instance with existing invites.
-func TestBackfillInviteRefsCarriesLegacyRows(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-
-	// OpenMem already ran BackfillInviteRefs once (a no-op — the fresh schema
-	// has no invites_legacy). Recreate the pre-I1 shape with a live row to
-	// simulate an existing instance, then backfill again.
-	if _, err := s.db.Exec(`
-		CREATE TABLE invites_legacy (
-		  token TEXT PRIMARY KEY, target_glob TEXT NOT NULL, issued_by_sub TEXT NOT NULL,
-		  issued_at TEXT NOT NULL, expires_at TEXT, max_uses INTEGER NOT NULL DEFAULT 1,
-		  used_count INTEGER NOT NULL DEFAULT 0
-		);
-		INSERT INTO invites_legacy VALUES
-		  ('plaintext-tok', 'alice', 'github:alice', '2026-01-01T00:00:00Z', NULL, 3, 1);
-	`); err != nil {
-		t.Fatal(err)
-	}
-	if err := BackfillInviteRefs(s.db); err != nil {
-		t.Fatalf("BackfillInviteRefs: %v", err)
-	}
-
-	got, err := s.GetInvite("plaintext-tok")
-	if err != nil {
-		t.Fatalf("GetInvite after backfill: %v", err)
-	}
-	if got.Ref != TokenRef("plaintext-tok") || got.TargetGlob != "alice" || got.UsedCount != 1 || got.MaxUses != 3 {
-		t.Errorf("carried row wrong: %+v", got)
-	}
-
-	var n int
-	s.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='invites_legacy'`).Scan(&n)
-	if n != 0 {
-		t.Error("invites_legacy not dropped after backfill")
-	}
-
-	// Idempotent: a second call (as every later boot would make) is a no-op,
-	// not an error, and the carried row is untouched.
-	if err := BackfillInviteRefs(s.db); err != nil {
-		t.Fatalf("second BackfillInviteRefs: %v", err)
-	}
-	if _, err := s.GetInvite("plaintext-tok"); err != nil {
-		t.Fatalf("row lost across idempotent backfill: %v", err)
-	}
-}
-
 // The redemption's COMPARE-AND-SWAP is what makes two concurrent redeemers
 // share one use instead of both taking it, and this pins the LOSING side
 // deterministically where TestConsumeInviteAtomicConcurrent pins it under

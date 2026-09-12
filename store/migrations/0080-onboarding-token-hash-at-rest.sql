@@ -1,7 +1,7 @@
 -- Z3: onboarding.token was a live plaintext bearer. token_ref replaced it and
 -- onbod 0006 then dropped that too, once the 5/31 fold left nothing writing it
--- (BUGS F40). store.CarryOnboardingLegacy still carries an `onboarding_legacy`
--- a pre-move database left behind; this file can no longer produce one.
+-- (BUGS F40). This file can no longer produce an `onboarding_legacy`, and no
+-- database in the fleet carries one.
 --
 -- `onboarding` is an objstore entity rather than a table this chain creates:
 -- the driver makes it, from the one declaration that sits beside the code

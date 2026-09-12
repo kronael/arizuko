@@ -47,7 +47,6 @@ import (
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/objstore"
 )
@@ -136,8 +135,8 @@ func inviteFrom(it objstore.Item) (*Invite, error) {
 }
 
 // invitePut renders a whole invite as the item that stores it — the single
-// renderer the mint, the legacy backfill, the archive restore and the migration
-// tool all write through. An empty string attribute is left off and an int is
+// renderer the mint, the archive restore and the migration tool all write
+// through. An empty string attribute is left off and an int is
 // always written, which is byte for byte what resreg's own entity path does
 // (resreg/entity.go itemFor); a Go int has no unset, so 0 is a value the row
 // states rather than one it omits.
@@ -159,83 +158,6 @@ func invitePut(inv Invite) (objstore.Write, error) {
 	return objstore.Write{
 		Op: objstore.Put, Entity: Invites, Key: key, Attrs: attrs,
 	}, nil
-}
-
-// BackfillInviteRefs carries rows from a freshly-migrated invites_legacy TABLE
-// (the pre-I1 plaintext `token TEXT PRIMARY KEY` shape) into the invites entity.
-// SQLite has no sha256(), so the SQL migration that produces invites_legacy only
-// reshapes the table; this Go step does the actual hashing, one time, then drops
-// invites_legacy. Idempotent: a no-op once invites_legacy is gone, which is the
-// state on every live instance and on every database created since the table
-// became an entity. Called from store.migrate (Open/OpenMem/Migrate all route
-// through it) and onbod's openOwnedDB — every opener that runs store's invites
-// migrations also runs this.
-//
-// The read stays SQL because its subject IS a table no entity has; the writes and
-// the DROP ride the read's own transaction. db_utils.TableExists asks whichever
-// engine this database is on whether the table is there.
-func BackfillInviteRefs(db *sql.DB) error {
-	exists, err := db_utils.TableExists(db, "invites_legacy")
-	if err != nil {
-		return err
-	}
-	if !exists {
-		return nil
-	}
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback() //nolint:errcheck // the commit below is the success path
-
-	rows, err := tx.Query(`SELECT token, target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count FROM invites_legacy`)
-	if err != nil {
-		return fmt.Errorf("read invites_legacy: %w", err)
-	}
-	var legacy []Invite
-	for rows.Next() {
-		var (
-			inv             Invite
-			token, issuedAt string
-			expiresAt       sql.NullString
-		)
-		if err := rows.Scan(&token, &inv.TargetGlob, &inv.IssuedBySub, &issuedAt,
-			&expiresAt, &inv.MaxUses, &inv.UsedCount); err != nil {
-			rows.Close()
-			return fmt.Errorf("scan invites_legacy row: %w", err)
-		}
-		inv.Ref = TokenRef(token)
-		inv.IssuedAt, _ = time.Parse(time.RFC3339, issuedAt)
-		if expiresAt.Valid && expiresAt.String != "" {
-			t, _ := time.Parse(time.RFC3339, expiresAt.String)
-			inv.ExpiresAt = &t
-		}
-		legacy = append(legacy, inv)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return err
-	}
-	rows.Close() // must close before reusing tx for the writes below
-
-	writes := make([]objstore.Write, 0, len(legacy))
-	for _, inv := range legacy {
-		w, err := invitePut(inv)
-		if err != nil {
-			return fmt.Errorf("carry invite forward: %w", err)
-		}
-		writes = append(writes, w)
-	}
-	if _, err := applyChunks(context.Background(), "carry invites forward", writes,
-		func(ctx context.Context, chunk []objstore.Write) (bool, error) {
-			return New(db).TryWriteEntitiesInTx(ctx, tx, nil, chunk...)
-		}); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`DROP TABLE invites_legacy`); err != nil {
-		return fmt.Errorf("drop invites_legacy: %w", err)
-	}
-	return tx.Commit()
 }
 
 // MintInvite validates an invite's fields and generates its bearer, returning

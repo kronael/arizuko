@@ -49,7 +49,6 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/audit"
-	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/objstore"
 )
 
@@ -177,81 +176,6 @@ func (s *Store) InsertOnboarding(jid string) error {
 		return fmt.Errorf("re-arm the greeting for %s: %w", jid, err)
 	}
 	return nil
-}
-
-// CarryOnboardingLegacy moves rows from the onboarding_legacy TABLE the reshaping
-// migration leaves behind into the onboarding entity, then drops it. Idempotent: a
-// no-op once onboarding_legacy is gone, which is every boot on every live instance
-// and every boot of a database created since the table became an entity. Every
-// opener that runs the onboarding migrations also runs this.
-//
-// The read stays SQL because its subject IS a table — a legacy shape no entity has
-// — and the write and the DROP ride the read's own transaction, so a crash between
-// them leaves the source recoverable rather than half moved. db_utils.TableExists
-// asks whichever engine this database is on whether the table is there.
-//
-// The token columns are deliberately NOT named here: onbod 0006 drops them, so
-// naming them would fail outright against the post-0006 schema (BUGS F40).
-func CarryOnboardingLegacy(db *sql.DB) error {
-	exists, err := db_utils.TableExists(db, "onboarding_legacy")
-	if err != nil {
-		return err
-	}
-	if !exists {
-		return nil
-	}
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback() //nolint:errcheck // the commit below is the success path
-
-	rows, err := tx.Query(`SELECT jid, status, prompted_at, created,
-	                              user_sub, gate, queued_at, admitted_at
-	                       FROM onboarding_legacy`)
-	if err != nil {
-		return fmt.Errorf("read onboarding_legacy: %w", err)
-	}
-	var legacy []OnboardingRow
-	for rows.Next() {
-		var (
-			r OnboardingRow
-			promptedAt, userSub,
-			gate, queuedAt, admittedAt sql.NullString
-		)
-		if err := rows.Scan(&r.JID, &r.Status, &promptedAt, &r.Created,
-			&userSub, &gate, &queuedAt, &admittedAt); err != nil {
-			rows.Close()
-			return fmt.Errorf("scan onboarding_legacy row: %w", err)
-		}
-		r.PromptedAt, r.UserSub = promptedAt.String, userSub.String
-		r.Gate, r.QueuedAt, r.AdmittedAt = gate.String, queuedAt.String, admittedAt.String
-		legacy = append(legacy, r)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return err
-	}
-	rows.Close() // must close before reusing tx for the writes below
-
-	writes := make([]objstore.Write, 0, len(legacy))
-	for _, r := range legacy {
-		w, err := onboardingPut(r)
-		if err != nil {
-			return fmt.Errorf("carry onboarding row forward: %w", err)
-		}
-		writes = append(writes, w)
-	}
-	if _, err := applyChunks(context.Background(), "carry onboarding rows forward", writes,
-		func(ctx context.Context, chunk []objstore.Write) (bool, error) {
-			return New(db).TryWriteEntitiesInTx(ctx, tx, nil, chunk...)
-		}); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`DROP TABLE onboarding_legacy`); err != nil {
-		return fmt.Errorf("drop onboarding_legacy: %w", err)
-	}
-	return tx.Commit()
 }
 
 type OnboardingGate struct {

@@ -39,12 +39,7 @@ func openOwnedDB(ownDSN string) (*sql.DB, error) {
 	return db, nil
 }
 
-// migrateOwned builds onbod's OWN schema in db: the entities, and the two Go
-// steps that carry a pre-move database forward. BackfillInviteRefs and
-// CarryOnboardingLegacy take the invites_legacy / onboarding_legacy tables such a
-// database left behind and drop them (store/invites.go, store/onboarding.go);
-// BackfillInviteRefs also hashes plaintext invites at rest, which SQL cannot do.
-// Both are no-ops on a database that never grew either table.
+// migrateOwned builds onbod's OWN schema in db: the entities it reads and writes.
 //
 // ONBOD HAS NO MIGRATION CHAIN. Every table it owns is an objstore entity, and
 // an entity is declared beside the code that reads it and built by the driver —
@@ -70,11 +65,5 @@ func migrateOwned(db *sql.DB) error {
 	if err := store.EnsureEntities(ctx, obj, store.OwnerOnbod); err != nil {
 		return err
 	}
-	if err := resreg.EnsureSubsystem(ctx, obj, obj, resreg.SubsystemOnbod); err != nil {
-		return err
-	}
-	if err := store.BackfillInviteRefs(db); err != nil {
-		return err
-	}
-	return store.CarryOnboardingLegacy(db)
+	return resreg.EnsureSubsystem(ctx, obj, obj, resreg.SubsystemOnbod)
 }
