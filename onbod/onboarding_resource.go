@@ -3,7 +3,7 @@ package main
 // onboarding_resource.go folds onbod's /v1/onboarding REST face onto the shared
 // resreg handler (spec 5/16, 5/17), retiring the five hand-rolled handlers
 // (handleOnboarding{Insert,List,Approve,Deny,Reprompt}). resreg owns the
-// plumbing (handler dispatch + one tx wrapping the mutation AND its audit_log
+// plumbing (handler dispatch + one batch carrying the mutation AND its audit_log
 // row); onbod owns the auth POLICY via the injected REST Caller + Gate — the
 // same split invites_resource.go and gates_resource.go already use.
 //
@@ -30,7 +30,7 @@ func (a *admin) mountOnboarding(mux *http.ServeMux) {
 }
 
 // onboardingResource is the serving resreg.Resource for onboarding. Store is a
-// store.Store over onbod.db so resreg.invoke opens the mutation+audit tx there.
+// store.Store over onbod.db so resreg.invoke sends the mutation+audit batch there.
 // All policy lives in the injected Gate.
 func (a *admin) onboardingResource() resreg.Resource {
 	r := resreg.Mount(resources.OnboardingName)

@@ -76,7 +76,7 @@ func (s *server) sessionsHandler(_ context.Context, x resreg.Execution) (any, er
 }
 
 // revokeSession kills one family through the store, and its audit row is
-// written by resreg into the transaction it opened on auth.db.
+// written by resreg into the batch it sends on auth.db.
 //
 // The two are NO LONGER one transaction. The revoke is a guarded batch on the
 // refresh family; the audit row is still a statement audit runs against the raw

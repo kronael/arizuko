@@ -8,13 +8,13 @@ package routd
 // carries exactly two write Endpoints and no MCPDoc — deriveMCPTools surfaces
 // nothing.
 //
-// FORWARDER, not tx-backed (Store nil). Every other cold-tier fold sets Store
-// non-nil so resreg opens the mutation+audit tx. secrets does NOT, for one
+// FORWARDER, not batch-backed (Store nil). Every other cold-tier fold sets Store
+// non-nil so resreg sends the mutation+audit batch. secrets does NOT, for one
 // reason: resreg.invoke copies ALL call args into the audit_log params_summary,
 // and the audit redaction regex (audit/event.go) matches `key`/`token`/`secret`
 // but NOT a bare `value` — so routing the write through resreg's own audit would
 // write the plaintext secret into audit_log on every path (success, deny, error).
-// As a forwarder resreg writes no audit row and opens no tx; the handler calls
+// As a forwarder resreg writes no audit row and sends no batch; the handler calls
 // the EXISTING s.db.SetSecret/DeleteSecret, which seal at rest under SECRETS_KEY,
 // run store.validateScope (env-profile key rejection), and emit the value-SAFE
 // secret.set/secret.delete audit rows themselves (params = {encrypted}, never the
@@ -86,7 +86,7 @@ func (s *Server) secretsAuthz(c resreg.Caller, _ resreg.Action, args resreg.Args
 }
 
 // secretsHandler runs the two write actions against routd's OWN routd.db via the
-// EXISTING audited, sealing store methods (see file header for why not tx-bound):
+// EXISTING audited, sealing store methods (see file header for why it buffers none):
 // create seals + upserts under SECRETS_KEY; delete removes and 404s when absent.
 // resreg writes no audit row for this forwarder — s.db.SetSecret/DeleteSecret emit
 // the value-safe secret.set/secret.delete rows themselves.

@@ -312,23 +312,30 @@ daemon authorizes. Returning `err` from `Authz` short-circuits (e.g.
 validation failure → 400) without reaching the gate. No parallel
 predicate machinery; the ACL rows remain the source of truth.
 
-## Tx-bound audit
+## Batched audit
 
-Mutating actions (`create` / `update` / `delete`) on store-backed
-resources (`Resource.Store != nil`) run inside a SQL transaction. The
-adapter:
+A mutating action (`create` / `update` / `delete`) on a store-backed
+resource (`Resource.Store != nil`) HANDS ITS WRITES OVER rather than
+performing them. The adapter:
 
-1. Opens `tx := Store.DB().BeginTx(ctx, nil)`.
-2. Threads `tx` into `Execution.Tx`; invokes `Handler`.
-3. On handler success: writes one `audit_log` row via
-   `audit.EmitInTx(ctx, tx, event)` in the **same tx**, then commits.
-4. On handler error: rolls back; writes a non-tx `audit_log` row
-   (outcome=`error`) via `audit.Emit`.
-5. On audit-insert failure: rolls back the mutation — per spec
-   contract, the audit row IS the mutation.
+1. Puts a fresh `store.WriteSet` on `Execution.Writes`; invokes `Handler`.
+2. The handler READS what it needs and buffers the writes it decided on —
+   `store.…Into` methods append, they do not write. A write whose
+   condition may refuse goes in through `WriteSet.AddGuarded` together
+   with the error that refusal means, because the handler is gone by the
+   time the answer is known. One such write per set: a batch reports one
+   bit.
+3. On handler success: `Store.Apply` sends the whole set plus one
+   `audit_log` row (`audit.WriteFor`) as ONE `objstore.GuardedBatch`, so
+   either both land or neither does — the guarantee the transaction gave,
+   on an interface that has none.
+4. On handler error, or a refused/failed batch: nothing was written, and
+   one `audit_log` row (outcome=`error`) goes in alone via `audit.Emit`.
+   A refused batch answers with the handler's own declared error, status
+   included.
 
 Read-only actions emit slog only; no DB row. Forwarder resources
-(`Store == nil`) skip the tx + audit dance — the downstream daemon
+(`Store == nil`) skip the batch + audit dance — the downstream daemon
 writes the row. Field schema:
 [`specs/5/I-tool-call-logging.md`](../specs/5/I-tool-call-logging.md).
 Table: [`specs/5/I-tool-call-logging.md`](../specs/5/I-tool-call-logging.md).
@@ -347,8 +354,9 @@ Table: [`specs/5/I-tool-call-logging.md`](../specs/5/I-tool-call-logging.md).
    prefix); it is spelled in `names.go` and nowhere else. `Mount` panics on an
    unregistered name, so a resource served but absent from every catalog
    stops the binary at boot.
-2. Implement one `Handler` that switches on `x.Action`. Run mutations
-   via `x.Tx` when `Store` is set.
+2. Implement one `Handler` that switches on `x.Action`. BUFFER a mutation
+   on `x.Writes` when `Store` is set — read first, decide, hand the writes
+   over; the adapter sends them.
 3. Wire from `main.go`: `resreg.RegisterREST(mux, r, build)` and
    `resreg.MCPTools(srv, r, callerFor, visible)`.
 
