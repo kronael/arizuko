@@ -460,12 +460,11 @@ func (s *Store) UpdateTask(id string, p TaskPatch) error {
 	if len(attrs) == 0 {
 		return nil
 	}
-	ctx := context.Background()
-	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		err := s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
+	return s.writeAudited(func() ([]objstore.Write, audit.Event, error) {
+		w := objstore.Write{
 			Op: objstore.Update, Entity: ScheduledTasks, Key: key, Attrs: attrs,
-		})
-		return audit.Event{
+		}
+		return []objstore.Write{w}, audit.Event{
 			Category:      audit.CategoryMutation,
 			Action:        "task.update",
 			Actor:         "system",
@@ -473,7 +472,7 @@ func (s *Store) UpdateTask(id string, p TaskPatch) error {
 			Resource:      "scheduled_tasks/" + id,
 			Outcome:       audit.OutcomeOK,
 			ParamsSummary: params,
-		}, err
+		}, nil
 	})
 }
 
@@ -482,19 +481,16 @@ func (s *Store) DeleteTask(id string) error {
 	if err != nil {
 		return err
 	}
-	ctx := context.Background()
-	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		err := s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
-			Op: objstore.Delete, Entity: ScheduledTasks, Key: key,
-		})
-		return audit.Event{
+	return s.writeAudited(func() ([]objstore.Write, audit.Event, error) {
+		w := objstore.Write{Op: objstore.Delete, Entity: ScheduledTasks, Key: key}
+		return []objstore.Write{w}, audit.Event{
 			Category: audit.CategoryMutation,
 			Action:   "task.delete",
 			Actor:    "system",
 			Surface:  audit.SurfaceGateway,
 			Resource: "scheduled_tasks/" + id,
 			Outcome:  audit.OutcomeOK,
-		}, err
+		}, nil
 	})
 }
 
