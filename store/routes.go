@@ -353,13 +353,9 @@ func (s *Store) DeleteRoute(id int64) (int64, error) {
 		return 0, nil
 	}
 	actor, actorSub, surface := s.auditIdentity()
-	err = s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		if err := s.WriteEntitiesInTx(ctx, tx, nil, objstore.Write{
-			Op: objstore.Delete, Entity: Routes, Key: it.Key,
-		}); err != nil {
-			return audit.Event{}, err
-		}
-		return audit.Event{
+	err = s.writeAudited(func() ([]objstore.Write, audit.Event, error) {
+		w := objstore.Write{Op: objstore.Delete, Entity: Routes, Key: it.Key}
+		return []objstore.Write{w}, audit.Event{
 			Category: audit.CategoryMutation,
 			Action:   "route.delete",
 			Actor:    actor,
@@ -411,11 +407,8 @@ func (s *Store) UpdateRoute(id int64, r core.Route) (int64, error) {
 		}}, writes...)
 	}
 	actor, actorSub, surface := s.auditIdentity()
-	err = s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		if err := s.WriteEntitiesInTx(ctx, tx, nil, writes...); err != nil {
-			return audit.Event{}, err
-		}
-		return audit.Event{
+	err = s.writeAudited(func() ([]objstore.Write, audit.Event, error) {
+		return writes, audit.Event{
 			Category: audit.CategoryMutation,
 			Action:   "route.update",
 			Actor:    actor,
