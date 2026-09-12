@@ -57,7 +57,7 @@ Primary methods (by domain):
 - Groups: `PutGroup`, `DeleteGroup`, `AllGroups`, `GroupByFolder`, `SetGroupModel`, `GroupUsageBulk`
 - Sessions: `GetSession`, `SetSession`, `EnsureTopicLineage`, `ForkTopic`, `TopicLineage` — the run history is runed's, over its own `/v1`
 - Sticky: `SetStickyGroup`, `GetStickyGroup`, `SetStickyTopic`, `GetStickyTopic`
-- People: `CreateUserProfile`, `Username`, `SetUsernameTx`, `ProfileNames`, `UserCap`, `SetUserCap` — one item per sub in `user_profiles`. Account linking lives in authd (`auth.db`'s `auth_users` + `oauth_identities`), not here.
+- People: `CreateUserProfile`, `Username`, `SetUsername`, `ProfileNames`, `UserCap`, `SetUserCap` — one item per sub in `user_profiles`. Account linking lives in authd (`auth.db`'s `auth_users` + `oauth_identities`), not here.
 - ACL (spec 6/9): `AddACLRow`, `RemoveACLRow`, `ListACL`, `ListACLByScope`, `ACLRowsFor`, `ACLWildcardRows` (scope listing is `auth.UserScopes` — a projection of these, not a second query)
 - Membership: `AddMembership`, `RemoveMembership`, `Members`, `Ancestors` — roles + JID→sub claims (`acl_membership` table)
 - Tasks: `CreateTask`, `GetTask`, `ListTasks`, `UpdateTask`, `DeleteTask`

@@ -115,6 +115,8 @@ What survived, and the caller that kept it:
 | `Write.Remove`                           | `store/onboarding.go:262`, a status set and five admission fields removed in one write                     |
 | `Cond` on an item a batch does not touch | authd's family check, `refresh_tokens.go`                                                                  |
 | `ItemAbsent` on a `Put`                  | create-if-absent, every conditional put authd makes                                                        |
+| `Merge`                                  | create-or-merge, at five call sites that spelled it as two actions on one item                             |
+| `Write.Init`                             | `added_at` on a group, `added_by` on an edge — facts a merge must not restate                              |
 | 100 actions, one per item                | DynamoDB's `TransactWriteItems` bound, so a caller cannot write a batch one engine alone runs              |
 
 What did not: `BETWEEN` (no two-sided range anywhere in `store`, `routd`,
@@ -122,6 +124,23 @@ What did not: `BETWEEN` (no two-sided range anywhere in `store`, `routd`,
 `Examined`), the attributed refusal, and the conditional whole-item replace.
 Each was consumed by exactly one thing — this package's own protocol helpers
 and its own tests.
+
+**`Merge` is the op the surface was missing, and it earned its place the way
+the rule above asks.** `Update` means must-exist, because the refusal IS the
+compare-and-swap; that left create-or-merge with no spelling, so `putSecret`,
+`putGroup`, `upsertReplyState`, `RecordProactiveFireInTx` and `putMessage`'s
+chat-open each wrote it as a create-if-absent plus the `Update` its refusal
+selected. `ValidateBatch` forbids two actions on one item, so each of them held
+a transaction to run the pair, and none of their writes could ride in anybody
+else's batch. `Merge` merges its attributes in, takes `Remove` away, writes
+`Init` only when it CREATES the item, and never refuses — DynamoDB's
+`UpdateItem`, `Init` being its `if_not_exists(attr, :v)` half.
+
+**It is not a `Put`, and that is the trap it exists to close.** A `Put` is a
+whole-item replace, so an unconditional one erases every attribute the writer
+did not name — a secrets item carries six of which surrogate OAuth owns four,
+none of them the metadata writer's. `AMergeKeepsWhatTheWriterDidNotName` is the
+body that names the erased credential when somebody reaches for a `Put` here.
 
 **The atomic counter is deliberately absent.** DynamoDB's in-place increment
 needs a `Number` attribute (`SET Price = Price + :p`; `ADD` "supports only
