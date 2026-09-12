@@ -15,6 +15,7 @@ import (
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore/dynstore"
+	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -138,5 +139,46 @@ func TestStoreRunsOverDynamo(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("the grant did not read back; %d rows", len(rows))
+	}
+}
+
+// routd itself, served from the endpoint. The daemon's own door is what a live
+// instance opens, so this is the wiring rather than the store under it.
+func TestRoutdRunsOverDynamo(t *testing.T) {
+	addr := endpoint(t)
+	prefix := fmt.Sprintf("rd%d_", time.Now().UnixNano())
+	d, err := dynstore.Dial(context.Background(), addr, "us-east-1", prefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := store.EnsureEntities(ctx, d, store.OwnerRoutd); err != nil {
+		t.Fatalf("make routd's entities: %v", err)
+	}
+	if err := d.CreateEntity(ctx, store.ScopeEntity); err != nil {
+		t.Fatal(err)
+	}
+	if err := audit.EnsureEntities(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+
+	rdb := routd.OpenOver(d)
+
+	if err := rdb.PutGroup(core.Group{Folder: "acme"}); err != nil {
+		t.Fatalf("PutGroup through routd: %v", err)
+	}
+	if _, err := rdb.AddRoute(core.Route{Match: "chat_jid=telegram:9", Target: "acme"}); err != nil {
+		t.Fatalf("AddRoute through routd: %v", err)
+	}
+	routes, err := rdb.Routes()
+	if err != nil {
+		t.Fatalf("Routes: %v", err)
+	}
+	if len(routes) != 1 || routes[0].Target != "acme" {
+		t.Fatalf("Routes = %+v, want one rule targeting acme", routes)
+	}
+	groups := rdb.AllGroups()
+	if _, ok := groups["acme"]; !ok || len(groups) != 1 {
+		t.Fatalf("AllGroups = %v, want just acme", groups)
 	}
 }

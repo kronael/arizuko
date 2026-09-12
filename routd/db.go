@@ -13,6 +13,7 @@ import (
 	"github.com/kronael/arizuko/auth/surrogate"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/db_utils"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
@@ -28,6 +29,11 @@ const serviceName = "routd"
 // are core.TSLayout UTC, computed in Go.
 type DB struct {
 	db *sql.DB
+
+	// obj is the handle this database is served from when a caller hands one
+	// over. It is set instead of the pool, not beside it, so a routd built this
+	// way names no file and no engine.
+	obj objstore.Store
 
 	// secretKeyring is the SECRETS_KEY material (raw, pre-SHA256) routd hands to
 	// its OWN secretStore via SetSecretKeys so reads decrypt `v2:` values and
@@ -874,4 +880,11 @@ func defaultStatus(s string) string {
 		return core.MessageStatusSent
 	}
 	return s
+}
+
+// OpenOver serves routd from a handle the caller owns. The caller has already
+// made the entities; there is no chain to run and no index to build, because
+// neither belongs to a store addressed by key.
+func OpenOver(obj objstore.Store) *DB {
+	return &DB{obj: obj}
 }
