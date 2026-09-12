@@ -414,9 +414,7 @@ func TestFetchHistory_AdapterFailFallsBackToCache(t *testing.T) {
 
 func countMsgs(t *testing.T, db *DB, jid string) int {
 	t.Helper()
-	var n int
-	db.SQL().QueryRow("SELECT COUNT(*) FROM messages WHERE chat_jid=?", jid).Scan(&n)
-	return n
+	return len(chatMessages(t, db, jid))
 }
 
 // TestListTasks_NilSibling: no messages.db → list_tasks answers an empty array,

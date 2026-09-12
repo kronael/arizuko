@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
+
+	"github.com/kronael/arizuko/core"
 )
 
 // TestDashReads_RefuseWithoutScope — these are aggregates over another folder's
@@ -31,11 +34,15 @@ func TestDashReads_RefuseWithoutScope(t *testing.T) {
 // output. That is the reason the aggregate is served rather than the rows.
 func TestMessageVolume_CountsHumansOnly(t *testing.T) {
 	db := memDBOrSkip(t)
-	if _, err := db.SQL().Exec(
-		`INSERT INTO messages(id, chat_jid, sender, content, timestamp, is_bot_message)
-		 VALUES('h1','web:a','u','hi',datetime('now'),0),
-		       ('b1','web:a','bot','hello',datetime('now'),1)`); err != nil {
-		t.Fatal(err)
+	now := time.Now()
+	for _, m := range []core.Message{
+		{ID: "h1", ChatJID: "web:a", Sender: "u", Content: "hi", Timestamp: now},
+		{ID: "b1", ChatJID: "web:a", Sender: "bot", Content: "hello",
+			Timestamp: now.Add(time.Second), BotMsg: true},
+	} {
+		if err := db.PutMessage(m); err != nil {
+			t.Fatal(err)
+		}
 	}
 	srv := &Server{db: db}
 	w := httptest.NewRecorder()

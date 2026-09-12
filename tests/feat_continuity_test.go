@@ -125,9 +125,7 @@ func TestFeature_ForkContinuity(t *testing.T) {
 		if rec := postBearer(t, f.routdTS.URL, "POST", "/v1/messages", f.authd.mintAdapter(t, "slakd"), "", in); rec.StatusCode != 200 {
 			t.Fatalf("ingest status=%d", rec.StatusCode)
 		}
-		testutils.WaitForRow(t, f.routdDB.SQL(),
-			`SELECT COUNT(*) FROM messages WHERE chat_jid=? AND is_bot_message=1`,
-			[]any{"slack:T/C/F"}, 5*time.Second)
+		testutils.WaitForBotRow(t, f.routdDB.SQL(), "slack:T/C/F", 5*time.Second)
 
 		childSID := f.dispatchedSession("fork.1")
 		if childSID == "" {
@@ -182,9 +180,7 @@ func TestFeature_ForkContinuity(t *testing.T) {
 		if rec := postBearer(t, f.routdTS.URL, "POST", "/v1/messages", f.authd.mintAdapter(t, "slakd"), "", in); rec.StatusCode != 200 {
 			t.Fatalf("ingest status=%d", rec.StatusCode)
 		}
-		testutils.WaitForRow(t, f.routdDB.SQL(),
-			`SELECT COUNT(*) FROM messages WHERE chat_jid=? AND is_bot_message=1`,
-			[]any{"slack:T/C/G"}, 5*time.Second)
+		testutils.WaitForBotRow(t, f.routdDB.SQL(), "slack:T/C/G", 5*time.Second)
 
 		childSID := f.dispatchedSession("fork.2")
 		if _, err := os.Stat(filepath.Join(transcriptDir(groupsDir, "demo"), childSID+".jsonl")); err == nil {

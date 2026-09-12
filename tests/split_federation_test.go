@@ -428,16 +428,14 @@ func TestSplitFederation_InboundToTurnRoundTrip(t *testing.T) {
 	if rec.StatusCode != 200 {
 		t.Fatalf("authorized ingest status=%d", rec.StatusCode)
 	}
-	if !messageExists(f.routdDB, "wamid.1") {
+	if !messageExists(f.routdDB, "slack:T/C/U", "wamid.1") {
 		t.Fatal("inbound not stored after authorized ingest")
 	}
 
 	// routd's poll loop routes the chat, dispatches the run to runed over HTTP,
 	// runed runs the fake agent, which replies over the turn's socket. Wait for
 	// the resulting bot row to land (the turn closing).
-	testutils.WaitForRow(t, f.routdDB.SQL(),
-		`SELECT COUNT(*) FROM messages WHERE chat_jid=? AND is_bot_message=1`,
-		[]any{"slack:T/C/U"}, 5*time.Second)
+	testutils.WaitForBotRow(t, f.routdDB.SQL(), "slack:T/C/U", 5*time.Second)
 
 	if got := f.dispatchedFolder("wamid.1"); got != "demo" {
 		t.Fatalf("routd dispatched turn to folder %q, want demo (routd→runed over HTTP)", got)
@@ -467,7 +465,7 @@ func TestSplitFederation_InboundViaServiceToken(t *testing.T) {
 	if rec.StatusCode != 200 {
 		t.Fatalf("ingest with service:teled token = %d, want 200", rec.StatusCode)
 	}
-	if !messageExists(f.routdDB, "svc.1") {
+	if !messageExists(f.routdDB, "slack:T/C/U", "svc.1") {
 		t.Fatal("inbound not stored after authorized service-token ingest")
 	}
 }
@@ -491,7 +489,7 @@ func TestSplitFederation_InboundRejectsBadToken(t *testing.T) {
 	if rec := postBearer(t, f.routdTS.URL, "POST", "/v1/messages", weak, "", in); rec.StatusCode != 403 {
 		t.Fatalf("ingest without messages:write = %d, want 403", rec.StatusCode)
 	}
-	if messageExists(f.routdDB, "bad.1") {
+	if messageExists(f.routdDB, "slack:T/C/U", "bad.1") {
 		t.Fatal("a rejected ingest must not store the inbound row")
 	}
 }
@@ -704,12 +702,7 @@ func postRaw(t *testing.T, base, path, token string, body []byte) *http.Response
 
 func countBotRows(t *testing.T, db *routd.DB, jid string) int {
 	t.Helper()
-	var n int
-	if err := db.SQL().QueryRow(
-		`SELECT COUNT(*) FROM messages WHERE chat_jid = ? AND is_bot_message = 1`, jid).Scan(&n); err != nil {
-		t.Fatalf("count bot rows: %v", err)
-	}
-	return n
+	return testutils.BotRows(t, db.SQL(), jid)
 }
 
 func containsScope(scope []string, want string) bool {

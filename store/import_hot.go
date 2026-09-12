@@ -39,9 +39,9 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore"
@@ -52,7 +52,15 @@ import (
 // it, because an entity has no foreign key to satisfy.
 var HotEntities = []string{
 	Chats, Sessions, ChatReplyState, ChatProactive, SystemMessages,
-	UserProfiles, TurnResults, GroupWatchers, TaskRunLogs, TurnContexts,
+	UserProfiles, TurnResults, GroupWatchers, TaskRunLogs, TurnContexts, Messages,
+}
+
+// MessageEntities are the four a message write touches, plus the folder counter.
+// A migration names the set it may create, because CreateEntity probes the three
+// columns it needs and would otherwise fail on a table a different tool has not
+// moved yet.
+var MessageEntities = []string{
+	Messages, MessageFolders, MessageFolderCounts, MessageActivity, MessageDelivery,
 }
 
 // hotKeyFields names each entity's coordinate fields, in order, so the source
@@ -74,6 +82,10 @@ var hotKeyFields = map[string][]string{
 	GroupWatchers:  {"observer", "source"},
 	TaskRunLogs:    {"run_at", "id"},
 	TurnContexts:   {"turn_id"},
+	// A message's coordinate is its chat and its position, and the position is
+	// two columns: the instant and the id that keeps two messages of one instant
+	// apart. 245 pairs share an instant inside one chat on krons.
+	Messages: {"chat_jid", "timestamp", "id"},
 }
 
 // HotKeyFields answers one entity's coordinate fields, for the reader that has
@@ -111,12 +123,27 @@ var hotStamped = map[string][]string{
 	TurnContexts:   {AttrTurnStartedAt},
 }
 
-// hotCursors names, per entity, the attribute that is a cursor into
-// `messages.timestamp`. They are padded like every other instant here and
-// UNLIKE them they are refused when their shape is not one the rows share.
+// hotCursors names, per entity, the attribute that is a cursor into a message's
+// position and is carried VERBATIM rather than re-derived.
+//
+// `sessions.observed_cursor` is the only one left. It stays a bare instant
+// because the ambient window compares it `> cursor` and takes the NEWEST rows, so
+// a cut can only fall at the old end and the newest rendered message is always
+// whole — a bound of "just past this instant" is exactly what the comparison
+// meant.
+//
+// `chats.agent_cursor` is NOT here any more. It holds a whole message key now, so
+// it cannot be carried: the key does not exist until the messages have landed.
+// DeriveCarriedCursors builds it after they do, as the greatest key at or before
+// the instant the chat held — the same position, a new rendering.
 var hotCursors = map[string]string{
-	Chats:    AttrChatAgentCursor,
 	Sessions: AttrSessObservedCursor,
+}
+
+// hotDerivedCursors names the attributes this move builds rather than carries,
+// and the legacy column each was built from.
+var hotDerivedCursors = map[string]string{
+	Chats: AttrChatAgentCursor,
 }
 
 // normaliseCursor re-renders a cursor at core.TS's width, or names it.
@@ -130,17 +157,12 @@ func normaliseCursor(entity, attr, raw string) (string, error) {
 	if raw == "" {
 		return "", nil
 	}
-	if strings.HasSuffix(raw, "Z") {
-		for _, layout := range []string{core.TSLayout, time.RFC3339Nano, time.RFC3339} {
-			if t, err := time.Parse(layout, raw); err == nil {
-				return core.TS(t), nil
-			}
-		}
+	t, err := ReadMessageInstant(raw)
+	if err != nil {
+		return "", fmt.Errorf("%s.%s is %q, and a cursor names a position among messages: %w",
+			entity, attr, raw, err)
 	}
-	return "", fmt.Errorf("%s.%s is %q, which is not a shape routd's migration 0044 pads in "+
-		"`messages`. A cursor is compared against that column, so re-rendering one whose rows "+
-		"were left alone would move it relative to them and re-feed or skip everything between "+
-		"the two values", entity, attr, raw)
+	return core.TS(t), nil
 }
 
 // hotFlags names the columns that were an INTEGER 0/1 and are now an attribute
@@ -211,6 +233,12 @@ func hotKey(entity string, key []string) (objstore.Key, error) {
 		return legacyRunLogKey(key[0], key[1])
 	case TurnContexts:
 		return turnKey(key[0])
+	case Messages:
+		t, err := ReadMessageInstant(key[1])
+		if err != nil {
+			return objstore.Key{}, err
+		}
+		return MessageKey(key[0], core.TS(t), key[2])
 	case SystemMessages:
 		at, err := normaliseInstant(entity, "created", key[1])
 		if err != nil {
@@ -267,6 +295,13 @@ func hotWrite(entity string, r RoutdRow) (objstore.Write, error) {
 		}
 		attrs[attr] = text
 	}
+	if attr, has := hotDerivedCursors[entity]; has {
+		// A derived cursor is not carried: it names a position that does not
+		// exist until the messages have landed, so writing the legacy instant
+		// here would leave a cursor of the wrong SHAPE behind if the derivation
+		// then failed. ImportHot builds it after.
+		delete(attrs, attr)
+	}
 	if attr, has := hotCursors[entity]; has {
 		text, cerr := normaliseCursor(entity, attr, attrs[attr])
 		if cerr != nil {
@@ -296,12 +331,16 @@ func CheckHotSnapshot(snap RoutdSnapshot) (RoutdCounts, error) {
 			if err != nil {
 				return nil, err
 			}
-			if seen[w.Key.Sort] {
+			// The WHOLE coordinate, because a message's partition is its chat:
+			// two chats legitimately hold one position, and comparing the sort
+			// key alone would call that a collision.
+			at := w.Key.Partition + KeySep + w.Key.Sort
+			if seen[at] {
 				return nil, fmt.Errorf("%s carries two rows at %s=%q, so one would "+
 					"overwrite the other", entity,
-					strings.Join(hotKeyFields[entity], ","), w.Key.Sort)
+					strings.Join(hotKeyFields[entity], ","), at)
 			}
-			seen[w.Key.Sort] = true
+			seen[at] = true
 		}
 		counts[entity] = len(rows)
 	}
@@ -312,6 +351,79 @@ func CheckHotSnapshot(snap RoutdSnapshot) (RoutdCounts, error) {
 		}
 	}
 	return counts, nil
+}
+
+// legacyChatCursors reads each chat's stored cursor out of the snapshot, before
+// the write that drops it.
+func legacyChatCursors(snap RoutdSnapshot) map[string]string {
+	out := map[string]string{}
+	for _, r := range snap[Chats] {
+		if len(r.Key) == 0 {
+			continue
+		}
+		if cur := r.Attrs[AttrChatAgentCursor]; cur != "" {
+			out[r.Key[0]] = cur
+		}
+	}
+	return out
+}
+
+// DeriveCarriedCursors turns each chat's stored INSTANT into the message key the
+// dispatch cursor holds now: the greatest key at or before that instant.
+//
+// IT IS THE SAME POSITION, and that is the property the move has to keep. Every
+// message at or before the instant sorts at or below the derived key and every
+// message after it sorts above, so the set the poll loop will feed is exactly the
+// set it would have fed — proven per chat against all three live snapshots
+// (messages_migrate_test.go). A chat whose cursor names an instant older than
+// every message it holds derives nothing, which reads as "feed from the start"
+// and is what the instant already meant.
+//
+// ONE BAD CHAT DOES NOT STOP THE REST, for DeriveAgentCursors' reason: a move
+// that derived only the cursors alphabetically before the first failure leaves
+// the poll loop treating the rest of the history as unread.
+func (s *Store) DeriveCarriedCursors(ctx context.Context, stored map[string]string) (int, error) {
+	jids := make([]string, 0, len(stored))
+	for jid := range stored {
+		jids = append(jids, jid)
+	}
+	sort.Strings(jids)
+	moved := 0
+	var failed []string
+	for _, jid := range jids {
+		instant, err := normaliseCursor(Chats, AttrChatAgentCursor, stored[jid])
+		if err != nil {
+			failed = append(failed, fmt.Sprintf("%s (%v)", jid, err))
+			continue
+		}
+		cursor, err := s.CursorAtOrBefore(ctx, jid, instant)
+		if err != nil {
+			failed = append(failed, fmt.Sprintf("%s (%v)", jid, err))
+			continue
+		}
+		if cursor == "" {
+			continue
+		}
+		key, err := chatKey(jid)
+		if err != nil {
+			failed = append(failed, fmt.Sprintf("%s (%v)", jid, err))
+			continue
+		}
+		if err := s.WriteEntities(ctx, nil, objstore.Write{
+			Op: objstore.Update, Entity: Chats, Key: key,
+			Attrs: map[string]string{AttrChatAgentCursor: cursor},
+		}); err != nil {
+			failed = append(failed, fmt.Sprintf("%s (%v)", jid, err))
+			continue
+		}
+		moved++
+	}
+	if len(failed) > 0 {
+		return moved, fmt.Errorf("%d of %d chats kept no dispatch cursor, so the poll loop "+
+			"reads their whole history as unread: %s",
+			len(failed), len(jids), strings.Join(failed, "; "))
+	}
+	return moved, nil
 }
 
 // ImportHot writes the snapshot as items and answers how many landed per entity.
@@ -326,7 +438,17 @@ func (s *Store) ImportHot(ctx context.Context, snap RoutdSnapshot) (RoutdCounts,
 	if err != nil {
 		return nil, err
 	}
+	stored := legacyChatCursors(snap)
 	for _, entity := range HotEntities {
+		if entity == Messages {
+			// A message is four items and a counter, and the archive's writer
+			// already renders all of them. Two renderers would be two opinions
+			// of what a message's indexes hold.
+			if err := s.importMessageRows(ctx, messageRowsFrom(snap[entity])); err != nil {
+				return nil, err
+			}
+			continue
+		}
 		writes := make([]objstore.Write, 0, len(snap[entity]))
 		for _, r := range snap[entity] {
 			w, werr := hotWrite(entity, r)
@@ -339,5 +461,43 @@ func (s *Store) ImportHot(ctx context.Context, snap RoutdSnapshot) (RoutdCounts,
 			return nil, err
 		}
 	}
+	// ROWS BEFORE CURSORS, and here it is not an order somebody preserves: the
+	// derived cursor is a message KEY, so it cannot be built until the messages
+	// it names are items.
+	if _, err := s.DeriveCarriedCursors(ctx, stored); err != nil {
+		return nil, err
+	}
 	return counts, nil
+}
+
+// messageRowsFrom renders the legacy message rows as the archive's row shape, so
+// the move and the restore reach ONE writer.
+//
+// The naive datetimes two krons rows carry — `2026-04-02 12:38:47`, which
+// migration 0044 deliberately left alone because padding a ROW would invent a
+// zone — are read as UTC here. Every item needs a position and a position needs
+// an instant, so the choice is to read them or to drop two messages, and reading
+// them is what 0044 should have done.
+func messageRowsFrom(rows []RoutdRow) []ArchiveMessageRow {
+	out := make([]ArchiveMessageRow, 0, len(rows))
+	for _, r := range rows {
+		m := ArchiveMessageRow{
+			ChatJID: r.Key[0], Timestamp: r.Key[1], ID: r.Key[2],
+			Sender: r.Attrs["sender"], SenderName: r.Attrs["sender_name"],
+			Content: r.Attrs["content"], ForwardedFrom: r.Attrs["forwarded_from"],
+			ReplyToID: r.Attrs["reply_to_id"], ReplyToText: r.Attrs["reply_to_text"],
+			ReplyToSender: r.Attrs["reply_to_sender"], Topic: r.Attrs["topic"],
+			RoutedTo: r.Attrs["routed_to"], Verb: r.Attrs["verb"],
+			Attachments: r.Attrs["attachments"], Source: r.Attrs["source"],
+			TurnID: r.Attrs["turn_id"], Status: r.Attrs["status"],
+			PlatformID: r.Attrs["platform_id"], ChatName: r.Attrs["chat_name"],
+			LinkContext:  r.Attrs["link_context"],
+			IsFromMe:     r.Attrs["is_from_me"] == "1",
+			IsBotMessage: r.Attrs["is_bot_message"] == "1",
+			IsObserved:   r.Attrs["is_observed"] == "1",
+			Errored:      r.Attrs["errored"] == "1",
+		}
+		out = append(out, m)
+	}
+	return out
 }

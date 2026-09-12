@@ -298,7 +298,10 @@ func TestWorkerSteersRootCommand(t *testing.T) {
 	if len(rr.runs) != 0 {
 		t.Fatalf("raw /root reached a turn unsteered: %+v", rr.runs)
 	}
-	msgs, _ := db.MessagesSince("web:demo", db.GetAgentCursor("web:demo"))
+	msgs, err := db.NewMessagesForChat("web:demo", db.GetAgentCursor("web:demo"), 100)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(msgs) != 1 || msgs[0].Content != "mint the token" {
 		t.Fatalf("re-injected batch=%+v want one row with the /root arg", msgs)
 	}
@@ -531,11 +534,11 @@ func TestCmdApproveTargetsHeldChat(t *testing.T) {
 	if !steerOne(loop, "tg:other", "demo", "/approve a1") {
 		t.Fatal("/approve not consumed")
 	}
-	var n int
-	if err := db.SQL().QueryRow(
-		`SELECT COUNT(*) FROM messages WHERE chat_jid='tg:held' AND content LIKE '%send_file%'`,
-	).Scan(&n); err != nil {
-		t.Fatal(err)
+	n := 0
+	for _, m := range chatMessages(t, db, "tg:held") {
+		if strings.Contains(m.Content, "send_file") {
+			n++
+		}
 	}
 	if n != 1 {
 		t.Fatalf("trigger rows in held chat = %d, want 1", n)

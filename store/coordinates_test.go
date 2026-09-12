@@ -97,7 +97,7 @@ func TestTheHotTierRoundTripsEveryAttributeItCarries(t *testing.T) {
 		if err := s.MarkChatErrored(jid); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.SetAgentCursor(jid, core.NowTS()); err != nil {
+		if err := s.SetAgentCursor(jid, MsgStamp(core.NowTS(), "m1")); err != nil {
 			t.Fatal(err)
 		}
 		group, topic, err := s.StickyPins(jid)

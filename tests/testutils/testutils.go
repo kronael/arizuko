@@ -242,21 +242,16 @@ func (p *FakePlatform) handle(w http.ResponseWriter, r *http.Request) {
 // containing substr.
 func AssertMessage(t *testing.T, db *sql.DB, jid, substr string) {
 	t.Helper()
-	rows, err := db.Query(`SELECT content FROM messages WHERE chat_jid = ?`, jid)
+	msgs, err := store.New(db).MessagesSince(jid, time.Time{})
 	if err != nil {
-		t.Fatalf("query messages: %v", err)
+		t.Fatalf("read %s: %v", jid, err)
 	}
-	defer rows.Close()
 	var found []string
-	for rows.Next() {
-		var c string
-		if err := rows.Scan(&c); err != nil {
-			t.Fatalf("scan: %v", err)
-		}
-		if strings.Contains(c, substr) {
+	for _, m := range msgs {
+		if strings.Contains(m.Content, substr) {
 			return
 		}
-		found = append(found, c)
+		found = append(found, m.Content)
 	}
 	t.Fatalf("no message for jid=%q containing %q; saw %v", jid, substr, found)
 }
@@ -287,5 +282,40 @@ func WaitForRow(t *testing.T, db *sql.DB, query string, args []any, timeout time
 		var n int
 		err := db.QueryRow(query, args...).Scan(&n)
 		return err == nil && n > 0
+	})
+}
+
+// BotRows counts one chat's bot rows — the agent's own output. `messages` is an
+// entity, so the count is a partition read rather than a column query, and one
+// reader answers it for every fixture that used to write its own SELECT.
+func BotRows(t *testing.T, db *sql.DB, chatJID string) int {
+	t.Helper()
+	msgs, err := store.New(db).MessagesSince(chatJID, time.Time{})
+	if err != nil {
+		t.Fatalf("read %s: %v", chatJID, err)
+	}
+	n := 0
+	for _, m := range msgs {
+		if m.BotMsg {
+			n++
+		}
+	}
+	return n
+}
+
+// WaitForBotRow waits until a chat carries the agent's reply.
+func WaitForBotRow(t *testing.T, db *sql.DB, chatJID string, timeout time.Duration) {
+	t.Helper()
+	WaitFor(t, "a bot row in "+chatJID, timeout, func() bool {
+		msgs, err := store.New(db).MessagesSince(chatJID, time.Time{})
+		if err != nil {
+			return false
+		}
+		for _, m := range msgs {
+			if m.BotMsg {
+				return true
+			}
+		}
+		return false
 	})
 }

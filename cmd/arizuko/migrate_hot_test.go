@@ -11,6 +11,7 @@ package main
 // because a guard nobody fires is a guard nobody has.
 
 import (
+	"context"
 	"database/sql"
 	"path/filepath"
 	"testing"
@@ -20,10 +21,29 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// legacyHotOnRoutd is the pre-move shape of the five tables inside routd.db.
+// legacyMessagesOnRoutd is the pre-move shape of `messages` inside routd.db:
+// routd's 0001 columns plus the three its chain added. It is a constant of its
+// own because two fixtures put this table back — the hot move and the split —
+// and two spellings would be two opinions of what the migrator reads.
+const legacyMessagesOnRoutd = `
+DROP TABLE IF EXISTS messages;
+CREATE TABLE messages (
+  id TEXT PRIMARY KEY, chat_jid TEXT NOT NULL, sender TEXT NOT NULL,
+  sender_name TEXT, content TEXT NOT NULL, timestamp TEXT NOT NULL,
+  is_from_me INTEGER NOT NULL DEFAULT 0, is_bot_message INTEGER NOT NULL DEFAULT 0,
+  forwarded_from TEXT, reply_to_id TEXT, reply_to_text TEXT, reply_to_sender TEXT,
+  topic TEXT NOT NULL DEFAULT '', routed_to TEXT NOT NULL DEFAULT '',
+  verb TEXT NOT NULL DEFAULT 'message', attachments TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT '', is_observed INTEGER NOT NULL DEFAULT 0,
+  turn_id TEXT, status TEXT NOT NULL DEFAULT 'sent', platform_id TEXT,
+  chat_name TEXT NOT NULL DEFAULT '', errored INTEGER NOT NULL DEFAULT 0,
+  delivery_attempts INTEGER NOT NULL DEFAULT 0, link_context TEXT);
+`
+
+// legacyHotOnRoutd is the pre-move shape of the six tables inside routd.db.
 // They are entities now, so routd.Create makes them as (part, sort, attrs) and
 // the fixture has to put the columns back to have something legacy to move.
-const legacyHotOnRoutd = `
+const legacyHotOnRoutd = legacyMessagesOnRoutd + `
 DROP TABLE IF EXISTS chats;
 DROP TABLE IF EXISTS sessions;
 DROP TABLE IF EXISTS chat_reply_state;
@@ -75,7 +95,7 @@ func openHot(t *testing.T, path string) *sql.DB {
 	return db
 }
 
-// insertHotMessage puts one row in `messages`, which stays a table of columns.
+// insertHotMessage puts one row in the legacy `messages` the fixture rebuilt.
 func insertHotMessage(t *testing.T, db *sql.DB, id, jid, ts string) {
 	t.Helper()
 	if _, err := db.Exec(
@@ -119,12 +139,22 @@ func TestMigrateHotPadsACursorOntoItsAlreadyPaddedRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cursor != "2026-08-26T19:06:41.000000000Z" {
-		t.Fatalf("agent cursor = %q, want the padded instant", cursor)
+	// THE CURSOR IS DERIVED, NOT PADDED. It names the newest message at or before
+	// the instant the chat held, and this chat's only message is the trigger,
+	// which lands AFTER that instant — so there is nothing at or before it and the
+	// chat feeds from the start. That is the same position the stored instant
+	// meant, and it is what re-issues the held call.
+	if cursor != "" {
+		t.Fatalf("agent cursor = %q, want none: no message sits at or before the instant "+
+			"the chat held", cursor)
 	}
-	if !(trigger > cursor) {
-		t.Errorf("the trigger %q still sorts behind the cursor %q; no held call is ever "+
-			"re-issued (BUGS L97)", trigger, cursor)
+	unfed, err := st.NewMessagesForChat(context.Background(), jid, cursor, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unfed) != 1 || unfed[0].ID != "hitl-legacy" {
+		t.Errorf("the dispatch feed holds %+v; the re-issue trigger is the one row that "+
+			"must still be unfed (BUGS L97)", unfed)
 	}
 	line, ok := st.TopicLineage("atlas", "main")
 	if !ok {
@@ -135,11 +165,13 @@ func TestMigrateHotPadsACursorOntoItsAlreadyPaddedRows(t *testing.T) {
 	}
 }
 
-// TestMigrateHotRefusesToMoveACursorAheadOfItsRows is the guard, and it is the
-// order the failure was. Take requirePaddedMessageRows out of migrate_hot.go and
-// this goes green while the cursor lands padded beside an unpadded row it now
-// sorts after — the 28 messages krons re-fed, in one test.
-func TestMigrateHotRefusesToMoveACursorAheadOfItsRows(t *testing.T) {
+// TestMigrateHotCarriesAnUnpaddedRowAndItsCursorTogether is the order the
+// failure was, pinned where the shape now settles it. A pre-0044 instance holds
+// an unpadded row AND an unpadded cursor; both are rendered at core.TS's width
+// on the way in — the row by the message writer, the cursor by the derivation
+// that reads the keys the rows became — so neither can move relative to the
+// other, and the chat's unfed set is what it was.
+func TestMigrateHotCarriesAnUnpaddedRowAndItsCursorTogether(t *testing.T) {
 	path := hotLegacyRoutd(t)
 	db := openHot(t, path)
 	const jid = "slack:T/C/U"
@@ -152,48 +184,84 @@ func TestMigrateHotRefusesToMoveACursorAheadOfItsRows(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := migrateHot(path, false)
-	if err == nil {
-		t.Fatal("the move ran with unpadded message rows; a padded cursor sorts before " +
-			"them and re-feeds every consumed message in its own second")
+	// The move's own verification refuses a cursor that names a different
+	// position, so a green run IS the assertion that none moved.
+	if err := migrateHot(path, false); err != nil {
+		t.Fatalf("migrate-hot: %v", err)
 	}
-	if !containsAll(err.Error(), "0044", "message rows") {
-		t.Errorf("the refusal does not name the migration that pads the rows: %v", err)
+
+	st := store.New(db)
+	const padded = "2026-08-26T19:06:41.000000000Z"
+	if got, want := mustCursor(t, st, jid), store.MsgStamp(padded, "unpadded"); got != want {
+		t.Fatalf("agent cursor = %q, want the consumed row's own key %q", got, want)
 	}
-	// Nothing was set aside, so a re-run after the migration finds its source.
-	var legacy int
-	if err := db.QueryRow(
-		`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='chats_v1'`).
-		Scan(&legacy); err != nil {
+	unfed, err := st.NewMessagesForChat(t.Context(), jid, mustCursor(t, st, jid), 0)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if legacy != 0 {
-		t.Error("the refused run still set the legacy table aside")
+	if len(unfed) != 0 {
+		t.Errorf("%d rows are unfed after the move; the consumed message is re-fed", len(unfed))
 	}
 }
 
-// TestMigrateHotRefusesACursorShapeTheRowsDoNotShare is the other half of the
-// same rule. Migration 0044 leaves a hand-written `2026-04-02 12:38:47` alone
-// because padding it would invent a zone it never had — so a cursor of that
-// shape has to be left alone too, and a cursor this move cannot leave alone is
-// one it would shift relative to a row it did not touch.
-func TestMigrateHotRefusesACursorShapeTheRowsDoNotShare(t *testing.T) {
+// mustCursor reads a chat's dispatch cursor or fails.
+func mustCursor(t *testing.T, st *store.Store, jid string) string {
+	t.Helper()
+	c, err := st.AgentCursor(jid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+// TestMigrateHotReadsACursorTheWayItReadsItsRows is the other half of the same
+// rule, and the rule changed with the rows.
+//
+// Migration 0044 left a hand-written `2026-04-02 12:38:47` alone because padding
+// a ROW in place would invent a zone it never had. An item has no position
+// without an instant, so the move reads such a row as UTC rather than dropping
+// it — and the moment it does, the cursor MUST be read the same way. One reader
+// for both is what stops the two drifting: a cursor refused while its rows were
+// carried would shift the poll loop relative to the history it is a position in.
+func TestMigrateHotReadsACursorTheWayItReadsItsRows(t *testing.T) {
 	path := hotLegacyRoutd(t)
 	db := openHot(t, path)
 	const jid = "slack:T/C/U"
 
+	// The hand-written row, and a later one the cursor has NOT consumed.
 	insertHotMessage(t, db, "hand-written", jid, "2026-04-02 12:38:47")
+	insertHotMessage(t, db, "later", jid, "2026-04-03T09:00:00.000000000Z")
 	if _, err := db.Exec(
 		`INSERT INTO chats (jid, agent_cursor) VALUES (?, '2026-04-02 12:38:47')`, jid,
 	); err != nil {
 		t.Fatal(err)
 	}
-	err := migrateHot(path, false)
-	if err == nil {
-		t.Fatal("a cursor of a shape the rows do not share was carried")
+	if err := migrateHot(path, false); err != nil {
+		t.Fatalf("migrate-hot: %v", err)
 	}
-	if !containsAll(err.Error(), "agent_cursor", "0044") {
-		t.Errorf("the refusal does not name the attribute and the migration: %v", err)
+
+	st := store.New(db)
+	// Both rows travelled: neither was dropped for the shape of its instant.
+	n, err := st.CountMessages(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Fatalf("%d messages travelled, want 2 — the hand-written row was dropped", n)
+	}
+	// The cursor still names the same position: the hand-written row is consumed
+	// and the later one is not.
+	cursor, err := st.AgentCursor(jid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unfed, err := st.NewMessagesForChat(context.Background(), jid, cursor, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unfed) != 1 || unfed[0].ID != "later" {
+		t.Errorf("the feed holds %+v; the cursor moved relative to the row it was written "+
+			"beside, which re-feeds or skips everything between the two values", unfed)
 	}
 }
 
@@ -221,8 +289,12 @@ func TestMigrateHotLeavesAnAlreadyFixedWidthCursorAlone(t *testing.T) {
 		t.Fatalf("migrate-hot: %v", err)
 	}
 	st := store.New(db)
-	if got, _ := st.AgentCursor(jid); got != cursor {
-		t.Errorf("agent cursor moved to %q from %q", got, cursor)
+	// The dispatch cursor holds a whole message KEY now, so an unchanged
+	// POSITION is the newest consumed row's own key rather than the instant the
+	// poller stopped at. The observed cursor is still a bare instant and is
+	// carried verbatim.
+	if got, want := mustCursor(t, st, jid), store.MsgStamp(cursor, "m1"); got != want {
+		t.Errorf("agent cursor moved to %q from %q", got, want)
 	}
 	if line, _ := st.TopicLineage("atlas", ""); line.ObservedCursor != cursor {
 		t.Errorf("observed cursor moved to %q from %q", line.ObservedCursor, cursor)

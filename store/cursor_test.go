@@ -152,10 +152,14 @@ func TestAResetTopicKeepsTheResetRatherThanTheCursorItHeld(t *testing.T) {
 }
 
 // TestACursorRefusesAValueOfAnotherWidth is the ordered declaration's mutation
-// target: delete the objstore.OrderedAttr call in store/chats.go's init and the
-// write below succeeds, storing a twenty-byte cursor beside thirty-byte message
-// timestamps. Byte order then disagrees with time order at every whole second,
-// which is BUGS L97 read off live data.
+// target, and it pins TWO refusals now.
+//
+// Delete the objstore.OrderedLead call in store/chats.go's init and the
+// twenty-byte cursor lands, sorting before every padded row of its own second —
+// BUGS L97 read off live data. Delete requireMessageCursor and the BARE INSTANT
+// lands, which is the newer half: a dispatch cursor holds a whole message
+// position, and a bare instant sorts below every message at that instant, so
+// `> cursor` hands the whole second back on every poll for ever.
 func TestACursorRefusesAValueOfAnotherWidth(t *testing.T) {
 	s := openEntities(t)
 	const jid = "slack:T/C/U"
@@ -168,12 +172,20 @@ func TestACursorRefusesAValueOfAnotherWidth(t *testing.T) {
 	if got, _ := s.AgentCursor(jid); got != "" {
 		t.Errorf("the refused write still landed: cursor = %q", got)
 	}
-	// The declared width IS accepted, or the refusal above would prove nothing.
-	if err := s.SetAgentCursor(jid, at(12)); err != nil {
-		t.Fatalf("a core.TS cursor was refused too: %v", err)
+	// A BARE INSTANT of the declared width is refused too, and that is the half
+	// the composite key adds: it names the start of a second rather than a
+	// message in it.
+	if err := s.SetAgentCursor(jid, at(12)); err == nil {
+		t.Fatal("a bare instant was accepted as a dispatch cursor; it sorts below every " +
+			"message at its own instant, so the poll loop re-feeds that instant for ever")
 	}
-	if got, _ := s.AgentCursor(jid); got != at(12) {
-		t.Errorf("cursor = %q, want %q", got, at(12))
+	// A WHOLE POSITION is accepted, or the two refusals above would prove nothing.
+	want := MsgStamp(at(12), "m1")
+	if err := s.SetAgentCursor(jid, want); err != nil {
+		t.Fatalf("a whole message position was refused: %v", err)
+	}
+	if got, _ := s.AgentCursor(jid); got != want {
+		t.Errorf("cursor = %q, want %q", got, want)
 	}
 
 	// The same rule on the other cursor, and on the two instants beside them.

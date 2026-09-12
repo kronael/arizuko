@@ -68,18 +68,22 @@ func TestApproveReIssuesHeldCallInTheCursorSecond(t *testing.T) {
 	approveInChat(t, db, srv, chatJID, "atlas", id)
 
 	// The trigger row the approval wrote.
-	trigger := triggerRow(t, db, id)
+	trigger := triggerRow(t, db, chatJID, id)
 
 	// The adapter's half: a platform timestamp in the trigger's own second,
 	// stored as the chat's cursor. This is the collision L97 reports, and it is
 	// the normal case — the verdict and the platform row are the same second.
 	cursorAt := trigger.Timestamp.Truncate(time.Second)
-	if err := db.SetAgentCursor(chatJID, core.TS(cursorAt)); err != nil {
+	// The cursor is a whole message position now, so it names the adapter's row
+	// at that second rather than the bare second. The trigger carries a fraction
+	// of the same second, so it sorts after ANY position at cursorAt whatever the
+	// id — which is the guarantee this test is about, made stronger.
+	if err := db.SetAgentCursor(chatJID, store.MsgStamp(core.TS(cursorAt), "platform-row")); err != nil {
 		t.Fatalf("set cursor: %v", err)
 	}
 
 	// The dispatch scan must see the trigger across that cursor.
-	msgs, err := db.MessagesSince(chatJID, db.GetAgentCursor(chatJID))
+	msgs, err := db.NewMessagesForChat(chatJID, db.GetAgentCursor(chatJID), 100)
 	if err != nil {
 		t.Fatalf("messages since cursor: %v", err)
 	}
@@ -116,11 +120,7 @@ func TestPutMessageStoresAFixedWidthTimestamp(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("put message: %v", err)
 	}
-	var got string
-	if err := db.SQL().QueryRow(
-		`SELECT timestamp FROM messages WHERE id = 'm-whole'`).Scan(&got); err != nil {
-		t.Fatalf("read stored timestamp: %v", err)
-	}
+	got := storedInstant(t, db, "slack:T/C/U", "m-whole")
 	if want := "2026-08-26T19:06:41.000000000Z"; got != want {
 		t.Fatalf("stored %q, want %q — a stored second must carry its zero fraction, "+
 			"or it sorts after every fractional row of the same second", got, want)
@@ -144,8 +144,8 @@ func TestPollOnceDoesNotSkipTheChatHoldingATrigger(t *testing.T) {
 	id := holdOneCall(t, db, srv, "atlas", chatJID)
 	approveInChat(t, db, srv, chatJID, "atlas", id)
 
-	trigger := triggerRow(t, db, id)
-	if err := db.SetAgentCursor(chatJID, core.TS(trigger.Timestamp.Truncate(time.Second))); err != nil {
+	trigger := triggerRow(t, db, chatJID, id)
+	if err := db.SetAgentCursor(chatJID, store.MsgStamp(core.TS(trigger.Timestamp.Truncate(time.Second)), "platform-row")); err != nil {
 		t.Fatalf("set cursor: %v", err)
 	}
 
@@ -173,6 +173,13 @@ func TestPollOnceDoesNotSkipTheChatHoldingATrigger(t *testing.T) {
 func TestMigration0044NormalisesTheMessageRows(t *testing.T) {
 	db := memDB(t)
 	const chatJID = "slack:T/C/U"
+
+	// `messages` is an entity here, and 0044 is a FROZEN migration that still
+	// runs on a database whose rows have not been moved yet — so the fixture
+	// puts the columns back to have something for it to normalise.
+	if _, err := db.SQL().Exec(legacyMessagesTable); err != nil {
+		t.Fatalf("put the pre-move columns back: %v", err)
+	}
 
 	// The state a pre-migration instance holds: a nanosecond row and a
 	// whole-second row in the same second.
@@ -238,6 +245,32 @@ func TestMigration0044NormalisesTheMessageRows(t *testing.T) {
 	}
 }
 
+// storedInstant reads the instant a message was STORED at — the lead of its
+// position, as the bytes on disk carry it. Reading it back through core.TS
+// would render the value a second time and hide the defect under test.
+func storedInstant(t *testing.T, db *DB, chatJID, id string) string {
+	t.Helper()
+	rows, err := db.SQL().Query(`SELECT sort FROM messages WHERE part = ?`, chatJID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var sort string
+		if err := rows.Scan(&sort); err != nil {
+			t.Fatal(err)
+		}
+		if at, got, ok := store.MsgCoord(sort); ok && got == id {
+			return at
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	t.Fatalf("no message %s in %s", id, chatJID)
+	return ""
+}
+
 func containsID(msgs []core.Message, id string) bool {
 	for _, m := range msgs {
 		if m.ID == id {
@@ -248,20 +281,21 @@ func containsID(msgs []core.Message, id string) bool {
 }
 
 // triggerRow reads the re-issue trigger a verdict wrote for a pending id. The
-// row id is core.MsgID("hitl-"+id), so the pending id is its prefix.
-func triggerRow(t *testing.T, db *DB, pendingID string) core.Message {
+// row id is core.MsgID("hitl-"+id), so the pending id is its prefix — and the
+// row is in the chat the verdict was given in, which is its partition.
+func triggerRow(t *testing.T, db *DB, chatJID, pendingID string) core.Message {
 	t.Helper()
-	var rowID string
-	if err := db.SQL().QueryRow(
-		`SELECT id FROM messages WHERE id LIKE 'hitl-' || ? || '-%'`, pendingID,
-	).Scan(&rowID); err != nil {
-		t.Fatalf("no re-issue trigger row for %s: %v", pendingID, err)
+	msgs, err := db.MessagesSince(chatJID, "")
+	if err != nil {
+		t.Fatal(err)
 	}
-	m, ok := store.New(db.SQL()).MessageByID(rowID)
-	if !ok {
-		t.Fatalf("trigger row %s vanished", rowID)
+	for _, m := range msgs {
+		if strings.HasPrefix(m.ID, "hitl-"+pendingID+"-") {
+			return m
+		}
 	}
-	return m
+	t.Fatalf("no re-issue trigger row for %s in %s", pendingID, chatJID)
+	return core.Message{}
 }
 
 // applyMigration runs a SHIPPED migration file. Reading the file rather than
@@ -276,3 +310,21 @@ func applyMigration(t *testing.T, db *DB, path string) {
 		t.Fatalf("apply %s: %v", path, err)
 	}
 }
+
+// legacyMessagesTable is `messages` in its pre-move column shape: routd's 0001
+// columns plus the three its chain added. Only the frozen-migration fixture
+// above needs it — every other test writes through the entity.
+const legacyMessagesTable = `
+DROP TABLE IF EXISTS messages;
+CREATE TABLE messages (
+  id TEXT PRIMARY KEY, chat_jid TEXT NOT NULL, sender TEXT NOT NULL,
+  sender_name TEXT, content TEXT NOT NULL, timestamp TEXT NOT NULL,
+  is_from_me INTEGER NOT NULL DEFAULT 0, is_bot_message INTEGER NOT NULL DEFAULT 0,
+  forwarded_from TEXT, reply_to_id TEXT, reply_to_text TEXT, reply_to_sender TEXT,
+  topic TEXT NOT NULL DEFAULT '', routed_to TEXT NOT NULL DEFAULT '',
+  verb TEXT NOT NULL DEFAULT 'message', attachments TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT '', is_observed INTEGER NOT NULL DEFAULT 0,
+  turn_id TEXT, status TEXT NOT NULL DEFAULT 'sent', platform_id TEXT,
+  chat_name TEXT NOT NULL DEFAULT '', errored INTEGER NOT NULL DEFAULT 0,
+  delivery_attempts INTEGER NOT NULL DEFAULT 0, link_context TEXT);
+`

@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore"
@@ -118,14 +119,12 @@ func TestRouteTokens_PurgedOnGroupDelete(t *testing.T) {
 // 5/8 they must strand. This pins the absence of a FK on these tables.
 func TestFK_HistoryTablesStrandOnGroupDelete(t *testing.T) {
 	s := openFKStore(t)
-	db := s.DB()
 	if err := s.PutGroup(core.Group{Folder: "acme"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(
-		`INSERT INTO messages (id, chat_jid, sender, content, timestamp)
-		 VALUES ('m1', 'acme', 'u', 'hi', datetime('now'))`,
-	); err != nil {
+	if err := s.PutMessage(core.Message{
+		ID: "m1", ChatJID: "acme", Sender: "u", Content: "hi", Timestamp: time.Now(),
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := audit.EmitTo(t.Context(), s.Obj(), audit.Event{
@@ -138,10 +137,11 @@ func TestFK_HistoryTablesStrandOnGroupDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 	// History strands by spec.
-	var n int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM messages WHERE chat_jid='acme'`).Scan(&n); err != nil {
+	msgs, err := s.MessagesSince("acme", time.Time{})
+	if err != nil {
 		t.Fatal(err)
 	}
+	n := len(msgs)
 	if n != 1 {
 		t.Fatalf("messages stranded count: want 1, got %d", n)
 	}
@@ -206,7 +206,7 @@ func TestHotTier_PurgedOnGroupDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 	cursor := core.NowTS()
-	if err := s.SetAgentCursor(jid, cursor); err != nil {
+	if err := s.SetAgentCursor(jid, MsgStamp(cursor, "m1")); err != nil {
 		t.Fatal(err)
 	}
 
@@ -237,10 +237,11 @@ func TestHotTier_PurgedOnGroupDelete(t *testing.T) {
 	if group != "" || topic != "" {
 		t.Errorf("the chat still points at the deleted folder: (%q, %q)", group, topic)
 	}
-	if got, _ := s.AgentCursor(jid); got != cursor {
+	want := MsgStamp(cursor, "m1")
+	if got, _ := s.AgentCursor(jid); got != want {
 		t.Errorf("the chat's dispatch cursor = %q, want %q — the purge deleted the item "+
 			"instead of clearing the binding, and the chat re-feeds its whole history",
-			got, cursor)
+			got, want)
 	}
 
 	// The sibling is untouched, or the purge widened onto the whole table.

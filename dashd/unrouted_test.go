@@ -9,15 +9,24 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/store"
 )
 
 func seedInbound(t *testing.T, db *sql.DB, id, jid, sender string, at time.Time) {
 	t.Helper()
-	if _, err := db.Exec(
-		`INSERT INTO messages (id, chat_jid, sender, content, timestamp, verb)
-		 VALUES (?, ?, ?, 'hi', ?, 'message')`,
-		id, jid, sender, core.TS(at)); err != nil {
-		t.Fatalf("seed message %s: %v", id, err)
+	seedRoutdMessage(t, db, core.Message{
+		ID: id, ChatJID: jid, Sender: sender, Content: "hi", Timestamp: at, Verb: "message",
+	})
+}
+
+// seedRoutdMessage appends one message through the writer routd itself uses.
+// `messages` is an objstore entity, so a fixture cannot reach it with an INSERT
+// naming columns; and the write fans out to the folder, activity and delivery
+// indexes the dashboard reads.
+func seedRoutdMessage(t *testing.T, db *sql.DB, m core.Message) {
+	t.Helper()
+	if err := store.New(db).PutMessage(m); err != nil {
+		t.Fatalf("seed message %s: %v", m.ID, err)
 	}
 }
 

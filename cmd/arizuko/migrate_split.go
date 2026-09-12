@@ -62,21 +62,6 @@ type copySpec struct {
 var routdSpecs = []copySpec{
 	// straight copies (shared column intersection)
 	// messages.db messages has `errored` (store 0030); routd.db lacks it → dropped.
-	// transform: COALESCE every nullable column to routd's runtime default. routd's
-	// own inserts use '' (FireProactive/PutMessage), but legacy gated rows carry
-	// NULLs (sender_name/reply_to_id/source were `TEXT` nullable; the rest gained
-	// NOT NULL DEFAULTs in later migrations but pre-existing rows kept NULL).
-	// scanMessages scans most of these into plain `string` → a NULL aborts every
-	// routd poll/read (Scan error). Default each to what a fresh routd insert
-	// writes so reads never hit NULL.
-	{dst: "messages", src: "messages", transfm: true,
-		cols: "id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message, forwarded_from, reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb, attachments, source, is_observed, turn_id, status, platform_id, chat_name",
-		sel: "id, chat_jid, sender, COALESCE(sender_name,''), content, timestamp, " +
-			"COALESCE(is_from_me,0), COALESCE(is_bot_message,0), COALESCE(forwarded_from,''), " +
-			"COALESCE(reply_to_id,''), COALESCE(reply_to_text,''), COALESCE(reply_to_sender,''), " +
-			"COALESCE(topic,''), COALESCE(routed_to,''), COALESCE(verb,'message'), " +
-			"COALESCE(attachments,''), COALESCE(source,''), COALESCE(is_observed,0), " +
-			"COALESCE(turn_id,''), COALESCE(status,'sent'), COALESCE(platform_id,''), COALESCE(chat_name,'')"},
 	// audit_log, pane_sessions, secret_use_log, routd's own thirteen and the hot
 	// tier are NOT here: each is an objstore entity, so none is a column
 	// list and no INSERT … SELECT can carry one. copyAuditLog, copyStoreEntities,
@@ -399,9 +384,6 @@ func copyHotEntities(dst *sql.DB, msgPath string, dryRun bool) (store.RoutdCount
 	if len(sources) == 0 {
 		return store.RoutdCounts{}, nil
 	}
-	if err := requirePaddedMessageRows(dst, sources); err != nil {
-		return nil, err
-	}
 	snap, err := readHotSnapshot(src, sources, hotColumnAlias)
 	if err != nil {
 		return nil, err
@@ -428,7 +410,7 @@ func copyHotEntities(dst *sql.DB, msgPath string, dryRun bool) (store.RoutdCount
 	// other half, and this path needs it MOST: it runs once, on a real monolith,
 	// and a cursor that arrived naming a different instant would re-feed or skip
 	// everything between the two values with nothing to say so.
-	if err := verifyCursors(st, before); err != nil {
+	if err := verifyCursors(context.Background(), st, before); err != nil {
 		return nil, err
 	}
 	return written, nil
@@ -481,17 +463,14 @@ func migrateSplit(storeDir string, dryRun bool) error {
 	if err != nil {
 		return fmt.Errorf("routd.db: %w", err)
 	}
-	// The copy is SQL-to-SQL, so messages.timestamp, chats.agent_cursor and
-	// sessions.observed_cursor arrive in whatever width the source wrote —
-	// and routd.Create has already run the migration that normalises them, so
-	// the sequence will not revisit these rows. Hand them to routd's own
-	// normaliser here, or the column's string order stops being its time order
-	// and a cursor skips a row for good (BUGS L219, L97).
-	if !dryRun {
-		if err := routd.NormalizeFixedWidthTimestamps(rdb.SQL()); err != nil {
-			return fmt.Errorf("routd.db: %w", err)
-		}
-	}
+	// THE NORMALISER IS GONE BECAUSE THE COLUMN IS. migration 0044 pads
+	// `messages.timestamp`, and `messages` is an entity: every instant is
+	// rendered through core.TS on the way in, by the one writer the move and the
+	// restore share, so there is no unpadded value left for it to find. Running
+	// it here now fails on a table of three columns. The two cursors travel with
+	// copyHotEntities, which pads `sessions.observed_cursor` as it carries it and
+	// DERIVES `chats.agent_cursor` from the rows once they have landed (BUGS
+	// L219, L97).
 	// The monolith's audit trail lands in routd.db, which is where dashd, webd
 	// and proxyd all record. It is an entity rather than a table, so it travels
 	// through audit's own import instead of copyInto — and the import carries
@@ -543,16 +522,13 @@ func migrateSplit(storeDir string, dryRun bool) error {
 		return fmt.Errorf("onbod.db: %w", err)
 	}
 
-	// Rebuild the FTS index from the copied messages — we never copy the
-	// internal messages_fts* shadow tables; the routd triggers only fire on
-	// INSERT-through-the-table, which our INSERT…SELECT path bypasses.
-	if !dryRun && rN["messages"] > 0 {
-		if _, err := rdb.SQL().Exec(
-			`INSERT INTO messages_fts(messages_fts) VALUES('rebuild')`); err != nil {
-			return fmt.Errorf("rebuild messages_fts: %w", err)
-		}
-		fmt.Println("  routd.db messages_fts: rebuilt")
-	}
+	// THE FTS REBUILD IS GONE WITH THE COLUMN COPY. `messages` is an entity, so
+	// the rows travel through copyHotEntities and land as items — and
+	// `messages_fts` indexes a table of columns that no longer exists under that
+	// name. Rebuilding it here would index the entity's three columns and answer
+	// every search with nothing. Ranked search moves with its own service (spec
+	// 6/37 §"Search is the one that is answered by leaving"), and it carries its
+	// own index when it does.
 
 	fmt.Println("\nsummary:")
 	fmt.Printf("  routd.db rows: %s\n", fmtCounts(routdSpecs, rN))

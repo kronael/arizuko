@@ -401,8 +401,12 @@ func TestPollOnceGatesCurrentChat(t *testing.T) {
 	now := time.Now().UTC()
 	// chat A: already processed — its cursor is AT its latest msg, and it holds
 	// MinAgentCursor low so pollOnce's global poll surfaces it every tick.
-	_ = db.PutMessage(core.Message{ID: "a1", ChatJID: "slack:T/CA/U", Sender: "u", Content: "old", Timestamp: now, Verb: "message"})
-	_ = db.SetAgentCursor("slack:T/CA/U", core.TS(now))
+	consumed := core.Message{ID: "a1", ChatJID: "slack:T/CA/U", Sender: "u", Content: "old",
+		Timestamp: now, Verb: "message"}
+	_ = db.PutMessage(consumed)
+	// The cursor holds the consumed message's own KEY: a bare instant sorts
+	// below it and the chat would look like new work on every tick.
+	_ = db.SetAgentCursor("slack:T/CA/U", store.MessageCursor(consumed))
 	// chat B: genuinely new — cursor unset (behind its message).
 	_ = db.PutMessage(core.Message{ID: "b1", ChatJID: "slack:T/CB/U", Sender: "u", Content: "new", Timestamp: now.Add(time.Second), Verb: "message"})
 

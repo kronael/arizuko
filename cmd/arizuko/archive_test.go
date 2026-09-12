@@ -120,18 +120,20 @@ func TestArchive_RoundTrip_ConfigSecretsMessagesGroups(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Messages, including a column routd's own agent-facing read surface
-	// omits (link_context) — the real schema has it, unlike resreg/
-	// archive_test.go's fixture.
-	if _, err := srcRoutd.DB().Exec(`INSERT INTO messages
-		(id, chat_jid, sender, content, timestamp, topic, routed_to, link_context)
-		VALUES ('m1','web:atlas','user1','hello',?,'general','atlas','ctx-a')`, core.TS(msgAt(t, "2026-01-01"))); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := srcRoutd.DB().Exec(`INSERT INTO messages
-		(id, chat_jid, sender, content, timestamp, topic, routed_to)
-		VALUES ('m2','web:atlas','user1','world',?,'general','atlas')`, core.TS(msgAt(t, "2026-01-02"))); err != nil {
-		t.Fatal(err)
+	// Messages, including a field routd's own agent-facing read surface omits
+	// (link_context). A message is an item, so the fixture writes it through
+	// the writer routd itself uses.
+	srcMsgs := store.New(srcRoutd.DB())
+	for _, m := range []core.Message{
+		{ID: "m1", ChatJID: "web:atlas", Sender: "user1", Content: "hello",
+			Timestamp: msgAt(t, "2026-01-01"), Topic: "general", RoutedTo: "atlas",
+			LinkContext: "ctx-a"},
+		{ID: "m2", ChatJID: "web:atlas", Sender: "user1", Content: "world",
+			Timestamp: msgAt(t, "2026-01-02"), Topic: "general", RoutedTo: "atlas"},
+	} {
+		if err := srcMsgs.PutMessage(m); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	var archiveBuf bytes.Buffer
@@ -223,28 +225,31 @@ func TestArchive_RoundTrip_ConfigSecretsMessagesGroups(t *testing.T) {
 		t.Errorf("restored invite target_glob = %q, want atlas/*", inviteGlob)
 	}
 
-	// Messages present, full column fidelity (link_context survived).
-	var n int
-	dstRoutd.DB().QueryRow("SELECT COUNT(*) FROM messages").Scan(&n)
+	// Messages present, full field fidelity (link_context survived).
+	dstMsgs := store.New(dstRoutd.DB())
+	n, err := dstMsgs.CountMessages(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if n != 2 {
 		t.Errorf("messages after restore = %d, want 2", n)
 	}
-	var linkCtx string
-	if err := dstRoutd.DB().QueryRow("SELECT link_context FROM messages WHERE id='m1'").Scan(&linkCtx); err != nil {
-		t.Fatal(err)
+	restoredMsg, ok := dstMsgs.MessageByID("web:atlas", "m1")
+	if !ok {
+		t.Fatal("the restored message is gone")
 	}
-	if linkCtx != "ctx-a" {
-		t.Errorf("link_context lost: got %q, want ctx-a", linkCtx)
+	if restoredMsg.LinkContext != "ctx-a" {
+		t.Errorf("link_context lost: got %q, want ctx-a", restoredMsg.LinkContext)
 	}
 
 	// Finding 4: agent_cursor derived from the imported history's MAX
 	// timestamp for the touched chat.
-	cursor, err := store.New(dstRoutd.DB()).AgentCursor("web:atlas")
+	cursor, err := dstMsgs.AgentCursor("web:atlas")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cursor != core.TS(msgAt(t, "2026-01-02")) {
-		t.Errorf("agent_cursor = %q, want the MAX imported timestamp", cursor)
+	if want := store.MsgStamp(core.TS(msgAt(t, "2026-01-02")), "m2"); cursor != want {
+		t.Errorf("agent_cursor = %q, want the newest imported message's key %q", cursor, want)
 	}
 
 	// groups.tar landed on the (previously nonexistent) target folder.

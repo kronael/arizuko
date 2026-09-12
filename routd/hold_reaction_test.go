@@ -173,11 +173,8 @@ func TestIngress_RewritesAReactionIntoItsVerdict(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("ingress = %d body=%s", rec.Code, rec.Body.String())
 	}
-	var content, verb string
-	if err := db.SQL().QueryRow(
-		`SELECT content, verb FROM messages WHERE id = 'react-1'`).Scan(&content, &verb); err != nil {
-		t.Fatal(err)
-	}
+	rewritten := msgByID(t, db, "tg:1", "react-1")
+	content, verb := rewritten.Content, rewritten.Verb
 	if content != "/approve ab12" {
 		t.Errorf("stored content = %q, want the command the reaction stands for", content)
 	}
@@ -202,8 +199,7 @@ func TestIngress_LeavesAnOrdinaryReactionAlone(t *testing.T) {
 		}); rec.Code != 200 {
 			t.Fatalf("%s ingress = %d", c.id, rec.Code)
 		}
-		var content string
-		db.SQL().QueryRow(`SELECT content FROM messages WHERE id = ?`, c.id).Scan(&content)
+		content := msgByID(t, db, "tg:1", c.id).Content
 		if content != c.emoji {
 			t.Errorf("%s stored %q, want the reaction untouched", c.id, content)
 		}

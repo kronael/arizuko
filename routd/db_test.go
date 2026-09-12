@@ -3,10 +3,12 @@ package routd
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/store"
 )
 
 // Open never creates routd.db. Without this, a routd pointed at the wrong
@@ -79,7 +81,7 @@ func TestChatUpsertsPreserveTheOtherColumns(t *testing.T) {
 	if err := db.SetStickyTopic(jid, "billing"); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.SetAgentCursor(jid, "2026-01-01T00:00:00.000000000Z"); err != nil {
+	if err := db.SetAgentCursor(jid, store.MsgStamp("2026-01-01T00:00:00.000000000Z", "m1")); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.SetChatIsGroup(jid, true); err != nil {
@@ -93,7 +95,7 @@ func TestChatUpsertsPreserveTheOtherColumns(t *testing.T) {
 	if topic != "billing" {
 		t.Errorf("sticky_topic = %q, want billing — a later upsert cleared it", topic)
 	}
-	if got := db.GetAgentCursor(jid); got != "2026-01-01T00:00:00.000000000Z" {
+	if got := db.GetAgentCursor(jid); got != store.MsgStamp("2026-01-01T00:00:00.000000000Z", "m1") {
 		t.Errorf("agent_cursor = %q, want the value set — a later upsert cleared it", got)
 	}
 	if !db.ChatIsGroup(jid) {
@@ -107,39 +109,51 @@ func TestChatUpsertsPreserveTheOtherColumns(t *testing.T) {
 // poll as unobserved, which fires the turn the observe rule exists to suppress.
 func TestMarkMessagesObservedMarksEveryIDInTheBatch(t *testing.T) {
 	db := memDB(t)
+	st := store.New(db.SQL())
 	const jid = "slack:T/C/X"
-	ids := []string{"a", "b", "c"}
-	for _, id := range ids {
-		if err := db.PutMessage(core.Message{ID: id, ChatJID: jid, Sender: "u",
-			Content: id, Timestamp: time.Now().UTC()}); err != nil {
+	now := time.Now().UTC()
+	var batch []core.Message
+	for i, id := range []string{"a", "b", "c"} {
+		m := core.Message{ID: id, ChatJID: jid, Sender: "u", Content: id,
+			Timestamp: now.Add(time.Duration(i) * time.Second)}
+		batch = append(batch, m)
+		if err := db.PutMessage(m); err != nil {
 			t.Fatal(err)
 		}
 	}
 	// One row outside the batch: it must stay unobserved.
 	if err := db.PutMessage(core.Message{ID: "d", ChatJID: jid, Sender: "u",
-		Content: "d", Timestamp: time.Now().UTC()}); err != nil {
+		Content: "d", Timestamp: now.Add(3 * time.Second)}); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := db.MarkMessagesObserved("demo", ids); err != nil {
+	if err := db.MarkMessagesObserved("demo", batch); err != nil {
 		t.Fatalf("MarkMessagesObserved: %v", err)
 	}
-	for _, id := range ids {
-		var obs int
-		var routed string
-		if err := db.SQL().QueryRow(
-			"SELECT is_observed, routed_to FROM messages WHERE id=?", id).Scan(&obs, &routed); err != nil {
-			t.Fatal(err)
+	for _, m := range batch {
+		got, ok := st.MessageByID(jid, m.ID)
+		if !ok {
+			t.Fatalf("id %q is gone", m.ID)
 		}
-		if obs != 1 || routed != "demo" {
-			t.Errorf("id %q: is_observed=%d routed_to=%q, want 1/demo", id, obs, routed)
+		if got.RoutedTo != "demo" {
+			t.Errorf("id %q: routed_to=%q, want demo", m.ID, got.RoutedTo)
 		}
 	}
-	var obs int
-	if err := db.SQL().QueryRow("SELECT is_observed FROM messages WHERE id='d'").Scan(&obs); err != nil {
-		t.Fatal(err)
+	// The ambient window IS the observed flag's only reader, so it is what the
+	// batch has to have moved — all three of it, and nothing else.
+	window := db.ObservedSince("demo", "", 10, 100000)
+	var seen []string
+	for _, m := range window {
+		seen = append(seen, m.ID)
 	}
-	if obs != 0 {
-		t.Error("a row outside the batch was marked observed")
+	if !reflect.DeepEqual(seen, []string{"a", "b", "c"}) {
+		t.Errorf("ambient window = %v, want the whole batch and only it", seen)
+	}
+	outside, ok := st.MessageByID(jid, "d")
+	if !ok {
+		t.Fatal("the row outside the batch is gone")
+	}
+	if outside.RoutedTo != "" {
+		t.Errorf("a row outside the batch was routed to %q", outside.RoutedTo)
 	}
 }

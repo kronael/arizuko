@@ -206,9 +206,7 @@ func TestFeature_Secrets(t *testing.T) {
 		if rec.StatusCode != 200 {
 			t.Fatalf("ingest status=%d, want 200", rec.StatusCode)
 		}
-		testutils.WaitForRow(t, f.routdDB.SQL(),
-			`SELECT COUNT(*) FROM messages WHERE chat_jid=? AND is_bot_message=1`,
-			[]any{"slack:T/C/A"}, 5*time.Second)
+		testutils.WaitForBotRow(t, f.routdDB.SQL(), "slack:T/C/A", 5*time.Second)
 
 		got := f.dispatchedSecrets("vault")
 		want := map[string]string{"ANTHROPIC_API_KEY": "sk-ant-alice"}

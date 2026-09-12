@@ -201,7 +201,7 @@ func TestRetryClearsErroredRowsAndReportsAnEmptyRetry(t *testing.T) {
 	if err := db.PutMessage(m); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.MarkMessagesErrored([]string{"m1"}); err != nil {
+	if err := db.MarkMessagesErrored([]core.Message{m}); err != nil {
 		t.Fatal(err)
 	}
 

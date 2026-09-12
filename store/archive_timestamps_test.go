@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -34,29 +35,59 @@ func instant(t *testing.T, hhmm string) time.Time {
 	return v
 }
 
-// archiveOf renders rows the way a real archive is rendered: seed a routd.db
-// and let ExportMessagesJSONL write the document. Only the timestamps are
-// handed in verbatim, because their width is the subject.
+// archiveOf writes the archive document an OLDER instance left: one JSON object
+// per row, timestamps verbatim. The live writer cannot hold a value it could not
+// order — a foreign archive is the only door such a value comes through, which
+// is what these fixtures are about.
 func archiveOf(t *testing.T, rows []store.ArchiveMessageRow) []byte {
 	t.Helper()
-	srcSt, src := routdMessages(t)
-	for _, m := range rows {
-		insertMsg(t, src, m)
-	}
 	var buf bytes.Buffer
-	if _, err := srcSt.ExportMessagesJSONL(context.Background(), &buf); err != nil {
-		t.Fatalf("export: %v", err)
+	enc := json.NewEncoder(&buf)
+	for _, m := range rows {
+		if err := enc.Encode(m); err != nil {
+			t.Fatalf("render %s: %v", m.ID, err)
+		}
 	}
 	return buf.Bytes()
 }
 
+// storedTS reads the instant a message was STORED at — the lead of its position,
+// as the bytes on disk carry it. Reading it back through core.TS would render
+// the value a second time and hide exactly the defect under test.
 func storedTS(t *testing.T, db *sql.DB, id string) string {
 	t.Helper()
-	var got string
-	if err := db.QueryRow("SELECT timestamp FROM messages WHERE id = ?", id).Scan(&got); err != nil {
+	rows, err := db.Query("SELECT sort FROM messages")
+	if err != nil {
 		t.Fatalf("read %s: %v", id, err)
 	}
-	return got
+	defer rows.Close()
+	for rows.Next() {
+		var sort string
+		if err := rows.Scan(&sort); err != nil {
+			t.Fatal(err)
+		}
+		if at, got, ok := store.MsgCoord(sort); ok && got == id {
+			return at
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	t.Fatalf("no message %s was stored", id)
+	return ""
+}
+
+// storedCount answers how many messages of a chat sort strictly after a cursor —
+// the rows the poll loop would still feed.
+func storedCount(t *testing.T, db *sql.DB, chatJID, afterKey string) int {
+	t.Helper()
+	var n int
+	if err := db.QueryRow(
+		"SELECT COUNT(*) FROM messages WHERE part = ? AND sort > ?", chatJID, afterKey).
+		Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
 }
 
 // The defect. An archive written before the column was fixed width carries a
@@ -83,17 +114,12 @@ func TestImportedHistoryLeavesNoRowBehindTheCursorItDerives(t *testing.T) {
 	}
 
 	cursor := cursorOf(t, dstSt, "slack:C1")
-	if cursor != core.TS(newest) {
-		t.Errorf("cursor = %q, want the newest instant %q", cursor, core.TS(newest))
+	if want := store.MsgStamp(core.TS(newest), "frac"); cursor != want {
+		t.Errorf("cursor = %q, want the newest message's key %q", cursor, want)
 	}
 	// The failure the cursor causes, asserted as the poller sees it: no stored
 	// row may sort at or above the cursor, or it never reaches the agent.
-	var hidden int
-	if err := dst.QueryRow(
-		`SELECT COUNT(*) FROM messages WHERE chat_jid='slack:C1' AND timestamp > ?`,
-		cursor).Scan(&hidden); err != nil {
-		t.Fatal(err)
-	}
+	hidden := storedCount(t, dst, "slack:C1", cursor)
 	if hidden != 0 {
 		t.Errorf("%d restored rows sort after the cursor derived from them; the agent never sees them", hidden)
 	}
@@ -146,9 +172,11 @@ func TestImportRendersEveryArchivedWidthThroughTheOneRenderer(t *testing.T) {
 // correcting the row and re-running is the way back, because the import is
 // idempotent on everything that already landed.
 func TestImportRefusesTheUnorderableRowAndNamesIt(t *testing.T) {
-	// The shape routd/migrations/0044 deliberately leaves alone rather than
-	// invent a zone for. Two rows carry it on krons today.
-	const handEdited = "2026-04-02 12:38:47"
+	// A hand-written `2026-04-02 12:38:47` IS readable — ReadMessageInstant
+	// takes a naive datetime as UTC, because the instance has always written
+	// UTC and an item has no position without an instant. What stays
+	// unorderable is a value no layout parses at all.
+	const handEdited = "sometime last April"
 
 	doc := archiveOf(t, []store.ArchiveMessageRow{
 		{ID: "good-1", ChatJID: "slack:C1", Sender: "u", Content: "a", Timestamp: ts(t, "10:00")},
@@ -170,11 +198,7 @@ func TestImportRefusesTheUnorderableRowAndNamesIt(t *testing.T) {
 	if refused[0].ID != "hand-edited" || refused[0].Timestamp != handEdited {
 		t.Errorf("refused[0] = %+v, want the id and the value the archive carried", refused[0])
 	}
-	var stored int
-	if err := dst.QueryRow("SELECT COUNT(*) FROM messages WHERE id='hand-edited'").Scan(&stored); err != nil {
-		t.Fatal(err)
-	}
-	if stored != 0 {
+	if _, ok := dstSt.MessageByID("slack:C1", "hand-edited"); ok {
 		t.Error("the unorderable row was written; it sorts below every T-form row and hides behind any cursor")
 	}
 

@@ -16,8 +16,19 @@ import (
 // routd's own chain builds. routd owns the tables and migrates them; a reader
 // here runs statements only.
 
-const timedInsertMsg = `INSERT INTO messages (id, chat_jid, sender, content, timestamp)
- VALUES (?, ?, 'timed', ?, ?)`
+// timedMessage is the row timed's fire posts to routd's POST /v1/messages: a
+// trigger from the scheduler, with the sender that names it. timed opens no
+// database of its own, so this writes through the same door routd's handler
+// does.
+func timedMessage(t *testing.T, s *store.Store, id, jid, content string, at time.Time) {
+	t.Helper()
+	if err := s.PutMessage(core.Message{
+		ID: id, ChatJID: jid, Sender: "timed", Content: content,
+		Timestamp: at, Verb: "message",
+	}); err != nil {
+		t.Fatal("timed message:", err)
+	}
+}
 
 // openSharedDB returns routd.db's schema twice: through the shared store library
 // six daemons hold, and as the raw *sql.DB a caller runs statements on directly.
@@ -60,17 +71,14 @@ func TestTimedFireReadClaimsADueTask(t *testing.T) {
 }
 
 func TestTimedInsertReadableByStore(t *testing.T) {
-	s, db := openSharedDB(t)
+	s, _ := openSharedDB(t)
 
 	now := time.Now()
-	ts := now.Format(time.RFC3339)
-	if _, err := db.Exec(timedInsertMsg, "sched-t1-123", "tg:100", "daily report", ts); err != nil {
-		t.Fatal("timed insert message:", err)
-	}
+	timedMessage(t, s, "sched-t1-123", "tg:100", "daily report", now)
 
-	msgs, _, err := s.NewMessages([]string{"tg:100"}, now.Add(-time.Second), "Bot")
+	msgs, err := s.NewMessagesForChat(t.Context(), "tg:100", "", 10)
 	if err != nil {
-		t.Fatal("NewMessages:", err)
+		t.Fatal("NewMessagesForChat:", err)
 	}
 	if len(msgs) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(msgs))
@@ -81,32 +89,49 @@ func TestTimedInsertReadableByStore(t *testing.T) {
 	}
 }
 
-// timed sets sender='timed'. gated filters sender LIKE '<botName>%'.
-// Verify timed messages pass through regardless of bot name.
-func TestTimedMessagesNotFilteredAsBot(t *testing.T) {
-	s, db := openSharedDB(t)
+// timed sets sender='timed'. What decides whether a row is the agent's own
+// output is the is_bot_message FLAG and nothing else — no name is inspected —
+// so a scheduler row whose sender merely LOOKS like a bot name is still a
+// trigger the dispatch batch keeps.
+func TestTimedMessagesAreNotTheAgentsOwnOutput(t *testing.T) {
+	s, _ := openSharedDB(t)
 
-	ts := time.Now().Format(time.RFC3339)
-	db.Exec(timedInsertMsg, "sched-f1", "tg:300", "scheduled msg", ts)
+	now := time.Now()
+	timedMessage(t, s, "sched-f1", "tg:300", "scheduled msg", now)
+	if err := s.PutMessage(core.Message{
+		ID: "sched-f2", ChatJID: "tg:300", Sender: "timed-bot", Content: "also a trigger",
+		Timestamp: now.Add(time.Second), Verb: "message",
+	}); err != nil {
+		t.Fatal(err)
+	}
 
-	for _, botName := range []string{"Bot", "Arizuko", "Assistant", "timed-bot"} {
-		msgs, _, _ := s.NewMessages([]string{"tg:300"}, time.Time{}, botName)
-		if len(msgs) != 1 {
-			t.Errorf("botName=%q: expected 1 msg, got %d", botName, len(msgs))
+	msgs, err := s.NewMessagesForChat(t.Context(), "tg:300", "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 msgs, got %d", len(msgs))
+	}
+	for _, m := range msgs {
+		if m.BotMsg {
+			t.Errorf("%s reads as the agent's own output; only the flag decides that", m.ID)
 		}
 	}
 }
 
 func TestTimedMultipleMessagesOrdered(t *testing.T) {
-	s, db := openSharedDB(t)
+	s, _ := openSharedDB(t)
 
 	base := time.Now()
 	for i := range 5 {
-		ts := base.Add(time.Duration(i) * time.Second).Format(time.RFC3339)
-		db.Exec(timedInsertMsg, fmt.Sprintf("sched-ord-%d", i), "tg:400", fmt.Sprintf("msg-%d", i), ts)
+		timedMessage(t, s, fmt.Sprintf("sched-ord-%d", i), "tg:400",
+			fmt.Sprintf("msg-%d", i), base.Add(time.Duration(i)*time.Second))
 	}
 
-	msgs, _, _ := s.NewMessages([]string{"tg:400"}, time.Time{}, "Bot")
+	msgs, err := s.NewMessagesForChat(t.Context(), "tg:400", "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(msgs) != 5 {
 		t.Fatalf("expected 5 messages, got %d", len(msgs))
 	}
@@ -148,7 +173,7 @@ func TestTaskNextRunUpdate(t *testing.T) {
 // atomic claim + message insert, and verify gated's store sees the row
 // appear in the messages table carrying the task's prompt.
 func TestCronFiresMessage(t *testing.T) {
-	s, db := openSharedDB(t)
+	s, _ := openSharedDB(t)
 
 	now := time.Now()
 	past := now.Add(-time.Second)
@@ -169,19 +194,15 @@ func TestCronFiresMessage(t *testing.T) {
 		t.Fatal("claim:", err)
 	}
 	for _, task := range claimed {
-		if _, err := db.Exec(timedInsertMsg,
-			"sched-"+task.ID, task.ChatJID, task.Prompt, time.Now().Format(time.RFC3339),
-		); err != nil {
-			t.Fatal("insert msg:", err)
-		}
+		timedMessage(t, s, "sched-"+task.ID, task.ChatJID, task.Prompt, time.Now())
 	}
 	if len(claimed) != 1 {
 		t.Fatalf("fired = %d, want 1", len(claimed))
 	}
 
-	msgs, _, err := s.NewMessages([]string{"tg:500"}, time.Time{}, "Bot")
+	msgs, err := s.NewMessagesForChat(t.Context(), "tg:500", "", 10)
 	if err != nil {
-		t.Fatal("NewMessages:", err)
+		t.Fatal("NewMessagesForChat:", err)
 	}
 	if len(msgs) != 1 {
 		t.Fatalf("messages for tg:500 = %d, want 1", len(msgs))

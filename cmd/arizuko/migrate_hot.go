@@ -13,18 +13,20 @@ package main
 // THE DATABASE IS routd.db, and the daemon that must be stopped is routd. dashd
 // reads `chat_proactive` off the same file, so it must be idle too.
 //
-// ROWS BEFORE CURSORS, CHECKED RATHER THAN REMEMBERED. `chats.agent_cursor` and
-// `sessions.observed_cursor` are compared against `messages.timestamp`, and
-// moving a cursor relative to its rows is what re-fed 28 consumed messages on
-// krons (routd migration 0044). store.ImportHot carries both VERBATIM and
-// refuses a cursor of the wrong width; this file refuses to start at all while
-// any message row that migration would pad is still unpadded. So the only order
-// in which this tool can run is the safe one.
+// ROWS BEFORE CURSORS, AND THE ORDER IS NOW IMPOSSIBLE TO GET WRONG.
+// `chats.agent_cursor` holds a whole message KEY, which does not exist until the
+// messages are items — so store.ImportHot writes the rows and then derives each
+// chat's cursor as the greatest key at or before the instant it held. The
+// precondition this tool used to CHECK is now one the shape enforces.
+// `sessions.observed_cursor` is still a bare instant and is still carried
+// verbatim, because the ambient window compares it `> cursor` over the newest
+// rows and a bound just past an instant is exactly what that meant.
 //
-// `messages` is NOT here and does not move. Ranked search leaves the store and
-// becomes its own service (spec 6/37 §"Search is the one that is answered by
-// leaving"), so `messages` and its FTS table wait for that decision — which is
-// also why this tool can check them: they are still a table of columns.
+// `messages` MOVES HERE TOO, and it is what makes the cursor derivable at all.
+// `messages_fts` does not: ranked search leaves the store and becomes its own
+// service (spec 6/37 §"Search is the one that is answered by leaving"), so the
+// FTS5 table, its three triggers and routd's migration chain stay where they are
+// and go on indexing a table this move empties.
 
 import (
 	"context"
@@ -37,7 +39,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/store"
@@ -83,9 +84,6 @@ func migrateHot(path string, dryRun bool) error {
 			path, strings.Join(store.HotEntities, ", "))
 		return nil
 	}
-	if err := requirePaddedMessageRows(db, sources); err != nil {
-		return err
-	}
 	snap, err := readHotSnapshot(db, sources, nil)
 	if err != nil {
 		return err
@@ -118,7 +116,8 @@ func migrateHot(path string, dryRun bool) error {
 	// so asking for routd's whole set would fail on a table a different tool has
 	// not moved yet, and that tool would fail on these for the same reason.
 	// Naming the subset is what lets either run first.
-	if err := store.EnsureEntitySet(ctx, s, store.OwnerRoutd, store.HotEntities...); err != nil {
+	if err := store.EnsureEntitySet(ctx, s, store.OwnerRoutd,
+		append(slices.Clone(store.HotEntities), store.MessageEntities...)...); err != nil {
 		return err
 	}
 	st := store.New(db)
@@ -131,53 +130,6 @@ func migrateHot(path string, dryRun bool) error {
 		fmt.Printf("  wrote %-19s %d\n", entity, counts[entity])
 	}
 	return verifyHot(ctx, st, snap, before)
-}
-
-// paddedRowGlobs are migration 0044's two GLOBs: the RFC3339-with-Z shapes it
-// pads, minus the ones already at core.TS's width. A row matching both is one
-// the migration would still rewrite.
-//
-// They are written here rather than parsed out of the file because a GLOB is not
-// a statement this tool can run against a table it does not know the name of —
-// and because what this asks is narrower than what the migration does: it counts
-// rather than rewrites, and it must count exactly what the migration would
-// change.
-const (
-	paddedRowGlob = `[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]*Z`
-	paddedNotGlob = `[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].` +
-		`[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]Z`
-)
-
-// requirePaddedMessageRows refuses to move a cursor while the rows it compares
-// against are still unpadded.
-//
-// It is skipped when neither cursor-bearing table is a source, because then no
-// cursor moves and the rows are nobody's business here. `messages` absent is not
-// an error either: a database with cursors and no messages has nothing for a
-// cursor to skip.
-func requirePaddedMessageRows(db *sql.DB, sources map[string]string) error {
-	if _, ok := sources[store.Chats]; !ok {
-		if _, ok := sources[store.Sessions]; !ok {
-			return nil
-		}
-	}
-	var unpadded int
-	err := db.QueryRow(`SELECT COUNT(*) FROM messages
-		 WHERE timestamp GLOB ? AND timestamp NOT GLOB ?`, paddedRowGlob, paddedNotGlob).Scan(&unpadded)
-	if err != nil {
-		if strings.Contains(err.Error(), "no such table") {
-			return nil
-		}
-		return fmt.Errorf("check the message rows the cursors compare against: %w", err)
-	}
-	if unpadded == 0 {
-		return nil
-	}
-	return fmt.Errorf("%d message rows are still at the widths routd's migration 0044 pads, "+
-		"and this tool carries the two cursors that compare against them VERBATIM. Moving the "+
-		"cursors first is what re-fed 28 consumed messages on krons. Run the migration "+
-		"(open the database with routd, or routd.NormalizeFixedWidthTimestamps) and try again",
-		unpadded)
 }
 
 // readHotSnapshot reads every legacy row of whichever tables src names.
@@ -235,29 +187,39 @@ func readHotSnapshot(db *sql.DB, src map[string]string,
 	return snap, nil
 }
 
-// cursorRow is one cursor as the legacy table holds it, so the report can show
-// that the move left it alone.
+// cursorRow is one cursor as the legacy table holds it, plus the number of rows
+// that sit after it — which is what the move has to leave unchanged.
 type cursorRow struct {
-	coord string
-	value string
+	coord  string
+	value  string
+	unfed  int
+	derive bool
 }
 
-// readCursors reads every stored cursor out of the legacy tables.
+// readCursors reads every stored cursor out of the legacy tables, and for the
+// DERIVED one also counts the rows it leaves unfed.
 //
-// It exists because an UNCHANGED cursor is the thing this move has to prove: a
-// count says every row travelled, and only the value says none of them moved in
-// time. The read runs before the tables are set aside and again through the
-// entities afterwards.
+// It exists because an unchanged cursor POSITION is the thing this move has to
+// prove: a count says every row travelled, and only the position says none of
+// them moved in time. `sessions.observed_cursor` is carried verbatim, so its
+// value is comparable directly. `chats.agent_cursor` is DERIVED — its new value
+// names the newest message at or before the old instant, which is a different
+// instant on purpose — so what is compared is the set it leaves: the rows after
+// the old cursor, against the rows after the new one.
 func readCursors(db *sql.DB, src map[string]string) (map[string][]cursorRow, error) {
 	out := map[string][]cursorRow{}
 	reads := []struct {
 		entity string
 		query  string
+		derive bool
 	}{
-		{store.Chats, "SELECT jid, COALESCE(agent_cursor,'') FROM %s ORDER BY jid"},
-		{store.Sessions, "SELECT group_folder || '\x1f' || topic, COALESCE(observed_cursor,'') " +
-			"FROM %s ORDER BY group_folder, topic"},
+		{entity: store.Chats, derive: true,
+			query: "SELECT jid, COALESCE(agent_cursor,'') FROM %s ORDER BY jid"},
+		{entity: store.Sessions,
+			query: "SELECT group_folder || '\x1f' || topic, COALESCE(observed_cursor,'') " +
+				"FROM %s ORDER BY group_folder, topic"},
 	}
+	msgs := src[store.Messages]
 	for _, r := range reads {
 		table, ok := src[r.entity]
 		if !ok {
@@ -269,7 +231,7 @@ func readCursors(db *sql.DB, src map[string]string) (map[string][]cursorRow, err
 		}
 		var list []cursorRow
 		for rows.Next() {
-			var c cursorRow
+			c := cursorRow{derive: r.derive}
 			if err := rows.Scan(&c.coord, &c.value); err != nil {
 				rows.Close()
 				return nil, err
@@ -281,9 +243,63 @@ func readCursors(db *sql.DB, src map[string]string) (map[string][]cursorRow, err
 		if err != nil {
 			return nil, err
 		}
+		if r.derive && msgs != "" {
+			for i := range list {
+				if list[i].value == "" {
+					continue // no cursor, so every row is unfed either way
+				}
+				n, err := unfedRows(db, msgs, list[i].coord, list[i].value)
+				if err != nil {
+					return nil, err
+				}
+				list[i].unfed = n
+			}
+		}
 		out[r.entity] = list
 	}
 	return out, nil
+}
+
+// unfedRows counts the messages a chat's stored cursor leaves after it, read off
+// the LEGACY table before the move touches anything.
+//
+// IT COMPARES INSTANTS, NOT BYTES, and that is the whole difficulty. Both sides
+// of the comparison are exactly what BUGS L97 is about: the stored cursor may be
+// short, the rows may be short, and either mismatch makes a byte comparison
+// disagree with time inside one second. A SQL `timestamp > ?` here would measure
+// the bug rather than the move — a correction would read as a shift and abort a
+// migration that had just done its job. So each row is parsed and compared as a
+// moment, which is what the cursor MEANT whatever width it was written at.
+//
+// The read is one chat's rows, once, in a tool that runs once with the daemon
+// stopped.
+func unfedRows(db *sql.DB, table, jid, cursor string) (int, error) {
+	at, err := readInstant(cursor)
+	if err != nil {
+		return 0, fmt.Errorf("read %s's cursor %q: %w", jid, cursor, err)
+	}
+	rows, err := db.Query("SELECT timestamp FROM "+table+" WHERE chat_jid = ?", jid)
+	if err != nil {
+		return 0, fmt.Errorf("count %s's unfed rows: %w", jid, err)
+	}
+	defer rows.Close() //nolint:errcheck // the error below is the one that decides
+	n := 0
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return 0, err
+		}
+		t, err := store.ReadMessageInstant(raw)
+		if err != nil {
+			// A row no position can be built from is one the move refuses, so it
+			// is not a row the cursor leaves unfed either.
+			continue
+		}
+		if t.After(at) {
+			n++
+		}
+	}
+	return n, rows.Err()
 }
 
 // verifyHot reads the entities back through the methods routd itself calls and
@@ -310,6 +326,7 @@ func verifyHot(ctx context.Context, st *store.Store, snap store.RoutdSnapshot,
 		{store.GroupWatchers, func() (int, error) { return st.CountGroupWatchers(ctx) }},
 		{store.TaskRunLogs, func() (int, error) { return st.CountTaskRunLogs(ctx) }},
 		{store.TurnContexts, func() (int, error) { return st.CountTurnContexts(ctx) }},
+		{store.Messages, func() (int, error) { return st.CountMessages(ctx) }},
 	}
 	for _, c := range counts {
 		got, err := c.count()
@@ -321,19 +338,19 @@ func verifyHot(ctx context.Context, st *store.Store, snap store.RoutdSnapshot,
 		}
 		fmt.Printf("  verified %-19s %d\n", c.entity, got)
 	}
-	return verifyCursors(st, before)
+	return verifyCursors(ctx, st, before)
 }
 
-// verifyCursors reads every carried cursor back and reports whether any names a
-// different instant than it did.
+// verifyCursors reads every cursor back and reports whether any names a
+// different POSITION than it did.
 //
-// IT IS THE HALF THAT MATTERS, and it is a function of its own because BOTH
-// tools that carry these rows owe it: a count says every row travelled, and only
-// the value says none of them moved in TIME. A cursor may change its RENDERING —
-// a whole second is padded to core.TS's width, which is the move's whole job —
-// and it may never change the instant it names, because everything between the
-// two values is either re-fed to the agent or skipped for good.
-func verifyCursors(st *store.Store, before map[string][]cursorRow) error {
+// IT IS THE HALF THAT MATTERS: a count says every row travelled, and only the
+// position says none of them moved in time. A carried cursor may change its
+// RENDERING and never the instant it names. A DERIVED one changes its instant on
+// purpose — it names the newest consumed message rather than the moment the
+// poller stopped — so what is compared there is the set: the rows the old cursor
+// left unfed, against the rows the new one leaves.
+func verifyCursors(ctx context.Context, st *store.Store, before map[string][]cursorRow) error {
 	moved := 0
 	for _, entity := range store.HotEntities {
 		rows := before[entity]
@@ -345,6 +362,22 @@ func verifyCursors(st *store.Store, before map[string][]cursorRow) error {
 			now, err := cursorNow(st, entity, row.coord)
 			if err != nil {
 				return err
+			}
+			if row.derive {
+				unfed, err := st.NewMessagesForChat(ctx, row.coord, now, 0)
+				if err != nil {
+					return err
+				}
+				if len(unfed) != row.unfed {
+					fmt.Printf("  MOVED    %s %s: %d rows were unfed, %d are now\n",
+						entity, row.coord, row.unfed, len(unfed))
+					moved++
+					continue
+				}
+				if now != row.value {
+					repadded++
+				}
+				continue
 			}
 			same, err := sameInstant(row.value, now)
 			if err != nil {
@@ -359,11 +392,11 @@ func verifyCursors(st *store.Store, before map[string][]cursorRow) error {
 				repadded++
 			}
 		}
-		fmt.Printf("  verified %-19s %d cursors, same instant (%d re-rendered)\n",
+		fmt.Printf("  verified %-19s %d cursors, same position (%d re-rendered)\n",
 			entity, len(rows), repadded)
 	}
 	if moved > 0 {
-		return fmt.Errorf("%d cursors name a different instant than they did; a cursor that "+
+		return fmt.Errorf("%d cursors name a different position than they did; a cursor that "+
 			"moved back re-feeds every message between the two values, and one that moved "+
 			"forward skips them", moved)
 	}
@@ -387,16 +420,14 @@ func sameInstant(was, now string) (bool, error) {
 	return a.Equal(b), nil
 }
 
-// readInstant parses one stored cursor. The layouts are the ones a cursor can
-// hold: core.TS's, and the two RFC3339 shapes routd's migration 0044 pads.
-func readInstant(raw string) (time.Time, error) {
-	for _, layout := range []string{core.TSLayout, time.RFC3339Nano, time.RFC3339} {
-		if t, err := time.Parse(layout, raw); err == nil {
-			return t, nil
-		}
-	}
-	return time.Time{}, fmt.Errorf("%q is not an instant this move can read", raw)
-}
+// readInstant parses one stored cursor.
+//
+// It is store.ReadMessageInstant and nothing else, because a cursor and the rows
+// it is compared against have to be read the SAME way: a move that read a naive
+// datetime as UTC in a row and refused it in a cursor would shift one relative
+// to the other, which is the failure the whole ordering discipline exists to
+// stop.
+func readInstant(raw string) (time.Time, error) { return store.ReadMessageInstant(raw) }
 
 // cursorNow reads one cursor back through the entity.
 func cursorNow(st *store.Store, entity, coord string) (string, error) {

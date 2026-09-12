@@ -26,9 +26,45 @@ func setThreadReplies(d *DB, folder string, on *bool) error {
 	return store.New(d.SQL()).SetThreadReplies(folder, on)
 }
 
-func messageExists(d *DB, id string) bool {
-	_, ok := store.New(d.SQL()).MessageByID(id)
+func messageExists(d *DB, chatJID, id string) bool {
+	_, ok := store.New(d.SQL()).MessageByID(chatJID, id)
 	return ok
+}
+
+// msgByID reads one message back through the entity. A message is addressed by
+// its chat and its position, so a fixture that wants one by id names the chat
+// it is in — an unscoped lookup would resolve a platform id in another tenant's
+// partition.
+func msgByID(t *testing.T, d *DB, chatJID, id string) core.Message {
+	t.Helper()
+	m, ok := store.New(d.SQL()).MessageByID(chatJID, id)
+	if !ok {
+		t.Fatalf("no message %s in %s", id, chatJID)
+	}
+	return m
+}
+
+// chatMessages reads a chat's whole history, oldest first.
+func chatMessages(t *testing.T, d *DB, chatJID string) []core.Message {
+	t.Helper()
+	msgs, err := d.MessagesSince(chatJID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return msgs
+}
+
+// turnBotRow reads the one bot row a turn stamped in a chat.
+func turnBotRow(t *testing.T, d *DB, chatJID, turnID string) core.Message {
+	t.Helper()
+	frames, err := store.New(d.SQL()).TurnFrames(chatJID, turnID, "", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(frames) != 1 {
+		t.Fatalf("turn %s stamped %d bot rows in %s, want 1", turnID, len(frames), chatJID)
+	}
+	return frames[0]
 }
 
 func pendingActionRow(d *DB, id string) (PendingAction, bool) {

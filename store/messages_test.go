@@ -30,7 +30,7 @@ func TestBotRepliesSince(t *testing.T) {
 	// bot reply on a different jid — excluded
 	mustPut(core.Message{ID: "other", ChatJID: "web:happy", Sender: "bot", Content: "elsewhere", Timestamp: base.Add(2 * time.Second), BotMsg: true})
 
-	got, err := s.BotRepliesSince("web:krons", base)
+	got, err := s.BotRepliesSince("web:krons", base, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

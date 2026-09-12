@@ -53,7 +53,7 @@ func TestAuthorizeJID_BareWebChat(t *testing.T) {
 // ReplyToID) so the reply-to-bot promotion can find it.
 func TestRecordOutbound_StoresPlatformID(t *testing.T) {
 	var got core.Message
-	db := StoreFns{PutMessage: func(m core.Message) error { got = m; return nil }}
+	db := StoreFns{PutOutbound: func(m core.Message, _ string) error { got = m; return nil }}
 
 	recordOutbound(GatedFns{}, db, "slack:T/channel/C0B4", "hello", "1780300379.765170", "atlas/support")
 

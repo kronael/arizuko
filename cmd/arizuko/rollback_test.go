@@ -201,9 +201,11 @@ func TestRollback_MessagesSurviveTheRollback(t *testing.T) {
 	routdDB := stores[resreg.SubsystemRoutd].DB()
 	seedRoutdConfig(t, routdDB)
 
-	if _, err := routdDB.Exec(
-		`INSERT INTO messages (id, chat_jid, sender, content, timestamp, is_from_me, is_bot_message)
-		 VALUES ('m1', 'web:corp/eng', 'u', 'hello', '2026-08-06T00:00:01Z', 0, 0)`); err != nil {
+	msgs := store.New(routdDB)
+	if err := msgs.PutMessage(core.Message{
+		ID: "m1", ChatJID: "web:corp/eng", Sender: "u", Content: "hello",
+		Timestamp: time.Date(2026, 8, 6, 0, 0, 1, 0, time.UTC),
+	}); err != nil {
 		t.Fatalf("seed message: %v", err)
 	}
 	if got := scalar(t, routdDB, `SELECT COUNT(*) FROM messages`); got != 1 {
@@ -213,8 +215,9 @@ func TestRollback_MessagesSurviveTheRollback(t *testing.T) {
 	if _, err := applyDocs(context.Background(), stores, forwardDocs(t, stores), applyRun{actor: "test"}); err == nil {
 		t.Fatal("applyDocs must fail")
 	}
-	if got := scalar(t, routdDB, `SELECT COUNT(*) FROM messages WHERE id='m1' AND content='hello'`); got != 1 {
-		t.Errorf("the rollback ate a message that was never part of the config projection (count=%d)", got)
+	m, ok := msgs.MessageByID("web:corp/eng", "m1")
+	if !ok || m.Content != "hello" {
+		t.Errorf("the rollback ate a message that was never part of the config projection (%+v)", m)
 	}
 }
 

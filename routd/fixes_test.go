@@ -297,15 +297,14 @@ func TestStatusRowDoesNotSuppressReply(t *testing.T) {
 	if err := srv.mcpSubmitStatus("t1", "working"); err != nil {
 		t.Fatal(err)
 	}
-	if db.TurnHasBotReply("t1") {
+	if db.TurnHasBotReply("slack:T/C/U", "t1") {
 		t.Fatal("a ⏳ status row counted as the reply — the agent's answer would be swallowed")
 	}
 	// A genuine reply row DOES count.
-	_ = db.PutMessage(core.Message{
+	_ = db.PutOutbound(core.Message{
 		ID: "r1", ChatJID: "slack:T/C/U", Sender: "demo", Content: "the answer",
-		BotMsg: true, FromMe: true, Verb: "reply", TurnID: "t1", Status: core.MessageStatusSent,
-	})
-	if !db.TurnHasBotReply("t1") {
+		BotMsg: true, FromMe: true, Verb: "reply", TurnID: "t1", Timestamp: time.Now()}, core.MessageStatusSent)
+	if !db.TurnHasBotReply("slack:T/C/U", "t1") {
 		t.Fatal("a real reply row must count as the bot reply")
 	}
 }
@@ -683,7 +682,7 @@ func TestIngressIdempotencyKey(t *testing.T) {
 	if ack.ID != "adapter-kk" {
 		t.Fatalf("minted id=%q want adapter-kk", ack.ID)
 	}
-	if !messageExists(db, "adapter-kk") {
+	if !messageExists(db, "slack:T/C/U", "adapter-kk") {
 		t.Fatal("minted row not stored")
 	}
 }
@@ -709,7 +708,8 @@ func TestReactionTopicInheritance(t *testing.T) {
 			Verb: "like", ReplyTo: "parent"})
 
 	var topic string
-	db.SQL().QueryRow("SELECT topic FROM messages WHERE id='react'").Scan(&topic)
+	react, _ := db.MessageByID("slack:T/C/U", "react")
+	topic = react.Topic
 	if topic != "deploy" {
 		t.Fatalf("reaction topic=%q want deploy (inherited from parent)", topic)
 	}
@@ -732,17 +732,14 @@ func TestOutboundRetryRedispatchesAndFails(t *testing.T) {
 
 	now := time.Now().UTC()
 	// pending for 2 min → re-dispatched.
-	_ = db.PutMessage(core.Message{ID: "stale", ChatJID: "slack:T/C/U", Sender: "demo",
-		Content: "retry me", Timestamp: now.Add(-2 * time.Minute), BotMsg: true,
-		Status: core.MessageStatusPending})
+	_ = db.PutOutbound(core.Message{ID: "stale", ChatJID: "slack:T/C/U", Sender: "demo",
+		Content: "retry me", Timestamp: now.Add(-2 * time.Minute), BotMsg: true}, core.MessageStatusPending)
 	// pending for 25h → still re-dispatched: age is not a bound.
-	_ = db.PutMessage(core.Message{ID: "ancient", ChatJID: "slack:T/C/U", Sender: "demo",
-		Content: "old but owed", Timestamp: now.Add(-25 * time.Hour), BotMsg: true,
-		Status: core.MessageStatusPending})
+	_ = db.PutOutbound(core.Message{ID: "ancient", ChatJID: "slack:T/C/U", Sender: "demo",
+		Content: "old but owed", Timestamp: now.Add(-25 * time.Hour), BotMsg: true}, core.MessageStatusPending)
 	// fresh (5s) → left alone.
-	_ = db.PutMessage(core.Message{ID: "fresh", ChatJID: "slack:T/C/U", Sender: "demo",
-		Content: "wait", Timestamp: now.Add(-5 * time.Second), BotMsg: true,
-		Status: core.MessageStatusPending})
+	_ = db.PutOutbound(core.Message{ID: "fresh", ChatJID: "slack:T/C/U", Sender: "demo",
+		Content: "wait", Timestamp: now.Add(-5 * time.Second), BotMsg: true}, core.MessageStatusPending)
 
 	loop.nextRetryAt = now.Add(-time.Second) // due now
 	loop.maybeRetryOutbound(now)
@@ -751,13 +748,13 @@ func TestOutboundRetryRedispatchesAndFails(t *testing.T) {
 	if len(dl.sends) != 2 || dl.sends[0].idem != "ancient" || dl.sends[1].idem != "stale" {
 		t.Fatalf("expected re-dispatch of 'ancient' then 'stale', got %+v", dl.sends)
 	}
-	if st := statusOf(db, "stale"); st != core.MessageStatusSent {
+	if st := statusOf(t, db, "stale"); st != core.MessageStatusSent {
 		t.Fatalf("stale status=%q want sent (re-delivered)", st)
 	}
-	if st := statusOf(db, "ancient"); st != core.MessageStatusSent {
+	if st := statusOf(t, db, "ancient"); st != core.MessageStatusSent {
 		t.Fatalf("ancient status=%q want sent — age alone must not fail a row", st)
 	}
-	if st := statusOf(db, "fresh"); st != core.MessageStatusPending {
+	if st := statusOf(t, db, "fresh"); st != core.MessageStatusPending {
 		t.Fatalf("fresh status=%q want still pending (<30s)", st)
 	}
 }
@@ -781,12 +778,10 @@ func TestOutboundRetryFailureKeepsRowPendingAndContinues(t *testing.T) {
 	loop := NewLoop(db, runnerFn(nil), LoopConfig{Deliver: dl})
 
 	now := time.Now().UTC()
-	_ = db.PutMessage(core.Message{ID: "dead", ChatJID: "slack:T/C/U", Sender: "demo",
-		Content: "adapter refuses", Timestamp: now.Add(-2 * time.Minute), BotMsg: true,
-		Status: core.MessageStatusPending})
-	_ = db.PutMessage(core.Message{ID: "live", ChatJID: "slack:T/C/U", Sender: "demo",
-		Content: "deliver me", Timestamp: now.Add(-1 * time.Minute), BotMsg: true,
-		Status: core.MessageStatusPending})
+	_ = db.PutOutbound(core.Message{ID: "dead", ChatJID: "slack:T/C/U", Sender: "demo",
+		Content: "adapter refuses", Timestamp: now.Add(-2 * time.Minute), BotMsg: true}, core.MessageStatusPending)
+	_ = db.PutOutbound(core.Message{ID: "live", ChatJID: "slack:T/C/U", Sender: "demo",
+		Content: "deliver me", Timestamp: now.Add(-1 * time.Minute), BotMsg: true}, core.MessageStatusPending)
 
 	loop.nextRetryAt = now.Add(-time.Second) // due now
 	loop.maybeRetryOutbound(now)
@@ -794,10 +789,10 @@ func TestOutboundRetryFailureKeepsRowPendingAndContinues(t *testing.T) {
 	if len(dl.sends) != 2 {
 		t.Fatalf("sweep attempted %d rows, want 2 — the dead head blocked the batch: %+v", len(dl.sends), dl.sends)
 	}
-	if st := statusOf(db, "dead"); st != core.MessageStatusPending {
+	if st := statusOf(t, db, "dead"); st != core.MessageStatusPending {
 		t.Errorf("dead row status=%q want pending (a failed send must stay retriable)", st)
 	}
-	if st := statusOf(db, "live"); st != core.MessageStatusSent {
+	if st := statusOf(t, db, "live"); st != core.MessageStatusSent {
 		t.Errorf("live row status=%q want sent", st)
 	}
 
@@ -806,7 +801,7 @@ func TestOutboundRetryFailureKeepsRowPendingAndContinues(t *testing.T) {
 	dl.failIdem = ""
 	loop.nextRetryAt = now.Add(-time.Second)
 	loop.maybeRetryOutbound(now)
-	if st := statusOf(db, "dead"); st != core.MessageStatusSent {
+	if st := statusOf(t, db, "dead"); st != core.MessageStatusSent {
 		t.Errorf("dead row status=%q want sent after the adapter recovered", st)
 	}
 }
@@ -940,10 +935,27 @@ func (f runnerFn) Run(ctx context.Context, req runedv1.RunRequest) (runedv1.RunO
 	return f(ctx, req)
 }
 
-func statusOf(db *DB, id string) string {
-	var st string
-	db.SQL().QueryRow("SELECT status FROM messages WHERE id=?", id).Scan(&st)
-	return st
+// statusOf answers one row's delivery status, which is stored as the ABSENCE of
+// a delivery item: a row in neither the pending nor the failed partition is sent.
+//
+// It reads through the two feeds rather than a column, because there is no
+// column — and reading them is also what the retry sweep and the dead-letter
+// surface do, so a test and production ask the same question.
+func statusOf(t *testing.T, db *DB, id string) string {
+	t.Helper()
+	if _, dead := db.DeadLetterByID(id); dead {
+		return core.MessageStatusFailed
+	}
+	pending, err := db.PendingOutbound(time.Now().Add(time.Hour), 500)
+	if err != nil {
+		t.Fatalf("read the pending outbound feed: %v", err)
+	}
+	for _, p := range pending {
+		if p.ID == id {
+			return core.MessageStatusPending
+		}
+	}
+	return core.MessageStatusSent
 }
 
 // TestRoutesReplaceScopedToSubtree: a folder-scoped caller replacing its own
@@ -1014,34 +1026,45 @@ func TestRoutesListScopedToSubtree(t *testing.T) {
 	}
 }
 
-// TestScanMessagesToleratesNullText: a NULL in a nullable text column (legacy
-// gated data) must be COALESCEd to ” and the row READ — NOT abort the scan.
-// The abort behavior was the split's hidden production-breaker: one NULL
-// reply_to_id/sender_name row killed routd's whole poll loop (cursor stuck, no
-// turns, no breaker). msgReadCols COALESCEs every nullable text column, matching
-// the monolith store.
-func TestScanMessagesToleratesNullText(t *testing.T) {
+// TestUnsetTextFieldsReadAsEmpty is the successor to the NULL-tolerance test.
+// A nullable column COALESCEd to ” was the poll loop's hidden breaker: one NULL
+// sender_name or reply_to_id aborted the scan, the cursor stuck, and no turn ever
+// ran again. There is no column and no NULL now — an unset field is an attribute
+// the item does not carry — so what has to hold is that such a message is still
+// FED, with those fields reading as empty rather than failing the read.
+func TestUnsetTextFieldsReadAsEmpty(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	// sender_name NULL (+ reply_to_id NULL, omitted) — both scanned into plain
-	// strings; before the COALESCE this aborted the scan.
-	if _, err := db.SQL().Exec(`INSERT INTO messages
-		(id, chat_jid, sender, sender_name, content, timestamp, verb, status)
-		VALUES ('m1','slack:T/C/U','u',NULL,'hi','2026-01-01T00:00:00Z','message','sent')`); err != nil {
+	const jid = "slack:T/C/U"
+	// No Name and no ReplyToID: absent is the only null this model has.
+	if err := db.PutMessage(core.Message{
+		ID: "m1", ChatJID: jid, Sender: "u", Content: "hi",
+		Timestamp: time.Now(), Verb: "message",
+	}); err != nil {
 		t.Fatal(err)
 	}
-	msgs, hi, err := db.NewMessages("")
+	msgs, err := db.NewMessagesForChat(jid, "", 200)
 	if err != nil {
-		t.Fatalf("NULL text aborted the scan (the poll-killer): %v", err)
+		t.Fatalf("an unset field aborted the read (the poll-killer): %v", err)
 	}
 	if len(msgs) != 1 || msgs[0].Name != "" || msgs[0].ReplyToID != "" {
-		t.Fatalf("got %d msgs (want 1 with sender_name='' reply_to_id=''): %+v", len(msgs), msgs)
+		t.Fatalf("got %d msgs (want 1 with an empty name and reply_to_id): %+v", len(msgs), msgs)
 	}
-	if hi == "" {
-		t.Fatal("cursor did not advance past the (now-readable) row")
+	// The cursor the loop would record has to be a whole position, or the next
+	// poll hands this instant back.
+	cursor := store.MessageCursor(msgs[0])
+	if err := db.SetAgentCursor(jid, cursor); err != nil {
+		t.Fatalf("the row produced no cursor the loop could record: %v", err)
+	}
+	again, err := db.NewMessagesForChat(jid, cursor, 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(again) != 0 {
+		t.Fatalf("the consumed row was fed again: %+v", again)
 	}
 }
 

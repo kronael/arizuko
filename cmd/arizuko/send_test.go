@@ -20,8 +20,8 @@ func TestOperatorInject_Folder(t *testing.T) {
 
 	operatorInject(s, "krons", "operator", "draft me 3 tweets", "", false)
 
-	// Reads back as a non-bot inbound on web:krons (MessagesSince excludes bot rows).
-	msgs, err := s.MessagesSince("web:krons", time.Time{}, "bot")
+	// Reads back as an inbound on web:krons — the only row the chat holds.
+	msgs, err := s.MessagesSince("web:krons", time.Time{})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -125,7 +125,7 @@ func TestSendReply(t *testing.T) {
 func TestRecordOutboundStampsTurnID(t *testing.T) {
 	var got core.Message
 	db := StoreFns{
-		PutMessage:    func(m core.Message) error { got = m; return nil },
+		PutOutbound:   func(m core.Message, _ string) error { got = m; return nil },
 		CurrentTurnID: func(string) string { return "turn-xyz" },
 	}
 	recordOutbound(GatedFns{}, db, "slack:T/C/U", "hi", "pid-1", "demo")
@@ -772,7 +772,7 @@ func TestServeMCP_SendFile_ThreadsViaActiveTopic(t *testing.T) {
 			return ""
 		},
 		SetLastReply:        func(jid, topic, replyID, folder string) error { return nil },
-		PutMessage:          func(m core.Message) error { recordedPlatformID = m.PlatformID; return nil },
+		PutOutbound:         func(m core.Message, _ string) error { recordedPlatformID = m.PlatformID; return nil },
 		DefaultFolderForJID: func(jid string) string { return "world" },
 	}
 	gated := GatedFns{
@@ -900,7 +900,7 @@ func TestServeMCP_FeedVerbs_RecordOutbound(t *testing.T) {
 			lastReplyIDs = append(lastReplyIDs, replyID)
 			return nil
 		},
-		PutMessage: func(m core.Message) error {
+		PutOutbound: func(m core.Message, _ string) error {
 			putIDs = append(putIDs, m.PlatformID)
 			return nil
 		},
@@ -944,7 +944,7 @@ func TestServeMCP_FeedVerbs_RecordOutbound(t *testing.T) {
 		t.Fatalf("SetLastReply ids = %v, want %v (forward must not record)", lastReplyIDs, wantRecorded)
 	}
 	if !reflect.DeepEqual(putIDs, wantRecorded) {
-		t.Fatalf("PutMessage platform ids = %v, want %v (forward must not record)", putIDs, wantRecorded)
+		t.Fatalf("outbound platform ids = %v, want %v (forward must not record)", putIDs, wantRecorded)
 	}
 }
 

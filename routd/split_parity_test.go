@@ -7,6 +7,7 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
+	"github.com/kronael/arizuko/store"
 )
 
 // --- Behavior 1: circuit-breaker prune + session reset --------------------
@@ -22,9 +23,10 @@ func TestOnCircuitBreakerOpen_PrunesAndResetsSession(t *testing.T) {
 	_ = db.PutSession(folder, "", "sess-abc")
 
 	now := time.Now().UTC()
-	_ = db.PutMessage(core.Message{ID: "m1", ChatJID: jid, Sender: "u", Content: "boom", Timestamp: now})
+	m1 := core.Message{ID: "m1", ChatJID: jid, Sender: "u", Content: "boom", Timestamp: now}
+	_ = db.PutMessage(m1)
 	_ = db.PutMessage(core.Message{ID: "m2", ChatJID: jid, Sender: "u", Content: "fresh", Timestamp: now.Add(time.Second)})
-	if err := db.MarkMessagesErrored([]string{"m1"}); err != nil {
+	if err := db.MarkMessagesErrored([]core.Message{m1}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -98,20 +100,23 @@ func TestSessionIdleExpired(t *testing.T) {
 		t.Error("expected false for empty cursor")
 	}
 
+	// The cursor is a message key, so the instant is its lead.
+	cursorAt := func(t time.Time) string { return store.MsgStamp(core.TS(t), "m0") }
+
 	// Cursor 1h ago: fresh.
-	_ = db.SetAgentCursor(jid, core.TS(time.Now().Add(-1*time.Hour)))
+	_ = db.SetAgentCursor(jid, cursorAt(time.Now().Add(-1*time.Hour)))
 	if loop.sessionIdleExpired(jid) {
 		t.Error("expected false for 1h-old cursor")
 	}
 
 	// Cursor 3d ago: expired.
-	_ = db.SetAgentCursor(jid, core.TS(time.Now().Add(-3*24*time.Hour)))
+	_ = db.SetAgentCursor(jid, cursorAt(time.Now().Add(-3*24*time.Hour)))
 	if !loop.sessionIdleExpired(jid) {
 		t.Error("expected true for 3d-old cursor")
 	}
 
 	// Just under the threshold: not expired (strict >).
-	_ = db.SetAgentCursor(jid, core.TS(time.Now().Add(-sessionIdleExpiry).Add(time.Second)))
+	_ = db.SetAgentCursor(jid, cursorAt(time.Now().Add(-sessionIdleExpiry).Add(time.Second)))
 	if loop.sessionIdleExpired(jid) {
 		t.Error("expected false for just-under-threshold cursor")
 	}
@@ -149,7 +154,7 @@ func TestSpawnResetsStaleSession(t *testing.T) {
 	_ = db.PutMessage(core.Message{ID: "n1", ChatJID: jid, Sender: "u", Content: "hello", Timestamp: now, Verb: "message"})
 	// Cursor predates the new message but is 3 days stale: the message is fed,
 	// and the stale session is reset before the spawn reads it.
-	_ = db.SetAgentCursor(jid, core.TS(now.Add(-3*24*time.Hour)))
+	_ = db.SetAgentCursor(jid, store.MsgStamp(core.TS(now.Add(-3*24*time.Hour)), "m0"))
 
 	if _, err := loop.processGroupMessages(jid); err != nil {
 		t.Fatalf("process: %v", err)
@@ -203,8 +208,16 @@ func TestAppendAndDeliver_StripsThinksAndStatus(t *testing.T) {
 
 	srv.appendAndDeliver("t1", "telegram:1",
 		"<think>internal thought</think>Visible reply<status>Working on it</status>")
-	var content string
-	db.SQL().QueryRow("SELECT content FROM messages WHERE turn_id='t1' AND is_bot_message=1 AND verb<>'status'").Scan(&content)
+	frames, err := store.New(db.SQL()).TurnFrames("telegram:1", "t1", "", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := ""
+	for _, m := range frames {
+		if m.Verb != "status" {
+			content = m.Content
+		}
+	}
 	if content != "Visible reply" {
 		t.Fatalf("reply row content = %q, want \"Visible reply\"", content)
 	}
@@ -258,14 +271,14 @@ func TestAppendAndDeliver_MutedGroup(t *testing.T) {
 	if len(dl.sends) != 0 {
 		t.Errorf("muted group: channel.Send called %d times, want 0", len(dl.sends))
 	}
-	var row core.Message
-	var bot int
-	if err := db.SQL().QueryRow(
-		"SELECT content, is_bot_message, sender, routed_to, status FROM messages WHERE turn_id='t1'").
-		Scan(&row.Content, &bot, &row.Sender, &row.RoutedTo, &row.Status); err != nil {
-		t.Fatalf("muted group: reply row not persisted: %v", err)
+	frames, err := store.New(db.SQL()).TurnFrames("telegram:12345", "t1", "", 10)
+	if err != nil {
+		t.Fatal(err)
 	}
-	row.BotMsg = bot == 1
+	if len(frames) != 1 {
+		t.Fatalf("muted group: reply row not persisted (%d frames)", len(frames))
+	}
+	row := frames[0]
 	if row.Content != "hello world" {
 		t.Errorf("Content = %q, want %q", row.Content, "hello world")
 	}
@@ -278,8 +291,10 @@ func TestAppendAndDeliver_MutedGroup(t *testing.T) {
 	if row.RoutedTo != "grp" {
 		t.Errorf("RoutedTo = %q, want %q", row.RoutedTo, "grp")
 	}
-	if row.Status != core.MessageStatusSent {
-		t.Errorf("Status = %q, want sent (muted row must not stay pending)", row.Status)
+	// A muted row owes no delivery: `sent` is the ABSENCE of a delivery item,
+	// so a row that stayed pending would sit in the retry feed for ever.
+	if st := statusOf(t, db, row.ID); st != core.MessageStatusSent {
+		t.Errorf("status = %q, want sent (muted row must not stay pending)", st)
 	}
 }
 

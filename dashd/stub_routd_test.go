@@ -118,36 +118,24 @@ func stubRoutd(t *testing.T, db *sql.DB) string {
 	})
 
 	// Honours before+limit like routd's handler: the pagination test walks two
-	// pages, and a stub that ignores `before` returns page one twice.
+	// pages, and a stub that ignores `before` returns page one twice. The feed
+	// is the activity ENTITY — one partition, newest first, carrying the
+	// preview its writer truncated — so the stub reads it the way routd does.
 	mux.HandleFunc("GET /v1/messages/activity", func(w http.ResponseWriter, r *http.Request) {
-		q := `SELECT timestamp, source, chat_jid, sender, COALESCE(verb,''),
-			substr(content,1,80) FROM messages`
-		args := []any{}
-		if before := r.URL.Query().Get("before"); before != "" {
-			q += ` WHERE timestamp < ?`
-			args = append(args, before)
-		}
 		limit := 1000
 		if v, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && v > 0 && v < limit {
 			limit = v
 		}
-		q += ` ORDER BY timestamp DESC LIMIT ?`
-		args = append(args, limit)
-		rows, err := db.Query(q, args...)
+		rows, err := store.New(db).RecentActivity(r.Context(),
+			r.URL.Query().Get("before"), limit)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		defer rows.Close()
 		out := []map[string]string{}
-		for rows.Next() {
-			var ts, src, jid, sender, verb, prev string
-			if err := rows.Scan(&ts, &src, &jid, &sender, &verb, &prev); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			out = append(out, map[string]string{"timestamp": ts, "source": src,
-				"chat_jid": jid, "sender": sender, "verb": verb, "preview": prev})
+		for _, a := range rows {
+			out = append(out, map[string]string{"timestamp": a.Timestamp, "source": a.Source,
+				"chat_jid": a.ChatJID, "sender": a.Sender, "verb": a.Verb, "preview": a.Preview})
 		}
 		writeStubJSON(w, out)
 	})
@@ -202,41 +190,44 @@ func stubRoutd(t *testing.T, db *sql.DB) string {
 	// router.ResolveRoute over the chat's last inbound row — the evaluator
 	// routd's loop calls at its route-table step — so the stub cannot list a
 	// chat the real reader would not.
-	mux.HandleFunc("GET /v1/routing/unrouted", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /v1/routing/unrouted", func(w http.ResponseWriter, r *http.Request) {
 		routes, err := store.New(db).RouteTable()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		// One MAX() so the bare sender/verb columns come from the newest row
-		// (SQLite's single-max rule); MIN() rides a subquery for that reason.
-		rows, err := db.Query(`SELECT chat_jid, sender, verb, COUNT(*),
-			(SELECT MIN(m2.timestamp) FROM messages m2 WHERE m2.chat_jid=messages.chat_jid
-			   AND m2.is_from_me=0 AND m2.is_bot_message=0),
-			MAX(timestamp)
-			FROM messages WHERE is_from_me=0 AND is_bot_message=0
-			GROUP BY chat_jid ORDER BY MAX(timestamp) DESC`)
+		// The candidate list is the inbound summary routd's own reader walks,
+		// and the verdict per chat is resolve over that chat's newest inbound
+		// row — the same pair, so the stub cannot list a chat the real reader
+		// would not.
+		st := store.New(db)
+		summary, err := st.InboundChatSummary(r.Context())
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		defer rows.Close()
 		out := apiv1.UnroutedChatsResponse{Chats: []apiv1.UnroutedChat{}}
-		for rows.Next() {
-			var c apiv1.UnroutedChat
-			var verb string
-			if err := rows.Scan(&c.ChatJID, &c.LastSender, &verb, &c.Count, &c.FirstAt, &c.LastAt); err != nil {
+		for _, s := range summary {
+			last, ok, err := st.LastInboundMessage(r.Context(), s.ChatJID)
+			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
-			if groupfolder.JidFolder(c.ChatJID) != "" || !strings.Contains(c.ChatJID, ":") {
+			if !ok {
 				continue
 			}
-			if router.ResolveRoute(core.Message{ChatJID: c.ChatJID, Sender: c.LastSender, Verb: verb}, routes) != "" {
+			if groupfolder.JidFolder(s.ChatJID) != "" || !strings.Contains(s.ChatJID, ":") {
 				continue
 			}
-			c.Platform = core.JidPlatform(c.ChatJID)
-			out.Chats = append(out.Chats, c)
+			if router.ResolveRoute(last, routes) != "" {
+				continue
+			}
+			out.Chats = append(out.Chats, apiv1.UnroutedChat{
+				ChatJID: s.ChatJID, Platform: core.JidPlatform(s.ChatJID),
+				ChatName: last.ChatName, Count: s.Count, LastSender: last.Sender,
+				FirstAt: s.FirstAt.UTC().Format(time.RFC3339Nano),
+				LastAt:  s.LastAt.UTC().Format(time.RFC3339Nano),
+			})
 		}
 		writeStubJSON(w, out)
 	})

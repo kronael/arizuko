@@ -24,9 +24,12 @@ import (
 
 // deadLetterFixture seeds two tenants plus a child folder, and one
 // dead-lettered bot row per folder alongside a row that is NOT dead-lettered.
+// It answers the rows it wrote as well, because a delivery operation is
+// addressed by the MESSAGE rather than by an id.
+//
 // The count assertion below matters: every containment check is "row X is
 // absent", which an empty result satisfies.
-func deadLetterFixture(t *testing.T) *DB {
+func deadLetterFixture(t *testing.T) (*DB, map[string]core.Message) {
 	t.Helper()
 	db, err := OpenMem()
 	if err != nil {
@@ -44,26 +47,28 @@ func deadLetterFixture(t *testing.T) *DB {
 		{"dl-rival-secret", "rival", core.MessageStatusFailed},
 		{"still-pending-hq", "hq", core.MessageStatusPending},
 	}
+	now := time.Now()
+	msgs := map[string]core.Message{}
 	for i, r := range rows {
-		if err := db.PutMessage(core.Message{
+		m := core.Message{
 			ID: r.id, ChatJID: "slack:T/C" + string(rune('0'+i)) + "/U",
-			Content: "lost text " + r.id, Timestamp: time.Now(),
-			BotMsg: true, RoutedTo: r.folder, Status: r.status,
-		}); err != nil {
+			Content: "lost text " + r.id, Timestamp: now.Add(time.Duration(i) * time.Second),
+			BotMsg: true, RoutedTo: r.folder,
+		}
+		if err := db.PutOutbound(m, r.status); err != nil {
 			t.Fatal(err)
 		}
+		msgs[r.id] = m
 	}
-	var n int
-	if err := db.SQL().QueryRow(
-		`SELECT COUNT(*) FROM messages WHERE status=? AND is_bot_message=1`,
-		core.MessageStatusFailed).Scan(&n); err != nil {
+	dead, err := db.DeadLetters("", 50)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if n != 3 {
+	if len(dead) != 3 {
 		t.Fatalf("fixture wrote %d dead letters, want 3 — every assertion below "+
-			"would pass vacuously", n)
+			"would pass vacuously", len(dead))
 	}
-	return db
+	return db, msgs
 }
 
 func serveDeadLetterMCP(t *testing.T, db *DB, folder, callerSub string) string {
@@ -88,7 +93,7 @@ func serveDeadLetterMCP(t *testing.T, db *DB, folder, callerSub string) string {
 // The whole point of L23: the operator could see a COUNT and not the content.
 // The row must carry what was lost, to whom, and how many attempts it took.
 func TestListDeadLettersReturnsTheLostContent(t *testing.T) {
-	db := deadLetterFixture(t)
+	db, _ := deadLetterFixture(t)
 	rows, err := db.DeadLetters("", 0)
 	if err != nil {
 		t.Fatalf("DeadLetters: %v", err)
@@ -106,7 +111,7 @@ func TestListDeadLettersReturnsTheLostContent(t *testing.T) {
 // A pending row is not a dead letter: the sweep is still going to send it, and
 // listing it would tell an operator a live message was lost.
 func TestListDeadLettersExcludesPending(t *testing.T) {
-	db := deadLetterFixture(t)
+	db, _ := deadLetterFixture(t)
 	rows, _ := db.DeadLetters("", 0)
 	for _, r := range rows {
 		if r.ID == "still-pending-hq" {
@@ -116,7 +121,7 @@ func TestListDeadLettersExcludesPending(t *testing.T) {
 }
 
 func TestListDeadLettersAgentSeesOnlyItsOwnSubtree(t *testing.T) {
-	db := deadLetterFixture(t)
+	db, _ := deadLetterFixture(t)
 	grantAt(t, db, "folder:hq", "mcp:list_dead_letters", "hq/**")
 	grantAt(t, db, "folder:hq", "mcp:list_dead_letters", "hq")
 	sock := serveDeadLetterMCP(t, db, "hq", "folder:hq")
@@ -137,7 +142,7 @@ func TestListDeadLettersAgentSeesOnlyItsOwnSubtree(t *testing.T) {
 }
 
 func TestListDeadLettersDeniedWithoutGrant(t *testing.T) {
-	db := deadLetterFixture(t)
+	db, _ := deadLetterFixture(t)
 	grantAt(t, db, "folder:hq", "mcp:list_dead_letters", "rival/**")
 	sock := serveDeadLetterMCP(t, db, "hq", "folder:hq")
 
@@ -153,7 +158,7 @@ func TestListDeadLettersDeniedWithoutGrant(t *testing.T) {
 // Replay is a mutation on another tenant's message if containment is missing.
 // The agent names the rival id directly.
 func TestReplayDeadLetterRefusesAForeignMessage(t *testing.T) {
-	db := deadLetterFixture(t)
+	db, _ := deadLetterFixture(t)
 	grantAt(t, db, "folder:hq", "mcp:replay_dead_letter", "hq/**")
 	grantAt(t, db, "folder:hq", "mcp:replay_dead_letter", "hq")
 	sock := serveDeadLetterMCP(t, db, "hq", "folder:hq")
@@ -162,9 +167,10 @@ func TestReplayDeadLetterRefusesAForeignMessage(t *testing.T) {
 	if e == "" {
 		t.Fatalf("replaying another tenant's message succeeded: %s", text)
 	}
-	got, ok := db.DeadLetterByID("dl-rival-secret")
-	if !ok || got.Status != core.MessageStatusFailed {
-		t.Fatalf("the rival row moved: ok=%v status=%q", ok, got.Status)
+	// The dead-letter set is the only place a failed row lives, so still being
+	// readable from it IS the proof that nothing moved.
+	if _, ok := db.DeadLetterByID("dl-rival-secret"); !ok {
+		t.Fatal("the rival row left the dead-letter set")
 	}
 }
 
@@ -172,11 +178,15 @@ func TestReplayDeadLetterRefusesAForeignMessage(t *testing.T) {
 // with a fresh budget is exactly what PendingOutbound selects. No second
 // delivery path.
 func TestReplayDeadLetterRequeuesForTheExistingSweep(t *testing.T) {
-	db := deadLetterFixture(t)
-	if _, _, err := db.RecordDeliveryFailure("dl-hq", 1); err != nil {
-		t.Fatalf("seed attempts: %v", err)
+	db, msgs := deadLetterFixture(t)
+	// Spend the row's whole budget so it dead-letters with attempts on it: a
+	// replay that kept them would die again on its first retry.
+	owed := msgs["still-pending-hq"]
+	n, died, err := db.RecordDeliveryFailure(owed, 1)
+	if err != nil || !died || n != 1 {
+		t.Fatalf("seed attempts: n=%d died=%v err=%v", n, died, err)
 	}
-	moved, err := db.ReplayDeadLetter("dl-hq")
+	moved, err := db.ReplayDeadLetter(owed)
 	if err != nil || !moved {
 		t.Fatalf("ReplayDeadLetter = %v, %v; want true, nil", moved, err)
 	}
@@ -186,11 +196,11 @@ func TestReplayDeadLetterRequeuesForTheExistingSweep(t *testing.T) {
 	}
 	var found bool
 	for _, m := range pending {
-		if m.ID == "dl-hq" {
+		if m.ID == owed.ID {
 			found = true
-			if m.DeliveryAttempts != 0 {
+			if m.Attempts != 0 {
 				t.Errorf("replayed row kept %d attempts — it would dead-letter again at once",
-					m.DeliveryAttempts)
+					m.Attempts)
 			}
 		}
 	}
@@ -202,14 +212,14 @@ func TestReplayDeadLetterRequeuesForTheExistingSweep(t *testing.T) {
 // Replaying a row that is no longer dead-lettered must not read as success:
 // this call queued nothing.
 func TestReplayDeadLetterIsNotIdempotentlyTrue(t *testing.T) {
-	db := deadLetterFixture(t)
-	if moved, err := db.ReplayDeadLetter("dl-hq"); err != nil || !moved {
+	db, msgs := deadLetterFixture(t)
+	if moved, err := db.ReplayDeadLetter(msgs["dl-hq"]); err != nil || !moved {
 		t.Fatalf("first replay = %v, %v", moved, err)
 	}
-	if moved, err := db.ReplayDeadLetter("dl-hq"); err != nil || moved {
+	if moved, err := db.ReplayDeadLetter(msgs["dl-hq"]); err != nil || moved {
 		t.Fatalf("second replay = %v, %v; want false, nil", moved, err)
 	}
-	if moved, err := db.ReplayDeadLetter("still-pending-hq"); err != nil || moved {
+	if moved, err := db.ReplayDeadLetter(msgs["still-pending-hq"]); err != nil || moved {
 		t.Fatalf("replaying a pending row = %v, %v; want false, nil", moved, err)
 	}
 }
@@ -217,7 +227,7 @@ func TestReplayDeadLetterIsNotIdempotentlyTrue(t *testing.T) {
 // The REST face: 403 without the scope, with the positive control beside it so
 // a broken mount fails both.
 func TestDeadLettersRESTRequiresScope(t *testing.T) {
-	db := deadLetterFixture(t)
+	db, _ := deadLetterFixture(t)
 	get := func(scope []string) (int, string) {
 		srv := NewServer(db, nil, nil, scopeVerifier{sub: "service:x", scope: scope}, 0, "")
 		rec := httptest.NewRecorder()
@@ -263,7 +273,7 @@ func TestDeadLettersRESTRequiresScope(t *testing.T) {
 // A replay over REST needs messages:WRITE, not just read: it puts a message
 // back on the wire.
 func TestDeadLetterReplayRESTRequiresWriteScope(t *testing.T) {
-	db := deadLetterFixture(t)
+	db, _ := deadLetterFixture(t)
 	post := func(scope []string) int {
 		srv := NewServer(db, nil, nil, scopeVerifier{sub: "service:x", scope: scope}, 0, "")
 		rec := httptest.NewRecorder()
@@ -274,9 +284,8 @@ func TestDeadLetterReplayRESTRequiresWriteScope(t *testing.T) {
 	if code := post([]string{"dead_letters:read"}); code != http.StatusForbidden {
 		t.Fatalf("replay with only dead_letters:read = %d, want 403", code)
 	}
-	got, _ := db.DeadLetterByID("dl-hq")
-	if got.Status != core.MessageStatusFailed {
-		t.Fatalf("a denied replay moved the row: status=%q", got.Status)
+	if _, ok := db.DeadLetterByID("dl-hq"); !ok {
+		t.Fatal("a denied replay moved the row out of the dead-letter set")
 	}
 	if code := post([]string{"dead_letters:write"}); code != http.StatusOK {
 		t.Fatalf("replay with dead_letters:write = %d, want 200", code)
@@ -300,11 +309,11 @@ func TestDeadLettersFolderScopeIsNotWidenedByLikeMetacharacters(t *testing.T) {
 		if err := db.PutGroup(core.Group{Folder: f}); err != nil {
 			t.Fatal(err)
 		}
-		if err := db.PutMessage(core.Message{
+		if err := db.PutOutbound(core.Message{
 			ID: "dl-" + f, ChatJID: "slack:T/C" + string(rune('0'+i)) + "/U",
 			Content: "lost text", Timestamp: time.Now(),
-			BotMsg: true, RoutedTo: f, Status: core.MessageStatusFailed,
-		}); err != nil {
+			BotMsg: true, RoutedTo: f,
+		}, core.MessageStatusFailed); err != nil {
 			t.Fatal(err)
 		}
 	}

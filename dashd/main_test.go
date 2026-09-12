@@ -412,7 +412,9 @@ func TestTasksPartialDBError(t *testing.T) {
 func TestActivityPartialDBError(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
-	if _, err := db.Exec(`DROP TABLE messages`); err != nil {
+	// The activity feed is its own entity, so an unreadable OWNER is that table
+	// gone — not `messages`, which this page no longer reads.
+	if _, err := db.Exec(`DROP TABLE message_activity`); err != nil {
 		t.Fatal(err)
 	}
 	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}

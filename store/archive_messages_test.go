@@ -19,13 +19,15 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
 )
 
 // routdMessages builds routd.db through routd's own migration chain and wraps
-// it as the owner the archive lane is a method on. The raw pool comes back too
-// because the fixtures insert message columns no accessor writes.
+// it as the owner the archive lane is a method on. The raw pool comes back too,
+// for the reads that assert on the bytes an item was STORED with rather than on
+// a value rendered again on the way out.
 func routdMessages(t *testing.T) (*store.Store, *sql.DB) {
 	t.Helper()
 	storeDir := filepath.Join(t.TempDir(), "store")
@@ -37,29 +39,38 @@ func routdMessages(t *testing.T) (*store.Store, *sql.DB) {
 	return store.New(db.SQL()), db.SQL()
 }
 
-func insertMsg(t *testing.T, db *sql.DB, m store.ArchiveMessageRow) {
+// insertMsg seeds one message through the LIVE writer: the delivery status
+// decides whether the row owes a delivery at all, and `is_observed` is the
+// folder feed's stamp rather than a column. A fixture that wrote the item by
+// hand could build one the daemon cannot.
+func insertMsg(t *testing.T, st *store.Store, m store.ArchiveMessageRow) {
 	t.Helper()
-	_, err := db.Exec(`INSERT INTO messages
-		(id, chat_jid, sender, sender_name, content, timestamp, is_from_me,
-		 is_bot_message, forwarded_from, reply_to_id, reply_to_text, reply_to_sender,
-		 topic, routed_to, verb, attachments, source, is_observed, turn_id, status,
-		 platform_id, chat_name, errored, link_context)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		m.ID, m.ChatJID, m.Sender, m.SenderName, m.Content, m.Timestamp,
-		b2i(m.IsFromMe), b2i(m.IsBotMessage), m.ForwardedFrom, m.ReplyToID,
-		m.ReplyToText, m.ReplyToSender, m.Topic, m.RoutedTo, m.Verb, m.Attachments,
-		m.Source, b2i(m.IsObserved), m.TurnID, m.Status, m.PlatformID, m.ChatName,
-		b2i(m.Errored), m.LinkContext)
+	ctx := context.Background()
+	at, err := store.ReadMessageInstant(m.Timestamp)
 	if err != nil {
 		t.Fatalf("seed message %s: %v", m.ID, err)
 	}
-}
-
-func b2i(b bool) int {
-	if b {
-		return 1
+	msg := core.Message{
+		ID: m.ID, ChatJID: m.ChatJID, Sender: m.Sender, Name: m.SenderName,
+		Content: m.Content, Timestamp: at, FromMe: m.IsFromMe, BotMsg: m.IsBotMessage,
+		ForwardedFrom: m.ForwardedFrom, ReplyToID: m.ReplyToID, ReplyToText: m.ReplyToText,
+		ReplyToSender: m.ReplyToSender, Topic: m.Topic, RoutedTo: m.RoutedTo, Verb: m.Verb,
+		Attachments: m.Attachments, Source: m.Source, TurnID: m.TurnID,
+		PlatformID: m.PlatformID, ChatName: m.ChatName, Errored: m.Errored,
+		LinkContext: m.LinkContext,
 	}
-	return 0
+	status := m.Status
+	if status == "" {
+		status = core.MessageStatusSent
+	}
+	if err := st.PutOutbound(ctx, msg, status); err != nil {
+		t.Fatalf("seed message %s: %v", m.ID, err)
+	}
+	if m.IsObserved {
+		if err := st.MarkMessagesObserved(ctx, m.RoutedTo, []core.Message{msg}); err != nil {
+			t.Fatalf("observe message %s: %v", m.ID, err)
+		}
+	}
 }
 
 func countMessages(t *testing.T, db *sql.DB) int {
@@ -75,7 +86,7 @@ func countMessages(t *testing.T, db *sql.DB) int {
 // the count matches. Every field, including each of the four booleans, has to
 // survive the JSONL round trip.
 func TestMessagesRoundTripEveryColumn(t *testing.T) {
-	srcSt, src := routdMessages(t)
+	srcSt, _ := routdMessages(t)
 	full := store.ArchiveMessageRow{
 		ID: "m1", ChatJID: "slack:C1", Sender: "u7", SenderName: "Alice",
 		Content: "hello", Timestamp: ts(t, "10:00"),
@@ -83,7 +94,7 @@ func TestMessagesRoundTripEveryColumn(t *testing.T) {
 		ReplyToID: "m0", ReplyToText: "earlier", ReplyToSender: "u8",
 		Topic: "design", RoutedTo: "acme/eng", Verb: "reply",
 		Attachments: `[{"n":1}]`, Source: "platform", IsObserved: true,
-		TurnID: "t-1", Status: "delivered", PlatformID: "p-1",
+		TurnID: "t-1", Status: core.MessageStatusFailed, PlatformID: "p-1",
 		ChatName: "#eng", Errored: true, LinkContext: "ctx",
 	}
 	// A second row with every boolean the other way, so a swapped or dropped
@@ -92,8 +103,8 @@ func TestMessagesRoundTripEveryColumn(t *testing.T) {
 		ID: "m2", ChatJID: "slack:C1", Sender: "u9",
 		Content: "bare", Timestamp: ts(t, "10:01"),
 	}
-	insertMsg(t, src, full)
-	insertMsg(t, src, sparse)
+	insertMsg(t, srcSt, full)
+	insertMsg(t, srcSt, sparse)
 
 	var buf bytes.Buffer
 	n, err := srcSt.ExportMessagesJSONL(context.Background(), &buf)
@@ -135,9 +146,9 @@ func TestMessagesRoundTripEveryColumn(t *testing.T) {
 // restoring onto a target that already holds some of the same history, must
 // be a no-op on rows already present — never a duplicate, never an error.
 func TestMessagesImportIsIdempotentAndAppends(t *testing.T) {
-	srcSt, src := routdMessages(t)
-	insertMsg(t, src, store.ArchiveMessageRow{ID: "m1", ChatJID: "slack:C1", Sender: "u1", Content: "a", Timestamp: ts(t, "10:00")})
-	insertMsg(t, src, store.ArchiveMessageRow{ID: "m2", ChatJID: "slack:C1", Sender: "u1", Content: "b", Timestamp: ts(t, "10:01")})
+	srcSt, _ := routdMessages(t)
+	insertMsg(t, srcSt, store.ArchiveMessageRow{ID: "m1", ChatJID: "slack:C1", Sender: "u1", Content: "a", Timestamp: ts(t, "10:00")})
+	insertMsg(t, srcSt, store.ArchiveMessageRow{ID: "m2", ChatJID: "slack:C1", Sender: "u1", Content: "b", Timestamp: ts(t, "10:01")})
 
 	var buf bytes.Buffer
 	if _, err := srcSt.ExportMessagesJSONL(context.Background(), &buf); err != nil {
@@ -147,7 +158,7 @@ func TestMessagesImportIsIdempotentAndAppends(t *testing.T) {
 	dstSt, dst := routdMessages(t)
 	// The target already holds m1, with DIFFERENT content: the existing row
 	// must win, because it is the live one.
-	insertMsg(t, dst, store.ArchiveMessageRow{ID: "m1", ChatJID: "slack:C1", Sender: "u1", Content: "LIVE", Timestamp: ts(t, "10:00")})
+	insertMsg(t, dstSt, store.ArchiveMessageRow{ID: "m1", ChatJID: "slack:C1", Sender: "u1", Content: "LIVE", Timestamp: ts(t, "10:00")})
 
 	for pass := 1; pass <= 2; pass++ {
 		if _, _, _, err := dstSt.ImportMessagesJSONL(context.Background(), bytes.NewReader(buf.Bytes()), 0); err != nil {
@@ -158,12 +169,12 @@ func TestMessagesImportIsIdempotentAndAppends(t *testing.T) {
 		}
 	}
 
-	var content string
-	if err := dst.QueryRow("SELECT content FROM messages WHERE id='m1'").Scan(&content); err != nil {
-		t.Fatal(err)
+	live, ok := dstSt.MessageByID("slack:C1", "m1")
+	if !ok {
+		t.Fatal("the live row is gone")
 	}
-	if content != "LIVE" {
-		t.Errorf("the import overwrote a live row: content = %q, want LIVE", content)
+	if live.Content != "LIVE" {
+		t.Errorf("the import overwrote a live row: content = %q, want LIVE", live.Content)
 	}
 }
 
@@ -171,9 +182,9 @@ func TestMessagesImportIsIdempotentAndAppends(t *testing.T) {
 // write lock for its whole duration. Whatever the batch size, the result must
 // be the same set of rows — including a final partial batch.
 func TestMessagesImportBatchSizeDoesNotChangeTheResult(t *testing.T) {
-	srcSt, src := routdMessages(t)
+	srcSt, _ := routdMessages(t)
 	for i, hhmm := range []string{"10:00", "10:01", "10:02", "10:03", "10:04", "10:05", "10:06"} {
-		insertMsg(t, src, store.ArchiveMessageRow{
+		insertMsg(t, srcSt, store.ArchiveMessageRow{
 			ID:      string(rune('a' + i)),
 			ChatJID: "slack:C1", Sender: "u1", Content: hhmm,
 			Timestamp: ts(t, hhmm),
@@ -228,10 +239,10 @@ func cursorOf(t *testing.T, st *store.Store, jid string) string {
 // per historical message, the agent answering the entire archive. The cursor
 // is MAX(timestamp) over each restored chat.
 func TestDeriveAgentCursorsParksThePollerAtTheEndOfTheHistory(t *testing.T) {
-	dbSt, db := routdMessages(t)
-	insertMsg(t, db, store.ArchiveMessageRow{ID: "a1", ChatJID: "slack:C1", Sender: "u", Content: "x", Timestamp: ts(t, "10:00")})
-	insertMsg(t, db, store.ArchiveMessageRow{ID: "a2", ChatJID: "slack:C1", Sender: "u", Content: "y", Timestamp: ts(t, "12:00")})
-	insertMsg(t, db, store.ArchiveMessageRow{ID: "b1", ChatJID: "slack:C2", Sender: "u", Content: "z", Timestamp: ts(t, "09:00")})
+	dbSt, _ := routdMessages(t)
+	insertMsg(t, dbSt, store.ArchiveMessageRow{ID: "a1", ChatJID: "slack:C1", Sender: "u", Content: "x", Timestamp: ts(t, "10:00")})
+	insertMsg(t, dbSt, store.ArchiveMessageRow{ID: "a2", ChatJID: "slack:C1", Sender: "u", Content: "y", Timestamp: ts(t, "12:00")})
+	insertMsg(t, dbSt, store.ArchiveMessageRow{ID: "b1", ChatJID: "slack:C2", Sender: "u", Content: "z", Timestamp: ts(t, "09:00")})
 
 	n, err := dbSt.DeriveAgentCursors(context.Background(), map[string]bool{"slack:C1": true, "slack:C2": true})
 	if err != nil {
@@ -240,11 +251,13 @@ func TestDeriveAgentCursorsParksThePollerAtTheEndOfTheHistory(t *testing.T) {
 	if n != 2 {
 		t.Errorf("moved %d cursors, want 2", n)
 	}
-	if got := cursorOf(t, dbSt, "slack:C1"); got != ts(t, "12:00") {
-		t.Errorf("slack:C1 cursor = %q, want the chat's MAX(timestamp)", got)
+	// The cursor holds the newest message's WHOLE key: a bare instant sorts
+	// below every message at it and would feed that instant again on every poll.
+	if got, want := cursorOf(t, dbSt, "slack:C1"), store.MsgStamp(ts(t, "12:00"), "a2"); got != want {
+		t.Errorf("slack:C1 cursor = %q, want the newest message's key %q", got, want)
 	}
-	if got := cursorOf(t, dbSt, "slack:C2"); got != ts(t, "09:00") {
-		t.Errorf("slack:C2 cursor = %q", got)
+	if got, want := cursorOf(t, dbSt, "slack:C2"), store.MsgStamp(ts(t, "09:00"), "b1"); got != want {
+		t.Errorf("slack:C2 cursor = %q, want %q", got, want)
 	}
 
 	// Nothing touched, nothing to do.
@@ -257,9 +270,10 @@ func TestDeriveAgentCursorsParksThePollerAtTheEndOfTheHistory(t *testing.T) {
 // cursor backward would re-open every message the poller already consumed —
 // the agent replying to the whole recent history of a running instance.
 func TestDeriveAgentCursorsNeverWalksALiveCursorBackward(t *testing.T) {
-	dbSt, db := routdMessages(t)
-	insertMsg(t, db, store.ArchiveMessageRow{ID: "old", ChatJID: "slack:C1", Sender: "u", Content: "x", Timestamp: ts(t, "08:00")})
-	if err := dbSt.SetAgentCursor("slack:C1", ts(t, "20:00")); err != nil {
+	dbSt, _ := routdMessages(t)
+	insertMsg(t, dbSt, store.ArchiveMessageRow{ID: "old", ChatJID: "slack:C1", Sender: "u", Content: "x", Timestamp: ts(t, "08:00")})
+	live := store.MsgStamp(ts(t, "20:00"), "live")
+	if err := dbSt.SetAgentCursor("slack:C1", live); err != nil {
 		t.Fatal(err)
 	}
 
@@ -267,7 +281,7 @@ func TestDeriveAgentCursorsNeverWalksALiveCursorBackward(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DeriveAgentCursors: %v", err)
 	}
-	if got := cursorOf(t, dbSt, "slack:C1"); got != ts(t, "20:00") {
+	if got := cursorOf(t, dbSt, "slack:C1"); got != live {
 		t.Fatalf("the live cursor was walked back to %q; the agent would answer its whole recent history", got)
 	}
 	if n != 0 {
@@ -275,73 +289,83 @@ func TestDeriveAgentCursorsNeverWalksALiveCursorBackward(t *testing.T) {
 	}
 
 	// A restore that DOES extend the history past the live cursor moves it.
-	insertMsg(t, db, store.ArchiveMessageRow{ID: "new", ChatJID: "slack:C1", Sender: "u", Content: "y", Timestamp: ts(t, "22:00")})
+	insertMsg(t, dbSt, store.ArchiveMessageRow{ID: "new", ChatJID: "slack:C1", Sender: "u", Content: "y", Timestamp: ts(t, "22:00")})
 	if _, err := dbSt.DeriveAgentCursors(context.Background(), map[string]bool{"slack:C1": true}); err != nil {
 		t.Fatal(err)
 	}
-	if got := cursorOf(t, dbSt, "slack:C1"); got != ts(t, "22:00") {
-		t.Errorf("cursor = %q, want it advanced to the new tail", got)
+	if got, want := cursorOf(t, dbSt, "slack:C1"), store.MsgStamp(ts(t, "22:00"), "new"); got != want {
+		t.Errorf("cursor = %q, want it advanced to the new tail %q", got, want)
 	}
 }
 
-// TestDeriveAgentCursorsDerivesEveryChatItCanAndNamesTheRest is the resilience
+// TestDeriveAgentCursorsDerivesEveryChatItCanAndSkipsTheRest is the resilience
 // the sweep needs, and the reason is one row shape.
 //
-// Migration 0044 deliberately leaves a hand-written `2026-04-02 12:38:47` alone,
-// because padding a ROW would invent a zone it never had — two krons rows carry
-// exactly that. MAX(timestamp) over such a chat is nineteen bytes, and the
-// dispatch cursor is declared at core.TS's width, so the write refuses it. The
-// chats are swept in sorted order, so a sweep that stopped there left every
-// alphabetically later chat with NO cursor at all, and the poll loop reads a
-// restored history with no cursor as entirely unread — the state this operation
-// exists to prevent (spec 5/8 Finding 4).
-func TestDeriveAgentCursorsDerivesEveryChatItCanAndNamesTheRest(t *testing.T) {
-	dbSt, db := routdMessages(t)
-	// "slack:A" sorts before "slack:Z", so the unreadable chat is swept first.
-	insertMsg(t, db, store.ArchiveMessageRow{ID: "a1", ChatJID: "slack:A", Sender: "u",
-		Content: "poked in by hand", Timestamp: "not an instant at all"})
-	insertMsg(t, db, store.ArchiveMessageRow{ID: "z1", ChatJID: "slack:Z", Sender: "u",
-		Content: "ordinary", Timestamp: ts(t, "12:00")})
-
-	moved, err := dbSt.DeriveAgentCursors(context.Background(),
-		map[string]bool{"slack:A": true, "slack:Z": true})
-	if err == nil {
-		t.Fatal("a chat this cannot derive was not reported; a restore that derived only " +
-			"some cursors must say which ones it missed")
+// An archive can carry a hand-written `not an instant at all`, and the import
+// REFUSES such a row rather than writing an item with no position — so the chat
+// it named is restored empty. The chats are swept in sorted order, and "slack:A"
+// sorts before "slack:Z": a sweep that stopped at the empty chat would leave
+// every alphabetically later chat with NO cursor at all, and the poll loop reads
+// a restored history with no cursor as entirely unread — the state this
+// operation exists to prevent (spec 5/8 Finding 4).
+func TestDeriveAgentCursorsDerivesEveryChatItCanAndSkipsTheRest(t *testing.T) {
+	dbSt, _ := routdMessages(t)
+	doc := archiveOf(t, []store.ArchiveMessageRow{
+		{ID: "a1", ChatJID: "slack:A", Sender: "u", Content: "poked in by hand",
+			Timestamp: "not an instant at all"},
+		{ID: "z1", ChatJID: "slack:Z", Sender: "u", Content: "ordinary",
+			Timestamp: ts(t, "12:00")},
+	})
+	_, touched, refused, err := dbSt.ImportMessagesJSONL(context.Background(),
+		bytes.NewReader(doc), 0)
+	if err != nil {
+		t.Fatalf("import: %v", err)
 	}
-	if !strings.Contains(err.Error(), "slack:A") {
-		t.Errorf("the report does not name the chat it could not derive: %v", err)
+	if len(refused) != 1 || refused[0].ID != "a1" {
+		t.Fatalf("refused = %v, want exactly the row with no position", refused)
+	}
+
+	moved, err := dbSt.DeriveAgentCursors(context.Background(), touched)
+	if err != nil {
+		t.Fatalf("DeriveAgentCursors: %v", err)
 	}
 	if moved != 1 {
-		t.Errorf("moved %d cursors, want 1", moved)
+		t.Errorf("moved %d cursors, want 1 — the empty chat has none to move", moved)
 	}
-	if got := cursorOf(t, dbSt, "slack:Z"); got != ts(t, "12:00") {
-		t.Fatalf("the later chat's cursor = %q, want %q — one unreadable chat stopped the "+
+	if got, want := cursorOf(t, dbSt, "slack:Z"), store.MsgStamp(ts(t, "12:00"), "z1"); got != want {
+		t.Fatalf("the later chat's cursor = %q, want %q — one empty chat stopped the "+
 			"sweep, and every chat after it reads its whole restored history as unread", got,
-			ts(t, "12:00"))
+			want)
+	}
+	if got := cursorOf(t, dbSt, "slack:A"); got != "" {
+		t.Errorf("the chat whose only row was refused carries the cursor %q", got)
 	}
 }
 
-// TestDeriveAgentCursorsRendersTheInstantItFinds pins the other half: the raw
-// column value is whatever the writer left, and the cursor attribute is declared
-// at one width.
+// TestDeriveAgentCursorsParksAtTheRenderedInstant pins the other half: the
+// archive is where a foreign string is brought into the one layout, and the
+// cursor is then COPIED from the key the import built.
 //
-// Rendering a CURSOR is safe where rendering the row is not — a rendered instant
-// sorts at or above the row it came from, so the poller still parks at the end
-// of the restored history, which is what this is for.
-func TestDeriveAgentCursorsRendersTheInstantItFinds(t *testing.T) {
-	dbSt, db := routdMessages(t)
+// A rendered instant sorts at or above the raw value it came from, so the poller
+// still parks at the end of the restored history, which is what this is for.
+func TestDeriveAgentCursorsParksAtTheRenderedInstant(t *testing.T) {
+	dbSt, _ := routdMessages(t)
+	// The shape routd/migrations/0044 deliberately leaves alone rather than
+	// invent a zone for. Two rows carry it on krons today.
 	const handWritten = "2026-04-02 12:38:47"
-	insertMsg(t, db, store.ArchiveMessageRow{ID: "h1", ChatJID: "slack:H", Sender: "u",
-		Content: "poked in by hand", Timestamp: handWritten})
-
-	if _, err := dbSt.DeriveAgentCursors(context.Background(),
-		map[string]bool{"slack:H": true}); err != nil {
+	doc := archiveOf(t, []store.ArchiveMessageRow{
+		{ID: "h1", ChatJID: "slack:H", Sender: "u", Content: "poked in by hand",
+			Timestamp: handWritten},
+	})
+	if _, touched, _, err := dbSt.ImportMessagesJSONL(context.Background(),
+		bytes.NewReader(doc), 0); err != nil {
+		t.Fatalf("import: %v", err)
+	} else if _, err := dbSt.DeriveAgentCursors(context.Background(), touched); err != nil {
 		t.Fatalf("DeriveAgentCursors: %v", err)
 	}
 	got := cursorOf(t, dbSt, "slack:H")
-	if got != "2026-04-02T12:38:47.000000000Z" {
-		t.Fatalf("cursor = %q, want the rendered instant", got)
+	if want := store.MsgStamp("2026-04-02T12:38:47.000000000Z", "h1"); got != want {
+		t.Fatalf("cursor = %q, want the rendered instant's key %q", got, want)
 	}
 	if !(got > handWritten) {
 		t.Errorf("the cursor %q sorts below the row %q it came from, so the poller re-feeds it",

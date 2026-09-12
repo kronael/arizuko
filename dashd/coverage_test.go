@@ -73,11 +73,10 @@ func TestTasksPartialXSS(t *testing.T) {
 func TestActivityFullPage(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
-	if _, err := db.Exec(
-		`INSERT INTO messages(id, chat_jid, sender, content, timestamp, source, verb)
-		 VALUES('m1', 'c1', 's1', 'hi there', '2026-01-01T00:00:00Z', 'tel', 'say')`); err != nil {
-		t.Fatal(err)
-	}
+	seedRoutdMessage(t, db, core.Message{
+		ID: "m1", ChatJID: "c1", Sender: "s1", Content: "hi there",
+		Timestamp: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), Source: "tel", Verb: "say",
+	})
 	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
@@ -102,14 +101,13 @@ func TestActivityPagination(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
 	const total = activityPageSize + 5
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	for i := range total {
-		ts := fmt.Sprintf("2026-01-01T00:%02d:%02dZ", i/60, i%60)
-		if _, err := db.Exec(
-			`INSERT INTO messages(id, chat_jid, sender, content, timestamp, source, verb)
-			 VALUES(?, 'c1', 's1', 'msg', ?, 'tel', 'say')`,
-			fmt.Sprintf("m%d", i), ts); err != nil {
-			t.Fatal(err)
-		}
+		ts := base.Add(time.Duration(i) * time.Second)
+		seedRoutdMessage(t, db, core.Message{
+			ID: fmt.Sprintf("m%d", i), ChatJID: "c1", Sender: "s1", Content: "msg",
+			Timestamp: ts, Source: "tel", Verb: "say",
+		})
 	}
 	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
@@ -144,7 +142,7 @@ func TestActivityPagination(t *testing.T) {
 	if strings.Contains(body2, `hx-trigger="every 10s"`) {
 		t.Errorf("an older page must not auto-refresh (would poll back to newest): %s", body2)
 	}
-	if !strings.Contains(body2, "2026-01-01T00:00:00Z") {
+	if !strings.Contains(body2, core.TS(base)) {
 		t.Errorf("oldest message should appear on the second page: %s", body2)
 	}
 	if got := strings.Count(body2, "<td><abbr"); got != 5 {
@@ -157,16 +155,14 @@ func TestActivityPartialRows(t *testing.T) {
 	defer db.Close()
 	// long content to exercise substr LIMIT
 	long := strings.Repeat("a", 200)
-	if _, err := db.Exec(
-		`INSERT INTO messages(id, chat_jid, sender, content, timestamp, source) VALUES('m1','c','s',?,'2026-01-01','tel')`,
-		long); err != nil {
-		t.Fatal(err)
-	}
-	// null verb
-	if _, err := db.Exec(
-		`INSERT INTO messages(id, chat_jid, sender, content, timestamp, source) VALUES('m2','c','s','short','2026-01-02','disc')`); err != nil {
-		t.Fatal(err)
-	}
+	seedRoutdMessage(t, db, core.Message{
+		ID: "m1", ChatJID: "c", Sender: "s", Content: long,
+		Timestamp: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), Source: "tel",
+	})
+	seedRoutdMessage(t, db, core.Message{
+		ID: "m2", ChatJID: "c", Sender: "s", Content: "short",
+		Timestamp: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC), Source: "disc",
+	})
 	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
@@ -188,10 +184,10 @@ func TestActivityPartialRows(t *testing.T) {
 func TestActivityPartialXSS(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
-	if _, err := db.Exec(
-		`INSERT INTO messages(id, chat_jid, sender, content, timestamp, source, verb) VALUES('m1','<c>','<s>','<b>evil</b>','t','<src>','<v>')`); err != nil {
-		t.Fatal(err)
-	}
+	seedRoutdMessage(t, db, core.Message{
+		ID: "m1", ChatJID: "<c>", Sender: "<s>", Content: "<b>evil</b>",
+		Timestamp: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), Source: "<src>", Verb: "<v>",
+	})
 	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)

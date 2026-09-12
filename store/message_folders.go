@@ -94,16 +94,12 @@ func folderFeedWrite(msgKey objstore.Key, m core.Message) (objstore.Write, bool,
 
 // countFolderMessage moves one folder's count and commits the writes that
 // EARNED the move in the same batch, so a counter cannot run ahead of its rows.
-//
-// The counter has to exist before the first increment — objstore.Increment
-// refuses an item that is not there, because "a counter with no zero is a
-// modelling gap rather than a value to invent" — and a folder's first message is
-// where it comes into being. So a refusal that names a missing item seeds it and
-// the call retries once. The seed is a create-if-absent, so two chats writing
-// into one new folder at the same moment both end up counted.
 func (s *Store) countFolderMessage(ctx context.Context, tx *sql.Tx, folder string,
 	writes []objstore.Write) error {
-	return s.countFolderMessageBy(ctx, tx, folder, 1, writes)
+	// A refusal here is the message's own create-if-absent: the id is already
+	// stored, so the row is not appended and the folder must not count it twice.
+	_, err := s.tryCountFolderMessageBy(ctx, tx, folder, 1, writes)
+	return err
 }
 
 // errNoCounter is what a folder with no counter yet answers, so the seed runs
@@ -111,25 +107,26 @@ func (s *Store) countFolderMessage(ctx context.Context, tx *sql.Tx, folder strin
 var errNoCounter = errors.New("the folder has no message counter")
 
 // addFolderCount moves one folder's count by delta with `also` riding the same
-// batch.
+// batch, and ANSWERS whether it committed.
+//
+// The verdict is returned rather than swallowed because the two callers mean
+// different things by a refusal. The counter's own guard is the value this call
+// read, and a companion write's condition is the only other thing that can
+// refuse — so on the append path a false is the message's own create-if-absent
+// saying the row is already there, which is exactly when the count must NOT
+// move. Every other caller writes unconditional Puts, where a false is a fault.
+// Dropping the bit made both read as success, which is the shape of BUGS L268.
 func (s *Store) addFolderCount(ctx context.Context, tx *sql.Tx, folder string, delta int,
-	also []objstore.Write) error {
+	also []objstore.Write) (bool, error) {
 	_, committed, err := s.incrementEntityVia(ctx, tx, MessageFolderCounts,
 		folderCountKey(folder), counterAttrN, delta, nil, also)
 	if err != nil {
 		if strings.Contains(err.Error(), "no such item") {
-			return errNoCounter
+			return false, errNoCounter
 		}
-		return fmt.Errorf("count a message for %s: %w", folder, err)
+		return false, fmt.Errorf("count a message for %s: %w", folder, err)
 	}
-	if !committed {
-		// The counter's own guard is the value this call read, and a companion
-		// write's condition is the only other thing that refuses. Here that is
-		// the message's create-if-absent: the row is already there, so the count
-		// must NOT move.
-		return nil
-	}
-	return nil
+	return committed, nil
 }
 
 // FolderMessageCounts answers how many messages each named folder has taken, for
@@ -242,7 +239,7 @@ func (s *Store) MarkMessagesObserved(ctx context.Context, folder string,
 		}
 	}
 	for from, n := range dropped {
-		if err := s.addFolderCount(ctx, nil, from, -n, nil); err != nil {
+		if err := s.countFolderMessageBy(ctx, nil, from, -n, nil); err != nil {
 			return err
 		}
 	}
@@ -263,17 +260,40 @@ func (s *Store) MarkMessagesObserved(ctx context.Context, folder string,
 
 // countFolderMessageBy is countFolderMessage for a batch that earns more than
 // one.
+// countFolderMessageBy is the door for a caller whose writes carry no condition,
+// so a refusal is a fault and is raised.
 func (s *Store) countFolderMessageBy(ctx context.Context, tx *sql.Tx, folder string,
 	delta int, writes []objstore.Write) error {
-	err := s.addFolderCount(ctx, tx, folder, delta, writes)
-	if err == nil || !errors.Is(err, errNoCounter) {
+	committed, err := s.tryCountFolderMessageBy(ctx, tx, folder, delta, writes)
+	if err != nil {
 		return err
+	}
+	if !committed {
+		return fmt.Errorf("%w: counting %d messages for %s", ErrRefused, delta, folder)
+	}
+	return nil
+}
+
+// tryCountFolderMessageBy is countFolderMessageBy for the caller that ASKED a
+// question, and it seeds the counter the first time a folder takes a message.
+//
+// The counter has to exist before the first increment — objstore.Increment
+// refuses an item that is not there, because "a counter with no zero is a
+// modelling gap rather than a value to invent" — so a refusal that names a
+// missing item seeds it and the call retries once. The seed is a
+// create-if-absent, so two chats writing into one new folder at the same moment
+// both end up counted.
+func (s *Store) tryCountFolderMessageBy(ctx context.Context, tx *sql.Tx, folder string,
+	delta int, writes []objstore.Write) (bool, error) {
+	committed, err := s.addFolderCount(ctx, tx, folder, delta, writes)
+	if err == nil || !errors.Is(err, errNoCounter) {
+		return committed, err
 	}
 	if seedErr := putIfAbsent(ctx, s.Obj(), objstore.Write{
 		Op: objstore.Put, Entity: MessageFolderCounts, Key: folderCountKey(folder),
 		Attrs: map[string]string{counterAttrN: "0"},
 	}); seedErr != nil {
-		return fmt.Errorf("open %s's message count: %w", folder, seedErr)
+		return false, fmt.Errorf("open %s's message count: %w", folder, seedErr)
 	}
 	return s.addFolderCount(ctx, tx, folder, delta, writes)
 }

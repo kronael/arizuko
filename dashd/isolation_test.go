@@ -323,9 +323,7 @@ func TestIso_PortalCounts_Scoped(t *testing.T) {
 		{"e-sales", "web:" + folderSales},
 		{"e-orphan", "tel:99999"}, // no route → jidFolder "" → invisible to non-op
 	} {
-		if _, err := inst.DB.Exec(
-			`INSERT INTO messages (id, chat_jid, sender, content, timestamp, source, errored)
-			 VALUES (?, ?, 's', 'x', datetime('now'), 'web', 1)`, m.id, m.jid); err != nil {
+		if err := store.New(inst.DB).MarkChatErrored(m.jid); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -419,12 +417,10 @@ func seedTask(t *testing.T, inst *testutils.Inst, id, owner string) {
 
 func seedMsg(t *testing.T, inst *testutils.Inst, id, jid, content string) {
 	t.Helper()
-	if _, err := inst.DB.Exec(
-		`INSERT INTO messages (id, chat_jid, sender, content, timestamp, source)
-		 VALUES (?, ?, 's', ?, datetime('now'), 'web')`,
-		id, jid, content); err != nil {
-		t.Fatalf("seed msg %s: %v", id, err)
-	}
+	seedRoutdMessage(t, inst.DB, core.Message{
+		ID: id, ChatJID: jid, Sender: "s", Content: content,
+		Timestamp: time.Now().UTC(), Source: "web",
+	})
 }
 
 func mustContain(t *testing.T, body, want, why string) {

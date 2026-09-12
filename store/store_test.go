@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -87,7 +88,7 @@ func TestPutAndGetMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	msgs, hi, err := s.NewMessages([]string{"tg:123"}, now.Add(-time.Second), "Bot")
+	msgs, err := s.NewMessagesForChat(context.Background(), "tg:123", "", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,28 +98,51 @@ func TestPutAndGetMessage(t *testing.T) {
 	if msgs[0].Content != "hello" {
 		t.Fatalf("expected 'hello', got %q", msgs[0].Content)
 	}
-	if hi.Before(now) {
-		t.Fatal("high-water mark should be >= message timestamp")
+	// The watermark a consumer records is the message's own key, so the next
+	// read of `> cursor` starts past it rather than at the same instant.
+	if cursor := MessageCursor(msgs[0]); cursor != MsgStamp(core.TS(now), "m1") {
+		t.Fatalf("cursor = %q, want the message's own key", cursor)
 	}
 }
 
-func TestBotMessagesFiltered(t *testing.T) {
+// A chat fed from its own watermark hands back only what landed after it.
+func TestNewMessagesForChat_FeedsPastTheCursor(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 
+	ctx := context.Background()
 	now := time.Now()
-	s.PutMessage(core.Message{
-		ID: "m1", ChatJID: "tg:1", Sender: "user", Content: "hi",
-		Timestamp: now,
-	})
-	s.PutMessage(core.Message{
-		ID: "m2", ChatJID: "tg:1", Sender: "Andy", Content: "reply",
-		Timestamp: now.Add(time.Second), BotMsg: true,
-	})
+	first := core.Message{ID: "m1", ChatJID: "tg:1", Sender: "user", Content: "hi",
+		Timestamp: now}
+	second := core.Message{ID: "m2", ChatJID: "tg:1", Sender: "user", Content: "again",
+		Timestamp: now.Add(time.Second)}
+	for _, m := range []core.Message{first, second} {
+		if err := s.PutMessage(m); err != nil {
+			t.Fatal(err)
+		}
+	}
 
-	msgs, _, _ := s.NewMessages([]string{"tg:1"}, now.Add(-time.Second), "Andy")
-	if len(msgs) != 1 {
-		t.Fatalf("expected 1 (bot filtered), got %d", len(msgs))
+	msgs, err := s.NewMessagesForChat(ctx, "tg:1", MessageCursor(first), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 1 || msgs[0].ID != "m2" {
+		t.Fatalf("feed past the first message = %+v, want only m2", msgs)
+	}
+
+	// A message AT the cursor instant is consumed once: a bare instant would
+	// sort below its own key and hand the whole second back on every poll.
+	same := core.Message{ID: "m1-twin", ChatJID: "tg:1", Sender: "user",
+		Content: "same instant", Timestamp: now}
+	if err := s.PutMessage(same); err != nil {
+		t.Fatal(err)
+	}
+	msgs, err = s.NewMessagesForChat(ctx, "tg:1", MessageCursor(same), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 1 || msgs[0].ID != "m2" {
+		t.Fatalf("feed past the twin = %+v, want only m2", msgs)
 	}
 }
 
@@ -409,7 +433,7 @@ func TestPutMessageAttachmentsRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	msgs, _, err := s.NewMessages([]string{"tg:1"}, now.Add(-time.Second), "Bot")
+	msgs, err := s.NewMessagesForChat(context.Background(), "tg:1", "", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -427,16 +451,22 @@ func TestEnrichMessage(t *testing.T) {
 
 	atts := `[{"mime":"audio/ogg","filename":"voice.ogg","url":"http://teled:9001/files/xyz","size":512}]`
 	now := time.Now()
-	s.PutMessage(core.Message{
+	m := core.Message{
 		ID: "enr1", ChatJID: "tg:1", Sender: "user",
 		Content: "[Voice message]", Timestamp: now, Attachments: atts,
-	})
-
-	if err := s.EnrichMessage("enr1", "[Voice message]\n<attachment path=\"/groups/main/media/voice.ogg\" mime=\"audio/ogg\" filename=\"voice.ogg\" transcript=\"hello world\"/>"); err != nil {
+	}
+	if err := s.PutMessage(m); err != nil {
 		t.Fatal(err)
 	}
 
-	msgs, _, _ := s.NewMessages([]string{"tg:1"}, now.Add(-time.Second), "Bot")
+	if err := s.EnrichMessage(m, "[Voice message]\n<attachment path=\"/groups/main/media/voice.ogg\" mime=\"audio/ogg\" filename=\"voice.ogg\" transcript=\"hello world\"/>"); err != nil {
+		t.Fatal(err)
+	}
+
+	msgs, err := s.NewMessagesForChat(context.Background(), "tg:1", "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(msgs) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(msgs))
 	}
@@ -445,28 +475,6 @@ func TestEnrichMessage(t *testing.T) {
 	}
 	if !strings.Contains(msgs[0].Content, "<attachment") {
 		t.Errorf("enriched content should contain attachment XML, got %q", msgs[0].Content)
-	}
-}
-
-// Agent output messages (is_bot_message=1) must not leak into MessagesSince.
-func TestAgentOutput_ExcludedFromMessagesSince(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-
-	if err := s.PutMessage(core.Message{
-		ID: "out-1", ChatJID: "tg:1", Sender: "main",
-		Content: "bot reply", Timestamp: time.Now(),
-		FromMe: true, BotMsg: true, RoutedTo: "tg:1",
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	msgs, err := s.MessagesSince("tg:1", time.Time{}, "REDACTED")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(msgs) != 0 {
-		t.Fatalf("agent output leaked into MessagesSince: %+v", msgs)
 	}
 }
 
@@ -550,10 +558,13 @@ func TestMessagesByThread_ScopedByJIDAndTopic(t *testing.T) {
 	}
 }
 
-func TestPutMessage_DefaultsStatusToSent(t *testing.T) {
+// `sent` is the ABSENCE of a delivery item, so a plain append owes nothing and
+// a row that still owes one is what the retry sweep reads.
+func TestPutMessage_OwesNoDelivery(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 
+	ctx := context.Background()
 	now := time.Now()
 	if err := s.PutMessage(core.Message{
 		ID: "m1", ChatJID: "tg:1", Sender: "user",
@@ -561,10 +572,49 @@ func TestPutMessage_DefaultsStatusToSent(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	var status string
-	s.db.QueryRow(`SELECT status FROM messages WHERE id = ?`, "m1").Scan(&status)
-	if status != core.MessageStatusSent {
-		t.Errorf("status = %q, want %q", status, core.MessageStatusSent)
+	n, err := s.CountPendingOutbound(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Errorf("pending after a plain append = %d, want 0 (sent is the absence)", n)
+	}
+	dead, err := s.DeadLetters(ctx, "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dead) != 0 {
+		t.Errorf("dead letters after a plain append = %d, want 0", len(dead))
+	}
+
+	owed := core.Message{ID: "m2", ChatJID: "tg:1", Sender: "bot", Content: "reply",
+		Timestamp: now.Add(time.Second), BotMsg: true}
+	if err := s.PutOutbound(ctx, owed, core.MessageStatusPending); err != nil {
+		t.Fatal(err)
+	}
+	pending, err := s.PendingOutbound(ctx, now.Add(time.Minute), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 || pending[0].ID != "m2" {
+		t.Fatalf("pending outbound = %+v, want only m2", pending)
+	}
+	if pending[0].Attempts != 0 {
+		t.Errorf("attempts on a row that has not been retried = %d, want 0", pending[0].Attempts)
+	}
+}
+
+// A status no sweep reads is refused rather than stored: a typo would park the
+// row in a partition nothing drains.
+func TestPutOutbound_RefusesAnUnknownStatus(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	err := s.PutOutbound(context.Background(), core.Message{
+		ID: "m1", ChatJID: "tg:1", Sender: "bot", Content: "x", Timestamp: time.Now(),
+	}, "queued")
+	if err == nil {
+		t.Fatal("an unrecognised delivery status was accepted")
 	}
 }
 

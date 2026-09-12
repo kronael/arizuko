@@ -2,6 +2,7 @@ package store
 
 import (
 	"testing"
+	"time"
 
 	"github.com/kronael/arizuko/core"
 )
@@ -46,16 +47,14 @@ func TestPutMessage_KeepsThePlatformID(t *testing.T) {
 	ts := "1780300379.765170"
 	if err := s.PutMessage(core.Message{
 		ID: "mcp-test1", ChatJID: "slack:T/channel/C0B4", Sender: "atlas/support",
-		Content: "hi", FromMe: true, BotMsg: true, PlatformID: ts,
-	}); err != nil {
+		Content: "hi", FromMe: true, BotMsg: true, PlatformID: ts, Timestamp: time.Now()}); err != nil {
 		t.Fatalf("PutMessage: %v", err)
 	}
-	var got string
-	if err := s.db.QueryRow(
-		`SELECT COALESCE(platform_id,'') FROM messages WHERE id = ?`, "mcp-test1").
-		Scan(&got); err != nil {
-		t.Fatal(err)
+	m, ok := s.MessageByID("slack:T/channel/C0B4", "mcp-test1")
+	if !ok {
+		t.Fatal("the row did not land")
 	}
+	got := m.PlatformID
 	if got != ts {
 		t.Fatalf("platform_id = %q, want %q — the reply-to-bot lookup would miss the row", got, ts)
 	}

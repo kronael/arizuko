@@ -133,7 +133,8 @@ func TestEnrich_Base64Attachment(t *testing.T) {
 	db, l, groups := enrichLoop(t, mediaConfig{
 		Enabled: true, MaxBytes: 1 << 20, WhisperURL: whisper.URL, VoiceEnabled: true,
 	})
-	msg := &core.Message{ID: "m1", ChatJID: "tg:1", Content: "voice", Attachments: b64VoiceAtt("raw-ogg-bytes")}
+	msg := &core.Message{ID: "m1", ChatJID: "tg:1", Content: "voice",
+		Timestamp: time.Now(), Attachments: b64VoiceAtt("raw-ogg-bytes")}
 	if err := db.PutMessage(*msg); err != nil {
 		t.Fatal(err)
 	}

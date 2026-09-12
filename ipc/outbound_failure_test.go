@@ -12,16 +12,27 @@ import (
 	"github.com/kronael/arizuko/core"
 )
 
+// outboundRow is one row the MCP layer wrote, with the delivery status it was
+// written under. The status is not a field of the message: it decides whether a
+// delivery item exists at all, so it travels beside the row.
+type outboundRow struct {
+	core.Message
+	Status string
+}
+
 // captureStore records every row the MCP layer writes.
-func captureStore(rows *[]core.Message) StoreFns {
-	return StoreFns{PutMessage: func(m core.Message) error { *rows = append(*rows, m); return nil }}
+func captureStore(rows *[]outboundRow) StoreFns {
+	return StoreFns{PutOutbound: func(m core.Message, status string) error {
+		*rows = append(*rows, outboundRow{Message: m, Status: status})
+		return nil
+	}}
 }
 
 // TestSendTransientFailureRecordsPendingRow: the adapter fails with a transient
 // error. The agent gets the error AND the row lands 'pending', so routd's sweep
 // owns the retry.
 func TestSendTransientFailureRecordsPendingRow(t *testing.T) {
-	var rows []core.Message
+	var rows []outboundRow
 	gated := GatedFns{
 		SendMessage: func(string, string) (string, error) { return "", fmt.Errorf("adapter down") },
 	}
@@ -48,7 +59,7 @@ func TestSendTransientFailureRecordsPendingRow(t *testing.T) {
 // retry, so the row goes straight to the dead-letter state and never enters
 // PendingOutbound.
 func TestSendPermanentFailureDeadLetters(t *testing.T) {
-	var rows []core.Message
+	var rows []outboundRow
 	gated := GatedFns{
 		SendMessage: func(string, string) (string, error) {
 			return "", fmt.Errorf("channel slack send: %w: status 400", chanlib.ErrPermanent)
@@ -71,7 +82,7 @@ func TestSendPermanentFailureDeadLetters(t *testing.T) {
 // file row as a captionless, fileless message, so a failed send_file always
 // dead-letters — even on a transient error.
 func TestSendFileFailureDeadLetters(t *testing.T) {
-	var rows []core.Message
+	var rows []outboundRow
 	gated := GatedFns{
 		SendDocument: func(string, string, string, string, string, string) (string, error) {
 			return "", fmt.Errorf("adapter down")
@@ -97,7 +108,7 @@ func TestSendFileFailureDeadLetters(t *testing.T) {
 // TestSendSuccessRecordsSentRow is the control: a delivered send still writes
 // exactly one 'sent' row carrying its own platform id.
 func TestSendSuccessRecordsSentRow(t *testing.T) {
-	var rows []core.Message
+	var rows []outboundRow
 	gated := GatedFns{
 		SendMessage: func(string, string) (string, error) { return "pid-7", nil },
 	}

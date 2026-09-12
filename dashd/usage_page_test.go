@@ -13,6 +13,7 @@ import (
 	"github.com/kronael/arizuko/dashd/dashstore"
 
 	_ "modernc.org/sqlite"
+	"time"
 )
 
 // usageRoutdDB is a migrated routd.db seeded with the given group folders. The
@@ -79,12 +80,10 @@ func TestUsageWithCost(t *testing.T) {
 	routd := usageRoutdDB(t, "alice")
 	defer routd.Close()
 
-	now := core.NowTS()
-	if _, err := routd.Exec(
-		`INSERT INTO messages (id, chat_jid, sender, content, is_bot_message, timestamp, routed_to)
-		 VALUES ('m1','web:alice','u1','hi',0,?,'alice')`, now); err != nil {
-		t.Fatal(err)
-	}
+	seedRoutdMessage(t, routd, core.Message{
+		ID: "m1", ChatJID: "web:alice", Sender: "u1", Content: "hi",
+		Timestamp: time.Now().UTC(), RoutedTo: "alice",
+	})
 	stubMeter(t, true, stubSpendRow{Folder: "alice", Tokens: 1500, CostCents: 250})
 
 	code, body := usageGet(t, &dash{dbRoutd: routd, routdURL: stubRoutd(t, routd)})

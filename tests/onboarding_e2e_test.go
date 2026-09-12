@@ -114,9 +114,7 @@ func TestOnboardingEndToEnd(t *testing.T) {
 	if rec.StatusCode != 200 {
 		t.Fatalf("post-admit ingest status=%d", rec.StatusCode)
 	}
-	testutils.WaitForRow(t, f.routdDB.SQL(),
-		`SELECT COUNT(*) FROM messages WHERE chat_jid=? AND is_bot_message=1`,
-		[]any{jid}, 5*time.Second)
+	testutils.WaitForBotRow(t, f.routdDB.SQL(), jid, 5*time.Second)
 	if got := f.dispatchedFolder("onb.2"); got != "niki" {
 		t.Fatalf("post-admit turn dispatched to %q, want niki", got)
 	}

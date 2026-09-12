@@ -54,11 +54,8 @@ func TestIngestFillsReplyExcerptFromStoredParent(t *testing.T) {
 
 	stored := func(id string) (text, sender, verb string) {
 		t.Helper()
-		if err := db.db.QueryRow(`SELECT reply_to_text, reply_to_sender, verb FROM messages WHERE id=?`, id).
-			Scan(&text, &sender, &verb); err != nil {
-			t.Fatalf("row %s: %v", id, err)
-		}
-		return
+		m := msgByID(t, db, jid, id)
+		return m.ReplyToText, m.ReplyToSender, m.Verb
 	}
 	post := func(id, replyTo, text string) {
 		t.Helper()

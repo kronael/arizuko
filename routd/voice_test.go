@@ -224,7 +224,11 @@ func TestEnrich_TranscribesVoiceAttachment(t *testing.T) {
 		WhisperModel: "turbo", VoiceEnabled: true,
 	})
 
-	msg := &core.Message{ID: "m1", ChatJID: "tg:1", Content: "voice msg", Attachments: voiceAtt(mediaSrv.URL + "/n.ogg")}
+	// The timestamp is part of the message's coordinate, so the fixture stamps
+	// it the way every adapter does — a row written without one is stored at an
+	// instant its caller does not hold, and every later address of it misses.
+	msg := &core.Message{ID: "m1", ChatJID: "tg:1", Content: "voice msg",
+		Timestamp: time.Now().UTC(), Attachments: voiceAtt(mediaSrv.URL + "/n.ogg")}
 	if err := db.PutMessage(*msg); err != nil {
 		t.Fatal(err)
 	}

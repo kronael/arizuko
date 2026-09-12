@@ -131,6 +131,17 @@ CREATE TABLE github_sources (
 // and it is built by hand beside the other pre-rename shapes. `chat_proactive`
 // has no monolith table at all.
 const legacyHotSchema = `
+DROP TABLE IF EXISTS messages;
+CREATE TABLE messages (
+  id TEXT PRIMARY KEY, chat_jid TEXT NOT NULL, sender TEXT NOT NULL,
+  sender_name TEXT, content TEXT NOT NULL, timestamp TEXT NOT NULL,
+  is_from_me INTEGER NOT NULL DEFAULT 0, is_bot_message INTEGER NOT NULL DEFAULT 0,
+  forwarded_from TEXT, reply_to_id TEXT, reply_to_text TEXT, reply_to_sender TEXT,
+  topic TEXT NOT NULL DEFAULT '', routed_to TEXT NOT NULL DEFAULT '',
+  verb TEXT NOT NULL DEFAULT 'message', attachments TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT '', is_observed INTEGER NOT NULL DEFAULT 0,
+  turn_id TEXT, status TEXT NOT NULL DEFAULT 'sent', platform_id TEXT,
+  chat_name TEXT NOT NULL DEFAULT '', errored INTEGER NOT NULL DEFAULT 0);
 DROP TABLE IF EXISTS chats;
 DROP TABLE IF EXISTS sessions;
 DROP TABLE IF EXISTS chat_reply_state;
@@ -396,15 +407,18 @@ func TestMigrateSplit(t *testing.T) {
 		t.Errorf("runed.session_log: got %d rows, want 1", got)
 	}
 
-	// messages: errored column dropped, payload columns intact.
-	var content, status, turnID, platformID, chatName string
-	if err := r.QueryRow(
-		`SELECT content, status, turn_id, platform_id, chat_name FROM messages WHERE id='m1'`).
-		Scan(&content, &status, &turnID, &platformID, &chatName); err != nil {
-		t.Fatalf("read routd.messages m1: %v", err)
+	// messages: every attribute travelled, and the delivery status is the ABSENCE
+	// of a delivery item — a sent row owes nothing, so it is in neither feed.
+	rst := store.New(r)
+	m1, ok := rst.MessageByID("tg:1", "m1")
+	if !ok {
+		t.Fatal("read routd.messages m1: the row did not travel")
 	}
-	if content != "hi" || status != "sent" || turnID != "t1" || platformID != "pid1" || chatName != "Chat A" {
-		t.Errorf("messages m1 payload wrong: %q %q %q %q %q", content, status, turnID, platformID, chatName)
+	if m1.Content != "hi" || m1.TurnID != "t1" || m1.PlatformID != "pid1" || m1.ChatName != "Chat A" {
+		t.Errorf("messages m1 payload wrong: %+v", m1)
+	}
+	if dead, _ := rst.DeadLetterByID(context.Background(), "m1"); dead.ID != "" {
+		t.Errorf("a sent row carries a dead-letter item: %+v", dead)
 	}
 
 	// The errored flag is ABSENT, not "0": the source had no such column, and a
@@ -489,7 +503,6 @@ func TestMigrateSplit(t *testing.T) {
 	// through the methods routd itself calls — an import that wrote the wrong
 	// attribute name would report its counts happily, and only a read through
 	// the real methods catches it.
-	rst := store.New(r)
 	// Scope to the migrated legacy row specifically — the 5/33 floor adds other
 	// role rows that would otherwise shadow it.
 	aclRows, err := rst.ListACL("folder:main")
@@ -589,14 +602,11 @@ func TestMigrateSplit(t *testing.T) {
 			inv.TargetGlob, inv.MaxUses, inv.UsedCount)
 	}
 
-	// FTS index rebuilt from copied messages → searchable.
-	var ftsHit int
-	if err := r.QueryRow(`SELECT COUNT(*) FROM messages_fts WHERE messages_fts MATCH 'hi'`).Scan(&ftsHit); err != nil {
-		t.Fatalf("query messages_fts: %v", err)
-	}
-	if ftsHit != 1 {
-		t.Errorf("messages_fts MATCH 'hi' = %d, want 1 (rebuilt index)", ftsHit)
-	}
+	// THE FTS REBUILD IS GONE and no assertion replaces it here. `messages` is an
+	// entity in the destination, so an index rebuilt from it would index three
+	// columns named part, sort and attrs and answer every search with nothing.
+	// Ranked search moves with its own service and carries its own index
+	// (spec 6/37 §"Search is the one that is answered by leaving").
 
 	rdb.Close()
 	udb.Close()
@@ -663,27 +673,27 @@ func TestMigrateSplitCoalescesNullMessageCols(t *testing.T) {
 	}
 	defer rdb.Close()
 
-	// 1. The copied row's plain-string columns must be '' (not NULL).
-	var name, replyTo, source, topic, routedTo, verb, status, chatName sql.NullString
-	if err := rdb.SQL().QueryRow(
-		`SELECT sender_name, reply_to_id, source, topic, routed_to, verb, status, chat_name
-		 FROM messages WHERE id='mnull'`).
-		Scan(&name, &replyTo, &source, &topic, &routedTo, &verb, &status, &chatName); err != nil {
-		t.Fatalf("read routd.messages mnull: %v", err)
+	// 1. A NULL column arrives as an ABSENT attribute, which every reader renders
+	// as "" — the same guarantee the COALESCE gave, through the model's own null.
+	mnull, ok := store.New(rdb.SQL()).MessageByID("tg:1", "mnull")
+	if !ok {
+		t.Fatal("read routd.messages mnull: the row did not travel")
 	}
-	for label, c := range map[string]sql.NullString{
-		"sender_name": name, "reply_to_id": replyTo, "source": source,
-		"topic": topic, "routed_to": routedTo, "chat_name": chatName,
+	for label, got := range map[string]string{
+		"sender_name": mnull.Name, "reply_to_id": mnull.ReplyToID, "source": mnull.Source,
+		"topic": mnull.Topic, "routed_to": mnull.RoutedTo, "chat_name": mnull.ChatName,
 	} {
-		if !c.Valid || c.String != "" {
-			t.Errorf("routd.messages.%s = %v (valid=%v), want '' not NULL", label, c.String, c.Valid)
+		if got != "" {
+			t.Errorf("routd.messages.%s = %q, want the empty string a NULL becomes", label, got)
 		}
 	}
-	if !verb.Valid || verb.String != "message" {
-		t.Errorf("routd.messages.verb = %v, want 'message'", verb.String)
+	if mnull.Verb != "message" {
+		t.Errorf("routd.messages.verb = %q, want 'message'", mnull.Verb)
 	}
-	if !status.Valid || status.String != "sent" {
-		t.Errorf("routd.messages.status = %v, want 'sent'", status.String)
+	// `sent` is the absence of a delivery item, so what says the row is sent is
+	// that neither feed holds it.
+	if dead, _ := store.New(rdb.SQL()).DeadLetterByID(context.Background(), "mnull"); dead.ID != "" {
+		t.Errorf("a sent row carries a dead-letter item: %+v", dead)
 	}
 
 	// 2. routd's OWN read path (scanMessages via MessagesBefore) must drain the
@@ -959,31 +969,51 @@ func TestMigrateSplitLandsTimestampsFixedWidth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("visibility probe: %v", err)
 	}
-	var frac string
-	if err := rdb.SQL().QueryRow(
-		`SELECT timestamp FROM messages WHERE id = 'mfrac'`).Scan(&frac); err != nil {
+	unfed, err := store.New(rdb.SQL()).NewMessagesForChat(context.Background(), "tg:1", cursor, 0)
+	if err != nil {
 		t.Fatalf("visibility probe: %v", err)
 	}
-	if !(frac > cursor) {
-		t.Errorf("the copied message %q sorts behind the copied cursor %q; the agent never "+
-			"sees it", frac, cursor)
+	seen := false
+	for _, m := range unfed {
+		if m.ID == "mfrac" {
+			seen = true
+		}
+	}
+	if !seen {
+		t.Errorf("the copied message sorts behind the copied cursor %q; the agent never "+
+			"sees it. the feed holds %+v", cursor, unfed)
 	}
 
 	// Every value, not just the pair above: the message column by SQL, and the
 	// two cursors through the entity that now holds them.
 	width := len(core.TS(time.Now()))
-	var mixed int
-	if err := rdb.SQL().QueryRow(
-		`SELECT COUNT(*) FROM messages WHERE timestamp IS NOT NULL AND timestamp != ''
-		 AND length(timestamp) != ?`, width).Scan(&mixed); err != nil {
-		t.Fatalf("width probe messages.timestamp: %v", err)
+	mixed := 0
+	rows, err := rdb.SQL().Query(`SELECT sort FROM messages`)
+	if err != nil {
+		t.Fatalf("width probe messages: %v", err)
 	}
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			t.Fatal(err)
+		}
+		// A position LEADS with a fixed-width instant and carries the id after
+		// it, so what has to hold is the lead, not the whole key.
+		if ts, _, ok := store.MsgCoord(key); !ok || len(ts) != width {
+			mixed++
+		}
+	}
+	rows.Close()
 	if mixed != 0 {
-		t.Errorf("messages.timestamp: %d copied values are not fixed width", mixed)
+		t.Errorf("messages: %d copied positions do not lead with a fixed-width instant", mixed)
 	}
 	st := store.New(rdb.SQL())
-	if got, _ := st.AgentCursor("tg:1"); len(got) != width {
-		t.Errorf("chats.agent_cursor = %q, %d bytes and not the fixed %d", got, len(got), width)
+	// The dispatch cursor is a whole message POSITION, so what has to be fixed
+	// width is the instant it leads with — the id after it is 3 to 60 bytes.
+	got, _ := st.AgentCursor("tg:1")
+	if ts, _, ok := store.MsgCoord(got); !ok || len(ts) != width {
+		t.Errorf("chats.agent_cursor = %q, which does not lead with a %d-byte instant",
+			got, width)
 	}
 	if line, ok := st.TopicLineage("main", ""); !ok || len(line.ObservedCursor) != width {
 		t.Errorf("sessions.observed_cursor = %q, want %d bytes", line.ObservedCursor, width)

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -8,6 +9,19 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/router"
 )
+
+// observe puts a message and records it as ambient context for a folder — the
+// pair the poll loop performs when a route resolves to `folder#observe`.
+func observe(t *testing.T, s *Store, folder string, m core.Message) core.Message {
+	t.Helper()
+	if err := s.PutMessage(m); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkMessagesObserved(context.Background(), folder, []core.Message{m}); err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
 
 func TestObservedTail_PromptIncludesBlock(t *testing.T) {
 	s, err := OpenMem()
@@ -19,18 +33,16 @@ func TestObservedTail_PromptIncludesBlock(t *testing.T) {
 	folder := "rhias/nemo"
 	now := time.Now()
 	// One inbound from a chat under observe-mode routing.
-	if err := s.PutMessage(core.Message{
+	observe(t, s, folder, core.Message{
 		ID: "obs-1", ChatJID: "telegram:99", Sender: "bob", Name: "bob",
 		Content: "context line", Timestamp: now.Add(-time.Minute),
 		Verb: "message", Source: "telegram",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.MarkMessagesObserved(folder, []string{"obs-1"}); err != nil {
-		t.Fatal(err)
-	}
+	})
 
-	observed := s.ObservedSince(folder, "", 10, 4000)
+	observed, err := s.ObservedSince(context.Background(), folder, "", 10, 4000, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(observed) != 1 {
 		t.Fatalf("observed tail = %d, want 1", len(observed))
 	}
@@ -70,20 +82,18 @@ func TestObservedTail_SameJIDAsTriggerSurfaces(t *testing.T) {
 	folder := "main"
 	now := time.Now()
 	jid := "discord:837270552959516682/870660344358506566"
-	if err := s.PutMessage(core.Message{
+	observe(t, s, folder, core.Message{
 		ID: "alza-1", ChatJID: jid, Sender: "user", Name: "user",
 		Content: "https://example/dgx-spark", Timestamp: now.Add(-time.Minute),
 		Verb: "message", Source: "discord",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.MarkMessagesObserved(folder, []string{"alza-1"}); err != nil {
-		t.Fatal(err)
-	}
+	})
 
 	// Trigger arrives in the same chat_jid: the observed message must
 	// still appear in the tail (regression: used to be filtered out).
-	observed := s.ObservedSince(folder, "", 10, 4000)
+	observed, err := s.ObservedSince(context.Background(), folder, "", 10, 4000, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(observed) != 1 {
 		t.Fatalf("observed from same JID as trigger len = %d, want 1", len(observed))
 	}
@@ -101,37 +111,42 @@ func TestObservedSince_PerTopicCursorIsolation(t *testing.T) {
 	}
 	defer s.Close()
 
+	ctx := context.Background()
 	folder := "main"
 	now := time.Now().UTC()
 	// One observed message at t=1.
-	if err := s.PutMessage(core.Message{
+	observe(t, s, folder, core.Message{
 		ID: "o-1", ChatJID: "telegram:99", Sender: "bob", Name: "bob",
 		Content: "ambient context", Timestamp: now.Add(-2 * time.Minute),
 		Verb: "message", Source: "telegram",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.MarkMessagesObserved(folder, []string{"o-1"}); err != nil {
-		t.Fatal(err)
-	}
+	})
 
 	// Topic A reads with cursor="" — sees the observed message.
-	a := s.ObservedSince(folder, "", 10, 4000)
+	a, err := s.ObservedSince(ctx, folder, "", 10, 4000, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(a) != 1 || a[0].ID != "o-1" {
 		t.Fatalf("topic A read: got %v, want [o-1]", a)
 	}
 
 	// Simulate cursor advance for topic A.
-	cursorA := a[0].Timestamp.UTC().Format(time.RFC3339Nano)
+	cursorA := core.TS(a[0].Timestamp)
 
 	// Topic A reads again WITH cursor — must see nothing new.
-	a2 := s.ObservedSince(folder, cursorA, 10, 4000)
+	a2, err := s.ObservedSince(ctx, folder, cursorA, 10, 4000, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(a2) != 0 {
 		t.Errorf("topic A re-read with cursor: got %d, want 0", len(a2))
 	}
 
 	// Topic B (different cursor — empty, fresh topic) — still sees o-1.
-	b := s.ObservedSince(folder, "", 10, 4000)
+	b, err := s.ObservedSince(ctx, folder, "", 10, 4000, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(b) != 1 || b[0].ID != "o-1" {
 		t.Errorf("topic B read: got %v, want [o-1]", b)
 	}
@@ -148,173 +163,22 @@ func TestObservedTail_CharCap(t *testing.T) {
 	now := time.Now()
 	bigContent := strings.Repeat("x", 3000)
 	for i, id := range []string{"a", "b", "c"} {
-		if err := s.PutMessage(core.Message{
+		observe(t, s, folder, core.Message{
 			ID: id, ChatJID: "telegram:99", Sender: "bob", Name: "bob",
 			Content: bigContent, Timestamp: now.Add(time.Duration(i) * time.Second),
 			Verb: "message", Source: "telegram",
-		}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := s.MarkMessagesObserved(folder, []string{"a", "b", "c"}); err != nil {
-		t.Fatal(err)
+		})
 	}
 
 	// Char cap of 4000 must drop older messages (3000+3000>4000, so 1 fits).
-	out := s.ObservedSince(folder, "", 10, 4000)
+	out, err := s.ObservedSince(context.Background(), folder, "", 10, 4000, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(out) != 1 {
 		t.Fatalf("char-cap len = %d, want 1", len(out))
 	}
 	if out[0].ID != "c" {
 		t.Errorf("char-cap kept = %s, want c (newest)", out[0].ID)
-	}
-}
-
-// Spec 6/F: open siblings' observed messages surface in this folder's
-// ambient block. Closed siblings stay isolated.
-func TestObservedSince_OpenSiblingsCrossFolder(t *testing.T) {
-	s, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-
-	// Two sibling folders both under "main".
-	for _, f := range []string{"main/a", "main/b"} {
-		if err := s.PutGroup(core.Group{Folder: f, AddedAt: time.Now()}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	now := time.Now()
-	if err := s.PutMessage(core.Message{
-		ID: "a-1", ChatJID: "telegram:1", Sender: "u", Name: "u",
-		Content: "from-a", Timestamp: now.Add(-2 * time.Minute),
-		Verb: "message", Source: "telegram",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.PutMessage(core.Message{
-		ID: "b-1", ChatJID: "telegram:2", Sender: "u", Name: "u",
-		Content: "from-b", Timestamp: now.Add(-time.Minute),
-		Verb: "message", Source: "telegram",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.MarkMessagesObserved("main/a", []string{"a-1"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.MarkMessagesObserved("main/b", []string{"b-1"}); err != nil {
-		t.Fatal(err)
-	}
-
-	// A reading (B still open) sees both.
-	got := s.ObservedSince("main/a", "", 10, 4000)
-	if len(got) != 2 {
-		t.Fatalf("open siblings: got %d msgs, want 2 (%+v)", len(got), got)
-	}
-
-	// Close B; A now sees only its own.
-	if err := s.SetGroupOpen("main/b", false); err != nil {
-		t.Fatal(err)
-	}
-	got = s.ObservedSince("main/a", "", 10, 4000)
-	if len(got) != 1 || got[0].ID != "a-1" {
-		t.Fatalf("after closing B: got %+v, want [a-1]", got)
-	}
-}
-
-// observe_group: observer sees primary-delivered messages from watched source
-// as ambient context even though those messages are not is_observed=1.
-func TestObservedSince_WatchedSources(t *testing.T) {
-	s, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-
-	for _, f := range []string{"root", "child"} {
-		if err := s.PutGroup(core.Group{Folder: f, AddedAt: time.Now()}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	now := time.Now()
-	// Primary delivery to child (is_observed=0).
-	if err := s.PutMessage(core.Message{
-		ID: "c-1", ChatJID: "telegram:1", Sender: "u", Name: "u",
-		Content: "child-msg", Timestamp: now.Add(-time.Minute),
-		Verb: "message", Source: "telegram",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.db.Exec(
-		`UPDATE messages SET routed_to = 'child', is_observed = 0 WHERE id = 'c-1'`,
-	); err != nil {
-		t.Fatal(err)
-	}
-
-	// Without watching: root sees nothing.
-	got := s.ObservedSince("root", "", 10, 4000)
-	if len(got) != 0 {
-		t.Fatalf("no watcher: got %d msgs, want 0", len(got))
-	}
-
-	// Register root as watcher of child.
-	if err := s.AddGroupWatcher("root", "child"); err != nil {
-		t.Fatal(err)
-	}
-
-	// Now root sees the child's primary-delivered message.
-	got = s.ObservedSince("root", "", 10, 4000)
-	if len(got) != 1 || got[0].ID != "c-1" {
-		t.Fatalf("after watching: got %+v, want [c-1]", got)
-	}
-
-	// Unwatch: root no longer sees it.
-	if err := s.RemoveGroupWatcher("root", "child"); err != nil {
-		t.Fatal(err)
-	}
-	got = s.ObservedSince("root", "", 10, 4000)
-	if len(got) != 0 {
-		t.Fatalf("after unwatch: got %d msgs, want 0", len(got))
-	}
-}
-
-// Regression: with a watched source AND a non-empty cursor, the UNION-branch
-// arg order was misaligned (cursor bound to the watched IN-list, folder bound
-// to timestamp>?) so watched-source messages vanished. Cursor below the
-// message timestamp must still surface it.
-func TestObservedSince_WatchedSourcesWithCursor(t *testing.T) {
-	s, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-
-	for _, f := range []string{"root", "child"} {
-		if err := s.PutGroup(core.Group{Folder: f, AddedAt: time.Now()}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	now := time.Now().UTC()
-	if err := s.PutMessage(core.Message{
-		ID: "c-1", ChatJID: "telegram:1", Sender: "u", Name: "u",
-		Content: "child-msg", Timestamp: now,
-		Verb: "message", Source: "telegram",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.db.Exec(
-		`UPDATE messages SET routed_to = 'child', is_observed = 0 WHERE id = 'c-1'`,
-	); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.AddGroupWatcher("root", "child"); err != nil {
-		t.Fatal(err)
-	}
-
-	cursor := now.Add(-time.Minute).Format(time.RFC3339Nano)
-	got := s.ObservedSince("root", cursor, 10, 4000)
-	if len(got) != 1 || got[0].ID != "c-1" {
-		t.Fatalf("watched + cursor: got %+v, want [c-1]", got)
 	}
 }

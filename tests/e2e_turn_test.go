@@ -326,9 +326,7 @@ func TestE2ETurn_CostAccounting(t *testing.T) {
 
 	t.Run("completed turn books cost", func(t *testing.T) {
 		s.inbound(t, "wamid.1", "say hi")
-		testutils.WaitForRow(t, s.routdDB.SQL(),
-			`SELECT COUNT(*) FROM messages WHERE chat_jid=? AND is_bot_message=1`,
-			[]any{turnChat}, turnTimeout)
+		testutils.WaitForBotRow(t, s.routdDB.SQL(), turnChat, turnTimeout)
 		testutils.AssertMessage(t, s.routdDB.SQL(), turnChat, fakeAnswer)
 
 		calls := s.llm.Calls()

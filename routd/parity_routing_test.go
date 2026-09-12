@@ -156,13 +156,13 @@ func TestRoutedToByMessageID_RoundTrip(t *testing.T) {
 	_ = db.PutMessage(core.Message{ID: "msg-2", ChatJID: "tg:123", Sender: "t",
 		Content: "m", Timestamp: time.Now().UTC(), RoutedTo: ""})
 
-	if got := db.RoutedToByMessageID("msg-1"); got != "target-group" {
+	if got := db.RoutedToByMessageID("tg:123", "msg-1"); got != "target-group" {
 		t.Errorf("RoutedToByMessageID(msg-1) = %q, want target-group", got)
 	}
-	if got := db.RoutedToByMessageID("msg-2"); got != "" {
+	if got := db.RoutedToByMessageID("tg:123", "msg-2"); got != "" {
 		t.Errorf("RoutedToByMessageID(msg-2) = %q, want empty", got)
 	}
-	if got := db.RoutedToByMessageID("non-existent"); got != "" {
+	if got := db.RoutedToByMessageID("tg:123", "non-existent"); got != "" {
 		t.Errorf("RoutedToByMessageID(non-existent) = %q, want empty", got)
 	}
 }
@@ -361,7 +361,7 @@ func TestParsePrefix(t *testing.T) {
 func TestMessageByID_IsChatScoped(t *testing.T) {
 	db, _ := targetLoop(t)
 	_ = db.PutMessage(core.Message{ID: "a1", ChatJID: "discord:guild/aaa", PlatformID: "999",
-		Sender: "alice", Content: "secret from another folder", Topic: "t-a"})
+		Sender: "alice", Content: "secret from another folder", Topic: "t-a", Timestamp: time.Now()})
 	if _, ok := db.MessageByID("discord:guild/bbb", "999"); ok {
 		t.Error("a platform id resolved across chats")
 	}

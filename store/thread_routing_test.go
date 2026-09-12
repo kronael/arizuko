@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -51,21 +52,27 @@ func TestMessageQueries_WithRoutedTo(t *testing.T) {
 		}
 	}
 
-	retrieved, err := s.MessagesSince("tg:123", time.Now().Add(-3*time.Minute), "bot")
+	retrieved, err := s.MessagesSince("tg:123", time.Now().Add(-3*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if len(retrieved) != 2 {
-		t.Fatalf("got %d messages, want 2", len(retrieved))
+	// The chat's whole window comes back, the agent's own row included: the
+	// read is the chat and the time, and nothing else.
+	if len(retrieved) != 3 {
+		t.Fatalf("got %d messages, want 3", len(retrieved))
 	}
 
 	if retrieved[0].RoutedTo != "group-a" {
 		t.Errorf("msg[0].RoutedTo = %q, want %q", retrieved[0].RoutedTo, "group-a")
 	}
 
-	if retrieved[1].RoutedTo != "" {
-		t.Errorf("msg[1].RoutedTo = %q, want empty", retrieved[1].RoutedTo)
+	if retrieved[1].RoutedTo != "group-b" || !retrieved[1].BotMsg {
+		t.Errorf("msg[1] = %+v, want the bot row routed to group-b", retrieved[1])
+	}
+
+	if retrieved[2].RoutedTo != "" {
+		t.Errorf("msg[2].RoutedTo = %q, want empty", retrieved[2].RoutedTo)
 	}
 }
 
@@ -112,7 +119,7 @@ func TestMessageQueries_WithTopic(t *testing.T) {
 		}
 	}
 
-	retrieved, err := s.MessagesSince("tg:123", time.Now().Add(-3*time.Minute), "bot")
+	retrieved, err := s.MessagesSince("tg:123", time.Now().Add(-3*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +227,7 @@ func TestRoutedToByMessageID_Found(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	routedTo := s.RoutedToByMessageID("msg-1")
+	routedTo := s.RoutedToByMessageID("tg:123", "msg-1")
 	if routedTo != "target-folder" {
 		t.Errorf("RoutedToByMessageID = %q, want %q", routedTo, "target-folder")
 	}
@@ -246,7 +253,7 @@ func TestRoutedToByMessageID_Empty(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	routedTo := s.RoutedToByMessageID("msg-1")
+	routedTo := s.RoutedToByMessageID("tg:123", "msg-1")
 	if routedTo != "" {
 		t.Errorf("RoutedToByMessageID = %q, want empty", routedTo)
 	}
@@ -259,13 +266,25 @@ func TestRoutedToByMessageID_NotFound(t *testing.T) {
 	}
 	defer s.Close()
 
-	routedTo := s.RoutedToByMessageID("non-existent")
+	routedTo := s.RoutedToByMessageID("tg:123", "non-existent")
 	if routedTo != "" {
 		t.Errorf("RoutedToByMessageID = %q, want empty for non-existent", routedTo)
 	}
+	// The chat bounds the lookup: a message in another chat is another
+	// partition and resolving one there is the cross-folder read the bound
+	// exists to make impossible.
+	if err := s.PutMessage(core.Message{
+		ID: "elsewhere", ChatJID: "tg:456", Sender: "user1", Content: "test",
+		Timestamp: time.Now(), RoutedTo: "other-folder",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.RoutedToByMessageID("tg:123", "elsewhere"); got != "" {
+		t.Errorf("RoutedToByMessageID(tg:123, elsewhere) = %q, want empty", got)
+	}
 }
 
-func TestNewMessages_PreservesRoutedToAndTopic(t *testing.T) {
+func TestNewMessagesForChat_PreservesRoutedToAndTopic(t *testing.T) {
 	s, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
@@ -299,10 +318,20 @@ func TestNewMessages_PreservesRoutedToAndTopic(t *testing.T) {
 		}
 	}
 
-	jids := []string{"tg:123", "tg:456"}
-	retrieved, _, err := s.NewMessages(jids, time.Now().Add(-3*time.Minute), "bot")
+	// The feed is per chat now, so the poll loop walks the partition list and
+	// reads each chat from its own watermark.
+	ctx := context.Background()
+	jids, err := s.ChatJIDs(ctx)
 	if err != nil {
 		t.Fatal(err)
+	}
+	var retrieved []core.Message
+	for _, jid := range jids {
+		got, err := s.NewMessagesForChat(ctx, jid, "", 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		retrieved = append(retrieved, got...)
 	}
 
 	if len(retrieved) != 2 {

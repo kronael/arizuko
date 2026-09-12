@@ -29,7 +29,7 @@ func TestFeature_Auth(t *testing.T) {
 		if rec := postBearer(t, f.routdTS.URL, "POST", "/v1/messages", weak, "", in); rec.StatusCode != 403 {
 			t.Fatalf("wrong-scope token = %d, want 403", rec.StatusCode)
 		}
-		if messageExists(f.routdDB, "auth.bad.1") {
+		if messageExists(f.routdDB, "slack:T/C/U", "auth.bad.1") {
 			t.Fatal("rejected ingest must not store the row")
 		}
 	})

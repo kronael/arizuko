@@ -255,11 +255,14 @@ func TestObserveMarksMessages(t *testing.T) {
 	if had || len(rr.runs) != 0 {
 		t.Fatalf("observe-mode fired a turn (had=%v runs=%d)", had, len(rr.runs))
 	}
-	var obs int
-	var routed string
-	db.SQL().QueryRow("SELECT is_observed, routed_to FROM messages WHERE id='a'").Scan(&obs, &routed)
-	if obs != 1 || routed != "demo" {
-		t.Fatalf("observe row not marked: is_observed=%d routed_to=%q", obs, routed)
+	if routed := msgByID(t, db, "slack:T/C/X", "a").RoutedTo; routed != "demo" {
+		t.Fatalf("observe row not routed: routed_to=%q", routed)
+	}
+	// The ambient window is the observed flag's only reader, so a row that is
+	// not in it was never marked.
+	if window := db.ObservedSince("demo", "", 10, 100000); len(window) != 1 ||
+		window[0].ID != "a" {
+		t.Fatalf("observe row not marked: ambient window = %+v", window)
 	}
 	if db.GetAgentCursor("slack:T/C/X") == "" {
 		t.Fatal("observe ingest did not advance cursor")
@@ -342,10 +345,8 @@ func TestThreadParticipationPromotion(t *testing.T) {
 	_ = db.PutMessage(core.Message{ID: "dm-human", ChatJID: "slack:T/C1/U", Sender: "u1",
 		Content: "ping", Timestamp: now})
 
-	storedVerb := func(id string) string {
-		var v string
-		db.db.QueryRow("SELECT verb FROM messages WHERE id=?", id).Scan(&v)
-		return v
+	storedVerb := func(chat, id string) string {
+		return msgByID(t, db, chat, id).Verb
 	}
 
 	cases := []struct {
@@ -361,7 +362,7 @@ func TestThreadParticipationPromotion(t *testing.T) {
 		if rec := doJSON(t, h, "POST", "/v1/messages", "", in); rec.Code != 200 {
 			t.Fatalf("%s: ingest=%d", c.name, rec.Code)
 		}
-		if v := storedVerb(c.id); v != c.want {
+		if v := storedVerb(c.chat, c.id); v != c.want {
 			t.Errorf("%s: verb=%q want %q", c.name, v, c.want)
 		}
 	}
@@ -442,7 +443,10 @@ func TestSlashNewReinjectsFollowup(t *testing.T) {
 		t.Fatal("/new did not clear session")
 	}
 	// the synthetic followup landed as a fresh inbound.
-	msgs, _ := db.MessagesSince("web:demo", db.GetAgentCursor("web:demo"))
+	msgs, err := db.NewMessagesForChat("web:demo", db.GetAgentCursor("web:demo"), 100)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(msgs) != 1 || msgs[0].Content != "look into X" {
 		t.Fatalf("followup not reinjected: %+v", msgs)
 	}

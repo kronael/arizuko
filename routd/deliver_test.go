@@ -351,15 +351,12 @@ func TestOutboundAppendsMessagesRow(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("outbound status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	var content, status, pid string
-	err = db.SQL().QueryRow(
-		"SELECT content, status, COALESCE(platform_id,'') FROM messages WHERE chat_jid=? AND is_bot_message=1 AND is_from_me=1",
-		"telegram:user/9").Scan(&content, &status, &pid)
-	if err != nil {
-		t.Fatalf("delivered outbound left no messages row: %v", err)
+	sent := outboundRowOf(t, db, "telegram:user/9")
+	if sent.Content != "welcome aboard" || sent.PlatformID != "pid-out-1" {
+		t.Fatalf("row = (%q, %q), want (welcome aboard, pid-out-1)", sent.Content, sent.PlatformID)
 	}
-	if content != "welcome aboard" || status != core.MessageStatusSent || pid != "pid-out-1" {
-		t.Fatalf("row = (%q, %q, %q), want (welcome aboard, sent, pid-out-1)", content, status, pid)
+	if st := statusOf(t, db, sent.ID); st != core.MessageStatusSent {
+		t.Fatalf("status = %q, want sent", st)
 	}
 
 	// No adapter owns slack: → the send is refused, the row is dead-lettered
@@ -369,14 +366,32 @@ func TestOutboundAppendsMessagesRow(t *testing.T) {
 	if rec.Code != 502 {
 		t.Fatalf("refused outbound status=%d, want 502", rec.Code)
 	}
-	if err := db.SQL().QueryRow(
-		"SELECT status FROM messages WHERE chat_jid=? AND is_bot_message=1", "slack:T/C/U").Scan(&status); err != nil {
-		t.Fatalf("refused outbound left no dead-letter row: %v", err)
-	}
+	refused := outboundRowOf(t, db, "slack:T/C/U")
+	status := statusOf(t, db, refused.ID)
 	if status != core.MessageStatusFailed {
 		t.Fatalf("refused outbound row status=%q, want failed", status)
 	}
 	if rows, _ := db.PendingOutbound(time.Now().Add(time.Hour), 10); len(rows) != 0 {
 		t.Fatalf("dead-lettered outbound row is in the retry feed: %+v", rows)
 	}
+}
+
+// outboundRowOf reads the one bot row a chat holds — the outbound the handler
+// appended.
+func outboundRowOf(t *testing.T, db *DB, jid string) core.Message {
+	t.Helper()
+	msgs, err := db.MessagesSince(jid, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []core.Message
+	for _, m := range msgs {
+		if m.BotMsg && m.FromMe {
+			out = append(out, m)
+		}
+	}
+	if len(out) != 1 {
+		t.Fatalf("%s holds %d outbound rows, want 1", jid, len(out))
+	}
+	return out[0]
 }

@@ -32,18 +32,17 @@ func TestUsagePageNumbersViaRealRoutd(t *testing.T) {
 		}
 	}
 	now := time.Now().UTC()
-	recent := core.TS(now)
 	// Two human rows and one bot row on alpha: the per-group count is all rows
 	// routed there, the volume table counts humans only.
-	for _, m := range []struct {
+	for i, m := range []struct {
 		id  string
-		bot int
-	}{{"m1", 0}, {"m2", 0}, {"m3", 1}} {
-		if _, err := db.SQL().Exec(
-			`INSERT INTO messages (id, chat_jid, sender, content, is_bot_message, timestamp, routed_to)
-			 VALUES (?, 'web:alpha', 'u1', 'hi', ?, ?, 'alpha')`, m.id, m.bot, recent); err != nil {
-			t.Fatal(err)
-		}
+		bot bool
+	}{{"m1", false}, {"m2", false}, {"m3", true}} {
+		seedRoutdMessage(t, db.SQL(), core.Message{
+			ID: m.id, ChatJID: "web:alpha", Sender: "u1", Content: "hi",
+			BotMsg: m.bot, Timestamp: now.Add(time.Duration(i) * time.Second),
+			RoutedTo: "alpha",
+		})
 	}
 
 	// No verifier: routd answers dashd's calls as it would a service bearer

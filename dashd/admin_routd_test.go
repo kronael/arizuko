@@ -15,6 +15,7 @@ import (
 	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/tests/testutils"
 	_ "modernc.org/sqlite"
+	"time"
 )
 
 // splitAdminDash wires a dash on routd.db, the ONLY store dashd opens. The admin
@@ -403,11 +404,10 @@ func TestRouteTokenRevoke_TargetsRoutdDB(t *testing.T) {
 // routd.db (where routd is the sole live appender), not the stale messages.db twin.
 func TestActivity_ReadsRoutdDB(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
-	if _, err := routd.Exec(
-		`INSERT INTO messages (id, chat_jid, sender, content, timestamp, source, verb)
-		 VALUES ('m-live', 'web:team', 'u', 'live body', '2026-06-14T00:00:00Z', 'web', 'message')`); err != nil {
-		t.Fatal(err)
-	}
+	seedRoutdMessage(t, routd, core.Message{
+		ID: "m-live", ChatJID: "web:team", Sender: "u", Content: "live body",
+		Timestamp: time.Date(2026, 6, 14, 0, 0, 0, 0, time.UTC), Source: "web", Verb: "message",
+	})
 	mux := newMux(d)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, adminReq("GET", "/dash/activity/x/recent", "", "alice@x"))
@@ -424,9 +424,7 @@ func TestActivity_ReadsRoutdDB(t *testing.T) {
 // routd.db's messages.errored flags, not the frozen messages.db twin.
 func TestErroredCount_ReadsRoutdDB(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
-	if _, err := routd.Exec(
-		`INSERT INTO messages (id, chat_jid, sender, content, timestamp, errored)
-		 VALUES ('e-live', 'web:liveerr', 'u', 'x', '2026-06-14T00:00:00Z', 1)`); err != nil {
+	if err := store.New(routd).MarkChatErrored("web:liveerr"); err != nil {
 		t.Fatal(err)
 	}
 	if n := d.countVisibleErroredChats(nil, true); n != 1 {

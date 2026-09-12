@@ -140,6 +140,9 @@ func (s *Store) AgentCursor(jid string) (string, error) {
 // this attribute on that path. The guarded twin below is the restore path, where
 // two cursors genuinely race.
 func (s *Store) SetAgentCursor(jid, cursor string) error {
+	if err := requireMessageCursor(cursor); err != nil {
+		return fmt.Errorf("set the agent cursor of %s: %w", jid, err)
+	}
 	key, err := chatKey(jid)
 	if err != nil {
 		return err

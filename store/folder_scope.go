@@ -29,6 +29,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"slices"
 	"strings"
 
 	"github.com/kronael/arizuko/groupfolder"
@@ -136,6 +137,11 @@ var entityScopePurge = []entityScope{
 		return folder, err == nil
 	}},
 	{entity: ChatReplyState, seps: []string{"/"}, folderOf: attrScope(AttrReplyEngagedFolder)},
+	// The folder's message count. The FEED it counts is partitioned by the
+	// folder itself and so cannot be reached by a scan of one partition; it goes
+	// through folderPartitionPurge below.
+	{entity: MessageFolderCounts, seps: []string{"/"},
+		folderOf: func(it objstore.Item) (string, bool) { return it.Key.Sort, true }},
 	{entity: SystemMessages, seps: []string{"/"}, folderOf: func(it objstore.Item) (string, bool) {
 		return SysMsgFolder(it.Key.Sort)
 	}},
@@ -194,6 +200,11 @@ var folderScopeKeep = map[string]keepReason{
 	// folder's billing record any more than it erases its audit trail.
 	"cost_log_archive": keep("history; the ledger arizuko kept before the gateway"),
 	"messages":         keep("the transcript of a chat that outlives the folder"),
+	// The activity feed and the delivery state are projections of `messages`
+	// with no folder coordinate at all — one constant partition and the delivery
+	// status — so they follow the rows they point at.
+	"message_activity": keep("one partition over every chat; it follows messages"),
+	"message_delivery": keep("keyed by delivery status; it follows messages"),
 
 	// The FTS index over messages and the four shadow tables sqlite hangs off
 	// it. Its triggers follow messages, which this delete does not touch.
@@ -203,6 +214,12 @@ var folderScopeKeep = map[string]keepReason{
 	"messages_fts_docsize": keep("fts5 shadow table"),
 	"messages_fts_config":  keep("fts5 shadow table"),
 
+	// The folder feed and its counter are PARTITIONED BY THE FOLDER, which is
+	// the one thing a re-created folder inherits by name. Keeping them would hand
+	// the next tenant the last one's ambient window — `ObservedSince` reads that
+	// partition — so they go the way `sessions` goes, and for the same reason.
+	// The messages themselves stay: the index is what names the folder, not the
+	// transcript.
 	// Turn state, keyed by a turn id the next tenant never mints.
 	"turn_context": keep("keyed by turn_id; a re-created folder mints new ones"),
 	"turn_results": keep("keyed by turn_id; a re-created folder mints new ones"),
@@ -259,8 +276,20 @@ func FolderScopeClassified(table string) bool {
 			return true
 		}
 	}
-	return false
+	return slices.Contains(folderPartitionPurge, table)
 }
+
+// folderPartitionPurge names the entities a folder OWNS A WHOLE PARTITION of,
+// which is a different shape from every scope above: those read one partition
+// and pick the items whose folder is inside the subtree, and these have one
+// partition PER folder.
+//
+// `message_folders` is the ambient window `ObservedSince` reads, keyed by the
+// folder it was routed to. Leaving it would hand the next tenant of a re-used
+// path the last one's observed messages — the same inheritance `sessions` and
+// `chat_reply_state` are purged for, through a coordinate a partition scan
+// cannot see. The messages themselves stay: what names the folder is the index.
+var folderPartitionPurge = []string{MessageFolders}
 
 // errNoSuchGroup rolls the purge back when the subtree holds no groups row.
 // DeleteGroup swallows it: nothing was there, so nothing happened and nothing is
@@ -317,5 +346,61 @@ func (s *Store) purgeFolder(ctx context.Context, tx *sql.Tx, folder string) (int
 			return 0, err
 		}
 	}
+	if err := s.purgeFolderPartitions(ctx, tx, folder); err != nil {
+		return 0, err
+	}
 	return removed, nil
+}
+
+// purgeFolderPartitions empties the partitions the deleted subtree OWNS.
+//
+// The folders are read off `groups` rather than enumerated, because enumerating
+// partitions is not an operation the interface has — and `groups` is the
+// declaration of which folders exist, so it is the right list anyway. The read
+// runs BEFORE the purge above deletes those rows, which is why this takes the
+// subtree's folders as its own read rather than the caller's leftovers.
+func (s *Store) purgeFolderPartitions(ctx context.Context, tx *sql.Tx, folder string) error {
+	for _, entity := range folderPartitionPurge {
+		for _, owned := range append([]string{folder}, s.subtreeFolders(ctx, tx, folder)...) {
+			items, err := s.reads(tx).Query(ctx, objstore.Query{
+				Entity: entity, Partition: owned, Project: []string{},
+			})
+			if err != nil {
+				return err
+			}
+			writes := make([]objstore.Write, 0, len(items))
+			for _, it := range items {
+				writes = append(writes, objstore.Write{
+					Op: objstore.Delete, Entity: entity, Key: it.Key,
+				})
+			}
+			if _, err := applyChunks(ctx, "purge "+entity+" of "+owned, writes,
+				func(ctx context.Context, chunk []objstore.Write) (bool, error) {
+					return s.TryWriteEntitiesInTx(ctx, tx, nil, chunk...)
+				}); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// subtreeFolders answers the folders under one path, read off `groups`. A read
+// that fails answers none rather than an error, because the purge above has
+// already taken the rows this would have named and a second failure here would
+// roll back a delete that succeeded.
+func (s *Store) subtreeFolders(ctx context.Context, tx *sql.Tx, folder string) []string {
+	items, err := s.reads(tx).Query(ctx, objstore.Query{
+		Entity: Groups, Partition: OwnerRoutd, Project: []string{},
+	})
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, it := range items {
+		if it.Key.Sort != folder && groupfolder.ContainsSep(folder, it.Key.Sort, "/") {
+			out = append(out, it.Key.Sort)
+		}
+	}
+	return out
 }

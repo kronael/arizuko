@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -82,9 +83,9 @@ func TestE2ESlinkWebsocketEcho(t *testing.T) {
 	}
 
 	// Inbound message landed in the DB.
-	testutils.WaitForRow(t, ii.DB,
-		`SELECT COUNT(*) FROM messages WHERE chat_jid = ? AND content = ?`,
-		[]any{"web:echo", "hello"}, time.Second)
+	testutils.WaitFor(t, `the inbound "hello" in web:echo`, time.Second, func() bool {
+		return inboundID(t, ii.DB, "web:echo", "hello") != ""
+	})
 
 	// Router received the inbound.
 	if got := ii.mr.sent(); len(got) != 1 || got[0].Content != "hello" {
@@ -94,11 +95,9 @@ func TestE2ESlinkWebsocketEcho(t *testing.T) {
 	// Simulate gated sending an assistant message back via webd's /send
 	// callback. reply_to pins the assistant onto the inbound's topic so the
 	// SSE subscriber on that topic receives it.
-	var inboundID string
-	if err := ii.DB.QueryRow(
-		`SELECT id FROM messages WHERE chat_jid = ? AND content = ?`,
-		"web:echo", "hello").Scan(&inboundID); err != nil {
-		t.Fatalf("find inbound id: %v", err)
+	inboundID := inboundID(t, ii.DB, "web:echo", "hello")
+	if inboundID == "" {
+		t.Fatal("find inbound id: the row webd appended is not readable")
 	}
 	go func() {
 		time.Sleep(80 * time.Millisecond)
@@ -220,4 +219,21 @@ func TestE2ESlinkMCPBridge(t *testing.T) {
 	if _, ok := payload["id"].(string); !ok {
 		t.Errorf("tool result missing id: %v", payload)
 	}
+}
+
+// inboundID answers the id of a chat's message carrying content, or "" when the
+// chat holds none. `messages` is an objstore entity, so the lookup is a read of
+// the chat's partition rather than a query naming columns.
+func inboundID(t *testing.T, db *sql.DB, chatJID, content string) string {
+	t.Helper()
+	msgs, err := store.New(db).MessagesSince(chatJID, time.Time{})
+	if err != nil {
+		return ""
+	}
+	for _, m := range msgs {
+		if m.Content == content {
+			return m.ID
+		}
+	}
+	return ""
 }

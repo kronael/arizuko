@@ -96,6 +96,22 @@ func MsgCoord(sortKey string) (ts, id string, ok bool) {
 	return strings.Cut(sortKey, KeySep)
 }
 
+// requireMessageCursor refuses a cursor that is not a whole message position.
+//
+// objstore's ordered LEAD accepts a value of exactly the instant's width on
+// purpose — a query BOUND is one, and `MessagesBefore` compares against a bare
+// instant — so the entity is what has to refuse one as a stored CURSOR. A bare
+// instant sorts BELOW every message at that instant, so `> cursor` hands the
+// whole second back on every poll, for ever.
+func requireMessageCursor(cursor string) error {
+	if len(cursor) <= tsWidth || cursor[tsWidth] != KeySep[0] {
+		return fmt.Errorf("%q is not a message position: a cursor carries the instant, the "+
+			"separator and the id, and a bare instant sorts below every message at it, so the "+
+			"poll loop would feed that instant again on every tick", cursor)
+	}
+	return nil
+}
+
 // MessageCursor is the position a consumer records after it has taken a message:
 // the message's own key. A cursor that held only the instant would sort below
 // every message at that instant and hand the whole second back on the next read.
@@ -269,7 +285,13 @@ func (s *Store) PutMessageInTx(ctx context.Context, tx *sql.Tx, m core.Message) 
 // delivery item exists at all (message_delivery.go).
 func (s *Store) putMessage(ctx context.Context, tx *sql.Tx, m core.Message, status string) error {
 	if m.Timestamp.IsZero() {
-		m.Timestamp = time.Now()
+		// A stamped-here instant would be the caller's SILENTLY: the coordinate
+		// is built from the message, so the caller would walk away holding a
+		// message whose position does not exist, and every later address of it —
+		// the enrich, the errored flag, the delivery stamp — would miss without
+		// saying so. The writer stamps the instant; this refuses to invent one.
+		return fmt.Errorf("message %s in %s carries no instant, and the instant is half its "+
+			"position", m.ID, m.ChatJID)
 	}
 	// ONE READ DOES TWO JOBS. An untopiced message inherits the chat's sticky
 	// pin, and a chat nobody has seen has to be OPENED — `chats` is the partition
@@ -1038,6 +1060,27 @@ func (s *Store) FireProactive(ctx context.Context, jid, id string) error {
 		return fmt.Errorf("commit the proactive turn on %s: %w", jid, err)
 	}
 	return nil
+}
+
+// CountMessages answers how many messages every chat holds. `arizuko
+// migrate-hot` reads it back to check that every row travelled, which is the one
+// caller that wants a number over the whole history.
+func (s *Store) CountMessages(ctx context.Context) (int, error) {
+	jids, err := s.ChatJIDs(ctx)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, jid := range jids {
+		items, err := s.Obj().Query(ctx, objstore.Query{
+			Entity: Messages, Partition: jid, Project: []string{},
+		})
+		if err != nil {
+			return 0, fmt.Errorf("count %s's messages: %w", jid, err)
+		}
+		n += len(items)
+	}
+	return n, nil
 }
 
 // ChatActivity answers how many inbound rows a chat holds and when its newest

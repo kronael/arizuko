@@ -2,6 +2,7 @@ package routd
 
 import (
 	"testing"
+	"time"
 
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
@@ -156,8 +157,11 @@ func TestReplyStartsThreadSetsTopic(t *testing.T) {
 
 	srv.appendAndDeliver("t1", jid, "answer")
 	// The bot message row must have Topic = threadRoot.
-	var topic string
-	db.SQL().QueryRow("SELECT COALESCE(topic,'') FROM messages WHERE turn_id='t1' AND is_bot_message=1").Scan(&topic)
+	frames, err := db.store().TurnFrames(jid, "t1", "", 10)
+	if err != nil || len(frames) == 0 {
+		t.Fatalf("the bot row did not land: %d frames, %v", len(frames), err)
+	}
+	topic := frames[0].Topic
 	if topic != "root-1" {
 		t.Errorf("bot message topic = %q, want root-1", topic)
 	}
@@ -185,8 +189,7 @@ func TestThreadHasBotMessage_MatchesByTurnID(t *testing.T) {
 		ID:      "mcp-abc123",
 		ChatJID: jid,
 		TurnID:  threadTS,
-		BotMsg:  true,
-	}); err != nil {
+		BotMsg:  true, Timestamp: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	if !db.ThreadHasBotMessage(jid, threadTS) {
@@ -262,8 +265,7 @@ func TestThreadPromotionWithoutReplyTo(t *testing.T) {
 		ID:      "bot-reply-1",
 		ChatJID: jid,
 		Topic:   threadID,
-		BotMsg:  true,
-	}); err != nil {
+		BotMsg:  true, Timestamp: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -283,8 +285,8 @@ func TestThreadPromotionWithoutReplyTo(t *testing.T) {
 	}
 
 	// The stored message must have verb=mention (promoted by threadHasBotMessage).
-	var verb string
-	db.db.QueryRow("SELECT verb FROM messages WHERE id='user-msg-1'").Scan(&verb)
+	seen, _ := db.MessageByID(jid, "user-msg-1")
+	verb := seen.Verb
 	if verb != "mention" {
 		t.Errorf("verb = %q, want mention (thread promotion without replyTo)", verb)
 	}

@@ -57,7 +57,7 @@ func revokeTokens(t *testing.T, d *routd.DB, jid, owner string) int {
 
 // messageExists asks store.MessageByID, the live reader. routd.DB's
 // MessageExists twin had no production caller and is gone (BUGS L14).
-func messageExists(d *routd.DB, id string) bool {
-	_, ok := liveStore(d).MessageByID(id)
+func messageExists(d *routd.DB, chatJID, id string) bool {
+	_, ok := liveStore(d).MessageByID(chatJID, id)
 	return ok
 }

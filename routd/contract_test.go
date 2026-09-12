@@ -81,7 +81,7 @@ func TestContractRoundTrip(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("ingest status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !messageExists(db, "m1") {
+	if !messageExists(db, "slack:T/C/U", "m1") {
 		t.Fatal("inbound row not stored")
 	}
 
@@ -280,11 +280,9 @@ func TestTurnReplyAppendsAndDelivers(t *testing.T) {
 	if countBots(t, db, "slack:T/C/U") != 1 {
 		t.Fatal("want exactly one bot row")
 	}
-	var status, pid string
-	db.SQL().QueryRow("SELECT status, COALESCE(platform_id,'') FROM messages WHERE turn_id='t1' AND is_bot_message=1").
-		Scan(&status, &pid)
-	if status != core.MessageStatusSent || pid != "1716.0042" {
-		t.Fatalf("bot row = (%q, %q), want (sent, 1716.0042)", status, pid)
+	row := turnBotRow(t, db, "slack:T/C/U", "t1")
+	if st := statusOf(t, db, row.ID); st != core.MessageStatusSent || row.PlatformID != "1716.0042" {
+		t.Fatalf("bot row = (%q, %q), want (sent, 1716.0042)", st, row.PlatformID)
 	}
 }
 
@@ -400,19 +398,19 @@ func TestDeliverRow_SkipsBareFolderJid(t *testing.T) {
 	dl := &fakeDeliverer{platformID: "pid-1"}
 	srv := &Server{deliver: dl}
 
-	row := &core.Message{ID: "out-1", Status: core.MessageStatusPending}
-	srv.deliverRow(TurnContext{Folder: "atlas"}, "atlas", row, "", "")
-	if row.Status != core.MessageStatusFailed {
-		t.Fatalf("bare-folder jid: want Status=failed (dead-lettered, not delivered), got %q", row.Status)
+	row := &core.Message{ID: "out-1"}
+	status := srv.deliverRow(TurnContext{Folder: "atlas"}, "atlas", row, "", "")
+	if status != core.MessageStatusFailed {
+		t.Fatalf("bare-folder jid: want failed (dead-lettered, not delivered), got %q", status)
 	}
 	if dl.sends != 0 {
 		t.Fatalf("bare-folder jid must NOT call Send, got %d", dl.sends)
 	}
 
-	row2 := &core.Message{ID: "out-2", Status: core.MessageStatusPending}
-	srv.deliverRow(TurnContext{Folder: "atlas"}, "slack:T/C/1", row2, "", "")
-	if dl.sends != 1 || row2.Status != core.MessageStatusSent {
-		t.Fatalf("channel jid: want 1 Send + sent, got sends=%d status=%q", dl.sends, row2.Status)
+	row2 := &core.Message{ID: "out-2"}
+	status2 := srv.deliverRow(TurnContext{Folder: "atlas"}, "slack:T/C/1", row2, "", "")
+	if dl.sends != 1 || status2 != core.MessageStatusSent {
+		t.Fatalf("channel jid: want 1 Send + sent, got sends=%d status=%q", dl.sends, status2)
 	}
 }
 func (d *fakeDeliverer) Post(_, _ string, _ []string) (string, error)       { return d.platformID, nil }
@@ -427,10 +425,20 @@ func (d *fakeDeliverer) FetchHistory(_ string, _ time.Time, _ int) ([]byte, erro
 	return nil, fmt.Errorf("no history")
 }
 
+// countBots counts one chat's bot rows — the agent's own output, read back
+// through the chat partition that holds it.
 func countBots(t *testing.T, db *DB, jid string) int {
 	t.Helper()
-	var n int
-	db.SQL().QueryRow("SELECT COUNT(*) FROM messages WHERE chat_jid=? AND is_bot_message=1", jid).Scan(&n)
+	msgs, err := db.MessagesSince(jid, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, m := range msgs {
+		if m.BotMsg {
+			n++
+		}
+	}
 	return n
 }
 

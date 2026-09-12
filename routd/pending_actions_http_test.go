@@ -19,23 +19,16 @@ func seedHeld(t *testing.T, db *DB, id, folder, chatJID string) {
 	}
 }
 
-// chatMessages returns (count, concatenated content) of non-bot rows in a chat.
-func chatMessages(t *testing.T, db *DB, jid string) (int, string) {
+// triggerText returns (count, concatenated content) of non-bot rows in a chat.
+func triggerText(t *testing.T, db *DB, jid string) (int, string) {
 	t.Helper()
-	rows, err := db.SQL().Query(
-		`SELECT content FROM messages WHERE chat_jid=? AND is_bot_message=0`, jid)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
 	var n int
 	var all strings.Builder
-	for rows.Next() {
-		var c string
-		if err := rows.Scan(&c); err != nil {
-			t.Fatal(err)
+	for _, m := range chatMessages(t, db, jid) {
+		if m.BotMsg {
+			continue
 		}
-		all.WriteString(c)
+		all.WriteString(m.Content)
 		n++
 	}
 	return n, all.String()
@@ -86,7 +79,7 @@ func TestPendingActionsApprove(t *testing.T) {
 	if row.ReviewedBy != "google:op@x" || row.ReviewerNote != "fine" {
 		t.Fatalf("reviewer not recorded: %+v", row)
 	}
-	n, content := chatMessages(t, db, "tg:9")
+	n, content := triggerText(t, db, "tg:9")
 	if n != 1 {
 		t.Fatalf("resolution messages in held chat = %d, want 1", n)
 	}
@@ -107,7 +100,7 @@ func TestPendingActionsApproveChatlessFallsBackToFolder(t *testing.T) {
 		map[string]string{"reviewer": "op"}); rec.Code != 200 {
 		t.Fatalf("approve = %d body=%s", rec.Code, rec.Body.String())
 	}
-	if n, _ := chatMessages(t, db, "demo"); n != 1 {
+	if n, _ := triggerText(t, db, "demo"); n != 1 {
 		t.Fatalf("trigger on folder JID = %d messages, want 1", n)
 	}
 }
@@ -127,7 +120,7 @@ func TestPendingActionsRejectWritesNoTrigger(t *testing.T) {
 	if row.Status != PendingRejected {
 		t.Fatalf("status = %q, want rejected", row.Status)
 	}
-	if n, _ := chatMessages(t, db, "tg:9"); n != 0 {
+	if n, _ := triggerText(t, db, "tg:9"); n != 0 {
 		t.Fatal("reject wrote a resolution message")
 	}
 }
@@ -150,7 +143,7 @@ func TestPendingActionsVerdictErrors(t *testing.T) {
 		map[string]string{"reviewer": "op"}); rec.Code != 409 {
 		t.Fatalf("second verdict = %d, want 409", rec.Code)
 	}
-	if n, _ := chatMessages(t, db, "tg:9"); n != 1 {
+	if n, _ := triggerText(t, db, "tg:9"); n != 1 {
 		t.Fatal("second verdict wrote a second trigger")
 	}
 }

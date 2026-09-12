@@ -127,18 +127,16 @@ func TestGroupListUsage(t *testing.T) {
 	srv, inst, _ := newDashServer(t)
 
 	folder := "eng"
-	now := time.Now().Format(time.RFC3339)
+	now := time.Now().UTC()
 	seedFolder(t, inst.DB, folder)
 	// What the gateway metered today: 700 tokens, 15 cents.
 	stubMeter(t, true, stubSpendRow{Folder: folder, Tokens: 700, CostCents: 15})
 	// Insert 3 messages routed to this folder.
 	for i := range 3 {
-		if _, err := inst.DB.Exec(
-			`INSERT INTO messages (id, chat_jid, sender, content, timestamp, routed_to)
-			 VALUES (?, 'jid', '', '', ?, ?)`,
-			fmt.Sprintf("m%d", i), now, folder); err != nil {
-			t.Fatal(err)
-		}
+		seedRoutdMessage(t, inst.DB, core.Message{
+			ID: fmt.Sprintf("m%d", i), ChatJID: "jid",
+			Timestamp: now.Add(time.Duration(i) * time.Second), RoutedTo: folder,
+		})
 	}
 
 	resp, err := opGet(t, srv.URL+"/dash/groups/")

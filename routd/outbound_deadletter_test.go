@@ -15,11 +15,30 @@ import (
 	"github.com/kronael/arizuko/groupfolder"
 )
 
-// attemptsOf reads a row's delivery_attempts counter.
-func attemptsOf(db *DB, id string) int {
-	var n int
-	db.SQL().QueryRow("SELECT delivery_attempts FROM messages WHERE id=?", id).Scan(&n)
-	return n
+// attemptsOf reads a row's attempt count off its DELIVERY item: the pending
+// feed while the row is still retriable, the dead-letter set once it is not. A
+// row that owes no delivery has spent nothing.
+func attemptsOf(t *testing.T, db *DB, id string) int {
+	t.Helper()
+	pending, err := db.PendingOutbound(time.Now().Add(48*time.Hour), 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range pending {
+		if m.ID == id {
+			return m.Attempts
+		}
+	}
+	dead, err := db.DeadLetters("", 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range dead {
+		if m.ID == id {
+			return m.Attempts
+		}
+	}
+	return 0
 }
 
 // sweepNow runs one due sweep at now.
@@ -43,19 +62,19 @@ func TestOutboundPermanentFailureDeadLettersOnFirstAttempt(t *testing.T) {
 	loop := NewLoop(db, runnerFn(nil), LoopConfig{Deliver: dl, MaxOutboundRetry: 10})
 
 	now := time.Now().UTC()
-	_ = db.PutMessage(core.Message{ID: "refused", ChatJID: "slack:T/C/U", Sender: "demo",
-		Content: "the chat is deleted", Timestamp: now.Add(-2 * time.Minute), BotMsg: true,
-		Status: core.MessageStatusPending})
+	_ = db.PutOutbound(core.Message{ID: "refused", ChatJID: "slack:T/C/U", Sender: "demo",
+		Content: "the chat is deleted", Timestamp: now.Add(-2 * time.Minute), BotMsg: true},
+		core.MessageStatusPending)
 
 	sweepNow(loop, now)
 
 	if len(dl.sends) != 1 {
 		t.Fatalf("sweep attempted %d sends, want 1", len(dl.sends))
 	}
-	if st := statusOf(db, "refused"); st != core.MessageStatusFailed {
+	if st := statusOf(t, db, "refused"); st != core.MessageStatusFailed {
 		t.Fatalf("status=%q want failed — a permanent refusal must dead-letter at once", st)
 	}
-	if n := attemptsOf(db, "refused"); n != 0 {
+	if n := attemptsOf(t, db, "refused"); n != 0 {
 		t.Fatalf("delivery_attempts=%d want 0 — a permanent refusal must not spend the retry budget", n)
 	}
 
@@ -80,20 +99,20 @@ func TestOutboundTransientFailureDeadLettersAtCap(t *testing.T) {
 	loop := NewLoop(db, runnerFn(nil), LoopConfig{Deliver: dl, MaxOutboundRetry: maxAttempts})
 
 	now := time.Now().UTC()
-	_ = db.PutMessage(core.Message{ID: "flaky", ChatJID: "slack:T/C/U", Sender: "demo",
-		Content: "adapter is down", Timestamp: now.Add(-2 * time.Minute), BotMsg: true,
-		Status: core.MessageStatusPending})
+	_ = db.PutOutbound(core.Message{ID: "flaky", ChatJID: "slack:T/C/U", Sender: "demo",
+		Content: "adapter is down", Timestamp: now.Add(-2 * time.Minute), BotMsg: true},
+		core.MessageStatusPending)
 
 	for i := 1; i <= maxAttempts; i++ {
 		sweepNow(loop, now.Add(time.Duration(i)*time.Minute))
-		if n := attemptsOf(db, "flaky"); n != i {
+		if n := attemptsOf(t, db, "flaky"); n != i {
 			t.Fatalf("after sweep %d: delivery_attempts=%d want %d", i, n, i)
 		}
 		want := core.MessageStatusPending
 		if i == maxAttempts {
 			want = core.MessageStatusFailed
 		}
-		if st := statusOf(db, "flaky"); st != want {
+		if st := statusOf(t, db, "flaky"); st != want {
 			t.Fatalf("after sweep %d of %d: status=%q want %q", i, maxAttempts, st, want)
 		}
 	}
@@ -103,7 +122,7 @@ func TestOutboundTransientFailureDeadLettersAtCap(t *testing.T) {
 	if len(dl.sends) != maxAttempts {
 		t.Fatalf("sweep attempted %d sends, want %d — the cap must stop the retries", len(dl.sends), maxAttempts)
 	}
-	if n := attemptsOf(db, "flaky"); n != maxAttempts {
+	if n := attemptsOf(t, db, "flaky"); n != maxAttempts {
 		t.Fatalf("delivery_attempts=%d want %d after the dead letter", n, maxAttempts)
 	}
 }
@@ -121,29 +140,32 @@ func TestOutboundRetrySucceedsBeforeCap(t *testing.T) {
 	loop := NewLoop(db, runnerFn(nil), LoopConfig{Deliver: dl, MaxOutboundRetry: 5})
 
 	now := time.Now().UTC()
-	_ = db.PutMessage(core.Message{ID: "recovers", ChatJID: "slack:T/C/U", Sender: "demo",
-		Content: "hold on", Timestamp: now.Add(-2 * time.Minute), BotMsg: true,
-		Status: core.MessageStatusPending})
+	_ = db.PutOutbound(core.Message{ID: "recovers", ChatJID: "slack:T/C/U", Sender: "demo",
+		Content: "hold on", Timestamp: now.Add(-2 * time.Minute), BotMsg: true},
+		core.MessageStatusPending)
 
 	sweepNow(loop, now)
 	sweepNow(loop, now.Add(time.Minute))
-	if st := statusOf(db, "recovers"); st != core.MessageStatusPending {
+	if st := statusOf(t, db, "recovers"); st != core.MessageStatusPending {
 		t.Fatalf("status=%q want pending inside the budget", st)
+	}
+	// The attempts live on the DELIVERY item, and a delivered row has none — so
+	// the count is checked here, while the row still owes one.
+	if n := attemptsOf(t, db, "recovers"); n != 2 {
+		t.Fatalf("attempts=%d want 2 — the two failures before the recovery", n)
 	}
 
 	dl.failSend = false
 	sweepNow(loop, now.Add(2*time.Minute))
-	if st := statusOf(db, "recovers"); st != core.MessageStatusSent {
+	if st := statusOf(t, db, "recovers"); st != core.MessageStatusSent {
 		t.Fatalf("status=%q want sent after the adapter recovered", st)
-	}
-	if n := attemptsOf(db, "recovers"); n != 2 {
-		t.Fatalf("delivery_attempts=%d want 2 — the two failures before the recovery", n)
 	}
 }
 
-// TestExistingPendingRowKeepsFullBudget: migration 0034 defaults
-// delivery_attempts to 0, so a row that three live instances already hold as
-// 'pending' gets its whole budget and does not dead-letter on the first sweep.
+// TestExistingPendingRowKeepsFullBudget: a row that has never been retried
+// carries NO attempt count — absent is the only null this model has — so a row
+// three live instances already hold as 'pending' gets its whole budget and does
+// not dead-letter on the first sweep.
 func TestExistingPendingRowKeepsFullBudget(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -151,25 +173,25 @@ func TestExistingPendingRowKeepsFullBudget(t *testing.T) {
 	}
 	defer db.Close()
 
-	// Insert the pre-migration column set — the shape a live row has.
-	if _, err := db.SQL().Exec(`INSERT INTO messages
-		(id, chat_jid, sender, content, timestamp, is_from_me, is_bot_message, status)
-		VALUES ('legacy', 'slack:T/C/U', 'demo', 'queued before the upgrade', ?, 1, 1, 'pending')`,
-		core.TS(time.Now().UTC().Add(-48*time.Hour))); err != nil {
+	if err := db.PutOutbound(core.Message{
+		ID: "legacy", ChatJID: "slack:T/C/U", Sender: "demo",
+		Content: "queued before the upgrade", Timestamp: time.Now().UTC().Add(-48 * time.Hour),
+		FromMe: true, BotMsg: true,
+	}, core.MessageStatusPending); err != nil {
 		t.Fatal(err)
 	}
-	if n := attemptsOf(db, "legacy"); n != 0 {
-		t.Fatalf("legacy row delivery_attempts=%d want 0 (the migration default)", n)
+	if n := attemptsOf(t, db, "legacy"); n != 0 {
+		t.Fatalf("a row that has never been retried reports %d attempts, want 0", n)
 	}
 
 	dl := &recDeliverer{failSend: true}
 	loop := NewLoop(db, runnerFn(nil), LoopConfig{Deliver: dl, MaxOutboundRetry: 10})
 	sweepNow(loop, time.Now().UTC())
 
-	if st := statusOf(db, "legacy"); st != core.MessageStatusPending {
+	if st := statusOf(t, db, "legacy"); st != core.MessageStatusPending {
 		t.Fatalf("status=%q want pending — a live row must not dead-letter on the first sweep", st)
 	}
-	if n := attemptsOf(db, "legacy"); n != 1 {
+	if n := attemptsOf(t, db, "legacy"); n != 1 {
 		t.Fatalf("delivery_attempts=%d want 1", n)
 	}
 }
@@ -225,7 +247,7 @@ func TestMCPSendFailureLeavesPendingRowForSweep(t *testing.T) {
 	loop := NewLoop(db, runnerFn(nil), LoopConfig{Deliver: deliver})
 	sweepNow(loop, time.Now().UTC().Add(time.Minute))
 
-	if st := statusOf(db, rows[0].ID); st != core.MessageStatusSent {
+	if st := statusOf(t, db, rows[0].ID); st != core.MessageStatusSent {
 		t.Fatalf("row status=%q want sent — the sweep did not pick up the MCP failure row", st)
 	}
 	if n := countBots(t, db, jid); n != 1 {

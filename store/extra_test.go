@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -41,7 +42,7 @@ func TestMessageByID_Found(t *testing.T) {
 		ID: "m1", ChatJID: "tg:1", Sender: "alice",
 		Content: "hi there", Timestamp: now, Topic: "t1",
 	})
-	msg, ok := s.MessageByID("m1")
+	msg, ok := s.MessageByID("tg:1", "m1")
 	if !ok {
 		t.Fatal("MessageByID: expected found")
 	}
@@ -54,7 +55,7 @@ func TestMessageByID_Missing(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 
-	_, ok := s.MessageByID("nope")
+	_, ok := s.MessageByID("tg:1", "nope")
 	if ok {
 		t.Fatal("expected not found")
 	}
@@ -64,9 +65,12 @@ func TestMessageByID_EmptyID(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 
-	_, ok := s.MessageByID("")
+	_, ok := s.MessageByID("tg:1", "")
 	if ok {
 		t.Fatal("empty id should return not found")
+	}
+	if _, ok := s.MessageByID("", "m1"); ok {
+		t.Fatal("a lookup with no chat names no partition, so it finds nothing")
 	}
 }
 
@@ -87,11 +91,15 @@ func TestMarkMessagesObserved_AndObservedSince(t *testing.T) {
 		s.PutMessage(m)
 	}
 
-	if err := s.MarkMessagesObserved("atlas", []string{"obs-1", "obs-2"}); err != nil {
+	ctx := context.Background()
+	if err := s.MarkMessagesObserved(ctx, "atlas", msgs[:2]); err != nil {
 		t.Fatalf("MarkMessagesObserved: %v", err)
 	}
 
-	got := s.ObservedSince("atlas", "", 100, 100000)
+	got, err := s.ObservedSince(ctx, "atlas", "", 100, 100000, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(got) != 2 {
 		t.Fatalf("ObservedSince: expected 2, got %d: %v", len(got), got)
 	}
@@ -105,7 +113,7 @@ func TestMarkMessagesObserved_Empty(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 
-	if err := s.MarkMessagesObserved("atlas", nil); err != nil {
+	if err := s.MarkMessagesObserved(context.Background(), "atlas", nil); err != nil {
 		t.Errorf("empty ids should be no-op, got: %v", err)
 	}
 }
@@ -114,18 +122,30 @@ func TestObservedSince_WithCursor(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 
+	ctx := context.Background()
 	now := time.Now()
+	var msgs []core.Message
 	for i, id := range []string{"c1", "c2", "c3"} {
-		s.PutMessage(core.Message{
+		m := core.Message{
 			ID: id, ChatJID: "tg:1", Sender: "u", Content: "x",
 			Timestamp: now.Add(time.Duration(i) * time.Minute), RoutedTo: "atlas",
-		})
+		}
+		msgs = append(msgs, m)
+		s.PutMessage(m)
 	}
-	s.MarkMessagesObserved("atlas", []string{"c1", "c2", "c3"})
+	if err := s.MarkMessagesObserved(ctx, "atlas", msgs); err != nil {
+		t.Fatal(err)
+	}
 
 	// cursor = timestamp of c1 → only c2, c3 should come back
-	cursor := now.UTC().Format(time.RFC3339Nano)
-	got := s.ObservedSince("atlas", cursor, 100, 100000)
+	cursor := core.TS(now)
+	got, err := s.ObservedSince(ctx, "atlas", cursor, 100, 100000, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected c2 and c3, got %d", len(got))
+	}
 	for _, m := range got {
 		if m.ID == "c1" {
 			t.Error("c1 should be filtered by cursor")
@@ -137,11 +157,18 @@ func TestObservedSince_ZeroLimitsReturnNil(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 
-	got := s.ObservedSince("atlas", "", 0, 100)
+	ctx := context.Background()
+	got, err := s.ObservedSince(ctx, "atlas", "", 0, 100, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got != nil {
 		t.Errorf("zero maxMsgs: expected nil, got %v", got)
 	}
-	got = s.ObservedSince("atlas", "", 100, 0)
+	got, err = s.ObservedSince(ctx, "atlas", "", 100, 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got != nil {
 		t.Errorf("zero maxChars: expected nil, got %v", got)
 	}
@@ -262,10 +289,10 @@ func TestRoutedToByMessageID(t *testing.T) {
 		Content: "hi", Timestamp: now, RoutedTo: "atlas",
 	})
 
-	if got := s.RoutedToByMessageID("rt1"); got != "atlas" {
+	if got := s.RoutedToByMessageID("tg:1", "rt1"); got != "atlas" {
 		t.Errorf("RoutedToByMessageID = %q, want atlas", got)
 	}
-	if got := s.RoutedToByMessageID("missing"); got != "" {
+	if got := s.RoutedToByMessageID("tg:1", "missing"); got != "" {
 		t.Errorf("missing id: got %q, want empty", got)
 	}
 }
@@ -289,33 +316,41 @@ func TestMarkMessagesErrored_AndDelete(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 
+	ctx := context.Background()
 	now := time.Now()
-	for _, id := range []string{"e1", "e2", "e3"} {
-		s.PutMessage(core.Message{
+	var msgs []core.Message
+	for i, id := range []string{"e1", "e2", "e3"} {
+		m := core.Message{
 			ID: id, ChatJID: "tg:1", Sender: "alice",
-			Content: "x", Timestamp: now,
-		})
+			Content: "x", Timestamp: now.Add(time.Duration(i) * time.Second),
+		}
+		msgs = append(msgs, m)
+		s.PutMessage(m)
 	}
 
-	if err := s.MarkMessagesErrored([]string{"e1", "e2"}); err != nil {
+	if err := s.MarkMessagesErrored(ctx, msgs[:2]); err != nil {
 		t.Fatalf("MarkMessagesErrored: %v", err)
 	}
 
-	var n int
-	s.db.QueryRow(`SELECT COUNT(*) FROM messages WHERE errored=1`).Scan(&n)
-	if n != 2 {
-		t.Errorf("errored count = %d, want 2", n)
+	items, err := s.erroredItems(ctx, "tg:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 {
+		t.Errorf("errored count = %d, want 2", len(items))
 	}
 
-	if err := s.DeleteErroredMessages("tg:1"); err != nil {
+	if err := s.DeleteErroredMessages(ctx, "tg:1"); err != nil {
 		t.Fatalf("DeleteErroredMessages: %v", err)
 	}
-	s.db.QueryRow(`SELECT COUNT(*) FROM messages WHERE errored=1`).Scan(&n)
-	if n != 0 {
-		t.Errorf("errored remaining = %d, want 0", n)
+	items, err = s.erroredItems(ctx, "tg:1")
+	if err != nil {
+		t.Fatal(err)
 	}
-	s.db.QueryRow(`SELECT COUNT(*) FROM messages WHERE id='e3'`).Scan(&n)
-	if n != 1 {
+	if len(items) != 0 {
+		t.Errorf("errored remaining = %d, want 0", len(items))
+	}
+	if _, ok := s.MessageByID("tg:1", "e3"); !ok {
 		t.Error("e3 should not have been deleted")
 	}
 }
@@ -324,7 +359,7 @@ func TestMarkMessagesErrored_EmptyList(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 
-	if err := s.MarkMessagesErrored(nil); err != nil {
+	if err := s.MarkMessagesErrored(context.Background(), nil); err != nil {
 		t.Errorf("empty list should be no-op: %v", err)
 	}
 }

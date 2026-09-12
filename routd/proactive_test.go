@@ -12,6 +12,7 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/proactive"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
+	"github.com/kronael/arizuko/store"
 )
 
 // defaultProactiveCfg is the spec-default tuning with the kill switch on,
@@ -190,10 +191,9 @@ func TestProactiveCooldownBlocksSecond(t *testing.T) {
 		t.Fatal("fire returned empty turn id")
 	}
 	// the synthetic inbound row exists, empty content, timed-proactive sender.
-	var sender, content string
-	db.db.QueryRow("SELECT sender, content FROM messages WHERE id=?", turnID).Scan(&sender, &content)
-	if sender != "timed-proactive" || content != "" {
-		t.Fatalf("synthetic row sender=%q content=%q", sender, content)
+	synthetic := msgByID(t, db, "slack:T/C/U", turnID)
+	if synthetic.Sender != "timed-proactive" || synthetic.Content != "" {
+		t.Fatalf("synthetic row sender=%q content=%q", synthetic.Sender, synthetic.Content)
 	}
 	// cooldown set.
 	if db.ProactiveLastFired("slack:T/C/U").IsZero() {
@@ -411,9 +411,17 @@ func lurkGroup(t *testing.T, l *Loop, folder string) {
 // since been dispatched and the synthetic row is the only new one. Without this
 // the same pass would also run a turn for the human sender, and THAT turn (not
 // the proactive one) would bump engagement.
-func consumeSeeded(t *testing.T, db *DB, jid string, now time.Time, gap time.Duration) {
+// consumeSeeded parks the dispatch cursor at the chat's newest message — the
+// position the poll loop holds once it has fed the seeded batch. The cursor is
+// a whole message KEY, so a bare instant would sort below the row at it and
+// leave the last seeded message unfed.
+func consumeSeeded(t *testing.T, db *DB, jid string) {
 	t.Helper()
-	if err := db.SetAgentCursor(jid, core.TS(now.Add(-gap))); err != nil {
+	msgs := chatMessages(t, db, jid)
+	if len(msgs) == 0 {
+		t.Fatal("nothing seeded to consume")
+	}
+	if err := db.SetAgentCursor(jid, store.MessageCursor(msgs[len(msgs)-1])); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -455,7 +463,7 @@ func TestProactiveSilentOutcomeArmsCooldown(t *testing.T) {
 	const jid = "slack:T/C/U"
 	now := time.Now().UTC()
 	seedQuestion(t, db, jid, now, 5*time.Minute, 3)
-	consumeSeeded(t, db, jid, now, 5*time.Minute)
+	consumeSeeded(t, db, jid)
 
 	srv.loop.scanProactive(now)
 	if n := countProactiveRows(t, db, jid); n != 1 {
@@ -524,7 +532,7 @@ func TestProactiveTurnDoesNotBumpEngagement(t *testing.T) {
 	// The proactive chat: scan fires the synthetic inbound, the turn runs, the
 	// agent replies through the normal callback.
 	seedQuestion(t, db, proJID, now, 5*time.Minute, 3)
-	consumeSeeded(t, db, proJID, now, 5*time.Minute)
+	consumeSeeded(t, db, proJID)
 	srv.loop.scanProactive(now)
 	if n := countProactiveRows(t, db, proJID); n != 1 {
 		t.Fatalf("proactive rows after scan = %d, want 1", n)
@@ -570,12 +578,13 @@ func TestProactiveTurnDoesNotBumpEngagement(t *testing.T) {
 // turn_id the fire path handed to dispatch.
 func proactiveTurnID(t *testing.T, db *DB, jid string) string {
 	t.Helper()
-	var id string
-	if err := db.SQL().QueryRow(
-		`SELECT id FROM messages WHERE chat_jid=? AND sender='timed-proactive'`, jid).Scan(&id); err != nil {
-		t.Fatalf("no synthetic proactive row: %v", err)
+	for _, m := range chatMessages(t, db, jid) {
+		if m.Sender == "timed-proactive" {
+			return m.ID
+		}
 	}
-	return id
+	t.Fatal("no synthetic proactive row")
+	return ""
 }
 
 func writeClaudeMD(t *testing.T, dir, body string) {
@@ -587,7 +596,11 @@ func writeClaudeMD(t *testing.T, dir, body string) {
 
 func countProactiveRows(t *testing.T, db *DB, jid string) int {
 	t.Helper()
-	var n int
-	db.db.QueryRow("SELECT COUNT(*) FROM messages WHERE chat_jid=? AND sender='timed-proactive'", jid).Scan(&n)
+	n := 0
+	for _, m := range chatMessages(t, db, jid) {
+		if m.Sender == "timed-proactive" {
+			n++
+		}
+	}
 	return n
 }

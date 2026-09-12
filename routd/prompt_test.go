@@ -11,6 +11,7 @@ import (
 	"github.com/kronael/arizuko/core"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
+	"github.com/kronael/arizuko/store"
 )
 
 // TestBuildAgentPrompt_PaneHints mirrors gateway TestBuildAgentPrompt_PaneHints:
@@ -138,7 +139,8 @@ func TestEmitSystemEvents_NewDay(t *testing.T) {
 	loop := NewLoop(db, runnerFn(nil), LoopConfig{})
 	loop.StopQueue()
 
-	yesterday := core.TS(time.Now().AddDate(0, 0, -1))
+	// The cursor is a whole message key now, and the day is read off its lead.
+	yesterday := store.MsgStamp(core.TS(time.Now().AddDate(0, 0, -1)), "m0")
 	_ = db.SetAgentCursor("jid1", yesterday)
 	_ = db.PutSession("grp1", "", "sess-1") // a live session suppresses new_session
 
@@ -349,10 +351,12 @@ func TestBuildAgentPrompt_DoesNotConsumeTheObservedWindow(t *testing.T) {
 	loop.StopQueue()
 
 	now := time.Now()
-	if _, err := db.SQL().Exec(
-		`INSERT INTO messages (id, chat_jid, sender, content, timestamp, is_observed, routed_to, verb)
-		 VALUES ('obs1','tg:9','someone','ambient chatter',?,1,'main','message')`,
-		core.TS(now)); err != nil {
+	ambient := core.Message{ID: "obs1", ChatJID: "tg:9", Sender: "someone",
+		Content: "ambient chatter", Timestamp: now, RoutedTo: "main", Verb: "message"}
+	if err := db.PutMessage(ambient); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.MarkMessagesObserved("main", []core.Message{ambient}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -406,32 +410,35 @@ func TestObservedSinceExcludesIsolatedCronRuns(t *testing.T) {
 	defer db.Close()
 
 	now := time.Now().UTC()
-	put := func(id, sender, content string, observed bool) {
-		obs := 0
-		if observed {
-			obs = 1
-		}
-		if _, err := db.SQL().Exec(
-			`INSERT INTO messages(id, chat_jid, sender, content, timestamp, routed_to, is_observed, topic)
-			 VALUES(?,?,?,?,?,?,?,'')`,
-			id, "discord:g/c", sender, content, core.TS(now), "trading", obs); err != nil {
+	put := func(i int, id, sender, content string) {
+		m := core.Message{ID: id, ChatJID: "discord:g/c", Sender: sender, Content: content,
+			Timestamp: now.Add(time.Duration(i) * time.Second), RoutedTo: "trading"}
+		if err := db.PutMessage(m); err != nil {
 			t.Fatalf("insert %s: %v", id, err)
 		}
+		if err := db.MarkMessagesObserved("trading", []core.Message{m}); err != nil {
+			t.Fatalf("observe %s: %v", id, err)
+		}
 	}
-	put("human-1", "alice", "what is the btc level", true)
-	put("cron-1", core.IsolatedSenderPrefix+"task-9", "Silent cron: run the monitor, stay silent", true)
+	put(0, "human-1", "alice", "what is the btc level")
+	put(1, "cron-1", core.IsolatedSenderPrefix+"task-9", "Silent cron: run the monitor, stay silent")
 
 	// Prove the cron row qualifies on EVERY other predicate, so this test fails
-	// if the sender exclusion is removed rather than passing vacuously.
-	var qualifies int
+	// if the sender exclusion is removed rather than passing vacuously: both
+	// rows are in the folder's feed, and the cron one carries a body and is not
+	// the agent's own output.
+	var inFeed int
 	if err := db.SQL().QueryRow(
-		`SELECT COUNT(*) FROM messages
-		 WHERE routed_to = 'trading' AND is_observed = 1
-		   AND is_bot_message = 0 AND content != '' AND id = 'cron-1'`).Scan(&qualifies); err != nil {
+		`SELECT COUNT(*) FROM message_folders WHERE part = 'trading'`).Scan(&inFeed); err != nil {
 		t.Fatalf("precondition query: %v", err)
 	}
-	if qualifies != 1 {
-		t.Fatalf("fixture does not reach the ambient query at all; the test would pass for the wrong reason")
+	if inFeed != 2 {
+		t.Fatalf("the folder feed holds %d rows; the fixture does not reach the ambient "+
+			"read at all and the test would pass for the wrong reason", inFeed)
+	}
+	cron := msgByID(t, db, "discord:g/c", "cron-1")
+	if cron.BotMsg || cron.Content == "" || cron.RoutedTo != "trading" {
+		t.Fatalf("the cron row fails another predicate already: %+v", cron)
 	}
 
 	got := db.ObservedSince("trading", "", 50, 50000)
@@ -442,5 +449,82 @@ func TestObservedSinceExcludesIsolatedCronRuns(t *testing.T) {
 	}
 	if len(ids) != 1 || ids[0] != "human-1" {
 		t.Fatalf("ambient window = %v, want only [human-1]: an isolated run's prompt must never become another topic's context", ids)
+	}
+}
+
+// observe_group: the observer sees a watched source's PRIMARY deliveries as
+// ambient context even though those rows are not observed — the two halves of
+// the join ask for opposite values of the same flag, and routd is what resolves
+// the watched set before the read.
+func TestObservedSince_WatchedSources(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	for _, f := range []string{"root", "child"} {
+		if err := db.PutGroup(core.Group{Folder: f, AddedAt: time.Now()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A primary delivery to child: routed there, never marked observed.
+	if err := db.PutMessage(core.Message{
+		ID: "c-1", ChatJID: "telegram:1", Sender: "u", Name: "u",
+		Content: "child-msg", Timestamp: time.Now().Add(-time.Minute),
+		Verb: "message", Source: "telegram", RoutedTo: "child",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Without watching: root sees nothing.
+	if got := db.ObservedSince("root", "", 10, 4000); len(got) != 0 {
+		t.Fatalf("no watcher: got %d msgs, want 0", len(got))
+	}
+
+	if err := db.AddGroupWatcher("root", "child"); err != nil {
+		t.Fatal(err)
+	}
+	got := db.ObservedSince("root", "", 10, 4000)
+	if len(got) != 1 || got[0].ID != "c-1" {
+		t.Fatalf("after watching: got %+v, want [c-1]", got)
+	}
+
+	if err := db.RemoveGroupWatcher("root", "child"); err != nil {
+		t.Fatal(err)
+	}
+	if got := db.ObservedSince("root", "", 10, 4000); len(got) != 0 {
+		t.Fatalf("after unwatch: got %d msgs, want 0", len(got))
+	}
+}
+
+// Regression: with a watched source AND a non-empty cursor, the two halves used
+// to bind their arguments in the wrong order and the watched-source rows
+// vanished. A cursor below the message's instant must still surface it.
+func TestObservedSince_WatchedSourcesWithCursor(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	for _, f := range []string{"root", "child"} {
+		if err := db.PutGroup(core.Group{Folder: f, AddedAt: time.Now()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now().UTC()
+	if err := db.PutMessage(core.Message{
+		ID: "c-1", ChatJID: "telegram:1", Sender: "u", Name: "u",
+		Content: "child-msg", Timestamp: now,
+		Verb: "message", Source: "telegram", RoutedTo: "child",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AddGroupWatcher("root", "child"); err != nil {
+		t.Fatal(err)
+	}
+
+	got := db.ObservedSince("root", core.TS(now.Add(-time.Minute)), 10, 4000)
+	if len(got) != 1 || got[0].ID != "c-1" {
+		t.Fatalf("watched + cursor: got %+v, want [c-1]", got)
 	}
 }
