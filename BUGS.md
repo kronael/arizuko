@@ -98,6 +98,50 @@ the sticky-group and route-table fallbacks.
   fails on the old value. The existing rows are a separate decision: a backfill
   would rewrite 2,710 items and their feed entries, and nothing reads them today.
 
+## L286 — five writers need an unbounded atomic delete, which the object store cannot give (2026-09-12, open — needs sign-off)
+
+Twenty-two writers in `store/` opened a transaction so their audit row would
+commit with their mutation. Seventeen are now one guarded batch, which gives the
+same all-or-nothing in a single call. Five cannot follow, and the reason is the
+same for four of them: they write a number of rows the caller decides.
+
+`applyChunks` (`store/entities.go:378`) already sends one batch per 99 actions.
+Inside a caller-owned transaction those chunks commit together; without one they
+do not. A batch holds at most `objstore.MaxBatchActions`, so the object store has
+no way to make an unbounded delete atomic.
+
+- `DeleteGroup` (`store/groups.go:362`) — purges every entity in
+  `entityScopePurge` plus each per-folder partition, and reads on the transaction.
+- `RevokeRouteToken` (`store/route_tokens.go:362`) — one row per mint of the jid.
+- `RemoveGitHubSource` (`store/github_sources.go:339`) — reads the whole routes
+  partition, then deletes through `applyChunks`.
+- `SyncProxydRoutes` (`store/proxyd_routes.go:293`) — one write per shipped route,
+  26 on krons today and unbounded in principle.
+- `AddGitHubSource` (`store/github_sources.go:328`) — different reason: its seven
+  or eight seeded rules go through a create-if-absent that tolerates refusal by
+  reading the existing id back. In one batch a single pre-existing rule refuses
+  the whole registration.
+
+This is not academic for `DeleteGroup`. A half-purged folder is observable today:
+the subtree read runs inside the same transaction as the deletes that precede it,
+so it returns nothing and every CHILD folder's `message_folders` partition
+survives. The next tenant of that path inherits the previous tenant's ambient
+window. Reproduced on `store.OpenMem` with groups `a` and `a/b`: partition `a/b`
+kept one item.
+
+- **Severity:** high — it blocks the last five writers, and one of them already
+  leaks state between tenants
+- **Scope:** `store/groups.go`, `store/route_tokens.go`, `store/github_sources.go`,
+  `store/proxyd_routes.go`, `store/entities.go`
+- **Affected:** every instance
+- **Status:** open — a new contract for deletion, so it needs sign-off
+- **Fix (proposal):** the removal becomes a SERIALIZATION POINT rather than a
+  sweep. One atomic write marks the subject gone, and every reader treats that
+  marker as absence; the purge then runs as a resumable sweep whose partial
+  progress is invisible, because delete is idempotent and a re-run converges.
+  This also closes the child-partition leak, since the marker lands before any
+  purge reads anything.
+
 ## L276 — re-running `migrate-hot` after routd has taken writes rolls every cursor back, and the refusal comes too late to stop it (2026-09-12, open)
 
 REPRODUCED on a migrated copy of sloth's `routd.db`. The move derives each chat's
