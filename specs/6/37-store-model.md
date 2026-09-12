@@ -470,13 +470,28 @@ time into read-shaped indexes, and each index is an entity like any other.
   with a retention sweep, and the sweep is part of the entity rather than a
   later idea: an index with no drainage is the mistake `turn_context` already
   records.
-- **Delivery state leaves the message.** `status`, `platform_id` and
-  `delivery_attempts` are mutable state on a history row, which is rule 5 and
-  the reason the retry feed has no coordinate today. Partition the status, sort
-  `core.TS + sep + id`: the work queue then IS a partition, it drains, and
-  `RecordDeliveryFailure`'s read-modify-write becomes `objstore.Increment`.
-  `core.Message` stops carrying the three, and `msgReadCols`' callers read the
-  delivery item alongside when they need it.
+- **Delivery state leaves the message, and `sent` is the ABSENCE of a delivery
+  item.** The first version of this said partition the status and let the queue
+  drain. Measured, it does not: 98.4% of krons rows are `sent`, `pending` holds
+  zero, and nothing in the tree ever deletes a sent or failed row — so a `sent`
+  partition is the whole table and never sheds one, which is the very mistake the
+  activity feed's sweep exists to avoid. The live schema already knew:
+  `idx_messages_status` is partial, `WHERE status != 'sent'`.
+
+  So a delivery item exists only while the row is NOT sent. That is objstore's
+  "absent is the only null" applied to a status, and it is what the partial index
+  already encodes. Partition the status, sort `core.TS + sep + id`, carry a
+  pointer — `chat_jid` and `delivery_attempts` — the same shape as the folder
+  feed. `pending` then genuinely drains and `failed` is the dead-letter set, 388
+  items on krons.
+
+  **`platform_id` stays on the message**, because it is not mutable state: one
+  statement writes it (`routd/db.go:360`), it is stamped once when the adapter
+  confirms delivery, and no non-bot row on any instance carries one. Moving it
+  would also cost a live read — `MessageByID` resolves a reply's parent by
+  platform id inside one chat partition today, and a status partition turns that
+  into a 23,625-row scan. `core.Message` loses `Status` and `DeliveryAttempts`
+  only, and `RecordDeliveryFailure` is still `objstore.Increment`.
 
 `ProactiveChats` is a `DISTINCT chat_jid` that becomes an attribute on `chats`.
 
