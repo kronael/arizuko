@@ -120,7 +120,34 @@ The next tenant of that path inherits the previous tenant's ambient window, sinc
   partition purge. `TestMessageFolders_ChildPartitionPurgedOnGroupDelete` pins it
   and fails on the old order.
 
-## L286 — five writers need an unbounded atomic delete, which the object store cannot give (2026-09-12, open — needs sign-off)
+## L288 — `resreg` opens a transaction per mutating call, and it is the last one (2026-09-12, open — needs sign-off)
+
+`resreg.go:690` begins a transaction for every mutating call, hands it to the
+handler as `x.Tx`, and commits it with the audit row `emitAudit` writes. That is
+the same guarantee `store`'s writers just gave up in favour of one guarded batch,
+and it is now the only place in arizuko that opens a transaction for a mutation.
+
+It is what keeps **33** exported `store` functions naming a `*sql.Tx`, across
+`routd`, `onbod` and `proxyd`, and it is why the `…Tx` twins exist at all. Until
+it goes, `Store.Obj()` cannot return the interface and no daemon can be pointed
+at a driver that has no transactions.
+
+The difference from the store's writers is the contract. A `store` writer builds
+its writes and hands them over, so the batch is assembled in one place. A resreg
+`Handler` PERFORMS its writes and returns a rendered row, so `invoke` never sees
+them and cannot put them in a batch with the audit row.
+
+- **Severity:** high — the last structural blocker for the storage port
+- **Scope:** `resreg/resreg.go`, and every handler that reads `x.Tx`
+- **Affected:** routd, onbod, proxyd
+- **Status:** open — it changes `Handler`'s contract, so it needs sign-off
+- **Fix (proposal):** `Handler` answers `([]objstore.Write, any, error)` instead
+  of performing its writes. `invoke` appends the audit row and sends ONE batch,
+  which restores the exact guarantee the transaction gave and removes every
+  `…Tx` twin behind it. Estimated 400-700 lines across three daemons; the store
+  conversion that just landed is the worked precedent.
+
+## ✅ FIXED 2026-09-12 L286 — five writers needed an unbounded atomic delete, which the object store cannot give (2026-09-12)
 
 Twenty-two writers in `store/` opened a transaction so their audit row would
 commit with their mutation. Seventeen are now one guarded batch, which gives the
@@ -156,13 +183,18 @@ kept one item.
 - **Scope:** `store/groups.go`, `store/route_tokens.go`, `store/github_sources.go`,
   `store/proxyd_routes.go`, `store/entities.go`
 - **Affected:** every instance
-- **Status:** open — a new contract for deletion, so it needs sign-off
-- **Fix (proposal):** the removal becomes a SERIALIZATION POINT rather than a
-  sweep. One atomic write marks the subject gone, and every reader treats that
-  marker as absence; the purge then runs as a resumable sweep whose partial
-  progress is invisible, because delete is idempotent and a re-run converges.
-  This also closes the child-partition leak, since the marker lands before any
-  purge reads anything.
+- **Status:** fixed
+- **Fix:** ordering, and no new marker. Each sweep deletes the row that makes the
+  subject REACHABLE first — `groups` for a folder, the source row for a GitHub
+  registration — so a failure part-way leaves rows nothing can find and the next
+  run collects them. `AddGitHubSource` seeds its rules with a create-if-absent
+  that tolerates one already there, so a partial registration completes on a
+  re-run rather than refusing whole.
+
+**The premise was wrong and the redesign was not needed.** These writers never
+required atomicity; they required an order. All twenty-two audited writers are
+now batch-shaped or sweeps, `runAudited` is deleted, and `store` opens no
+transaction of its own. The child-partition leak is `L287`, fixed separately.
 
 ## L276 — re-running `migrate-hot` after routd has taken writes rolls every cursor back, and the refusal comes too late to stop it (2026-09-12, open)
 
