@@ -502,6 +502,54 @@ func BatchRefusesWhatNoDriverMayAccept(t *testing.T, newStore Factory) {
 		t.Errorf("a refused Put changed the item: %v", got.Attrs)
 	}
 
+	// A Merge NEVER REFUSES, which is the whole reason it can be a companion
+	// write in someone else's batch. A condition on one would make it able to,
+	// and the caller that batched it beside another write would lose both.
+	for _, c := range []struct {
+		name string
+		cond objstore.Cond
+	}{
+		{"a condition on an attribute",
+			objstore.Cond{Where: []objstore.Cmp{{Attr: "family", Op: objstore.Eq, Value: "f1"}}}},
+		{"a demand that the item already be there", objstore.Cond{Item: objstore.ItemPresent}},
+		{"a demand that the item be missing", objstore.Cond{Item: objstore.ItemAbsent}},
+	} {
+		if _, err := s.GuardedBatch(ctx, nil, []objstore.Write{{
+			Op: objstore.Merge, Entity: tokens, Key: key,
+			Attrs: map[string]string{"family": "f2"}, Cond: c.cond,
+		}}); err == nil {
+			t.Errorf("a Merge with %s was accepted", c.name)
+		}
+	}
+	// Init is the create-only half of a Merge, and it belongs to no other op: a
+	// Put creates every time and an Update never does, so neither has a place to
+	// put it. One attribute cannot be in both halves either — that is two values
+	// for one name in one write.
+	if _, err := s.GuardedBatch(ctx, nil, []objstore.Write{{
+		Op: objstore.Put, Entity: tokens, Key: key,
+		Attrs: map[string]string{"family": "f2"},
+		Init:  map[string]string{"born": "T1"},
+	}}); err == nil {
+		t.Error("a Put carrying create-only attributes was accepted")
+	}
+	if _, err := s.GuardedBatch(ctx, nil, []objstore.Write{{
+		Op: objstore.Merge, Entity: tokens, Key: key,
+		Attrs: map[string]string{"family": "f2"},
+		Init:  map[string]string{"family": "f3"},
+	}}); err == nil {
+		t.Error("a Merge giving one attribute two values was accepted")
+	}
+	if _, err := s.GuardedBatch(ctx, nil, []objstore.Write{{
+		Op: objstore.Merge, Entity: tokens, Key: key,
+		Init:   map[string]string{"family": "f3"},
+		Remove: []string{"family"},
+	}}); err == nil {
+		t.Error("a Merge that both gives and takes one attribute was accepted")
+	}
+	if got := one(t, s, tokens, key); got.Attrs["family"] != "f1" {
+		t.Errorf("a refused Merge changed the item: %v", got.Attrs)
+	}
+
 	big := make([]objstore.Write, objstore.MaxBatchActions+1)
 	for i := range big {
 		big[i] = objstore.Write{Op: objstore.Put, Entity: tokens,
