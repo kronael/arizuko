@@ -358,26 +358,30 @@ func (s *Store) RevokeRouteToken(jid, ownerFolder string) (bool, error) {
 	if len(writes) == 0 {
 		return false, nil
 	}
+	// Every mint of this jid adds a row, so the revoke is a sweep rather than one
+	// batch. A row that survives a part-way failure is still revocable by the
+	// next run, and the token it names stays unusable while any row is gone.
+	if _, err := applyChunks(ctx, "revoke "+jid, writes,
+		func(ctx context.Context, chunk []objstore.Write) (bool, error) {
+			return s.TryWriteEntities(ctx, nil, chunk...)
+		}); err != nil {
+		return false, err
+	}
 	actor, actorSub, surface := s.auditIdentity()
-	err = s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		if _, err := applyChunks(ctx, "revoke "+jid, writes,
-			func(ctx context.Context, chunk []objstore.Write) (bool, error) {
-				return s.TryWriteEntitiesInTx(ctx, tx, nil, chunk...)
-			}); err != nil {
-			return audit.Event{}, err
-		}
-		return audit.Event{
-			Category: audit.CategoryChannel,
-			Action:   "route_token.revoke",
-			Actor:    actor,
-			ActorSub: actorSub,
-			Surface:  surface,
-			Resource: "route_tokens/" + jid,
-			Folder:   ownerFolder,
-			Outcome:  audit.OutcomeOK,
-		}, nil
+	_, rec := audit.WriteFor(audit.Event{
+		Category: audit.CategoryChannel,
+		Action:   "route_token.revoke",
+		Actor:    actor,
+		ActorSub: actorSub,
+		Surface:  surface,
+		Resource: "route_tokens/" + jid,
+		Folder:   ownerFolder,
+		Outcome:  audit.OutcomeOK,
 	})
-	return err == nil, err
+	if err := s.WriteEntities(ctx, nil, rec); err != nil {
+		return true, err
+	}
+	return true, nil
 }
 
 // --- the archive lane (spec 5/8 "Secret and token values") ----------------

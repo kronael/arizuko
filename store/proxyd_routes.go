@@ -290,12 +290,17 @@ func (s *Store) DeleteProxydRouteTx(ctx context.Context, tx *sql.Tx, path string
 func (s *Store) SyncProxydRoutes(routes []ProxydRoute) (written, kept int, err error) {
 	ctx := context.Background()
 	actor, actorSub, surface := s.auditIdentity()
-	err = s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
+	err = func() error {
 		owners, err := s.proxydRouteOwners(ctx)
 		if err != nil {
-			return audit.Event{}, err
+			return err
 		}
+		// One write per shipped route, which the caller decides, so the set goes
+		// in chunks rather than one batch. Each path is its own item and the
+		// operator-owned ones are left alone either way, so a part-way failure
+		// leaves the rest exactly as generate found them.
 		written, kept = 0, 0
+		var writes []objstore.Write
 		for _, r := range routes {
 			if RouteSurvivesGenerate(owners[r.Path]) {
 				kept++
@@ -304,12 +309,26 @@ func (s *Store) SyncProxydRoutes(routes []ProxydRoute) (written, kept int, err e
 			if r.Owner == "" {
 				r.Owner = RouteOwnerArizuko
 			}
-			if err := s.putProxydRouteTx(ctx, tx, r); err != nil {
-				return audit.Event{}, fmt.Errorf("write route %q: %w", r.Path, err)
+			key, err := proxydRouteKey(r.Path)
+			if err != nil {
+				return err
 			}
+			attrs, err := proxydRouteAttrs(r)
+			if err != nil {
+				return err
+			}
+			writes = append(writes, objstore.Write{
+				Op: objstore.Put, Entity: ProxydRoutes, Key: key, Attrs: attrs,
+			})
 			written++
 		}
-		return audit.Event{
+		if _, err := applyChunks(ctx, "sync proxyd routes", writes,
+			func(ctx context.Context, chunk []objstore.Write) (bool, error) {
+				return s.TryWriteEntities(ctx, nil, chunk...)
+			}); err != nil {
+			return err
+		}
+		_, rec := audit.WriteFor(audit.Event{
 			Category: audit.CategoryMutation,
 			Action:   "proxyd_route.sync",
 			Actor:    actor,
@@ -321,8 +340,9 @@ func (s *Store) SyncProxydRoutes(routes []ProxydRoute) (written, kept int, err e
 				"written":       written,
 				"kept_operator": kept,
 			},
-		}, nil
-	})
+		})
+		return s.WriteEntities(ctx, nil, rec)
+	}()
 	return written, kept, err
 }
 
