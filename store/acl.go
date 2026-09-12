@@ -202,19 +202,17 @@ func (s *Store) AddACLRow(row core.ACLRow) error {
 	if err != nil {
 		return err
 	}
-	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		// A refusal is the grant already being there, which is what aclPut's
-		// create-if-absent asks for: a re-grant must not restamp who granted it.
-		if _, err := s.TryWriteEntitiesInTx(context.Background(), tx, nil, w); err != nil {
-			return audit.Event{}, err
-		}
+	// A refusal is the grant already being there, which is what aclPut's
+	// create-if-absent asks for: a re-grant must not restamp who granted it,
+	// and it records nothing because nothing was granted.
+	_, err = s.tryWriteAudited(func() ([]objstore.Write, audit.Event, error) {
 		// GrantedBy is the grantor recorded in the row itself; it stands in as the
 		// actor for callers that never set AsUser (the CLI, onbod invite-accept).
 		actor, actorSub, surface := s.auditIdentity()
 		if s.auditSub == "" && row.GrantedBy != "" {
 			actor, actorSub = row.GrantedBy, row.GrantedBy
 		}
-		return audit.Event{
+		return []objstore.Write{w}, audit.Event{
 			Category: audit.CategoryAuthZ,
 			Action:   "acl.add",
 			Actor:    actor,
@@ -236,6 +234,7 @@ func (s *Store) AddACLRow(row core.ACLRow) error {
 			},
 		}, nil
 	})
+	return err
 }
 
 func (s *Store) RemoveACLRow(row core.ACLRow) error {
@@ -246,14 +245,10 @@ func (s *Store) RemoveACLRow(row core.ACLRow) error {
 	if err != nil {
 		return err
 	}
-	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		if err := s.WriteEntitiesInTx(context.Background(), tx, nil, objstore.Write{
-			Op: objstore.Delete, Entity: ACL, Key: key,
-		}); err != nil {
-			return audit.Event{}, err
-		}
+	return s.writeAudited(func() ([]objstore.Write, audit.Event, error) {
+		w := objstore.Write{Op: objstore.Delete, Entity: ACL, Key: key}
 		actor, actorSub, surface := s.auditIdentity()
-		return audit.Event{
+		return []objstore.Write{w}, audit.Event{
 			Category: audit.CategoryAuthZ,
 			Action:   "acl.remove",
 			Actor:    actor,
