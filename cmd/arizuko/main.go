@@ -325,7 +325,7 @@ func cmdCreate(args []string) {
 	// needs no migration set for authd/onbod (both are package main).
 	//
 	// An instance served from an endpoint has no file to seed: what a new one
-	// needs there is the entities, which routd.Create makes below for its own
+	// needs there is the entities, which routd's door makes below for its own
 	// owner and each other daemon makes for its own at boot.
 	if !store.Served() {
 		seedOwnerDBs(storeDir)

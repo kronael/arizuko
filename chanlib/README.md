@@ -22,10 +22,12 @@ stay thin — `main.go` calls `chanlib.Run` with a `Start` hook.
   re-delivers it; a routd REFUSAL (400/403/413/422) is dropped with an ERROR
   line instead. Cursor-gated adapters (teled, bskyd, reditd, linkd, emaid) must
   NOT wire it — the platform is already their queue. Spec `5/34`, BUGS `L25`.
-- `OpenAdapterDB(dataDir, service) (*sql.DB, *chanstore.Store)` — opens
-  `<dataDir>/<service>.db` and prepares chanlib's entities. The ONE door: the
-  store is what the mux and `RetainInbound` take, the pool is the engine handle
-  the adapter closes and emaid adds `emaistore`'s entities to.
+- `OpenAdapterStore(dataDir, service) (AdapterStore, error)` — prepares
+  chanlib's entities on an adapter's own store: the endpoint a served instance
+  keeps it on, under the adapter's service name, or `<dataDir>/<service>.db`.
+  The ONE door, in three pieces: `Chan` is what the mux and `RetainInbound`
+  take, `Close` ends what the open holds, and `Driver` is what emaid adds
+  `emaistore`'s entities to.
 - `PendingInboundCount(ctx, st)` — undelivered inbound backlog; `/health` reports it
 - `NewAdapterMux(name, prefixes, bot, isConnected, lastInboundAt, st) *http.ServeMux`
   — standard handler tree: `/send`, `/send-file`, `/send-voice`,
@@ -103,7 +105,7 @@ instance's store onto those entities, setting the old tables aside as `_v1`.
 - `run.go` — `Run` + `RunOpts`, service-token exchange
 - `chanlib.go` — `RouterClient`, inbound types, `StatusError`, env/http helpers
 - `inbound.go` — `RetainInbound`, the re-delivery sweep
-- `dedup.go` — `OpenAdapterDB`, `deliverOnce`, the outbound dedup contract
+- `dedup.go` — `OpenAdapterStore`, `deliverOnce`, the outbound dedup contract
 - `chanstore/` — the storage layer: no SQL, `objstore`'s two primitives
 - `handler.go` — `NewAdapterMux`, `BotHandler` interface, health, `CapImplReport`
 - `auth.go` — `Auth` middleware (ES256 service:routd verification)
