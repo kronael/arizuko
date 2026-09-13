@@ -31,11 +31,10 @@ successful login for an ES256 access + refresh token. Spec: `specs/5/1`.
 `signing_keys`, `signing_key_slot`, `refresh_tokens`, `refresh_families`,
 `auth_users`, `oauth_identities` — declared by `authstore.Entities` and created
 through the driver at boot. authd runs no statement and holds no DDL (spec
-`specs/6/37-store-model.md` step 5); it owns `auth.db` and MUST NOT touch
-another daemon's DB (CLAUDE.md DB-ownership rule).
+`specs/6/37-store-model.md` step 5), and it reaches its own owner and no other
+daemon's.
 
-Two of the six have no table behind them in the old schema, and each carries an
-invariant a column could not:
+Two of the six carry an invariant a column could not:
 
 - **`signing_key_slot`** holds ONE item naming the kid that signs. "Exactly one
   active key" used to be a partial-unique index, which no key-value engine has;
@@ -61,13 +60,18 @@ invariant a column could not:
   - `GET /v1/signing_keys` — signing-key METADATA (bearer-gated,
     `signing_keys:read`; spec `5/1`). kid, algorithm, `active`, `created_at`,
     `retired_at` and the derived `serves_until` — the lifecycle the JWK Set
-    drops. Never key material: `priv_pem`/`pub_pem` appear in no SELECT list.
+    drops. Never key material: `SigningKeyMetadata` projects exactly
+    `created_at` and `retired_at`, so the private half is not in the answer at
+    all.
   - `GET /v1/sessions` — refresh-token FAMILIES (bearer-gated, `sessions:read`).
     One row per login lineage; `token_hash` is never selected.
   - `DELETE /v1/sessions/{family_id}` — operator revoke of one family
     (bearer-gated, `sessions:write`). The incident-response verb;
     `POST /auth/logout` remains the self-service one. Writes its `audit_log`
     row inside the revoke's own transaction.
+  - `GET|POST /dash/authd/` — authd's own operator dashboard: the signing-key
+    lifecycle, the login families, and a per-login sign-out. Gated by the
+    proxyd-stamped operator identity, not a bearer (spec `6/30`).
 
   The sole holder of `signing_keys:read`, `sessions:read` and `sessions:write`
   is `service:dashd`, which spends them on `/dash/authd/` — the operator
@@ -92,7 +96,8 @@ invariant a column could not:
 
 - `DATABASE` / `DATA_DIR` — the file authd opens when the instance keeps one
   (`DATA_DIR` resolves `<dir>/store/authd/auth.db`, beside the other owners so
-  one `store/` chown covers them). Ignored once `DYNAMODB_URL` names an endpoint
+  one `store/` chown covers them). Both are ignored once `DYNAMODB_URL` names
+  an endpoint
 - `AUTHD_SERVICE_KEY` — authd's bootstrap secret (self-mint `service:authd`)
 - `AUTHD_SERVICE_KEYS` — `principal=secret,...` map for daemon exchange
 - `GRANTS_URL` — routd grants endpoint (`http://routd:8080`); unset → empty-scope sessions
@@ -112,17 +117,18 @@ invariant a column could not:
 
 ## Health signal
 
-`GET /health` returns 200 when DB is reachable.
+`GET /health` returns 200 when the STORE answers — the endpoint or the file,
+whichever this instance is on.
 
 ## Observability
 
 slog → journald (always on). OTLP export when `OTEL_EXPORTER_OTLP_ENDPOINT` set
-(spec `specs/5/O-observability.md`). Audit events recorded in `auth.db`'s audit_log entity (`daemon.start`, `login`, and
-`sessions:delete` for an operator revoke) and served read-only at
-`GET /v1/audit`, which `/dash/audit/` federates. `params_summary` has exactly one writer,
-`daemon.start`; its DSN field is redacted at the writer (`audit.redactRE`) and
-scrubbed from history by the migration that ran on every live instance before
-authd stopped carrying one.
+(spec `specs/5/O-observability.md`). Audit events land in authd's own
+`audit_log` entity (`daemon.start`, `login`, and `sessions:delete` for an
+operator revoke) and are served read-only at `GET /v1/audit`, which
+`/dash/audit/` federates. `params_summary` has exactly one writer,
+`daemon.start`, and its DSN field is redacted at the writer
+(`audit.redactRE`).
 
 ## Files
 
@@ -144,6 +150,22 @@ authd stopped carrying one.
   in `authstore.SigningKeyMetadata` is what keeps key material off the wire
 - `sessions_resource.go` — `GET /v1/sessions` + the operator revoke
 - `grants.go` — HTTP grants fetcher (login-time scope snapshot)
+- `dash.go` — `/dash/authd/` and its revoke form
+
+## Coverage
+
+`go test ./authd/ -short -cover` reports 69.9% (2026-09-13). Two shapes are
+uncovered and both need a real remote:
+
+- `main` and `handleHealth` — boot and the liveness probe. `make test-e2e`'s.
+- `googleCallback`, `githubCallback`, `discordCallback`, `telegram`, `logout` —
+  the provider redirect halves, which need the provider to answer. What they
+  converge on IS covered: `issueSession` 83.7%, `dispatch` 64.3%,
+  `authorizeURL` 71.4%. Untested is the per-provider parameter unpacking in
+  front of the mint, not the ES256 path.
+
+Key rotation, the refresh lineage, service-token exchange, the three resreg
+resources and `authstore` are covered.
 
 ## Status
 
