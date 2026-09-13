@@ -151,6 +151,58 @@ sudo DOCKER_BUILDKIT=1 docker build -t arizuko-egress -f egress/Dockerfile . # j
 This auto-generates `AUTH_SECRET` and `SECRETS_KEY`. You don't need to
 create these manually.
 
+## The store server
+
+Every owner's tables live on one DynamoDB-protocol server per instance —
+ExtendDB over PostgreSQL (`specs/6/42-dynamo-over-postgres.md`). The package
+brings both containers; the server's own init run is the operator's, because it
+prints an admin password once and mints one access key per daemon.
+
+```bash
+./arizuko packages <name> add extenddb   # mints STORE_DB_PASSWORD + STORE_APP_PASSWORD
+./arizuko generate <name>
+cd /srv/data/arizuko_<name>
+sudo docker compose up -d extenddb_db    # the instance's own PostgreSQL role
+sudo docker compose run --rm extenddb init \
+  --pg-host extenddb_db --pg-port 5432 \
+  --pg-user arizuko_<name> --pg-pass "$STORE_DB_PASSWORD" \
+  --extenddb-user arizuko_<name>_app --extenddb-pass "$STORE_APP_PASSWORD" \
+  --bind-addr 0.0.0.0 --tls-san extenddb \
+  --config /var/lib/extenddb/extenddb.toml
+```
+
+`init` prints the admin password and the account id once. Put both in `.env`
+as `STORE_ADMIN_PASSWORD` and `STORE_ACCOUNT_ID` before you lose them, then
+start the server and turn the control-plane delay off, so a table is servable
+the moment `CreateTable` returns:
+
+```bash
+sudo docker compose up -d extenddb
+sudo docker exec -e EXTENDDB_PASSWORD=$STORE_ADMIN_PASSWORD arizuko_extenddb_<name> \
+  extenddb settings -c /var/lib/extenddb/extenddb.toml set control_plane_delay_seconds 0
+```
+
+Each daemon signs as itself, with a policy bounded to the owners it reaches —
+routd on `routd.*`, dashd on `routd.*`, `onbod.*` and `runed.*`, an adapter on
+its own prefix. For every daemon that reaches a store, create the user, put the
+policy and mint the key with `extenddb manage --user admin`, then write the
+pair into `env/<daemon>.env` as `AWS_ACCESS_KEY_ID` and
+`AWS_SECRET_ACCESS_KEY`; a later generate carries them forward.
+
+TLS is mandatory — the server refuses to start without it — so every daemon
+needs the certificate the init run generated:
+
+```bash
+echo "STORE_CA=$(sudo base64 -w0 store/extenddb/.extenddb/tls/cert.pem)" | sudo tee -a .env
+echo 'DYNAMODB_URL=https://extenddb:18443' | sudo tee -a .env
+./arizuko generate <name>
+```
+
+`DYNAMODB_URL` is the switch: with it set, every daemon opens its owner on the
+server and no daemon opens a file. On an instance whose rows are still in
+SQLite files, add that line only after the copy of those rows has been made and
+verified — the daemons would otherwise boot onto empty tables.
+
 ## Configure .env
 
 Edit `/srv/data/arizuko_<name>/.env`. The only required additions are:
