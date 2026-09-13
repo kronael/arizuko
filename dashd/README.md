@@ -21,13 +21,16 @@ through the `store` package; it creates nothing.
 
 ## Surface
 
-71 routes registered in `dash.registerRoutes` (`main.go`). The bullets below
-group the ones with behaviour worth stating; the per-daemon cockpits
-(`/dash/services/`, `/dash/routd/`, `/dash/runed/`, `/dash/authd/`,
-`/dash/proxyd/`) are reached from the services hub rather than the nav, and
+59 routes registered in `dash.registerRoutes` (`main.go`). The bullets below
+group the ones with behaviour worth stating.
+
+The per-daemon cockpits — `/dash/routd/`, `/dash/runed/`, `/dash/authd/`,
+`/dash/proxyd/`, `/dash/webd/`, `/dash/timed/` — are NOT among them. Each is
+served by its owner and proxyd routes the prefix there (spec `6/30`); dashd's
+`/dash/services/` hub links to them and asks proxyd which are actually routed.
 `dashd/services_test.go` pins each tile's `Built` flag to whether its route is
-actually mounted — in both directions, so a shipped page cannot sit behind an
-unflipped tile.
+mounted — in both directions, so a shipped page cannot sit behind an unflipped
+tile.
 
 - **Public** (3): `GET /health`, `GET /openapi.json`, `GET /dash/assets/htmx.min.js` — no auth required.
 - **Portal** (1): `GET /dash/` — tile grid with status/tasks dots.
@@ -45,9 +48,7 @@ unflipped tile.
 - **Proactive view** (1): `GET /dash/proactive/` — operator-only (`**`) read-only view of spec 5/6: per-group `mode:` / quiet hours / parse error, parsed through the shared `proactive.Parse` routd's scanner gates on, plus per-chat last-fired from routd's `chat_proactive`. No control — `mode:` stays operator-edited in the group's `CLAUDE.md` (single source, no DB/file drift) and the cooldown is mandatory by spec. A banner names `PROACTIVE_ENABLED`; dashd cannot read routd's env, so it states the rule rather than a live value. (`proactive_page.go`)
 - **Engagement** (2): `GET /dash/engagement/` — operator-only (`**`) view of spec 5/G: every live engagement window (chat, thread, group, time left), i.e. the conversations the agent keeps answering in without being addressed. `POST /dash/engagement/disengage` ends one now, behind a confirm — the remedy for a runaway engagement, which otherwise had none but waiting out the TTL. Both go through routd's `/v1/engagement` over HTTP with the service:dashd bearer (`routes:read` + `routes:write`), NOT `chat_reply_state` out of `dbRoutd`: routd owns those columns, contains the write on the window's CLAIMING folder, and writes the `audit_log` row inside the mutation's own transaction (`DB.SetEngagementAudited`) — none of which a direct-DB write here would do. Operator-only is load-bearing — dashd's service token has an empty folder claim, which routd reads as list-all. (`engagement_page.go`)
 - **Approvals** (2): `GET /dash/approvals/`, `POST /dash/approvals/{id}/resolve` — the review queue for spec 5/19's held tool calls: what is waiting (group, tool, full arguments, chat, age) with per-row approve/reject + note, and the recent verdicts. Open to any signed-in caller and scoped per row: the proxyd-verified sub forwards as `reviewer`, and routd returns and accepts only the folders that human holds `admin` on (`resolveHoldTx`). Both go over routd's `/v1/pending_actions` with the service:dashd bearer (`pending_actions:read` + `pending_actions:write`), NOT direct SQL: routd owns the resolution lifecycle — the verdict commits together with the agent's answer, and a direct-DB verdict would decide a call no agent is told about. `reviewed_by` names the human. The portal banners the count of held calls THIS caller may answer, through the same `admin` question. (`approvals_page.go`)
-- **Audit** (2): `GET /dash/audit/` — operator-only (`**`) view of the audit trail, FEDERATED across routd, runed and authd via each daemon's `GET /v1/audit` with the service:dashd bearer (`audit:read`), NOT by opening `runed.db`/`auth.db`: dashd reaches routd's and onbod's tables and nobody else's, and a second reader of a table whose owner publishes no contract is a recorded defect class. Merged newest-first with a Source column; the "older" cursor is composite because an `audit_log` id is unique within one owner and not across them, and paging on the instant alone would drop rows that share one. A source that fails gets a banner naming it and the survivors still render — silence would report "nothing happened in runed" when runed simply did not answer. onbod's table is the fourth owner and not yet federated (BUGS `F35`). (`audit_page.go`)
-- **proxyd control plane** (3): `GET|POST /dash/proxyd/`, `POST /dash/proxyd/delete` — operator-only (`**`) view + create + delete of proxyd's reverse-proxy route table. proxyd OWNS `proxyd_routes`, so all three go over HTTP to its `/v1/proxyd_routes` with the service:dashd bearer and the caller's `X-User-*` forwarded; proxyd writes the single audit row in the mutation's own transaction. (`proxyd_page.go`)
-- **authd control plane** (2): `GET /dash/authd/`, `POST /dash/authd/revoke` — operator-only (`**`) view of the signing-key lifecycle (which kid signs, what a rotation retired, when a retiring key's passes stop being accepted) and of the refresh-token families behind each login, plus a per-login sign-out. Both go over HTTP to authd's `/v1/signing_keys`, `/v1/sessions` and `DELETE /v1/sessions/{family_id}` with the service:dashd bearer (`signing_keys:read`, `sessions:read`, `sessions:write`), NOT by reading authd's tables: dashd can reach none of them and must not — authd is the sole ES256 signer, so its keyring is the trust boundary, and HTTP is also what puts the revoke's audit row in the mutation's own transaction. Renders projected rows, never authd's raw answer, so no key material or token value can reach the page. The audit rows are linked to `/dash/audit/`, not repeated. No fleet-wide logout: that means retiring the active key, which spec `5/1` keeps out-of-band, and the page says so rather than omitting it silently. (`authd_page.go`)
+- **Audit** (2): `GET /dash/audit/` — operator-only (`**`) view of the audit trail, FEDERATED across routd, runed and authd via each daemon's `GET /v1/audit` with the service:dashd bearer (`audit:read`), NOT by opening runed's or authd's tables: dashd reaches routd's and onbod's tables and nobody else's, and a second reader of a table whose owner publishes no contract is a recorded defect class. Merged newest-first with a Source column; the "older" cursor is composite because an `audit_log` id is unique within one owner and not across them, and paging on the instant alone would drop rows that share one. A source that fails gets a banner naming it and the survivors still render — silence would report "nothing happened in runed" when runed simply did not answer. onbod's table is the fourth owner and not yet federated (BUGS `F35`). (`audit_page.go`)
 
 ## Auth
 
@@ -97,9 +98,9 @@ Read surfaces (`/dash/status/`, `/dash/tasks/`, `/dash/activity/`, `/dash/groups
 - `AUTHD_SERVICE_NAME` — service name (default `dashd`)
 - `HOST_APP_DIR` — app source path for enumerating stock skills in groups settings
 - `WHAPD_URL` — whapd base URL for re-pair proxy (default `http://whapd:8080`)
-- `PROXYD_URL` — proxyd base URL for the `/dash/proxyd/` control plane (default `http://proxyd:8080`, matching webd)
-- `RUNED_URL` — runed base URL for the `/dash/runed/` kill proxy (default `http://runed:8080`).
-- `ROUTER_URL` — routd base URL for the `/dash/engagement/` view (default `http://routd:8080`). Compose emits none of these three; all resolve through `backendURL`, which names the compose service on the fixed in-container `:8080`. Set one only to override.
+- `PROXYD_URL` — proxyd base URL (default `http://proxyd:8080`). The hub asks its `/v1/proxyd_routes` which daemon pages are actually routed; on failure it degrades to the core routes compiled in, so an operator is never linked at a path that 404s
+- `RUNED_URL`, `ONBOD_URL` — the other two audit sources (default `http://runed:8080`, `http://onbod:8080`)
+- `ROUTER_URL` — routd base URL (default `http://routd:8080`). Most of dashd's reads go here: groups, tasks, route tokens, grants, engagement, cost summary, message volume. Compose emits none of these; all resolve through `backendURL`, which names the compose service on the fixed in-container `:8080`. Set one only to override.
 
 ## Health signal
 
@@ -119,19 +120,25 @@ Typical deploy reaches dashd through `proxyd` at `/dash/`.
 - `tasks_admin.go` — task detail + run logs + create + pause/resume.
 - `route_tokens.go` — route-token list + revoke. Mints nothing.
 - `channels.go` — WhatsApp re-pair form + live status (operator-only).
-- `proxyd_page.go` — proxyd route table view + add + delete over `/v1/proxyd_routes` (operator-only).
-- `authd_page.go` — signing-key lifecycle + login sessions + per-login sign-out over authd's `/v1` (operator-only).
 - `audit_page.go` — the audit trail, federated over routd's, runed's and authd's `GET /v1/audit` (operator-only).
 - `approvals_page.go` — the held-call review queue + approve/reject over routd's `/v1/pending_actions`, scoped to the folders the caller holds `admin` on.
 - `engagement_page.go` — live engagement windows + force-disengage over routd's `/v1/engagement`; also `bearerCall`, the shared service:dashd transport (operator-only).
 - `proactive_page.go` — per-group proactive mode + per-chat cooldown, read-only (operator-only).
 - `services.go` — the daemon hub: health probes and the `Built` tile list.
-- `routd_page.go`, `runed_page.go`, `usage_page.go` — the remaining cockpits and the usage analytics view.
+- `usage_page.go` — the usage analytics view; every figure over routd's `/v1`.
+- `me_connections.go`, `me_env.go` — the surrogate-OAuth "Connect &lt;provider&gt;" dance and the per-user env view.
 - `packages_page.go` — installed-packages read view (`/dash/packages/`).
 - `invites.go` — invite list + create + revoke (operator-only).
 - `profile.go` — linked subs view + provider link buttons.
 - `html_helpers.go` — page shell, nav, htmx boost, banner helpers.
 
-## Future work
+## What it does not do
 
-Migration of direct DB reads to `routd/v1/*` REST surface once that lands (`specs/5/17-openapi-mcp.md`, rolled out by `specs/5/16-mcp-rest-unification.md`). Read scoping already implemented.
+- **No per-daemon control plane.** `/dash/routd/`, `/dash/runed/`,
+  `/dash/authd/`, `/dash/proxyd/`, `/dash/webd/` and `/dash/timed/` are served
+  by those daemons; proxyd routes each prefix to the owner (spec `6/30`). A
+  copy here would be unreachable code rendering the same data twice.
+- **No second reader of another owner's table.** dashd holds routd's and
+  onbod's handles and nobody else's. Where it needs runed's or authd's rows it
+  asks over `/v1` with the `service:dashd` bearer.
+- **Nothing that mints.** The route-token page lists and revokes; routd mints.
