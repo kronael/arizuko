@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -50,20 +49,20 @@ func sessionsDELETE(t *testing.T, base, path, token string) (int, string) {
 // unrevoked and every token of a dead one is not. That is the whole point of
 // the entity: there is no second place for the revoked state to be missing
 // from, so a successor cannot outlive the family it was minted into.
-func liveFamilyRows(t *testing.T, db *sql.DB, fam string) (total, live int) {
+func liveFamilyRows(t *testing.T, s objstore.Store, fam string) (total, live int) {
 	t.Helper()
-	total = len(entityItems(t, db, authstore.RefreshTokens,
+	total = len(entityItems(t, s, authstore.RefreshTokens,
 		objstore.Cmp{Attr: "family_id", Op: objstore.Eq, Value: fam}))
-	if familyRevoked(t, db, fam) {
+	if familyRevoked(t, s, fam) {
 		return total, 0
 	}
 	return total, total
 }
 
 // familyRevoked reads the family's one tombstone.
-func familyRevoked(t *testing.T, db *sql.DB, fam string) bool {
+func familyRevoked(t *testing.T, s objstore.Store, fam string) bool {
 	t.Helper()
-	it, ok := entityItem(t, db, authstore.RefreshFamilies, fam)
+	it, ok := entityItem(t, s, authstore.RefreshFamilies, fam)
 	if !ok {
 		t.Fatalf("family %s has no item", fam)
 	}
@@ -87,7 +86,7 @@ func TestSessionsNeverServeTokenValues(t *testing.T) {
 		t.Fatal(err)
 	}
 	hash := authstore.HashToken(raw)
-	if _, ok := entityItem(t, a.db, authstore.RefreshTokens, hash); !ok {
+	if _, ok := entityItem(t, a.obj, authstore.RefreshTokens, hash); !ok {
 		t.Fatal("fixture session not in the store — every assertion below " +
 			"would pass vacuously")
 	}
@@ -125,7 +124,7 @@ func TestSessionsRequireScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fam := familyOf(t, a.db, raw)
+	fam := familyOf(t, a.obj, raw)
 
 	tok := operatorToken(t, a, "audit:read")
 	if code, body := auditGET(t, ts.URL, "/v1/sessions", tok); code != http.StatusForbidden {
@@ -135,7 +134,7 @@ func TestSessionsRequireScope(t *testing.T) {
 		t.Fatalf("delete status = %d, want 403 without sessions:write: %s", code, body)
 	}
 	// The denial must not have killed anything.
-	if _, live := liveFamilyRows(t, a.db, fam); live != 1 {
+	if _, live := liveFamilyRows(t, a.obj, fam); live != 1 {
 		t.Fatalf("a 403 revoked the family anyway: %d live rows", live)
 	}
 }
@@ -150,7 +149,7 @@ func TestSessionsReadScopeCannotRevoke(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fam := familyOf(t, a.db, raw)
+	fam := familyOf(t, a.obj, raw)
 
 	tok := operatorToken(t, a, "sessions:read")
 	// Positive control: the same token CAN list, so the 403 below is about the
@@ -161,7 +160,7 @@ func TestSessionsReadScopeCannotRevoke(t *testing.T) {
 	if code, body := sessionsDELETE(t, ts.URL, "/v1/sessions/"+fam, tok); code != http.StatusForbidden {
 		t.Fatalf("delete status = %d, want 403 with only sessions:read: %s", code, body)
 	}
-	if _, live := liveFamilyRows(t, a.db, fam); live != 1 {
+	if _, live := liveFamilyRows(t, a.obj, fam); live != 1 {
 		t.Fatalf("read-only token revoked the family: %d live rows", live)
 	}
 }
@@ -205,8 +204,8 @@ func TestSessionsRevokeKillsTheFamilyAndAudits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fam := familyOf(t, db, raw)
-	if _, live := liveFamilyRows(t, db, fam); live != 1 {
+	fam := familyOf(t, newObjectStore(db), raw)
+	if _, live := liveFamilyRows(t, newObjectStore(db), fam); live != 1 {
 		t.Fatalf("fixture family is not live (%d rows) — the kill below would prove nothing", live)
 	}
 
@@ -216,7 +215,7 @@ func TestSessionsRevokeKillsTheFamilyAndAudits(t *testing.T) {
 		t.Fatalf("status = %d, want 200: %s", code, body)
 	}
 
-	total, live := liveFamilyRows(t, db, fam)
+	total, live := liveFamilyRows(t, newObjectStore(db), fam)
 	if total != 1 {
 		t.Fatalf("want the 1 original row still present, got %d", total)
 	}
@@ -260,14 +259,14 @@ func TestSessionsRevokeUnknownFamilyIs404(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fam := familyOf(t, db, raw)
+	fam := familyOf(t, newObjectStore(db), raw)
 	tok := operatorToken(t, a, "sessions:read", "sessions:write")
 
 	if code, body := sessionsDELETE(t, ts.URL, "/v1/sessions/no-such-family", tok); code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404 for an unknown family: %s", code, body)
 	}
 	// The real family is untouched by the miss.
-	if _, live := liveFamilyRows(t, db, fam); live != 1 {
+	if _, live := liveFamilyRows(t, newObjectStore(db), fam); live != 1 {
 		t.Fatalf("a 404 revoked the wrong family: %d live rows", live)
 	}
 
@@ -290,7 +289,7 @@ func TestSessionsRowPerFamilyInvariant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fam := familyOf(t, db, raw)
+	fam := familyOf(t, newObjectStore(db), raw)
 
 	for i := range 3 {
 		_, next, err := a.Refresh(t.Context(), raw)
@@ -300,7 +299,7 @@ func TestSessionsRowPerFamilyInvariant(t *testing.T) {
 		raw = next
 	}
 
-	rows, err := newTestStore(db).SessionsByFamily("", 0, time.Now())
+	rows, err := newTestStore(newObjectStore(db)).SessionsByFamily("", 0, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -26,8 +26,8 @@ func TestSigningKeysNeverServeKeyMaterial(t *testing.T) {
 	_, a := auditTestAuthd(t)
 	_, ts := newServer(t, a)
 
-	kid := activeKid(t, a.db)
-	key, ok := entityItem(t, a.db, authstore.SigningKeys, kid)
+	kid := activeKid(t, a.obj)
+	key, ok := entityItem(t, a.obj, authstore.SigningKeys, kid)
 	if !ok {
 		t.Fatalf("the slot names %q but no such key is stored", kid)
 	}

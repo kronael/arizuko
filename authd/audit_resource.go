@@ -46,7 +46,7 @@ func (s *server) auditResource() resreg.Resource {
 // entirely, so it must be non-nil even on read-only resources; none of them
 // mutates, so no transaction is ever opened on it. One helper because the
 // reason is the same three times and is easy to get wrong once.
-func (s *server) auditStore() *store.Store { return store.New(s.a.db) }
+func (s *server) auditStore() *store.Store { return store.NewOver(s.a.obj) }
 
 // mountAudit wires GET /v1/audit onto authd's mux.
 func (s *server) mountAudit(m *http.ServeMux) {
@@ -136,7 +136,7 @@ func (s *server) auditHandler(ctx context.Context, x resreg.Execution) (any, err
 	if x.Caller.Folder != "" {
 		f.Folder = x.Caller.Folder
 	}
-	rows, err := audit.Query(ctx, newObjectStore(s.a.db), f)
+	rows, err := audit.Query(ctx, s.a.obj, f)
 	if err != nil {
 		return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 	}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/rand"
-	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -15,6 +14,7 @@ import (
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/authd/authstore"
 	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/obs"
 )
 
@@ -25,12 +25,11 @@ var errReuse = errors.New("refresh token reuse detected")
 // authstore.
 type Authd struct {
 	// st is every question authd asks its store, and it holds no SQL (spec 6/37
-	// step 5). db is the same database, kept because audit.Init, audit.Query and
-	// store.New take a *sql.DB and run their own statements against auth.db —
-	// the ownership half of the seam, tracked as BUGS L251 — and because the
-	// health check pings it.
+	// step 5). obj is the same store one level down, kept because audit.Init and
+	// audit.Query take the driver rather than the questions — the ownership half
+	// of the seam, tracked as BUGS L251.
 	st           *authstore.Store
-	db           *sql.DB
+	obj          objstore.Store
 	accessTTL    time.Duration // short access JWT lifetime (~15m)
 	refreshTTL   time.Duration // rotating refresh lifetime
 	maxAccessTTL time.Duration // longest access TTL ever minted; bounds a retired key's serving window
@@ -45,8 +44,8 @@ type Authd struct {
 	serving []authstore.StoredKey // all keys whose verify window is open (active + recently retired)
 }
 
-func newAuthd(db *sql.DB, accessTTL, refreshTTL, maxAccessTTL time.Duration) (*Authd, error) {
-	a := &Authd{st: newAuthstore(db), db: db, accessTTL: accessTTL, refreshTTL: refreshTTL, maxAccessTTL: maxAccessTTL}
+func newAuthd(obj objstore.Store, accessTTL, refreshTTL, maxAccessTTL time.Duration) (*Authd, error) {
+	a := &Authd{st: authstore.New(obj), obj: obj, accessTTL: accessTTL, refreshTTL: refreshTTL, maxAccessTTL: maxAccessTTL}
 	if err := a.reload(); err != nil {
 		return nil, err
 	}

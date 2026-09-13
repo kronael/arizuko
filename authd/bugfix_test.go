@@ -114,7 +114,7 @@ func concurrentDB(t *testing.T) *sql.DB {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	if err := ensureStorage(db); err != nil {
+	if err := ensureStorage(newObjectStore(db)); err != nil {
 		t.Fatal(err)
 	}
 	return db
@@ -127,7 +127,7 @@ func concurrentDB(t *testing.T) *sql.DB {
 // fires.
 func TestRefreshRotationRaceSingleWinner(t *testing.T) {
 	db := concurrentDB(t)
-	a, err := newAuthd(db, 15*time.Minute, time.Hour, time.Hour)
+	a, err := newAuthd(newObjectStore(db), 15*time.Minute, time.Hour, time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +173,7 @@ func TestRefreshRotationRaceSingleWinner(t *testing.T) {
 // caller "win".
 func TestMarkRefreshUsedAtomicSingleWinner(t *testing.T) {
 	db := concurrentDB(t)
-	raw, err := newTestStore(db).StartRefreshFamily("user:1", []string{"a:read"}, "", time.Hour)
+	raw, err := newTestStore(newObjectStore(db)).StartRefreshFamily("user:1", []string{"a:read"}, "", time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +186,7 @@ func TestMarkRefreshUsedAtomicSingleWinner(t *testing.T) {
 	for range n {
 		go func() {
 			defer wg.Done()
-			won, err := newTestStore(db).ClaimRefreshToken(raw)
+			won, err := newTestStore(newObjectStore(db)).ClaimRefreshToken(raw)
 			if err != nil {
 				return
 			}
@@ -209,7 +209,7 @@ func TestMarkRefreshUsedAtomicSingleWinner(t *testing.T) {
 // root.
 func TestRotateConcurrentSingleActiveKey(t *testing.T) {
 	db := concurrentDB(t)
-	a, err := newAuthd(db, 15*time.Minute, time.Hour, time.Hour)
+	a, err := newAuthd(newObjectStore(db), 15*time.Minute, time.Hour, time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +225,7 @@ func TestRotateConcurrentSingleActiveKey(t *testing.T) {
 	}
 	wg.Wait()
 
-	keys, err := newTestStore(db).SigningKeyMetadata(time.Hour, time.Now())
+	keys, err := newTestStore(newObjectStore(db)).SigningKeyMetadata(time.Hour, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,7 +269,7 @@ func TestRotateConcurrentSingleActiveKey(t *testing.T) {
 // the key it plants still signs nothing.
 func TestSecondKeyCannotBecomeASecondSigner(t *testing.T) {
 	db := testDB(t)
-	a, err := newAuthd(db, 15*time.Minute, time.Hour, time.Hour)
+	a, err := newAuthd(newObjectStore(db), 15*time.Minute, time.Hour, time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,20 +279,20 @@ func TestSecondKeyCannotBecomeASecondSigner(t *testing.T) {
 	}
 	k, _ := auth.NewSigningKey(genKid(time.Now().Add(time.Hour)))
 	privPEM, pubPEM, _ := authstore.EncodeKey(k.Priv)
-	putItem(t, db, authstore.SigningKeys, k.Kid, map[string]string{
+	putItem(t, newObjectStore(db), authstore.SigningKeys, k.Kid, map[string]string{
 		"priv_pem": privPEM, "pub_pem": pubPEM,
 		"created_at": time.Now().Format(time.RFC3339),
 	})
 
 	// Anti-vacuity: the planted key IS in the store, so what follows is about
 	// the slot rather than about a write that never landed.
-	if _, ok := entityItem(t, db, authstore.SigningKeys, k.Kid); !ok {
+	if _, ok := entityItem(t, newObjectStore(db), authstore.SigningKeys, k.Kid); !ok {
 		t.Fatal("the planted key is not in the store; the assertions below prove nothing")
 	}
 	if err := a.reload(); err != nil {
 		t.Fatal(err)
 	}
-	if kid := activeKid(t, db); kid != booted.Kid {
+	if kid := activeKid(t, newObjectStore(db)); kid != booted.Kid {
 		t.Fatalf("the slot names %q, want the boot key %q", kid, booted.Kid)
 	}
 	now, err := a.activeKey()
@@ -322,7 +322,7 @@ func TestRetiredKeyForgeryRejectedThroughAuthd(t *testing.T) {
 	// Backdate the now-retired key's retired_at a few seconds into the past:
 	// inside the 1h serving window (still serves legit pre-retire tokens) yet
 	// unambiguously before a token minted NOW, despite second-resolution times.
-	mergeAttrs(t, db, authstore.SigningKeys, stolen.Kid, map[string]string{
+	mergeAttrs(t, newObjectStore(db), authstore.SigningKeys, stolen.Kid, map[string]string{
 		"retired_at": time.Now().Add(-5 * time.Second).Format(time.RFC3339),
 	})
 	if err := a.reload(); err != nil {

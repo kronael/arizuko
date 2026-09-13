@@ -53,9 +53,9 @@ func (g *gateGrants) FetchGrants(context.Context, string) (GrantsSnapshot, error
 }
 
 // familyOf reads the lineage a raw refresh token belongs to.
-func familyOf(t *testing.T, db *sql.DB, raw string) string {
+func familyOf(t *testing.T, s objstore.Store, raw string) string {
 	t.Helper()
-	r, ok := newTestStore(db).RefreshTokenBySecret(raw)
+	r, ok := newTestStore(s).RefreshTokenBySecret(raw)
 	if !ok {
 		t.Fatal("family of issued token: the token is not in the store")
 	}
@@ -70,10 +70,10 @@ func familyOf(t *testing.T, db *sql.DB, raw string) string {
 // that must exist is what stops these tests passing vacuously.
 func familyRows(t *testing.T, db *sql.DB, fam string) (total, live int) {
 	t.Helper()
-	tokens := entityItems(t, db, authstore.RefreshTokens,
+	tokens := entityItems(t, newObjectStore(db), authstore.RefreshTokens,
 		objstore.Cmp{Attr: "family_id", Op: objstore.Eq, Value: fam})
 	total = len(tokens)
-	if familyRevoked(t, db, fam) {
+	if familyRevoked(t, newObjectStore(db), fam) {
 		return total, 0
 	}
 	for _, it := range tokens {
@@ -102,7 +102,7 @@ func familyRows(t *testing.T, db *sql.DB, fam string) (total, live int) {
 // which caller won, so it is meaningful in both worlds.
 func TestRefreshFamilyKillOutrunsNoSuccessor(t *testing.T) {
 	db := concurrentDB(t)
-	a, err := newAuthd(db, 15*time.Minute, time.Hour, time.Hour)
+	a, err := newAuthd(newObjectStore(db), 15*time.Minute, time.Hour, time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestRefreshFamilyKillOutrunsNoSuccessor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fam := familyOf(t, db, r0)
+	fam := familyOf(t, newObjectStore(db), r0)
 
 	type outcome struct {
 		refresh string
@@ -185,18 +185,18 @@ func TestRefreshFamilyKillOutrunsNoSuccessor(t *testing.T) {
 // logged out by an error that changed nothing else.
 func TestRefreshClaimRollsBackWhenSuccessorInsertFails(t *testing.T) {
 	db := concurrentDB(t)
-	raw, err := newTestStore(db).StartRefreshFamily("1", []string{"tasks:read"}, "", time.Hour)
+	raw, err := newTestStore(newObjectStore(db)).StartRefreshFamily("1", []string{"tasks:read"}, "", time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fam := familyOf(t, db, raw)
+	fam := familyOf(t, newObjectStore(db), raw)
 	if _, err := db.Exec(
 		`CREATE TRIGGER f36_block_successor BEFORE INSERT ON refresh_tokens
 		   BEGIN SELECT RAISE(ABORT, 'successor insert blocked'); END`); err != nil {
 		t.Fatal(err)
 	}
 
-	newRaw, won, err := newTestStore(db).ClaimAndRotateRefresh(raw, fam, "1", []string{"tasks:read"}, "", time.Hour)
+	newRaw, won, err := newTestStore(newObjectStore(db)).ClaimAndRotateRefresh(raw, fam, "1", []string{"tasks:read"}, "", time.Hour)
 	if err == nil {
 		t.Fatal("a blocked successor INSERT must surface as an error, not a silent no-op")
 	}
@@ -231,7 +231,7 @@ func TestRefreshClaimRollsBackWhenSuccessorInsertFails(t *testing.T) {
 //	redeem:  unparked -> claim must FAIL and mint nothing
 func TestRefreshAfterLogoutRevokeMintsNoSuccessor(t *testing.T) {
 	db := concurrentDB(t)
-	a, err := newAuthd(db, 15*time.Minute, time.Hour, time.Hour)
+	a, err := newAuthd(newObjectStore(db), 15*time.Minute, time.Hour, time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +242,7 @@ func TestRefreshAfterLogoutRevokeMintsNoSuccessor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fam := familyOf(t, db, r0)
+	fam := familyOf(t, newObjectStore(db), r0)
 
 	done := make(chan error, 1)
 	go func() {
@@ -252,7 +252,7 @@ func TestRefreshAfterLogoutRevokeMintsNoSuccessor(t *testing.T) {
 
 	<-g.entered
 	// This is verbatim what oauth.logout does with the caller's cookie.
-	if _, err := newTestStore(db).RevokeFamily(fam); err != nil {
+	if _, err := newTestStore(newObjectStore(db)).RevokeFamily(fam); err != nil {
 		t.Fatal(err)
 	}
 	close(g.release)

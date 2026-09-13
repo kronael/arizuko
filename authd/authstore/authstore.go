@@ -118,3 +118,12 @@ func HashToken(t string) string {
 // so the width of this layout is a property of the data rather than something a
 // comparison depends on (BUGS L97 is the cost of the other arrangement).
 func now() string { return time.Now().UTC().Format(time.RFC3339) }
+
+// Reachable asks the store the cheapest question it has: one point read of the
+// item that names the signing key. It answers authd's health check, where the
+// claim is that the STORE answers — an engine reached over a network offers no
+// pool to ping, and a pool that pings proves nothing about the entities.
+func (s *Store) Reachable() error {
+	_, _, err := s.point(SigningKeySlot, activeSlot)
+	return err
+}

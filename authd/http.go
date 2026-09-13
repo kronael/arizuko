@@ -180,8 +180,11 @@ func (s *server) mux(cfg *core.Config) *http.ServeMux {
 }
 
 func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	if err := s.a.db.Ping(); err != nil {
-		http.Error(w, "db unreachable", http.StatusServiceUnavailable)
+	// The health of authd is whether its STORE answers, which is a question
+	// authstore asks — a reachable pool is not the same claim, and on an
+	// instance served from an endpoint there is no pool to ask.
+	if err := s.a.st.Reachable(); err != nil {
+		http.Error(w, "store unreachable", http.StatusServiceUnavailable)
 		return
 	}
 	_, _ = w.Write([]byte("ok"))

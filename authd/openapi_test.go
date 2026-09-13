@@ -11,7 +11,7 @@ import (
 )
 
 // testMux builds authd's real routing table. A real Authd is required, not a
-// zero server: mountAudit reads a.db at REGISTRATION time, so a nil one panics
+// zero server: mountAudit reads a.obj at REGISTRATION time, so a nil one panics
 // before any route is mounted. No handler is ever invoked here — the probe only
 // reads the pattern mux.Handler resolves to.
 func testMux(t *testing.T, cfg *core.Config) *http.ServeMux {

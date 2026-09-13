@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/db_utils"
+	"github.com/kronael/arizuko/store"
 )
 
 // auth.db lives at store/authd/auth.db — its OWNER's subdirectory, the only
@@ -33,13 +34,15 @@ func TestResolveDSN_UnderStore(t *testing.T) {
 // authd must never create auth.db: a wrong DATA_DIR (an unmounted store/authd/,
 // an unfinished move) would otherwise migrate a fresh file, mint NEW signing
 // keys, and invalidate every live session while /health stayed green
-// (spec 5/16 step 7).
+// (spec 5/16 step 7). The refusal is the opener's, so this asks the opener.
 func TestResolveDSN_MissingAuthDBFailsLoud(t *testing.T) {
-	_, err := resolveDSN("", t.TempDir())
-	if err == nil {
-		t.Fatal("resolveDSN accepted a data dir with no auth.db; it must fail loud")
+	dsn, err := resolveDSN("", t.TempDir())
+	if err != nil {
+		t.Fatalf("resolveDSN: %v", err)
 	}
-	if !strings.Contains(err.Error(), "auth.db") {
+	if _, _, err := store.OwnerDriver(store.OwnerAuthd, dsn); err == nil {
+		t.Fatal("the opener accepted a data dir with no auth.db; it must fail loud")
+	} else if !strings.Contains(err.Error(), "auth.db") {
 		t.Errorf("error must name the missing file, got: %v", err)
 	}
 }

@@ -17,30 +17,27 @@ import (
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/authd/authstore"
 	"github.com/kronael/arizuko/objstore/sqlstore"
+	"github.com/kronael/arizuko/store"
 )
 
-// ensureStorage prepares db to serve authd: every entity authstore reads, and
+// ensureStorage prepares d to serve authd: every entity authstore reads, and
 // the one audit records into.
 //
 // audit declares its entity beside the code that writes it and every owner
 // applies the same list, so a daemon with no migrations of its own still has
 // somewhere to record — without which every Emit would warn and drop the row
 // while the daemon reported healthy (BUGS F29 is what that costs).
-func ensureStorage(db *sql.DB) error {
+func ensureStorage(d store.Driver) error {
 	ctx := context.Background()
-	s := newObjectStore(db)
 	for _, entity := range authstore.Entities {
-		if err := s.CreateEntity(ctx, entity); err != nil {
+		if err := d.CreateEntity(ctx, entity); err != nil {
 			return err
 		}
 	}
-	return audit.EnsureEntities(ctx, s)
+	return audit.EnsureEntities(ctx, d)
 }
 
-// newObjectStore is the driver choice, in one place. sqlstore serves both
-// SQLite and Postgres off the DSN db_utils.Open already read, so this line does
-// not change when the engine does.
+// newObjectStore is the driver a pool is reached through. store.OwnerDriver
+// picks it for the running daemon; this is what a test holding a pool of its
+// own builds.
 func newObjectStore(db *sql.DB) *sqlstore.Store { return sqlstore.New(db) }
-
-// newAuthstore wraps that driver in the questions authd asks of it.
-func newAuthstore(db *sql.DB) *authstore.Store { return authstore.New(newObjectStore(db)) }

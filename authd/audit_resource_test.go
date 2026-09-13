@@ -22,7 +22,7 @@ import (
 func auditTestAuthd(t *testing.T) (*sql.DB, *Authd) {
 	t.Helper()
 	db := testDB(t)
-	a, err := newAuthd(db, 15*time.Minute, 30*24*time.Hour, time.Hour)
+	a, err := newAuthd(newObjectStore(db), 15*time.Minute, 30*24*time.Hour, time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -14,7 +14,6 @@ import (
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
@@ -40,18 +39,21 @@ func main() {
 		listenAddr = ":8080"
 	}
 
-	db, err := db_utils.Open(dsn)
+	// store.OwnerDriver is the door: on an instance served from a DynamoDB
+	// endpoint it dials authd's tables there and authd holds no pool at all,
+	// and otherwise it opens the database dsn names.
+	d, closeStore, err := store.OwnerDriver(store.OwnerAuthd, dsn)
 	if err != nil {
-		slog.Error("open db", "err", err)
+		slog.Error("open authd's store", "err", err)
 		os.Exit(1)
 	}
-	defer db.Close()
-	if err := ensureStorage(db); err != nil {
+	defer closeStore() //nolint:errcheck // the process is ending
+	if err := ensureStorage(d); err != nil {
 		slog.Error("prepare storage", "err", err)
 		os.Exit(1)
 	}
 
-	a, err := newAuthd(db, accessTTL, refreshTTL, maxAccessTTL)
+	a, err := newAuthd(d, accessTTL, refreshTTL, maxAccessTTL)
 	if err != nil {
 		slog.Error("init signer", "err", err)
 		os.Exit(1)
@@ -73,7 +75,7 @@ func main() {
 		slog.Info("GRANTS_URL unset: grants unwired, sessions are empty-scope")
 	}
 
-	audit.Init(newObjectStore(db), os.Getenv("ARIZUKO_INSTANCE"))
+	audit.Init(d, os.Getenv("ARIZUKO_INSTANCE"))
 	audit.Emit(context.Background(), audit.Event{
 		Category: audit.CategorySystem,
 		Action:   "daemon.start",
@@ -135,22 +137,23 @@ func main() {
 // is the only path compose binds into this container, so authd cannot reach
 // routd's or onbod's DB at all (spec 5/16 step 7). authd owns auth.db; it must
 // NOT reach another daemon's DB (CLAUDE.md DB-ownership rule).
+//
+// An instance served from an endpoint names no file, so neither env is required
+// there and store.OwnerDriver ignores what this answers. store.OwnerDriver is
+// also where the strictness lives: authd never creates its own database, and a
+// wrong or unmounted path would otherwise fill a fresh empty file, minting NEW
+// signing keys and invalidating every live session while authd reports healthy.
 func resolveDSN(database, dataDir string) (string, error) {
 	if database != "" {
 		return database, nil
 	}
+	if store.Served() {
+		return "", nil
+	}
 	if dataDir == "" {
 		return "", errMissingDB
 	}
-	// Strict: authd never creates auth.db. A wrong or unmounted path would
-	// otherwise fill a fresh empty file, minting NEW signing keys and
-	// invalidating every live session while authd reports healthy
-	// (spec 5/16 step 7). `arizuko create` seeds the file.
-	dsn := store.OwnerDBPath(filepath.Join(dataDir, "store"), store.OwnerAuthd)
-	if err := db_utils.RequireDB(dsn); err != nil {
-		return "", err
-	}
-	return dsn, nil
+	return store.OwnerDBPath(filepath.Join(dataDir, "store"), store.OwnerAuthd), nil
 }
 
 var errMissingDB = errors.New("DATABASE or DATA_DIR env required")

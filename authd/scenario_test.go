@@ -29,7 +29,7 @@ import (
 func openSecondDB(t *testing.T) (*sql.DB, error) {
 	t.Helper()
 	db := dbtest.Open(t)
-	if err := ensureStorage(db); err != nil {
+	if err := ensureStorage(newObjectStore(db)); err != nil {
 		return nil, err
 	}
 	return db, nil
@@ -164,7 +164,7 @@ func TestHTTPRetiredKeyVerifiesWithinWindow(t *testing.T) {
 func TestHTTPRetiredKeyFallsOutOfWindow(t *testing.T) {
 	db := testDB(t)
 	// maxAccessTTL tiny: the key retired by Rotate is instantly past its window.
-	a, err := newAuthd(db, time.Minute, time.Hour, time.Millisecond)
+	a, err := newAuthd(newObjectStore(db), time.Minute, time.Hour, time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,7 +267,7 @@ func TestHTTPRefreshUnknownTokenRejected(t *testing.T) {
 func TestHTTPRefreshExpiredRejected(t *testing.T) {
 	db := testDB(t)
 	// refreshTTL negative → the issued refresh token is already expired.
-	a, err := newAuthd(db, 15*time.Minute, -time.Hour, time.Hour)
+	a, err := newAuthd(newObjectStore(db), 15*time.Minute, -time.Hour, time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -17,14 +17,14 @@ import (
 // these bodies pass.
 func seedIdentity(t *testing.T, a *Authd, id, name string, subs ...string) {
 	t.Helper()
-	putItem(t, a.db, authstore.AuthUsers, id, map[string]string{
+	putItem(t, a.obj, authstore.AuthUsers, id, map[string]string{
 		"name": name, "created_at": "2026-01-01T00:00:00Z",
 	})
 	for _, sub := range subs {
 		if _, _, ok := strings.Cut(sub, ":"); !ok {
 			t.Fatalf("seed sub %q is not <provider>:<id>", sub)
 		}
-		putItem(t, a.db, authstore.OAuthIdentities, sub, map[string]string{
+		putItem(t, a.obj, authstore.OAuthIdentities, sub, map[string]string{
 			"user_id": id, "linked_at": "2026-01-01T00:00:00Z",
 		})
 	}
