@@ -47,6 +47,24 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Changed
 
+- **An instance's store is a network service** (spec `6/42`). Every owner —
+  routd, runed, authd, onbod and each adapter — lives on ONE DynamoDB-protocol
+  server per instance, reached over TLS, with tables named `<owner>.<entity>`.
+  `DYNAMODB_URL` is the switch: set it and no daemon opens a file. The
+  deployment is ExtendDB over PostgreSQL, both containers with their data under
+  the instance directory; the same driver points at Amazon DynamoDB unchanged,
+  so the store can be a managed service instead of a disk. Each daemon signs as
+  itself with its own access key under a policy bounded to the owners it
+  reaches, which is what the per-owner bind mount used to do. Migration is
+  hand-driven: the ten `migrate-*` subcommands are gone and nothing replaced
+  them, because an instance moves once, under an operator who watches it.
+- **Ranked message search runs in the router, with no full-text engine under
+  it** (spec `6/42` §8). `find_messages` answers from an in-memory BM25 index
+  routd rebuilds from the store at boot — 260 ms and 19 MB for krons' 24,296
+  messages, with the same top ten as FTS5 on twelve measured queries. The
+  grammar is terms, `"phrases"` and `-term`; a search during the boot walk is
+  refused with "index warming" rather than answered empty, because an empty hit
+  list reads as "no such message". `store` issues no SQL statement at all now.
 - **The model gateway owns spend; arizuko stores none** (spec `6/39`).
   A second ledger can only agree, lag, or lie, so there is one number and
   LiteLLM holds it. A folder is a gateway team by identity — the folder path is
@@ -115,6 +133,16 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Fixed
 
+- **A bot reply could not be written to a served store at all.** The write that
+  says "this chat exists" names no attribute, and the driver rendered it as an
+  empty update the server refused — which took the whole batch, and with it
+  every agent reply. It renders as the removal of a name the model never
+  writes, and the conformance suite pins it on both drivers (BUGS `L292`).
+- **An operator write could land in a file no daemon reads.** The store door
+  branches on `DYNAMODB_URL`, and `send`, `route` and their siblings resolved
+  an instance's directory without loading that instance's environment, so on a
+  served instance they wrote to SQLite and reported success. Naming an instance
+  loads its environment (BUGS `L294`).
 - **The agent never saw reply excerpts or its own user memory file.** Both
   were built and neither reached the prompt: 374 of 374 messages on one
   instance, 2146 of 2146 on another.
