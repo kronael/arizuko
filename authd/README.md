@@ -45,10 +45,6 @@ invariant a column could not:
   family is one guarded write instead of an UPDATE across every row the login
   ever rotated through.
 
-`arizuko migrate-authstore <instance>` moves an existing `auth.db` onto them,
-one way, with the daemon stopped. It sets the old tables aside as
-`<name>_v1` rather than dropping them.
-
 ## Entry points
 
 - Binary: `authd/main.go`
@@ -87,14 +83,16 @@ one way, with the daemon stopped. It sets the old tables aside as
 ## Dependencies
 
 - `auth` (signing/verify primitives), `core`, `store`, `audit`, `obs`, `resreg`
-- Direct SQLite via `modernc.org/sqlite` (owns `auth.db`)
+- `objstore` through `store.OwnerDriver` — the endpoint the instance is
+  served from, or authd's own file
 - `routd` (optional, via `GRANTS_URL`) — authd fetches the login-time scope
   ceiling from routd at login and refresh; unset = empty-scope sessions.
 
 ## Configuration
 
-- `DATABASE` / `DATA_DIR` — `auth.db` DSN (`DATA_DIR` resolves `<dir>/store/authd/auth.db`
-  alongside `routd.db`/`runed.db`/`onbod.db` so one `store/` chown covers all DBs)
+- `DATABASE` / `DATA_DIR` — the file authd opens when the instance keeps one
+  (`DATA_DIR` resolves `<dir>/store/authd/auth.db`, beside the other owners so
+  one `store/` chown covers them). Ignored once `DYNAMODB_URL` names an endpoint
 - `AUTHD_SERVICE_KEY` — authd's bootstrap secret (self-mint `service:authd`)
 - `AUTHD_SERVICE_KEYS` — `principal=secret,...` map for daemon exchange
 - `GRANTS_URL` — routd grants endpoint (`http://routd:8080`); unset → empty-scope sessions

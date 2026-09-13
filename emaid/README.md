@@ -88,10 +88,6 @@ Every read is a point read, so the partition is the identifier rather than a
 constant naming the daemon: nothing wants two items co-located, and
 `email_msg_ids` gains an item per inbound mail with no sweep.
 
-`arizuko migrate-emaid --db <path>/emaid.db` moves a database from the two
-tables emaid used to own onto those entities, setting the old tables aside as
-`_v1`. `--dry-run` reads and checks without writing.
-
 chanlib's `outbound_dedup` and `inbound_pending` sit on the same store as
 emaid's own entities and are chanlib's to declare, read through
 `chanlib/chanstore`. emaid opens through `chanlib.OpenAdapterStore`, the same

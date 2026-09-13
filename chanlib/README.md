@@ -91,10 +91,6 @@ resetting the row's backoff. `next_attempt_at` and `first_seen_at` are declared
 ordered at `core.TS`'s width, so a value of another width is refused rather than
 sorted into the wrong place (BUGS `L97`).
 
-`arizuko migrate-chanlib <instance>` moves every adapter database under an
-instance's store onto those entities, setting the old tables aside as `_v1`.
-`--dry-run` reads and checks without writing; `--db <path>` does one file.
-
 ## Dependencies
 
 - `auth` — service-token exchange, ES256 verification, JWKS fetch

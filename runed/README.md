@@ -26,7 +26,7 @@ in-process `ServeMCP`. Spec: `specs/5/P-runed.md`.
 
 ## Entities owned
 
-`runed.db` (separate from routd's `routd.db`): `spawns`, `session_log`,
+The `runed` owner, separate from routd's: `spawns`, `session_log`,
 `circuit_breaker`, `audit_log` — runtime execution state with no home in routd.
 These are runtime state, not manifest-addressable config, so `/openapi.json`
 exposes only the `audit` read path (emitted also for aggregator uniformity).
@@ -44,8 +44,6 @@ operations address a spawn by run id with no folder in hand and three of them
 are guarded transitions; `session_log` takes the folder and a time key, because
 every read is "the n newest in this folder" and nothing sweeps it; and
 `circuit_breaker` takes the folder as the whole coordinate.
-
-Moving an existing file: `arizuko migrate-runed <instance>` (`--dry-run` first).
 
 ## Entry points
 
@@ -105,7 +103,7 @@ Spec: `specs/5/O-observability.md`.
 
 ### Audit trail
 
-runed writes `audit_log` rows into its OWN `runed.db`; each daemon owns its own
+runed writes `audit_log` rows into its OWN tables; each daemon owns its own
 audit trail and correlation across them is `turn_id` (spec `5/I`). Two actions, category `agent`, surface
 `rest`:
 
@@ -127,7 +125,8 @@ writes no `spawns` row at all. See `runed/audit.go`.
 - `manager.go` — Manager: run lifecycle, concurrency, queue, circuit breaker
 - `runtime.go` — Runtime interface (Run, Kill); RunSpec
 - `docker.go` — dockerRuntime: spawn / steer / kill (ExternalMCP)
-- `db.go` — runed.db spawn/session persistence
+- `db.go` — spawn/session persistence, and the boot that dials the endpoint
+  or opens the file
 
 ## Status
 
