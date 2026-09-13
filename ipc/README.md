@@ -1,8 +1,7 @@
 # ipc
 
 MCP host — the in-container agent's only way to the host. Runs as a
-subsystem inside the `routd` process; per `specs/5/17-openapi-mcp.md`
-this is the **MCP host** issuer in the platform-token model.
+subsystem inside the `routd` process, one socket per turn.
 
 ## Purpose
 
@@ -30,58 +29,35 @@ the unix-socket transport, the hot-tier tools, and the shared authz +
 visibility closures (`authorizeCall`, `registerRaw`/`granted`); it loses
 only the cold-tier per-tool bodies.
 
-## Capability token (planned, per `specs/5/17-openapi-mcp.md` §"Auth model")
+## The turn's credential is the socket
 
-At agent socket bind, the MCP host mints a capability token via
-`auth.Mint(...)` carrying:
+There is no minted agent token. The turn's identity is the unix socket
+itself: routd binds one per turn at `ipc/<folder>/gated.sock`, chowns it to
+the spawning uid, and every accept is checked against the kernel-attested
+peer uid via `SO_PEERCRED`. The folder comes from the socket path, which the
+host chose — never from anything the agent sends. Spec `5/17`'s auth-model
+table names this directly: the agent surface's identity source is "the
+in-container socket, folder-bound at spawn".
 
-- `sub: "agent:<folder>"`
-- `folder: <group folder>`
-- `scope: <snapshot of the folder's granted actions>`
-- `iss: "mcp-host"`
+That is what makes the two layers work. Visibility is
+`auth.EffectiveActions` over the folder's `acl` rows, so a tool the caller
+holds at no scope is never registered; the call is then authorized by
+`db.AuthorizeTurn(sender, turn-folder, target, "mcp:"+tool, params)`, the gate
+routd injects. One row set feeds both, so the listing and the gate cannot
+disagree.
 
-The token is handed to the agent at handshake time (env var or first
-JSON-RPC reply — exact carrier TBD) and used as
-`Authorization: Bearer <jwt>` on every cross-daemon HTTP call the
-agent makes. Today the host does not mint tokens; tools execute
-in-process against the local store.
+## Cross-owner tools federate
 
-## Tool federation (today vs planned)
+A tool over routd's own tables is an in-process call. A tool over another
+owner's tables is an HTTP call to that owner with the `service:routd` bearer —
+`invite_create`/`invite_list`/`invite_revoke` go to onbod through
+`routd/onbod.go`'s `httpOnbod`, not into onbod's tables. ipc never opens a
+second owner's store.
 
-**Today (shipped):** every tool runs in-process inside routd. Tools
-calling tables routd owns (groups, routes, sessions, channels,
-messages, grants) hit `store.*` directly. Tools touching
-foreign-owned tables (invite ops → `invites` in onbod) **also** hit
-the shared SQLite directly — that's the cross-boundary leak
-`specs/5/16-mcp-rest-unification.md` closes.
-
-**Planned (per spec Phase 4):** when a tool touches routd-owned tables
-it stays an in-process Go call. When it touches a foreign daemon's
-tables it becomes an HTTP forward to that daemon's `/v1/*` with the
-agent's capability token:
-
-```
-agent → ipc.tools/call(pause_task, ...)
-       → ipc.HasScope(token, "tasks", "write")          → 403 if no
-       → ipc HTTP-PATCH timed/v1/tasks/{id} {paused}
-              Authorization: Bearer <agent-token>
-       → timed.VerifyHTTP + scope/folder check + execute
-       → JSON-RPC result back to agent
-```
-
-The MCP host becomes a thin per-agent API gateway: local for own
-domain, HTTP forward for cross-daemon. Single socket per agent stays
-the model. Agent-tailored tool names (`send_voice`, `escalate_group`,
-`schedule_task`) are preserved — each maps to one or a small
-composition of `/v1/*` calls.
-
-Resource ownership map (drives which tools forward):
-
-| Tool family                                       | Backing tables                                               | After Phase 4    |
-| ------------------------------------------------- | ------------------------------------------------------------ | ---------------- |
-| social verbs, `*_routes`, `*_grants`, `inspect_*` | groups, routes, sessions, channels, messages, grants (routd) | local in-process |
-| `schedule_task`, task ops, `inspect_tasks`        | scheduled_tasks, task_run_logs (timed)                       | HTTP → timed     |
-| invite/admission ops                              | invites, admissions, auth_users (onbod)                      | HTTP → onbod     |
+The cold-tier management tools are not hand-rolled here at all: routd mounts
+its resreg resources onto this server through the `postBuild` seams, so one
+handler serves both `/v1/<name>` and the MCP facade with a different injected
+Gate (spec `5/16`).
 
 ## Tool surface
 
@@ -147,11 +123,12 @@ empty. ACL gate is post-fetch `JIDRoutedToFolder` per row.
 
 ## Public API
 
-- `ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, rules []string, expectedUID int, callerSub string, postBuild ...func(*server.MCPServer)) (stop func(), err error)`
+- `ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, isRoot bool, expectedUID int, callerSub string, postBuild ...func(*server.MCPServer)) (stop func(), err error)`
   — `expectedUID` is the kernel-attested uid required on every accept
-  (1000 = ant image's `node` user in prod; ≤0 disables the check for
-  tests). `callerSub` is the agent's auth subject, stamped into audit
-  rows as the actor. `postBuild` are routd's spec 5/16 resreg seams that
+  (1000 = the ant image's `node` user in prod; ≤0 disables the check for
+  tests). `isRoot` marks an elevated `/root` turn, where the socket
+  authorizes every call. `callerSub` is the agent's auth subject, stamped
+  into audit rows as the actor. `postBuild` are routd's resreg seams that
   mount the cold-tier resource tools onto the server. Returns a stop func
   that tears down the listener.
 - `GatedFns` — callbacks into the host daemon, routd (enqueue, register
@@ -163,7 +140,8 @@ empty. ACL gate is post-fetch `JIDRoutedToFolder` per row.
 
 ## Dependencies
 
-- `core`, `auth`, `grants`, `router`, `mark3labs/mcp-go`
+- `audit`, `auth`, `chanlib`, `core`, `groupfolder`, `mountsec`, `obs`,
+  `resreg`, `router`, `mark3labs/mcp-go`
 
 ## Files
 
@@ -172,15 +150,16 @@ empty. ACL gate is post-fetch `JIDRoutedToFolder` per row.
 - `inspect.go` — read-only introspection (`inspect_routing`,
   `inspect_tasks`, `inspect_session`, `inspect_identity`,
   `inspect_messages`, `find_messages`)
-- `connector.go` — MCP HTTP connector broker (spec 5/13)
+- `connector.go` — the per-folder MCP HTTP connector catalog (spec 5/13)
+- `extcall.go` — the call into one connector's tools
 - `SECURITY.md` — threat model (peer UID, path resolution, grants)
 
 ## Related docs
 
 - `ARCHITECTURE.md` (IPC section)
 - `specs/5/3-inspect-tools.md`
-- `specs/5/17-openapi-mcp.md` — MCP host's role as token issuer +
-  HTTP-federation pattern for foreign-domain tools
+- `specs/5/17-openapi-mcp.md` — the auth model: one evaluator, two identity
+  sources, the gate injected per surface
 - `specs/5/13-ext-mcp.md` — MCP-subprocess tool catalog
 - `../auth/README.md` — `Authorize` / identity resolution
 - `../routd/README.md` — host process; routd-owned tables stay local
