@@ -19,7 +19,7 @@ import (
 // (spec 5/G item 6, BUGS F31).
 //
 // It reads AND writes routd's /v1/engagement over HTTP rather than chat_reply_state
-// out of dbRoutd: routd owns those columns, applies the folder containment, and
+// through dashd's own handle: routd owns those columns, applies the folder containment, and
 // writes the audit row inside the mutation's own transaction. Operator-only.
 func (d *dash) handleEngagement(w http.ResponseWriter, r *http.Request) {
 	if !d.requireOperator(w, r) {

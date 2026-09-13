@@ -188,7 +188,7 @@ func (d *dash) handleTaskAction(w http.ResponseWriter, r *http.Request) {
 	if _, ok := d.requireAdmin(w, r, "**"); !ok {
 		return
 	}
-	if d.adminDB() == nil {
+	if d.routdStore() == nil {
 		http.Error(w, "db unavailable", http.StatusServiceUnavailable)
 		return
 	}
@@ -250,7 +250,7 @@ func (d *dash) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 	if _, ok := d.requireAdmin(w, r, "**"); !ok {
 		return
 	}
-	if d.adminDB() == nil {
+	if d.routdStore() == nil {
 		http.Error(w, "db unavailable", http.StatusServiceUnavailable)
 		return
 	}

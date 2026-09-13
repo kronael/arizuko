@@ -26,7 +26,7 @@ func newDashServer(t *testing.T) (*httptest.Server, *testutils.Inst, string) {
 	if err := os.MkdirAll(groupsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{dbRoutd: inst.DB, dbOnbod: inst.DB, dbPath: "memory", groupsDir: groupsDir,
+	d := &dash{routd: over(inst.DB), onbod: over(inst.DB), dbPath: "memory", groupsDir: groupsDir,
 		routdURL: stubRoutd(t, inst.DB)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
@@ -66,7 +66,7 @@ func TestMemoryEndpoint(t *testing.T) {
 	srv, inst, groupsDir := newDashServer(t)
 
 	folder := "alice"
-	seedFolder(t, inst.DB, folder)
+	seedFolder(t, over(inst.DB), folder)
 	if err := os.MkdirAll(filepath.Join(groupsDir, folder), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestGroupList(t *testing.T) {
 	srv, inst, _ := newDashServer(t)
 
 	for _, f := range []string{"alpha", "bravo"} {
-		seedFolder(t, inst.DB, f)
+		seedFolder(t, over(inst.DB), f)
 	}
 
 	resp, err := opGet(t, srv.URL+"/dash/groups/")
@@ -128,7 +128,7 @@ func TestGroupListUsage(t *testing.T) {
 
 	folder := "eng"
 	now := time.Now().UTC()
-	seedFolder(t, inst.DB, folder)
+	seedFolder(t, over(inst.DB), folder)
 	// What the gateway metered today: 700 tokens, 15 cents.
 	stubMeter(t, true, stubSpendRow{Folder: folder, Tokens: 700, CostCents: 15})
 	// Insert 3 messages routed to this folder.
@@ -170,7 +170,7 @@ func TestTaskList(t *testing.T) {
 		{"task-two", "bob", "0 9 * * *"},
 	}
 	for _, tk := range tasks {
-		seedScheduledTask(t, inst.DB, core.Task{
+		seedScheduledTask(t, over(inst.DB), core.Task{
 			ID: tk.id, Owner: tk.owner, ChatJID: tk.owner, Prompt: "do stuff",
 			Cron: tk.cron, Status: "active",
 		})

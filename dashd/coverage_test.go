@@ -21,18 +21,18 @@ func TestTasksPartialRows(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
 	nextRun := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
-	seedScheduledTask(t, db, core.Task{
+	seedScheduledTask(t, over(db), core.Task{
 		ID: "t1", Owner: "g1", ChatJID: "c", Prompt: "p", Cron: "* * * * *",
 		NextRun: &nextRun, Status: "active",
 		Created: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 	})
 	// A task carrying NO cron and no next_run — the one-shot that has fired, and
 	// the branch that renders an absent attribute.
-	seedScheduledTask(t, db, core.Task{
+	seedScheduledTask(t, over(db), core.Task{
 		ID: "t2", Owner: "g2", ChatJID: "c", Prompt: "p", Status: "paused",
 		Created: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC),
 	})
-	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
+	d := &dash{routd: over(db), routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := asOperator(httptest.NewRequest("GET", "/dash/tasks/x/list", nil))
@@ -52,10 +52,10 @@ func TestTasksPartialRows(t *testing.T) {
 func TestTasksPartialXSS(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
-	seedScheduledTask(t, db, core.Task{
+	seedScheduledTask(t, over(db), core.Task{
 		ID: "<script>", Owner: "</td>", Cron: "x", Status: "active",
 	})
-	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
+	d := &dash{routd: over(db), routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := asOperator(httptest.NewRequest("GET", "/dash/tasks/x/list", nil))
@@ -77,7 +77,7 @@ func TestActivityFullPage(t *testing.T) {
 		ID: "m1", ChatJID: "c1", Sender: "s1", Content: "hi there",
 		Timestamp: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), Source: "tel", Verb: "say",
 	})
-	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
+	d := &dash{routd: over(db), routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := asOperator(httptest.NewRequest("GET", "/dash/activity/", nil))
@@ -109,7 +109,7 @@ func TestActivityPagination(t *testing.T) {
 			Timestamp: ts, Source: "tel", Verb: "say",
 		})
 	}
-	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
+	d := &dash{routd: over(db), routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -163,7 +163,7 @@ func TestActivityPartialRows(t *testing.T) {
 		ID: "m2", ChatJID: "c", Sender: "s", Content: "short",
 		Timestamp: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC), Source: "disc",
 	})
-	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
+	d := &dash{routd: over(db), routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := asOperator(httptest.NewRequest("GET", "/dash/activity/x/recent", nil))
@@ -188,7 +188,7 @@ func TestActivityPartialXSS(t *testing.T) {
 		ID: "m1", ChatJID: "<c>", Sender: "<s>", Content: "<b>evil</b>",
 		Timestamp: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), Source: "<src>", Verb: "<v>",
 	})
-	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
+	d := &dash{routd: over(db), routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := httptest.NewRequest("GET", "/dash/activity/x/recent", nil)
@@ -207,11 +207,11 @@ func TestActivityPartialXSS(t *testing.T) {
 func TestGroupsWithRoutes(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
-	seedFolder(t, db, "root")
-	seedFolder(t, db, "root/child")
-	seedRoute(t, db, core.Route{Seq: 1, Match: "tel:*", Target: "root"})
-	seedRoute(t, db, core.Route{Seq: 2, Match: "disc:*", Target: "root/child"})
-	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
+	seedFolder(t, over(db), "root")
+	seedFolder(t, over(db), "root/child")
+	seedRoute(t, over(db), core.Route{Seq: 1, Match: "tel:*", Target: "root"})
+	seedRoute(t, over(db), core.Route{Seq: 2, Match: "disc:*", Target: "root/child"})
+	d := &dash{routd: over(db), routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := asOperator(httptest.NewRequest("GET", "/dash/groups/", nil))
@@ -231,8 +231,8 @@ func TestGroupsWithRoutes(t *testing.T) {
 func TestGroupsRoutesEmpty(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
-	seedFolder(t, db, "g1")
-	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
+	seedFolder(t, over(db), "g1")
+	d := &dash{routd: over(db), routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := asOperator(httptest.NewRequest("GET", "/dash/groups/", nil))
@@ -249,7 +249,7 @@ func TestWriteGroupRoutesQueryError(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
+	d := &dash{routd: over(db), routdURL: stubRoutd(t, db)}
 	w := httptest.NewRecorder()
 	d.writeGroupRoutes(w, "g1") // must not panic; renders inline error banner
 	body := w.Body.String()
@@ -266,9 +266,9 @@ func TestWriteGroupRoutesQueryError(t *testing.T) {
 func TestHandleMemoryDropdown(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
-	seedFolder(t, db, "alpha")
-	seedFolder(t, db, "beta")
-	d := &dash{dbRoutd: db, groupsDir: t.TempDir(), routdURL: stubRoutd(t, db)}
+	seedFolder(t, over(db), "alpha")
+	seedFolder(t, over(db), "beta")
+	d := &dash{routd: over(db), groupsDir: t.TempDir(), routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := asOperator(httptest.NewRequest("GET", "/dash/memory/", nil))
@@ -299,8 +299,8 @@ func TestHandleMemorySelectedGroup(t *testing.T) {
 	}
 	db := routdDB(t)
 	defer db.Close()
-	seedFolder(t, db, folder)
-	d := &dash{dbRoutd: db, groupsDir: groups, routdURL: stubRoutd(t, db)}
+	seedFolder(t, over(db), folder)
+	d := &dash{routd: over(db), groupsDir: groups, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := asOperator(httptest.NewRequest("GET", "/dash/memory/?group="+folder, nil))
@@ -484,7 +484,7 @@ func TestDashRejectsUnsignedXUserSub(t *testing.T) {
 	ks, _ := proxydBearerKS(t)
 	db := routdDB(t)
 	defer db.Close()
-	d := &dash{dbRoutd: db, dbPath: ":memory:", groupsDir: t.TempDir(), ks: ks, routdURL: stubRoutd(t, db)}
+	d := &dash{routd: over(db), dbPath: ":memory:", groupsDir: t.TempDir(), ks: ks, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -508,7 +508,7 @@ func TestDashAcceptsTransitProvenXUserSub(t *testing.T) {
 	ks, tok := proxydBearerKS(t)
 	db := routdDB(t)
 	defer db.Close()
-	d := &dash{dbRoutd: db, dbPath: ":memory:", groupsDir: t.TempDir(), ks: ks, routdURL: stubRoutd(t, db)}
+	d := &dash{routd: over(db), dbPath: ":memory:", groupsDir: t.TempDir(), ks: ks, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -529,7 +529,7 @@ func TestDashAcceptsTransitProvenXUserSub(t *testing.T) {
 func TestDashHealthExemptFromGuard(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
-	d := &dash{dbRoutd: db, dbPath: ":memory:", groupsDir: t.TempDir(), routdURL: stubRoutd(t, db)}
+	d := &dash{routd: over(db), dbPath: ":memory:", groupsDir: t.TempDir(), routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -547,7 +547,7 @@ func TestPortalAllDotsOk(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
 	// no errored chats, no failed tasks → statusDot=ok, tasksDot=ok
-	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
+	d := &dash{routd: over(db), routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := httptest.NewRequest("GET", "/dash/", nil)
@@ -562,7 +562,7 @@ func TestPortalAllDotsOk(t *testing.T) {
 func TestPortalFailedTasksDot(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
-	seedScheduledTask(t, db, core.Task{
+	seedScheduledTask(t, over(db), core.Task{
 		ID: "t", Owner: "op", ChatJID: "web:a", Prompt: "p",
 	})
 	for range 3 {
@@ -572,7 +572,7 @@ func TestPortalFailedTasksDot(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
+	d := &dash{routd: over(db), routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := asOperator(httptest.NewRequest("GET", "/dash/", nil))
@@ -587,7 +587,7 @@ func TestPortalFailedTasksDot(t *testing.T) {
 func TestPortalRejectsNonRoot(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
-	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
+	d := &dash{routd: over(db), routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	// path "/dash/bogus" matches "/dash/" prefix route, handler should 404

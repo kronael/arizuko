@@ -23,8 +23,8 @@ import (
 func (d *dash) callerScope(r *http.Request) (allowed []string, operator bool) {
 	allowed = auth.CallerGroups(r)
 	if len(allowed) == 0 {
-		if sub := strings.TrimSpace(r.Header.Get("X-User-Sub")); sub != "" && d.adminDB() != nil {
-			scopes, err := auth.UserScopes(store.New(d.adminDB()), strings.TrimPrefix(sub, "user:"))
+		if sub := strings.TrimSpace(r.Header.Get("X-User-Sub")); sub != "" && d.routdStore() != nil {
+			scopes, err := auth.UserScopes(d.routdStore(), strings.TrimPrefix(sub, "user:"))
 			if err != nil {
 				// Fail closed — but say so. An unreadable policy and a user with no
 				// grants both render as an empty dashboard (BUGS A4).
@@ -61,7 +61,7 @@ func (d *dash) requireVisible(w http.ResponseWriter, r *http.Request, folder str
 	if _, ok := requireUser(w, r); !ok {
 		return false
 	}
-	if d.adminDB() == nil {
+	if d.routdStore() == nil {
 		http.Error(w, "backend unavailable", http.StatusServiceUnavailable)
 		return false
 	}
@@ -97,12 +97,12 @@ func (d *dash) jidFolder(jid string) string {
 	// No routd.db → no route_tokens or routes table to resolve through.
 	// Unresolvable, not a panic: pages that render JIDs off HTTP-only data
 	// (approvals) reach here with a nil handle.
-	if d.adminDB() == nil {
+	if d.routdStore() == nil {
 		return ""
 	}
 	if strings.HasPrefix(jid, "web:") || strings.HasPrefix(jid, "hook:") {
 		target, err := store.RouteTokenTargetByJID(
-			context.Background(), store.New(d.adminDB()).Obj(), jid)
+			context.Background(), d.routd, jid)
 		if err != nil {
 			// Fail closed: the grammar's answer can name another tenant, and
 			// this gate decides who sees the message.
@@ -115,7 +115,7 @@ func (d *dash) jidFolder(jid string) string {
 		}
 		return groupfolder.JidFolder(jid)
 	}
-	return store.New(d.adminDB()).DefaultFolderForJID(jid)
+	return d.routdStore().DefaultFolderForJID(jid)
 }
 
 // countVisible is the one scope-filtered counter behind the portal/status
@@ -187,11 +187,11 @@ func reviewerSub(r *http.Request) string {
 // X-User-Groups folds in as Extra principals so an operator with `**` admin on a
 // parent folder authorizes a child write. No routd.db, no answer: false.
 func (d *dash) adminOn(r *http.Request, scope string) bool {
-	if d.adminDB() == nil {
+	if d.routdStore() == nil {
 		return false
 	}
 	caller := auth.Caller{Principal: reviewerSub(r), Extra: auth.CallerGroups(r)}
-	return auth.Authorize(store.New(d.adminDB()), caller, "admin", scope, nil)
+	return auth.Authorize(d.routdStore(), caller, "admin", scope, nil)
 }
 
 // requireAdmin gates a write to scope via adminOn; deny-wins, no tier-default
@@ -204,7 +204,7 @@ func (d *dash) requireAdmin(w http.ResponseWriter, r *http.Request, scope string
 	if !requireSameOrigin(w, r) {
 		return "", false
 	}
-	if d.adminDB() == nil {
+	if d.routdStore() == nil {
 		http.Error(w, "backend unavailable", http.StatusServiceUnavailable)
 		return "", false
 	}

@@ -24,14 +24,13 @@ func (d *dash) handleInvites(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, `<p class="dim">Invite links. Each token is single-use by default; set max uses for multi-use links. `+
 		`The link is shown once when you create it — this page lists each invite by its ref, which revokes but cannot redeem.</p>`)
 
-	idb := d.invitesDB()
-	if idb == nil {
+	s := d.onbodStore()
+	if s == nil {
 		fmt.Fprint(w, htmlBanner("err", "invites store unavailable"))
 		pageClose(w, r)
 		return
 	}
 
-	s := store.New(idb)
 	invites, err := s.ListInvites("")
 	if err != nil {
 		slog.Warn("invites: list", "err", err)
@@ -125,7 +124,7 @@ func (d *dash) handleInviteCreate(w http.ResponseWriter, r *http.Request) {
 		expiresAt = &t
 	}
 
-	s := store.New(d.invitesDB())
+	s := d.onbodStore()
 	inv, rawToken, err := s.CreateInvite(targetGlob, sub, maxUses, expiresAt)
 	if err != nil {
 		slog.Warn("invites: create", "err", err)
@@ -161,7 +160,7 @@ func (d *dash) handleInviteRevoke(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "ref required", http.StatusBadRequest)
 		return
 	}
-	if err := store.New(d.invitesDB()).RevokeInviteByRef(ref); err != nil {
+	if err := d.onbodStore().RevokeInviteByRef(ref); err != nil {
 		if errors.Is(err, store.ErrInviteRefUnknown) {
 			http.Error(w, "not found", http.StatusNotFound)
 			return

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -15,9 +16,10 @@ import (
 // a sealed write lands in, so both come from its chain.
 // The keyring is not optional: store.storeValue refuses every write without one
 // (BUGS S2), so a dashd that writes user secrets always carries it.
-func meSecretsTestDB(t *testing.T) *dash {
+func meSecretsTestDB(t *testing.T) (*dash, *sql.DB) {
 	t.Helper()
-	return &dash{dbRoutd: routdDB(t), secretKeyring: [][]byte{[]byte("dashd-test-key")}}
+	db := routdDB(t)
+	return &dash{routd: over(db), secretKeyring: [][]byte{[]byte("dashd-test-key")}}, db
 }
 
 func newMux(d *dash) *http.ServeMux {
@@ -27,7 +29,7 @@ func newMux(d *dash) *http.ServeMux {
 }
 
 func TestMeSecrets_ListEmpty(t *testing.T) {
-	d := meSecretsTestDB(t)
+	d, _ := meSecretsTestDB(t)
 	mux := newMux(d)
 	req := httptest.NewRequest("GET", "/dash/me/secrets", nil)
 	req.Header.Set("X-User-Sub", "github:alice")
@@ -48,7 +50,7 @@ func TestMeSecrets_ListEmpty(t *testing.T) {
 }
 
 func TestMeSecrets_RequiresAuth(t *testing.T) {
-	d := meSecretsTestDB(t)
+	d, _ := meSecretsTestDB(t)
 	mux := newMux(d)
 	for _, m := range []string{"GET", "POST", "PATCH", "DELETE"} {
 		path := "/dash/me/secrets"
@@ -65,7 +67,7 @@ func TestMeSecrets_RequiresAuth(t *testing.T) {
 }
 
 func TestMeSecrets_CreateAndList(t *testing.T) {
-	d := meSecretsTestDB(t)
+	d, _ := meSecretsTestDB(t)
 	mux := newMux(d)
 	req := httptest.NewRequest("POST", "/dash/me/secrets",
 		strings.NewReader(`{"key":"GITHUB_TOKEN","value":"ghp_xxx"}`))
@@ -99,7 +101,7 @@ func TestMeSecrets_CreateAndList(t *testing.T) {
 }
 
 func TestMeSecrets_Update(t *testing.T) {
-	d := meSecretsTestDB(t)
+	d, _ := meSecretsTestDB(t)
 	mux := newMux(d)
 	post := httptest.NewRequest("POST", "/dash/me/secrets",
 		strings.NewReader(`{"key":"GITHUB_TOKEN","value":"v1"}`))
@@ -122,7 +124,7 @@ func TestMeSecrets_Update(t *testing.T) {
 }
 
 func TestMeSecrets_UpdateMissing(t *testing.T) {
-	d := meSecretsTestDB(t)
+	d, _ := meSecretsTestDB(t)
 	mux := newMux(d)
 	req := httptest.NewRequest("PATCH", "/dash/me/secrets/NEVER_SET",
 		strings.NewReader(`{"value":"v"}`))
@@ -135,7 +137,7 @@ func TestMeSecrets_UpdateMissing(t *testing.T) {
 }
 
 func TestMeSecrets_Delete(t *testing.T) {
-	d := meSecretsTestDB(t)
+	d, _ := meSecretsTestDB(t)
 	mux := newMux(d)
 	post := httptest.NewRequest("POST", "/dash/me/secrets",
 		strings.NewReader(`{"key":"GITHUB_TOKEN","value":"v"}`))
@@ -149,7 +151,7 @@ func TestMeSecrets_Delete(t *testing.T) {
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("status = %d", w.Code)
 	}
-	if n := countSecrets(t, d.dbRoutd, func(r store.ArchiveSecretRow) bool {
+	if n := countSecrets(t, d.routd, func(r store.ArchiveSecretRow) bool {
 		return r.ScopeID == "github:alice"
 	}); n != 0 {
 		t.Errorf("rows after delete = %d, want 0", n)
@@ -157,7 +159,7 @@ func TestMeSecrets_Delete(t *testing.T) {
 }
 
 func TestMeSecrets_CrossUser_CannotReadOthers(t *testing.T) {
-	d := meSecretsTestDB(t)
+	d, _ := meSecretsTestDB(t)
 	mux := newMux(d)
 
 	// Alice writes
@@ -193,7 +195,7 @@ func TestMeSecrets_CrossUser_CannotReadOthers(t *testing.T) {
 }
 
 func TestMeSecrets_RejectsBadKeys(t *testing.T) {
-	d := meSecretsTestDB(t)
+	d, _ := meSecretsTestDB(t)
 	mux := newMux(d)
 	cases := []string{
 		`{"key":"lowercase","value":"v"}`,
@@ -214,7 +216,7 @@ func TestMeSecrets_RejectsBadKeys(t *testing.T) {
 }
 
 func TestMeSecrets_RejectsEmptyValue(t *testing.T) {
-	d := meSecretsTestDB(t)
+	d, _ := meSecretsTestDB(t)
 	mux := newMux(d)
 	req := httptest.NewRequest("POST", "/dash/me/secrets",
 		strings.NewReader(`{"key":"K","value":""}`))
@@ -227,7 +229,7 @@ func TestMeSecrets_RejectsEmptyValue(t *testing.T) {
 }
 
 func TestMeSecrets_CSRF_RejectsCrossOrigin(t *testing.T) {
-	d := meSecretsTestDB(t)
+	d, _ := meSecretsTestDB(t)
 	mux := newMux(d)
 	req := httptest.NewRequest("POST", "/dash/me/secrets",
 		strings.NewReader(`{"key":"K","value":"v"}`))
@@ -242,7 +244,7 @@ func TestMeSecrets_CSRF_RejectsCrossOrigin(t *testing.T) {
 }
 
 func TestMeSecrets_CSRF_AllowsSameOrigin(t *testing.T) {
-	d := meSecretsTestDB(t)
+	d, _ := meSecretsTestDB(t)
 	mux := newMux(d)
 	req := httptest.NewRequest("POST", "/dash/me/secrets",
 		strings.NewReader(`{"key":"K","value":"v"}`))

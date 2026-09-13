@@ -13,7 +13,6 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/dashd/dashstore"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
-	"github.com/kronael/arizuko/store"
 )
 
 func decodeJSONBody(r *http.Request, out any) error {
@@ -231,7 +230,7 @@ func (d *dash) handleRouteCreate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if d.adminDB() == nil {
+	if d.routdStore() == nil {
 		http.Error(w, "routes store unavailable", http.StatusServiceUnavailable)
 		return
 	}
@@ -240,7 +239,7 @@ func (d *dash) handleRouteCreate(w http.ResponseWriter, r *http.Request) {
 	// the update and delete handlers below, which already audit. AddRoute's
 	// plain INSERT matches PutRouteRow's INSERT OR IGNORE here because routes
 	// has no unique constraint beyond the autoincrement id, so nothing to ignore.
-	id, err := store.New(d.adminDB()).AsUser(sub).AddRoute(core.Route{
+	id, err := d.routdStore().AsUser(sub).AddRoute(core.Route{
 		Seq:                   body.Seq,
 		Match:                 body.Match,
 		Target:                body.Target,
@@ -273,7 +272,7 @@ func (d *dash) handleRouteUpdate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if d.adminDB() == nil {
+	if d.routdStore() == nil {
 		http.Error(w, "routes store unavailable", http.StatusServiceUnavailable)
 		return
 	}
@@ -303,7 +302,7 @@ func (d *dash) handleRouteUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	n, err := store.New(d.adminDB()).AsUser(sub).UpdateRoute(id, core.Route{
+	n, err := d.routdStore().AsUser(sub).UpdateRoute(id, core.Route{
 		Seq:                   body.Seq,
 		Match:                 body.Match,
 		Target:                body.Target,
@@ -330,7 +329,7 @@ func (d *dash) handleRouteDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad id", http.StatusBadRequest)
 		return
 	}
-	if d.adminDB() == nil {
+	if d.routdStore() == nil {
 		http.Error(w, "routes store unavailable", http.StatusServiceUnavailable)
 		return
 	}
@@ -350,7 +349,7 @@ func (d *dash) handleRouteDelete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	n, err := store.New(d.adminDB()).AsUser(sub).DeleteRoute(id)
+	n, err := d.routdStore().AsUser(sub).DeleteRoute(id)
 	if err != nil {
 		slog.Warn("routes: delete", "id", id, "err", err)
 		http.Error(w, "delete failed", http.StatusInternalServerError)

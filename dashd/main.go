@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	_ "embed"
 	"encoding/json"
 	"errors"
@@ -25,15 +24,14 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/dashd/dashstore"
-	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/diary"
 	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/resreg"
 	_ "github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/theme"
-	_ "modernc.org/sqlite"
 )
 
 //go:embed htmx.min.js
@@ -193,17 +191,16 @@ func main() {
 		accentOverride = v
 	}
 
-	// store.OpenRoutdAt probes for the `acl` table so a stale/wrong DB_PATH
-	// fails loudly at boot instead of SQLite silently creating an empty
-	// routd.db (BUGS F58) — the same guard openSiblingOwner already applies
-	// to dashd's onbod/runed reads.
-	routdStore, err := store.OpenRoutdAt(dsn)
+	// store.OpenOwner answers the endpoint this instance is served from or the
+	// file at dsn, and probes for the `acl` table either way — so a stale DB_PATH
+	// and an endpoint routd has never booted against both fail loudly at boot
+	// instead of serving an empty dashboard (BUGS F58).
+	routdOwn, err := store.OpenOwner(store.OwnerRoutd, dsn)
 	if err != nil {
-		slog.Error("open db", "err", err)
+		slog.Error("open routd's store", "err", err)
 		os.Exit(1)
 	}
-	dbRoutd := routdStore.DB()
-	defer dbRoutd.Close()
+	defer routdOwn.Close() //nolint:errcheck // the process is ending
 
 	slog.Info("dashd started", "db", dsn, "port", port)
 
@@ -248,10 +245,10 @@ func main() {
 		slog.Warn("AUTHD_URL unset in dashd — identity verification disabled, dashd open (local dev)")
 	}
 
-	// audit_log lives in routd.db (its owner, routd migration 0016), which is the
-	// handle opened above — so the audit sink, the /dash/audit/ reader, and every
-	// admin mutation share one connection.
-	audit.Init(routdStore.Obj(), os.Getenv("ARIZUKO_INSTANCE"))
+	// audit_log is routd's (its owner, routd migration 0016), which is the store
+	// opened above — so the audit sink, the /dash/audit/ reader, and every admin
+	// mutation share one handle.
+	audit.Init(routdOwn.Obj(), os.Getenv("ARIZUKO_INSTANCE"))
 	audit.Emit(context.Background(), audit.Event{
 		Category: audit.CategorySystem,
 		Action:   "daemon.start",
@@ -264,20 +261,17 @@ func main() {
 		},
 	})
 
-	// onbod OWNS invites/onboarding_gates and runed OWNS spawns; the pages that render
-	// them write/read those DBs directly, same FS-access discipline.
+	// onbod OWNS invites/onboarding_gates; the invites page writes them directly,
+	// same FS-access discipline.
 	//
-	// Both paths are CONFIGURED, never derived as a sibling of dsn: under per-owner
+	// The path is CONFIGURED, never derived as a sibling of dsn: under per-owner
 	// subdirectories the siblings are not siblings, and deriving one owner's file from
-	// another's is the pattern CLAUDE.md bans. Absent = that daemon's profile is off,
-	// and both views already render a "store unavailable" banner.
-	dbOnbod := openSiblingOwner("ONBOD_DB_PATH", dataDir, store.OwnerOnbod)
-	if dbOnbod != nil {
-		defer dbOnbod.Close()
-	}
-	dbRuned := openSiblingOwner("RUNED_DB_PATH", dataDir, store.OwnerRuned)
-	if dbRuned != nil {
-		defer dbRuned.Close()
+	// another's is the pattern CLAUDE.md bans. Unavailable = onbod's profile is off,
+	// and the view renders a "store unavailable" banner.
+	var onbodHandle objstore.Store
+	if onbodOwn := openSiblingOwner("ONBOD_DB_PATH", dataDir, store.OwnerOnbod); onbodOwn != nil {
+		defer onbodOwn.Close() //nolint:errcheck // the process is ending
+		onbodHandle = onbodOwn.Obj()
 	}
 
 	// SECRETS_KEY keyring: dashd writes user secrets into routd.db directly and MUST
@@ -308,7 +302,7 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	d := &dash{dbRoutd: dbRoutd, dbOnbod: dbOnbod, dbRuned: dbRuned, dbPath: dsn, groupsDir: groupsDir, appDir: appDir, ks: ks, svc: svcSrc, runedURL: backendURL("RUNED_URL", "runed"), proxydURL: backendURL("PROXYD_URL", "proxyd"), routdURL: backendURL("ROUTER_URL", "routd"), authdURL: backendURL("AUTHD_URL", "authd"), onbodURL: backendURL("ONBOD_URL", "onbod"), secretKeyring: secretKeyring, surrogate: surrogateEng, stateSecret: []byte(os.Getenv("AUTH_SECRET")), connBaseURL: connBaseURL}
+	d := &dash{routd: routdOwn.Obj(), onbod: onbodHandle, dbPath: dsn, groupsDir: groupsDir, appDir: appDir, ks: ks, svc: svcSrc, runedURL: backendURL("RUNED_URL", "runed"), proxydURL: backendURL("PROXYD_URL", "proxyd"), routdURL: backendURL("ROUTER_URL", "routd"), authdURL: backendURL("AUTHD_URL", "authd"), onbodURL: backendURL("ONBOD_URL", "onbod"), secretKeyring: secretKeyring, surrogate: surrogateEng, stateSecret: []byte(os.Getenv("AUTH_SECRET")), connBaseURL: connBaseURL}
 	d.registerRoutes(mux)
 	if obs.MetricsEnabled() {
 		mux.Handle("GET /metrics", obs.MetricsHandler())
@@ -367,14 +361,17 @@ func upstreamErr(daemon string, status int, body []byte) string {
 }
 
 type dash struct {
-	dbRoutd *sql.DB // routd.db handle — dashd's ONLY message/config store. routd OWNS
-	// acl/groups/routes/route_tokens/secrets/audit_log AND the live
-	// messages/chats/sessions/user_profiles tables (spec 5/5); dashd
-	// reads+writes them here. nil in read-only tests.
-	dbOnbod *sql.DB // onbod.db handle. onbod OWNS invites/onboarding_gates in the
-	// split topology (spec 5/5); dashd's invites page reads+writes them here.
-	dbRuned *sql.DB // runed.db handle. runed OWNS spawns in the split topology;
-	// the /dash/runed/ runs view reads them here directly (FS-access discipline).
+	// routd is the handle onto routd's tables — dashd's ONLY message/config
+	// store. routd OWNS acl/groups/routes/route_tokens/secrets/audit_log AND the
+	// live messages/chats/sessions/user_profiles tables (spec 5/5); dashd
+	// reads+writes them here. A handle rather than a pool, so the same handlers
+	// run on an instance served from a DynamoDB endpoint (spec 6/42 §7). nil in
+	// read-only tests.
+	routd objstore.Store
+	// onbod is the handle onto onbod's tables. onbod OWNS invites/onboarding_gates
+	// in the split topology (spec 5/5); dashd's invites page reads+writes them
+	// here. nil when that optional profile is off.
+	onbod     objstore.Store
 	dbPath    string
 	groupsDir string
 	appDir    string                                // APP_SRC_DIR (container path to ant/); used to enumerate stock skills
@@ -414,46 +411,66 @@ type dash struct {
 	connBaseURL string
 }
 
-// adminDB returns the handle the admin paths (grants/groups/routes/route_tokens)
-// read+write. routd OWNS those tables in the split topology, so dashd points its
-// admin reads straight at routd.db (dbRoutd).
-func (d *dash) adminDB() *sql.DB { return d.dbRoutd }
+// routdStore is routd's tables as the store package reads and writes them — the
+// one door the admin paths (grants/groups/routes/route_tokens) and every page
+// read go through. routd OWNS those tables in the split topology, so dashd
+// points its admin reads straight at routd's own store.
+//
+// nil when there is no handle, which is how the pages know to banner instead of
+// render. Built per call for the same reason secretStore is: tests construct a
+// dash literal and a field set at boot would be empty for them.
+func (d *dash) routdStore() *store.Store {
+	if d.routd == nil {
+		return nil
+	}
+	return store.NewOver(d.routd)
+}
 
-// ds returns dashd's storage layer over routd.db — every statement dashd runs
-// lives behind it (dashd/dashstore, spec 6/37 step 1). nil when routd.db is
-// absent, which is how the pages know to banner instead of render. Built per
-// call for the same reason secretStore is: tests construct a dash literal and a
-// field set at boot would be empty for them.
-func (d *dash) ds() *dashstore.Store { return dashstore.New(store.New(d.adminDB()).Obj()) }
+// onbodStore is onbod's tables the same way. onbod OWNS invites in the split
+// topology, so the invites page asks onbod's own store; nil when that profile
+// is off and the page banners.
+func (d *dash) onbodStore() *store.Store {
+	if d.onbod == nil {
+		return nil
+	}
+	return store.NewOver(d.onbod)
+}
 
-// resolveDSN picks dashd's SQLite path: DB_PATH when set, else
-// <DATA_DIR>/store/routd.db. It REFUSES messages.db — a stale DB_PATH from an old
-// deployment must fail loudly at boot rather than silently serve frozen data, which
-// dashd did for months.
-// openSiblingOwner opens another daemon's owner DB from env. A missing file means
-// that daemon's profile is off, so nil is the honest answer; an open FAILURE on a
-// file that exists is loud, because that is a broken mount.
-func openSiblingOwner(env, dataDir, owner string) *sql.DB {
-	path := os.Getenv(env)
-	if path == "" {
+// ds returns dashd's storage layer over routd's tables — every statement dashd
+// runs lives behind it (dashd/dashstore, spec 6/37 step 1). nil for a nil
+// handle, the same banner path routdStore answers on.
+func (d *dash) ds() *dashstore.Store { return dashstore.New(d.routd) }
+
+// openSiblingOwner opens another daemon's owner store through store.OpenOwner —
+// the endpoint this instance is served from, or the file the env names. That
+// door is the only place the branch is written (spec 6/42 §7), so dashd asks it
+// rather than deciding for itself which of the two it is talking to.
+//
+// A store that will not open means that daemon's profile is off — an optional
+// compose profile onbod has and routd does not — so nil is the honest answer
+// and the page banners. The reason is logged because the two shapes read alike
+// otherwise: a file nobody seeded, and an endpoint whose owner never booted.
+func openSiblingOwner(env, dataDir, owner string) *store.Store {
+	target := os.Getenv(env)
+	if target == "" {
 		if dataDir == "" {
 			return nil
 		}
-		path = store.OwnerDBPath(filepath.Join(dataDir, "store"), owner)
+		target = store.OwnerDBPath(filepath.Join(dataDir, "store"), owner)
 	}
-	if err := db_utils.RequireDB(path); err != nil {
-		slog.Info("owner DB absent; its dashd view will banner as unavailable",
-			"owner", owner, "path", path, "env", env)
-		return nil
-	}
-	db, err := db_utils.Open(path)
+	s, err := store.OpenOwner(owner, target)
 	if err != nil {
-		slog.Error("open owner DB", "owner", owner, "path", path, "err", err)
+		slog.Info("owner store unavailable; its dashd view will banner",
+			"owner", owner, "target", target, "env", env, "err", err)
 		return nil
 	}
-	return db
+	return s
 }
 
+// resolveDSN picks the path dashd was configured with: DB_PATH when set, else
+// <DATA_DIR>/store/routd.db. It REFUSES messages.db — a stale DB_PATH from an old
+// deployment must fail loudly at boot rather than silently serve frozen data, which
+// dashd did for months.
 func resolveDSN(dbPath, dataDir string) (string, error) {
 	if dbPath == "" {
 		if dataDir == "" {
@@ -467,25 +484,21 @@ func resolveDSN(dbPath, dataDir string) (string, error) {
 	return dbPath, nil
 }
 
-// secretStore wraps routd.db as a *store.Store with the SECRETS_KEY keyring set,
-// so user-secret writes (PutSecretRow) seal `v2:` values the same way routd's
-// secretStore does — the BYOA encryption-at-rest path. nil when routd.db is
-// absent (some read-only tests).
+// secretStore is routd's store with the SECRETS_KEY keyring set, so user-secret
+// writes (PutSecretRow) seal `v2:` values the same way routd's secretStore does
+// — the BYOA encryption-at-rest path. The keys land on the store routdStore
+// just built and on no other, so the admin door stays unable to seal one. nil
+// when there is no handle (some read-only tests).
 func (d *dash) secretStore() *store.Store {
-	if d.adminDB() == nil {
+	s := d.routdStore()
+	if s == nil {
 		return nil
 	}
-	s := store.New(d.adminDB())
 	if len(d.secretKeyring) > 0 {
 		s.SetSecretKeys(d.secretKeyring...)
 	}
 	return s
 }
-
-// invitesDB returns the handle the invites admin page reads+writes. onbod OWNS
-// invites in the split topology, so dashd points its invite SQL straight at
-// onbod.db (dbOnbod).
-func (d *dash) invitesDB() *sql.DB { return d.dbOnbod }
 
 // guard proves a request transited proxyd before letting a handler trust the
 // proxyd-stamped identity. The bearer is a TRANSIT proof only — dashd's authz reads
@@ -1004,7 +1017,7 @@ func (d *dash) handleActivityPartial(w http.ResponseWriter, r *http.Request) {
 // cursor (a raw timestamp string; empty = newest). It returns the cursor for
 // the next "older" page, or "" when there is nothing further back.
 func (d *dash) writeActivityRows(ctx context.Context, w http.ResponseWriter, allowed []string, operator bool, before string) string {
-	if d.adminDB() == nil {
+	if d.routdStore() == nil {
 		fmt.Fprint(w, `<tr><td colspan=6 class="empty">backend unavailable</td></tr>`)
 		return ""
 	}
@@ -1118,7 +1131,7 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, `<p class="dim">Group hierarchy. Expand a row to see routing rules and links.</p>`+
 		`<p><a href="/dash/groups/new">+ New group</a></p>`)
 
-	if d.adminDB() == nil {
+	if d.routdStore() == nil {
 		fmt.Fprint(w, htmlBanner("err", "backend unavailable"))
 		pageClose(w, r)
 		return
@@ -1143,7 +1156,7 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 		lastActive                  string
 	}
 	usageMap := map[string]usageKey{}
-	if len(folders) > 0 && d.adminDB() != nil {
+	if len(folders) > 0 && d.routdStore() != nil {
 		// The metered flag is the usage page's concern: this listing shows a
 		// spend figure only when there is one, so an unmetered instance simply
 		// omits it rather than needing to say so per row.
@@ -1389,7 +1402,7 @@ func (d *dash) handleMemory(w http.ResponseWriter, r *http.Request) {
 	pageTopFor(w, r, "Memory")
 	fmt.Fprint(w, `<p class="dim">Browse per-group MEMORY.md, CLAUDE.md, diary, episodes, users, facts.</p>`)
 
-	if d.adminDB() == nil {
+	if d.routdStore() == nil {
 		fmt.Fprint(w, htmlBanner("err", "backend unavailable"))
 		pageClose(w, r)
 		return

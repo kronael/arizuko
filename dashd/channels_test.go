@@ -94,7 +94,7 @@ func TestDash_WhatsappPairStart_AdminProxiesAndAudits(t *testing.T) {
 	// The event landed in audit_log (routd.db's sink) with the operator sub +
 	// phone — not as a synthetic `messages` row in the retired monolith.
 	auditCount := 0
-	for _, r := range auditRowsFor(t, inst.DB, "channel.pair.start") {
+	for _, r := range auditRowsFor(t, over(inst.DB), "channel.pair.start") {
 		if r.Category == "channel" && r.ActorSub == "alice@x" &&
 			strings.Contains(r.ParamsSummary, "+420735544891") {
 			auditCount++

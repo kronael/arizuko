@@ -46,7 +46,7 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Fprint(w, `<p><a href="/dash/groups/`+folderPath(folder)+`/settings">← Back to settings</a></p>`)
 
-	if d.adminDB() == nil {
+	if d.routdStore() == nil {
 		fmt.Fprint(w, htmlBanner("err", "store unavailable"))
 		pageClose(w, r)
 		return
@@ -183,7 +183,7 @@ func (d *dash) handleGroupGrantAdd(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if d.adminDB() == nil {
+	if d.routdStore() == nil {
 		fmt.Fprint(w, htmlBanner("err", "store unavailable"))
 		return
 	}
@@ -217,7 +217,7 @@ func (d *dash) handleGroupGrantAdd(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "scope must be within folder", http.StatusBadRequest)
 		return
 	}
-	s := store.New(d.adminDB())
+	s := d.routdStore()
 	row := core.ACLRow{
 		Principal: principal,
 		Action:    action,
@@ -249,7 +249,7 @@ func (d *dash) handleGroupGrantRevoke(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if d.adminDB() == nil {
+	if d.routdStore() == nil {
 		fmt.Fprint(w, htmlBanner("err", "store unavailable"))
 		return
 	}
@@ -269,7 +269,7 @@ func (d *dash) handleGroupGrantRevoke(w http.ResponseWriter, r *http.Request) {
 	if effect == "" {
 		effect = "allow"
 	}
-	s := store.New(d.adminDB())
+	s := d.routdStore()
 	row := core.ACLRow{
 		Principal: principal,
 		Action:    action,

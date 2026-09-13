@@ -19,7 +19,6 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/dashd/dashstore"
 	"github.com/kronael/arizuko/groupfolder"
-	"github.com/kronael/arizuko/store"
 )
 
 var skillNameRe = regexp.MustCompile(`^[a-z0-9-]+$`)
@@ -91,7 +90,7 @@ func (d *dash) handleGroupCreate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if d.adminDB() == nil {
+	if d.routdStore() == nil {
 		http.Error(w, "store unavailable", http.StatusServiceUnavailable)
 		return
 	}
@@ -146,7 +145,7 @@ func (d *dash) handleGroupCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "insert failed", http.StatusInternalServerError)
 		return
 	}
-	if err := store.New(d.adminDB()).SeedDefaultTasks(folder, folder); err != nil {
+	if err := d.routdStore().SeedDefaultTasks(folder, folder); err != nil {
 		slog.Warn("group create: seed tasks", "folder", folder, "err", err)
 	}
 	slog.Info("group created", "folder", folder, "product", product, "sub", sub)
@@ -234,7 +233,7 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 		crumb{"", "Settings"},
 	)
 
-	if d.adminDB() == nil {
+	if d.routdStore() == nil {
 		fmt.Fprint(w, htmlBanner("err", "store unavailable"))
 		pageClose(w, r)
 		return
@@ -348,7 +347,7 @@ func (d *dash) handleGroupSettingsSave(w http.ResponseWriter, r *http.Request) {
 	owMsgs := clearableNum(r.FormValue("observe_window_messages"))
 	owChars := clearableNum(r.FormValue("observe_window_chars"))
 	model := r.FormValue("model")
-	s := store.New(d.adminDB())
+	s := d.routdStore()
 	if err := s.SetGroupOpen(folder, open); err != nil {
 		slog.Warn("group settings save: open", "folder", folder, "err", err)
 		http.Error(w, "write failed", http.StatusInternalServerError)
@@ -399,7 +398,7 @@ func (d *dash) handleGroupDelete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if d.adminDB() == nil {
+	if d.routdStore() == nil {
 		http.Error(w, "store unavailable", http.StatusServiceUnavailable)
 		return
 	}
@@ -407,7 +406,7 @@ func (d *dash) handleGroupDelete(w http.ResponseWriter, r *http.Request) {
 	// store.folderScopePurge — and AsUser attributes its audit row to the
 	// operator who pressed the button. A second list here is a second thing to
 	// keep in step, and two lists purging different halves is BUGS L198.
-	removed, err := store.New(d.adminDB()).AsUser(sub).DeleteGroup(folder)
+	removed, err := d.routdStore().AsUser(sub).DeleteGroup(folder)
 	if err != nil {
 		slog.Warn("group delete: db", "folder", folder, "err", err)
 		http.Error(w, "delete failed", http.StatusInternalServerError)

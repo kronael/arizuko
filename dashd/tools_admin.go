@@ -7,7 +7,6 @@ import (
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/ipc"
-	"github.com/kronael/arizuko/store"
 )
 
 // GET /dash/groups/{folder}/tools — read-only MCP tool browser.
@@ -31,7 +30,7 @@ func (d *dash) handleGroupTools(w http.ResponseWriter, r *http.Request) {
 	// Tool visibility is auth.EffectiveActions over the folder's acl rows (5/33: the
 	// same view the agent socket uses — a tool shows iff the folder holds it, reads
 	// unconditional). No tier/DeriveRules.
-	s := store.New(d.adminDB())
+	s := d.routdStore()
 	held := auth.EffectiveActions(s, auth.Caller{Principal: "folder:" + folder})
 	tools := ipc.ListTools(folder, func(name string) bool { return held("mcp:" + name) })
 

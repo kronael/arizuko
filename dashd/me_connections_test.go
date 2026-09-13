@@ -28,7 +28,7 @@ func connectionsDash(t *testing.T, exchange http.HandlerFunc) (*dash, *sql.DB) {
 		map[string]surrogate.ClientCreds{"github": {ID: "cid", Secret: "csecret"}},
 	)
 	d := &dash{
-		dbRoutd: db, secretKeyring: [][]byte{[]byte("k")},
+		routd: over(db), secretKeyring: [][]byte{[]byte("k")},
 		surrogate: eng, stateSecret: []byte("state-secret"), connBaseURL: "https://dash.test",
 	}
 	return d, db

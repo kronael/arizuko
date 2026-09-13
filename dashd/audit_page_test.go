@@ -83,13 +83,13 @@ func auditSourceOf(t *testing.T, db *sql.DB) *httptest.Server {
 
 // auditDash builds a dash whose four sources point at the given base URLs.
 // An empty URL models an unconfigured daemon. A non-empty onbod URL also sets
-// dbOnbod, since auditSources treats an absent onbod store as "the onboarding
-// profile is off" and drops the source rather than reporting it dead.
+// onbod's handle, since auditSources treats an absent onbod store as "the
+// onboarding profile is off" and drops the source rather than reporting it dead.
 func auditDash(t *testing.T, routd, runed, authd, onbod string) *dash {
 	t.Helper()
 	d := &dash{routdURL: routd, runedURL: runed, authdURL: authd, onbodURL: onbod}
 	if onbod != "" {
-		d.dbOnbod = auditDB(t)
+		d.onbod = over(auditDB(t))
 	}
 	return d
 }
@@ -217,7 +217,7 @@ func TestAuditUnconfiguredSourceIsLoud(t *testing.T) {
 // TestAuditOnbodProfileOffIsNotASource: onbod is an optional compose profile
 // (ONBOARDING_ENABLED, default off). An instance that never ran onboarding must
 // not carry a permanent "audit source unavailable — onbod" banner; an instance
-// that DID must still hear about a dead one. dbOnbod is the profile signal.
+// that DID must still hear about a dead one. onbod's handle is the profile signal.
 func TestAuditOnbodProfileOffIsNotASource(t *testing.T) {
 	rdb := auditDB(t)
 	seedAudit(t, rdb, "2026-08-01T10:00:00.000Z", "mutation", "survivor-row", "op", "f", "ok")
@@ -231,7 +231,7 @@ func TestAuditOnbodProfileOffIsNotASource(t *testing.T) {
 	// Profile ON but the daemon is unreachable: that IS a failure, and silence
 	// would tell the operator "no admissions happened" when onbod did not answer.
 	on := auditDash(t, auditSourceOf(t, rdb).URL, "", "", "")
-	on.dbOnbod = auditDB(t)
+	on.onbod = over(auditDB(t))
 	body = auditGetOn(t, on, "/dash/audit/")
 	if !strings.Contains(body, "onbod: no URL configured") {
 		t.Errorf("onboarding-on instance hid a dead onbod: %s", body)

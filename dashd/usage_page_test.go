@@ -24,7 +24,7 @@ func usageRoutdDB(t *testing.T, folders ...string) *sql.DB {
 	t.Helper()
 	db := routdDB(t)
 	for _, f := range folders {
-		seedFolder(t, db, f)
+		seedFolder(t, over(db), f)
 	}
 	return db
 }
@@ -41,12 +41,12 @@ func usageGet(t *testing.T, d *dash) (int, string) {
 
 // TestUsageNilRoutd: a nil routd handle renders the store-unavailable banner.
 func TestUsageNilRoutd(t *testing.T) {
-	code, body := usageGet(t, &dash{dbRoutd: nil, routdURL: stubRoutd(t, nil)})
+	code, body := usageGet(t, &dash{routd: nil, routdURL: stubRoutd(t, nil)})
 	if code != 200 {
 		t.Fatalf("status = %d", code)
 	}
 	if !strings.Contains(body, "store unavailable") {
-		t.Errorf("nil dbRoutd should banner store unavailable: %s", body)
+		t.Errorf("a nil routd handle should banner store unavailable: %s", body)
 	}
 }
 
@@ -55,7 +55,7 @@ func TestUsageEmptyGroups(t *testing.T) {
 	routd := usageRoutdDB(t)
 	defer routd.Close()
 
-	code, body := usageGet(t, &dash{dbRoutd: routd, routdURL: stubRoutd(t, routd)})
+	code, body := usageGet(t, &dash{routd: over(routd), routdURL: stubRoutd(t, routd)})
 	if code != 200 {
 		t.Fatalf("status = %d", code)
 	}
@@ -86,7 +86,7 @@ func TestUsageWithCost(t *testing.T) {
 	})
 	stubMeter(t, true, stubSpendRow{Folder: "alice", Tokens: 1500, CostCents: 250})
 
-	code, body := usageGet(t, &dash{dbRoutd: routd, routdURL: stubRoutd(t, routd)})
+	code, body := usageGet(t, &dash{routd: over(routd), routdURL: stubRoutd(t, routd)})
 	if code != 200 {
 		t.Fatalf("status = %d", code)
 	}
@@ -110,7 +110,7 @@ func TestUsageSaysSoWhenThereIsNoMeter(t *testing.T) {
 	defer routd.Close()
 	stubMeter(t, false)
 
-	code, body := usageGet(t, &dash{dbRoutd: routd, routdURL: stubRoutd(t, routd)})
+	code, body := usageGet(t, &dash{routd: over(routd), routdURL: stubRoutd(t, routd)})
 	if code != 200 {
 		t.Fatalf("status = %d", code)
 	}
@@ -139,7 +139,7 @@ func TestGroupUsageBulkBatchesLargeFolderLists(t *testing.T) {
 	defer routd.Close()
 	stubMeter(t, true, stubSpendRow{Folder: folders[n-1], Tokens: 20, CostCents: 5})
 
-	d := &dash{dbRoutd: routd, routdURL: stubRoutd(t, routd)}
+	d := &dash{routd: over(routd), routdURL: stubRoutd(t, routd)}
 	out, metered, err := d.groupUsageBulk(context.Background(), folders)
 	if err != nil {
 		t.Fatalf("groupUsageBulk: %v", err)
@@ -159,7 +159,7 @@ func TestGroupUsageBulkBatchesLargeFolderLists(t *testing.T) {
 func TestUsageNonOperatorForbidden(t *testing.T) {
 	routd := usageRoutdDB(t)
 	defer routd.Close()
-	d := &dash{dbRoutd: routd, routdURL: stubRoutd(t, routd)}
+	d := &dash{routd: over(routd), routdURL: stubRoutd(t, routd)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := httptest.NewRequest("GET", "/dash/usage/", nil)
@@ -182,7 +182,7 @@ func TestUsageSaysWhenRoutdIsUnreachable(t *testing.T) {
 	// fails at the list before any spend is summed. Either banner is a loud
 	// failure; a 200 with NEITHER would be the bug — zero spend that is really
 	// an unreachable owner.
-	code, body := usageGet(t, &dash{dbRoutd: routd, routdURL: "http://127.0.0.1:1"})
+	code, body := usageGet(t, &dash{routd: over(routd), routdURL: "http://127.0.0.1:1"})
 	if code == 200 &&
 		!strings.Contains(body, "usage query error") &&
 		!strings.Contains(body, "folder query error") {

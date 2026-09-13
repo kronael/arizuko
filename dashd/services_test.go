@@ -22,7 +22,7 @@ import (
 func TestServicesOperator(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
-	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
+	d := &dash{routd: over(db), routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -130,7 +130,7 @@ func TestShouldLink(t *testing.T) {
 func TestServicesNonOperatorForbidden(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
-	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
+	d := &dash{routd: over(db), routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 

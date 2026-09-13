@@ -87,13 +87,13 @@ func (d *dash) handleTokensRevoke(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if d.adminDB() == nil {
+	if d.routdStore() == nil {
 		http.Error(w, "read-only", http.StatusServiceUnavailable)
 		return
 	}
 	// RevokeRouteToken, the audited writer (routd.db has audit_log since routd
 	// migration 0016). AsUser attributes the revoke to the operator.
-	hit, err := store.New(d.adminDB()).AsUser(sub).RevokeRouteToken(jid, folder)
+	hit, err := d.routdStore().AsUser(sub).RevokeRouteToken(jid, folder)
 	if err != nil || !hit {
 		http.Error(w, "revoke failed", http.StatusInternalServerError)
 		return

@@ -19,7 +19,7 @@ func splitSecretsDash(t *testing.T) (*dash, *sql.DB) {
 	db := routdDB(t)
 	// The keyring is not optional: store.storeValue refuses every write without
 	// one (BUGS S2).
-	return &dash{dbRoutd: db, secretKeyring: [][]byte{[]byte("dashd-test-key")}, routdURL: stubRoutd(t, db)}, db
+	return &dash{routd: over(db), secretKeyring: [][]byte{[]byte("dashd-test-key")}, routdURL: stubRoutd(t, db)}, db
 }
 
 func TestMeSecrets_WriteTargetsRoutdDB(t *testing.T) {
@@ -35,7 +35,7 @@ func TestMeSecrets_WriteTargetsRoutdDB(t *testing.T) {
 		t.Fatalf("POST = %d body=%q", w.Code, w.Body.String())
 	}
 
-	if n := countSecrets(t, routd, func(r store.ArchiveSecretRow) bool {
+	if n := countSecrets(t, over(routd), func(r store.ArchiveSecretRow) bool {
 		return r.ScopeID == "github:alice" && r.Key == "GITHUB_TOKEN"
 	}); n != 1 {
 		t.Errorf("routd.db secret rows = %d, want 1", n)
@@ -59,7 +59,7 @@ func TestMeSecrets_DeleteTargetsRoutdDB(t *testing.T) {
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("DELETE = %d body=%q", w.Code, w.Body.String())
 	}
-	if n := countSecrets(t, routd, func(r store.ArchiveSecretRow) bool {
+	if n := countSecrets(t, over(routd), func(r store.ArchiveSecretRow) bool {
 		return r.ScopeID == "github:bob"
 	}); n != 0 {
 		t.Errorf("routd.db secret rows after delete = %d, want 0", n)

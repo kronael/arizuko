@@ -22,7 +22,7 @@ func (d *dash) handleUsage(w http.ResponseWriter, r *http.Request) {
 	}
 	pageTopFor(w, r, "usage")
 
-	if d.dbRoutd == nil {
+	if d.routdStore() == nil {
 		fmt.Fprint(w, htmlBanner("err", "store unavailable"))
 		pageClose(w, r)
 		return
@@ -41,7 +41,7 @@ func (d *dash) handleUsage(w http.ResponseWriter, r *http.Request) {
 	// an empty tree that reported "no meter" would blame the wrong thing.
 	var summaries []groupUsage
 	metered := false
-	if d.adminDB() != nil {
+	if d.routdStore() != nil {
 		summaries, metered, err = d.groupUsageBulk(r.Context(), folders)
 		if err != nil {
 			slog.Warn("usage page: bulk", "err", err)

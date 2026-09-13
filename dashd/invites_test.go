@@ -33,7 +33,7 @@ func testDBWithInvites(t *testing.T) *sql.DB {
 func TestHandleInvitesEmpty(t *testing.T) {
 	db := testDBWithInvites(t)
 	defer db.Close()
-	d := &dash{dbRoutd: db, dbOnbod: db, routdURL: stubRoutd(t, db)}
+	d := &dash{routd: over(db), onbod: over(db), routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -59,12 +59,12 @@ func TestHandleInviteCreateAndList(t *testing.T) {
 	db := testDBWithInvites(t)
 	defer db.Close()
 	// Grant operator (**) admin so requireAdmin passes.
-	seedGrant(t, db, core.ACLRow{
+	seedGrant(t, over(db), core.ACLRow{
 		Principal: "github:operator", Action: "admin", Scope: "**",
 		Effect: "allow", GrantedBy: "test",
 	})
 
-	d := &dash{dbRoutd: db, dbOnbod: db, routdURL: stubRoutd(t, db)}
+	d := &dash{routd: over(db), onbod: over(db), routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -125,7 +125,7 @@ func TestHandleInviteCreateForbiddenWithoutAdminGrant(t *testing.T) {
 	db := testDBWithInvites(t)
 	defer db.Close()
 	// No acl row → requireAdmin denies.
-	d := &dash{dbRoutd: db, dbOnbod: db, routdURL: stubRoutd(t, db)}
+	d := &dash{routd: over(db), onbod: over(db), routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -147,7 +147,7 @@ func TestHandleInviteCreateForbiddenWithoutAdminGrant(t *testing.T) {
 func TestHandleInviteRevokeAndGone(t *testing.T) {
 	db := testDBWithInvites(t)
 	defer db.Close()
-	seedGrant(t, db, core.ACLRow{
+	seedGrant(t, over(db), core.ACLRow{
 		Principal: "github:operator", Action: "admin", Scope: "**",
 		Effect: "allow", GrantedBy: "test",
 	})
@@ -162,7 +162,7 @@ func TestHandleInviteRevokeAndGone(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	d := &dash{dbRoutd: db, dbOnbod: db, routdURL: stubRoutd(t, db)}
+	d := &dash{routd: over(db), onbod: over(db), routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 

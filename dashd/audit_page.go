@@ -57,7 +57,7 @@ func (d *dash) auditSources() []auditSource {
 		{"runed", d.runedURL},
 		{"authd", d.authdURL},
 	}
-	if d.dbOnbod != nil {
+	if d.onbodStore() != nil {
 		src = append(src, auditSource{"onbod", d.onbodURL})
 	}
 	return src

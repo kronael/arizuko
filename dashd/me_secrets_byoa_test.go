@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/audit"
-	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -15,7 +14,7 @@ import (
 // value as a v2: ciphertext — never plaintext. The encryption-bypass bug was
 // dashd's raw INSERT writing body.Value verbatim.
 func TestMeSecrets_SealsAtRest(t *testing.T) {
-	d := meSecretsTestDB(t)
+	d, _ := meSecretsTestDB(t)
 	mux := newMux(d)
 
 	req := httptest.NewRequest("POST", "/dash/me/secrets",
@@ -27,7 +26,7 @@ func TestMeSecrets_SealsAtRest(t *testing.T) {
 		t.Fatalf("POST = %d body=%q", w.Code, w.Body.String())
 	}
 
-	raw := rawSecretValue(t, d.dbRoutd, store.ScopeUser, "github:alice", "GITHUB_TOKEN")
+	raw := rawSecretValue(t, d.routd, store.ScopeUser, "github:alice", "GITHUB_TOKEN")
 	if !strings.HasPrefix(raw, "v2:") {
 		t.Errorf("stored value not sealed: %q", raw)
 	}
@@ -38,7 +37,7 @@ func TestMeSecrets_SealsAtRest(t *testing.T) {
 
 // TestMeSecrets_UpdateSealsAtRest: PATCH reseals; the new value is v2: too.
 func TestMeSecrets_UpdateSealsAtRest(t *testing.T) {
-	d := meSecretsTestDB(t)
+	d, _ := meSecretsTestDB(t)
 	mux := newMux(d)
 
 	post := httptest.NewRequest("POST", "/dash/me/secrets",
@@ -55,7 +54,7 @@ func TestMeSecrets_UpdateSealsAtRest(t *testing.T) {
 		t.Fatalf("PATCH = %d body=%q", w.Code, w.Body.String())
 	}
 
-	raw := rawSecretValue(t, d.dbRoutd, store.ScopeUser, "github:alice", "TOKEN")
+	raw := rawSecretValue(t, d.routd, store.ScopeUser, "github:alice", "TOKEN")
 	if !strings.HasPrefix(raw, "v2:") || strings.Contains(raw, "v2-secret") {
 		t.Errorf("updated value not sealed: %q", raw)
 	}
@@ -69,8 +68,8 @@ func TestMeSecrets_UpdateSealsAtRest(t *testing.T) {
 // into the emitted event).
 func TestMeSecrets_AuditOmitsValue(t *testing.T) {
 	const canary = "super-secret-val"
-	d := meSecretsTestDB(t)
-	audit.Init(sqlstore.New(d.dbRoutd), "test")
+	d, db := meSecretsTestDB(t)
+	audit.Init(d.routd, "test")
 	t.Cleanup(func() { audit.Init(nil, "") })
 	mux := newMux(d)
 
@@ -83,7 +82,7 @@ func TestMeSecrets_AuditOmitsValue(t *testing.T) {
 		t.Fatalf("POST = %d body=%q", w.Code, w.Body.String())
 	}
 
-	rows, dump := auditDump(t, d.dbRoutd)
+	rows, dump := auditDump(t, db)
 	if rows != 1 || !strings.Contains(dump, "secret.set") {
 		t.Fatalf("want one secret.set audit row, got %d:\n%s", rows, dump)
 	}
@@ -95,7 +94,7 @@ func TestMeSecrets_AuditOmitsValue(t *testing.T) {
 // TestMeSecrets_HTMLPage: Accept text/html renders the management page with the
 // key name visible but never the value, plus the add form.
 func TestMeSecrets_HTMLPage(t *testing.T) {
-	d := meSecretsTestDB(t)
+	d, _ := meSecretsTestDB(t)
 	mux := newMux(d)
 
 	post := httptest.NewRequest("POST", "/dash/me/secrets",
@@ -129,7 +128,7 @@ func TestMeSecrets_HTMLPage(t *testing.T) {
 // TestMeSecrets_DeleteMissing: deleting a never-set key is 404 (parity with
 // PATCH-missing), and a real key still deletes cleanly afterwards.
 func TestMeSecrets_DeleteMissing(t *testing.T) {
-	d := meSecretsTestDB(t)
+	d, _ := meSecretsTestDB(t)
 	mux := newMux(d)
 	req := httptest.NewRequest("DELETE", "/dash/me/secrets/NEVER_SET", nil)
 	req.Header.Set("X-User-Sub", "github:alice")
@@ -143,7 +142,7 @@ func TestMeSecrets_DeleteMissing(t *testing.T) {
 // TestMeSecrets_JSONStillDefault: without an html Accept, GET stays JSON (the
 // API surface is unchanged for non-browser callers).
 func TestMeSecrets_JSONStillDefault(t *testing.T) {
-	d := meSecretsTestDB(t)
+	d, _ := meSecretsTestDB(t)
 	mux := newMux(d)
 	req := httptest.NewRequest("GET", "/dash/me/secrets", nil)
 	req.Header.Set("X-User-Sub", "github:alice")
@@ -158,7 +157,7 @@ func TestMeSecrets_JSONStillDefault(t *testing.T) {
 // The SQL scope_id=? binds to the verified caller sub, so A's secrets are
 // invisible to B even when they share an instance.
 func TestMeSecrets_CrossUserIsolation(t *testing.T) {
-	d := meSecretsTestDB(t)
+	d, _ := meSecretsTestDB(t)
 	mux := newMux(d)
 
 	// Seed Alice's secret (capability credential — allowed at /dash/me/secrets).

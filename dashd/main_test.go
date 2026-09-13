@@ -17,7 +17,7 @@ import (
 func TestDashHealth(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
-	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
+	d := &dash{routd: over(db), routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -37,7 +37,7 @@ func TestDashHealth(t *testing.T) {
 func TestDashPortal(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
-	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
+	d := &dash{routd: over(db), routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -55,7 +55,7 @@ func TestDashPortal(t *testing.T) {
 func TestDashStatus(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
-	d := &dash{dbRoutd: db, dbPath: ":memory:", routdURL: stubRoutd(t, db)}
+	d := &dash{routd: over(db), dbPath: ":memory:", routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -70,7 +70,7 @@ func TestDashStatus(t *testing.T) {
 func TestDashTasks(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
-	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
+	d := &dash{routd: over(db), routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -120,7 +120,7 @@ func TestRenderMemorySectionValid(t *testing.T) {
 func TestDashNoAuthGate(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
-	d := &dash{dbRoutd: db, groupsDir: t.TempDir(), routdURL: stubRoutd(t, db)}
+	d := &dash{routd: over(db), groupsDir: t.TempDir(), routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -183,7 +183,7 @@ func TestHandleStatusDBError(t *testing.T) {
 	if _, err := db.Exec(`DROP TABLE sessions`); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{dbRoutd: db, dbPath: ":memory:", routdURL: stubRoutd(t, db)}
+	d := &dash{routd: over(db), dbPath: ":memory:", routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -281,7 +281,7 @@ func TestRenderMemorySectionAbsolutePath(t *testing.T) {
 func TestHandleMemoryURLEncodedTraversal(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
-	d := &dash{dbRoutd: db, groupsDir: t.TempDir(), routdURL: stubRoutd(t, db)}
+	d := &dash{routd: over(db), groupsDir: t.TempDir(), routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -363,7 +363,7 @@ func TestHandlePortalDBError(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
+	d := &dash{routd: over(db), routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -389,7 +389,7 @@ func TestTasksPartialDBError(t *testing.T) {
 	if _, err := db.Exec(`DROP TABLE scheduled_tasks`); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
+	d := &dash{routd: over(db), routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -417,7 +417,7 @@ func TestActivityPartialDBError(t *testing.T) {
 	if _, err := db.Exec(`DROP TABLE message_activity`); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
+	d := &dash{routd: over(db), routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -446,7 +446,7 @@ func TestHandleGroupsDBError(t *testing.T) {
 	// The page reads the group list through routd's /v1 now, so an unreadable
 	// source is an unreachable OWNER rather than a failed local query — the
 	// failure must still reach the operator as a banner, not an empty list.
-	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
+	d := &dash{routd: over(db), routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -470,7 +470,7 @@ func TestHandleMemoryDBError(t *testing.T) {
 	if _, err := db.Exec(`DROP TABLE groups`); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{dbRoutd: db, groupsDir: t.TempDir(), routdURL: stubRoutd(t, db)}
+	d := &dash{routd: over(db), groupsDir: t.TempDir(), routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -497,7 +497,7 @@ func TestHandleMemoryDBError(t *testing.T) {
 func TestDashIgnoresAuthHeader(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
-	d := &dash{dbRoutd: db, dbPath: ":memory:", groupsDir: t.TempDir(), routdURL: stubRoutd(t, db)}
+	d := &dash{routd: over(db), dbPath: ":memory:", groupsDir: t.TempDir(), routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -570,7 +570,7 @@ func setupMemoryTest(t *testing.T) (*dash, string, *http.ServeMux) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{dbRoutd: inst.DB, groupsDir: groups, routdURL: stubRoutd(t, inst.DB)}
+	d := &dash{routd: over(inst.DB), groupsDir: groups, routdURL: stubRoutd(t, inst.DB)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	return d, folder, mux
@@ -719,7 +719,7 @@ func TestBrandNameAccentPropagation(t *testing.T) {
 
 	db := routdDB(t)
 	defer db.Close()
-	d := &dash{dbRoutd: db, routdURL: stubRoutd(t, db)}
+	d := &dash{routd: over(db), routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 

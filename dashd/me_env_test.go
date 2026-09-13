@@ -13,7 +13,6 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/audit"
-	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -120,7 +119,8 @@ func auditDump(t *testing.T, db *sql.DB) (int, string) {
 }
 
 func TestMeEnv_RequiresAuth(t *testing.T) {
-	mux := newMux(meSecretsTestDB(t))
+	d, _ := meSecretsTestDB(t)
+	mux := newMux(d)
 	for _, m := range []string{"GET", "POST", "PATCH", "DELETE"} {
 		path := "/dash/me/env"
 		if m == "PATCH" || m == "DELETE" {
@@ -135,7 +135,7 @@ func TestMeEnv_RequiresAuth(t *testing.T) {
 // TestMeEnv_CreateListDelete is the write path end to end: POST stores the key,
 // GET lists its name (never its value), DELETE removes it.
 func TestMeEnv_CreateListDelete(t *testing.T) {
-	d := meSecretsTestDB(t)
+	d, _ := meSecretsTestDB(t)
 	mux := newMux(d)
 
 	if w := envReq(t, mux, "POST", "/dash/me/env", "github:alice",
@@ -181,7 +181,7 @@ func TestMeEnv_CreateListDelete(t *testing.T) {
 // TestMeEnv_UpdateReplacesValue: PATCH is update-only — 404 on a never-set key,
 // and it replaces the stored value on a set one.
 func TestMeEnv_UpdateReplacesValue(t *testing.T) {
-	d := meSecretsTestDB(t)
+	d, _ := meSecretsTestDB(t)
 	mux := newMux(d)
 
 	if w := envReq(t, mux, "PATCH", "/dash/me/env/OPENAI_API_KEY", "github:alice",
@@ -208,7 +208,7 @@ func TestMeEnv_UpdateReplacesValue(t *testing.T) {
 // 5/14 "Write paths": each surface rejects the other's key class on every write
 // verb, names the right page, and writes nothing.
 func TestMeEnv_CrossGuard(t *testing.T) {
-	d := meSecretsTestDB(t)
+	d, _ := meSecretsTestDB(t)
 	mux := newMux(d)
 
 	// A capability credential is refused by /dash/me/env on every write verb.
@@ -255,7 +255,7 @@ func TestMeEnv_CrossGuard(t *testing.T) {
 // env page's writes go through (spec 5/14: "the enforcement point, not a handler
 // convention"). PutSecretRow is the exact call handleMeEnvCreate makes.
 func TestMeEnv_ScopeValidationRejectsBadScope(t *testing.T) {
-	d := meSecretsTestDB(t)
+	d, _ := meSecretsTestDB(t)
 	ss := d.secretStore()
 	cases := []struct {
 		name    string
@@ -276,7 +276,7 @@ func TestMeEnv_ScopeValidationRejectsBadScope(t *testing.T) {
 			t.Errorf("%s: DeleteSecretRow accepted a bad scope", c.name)
 		}
 	}
-	if n := countSecrets(t, d.dbRoutd, nil); n != 0 {
+	if n := countSecrets(t, d.routd, nil); n != 0 {
 		t.Errorf("rejected writes still landed %d rows", n)
 	}
 }
@@ -286,8 +286,8 @@ func TestMeEnv_ScopeValidationRejectsBadScope(t *testing.T) {
 // EXIST first — "no canary in audit_log" is worthless if nothing was written.
 func TestMeEnv_NoPlaintextInLogsOrAudit(t *testing.T) {
 	const canary = "sk-ant-ENV_PLAINTEXT_CANARY_4d21"
-	d := meSecretsTestDB(t)
-	audit.Init(sqlstore.New(d.dbRoutd), "test")
+	d, db := meSecretsTestDB(t)
+	audit.Init(d.routd, "test")
 	t.Cleanup(func() { audit.Init(nil, "") })
 	logs := captureSlog(t)
 	mux := newMux(d)
@@ -307,7 +307,7 @@ func TestMeEnv_NoPlaintextInLogsOrAudit(t *testing.T) {
 
 	// Two secret.set rows (create + update) and one secret.delete must exist —
 	// otherwise the leak assertion below reads an empty table and proves nothing.
-	rows, dump := auditDump(t, d.dbRoutd)
+	rows, dump := auditDump(t, db)
 	if rows != 3 {
 		t.Fatalf("audit_log rows = %d, want 3 (secret.set x2 + secret.delete):\n%s", rows, dump)
 	}
@@ -331,7 +331,7 @@ func TestMeEnv_NoPlaintextInLogsOrAudit(t *testing.T) {
 // TestMeEnv_SealsAtRest: under a configured SECRETS_KEY keyring the env write
 // lands as a v2: ciphertext, the same encoding routd decrypts at spawn.
 func TestMeEnv_SealsAtRest(t *testing.T) {
-	d := meSecretsTestDB(t)
+	d, _ := meSecretsTestDB(t)
 	mux := newMux(d)
 	if w := envReq(t, mux, "POST", "/dash/me/env", "github:alice",
 		`{"key":"CLAUDE_CODE_OAUTH_TOKEN","value":"oauth-plaintext"}`); w.Code != http.StatusNoContent {
@@ -339,7 +339,7 @@ func TestMeEnv_SealsAtRest(t *testing.T) {
 	}
 	// Read the blob raw: this test is about the at-rest encoding, so it must not
 	// go through secretValue, which decrypts.
-	raw := rawSecretValue(t, d.dbRoutd, store.ScopeUser, "github:alice", "CLAUDE_CODE_OAUTH_TOKEN")
+	raw := rawSecretValue(t, d.routd, store.ScopeUser, "github:alice", "CLAUDE_CODE_OAUTH_TOKEN")
 	if !strings.HasPrefix(raw, "v2:") || strings.Contains(raw, "oauth-plaintext") {
 		t.Errorf("stored value not sealed: %q", raw)
 	}
@@ -348,7 +348,7 @@ func TestMeEnv_SealsAtRest(t *testing.T) {
 // TestMeEnv_CrossUserIsolation: the scope_id binds to the verified caller sub,
 // so Bob neither sees nor overwrites Alice's model key.
 func TestMeEnv_CrossUserIsolation(t *testing.T) {
-	d := meSecretsTestDB(t)
+	d, _ := meSecretsTestDB(t)
 	mux := newMux(d)
 	envReq(t, mux, "POST", "/dash/me/env", "github:alice", `{"key":"CODEX_API_KEY","value":"alice"}`)
 
@@ -371,7 +371,8 @@ func TestMeEnv_CrossUserIsolation(t *testing.T) {
 
 // TestMeEnv_CSRF: a cross-origin write is rejected; the same-origin one passes.
 func TestMeEnv_CSRF(t *testing.T) {
-	mux := newMux(meSecretsTestDB(t))
+	d, _ := meSecretsTestDB(t)
+	mux := newMux(d)
 	for _, c := range []struct {
 		origin string
 		want   int
@@ -395,7 +396,7 @@ func TestMeEnv_CSRF(t *testing.T) {
 // TestMeEnv_HTMLPage: the browser surface lists every env-profile key, marks the
 // unset ones as falling back to the platform key, and never renders a value.
 func TestMeEnv_HTMLPage(t *testing.T) {
-	d := meSecretsTestDB(t)
+	d, _ := meSecretsTestDB(t)
 	mux := newMux(d)
 	envReq(t, mux, "POST", "/dash/me/env", "github:alice", `{"key":"ANTHROPIC_API_KEY","value":"sk-dontshow"}`)
 

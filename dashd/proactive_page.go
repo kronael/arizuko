@@ -26,7 +26,7 @@ func (d *dash) handleProactive(w http.ResponseWriter, r *http.Request) {
 	}
 	pageTopFor(w, r, "proactive")
 
-	if d.dbRoutd == nil {
+	if d.routdStore() == nil {
 		fmt.Fprint(w, htmlBanner("err", "routd store unavailable"))
 		pageClose(w, r)
 		return

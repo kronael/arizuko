@@ -6,9 +6,16 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
 )
+
+// over is one owner's tables as a handle: what a dash holds and what every
+// fixture below reads and writes through. A test stands its database up as a
+// pool, so this is the one place that pool becomes a handle — the same door
+// boot hands an endpoint through.
+func over(db *sql.DB) objstore.Store { return store.New(db).Obj() }
 
 // Test fixtures for the two owner DBs dashd reads. They run the DAEMONS' OWN
 // embedded migrations — a fixture built from routd.OpenMem/runed.OpenMem cannot
@@ -50,27 +57,27 @@ func routdDB(t *testing.T) *sql.DB {
 // an audit-free handler pass.
 
 // seedGrant grants one acl row.
-func seedGrant(t *testing.T, db *sql.DB, row core.ACLRow) {
+func seedGrant(t *testing.T, h objstore.Store, row core.ACLRow) {
 	t.Helper()
-	if err := store.New(db).PutACLRow(row); err != nil {
+	if err := store.NewOver(h).PutACLRow(row); err != nil {
 		t.Fatalf("seed grant %s %s on %s: %v", row.Principal, row.Action, row.Scope, err)
 	}
 }
 
 // seedAdmin grants one principal `admin` on one scope — the row requireAdmin
 // consults.
-func seedAdmin(t *testing.T, db *sql.DB, principal, scope string) {
+func seedAdmin(t *testing.T, h objstore.Store, principal, scope string) {
 	t.Helper()
-	seedGrant(t, db, core.ACLRow{
+	seedGrant(t, h, core.ACLRow{
 		Principal: principal, Action: "admin", Scope: scope, Effect: "allow",
 	})
 }
 
 // seedFolder creates one group, with the member edge PutGroupRow writes beside
 // the row — the floor every folder is born holding.
-func seedFolder(t *testing.T, db *sql.DB, folder string) {
+func seedFolder(t *testing.T, h objstore.Store, folder string) {
 	t.Helper()
-	if err := store.New(db).PutGroupRow(core.Group{
+	if err := store.NewOver(h).PutGroupRow(core.Group{
 		Folder: folder, AddedAt: time.Now().UTC(),
 	}); err != nil {
 		t.Fatalf("seed group %s: %v", folder, err)
@@ -80,21 +87,21 @@ func seedFolder(t *testing.T, db *sql.DB, folder string) {
 // seedScheduledTask creates one scheduled task. A caller-chosen id that is
 // already taken is refused, so a fixture cannot silently replace one it seeded
 // earlier in the same test.
-func seedScheduledTask(t *testing.T, db *sql.DB, task core.Task) {
+func seedScheduledTask(t *testing.T, h objstore.Store, task core.Task) {
 	t.Helper()
 	if task.Created.IsZero() {
 		task.Created = time.Now().UTC()
 	}
-	if err := store.New(db).CreateTask(task); err != nil {
+	if err := store.NewOver(h).CreateTask(task); err != nil {
 		t.Fatalf("seed task %s: %v", task.ID, err)
 	}
 }
 
 // seedRoute writes one routing rule and answers the id the mint handed it —
 // the handle every route handler is addressed by.
-func seedRoute(t *testing.T, db *sql.DB, r core.Route) int64 {
+func seedRoute(t *testing.T, h objstore.Store, r core.Route) int64 {
 	t.Helper()
-	id, err := store.New(db).PutRouteRow(r)
+	id, err := store.NewOver(h).PutRouteRow(r)
 	if err != nil {
 		t.Fatalf("seed route %d %s -> %s: %v", r.Seq, r.Match, r.Target, err)
 	}
@@ -104,20 +111,20 @@ func seedRoute(t *testing.T, db *sql.DB, r core.Route) int64 {
 // seedRouteToken mints one delivery credential for a jid. The raw bearer is
 // derived from the jid so two tokens in one test never collide on the digest
 // that IS their coordinate.
-func seedRouteToken(t *testing.T, db *sql.DB, tok store.RouteToken) {
+func seedRouteToken(t *testing.T, h objstore.Store, tok store.RouteToken) {
 	t.Helper()
 	if tok.CreatedAt.IsZero() {
 		tok.CreatedAt = time.Now().UTC()
 	}
-	if err := store.New(db).InsertRouteToken("raw-"+tok.JID, tok); err != nil {
+	if err := store.NewOver(h).InsertRouteToken("raw-"+tok.JID, tok); err != nil {
 		t.Fatalf("seed route token %s: %v", tok.JID, err)
 	}
 }
 
 // countGrants counts the grants one principal holds for one action.
-func countGrants(t *testing.T, db *sql.DB, principal, action string) int {
+func countGrants(t *testing.T, h objstore.Store, principal, action string) int {
 	t.Helper()
-	rows, err := store.New(db).ListACL(principal)
+	rows, err := store.NewOver(h).ListACL(principal)
 	if err != nil {
 		t.Fatalf("read the grants of %s: %v", principal, err)
 	}
@@ -132,9 +139,9 @@ func countGrants(t *testing.T, db *sql.DB, principal, action string) int {
 
 // countRoutes counts the rules matching a predicate, read through the table the
 // router resolves.
-func countRoutes(t *testing.T, db *sql.DB, match func(core.Route) bool) int {
+func countRoutes(t *testing.T, h objstore.Store, match func(core.Route) bool) int {
 	t.Helper()
-	routes, err := store.New(db).RouteTable()
+	routes, err := store.NewOver(h).RouteTable()
 	if err != nil {
 		t.Fatalf("read the route table: %v", err)
 	}
@@ -148,10 +155,10 @@ func countRoutes(t *testing.T, db *sql.DB, match func(core.Route) bool) int {
 }
 
 // countTasks counts the scheduled tasks matching a predicate, over every owner.
-func countTasks(t *testing.T, db *sql.DB, match func(core.Task) bool) int {
+func countTasks(t *testing.T, h objstore.Store, match func(core.Task) bool) int {
 	t.Helper()
 	n := 0
-	for _, task := range store.New(db).ListTasks("", true) {
+	for _, task := range store.NewOver(h).ListTasks("", true) {
 		if match(task) {
 			n++
 		}
@@ -160,10 +167,10 @@ func countTasks(t *testing.T, db *sql.DB, match func(core.Task) bool) int {
 }
 
 // countRouteTokens counts one folder's delivery credentials whose jid matches.
-func countRouteTokens(t *testing.T, db *sql.DB, folder string, match func(store.RouteToken) bool) int {
+func countRouteTokens(t *testing.T, h objstore.Store, folder string, match func(store.RouteToken) bool) int {
 	t.Helper()
 	n := 0
-	for _, tok := range store.New(db).ListRouteTokens(folder) {
+	for _, tok := range store.NewOver(h).ListRouteTokens(folder) {
 		if match(tok) {
 			n++
 		}
@@ -172,18 +179,18 @@ func countRouteTokens(t *testing.T, db *sql.DB, folder string, match func(store.
 }
 
 // hasFolder reports whether one group exists.
-func hasFolder(t *testing.T, db *sql.DB, folder string) bool {
+func hasFolder(t *testing.T, h objstore.Store, folder string) bool {
 	t.Helper()
-	_, ok := store.New(db).GroupByFolder(folder)
+	_, ok := store.NewOver(h).GroupByFolder(folder)
 	return ok
 }
 
 // secretRows is every stored secret, with its blob AS IT IS AT REST — the
 // projection `arizuko export` reads, and the only one that carries the sealed
 // text, because every other reader decrypts.
-func secretRows(t *testing.T, db *sql.DB) []store.ArchiveSecretRow {
+func secretRows(t *testing.T, h objstore.Store) []store.ArchiveSecretRow {
 	t.Helper()
-	rows, err := store.New(db).ExportSecretRows(t.Context())
+	rows, err := store.NewOver(h).ExportSecretRows(t.Context())
 	if err != nil {
 		t.Fatalf("read the stored secrets: %v", err)
 	}
@@ -191,9 +198,9 @@ func secretRows(t *testing.T, db *sql.DB) []store.ArchiveSecretRow {
 }
 
 // rawSecretValue is one secret's blob at rest.
-func rawSecretValue(t *testing.T, db *sql.DB, scope store.SecretScope, scopeID, key string) string {
+func rawSecretValue(t *testing.T, h objstore.Store, scope store.SecretScope, scopeID, key string) string {
 	t.Helper()
-	for _, r := range secretRows(t, db) {
+	for _, r := range secretRows(t, h) {
 		if r.ScopeKind == string(scope) && r.ScopeID == scopeID && r.Key == key {
 			return r.Value
 		}
@@ -203,10 +210,10 @@ func rawSecretValue(t *testing.T, db *sql.DB, scope store.SecretScope, scopeID, 
 }
 
 // countSecrets counts the stored secrets a predicate selects.
-func countSecrets(t *testing.T, db *sql.DB, match func(store.ArchiveSecretRow) bool) int {
+func countSecrets(t *testing.T, h objstore.Store, match func(store.ArchiveSecretRow) bool) int {
 	t.Helper()
 	n := 0
-	for _, r := range secretRows(t, db) {
+	for _, r := range secretRows(t, h) {
 		if match == nil || match(r) {
 			n++
 		}

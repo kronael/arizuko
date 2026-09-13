@@ -11,12 +11,11 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/objstore"
-	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
 )
 
-// approvalsDash wires a dash pointed at the fake routd. dbRoutd stays NIL: the
+// approvalsDash wires a dash pointed at the fake routd. The handle stays NIL: the
 // page must resolve everything over HTTP, so a direct read panics the test.
 func approvalsDash(t *testing.T, u *routdUpstream) *http.ServeMux {
 	t.Helper()
@@ -184,7 +183,7 @@ func TestApprovalResolve_BadVerdictRejected(t *testing.T) {
 // pendingCountDB is a migrated routd.db; the portal count reads pending_actions.
 func pendingCountDB(t *testing.T) *dash {
 	t.Helper()
-	return &dash{dbRoutd: routdDB(t)}
+	return &dash{routd: over(routdDB(t))}
 }
 
 // The portal banner counts only calls still WAITING that this caller may
@@ -192,7 +191,7 @@ func pendingCountDB(t *testing.T) *dash {
 // a call in a folder the caller holds no admin on is not theirs to answer.
 func TestPortalCountsHeldApprovals(t *testing.T) {
 	d := pendingCountDB(t)
-	seedAdmin(t, d.dbRoutd, "op@x", "**")
+	seedAdmin(t, d.routd, "op@x", "**")
 	past := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
 	for _, row := range [][3]string{
 		{"p1", "held", ""},
@@ -212,7 +211,7 @@ func TestPortalCountsHeldApprovals(t *testing.T) {
 		if row[2] != "" {
 			attrs[store.AttrPendExpiresAt] = row[2]
 		}
-		if _, err := sqlstore.New(d.dbRoutd).GuardedBatch(t.Context(), nil,
+		if _, err := d.routd.GuardedBatch(t.Context(), nil,
 			[]objstore.Write{{
 				Op:     objstore.Put,
 				Entity: store.PendingActions,

@@ -30,7 +30,7 @@ func newRWDashServer(t *testing.T) (*httptest.Server, *testutils.Inst, string) {
 	if err := os.MkdirAll(groupsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{dbRoutd: inst.DB, dbOnbod: inst.DB, dbPath: "memory", groupsDir: groupsDir,
+	d := &dash{routd: over(inst.DB), onbod: over(inst.DB), dbPath: "memory", groupsDir: groupsDir,
 		routdURL: stubRoutd(t, inst.DB)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
@@ -459,7 +459,7 @@ func TestDash_TaskCreate(t *testing.T) {
 	}
 
 	// Fetch the detail page (direct httptest call to avoid redirect loop).
-	d := &dash{dbRoutd: inst.DB, dbPath: "memory", routdURL: stubRoutd(t, inst.DB),
+	d := &dash{routd: over(inst.DB), dbPath: "memory", routdURL: stubRoutd(t, inst.DB),
 		groupsDir: filepath.Join(inst.Tmp, "groups")}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
@@ -487,7 +487,7 @@ func TestDash_TaskPauseResume(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	seedScheduledTask(t, inst.DB, core.Task{
+	seedScheduledTask(t, over(inst.DB), core.Task{
 		ID: "t1", Owner: "alice", ChatJID: "alice@s.whatsapp.net", Prompt: "ping",
 		Cron: "* * * * *", Status: "active",
 	})
@@ -527,7 +527,7 @@ func TestDash_TaskCancel(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	seedScheduledTask(t, inst.DB, core.Task{
+	seedScheduledTask(t, over(inst.DB), core.Task{
 		ID: "t2", Owner: "alice", ChatJID: "alice@s.whatsapp.net", Prompt: "ping",
 		Cron: "* * * * *", Status: "active",
 	})
@@ -550,7 +550,7 @@ func TestDash_TaskCancel(t *testing.T) {
 // TestDash_TaskAction_DenyNonAdmin: non-admin cannot pause a task.
 func TestDash_TaskAction_DenyNonAdmin(t *testing.T) {
 	srv, inst, _ := newRWDashServer(t)
-	seedScheduledTask(t, inst.DB, core.Task{
+	seedScheduledTask(t, over(inst.DB), core.Task{
 		ID: "t3", Owner: "alice", ChatJID: "alice@s.whatsapp.net", Prompt: "ping",
 		Cron: "* * * * *", Status: "active",
 	})
@@ -570,7 +570,7 @@ func TestDash_TaskAction_DenyNonAdmin(t *testing.T) {
 // TestDash_TaskDetail_RunLogs: seed task + run logs, verify they appear.
 func TestDash_TaskDetail_RunLogs(t *testing.T) {
 	_, inst, _ := newRWDashServer(t)
-	seedScheduledTask(t, inst.DB, core.Task{
+	seedScheduledTask(t, over(inst.DB), core.Task{
 		ID: "t4", Owner: "bob", ChatJID: "bob@s.whatsapp.net", Prompt: "daily report",
 		Cron: "0 8 * * *", Status: "active",
 	})
@@ -582,7 +582,7 @@ func TestDash_TaskDetail_RunLogs(t *testing.T) {
 		}
 	}
 
-	d := &dash{dbRoutd: inst.DB, dbPath: "memory", routdURL: stubRoutd(t, inst.DB),
+	d := &dash{routd: over(inst.DB), dbPath: "memory", routdURL: stubRoutd(t, inst.DB),
 		groupsDir: filepath.Join(inst.Tmp, "groups")}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
@@ -603,12 +603,12 @@ func TestDash_TaskDetail_RunLogs(t *testing.T) {
 // TestDash_TasksPage_PromptColumn: tasks list page includes Prompt column.
 func TestDash_TasksPage_PromptColumn(t *testing.T) {
 	_, inst, _ := newRWDashServer(t)
-	seedScheduledTask(t, inst.DB, core.Task{
+	seedScheduledTask(t, over(inst.DB), core.Task{
 		ID: "t5", Owner: "carol", ChatJID: "carol@s.whatsapp.net", Prompt: "send summary",
 		Cron: "0 7 * * *", Status: "active",
 	})
 
-	d := &dash{dbRoutd: inst.DB, dbPath: "memory", routdURL: stubRoutd(t, inst.DB),
+	d := &dash{routd: over(inst.DB), dbPath: "memory", routdURL: stubRoutd(t, inst.DB),
 		groupsDir: filepath.Join(inst.Tmp, "groups")}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)

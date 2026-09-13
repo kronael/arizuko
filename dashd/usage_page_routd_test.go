@@ -50,7 +50,7 @@ func TestUsagePageNumbersViaRealRoutd(t *testing.T) {
 	ts := httptest.NewServer(routd.NewServer(db, nil, nil, nil, 0, "").Handler())
 	t.Cleanup(ts.Close)
 
-	code, body := usageGet(t, &dash{dbRoutd: db.SQL(), routdURL: ts.URL})
+	code, body := usageGet(t, &dash{routd: over(db.SQL()), routdURL: ts.URL})
 	if code != 200 {
 		t.Fatalf("status = %d: %s", code, body)
 	}

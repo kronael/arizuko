@@ -6,10 +6,10 @@ import (
 	"testing"
 )
 
-// When routd.db fails to open, adminDB() is nil. Every read handler must
-// degrade to a banner / 503 rather than panic on a nil *sql.DB deref.
+// When routd's store will not open, routdStore() is nil. Every read handler must
+// degrade to a banner / 503 rather than panic on a nil handle.
 func TestReadHandlers_nilAdminDB(t *testing.T) {
-	d := &dash{groupsDir: t.TempDir()} // all DB handles nil
+	d := &dash{groupsDir: t.TempDir()} // every store handle nil
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -27,7 +27,7 @@ func TestReadHandlers_nilAdminDB(t *testing.T) {
 		"/dash/profile/",
 	} {
 		w := httptest.NewRecorder()
-		// asOperator so callerScope resolves without the (nil) adminDB fallback;
+		// asOperator so callerScope resolves without the (nil) store fallback;
 		// ServeHTTP panicking here would fail the test.
 		mux.ServeHTTP(w, asOperator(httptest.NewRequest("GET", path, nil)))
 		if w.Code != http.StatusOK && w.Code != http.StatusServiceUnavailable {

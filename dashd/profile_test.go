@@ -5,20 +5,18 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/kronael/arizuko/store"
 )
 
 // user_profiles is routd-owned (routd/migrations 0011 + 0025); dashd reads it
-// via adminDB() (routd.db), so dbRoutd is the handle to wire.
+// through routdStore(), so routd is the handle to wire.
 func profileTestDB(t *testing.T) *dash {
 	t.Helper()
-	return &dash{dbRoutd: routdDB(t)}
+	return &dash{routd: over(routdDB(t))}
 }
 
 func seedAuthUser(t *testing.T, d *dash, sub, name string) {
 	t.Helper()
-	if err := store.New(d.adminDB()).CreateUserProfile(sub, sub, name); err != nil {
+	if err := d.routdStore().CreateUserProfile(sub, sub, name); err != nil {
 		t.Fatal(err)
 	}
 }

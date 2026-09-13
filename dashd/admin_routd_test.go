@@ -34,14 +34,14 @@ func splitAdminDash(t *testing.T, adminSub string) (*dash, *sql.DB) {
 	audit.Init(sqlstore.New(routd), "test")
 	t.Cleanup(func() { audit.Init(nil, "") })
 	// Operator grant lives in routd.db only.
-	seedAdmin(t, routd, adminSub, "**")
+	seedAdmin(t, over(routd), adminSub, "**")
 	// "team" is the folder these tests act on. It must exist: a mint checks the
 	// token's target against the groups it may deliver to, so a token cannot be
 	// minted for a folder that was never created.
-	seedFolder(t, routd, "team")
+	seedFolder(t, over(routd), "team")
 	// routdURL: the pages read through routd's /v1 now (6/28), so the tests need
 	// something serving the rows they seed into routd.db.
-	return &dash{dbRoutd: routd, groupsDir: t.TempDir(), routdURL: stubRoutd(t, routd)}, routd
+	return &dash{routd: over(routd), groupsDir: t.TempDir(), routdURL: stubRoutd(t, routd)}, routd
 }
 
 func adminReq(method, path, body, sub string) *http.Request {
@@ -77,7 +77,7 @@ func TestGrantAdd_TargetsRoutdDB(t *testing.T) {
 		t.Fatalf("POST grants = %d body=%q", w.Code, w.Body.String())
 	}
 
-	if n := countGrants(t, routd, "bob@x", "send"); n != 1 {
+	if n := countGrants(t, over(routd), "bob@x", "send"); n != 1 {
 		t.Errorf("routd.db acl rows = %d, want 1", n)
 	}
 }
@@ -86,7 +86,7 @@ func TestGrantAdd_TargetsRoutdDB(t *testing.T) {
 // (proves the admin-UI READ reflects the live routd.db table).
 func TestGrantList_ReadsRoutdV1(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
-	seedGrant(t, routd, core.ACLRow{
+	seedGrant(t, over(routd), core.ACLRow{
 		Principal: "carol@x", Action: "reply", Scope: "team", Effect: "allow",
 	})
 	mux := newMux(d)
@@ -109,7 +109,7 @@ func TestGroupDelete_TargetsRoutdDB(t *testing.T) {
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("POST delete = %d body=%q", w.Code, w.Body.String())
 	}
-	if hasFolder(t, routd, "team") {
+	if hasFolder(t, over(routd), "team") {
 		t.Error("the group survived its own delete in routd.db")
 	}
 }
@@ -117,7 +117,7 @@ func TestGroupDelete_TargetsRoutdDB(t *testing.T) {
 // TestGroupList_ReadsRoutdDB: the groups page lists a folder seeded into routd.db.
 func TestGroupList_ReadsRoutdDB(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
-	seedFolder(t, routd, "liveteam")
+	seedFolder(t, over(routd), "liveteam")
 	mux := newMux(d)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, adminReq("GET", "/dash/groups/", "", "alice@x"))
@@ -140,7 +140,7 @@ func TestRouteCreate_TargetsRoutdDB(t *testing.T) {
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("POST routes = %d body=%q", w.Code, w.Body.String())
 	}
-	if n := countRoutes(t, routd, func(r core.Route) bool {
+	if n := countRoutes(t, over(routd), func(r core.Route) bool {
 		return r.Match == "room=42" && r.Target == "team"
 	}); n != 1 {
 		t.Errorf("routd.db route rows = %d, want 1", n)
@@ -155,7 +155,7 @@ func TestRouteCreate_TargetsRoutdDB(t *testing.T) {
 // in the table reaches the page — is unchanged.
 func TestRouteList_ReadsRoutdV1(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
-	seedRoute(t, routd, core.Route{Seq: 9, Match: "liveroute=1", Target: "team"})
+	seedRoute(t, over(routd), core.Route{Seq: 9, Match: "liveroute=1", Target: "team"})
 	mux := newMux(d)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, adminReq("GET", "/dash/routes/", "", "alice@x"))
@@ -170,14 +170,14 @@ func TestRouteList_ReadsRoutdV1(t *testing.T) {
 // TestRouteDelete_TargetsRoutdDB: deleting a route removes it from routd.db.
 func TestRouteDelete_TargetsRoutdDB(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
-	id := seedRoute(t, routd, core.Route{Seq: 1, Match: "m=1", Target: "team"})
+	id := seedRoute(t, over(routd), core.Route{Seq: 1, Match: "m=1", Target: "team"})
 	mux := newMux(d)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, adminReq("POST", "/dash/routes/"+strconv.FormatInt(id, 10)+"/delete", "", "alice@x"))
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("POST route delete = %d body=%q", w.Code, w.Body.String())
 	}
-	if n := countRoutes(t, routd, func(r core.Route) bool { return r.ID == id }); n != 0 {
+	if n := countRoutes(t, over(routd), func(r core.Route) bool { return r.ID == id }); n != 0 {
 		t.Errorf("routd.db route rows after delete = %d, want 0", n)
 	}
 }
@@ -256,7 +256,7 @@ func TestTaskCreate_TargetsRoutdDB(t *testing.T) {
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("POST tasks = %d body=%q", w.Code, w.Body.String())
 	}
-	if n := countTasks(t, routd, func(task core.Task) bool {
+	if n := countTasks(t, over(routd), func(task core.Task) bool {
 		return task.Owner == "team" && task.Prompt == "do the thing"
 	}); n != 1 {
 		t.Errorf("routd.db scheduled_tasks rows = %d, want 1", n)
@@ -266,7 +266,7 @@ func TestTaskCreate_TargetsRoutdDB(t *testing.T) {
 // TestTaskAction_TargetsRoutdDB: pausing a task updates its status in routd.db.
 func TestTaskAction_TargetsRoutdDB(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
-	seedScheduledTask(t, routd, core.Task{
+	seedScheduledTask(t, over(routd), core.Task{
 		ID: "t-1", Owner: "team", ChatJID: "web:team", Prompt: "p", Status: "active",
 	})
 	mux := newMux(d)
@@ -287,7 +287,7 @@ func TestTaskAction_TargetsRoutdDB(t *testing.T) {
 // outside the transaction and both writes survive the missing table.
 func TestTaskWrite_AuditRidesTheTransaction(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
-	seedScheduledTask(t, routd, core.Task{
+	seedScheduledTask(t, over(routd), core.Task{
 		ID: "t-1", Owner: "team", ChatJID: "web:team", Prompt: "p", Status: "active",
 	})
 	if _, err := routd.Exec(`DROP TABLE audit_log`); err != nil {
@@ -304,7 +304,7 @@ func TestTaskWrite_AuditRidesTheTransaction(t *testing.T) {
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("POST tasks with no audit_log = %d, want 500", w.Code)
 	}
-	if n := countTasks(t, routd, func(task core.Task) bool {
+	if n := countTasks(t, over(routd), func(task core.Task) bool {
 		return task.Prompt == "do the thing"
 	}); n != 0 {
 		t.Errorf("task row committed without its audit row: %d rows", n)
@@ -326,7 +326,7 @@ func TestTaskWrite_AuditRidesTheTransaction(t *testing.T) {
 // writes survive the missing table.
 func TestRouteWrite_AuditRidesTheTransaction(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
-	id := seedRoute(t, routd, core.Route{Seq: 1, Match: "m=1", Target: "team"})
+	id := seedRoute(t, over(routd), core.Route{Seq: 1, Match: "m=1", Target: "team"})
 	if _, err := routd.Exec(`DROP TABLE audit_log`); err != nil {
 		t.Fatal(err)
 	}
@@ -339,7 +339,7 @@ func TestRouteWrite_AuditRidesTheTransaction(t *testing.T) {
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("PATCH route with no audit_log = %d, want 500", w.Code)
 	}
-	if n := countRoutes(t, routd, func(r core.Route) bool {
+	if n := countRoutes(t, over(routd), func(r core.Route) bool {
 		return r.ID == id && r.Match == "m=1"
 	}); n != 1 {
 		t.Errorf("route changed without its audit row")
@@ -350,7 +350,7 @@ func TestRouteWrite_AuditRidesTheTransaction(t *testing.T) {
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("POST route delete with no audit_log = %d, want 500", w.Code)
 	}
-	if n := countRoutes(t, routd, func(r core.Route) bool { return r.ID == id }); n != 1 {
+	if n := countRoutes(t, over(routd), func(r core.Route) bool { return r.ID == id }); n != 1 {
 		t.Errorf("route deleted without its audit row")
 	}
 }
@@ -358,7 +358,7 @@ func TestRouteWrite_AuditRidesTheTransaction(t *testing.T) {
 // TestTaskList_ReadsRoutdDB: the tasks list renders a task seeded into routd.db.
 func TestTaskList_ReadsRoutdDB(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
-	seedScheduledTask(t, routd, core.Task{
+	seedScheduledTask(t, over(routd), core.Task{
 		ID: "t-live", Owner: "liveowner", ChatJID: "web:team", Prompt: "p", Status: "active",
 	})
 	mux := newMux(d)
@@ -384,7 +384,7 @@ func statusOf(t *testing.T, db *sql.DB, id string) string {
 // TestRouteTokenRevoke_TargetsRoutdDB: revoking a token deletes it from routd.db.
 func TestRouteTokenRevoke_TargetsRoutdDB(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
-	seedRouteToken(t, routd, store.RouteToken{
+	seedRouteToken(t, over(routd), store.RouteToken{
 		JID: "web:team", OwnerFolder: "team", TargetFolder: "team",
 	})
 	mux := newMux(d)
@@ -393,7 +393,7 @@ func TestRouteTokenRevoke_TargetsRoutdDB(t *testing.T) {
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("POST token revoke = %d body=%q", w.Code, w.Body.String())
 	}
-	if n := countRouteTokens(t, routd, "team", func(tok store.RouteToken) bool {
+	if n := countRouteTokens(t, over(routd), "team", func(tok store.RouteToken) bool {
 		return tok.JID == "web:team"
 	}); n != 0 {
 		t.Errorf("routd.db route_token rows after revoke = %d, want 0", n)

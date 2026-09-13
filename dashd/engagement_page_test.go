@@ -52,8 +52,8 @@ func newRoutdUpstream(t *testing.T) *routdUpstream {
 	return u
 }
 
-// engagementDash wires a dash pointed at the fake routd. dbRoutd is left NIL on
-// purpose: this page must not touch the DB, and a nil handle turns any direct
+// engagementDash wires a dash pointed at the fake routd. The handle is left NIL on
+// purpose: this page must not touch the store, and a nil handle turns any direct
 // read into a panic the test would catch.
 func engagementDash(t *testing.T, u *routdUpstream) *http.ServeMux {
 	t.Helper()
@@ -175,17 +175,17 @@ func TestEngagementPage_NoRouterURLSaysSo(t *testing.T) {
 	}
 }
 
-// dashd reads this page through routd's API, never out of dbRoutd — the direct-DB
-// read is the recorded defect class. dbRoutd is nil in every test above, so a
-// direct read would panic; this asserts the rows still render, which is what
-// makes that nil meaningful rather than incidental.
+// dashd reads this page through routd's API, never through its own handle — the
+// direct-store read is the recorded defect class. The handle is nil in every test
+// above, so a direct read would panic; this asserts the rows still render, which
+// is what makes that nil meaningful rather than incidental.
 func TestEngagementPage_ReadsRoutdNotTheDB(t *testing.T) {
 	u := newRoutdUpstream(t)
 	u.respond = fmt.Sprintf(`{"engaged":[
 		{"jid":"web:x","topic":"","folder":"x","engaged_until":%q}]}`, future(5*time.Minute))
 	d := &dash{routdURL: u.srv.URL}
-	if d.dbRoutd != nil {
-		t.Fatal("this test is only meaningful with a nil dbRoutd")
+	if d.routd != nil {
+		t.Fatal("this test is only meaningful with a nil handle")
 	}
 	w := httptest.NewRecorder()
 	newMux(d).ServeHTTP(w, asOperator(httptest.NewRequest("GET", "/dash/engagement/", nil)))
@@ -309,9 +309,10 @@ func TestEngagementPage_OffersDisengageBehindConfirm(t *testing.T) {
 	}
 }
 
-// The control writes through routd's /v1, never dashd's own routd.db handle —
-// routd owns the columns, applies the containment, and lands the audit row in
-// the mutation's transaction. dbRoutd is nil here, so a direct write panics.
+// The control writes through routd's /v1, never dashd's own handle on routd's
+// tables — routd owns the columns, applies the containment, and lands the audit
+// row in the mutation's transaction. The handle is nil here, so a direct write
+// panics.
 func TestEngagementDisengage_WritesThroughRoutdWithTTLZero(t *testing.T) {
 	u := newRoutdUpstream(t)
 	u.respond = `{"ok":true}`
@@ -319,8 +320,8 @@ func TestEngagementDisengage_WritesThroughRoutdWithTTLZero(t *testing.T) {
 		routdURL: u.srv.URL,
 		svc:      func(context.Context) (string, error) { return "service-dashd-token", nil },
 	}
-	if d.dbRoutd != nil {
-		t.Fatal("this test is only meaningful with a nil dbRoutd")
+	if d.routd != nil {
+		t.Fatal("this test is only meaningful with a nil handle")
 	}
 	w := postDisengage(t, newMux(d), url.Values{
 		"jid": {"slack:C123"}, "topic": {"1712.55"}, "folder": {"corp/eng"},
