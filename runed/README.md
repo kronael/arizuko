@@ -63,6 +63,9 @@ every read is "the n newest in this folder" and nothing sweeps it; and
     spec `5/I`). The only surface that answers "who killed that run" — a kill
     leaves a `spawns` row indistinguishable from a clean stop, and a busy hold
     leaves none. `/dash/audit/` federates it.
+  - `GET|POST /dash/runed/` — runed's own operator page: active runs with a
+    per-folder kill, and recent spawns. Gated by the proxyd-stamped operator
+    identity, not a bearer (spec `6/30`).
   - `GET /openapi.json`, `GET /health`
 
 ## Dependencies
@@ -123,10 +126,15 @@ writes no `spawns` row at all. See `runed/audit.go`.
 - `server.go` — HTTP surface + bearer/scope gate
 - `audit.go` — the run-slot audit renderer (what runed records, and why not turns)
 - `manager.go` — Manager: run lifecycle, concurrency, queue, circuit breaker
-- `runtime.go` — Runtime interface (Run, Kill); RunSpec
-- `docker.go` — dockerRuntime: spawn / steer / kill (ExternalMCP)
+- `runtime.go` — the `Runtime` interface (`Run`, `Kill`) and `RunSpec`
+- `runtimes.go` — which substrate a spawn gets
+- `docker.go` — `dockerRuntime`: spawn / steer / kill. Mounts the ipc dir
+  routd bound the turn's socket in; hosts no MCP of its own
+- `hold.go` — `POST /v1/holds`, the folder run-slot claim
+- `dash.go` — `/dash/runed/` and its kill form
 - `db.go` — spawn/session persistence, and the boot that dials the endpoint
   or opens the file
+- `runstore/` — the three entities and their coordinates, no SQL
 
 ## Status
 

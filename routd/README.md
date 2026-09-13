@@ -255,7 +255,11 @@ optional observability webhook — not the source of truth.
 - `prompt.go`, `prompt_db.go` — prompt envelope build (observe window, persona)
 - `proactive.go`, `steer.go` — proactive interjection + slash-command dispatch
 - `routes_http.go`, `tokens_http.go`, `web_routes_http.go`, `tasks_http.go`, `reads_http.go` — REST CRUD
-- `{routes,web_routes,network_rules,scheduled_tasks,acl}_resource.go` — spec 5/16 shared handlers (one resource each; agent MCP + operator REST ride the same handler + injected Gate)
+- `*_resource.go` — the thirteen resreg resources (`acl`, `audit`,
+  `dead_letters`, `github_sources`, `groups`, `membership`, `network_rules`,
+  `packages`, `route_tokens`, `routes`, `scheduled_tasks`, `secrets`,
+  `web_routes`). One handler each; agent MCP and operator REST ride the same
+  handler with a different injected Gate (spec 5/16)
 - `packages_store.go` — `installed_packages` CRUD (the record the CLI's `packages install|upgrade|remove` reads/writes, spec 5/28)
 - `db.go` — the owner's writes (PutMessage, turn claims, routing) and the
   boot that dials the endpoint or opens the file
@@ -265,7 +269,15 @@ optional observability webhook — not the source of truth.
 - `connectors.go` — MCP connector catalog loader
 - `enrich.go` — inbound media download + Whisper transcription
 - `tts.go` — send_voice synthesis via TTS service
-- `budget.go`, `network.go`, `tokens.go`, `spawn.go` — helpers
+- `dash.go`, `dash_reads_http.go` — `/dash/routd/`: the overview plus the retry
+  and dead-letter replay forms, and the reads behind them (spec 6/30)
+- `pending_actions.go`, `pending_actions_http.go` — the HITL hold queue (spec 5/19)
+- `unrouted.go`, `dead_letters_db.go` — the two holds an operator has to see:
+  a chat no rule claims, and a message delivery gave up on
+- `gateway.go`, `budget.go` — the model gateway's per-turn virtual key and the
+  folder spend gate (spec 6/39)
+- `surrogate_refresh.go` — the near-expiry refresh behind surrogate OAuth
+- `sibling_db.go`, `ext.go`, `channels.go`, `network.go`, `tokens.go` — helpers
 
 ## Status
 
