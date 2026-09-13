@@ -189,7 +189,7 @@ func postOnboardSplit(xdb, obdb *store.Store, sub string, vals url.Values) *http
 
 // The invite-accept acl grant must be audited. It writes to routd.db (xdb)
 // while onbod's own audit.Init points at onbod.db (obdb) — but AddACLRow emits
-// with audit.EmitInTx, which writes the TRANSACTION's DB, so the audit row lands
+// by appending the record to its own batch, so the audit row lands
 // in xdb beside the grant. That cross-DB shape is what the audit-free choice was
 // justified by; it was never a reason.
 //

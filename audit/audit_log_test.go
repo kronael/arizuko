@@ -92,60 +92,56 @@ func TestARecordedRowIsNeverOverwritten(t *testing.T) {
 	}
 }
 
-// THE INVARIANT: the audit row commits or rolls back with the mutation it
-// records. Break the coupling — emit outside the caller's transaction, or
-// commit the mutation without the row — and one of these two halves goes red.
+// THE INVARIANT: the audit row commits or refuses with the mutation it records.
+// Break the coupling — record in a second write, or commit the mutation without
+// the row — and one of these two halves goes red.
+//
+// The mutation and the record ride ONE GuardedBatch, which is the shape every
+// audited writer in this repo uses: `WriteFor` hands back the record's write and
+// the caller appends it to its own batch.
 func TestTheAuditRowIsOneCommitWithItsMutation(t *testing.T) {
-	db, s := openTestStore(t)
+	_, s := openTestStore(t)
 	ctx := context.Background()
-	if _, err := db.Exec(`CREATE TABLE routes (id TEXT PRIMARY KEY)`); err != nil {
+	if err := s.CreateEntity(ctx, "routes"); err != nil {
 		t.Fatal(err)
 	}
-	mutate := func(id string) (*sql.Tx, error) {
-		tx, err := db.Begin()
-		if err != nil {
-			return nil, err
+	route := func(id string) objstore.Write {
+		return objstore.Write{
+			Op: objstore.Put, Entity: "routes",
+			Key:   objstore.Key{Partition: "routd", Sort: id},
+			Attrs: map[string]string{"target": "acme"},
 		}
-		// The literal is interpolated rather than bound because the two engines
-		// spell a placeholder differently and this fixture runs on both.
-		if _, err := tx.Exec(`INSERT INTO routes (id) VALUES ('` + id + `')`); err != nil {
-			tx.Rollback() //nolint:errcheck // the caller gets the first error
-			return nil, err
-		}
-		if err := EmitInTx(ctx, s, tx, Event{
+	}
+	record := func(id string) objstore.Write {
+		_, w := WriteFor(Event{
 			Category: CategoryMutation, Action: "route.create", Actor: "operator:o",
 			Resource: "routes/" + id,
-		}); err != nil {
-			tx.Rollback() //nolint:errcheck
-			return nil, err
-		}
-		return tx, nil
+		})
+		return w
 	}
 
-	rolled, err := mutate("abandoned")
+	// A batch whose condition does not hold writes NEITHER half.
+	refused, err := s.GuardedBatch(ctx, []objstore.Check{{
+		Entity: "routes", Key: objstore.Key{Partition: "routd", Sort: "absent"},
+		Cond: objstore.Cond{Item: objstore.ItemPresent},
+	}}, []objstore.Write{route("abandoned"), record("abandoned")})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := rolled.Rollback(); err != nil {
-		t.Fatal(err)
-	}
-	if n := routeCount(t, db); n != 0 {
-		t.Fatalf("%d routes survived the rollback", n)
+	if refused {
+		t.Fatal("a batch conditioned on an item that is not there committed")
 	}
 	if n := len(rowsOf(t, s)); n != 0 {
-		t.Fatalf("%d audit rows survived the rollback, so the row outlived a write that "+
+		t.Fatalf("%d audit rows survived the refusal, so the row outlived a write that "+
 			"never happened", n)
 	}
 
-	kept, err := mutate("kept")
+	committed, err := s.GuardedBatch(ctx, nil, []objstore.Write{route("kept"), record("kept")})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := kept.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	if n := routeCount(t, db); n != 1 {
-		t.Fatalf("%d routes after the commit, want 1", n)
+	if !committed {
+		t.Fatal("the batch was refused; it conditions on nothing")
 	}
 	rows := rowsOf(t, s)
 	if len(rows) != 1 || rows[0].Resource != "routes/kept" {

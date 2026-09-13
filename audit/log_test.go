@@ -91,59 +91,6 @@ func TestEmit_Inserts(t *testing.T) {
 	}
 }
 
-func TestEmitInTx_RollsBackOnTxFailure(t *testing.T) {
-	db, s := openTestStore(t)
-	resetInit(t)
-	Init(s, "test")
-
-	tx, err := db.Begin()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := EmitInTx(context.Background(), s, tx, Event{
-		Category: CategoryMutation, Action: "route.create",
-		Actor: "operator:ondrej", Outcome: OutcomeOK,
-		Resource: "routes/42",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	// Roll back the tx — audit row must NOT survive.
-	if err := tx.Rollback(); err != nil {
-		t.Fatal(err)
-	}
-	rows, err := Query(context.Background(), s, Filter{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(rows) != 0 {
-		t.Errorf("audit rows after rollback=%d, want 0", len(rows))
-	}
-}
-
-func TestEmitInTx_PersistsOnCommit(t *testing.T) {
-	db, s := openTestStore(t)
-	resetInit(t)
-	Init(s, "test")
-
-	tx, err := db.Begin()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := EmitInTx(context.Background(), s, tx, Event{
-		Category: CategorySecret, Action: "secret.set",
-		Actor: "operator:ondrej", Outcome: OutcomeOK,
-		Resource: "secrets/folder/atlas/support/OPENAI_API_KEY",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	if got := only(t, s).Action; got != "secret.set" {
-		t.Errorf("action=%q want secret.set", got)
-	}
-}
-
 func TestRedactParams_HidesSensitiveKeys(t *testing.T) {
 	in := map[string]any{
 		"value":   "shhh",

@@ -1152,9 +1152,9 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db, obdb *store.Store,
 	// invites is onbod-OWNED → read/consume through obdb. The redemption's acl admin
 	// row is routd-OWNED, so ConsumeInviteNoGrant touches only onbod.db's invites and
 	// the acl grant is written separately to routd.db via the AUDITED AddACLRow.
-	// audit.Init pointing at obdb does not force the audit-free twin: AddACLRow emits
-	// with audit.EmitInTx, which writes the tx's own DB, so the grant and its audit
-	// row commit together.
+	// audit.Init pointing at obdb does not force the audit-free twin: AddACLRow
+	// appends the record to its own batch (audit.WriteFor), so the grant and the
+	// row that records it commit together on the store the grant is written to.
 	split := db != obdb
 
 	inv, err := obdb.GetInvite(token)

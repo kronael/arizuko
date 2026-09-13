@@ -43,7 +43,6 @@ package audit
 import (
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
@@ -272,21 +271,6 @@ func durationOf(text string) int64 {
 	return n
 }
 
-// TxSink is the one thing a driver offers that this package asks for beyond the
-// two primitives: applying a write inside a transaction the CALLER already
-// holds. objstore/sqlstore is the driver that has it.
-//
-// It is here rather than on objstore.Store because the audited write needs it
-// and nothing else does. A mutation still written as SQL runs on a *sql.Tx, and
-// its audit row commits or rolls back WITH it — so the row joins that
-// transaction. A caller whose mutation has moved onto Query and GuardedBatch
-// puts the write writeFor returns in its own batch instead and asks nothing of
-// this interface, which is how it loses its last caller.
-type TxSink interface {
-	GuardedBatchInTx(ctx context.Context, tx *sql.Tx, checks []objstore.Check,
-		writes []objstore.Write) (bool, error)
-}
-
 var (
 	logMu       sync.RWMutex
 	logStore    objstore.Store
@@ -324,7 +308,7 @@ func Emit(ctx context.Context, e Event) string {
 // that write takes. It is what a caller uses when its OWN mutation is already a
 // GuardedBatch: the row rides in that batch, so the mutation and its record
 // commit together without a transaction carrying them (spec 6/40 §"The audited
-// write commits in a GuardedBatch"). That is how EmitInTx loses a caller, and
+// write commits in a GuardedBatch"). That is how a writer stops needing a
 // store.LogSecretUse is the first to leave.
 //
 // It exists because the alternative is a second renderer. This package owns the
@@ -352,32 +336,6 @@ func EmitTo(ctx context.Context, s objstore.Store, e Event) (string, error) {
 		return "", fmt.Errorf("audit: %s is already recorded", id)
 	}
 	return id, nil
-}
-
-// EmitInTx records one event inside a transaction the caller already holds, so
-// the row commits or rolls back with the mutation it records — semantically the
-// audit row IS the mutation (per 5/I). The caller MUST NOT commit or roll back
-// until this returns, and MUST roll back when it answers an error.
-//
-// s supplies the DIALECT and tx supplies the DATABASE, which is what lets one
-// process record into two owner files: dashd holds routd's store and writes an
-// invite's audit row into onbod's, on the transaction that carries the invite.
-func EmitInTx(ctx context.Context, s TxSink, tx *sql.Tx, e Event) error {
-	if s == nil {
-		return fmt.Errorf("audit: store is nil")
-	}
-	if tx == nil {
-		return fmt.Errorf("audit: tx is nil")
-	}
-	id, w := WriteFor(e)
-	committed, err := s.GuardedBatchInTx(ctx, tx, nil, []objstore.Write{w})
-	if err != nil {
-		return err
-	}
-	if !committed {
-		return fmt.Errorf("audit: %s is already recorded", id)
-	}
-	return nil
 }
 
 // stamped fills in the instance from package state when the event does not

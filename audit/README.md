@@ -81,8 +81,6 @@ not a regression: both reads already scanned.
 
 ## The real gaps
 
-- `EmitInTx` has no caller left in the tree. `WriteFor` replaced it: a
-  `GuardedBatch` carries the record without a transaction to ride in.
 - `import.go` (`LegacyRow`, `CheckSnapshot`, `LegacyID`, `Import`) is the
   one-way carry of existing rows into the entity shape. Only tests call it.
 - onbod's `audit_log` is not yet federated onto dashd's page (BUGS `F35`).
