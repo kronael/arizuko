@@ -1,22 +1,23 @@
 # dashd
 
-Operator dashboard daemon: HTMX views over `messages.db`, per-user secret
+Operator dashboard daemon: HTMX views over routd's tables, per-user secret
 CRUD, and admin-gated CRUD over routes, groups, invites, and grants.
 
 ## Purpose
 
 Standalone HTMX portal for operators and signed-in users. Reads most of
-its data directly from the shared SQLite (`messages.db`) and the group
+its data directly from routd's and onbod's tables and from the group
 filesystem; write paths cover routes, groups, per-user secrets,
 invites, grants, model selector, and skill toggles — all gated by
 `auth.Authorize`.
 
 ## Tables owned
 
-None. Schema and migrations live in the owning daemons — `routes`,
-`groups`, `acl`, `secrets` in routd's `routd.db`; `invites` in onbod's
-`onbod.db`. dashd (FS-mounted) holds read+write connections and writes
-those tables directly via the `store` package; it never migrates.
+None. Every table belongs to the daemon that declares it — `routes`,
+`groups`, `acl`, `secrets` to routd, `invites` to onbod. dashd reaches both
+owners through `store.OpenOwner` (`openSiblingOwner`, `main.go`) — the
+endpoint the instance is served from, or the file it mounts — and writes
+through the `store` package; it creates nothing.
 
 ## Surface
 
@@ -44,9 +45,9 @@ unflipped tile.
 - **Proactive view** (1): `GET /dash/proactive/` — operator-only (`**`) read-only view of spec 5/6: per-group `mode:` / quiet hours / parse error, parsed through the shared `proactive.Parse` routd's scanner gates on, plus per-chat last-fired from routd's `chat_proactive`. No control — `mode:` stays operator-edited in the group's `CLAUDE.md` (single source, no DB/file drift) and the cooldown is mandatory by spec. A banner names `PROACTIVE_ENABLED`; dashd cannot read routd's env, so it states the rule rather than a live value. (`proactive_page.go`)
 - **Engagement** (2): `GET /dash/engagement/` — operator-only (`**`) view of spec 5/G: every live engagement window (chat, thread, group, time left), i.e. the conversations the agent keeps answering in without being addressed. `POST /dash/engagement/disengage` ends one now, behind a confirm — the remedy for a runaway engagement, which otherwise had none but waiting out the TTL. Both go through routd's `/v1/engagement` over HTTP with the service:dashd bearer (`routes:read` + `routes:write`), NOT `chat_reply_state` out of `dbRoutd`: routd owns those columns, contains the write on the window's CLAIMING folder, and writes the `audit_log` row inside the mutation's own transaction (`DB.SetEngagementAudited`) — none of which a direct-DB write here would do. Operator-only is load-bearing — dashd's service token has an empty folder claim, which routd reads as list-all. (`engagement_page.go`)
 - **Approvals** (2): `GET /dash/approvals/`, `POST /dash/approvals/{id}/resolve` — the review queue for spec 5/19's held tool calls: what is waiting (group, tool, full arguments, chat, age) with per-row approve/reject + note, and the recent verdicts. Open to any signed-in caller and scoped per row: the proxyd-verified sub forwards as `reviewer`, and routd returns and accepts only the folders that human holds `admin` on (`resolveHoldTx`). Both go over routd's `/v1/pending_actions` with the service:dashd bearer (`pending_actions:read` + `pending_actions:write`), NOT direct SQL: routd owns the resolution lifecycle — the verdict commits together with the agent's answer, and a direct-DB verdict would decide a call no agent is told about. `reviewed_by` names the human. The portal banners the count of held calls THIS caller may answer, through the same `admin` question. (`approvals_page.go`)
-- **Audit** (2): `GET /dash/audit/` — operator-only (`**`) view of the audit trail, FEDERATED across routd, runed and authd via each daemon's `GET /v1/audit` with the service:dashd bearer (`audit:read`), NOT by opening `runed.db`/`auth.db`: dashd is FS-mounted on `routd.db` alone, and a second reader of a table whose owner publishes no contract is a recorded defect class. Merged newest-first with a Source column; the "older" cursor is composite (`routd:123,runed:45,authd:7`) because `id` is a per-DB AUTOINCREMENT. A source that fails gets a banner naming it and the survivors still render — silence would report "nothing happened in runed" when runed simply did not answer. onbod's table is the fourth owner and not yet federated (BUGS `F35`). (`audit_page.go`)
+- **Audit** (2): `GET /dash/audit/` — operator-only (`**`) view of the audit trail, FEDERATED across routd, runed and authd via each daemon's `GET /v1/audit` with the service:dashd bearer (`audit:read`), NOT by opening `runed.db`/`auth.db`: dashd reaches routd's and onbod's tables and nobody else's, and a second reader of a table whose owner publishes no contract is a recorded defect class. Merged newest-first with a Source column; the "older" cursor is composite because an `audit_log` id is unique within one owner and not across them, and paging on the instant alone would drop rows that share one. A source that fails gets a banner naming it and the survivors still render — silence would report "nothing happened in runed" when runed simply did not answer. onbod's table is the fourth owner and not yet federated (BUGS `F35`). (`audit_page.go`)
 - **proxyd control plane** (3): `GET|POST /dash/proxyd/`, `POST /dash/proxyd/delete` — operator-only (`**`) view + create + delete of proxyd's reverse-proxy route table. proxyd OWNS `proxyd_routes`, so all three go over HTTP to its `/v1/proxyd_routes` with the service:dashd bearer and the caller's `X-User-*` forwarded; proxyd writes the single audit row in the mutation's own transaction. (`proxyd_page.go`)
-- **authd control plane** (2): `GET /dash/authd/`, `POST /dash/authd/revoke` — operator-only (`**`) view of the signing-key lifecycle (which kid signs, what a rotation retired, when a retiring key's passes stop being accepted) and of the refresh-token families behind each login, plus a per-login sign-out. Both go over HTTP to authd's `/v1/signing_keys`, `/v1/sessions` and `DELETE /v1/sessions/{family_id}` with the service:dashd bearer (`signing_keys:read`, `sessions:read`, `sessions:write`), NOT by opening `auth.db`: dashd is not FS-mounted on it and must not be — authd is the sole ES256 signer, so that file is the trust boundary, and HTTP is also what puts the revoke's audit row in the mutation's own transaction. Renders projected rows, never authd's raw answer, so no key material or token value can reach the page. The audit rows are linked to `/dash/audit/`, not repeated. No fleet-wide logout: that means retiring the active key, which spec `5/1` keeps out-of-band, and the page says so rather than omitting it silently. (`authd_page.go`)
+- **authd control plane** (2): `GET /dash/authd/`, `POST /dash/authd/revoke` — operator-only (`**`) view of the signing-key lifecycle (which kid signs, what a rotation retired, when a retiring key's passes stop being accepted) and of the refresh-token families behind each login, plus a per-login sign-out. Both go over HTTP to authd's `/v1/signing_keys`, `/v1/sessions` and `DELETE /v1/sessions/{family_id}` with the service:dashd bearer (`signing_keys:read`, `sessions:read`, `sessions:write`), NOT by reading authd's tables: dashd can reach none of them and must not — authd is the sole ES256 signer, so its keyring is the trust boundary, and HTTP is also what puts the revoke's audit row in the mutation's own transaction. Renders projected rows, never authd's raw answer, so no key material or token value can reach the page. The audit rows are linked to `/dash/audit/`, not repeated. No fleet-wide logout: that means retiring the active key, which spec `5/1` keeps out-of-band, and the page says so rather than omitting it silently. (`authd_page.go`)
 
 ## Auth
 
@@ -81,7 +82,8 @@ Read surfaces (`/dash/status/`, `/dash/tasks/`, `/dash/activity/`, `/dash/groups
 
 ## Configuration
 
-- `DATA_DIR` — base for `<DATA_DIR>/store/*.db` and `<DATA_DIR>/groups/`
+- `DATA_DIR` — base for `<DATA_DIR>/groups/`, and for the owner files when
+  the instance keeps them (`DYNAMODB_URL` unset)
 - `DB_PATH` — explicit routd.db DSN; overrides `DATA_DIR/store/routd/routd.db`.
   `ONBOD_DB_PATH` is the same for the invites view (default
   `DATA_DIR/store/onbod/onbod.db`); unavailable = onbod's profile is off and the

@@ -5,36 +5,24 @@ engine is a second driver and no daemon changes (spec
 [`6/37`](../specs/6/37-store-model.md), surface
 [`6/40`](../specs/6/40-store-surface.md)).
 
-**Three daemons and one library run on this.** `authd/authstore`,
-`emaid/emaistore`, `chanlib/chanstore` and `runed/runstore` hold no SQL at all,
-and `store` has begun: `pane_sessions`, `secret_use_log`, `onboarding`,
-`onboarding_gates` and `invites` are entities inside a package whose other
-tables are still statements, which is what a PARTIAL move looks like — one
-implementation per table at every moment, never a fallback.
+**Everything runs on this.** `store`, `authd/authstore`, `runed/runstore`,
+`emaid/emaistore` and `chanlib/chanstore` hold no SQL: every table in the tree
+is an entity, and a daemon's storage is whichever driver its instance is
+configured with — `dynstore` against a DynamoDB-protocol server, `sqlstore`
+against a SQLite file or PostgreSQL. One implementation per table at every
+moment, never a fallback.
 
-The last three are the first registered `resreg` resources to move, which is a
-different threshold: a table `arizuko apply`/`export`/`plan`/`get`/`archive`
-reads could not become an entity until the engine stopped assuming every
-resource is an N-column table (BUGS `L259`). A resource now DECLARES its shape
-and the engine dispatches on the declaration (`resreg/entity.go`), so onbod's
-three moved without waiting for routd's thirteen. Both protocols below got
-their first production caller with them.
+A registered `resreg` resource is an entity too, which took a second threshold:
+a table `arizuko apply`/`export`/`plan`/`get`/`archive` reads could not become
+one until the engine stopped assuming every resource is an N-column table (BUGS
+`L259`). A resource DECLARES its shape and the engine dispatches on the
+declaration (`resreg/entity.go`).
 
-emaid is the first that reaches storage ONLY through this package: nothing
-holds a statement against `emaid.db` any more, because chanlib's own two tables
-became entities with it. chanlib is the widest single move — its entities land
-in EIGHT adapter databases, one per channel — and it is the first mover that is
-a library rather than a daemon, so the driver is picked by the opener the
-adapters share. `authd` still hands its pool to `audit` and `store`, so the
-daemon around `authstore` stays SQLite-only even though `authstore` itself does
-not.
-
-runed is the move measured on a second ENGINE end to end: 91 of its 114 tests
-failed on `AUTOINCREMENT` against PostgreSQL 17.11 before it, and none do after.
-It is also the one whose three entities take three DIFFERENT partitions —
-`spawns` one constant, `session_log` the folder, `circuit_breaker` the folder as
-the whole coordinate — because they answer three different questions. authd took
-one constant for a whole daemon and `6/37` step 3 writes that up as a mistake.
+Partitions are per entity, not per daemon: runed's three take three DIFFERENT
+ones — `spawns` a constant, `session_log` the folder, `circuit_breaker` the
+folder as the whole coordinate — because they answer three different questions.
+authd took one constant for a whole daemon and `6/37` step 3 writes that up as
+a mistake.
 
 ## Two primitives
 
@@ -47,22 +35,21 @@ That is the whole interface. What arizuko needs beyond it is a PROTOCOL — a
 package-level function over these two, written once and shared by every driver
 — never a further method some engine cannot carry.
 
-| protocol                | file            | the caller that asks for it                                      |
-| ----------------------- | --------------- | ---------------------------------------------------------------- |
-| `Increment`             | `protocol.go`   | `store/invites.go`: `used_count = used_count + 1 … RETURNING`    |
-| `Replace`               | `replace.go`    | `resreg.Apply`, whose 417-row krons scope cannot be one batch    |
-| `ReadConsistent`        | `consistent.go` | `resreg.ExportSnapshot`, N reads that have to describe ONE state |
-| `AddEdge` / `Reachable` | `reach.go`      | the membership cycle check, written twice (BUGS `L256`)          |
+| protocol                | file            | the caller that asks for it                                                    |
+| ----------------------- | --------------- | ------------------------------------------------------------------------------ |
+| `Increment`             | `protocol.go`   | `store/invites.go`: a redemption moves `used_count` and must see the new value |
+| `Replace`               | `replace.go`    | `resreg.Apply`, whose 417-row krons scope cannot be one batch                  |
+| `ReadConsistent`        | `consistent.go` | `resreg.ExportSnapshot`, N reads that have to describe ONE state               |
+| `AddEdge` / `Reachable` | `reach.go`      | the membership cycle check, written twice (BUGS `L256`)                        |
 
 `committed == false` with a nil error is a REFUSED batch: a condition did not
 hold. It is a normal outcome, the answer `authd`'s `ClaimRefreshToken` already
 gives as `won=false`, and it must never arrive as an error.
 
-**The claim-and-return is not written.** `store.DueTasks` is `UPDATE
-scheduled_tasks SET status='firing' WHERE status='active' AND next_run <= ?
-RETURNING …` — `Query` plus a per-row guarded batch, which is the form
-`routd/pending_actions.go:421` already uses in SQL. It goes in with the daemon
-that owns it; nothing here needs it first.
+**The claim-and-return is not on the interface.** `store.DueTasks` is the one
+shape that would ask for it — every active task read, then a status write per
+row conditioned on the status the read saw — and the caller writes it out of
+the two primitives. Nothing here needs a third.
 
 ## The version marker
 
@@ -79,12 +66,11 @@ BOUNDED writer adds `Bump(scope)` to its own batch so that an export can see it.
 others — a discipline rather than a guarantee the engine gives, asserted as such
 in the suite so nobody reads more into it.
 
-**What `Replace` costs `resreg.Apply`, said plainly.** Apply runs every DELETE
-and INSERT in ONE SQL transaction today, so a failure part-way rolls the
-subsystem back to its pre-image — the rollback `L44` depends on. A marker-gated
-sequence has none. A replace that dies half-way leaves the scope part-written
-with its claim held, and recovery is to run it again, never to undo it. That is
-what buys the unbounded row set, and it is the price `6/38` costed.
+**What `Replace` costs `resreg.Apply`, said plainly.** A marker-gated sequence
+has no pre-image to roll back to. A replace that dies half-way leaves the scope
+part-written with its claim held, and recovery is to run it again, never to
+undo it. That is what buys the unbounded row set, and it is the price `6/38`
+costed.
 
 **Roll-forward is what gives the claim back.** Nothing releases one: a released
 half-written scope reads as settled and correct, which is the silent corruption
@@ -199,8 +185,28 @@ key, where it costs nothing.
 | `replace.go`    | `Replace` — the versioned replace and the claim it rolls forward  |
 | `consistent.go` | `ReadConsistent` — the multi-read that retries a moved scope      |
 | `reach.go`      | `Reachable`, `AddEdge` — the graph walk and its version guard     |
+| `dynstore/`     | the DynamoDB driver: one request per shape, and the endpoint env  |
 | `sqlstore/`     | the SQL driver: one generator, two dialects                       |
 | `conformance/`  | the test bodies every driver runs                                 |
+
+## The DynamoDB driver
+
+`dynstore` renders each shape as one request. A read is a key condition —
+`begins_with` for a prefix — plus a `FilterExpression` for `Where` and a
+`ProjectionExpression` for `Project`, and the driver walks `LastEvaluatedKey`
+until the caller's `Limit` is met, so the engine's page cap is the driver's
+problem and never the caller's. A separator-bearing prefix (`Key.Sep`) is
+narrowed in the driver, because a filter may not name a key attribute and a key
+condition takes one sort-key term. A write batch is one `TransactWriteItems` of
+every check and write; a cancellation whose reasons carry a
+`ConditionalCheckFailed` comes back as a refusal, not an error.
+
+The table name carries the owner in front of the entity (`Prefix`, so
+`routd.acl`), which is how one endpoint holds every owner of an instance and a
+batch still stays inside one of them. `env.go` is what a daemon reads to get
+there: `DYNAMODB_URL`, `AWS_REGION`, its own access key pair, and `STORE_CA` —
+the endpoint's certificate, base64, because a daemon has its environment and no
+file of its own.
 
 ## The SQL driver is one driver with two emitters
 
@@ -228,11 +234,16 @@ CONFLICT` is SQLite syntax too, so `INSERT OR IGNORE` is never emitted.
 go test ./objstore/...                                    # SQLite
 ARIZUKO_TEST_PG_DSN=postgres://user:pw@host:5432/db \
   go test ./objstore/...                                  # Postgres
+make integration                                          # + a live endpoint
 go test ./objstore/... -race -run TestConformance          # the concurrent bodies
 ```
 
-One environment variable moves the whole suite between engines, which is the
-mechanism `db_utils` already owns. `make test` does not pass `-race`; the
+One environment variable moves the SQL suite between engines, which is the
+mechanism `db_utils` already owns. For the endpoint, `dyntest` starts
+`ghcr.io/extenddb/extenddb-dev` itself unless `ARIZUKO_TEST_DYNAMO_ENDPOINT`
+names one already running — the PostgreSQL deployment, or the service. Those
+bodies skip under `-short`, so `make test` alone proves nothing about
+`dynstore`. `make test` does not pass `-race`; the
 concurrency bodies are only proven under the flag above.
 
 The suite is the deliverable. Every driver runs the identical bodies, so an

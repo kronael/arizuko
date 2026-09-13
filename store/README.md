@@ -4,11 +4,10 @@ The access layer for the tables the split topology shares.
 
 ## Purpose
 
-`store` is a library, not a daemon. It provides the `Open`/`Migrate` call
-and typed accessors for the tables shared across daemons (`messages.db` in
-the split is owned by routd; `onbod.db` by onbod; `auth.db` by authd —
-each runs its own migrations). WAL mode + 5 s busy timeout tolerate
-concurrent readers on the same file.
+`store` is a library, not a daemon: the door onto one owner's tables plus
+the typed accessors over them. `Served()` is the branch — an endpoint when
+`DYNAMODB_URL` names one, the owner's own SQLite file otherwise — and
+`served.go` is the only place that branch is written.
 
 ## Every table is an entity
 
@@ -16,42 +15,48 @@ concurrent readers on the same file.
 read and written through objstore's two primitives (spec
 [`6/37`](../specs/6/37-store-model.md) step 7): `pane_sessions`,
 `secret_use_log` and `counters`, routd's thirteen registered resources,
-onbod's three, the hot tier's five — `chats`, `sessions`,
-`chat_reply_state`, `chat_proactive` and `system_messages` — and `messages`
-with the three read-shaped indexes one append fans out into. So the package
-issues no statement of its own: the same code runs over a pool and over a
-served endpoint. Ranked search is an in-memory BM25 index in routd over the
+onbod's four, the hot tier — `chats`, `sessions`, `chat_reply_state`,
+`chat_proactive`, `system_messages`, `user_profiles`, `turn_results`,
+`group_watchers`, `task_run_logs`, `turn_context` — and `messages` with the
+four read-shaped indexes one append fans out into. So the package issues no
+statement of its own: the same code runs over a pool and over a served
+endpoint. Ranked search is an in-memory BM25 index in routd over the
 `messages` entity, derived and rebuilt from it (spec
 [`6/42`](../specs/6/42-dynamo-over-postgres.md) §8, `routd/msgsearch`).
 
-During the move a `*Store` holds BOTH a `*sql.DB` and, through `Store.Obj`,
-the driver over the same pool. Each table has exactly one implementation at
-every moment: a moved one reads through objstore, an unmoved one through SQL.
-There is no fallback and no dual read.
+A `*Store` built over a pool holds it and reaches the entities through the
+driver over it (`Store.Obj`); one handed a handle holds no pool at all, so
+`Close` ends nothing and every daemon's `defer Close` stays correct either
+way.
 
-An entity keeps the NAME of the table it replaces, so a database carrying rows
-is moved by `arizuko migrate-store`, `migrate-routd` or `migrate-hot`, and the
-driver refuses to serve the entity until it has been. Each file argues its own
-coordinate in its header: what the partition costs, which reads become the
-reader's work, and which attribute is ordered and why.
+Each entity file argues its own coordinate in its header: what the partition
+costs, which reads become the reader's work, and which attribute is ordered
+and why.
 
 The two cursors are the reason the hot tier moved together.
 `chats.agent_cursor` and `sessions.observed_cursor` are copies of a
 `messages.timestamp` compared back against that column, so both are declared
 ordered at `core.TS`'s width and `cursor.go` moves each one forward and only
 forward — a guarded transition rather than an update
-([`6/40`](../specs/6/40-store-surface.md) §2). `arizuko migrate-hot` refuses to
-carry a cursor until the message rows it compares against are padded, because
-padding a cursor first is what re-feeds consumed messages (BUGS `L97`, routd
-migration `0044`).
+([`6/40`](../specs/6/40-store-surface.md) §2). A cursor that moves ahead of the
+rows it is compared against re-feeds consumed messages (BUGS `L97`).
 
 ## Public API
 
-- `Open(dir string) (*Store, error)` — opens `<dir>/messages.db`, runs migrations
-- `OpenMem() (*Store, error)` — a private test database on the FROZEN pre-split chain
-- `EnsureEntities(ctx, driver)` — the entity half, which every opener also asks for
-- `Migrate(db *sql.DB) error` — migrations only (test fixtures)
-- `New(db *sql.DB) *Store` — wrap an existing connection
+The doors are in `served.go`, and they are the only place the served/file
+branch is written:
+
+- `Served() bool` — whether this instance keeps its owners on a server
+- `OpenOwner(owner, path) (*Store, error)` — the store one owner's tables live
+  in, for a daemon that only READS them; probes for that owner's own entity so
+  a wrong target is loud instead of empty
+- `OwnerDriver(owner, target) (Driver, func() error, error)` — the driver plus
+  the close, for an owner whose boot runs no migration chain
+- `PrepareOwner(ctx, d, owner, extra…)` — makes what one owner serves; the
+  OWNER daemon calls it at boot, a reader never does
+- `EnsureEntities(ctx, d, owner)` — the entity set that owner holds
+- `NewOver(obj objstore.Store) *Store`, `New(db *sql.DB) *Store` — wrap a
+  handle or a pool
 
 Primary methods (by domain):
 
@@ -59,7 +64,7 @@ Primary methods (by domain):
 - Groups: `PutGroup`, `DeleteGroup`, `AllGroups`, `GroupByFolder`, `SetGroupModel`, `GroupUsageBulk`
 - Sessions: `GetSession`, `SetSession`, `EnsureTopicLineage`, `ForkTopic`, `TopicLineage` — the run history is runed's, over its own `/v1`
 - Sticky: `SetStickyGroup`, `GetStickyGroup`, `SetStickyTopic`, `GetStickyTopic`
-- People: `CreateUserProfile`, `Username`, `SetUsername`, `ProfileNames`, `UserCap`, `SetUserCap` — one item per sub in `user_profiles`. Account linking lives in authd (`auth.db`'s `auth_users` + `oauth_identities`), not here.
+- People: `CreateUserProfile`, `Username`, `SetUsername`, `ProfileNames`, `UserCap`, `SetUserCap` — one item per sub in `user_profiles`. Account linking lives in authd (`auth_users` + `oauth_identities`), not here.
 - ACL (spec 6/9): `AddACLRow`, `RemoveACLRow`, `ListACL`, `ListACLByScope`, `ACLRowsFor`, `ACLWildcardRows` (scope listing is `auth.UserScopes` — a projection of these, not a second query)
 - Membership: `AddMembership`, `RemoveMembership`, `Members`, `Ancestors` — roles + JID→sub claims (`acl_membership` table)
 - Tasks: `CreateTask`, `GetTask`, `ListTasks`, `UpdateTask`, `DeleteTask`
@@ -77,7 +82,7 @@ Primary methods (by domain):
   still reads correctly until it is sealed.
 - Routes, onboarding, topics — see source
 
-`messages.is_observed` (migration 0054) marks rows stored under a
+`messages.is_observed` marks rows stored under a
 folder via a `#observe` route target — they do not fire a turn but are
 surfaced to the next trigger turn's `<observed>` block. `routes.target`
 is `<folder>[#<mode>]`; per-route caps `observe_window_messages` and
@@ -95,30 +100,30 @@ only. Spec: `specs/5/F-topic-lineage.md`.
 
 ## Coverage
 
-`go test ./store/ -short -cover` reports 65.6% (2026-09-09), and the gap is
-one file rather than a thin spread: `import_routd.go` and `import_hot.go` are
-the TARGET halves of two one-way moves, and neither has a caller in this
-package. They are exercised from `cmd/arizuko`, whose tests drive the whole
-move end to end — `go test ./cmd/arizuko/ -coverpkg=./store/...` reports 86.9%
-over `import_hot.go`'s six functions.
+`go test ./store/ -short -cover` reports 65.2% (2026-09-13), and the gap is
+concentrated rather than spread: `import_routd.go` and `import_hot.go` are the
+target halves of the one-way copy into the entity shape and have no caller in
+the tree — tests here and in `cmd/arizuko` are what exercise them.
 
 The rest of the shortfall is error returns on paths the engine decides: a
 driver refusal every caller reports and no test provokes.
 
 ## Dependencies
 
-- `core`, `db_utils`, `groupfolder`, `modernc.org/sqlite`
+- `core`, `objstore` (+ `dynstore`/`sqlstore`), `audit`, `db_utils`,
+  `groupfolder`, `modernc.org/sqlite`
 
 ## Files
 
-- `store.go` — `Open`, `OpenMem`, `Migrate`, connection setup
+- `served.go` — the served/file branch: `Served`, `Handle`, `OpenOwner`, `OwnerDriver`, `PrepareOwner`
+- `store.go` — the `*Store` itself, the secret keyring, the pool openers
 - `messages.go`, `groups.go`, `tasks.go`, `acl.go`, `membership.go`, `routes.go`, `onboarding.go`, `invites.go`, `secrets.go`
 - `chats.go`, `sessions.go`, `chat_reply_state.go`, `chat_proactive.go`, `system_messages.go`, `user_profiles.go`, `turn_results.go`, `group_watchers.go`, `task_run_logs.go`, `turn_context.go`, `invite_redemptions.go` — the hot tier, one file per entity
 - `cursor.go` — the forward-only guarded transition the two cursors share
 - `inspect.go`, `turn_frames.go` — the two `messages` reads an operator page and a browser stream ask for
 - `import_routd.go`, `import_hot.go` — the target halves of the two moves
-- `migrations/NNNN-*.sql` — numbered migrations
+- `migrations/NNNN-*.sql` — the chain a file instance runs
 
 ## Related docs
 
-- `ARCHITECTURE.md` (SQLite Schema)
+- `ARCHITECTURE.md` (Schema)

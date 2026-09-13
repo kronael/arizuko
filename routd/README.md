@@ -7,7 +7,7 @@ orchestration loop + channel ingress/egress.
 
 The conversation state machine. routd is the **sole appender** of
 messages and a token **verifier**, not a signer (authd signs). It owns
-`routd.db`, resolves routing rules, runs the orchestration loop, and
+the `routd` tables, resolves routing rules, runs the orchestration loop, and
 calls runed (`POST /v1/runs`) to execute each turn. It also hosts the
 per-turn agent MCP socket **in-process** (`ServeTurnMCP`, `mcp.go`) —
 runed sets `Input.ExternalMCP=true` and only mounts the ipc dir.
@@ -47,26 +47,35 @@ Spec: `specs/5/E`.
 
 ## Tables owned
 
-`routd.db` (routd owns + migrates its own schema):
+The `routd` owner — every one an objstore entity, made at boot by routd
+itself (`OpenAt` → `store.PrepareOwner`, or the `routd/migrations/` chain
+plus `store.EnsureEntities` on a file instance):
 
-- Message store: `messages`; `chats` and `chat_reply_state` are entities.
+- Message store: `messages` plus the four read-shaped indexes an append fans
+  out into (`message_folders`, `message_folder_counts`, `message_activity`,
+  `message_delivery`); `chats`, `chat_reply_state` and `chat_proactive`.
   Ranked search over the message content is memory, not a table (`msgsearch/`)
 - Routing: `routes`, `web_routes`, `route_tokens` (`kind='route'`
   delivery bearers + `kind='pair'` identity-pairing links, spec 5/31)
-- Orchestration: `turn_context`, `turn_results`
+- Orchestration: `turn_context`, `turn_results`, `sessions`,
+  `system_messages`, `group_watchers`
 - Auth+grants: `acl`, `acl_membership`, `secrets`, `secret_use_log`
 - Scheduler: `scheduled_tasks`, `task_run_logs`
 - Slack pane: `pane_sessions`
-- Cost: `auth_users` (cost-cap column only; authd owns identity). Spend
-  itself belongs to the model gateway (spec 6/39); `cost_log_archive` holds
-  what was recorded before that and nothing reads it.
+- Held tool calls: `pending_actions` (spec 5/19); webhook sources:
+  `github_sources` (spec 6/27); proxyd's route table: `proxyd_routes`,
+  which proxyd owns every write of and serves on its own `/v1`
+- Counters: `counters` — one server-minted number, `routes.id`
+- People: `user_profiles` — the username a person's folder is named after
+  and their per-day spend cap (authd owns identity). Spend itself belongs to
+  the model gateway (spec 6/39).
 - Network: `network_rules`
 - Packages: `installed_packages` (installed-package record, keyed
   (folder, name) with `''` = instance-wide; the CLI writes it directly,
   split write-discipline — spec 5/28)
 
-Migrations: `routd/migrations/`. routd opens NO sibling DB — cross-daemon
-data arrives over HTTP (authd identity, runed session_log).
+routd reaches NO other owner's tables — cross-daemon data arrives over HTTP
+(authd identity, runed session_log).
 
 `/openapi.json` advertises exactly what routd mounts over REST
 (`OpenAPIResources`, `server.go`): `routes`, `web_routes`, `acl`,
@@ -106,8 +115,8 @@ Endpoints (`server.go`, `channels.go`):
 - `POST /v1/route_tokens/{chat,hook}` — mint chat/hook route tokens
   (optional `context` = per-link processing instructions, spec 5/W)
 - `GET /v1/route_tokens`, `DELETE /v1/route_tokens/{jid}` — list/revoke.
-  Token DELIVERY has no REST face: webd and proxyd are FS-mounted on
-  `routd.db` and resolve the URL token in-process (spec 5/W)
+  Token DELIVERY has no REST face: webd and proxyd read routd's tables
+  directly and resolve the URL token in-process (spec 5/W)
 - `DELETE /v1/acl_membership` — unpair; the caller's sub must BE the
   `parent` (spec 5/31). The agent twin is the `unpair` MCP tool, whose
   containment is the child JID's routing folder instead
@@ -157,7 +166,8 @@ Endpoints (`server.go`, `channels.go`):
 
 Core vars:
 
-- `DATA_DIR` — `routd.db` + groups/web/tts dirs
+- `DATA_DIR` — groups/web/tts dirs, and the owner file when the instance
+  keeps one (`DYNAMODB_URL` unset)
 - `LISTEN_ADDR` — HTTP listener (default `:8080`)
 - `AUTHD_URL` — JWKS source; unset → open mode (local-dev, no verifier)
 - `AUTHD_SERVICE_KEY` — service:routd ES256 token exchange key; unset →
@@ -225,11 +235,10 @@ slog → stderr (JSON) + journald. OTLP export when `OTEL_EXPORTER_OTLP_ENDPOINT
 is set (see `obs/`, `specs/5/O-observability.md`). Every slog event carrying
 `turn_id` gets a deterministic TraceID so the collector groups one turn's span.
 
-Audit source of truth is the `audit_log` SQLite table in `routd.db`
-(migration `0016-audit-log.sql`): every state-changing MCP tool + REST
-handler writes one row via `audit.EmitInTx` in the SAME transaction as the
-mutation, so the row IS the mutation (audit-insert failure rolls the
-mutation back). `audit-system.jl` (gated by `AUDIT_ENABLED`) is a separate,
+Audit source of truth is the `audit_log` entity in routd's own tables: every
+state-changing MCP tool + REST handler adds one row (`audit.WriteFor`) to the
+mutation's own batch, so the row IS the mutation — a refused batch records
+nothing and a recorded row happened. `audit-system.jl` (gated by `AUDIT_ENABLED`) is a separate,
 optional observability webhook — not the source of truth.
 
 ## Files
@@ -247,9 +256,10 @@ optional observability webhook — not the source of truth.
 - `routes_http.go`, `tokens_http.go`, `web_routes_http.go`, `tasks_http.go`, `reads_http.go` — REST CRUD
 - `{routes,web_routes,network_rules,scheduled_tasks,acl}_resource.go` — spec 5/16 shared handlers (one resource each; agent MCP + operator REST ride the same handler + injected Gate)
 - `packages_store.go` — `installed_packages` CRUD (the record the CLI's `packages install|upgrade|remove` reads/writes, spec 5/28)
-- `db.go` — `routd.db` writes (PutMessage, turn claims, routing)
+- `db.go` — the owner's writes (PutMessage, turn claims, routing) and the
+  boot that dials the endpoint or opens the file
 - `search.go`, `msgsearch/` — ranked message search: the index, its boot walk and the four writes that feed it
-- `reads.go` — `routd.db` reads (messages; the chat, session and reply-state reads go through `store`)
+- `reads.go` — the owner's reads (messages; the chat, session and reply-state reads go through `store`)
 - `session.go`, `identity.go`, `onbod.go` — federation to runed/authd/onbod
 - `connectors.go` — MCP connector catalog loader
 - `enrich.go` — inbound media download + Whisper transcription
