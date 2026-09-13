@@ -1,6 +1,7 @@
 package routd
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
+	"github.com/kronael/arizuko/routd/msgsearch"
 )
 
 // reads_http.go is routd's REST read/manage surface (message reads + routing +
@@ -132,6 +134,13 @@ func (s *Server) handleFindMessages(w http.ResponseWriter, r *http.Request) {
 	hits, err := s.db.FindMessages(q, scope,
 		r.URL.Query().Get("sender"), r.URL.Query().Get("since"), limit)
 	if err != nil {
+		// A warming index is a wait, not a fault: the caller may retry and the
+		// answer will be complete, so it reads as unavailable rather than as a
+		// store that broke.
+		if errors.Is(err, msgsearch.ErrWarming) {
+			writeErr(w, 503, "index_warming", err.Error())
+			return
+		}
 		writeErr(w, 500, "store_error", err.Error())
 		return
 	}
