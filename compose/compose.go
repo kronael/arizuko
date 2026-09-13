@@ -12,6 +12,7 @@ import (
 	"github.com/joho/godotenv"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore/dynstore"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -86,6 +87,15 @@ var commonKeys = []string{
 	"OTEL_EXPORTER_OTLP_PROTOCOL",
 	"OTEL_EXPORTER_OTLP_HEADERS",
 	"OTEL_RESOURCE_ATTRIBUTES",
+	// The store server (spec 6/42). Every daemon reaches its owner's tables over
+	// the same endpoint and trusts the certificate that server generated; the
+	// access key is per daemon and arrives through perDaemon below, so a daemon
+	// signs as itself and a policy can bound what it may touch.
+	dynstore.EnvURL,
+	dynstore.EnvRegion,
+	dynstore.EnvCABundle,
+	dynstore.EnvKeyID,
+	dynstore.EnvSecret,
 	// DATA_DIR is NOT in commonKeys: that would leak the host path into the
 	// container. It is the container-internal mount point, set per-daemon in the
 	// compose `environment:` block.
@@ -725,6 +735,27 @@ func Generate(dataDir string) (string, []ProxydRoute, error) {
 	}
 	if seedKeys {
 		env["AUTHD_SERVICE_KEYS"] = strings.Join(keyPairs, ",")
+	}
+
+	// Store credentials (spec 6/42). The server mints one access key per daemon
+	// and `arizuko store-init` writes it into that daemon's env file; a
+	// regenerate carries it forward for the same reason a service key is
+	// carried: a daemon whose key changed under it signs every request wrong.
+	// It stays OUT of the shared .env, so one daemon's key is not every
+	// daemon's. This runs after the service keys so it merges into their maps
+	// rather than standing where wireServiceKey tests for its own work.
+	for daemon := range daemonKeys {
+		file := filepath.Join(dataDir, "env", daemon+".env")
+		keyID := readEnvFileKey(file, dynstore.EnvKeyID)
+		secret := readEnvFileKey(file, dynstore.EnvSecret)
+		if keyID == "" || secret == "" {
+			continue
+		}
+		if perDaemon[daemon] == nil {
+			perDaemon[daemon] = map[string]string{}
+		}
+		perDaemon[daemon][dynstore.EnvKeyID] = keyID
+		perDaemon[daemon][dynstore.EnvSecret] = secret
 	}
 
 	// What each package needs from .env, resolved before any env file is

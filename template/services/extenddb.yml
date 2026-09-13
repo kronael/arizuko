@@ -1,0 +1,59 @@
+# extenddb — the store server (spec 6/42). Every daemon's owner tables live
+# here, reached with the DynamoDB protocol over TLS at https://extenddb:18443;
+# no daemon opens a file. Third-party images, so their env is exactly what is
+# named below — never the shared .env, which carries SECRETS_KEY, AUTH_SECRET
+# and every bot token.
+#
+# `arizuko store-init` runs `extenddb init` once: it creates both databases,
+# generates the self-signed certificate whose SAN is this service name, mints
+# the account, and hands each daemon its own access key. The server refuses to
+# start without TLS, so the certificate is not optional and every daemon
+# carries it as AWS_CA_BUNDLE.
+#
+# extenddb_db is arizuko's OWN state, not a vendor's bookkeeping, so its data
+# directory sits under the instance directory where backup and restore own it —
+# unlike litellm_db, whose named volume belongs to the gateway.
+#
+# The server's config, encryption key and certificate live in the same mount,
+# which the image's own uid (10001) must be able to write; `arizuko create`
+# makes the two directories with that owner.
+services:
+  extenddb:
+    container_name: ${APP}_extenddb_${FLAVOR}
+    image: ghcr.io/extenddb/extenddb-postgres:0.1.11
+    volumes:
+      - '${DATA_DIR}/store/extenddb:/var/lib/extenddb'
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'extenddb',
+          'healthcheck',
+          '--config',
+          '/var/lib/extenddb/extenddb.toml',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    depends_on:
+      extenddb_db:
+        condition: service_healthy
+    restart: on-failure
+  extenddb_db:
+    container_name: ${APP}_extenddb_db_${FLAVOR}
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: 'extenddb'
+      POSTGRES_DB: 'postgres'
+      POSTGRES_PASSWORD: '${STORE_DB_PASSWORD:?STORE_DB_PASSWORD is unset in .env — without it the store server has nowhere to keep a single row}'
+      TZ: '${TZ:-UTC}'
+    volumes:
+      - '${DATA_DIR}/store/extenddb_db:/var/lib/postgresql/data'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U extenddb']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: on-failure

@@ -1,0 +1,15 @@
+# What the store server needs from the instance .env (spec 5/8 `env`). The
+# password has no meaning a human could supply, so it is minted once and lands
+# in .env as the operator's line. The URL is the compose service name, which is
+# also the certificate's SAN, so it holds unless the operator points the
+# instance at another server.
+#
+# The admin password and each daemon's access key are NOT here: the server
+# mints them, and `arizuko store-init` writes them into .env as it reads them.
+env:
+  STORE_DB_PASSWORD:
+    generate: true
+  DYNAMODB_URL:
+    default: 'https://extenddb:18443'
+  AWS_REGION:
+    default: 'us-east-1'
