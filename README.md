@@ -134,7 +134,7 @@ adapter (teled/discd/slakd/…) --HTTP--> routd (conversation plane)
 timed   — scheduler, federates due tasks over routd
 onbod   — onboarding, OAuth, admission queue
 webd    — web chat channel adapter + SSE hub
-proxyd  — auth-gated reverse proxy (JSON route table)
+proxyd  — auth-gated reverse proxy (`proxyd_routes`, read per request)
 davd    — WebDAV workspace (per-group, dufs)
 dashd   — operator dashboards + admin CRUD
 ```

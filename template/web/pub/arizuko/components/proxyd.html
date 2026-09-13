@@ -58,7 +58,7 @@
 
     <p>proxyd is the auth-gated reverse proxy at the public edge. It terminates every inbound HTTP request, decides whether the caller is authenticated, and forwards the request to a backend daemon with a signed identity header attached.</p>
 
-    <p>Routes are matched by longest path prefix from a table loaded out of <code>PROXYD_ROUTES_JSON</code> on first boot and persisted into the <code>proxyd_routes</code> table. After the first boot the table is authoritative; operators can mutate it at runtime via <code>/v1/proxyd_routes</code>.</p>
+    <p>Routes are matched by longest path prefix over <code>proxyd_routes</code>, which is the only source: <code>arizuko generate</code> writes the release's routes into it, operators mutate it at runtime through <code>/v1/proxyd_routes</code>, and proxyd takes a fresh snapshot per request. There is no env var, so there is no window in which a shipped route silently stops applying.</p>
 
     <h2>Why it exists</h2>
     <p>Backends like <a href="../components/dashd.html">dashd</a>, <a href="../components/webd.html">webd</a>, and <a href="../components/onbod.html">onbod</a> listen on <code>:8080</code> inside their containers and trust whatever they get over the wire. Without proxyd there is no place to check a JWT, nothing to prove the caller is who the headers say, and no rate shield in front of <a href="../components/tokens.html">route-token</a> POSTs.</p>
@@ -87,14 +87,13 @@
     <p>Two paths skip the plain prefix match and get their own handling in <code>dispatchRoute</code>. <code>/chat/*</code> and <code>/hook/*</code> route on the token segment: webd hashes the token against <code>route_tokens</code>, and anonymous callers run through a per-token in-memory rate bucket keyed by JID prefix. <code>/dav/*</code> requires auth, scopes the path to a group the caller belongs to, and blocks writes to <code>.env</code>, <code>*.pem</code>, <code>.git</code>, and anything under <code>&lt;group&gt;/logs/</code>.</p>
 
     <h2>Standalone usage</h2>
-    <p>proxyd needs three things to run on its own: a store to reach (the route table, sessions, and route-token lookup), an <code>authd</code> to log users in and sign tokens, and at least one route in <code>PROXYD_ROUTES_JSON</code>.</p>
+    <p>proxyd needs three things to run on its own: a store to reach (the route table, sessions, and route-token lookup), an <code>authd</code> to log users in and sign tokens, and at least one row in <code>proxyd_routes</code> &mdash; written by <code>arizuko generate</code> or posted to <code>/v1/proxyd_routes</code>.</p>
 
     <pre><code>export DATA_DIR=/srv/data/arizuko_demo
 export PROXYD_LISTEN=:8080
 export AUTH_SECRET=$(openssl rand -hex 32)
 export AUTHD_URL=http://authd:8080
 export AUTHD_SERVICE_KEY=$(openssl rand -hex 32)
-export PROXYD_ROUTES_JSON='[{"path":"/api/","backend":"http://api:8080","auth":"user"}]'
 ./proxyd</code></pre>
 
     <p>Leave <code>AUTHD_URL</code> unset and proxyd still proxies, but it stamps <code>X-User-*</code> with no bearer behind it &mdash; fine on a laptop, never on a public port, because a backend has nothing to check. There is no shared secret to copy around: backends fetch <code>authd</code>&rsquo;s public keys and verify offline.</p>
@@ -136,7 +135,7 @@ export PROXYD_ROUTES_JSON='[{"path":"/api/","backend":"http://api:8080","auth":"
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/proxyd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-04">2026-09-04</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-13">2026-09-13</time>
       </div>
     </main>
 
