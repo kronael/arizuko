@@ -19,10 +19,13 @@ router. Outbound writes use `app.bsky.feed.*` records on the user's PDS.
 ## Entry points
 
 - Binary: `bskyd/main.go`
-- Listen: `$LISTEN_ADDR` (default `:8080`)
+- Listen: `$LISTEN_ADDR` (code default `:9005`; the compose fragment pins `:8080`)
 - Router registration: `bluesky:` prefix.
 - Caps: `send_text`, `send_file`, `fetch_history`, `post`, `like`,
   `delete`, `quote`, `repost`.
+- `GET /dash/bskyd/` — the operator page, mounted for free by
+  `chanlib.NewAdapterMux` from the one renderer in `chanlib/dash.go` (spec
+  6/31). Routed by DAEMON name (`AUTHD_SERVICE_NAME`), never by platform.
 
 ## Dependencies
 

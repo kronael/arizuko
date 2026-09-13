@@ -38,6 +38,9 @@ in shape — registers with `routd` via `chanlib.RouterClient`, exposes
 - Router registration: `slack:` prefix, caps `send_text`, `send_file`,
   `edit`, `like`, `delete`, `dislike`, `post`. Hint-only verbs
   (`forward`, `quote`, `repost`) return 501 with structured hints.
+- `GET /dash/slakd/` — the operator page, mounted for free by
+  `chanlib.NewAdapterMux` from the one renderer in `chanlib/dash.go` (spec
+  6/31). Routed by DAEMON name (`AUTHD_SERVICE_NAME`), never by platform.
 
 ## Verb support
 

@@ -63,7 +63,7 @@ no per-chat history surface; the gateway falls back to its local cache.
 
 ## Dependencies
 
-- `chanlib` (Run, RouterClient, AdapterMux, env helpers, ClassifyEmoji)
+- `chanlib` (Run, RouterClient, NewAdapterMux, env helpers, ClassifyEmoji)
 - `matterbridge/telegram-bot-api/v6` (typed Message, raw `do()` for
   Bot API methods added after v6.5: `setMessageReaction`, `deleteMessage`,
   `getUpdates` with reactions)
@@ -91,7 +91,15 @@ long-poll fails or no activity.
 
 - `GET /health` — connection status
 - `GET /files/<fileID>` — proxies Telegram file downloads (auth-protected)
-- Standard adapter surface mounted by `chanlib.AdapterMux` (`/send`, `/send_file`, `/send_voice`, `/typing`, `/post`, `/forward`, `/edit`, `/like`, `/delete`, `/pin`, `/unpin`)
+- Standard adapter surface mounted by `chanlib.NewAdapterMux` (`/send`,
+  `/send-file`, `/send-voice`, `/typing`, `/post`, `/forward`, `/quote`,
+  `/repost`, `/edit`, `/like`, `/dislike`, `/delete`, `/pin`, `/unpin`), each
+  behind `chanlib.Auth`
+- `GET /dash/teled/` — the operator page. Every Go adapter gets it from
+  `chanlib/dash.go`, mounted inside `NewAdapterMux`, so there is no
+  per-adapter code. It is routed by DAEMON name (`AUTHD_SERVICE_NAME`), never
+  by platform — deriving it from the platform made every adapter dashboard 404
+  at its own URL
 
 ## Files
 

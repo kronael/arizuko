@@ -24,12 +24,15 @@ attachments (cached via `chanlib.URLCache`).
 ## Entry points
 
 - Binary: `discd/main.go`
-- Listen: `$LISTEN_ADDR` (default `:9002`)
+- Listen: `$LISTEN_ADDR` (code default `:9002`; the compose fragment pins `:8080`)
 - Router registration: `discord:` prefix, caps `send_text`,
   `send_file`, `send_voice`, `typing`, `fetch_history`, `like`,
   `edit`, `delete`, `quote`, `pin`. Hint-only verbs (`forward`,
   `post`, `repost`, `dislike`) are still served so the agent reaches
   the structured hint instead of a generic "capability not advertised".
+- `GET /dash/discd/` — the operator page, mounted for free by
+  `chanlib.NewAdapterMux` from the one renderer in `chanlib/dash.go` (spec
+  6/31). Routed by DAEMON name (`AUTHD_SERVICE_NAME`), never by platform.
 
 ## Verb support
 

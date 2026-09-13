@@ -18,9 +18,12 @@ API.
 ## Entry points
 
 - Binary: `reditd/main.go`
-- Listen: `$LISTEN_ADDR` (default `:9006`)
+- Listen: `$LISTEN_ADDR` (code default `:9006`; the compose fragment pins `:8080`)
 - Router registration: `reddit:` prefix, caps `send_text`, `fetch_history`,
   `post`, `like`, `dislike`, `delete`, `edit`.
+- `GET /dash/reditd/` — the operator page, mounted for free by
+  `chanlib.NewAdapterMux` from the one renderer in `chanlib/dash.go` (spec
+  6/31). Routed by DAEMON name (`AUTHD_SERVICE_NAME`), never by platform.
 
 ## Verb coverage
 

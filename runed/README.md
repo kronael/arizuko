@@ -76,9 +76,15 @@ every read is "the n newest in this folder" and nothing sweeps it; and
 
 ## Configuration
 
-- `AUTHD_URL` — authd base URL; unset → verify open (local-dev)
-- `AUTHD_SERVICE_KEY` — exchanged for an auto-refreshing `service:runed`
-  token; falls back to static `RUNED_SERVICE_TOKEN`
+- `AUTHD_URL` — authd base URL, fetched once at boot for the JWKS. runed only
+  VERIFIES — it holds no signing key and exchanges no token of its own, because
+  nothing it does is an outbound call that needs one (spec `5/P` §Auth). Unset
+  leaves both the `/v1` verifier and the `/dash/runed/` gate open, which is the
+  local-dev shape; a fetch that fails is fatal
+- `DATABASE` — runed's own DSN when the instance is not served: a file path or
+  a `postgres://` URL. Ignored once `DYNAMODB_URL` names an endpoint
+- `CRACKBOX_ADMIN_API` — set with no egress substrate selected is fatal at
+  boot, rather than a spawn that quietly gets no isolation
 - `RUNED_RUN_TIMEOUT` (default 20m) — the run ceiling: bounds BOTH the
   container hard-kill AND the in-container agent query timeout
   (`ARIZUKO_QUERY_TIMEOUT_MS` = `RUNED_RUN_TIMEOUT − 30s`), so the agent aborts

@@ -114,7 +114,7 @@ and its own tests.
 **`Merge` is the op the surface was missing, and it earned its place the way
 the rule above asks.** `Update` means must-exist, because the refusal IS the
 compare-and-swap; that left create-or-merge with no spelling, so `putSecret`,
-`putGroup`, `upsertReplyState`, `RecordProactiveFireInTx` and `putMessage`'s
+`putGroup`, `SetLastReply`, `RecordProactiveFire` and `putMessage`'s
 chat-open each wrote it as a create-if-absent plus the `Update` its refusal
 selected. `ValidateBatch` forbids two actions on one item, so each of them held
 a transaction to run the pair, and none of their writes could ride in anybody
