@@ -7,6 +7,116 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## ✅ FIXED 2026-09-13 L295 — every `mustOpenRoutd` CLI open starts a full network reindex and then cancels it, logging a false "build the ranked message index" ERROR on every restart and every admin write (2026-09-13)
+
+MEASURED on krons across two restarts (11:20 and 12:06): `journalctl` shows exactly one
+`ERROR build the ranked message index err="..."` per restart, from the `arizuko generate
+krons` `ExecStartPre` process (PID traced in the log: `chown store dir` warning and
+`proxyd routes: N written` — `syncProxydRoutes`'s own stdout — share the PID with the
+index error, seconds apart).
+
+`syncProxydRoutes` (`cmd/arizuko/routes.go:27`) and ten other CLI call sites
+(`cmd/arizuko/packages.go:277` `mustOpenRoutd`, used by `budget.go`, `skills.go`,
+`main.go`, `products.go`, `routes.go` twice, `packages.go` four times) open a full
+`*routd.DB` for a lightweight administrative read or write. On a served instance
+`routd.OpenAt` → `openServed` → `OpenOver` (`routd/db.go:997`) unconditionally calls
+`startSearch()`, which walks every chat partition over the network to rebuild the BM25
+index (`routd/search.go:43`). The CLI command finishes in milliseconds and its
+`defer rdb.Close()` calls `d.searchStop()` (`routd/db.go:214`), cancelling the walk
+before it gets anywhere — `msgsearch.Index.Build` records that cancellation as
+`ix.failed` and `slog.Error`s it (`routd/search.go:52`).
+
+This is a false alarm for the running daemon — verified live: `GET /v1/messages/find`
+answered `200` with a real ranked hit off the routd container's own separately-built
+index, which finishes because nothing closes it early. But `msgsearch.Index.failed` is
+sticky (`routd/msgsearch/msgsearch.go:308`, no reset on retry), so any CLI-owned `*Index`
+that fails this way answers every future search with `context canceled` for the rest of
+that process's life — harmless only because the CLI process exits right after. The
+recurring cost is real: a guaranteed ERROR-severity log line on every single
+`arizuko generate` (an `ExecStartPre` on every `systemctl restart`) and on every other
+`mustOpenRoutd` call, forever, on a served instance — exactly the kind of noise an
+error-census misreads as a live index failure, and a wasted full-corpus network read
+that the CLI command never needed.
+
+**Fixed 2026-09-13.** `StartSearch` is exported and routd's own main calls it; an opener that only reads or writes rows never starts the walk, and a process with no index refuses a search rather than answering it empty.
+
+- **Severity:** medium — no functional break (the daemon's own index builds fine), but
+  a guaranteed false-positive ERROR on every restart and administrative write, and a
+  discarded full-corpus network read each time
+- **Scope:** `cmd/arizuko/packages.go` `mustOpenRoutd`; `routd/db.go` `OpenOver`;
+  `routd/search.go` `startSearch`
+- **Affected:** every served instance; krons confirmed, both restarts today
+- **Source:** `routd/search.go:43-58`; `routd/db.go:997-999`, `:210-218`;
+  `routd/msgsearch/msgsearch.go:153-163`, `:306-309`; journal PID trace at 11:20:27 and
+  12:07:20
+- **Status:** fixed — needs a decision on the fix shape
+- **Fix (proposal):** a CLI-facing open that never starts the search walk (the ten
+  `mustOpenRoutd` sites write routes/packages/budgets/skills, none reads search), so the
+  daemon is the only opener that pays for and needs the index. Needs sign-off: whether
+  that is a new `routd.OpenOverNoSearch`/flag, or lazily starting the walk on first
+  `Search()` call instead of at every open.
+
+## ✅ FIXED 2026-09-13 L296 — extenddb's PostgreSQL healthcheck probes a database that does not exist, flooding one FATAL every ~10s forever (2026-09-13)
+
+MEASURED on krons: 284 occurrences of `FATAL: database "arizuko_krons" does not exist`
+in the ~50 minutes since cutover, continuous across both restarts, roughly one every 10
+seconds — the healthcheck's own interval.
+
+`template/services/extenddb.yml`'s `extenddb_db` healthcheck runs
+`pg_isready -U ${APP}_${FLAVOR}` with no `-d`. libpq defaults `PGDATABASE` to the
+username when unset, so `pg_isready` asks for a database literally named
+`arizuko_krons` — but `POSTGRES_DB` is explicitly `postgres` two lines above, so that
+database has never existed. `pg_isready` still reports the server as accepting
+connections (the container shows `healthy` throughout), so nothing is functionally
+broken; the cost is pure log noise, at `FATAL` severity, forever, on every instance
+running this fragment — the single largest line item in this census by count, and the
+kind of flood that trains a log-based alert to ignore `FATAL` from this container.
+
+**Fixed 2026-09-13.** The healthcheck names `postgres`, which is the database the server creates.
+
+- **Severity:** low — cosmetic/noise only; healthcheck still passes and reports true status
+- **Scope:** `template/services/extenddb.yml` `extenddb_db.healthcheck`
+- **Affected:** every served instance (krons confirmed; same fragment ships to all)
+- **Source:** `template/services/extenddb.yml` `pg_isready -U ${APP}_${FLAVOR}`;
+  284 occurrences 11:20:35–12:09:19 in `journalctl -u arizuko_krons`
+- **Status:** fixed
+- **Fix:** `aac2f358` — add `-d postgres` (or a dedicated healthcheck database) to the `pg_isready`
+  invocation.
+
+## ✅ FIXED 2026-09-13 L297 — `CreateTable` is re-declared for every owned entity on every daemon boot, and ExtendDB's Postgres backend logs a raw unique-constraint ERROR for each one that already exists (2026-09-13)
+
+MEASURED on krons: 118 occurrences of
+`ERROR: duplicate key value violates unique constraint "tables_pkey"` across two
+restarts (~59 per restart), all clustered in the first ~10 seconds after `extenddb_db`
+comes up, one per already-existing table.
+
+`store.PrepareOwner` → `EnsureEntitySet` (`store/served.go:33`) calls `CreateTable` for
+every entity an owner declares, on every boot, and treats "already exists" as success at
+the Go layer (`store/served.go`'s own comment: "asking twice is a no-op"). ExtendDB
+implements that idempotency by attempting the catalog insert and catching the conflict,
+which means PostgreSQL itself logs a real `ERROR`-severity line for each of routd's,
+onbod's and authd's already-existing tables on every single restart — a second daemon
+never touches another's tables here (each owner creates only its own), so this is not
+the `L119`/federation class, just an idempotent path implemented as attempt-and-catch
+rather than check-first or `ON CONFLICT DO NOTHING`. Same shape as `L296`: harmless,
+but it floods `ERROR` severity on a cadence (every restart, forever) that makes
+error-census-by-log-level a bad tool for this stack until it's fixed.
+
+**Fixed 2026-09-13.** `CreateEntity` asks with `DescribeTable` and creates only what is missing.
+
+- **Severity:** low — no functional effect measured; log-noise only, but at `ERROR`
+  severity where `L296` is `FATAL`, so together they dominate any severity-based census
+- **Scope:** `store/served.go` `EnsureEntitySet`/`PrepareOwner`; ExtendDB's `CreateTable`
+  handling
+- **Affected:** every served instance, every restart
+- **Source:** `store/served.go:29-42`; 118 occurrences 11:20:28–12:07:32 in
+  `journalctl -u arizuko_krons`
+- **Status:** fixed — needs a decision on which side owns the fix (arizuko calls
+  `DescribeTable` before `CreateTable` instead of relying on the conflict, or the fix is
+  requested upstream in ExtendDB to answer `ResourceInUseException` without a Postgres
+  ERROR)
+- **Fix:** `aac2f358` —
+
 ## ✅ FIXED 2026-09-13 L292 — an open with nothing to change was refused by the endpoint, so every agent reply failed on a served instance (2026-09-13)
 
 MEASURED through the conformance suite: a `Merge` naming no attribute, no initial
