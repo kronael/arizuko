@@ -1118,17 +1118,18 @@ func dashdService(app, flavor, dataDir string, env map[string]string) string {
 		// per-turn agent MCP sockets (BUGS F51). authd's auth.db is deliberately
 		// absent: dashd reads sessions over authd's HTTP face, not its file.
 		dataSubdirs: []string{
-			storeSub(store.OwnerRoutd), storeSub(store.OwnerOnbod), storeSub(store.OwnerRuned),
+			storeSub(store.OwnerRoutd), storeSub(store.OwnerOnbod),
 			"groups", "surrogate",
 		},
 		profile: "web",
-		// The three DB paths are container-internal; .env can't know them.
+		// Both DB paths are container-internal; .env can't know them. runed's is
+		// not among them: `/dash/runed/` is served by runed itself, so dashd
+		// reads runed over its HTTP face and holds no handle on its store.
 		// DASH_PORT override pins internal listen to :8080 (healthcheck target)
 		// even when .env sets DASH_PORT for host-side publish.
 		environment: map[string]string{
 			"DB_PATH":       containerOwnerDB(store.OwnerRoutd),
 			"ONBOD_DB_PATH": containerOwnerDB(store.OwnerOnbod),
-			"RUNED_DB_PATH": containerOwnerDB(store.OwnerRuned),
 			"DASH_PORT":     fmt.Sprintf("%d", core.DefaultAPIPort),
 			"APP_SRC_DIR":   src,
 		},

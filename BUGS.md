@@ -7,6 +7,42 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L290 — `routd`'s held-world test races its own recorder, so one run in five reports the owner was never asked (2026-09-13, open)
+
+MEASURED by a subagent running the whole suite: `routd/hold_world_inversion_test.go:70`
+failed once with "the owner was not asked: []", and `go test ./routd/ -race -count=30
+-run TestWorld_HoldsWhatTheOwnerShouldSeeAndRunsTheRest` reports `WARNING: DATA RACE`
+between the main goroutine reading `dl.sends` at line 69 and the gate goroutine writing
+it at line 63. `awaitHeldID` waits for the DB row, which can land before the chat send
+is recorded, so the read happens while the write is in flight.
+
+It is the TEST that races, not the daemon — but it fails a green suite about one run in
+five, and `make test` runs without `-race`, so the race itself is invisible there.
+
+- **Severity:** medium — a flaky failure in the suite that gates every merge
+- **Scope:** `routd/hold_world_inversion_test.go`
+- **Affected:** every run; the failure is timing-dependent
+- **Source:** `routd/hold_world_inversion_test.go:63`, `:69`
+- **Status:** open
+- **Fix:** the recorder holds the sends behind a mutex, and the wait is for the send
+  rather than for the row, so the assertion reads what the gate finished writing.
+
+## L291 — `database/sql` survives in dashd only to carry three optional strings (2026-09-13, open)
+
+`dashd/tasks_admin.go:87-95` declares `cron`, `nextRun` and `contextMode` as
+`sql.NullString` to render a form, and that is the only reason `database/sql` is still
+imported anywhere in dashd — every store in dashd is a handle now. `specs/6/42` §9 makes
+`go list -deps ./... | grep database/sql` empty the acceptance test for the whole port,
+so a null-string type used as an optional string blocks a one-line gate.
+
+- **Severity:** low — no wrong behaviour; it blocks the port's import guard
+- **Scope:** `dashd/tasks_admin.go`
+- **Affected:** every instance
+- **Source:** `dashd/tasks_admin.go:5`, `:87`
+- **Status:** open
+- **Fix:** a plain `string` plus the empty test the template already makes, since absent
+  and empty are the same thing on a form.
+
 ## ✅ FIXED 2026-09-12 L284 — `/eval` queries the pre-migration schema, so the debug loop goes blind the moment an instance migrates (2026-09-12)
 
 REPRODUCED on a migrated copy of krons' `routd.db`:

@@ -789,7 +789,6 @@ var wantDataMounts = map[string][]string{
 	"dashd": {
 		"/store/routd:/srv/app/home/store/routd",
 		"/store/onbod:/srv/app/home/store/onbod",
-		"/store/runed:/srv/app/home/store/runed",
 		"/groups:/srv/app/home/groups",
 		"/surrogate:/srv/app/home/surrogate",
 	},
@@ -884,7 +883,7 @@ func TestOwnerDBEnvPathsLandInsideTheMounts(t *testing.T) {
 	out := gen(t, dir)
 	envToSvc := map[string][]string{
 		"onbod": {"ONBOD_DB_PATH", "ROUTD_DB_PATH"},
-		"dashd": {"DB_PATH", "ONBOD_DB_PATH", "RUNED_DB_PATH"},
+		"dashd": {"DB_PATH", "ONBOD_DB_PATH"},
 	}
 	for svc, keys := range envToSvc {
 		s := serviceBlock(out, svc)
