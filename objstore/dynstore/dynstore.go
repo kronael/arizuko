@@ -2,10 +2,14 @@
 package dynstore
 
 import (
-	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
+	"net/http"
+	"os"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -16,10 +20,11 @@ const (
 	partAttr = "part"
 	sortAttr = "sort"
 
-	// The documented example pair, which a local endpoint seeds so a client can
-	// sign without a credential store. A real endpoint takes its own.
-	devKeyID  = "AKIAIOSFODNN7EXAMPLE"
-	devSecret = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+	// DevKeyID and DevSecret are the documented example pair a local endpoint
+	// seeds, so a test can sign without a credential store. A served endpoint
+	// mints its own pair and the caller passes that one.
+	DevKeyID  = "AKIAIOSFODNN7EXAMPLE"
+	DevSecret = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
 )
 
 type Store struct {
@@ -31,20 +36,72 @@ func New(api *dynamodb.Client, prefix string) *Store {
 	return &Store{api: api, prefix: prefix}
 }
 
-// Dial builds a client for an endpoint. Empty endpoint means the real service.
-func Dial(ctx context.Context, endpoint, region, prefix string) (*Store, error) {
-	opts := []func(*dynamodb.Options){}
-	if endpoint != "" {
-		opts = append(opts, func(o *dynamodb.Options) {
-			o.BaseEndpoint = aws.String(endpoint)
-			o.Credentials = credentials.NewStaticCredentialsProvider(devKeyID, devSecret, "")
-		})
+// Config names the endpoint a caller talks to, the credential it signs with and
+// the table namespace it reads. Endpoint empty means Amazon's own service,
+// which takes the same static key an IAM user holds anywhere else — so this
+// driver reaches the service and a self-hosted server through one door.
+type Config struct {
+	Endpoint string
+	Region   string
+	// Prefix goes in front of every entity name, so one server holds several
+	// owners and several test runs without a name collision.
+	Prefix string
+	KeyID  string
+	Secret string
+	// CABundle is a PEM file the endpoint's certificate chains to. A server
+	// that generates its own certificate at init needs it; the public service
+	// chains to the host's trust store and leaves it empty.
+	CABundle string
+}
+
+// Dial builds a client for cfg. A missing credential is an error rather than an
+// anonymous client: an unsigned request fails later, at the first write, with a
+// message about the request instead of the configuration.
+func Dial(cfg Config) (*Store, error) {
+	if cfg.KeyID == "" || cfg.Secret == "" {
+		return nil, fmt.Errorf("dynstore: endpoint %q takes an access key and a secret", cfg.Endpoint)
 	}
+	region := cfg.Region
 	if region == "" {
 		region = "us-east-1"
 	}
-	cfg := aws.Config{Region: region}
-	return New(dynamodb.NewFromConfig(cfg, opts...), prefix), nil
+	opts := []func(*dynamodb.Options){func(o *dynamodb.Options) {
+		o.Credentials = credentials.NewStaticCredentialsProvider(cfg.KeyID, cfg.Secret, "")
+	}}
+	if cfg.Endpoint != "" {
+		opts = append(opts, func(o *dynamodb.Options) { o.BaseEndpoint = aws.String(cfg.Endpoint) })
+	}
+	if cfg.CABundle != "" {
+		client, err := httpsWith(cfg.CABundle)
+		if err != nil {
+			return nil, err
+		}
+		opts = append(opts, func(o *dynamodb.Options) { o.HTTPClient = client })
+	}
+	return New(dynamodb.NewFromConfig(aws.Config{Region: region}, opts...), cfg.Prefix), nil
+}
+
+// httpsWith trusts exactly the bundle named, in ADDITION to the host's own
+// roots, so an instance whose endpoint carries a self-signed certificate keeps
+// verifying every other name it talks to.
+func httpsWith(bundle string) (*awshttp.BuildableClient, error) {
+	pem, err := os.ReadFile(bundle)
+	if err != nil {
+		return nil, fmt.Errorf("dynstore: read the CA bundle: %w", err)
+	}
+	pool, err := x509.SystemCertPool()
+	if err != nil {
+		pool = x509.NewCertPool()
+	}
+	if !pool.AppendCertsFromPEM(pem) {
+		return nil, fmt.Errorf("dynstore: %s holds no certificate", bundle)
+	}
+	return awshttp.NewBuildableClient().WithTransportOptions(func(tr *http.Transport) {
+		if tr.TLSClientConfig == nil {
+			tr.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+		}
+		tr.TLSClientConfig.RootCAs = pool
+	}), nil
 }
 
 func (s *Store) table(entity string) *string {

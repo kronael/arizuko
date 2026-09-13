@@ -3,6 +3,7 @@ package dynstore
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -45,4 +46,27 @@ func (s *Store) DropEntity(ctx context.Context, entity string) error {
 		return err
 	}
 	return nil
+}
+
+// Entities answers every entity this store's prefix holds. A caller that did
+// not create them needs it: the copy verifies a table it was told about, and a
+// test fixture drops what its prefix left behind on a server that outlives it.
+func (s *Store) Entities(ctx context.Context) ([]string, error) {
+	var out []string
+	var start *string
+	for {
+		page, err := s.api.ListTables(ctx, &dynamodb.ListTablesInput{ExclusiveStartTableName: start})
+		if err != nil {
+			return nil, err
+		}
+		for _, name := range page.TableNames {
+			if strings.HasPrefix(name, s.prefix) {
+				out = append(out, strings.TrimPrefix(name, s.prefix))
+			}
+		}
+		if page.LastEvaluatedTableName == nil {
+			return out, nil
+		}
+		start = page.LastEvaluatedTableName
+	}
 }
