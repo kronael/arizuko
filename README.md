@@ -33,7 +33,7 @@ Models and agent harnesses keep improving — that isn't the race arizuko runs. 
 # A message arrives in Slack.
 @andy can you summarize the open PRs?
 
-# 1. slakd posts to routd  →  routd.db
+# 1. slakd posts to routd  →  the message store
 # 2. routd resolves folder via route table, builds the prompt, calls runed
 # 3. runed spawns a Docker container for that group
 # 4. routd hosts the agent's MCP socket in-process; socat bridges it in
@@ -43,7 +43,7 @@ Models and agent harnesses keep improving — that isn't the race arizuko runs. 
 
 Agents coordinate through the same conversation plane they serve users on. A container can route to a sibling, delegate to a child, schedule a cron task, or ingest webhooks — by posting to `routd`. No separate coordination bus.
 
-Conversation state lives in `routd.db`; per-group agent state — the Claude Code session, skills, memory, diary — lives in the mounted group folder. Containers are ephemeral: `runed` spawns one per turn, mounts the group folder, runs it, and tears it down.
+Conversation state lives in routd's tables; per-group agent state — the Claude Code session, skills, memory, diary — lives in the mounted group folder. Containers are ephemeral: `runed` spawns one per turn, mounts the group folder, runs it, and tears it down.
 
 ## The shape
 
@@ -51,7 +51,7 @@ Everything reduces to six primitives in a fixed pipeline. Trace one event top to
 
 ```
 Slack @mention in #eng
-  → Event          one inbox row (routd.db)
+  → Event          one inbox row (routd)
   → Routing        → corp/eng/oncall
   → Agent          folder loaded: persona, skills, memory
   → Authorization  may it read / send / delegate here?
@@ -75,11 +75,11 @@ A product is the bottom layer: the same pipeline, a different folder. The public
 
 ## Direction
 
-That's what arizuko is today: a single-host, multi-tenant agent router with channels, folders, and a shared SQLite. Three frames describe where it's heading.
+That's what arizuko is today: a single-host, multi-tenant agent router with channels, folders, and one store behind every daemon. Three frames describe where it's heading.
 
 **Multi-tenant by primitive.** The same code runs `solo/inbox` and `corp/eng/sre/oncall`. Folder hierarchies have no fixed depth. Every primitive — grants, channels, secrets, routes, scheduled work — scales from one-user-one-channel to a fleet of agents under shared admin. Adding tenants is adding rows + folders; the daemon graph is invariant.
 
-**Agent-as-data.** Each agent is a folder of values — `PERSONA.md`, `skills/`, `MEMORY.md`, `.diary/`, ACL rules, route rows, secret references. The runtime is an interpreter over those values. The plan is to move cold-tier config (ACL, routes, persona, skills, scheduled tasks, invites) toward git as the source of truth ([specs/5/8](specs/5/8-yaml-manifests.md)), with SQLite as a rebuildable cache. Forking, auditing, and distributing an agent then ride native git verbs instead of bespoke ones.
+**Agent-as-data.** Each agent is a folder of values — `PERSONA.md`, `skills/`, `MEMORY.md`, `.diary/`, ACL rules, route rows, secret references. The runtime is an interpreter over those values. The plan is to move cold-tier config (ACL, routes, persona, skills, scheduled tasks, invites) toward git as the source of truth ([specs/5/8](specs/5/8-yaml-manifests.md)), with the store as a rebuildable cache. Forking, auditing, and distributing an agent then ride native git verbs instead of bespoke ones.
 
 **Agent-first managed (target state).** The agent and the operator will speak the same language. The plan ([specs/5/17](specs/5/17-openapi-mcp.md), rolled out by [specs/5/16](specs/5/16-mcp-rest-unification.md)) is one handler per cold-tier resource with two faces — REST authored for humans + external tools, MCP derived for in-container agents — over one auth gate (`auth.Authorize`) and one tx-bound audit row. Most cold-tier resources already run that pattern; the remaining REST twins and one-owner federation follow incrementally. Declarative intent is then carried by YAML manifests dispatched through the same gate ([specs/5/8](specs/5/8-yaml-manifests.md)): operator writes the YAML, `arizuko apply` walks it row by row, daemons see resreg-shaped mutations identical to any other call.
 
@@ -94,7 +94,7 @@ Choose arizuko when you need:
 - one agent per folder, with separate persona, memory, skills, and ACL
 - channel-native operation in Slack, Discord, Telegram, email, web chat, or webhooks
 - scheduled work, delegation, and long-running background behavior
-- self-hosting on one machine with Docker and SQLite
+- self-hosting on one machine with Docker
 - a system you can inspect as files, routes, and database rows
 
 Do not choose arizuko if your main problem is enterprise document search — it has no connector sync pipeline or vector index. Pair it with a retrieval system and use arizuko as the agent layer that acts on the results (see [What arizuko does not include](#what-arizuko-does-not-include)).
@@ -117,31 +117,31 @@ Full walkthrough — prerequisites, blocker fixes, per-adapter tokens, troublesh
 
 A first deployment runs the core plane — `authd` (token authority), `routd` (conversation/router), `runed` (agent execution) — plus one adapter (`teled`, `slakd`, `discd`, `webd`, or `emaid`). Core runs standalone with no channel adapter at all — `routd`, `dashd`, `onbod` and `timed` are reachable over REST and MCP on their own; an adapter is what adds a chat surface, not a requirement to run. Add `dashd` for operator UI, `timed` for scheduled tasks, `onbod` for invite flows, and `EGRESS_IMAGE` for default-deny egress. Each adapter ships as a package — `template/services/<name>.yml`, added with `arizuko packages <instance> add <name>`; no Go edits required. `arizuko packages <instance> install <git-or-dir>` installs a third-party package (compose fragment, proxyd route, grant, or skills) onto a running instance, with `upgrade`/`remove` tracked by an `installed_packages` record. One group can be built from several products at once — list them in `~/products.toml` and run `arizuko products <instance> apply <folder>`; blending is per kind of file, and two products claiming the same file stops the apply rather than quietly dropping one. See [EXTENDING.md](EXTENDING.md) for wiring new channels and packages.
 
-A tar of `/srv/data/arizuko_<name>/` is a complete instance backup — the per-daemon SQLite databases (`routd.db`, `runed.db`, `auth.db`, … WAL), group folders, per-user memory, secrets, agent files.
+A tar of `/srv/data/arizuko_<name>/` is a complete instance backup — the store (the server's database directory under `store/`, or the owner files), group folders, per-user memory, secrets, agent files.
 
 ## How it works
 
 ```
 adapter (teled/discd/slakd/…) --HTTP--> routd (conversation plane)
-                                          │     └── routd.db (WAL)
+                                          │     └── messages, routes, acl, secrets, tasks
                                           │     └── hosts agent MCP socket in-process (ipc)
                                           ├──HTTP--> runed (execution plane)
-                                          │           └── runed.db; docker.sock + per-spawn egress
+                                          │           └── spawns, session_log; docker.sock + per-spawn egress
                                           │           └── spawns the agent container per turn
                                           └──HTTP--> authd (token authority)
-                                                      └── auth.db; ES256 minter + JWKS
+                                                      └── signing_keys; ES256 minter + JWKS
 
 timed   — scheduler, federates due tasks over routd
-onbod   — onboarding, OAuth, admission queue (onbod.db)
+onbod   — onboarding, OAuth, admission queue
 webd    — web chat channel adapter + SSE hub
 proxyd  — auth-gated reverse proxy (JSON route table)
 davd    — WebDAV workspace (per-group, dufs)
 dashd   — operator dashboards + admin CRUD
 ```
 
-Each core daemon owns and migrates its own database; no daemon migrates another's. Adapters, `webd`, `proxyd`, and `timed` reach `routd`; `routd` reaches `runed`; every daemon verifies tokens minted by `authd`.
+Each core daemon owns its own tables and creates them at boot; no daemon touches another's. `DYNAMODB_URL` says where they live: set, every daemon opens its owner on the instance's DynamoDB-protocol store server; unset, each opens its own SQLite file under `store/<owner>/`. Adapters, `webd`, `proxyd`, and `timed` reach `routd`; `routd` reaches `runed`; every daemon verifies tokens minted by `authd`.
 
-Full package graph, message flow, container lifecycle, and SQLite schema in [ARCHITECTURE.md](ARCHITECTURE.md).
+Full package graph, message flow, container lifecycle, and schema in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Channel adapters
 
