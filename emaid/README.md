@@ -105,7 +105,8 @@ store, the outbound path and every unimplemented-verb refusal are covered.
 `emaistore`'s own bodies run against whichever engine `ARIZUKO_TEST_PG_DSN`
 names, so the store is proven on SQLite and PostgreSQL alike.
 
-The number stops around 66% because the IMAP poller — `newPoller`, `run`,
+`go test ./emaid/ -short -cover` reports 66.4% (2026-09-13). The number
+stops there because the IMAP poller — `newPoller`, `run`,
 `runPoll`, `FetchHistory` — needs a real IMAP server, and `defaultSMTPSender`
 needs a real submission port. Mocking either would assert the mock. Those are
 exercised against a live mailbox by `make smoke`.

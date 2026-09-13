@@ -101,6 +101,12 @@ ascii art.
 - `src/reply.ts` — reply metadata extraction
 - `src/typing.ts` — typing refresh
 - `src/log.ts` — slog-style structured logging
+- `src/auth.ts` — the ES256 service-token boundary, both halves. Mirrors the Go
+  `chanlib.Auth` path: exchange `AUTHD_SERVICE_KEY` at authd for a short-TTL
+  `service:whapd` JWT outbound, verify routd's token offline inbound
+- `src/dash.ts` — `/dash/whapd/`. The Go adapters get this page from
+  `chanlib/dash.go` for free; whapd cannot import chanlib, so this is a second
+  implementation of ONE spec (6/31), not a second design. Keep it in step
 
 ## Related docs
 

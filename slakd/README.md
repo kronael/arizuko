@@ -88,20 +88,21 @@ MCP-driven control (per outbound, one-shot):
   maps that to `chanlib.ErrUnsupported`).
 - `POST /v1/pane/title {jid, title}` — same shape; one-shot title.
 
-Both endpoints are reached by routd via `chanreg.HTTPChannel`'s
-`SetSuggestions` / `SetName` (implementing the optional
-`core.Suggester` and `core.Namer` capabilities). Today slakd is the
-only adapter that implements them.
+Both endpoints are reached by routd through `chanreg.HTTPChannel`'s
+`SetSuggestions` / `SetName`. Today slakd is the only adapter that implements
+them.
 
-slakd opens `routd.db` to read `pane_sessions` rows (routd owns the
-table); pane writes go via HTTP (`POST /v1/pane` to routd). `DB_PATH`
-(preferred) or `DATA_DIR/store` points to the DB directory. Unset →
-pane reads fail, prompts/title staging returns 404.
+Pane READS open routd's owner (`store.OpenOwner(store.OwnerRoutd, …)`) for
+`pane_sessions`; routd owns that table, and pane WRITES go over HTTP
+(`POST /v1/pane`). On a served instance no path is needed at all — the
+endpoint is the target. On a file instance `DB_PATH` names routd's file, or
+`DATA_DIR/store` locates it; neither set means pane reads fail and
+prompt/title staging answers 404.
 
 ## Dependencies
 
-- `chanlib`, `store` (pane_sessions table only — `routd` owns the
-  schema and runs migrations)
+- `chanlib`, `store` (the `pane_sessions` read only — routd declares the
+  entity and nothing here does)
 
 ## Configuration
 
@@ -115,9 +116,11 @@ AUTHD_SERVICE_NAME=slakd      exchange principal — the DAEMON, not CHANNEL_NAM
 LISTEN_ADDR=:8080             internal HTTP listener
 LISTEN_URL=http://slakd:8080  URL the router uses to reach slakd
 ASSISTANT_NAME=...            shown in pane title (<name> — chat); omit → "chat"
-DB_PATH=...                   path to routd.db (preferred for pane reads;
-                              default DATA_DIR/store/routd/routd.db)
-DATA_DIR=...                  fallback (uses DATA_DIR/store); omit both → no pane support
+DB_PATH=...                   routd's file, for pane reads on a NON-served
+                              instance (default DATA_DIR/store/routd/routd.db);
+                              ignored once DYNAMODB_URL names an endpoint
+DATA_DIR=...                  fallback (uses DATA_DIR/store); on a file instance
+                              omitting both means no pane support
 SLAKD_USERS_CACHE_TTL=900     users.info + conversations.info TTL (seconds)
 MEDIA_MAX_FILE_BYTES=20971520 file-proxy cap
 CHANNEL_NAME=slack            registration name
