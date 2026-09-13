@@ -4,80 +4,25 @@ package dynamo_test
 
 import (
 	"context"
-	"fmt"
-	"net"
-	"os"
-	"os/exec"
-	"strings"
 	"testing"
-	"time"
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/authd/authstore"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore/dynstore"
+	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/runed/runstore"
 	"github.com/kronael/arizuko/store"
 )
 
-const image = "ghcr.io/extenddb/extenddb-dev:0.1.11"
+func TestMain(m *testing.M) { dyntest.Main(m) }
 
-func endpoint(t *testing.T) string {
+// routdStore hands back a handle whose routd entities, version marker and audit
+// record are already made — what every opener of routd's store needs.
+func routdHandle(t *testing.T) *dynstore.Store {
 	t.Helper()
-	if testing.Short() {
-		t.Skip("starts a container; run it through `make integration`")
-	}
-	if got := os.Getenv("ARIZUKO_TEST_DYNAMO_ENDPOINT"); got != "" {
-		return got
-	}
-	docker := []string{"docker"}
-	if os.Geteuid() != 0 {
-		docker = []string{"sudo", "docker"}
-	}
-	run := func(args ...string) (string, error) {
-		full := append(append([]string{}, docker[1:]...), args...)
-		out, err := exec.Command(docker[0], full...).CombinedOutput()
-		return strings.TrimSpace(string(out)), err
-	}
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := l.Addr().(*net.TCPAddr).Port
-	l.Close()
-
-	name := fmt.Sprintf("arizuko-store-dynamo-%d", os.Getpid())
-	_, _ = run("rm", "-f", name)
-	if out, err := run("run", "-d", "--name", name,
-		"-p", fmt.Sprintf("127.0.0.1:%d:18080", port), image); err != nil {
-		t.Skipf("cannot start %s: %v: %s", image, err, out)
-	}
-	t.Cleanup(func() { _, _ = run("rm", "-f", name) })
-
-	addr := fmt.Sprintf("http://127.0.0.1:%d", port)
-	deadline := time.Now().Add(60 * time.Second)
-	for time.Now().Before(deadline) {
-		c, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), time.Second)
-		if err == nil {
-			c.Close()
-			return addr
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-	t.Fatalf("%s never listened", image)
-	return ""
-}
-
-// openStore builds the real store over the endpoint, with routd's entities made.
-func openStore(t *testing.T) *store.Store {
-	t.Helper()
-	addr := endpoint(t)
-	prefix := fmt.Sprintf("e2e%d_", time.Now().UnixNano())
-	d, err := dynstore.Dial(context.Background(), addr, "us-east-1", prefix)
-	if err != nil {
-		t.Fatal(err)
-	}
+	d := dyntest.Store(t)
 	ctx := context.Background()
 	if err := store.EnsureEntities(ctx, d, store.OwnerRoutd); err != nil {
 		t.Fatalf("make routd's entities: %v", err)
@@ -90,7 +35,12 @@ func openStore(t *testing.T) *store.Store {
 	if err := audit.EnsureEntities(ctx, d); err != nil {
 		t.Fatalf("make the audit entities: %v", err)
 	}
-	return store.NewOver(d)
+	return d
+}
+
+// openStore builds the real store over the endpoint, with routd's entities made.
+func openStore(t *testing.T) *store.Store {
+	return store.NewOver(routdHandle(t))
 }
 
 // A group, a route and a grant go in and come back out, through the same
@@ -147,24 +97,7 @@ func TestStoreRunsOverDynamo(t *testing.T) {
 // routd itself, served from the endpoint. The daemon's own door is what a live
 // instance opens, so this is the wiring rather than the store under it.
 func TestRoutdRunsOverDynamo(t *testing.T) {
-	addr := endpoint(t)
-	prefix := fmt.Sprintf("rd%d_", time.Now().UnixNano())
-	d, err := dynstore.Dial(context.Background(), addr, "us-east-1", prefix)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := context.Background()
-	if err := store.EnsureEntities(ctx, d, store.OwnerRoutd); err != nil {
-		t.Fatalf("make routd's entities: %v", err)
-	}
-	if err := d.CreateEntity(ctx, store.ScopeEntity); err != nil {
-		t.Fatal(err)
-	}
-	if err := audit.EnsureEntities(ctx, d); err != nil {
-		t.Fatal(err)
-	}
-
-	rdb := routd.OpenOver(d)
+	rdb := routd.OpenOver(routdHandle(t))
 
 	if err := rdb.PutGroup(core.Group{Folder: "acme"}); err != nil {
 		t.Fatalf("PutGroup through routd: %v", err)
@@ -188,12 +121,7 @@ func TestRoutdRunsOverDynamo(t *testing.T) {
 // authd and runed take the handle directly, so this is what "wired" means for
 // them: their own stores, over the endpoint, doing their own work.
 func TestAuthdAndRunedRunOverDynamo(t *testing.T) {
-	addr := endpoint(t)
-	prefix := fmt.Sprintf("ar%d_", time.Now().UnixNano())
-	d, err := dynstore.Dial(context.Background(), addr, "us-east-1", prefix)
-	if err != nil {
-		t.Fatal(err)
-	}
+	d := dyntest.Store(t)
 	ctx := context.Background()
 	for _, e := range append(authstore.Entities, runstore.Entities...) {
 		if err := d.CreateEntity(ctx, e); err != nil {
