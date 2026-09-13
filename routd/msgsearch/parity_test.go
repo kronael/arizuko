@@ -90,6 +90,9 @@ func TestTheWalkAndTheIndexAreAffordable(t *testing.T) {
 	if testing.Short() {
 		t.Skip("a corpus of 24,296 messages is not a -short test")
 	}
+	if raceDetector {
+		t.Skip("under -race the number measured is the instrumentation's")
+	}
 	src := seedCorpus()
 	var base, loaded runtime.MemStats
 	runtime.GC()
@@ -138,6 +141,10 @@ func TestTheWalkAndTheIndexAreAffordable(t *testing.T) {
 func TestTheTopTenIsFTS5sTopTen(t *testing.T) {
 	if testing.Short() {
 		t.Skip("a corpus of 24,296 messages through two engines is not a -short test")
+	}
+	if raceDetector {
+		t.Skip("two engines over 24,296 messages under -race is minutes, and the two " +
+			"agree or not whatever the instrumentation costs")
 	}
 	if os.Getenv(db_utils.TestPGDSNEnv) != "" {
 		t.Skip("the oracle is SQLite FTS5 and the test engine is Postgres")
