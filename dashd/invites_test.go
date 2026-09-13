@@ -203,3 +203,37 @@ func TestHandleInviteRevokeAndGone(t *testing.T) {
 		t.Errorf("expected empty-state after revoke: %q", body)
 	}
 }
+
+// Both invite WRITERS answer 503 when onbod's store is absent. The list page
+// banners, and these two took the same handle and called a method on it — so an
+// instance running without onboarding met a nil deref on a POST rather than the
+// unavailable the read side has always reported.
+func TestInviteWritesRefuseWithoutTheOnbodStore(t *testing.T) {
+	db := testDBWithInvites(t)
+	defer db.Close()
+	// routd is there and onbod is not: onboarding is an optional profile, so
+	// this is an ordinary instance, not a broken one.
+	d := &dash{routd: over(db), routdURL: stubRoutd(t, db)}
+	seedAdmin(t, over(db), "github:operator", "**")
+	mux := http.NewServeMux()
+	d.registerRoutes(mux)
+
+	for _, c := range []struct{ name, method, path, body string }{
+		{"create", "POST", "/dash/invites/", url.Values{"target_glob": {"alice"}}.Encode()},
+		{"revoke", "POST", "/dash/invites/deadbeef/revoke", ""},
+	} {
+		req := httptest.NewRequest(c.method, c.path, strings.NewReader(c.body))
+		if c.body != "" {
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		}
+		req.Header.Set("X-User-Sub", "github:operator")
+		req.Header.Set("X-User-Groups", `["**"]`)
+		req.Header.Set("Origin", "http://example.com")
+		req.Header.Set("Host", "example.com")
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != http.StatusServiceUnavailable {
+			t.Errorf("%s: status = %d, want 503 — body %q", c.name, w.Code, w.Body.String())
+		}
+	}
+}

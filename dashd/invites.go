@@ -125,6 +125,10 @@ func (d *dash) handleInviteCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s := d.onbodStore()
+	if s == nil {
+		http.Error(w, "invites store unavailable", http.StatusServiceUnavailable)
+		return
+	}
 	inv, rawToken, err := s.CreateInvite(targetGlob, sub, maxUses, expiresAt)
 	if err != nil {
 		slog.Warn("invites: create", "err", err)
@@ -160,7 +164,12 @@ func (d *dash) handleInviteRevoke(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "ref required", http.StatusBadRequest)
 		return
 	}
-	if err := d.onbodStore().RevokeInviteByRef(ref); err != nil {
+	s := d.onbodStore()
+	if s == nil {
+		http.Error(w, "invites store unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if err := s.RevokeInviteByRef(ref); err != nil {
 		if errors.Is(err, store.ErrInviteRefUnknown) {
 			http.Error(w, "not found", http.StatusNotFound)
 			return

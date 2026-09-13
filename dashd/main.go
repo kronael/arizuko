@@ -417,8 +417,8 @@ type dash struct {
 // points its admin reads straight at routd's own store.
 //
 // nil when there is no handle, which is how the pages know to banner instead of
-// render. Built per call for the same reason secretStore is: tests construct a
-// dash literal and a field set at boot would be empty for them.
+// render. Built per call rather than held, so secretStore can set the keyring
+// on its own copy and on nobody else's.
 func (d *dash) routdStore() *store.Store {
 	if d.routd == nil {
 		return nil
@@ -468,7 +468,7 @@ func openSiblingOwner(env, dataDir, owner string) *store.Store {
 }
 
 // resolveDSN picks the path dashd was configured with: DB_PATH when set, else
-// <DATA_DIR>/store/routd.db. It REFUSES messages.db — a stale DB_PATH from an old
+// <DATA_DIR>/store/routd/routd.db. It REFUSES messages.db — a stale DB_PATH from an old
 // deployment must fail loudly at boot rather than silently serve frozen data, which
 // dashd did for months.
 func resolveDSN(dbPath, dataDir string) (string, error) {

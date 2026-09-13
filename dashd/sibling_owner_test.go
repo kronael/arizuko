@@ -23,7 +23,7 @@ func seedOnbodFile(t *testing.T, path string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close() //nolint:errcheck // the test is ending
+	defer db.Close()
 	if err := store.PrepareOwner(context.Background(), sqlstore.New(db), store.OwnerOnbod); err != nil {
 		t.Fatalf("build what onbod serves at %s: %v", path, err)
 	}
@@ -47,7 +47,7 @@ func TestOpenSiblingOwnerDefaultsToTheOwnerSubdir(t *testing.T) {
 	if s == nil {
 		t.Fatal("openSiblingOwner returned nil for a seeded store/onbod/onbod.db")
 	}
-	s.Close() //nolint:errcheck // the test is ending
+	s.Close()
 }
 
 func TestOpenSiblingOwnerHonoursTheEnvOverride(t *testing.T) {
@@ -59,7 +59,7 @@ func TestOpenSiblingOwnerHonoursTheEnvOverride(t *testing.T) {
 	if s == nil {
 		t.Fatal("ONBOD_DB_PATH was ignored")
 	}
-	s.Close() //nolint:errcheck // the test is ending
+	s.Close()
 }
 
 // An absent owner store means that daemon's profile is off — the invites page
@@ -67,7 +67,7 @@ func TestOpenSiblingOwnerHonoursTheEnvOverride(t *testing.T) {
 // a boot failure that takes the whole console down.
 func TestOpenSiblingOwnerReturnsNilWhenTheProfileIsOff(t *testing.T) {
 	if s := openSiblingOwner("ONBOD_DB_PATH", t.TempDir(), store.OwnerOnbod); s != nil {
-		s.Close() //nolint:errcheck // the test is ending
+		s.Close()
 		t.Error("openSiblingOwner invented a store for a database that does not exist")
 	}
 }
@@ -82,7 +82,7 @@ func TestOpenSiblingOwnerRefusesADatabaseThatIsNotTheOwners(t *testing.T) {
 	}
 	t.Setenv("ONBOD_DB_PATH", path)
 	if s := openSiblingOwner("ONBOD_DB_PATH", "", store.OwnerOnbod); s != nil {
-		s.Close() //nolint:errcheck // the test is ending
+		s.Close()
 		t.Error("openSiblingOwner answered for a database holding none of onbod's tables")
 	}
 }
