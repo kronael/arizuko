@@ -168,7 +168,11 @@ func LoadConfigFrom(dir string) (*Config, error) {
 // this wrote to the file while every daemon read the server (BUGS L294).
 func LoadInstanceEnv(dir string) {
 	_ = godotenv.Load(filepath.Join(dir, ".env"))
-	_ = godotenv.Load(filepath.Join(dir, "env", "operator.env"))
+	// Overload, not Load: the operator's file is the HOST's view of the same
+	// instance. .env names the store by its compose service name, which only a
+	// container resolves, so the operator's own address for it wins here. No
+	// daemon reads this file.
+	_ = godotenv.Overload(filepath.Join(dir, "env", "operator.env"))
 }
 
 func LoadConfig() (*Config, error) {
