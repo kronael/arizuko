@@ -105,10 +105,9 @@ Metrics emitted when `METRICS_ENABLED=true`:
 - `arizuko_container_spawns_total` — spawn attempts (folder, outcome)
 - `arizuko_container_active` — running containers (gauge)
 - `arizuko_container_duration_seconds` — container run time (folder, outcome)
-- `arizuko_requests_total` — HTTP requests (daemon, method, status)
 
-Spans: `container_spawn`, `cross_daemon`.
-Spec: `specs/5/O-observability.md`.
+plus the two HTTP metrics every daemon emits (`obs/README.md`). Spans:
+`container_spawn`, `cross_daemon`.
 
 ### Audit trail
 

@@ -76,24 +76,29 @@ always-on work is a one-time propagator registration, `WithTurn`'s sha256 per
 turn, and a header inject/extract per internal request — microseconds, and
 arizuko is not latency-sensitive.
 
-## Metrics (planned)
+## Metrics
 
-When `METRICS_ENABLED=true`, daemons expose `GET /metrics` (Prometheus format).
-Metrics defined in the spec:
+Seven daemons mount `GET /metrics` (Prometheus format) behind
+`obs.MetricsEnabled()`: authd, dashd, onbod, proxyd, routd, runed, webd. The
+collectors exist either way, so the recording helpers stay cheap when the
+endpoint is off, and `MetricsHandler` answers 404 rather than nothing. Mount it
+BEFORE auth — it is a public endpoint.
 
-- `arizuko_turn_duration_seconds` — turn latency
-- `arizuko_model_tokens_total` — token usage
-- `arizuko_container_spawns_total` — spawn attempts
-- `arizuko_container_active` — running containers
-- `arizuko_requests_total` — HTTP requests per daemon
-- `arizuko_circuit_breaker_state` — breaker status
+Twelve metrics, declared once in `metrics.go`:
 
-See spec for full list and label definitions.
+| metric                                                                                             | what it counts                                          |
+| -------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `arizuko_turn_duration_seconds`, `arizuko_turns_total`, `arizuko_silent_turns_total`               | the turn: how long, how many, how many answered nothing |
+| `arizuko_model_tokens_total`                                                                       | token usage                                             |
+| `arizuko_container_spawns_total`, `arizuko_container_active`, `arizuko_container_duration_seconds` | the spawn                                               |
+| `arizuko_requests_total`, `arizuko_request_duration_seconds`                                       | HTTP, per daemon — every daemon emits these two         |
+| `arizuko_circuit_breaker_state`                                                                    | breaker status                                          |
+| `arizuko_token_mints_total`, `arizuko_token_refreshes_total`                                       | authd's issuance                                        |
 
 ## Files
 
 - `obs.go` — `Setup`, fanout handler, level config
 - `propagation.go` — `WithTurn`, `InjectRequest`, `ExtractRequest`
 - `handler.go` — fanout slog handler
-- `metrics.go` — Prometheus registry (planned)
-- `spans.go` — span helpers (planned)
+- `metrics.go` — the registry, the twelve collectors, `MetricsHandler`
+- `spans.go` — `SetupTraces`, `StartSpan`

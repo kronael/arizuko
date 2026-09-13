@@ -219,12 +219,8 @@ as 429.
 
 ## Observability
 
-Metrics emitted when `METRICS_ENABLED=true`:
-
-- `arizuko_requests_total` — HTTP requests (daemon, method, status)
-- `arizuko_request_duration_seconds` — request latency (daemon, method, path)
-
-Spec: `specs/5/O-observability.md`.
+The two HTTP metrics every daemon emits, at `GET /metrics` under
+`METRICS_ENABLED=true`; proxyd adds none of its own (`obs/README.md`).
 
 ## Files
 
