@@ -92,12 +92,12 @@
 
     <p>Inputs: <code>scheduled_tasks</code> rows written by MCP tools through routd. Outputs: synthetic <code>messages</code> rows and audit rows in <code>task_run_logs</code>.</p>
 
-    <p>Hard deps: read/write access to routd&rsquo;s <code>routd.db</code> (which holds <code>scheduled_tasks</code>). No HTTP API today beyond <code>/health</code>; the <code>/v1/tasks</code> surface is planned (see <code>timed/README.md</code>).</p>
+    <p>Hard deps: a reachable routd (which owns <code>scheduled_tasks</code>). No HTTP API today beyond <code>/health</code>; the <code>/v1/tasks</code> surface is planned (see <code>timed/README.md</code>).</p>
 
     <p>Concepts: <a href="../concepts/tasks.html">concepts/tasks</a> covers the row anatomy, context modes, and the five MCP tools agents use to manage tasks.</p>
 
     <h2>Standalone usage</h2>
-    <p>Yes. timed is a plain Go binary and it opens no database of its own &mdash; it reads and writes tasks over routd's HTTP API, so point it at a running routd. <code>scheduled_tasks</code> and <code>task_run_logs</code> live in <code>routd.db</code>, which routd owns and migrates.</p>
+    <p>Yes. timed is a plain Go binary and it opens no database of its own &mdash; it reads and writes tasks over routd's HTTP API, so point it at a running routd. <code>scheduled_tasks</code> and <code>task_run_logs</code> are routd's, which routd owns and creates.</p>
 
     <pre><code># build
 make build              # produces ./timed
@@ -134,7 +134,7 @@ TZ=Europe/Prague ./timed</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/timed.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-18">2026-08-18</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-04">2026-09-04</time>
       </div>
     </main>
 

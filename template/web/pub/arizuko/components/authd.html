@@ -85,7 +85,7 @@
 
     <p>Inputs: OAuth callbacks on <code>/auth/*</code>; mint and downscope requests on <code>POST /v1/tokens</code>; daemon service-key exchange on <code>POST /v1/service-token</code>; refresh rotation on <code>POST /v1/refresh</code>; the grants ceiling fetched from routd. Outputs: ES256 tokens; the public JWKS at <code>GET /v1/keys</code> that every backend reads to verify offline.</p>
 
-    <p>Hard deps: its own <code>auth.db</code> (direct SQLite, no sibling DB). Soft dep: routd via <code>GRANTS_URL</code> for the login-time scope ceiling &mdash; unset, sessions come back empty-scope. authd is <em>not</em> the grants authority; it reads the ceiling, it does not set it.</p>
+    <p>Hard deps: its own tables, which nothing else reaches. Soft dep: routd via <code>GRANTS_URL</code> for the login-time scope ceiling &mdash; unset, sessions come back empty-scope. authd is <em>not</em> the grants authority; it reads the ceiling, it does not set it.</p>
 
     <h2>Verify offline, mint in one place</h2>
     <p>The split is deliberate: minting is centralized (one key, one daemon), verification is distributed (every backend, no round-trip). A request carrying a token never calls back to authd &mdash; the backend already has the JWKS and checks the signature locally. authd can be momentarily down and existing tokens still verify; only new logins and refreshes block.</p>
@@ -146,7 +146,7 @@ export AUTH_BASE_URL=https://example.com
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/authd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-18">2026-08-18</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-04">2026-09-04</time>
       </div>
     </main>
 

@@ -20,7 +20,7 @@
             <li><a href="cli.html">CLI commands</a></li>
             <li><a href="env.html">Environment variables</a></li>
             <li><a href="mcp.html">MCP tools</a></li>
-            <li><a href="schema.html">SQLite schema</a></li>
+            <li><a href="schema.html">Store schema</a></li>
             <li><a href="openapi.html">OpenAPI</a></li>
             <li><a href="jid.html">JID format</a></li>
             <li><a href="grants.html">Grants</a></li>
@@ -63,7 +63,7 @@
       <tbody>
         <tr class="group-header"><td colspan="3">core infrastructure</td></tr>
         <tr><td>gateway</td><td>message router, container lifecycle, channel fanout</td><td class="n">2 729</td></tr>
-        <tr><td>store</td><td>SQLite schema owner — messages, groups, tasks, auth</td><td class="n">2 573</td></tr>
+        <tr><td>store</td><td>the shared table layer — messages, groups, tasks, grants</td><td class="n">2 573</td></tr>
         <tr><td>ipc</td><td>MCP server over unix socket, all agent-facing tools</td><td class="n">1 795</td></tr>
         <tr><td>container</td><td>Docker runner, network allocation, episode archive</td><td class="n">1 420</td></tr>
         <tr><td>auth</td><td>OAuth, JWT, session, account linking, ACL middleware</td><td class="n">1 574</td></tr>
@@ -103,7 +103,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/stats.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-13">2026-08-13</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-18">2026-08-18</time>
       </div>
     </main>
 

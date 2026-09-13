@@ -141,11 +141,13 @@ EOF</code></pre>
         as <code>ARIZUKO_MODEL</code> on the next turn.
       </p>
       <p>
-        Headless equivalent (writes the same JSON the dropdown does, on the
-        owning daemon&rsquo;s DB):
+        Headless equivalent (writes the same JSON the dropdown does, through
+        the <code>groups</code> resource):
       </p>
-      <pre><code>sqlite3 /srv/data/arizuko_&lt;instance&gt;/store/routd.db \
-  "UPDATE groups SET config = json_set(COALESCE(config,'{}'), '\$.model', 'claude-haiku-4-5-20251001') WHERE folder='&lt;folder&gt;';"</code></pre>
+      <pre><code>arizuko get &lt;instance&gt; groups &gt; groups.yaml
+# in groups.yaml, on the folder's row:
+#   config: '{"model":"claude-haiku-4-5-20251001"}'
+arizuko apply &lt;instance&gt; groups.yaml</code></pre>
 
       <h2>5. trim the skills</h2>
       <p>
@@ -229,7 +231,7 @@ EOF</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/marble/setup.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-15">2026-08-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-27">2026-08-27</time>
       </div>
     </main>
 

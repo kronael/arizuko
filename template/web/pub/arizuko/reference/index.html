@@ -21,7 +21,7 @@
             <li><a href="packages.html">Packages</a></li>
             <li><a href="env.html">Environment variables</a></li>
             <li><a href="mcp.html">MCP tools</a></li>
-            <li><a href="schema.html">SQLite schema</a></li>
+            <li><a href="schema.html">Store schema</a></li>
             <li><a href="openapi.html">OpenAPI</a></li>
             <li><a href="jid.html">JID format</a></li>
             <li><a href="grants.html">Grants</a></li>
@@ -64,8 +64,8 @@
         <p>Every tool on the per-group MCP unix socket plus <code>submit_turn</code>, grouped by concern (messages, social actions, history with <code>find_messages</code> full-text search, groups, sessions, scheduling, routing, grants, invites, web, identity, system). Params, return shape, the grant each one needs, registration site.</p>
       </div>
       <div class="tablecard">
-        <h3><a href="schema.html">SQLite schema</a></h3>
-        <p>Every live table across the split daemons&rsquo; databases (<code>routd.db</code>, <code>runed.db</code>, <code>auth.db</code>, <code>onbod.db</code>) &mdash; identity and the unified <code>acl</code>, messages, groups, onboarding, secrets, egress, scheduling. Per-table: columns, indexes, writer call sites, reader summary, migration history. Each daemon owns and migrates its own tables; this tracks the shape readers can rely on.</p>
+        <h3><a href="schema.html">Store schema</a></h3>
+        <p>Every table the four owners hold &mdash; identity and the unified <code>acl</code>, messages, groups, onboarding, secrets, egress, scheduling. Per entity: the coordinate an item is addressed by, what it carries, and which daemon writes it.</p>
       </div>
       <div class="tablecard">
         <h3><a href="openapi.html">OpenAPI</a></h3>
@@ -108,7 +108,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-05">2026-08-05</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-07">2026-08-07</time>
       </div>
     </main>
 

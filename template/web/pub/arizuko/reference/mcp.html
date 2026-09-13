@@ -20,7 +20,7 @@
             <li><a href="cli.html">CLI commands</a></li>
             <li><a href="env.html">Environment variables</a></li>
             <li><a href="mcp.html">MCP tools</a></li>
-            <li><a href="schema.html">SQLite schema</a></li>
+            <li><a href="schema.html">Store schema</a></li>
             <li><a href="openapi.html">OpenAPI</a></li>
             <li><a href="jid.html">JID format</a></li>
             <li><a href="grants.html">Grants</a></li>
@@ -275,7 +275,7 @@
     <p class="returns"><strong>Returns:</strong> JSON <code>{messages, count, oldest, source, cap}</code>. <code>source</code> is <code>platform</code> / <code>platform-capped</code> / <code>cache-only</code> / <code>unsupported</code> / <code>cache</code>; <code>messages</code> rendered by <code>router.FormatMessages</code>.</p>
 
     <h3 id="get_thread"><code>get_thread</code></h3>
-    <p>Return rows from local <code>messages.db</code> scoped to one thread (chat_jid + topic). Use when a chat fans out into per-topic conversations (Telegram forum topics, web-chat topics).</p>
+    <p>Return rows from the message store scoped to one thread (chat_jid + topic). Use when a chat fans out into per-topic conversations (Telegram forum topics, web-chat topics).</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2492"><code>ipc/ipc.go:2492</code></a> &middot; Registered only when <code>db.MessagesByThread != nil</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
@@ -289,7 +289,7 @@
     <p class="returns"><strong>Returns:</strong> JSON <code>{messages, count, oldest, source:"local-db"}</code>.</p>
 
     <h3 id="inspect_messages"><code>inspect_messages</code></h3>
-    <p>Return rows from the local <code>messages.db</code> for one <code>chat_jid</code>, including outbound/bot rows and errored entries. Use for routing/delivery audits or to verify what the store recorded.</p>
+    <p>Return rows from the message store for one <code>chat_jid</code>, including outbound/bot rows and errored entries. Use for routing/delivery audits or to verify what the store recorded.</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2407"><code>ipc/ipc.go:2407</code></a> &middot; Registered only when <code>db.MessagesBefore != nil</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
@@ -302,19 +302,19 @@
     <p class="returns"><strong>Returns:</strong> JSON <code>{messages, count, oldest, source:"local-db"}</code>.</p>
 
     <h3 id="find_messages"><code>find_messages</code></h3>
-    <p>Full-text search over local <code>messages.db</code> using SQLite FTS5. <code>query</code> takes FTS5 syntax &mdash; a bare token, a <code>"quoted phrase"</code>, <code>a OR b</code>, <code>a NOT b</code>, <code>prefix*</code>, or <code>NEAR(a b, 5)</code>. Use to find a past message by what it said. Not for whole-chat scroll (<code>inspect_messages</code>), single-thread slices (<code>get_thread</code>), or platform-truth fallback (<code>fetch_history</code>).</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2422"><code>ipc/ipc.go:2422</code></a> &middot; Registered only when <code>db.FindMessages != nil</code>. An ordinary caller sees only rows whose <code>chat_jid</code> is routed to its folder (post-fetch ACL via <code>db.JIDRoutedToFolder</code>); an elevated <code>/root</code> turn bypasses the filter. Backed by the <code>messages_fts</code> shadow table (<a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0070-messages-fts.sql"><code>migration 0070</code></a>).</p>
+    <p>Ranked search over every message the instance has recorded. <code>query</code> is words and all of them must appear: <code>budget review</code> needs both. A <code>"quoted phrase"</code> matches those words adjacent and in order; a leading <code>-</code> excludes a word or a phrase. There is no <code>OR</code>, no <code>prefix*</code> wildcard and no <code>NEAR</code>. Use to find a past message by what it said. Not for whole-chat scroll (<code>inspect_messages</code>), single-thread slices (<code>get_thread</code>), or platform-truth fallback (<code>fetch_history</code>).</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2150"><code>ipc/ipc.go:2150</code></a> &middot; Registered only when <code>db.FindMessages != nil</code>. An ordinary caller sees only rows whose <code>chat_jid</code> is routed to its folder (post-fetch ACL via <code>db.JIDRoutedToFolder</code>); an elevated <code>/root</code> turn bypasses the filter. Answered from an in-memory BM25 index routd keeps over the <code>messages</code> entity (<a href="https://github.com/kronael/arizuko/tree/main/routd/msgsearch"><code>routd/msgsearch</code></a>), walked from the store at boot and fed by routd's own writes. A search made while that walk is running is refused, never answered empty.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
-        <tr><td class="name">query</td><td class="type">string</td><td class="req req-y">yes</td><td>FTS5 query &mdash; token, phrase, <code>OR</code>/<code>NOT</code>, <code>prefix*</code>, <code>NEAR(...)</code>. Malformed syntax surfaces the SQLite error.</td></tr>
+        <tr><td class="name">query</td><td class="type">string</td><td class="req req-y">yes</td><td>Words, all required; <code>"quoted"</code> for an exact phrase; <code>-word</code> to exclude. An unclosed phrase or a dangling <code>-</code> is an error the caller reads, not an empty hit list.</td></tr>
         <tr><td class="name">scope</td><td class="type">string</td><td class="req req-n">no</td><td>One <code>chat_jid</code> (contains <code>:</code>) or a folder subtree (no <code>:</code>; matches <code>routed_to</code> and its children).</td></tr>
-        <tr><td class="name">sender</td><td class="type">string</td><td class="req req-n">no</td><td>Exact match on the <code>sender</code> column.</td></tr>
+        <tr><td class="name">sender</td><td class="type">string</td><td class="req req-n">no</td><td>Exact match on the sender.</td></tr>
         <tr><td class="name">since</td><td class="type">string</td><td class="req req-n">no</td><td>RFC3339 lower bound (inclusive) on timestamp.</td></tr>
         <tr><td class="name">limit</td><td class="type">number</td><td class="req req-n">no</td><td>Max rows; default 20, clamped to <code>(0, 200]</code>.</td></tr>
       </tbody>
     </table>
-    <p class="returns"><strong>Returns:</strong> JSON <code>{messages, count, source:"local-db"}</code>. Each row carries <code>chat_jid</code>, <code>sender</code>, <code>timestamp</code>, <code>content</code> (a <code>snippet()</code> fragment with <code>&laquo;&raquo;</code> around the hit, not the full body), and <code>rank</code> (BM25 &mdash; lower is a better match). Ordered by rank, then newest first.</p>
+    <p class="returns"><strong>Returns:</strong> JSON <code>{messages, count, source:"local-db"}</code>. Each row carries <code>chat_jid</code>, <code>sender</code>, <code>timestamp</code>, <code>content</code> (the matched fragment with <code>&laquo;&raquo;</code> around each hit, not the full body), and <code>rank</code> (BM25 &mdash; lower is a better match). Ordered by rank, then newest first.</p>
 
     <h3 id="inspect_routing"><code>inspect_routing</code></h3>
     <p>Return routes visible to this group plus the errored-chat aggregate; pass <code>jid</code> to also resolve that JID to its folder. Use when a message isn't reaching the expected group, or to triage delivery failures.</p>
@@ -859,11 +859,11 @@ headers   = { Authorization = "Bearer {secret:CF_API_TOKEN}" }
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="env.html">&larr; Environment variables</a>
-        <a rel="next" href="schema.html">SQLite schema &rarr;</a>
+        <a rel="next" href="schema.html">Store schema &rarr;</a>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/mcp.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-05">2026-09-05</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-06">2026-09-06</time>
       </div>
     </main>
 

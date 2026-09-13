@@ -58,7 +58,7 @@
 
     <p>routd is the routing plane: the conversation state machine. It is the <strong>sole appender</strong> of messages &mdash; no other daemon writes to the message log. It resolves the route table (topic, sticky, and reply rules) to a target folder, runs the orchestration loop that claims each turn and dispatches it to <a href="runed.html">runed</a>, and delivers the agent&rsquo;s replies back to the channel adapter that the message came from.</p>
 
-    <p>routd owns <code>routd.db</code> and migrates it itself. It opens no sibling daemon&rsquo;s database &mdash; cross-daemon data (authd identity, runed session logs) arrives over HTTP, never by reaching into another file.</p>
+    <p>routd owns its tables and creates them itself. It reaches no sibling daemon&rsquo;s tables &mdash; cross-daemon data (authd identity, runed session logs) arrives over HTTP, never by reaching into another file.</p>
 
     <h2>Why it exists</h2>
     <p>An inbound message is just text plus a sender. Three things have to happen before the agent ever sees it, and all three are routd&rsquo;s job.</p>
@@ -78,7 +78,7 @@
         v
       routd   resolve routes  -> target folder
         |     authz gate       (auth.AuthorizeWith on acl / acl_membership)
-        |     append message   (sole appender -> routd.db)
+        |     append message   (sole appender -> the message store)
         |
         +--POST /v1/runs--&gt;  runed   (spawns the container)
         |                      |
@@ -96,7 +96,7 @@
     <p>On startup routd re-arms scheduled tasks left in <code>firing</code> by an earlier crash, so a restart mid-turn doesn&rsquo;t strand a cron task. The route table and its read/write surface (<code>/v1/routes</code>, <code>/v1/web_routes</code>, <code>/v1/route_tokens/*</code>) are how an operator points a channel, a thread, or a public <code>/chat/&lt;token&gt;/</code> URL at a folder.</p>
 
     <h2>Standalone usage</h2>
-    <p>routd runs as a daemon against its own <code>routd.db</code>, but it is useless on its own &mdash; it has nothing to route until a channel adapter registers, and nothing to run until runed answers. Run it pointing at a reachable runed and authd.</p>
+    <p>routd runs as a daemon against its own tables, but it is useless on its own &mdash; it has nothing to route until a channel adapter registers, and nothing to run until runed answers. Run it pointing at a reachable runed and authd.</p>
 
     <pre><code>cd /srv/data/myinstance
 export DATA_DIR=/srv/data/myinstance
@@ -116,7 +116,7 @@ export WEB_HOST=localhost:8080
     <ul>
       <li><a href="../concepts/routing.html">concepts/routing</a> &mdash; how an event resolves to a folder, topic and sticky rules.</li>
       <li><a href="../concepts/grants.html">concepts/grants</a> &mdash; the authorization model routd enforces.</li>
-      <li><a href="../reference/schema.html#acl">reference/schema &mdash; acl</a> &mdash; the <code>acl</code> / <code>acl_membership</code> tables routd owns, plus the rest of <code>routd.db</code>.</li>
+      <li><a href="../reference/schema.html#acl">reference/schema &mdash; acl</a> &mdash; the <code>acl</code> / <code>acl_membership</code> tables routd owns, plus the rest of its set.</li>
       <li><a href="../reference/env.html#routd">reference/env &mdash; routd</a> &mdash; routd&rsquo;s config (and the <a href="../reference/env.html#split">split</a> wiring vars).</li>
       <li><code>routd/README.md</code> &mdash; full HTTP surface, tables owned, file map.</li>
       <li><code>specs/5/E</code> &mdash; the routing plane split.</li>
@@ -129,7 +129,7 @@ export WEB_HOST=localhost:8080
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/routd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-04">2026-09-04</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-05">2026-09-05</time>
       </div>
     </main>
 

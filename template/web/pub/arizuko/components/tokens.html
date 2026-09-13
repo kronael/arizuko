@@ -97,7 +97,7 @@ POST /hook/&lt;token&gt;             &rarr; one inbound at the JID; 204; no repl
     <p>No automatic reissue on schedule. No back-channel reply on <code>/hook/</code> &mdash; agents that want to acknowledge a webhook reply on a different channel (Slack, email).</p>
 
     <h2>Standalone usage</h2>
-    <p>The table and writer live in routd; the URL handlers live in webd. Neither runs standalone &mdash; both need the shared SQLite file and the routd <code>/v1/messages</code> endpoint to deliver inbounds. The unit of standalone use is webd itself; see <a href="../components/webd.html">components/webd</a>.</p>
+    <p>The table and writer live in routd; the URL handlers live in webd. Neither runs standalone &mdash; both need routd's tables and its <code>/v1/messages</code> endpoint to deliver inbounds. The unit of standalone use is webd itself; see <a href="../components/webd.html">components/webd</a>.</p>
 
     <h2>Go deeper</h2>
     <ul>
@@ -116,7 +116,7 @@ POST /hook/&lt;token&gt;             &rarr; one inbound at the JID; 204; no repl
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/tokens.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-18">2026-08-18</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-04">2026-09-04</time>
       </div>
     </main>
 

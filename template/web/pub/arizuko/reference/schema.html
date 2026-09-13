@@ -20,7 +20,7 @@
             <li><a href="cli.html">CLI commands</a></li>
             <li><a href="env.html">Environment variables</a></li>
             <li><a href="mcp.html">MCP tools</a></li>
-            <li><a href="schema.html">SQLite schema</a></li>
+            <li><a href="schema.html">Store schema</a></li>
             <li><a href="openapi.html">OpenAPI</a></li>
             <li><a href="jid.html">JID format</a></li>
             <li><a href="grants.html">Grants</a></li>
@@ -36,669 +36,112 @@
     </nav>
 
     <main class="docs-content">
-      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">reference</a> &rsaquo; SQLite schema</p>
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">reference</a> &rsaquo; Store schema</p>
 <h1>schema</h1>
+    <p class="lede">Every table arizuko keeps is an entity: one item per row, addressed by a <em>(partition, sort)</em> coordinate, with the rest of the row as string attributes. What serves those items is a deployment choice &mdash; one DynamoDB-protocol server per instance when <code>DYNAMODB_URL</code> names one, otherwise one SQLite file per owner &mdash; and nothing above the driver changes with it.</p>
 
-    <p class="lede">Every SQLite table in arizuko. Tables now live across the split daemons' own DBs &mdash; <code>routd.db</code>, <code>runed.db</code>, <code>auth.db</code>, <code>onbod.db</code> &mdash; and each daemon owns and migrates its own tables. The shared schema library lives in <a href="https://github.com/kronael/arizuko/tree/main/store/migrations"><code>store/migrations/</code></a> (embedded via <a href="https://github.com/kronael/arizuko/blob/main/store/store.go#L13"><code>store/store.go:13</code></a>); no single daemon applies every migration. State described here is the cumulative result of migrations 0001 through 0071 &mdash; the 0049&ndash;0057 run added cost-log, proxyd-routes, unified ACL, topic lineage, pane sessions, and group visibility; 0058&ndash;0071 added the engagement column, route tokens, the group model + container config, the CLI / IPC / config audit tables, group watchers, platform IDs, the 0065 orphan-table drops, the unified <code>audit_log</code>, <code>config_meta</code>, FK constraints on web routes and route tokens, full-text search over messages, and the onboarding <code>admitted_at</code> column.</p>
+    <p>The coordinate is what a read costs, so each entity's coordinate is argued in the file that writes it. <a href="https://github.com/kronael/arizuko/blob/main/store/entities.go"><code>store/entities.go</code></a> names the set each owner holds.</p>
 
-    <p>35 live tables, grouped by concern, plus the <code>messages_fts</code> virtual table.</p>
+    <h2>1. Four owners</h2>
 
-    <h2>1. Identity &amp; ACL</h2>
+    <p>An owner is a daemon and the tables it alone creates. On a served instance the tables are named <code>&lt;owner&gt;.&lt;entity&gt;</code> and each daemon signs with its own access key, so a policy can bound what it reaches; on a file instance each owner gets one bind-mounted directory. Either way a daemon reads another owner's tables only where this page says so.</p>
 
-    <div class="tablecard">
-      <h3><code>auth_users</code></h3>
-      <p>OAuth-issued user identities. One row per subject across all linked providers; <code>linked_to_sub</code> points at the canonical row when this row is a secondary identity.</p>
-      <table>
-        <tr><th>column</th><th>type</th><th>null</th><th>default</th><th>meaning</th></tr>
-        <tr><td><code>id</code></td><td>INTEGER</td><td></td><td></td><td>PK autoincrement</td></tr>
-        <tr><td><code>sub</code></td><td>TEXT</td><td>NOT NULL UNIQUE</td><td></td><td>OAuth subject (e.g. <code>github:1234</code>, <code>google:abc</code>)</td></tr>
-        <tr><td><code>username</code></td><td>TEXT</td><td>NOT NULL UNIQUE</td><td></td><td>display handle</td></tr>
-        <tr><td><code>hash</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>password hash (legacy local-auth)</td></tr>
-        <tr><td><code>name</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>full name</td></tr>
-        <tr><td><code>created_at</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>RFC3339</td></tr>
-        <tr><td><code>linked_to_sub</code></td><td>TEXT</td><td>NULL</td><td></td><td>canonical sub when this row is a linked identity (0040)</td></tr>
-      </table>
-      <p class="meta"><strong>Indexes:</strong> PK on <code>id</code>; unique on <code>sub</code>, <code>username</code>; partial <code>idx_auth_users_linked_to_sub</code> on <code>linked_to_sub WHERE linked_to_sub IS NOT NULL</code>.</p>
-      <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/auth.go#L28"><code>store/auth.go:28</code></a> (INSERT), <a href="https://github.com/kronael/arizuko/blob/main/store/auth.go#L90"><code>:90</code></a> (UPDATE linked_to_sub), <a href="https://github.com/kronael/arizuko/blob/main/store/auth.go#L95"><code>:95</code></a> (INSERT linked), <a href="https://github.com/kronael/arizuko/blob/main/onbod/main.go#L468"><code>onbod/main.go:468</code></a> (UPDATE username on claim).</p>
-      <p class="meta"><strong>Readers:</strong> proxyd (login), webd, dashd, onbod.</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0001-initial-schema.sql#L83">0001</a>; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0040-auth-users-linked-to-sub.sql">0040</a> added <code>linked_to_sub</code>.</p>
-    </div>
+    <table>
+      <tr><th>owner</th><th>declared in</th><th>holds</th></tr>
+      <tr><td><code>routd</code></td><td><code>store/entities.go</code></td><td>messages and their indexes, routing, grants, secrets, scheduling, packages</td></tr>
+      <tr><td><code>runed</code></td><td><code>runed/runstore</code></td><td>spawns, session log, circuit breaker</td></tr>
+      <tr><td><code>authd</code></td><td><code>authd/authstore</code></td><td>signing keys, accounts, refresh tokens</td></tr>
+      <tr><td><code>onbod</code></td><td><code>store/entities.go</code></td><td>onboarding, gates, invites</td></tr>
+    </table>
 
-    <div class="tablecard">
-      <h3><code>auth_sessions</code></h3>
-      <p>Server-side session table (refresh-token store). JWTs are short-lived; this row carries the long-lived refresh state.</p>
-      <table>
-        <tr><th>column</th><th>type</th><th>null</th><th>meaning</th></tr>
-        <tr><td><code>token_hash</code></td><td>TEXT PK</td><td>NOT NULL</td><td>SHA-256 of the cookie token</td></tr>
-        <tr><td><code>user_sub</code></td><td>TEXT</td><td>NOT NULL</td><td>owning <code>auth_users.sub</code></td></tr>
-        <tr><td><code>expires_at</code></td><td>TEXT</td><td>NOT NULL</td><td>RFC3339</td></tr>
-        <tr><td><code>created_at</code></td><td>TEXT</td><td>NOT NULL</td><td>RFC3339</td></tr>
-      </table>
-      <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/auth.go#L121"><code>store/auth.go:121</code></a> (INSERT), <a href="https://github.com/kronael/arizuko/blob/main/store/auth.go#L144"><code>:144</code></a> (DELETE).</p>
-      <p class="meta"><strong>Readers:</strong> proxyd, webd.</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0001-initial-schema.sql#L92">0001</a>.</p>
-    </div>
+    <p><code>audit_log</code> is in all four. One declaration lives in <code>audit</code>, every owner creates it, and each serves its own read-only at <code>GET /v1/audit</code>; <code>/dash/audit/</code> merges those four answers rather than reading anybody's tables.</p>
 
-    <div class="tablecard" id="acl">
-      <h3><code>acl</code></h3>
-      <p>Unified permission rows. Answers "may principal P perform action A on scope S?" Replaced the legacy <code>user_groups</code> + <code>grant_rules</code> tables in v0.38.0. Principals are OAuth subs (<code>google:&hellip;</code>), folder agents (<code>folder:&hellip;</code>), room/user JIDs, or roles (<code>role:operator</code>). Match logic in <a href="https://github.com/kronael/arizuko/blob/main/auth/authorize.go"><code>auth.Authorize</code></a>; <code>effect='deny'</code> wins over <code>allow</code>.</p>
-      <table>
-        <tr><th>column</th><th>type</th><th>null</th><th>default</th><th>meaning</th></tr>
-        <tr><td><code>principal</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>sub, folder, JID, or <code>role:&lt;name&gt;</code></td></tr>
-        <tr><td><code>action</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td><code>interact</code>, <code>admin</code>, <code>mcp:&lt;tool&gt;</code>, or <code>*</code></td></tr>
-        <tr><td><code>scope</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>folder glob</td></tr>
-        <tr><td><code>effect</code></td><td>TEXT</td><td>NOT NULL</td><td>'allow'</td><td>'allow' or 'deny'</td></tr>
-        <tr><td><code>params</code></td><td>TEXT</td><td>NOT NULL</td><td>''</td><td>JSON predicate constraints (e.g. <code>{"jid":"telegram:*"}</code>)</td></tr>
-        <tr><td><code>predicate</code></td><td>TEXT</td><td>NOT NULL</td><td>''</td><td>reserved for richer expressions</td></tr>
-        <tr><td><code>granted_by</code></td><td>TEXT</td><td>NULL</td><td></td><td>actor source (CLI / dashd / migration)</td></tr>
-        <tr><td><code>granted_at</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>RFC3339</td></tr>
-      </table>
-      <p class="meta"><strong>PK:</strong> <code>(principal, action, scope, params, predicate, effect)</code>. <strong>Indexes:</strong> <code>acl_by_principal_action</code>, <code>acl_by_scope</code>.</p>
-      <p class="meta"><strong>Writers:</strong> <code>store/acl.go</code> (<code>AddACLRow</code>, <code>RemoveACLRow</code>); cmd/arizuko grant; dashd ACL editor; migration 0053 (back-fill).</p>
-      <p class="meta"><strong>Readers:</strong> many — proxyd, webd, dashd, onbod, routd (every folder-scoped HTTP route via <code>auth.Authorize</code>); MCP <code>list_acl</code>.</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0052-acl-unified.sql">0052</a>; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0053-acl-cutover.sql">0053</a> back-filled from <code>user_groups</code> + <code>grant_rules</code> then dropped those tables.</p>
-    </div>
+    <h2>2. routd &mdash; messages</h2>
 
-    <div class="tablecard">
-      <h3><code>acl_membership</code></h3>
-      <p>Identity and role indirection. One edge <code>(child, parent)</code> means "anything <code>child</code> proves it is, it also is <code>parent</code>." Used for role membership (<code>(sub, role:operator)</code>) and for OAuth-mediated JID claims (<code>(discord:user/811&hellip;, google:114alice)</code>). Walked transitively at authorization time.</p>
-      <table>
-        <tr><th>column</th><th>type</th><th>null</th><th>meaning</th></tr>
-        <tr><td><code>child</code></td><td>TEXT</td><td>NOT NULL</td><td>the holder of the identity</td></tr>
-        <tr><td><code>parent</code></td><td>TEXT</td><td>NOT NULL</td><td>the role or canonical identity it expands to</td></tr>
-        <tr><td><code>added_by</code></td><td>TEXT</td><td>NULL</td><td>actor source</td></tr>
-        <tr><td><code>added_at</code></td><td>TEXT</td><td>NOT NULL</td><td>RFC3339</td></tr>
-      </table>
-      <p class="meta"><strong>PK:</strong> <code>(child, parent)</code>. <strong>Indexes:</strong> <code>acl_membership_by_child</code>.</p>
-      <p class="meta"><strong>Writers:</strong> <code>store/acl.go</code> (<code>AddMembership</code>, <code>RemoveMembership</code>); <code>arizuko grant &lt;sub&gt; **</code>; OAuth callback for JID claims; migration 0053 (back-fill of pre-0053 <code>user_groups('**')</code> rows and <code>user_jids</code> bindings).</p>
-      <p class="meta"><strong>Readers:</strong> routd, proxyd, webd, dashd, onbod (via <code>auth.Authorize</code> walking <code>Ancestors(sub)</code>).</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0052-acl-unified.sql">0052</a>.</p>
-    </div>
+    <table>
+      <tr><th>entity</th><th>addressed by</th><th>carries</th></tr>
+      <tr><td><code>messages</code></td><td>the chat, then the instant plus the message id</td><td>sender, content, verb, source, attachments, topic, <code>routed_to</code>, <code>errored</code>, <code>is_observed</code>, turn id. The id is in the key because two messages can share an instant inside one chat.</td></tr>
+      <tr><td><code>message_folders</code></td><td>the folder, then the message's own position</td><td>a pointer to the message. Routing is dynamic, so the folder a message reached is written when <code>routed_to</code> is stamped and never recomputed.</td></tr>
+      <tr><td><code>message_folder_counts</code></td><td>the folder</td><td>that folder's message count, so the usage page reads items instead of partitions</td></tr>
+      <tr><td><code>message_activity</code></td><td>one constant partition, then the message's position</td><td>the newest messages across every chat &mdash; the one read that has no coordinate of its own</td></tr>
+      <tr><td><code>message_delivery</code></td><td>the delivery status, then the message's position</td><td>attempts. <code>sent</code> is the absence of an item, so the entity holds only what still owes a delivery.</td></tr>
+      <tr><td><code>chats</code></td><td>the chat jid</td><td><code>agent_cursor</code> (the dispatch watermark), sticky group and topic</td></tr>
+      <tr><td><code>sessions</code></td><td>folder and topic</td><td>session id, parent topic, fork instant, <code>observed_cursor</code></td></tr>
+      <tr><td><code>chat_reply_state</code></td><td>jid and topic</td><td>last reply, engagement window and the folder holding it</td></tr>
+      <tr><td><code>chat_proactive</code></td><td>the chat jid</td><td>the instant that chat last spoke unprompted &mdash; the cooldown</td></tr>
+      <tr><td><code>system_messages</code></td><td>the folder, then the instant</td><td>one queued system event</td></tr>
+    </table>
 
-    <div class="tablecard">
-      <h3><code>identities</code> + <code>identity_claims</code> + <code>identity_codes</code></h3>
-      <p>Cross-channel identity merge (spec 5/9). One <code>identities</code> row is a canonical person; <code>identity_claims</code> binds one or more platform sender subs to it. Subs are bound via the authd OAuth <code>intent=link</code> flow. Advisory — agents read via <code>inspect_identity</code>, never enforce. (<code>identity_codes</code> survives as a migration-history table; the chat-paste link-code flow that wrote it was retired.)</p>
-      <table>
-        <tr><th>table.column</th><th>type</th><th>meaning</th></tr>
-        <tr><td><code>identities.id</code></td><td>TEXT PK</td><td>canonical identity ID</td></tr>
-        <tr><td><code>identities.name</code></td><td>TEXT NOT NULL</td><td>display name</td></tr>
-        <tr><td><code>identities.created_at</code></td><td>TEXT NOT NULL</td><td>RFC3339</td></tr>
-        <tr><td><code>identity_claims.sub</code></td><td>TEXT PK</td><td>platform sender sub</td></tr>
-        <tr><td><code>identity_claims.identity_id</code></td><td>TEXT NOT NULL</td><td><code>identities.id</code></td></tr>
-        <tr><td><code>identity_claims.claimed_at</code></td><td>TEXT NOT NULL</td><td>RFC3339</td></tr>
-        <tr><td><code>identity_codes.code</code></td><td>TEXT PK</td><td>short-lived link code</td></tr>
-        <tr><td><code>identity_codes.identity_id</code></td><td>TEXT NOT NULL</td><td><code>identities.id</code></td></tr>
-        <tr><td><code>identity_codes.expires_at</code></td><td>TEXT NOT NULL</td><td>RFC3339</td></tr>
-      </table>
-      <p class="meta"><strong>Indexes:</strong> <code>idx_identity_claims_id</code> on <code>identity_claims(identity_id)</code>.</p>
-      <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/identities.go"><code>store/identities.go</code></a> — <code>CreateIdentity</code> (INSERT identity), <code>LinkSub</code> (INSERT OR REPLACE claim), <code>UnlinkSub</code> (DELETE claim). <code>identity_codes</code> has no live writer.</p>
-      <p class="meta"><strong>Readers:</strong> authd (<code>inspect_identity</code> MCP tool; OAuth <code>intent=link</code> binds subs).</p>
-      <p class="meta"><strong>Migrations:</strong> all three created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0035-identities.sql">0035</a>.</p>
-    </div>
+    <p>Ranked search is not a table. routd keeps an in-memory BM25 index over the <code>messages</code> entity, walked from the store at boot and fed by its own writes; see <a href="mcp.html#find_messages"><code>find_messages</code></a>.</p>
 
-    <h2>2. Messages, sessions, turns</h2>
+    <h2 id="acl">3. routd &mdash; configuration</h2>
 
-    <div class="tablecard">
-      <h3><code>messages</code></h3>
-      <p>The main bus. Every inbound and outbound message lands here. Rebuilt by migration 0023 to drop dead columns and re-source identity around <code>source</code>.</p>
-      <table>
-        <tr><th>column</th><th>type</th><th>null</th><th>default</th><th>meaning</th></tr>
-        <tr><td><code>id</code></td><td>TEXT PK</td><td>NOT NULL</td><td></td><td>platform-specific message ID</td></tr>
-        <tr><td><code>chat_jid</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>typed JID of the chat</td></tr>
-        <tr><td><code>sender</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>typed sender JID</td></tr>
-        <tr><td><code>sender_name</code></td><td>TEXT</td><td>NULL</td><td></td><td>display name</td></tr>
-        <tr><td><code>content</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>message body</td></tr>
-        <tr><td><code>timestamp</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>RFC3339Nano</td></tr>
-        <tr><td><code>is_from_me</code></td><td>INTEGER</td><td>NOT NULL</td><td>0</td><td>set on outbound</td></tr>
-        <tr><td><code>is_bot_message</code></td><td>INTEGER</td><td>NOT NULL</td><td>0</td><td>set on agent output</td></tr>
-        <tr><td><code>forwarded_from</code></td><td>TEXT</td><td>NULL</td><td></td><td>upstream forward source</td></tr>
-        <tr><td><code>reply_to_id</code></td><td>TEXT</td><td>NULL</td><td></td><td>0003</td></tr>
-        <tr><td><code>reply_to_text</code></td><td>TEXT</td><td>NULL</td><td></td><td>parent excerpt</td></tr>
-        <tr><td><code>reply_to_sender</code></td><td>TEXT</td><td>NULL</td><td></td><td>parent sender (typed JID after 0042)</td></tr>
-        <tr><td><code>topic</code></td><td>TEXT</td><td>NOT NULL</td><td>''</td><td>topic-sessions key (0008)</td></tr>
-        <tr><td><code>routed_to</code></td><td>TEXT</td><td>NOT NULL</td><td>''</td><td>folder this message was routed to (0015)</td></tr>
-        <tr><td><code>verb</code></td><td>TEXT</td><td>NOT NULL</td><td>'message'</td><td>event type (0017)</td></tr>
-        <tr><td><code>attachments</code></td><td>TEXT</td><td>NOT NULL</td><td>''</td><td>JSON []chanlib.InboundAttachment (0019)</td></tr>
-        <tr><td><code>source</code></td><td>TEXT</td><td>NOT NULL</td><td>''</td><td>handling adapter; receiver inbound, deliverer outbound</td></tr>
-        <tr><td><code>errored</code></td><td>INTEGER</td><td>NOT NULL</td><td>0</td><td>marked when a prior run failed; re-fed tagged (0030)</td></tr>
-        <tr><td><code>turn_id</code></td><td>TEXT</td><td>NULL</td><td></td><td>inbound msg ID that triggered this outbound (0038)</td></tr>
-        <tr><td><code>status</code></td><td>TEXT</td><td>NOT NULL</td><td>'sent'</td><td>'sent' | 'pending' | 'failed' (0039)</td></tr>
-        <tr><td><code>chat_name</code></td><td>TEXT</td><td>NOT NULL</td><td>''</td><td>human channel/group name (0046)</td></tr>
-        <tr><td><code>link_context</code></td><td>TEXT</td><td>NULL</td><td></td><td>route token's <code>context</code> snapshotted at ingest; rendered as <code>&lt;link-context&gt;</code> in the agent prompt</td></tr>
-      </table>
-      <p class="meta"><strong>Indexes:</strong> <code>idx_messages_chat_ts</code> on <code>(chat_jid, timestamp)</code>; <code>idx_messages_turn_id</code> on <code>turn_id WHERE turn_id IS NOT NULL</code>; <code>idx_messages_status</code> on <code>status WHERE status != 'sent'</code>.</p>
-      <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/messages.go#L19"><code>store/messages.go:19</code></a> (PutMessage), <a href="https://github.com/kronael/arizuko/blob/main/timed/main.go#L132"><code>timed/main.go:132</code></a> (scheduled-task inject); UPDATEs in <code>store/messages.go</code> (status, content, errored, delivered).</p>
-      <p class="meta"><strong>Readers:</strong> many — routd, dashd, webd, davd, vited, router, ipc.</p>
-      <p class="meta"><strong>Migrations:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0001-initial-schema.sql#L12">0001</a>, 0003 (reply_to_id), 0005 (source, group_folder), 0008 (topic), 0015 (routed_to), 0017 (verb), 0019 (attachments), 0023 (rebuild; drop <code>group_folder</code>), 0030 (errored), 0038 (turn_id), 0039 (status), 0042/0043 (typed JIDs), 0046 (chat_name).</p>
-    </div>
+    <p>These thirteen are the registered resources: each has a REST face, an MCP face, and a row in <code>arizuko export</code>.</p>
 
-    <div class="tablecard">
-      <h3><code>messages_fts</code> <span class="dim">FTS5 shadow</span></h3>
-      <p>An FTS5 virtual table over <code>messages.content</code>, kept in sync by triggers. Backs the <a href="mcp.html#find_messages"><code>find_messages</code></a> MCP tool. <code>messages.id</code> is TEXT, so the shadow keys on the implicit INTEGER <code>rowid</code> SQLite gives the table. Tokenizer is <code>unicode61 remove_diacritics 2</code> &mdash; Czech, Spanish, Japanese match without surprises (Czech "úroveň" matches "uroven").</p>
-      <table>
-        <tr><th>column</th><th>type</th><th>null</th><th>default</th><th>meaning</th></tr>
-        <tr><td><code>content</code></td><td>FTS5</td><td></td><td></td><td>indexed copy of <code>messages.content</code></td></tr>
-        <tr><td><code>rowid</code></td><td>INTEGER</td><td></td><td></td><td><code>content_rowid='rowid'</code> &mdash; joins back to <code>messages.rowid</code></td></tr>
-      </table>
-      <p class="meta"><strong>Sync:</strong> triggers <code>messages_fts_ai</code> (insert), <code>messages_fts_au</code> (update), <code>messages_fts_ad</code> (delete) mirror every change. Queried via <code>messages_fts MATCH ?</code> with <code>bm25()</code> rank and <code>snippet()</code> highlight.</p>
-      <p class="meta"><strong>Readers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/messages.go#L700"><code>store/messages.go:700</code></a> (FindMessages).</p>
-      <p class="meta"><strong>Migrations:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0070-messages-fts.sql">0070</a>.</p>
-    </div>
+    <table>
+      <tr><th>entity</th><th>addressed by</th><th>carries</th></tr>
+      <tr><td><code>groups</code></td><td>the folder</td><td>name, product, model, <code>container_config</code> (mounts, timeout), daily cost cap, open flag, observe window</td></tr>
+      <tr><td><code>routes</code></td><td>sequence, target and match</td><td>the rule. The sequence is padded so a read comes back in precedence order; the <code>id</code> an operator deletes by is minted through <code>counters</code>.</td></tr>
+      <tr><td><code>route_tokens</code></td><td>the sha256 of the token</td><td>jid, owning folder, context, <code>kind</code> (<code>route</code> delivery bearer or <code>pair</code> identity link). The digest is the key; the raw token is never stored.</td></tr>
+      <tr><td><code>web_routes</code></td><td>the path prefix</td><td><code>access</code> (public / auth / deny / redirect), redirect target, owning folder</td></tr>
+      <tr><td><code>proxyd_routes</code></td><td>the path</td><td>proxyd's reverse-proxy table. proxyd owns every write and serves it on its own <code>/v1</code>.</td></tr>
+      <tr><td><code>acl</code></td><td>principal, action, scope, params, predicate and effect</td><td>nothing else &mdash; those six fields <em>are</em> the grant</td></tr>
+      <tr><td><code>acl_membership</code></td><td>child and parent</td><td>who added the edge and when. Roles and jid&rarr;sub claims share it.</td></tr>
+      <tr><td><code>secrets</code></td><td>scope kind, scope id and key</td><td>the value, sealed AES-256-GCM under <code>SECRETS_KEY</code></td></tr>
+      <tr><td><code>secret_use_log</code></td><td>the instant a tool call resolved one</td><td>spawn, caller, folder, tool, key, outcome, latency</td></tr>
+      <tr><td><code>network_rules</code></td><td>folder and target</td><td>the per-folder egress allowlist. The folder leads because it is also the purge scope.</td></tr>
+      <tr><td><code>scheduled_tasks</code></td><td>the task id</td><td>owner, chat, prompt, cron, next run, status, context mode</td></tr>
+      <tr><td><code>pending_actions</code></td><td>the call id</td><td>one tool call held for a human verdict</td></tr>
+      <tr><td><code>installed_packages</code></td><td>folder and name (empty folder = instance-wide)</td><td>source, revision, the identities the package owns, per-asset hashes</td></tr>
+      <tr><td><code>github_sources</code></td><td>the source key</td><td>gitd's webhook delivery secret and the folder it delivers to</td></tr>
+    </table>
 
-    <div class="tablecard">
-      <h3><code>sessions</code></h3>
-      <p>The active Claude Code session ID per <code>(folder, topic)</code>. Used to resume an existing conversation in the in-container agent.</p>
-      <table>
-        <tr><th>column</th><th>type</th><th>null</th><th>default</th><th>meaning</th></tr>
-        <tr><td><code>group_folder</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>folder path</td></tr>
-        <tr><td><code>topic</code></td><td>TEXT</td><td>NOT NULL</td><td>''</td><td>topic key</td></tr>
-        <tr><td><code>session_id</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>Claude Code session UUID</td></tr>
-        <tr><td><code>parent_topic</code></td><td>TEXT</td><td>NULL</td><td></td><td>topic this one forked from (<code>''</code> = main); NULL when no lineage (main itself)</td></tr>
-        <tr><td><code>forked_at</code></td><td>TEXT</td><td>NULL</td><td></td><td>RFC3339Nano UTC fork point &mdash; audit metadata (the parent&rsquo;s session file is already copied into the child&rsquo;s session)</td></tr>
-        <tr><td><code>observed_cursor</code></td><td>TEXT</td><td>NULL</td><td></td><td>per-topic high-water mark over <code>is_observed=1</code> messages; gateway advances it after each turn</td></tr>
-      </table>
-      <p class="meta"><strong>PK:</strong> <code>(group_folder, topic)</code>.</p>
-      <p class="meta"><strong>Writers:</strong> <code>store/sessions.go</code> &mdash; <code>SetSession</code> (UPSERT session_id), <code>EnsureTopicLineage</code> (seed lineage on first turn), <code>ForkTopic</code> (explicit branch), <code>UpdateObservedCursor</code>, <code>DeleteSession</code>.</p>
-      <p class="meta"><strong>Readers:</strong> routd.</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0001-initial-schema.sql#L40">0001</a>; rebuilt <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0008-topic-sessions.sql">0008</a> with topic column + composite PK; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0055-topic-lineage.sql">0055</a> add <code>parent_topic</code>, <code>forked_at</code>, <code>observed_cursor</code> (spec 5/F).</p>
-    </div>
+    <h2>4. routd &mdash; the rest</h2>
 
-    <div class="tablecard">
-      <h3><code>session_log</code></h3>
-      <p>Audit log of every agent run.</p>
-      <table>
-        <tr><th>column</th><th>type</th><th>meaning</th></tr>
-        <tr><td><code>id</code></td><td>INTEGER PK AUTOINCREMENT</td><td></td></tr>
-        <tr><td><code>group_folder</code></td><td>TEXT NOT NULL</td><td>folder</td></tr>
-        <tr><td><code>session_id</code></td><td>TEXT NOT NULL</td><td>Claude Code session UUID</td></tr>
-        <tr><td><code>started_at</code></td><td>TEXT NOT NULL</td><td>RFC3339</td></tr>
-        <tr><td><code>ended_at</code></td><td>TEXT NULL</td><td>RFC3339</td></tr>
-        <tr><td><code>result</code></td><td>TEXT NULL</td><td>outcome summary</td></tr>
-        <tr><td><code>error</code></td><td>TEXT NULL</td><td>error message</td></tr>
-        <tr><td><code>message_count</code></td><td>INTEGER NULL</td><td>messages processed</td></tr>
-      </table>
-      <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/sessions.go#L91"><code>store/sessions.go:91</code></a> (gateway, at spawn end).</p>
-      <p class="meta"><strong>Readers:</strong> dashd.</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0001-initial-schema.sql#L45">0001</a>.</p>
-    </div>
+    <table>
+      <tr><th>entity</th><th>addressed by</th><th>carries</th></tr>
+      <tr><td><code>turn_context</code></td><td>the turn id</td><td>folder, topic, chat, trigger sender, run id, state, the hash of the gateway key that turn was metered with</td></tr>
+      <tr><td><code>turn_results</code></td><td>folder and turn id</td><td>session, status, when it was recorded. Create-if-absent is what makes one report one delivery.</td></tr>
+      <tr><td><code>task_run_logs</code></td><td>the instant a task ran</td><td>task, duration, status, result, error</td></tr>
+      <tr><td><code>user_profiles</code></td><td>the person's sub</td><td>the username their folder is named after, their daily spend cap</td></tr>
+      <tr><td><code>group_watchers</code></td><td>observer and source</td><td>nothing &mdash; the pair is the fact</td></tr>
+      <tr><td><code>pane_sessions</code></td><td>team, user and thread</td><td>the Slack assistant pane's channel and context jid</td></tr>
+      <tr><td><code>counters</code></td><td>the name of what it numbers</td><td>the count. There is one, <code>routes.id</code>, moved by a compare-and-swap.</td></tr>
+    </table>
 
-    <div class="tablecard">
-      <h3><code>turn_results</code></h3>
-      <p>Idempotent record per (folder, turn_id) so a webd round-handle protocol can fetch all frames of a single run by FK lookup instead of timestamp correlation.</p>
-      <table>
-        <tr><th>column</th><th>type</th><th>meaning</th></tr>
-        <tr><td><code>folder</code></td><td>TEXT NOT NULL</td><td></td></tr>
-        <tr><td><code>turn_id</code></td><td>TEXT NOT NULL</td><td>inbound message ID</td></tr>
-        <tr><td><code>session_id</code></td><td>TEXT NULL</td><td>resumed Claude session</td></tr>
-        <tr><td><code>status</code></td><td>TEXT NOT NULL</td><td>'ok' / 'error'</td></tr>
-        <tr><td><code>recorded_at</code></td><td>TEXT NOT NULL</td><td>RFC3339Nano</td></tr>
-      </table>
-      <p class="meta"><strong>PK:</strong> <code>(folder, turn_id)</code>.</p>
-      <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/turns.go#L15"><code>store/turns.go:15</code></a> (gateway).</p>
-      <p class="meta"><strong>Readers:</strong> webd (round-handle for <code>/chat/&lt;token&gt;/{turn_id}/...</code>).</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0036-turn-results.sql">0036</a>.</p>
-    </div>
+    <h2>5. runed, authd, onbod</h2>
 
-    <div class="tablecard">
-      <h3><code>system_messages</code></h3>
-      <p>System-origin events (e.g. migration broadcasts) merged into the agent's message stream.</p>
-      <table>
-        <tr><th>column</th><th>type</th><th>meaning</th></tr>
-        <tr><td><code>id</code></td><td>INTEGER PK AUTOINCREMENT</td><td></td></tr>
-        <tr><td><code>group_id</code></td><td>TEXT NOT NULL</td><td>target folder</td></tr>
-        <tr><td><code>origin</code></td><td>TEXT NOT NULL</td><td>'self', 'platform', etc.</td></tr>
-        <tr><td><code>event</code></td><td>TEXT NOT NULL</td><td>event name</td></tr>
-        <tr><td><code>attrs</code></td><td>TEXT NULL</td><td>JSON attrs</td></tr>
-        <tr><td><code>body</code></td><td>TEXT NOT NULL DEFAULT ''</td><td>event payload</td></tr>
-        <tr><td><code>created_at</code></td><td>TEXT NOT NULL</td><td>RFC3339</td></tr>
-      </table>
-      <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/sessions.go#L54"><code>store/sessions.go:54</code></a>.</p>
-      <p class="meta"><strong>Readers:</strong> routd.</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0001-initial-schema.sql#L56">0001</a>.</p>
-    </div>
+    <table>
+      <tr><th>entity</th><th>addressed by</th><th>carries</th></tr>
+      <tr><td><code>spawns</code></td><td>one constant partition, then the run id</td><td>folder, topic, container, session, kind, state, outcome, exit code, timestamps. A guarded write names one item, which is why the run id is the whole address.</td></tr>
+      <tr><td><code>session_log</code></td><td>the folder, then the instant it started</td><td>session id, end, result, error, message count</td></tr>
+      <tr><td><code>circuit_breaker</code></td><td>the folder, both halves</td><td>consecutive failures and the last one. Every operation is a point operation on one folder.</td></tr>
+      <tr><td><code>signing_keys</code></td><td>one partition per daemon, then the kid</td><td>the ES256 keypair and its retirement</td></tr>
+      <tr><td><code>signing_key_slot</code></td><td>a single item</td><td>which kid signs now. One item is what makes two signers unrepresentable.</td></tr>
+      <tr><td><code>auth_users</code></td><td>the sub</td><td>name, created</td></tr>
+      <tr><td><code>oauth_identities</code></td><td><code>&lt;provider&gt;:&lt;provider sub&gt;</code></td><td>the account that login belongs to</td></tr>
+      <tr><td><code>refresh_tokens</code></td><td>the token hash</td><td>family, sub, scope, audience, issue, expiry, use and revocation instants</td></tr>
+      <tr><td><code>refresh_families</code></td><td>the family id</td><td>one login lineage</td></tr>
+      <tr><td><code>onboarding</code></td><td>the chat jid</td><td>status (<code>awaiting_message</code> &rarr; <code>queued</code> / <code>approved</code> / <code>refused</code>), gate, sub, timestamps. No credential: the link is a <code>pair</code> row in <code>route_tokens</code>.</td></tr>
+      <tr><td><code>onboarding_gates</code></td><td>the gate</td><td>daily limit, enabled</td></tr>
+      <tr><td><code>invites</code></td><td>the invite ref</td><td>target glob, issuer, expiry, max uses, used count</td></tr>
+      <tr><td><code>invite_redemptions</code></td><td>the person, then the instant</td><td>one unspent subgroup redemption. The point delete is the claim.</td></tr>
+      <tr><td><code>audit_log</code></td><td>the instant, at fixed width plus a suffix</td><td>category, action, actor, resource, scope, surface, outcome, duration, turn, folder, instance, request, source ip. The id is the sort key and is the instant, so ordering and the page cursor are one value.</td></tr>
+    </table>
 
-    <div class="tablecard">
-      <h3><code>chat_reply_state</code></h3>
-      <p>Last bot reply ID per <code>(chat_jid, topic)</code> — used to chain assistant replies into a single visible thread on platforms that support thread/reply pointers.</p>
-      <table>
-        <tr><th>column</th><th>type</th><th>meaning</th></tr>
-        <tr><td><code>jid</code></td><td>TEXT NOT NULL</td><td>chat JID (typed after 0043)</td></tr>
-        <tr><td><code>topic</code></td><td>TEXT NOT NULL DEFAULT ''</td><td>topic key</td></tr>
-        <tr><td><code>last_reply_id</code></td><td>TEXT NOT NULL</td><td>last bot message ID</td></tr>
-      </table>
-      <p class="meta"><strong>PK:</strong> <code>(jid, topic)</code>.</p>
-      <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/messages.go#L401"><code>store/messages.go:401</code></a>.</p>
-      <p class="meta"><strong>Readers:</strong> gateway/adapter outbound layer.</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0014-reply-state.sql">0014</a>; 0043 rewrote rows to typed JID.</p></div>
+    <h2>6. What an entity is not</h2>
 
-    <div class="tablecard">
-      <h3><code>pane_sessions</code></h3>
-      <p>Slack assistant-pane state per <code>(team, user, thread_ts)</code>. Persists across slakd restarts; the in-memory map is a read-through cache. See <a href="../concepts/slack-pane.html">slack pane</a> for the concept.</p>
-      <table>
-        <tr><th>column</th><th>type</th><th>null</th><th>meaning</th></tr>
-        <tr><td><code>team_id</code></td><td>TEXT</td><td>NOT NULL</td><td>Slack workspace ID</td></tr>
-        <tr><td><code>user_id</code></td><td>TEXT</td><td>NOT NULL</td><td>Slack user who opened the pane</td></tr>
-        <tr><td><code>thread_ts</code></td><td>TEXT</td><td>NOT NULL</td><td>pane thread timestamp</td></tr>
-        <tr><td><code>channel_id</code></td><td>TEXT</td><td>NOT NULL</td><td>DM channel that hosts the pane</td></tr>
-        <tr><td><code>context_jid</code></td><td>TEXT</td><td>NULL</td><td>workspace channel the user is currently viewing</td></tr>
-        <tr><td><code>opened_at</code></td><td>TEXT</td><td>NOT NULL</td><td>RFC3339Nano UTC</td></tr>
-      </table>
-      <p class="meta"><strong>PK:</strong> <code>(team_id, user_id, thread_ts)</code>. <strong>Index:</strong> <code>idx_pane_sessions_channel</code> on <code>channel_id</code>.</p>
-      <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/pane_sessions.go"><code>store/pane_sessions.go</code></a> &mdash; <code>UpsertPane</code>, <code>SetPaneContext</code>, <code>SetPaneStatusAt</code>.</p>
-      <p class="meta"><strong>Readers:</strong> slakd (pane lookup keyed by channel), gateway (pane-context hint in <code>buildAgentPrompt</code>).</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0056-pane-sessions.sql">0056</a>.</p>
-    </div>
-
-    <h2>3. Groups (folders), chats, routes</h2>
-
-    <div class="tablecard">
-      <h3><code>groups</code></h3>
-      <p>The folder hierarchy. A path is a routing target, a JID prefix, a container home and a web vhost &mdash; it carries no authority of its own; that lives in <code>acl</code>. Created in 0020 by renaming the older <code>registered_groups</code> table and rekeying by folder.</p>
-      <table>
-        <tr><th>column</th><th>type</th><th>null</th><th>default</th><th>meaning</th></tr>
-        <tr><td><code>folder</code></td><td>TEXT PK</td><td>NOT NULL</td><td></td><td>folder path (e.g. <code>atlas/support</code>)</td></tr>
-        <tr><td><code>name</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>display name</td></tr>
-        <tr><td><code>added_at</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>RFC3339</td></tr>
-        <tr><td><code>container_config</code></td><td>TEXT</td><td>NULL</td><td></td><td>JSON GroupConfig (mounts, timeout)</td></tr>
-        <!-- removed by spec 5/W: tokens live in the route_tokens table now -->
-        <tr><td><code>parent</code></td><td>TEXT</td><td>NULL</td><td></td><td>parent folder path</td></tr>
-        <tr><td><code>updated_at</code></td><td>TEXT</td><td>NULL</td><td></td><td>RFC3339</td></tr>
-        <tr><td><code>product</code></td><td>TEXT</td><td>NOT NULL</td><td>'assistant'</td><td>product slug (0044)</td></tr>
-        <tr><td><code>open</code></td><td>INTEGER</td><td>NOT NULL</td><td>1</td><td>1 = visible to sibling folders as ambient source (cross-folder <code>&lt;observed&gt;</code>); 0 = sealed off. Spec 5/F. Toggled via <a href="mcp.html#set_group_open"><code>set_group_open</code></a>.</td></tr>
-        <tr><td><code>observe_window_messages</code></td><td>INTEGER</td><td>NULL</td><td></td><td>per-group cap on ambient messages surfaced per turn (NULL = fall back to <a href="env.html#OBSERVE_WINDOW_MESSAGES"><code>OBSERVE_WINDOW_MESSAGES</code></a>). Per-route override wins.</td></tr>
-        <tr><td><code>observe_window_chars</code></td><td>INTEGER</td><td>NULL</td><td></td><td>per-group cap on ambient chars per turn (NULL = fall back to <a href="env.html#OBSERVE_WINDOW_CHARS"><code>OBSERVE_WINDOW_CHARS</code></a>).</td></tr>
-      </table>
-      <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/groups.go#L30"><code>store/groups.go:30</code></a> (INSERT), <a href="https://github.com/kronael/arizuko/blob/main/store/groups.go#L50"><code>:50</code></a> (DELETE), <a href="https://github.com/kronael/arizuko/blob/main/store/groups.go#L250"><code>:250</code></a> (<code>SetGroupOpen</code>), <code>SetGroupObserveWindow</code>.</p>
-      <p class="meta"><strong>Readers:</strong> many — routd, dashd, webd, davd, onbod, timed, every MCP tool that scopes to a folder.</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0020-groups-refactor.sql#L22">0020</a>; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0041-drop-groups-state.sql">0041</a> dropped <code>state</code>, <code>spawn_ttl_days</code>, <code>archive_closed_days</code>; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0044-product.sql">0044</a> added <code>product</code>; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0057-group-visibility.sql">0057</a> added <code>open</code>, <code>observe_window_messages</code>, <code>observe_window_chars</code> (spec 5/F).</p>
-    </div>
-
-    <div class="tablecard">
-      <h3><code>chats</code></h3>
-      <p>Per-chat state: agent cursor, sticky routing pins, single-user/group classification. Rebuilt 0023; <code>is_group</code> re-added 0033.</p>
-      <table>
-        <tr><th>column</th><th>type</th><th>null</th><th>default</th><th>meaning</th></tr>
-        <tr><td><code>jid</code></td><td>TEXT PK</td><td>NOT NULL</td><td></td><td>typed chat JID</td></tr>
-        <tr><td><code>agent_cursor</code></td><td>TEXT</td><td>NULL</td><td></td><td>last-processed message ID (0020 moved from registered_groups)</td></tr>
-        <tr><td><code>sticky_group</code></td><td>TEXT</td><td>NULL</td><td></td><td>folder pin via <code>@folder</code> command (0016)</td></tr>
-        <tr><td><code>sticky_topic</code></td><td>TEXT</td><td>NULL</td><td></td><td>topic pin via <code>#topic</code> command (0016)</td></tr>
-        <tr><td><code>is_group</code></td><td>INTEGER</td><td>NOT NULL</td><td>0</td><td>1 = group chat; gates user-secret overlay (0033)</td></tr>
-      </table>
-      <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/groups.go#L84"><code>store/groups.go:84</code></a> (upsert cursor), <a href="https://github.com/kronael/arizuko/blob/main/store/groups.go#L209"><code>:209</code></a> (is_group), <a href="https://github.com/kronael/arizuko/blob/main/store/groups.go#L237"><code>:237</code></a> (sticky_group), <a href="https://github.com/kronael/arizuko/blob/main/store/groups.go#L252"><code>:252</code></a> (sticky_topic).</p>
-      <p class="meta"><strong>Readers:</strong> routd (routing, cursor, single-user check).</p>
-      <p class="meta"><strong>Migrations:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0001-initial-schema.sql#L3">0001</a>, 0002 (channel-prefix normalize), 0016 (sticky_group/sticky_topic), 0020 (added agent_cursor), 0023 (rebuild: dropped name/channel/is_group/last_message_time/errored), 0030 (DROP errored), 0033 (re-add is_group), 0042 (typed JIDs in PK).</p>
-    </div>
-
-    <div class="tablecard">
-      <h3><code>routes</code></h3>
-      <p>Inbound match-target table. <code>match</code> is space-separated <code>key=glob</code> pairs evaluated by <a href="https://github.com/kronael/arizuko/blob/main/router/router.go#L300"><code>router.RouteMatches</code></a>; <code>target</code> is the destination folder with an optional <code>#fragment</code>. <code>#observe</code> is the only reserved mode (store without firing a turn); any other fragment (<code>folder#deploy</code>, <code>folder#triage</code>) pins the routed message to that <a href="../concepts/topics.html">topic</a>. Routes evaluate in <code>(seq, id)</code> order; first match wins.</p>
-      <table>
-        <tr><th>column</th><th>type</th><th>null</th><th>default</th><th>meaning</th></tr>
-        <tr><td><code>id</code></td><td>INTEGER PK AUTOINCREMENT</td><td>NOT NULL</td><td></td><td></td></tr>
-        <tr><td><code>seq</code></td><td>INTEGER</td><td>NOT NULL</td><td>0</td><td>evaluation order (lower first)</td></tr>
-        <tr><td><code>match</code></td><td>TEXT</td><td>NOT NULL</td><td>''</td><td>space-separated key=glob predicates</td></tr>
-        <tr><td><code>target</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>destination folder, optionally suffixed with <code>#mode</code></td></tr>
-        <tr><td><code>observe_window_messages</code></td><td>INTEGER</td><td>NULL</td><td></td><td>per-route override for the trailing <code>#observe</code> message count folded into a trigger turn (0/NULL = fall back to <a href="env.html#OBSERVE_WINDOW_MESSAGES"><code>OBSERVE_WINDOW_MESSAGES</code></a>)</td></tr>
-        <tr><td><code>observe_window_chars</code></td><td>INTEGER</td><td>NULL</td><td></td><td>per-route char cap on the <code>#observe</code> context window (0/NULL = fall back to <a href="env.html#OBSERVE_WINDOW_CHARS"><code>OBSERVE_WINDOW_CHARS</code></a>)</td></tr>
-      </table>
-      <p class="meta"><strong>Indexes:</strong> <code>idx_routes_seq</code> on <code>seq</code> (post-0022 rebuild).</p>
-      <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/routes.go#L38"><code>store/routes.go:38</code></a> (AddRoute), <a href="https://github.com/kronael/arizuko/blob/main/store/routes.go#L55"><code>:55</code></a> (DELETE on folder tear-down), <a href="https://github.com/kronael/arizuko/blob/main/store/routes.go#L62"><code>:62</code></a> (replace set), <a href="https://github.com/kronael/arizuko/blob/main/store/routes.go#L72"><code>:72</code></a> (DELETE by id), <a href="https://github.com/kronael/arizuko/blob/main/onbod/main.go#L974"><code>onbod/main.go:974</code></a>/<a href="https://github.com/kronael/arizuko/blob/main/onbod/main.go#L1039"><code>:1039</code></a>.</p>
-      <p class="meta"><strong>Readers:</strong> routd (ResolveRoute), dashd, ipc (route MCP tools).</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0001-initial-schema.sql#L106">0001</a>; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0008-topic-sessions.sql#L20">0008</a> ensure-exists + unique index; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0012-fix-prefix-route-seq.sql">0012</a> fix prefix seq; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0022-routes-match.sql">0022</a> rebuild (drop jid/type, add match); 0042/0043 rewrite predicates to typed JIDs; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0054-route-target-fragment.sql">0054</a> drop <code>impulse_config</code>, encode mode in <code>target</code> fragment, add <code>observe_window_*</code>.</p>
-    </div>
-
-    <div class="tablecard">
-      <h3><code>route_tokens</code></h3><p>URL-bound credentials. One row per issued URL; the JID prefix drives sender attribution and default output style. Both <code>/chat/&lt;token&gt;/</code> and <code>/hook/&lt;token&gt;</code> accept any valid token &mdash; kind is metadata, not a URL access gate. Mechanics shared at the handler.</p>
-      <table>
-        <tr><th>column</th><th>type</th><th>null</th><th>meaning</th></tr>
-        <tr><td><code>token_hash</code></td><td>BLOB PK</td><td>NOT NULL</td><td>sha256 of the raw token; raw token returned once at issuance</td></tr>
-        <tr><td><code>jid</code></td><td>TEXT</td><td>NOT NULL</td><td><code>web:&lt;folder&gt;[/&lt;suffix&gt;]</code> or <code>hook:&lt;folder&gt;/&lt;source&gt;[/&lt;suffix&gt;]</code> &mdash; <code>&lt;folder&gt;</code> is the destination, distinct from <code>owner_folder</code></td></tr>
-        <tr><td><code>owner_folder</code></td><td>TEXT</td><td>NULL</td><td>issuing folder; bounds revocation. FK &rarr; <code>groups.folder</code> ON DELETE CASCADE. NULL only for a <code>kind='pair'</code> link minted by onbod's greeting, which is sent before any folder is known (0032)</td></tr>
-        <tr><td><code>created_at</code></td><td>TEXT</td><td>NOT NULL</td><td>RFC3339; also the <code>PairingTTL</code> clock for <code>kind='pair'</code></td></tr>
-        <tr><td><code>context</code></td><td>TEXT</td><td>NULL</td><td>optional per-link processing instructions; snapshotted onto each inbound as <code>messages.link_context</code>, rendered to the agent as <code>&lt;link-context&gt;</code></td></tr>
-        <tr><td><code>kind</code></td><td>TEXT</td><td>NOT NULL DEFAULT 'route'</td><td><code>route</code> = a <code>/chat/</code> + <code>/hook/</code> delivery bearer; <code>pair</code> = an identity-pairing link. Resolution is kind-scoped both ways, so neither redeems as the other</td></tr>
-      </table>
-      <p class="meta"><strong>Indexes:</strong> <code>route_tokens_jid</code> on <code>jid</code>.</p>
-      <p class="meta"><strong>Writers:</strong> routd (<code>issueRouteTokenTx</code>, called from both MCP <code>issue_chat_link</code>/<code>issue_webhook</code> and REST <code>POST /v1/route_tokens/*</code>); <code>store.IssuePairingLink</code> for <code>kind='pair'</code> &mdash; the one pairing minter, reached by routd's <code>issue_pairing_link</code> and by onbod's greeting.</p>
-      <p class="meta"><strong>Readers:</strong> proxyd and webd (each hashes + looks the token up in-process on every <code>/chat/*</code> and <code>/hook/*</code> request &mdash; both are mounted on the store, so there is no HTTP hop); routd (list, revoke).</p>
-    </div>
-
-    <div class="tablecard">
-      <h3><code>web_routes</code></h3>
-      <p>webd's reverse-proxy route table: <code>path_prefix</code> &rarr; <code>folder</code> with an access mode.</p>
-      <table>
-        <tr><th>column</th><th>type</th><th>null</th><th>meaning</th></tr>
-        <tr><td><code>path_prefix</code></td><td>TEXT PK</td><td>NOT NULL</td><td>e.g. <code>/dash/</code></td></tr>
-        <tr><td><code>access</code></td><td>TEXT</td><td>NOT NULL CHECK IN ('public','auth','deny','redirect')</td><td></td></tr>
-        <tr><td><code>redirect_to</code></td><td>TEXT</td><td>NULL</td><td>destination when <code>access='redirect'</code></td></tr>
-        <tr><td><code>folder</code></td><td>TEXT</td><td>NOT NULL</td><td>owning folder (ACL key)</td></tr>
-        <tr><td><code>created_at</code></td><td>TEXT</td><td>NOT NULL</td><td>RFC3339</td></tr>
-      </table>
-      <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/web_routes.go#L25"><code>store/web_routes.go:25</code></a> (UpsertWebRoute), <a href="https://github.com/kronael/arizuko/blob/main/store/web_routes.go#L40"><code>:40</code></a> (DELETE).</p>
-      <p class="meta"><strong>Readers:</strong> webd.</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0045-web-routes.sql">0045</a>.</p>
-    </div>
-
-    <h2>4. Onboarding &amp; invites</h2>
-
-    <div class="tablecard">
-      <h3><code>onboarding</code></h3>
-      <p>Admission state machine, and only that. A chat that routes nowhere lands here on its first message; the row records that it was greeted and what the gates decided. The link itself lives in <code>route_tokens</code>, and the identity binding in <code>acl_membership</code> &mdash; this row holds neither.</p>
-      <table>
-        <tr><th>column</th><th>type</th><th>null</th><th>meaning</th></tr>
-        <tr><td><code>jid</code></td><td>TEXT PK</td><td>NOT NULL</td><td>typed JID of the unknown sender</td></tr>
-        <tr><td><code>status</code></td><td>TEXT</td><td>NOT NULL</td><td>'awaiting_message' &rarr; 'queued' | 'approved' | 'refused'. A row in anything else is stranded &mdash; no query advances it &mdash; and is logged every poll</td></tr>
-        <tr><td><code>prompted_at</code></td><td>TEXT</td><td>NULL</td><td>RFC3339; when the last greeting went out. Cleared by a route miss older than <code>PairingTTL</code>, which is what re-arms the greeting</td></tr>
-        <tr><td><code>created</code></td><td>TEXT</td><td>NOT NULL</td><td>RFC3339</td></tr>
-        <tr><td><code>user_sub</code></td><td>TEXT</td><td>NULL</td><td>linked auth_users.sub on claim</td></tr>
-        <tr><td><code>gate</code></td><td>TEXT</td><td>NULL</td><td>gate name that admitted (0027)</td></tr>
-        <tr><td><code>queued_at</code></td><td>TEXT</td><td>NULL</td><td>RFC3339 (0027)</td></tr>
-      </table>
-      <p class="meta">No credential column: the greeting's credential is a <code>kind='pair'</code> row in <code>route_tokens</code>. The inert <code>token_ref</code>/<code>token_expires</code> pair and its index were dropped by onbod migration 0006.</p>
-      <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/onboarding.go"><code>store/onboarding.go</code></a> (row creation + the greeting re-arm, queue mgmt), <a href="https://github.com/kronael/arizuko/blob/main/onbod/main.go"><code>onbod/main.go</code></a> (<code>promptUnprompted</code> claims, <code>admitJID</code> writes the verdict, <code>admitFromQueue</code> promotes). It writes NO <code>acl_membership</code> row &mdash; that edge belongs to <code>store.RedeemPairing</code>.</p>
-      <p class="meta"><strong>Readers:</strong> onbod (queue + admission check), dashd (operator queue).</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0009-onboarding.sql">0009</a>; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0021-onboarding-simplify.sql">0021</a> collapsed flow; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0023-drop-dead-columns.sql#L67">0023</a> dropped sender/world_name/channel; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0024-onboarding-auth.sql">0024</a> added token/user_sub; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0027-onboarding-gates.sql">0027</a> added gate/queued_at; 0042 rewrote rows to typed JID.</p>
-    </div>
-
-    <div class="tablecard">
-      <h3><code>onboarding_gates</code></h3>
-      <p>Per-gate admission limits.</p>
-      <table>
-        <tr><th>column</th><th>type</th><th>meaning</th></tr>
-        <tr><td><code>gate</code></td><td>TEXT PK</td><td>gate name</td></tr>
-        <tr><td><code>limit_per_day</code></td><td>INTEGER NOT NULL</td><td>cap</td></tr>
-        <tr><td><code>enabled</code></td><td>INTEGER NOT NULL DEFAULT 1</td><td>on/off</td></tr>
-      </table>
-      <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/onboarding.go#L43"><code>store/onboarding.go:43</code></a> (upsert), <a href="https://github.com/kronael/arizuko/blob/main/store/onboarding.go#L52"><code>:52</code></a> (DELETE), <a href="https://github.com/kronael/arizuko/blob/main/store/onboarding.go#L62"><code>:62</code></a> (enable/disable).</p>
-      <p class="meta"><strong>Readers:</strong> onbod, dashd.</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0029-onboarding-gates-table.sql">0029</a>.</p>
-    </div>
-
-    <div class="tablecard">
-      <h3><code>invites</code></h3>
-      <p>Invite tokens for the onboarding flow. Hard cutover of older <code>invitations</code> table in 0032.</p>
-      <table>
-        <tr><th>column</th><th>type</th><th>null</th><th>default</th><th>meaning</th></tr>
-        <tr><td><code>token</code></td><td>TEXT PK</td><td>NOT NULL</td><td></td><td>opaque token</td></tr>
-        <tr><td><code>target_glob</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>folder glob the invite admits to</td></tr>
-        <tr><td><code>issued_by_sub</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>issuer auth_users.sub</td></tr>
-        <tr><td><code>issued_at</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>RFC3339</td></tr>
-        <tr><td><code>expires_at</code></td><td>TEXT</td><td>NULL</td><td></td><td>RFC3339</td></tr>
-        <tr><td><code>max_uses</code></td><td>INTEGER</td><td>NOT NULL</td><td>1</td><td>cap</td></tr>
-        <tr><td><code>used_count</code></td><td>INTEGER</td><td>NOT NULL</td><td>0</td><td>counter</td></tr>
-      </table>
-      <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/invites.go#L55"><code>store/invites.go:55</code></a> (INSERT), <a href="https://github.com/kronael/arizuko/blob/main/store/invites.go#L119"><code>:119</code></a> (DELETE), <a href="https://github.com/kronael/arizuko/blob/main/store/invites.go#L138"><code>:138</code></a> (UPDATE used_count).</p>
-      <p class="meta"><strong>Readers:</strong> onbod, cmd/arizuko (<code>arizuko invite</code>).</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0032-invites-rewrite.sql">0032</a> (replaces dropped <code>invitations</code> from 0028).</p>
-    </div>
-
-    <div class="tablecard">
-      <h3><code>invite_redemptions</code></h3>
-      <p>One row per redeemed <em>subgroup</em> invite &mdash; a <code>target_glob</code> ending in <code>/</code>, which admits you to create a workspace inside that tree rather than granting you an existing one. The row records which tree, because at redemption time there is nothing else to record it on: the folder does not exist yet, so no <code>acl</code> grant can be written. &ldquo;Create workspace&rdquo; reads the row to decide the parent, then deletes it, so one redemption makes exactly one workspace.</p>
-      <table>
-        <tr><th>column</th><th>type</th><th>null</th><th>default</th><th>meaning</th></tr>
-        <tr><td><code>id</code></td><td>INTEGER PK</td><td>NOT NULL</td><td>AUTOINCREMENT</td><td>row id; the spend claims it</td></tr>
-        <tr><td><code>user_sub</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>who redeemed</td></tr>
-        <tr><td><code>target_glob</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>the invite&rsquo;s tree, e.g. <code>acme/</code></td></tr>
-        <tr><td><code>redeemed_at</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>RFC3339</td></tr>
-      </table>
-      <p class="meta"><strong>Writers:</strong> <code>store.consumeInvite</code>, inside the same transaction that consumes the invite. <strong>Readers:</strong> onbod&rsquo;s create-workspace handler, which spends the row.</p>
-      <p class="meta"><strong>No <code>/v1</code> path and no MCP tool</strong>, unlike every other onbod table. This is not something an operator manages &mdash; it is an authority in flight, and a create verb for it would be a verb for choosing whose tree a new workspace lands in. See <a href="https://github.com/kronael/arizuko/blob/main/specs/5/18-onboarding-model.md">5/18</a>.</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/onbod/migrations/0005-invite-redemptions.sql">onbod 0005</a>.</p>
-    </div>
-
-    <h2>5. Secrets</h2>
-
-    <p class="meta">Per-folder MCP rule overlays (formerly the <code>grant_rules</code> table, dropped in 0053) now live in <code>acl</code> as <code>(principal=folder:&lt;f&gt;, action=mcp:&lt;tool&gt;, scope=&lt;f&gt;, params, effect)</code> rows. There is no fall-back: an <code>mcp:*</code> action with no matching <code>acl</code> row is denied.</p>
-
-    <div class="tablecard">
-      <h3><code>secrets</code></h3>
-      <p>Folder- and user-scoped secret values. Encrypted at rest (AES-256-GCM, <code>v2:</code>-prefixed) under the <a href="env.html#SECRETS_KEY"><code>SECRETS_KEY</code></a> keyring; routd owns this table and refuses to start without the key (spec <a href="https://github.com/kronael/arizuko/blob/main/specs/5/14-credentials.md">5/14</a>).</p>
-      <table>
-        <tr><th>column</th><th>type</th><th>meaning</th></tr>
-        <tr><td><code>scope_kind</code></td><td>TEXT NOT NULL</td><td>'folder' or 'user'</td></tr>
-        <tr><td><code>scope_id</code></td><td>TEXT NOT NULL</td><td>folder path or auth_users.sub</td></tr>
-        <tr><td><code>key</code></td><td>TEXT NOT NULL</td><td>env-var name</td></tr>
-        <tr><td><code>value</code></td><td>BLOB NOT NULL</td><td>AES-256-GCM ciphertext, <code>v2:</code>-prefixed (column renamed from <code>enc_value</code> in 0047)</td></tr>
-        <tr><td><code>created_at</code></td><td>TEXT NOT NULL</td><td>RFC3339</td></tr>
-      </table>
-      <p class="meta"><strong>PK:</strong> <code>(scope_kind, scope_id, key)</code>.</p>
-      <p class="meta"><strong>Indexes:</strong> partial <code>idx_secrets_folder</code> on <code>scope_id WHERE scope_kind='folder'</code>; partial <code>idx_secrets_user</code> on <code>scope_id WHERE scope_kind='user'</code>.</p>
-      <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/secrets.go#L55"><code>store/secrets.go:55</code></a> (upsert), <a href="https://github.com/kronael/arizuko/blob/main/store/secrets.go#L119"><code>:119</code></a> (DELETE), <a href="https://github.com/kronael/arizuko/blob/main/dashd/me_secrets.go#L133"><code>dashd/me_secrets.go:133</code></a> (user-scope INSERT), <a href="https://github.com/kronael/arizuko/blob/main/dashd/me_secrets.go#L174"><code>:174</code></a> (UPDATE), <a href="https://github.com/kronael/arizuko/blob/main/dashd/me_secrets.go#L209"><code>:209</code></a> (DELETE).</p>
-      <p class="meta"><strong>Readers:</strong> routd &mdash; <code>EnvProfileSecrets</code> at spawn (the caller's own model keys, the only rows that enter the container) and <code>FolderSecretsResolved</code> for the host-side broker; dashd.</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0034-secrets.sql">0034</a> (originally <code>enc_value BLOB</code>); <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0047-secrets-plaintext.sql">0047</a> renamed to <code>value</code>.</p>
-    </div>
-
-    <div class="tablecard">
-      <h3><code>secret_use_log</code></h3>
-      <p>Audit log for the secret broker (spec 5/14). One row per tool-call &times; resolved key. No secret values stored.</p>
-      <table>
-        <tr><th>column</th><th>type</th><th>default</th><th>meaning</th></tr>
-        <tr><td><code>ts</code></td><td>TEXT NOT NULL</td><td></td><td>RFC3339Nano</td></tr>
-        <tr><td><code>spawn_id</code></td><td>TEXT NOT NULL</td><td>''</td><td></td></tr>
-        <tr><td><code>caller_sub</code></td><td>TEXT NOT NULL</td><td>''</td><td>resolved user sub</td></tr>
-        <tr><td><code>folder</code></td><td>TEXT NOT NULL</td><td>''</td><td>spawn folder</td></tr>
-        <tr><td><code>tool</code></td><td>TEXT NOT NULL</td><td></td><td>MCP tool name</td></tr>
-        <tr><td><code>key</code></td><td>TEXT NOT NULL</td><td></td><td>secret key name</td></tr>
-        <tr><td><code>scope</code></td><td>TEXT NOT NULL</td><td></td><td>'folder' or 'user'</td></tr>
-        <tr><td><code>status</code></td><td>TEXT NOT NULL</td><td></td><td>'ok' / 'denied' / 'missing'</td></tr>
-        <tr><td><code>latency_ms</code></td><td>INTEGER NOT NULL</td><td>0</td><td></td></tr>
-      </table>
-      <p class="meta"><strong>Indexes:</strong> <code>idx_secret_use_log_ts</code> on <code>ts</code>.</p>
-      <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/secret_use_log.go#L25"><code>store/secret_use_log.go:25</code></a>.</p>
-      <p class="meta"><strong>Readers:</strong> dashd (audit views).</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0048-secret-use-log.sql">0048</a>.</p>
-    </div>
-
-    <h2>6. Egress</h2>
-
-    <div class="tablecard">
-      <h3><code>network_rules</code></h3>
-      <p>Per-folder egress allowlist. Resolved root-to-folder at spawn (<code>ResolveAllowlist</code> walks the ancestry and dedupes), then baked into that spawn&rsquo;s own <a href="../components/egress.html">egress</a> proxy, which dies with the turn.</p>
-      <table>
-        <tr><th>column</th><th>type</th><th>default</th><th>meaning</th></tr>
-        <tr><td><code>folder</code></td><td>TEXT NOT NULL</td><td></td><td>folder path; <code>''</code> = root seed</td></tr>
-        <tr><td><code>target</code></td><td>TEXT NOT NULL</td><td></td><td>host (e.g. <code>api.github.com</code>)</td></tr>
-        <tr><td><code>created_at</code></td><td>TEXT NOT NULL</td><td></td><td>RFC3339</td></tr>
-        <tr><td><code>created_by</code></td><td>TEXT NOT NULL</td><td>''</td><td>'system' / sub</td></tr>
-      </table>
-      <p class="meta"><strong>PK:</strong> <code>(folder, target)</code>. <strong>Indexes:</strong> <code>idx_network_rules_folder</code> on <code>folder</code>.</p>
-      <p class="meta"><strong>Seed rows:</strong> <code>('', 'anthropic.com')</code>, <code>('', 'api.anthropic.com')</code> at migration time.</p>
-      <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/network.go#L18"><code>store/network.go:18</code></a> (INSERT OR IGNORE), <a href="https://github.com/kronael/arizuko/blob/main/store/network.go#L27"><code>:27</code></a> (DELETE).</p>
-      <p class="meta"><strong>Readers:</strong> routd, dashd, cmd/arizuko (<code>arizuko network</code>).</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0037-network-rules.sql">0037</a>.</p>
-    </div>
-
-    <h2>7. Scheduling</h2>
-
-    <div class="tablecard">
-      <h3><code>scheduled_tasks</code></h3>
-      <p>Cron- and interval-scheduled prompts (driven by <code>timed</code>).</p>
-      <table>
-        <tr><th>column</th><th>type</th><th>null</th><th>default</th><th>meaning</th></tr>
-        <tr><td><code>id</code></td><td>TEXT PK</td><td>NOT NULL</td><td></td><td></td></tr>
-        <tr><td><code>owner</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>owning folder</td></tr>
-        <tr><td><code>chat_jid</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>typed chat JID (rewritten in 0043)</td></tr>
-        <tr><td><code>prompt</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>injected text</td></tr>
-        <tr><td><code>cron</code></td><td>TEXT</td><td>NULL</td><td></td><td>cron expr / interval ms / empty = one-shot</td></tr>
-        <tr><td><code>next_run</code></td><td>TEXT</td><td>NULL</td><td></td><td>RFC3339</td></tr>
-        <tr><td><code>status</code></td><td>TEXT</td><td>NOT NULL</td><td>'active'</td><td>'active' | 'paused' | 'firing' | 'completed'</td></tr>
-        <tr><td><code>created_at</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>RFC3339</td></tr>
-        <tr><td><code>context_mode</code></td><td>TEXT</td><td>NOT NULL</td><td>'group'</td><td>'group' | 'isolated' (0011)</td></tr>
-      </table>
-      <p class="meta"><strong>Indexes:</strong> <code>idx_tasks_next</code> on <code>(status, next_run)</code>.</p>
-      <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/tasks.go#L27"><code>store/tasks.go:27</code></a> (INSERT), <a href="https://github.com/kronael/arizuko/blob/main/store/tasks.go#L81"><code>:81</code></a> (UPDATE), <a href="https://github.com/kronael/arizuko/blob/main/store/tasks.go#L86"><code>:86</code></a> (DELETE), <a href="https://github.com/kronael/arizuko/blob/main/timed/main.go#L96"><code>timed/main.go:96</code></a> (status transitions during fire).</p>
-      <p class="meta"><strong>Readers:</strong> timed, routd, ipc (task MCP tools), dashd.</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0001-initial-schema.sql#L66">0001</a>; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0011-task-run-logs.sql#L11">0011</a> added <code>context_mode</code>; 0043 rewrote <code>chat_jid</code> to typed shape.</p>
-    </div>
-
-    <div class="tablecard">
-      <h3><code>task_run_logs</code></h3>
-      <p>Audit log for every scheduled-task fire.</p>
-      <table>
-        <tr><th>column</th><th>type</th><th>meaning</th></tr>
-        <tr><td><code>id</code></td><td>INTEGER PK AUTOINCREMENT</td><td></td></tr>
-        <tr><td><code>task_id</code></td><td>TEXT NOT NULL REFERENCES scheduled_tasks(id) ON DELETE CASCADE</td><td></td></tr>
-        <tr><td><code>run_at</code></td><td>TEXT NOT NULL</td><td>RFC3339</td></tr>
-        <tr><td><code>duration_ms</code></td><td>INTEGER NULL</td><td></td></tr>
-        <tr><td><code>status</code></td><td>TEXT NOT NULL</td><td>'ok' / 'error'</td></tr>
-        <tr><td><code>result</code></td><td>TEXT NULL</td><td></td></tr>
-        <tr><td><code>error</code></td><td>TEXT NULL</td><td></td></tr>
-      </table>
-      <p class="meta"><strong>Indexes:</strong> <code>idx_task_run_logs_task</code> on <code>task_id</code>.</p>
-      <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/timed/main.go#L86"><code>timed/main.go:86</code></a>.</p>
-      <p class="meta"><strong>Readers:</strong> dashd, ipc (<code>list_task_runs</code>).</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0011-task-run-logs.sql">0011</a>.</p>
-    </div>
-
-    <h2>8. Misc</h2>
-
-    <div class="tablecard">
-      <h3><code>router_state</code></h3>
-      <p>Generic key-value scratch for the gateway (per-key strings).</p>
-      <table>
-        <tr><th>column</th><th>type</th><th>meaning</th></tr>
-        <tr><td><code>key</code></td><td>TEXT PK</td><td></td></tr>
-        <tr><td><code>value</code></td><td>TEXT NOT NULL</td><td></td></tr>
-      </table>
-      <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/sessions.go#L45"><code>store/sessions.go:45</code></a>.</p>
-      <p class="meta"><strong>Readers:</strong> routd.</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0001-initial-schema.sql#L78">0001</a>.</p>
-    </div>
-
-    <div class="tablecard">
-      <h3><code>config_meta</code></h3>
-      <p>Single-row optimistic-lock version for YAML config apply (spec 5/8). Each apply bumps <code>version</code> once per transaction; a CAS comparison inside <code>BEGIN IMMEDIATE</code> rejects stale applies. Bootstrap value counts existing config rows so a fresh apply against a populated DB doesn't reject with "version 0".</p>
-      <table>
-        <tr><th>column</th><th>type</th><th>default</th><th>meaning</th></tr>
-        <tr><td><code>version</code></td><td>INTEGER NOT NULL</td><td>0</td><td>monotonic config version</td></tr>
-      </table>
-      <p class="meta"><strong>Writers:</strong> routd (YAML apply, inside the config transaction).</p>
-      <p class="meta"><strong>Readers:</strong> routd (CAS on apply).</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0067-config-meta.sql">0067</a>.</p>
-    </div>
-
-    <div class="tablecard">
-      <h3><code>group_watchers</code></h3>
-      <p>Directional cross-folder ambient context for the <code>observe_group</code> MCP tool (spec 5/F). One row per (observer, source) pair; the observer receives messages delivered to the source as <code>&lt;observed&gt;</code> context on its next trigger turn.</p>
-      <table>
-        <tr><th>column</th><th>type</th><th>meaning</th></tr>
-        <tr><td><code>observer</code></td><td>TEXT NOT NULL</td><td>folder receiving context</td></tr>
-        <tr><td><code>source</code></td><td>TEXT NOT NULL</td><td>folder being observed</td></tr>
-      </table>
-      <p class="meta"><strong>PK:</strong> <code>(observer, source)</code>.</p>
-      <p class="meta"><strong>Writers:</strong> ipc (<code>observe_group</code> / <code>unobserve_group</code>).</p>
-      <p class="meta"><strong>Readers:</strong> gateway (context assembly on trigger).</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0063-group-watchers.sql">0063</a>.</p>
-    </div>
-
-    <div class="tablecard">
-      <h3><code>cost_log_archive</code></h3>
-      <p>Spend recorded before the model gateway became the ledger. Nothing reads it and nothing writes it: where a gateway is configured it meters every call and arizuko stores no spend at all (spec <a href="https://github.com/kronael/arizuko/blob/main/specs/6/39-gateway-owns-spend.md">6/39</a>). The rows are kept because they are the only copy of that history &mdash; query them with <code>sqlite3</code> when you want it.</p>
-      <table>
-        <tr><th>column</th><th>type</th><th>default</th><th>meaning</th></tr>
-        <tr><td><code>folder</code></td><td>TEXT NOT NULL</td><td></td><td>charged folder (PK with turn_id, model)</td></tr>
-        <tr><td><code>turn_id</code></td><td>TEXT NOT NULL</td><td></td><td>the turn that spent it</td></tr>
-        <tr><td><code>model</code></td><td>TEXT NOT NULL</td><td></td><td>e.g. <code>claude-opus-4-7</code></td></tr>
-        <tr><td><code>user_sub</code></td><td>TEXT NOT NULL</td><td>''</td><td>'' = channel-scoped turn</td></tr>
-        <tr><td><code>input_tokens</code></td><td>INTEGER NOT NULL</td><td>0</td><td>prompt tokens</td></tr>
-        <tr><td><code>output_tokens</code></td><td>INTEGER NOT NULL</td><td>0</td><td>completion tokens</td></tr>
-        <tr><td><code>cost_cents</code></td><td>INTEGER NOT NULL</td><td>0</td><td>cost in whole cents</td></tr>
-        <tr><td><code>recorded_at</code></td><td>TEXT NOT NULL</td><td></td><td>fixed-width UTC timestamp</td></tr>
-      </table>
-      <p class="meta"><strong>Writers:</strong> none.</p>
-      <p class="meta"><strong>Readers:</strong> none.</p>
-      <p class="meta"><strong>Migrations:</strong> renamed by <a href="https://github.com/kronael/arizuko/blob/main/routd/migrations/0046-cost-log-archive.sql">routd 0046</a>.</p>
-    </div>
-
-    <div class="tablecard">
-      <h3><code>proxyd_routes</code></h3>
-      <p>Runtime-mutable proxyd route table (spec 5/7), mirroring the in-memory <code>Route</code> struct. proxyd seeds it from <code>PROXYD_ROUTES_JSON</code> on first boot when the table is empty; thereafter the table is authoritative and the env var is ignored.</p>
-      <table>
-        <tr><th>column</th><th>type</th><th>default</th><th>meaning</th></tr>
-        <tr><td><code>path</code></td><td>TEXT PK</td><td></td><td>route path prefix</td></tr>
-        <tr><td><code>backend</code></td><td>TEXT NOT NULL</td><td></td><td>backend URL</td></tr>
-        <tr><td><code>auth</code></td><td>TEXT NOT NULL</td><td></td><td>'public' | 'user' | 'operator'</td></tr>
-        <tr><td><code>gated_by</code></td><td>TEXT NOT NULL</td><td>''</td><td>grant action gate</td></tr>
-        <tr><td><code>preserve_headers</code></td><td>TEXT NOT NULL</td><td>'[]'</td><td>JSON array</td></tr>
-        <tr><td><code>strip_prefix</code></td><td>INTEGER NOT NULL</td><td>0</td><td>0/1</td></tr>
-      </table>
-      <p class="meta"><strong>Writers:</strong> proxyd (seed + runtime mutation), routd (config apply).</p>
-      <p class="meta"><strong>Readers:</strong> proxyd.</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0050-proxyd-routes.sql">0050</a>.</p>
-    </div>
-
-    <div class="tablecard">
-      <h3><code>audit_log</code></h3>
-      <p>Unified source of truth for security events and state changes across MCP / REST / CLI / cron / agent surfaces (spec 5/I). <code>surface</code> is a stored string: the secret broker still writes the literal <code>crackbox</code>, which now names a component production does not run &mdash; filed, not rewritten, because the value is already on disk. Round-2 of the audit coverage plan; supersedes the split <code>cli_audit</code> / <code>ipc_audit</code> tables, which stop receiving writes but remain until every writer is on <code>audit.EmitInTx</code>.</p>
-      <table>
-        <tr><th>column</th><th>type</th><th>meaning</th></tr>
-        <tr><td><code>id</code></td><td>INTEGER PK AUTOINCREMENT</td><td></td></tr>
-        <tr><td><code>created_at</code></td><td>TEXT NOT NULL</td><td>RFC3339 (millis)</td></tr>
-        <tr><td><code>category</code></td><td>TEXT NOT NULL</td><td>event category</td></tr>
-        <tr><td><code>action</code></td><td>TEXT NOT NULL</td><td>event action</td></tr>
-        <tr><td><code>actor</code></td><td>TEXT NOT NULL</td><td>acting principal</td></tr>
-        <tr><td><code>actor_sub</code></td><td>TEXT NULL</td><td>OAuth sub when known</td></tr>
-        <tr><td><code>resource</code></td><td>TEXT NULL</td><td>target resource</td></tr>
-        <tr><td><code>scope</code></td><td>TEXT NULL</td><td>scope for multi-level resources</td></tr>
-        <tr><td><code>surface</code></td><td>TEXT NULL</td><td>MCP / REST / CLI / …</td></tr>
-        <tr><td><code>params_summary</code></td><td>TEXT NULL</td><td>redacted call summary</td></tr>
-        <tr><td><code>outcome</code></td><td>TEXT NOT NULL</td><td>'ok' | 'error' | 'denied'</td></tr>
-        <tr><td><code>error_msg</code></td><td>TEXT NULL</td><td></td></tr>
-        <tr><td><code>duration_ms</code></td><td>INTEGER NULL</td><td></td></tr>
-        <tr><td><code>turn_id</code></td><td>TEXT NULL</td><td>correlating turn</td></tr>
-        <tr><td><code>folder</code></td><td>TEXT NULL</td><td>affected folder</td></tr>
-        <tr><td><code>instance</code></td><td>TEXT NULL</td><td>instance name</td></tr>
-        <tr><td><code>request_id</code></td><td>TEXT NULL</td><td>cross-daemon correlation</td></tr>
-        <tr><td><code>source_ip</code></td><td>TEXT NULL</td><td>REST source IP</td></tr>
-      </table>
-      <p class="meta"><strong>Indexes:</strong> <code>audit_log_created_at</code> on <code>created_at</code>; partial <code>audit_log_actor_sub</code> / <code>audit_log_folder</code> (WHERE NOT NULL); <code>audit_log_cat_act</code> on <code>(category, action)</code>.</p>
-      <p class="meta"><strong>Writers:</strong> <code>audit.EmitInTx</code> from every mutating surface.</p>
-      <p class="meta"><strong>Readers:</strong> dashd, the audit JSONL poll, forensic queries.</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0066-audit-log.sql">0066</a>.</p>
-    </div>
-
-    <div class="tablecard">
-      <h3><code>cli_audit</code> <span class="dead">legacy — no new writes since 0066</span></h3>
-      <p>Per-command CLI audit trail. Round-2 of the audit plan consolidated these rows into <code>audit_log</code> and stopped writing here; the table stays until the JSONL poll cursor migrates.</p>
-      <table>
-        <tr><th>column</th><th>type</th><th>meaning</th></tr>
-        <tr><td><code>id</code></td><td>INTEGER PK AUTOINCREMENT</td><td></td></tr>
-        <tr><td><code>ts</code></td><td>DATETIME NOT NULL</td><td>RFC3339 (millis)</td></tr>
-        <tr><td><code>os_user</code></td><td>TEXT NOT NULL</td><td>invoking OS user</td></tr>
-        <tr><td><code>command</code></td><td>TEXT NOT NULL</td><td>subcommand</td></tr>
-        <tr><td><code>args</code></td><td>TEXT NOT NULL</td><td>argument summary</td></tr>
-      </table>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0061-cli-audit.sql">0061</a>; superseded by <code>audit_log</code> (<a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0066-audit-log.sql">0066</a>).</p>
-    </div>
-
-    <div class="tablecard">
-      <h3><code>ipc_audit</code> <span class="dead">legacy — no new writes since 0066</span></h3>
-      <p>Per-tool MCP mutation audit trail. Like <code>cli_audit</code>, its rows now flow into <code>audit_log</code>; the table is retained until every writer is migrated.</p>
-      <table>
-        <tr><th>column</th><th>type</th><th>meaning</th></tr>
-        <tr><td><code>id</code></td><td>INTEGER PK AUTOINCREMENT</td><td></td></tr>
-        <tr><td><code>ts</code></td><td>DATETIME NOT NULL</td><td>RFC3339 (millis)</td></tr>
-        <tr><td><code>folder</code></td><td>TEXT NOT NULL</td><td>calling folder</td></tr>
-        <tr><td><code>sub</code></td><td>TEXT NOT NULL</td><td>calling sub</td></tr>
-        <tr><td><code>tool</code></td><td>TEXT NOT NULL</td><td>MCP tool name</td></tr>
-        <tr><td><code>params</code></td><td>TEXT NOT NULL</td><td>param summary</td></tr>
-        <tr><td><code>outcome</code></td><td>TEXT NOT NULL</td><td>call result</td></tr>
-      </table>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0062-ipc-audit.sql">0062</a>; superseded by <code>audit_log</code> (<a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0066-audit-log.sql">0066</a>).</p>
-    </div>
-
-    <h2>9. Tables removed by migrations</h2>
     <ul>
-      <li><code>grants</code>, <code>user_groups</code>, <code>user_jids</code>, <code>grant_rules</code> &mdash; the pre-v0.38.0 permission tables; migration <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0053-acl-cutover.sql">0053</a> dropped all four after back-filling <code>acl</code> + <code>acl_membership</code>.</li>
-      <li><code>registered_groups</code> &mdash; created in <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0001-initial-schema.sql#L27">0001</a>, rebuilt in 0007 (dropped <code>trigger_word</code>, <code>requires_trigger</code>), expanded in 0010, dropped in <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0020-groups-refactor.sql">0020</a> after rekeying its contents into <code>groups</code> (by folder) and <code>chats.agent_cursor</code>.</li>
-      <li><code>invitations</code> &mdash; created in <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0028-invitations.sql">0028</a>, dropped in <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0032-invites-rewrite.sql">0032</a> after migrating rows to <code>invites</code>.</li>
-      <li><code>channels</code> &mdash; persistent adapter registry created in <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0009-onboarding.sql#L13">0009</a>; its last writer was removed in v0.28.0, so the production registry is the in-memory <a href="https://github.com/kronael/arizuko/tree/main/chanreg"><code>chanreg/</code></a>. Dropped in <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0065-drop-orphaned-tables.sql">0065</a> along with the orphaned dashd reads.</li>
-      <li><code>email_threads</code> &mdash; shared-DB email thread index defined in <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0001-initial-schema.sql#L99">0001</a> but never written; the live <code>emaid</code> adapter keeps its own thread index in <code>emaid.db</code> (<a href="https://github.com/kronael/arizuko/blob/main/emaid/store.go#L26"><code>emaid/store.go:26</code></a>). Dropped in <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0065-drop-orphaned-tables.sql">0065</a>.</li>
+      <li><strong>No columns.</strong> Every value is a string and an absent attribute is the only kind of missing, so a comparison means the same thing on every engine.</li>
+      <li><strong>No index but the coordinate.</strong> A selective read belongs on the sort key; a filter still reads what it filters.</li>
+      <li><strong>No foreign key, so nothing cascades.</strong> Deleting a group purges every entity that confers on that folder or routes into it, explicitly, by one containment predicate &mdash; and a table in neither list fails a completeness test.</li>
+      <li><strong>No autoincrement.</strong> An item has no server-minted identity; the one number arizuko hands out, <code>routes.id</code>, comes from the <code>counters</code> item through a compare-and-swap, so two concurrent adds cannot mint the same handle.</li>
+      <li><strong>No full-text index.</strong> Ranked message search is derived state in routd's memory, rebuilt from the <code>messages</code> entity at boot.</li>
     </ul>
 
-    <h2>10. Audit of writers</h2>
-    <p>There is no single schema owner: each split daemon (<code>routd</code>, <code>runed</code>, <code>authd</code>, <code>onbod</code>) migrates its own DB. The <code>//go:embed migrations/*.sql</code> in <a href="https://github.com/kronael/arizuko/blob/main/store/store.go#L13"><code>store/store.go:13</code></a> is the shared schema library each daemon draws from for the tables it owns. Per-table writer mapping above lists the canonical INSERT/UPDATE/DELETE call sites; multiple readers per table is the norm and noted as "many" where widespread.</p>
+    <h2>7. Who writes</h2>
+
+    <p>The owner daemon writes its own tables. Two readers reach across on purpose: <code>proxyd</code> resolves a route token and reads <code>acl</code> per request, because a login-time snapshot would keep a revoked grant working; <code>dashd</code> reads routd's and onbod's tables for the pages it renders. Everything else goes through the owner's <code>/v1</code>. A mutation carries its <code>audit_log</code> row in the same batch, so a refused write records nothing and a recorded row happened.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="mcp.html">&larr; MCP tools</a>

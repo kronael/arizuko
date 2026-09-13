@@ -61,7 +61,7 @@
     <p>Routes live at <code>/dash/*</code>. The portal at <code>/dash/</code> links to status, tasks, activity, groups, memory, and profile pages, each rendered server-side as one HTML page plus HTMX partials for live sub-views.</p>
 
     <h2>Why it exists</h2>
-    <p>Without dashd, operators inspect an arizuko instance through <code>sqlite3 store/routd/routd.db</code>, <code>journalctl -u arizuko_&lt;inst&gt;</code>, and the <code>arizuko</code> CLI. That works for an engineer, but it asks a lot of anyone else, and it never gives a one-screen answer to &ldquo;what is this instance doing right now&rdquo;.</p>
+    <p>Without dashd, operators inspect an arizuko instance through each daemon's <code>/v1</code>, <code>journalctl -u arizuko_&lt;inst&gt;</code>, and the <code>arizuko</code> CLI. That works for an engineer, but it asks a lot of anyone else, and it never gives a one-screen answer to &ldquo;what is this instance doing right now&rdquo;.</p>
 
     <p>dashd owns no tables of its own. It reads from tables other daemons own &mdash; <code>groups</code>, <code>routes</code>, <code>scheduled_tasks</code>, <code>messages</code>, <code>sessions</code>, <code>channels</code>, <code>auth_users</code>, written by routd, authd, timed, and onbod &mdash; and renders them. Which of those reads go over the owner daemon&rsquo;s <code>/v1/*</code> API and which stay direct is settled in <code>specs/5/16-mcp-rest-unification.md</code>.</p>
 
@@ -75,7 +75,7 @@
         |      stamp X-User-Sub, X-User-Groups, HMAC sig
         v
       dashd    render HTML / HTMX partial
-        |      read: routd.db, onbod.db, runed.db
+        |      read: routd's + onbod's tables
         |      write: PUT|DELETE /dash/memory/{folder}/{rel}
         v
       filesystem: &lt;groups&gt;/&lt;folder&gt;/MEMORY.md, diary/*.md, ...</code></pre>
@@ -86,7 +86,7 @@
     <p>Two write paths today. The <strong>memory editor</strong> accepts <code>MEMORY.md</code>, <code>.claude/CLAUDE.md</code>, and flat <code>*.md</code> under <code>diary/</code>, <code>facts/</code>, <code>users/</code>, and <code>episodes/</code>. Reads are capped at 1&nbsp;MiB, and the path joiner blocks any symlink that escapes the group folder. <strong>Admin writes</strong> &mdash; routes editor, groups CRUD, per-user secrets &mdash; sit behind the admin check above.</p>
 
     <h2>Standalone usage</h2>
-    <p>dashd needs a SQLite file and a port. Point <code>AUTHD_URL</code> at authd and dashd verifies proxyd&rsquo;s transit bearer against its keyset on every <code>/dash/*</code> request &mdash; a request that arrives without one gets redirected to login. Leave authd unwired for local dev and the guard passes through, which is why you still front dashd with proxyd on the public internet: proxyd terminates TLS, runs the login flow, and stamps the <code>X-User-*</code> headers dashd trusts.</p>
+    <p>dashd needs a port and a way to reach routd's tables &mdash; the store endpoint the instance is served from, or that owner's file. Point <code>AUTHD_URL</code> at authd and dashd verifies proxyd&rsquo;s transit bearer against its keyset on every <code>/dash/*</code> request &mdash; a request that arrives without one gets redirected to login. Leave authd unwired for local dev and the guard passes through, which is why you still front dashd with proxyd on the public internet: proxyd terminates TLS, runs the login flow, and stamps the <code>X-User-*</code> headers dashd trusts.</p>
 
     <pre><code>export DATA_DIR=/srv/data/arizuko_demo
 export DASH_PORT=:8080
@@ -94,7 +94,7 @@ export INSTANCE_NAME=demo
 ./dashd
 # browse http://localhost:8080/dash/</code></pre>
 
-    <p><code>DATA_DIR</code> resolves each database at <code>$DATA_DIR/store/&lt;owner&gt;/&lt;owner&gt;.db</code> &mdash; dashd reads routd's, onbod's and runed's &mdash; and the groups tree at <code>$DATA_DIR/groups/</code>. Set <code>DB_PATH</code> to override routd's location independently. Pointing it at the retired <code>messages.db</code> is refused rather than served stale. <code>INSTANCE_NAME</code> appears in the portal header.</p>
+    <p>On a file instance <code>DATA_DIR</code> resolves each owner at <code>$DATA_DIR/store/&lt;owner&gt;/</code> &mdash; dashd reads routd's and onbod's &mdash; and the groups tree at <code>$DATA_DIR/groups/</code>; on a served instance the same reads go to the endpoint and no file is opened. Set <code>DB_PATH</code> to override routd's file independently. Pointing it at a retired database is refused rather than served stale. <code>INSTANCE_NAME</code> appears in the portal header.</p>
 
     <p>Health: <code>GET /health</code> returns 200 when the database is reachable. With authd wired, exposing dashd directly still rejects any request that carries no proxyd transit bearer &mdash; but proxyd owns TLS and the login flow, so front it with proxyd anyway.</p>
 
@@ -128,12 +128,12 @@ export INSTANCE_NAME=demo
       <li><code>/dash/proactive/</code> &mdash; which groups may <a href="../concepts/proactive.html">speak first</a>, their quiet hours, any broken <code>proactive:</code> block, and when each chat last interjected. Read-only: <code>mode:</code> stays operator-edited in the group&rsquo;s <code>CLAUDE.md</code> so the file remains the single source.</li>
       <li><code>/dash/engagement/</code> &mdash; every conversation the agent is <a href="../concepts/engagement.html">staying in</a> without being addressed, with the group and the time left, plus a <strong>disengage</strong> button per row for a chat it should stay out of. Operator-only. Like <code>/dash/proxyd/</code>, dashd owns no SQL here: both faces are HTTP calls to <a href="../components/routd.html">routd</a>&rsquo;s <code>/v1/engagement</code>, so routd stays the single writer, applies the folder check, and writes the audit row inside the mutation&rsquo;s own transaction.</li>
       <li><code>/dash/services/</code>, <code>/dash/routd/</code>, <code>/dash/runed/</code> &mdash; the daemon cockpits: health tiles, errored chats with a retry, live runs with a kill.</li>
-      <li><code>/dash/authd/</code> &mdash; the identity cockpit. Which signing key is in use, what a rotation retired and when the passes it signed stop being accepted; then one row per login &mdash; who, what they can reach, when it started, how often it has renewed &mdash; each with a <strong>sign out</strong> button. Operator-only, and like <code>/dash/proxyd/</code> it owns no SQL: <a href="../components/authd.html">authd</a> is the sole signer, so dashd asks it over HTTP rather than opening <code>auth.db</code>, which is also what puts the revoke&rsquo;s audit row in the mutation&rsquo;s own transaction. No key material or token value is rendered, and there is no fleet-wide logout button &mdash; that means retiring the active key, which stays out-of-band, and the page says so.</li>
+      <li><code>/dash/authd/</code> &mdash; the identity cockpit. Which signing key is in use, what a rotation retired and when the passes it signed stop being accepted; then one row per login &mdash; who, what they can reach, when it started, how often it has renewed &mdash; each with a <strong>sign out</strong> button. Operator-only, and like <code>/dash/proxyd/</code> it owns no SQL: <a href="../components/authd.html">authd</a> is the sole signer, so dashd asks it over HTTP rather than reading its tables, which is also what puts the revoke&rsquo;s audit row in the mutation&rsquo;s own batch. No key material or token value is rendered, and there is no fleet-wide logout button &mdash; that means retiring the active key, which stays out-of-band, and the page says so.</li>
       <li><code>/dash/channels/whatsapp/pair</code> &mdash; self-service WhatsApp re-pair page. Requires the <code>**</code> operator super-grant. Calls whapd <code>/v1/pair/start</code>; the pairing code is returned once, expires in 60s, rate-limited to 5/hr. Every start writes an audit row in <code>messages</code>.</li>
     </ul>
 
     <h2>The migration to /v1/*</h2>
-    <p>Most pages still query SQLite directly. The plan is to swap each read for a call to the sibling daemon that owns the table. <code>/dash/proxyd/</code> already works this way and is the shape the rest are heading for:</p>
+    <p>Most pages still read routd's tables directly. The plan is to swap each read for a call to the sibling daemon that owns the table. <code>/dash/proxyd/</code> already works this way and is the shape the rest are heading for:</p>
 
     <ul>
       <li><code>/dash/groups/</code> &rarr; <code>routd/v1/groups</code> + <code>routd/v1/routes</code>.</li>

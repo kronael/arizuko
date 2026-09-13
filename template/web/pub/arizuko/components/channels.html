@@ -86,7 +86,7 @@
 <h2>Delivering exactly once</h2>
 <p><code>routd</code> writes an outbound row <code>pending</code>, hands it to the adapter, and marks it <code>sent</code> when the adapter answers. If that answer never arrives the row stays <code>pending</code> and a 30-second sweep hands it over again &mdash; bounded by <code>MAX_OUTBOUND_RETRY</code>, then dead-lettered. So an adapter sees the same message more than once by design, and it must not post it twice.</p>
 
-<p>Each send carries an <code>idempotency_key</code>: the outbound row&rsquo;s stable id. Before calling the platform the adapter claims that key in its own small SQLite file, and settles the claim with the platform&rsquo;s message id once the post lands. A repeat of a settled key returns the recorded id and calls nothing.</p>
+<p>Each send carries an <code>idempotency_key</code>: the outbound row&rsquo;s stable id. Before calling the platform the adapter claims that key in its own table, and settles the claim with the platform&rsquo;s message id once the post lands. A repeat of a settled key returns the recorded id and calls nothing.</p>
 
 <p>The hard case is a claim that never settled &mdash; the adapter called the platform and never learned the outcome. It cannot tell a lost answer from a lost request, and Slack&rsquo;s <code>chat.postMessage</code> offers no key of its own, so either guess is wrong: post again and the user sees it twice, skip and the message is gone. The adapter refuses instead. <code>routd</code> exhausts its retries and dead-letters the row, which puts it in front of an operator. Visible beats doubled.</p>
 
@@ -164,7 +164,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/channels.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-18">2026-08-18</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-04">2026-09-04</time>
       </div>
     </main>
 

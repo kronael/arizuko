@@ -58,7 +58,7 @@
 
     <p>runed is the execution plane: a pure container-spawner. It serves the work queue, starts one Docker container per spawn, enforces the run timeout, and brokers a downscoped capability token for that single spawn. It is the <strong>only</strong> daemon wired to the Docker socket. It never appends a message (<a href="routd.html">routd</a> is the sole appender) and never signs a token (<a href="authd.html">authd</a> is the sole signer).</p>
 
-    <p>runed owns <code>runed.db</code> and migrates it itself &mdash; the runtime tables (<code>spawns</code>, <code>session_log</code>, <code>spawn_logs</code>, <code>mcp_tokens</code>) that have no home in routd.</p>
+    <p>runed owns its tables and creates them itself &mdash; the runtime tables (<code>spawns</code>, <code>session_log</code>, <code>spawn_logs</code>, <code>mcp_tokens</code>) that have no home in routd.</p>
 
     <h2>Why it exists</h2>
     <p>A turn is one ephemeral container run. (See the <a href="../concepts/primitives.html">Turn primitive</a>.) Something has to own the Docker socket, and only one thing should: the socket is the keys to the host, so concentrating it in one small daemon keeps the blast radius small. runed is that daemon.</p>
@@ -82,7 +82,7 @@
         +-- timeout / SIGUSR1 steer / stop->kill->rm -f --&gt; runed</code></pre>
     </div>
 
-    <p>Inputs: <code>POST /v1/runs</code> from routd (the routd&harr;runed contract); a <code>service:runed</code> token from authd it uses as the parent when brokering each spawn token. Outputs: a running container; status and kill over <code>/v1/runs/{run_id}</code>; spawn and session rows in <code>runed.db</code>.</p>
+    <p>Inputs: <code>POST /v1/runs</code> from routd (the routd&harr;runed contract); a <code>service:runed</code> token from authd it uses as the parent when brokering each spawn token. Outputs: a running container; status and kill over <code>/v1/runs/{run_id}</code>; spawn and session rows in its own tables.</p>
 
     <p>Hard deps: the Docker socket on the host; <a href="authd.html">authd</a> as the token broker and JWKS source; <a href="routd.html">routd</a>, which hosts the per-turn MCP socket and receives the agent&rsquo;s tool calls. When <code>EGRESS_IMAGE</code> is set, runed also starts one <a href="egress.html">egress</a> proxy per spawn from that image, on the folder&rsquo;s <code>--internal</code> network, and stops it with the turn.</p>
 
@@ -124,7 +124,7 @@ export CONTAINER_IMAGE=arizuko-ant:latest
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/runed.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-04">2026-09-04</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-05">2026-09-05</time>
       </div>
     </main>
 

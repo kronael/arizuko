@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Self-hosted platform for many specialized agents. Each agent is a folder you shape in plain language; the whole instance — agent folders plus SQLite — lives in one directory on your server."
+      content="Self-hosted platform for many specialized agents. Each agent is a folder you shape in plain language; the whole instance — agent folders plus every row — lives in one directory on your server."
     />
     <title>arizuko — many specialized agents, one self-hosted platform</title>
     <link rel="stylesheet" href="assets/hub.css" />
@@ -61,7 +61,7 @@
         authorizes, <code>runed</code> runs each turn in a fresh container,
         <code>authd</code> issues identity &mdash; hard walls around what
         language can reshape. Agent content lands as plain files; routes,
-        grants, and secrets are rows in SQLite right next to them &mdash; one
+        grants, and secrets are rows in the store right next to them &mdash; one
         directory on your server holds both. You change an agent in chat,
         then read the diff on disk.
       </p>
@@ -190,7 +190,7 @@ arizuko run demo                       # compose up; @mention the bot in a chann
           and network reach is bounded by mounts and egress; then the
           container exits.</li>
         <li><strong>State</strong> &mdash; two durable stores, by design:
-          the SQLite databases and the agent&rsquo;s folder on disk.</li>
+          the tables and the agent&rsquo;s folder on disk.</li>
       </ul>
       <p>
         Identity is the coordinate system the six are addressed in &mdash;
@@ -220,11 +220,11 @@ arizuko run demo                       # compose up; @mention the bot in a chann
       <p>An instance is one directory. Everything the system is lives in it:</p>
       <pre><code>/srv/data/arizuko_demo/
 &#9500;&#9472;&#9472; .env                 tokens + config
-&#9500;&#9472;&#9472; store/               one dir per owner &mdash; SQLite WAL
-&#9474;   &#9500;&#9472;&#9472; routd/routd.db   chats, routes, grants
-&#9474;   &#9500;&#9472;&#9472; runed/runed.db   agent runs
-&#9474;   &#9500;&#9472;&#9472; authd/auth.db    logins + signing keys
-&#9474;   &#9492;&#9472;&#9472; onbod/onbod.db   onboarding
+&#9500;&#9472;&#9472; store/               every row, one owner at a time
+&#9474;   &#9500;&#9472;&#9472; routd/           chats, routes, grants
+&#9474;   &#9500;&#9472;&#9472; runed/           agent runs
+&#9474;   &#9500;&#9472;&#9472; authd/           logins + signing keys
+&#9474;   &#9492;&#9472;&#9472; onbod/           onboarding
 &#9500;&#9472;&#9472; groups/
 &#9474;   &#9500;&#9472;&#9472; main/            one agent
 &#9474;   &#9474;   &#9500;&#9472;&#9472; PERSONA.md   who it is
@@ -249,8 +249,10 @@ arizuko run demo                       # compose up; @mention the bot in a chann
 
       <h2>honest constraints</h2>
       <ul>
-        <li><strong>Linux + Docker + SQLite.</strong> One host. No
-          Kubernetes, no Postgres, no Redis &mdash; and none required.</li>
+        <li><strong>Linux + Docker.</strong> One host, no Kubernetes, no
+          Redis. Each owner keeps a SQLite file by default; swap in the store
+          server and all four live on one endpoint instead, still inside this
+          directory.</li>
         <li><strong>Self-hosted only.</strong> There&rsquo;s no managed
           control plane. That&rsquo;s the feature, not an oversight.</li>
         <li><strong>The split is the topology.</strong> A minimal deploy is
@@ -296,9 +298,9 @@ arizuko run demo                       # compose up; @mention the bot in a chann
       </ul>
 
       <p class="dim" style="margin-top: 2em; font-size: 0.9em">
-        MIT &middot; Go + SQLite (WAL) + Docker.
+        MIT &middot; Go + Docker.
       </p>
-      <p class="docs-footer">updated <time class="docs-updated" datetime="2026-08-18">2026-08-18</time></p>
+      <p class="docs-footer">updated <time class="docs-updated" datetime="2026-08-27">2026-08-27</time></p>
     </div>
     <button class="theme-toggle">&#127769;</button>
     <script src="assets/hub.js"></script>
