@@ -16,13 +16,15 @@
 # directory sits under the instance directory where backup and restore own it —
 # unlike litellm_db, whose named volume belongs to the gateway.
 #
-# The server's config, encryption key and certificate live in the same mount,
-# which the image's own uid (10001) must be able to write; `arizuko create`
-# makes the two directories with that owner.
+# Both services run as uid 1000, the uid every arizuko daemon runs as and the
+# owner `generate` gives everything under store/. The images' own uids (10001
+# for the server, 999 for PostgreSQL) would each need their own owner on a
+# mount inside that tree, and one of them would lose it on the next generate.
 services:
   extenddb:
     container_name: ${APP}_extenddb_${FLAVOR}
     image: ghcr.io/extenddb/extenddb-postgres:0.1.11
+    user: '1000:1000'
     volumes:
       - '${DATA_DIR}/store/extenddb:/var/lib/extenddb'
     healthcheck:
@@ -45,6 +47,7 @@ services:
   extenddb_db:
     container_name: ${APP}_extenddb_db_${FLAVOR}
     image: postgres:17-alpine
+    user: '1000:1000'
     environment:
       # The instance owns the role, so the role IS the instance: arizuko_krons
       # administers arizuko_krons's databases and nobody else's.
