@@ -40,11 +40,14 @@ func main() {
 				slog.Error("slack init failed", "err", err)
 				return nil, nil, err
 			}
-			if cfg.RoutdDSN != "" {
-				// Pane reads hit routd.db — routd OWNS pane_sessions in the split
-				// topology (spec 5/5), and slakd writes panes there via routd HTTP
-				// (paneWrite). Reading from the same DB keeps read-after-write coherent.
-				st, err := store.OpenRoutdAt(cfg.RoutdDSN)
+			// Pane reads hit routd's tables — routd OWNS pane_sessions in the
+			// split topology (spec 5/5), and slakd writes panes there via routd
+			// HTTP (paneWrite). Reading from the same store keeps read-after-write
+			// coherent. store.OpenOwner is the door; a served instance names no
+			// file, so the endpoint decides on its own whether there is a store to
+			// open and RoutdDSN decides only for a file instance.
+			if store.Served() || cfg.RoutdDSN != "" {
+				st, err := store.OpenOwner(store.OwnerRoutd, cfg.RoutdDSN)
 				if err != nil {
 					slog.Error("slack store open failed", "path", cfg.RoutdDSN, "err", err)
 					return nil, nil, err

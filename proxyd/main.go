@@ -929,13 +929,15 @@ func main() {
 	// writes its audit rows here too (audit.Init below) — one store, no
 	// messages.db straddle.
 	//
-	// DB_PATH is the door: it names routd's database and may be a postgres:// URL,
-	// the same env gitd, slakd and dashd already read (spec 6/37 step 6). Unset, it
-	// is the owner file under the store dir.
-	stRoutd, err := store.OpenRoutdAt(cmp.Or(os.Getenv("DB_PATH"),
+	// store.OpenOwner is the door: on an instance served from a DynamoDB
+	// endpoint it dials routd's tables there, and otherwise it opens the file
+	// DB_PATH names — which may be a postgres:// URL, the same env gitd, slakd
+	// and dashd already read (spec 6/37 step 6). Unset, it is the owner file
+	// under the store dir.
+	stRoutd, err := store.OpenOwner(store.OwnerRoutd, cmp.Or(os.Getenv("DB_PATH"),
 		store.OwnerDBPath(coreCfg.StoreDir, store.OwnerRoutd)))
 	if err != nil {
-		slog.Error("open routd.db", "err", err)
+		slog.Error("open routd's store", "err", err)
 		os.Exit(1)
 	}
 	defer stRoutd.Close()

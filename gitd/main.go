@@ -28,12 +28,13 @@ func main() {
 		Prefixes:   []string{"github:"},
 		Caps:       capsFor(cfg.Token),
 		Start: func(ctx context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
-			// github_sources lives in routd.db: gitd reads the sealed secret per
+			// github_sources is routd's: gitd reads the sealed secret per
 			// delivery and never writes — registration is routd's REST/MCP face
-			// and the CLI.
-			st, err := store.OpenRoutdAt(cfg.RoutdDSN)
+			// and the CLI. store.OpenOwner is the door, so a served instance
+			// dials the endpoint and a file instance opens RoutdDSN.
+			st, err := store.OpenOwner(store.OwnerRoutd, cfg.RoutdDSN)
 			if err != nil {
-				slog.Error("routd.db open failed", "path", cfg.RoutdDSN, "err", err)
+				slog.Error("routd store open failed", "path", cfg.RoutdDSN, "err", err)
 				return nil, nil, err
 			}
 			keyring, err := core.RequireSecretKeyring(cfg.SecretsKey)
