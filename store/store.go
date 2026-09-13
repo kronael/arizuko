@@ -184,9 +184,15 @@ func OpenMem() (*Store, error) {
 	return &Store{db: db, obj: sqlstore.New(db), release: release}, nil
 }
 
+// Close ends what the open holds. A store served from a handle holds no pool,
+// so there is nothing to close and every daemon's `defer Close` stays correct
+// on either instance.
 func (s *Store) Close() error {
-	if s.release != nil {
+	switch {
+	case s.release != nil:
 		return s.release()
+	case s.db == nil:
+		return nil
 	}
 	return s.db.Close()
 }
