@@ -402,7 +402,7 @@ func describeGrant(row resources.ACLRow) string {
 // operator who ran the CLI — a package brings the grants and the routes, but a
 // person chose to install it, and that is who the trail must name.
 func packageStore(rdb *routd.DB) *store.Store {
-	return store.New(rdb.SQL()).AsCLI(os.Getenv("USER"))
+	return store.NewOver(rdb.Obj()).AsCLI(os.Getenv("USER"))
 }
 
 // pkgFragment is one subsystem's worth of a package's declared rows: resource
@@ -541,11 +541,11 @@ func pkgSubsystemStores(dataDir string, rdb *routd.DB, subsystems []string) (map
 			continue
 		}
 		if s != resreg.SubsystemOnbod {
-			die("Failed: package manifest targets subsystem %q, which no owner DB serves", s)
+			die("Failed: package manifest targets subsystem %q, which no owner serves", s)
 		}
-		ob, err := store.OpenOnbod(filepath.Join(dataDir, "store"))
+		ob, err := mustOpenOwner(store.OwnerOnbod, dataDir)
 		if err != nil {
-			die("Failed: open onbod.db: %v", err)
+			die("Failed: open onbod's store: %v", err)
 		}
 		stores[s] = ob.AsCLI(os.Getenv("USER"))
 		closers = append(closers, func() { ob.Close() })
@@ -662,7 +662,7 @@ func removePkgRows(dataDir string, rdb *routd.DB, rec routd.InstalledPackage) {
 // unmentioned resource alone, so naming the other ten would rebuild ten tables
 // (and count them in the audit row) to no purpose.
 func pkgProjection(st *store.Store, subsystem string) map[string]any {
-	live, err := resreg.Export(resreg.OnDB(st.DB()), subsystem)
+	live, err := resreg.Export(resreg.On(st.Obj()), subsystem)
 	if err != nil {
 		die("Failed: read %s config: %v", subsystem, err)
 	}
@@ -672,7 +672,7 @@ func pkgProjection(st *store.Store, subsystem string) map[string]any {
 // pkgDoc stamps the projection with the checksum it was read at, so the apply's
 // in-tx recheck refuses instead of clobbering a concurrent writer.
 func pkgDoc(st *store.Store, subsystem string, manifest map[string]any, prune ...string) parsedDoc {
-	sum, err := resreg.Checksum(resreg.OnDB(st.DB()), subsystem)
+	sum, err := resreg.Checksum(resreg.On(st.Obj()), subsystem)
 	if err != nil {
 		die("Failed: checksum %s: %v", subsystem, err)
 	}

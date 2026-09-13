@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"text/tabwriter"
 
 	"github.com/kronael/arizuko/store"
@@ -14,9 +13,9 @@ func cmdNetwork(args []string) {
 	instance, action := args[0], args[1]
 
 	dataDir := mustInstanceDir(instance)
-	s, err := store.OpenRoutd(filepath.Join(dataDir, "store"))
+	s, err := mustOpenOwner(store.OwnerRoutd, dataDir)
 	if err != nil {
-		die("Failed: open db: %v", err)
+		die("Failed: open routd's store: %v", err)
 	}
 	defer s.Close()
 

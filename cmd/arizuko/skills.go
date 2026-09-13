@@ -33,7 +33,7 @@ func syncPackageSkills(dataDir string) {
 	rdb := mustOpenRoutd(dataDir)
 	defer rdb.Close()
 
-	groups := store.New(rdb.SQL()).AllGroups()
+	groups := store.NewOver(rdb.Obj()).AllGroups()
 	folders := make([]string, 0, len(groups))
 	for folder := range groups {
 		folders = append(folders, folder)

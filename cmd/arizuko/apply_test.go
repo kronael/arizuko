@@ -83,7 +83,7 @@ func openInstance(t *testing.T) (string, map[string]*store.Store) {
 
 func routdChecksum(t *testing.T, st *store.Store) string {
 	t.Helper()
-	c, err := resreg.Checksum(resreg.OnDB(st.DB()), resreg.SubsystemRoutd)
+	c, err := resreg.Checksum(resreg.On(st.Obj()), resreg.SubsystemRoutd)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestOpenSubsystemStores_RealFiles(t *testing.T) {
 	// A write through the returned *store.Store actually lands in the
 	// separate file on disk, proving these are not two handles onto the
 	// same DB.
-	if _, err := resreg.Apply(context.Background(), resreg.OnDB(rst.DB()), resreg.SubsystemRoutd, routdChecksum(t, rst), false, map[string]any{
+	if _, err := resreg.Apply(context.Background(), resreg.On(rst.Obj()), resreg.SubsystemRoutd, routdChecksum(t, rst), false, map[string]any{
 		"routes": []resources.RoutesRow{{Seq: 0, Match: "", Target: "atlas"}},
 	}, nil); err != nil {
 		t.Fatalf("Apply to routd store: %v", err)
@@ -144,7 +144,7 @@ routes:
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = resreg.Apply(context.Background(), resreg.OnDB(st.DB()), resreg.SubsystemRoutd, checksum, false, parsed, nil)
+	_, err = resreg.Apply(context.Background(), resreg.On(st.Obj()), resreg.SubsystemRoutd, checksum, false, parsed, nil)
 	if err == nil {
 		t.Fatal("expected CAS reject")
 	}
@@ -168,7 +168,7 @@ routes:
 	if err != nil {
 		t.Fatal(err)
 	}
-	newSum, err := resreg.Apply(context.Background(), resreg.OnDB(st.DB()), resreg.SubsystemRoutd, checksum, false, parsed, nil)
+	newSum, err := resreg.Apply(context.Background(), resreg.On(st.Obj()), resreg.SubsystemRoutd, checksum, false, parsed, nil)
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestApply_FullRebuild(t *testing.T) {
 		t.Fatal(err)
 	}
 	c0 := routdChecksum(t, st)
-	_, err := resreg.Apply(context.Background(), resreg.OnDB(st.DB()), resreg.SubsystemRoutd, c0, false, map[string]any{
+	_, err := resreg.Apply(context.Background(), resreg.On(st.Obj()), resreg.SubsystemRoutd, c0, false, map[string]any{
 		"routes": []resources.RoutesRow{
 			{Seq: 0, Match: "", Target: "ops"},
 		},
@@ -198,7 +198,7 @@ func TestApply_FullRebuild(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
-	got, _ := r.ScanAll(resreg.OnDB(st.DB()))
+	got, _ := r.ScanAll(resreg.On(st.Obj()))
 	rows := got.([]resources.RoutesRow)
 	if len(rows) != 1 {
 		t.Fatalf("after rebuild: %d rows, want 1", len(rows))
@@ -218,13 +218,13 @@ func TestApply_RoundTrip_Idempotent(t *testing.T) {
 			{Seq: 1, Match: "platform=slack", Target: "ops"},
 		},
 	}
-	c1, err := resreg.Apply(context.Background(), resreg.OnDB(st.DB()), resreg.SubsystemRoutd, c0, false, manifest, nil)
+	c1, err := resreg.Apply(context.Background(), resreg.On(st.Obj()), resreg.SubsystemRoutd, c0, false, manifest, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Export → bytes → parse → apply again. Should be a no-op: identical
 	// rows, checksum unchanged.
-	exp, err := resreg.Export(resreg.OnDB(st.DB()), resreg.SubsystemRoutd)
+	exp, err := resreg.Export(resreg.On(st.Obj()), resreg.SubsystemRoutd)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +236,7 @@ func TestApply_RoundTrip_Idempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("re-parse: %v", err)
 	}
-	c2, err := resreg.Apply(context.Background(), resreg.OnDB(st.DB()), resreg.SubsystemRoutd, c1, false, parsed, nil)
+	c2, err := resreg.Apply(context.Background(), resreg.On(st.Obj()), resreg.SubsystemRoutd, c1, false, parsed, nil)
 	if err != nil {
 		t.Fatalf("Apply 2: %v", err)
 	}
@@ -245,7 +245,7 @@ func TestApply_RoundTrip_Idempotent(t *testing.T) {
 	}
 	// Row content should be identical to what we applied.
 	r := resreg.Lookup("routes")
-	got, _ := r.ScanAll(resreg.OnDB(st.DB()))
+	got, _ := r.ScanAll(resreg.On(st.Obj()))
 	rows := got.([]resources.RoutesRow)
 	if len(rows) != 2 {
 		t.Errorf("after round-trip: %d rows, want 2", len(rows))
@@ -259,14 +259,14 @@ func TestApply_ForceBypassesChecksum(t *testing.T) {
 	_, stores := openInstance(t)
 	st := stores[resreg.SubsystemRoutd]
 	c0 := routdChecksum(t, st)
-	if _, err := resreg.Apply(context.Background(), resreg.OnDB(st.DB()), resreg.SubsystemRoutd, c0, false, map[string]any{
+	if _, err := resreg.Apply(context.Background(), resreg.On(st.Obj()), resreg.SubsystemRoutd, c0, false, map[string]any{
 		"routes": []resources.RoutesRow{{Seq: 0, Match: "", Target: "atlas"}},
 	}, nil); err != nil {
 		t.Fatal(err)
 	}
 	// c0 is now stale (the DB moved past it). Force-apply against the stale
 	// checksum succeeds and returns a fresh one reflecting the new content.
-	newSum, err := resreg.Apply(context.Background(), resreg.OnDB(st.DB()), resreg.SubsystemRoutd, c0, true, map[string]any{
+	newSum, err := resreg.Apply(context.Background(), resreg.On(st.Obj()), resreg.SubsystemRoutd, c0, true, map[string]any{
 		"routes": []resources.RoutesRow{{Seq: 0, Match: "", Target: "ops"}},
 	}, nil)
 	if err != nil {
@@ -281,7 +281,7 @@ func TestExport_DeterministicAcrossRuns(t *testing.T) {
 	_, stores := openInstance(t)
 	st := stores[resreg.SubsystemRoutd]
 	c0 := routdChecksum(t, st)
-	_, err := resreg.Apply(context.Background(), resreg.OnDB(st.DB()), resreg.SubsystemRoutd, c0, false, map[string]any{
+	_, err := resreg.Apply(context.Background(), resreg.On(st.Obj()), resreg.SubsystemRoutd, c0, false, map[string]any{
 		"routes": []resources.RoutesRow{
 			{Seq: 0, Match: "z", Target: "atlas"},
 			{Seq: 1, Match: "a", Target: "ops"},
@@ -294,9 +294,9 @@ func TestExport_DeterministicAcrossRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	exp1, _ := resreg.Export(resreg.OnDB(st.DB()), resreg.SubsystemRoutd)
+	exp1, _ := resreg.Export(resreg.On(st.Obj()), resreg.SubsystemRoutd)
 	b1, _ := resreg.EmitYAML(exp1)
-	exp2, _ := resreg.Export(resreg.OnDB(st.DB()), resreg.SubsystemRoutd)
+	exp2, _ := resreg.Export(resreg.On(st.Obj()), resreg.SubsystemRoutd)
 	b2, _ := resreg.EmitYAML(exp2)
 	if string(b1) != string(b2) {
 		t.Errorf("export non-deterministic:\n--- 1 ---\n%s\n--- 2 ---\n%s", b1, b2)
@@ -310,7 +310,7 @@ func TestGetRoundTrip_NoOp(t *testing.T) {
 	_, stores := openInstance(t)
 	st := stores[resreg.SubsystemRoutd]
 	c0 := routdChecksum(t, st)
-	if _, err := resreg.Apply(context.Background(), resreg.OnDB(st.DB()), resreg.SubsystemRoutd, c0, false, map[string]any{
+	if _, err := resreg.Apply(context.Background(), resreg.On(st.Obj()), resreg.SubsystemRoutd, c0, false, map[string]any{
 		"acl": []resources.ACLRow{
 			{Principal: "user:alice", Action: "read", Scope: "atlas/", Effect: "allow"},
 			{Principal: "user:bob", Action: "tasks:*", Scope: "ops/", Effect: "allow"},
@@ -318,7 +318,7 @@ func TestGetRoundTrip_NoOp(t *testing.T) {
 	}, nil); err != nil {
 		t.Fatal(err)
 	}
-	frag, err := resreg.GetResource(resreg.OnDB(st.DB()), "acl")
+	frag, err := resreg.GetResource(resreg.On(st.Obj()), "acl")
 	if err != nil {
 		t.Fatalf("GetResource: %v", err)
 	}
@@ -330,7 +330,7 @@ func TestGetRoundTrip_NoOp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseYAML: %v", err)
 	}
-	d, err := resreg.Lookup("acl").Diff(resreg.OnDB(st.DB()), parsed["acl"])
+	d, err := resreg.Lookup("acl").Diff(resreg.On(st.Obj()), parsed["acl"])
 	if err != nil {
 		t.Fatalf("Diff: %v", err)
 	}
@@ -349,7 +349,7 @@ func TestPlan_MatchesApply(t *testing.T) {
 			{Seq: 0, Match: "platform=tele", Target: "atlas"},
 		},
 	}
-	deltas, err := resreg.Plan(resreg.OnDB(st.DB()), resreg.SubsystemRoutd, manifest)
+	deltas, err := resreg.Plan(resreg.On(st.Obj()), resreg.SubsystemRoutd, manifest)
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
@@ -362,10 +362,10 @@ func TestPlan_MatchesApply(t *testing.T) {
 	if routesDelta == nil || len(routesDelta.Add) != 1 {
 		t.Fatalf("plan routes Add = %+v, want one add", routesDelta)
 	}
-	if _, err := resreg.Apply(context.Background(), resreg.OnDB(st.DB()), resreg.SubsystemRoutd, routdChecksum(t, st), false, manifest, nil); err != nil {
+	if _, err := resreg.Apply(context.Background(), resreg.On(st.Obj()), resreg.SubsystemRoutd, routdChecksum(t, st), false, manifest, nil); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
-	deltas2, err := resreg.Plan(resreg.OnDB(st.DB()), resreg.SubsystemRoutd, manifest)
+	deltas2, err := resreg.Plan(resreg.On(st.Obj()), resreg.SubsystemRoutd, manifest)
 	if err != nil {
 		t.Fatalf("Plan 2: %v", err)
 	}
@@ -420,7 +420,7 @@ func TestCLI_ExportApply_RealFiles(t *testing.T) {
 	_ = srcDir
 	srcRoutd := srcStores[resreg.SubsystemRoutd]
 	c0 := routdChecksum(t, srcRoutd)
-	if _, err := resreg.Apply(context.Background(), resreg.OnDB(srcRoutd.DB()), resreg.SubsystemRoutd, c0, false, map[string]any{
+	if _, err := resreg.Apply(context.Background(), resreg.On(srcRoutd.Obj()), resreg.SubsystemRoutd, c0, false, map[string]any{
 		"routes": []resources.RoutesRow{{Seq: 0, Match: "platform=tele", Target: "atlas"}},
 	}, nil); err != nil {
 		t.Fatalf("seed source: %v", err)
@@ -468,7 +468,7 @@ func TestCLI_ExportApply_RealFiles(t *testing.T) {
 		t.Fatalf("open destination routd.db: %v", err)
 	}
 	defer dstSt.Close()
-	got, err := resreg.Lookup("routes").ScanAll(resreg.OnDB(dstSt.DB()))
+	got, err := resreg.Lookup("routes").ScanAll(resreg.On(dstSt.Obj()))
 	if err != nil {
 		t.Fatal(err)
 	}

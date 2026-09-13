@@ -34,19 +34,19 @@ func subsystemOrder() []string {
 	return []string{resreg.SubsystemRoutd, resreg.SubsystemOnbod}
 }
 
-// openSubsystemStores opens routd.db and onbod.db — the two owner DBs the
-// config manifest spans. Strict: store.OpenRoutd/OpenOnbod error if the
-// owning daemon has never booted to migrate its DB (no silent divergent
-// schema), matching this CLI's existing "die loud" posture.
+// openSubsystemStores opens routd's and onbod's stores — the two owners the
+// config manifest spans. Strict: store.OpenOwner errors if the owning daemon
+// has never booted to make its tables (no silent divergent schema), matching
+// this CLI's existing "die loud" posture.
 func openSubsystemStores(dataDir string) (map[string]*store.Store, error) {
-	routd, err := store.OpenRoutd(dataDir + "/store")
+	routd, err := mustOpenOwner(store.OwnerRoutd, dataDir)
 	if err != nil {
-		return nil, fmt.Errorf("open routd.db: %w", err)
+		return nil, fmt.Errorf("open routd's store: %w", err)
 	}
-	onbod, err := store.OpenOnbod(dataDir + "/store")
+	onbod, err := mustOpenOwner(store.OwnerOnbod, dataDir)
 	if err != nil {
-		routd.Close()
-		return nil, fmt.Errorf("open onbod.db: %w", err)
+		routd.Close() //nolint:errcheck // the open already failed
+		return nil, fmt.Errorf("open onbod's store: %w", err)
 	}
 	return map[string]*store.Store{
 		resreg.SubsystemRoutd: routd,
@@ -133,7 +133,7 @@ func preflightFolders(stores map[string]*store.Store, docs []parsedDoc) []error 
 	for _, d := range docs {
 		manifests = append(manifests, d.manifest)
 	}
-	known, err := resreg.KnownFolders(resreg.OnDB(owner.DB()), manifests...)
+	known, err := resreg.KnownFolders(resreg.On(owner.Obj()), manifests...)
 	if err != nil {
 		return []error{fmt.Errorf("read known folders: %w", err)}
 	}
@@ -204,7 +204,7 @@ func applyDocs(ctx context.Context, stores map[string]*store.Store, docs []parse
 		if !ok {
 			return nil, fmt.Errorf("no store for subsystem %q", d.subsystem)
 		}
-		snapshot, _, _, err := resreg.ExportSnapshot(ctx, resreg.OnDB(st.DB()), d.subsystem)
+		snapshot, _, _, err := resreg.ExportSnapshot(ctx, resreg.On(st.Obj()), d.subsystem)
 		if errors.Is(err, objstore.ErrScopeHeld) {
 			fmt.Fprintf(os.Stderr, "%s is part-applied and still claimed (%v), so it has no "+
 				"pre-image: it cannot be rolled back if a later subsystem fails\n", d.subsystem, err)
@@ -220,7 +220,7 @@ func applyDocs(ctx context.Context, stores map[string]*store.Store, docs []parse
 	var done []committed
 	for _, d := range docs {
 		st := stores[d.subsystem]
-		newSum, aerr := resreg.Apply(ctx, resreg.OnDB(st.DB()), d.subsystem, d.checksum, run.force, d.manifest,
+		newSum, aerr := resreg.Apply(ctx, resreg.On(st.Obj()), d.subsystem, d.checksum, run.force, d.manifest,
 			&resreg.ApplyOpts{Actor: run.actor, ManifestDigest: run.digest, Extra: run.extra,
 				PruneScopes: d.pruneScopes, TakeOver: run.takeOver})
 		if aerr != nil {
@@ -251,7 +251,7 @@ func rollback(ctx context.Context, stores map[string]*store.Store, done []commit
 	var errs []error
 	for i := len(done) - 1; i >= 0; i-- {
 		c := done[i]
-		if _, err := resreg.Apply(ctx, resreg.OnDB(stores[c.subsystem].DB()), c.subsystem, c.postSum, false, c.pre,
+		if _, err := resreg.Apply(ctx, resreg.On(stores[c.subsystem].Obj()), c.subsystem, c.postSum, false, c.pre,
 			&resreg.ApplyOpts{Actor: actor + " (rollback)", PruneScopes: c.scopes}); err != nil {
 			errs = append(errs, fmt.Errorf("restore %s: %w", c.subsystem, err))
 		}
@@ -324,7 +324,7 @@ func cmdApply(args []string) {
 	// Plan first (non-mutating) so the operator sees the delta the apply
 	// commits — spec 5/8 §"Apply lifecycle" step 5 (print plan + ok).
 	for _, d := range docs {
-		if deltas, dperr := resreg.Plan(resreg.OnDB(stores[d.subsystem].DB()), d.subsystem, d.manifest); dperr == nil {
+		if deltas, dperr := resreg.Plan(resreg.On(stores[d.subsystem].Obj()), d.subsystem, d.manifest); dperr == nil {
 			fmt.Printf("--- %s ---\n", d.subsystem)
 			printPlan(deltas)
 		}
@@ -373,11 +373,11 @@ func cmdExport(args []string) {
 	var out []byte
 	for _, subsystem := range subsystemOrder() {
 		st := stores[subsystem]
-		manifest, merr := resreg.Export(resreg.OnDB(st.DB()), subsystem)
+		manifest, merr := resreg.Export(resreg.On(st.Obj()), subsystem)
 		if merr != nil {
 			die("Failed: export %s: %v", subsystem, merr)
 		}
-		sum, cerr := resreg.Checksum(resreg.OnDB(st.DB()), subsystem)
+		sum, cerr := resreg.Checksum(resreg.On(st.Obj()), subsystem)
 		if cerr != nil {
 			die("Failed: checksum %s: %v", subsystem, cerr)
 		}
@@ -435,11 +435,11 @@ func cmdPlan(args []string) {
 	for _, d := range docs {
 		manifest, checksum, subsystem := d.manifest, d.checksum, d.subsystem
 		st := stores[subsystem]
-		dbSum, cerr := resreg.Checksum(resreg.OnDB(st.DB()), subsystem)
+		dbSum, cerr := resreg.Checksum(resreg.On(st.Obj()), subsystem)
 		if cerr != nil {
 			die("Failed: checksum %s: %v", subsystem, cerr)
 		}
-		deltas, derr := resreg.Plan(resreg.OnDB(st.DB()), subsystem, manifest)
+		deltas, derr := resreg.Plan(resreg.On(st.Obj()), subsystem, manifest)
 		if derr != nil {
 			die("Failed: plan %s: %v", subsystem, derr)
 		}
@@ -517,7 +517,7 @@ func cmdGet(args []string) {
 	if !ok {
 		die("Failed: resource %q has no configured owner subsystem %q", resource, r.DB)
 	}
-	frag, err := resreg.GetResource(resreg.OnDB(st.DB()), resource)
+	frag, err := resreg.GetResource(resreg.On(st.Obj()), resource)
 	if err != nil {
 		die("Failed: get %s: %v", resource, err)
 	}

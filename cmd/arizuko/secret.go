@@ -23,7 +23,7 @@ import (
 // The keyring is REQUIRED. Without it a write cannot seal and a read returns
 // ciphertext, so the command refuses instead of degrading (BUGS S2).
 func openStoreWithKey(dataDir string) (*store.Store, error) {
-	s, err := store.OpenRoutd(filepath.Join(dataDir, "store"))
+	s, err := mustOpenOwner(store.OwnerRoutd, dataDir)
 	if err != nil {
 		return nil, err
 	}

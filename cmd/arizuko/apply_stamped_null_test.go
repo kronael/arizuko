@@ -64,13 +64,13 @@ func TestExportApplyIsNoOpForNullStampedColumn(t *testing.T) {
 		t.Fatal("fixture is vacuous: the seeded group already carries an updated_at")
 	}
 
-	before, err := resreg.Checksum(resreg.OnDB(st.DB()), resreg.SubsystemRoutd)
+	before, err := resreg.Checksum(resreg.On(st.Obj()), resreg.SubsystemRoutd)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// The operator's honest workflow: export, review, apply unmodified.
-	exp, err := resreg.Export(resreg.OnDB(st.DB()), resreg.SubsystemRoutd)
+	exp, err := resreg.Export(resreg.On(st.Obj()), resreg.SubsystemRoutd)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestExportApplyIsNoOpForNullStampedColumn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("re-parse: %v", err)
 	}
-	after, err := resreg.Apply(context.Background(), resreg.OnDB(st.DB()), resreg.SubsystemRoutd, before, false, parsed, nil)
+	after, err := resreg.Apply(context.Background(), resreg.On(st.Obj()), resreg.SubsystemRoutd, before, false, parsed, nil)
 	if err != nil {
 		t.Fatalf("apply: %v", err)
 	}
@@ -105,11 +105,11 @@ func TestApplyStillStampsAFieldWithNoWriteHook(t *testing.T) {
 	_, stores := openInstance(t)
 	st := stores[resreg.SubsystemRoutd]
 
-	sum, err := resreg.Checksum(resreg.OnDB(st.DB()), resreg.SubsystemRoutd)
+	sum, err := resreg.Checksum(resreg.On(st.Obj()), resreg.SubsystemRoutd)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := resreg.Apply(context.Background(), resreg.OnDB(st.DB()), resreg.SubsystemRoutd, sum, false, map[string]any{
+	if _, err := resreg.Apply(context.Background(), resreg.On(st.Obj()), resreg.SubsystemRoutd, sum, false, map[string]any{
 		"groups": []resources.GroupsRow{{Folder: "acme", Product: "assistant"}},
 	}, nil); err != nil {
 		t.Fatalf("apply: %v", err)

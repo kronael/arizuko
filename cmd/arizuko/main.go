@@ -323,7 +323,13 @@ func cmdCreate(args []string) {
 	// knows a NEW instance is intended. A zero-byte file is a valid empty SQLite
 	// DB — each daemon migrates its own schema into it on first boot, so the CLI
 	// needs no migration set for authd/onbod (both are package main).
-	seedOwnerDBs(storeDir)
+	//
+	// An instance served from an endpoint has no file to seed: what a new one
+	// needs there is the entities, which routd.Create makes below for its own
+	// owner and each other daemon makes for its own at boot.
+	if !store.Served() {
+		seedOwnerDBs(storeDir)
+	}
 	// groups + scheduled_tasks live in routd.db, so the default group is seeded
 	// there and a new instance is born WITHOUT a messages.db. Seeding the frozen
 	// monolith instead left `main` in a DB no daemon opens (BUGS.md Q1).
@@ -334,14 +340,16 @@ func cmdCreate(args []string) {
 	// under store/ (SQLITE_CANTOPEN). chown store/ — and only store/ — to 1000
 	// so every daemon's DB is writable; the data-dir root and .env stay
 	// root-owned (matches the working krons layout).
-	chownStore(storeDir)
+	if !store.Served() {
+		chownStore(storeDir)
+	}
 	if err := rdb.PutGroup(core.Group{Folder: "main", AddedAt: time.Now(), Product: product}); err != nil {
 		die("Failed: add default group: %v", err)
 	}
 	if err := container.SetupGroup(cfg, "main", productDir); err != nil {
 		slog.Warn("failed to setup group dir", "folder", "main", "err", err)
 	}
-	if err := store.New(rdb.SQL()).SeedDefaultTasks("main", "main"); err != nil {
+	if err := store.NewOver(rdb.Obj()).SeedDefaultTasks("main", "main"); err != nil {
 		slog.Warn("failed to seed default tasks", "folder", "main", "err", err)
 	}
 	fmt.Printf("created instance %s at %s\n", name, dataDir)
@@ -558,25 +566,34 @@ func cmdGroup(args []string) {
 var errEmptyGrant = fmt.Errorf("sub and pattern must be non-empty")
 
 // mustOpenACL opens the *Store holding acl + acl_membership for the grant write
-// path. routd OWNS them in routd.db (spec 5/5); the CLI mounts the data dir and
-// writes there directly — same FS-access discipline, no token plumbing.
+// path. routd OWNS them (spec 5/5); the CLI reaches them through store's own
+// door, which answers the endpoint a served instance keeps them on and
+// otherwise the file under the data dir it mounts — same access discipline, no
+// token plumbing.
 func mustOpenACL(dataDir string) *store.Store {
-	s, err := store.OpenRoutd(filepath.Join(dataDir, "store"))
+	s, err := mustOpenOwner(store.OwnerRoutd, dataDir)
 	if err != nil {
-		die("Failed: open routd.db: %v", err)
+		die("Failed: open routd's store: %v", err)
 	}
 	return s
 }
 
 // mustOpenOnbod opens the *Store holding onbod's OWNED tables (invites +
-// onboarding_gates) for the invite/gate write path. onbod OWNS them in onbod.db
-// (spec 5/5); the CLI writes there directly — same FS-access discipline.
+// onboarding_gates) for the invite/gate write path. onbod OWNS them (spec 5/5)
+// and the CLI writes them the same way.
 func mustOpenOnbod(dataDir string) *store.Store {
-	s, err := store.OpenOnbod(filepath.Join(dataDir, "store"))
+	s, err := mustOpenOwner(store.OwnerOnbod, dataDir)
 	if err != nil {
-		die("Failed: open onbod.db: %v", err)
+		die("Failed: open onbod's store: %v", err)
 	}
 	return s
+}
+
+// mustOpenOwner is the one place this binary names an owner's target: the file
+// under <dataDir>/store, which store.OpenOwner ignores on an instance served
+// from an endpoint.
+func mustOpenOwner(owner, dataDir string) (*store.Store, error) {
+	return store.OpenOwner(owner, store.OwnerDBPath(filepath.Join(dataDir, "store"), owner))
 }
 
 // runGrant writes acl rows through the AUDITED AddACLRow / AddMembership:

@@ -2,25 +2,23 @@ package main
 
 import (
 	"crypto/ecdsa"
-	"crypto/x509"
-	"encoding/pem"
-	"os"
-	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/authd/authstore"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/store"
 )
 
-// TestMintBearer mints against a fixture auth.db (the same signing_keys shape
-// authd persists) and verifies the token with the key's public half — the
-// exact offline-verify path routd runs on /v1/messages.
+// TestMintBearer mints against a fixture store holding the key the way authd
+// installs it, and verifies the token with the key's public half — the exact
+// offline-verify path routd runs on /v1/messages.
 func TestMintBearer(t *testing.T) {
 	storeDir := t.TempDir()
 	key, err := auth.NewSigningKey("test-kid")
@@ -55,31 +53,20 @@ func TestMintBearer(t *testing.T) {
 
 func TestMintBearerNoActiveKey(t *testing.T) {
 	storeDir := t.TempDir()
-	adb, err := db_utils.Open(filepath.Join(storeDir, "auth.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := adb.Exec(`CREATE TABLE signing_keys (kid TEXT, priv_pem TEXT, pub_pem TEXT, active INT, created_at TEXT, retired_at TEXT)`); err != nil {
-		t.Fatal(err)
-	}
-	if err := adb.Close(); err != nil {
-		t.Fatal(err)
-	}
+	openAuthStore(t, storeDir)
 	if _, _, err := mintBearer(storeDir, "eval", "user:cli", []string{"messages:read"}, time.Hour); err == nil {
 		t.Fatal("expected error with no active key")
 	}
 }
 
-// seedAuthDB writes a minimal signing_keys row matching authd's schema.
-// seedAuthDB writes the fixture at the SAME path production uses —
-// store.OwnerDBPath, not a hand-built join. It used to build
-// `storeDir/auth.db`, the pre-5/16-step-7 flat path, which is where mintBearer
-// was also still looking: the test and the bug agreed, so it passed while
-// `arizuko token issue bearer` was broken on every migrated instance.
-func seedAuthDB(t *testing.T, storeDir string, key *auth.SigningKey) {
+// openAuthStore prepares authd's entities at the SAME path production uses —
+// store.OwnerDBPath, not a hand-built join. A fixture that built `storeDir/auth.db`
+// agreed with a mintBearer looking at the same pre-5/16-step-7 flat path, so it
+// passed while `arizuko token issue bearer` was broken on every live instance.
+func openAuthStore(t *testing.T, storeDir string) *authstore.Store {
 	t.Helper()
-	path := store.OwnerDBPath(storeDir, "authd")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	path := store.OwnerDBPath(storeDir, store.OwnerAuthd)
+	if err := db_utils.CreateDBFile(path); err != nil {
 		t.Fatal(err)
 	}
 	adb, err := db_utils.Open(path)
@@ -87,18 +74,23 @@ func seedAuthDB(t *testing.T, storeDir string, key *auth.SigningKey) {
 		t.Fatal(err)
 	}
 	// test fixture; close error unactionable
-	defer adb.Close() //nolint:errcheck
-	der, err := x509.MarshalPKCS8PrivateKey(key.Priv)
-	if err != nil {
-		t.Fatal(err)
+	t.Cleanup(func() { adb.Close() }) //nolint:errcheck
+	d := sqlstore.New(adb)
+	for _, entity := range authstore.Entities {
+		if err := d.CreateEntity(t.Context(), entity); err != nil {
+			t.Fatalf("make %s: %v", entity, err)
+		}
 	}
-	privPEM := string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}))
-	if _, err := adb.Exec(`CREATE TABLE signing_keys (kid TEXT, priv_pem TEXT, pub_pem TEXT, active INT, created_at TEXT, retired_at TEXT)`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := adb.Exec(`INSERT INTO signing_keys (kid, priv_pem, active, created_at) VALUES (?, ?, 1, ?)`,
-		key.Kid, privPEM, time.Now().Format(time.RFC3339)); err != nil {
-		t.Fatal(err)
+	return authstore.New(d)
+}
+
+// seedAuthDB installs one signing key the way authd installs it: through
+// authstore, which owns the item shape. A fixture that wrote its own shape
+// would prove nothing about the key mintBearer reads.
+func seedAuthDB(t *testing.T, storeDir string, key *auth.SigningKey) {
+	t.Helper()
+	if err := openAuthStore(t, storeDir).RotateActiveKey(key, time.Now()); err != nil {
+		t.Fatalf("install the signing key: %v", err)
 	}
 }
 

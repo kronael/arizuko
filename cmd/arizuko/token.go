@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/auth"
-	"github.com/kronael/arizuko/db_utils"
+	"github.com/kronael/arizuko/authd/authstore"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -147,36 +147,39 @@ func tokenIssueBearer(st *store.Store, dataDir string, args []string) {
 		sub, folder, scope, exp.Format(time.RFC3339), tok)
 }
 
-// mintBearer loads authd's active signing key from auth.db and signs a
-// folder-scoped user token. Split into a helper so tests can mint against a
-// fixture auth.db and verify with the public half.
+// mintBearer loads authd's active signing key and signs a folder-scoped user
+// token. Split into a helper so tests can mint against a fixture store and
+// verify with the public half.
+//
+// The key is read through authstore, the package that owns the item shape, so
+// this answers on whichever store authd keeps its keys on. store.OwnerDriver is
+// the door: an instance served from an endpoint dials it and ignores storeDir.
+//
+// store.OwnerDBPath, never a hand-built join: 5/16 step 7 moved auth.db into
+// store/authd/, and this kept opening the pre-move flat path — a stray 0-byte
+// file in the exact place the migration notes warn about, from a command that
+// only reads.
 func mintBearer(storeDir, folder, sub string, scopes []string, ttl time.Duration) (string, time.Time, error) {
-	// store.OwnerDBPath, never a hand-built join: 5/16 step 7 moved auth.db into
-	// store/authd/, and this kept opening the pre-move flat path. sql.Open on a
-	// missing SQLite file CREATES it, so the failure was not "no such file" but a
-	// freshly minted EMPTY auth.db at the old path plus "no such table:
-	// signing_keys" — a stray 0-byte file in the exact place the migration notes
-	// warn about, from a command that only reads.
-	path := store.OwnerDBPath(storeDir, "authd")
-	if _, err := os.Stat(path); err != nil {
-		return "", time.Time{}, fmt.Errorf("authd database not found at %s: %w", path, err)
-	}
-	adb, err := db_utils.Open(path)
+	d, closeStore, err := store.OwnerDriver(store.OwnerAuthd,
+		store.OwnerDBPath(storeDir, store.OwnerAuthd))
 	if err != nil {
 		return "", time.Time{}, err
 	}
-	// read-only single query; close error unactionable
-	defer adb.Close() //nolint:errcheck
-	var kid, privPEM string
-	if err := adb.QueryRow(
-		`SELECT kid, priv_pem FROM signing_keys WHERE active = 1`).Scan(&kid, &privPEM); err != nil {
-		return "", time.Time{}, fmt.Errorf("load active signing key (has authd booted?): %w", err)
-	}
-	priv, err := auth.ParseECPrivateKeyPEM(privPEM)
+	// read-only; close error unactionable
+	defer closeStore() //nolint:errcheck
+	keys, err := authstore.New(d).SigningKeysWithMaterial()
 	if err != nil {
-		return "", time.Time{}, fmt.Errorf("parse key %s: %w", kid, err)
+		return "", time.Time{}, fmt.Errorf("load the signing keys (has authd booted?): %w", err)
 	}
-	key := &auth.SigningKey{Kid: kid, Priv: priv}
+	var key *auth.SigningKey
+	for _, k := range keys {
+		if k.Active {
+			key = k.Key
+		}
+	}
+	if key == nil {
+		return "", time.Time{}, fmt.Errorf("no signing key holds the slot (has authd booted?)")
+	}
 	tok, err := key.Sign(auth.TokenClaims{
 		Sub: sub, Typ: "user", Scope: scopes,
 		Extra: map[string]string{"arz/folder": folder},

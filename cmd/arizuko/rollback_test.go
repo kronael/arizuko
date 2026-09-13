@@ -107,7 +107,7 @@ func scalar(t *testing.T, db *sql.DB, q string) int {
 // that only re-applied the pre-image would leave new/team's rows behind.
 func forwardDocs(t *testing.T, stores map[string]*store.Store) []parsedDoc {
 	t.Helper()
-	routdSum, err := resreg.Checksum(resreg.OnDB(stores[resreg.SubsystemRoutd].DB()), resreg.SubsystemRoutd)
+	routdSum, err := resreg.Checksum(resreg.On(stores[resreg.SubsystemRoutd].Obj()), resreg.SubsystemRoutd)
 	if err != nil {
 		t.Fatal(err)
 	}
