@@ -101,12 +101,19 @@ Periodic outages are expected; replan the version on incident.
 
 ## Files
 
-- `src/main.ts` — entry, env, lifecycle, polling loop
-- `src/twitter.ts` — Scraper interface, cookie + cursor persistence,
-  3-path auth
+- `src/main.ts` — entry, env, lifecycle
+- `src/poll.ts` — `pollMentions` and its cursor; the delivery sink is an
+  interface so a test stubs it
+- `src/twitter.ts` — Scraper interface, cookie + cursor persistence, 3-path auth
 - `src/server.ts` — HTTP routes (verbs + `/health`)
 - `src/client.ts` — RouterClient (registration + inbound delivery)
 - `src/verbs.ts` — outbound primitives + JID parsing
+- `src/auth.ts` — the ES256 service-token boundary, both halves; mirrors the Go
+  `chanlib.Auth` path
+- `src/dash.ts` — `GET /dash/twitd/`. The Go adapters get this from
+  `chanlib/dash.go` for free; twitd cannot import chanlib, so this is a second
+  implementation of ONE spec (6/31), not a second design. Keep it in step
+- `src/log.ts` — slog-style structured logging
 
 ## Testing
 
@@ -114,9 +121,9 @@ Periodic outages are expected; replan the version on incident.
 cd twitd && bun test
 ```
 
-42 tests cover server routes, hint behavior, error paths, JID parsing,
-cookie persistence, and the 3-path auth flow. The Scraper is stubbed
-in tests; CI never exercises the real X surface.
+62 tests across 5 files cover server routes, hint behaviour, error paths, JID
+parsing, cookie persistence, the mention poller and the 3-path auth flow. The
+Scraper is stubbed; nothing here exercises the real X surface.
 
 ## Related docs
 

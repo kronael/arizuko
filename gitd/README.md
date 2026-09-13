@@ -27,7 +27,8 @@ arizuko github <inst> rm app/arizuko-krons eng       # 404s the URL, drops the r
 The same three actions are `/v1/github_sources` on routd (REST) and the
 agent's `register_github_source` / `list_github_sources` /
 `revoke_github_source` tools. The secret is sealed under `SECRETS_KEY` in
-routd.db; gitd unseals it per delivery. The path `/github/<kind>/<name>`
+routd's `github_sources`, which gitd reads through `store.OpenOwner` — the
+endpoint when `DYNAMODB_URL` names one — and unseals per delivery. The path `/github/<kind>/<name>`
 selects the secret — the payload never chooses its own verifier — and a
 repo/org source is bound to its repo/org: a payload naming another repo is
 refused with 400 even when the signature is valid.
@@ -67,15 +68,15 @@ on a `github:` JID returns an Unsupported hint.
 
 ## Env
 
-| var              | default                              | note                                          |
-| ---------------- | ------------------------------------ | --------------------------------------------- |
-| `ROUTER_URL`     | required                             |                                               |
-| `SECRETS_KEY`    | required                             | the keyring routd seals `github_sources` with |
-| `DB_PATH`        | `/srv/app/home/store/routd/routd.db` | read-only lookup of the sealed secret         |
-| `DATA_DIR`       | `/srv/app/home/store/gitd`           | `gitd.db`: inbound retention + send dedup     |
-| `GITHUB_TOKEN`   | unset                                | enables `send_text`                           |
-| `GITHUB_API_URL` | `https://api.github.com`             |                                               |
-| `LISTEN_ADDR`    | `:8080`                              |                                               |
+| var              | default                              | note                                                                                                            |
+| ---------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `ROUTER_URL`     | required                             |                                                                                                                 |
+| `SECRETS_KEY`    | required                             | the keyring routd seals `github_sources` with                                                                   |
+| `DB_PATH`        | `/srv/app/home/store/routd/routd.db` | routd's file, for the sealed-secret lookup on a NON-served instance; ignored once `DYNAMODB_URL` is set         |
+| `DATA_DIR`       | `/srv/app/home/store/gitd`           | gitd's own inbound retention + send dedup; the endpoint's `gitd.*` prefix when served, `gitd.db` here otherwise |
+| `GITHUB_TOKEN`   | unset                                | enables `send_text`                                                                                             |
+| `GITHUB_API_URL` | `https://api.github.com`             |                                                                                                                 |
+| `LISTEN_ADDR`    | `:8080`                              |                                                                                                                 |
 
 ## Delivery response
 
@@ -83,7 +84,9 @@ GitHub's "Recent deliveries" tab shows gitd's answer: `200 {"ok":true,"id",
 "jid","verb"}` delivered, `202 {"retained":true}` routd was down and the row
 waits in `gitd.db` for re-delivery, `200 {"dropped":"bot"|"self"}` ignored,
 `401` bad signature, `404` unknown source, `400` payload outside the source or
-refused by routd. `/dash/gitd/` lists the last accepted delivery per source.
+refused by routd. `GET /dash/gitd/` — mounted by `chanlib.NewAdapterMux` from
+the one renderer in `chanlib/dash.go` (spec 6/31) — lists the last accepted
+delivery per source.
 
 ## Coverage
 
