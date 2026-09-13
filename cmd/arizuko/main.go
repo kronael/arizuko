@@ -70,49 +70,38 @@ func main() {
 		fmt.Println("  export   <instance> [output.yaml]")
 		fmt.Println("  archive  export <instance> [file] [--quiesced]  — full backup: config+secrets+messages+group trees")
 		fmt.Println("  archive  apply  <instance> <archive.tar> [--force]")
-		fmt.Println("  migrate-split <instance> [--dry-run]  — populate routd.db + runed.db from messages.db (CUTOVER_SPLIT)")
 		fmt.Println("  probe    <base-url> [--token|-t T] [--foreign-folder|-f F]  — check a live component against the 6/7 contract")
 		os.Exit(1)
 	}
 
 	cmds := map[string]func([]string){
-		"run":               cmdRun,
-		"generate":          cmdGenerate,
-		"proxy-config":      cmdProxyConfig,
-		"create":            cmdCreate,
-		"github":            cmdGithub,
-		"group":             cmdGroup,
-		"gate":              cmdGate,
-		"invite":            cmdInvite,
-		"chat":              cmdChat,
-		"send":              cmdSend,
-		"talk":              cmdTalk, // spec 6/26 gap 1
-		"status":            cmdStatus,
-		"pair":              cmdPair,
-		"network":           cmdNetwork,
-		"route":             cmdRoute,
-		"packages":          cmdPackages, // spec 5/27
-		"products":          cmdProducts, // spec 5/28 composition
-		"secret":            cmdSecret,
-		"user-secret":       cmdUserSecret,
-		"budget":            cmdBudget,
-		"token":             cmdToken,
-		"apply":             cmdApply,   // spec 5/8
-		"plan":              cmdPlan,    // spec 5/8
-		"get":               cmdGet,     // spec 5/8
-		"export":            cmdExport,  // spec 5/8
-		"archive":           cmdArchive, // spec 5/8
-		"migrate-split":     cmdMigrateSplit,
-		"migrate-audit":     cmdMigrateAudit,     // spec 6/37 step 7
-		"migrate-authstore": cmdMigrateAuthstore, // spec 6/37 step 7
-		"migrate-chanlib":   cmdMigrateChanlib,   // spec 6/37 step 7
-		"migrate-emaid":     cmdMigrateEmaid,     // spec 6/37 step 7
-		"migrate-onbod":     cmdMigrateOnbod,     // spec 6/37 step 7
-		"migrate-hot":       cmdMigrateHot,       // spec 6/37 step 7
-		"migrate-routd":     cmdMigrateRoutd,     // spec 6/37 step 7
-		"migrate-runed":     cmdMigrateRuned,     // spec 6/37 step 7
-		"migrate-store":     cmdMigrateStore,     // spec 6/37 step 7
-		"probe":             cmdProbe,            // spec 6/7 component contract
+		"run":          cmdRun,
+		"generate":     cmdGenerate,
+		"proxy-config": cmdProxyConfig,
+		"create":       cmdCreate,
+		"github":       cmdGithub,
+		"group":        cmdGroup,
+		"gate":         cmdGate,
+		"invite":       cmdInvite,
+		"chat":         cmdChat,
+		"send":         cmdSend,
+		"talk":         cmdTalk, // spec 6/26 gap 1
+		"status":       cmdStatus,
+		"pair":         cmdPair,
+		"network":      cmdNetwork,
+		"route":        cmdRoute,
+		"packages":     cmdPackages, // spec 5/27
+		"products":     cmdProducts, // spec 5/28 composition
+		"secret":       cmdSecret,
+		"user-secret":  cmdUserSecret,
+		"budget":       cmdBudget,
+		"token":        cmdToken,
+		"apply":        cmdApply,   // spec 5/8
+		"plan":         cmdPlan,    // spec 5/8
+		"get":          cmdGet,     // spec 5/8
+		"export":       cmdExport,  // spec 5/8
+		"archive":      cmdArchive, // spec 5/8
+		"probe":        cmdProbe,   // spec 6/7 component contract
 	}
 	fn, ok := cmds[os.Args[1]]
 	if !ok {

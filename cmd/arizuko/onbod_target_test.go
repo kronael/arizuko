@@ -1,17 +1,30 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/kronael/arizuko/db_utils"
+	"github.com/kronael/arizuko/objstore/sqlstore"
+	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/store"
 )
 
-// bootstrapOnbodDB creates a migrated onbod.db in dir through bootstrapOnbod —
-// the same copy-target bootstrap migrate-split uses — so mustOpenOnbod's split
-// branch (OpenOnbod) finds the invites entity.
+// bootstrapOnbod prepares onbod's entities on d — the daemon's own boot is what
+// does this on a live instance, and these bodies need them there before the CLI
+// reaches them.
+func bootstrapOnbod(d store.Driver) error {
+	ctx := context.Background()
+	if err := store.PrepareOwner(ctx, d, store.OwnerOnbod); err != nil {
+		return err
+	}
+	return resreg.EnsureSubsystem(ctx, d, d, resreg.SubsystemOnbod)
+}
+
+// bootstrapOnbodDB creates a prepared onbod.db in dir, so the CLI's onbod door
+// finds the invites entity.
 func bootstrapOnbodDB(t *testing.T, dir string) {
 	t.Helper()
 	path := store.OwnerDBPath(dir, store.OwnerOnbod)
@@ -23,7 +36,7 @@ func bootstrapOnbodDB(t *testing.T, dir string) {
 		t.Fatalf("open onbod.db: %v", err)
 	}
 	defer db.Close()
-	if err := bootstrapOnbod(db); err != nil {
+	if err := bootstrapOnbod(sqlstore.New(db)); err != nil {
 		t.Fatalf("onbod.db schema: %v", err)
 	}
 }

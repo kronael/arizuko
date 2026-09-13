@@ -34,6 +34,7 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/db_utils"
+	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/routd"
@@ -57,10 +58,8 @@ func openInstance(t *testing.T) (string, map[string]*store.Store) {
 		t.Fatalf("routd.Open (bootstrap): %v", err)
 	}
 	rdb.Close()
-	// Bootstrap onbod.db via the onbodSchema DDL constant (migrate_split.go,
-	// same package) — onbod's own migration FS is package-private (package
-	// main), so this inline DDL is the established way to create its schema
-	// from outside the onbod package.
+	// onbod's own boot is what prepares its entities on a live instance, and
+	// onbod is package main, so a body outside it asks store for the same set.
 	onbodPath := store.OwnerDBPath(storeDir, store.OwnerOnbod)
 	if err := db_utils.CreateDBFile(onbodPath); err != nil {
 		t.Fatalf("seed onbod.db: %v", err)
@@ -69,7 +68,7 @@ func openInstance(t *testing.T) (string, map[string]*store.Store) {
 	if err != nil {
 		t.Fatalf("open onbod.db (bootstrap): %v", err)
 	}
-	if err := bootstrapOnbod(odb); err != nil {
+	if err := bootstrapOnbod(sqlstore.New(odb)); err != nil {
 		t.Fatalf("onbod.db bootstrap schema: %v", err)
 	}
 	odb.Close()
