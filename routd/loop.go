@@ -19,8 +19,8 @@ import (
 	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/queue"
 	"github.com/kronael/arizuko/router"
-	"github.com/kronael/arizuko/store"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
+	"github.com/kronael/arizuko/store"
 )
 
 // Runner dispatches a rendered batch to the execution plane (runed). The Loop

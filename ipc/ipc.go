@@ -2139,7 +2139,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			})
 		}
 		srv.AddTool(mcp.NewTool("inspect_messages",
-			mcp.WithDescription("Return rows from the local messages.db for one chat_jid, including outbound/bot rows and errored entries. Use for routing/delivery audits or to verify what the store recorded. Not for conversation context before replying (fetch_history), and not for one-thread-only history when the chat fans out into topics (get_thread) — this shows DB truth for the whole chat."),
+			mcp.WithDescription("Return rows from the store for one chat_jid, including outbound/bot rows and errored entries. Use for routing/delivery audits or to verify what the store recorded. Not for conversation context before replying (fetch_history), and not for one-thread-only history when the chat fans out into topics (get_thread) — this shows DB truth for the whole chat."),
 			mcp.WithString("chat_jid", mcp.Required()),
 			mcp.WithNumber("limit"),
 			mcp.WithString("before"),
@@ -2218,7 +2218,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 
 	if db.MessagesByThread != nil {
 		srv.AddTool(mcp.NewTool("get_thread",
-			mcp.WithDescription("Return rows from the local messages.db scoped to one thread (chat_jid + topic). Use when a chat fans out into per-topic conversations (Telegram forum topics, web-chat topics) and you want history for a single thread, not the whole chat. Not for whole-chat history (inspect_messages) or platform-truth context (fetch_history)."),
+			mcp.WithDescription("Return rows from the store scoped to one thread (chat_jid + topic). Use when a chat fans out into per-topic conversations (Telegram forum topics, web-chat topics) and you want history for a single thread, not the whole chat. Not for whole-chat history (inspect_messages) or platform-truth context (fetch_history)."),
 			mcp.WithString("chat_jid", mcp.Required()),
 			mcp.WithString("topic", mcp.Required()),
 			mcp.WithNumber("limit"),

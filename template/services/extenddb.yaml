@@ -6,7 +6,8 @@
 # instance at another server.
 #
 # The admin password and each daemon's access key are NOT here: the server
-# mints them, and `arizuko store-init` writes them into .env as it reads them.
+# mints them, and the operator writes them into .env while reading them
+# (INSTALL.md § The store server).
 env:
   STORE_DB_PASSWORD:
     generate: true

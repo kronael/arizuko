@@ -9,7 +9,7 @@
 # self-signed certificate whose SAN is this service name, mints the account,
 # and hands each daemon its own access key. The server refuses to start
 # without TLS, so the certificate is not optional and every daemon carries it
-# as AWS_CA_BUNDLE. An instance moves once and a printed-once password has to
+# as STORE_CA. An instance moves once and a printed-once password has to
 # reach .env, so that run belongs to a person, not to a subcommand.
 #
 # extenddb_db is arizuko's OWN state, not a vendor's bookkeeping, so its data

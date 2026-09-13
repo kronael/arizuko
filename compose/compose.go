@@ -740,7 +740,7 @@ func Generate(dataDir string) (string, []ProxydRoute, error) {
 	}
 
 	// Store credentials (spec 6/42). The server mints one access key per daemon
-	// and `arizuko store-init` writes it into that daemon's env file; a
+	// and the operator writes it into that daemon's env file; a
 	// regenerate carries it forward for the same reason a service key is
 	// carried: a daemon whose key changed under it signs every request wrong.
 	// It stays OUT of the shared .env, so one daemon's key is not every
