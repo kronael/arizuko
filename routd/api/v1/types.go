@@ -146,7 +146,8 @@ type MessagesResponse struct {
 	Count    int          `json:"count"`
 }
 
-// FoundMessage is one find_messages hit (FTS5 snippet + BM25 rank).
+// FoundMessage is one find_messages hit: the «»-marked snippet and its BM25
+// rank, where lower is the better match.
 type FoundMessage struct {
 	ChatJID      string  `json:"chat_jid"`
 	Sender       string  `json:"sender"`

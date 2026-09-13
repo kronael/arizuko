@@ -294,10 +294,10 @@ type StoreFns struct {
 	LogIPCAudit func(folder, sub, tool, params, outcome string) error
 }
 
-// FoundMessage mirrors store.FoundMessage for the ipc layer
-// (ipc must not import store). One hit from `find_messages`.
-// Content is the FTS5 snippet (matched fragment with «»-highlight),
-// not the full message body. Rank is BM25 — lower is better.
+// FoundMessage mirrors the ranked index's hit for the ipc layer (ipc must not
+// import store). One hit from `find_messages`. Content is the snippet — the
+// matched fragment with «» around each hit — not the full message body. Rank is
+// BM25, and lower is the better match.
 type FoundMessage struct {
 	ChatJID      string    `json:"chat_jid"`
 	Sender       string    `json:"sender"`
@@ -2148,9 +2148,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 
 	if db.FindMessages != nil {
 		srv.AddTool(mcp.NewTool("find_messages",
-			mcp.WithDescription("Full-text search over local messages.db (SQLite FTS5). `query` accepts FTS5 syntax: bare token, \"exact phrase\", `a OR b`, `a NOT b`, `prefix*`, `NEAR(a b, 5)`. Optional `scope` narrows to one chat_jid (contains ':') or a folder subtree (no ':'); `sender` exact-matches the sender column; `since` is an RFC3339 lower bound. Returns up to `limit` hits (default 20, max 200) ordered by BM25 rank. Each row carries chat_jid, sender, timestamp, content snippet (with «»-highlight) and rank. Use to find a past message by content. Not for whole-chat scroll (inspect_messages), single-thread slices (get_thread), or platform-truth fallback (fetch_history)."),
+			mcp.WithDescription("Ranked search over every message this instance has recorded. `query` is words, and ALL of them must appear: `budget review` needs both. \"In double quotes\" matches that exact phrase; a leading `-` excludes (`budget -draft`). There is no OR, no `prefix*` wildcard and no NEAR. Optional `scope` narrows to one chat_jid (contains ':') or a folder subtree (no ':'); `sender` exact-matches the sender; `since` is an RFC3339 lower bound. Returns up to `limit` hits (default 20, max 200), best match first by BM25 rank. Each row carries chat_jid, sender, timestamp, a content snippet with «» around each hit, and the rank. Use to find a past message by content. Not for whole-chat scroll (inspect_messages), single-thread slices (get_thread), or platform-truth fallback (fetch_history)."),
 			mcp.WithString("query", mcp.Required(),
-				mcp.Description("FTS5 query — bare token, phrase, OR/NOT, prefix*, NEAR(...).")),
+				mcp.Description("Words to find, all required; \"quoted\" for an exact phrase; -word to exclude. No OR, no wildcard, no NEAR.")),
 			mcp.WithString("scope",
 				mcp.Description("Optional: chat_jid (contains ':') or folder subtree (no ':').")),
 			mcp.WithString("sender",

@@ -3,14 +3,12 @@ package routd
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"strings"
 	"time"
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/router"
-	"github.com/kronael/arizuko/store"
 )
 
 // reads.go holds the routd.DB query methods backing the agent's read/manage MCP
@@ -35,35 +33,6 @@ func (d *DB) MessagesByThread(jid, topic, before string, limit int) ([]core.Mess
 		return nil, err
 	}
 	return d.store().MessagesByThread(jid, topic, t, limit)
-}
-
-// FoundMessage is one find_messages hit. Content is the FTS5 snippet
-// (matched fragment with «»-highlight); Rank is BM25 (lower is better).
-//
-// It is store's type under routd's name. The hit crosses no boundary — routd's
-// own MCP and REST handlers are the only readers — and a second declaration of
-// the same seven fields is a second thing to keep in step with the one query
-// that fills them.
-type FoundMessage = store.FoundMessage
-
-// FindMessages runs an FTS5 MATCH over messages_fts. `scope` is polymorphic:
-// contains ':' → chat_jid, else a `routed_to` folder subtree. sender is exact;
-// since is an RFC3339 lower bound. ACL filtering is the caller's job.
-//
-// The statement lives in store beside the index declaration and the three
-// triggers that fill it (store/messages_search.go), the way every other message
-// read in this file reaches store. Two copies of an FTS5 join that reads a
-// chat's coordinate is two chances to read the wrong chat's.
-func (d *DB) FindMessages(query, scope, sender, since string, limit int) ([]FoundMessage, error) {
-	// The index is SQLite's, and a routd served from a handle holds no pool for
-	// it. The refusal is here rather than a nil read one layer down, so the
-	// caller is told instead of the daemon dying (spec 6/42 §8 is the index that
-	// answers on either engine).
-	if d.obj != nil {
-		return nil, errors.New("ranked message search reads an FTS5 index, " +
-			"which the store this instance is served from does not hold")
-	}
-	return d.store().FindMessages(query, scope, sender, since, limit)
 }
 
 // DefaultFolderForJID resolves the routing target folder for jid against the

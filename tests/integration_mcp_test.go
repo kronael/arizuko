@@ -23,6 +23,7 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/ipc"
+	"github.com/kronael/arizuko/routd/msgsearch"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -122,7 +123,15 @@ func newFullMCPHarness(t *testing.T, folder string) *fullMCPHarness {
 		MessagesBefore:      s.MessagesBefore,
 		MessagesByThread:    s.MessagesByThread,
 		FindMessages: func(q, scope, sender, since string, limit int) ([]ipc.FoundMessage, error) {
-			rows, err := s.FindMessages(q, scope, sender, since, limit)
+			// The ranked index is derived from the store, so the harness builds
+			// one per search: a test seeds its messages after the wiring, and a
+			// single index built at wiring time would answer every search about
+			// an empty instance (routd walks once at boot and feeds its writes).
+			ix := msgsearch.New()
+			if err := ix.Build(context.Background(), s); err != nil {
+				return nil, err
+			}
+			rows, err := ix.Search(q, scope, sender, since, limit)
 			if err != nil {
 				return nil, err
 			}

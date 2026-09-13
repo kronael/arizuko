@@ -15,6 +15,7 @@ import (
 	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/objstore/sqlstore"
+	"github.com/kronael/arizuko/routd/msgsearch"
 	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
 )
@@ -49,6 +50,13 @@ type DB struct {
 	// release closes the pool and drops the database OpenMem reserved. A DB
 	// opened against a file leaves the file alone, and Close closes the pool.
 	release func() error
+
+	// search is the ranked message index every find_messages answers from, and
+	// searchStop ends its boot walk. Both are set by every door that builds a
+	// DB, so no door can hand back one whose search is a nil dereference
+	// (search.go).
+	search     *msgsearch.Index
+	searchStop context.CancelFunc
 }
 
 // SetSurrogate wires the surrogate-OAuth engine used by ConnectorSecrets to
@@ -172,15 +180,6 @@ func open(dsn string) (*DB, error) {
 		sqldb.Close()
 		return nil, err
 	}
-	// Ranked search reads an FTS5 index over the message entity's content, which
-	// the driver knows nothing about: it is SQLite's, and its triggers cannot be
-	// declared until the entity they fire on exists. store owns the declaration
-	// beside the query that reads it (store/messages_search.go), and routd is the
-	// sole appender of messages, so this is where the index is kept in shape.
-	if err := store.EnsureMessageSearch(ctx, sqldb); err != nil {
-		sqldb.Close()
-		return nil, err
-	}
 	// The floor a routd.db is born with: role:operator's root grant, role:member's
 	// twelve messaging verbs and the two instance-wide egress rules. A seed is a
 	// row and a row an entity holds goes in through that entity's own writer, so
@@ -196,12 +195,18 @@ func open(dsn string) (*DB, error) {
 		sqldb.Close()
 		return nil, err
 	}
-	return &DB{db: sqldb}, nil
+	d := &DB{db: sqldb}
+	d.startSearch()
+	return d, nil
 }
 
 // Close ends what the open holds. A routd served from a handle holds no pool,
-// so there is nothing to close.
+// so the pool is the only half that may be absent: the index's boot walk is
+// stopped either way, or it reads on against a store its owner has released.
 func (d *DB) Close() error {
+	if d.searchStop != nil {
+		d.searchStop()
+	}
 	switch {
 	case d.release != nil:
 		return d.release()
@@ -298,7 +303,21 @@ func (d *DB) RemoveGroupWatcher(observer, source string) error {
 
 // PutMessage appends one message row. routd is the only writer, and store owns
 // the item shape and the three indexes one write fans out into.
-func (d *DB) PutMessage(m core.Message) error { return d.store().PutMessage(m) }
+//
+// The ranked index is fed here, from the row rendered BEFORE the write, so the
+// refusal a bad position earns is the store's own and a committed message is
+// never reported as a failure (search.go).
+func (d *DB) PutMessage(m core.Message) error {
+	row, err := store.IndexedFrom(m)
+	if err != nil {
+		return err
+	}
+	if err := d.store().PutMessage(m); err != nil {
+		return err
+	}
+	d.search.Put(row)
+	return nil
+}
 
 // PutOutbound appends one outbound row and the delivery state it still owes.
 // `sent` writes no delivery item, which is what makes it the absence of one.
@@ -310,7 +329,16 @@ func (d *DB) PutOutbound(m core.Message, status string) error {
 // clears its attachments, so the observed-context render on later turns sees the
 // transcript rather than the raw refs.
 func (d *DB) EnrichMessage(m core.Message, content string) error {
-	return d.store().EnrichMessage(m, content)
+	row, err := store.IndexedFrom(m)
+	if err != nil {
+		return err
+	}
+	if err := d.store().EnrichMessage(m, content); err != nil {
+		return err
+	}
+	row.Content = content
+	d.search.Put(row)
+	return nil
 }
 
 // NewMessagesForChat returns one chat's rows after its own watermark, oldest
@@ -405,9 +433,18 @@ func (d *DB) MarkMessagesErrored(msgs []core.Message) error {
 }
 
 // DeleteErroredMessages drops a chat's errored rows and the index entries that
-// point at them, so the next inbound starts the chat from a clean batch.
+// point at them, so the next inbound starts the chat from a clean batch. The
+// positions it answers with leave the ranked index too: a deleted message that
+// goes on answering searches reports content nobody can read back.
 func (d *DB) DeleteErroredMessages(chatJID string) error {
-	return d.store().DeleteErroredMessages(context.Background(), chatJID)
+	gone, err := d.store().DeleteErroredMessages(context.Background(), chatJID)
+	if err != nil {
+		return err
+	}
+	for _, sortKey := range gone {
+		d.search.Remove(chatJID, sortKey)
+	}
+	return nil
 }
 
 // CountErroredChats counts chats flagged errored — the /status surface. Reads
@@ -515,7 +552,23 @@ func (d *DB) IsEngaged(jid, topic string) bool {
 // folder's ambient context without firing a turn. The folder feed is stamped in
 // the same write, because that feed is what the ambient read asks.
 func (d *DB) MarkMessagesObserved(folder string, msgs []core.Message) error {
-	return d.store().MarkMessagesObserved(context.Background(), folder, msgs)
+	rows := make([]store.IndexedMessage, len(msgs))
+	for i, m := range msgs {
+		row, err := store.IndexedFrom(m)
+		if err != nil {
+			return err
+		}
+		row.RoutedTo = folder
+		rows[i] = row
+	}
+	if err := d.store().MarkMessagesObserved(context.Background(), folder, msgs); err != nil {
+		return err
+	}
+	// The stamp is what the folder-subtree scope of a search reads, so an
+	// observed message the index still holds as unrouted is unfindable by the
+	// folder it was ingested into.
+	d.search.Put(rows...)
+	return nil
 }
 
 // Routes returns the route table in the order the router resolves it: seq
@@ -928,8 +981,11 @@ func defaultStatus(s string) string {
 }
 
 // OpenOver serves routd from a handle the caller owns. The caller has already
-// made the entities; there is no chain to run and no index to build, because
-// neither belongs to a store addressed by key.
+// made the entities and there is no chain to run, because a chain does not
+// belong to a store addressed by key. The ranked message index does: it is
+// memory, derived from whatever the handle holds, so this door walks it too.
 func OpenOver(obj objstore.Store) *DB {
-	return &DB{obj: obj}
+	d := &DB{obj: obj}
+	d.startSearch()
+	return d
 }

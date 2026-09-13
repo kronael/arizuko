@@ -743,21 +743,30 @@ func (s *Store) ClearErrored(ctx context.Context, chatJID string) (int64, error)
 
 // DeleteErroredMessages drops a chat's errored rows, and the index entries that
 // point at them, so the next inbound starts the chat from a clean batch.
-func (s *Store) DeleteErroredMessages(ctx context.Context, chatJID string) error {
+//
+// It answers the positions it deleted, because a caller holding an index
+// DERIVED from these rows has no other way to learn they are gone: the rows the
+// flag selects are read in here, and a deleted message that goes on answering
+// searches reports content nobody can read back (routd/msgsearch).
+func (s *Store) DeleteErroredMessages(ctx context.Context, chatJID string) ([]string, error) {
 	items, err := s.erroredItems(ctx, chatJID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var writes []objstore.Write
+	gone := make([]string, 0, len(items))
 	for _, it := range items {
 		writes = append(writes, objstore.Write{Op: objstore.Delete, Entity: Messages, Key: it.Key})
 		writes = append(writes, indexDeletes(it)...)
+		gone = append(gone, it.Key.Sort)
 	}
 	if len(writes) == 0 {
-		return nil
+		return nil, nil
 	}
-	_, err = s.applyInChunks(ctx, "delete "+chatJID+"'s errored messages", writes)
-	return err
+	if _, err := s.applyInChunks(ctx, "delete "+chatJID+"'s errored messages", writes); err != nil {
+		return nil, err
+	}
+	return gone, nil
 }
 
 // TurnFrames answers the bot rows one turn stamped, oldest first, paged by the
