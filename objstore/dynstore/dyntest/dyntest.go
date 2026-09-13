@@ -25,8 +25,9 @@ const Image = "ghcr.io/extenddb/extenddb-dev:0.1.11"
 
 // EnvEndpoint points the suites at an endpoint that is already running — the
 // PostgreSQL deployment, or Amazon's own service — instead of the container.
-// AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION and AWS_CA_BUNDLE come
-// from the same environment then.
+// AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY and AWS_REGION come from the same
+// environment then, and ARIZUKO_TEST_DYNAMO_CA names that endpoint's
+// certificate when it signed its own.
 const EnvEndpoint = "ARIZUKO_TEST_DYNAMO_ENDPOINT"
 
 var (
@@ -104,12 +105,22 @@ func Main(m *testing.M) {
 
 func start() (dynstore.Config, error) {
 	if got := os.Getenv(EnvEndpoint); got != "" {
+		// A served endpoint carries its own certificate; the fixture takes it as
+		// a file because a person runs the suite from a shell, and hands the
+		// bytes on the way a daemon's environment does.
+		var ca []byte
+		if path := os.Getenv("ARIZUKO_TEST_DYNAMO_CA"); path != "" {
+			var err error
+			if ca, err = os.ReadFile(path); err != nil {
+				return dynstore.Config{}, err
+			}
+		}
 		cfg := dynstore.Config{
 			Endpoint: got,
 			Region:   os.Getenv(dynstore.EnvRegion),
 			KeyID:    os.Getenv(dynstore.EnvKeyID),
 			Secret:   os.Getenv(dynstore.EnvSecret),
-			CABundle: os.Getenv(dynstore.EnvCABundle),
+			CA:       ca,
 		}
 		if cfg.KeyID == "" {
 			cfg.KeyID, cfg.Secret = dynstore.DevKeyID, dynstore.DevSecret

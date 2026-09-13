@@ -6,7 +6,6 @@ import (
 	"crypto/x509"
 	"fmt"
 	"net/http"
-	"os"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
@@ -48,10 +47,12 @@ type Config struct {
 	Prefix string
 	KeyID  string
 	Secret string
-	// CABundle is a PEM file the endpoint's certificate chains to. A server
-	// that generates its own certificate at init needs it; the public service
-	// chains to the host's trust store and leaves it empty.
-	CABundle string
+	// CA is the PEM the endpoint's certificate chains to. A server that
+	// generates its own certificate at init needs it; the public service chains
+	// to the host's trust store and leaves it empty. It is the bytes and not a
+	// path because a daemon in a container has the value in its environment and
+	// no file of its own to read.
+	CA []byte
 }
 
 // Dial builds a client for cfg. A missing credential is an error rather than an
@@ -71,8 +72,8 @@ func Dial(cfg Config) (*Store, error) {
 	if cfg.Endpoint != "" {
 		opts = append(opts, func(o *dynamodb.Options) { o.BaseEndpoint = aws.String(cfg.Endpoint) })
 	}
-	if cfg.CABundle != "" {
-		client, err := httpsWith(cfg.CABundle)
+	if len(cfg.CA) > 0 {
+		client, err := httpsWith(cfg.CA)
 		if err != nil {
 			return nil, err
 		}
@@ -81,20 +82,16 @@ func Dial(cfg Config) (*Store, error) {
 	return New(dynamodb.NewFromConfig(aws.Config{Region: region}, opts...), cfg.Prefix), nil
 }
 
-// httpsWith trusts exactly the bundle named, in ADDITION to the host's own
+// httpsWith trusts exactly the certificate given, in ADDITION to the host's own
 // roots, so an instance whose endpoint carries a self-signed certificate keeps
 // verifying every other name it talks to.
-func httpsWith(bundle string) (*awshttp.BuildableClient, error) {
-	pem, err := os.ReadFile(bundle)
-	if err != nil {
-		return nil, fmt.Errorf("dynstore: read the CA bundle: %w", err)
-	}
+func httpsWith(ca []byte) (*awshttp.BuildableClient, error) {
 	pool, err := x509.SystemCertPool()
 	if err != nil {
 		pool = x509.NewCertPool()
 	}
-	if !pool.AppendCertsFromPEM(pem) {
-		return nil, fmt.Errorf("dynstore: %s holds no certificate", bundle)
+	if !pool.AppendCertsFromPEM(ca) {
+		return nil, fmt.Errorf("dynstore: the configured CA holds no certificate")
 	}
 	return awshttp.NewBuildableClient().WithTransportOptions(func(tr *http.Transport) {
 		if tr.TLSClientConfig == nil {

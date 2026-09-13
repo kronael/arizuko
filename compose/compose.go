@@ -88,12 +88,14 @@ var commonKeys = []string{
 	"OTEL_EXPORTER_OTLP_HEADERS",
 	"OTEL_RESOURCE_ATTRIBUTES",
 	// The store server (spec 6/42). Every daemon reaches its owner's tables over
-	// the same endpoint and trusts the certificate that server generated; the
-	// access key is per daemon and arrives through perDaemon below, so a daemon
-	// signs as itself and a policy can bound what it may touch.
+	// the same endpoint and trusts the certificate that server generated, which
+	// the operator puts in .env as base64 because a container has its
+	// environment and no file of its own. The access key is per daemon and
+	// arrives through perDaemon below, so a daemon signs as itself and a policy
+	// can bound what it may touch.
 	dynstore.EnvURL,
 	dynstore.EnvRegion,
-	dynstore.EnvCABundle,
+	dynstore.EnvCA,
 	dynstore.EnvKeyID,
 	dynstore.EnvSecret,
 	// DATA_DIR is NOT in commonKeys: that would leak the host path into the

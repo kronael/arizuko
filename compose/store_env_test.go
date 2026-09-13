@@ -15,14 +15,14 @@ func TestStoreEndpointReachesEveryDaemon(t *testing.T) {
 	dir := seed(t, "APP=arizuko\nFLAVOR=test\n"+
 		dynstore.EnvURL+"=https://extenddb:18443\n"+
 		dynstore.EnvRegion+"=us-east-1\n"+
-		dynstore.EnvCABundle+"=/srv/app/home/store-ca.pem\n")
+		dynstore.EnvCA+"=Zm9vCg==\n")
 	gen(t, dir)
 	for _, daemon := range []string{"routd", "runed", "authd", "onbod", "dashd", "webd"} {
 		body := read(t, dir, filepath.Join("env", daemon+".env"))
 		for _, want := range []string{
 			dynstore.EnvURL + "=https://extenddb:18443",
 			dynstore.EnvRegion + "=us-east-1",
-			dynstore.EnvCABundle + "=/srv/app/home/store-ca.pem",
+			dynstore.EnvCA + "=Zm9vCg==",
 		} {
 			if !strings.Contains(body, want) {
 				t.Errorf("env/%s.env carries no %q", daemon, want)
