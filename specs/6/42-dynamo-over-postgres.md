@@ -608,11 +608,11 @@ rehearsals) becomes `pg_dump` of the instance's database, in `INSTALL.md`.
 `find_messages` (MCP, `ipc/ipc.go:2145`) and `GET /v1/messages/find`
 (`routd/server.go:294`) are the two callers; no dashboard page reads it. The
 verb is `FindMessages(query, scope, sender, since, limit)` with a snippet and
-a BM25 rank (`store/messages_search.go:204-262`), tokenised
-`unicode61 remove_diacritics 2`, and the ACL filter stays the caller's job.
+a BM25 rank (`routd/msgsearch`), tokenised on Unicode letters and digits with
+diacritics dropped, and the ACL filter stays the caller's job.
 
 **The index is an in-memory BM25 index inside routd, rebuilt from the store at
-boot and fed by the reads and writes routd already makes.** No SQL, no file, no
+boot and fed by the writes routd already makes.** No SQL, no file, no
 second engine: the messages entity is the store of record and the index is
 derived from it. Sizing from `6/37`: 23,777 messages on krons, 8.4 MB of table
 pages and 2.4 MB of FTS5 index, so the index is tens of megabytes.
@@ -622,13 +622,19 @@ pages and 2.4 MB of FTS5 index, so the index is tens of megabytes.
   and the two flags — about 25 pages of 1 MB. Until the walk finishes,
   `find_messages` answers "index warming" as a refusal the caller can show,
   never an empty hit list.
-- **Live.** Inserts arrive through the per-chat poll routd already runs for
-  the agent feed (`6/37` §"The poll loop gets cheaper"), so the index is a
-  second consumer of one read, not a second reader. routd's own updates — the
-  `routed_to` stamp, delivery state — apply in-process after their batch
-  commits.
-- **What it does not see.** A delete or update made by another process
-  (`DeleteGroup` from dashd or the CLI) is invisible until the next boot. A
+- **Live.** routd is the sole appender, so the feed is the four writes on
+  `routd.DB` that touch an indexed attribute: the append, the media rewrite
+  (`EnrichMessage`), the observe stamp (`MarkMessagesObserved`) and the
+  breaker's prune (`DeleteErroredMessages`). Each applies in-process after its
+  own batch commits, so the record is written first and the index second. NOT
+  the per-chat poll: `processGroupMessages` advances `chats.agent_cursor` past
+  the rows it consumes, so a message ingested and dispatched between two ticks
+  — which is every adapter ingest and every bot reply — never appears in a
+  `pollOnce` result, and an index fed from there would be missing most of the
+  corpus.
+- **What it does not see.** An append, update or delete made by another
+  process (`arizuko send`, an archive import, `DeleteGroup` from dashd or the
+  CLI) is invisible until the next boot. A
   stale hit does not leak: the caller re-resolves every hit's chat to a folder
   before returning it (`ipc/ipc.go:2178-2186`), and a purged chat has no
   route. This is the discipline `6/37` §"The index tails, it is never told"
@@ -638,7 +644,8 @@ pages and 2.4 MB of FTS5 index, so the index is tens of megabytes.
   decomposition and dropping the combining marks — `unicode61
 remove_diacritics` in Go; BM25 with FTS5's constants; the snippet is the
   first window of 32 tokens around a hit with `«»` marks, which is what the
-  callers render today. The query grammar is terms, `"phrases"` and `-term`.
+  callers render today. The query grammar is terms, `"phrases"` and `-` in front
+  of either.
   `bleve` (Apache-2.0, `github.com/blevesearch/bleve/v2`, "tf-idf / bm25
   scoring models", "Search result match highlighting") is the fallback if the
   grammar ever has to match FTS5's, at the cost of a large dependency for one
@@ -755,9 +762,15 @@ UPDATE` is two statements per action; the InfoQ report of 300 ms p90 is
    swap: `store` and `onbod` on Postgres with the SQL driver, `-race`. Any
    failure that is not FTS5 is a Postgres-semantics defect this design has to
    name before krons moves.
-4. **The index.** Rebuild time and RSS on krons' 23,777 messages; the
-   twenty-query overlap with FTS5. Above one second of boot or a hundred
-   megabytes, the reopen trigger of §8 fires.
+4. **The index.** ANSWERED (2026-09-13, `routd/msgsearch/parity_test.go`):
+   over a seeded corpus of 24,296 messages in 136 chats the walk takes 283 ms
+   and the index holds 18.8 MB of heap, against the reopen trigger's one
+   second and hundred megabytes; one search on the most common term of that
+   corpus is 11.7 ms. The top ten is FTS5's top ten, exactly, for twelve
+   queries spanning the frequency range — ten single terms and two pairs.
+   Over the endpoint, a walk of 7 chats holding 40 messages plus one search is
+   16.5 ms (`tests/dynamo/search_test.go`), which is the per-partition round
+   trip krons' 136 chats multiply.
 5. **Deadlock under ExtendDB.** Two batches locking items `(a, b)` and `(b,
 a)` concurrently, a thousand times: the answer must be one commit and one
    refusal-then-commit on retry, never an error reaching the caller and never

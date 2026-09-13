@@ -42,5 +42,5 @@ the current cursor; messages → the store's history read.
 
 <!-- UNVERIFIED as of 2026-08-02: the 2026-05-01 plan was a `since` param
 on `inspect_messages` for post-digest forward reads. `since` shipped on
-`find_messages` (FTS5 search, `ipc/ipc.go`) instead; `inspect_messages`
+`find_messages` (ranked search, `ipc/ipc.go`) instead; `inspect_messages`
 does not carry one. -->

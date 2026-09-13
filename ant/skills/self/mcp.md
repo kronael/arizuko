@@ -118,7 +118,7 @@ redirects/auth on top.
 | `inspect_tasks`    | Scheduled tasks + recent `task_run_logs` (pass `task_id` for runs)          |
 | `inspect_session`  | Current session_id + recent `session_log` entries                           |
 | `inspect_identity` | Resolve a platform sender sub to its canonical identity and all claimed subs. Use to recognize a user across channels. |
-| `find_messages`    | FTS5 content search over the local DB — phrase / OR / NOT / prefix syntax, optional scope (chat_jid or folder subtree) |
+| `find_messages`    | Ranked content search over recorded messages — all terms required, `"phrase"`, `-exclude`; no OR, wildcard or NEAR. Optional scope (chat_jid or folder subtree) |
 | `list_acl`         | List ACL rules visible to this group.                                       |
 | `add_acl`          | Grant a principal access to a folder `scope` (acl row; `scope='**'` grants operator role). Write-face of REST `POST /v1/acl`. You may grant only rows you hold WITH GRANT OPTION. |
 | `remove_acl`       | Revoke a principal's access to a `scope`. Write-face of REST `DELETE /v1/acl`. Only within your granted scope. |

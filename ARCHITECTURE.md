@@ -451,7 +451,7 @@ the migration numbers cited inline are the legacy-monolith sequence —
 each daemon re-sequences its own `migrations/` from `0001`.
 
 - **`routd.db`** (`routd/migrations/`): `chats`, `messages`,
-  `messages_fts`, `groups`, `routes`, `route_tokens`, `sessions`,
+  `groups`, `routes`, `route_tokens`, `sessions`,
   `system_messages`, `scheduled_tasks`, `task_run_logs`, `channels`,
   `acl`, `acl_membership`, `chat_reply_state`, `secrets`,
   `secret_use_log`, `turn_context`, `turn_results`, `cost_log_archive`,
@@ -478,7 +478,6 @@ each daemon re-sequences its own `migrations/` from `0001`.
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `chats`              | jid (PK), agent_cursor, sticky_group, sticky_topic, is_group (routd.db)                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `messages`           | id (PK), chat_jid, sender, content, timestamp, verb, source, attachments, topic, errored, is_observed, turn_id, link_context (routd.db)                                                                                                                                                                                                                                                                                                                                                                |
-| `messages_fts`       | FTS5 virtual table over the message entity's `attrs.content`, carrying each row's `part`/`sort` so the join reads the message's own coordinate (+ three sync triggers); backs `find_messages`; bm25 ranking + snippet (routd.db)                                                                                                                                                                                                                                                                       |
 | `groups`             | folder (PK), name, container_config, parent, model, cost_cap_cents_per_day, open, observe_window (routd.db)                                                                                                                                                                                                                                                                                                                                                                                            |
 | `route_tokens`       | token_hash (PK), jid, owner_folder (FK → groups), created_at, context, kind (`route` delivery bearer / `pair` identity-pairing link, spec 5/31) (routd.db)                                                                                                                                                                                                                                                                                                                                             |
 | `routes`             | id (PK), seq, match, target, observe_window_messages, observe_window_chars (routd.db)                                                                                                                                                                                                                                                                                                                                                                                                                  |
@@ -1005,9 +1004,9 @@ redirects to a concrete alternative (e.g. `dislike` on emoji platforms
 hints `like(emoji='👎')`). Read-only introspection lives in the
 `inspect_*` family (`ipc/inspect.go`): `inspect_messages`,
 `inspect_routing`, `inspect_tasks`, `inspect_session`,
-`inspect_identity`. `find_messages` is FTS5 full-text search over
-message content (bm25 ranking + snippet; phrase / OR / NOT / prefix /
-NEAR; spec 5/C). A `/root`-elevated turn sees every folder; an ordinary
+`inspect_identity`. `find_messages` is ranked search over
+message content (bm25 ranking + «»-marked snippet; all terms required,
+`"phrase"`, `-exclude`; spec 5/C, `routd/msgsearch`). A `/root`-elevated turn sees every folder; an ordinary
 turn is scoped to its own folder subtree. Full tool table in
 `ant/skills/self/SKILL.md`.
 

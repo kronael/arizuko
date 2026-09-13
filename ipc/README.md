@@ -138,11 +138,12 @@ An elevated `/root` turn sees every folder; an ordinary turn is scoped to
 its own folder subtree.
 Replaces ad-hoc `Bash sqlite3 …` audits.
 
-`find_messages` is FTS5-backed full-text search (spec 5/C): bare
-tokens, `"exact phrase"`, `a OR b`, `a NOT b`, `prefix*`,
-`NEAR(a b, 5)`. Optional `scope` (chat_jid or folder subtree), `sender`,
-`since` (RFC3339), `limit` (default 20, max 200). ACL gate is
-post-fetch `JIDRoutedToFolder` per row.
+`find_messages` is ranked search over routd's in-memory BM25 index
+(specs 5/C, 6/42 §8): terms that must all appear, `"exact phrase"`,
+`-exclude`; no OR, wildcard or NEAR. Optional `scope` (chat_jid or folder
+subtree), `sender`, `since` (RFC3339), `limit` (default 20, max 200). A
+search made while the index is still warming is refused, not answered
+empty. ACL gate is post-fetch `JIDRoutedToFolder` per row.
 
 ## Public API
 

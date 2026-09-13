@@ -607,11 +607,15 @@ its own folder subtree. Extend by adding a handler to
 `registerInspect` and wiring a fn into `ipc.StoreFns`.
 
 `find_messages` (registered in `ipc/ipc.go`, backed by
-`StoreFns.FindMessages` over the `messages_fts` FTS5 table) is the
-content-search complement: FTS5 query syntax (phrase / OR / NOT /
-prefix / NEAR), bm25 ranking, snippet, post-fetch `JIDRoutedToFolder`
-ACL gate. Use it to find a message by what was said; `inspect_messages`
-walks recent history by chat. Spec: `specs/5/C-message-mcp.md`.
+`StoreFns.FindMessages` over routd's in-memory BM25 index,
+`routd/msgsearch`) is the content-search complement: terms that must all
+appear, `"phrases"`, `-exclusions`, bm25 ranking, a «»-marked snippet,
+post-fetch `JIDRoutedToFolder` ACL gate. The index is derived from the
+`messages` entity — routd walks the store into it at boot and feeds it
+from its own writes — so a search made while the walk is running is
+refused rather than answered empty. Use it to find a message by what was
+said; `inspect_messages` walks recent history by chat. Specs:
+`specs/5/C-message-mcp.md`, `specs/6/42-dynamo-over-postgres.md` §8.
 
 ## Adapter `/health` contract
 

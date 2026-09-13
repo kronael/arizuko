@@ -25,27 +25,32 @@ each description says which of the other three to reach for instead.
 `inspect_messages` replaced, and survives only as an operator tool on
 webd's own MCP surface (`webd/mcp.go:120`).
 
-## Decision: SQLite FTS5, no second query language
+## Decision: one small grammar, and the tool says what it is
 
-`find_messages` exposes **FTS5 syntax verbatim** — bare token, `"exact
-phrase"`, `a OR b`, `a AND NOT b`, `prefix*`, `NEAR(a b, 5)`. Operators
-get the query language SQLite documents; no DSL invented, nothing to
-teach twice. Malformed syntax surfaces as `400 invalid query`. `:query`
-is a bound parameter; FTS5 parses its own syntax inside, so there is no
-SQL escaping to get wrong.
+`find_messages` runs routd's in-memory BM25 index over the `messages`
+entity (`routd/msgsearch`, spec `6/42` §8). The grammar is **terms,
+`"phrases"` and `-exclusions`**: every term must appear, a phrase matches
+its words adjacent and in order, and a `-` in front of either excludes
+it. There is no `OR`, no `prefix*` and no `NEAR`, and the MCP tool's
+description states exactly that list — a description advertising an
+operator the engine does not run hands the agent a silent empty result,
+which it reports as "no such message". A malformed query (an unclosed
+phrase, nothing to match) reaches the caller as an error, never as an
+empty hit list.
 
-**The FTS shadow keys on the implicit `rowid`, never on `id`.**
-`messages.id` is `TEXT PRIMARY KEY` (UUID-shaped) and FTS5 external
-content requires an INTEGER rowid. Every non-`WITHOUT ROWID` table has
-an implicit `rowid` alongside its TEXT PK — that is the join key
-(`m.rowid = f.rowid`). Attempting `id` as the FTS rowid is the trap this
-line exists to prevent.
-
-Table + triggers: `store/migrations/0070-messages-fts.sql`;
-reader `store/messages.go` `FindMessages`. `snippet()` returns the
-matched fragment with FTS5's own highlighting — no app-side truncation.
-`tokenize='unicode61 remove_diacritics 2'` so non-ASCII content (Czech,
-Spanish, Japanese) behaves.
+**The index is derived and the store is the record.** A document is
+addressed by the message's own coordinate, the chat and the position, so
+a hit can only be reported under the message it was made from. routd
+walks every chat into the index at boot and feeds it from the four writes
+that touch an indexed attribute — the append, the media rewrite, the
+observe stamp, the breaker's prune — and until that walk finishes a
+search is REFUSED rather than answered empty. A term is a run of Unicode
+letters and digits, lower-cased, with diacritics dropped by NFD
+decomposition, so "uroven" answers "úroveň". The snippet is a 32-token
+window around the first hit with «» around each match. The ranking is
+BM25 with SQLite FTS5's own constants and negated sign, and the top ten
+is FTS5's top ten for an exact-term query
+(`routd/msgsearch/parity_test.go`).
 
 **`scope` is polymorphic, disambiguated by `:`** — chat JIDs contain one
 (`web:atlas`, `telegram:user/123`), folder paths don't (`atlas/eng`).
@@ -72,12 +77,13 @@ every other audit row.
 
 ## Open
 
-- `snippet()`'s 32-token window is a guess; revisit if results clip.
-- A bulk `content` rewrite would need
-  `INSERT INTO messages_fts(messages_fts) VALUES('rebuild')`. Messages are
-  effectively append-only, so this is an operator command to document,
-  not a code path.
-- Semantic/vector search needs an embedding column plus `sqlite-vss` or
-  an external index. Not v1.
+- The snippet's 32-token window is a guess; revisit if results clip.
+- A write another process makes — `arizuko send`, an archive import, a
+  group delete — is invisible to the index until the next boot walk.
+  Messages are effectively append-only, so the answer is a restart, not a
+  rebuild command.
+- Semantic/vector search needs an embedding and an index to hold it. Not
+  v1.
 
-FTS5 reference: <https://sqlite.org/fts5.html>
+The ranking's reference, for the constants and the sign:
+<https://sqlite.org/fts5.html#the_bm25_function>

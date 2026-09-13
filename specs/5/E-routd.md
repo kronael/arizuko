@@ -61,7 +61,7 @@ The tables and who else reads them:
 | ----------------------------------- | ---------------------------------------------------------------------------------------- |
 | `groups`                            | folder = identity; `container_config`/`model` opaque, forwarded to runed                 |
 | `chats`                             | per-chat `agent_cursor`, sticky group/topic pins                                         |
-| `messages` (+ `messages_fts`)       | the single event log; FTS5 shadow backs `find_messages` (5/C)                            |
+| `messages`                          | the single event log; routd's in-memory index over it backs `find_messages` (5/C)        |
 | `routes`                            | the route table (5/B, 5/Q)                                                               |
 | `sessions`                          | per-`(folder, topic)` session id, fork lineage, observed cursor (5/F)                    |
 | `chat_reply_state`                  | thread anchor + engagement deadline (5/G)                                                |

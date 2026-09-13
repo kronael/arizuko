@@ -452,14 +452,14 @@ already-present rows. It runs in batches rather than one transaction
 spanning the whole history, so a multi-hour transfer doesn't hold
 `routd.db`'s write lock for its duration.
 
-**No FTS rebuild step, by construction.** `messages_fts` is
-trigger-maintained (`messages_fts_ai`,
-`routd/migrations/0001-initial-schema.sql:60`), and
-`AFTER INSERT ON messages` fires on any ordinary SQL `INSERT` regardless of
-what produced the row values. Only a raw page-level copy (`VACUUM INTO`, a
-file `cp`) would skip it, and this spec already rejects that as a transport.
-An `ATTACH`+`INSERT…SELECT` between two live DBs would trigger FTS equally
-but loses as an _archive format_: an archive must be a durable, portable
+**No search index in the artifact, and no rebuild step.** Ranked search is
+an in-memory BM25 index inside routd, derived from the `messages` entity
+(`6/42` §8), so an import writes rows and nothing else. What it costs the
+operator is a restart: the index is fed by routd's OWN writes, so messages
+the CLI imports are invisible to a running routd's search until its next
+boot walk. An `ATTACH`+`INSERT…SELECT` between two live DBs has the same
+property and loses as an _archive format_ anyway: an archive must be a
+durable, portable
 artifact readable on a different host months later with the source DB gone,
 and `ATTACH` needs both DBs mounted simultaneously and produces nothing you
 can store or diff.

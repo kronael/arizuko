@@ -202,7 +202,7 @@ Tools dispatched over the real MCP unix socket. Generic socket path covered by
 | like / delete / edit / post / forward / quote / repost | yes    | partial — `routd/turns_social_test.go`                                       | `ipc/ipc.go`   |
 | schedule_task                                          | yes    | partial — `routd/tasks_test.go`                                              | `ipc/ipc.go`   |
 | reset_session                                          | yes    | partial — `routd/session_test.go`                                            | `ipc/ipc.go`   |
-| inspect\_\* / find_messages (FTS5)                     | yes    | partial — `routd/mcp_test.go`                                                | `ipc/ipc.go`   |
+| inspect\_\* / find_messages (ranked)                   | yes    | partial — `routd/mcp_test.go`                                                | `ipc/ipc.go`   |
 | add_acl / remove_acl / list_acl                        | yes    | partial — `routd/acl_endpoint_test.go`                                       | `ipc/ipc.go`   |
 | invite_create (MCP)                                    | yes    | partial — `routd/invite_mcp_test.go`                                         | `ipc/ipc.go`   |
 | dark/hidden tools gating                               | yes    | partial — `routd/dark_tools_test.go`                                         | `routd/mcp.go` |

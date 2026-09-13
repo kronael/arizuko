@@ -10,17 +10,19 @@ the split is owned by routd; `onbod.db` by onbod; `auth.db` by authd —
 each runs its own migrations). WAL mode + 5 s busy timeout tolerate
 concurrent readers on the same file.
 
-## Which tables are entities, and which are still SQL
+## Every table is an entity
 
 `entities.go` names every table this package holds as an objstore entity,
 read and written through objstore's two primitives (spec
 [`6/37`](../specs/6/37-store-model.md) step 7): `pane_sessions`,
 `secret_use_log` and `counters`, routd's thirteen registered resources,
-onbod's three, and the hot tier's five — `chats`, `sessions`,
-`chat_reply_state`, `chat_proactive` and `system_messages`. Every other table
-here still reaches the database through SQL, `messages` and its FTS index
-foremost: ranked search leaves the store and becomes its own service, so that
-one waits for the decision rather than for a port.
+onbod's three, the hot tier's five — `chats`, `sessions`,
+`chat_reply_state`, `chat_proactive` and `system_messages` — and `messages`
+with the three read-shaped indexes one append fans out into. So the package
+issues no statement of its own: the same code runs over a pool and over a
+served endpoint. Ranked search is an in-memory BM25 index in routd over the
+`messages` entity, derived and rebuilt from it (spec
+[`6/42`](../specs/6/42-dynamo-over-postgres.md) §8, `routd/msgsearch`).
 
 During the move a `*Store` holds BOTH a `*sql.DB` and, through `Store.Obj`,
 the driver over the same pool. Each table has exactly one implementation at

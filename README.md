@@ -20,7 +20,7 @@
 - **Multi-channel orchestrator** — one agent across Slack + Discord + email + WhatsApp + web chat, same database
 - **Scheduler / cron-bot** — `timed` injects turns into the message bus on a schedule, no webhook needed
 - **Email or webhook agent** — `emaid` ingests IMAP with DMARC filtering; arbitrary callers POST to `/hook/<token>`
-- **RAG over team docs** — mount your repo via WebDAV (`davd`) and let the agent grep, read, and cite; `find_messages` adds FTS5 full-text search over conversation history
+- **RAG over team docs** — mount your repo via WebDAV (`davd`) and let the agent grep, read, and cite; `find_messages` adds ranked full-text search over conversation history
 - **Multi-tenant agent platform** — one deployment, arbitrary folder depth; `corp/eng/sre` and `solo/inbox` run the same code
 
 ## Overview

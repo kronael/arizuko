@@ -17,8 +17,10 @@ arg: <question>
 1. Fetch history. Pick the right tool for the slice:
    - **Search by content** (you know what was said, not where):
      `find_messages({ query: "<terms>", scope: "<chat_jid or folder>", limit: 50 })`.
-     FTS5 syntax: `"exact phrase"`, `a OR b`, `a NOT b`, `prefix*`,
-     `NEAR(a b, 5)`. Returns ranked snippets with `«match»` highlight.
+     Every term must appear; `"exact phrase"` matches adjacent words;
+     `-word` excludes. There is no OR, no `prefix*` and no `NEAR`, so
+     search one wording at a time. Returns ranked snippets with `«match»`
+     highlight.
    - **Whole chat**: `inspect_messages({ chat_jid: "<jid>", limit: 200 })`
    - **One thread** (chat fans out to per-topic threads — Telegram forum
      topics, web-chat topics): `get_thread({ chat_jid: "<jid>", topic: "<topic>" })`

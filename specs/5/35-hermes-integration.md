@@ -69,7 +69,7 @@ B has proven the envelope mapping.
 
 Each is a property arizuko enforces structurally, not a feature Hermes
 could add cheaply: **persistence** (every message a row in `routd.db` with
-FTS5 search, `5/C`) · **audit** (one `audit_log` row per state transition,
+ranked search, `5/C`) · **audit** (one `audit_log` row per state transition,
 emitted in the mutation's own transaction via `audit.EmitInTx`, `5/I` —
 not a droppable log line) · **grants** (`auth.Authorize` gates every tool
 call on `(action, scope, params)` bound to the caller's folder, `5/32`) ·
