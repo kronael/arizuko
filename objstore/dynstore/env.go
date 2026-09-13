@@ -16,6 +16,12 @@ const (
 	EnvCABundle = "AWS_CA_BUNDLE"
 )
 
+// Prefix is what one owner's entities are named under. A server holds every
+// owner of an instance at once, so the table name carries the owner in front of
+// the entity: `routd.acl`. The owner is a name its daemon was configured with,
+// never one derived from a path (CLAUDE.md).
+func Prefix(owner string) string { return owner + "." }
+
 // URL is the endpoint this daemon's store lives on, or "" when the instance
 // still keeps its owners in files. It is the branch every daemon's boot takes.
 func URL() string { return os.Getenv(EnvURL) }
