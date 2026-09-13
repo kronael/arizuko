@@ -28,6 +28,31 @@ two drivers disagreed and no conformance body asked.
 - **Fix:** `72e61f2b`; pinned by `AnOpenWithNothingToChangeCreatesTheItem` on both
   drivers, green against ExtendDB and against DynamoDB Local
 
+## L293 — the store server answers 500 when a read walks a six-figure partition (2026-09-13, open)
+
+MEASURED on krons' own server (ExtendDB 0.1.11 over PostgreSQL 17) while verifying the
+copy: a `Query` of `routd.audit_log`, whose 182,314 items share ONE partition, fails
+with `InternalServerError` after the SDK's three attempts, with a RequestID — so the
+server answered, it was not the connection. Every other table verified, including
+`messages` at 24,296 items across 136 partitions.
+
+The copy's verification now checks that table by its newest item instead of reading the
+partition back, but the defect is not the copy's: `audit_log` is a constant-partition
+entity and an operator page that walks it hits the same read.
+
+- **Severity:** high — an operator audit page over a large instance cannot page its own
+  audit log; `specs/6/42` §12 item 7 already records that a constant partition is a
+  capacity question on the real service too
+- **Scope:** the store server; `audit/audit_log.go`'s partition choice
+- **Affected:** krons, measured; any instance whose audit log grows
+- **Source:** `RequestID 0588dbe2-47b5-4751-aa1d-9ed92b1abcfd` on the krons server
+- **Status:** open
+- **Fix:** two candidates, neither taken yet — the audit partition becomes the day (or
+  the folder), so a walk is bounded by construction and the operator page reads a
+  window; or the page walk carries the server's own paging and the 500 is reported
+  upstream as a server defect. The first is arizuko's to make and does not wait on the
+  vendor.
+
 ## L290 — `routd`'s held-world test races its own recorder, so one run in five reports the owner was never asked (2026-09-13, open)
 
 MEASURED by a subagent running the whole suite: `routd/hold_world_inversion_test.go:70`
