@@ -294,7 +294,8 @@ one virtual key per turn with it, bounded by that folder's remaining daily
 budget and expiring with the run. runed gets only the URL; the container gets
 only the minted key. The package also starts `litellm_db`, the Postgres litellm
 keeps those keys and its spend log in — that database is the gateway's
-bookkeeping, in a named volume, and arizuko's own stores stay SQLite.
+bookkeeping, in a named volume, and separate from the instance's own store
+server.
 
 The gateway reads `ANTHROPIC_API_KEY`, or `CLAUDE_CODE_OAUTH_TOKEN` when the
 API key is unset, from the same `.env`. Which one you put there matters:
