@@ -1,14 +1,14 @@
 # audit/PLAN.md — comprehensive audit-log coverage
 
-Status: round-1 plan for `audit_log` SQLite table as source of truth for
+Status: round-1 plan for the `audit_log` entity as source of truth for
 security and state-change events. Driven by [`specs/5/I`](../specs/5/I-tool-call-logging.md)
 and [`specs/5/I`](../specs/5/I-tool-call-logging.md).
 
 ## Goal
 
-One SQLite table — `audit_log` — captures every security event and every
-state transition with a homogeneous JSON-shaped event. Written in the
-same DB transaction as the underlying mutation. Never lossy.
+One entity — `audit_log` — captures every security event and every
+state transition with a homogeneous JSON-shaped event. The record rides in
+the same `GuardedBatch` as the mutation it records. Never lossy.
 
 slog → journald remains operational telemetry: same field shape, but
 lossy by design (journald rotation, level filtering). If the two
