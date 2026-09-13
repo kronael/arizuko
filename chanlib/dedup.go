@@ -54,6 +54,10 @@ type AdapterStore struct {
 func OpenAdapterStore(dataDir, service string) (AdapterStore, error) {
 	as := AdapterStore{Close: func() error { return nil }}
 	if store.Served() {
+		// The prefix is the adapter's name, so two accounts of ONE adapter share
+		// these tables: every key here carries the chat JID, and a JID carries
+		// the channel name (`telegram-rhias:group/1`), so a held inbound and a
+		// delivery claim are already scoped to the account that made them.
 		h, err := dynstore.FromEnv(dynstore.Prefix(service))
 		if err != nil {
 			return AdapterStore{}, err
