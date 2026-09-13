@@ -4,10 +4,10 @@ Slack channel adapter (bot-token, single-workspace, HTTP Events API).
 
 ## Purpose
 
-Bridges Slack workspace events to the router. Receives via Events API
-webhook (proxyd → `/slack/events`); sends via Web API. Mirrors `discd`
-in shape — registers with `routd` via `chanlib.RouterClient`, exposes
-`/send`, `/like`, `/delete`, `/edit`, `/health`, `/files/`.
+Bridges Slack workspace events to the router. Receives via the Events API
+webhook (proxyd → `/slack/events`); sends via the Web API. Same shape as
+`discd`: registers with routd through `chanlib.RouterClient` and mounts the
+standard adapter surface from `chanlib.NewAdapterMux`.
 
 ## Responsibilities
 
@@ -19,10 +19,7 @@ in shape — registers with `routd` via `chanlib.RouterClient`, exposes
   name on `InboundMsg.Reaction`, classified via `chanlib.ClassifyEmoji`).
 - Derive `Verb="mention"` when text contains `<@bot_user_id>`; channel
   messages without mention emit `Verb=""`; DMs emit `Verb=""`.
-- Handle `/send` (`chat.postMessage` +`thread_ts`), `/edit`
-  (`chat.update`), `/delete`, `/like` (`reactions.add`), `/dislike`
-  (`reactions.add` thumbsdown — dislike-via-like), `/send-file`
-  (`files.getUploadURLExternal` + `files.completeUploadExternal`).
+- Serve the outbound verbs; the Slack call behind each is in the table below.
 - Proxy `url_private` file URLs via `GET /files/<id>` adding upstream
   `Authorization: Bearer $SLACK_BOT_TOKEN`.
 - Outbound Web API calls go through `chanlib.DoWithRetry` — 429 honours

@@ -164,33 +164,22 @@ entity the version marker lives in, and the marker itself. It is a no-op for a
 subsystem still on the column path, so the set follows the registrations rather
 than a second list beside them.
 
-`arizuko apply`/`plan`/`get`/`export` (`cmd/arizuko/apply.go`) are the
-operator CLI over the engine:
+`arizuko apply`/`plan`/`get`/`export` are the operator CLI over this engine;
+their flags are in `cmd/arizuko/README.md`. The CAS is `resreg.Checksum`, a
+content hash of the canonical export projection recomputed inside the writing
+transaction — no counter, no table, nothing for a writer to remember to bump.
 
-- `apply <instance> <manifest.yaml> [--force] [--as-folder <folder>]` —
-  state-based apply, one tx per owner DB (scoped DELETE+INSERT). The CAS
-  is `resreg.Checksum`, a content hash of the canonical export projection
-  recomputed inside the writing tx — no counter, no table, nothing for a
-  writer to remember to bump; `--force` bypasses it. Prints the plan delta
-  before committing. `--as-folder` re-scopes a single-folder manifest via
-  `Resource.Retarget` (`cmd/arizuko/retarget.go`).
-- `plan <instance> <manifest.yaml>` — non-mutating diff vs live config
-  (`resreg.Plan`): per-resource add/update/unchanged/remove by PK.
-- `get <instance> <resource>` — emit one resource's live rows as a
-  YAML fragment (`resreg.GetResource`) that re-applies to a no-op.
-- `export <instance> [out.yaml]` — dump the store as one
-  canonical-ordered YAML doc per subsystem.
-
-Two guards wrap every apply, in `cmd/arizuko/apply.go` rather than in the
-engine, because both span documents the engine only ever sees one at a time:
+Two guards wrap every apply, and they live in `cmd/arizuko/apply.go` rather
+than in the engine because both span documents the engine only ever sees one
+at a time:
 
 - **The missing-group rule** — `KnownFolders` + `ValidateFolderRefs` refuse,
-  before the first tx opens, a manifest naming a folder that is neither a
+  before the first write, a manifest naming a folder that is neither a
   `groups` row in the document set nor already live. `--force` does not
   override it.
-- **Cross-subsystem pre-image rollback** — `routd.db` and `onbod.db` share no
-  transaction, so a failure on the second restores the first from a pre-image
-  taken with `ExportSnapshot` and replayed through `Apply` itself.
+- **Cross-subsystem pre-image rollback** — two owners share no transaction, so
+  a failure on the second restores the first from a pre-image taken with
+  `ExportSnapshot` and replayed through `Apply` itself.
 
 Secrets, route tokens, invites and onboarding admissions are
 `SkipApplyRebuild` (export/diff only, never DELETE+INSERTed). They still

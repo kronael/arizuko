@@ -141,7 +141,3 @@ writes no `spawns` row at all. See `runed/audit.go`.
 - `db.go` — spawn/session persistence, and the boot that dials the endpoint
   or opens the file
 - `runstore/` — the three entities and their coordinates, no SQL
-
-## Status
-
-Live — the split is the only topology (gated removed, v0.50.0). Spec: `specs/5/P-runed.md`.

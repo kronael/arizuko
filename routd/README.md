@@ -278,7 +278,3 @@ optional observability webhook — not the source of truth.
   folder spend gate (spec 6/39)
 - `surrogate_refresh.go` — the near-expiry refresh behind surrogate OAuth
 - `sibling_db.go`, `ext.go`, `channels.go`, `network.go`, `tokens.go` — helpers
-
-## Status
-
-Live — the split is the only topology (gated removed, v0.50.0). Spec: `specs/5/E`.

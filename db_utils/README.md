@@ -4,13 +4,12 @@ The one opener, and the migration runner for embedded `.sql` files.
 
 ## Purpose
 
-Tiny shared helper used by daemons that own a schema and want
-to apply pending `NNNN-*.sql` migrations from an `embed.FS` at
-startup. Consumers are the split daemons that each own a DB — `routd`
-(`routd.db`), `runed` (`runed.db`), `authd` (`auth.db`), `onbod`
-(`onbod.db`) — plus the shared `store/` schema library. Any future
-daemon that owns its own DB can call it without dragging in a
-migrations framework.
+Tiny shared helper: open a database, and apply pending `NNNN-*.sql`
+migrations from an `embed.FS` at startup. Two owners still run a chain —
+`routd/migrations/` and `store/migrations/` — and they run it only on a
+non-served instance. runed, authd and onbod carry no chain at all: their
+tables are objstore entities the driver creates, so there is nothing numbered
+to apply.
 
 Separate from `store/` because the runner has zero knowledge of any
 specific schema — it just applies numbered files and records what it

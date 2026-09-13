@@ -1,6 +1,7 @@
 # authd
 
 ES256 token authority: the sole platform-token signer + JWKS publisher.
+Spec: [`specs/5/1-auth-standalone.md`](../specs/5/1-auth-standalone.md).
 
 ## Purpose
 
@@ -13,11 +14,12 @@ successful login for an ES256 access + refresh token. Spec: `specs/5/1`.
 ## Responsibilities
 
 - Hold the active ES256 (P-256) signing key in memory plus every key
-  still inside its serving window; persist keys to `auth.db`
+  still inside its serving window; persist them to its own store
 - Mint access tokens: `MintForSubject` (scope ⊆ target's grants snapshot),
   `Downscope` (subset of parent), issuer-mint for a different sub
-- Rotate keys (one active key enforced by partial-unique index);
-  `RevokeAllNow` is emergency revoke
+- Rotate keys. Exactly one active key is enforced by the `signing_key_slot`
+  entity holding ONE item, so two signers are unrepresentable rather than
+  merely refused. `RevokeAllNow` is the emergency revoke
 - Issue + rotate refresh tokens with reuse detection (replayed token
   revokes the whole family); re-snapshot grants on refresh
 - Self-mint `service:authd` at boot and exchange daemon service keys for
@@ -166,7 +168,3 @@ uncovered and both need a real remote:
 
 Key rotation, the refresh lineage, service-token exchange, the three resreg
 resources and `authstore` are covered.
-
-## Status
-
-Live. Spec: `specs/5/1-auth-standalone.md`.
