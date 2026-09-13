@@ -4,11 +4,13 @@
 # named below — never the shared .env, which carries SECRETS_KEY, AUTH_SECRET
 # and every bot token.
 #
-# `arizuko store-init` runs `extenddb init` once: it creates both databases,
-# generates the self-signed certificate whose SAN is this service name, mints
-# the account, and hands each daemon its own access key. The server refuses to
-# start without TLS, so the certificate is not optional and every daemon
-# carries it as AWS_CA_BUNDLE.
+# The operator runs `extenddb init` once, by hand, against this PostgreSQL
+# (INSTALL.md § The store server): it creates both databases, generates the
+# self-signed certificate whose SAN is this service name, mints the account,
+# and hands each daemon its own access key. The server refuses to start
+# without TLS, so the certificate is not optional and every daemon carries it
+# as AWS_CA_BUNDLE. An instance moves once and a printed-once password has to
+# reach .env, so that run belongs to a person, not to a subcommand.
 #
 # extenddb_db is arizuko's OWN state, not a vendor's bookkeeping, so its data
 # directory sits under the instance directory where backup and restore own it —
@@ -44,14 +46,16 @@ services:
     container_name: ${APP}_extenddb_db_${FLAVOR}
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: 'extenddb'
+      # The instance owns the role, so the role IS the instance: arizuko_krons
+      # administers arizuko_krons's databases and nobody else's.
+      POSTGRES_USER: '${APP}_${FLAVOR}'
       POSTGRES_DB: 'postgres'
       POSTGRES_PASSWORD: '${STORE_DB_PASSWORD:?STORE_DB_PASSWORD is unset in .env — without it the store server has nowhere to keep a single row}'
       TZ: '${TZ:-UTC}'
     volumes:
       - '${DATA_DIR}/store/extenddb_db:/var/lib/postgresql/data'
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U extenddb']
+      test: ['CMD-SHELL', 'pg_isready -U ${APP}_${FLAVOR}']
       interval: 10s
       timeout: 5s
       retries: 5
