@@ -242,11 +242,11 @@
 
 <h1>Arizuko Research</h1>
 <p class="hub-subtitle">GitOps for agents · From multi-channel orchestration to declarative product platform<br>
-<span style="color: var(--accent)">Last updated: 2026-05-26</span></p>
+<span style="color: var(--accent)">Last updated: 2026-09-13</span></p>
 
 <div class="tldr-box">
   <div class="tldr-label">One Sentence</div>
-  <p class="tldr-text"><strong>Arizuko is GitOps for agents.</strong> Persona, skills, ACL, routes, secrets, diaries, decisions — all in git. The gateway commits per turn. Containers run against the working tree. SQLite is derived cache. Audit, fork, distribute — native git verbs.</p>
+  <p class="tldr-text"><strong>Arizuko is GitOps for agents.</strong> Persona, skills, ACL, routes, secrets, diaries, decisions — all in git. The gateway commits per turn. Containers run against the working tree. The store is derived cache. Audit, fork, distribute — native git verbs.</p>
 </div>
 
 <p style="line-height: 1.7; margin: 1.5em 0;">This page documents the research direction: from today's multi-channel orchestration platform to tomorrow's declarative product platform. Four tiers map competitive gaps to shippable features. Each agent research topic (<a href="/pub/krons/agents/tools/">tools/security</a>, <a href="/pub/krons/agents/memory/">memory</a>, <a href="/pub/krons/agents/subagents/">subagents</a>, <a href="/pub/krons/agents/project-management/">project management</a>) projects into concrete platform capabilities.</p>
@@ -254,7 +254,7 @@
 <div class="insights-box">
 <h3>Why GitOps?</h3>
 <ul>
-<li><strong>State lives in git, not the database.</strong> <code>agents.toml</code> (products + deployments), <code>acl/</code>, <code>routes/</code>, <code>skills/</code>, <code>personas/</code>, <code>MEMORY.md</code>, <code>.diary/</code>, <code>decisions/</code>, secrets (age-encrypted). SQLite becomes operational cache — rebuildable from git + inbound message log.</li>
+<li><strong>State lives in git, not the database.</strong> <code>agents.toml</code> (products + deployments), <code>acl/</code>, <code>routes/</code>, <code>skills/</code>, <code>personas/</code>, <code>MEMORY.md</code>, <code>.diary/</code>, <code>decisions/</code>, secrets (age-encrypted). The store becomes an operational cache — rebuildable from git + inbound message log.</li>
 <li><strong>Gateway is the only writer.</strong> Agents act through MCP; gateway sees every state-changing call and commits at turn boundary. Prevents "agent forgot to commit" bugs. One commit per turn with JSON sidecar listing events.</li>
 <li><strong>Audit = <code>git log</code>. Fork = <code>git worktree</code>. Distribute = <code>git push</code>.</strong> No bespoke versioning machinery. Signed commits + branch protection = compliance trail.</li>
 <li><strong>Products are TOML files in shared repos.</strong> Same shape as Terraform modules. <code>arizuko product fetch &lt;url&gt;</code> includes via submodule. One repo per instance (krons, marinade, sloth); products defined elsewhere.</li>
@@ -288,7 +288,7 @@
   <td>Enterprise CX</td>
   <td><strong>Sierra</strong> ($150k+/yr)<br><strong>Salesforce Agentforce</strong><br><strong>Cohere North</strong> (air-gap)</td>
   <td>Enterprise sales motion, compliance theater, air-gap for Cohere</td>
-  <td>SQLite+Go vs PostgreSQL+ClickHouse+Redis, operator-owned infra</td>
+  <td>Go daemons + one store endpoint vs PostgreSQL+ClickHouse+Redis, operator-owned infra</td>
 </tr>
 <tr>
   <td>Dev-leaning self-host</td>
@@ -311,17 +311,17 @@
 <ol style="line-height: 1.8; margin: 1em 0 1em 1.5em;">
 <li><strong>Multi-channel persistent team agent</strong> — 11 adapters in tree (Telegram, Discord, WhatsApp, Slack, email, Bluesky, Reddit, X/Twitter, LinkedIn, web chat, webhooks)</li>
 <li><strong>Per-folder agent identity</strong> — PERSONA + skills + MEMORY + .diary + ACL + secrets; filesystem as tenant boundary</li>
-<li><strong>Single-host operator footprint</strong> — SQLite + Go daemons + Docker; no K8s/Postgres+ClickHouse/Redis</li>
+<li><strong>Operator-owned footprint</strong> — Go daemons + Docker + one store endpoint the operator runs or rents; no ClickHouse, no Redis, no managed control plane</li>
 <li><strong>Uniform MCP+REST per resource</strong> — agent-first protocol, REST as impedance match for external tools</li>
 </ol>
 
 <h2 class="section-title">Real Gaps (We Lose Today)</h2>
 
 <ul style="line-height: 1.8; margin: 1em 0 1em 1.5em;">
-<li><strong>Observability</strong> — journalctl + dashd is not Langfuse. No OTLP export.</li>
+<li><strong>Observability</strong> — every daemon exports OTLP when <code>OTEL_EXPORTER_OTLP_ENDPOINT</code> is set, but journalctl + dashd is still not Langfuse.</li>
 <li><strong>Sandbox strength</strong> — Docker-per-group weak vs gVisor/Firecracker. per-spawn egress filtering exists but gVisor RuntimeClass not shipped.</li>
 <li><strong>Product abstraction</strong> — no <code>arizuko product clone</code>, no manifest, no registry.</li>
-<li><strong>No K8s / cloud-provider templates</strong> — single-host only today.</li>
+<li><strong>No K8s / cloud-provider templates</strong> — no Helm chart, no operator; the turn path still pins <code>routd</code> and <code>runed</code> to one node.</li>
 <li><strong>Evals at scale</strong> — specs/10/1-self-healing-loop.md is a draft; none of the judge/evaluate/repair loop is built.</li>
 </ul>
 
@@ -340,7 +340,7 @@
 </div>
 <div style="text-align: center; margin: 0.5em 0; color: var(--accent2);">↓ derive ↓</div>
 <div class="arch-layer">
-<div class="arch-label">SQLITE (operational cache — rebuildable from git+input log)</div>
+<div class="arch-label">STORE (operational cache — one endpoint, rebuildable from git+input log)</div>
 <div class="arch-items">• messages queue + cursors<br>
 • indexes (fast routing/dispatch)<br>
 • in-flight turn state<br>
@@ -355,7 +355,7 @@
 </div>
 </div>
 
-<p style="font-size: 0.9em; line-height: 1.6; color: var(--dim); margin-top: 1em;"><code>arizuko apply</code> = read <code>agents.toml</code> from git → diff against SQLite cache → reconcile.<br>
+<p style="font-size: 0.9em; line-height: 1.6; color: var(--dim); margin-top: 1em;"><code>arizuko apply</code> = read <code>agents.toml</code> from git → diff against the store → reconcile.<br>
 Audit = <code>git log</code>. Fork = <code>git worktree</code>. Distribute = <code>git push</code>.</p>
 
 <h2 class="section-title">The Path Forward</h2>
@@ -373,10 +373,10 @@ Audit = <code>git log</code>. Fork = <code>git worktree</code>. Distribute = <co
   <ul class="tier-items">
     <li><code>agents.toml</code> schema (products + deployments) — committed to git, source of truth</li>
     <li><code>arizuko plan</code> / <code>arizuko apply</code> verbs (Terraform-for-agents)</li>
-    <li><code>deployments</code> table in SQLite (cache; rebuildable from git)</li>
+    <li><code>deployments</code> table in the store (cache; rebuildable from git)</li>
     <li>Three canonical product templates: oncall, support, sales-assist</li>
     <li>Folder/user-scope secrets layering (BYOA primitive) — specs/5/14-credentials.md</li>
-    <li><strong>Spec:</strong> specs/5/8-yaml-manifests.md — it decides the opposite of this card: SQLite is authoritative, the YAML manifest is a dump/import artifact, and no <code>agents.toml</code> is a source of truth</li>
+    <li><strong>Spec:</strong> specs/5/8-yaml-manifests.md — it decides the opposite of this card: the store is authoritative, the YAML manifest is a dump/import artifact, and no <code>agents.toml</code> is a source of truth</li>
   </ul>
 </div>
 
@@ -388,7 +388,7 @@ Audit = <code>git log</code>. Fork = <code>git worktree</code>. Distribute = <co
   <div class="tier-meta">6 weeks · Monitoring + sandbox + git-as-event-log</div>
   <ul class="tier-items">
     <li><strong>Drop the bespoke events table.</strong> Gateway becomes the only git writer; commits per turn with sidecar event list</li>
-    <li>Projection function over working tree + SQLite hot path → graph view for plan/dashd/fork/OTLP</li>
+    <li>Projection function over working tree + the store's hot path → graph view for plan/dashd/fork/OTLP</li>
     <li>OTLP-out via OpenLLMetry → Langfuse self-host (operator's choice)</li>
     <li>gVisor RuntimeClass under existing Docker — per-product sandbox profile in TOML</li>
   </ul>
@@ -484,17 +484,17 @@ Audit = <code>git log</code>. Fork = <code>git worktree</code>. Distribute = <co
 <ul style="line-height: 1.8; margin: 1em 0 1em 1.5em;">
 <li><strong>Runtime-graph fantasy</strong> — The interior of an agent is Turing-complete; don't model it. The organizational layer (products + deployments + folders + ACL + channels) IS a graph, expressed as files in git. No bespoke projection beyond <code>git checkout</code>.</li>
 <li><strong>Pure event-sourcing</strong> — ActiveGraph (arxiv:2605.21997) overreaches. Hard parts (bit-perfect replay across stochastic LLM calls, cheap-prefix-share fork, schema migration via events) are future work. We need enough history to analyze + improve + audit — not bit-perfect replay. Git already ships this.</li>
-<li><strong>K8s pre-emptive</strong> — Single-host with SQLite+Docker wins on operator burden until deals demand multi-node. Federation via <code>git remote</code> is Tier D (when revenue forces it).</li>
+<li><strong>K8s pre-emptive</strong> — Docker on a host the operator owns wins on operator burden until deals demand multi-node; <a href="../howto/kubernetes.html">the Kubernetes page</a> says which daemons can move and which cannot. Federation via <code>git remote</code> is Tier D (when revenue forces it).</li>
 </ul>
 
 <h2 class="section-title">Open Questions</h2>
 
 <ol style="line-height: 1.8; margin: 1em 0 1em 1.5em;">
-<li><strong>Inbound message storage</strong> — Per-day JSONL in git, or fully hot in SQLite? Lean per-day in git for replay-enough.</li>
-<li><strong>Crash recovery</strong> — Between SQLite write and git commit, what's the recovery protocol? Idempotent reapply on restart?</li>
+<li><strong>Inbound message storage</strong> — Per-day JSONL in git, or fully hot in the store? Lean per-day in git for replay-enough.</li>
+<li><strong>Crash recovery</strong> — Between a store write and a git commit, what's the recovery protocol? Idempotent reapply on restart?</li>
 <li><strong>Fork lifecycle</strong> — Does forked branch get its own container? Same DB? Separate cache? Spec the lifecycle.</li>
 <li><strong>Operator UX</strong> — <code>arizuko log</code>, <code>arizuko diff</code>, <code>arizuko revert</code> wrappers — what's the surface?</li>
-<li><strong>dashd admin write</strong> — Currently edits SQLite directly. Under GitOps: commit → apply, or commit-immediate-apply? Pick a default.</li>
+<li><strong>dashd admin write</strong> — Currently writes the store directly. Under GitOps: commit → apply, or commit-immediate-apply? Pick a default.</li>
 <li><strong>Tracing granularity vs audit granularity</strong> — Commit-per-turn loses sub-turn lineage; sidecar restores it; is sidecar enough or do we need per-event commits on a side branch?</li>
 <li><strong>Is "GitOps" the right term?</strong> Too K8s-coded? Substitute "git-native"? Sharper positioning vs Argo CD ("Argo CD for AI agent fleets") or against it?</li>
 </ol>
@@ -526,11 +526,6 @@ Audit = <code>git log</code>. Fork = <code>git worktree</code>. Distribute = <co
 • Fork = <code>git worktree add</code> on a sha + spawn container<br>
 • Replay-enough = <code>git checkout &lt;sha&gt;</code> + walk the tree<br>
 • Audit = signed commits + branch protection</p>
-
-<div class="insights-box" style="margin-top: 2.5em;">
-<h3>Hardest Unsolved Problem</h3>
-<p style="margin: 0; line-height: 1.7;"><strong>Crash recovery between SQLite write and git commit.</strong> If the gateway writes to SQLite (in-flight turn state, message cursor advance) but crashes before the git commit, the next restart sees stale git state but advanced cursors. Three options: (1) idempotent reapply on restart (read git HEAD, diff against SQLite, reconcile), (2) WAL-style two-phase commit (write intent to git first, then SQLite, then finalize), (3) accept eventual consistency (SQLite cursor rollback on missing git commit). Option 1 is simplest; option 2 is safest but adds latency; option 3 risks duplicate message delivery. <strong>Deliberate further before Tier B implementation.</strong></p>
-</div>
 
 <div class="hub-footer" style="margin-top: 3em; padding-top: 2em; border-top: 1px solid var(--border);">
 <p style="color: var(--dim); font-size: 0.9em; line-height: 1.6;">

@@ -917,7 +917,8 @@ p.dim: Onboarding invites. Share the token with a new user to start onboarding.
 
 #### Data shown
 
-- All invites from onbod.db: token (truncated or prefix), created_at,
+- All invites from onbod's store (dashd holds onbod's handle): token
+  (truncated or prefix), created_at,
   expires_at, used flag
 
 #### Actions
@@ -928,7 +929,7 @@ p.dim: Onboarding invites. Share the token with a new user to start onboarding.
 #### Edge cases / empty states
 
 - No invites: "No invites. Create one to onboard a user."
-- onbod.db unavailable: banner-err; section disabled
+- onbod store unavailable: banner-err; section disabled
 - Already used invite: revoke button hidden or disabled
 
 ---
@@ -1166,233 +1167,16 @@ p.dim: Enter this code in WhatsApp → Linked Devices → Link a device.
 
 ---
 
-## Operator control planes (v0.54.0)
+## Operator control planes
 
----
+Each daemon serves its own control plane and dashd only links to it:
+`/dash/routd/`, `/dash/runed/`, `/dash/authd/` and `/dash/proxyd/` are
+mounted by routd, runed, authd and proxyd, and proxyd routes each prefix to
+the owning daemon (spec [6/30](specs/6/30-per-daemon-dashboards.md)). Their
+screens are specified next to the source, not here; `dashd/services.go`
+carries the link row for each.
 
-### /dash/routd/ — routd Control Plane
-
-**Operator only.**
-
-#### Purpose
-
-Message-router cockpit. Shows aggregate routing stats (route count, group
-count, pending outbound), and a per-chat errored message table with a
-per-chat retry action.
-
-#### User stories
-
-- As an operator, I want to see which chats have errored messages so I can
-  identify delivery failures.
-- As an operator, I want to retry a chat's errored messages so routd
-  re-dispatches them without touching the DB directly.
-
-#### Layout
-
-```
-crumbs: services › routd
-h1: routd
-
-[banner-ok: "errored messages cleared — they will be re-dispatched"]  (after retry)
-
-p.dim: {N} routes · {M} groups · {K} pending outbound
-       (? shown when source DB unavailable)
-
-h2: Errored chats
-[table: Chat | Errors | Last | ]
-  <a /me/chats?folder={folder}><code>{jid}</code></a>  {n}  {abbr ts}  [retry]
-```
-
-Retry button is an inline `<form method=post action=/dash/routd/retry>` with
-a hidden `chat_jid` input. After POST → 303 redirect back with `?msg=retried`.
-
-#### Data shown
-
-- `routeCount` — `SELECT COUNT(*) FROM routes` on routd.db
-- `groupCount` — `SELECT COUNT(*) FROM groups` on routd.db
-- `pending` — `SELECT COUNT(*) FROM messages WHERE status='pending' AND
-is_bot_message=1` on messages.db
-- Errored chats — `SELECT chat_jid, COUNT(*), MAX(timestamp) FROM messages
-WHERE errored=1 GROUP BY chat_jid ORDER BY last_err DESC LIMIT 50`
-- chat_jid renders as a link to `/me/chats?folder={folder}` when the folder is
-  resolvable (web:/hook: prefix, or via routes table); plain `<code>` otherwise
-
-#### Actions
-
-- Retry → POST /dash/routd/retry (body: `chat_jid`) → clears `errored=0`
-  for all messages in that chat, emits `routd.retry` audit event → 303
-  redirect to `/dash/routd/?msg=retried`
-
-#### Edge cases / empty states
-
-- messages.db unavailable: banner-err; page ends
-- routd.db unavailable: stats show `?` (dim); errored table still renders
-  from messages.db
-- No errored chats: `htmlTable` renders an empty table (no explicit
-  empty-state message currently)
-
----
-
-### /dash/runed/ — runed Control Plane
-
-**Operator only.**
-
-#### Purpose
-
-Container-runner cockpit. Shows currently active runs (queued/running) with
-a per-folder kill, and a recent-runs table of completed/failed/killed spawns.
-
-#### User stories
-
-- As an operator, I want to see which agent containers are running so I can
-  spot stuck or runaway spawns.
-- As an operator, I want to kill all active runs for a folder so I can
-  unblock a stuck group without SSH access.
-
-#### Layout
-
-```
-crumbs: services › runed
-h1: runed
-
-[banner-ok: "kill requested — the run is being torn down"]  (after kill)
-[banner-warn: "no active run for that folder"]              (when noop)
-[banner-warn: "runed store unavailable"]                    (when runed.db missing)
-
-h2: Active runs
-[table: Folder | State | Age | Run | ]
-  <a /me/chats?folder={folder}>{folder}</a>
-  <span class="status-{ok|err|unknown}">{state}</span>
-  {relative age (from created_at; running uses started_at)}
-  <code>{run_id[:8]}</code>
-  [kill]  (btn-danger, JS confirm)
-
-h2: Recent runs
-[table: Folder | State | Outcome | Exit | Duration | Ended]
-  {folder link}
-  <span class="status-{ok|err|unknown}">{state}</span>
-  {outcome}
-  {exit_code or ""}
-  {Xs / Xm / Xh between started_at and ended_at}
-  <abbr title="{ISO}">{relative}</abbr>
-```
-
-Kill button: `<form method=post action=/dash/runed/kill>` with hidden `folder`.
-
-#### Data shown
-
-Active runs: `spawns WHERE state IN ('queued','running') ORDER BY created_at
-DESC LIMIT 20` from runed.db.
-
-Recent runs: `spawns WHERE state IN ('exited','error','killed') ORDER BY
-ended_at DESC LIMIT 30` from runed.db.
-
-State CSS: `exited`/`running` → `status-ok`; `error` → `status-err`;
-`killed`/`queued` → `status-unknown`.
-
-#### Actions
-
-- Kill → POST /dash/runed/kill (body: `folder`) → proxies to runed
-  `POST /v1/runs/stop` with service:dashd bearer, emits `runed.kill` audit
-  event → 303 redirect to `/dash/runed/?msg=killed` or `?msg=noop`
-
-#### Edge cases / empty states
-
-- runed.db unavailable: banner-warn; page ends
-- No active runs: empty table
-- No recent runs: empty table
-- RUNED_URL unset: POST /kill returns 503
-
----
-
-### /dash/proxyd/ — proxyd Control Plane
-
-**Operator only.**
-
-#### Purpose
-
-Reverse-proxy cockpit. Shows every URL prefix the instance answers, the
-backend behind it, and who may open it — with add and delete. proxyd owns
-`proxyd_routes`, so the page reads and writes over HTTP
-(`/v1/proxyd_routes`), never in SQL.
-
-#### User stories
-
-- As an operator, I want to see every public address this instance serves so
-  I can spot one that should not be open.
-- As an operator, I want to point a path at a backend without redeploying.
-- As an operator, I want to withdraw an address immediately when it should
-  stop answering.
-
-#### Layout
-
-```
-crumbs: Services › proxyd
-h1: proxyd
-
-p.dim: Every web address this instance answers. …Changes take effect
-       immediately — no restart.
-
-[banner-ok:   "route added — it is serving now"]                (?msg=added)
-[banner-ok:   "route removed — that address now returns 404"]   (?msg=deleted)
-[banner-err:  "<proxyd's own reason>"]                          (?err=…)
-[banner-warn: "proxyd unreachable — PROXYD_URL is not configured for dashd"]
-
-[table: Path | Goes to | Who can open it | Notes | ]
-  <code>{path}</code>
-  <code>{backend}</code>  or  redirect → <code>{redirect_to}</code>
-  <span class="status-{warn|ok}">{anyone|signed-in users|operators only}</span>
-  {path prefix removed · set up by <code>{gated_by}</code> · keeps {headers}}
-  [delete]  (btn-danger btn-sm, JS confirm)
-
-h2: Add route
-<form method=post action=/dash/proxyd/>
-  Path:            [text /myapp/]
-  Backend:         [text http://myapp:8080]
-  Who can open it: [select: signed-in users | operators only | anyone]
-  Strip the path prefix before forwarding: [checkbox]
-  [button.btn-primary: add route]
-</form>
-p.dim: trailing-slash prefix rule + when "anyone" is correct
-```
-
-#### Data shown
-
-`GET {PROXYD_URL}/v1/proxyd_routes` → `{"routes":[…]}`. The `auth` field is
-rendered in words (`public`→anyone, `user`→signed-in users,
-`operator`→operators only); `public` reads `status-warn` because an open path
-is the one worth noticing.
-
-#### Actions
-
-- Add → `POST /dash/proxyd/` → `POST /v1/proxyd_routes` → 303 `?msg=added`
-- Delete → `POST /dash/proxyd/delete` (body: `path`) → `DELETE
-/v1/proxyd_routes/{path}` → 303 `?msg=deleted`
-
-Both forward the caller's `X-User-Sub`/`X-User-Groups` under dashd's
-`service:dashd` bearer; proxyd writes the `proxyd_routes:{create,delete}`
-audit row into routd.db inside the mutation's transaction, naming that
-operator. dashd emits no audit row of its own — one mutation, one row.
-
-`redirect_to` and `preserve_headers` are shown but not editable: proxyd's
-PATCH cannot set `redirect_to` at all, so a half-editable field would be a
-trap. Those arrive with the release, written into `proxyd_routes` by
-`arizuko generate`.
-
-Arizuko-owned rows (`owner: arizuko`) are rewritten by every generate, so
-PATCH on one answers 409. To take a shipped path over, delete it and add
-your own — the row you create is operator-owned and generate leaves it.
-
-#### Edge cases / empty states
-
-- `PROXYD_URL` unset: banner-warn; add form withheld
-- proxyd unreachable / non-2xx: banner-err carrying proxyd's own reason; add
-  form withheld (a form that cannot show the current table invites a
-  duplicate path)
-- 403 from proxyd's ACL: banner names the missing operator grant
-- No routes: "No routes. proxyd is answering 404 for every address — run
-  `arizuko generate <instance>`, which writes the release's route table."
-- Non-operator: 403, and dashd makes no upstream call
+The pages below are dashd's own.
 
 ---
 
@@ -1509,14 +1293,18 @@ h1: audit
 
 #### Data shown
 
-From `audit_log` in messages.db (dashd reads it via `d.db`):
+Federated, not read from a database: `audit_log` is per-daemon, so
+`auditSources` fans out to `GET /v1/audit` on routd, runed and authd (plus
+onbod when its profile is on) and `handleAudit` merges the answers newest
+first (`dashd/audit_page.go`, spec 5/I).
 
 - Fields: id, created_at, category, action, actor, folder, outcome, resource,
-  surface, params_summary, error_msg
-- Query: `WHERE 1=1 [AND category=?] [AND actor LIKE '%?%'] [AND folder=?]
-[AND id < ?] ORDER BY id DESC LIMIT 51`
-- 51st row signals "more" → truncate to 50 + render "older" link with
-  `?before={lastID}` cursor
+  surface, params_summary, error_msg, plus the source daemon
+- Each source is asked for `auditPageSize`+1 rows under the caller's
+  category/actor/folder filters; the extra row is what tells "exactly 50"
+  from "more behind it"
+- The cursor is composite — one `before` position per source
+- `auditFanoutTimeout` (10s) bounds the whole fan-out
 
 #### Actions
 
@@ -1525,7 +1313,10 @@ From `audit_log` in messages.db (dashd reads it via `d.db`):
 
 #### Edge cases / empty states
 
-- messages.db unavailable: banner-err; page ends
+- A source that fails gets a named banner and the survivors still render. A
+  source that cannot be read is NOT an empty source — rendering the rest
+  silently would tell the operator "nothing happened in runed" when the truth
+  is "runed did not answer"
 - No rows matching filters: empty table
 - error_msg set: shown as tooltip on the outcome cell (`<abbr title>`)
 - No delete/purge UI — non-repudiation by design
@@ -1575,13 +1366,17 @@ h2: 7-day volume
 
 #### Data shown
 
-- Summary totals: sum of `GroupUsageSummary.{MsgCount, Tokens7d, Cents7d}` over
-  all folders; displayed as raw int, `{N}k` (≥1000), `${X.XX}`
-- Per-group: `store.GroupUsageBulk(folders)` from messages.db, sorted
-  descending by Tokens7d; "—" when zero
-- 7-day volume: `SELECT DATE(timestamp), COUNT(*) FROM messages
-WHERE is_bot_message=0 AND timestamp >= date('now','-7 days')
-GROUP BY day ORDER BY day DESC`
+Every figure arrives over routd's `/v1`; dashd reads no table of its own here.
+
+- Folders: `usageFolders` → routd `/v1` group list, alphabetical
+- Spend: `costSummary` → routd `GET /v1/cost/summary` in one call, 7-day window
+- Per-group: `groupUsageBulk` joins that spend with routd's message counts,
+  sorted descending by Tokens7d; "—" when zero
+- 7-day volume: `messageVolumeViaRoutd`. routd owns `messages` and applies the
+  `is_bot_message` filter itself, so this page cannot widen the histogram to
+  include the agent's own output
+- Summary totals: the per-folder rows summed; rendered raw, `{N}k` (≥1000),
+  `${X.XX}`
 
 #### Actions
 
@@ -1589,8 +1384,10 @@ GROUP BY day ORDER BY day DESC`
 
 #### Edge cases / empty states
 
-- routd.db unavailable: banner-err; page ends
-- messages.db unavailable (volume table): banner-err in that section only
+- Store unavailable: banner-err; page ends
+- routd unreachable for the volume table: banner-err in that section only
+- No model gateway on the instance: a banner says so, and every token and cost
+  cell reads "no meter" — unknown, not zero
 - Group with zero activity: all cells show "—"
 - No messages at all: summary shows 0/0k/$0.00; per-group table empty
 
