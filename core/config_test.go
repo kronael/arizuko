@@ -350,3 +350,29 @@ func TestOperatorCredentialLoadsFromItsOwnFile(t *testing.T) {
 		t.Errorf("the secret did not load: %q", got)
 	}
 }
+
+// A process inside the instance's network is handed the store's address and
+// keeps it: the operator's file names the same server from the host, where the
+// compose service name does not resolve.
+func TestTheNetworkAddressSurvivesTheOperatorFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "env"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".env"),
+		[]byte("DYNAMODB_URL=https://extenddb:18443\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "env", "operator.env"),
+		[]byte("DYNAMODB_URL=https://127.0.0.1:18443\nAWS_ACCESS_KEY_ID=AKIAOP\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DYNAMODB_URL", "https://extenddb:18443")
+	LoadInstanceEnv(dir)
+	if got := os.Getenv("DYNAMODB_URL"); got != "https://extenddb:18443" {
+		t.Errorf("DYNAMODB_URL = %q, want the address the process was given", got)
+	}
+	if got := os.Getenv("AWS_ACCESS_KEY_ID"); got != "AKIAOP" {
+		t.Errorf("the operator's credential did not load: %q", got)
+	}
+}
