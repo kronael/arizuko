@@ -7,7 +7,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -42,8 +41,8 @@ func tokenFromLink(t *testing.T, body string) string {
 // built by the chain its owner ships and migrates, so a rename on either side
 // reaches these tests instead of passing against a single stand-in schema.
 type onbodInst struct {
-	X   *sql.DB
-	Ob  *sql.DB
+	X   *store.Store
+	Ob  *store.Store
 	Tmp string
 }
 
@@ -55,10 +54,10 @@ func newOnbodInst(t *testing.T) *onbodInst {
 	}
 	t.Cleanup(func() { rdb.Close() })
 	ob := dbtest.Open(t)
-	if err := migrateOwned(ob); err != nil {
+	if err := prepareOwned(newObjectStore(ob)); err != nil {
 		t.Fatalf("onbod migrate: %v", err)
 	}
-	return &onbodInst{X: rdb.SQL(), Ob: ob, Tmp: t.TempDir()}
+	return &onbodInst{X: store.New(rdb.SQL()), Ob: store.NewOver(newObjectStore(ob)), Tmp: t.TempDir()}
 }
 
 // newOnbodServer wires the real mux against onbod's two databases and a fake
@@ -137,7 +136,7 @@ func TestOnboardingFlow(t *testing.T) {
 	if len(token) != 64 {
 		t.Fatalf("want 64-char token, got %d", len(token))
 	}
-	st := store.New(inst.X)
+	st := inst.X
 	pairs := pairingTokensFor(t, inst.X, jid)
 	if len(pairs) != 1 {
 		t.Fatalf("minted %d pairing rows for %s, want 1", len(pairs), jid)
@@ -150,7 +149,7 @@ func TestOnboardingFlow(t *testing.T) {
 	// GET /pair is webd's and is side-effect-free; the redemption POST it fronts
 	// is store.RedeemPairing, which is what writes the edge.
 	sub := "github:alice"
-	if err := store.New(inst.X).CreateUserProfile(sub, sub, "Alice"); err != nil {
+	if err := inst.X.CreateUserProfile(sub, sub, "Alice"); err != nil {
 		t.Fatalf("seed user_profiles: %v", err)
 	}
 	if peeked, err := st.PeekPairing(token); err != nil || peeked != jid {

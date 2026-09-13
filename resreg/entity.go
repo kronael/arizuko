@@ -55,6 +55,12 @@ import (
 // engine builds the Backend itself; there is nothing to derive then.
 func OnDB(db *sql.DB) Backend { return Backend{DB: db, Obj: sqlstore.New(db)} }
 
+// On is the Backend for a store addressed by key and nothing else — the shape a
+// caller holding a handle to a server has. It carries no SQL half because there
+// is nothing for one to read: every resource an owner subsystem declares is
+// entity-shaped, and resreg/resources/shape_test.go is the lock on that.
+func On(obj objstore.Store) Backend { return Backend{Obj: obj} }
+
 // Backend is one owner database, reachable BOTH ways, because a resource
 // declares which way it answers.
 //

@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"html"
 	"log/slog"
@@ -37,7 +36,7 @@ func TestMain(m *testing.M) {
 // handler takes them: xdb is routd.db (user_profiles, groups, route_tokens, acl),
 // obdb is onbod.db (onboarding, onboarding_gates, invites). Each is built by the
 // chain its owner ships, so a rename on either side reaches this test.
-func migratedDB(t *testing.T) (xdb, obdb *sql.DB) {
+func migratedDB(t *testing.T) (xdb, obdb *store.Store) {
 	t.Helper()
 	rdb, err := routd.OpenMem()
 	if err != nil {
@@ -46,30 +45,30 @@ func migratedDB(t *testing.T) (xdb, obdb *sql.DB) {
 	t.Cleanup(func() { rdb.Close() })
 
 	ob := dbtest.Open(t)
-	if err := migrateOwned(ob); err != nil {
+	if err := prepareOwned(newObjectStore(ob)); err != nil {
 		t.Fatalf("onbod migrate: %v", err)
 	}
-	return rdb.SQL(), ob
+	return store.New(rdb.SQL()), store.NewOver(newObjectStore(ob))
 }
 
 // testDB fuses onbod's two owners into ONE handle, for the handlers these tests
 // drive with a single database. Both halves are built by the chain their owner
 // ships — routd's for groups/routes/route_tokens/acl/acl_membership and the
-// tables beside them, onbod's own migrateOwned for its three entities, its
+// tables beside them, onbod's own prepareOwned for its three entities, its
 // audit_log and its invite_redemptions — so a rename on either side reaches
 // here. A CREATE TABLE of its own would build a shape production does not have.
-func testDB(t *testing.T) *sql.DB {
+func testDB(t *testing.T) *store.Store {
 	t.Helper()
 	rdb, err := routd.OpenMem()
 	if err != nil {
 		t.Fatalf("routd.OpenMem: %v", err)
 	}
 	t.Cleanup(func() { rdb.Close() })
-	db := rdb.SQL()
-	if err := migrateOwned(db); err != nil {
+	pool := rdb.SQL()
+	if err := prepareOwned(newObjectStore(pool)); err != nil {
 		t.Fatalf("onbod migrate: %v", err)
 	}
-	return db
+	return store.New(pool)
 }
 
 // fixtureTS is the instant a fixture stamps when it does not care which. It is
@@ -82,12 +81,12 @@ const fixtureTS = "2026-01-01T00:00:00Z"
 // importer rather than a fixture of its own, so the item shape onbod reads is
 // the one store writes. An unset Created gets fixtureTS: every read that orders
 // admissions compares it.
-func seedAdmission(t *testing.T, db *sql.DB, r store.ArchiveOnboardingRow) {
+func seedAdmission(t *testing.T, db *store.Store, r store.ArchiveOnboardingRow) {
 	t.Helper()
 	if r.Created == "" {
 		r.Created = fixtureTS
 	}
-	if _, err := store.New(db).ImportOnboarding(t.Context(),
+	if _, err := db.ImportOnboarding(t.Context(),
 		[]store.ArchiveOnboardingRow{r}); err != nil {
 		t.Fatalf("seed admission %s: %v", r.JID, err)
 	}
@@ -95,9 +94,9 @@ func seedAdmission(t *testing.T, db *sql.DB, r store.ArchiveOnboardingRow) {
 
 // admission reads one admission back. The zero row when there is none, so a
 // caller asserting on a status reads "" rather than failing on a missing row.
-func admission(t *testing.T, db *sql.DB, jid string) store.OnboardingRow {
+func admission(t *testing.T, db *store.Store, jid string) store.OnboardingRow {
 	t.Helper()
-	rows, err := store.New(db).ListOnboarding("")
+	rows, err := db.ListOnboarding("")
 	if err != nil {
 		t.Fatalf("read admissions: %v", err)
 	}
@@ -110,16 +109,16 @@ func admission(t *testing.T, db *sql.DB, jid string) store.OnboardingRow {
 }
 
 // admissionStatus is one admission's status, "" when there is none.
-func admissionStatus(t *testing.T, db *sql.DB, jid string) string {
+func admissionStatus(t *testing.T, db *store.Store, jid string) string {
 	t.Helper()
 	return admission(t, db, jid).Status
 }
 
 // countAdmissions counts the admissions in one status; an empty status counts
 // every one.
-func countAdmissions(t *testing.T, db *sql.DB, status string) int {
+func countAdmissions(t *testing.T, db *store.Store, status string) int {
 	t.Helper()
-	rows, err := store.New(db).ListOnboarding(status)
+	rows, err := db.ListOnboarding(status)
 	if err != nil {
 		t.Fatalf("count admissions: %v", err)
 	}
@@ -127,9 +126,9 @@ func countAdmissions(t *testing.T, db *sql.DB, status string) int {
 }
 
 // seedGateRow stores one gate at a chosen limit and enablement.
-func seedGateRow(t *testing.T, db *sql.DB, gate string, limit int, enabled bool) {
+func seedGateRow(t *testing.T, db *store.Store, gate string, limit int, enabled bool) {
 	t.Helper()
-	st := store.New(db)
+	st := db
 	if err := st.PutGate(gate, limit); err != nil {
 		t.Fatalf("seed gate %s: %v", gate, err)
 	}
@@ -142,12 +141,12 @@ func seedGateRow(t *testing.T, db *sql.DB, gate string, limit int, enabled bool)
 
 // seedInviteRow stores one invite at a chosen ref, for a fixture that has to
 // name the coordinate it will assert on.
-func seedInviteRow(t *testing.T, db *sql.DB, r store.ArchiveInviteRow) {
+func seedInviteRow(t *testing.T, db *store.Store, r store.ArchiveInviteRow) {
 	t.Helper()
 	if r.IssuedAt == "" {
 		r.IssuedAt = fixtureTS
 	}
-	if _, err := store.New(db).ImportInvites(t.Context(),
+	if _, err := db.ImportInvites(t.Context(),
 		[]store.ArchiveInviteRow{r}); err != nil {
 		t.Fatalf("seed invite %s: %v", r.Ref, err)
 	}
@@ -156,9 +155,9 @@ func seedInviteRow(t *testing.T, db *sql.DB, r store.ArchiveInviteRow) {
 // setAdmissionAttr writes one attribute of one admission, for a fixture that
 // has to build a state no accessor writes — a status the state machine cannot
 // reach, or a marker only a second admission would overwrite.
-func setAdmissionAttr(t *testing.T, db *sql.DB, jid, attr, value string) {
+func setAdmissionAttr(t *testing.T, db *store.Store, jid, attr, value string) {
 	t.Helper()
-	committed, err := store.New(db).Obj().GuardedBatch(t.Context(), nil, []objstore.Write{{
+	committed, err := db.Obj().GuardedBatch(t.Context(), nil, []objstore.Write{{
 		Op: objstore.Update, Entity: store.Onboarding,
 		Key:   objstore.Key{Partition: store.OwnerOnbod, Sort: jid},
 		Attrs: map[string]string{attr: value},
@@ -173,16 +172,16 @@ func setAdmissionAttr(t *testing.T, db *sql.DB, jid, attr, value string) {
 
 // setAdmissionStatus moves one admission to a status no accessor writes, which
 // is what a stranded-row fixture needs.
-func setAdmissionStatus(t *testing.T, db *sql.DB, jid, status string) {
+func setAdmissionStatus(t *testing.T, db *store.Store, jid, status string) {
 	t.Helper()
 	setAdmissionAttr(t, db, jid, "status", status)
 }
 
 // allAdmissions is every admission, for a caller that counts by more than one
 // attribute at once.
-func allAdmissions(t *testing.T, db *sql.DB) []store.OnboardingRow {
+func allAdmissions(t *testing.T, db *store.Store) []store.OnboardingRow {
 	t.Helper()
-	rows, err := store.New(db).ListOnboarding("")
+	rows, err := db.ListOnboarding("")
 	if err != nil {
 		t.Fatalf("read admissions: %v", err)
 	}
@@ -190,9 +189,9 @@ func allAdmissions(t *testing.T, db *sql.DB) []store.OnboardingRow {
 }
 
 // invite reads one invite back by ref.
-func invite(t *testing.T, db *sql.DB, ref string) store.ArchiveInviteRow {
+func invite(t *testing.T, db *store.Store, ref string) store.ArchiveInviteRow {
 	t.Helper()
-	rows, err := store.New(db).ExportInvites(t.Context())
+	rows, err := db.ExportInvites(t.Context())
 	if err != nil {
 		t.Fatalf("read invites: %v", err)
 	}
@@ -206,7 +205,7 @@ func invite(t *testing.T, db *sql.DB, ref string) store.ArchiveInviteRow {
 }
 
 // inviteUsed is one invite's redemption counter, by ref.
-func inviteUsed(t *testing.T, db *sql.DB, ref string) int {
+func inviteUsed(t *testing.T, db *store.Store, ref string) int {
 	t.Helper()
 	return invite(t, db, ref).UsedCount
 }
@@ -264,7 +263,7 @@ func TestPromptUnpromptedLinkRedeemsAsAPairing(t *testing.T) {
 	if !found {
 		t.Fatalf("greeting carried no /pair/ link: %q", sent)
 	}
-	jid, err := store.New(db).PeekPairing(strings.TrimSpace(raw))
+	jid, err := db.PeekPairing(strings.TrimSpace(raw))
 	if err != nil || jid != "telegram:1" {
 		t.Fatalf("the link the chat received does not redeem: PeekPairing = (%q, %v)", jid, err)
 	}
@@ -272,7 +271,7 @@ func TestPromptUnpromptedLinkRedeemsAsAPairing(t *testing.T) {
 
 func TestDashboardShowsUsernamePicker(t *testing.T) {
 	db := testDB(t)
-	if err := store.New(db).CreateUserProfile("github:new", "github:new", "New User"); err != nil {
+	if err := db.CreateUserProfile("github:new", "github:new", "New User"); err != nil {
 		t.Fatalf("seed user_profiles: %v", err)
 	}
 
@@ -300,7 +299,7 @@ func TestDashboardShowsUsernamePicker(t *testing.T) {
 // catch a form that omits the field — which is how BUGS F1 shipped.
 func TestUsernamePickerFormSatisfiesCSRFCheck(t *testing.T) {
 	db := testDB(t)
-	if err := store.New(db).CreateUserProfile("github:new", "newbie", "New User"); err != nil {
+	if err := db.CreateUserProfile("github:new", "newbie", "New User"); err != nil {
 		t.Fatalf("seed user_profiles: %v", err)
 	}
 
@@ -367,10 +366,10 @@ func formInputs(page string) url.Values {
 
 // twoWorldUser: alice administers two worlds and has just paired a JID that no
 // route names — spec 5/18's step 6, where the choice is hers to make.
-func twoWorldUser(t *testing.T) *sql.DB {
+func twoWorldUser(t *testing.T) *store.Store {
 	t.Helper()
 	db := testDB(t)
-	if err := store.New(db).CreateUserProfile("github:alice", "alice", "Alice"); err != nil {
+	if err := db.CreateUserProfile("github:alice", "alice", "Alice"); err != nil {
 		t.Fatalf("seed user_profiles: %v", err)
 	}
 	seedFolder(t, db, "acme")
@@ -381,7 +380,7 @@ func twoWorldUser(t *testing.T) *sql.DB {
 	return db
 }
 
-func getOnboard(db *sql.DB, sub string) *httptest.ResponseRecorder {
+func getOnboard(db *store.Store, sub string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest("GET", "/onboard", nil)
 	req.Header.Set("X-User-Sub", sub)
 	w := httptest.NewRecorder()
@@ -484,7 +483,7 @@ func TestSingleWorldRoutesWithoutAsking(t *testing.T) {
 // nowhere to go.
 func TestNoAdminWorldIsAnExplicitDeadEnd(t *testing.T) {
 	db := testDB(t)
-	if err := store.New(db).CreateUserProfile("github:alice", "alice", "Alice"); err != nil {
+	if err := db.CreateUserProfile("github:alice", "alice", "Alice"); err != nil {
 		t.Fatalf("seed user_profiles: %v", err)
 	}
 	// alice holds a scope (so she is past the invite gate) but administers
@@ -504,7 +503,7 @@ func TestNoAdminWorldIsAnExplicitDeadEnd(t *testing.T) {
 
 func TestCreateWorldValidUsername(t *testing.T) {
 	db := testDB(t)
-	if err := store.New(db).CreateUserProfile("github:new", "github:new", "New User"); err != nil {
+	if err := db.CreateUserProfile("github:new", "github:new", "New User"); err != nil {
 		t.Fatalf("seed user_profiles: %v", err)
 	}
 
@@ -536,7 +535,7 @@ func TestCreateWorldValidUsername(t *testing.T) {
 		t.Errorf("creator grant should be subtree-scoped, got %q", ug)
 	}
 
-	un, _, err := store.New(db).Username("github:new")
+	un, _, err := db.Username("github:new")
 	if err != nil {
 		t.Fatalf("read the username back: %v", err)
 	}
@@ -703,7 +702,7 @@ func TestRepromptLeavesAnAdmittableRow(t *testing.T) {
 		AdmittedAt: "2026-01-02T00:00:00Z", PromptedAt: "2026-01-02T00:00:00Z"})
 	seedMembership(t, db, "telegram:1", "github:alice", store.PairingAddedBy)
 
-	if err := store.New(db).RepromptOnboarding("telegram:1"); err != nil {
+	if err := db.RepromptOnboarding("telegram:1"); err != nil {
 		t.Fatal(err)
 	}
 	observePairings(db, db, config{})
@@ -752,7 +751,7 @@ func TestObservePairingsIgnoresAgentMintedPairings(t *testing.T) {
 // to routes the ONE unrouted JID, and the next landing the next.
 func TestCreateWorldRoutesNoJIDs(t *testing.T) {
 	db := testDB(t)
-	if err := store.New(db).CreateUserProfile("github:new", "github:new", "New User"); err != nil {
+	if err := db.CreateUserProfile("github:new", "github:new", "New User"); err != nil {
 		t.Fatalf("seed user_profiles: %v", err)
 	}
 	seedMembership(t, db, "telegram:10", "github:new", "")
@@ -796,7 +795,7 @@ func TestCreateWorldRoutesNoJIDs(t *testing.T) {
 
 func TestCreateWorldNoLinkedJIDs(t *testing.T) {
 	db := testDB(t)
-	if err := store.New(db).CreateUserProfile("github:lonely", "github:lonely", "Lonely"); err != nil {
+	if err := db.CreateUserProfile("github:lonely", "github:lonely", "Lonely"); err != nil {
 		t.Fatalf("seed user_profiles: %v", err)
 	}
 
@@ -837,7 +836,7 @@ func TestCreateWorldNoLinkedJIDs(t *testing.T) {
 // The world is the assertion; routes are not written here at all (5/18 step 7).
 func TestCreateWorldOperatorAllowed(t *testing.T) {
 	db := testDB(t)
-	if err := store.New(db).CreateUserProfile("github:op", "op", "Op"); err != nil {
+	if err := db.CreateUserProfile("github:op", "op", "Op"); err != nil {
 		t.Fatalf("seed user_profiles: %v", err)
 	}
 	seedGrant(t, db, "github:op", "admin", "**")
@@ -1066,7 +1065,7 @@ func TestQueuePositionRendering(t *testing.T) {
 		Gate: "*", QueuedAt: "2026-04-17T10:00:00Z", UserSub: "github:first"})
 	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "t:2", Status: "queued",
 		Gate: "*", QueuedAt: "2026-04-17T10:01:00Z", UserSub: "github:second"})
-	if err := store.New(db).CreateUserProfile("github:second", "second", "Second"); err != nil {
+	if err := db.CreateUserProfile("github:second", "second", "Second"); err != nil {
 		t.Fatalf("seed user_profiles: %v", err)
 	}
 
@@ -1107,9 +1106,9 @@ func TestNoGatesLegacyBehavior(t *testing.T) {
 
 // createInvite is a test helper that mints an invite via the new store API,
 // returning the raw bearer (I1: the DB stores only its hash).
-func createInvite(t *testing.T, db *sql.DB, targetGlob, issuedBy string, maxUses int) string {
+func createInvite(t *testing.T, db *store.Store, targetGlob, issuedBy string, maxUses int) string {
 	t.Helper()
-	_, token, err := store.New(db).CreateInvite(targetGlob, issuedBy, maxUses, nil)
+	_, token, err := db.CreateInvite(targetGlob, issuedBy, maxUses, nil)
 	if err != nil {
 		t.Fatalf("CreateInvite: %v", err)
 	}
@@ -1142,7 +1141,7 @@ func TestInviteCreation(t *testing.T) {
 
 func TestInviteConsume(t *testing.T) {
 	db := testDB(t)
-	if err := store.New(db).CreateUserProfile("github:bob", "bob", "Bob"); err != nil {
+	if err := db.CreateUserProfile("github:bob", "bob", "Bob"); err != nil {
 		t.Fatalf("seed user_profiles: %v", err)
 	}
 	seedFolder(t, db, "alice")
@@ -1272,7 +1271,7 @@ func TestInviteInvalidToken(t *testing.T) {
 	}
 }
 
-func postOnboard(db *sql.DB, cfg config, sub string,
+func postOnboard(db *store.Store, cfg config, sub string,
 	vals url.Values) *httptest.ResponseRecorder {
 	// Double-submit CSRF: cookie and form field must match.
 	const csrf = "test-csrf-token"
@@ -1428,7 +1427,7 @@ func TestCSRFRejected(t *testing.T) {
 // after the first returns the "used" page.
 func TestInviteAtomicConsume(t *testing.T) {
 	db := testDB(t)
-	if err := store.New(db).CreateUserProfile("github:bob", "bob", "Bob"); err != nil {
+	if err := db.CreateUserProfile("github:bob", "bob", "Bob"); err != nil {
 		t.Fatalf("seed user_profiles: %v", err)
 	}
 	seedFolder(t, db, "alice")
@@ -1445,7 +1444,7 @@ func TestInviteAtomicConsume(t *testing.T) {
 	}
 
 	// Second consume — uses is now 1 == max_uses; must fail.
-	if err := store.New(db).CreateUserProfile("github:eve", "eve", "Eve"); err != nil {
+	if err := db.CreateUserProfile("github:eve", "eve", "Eve"); err != nil {
 		t.Fatalf("seed user_profiles: %v", err)
 	}
 	req2 := httptest.NewRequest("GET", "/invite/"+tok, nil)
@@ -1491,7 +1490,7 @@ func TestAddRouteWrongTarget(t *testing.T) {
 func TestDashboardXSSEscape(t *testing.T) {
 	db := testDB(t)
 	attacker := `<script>alert(1)</script>`
-	if err := store.New(db).CreateUserProfile(attacker, attacker, ""); err != nil {
+	if err := db.CreateUserProfile(attacker, attacker, ""); err != nil {
 		t.Fatalf("seed user_profiles: %v", err)
 	}
 	seedGrant(t, db, attacker, "admin", "room")
@@ -1515,7 +1514,7 @@ func TestDashboardXSSEscape(t *testing.T) {
 // Queue position render must escape the gate string (user-controlled via DB).
 func TestQueuePositionXSSEscape(t *testing.T) {
 	db := testDB(t)
-	if err := store.New(db).CreateUserProfile("github:x", "x", "X"); err != nil {
+	if err := db.CreateUserProfile("github:x", "x", "X"); err != nil {
 		t.Fatalf("seed user_profiles: %v", err)
 	}
 	// gate value itself is stored, but the eta-msg is server-side formatted;
@@ -1691,7 +1690,7 @@ func TestLoadGatesEnabledFilter(t *testing.T) {
 func TestStateMachineMigrated(t *testing.T) {
 	xdb, obdb := migratedDB(t)
 	// Seed auth user + existing world for the JID to link to.
-	if err := store.New(xdb).CreateUserProfile("github:alice", "alice", "Alice"); err != nil {
+	if err := xdb.CreateUserProfile("github:alice", "alice", "Alice"); err != nil {
 		t.Fatalf("seed user_profiles: %v", err)
 	}
 	seedGateRow(t, obdb, "*", 5, true)
@@ -1942,7 +1941,7 @@ func TestUserOwnsMatchRejectsNonRoomPrefix(t *testing.T) {
 // "hours" wording (covers the >=60min branch).
 func TestQueuePositionETAHours(t *testing.T) {
 	db := testDB(t)
-	if err := store.New(db).CreateUserProfile("github:x", "x", "X"); err != nil {
+	if err := db.CreateUserProfile("github:x", "x", "X"); err != nil {
 		t.Fatalf("seed user_profiles: %v", err)
 	}
 	seedGateRow(t, db, "*", 1, true)

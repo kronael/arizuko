@@ -1,25 +1,20 @@
 package main
 
 import (
-	"database/sql"
 	"time"
 
 	"github.com/kronael/arizuko/auth"
-	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
 )
 
 // admin serves onbod's bearer-gated /v1/* surface: the invite + gate writers
 // that dashd, the host CLI, and routd's /invite + /gate commands reach instead
 // of touching onbod's tables directly (spec 5/5 § Daemon ownership). All
-// mutations go through store.New(db) against onbod's OWNED DB (onbod.db) using
-// the same audited writers.
+// mutations go through onbod's OWN store using the same audited writers.
 type admin struct {
-	db *sql.DB
-
-	// obj is the handle this face is served from when a caller hands one over,
-	// set instead of the pool rather than beside it.
-	obj objstore.Store
+	// st is every question this face asks of onbod's own tables, wherever they
+	// live: openOwned picked the endpoint or the file before this was built.
+	st *store.Store
 
 	ks *auth.KeySet // authd JWKS; nil (AUTHD_URL unset, e.g. local-dev) → open, like routd's nil verifier
 }
@@ -60,13 +55,4 @@ func toInviteJSON(inv store.Invite) inviteJSON {
 
 func toInviteCreatedJSON(inv store.Invite, rawToken string) inviteCreatedJSON {
 	return inviteCreatedJSON{inviteJSON: toInviteJSON(inv), Token: rawToken}
-}
-
-// store is the handle every mutation on this face goes through: the one handed
-// over when there is one, and one built over the pool when there is not.
-func (a *admin) store() *store.Store {
-	if a.obj != nil {
-		return store.NewOver(a.obj)
-	}
-	return store.New(a.db)
 }

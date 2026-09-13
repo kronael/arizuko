@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -76,41 +75,44 @@ func main() {
 	// Two handles (spec 5/5): obdb is onbod's OWNED tables
 	// (onboarding/invites/onboarding_gates); xdb is the CROSS tables
 	// (acl/acl_membership/groups/user_profiles/routes), all routd-OWNED. Split is the
-	// only topology — onbod owns onbod.db and cross-reads routd.db, and opens NO
+	// only topology — onbod owns its tables and cross-reads routd's, and opens NO
 	// messages.db. audit.Init targets obdb so the invite/gate writers' in-tx audit
-	// rows land with the mutation. A missing routd.db is a misconfigured split, so a
-	// failure to open is fatal — no silent empty-DB cross-read.
-	if cfg.ownDSN == "" {
-		slog.Error("ONBOD_DB_PATH required")
-		os.Exit(1)
+	// rows land with the mutation. A missing routd store is a misconfigured split,
+	// so a failure to open is fatal — no silent empty cross-read.
+	//
+	// An instance served from a DynamoDB endpoint names no file for either, so
+	// the two paths are required only where there are files to name.
+	if !store.Served() {
+		if cfg.ownDSN == "" {
+			slog.Error("ONBOD_DB_PATH required")
+			os.Exit(1)
+		}
+		if cfg.routdDSN == "" {
+			slog.Error("ROUTD_DB_PATH required")
+			os.Exit(1)
+		}
 	}
-	if cfg.routdDSN == "" {
-		slog.Error("ROUTD_DB_PATH required")
-		os.Exit(1)
-	}
-	var obdb, xdb *sql.DB
-	obdb, err = openOwnedDB(cfg.ownDSN)
+	obdb, err := openOwned(cfg.ownDSN)
 	if err != nil {
-		slog.Error("open onbod.db", "err", err)
+		slog.Error("open onbod's store", "err", err)
 		os.Exit(1)
 	}
-	defer obdb.Close()
-	slog.Info("onbod owns split DB", "path", cfg.ownDSN)
+	defer obdb.Close() //nolint:errcheck // the process is ending
+	slog.Info("onbod owns its tables", "path", cfg.ownDSN)
 
-	// store.OpenRoutd, not a bare sql.Open: sql.Open is lazy, so the error
+	// store.OpenOwner, not a bare sql.Open: sql.Open is lazy, so the error
 	// branch below could never fire and onbod would create an empty routd.db on
 	// first query — a cross-read against zero groups and zero acl, boot green
-	// (BUGS F52). OpenRoutd probes for the `acl` table and fails loud instead.
-	stRoutd, err := store.OpenRoutdAt(cfg.routdDSN)
+	// (BUGS F52). OpenOwner probes for the `acl` entity and fails loud instead.
+	xdb, err := store.OpenOwner(store.OwnerRoutd, cfg.routdDSN)
 	if err != nil {
-		slog.Error("open routd.db", "path", cfg.routdDSN, "err", err)
+		slog.Error("open routd's store", "path", cfg.routdDSN, "err", err)
 		os.Exit(1)
 	}
-	defer stRoutd.Close()
-	xdb = stRoutd.DB()
-	slog.Info("onbod cross-reads routd.db", "path", cfg.routdDSN)
+	defer xdb.Close() //nolint:errcheck // the process is ending
+	slog.Info("onbod cross-reads routd's tables", "path", cfg.routdDSN)
 
-	audit.Init(newObjectStore(obdb), os.Getenv("ARIZUKO_INSTANCE"))
+	audit.Init(obdb.Obj(), os.Getenv("ARIZUKO_INSTANCE"))
 	audit.Emit(context.Background(), audit.Event{
 		Category: audit.CategorySystem,
 		Action:   "daemon.start",
@@ -184,7 +186,7 @@ func main() {
 // read the ROUTING TABLE onbod actually builds rather than a restatement of it —
 // the doc-vs-mux guard has to compare the emitted document against the real
 // mux, and a mux built inline in main is unreachable.
-func newOnbodMux(xdb, obdb *sql.DB, cfg config, ks *auth.KeySet) *http.ServeMux {
+func newOnbodMux(xdb, obdb *store.Store, cfg config, ks *auth.KeySet) *http.ServeMux {
 	mux := http.NewServeMux()
 	// stripUnsigned keeps X-User-Sub only when the request PROVES it transited
 	// proxyd. The bearer is a transit proof ONLY: /onboard reads X-User-Sub as the
@@ -212,7 +214,7 @@ func newOnbodMux(xdb, obdb *sql.DB, cfg config, ks *auth.KeySet) *http.ServeMux 
 	// /gate) reach them here instead of writing the DB directly in the split.
 	// Verified against authd's JWKS (ks); nil ks (AUTHD_URL unset / monolith) =
 	// open, like routd's nil-verifier local-dev path.
-	adm := &admin{db: obdb, ks: ks}
+	adm := &admin{st: obdb, ks: ks}
 	adm.mountOnboarding(mux) // /v1/onboarding via the shared resreg handler (spec 5/16)
 	adm.mountInvites(mux)    // /v1/invites via the shared resreg handler (spec 5/16)
 	adm.mountGates(mux)      // /v1/gates via the shared resreg handler (spec 5/16)
@@ -379,8 +381,8 @@ var warnedStranded sync.Map
 // warnStrandedRows surfaces rows the state machine cannot move. It cannot
 // repair them — picking a status for a row of unknown provenance is the
 // operator's call — but silence is what let them sit unnoticed.
-func warnStrandedRows(db *sql.DB) {
-	rows, err := store.New(db).ListOnboarding("")
+func warnStrandedRows(db *store.Store) {
+	rows, err := db.ListOnboarding("")
 	if err != nil {
 		slog.Error("stranded-row scan", "err", err)
 		return
@@ -404,10 +406,9 @@ func warnStrandedRows(db *sql.DB) {
 // The mint's owner_folder is the constant "" → NULL. InsertOnboarding only ever
 // fires from the route-MISS branch, so "this JID routes nowhere" is proved by the
 // row's existence and is not re-derived here.
-func promptUnprompted(xdb, obdb *sql.DB, cfg config) {
+func promptUnprompted(xdb, obdb *store.Store, cfg config) {
 	warnStrandedRows(obdb)
-	obst := store.New(obdb)
-	pending, err := obst.UnpromptedJIDs()
+	pending, err := obdb.UnpromptedJIDs()
 	if err != nil {
 		slog.Error("promptUnprompted query", "err", err)
 		return
@@ -420,7 +421,7 @@ func promptUnprompted(xdb, obdb *sql.DB, cfg config) {
 		// user: a mint failure leaves the row unclaimed for the next tick, while
 		// a lost claim race leaves a token nobody was ever told, which expires in
 		// PairingTTL. Claiming first would stamp prompted_at with no link sent.
-		token, err := store.New(xdb).IssuePairingLink(context.Background(), jid, "")
+		token, err := xdb.IssuePairingLink(context.Background(), jid, "")
 		if err != nil {
 			slog.Error("promptUnprompted mint pairing link", "jid", jid, "err", err)
 			continue
@@ -428,7 +429,7 @@ func promptUnprompted(xdb, obdb *sql.DB, cfg config) {
 		// Claim-per-row: the write re-checks that prompted_at is absent, so two
 		// overlapping ticks can't both win the same jid. Only the tick whose
 		// claim was taken sends the link (else the other tick already did).
-		claimed, err := obst.ClaimOnboardingPrompt(jid)
+		claimed, err := obdb.ClaimOnboardingPrompt(jid)
 		if err != nil {
 			slog.Error("promptUnprompted claim", "jid", jid, "err", err)
 			continue
@@ -468,19 +469,18 @@ func promptUnprompted(xdb, obdb *sql.DB, cfg config) {
 //
 // The dedup is onboarding's jid primary key plus the `user_sub IS NULL` guard, so
 // a row is admitted once and an agent-minted pairing is invisible here.
-func observePairings(xdb, obdb *sql.DB, cfg config) {
-	awaiting, err := store.New(obdb).UnadmittedJIDs()
+func observePairings(xdb, obdb *store.Store, cfg config) {
+	awaiting, err := obdb.UnadmittedJIDs()
 	if err != nil {
 		slog.Error("observePairings query", "err", err)
 		return
 	}
 
-	xst := store.New(xdb)
 	for _, jid := range awaiting {
 		// The PAIRING edge and not any edge above the jid: a role membership is
 		// not a consent, and reading one as the parent would admit the chat to
 		// whoever the role names.
-		edges, err := xst.ParentEdges(jid)
+		edges, err := xdb.ParentEdges(jid)
 		if err != nil {
 			slog.Error("observePairings read pairing edge", "jid", jid, "err", err)
 			continue
@@ -503,8 +503,7 @@ func observePairings(xdb, obdb *sql.DB, cfg config) {
 //
 // The refusal used to be a 403 the user saw. It is now discovered on a tick, after
 // that page is gone, so it travels to the chat instead.
-func admitJID(obdb *sql.DB, cfg config, jid, userSub string) {
-	obst := store.New(obdb)
+func admitJID(obdb *store.Store, cfg config, jid, userSub string) {
 	gates := loadGates(obdb)
 
 	if len(gates) > 0 {
@@ -512,7 +511,7 @@ func admitJID(obdb *sql.DB, cfg config, jid, userSub string) {
 		if g == nil {
 			// Terminal. user_sub is stamped so the row stops matching and the
 			// refusal is sent exactly once.
-			if err := obst.RefuseOnboarding(jid, userSub); err != nil {
+			if err := obdb.RefuseOnboarding(jid, userSub); err != nil {
 				slog.Error("refuse jid", "jid", jid, "err", err)
 				return
 			}
@@ -525,7 +524,7 @@ func admitJID(obdb *sql.DB, cfg config, jid, userSub string) {
 			return
 		}
 		k := gateKey(*g)
-		if err := obst.QueueOnboarding(jid, userSub, k); err != nil {
+		if err := obdb.QueueOnboarding(jid, userSub, k); err != nil {
 			slog.Error("queue jid", "jid", jid, "err", err)
 			return
 		}
@@ -539,7 +538,7 @@ func admitJID(obdb *sql.DB, cfg config, jid, userSub string) {
 		return
 	}
 
-	if err := obst.AdmitOnboarding(jid, userSub); err != nil {
+	if err := obdb.AdmitOnboarding(jid, userSub); err != nil {
 		slog.Error("approve jid", "jid", jid, "err", err)
 		return
 	}
@@ -569,7 +568,7 @@ func auditAdmission(jid, userSub, action, gateKey string) {
 // /onboard carries no token of its own since the fold (spec 5/31): the greeting
 // link redeems at webd's /pair/{token}, which writes the edge and sends the user
 // here. This page reads the edge and asks where the chat should go.
-func handleOnboard(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg config) {
+func handleOnboard(w http.ResponseWriter, r *http.Request, db, obdb *store.Store, cfg config) {
 	if userSub := r.Header.Get("X-User-Sub"); userSub != "" {
 		handleDashboard(w, r, db, obdb, userSub, ensureCSRFToken(w, r, cfg))
 		return
@@ -579,8 +578,8 @@ func handleOnboard(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg
 
 // csrf is the double-submit token GET /onboard just minted; every form this
 // renders MUST echo it, because handleOnboardPost rejects a POST without it.
-func handleDashboard(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, userSub, csrf string) {
-	username, known, err := store.New(db).Username(userSub)
+func handleDashboard(w http.ResponseWriter, r *http.Request, db, obdb *store.Store, userSub, csrf string) {
+	username, known, err := db.Username(userSub)
 	if err != nil {
 		// A read failure is not "no such user": it is reported, and the page still
 		// stops, because every branch below is named after this person.
@@ -593,7 +592,7 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, u
 
 	// A read failure here is not "not queued": it is reported and the page falls
 	// through to the same branches an unqueued caller takes.
-	queued, isQueued, err := store.New(obdb).QueuedAdmission(userSub)
+	queued, isQueued, err := obdb.QueuedAdmission(userSub)
 	if err != nil {
 		slog.Error("queued-admission lookup", "user", userSub, "err", err)
 	}
@@ -667,7 +666,7 @@ func checkCSRF(r *http.Request) bool {
 // (user_profiles/groups/acl/routes) through db; create_world additionally READS
 // onbod's owned onboarding/onboarding_gates through obdb for its second
 // authority (spec 5/18 step 8).
-func handleOnboardPost(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg config) {
+func handleOnboardPost(w http.ResponseWriter, r *http.Request, db, obdb *store.Store, cfg config) {
 	userSub := r.Header.Get("X-User-Sub")
 	if userSub == "" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -705,11 +704,11 @@ var usernameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{2,29}$`)
 // are the ones that make its verdict grant something.
 //
 // Every failure fails closed: an unreadable DB grants nothing.
-func mayCreateFirstWorld(obdb *sql.DB, userSub string) bool {
+func mayCreateFirstWorld(obdb *store.Store, userSub string) bool {
 	if userSub == "" || len(loadGates(obdb)) == 0 {
 		return false
 	}
-	n, err := store.New(obdb).ApprovedAdmissions(userSub)
+	n, err := obdb.ApprovedAdmissions(userSub)
 	if err != nil {
 		slog.Error("approved-admission lookup", "user", userSub, "err", err)
 		return false
@@ -728,8 +727,8 @@ func mayCreateFirstWorld(obdb *sql.DB, userSub string) bool {
 //
 // Fails closed like mayCreateFirstWorld: an unreadable partition is no
 // authority.
-func latestRedemption(obdb *sql.DB, userSub string) (store.Redemption, bool) {
-	r, held, err := store.New(obdb).LatestRedemption(context.Background(), userSub)
+func latestRedemption(obdb *store.Store, userSub string) (store.Redemption, bool) {
+	r, held, err := obdb.LatestRedemption(context.Background(), userSub)
 	if err != nil {
 		slog.Error("invite redemption lookup", "user", userSub, "err", err)
 		return store.Redemption{}, false
@@ -741,11 +740,11 @@ func latestRedemption(obdb *sql.DB, userSub string) (store.Redemption, bool) {
 // own refusal is the claim, not a report: two create_world posts that derived
 // the same redemption cannot both spend it, so one invite redemption is one
 // world.
-func spendRedemption(obdb *sql.DB, userSub string, r store.Redemption) (bool, error) {
-	return store.New(obdb).SpendRedemption(context.Background(), userSub, r)
+func spendRedemption(obdb *store.Store, userSub string, r store.Redemption) (bool, error) {
+	return obdb.SpendRedemption(context.Background(), userSub, r)
 }
 
-func handleCreateWorld(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg config, userSub string) {
+func handleCreateWorld(w http.ResponseWriter, r *http.Request, db, obdb *store.Store, cfg config, userSub string) {
 	// The parent folder is DERIVED from what the redemption recorded, never from
 	// the request. Until F50 it came from the `pending_target` cookie and was used
 	// verbatim, so `Cookie: pending_target=victim/` created victim/<name> and took
@@ -779,7 +778,7 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB,
 		folder = parent + "/" + username
 	}
 
-	if _, taken := store.New(db).GroupByFolder(folder); taken {
+	if _, taken := db.GroupByFolder(folder); taken {
 		renderPage(w, "Username Taken",
 			template.HTML("<p>That username is already in use.</p>"+
 				`<p><a href="/onboard">Try again</a></p>`))
@@ -831,7 +830,7 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB,
 		return
 	}
 
-	if err := store.New(db).SeedDefaultTasks(folder, folder); err != nil {
+	if err := db.SeedDefaultTasks(folder, folder); err != nil {
 		slog.Warn("create world: seed default tasks", "folder", folder, "err", err)
 	}
 
@@ -844,8 +843,8 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB,
 // membershipJIDs lists the platform JIDs bound to userSub (acl_membership), in
 // jid order — the parent is the second field of the edge coordinate, so the read
 // takes the graph and filters, and the order it answers in is the child's.
-func membershipJIDs(db *sql.DB, userSub string) []string {
-	return store.New(db).Members(userSub)
+func membershipJIDs(db *store.Store, userSub string) []string {
+	return db.Members(userSub)
 }
 
 // writeWorld writes the group + member edge + admin grant in ONE guarded batch,
@@ -869,9 +868,8 @@ func membershipJIDs(db *sql.DB, userSub string) []string {
 // It writes NO routes (spec 5/18 step 7): it used to route every JID the sub had
 // ever paired at the new folder, which is a blast radius, not an act. The redirect
 // lands on /onboard, whose step-6 branch routes the ONE unrouted JID at hand.
-func writeWorld(db *sql.DB, folder, username, userSub string) error {
+func writeWorld(db *store.Store, folder, username, userSub string) error {
 	ctx := context.Background()
-	st := store.New(db)
 	row, err := store.GroupCreateWrite(core.Group{
 		Folder: folder, AddedAt: time.Now(), Product: core.DefaultProduct,
 	})
@@ -910,18 +908,18 @@ func writeWorld(db *sql.DB, folder, username, userSub string) error {
 	if err != nil {
 		return err
 	}
-	created, err := store.SeedMemberRole(ctx, st, folder, row, grant, reach, hold)
+	created, err := store.SeedMemberRole(ctx, db, folder, row, grant, reach, hold)
 	if err != nil {
 		return err
 	}
 	if !created {
 		return fmt.Errorf("folder %q already exists", folder)
 	}
-	return st.SetUsername(ctx, userSub, username)
+	return db.SetUsername(ctx, userSub, username)
 }
 
-func loadGates(db *sql.DB) []gate {
-	rows, err := store.New(db).EnabledGates()
+func loadGates(db *store.Store) []gate {
+	rows, err := db.EnabledGates()
 	if err != nil {
 		slog.Error("loadGates query", "err", err)
 		return nil
@@ -949,7 +947,7 @@ func gateFromKey(key string, limit int) gate {
 // string equality misses every subtree grant — an owner holding `acme/**` matched
 // no folder at all (BUGS W1). SQL cannot glob segments, so the rows are filtered
 // by the single evaluator rather than by a second matcher written here.
-func adminFolders(db *sql.DB, userSub string) []string {
+func adminFolders(db *store.Store, userSub string) []string {
 	folders, err := scanFolders(db)
 	if err != nil {
 		slog.Error("adminFolders groups", "err", err)
@@ -958,10 +956,9 @@ func adminFolders(db *sql.DB, userSub string) []string {
 	// The cursor is drained and closed by scanFolders before the loop below:
 	// Authorize issues further queries on this same handle, and holding a read
 	// cursor open across them deadlocks a single-connection DB.
-	st := store.New(db)
 	var out []string
 	for _, f := range folders {
-		if auth.Authorize(st, auth.Caller{Principal: userSub}, "admin", f, nil) {
+		if auth.Authorize(db, auth.Caller{Principal: userSub}, "admin", f, nil) {
 			out = append(out, f)
 		}
 	}
@@ -1031,8 +1028,8 @@ func foldASCII(r rune) rune {
 // unroutedJID returns the sub's first paired JID that no route names, or "".
 // That state IS the silence spec 5/18 opens with: the chat is proven and
 // linked, its messages land in routd.db, and nothing surfaces them.
-func unroutedJID(db *sql.DB, sub string) string {
-	routes, err := store.New(db).RouteTable()
+func unroutedJID(db *store.Store, sub string) string {
+	routes, err := db.RouteTable()
 	if err != nil {
 		// A table nobody could read is not a table with no rules in it: offering
 		// to route a JID that already has one writes a second rule for one chat.
@@ -1047,20 +1044,19 @@ func unroutedJID(db *sql.DB, sub string) string {
 	return ""
 }
 
-func scanFolders(db *sql.DB) ([]string, error) {
-	return store.New(db).GroupFolders(0)
+func scanFolders(db *store.Store) ([]string, error) {
+	return db.GroupFolders(0)
 }
 
-func renderQueuePosition(w http.ResponseWriter, db *sql.DB, gateStr, queuedAt string) {
-	st := store.New(db)
-	pos, err := st.QueuePosition(gateStr, queuedAt)
+func renderQueuePosition(w http.ResponseWriter, db *store.Store, gateStr, queuedAt string) {
+	pos, err := db.QueuePosition(gateStr, queuedAt)
 	if err != nil {
 		slog.Error("queue-position count", "gate", gateStr, "err", err)
 	}
 	pos++ // 1-indexed
 
 	var etaMsg string
-	g, found, err := st.Gate(gateStr)
+	g, found, err := db.Gate(gateStr)
 	if err != nil {
 		slog.Error("queue-position gate lookup", "gate", gateStr, "err", err)
 	}
@@ -1083,19 +1079,18 @@ func renderQueuePosition(w http.ResponseWriter, db *sql.DB, gateStr, queuedAt st
 	renderPage(w, "Queued", template.HTML(body))
 }
 
-func admitFromQueue(db *sql.DB) {
+func admitFromQueue(db *store.Store) {
 	gates := loadGates(db)
 	if len(gates) == 0 {
 		return
 	}
-	st := store.New(db)
 	// Day-range on admitted_at (not a prefix match) so timezone drift doesn't
 	// miscount admissions.
 	todayStart := time.Now().Format("2006-01-02") + "T00:00:00Z"
 	tomorrowStart := time.Now().Add(24*time.Hour).Format("2006-01-02") + "T00:00:00Z"
 	for _, g := range gates {
 		k := gateKey(g)
-		admitted, err := st.AdmittedInWindow(k, todayStart, tomorrowStart)
+		admitted, err := db.AdmittedInWindow(k, todayStart, tomorrowStart)
 		if err != nil {
 			slog.Error("admitFromQueue count", "gate", k, "err", err)
 			continue
@@ -1104,7 +1099,7 @@ func admitFromQueue(db *sql.DB) {
 		if remaining <= 0 {
 			continue
 		}
-		batch, err := st.QueuedJIDs(k, remaining)
+		batch, err := db.QueuedJIDs(k, remaining)
 		if err != nil {
 			slog.Error("admitFromQueue query", "gate", k, "err", err)
 			continue
@@ -1113,7 +1108,7 @@ func admitFromQueue(db *sql.DB) {
 		// transaction this replaces rolled the whole gate's claim back. The
 		// admissions are independent and the next tick re-reads the queue, so
 		// what a failure leaves behind is work a re-run finishes.
-		n, err := st.AdmitQueued(batch)
+		n, err := db.AdmitQueued(batch)
 		if err != nil {
 			slog.Error("admitFromQueue update", "gate", k, "admitted", n, "err", err)
 		}
@@ -1135,7 +1130,7 @@ func admitFromQueue(db *sql.DB) {
 	}
 }
 
-func handleInvite(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg config) {
+func handleInvite(w http.ResponseWriter, r *http.Request, db, obdb *store.Store, cfg config) {
 	token := r.PathValue("token")
 	if token == "" {
 		renderPage(w, "Invalid Invite", template.HTML("<p>No invite token provided.</p>"))
@@ -1160,10 +1155,9 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg 
 	// audit.Init pointing at obdb does not force the audit-free twin: AddACLRow emits
 	// with audit.EmitInTx, which writes the tx's own DB, so the grant and its audit
 	// row commit together.
-	st := store.New(obdb)
 	split := db != obdb
 
-	inv, err := st.GetInvite(token)
+	inv, err := obdb.GetInvite(token)
 	if err != nil {
 		slog.Warn("invite invalid", "reason", "not_found",
 			"token_hash", chanlib.ShortHash(token), "user", userSub)
@@ -1179,9 +1173,9 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg 
 		return
 	}
 
-	consume := st.ConsumeInvite
+	consume := obdb.ConsumeInvite
 	if split {
-		consume = st.ConsumeInviteNoGrant
+		consume = obdb.ConsumeInviteNoGrant
 	}
 	consumed, err := consume(token, userSub)
 	if err != nil {
@@ -1198,7 +1192,7 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg 
 	// ConsumeInvite's in-tx insert — non-subgroup invites (no trailing slash)
 	// grant admin on the target folder; subgroup invites defer to create_world.
 	if split && !strings.HasSuffix(target, "/") {
-		if perr := store.New(db).AddACLRow(core.ACLRow{
+		if perr := db.AddACLRow(core.ACLRow{
 			Principal: userSub, Action: "admin", Scope: target,
 			Effect: "allow", GrantedBy: "invite",
 		}); perr != nil {
@@ -1209,7 +1203,7 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg 
 			// an audit-insert failure, so a failed grant leaves no acl row behind.
 			slog.Error("invite acl grant failed; rolling back consume",
 				"user", userSub, "scope", target, "err", perr)
-			if rerr := st.RestoreInvite(token); rerr != nil {
+			if rerr := obdb.RestoreInvite(token); rerr != nil {
 				slog.Error("invite rollback FAILED — invite burned without grant",
 					"token_hash", chanlib.ShortHash(token), "err", rerr)
 			}
@@ -1293,13 +1287,11 @@ func renderNoWorld(w http.ResponseWriter, jid string) {
 		html.EscapeString(jid))))
 }
 
-func renderDashboard(w http.ResponseWriter, db *sql.DB, userSub, username string) {
+func renderDashboard(w http.ResponseWriter, db *store.Store, userSub, username string) {
 	esc := html.EscapeString
 
-	st := store.New(db)
-
 	var jidsHTML string
-	if edges, err := st.MemberEdges(userSub); err == nil {
+	if edges, err := db.MemberEdges(userSub); err == nil {
 		// Oldest claim first. `added_at` is an attribute, so the read arrives in
 		// child order and the sort is here.
 		slices.SortStableFunc(edges, func(a, b store.MembershipEdge) int {
@@ -1334,11 +1326,11 @@ func renderDashboard(w http.ResponseWriter, db *sql.DB, userSub, username string
 	}
 
 	var routesHTML string
-	if routes, err := st.RouteTable(); err == nil {
+	if routes, err := db.RouteTable(); err == nil {
 		// One row per (jid, rule) pair, ordered by jid then target — the join's
 		// order, rebuilt here because the rule that names a jid is found by the
 		// same predicate unroutedJID asks and not by a key.
-		for _, jid := range st.Members(userSub) {
+		for _, jid := range db.Members(userSub) {
 			matched := jidRoutes(routes, jid)
 			targets := make([]string, 0, len(matched))
 			for _, r := range matched {
@@ -1428,18 +1420,17 @@ func sendReply(cfg config, jid, text string) error {
 // userFolders returns the distinct allow-scopes the sub has access to via the
 // unified acl tables (post-0053 cutover). Operator (`role:operator` membership)
 // returns the `**` scope through the role's row.
-func userFolders(db *sql.DB, sub string) []string {
+func userFolders(db *store.Store, sub string) []string {
 	if sub == "" {
 		return nil
 	}
-	st := store.New(db)
 	// Every principal the sub speaks as: itself, and the transitive closure of
 	// acl_membership above it.
-	principals := append([]string{sub}, st.Ancestors(sub)...)
+	principals := append([]string{sub}, db.Ancestors(sub)...)
 	// One begins_with per principal, which is the exactness `principal IN (…)`
 	// had: the separator ends the principal, so `folder:a` cannot reach
 	// `folder:ab`.
-	rows, err := st.ACLRowsFor(principals)
+	rows, err := db.ACLRowsFor(principals)
 	if err != nil {
 		slog.Error("userFolders read grants", "sub", sub, "err", err)
 		return nil
@@ -1462,15 +1453,14 @@ func isOperator(folders []string) bool {
 }
 
 func handleDeleteRoute(w http.ResponseWriter, r *http.Request,
-	db *sql.DB, sub string, folders []string) {
+	db *store.Store, sub string, folders []string) {
 	id, err := strconv.ParseInt(r.FormValue("route_id"), 10, 64)
 	if err != nil {
 		http.Error(w, "invalid route_id", http.StatusBadRequest)
 		return
 	}
 
-	st := store.New(db)
-	route, ok := st.GetRoute(id)
+	route, ok := db.GetRoute(id)
 	if !ok {
 		http.Error(w, "route not found", http.StatusNotFound)
 		return
@@ -1480,7 +1470,7 @@ func handleDeleteRoute(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	if err := deleteRoute(r.Context(), st, id); err != nil {
+	if err := deleteRoute(r.Context(), db, id); err != nil {
 		slog.Error("route delete", "id", id, "sub", sub, "err", err)
 		http.Error(w, "delete failed", http.StatusInternalServerError)
 		return
@@ -1497,7 +1487,7 @@ var matchRe = regexp.MustCompile(`\A[A-Za-z0-9_.:=@/-]+\z`)
 
 // userOwnsMatch reports whether match references a room the user has claimed via acl_membership.
 // Only "room=<id>" is supported; more expressive patterns require operator grants.
-func userOwnsMatch(db *sql.DB, sub, match string) bool {
+func userOwnsMatch(db *store.Store, sub, match string) bool {
 	const prefix = "room="
 	if !strings.HasPrefix(match, prefix) {
 		return false
@@ -1506,7 +1496,7 @@ func userOwnsMatch(db *sql.DB, sub, match string) bool {
 	if room == "" {
 		return false
 	}
-	for _, jid := range store.New(db).Members(sub) {
+	for _, jid := range db.Members(sub) {
 		if i := strings.Index(jid, ":"); i > 0 && jid[i+1:] == room {
 			return true
 		}
@@ -1533,16 +1523,15 @@ const (
 // the existing rule holds. That is what a routing table addressed by its own
 // content means — two rules that dispatch identically are one rule, and a second
 // id for it would hand delete_route(id) a handle that removes somebody else's.
-func insertRoute(db *sql.DB, match, target, sub, via string) error {
+func insertRoute(db *store.Store, match, target, sub, via string) error {
 	ctx := context.Background()
-	st := store.New(db)
 	ws := &store.WriteSet{}
-	_, err := st.PutRouteInto(ctx, ws, core.Route{Seq: 0, Match: match, Target: target},
+	_, err := db.PutRouteInto(ctx, ws, core.Route{Seq: 0, Match: match, Target: target},
 		sub, via, fmt.Errorf("route %s → %s was created under this call", match, target))
 	if err != nil {
 		return err
 	}
-	return st.Apply(ctx, ws)
+	return db.Apply(ctx, ws)
 }
 
 // deleteRoute removes one rule and NO audit row: onbod's route writers are the
@@ -1562,7 +1551,7 @@ func deleteRoute(ctx context.Context, st *store.Store, id int64) error {
 }
 
 func handleAddRoute(w http.ResponseWriter, r *http.Request,
-	db *sql.DB, sub string, folders []string) {
+	db *store.Store, sub string, folders []string) {
 	match := strings.TrimSpace(r.FormValue("match"))
 	target := strings.TrimSpace(r.FormValue("target"))
 	if match == "" || target == "" {

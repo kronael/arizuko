@@ -23,7 +23,6 @@ import (
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
-	"github.com/kronael/arizuko/store"
 )
 
 // mountAudit wires GET /v1/audit onto onbod's mux.
@@ -39,7 +38,7 @@ func (a *admin) auditResource() resreg.Resource {
 	r := resreg.Mount(resources.AuditName)
 	r.Gate = a.auditRESTGate
 	r.Handler = a.auditHandler
-	r.Store = store.New(a.db)
+	r.Store = a.st
 	return r
 }
 
@@ -101,7 +100,7 @@ func (a *admin) auditHandler(ctx context.Context, x resreg.Execution) (any, erro
 	if x.Caller.Folder != "" {
 		f.Folder = x.Caller.Folder
 	}
-	rows, err := audit.Query(ctx, newObjectStore(a.db), f)
+	rows, err := audit.Query(ctx, a.st.Obj(), f)
 	if err != nil {
 		return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 	}

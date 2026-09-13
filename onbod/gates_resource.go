@@ -46,7 +46,7 @@ func (a *admin) gatesResource() resreg.Resource {
 	r := resreg.Mount(resources.OnboardingGatesName)
 	r.Handler = a.gatesHandler
 	r.Gate = a.gatesRESTGate
-	r.Store = a.store()
+	r.Store = a.st
 	return r
 }
 
@@ -95,7 +95,7 @@ func (a *admin) gatesRESTGate(x resreg.Execution, _ string, _ map[string]string)
 // ride resreg.invoke's one batch (calling store.PutGate/EnableGate/DeleteGate
 // here would send a batch of its own and double-audit).
 func (a *admin) gatesHandler(ctx context.Context, x resreg.Execution) (any, error) {
-	st := a.store()
+	st := a.st
 	switch x.Action {
 	case resreg.ActionList:
 		gates, err := st.ListGates()

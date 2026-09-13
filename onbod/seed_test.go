@@ -7,14 +7,12 @@ package main
 // a bug in the read.
 
 import (
-	"database/sql"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore"
-	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/store"
@@ -22,9 +20,9 @@ import (
 
 // seedFolder creates one group, with the member edge PutGroupRow writes beside
 // the row — the floor every folder is born holding.
-func seedFolder(t *testing.T, db *sql.DB, folder string) {
+func seedFolder(t *testing.T, db *store.Store, folder string) {
 	t.Helper()
-	if err := store.New(db).PutGroupRow(core.Group{
+	if err := db.PutGroupRow(core.Group{
 		Folder: folder, AddedAt: time.Now().UTC(),
 	}); err != nil {
 		t.Fatalf("seed group %s: %v", folder, err)
@@ -33,9 +31,9 @@ func seedFolder(t *testing.T, db *sql.DB, folder string) {
 
 // seedGrant grants one acl row, audit-free: the handler under test is what has
 // to record the act.
-func seedGrant(t *testing.T, db *sql.DB, principal, action, scope string) {
+func seedGrant(t *testing.T, db *store.Store, principal, action, scope string) {
 	t.Helper()
-	if err := store.New(db).PutACLRow(core.ACLRow{
+	if err := db.PutACLRow(core.ACLRow{
 		Principal: principal, Action: action, Scope: scope, Effect: "allow",
 	}); err != nil {
 		t.Fatalf("seed grant %s %s on %s: %v", principal, action, scope, err)
@@ -43,18 +41,18 @@ func seedGrant(t *testing.T, db *sql.DB, principal, action, scope string) {
 }
 
 // seedMembership links one principal under another.
-func seedMembership(t *testing.T, db *sql.DB, child, parent, addedBy string) {
+func seedMembership(t *testing.T, db *store.Store, child, parent, addedBy string) {
 	t.Helper()
-	if err := store.New(db).PutMembership(child, parent, addedBy); err != nil {
+	if err := db.PutMembership(child, parent, addedBy); err != nil {
 		t.Fatalf("seed membership %s under %s: %v", child, parent, err)
 	}
 }
 
 // seedRoute writes one routing rule with NO attribution, which is the state a
 // rule written before the act was recorded is in.
-func seedRoute(t *testing.T, db *sql.DB, seq int, match, target string) {
+func seedRoute(t *testing.T, db *store.Store, seq int, match, target string) {
 	t.Helper()
-	if _, err := store.New(db).PutRouteRow(core.Route{
+	if _, err := db.PutRouteRow(core.Route{
 		Seq: seq, Match: match, Target: target,
 	}); err != nil {
 		t.Fatalf("seed route %d %s -> %s: %v", seq, match, target, err)
@@ -64,9 +62,9 @@ func seedRoute(t *testing.T, db *sql.DB, seq int, match, target string) {
 // routeRows is the whole route table with the two attribution attributes on it,
 // which is the projection `arizuko export` reads and the only one that carries
 // them.
-func routeRows(t *testing.T, db *sql.DB) []resources.RoutesRow {
+func routeRows(t *testing.T, db *store.Store) []resources.RoutesRow {
 	t.Helper()
-	m, err := resreg.GetResource(resreg.OnDB(db), "routes")
+	m, err := resreg.GetResource(resreg.On(db.Obj()), "routes")
 	if err != nil {
 		t.Fatalf("read the route table: %v", err)
 	}
@@ -78,7 +76,7 @@ func routeRows(t *testing.T, db *sql.DB) []resources.RoutesRow {
 }
 
 // routesMatching selects the rules a predicate names.
-func routesMatching(t *testing.T, db *sql.DB, match func(resources.RoutesRow) bool) []resources.RoutesRow {
+func routesMatching(t *testing.T, db *store.Store, match func(resources.RoutesRow) bool) []resources.RoutesRow {
 	t.Helper()
 	var out []resources.RoutesRow
 	for _, r := range routeRows(t, db) {
@@ -91,7 +89,7 @@ func routesMatching(t *testing.T, db *sql.DB, match func(resources.RoutesRow) bo
 
 // countRoutes is the blast-radius probe: the whole point is how MANY rules an
 // act wrote, not just whether the one it was about exists.
-func countRoutes(t *testing.T, db *sql.DB) int {
+func countRoutes(t *testing.T, db *store.Store) int {
 	t.Helper()
 	return len(routeRows(t, db))
 }
@@ -99,7 +97,7 @@ func countRoutes(t *testing.T, db *sql.DB) int {
 // routeAttribution reads the (added_by, added_via) pair off the rule matching
 // `match`. No such rule → ("", "", false); a rule written before the act was
 // recorded carries neither, and reads as ("", "").
-func routeAttribution(t *testing.T, db *sql.DB, match string) (string, string, bool) {
+func routeAttribution(t *testing.T, db *store.Store, match string) (string, string, bool) {
 	t.Helper()
 	for _, r := range routeRows(t, db) {
 		if r.Match == match {
@@ -111,7 +109,7 @@ func routeAttribution(t *testing.T, db *sql.DB, match string) (string, string, b
 
 // routeTarget is the folder one rule sends its chat to, or "" when no rule
 // matches.
-func routeTarget(t *testing.T, db *sql.DB, match string) string {
+func routeTarget(t *testing.T, db *store.Store, match string) string {
 	t.Helper()
 	for _, r := range routeRows(t, db) {
 		if r.Match == match {
@@ -123,7 +121,7 @@ func routeTarget(t *testing.T, db *sql.DB, match string) string {
 
 // routeIDInto is the handle of a rule aimed at one folder, or 0 when there is
 // none — the id every route endpoint is addressed by.
-func routeIDInto(t *testing.T, db *sql.DB, target string) int64 {
+func routeIDInto(t *testing.T, db *store.Store, target string) int64 {
 	t.Helper()
 	for _, r := range routeRows(t, db) {
 		if r.Target == target {
@@ -134,7 +132,7 @@ func routeIDInto(t *testing.T, db *sql.DB, target string) int64 {
 }
 
 // routeExists reports whether a rule still carries one handle.
-func routeExists(t *testing.T, db *sql.DB, id int64) bool {
+func routeExists(t *testing.T, db *store.Store, id int64) bool {
 	t.Helper()
 	for _, r := range routeRows(t, db) {
 		if int64(r.ID) == id {
@@ -146,9 +144,9 @@ func routeExists(t *testing.T, db *sql.DB, id int64) bool {
 
 // deleteFolder removes a world through the ONE delete: the purge that takes the
 // subtree and every row conferring on it or routing into it.
-func deleteFolder(t *testing.T, db *sql.DB, folder string) {
+func deleteFolder(t *testing.T, db *store.Store, folder string) {
 	t.Helper()
-	if _, err := store.New(db).DeleteGroup(folder); err != nil {
+	if _, err := db.DeleteGroup(folder); err != nil {
 		t.Fatalf("delete group %s: %v", folder, err)
 	}
 }
@@ -157,9 +155,9 @@ func deleteFolder(t *testing.T, db *sql.DB, folder string) {
 // The attributes it reads back are route_tokens' own — `jid` and `owner_folder`
 // are the `db:` tags resreg/resources/route_tokens.go declares, and store writes
 // them under those names.
-func routeTokenItems(t *testing.T, db *sql.DB) []objstore.Item {
+func routeTokenItems(t *testing.T, db *store.Store) []objstore.Item {
 	t.Helper()
-	items, err := sqlstore.New(db).Query(t.Context(), objstore.Query{
+	items, err := db.Obj().Query(t.Context(), objstore.Query{
 		Entity: store.RouteTokens, Partition: store.OwnerRoutd,
 	})
 	if err != nil {
@@ -172,10 +170,10 @@ func routeTokenItems(t *testing.T, db *sql.DB) []objstore.Item {
 // token is the one a delivery read does NOT answer, so the two exported reads
 // together say which kind each row is: the whole table minus the delivery
 // bearers.
-func pairingTokensFor(t *testing.T, db *sql.DB, jid string) []objstore.Item {
+func pairingTokensFor(t *testing.T, db *store.Store, jid string) []objstore.Item {
 	t.Helper()
 	delivery := map[string]bool{}
-	rows, err := store.New(db).ExportRouteTokens(t.Context())
+	rows, err := db.ExportRouteTokens(t.Context())
 	if err != nil {
 		t.Fatalf("read the delivery tokens: %v", err)
 	}
@@ -193,9 +191,9 @@ func pairingTokensFor(t *testing.T, db *sql.DB, jid string) []objstore.Item {
 
 // folderName answers the folder one group holds, or "" when there is no such
 // group — the shape a "does the world exist" read compares against.
-func folderName(t *testing.T, db *sql.DB, folder string) string {
+func folderName(t *testing.T, db *store.Store, folder string) string {
 	t.Helper()
-	g, ok := store.New(db).GroupByFolder(folder)
+	g, ok := db.GroupByFolder(folder)
 	if !ok {
 		return ""
 	}
@@ -204,9 +202,9 @@ func folderName(t *testing.T, db *sql.DB, folder string) string {
 
 // firstScope is one scope a principal holds, or "" when it holds none. The
 // callers grant exactly one, so which one is not a question they ask.
-func firstScope(t *testing.T, db *sql.DB, principal string) string {
+func firstScope(t *testing.T, db *store.Store, principal string) string {
 	t.Helper()
-	rows, err := store.New(db).ListACL(principal)
+	rows, err := db.ListACL(principal)
 	if err != nil {
 		t.Fatalf("read the grants of %s: %v", principal, err)
 	}
@@ -217,9 +215,9 @@ func firstScope(t *testing.T, db *sql.DB, principal string) string {
 }
 
 // parentCount is how many principals one child sits under.
-func parentCount(t *testing.T, db *sql.DB, child string) int {
+func parentCount(t *testing.T, db *store.Store, child string) int {
 	t.Helper()
-	edges, err := store.New(db).ParentEdges(child)
+	edges, err := db.ParentEdges(child)
 	if err != nil {
 		t.Fatalf("read the parents of %s: %v", child, err)
 	}
@@ -236,9 +234,9 @@ func boolCount(present bool) int {
 
 // countRouteTokens is every credential in the table, delivery and pairing alike
 // — the count "was anything minted" asks.
-func countRouteTokens(t *testing.T, db *sql.DB) int {
+func countRouteTokens(t *testing.T, db *store.Store) int {
 	t.Helper()
-	n, err := store.New(db).CountRouteTokens(t.Context())
+	n, err := db.CountRouteTokens(t.Context())
 	if err != nil {
 		t.Fatalf("count the route tokens: %v", err)
 	}
@@ -246,9 +244,9 @@ func countRouteTokens(t *testing.T, db *sql.DB) int {
 }
 
 // adminScopes lists the scopes one principal administers.
-func adminScopes(t *testing.T, db *sql.DB, principal string) []string {
+func adminScopes(t *testing.T, db *store.Store, principal string) []string {
 	t.Helper()
-	rows, err := store.New(db).ListACL(principal)
+	rows, err := db.ListACL(principal)
 	if err != nil {
 		t.Fatalf("read the grants of %s: %v", principal, err)
 	}
@@ -264,9 +262,9 @@ func adminScopes(t *testing.T, db *sql.DB, principal string) []string {
 // edgeAddedBy is what a membership edge records about who wrote it. Only one
 // parent is ever seeded per child here, so which edge is not a question the
 // callers ask.
-func edgeAddedBy(t *testing.T, db *sql.DB, child string) string {
+func edgeAddedBy(t *testing.T, db *store.Store, child string) string {
 	t.Helper()
-	edges, err := store.New(db).ParentEdges(child)
+	edges, err := db.ParentEdges(child)
 	if err != nil {
 		t.Fatalf("read the parents of %s: %v", child, err)
 	}
@@ -279,12 +277,12 @@ func edgeAddedBy(t *testing.T, db *sql.DB, child string) string {
 // seedACLScar writes one grant item WITHOUT going through store's writer, for
 // the reader defences whose input no writer here can produce. The coordinate is
 // acl's own — the six fields of the grant, joined by store.KeySep.
-func seedACLScar(t *testing.T, db *sql.DB, row core.ACLRow) {
+func seedACLScar(t *testing.T, db *store.Store, row core.ACLRow) {
 	t.Helper()
 	sort := strings.Join([]string{
 		row.Principal, row.Action, row.Scope, row.Params, row.Predicate, row.Effect,
 	}, store.KeySep)
-	if _, err := sqlstore.New(db).GuardedBatch(t.Context(), nil, []objstore.Write{{
+	if _, err := db.Obj().GuardedBatch(t.Context(), nil, []objstore.Write{{
 		Op: objstore.Put, Entity: store.ACL,
 		Key:   objstore.Key{Partition: store.OwnerRoutd, Sort: sort},
 		Attrs: map[string]string{"granted_at": core.NowTS(), "grant_option": "0"},

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -30,9 +29,9 @@ import (
 // silently failed (a missing NOT NULL column, a typo'd table) would otherwise
 // make the refusal tests below pass for the wrong reason — they would be
 // asserting a refusal caused by an absent row rather than by the gate rule.
-func seedStranger(t *testing.T, db *sql.DB, sub, status string) {
+func seedStranger(t *testing.T, db *store.Store, sub, status string) {
 	t.Helper()
-	if err := store.New(db).CreateUserProfile(sub, sub, "Stranger"); err != nil {
+	if err := db.CreateUserProfile(sub, sub, "Stranger"); err != nil {
 		t.Fatalf("seed user_profiles: %v", err)
 	}
 	seedAdmission(t, db, store.ArchiveOnboardingRow{
@@ -47,7 +46,7 @@ func seedStranger(t *testing.T, db *sql.DB, sub, status string) {
 // reader the production path uses. Asserting on loadGates rather than on a
 // COUNT means a gate this helper "configured" but which loadGates cannot see
 // (wrong enabled value, wrong column) fails the seed instead of the assertion.
-func seedGate(t *testing.T, db *sql.DB, gate string, enabled int) {
+func seedGate(t *testing.T, db *store.Store, gate string, enabled int) {
 	t.Helper()
 	seedGateRow(t, db, gate, 10, enabled == 1)
 	visible := len(loadGates(db)) > 0
@@ -60,14 +59,14 @@ func seedGate(t *testing.T, db *sql.DB, gate string, enabled int) {
 // createWorld posts the create_world form with NO pending_target cookie, which
 // is the whole point: the cookie is the invite's authority, and this exercises
 // the approved-admission authority that must stand on its own.
-func createWorld(t *testing.T, db *sql.DB, sub, username string) *httptest.ResponseRecorder {
+func createWorld(t *testing.T, db *store.Store, sub, username string) *httptest.ResponseRecorder {
 	t.Helper()
 	t.Setenv("DATA_DIR", t.TempDir())
 	return postOnboard(db, config{}, sub,
 		url.Values{"action": {"create_world"}, "username": {username}})
 }
 
-func folderExists(t *testing.T, db *sql.DB, folder string) bool {
+func folderExists(t *testing.T, db *store.Store, folder string) bool {
 	t.Helper()
 	return folderName(t, db, folder) != ""
 }
@@ -222,7 +221,7 @@ func TestALostRaceForAFolderLeavesTheCallerUnnamed(t *testing.T) {
 	db := testDB(t)
 	seedStranger(t, db, "github:new", "approved")
 	// Somebody else got there first.
-	if err := store.New(db).PutGroupRow(core.Group{Folder: "taken", AddedAt: time.Now()}); err != nil {
+	if err := db.PutGroupRow(core.Group{Folder: "taken", AddedAt: time.Now()}); err != nil {
 		t.Fatalf("seed the folder the caller loses: %v", err)
 	}
 
@@ -230,7 +229,7 @@ func TestALostRaceForAFolderLeavesTheCallerUnnamed(t *testing.T) {
 		t.Fatal("creating a folder somebody else holds reported success")
 	}
 
-	name, _, err := store.New(db).Username("github:new")
+	name, _, err := db.Username("github:new")
 	if err != nil {
 		t.Fatalf("read the caller's name back: %v", err)
 	}
@@ -254,7 +253,7 @@ func TestTheWinnerIsNamedAndHoldsWhatTheFolderImplies(t *testing.T) {
 		t.Fatalf("create the world: %v", err)
 	}
 
-	name, _, err := store.New(db).Username("github:new")
+	name, _, err := db.Username("github:new")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +265,7 @@ func TestTheWinnerIsNamedAndHoldsWhatTheFolderImplies(t *testing.T) {
 	}
 	// A groups row implies the member edge (BUGS L119): without it the world
 	// expands to nothing and comes up mute.
-	if up := store.New(db).Ancestors("folder:newworld"); !slices.Contains(up, store.RoleMember) {
+	if up := db.Ancestors("folder:newworld"); !slices.Contains(up, store.RoleMember) {
 		t.Errorf("folder:newworld sits under %v, want role:member among them", up)
 	}
 }
@@ -283,7 +282,7 @@ func TestAWorldIsGrantedItsReachAndItsHold(t *testing.T) {
 		t.Fatalf("create the world: %v", err)
 	}
 
-	rows, err := store.New(db).ListACL("folder:newworld")
+	rows, err := db.ListACL("folder:newworld")
 	if err != nil {
 		t.Fatal(err)
 	}

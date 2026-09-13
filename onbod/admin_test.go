@@ -8,15 +8,17 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/db_utils"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
 )
 
 // mustSeedDB makes an empty SQLite file at path, the way `arizuko create`
-// seeds every owner DB. openOwnedDB is strict and never creates one, so a
+// seeds every owner DB. openOwned is strict and never creates one, so a
 // fixture that skipped this would get the loud "does not exist" error.
 func mustSeedDB(t *testing.T, path string) {
 	t.Helper()
@@ -25,30 +27,33 @@ func mustSeedDB(t *testing.T, path string) {
 	}
 }
 
-// openOwnedDB (split-mode) creates onbod.db at a fresh path with onbod's OWNED
-// tables migrated in — NOT messages.db. The migrator never runs store's
-// migrations against it, so a store-only table (e.g. messages) must be absent.
-func TestOpenOwnedDB_SplitOpensOnbodDBNotMessages(t *testing.T) {
+// openOwned prepares onbod's OWNED entities and nothing else: it runs no chain
+// of store's, so a store-only entity must be absent. Asked through the driver
+// rather than through sqlite_master, because the engine is a choice this file
+// must not encode.
+func TestOpenOwned_PreparesOnbodsOwnEntitiesOnly(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "store", "onbod.db")
 	mustSeedDB(t, path)
-	db, err := openOwnedDB(path)
+	db, err := openOwned(path)
 	if err != nil {
-		t.Fatalf("openOwnedDB: %v", err)
+		t.Fatalf("openOwned: %v", err)
 	}
-	defer db.Close()
+	defer db.Close() //nolint:errcheck // the test is ending
 
-	for _, tbl := range []string{"onboarding", "invites", "onboarding_gates", "audit_log"} {
-		var n int
-		if err := db.QueryRow(
-			`SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`, tbl).Scan(&n); err != nil {
-			t.Errorf("onbod.db missing owned table %q: %v", tbl, err)
+	d := db.Obj()
+	for _, entity := range []string{
+		store.Onboarding, store.Invites, store.OnboardingGates, audit.Entity,
+	} {
+		if _, err := d.Query(t.Context(), objstore.Query{
+			Entity: entity, Partition: store.OwnerOnbod,
+		}); err != nil {
+			t.Errorf("onbod's store is missing the owned entity %q: %v", entity, err)
 		}
 	}
-	// messages.db-only table must NOT exist (onbod.db is its own file, not messages.db)
-	var msgTbl string
-	err = db.QueryRow(`SELECT name FROM sqlite_master WHERE type='table' AND name='messages'`).Scan(&msgTbl)
-	if err == nil {
-		t.Fatalf("onbod.db must not carry the messages table (it is not messages.db)")
+	if _, err := d.Query(t.Context(), objstore.Query{
+		Entity: store.Messages, Partition: store.OwnerRoutd,
+	}); err == nil {
+		t.Fatal("onbod's store carries the messages entity; its door runs no chain of store's")
 	}
 }
 
@@ -59,13 +64,13 @@ func TestOpenOwnedDB_SplitOpensOnbodDBNotMessages(t *testing.T) {
 func TestAdminInviteCreateListDelete(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "store", "onbod.db")
 	mustSeedDB(t, path)
-	db, err := openOwnedDB(path)
+	db, err := openOwned(path)
 	if err != nil {
-		t.Fatalf("openOwnedDB: %v", err)
+		t.Fatalf("openOwned: %v", err)
 	}
 	defer db.Close()
 	mux := http.NewServeMux()
-	(&admin{db: db, ks: nil}).mountInvites(mux)
+	(&admin{st: db, ks: nil}).mountInvites(mux)
 
 	do := func(method, target, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, target, strings.NewReader(body))
@@ -171,13 +176,13 @@ func TestInvitesRESTGateScopes(t *testing.T) {
 func TestAdminGatePutListDelete(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "store", "onbod.db")
 	mustSeedDB(t, path)
-	db, err := openOwnedDB(path)
+	db, err := openOwned(path)
 	if err != nil {
-		t.Fatalf("openOwnedDB: %v", err)
+		t.Fatalf("openOwned: %v", err)
 	}
 	defer db.Close()
 	mux := http.NewServeMux()
-	(&admin{db: db, ks: nil}).mountGates(mux)
+	(&admin{st: db, ks: nil}).mountGates(mux)
 
 	do := func(method, target, body string) *httptest.ResponseRecorder {
 		var rdr *strings.Reader
@@ -250,13 +255,13 @@ func TestAdminGatePutListDelete(t *testing.T) {
 func TestEnablingAGateThatIsNotThereIsNotASuccess(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "store", "onbod.db")
 	mustSeedDB(t, path)
-	db, err := openOwnedDB(path)
+	db, err := openOwned(path)
 	if err != nil {
-		t.Fatalf("openOwnedDB: %v", err)
+		t.Fatalf("openOwned: %v", err)
 	}
 	defer db.Close()
 	mux := http.NewServeMux()
-	(&admin{db: db, ks: nil}).mountGates(mux)
+	(&admin{st: db, ks: nil}).mountGates(mux)
 
 	req := httptest.NewRequest("PUT", "/v1/gates/github:org=acme",
 		strings.NewReader(`{"enabled":true}`))
@@ -268,7 +273,7 @@ func TestEnablingAGateThatIsNotThereIsNotASuccess(t *testing.T) {
 			"(BUGS L268)", w.Code, strings.TrimSpace(w.Body.String()))
 	}
 
-	gates, err := store.New(db).ListGates()
+	gates, err := db.ListGates()
 	if err != nil {
 		t.Fatalf("list gates: %v", err)
 	}

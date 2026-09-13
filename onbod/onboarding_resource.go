@@ -36,7 +36,7 @@ func (a *admin) onboardingResource() resreg.Resource {
 	r := resreg.Mount(resources.OnboardingName)
 	r.Handler = a.onboardingHandler
 	r.Gate = a.onboardingRESTGate
-	r.Store = store.New(a.db)
+	r.Store = a.st
 	return r
 }
 
@@ -62,7 +62,7 @@ func (a *admin) onboardingRESTGate(x resreg.Execution, _ string, _ map[string]st
 // unaudited in the store today; that asymmetry is pre-existing, not introduced
 // here.
 func (a *admin) onboardingHandler(_ context.Context, x resreg.Execution) (any, error) {
-	s := store.New(a.db)
+	s := a.st
 	switch x.Action {
 	case resreg.ActionList:
 		rows, err := s.ListOnboarding(argString(x.Args, "status"))

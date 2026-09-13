@@ -1,13 +1,14 @@
 package main
 
 import (
-	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kronael/arizuko/store"
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
@@ -24,18 +25,18 @@ func auditAdmin(t *testing.T, ks *auth.KeySet) *admin {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "store", "onbod.db")
 	mustSeedDB(t, path)
-	db, err := openOwnedDB(path)
+	db, err := openOwned(path)
 	if err != nil {
-		t.Fatalf("openOwnedDB: %v", err)
+		t.Fatalf("openOwned: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	return &admin{db: db, ks: ks}
+	return &admin{st: db, ks: ks}
 }
 
 // seedOnbodAudit records rows and COUNTS them: an assertion that a row IS
 // returned passes vacuously on an empty log, and so does one that a string is
 // absent.
-func seedOnbodAudit(t *testing.T, db *sql.DB, rows ...[2]string) {
+func seedOnbodAudit(t *testing.T, db *store.Store, rows ...[2]string) {
 	t.Helper()
 	snap := audit.Snapshot{}
 	for i, r := range rows {
@@ -46,7 +47,7 @@ func seedOnbodAudit(t *testing.T, db *sql.DB, rows ...[2]string) {
 			Outcome: "ok", ParamsSummary: `{"jid":"telegram:user/42"}`,
 		})
 	}
-	n, err := audit.Import(t.Context(), newObjectStore(db), snap)
+	n, err := audit.Import(t.Context(), db.Obj(), snap)
 	if err != nil || n != len(rows) {
 		t.Fatalf("fixture wrote %d rows, want %d (%v)", n, len(rows), err)
 	}
@@ -54,9 +55,9 @@ func seedOnbodAudit(t *testing.T, db *sql.DB, rows ...[2]string) {
 
 // auditRowsFor reads back every recorded row carrying one action, through the
 // method /v1/audit answers with.
-func auditRowsFor(t *testing.T, db *sql.DB, action string) []audit.Row {
+func auditRowsFor(t *testing.T, db *store.Store, action string) []audit.Row {
 	t.Helper()
-	rows, err := audit.Query(t.Context(), newObjectStore(db), audit.Filter{Limit: audit.MaxLimit})
+	rows, err := audit.Query(t.Context(), db.Obj(), audit.Filter{Limit: audit.MaxLimit})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +88,7 @@ func auditGET(t *testing.T, a *admin, target string) (int, []audit.Row, string) 
 // the same one the gates/invites tests drive.
 func TestOnbodAuditServesItsOwnRows(t *testing.T) {
 	a := auditAdmin(t, nil)
-	seedOnbodAudit(t, a.db,
+	seedOnbodAudit(t, a.st,
 		[2]string{"onboarding.approve", "acme/support"},
 		[2]string{"invite.consume", "acme"},
 	)
@@ -109,7 +110,7 @@ func TestOnbodAuditServesItsOwnRows(t *testing.T) {
 // containment the handler — not the gate — owns, because it bounds rows.
 func TestOnbodAuditFolderClaimCannotWiden(t *testing.T) {
 	a := auditAdmin(t, nil)
-	seedOnbodAudit(t, a.db,
+	seedOnbodAudit(t, a.st,
 		[2]string{"onboarding.approve", "acme/support"},
 		[2]string{"onboarding.approve", "other"},
 	)

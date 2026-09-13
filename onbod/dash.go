@@ -9,12 +9,11 @@ import (
 	"strings"
 
 	"github.com/kronael/arizuko/auth"
-	"github.com/kronael/arizuko/store"
 )
 
 // handleDash renders the operator admission-queue page: every onboarding row
 // with approve/deny/reprompt action forms. Reads onbod's OWNED onboarding
-// table directly (store.New(a.db)); the action forms POST to the dash mutation
+// table directly (a.st); the action forms POST to the dash mutation
 // shims (handleDashApprove/Deny/Reprompt), which call the SAME store writers
 // the /v1 handlers use — one writer per resource, no parallel path. There is
 // nothing credential-shaped left to render: onbod 0006 dropped the last
@@ -23,7 +22,7 @@ func (a *admin) handleDash(w http.ResponseWriter, r *http.Request) {
 	if !auth.RequireOperator(w, r, a.ks, "onbod") {
 		return
 	}
-	rows, err := store.New(a.db).ListOnboarding("")
+	rows, err := a.st.ListOnboarding("")
 	if err != nil {
 		slog.Error("dash: list onboarding", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -71,7 +70,7 @@ func (a *admin) handleDashApprove(w http.ResponseWriter, r *http.Request) {
 	if !auth.RequireOperator(w, r, a.ks, "onbod") {
 		return
 	}
-	if err := store.New(a.db).ApproveOnboarding(r.PathValue("jid")); err != nil {
+	if err := a.st.ApproveOnboarding(r.PathValue("jid")); err != nil {
 		slog.Error("dash: approve", "jid", r.PathValue("jid"), "err", err)
 		http.Error(w, "approve failed", http.StatusInternalServerError)
 		return
@@ -83,7 +82,7 @@ func (a *admin) handleDashDeny(w http.ResponseWriter, r *http.Request) {
 	if !auth.RequireOperator(w, r, a.ks, "onbod") {
 		return
 	}
-	if err := store.New(a.db).DenyOnboarding(r.PathValue("jid")); err != nil {
+	if err := a.st.DenyOnboarding(r.PathValue("jid")); err != nil {
 		slog.Error("dash: deny", "jid", r.PathValue("jid"), "err", err)
 		http.Error(w, "deny failed", http.StatusInternalServerError)
 		return
@@ -95,7 +94,7 @@ func (a *admin) handleDashReprompt(w http.ResponseWriter, r *http.Request) {
 	if !auth.RequireOperator(w, r, a.ks, "onbod") {
 		return
 	}
-	if err := store.New(a.db).RepromptOnboarding(r.PathValue("jid")); err != nil {
+	if err := a.st.RepromptOnboarding(r.PathValue("jid")); err != nil {
 		slog.Error("dash: reprompt", "jid", r.PathValue("jid"), "err", err)
 		http.Error(w, "reprompt failed", http.StatusInternalServerError)
 		return

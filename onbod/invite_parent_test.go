@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -27,7 +26,7 @@ import (
 // attack case here sends a parent the caller genuinely cannot administer,
 // because a probe that sends the honest value proves nothing: the pre-existing
 // path would accept it too.
-func postCreateWorld(db *sql.DB, sub, username, forgedTarget string) *httptest.ResponseRecorder {
+func postCreateWorld(db *store.Store, sub, username, forgedTarget string) *httptest.ResponseRecorder {
 	vals := url.Values{"action": {"create_world"}, "username": {username}, "csrf": {"c"}}
 	req := httptest.NewRequest("POST", "/onboard", strings.NewReader(vals.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -44,9 +43,9 @@ func postCreateWorld(db *sql.DB, sub, username, forgedTarget string) *httptest.R
 // allFolders lists every groups row. The assertions read this rather than
 // looking up an expected name: a breach is a folder that EXISTS somewhere, and
 // "SELECT ... WHERE folder = 'newworld'" cannot see "victim/newworld".
-func allFolders(t *testing.T, db *sql.DB) []string {
+func allFolders(t *testing.T, db *store.Store) []string {
 	t.Helper()
-	folders, err := store.New(db).GroupFolders(0)
+	folders, err := db.GroupFolders(0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,9 +55,9 @@ func allFolders(t *testing.T, db *sql.DB) []string {
 // aclScopes lists every scope granted to a principal. A 303 with no folder is
 // not a breach; a folder with no grant is not a breach either. Both are read
 // because the escalation was the pair.
-func aclScopes(t *testing.T, db *sql.DB, principal string) []string {
+func aclScopes(t *testing.T, db *store.Store, principal string) []string {
 	t.Helper()
-	rows, err := store.New(db).ListACL(principal)
+	rows, err := db.ListACL(principal)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,9 +69,9 @@ func aclScopes(t *testing.T, db *sql.DB, principal string) []string {
 	return out
 }
 
-func redemptionCount(t *testing.T, db *sql.DB, sub string) int {
+func redemptionCount(t *testing.T, db *store.Store, sub string) int {
 	t.Helper()
-	n, err := store.New(db).CountRedemptions(t.Context(), sub)
+	n, err := db.CountRedemptions(t.Context(), sub)
 	if err != nil {
 		t.Fatalf("invite_redemptions count: %v", err)
 	}
@@ -81,15 +80,15 @@ func redemptionCount(t *testing.T, db *sql.DB, sub string) int {
 
 // seedTenant creates a world that already belongs to someone else — the subtree
 // the attacker aims at.
-func seedTenant(t *testing.T, db *sql.DB, folder, owner string) {
+func seedTenant(t *testing.T, db *store.Store, folder, owner string) {
 	t.Helper()
 	seedFolder(t, db, folder)
 	seedGrant(t, db, owner, "admin", folder+"/**")
 }
 
-func seedProfile(t *testing.T, db *sql.DB, sub string) {
+func seedProfile(t *testing.T, db *store.Store, sub string) {
 	t.Helper()
-	if err := store.New(db).CreateUserProfile(sub, sub, "User"); err != nil {
+	if err := db.CreateUserProfile(sub, sub, "User"); err != nil {
 		t.Fatalf("seed user_profiles: %v", err)
 	}
 }
@@ -275,7 +274,7 @@ func TestForgedCookieDoesNotRenderThePicker(t *testing.T) {
 // redeemInvite walks the real redemption handler, so the redemption row under
 // test is the one production writes — not a hand-INSERTed fixture that could
 // disagree with consumeInvite about the column values.
-func redeemInvite(t *testing.T, db *sql.DB, token, sub string) {
+func redeemInvite(t *testing.T, db *store.Store, token, sub string) {
 	t.Helper()
 	req := httptest.NewRequest("GET", "/invite/"+token, nil)
 	req.SetPathValue("token", token)
@@ -292,7 +291,7 @@ func redeemInvite(t *testing.T, db *sql.DB, token, sub string) {
 // instead of hand-INSERTing a row: a fixture that disagreed with consumeInvite
 // about the columns would make them pass against a parent nothing writes.
 // targetGlob "/" is the top-level invite (parent = "").
-func seedRedemption(t *testing.T, db *sql.DB, sub, targetGlob string) {
+func seedRedemption(t *testing.T, db *store.Store, sub, targetGlob string) {
 	t.Helper()
 	redeemInvite(t, db, createInvite(t, db, targetGlob, "operator", 1), sub)
 	if n := redemptionCount(t, db, sub); n != 1 {
@@ -306,13 +305,13 @@ func seedRedemption(t *testing.T, db *sql.DB, sub, targetGlob string) {
 func TestInviteRedemptionsEntityIsServedByARealOnbodDB(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "onbod.db")
 	mustSeedDB(t, path)
-	db, err := openOwnedDB(path)
+	db, err := openOwned(path)
 	if err != nil {
-		t.Fatalf("openOwnedDB: %v", err)
+		t.Fatalf("openOwned: %v", err)
 	}
 	defer db.Close()
 
-	st := store.New(db)
+	st := db
 	seedRedemption(t, db, "github:bob", "acme/")
 	r, held, err := st.LatestRedemption(t.Context(), "github:bob")
 	if err != nil || !held {

@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/auth"
-	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
 )
 
@@ -38,21 +37,21 @@ func newDashAdmin(t *testing.T) *admin {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "store", "onbod.db")
 	mustSeedDB(t, path)
-	db, err := openOwnedDB(path)
+	db, err := openOwned(path)
 	if err != nil {
-		t.Fatalf("openOwnedDB: %v", err)
+		t.Fatalf("openOwned: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
 	ks, tok := operatorKeySet(t)
 	dashBearer = tok
-	return &admin{db: db, ks: ks}
+	return &admin{st: db, ks: ks}
 }
 
 // TestDashOperatorRendersQueue: an operator GET (`**` in X-User-Groups) renders
 // the queue page with the freshly inserted onboarding row in the table.
 func TestDashOperatorRendersQueue(t *testing.T) {
 	a := newDashAdmin(t)
-	if err := store.New(a.db).InsertOnboarding("telegram:user/42"); err != nil {
+	if err := a.st.InsertOnboarding("telegram:user/42"); err != nil {
 		t.Fatalf("seed onboarding: %v", err)
 	}
 
@@ -95,7 +94,7 @@ func TestDashNonOperatorForbidden(t *testing.T) {
 // same store writer the /v1 handler uses, then redirects to the queue.
 func TestDashApproveFlipsRow(t *testing.T) {
 	a := newDashAdmin(t)
-	if err := store.New(a.db).InsertOnboarding("telegram:user/7"); err != nil {
+	if err := a.st.InsertOnboarding("telegram:user/7"); err != nil {
 		t.Fatalf("seed onboarding: %v", err)
 	}
 
@@ -109,7 +108,7 @@ func TestDashApproveFlipsRow(t *testing.T) {
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("approve status=%d, want 303", w.Code)
 	}
-	rows, err := store.New(a.db).ListOnboarding("approved")
+	rows, err := a.st.ListOnboarding("approved")
 	if err != nil {
 		t.Fatalf("list approved: %v", err)
 	}

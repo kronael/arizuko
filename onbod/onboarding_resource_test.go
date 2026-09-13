@@ -41,7 +41,7 @@ func TestOnboardingListLeaksNoToken(t *testing.T) {
 	db := testDB(t)
 	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "telegram:1", Status: "awaiting_message"})
 
-	a := &admin{db: db}
+	a := &admin{st: db}
 	mux := http.NewServeMux()
 	a.mountOnboarding(mux)
 
@@ -63,7 +63,7 @@ func TestOnboardingListLeaksNoToken(t *testing.T) {
 // paths with the same scope policy.
 func TestOnboardingRESTGateRequiresScope(t *testing.T) {
 	db := testDB(t)
-	a := &admin{db: db, ks: &auth.KeySet{}}
+	a := &admin{st: db, ks: &auth.KeySet{}}
 	err := a.onboardingRESTGate(resreg.Execution{
 		Action: resreg.ActionList,
 		Caller: resreg.Caller{Claims: map[string]string{resreg.ScopeClaimKey: "gates:read"}},

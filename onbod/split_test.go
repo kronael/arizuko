@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -24,14 +23,14 @@ func TestSplitDashboardReadsCrossFromRoutd(t *testing.T) {
 	xdb := testDB(t)  // routd.db side
 	obdb := testDB(t) // onbod.db side
 
-	if err := store.New(xdb).CreateUserProfile("github:alice", "alice", "Alice"); err != nil {
+	if err := xdb.CreateUserProfile("github:alice", "alice", "Alice"); err != nil {
 		t.Fatalf("seed user_profiles: %v", err)
 	}
 	seedFolder(t, xdb, "alice")
 	seedGrant(t, xdb, "github:alice", "admin", "alice")
 
 	// The onbod-owned DB must NOT carry the cross rows (proving the read is xdb).
-	if _, known, _ := store.New(obdb).Username("github:alice"); known {
+	if _, known, _ := obdb.Username("github:alice"); known {
 		t.Fatalf("test setup: user_profiles leaked into obdb")
 	}
 
@@ -56,7 +55,7 @@ func TestSplitInviteGrantLandsInRoutd(t *testing.T) {
 	xdb := testDB(t)
 	obdb := testDB(t)
 
-	if err := store.New(xdb).CreateUserProfile("github:bob", "bob", "Bob"); err != nil {
+	if err := xdb.CreateUserProfile("github:bob", "bob", "Bob"); err != nil {
 		t.Fatalf("seed user_profiles: %v", err)
 	}
 	seedFolder(t, xdb, "alice")
@@ -105,7 +104,7 @@ func TestSplitCreateWorldWritesCrossToRoutd(t *testing.T) {
 	xdb := testDB(t)
 	obdb := testDB(t)
 
-	if err := store.New(xdb).CreateUserProfile("github:new", "github:new", "New"); err != nil {
+	if err := xdb.CreateUserProfile("github:new", "github:new", "New"); err != nil {
 		t.Fatalf("seed user_profiles: %v", err)
 	}
 	seedMembership(t, xdb, "telegram:10", "github:new", "")
@@ -146,12 +145,12 @@ func TestSplitInviteGrantFailureRollsBack(t *testing.T) {
 	xdb := testDB(t)
 	obdb := testDB(t)
 
-	if err := store.New(xdb).CreateUserProfile("github:bob", "bob", "Bob"); err != nil {
+	if err := xdb.CreateUserProfile("github:bob", "bob", "Bob"); err != nil {
 		t.Fatalf("seed user_profiles: %v", err)
 	}
 	seedFolder(t, xdb, "alice")
 	// Break the routd.db acl write so PutACLRow errors after the consume.
-	if _, err := xdb.Exec(`DROP TABLE acl`); err != nil {
+	if _, err := xdb.DB().Exec(`DROP TABLE acl`); err != nil {
 		t.Fatalf("drop acl: %v", err)
 	}
 
@@ -178,7 +177,7 @@ func TestSplitInviteGrantFailureRollsBack(t *testing.T) {
 	}
 }
 
-func postOnboardSplit(xdb, obdb *sql.DB, sub string, vals url.Values) *httptest.ResponseRecorder {
+func postOnboardSplit(xdb, obdb *store.Store, sub string, vals url.Values) *httptest.ResponseRecorder {
 	req := httptest.NewRequest("POST", "/onboard", strings.NewReader(vals.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("X-User-Sub", sub)
@@ -201,7 +200,7 @@ func TestSplitInviteGrantAudited(t *testing.T) {
 	xdb := testDB(t)
 	obdb := testDB(t)
 
-	if err := store.New(xdb).CreateUserProfile("github:bob", "bob", "Bob"); err != nil {
+	if err := xdb.CreateUserProfile("github:bob", "bob", "Bob"); err != nil {
 		t.Fatalf("seed user_profiles: %v", err)
 	}
 	seedFolder(t, xdb, "alice")
