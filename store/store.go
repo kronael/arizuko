@@ -243,14 +243,7 @@ func migrate(db *sql.DB) error {
 			return err
 		}
 	}
-	if err := audit.EnsureEntities(ctx, sqlstore.New(db)); err != nil {
-		return err
-	}
-	// The FTS5 index over a message's content is not an entity and the driver
-	// knows nothing about it: it is SQLite's, and a trigger on the message entity
-	// cannot be declared until that entity exists. So it is built here, after the
-	// entities, from its own declaration (messages_search.go).
-	return EnsureMessageSearch(ctx, db)
+	return audit.EnsureEntities(ctx, sqlstore.New(db))
 }
 
 // New wraps an already-open *sql.DB as a *Store. Caller owns the db lifetime
@@ -260,8 +253,8 @@ func New(db *sql.DB) *Store {
 }
 
 // NewOver wraps a handle the caller owns. The store holds no pool, so the
-// SQL-only doors on it — Close, DB and the ranked search index — are not
-// available and the reads and writes are.
+// SQL-only doors on it — Close and DB — are not available and the reads and
+// writes are.
 func NewOver(obj objstore.Store) *Store {
 	return &Store{obj: obj}
 }

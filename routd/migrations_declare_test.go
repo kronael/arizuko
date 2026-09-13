@@ -17,11 +17,10 @@ var declares = regexp.MustCompile(`(?i)CREATE\s+(?:VIRTUAL\s+)?TABLE\s+(?:IF\s+N
 // named here as well would be built empty at every fresh open for CreateEntity
 // to reclaim, which is one statement each and no row anywhere.
 //
-// `messages` and its FTS index are the two left, and they are the two a document
-// store has no answer for: ranked search leaves for its own service and
-// `messages` moves with it (spec 6/37 §"Search is the one that is answered by
-// leaving"). When that lands this chain builds nothing, `routd/db.go` runs none
-// of it, and this test goes with the directory it reads.
+// `messages` is the one left. `messages_fts` is on the list because 0001
+// declares it and 0048 drops it: a frozen chain cannot unsay a declaration, so
+// the name stays here while the table it names reaches no open database. Ranked
+// search is an in-memory index over the entity (spec 6/42 §8, routd/msgsearch).
 var chainDeclares = []string{"messages", "messages_fts"}
 
 // TestChainDeclaresOnlyTheTablesAnEntityCannotBe is the boundary between what

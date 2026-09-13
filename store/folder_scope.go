@@ -206,10 +206,10 @@ var folderScopeKeep = map[string]keepReason{
 	"message_activity": keep("one partition over every chat; it follows messages"),
 	"message_delivery": keep("keyed by delivery status; it follows messages"),
 
-	// The FTS index over messages and the five shadow tables sqlite hangs off
-	// it. Its triggers follow messages, which this delete does not touch.
+	// The index store/migrations builds over the pre-split `messages` table of
+	// columns, and the four shadow tables sqlite hangs off it. Its triggers
+	// follow messages, which this delete does not touch.
 	"messages_fts":         keep("index over messages"),
-	"messages_fts_content": keep("fts5 shadow table"),
 	"messages_fts_data":    keep("fts5 shadow table"),
 	"messages_fts_idx":     keep("fts5 shadow table"),
 	"messages_fts_docsize": keep("fts5 shadow table"),
