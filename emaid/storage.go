@@ -12,40 +12,37 @@ package main
 
 import (
 	"context"
-	"database/sql"
 
 	"github.com/kronael/arizuko/chanlib"
-	"github.com/kronael/arizuko/chanlib/chanstore"
 	"github.com/kronael/arizuko/emaid/emaistore"
-	"github.com/kronael/arizuko/objstore/sqlstore"
 	_ "modernc.org/sqlite"
 )
 
-// openStorage opens <dataDir>/emaid.db with the owner-DB conventions (WAL,
-// busy_timeout, foreign keys on every pooled connection) and prepares it to
-// serve emaid. It creates a missing file itself: emaid.db is adapter-private
-// state, and `arizuko create` does not seed it.
+// openStorage prepares emaid's storage: the entities chanlib ships and the ones
+// emaid ships of its own, on one store. On a file instance that store is
+// <dataDir>/emaid.db with the owner-DB conventions (WAL, busy_timeout, foreign
+// keys on every pooled connection), created here because it is adapter-private
+// state `arizuko create` does not seed.
 //
-// It opens through chanlib's own adapter-database door, the same one the seven
-// other adapters use, so emaid.db is prepared exactly the way theirs are. That
-// door hands back the pool as well as chanlib's store, which is what lets emaid
-// put its OWN entities in the same file — the alternative was a second opener
-// for the one daemon that needs the pool, and two openers drift.
+// It opens through chanlib's own adapter door, the same one the seven other
+// adapters use, so emaid's tables are prepared exactly the way theirs are and
+// the branch between an endpoint and a file is not written twice. That door
+// hands back the driver as well as chanlib's store, which is what lets emaid
+// put its OWN entities on the same one.
 //
-// It hands back all three halves because emaid needs all three: the pool to
-// close, chanlib's store for the adapter mux's outbound dedup, and emaistore's
-// for emaid's own threading.
-func openStorage(dataDir string) (*sql.DB, *chanstore.Store, *emaistore.Store, error) {
-	db, chanStore, err := chanlib.OpenAdapterDB(dataDir, "emaid")
+// It hands back all three because emaid needs all three: the close, chanlib's
+// store for the adapter mux's outbound dedup, and emaistore's for emaid's own
+// threading.
+func openStorage(dataDir string) (chanlib.AdapterStore, *emaistore.Store, error) {
+	as, err := chanlib.OpenAdapterStore(dataDir, "emaid")
 	if err != nil {
-		return nil, nil, nil, err
+		return chanlib.AdapterStore{}, nil, err
 	}
-	s := sqlstore.New(db)
 	for _, entity := range emaistore.Entities {
-		if err := s.CreateEntity(context.Background(), entity); err != nil {
-			db.Close() //nolint:errcheck // the open already failed
-			return nil, nil, nil, err
+		if err := as.Driver.CreateEntity(context.Background(), entity); err != nil {
+			as.Close() //nolint:errcheck // the open already failed
+			return chanlib.AdapterStore{}, nil, err
 		}
 	}
-	return db, chanStore, emaistore.New(s), nil
+	return as, emaistore.New(as.Driver), nil
 }

@@ -46,7 +46,7 @@ const (
 
 // RetainInbound makes this client's inbound durable and starts the re-delivery
 // sweep, which runs until ctx is done. st is the adapter's OWN storage (the one
-// OpenAdapterDB returns); chanlib ships the entities, the adapter owns the file.
+// OpenAdapterStore returns); chanlib ships the entities, the adapter owns them.
 //
 // Wire it ONLY from an adapter that consumes its platform event on arrival —
 // see the file comment for why the cursor-gated adapters must not.

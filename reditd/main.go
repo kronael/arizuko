@@ -35,14 +35,14 @@ func main() {
 				return nil, nil, err
 			}
 			rc.loadCursors()
-			db, chanStore, err := chanlib.OpenAdapterDB(cfg.DataDir, "reditd")
+			as, err := chanlib.OpenAdapterStore(cfg.DataDir, "reditd")
 			if err != nil {
-				slog.Error("adapter db open failed", "dir", cfg.DataDir, "err", err)
+				slog.Error("adapter store open failed", "dir", cfg.DataDir, "err", err)
 				return nil, nil, err
 			}
 			go rc.poll(ctx, router)
-			return newServer(cfg, rc, rc.files, chanStore, rc.isConnected, rc.LastInboundAt).handler(),
-				func() { db.Close() }, nil
+			return newServer(cfg, rc, rc.files, as.Chan, rc.isConnected, rc.LastInboundAt).handler(),
+				func() { as.Close() }, nil
 		},
 	})
 }

@@ -12,12 +12,12 @@ import (
 // own code is given, so these bodies exercise the opener too.
 func testStore(t *testing.T) *chanstore.Store {
 	t.Helper()
-	db, st, err := OpenAdapterDB(t.TempDir(), "testadapter")
+	as, err := OpenAdapterStore(t.TempDir(), "testadapter")
 	if err != nil {
-		t.Fatalf("open adapter db: %v", err)
+		t.Fatalf("open the adapter store: %v", err)
 	}
-	t.Cleanup(func() { db.Close() })
-	return st
+	t.Cleanup(func() { as.Close() }) //nolint:errcheck // the test is ending
+	return as.Chan
 }
 
 // counter records how many times the platform was actually called.

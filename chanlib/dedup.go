@@ -2,7 +2,6 @@ package chanlib
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -11,45 +10,73 @@ import (
 
 	"github.com/kronael/arizuko/chanlib/chanstore"
 	"github.com/kronael/arizuko/db_utils"
+	"github.com/kronael/arizuko/objstore/dynstore"
 	"github.com/kronael/arizuko/objstore/sqlstore"
-	// OpenAdapterDB opens "sqlite" DSNs, so the driver registration belongs
+	"github.com/kronael/arizuko/store"
+	// OpenAdapterStore opens "sqlite" DSNs, so the driver registration belongs
 	// with the call — seven adapter mains would each have to remember it, and the
 	// one that forgot would fail at boot with "unknown driver".
 	_ "modernc.org/sqlite"
 )
 
-// OpenAdapterDB opens <dataDir>/<service>.db and prepares it to answer chanlib's
-// storage questions. chanlib SHIPS the entities; the FILE belongs to the adapter
-// daemon, one per service, so an adapter stays outage-resistant on its own and no
-// library owns a database.
+// AdapterStore is one adapter's storage, in the three pieces an adapter's boot
+// needs: the driver its tables live on, the chanlib half over that driver, and
+// the close that ends what the open holds.
 //
-// The file is adapter-private state that `arizuko create` does not seed, so a
-// missing one is created here.
+// It is one value rather than three returns because seven of the eight adapters
+// want only the last two, and emaid wants the driver as well — it ships
+// entities of its own and makes them on the same store (emaid/storage.go).
+type AdapterStore struct {
+	// Driver is what an adapter with entities of its own makes them on.
+	Driver store.Driver
+	// Chan is what every adapter passes to NewAdapterMux and RetainInbound.
+	Chan *chanstore.Store
+	// Close ends the pool a file-backed store holds. A served one holds none,
+	// so it ends nothing.
+	Close func() error
+}
+
+// OpenAdapterStore prepares one adapter's storage to answer chanlib's questions.
+// chanlib SHIPS the entities; the TABLES belong to the adapter daemon, one set
+// per service, so an adapter stays outage-resistant on its own and no library
+// owns a database.
 //
-// It hands back BOTH halves and it is the only door: the store is what every
-// adapter passes to NewAdapterMux and RetainInbound, and the pool is the
-// engine handle whose lifetime the adapter owns — it closes it on shutdown, and
-// emaid builds its own emaistore on the same file (emaid/storage.go). A second
-// opener for the daemon that needs the pool is how the two would drift.
+// It is the only door, so the branch between an instance served from a DynamoDB
+// endpoint and one holding files is written here once instead of in eight
+// adapter mains. A served adapter's tables live under its own service name —
+// the namespace dynstore.Prefix renders for every owner — and it makes them
+// itself, because it is the only daemon that reads them. A file instance keeps
+// adapter-private state `arizuko create` does not seed, so a missing file is
+// created here.
 //
 // This function names a driver, which is the composition root's job (spec 6/37
 // step 5) — chanstore itself names none, so a second engine is one line here.
-func OpenAdapterDB(dataDir, service string) (*sql.DB, *chanstore.Store, error) {
-	if err := os.MkdirAll(dataDir, 0o755); err != nil {
-		return nil, nil, err
+func OpenAdapterStore(dataDir, service string) (AdapterStore, error) {
+	as := AdapterStore{Close: func() error { return nil }}
+	if store.Served() {
+		h, err := dynstore.FromEnv(dynstore.Prefix(service))
+		if err != nil {
+			return AdapterStore{}, err
+		}
+		as.Driver = h
+	} else {
+		if err := os.MkdirAll(dataDir, 0o755); err != nil {
+			return AdapterStore{}, err
+		}
+		db, err := db_utils.Open(filepath.Join(dataDir, service+".db"))
+		if err != nil {
+			return AdapterStore{}, err
+		}
+		as.Driver, as.Close = sqlstore.New(db), db.Close
 	}
-	db, err := db_utils.Open(filepath.Join(dataDir, service+".db"))
-	if err != nil {
-		return nil, nil, err
-	}
-	s := sqlstore.New(db)
 	for _, entity := range chanstore.Entities {
-		if err := s.CreateEntity(context.Background(), entity); err != nil {
-			db.Close() //nolint:errcheck // the open already failed
-			return nil, nil, err
+		if err := as.Driver.CreateEntity(context.Background(), entity); err != nil {
+			as.Close() //nolint:errcheck // the open already failed
+			return AdapterStore{}, err
 		}
 	}
-	return db, chanstore.New(s), nil
+	as.Chan = chanstore.New(as.Driver)
+	return as, nil
 }
 
 // ErrDeliveryUnresolved reports a redelivery whose earlier attempt never

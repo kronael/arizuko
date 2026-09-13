@@ -69,7 +69,7 @@ func TestLoadConfigDefaults(t *testing.T) {
 func TestOpenStorageCreatesTheEntitiesAndReopens(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "nested", "emaid")
 
-	db, chanStore, st, err := openStorage(dir)
+	as, st, err := openStorage(dir)
 	if err != nil {
 		t.Fatalf("openStorage: %v", err)
 	}
@@ -88,25 +88,17 @@ func TestOpenStorageCreatesTheEntitiesAndReopens(t *testing.T) {
 	// without them a send dedups against nothing. Asked through the store rather
 	// than through sqlite_master, because emaid's own driver is a choice this
 	// file must not encode.
-	claim, err := chanStore.ClaimDelivery(t.Context(), "boot-key", "email:boot")
+	claim, err := as.Chan.ClaimDelivery(t.Context(), "boot-key", "email:boot")
 	if err != nil {
 		t.Fatalf("chanlib's entities were not created in emaid.db: %v", err)
 	}
 	if claim.State != chanstore.ClaimWon {
 		t.Errorf("the first claim on a fresh store is %v, want ClaimWon", claim.State)
 	}
-
-	var mode string
-	if err := db.QueryRow("PRAGMA journal_mode").Scan(&mode); err != nil {
-		t.Fatal(err)
-	}
-	if mode != "wal" {
-		t.Errorf("journal_mode = %q, want wal", mode)
-	}
-	db.Close()
+	as.Close() //nolint:errcheck // the test is ending
 
 	// The second boot must not fail on the entities already there.
-	db2, chanStore2, st2, err := openStorage(dir)
+	as2, st2, err := openStorage(dir)
 	if err != nil {
 		t.Fatalf("second openStorage on an existing file: %v", err)
 	}
@@ -115,9 +107,9 @@ func TestOpenStorageCreatesTheEntitiesAndReopens(t *testing.T) {
 	}
 	// The claim survives too, which is the half that makes a redelivery after a
 	// restart return the recorded id rather than posting again.
-	if claim, err := chanStore2.ClaimDelivery(t.Context(), "boot-key", "email:boot"); err != nil ||
+	if claim, err := as2.Chan.ClaimDelivery(t.Context(), "boot-key", "email:boot"); err != nil ||
 		claim.State == chanstore.ClaimWon {
 		t.Errorf("the reopened claim is %v (err=%v); it must not be winnable again", claim.State, err)
 	}
-	db2.Close()
+	as2.Close()
 }

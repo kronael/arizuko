@@ -66,18 +66,18 @@ func newTestEnv(t *testing.T, secrets secretMap) *testEnv {
 	up := httptest.NewServer(routd)
 	t.Cleanup(up.Close)
 	rc := chanlib.NewRouterClient(up.URL)
-	db, chanStore, err := chanlib.OpenAdapterDB(t.TempDir(), "gitd")
+	as, err := chanlib.OpenAdapterStore(t.TempDir(), "gitd")
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { as.Close() }) //nolint:errcheck // the test is ending
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	rc.RetainInbound(ctx, chanStore)
+	rc.RetainInbound(ctx, as.Chan)
 	cfg := config{Name: "github", APIBase: "http://gh.invalid"}
 	b := newBot(cfg)
 	b.connected.Store(true)
-	s := newServer(cfg, b, secrets, chanStore, rc)
+	s := newServer(cfg, b, secrets, as.Chan, rc)
 	s.now = func() time.Time { return fixedNow }
 	return &testEnv{srv: s, h: s.handler(), routd: routd, up: up}
 }

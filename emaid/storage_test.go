@@ -16,12 +16,12 @@ import (
 // which the adapter mux dedups against, and emaistore's, which emaid reads.
 func newTestStorage(t *testing.T) (*chanstore.Store, *emaistore.Store) {
 	t.Helper()
-	db, chanStore, st, err := openStorage(t.TempDir())
+	as, st, err := openStorage(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { db.Close() })
-	return chanStore, st
+	t.Cleanup(func() { as.Close() })
+	return as.Chan, st
 }
 
 // newTestMailstore is newTestStorage for a body that needs only the store — the
