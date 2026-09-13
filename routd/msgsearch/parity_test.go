@@ -86,6 +86,10 @@ func seedCorpus() *corpus {
 // TestTheWalkAndTheIndexAreAffordable reports the two numbers the reopen
 // trigger of spec 6/42 §8 is written against: above one second of boot or a
 // hundred megabytes of index, ranked search leaves routd's process.
+//
+// The walk's number is wall clock, so it is a measurement of the machine as
+// well as of the index — on a box already running another suite the same walk
+// doubles. Read the logged number before believing a failure here.
 func TestTheWalkAndTheIndexAreAffordable(t *testing.T) {
 	if testing.Short() {
 		t.Skip("a corpus of 24,296 messages is not a -short test")
@@ -112,9 +116,9 @@ func TestTheWalkAndTheIndexAreAffordable(t *testing.T) {
 	runtime.ReadMemStats(&loaded)
 	heap := float64(loaded.HeapAlloc-base.HeapAlloc) / (1 << 20)
 	t.Logf("boot walk: %v for %d messages over %d chats; index heap: %.1f MB",
-		walk, ix.Size(), corpusChats, heap)
-	if ix.Size() != corpusMessages {
-		t.Fatalf("the walk indexed %d of %d messages", ix.Size(), corpusMessages)
+		walk, ix.size(), corpusChats, heap)
+	if ix.size() != corpusMessages {
+		t.Fatalf("the walk indexed %d of %d messages", ix.size(), corpusMessages)
 	}
 	if walk > time.Second {
 		t.Errorf("the boot walk took %v; above a second the reopen trigger of 6/42 §8 fires",
@@ -131,7 +135,7 @@ func TestTheWalkAndTheIndexAreAffordable(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("one common-term search over %d messages: %v for %d hits",
-		ix.Size(), time.Since(start), len(hits))
+		ix.size(), time.Since(start), len(hits))
 	runtime.KeepAlive(ix)
 }
 

@@ -212,9 +212,10 @@ func (ix *Index) Remove(chatJID, sortKey string) {
 	}
 }
 
-// Size reports how many messages the index holds, for a caller measuring the
-// walk.
-func (ix *Index) Size() int {
+// size reports how many messages the index holds. It is unexported because no
+// caller outside this package asks: the measurement of the walk does
+// (parity_test.go), and a number nobody reads is surface.
+func (ix *Index) size() int {
 	ix.mu.RLock()
 	defer ix.mu.RUnlock()
 	return ix.live

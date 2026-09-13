@@ -399,7 +399,7 @@ func TestAReIndexedMessageIsReplacedNotDoubled(t *testing.T) {
 	enriched := first
 	enriched.Content = "raw photo of the whiteboard"
 	ix.Put(enriched)
-	if n := ix.Size(); n != 1 {
+	if n := ix.size(); n != 1 {
 		t.Errorf("the index holds %d documents for one message", n)
 	}
 	if hits, err := ix.Search("attachment", "", "", "", 10); err != nil || len(hits) != 0 {
@@ -431,7 +431,7 @@ func TestARemovedMessageStopsAnswering(t *testing.T) {
 	if hits, err := ix.Search("deleted", "", "", "", 10); err != nil || len(hits) != 0 {
 		t.Errorf("post-delete hits = %d, err=%v; want none", len(hits), err)
 	}
-	if n := ix.Size(); n != 0 {
+	if n := ix.size(); n != 0 {
 		t.Errorf("the index still holds %d documents", n)
 	}
 	// A position the index does not hold is not an error and not a panic: the
