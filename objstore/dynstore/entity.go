@@ -13,6 +13,20 @@ import (
 
 // CreateEntity makes the table an entity is served from, or leaves it alone.
 func (s *Store) CreateEntity(ctx context.Context, entity string) error {
+	// Ask first. Every owner declares its whole set on every boot, and a server
+	// that implements "already exists" by attempting the create and catching the
+	// failure logs one storage-level error per existing table each time — 118 of
+	// them per restart on krons (BUGS L297).
+	if _, err := s.api.DescribeTable(ctx, &dynamodb.DescribeTableInput{
+		TableName: s.table(entity),
+	}); err == nil {
+		return nil
+	} else {
+		var missing *types.ResourceNotFoundException
+		if !errors.As(err, &missing) {
+			return err
+		}
+	}
 	_, err := s.api.CreateTable(ctx, &dynamodb.CreateTableInput{
 		TableName:   s.table(entity),
 		BillingMode: types.BillingModePayPerRequest,

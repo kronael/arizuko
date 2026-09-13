@@ -57,6 +57,9 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
+	// The ranked message index is this process's: it is memory, built from the
+	// store, and only the process that answers `find_messages` needs it.
+	db.StartSearch()
 
 	// audit_log sink: routd owns audit_log (migration 0016), so its own
 	// ACL/secret/task mutations emit through the audited store variants. Init wires

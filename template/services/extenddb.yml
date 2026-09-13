@@ -63,7 +63,9 @@ services:
     volumes:
       - '${DATA_DIR}/store/extenddb_db:/var/lib/postgresql/data'
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U ${APP}_${FLAVOR}']
+      # -d names the database: libpq would otherwise probe one named after the
+      # role, which nothing creates, and the server logs a FATAL every probe.
+      test: ['CMD-SHELL', 'pg_isready -U ${APP}_${FLAVOR} -d postgres']
       interval: 10s
       timeout: 5s
       retries: 5

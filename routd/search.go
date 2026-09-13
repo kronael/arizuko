@@ -19,6 +19,7 @@ package routd
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	"github.com/kronael/arizuko/routd/msgsearch"
@@ -33,14 +34,19 @@ import (
 // the one search that fills them.
 type FoundMessage = msgsearch.FoundMessage
 
-// startSearch opens the index and walks the store into it in the background.
+// StartSearch opens the index and walks the store into it in the background.
+//
+// The process that ANSWERS searches calls it: routd's own main. An opener that
+// only reads or writes rows — the CLI, a migration, a test — does not, because
+// the walk reads every chat and its cancellation on Close reported as a failed
+// index build on every admin command (BUGS L295).
 //
 // The walk is not waited for: a routd that served nothing until it finished
 // would hold every adapter behind one read per chat. Until it is through, a
 // search is REFUSED (msgsearch.ErrWarming) rather than answered empty — an
 // empty hit list says "no message says that", and an agent repeats that as
 // fact.
-func (d *DB) startSearch() {
+func (d *DB) StartSearch() {
 	d.search = msgsearch.New()
 	ctx, cancel := context.WithCancel(context.Background())
 	d.searchStop = cancel
@@ -61,5 +67,10 @@ func (d *DB) startSearch() {
 // `sender` is exact, `since` is an RFC3339 lower bound, and ACL filtering is
 // the caller's job — only the caller knows which folder asked.
 func (d *DB) FindMessages(query, scope, sender, since string, limit int) ([]FoundMessage, error) {
+	if d.search == nil {
+		// Loud, because the alternative is a caller that reads "no hits" from a
+		// process that never built an index.
+		return nil, errors.New("this process holds no ranked message index")
+	}
 	return d.search.Search(query, scope, sender, since, limit)
 }

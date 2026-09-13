@@ -188,6 +188,11 @@ func (ix *Index) build(ctx context.Context, src Source) error {
 // Tokenising happens before the lock, because it is the expensive half and the
 // readers are agents waiting on a search.
 func (ix *Index) Put(rows ...store.IndexedMessage) {
+	// A process that answers no search holds no index, and its writes still go
+	// through this path — the CLI writes messages too.
+	if ix == nil {
+		return
+	}
 	ready := make([]*doc, 0, len(rows))
 	freqs := make([]map[string]int32, 0, len(rows))
 	for _, row := range rows {
@@ -205,6 +210,9 @@ func (ix *Index) Put(rows ...store.IndexedMessage) {
 // Remove drops one message's position, for a caller that has just deleted it
 // from the store.
 func (ix *Index) Remove(chatJID, sortKey string) {
+	if ix == nil {
+		return
+	}
 	ix.mu.Lock()
 	defer ix.mu.Unlock()
 	if id, ok := ix.at[coord{chat: chatJID, sort: sortKey}]; ok {

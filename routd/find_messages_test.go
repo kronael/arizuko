@@ -88,6 +88,7 @@ func TestTheBootWalkFillsTheIndexFromTheStore(t *testing.T) {
 		}
 	}
 	fresh := OpenOver(db.Obj())
+	fresh.StartSearch()
 	defer fresh.Close() //nolint:errcheck // the test is ending
 	if hits := searched(t, fresh, "budget", "", "", "", 10); len(hits) != 2 {
 		t.Errorf("the walk found %d of the 2 messages the store holds", len(hits))

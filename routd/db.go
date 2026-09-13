@@ -197,9 +197,7 @@ func open(dsn string) (*DB, error) {
 		sqldb.Close()
 		return nil, err
 	}
-	d := &DB{db: sqldb}
-	d.startSearch()
-	return d, nil
+	return &DB{db: sqldb}, nil
 }
 
 // Close ends what the open holds. A routd served from a handle holds no pool,
@@ -990,10 +988,8 @@ func defaultStatus(s string) string {
 
 // OpenOver serves routd from a handle the caller owns. The caller has already
 // made the entities and there is no chain to run, because a chain does not
-// belong to a store addressed by key. The ranked message index does: it is
-// memory, derived from whatever the handle holds, so this door walks it too.
+// belong to a store addressed by key. A caller that answers searches calls
+// StartSearch itself.
 func OpenOver(obj objstore.Store) *DB {
-	d := &DB{obj: obj}
-	d.startSearch()
-	return d
+	return &DB{obj: obj}
 }

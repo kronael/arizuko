@@ -17,6 +17,9 @@ func memDB(t *testing.T) *DB {
 	if err != nil {
 		t.Fatalf("OpenMem: %v", err)
 	}
+	// The index belongs to the process that answers searches, which in a test
+	// is this one — routd's own main does the same after its open.
+	d.StartSearch()
 	t.Cleanup(func() { d.Close() })
 	return d
 }
