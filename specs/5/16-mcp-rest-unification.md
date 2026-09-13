@@ -155,7 +155,7 @@ moved_from: specs/9/index.md §1 (was "phase 8 action 1"; pulled to phase 5)
 > fills it with a complete empty schema, so a typo'd mount or an unfinished file
 > move yields a fully-migrated instance with zero groups and zero acl that boots
 > GREEN. Every owner open (`routd.Open`, `runed.Open`, `authd.resolveDSN`,
-> `onbod.openOwnedDB`) now requires the file to exist; creation is one explicit
+> `onbod.openOwned`) now requires the file to exist; creation is one explicit
 > act (`routd.Create`/`runed.Create` plus `arizuko create`'s `seedOwnerDBs`,
 > which touches all four — a zero-byte file is a valid empty SQLite database, so
 > each daemon migrates its own schema into it and the CLI needs no migration set

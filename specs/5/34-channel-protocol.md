@@ -89,7 +89,7 @@ and no platform call, and REFUSE (502) a key whose earlier attempt never
 settled — the adapter cannot tell a lost response from a lost request,
 so it reports the ambiguity and routd dead-letters visibly instead of
 double-posting (BUGS `D5`). Go adapters get all of this from
-`chanlib.NewAdapterMux` + `chanlib.OpenAdapterDB`; an adapter in another
+`chanlib.NewAdapterMux` + `chanlib.OpenAdapterStore`; an adapter in another
 language implements the same contract. **Every adapter is now inside it**,
 whapd included (BUGS `L32`).
 

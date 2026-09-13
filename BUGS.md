@@ -248,7 +248,7 @@ required atomicity; they required an order. All twenty-two audited writers are
 now batch-shaped or sweeps, `runAudited` is deleted, and `store` opens no
 transaction of its own. The child-partition leak is `L287`, fixed separately.
 
-## L276 — re-running `migrate-hot` after routd has taken writes rolls every cursor back, and the refusal comes too late to stop it (2026-09-12, open)
+## ✅ CLOSED 2026-09-13 L276 — re-running `migrate-hot` after routd has taken writes rolls every cursor back, and the refusal comes too late to stop it (2026-09-12)
 
 REPRODUCED on a migrated copy of sloth's `routd.db`. The move derives each chat's
 cursor from `messages_v1`, which is frozen at the moment of the first run, so a
@@ -268,15 +268,19 @@ rolled-back cursor and re-feeds every message consumed since the migration.
 An operator re-runs a migration exactly when something looks wrong, so this is
 the likely second command, not an unlikely one.
 
+**The tool is gone.** Migration is hand-driven (maintainer, 2026-09-13): the
+`migrate-*` subcommands are deleted and the binary carries no migration, so
+there is nothing left to re-run. An operator who moves an instance watches it,
+and the rows an instance already holds stay in its SQLite files, which the
+retired binary still reads.
+
 - **Severity:** critical — blocks an unattended migration; re-feeds a whole chat
 - **Scope:** `cmd/arizuko/migrate_hot.go`
 - **Affected:** every instance, reproduced on a sloth copy
-- **Status:** open
-- **Fix:** make it a PRECONDITION. The tool already knows both sides; it must
-  refuse before writing when the entity holds rows `_v1` does not, which is the
-  exact signal that a daemon has run since the move.
+- **Status:** closed — the subcommand no longer exists
+- **Fix:** `aae3c0cb` (`specs/6/42` §7)
 
-## L277 — a killed migration leaves a database that boots, holding part of the history and no cursors (2026-09-12, open — needs sign-off)
+## ✅ CLOSED 2026-09-13 L277 — a killed migration leaves a database that boots, holding part of the history and no cursors (2026-09-12)
 
 Reported by the migration rehearsal, on copies: with every other tool complete
 and `migrate-hot` killed part-way, routd started normally holding **292 of 19,300
@@ -288,14 +292,17 @@ Re-running recovers completely — rows and their feeds commit together, and a k
 leaves 0 rows missing a feed. The defect is that a half-moved database is
 indistinguishable from a finished one.
 
+**The tool is gone**, so the half-moved database it describes cannot be
+produced by anything shipped. A hand-run copy is watched, and its verification
+is the operator's step rather than a contract the daemon enforces.
+
 - **Severity:** high — a silent partial migration serves partial history
 - **Scope:** `cmd/arizuko/migrate_hot.go`, `store/import_hot.go`
 - **Affected:** every instance
-- **Status:** open — the marker is a new contract, so it needs sign-off
-- **Fix:** a completeness marker the move writes last and the daemon reads at
-  open, so an interrupted migration refuses to serve instead of serving part.
+- **Status:** closed — the subcommand no longer exists
+- **Fix:** `aae3c0cb` (`specs/6/42` §7)
 
-## L278 — the migration verifies 7 of routd's 13 entities and none of the four derived message feeds (2026-09-12, open)
+## ✅ CLOSED 2026-09-13 L278 — the migration verifies 7 of routd's 13 entities and none of the four derived message feeds (2026-09-12)
 
 `verifyRoutd` reads back `groups`, `acl`, `routes`, `route_tokens`,
 `network_rules`, `proxyd_routes` and `web_routes`. It never reads
@@ -308,12 +315,16 @@ indistinguishable from a finished one.
 That gap is why L275 went unnoticed: the delivery items were written, so a count
 check passed, while an attribute was missing from every one of them.
 
+**The tool is gone.** The rule it was going to learn survives in the copy the
+operator runs: verification iterates the DECLARED entity list, per table the
+row count and the `Query` count agree, and every `chats` cursor reads back at
+the same position (`specs/6/42` §7).
+
 - **Severity:** medium — the tool reports success over what it did not read
 - **Scope:** `cmd/arizuko/migrate_routd.go`, `cmd/arizuko/migrate_hot.go`
 - **Affected:** every instance
-- **Status:** open
-- **Fix:** the verification iterates the DECLARED entity list rather than a
-  hand-written subset, so a new entity cannot be added without a check.
+- **Status:** closed — the subcommand no longer exists
+- **Fix:** `aae3c0cb` (`specs/6/42` §7)
 
 ## ✅ FIXED 2026-09-12 L279 — `migrate-chanlib` and `migrate-emaid` exit 1 when the database does not exist, so a scripted migration stops before the audit step (2026-09-12)
 
@@ -335,7 +346,7 @@ about the same situation.
   VERIFIED: both tools now exit 0 on all three instances, and an explicit
   missing path still exits 1.
 
-## L280 — `migrate-split --dry-run` writes three databases, puts `onbod.db` where no daemon reads it, carries no auth, and then cannot finish (2026-09-12, open)
+## ✅ CLOSED 2026-09-13 L280 — `migrate-split --dry-run` writes three databases, puts `onbod.db` where no daemon reads it, carries no auth, and then cannot finish (2026-09-12)
 
 Reported by the migration rehearsal, measured on copies. A `--dry-run` printed
 "source row counts only, no writes" and then created `store/onbod.db` (flat —
@@ -350,13 +361,17 @@ Not a blocker for krons, marinade or sloth — all three are already split and
 `migrate-split` must not run on them. It is fatal for a genuinely pre-split
 instance.
 
+**The tool is gone**, and no live instance needed it: krons, marinade and sloth
+are all split. A pre-split instance now moves by hand, with the retired binary
+reading the monolith it was built to read.
+
 - **Severity:** high for a pre-split instance, none for the current fleet
 - **Scope:** `cmd/arizuko/migrate_split.go`
 - **Affected:** any instance still on `messages.db`
-- **Status:** open
-- **Fix:** four separate concerns; the dry run writing at all is the first.
+- **Status:** closed — the subcommand no longer exists
+- **Fix:** `aae3c0cb` (`specs/6/42` §7)
 
-## L281 — 9,216 `cost_log` rows are carried by no migration tool, and `0046` names a table that exists nowhere (2026-09-12, open)
+## ✅ CLOSED 2026-09-13 L281 — 9,216 `cost_log` rows are carried by no migration tool, and `0046` names a table that exists nowhere (2026-09-12)
 
 MEASURED on all three live instances: `cost_log_archive` does not exist, and
 `cost_log` holds 3,715 rows on krons, 2,783 on marinade and 2,718 on sloth.
@@ -367,13 +382,17 @@ only `migrate-split` ever writes that name, and it never ran on these three.
 The rows survive as a plain SQL table, so nothing is lost today — but no tool
 owns them and no entity holds them, so they are outside the port.
 
+**Decided: the cost log is dropped.** No Go code reads or writes `cost_log` —
+the gateway is the ledger (`specs/6/39`) — so the rows are history, not state.
+The copy onto the store server does not carry them, and they stay readable in
+the SQLite file the instance leaves behind.
+
 - **Severity:** medium — 9,216 rows outside the object model, and a spec claim
   that does not match any live instance
 - **Scope:** `routd/migrations/0046-cost-log-archive.sql`
 - **Affected:** krons, marinade, sloth — measured
-- **Status:** open
-- **Fix:** decide whether the cost log is an entity or is dropped, then make
-  `0046`'s text true.
+- **Status:** closed — the rows are history and the copy skips them
+- **Fix:** `7972f092` (`specs/6/42` §7)
 
 ## L282 — three adapter containers have no Docker mount, so their databases die on every recreate (2026-09-12, open)
 
