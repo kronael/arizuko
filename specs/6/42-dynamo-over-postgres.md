@@ -1,5 +1,5 @@
 ---
-status: draft
+status: partial
 depends:
   [
     37-store-model,
@@ -33,13 +33,25 @@ protocols stay package functions, and `objstore/conformance` (22 bodies) stays
 the proof; this spec adds one driver and removes one, and every daemon changes
 by zero lines at the storage seam.
 
-## 0. Two measurements this spec rests on (2026-09-12)
+## 0. Three measurements this spec rests on
 
 **The Postgres dialect of the current driver works.** With
 `ARIZUKO_TEST_PG_DSN` pointed at `postgres:17-alpine`, `go test
 ./objstore/sqlstore/ -run TestConformance` is green. The two primitives, the
 four protocols and the 22 bodies already hold on Postgres; what does not hold
 is everything AROUND the driver.
+
+**The gate of §10 step 1 is passed, on two servers (2026-09-13).** The 22
+conformance bodies of `objstore/conformance` are green through `dynstore`
+against `ghcr.io/extenddb/extenddb-postgres:0.1.11` over `postgres:17-alpine`
+(3.6 s) and against `amazon/dynamodb-local` (10.3 s). The ExtendDB run is over
+TLS on port 18443 — the server refuses to start without it — signed by an IAM
+user's own access key, against `control_plane_delay_seconds = 0`, and trusting
+the certificate `extenddb init` generates. The second server is what §9 asks
+for and what keeps the driver written to the protocol: a green against one
+server alone cannot tell the protocol from that server's reading of it. Neither
+dynalite nor moto can run the suite at all (§1), and ExtendDB's `extenddb-dev`
+image stores in SQLite, so it proves nothing about the deployment.
 
 **The daemon suites do not open on Postgres, and the cause is one thing.**
 `store` and `onbod` were run against the same server (`scratchpad/pg-store.log`,
@@ -72,17 +84,17 @@ filter, a projection and `LastEvaluatedKey` paging; `CreateTable`; a licence
 that permits production use; a project someone maintains. Every candidate
 below was read at its source on 2026-09-12; the quotes are the projects' own.
 
-| candidate                                   | licence                                                   | language   | storage                               | transactions                                | positioning, in its own words                                      | verdict                                             |
-| ------------------------------------------- | --------------------------------------------------------- | ---------- | ------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------ | --------------------------------------------------- |
-| **ExtendDB**                                | Apache-2.0                                                | Rust       | PostgreSQL 14+ (also MongoDB, SQLite) | yes, 100 actions, `CancellationReasons`     | "a v0.1 release for development, testing, and experimentation"     | **meets every constraint; adopted behind the gate** |
-| ScyllaDB Alternator                         | ScyllaDB Software License Agreement 1.1, source-available | C++        | ScyllaDB                              | **no**                                      | "compatibility with DynamoDB is fairly complete"                   | no transactions; not PostgreSQL; licence limits     |
-| Amazon DynamoDB Local                       | proprietary "DynamoDB Local License Agreement"            | Java       | SQLite                                | yes                                         | "intended for development and testing purposes only"               | SQLite; a test fixture; no derivative works         |
-| LocalStack                                  | Apache-2.0 (archived repository)                          | Python     | DynamoDB Local inside                 | inherited                                   | "This repository was archived by the owner on Mar 23, 2026"        | wraps DynamoDB Local; archived                      |
-| dynalite                                    | Apache-2.0                                                | JavaScript | LevelDB                               | **no** ("Implement Transactions" is a TODO) | "built on LevelDB for fast in-memory or persistent usage"          | no transactions; not PostgreSQL                     |
-| moto                                        | Apache-2.0                                                | Python     | in-process memory                     | yes                                         | "a library that allows your tests to easily mock out AWS Services" | a mock; no persistence                              |
-| Dynoxide                                    | MIT or Apache-2.0                                         | Rust       | SQLite                                | yes                                         | "not as a production DynamoDB replacement"                         | SQLite; a fixture                                   |
-| kumo                                        | MIT                                                       | Go         | memory, optional snapshots            | yes                                         | "A lightweight AWS service emulator written in Go"                 | not PostgreSQL; the only Go server found            |
-| YugabyteDB, CockroachDB, TiDB, FoundationDB | —                                                         | —          | —                                     | —                                           | none advertises a DynamoDB API                                     | —                                                   |
+| candidate                                   | licence                                                   | language   | storage                               | transactions                                | positioning, in its own words                                      | verdict                                                          |
+| ------------------------------------------- | --------------------------------------------------------- | ---------- | ------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------- |
+| **ExtendDB**                                | Apache-2.0                                                | Rust       | PostgreSQL 14+ (also MongoDB, SQLite) | yes, 100 actions, `CancellationReasons`     | "a v0.1 release for development, testing, and experimentation"     | **meets every constraint; adopted, and the gate is passed (§0)** |
+| ScyllaDB Alternator                         | ScyllaDB Software License Agreement 1.1, source-available | C++        | ScyllaDB                              | **no**                                      | "compatibility with DynamoDB is fairly complete"                   | no transactions; not PostgreSQL; licence limits                  |
+| Amazon DynamoDB Local                       | proprietary "DynamoDB Local License Agreement"            | Java       | SQLite                                | yes                                         | "intended for development and testing purposes only"               | SQLite; a test fixture; no derivative works                      |
+| LocalStack                                  | Apache-2.0 (archived repository)                          | Python     | DynamoDB Local inside                 | inherited                                   | "This repository was archived by the owner on Mar 23, 2026"        | wraps DynamoDB Local; archived                                   |
+| dynalite                                    | Apache-2.0                                                | JavaScript | LevelDB                               | **no** ("Implement Transactions" is a TODO) | "built on LevelDB for fast in-memory or persistent usage"          | no transactions; not PostgreSQL                                  |
+| moto                                        | Apache-2.0                                                | Python     | in-process memory                     | yes                                         | "a library that allows your tests to easily mock out AWS Services" | a mock; no persistence                                           |
+| Dynoxide                                    | MIT or Apache-2.0                                         | Rust       | SQLite                                | yes                                         | "not as a production DynamoDB replacement"                         | SQLite; a fixture                                                |
+| kumo                                        | MIT                                                       | Go         | memory, optional snapshots            | yes                                         | "A lightweight AWS service emulator written in Go"                 | not PostgreSQL; the only Go server found                         |
+| YugabyteDB, CockroachDB, TiDB, FoundationDB | —                                                         | —          | —                                     | —                                           | none advertises a DynamoDB API                                     | —                                                                |
 
 - **ExtendDB** (https://github.com/ExtendDB/extenddb): "ExtendDB is an
   independent open source project managed by Amazon Web Services. It is not
