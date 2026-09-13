@@ -272,3 +272,23 @@ graph's version guard, its retry, the transitive frontier and the walk's own
 seed. A body that could not go red for one of them was rewritten until it could:
 two of them first passed against broken code because the interleave they needed
 never happened, which is why `slip` forces every one of them.
+
+## Coverage
+
+`go test ./objstore/ -cover` reports 19.3% (2026-09-13) and the number is an
+artefact: `ordered_test.go` is the only test file in the root package, because
+everything else here is a protocol a DRIVER has to run. Measured through one:
+
+```
+go test ./objstore/sqlstore/ -coverpkg=github.com/kronael/arizuko/objstore
+→ 81.3% of statements in github.com/kronael/arizuko/objstore
+```
+
+The two drivers land where their own suites do — `sqlstore` 82.3%, `dynstore`
+80.0%, and `dynstore` reports 0.0% under `-short` because its bodies need an
+endpoint. `conformance` and `dyntest` are test libraries and report 0.0% by
+construction: they have no tests of their own, they ARE the tests.
+
+`make test` is `-short` and passes no `-race`, so it proves nothing about
+`dynstore` and nothing about the concurrency bodies. Name the flag when you
+report this package green.

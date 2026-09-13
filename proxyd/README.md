@@ -82,10 +82,12 @@ PATCH  /v1/proxyd_routes/{path}       # body: any subset of the create fields
 DELETE /v1/proxyd_routes/{path}       # idempotent (204 either way)
 ```
 
-**Precedence**: `proxyd_routes` in routd.db is the only source (proxyd
-opens routd.db read/write for `proxyd_routes`/`acl`; it
-does not own or migrate it — see "Why proxyd reads routd.db directly"
-below). proxyd never seeds and never reads route config from env.
+**Precedence**: `proxyd_routes` is the only source. proxyd opens routd's
+OWNER read/write for `proxyd_routes` and `acl` (`store.OpenOwner(store.OwnerRoutd, …)`
+— the endpoint when `DYNAMODB_URL` names one, routd's file otherwise); it does
+not own those tables and declares none of them — see "Why proxyd reads routd's
+tables directly" below. proxyd never seeds and never reads route config from
+env.
 
 Each row carries an `owner`:
 
@@ -138,26 +140,27 @@ which bounds a captured answer to that bearer's remaining life
 route table as a Caddyfile pointed at this endpoint; without the flag every
 authenticated route renders as a 503 rather than an open hop.
 
-## Why proxyd reads routd.db directly
+## Why proxyd reads routd's tables directly
 
 routd owns `acl`; the standing rule is that another daemon
 reaches an owner's rows over the owner's HTTP face. proxyd is the one named
 exception, decided 2026-08-07 (spec
 [`5/16`](../specs/5/16-mcp-rest-unification.md) §"The hot-path exception"):
-**FS-mounted on the owner's DB, and reading it on the per-request hot path.**
+**it holds a reader on the owner's tables, and reads them on the per-request
+hot path.**
 
 One cross-owner read remains and qualifies: `auth.UserScopes` via
 `groupsForSub` on every ES256-authenticated request. Route-token resolution is
-webd's, which is FS-mounted on routd.db anyway, so the row has one reader
-(specs/6/22 step 1). The alternative considered and rejected was
+webd's, which holds a reader on the same tables anyway, so the row has one
+reader (specs/6/22 step 1). The alternative considered and rejected was
 not an HTTP hop but trusting the login-time `Scope` snapshot in the JWT, which would
 let a revoked grant keep working until the caller's next token refresh (15
 minutes, `accessTTL`). Reading `acl` per request is what makes revocation take
 effect on the next request. `proxyd/hotpath_read_test.go` pins both halves.
 
-The exception does not generalize to "FS-mounted daemons may read anything" —
-dashd is FS-mounted too, and its audit page moved to HTTP because it is not on
-a per-request path.
+The exception does not generalize to "a daemon holding a reader may read
+anything" — dashd holds one too, and its audit page moved to HTTP because it
+is not on a per-request path.
 
 ## WebDAV write-block
 
@@ -184,6 +187,8 @@ Endpoints:
 - `/priv/*` — auth-gated private files (vited)
 - `/dav/*` — WebDAV (auth-gated, group-scoped, write-blocked)
 - `/v1/proxyd_routes` — operator REST + MCP resource (runtime route mutation)
+- `/dash/proxyd/` — proxyd's own operator dashboard, read and forms (spec 6/30)
+- `/auth/forward` — the subrequest surface for a fronting proxy
 - Manifest-declared routes (e.g. `/dash/`, `/api/`; from `<name>.yaml` + the core slice)
 
 ## Dependencies
@@ -224,8 +229,26 @@ Spec: `specs/5/O-observability.md`.
 ## Files
 
 - `main.go` — config, path routing, auth gate, identity stamping, vhost derivation
-- `routes.go` — Route struct, LoadRoutes, MatchRoute
-- `resource.go` — `/v1/proxyd_routes` REST + MCP resource, DB-backed route CRUD
+- `routes.go` — `Route`, the in-memory table and its matcher
+- `resource.go` — `/v1/proxyd_routes` REST + MCP resource, store-backed route CRUD
+- `dash.go` — `/dash/proxyd/`: the route table and its create/delete forms
+- `forward_auth.go` — `decideForwardAuth`, the subrequest verdict
+
+## Coverage
+
+`go test ./proxyd/ -short -cover` reports 68.8% (2026-09-13). The gap is one
+shape: boot and the mutating dashboard forms.
+
+- `main`, `loadConfig`, `newServer`, `loadInitialRoutes`, `routes`,
+  `newPubRedirect`, `defaultProbe` — the wiring that listens on a port and
+  exits non-zero. Exercised by `make test-e2e`.
+- `handleDashRouteCreate` / `handleDashRouteDelete` and their two helpers —
+  the `/dash/proxyd/` forms. The same mutations ARE covered through
+  `/v1/proxyd_routes` (`resource_test.go`), which is the handler they call;
+  what is untested is the form parse in front of it.
+
+Routing, the auth gate, identity stamping, vhost derivation, the WebDAV
+write-block and forward auth are covered.
 
 ## Related docs
 

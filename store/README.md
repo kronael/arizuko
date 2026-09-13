@@ -60,19 +60,19 @@ branch is written:
 
 Primary methods (by domain):
 
-- Messages: `PutMessage`, `NewMessages`, `MessagesSince`, `EnrichMessage`, `MarkMessagesErrored`, `DeleteErroredMessages`, `LatestSource`
-- Groups: `PutGroup`, `DeleteGroup`, `AllGroups`, `GroupByFolder`, `SetGroupModel`, `GroupUsageBulk`
+- Messages: `PutMessage`, `NewMessagesForChat`, `MessagesSince`, `EnrichMessage`, `MarkMessagesErrored`, `DeleteErroredMessages`, `LatestSource`
+- Groups: `PutGroup`, `DeleteGroup`, `AllGroups`, `GroupByFolder`, `SetGroupModel`
 - Sessions: `GetSession`, `SetSession`, `EnsureTopicLineage`, `ForkTopic`, `TopicLineage` — the run history is runed's, over its own `/v1`
-- Sticky: `SetStickyGroup`, `GetStickyGroup`, `SetStickyTopic`, `GetStickyTopic`
+- Sticky: `StickyPins` (both at once), `SetStickyGroup`, `SetStickyTopic`, `GetStickyTopic`
 - People: `CreateUserProfile`, `Username`, `SetUsername`, `ProfileNames`, `UserCap`, `SetUserCap` — one item per sub in `user_profiles`. Account linking lives in authd (`auth_users` + `oauth_identities`), not here.
 - ACL (spec 6/9): `AddACLRow`, `RemoveACLRow`, `ListACL`, `ListACLByScope`, `ACLRowsFor`, `ACLWildcardRows` (scope listing is `auth.UserScopes` — a projection of these, not a second query)
 - Membership: `AddMembership`, `RemoveMembership`, `Members`, `Ancestors` — roles + JID→sub claims (`acl_membership` table)
 - Tasks: `CreateTask`, `GetTask`, `ListTasks`, `UpdateTask`, `DeleteTask`
 - Task runs: `RecordTaskRun`, `TaskRunLogs`, `AllRunLogs`, `FailedRunsSince`
 - Turns: `OpenTurnContext`, `TurnContextOf`, `RecordRetryAttempt`, `SweepExpiredRunning`, `RunningTurns`, `TurnGatewayKey`, `RecordTurnResult`, `GetTurnResult`
-- Secrets: `SetSecret`, `GetSecret`, `ListSecrets`, `DeleteSecret`,
-  `FolderSecretsResolved` (walk parents → root), `UserSecrets`
-  (per-user overlay), `CountPlaintextSecrets` + `EncryptPlaintextSecrets`
+- Secrets: `SetSecret`, `GetSecret`, `ListSecrets`, `SecretKeysIn`,
+  `DeleteSecret`, `FolderSecretsResolved` (walk parents → root),
+  `CountPlaintextSecrets` + `EncryptPlaintextSecrets`
   (seal legacy rows in place; driven by `arizuko secret <inst> seal-legacy`,
   never on boot — the boot-time `PurgeUnencryptedSecrets` they replaced wiped
   every secret on each startup).
@@ -100,7 +100,7 @@ only. Spec: `specs/5/F-topic-lineage.md`.
 
 ## Coverage
 
-`go test ./store/ -short -cover` reports 65.2% (2026-09-13), and the gap is
+`go test ./store/ -short -cover` reports 64.9% (2026-09-13), and the gap is
 concentrated rather than spread: `import_routd.go` and `import_hot.go` are the
 target halves of the one-way copy into the entity shape and have no caller in
 the tree — tests here and in `cmd/arizuko` are what exercise them.
