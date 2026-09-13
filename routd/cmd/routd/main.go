@@ -46,19 +46,22 @@ func main() {
 	onbodURL := os.Getenv("ONBOD_URL")
 	webHost := os.Getenv("WEB_HOST")
 
-	// DATABASE is the door: it names routd's own database and may be a postgres://
-	// URL (spec 6/37 step 6). Unset, it is the owner file under DATA_DIR.
+	// routd.OpenAt is the door: on an instance served from a DynamoDB endpoint it
+	// dials there and makes routd's entities, and otherwise it opens the database
+	// DATABASE names — which may be a postgres:// URL (spec 6/37 step 6). Unset,
+	// it is the owner file under DATA_DIR.
 	db, err := routd.OpenAt(cmp.Or(os.Getenv("DATABASE"),
 		store.OwnerDBPath(filepath.Join(dataDir, "store"), store.OwnerRoutd)))
 	if err != nil {
-		slog.Error("open routd.db", "err", err)
+		slog.Error("open routd's store", "err", err)
 		os.Exit(1)
 	}
 	defer db.Close()
 
-	// audit_log sink: routd owns audit_log in routd.db (migration 0016), so its own
+	// audit_log sink: routd owns audit_log (migration 0016), so its own
 	// ACL/secret/task mutations emit through the audited store variants. Init wires
-	// the instance name onto those rows (EmitInTx writes into the mutation's own tx).
+	// the instance name onto those rows, and it takes whichever handle routd was
+	// opened over so the sink follows the store.
 	audit.Init(db.Obj(), os.Getenv("ARIZUKO_INSTANCE"))
 
 	// SECRETS_KEY keyring: routd OWNS secrets in routd.db. The key is REQUIRED —

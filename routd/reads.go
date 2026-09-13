@@ -3,6 +3,7 @@ package routd
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
 	"time"
 
@@ -54,6 +55,14 @@ type FoundMessage = store.FoundMessage
 // read in this file reaches store. Two copies of an FTS5 join that reads a
 // chat's coordinate is two chances to read the wrong chat's.
 func (d *DB) FindMessages(query, scope, sender, since string, limit int) ([]FoundMessage, error) {
+	// The index is SQLite's, and a routd served from a handle holds no pool for
+	// it. The refusal is here rather than a nil read one layer down, so the
+	// caller is told instead of the daemon dying (spec 6/42 §8 is the index that
+	// answers on either engine).
+	if d.obj != nil {
+		return nil, errors.New("ranked message search reads an FTS5 index, " +
+			"which the store this instance is served from does not hold")
+	}
 	return d.store().FindMessages(query, scope, sender, since, limit)
 }
 

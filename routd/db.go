@@ -72,19 +72,53 @@ func Open(dir string) (*DB, error) {
 
 // OpenAt is Open against an explicitly configured target — routd's DATABASE env
 // — which may name either engine, because db_utils.Open reads the engine off the
-// DSN and nothing here names one (spec 6/37 step 6). store.OpenRoutdAt is the
-// same door onto the same database for a daemon that only reads it.
+// DSN and nothing here names one (spec 6/37 step 6). store.OpenOwner is the
+// same door onto the same tables for a daemon that only reads them.
+//
+// On an instance served from a DynamoDB endpoint there is no target to name:
+// the endpoint holds routd's tables and this dials it, so every caller of this
+// door boots either way without asking which. prepare makes what routd owns.
 func OpenAt(target string) (*DB, error) {
+	if store.Served() {
+		return openServed()
+	}
 	if err := db_utils.RequireDB(target); err != nil {
 		return nil, err
 	}
 	return open(target)
 }
 
+// openServed dials the endpoint routd's tables live on and makes them. routd is
+// their OWNER, so it is the daemon that makes them: a reader dials and makes
+// nothing (store.OpenOwner).
+func openServed() (*DB, error) {
+	h, err := store.Handle(store.OwnerRoutd)
+	if err != nil {
+		return nil, err
+	}
+	ctx := context.Background()
+	if err := store.PrepareOwner(ctx, h, store.OwnerRoutd); err != nil {
+		return nil, err
+	}
+	// The same floor a file-backed routd is born with, written only into an
+	// EMPTY acl. Without it the instance denies everything and comes up healthy
+	// (store/seed.go).
+	if err := store.SeedRoutdFloor(ctx, h); err != nil {
+		return nil, err
+	}
+	return OpenOver(h), nil
+}
+
 // Create seeds dir/routd.db when absent, then migrates it. `arizuko create` and
 // the split-cutover tool only: every other caller Opens, so a wrong path fails
 // loud instead of yielding a migrated instance with zero groups and zero acl.
+//
+// A served instance has no file to seed and the entities are what `create`
+// makes, which is what openServed does — so on one this IS the open.
 func Create(dir string) (*DB, error) {
+	if store.Served() {
+		return openServed()
+	}
 	path := store.OwnerDBPath(dir, store.OwnerRoutd)
 	if err := db_utils.CreateDBFile(path); err != nil {
 		return nil, err
@@ -165,9 +199,14 @@ func open(dsn string) (*DB, error) {
 	return &DB{db: sqldb}, nil
 }
 
+// Close ends what the open holds. A routd served from a handle holds no pool,
+// so there is nothing to close.
 func (d *DB) Close() error {
-	if d.release != nil {
+	switch {
+	case d.release != nil:
 		return d.release()
+	case d.db == nil:
+		return nil
 	}
 	return d.db.Close()
 }
@@ -177,8 +216,14 @@ func (d *DB) SQL() *sql.DB { return d.db }
 
 // Obj is this database through objstore's two primitives, which is how audit
 // reaches it — and, for an audited write, how the row joins the transaction the
-// mutation runs on.
-func (d *DB) Obj() *sqlstore.Store { return sqlstore.New(d.db) }
+// mutation runs on. It is the handle routd was served from when it was handed
+// one, so routd's audit sink records over the endpoint too.
+func (d *DB) Obj() objstore.Store {
+	if d.obj != nil {
+		return d.obj
+	}
+	return sqlstore.New(d.db)
+}
 
 func nowTS() string { return core.NowTS() }
 

@@ -8,7 +8,6 @@ import (
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/resreg"
-	"github.com/kronael/arizuko/store"
 )
 
 // agent_gate.go holds the closures every cold-tier resource's agent-socket
@@ -69,7 +68,7 @@ func (s *Server) turnVisible(t turnMCP) func(name string) bool {
 	if t.elevated {
 		return func(string) bool { return true }
 	}
-	held := auth.EffectiveActions(store.New(s.db.SQL()),
+	held := auth.EffectiveActions(s.db.store(),
 		auth.Caller{Principal: turnCallerSub(t.trigger), Route: t.folder})
 	return func(name string) bool { return held("mcp:" + name) }
 }

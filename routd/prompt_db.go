@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/store"
 )
 
 // prompt_db.go holds the routd.DB query methods that back buildAgentPrompt: the
@@ -78,13 +77,13 @@ func (d *DB) ClearObservedCursor(folder, topic string) error {
 // (messages, chars). A NULL key yields -1 so the cfg default wins (only a
 // >= 0 value overrides). (-1,-1) when the group has no row.
 func (d *DB) GroupObserveWindow(folder string) (int, int) {
-	return store.New(d.db).GroupObserveWindow(folder)
+	return d.store().GroupObserveWindow(folder)
 }
 
 // WatchedSources returns the source folders folder watches — the observe_group
 // ambient join. Empty slice when folder watches nothing.
 func (d *DB) WatchedSources(folder string) []string {
-	return store.New(d.db).WatchedSources(folder)
+	return d.store().WatchedSources(folder)
 }
 
 // ObservedSince returns the trailing window of observed messages for folder whose

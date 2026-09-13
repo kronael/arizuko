@@ -532,7 +532,7 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 			if err != nil {
 				status = "err"
 			}
-			st := store.New(s.db.SQL())
+			st := s.db.store()
 			for _, k := range required {
 				scope := scopes[k]
 				if scope == "" {
@@ -567,7 +567,7 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		// creates and cmd/routd's audit.Init points at. It was left nil behind a
 		// comment claiming routd has no such table (BUGS F70), so the agent MCP
 		// surface was the one caller path /dash/audit/ could not see.
-		LogIPCAudit: store.New(s.db.SQL()).LogIPCAudit,
+		LogIPCAudit: s.db.store().LogIPCAudit,
 	}
 }
 
