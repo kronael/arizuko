@@ -47,13 +47,18 @@ resets the row (verdict included) so the observer can advance it.
 
 `onboarding`, `invites`, `invite_redemptions`, `onboarding_gates` (+ its own
 `audit_log`).
-Split topology only: onbod OWNS these in the database `ONBOD_DB_PATH` names,
-which may be a SQLite path or a `postgres://` URL. All four are objstore
-entities and onbod has no migration chain: the driver builds them from the
-declarations in `store/entities.go`. Writers reach the owned tables
-through onbod's `/v1/*` admin surface (routd), or write `onbod.db`
-directly with the same FS-access discipline (host CLI `arizuko
-invite`/`gate`, FS-mounted dashd).
+onbod OWNS these and runs no migration chain: all four are objstore entities
+and the driver builds them from the declarations in `store/entities.go`.
+`store.OwnerDriver` is the door (`onbod/db.go` `openOwned`): the endpoint when
+`DYNAMODB_URL` names one, otherwise the database `ONBOD_DB_PATH` names — a
+SQLite path or a `postgres://` URL. onbod never creates its own database,
+because SQLite creates a missing file on first query, so a wrong path would
+build a fresh empty schema and drop every invite and gate while onbod reported
+healthy (BUGS `F52`).
+
+Writers reach the owned tables through onbod's `/v1/*` admin surface, or write
+them directly with the same discipline (host CLI `arizuko invite`/`gate`,
+dashd through its own handle).
 
 `invite_redemptions` is the one owned entity with no resreg resource and no
 `/v1` path, deliberately. It is not a management entity: it holds one
@@ -63,10 +68,14 @@ workspace, written by `store.consumeInvite` and deleted by
 authority that decides which tenant a new folder lands in — the same
 authority BUGS `F50` was about. Spec `5/18` step 8.
 
-`auth_users`/`acl`/`groups`/`routes` are NOT onbod-owned — they live in
-`routd.db` (routd territory). onbod cross-reads them for dashboard
-rendering and cross-writes `acl`/`groups`/`routes` during world creation
-and invite redemption (FS-mounted, no federation).
+`auth_users`/`acl`/`groups`/`routes` are NOT onbod's — they are routd's. onbod
+holds a second reader on routd's owner (`store.OpenOwner`, `ROUTD_DB_PATH`) for
+dashboard rendering, and cross-writes `acl`/`groups`/`routes` during world
+creation and invite redemption.
+
+onbod also writes FILES: `container.SetupGroup` creates `groups/<folder>/` and
+the per-group `web/pub` and `web/priv` slots, so onbod needs the same tree
+routd reads.
 
 ## Entry points
 
@@ -95,10 +104,12 @@ and invite redemption (FS-mounted, no federation).
 
 - `ONBOARDING_ENABLED` — `0` exits immediately
 - `ONBOARDING_GREETING` — prepended to auth link message
-- `ONBOD_DB_PATH` — path to `onbod.db` (required)
-- `ROUTD_DB_PATH` — path to `routd.db` for the cross-read (required).
-  Configured, never derived: under `store/<owner>/` routd.db is not a
-  sibling of onbod.db (`specs/5/16` step 7)
+- `ONBOD_DB_PATH` — onbod's own DSN. Required only when the instance is NOT
+  served: with `DYNAMODB_URL` set the endpoint is the target and neither path
+  is read
+- `ROUTD_DB_PATH` — routd's DSN for the cross-read, same condition.
+  Configured, never derived: under `store/<owner>/` routd's file is not a
+  sibling of onbod's (`specs/5/16` step 7)
 - `ONBOD_LISTEN_ADDR` — HTTP listen address (default `:8080`)
 - `ONBOARD_POLL_INTERVAL` — poll tick duration (default `10s`)
 - `ROUTER_URL` — routd's `/v1/outbound` endpoint (default `http://routd:8080`)
@@ -118,14 +129,14 @@ Per `specs/5/17-openapi-mcp.md`:
 - `POST /v1/onboarding` — record unrouted JID (status awaiting_message).
   routd's poll loop calls this on route miss. Scope: `invites:write`.
 - `/v1/invites` — list/create/revoke invites. routd's `/invite` command
-  federates here; the host CLI `arizuko invite` and dashd write
-  `onbod.db` directly (FS-mounted). Scope: `invites:read`, `invites:write`.
+  federates here; the host CLI `arizuko invite` and dashd write onbod's
+  tables through their own handle. Scope: `invites:read`, `invites:write`.
 - `/v1/gates` — list/upsert/delete onboarding gates. routd's `/gate`
   command federates here; CLI `arizuko gate` + dashd write direct.
   Scope: `gates:read`, `gates:write`.
-- `/v1/users` — read user identity / lookup by `sub` (PLANNED); today
-  dashd reads `auth_users` directly. `dashd /dash/profile/` migrates to
-  `GET onbod/v1/users/{sub}` once `auth_users` ownership is settled.
+- No `/v1/users`. `auth_users` and `oauth_identities` are authd's
+  (`authd/authstore`), and `dashd /dash/profile/` asks routd for the caller's
+  display name rather than reading any identity table.
 
 REST verbs match the platform-api shape (`GET`, `POST`, `PUT`, `DELETE`).
 
@@ -165,18 +176,20 @@ is shared, not bespoke.
 
 ## Testing
 
-Integration tests set `DATA_DIR` to a temp dir and spin up two DBs
-(onbod.db + routd.db) to match the split topology. `handleCreateWorld`
+Integration tests set `DATA_DIR` to a temp dir and spin up two stores — onbod's
+own and routd's — to match the split topology. `handleCreateWorld`
 handles both test and production: when `cfg.core` is nil (test env
 without a full config), it calls `core.LoadConfig()` from env vars
 rather than panicking. Do not remove this nil-check.
 
 ## Files
 
-- `main.go` — config, poll loops (promptUnprompted, admitFromQueue), public HTTP handlers, CSRF
+- `main.go` — config, poll loops (`promptUnprompted`, `admitFromQueue`), public HTTP handlers, CSRF
 - `admin.go` — bearer-gated `/v1/*` admin surface
-- `db.go` — onbod.db open + migrations
-- `integration_test.go`, `main_test.go`, `admin_test.go` — end-to-end and unit tests
+- `db.go` — `openOwned`: the owned-store door and its entity set
+- `dash.go` — `/dash/onbod/`, onbod's own operator page
+- `invites_resource.go`, `gates_resource.go`, `onboarding_resource.go`,
+  `audit_resource.go` — the four resreg resources, REST + MCP from one handler
 
 ## Related docs
 

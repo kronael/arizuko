@@ -27,17 +27,20 @@ chat) and exposes MCP endpoints used by agents running against web JIDs.
 
 ## Tables owned
 
-None. webd reads `route_tokens`, `groups`, `messages`, `turn_results` from
-routd.db (owned by routd) and writes `audit_log` there too — one store handle,
-no messages.db straddle (`specs/5/16` § "One owner + federation"). It writes messages
-as a channel adapter via routd's `POST /v1/messages` (inbound path) and today
-reads them via its own `/api/*` paths directly off routd.db. Once federation
-lands, those reads migrate to routd's `GET /v1/messages`. Per-world hostnames
-are derived by proxyd (`<world>.<HOSTING_DOMAIN>` → `/pub/<world>/`), not
-stored (`specs/5/V-web-vhosts.md`); webd has no vhost config.
+None, and webd runs no migration. It holds ONE reader on routd's owner
+(`store.OpenOwner(store.OwnerRoutd, …)` — the endpoint when `DYNAMODB_URL`
+names one) for `route_tokens`, `groups`, `messages` and `turn_results`, and
+writes `audit_log` through the same handle: one owner, one reader
+(`specs/5/16` § "One owner + federation").
 
-Planned per `specs/5/17-openapi-mcp.md`: `web_routes` table for owned
-web-specific routing config (future).
+Inbound messages go through routd's `POST /v1/messages` like any channel
+adapter. The `/api/*` chat reads still go through that reader rather than
+routd's `/v1`.
+
+`web_routes` is routd's, not webd's — routd serves it at `/v1/web_routes` and
+renders its controls on routd's own page. Per-world hostnames are derived by
+proxyd (`<world>.<HOSTING_DOMAIN>` → `/pub/<world>/`), not stored
+(`specs/5/V-web-vhosts.md`); webd has no vhost config.
 
 ## Surface
 
@@ -69,13 +72,13 @@ Shipped today (see `server.go`):
   `send`, `get_history`, plus operator `routes.*` tools (`routes_mcp.go`).
 - `GET /{$}` — authed groups page root.
 - `GET /panel/{folder...}` — authed folder-scoped chat page.
+- `GET /dash/webd/` — webd's own operator dashboard (spec 6/30). Read-only by
+  design: the SSE hub's state lives only in webd's memory, which is why the
+  page belongs to the owning daemon — a store snapshot cannot see a live
+  subscriber.
 - `GET /openapi.json` — engine-generated OpenAPI doc (public, pre-auth).
 - `GET /static/*`, `GET /assets/*` — embedded static assets (permissive CORS on `/assets/*`).
 - `GET /health`.
-
-Planned per `specs/5/17-openapi-mcp.md`:
-
-- `/v1/web-routes` — REST verbs on owned tables.
 
 ## Token contract
 
@@ -108,16 +111,21 @@ Planned per `specs/5/17-openapi-mcp.md`:
   `X-Forwarded-For` client proxyd resolved. NEVER key it on `RemoteAddr`: webd's
   peer is always proxyd, so that puts every visitor in one bucket (BUGS L40).
 - That lookup is **in-process and deliberately not an HTTP call to
-  routd**: webd is FS-mounted on `store/`, so split write-discipline
-  permits the direct read, and a per-request hop would only add a failure
-  mode. Spec 5/W § Resolution records why the reverse — the deleted
-  `POST /v1/route_tokens/resolve` — bought no containment.
+  routd**: webd already holds a reader on the owner, and a per-request hop
+  would only add a failure mode. Spec 5/W § Resolution records why the
+  reverse — the deleted `POST /v1/route_tokens/resolve` — bought no
+  containment.
 
-## Future work
+## What it does not do
 
-webd's `/api/*` chat reads currently hit the shared DB directly. Once
-routd ships `/v1/messages` per the platform API spec, migrate these
-reads to routd.
+- **No signing.** webd mints no token and verifies no password; the stamped
+  `X-User-*` header IS the identity, and proxyd's `service:proxyd` bearer is
+  what makes it trustworthy.
+- **No route table.** `routes.*` MCP tools here are a thin identity bridge
+  over proxyd's `/v1/proxyd_routes`; `Resource.Store` is nil, so proxyd runs
+  the authorization and writes the audit row.
+- **No shared SSE.** The hub is an in-process map, and routd publishes by
+  POSTing to webd, so two webd processes do not see each other's subscribers.
 
 ## Entry points
 
@@ -158,7 +166,9 @@ delivered messages.
 - `mcp.go` — the one web MCP surface (`list_groups`, `send`, `get_history`)
   behind both doors: `/mcp` for an identity, `/chat/<token>/mcp` for a route
   token pinned to one group
-- `routes_mcp.go` — operator `routes.*` MCP tools (proxies proxyd `/v1/routes`)
+- `routes_mcp.go` — the five operator `routes.*` MCP tools, proxying proxyd's
+  `/v1/proxyd_routes`
+- `dash.go` — `/dash/webd/`, the read-only hub + registration overview
 - `api.go` — authed chat UI JSON API (`/api/groups/*`)
 - `pages.go` — authed HTML pages (root, panel)
 - `partials.go` — authed HTMX partials (`/x/groups/*`)
