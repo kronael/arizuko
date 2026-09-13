@@ -38,8 +38,9 @@ Spec: `specs/5/E`.
   egress URL + owned JID prefixes).
 - Answer ranked message search — `find_messages` and
   `GET /v1/messages/find` — from an in-memory BM25 index over the
-  `messages` entity (`msgsearch/`). The index is DERIVED: routd walks every chat
-  into it when the database opens and feeds it from the four writes that
+  `messages` entity (`msgsearch/`). The index is DERIVED: the process that
+  answers searches — routd's own `main` — calls `StartSearch`, which walks
+  every chat into it in the background, and it is fed by the four writes that
   touch an indexed attribute — the append, the media rewrite, the observe
   stamp, the breaker's prune. A search made before the walk finishes is
   refused, never answered with an empty hit list, and a write another
