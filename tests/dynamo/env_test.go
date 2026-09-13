@@ -19,6 +19,7 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/chanlib/chanstore"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/dashd/dashstore"
 	"github.com/kronael/arizuko/emaid/emaistore"
 	"github.com/kronael/arizuko/objstore/dynstore"
 	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
@@ -350,5 +351,122 @@ func TestEmaidBootsFromTheEnvironment(t *testing.T) {
 	got, ok := st.Thread("boot")
 	if !ok || got.FromAddress != "alice@x.com" {
 		t.Errorf("the thread read back as %+v (found=%v)", got, ok)
+	}
+}
+
+// dashd's two stores, from the environment: the owner whose tables it reads and
+// writes, and the optional one behind its invites page. Its boot door is
+// package main, so this is what that door is made of — store.OpenOwner per
+// owner, and dashd's own storage layer over the handle it answers with.
+func TestDashdBootsFromTheEnvironment(t *testing.T) {
+	servedEnv(t)
+	fresh(t, store.OwnerRoutd)
+	fresh(t, store.OwnerOnbod)
+	ctx := context.Background()
+	routdTarget := noFile(t, store.OwnerRoutd)
+
+	// The probe refuses while routd has made nothing, which is what it is for:
+	// an endpoint whose owner never booted answers zero rows to every page, and
+	// dashd would render an empty console and report healthy.
+	if _, err := store.OpenOwner(store.OwnerRoutd, routdTarget); err == nil {
+		t.Error("dashd's door opened onto a routd that has made nothing")
+	}
+	rdb, err := routd.OpenAt(routdTarget)
+	if err != nil {
+		t.Fatalf("routd.OpenAt over the endpoint: %v", err)
+	}
+	defer rdb.Close() //nolint:errcheck // the test is ending
+	if err := rdb.PutGroup(core.Group{Folder: "acme"}); err != nil {
+		t.Fatalf("PutGroup: %v", err)
+	}
+
+	st, err := store.OpenOwner(store.OwnerRoutd, routdTarget)
+	if err != nil {
+		t.Fatalf("dashd's door onto routd over the endpoint: %v", err)
+	}
+	defer st.Close() //nolint:errcheck // the test is ending
+
+	// The page layer: every statement dashd runs lives behind it, so this is
+	// the read every page makes.
+	ds := dashstore.New(st.Obj())
+	if ds == nil {
+		t.Fatal("dashd's storage layer is nil over the endpoint; every page would banner")
+	}
+	if n, err := ds.GroupCount(); err != nil || n != 1 {
+		t.Fatalf("GroupCount = %d (err=%v), want the one group routd holds", n, err)
+	}
+
+	// The audit sink boot points at that same store, and a mutation lands its
+	// record in the batch that carries it.
+	audit.Init(st.Obj(), "dynamo-test")
+	t.Cleanup(func() { audit.Init(nil, "") })
+	id, err := ds.NewTaskID()
+	if err != nil {
+		t.Fatalf("mint a task id: %v", err)
+	}
+	if err := ds.CreateTask(ctx, dashstore.NewTask{
+		ID: id, Owner: "acme", ChatJID: "web:acme", Prompt: "boot", Cron: "0 9 * * *",
+	}, audit.Event{
+		Category: audit.CategoryMutation, Action: "task.create", Actor: "user:op",
+		Surface: audit.SurfaceREST, Resource: "scheduled_tasks/" + id, Outcome: audit.OutcomeOK,
+	}); err != nil {
+		t.Fatalf("CreateTask through the layer: %v", err)
+	}
+	if tasks := st.ListTasks("", true); len(tasks) != 1 || tasks[0].ID != id {
+		t.Fatalf("the task read back as %+v, want the one just created", tasks)
+	}
+	recorded, err := audit.Query(ctx, st.Obj(), audit.Filter{Limit: audit.MaxLimit})
+	if err != nil {
+		t.Fatalf("read the audit record: %v", err)
+	}
+	if len(recorded) == 0 {
+		t.Error("the audit record is empty; every dashboard mutation would be unattributable")
+	}
+
+	// The secret keyring: a user secret seals at rest under SECRETS_KEY on the
+	// same store, which is the half a handle with no keys refuses outright.
+	sec := store.NewOver(st.Obj())
+	sec.SetSecretKeys([]byte("dynamo-test-key"))
+	if err := sec.PutSecretRow(store.ScopeUser, "github:alice", "GITHUB_TOKEN", "ghp_served"); err != nil {
+		t.Fatalf("seal a user secret: %v", err)
+	}
+	got, err := sec.GetSecret(store.ScopeUser, "github:alice", "GITHUB_TOKEN")
+	if err != nil {
+		t.Fatalf("read the sealed secret: %v", err)
+	}
+	if got.Value != "ghp_served" {
+		t.Errorf("the sealed secret read back as %q, want ghp_served", got.Value)
+	}
+
+	// onbod: the optional profile the invites page reads. Its tables are its
+	// own, so they are made the way onbod makes them, and dashd's door onto
+	// them refuses until they are there.
+	onbodTarget := noFile(t, store.OwnerOnbod)
+	if _, err := store.OpenOwner(store.OwnerOnbod, onbodTarget); err == nil {
+		t.Error("dashd's door opened onto an onbod that has made nothing")
+	}
+	d, closeOnbod, err := store.OwnerDriver(store.OwnerOnbod, onbodTarget)
+	if err != nil {
+		t.Fatalf("store.OwnerDriver for onbod: %v", err)
+	}
+	defer closeOnbod() //nolint:errcheck // the test is ending
+	if err := store.PrepareOwner(ctx, d, store.OwnerOnbod); err != nil {
+		t.Fatalf("prepare onbod's entities: %v", err)
+	}
+	ost, err := store.OpenOwner(store.OwnerOnbod, onbodTarget)
+	if err != nil {
+		t.Fatalf("dashd's door onto onbod over the endpoint: %v", err)
+	}
+	defer ost.Close() //nolint:errcheck // the test is ending
+	inv, _, err := ost.CreateInvite("acme/", "github:op", 3, nil)
+	if err != nil {
+		t.Fatalf("CreateInvite through the invites page's store: %v", err)
+	}
+	invites, err := ost.ListInvites("")
+	if err != nil {
+		t.Fatalf("ListInvites: %v", err)
+	}
+	if len(invites) != 1 || invites[0].Ref != inv.Ref {
+		t.Fatalf("ListInvites = %+v, want the one just created", invites)
 	}
 }
