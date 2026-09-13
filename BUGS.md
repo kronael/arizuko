@@ -7,6 +7,27 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## ✅ FIXED 2026-09-13 L292 — an open with nothing to change was refused by the endpoint, so every agent reply failed on a served instance (2026-09-13)
+
+MEASURED through the conformance suite: a `Merge` naming no attribute, no initial
+value and no removal rendered an empty `UpdateExpression`, and the server answered
+`ValidationException: ExpressionAttributeNames must not be empty`. `store.PutMessage`
+sends exactly that write per message — a chat that carries no real inbound is opened
+and nothing more — and it rides in the batch that writes the message, so the refusal
+took the reply with it. `isRealInbound` is false for a bot row, which made every
+agent reply the failing case.
+
+The SQL driver has always implemented it (`INSERT … ON CONFLICT DO NOTHING`), so the
+two drivers disagreed and no conformance body asked.
+
+- **Severity:** critical — no agent reply lands on a served instance
+- **Scope:** `objstore/dynstore/batch.go`, `objstore/conformance/writes.go`
+- **Affected:** any instance on the store server; found before krons moved
+- **Source:** `objstore/dynstore/batch.go` `writeAction`, the `Merge` arm
+- **Status:** fixed — the expression takes away a name the model never writes
+- **Fix:** `72e61f2b`; pinned by `AnOpenWithNothingToChangeCreatesTheItem` on both
+  drivers, green against ExtendDB and against DynamoDB Local
+
 ## L290 — `routd`'s held-world test races its own recorder, so one run in five reports the owner was never asked (2026-09-13, open)
 
 MEASURED by a subagent running the whole suite: `routd/hold_world_inversion_test.go:70`
