@@ -21,6 +21,7 @@ import (
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/db_utils"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/runed/runstore"
 	"github.com/kronael/arizuko/store"
@@ -52,6 +53,11 @@ type DB struct {
 
 	db *sql.DB
 
+	// obj is the handle this database is served from when a caller hands one
+	// over. It is set instead of the pool, not beside it, so a runed built this
+	// way names no file and no engine.
+	obj objstore.Store
+
 	// release closes the pool and drops the database OpenMem reserved. A DB
 	// opened against a file leaves the file alone, and Close closes the pool.
 	release func() error
@@ -66,17 +72,44 @@ func Open(dir string) (*DB, error) {
 // OpenAt is Open against an explicitly configured target — runed's DATABASE env
 // — which may name either engine, because db_utils.Open reads the engine off the
 // DSN and nothing here names one (spec 6/37 step 6).
+//
+// On an instance served from a DynamoDB endpoint there is no target to name:
+// the endpoint holds runed's tables and this dials it, so every caller of this
+// door boots either way without asking which.
 func OpenAt(target string) (*DB, error) {
+	if store.Served() {
+		return openServed()
+	}
 	if err := db_utils.RequireDB(target); err != nil {
 		return nil, err
 	}
 	return open(target)
 }
 
+// openServed dials the endpoint runed's tables live on and makes them. runed is
+// their OWNER, so it is the daemon that makes them; runstore declares the set
+// and store adds the record every audited write lands in.
+func openServed() (*DB, error) {
+	h, err := store.Handle(store.OwnerRuned)
+	if err != nil {
+		return nil, err
+	}
+	if err := store.PrepareOwner(context.Background(), h, store.OwnerRuned, runstore.Entities...); err != nil {
+		return nil, err
+	}
+	return &DB{Store: runstore.New(h), obj: h}, nil
+}
+
 // Create seeds dir/runed.db when absent. `arizuko create` and the split-cutover
 // tool only — every other caller Opens, so a wrong path fails loud instead of
 // yielding a prepared DB with no spawn history.
+//
+// A served instance has no file to seed and the entities are what `create`
+// makes, which is what openServed does — so on one this IS the open.
 func Create(dir string) (*DB, error) {
+	if store.Served() {
+		return openServed()
+	}
 	path := store.OwnerDBPath(dir, store.OwnerRuned)
 	if err := db_utils.CreateDBFile(path); err != nil {
 		return nil, err
@@ -138,16 +171,27 @@ func ensureStorage(db *sql.DB) error {
 // change when the engine does.
 func newObjectStore(db *sql.DB) *sqlstore.Store { return sqlstore.New(db) }
 
+// Close ends what the open holds. A runed served from a handle holds no pool,
+// so there is nothing to close.
 func (d *DB) Close() error {
-	if d.release != nil {
+	switch {
+	case d.release != nil:
 		return d.release()
+	case d.db == nil:
+		return nil
 	}
 	return d.db.Close()
 }
 
 // Obj is this database through objstore's two primitives, which is how audit
-// reaches it.
-func (d *DB) Obj() *sqlstore.Store { return newObjectStore(d.db) }
+// reaches it. It is the handle runed was served from when it was handed one, so
+// runed's audit sink records over the endpoint too.
+func (d *DB) Obj() objstore.Store {
+	if d.obj != nil {
+		return d.obj
+	}
+	return newObjectStore(d.db)
+}
 
 // SQL returns the raw pool. Its ONE production caller is audit_resource.go,
 // which needs a non-nil *store.Store because resreg reads a nil Store as a

@@ -82,18 +82,20 @@ func main() {
 	authdURL := os.Getenv("AUTHD_URL")
 	runTTL := core.DurOr("RUNED_RUN_TIMEOUT", 20*time.Minute)
 
-	// DATABASE is the door: it names runed's own database and may be a postgres://
-	// URL (spec 6/37 step 6). Unset, it is the owner file under the store dir.
+	// runed.OpenAt is the door: on an instance served from a DynamoDB endpoint it
+	// dials there and makes runed's entities, and otherwise it opens the database
+	// DATABASE names — which may be a postgres:// URL (spec 6/37 step 6). Unset,
+	// it is the owner file under the store dir.
 	db, err := runed.OpenAt(cmp.Or(os.Getenv("DATABASE"),
 		store.OwnerDBPath(cfg.StoreDir, store.OwnerRuned)))
 	if err != nil {
-		slog.Error("open runed.db", "err", err)
+		slog.Error("open runed's store", "err", err)
 		os.Exit(1)
 	}
 	defer db.Close()
-	// runed's audit sink is its OWN DB (migration 0005) — each daemon owns and
-	// migrates its own audit_log; correlation across them is turn_id, not a
-	// shared table (spec 5/I).
+	// runed's audit sink is its OWN record — each daemon owns its own audit_log;
+	// correlation across them is turn_id, not a shared table (spec 5/I). Init
+	// takes whichever handle runed was opened over, so the sink follows.
 	audit.Init(db.Obj(), os.Getenv("ARIZUKO_INSTANCE"))
 	if n, err := db.ExpireOrphans(context.Background()); err != nil {
 		slog.Error("expire orphan spawns", "err", err)

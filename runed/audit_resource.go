@@ -40,7 +40,7 @@ func (s *Server) auditResource() resreg.Resource {
 	r := resreg.Mount(resources.AuditName)
 	r.Gate = s.auditGate
 	r.Handler = s.auditHandler
-	r.Store = store.New(s.db.SQL())
+	r.Store = store.NewOver(s.db.Obj())
 	return r
 }
 
