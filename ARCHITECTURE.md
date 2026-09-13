@@ -1056,7 +1056,7 @@ live under `~` in the agent's home. Full spec:
 
 | Container         | Host                           | Mode                                   |
 | ----------------- | ------------------------------ | -------------------------------------- |
-| `/opt/arizuko`    | `<repo>`                       | RO                                     |
+| `/opt/arizuko`    | `<data>/app-src/`              | RO                                     |
 | `/var/lib/www`    | `<data>/web/pub/`              | RO whole tree, `web:publish` grant     |
 | `/run/ipc`        | `<data>/ipc/<folder>/`         | RW                                     |
 | `/var/lib/share`  | `<data>/groups/<world>/share/` | RW always (RO via grant)               |

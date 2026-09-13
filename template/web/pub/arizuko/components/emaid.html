@@ -123,7 +123,7 @@ export EMAIL_TRUSTED_AUTHSERV=mx.example.com
     <p><code>GET /health</code> returns 503 when IMAP login fails or the poll loop is erroring; 200 once a successful poll completes.</p>
 
     <h2>Verb support</h2>
-    <p>Email has no native reactions, no edit, no delete. emaid implements <code>send</code> and <code>fetch_history</code>; every other <code>Socializer</code> verb returns <code>chanlib.ErrUnsupported</code> so the agent can pick a different action instead of silently dropping the call.</p>
+    <p>Email has no native reactions, no edit, no delete. emaid implements <code>send</code> and <code>fetch_history</code>; every other <code>BotHandler</code> verb returns <code>chanlib.ErrUnsupported</code> so the agent can pick a different action instead of silently dropping the call.</p>
 
     <h2>Go deeper</h2>
     <ul>
@@ -140,7 +140,7 @@ export EMAIL_TRUSTED_AUTHSERV=mx.example.com
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/emaid.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-04">2026-09-04</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-13">2026-09-13</time>
       </div>
     </main>
 

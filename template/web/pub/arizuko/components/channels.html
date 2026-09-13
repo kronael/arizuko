@@ -69,8 +69,8 @@
 
 <ul>
   <li><code>Channel</code> &mdash; <code>Name</code>, <code>Connect</code>, <code>Send</code>, <code>SendFile</code>, <code>SendVoice</code>, <code>Owns</code>, <code>Typing</code>, <code>Disconnect</code>. The minimum every adapter implements.</li>
-  <li><code>Socializer</code> &mdash; <code>Post</code>, <code>Like</code>, <code>Dislike</code>, <code>Forward</code>, <code>Quote</code>, <code>Repost</code>, <code>Edit</code>, <code>Delete</code>, <code>Pin</code>, <code>Unpin</code>. Implemented where the platform has the verb; sentinel error otherwise.</li>
-  <li><code>Suggester</code> / <code>Namer</code> &mdash; suggested-prompt buttons and the conversation title. Implemented today by slakd; others can opt in.</li>
+  <li><code>Post</code>, <code>Like</code>, <code>Dislike</code>, <code>Forward</code>, <code>Quote</code>, <code>Repost</code>, <code>Edit</code>, <code>Delete</code>, <code>Pin</code>, <code>Unpin</code> &mdash; the social half of <code>BotHandler</code>. Implemented where the platform has the verb; an adapter without them embeds <code>chanlib.NoSocial</code> and each returns <code>chanlib.ErrUnsupported</code>.</li>
+
   <li><code>HistoryFetcher</code> &mdash; optional. Pull older messages from the platform API when the agent asks for context.</li>
 </ul>
 
@@ -79,7 +79,7 @@
 <ul>
   <li><code>GET /health</code> &mdash; 200 when connected to the platform, 503 when the link is down (QR unscanned, stream dropped, token expired).</li>
   <li><code>POST /send</code>, <code>/send-file</code>, <code>/send-voice</code>, <code>/typing</code> &mdash; <code>routd</code> hands the adapter an outbound row to deliver.</li>
-  <li><code>POST /post</code>, <code>/like</code>, <code>/dislike</code>, <code>/forward</code>, <code>/quote</code>, <code>/repost</code>, <code>/edit</code>, <code>/delete</code>, <code>/pin</code>, <code>/unpin</code> &mdash; the <code>Socializer</code> verbs, one route each.</li>
+  <li><code>POST /post</code>, <code>/like</code>, <code>/dislike</code>, <code>/forward</code>, <code>/quote</code>, <code>/repost</code>, <code>/edit</code>, <code>/delete</code>, <code>/pin</code>, <code>/unpin</code> &mdash; the social verbs, one route each.</li>
   <li><code>GET /v1/history</code> &mdash; mounted only when the adapter implements <code>HistoryFetcher</code>.</li>
 </ul>
 
@@ -141,7 +141,7 @@
 <p>Two artifacts, no edits to <code>proxyd</code> or <code>compose</code>:</p>
 
 <ol>
-  <li>Write the daemon. Implement <code>Channel</code>; implement <code>Socializer</code> for the verbs the platform exposes. Serve the standard HTTP endpoints on <code>LISTEN_ADDR=:8080</code>.</li>
+  <li>Write the daemon. Implement <code>chanlib.BotHandler</code>, embedding <code>NoSocial</code> and <code>NoVoiceSender</code> for what the platform does not have. Serve the standard HTTP endpoints on <code>LISTEN_ADDR=:8080</code>.</li>
   <li>Drop a <code>template/services/&lt;daemon&gt;.yml</code> &mdash; a partial compose file docker <code>include</code>s verbatim &mdash; with the service's env block. If the adapter takes inbound web traffic, add a sibling <code>&lt;daemon&gt;.yaml</code> &mdash; its config manifest, with a <code>proxyd_routes</code> block. The next <code>arizuko run</code> picks up both.</li>
 </ol>
 
@@ -152,7 +152,7 @@
 
 <h2>Go deeper</h2>
 <ul>
-  <li><code>core/types.go</code> &mdash; <code>Channel</code>, <code>Socializer</code>, <code>Suggester</code>, <code>Namer</code>, <code>HistoryFetcher</code> interfaces.</li>
+  <li><code>chanlib/handler.go</code> &mdash; <code>BotHandler</code>, the fourteen verbs and their request types.</li>
   <li><code>chanlib/</code> and <code>chanreg/</code> &mdash; shared HTTP plumbing every adapter mounts.</li>
   <li><a href="../concepts/routing.html">concepts/routing</a> &mdash; routd, the other end of every adapter&rsquo;s HTTP calls, and how an inbound message picks its group and reply channel.</li>
 </ul>
@@ -164,7 +164,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/channels.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-04">2026-09-04</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-13">2026-09-13</time>
       </div>
     </main>
 

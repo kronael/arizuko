@@ -181,7 +181,7 @@ arizuko token &lt;instance&gt; issue chat &lt;folder&gt; --context "bug reports;
 arizuko token &lt;instance&gt; list &lt;folder&gt;
 arizuko token &lt;instance&gt; revoke &lt;jid&gt; [&lt;owner_folder&gt;]</code></pre>
 
-    <p>The CLI is the FS-mounted host-admin path: it writes the same <code>route_tokens</code> row directly to routd.db (<code>cmd/arizuko/token.go</code>) and prints the raw token once. <code>--context</code> (<code>-c</code>) attaches per-link instructions, same as the <code>context</code> mint param.</p>
+    <p>The CLI is the host-admin path: it writes the same <code>route_tokens</code> row straight into routd's store (<code>cmd/arizuko/token.go</code>) and prints the raw token once. <code>--context</code> (<code>-c</code>) attaches per-link instructions, same as the <code>context</code> mint param.</p>
 
     <h2 id="related">Related</h2>
 
@@ -200,7 +200,7 @@ arizuko token &lt;instance&gt; revoke &lt;jid&gt; [&lt;owner_folder&gt;]</code><
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/tokens.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-06">2026-09-06</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-13">2026-09-13</time>
       </div>
     </main>
 
