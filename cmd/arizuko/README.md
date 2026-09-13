@@ -18,6 +18,9 @@ beyond `docker` for `run` and `pair`).
   - `arizuko packages <inst> sync` — `upgrade` over every installed package in one pass: re-applies each record's fragment from its recorded source, reports `updated` / `unchanged` / `SKIPPED`, and writes nothing for a package already at its recorded revision. A locally edited asset is reported and skipped rather than fatal, so one hand-edited fragment can't block the rest of the instance. Not to be confused with `generate`'s catalog relink above — that converts an identical copy into a symlink and never reads the installed-package record (spec 5/28)
   - `arizuko products <inst> list` — the bundled catalog under `<HOST_APP_DIR>/ant/examples`, one row per product: `name`, `brand`, `tagline` from its `PRODUCT.md` (spec 5/21). A directory whose manifest won't parse is listed as such rather than omitted, so a broken manifest can't read as "not shipped". These are the names `arizuko create --product <name>` accepts; the published pages under `/pub/arizuko/products/` are a different, overlapping set (BUGS F64)
   - `arizuko products <inst> apply <folder>` — blend the ordered product mix declared in `groups/<folder>/products.toml` (`[[product]]` blocks with a `source =`; relative sources join `HOST_APP_DIR`) into that group, per payload kind, and record one `installed_packages` row per product under `(folder, name)` — the only writer of a non-empty folder. Idempotent; a managed asset edited since the last apply is reported and skipped, never overwritten (spec 5/28). `packages sync` re-applies every group's mix too
+  - `arizuko proxy-config <instance> [--listen :8080] [--forward-auth <host:port>]` — render the live route table as a Caddyfile. Without `--forward-auth` every authenticated route renders as a 503 rather than an open hop
+  - `arizuko route <inst> list | add <match> <target> [--seq N] | rm <id>` — the message-routing table. Writes go through the audited `AddRoute`/`DeleteRoute`, so the route and its audit row commit together; `AsCLI` attributes the row to the invoking operator, since the CLI has no `X-User-*` header to learn a sub from
+  - `arizuko probe <base-url> [--token T] [--foreign-folder F]` — check a DEPLOYED component against the spec `6/7` contract. Go tests read the source; this reads the instance, which no test can — a daemon passes every test and still ships with `openapi.json` behind auth, or a gate unwired. It detects paths the doc advertises and the mux does not serve, never the reverse: proxyd answers every path from a `/` catch-all, so "it responded" never proves "this resource is mounted here" (BUGS `F33`)
   - `arizuko run <instance>` — generate + `docker compose up`
   - `arizuko status <instance>` — show compose services + channels
   - `arizuko pair <instance> <svc>` — `docker compose run --rm`
@@ -56,6 +59,10 @@ beyond `docker` for `run` and `pair`).
 ## Files
 
 - `main.go` — command dispatch + `create`/`generate`/`run`/`status`/`pair`/`group`/`gate`/`invite`/`chat`
+- `route.go` — `route`, the audited message-routing table CLI
+- `routes.go` — `proxy-config`, the Caddyfile renderer
+- `probe.go` — `probe`, the deployed-component contract check
+- `skills.go`, `flags.go` — the skill enumerator and the shared flag parser
 - `apply.go` — `apply`/`plan`/`get`/`export` (YAML manifests, spec 5/8), the missing-group preflight, and the cross-subsystem pre-image rollback both `apply` and `archive apply` share
 - `archive.go` — `archive export`/`archive apply` (full-instance backup, spec 5/8)
 - `retarget.go` — `apply --as-folder`, the recipe over `resreg.Resource.Retarget`
@@ -69,9 +76,12 @@ beyond `docker` for `run` and `pair`).
 - `token.go` — `token` route-token management
 - `github.go` — `github` webhook-source management for gitd (spec `6/27`)
 
-## What is tested, and what is not
+## Coverage
 
-`go test ./cmd/arizuko/` covers the parsing, planning and wire logic: the
+`go test ./cmd/arizuko/ -short -cover` reports 57.8% (2026-09-13), and the gap
+is one shape.
+
+It covers the parsing, planning and wire logic: the
 manifest readers, the apply plan, the package resolver, the `.env` parser, and
 both `send --wait` paths (`streamRound` over SSE, `pollRound` as the fallback). `talk` is covered end to end against a real streamable-HTTP MCP server plus an SSE stub (`talk_test.go`): argument grammar, config precedence and the 0600 refusal, folder resolution, and one turn on the wire.
 
@@ -82,8 +92,8 @@ shape — an operator wants a status code and one line on stderr, not an error
 value threaded back to `main` — so the entry points are exercised end to end by
 `make test-e2e` and by `tests/`, not by unit tests here.
 
-Read the package's coverage number with that in mind: the ~40% that is
-uncovered is 33 `cmdX` functions, not 33 untested decisions.
+So the uncovered 42% is thirty `cmdX` entry points, not thirty untested
+decisions: each is an argument unpack in front of a function that IS covered.
 
 ## Related docs
 

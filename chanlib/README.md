@@ -77,8 +77,17 @@ Docker `HEALTHCHECK` marks containers `(unhealthy)` on 503.
 chanlib holds NO SQL and no `CREATE TABLE`; `db_utils/sql_layer_test.go` fails
 the build if a statement appears anywhere under `chanlib/`. Its storage is
 `chanlib/chanstore`, which is `objstore`'s two primitives over two entities.
-They land in EIGHT adapter databases — one per channel, plus `emaid.db` — so a
-statement here would put itself in all of them at once.
+
+`OpenAdapterStore(dataDir, service)` is the door and it takes the same branch
+every other owner does: the endpoint under the adapter's own table prefix when
+`DYNAMODB_URL` names one, `<dataDir>/<service>.db` otherwise. The prefix is
+the ADAPTER's name, not the account's, so two accounts of one adapter share
+these tables — every key carries the chat JID and a JID carries the channel
+name (`telegram-rhias:group/1`), so a held inbound and a delivery claim are
+already scoped to the account that made them.
+
+That one storage layer serves every adapter, which is why a statement here
+would put itself in all of them at once.
 
 | entity            | coordinate                          | why                                                                                                      |
 | ----------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------- |
@@ -103,7 +112,11 @@ sorted into the wrong place (BUGS `L97`).
 - `inbound.go` — `RetainInbound`, the re-delivery sweep
 - `dedup.go` — `OpenAdapterStore`, `deliverOnce`, the outbound dedup contract
 - `chanstore/` — the storage layer: no SQL, `objstore`'s two primitives
-- `handler.go` — `NewAdapterMux`, `BotHandler` interface, health, `CapImplReport`
+- `handler.go` — `NewAdapterMux`, the `BotHandler` interface, health, `CapImplReport`
+- `dash.go` — THE adapter dashboard (spec 6/31): one renderer with per-adapter
+  deltas, mounted by every Go adapter through `NewAdapterMux`, so an adapter
+  gets its page with no per-adapter edit at all
+- `github_jid.go` — `GitHubJID`, `ParseGitHubJID` (spec 6/27)
 - `auth.go` — `Auth` middleware (ES256 service:routd verification)
 - `retry.go` — outbound retry policy
 - `typing.go` — `TypingRefresher`
