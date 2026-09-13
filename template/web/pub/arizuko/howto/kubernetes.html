@@ -40,162 +40,269 @@
     <main class="docs-content">
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">howto</a> &rsaquo; Kubernetes</p>
       <h1>deploy on Kubernetes</h1>
-
-
-
       <p>
-        arizuko runs fine on a single Linux host under Docker Compose. The main
-        reason to move to Kubernetes is secret management: K8s Secrets live in
-        etcd, which cloud providers encrypt at rest by default, and they
-        integrate natively with Vault, AWS Secrets Manager, and GCP Secret
-        Manager via the External Secrets Operator. No plaintext
-        <code>.env</code> files on disk.
+        arizuko runs on a single Linux host under Docker Compose, and that is
+        still the shortest path to a working instance. Kubernetes buys you two
+        things: secrets that live in etcd instead of a mode-0600
+        <code>.env</code>, and the freedom to run the daemons that hold no file
+        on more than one node. It does not buy you a scalable agent runtime —
+        the turn path is still pinned to one machine, for reasons that have
+        nothing to do with the database.
       </p>
       <p>
-        This guide covers a single-pod deployment — all daemons in one pod
-        sharing a PersistentVolumeClaim. arizuko runs as three core daemons
-        &mdash; <code>authd</code> (token authority), <code>routd</code>
-        (conversation/router), <code>runed</code> (agent execution) &mdash;
-        plus adapters and the web layer. They talk over HTTP (<code>/v1/*</code>);
-        the per-turn agent MCP is a Unix socket <code>routd</code> hosts and
-        <code>runed</code> mounts into the agent container. Each daemon owns its
-        own SQLite DB on the shared PVC, and SQLite WAL has a single-writer
-        constraint, so keep them in one pod (one replica). Split into separate
-        Deployments only once you have a concrete reason.
+        This page is a decision, not a recipe: what you can move, what you
+        cannot, and the reason for each. Read it before you write a manifest.
       </p>
 
-      <div class="note">
-        <strong>Known gap &mdash; agent containers:</strong> on a bare Linux
-        host, <code>runed</code> spawns per-group agent containers via the
-        Docker socket. In Kubernetes, mounting <code>docker.sock</code> from
-        a node is discouraged and unreliable. A
-        <code>CONTAINER_BACKEND=kubernetes</code> mode is specced but not yet
-        shipped. Until it lands, the options are: (a) Docker-in-Docker sidecar
-        (easiest to get running, not recommended for production), or (b) KIND
-        inside the pod for dev/test. Treat the agent-spawn path as the one
-        rough edge of a K8s deployment.
-      </div>
-
-      <h2>why Kubernetes for secret management</h2>
+      <h2>what you can move: the rows</h2>
       <p>
-        arizuko needs a handful of long-lived secrets: <code>SECRETS_KEY</code>
-        (the encryption key for the secrets table, read by <code>routd</code>),
-        <code>CHANNEL_SECRET</code>, the per-daemon <code>AUTHD_SERVICE_KEY</code>
-        each daemon uses to mint its <code>service:</code> token from
-        <code>authd</code>, and one or more adapter tokens
-        (<code>TELEGRAM_BOT_TOKEN</code>, <code>SLACK_BOT_TOKEN</code>, etc.).
-        On a single host these live in a mode-0600 <code>.env</code> file
-        &mdash; fine, but manual to rotate and invisible to audit logs.
+        Every owner&rsquo;s tables live on one DynamoDB-protocol server per
+        instance. <code>store.Served()</code> is the branch, and it reads one
+        variable: with <code>DYNAMODB_URL</code> set, a daemon opens its owner
+        on that endpoint and opens no file at all
+        (<code>objstore/dynstore/env.go</code>).
       </p>
       <p>
-        In Kubernetes the same values become K8s Secret objects. Cloud-managed
-        clusters encrypt etcd at rest by default; for tighter guarantees you
-        can add envelope encryption backed by AWS KMS, GCP KMS, or HashiCorp
-        Vault. IRSA (AWS) and Workload Identity (GCP) let pods fetch secrets
-        without any long-lived credential at all &mdash; the node&rsquo;s
-        identity is the proof. The External Secrets Operator then syncs from
-        Vault or Secrets Manager into K8s Secrets automatically on rotation.
+        So the rows can leave the node entirely. The endpoint can be the
+        <code>extenddb</code> pair the instance ships
+        (<code>template/services/extenddb.yml</code> &mdash; ExtendDB over a
+        PostgreSQL you already run), a PostgreSQL in another cluster, or
+        Amazon DynamoDB itself: the daemons speak one protocol and never learn
+        which is behind it.
       </p>
       <p>
-        Rolling deploys are also cleaner: update the Secret, trigger a rollout,
-        old pods drain before new ones start.
-      </p>
-
-      <h2>architecture mapping</h2>
-      <p>
-        The Docker Compose stack maps to Kubernetes like this:
+        A daemon needs five values to reach it, and <code>FromEnv</code>
+        refuses a half-configured set rather than failing later at signing
+        time:
       </p>
       <table>
         <thead>
+          <tr><th>variable</th><th>what it is</th></tr>
+        </thead>
+        <tbody>
           <tr>
-            <th>compose service</th>
-            <th>K8s resource</th>
-            <th>notes</th>
+            <td><code>DYNAMODB_URL</code></td>
+            <td>the endpoint, e.g. <code>https://extenddb:18443</code>. Unset means &ldquo;open a file instead&rdquo;.</td>
           </tr>
+          <tr><td><code>AWS_REGION</code></td><td>signing region; the shipped default is <code>us-east-1</code></td></tr>
+          <tr>
+            <td><code>AWS_ACCESS_KEY_ID</code> / <code>AWS_SECRET_ACCESS_KEY</code></td>
+            <td>per daemon, so each signs as itself and a policy can bound which owners it touches</td>
+          </tr>
+          <tr>
+            <td><code>STORE_CA</code></td>
+            <td>the endpoint certificate, base64. TLS is mandatory; the value is in the environment because a daemon reads its environment and mounts no file.</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>
+        The server&rsquo;s own <code>init</code> run is yours to do once by hand
+        &mdash; it prints an admin password and mints one key per daemon. Steps
+        are in <a href="https://github.com/kronael/arizuko/blob/main/INSTALL.md" target="_blank" rel="noopener">INSTALL.md</a>
+        &sect; The store server. Nothing about that run changes under
+        Kubernetes.
+      </p>
+
+      <h2>what stays pinned: routd and runed</h2>
+      <p>
+        <code>routd</code> and <code>runed</code> run one replica each and share
+        a filesystem. Four reasons, none of them the database:
+      </p>
+      <ul>
+        <li>
+          <strong>The agent MCP socket.</strong> <code>routd</code> binds a Unix
+          socket per turn at <code>&lt;data&gt;/ipc/&lt;folder&gt;/gated.sock</code>
+          (<code>routd/mcp.go</code> <code>ServeTurnMCP</code>), and
+          <code>runed</code> bind-mounts that directory into the agent container
+          at <code>/run/ipc</code> (<code>container/runner.go</code>
+          <code>buildMounts</code>). A Unix socket is an inode. The two daemons
+          must see the same one.
+        </li>
+        <li>
+          <strong>The container runtime socket.</strong> <code>runed</code>
+          spawns each turn with <code>docker run</code>, so its pod mounts
+          <code>/var/run/docker.sock</code> and joins the gid that owns it
+          (<code>compose/compose.go</code> <code>runedService</code>,
+          <code>dockerGID</code>). It is the only daemon wired that way, and it
+          is wired to one node&rsquo;s daemon.
+        </li>
+        <li>
+          <strong>Bind sources are node paths.</strong> The spawned container is
+          a sibling, not a child, so the node&rsquo;s container runtime resolves
+          every mount source. <code>container.hp()</code> rewrites each path from
+          the data dir as <code>runed</code> sees it to the data dir as the node
+          sees it, which is what <code>HOST_DATA_DIR</code> is for. Get that
+          value wrong and every spawn mounts an empty directory.
+        </li>
+        <li>
+          <strong>The group tree is files.</strong> <code>routd</code> reads
+          <code>PERSONA.md</code> to build the prompt
+          (<code>routd/prompt.go</code> <code>personaBlock</code>),
+          <code>CLAUDE.md</code> for proactive mode
+          (<code>routd/proactive.go</code>), and each folder&rsquo;s
+          <code>.claude/skills/self/MIGRATION_VERSION</code> to decide whether to
+          enqueue a migration turn. <code>runed</code> mounts the same folder as
+          the agent&rsquo;s home.
+        </li>
+      </ul>
+      <div class="callout">
+        <strong>Direction:</strong>
+        <a href="https://github.com/kronael/arizuko/blob/main/specs/6/41-qemu-substrate.md" target="_blank" rel="noopener">specs/6/41</a>
+        is the spec that would change <code>runed</code>&rsquo;s half: the turn
+        substrate becomes a KVM guest driven by <code>qemu-system-x86_64</code>,
+        and <code>docker.sock</code> leaves <code>runed</code> altogether. It is
+        a draft. The socket and the group tree stay files either way.
+      </div>
+
+      <h2>what you can actually scale</h2>
+      <p>
+        Six daemons hold no file once the store is served. That makes them
+        movable &mdash; not automatically replicable. Here is what each one still
+        needs, which is what actually decides the replica count.
+      </p>
+      <table>
+        <thead>
+          <tr><th>daemon</th><th>still needs</th><th>replicas</th></tr>
         </thead>
         <tbody>
           <tr>
             <td><code>authd</code></td>
-            <td>container in Pod</td>
-            <td>token authority; serves JWKS; must be first to start</td>
+            <td>nothing on disk. Its own owner on the store, plus the OAuth and service-key env.</td>
+            <td>many</td>
           </tr>
           <tr>
-            <td><code>routd</code></td>
-            <td>container in Pod</td>
-            <td>owns <code>routd.db</code>, hosts the per-turn agent MCP socket; dispatches turns to <code>runed</code></td>
+            <td><code>proxyd</code></td>
+            <td>nothing on disk &mdash; the package makes no filesystem call. Its route table is rows in <code>proxyd_routes</code>, refreshed in memory.</td>
+            <td>many</td>
           </tr>
           <tr>
-            <td><code>runed</code></td>
-            <td>container in Pod</td>
-            <td>agent execution; the only daemon needing the Docker socket (see the agent-container gap)</td>
+            <td><code>webd</code></td>
+            <td>nothing on disk; the chat widget is <code>embed.FS</code> in the binary. But its SSE hub is an in-process map (<code>webd/hub.go</code>), and <code>routd</code> publishes each reply by POSTing to <code>webd</code>. Two replicas and that POST lands on the one the browser is not streaming from.</td>
+            <td>one</td>
           </tr>
           <tr>
-            <td><code>timed</code>, <code>onbod</code>, <code>dashd</code></td>
-            <td>containers in same Pod</td>
-            <td>connect to <code>routd</code>/<code>authd</code> over loopback HTTP</td>
+            <td><code>timed</code></td>
+            <td>nothing on disk, and no data-dir mount at all: it federates its fire loop over <code>routd</code>&rsquo;s HTTP face. Two replicas would fire every schedule twice.</td>
+            <td>one</td>
           </tr>
           <tr>
-            <td><code>proxyd</code>, <code>webd</code></td>
-            <td>containers in same Pod</td>
-            <td>proxyd binds :443/:80; expose via LoadBalancer or Ingress</td>
+            <td><code>onbod</code></td>
+            <td><strong>files.</strong> <code>container.SetupGroup</code> creates <code>groups/&lt;folder&gt;/</code> and the per-group <code>web/pub</code> and <code>web/priv</code> slots. Needs the same volume <code>routd</code> reads, writable.</td>
+            <td>one</td>
           </tr>
           <tr>
-            <td>adapter (<code>teled</code>, <code>slakd</code>, &hellip;)</td>
-            <td>containers in same Pod</td>
-            <td>one per enabled platform; add to spec as needed</td>
-          </tr>
-          <tr>
-            <td>data dir <code>/srv/data/arizuko_&lt;name&gt;/</code></td>
-            <td>PersistentVolumeClaim (RWO)</td>
-            <td>mounted at the same path in every container</td>
-          </tr>
-          <tr>
-            <td><code>.env</code> non-secret vars</td>
-            <td>ConfigMap &rarr; <code>envFrom</code></td>
-            <td>ASSISTANT_NAME, CONTAINER_IMAGE, WEB_HOST, &hellip;</td>
-          </tr>
-          <tr>
-            <td><code>.env</code> secret vars</td>
-            <td>Secret &rarr; <code>envFrom</code></td>
-            <td>SECRETS_KEY, CHANNEL_SECRET, AUTHD_SERVICE_KEY, adapter tokens</td>
+            <td><code>dashd</code></td>
+            <td><strong>files.</strong> The operator console reads and writes group files &mdash; skills, <code>CLAUDE.md</code>, uploads &mdash; under <code>groups/</code>, and reads optional provider TOML from <code>surrogate/</code>.</td>
+            <td>one</td>
           </tr>
         </tbody>
       </table>
-
-      <div class="note">
-        <strong>replicas: 1 only.</strong> SQLite WAL allows multiple readers
-        but only one writer at a time. Running two pods against the same PVC
-        will corrupt the database. If you need high availability, put SQLite
-        on a writable-once volume and front the pod with a readiness probe +
-        PodDisruptionBudget, or migrate to an external database (not currently
-        supported).
-      </div>
-
-      <h2>HOST_APP_DIR in Kubernetes</h2>
       <p>
-        On a bare host, <code>HOST_APP_DIR</code> points to the checkout of
-        the arizuko repo on the host filesystem. The agent container bind-mounts
-        it to read skills from <code>ant/skills/</code>. In Kubernetes
-        there&rsquo;s no host checkout to bind-mount &mdash; skills are baked
-        into the container image at build time.
-      </p>
-      <p>
-        Set <code>HOST_APP_DIR</code> to the path inside the container where
-        skills land, typically <code>/workspace</code> or wherever the
-        Dockerfile puts them. The agent is the container; the bind-mount
-        becomes a no-op path reference to the image&rsquo;s own filesystem.
-        Check your <code>arizuko-ant</code> Dockerfile for the exact path.
-      </p>
-      <p>
-        <code>HOST_DATA_DIR</code> should still point to the PVC mount path
-        (<code>/srv/data/arizuko_&lt;name&gt;</code>) &mdash; that part is
-        unchanged.
+        Only <code>authd</code> and <code>proxyd</code> take a second replica
+        without an argument. <code>onbod</code> and <code>dashd</code> mount
+        narrow subdirectories in compose, which reads as &ldquo;nearly
+        stateless&rdquo; and is not &mdash; they write the group tree.
+        <code>proxyd</code> and <code>webd</code> mount only
+        <code>routd</code>&rsquo;s store today, so once the store is served
+        their mount carries nothing and can go.
       </p>
 
-      <h2>step 1 &mdash; PersistentVolumeClaim</h2>
+      <h2>adapters: one replica per account</h2>
       <p>
-        One RWO volume holds the entire data dir. Size it generously;
-        SQLite and media attachments grow over time.
+        Adapter dedup and delivery-claim tables moved to the store with
+        everything else (<code>chanlib.OpenAdapterStore</code>). What did not
+        move is the small per-account state each platform forces:
+      </p>
+      <ul>
+        <li>
+          <code>teled</code> writes its Telegram <code>getUpdates</code> offset
+          to <code>&lt;DATA_DIR&gt;/teled-offset-&lt;name&gt;</code>. Lose it and
+          Telegram re-delivers roughly a day of backlog, which the agent answers
+          all over again. Two pollers on one bot token also fight for the same
+          long-poll.
+        </li>
+        <li>
+          <code>whapd</code> keeps the paired WhatsApp session in
+          <code>WHATSAPP_AUTH_DIR</code>. Two processes writing it corrupt the
+          pairing and you re-pair by hand.
+        </li>
+      </ul>
+      <p>
+        So: one replica per adapter per account, with a small RWO volume. Two
+        Telegram bots are two Deployments, not two replicas.
+      </p>
+
+      <h2>what is left on the volume</h2>
+      <p>
+        Once the rows are served, the shared volume is four directories, not the
+        whole instance directory:
+      </p>
+      <table>
+        <thead>
+          <tr><th>path</th><th>holds</th><th>who touches it</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>groups/</code></td>
+            <td>one directory per folder: the agent&rsquo;s home, skills, <code>PERSONA.md</code>, <code>CLAUDE.md</code>, memory, media, logs</td>
+            <td><code>routd</code> reads, <code>runed</code> mounts, <code>onbod</code> creates, <code>dashd</code> edits</td>
+          </tr>
+          <tr>
+            <td><code>web/</code></td>
+            <td><code>pub/&lt;folder&gt;/</code> and <code>priv/&lt;folder&gt;/</code> &mdash; the writable web slots an agent publishes into</td>
+            <td><code>runed</code> mounts, <code>onbod</code> creates</td>
+          </tr>
+          <tr>
+            <td><code>ipc/</code></td>
+            <td>one per-turn Unix socket per folder</td>
+            <td><code>routd</code> binds, <code>runed</code> mounts</td>
+          </tr>
+          <tr>
+            <td><code>app-src/</code></td>
+            <td>the release&rsquo;s <code>ant/</code>, staged out of <code>runed</code>&rsquo;s image on every start so a sibling container can bind-mount it (<code>container.MaterializeAppSrc</code>)</td>
+            <td><code>runed</code> writes, the agent reads</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>
+        All four must be visible at a <em>node</em> path, because the node&rsquo;s
+        container runtime resolves the agent container&rsquo;s bind mounts. A
+        <code>local</code> or <code>hostPath</code> volume satisfies that; a
+        network PVC whose node mount point you cannot name does not.
+      </p>
+
+      <h2>the shape that fits</h2>
+      <p>
+        Split Deployments fit the code better than one big pod, because
+        <code>proxyd</code>&rsquo;s backends are already rows naming
+        <code>http://&lt;daemon&gt;:8080</code> (see any
+        <code>template/services/*.yaml</code> manifest). Give each daemon a
+        Service named after it, keep the in-container port at <code>:8080</code>,
+        and those rows resolve unchanged.
+      </p>
+      <table>
+        <thead>
+          <tr><th>compose service</th><th>Kubernetes</th><th>notes</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>extenddb</code> + <code>extenddb_db</code></td><td>StatefulSet, or nothing</td><td>or point <code>DYNAMODB_URL</code> at a managed endpoint and run neither</td></tr>
+          <tr><td><code>authd</code></td><td>Deployment + Service <code>authd</code></td><td>the authority; start it first, nothing it depends on must precede it</td></tr>
+          <tr><td><code>routd</code> + <code>runed</code></td><td>one Deployment, <code>replicas: 1</code>, node-pinned</td><td>two containers, one volume; Service <code>routd</code> and Service <code>runed</code> both select it</td></tr>
+          <tr><td><code>onbod</code>, <code>dashd</code></td><td>Deployment + Service, <code>replicas: 1</code></td><td>same volume as routd, writable</td></tr>
+          <tr><td><code>timed</code></td><td>Deployment + Service, <code>replicas: 1</code></td><td>no volume</td></tr>
+          <tr><td><code>proxyd</code>, <code>webd</code></td><td>Deployment + Service</td><td>no volume; <code>proxyd</code> is what the Ingress points at</td></tr>
+          <tr><td>adapter (<code>teled</code>, <code>slakd</code>, &hellip;)</td><td>Deployment + Service per account</td><td><code>replicas: 1</code>, small RWO volume</td></tr>
+          <tr><td>non-secret <code>.env</code></td><td>ConfigMap &rarr; <code>envFrom</code></td><td><code>ASSISTANT_NAME</code>, <code>CONTAINER_IMAGE</code>, <code>WEB_HOST</code>, <code>HOST_DATA_DIR</code>, <code>DYNAMODB_URL</code>, &hellip;</td></tr>
+          <tr><td>secret <code>.env</code></td><td>Secret &rarr; <code>envFrom</code></td><td><code>SECRETS_KEY</code>, <code>AUTH_SECRET</code>, <code>AUTHD_SERVICE_KEY</code>, <code>AWS_SECRET_ACCESS_KEY</code>, adapter tokens</td></tr>
+        </tbody>
+      </table>
+
+      <h2>volume</h2>
+      <p>
+        One RWO volume for <code>groups/</code>, <code>web/</code>,
+        <code>ipc/</code> and <code>app-src/</code>, pinned to the node
+        <code>runed</code> runs on. Size it for group files and media; the rows
+        are on the store server now and do not grow it.
       </p>
       <pre><code># pvc.yaml
 apiVersion: v1
@@ -205,281 +312,197 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
+  storageClassName: local-path   # a node-local class; see the note below
   resources:
     requests:
       storage: 20Gi</code></pre>
+      <div class="callout">
+        <strong>Pick a node-local class.</strong> The agent container is spawned
+        by the node&rsquo;s container runtime, which resolves bind sources on the
+        node filesystem. <code>local-path</code> (Rancher) or a
+        <code>local</code> PV give you a node path you can name and put in
+        <code>HOST_DATA_DIR</code>. A remote-attach CSI volume usually works too,
+        but only if you can name its node mount point.
+      </div>
 
-      <h2>step 2 &mdash; ConfigMap</h2>
-      <p>Non-secret config. Values here are visible in <code>kubectl get configmap</code>.</p>
+      <h2>ConfigMap</h2>
+      <p>Non-secret config. Visible in <code>kubectl get configmap -o yaml</code>.</p>
       <pre><code># configmap.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: arizuko-config
 data:
-  INSTANCE_NAME: "demo"
   ASSISTANT_NAME: "Ari"
+  ARIZUKO_INSTANCE: "demo"
   WEB_HOST: "https://demo.example.com"
   CONTAINER_IMAGE: "arizuko-ant:latest"
-  HOST_DATA_DIR: "/srv/data/arizuko_demo"
-  HOST_APP_DIR: "/workspace"
+  DATA_DIR: "/srv/app/home"
+  # the NODE path of the same volume — container.hp() rewrites every agent
+  # bind source through this. Wrong value = every spawn mounts nothing.
+  HOST_DATA_DIR: "/var/lib/rancher/k3s/storage/pvc-…_arizuko-data"
+  AUTHD_URL: "http://authd:8080"
+  ROUTER_URL: "http://routd:8080"
+  RUNED_URL: "http://runed:8080"
+  DYNAMODB_URL: "https://extenddb:18443"
+  AWS_REGION: "us-east-1"
   LOG_LEVEL: "info"</code></pre>
+      <div class="note">
+        <code>HOST_APP_DIR</code> and <code>APP_SRC_DEV</code> belong to the
+        development loop on a host checkout. Leave both unset: the release bakes
+        <code>ant/</code> into the image at <code>/opt/arizuko</code>, and
+        <code>runed</code> stages it onto the volume itself.
+      </div>
 
-      <h2>step 3 &mdash; Secret</h2>
+      <h2>Secret</h2>
       <p>
-        Sensitive vars. If you use the External Secrets Operator, this object
-        is generated automatically from Vault or Secrets Manager &mdash; see
-        <a href="#external-secrets">secret management</a> below. Otherwise
-        create it manually:
+        Every daemon gets its own <code>AUTHD_SERVICE_KEY</code> and its own
+        store access key, so in practice this is one Secret per daemon rather
+        than one shared object. The shape:
       </p>
-      <pre><code># secret.yaml  (base64-encode every value)
+      <pre><code># secret.yaml
 apiVersion: v1
 kind: Secret
 metadata:
-  name: arizuko-secrets
+  name: arizuko-routd
 type: Opaque
 stringData:
-  SECRETS_KEY: "change-me-32-char-random-string"
-  CHANNEL_SECRET: "change-me-another-32-char-string"
-  AUTHD_SERVICE_KEY: "change-me-per-daemon-service-key"
-  TELEGRAM_BOT_TOKEN: "123456:ABC..."   # if using teled
-  SLACK_BOT_TOKEN: "xoxb-..."           # if using slakd
-  SLACK_SIGNING_SECRET: "..."           # if using slakd</code></pre>
+  # routd owns the secrets table, so it holds the key that seals it.
+  # runed deliberately does NOT get this one.
+  SECRETS_KEY: "32-char-random"
+  AUTHD_SERVICE_KEY: "per-daemon-service-key"
+  AWS_ACCESS_KEY_ID: "routd-store-key"
+  AWS_SECRET_ACCESS_KEY: "routd-store-secret"
+  STORE_CA: "LS0tLS1CRUdJTiBDRVJU…"   # base64 of the endpoint cert</code></pre>
+      <p>
+        <code>dashd</code> also needs <code>SECRETS_KEY</code> &mdash; it writes
+        user secrets directly and must seal with the same key
+        <code>routd</code> reads with. <code>authd</code>, <code>proxyd</code>
+        and <code>dashd</code> need <code>AUTH_SECRET</code>. Adapters need their
+        platform token and nothing else from this list. The authoritative map is
+        <code>daemonKeys</code> in <code>compose/compose.go</code>, which is what
+        <code>arizuko generate</code> uses to scope each daemon&rsquo;s env file;
+        an unlisted key never reaches a daemon, and that is the point.
+      </p>
       <div class="callout">
-        <strong>Don&rsquo;t commit secret.yaml to git.</strong>
-        Use <code>kubectl apply -f secret.yaml</code> once, then delete the
-        local file. Better: use External Secrets or Sealed Secrets so the repo
-        never holds plaintext.
+        <strong>Don&rsquo;t commit secret.yaml.</strong> Apply it once and delete
+        the local file, or use External Secrets below so the repo never holds
+        plaintext.
       </div>
 
-      <h2>step 4 &mdash; Deployment</h2>
+      <h2>the pinned pair</h2>
       <p>
-        A single Deployment with one Pod. All daemon containers share the
-        PVC and inherit both ConfigMap and Secret as environment variables.
-        Adapt the containers list to match the adapters you&rsquo;ve enabled.
+        <code>routd</code> and <code>runed</code> in one Deployment, one replica,
+        sharing the volume. <code>runed</code> needs the node&rsquo;s container
+        socket and the gid that owns it.
       </p>
-      <pre><code># deployment.yaml
+      <pre><code># routd-runed.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: arizuko
+  name: arizuko-turn
 spec:
   replicas: 1
+  strategy:
+    type: Recreate          # never two runed holding one docker.sock
   selector:
-    matchLabels:
-      app: arizuko
+    matchLabels: { app: arizuko, tier: turn }
   template:
     metadata:
-      labels:
-        app: arizuko
+      labels: { app: arizuko, tier: turn }
     spec:
-      initContainers:
-        # seed the data dir on first run
-        - name: init-data
-          image: arizuko:latest
-          command: ["arizuko", "create", "$(INSTANCE_NAME)"]
-          envFrom:
-            - configMapRef:
-                name: arizuko-config
-            - secretRef:
-                name: arizuko-secrets
-          volumeMounts:
-            - name: data
-              mountPath: /srv/data
-
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        supplementalGroups: [999]   # the gid owning /var/run/docker.sock
       containers:
-        - name: authd
-          image: arizuko:latest
-          command: ["/usr/local/bin/authd"]
-          env:
-            - name: LISTEN_ADDR
-              value: ":8081"
-          envFrom:
-            - configMapRef:
-                name: arizuko-config
-            - secretRef:
-                name: arizuko-secrets
-          volumeMounts:
-            - name: data
-              mountPath: /srv/data
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: 8081
-            initialDelaySeconds: 5
-            periodSeconds: 10
-
         - name: routd
           image: arizuko:latest
-          command: ["/usr/local/bin/routd"]
-          env:
-            # authd's JWKS + token mint, and the runed dispatch target.
-            # Containers in one pod share localhost; give each daemon its
-            # own port (LISTEN_ADDR) so they don't collide.
-            - name: LISTEN_ADDR
-              value: ":8080"
-            - name: AUTHD_URL
-              value: "http://localhost:8081"
-            - name: RUNED_URL
-              value: "http://localhost:8082"
+          command: ["routd"]
           envFrom:
-            - configMapRef:
-                name: arizuko-config
-            - secretRef:
-                name: arizuko-secrets
+            - configMapRef: { name: arizuko-config }
+            - secretRef:    { name: arizuko-routd }
           volumeMounts:
-            - name: data
-              mountPath: /srv/data
+            - { name: data, mountPath: /srv/app/home }
           readinessProbe:
-            httpGet:
-              path: /health
-              port: 8080
+            httpGet: { path: /health, port: 8080 }
             initialDelaySeconds: 5
-            periodSeconds: 10
 
         - name: runed
           image: arizuko:latest
-          command: ["/usr/local/bin/runed"]
+          command: ["runed"]
+          envFrom:
+            - configMapRef: { name: arizuko-config }
+            - secretRef:    { name: arizuko-runed }
           env:
-            - name: LISTEN_ADDR
-              value: ":8082"
-            - name: AUTHD_URL
-              value: "http://localhost:8081"
-          envFrom:
-            - configMapRef:
-                name: arizuko-config
-            - secretRef:
-                name: arizuko-secrets
+            - { name: LISTEN_ADDR, value: ":8082" }   # routd already has :8080
           volumeMounts:
-            - name: data
-              mountPath: /srv/data
-
-        - name: timed
-          image: arizuko:latest
-          command: ["/usr/local/bin/timed"]
-          envFrom:
-            - configMapRef:
-                name: arizuko-config
-            - secretRef:
-                name: arizuko-secrets
-          volumeMounts:
-            - name: data
-              mountPath: /srv/data
-
-        - name: onbod
-          image: arizuko:latest
-          command: ["/usr/local/bin/onbod"]
-          envFrom:
-            - configMapRef:
-                name: arizuko-config
-            - secretRef:
-                name: arizuko-secrets
-          volumeMounts:
-            - name: data
-              mountPath: /srv/data
-
-        - name: dashd
-          image: arizuko:latest
-          command: ["/usr/local/bin/dashd"]
-          envFrom:
-            - configMapRef:
-                name: arizuko-config
-            - secretRef:
-                name: arizuko-secrets
-          volumeMounts:
-            - name: data
-              mountPath: /srv/data
-
-        - name: proxyd
-          image: arizuko:latest
-          command: ["/usr/local/bin/proxyd"]
-          envFrom:
-            - configMapRef:
-                name: arizuko-config
-            - secretRef:
-                name: arizuko-secrets
-          volumeMounts:
-            - name: data
-              mountPath: /srv/data
-          ports:
-            - containerPort: 8080
-              name: http
-
-        # add adapter containers here, e.g.:
-        # - name: teled
-        #   image: arizuko-teled:latest
-        #   envFrom: [...]
+            - { name: data,   mountPath: /srv/app/home }
+            - { name: docker, mountPath: /var/run/docker.sock }
 
       volumes:
         - name: data
-          persistentVolumeClaim:
-            claimName: arizuko-data</code></pre>
-
+          persistentVolumeClaim: { claimName: arizuko-data }
+        - name: docker
+          hostPath: { path: /var/run/docker.sock, type: Socket }</code></pre>
       <div class="note">
-        The init container runs <code>arizuko create</code>. On subsequent
-        starts the data dir already exists and the command exits cleanly
-        (it skips re-seeding). You can also run <code>create</code> once
-        manually with <code>kubectl run</code> and omit the initContainer.
+        Two containers in one pod share localhost, so the second one needs its
+        own <code>LISTEN_ADDR</code>. Everywhere else keep the in-container port
+        at <code>:8080</code> &mdash; every daemon defaults to it and every
+        backend row names it.
       </div>
 
-      <h2>step 5 &mdash; Service</h2>
+      <h2>seeding the data dir</h2>
       <p>
-        Expose <code>proxyd</code>&rsquo;s port. Use a LoadBalancer for cloud
-        clusters; an Ingress for shared clusters where TLS termination is
-        already handled upstream.
+        <code>arizuko create</code> writes the instance directory skeleton. Run
+        it once as a Job against the same volume, or on the node before you
+        apply anything. It is not a per-start step and does not belong in an
+        init container that runs on every rollout.
+      </p>
+      <p>
+        The store server&rsquo;s <code>init</code> run is separate and also
+        one-time &mdash; it prints an admin password once (INSTALL.md &sect; The
+        store server). Do it before the first daemon starts, or every daemon
+        boots onto tables that do not exist.
+      </p>
+
+      <h2>exposing it</h2>
+      <p>
+        <code>proxyd</code> is the only thing the outside world talks to. It
+        serves plain HTTP on <code>:8080</code> and terminates no TLS itself, so
+        put an Ingress or a LoadBalancer in front of it.
       </p>
       <pre><code># service.yaml
 apiVersion: v1
 kind: Service
 metadata:
-  name: arizuko
+  name: proxyd
 spec:
-  selector:
-    app: arizuko
+  selector: { app: arizuko, tier: proxyd }
   ports:
-    - name: http
-      port: 80
-      targetPort: 8080
-  type: LoadBalancer</code></pre>
+    - { name: http, port: 8080, targetPort: 8080 }
+  type: ClusterIP</code></pre>
       <p>
-        If your cluster has an Ingress controller (nginx, Traefik, etc.), use
-        <code>type: ClusterIP</code> here and add an Ingress resource with TLS.
-        <code>proxyd</code> can also handle TLS itself &mdash; set
-        <code>PROXYD_TLS_CERT</code> / <code>PROXYD_TLS_KEY</code> and expose
-        port 443 instead.
+        Give every other daemon the same shape &mdash; Service named after the
+        daemon, port 8080 &mdash; and the <code>proxyd_routes</code> rows
+        <code>arizuko generate</code> wrote keep resolving.
       </p>
-
-      <h2>step 6 &mdash; apply and verify</h2>
-      <pre><code>kubectl apply -f pvc.yaml
-kubectl apply -f configmap.yaml
-kubectl apply -f secret.yaml
-kubectl apply -f deployment.yaml
-kubectl apply -f service.yaml
-
-# watch the pod come up
-kubectl get pods -w
-
-# check routd is ready
-kubectl logs deploy/arizuko -c routd --tail=30
-
-# hit the health endpoint
-kubectl port-forward svc/arizuko 8080:80 &amp;
-curl -s http://localhost:8080/health</code></pre>
 
       <h2 id="external-secrets">secret management with External Secrets</h2>
       <p>
-        The External Secrets Operator syncs a K8s Secret from an external
-        store on a schedule. When you rotate a secret in Vault or Secrets
-        Manager, the operator updates the K8s Secret automatically, and the
-        next pod restart picks it up.
+        This is the reason most people come to Kubernetes with arizuko. The
+        External Secrets Operator syncs a K8s Secret from Vault, AWS Secrets
+        Manager or GCP Secret Manager on a schedule; rotation becomes a push to
+        the store plus a rollout. With IRSA (AWS) or Workload Identity (GCP) the
+        pod holds no long-lived credential at all &mdash; its identity is the
+        proof.
       </p>
-      <p>Install the operator once per cluster:</p>
       <pre><code>helm repo add external-secrets https://charts.external-secrets.io
-helm install external-secrets external-secrets/external-secrets -n external-secrets --create-namespace</code></pre>
-
+helm install external-secrets external-secrets/external-secrets \
+  -n external-secrets --create-namespace</code></pre>
       <p>
-        Wire it to your store. This example uses AWS Secrets Manager with IRSA
-        (the pod&rsquo;s ServiceAccount is annotated with an IAM role that has
+        This example uses AWS Secrets Manager with IRSA (the pod&rsquo;s
+        ServiceAccount is annotated with an IAM role holding
         <code>secretsmanager:GetSecretValue</code>):
       </p>
       <pre><code># secretstore.yaml
@@ -495,211 +518,104 @@ spec:
       auth:
         jwt:
           serviceAccountRef:
-            name: arizuko   # annotated with IAM role ARN</code></pre>
-
+            name: arizuko   # annotated with the IAM role ARN</code></pre>
       <pre><code># externalsecret.yaml
 apiVersion: external-secrets.io/v1beta1
 kind: ExternalSecret
 metadata:
-  name: arizuko-secrets
+  name: arizuko-routd
 spec:
   refreshInterval: 1h
   secretStoreRef:
     name: aws-secrets
     kind: SecretStore
   target:
-    name: arizuko-secrets   # creates the K8s Secret
-  data:
-    - secretKey: SECRETS_KEY
-      remoteRef:
-        key: arizuko/demo
-        property: SECRETS_KEY
-    - secretKey: CHANNEL_SECRET
-      remoteRef:
-        key: arizuko/demo
-        property: CHANNEL_SECRET
-    - secretKey: TELEGRAM_BOT_TOKEN
-      remoteRef:
-        key: arizuko/demo
-        property: TELEGRAM_BOT_TOKEN</code></pre>
-
+    name: arizuko-routd      # creates the K8s Secret
+  dataFrom:
+    - extract:
+        key: arizuko/demo/routd</code></pre>
       <p>
-        For HashiCorp Vault, swap the <code>provider</code> block for a Vault
-        provider and point at your KV path. For GCP Secret Manager, use the
-        GCP provider and Workload Identity instead of IRSA. The
-        <code>ExternalSecret</code> shape stays the same.
-      </p>
-      <p>
-        Once this is running, you never create <code>secret.yaml</code>
-        manually again. The operator manages the K8s Secret object; the
-        Deployment reads it; rotation is a push to Vault + a pod restart.
+        For Vault, swap the <code>provider</code> block and point at your KV
+        path; for GCP, use the GCP provider with Workload Identity. The
+        <code>ExternalSecret</code> shape stays the same. Add
+        <a href="https://github.com/stakater/Reloader" target="_blank" rel="noopener">Reloader</a>
+        if you want a rotation to trigger the rollout by itself &mdash; a synced
+        Secret does not restart a running pod on its own.
       </p>
 
-      <h2>agent containers (known gap)</h2>
-      <p>
-        <code>runed</code> spawns a per-group <code>arizuko-ant</code> container
-        for each agent run. On bare Docker it calls
-        <code>docker run</code> via the Docker socket. In Kubernetes the socket
-        isn&rsquo;t reliably available, and even if it is, containers spawned
-        that way land outside the pod&rsquo;s namespace.
-      </p>
-      <p>A <code>CONTAINER_BACKEND=kubernetes</code> mode is planned that will
-        create a Kubernetes Job per agent turn instead, inheriting the same
-        Secret and ConfigMap. It isn&rsquo;t shipped yet. Until then:</p>
-      <ul>
-        <li>
-          <strong>Docker-in-Docker</strong> &mdash; add a <code>dind</code>
-          sidecar container (image: <code>docker:dind</code>) and mount its
-          socket into the <code>runed</code> container as
-          <code>/var/run/docker.sock</code>. Works; not recommended for
-          production because DinD requires <code>privileged: true</code>.
-        </li>
-        <li>
-          <strong>KIND</strong> &mdash; replace DinD with a KIND node for dev
-          and test environments. Same privilege requirement, but easier to
-          snapshot.
-        </li>
-        <li>
-          <strong>Skip agents</strong> &mdash; if you only need the message
-          routing and channel adapter layer without the agent, the rest of the
-          stack runs fine. Route messages to a <code>#observe</code> route or
-          handle them via webhooks.
-        </li>
-      </ul>
+      <h2>apply and verify</h2>
+      <pre><code>kubectl apply -f pvc.yaml -f configmap.yaml -f secret.yaml
+kubectl apply -f routd-runed.yaml -f service.yaml
 
-      <h2>env vars reference</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>variable</th>
-            <th>goes in</th>
-            <th>notes</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td><code>SECRETS_KEY</code></td>
-            <td>Secret</td>
-            <td>32-byte random; <code>routd</code> uses it to encrypt the secrets table in SQLite</td>
-          </tr>
-          <tr>
-            <td><code>AUTHD_SERVICE_KEY</code></td>
-            <td>Secret</td>
-            <td>per-daemon key each daemon presents to <code>authd</code> to mint its <code>service:</code> token</td>
-          </tr>
-          <tr>
-            <td><code>CHANNEL_SECRET</code></td>
-            <td>Secret</td>
-            <td>bearer token adapters present to <code>routd</code></td>
-          </tr>
-          <tr>
-            <td><code>TELEGRAM_BOT_TOKEN</code></td>
-            <td>Secret</td>
-            <td>teled adapter; omit if not using Telegram</td>
-          </tr>
-          <tr>
-            <td><code>SLACK_BOT_TOKEN</code></td>
-            <td>Secret</td>
-            <td>slakd adapter; omit if not using Slack</td>
-          </tr>
-          <tr>
-            <td><code>SLACK_SIGNING_SECRET</code></td>
-            <td>Secret</td>
-            <td>slakd adapter</td>
-          </tr>
-          <tr>
-            <td><code>INSTANCE_NAME</code></td>
-            <td>ConfigMap</td>
-            <td>short name; becomes data dir suffix</td>
-          </tr>
-          <tr>
-            <td><code>ASSISTANT_NAME</code></td>
-            <td>ConfigMap</td>
-            <td>shown in chat UIs and pane titles</td>
-          </tr>
-          <tr>
-            <td><code>WEB_HOST</code></td>
-            <td>ConfigMap</td>
-            <td>public URL including scheme; used in invite links</td>
-          </tr>
-          <tr>
-            <td><code>CONTAINER_IMAGE</code></td>
-            <td>ConfigMap</td>
-            <td>agent image name; <code>runed</code> pulls this per agent spawn</td>
-          </tr>
-          <tr>
-            <td><code>HOST_DATA_DIR</code></td>
-            <td>ConfigMap</td>
-            <td>
-              host-side (or pod-side in K8s) path to data dir; passed to agent
-              container as a bind-mount source
-            </td>
-          </tr>
-          <tr>
-            <td><code>HOST_APP_DIR</code></td>
-            <td>ConfigMap</td>
-            <td>
-              in K8s: path inside the container image where skills live (e.g.
-              <code>/workspace</code>); no host bind-mount occurs
-            </td>
-          </tr>
-        </tbody>
-      </table>
+kubectl get pods -w
+kubectl logs deploy/arizuko-turn -c routd --tail=30
+
+kubectl port-forward svc/proxyd 8080:8080 &amp;
+curl -s http://localhost:8080/health</code></pre>
+      <p>
+        Healthy daemons are not a working instance. Send a message and wait for
+        the agent to answer before you call it deployed &mdash; every gate short
+        of that passes on a fleet that replies to nothing.
+      </p>
 
       <h2>troubleshooting</h2>
       <dl>
         <dt>Pod stuck in <code>Pending</code></dt>
         <dd>
-          Usually the PVC isn&rsquo;t bound. Check
-          <code>kubectl get pvc</code> &mdash; if it&rsquo;s
-          <code>Pending</code>, the StorageClass may not support RWO or no
-          provisioner is running. On a single-node cluster, use
-          <code>local-path</code> provisioner (Rancher) or set a
-          <code>hostPath</code> PV manually.
+          Usually the PVC isn&rsquo;t bound. <code>kubectl get pvc</code>; if
+          it&rsquo;s <code>Pending</code>, no provisioner matched the
+          StorageClass. On a single node, <code>local-path</code> or a manual
+          <code>local</code> PV.
         </dd>
 
-        <dt><code>routd</code> crashloops on startup</dt>
+        <dt>Every daemon logs a store error on boot</dt>
         <dd>
-          Usually the data dir isn&rsquo;t seeded. Check that the initContainer
-          ran and exited 0. If <code>arizuko create</code> failed, it logs why
-          &mdash; missing env var, permission error, or existing corrupt DB.
-          Check <code>kubectl logs deploy/arizuko -c init-data</code>.
+          A half-configured endpoint. <code>FromEnv</code> refuses an endpoint
+          with no credential rather than failing later, so check all five values
+          reached the container &mdash;
+          <code>kubectl exec … -- printenv | grep -E 'DYNAMODB|AWS_|STORE_CA'</code>.
+          An unset <code>DYNAMODB_URL</code> is worse than an error: the daemon
+          quietly opens a file instead and looks healthy while it writes
+          nowhere anyone reads.
         </dd>
 
-        <dt>Adapter can&rsquo;t reach routd</dt>
+        <dt>Agent containers never spawn</dt>
         <dd>
-          All containers in the same Pod share localhost. Confirm
-          <code>ROUTER_URL</code> is set to <code>http://localhost:8080</code>
-          (<code>routd</code>&rsquo;s port in this manifest) in the
-          adapter&rsquo;s env, and that adapters wait for <code>routd</code>
-          and <code>authd</code> to be ready.
+          Either <code>runed</code> can&rsquo;t reach
+          <code>/var/run/docker.sock</code> (check
+          <code>supplementalGroups</code> matches the gid that owns it on the
+          node) or <code>HOST_DATA_DIR</code> names a path the node does not
+          have. The second one is quieter: the spawn succeeds and the agent
+          finds an empty home.
         </dd>
 
-        <dt>Secrets not updating after Vault rotation</dt>
+        <dt>The agent starts but has no tools</dt>
         <dd>
-          External Secrets syncs on <code>refreshInterval</code>. After sync,
-          the K8s Secret is updated but the running pod still has the old env.
-          Restart the pod: <code>kubectl rollout restart deploy/arizuko</code>.
-          To automate this, add the
-          <a href="https://github.com/stakater/Reloader" target="_blank" rel="noopener">Reloader</a>
-          controller, which triggers a rollout when a watched Secret changes.
+          <code>routd</code> and <code>runed</code> landed on different
+          filesystems, so the MCP socket <code>routd</code> bound is not the one
+          <code>runed</code> mounted. They must share the volume and the node.
         </dd>
 
-        <dt>Agent containers don&rsquo;t spawn</dt>
+        <dt>Telegram replays a day of messages after a rollout</dt>
         <dd>
-          See the <em>agent containers</em> section above. The
-          <code>CONTAINER_BACKEND=kubernetes</code> path isn&rsquo;t shipped
-          yet; use DinD or skip agents until it is.
+          <code>teled</code> lost its offset file. Give the adapter its own
+          small persistent volume rather than <code>emptyDir</code>.
+        </dd>
+
+        <dt>Secrets not applying after a Vault rotation</dt>
+        <dd>
+          External Secrets updates the K8s Secret; the running pod keeps the env
+          it started with. <code>kubectl rollout restart</code>, or install
+          Reloader.
         </dd>
       </dl>
-
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="webdav.html">&larr; WebDAV mount</a>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/kubernetes.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-07">2026-08-07</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-15">2026-08-15</time>
       </div>
     </main>
 
