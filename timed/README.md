@@ -35,7 +35,7 @@ re-armed one-shot. BUGS `L33`.
   - `GET /openapi.json` — `resreg.OpenAPIHandler("timed", mux)`, empty by
     derivation: timed mounts no resource, it is a CLIENT of routd's
     `scheduled_tasks`
-  - `GET /dash/timed/` — the fire-loop overview (spec `6/8`), operator-only
+  - `GET /dash/timed/` — the fire-loop overview (spec `6/30`), operator-only
 - Config: `ROUTER_URL`, `AUTHD_URL`, `AUTHD_SERVICE_KEY`, `TZ`
 
 ## Configuration
