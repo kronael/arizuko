@@ -78,32 +78,30 @@ consent step, and the threat model that shapes it is SECURITY.md
 
 ## Route Table
 
-The `routes` table is a flat list of rules evaluated against every
-inbound message. Schema:
+`routes` is a flat list of rules evaluated against every inbound message.
+Each rule is addressed by `(seq, target, match)`, with `seq` padded so a read
+comes back in precedence order:
 
-| Column   | Type   | Purpose                                            |
-| -------- | ------ | -------------------------------------------------- |
-| `id`     | int PK | Auto-increment                                     |
-| `seq`    | int    | Evaluation order (lower = earlier)                 |
-| `match`  | text   | Space-separated `key=glob` predicates (AND)        |
-| `target` | text   | `<folder>[#<mode>]` — group folder + optional mode |
+| Field    | Type | Purpose                                                         |
+| -------- | ---- | --------------------------------------------------------------- |
+| `id`     | int  | The handle `route rm` takes; minted through the `counters` item |
+| `seq`    | int  | Evaluation order (lower = earlier)                              |
+| `match`  | text | Space-separated `key=glob` predicates (AND)                     |
+| `target` | text | `<folder>[#<mode>]` — group folder + optional mode              |
 
-There is no `jid` or `type` column. Rules are filtered entirely by the
+There is no `jid` or `type` field. Rules are filtered entirely by the
 `match` expression. Rules are evaluated in `seq` order; first rule whose
 predicates all match wins.
 
-```sql
--- All telegram chats default to atlas/content
-INSERT INTO routes (seq, match, target)
-VALUES (0, 'platform=telegram', 'atlas/content');
+```bash
+# All telegram chats default to atlas/content
+arizuko route krons add 'platform=telegram' atlas/content --seq 0
 
--- A specific telegram chat overrides
-INSERT INTO routes (seq, match, target)
-VALUES (-10, 'chat_jid=telegram:group/12345', 'atlas/legal');
+# A specific telegram chat overrides
+arizuko route krons add 'chat_jid=telegram:group/12345' atlas/legal --seq -10
 
--- All Discord chats fall back to atlas/social
-INSERT INTO routes (seq, match, target)
-VALUES (9999, 'platform=discord', 'atlas/social');
+# All Discord chats fall back to atlas/social
+arizuko route krons add 'platform=discord' atlas/social --seq 9999
 ```
 
 ### Match expression
@@ -130,14 +128,12 @@ Glob semantics use `path.Match` over `/`-separated segments:
 | `key=`       | value is absent (empty)                       |
 | omit key     | unconstrained — no filter on this field       |
 
-```sql
--- Reddit submissions only (kind=submission), any sub
-INSERT INTO routes (seq, match, target)
-VALUES (0, 'platform=reddit verb=post', 'atlas/posts');
+```bash
+# Reddit submissions only, any sub
+arizuko route krons add 'platform=reddit verb=post' atlas/posts
 
--- All twitter DMs (twitter:dm/<conv>) but not timeline/tweets
-INSERT INTO routes (seq, match, target)
-VALUES (0, 'platform=twitter room=dm/*', 'atlas/dm');
+# All twitter DMs (twitter:dm/<conv>) but not timeline/tweets
+arizuko route krons add 'platform=twitter room=dm/*' atlas/dm
 ```
 
 ### Target expansion
@@ -145,11 +141,10 @@ VALUES (0, 'platform=twitter room=dm/*', 'atlas/dm');
 Targets can contain `{sender}`, which expands to a sanitized sender ID.
 This creates per-user child groups:
 
-```sql
--- Each Discord user gets their own group under atlas/
-INSERT INTO routes (seq, match, target)
-VALUES (0, 'platform=discord', 'atlas/{sender}');
--- discord:user/alice → atlas/dc-alice, discord:user/bob → atlas/dc-bob
+```bash
+# Each Discord user gets their own group under atlas/
+arizuko route krons add 'platform=discord' 'atlas/{sender}'
+# discord:user/alice → atlas/dc-alice, discord:user/bob → atlas/dc-bob
 ```
 
 ### Modes
@@ -513,10 +508,8 @@ Bot messages and scheduler-injected messages ignore sticky state.
 
 ### State model
 
-```sql
-ALTER TABLE chats ADD COLUMN sticky_group TEXT;  -- group folder or NULL
-ALTER TABLE chats ADD COLUMN sticky_topic TEXT;  -- topic string or NULL
-```
+The chat's own item carries it: `chats.sticky_group` (a group folder) and
+`chats.sticky_topic`. Absent means no sticky.
 
 ## HTTP Routing (proxyd)
 
@@ -538,21 +531,21 @@ For `/api/` and `/x/` paths (and any request with `Accept: application/json`),
 `requireAuth` returns `{"error":"unauthorized"}` with HTTP 401 instead of
 redirecting to login.
 
-### web_routes table (dynamic, DB-backed)
+### web_routes (dynamic, store-backed)
 
-After fixed prefixes, proxyd looks up the longest matching prefix in the
-`web_routes` table (migration `0045-web-routes.sql`):
+After fixed prefixes, proxyd looks up the longest matching prefix in
+`web_routes`. The path prefix IS the coordinate; the attributes are:
 
-| Column        | Type | Values                                  |
-| ------------- | ---- | --------------------------------------- |
-| `path_prefix` | TEXT | Primary key; longest-prefix wins        |
-| `access`      | TEXT | `public` / `auth` / `deny` / `redirect` |
-| `redirect_to` | TEXT | Used when `access = redirect`           |
-| `folder`      | TEXT | Owning group folder                     |
+| Attribute     | Values                                  |
+| ------------- | --------------------------------------- |
+| `access`      | `public` / `auth` / `deny` / `redirect` |
+| `redirect_to` | Used when `access = redirect`           |
+| `folder`      | Owning group folder                     |
 
 Agents add/remove rows via the `set_web_route` / `del_web_route` /
-`list_web_routes` MCP tools (registered in `ipc/ipc.go`). `MatchWebRoute`
-in `store/web_routes.go` does the longest-prefix SQL query. A `redirect`
+`list_web_routes` MCP tools (registered in `ipc/ipc.go`). routd owns every
+write; proxyd snapshots the whole inventory (`store.AllWebRoutes`) and
+longest-prefix-matches it in Go (`matchWebRoute`, `proxyd/main.go`). A `redirect`
 row's `redirect_to` must point into the caller's own slot
 (`/pub/<folder>/...` or `/priv/<folder>/...`) — proxyd rejects anything
 else, closing an open-redirect / cross-folder impersonation gap.

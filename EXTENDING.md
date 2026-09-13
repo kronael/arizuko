@@ -55,14 +55,17 @@ a group at `/mnt/<name>` — a mount named `data/binance_perp` appears at
 1. **Instance allowlist** — `MOUNT_ALLOWED_ROOTS=/path1,/path2` in the
    instance `.env` (compose hands it to `runed`). A host path not under an
    allowed root is rejected and logged.
-2. **Per-group mounts** — the `container_config.Mounts` column of `groups`
-   in `store/routd/routd.db`: a JSON array of
-   `{"Host":"/path","Container":"name","RO":true}`. All groups at once:
-   ```sql
-   UPDATE groups SET container_config = json_set(
-       COALESCE(container_config,'{}'), '$.Mounts',
-       json('[{"Host":"/srv/data/binance_perp","Container":"data/binance_perp","RO":true}]')
-   );
+2. **Per-group mounts** — `container_config.Mounts` on the group's row, a
+   JSON array of `{"Host":"/path","Container":"name","RO":true}`. Read it,
+   edit it, apply it back:
+   ```bash
+   arizuko get krons groups > groups.yaml    # edit container_config
+   arizuko apply krons groups.yaml
+   ```
+   ```yaml
+   groups:
+     - folder: atlas/content
+       container_config: '{"Mounts":[{"Host":"/srv/data/binance_perp","Container":"data/binance_perp","RO":true}]}'
    ```
 
 After either change restart `runed`; the next spawn picks it up, a running
@@ -252,7 +255,8 @@ arizuko packages krons upgrade pkg                   # refuses locally-edited (d
 arizuko packages krons remove  pkg                   # withdraws routes, then drops fragments
 ```
 
-Each install records an **installed-package record** in `routd.db` (source +
+Each install records an **installed-package record** in routd's
+`installed_packages` (source +
 resolved revision + owned identities + per-asset content hash), keyed
 `(folder, name)` with `''` meaning instance-wide. That record drives `upgrade`
 (dirty-detection — never overwrites a locally edited asset), `remove` (deletes
@@ -432,7 +436,7 @@ All `[[connector]]` blocks register at the deployment level — there is no
 per-group `MCP.json`. Groups get access to connectors via grant rows
 (`mcp:<connector>:*`), not by registering their own MCP endpoints. The
 `connectors.toml` loader is the current mechanism; migration to a
-`mcp_connectors` resreg resource (routd.db, REST + agent MCP face) is tracked
+`mcp_connectors` resreg resource (routd, REST + agent MCP face) is tracked
 in `specs/5/16`.
 
 Third-party MCP servers (GitHub's hosted server, linear-mcp, …) plug
