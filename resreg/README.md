@@ -205,14 +205,16 @@ config manifest.
 - webd's operator-side MCP forwarder for `routes.*` —
   `webd/routes_mcp.go` (forwarder; `Resource.Store == nil`; proxyd
   writes the audit row downstream).
-- routd's cold-tier agent tools — `routes`, `web_routes`,
-  `network_rules`, `scheduled_tasks`, `acl` (one `*_resource.go` each),
-  mounted on the agent MCP socket via a `postBuild` seam with the
-  agent `Gate` injected, and — where a REST twin exists (`routes`,
-  `web_routes`, `scheduled_tasks` as `/v1/tasks`, `acl`) — the same
-  handler on the operator REST face with a scope/folder `Gate`. This is
-  the spec 5/16 fold. The hot-tier tools (`reply`/`send`/`inspect_*`)
-  stay hand-authored in `ipc/ipc.go` — no REST twin.
+- routd's thirteen — `acl`, `audit`, `dead_letters`, `github_sources`,
+  `groups`, `membership`, `network_rules`, `packages`, `route_tokens`,
+  `routes`, `scheduled_tasks`, `secrets`, `web_routes` (one `*_resource.go`
+  each). Each mounts on the agent MCP socket through a `postBuild` seam with
+  the agent `Gate` injected, and — where a REST twin exists — the same
+  handler on the operator REST face with a scope/folder `Gate`. That is the
+  spec 5/16 fold. The hot-tier tools (`reply`/`send`/`inspect_*`) stay
+  hand-authored in `ipc/ipc.go` — no REST twin.
+- authd's three — `audit`, `signing_keys`, `sessions` — and onbod's four:
+  `invites`, `onboarding_gates`, `onboarding`, `audit`.
 
 Spec: [`specs/5/16-mcp-rest-unification.md`](../specs/5/16-mcp-rest-unification.md).
 

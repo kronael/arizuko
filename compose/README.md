@@ -96,16 +96,27 @@ for `arizuko generate` to write into `proxyd_routes`.
   byte-identical catalog copy into a symlink, idempotently
 - `SymlinkFragment(servicesDir, hostCatalogDir, filename) error` —
   atomically point one fragment (or routes sidecar) at the catalog
+- `ReservedRoutePaths() []string` — the release's own `/dash/*` and `/v1/*`
+  prefixes. dashd's hub falls back to these when proxyd cannot be read, so an
+  operator is never linked at a path that 404s
+- `MigrateStoreLayout(storeDir) ([]string, error)` — moves an instance's owner
+  files into `store/<owner>/`, each with its `-wal` and `-shm` siblings, and
+  answers what it moved. Runs on the HOST and nowhere else: the narrowing it
+  enables is what removes the flat path from a daemon's own mount, so nothing
+  can migrate itself
 
 ## Dependencies
 
-- `core`
+- `core`, `resreg` (manifest parsing), `store` (the owner layout)
 
 ## Files
 
-- `compose.go` — reads `services/*.yml` fragments; `.yml` is the only
-  package format (the pre-5/27 `.toml` converter was removed once every
-  live data dir was on `.yml`).
+- `compose.go` — the generator: every daemon's service block, the scoped env
+  files, and the `services/*.yml` fragments it includes. `.yml` is the only
+  package format.
+- `manifest.go` — the `<name>.yaml` half of a package: its `proxyd_routes`
+  and `env` blocks, and the catalog they are read from.
+- `store_layout.go` — `MigrateStoreLayout`, the host-side owner-file move.
 - `fragments.go` — `RelinkCatalog` converts an installed copy that is still
   byte-identical to `template/services/` into a symlink there, so a catalog
   fix reaches every instance with no copy to fall behind. Matching is by
