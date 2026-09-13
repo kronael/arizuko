@@ -146,7 +146,15 @@ func OpenOnbodAt(path string) (*Store, error) {
 // the right file by probing for a table only that daemon's migrations create.
 // The probe is what makes a wrong path loud: SQLite would otherwise open an
 // empty file happily and every read would return zero rows (spec 5/16 step 7).
+//
+// The file must already be there. Opening one that is not MAKES it — SQLite
+// creates the file on the first pragma — so a reader asked for a path nobody
+// seeded would leave an empty database and its -wal behind on the way to
+// failing the probe, and the next boot would find its own litter.
 func openOwned(path, file, table, owner string) (*Store, error) {
+	if err := db_utils.RequireDB(path); err != nil {
+		return nil, err
+	}
 	db, err := db_utils.Open(path)
 	if err != nil {
 		return nil, err
