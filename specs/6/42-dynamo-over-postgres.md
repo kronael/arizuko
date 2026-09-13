@@ -512,7 +512,7 @@ not exist after the deletion release (§10 step 6).
 | `routd/migrations/` and `store/migrations/`                                                                                                                                                                              | 47 + 88 `.sql` files; the two `db_utils.Migrate` callers (`routd/db.go:115`, `store/store.go:209`); the `migrations` table; `store/migrations_frozen_test.go`               | nothing — an entity has no DDL past `CreateTable`, which `CreateEntity` issues at boot                                                   |
 | the owner files `routd.db`, `onbod.db`, `auth.db`, `runed.db` (`store/owners.go:22`), eight adapter files, `store/messages.db`, `seedOwnerDBs` in `cmd/arizuko/main.go`                                                  | 12 live files per instance                                                                                                                                                  | tables `<owner>.<entity>` in one database; `arizuko create` calls `CreateTable`                                                          |
 | the sibling bind mounts (`compose/compose.go` `dataSubdirs` for `routd`, `onbod`, `runed`; `template/services/gitd.yml:12`, `slakd.yml:13`) and `DATABASE`, `DB_PATH`, `ROUTD_DB_PATH`, `ONBOD_DB_PATH`, `RUNED_DB_PATH` | six daemons open `routd.db`; dashd opens three files; runed mounts the whole data dir (`compose/compose.go:1008`)                                                           | `DYNAMODB_URL`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_CA_BUNDLE` per daemon; `groups/` and `web/` mounts stay |
-| `cmd/arizuko/migrate-split`, `-hot`, `-routd`, `-onbod`, `-audit`, `-authstore`, `-chanlib`, `-emaid`, `-runed`, `-store`                                                                                                | 10 files, 17 `db_utils.Open` sites                                                                                                                                          | `arizuko migrate-dynamo` (below), itself deleted once the last instance has moved                                                        |
+| `cmd/arizuko/migrate-split`, `-hot`, `-routd`, `-onbod`, `-audit`, `-authstore`, `-chanlib`, `-emaid`, `-runed`, `-store`                                                                                                | 10 files, 17 `db_utils.Open` sites                                                                                                                                          | nothing in the binary — the copy is the operator's own script (below)                                                                    |
 | `store/messages_search.go`, `messages_fts` and its three triggers                                                                                                                                                        | the one FTS5 index; the only `sqlite_master` read in production                                                                                                             | §8                                                                                                                                       |
 | `modernc.org/sqlite` and `jackc/pgx` in `go.mod`                                                                                                                                                                         | `go.mod:32`, `go.mod:16`                                                                                                                                                    | `github.com/aws/aws-sdk-go-v2/service/dynamodb`                                                                                          |
 | `dashd/dashstore/tasks.go:117` (`randomblob` id mint), `cmd/arizuko/token.go:172` (a column read of `signing_keys`)                                                                                                      | the last two hand-written statements outside the layer                                                                                                                      | `crypto/rand` in Go; `authstore`'s own read                                                                                              |
@@ -570,15 +570,25 @@ arizuko's state and backup owns it. Whether `litellm_db` folds into that
 server is `6/37` §"One server, three owners", not this spec. Every daemon's
 fragment gains the five env lines above and loses its `DB_PATH` mount.
 
-**The copy.** `arizuko migrate-dynamo <instance>` reads every entity table of
-every `.db` file — all are `(part, sort, attrs)` on an instance that runs the
-object model — and writes each row as a `Put` in `TransactWriteItems` batches
-of 100 into `<owner>.<entity>`. It is a copy, not a remodel: no key changes,
-no attribute changes. Verification is mechanical: per table the row count and
+**The copy is hand-driven, and the binary carries no migration.** Decision
+(maintainer, 2026-09-13): an instance moves under an operator who watches it,
+so the copy is a script that operator runs once and throws away, and
+`cmd/arizuko`'s ten `migrate-*` subcommands go with the rest of the table
+above rather than gaining an eleventh. A one-off belongs in the one-off file:
+a migration subcommand is permanent surface, tested and documented forever,
+for a run each instance makes once. The lever back is the previous image tag
+plus the SQLite files, which stay on disk unread — and the retired binary,
+which still reads them.
+
+What the copy does, whoever writes it: read every entity table of every `.db`
+file — all are `(part, sort, attrs)` on an instance that runs the object model
+— and write each row as a `Put` in `TransactWriteItems` batches of 100 into
+`<owner>.<entity>`. It is a copy, not a remodel: no key changes, no attribute
+changes. `*_v1` (the pre-entity originals), `migrations`, `messages_fts*` and
+`cost_log` are not copied; `cost_log` has no reader left since `6/39` gave the
+gateway the ledger. Verification is mechanical: per table the row count and
 the `Query` count agree, and every `chats` cursor reads back at the same
-position (234 cursors on the three instances, `6/37` step 5). The SQLite files
-stay on disk, unread, until the deletion release, so the lever back is the
-previous image tag plus untouched files.
+position (234 cursors on the three instances, `6/37` step 5).
 
 **`make test` needs the server.** In-memory SQLite is what let `go test
 ./...` run with no service, and there is no in-memory ExtendDB the house may
@@ -697,8 +707,8 @@ window, in either order.
 3. **Remove the interactive transactions and the column path** (§7 items 1–6),
    the two stray statements, and land §8. Both drivers pass; `make test` runs
    on either. **8–11 days.**
-4. **Compose, keys, `arizuko create`, `migrate-dynamo`**, rehearsed on a krons
-   snapshot; then krons: copy, flip, smoke. **5–6 days.**
+4. **Compose, keys, `arizuko create`, and the operator's copy script**,
+   rehearsed on a krons snapshot; then krons: copy, flip, smoke. **5–6 days.**
 5. **marinade and sloth**: entity migration, fourteen green days on krons,
    copy, flip. **2–3 days** of engineer time; calendar time longer.
 6. **The deletion release**: the table of §7, the import guard,
@@ -717,7 +727,7 @@ window, in either order.
 | `resreg.invoke` contract redesign (handlers describe writes) and the column path                        | 5                    |
 | `runAudited`/`DeleteGroup` purge, dashstore tasks, `prompt_db`, the InTx adapters, two stray statements | 4                    |
 | §8: index, tokeniser, BM25, snippet, boot walk, poll hook, FTS5 removal, the 20-query comparison        | 4                    |
-| compose, IAM minting in `arizuko create`, CA bundle, `migrate-dynamo`, rehearsal, krons cutover         | 6                    |
+| compose, IAM minting, CA bundle, the copy script, rehearsal, krons cutover                              | 6                    |
 | marinade and sloth (engineer time)                                                                      | 3                    |
 | deletion release and docs                                                                               | 4                    |
 | **total, adopting**                                                                                     | **34 (range 28–42)** |
