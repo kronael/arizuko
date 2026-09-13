@@ -22,6 +22,60 @@
 
     <p>What shipped, dated, terse. Reverse chronological. The chat broadcast for each release lives at the top of every block; the bullets below expand it for operators.</p>
 
+    <h2>arizuko v0.67.0 <span class="date">&mdash; 13 September 2026</span></h2>
+    <p>Your instance&rsquo;s data now lives on a DynamoDB-protocol server instead of SQLite files on the box, so it can run on a managed store and every daemon reaches only what its own key allows.</p>
+    <ul>
+      <li><strong>The store is a network service</strong> &mdash; one server per instance, tables per owner, a bounded key per daemon; the same driver points at Amazon DynamoDB.</li>
+      <li><strong>Message search runs in the router</strong> &mdash; no full-text engine under it, and the grammar is terms, &ldquo;phrases&rdquo; and <code>-term</code>.</li>
+      <li><strong>The gateway owns spend</strong> &mdash; one ledger, enforced on the request.</li>
+      <li><strong>Migration is hand-driven</strong> &mdash; the <code>migrate</code> subcommands are gone.</li>
+    </ul>
+    <p class="full">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0670--2026-09-13">CHANGELOG &sect; v0.67.0</a></p>
+
+    <h2>arizuko v0.66.0 <span class="date">&mdash; 29 August 2026</span></h2>
+    <p>An agent can now hold a real token for a tool it runs in its own shell, every harness enforces the same policies, and a queue-wide re-verification closed fourteen defects &mdash; several of them cross-tenant.</p>
+    <ul>
+      <li><strong><code>gh</code> works</strong> &mdash; one named secret per <code>shell:env:&lt;KEY&gt;</code> grant, nothing implicit.</li>
+      <li><strong>codex and pi get the skill guard</strong>, the tool log and mid-turn steering.</li>
+      <li><strong>Folder containment is one exact predicate</strong> &mdash; a folder named <code>%</code> reads nothing.</li>
+      <li><strong>The egress proxy no longer follows a redirect</strong> on the caller&rsquo;s behalf.</li>
+      <li><strong>A group born on any surface can speak</strong>, and five daemons drain on SIGTERM.</li>
+    </ul>
+    <p class="full">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0660--2026-08-29">CHANGELOG &sect; v0.66.0</a></p>
+
+    <h2>arizuko v0.65.0 <span class="date">&mdash; 21 August 2026</span></h2>
+    <p>Your group&rsquo;s container can now run Claude Code, codex or pi behind the same arizuko contract, and two long-silent context bugs are fixed.</p>
+    <ul>
+      <li><strong>codex and pi join the agent contract</strong> &mdash; pick one per instance with <code>ARIZUKO_BACKEND</code>.</li>
+      <li><strong>codex resumes its own session</strong>, so turn two is no longer blind.</li>
+      <li><strong>codex shows interim &#8987; status</strong> &mdash; it showed none before.</li>
+      <li><strong>A re-fed turn keeps its ambient context</strong> instead of losing it.</li>
+      <li><strong>The guard that scans skills is now one function</strong>, not three that had drifted.</li>
+    </ul>
+    <p class="full">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0650--2026-08-21">CHANGELOG &sect; v0.65.0</a></p>
+
+    <h2>arizuko v0.64.0 <span class="date">&mdash; 15 August 2026</span></h2>
+    <p>Every phase-5 spec is shipped and re-verified against the code. The fixes that matter are the ones where a daemon reported success it had not earned.</p>
+    <ul>
+      <li><strong>The web chat no longer hangs</strong> &mdash; the SSE key is read from the chat, not derived from a token.</li>
+      <li><strong><code>inspect_routing</code> no longer shows an agent other folders&rsquo; routes.</strong></li>
+      <li><strong>whapd stops reporting a WhatsApp send it never made</strong>; a rate limit now reaches you instead of silence.</li>
+      <li><strong>Products carry their own live tests</strong>, run by arizuko&rsquo;s own eval harness &mdash; and a product may no longer ship payloads nothing reads.</li>
+      <li><strong>Slack and Discord retain an inbound routd rejected</strong>, so a deploy no longer drops it.</li>
+      <li><strong>A dead-lettered message is readable and replayable</strong> instead of only countable.</li>
+    </ul>
+    <p class="full">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0640--2026-08-15">CHANGELOG &sect; v0.64.0</a></p>
+
+    <h2>arizuko v0.63.0 <span class="date">&mdash; 31 July 2026</span></h2>
+    <p>Install capabilities as packages, wire OAuth connectors from config, and re-delegate grants with a <code>WITH GRANT OPTION</code> level.</p>
+    <ul>
+      <li><strong><code>arizuko packages install|upgrade|remove</code></strong> &mdash; capabilities from a git source, hot-applied, no restart.</li>
+      <li><strong>Surrogate OAuth connectors</strong> &mdash; add a &ldquo;Connect &lt;service&gt;&rdquo; flow with a TOML drop-in + env creds.</li>
+      <li><strong>Grant delegation</strong> &mdash; pass onward only a subset of what you hold, WITH GRANT OPTION.</li>
+      <li><strong><code>route_tokens</code> REST folded onto its resreg resource</strong> &mdash; one handler, both faces.</li>
+    </ul>
+    <p class="full">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0630--2026-07-31">CHANGELOG &sect; v0.63.0</a></p>
+
     <h2>arizuko v0.62.0 <span class="date">&mdash; 28 July 2026</span></h2>
     <p>Channel adapters are plain docker compose files now, and a package manager installs a whole integration &mdash; fragment, routes, grants, skills &mdash; from a git source.</p>
     <ul>
