@@ -583,7 +583,12 @@ sudo make images && sudo systemctl restart arizuko_$I
 until [ "$(sudo docker ps --format '{{.Names}} {{.Status}}' | grep $I | grep -c 'health: starting')" -eq 0 ]; do sleep 10; done
 sudo docker ps --format "{{.Names}} {{.Status}}" | grep $I
 
-# 3. The schema actually moved. A migration that did not apply looks healthy.
+# 3. The store actually serves what the daemons declare. A store that answers
+#    nothing looks healthy.
+#    Served instance (DYNAMODB_URL set in .env): every owner's entity is a table.
+sudo docker exec arizuko_extenddb_$I extenddb manage --user admin \
+  -c /var/lib/extenddb/extenddb.toml list-tables 2>/dev/null | grep -c 'routd\.'
+#    File instance: the chain that applied and the chain on disk must agree.
 sudo sqlite3 $DB "SELECT MAX(version) FROM migrations WHERE service='routd';"
 ls routd/migrations/ | sort | tail -1   # the two numbers must agree
 

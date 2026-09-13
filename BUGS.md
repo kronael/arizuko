@@ -28,30 +28,30 @@ two drivers disagreed and no conformance body asked.
 - **Fix:** `72e61f2b`; pinned by `AnOpenWithNothingToChangeCreatesTheItem` on both
   drivers, green against ExtendDB and against DynamoDB Local
 
-## L293 — the store server answers 500 when a read walks a six-figure partition (2026-09-13, open)
+## L293 — the store server answers 500 under a full host disk, and says nothing about the disk (2026-09-13, open)
 
-MEASURED on krons' own server (ExtendDB 0.1.11 over PostgreSQL 17) while verifying the
-copy: a `Query` of `routd.audit_log`, whose 182,314 items share ONE partition, fails
-with `InternalServerError` after the SDK's three attempts, with a RequestID — so the
-server answered, it was not the connection. Every other table verified, including
-`messages` at 24,296 items across 136 partitions.
+MEASURED on krons' own server (ExtendDB 0.1.11 over PostgreSQL 17) during the copy: a
+`Query` of `routd.audit_log` and then a `TransactWriteItems` into it both failed with
+`InternalServerError` and a RequestID, so the server answered rather than the connection
+breaking. The host root filesystem was at **100%, 320K free** at that moment
+(`/srv` 103G, `/home` 86G, `/var` 43G), which is the state PostgreSQL cannot write in.
 
-The copy's verification now checks that table by its newest item instead of reading the
-partition back, but the defect is not the copy's: `audit_log` is a constant-partition
-entity and an operator page that walks it hits the same read.
+The server's answer names nothing an operator can act on: not the disk, not the write,
+not the database. A copy or an operator page therefore reads "the server is broken"
+when the true fact is "the host is full".
 
-- **Severity:** high — an operator audit page over a large instance cannot page its own
-  audit log; `specs/6/42` §12 item 7 already records that a constant partition is a
-  capacity question on the real service too
-- **Scope:** the store server; `audit/audit_log.go`'s partition choice
-- **Affected:** krons, measured; any instance whose audit log grows
-- **Source:** `RequestID 0588dbe2-47b5-4751-aa1d-9ed92b1abcfd` on the krons server
-- **Status:** open
-- **Fix:** two candidates, neither taken yet — the audit partition becomes the day (or
-  the folder), so a walk is bounded by construction and the operator page reads a
-  window; or the page walk carries the server's own paging and the 500 is reported
-  upstream as a server defect. The first is arizuko's to make and does not wait on the
-  vendor.
+- **Severity:** high — the failure is indistinguishable from a server defect, and it
+  reached a migration mid-run
+- **Scope:** the store server's error surface; `objstore/dynstore` error mapping
+- **Affected:** krons, measured
+- **Source:** RequestIDs `0588dbe2-47b5-4751-aa1d-9ed92b1abcfd` (read),
+  `ca8107bf-03fb-4914-b23e-e8c6cad6a5c6` (write)
+- **Status:** open — the disk is an infrastructure concern, the opaque 5xx is ours
+- **Fix:** two parts. The driver maps a 5xx into an error that says the server refused
+  and names the operation, so a caller stops reporting it as a client fault; and the
+  read of a constant-partition entity (`audit_log`, 182,314 items in ONE partition) is
+  re-measured on a host with room, because this run cannot tell a size limit from a
+  full disk. `specs/6/42` §12 items 5 and 6 own that measurement.
 
 ## L290 — `routd`'s held-world test races its own recorder, so one run in five reports the owner was never asked (2026-09-13, open)
 
