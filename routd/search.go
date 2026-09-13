@@ -4,13 +4,14 @@ package routd
 // answers `find_messages` and `GET /v1/messages/find` from, the boot walk that
 // fills it, and the four writes that keep it in step (spec 6/42 §8).
 //
-// ROUTD IS THE SOLE APPENDER OF MESSAGES, WHICH IS WHY THE FEED IS HERE. Every
-// message a live instance records goes through PutMessage on this type; the two
-// writes that rewrite an indexed attribute — media enrichment rewrites a body,
-// an observe rule stamps `routed_to` — and the one that deletes rows are
-// methods of it too. So the feed is one line beside each of four writes rather
-// than a reader of its own, and every one of them runs AFTER the store's write
-// has committed: the store is the record, the index follows it.
+// ROUTD APPENDS EVERY MESSAGE A CHANNEL PRODUCES, WHICH IS WHY THE FEED IS
+// HERE. Inbound and outbound both reach the store through PutMessage on this
+// type; the two writes that rewrite an indexed attribute — media enrichment
+// rewrites a body, an observe rule stamps `routed_to` — and the one that
+// deletes rows are methods of it too. So the feed is one line beside each of
+// four writes rather than a reader of its own, and every one of them runs
+// AFTER the store's write has committed: the store is the record, the index
+// follows it.
 //
 // The index is derived, so nothing here is a second copy of anything; what it
 // cannot see is a write another process makes (`arizuko send`, an archive
