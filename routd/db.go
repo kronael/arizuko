@@ -51,12 +51,14 @@ type DB struct {
 	// opened against a file leaves the file alone, and Close closes the pool.
 	release func() error
 
-	// search is the ranked message index every find_messages answers from, and
-	// searchStop ends its boot walk. Both are set by every door that builds a
+	// search is the ranked message index every find_messages answers from;
+	// searchStop ends its boot walk and searchDone is closed when that walk has
+	// stopped touching the store. All three are set by every door that builds a
 	// DB, so no door can hand back one whose search is a nil dereference
 	// (search.go).
 	search     *msgsearch.Index
 	searchStop context.CancelFunc
+	searchDone chan struct{}
 }
 
 // SetSurrogate wires the surrogate-OAuth engine used by ConnectorSecrets to
@@ -201,11 +203,17 @@ func open(dsn string) (*DB, error) {
 }
 
 // Close ends what the open holds. A routd served from a handle holds no pool,
-// so the pool is the only half that may be absent: the index's boot walk is
-// stopped either way, or it reads on against a store its owner has released.
+// so the pool is the only half that may be absent.
+//
+// IT WAITS FOR THE BOOT WALK. Cancelling is not enough: sql.DB.Close leaves a
+// query already in flight to finish, and a walk still reading when Close
+// returns writes SQLite's -wal beside a file its owner believes it has
+// released — which a caller that deletes the directory next reads as "not
+// empty".
 func (d *DB) Close() error {
 	if d.searchStop != nil {
 		d.searchStop()
+		<-d.searchDone
 	}
 	switch {
 	case d.release != nil:

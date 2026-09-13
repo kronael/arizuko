@@ -43,8 +43,10 @@ func (d *DB) startSearch() {
 	d.search = msgsearch.New()
 	ctx, cancel := context.WithCancel(context.Background())
 	d.searchStop = cancel
+	d.searchDone = make(chan struct{})
 	src := d.store()
 	go func() {
+		defer close(d.searchDone)
 		if err := d.search.Build(ctx, src); err != nil {
 			// The index answers this same error to every search, so the refusal
 			// reaches the caller as well as the log.
