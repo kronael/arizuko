@@ -508,3 +508,43 @@ func AMergeKeepsWhatTheWriterDidNotName(t *testing.T, newStore Factory) {
 			"expression", left["value"])
 	}
 }
+
+// AnOpenWithNothingToChangeCreatesTheItem is the write whose whole content is
+// the item's existence: a Merge that names no attribute, no initial value and
+// no removal. `store.PutMessage` sends one per message — a chat that carries no
+// real inbound is OPENED and nothing more (`store/messages.go`) — and it rides
+// in the batch that writes the message, so a driver that refuses it takes every
+// reply with it.
+func AnOpenWithNothingToChangeCreatesTheItem(t *testing.T, newStore Factory) {
+	ctx := context.Background()
+	s := newStore(t, secrets)
+	key := objstore.Key{Partition: tenant, Sort: "chat\x1ftelegram:1"}
+
+	if !commit(t, s, ctx, objstore.Write{Op: objstore.Merge, Entity: secrets, Key: key}) {
+		t.Fatal("an open was refused; it conditions on nothing, so it cannot refuse")
+	}
+	opened := point(t, s, secrets, key)
+	if len(opened) != 1 {
+		t.Fatalf("the open left %d items, want the one it opened", len(opened))
+	}
+	if len(opened[0].Attrs) != 0 {
+		t.Errorf("the opened item carries %v; an open writes no attribute", opened[0].Attrs)
+	}
+
+	// A second open finds the item and leaves every attribute a later writer
+	// put there, which is why the message writer may send one every time.
+	if !commit(t, s, ctx, objstore.Write{
+		Op: objstore.Merge, Entity: secrets, Key: key,
+		Attrs: map[string]string{"has_inbound": "1"},
+	}) {
+		t.Fatal("the flagging merge was refused")
+	}
+	if !commit(t, s, ctx, objstore.Write{Op: objstore.Merge, Entity: secrets, Key: key}) {
+		t.Fatal("the second open was refused")
+	}
+	again := one(t, s, secrets, key).Attrs
+	if again["has_inbound"] != "1" {
+		t.Errorf("has_inbound is %q after a second open; an open changes nothing",
+			again["has_inbound"])
+	}
+}

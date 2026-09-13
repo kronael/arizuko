@@ -19,6 +19,11 @@ const (
 	partAttr = "part"
 	sortAttr = "sort"
 
+	// openAttr is the name an open takes away. It is not an attribute of
+	// anything: no writer sets it and no reader asks for it, which is what
+	// makes removing it a write that changes nothing.
+	openAttr = "__open"
+
 	// DevKeyID and DevSecret are the documented example pair a local endpoint
 	// seeds, so a test can sign without a credential store. A served endpoint
 	// mints its own pair and the caller passes that one.

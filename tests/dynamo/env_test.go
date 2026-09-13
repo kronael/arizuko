@@ -470,3 +470,29 @@ func TestDashdBootsFromTheEnvironment(t *testing.T) {
 		t.Fatalf("ListInvites = %+v, want the one just created", invites)
 	}
 }
+
+// A bot reply is the write every turn ends with, and it is the one message that
+// opens its chat and flags nothing: `isRealInbound` is false for it, so the
+// chat write carries no attribute at all. A driver that refuses that write
+// refuses every reply the agent makes (BUGS L292).
+func TestABotReplyLandsOverTheEndpoint(t *testing.T) {
+	rdb := routd.OpenOver(routdHandle(t))
+	if err := rdb.PutGroup(core.Group{Folder: "acme"}); err != nil {
+		t.Fatalf("PutGroup: %v", err)
+	}
+	reply := core.Message{
+		ID: "bot-1", ChatJID: "telegram:9", Sender: "assistant", RoutedTo: "acme",
+		Content: "the budget is approved", BotMsg: true, FromMe: true,
+		Timestamp: time.Now().UTC(),
+	}
+	if err := rdb.PutMessage(reply); err != nil {
+		t.Fatalf("a bot reply over the endpoint: %v", err)
+	}
+	rows, err := rdb.MessagesBefore("telegram:9", "", 10)
+	if err != nil {
+		t.Fatalf("read the chat back: %v", err)
+	}
+	if len(rows) != 1 || rows[0].Content != reply.Content {
+		t.Fatalf("the chat holds %d rows, want the reply: %+v", len(rows), rows)
+	}
+}

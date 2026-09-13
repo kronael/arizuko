@@ -94,10 +94,19 @@ func (s *Store) writeAction(w objstore.Write) (types.TransactWriteItem, error) {
 				cond = exists + " AND " + cond
 			}
 		}
+		expr := setExpr(b, w.Attrs, w.Init, w.Remove)
+		if expr == "" {
+			// An OPEN: the item's existence is the whole write (a chat with no
+			// real inbound, store/messages.go). There is no empty update here
+			// and a key attribute may not be assigned, so the expression takes
+			// away a name the model never writes: the item is created when it
+			// is missing and no attribute of it changes when it is there.
+			expr = "REMOVE " + b.name(openAttr)
+		}
 		upd := &types.Update{
 			TableName:        s.table(w.Entity),
 			Key:              keyOf(w.Key),
-			UpdateExpression: aws.String(setExpr(b, w.Attrs, w.Init, w.Remove)),
+			UpdateExpression: aws.String(expr),
 		}
 		if cond != "" {
 			upd.ConditionExpression = aws.String(cond)
