@@ -28,6 +28,29 @@ two drivers disagreed and no conformance body asked.
 - **Fix:** `72e61f2b`; pinned by `AnOpenWithNothingToChangeCreatesTheItem` on both
   drivers, green against ExtendDB and against DynamoDB Local
 
+## ✅ FIXED 2026-09-13 L294 — the CLI wrote to the file while every daemon read the server (2026-09-13)
+
+MEASURED on krons minutes after its flip: `arizuko send krons eval "…"` printed
+`injected: cli-… → web:eval`, `routd.db`'s mtime moved, and the message never appeared
+in any daemon's read — `GET /v1/messages/find` and `/v1/messages/inspect` both answered
+from the server, where the row was not. `arizuko route add` landed in the same place, so
+a route the operator could list did not exist for proxyd.
+
+The cause is a door that branched on the PROCESS environment while only some subcommands
+put the instance's environment there: `store.OpenOwner` reads `DYNAMODB_URL` through
+`store.Served()`, `core.LoadConfigFrom` loads `.env`, and `send`, `route` and their
+siblings resolved the data directory without ever calling it. So the branch silently took
+the file path on a served instance — a split-brain writer, the exact shape
+`identity_derived_not_read` warns about, with the environment standing in for the record.
+
+- **Severity:** critical — an operator write is accepted, reported as done and never seen
+- **Scope:** `cmd/arizuko/main.go` `instanceDir`, `core/config.go`
+- **Affected:** krons, measured; every served instance
+- **Source:** `routd.db` mtime 11:28:55 against a fleet started 11:20
+- **Status:** fixed — resolving an instance's directory loads that instance's environment
+- **Fix:** `core.LoadInstanceEnv` is the one declaration and `instanceDir` its second
+  reader, so every subcommand that names an instance sees the same store the daemons do
+
 ## L293 — the store server answers 500 under a full host disk, and says nothing about the disk (2026-09-13, open)
 
 MEASURED on krons' own server (ExtendDB 0.1.11 over PostgreSQL 17) during the copy: a

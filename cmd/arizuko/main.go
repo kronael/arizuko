@@ -210,19 +210,23 @@ func mustInstanceDir(name string) string {
 	return dir
 }
 
+// instanceDir resolves one instance's data directory AND puts that instance's
+// environment into this process, because the store door branches on
+// DYNAMODB_URL: a subcommand that resolved the directory without the
+// environment opened the file on an instance whose daemons read the server.
 func instanceDir(name string) (string, error) {
 	clean, err := core.SanitizeInstance(name)
 	if err != nil {
 		return "", err
 	}
+	dir := filepath.Join("/srv", "data", "arizuko_"+clean)
 	if base := os.Getenv("ARIZUKO_DATA_DIR"); base != "" {
-		return filepath.Join(base, "arizuko_"+clean), nil
+		dir = filepath.Join(base, "arizuko_"+clean)
+	} else if prefix := os.Getenv("PREFIX"); prefix != "" {
+		dir = filepath.Join(prefix, "data", "arizuko_"+clean)
 	}
-	prefix := os.Getenv("PREFIX")
-	if prefix == "" {
-		prefix = "/srv"
-	}
-	return filepath.Join(prefix, "data", "arizuko_"+clean), nil
+	core.LoadInstanceEnv(dir)
+	return dir, nil
 }
 
 // parseCreateFlags parses `create` args via flexParse so --product (-p) works in

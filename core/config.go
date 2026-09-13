@@ -149,18 +149,26 @@ func RequireSecretKeyring(raw string) ([][]byte, error) {
 // the operator's cwd and `arizuko create`/`group add` wrote the groups/
 // skeleton into whatever directory the command ran from (2026-07-11).
 func LoadConfigFrom(dir string) (*Config, error) {
-	_ = godotenv.Load(filepath.Join(dir, ".env"))
-	// The operator's own store credential, in its own file. It is not in .env
-	// because .env reaches every service that has no scoped env file of its
-	// own, and this key reaches every owner's tables. Absent on an instance
-	// that keeps its owners in files, and then nothing here needs it.
-	_ = godotenv.Load(filepath.Join(dir, "env", "operator.env"))
+	LoadInstanceEnv(dir)
 	if os.Getenv("DATA_DIR") == "" {
 		if err := os.Setenv("DATA_DIR", dir); err != nil {
 			return nil, err
 		}
 	}
 	return LoadConfig()
+}
+
+// LoadInstanceEnv puts one instance's environment into this process: its .env,
+// and the operator's own store credential from its own file. That credential is
+// not in .env because .env reaches every service that has no scoped env file,
+// and it reaches every owner's tables.
+//
+// Every host CLI door calls it, and that is not a convenience: DYNAMODB_URL
+// decides whether a store is the server or a file, so a subcommand that skipped
+// this wrote to the file while every daemon read the server (BUGS L294).
+func LoadInstanceEnv(dir string) {
+	_ = godotenv.Load(filepath.Join(dir, ".env"))
+	_ = godotenv.Load(filepath.Join(dir, "env", "operator.env"))
 }
 
 func LoadConfig() (*Config, error) {
