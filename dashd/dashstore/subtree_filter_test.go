@@ -26,7 +26,7 @@ func TestRoutesIntoFolderIsNotWidenedByLikeMetacharacters(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got, err := New(db).RoutesIntoFolder("a_b")
+	got, err := New(store.New(db).Obj()).RoutesIntoFolder("a_b")
 	if err != nil {
 		t.Fatal(err)
 	}

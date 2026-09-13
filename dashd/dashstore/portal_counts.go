@@ -104,23 +104,3 @@ func (s *Store) failedRuns() ([]store.TaskRunLog, error) {
 	return s.st().FailedRunsSince(context.Background(),
 		time.Now().Add(-failedRunWindow), failedRunCeiling)
 }
-
-// strings runs a single-column query and collects the column. A row that fails
-// to scan is skipped rather than fatal — the dot is a nudge and one unreadable
-// row must not blank the whole number.
-func (s *Store) strings(q string) ([]string, error) {
-	rows, err := s.db.Query(q)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var v string
-		if err := rows.Scan(&v); err != nil {
-			continue
-		}
-		out = append(out, v)
-	}
-	return out, rows.Err()
-}

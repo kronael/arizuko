@@ -2,6 +2,8 @@ package dashstore
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"slices"
@@ -99,14 +101,15 @@ func (s *Store) taskTransition(ctx context.Context, ev audit.Event, move func(*s
 	return s.st().Apply(ctx, ws, rec)
 }
 
-// NewTaskID mints an id for a task the operator is about to create. The random
-// half comes from the store because that is where uniqueness is decidable.
+// NewTaskID mints an id for a task the operator is about to create. Six random
+// bytes, so a collision is what the create's own condition refuses rather than
+// something this has to rule out.
 func (s *Store) NewTaskID() (string, error) {
-	var id string
-	if err := s.db.QueryRow(`SELECT lower(hex(randomblob(6)))`).Scan(&id); err != nil {
+	var raw [6]byte
+	if _, err := rand.Read(raw[:]); err != nil {
 		return "", err
 	}
-	return "t-" + id, nil
+	return "t-" + hex.EncodeToString(raw[:]), nil
 }
 
 // NewTask is a task the operator is creating: everything the row needs that is

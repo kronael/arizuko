@@ -28,7 +28,7 @@ type InstalledPackage struct {
 // always precedes a longer one that extends it. Instance-wide rows carry the
 // empty folder and therefore come first.
 func (s *Store) InstalledPackages() ([]InstalledPackage, error) {
-	items, err := s.obj().Query(context.Background(), objstore.Query{
+	items, err := s.obj.Query(context.Background(), objstore.Query{
 		Entity: store.InstalledPackages, Partition: store.OwnerRoutd,
 	})
 	if err != nil {
@@ -64,7 +64,7 @@ func (s *Store) InstalledPackages() ([]InstalledPackage, error) {
 // deadline carries no expires_at at all. The comparison itself runs in Go
 // because the predicate is an OR and Where terms are conjuncts.
 func (s *Store) HeldApprovalFolders(now string) ([]string, error) {
-	items, err := s.obj().Query(context.Background(), objstore.Query{
+	items, err := s.obj.Query(context.Background(), objstore.Query{
 		Entity: store.PendingActions, Partition: store.OwnerRoutd,
 		Where: []objstore.Cmp{{Attr: store.AttrPendStatus, Op: objstore.Eq, Value: "held"}},
 	})

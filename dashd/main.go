@@ -424,7 +424,7 @@ func (d *dash) adminDB() *sql.DB { return d.dbRoutd }
 // absent, which is how the pages know to banner instead of render. Built per
 // call for the same reason secretStore is: tests construct a dash literal and a
 // field set at boot would be empty for them.
-func (d *dash) ds() *dashstore.Store { return dashstore.New(d.adminDB()) }
+func (d *dash) ds() *dashstore.Store { return dashstore.New(store.New(d.adminDB()).Obj()) }
 
 // resolveDSN picks dashd's SQLite path: DB_PATH when set, else
 // <DATA_DIR>/store/routd.db. It REFUSES messages.db — a stale DB_PATH from an old
