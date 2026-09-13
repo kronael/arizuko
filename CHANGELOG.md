@@ -13,6 +13,23 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.67.0] — 2026-09-13
+
+> arizuko v0.67.0 — the store is a service
+>
+> Your instance's data now lives on a DynamoDB-protocol server instead of
+> SQLite files on the box, so it can run on a managed store and every daemon
+> reaches only what its own key allows.
+>
+> • the store is a network service — one server per instance, tables per owner,
+> a bounded key per daemon; the same driver points at Amazon DynamoDB
+> • message search runs in the router — no full-text engine under it, and the
+> grammar is terms, "phrases" and -term
+> • the gateway owns spend — one ledger, enforced on the request
+> • migration is hand-driven — the migrate subcommands are gone
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ### Security
 
 - **A stamped identity header now needs proxyd's proof behind it.** Every
