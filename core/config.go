@@ -150,6 +150,11 @@ func RequireSecretKeyring(raw string) ([][]byte, error) {
 // skeleton into whatever directory the command ran from (2026-07-11).
 func LoadConfigFrom(dir string) (*Config, error) {
 	_ = godotenv.Load(filepath.Join(dir, ".env"))
+	// The operator's own store credential, in its own file. It is not in .env
+	// because .env reaches every service that has no scoped env file of its
+	// own, and this key reaches every owner's tables. Absent on an instance
+	// that keeps its owners in files, and then nothing here needs it.
+	_ = godotenv.Load(filepath.Join(dir, "env", "operator.env"))
 	if os.Getenv("DATA_DIR") == "" {
 		if err := os.Setenv("DATA_DIR", dir); err != nil {
 			return nil, err

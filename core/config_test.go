@@ -319,3 +319,34 @@ func TestLoadConfigModelGateway(t *testing.T) {
 		t.Fatalf("gateway pair not read: %q %q", cfg.ModelGatewayURL, cfg.ModelGatewayKey)
 	}
 }
+
+// The operator's store credential lives in its own file, because .env reaches
+// every service that has no scoped env file and this key reaches every owner.
+func TestOperatorCredentialLoadsFromItsOwnFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "env"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(path, body string) {
+		if err := os.WriteFile(filepath.Join(dir, path), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(".env", "ASSISTANT_NAME=Test\nDYNAMODB_URL=https://extenddb:18443\n")
+	write("env/operator.env", "AWS_ACCESS_KEY_ID=AKIAOPERATOR\nAWS_SECRET_ACCESS_KEY=shh\n")
+	for _, k := range []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "DYNAMODB_URL", "DATA_DIR"} {
+		t.Setenv(k, "")
+		if err := os.Unsetenv(k); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := LoadConfigFrom(dir); err != nil {
+		t.Fatalf("LoadConfigFrom: %v", err)
+	}
+	if got := os.Getenv("AWS_ACCESS_KEY_ID"); got != "AKIAOPERATOR" {
+		t.Errorf("AWS_ACCESS_KEY_ID = %q, want the one in env/operator.env", got)
+	}
+	if got := os.Getenv("AWS_SECRET_ACCESS_KEY"); got != "shh" {
+		t.Errorf("the secret did not load: %q", got)
+	}
+}
