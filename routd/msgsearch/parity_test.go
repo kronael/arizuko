@@ -5,29 +5,30 @@ package msgsearch
 // index costs in memory, and whether its top ten is SQLite FTS5's top ten for
 // an exact-term query.
 //
-// THE ORACLE IS THE INDEX THIS ONE ANSWERS FOR. The comparison table is an
-// fts5 table declared exactly as the one that backed ranked search — one
-// indexed `content` column, `unicode61 remove_diacritics 2` — queried with
-// `bm25()`, so a difference is a difference in this package and not in the
-// shape of the question. It is test-only: nothing under routd/msgsearch links
-// SQLite.
+// THE ORACLE IS AN FTS5 TABLE, declared the way ranked search declares this
+// index — one indexed `content` column, `unicode61 remove_diacritics 2` —
+// and queried with `bm25()`, so a difference is a difference in this package
+// and not in the shape of the question. The database comes from dbtest, the
+// one door a test reaches an engine through, and the body skips when that
+// door is pointed at Postgres: FTS5 has no spelling there.
 //
 // It is skipped under -short, because 24,296 messages through two engines is
 // not a unit test's second.
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"math/rand"
+	"os"
 	"runtime"
 	"sort"
 	"testing"
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/db_utils"
+	"github.com/kronael/arizuko/db_utils/dbtest"
 	"github.com/kronael/arizuko/store"
-	_ "modernc.org/sqlite"
 )
 
 // The krons census of 2026-09-12: what the live instance holds, which is the
@@ -138,6 +139,9 @@ func TestTheTopTenIsFTS5sTopTen(t *testing.T) {
 	if testing.Short() {
 		t.Skip("a corpus of 24,296 messages through two engines is not a -short test")
 	}
+	if os.Getenv(db_utils.TestPGDSNEnv) != "" {
+		t.Skip("the oracle is SQLite FTS5 and the test engine is Postgres")
+	}
 	src := seedCorpus()
 	ix := New()
 	if err := ix.Build(context.Background(), src); err != nil {
@@ -192,11 +196,7 @@ func TestTheTopTenIsFTS5sTopTen(t *testing.T) {
 // against it, hit identity being the message's own coordinate.
 func fts5Oracle(t *testing.T, src *corpus) func(*testing.T, string, int) []string {
 	t.Helper()
-	db, err := sql.Open("sqlite", "file:parity?mode=memory&cache=shared")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() }) //nolint:errcheck // the test is ending
+	db := dbtest.Open(t)
 	if _, err := db.Exec("CREATE VIRTUAL TABLE m USING fts5(" +
 		"content, part UNINDEXED, sort UNINDEXED, " +
 		"tokenize='unicode61 remove_diacritics 2')"); err != nil {
