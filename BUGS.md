@@ -7,6 +7,40 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L299 — a subagent's web tools are refused with Claude Code's permission text, and the agent reports the platform as broken (2026-09-14, open)
+
+MEASURED in krons' 09:23 turn. The MAIN agent's `WebSearch` calls succeeded —
+`{"tool":"WebSearch","outcome":"ok","duration_ms":5390}` and two more — while a subagent
+it spawned reported: *"Web tools are hard-blocked in this environment — both WebFetch and
+WebSearch return 'user doesn't want to take this action' (permission denial) on every
+call, including a single-call test. I ran zero successful fetches."* The turn transcript
+(`groups/krons/.claude/projects/-home-node/8f44dea3-….jsonl`) carries one tool result
+with exactly that text.
+
+The container is not configured to refuse: `permissions.defaultMode` is
+`bypassPermissions`, `hooks` is empty, `sandbox.enabled` is false, and the only deny in
+`ant/src/guards.ts` is the `gh` write gate. `pending_actions` holds no hold for that turn,
+so the HITL gate is not the source either. The refusal therefore comes from the SDK's own
+permission path for a SPAWNED agent, where `ant/src/claude.ts` sets
+`permissionMode: 'bypassPermissions'` for the query it starts and a subagent may not
+inherit it.
+
+The second half is the damage: the agent cannot tell a refusal from a capability that
+does not exist, so it writes a confident report that the platform blocks web access. A
+reader of that chat is told the product is broken.
+
+- **Severity:** high — the refusal is invisible in configuration and the agent's
+  conclusion is wrong and public
+- **Scope:** `ant/src/claude.ts` (the subagent query options), the refusal text the agent sees
+- **Affected:** krons, measured in one turn; any turn that spawns a researching subagent
+- **Source:** `journalctl` 2026-09-14 09:23:53–09:24:24; the turn's transcript
+- **Status:** open
+- **Fix:** two parts. Prove where the refusal is raised (run one subagent with a single
+  `WebSearch` and read the SDK's decision), then set the same permission mode on the
+  spawned query as on the parent. And the refusal a tool hands back must name WHO refused
+  and why — a generic "the user doesn't want this" leaves the agent to invent an
+  explanation, which is what it did.
+
 ## ✅ FIXED 2026-09-14 L298 — a running turn's own rows cleared its busy backoff, so one cron fire re-dispatched itself fifteen times (2026-09-14)
 
 MEASURED on krons' 03:00 cron window (`journalctl`, 02:55–06:00): 22 tasks fired, 22
