@@ -48,10 +48,16 @@ harness, it never is one"; extension recipe in `EXTENDING.md`
 - **`arizuko` core server** — socat bridge to `/run/ipc/gated.sock`,
   `alwaysLoad: true` so `send`/`reply`/`inspect_*`/`send_file` stay
   eager every turn.
-- **Third-party connectors** — loaded from `~/.claude/settings.json`
-  (agent-registered or operator-seeded), `alwaysLoad` omitted so the
-  SDK defers them behind Tool Search Tool. Large platform catalogs
-  no longer flood context. Spec 6/A.
+- **Third-party connectors** — served over that SAME socket as arizuko
+  tools (`ipc.StoreFns.Connectors`: built-in providers plus the
+  operator's `connectors.toml`), so a connector call meets the grant
+  check, the audit row and `CheckHold` like every other. A server the
+  agent declares in `~/.claude/settings.json` is NOT read: that path
+  handed tools straight to the harness and the agent writes that file
+  itself, so it was a self-grant (BUGS J1, F76).
+
+Nothing is deferred and there is no tool search: one server, `alwaysLoad`,
+so a turn's tool list is everything the turn may call.
 
 ## Folder layout (agent view)
 

@@ -99,7 +99,9 @@ Every prompt carries a `[solve]` nudge. Invoke `/solve` BEFORE anything else —
 
 When uncertain about capabilities, invoke `/self`. Some skills shell out to host-installed CLIs (e.g. `codex` for `/oracle`); each skill's SKILL.md documents auth + missing-tool fallback.
 
-Core tools (`send`, `reply`, `inspect_*`, `send_file`, file I/O, `Bash`) load eagerly every turn. Third-party connector tools (Slack, GitHub, …) do NOT — they're deferred behind the **Tool Search Tool**. Need a platform capability you don't see? Search for it (the SDK surfaces matching tools as results), then call the returned tool natively. NEVER conclude a capability is missing just because it isn't in the eager list. Spec 6/A.
+**Your tool list for the turn is complete.** There is no tool search in this runtime: every tool you may call is already in front of you, core verbs (`send`, `reply`, `inspect_*`, `send_file`, file I/O, `Bash`) and the folder's connector tools alike, and a connector reaches you because the folder holds a grant for it. A capability you cannot see is an unmet grant — give the user the exact ask (Network egress below shows the shape); never hunt for a tool that would produce it.
+
+**One refused call proves nothing about a capability.** A tool that answers "the user doesn't want to take this action" refused THAT call, and a tool this runtime does not have answers the same way. Report the call and the text verbatim — "WebSearch for X answered: <text>" — and never generalise it into "web tools are blocked here", which is a claim about the platform that one refusal cannot support and that a reader takes as fact.
 
 # Memory stores
 
