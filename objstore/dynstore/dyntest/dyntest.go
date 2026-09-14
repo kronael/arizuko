@@ -176,22 +176,32 @@ func start() (dynstore.Config, error) {
 		return dynstore.Config{}, fmt.Errorf("start %s: %v: %s", Image, err, out)
 	}
 	container = name
-	addr := fmt.Sprintf("http://127.0.0.1:%d", port)
+	cfg := dynstore.Config{
+		Endpoint: fmt.Sprintf("http://127.0.0.1:%d", port),
+		KeyID:    dynstore.DevKeyID,
+		Secret:   dynstore.DevSecret,
+	}
+	// The probe is a REQUEST, not a connect. Both images accept the port before
+	// the server answers on it, and a fixture that started on the open port met
+	// a connection reset in the middle of the first concurrent body.
 	deadline := time.Now().Add(60 * time.Second)
+	var last error
 	for time.Now().Before(deadline) {
-		c, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), time.Second)
-		if err == nil {
-			c.Close()
-			return dynstore.Config{
-				Endpoint: addr,
-				KeyID:    dynstore.DevKeyID,
-				Secret:   dynstore.DevSecret,
-			}, nil
+		s, err := dynstore.Dial(cfg)
+		if err != nil {
+			Shutdown()
+			return dynstore.Config{}, err
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_, last = s.Entities(ctx)
+		cancel()
+		if last == nil {
+			return cfg, nil
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
 	Shutdown()
-	return dynstore.Config{}, fmt.Errorf("%s did not listen on %d", Image, port)
+	return dynstore.Config{}, fmt.Errorf("%s did not answer on %d: %w", Image, port, last)
 }
 
 func docker(args ...string) (string, error) {

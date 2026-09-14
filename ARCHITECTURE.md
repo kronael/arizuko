@@ -358,11 +358,9 @@ Durable rules the package layout obeys.
 
 - **Table ownership.** Each daemon owns its own tables + REST/MCP APIs,
   and declares them beside the code that writes them: `routd` through
-  `store/entities.go` (plus `routd/migrations/` on a file instance),
-  `runed` through `runed/runstore`, `authd` through `authd/authstore`,
-  `onbod` through `store/entities.go`. Each owner creates its own at boot —
-  `store.PrepareOwner` when served, the migration chain plus
-  `store.EnsureEntities` on a file — and creates nobody else's. Libraries own no
+  `store/entities.go`, `runed` through `runed/runstore`, `authd` through
+  `authd/authstore`, `onbod` through `store/entities.go`. Each owner creates its
+  own at boot through `store.PrepareOwner`, and creates nobody else's. Libraries own no
   table and no API — a library that records something hands the caller a
   `Write` for the caller's own batch (`audit.WriteFor` is the model).
   Cross-daemon data access goes through the receiving daemon's `api/v1/`
@@ -448,13 +446,12 @@ Config: `MEDIA_ENABLED=true`, `VOICE_TRANSCRIPTION_ENABLED=true`,
 ## Schema
 
 Every table is an objstore entity: one item per row at a `(partition, sort)`
-coordinate, three columns wide whatever serves it (`objstore/README.md`). With
-`DYNAMODB_URL` set, one DynamoDB-protocol server per instance holds every
-owner's tables as `<owner>.<entity>` (`dynstore.Prefix`); unset, each owner
-keeps its own SQLite file. The coordinate is what a read pays for, and
-`store/entities.go` argues each one beside the code that writes it.
+coordinate, three columns wide (`objstore/README.md`). One DynamoDB-protocol
+server per instance holds every owner's tables as `<owner>.<entity>`
+(`dynstore.Prefix`), named by `DYNAMODB_URL`. The coordinate is what a read pays
+for, and `store/entities.go` argues each one beside the code that writes it.
 
-- **`routd`** (`store/entities.go`; `routd/migrations/` on a file instance):
+- **`routd`** (`store/entities.go`):
   `messages` and the four read-shaped indexes one append fans out into
   (`message_folders`, `message_folder_counts`, `message_activity`,
   `message_delivery`); the thirteen registered resources — `acl`,
@@ -1025,12 +1022,10 @@ turn is scoped to its own folder subtree. Full tool table in
   `CONTAINER_IMAGE`, `WEB_HOST`, `ASSISTANT_NAME`; per-daemon vars in each
   `<daemon>/README.md`. Business state (gates, grants, onboarding) lives in
   the DB; infra toggles live in env.
-- `store/` — the instance's state. On a served instance `store/extenddb/`
-  holds the server's config and certificate and `store/extenddb_db/` its
-  PostgreSQL data directory, so a tar of the data dir still carries every
-  row. Otherwise `store/<owner>/` holds that owner's SQLite file plus its
-  `-wal`/`-shm` siblings, one bind-mounted subdir per container. Adapters
-  keep private `store/<name>/` dirs either way.
+- `store/` — the instance's state. `store/extenddb/` holds the server's config
+  and certificate and `store/extenddb_db/` its PostgreSQL data directory, so a
+  tar of the data dir still carries every row. Adapters keep private
+  `store/<name>/` dirs for the files they own.
 - `groups/<folder>/` — group files, logs, diary; `media/<YYYYMMDD>/` holds
   downloaded inbound attachments; `.claude/` holds agent session state.
 - `ipc/<folder>/` — MCP unix sockets.

@@ -4,10 +4,10 @@ The access layer for the tables the split topology shares.
 
 ## Purpose
 
-`store` is a library, not a daemon: the door onto one owner's tables plus
-the typed accessors over them. `Served()` is the branch — an endpoint when
-`DYNAMODB_URL` names one, the owner's own SQLite file otherwise — and
-`served.go` is the only place that branch is written.
+`store` is a library, not a daemon: the door onto one owner's tables plus the
+typed accessors over them. `served.go` is the only place that dials the
+instance's store server, and every other file here reads and writes through the
+handle it answers.
 
 ## Every table is an entity
 
@@ -46,17 +46,18 @@ rows it is compared against re-feeds consumed messages (BUGS `L97`).
 The doors are in `served.go`, and they are the only place the served/file
 branch is written:
 
-- `Served() bool` — whether this instance keeps its owners on a server
-- `OpenOwner(owner, path) (*Store, error)` — the store one owner's tables live
-  in, for a daemon that only READS them; probes for that owner's own entity so
-  a wrong target is loud instead of empty
-- `OwnerDriver(owner, target) (Driver, func() error, error)` — the driver plus
-  the close, for an owner whose boot runs no migration chain
+- `Handle(owner) (*dynstore.Store, error)` — dials one owner's tables; makes
+  nothing
+- `OpenOwner(owner) (*Store, error)` — the store one owner's tables live in, for
+  a daemon that only READS them; probes for that owner's own entity so an owner
+  that has never booted is loud instead of empty
+- `OwnerDriver(owner) (Driver, func() error, error)` — the driver plus the close
 - `PrepareOwner(ctx, d, owner, extra…)` — makes what one owner serves; the
   OWNER daemon calls it at boot, a reader never does
 - `EnsureEntities(ctx, d, owner)` — the entity set that owner holds
-- `NewOver(obj objstore.Store) *Store`, `New(db *sql.DB) *Store` — wrap a
-  handle or a pool
+- `TestNamespace()`, `TestOwner(owner, extra…)` — one test's own private table
+  namespace, and the release that drops it
+- `NewOver(obj objstore.Store) *Store` — wrap a handle
 
 Primary methods (by domain):
 
@@ -110,13 +111,12 @@ driver refusal every caller reports and no test provokes.
 
 ## Dependencies
 
-- `core`, `objstore` (+ `dynstore`/`sqlstore`), `audit`, `db_utils`,
-  `groupfolder`, `modernc.org/sqlite`
+- `core`, `objstore` (+ `dynstore`), `audit`, `groupfolder`
 
 ## Files
 
-- `served.go` — the served/file branch: `Served`, `Handle`, `OpenOwner`, `OwnerDriver`, `PrepareOwner`
-- `store.go` — the `*Store` itself, the secret keyring, the pool openers
+- `served.go` — the doors onto an owner: `Handle`, `OpenOwner`, `OwnerDriver`, `PrepareOwner`, `TestNamespace`
+- `store.go` — the `*Store` itself, the secret keyring, `OpenMem`
 - `messages.go`, `groups.go`, `tasks.go`, `acl.go`, `membership.go`, `routes.go`, `onboarding.go`, `invites.go`, `secrets.go`
 - `chats.go`, `sessions.go`, `chat_reply_state.go`, `chat_proactive.go`, `system_messages.go`, `user_profiles.go`, `turn_results.go`, `group_watchers.go`, `task_run_logs.go`, `turn_context.go`, `invite_redemptions.go` — the hot tier, one file per entity
 - `cursor.go` — the forward-only guarded transition the two cursors share

@@ -6,11 +6,9 @@ engine is a second driver and no daemon changes (spec
 [`6/40`](../specs/6/40-store-surface.md)).
 
 **Everything runs on this.** `store`, `authd/authstore`, `runed/runstore`,
-`emaid/emaistore` and `chanlib/chanstore` hold no SQL: every table in the tree
-is an entity, and a daemon's storage is whichever driver its instance is
-configured with — `dynstore` against a DynamoDB-protocol server, `sqlstore`
-against a SQLite file or PostgreSQL. One implementation per table at every
-moment, never a fallback.
+`emaid/emaistore` and `chanlib/chanstore` hold no SQL: every table in the tree is
+an entity, and every entity is served by `dynstore` against a DynamoDB-protocol
+server. One driver, one implementation per table, never a fallback.
 
 A registered `resreg` resource is an entity too, which took a second threshold:
 a table `arizuko apply`/`export`/`plan`/`get`/`archive` reads could not become
@@ -186,8 +184,7 @@ key, where it costs nothing.
 | `consistent.go` | `ReadConsistent` — the multi-read that retries a moved scope      |
 | `reach.go`      | `Reachable`, `AddEdge` — the graph walk and its version guard     |
 | `dynstore/`     | the DynamoDB driver: one request per shape, and the endpoint env  |
-| `sqlstore/`     | the SQL driver: one generator, two dialects                       |
-| `conformance/`  | the test bodies every driver runs                                 |
+| `conformance/`  | the test bodies a driver runs                                     |
 
 ## The DynamoDB driver
 
@@ -208,57 +205,38 @@ there: `DYNAMODB_URL`, `AWS_REGION`, its own access key pair, and `STORE_CA` —
 the endpoint's certificate, base64, because a daemon has its environment and no
 file of its own.
 
-## The SQL driver is one driver with two emitters
-
-`sqlstore` generates its statements, so SQLite and Postgres are a dialect switch
-inside it rather than two implementations: placeholders, the row lock a check
-takes, the document merge and removal, how one attribute is extracted, and the
-DDL type of the document column. An entity is one table of three columns, so
-schema is `CreateEntity` and nothing more — and it is deliberately OFF the
-interface, because an engine with no DDL has nothing to implement.
-
-A SQL engine has no page cap of its own, so this driver pages by not needing to:
-one statement, every row. `Limit` is therefore a plain `LIMIT` and the filter is
-a `WHERE` term the engine applies before counting — one renderer feeds both a
-read's filter and a write's condition, so a fix to a comparison cannot land on
-one path and miss the other.
-
-Two dialect differences the design expected do not exist, measured on PostgreSQL
-17.11 and the vendored SQLite 3.51.2: `substr(text,int,int)` is a Postgres
-function too, so containment is byte-identical on both; and `INSERT … ON
-CONFLICT` is SQLite syntax too, so `INSERT OR IGNORE` is never emitted.
-
 ## Running the conformance suite
 
 ```bash
-go test ./objstore/...                                    # SQLite
-ARIZUKO_TEST_PG_DSN=postgres://user:pw@host:5432/db \
-  go test ./objstore/...                                  # Postgres
-make integration                                          # + a live endpoint
+go test ./objstore/...                                     # the local endpoint
+ARIZUKO_TEST_DYNAMO_ENDPOINT=https://127.0.0.1:18443 \
+  ARIZUKO_TEST_DYNAMO_CA=/path/to/cert.pem \
+  go test ./objstore/...                                   # the PostgreSQL deployment
 go test ./objstore/... -race -run TestConformance          # the concurrent bodies
 ```
 
-One environment variable moves the SQL suite between engines, which is the
-mechanism `db_utils` already owns. For the endpoint, `dyntest` starts
-`ghcr.io/extenddb/extenddb-dev` itself unless `ARIZUKO_TEST_DYNAMO_ENDPOINT`
-names one already running — the PostgreSQL deployment, or the service. Those
-bodies skip under `-short`, so `make test` alone proves nothing about
-`dynstore`. `make test` does not pass `-race`; the
-concurrency bodies are only proven under the flag above.
+`dyntest` starts `amazon/dynamodb-local` itself unless
+`ARIZUKO_TEST_DYNAMO_ENDPOINT` names one already running. Amazon's build answers
+`CreateTable` in about 4 ms, which is what makes it the default: the ExtendDB
+development build charges a one-second control-plane delay per table, and a
+suite that makes an owner's thirty-three entities per fixture pays that delay
+hundreds of times. **Run the suite against the deployment too** — the two
+readings of the protocol are what keep the driver written to the protocol
+instead of to one server. `make test` does not pass `-race`; the concurrency
+bodies are only proven under the flag above.
 
-The suite is the deliverable. Every driver runs the identical bodies, so an
-operation a driver cannot express does not go on the interface — the portability
-discipline a vendor API would have imposed for free.
+The suite is the deliverable. A driver runs the identical bodies against every
+server, so an operation a server cannot express does not go on the interface —
+the portability discipline a vendor API would have imposed for free.
 
 **A body earns its place by being able to FAIL**, watched, against a driver
 broken on purpose: each key operator swapped for its neighbour, containment
-widened to `LIKE`, the filter dropped, `Limit` and the sort direction dropped,
-the read truncated so it stops answering the whole selection, the `REMOVE` half
-dropped (in the generator and in the Postgres renderer), `ON CONFLICT DO
-NOTHING` turned into an upsert, the counter's compare-and-swap dropped, its
-companion writes dropped, and both width checks disabled. A mutation that breaks
-the STATEMENT rather than the answer does not count — a body that goes red
-because Postgres refused to parse the query has proved nothing.
+widened, the filter dropped, `Limit` and the sort direction dropped, the read
+truncated so it stops answering the whole selection, the `REMOVE` half dropped,
+the absent-item condition turned into an upsert, the counter's compare-and-swap
+dropped, its companion writes dropped, and both width checks disabled. A
+mutation that breaks the REQUEST rather than the answer does not count — a body
+that goes red because the server refused to parse it has proved nothing.
 
 The protocols were watched the same way, and **the mutation is what sized the
 code**: two conjuncts survived being deleted, so they were deleted. The eighteen
@@ -275,20 +253,18 @@ never happened, which is why `slip` forces every one of them.
 
 ## Coverage
 
-`go test ./objstore/ -cover` reports 19.3% (2026-09-13) and the number is an
+`go test ./objstore/ -cover` reports 19.3% (2026-09-14) and the number is an
 artefact: `ordered_test.go` is the only test file in the root package, because
-everything else here is a protocol a DRIVER has to run. Measured through one:
+everything else here is a protocol a DRIVER has to run. Measured through it:
 
 ```
-go test ./objstore/sqlstore/ -coverpkg=github.com/kronael/arizuko/objstore
-→ 81.3% of statements in github.com/kronael/arizuko/objstore
+go test ./objstore/dynstore/ -coverpkg=github.com/kronael/arizuko/objstore
+→ 81.0% of statements in github.com/kronael/arizuko/objstore
 ```
 
-The two drivers land where their own suites do — `sqlstore` 82.3%, `dynstore`
-80.0%, and `dynstore` reports 0.0% under `-short` because its bodies need an
-endpoint. `conformance` and `dyntest` are test libraries and report 0.0% by
-construction: they have no tests of their own, they ARE the tests.
+`dynstore` lands where its own suite does — 80.4%. `conformance` and `dyntest`
+are test libraries and report 0.0% by construction: they have no tests of their
+own, they ARE the tests.
 
-`make test` is `-short` and passes no `-race`, so it proves nothing about
-`dynstore` and nothing about the concurrency bodies. Name the flag when you
-report this package green.
+`make test` passes no `-race`, so it proves nothing about the concurrency
+bodies. Name the flag when you report this package green.

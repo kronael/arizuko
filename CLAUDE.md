@@ -109,8 +109,10 @@ make test-e2e          # end-to-end via webd route-token surface (≤5 min); run
 go test ./routd/... -count=1 -run TestName
 ```
 
-Tests use `modernc.org/sqlite` (pure Go, no CGO).
-Exception: the `arizuko` binary builds with `CGO_ENABLED=1` (see Makefile).
+Every test that touches a store runs against a DynamoDB endpoint, so the suite
+needs docker: `dyntest` starts one container per test binary and drops it at the
+end. `ARIZUKO_TEST_DYNAMO_ENDPOINT` points the same suites at an endpoint that
+is already running — the PostgreSQL deployment, or Amazon's own service.
 Pre-commit hooks configured via `.pre-commit-config.yaml`.
 
 ## When to read what
