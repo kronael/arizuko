@@ -139,7 +139,7 @@ davd    — WebDAV workspace (per-group, dufs)
 dashd   — operator dashboards + admin CRUD
 ```
 
-Each core daemon owns its own tables and creates them at boot; no daemon touches another's. `DYNAMODB_URL` says where they live: set, every daemon opens its owner on the instance's DynamoDB-protocol store server; unset, each opens its own SQLite file under `store/<owner>/`. Adapters, `webd`, `proxyd`, and `timed` reach `routd`; `routd` reaches `runed`; every daemon verifies tokens minted by `authd`.
+Each core daemon owns its own tables and creates them at boot; no daemon touches another's. `DYNAMODB_URL` names where they live: one DynamoDB-protocol store server per instance, holding every owner's tables under its own prefix. Adapters, `webd`, `proxyd`, and `timed` reach `routd`; `routd` reaches `runed`; every daemon verifies tokens minted by `authd`.
 
 Full package graph, message flow, container lifecycle, and schema in [ARCHITECTURE.md](ARCHITECTURE.md).
 

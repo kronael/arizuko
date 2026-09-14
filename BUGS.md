@@ -7,6 +7,59 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## ✅ FIXED 2026-09-14 L300 — `arizuko create` needed a store server that cannot exist yet (2026-09-14)
+
+MEASURED on this tree. `create` ended by opening routd to seed group `main`, its
+ACL floor and its default tasks. With SQLite gone that open dials
+`DYNAMODB_URL`, and on a NEW instance there is no endpoint to dial:
+`INSTALL.md` brings the store server up AFTER `create`, and it has to, because
+`arizuko packages <name> add extenddb` and `arizuko generate` both need the
+instance directory `create` makes. So a fresh install failed at the first
+command, and the order could not simply be swapped.
+
+An existing instance was never affected — krons already holds both the endpoint
+and the `main` row.
+
+- **Severity:** high — blocked every new instance on v0.68.0; no effect on a
+  running one
+- **Scope:** `cmd/arizuko/main.go` (`cmdCreate`), `routd/db.go` (`Open`),
+  `store/seed.go`, `compose/compose.go`, `INSTALL.md` § Create instance
+- **Affected:** a fresh `arizuko create` on v0.68.0
+- **Source:** `cmd/arizuko/main.go` `mustOpenRoutd` → `routd.Open` →
+  `store.Handle` → `dynstore.FromEnv`, which errors when `DYNAMODB_URL` is unset
+- **Status:** fixed — signed off 2026-09-14
+- **Fix:** the two concerns are split by owner. `create` makes the instance's
+  FILES — directory, `.env`, compose, the group's own tree — and DECLARES the
+  operator's `--product` choice as `ARIZUKO_DEFAULT_PRODUCT`. Every ROW is its
+  owner daemon's: `store.SeedDefaultGroup` writes the `main` row and its default
+  tasks into an empty `groups`, beside the ACL and egress floors routd already
+  seeds at boot. One writer of those rows instead of two, and one declaration of
+  the product with compose and routd as its readers.
+
+## L301 — a `*sql.Tx` parameter is threaded through nine files and can only ever be nil (2026-09-14, open)
+
+MEASURED. `store.TryWriteEntitiesInTx` returns an error the moment its `tx` is
+not nil — "a batch in a transaction, which this store does not open" — because
+the only driver left opens none. Every caller therefore passes nil, and the
+parameter survives through `store/scopes.go`, `groups.go`, `routes.go`,
+`messages.go`, `chats.go`, `message_folders.go`, `user_profiles.go`,
+`folder_scope.go` and `resreg/engine.go`, along with the `database/sql` import
+that only exists to name the type.
+
+It is the last stub of SQL in the tree: a parameter that documents a capability
+the store does not have, and a second door (`writeVia`, `tryWriteVia`,
+`WriteEntitiesInTx`, `TryWriteEntitiesInTx`) that exists only to choose between
+a transaction and no transaction when there is only ever no transaction.
+
+The fix is deletion: one write door, no `tx`, no `database/sql`.
+
+- **Severity:** low — no wrong behaviour, dead surface
+- **Scope:** `store/` (eight files), `resreg/engine.go`
+- **Affected:** every reader of those signatures
+- **Source:** `store/scopes.go:243-249`; the sole caller chain from
+  `store/groups.go:248` passes nil
+- **Status:** open
+
 ## ✅ FIXED 2026-09-14 L299 — the agent was told to search for deferred tools, the runtime has no such tool, and from one refusal it reported the platform as broken (2026-09-14)
 
 MEASURED, and the first reading of this entry was wrong. A subagent in krons' 09:23 turn
@@ -431,42 +484,16 @@ put them in a batch with the audit row.
   `DrainSystemMessagesTx`, and their two callers' doors). `Store.Obj()` still
   cannot return the interface — see `L289`.
 
-## L289 — `Obj()` still returns the SQL driver, and six call sites say why (2026-09-12, open)
+## ✅ FIXED 2026-09-14 L289 — `Obj()` returned the SQL driver, not the interface (2026-09-12)
 
-`Store.Obj()` answers `*sqlstore.Store` rather than `objstore.Store`. Making it
-answer the interface was tried and MEASURED (2026-09-12): the build stops at six
-call sites, on two separate causes.
+`Store.Obj()`, `routd.DB.Obj()` and `runed.DB.Obj()` all answer
+`objstore.Store` now. The six call sites the entry measured were held by the
+transaction machinery, and the transaction went with the SQL driver: there is
+one driver, it opens no transaction, and `GuardedBatch` is the whole write.
 
-Four are the transaction, held by the two writers `resreg`'s removal left behind:
-
-- `store/scopes.go:245` — `TryWriteEntitiesInTx` needs `GuardedBatchInTx`. Its
-  callers are the invite REDEMPTION (`store/invites.go`), whose claim, membership
-  edge and audit row cross two databases on one transaction, and the
-  system-message drain (`store/system_messages.go`, `routd/prompt_db.go`), which
-  reads the queued events and removes exactly those so none is rendered into one
-  prompt and taken by another.
-- `store/scopes.go:341,357,362` — `txReader` needs `QueryInTx` and
-  `GuardedBatchInTx`; it exists to serve the same two.
-- `store/invites.go:542` — `audit.EmitInTx(ctx, s.Obj(), tx, …)` needs
-  `audit.TxSink`, which is why that interface still has a caller.
-
-The sixth is NOT the transaction and needs its own answer:
-
-- `store/message_folders.go:292` — `putIfAbsent(ctx, s.Obj(), w)` takes
-  `store.Driver`, which is wider than `objstore.Store` because it carries the DDL
-  (`CreateEntity`). Schema is driver-local by design (spec 6/40), so this one is
-  about which door an opener reaches, not about a transaction.
-
-- **Severity:** medium — the remaining blocker for a driver with no transactions
-- **Scope:** `store/scopes.go`, `store/invites.go`, `store/system_messages.go`,
-  `store/message_folders.go`
-- **Affected:** routd, onbod
-- **Status:** open
-- **Fix (proposal):** the drain is a claim-and-return, which is Query plus a
-  per-item guarded batch and needs no transaction. The redemption is the harder
-  one: it is a cross-database write, so it wants the outbox `6/40` already
-  designs rather than a batch. The `Driver` call site wants a separate opener
-  door, not a narrower `Obj()`.
+- **Status:** fixed — `objstore/sqlstore` and `db_utils` deleted in v0.68.0
+- **Left over:** the `*sql.Tx` PARAMETER those doors carried is still threaded
+  through nine files and can only ever be nil. Recorded as `L301`.
 
 ## ✅ FIXED 2026-09-12 L286 — five writers needed an unbounded atomic delete, which the object store cannot give (2026-09-12)
 

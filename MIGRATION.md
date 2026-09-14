@@ -115,9 +115,10 @@ Files: `POST <url>/send-file` multipart (`chat_jid`, `filename`, `file`).
 Health: `GET <url>/health`. Typing: `POST /typing {"chat_jid":"...","on":true}`.
 Deregister: `POST /v1/channels/deregister`, `Bearer <per-channel-token>`.
 
-## SQLite Schema
+## Schema
 
-Databases are not compatible. Key structural differences:
+The two stores are not compatible: kanipi keeps SQLite tables and arizuko keeps
+objstore entities on a DynamoDB-protocol server. Key structural differences:
 
 - **`messages`**: kanipi PK `(id, chat_jid)` + FK. arizuko PK `id` alone, no
   FK. Added `reply_to_id`, `source` (adapter-of-record), `topic`. Dropped
