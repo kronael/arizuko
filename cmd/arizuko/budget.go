@@ -26,8 +26,10 @@ func cmdBudget(args []string) {
 	need(args, 2, "arizuko budget <instance> <set|show> ...")
 	instance, action := args[0], args[1]
 
-	dataDir := mustInstanceDir(instance)
-	s := mustOpenRoutd(dataDir)
+	// mustInstanceDir also puts that instance's environment into this process,
+	// which is what names the store the CLI then writes to.
+	mustInstanceDir(instance)
+	s := mustOpenRoutd()
 	defer s.Close()
 
 	switch action {

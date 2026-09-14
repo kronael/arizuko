@@ -1,16 +1,12 @@
-// Package testutils provides shared fixtures for daemon integration tests:
-// a migrated DB (store or routd schema), a FakePlatform httptest server, and
-// small assertion helpers.
+// Package testutils provides shared fixtures for daemon integration tests: a
+// prepared store, a FakePlatform httptest server, and small assertion helpers.
 package testutils
 
 import (
 	"crypto/rand"
-	"database/sql"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -18,59 +14,44 @@ import (
 
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/chanreg"
-	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
-	_ "modernc.org/sqlite"
 )
 
-// Inst is a minimal per-test fixture. Tmp is a temp dir. DB is an open,
-// migrated in-memory sqlite handle. Store wraps DB. ChanReg is an empty
-// registry whose HMAC secret matches JWTSecret.
+// Inst is a minimal per-test fixture. Tmp is a temp dir. Store is routd's own
+// tables in a namespace this test owns. ChanReg is an empty registry whose HMAC
+// secret matches JWTSecret.
 type Inst struct {
-	DB        *sql.DB
 	Store     *store.Store
 	Tmp       string
 	JWTSecret []byte
 	ChanReg   *chanreg.Registry
 }
 
-// NewRoutdInstance builds an Inst whose DB carries the ROUTD schema — the one
-// routd.db actually has in production. Daemons that read routd.db (dashd) must
-// use this, not NewInstance: the two schemas overlap on messages/groups/acl/
-// routes but diverge on cost_log (recorded_at/cost_cents/input_tokens vs the
-// store's ts/cents/input_tok) and on whatever routd's own migration chain adds
-// next, so a store-schema fixture lets a genuine column-name regression pass.
-// NewInstance stays for callers whose subject IS the frozen pre-split schema.
-// Registers t.Cleanup to close the DB.
+// NewRoutdInstance builds an Inst over routd's OWN tables — the ones production
+// has. Registers t.Cleanup to drop the namespace.
 func NewRoutdInstance(t *testing.T) *Inst {
 	t.Helper()
-	tmp := t.TempDir()
-	rdb, err := routd.Create(filepath.Join(tmp, "store"))
+	rdb, err := routd.OpenMem()
 	if err != nil {
-		t.Fatalf("routd.Open: %v", err)
+		t.Fatalf("routd.OpenMem: %v", err)
 	}
-	db := rdb.SQL()
 	secret := make([]byte, 32)
 	if _, err := rand.Read(secret); err != nil {
 		t.Fatalf("rand: %v", err)
 	}
-	inst := &Inst{
-		DB:        db,
-		Store:     store.New(db),
-		Tmp:       tmp,
+	t.Cleanup(func() { rdb.Close() })
+	return &Inst{
+		Store:     store.NewOver(rdb.Obj()),
+		Tmp:       t.TempDir(),
 		JWTSecret: secret,
 		ChanReg:   chanreg.New(),
 	}
-	t.Cleanup(func() { rdb.Close() })
-	return inst
 }
 
 // NewRoutdStore is NewRoutdInstance for the many tests that want only the
-// *store.Store: routd.db's own schema, wrapped in the shared read/write library
-// six daemons hold in production. It is what a test reaches for instead of
-// store.OpenMem, whose chain is the frozen pre-split messages.db (see
-// store.Migrate). Registers t.Cleanup to release the database.
+// *store.Store: routd's own tables, wrapped in the shared read/write library six
+// daemons hold in production. Registers t.Cleanup to drop the namespace.
 func NewRoutdStore(t *testing.T) *store.Store {
 	t.Helper()
 	d, err := routd.OpenMem()
@@ -78,39 +59,7 @@ func NewRoutdStore(t *testing.T) *store.Store {
 		t.Fatalf("routd.OpenMem: %v", err)
 	}
 	t.Cleanup(func() { d.Close() })
-	return store.New(d.SQL())
-}
-
-// NewInstance builds an Inst on the FROZEN pre-split messages.db schema. It is
-// for a caller whose subject IS that database — `arizuko migrate-split` and the
-// fixtures that simulate an old instance for it. Every other test wants
-// NewRoutdInstance or NewRoutdStore: routd.db is the schema production has, and
-// the two chains have already drifted (routd seeds role:member and role:operator
-// into acl, store's chain seeds neither). Registers t.Cleanup to close the DB.
-func NewInstance(t *testing.T) *Inst {
-	t.Helper()
-	tmp := t.TempDir()
-	db, err := db_utils.Open(filepath.Join(tmp, "test.db"))
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
-	if err := store.Migrate(db); err != nil {
-		db.Close()
-		t.Fatalf("migrate: %v", err)
-	}
-	secret := make([]byte, 32)
-	if _, err := rand.Read(secret); err != nil {
-		t.Fatalf("rand: %v", err)
-	}
-	inst := &Inst{
-		DB:        db,
-		Store:     store.New(db),
-		Tmp:       tmp,
-		JWTSecret: secret,
-		ChanReg:   chanreg.New(),
-	}
-	t.Cleanup(func() { db.Close() })
-	return inst
+	return store.NewOver(d.Obj())
 }
 
 // PlatformReq is a recorded inbound request to a FakePlatform.
@@ -240,9 +189,9 @@ func (p *FakePlatform) handle(w http.ResponseWriter, r *http.Request) {
 
 // AssertMessage fails if no row in messages has chat_jid=jid and content
 // containing substr.
-func AssertMessage(t *testing.T, db *sql.DB, jid, substr string) {
+func AssertMessage(t *testing.T, s *store.Store, jid, substr string) {
 	t.Helper()
-	msgs, err := store.New(db).MessagesSince(jid, time.Time{})
+	msgs, err := s.MessagesSince(jid, time.Time{})
 	if err != nil {
 		t.Fatalf("read %s: %v", jid, err)
 	}
@@ -257,9 +206,7 @@ func AssertMessage(t *testing.T, db *sql.DB, jid, substr string) {
 }
 
 // WaitFor polls until holds() answers true, or fails naming what it waited for.
-// It is the one poll loop here; WaitForRow is the SQL-shaped entry point onto
-// it, and a caller whose subject is an objstore entity has no query to hand
-// over and passes the read itself.
+// It is the one poll loop here, and every caller passes the read itself.
 func WaitFor(t *testing.T, what string, timeout time.Duration, holds func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -274,23 +221,12 @@ func WaitFor(t *testing.T, what string, timeout time.Duration, holds func() bool
 	}
 }
 
-// WaitForRow polls SELECT COUNT(*) from the given query until > 0 or timeout.
-// query must be a full SELECT returning an int count.
-func WaitForRow(t *testing.T, db *sql.DB, query string, args []any, timeout time.Duration) {
-	t.Helper()
-	WaitFor(t, fmt.Sprintf("%s args=%v", query, args), timeout, func() bool {
-		var n int
-		err := db.QueryRow(query, args...).Scan(&n)
-		return err == nil && n > 0
-	})
-}
-
 // BotRows counts one chat's bot rows — the agent's own output. `messages` is an
 // entity, so the count is a partition read rather than a column query, and one
 // reader answers it for every fixture that used to write its own SELECT.
-func BotRows(t *testing.T, db *sql.DB, chatJID string) int {
+func BotRows(t *testing.T, s *store.Store, chatJID string) int {
 	t.Helper()
-	msgs, err := store.New(db).MessagesSince(chatJID, time.Time{})
+	msgs, err := s.MessagesSince(chatJID, time.Time{})
 	if err != nil {
 		t.Fatalf("read %s: %v", chatJID, err)
 	}
@@ -304,10 +240,10 @@ func BotRows(t *testing.T, db *sql.DB, chatJID string) int {
 }
 
 // WaitForBotRow waits until a chat carries the agent's reply.
-func WaitForBotRow(t *testing.T, db *sql.DB, chatJID string, timeout time.Duration) {
+func WaitForBotRow(t *testing.T, s *store.Store, chatJID string, timeout time.Duration) {
 	t.Helper()
 	WaitFor(t, "a bot row in "+chatJID, timeout, func() bool {
-		msgs, err := store.New(db).MessagesSince(chatJID, time.Time{})
+		msgs, err := s.MessagesSince(chatJID, time.Time{})
 		if err != nil {
 			return false
 		}

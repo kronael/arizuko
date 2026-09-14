@@ -24,7 +24,7 @@ import (
 // Fatal on failure. A generate that renders the compose file but silently skips
 // the route table is exactly the failure this replaces.
 func syncProxydRoutes(dataDir string, routes []compose.ProxydRoute) {
-	rdb := mustOpenRoutd(dataDir)
+	rdb := mustOpenRoutd()
 	defer rdb.Close()
 	// AsCLI attributes the write to the invoking operator: generate has no
 	// X-User-* header to learn a sub from, same as grant/secret.
@@ -65,7 +65,7 @@ func syncProxydRoutes(dataDir string, routes []compose.ProxydRoute) {
 // with the reason — see proxycfg.
 func cmdProxyConfig(args []string) {
 	need(args, 1, "arizuko proxy-config <instance> [--listen :8080] [--forward-auth host:port]")
-	dataDir := mustInstanceDir(args[0])
+	mustInstanceDir(args[0])
 	opts := proxycfg.Options{Listen: ":8080"}
 	for i := 1; i+1 < len(args)+1 && i < len(args); i += 2 {
 		if i+1 >= len(args) {
@@ -80,7 +80,7 @@ func cmdProxyConfig(args []string) {
 			die("Failed: unknown flag %s", args[i])
 		}
 	}
-	rdb := mustOpenRoutd(dataDir)
+	rdb := mustOpenRoutd()
 	defer rdb.Close()
 	rows, err := store.NewOver(rdb.Obj()).AllProxydRoutes()
 	if err != nil {

@@ -2,18 +2,10 @@ package main
 
 import (
 	"context"
-	"database/sql"
 
-	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/store"
-	_ "modernc.org/sqlite"
 )
-
-// newObjectStore is the driver a pool is reached through. store.OwnerDriver
-// picks it for the running daemon; this is what a test holding a pool of its
-// own builds.
-func newObjectStore(db *sql.DB) *sqlstore.Store { return sqlstore.New(db) }
 
 // openOwned prepares the store that holds onbod's OWNED tables (onboarding,
 // invites, onboarding_gates, invite_redemptions) + its own audit_log, and hands
@@ -26,8 +18,8 @@ func newObjectStore(db *sql.DB) *sqlstore.Store { return sqlstore.New(db) }
 // creates its own database, and SQLite creates a missing file on first query,
 // so a wrong path would build a fresh empty schema and drop every invite and
 // gate while onbod reports healthy (spec 5/16 step 7, BUGS F52).
-func openOwned(ownDSN string) (*store.Store, error) {
-	d, closeStore, err := store.OwnerDriver(store.OwnerOnbod, ownDSN)
+func openOwned() (*store.Store, error) {
+	d, closeStore, err := store.OwnerDriver(store.OwnerOnbod)
 	if err != nil {
 		return nil, err
 	}

@@ -16,16 +16,10 @@ package runed
 
 import (
 	"context"
-	"database/sql"
-	"fmt"
 
-	"github.com/kronael/arizuko/audit"
-	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/objstore"
-	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/runed/runstore"
 	"github.com/kronael/arizuko/store"
-	_ "modernc.org/sqlite"
 )
 
 // ErrNotFound signals an absent item to the HTTP layer (404). It is runstore's,
@@ -45,51 +39,26 @@ type (
 	Session = runstore.Session
 )
 
-// DB owns runed.db: execution runtime state with no home in routd. Every read
-// and write is runstore's, embedded so a handler calls it directly and this file
-// holds no pass-through method to drift.
+// DB owns runed's tables: execution runtime state with no home in routd. Every
+// read and write is runstore's, embedded so a handler calls it directly and this
+// file holds no pass-through method to drift.
 type DB struct {
 	*runstore.Store
 
-	db *sql.DB
-
-	// obj is the handle this database is served from when a caller hands one
-	// over. It is set instead of the pool, not beside it, so a runed built this
-	// way names no file and no engine.
+	// obj is the handle this database is served from. audit records through it,
+	// so runed's audit sink reaches the same endpoint every read does.
 	obj objstore.Store
 
-	// release closes the pool and drops the database OpenMem reserved. A DB
-	// opened against a file leaves the file alone, and Close closes the pool.
+	// release drops the private namespace OpenMem reserved. A runed opened
+	// against the instance's own tables leaves them alone.
 	release func() error
 }
 
-// Open attaches to an EXISTING runed.db at dir/runed.db. It never creates the
-// file — see Create.
-func Open(dir string) (*DB, error) {
-	return OpenAt(store.OwnerDBPath(dir, store.OwnerRuned))
-}
-
-// OpenAt is Open against an explicitly configured target — runed's DATABASE env
-// — which may name either engine, because db_utils.Open reads the engine off the
-// DSN and nothing here names one (spec 6/37 step 6).
-//
-// On an instance served from a DynamoDB endpoint there is no target to name:
-// the endpoint holds runed's tables and this dials it, so every caller of this
-// door boots either way without asking which.
-func OpenAt(target string) (*DB, error) {
-	if store.Served() {
-		return openServed()
-	}
-	if err := db_utils.RequireDB(target); err != nil {
-		return nil, err
-	}
-	return open(target)
-}
-
-// openServed dials the endpoint runed's tables live on and makes them. runed is
-// their OWNER, so it is the daemon that makes them; runstore declares the set
-// and store adds the record every audited write lands in.
-func openServed() (*DB, error) {
+// Open dials the endpoint runed's tables live on and makes them. runed is their
+// OWNER, so it is the daemon that makes them: a reader dials and makes nothing
+// (store.OpenOwner). runstore declares the set and store adds the record every
+// audited write lands in.
+func Open() (*DB, error) {
 	h, err := store.Handle(store.OwnerRuned)
 	if err != nil {
 		return nil, err
@@ -97,108 +66,36 @@ func openServed() (*DB, error) {
 	if err := store.PrepareOwner(context.Background(), h, store.OwnerRuned, runstore.Entities...); err != nil {
 		return nil, err
 	}
-	return &DB{Store: runstore.New(h), obj: h}, nil
+	return OpenOver(h), nil
 }
 
-// Create seeds dir/runed.db when absent. `arizuko create` and the split-cutover
-// tool only — every other caller Opens, so a wrong path fails loud instead of
-// yielding a prepared DB with no spawn history.
-//
-// A served instance has no file to seed and the entities are what `create`
-// makes, which is what openServed does — so on one this IS the open.
-func Create(dir string) (*DB, error) {
-	if store.Served() {
-		return openServed()
-	}
-	path := store.OwnerDBPath(dir, store.OwnerRuned)
-	if err := db_utils.CreateDBFile(path); err != nil {
-		return nil, err
-	}
-	return open(path)
+// OpenOver is runed over a handle the caller already holds. It makes nothing:
+// whoever dialled the handle decides whether the tables are there.
+func OpenOver(h objstore.Store) *DB {
+	return &DB{Store: runstore.New(h), obj: h}
 }
 
-// OpenMem opens a fresh, private, empty runed.db for one test.
-// db_utils.NewTestDB owns the engine and the DSN, so ARIZUKO_TEST_PG_DSN moves
-// this and every other test database together (spec 6/37 step 6). Close releases
-// the database.
+// OpenMem hands ONE test its own private namespace on the endpoint this process
+// dials, with runed's entities made in it. Close drops the namespace.
 func OpenMem() (*DB, error) {
-	dsn, release, err := db_utils.NewTestDB("runed")
+	h, release, err := store.TestOwner(store.OwnerRuned, runstore.Entities...)
 	if err != nil {
 		return nil, err
 	}
-	d, err := open(dsn)
-	if err != nil {
-		// the caller gets no handle, so the failed open releases the database
-		if rerr := release(); rerr != nil {
-			return nil, fmt.Errorf("%w (and releasing the database: %v)", err, rerr)
-		}
-		return nil, err
-	}
+	d := OpenOver(h)
 	d.release = release
 	return d, nil
 }
 
-func open(dsn string) (*DB, error) {
-	sqldb, err := db_utils.Open(dsn)
-	if err != nil {
-		return nil, err
-	}
-	if err := ensureStorage(sqldb); err != nil {
-		sqldb.Close() //nolint:errcheck // the open already failed
-		return nil, err
-	}
-	return &DB{Store: runstore.New(newObjectStore(sqldb)), db: sqldb}, nil
-}
-
-// ensureStorage prepares db to serve runed: every entity runstore reads, and the
-// one audit records into.
-//
-// audit declares its entity beside the code that writes it and every owner
-// applies the same list, so a daemon with no migrations of its own still has
-// somewhere to record — without which every Emit would warn and drop the row
-// while the daemon reported healthy (BUGS F29 is what that costs).
-func ensureStorage(db *sql.DB) error {
-	ctx := context.Background()
-	s := newObjectStore(db)
-	if err := runstore.EnsureEntities(ctx, s); err != nil {
-		return err
-	}
-	return audit.EnsureEntities(ctx, s)
-}
-
-// newObjectStore is the driver choice, in one place. sqlstore serves both SQLite
-// and Postgres off the DSN db_utils.Open already read, so this line does not
-// change when the engine does.
-func newObjectStore(db *sql.DB) *sqlstore.Store { return sqlstore.New(db) }
-
-// Close ends what the open holds. A runed served from a handle holds no pool,
-// so there is nothing to close.
+// Close ends what the open holds. A runed opened against the instance's own
+// tables holds no pool and no namespace, so there is nothing to end.
 func (d *DB) Close() error {
-	switch {
-	case d.release != nil:
+	if d.release != nil {
 		return d.release()
-	case d.db == nil:
-		return nil
 	}
-	return d.db.Close()
+	return nil
 }
 
 // Obj is this database through objstore's two primitives, which is how audit
-// reaches it. It is the handle runed was served from when it was handed one, so
-// runed's audit sink records over the endpoint too.
-func (d *DB) Obj() objstore.Store {
-	if d.obj != nil {
-		return d.obj
-	}
-	return newObjectStore(d.db)
-}
-
-// SQL returns the raw pool. Its ONE production caller is audit_resource.go,
-// which needs a non-nil *store.Store because resreg reads a nil Store as a
-// FORWARDER and skips authorization entirely — the same marker authd's
-// auditStore passes for the same reason. Nothing here runs a statement on it.
-//
-// `arizuko migrate-split` and `arizuko migrate-runed` take it too: both are the
-// source half of a data move, and the source half is the only half that knows
-// the old schema.
-func (d *DB) SQL() *sql.DB { return d.db }
+// reaches it.
+func (d *DB) Obj() objstore.Store { return d.obj }

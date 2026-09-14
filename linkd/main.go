@@ -38,7 +38,7 @@ func main() {
 			}
 			// Outbound dedup is a delivery guarantee, not a nicety: without the
 			// DB routd's re-send of a still-pending row posts a second message.
-			as, err := chanlib.OpenAdapterStore(cfg.DataDir, "linkd")
+			as, err := chanlib.OpenAdapterStore("linkd")
 			if err != nil {
 				slog.Error("adapter store open failed", "dir", cfg.DataDir, "err", err)
 				return nil, nil, err

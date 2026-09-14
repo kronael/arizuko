@@ -79,20 +79,7 @@ func main() {
 	// messages.db. audit.Init targets obdb so the invite/gate writers' in-tx audit
 	// rows land with the mutation. A missing routd store is a misconfigured split,
 	// so a failure to open is fatal — no silent empty cross-read.
-	//
-	// An instance served from a DynamoDB endpoint names no file for either, so
-	// the two paths are required only where there are files to name.
-	if !store.Served() {
-		if cfg.ownDSN == "" {
-			slog.Error("ONBOD_DB_PATH required")
-			os.Exit(1)
-		}
-		if cfg.routdDSN == "" {
-			slog.Error("ROUTD_DB_PATH required")
-			os.Exit(1)
-		}
-	}
-	obdb, err := openOwned(cfg.ownDSN)
+	obdb, err := openOwned()
 	if err != nil {
 		slog.Error("open onbod's store", "err", err)
 		os.Exit(1)
@@ -104,7 +91,7 @@ func main() {
 	// branch below could never fire and onbod would create an empty routd.db on
 	// first query — a cross-read against zero groups and zero acl, boot green
 	// (BUGS F52). OpenOwner probes for the `acl` entity and fails loud instead.
-	xdb, err := store.OpenOwner(store.OwnerRoutd, cfg.routdDSN)
+	xdb, err := store.OpenOwner(store.OwnerRoutd)
 	if err != nil {
 		slog.Error("open routd's store", "path", cfg.routdDSN, "err", err)
 		os.Exit(1)

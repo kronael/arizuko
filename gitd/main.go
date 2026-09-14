@@ -32,7 +32,7 @@ func main() {
 			// delivery and never writes — registration is routd's REST/MCP face
 			// and the CLI. store.OpenOwner is the door, so a served instance
 			// dials the endpoint and a file instance opens RoutdDSN.
-			st, err := store.OpenOwner(store.OwnerRoutd, cfg.RoutdDSN)
+			st, err := store.OpenOwner(store.OwnerRoutd)
 			if err != nil {
 				slog.Error("routd store open failed", "path", cfg.RoutdDSN, "err", err)
 				return nil, nil, err
@@ -43,7 +43,7 @@ func main() {
 				return nil, nil, err
 			}
 			st.SetSecretKeys(keyring...)
-			as, err := chanlib.OpenAdapterStore(cfg.DataDir, "gitd")
+			as, err := chanlib.OpenAdapterStore("gitd")
 			if err != nil {
 				slog.Error("adapter store open failed", "dir", cfg.DataDir, "err", err)
 				return nil, nil, err

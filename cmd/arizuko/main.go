@@ -22,7 +22,6 @@ import (
 	"github.com/kronael/arizuko/compose"
 	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/store"
 )
@@ -321,32 +320,12 @@ func cmdCreate(args []string) {
 		}
 	}
 
-	storeDir := filepath.Join(dataDir, "store")
-	// Seed every owner's DB file. Owner daemons Open strictly and never create
-	// their own database (spec 5/16 step 7), so `create` is the one place that
-	// knows a NEW instance is intended. A zero-byte file is a valid empty SQLite
-	// DB — each daemon migrates its own schema into it on first boot, so the CLI
-	// needs no migration set for authd/onbod (both are package main).
+	// What a new instance needs is the entities: routd's door makes them for its
+	// own owner below, and each other daemon makes its own at boot.
 	//
-	// An instance served from an endpoint has no file to seed: what a new one
-	// needs there is the entities, which routd's door makes below for its own
-	// owner and each other daemon makes for its own at boot.
-	if !store.Served() {
-		seedOwnerDBs(storeDir)
-	}
-	// groups + scheduled_tasks live in routd.db, so the default group is seeded
-	// there and a new instance is born WITHOUT a messages.db. Seeding the frozen
-	// monolith instead left `main` in a DB no daemon opens (BUGS.md Q1).
-	rdb := mustOpenRoutd(dataDir)
+	// groups + scheduled_tasks are routd's, so the default group is seeded there.
+	rdb := mustOpenRoutd()
 	defer rdb.Close()
-	// Daemons run as uid 1000 (compose `user: '1000:1000'`) but `sudo arizuko
-	// create` makes the tree root-owned, so uid 1000 can't open the SQLite DBs
-	// under store/ (SQLITE_CANTOPEN). chown store/ — and only store/ — to 1000
-	// so every daemon's DB is writable; the data-dir root and .env stay
-	// root-owned (matches the working krons layout).
-	if !store.Served() {
-		chownStore(storeDir)
-	}
 	if err := rdb.PutGroup(core.Group{Folder: "main", AddedAt: time.Now(), Product: product}); err != nil {
 		die("Failed: add default group: %v", err)
 	}
@@ -374,24 +353,6 @@ func cmdCreate(args []string) {
 			fmt.Printf("skills: %s\n", strings.Join(manifest.Skills, ", "))
 		}
 		fmt.Printf("\nnext: populate %s/groups/main/facts/ then: arizuko run %s\n", dataDir, name)
-	}
-}
-
-// seedOwnerDBs creates store/<owner>/<owner>.db for every owner daemon. Each
-// daemon migrates its own schema into it on first boot; the CLI only has to
-// make the file exist, which is why it needs no migration set for authd/onbod
-// (both are package main and unimportable).
-//
-// The DIRECTORIES matter as much as the files: compose binds store/<owner> into
-// exactly one container, and docker creates a missing bind source as ROOT while
-// every daemon runs as uid 1000 — a subdir that isn't here before the first
-// `up` comes back unwritable.
-func seedOwnerDBs(storeDir string) {
-	for owner := range store.OwnerDBs {
-		path := store.OwnerDBPath(storeDir, owner)
-		if err := db_utils.CreateDBFile(path); err != nil {
-			die("Failed: seed %s database at %s: %v", owner, path, err)
-		}
 	}
 }
 
@@ -597,7 +558,7 @@ func mustOpenOnbod(dataDir string) *store.Store {
 // under <dataDir>/store, which store.OpenOwner ignores on an instance served
 // from an endpoint.
 func mustOpenOwner(owner, dataDir string) (*store.Store, error) {
-	return store.OpenOwner(owner, store.OwnerDBPath(filepath.Join(dataDir, "store"), owner))
+	return store.OpenOwner(owner)
 }
 
 // runGrant writes acl rows through the AUDITED AddACLRow / AddMembership:

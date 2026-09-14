@@ -22,17 +22,13 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/objstore"
-	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/resreg"
 	_ "github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/runed"
 	"github.com/kronael/arizuko/store"
-	_ "modernc.org/sqlite"
 )
 
 func main() {
@@ -50,55 +46,35 @@ func main() {
 		}
 	}
 
-	// routd.db — admin tables (acl, groups, routes, secrets, messages).
-	rdb, err := routd.Create(storeDir)
+	// routd's own tables — acl, groups, routes, secrets, messages.
+	rdb, err := routd.Open()
 	if err != nil {
-		log.Fatalf("seed: open routd.db: %v", err)
+		log.Fatalf("seed: open routd's store: %v", err)
 	}
 	defer rdb.Close()
 
-	// onbod.db — /dash/invites/ reads it. onbod is package main so the seed
-	// cannot import its opener, and it asks the three owners that DECLARE onbod's
-	// schema instead of holding a copy of it. A hand-copied schema is a second
-	// declaration of a table onbod already declares, and one had already drifted:
-	// invites moved to a `ref` primary key while the copy here still said
-	// `token`, so every invites test failed on "no such column: ref" and read as
-	// a product bug.
-	//
-	// The path comes from store.OwnerDBPath, never filepath.Join: since the
-	// owner-subdir split dashd resolves onbod.db as store/onbod/onbod.db, and a
-	// seed writing store/onbod.db left the page reporting "invites store
-	// unavailable" while the suite still called itself green.
-	onbodFile := store.OwnerDBPath(storeDir, store.OwnerOnbod)
-	if err := os.MkdirAll(filepath.Dir(onbodFile), 0o755); err != nil {
-		log.Fatalf("seed: mkdir onbod dir: %v", err)
-	}
-	onbodDB, err := db_utils.Open(onbodFile)
+	// onbod's own tables — /dash/invites/ reads them. onbod is package main so
+	// the seed cannot import its opener, and it asks the owners that DECLARE
+	// onbod's schema instead of holding a copy of it. A hand-copied schema is a
+	// second declaration of a table onbod already declares, and one had already
+	// drifted: invites moved to a `ref` primary key while the copy here still
+	// said `token`, so every invites test failed on "no such column: ref" and
+	// read as a product bug.
+	onbodObj, err := store.Handle(store.OwnerOnbod)
 	if err != nil {
-		log.Fatalf("seed: open onbod.db: %v", err)
+		log.Fatalf("seed: dial onbod's store: %v", err)
 	}
-	defer onbodDB.Close()
-	// Every table onbod owns is an objstore ENTITY, so the driver builds all of
-	// them from these three declarations and there is nothing else to run.
-	// store.OpenOnbodAt probes for `invites` to prove the path, so a seed that
-	// skipped them would leave every /dash/invites/ page reporting "invites store
-	// unavailable" while the suite still called itself green.
-	obj := sqlstore.New(onbodDB)
-	if err := audit.EnsureEntities(context.Background(), obj); err != nil {
-		log.Fatalf("seed: onbod audit entity: %v", err)
-	}
-	if err := store.EnsureEntities(context.Background(), obj, store.OwnerOnbod); err != nil {
+	if err := store.PrepareOwner(context.Background(), onbodObj, store.OwnerOnbod); err != nil {
 		log.Fatalf("seed: onbod entities: %v", err)
 	}
-	if err := resreg.EnsureSubsystem(context.Background(), obj, obj, resreg.SubsystemOnbod); err != nil {
+	if err := resreg.EnsureSubsystem(context.Background(), onbodObj, onbodObj, resreg.SubsystemOnbod); err != nil {
 		log.Fatalf("seed: onbod subsystem: %v", err)
 	}
 
-	// runed.db — /dash/runed/ needs it, and runed IS an importable package, so
-	// its own opener runs its own migrations.
-	runedDB, err := runed.Create(storeDir)
+	// runed's own tables — /dash/runed/ needs them.
+	runedDB, err := runed.Open()
 	if err != nil {
-		log.Fatalf("seed: open runed.db: %v", err)
+		log.Fatalf("seed: open runed's store: %v", err)
 	}
 	defer runedDB.Close()
 
@@ -109,13 +85,12 @@ func main() {
 		log.Fatalf("seed: put group: %v", err)
 	}
 
-	sqlDB := rdb.SQL()
 	// routd's registered resources are objstore entities, and store owns every
 	// coordinate and attribute name they carry. The fixture writes through it so
 	// the items dashd reads are the items the daemons write — a second rendering
 	// here would put a row where the page's read does not look, and the suite
 	// would report an empty page as a product bug.
-	rst := store.New(sqlDB)
+	rst := store.NewOver(rdb.Obj())
 
 	if _, err := rst.PutRouteRow(core.Route{
 		Seq: 0, Match: "chat_jid=telegram:user/seed", Target: "inbox",
@@ -137,9 +112,11 @@ func main() {
 	}); err != nil {
 		log.Fatalf("seed: put message: %v", err)
 	}
-	// Mark one message errored so the portal alert banner appears in tests.
-	if _, err := sqlDB.Exec(`UPDATE messages SET errored=1 WHERE id='seed-msg-1'`); err != nil {
-		log.Fatalf("seed: mark errored: %v", err)
+	// Flag the chat errored so the portal alert banner appears in tests. The
+	// flag is the CHAT's — the banner reads ErroredChatJIDs — so the fixture
+	// writes it where the page looks.
+	if err := rst.MarkChatErrored("telegram:user/seed"); err != nil {
+		log.Fatalf("seed: mark chat errored: %v", err)
 	}
 
 	// One chat route_token so /dash/tokens/ has a row to list and revoke.

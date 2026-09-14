@@ -155,7 +155,7 @@ func installPackage(dataDir, inst, name, srcDir string, files []string, hashes m
 			die("Failed: install %s: %v", n, err)
 		}
 	}
-	rdb := mustOpenRoutd(dataDir)
+	rdb := mustOpenRoutd()
 	defer rdb.Close()
 	manifest := map[string][]string{manifestFiles: files}
 	if len(frags) > 0 {
@@ -271,13 +271,12 @@ func sha256hex(b []byte) string {
 	return hex.EncodeToString(h[:])
 }
 
-// mustOpenRoutd opens the instance's routd.db (migrating it if needed) for the
-// installed-package record. The CLI writes the owner DB directly per the split
-// write-discipline (CLAUDE.md).
-func mustOpenRoutd(dataDir string) *routd.DB {
-	rdb, err := routd.Open(filepath.Join(dataDir, "store"))
+// mustOpenRoutd dials routd's tables for the installed-package record. The CLI
+// writes the owner's tables directly per the split write-discipline (CLAUDE.md).
+func mustOpenRoutd() *routd.DB {
+	rdb, err := routd.Open()
 	if err != nil {
-		die("Failed: open routd.db: %v", err)
+		die("Failed: open routd's store: %v", err)
 	}
 	return rdb
 }
@@ -955,7 +954,7 @@ func cmdPackages(args []string) {
 		need(args, 3, usage)
 		name := args[2]
 		mustPkgName(name)
-		rdb := mustOpenRoutd(dataDir)
+		rdb := mustOpenRoutd()
 		defer rdb.Close()
 		rec, ok, err := rdb.InstalledPackage(routd.InstanceWide, name)
 		if err != nil {
@@ -982,7 +981,7 @@ func cmdPackages(args []string) {
 		// second updater — both go through reapplyPackage, so dirty-refusal is
 		// identical. A dirty package is reported and SKIPPED rather than fatal, so one
 		// hand-edited fragment cannot block the rest of the instance from syncing.
-		rdb := mustOpenRoutd(dataDir)
+		rdb := mustOpenRoutd()
 		defer rdb.Close()
 		recs, err := rdb.InstalledPackages()
 		if err != nil {
@@ -1034,7 +1033,7 @@ func cmdPackages(args []string) {
 		need(args, 3, usage)
 		name := args[2]
 		mustPkgName(name)
-		rdb := mustOpenRoutd(dataDir)
+		rdb := mustOpenRoutd()
 		defer rdb.Close()
 		// Prefer the installed record (spec 5/28): delete exactly what the record
 		// says this package owns, then drop the record. Fall back to the legacy

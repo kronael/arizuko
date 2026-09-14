@@ -12,11 +12,9 @@ package main
 
 import (
 	"context"
-	"database/sql"
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/authd/authstore"
-	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -36,8 +34,3 @@ func ensureStorage(d store.Driver) error {
 	}
 	return audit.EnsureEntities(ctx, d)
 }
-
-// newObjectStore is the driver a pool is reached through. store.OwnerDriver
-// picks it for the running daemon; this is what a test holding a pool of its
-// own builds.
-func newObjectStore(db *sql.DB) *sqlstore.Store { return sqlstore.New(db) }

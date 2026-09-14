@@ -6,7 +6,6 @@ package dyntest
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"net"
 	"os"
 	"os/exec"
@@ -19,9 +18,15 @@ import (
 )
 
 // Image is the endpoint a test starts when the environment names none. It is
-// the SQLite-backed development build, which is what makes it cheap to start;
-// the served deployment runs the PostgreSQL build behind the same protocol.
-const Image = "ghcr.io/extenddb/extenddb-dev:0.1.11"
+// Amazon's own local build, which answers CreateTable in about 4 ms; the
+// ExtendDB development build charges a one-second control-plane delay per
+// table, and a suite that makes an owner's thirty-three entities per fixture
+// pays that delay 437 times. EnvEndpoint is how a run proves the same code
+// against the PostgreSQL deployment this repo ships.
+const Image = "amazon/dynamodb-local:latest"
+
+// ImagePort is the port Image listens on inside its container.
+const ImagePort = 8000
 
 // EnvEndpoint points the suites at an endpoint that is already running — the
 // PostgreSQL deployment, or Amazon's own service — instead of the container.
@@ -38,16 +43,13 @@ var (
 )
 
 // Config answers the endpoint for this test process, starting one on the first
-// call. A test that cannot have one is skipped rather than failed: the suite
-// runs on a machine with no container engine.
+// call. A test that cannot have one FAILS: every owner's store lives on a
+// server, so a skip here would report a suite that proved nothing as green.
 func Config(t *testing.T) dynstore.Config {
 	t.Helper()
-	if testing.Short() {
-		t.Skip("needs a DynamoDB endpoint; run it through `make integration`")
-	}
 	once.Do(func() { shared, startErr = start() })
 	if startErr != nil {
-		t.Skipf("no endpoint: %v", startErr)
+		t.Fatalf("no endpoint: %v", startErr)
 	}
 	return shared
 }
@@ -57,7 +59,7 @@ func Config(t *testing.T) dynstore.Config {
 func Store(t *testing.T, entities ...string) *dynstore.Store {
 	t.Helper()
 	cfg := Config(t)
-	cfg.Prefix = fmt.Sprintf("t%d_%d_", time.Now().UnixNano(), rand.Int63())
+	cfg.Prefix = dynstore.TestPrefix()
 	s, err := dynstore.Dial(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -96,11 +98,47 @@ func Shutdown() {
 	container = ""
 }
 
-// Main is TestMain for a package whose tests take an endpoint.
+// Main is TestMain for a package whose tests take an endpoint. It puts the
+// endpoint in the process environment before the first test runs, because the
+// fixture doors the daemons export — routd.OpenMem and its siblings — read the
+// same DYNAMODB_URL a daemon reads and know nothing about a container.
+//
+// A package that owns its own TestMain calls Setup and Shutdown instead.
 func Main(m *testing.M) {
+	if err := Setup(); err != nil {
+		fmt.Fprintf(os.Stderr, "dyntest: %v\n", err)
+		os.Exit(1)
+	}
 	code := m.Run()
 	Shutdown()
 	os.Exit(code)
+}
+
+// Setup starts the endpoint and exports it, so every store this process opens
+// dials it. It is Main's first half, for a package whose TestMain does more.
+func Setup() error {
+	once.Do(func() { shared, startErr = start() })
+	if startErr != nil {
+		return startErr
+	}
+	for k, v := range map[string]string{
+		dynstore.EnvURL:    shared.Endpoint,
+		dynstore.EnvRegion: region(shared.Region),
+		dynstore.EnvKeyID:  shared.KeyID,
+		dynstore.EnvSecret: shared.Secret,
+	} {
+		if err := os.Setenv(k, v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func region(got string) string {
+	if got == "" {
+		return "us-east-1"
+	}
+	return got
 }
 
 func start() (dynstore.Config, error) {
@@ -134,7 +172,7 @@ func start() (dynstore.Config, error) {
 	name := fmt.Sprintf("arizuko-dynstore-%d", os.Getpid())
 	_, _ = docker("rm", "-f", name)
 	if out, err := docker("run", "-d", "--name", name,
-		"-p", fmt.Sprintf("127.0.0.1:%d:18080", port), Image); err != nil {
+		"-p", fmt.Sprintf("127.0.0.1:%d:%d", port, ImagePort), Image); err != nil {
 		return dynstore.Config{}, fmt.Errorf("start %s: %v: %s", Image, err, out)
 	}
 	container = name

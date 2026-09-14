@@ -31,7 +31,6 @@ package resreg
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"reflect"
 	"sort"
@@ -41,54 +40,29 @@ import (
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore"
-	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/store"
 )
 
-// OnDB is the Backend for one owner database: the pool itself for a
-// column-shaped resource, and this repo's SQL driver over the same pool for an
-// entity-shaped one.
-//
-// The driver is chosen HERE rather than by the caller because a *sql.DB has
-// exactly one driver that can serve it, and resreg already builds the same one
-// for the audit row an apply writes. A caller holding a handle to some other
-// engine builds the Backend itself; there is nothing to derive then.
-func OnDB(db *sql.DB) Backend { return Backend{DB: db, Obj: sqlstore.New(db)} }
-
-// On is the Backend for a store addressed by key and nothing else — the shape a
-// caller holding a handle to a server has. It carries no SQL half because there
-// is nothing for one to read: every resource an owner subsystem declares is
-// entity-shaped, and resreg/resources/shape_test.go is the lock on that.
+// On is the Backend for one owner's tables. Every resource an owner subsystem
+// declares is entity-shaped, and resreg/resources/shape_test.go is the lock on
+// that, so the store addressed by key is the whole of it.
 func On(obj objstore.Store) Backend { return Backend{Obj: obj} }
 
-// Backend is one owner database, reachable BOTH ways, because a resource
-// declares which way it answers.
-//
-// Exactly one half serves any given resource and the declaration decides which
-// (Resource.EntitySortKey). Carrying both is not a fallback: a verb holds one
-// database handle and the resources it reads through it need not all be the
-// same shape. Apply and ExportSnapshot are the exception, and requireEntities is
-// where they say so.
+// Backend is one owner's tables, as the handle every resource is read and
+// written through.
 type Backend struct {
-	// DB reads a column-shaped resource.
-	DB *sql.DB
 	// Obj reads and writes an entity-shaped resource.
 	Obj objstore.Store
 }
 
-// reader is one read's handles: the Querier a column-shaped resource is read
-// through, and the store an entity-shaped one is read from.
-//
-// It is not Backend because the SQL half is a Querier rather than a pool — the
-// read subset a *sql.DB and a *sql.Tx both satisfy (engine.go). Exactly one half
-// serves any given resource.
+// reader is one read's handle. It is not Backend because Apply's in-transaction
+// recheck reads through a handle of its own.
 type reader struct {
-	sql Querier
 	obj objstore.Store
 }
 
 // read is the reader for a whole Backend.
-func (b Backend) read() reader { return reader{sql: b.DB, obj: b.Obj} }
+func (b Backend) read() reader { return reader{obj: b.Obj} }
 
 // entityMeta is the item half of the reflection Register does. It is built only
 // for a resource that declared EntitySortKey, so a column-shaped resource

@@ -30,7 +30,7 @@ func syncPackageSkills(dataDir string) {
 	if !dirExists(container.PackageSkillsDir(cfg)) {
 		return // no package on this instance ships a skill
 	}
-	rdb := mustOpenRoutd(dataDir)
+	rdb := mustOpenRoutd()
 	defer rdb.Close()
 
 	groups := store.NewOver(rdb.Obj()).AllGroups()

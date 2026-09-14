@@ -214,7 +214,7 @@ func cmdProducts(args []string) {
 		}
 	case "apply":
 		need(args, 3, usage)
-		rdb := mustOpenRoutd(dataDir)
+		rdb := mustOpenRoutd()
 		defer rdb.Close()
 		applyProductMix(dataDir, rdb, args[2])
 	default:

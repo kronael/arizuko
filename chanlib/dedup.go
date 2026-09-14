@@ -5,18 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
 
 	"github.com/kronael/arizuko/chanlib/chanstore"
-	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/objstore/dynstore"
-	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/store"
-	// OpenAdapterStore opens "sqlite" DSNs, so the driver registration belongs
-	// with the call — seven adapter mains would each have to remember it, and the
-	// one that forgot would fail at boot with "unknown driver".
-	_ "modernc.org/sqlite"
 )
 
 // AdapterStore is one adapter's storage, in the three pieces an adapter's boot
@@ -41,38 +33,24 @@ type AdapterStore struct {
 // per service, so an adapter stays outage-resistant on its own and no library
 // owns a database.
 //
-// It is the only door, so the branch between an instance served from a DynamoDB
-// endpoint and one holding files is written here once instead of in eight
-// adapter mains. A served adapter's tables live under its own service name —
-// the namespace dynstore.Prefix renders for every owner — and it makes them
-// itself, because it is the only daemon that reads them. A file instance keeps
-// adapter-private state `arizuko create` does not seed, so a missing file is
-// created here.
+// It is the only door, so the dial is written here once instead of in eight
+// adapter mains. An adapter's tables live under its own service name — the
+// namespace dynstore.Prefix renders for every owner — and it makes them itself,
+// because it is the only daemon that reads them.
 //
 // This function names a driver, which is the composition root's job (spec 6/37
 // step 5) — chanstore itself names none, so a second engine is one line here.
-func OpenAdapterStore(dataDir, service string) (AdapterStore, error) {
+func OpenAdapterStore(service string) (AdapterStore, error) {
 	as := AdapterStore{Close: func() error { return nil }}
-	if store.Served() {
-		// The prefix is the adapter's name, so two accounts of ONE adapter share
-		// these tables: every key here carries the chat JID, and a JID carries
-		// the channel name (`telegram-rhias:group/1`), so a held inbound and a
-		// delivery claim are already scoped to the account that made them.
-		h, err := dynstore.FromEnv(dynstore.Prefix(service))
-		if err != nil {
-			return AdapterStore{}, err
-		}
-		as.Driver = h
-	} else {
-		if err := os.MkdirAll(dataDir, 0o755); err != nil {
-			return AdapterStore{}, err
-		}
-		db, err := db_utils.Open(filepath.Join(dataDir, service+".db"))
-		if err != nil {
-			return AdapterStore{}, err
-		}
-		as.Driver, as.Close = sqlstore.New(db), db.Close
+	// The prefix is the adapter's name, so two accounts of ONE adapter share
+	// these tables: every key here carries the chat JID, and a JID carries the
+	// channel name (`telegram-rhias:group/1`), so a held inbound and a delivery
+	// claim are already scoped to the account that made them.
+	h, err := dynstore.FromEnv(dynstore.Prefix(service))
+	if err != nil {
+		return AdapterStore{}, err
 	}
+	as.Driver = h
 	for _, entity := range chanstore.Entities {
 		if err := as.Driver.CreateEntity(context.Background(), entity); err != nil {
 			as.Close() //nolint:errcheck // the open already failed

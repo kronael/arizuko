@@ -287,7 +287,7 @@ func TestAnAdapterBootsFromTheEnvironment(t *testing.T) {
 	servedEnv(t)
 	fresh(t, "teled")
 
-	as, err := chanlib.OpenAdapterStore(filepath.Join(t.TempDir(), "teled"), "teled")
+	as, err := chanlib.OpenAdapterStore("teled")
 	if err != nil {
 		t.Fatalf("chanlib.OpenAdapterStore over the endpoint: %v", err)
 	}
@@ -332,7 +332,7 @@ func TestEmaidBootsFromTheEnvironment(t *testing.T) {
 	servedEnv(t)
 	fresh(t, "emaid")
 
-	as, err := chanlib.OpenAdapterStore(filepath.Join(t.TempDir(), "emaid"), "emaid")
+	as, err := chanlib.OpenAdapterStore("emaid")
 	if err != nil {
 		t.Fatalf("chanlib.OpenAdapterStore over the endpoint: %v", err)
 	}

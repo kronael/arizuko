@@ -195,7 +195,7 @@ func main() {
 	// file at dsn, and probes for the `acl` table either way — so a stale DB_PATH
 	// and an endpoint routd has never booted against both fail loudly at boot
 	// instead of serving an empty dashboard (BUGS F58).
-	routdOwn, err := store.OpenOwner(store.OwnerRoutd, dsn)
+	routdOwn, err := store.OpenOwner(store.OwnerRoutd)
 	if err != nil {
 		slog.Error("open routd's store", "err", err)
 		os.Exit(1)
@@ -458,7 +458,7 @@ func openSiblingOwner(env, dataDir, owner string) *store.Store {
 		}
 		target = store.OwnerDBPath(filepath.Join(dataDir, "store"), owner)
 	}
-	s, err := store.OpenOwner(owner, target)
+	s, err := store.OpenOwner(owner)
 	if err != nil {
 		slog.Info("owner store unavailable; its dashd view will banner",
 			"owner", owner, "target", target, "env", env, "err", err)

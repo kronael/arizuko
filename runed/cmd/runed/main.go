@@ -6,7 +6,6 @@
 package main
 
 import (
-	"cmp"
 	"context"
 	"log/slog"
 	"net/http"
@@ -23,7 +22,6 @@ import (
 	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/runed"
-	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/substrate"
 )
 
@@ -82,12 +80,9 @@ func main() {
 	authdURL := os.Getenv("AUTHD_URL")
 	runTTL := core.DurOr("RUNED_RUN_TIMEOUT", 20*time.Minute)
 
-	// runed.OpenAt is the door: on an instance served from a DynamoDB endpoint it
-	// dials there and makes runed's entities, and otherwise it opens the database
-	// DATABASE names — which may be a postgres:// URL (spec 6/37 step 6). Unset,
-	// it is the owner file under the store dir.
-	db, err := runed.OpenAt(cmp.Or(os.Getenv("DATABASE"),
-		store.OwnerDBPath(cfg.StoreDir, store.OwnerRuned)))
+	// runed.Open is the door: it dials the instance's store server and makes
+	// runed's entities there.
+	db, err := runed.Open()
 	if err != nil {
 		slog.Error("open runed's store", "err", err)
 		os.Exit(1)

@@ -160,8 +160,7 @@ func tokenIssueBearer(st *store.Store, dataDir string, args []string) {
 // file in the exact place the migration notes warn about, from a command that
 // only reads.
 func mintBearer(storeDir, folder, sub string, scopes []string, ttl time.Duration) (string, time.Time, error) {
-	d, closeStore, err := store.OwnerDriver(store.OwnerAuthd,
-		store.OwnerDBPath(storeDir, store.OwnerAuthd))
+	d, closeStore, err := store.OwnerDriver(store.OwnerAuthd)
 	if err != nil {
 		return "", time.Time{}, err
 	}

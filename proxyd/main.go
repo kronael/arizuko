@@ -1,7 +1,6 @@
 package main
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	"log/slog"
@@ -934,8 +933,7 @@ func main() {
 	// DB_PATH names — which may be a postgres:// URL, the same env gitd, slakd
 	// and dashd already read (spec 6/37 step 6). Unset, it is the owner file
 	// under the store dir.
-	stRoutd, err := store.OpenOwner(store.OwnerRoutd, cmp.Or(os.Getenv("DB_PATH"),
-		store.OwnerDBPath(coreCfg.StoreDir, store.OwnerRoutd)))
+	stRoutd, err := store.OpenOwner(store.OwnerRoutd)
 	if err != nil {
 		slog.Error("open routd's store", "err", err)
 		os.Exit(1)

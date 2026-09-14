@@ -3,8 +3,10 @@ package dynstore
 import (
 	"encoding/base64"
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"strings"
+	"time"
 )
 
 // The environment an instance's daemons share. compose generation writes these
@@ -65,4 +67,11 @@ func caFromEnv() ([]byte, error) {
 		return nil, fmt.Errorf("dynstore: %s is not base64: %w", EnvCA, err)
 	}
 	return pem, nil
+}
+
+// TestPrefix mints the table prefix ONE test fixture owns. A server holds every
+// fixture of a run at once, so the prefix is what keeps two of them apart, the
+// same way Prefix keeps two owners apart on an instance's server.
+func TestPrefix() string {
+	return fmt.Sprintf("t%d_%d.", time.Now().UnixNano(), rand.Int64())
 }

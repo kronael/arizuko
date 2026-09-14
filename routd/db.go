@@ -2,8 +2,6 @@ package routd
 
 import (
 	"context"
-	"database/sql"
-	"embed"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -12,28 +10,16 @@ import (
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth/surrogate"
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/objstore"
-	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/routd/msgsearch"
 	"github.com/kronael/arizuko/store"
-	_ "modernc.org/sqlite"
 )
 
-//go:embed migrations/*.sql
-var migrationFS embed.FS
-
-const serviceName = "routd"
-
-// DB is routd's owner of routd.db: the message/event store + routing rules +
+// DB is routd's owner tables: the message/event store + routing rules +
 // turn lifecycle + route tokens. routd is the SOLE appender of messages. Times
 // are core.TSLayout UTC, computed in Go.
 type DB struct {
-	db *sql.DB
-
-	// obj is the handle this database is served from when a caller hands one
-	// over. It is set instead of the pool, not beside it, so a routd built this
-	// way names no file and no engine.
+	// obj is the handle this database is served from.
 	obj objstore.Store
 
 	// secretKeyring is the SECRETS_KEY material (raw, pre-SHA256) routd hands to
@@ -47,8 +33,8 @@ type DB struct {
 	// the stored value unchanged. Wired in routd main from auth/surrogate.
 	surrogate *surrogate.Engine
 
-	// release closes the pool and drops the database OpenMem reserved. A DB
-	// opened against a file leaves the file alone, and Close closes the pool.
+	// release drops the private namespace OpenMem reserved. A DB opened against
+	// the instance's own tables leaves them alone.
 	release func() error
 
 	// search is the ranked message index every find_messages answers from;
@@ -71,37 +57,11 @@ func (d *DB) SetSurrogate(e *surrogate.Engine) { d.surrogate = e }
 // plaintext.
 func (d *DB) SetSecretKeys(raws ...[]byte) { d.secretKeyring = raws }
 
-// Open attaches to an EXISTING routd.db at dir/routd.db (WAL, FK on) and runs the
-// routd migration sequence. It never creates the file — see Create. routd opens
-// NO sibling DB: every table it needs is in routd.db or federated over HTTP
-// (identity → authd, session_log → runed). The one-time monolith→split copy
-// belongs to `arizuko migrate-split`, the sole tool that reads messages.db.
-func Open(dir string) (*DB, error) {
-	return OpenAt(store.OwnerDBPath(dir, store.OwnerRoutd))
-}
-
-// OpenAt is Open against an explicitly configured target — routd's DATABASE env
-// — which may name either engine, because db_utils.Open reads the engine off the
-// DSN and nothing here names one (spec 6/37 step 6). store.OpenOwner is the
-// same door onto the same tables for a daemon that only reads them.
-//
-// On an instance served from a DynamoDB endpoint there is no target to name:
-// the endpoint holds routd's tables and this dials it, so every caller of this
-// door boots either way without asking which. prepare makes what routd owns.
-func OpenAt(target string) (*DB, error) {
-	if store.Served() {
-		return openServed()
-	}
-	if err := db_utils.RequireDB(target); err != nil {
-		return nil, err
-	}
-	return open(target)
-}
-
-// openServed dials the endpoint routd's tables live on and makes them. routd is
-// their OWNER, so it is the daemon that makes them: a reader dials and makes
-// nothing (store.OpenOwner).
-func openServed() (*DB, error) {
+// Open dials the endpoint routd's tables live on and makes them. routd is their
+// OWNER, so it is the daemon that makes them: a reader dials and makes nothing
+// (store.OpenOwner). routd opens NO sibling owner: every table it needs is its
+// own or federated over HTTP (identity to authd, session_log to runed).
+func Open() (*DB, error) {
 	h, err := store.Handle(store.OwnerRoutd)
 	if err != nil {
 		return nil, err
@@ -110,131 +70,60 @@ func openServed() (*DB, error) {
 	if err := store.PrepareOwner(ctx, h, store.OwnerRoutd); err != nil {
 		return nil, err
 	}
-	// The same floor a file-backed routd is born with, written only into an
-	// EMPTY acl. Without it the instance denies everything and comes up healthy
-	// (store/seed.go).
+	// The floor routd is born with: role:operator's root grant, role:member's
+	// twelve messaging verbs and the two instance-wide egress rules. It writes
+	// only into an EMPTY acl, so an operator's manifest is never fought; without
+	// it the instance denies everything and comes up healthy (store/seed.go).
+	//
+	// Every folder is bound to role:member at group creation, in the same
+	// transaction as its groups row (store.PutGroupRow, BUGS L119). There is no
+	// open-time backfill above the floor — auth.Authorize reads the acl rows
+	// directly.
 	if err := store.SeedRoutdFloor(ctx, h); err != nil {
 		return nil, err
 	}
 	return OpenOver(h), nil
 }
 
-// Create seeds dir/routd.db when absent, then migrates it. `arizuko create` and
-// the split-cutover tool only: every other caller Opens, so a wrong path fails
-// loud instead of yielding a migrated instance with zero groups and zero acl.
-//
-// A served instance has no file to seed and the entities are what `create`
-// makes, which is what openServed does — so on one this IS the open.
-func Create(dir string) (*DB, error) {
-	if store.Served() {
-		return openServed()
-	}
-	path := store.OwnerDBPath(dir, store.OwnerRoutd)
-	if err := db_utils.CreateDBFile(path); err != nil {
-		return nil, err
-	}
-	return open(path)
-}
-
-// OpenMem opens a fresh, private, empty routd.db for one test and migrates it.
-// db_utils.OpenTestDB owns the engine and the DSN, so ARIZUKO_TEST_PG_DSN moves
-// this and every other test database together (spec 6/37 step 6). Close releases
-// the database.
+// OpenMem hands ONE test its own private namespace on the endpoint this process
+// dials, with routd's entities and its floor made in it. Close drops the
+// namespace.
 func OpenMem() (*DB, error) {
-	dsn, release, err := db_utils.NewTestDB("routd")
+	h, release, err := store.TestOwner(store.OwnerRoutd)
 	if err != nil {
 		return nil, err
 	}
-	d, err := open(dsn)
-	if err != nil {
-		// the caller gets no handle, so the failed open releases the database
+	if err := store.SeedRoutdFloor(context.Background(), h); err != nil {
 		if rerr := release(); rerr != nil {
-			return nil, fmt.Errorf("%w (and releasing the database: %v)", err, rerr)
+			return nil, fmt.Errorf("%w (and dropping the namespace: %v)", err, rerr)
 		}
 		return nil, err
 	}
+	d := OpenOver(h)
 	d.release = release
 	return d, nil
 }
 
-func open(dsn string) (*DB, error) {
-	sqldb, err := db_utils.Open(dsn)
-	if err != nil {
-		return nil, err
-	}
-	if err := db_utils.Migrate(sqldb, migrationFS, "migrations", serviceName); err != nil {
-		sqldb.Close()
-		return nil, err
-	}
-	// audit_log, pane_sessions and secret_use_log are entities rather than
-	// migrations, so they are created by the driver here — routd owns this file,
-	// and dashd, webd and proxyd all record into it without opening it
-	// themselves. store owns the declaration (store/entities.go), because store
-	// is what reads and writes them, and the OWNER argument is what keeps this
-	// file to the two it holds: store also declares onbod's three, and asking
-	// for the whole set would grow them here with no reader to match.
-	ctx := context.Background()
-	if err := store.EnsureEntities(ctx, sqlstore.New(sqldb), store.OwnerRoutd); err != nil {
-		sqldb.Close()
-		return nil, err
-	}
-	if err := audit.EnsureEntities(ctx, sqlstore.New(sqldb)); err != nil {
-		sqldb.Close()
-		return nil, err
-	}
-	// The floor a routd.db is born with: role:operator's root grant, role:member's
-	// twelve messaging verbs and the two instance-wide egress rules. A seed is a
-	// row and a row an entity holds goes in through that entity's own writer, so
-	// it cannot be a statement in the chain above — the driver makes the entity
-	// after the chain has run. It writes only into a database whose acl entity is
-	// EMPTY, so an operator's manifest is never fought (store/seed.go).
-	//
-	// Every folder is bound to role:member at group creation, in the same
-	// transaction as its groups row (store.PutGroupRow, BUGS L119). There is no
-	// open-time backfill above the floor — auth.Authorize reads the acl rows
-	// directly.
-	if err := store.SeedRoutdFloor(ctx, sqlstore.New(sqldb)); err != nil {
-		sqldb.Close()
-		return nil, err
-	}
-	return &DB{db: sqldb}, nil
-}
-
-// Close ends what the open holds. A routd served from a handle holds no pool,
-// so the pool is the only half that may be absent.
+// Close ends what the open holds. A routd opened against the instance's own
+// tables holds no namespace, so there is nothing to drop.
 //
-// IT WAITS FOR THE BOOT WALK. Cancelling is not enough: sql.DB.Close leaves a
-// query already in flight to finish, and a walk still reading when Close
-// returns writes SQLite's -wal beside a file its owner believes it has
-// released — which a caller that deletes the directory next reads as "not
-// empty".
+// IT WAITS FOR THE BOOT WALK: a walk still reading when Close returns keeps
+// touching a namespace its owner believes it has released.
 func (d *DB) Close() error {
 	if d.searchStop != nil {
 		d.searchStop()
 		<-d.searchDone
 	}
-	switch {
-	case d.release != nil:
+	if d.release != nil {
 		return d.release()
-	case d.db == nil:
-		return nil
 	}
-	return d.db.Close()
+	return nil
 }
-
-// SQL returns the raw handle for callers that need it (tests).
-func (d *DB) SQL() *sql.DB { return d.db }
 
 // Obj is this database through objstore's two primitives, which is how audit
 // reaches it — and, for an audited write, how the row joins the transaction the
-// mutation runs on. It is the handle routd was served from when it was handed
-// one, so routd's audit sink records over the endpoint too.
-func (d *DB) Obj() objstore.Store {
-	if d.obj != nil {
-		return d.obj
-	}
-	return sqlstore.New(d.db)
-}
+// mutation runs on.
+func (d *DB) Obj() objstore.Store { return d.obj }
 
 func nowTS() string { return core.NowTS() }
 

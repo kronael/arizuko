@@ -64,12 +64,7 @@ func (d *DB) SetPaneContextByTriple(teamID, userID, threadTS, contextJID string)
 // went to the driver itself would be a second spelling of a format store owns.
 //
 // An empty acl table denies everything — there is no fallback grant set.
-func (d *DB) store() *store.Store {
-	if d.obj != nil {
-		return store.NewOver(d.obj)
-	}
-	return store.New(d.db)
-}
+func (d *DB) store() *store.Store { return store.NewOver(d.obj) }
 
 // secretStore is the one variant: the same handle with the SECRETS_KEY keyring
 // set, so secret reads decrypt `v2:` values and writes seal them. Every other

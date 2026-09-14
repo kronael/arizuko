@@ -3,30 +3,14 @@ package store
 import (
 	"context"
 	"crypto/sha256"
-	"database/sql"
-	"embed"
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/kronael/arizuko/audit"
-	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/objstore"
-	"github.com/kronael/arizuko/objstore/sqlstore"
-	_ "modernc.org/sqlite"
 )
 
-//go:embed migrations/*.sql
-var migrationFS embed.FS
-
-const serviceName = "store"
-
 type Store struct {
-	db *sql.DB
-
-	// obj is the handle every read and write goes through. A store built over a
-	// pool makes one for it; a store handed a handle uses that one and holds no
-	// pool at all, which is what lets it run over a store that is not SQL.
+	// obj is the handle every read and write goes through.
 	obj objstore.Store
 	// secretKeys is the AES-256 keyring for the secrets table. keys[0] is the
 	// active key used to seal new writes; the rest are decrypt-only, retained
@@ -43,7 +27,7 @@ type Store struct {
 	auditSub     string
 	auditSurface string
 
-	// release closes the pool and drops the database OpenMem reserved. A store
+	// release drops the private namespace OpenMem reserved. A store
 	// opened against a file leaves the file alone, and Close closes the pool.
 	release func() error
 }
@@ -96,172 +80,42 @@ func (s *Store) SetSecretKeys(raws ...[]byte) {
 	s.secretKeys = keys
 }
 
-// Open creates and migrates dir/messages.db — the FROZEN pre-split monolith. Only
-// a caller whose subject IS that database wants it; see Migrate.
-func Open(dir string) (*Store, error) {
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, err
-	}
-	db, err := db_utils.Open(filepath.Join(dir, "messages.db"))
-	if err != nil {
-		return nil, err
-	}
-	s := &Store{db: db, obj: sqlstore.New(db)}
-	if err := migrate(db); err != nil {
-		db.Close()
-		return nil, err
-	}
-	return s, nil
-}
-
-// OpenRoutd opens routd.db at dir/routd.db (WAL, FK on) and wraps it as a *Store
-// WITHOUT running store's migrations — routd owns that file and already created its
-// tables. The host-admin CLI writes acl + secrets here. Strict: errors if routd.db has
-// no acl table rather than silently creating a divergent schema.
-func OpenRoutd(dir string) (*Store, error) {
-	return OpenRoutdAt(OwnerDBPath(dir, OwnerRoutd))
-}
-
-// OpenRoutdAt is OpenRoutd against an explicitly configured routd.db path —
-// dashd's DB_PATH, onbod's ROUTD_DB_PATH. Same strict acl probe.
-func OpenRoutdAt(path string) (*Store, error) {
-	return openOwned(path, "routd.db", "acl", "routd")
-}
-
-// OpenOnbod opens onbod.db at dir/onbod.db (WAL, FK on) and wraps it as a *Store
-// WITHOUT running store's migrations — onbod owns that file and already created its
-// tables. The host-admin CLI and the FS-mounted dashd write invites + gates here.
-// Strict: errors if onbod.db has no invites table.
-func OpenOnbod(dir string) (*Store, error) {
-	return OpenOnbodAt(OwnerDBPath(dir, OwnerOnbod))
-}
-
-// OpenOnbodAt is OpenOnbod against an explicitly configured onbod.db path —
-// dashd's and onbod's ONBOD_DB_PATH. Same strict invites probe.
-func OpenOnbodAt(path string) (*Store, error) {
-	return openOwned(path, "onbod.db", "invites", "onbod")
-}
-
-// openOwned attaches read/write to another daemon's owner DB and proves it is
-// the right file by probing for a table only that daemon's migrations create.
-// The probe is what makes a wrong path loud: SQLite would otherwise open an
-// empty file happily and every read would return zero rows (spec 5/16 step 7).
-//
-// The file must already be there. Opening one that is not MAKES it — SQLite
-// creates the file on the first pragma — so a reader asked for a path nobody
-// seeded would leave an empty database and its -wal behind on the way to
-// failing the probe, and the next boot would find its own litter.
-func openOwned(path, file, table, owner string) (*Store, error) {
-	if err := db_utils.RequireDB(path); err != nil {
-		return nil, err
-	}
-	db, err := db_utils.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	exists, err := db_utils.TableExists(db, table)
-	if err != nil {
-		db.Close()
-		return nil, fmt.Errorf("%s at %s: look for the %s table: %w", file, path, table, err)
-	}
-	if !exists {
-		db.Close()
-		return nil, fmt.Errorf("%s at %s has no %s table (%s must boot to migrate it first)",
-			file, path, table, owner)
-	}
-	return &Store{db: db, obj: sqlstore.New(db)}, nil
-}
-
-// OpenMem opens a fresh, private, empty store for one test and migrates it — on
-// the FROZEN pre-split schema, so it belongs to a test whose subject is that
-// database and to no other (see Migrate). db_utils.OpenTestDB owns the engine and
-// the DSN, so ARIZUKO_TEST_PG_DSN moves this and every other test database
-// together (spec 6/37 step 6). Close releases the database.
+// OpenMem hands ONE test its own private namespace on the endpoint this process
+// dials, with BOTH owners' entities made in it. store is what reads and writes
+// routd's tables and onbod's alike, so a fixture for its own suite carries both.
+// Close drops the namespace.
 func OpenMem() (*Store, error) {
-	db, release, err := db_utils.OpenTestDB("store")
+	h, release, err := TestNamespace()
 	if err != nil {
 		return nil, err
 	}
-	if err := migrate(db); err != nil {
-		// the caller gets no handle, so the failed open releases the database
-		if rerr := release(); rerr != nil {
-			return nil, fmt.Errorf("%w (and releasing the database: %v)", err, rerr)
-		}
-		return nil, err
-	}
-	return &Store{db: db, obj: sqlstore.New(db), release: release}, nil
-}
-
-// Close ends what the open holds. A store served from a handle holds no pool,
-// so there is nothing to close and every daemon's `defer Close` stays correct
-// on either instance.
-func (s *Store) Close() error {
-	switch {
-	case s.release != nil:
-		return s.release()
-	case s.db == nil:
-		return nil
-	}
-	return s.db.Close()
-}
-
-// Migrate applies store's embedded SQL migrations to db — the FROZEN pre-split
-// messages.db schema, and nothing else. No daemon runs this chain: routd, onbod,
-// authd, runed and chanlib each own and migrate their own file. The callers are
-// `arizuko migrate-split` (which reads the monolith it builds) and the tests that
-// simulate an old instance for it.
-//
-// So this is not a general test fixture. A test that opens it to get a `messages`
-// or an `acl` table is asserting against a schema production does not have, and it
-// stays green while the live one drifts: `arizuko budget set` wrote its cap here
-// while routd's gate read routd.db, and every cap the verb reported as set was
-// invisible to enforcement (BUGS Q1). A test whose subject is a live schema opens
-// that daemon's own chain — routd.OpenMem, testutils.NewRoutdStore, or the
-// equivalent. TestMigrationsAreFrozen keeps the chain from growing again.
-func Migrate(db *sql.DB) error {
-	return migrate(db)
-}
-
-// migrate applies store's embedded SQL migrations, then builds the entities the
-// moved tables became. Every opener (Open, OpenMem, the exported Migrate) routes
-// through this one function so none can skip a step.
-func migrate(db *sql.DB) error {
-	if err := db_utils.Migrate(db, migrationFS, "migrations", serviceName); err != nil {
-		return err
-	}
-	// The moved tables are entities rather than migrations, so they are created
-	// by the driver here — the audited writers in this package record into
-	// whichever database they were opened over (entities.go). audit owns its own
-	// declaration and every opener asks for it separately.
-	//
-	// BOTH owners' sets, because this chain builds the pre-split monolith and
-	// carrying every owner's tables in one file is what pre-split MEANS. A split
-	// instance's openers ask for one owner each (routd/db.go, onbod/db.go).
 	ctx := context.Background()
 	for _, owner := range []string{OwnerRoutd, OwnerOnbod} {
-		if err := EnsureEntities(ctx, sqlstore.New(db), owner); err != nil {
-			return err
+		if err := PrepareOwner(ctx, h, owner); err != nil {
+			if rerr := release(); rerr != nil {
+				return nil, fmt.Errorf("%w (and dropping the namespace: %v)", err, rerr)
+			}
+			return nil, err
 		}
 	}
-	return audit.EnsureEntities(ctx, sqlstore.New(db))
+	return &Store{obj: h, release: release}, nil
 }
 
-// New wraps an already-open *sql.DB as a *Store. Caller owns the db lifetime
-// and must have run migrations.
-func New(db *sql.DB) *Store {
-	return &Store{db: db, obj: sqlstore.New(db)}
+// Close ends what the open holds. A store over a handle its caller owns holds
+// no namespace, so there is nothing to drop and every daemon's `defer Close`
+// stays correct.
+func (s *Store) Close() error {
+	if s.release != nil {
+		return s.release()
+	}
+	return nil
 }
 
-// NewOver wraps a handle the caller owns. The store holds no pool, so the
-// SQL-only doors on it — Close and DB — are not available and the reads and
-// writes are.
+// NewOver wraps a handle the caller owns. The store holds no namespace of its
+// own, so Close ends nothing and the reads and writes are what it is for.
 func NewOver(obj objstore.Store) *Store {
 	return &Store{obj: obj}
 }
-
-// DB returns the underlying *sql.DB for callers that need raw query access
-// (e.g. audit poll goroutine). The caller must not close it.
-func (s *Store) DB() *sql.DB { return s.db }
 
 // Obj is this database through objstore's two primitives (spec 6/37 step 5).
 // The audited writers below run their mutation as SQL on a transaction of their

@@ -316,44 +316,16 @@ func plainIdent(s string) bool {
 // the checksum does not see the difference.
 func (r *Resource) ScanAll(be Backend) (any, error) { return r.scanAll(be.read()) }
 
-// scanAll is ScanAll over the handles one read holds, so Apply's in-transaction
-// recheck reads the same rows through its own *sql.Tx.
+// scanAll is ScanAll over the handle one read holds, so Apply's in-transaction
+// recheck reads the same rows through its own.
 func (r *Resource) scanAll(rd reader) (any, error) {
 	if r.meta == nil {
 		return nil, fmt.Errorf("resreg: %s has no schema (RowType unset)", r.Name)
 	}
-	if r.meta.entity != nil {
-		return r.scanEntities(rd)
+	if r.meta.entity == nil {
+		return nil, fmt.Errorf("resreg: %s declares no EntitySortKey, so nothing can read it", r.Name)
 	}
-	if rd.sql == nil {
-		return nil, fmt.Errorf("resreg: %s is column-backed and the backend carries no "+
-			"SQL handle", r.Name)
-	}
-	where, args := r.whereFilter()
-	query := "SELECT " + strings.Join(r.meta.columns, ", ") + " FROM " + r.Table + where + r.orderBy()
-	rows, err := rd.sql.Query(query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("%s: query: %w", r.Name, err)
-	}
-	defer rows.Close()
-	slice := reflect.MakeSlice(reflect.SliceOf(r.meta.rowType), 0, 16)
-	for rows.Next() {
-		ptr := r.newRowPtr()
-		targets, decode := r.scanTargets(ptr.Elem())
-		if err := rows.Scan(targets...); err != nil {
-			return nil, fmt.Errorf("%s: scan: %w", r.Name, err)
-		}
-		if err := decode(); err != nil {
-			return nil, fmt.Errorf("%s: %w", r.Name, err)
-		}
-		if r.Hooks.AfterScan != nil {
-			if err := r.Hooks.AfterScan(ptr.Interface()); err != nil {
-				return nil, fmt.Errorf("%s: after-scan: %w", r.Name, err)
-			}
-		}
-		slice = reflect.Append(slice, ptr.Elem())
-	}
-	return slice.Interface(), rows.Err()
+	return r.scanEntities(rd)
 }
 
 // HasScope reports whether the resource declares a clean folder-scope

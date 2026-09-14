@@ -6,7 +6,6 @@
 package main
 
 import (
-	"cmp"
 	"context"
 	"log/slog"
 	"net/http"
@@ -28,7 +27,6 @@ import (
 	_ "github.com/kronael/arizuko/resreg/resources" // side-effect: register cold-tier resources
 	"github.com/kronael/arizuko/routd"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
-	"github.com/kronael/arizuko/store"
 )
 
 func main() {
@@ -46,12 +44,9 @@ func main() {
 	onbodURL := os.Getenv("ONBOD_URL")
 	webHost := os.Getenv("WEB_HOST")
 
-	// routd.OpenAt is the door: on an instance served from a DynamoDB endpoint it
-	// dials there and makes routd's entities, and otherwise it opens the database
-	// DATABASE names — which may be a postgres:// URL (spec 6/37 step 6). Unset,
-	// it is the owner file under DATA_DIR.
-	db, err := routd.OpenAt(cmp.Or(os.Getenv("DATABASE"),
-		store.OwnerDBPath(filepath.Join(dataDir, "store"), store.OwnerRoutd)))
+	// routd.Open is the door: it dials the instance's store server and makes
+	// routd's entities there.
+	db, err := routd.Open()
 	if err != nil {
 		slog.Error("open routd's store", "err", err)
 		os.Exit(1)

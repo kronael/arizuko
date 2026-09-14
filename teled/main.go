@@ -57,7 +57,7 @@ func main() {
 			b.cancel = cancel
 			// Outbound dedup is a delivery guarantee, not a nicety: without the
 			// DB routd's re-send of a still-pending row posts a second message.
-			as, err := chanlib.OpenAdapterStore(cfg.DataDir, "teled")
+			as, err := chanlib.OpenAdapterStore("teled")
 			if err != nil {
 				slog.Error("adapter store open failed", "dir", cfg.DataDir, "err", err)
 				return nil, nil, err

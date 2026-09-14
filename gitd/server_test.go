@@ -66,7 +66,7 @@ func newTestEnv(t *testing.T, secrets secretMap) *testEnv {
 	up := httptest.NewServer(routd)
 	t.Cleanup(up.Close)
 	rc := chanlib.NewRouterClient(up.URL)
-	as, err := chanlib.OpenAdapterStore(t.TempDir(), "gitd")
+	as, err := chanlib.OpenAdapterStore("gitd")
 	if err != nil {
 		t.Fatal(err)
 	}

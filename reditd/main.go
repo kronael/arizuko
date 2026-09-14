@@ -35,7 +35,7 @@ func main() {
 				return nil, nil, err
 			}
 			rc.loadCursors()
-			as, err := chanlib.OpenAdapterStore(cfg.DataDir, "reditd")
+			as, err := chanlib.OpenAdapterStore("reditd")
 			if err != nil {
 				slog.Error("adapter store open failed", "dir", cfg.DataDir, "err", err)
 				return nil, nil, err

@@ -12,7 +12,7 @@ import (
 // own code is given, so these bodies exercise the opener too.
 func testStore(t *testing.T) *chanstore.Store {
 	t.Helper()
-	as, err := OpenAdapterStore(t.TempDir(), "testadapter")
+	as, err := OpenAdapterStore("testadapter")
 	if err != nil {
 		t.Fatalf("open the adapter store: %v", err)
 	}

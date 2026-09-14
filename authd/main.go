@@ -2,21 +2,19 @@ package main
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore/dynstore"
 	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/store"
-	_ "modernc.org/sqlite"
 )
 
 const (
@@ -29,20 +27,14 @@ func main() {
 	defer obs.Setup("authd", os.Getenv("ARIZUKO_INSTANCE"))()
 	defer obs.SetupTraces("authd", os.Getenv("ARIZUKO_INSTANCE"))()
 
-	dsn, err := resolveDSN(os.Getenv("DATABASE"), os.Getenv("DATA_DIR"))
-	if err != nil {
-		slog.Error("resolve db path", "err", err)
-		os.Exit(1)
-	}
 	listenAddr := os.Getenv("LISTEN_ADDR")
 	if listenAddr == "" {
 		listenAddr = ":8080"
 	}
 
-	// store.OwnerDriver is the door: on an instance served from a DynamoDB
-	// endpoint it dials authd's tables there and authd holds no pool at all,
-	// and otherwise it opens the database dsn names.
-	d, closeStore, err := store.OwnerDriver(store.OwnerAuthd, dsn)
+	// store.OwnerDriver is the door: it dials authd's tables on the instance's
+	// store server, so authd holds no pool at all.
+	d, closeStore, err := store.OwnerDriver(store.OwnerAuthd)
 	if err != nil {
 		slog.Error("open authd's store", "err", err)
 		os.Exit(1)
@@ -84,7 +76,7 @@ func main() {
 		Resource: "daemons/authd",
 		Outcome:  audit.OutcomeOK,
 		ParamsSummary: map[string]any{
-			"dsn":          dsn,
+			"store":        dynstore.URL(),
 			"serving_keys": len(a.PublicKeys()),
 			"service_subs": len(srv.serviceSecrets),
 		},
@@ -100,7 +92,7 @@ func main() {
 		slog.Info("self-minted service:authd")
 	}
 
-	slog.Info("authd started", "db", dsn, "addr", listenAddr, "serving_keys", len(a.PublicKeys()))
+	slog.Info("authd started", "store", dynstore.URL(), "addr", listenAddr, "serving_keys", len(a.PublicKeys()))
 
 	// cfg carries the OAuth provider config into mux(); nil means /auth/* stays
 	// unmounted and human login 404s while health stays green, so the load
@@ -131,32 +123,6 @@ func main() {
 	defer cancel()
 	_ = httpd.Shutdown(ctx)
 }
-
-// resolveDSN picks authd's SQLite path. An explicit DATABASE wins; otherwise
-// the DB is <DATA_DIR>/store/authd/auth.db — its own owner subdirectory, which
-// is the only path compose binds into this container, so authd cannot reach
-// routd's or onbod's DB at all (spec 5/16 step 7). authd owns auth.db; it must
-// NOT reach another daemon's DB (CLAUDE.md DB-ownership rule).
-//
-// An instance served from an endpoint names no file, so neither env is required
-// there and store.OwnerDriver ignores what this answers. store.OwnerDriver is
-// also where the strictness lives: authd never creates its own database, and a
-// wrong or unmounted path would otherwise fill a fresh empty file, minting NEW
-// signing keys and invalidating every live session while authd reports healthy.
-func resolveDSN(database, dataDir string) (string, error) {
-	if database != "" {
-		return database, nil
-	}
-	if store.Served() {
-		return "", nil
-	}
-	if dataDir == "" {
-		return "", errMissingDB
-	}
-	return store.OwnerDBPath(filepath.Join(dataDir, "store"), store.OwnerAuthd), nil
-}
-
-var errMissingDB = errors.New("DATABASE or DATA_DIR env required")
 
 // loadServiceSecrets parses AUTHD_SERVICE_KEYS — a comma-separated list of
 // `principal=secret` pairs — into secret→principal. Compose generation writes
