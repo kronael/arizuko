@@ -251,6 +251,53 @@ func TestBusyBackoffGrowsAndNewMessageBypasses(t *testing.T) {
 	}
 }
 
+// A RUNNING turn writes its own rows — progress notes, replies — and those must
+// not clear the backoff that exists because that turn is running. One cron fire
+// re-dispatched itself fifteen times this way, each attempt paying for a
+// capability resolve, an MCP socket and a prompt build (BUGS L298).
+func TestABotRowDoesNotClearTheBusyBackoff(t *testing.T) {
+	db, srv, runner := newTestRoutd(t)
+	runner.busy = true
+	h := srv.Handler()
+
+	if err := db.PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatalf("put group: %v", err)
+	}
+	doJSON(t, h, "PUT", "/v1/routes", "", map[string]any{"routes": []apiv1.Route{
+		{Seq: 0, Match: "platform=slack", Target: "demo"},
+	}})
+	doJSON(t, h, "POST", "/v1/messages", "", apiv1.Message{
+		ID: "m1", ChatJID: "slack:T/C/U", Sender: "u1", Content: "run the thing", Verb: "message",
+	})
+	if _, err := srv.loop.processGroupMessages("slack:T/C/U"); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	st := loadBusyState(t, srv.loop, "slack:T/C/U")
+	if st.lastMsgID != "m1" {
+		t.Fatalf("the backoff is keyed on %q, want the user row m1", st.lastMsgID)
+	}
+
+	// The turn runs and writes a bot row into the same chat, the way a reply
+	// lands: routd appends it itself, so it arrives through the store.
+	if err := db.PutMessage(core.Message{
+		ID: "b1", ChatJID: "slack:T/C/U", Sender: "demo", Name: "demo",
+		Content: "working on it", Timestamp: time.Now(), Verb: "message",
+		BotMsg: true, FromMe: true,
+	}); err != nil {
+		t.Fatalf("append the bot row: %v", err)
+	}
+	runner.gotTurn = ""
+	if _, err := srv.loop.processGroupMessages("slack:T/C/U"); err != nil {
+		t.Fatalf("process after the bot row: %v", err)
+	}
+	if runner.gotTurn != "" {
+		t.Errorf("the bot row cleared the backoff and re-dispatched turn_id=%q", runner.gotTurn)
+	}
+	if st := loadBusyState(t, srv.loop, "slack:T/C/U"); st.delay != busyBackoffBase {
+		t.Errorf("the backoff restarted at %v; the bot row must leave it alone", st.delay)
+	}
+}
+
 // loadBusyState fetches a chat's recorded busy backoff, failing when absent.
 func loadBusyState(t *testing.T, l *Loop, chatJID string) busyState {
 	t.Helper()

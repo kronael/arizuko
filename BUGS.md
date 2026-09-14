@@ -7,6 +7,28 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## ✅ FIXED 2026-09-14 L298 — a running turn's own rows cleared its busy backoff, so one cron fire re-dispatched itself fifteen times (2026-09-14)
+
+MEASURED on krons' 03:00 cron window (`journalctl`, 02:55–06:00): 22 tasks fired, 22
+containers spawned, 22 turns completed — and **102 `dispatch run` lines**, up to 15 for a
+single turn id (`sched-rhias-mem-1@2026-09-14T03:00:00Z` 15, `sched-krons/public/marble-mem-1`
+13, `sched-task-1776079795417-0adb00d2` 12). Each attempt pays for a capability resolve,
+an MCP socket and a prompt build, which is the cost `L55` recorded.
+
+The backoff that exists to stop this was keyed on the chat's NEWEST ROW
+(`processGroupMessages`, `noteBusy(chatJID, last.ID)`), and its comment called a bot row
+"new activity worth resetting on". While a turn runs it writes its own rows — progress
+notes, replies — so the turn cleared the backoff that was holding it back, over and over.
+A cron turn is the loud case because it runs for minutes and talks while it works.
+
+- **Severity:** high — wasted work at every poll, and a cron that reads as hanging
+- **Scope:** `routd/dispatch.go`
+- **Affected:** krons, measured; every instance with a talkative long turn
+- **Source:** 102 dispatches for 22 spawns, 2026-09-14 03:00 window
+- **Status:** fixed — the key is the newest USER row, which the running turn cannot move
+- **Fix:** `routd/dispatch.go`; a person's next message still clears the backoff at once,
+  and `TestABotRowDoesNotClearTheBusyBackoff` pins the other half
+
 ## ✅ FIXED 2026-09-13 L295 — every `mustOpenRoutd` CLI open starts a full network reindex and then cancels it, logging a false "build the ranked message index" ERROR on every restart and every admin write (2026-09-13)
 
 MEASURED on krons across two restarts (11:20 and 12:06): `journalctl` shows exactly one

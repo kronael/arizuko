@@ -33,15 +33,6 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		return false, nil
 	}
 	last := msgs[len(msgs)-1]
-	// A batch runed refused as Busy retries on a growing backoff, not on
-	// every 2s poll: the re-feed below this line is the expensive part
-	// (capability resolve, MCP socket, prompt build). A new inbound message
-	// resets the backoff inside busyDeferred, so steering and fresh user
-	// turns are never delayed. Keyed on the true newest id — a bot row is
-	// still new activity worth resetting on.
-	if l.busyDeferred(chatJID, last.ID) {
-		return false, nil
-	}
 	// Route and steer both read the newest USER row, never the newest row.
 	// A `verb=mention` route matches on the message's verb, and a bot reply
 	// carries no mention — so resolving on a bot row turns the user's @mention
@@ -51,6 +42,16 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	steerMsg, hasUser := newestUserMsg(msgs)
 	if !hasUser {
 		l.advance(chatJID, last)
+		return false, nil
+	}
+	// A batch runed refused as Busy retries on a growing backoff, not on
+	// every 2s poll: the re-feed below this line is the expensive part
+	// (capability resolve, MCP socket, prompt build). The key is the newest
+	// USER row, so a person's next message clears the backoff at once and the
+	// RUNNING turn's own bot rows do not: a cron turn that writes progress
+	// cleared its own backoff on every row and re-dispatched itself fifteen
+	// times for one fire (BUGS L298, and L55 for the cost of one attempt).
+	if l.busyDeferred(chatJID, steerMsg.ID) {
 		return false, nil
 	}
 	r := l.resolve(chatJID, steerMsg)
@@ -119,7 +120,7 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 			// error: do NOT advance the cursor and do NOT return an err, which would
 			// trip the queue breaker. The batch is re-fed after a growing per-chat
 			// backoff, and turn_context stays 'running' so the re-dispatch is live.
-			l.noteBusy(chatJID, last.ID)
+			l.noteBusy(chatJID, steerMsg.ID)
 			return hadAny, nil
 		}
 		if steered {
