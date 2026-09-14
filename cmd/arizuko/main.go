@@ -311,8 +311,11 @@ func cmdCreate(args []string) {
 		if _, err := rand.Read(secretsKey); err != nil {
 			die("Failed: crypto/rand: %v", err)
 		}
-		content := fmt.Sprintf("ASSISTANT_NAME=%s\nCONTAINER_IMAGE=%s\nAPI_PORT=%d\nAUTH_SECRET=%s\nSECRETS_KEY=%s\n",
-			name, core.DefaultImage, core.DefaultAPIPort, hex.EncodeToString(authSecret), hex.EncodeToString(secretsKey))
+		// The product choice is DECLARED here and read back by routd, which writes
+		// the default group's row at its first boot. `create` runs before the
+		// instance has a store server at all, so the row cannot be written here.
+		content := fmt.Sprintf("ASSISTANT_NAME=%s\nCONTAINER_IMAGE=%s\nAPI_PORT=%d\nAUTH_SECRET=%s\nSECRETS_KEY=%s\nARIZUKO_DEFAULT_PRODUCT=%s\n",
+			name, core.DefaultImage, core.DefaultAPIPort, hex.EncodeToString(authSecret), hex.EncodeToString(secretsKey), product)
 		// 0600: .env holds AUTH_SECRET plus operator-populated OAuth
 		// secrets and tokens — not world-readable.
 		if err := os.WriteFile(envFile, []byte(content), 0o600); err != nil {
@@ -320,20 +323,24 @@ func cmdCreate(args []string) {
 		}
 	}
 
-	// What a new instance needs is the entities: routd's door makes them for its
-	// own owner below, and each other daemon makes its own at boot.
+	// `create` makes the instance's FILES and nothing else: the directory, the
+	// `.env`, the compose fragments and the default group's own tree. Every ROW
+	// is its owner daemon's, written at that daemon's first boot — routd seeds
+	// the ACL floor, the egress floor and this group there (store/seed.go). A
+	// new instance has no store server yet, so there is nothing here to write to.
 	//
-	// groups + scheduled_tasks are routd's, so the default group is seeded there.
-	rdb := mustOpenRoutd()
-	defer rdb.Close()
-	if err := rdb.PutGroup(core.Group{Folder: "main", AddedAt: time.Now(), Product: product}); err != nil {
-		die("Failed: add default group: %v", err)
+	// store/ is still this command's: the store server keeps its PostgreSQL data
+	// and its certificate under it (template/services/extenddb.yml), and docker
+	// creates a missing bind source as ROOT while every service runs as uid 1000
+	// — so a directory that is not here before the first `up` comes back
+	// unwritable.
+	storeDir := filepath.Join(dataDir, "store")
+	if err := os.MkdirAll(storeDir, 0o755); err != nil {
+		die("Failed: make the store dir at %s: %v", storeDir, err)
 	}
-	if err := container.SetupGroup(cfg, "main", productDir); err != nil {
-		slog.Warn("failed to setup group dir", "folder", "main", "err", err)
-	}
-	if err := store.NewOver(rdb.Obj()).SeedDefaultTasks("main", "main"); err != nil {
-		slog.Warn("failed to seed default tasks", "folder", "main", "err", err)
+	chownStore(storeDir)
+	if err := container.SetupGroup(cfg, store.DefaultFolder, productDir); err != nil {
+		slog.Warn("failed to setup group dir", "folder", store.DefaultFolder, "err", err)
 	}
 	fmt.Printf("created instance %s at %s\n", name, dataDir)
 	if manifest != nil {

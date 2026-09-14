@@ -151,6 +151,13 @@ sudo DOCKER_BUILDKIT=1 docker build -t arizuko-egress -f egress/Dockerfile . # j
 This auto-generates `AUTH_SECRET` and `SECRETS_KEY`. You don't need to
 create these manually.
 
+`create` makes the instance's FILES and nothing else — the directory, the
+`.env`, the compose fragments and the default group's own tree — so it runs
+before the instance has a store server. Every ROW is its owner daemon's, written
+at that daemon's first boot: routd seeds the ACL floor, the egress floor and the
+`main` group there, carrying the `--product` choice `create` wrote into
+`ARIZUKO_DEFAULT_PRODUCT`.
+
 ## The store server
 
 Every owner's tables live on one DynamoDB-protocol server per instance —
@@ -198,10 +205,8 @@ echo 'DYNAMODB_URL=https://extenddb:18443' | sudo tee -a .env
 ./arizuko generate <name>
 ```
 
-`DYNAMODB_URL` is the switch: with it set, every daemon opens its owner on the
-server and no daemon opens a file. On an instance whose rows are still in
-SQLite files, add that line only after the copy of those rows has been made and
-verified — the daemons would otherwise boot onto empty tables.
+`DYNAMODB_URL` names the server every daemon opens its owner on. A daemon
+without it refuses to start and says so: there is no file to fall back to.
 
 ## Configure .env
 

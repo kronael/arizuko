@@ -143,6 +143,10 @@ var daemonKeys = map[string][]string{
 		"SECRETS_KEY",
 		// Instance-wide fallback model when a group has no per-group model.
 		"ARIZUKO_DEFAULT_MODEL",
+		// The product `arizuko create` was given. routd writes the default
+		// group's row at boot and carries the choice onto it; without this the
+		// instance is born with a group that names no product.
+		"ARIZUKO_DEFAULT_PRODUCT",
 		// The model gateway (spec 6/23, 6/39). routd mints one virtual key per
 		// turn with the master key, and the gateway is the ledger it reads the
 		// folder's spend from, so the pair lives with the daemon that owns the

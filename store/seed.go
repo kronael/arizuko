@@ -159,6 +159,39 @@ func SeedRoutdFloor(ctx context.Context, d objstore.Store) error {
 	return nil
 }
 
+// DefaultFolder is the group a new instance is born with. It is a configured
+// name, the same on every instance, so a reader never derives it from a path.
+const DefaultFolder = "main"
+
+// SeedDefaultGroup writes the group a new instance is born with, and its default
+// scheduled tasks, into a store that holds no group at all.
+//
+// It runs beside SeedRoutdFloor at routd's boot, because the rows belong to
+// routd and routd is the daemon that makes them: `arizuko create` makes the
+// instance's FILES — the directory, the `.env`, the compose and the group's own
+// tree — and writes the operator's product choice into the environment routd
+// reads it back from. An instance that already carries a group is left exactly
+// as it is.
+func SeedDefaultGroup(ctx context.Context, d objstore.Store, product string) error {
+	empty, err := entityIsEmpty(ctx, d, Groups)
+	if err != nil {
+		return err
+	}
+	if !empty {
+		return nil
+	}
+	s := NewOver(d)
+	if err := s.PutGroupRow(core.Group{
+		Folder: DefaultFolder, AddedAt: time.Now(), Product: product,
+	}); err != nil {
+		return fmt.Errorf("seed the %s group: %w", DefaultFolder, err)
+	}
+	if err := s.SeedDefaultTasks(DefaultFolder, DefaultFolder); err != nil {
+		return fmt.Errorf("seed %s's default tasks: %w", DefaultFolder, err)
+	}
+	return nil
+}
+
 // entityIsEmpty reports whether one entity holds no item at all in the routd
 // partition. The read is capped at one, because "is there anything" is the
 // whole question.

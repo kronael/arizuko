@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"time"
 
 	"github.com/kronael/arizuko/audit"
@@ -80,6 +81,13 @@ func Open() (*DB, error) {
 	// open-time backfill above the floor — auth.Authorize reads the acl rows
 	// directly.
 	if err := store.SeedRoutdFloor(ctx, h); err != nil {
+		return nil, err
+	}
+	// The group a new instance is born with. `arizuko create` makes the
+	// instance's files and writes the operator's product choice into the
+	// environment; the ROW is routd's, so routd is what writes it, into a store
+	// that holds no group at all.
+	if err := store.SeedDefaultGroup(ctx, h, os.Getenv("ARIZUKO_DEFAULT_PRODUCT")); err != nil {
 		return nil, err
 	}
 	return OpenOver(h), nil
