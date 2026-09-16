@@ -538,6 +538,10 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		}
 	}
 	obs.SetCircuitBreakerState(folder, 0) // 0=closed: a clean run clears the breaker
+	// A clean run clears the chat's errored flag too: the flag is a claim about
+	// NOW, and without the dual it is monotonic for the life of the instance
+	// (BUGS L304). Not the cursor advance — the failure path takes that as well.
+	_ = l.db.ClearChatErrored(chatJID)
 	if err := l.db.SetTurnState(turnID, "done"); err != nil {
 		slog.Error("processGroupMessages: SetTurnState(done) failed on clean completion; turn may appear stuck in-progress",
 			"folder", folder, "turn_id", turnID, "err", err)

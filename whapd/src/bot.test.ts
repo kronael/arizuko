@@ -216,3 +216,19 @@ describe('WhapdBot.requestPair', () => {
     expect(bot.suspended).toBe(false);
   });
 });
+
+// A server-side logout is not a crash and it is not transient. The daemon stays
+// UP: the pairing endpoints an operator re-pairs through live in this process,
+// so exiting takes away the one surface that fixes it (BUGS L303). This is the
+// state main.ts leaves the bot in on that branch.
+describe('invalidated session', () => {
+  it('reports unauthenticated and suspends the reconnect loop', () => {
+    const h = makeBuilder();
+    const bot = new WhapdBot(h.builder, () => credsExist);
+    bot.markUnauthenticated();
+    bot.suspended = true;
+    expect(bot.getStatus().state).toBe('unauthenticated');
+    // suspended is what stops connect() from retrying a logout forever.
+    expect(bot.suspended).toBe(true);
+  });
+});

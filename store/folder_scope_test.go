@@ -45,3 +45,49 @@ func TestFolderScope_ClassifiesEveryDeclaredEntity(t *testing.T) {
 			strings.Join(missing, ", "))
 	}
 }
+
+// The twin question, and the half BUGS L302 records: a verdict for an entity no
+// owner declares is a rule about a table that is not there, and it hides the
+// entity it was renamed from. Another owner's entity is named ON PURPOSE, so it
+// is enumerated here rather than derived.
+func TestFolderScope_ClassifiesNothingUndeclared(t *testing.T) {
+	// authd's and runed's, carried deliberately: the purge is one batch on
+	// routd's tables and reaches no other owner, so "no" is the answer a reader
+	// needs stated.
+	declared := map[string]bool{
+		"audit_log": true, ScopeEntity: true,
+		"auth_users": true, "session_log": true,
+	}
+	for _, owner := range []string{OwnerRoutd, OwnerOnbod} {
+		for _, entity := range EntitiesByOwner[owner] {
+			declared[entity] = true
+		}
+	}
+	var orphans []string
+	for table := range folderScopeKeep {
+		if !declared[table] {
+			orphans = append(orphans, table)
+		}
+	}
+	for table := range folderScopeUnpurged {
+		if !declared[table] {
+			orphans = append(orphans, table)
+		}
+	}
+	for _, e := range entityScopePurge {
+		if !declared[e.entity] {
+			orphans = append(orphans, e.entity)
+		}
+	}
+	for _, table := range folderPartitionPurge {
+		if !declared[table] {
+			orphans = append(orphans, table)
+		}
+	}
+	sort.Strings(orphans)
+	if len(orphans) > 0 {
+		t.Fatalf("folder-scope verdicts for entities no owner declares: %s\n"+
+			"delete each, or name it above with the owner it belongs to",
+			strings.Join(orphans, ", "))
+	}
+}

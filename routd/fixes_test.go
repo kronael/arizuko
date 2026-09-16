@@ -1327,3 +1327,41 @@ func TestEnsureTopicLineage_InheritsParentObservedCursor(t *testing.T) {
 		t.Errorf("cold-parent child cursor = %q, want empty", line2.ObservedCursor)
 	}
 }
+
+// The dual: a clean turn takes the errored flag away. Without it the flag is
+// monotonic for the life of an instance and an operator reading "2 errored
+// chats" learns that two chats once failed, not that anything is wrong now
+// (BUGS L304). The CURSOR is not the clear — the failure path advances it too,
+// which is what the test above pins.
+func TestCleanRunClearsTheErroredFlag(t *testing.T) {
+	db := memDB(t)
+	const jid = "slack:T/C/U"
+	if err := db.MarkChatErrored(jid); err != nil {
+		t.Fatal(err)
+	}
+	if errored, err := db.ErroredChats("", true); err != nil || len(errored) != 1 {
+		t.Fatalf("precondition: errored chats = %+v (err=%v), want one", errored, err)
+	}
+
+	dl := &recDeliverer{}
+	runner := runnerFn(func(_ context.Context, _ runedv1.RunRequest) (runedv1.RunOutcome, error) {
+		return runedv1.RunOutcome{Outcome: runedv1.OutcomeOK}, nil
+	})
+	loop := NewLoop(db, runner, LoopConfig{Deliver: dl})
+	loop.StopQueue()
+	_ = db.PutGroup(core.Group{Folder: "demo"})
+	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo"}})
+	_ = db.PutMessage(core.Message{ID: "c", ChatJID: jid, Sender: "u1",
+		Content: "hi", Timestamp: time.Now().UTC(), Verb: "message"})
+
+	if _, err := loop.processGroupMessages(jid); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	errored, err := db.ErroredChats("", true)
+	if err != nil {
+		t.Fatalf("errored chats: %v", err)
+	}
+	if len(errored) != 0 {
+		t.Errorf("errored chats after a clean run = %+v, want none", errored)
+	}
+}

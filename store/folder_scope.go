@@ -181,38 +181,29 @@ type keepReason struct{ why string }
 // keep is the verdict: a judgement about what the rows mean.
 func keep(why string) keepReason { return keepReason{why: why} }
 
-// folderScopeKeep names every other table and entity in the schema and why a
-// group delete leaves it alone. With the two purge lists it is a TOTAL
-// classification.
+// folderScopeKeep names every other entity and why a group delete leaves it
+// alone. With the two purge lists it is a TOTAL classification, and the two
+// completeness tests are what keep it total: every entity an owner declares has
+// a verdict here or in a purge list, and no verdict names an entity nobody
+// declares (BUGS L302 is what an untotal list costs a reader).
+//
+// `auth_users` is authd's and `session_log` is runed's. They are here rather
+// than absent because the question a reader asks is "does a group delete take
+// this away", and for another owner's entity the answer is a deliberate no —
+// the purge is one batch on routd's tables and reaches no other owner.
 var folderScopeKeep = map[string]keepReason{
 	// History. What happened is not the folder's to take away, and this
 	// transaction writes the delete's own row into audit_log.
 	"audit_log":      keep("the record of the delete itself commits with it"),
-	"cli_audit":      keep("history"),
-	"ipc_audit":      keep("history"),
 	"secret_use_log": keep("history"),
 	"session_log":    keep("history"),
 	"task_run_logs":  keep("history; a run names a task id the next tenant never mints"),
-	"cost_log":       keep("the spend a deleted folder booked is still owed"),
-	// The gateway meters spend now (spec 6/39); this holds what arizuko
-	// booked before it, frozen, with no writer. A delete must not erase a
-	// folder's billing record any more than it erases its audit trail.
-	"cost_log_archive": keep("history; the ledger arizuko kept before the gateway"),
-	"messages":         keep("the transcript of a chat that outlives the folder"),
+	"messages":       keep("the transcript of a chat that outlives the folder"),
 	// The activity feed and the delivery state are projections of `messages`
 	// with no folder coordinate at all — one constant partition and the delivery
 	// status — so they follow the rows they point at.
 	"message_activity": keep("one partition over every chat; it follows messages"),
 	"message_delivery": keep("keyed by delivery status; it follows messages"),
-
-	// The index store/migrations builds over the pre-split `messages` table of
-	// columns, and the four shadow tables sqlite hangs off it. Its triggers
-	// follow messages, which this delete does not touch.
-	"messages_fts":         keep("index over messages"),
-	"messages_fts_data":    keep("fts5 shadow table"),
-	"messages_fts_idx":     keep("fts5 shadow table"),
-	"messages_fts_docsize": keep("fts5 shadow table"),
-	"messages_fts_config":  keep("fts5 shadow table"),
 
 	// The folder feed and its counter are PARTITIONED BY THE FOLDER, which is
 	// the one thing a re-created folder inherits by name. Keeping them would hand
@@ -226,24 +217,14 @@ var folderScopeKeep = map[string]keepReason{
 
 	// No folder coordinate at all.
 	"chat_proactive":   keep("keyed by chat jid"),
-	"chat_sessions":    keep("keyed by chat jid"),
 	"pane_sessions":    keep("keyed by slack thread"),
 	"user_profiles":    keep("a person, not a folder"),
 	"auth_users":       keep("a person, not a folder"),
-	"auth_sessions":    keep("a person, not a folder"),
-	"identities":       keep("a person, not a folder"),
-	"identity_claims":  keep("a person, not a folder"),
-	"identity_codes":   keep("a person, not a folder"),
 	"onboarding":       keep("a person, not a folder"),
 	"onboarding_gates": keep("instance-wide"),
 	"proxyd_routes":    keep("owner is a package or the instance, never a folder"),
-	"idempotency_keys": keep("keyed by request"),
-	"router_state":     keep("instance-wide"),
 	"resreg_scopes":    keep("one version marker per subsystem, instance-wide"),
 	"counters":         keep("one server-minted number per name, instance-wide"),
-	"config_meta":      keep("instance-wide"),
-	"migrations":       keep("schema bookkeeping"),
-	"sqlite_sequence":  keep("schema bookkeeping"),
 }
 
 // folderScopeUnpurged names a table that carries a folder coordinate the delete

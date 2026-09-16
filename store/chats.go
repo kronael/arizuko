@@ -215,6 +215,26 @@ func (s *Store) MarkChatErrored(jid string) error {
 	return nil
 }
 
+// ClearChatErrored takes the flag away. It is MarkChatErrored's dual and it
+// runs where the dual belongs: the clean turn-boundary outcome, beside the
+// circuit-breaker clear (routd/dispatch.go).
+//
+// NOT the cursor advance, which both outcomes take — the failure path advances
+// past the batch it could not run, so clearing there would erase the flag the
+// same handler just set. Without a clearer the flag is monotonic for the life of
+// the instance: an operator reading "2 errored chats" learns that two chats once
+// failed, not that anything is wrong now (BUGS L304).
+func (s *Store) ClearChatErrored(jid string) error {
+	key, err := chatKey(jid)
+	if err != nil {
+		return err
+	}
+	if _, err := s.upsertChatClearing(context.Background(), key, nil, attrChatErrored); err != nil {
+		return fmt.Errorf("clear the errored flag of %s: %w", jid, err)
+	}
+	return nil
+}
+
 // ErroredChatJIDs answers which chats carry the errored flag, in jid order.
 func (s *Store) ErroredChatJIDs() ([]string, error) {
 	items, err := s.Obj().Query(context.Background(), objstore.Query{
@@ -339,6 +359,13 @@ func (s *Store) setChatPin(jid, attr, value string) error {
 // cursor.
 func (s *Store) upsertChat(ctx context.Context, key objstore.Key,
 	attrs map[string]string) (bool, error) {
+	return s.upsertChatClearing(ctx, key, attrs)
+}
+
+// upsertChatClearing is upsertChat that also takes attributes AWAY. A create
+// carries none of them by construction, so only the update half names them.
+func (s *Store) upsertChatClearing(ctx context.Context, key objstore.Key,
+	attrs map[string]string, remove ...string) (bool, error) {
 	created, err := s.TryWriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Put, Entity: Chats, Key: key, Attrs: attrs,
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},
@@ -347,7 +374,7 @@ func (s *Store) upsertChat(ctx context.Context, key objstore.Key,
 		return created, err
 	}
 	if err := s.WriteEntities(ctx, nil, objstore.Write{
-		Op: objstore.Update, Entity: Chats, Key: key, Attrs: attrs,
+		Op: objstore.Update, Entity: Chats, Key: key, Attrs: attrs, Remove: remove,
 	}); err != nil {
 		return false, err
 	}

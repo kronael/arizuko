@@ -295,15 +295,28 @@ async function connect(): Promise<void> {
     if (connection === 'close') {
       connected = false;
       const code = (lastDisconnect?.error as any)?.output?.statusCode;
-      // 405 / loggedOut = server-side session termination. Re-pair required;
-      // mark the bot so /v1/pair/status surfaces it, then exit so the
-      // container restart can pick up the new auth dir post-rebind.
+      // 405 / loggedOut = server-side session termination. Re-pair required.
+      //
+      // STAY UP. A server-side logout is not a crash and it is not transient, so
+      // there is nothing to retry; and the pairing endpoints an operator
+      // re-pairs through live in THIS process, so exiting takes away the one
+      // surface that fixes it. krons restarted 2,820 times on this branch, and
+      // routd could not even resolve the name to say why (BUGS L303).
+      //
+      // Suspended stops the reconnect loop; /health answers 503 disconnected and
+      // /v1/pair/status answers `unauthenticated`, which is where an operator
+      // looks.
       if (code === DisconnectReason.loggedOut || code === 405) {
-        log('error', 'session invalidated, delete auth dir and re-pair', {
-          code,
-        });
+        log(
+          'error',
+          'session invalidated; staying up unpaired — re-pair through /v1/pair',
+          {
+            code,
+          },
+        );
         bot.markUnauthenticated();
-        process.exit(1);
+        bot.suspended = true;
+        return;
       }
       if (bot.suspended) {
         log('info', 'reconnect skipped: pair flow active');

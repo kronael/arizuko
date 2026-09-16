@@ -313,6 +313,12 @@ func (d *DB) TopicByID(chatJID, id string) string {
 	return m.Topic
 }
 
+// ClearChatErrored takes the errored flag away on a clean turn. It is the dual
+// of MarkChatErrored and dispatch calls it where the circuit breaker clears.
+func (d *DB) ClearChatErrored(chatJID string) error {
+	return d.store().ClearChatErrored(chatJID)
+}
+
 // MarkChatErrored flags a chat as errored (a run definitively failed). The
 // flag surfaces in inspection; it does not block re-feed (the cursor advance
 // past the failed batch is the starvation guard).

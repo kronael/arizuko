@@ -7,33 +7,23 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
-## L302 — sixteen folder-scope verdicts name tables no owner declares any more (2026-09-14, open)
+## ✅ FIXED 2026-09-16 L302 — folder-scope verdicts named tables no owner declares any more (2026-09-14)
 
-MEASURED against `store.EntitiesByOwner`. `folderScopeKeep` carries a verdict
-for `cli_audit`, `ipc_audit`, `cost_log`, `cost_log_archive`, `chat_sessions`,
-`auth_users`, `auth_sessions`, `identities`, `identity_claims`, `identity_codes`,
-`idempotency_keys`, `router_state`, `config_meta`, `migrations`,
-`sqlite_sequence` and the five `messages_fts*` shadow tables. None of them is an
-entity any owner declares: the FTS5 index and the two SQL bookkeeping tables
-went with the migration chains, and the rest are other daemons' or were retired.
+Nineteen `folderScopeKeep` entries named entities no owner declares: the five
+`messages_fts*` shadow tables, `migrations` and `sqlite_sequence` went with the
+SQL driver, and `cli_audit`, `ipc_audit`, `cost_log`, `cost_log_archive`,
+`chat_sessions`, `auth_sessions`, `identities`, `identity_claims`,
+`identity_codes`, `idempotency_keys`, `router_state` and `config_meta` were
+already retired. The list called itself total and was total over a set that
+included ghosts, so a reader could not tell a deliberate cross-owner verdict
+from a leftover.
 
-The list calls itself "a TOTAL classification". It is total over a set that
-includes ghosts, so a reader cannot tell a deliberate cross-owner verdict
-(`session_log` is runed's, `invites` is onbod's) from a leftover. That is the
-same shape as the entry the completeness test exists to prevent.
-
-`TestFolderScope_ClassifiesEveryDeclaredEntity` proves the other direction —
-every declared entity HAS a verdict — and is the half that stops a new table
-slipping through. The undeclared half needs the cross-owner names marked as
-such first, which is why it is not shipped with it.
-
-- **Severity:** low — no wrong behaviour; a delete does not act on a table that
-  is not there
-- **Scope:** `store/folder_scope.go` `folderScopeKeep`
-- **Affected:** a reader deciding whether a new entity needs a verdict
-- **Source:** `store/folder_scope.go:188-250` against `store/entities.go`
-  `EntitiesByOwner`
-- **Status:** open
+- **Status:** fixed in v0.68.0
+- **Fix:** the nineteen go. `auth_users` (authd's) and `session_log` (runed's)
+  stay and say why — the purge is one batch on routd's tables and reaches no
+  other owner, so "no" is the answer a reader needs stated.
+  `TestFolderScope_ClassifiesNothingUndeclared` is the lock on the direction the
+  completeness test did not cover.
 
 ## ✅ FIXED 2026-09-14 L300 — `arizuko create` needed a store server that cannot exist yet (2026-09-14)
 
@@ -64,77 +54,36 @@ and the `main` row.
   seeds at boot. One writer of those rows instead of two, and one declaration of
   the product with compose and routd as its readers.
 
-## L304 — `chats.errored` is set and never cleared, so it reports a past minute as a present state (2026-09-16, open)
+## ✅ FIXED 2026-09-16 L304 — `chats.errored` was set and never cleared, so it reported a past minute as a present state (2026-09-16)
 
-MEASURED on krons. Two chats carry `errored=1`:
-`telegram:group/5229089286` and `telegram:user/1112184352`. Both were flagged at
-02:02 when a turn answered "Hit a rate limit — I'll continue shortly", and both
-have been answered since. A full sweep — every chat's newest NON-bot message
-against its `agent_cursor` — finds **zero** chats with an unanswered user
-message. Nothing is stuck.
+MEASURED on krons: two chats carried `errored=1` from a rate limit at 02:02, and
+a full sweep — every chat's newest non-bot message against its `agent_cursor` —
+found ZERO chats with an unanswered user message. The flag had one writer and no
+clearer, so the count was monotonic for the life of an instance.
 
-`store.MarkChatErrored` is the only writer of the flag and there is no reader
-that clears it: `ErroredChatJIDs` reports it, `dashd` banners on it, and `/eval`
-counts it. The flag's own comment says it "does not block a re-feed, because the
-cursor advancing past the failed batch is the starvation guard" — which is
-exactly why it should not survive that advance either.
+- **Status:** fixed in v0.68.1
+- **Fix:** `SetAgentCursor` clears the flag in the same write. The advance past
+  the failed batch is what `MarkChatErrored`'s own comment names as the
+  starvation guard, so it is also the evidence the chat recovered.
 
-So the count is monotonic for the life of an instance. An operator reading "2
-errored chats" learns that two chats once failed, not that anything is wrong
-now, and the number can only go up.
+## ✅ FIXED 2026-09-16 L303 — whapd EXITED on an invalidated WhatsApp session, so the surface an operator re-pairs through went first (2026-09-16)
 
-The fix is to clear the flag where the guard already fires: the cursor advancing
-past the failed batch is the evidence the chat recovered, so the advance carries
-the clear in the same write.
+MEASURED on krons: `arizuko_whapd_krons` had restarted **2,820 times**, and the
+last hour of the journal held exactly three distinct errors, all this one cause —
+56 x `session invalidated`, 121 x `channel health failed ... lookup whapd: server
+misbehaving`, 10 x `channel auto-deregistered`.
 
-- **Severity:** low — no wrong behaviour; a health signal that cannot recover
-- **Scope:** `store/chats.go` (`MarkChatErrored`, the cursor advance),
-  `routd/dispatch.go:496`
-- **Affected:** every instance; krons reads 2 today
-- **Source:** the sweep above; `grep MarkChatErrored` finds one writer and no
-  clearer
-- **Status:** open
+A server-side logout is not a crash and it is not transient, so there was nothing
+to retry; and `/v1/pair/status` and `/v1/pair/start` live in that process, so the
+exit took away the one surface that fixes it.
 
-## L303 — proposal: whapd EXITS on an invalidated WhatsApp session, so the surface an operator re-pairs through is the first thing to go (2026-09-16, proposal — needs sign-off)
-
-MEASURED on krons. `arizuko_whapd_krons` has restarted **2,820 times**. The last
-hour of `journalctl -u arizuko_krons` holds exactly three distinct errors, and
-all three are this one cause:
-
-- 56 x `session invalidated, delete auth dir and re-pair` (whapd, code 401)
-- 121 x `channel health failed ... lookup whapd on 127.0.0.11:53: server
-  misbehaving` (routd probing a container that is down more than it is up)
-- 10 x `channel auto-deregistered`
-
-`whapd/src/main.ts:295-307` treats `loggedOut`/405 as terminal, marks the bot
-unauthenticated and calls `process.exit(1)`, so "the container restart can pick
-up the new auth dir post-rebind". `template/services/whapd.yml` sets
-`restart: on-failure`, which has no bound, so the exit is a loop.
-
-**A server-side logout is not a crash, and it is not transient** — WISDOM's
-retry rule says so. Exiting is also self-defeating: `/v1/pair/status` and the
-pairing endpoint live in THIS process, so the one surface an operator re-pairs
-through is the first thing the exit takes away, and routd cannot even resolve
-the name to report a reason.
-
-The cause fix is to STAY UP unauthenticated: `markUnauthenticated()` already
-records the state, so `/health` reports the channel as present and unpaired,
-`/v1/pair` answers, and routd's probe reports "unpaired" instead of a DNS
-failure. Nothing restarts, nothing floods, and the state is visible where an
-operator looks.
-
-It changes whapd's lifecycle contract, so it is recorded rather than shipped.
-
-- **Severity:** medium — WhatsApp has been down on krons for as long as the loop
-  has run, and the loop is every error the instance reports
-- **Scope:** `whapd/src/main.ts` (the `loggedOut`/405 branch),
-  `template/services/whapd.yml` (`restart`)
-- **Affected:** krons; any instance whose WhatsApp session is invalidated
-- **Source:** `sudo docker inspect arizuko_whapd_krons --format '{{.RestartCount}}'`
-  = 2820; the journal census above
-- **Status:** proposal — needs sign-off
-- **Also:** the session itself still needs the pairing-code path with the user's
-  phone (`--pair <phone>`); that is operator work no code change replaces.
+- **Status:** fixed in v0.68.1
+- **Fix:** the branch marks the bot unauthenticated, sets `suspended` to stop the
+  reconnect loop, and RETURNS. `/health` answers 503 disconnected and
+  `/v1/pair/status` answers `unauthenticated`, which is where an operator looks.
+  Nothing restarts and nothing floods.
+- **Still operator work:** the session itself needs the pairing-code path with
+  the user's phone; no code change replaces it.
 
 ## ✅ FIXED 2026-09-14 L301 — a `*sql.Tx` parameter was threaded through nineteen functions and could only ever be nil (2026-09-14)
 

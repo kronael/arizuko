@@ -97,6 +97,9 @@ func TestTheHotTierRoundTripsEveryAttributeItCarries(t *testing.T) {
 		if err := s.MarkChatErrored(jid); err != nil {
 			t.Fatal(err)
 		}
+		if flagged, _ := s.ErroredChatJIDs(); len(flagged) != 1 || flagged[0] != jid {
+			t.Fatalf("precondition: errored chats = %v, want [%s]", flagged, jid)
+		}
 		if err := s.SetAgentCursor(jid, MsgStamp(core.NowTS(), "m1")); err != nil {
 			t.Fatal(err)
 		}
