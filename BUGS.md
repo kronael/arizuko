@@ -64,6 +64,37 @@ and the `main` row.
   seeds at boot. One writer of those rows instead of two, and one declaration of
   the product with compose and routd as its readers.
 
+## L304 — `chats.errored` is set and never cleared, so it reports a past minute as a present state (2026-09-16, open)
+
+MEASURED on krons. Two chats carry `errored=1`:
+`telegram:group/5229089286` and `telegram:user/1112184352`. Both were flagged at
+02:02 when a turn answered "Hit a rate limit — I'll continue shortly", and both
+have been answered since. A full sweep — every chat's newest NON-bot message
+against its `agent_cursor` — finds **zero** chats with an unanswered user
+message. Nothing is stuck.
+
+`store.MarkChatErrored` is the only writer of the flag and there is no reader
+that clears it: `ErroredChatJIDs` reports it, `dashd` banners on it, and `/eval`
+counts it. The flag's own comment says it "does not block a re-feed, because the
+cursor advancing past the failed batch is the starvation guard" — which is
+exactly why it should not survive that advance either.
+
+So the count is monotonic for the life of an instance. An operator reading "2
+errored chats" learns that two chats once failed, not that anything is wrong
+now, and the number can only go up.
+
+The fix is to clear the flag where the guard already fires: the cursor advancing
+past the failed batch is the evidence the chat recovered, so the advance carries
+the clear in the same write.
+
+- **Severity:** low — no wrong behaviour; a health signal that cannot recover
+- **Scope:** `store/chats.go` (`MarkChatErrored`, the cursor advance),
+  `routd/dispatch.go:496`
+- **Affected:** every instance; krons reads 2 today
+- **Source:** the sweep above; `grep MarkChatErrored` finds one writer and no
+  clearer
+- **Status:** open
+
 ## L303 — proposal: whapd EXITS on an invalidated WhatsApp session, so the surface an operator re-pairs through is the first thing to go (2026-09-16, proposal — needs sign-off)
 
 MEASURED on krons. `arizuko_whapd_krons` has restarted **2,820 times**. The last

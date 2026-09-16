@@ -38,6 +38,44 @@ Groups: `sudo ls /srv/data/arizuko_<instance>/groups/`.
 
 ---
 
+## Reaching the store
+
+Every owner's tables live on the instance's store server — ExtendDB over
+PostgreSQL, one per instance (`specs/6/42`). There is no file to open, and the
+`store/<owner>/` directories a pre-v0.68.0 instance left behind are FROZEN: a
+query against one answers what was true before the flip, which reads like a
+healthy instance that stopped working (BUGS `L284` is this class).
+
+Source this once per session. `sq` takes an entity and SQL over the view `e`,
+which is `(pk, sk_s, attrs)`:
+
+```bash
+INSTANCE=krons
+sq() {  # sq <owner.entity> <sql over e(pk, sk_s, attrs)>
+  local ent="$1"; shift
+  local id
+  id=$(sudo docker exec -e PGUSER=arizuko_${INSTANCE} arizuko_extenddb_db_${INSTANCE} \
+        psql -d extenddb_catalog -At -c "select table_id from tables where table_name='${ent}';")
+  [ -n "$id" ] || { echo "no such entity: ${ent}" >&2; return 1; }
+  sudo docker exec -e PGUSER=arizuko_${INSTANCE} arizuko_extenddb_db_${INSTANCE} \
+        psql -d extenddb -At -F'|' -c \
+        "with e as (select pk, sk_s, item_data as attrs from \"_ddb_${id}\") $*"
+}
+```
+
+An attribute is a DynamoDB-typed value, so a string field reads
+`attrs->'<name>'->>'S'`. `sk_s` is the sort key: for `messages` and `audit_log`
+its first 30 bytes are the instant, so a time window is a string comparison.
+A flag is `"1"` when set and ABSENT when not — `= '1'` is the test, and there is
+no stored zero.
+
+```bash
+sq routd.groups   "select count(*) from e"
+sq routd.chats    "select sk_s from e where attrs->'errored'->>'S' = '1'"
+sq routd.audit_log "select attrs->'outcome'->>'S', count(*) from e
+                    where sk_s > '2026-09-15' group by 1 order by 2 desc"
+```
+
 ## Checks (run in order; each is independent)
 
 ### 1. Service health
@@ -88,26 +126,17 @@ Fix: `sudo docker restart arizuko_teled_${INSTANCE}` (or whichever adapter).
 ### 4. Message routing (cursor state)
 
 ```bash
-DB=/srv/data/arizuko_${INSTANCE}/store/routd/routd.db  # split: routd owns messages/chats/routes/scheduled_tasks/groups
+# A chat's jid is its sort key; a message's position is its sort key, whose
+# first 30 bytes are the instant. `sq` is in "Reaching the store" above.
+sq routd.chats "select sk_s as jid, attrs->'agent_cursor'->>'S' as agent_cursor
+                from e order by sk_s"
 
-# Every table is an objstore entity: (part, sort, attrs). A chat's jid is its
-# `sort`, a message's position is its `sort` — the first 30 bytes are the
-# instant — and every other field is a JSON attribute. A flag is "1" when set
-# and ABSENT when not, so `= '1'` is the test and there is no stored zero.
-sudo sqlite3 $DB "
-  SELECT c.sort AS jid,
-    json_extract(c.attrs,'\$.agent_cursor') AS agent_cursor,
-    (SELECT COUNT(*) FROM messages m
-      WHERE m.part = c.sort AND json_extract(m.attrs,'\$.errored') = '1')
-    AS errored_msgs,
-    (SELECT MAX(substr(m.sort, 1, 30)) FROM messages m
-      WHERE m.part = c.sort
-        AND json_extract(m.attrs,'\$.is_bot_message') IS NULL
-        AND json_extract(m.attrs,'\$.sender') NOT LIKE 'arizuko%')
-    AS latest_user_msg
-  FROM chats c
-  ORDER BY c.sort;
-"
+# Per chat: errored messages, and the newest message a PERSON sent.
+sq routd.messages "select pk as jid,
+    count(*) filter (where attrs->'errored'->>'S' = '1') as errored_msgs,
+    max(substr(sk_s,1,30)) filter (where not attrs ? 'is_bot_message'
+      and attrs->'sender'->>'S' not like 'arizuko%') as latest_user_msg
+  from e group by pk order by pk"
 ```
 
 **Pass**: `agent_cursor` is NULL or within a few minutes of `latest_user_msg`; `errored_msgs = 0`.
@@ -115,20 +144,18 @@ sudo sqlite3 $DB "
 
 If cursor is stalled, show the pending messages:
 ```bash
-sudo sqlite3 $DB "
-  SELECT substr(sort,1,30) AS timestamp,
-         json_extract(attrs,'\$.sender') AS sender,
-         json_extract(attrs,'\$.is_bot_message') AS is_bot_message,
-         substr(json_extract(attrs,'\$.content'),1,120) AS content
-  FROM messages WHERE part = '<jid>'
-  ORDER BY sort DESC LIMIT 10;
-"
+sq routd.messages "select substr(sk_s,1,30) as timestamp,
+         attrs->'sender'->>'S' as sender,
+         attrs->'is_bot_message'->>'S' as is_bot_message,
+         substr(attrs->'content'->>'S',1,120) as content
+  from e where pk = '<jid>' order by sk_s desc limit 10"
 ```
 
 If `errored_msgs > 0` and routd is healthy, clear the errored messages to unblock recovery:
 ```bash
-sudo sqlite3 $DB "DELETE FROM messages
-  WHERE part = '<jid>' AND json_extract(attrs,'\$.errored') = '1';"
+# The store is the daemons' own, so a delete here is a delete they see. Name the
+# chat; never widen it.
+sq routd.messages "delete from e where pk = '<jid>' and attrs->'errored'->>'S' = '1'"
 sudo systemctl restart arizuko_${INSTANCE}
 ```
 
@@ -169,33 +196,23 @@ tail -30 /srv/data/arizuko_${INSTANCE}/groups/${FOLDER}/logs/$(ls -t /srv/data/a
 ### 7. Task scheduler (timed)
 
 ```bash
-DB=/srv/data/arizuko_${INSTANCE}/store/routd/routd.db  # split: routd owns messages/chats/routes/scheduled_tasks/groups
-
 # Tasks and their next run
-sudo sqlite3 $DB "
-  SELECT sort AS id,
-         json_extract(attrs,'\$.owner') AS owner,
-         json_extract(attrs,'\$.cron') AS cron,
-         json_extract(attrs,'\$.next_run') AS next_run,
-         json_extract(attrs,'\$.status') AS status
-  FROM scheduled_tasks
-  WHERE json_extract(attrs,'\$.status') = 'active'
-  ORDER BY 4
-  LIMIT 20;
-"
+sq routd.scheduled_tasks "select sk_s as id,
+         attrs->'owner'->>'S' as owner,
+         attrs->'cron'->>'S' as cron,
+         attrs->'next_run'->>'S' as next_run,
+         attrs->'status'->>'S' as status
+  from e where attrs->'status'->>'S' = 'active' order by 4 limit 20"
 
 # Recent task fires (last 24h)
 # A run log's instant is the lead of its `sort`, so the window is a string
 # comparison against the same fixed-width layout every stored instant carries.
-sudo sqlite3 $DB "
-  SELECT json_extract(attrs,'\$.task_id') AS task_id,
-         substr(sort,1,30) AS run_at,
-         json_extract(attrs,'\$.status') AS status
-  FROM task_run_logs
-  WHERE substr(sort,1,19) > strftime('%Y-%m-%dT%H:%M:%S', 'now', '-24 hours')
-  ORDER BY sort DESC
-  LIMIT 20;
-"
+sq routd.task_run_logs "select attrs->'task_id'->>'S' as task_id,
+         substr(sk_s,1,30) as run_at,
+         attrs->'status'->>'S' as status
+  from e where substr(sk_s,1,19) > to_char(now() at time zone 'utc' - interval '24 hours',
+                                           'YYYY-MM-DD\"T\"HH24:MI:SS')
+  order by sk_s desc limit 20"
 ```
 
 **Pass**: tasks with `next_run` values in the future; recent `task_run_logs` with
@@ -265,22 +282,27 @@ work begins.
 
 ---
 
-### 10. Schema migration version
+### 10. The store serves what the daemons declare
+
+There is no migration chain and no version row: an entity is a table the owner
+daemon asks for at boot, so the check is whether every declared entity is THERE.
+A store that answers nothing looks healthy.
 
 ```bash
-DB=/srv/data/arizuko_${INSTANCE}/store/routd/routd.db  # split: routd owns messages/chats/routes/scheduled_tasks/groups
-# Split: each daemon owns + migrates its OWN db. routd.db is the busy one; its
-# migrations table keys on service='routd'. (runed.db/auth.db/onbod.db migrate
-# themselves under service='runed'/'authd'/'onbod'.) PRAGMA user_version stays 0.
-sudo sqlite3 $DB "SELECT MAX(version) FROM migrations WHERE service = 'routd';"
+# Every table the server holds, by owner.
+sudo docker exec -e PGUSER=arizuko_${INSTANCE} arizuko_extenddb_db_${INSTANCE} \
+  psql -d extenddb_catalog -At -c \
+  "select split_part(table_name,'.',1) as owner, count(*) from tables group by 1 order by 1;"
 
-# Expected version (check routd/migrations/ for latest)
-ls /home/onvos/app/arizuko/routd/migrations/ | sort | tail -3
+# What routd declares, to compare against: store/entities.go EntitiesByOwner,
+# plus audit_log and resreg_scopes, which every owner carries.
+grep -c '^\t\t[A-Z]' /home/onvos/app/arizuko/store/entities.go
 ```
 
-**Pass**: routd.db version ≥ latest migration number in `routd/migrations/`.
-**Fail**: DB behind → migration not applied; new features may silently not work.
-(To check another daemon, swap `$DB`→its `.db` and `service`→its name.)
+**Pass**: every owner a daemon runs for has its set — routd 33, onbod 6,
+authd 7, runed 4, and one prefix per adapter that keeps tables.
+**Fail**: a missing entity means that owner never booted against this endpoint;
+its daemon answers `ResourceNotFoundException` on the first read that needs it.
 
 ---
 
@@ -417,10 +439,10 @@ sudo journalctl -u arizuko_${INSTANCE} --since "1 hour ago" --no-pager \
 ### 17. Skill seeding (per group)
 
 ```bash
-DB=/srv/data/arizuko_${INSTANCE}/store/routd/routd.db  # split: routd owns messages/chats/routes/scheduled_tasks/groups
 SOURCE_COUNT=$(ls /home/onvos/app/arizuko/ant/skills/ | wc -l)
 # Only check groups registered in DB (skip orphan filesystem dirs like share/)
-for g in $(sudo sqlite3 $DB "SELECT sort FROM groups;  -- the folder IS the sort; row existence = active"); do
+# The folder IS the sort key; a row's existence is the group being active.
+for g in $(sq routd.groups "select sk_s from e"); do
   gdir=$(echo "$g" | tr '/' '-')  # atlas/content → atlas-content (folder path)
   n=$(sudo ls /srv/data/arizuko_${INSTANCE}/groups/$g/.claude/skills/ 2>/dev/null | wc -l)
   echo "$g: $n skills (expected >= $SOURCE_COUNT)"
@@ -457,9 +479,9 @@ Fix: check the skill's SKILL.md frontmatter `description:` field.
 ### 19. Skill consistency (group vs source)
 
 ```bash
-DB=/srv/data/arizuko_${INSTANCE}/store/routd/routd.db  # split: routd owns messages/chats/routes/scheduled_tasks/groups
 SOURCE_DIR=/home/onvos/app/arizuko/ant/skills
-for g in $(sudo sqlite3 $DB "SELECT sort FROM groups;  -- the folder IS the sort; row existence = active"); do
+# The folder IS the sort key; a row's existence is the group being active.
+for g in $(sq routd.groups "select sk_s from e"); do
   missing=""
   for s in $(ls $SOURCE_DIR); do
     if ! sudo test -d /srv/data/arizuko_${INSTANCE}/groups/$g/.claude/skills/$s; then
@@ -480,9 +502,9 @@ Fix: trigger `/migrate` in the affected group (each group self-migrates), or man
 ### 20. Solve wiring
 
 ```bash
-DB=/srv/data/arizuko_${INSTANCE}/store/routd/routd.db  # split: routd owns messages/chats/routes/scheduled_tasks/groups
 # Check that group CLAUDE.md has the solve instruction (seeded from ant/CLAUDE.md)
-for g in $(sudo sqlite3 $DB "SELECT sort FROM groups;  -- the folder IS the sort; row existence = active"); do
+# The folder IS the sort key; a row's existence is the group being active.
+for g in $(sq routd.groups "select sk_s from e"); do
   has=$(sudo grep -c "solve" /srv/data/arizuko_${INSTANCE}/groups/$g/.claude/CLAUDE.md 2>/dev/null)
   if [ "$has" -lt 1 ]; then
     echo "$g: MISSING solve instruction in CLAUDE.md"
@@ -573,7 +595,7 @@ minute; 5 is the only one that proves a live agent still works, and it is
 the only one that costs money (~$5).
 
 ```bash
-I=<instance>; DB=/srv/data/arizuko_$I/store/routd/routd.db
+I=<instance>; INSTANCE=$I   # `sq` is in "Reaching the store"
 
 # 1. Build + test, BEFORE the image. Go and TS are separate suites.
 make lint && go test ./... -count=1 -short && (cd whapd && bun run test)
@@ -585,17 +607,14 @@ sudo docker ps --format "{{.Names}} {{.Status}}" | grep $I
 
 # 3. The store actually serves what the daemons declare. A store that answers
 #    nothing looks healthy.
-#    Served instance (DYNAMODB_URL set in .env): every owner's entity is a table.
-sudo docker exec arizuko_extenddb_$I extenddb manage --user admin \
-  -c /var/lib/extenddb/extenddb.toml list-tables 2>/dev/null | grep -c 'routd\.'
-#    File instance: the chain that applied and the chain on disk must agree.
-sudo sqlite3 $DB "SELECT MAX(version) FROM migrations WHERE service='routd';"
-ls routd/migrations/ | sort | tail -1   # the two numbers must agree
+sudo docker exec -e PGUSER=arizuko_$I arizuko_extenddb_db_$I psql -d extenddb_catalog -At -c \
+  "select split_part(table_name,'.',1), count(*) from tables group by 1 order by 1;"
+#    routd 33, onbod 6, authd 7, runed 4, one prefix per adapter that keeps tables.
 
 # 4. Error census — the checks above, or their core three:
 sudo journalctl -u arizuko_$I --since "15 min ago" --no-pager \
   | grep -E '"level":"ERROR"' | grep -oE '"msg":"[^"]*"' | sort | uniq -c | sort -rn
-sudo sqlite3 $DB "SELECT COUNT(*) FROM messages WHERE errored=1;"   # new ones only
+sq routd.chats "select count(*) from e where attrs->'errored'->>'S' = '1'"   # new ones only
 sudo docker exec arizuko_runed_$I sh -c 'env | grep -qE "^(ANTHROPIC_API_KEY|CLAUDE_CODE_OAUTH_TOKEN)="'
 ```
 
