@@ -47,6 +47,10 @@ func searched(t *testing.T, d *routd.DB, query, scope string) []routd.FoundMessa
 func TestSearchRunsOverDynamo(t *testing.T) {
 	rdb := routd.OpenOver(routdHandle(t))
 	defer rdb.Close() //nolint:errcheck // the test is ending
+	// The index is this process's, and OpenOver hands back a routd that answers
+	// no search until its owner starts one — the daemon's main does it, so a
+	// test that searches does it too.
+	rdb.StartSearch()
 
 	now := time.Now()
 	for i, m := range []struct{ id, jid, sender, folder, content string }{
@@ -115,6 +119,7 @@ func TestTheBootWalkReadsTheEndpoint(t *testing.T) {
 	start := time.Now()
 	reader := routd.OpenOver(h)
 	defer reader.Close() //nolint:errcheck // the test is ending
+	reader.StartSearch()
 	hits := searched(t, reader, "needle", "")
 	t.Logf("a walk of 7 chats holding 40 messages, and one search, over the endpoint: %v",
 		time.Since(start))

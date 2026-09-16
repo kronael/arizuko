@@ -267,8 +267,10 @@ func TestOnbodBootsFromTheEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GroupFolders through the reader: %v", err)
 	}
-	if len(folders) != 1 || folders[0] != "acme" {
-		t.Fatalf("the reader answers %v, want [acme]", folders)
+	// routd's own boot seeds the group a new instance is born with, so a fresh
+	// endpoint holds `main` before this test adds anything (store.SeedDefaultGroup).
+	if len(folders) != 2 || folders[0] != "acme" || folders[1] != store.DefaultFolder {
+		t.Fatalf("the reader answers %v, want [acme %s]", folders, store.DefaultFolder)
 	}
 }
 
@@ -383,8 +385,10 @@ func TestDashdBootsFromTheEnvironment(t *testing.T) {
 	if ds == nil {
 		t.Fatal("dashd's storage layer is nil over the endpoint; every page would banner")
 	}
-	if n, err := ds.GroupCount(); err != nil || n != 1 {
-		t.Fatalf("GroupCount = %d (err=%v), want the one group routd holds", n, err)
+	// `acme` above plus `main`, which routd's own boot seeds into an empty
+	// groups table (store.SeedDefaultGroup).
+	if n, err := ds.GroupCount(); err != nil || n != 2 {
+		t.Fatalf("GroupCount = %d (err=%v), want the two groups routd holds", n, err)
 	}
 
 	// The audit sink boot points at that same store, and a mutation lands its

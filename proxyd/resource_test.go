@@ -335,13 +335,13 @@ func jsonOf(v any) string {
 	return string(b)
 }
 
-// On a DB read error (here: a closed store) snapshot must not panic and
-// must return an empty table rather than a stale partial — the error is
-// logged so a transient fault is a visible outage, not silent 404s.
-func TestRoutesResource_SnapshotDBError(t *testing.T) {
+// On a store read error snapshot must not panic and must return NOTHING rather
+// than a stale partial — the error is logged so a transient fault is a visible
+// outage, not silent 404s.
+func TestRoutesResource_SnapshotStoreError(t *testing.T) {
 	st := testutils.NewRoutdStore(t)
 	rr := newRoutesResource(st, nil)
-	st.Close() // subsequent AllProxydRoutes/AllWebRoutes now error
+	testutils.BreakStore(t, st, store.ProxydRoutes, store.WebRoutes)
 	if routes, procs := rr.snapshot(); routes != nil || procs != nil {
 		t.Errorf("snapshot on DB error = (%+v, %+v), want (nil, nil)", routes, procs)
 	}

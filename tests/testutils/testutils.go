@@ -3,6 +3,7 @@
 package testutils
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/chanreg"
+	"github.com/kronael/arizuko/objstore/dynstore"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
 )
@@ -47,6 +49,38 @@ func NewRoutdInstance(t *testing.T) *Inst {
 		JWTSecret: secret,
 		ChanReg:   chanreg.New(),
 	}
+}
+
+// BreakStore takes one entity away from s, which is how a test makes a read
+// fail on purpose. The store is a network service, so "cannot answer" is an
+// ordinary condition — an endpoint that is down, a key whose policy no longer
+// covers the table, an owner that has never booted — and a missing entity is the
+// one a test can make deterministic.
+func BreakStore(t *testing.T, s *store.Store, entities ...string) {
+	t.Helper()
+	d, ok := s.Obj().(*dynstore.Store)
+	if !ok {
+		t.Fatalf("this fixture is not served: %T", s.Obj())
+	}
+	for _, e := range entities {
+		if err := d.DropEntity(context.Background(), e); err != nil {
+			t.Fatalf("drop %s: %v", e, err)
+		}
+	}
+}
+
+// NewOwnerStore is the store with BOTH owners' entities made — routd's and
+// onbod's. It is for a test whose subject crosses them: the invite lifecycle
+// writes onbod's `invites` and reads routd's `acl`, and no daemon holds both,
+// so no daemon's door builds this. Registers t.Cleanup to drop the namespace.
+func NewOwnerStore(t *testing.T) *store.Store {
+	t.Helper()
+	s, err := store.OpenMem()
+	if err != nil {
+		t.Fatalf("store.OpenMem: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+	return s
 }
 
 // NewRoutdStore is NewRoutdInstance for the many tests that want only the

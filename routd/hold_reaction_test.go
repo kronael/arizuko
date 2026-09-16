@@ -110,10 +110,10 @@ func TestNotifyHeld_RecordsTheNoticeID(t *testing.T) {
 	// and a row the waiter has already given up on is not one.
 	go gate("mcp:like", map[string]any{"platform_id": "m1"})
 	id := awaitHeldID(t, d)
-	row, _ := pendingActionRow(d, id)
-	if row.NoticeID != "platform-77" {
-		t.Fatalf("notice id = %q, want the id the delivery returned", row.NoticeID)
-	}
+	// The row lands before the notice does: the gate records the held call, then
+	// delivers the notice and stamps the id the adapter answered. Two writes, so
+	// the id arrives after the row.
+	awaitNoticeID(t, d, id, "platform-77")
 	if got := d.VerdictForReaction("tg:1", "platform-77", "✅"); got != "/approve "+id {
 		t.Errorf("a reaction on the notice resolved %q", got)
 	}
@@ -206,4 +206,19 @@ func TestIngress_LeavesAnOrdinaryReactionAlone(t *testing.T) {
 			t.Errorf("%s stored %q, want the reaction untouched", c.id, content)
 		}
 	}
+}
+
+// awaitNoticeID waits for the second write — the notice id the delivery
+// answered, stamped onto a row that already exists.
+func awaitNoticeID(t *testing.T, d *DB, id, want string) {
+	t.Helper()
+	for range 500 {
+		row, ok := pendingActionRow(d, id)
+		if ok && row.NoticeID == want {
+			return
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	row, _ := pendingActionRow(d, id)
+	t.Fatalf("notice id = %q, want %q — the delivery never stamped the row", row.NoticeID, want)
 }

@@ -1,10 +1,12 @@
 package auth_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore/dynstore"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -119,4 +121,48 @@ func mustScopes(scopes []string, err error) []string {
 		panic("UserScopes: " + err.Error())
 	}
 	return scopes
+}
+
+// dropACL takes the acl entity away from the store under test, which is how
+// these two make the policy read fail on purpose. The store is a network
+// service, so an unreadable policy is an ordinary condition — an endpoint that
+// is down, a key whose policy no longer covers the table — and a missing entity
+// is the one a test can make deterministic.
+func dropACL(t *testing.T, s *store.Store) {
+	t.Helper()
+	d, ok := s.Obj().(*dynstore.Store)
+	if !ok {
+		t.Fatalf("this fixture is not served: %T", s.Obj())
+	}
+	if err := d.DropEntity(context.Background(), store.ACL); err != nil {
+		t.Fatalf("drop acl: %v", err)
+	}
+}
+
+func TestUserScopesFailsClosedOnAnUnreadablePolicy(t *testing.T) {
+	s := scopesEnv(t)
+	dropACL(t, s)
+	got, err := auth.UserScopes(s, "google:alice")
+	if err == nil {
+		t.Error("an unreadable acl must surface an error, not an empty scope list")
+	}
+	if len(got) != 0 {
+		t.Errorf("UserScopes on an unreadable policy = %v, want no scopes alongside the error", got)
+	}
+}
+
+func TestAuthorizeDeniesOnAnUnreadablePolicy(t *testing.T) {
+	s := scopesEnv(t, core.ACLRow{
+		Principal: "u1", Action: "*", Scope: "**", Effect: "allow",
+	})
+	if !auth.Authorize(s, auth.Caller{Principal: "u1"}, "admin", "alpha", nil) {
+		t.Fatal("fixture is vacuous: the grant does not authorize before the drop")
+	}
+	dropACL(t, s)
+	if auth.Authorize(s, auth.Caller{Principal: "u1"}, "admin", "alpha", nil) {
+		t.Error("Authorize allowed with an unreadable policy")
+	}
+	if auth.EffectiveActions(s, auth.Caller{Principal: "u1"})("mcp:reply") {
+		t.Error("EffectiveActions advertised a tool with an unreadable policy")
+	}
 }
