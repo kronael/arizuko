@@ -793,6 +793,38 @@ a)` concurrently, a thousand times: the answer must be one commit and one
    it and ExtendDB honours it (§3); `ValidateBatch` admits it; no production
    caller asks for it. It gets a conformance body when one does.
 
+## 13. What shipped, and what is left
+
+**v0.68.0 is step 6, the deletion release, shipped 2026-09-14 with step 5
+outstanding.** That is the order this section states is allowed: marinade and
+sloth are not moved, and they stay on the pre-deletion tag.
+
+Deleted as §7 names them: `objstore/sqlstore`, `db_utils` and `db_utils/dbtest`,
+`store/migrations` and `routd/migrations`, the owner files and `seedOwnerDBs`,
+the sibling bind mounts and `DATABASE`/`DB_PATH`/`ROUTD_DB_PATH`/`ONBOD_DB_PATH`,
+`modernc.org/sqlite` in `go.mod`, and the six interactive-transaction sites —
+including §7 item 6, the column-backed row reader, which took `Querier`,
+`filterSQL`, `whereFilter`, `orderBy` and `scanTargets` with it.
+
+**The import guard of §9, measured:** `go list -deps ./...` reaches
+`database/sql` from nothing and `modernc.org/sqlite` from nothing. It still
+shows `database/sql/driver` and `database/sql/internal`, reached by
+`google/uuid` for its `driver.Valuer` — a third party's interface, not a pool
+this repo opens.
+
+**One thing §7 did not anticipate.** `arizuko create` seeded the default group
+by opening routd, and a new instance has no endpoint to open until the store
+server is up — which `INSTALL.md` cannot do before `create` makes the directory.
+The split is by owner: `create` makes the instance's FILES and declares the
+`--product` choice as `ARIZUKO_DEFAULT_PRODUCT`; routd's own boot writes the
+`main` row and its default tasks beside the floors it already seeds
+(`store.SeedDefaultGroup`, BUGS `L300`).
+
+**Left: step 5.** marinade and sloth keep their owners in files and cannot run
+this release — their daemons exit at boot naming the missing `DYNAMODB_URL`.
+Moving them needs the entity migration first, and the `migrate-*` subcommands
+are deleted, so it is the operator's own copy (§7).
+
 ## Ties
 
 `6/37` (the object model this spec keeps, and the one sentence it supersedes) ·

@@ -64,29 +64,64 @@ and the `main` row.
   seeds at boot. One writer of those rows instead of two, and one declaration of
   the product with compose and routd as its readers.
 
-## L301 — a `*sql.Tx` parameter is threaded through nine files and can only ever be nil (2026-09-14, open)
+## L303 — proposal: whapd EXITS on an invalidated WhatsApp session, so the surface an operator re-pairs through is the first thing to go (2026-09-16, proposal — needs sign-off)
 
-MEASURED. `store.TryWriteEntitiesInTx` returns an error the moment its `tx` is
-not nil — "a batch in a transaction, which this store does not open" — because
-the only driver left opens none. Every caller therefore passes nil, and the
-parameter survives through `store/scopes.go`, `groups.go`, `routes.go`,
-`messages.go`, `chats.go`, `message_folders.go`, `user_profiles.go`,
-`folder_scope.go` and `resreg/engine.go`, along with the `database/sql` import
-that only exists to name the type.
+MEASURED on krons. `arizuko_whapd_krons` has restarted **2,820 times**. The last
+hour of `journalctl -u arizuko_krons` holds exactly three distinct errors, and
+all three are this one cause:
 
-It is the last stub of SQL in the tree: a parameter that documents a capability
-the store does not have, and a second door (`writeVia`, `tryWriteVia`,
-`WriteEntitiesInTx`, `TryWriteEntitiesInTx`) that exists only to choose between
-a transaction and no transaction when there is only ever no transaction.
+- 56 x `session invalidated, delete auth dir and re-pair` (whapd, code 401)
+- 121 x `channel health failed ... lookup whapd on 127.0.0.11:53: server
+  misbehaving` (routd probing a container that is down more than it is up)
+- 10 x `channel auto-deregistered`
 
-The fix is deletion: one write door, no `tx`, no `database/sql`.
+`whapd/src/main.ts:295-307` treats `loggedOut`/405 as terminal, marks the bot
+unauthenticated and calls `process.exit(1)`, so "the container restart can pick
+up the new auth dir post-rebind". `template/services/whapd.yml` sets
+`restart: on-failure`, which has no bound, so the exit is a loop.
 
-- **Severity:** low — no wrong behaviour, dead surface
-- **Scope:** `store/` (eight files), `resreg/engine.go`
-- **Affected:** every reader of those signatures
-- **Source:** `store/scopes.go:243-249`; the sole caller chain from
-  `store/groups.go:248` passes nil
-- **Status:** open
+**A server-side logout is not a crash, and it is not transient** — WISDOM's
+retry rule says so. Exiting is also self-defeating: `/v1/pair/status` and the
+pairing endpoint live in THIS process, so the one surface an operator re-pairs
+through is the first thing the exit takes away, and routd cannot even resolve
+the name to report a reason.
+
+The cause fix is to STAY UP unauthenticated: `markUnauthenticated()` already
+records the state, so `/health` reports the channel as present and unpaired,
+`/v1/pair` answers, and routd's probe reports "unpaired" instead of a DNS
+failure. Nothing restarts, nothing floods, and the state is visible where an
+operator looks.
+
+It changes whapd's lifecycle contract, so it is recorded rather than shipped.
+
+- **Severity:** medium — WhatsApp has been down on krons for as long as the loop
+  has run, and the loop is every error the instance reports
+- **Scope:** `whapd/src/main.ts` (the `loggedOut`/405 branch),
+  `template/services/whapd.yml` (`restart`)
+- **Affected:** krons; any instance whose WhatsApp session is invalidated
+- **Source:** `sudo docker inspect arizuko_whapd_krons --format '{{.RestartCount}}'`
+  = 2820; the journal census above
+- **Status:** proposal — needs sign-off
+- **Also:** the session itself still needs the pairing-code path with the user's
+  phone (`--pair <phone>`); that is operator work no code change replaces.
+
+## ✅ FIXED 2026-09-14 L301 — a `*sql.Tx` parameter was threaded through nineteen functions and could only ever be nil (2026-09-14)
+
+`store.TryWriteEntitiesInTx` returned an error the moment its `tx` was not nil,
+because the one driver left opens none. Every caller passed nil, and the
+parameter survived through eight `store` files plus `resreg/engine.go`, along
+with the `database/sql` import that only existed to name the type.
+
+- **Status:** fixed in v0.68.0
+- **Fix:** the parameter goes, and with it the four write doors that existed only
+  to choose between a transaction and no transaction — `WriteEntities` and
+  `TryWriteEntities` are the pair. `objStore(tx)` and `reads(tx)` went too: both
+  already ignored the argument. resreg's column-shaped reader followed, since
+  `Querier`, `filterSQL`, `whereFilter`, `orderBy` and `scanTargets` had no
+  caller once the entity path became the only path.
+- **Measured after:** `go list -deps ./...` reaches `database/sql` from nothing;
+  what remains is `database/sql/driver` and `database/sql/internal`, reached by
+  `google/uuid` for its `driver.Valuer`. `modernc.org/sqlite` is out of `go.mod`.
 
 ## ✅ FIXED 2026-09-14 L299 — the agent was told to search for deferred tools, the runtime has no such tool, and from one refusal it reported the platform as broken (2026-09-14)
 
@@ -341,21 +376,16 @@ five, and `make test` runs without `-race`, so the race itself is invisible ther
 - **Fix:** the recorder holds the sends behind a mutex, and the wait is for the send
   rather than for the row, so the assertion reads what the gate finished writing.
 
-## L291 — `database/sql` survives in dashd only to carry three optional strings (2026-09-13, open)
+## ✅ FIXED 2026-09-14 L291 — `database/sql` survived in dashd to carry three optional strings (2026-09-13)
 
-`dashd/tasks_admin.go:87-95` declares `cron`, `nextRun` and `contextMode` as
-`sql.NullString` to render a form, and that is the only reason `database/sql` is still
-imported anywhere in dashd — every store in dashd is a handle now. `specs/6/42` §9 makes
-`go list -deps ./... | grep database/sql` empty the acceptance test for the whole port,
-so a null-string type used as an optional string blocks a one-line gate.
+`dashd/tasks_admin.go` declared `cron`, `nextRun` and `contextMode` as
+`sql.NullString` to render a form, and nothing read the `Valid` half — so it was
+an optional string with an extra field, and it was the only reason `database/sql`
+reached dashd at all.
 
-- **Severity:** low — no wrong behaviour; it blocks the port's import guard
-- **Scope:** `dashd/tasks_admin.go`
-- **Affected:** every instance
-- **Source:** `dashd/tasks_admin.go:5`, `:87`
-- **Status:** open
-- **Fix:** a plain `string` plus the empty test the template already makes, since absent
-  and empty are the same thing on a form.
+- **Status:** fixed in v0.68.0
+- **Fix:** plain strings plus the empty test the template already makes, since
+  absent and empty are the same thing on a form.
 
 ## ✅ FIXED 2026-09-12 L284 — `/eval` queries the pre-migration schema, so the debug loop goes blind the moment an instance migrates (2026-09-12)
 

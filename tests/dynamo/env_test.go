@@ -407,8 +407,17 @@ func TestDashdBootsFromTheEnvironment(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("CreateTask through the layer: %v", err)
 	}
-	if tasks := st.ListTasks("", true); len(tasks) != 1 || tasks[0].ID != id {
-		t.Fatalf("the task read back as %+v, want the one just created", tasks)
+	// routd's boot seeds `main`'s default tasks, so the one just created is
+	// among them rather than alone (store.SeedDefaultGroup).
+	var found bool
+	tasks := st.ListTasks("", true)
+	for _, task := range tasks {
+		if task.ID == id {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the tasks read back as %+v, none of them the one just created", tasks)
 	}
 	recorded, err := audit.Query(ctx, st.Obj(), audit.Filter{Limit: audit.MaxLimit})
 	if err != nil {

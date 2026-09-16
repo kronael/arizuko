@@ -71,7 +71,7 @@ sudo install -m 0755 arizuko /usr/local/bin/arizuko</code></pre>
     <p>This seeds <code>/srv/data/arizuko_demo/</code> with:</p>
     <ul>
       <li><code>.env</code> &mdash; instance config with a fresh <code>AUTH_SECRET</code> and <code>SECRETS_KEY</code>. Mode <code>0600</code>. Edit it to add API keys later.</li>
-      <li><code>store/</code> &mdash; one directory per owner daemon (<code>routd/</code>, <code>runed/</code>, <code>authd/</code>, <code>onbod/</code>), each holding that owner's SQLite file and mounted into that daemon alone, so none can reach another's data. Add the <code>extenddb</code> package instead and the four owners live on one store server, each daemon holding its own key for it (<a href="https://github.com/kronael/arizuko/blob/main/INSTALL.md">INSTALL.md</a> &sect; The store server). Either way you get one default group called <code>main</code>.</li>
+      <li><code>store/</code> &mdash; one directory per owner daemon (<code>routd/</code>, <code>runed/</code>, <code>authd/</code>, <code>onbod/</code>), holding what that owner writes as files and mounted into that daemon alone, so none can reach another's data. The four owners' TABLES live on one store server, each daemon holding its own key for it (<a href="https://github.com/kronael/arizuko/blob/main/INSTALL.md">INSTALL.md</a> &sect; The store server). Either way you get one default group called <code>main</code>.</li>
       <li><code>groups/main/</code> &mdash; the first agent's home: <code>PERSONA.md</code>, <code>.claude/</code> session dir, <code>facts/</code>, <code>diary/</code>.</li>
       <li><code>ipc/main/</code> &mdash; placeholder for the MCP unix socket the agent will use.</li>
       <li><code>web/pub/</code> &mdash; a copy of these docs, served by <code>vited</code>.</li>
@@ -160,7 +160,7 @@ arizuko apply demo demo.yaml        # apply the manifest back</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-15">2026-08-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-13">2026-09-13</time>
       </div>
     </main>
 

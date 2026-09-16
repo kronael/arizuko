@@ -38,7 +38,7 @@
     <main class="docs-content">
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">reference</a> &rsaquo; Store schema</p>
 <h1>schema</h1>
-    <p class="lede">Every table arizuko keeps is an entity: one item per row, addressed by a <em>(partition, sort)</em> coordinate, with the rest of the row as string attributes. What serves those items is a deployment choice &mdash; one DynamoDB-protocol server per instance when <code>DYNAMODB_URL</code> names one, otherwise one SQLite file per owner &mdash; and nothing above the driver changes with it.</p>
+    <p class="lede">Every table arizuko keeps is an entity: one item per row, addressed by a <em>(partition, sort)</em> coordinate, with the rest of the row as string attributes. One DynamoDB-protocol server per instance serves them, named by <code>DYNAMODB_URL</code>, and nothing above the driver knows which server it is.</p>
 
     <p>The coordinate is what a read costs, so each entity's coordinate is argued in the file that writes it. <a href="https://github.com/kronael/arizuko/blob/main/store/entities.go"><code>store/entities.go</code></a> names the set each owner holds.</p>
 
@@ -149,7 +149,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/schema.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-06">2026-09-06</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-13">2026-09-13</time>
       </div>
     </main>
 

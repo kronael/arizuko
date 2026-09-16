@@ -250,9 +250,8 @@ arizuko run demo                       # compose up; @mention the bot in a chann
       <h2>honest constraints</h2>
       <ul>
         <li><strong>Linux + Docker.</strong> One host, no Kubernetes, no
-          Redis. Each owner keeps a SQLite file by default; swap in the store
-          server and all four live on one endpoint instead, still inside this
-          directory.</li>
+          Redis. All four owners live on one store server, and its data sits
+          inside this directory like everything else.</li>
         <li><strong>Self-hosted only.</strong> There&rsquo;s no managed
           control plane. That&rsquo;s the feature, not an oversight.</li>
         <li><strong>The split is the topology.</strong> A minimal deploy is
@@ -300,7 +299,7 @@ arizuko run demo                       # compose up; @mention the bot in a chann
       <p class="dim" style="margin-top: 2em; font-size: 0.9em">
         MIT &middot; Go + Docker.
       </p>
-      <p class="docs-footer">updated <time class="docs-updated" datetime="2026-08-27">2026-08-27</time></p>
+      <p class="docs-footer">updated <time class="docs-updated" datetime="2026-09-13">2026-09-13</time></p>
     </div>
     <button class="theme-toggle">&#127769;</button>
     <script src="assets/hub.js"></script>

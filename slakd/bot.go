@@ -315,6 +315,12 @@ func (b *bot) watchdog(ctx context.Context) {
 			}
 			// Stale: probe auth.test to tell "quiet" from "dead" and refresh /health.
 			_, _, authErr := b.authTest(ctx)
+			// A probe that failed because WE are shutting down says nothing about
+			// the token. Counting it reaches the backstop and calls os.Exit(1) on
+			// the way out of a clean SIGTERM.
+			if ctx.Err() != nil {
+				return
+			}
 			b.connected.Store(authErr == nil)
 			if authErr == nil {
 				fails = 0

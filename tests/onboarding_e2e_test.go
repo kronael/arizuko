@@ -32,15 +32,12 @@ import (
 func TestOnboardingEndToEnd(t *testing.T) {
 	f := bootFederation(t, func(c *routd.LoopConfig) { c.OnboardingEnabled = true })
 
-	// onbod stand-in: POST /v1/onboarding runs the real store insert on a real
-	// migrated schema (exactly what onbod's handleOnboardingInsert does after
-	// its bearer check).
-	//
-	// The schema is the frozen pre-split one, not onbod.db's. onbod embeds and
-	// migrates its own chain from `package main`, so no test outside onbod can
-	// build the onboarding table any other way.
-	onbodInst := testutils.NewRoutdInstance(t)
-	onbodStore := onbodInst.Store
+	// onbod stand-in: POST /v1/onboarding runs the real store insert against
+	// onbod's own entities (exactly what onbod's handleOnboardingInsert does
+	// after its bearer check). onbod is `package main`, so no test outside it
+	// can reach its opener; testutils.NewOwnerStore makes both owners' sets in
+	// one namespace, which is what this stand-in needs.
+	onbodStore := testutils.NewOwnerStore(t)
 	onbodMux := http.NewServeMux()
 	onbodMux.HandleFunc("POST /v1/onboarding", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
