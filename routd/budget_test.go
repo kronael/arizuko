@@ -15,7 +15,7 @@ import (
 // SetUserCap run verbatim against routd.db, the SAME source gated reads.
 func seedUser(t *testing.T, db *DB, sub string, capCents int) {
 	t.Helper()
-	s := store.New(db.SQL())
+	s := store.NewOver(db.Obj())
 	if err := s.CreateUserProfile(sub, sub, sub); err != nil {
 		t.Fatalf("create auth user: %v", err)
 	}

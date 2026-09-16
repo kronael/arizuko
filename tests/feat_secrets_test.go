@@ -154,7 +154,7 @@ func TestFeature_Secrets(t *testing.T) {
 
 		// The archive projection is the one read that hands back the blob AS IT
 		// IS AT REST; every other reader decrypts.
-		rows, err := store.New(f.routdDB.SQL()).ExportSecretRows(t.Context())
+		rows, err := store.NewOver(f.routdDB.Obj()).ExportSecretRows(t.Context())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -206,7 +206,7 @@ func TestFeature_Secrets(t *testing.T) {
 		if rec.StatusCode != 200 {
 			t.Fatalf("ingest status=%d, want 200", rec.StatusCode)
 		}
-		testutils.WaitForBotRow(t, f.routdDB.SQL(), "slack:T/C/A", 5*time.Second)
+		testutils.WaitForBotRow(t, store.NewOver(f.routdDB.Obj()), "slack:T/C/A", 5*time.Second)
 
 		got := f.dispatchedSecrets("vault")
 		want := map[string]string{"ANTHROPIC_API_KEY": "sk-ant-alice"}

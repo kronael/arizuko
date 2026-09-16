@@ -92,12 +92,9 @@ Both endpoints are reached by routd through `chanreg.HTTPChannel`'s
 `SetSuggestions` / `SetName`. Today slakd is the only adapter that implements
 them.
 
-Pane READS open routd's owner (`store.OpenOwner(store.OwnerRoutd, …)`) for
+Pane READS open routd's owner (`store.OpenOwner(store.OwnerRoutd)`) for
 `pane_sessions`; routd owns that table, and pane WRITES go over HTTP
-(`POST /v1/pane`). On a served instance no path is needed at all — the
-endpoint is the target. On a file instance `DB_PATH` names routd's file, or
-`DATA_DIR/store` locates it; neither set means pane reads fail and
-prompt/title staging answers 404.
+(`POST /v1/pane`). The store server is the target and no path is configured.
 
 ## Dependencies
 
@@ -116,11 +113,8 @@ AUTHD_SERVICE_NAME=slakd      exchange principal — the DAEMON, not CHANNEL_NAM
 LISTEN_ADDR=:8080             internal HTTP listener
 LISTEN_URL=http://slakd:8080  URL the router uses to reach slakd
 ASSISTANT_NAME=...            shown in pane title (<name> — chat); omit → "chat"
-DB_PATH=...                   routd's file, for pane reads on a NON-served
-                              instance (default DATA_DIR/store/routd/routd.db);
-                              ignored once DYNAMODB_URL names an endpoint
-DATA_DIR=...                  fallback (uses DATA_DIR/store); on a file instance
-                              omitting both means no pane support
+DATA_DIR=...                  slakd's own state dir; holds eyes.json, the
+                              watched-message record
 SLAKD_USERS_CACHE_TTL=900     users.info + conversations.info TTL (seconds)
 MEDIA_MAX_FILE_BYTES=20971520 file-proxy cap
 CHANNEL_NAME=slack            registration name

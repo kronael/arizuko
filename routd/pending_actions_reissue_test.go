@@ -1,12 +1,12 @@
 package routd
 
 import (
-	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	"github.com/kronael/arizuko/store"
 )
@@ -116,26 +116,20 @@ func TestPollOnceDoesNotSkipAChatWithARowInTheCursorSecond(t *testing.T) {
 }
 
 // storedInstant reads the instant a message was STORED at — the lead of its
-// position, as the bytes on disk carry it. Reading it back through core.TS
-// would render the value a second time and hide the defect under test.
+// position, as the item's own sort key carries it. Reading it back through
+// core.TS would render the value a second time and hide the defect under test.
 func storedInstant(t *testing.T, db *DB, chatJID, id string) string {
 	t.Helper()
-	rows, err := db.SQL().Query(`SELECT sort FROM messages WHERE part = ?`, chatJID)
+	items, err := db.Obj().Query(t.Context(), objstore.Query{
+		Entity: store.Messages, Partition: chatJID,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var sort string
-		if err := rows.Scan(&sort); err != nil {
-			t.Fatal(err)
-		}
-		if at, got, ok := store.MsgCoord(sort); ok && got == id {
+	for _, it := range items {
+		if at, got, ok := store.MsgCoord(it.Key.Sort); ok && got == id {
 			return at
 		}
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatal(err)
 	}
 	t.Fatalf("no message %s in %s", id, chatJID)
 	return ""
@@ -149,34 +143,3 @@ func containsID(msgs []core.Message, id string) bool {
 	}
 	return false
 }
-
-// applyMigration runs a SHIPPED migration file. Reading the file rather than
-// inlining its SQL is what keeps the test from passing against an empty one.
-func applyMigration(t *testing.T, db *DB, path string) {
-	t.Helper()
-	sqlBytes, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
-	if _, err := db.SQL().Exec(string(sqlBytes)); err != nil {
-		t.Fatalf("apply %s: %v", path, err)
-	}
-}
-
-// legacyMessagesTable is `messages` in its pre-move column shape: routd's 0001
-// columns plus the three its chain added. Only the frozen-migration fixture
-// above needs it — every other test writes through the entity.
-const legacyMessagesTable = `
-DROP TABLE IF EXISTS messages;
-CREATE TABLE messages (
-  id TEXT PRIMARY KEY, chat_jid TEXT NOT NULL, sender TEXT NOT NULL,
-  sender_name TEXT, content TEXT NOT NULL, timestamp TEXT NOT NULL,
-  is_from_me INTEGER NOT NULL DEFAULT 0, is_bot_message INTEGER NOT NULL DEFAULT 0,
-  forwarded_from TEXT, reply_to_id TEXT, reply_to_text TEXT, reply_to_sender TEXT,
-  topic TEXT NOT NULL DEFAULT '', routed_to TEXT NOT NULL DEFAULT '',
-  verb TEXT NOT NULL DEFAULT 'message', attachments TEXT NOT NULL DEFAULT '',
-  source TEXT NOT NULL DEFAULT '', is_observed INTEGER NOT NULL DEFAULT 0,
-  turn_id TEXT, status TEXT NOT NULL DEFAULT 'sent', platform_id TEXT,
-  chat_name TEXT NOT NULL DEFAULT '', errored INTEGER NOT NULL DEFAULT 0,
-  delivery_attempts INTEGER NOT NULL DEFAULT 0, link_context TEXT);
-`

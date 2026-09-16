@@ -13,24 +13,23 @@ package resreg_test
 
 import (
 	"context"
-	"database/sql"
 	"testing"
 	"time"
 
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/db_utils/dbtest"
 	"github.com/kronael/arizuko/resreg"
 	_ "github.com/kronael/arizuko/resreg/resources" // side-effect: register cold-tier resources
 	"github.com/kronael/arizuko/store"
 )
 
-func archiveTestDB(t *testing.T) *sql.DB {
+func archiveTestStore(t *testing.T) *store.Store {
 	t.Helper()
-	db := dbtest.Open(t)
-	if err := store.Migrate(db); err != nil {
-		t.Fatalf("migrate: %v", err)
+	st, err := store.OpenMem()
+	if err != nil {
+		t.Fatal(err)
 	}
-	return db
+	t.Cleanup(func() { st.Close() })
+	return st
 }
 
 // TestExportSnapshot_MatchesChecksum does NOT assert on any specific
@@ -45,12 +44,12 @@ func archiveTestDB(t *testing.T) *sql.DB {
 // registry holds at call time — both read it fresh, so they must always
 // agree.
 func TestExportSnapshot_MatchesChecksum(t *testing.T) {
-	db := archiveTestDB(t)
+	st := archiveTestStore(t)
 	ctx := context.Background()
-	if err := store.New(db).PutGroupRow(core.Group{Folder: "atlas", AddedAt: time.Now()}); err != nil {
+	if err := st.PutGroupRow(core.Group{Folder: "atlas", AddedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
-	manifest, checksum, snapshotAt, err := resreg.ExportSnapshot(ctx, resreg.OnDB(db), resreg.SubsystemRoutd)
+	manifest, checksum, snapshotAt, err := resreg.ExportSnapshot(ctx, resreg.On(st.Obj()), resreg.SubsystemRoutd)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +59,7 @@ func TestExportSnapshot_MatchesChecksum(t *testing.T) {
 	if snapshotAt == "" {
 		t.Error("snapshotAt empty")
 	}
-	want, err := resreg.Checksum(resreg.OnDB(db), resreg.SubsystemRoutd)
+	want, err := resreg.Checksum(resreg.On(st.Obj()), resreg.SubsystemRoutd)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -22,7 +22,7 @@ func TestFeature_AgentDispatch(t *testing.T) {
 		if rec := postBearer(t, f.routdTS.URL, "POST", "/v1/messages", f.authd.mintAdapter(t, "slakd"), "", in); rec.StatusCode != 200 {
 			t.Fatalf("ingest status=%d", rec.StatusCode)
 		}
-		testutils.WaitForRow(t, f.runedDB.SQL(), `SELECT COUNT(*) FROM spawns`, nil, 5*time.Second)
+		waitForSpawn(t, f.runedDB, 5*time.Second)
 	})
 
 	t.Run("model-override", func(t *testing.T) {

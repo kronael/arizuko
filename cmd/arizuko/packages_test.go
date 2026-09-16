@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
@@ -71,10 +70,11 @@ func TestDependsOnParse(t *testing.T) {
 // install a source dir's fragment assets, write the installed-package record,
 // then remove exactly what the record says was installed.
 func TestPackagesInstallRemove(t *testing.T) {
+	t.Cleanup(func() { dropInstance(t) })
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_t")
-	if err := db_utils.CreateDBFile(store.OwnerDBPath(filepath.Join(dataDir, "store"), store.OwnerRoutd)); err != nil {
+	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	src := filepath.Join(base, "teledpkg")
@@ -95,7 +95,7 @@ func TestPackagesInstallRemove(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dataDir, "services", "teledpkg.yml")); err != nil {
 		t.Fatalf("fragment not installed: %v", err)
 	}
-	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
+	rdb, err := routd.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestPackagesInstallRemove(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dataDir, "services", "teledpkg.yml")); !os.IsNotExist(err) {
 		t.Fatalf("fragment not removed: %v", err)
 	}
-	rdb2, err := routd.Create(filepath.Join(dataDir, "store"))
+	rdb2, err := routd.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,10 +146,11 @@ func TestDirtyAssets(t *testing.T) {
 // TestPackagesUpgradeClean: an unedited install upgrades to the source's new
 // revision and the record hash updates.
 func TestPackagesUpgradeClean(t *testing.T) {
+	t.Cleanup(func() { dropInstance(t) })
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_u")
-	if err := db_utils.CreateDBFile(store.OwnerDBPath(filepath.Join(dataDir, "store"), store.OwnerRoutd)); err != nil {
+	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	src := filepath.Join(base, "up")
@@ -170,7 +171,7 @@ func TestPackagesUpgradeClean(t *testing.T) {
 	if err != nil || !strings.Contains(string(b), "v2") {
 		t.Fatalf("upgrade did not apply new version: %s (err %v)", b, err)
 	}
-	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
+	rdb, err := routd.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +199,7 @@ func seedPkg(t *testing.T, base, dataDir, inst, name, body string) string {
 
 func mustRec(t *testing.T, dataDir, name string) routd.InstalledPackage {
 	t.Helper()
-	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
+	rdb, err := routd.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,10 +216,11 @@ func mustRec(t *testing.T, dataDir, name string) routd.InstalledPackage {
 // recorded SURVIVE it. Without this, `remove` after an `upgrade` strands
 // exactly the rows and dirs it is supposed to delete.
 func TestPackagesUpgradePreservesNonFileManifest(t *testing.T) {
+	t.Cleanup(func() { dropInstance(t) })
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_mf")
-	if err := db_utils.CreateDBFile(store.OwnerDBPath(filepath.Join(dataDir, "store"), store.OwnerRoutd)); err != nil {
+	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	src := filepath.Join(base, "mf")
@@ -253,10 +255,11 @@ func TestPackagesUpgradePreservesNonFileManifest(t *testing.T) {
 // TestPackagesSyncReapplies: sync re-applies every installed package from its
 // recorded source in one pass — the blend table's "on upstream update" verb.
 func TestPackagesSyncReapplies(t *testing.T) {
+	t.Cleanup(func() { dropInstance(t) })
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_sy")
-	if err := db_utils.CreateDBFile(store.OwnerDBPath(filepath.Join(dataDir, "store"), store.OwnerRoutd)); err != nil {
+	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	srcA := seedPkg(t, base, dataDir, "sy", "alpha", "services:\n  alpha:\n    image: v1\n")
@@ -286,15 +289,16 @@ func TestPackagesSyncReapplies(t *testing.T) {
 // InstalledAt rather than two wall-clock reads — RFC3339 is second-granular, so
 // comparing two same-second syncs would pass even if the record WERE rewritten.
 func TestPackagesSyncIdempotent(t *testing.T) {
+	t.Cleanup(func() { dropInstance(t) })
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_si")
-	if err := db_utils.CreateDBFile(store.OwnerDBPath(filepath.Join(dataDir, "store"), store.OwnerRoutd)); err != nil {
+	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	seedPkg(t, base, dataDir, "si", "gamma", "services:\n  gamma:\n    image: v1\n")
 
-	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
+	rdb, err := routd.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -328,10 +332,11 @@ func TestPackagesSyncIdempotent(t *testing.T) {
 // never clobbered — and one dirty package does not stop the rest of the
 // instance from syncing.
 func TestPackagesSyncSkipsDirty(t *testing.T) {
+	t.Cleanup(func() { dropInstance(t) })
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_sd")
-	if err := db_utils.CreateDBFile(store.OwnerDBPath(filepath.Join(dataDir, "store"), store.OwnerRoutd)); err != nil {
+	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	srcD := seedPkg(t, base, dataDir, "sd", "delta", "services:\n  delta:\n    image: v1\n")
@@ -376,13 +381,14 @@ func gitInit(t *testing.T, dir string) {
 // TestPackagesInstallGit is P1b (spec 5/28): install from a git source resolves
 // an immutable revision (not "local") and records it, cloning via file:// URL.
 func TestPackagesInstallGit(t *testing.T) {
+	t.Cleanup(func() { dropInstance(t) })
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")
 	}
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_g")
-	if err := db_utils.CreateDBFile(store.OwnerDBPath(filepath.Join(dataDir, "store"), store.OwnerRoutd)); err != nil {
+	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	repo := filepath.Join(base, "gitpkg")
@@ -400,7 +406,7 @@ func TestPackagesInstallGit(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dataDir, "services", "gitpkg.yml")); err != nil {
 		t.Fatalf("git package fragment not installed: %v", err)
 	}
-	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
+	rdb, err := routd.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -416,12 +422,9 @@ func TestPackagesInstallGit(t *testing.T) {
 // and records its PK; remove deletes it. proxyd reads that table per request, so
 // the route is live without a restart.
 func TestPackagesInstallRoutesHotApply(t *testing.T) {
+	t.Cleanup(func() { dropInstance(t) })
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
-	dataDir := filepath.Join(base, "arizuko_r")
-	if err := db_utils.CreateDBFile(store.OwnerDBPath(filepath.Join(dataDir, "store"), store.OwnerRoutd)); err != nil {
-		t.Fatal(err)
-	}
 	src := filepath.Join(base, "routepkg")
 	if err := os.MkdirAll(src, 0o755); err != nil {
 		t.Fatal(err)
@@ -437,7 +440,7 @@ func TestPackagesInstallRoutesHotApply(t *testing.T) {
 
 	cmdPackages([]string{"r", "install", src})
 
-	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
+	rdb, err := routd.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -454,7 +457,7 @@ func TestPackagesInstallRoutesHotApply(t *testing.T) {
 
 	cmdPackages([]string{"r", "remove", "routepkg"})
 
-	rdb2, err := routd.Create(filepath.Join(dataDir, "store"))
+	rdb2, err := routd.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -466,7 +469,7 @@ func TestPackagesInstallRoutesHotApply(t *testing.T) {
 
 func routePresent(t *testing.T, rdb *routd.DB, path string) bool {
 	t.Helper()
-	all, err := store.New(rdb.SQL()).AllProxydRoutes()
+	all, err := store.NewOver(rdb.Obj()).AllProxydRoutes()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -481,12 +484,9 @@ func routePresent(t *testing.T, rdb *routd.DB, path string) bool {
 // TestPackagesInstallGrants: the acl asset kind (spec 5/28) — install applies a
 // package manifest's acl block and records the rows; remove reverses exactly.
 func TestPackagesInstallGrants(t *testing.T) {
+	t.Cleanup(func() { dropInstance(t) })
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
-	dataDir := filepath.Join(base, "arizuko_gr")
-	if err := db_utils.CreateDBFile(store.OwnerDBPath(filepath.Join(dataDir, "store"), store.OwnerRoutd)); err != nil {
-		t.Fatal(err)
-	}
 	src := filepath.Join(base, "grantpkg")
 	if err := os.MkdirAll(src, 0o755); err != nil {
 		t.Fatal(err)
@@ -502,11 +502,11 @@ func TestPackagesInstallGrants(t *testing.T) {
 
 	cmdPackages([]string{"gr", "install", src, "--folder", "eng/**"})
 
-	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
+	rdb, err := routd.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows, err := store.New(rdb.SQL()).ListACL("@ops")
+	rows, err := store.NewOver(rdb.Obj()).ListACL("@ops")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -527,12 +527,12 @@ func TestPackagesInstallGrants(t *testing.T) {
 
 	cmdPackages([]string{"gr", "remove", "grantpkg"})
 
-	rdb2, err := routd.Create(filepath.Join(dataDir, "store"))
+	rdb2, err := routd.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer rdb2.Close()
-	rows2, err := store.New(rdb2.SQL()).ListACL("@ops")
+	rows2, err := store.NewOver(rdb2.Obj()).ListACL("@ops")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -547,10 +547,11 @@ func TestPackagesInstallGrants(t *testing.T) {
 // a package's skills/<name>/ into <datadir>/skills/<name>/ (seedSkills layers it
 // into every group), records the names; remove deletes them.
 func TestPackagesInstallSkills(t *testing.T) {
+	t.Cleanup(func() { dropInstance(t) })
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_sk")
-	if err := db_utils.CreateDBFile(store.OwnerDBPath(filepath.Join(dataDir, "store"), store.OwnerRoutd)); err != nil {
+	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	src := filepath.Join(base, "skillpkg")
@@ -570,7 +571,7 @@ func TestPackagesInstallSkills(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dataDir, "skills", "mytool", "SKILL.md")); err != nil {
 		t.Fatalf("skill not installed: %v", err)
 	}
-	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
+	rdb, err := routd.Open()
 	if err != nil {
 		t.Fatal(err)
 	}

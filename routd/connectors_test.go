@@ -18,7 +18,6 @@ import (
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/ipc"
 	"github.com/kronael/arizuko/objstore"
-	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -66,7 +65,7 @@ func seedSecretsStore(t *testing.T, d *DB, key string) *store.Store {
 	if key != "" {
 		d.SetSecretKeys([]byte(key))
 	}
-	s := store.New(d.db)
+	s := store.NewOver(d.obj)
 	if key != "" {
 		s.SetSecretKeys([]byte(key))
 	}
@@ -437,7 +436,7 @@ func TestSecretUseLogRecordsScopeAndTool(t *testing.T) {
 	// secret_use_log is an objstore entity (store/secret_use_log.go), so the
 	// items are read through the driver and the attribute names are the stored
 	// contract this test is about.
-	items, err := sqlstore.New(db.SQL()).Query(t.Context(), objstore.Query{
+	items, err := db.Obj().Query(t.Context(), objstore.Query{
 		Entity: "secret_use_log", Partition: "secret_use",
 	})
 	if err != nil {

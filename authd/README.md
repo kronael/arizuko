@@ -96,10 +96,8 @@ Two of the six carry an invariant a column could not:
 
 ## Configuration
 
-- `DATABASE` / `DATA_DIR` — the file authd opens when the instance keeps one
-  (`DATA_DIR` resolves `<dir>/store/authd/auth.db`, beside the other owners so
-  one `store/` chown covers them). Both are ignored once `DYNAMODB_URL` names
-  an endpoint
+- `DYNAMODB_URL` + `AWS_*` + `STORE_CA` — the store server authd dials for its
+  own table prefix. Without them authd refuses to start
 - `AUTHD_SERVICE_KEY` — authd's bootstrap secret (self-mint `service:authd`)
 - `AUTHD_SERVICE_KEYS` — `principal=secret,...` map for daemon exchange
 - `GRANTS_URL` — routd grants endpoint (`http://routd:8080`); unset → empty-scope sessions
@@ -143,8 +141,7 @@ operator revoke) and are served read-only at `GET /v1/audit`, which
   (`signing_keys.go`, `refresh_tokens.go`, `auth_users.go`, which also carries
   `oauth_identities` because no operation touches one without the other), plus
   `import.go` for the one-way move. A second driver changes nothing here
-  (spec `specs/6/37-store-model.md` step 5, enforced by
-  `db_utils/sql_layer_test.go`).
+  (spec `specs/6/37-store-model.md` step 5).
 - `oauth.go` — OAuth provider dance → ES256 mint
 - `audit_resource.go` — the `GET /v1/audit` resreg mount, plus `scopeGate` /
   `instanceWideGate`, the two gate builders every authd resource injects

@@ -9,7 +9,6 @@ package dynamo_test
 import (
 	"context"
 	"encoding/base64"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -41,8 +40,8 @@ func servedEnv(t *testing.T) {
 	t.Setenv(dynstore.EnvKeyID, cfg.KeyID)
 	t.Setenv(dynstore.EnvSecret, cfg.Secret)
 	t.Setenv(dynstore.EnvCA, base64.StdEncoding.EncodeToString(cfg.CA))
-	if !store.Served() {
-		t.Fatal("the environment names no endpoint, so no door below would take the served branch")
+	if dynstore.URL() == "" {
+		t.Fatal("the environment names no endpoint, so no door below could answer")
 	}
 }
 
@@ -71,23 +70,16 @@ func fresh(t *testing.T, owner string) {
 	t.Cleanup(drop)
 }
 
-// noFile is a path that does not exist, so a door that opened it would fail
-// loud. Every boot below passes one: the endpoint is what answers.
-func noFile(t *testing.T, owner string) string {
-	t.Helper()
-	return store.OwnerDBPath(filepath.Join(t.TempDir(), "store"), owner)
-}
-
 // routd's own door, from the environment: the entities, the floor an instance
 // is born with, the reads a daemon makes and the audit record its writes land
-// in. The path it is handed does not exist.
+// in.
 func TestRoutdBootsFromTheEnvironment(t *testing.T) {
 	servedEnv(t)
 	fresh(t, store.OwnerRoutd)
 
-	db, err := routd.OpenAt(noFile(t, store.OwnerRoutd))
+	db, err := routd.Open()
 	if err != nil {
-		t.Fatalf("routd.OpenAt over the endpoint: %v", err)
+		t.Fatalf("routd.Open over the endpoint: %v", err)
 	}
 	defer db.Close() //nolint:errcheck // the test is ending
 
@@ -138,9 +130,9 @@ func TestRunedBootsFromTheEnvironment(t *testing.T) {
 	servedEnv(t)
 	fresh(t, store.OwnerRuned)
 
-	db, err := runed.OpenAt(noFile(t, store.OwnerRuned))
+	db, err := runed.Open()
 	if err != nil {
-		t.Fatalf("runed.OpenAt over the endpoint: %v", err)
+		t.Fatalf("runed.Open over the endpoint: %v", err)
 	}
 	defer db.Close() //nolint:errcheck // the test is ending
 
@@ -170,7 +162,7 @@ func TestAuthdBootsFromTheEnvironment(t *testing.T) {
 	servedEnv(t)
 	fresh(t, store.OwnerAuthd)
 
-	d, closeStore, err := store.OwnerDriver(store.OwnerAuthd, noFile(t, store.OwnerAuthd))
+	d, closeStore, err := store.OwnerDriver(store.OwnerAuthd)
 	if err != nil {
 		t.Fatalf("store.OwnerDriver over the endpoint: %v", err)
 	}
@@ -227,7 +219,7 @@ func TestOnbodBootsFromTheEnvironment(t *testing.T) {
 	fresh(t, store.OwnerOnbod)
 	fresh(t, store.OwnerRoutd)
 
-	d, closeStore, err := store.OwnerDriver(store.OwnerOnbod, noFile(t, store.OwnerOnbod))
+	d, closeStore, err := store.OwnerDriver(store.OwnerOnbod)
 	if err != nil {
 		t.Fatalf("store.OwnerDriver over the endpoint: %v", err)
 	}
@@ -255,10 +247,10 @@ func TestOnbodBootsFromTheEnvironment(t *testing.T) {
 
 	// The cross handle refuses while routd has made nothing: a reader that
 	// answered here would cross-read zero groups and boot green (BUGS F52).
-	if _, err := store.OpenOwner(store.OwnerRoutd, noFile(t, store.OwnerRoutd)); err == nil {
+	if _, err := store.OpenOwner(store.OwnerRoutd); err == nil {
 		t.Error("the reader door opened onto an owner that has made nothing")
 	}
-	rdb, err := routd.OpenAt(noFile(t, store.OwnerRoutd))
+	rdb, err := routd.Open()
 	if err != nil {
 		t.Fatalf("routd.OpenAt: %v", err)
 	}
@@ -266,7 +258,7 @@ func TestOnbodBootsFromTheEnvironment(t *testing.T) {
 	if err := rdb.PutGroup(core.Group{Folder: "acme"}); err != nil {
 		t.Fatalf("PutGroup: %v", err)
 	}
-	xst, err := store.OpenOwner(store.OwnerRoutd, noFile(t, store.OwnerRoutd))
+	xst, err := store.OpenOwner(store.OwnerRoutd)
 	if err != nil {
 		t.Fatalf("the reader door after routd's boot: %v", err)
 	}
@@ -363,24 +355,23 @@ func TestDashdBootsFromTheEnvironment(t *testing.T) {
 	fresh(t, store.OwnerRoutd)
 	fresh(t, store.OwnerOnbod)
 	ctx := context.Background()
-	routdTarget := noFile(t, store.OwnerRoutd)
 
 	// The probe refuses while routd has made nothing, which is what it is for:
 	// an endpoint whose owner never booted answers zero rows to every page, and
 	// dashd would render an empty console and report healthy.
-	if _, err := store.OpenOwner(store.OwnerRoutd, routdTarget); err == nil {
+	if _, err := store.OpenOwner(store.OwnerRoutd); err == nil {
 		t.Error("dashd's door opened onto a routd that has made nothing")
 	}
-	rdb, err := routd.OpenAt(routdTarget)
+	rdb, err := routd.Open()
 	if err != nil {
-		t.Fatalf("routd.OpenAt over the endpoint: %v", err)
+		t.Fatalf("routd.Open over the endpoint: %v", err)
 	}
 	defer rdb.Close() //nolint:errcheck // the test is ending
 	if err := rdb.PutGroup(core.Group{Folder: "acme"}); err != nil {
 		t.Fatalf("PutGroup: %v", err)
 	}
 
-	st, err := store.OpenOwner(store.OwnerRoutd, routdTarget)
+	st, err := store.OpenOwner(store.OwnerRoutd)
 	if err != nil {
 		t.Fatalf("dashd's door onto routd over the endpoint: %v", err)
 	}
@@ -441,11 +432,10 @@ func TestDashdBootsFromTheEnvironment(t *testing.T) {
 	// onbod: the optional profile the invites page reads. Its tables are its
 	// own, so they are made the way onbod makes them, and dashd's door onto
 	// them refuses until they are there.
-	onbodTarget := noFile(t, store.OwnerOnbod)
-	if _, err := store.OpenOwner(store.OwnerOnbod, onbodTarget); err == nil {
+	if _, err := store.OpenOwner(store.OwnerOnbod); err == nil {
 		t.Error("dashd's door opened onto an onbod that has made nothing")
 	}
-	d, closeOnbod, err := store.OwnerDriver(store.OwnerOnbod, onbodTarget)
+	d, closeOnbod, err := store.OwnerDriver(store.OwnerOnbod)
 	if err != nil {
 		t.Fatalf("store.OwnerDriver for onbod: %v", err)
 	}
@@ -453,7 +443,7 @@ func TestDashdBootsFromTheEnvironment(t *testing.T) {
 	if err := store.PrepareOwner(ctx, d, store.OwnerOnbod); err != nil {
 		t.Fatalf("prepare onbod's entities: %v", err)
 	}
-	ost, err := store.OpenOwner(store.OwnerOnbod, onbodTarget)
+	ost, err := store.OpenOwner(store.OwnerOnbod)
 	if err != nil {
 		t.Fatalf("dashd's door onto onbod over the endpoint: %v", err)
 	}

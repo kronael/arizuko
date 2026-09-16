@@ -35,8 +35,7 @@ There is no migration set. Each is an objstore ENTITY, declared beside the code
 that reads it — `runed/runstore` for the first three, `audit` for the fourth —
 and created by whichever driver the opener holds, so a second engine is a second
 driver and no handler changes (spec `6/37` step 5). `runed` itself holds no SQL
-statement at all; `db_utils/sql_layer_test.go` fails the build if one appears
-anywhere under `runed/`, including `runstore`.
+statement at all, `runstore` included.
 
 Each entity's file states its own COORDINATE and what that choice costs:
 `spawns` takes one partition and the run id as its sort key, because six

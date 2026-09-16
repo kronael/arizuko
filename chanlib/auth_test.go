@@ -11,7 +11,10 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 )
+
+func TestMain(m *testing.M) { dyntest.Main(m) }
 
 // signToken mints an ES256 JWT for sub/typ via key, plus the local KeySet that
 // verifies it.

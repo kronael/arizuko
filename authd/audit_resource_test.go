@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"encoding/json"
 	"io"
 	"io/fs"
@@ -13,16 +12,17 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/objstore/dynstore"
 )
 
 // authd is the sole ES256 signer, so its new read surface gets the strictest
 // tests in this change: what the column actually contains, who can reach it,
 // and that a folder claim cannot be widened.
 
-func auditTestAuthd(t *testing.T) (*sql.DB, *Authd) {
+func auditTestAuthd(t *testing.T) (*dynstore.Store, *Authd) {
 	t.Helper()
 	db := testDB(t)
-	a, err := newAuthd(newObjectStore(db), 15*time.Minute, 30*24*time.Hour, time.Hour)
+	a, err := newAuthd(db, 15*time.Minute, 30*24*time.Hour, time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +32,7 @@ func auditTestAuthd(t *testing.T) (*sql.DB, *Authd) {
 // seedAuthdAudit records rows and COUNTS them. The leak tests below assert a
 // string is absent from a response, which an empty log satisfies just as well —
 // the exact way four audit tests shipped vacuous this week.
-func seedAuthdAudit(t *testing.T, db *sql.DB, rows ...[3]string) {
+func seedAuthdAudit(t *testing.T, db *dynstore.Store, rows ...[3]string) {
 	t.Helper()
 	snap := audit.Snapshot{}
 	for i, r := range rows {
@@ -43,7 +43,7 @@ func seedAuthdAudit(t *testing.T, db *sql.DB, rows ...[3]string) {
 			Folder: r[1], Outcome: "ok", ParamsSummary: r[2],
 		})
 	}
-	n, err := audit.Import(t.Context(), newObjectStore(db), snap)
+	n, err := audit.Import(t.Context(), db, snap)
 	if err != nil || n != len(rows) {
 		t.Fatalf("fixture wrote %d rows, want %d (%v) — every assertion below would "+
 			"pass vacuously on an empty log", n, len(rows), err)
@@ -52,9 +52,9 @@ func seedAuthdAudit(t *testing.T, db *sql.DB, rows ...[3]string) {
 
 // auditRowsFor reads back every recorded row carrying one action, through the
 // method /v1/audit answers with.
-func auditRowsFor(t *testing.T, db *sql.DB, action string) []audit.Row {
+func auditRowsFor(t *testing.T, db *dynstore.Store, action string) []audit.Row {
 	t.Helper()
-	rows, err := audit.Query(t.Context(), newObjectStore(db), audit.Filter{Limit: audit.MaxLimit})
+	rows, err := audit.Query(t.Context(), db, audit.Filter{Limit: audit.MaxLimit})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +232,7 @@ func TestAuthdParamsSummaryHasOneWriter(t *testing.T) {
 		t.Fatalf("authd sets ParamsSummary at %d sites, want 1 (daemon.start) — "+
 			"a new site must be audited before /v1/audit publishes it", n)
 	}
-	for _, key := range []string{`"dsn"`, `"serving_keys"`, `"service_subs"`} {
+	for _, key := range []string{`"store"`, `"serving_keys"`, `"service_subs"`} {
 		if !strings.Contains(src.String(), key) {
 			t.Errorf("expected params key %s missing — the pinned content changed", key)
 		}
@@ -251,7 +251,7 @@ func TestAuthdDSNIsRedactedAtTheWriter(t *testing.T) {
 	const dsn = "/srv/data/arizuko_krons/store/auth.db"
 	// Written through the real emitter, not hand-inserted: the claim under test
 	// is that the WRITE path redacts.
-	if _, err := audit.EmitTo(t.Context(), newObjectStore(db), audit.Event{
+	if _, err := audit.EmitTo(t.Context(), db, audit.Event{
 		Category: audit.CategorySystem, Action: "daemon.start", Actor: "system",
 		Outcome: audit.OutcomeOK,
 		ParamsSummary: map[string]any{
@@ -260,9 +260,9 @@ func TestAuthdDSNIsRedactedAtTheWriter(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	var stored int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM audit_log`).Scan(&stored); err != nil || stored != 1 {
-		t.Fatalf("emit wrote %d rows (err=%v) — the assertion below would be vacuous", stored, err)
+	stored, err := audit.Query(t.Context(), db, audit.Filter{Limit: audit.MaxLimit})
+	if err != nil || len(stored) != 1 {
+		t.Fatalf("emit wrote %d rows (err=%v) — the assertion below would be vacuous", len(stored), err)
 	}
 
 	tok, err := a.MintForSubject("service:dashd", "service", nil, []string{"audit:read"}, "")

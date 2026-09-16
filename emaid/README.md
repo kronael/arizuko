@@ -71,15 +71,14 @@ References/In-Reply-To headers.
 - `main.go` — wiring, config
 - `imap.go` — IMAP poll loop, IDLE support, attachment registry
 - `smtp.go` — SMTP outbound
-- `storage.go` — opens `emaid.db` and picks the driver
+- `storage.go` — opens emaid's own tables on the instance's store server
 - `emaistore/` — the storage layer: two entities, no SQL
 - `server.go` — adapter handlers (`/send`, `/v1/history`, `/files/{uid}/{part}`)
 - `auth.go` — inbound sender trust classifier (Authentication-Results + From-domain allowlist)
 
 ## Storage
 
-emaid holds NO SQL and no `CREATE TABLE`; `db_utils/sql_layer_test.go` fails the
-build if a statement appears anywhere under `emaid/`. Its storage is
+emaid holds NO SQL and no `CREATE TABLE`. Its storage is
 `emaid/emaistore`, which is `objstore`'s two primitives over two entities:
 
 | entity          | coordinate                     | attributes                    |
@@ -105,8 +104,8 @@ door hands back.
 
 Config, the storage bootstrap, the MIME/attachment extraction, the thread
 store, the outbound path and every unimplemented-verb refusal are covered.
-`emaistore`'s own bodies run against whichever engine `ARIZUKO_TEST_PG_DSN`
-names, so the store is proven on SQLite and PostgreSQL alike.
+`emaistore`'s own bodies run against a DynamoDB endpoint, which is the store
+production has.
 
 `go test ./emaid/ -short -cover` reports 66.4% (2026-09-13). The number
 stops there because the IMAP poller — `newPoller`, `run`,

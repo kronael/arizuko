@@ -22,9 +22,8 @@ stay thin — `main.go` calls `chanlib.Run` with a `Start` hook.
   re-delivers it; a routd REFUSAL (400/403/413/422) is dropped with an ERROR
   line instead. Cursor-gated adapters (teled, bskyd, reditd, linkd, emaid) must
   NOT wire it — the platform is already their queue. Spec `5/34`, BUGS `L25`.
-- `OpenAdapterStore(dataDir, service) (AdapterStore, error)` — prepares
-  chanlib's entities on an adapter's own store: the endpoint a served instance
-  keeps it on, under the adapter's service name, or `<dataDir>/<service>.db`.
+- `OpenAdapterStore(service) (AdapterStore, error)` — prepares chanlib's
+  entities on the adapter's own table prefix on the instance's store server.
   The ONE door, in three pieces: `Chan` is what the mux and `RetainInbound`
   take, `Close` ends what the open holds, and `Driver` is what emaid adds
   `emaistore`'s entities to.
@@ -74,14 +73,12 @@ Docker `HEALTHCHECK` marks containers `(unhealthy)` on 503.
 
 ## Storage
 
-chanlib holds NO SQL and no `CREATE TABLE`; `db_utils/sql_layer_test.go` fails
-the build if a statement appears anywhere under `chanlib/`. Its storage is
-`chanlib/chanstore`, which is `objstore`'s two primitives over two entities.
+chanlib holds NO SQL and no `CREATE TABLE`. Its storage is `chanlib/chanstore`,
+which is `objstore`'s two primitives over two entities.
 
-`OpenAdapterStore(dataDir, service)` is the door and it takes the same branch
-every other owner does: the endpoint under the adapter's own table prefix when
-`DYNAMODB_URL` names one, `<dataDir>/<service>.db` otherwise. The prefix is
-the ADAPTER's name, not the account's, so two accounts of one adapter share
+`OpenAdapterStore(service)` is the door and it reaches the same server every
+other owner does, under the adapter's own table prefix. The prefix is the
+ADAPTER's name, not the account's, so two accounts of one adapter share
 these tables — every key carries the chat JID and a JID carries the channel
 name (`telegram-rhias:group/1`), so a held inbound and a delivery claim are
 already scoped to the account that made them.

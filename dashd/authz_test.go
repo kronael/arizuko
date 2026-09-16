@@ -68,7 +68,7 @@ func TestRequireAdmin_Admitted(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{routd: over(inst.DB), routdURL: stubRoutd(t, inst.DB)}
+	d := &dash{routd: inst.Store.Obj(), routdURL: stubRoutd(t, inst.Store.Obj())}
 
 	r := httptest.NewRequest("POST", "/dash/groups/mygroup/delete", nil)
 	r.Host = "example.com"
@@ -86,7 +86,7 @@ func TestRequireAdmin_Admitted(t *testing.T) {
 func TestRequireAdmin_Denied(t *testing.T) {
 	inst := testutils.NewRoutdInstance(t)
 	// stranger has no admin grant
-	d := &dash{routd: over(inst.DB), routdURL: stubRoutd(t, inst.DB)}
+	d := &dash{routd: inst.Store.Obj(), routdURL: stubRoutd(t, inst.Store.Obj())}
 
 	r := httptest.NewRequest("POST", "/dash/groups/mygroup/delete", nil)
 	r.Host = "example.com"
@@ -108,7 +108,7 @@ func TestRequireAdmin_OperatorGrant(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{routd: over(inst.DB), routdURL: stubRoutd(t, inst.DB)}
+	d := &dash{routd: inst.Store.Obj(), routdURL: stubRoutd(t, inst.Store.Obj())}
 
 	r := httptest.NewRequest("POST", "/", nil)
 	r.Host = "example.com"
@@ -128,7 +128,7 @@ func TestRequireAdmin_GroupHeader(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{routd: over(inst.DB), routdURL: stubRoutd(t, inst.DB)}
+	d := &dash{routd: inst.Store.Obj(), routdURL: stubRoutd(t, inst.Store.Obj())}
 
 	r := httptest.NewRequest("POST", "/", nil)
 	r.Host = "example.com"
@@ -161,7 +161,7 @@ func TestRequireAdmin_CrossOriginRejected(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{routd: over(inst.DB), routdURL: stubRoutd(t, inst.DB)}
+	d := &dash{routd: inst.Store.Obj(), routdURL: stubRoutd(t, inst.Store.Obj())}
 
 	r := httptest.NewRequest("POST", "/", nil)
 	r.Host = "dash.example.com"

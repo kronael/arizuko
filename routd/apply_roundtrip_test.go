@@ -57,7 +57,7 @@ func TestApply_RoundTripsEveryColumnItRebuilds(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	be := resreg.OnDB(db.SQL())
+	be := resreg.On(db.Obj())
 	ctx := context.Background()
 
 	// A route with the attribution both stamping writers record, and a held call
@@ -132,7 +132,7 @@ func TestApply_WritesAHeldCallAManifestStates(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	be := resreg.OnDB(db.SQL())
+	be := resreg.On(db.Obj())
 
 	sum, err := resreg.Checksum(be, resreg.SubsystemRoutd)
 	if err != nil {

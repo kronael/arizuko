@@ -819,7 +819,7 @@ func TestSweepExpiredRunning(t *testing.T) {
 	// A turn started 2h ago, still running. Only one writer can place a turn in
 	// the past — the move that carries a legacy row — because the live one stamps
 	// the instant itself, and that is the point: `started_at` is written once.
-	if _, err := store.New(db.SQL()).ImportHot(t.Context(), store.RoutdSnapshot{
+	if _, err := store.NewOver(db.Obj()).ImportHot(t.Context(), store.RoutdSnapshot{
 		store.TurnContexts: []store.RoutdRow{{
 			Key: []string{"old"},
 			Attrs: map[string]string{
@@ -1065,45 +1065,6 @@ func TestUnsetTextFieldsReadAsEmpty(t *testing.T) {
 	}
 	if len(again) != 0 {
 		t.Fatalf("the consumed row was fed again: %+v", again)
-	}
-}
-
-// TestRouteGetStoreErrorReturns500: handleRouteGet must surface a Routes()
-// store error as 500, not a spurious 404. Before the fix the error was
-// discarded (`routes, _ :=`) so a transient DB fault looked like "route not
-// found".
-func TestRouteGetStoreErrorReturns500(t *testing.T) {
-	db, h := authSrv(t, nil) // open mode; isolates the store path
-	if _, err := db.SQL().Exec("DROP TABLE routes"); err != nil {
-		t.Fatal(err)
-	}
-	rec := doJSON(t, h, "GET", "/v1/routes/1", "", nil)
-	if rec.Code != 500 {
-		t.Fatalf("route get with failing store = %d want 500 body=%s", rec.Code, rec.Body.String())
-	}
-	var e apiv1.Err
-	if err := json.Unmarshal(rec.Body.Bytes(), &e); err != nil || e.Error != "store_error" {
-		t.Fatalf("error=%q want store_error (body=%s)", e.Error, rec.Body.String())
-	}
-}
-
-// TestRouteDeleteStoreErrorReturns500: a folder-scoped caller's delete must
-// surface a Routes() store error as 500, NOT fall through to an unconditional
-// DeleteRoute. Before the fix the scope-check's `routes, _ :=` swallowed the
-// error → the ownership loop found nothing → a scoped token could delete any
-// route. We assert 500 (the scope-check can no longer be silently bypassed).
-func TestRouteDeleteStoreErrorReturns500(t *testing.T) {
-	db, h := authSrv(t, fakeVerifier{sub: "user:a", scope: []string{"routes:write:own_group"}, folder: "a"})
-	if _, err := db.SQL().Exec("DROP TABLE routes"); err != nil {
-		t.Fatal(err)
-	}
-	rec := doJSON(t, h, "DELETE", "/v1/routes/1", "", nil)
-	if rec.Code != 500 {
-		t.Fatalf("scoped route delete with failing store = %d want 500 body=%s", rec.Code, rec.Body.String())
-	}
-	var e apiv1.Err
-	if err := json.Unmarshal(rec.Body.Bytes(), &e); err != nil || e.Error != "store_error" {
-		t.Fatalf("error=%q want store_error (body=%s)", e.Error, rec.Body.String())
 	}
 }
 

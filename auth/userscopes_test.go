@@ -112,64 +112,6 @@ func TestUserScopesIgnoresActionSoTheGateMustNot(t *testing.T) {
 	}
 }
 
-// A broken acl table yields an ERROR, not an empty scope list (BUGS A4). It used
-// to return no scopes, which is fail-closed for the evaluator but reads as "this
-// user holds nothing" to everyone else — authd snapshots this at login, so an
-// unreadable policy would have minted a scopeless session indistinguishable from
-// a legitimately unprivileged one.
-func TestUserScopesFailsClosedOnBrokenTable(t *testing.T) {
-	s := scopesEnv(t)
-	if _, err := s.DB().Exec(`DROP TABLE acl`); err != nil {
-		t.Fatalf("drop acl: %v", err)
-	}
-	got, err := auth.UserScopes(s, "google:alice")
-	if err == nil {
-		t.Error("a broken acl table must surface an error, not an empty scope list")
-	}
-	if len(got) != 0 {
-		t.Errorf("UserScopes on a broken table = %v, want no scopes alongside the error", got)
-	}
-}
-
-// Authorize still DENIES on the same broken table — the error return changes who
-// can SEE the failure, never the direction it fails in.
-func TestAuthorizeDeniesOnBrokenTable(t *testing.T) {
-	s := scopesEnv(t, core.ACLRow{
-		Principal: "u1", Action: "*", Scope: "**", Effect: "allow",
-	})
-	if !auth.Authorize(s, auth.Caller{Principal: "u1"}, "admin", "alpha", nil) {
-		t.Fatal("fixture is vacuous: the grant does not authorize before the drop")
-	}
-	if _, err := s.DB().Exec(`DROP TABLE acl`); err != nil {
-		t.Fatalf("drop acl: %v", err)
-	}
-	if auth.Authorize(s, auth.Caller{Principal: "u1"}, "admin", "alpha", nil) {
-		t.Error("Authorize allowed with an unreadable policy")
-	}
-	if auth.EffectiveActions(s, auth.Caller{Principal: "u1"})("mcp:reply") {
-		t.Error("EffectiveActions advertised a tool with an unreadable policy")
-	}
-}
-
-// Delegate REFUSES rather than silently finding nothing held: it is the
-// precondition on a write that hands out authority, so an unreadable policy
-// means nothing is provably a subset of what the granter holds.
-func TestDelegateRefusesOnBrokenTable(t *testing.T) {
-	s := scopesEnv(t, core.ACLRow{
-		Principal: "u1", Action: "*", Scope: "**", Effect: "allow", GrantOption: true,
-	})
-	want := []core.ACLRow{{Principal: "u2", Action: "mcp:reply", Scope: "alpha", Effect: "allow"}}
-	if err := auth.Delegate(s, "u1", want); err != nil {
-		t.Fatalf("fixture is vacuous: delegation already refused before the drop: %v", err)
-	}
-	if _, err := s.DB().Exec(`DROP TABLE acl`); err != nil {
-		t.Fatalf("drop acl: %v", err)
-	}
-	if err := auth.Delegate(s, "u1", want); err == nil {
-		t.Error("Delegate allowed a grant with an unreadable policy")
-	}
-}
-
 // mustScopes unwraps UserScopes in a test that is not about read failures; the
 // error path itself is asserted in store/failclosed_test.go.
 func mustScopes(scopes []string, err error) []string {

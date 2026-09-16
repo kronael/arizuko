@@ -10,8 +10,11 @@ import (
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 	"github.com/kronael/arizuko/tests/testutils"
 )
+
+func TestMain(m *testing.M) { dyntest.Main(m) }
 
 // The shield and these tests moved here from proxyd with the route-token
 // surface (specs/6/22 step 1). The properties they pin are unchanged.

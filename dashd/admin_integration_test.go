@@ -30,8 +30,8 @@ func newRWDashServer(t *testing.T) (*httptest.Server, *testutils.Inst, string) {
 	if err := os.MkdirAll(groupsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{routd: over(inst.DB), onbod: over(inst.DB), dbPath: "memory", groupsDir: groupsDir,
-		routdURL: stubRoutd(t, inst.DB)}
+	d := &dash{routd: inst.Store.Obj(), onbod: inst.Store.Obj(), groupsDir: groupsDir,
+		routdURL: stubRoutd(t, inst.Store.Obj())}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	srv := httptest.NewServer(mux)
@@ -292,9 +292,6 @@ func TestDash_GrantsView(t *testing.T) {
 		t.Fatal(err)
 	}
 	folder := "world"
-	if err := inst.DB.QueryRow(`SELECT 1`).Err(); err != nil {
-		t.Fatal(err)
-	}
 	// Seed a grant row for this folder.
 	if err := s.AddACLRow(core.ACLRow{
 		Principal: "bob@x", Action: "send", Scope: folder, Effect: "allow",
@@ -459,7 +456,7 @@ func TestDash_TaskCreate(t *testing.T) {
 	}
 
 	// Fetch the detail page (direct httptest call to avoid redirect loop).
-	d := &dash{routd: over(inst.DB), dbPath: "memory", routdURL: stubRoutd(t, inst.DB),
+	d := &dash{routd: inst.Store.Obj(), routdURL: stubRoutd(t, inst.Store.Obj()),
 		groupsDir: filepath.Join(inst.Tmp, "groups")}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
@@ -487,7 +484,7 @@ func TestDash_TaskPauseResume(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	seedScheduledTask(t, over(inst.DB), core.Task{
+	seedScheduledTask(t, inst.Store.Obj(), core.Task{
 		ID: "t1", Owner: "alice", ChatJID: "alice@s.whatsapp.net", Prompt: "ping",
 		Cron: "* * * * *", Status: "active",
 	})
@@ -506,14 +503,14 @@ func TestDash_TaskPauseResume(t *testing.T) {
 	if code := post("/dash/tasks/t1/pause"); code != http.StatusSeeOther {
 		t.Errorf("pause: status = %d, want 303", code)
 	}
-	if status := statusOf(t, inst.DB, "t1"); status != "paused" {
+	if status := statusOf(t, inst.Store.Obj(), "t1"); status != "paused" {
 		t.Errorf("after pause: status = %q, want paused", status)
 	}
 
 	if code := post("/dash/tasks/t1/resume"); code != http.StatusSeeOther {
 		t.Errorf("resume: status = %d, want 303", code)
 	}
-	if status := statusOf(t, inst.DB, "t1"); status != "active" {
+	if status := statusOf(t, inst.Store.Obj(), "t1"); status != "active" {
 		t.Errorf("after resume: status = %q, want active", status)
 	}
 }
@@ -527,7 +524,7 @@ func TestDash_TaskCancel(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	seedScheduledTask(t, over(inst.DB), core.Task{
+	seedScheduledTask(t, inst.Store.Obj(), core.Task{
 		ID: "t2", Owner: "alice", ChatJID: "alice@s.whatsapp.net", Prompt: "ping",
 		Cron: "* * * * *", Status: "active",
 	})
@@ -542,7 +539,7 @@ func TestDash_TaskCancel(t *testing.T) {
 	if resp.StatusCode != http.StatusSeeOther {
 		t.Errorf("cancel: status = %d, want 303", resp.StatusCode)
 	}
-	if status := statusOf(t, inst.DB, "t2"); status != "cancelled" {
+	if status := statusOf(t, inst.Store.Obj(), "t2"); status != "cancelled" {
 		t.Errorf("after cancel: status = %q, want cancelled", status)
 	}
 }
@@ -550,7 +547,7 @@ func TestDash_TaskCancel(t *testing.T) {
 // TestDash_TaskAction_DenyNonAdmin: non-admin cannot pause a task.
 func TestDash_TaskAction_DenyNonAdmin(t *testing.T) {
 	srv, inst, _ := newRWDashServer(t)
-	seedScheduledTask(t, over(inst.DB), core.Task{
+	seedScheduledTask(t, inst.Store.Obj(), core.Task{
 		ID: "t3", Owner: "alice", ChatJID: "alice@s.whatsapp.net", Prompt: "ping",
 		Cron: "* * * * *", Status: "active",
 	})
@@ -570,19 +567,19 @@ func TestDash_TaskAction_DenyNonAdmin(t *testing.T) {
 // TestDash_TaskDetail_RunLogs: seed task + run logs, verify they appear.
 func TestDash_TaskDetail_RunLogs(t *testing.T) {
 	_, inst, _ := newRWDashServer(t)
-	seedScheduledTask(t, over(inst.DB), core.Task{
+	seedScheduledTask(t, inst.Store.Obj(), core.Task{
 		ID: "t4", Owner: "bob", ChatJID: "bob@s.whatsapp.net", Prompt: "daily report",
 		Cron: "0 8 * * *", Status: "active",
 	})
 	for i := range 3 {
-		if err := store.New(inst.DB).RecordTaskRun(store.TaskRunLog{
+		if err := store.NewOver(inst.Store.Obj()).RecordTaskRun(store.TaskRunLog{
 			TaskID: "t4", DurationMS: int64((i + 1) * 100), Status: "ok",
 		}); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	d := &dash{routd: over(inst.DB), dbPath: "memory", routdURL: stubRoutd(t, inst.DB),
+	d := &dash{routd: inst.Store.Obj(), routdURL: stubRoutd(t, inst.Store.Obj()),
 		groupsDir: filepath.Join(inst.Tmp, "groups")}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
@@ -603,12 +600,12 @@ func TestDash_TaskDetail_RunLogs(t *testing.T) {
 // TestDash_TasksPage_PromptColumn: tasks list page includes Prompt column.
 func TestDash_TasksPage_PromptColumn(t *testing.T) {
 	_, inst, _ := newRWDashServer(t)
-	seedScheduledTask(t, over(inst.DB), core.Task{
+	seedScheduledTask(t, inst.Store.Obj(), core.Task{
 		ID: "t5", Owner: "carol", ChatJID: "carol@s.whatsapp.net", Prompt: "send summary",
 		Cron: "0 7 * * *", Status: "active",
 	})
 
-	d := &dash{routd: over(inst.DB), dbPath: "memory", routdURL: stubRoutd(t, inst.DB),
+	d := &dash{routd: inst.Store.Obj(), routdURL: stubRoutd(t, inst.Store.Obj()),
 		groupsDir: filepath.Join(inst.Tmp, "groups")}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)

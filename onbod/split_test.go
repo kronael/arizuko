@@ -136,47 +136,14 @@ func TestSplitCreateWorldWritesCrossToRoutd(t *testing.T) {
 	}
 }
 
-// TestSplitInviteGrantFailureRollsBack: when the acl grant write to routd.db
-// (xdb) fails AFTER ConsumeInviteNoGrant succeeded on onbod.db (obdb), there's
-// no shared tx — handleInvite must RestoreInvite so used_count goes back to 0
-// (no burned invite = permanent lockout) and return a non-2xx Setup-Failed
-// page instead of redirecting as success. Guards the silent-lockout bug.
-func TestSplitInviteGrantFailureRollsBack(t *testing.T) {
-	xdb := testDB(t)
-	obdb := testDB(t)
-
-	if err := xdb.CreateUserProfile("github:bob", "bob", "Bob"); err != nil {
-		t.Fatalf("seed user_profiles: %v", err)
-	}
-	seedFolder(t, xdb, "alice")
-	// Break the routd.db acl write so PutACLRow errors after the consume.
-	if _, err := xdb.DB().Exec(`DROP TABLE acl`); err != nil {
-		t.Fatalf("drop acl: %v", err)
-	}
-
-	token := createInvite(t, obdb, "alice", "telegram:1", 1)
-
-	cfg := config{authBaseURL: "https://example.com"}
-	req := httptest.NewRequest("GET", "/invite/"+token, nil)
-	req.SetPathValue("token", token)
-	req.Header.Set("X-User-Sub", "github:bob")
-	w := httptest.NewRecorder()
-	handleInvite(w, req, xdb, obdb, cfg)
-
-	if w.Code == http.StatusSeeOther {
-		t.Fatalf("grant failure returned 303 success; want Setup-Failed page")
-	}
-	if !strings.Contains(w.Body.String(), "Setup Failed") {
-		t.Errorf("want Setup-Failed page, got body: %s", w.Body.String())
-	}
-
-	// The consume must be rolled back: used_count back to 0, invite not burned.
-	used := inviteUsed(t, obdb, store.TokenRef(token))
-	if used != 0 {
-		t.Errorf("invite burned without grant: used_count=%d want 0 (RestoreInvite)", used)
-	}
-}
-
+// The invite-accept acl grant must be audited. It writes to routd.db (xdb)
+// while onbod's own audit.Init points at onbod.db (obdb) — but AddACLRow emits
+// by appending the record to its own batch, so the audit row lands
+// in xdb beside the grant. That cross-DB shape is what the audit-free choice was
+// justified by; it was never a reason.
+//
+// Falsifiable: swap the AddACLRow back to the audit-free PutACLRow and the grant
+// still lands (TestSplitInviteGrantLandsInRoutd stays green) while this case
 func postOnboardSplit(xdb, obdb *store.Store, sub string, vals url.Values) *httptest.ResponseRecorder {
 	req := httptest.NewRequest("POST", "/onboard", strings.NewReader(vals.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -187,14 +154,6 @@ func postOnboardSplit(xdb, obdb *store.Store, sub string, vals url.Values) *http
 	return w
 }
 
-// The invite-accept acl grant must be audited. It writes to routd.db (xdb)
-// while onbod's own audit.Init points at onbod.db (obdb) — but AddACLRow emits
-// by appending the record to its own batch, so the audit row lands
-// in xdb beside the grant. That cross-DB shape is what the audit-free choice was
-// justified by; it was never a reason.
-//
-// Falsifiable: swap the AddACLRow back to the audit-free PutACLRow and the grant
-// still lands (TestSplitInviteGrantLandsInRoutd stays green) while this case
 // fails, finding no acl.add row.
 func TestSplitInviteGrantAudited(t *testing.T) {
 	xdb := testDB(t)

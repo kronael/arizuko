@@ -1,13 +1,13 @@
 package main
 
 import (
-	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
 )
@@ -16,10 +16,10 @@ import (
 // a sealed write lands in, so both come from its chain.
 // The keyring is not optional: store.storeValue refuses every write without one
 // (BUGS S2), so a dashd that writes user secrets always carries it.
-func meSecretsTestDB(t *testing.T) (*dash, *sql.DB) {
+func meSecretsTestDB(t *testing.T) (*dash, objstore.Store) {
 	t.Helper()
 	db := routdDB(t)
-	return &dash{routd: over(db), secretKeyring: [][]byte{[]byte("dashd-test-key")}}, db
+	return &dash{routd: db, secretKeyring: [][]byte{[]byte("dashd-test-key")}}, db
 }
 
 func newMux(d *dash) *http.ServeMux {

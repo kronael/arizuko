@@ -1,12 +1,15 @@
 package main
 
 import (
-	"os"
-	"path/filepath"
+	"context"
 	"testing"
 
 	"github.com/kronael/arizuko/chanlib/chanstore"
+	"github.com/kronael/arizuko/objstore/dynstore"
+	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 )
+
+func TestMain(m *testing.M) { dyntest.Main(m) }
 
 // loadConfig and openStorage are emaid's whole bootstrap. The
 // defaults matter: an operator who sets only the four credentials gets these,
@@ -15,7 +18,7 @@ import (
 func TestLoadConfigDefaults(t *testing.T) {
 	for _, k := range []string{
 		"CHANNEL_NAME", "EMAIL_IMAP_PORT", "EMAIL_SMTP_PORT", "LISTEN_ADDR",
-		"LISTEN_URL", "DATA_DIR", "MEDIA_MAX_FILE_BYTES",
+		"LISTEN_URL", "MEDIA_MAX_FILE_BYTES",
 	} {
 		t.Setenv(k, "")
 	}
@@ -40,7 +43,7 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if c.MaxAttachment != 20*1024*1024 {
 		t.Errorf("MaxAttachment = %d, want 20MiB", c.MaxAttachment)
 	}
-	if c.DataDir == "" || c.ListenAddr == "" || c.ListenURL == "" {
+	if c.ListenAddr == "" || c.ListenURL == "" {
 		t.Errorf("an empty default would make the daemon unreachable: %+v", c)
 	}
 	if c.IMAPHost != "set-EMAIL_IMAP_HOST" || c.Password != "set-EMAIL_PASSWORD" {
@@ -62,19 +65,15 @@ func TestLoadConfigDefaults(t *testing.T) {
 	}
 }
 
-// emaid.db is adapter-private state that `arizuko create` does not seed, so
-// openStorage must create the directory and the file itself, prepare BOTH the
-// entities emaid reads and the ones chanlib writes, and be safe to call again
-// on the next boot.
+// emaid's tables are adapter-private state nothing else prepares, so
+// openStorage must make BOTH the entities emaid reads and the ones chanlib
+// writes, and be safe to call again on the next boot.
 func TestOpenStorageCreatesTheEntitiesAndReopens(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "nested", "emaid")
+	t.Cleanup(dropEmaidEntities)
 
-	as, st, err := openStorage(dir)
+	as, st, err := openStorage()
 	if err != nil {
 		t.Fatalf("openStorage: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "emaid.db")); err != nil {
-		t.Fatalf("openStorage did not create the file: %v", err)
 	}
 
 	// The store answers, which is the only thing emaid asks of it. emaistore's
@@ -84,10 +83,9 @@ func TestOpenStorageCreatesTheEntitiesAndReopens(t *testing.T) {
 		t.Fatalf("the entities were not created: %v", err)
 	}
 
-	// chanlib's entities land in the SAME file, and the adapter mux reads them;
-	// without them a send dedups against nothing. Asked through the store rather
-	// than through sqlite_master, because emaid's own driver is a choice this
-	// file must not encode.
+	// chanlib's entities land under the SAME prefix, and the adapter mux reads
+	// them; without them a send dedups against nothing. Asked through the store,
+	// because emaid's own driver is a choice this file must not encode.
 	claim, err := as.Chan.ClaimDelivery(t.Context(), "boot-key", "email:boot")
 	if err != nil {
 		t.Fatalf("chanlib's entities were not created in emaid.db: %v", err)
@@ -98,7 +96,7 @@ func TestOpenStorageCreatesTheEntitiesAndReopens(t *testing.T) {
 	as.Close() //nolint:errcheck // the test is ending
 
 	// The second boot must not fail on the entities already there.
-	as2, st2, err := openStorage(dir)
+	as2, st2, err := openStorage()
 	if err != nil {
 		t.Fatalf("second openStorage on an existing file: %v", err)
 	}
@@ -112,4 +110,21 @@ func TestOpenStorageCreatesTheEntitiesAndReopens(t *testing.T) {
 		t.Errorf("the reopened claim is %v (err=%v); it must not be winnable again", claim.State, err)
 	}
 	as2.Close()
+}
+
+// dropEmaidEntities removes what openStorage made, so the endpoint does not
+// outlive the run holding this adapter's tables.
+func dropEmaidEntities() {
+	h, err := dynstore.FromEnv(dynstore.Prefix("emaid"))
+	if err != nil {
+		return
+	}
+	ctx := context.Background()
+	left, err := h.Entities(ctx)
+	if err != nil {
+		return
+	}
+	for _, e := range left {
+		_ = h.DropEntity(ctx, e)
+	}
 }

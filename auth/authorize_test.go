@@ -1,9 +1,9 @@
 // Package auth_test (external) so these tests can build their acl and
-// acl_membership fixture from ROUTD's migration chain, which is the schema
+// acl_membership fixture from ROUTD's own tables, which is the schema
 // production has — proxyd, webd, dashd, onbod and the CLI all reach those two
-// tables through store.OpenRoutd. routd imports auth, so an INTERNAL auth test
-// file cannot import routd back (a cycle at the test-binary level); the
-// external test package convention is exactly the escape hatch for that, as
+// tables through store. routd imports auth, so an INTERNAL auth test file
+// cannot import routd back (a cycle at the test-binary level); the external
+// test package convention is exactly the escape hatch for that, as
 // resreg/archive_test.go documents for the same reason.
 package auth_test
 
@@ -12,11 +12,14 @@ import (
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/tests/testutils"
 )
 
-// openMem is routd.db's own schema, wrapped in the shared store library. It
+func TestMain(m *testing.M) { dyntest.Main(m) }
+
+// openMem is routd's own tables, wrapped in the shared store library. It
 // arrives already seeded with role:member (the 12 messaging verbs) and
 // role:operator (*, ** WITH GRANT OPTION), which is what a real acl table holds
 // before anyone grants anything.

@@ -21,7 +21,7 @@ import (
 func testServer(t *testing.T, secret string) (*server, *emaistore.Store) {
 	t.Helper()
 	chanStore, st := newTestStorage(t)
-	cfg := config{Name: "email", DataDir: t.TempDir()}
+	cfg := config{Name: "email"}
 	return newServer(cfg, chanStore, st, newAttRegistry(), func() bool { return true }, func() int64 { return time.Now().Unix() }), st
 }
 

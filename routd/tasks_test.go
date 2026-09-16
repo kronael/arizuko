@@ -28,7 +28,7 @@ func TestTasksDueEndpoint(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "service:timed", scope: []string{"tasks:read"}})
 
 	past := time.Now().Add(-time.Hour)
-	s := store.New(db.SQL())
+	s := store.NewOver(db.Obj())
 	if err := s.CreateTask(core.Task{
 		ID: "due-1", Owner: "main", ChatJID: "web:main", Prompt: "ping",
 		Cron: "0 9 * * *", NextRun: &past, Status: core.TaskActive, Created: time.Now(),
@@ -87,7 +87,7 @@ func TestTaskRunLogEndpoint(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("POST /v1/tasks/runlog = %d want 200 body=%s", rec.Code, rec.Body.String())
 	}
-	logs := store.New(db.SQL()).TaskRunLogs("rl-1", 10)
+	logs := store.NewOver(db.Obj()).TaskRunLogs("rl-1", 10)
 	if len(logs) != 1 || logs[0].Status != "ok" || logs[0].DurationMS != 42 {
 		t.Fatalf("task_run_logs = %+v, want one ok/42 row", logs)
 	}
@@ -99,7 +99,7 @@ func TestTaskRunLogEndpoint(t *testing.T) {
 func TestTaskRescheduleRecurring(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "service:timed", scope: []string{"tasks:write"}})
 	// Seed a 'firing' task (the state after GET /v1/tasks/due claimed it).
-	s := store.New(db.SQL())
+	s := store.NewOver(db.Obj())
 	now := time.Now()
 	if err := s.CreateTask(core.Task{
 		ID: "rs-1", Owner: "main", ChatJID: "web:main", Prompt: "tick",
@@ -127,7 +127,7 @@ func TestTaskRescheduleRecurring(t *testing.T) {
 // next_run (NULL) and marks the one-shot task completed.
 func TestTaskRescheduleOneShot(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "service:timed", scope: []string{"tasks:write"}})
-	s := store.New(db.SQL())
+	s := store.NewOver(db.Obj())
 	now := time.Now()
 	if err := s.CreateTask(core.Task{
 		ID: "rs-once", Owner: "main", ChatJID: "web:main", Prompt: "once",
@@ -192,7 +192,7 @@ func TestTaskRunLogRequiresWriteScope(t *testing.T) {
 func TestTaskListEndpoint(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "service:dashd", scope: []string{"tasks:read"}})
 	seedTask(t, db, "tl-active", "main", "web:main", "live")
-	s := store.New(db.SQL())
+	s := store.NewOver(db.Obj())
 	if err := s.CreateTask(core.Task{
 		ID: "tl-paused", Owner: "main", ChatJID: "web:main", Prompt: "off",
 		Status: core.TaskPaused, Created: time.Now(),
@@ -263,7 +263,7 @@ func TestTaskGetEndpoint(t *testing.T) {
 func TestTaskRunLogsEndpoint(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "service:dashd", scope: []string{"tasks:read"}})
 	seedTask(t, db, "trl-1", "main", "web:main", "logged")
-	s := store.New(db.SQL())
+	s := store.NewOver(db.Obj())
 	if err := s.RecordTaskRun(store.TaskRunLog{TaskID: "trl-1", Status: "ok", DurationMS: 7}); err != nil {
 		t.Fatalf("record run: %v", err)
 	}
@@ -294,7 +294,7 @@ func TestAllRunLogsEndpoint(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "service:dashd", scope: []string{"tasks:read"}})
 	seedTask(t, db, "arl-a", "main", "web:main", "a")
 	seedTask(t, db, "arl-b", "other", "web:other", "b")
-	s := store.New(db.SQL())
+	s := store.NewOver(db.Obj())
 	if err := s.RecordTaskRun(store.TaskRunLog{TaskID: "arl-a", Status: "ok"}); err != nil {
 		t.Fatalf("record a: %v", err)
 	}

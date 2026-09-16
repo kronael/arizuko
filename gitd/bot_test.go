@@ -10,7 +10,10 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 )
+
+func TestMain(m *testing.M) { dyntest.Main(m) }
 
 func fakeGitHub(t *testing.T, status int, reply string) (*httptest.Server, *[]*http.Request, *[]string) {
 	t.Helper()

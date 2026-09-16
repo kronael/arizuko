@@ -30,11 +30,10 @@ func main() {
 		Start: func(ctx context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
 			// github_sources is routd's: gitd reads the sealed secret per
 			// delivery and never writes — registration is routd's REST/MCP face
-			// and the CLI. store.OpenOwner is the door, so a served instance
-			// dials the endpoint and a file instance opens RoutdDSN.
+			// and the CLI. store.OpenOwner is the door.
 			st, err := store.OpenOwner(store.OwnerRoutd)
 			if err != nil {
-				slog.Error("routd store open failed", "path", cfg.RoutdDSN, "err", err)
+				slog.Error("routd store open failed", "err", err)
 				return nil, nil, err
 			}
 			keyring, err := core.RequireSecretKeyring(cfg.SecretsKey)
@@ -45,7 +44,7 @@ func main() {
 			st.SetSecretKeys(keyring...)
 			as, err := chanlib.OpenAdapterStore("gitd")
 			if err != nil {
-				slog.Error("adapter store open failed", "dir", cfg.DataDir, "err", err)
+				slog.Error("adapter store open failed", "err", err)
 				return nil, nil, err
 			}
 			// GitHub never retries a delivery on its own, so a routd that is
@@ -69,8 +68,6 @@ type config struct {
 	RouterURL  string
 	ListenAddr string
 	ListenURL  string
-	DataDir    string
-	RoutdDSN   string
 	SecretsKey string
 }
 
@@ -82,8 +79,6 @@ func loadConfig() config {
 		RouterURL:  chanlib.MustEnv("ROUTER_URL"),
 		ListenAddr: chanlib.EnvOr("LISTEN_ADDR", ":8080"),
 		ListenURL:  chanlib.EnvOr("LISTEN_URL", "http://gitd:8080"),
-		DataDir:    chanlib.EnvOr("DATA_DIR", "/srv/app/home/store/gitd"),
-		RoutdDSN:   chanlib.EnvOr("DB_PATH", "/srv/app/home/store/routd/routd.db"),
 		SecretsKey: chanlib.EnvOr("SECRETS_KEY", ""),
 	}
 }

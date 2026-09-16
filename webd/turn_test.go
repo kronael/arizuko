@@ -200,32 +200,3 @@ func TestTurnSSE_RoundDoneFilteredByTurnID(t *testing.T) {
 		t.Error("stream did not close on matching round_done (turnA)")
 	}
 }
-
-// TestTurnSSE_ReadFailureIsNotAFinishedRound: GetTurnResult maps only
-// sql.ErrNoRows to "pending"; a real error returns the zero TurnInfo whose
-// Status is "". The handler discarded the error, saw "" != "pending", and
-// emitted round_done — telling the browser the turn was over, then closing the
-// stream (BUGS L83). A failed read must end the round as an error.
-func TestTurnSSE_ReadFailureIsNotAFinishedRound(t *testing.T) {
-	s, _, st := newTestServer(t)
-	seedGroup(t, st, "acme", "Acme")
-	// Break the read the handler depends on: the turn_results table is gone, so
-	// GetTurnResult returns a real error rather than ErrNoRows.
-	if _, err := st.DB().Exec(`DROP TABLE turn_results`); err != nil {
-		t.Fatalf("drop turn_results: %v", err)
-	}
-
-	info, err := st.GetTurnResult("acme", "t-broken")
-	if err == nil {
-		t.Fatal("expected a real read error, got nil — the fixture no longer reproduces the gap")
-	}
-	if info.Status == "pending" {
-		t.Fatal("a failed read must not look pending")
-	}
-	// The bug: the zero value is neither an error the caller sees nor "pending",
-	// so a handler testing only `Status != \"pending\"` reads it as terminal.
-	if info.Status != "" {
-		t.Fatalf("zero TurnInfo.Status = %q, want \"\" — the trap this guards", info.Status)
-	}
-	_ = s
-}

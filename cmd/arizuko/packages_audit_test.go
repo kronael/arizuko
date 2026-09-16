@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,12 +8,7 @@ import (
 
 	"github.com/kronael/arizuko/store"
 
-	"github.com/kronael/arizuko/db_utils"
-	"github.com/kronael/arizuko/routd"
-
 	"github.com/kronael/arizuko/audit"
-
-	"github.com/kronael/arizuko/objstore/sqlstore"
 )
 
 // A package apply mutates many rows at once, so it needs a verdict of its own:
@@ -42,14 +36,9 @@ import (
 
 // aclAuditRows returns (actor, surface, params_summary) of every audit_log row
 // for action in dir/routd.db, oldest first.
-func aclAuditRows(t *testing.T, dir, action string) [][3]string {
+func aclAuditRows(t *testing.T, st *store.Store, action string) [][3]string {
 	t.Helper()
-	db, err := db_utils.Open(store.OwnerDBPath(dir, store.OwnerRoutd))
-	if err != nil {
-		t.Fatalf("open routd.db: %v", err)
-	}
-	defer db.Close()
-	rows, err := audit.Query(t.Context(), sqlstore.New(db), audit.Filter{Limit: audit.MaxLimit})
+	rows, err := audit.Query(t.Context(), st.Obj(), audit.Filter{Limit: audit.MaxLimit})
 	if err != nil {
 		t.Fatalf("read the audit trail: %v", err)
 	}
@@ -64,21 +53,12 @@ func aclAuditRows(t *testing.T, dir, action string) [][3]string {
 }
 
 // installGrantPkg installs a two-grant package as osUser and returns the store dir.
-func installGrantPkg(t *testing.T, osUser string) string {
+func installGrantPkg(t *testing.T, osUser string) *store.Store {
 	t.Helper()
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	t.Setenv("USER", osUser)
-	dataDir := filepath.Join(base, "arizuko_gaudit")
-	storeDir := filepath.Join(dataDir, "store")
-	if err := os.MkdirAll(storeDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	rdb, err := routd.Create(storeDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rdb.Close()
+	st := instanceStore(t)
 	src := filepath.Join(base, "grantpkg")
 	if err := os.MkdirAll(src, 0o755); err != nil {
 		t.Fatal(err)
@@ -94,15 +74,15 @@ func installGrantPkg(t *testing.T, osUser string) string {
 		t.Fatal(err)
 	}
 	cmdPackages([]string{"gaudit", "install", src, "--folder", "eng/**"})
-	return storeDir
+	return st
 }
 
 // One row for the apply, and it names every grant it handed out. A count alone
 // would hide that the install gave @ops admin on eng/tts.
 func TestPackageGrantsAuditedInOneApplyRow(t *testing.T) {
-	dir := installGrantPkg(t, "alice")
+	s := installGrantPkg(t, "alice")
 
-	rows := aclAuditRows(t, dir, "config.apply")
+	rows := aclAuditRows(t, s, "config.apply")
 	if len(rows) != 1 {
 		t.Fatalf("config.apply rows = %d, want 1 (packages install goes through apply)", len(rows))
 	}
@@ -119,9 +99,9 @@ func TestPackageGrantsAuditedInOneApplyRow(t *testing.T) {
 // The row must also say the grants came from a package rather than from an
 // operator typing `arizuko grant` — the actor is the same person either way.
 func TestPackageGrantsAuditNamesPackage(t *testing.T) {
-	dir := installGrantPkg(t, "alice")
+	s := installGrantPkg(t, "alice")
 
-	rows := aclAuditRows(t, dir, "config.apply")
+	rows := aclAuditRows(t, s, "config.apply")
 	if len(rows) != 1 {
 		t.Fatalf("config.apply rows = %d, want 1", len(rows))
 	}
@@ -130,7 +110,7 @@ func TestPackageGrantsAuditNamesPackage(t *testing.T) {
 	}
 	// The provenance also survives in the table the grants landed in, which is
 	// what an operator reading `acl` sees without joining audit_log.
-	rows2, err := store.New(mustSQL(t, dir)).ListACL("@ops")
+	rows2, err := s.ListACL("@ops")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,25 +124,15 @@ func TestPackageGrantsAuditNamesPackage(t *testing.T) {
 	}
 }
 
-// mustSQL opens dir's routd.db for a read-only assertion.
-func mustSQL(t *testing.T, dir string) *sql.DB {
-	t.Helper()
-	db, err := db_utils.Open(store.OwnerDBPath(dir, store.OwnerRoutd))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
-	return db
-}
-
 // Withdrawal records too, through the same engine: a second config.apply row
 // naming the package. A trail that shows authority landing and never leaving
 // reads as "still granted" for a grant that is gone.
 func TestPackageGrantsRemovalAudited(t *testing.T) {
-	dir := installGrantPkg(t, "alice")
+	t.Cleanup(func() { dropInstance(t) })
+	s := installGrantPkg(t, "alice")
 	cmdPackages([]string{"gaudit", "remove", "grantpkg"})
 
-	rows := aclAuditRows(t, dir, "config.apply")
+	rows := aclAuditRows(t, s, "config.apply")
 	if len(rows) != 2 {
 		t.Fatalf("config.apply rows = %d, want 2 (install + remove)", len(rows))
 	}

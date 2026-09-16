@@ -19,7 +19,7 @@ func axesDB(t *testing.T, folder string) *DB {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	if err := store.New(db.SQL()).PutMembership("folder:"+folder, store.RoleMember, "test"); err != nil {
+	if err := store.NewOver(db.Obj()).PutMembership("folder:"+folder, store.RoleMember, "test"); err != nil {
 		t.Fatal(err)
 	}
 	return db

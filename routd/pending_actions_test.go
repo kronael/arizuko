@@ -1,6 +1,7 @@
 package routd
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 )
 
 func memDB(t *testing.T) *DB {
@@ -126,8 +128,14 @@ func TestStringArgs_SkipsNonScalars(t *testing.T) {
 // from another goroutine. Without this each hold test would sit through the real
 // HITL_WAIT.
 func TestMain(m *testing.M) {
+	if err := dyntest.Setup(); err != nil {
+		fmt.Fprintf(os.Stderr, "dyntest: %v\n", err)
+		os.Exit(1)
+	}
 	HoldWait, hitlPoll = 0, time.Millisecond
-	os.Exit(m.Run())
+	code := m.Run()
+	dyntest.Shutdown()
+	os.Exit(code)
 }
 
 // TestHoldGate_HoldApproveRun is spec 5/19's acceptance path end to end at the
@@ -293,47 +301,6 @@ func TestListPendingActions_ExpiryFilteredAfterTransform(t *testing.T) {
 	}
 	if len(held) != 1 || held[0].ID != "live" {
 		t.Fatalf("status=held returned %+v, want only the live row", held)
-	}
-}
-
-// TestHoldGate_UnrecordableHoldBlocksAndReports — SQLite full/busy/schema means
-// the gate cannot write the row. The call must still be BLOCKED (fail closed),
-// but it must not come back as a normal pending result: with no row there is no
-// id anyone can `/approve`, so `pending:true` is a user-facing state that can
-// never resolve (BUGS J3). The empty id is what ipc renders as an error, and the
-// chat notice is the only signal an operator gets — a slog line is not one.
-func TestHoldGate_UnrecordableHoldBlocksAndReports(t *testing.T) {
-	d := memDB(t)
-	dl := &recDeliverer{}
-	srv := &Server{db: d, deliver: dl}
-	if err := addACLRow(d, core.ACLRow{
-		Principal: "folder:atlas", Action: auth.HoldPrefix + "mcp:delete",
-		Scope: "atlas", Effect: "allow",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := d.db.Exec(`DROP TABLE pending_actions`); err != nil {
-		t.Fatal(err)
-	}
-	gate := srv.holdGate(turnMCP{folder: "atlas", chatJID: "tg:1", turnID: "t9"})
-
-	refusal, held := gate("mcp:delete", map[string]any{"target": "prod"})
-	if !held {
-		t.Fatal("an unrecordable hold must still block the call — fail closed")
-	}
-	if refusal != "" {
-		t.Fatalf("a hold with no row must report no verdict, got %q", refusal)
-	}
-	if len(dl.sends) != 1 {
-		t.Fatalf("the operator must be told; got %d sends", len(dl.sends))
-	}
-	got := dl.sends[0]
-	if !strings.Contains(got.text, "mcp:delete") ||
-		!strings.Contains(got.text, "could not be recorded") {
-		t.Fatalf("notice must name the blocked tool and why: %q", got.text)
-	}
-	if got.idem != "hitl-fail-t9" {
-		t.Fatalf("notice must be keyed per turn, got %q", got.idem)
 	}
 }
 

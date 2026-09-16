@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"reflect"
 	"testing"
@@ -9,10 +10,8 @@ import (
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/authd/authstore"
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/objstore"
-	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -53,7 +52,8 @@ func TestMintBearer(t *testing.T) {
 
 func TestMintBearerNoActiveKey(t *testing.T) {
 	storeDir := t.TempDir()
-	openAuthStore(t, storeDir)
+	dropAuthd(t)
+	openAuthStore(t)
 	if _, _, err := mintBearer(storeDir, "eval", "user:cli", []string{"messages:read"}, time.Hour); err == nil {
 		t.Fatal("expected error with no active key")
 	}
@@ -63,19 +63,18 @@ func TestMintBearerNoActiveKey(t *testing.T) {
 // store.OwnerDBPath, not a hand-built join. A fixture that built `storeDir/auth.db`
 // agreed with a mintBearer looking at the same pre-5/16-step-7 flat path, so it
 // passed while `arizuko token issue bearer` was broken on every live instance.
-func openAuthStore(t *testing.T, storeDir string) *authstore.Store {
+func openAuthStore(t *testing.T) *authstore.Store {
 	t.Helper()
-	path := store.OwnerDBPath(storeDir, store.OwnerAuthd)
-	if err := db_utils.CreateDBFile(path); err != nil {
-		t.Fatal(err)
-	}
-	adb, err := db_utils.Open(path)
+	d, err := store.Handle(store.OwnerAuthd)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// test fixture; close error unactionable
-	t.Cleanup(func() { adb.Close() }) //nolint:errcheck
-	d := sqlstore.New(adb)
+	t.Cleanup(func() {
+		ctx := context.Background()
+		for _, entity := range authstore.Entities {
+			_ = d.DropEntity(ctx, entity)
+		}
+	})
 	for _, entity := range authstore.Entities {
 		if err := d.CreateEntity(t.Context(), entity); err != nil {
 			t.Fatalf("make %s: %v", entity, err)
@@ -89,47 +88,32 @@ func openAuthStore(t *testing.T, storeDir string) *authstore.Store {
 // would prove nothing about the key mintBearer reads.
 func seedAuthDB(t *testing.T, storeDir string, key *auth.SigningKey) {
 	t.Helper()
-	if err := openAuthStore(t, storeDir).RotateActiveKey(key, time.Now()); err != nil {
+	if err := openAuthStore(t).RotateActiveKey(key, time.Now()); err != nil {
 		t.Fatalf("install the signing key: %v", err)
 	}
 }
 
 // TestTokenLandsInRoutdDB proves `arizuko token issue`/`revoke` write
-// route_tokens into routd.db (its post-split owner, the DB routd resolves
-// against) and leave messages.db untouched — a CLI-issued /chat or /hook URL
-// written to the frozen monolith silently never resolves.
+// route_tokens into routd's own tables — their owner, the ones routd resolves
+// a /chat or /hook URL against.
 func TestTokenLandsInRoutdDB(t *testing.T) {
-	dir := setupSplitStore(t)
-
-	s, err := store.OpenRoutd(dir)
-	if err != nil {
-		t.Fatalf("OpenRoutd: %v", err)
-	}
+	s := routdStore(t)
 	if err := s.PutGroupRow(core.Group{Folder: "main", AddedAt: time.Now()}); err != nil {
 		t.Fatalf("seed group: %v", err)
 	}
 	tokenIssue(s, "", []string{"chat", "main"})
-	s.Close()
 
 	// The jid is an ATTRIBUTE — the coordinate is the digest — so the match reads
 	// it off the item rather than out of the key.
 	jidIsWebMain := func(it objstore.Item) bool { return it.Attrs["jid"] == "web:main" }
-	if n := countItems(t, dir, store.OwnerRoutd, store.RouteTokens, jidIsWebMain); n != 1 {
-		t.Errorf("routd.db route_tokens = %d, want 1", n)
-	}
-	if n := countItems(t, dir, "messages.db", store.RouteTokens,
-		func(objstore.Item) bool { return true }); n != 0 {
-		t.Errorf("messages.db route_tokens = %d, want 0 (CLI must not write the monolith)", n)
+	if n := countItems(t, s, store.RouteTokens, jidIsWebMain); n != 1 {
+		t.Errorf("route_tokens = %d, want 1", n)
 	}
 
-	// revoke path also targets routd.db.
-	s2, err := store.OpenRoutd(dir)
-	if err != nil {
-		t.Fatalf("OpenRoutd: %v", err)
-	}
+	s2 := s
 	tokenRevoke(s2, []string{"web:main"})
 	s2.Close()
-	if n := countItems(t, dir, store.OwnerRoutd, store.RouteTokens, jidIsWebMain); n != 0 {
+	if n := countItems(t, s, store.RouteTokens, jidIsWebMain); n != 0 {
 		t.Errorf("routd.db route_tokens after revoke = %d, want 0", n)
 	}
 }
@@ -153,5 +137,19 @@ func TestJidFolder(t *testing.T) {
 		if got := groupfolder.JidFolder(c.jid); got != c.want {
 			t.Errorf("JidFolder(%q) = %q, want %q", c.jid, got, c.want)
 		}
+	}
+}
+
+// dropAuthd empties authd's tables, for the body whose subject is what happens
+// when they hold no key.
+func dropAuthd(t *testing.T) {
+	t.Helper()
+	d, err := store.Handle(store.OwnerAuthd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	for _, entity := range authstore.Entities {
+		_ = d.DropEntity(ctx, entity)
 	}
 }

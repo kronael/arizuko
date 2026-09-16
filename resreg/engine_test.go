@@ -19,11 +19,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kronael/arizuko/db_utils/dbtest"
 	"github.com/kronael/arizuko/objstore"
-	"github.com/kronael/arizuko/objstore/sqlstore"
+	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 	"gopkg.in/yaml.v3"
 )
+
+func TestMain(m *testing.M) { dyntest.Main(m) }
 
 // TestRow is the synthetic schema. The coordinate is (kind, name) and the scope
 // is "kind", its leading field, so a scoped apply reaches one kind's items the
@@ -54,8 +55,7 @@ const testKeySep = "\x1f"
 func freshEngine(t *testing.T) (Backend, *Resource) {
 	t.Helper()
 	reset()
-	db := dbtest.Open(t)
-	s := sqlstore.New(db)
+	s := dyntest.Store(t)
 	if err := s.CreateEntity(t.Context(), "audit_log"); err != nil {
 		t.Fatalf("audit_log: %v", err)
 	}
@@ -72,7 +72,7 @@ func freshEngine(t *testing.T) (Backend, *Resource) {
 	if err := EnsureSubsystem(t.Context(), s, s, testSubsystem); err != nil {
 		t.Fatalf("EnsureSubsystem: %v", err)
 	}
-	return Backend{DB: db, Obj: s}, r
+	return On(s), r
 }
 
 // insertRaw writes items straight through the driver, deliberately bypassing
@@ -143,8 +143,7 @@ func TestScanAll_RoundTrip(t *testing.T) {
 // (initEntity).
 func TestRowFilter_ExcludesFromScanAndChecksum(t *testing.T) {
 	reset()
-	db := dbtest.Open(t)
-	s := sqlstore.New(db)
+	s := dyntest.Store(t)
 	if err := s.CreateEntity(t.Context(), "audit_log"); err != nil {
 		t.Fatalf("audit_log: %v", err)
 	}
@@ -162,7 +161,7 @@ func TestRowFilter_ExcludesFromScanAndChecksum(t *testing.T) {
 	if err := EnsureSubsystem(t.Context(), s, s, testSubsystem); err != nil {
 		t.Fatalf("EnsureSubsystem: %v", err)
 	}
-	be := Backend{DB: db, Obj: s}
+	be := On(s)
 	insertRaw(t, be,
 		TestRow{Kind: "a", Name: "x", Value: "1"},
 		TestRow{Kind: "a", Name: "hidden", Value: "excluded"},

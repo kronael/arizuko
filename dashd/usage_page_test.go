@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/dashd/dashstore"
+	"github.com/kronael/arizuko/objstore"
 
 	_ "modernc.org/sqlite"
 	"time"
@@ -20,11 +20,11 @@ import (
 // page reads groups and messages from here and the spend from routd's
 // /v1/cost/summary, which the stub answers from stubMeter — the gateway holds
 // that number and no SQLite does (spec 6/39).
-func usageRoutdDB(t *testing.T, folders ...string) *sql.DB {
+func usageRoutdDB(t *testing.T, folders ...string) objstore.Store {
 	t.Helper()
 	db := routdDB(t)
 	for _, f := range folders {
-		seedFolder(t, over(db), f)
+		seedFolder(t, db, f)
 	}
 	return db
 }
@@ -53,9 +53,8 @@ func TestUsageNilRoutd(t *testing.T) {
 // TestUsageEmptyGroups: no groups → zero totals across the summary cards.
 func TestUsageEmptyGroups(t *testing.T) {
 	routd := usageRoutdDB(t)
-	defer routd.Close()
 
-	code, body := usageGet(t, &dash{routd: over(routd), routdURL: stubRoutd(t, routd)})
+	code, body := usageGet(t, &dash{routd: routd, routdURL: stubRoutd(t, routd)})
 	if code != 200 {
 		t.Fatalf("status = %d", code)
 	}
@@ -78,7 +77,6 @@ func TestUsageEmptyGroups(t *testing.T) {
 // aggregated and broken out per group.
 func TestUsageWithCost(t *testing.T) {
 	routd := usageRoutdDB(t, "alice")
-	defer routd.Close()
 
 	seedRoutdMessage(t, routd, core.Message{
 		ID: "m1", ChatJID: "web:alice", Sender: "u1", Content: "hi",
@@ -86,7 +84,7 @@ func TestUsageWithCost(t *testing.T) {
 	})
 	stubMeter(t, true, stubSpendRow{Folder: "alice", Tokens: 1500, CostCents: 250})
 
-	code, body := usageGet(t, &dash{routd: over(routd), routdURL: stubRoutd(t, routd)})
+	code, body := usageGet(t, &dash{routd: routd, routdURL: stubRoutd(t, routd)})
 	if code != 200 {
 		t.Fatalf("status = %d", code)
 	}
@@ -107,10 +105,9 @@ func TestUsageWithCost(t *testing.T) {
 // measurement nobody took (spec 6/39).
 func TestUsageSaysSoWhenThereIsNoMeter(t *testing.T) {
 	routd := usageRoutdDB(t, "alice")
-	defer routd.Close()
 	stubMeter(t, false)
 
-	code, body := usageGet(t, &dash{routd: over(routd), routdURL: stubRoutd(t, routd)})
+	code, body := usageGet(t, &dash{routd: routd, routdURL: stubRoutd(t, routd)})
 	if code != 200 {
 		t.Fatalf("status = %d", code)
 	}
@@ -136,10 +133,9 @@ func TestGroupUsageBulkBatchesLargeFolderLists(t *testing.T) {
 		folders[i] = strings.Repeat("f", 1) + string(rune('a'+i%26)) + strconv.Itoa(i)
 	}
 	routd := usageRoutdDB(t, folders...)
-	defer routd.Close()
 	stubMeter(t, true, stubSpendRow{Folder: folders[n-1], Tokens: 20, CostCents: 5})
 
-	d := &dash{routd: over(routd), routdURL: stubRoutd(t, routd)}
+	d := &dash{routd: routd, routdURL: stubRoutd(t, routd)}
 	out, metered, err := d.groupUsageBulk(context.Background(), folders)
 	if err != nil {
 		t.Fatalf("groupUsageBulk: %v", err)
@@ -158,8 +154,7 @@ func TestGroupUsageBulkBatchesLargeFolderLists(t *testing.T) {
 // TestUsageNonOperatorForbidden: the usage page is operator-only.
 func TestUsageNonOperatorForbidden(t *testing.T) {
 	routd := usageRoutdDB(t)
-	defer routd.Close()
-	d := &dash{routd: over(routd), routdURL: stubRoutd(t, routd)}
+	d := &dash{routd: routd, routdURL: stubRoutd(t, routd)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := httptest.NewRequest("GET", "/dash/usage/", nil)
@@ -176,13 +171,12 @@ func TestUsageNonOperatorForbidden(t *testing.T) {
 // number an operator would relay upward.
 func TestUsageSaysWhenRoutdIsUnreachable(t *testing.T) {
 	routd := usageRoutdDB(t, "alice")
-	defer routd.Close()
 
 	// The folder list is read through routd's /v1 now, so an unreachable routd
 	// fails at the list before any spend is summed. Either banner is a loud
 	// failure; a 200 with NEITHER would be the bug — zero spend that is really
 	// an unreachable owner.
-	code, body := usageGet(t, &dash{routd: over(routd), routdURL: "http://127.0.0.1:1"})
+	code, body := usageGet(t, &dash{routd: routd, routdURL: "http://127.0.0.1:1"})
 	if code == 200 &&
 		!strings.Contains(body, "usage query error") &&
 		!strings.Contains(body, "folder query error") {

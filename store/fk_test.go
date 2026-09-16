@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -55,20 +54,9 @@ func countWebRoutes(t *testing.T, s *Store, folder string) int {
 	return n
 }
 
-func openFKStore(t *testing.T) *Store {
-	t.Helper()
-	dir := t.TempDir()
-	s, err := Open(filepath.Join(dir, "store"))
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	t.Cleanup(func() { s.Close() })
-	return s
-}
-
 // TestWebRoutes_PurgedOnGroupDelete: deleting a group removes its web_routes.
 func TestWebRoutes_PurgedOnGroupDelete(t *testing.T) {
-	s := openFKStore(t)
+	s := openEntities(t)
 	if err := s.PutGroup(core.Group{Folder: "acme"}); err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +76,7 @@ func TestWebRoutes_PurgedOnGroupDelete(t *testing.T) {
 // TestRouteTokens_PurgedOnGroupDelete: deleting a group removes the delivery
 // bearers it owns, so a revoked folder's token stops resolving.
 func TestRouteTokens_PurgedOnGroupDelete(t *testing.T) {
-	s := openFKStore(t)
+	s := openEntities(t)
 	if err := s.PutGroup(core.Group{Folder: "acme"}); err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +106,7 @@ func TestRouteTokens_PurgedOnGroupDelete(t *testing.T) {
 // (messages, audit_log, cost_log) are NOT deleted on group removal — per spec
 // 5/8 they must strand. This pins the absence of a FK on these tables.
 func TestFK_HistoryTablesStrandOnGroupDelete(t *testing.T) {
-	s := openFKStore(t)
+	s := openEntities(t)
 	if err := s.PutGroup(core.Group{Folder: "acme"}); err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +158,7 @@ func TestFK_HistoryTablesStrandOnGroupDelete(t *testing.T) {
 // what goes is the binding and not the item. A purge that deleted it would throw
 // the cursor away and the next inbound would re-feed the chat's whole history.
 func TestHotTier_PurgedOnGroupDelete(t *testing.T) {
-	s := openFKStore(t)
+	s := openEntities(t)
 	ctx := context.Background()
 	if err := s.PutGroup(core.Group{Folder: "acme"}); err != nil {
 		t.Fatal(err)
@@ -265,7 +253,7 @@ func TestHotTier_PurgedOnGroupDelete(t *testing.T) {
 // those very rows, so a read taken after it names nothing and each child's
 // partition survives for the next tenant of that path to inherit.
 func TestMessageFolders_ChildPartitionPurgedOnGroupDelete(t *testing.T) {
-	s := openFKStore(t)
+	s := openEntities(t)
 	for _, f := range []string{"acme", "acme/support"} {
 		if err := s.PutGroup(core.Group{Folder: f}); err != nil {
 			t.Fatal(err)

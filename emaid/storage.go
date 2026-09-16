@@ -33,7 +33,7 @@ import (
 // It hands back all three because emaid needs all three: the close, chanlib's
 // store for the adapter mux's outbound dedup, and emaistore's for emaid's own
 // threading.
-func openStorage(dataDir string) (chanlib.AdapterStore, *emaistore.Store, error) {
+func openStorage() (chanlib.AdapterStore, *emaistore.Store, error) {
 	as, err := chanlib.OpenAdapterStore("emaid")
 	if err != nil {
 		return chanlib.AdapterStore{}, nil, err

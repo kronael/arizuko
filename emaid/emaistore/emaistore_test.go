@@ -1,11 +1,7 @@
 package emaistore_test
 
-// The storage layer's own bodies. emaid's tests exercise it through the
-// adapter, and those open a file, so these are the ones that run on WHATEVER
-// engine ARIZUKO_TEST_PG_DSN names:
-//
-//	go test ./emaid/emaistore/...                                   # SQLite
-//	ARIZUKO_TEST_PG_DSN=postgres://… go test ./emaid/emaistore/...  # Postgres
+// The storage layer's own bodies, run against the endpoint dyntest lends each
+// test as its own namespace.
 //
 // They are about the one invariant emaid would be dangerous without: a thread
 // and the Message-ID index that reaches it are written together. Without it the
@@ -19,16 +15,18 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/kronael/arizuko/db_utils/dbtest"
 	"github.com/kronael/arizuko/emaid/emaistore"
 	"github.com/kronael/arizuko/objstore"
-	"github.com/kronael/arizuko/objstore/sqlstore"
+	"github.com/kronael/arizuko/objstore/dynstore"
+	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 )
 
-// newDriver hands a test an empty emaid store on whichever engine dbtest opens.
-func newDriver(t *testing.T) *sqlstore.Store {
+func TestMain(m *testing.M) { dyntest.Main(m) }
+
+// newDriver hands a test an empty emaid store in a namespace of its own.
+func newDriver(t *testing.T) *dynstore.Store {
 	t.Helper()
-	s := sqlstore.New(dbtest.Open(t))
+	s := dyntest.Store(t)
 	for _, entity := range emaistore.Entities {
 		if err := s.CreateEntity(t.Context(), entity); err != nil {
 			t.Fatalf("create entity %s: %v", entity, err)

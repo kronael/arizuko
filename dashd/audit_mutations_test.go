@@ -71,7 +71,7 @@ func TestGrantAdd_Audited(t *testing.T) {
 
 func TestGrantRevoke_Audited(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
-	seedGrant(t, over(routd), core.ACLRow{
+	seedGrant(t, routd, core.ACLRow{
 		Principal: "bob@x", Action: "send", Scope: "team", Effect: "allow",
 	})
 	mux := newMux(d)
@@ -81,7 +81,7 @@ func TestGrantRevoke_Audited(t *testing.T) {
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("POST grants/revoke = %d body=%q", w.Code, w.Body.String())
 	}
-	if n := countGrants(t, over(routd), "bob@x", "send"); n != 0 {
+	if n := countGrants(t, routd, "bob@x", "send"); n != 0 {
 		t.Fatalf("grant not revoked (%d rows)", n)
 	}
 	if got := auditActor(t, d, "acl.remove"); got != "alice@x" {
@@ -138,7 +138,7 @@ func TestRouteTokenMint_NotInCockpit(t *testing.T) {
 
 func TestRouteTokenRevoke_Audited(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
-	seedRouteToken(t, over(routd), store.RouteToken{
+	seedRouteToken(t, routd, store.RouteToken{
 		JID: "web:team", OwnerFolder: "team", TargetFolder: "team",
 	})
 	mux := newMux(d)
@@ -160,7 +160,7 @@ func TestGroupDelete_Audited(t *testing.T) {
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("POST delete = %d body=%q", w.Code, w.Body.String())
 	}
-	if hasFolder(t, over(routd), "team") {
+	if hasFolder(t, routd, "team") {
 		t.Fatalf("group not deleted")
 	}
 	if got := auditActor(t, d, "group.delete"); got != "alice@x" {
@@ -173,14 +173,14 @@ func TestGroupDelete_Audited(t *testing.T) {
 // folder whose child row blocks the cascade must leave audit_log untouched.
 func TestGroupDelete_AuditRollsBackWithMutation(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
-	before := len(auditRowsFor(t, over(routd), "group.delete"))
+	before := len(auditRowsFor(t, routd, "group.delete"))
 	mux := newMux(d)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, adminReq("POST", "/dash/groups/nosuchfolder/delete", "", "alice@x"))
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("delete missing folder = %d, want 404", w.Code)
 	}
-	after := len(auditRowsFor(t, over(routd), "group.delete"))
+	after := len(auditRowsFor(t, routd, "group.delete"))
 	if after != before {
 		t.Errorf("audit rows for a delete that did not happen: %d -> %d", before, after)
 	}
@@ -190,14 +190,14 @@ func TestGroupDelete_AuditRollsBackWithMutation(t *testing.T) {
 // a handler that emits its own row as the daemon ("rest:dashd") fails these.
 func TestRouteDelete_Audited(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
-	id := seedRoute(t, over(routd), core.Route{Seq: 1, Match: "m=1", Target: "team"})
+	id := seedRoute(t, routd, core.Route{Seq: 1, Match: "m=1", Target: "team"})
 	mux := newMux(d)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, adminReq("POST", "/dash/routes/"+strconv.FormatInt(id, 10)+"/delete", "", "alice@x"))
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("POST route delete = %d body=%q", w.Code, w.Body.String())
 	}
-	if n := len(auditRowsFor(t, over(routd), "route.delete")); n != 1 {
+	if n := len(auditRowsFor(t, routd, "route.delete")); n != 1 {
 		t.Errorf("route.delete audit rows = %d, want 1", n)
 	}
 	if got := auditActor(t, d, "route.delete"); got != "alice@x" {
@@ -207,7 +207,7 @@ func TestRouteDelete_Audited(t *testing.T) {
 
 func TestRouteUpdate_Audited(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
-	id := seedRoute(t, over(routd), core.Route{Seq: 1, Match: "m=1", Target: "team"})
+	id := seedRoute(t, routd, core.Route{Seq: 1, Match: "m=1", Target: "team"})
 	form := url.Values{"seq": {"7"}, "match": {"m=updated"}, "target": {"team"}}.Encode()
 	w := httptest.NewRecorder()
 	newMux(d).ServeHTTP(w, adminReq("PATCH", "/dash/routes/"+strconv.FormatInt(id, 10), form, "alice@x"))

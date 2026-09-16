@@ -25,7 +25,6 @@ func TestUsagePageNumbersViaRealRoutd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { db.Close() })
 	for _, f := range []string{"alpha", "beta"} {
 		if err := db.PutGroup(core.Group{Folder: f}); err != nil {
 			t.Fatal(err)
@@ -38,7 +37,7 @@ func TestUsagePageNumbersViaRealRoutd(t *testing.T) {
 		id  string
 		bot bool
 	}{{"m1", false}, {"m2", false}, {"m3", true}} {
-		seedRoutdMessage(t, db.SQL(), core.Message{
+		seedRoutdMessage(t, db.Obj(), core.Message{
 			ID: m.id, ChatJID: "web:alpha", Sender: "u1", Content: "hi",
 			BotMsg: m.bot, Timestamp: now.Add(time.Duration(i) * time.Second),
 			RoutedTo: "alpha",
@@ -50,7 +49,7 @@ func TestUsagePageNumbersViaRealRoutd(t *testing.T) {
 	ts := httptest.NewServer(routd.NewServer(db, nil, nil, nil, 0, "").Handler())
 	t.Cleanup(ts.Close)
 
-	code, body := usageGet(t, &dash{routd: over(db.SQL()), routdURL: ts.URL})
+	code, body := usageGet(t, &dash{routd: db.Obj(), routdURL: ts.URL})
 	if code != 200 {
 		t.Fatalf("status = %d: %s", code, body)
 	}

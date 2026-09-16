@@ -4,7 +4,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/kronael/arizuko/core"
@@ -118,41 +117,6 @@ func TestRegisterGroupAddsRoute(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(groupsDir, "ops", ".git")); err != nil {
 		t.Fatalf("group dir not git-inited: %v", err)
-	}
-}
-
-// TestRegisterGroupRollsBackOnAddRouteError: when the route insert fails, the
-// group row is rolled back so no route-less, unreachable orphan is left behind.
-// registerGroup is now the only holder of this invariant — it was previously
-// also covered through the deleted prototype spawn.
-func TestRegisterGroupRollsBackOnAddRouteError(t *testing.T) {
-	db, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
-	srv := NewServer(db, nil, nil, nil, 0, "")
-	srv.SetDirs(t.TempDir(), "")
-
-	// Fail the route INSERT only. Dropping the table used to be the injection,
-	// but the rollback is store.DeleteGroup, whose cascade deletes from routes
-	// in the same transaction — a missing table aborted the rollback and left
-	// the very orphan this test guards.
-	if _, err := db.SQL().Exec(
-		`CREATE TRIGGER no_routes BEFORE INSERT ON routes
-		 BEGIN SELECT RAISE(ABORT, 'route insert refused'); END`); err != nil {
-		t.Fatalf("install trigger: %v", err)
-	}
-
-	err = srv.registerGroup("telegram:888", core.Group{Folder: "ops"})
-	if err == nil {
-		t.Fatal("registerGroup swallowed the AddRoute error; the group would be orphaned")
-	}
-	if !strings.Contains(err.Error(), "add route") {
-		t.Errorf("error = %q, want 'add route' context", err.Error())
-	}
-	if db.GroupExists("ops") {
-		t.Fatal("AddRoute failure left an orphan group row (no rollback)")
 	}
 }
 

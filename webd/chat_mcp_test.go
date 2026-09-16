@@ -60,7 +60,7 @@ func chatTokenMCPDial(t *testing.T, url string) *mcpclient.Client {
 	if _, err := c.Initialize(ctx, mcp.InitializeRequest{
 		Params: mcp.InitializeParams{
 			ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
-			ClientInfo: mcp.Implementation{Name: "chat-token-mcp-test", Version: "1.0"},
+			ClientInfo:      mcp.Implementation{Name: "chat-token-mcp-test", Version: "1.0"},
 		},
 	}); err != nil {
 		t.Fatalf("initialize: %v", err)

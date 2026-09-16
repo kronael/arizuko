@@ -1,14 +1,7 @@
 package authstore_test
 
-// The storage layer's own bodies, run against WHATEVER engine
-// ARIZUKO_TEST_PG_DSN names:
-//
-//	go test ./authd/authstore/...                                   # SQLite
-//	ARIZUKO_TEST_PG_DSN=postgres://… go test ./authd/authstore/...  # Postgres
-//
-// The whole daemon runs on both too — authd holds no SQL and neither does the
-// audit trail it records into — so these are the layer's own invariants rather
-// than the only thing a second engine reaches.
+// The storage layer's own bodies, run against the endpoint dyntest lends each
+// test as its own namespace.
 //
 // They are about the invariants, not the coverage. A refresh token redeemed
 // exactly once, a family whose death reaches everything it minted, and one
@@ -24,14 +17,15 @@ import (
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/authd/authstore"
-	"github.com/kronael/arizuko/db_utils/dbtest"
-	"github.com/kronael/arizuko/objstore/sqlstore"
+	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 )
 
-// newStore hands a test an empty authd store on whichever engine dbtest opens.
+func TestMain(m *testing.M) { dyntest.Main(m) }
+
+// newStore hands a test an empty authd store in a namespace of its own.
 func newStore(t *testing.T) *authstore.Store {
 	t.Helper()
-	s := sqlstore.New(dbtest.Open(t))
+	s := dyntest.Store(t)
 	for _, entity := range authstore.Entities {
 		if err := s.CreateEntity(t.Context(), entity); err != nil {
 			t.Fatalf("create entity %s: %v", entity, err)
@@ -558,7 +552,7 @@ func TestImportRefusesWhatItCannotRepresent(t *testing.T) {
 // is working. A store that cannot answer at all is an error, and this is the
 // body that says so: every read below runs against entities that do not exist.
 func TestAMissingEntityIsAnErrorRatherThanAnEmptyAnswer(t *testing.T) {
-	st := authstore.New(sqlstore.New(dbtest.Open(t)))
+	st := authstore.New(dyntest.Store(t))
 	if _, err := st.SigningKeysWithMaterial(); err == nil {
 		t.Fatal("reading keys from a store with no entities must fail")
 	}

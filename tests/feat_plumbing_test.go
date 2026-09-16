@@ -4,13 +4,11 @@
 package tests
 
 import (
-	"database/sql"
 	"testing"
 	"time"
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore"
-	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/tests/testutils"
 )
@@ -21,12 +19,12 @@ func TestFeature_IntegrationPlumbing(t *testing.T) {
 	// tx-scoped behind resreg; the subject here is the reader.
 	t.Run("web-routes-table", func(t *testing.T) {
 		db := mustRoutdDB(t)
-		putWebRouteItem(t, db.SQL(), "/pub/demo", "public", "demo")
+		putWebRouteItem(t, db.Obj(), "/pub/demo", "public", "demo")
 		rows, err := db.WebRoutes("demo")
 		if err != nil || len(rows) != 1 || rows[0].Access != "public" {
 			t.Fatalf("web routes = %+v err=%v", rows, err)
 		}
-		deleteWebRouteItem(t, db.SQL(), "/pub/demo")
+		deleteWebRouteItem(t, db.Obj(), "/pub/demo")
 		rows, _ = db.WebRoutes("demo")
 		if len(rows) != 0 {
 			t.Fatalf("after delete = %d rows, want 0", len(rows))
@@ -50,7 +48,7 @@ func TestStore_WebRouteInventory(t *testing.T) {
 	for _, r := range [][2]string{
 		{"/pub/a", "a"}, {"/pub/a/docs", "a"}, {"/pub/b", "b"},
 	} {
-		putWebRouteItem(t, s.DB(), r[0], "public", r[1])
+		putWebRouteItem(t, s.Obj(), r[0], "public", r[1])
 	}
 
 	all, err := s.AllWebRoutes()
@@ -142,13 +140,13 @@ func TestStore_RunLogList(t *testing.T) {
 // these items and does it on resreg's transaction (store/web_routes.go), so a
 // fixture that needs one outside a request addresses the item itself rather
 // than growing a second writer.
-func putWebRouteItem(t *testing.T, db *sql.DB, pathPrefix, access, folder string) {
+func putWebRouteItem(t *testing.T, d objstore.Store, pathPrefix, access, folder string) {
 	t.Helper()
 	key, err := store.WebRouteKey(pathPrefix)
 	if err != nil {
 		t.Fatalf("coordinate of %s: %v", pathPrefix, err)
 	}
-	if _, err := sqlstore.New(db).GuardedBatch(t.Context(), nil, []objstore.Write{{
+	if _, err := d.GuardedBatch(t.Context(), nil, []objstore.Write{{
 		Op: objstore.Put, Entity: store.WebRoutes, Key: key,
 		Attrs: map[string]string{
 			store.AttrWebAccess:    access,
@@ -161,13 +159,13 @@ func putWebRouteItem(t *testing.T, db *sql.DB, pathPrefix, access, folder string
 }
 
 // deleteWebRouteItem removes one rule by its coordinate.
-func deleteWebRouteItem(t *testing.T, db *sql.DB, pathPrefix string) {
+func deleteWebRouteItem(t *testing.T, d objstore.Store, pathPrefix string) {
 	t.Helper()
 	key, err := store.WebRouteKey(pathPrefix)
 	if err != nil {
 		t.Fatalf("coordinate of %s: %v", pathPrefix, err)
 	}
-	if _, err := sqlstore.New(db).GuardedBatch(t.Context(), nil, []objstore.Write{{
+	if _, err := d.GuardedBatch(t.Context(), nil, []objstore.Write{{
 		Op: objstore.Delete, Entity: store.WebRoutes, Key: key,
 	}}); err != nil {
 		t.Fatalf("remove web route %s: %v", pathPrefix, err)

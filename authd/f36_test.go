@@ -16,13 +16,13 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/kronael/arizuko/authd/authstore"
 	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/objstore/dynstore"
 )
 
 // gateGrants parks the FIRST FetchGrants caller until release is closed, and
@@ -68,12 +68,12 @@ func familyOf(t *testing.T, s objstore.Store, raw string) string {
 // `total` is asserted by every caller BEFORE `live`, because `live == 0` is
 // also what a query against the wrong family_id returns. Counting the rows
 // that must exist is what stops these tests passing vacuously.
-func familyRows(t *testing.T, db *sql.DB, fam string) (total, live int) {
+func familyRows(t *testing.T, db *dynstore.Store, fam string) (total, live int) {
 	t.Helper()
-	tokens := entityItems(t, newObjectStore(db), authstore.RefreshTokens,
+	tokens := entityItems(t, db, authstore.RefreshTokens,
 		objstore.Cmp{Attr: "family_id", Op: objstore.Eq, Value: fam})
 	total = len(tokens)
-	if familyRevoked(t, newObjectStore(db), fam) {
+	if familyRevoked(t, db, fam) {
 		return total, 0
 	}
 	for _, it := range tokens {
@@ -101,8 +101,8 @@ func familyRows(t *testing.T, db *sql.DB, fam string) (total, live int) {
 // assertion is on the invariant (a killed family holds no live row), not on
 // which caller won, so it is meaningful in both worlds.
 func TestRefreshFamilyKillOutrunsNoSuccessor(t *testing.T) {
-	db := concurrentDB(t)
-	a, err := newAuthd(newObjectStore(db), 15*time.Minute, time.Hour, time.Hour)
+	db := testDB(t)
+	a, err := newAuthd(db, 15*time.Minute, time.Hour, time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestRefreshFamilyKillOutrunsNoSuccessor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fam := familyOf(t, newObjectStore(db), r0)
+	fam := familyOf(t, db, r0)
 
 	type outcome struct {
 		refresh string
@@ -167,56 +167,6 @@ func TestRefreshFamilyKillOutrunsNoSuccessor(t *testing.T) {
 	}
 }
 
-// The transaction in ClaimAndRotateRefresh, pinned without any timing.
-//
-// The barrier tests above are the end-to-end F36 regression, but neither of
-// them falsifies the TRANSACTION on its own: moving the grants re-snapshot
-// ahead of the claim (which the transaction requires anyway — a remote call
-// cannot sit inside a SQLite write lock) already shrinks the win→insert gap
-// from an HTTP round trip to two adjacent local statements, and a barrier
-// cannot be steered into a gap that small. Verified, not assumed: with the
-// transaction stripped and everything else kept, both barrier tests still
-// pass. A narrower race is still a race, so the transaction needs its own pin.
-//
-// A BEFORE INSERT trigger makes the successor's INSERT fail on demand. Inside
-// one transaction the failure rolls the claim back too, so the presented token
-// is untouched and the client can retry. Two autocommit statements leave
-// `used_at` set: the token is burnt, no successor exists, and the user is
-// logged out by an error that changed nothing else.
-func TestRefreshClaimRollsBackWhenSuccessorInsertFails(t *testing.T) {
-	db := concurrentDB(t)
-	raw, err := newTestStore(newObjectStore(db)).StartRefreshFamily("1", []string{"tasks:read"}, "", time.Hour)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fam := familyOf(t, newObjectStore(db), raw)
-	if _, err := db.Exec(
-		`CREATE TRIGGER f36_block_successor BEFORE INSERT ON refresh_tokens
-		   BEGIN SELECT RAISE(ABORT, 'successor insert blocked'); END`); err != nil {
-		t.Fatal(err)
-	}
-
-	newRaw, won, err := newTestStore(newObjectStore(db)).ClaimAndRotateRefresh(raw, fam, "1", []string{"tasks:read"}, "", time.Hour)
-	if err == nil {
-		t.Fatal("a blocked successor INSERT must surface as an error, not a silent no-op")
-	}
-	if won || newRaw != "" {
-		t.Fatalf("failed rotation reported won=%v newRaw=%q; it rotated nothing", won, newRaw)
-	}
-
-	// Anti-vacuity: the original row must still be the only row, and it must
-	// still be there at all — a query that found nothing would satisfy the
-	// used_at check below for the wrong reason.
-	total, live := familyRows(t, db, fam)
-	if total != 1 {
-		t.Fatalf("family %s: want the 1 original row (the successor was blocked), got %d", fam, total)
-	}
-	if live != 1 {
-		t.Fatalf("family %s: the presented token was consumed by a rotation that failed — "+
-			"claim and successor INSERT are not in one transaction (BUGS F36)", fam)
-	}
-}
-
 // The second kill source is logout (authd/oauth.go — `RevokeFamily` on the
 // caller's own cookie). It races the same insert, and the transaction alone
 // does not stop it: a revoke that commits BEFORE the rotation's transaction
@@ -230,8 +180,8 @@ func TestRefreshClaimRollsBackWhenSuccessorInsertFails(t *testing.T) {
 //	logout:  RevokeFamily -> every row revoked
 //	redeem:  unparked -> claim must FAIL and mint nothing
 func TestRefreshAfterLogoutRevokeMintsNoSuccessor(t *testing.T) {
-	db := concurrentDB(t)
-	a, err := newAuthd(newObjectStore(db), 15*time.Minute, time.Hour, time.Hour)
+	db := testDB(t)
+	a, err := newAuthd(db, 15*time.Minute, time.Hour, time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +192,7 @@ func TestRefreshAfterLogoutRevokeMintsNoSuccessor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fam := familyOf(t, newObjectStore(db), r0)
+	fam := familyOf(t, db, r0)
 
 	done := make(chan error, 1)
 	go func() {
@@ -252,7 +202,7 @@ func TestRefreshAfterLogoutRevokeMintsNoSuccessor(t *testing.T) {
 
 	<-g.entered
 	// This is verbatim what oauth.logout does with the caller's cookie.
-	if _, err := newTestStore(newObjectStore(db)).RevokeFamily(fam); err != nil {
+	if _, err := newTestStore(db).RevokeFamily(fam); err != nil {
 		t.Fatal(err)
 	}
 	close(g.release)

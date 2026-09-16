@@ -777,24 +777,22 @@ func TestAppSrcDevMountsTheHostCheckout(t *testing.T) {
 // store/ is per-owner (spec 5/16 step 7): a daemon is bound to store/<owner>
 // for each database it opens, never to store/ itself.
 var wantDataMounts = map[string][]string{
-	"authd":  {"/store/authd:/srv/app/home/store/authd"},
-	"webd":   {"/store/routd:/srv/app/home/store/routd"},
-	"proxyd": {"/store/routd:/srv/app/home/store/routd"},
 	"onbod": {
-		"/store/onbod:/srv/app/home/store/onbod",
-		"/store/routd:/srv/app/home/store/routd",
 		"/groups:/srv/app/home/groups",
 		"/web:/srv/app/home/web",
 	},
 	"dashd": {
-		"/store/routd:/srv/app/home/store/routd",
-		"/store/onbod:/srv/app/home/store/onbod",
 		"/groups:/srv/app/home/groups",
 		"/surrogate:/srv/app/home/surrogate",
 	},
 	"routd": {":/srv/app/home"},
 	"runed": {":/srv/app/home"},
 }
+
+// noDataMount names the daemons that reach only the store server. A daemon that
+// reads no file of the instance has no reason to see the tree, and mounting one
+// hands it every other owner's data and every live MCP socket (BUGS F51, A1).
+var noDataMount = []string{"authd", "webd", "proxyd"}
 
 func TestDataMountsAreScopedPerDaemon(t *testing.T) {
 	dir := seed(t, "API_PORT=8080\n")
@@ -814,6 +812,16 @@ func TestDataMountsAreScopedPerDaemon(t *testing.T) {
 		// daemon must never carry it — that is the boundary this test defends.
 		if want[0] != ":/srv/app/home" && strings.Contains(s, "- "+dir+":"+containerDataMount+"\n") {
 			t.Errorf("%s mounts the whole data dir; it is scoped to %v:\n%s", svc, want, s)
+		}
+	}
+	for _, svc := range noDataMount {
+		s := serviceBlock(out, svc)
+		if s == "" {
+			t.Errorf("%s not emitted", svc)
+			continue
+		}
+		if strings.Contains(s, "- "+dir) {
+			t.Errorf("%s mounts part of the data dir; it reads only the store server:\n%s", svc, s)
 		}
 	}
 }

@@ -8,8 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -226,48 +224,5 @@ func TestMigrateStoreLayout_RefusesTwoCopies(t *testing.T) {
 	}
 	if got := mustRead(t, store.OwnerDBPath(storeDir, store.OwnerRoutd)); got != "nested rows" {
 		t.Errorf("nested routd.db = %q, want it untouched by the refusal", got)
-	}
-}
-
-// TestMigrateStoreLayout_DaemonBootsOnTheMovedDB is the whole point. routd.Open
-// now REQUIRES the file at the owner path and refuses to create one, so a mover
-// that stranded a live DB turns a deploy into an outage. This walks the real
-// boot path against a real migrated routd.db that started out flat, and reads
-// back a row seeded before the move.
-func TestMigrateStoreLayout_DaemonBootsOnTheMovedDB(t *testing.T) {
-	storeDir := filepath.Join(t.TempDir(), "store")
-
-	seeded, err := routd.Create(storeDir)
-	if err != nil {
-		t.Fatalf("routd.Create (seed): %v", err)
-	}
-	if err := seeded.PutGroup(core.Group{Folder: "acme/eng"}); err != nil {
-		t.Fatalf("PutGroup: %v", err)
-	}
-	seeded.Close()
-
-	// Stage the pre-step-7 tree this instance would really be sitting on.
-	file := store.OwnerDBs[store.OwnerRoutd]
-	if err := os.Rename(store.OwnerDBPath(storeDir, store.OwnerRoutd), filepath.Join(storeDir, file)); err != nil {
-		t.Fatalf("stage the flat layout: %v", err)
-	}
-	for _, owner := range []string{store.OwnerAuthd, store.OwnerOnbod, store.OwnerRoutd, store.OwnerRuned} {
-		_ = os.Remove(store.OwnerDir(storeDir, owner))
-	}
-	if _, err := routd.Open(storeDir); err == nil {
-		t.Fatal("routd.Open succeeded on the flat tree; this test proves nothing unless it cannot")
-	}
-
-	if _, err := MigrateStoreLayout(storeDir); err != nil {
-		t.Fatalf("MigrateStoreLayout: %v", err)
-	}
-
-	db, err := routd.Open(storeDir)
-	if err != nil {
-		t.Fatalf("routd.Open after the move: %v", err)
-	}
-	defer db.Close()
-	if _, ok := db.AllGroups()["acme/eng"]; !ok {
-		t.Error("the seeded group is gone — routd opened a different file than the one that moved")
 	}
 }

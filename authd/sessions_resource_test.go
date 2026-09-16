@@ -197,15 +197,15 @@ func TestSessionsRefuseFolderClaim(t *testing.T) {
 func TestSessionsRevokeKillsTheFamilyAndAudits(t *testing.T) {
 	db, a := auditTestAuthd(t)
 	_, ts := newServer(t, a)
-	audit.Init(newObjectStore(db), "test")
+	audit.Init(db, "test")
 	t.Cleanup(func() { audit.Init(nil, "") })
 
 	raw, err := a.IssueRefresh("google:114alice", []string{"acme/**"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	fam := familyOf(t, newObjectStore(db), raw)
-	if _, live := liveFamilyRows(t, newObjectStore(db), fam); live != 1 {
+	fam := familyOf(t, db, raw)
+	if _, live := liveFamilyRows(t, db, fam); live != 1 {
 		t.Fatalf("fixture family is not live (%d rows) — the kill below would prove nothing", live)
 	}
 
@@ -215,7 +215,7 @@ func TestSessionsRevokeKillsTheFamilyAndAudits(t *testing.T) {
 		t.Fatalf("status = %d, want 200: %s", code, body)
 	}
 
-	total, live := liveFamilyRows(t, newObjectStore(db), fam)
+	total, live := liveFamilyRows(t, db, fam)
 	if total != 1 {
 		t.Fatalf("want the 1 original row still present, got %d", total)
 	}
@@ -259,14 +259,14 @@ func TestSessionsRevokeUnknownFamilyIs404(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fam := familyOf(t, newObjectStore(db), raw)
+	fam := familyOf(t, db, raw)
 	tok := operatorToken(t, a, "sessions:read", "sessions:write")
 
 	if code, body := sessionsDELETE(t, ts.URL, "/v1/sessions/no-such-family", tok); code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404 for an unknown family: %s", code, body)
 	}
 	// The real family is untouched by the miss.
-	if _, live := liveFamilyRows(t, newObjectStore(db), fam); live != 1 {
+	if _, live := liveFamilyRows(t, db, fam); live != 1 {
 		t.Fatalf("a 404 revoked the wrong family: %d live rows", live)
 	}
 
@@ -289,7 +289,7 @@ func TestSessionsRowPerFamilyInvariant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fam := familyOf(t, newObjectStore(db), raw)
+	fam := familyOf(t, db, raw)
 
 	for i := range 3 {
 		_, next, err := a.Refresh(t.Context(), raw)
@@ -299,7 +299,7 @@ func TestSessionsRowPerFamilyInvariant(t *testing.T) {
 		raw = next
 	}
 
-	rows, err := newTestStore(newObjectStore(db)).SessionsByFamily("", 0, time.Now())
+	rows, err := newTestStore(db).SessionsByFamily("", 0, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}

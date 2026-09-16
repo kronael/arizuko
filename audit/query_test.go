@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/kronael/arizuko/objstore/sqlstore"
+	"github.com/kronael/arizuko/objstore/dynstore"
 )
 
 // Query is the read side of the compliance record: dashd's audit page, the
@@ -13,7 +13,7 @@ import (
 // another tenant's folder appearing here is a cross-tenant disclosure of who
 // did what, where.
 
-func seed(t *testing.T, s *sqlstore.Store, rows ...Event) []string {
+func seed(t *testing.T, s *dynstore.Store, rows ...Event) []string {
 	t.Helper()
 	var ids []string
 	for _, e := range rows {
@@ -339,7 +339,7 @@ func TestEmitToStampsTheInstance(t *testing.T) {
 }
 
 // instanceOf reads the instance off the one row a store holds.
-func instanceOf(t *testing.T, s *sqlstore.Store) string {
+func instanceOf(t *testing.T, s *dynstore.Store) string {
 	t.Helper()
 	rows, err := Query(context.Background(), s, Filter{})
 	if err != nil {

@@ -38,19 +38,19 @@ func TestInstallRefusesReservedRoutePath(t *testing.T) {
 // it does not ban them — and the row lands under the third owner value, so
 // generate keeps re-deriving it while the operator's own rows stay hands-off.
 func TestInstallAcceptsPackageOwnRoutePath(t *testing.T) {
+	t.Cleanup(func() { dropInstance(t) })
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
-	dataDir := seedPkgInstance(t, base, "ok")
 	src := writePkg(t, base, "okpkg",
 		"proxyd_routes:\n  - path: /okpkg/\n    backend: http://okpkg:8080\n    auth: public\n")
 	cmdPackages([]string{"ok", "install", src})
 
-	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
+	rdb, err := routd.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer rdb.Close()
-	routes, err := store.New(rdb.SQL()).AllProxydRoutes()
+	routes, err := store.NewOver(rdb.Obj()).AllProxydRoutes()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,19 +104,19 @@ func TestInstallRefusesUnboundedGrantScope(t *testing.T) {
 // The other half of the bound: a grant the operator DID hand over goes in.
 // `eng/*` is inside `eng/**`.
 func TestInstallAcceptsGrantInsideTheBound(t *testing.T) {
+	t.Cleanup(func() { dropInstance(t) })
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
-	dataDir := seedPkgInstance(t, base, "gi")
 	src := writePkg(t, base, "gipkg",
 		"acl:\n  - principal: '@ops'\n    action: reply\n    scope: eng/*\n    effect: allow\n")
 	cmdPackages([]string{"gi", "install", src, "--folder", "eng/**"})
 
-	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
+	rdb, err := routd.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer rdb.Close()
-	rows, err := store.New(rdb.SQL()).ListACL("@ops")
+	rows, err := store.NewOver(rdb.Obj()).ListACL("@ops")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,12 +157,12 @@ func assertNothingInstalled(t *testing.T, dataDir, name string) {
 			t.Errorf("a refused install left %s behind", n)
 		}
 	}
-	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
+	rdb, err := routd.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer rdb.Close()
-	rst := store.New(rdb.SQL())
+	rst := store.NewOver(rdb.Obj())
 	grants, err := rst.ListACL("")
 	if err != nil {
 		t.Fatal(err)

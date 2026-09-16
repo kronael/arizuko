@@ -236,12 +236,14 @@ func TestSecret_NoKey_RefusesToWrite(t *testing.T) {
 
 	// The refusal must also leave NOTHING behind — a partially-written row would
 	// be the same disclosure the error exists to prevent.
-	var n int
-	if err := s.db.QueryRow(`SELECT count(*) FROM secrets`).Scan(&n); err != nil {
+	items, err := s.Obj().Query(context.Background(), objstore.Query{
+		Entity: Secrets, Partition: OwnerRoutd,
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if n != 0 {
-		t.Errorf("refused writes still left %d secrets row(s)", n)
+	if len(items) != 0 {
+		t.Errorf("refused writes still left %d secrets row(s)", len(items))
 	}
 }
 

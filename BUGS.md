@@ -7,6 +7,34 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L302 — sixteen folder-scope verdicts name tables no owner declares any more (2026-09-14, open)
+
+MEASURED against `store.EntitiesByOwner`. `folderScopeKeep` carries a verdict
+for `cli_audit`, `ipc_audit`, `cost_log`, `cost_log_archive`, `chat_sessions`,
+`auth_users`, `auth_sessions`, `identities`, `identity_claims`, `identity_codes`,
+`idempotency_keys`, `router_state`, `config_meta`, `migrations`,
+`sqlite_sequence` and the five `messages_fts*` shadow tables. None of them is an
+entity any owner declares: the FTS5 index and the two SQL bookkeeping tables
+went with the migration chains, and the rest are other daemons' or were retired.
+
+The list calls itself "a TOTAL classification". It is total over a set that
+includes ghosts, so a reader cannot tell a deliberate cross-owner verdict
+(`session_log` is runed's, `invites` is onbod's) from a leftover. That is the
+same shape as the entry the completeness test exists to prevent.
+
+`TestFolderScope_ClassifiesEveryDeclaredEntity` proves the other direction —
+every declared entity HAS a verdict — and is the half that stops a new table
+slipping through. The undeclared half needs the cross-owner names marked as
+such first, which is why it is not shipped with it.
+
+- **Severity:** low — no wrong behaviour; a delete does not act on a table that
+  is not there
+- **Scope:** `store/folder_scope.go` `folderScopeKeep`
+- **Affected:** a reader deciding whether a new entity needs a verdict
+- **Source:** `store/folder_scope.go:188-250` against `store/entities.go`
+  `EntitiesByOwner`
+- **Status:** open
+
 ## ✅ FIXED 2026-09-14 L300 — `arizuko create` needed a store server that cannot exist yet (2026-09-14)
 
 MEASURED on this tree. `create` ended by opening routd to seed group `main`, its

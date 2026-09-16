@@ -10,7 +10,6 @@ import (
 
 	"github.com/kronael/arizuko/compose"
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
 )
@@ -57,14 +56,15 @@ func runPkgExpectingDeath(t *testing.T, args []string) int {
 func seedPkgInstance(t *testing.T, base, name string) string {
 	t.Helper()
 	dataDir := filepath.Join(base, "arizuko_"+name)
-	if err := db_utils.CreateDBFile(store.OwnerDBPath(filepath.Join(dataDir, "store"), store.OwnerRoutd)); err != nil {
+	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
+	rdb, err := routd.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
 	rdb.Close()
+	t.Cleanup(func() { dropInstance(t) })
 	return dataDir
 }
 
@@ -92,9 +92,9 @@ func writePkg(t *testing.T, base, name, manifest string) string {
 // package could not declare either — there was no `<name>-tasks.json`, and
 // adding one was the wrong answer. Both now install from the one manifest.
 func TestPackageInstallsTaskAndNetworkRule(t *testing.T) {
+	t.Cleanup(func() { dropInstance(t) })
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
-	dataDir := seedPkgInstance(t, base, "tn")
 	src := writePkg(t, base, "tnpkg",
 		"network_rules:\n"+
 			"  - folder: ''\n    target: api.example.com\n"+
@@ -104,13 +104,13 @@ func TestPackageInstallsTaskAndNetworkRule(t *testing.T) {
 
 	cmdPackages([]string{"tn", "install", src})
 
-	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
+	rdb, err := routd.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer rdb.Close()
-	rst := store.New(rdb.SQL())
-	if n := ruleCount(t, rdb.SQL(), "", "api.example.com"); n != 1 {
+	rst := store.NewOver(rdb.Obj())
+	if n := ruleCount(t, store.NewOver(rdb.Obj()), "", "api.example.com"); n != 1 {
 		t.Fatalf("package network rule not installed: %d rules name api.example.com", n)
 	}
 	task, ok, err := rst.TaskByID("tnpkg-nightly")
@@ -131,6 +131,7 @@ func TestPackageInstallsTaskAndNetworkRule(t *testing.T) {
 // failing install must now leave NO row of the package behind — the manifest is
 // validated whole before the first write, and the write itself is one apply tx.
 func TestFailedInstallLeavesNoPartialRows(t *testing.T) {
+	t.Cleanup(func() { dropInstance(t) })
 	pkgChildRun()
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
@@ -151,12 +152,12 @@ func TestFailedInstallLeavesNoPartialRows(t *testing.T) {
 		t.Error("a failed install left its compose fragment behind")
 	}
 
-	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
+	rdb, err := routd.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer rdb.Close()
-	rows, err := store.New(rdb.SQL()).ListACL("@first")
+	rows, err := store.NewOver(rdb.Obj()).ListACL("@first")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,6 +175,7 @@ func TestFailedInstallLeavesNoPartialRows(t *testing.T) {
 // never land and the files come back off, so `generate` cannot pick up half a
 // package.
 func TestFailedInstallUnwindsWrittenFiles(t *testing.T) {
+	t.Cleanup(func() { dropInstance(t) })
 	pkgChildRun()
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
@@ -191,12 +193,12 @@ func TestFailedInstallUnwindsWrittenFiles(t *testing.T) {
 			t.Errorf("a refused install left %s behind", n)
 		}
 	}
-	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
+	rdb, err := routd.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer rdb.Close()
-	rows, err := store.New(rdb.SQL()).ListACL("@late")
+	rows, err := store.NewOver(rdb.Obj()).ListACL("@late")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,15 +213,15 @@ func TestFailedInstallUnwindsWrittenFiles(t *testing.T) {
 // package, both survive. Apply rebuilds a resource wholesale, so this is the
 // property the merge-onto-the-live-projection model has to buy back.
 func TestRemoveReversesOnlyRecordedRows(t *testing.T) {
+	t.Cleanup(func() { dropInstance(t) })
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
-	dataDir := seedPkgInstance(t, base, "rv")
 
-	rdb0, err := routd.Create(filepath.Join(dataDir, "store"))
+	rdb0, err := routd.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
-	st0 := store.New(rdb0.SQL())
+	st0 := store.NewOver(rdb0.Obj())
 	if _, _, err := st0.SyncProxydRoutes([]store.ProxydRoute{
 		{Path: "/mine/", Backend: "http://mine:8080", Auth: "user", Owner: store.RouteOwnerOperator}}); err != nil {
 		t.Fatal(err)
@@ -236,12 +238,12 @@ func TestRemoveReversesOnlyRecordedRows(t *testing.T) {
 	cmdPackages([]string{"rv", "install", src, "--folder", "eng/**"})
 	cmdPackages([]string{"rv", "remove", "rvpkg"})
 
-	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
+	rdb, err := routd.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer rdb.Close()
-	st := store.New(rdb.SQL())
+	st := store.NewOver(rdb.Obj())
 	routes, err := st.AllProxydRoutes()
 	if err != nil {
 		t.Fatal(err)
@@ -286,15 +288,15 @@ func TestRemoveReversesOnlyRecordedRows(t *testing.T) {
 // revoked every holder's right to re-delegate. The row type carries all nine
 // columns now; this is the guard that keeps it that way.
 func TestPackageInstallPreservesGrantOption(t *testing.T) {
+	t.Cleanup(func() { dropInstance(t) })
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
-	dataDir := seedPkgInstance(t, base, "go2")
 
-	rdb0, err := routd.Create(filepath.Join(dataDir, "store"))
+	rdb0, err := routd.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.New(rdb0.SQL()).AddACLRow(core.ACLRow{
+	if err := store.NewOver(rdb0.Obj()).AddACLRow(core.ACLRow{
 		Principal: "@delegator", Action: "admin", Scope: "eng/*", Effect: "allow", GrantOption: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -304,12 +306,12 @@ func TestPackageInstallPreservesGrantOption(t *testing.T) {
 		"acl:\n  - principal: '@other'\n    action: reply\n    scope: ops\n    effect: allow\n")
 	cmdPackages([]string{"go2", "install", src, "--folder", "ops"})
 
-	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
+	rdb, err := routd.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer rdb.Close()
-	rows, err := store.New(rdb.SQL()).ListACL("@delegator")
+	rows, err := store.NewOver(rdb.Obj()).ListACL("@delegator")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -360,17 +362,17 @@ func TestGenerateReadsRoutesFromPackageManifest(t *testing.T) {
 // Revert that and this test fails while every other remove test still passes,
 // because acl and proxyd_routes are instance-global and never had the problem.
 func TestRemoveWithdrawsTheLastRowInAScope(t *testing.T) {
+	t.Cleanup(func() { dropInstance(t) })
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
-	dataDir := seedPkgInstance(t, base, "sc")
 
 	// The rule targets folder `main`, so the group must exist — apply's
 	// preflight refuses a folder that is not a group.
-	rdb0, err := routd.Create(filepath.Join(dataDir, "store"))
+	rdb0, err := routd.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.New(rdb0.SQL()).PutGroup(core.Group{Folder: "main"}); err != nil {
+	if err := store.NewOver(rdb0.Obj()).PutGroup(core.Group{Folder: "main"}); err != nil {
 		t.Fatal(err)
 	}
 	rdb0.Close()
@@ -381,12 +383,12 @@ func TestRemoveWithdrawsTheLastRowInAScope(t *testing.T) {
 
 	count := func(t *testing.T) int {
 		t.Helper()
-		rdb, err := routd.Create(filepath.Join(dataDir, "store"))
+		rdb, err := routd.Open()
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer rdb.Close()
-		n := ruleCount(t, rdb.SQL(), "", "scpkg.example.com")
+		n := ruleCount(t, store.NewOver(rdb.Obj()), "", "scpkg.example.com")
 		return n
 	}
 

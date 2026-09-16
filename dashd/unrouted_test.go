@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,10 +8,11 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
 )
 
-func seedInbound(t *testing.T, db *sql.DB, id, jid, sender string, at time.Time) {
+func seedInbound(t *testing.T, db objstore.Store, id, jid, sender string, at time.Time) {
 	t.Helper()
 	seedRoutdMessage(t, db, core.Message{
 		ID: id, ChatJID: jid, Sender: sender, Content: "hi", Timestamp: at, Verb: "message",
@@ -23,9 +23,9 @@ func seedInbound(t *testing.T, db *sql.DB, id, jid, sender string, at time.Time)
 // `messages` is an objstore entity, so a fixture cannot reach it with an INSERT
 // naming columns; and the write fans out to the folder, activity and delivery
 // indexes the dashboard reads.
-func seedRoutdMessage(t *testing.T, db *sql.DB, m core.Message) {
+func seedRoutdMessage(t *testing.T, db objstore.Store, m core.Message) {
 	t.Helper()
-	if err := store.New(db).PutMessage(m); err != nil {
+	if err := store.NewOver(db).PutMessage(m); err != nil {
 		t.Fatalf("seed message %s: %v", m.ID, err)
 	}
 }
@@ -49,7 +49,7 @@ func TestRoutes_UnroutedSectionOperatorOnly(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
 	seedFolderAdmin(t, d, "bob@x", "bob")
 	now := time.Now()
-	seedRoute(t, over(routd), core.Route{Seq: 0, Match: "chat_jid=telegram:group/1", Target: "team"})
+	seedRoute(t, routd, core.Route{Seq: 0, Match: "chat_jid=telegram:group/1", Target: "team"})
 	seedInbound(t, routd, "r1", "telegram:group/1", "u1", now)
 	seedInbound(t, routd, "h1", "telegram:user/7", "u7", now.Add(-time.Minute))
 	seedInbound(t, routd, "h2", "telegram:user/7", "u7", now)
@@ -85,7 +85,7 @@ func TestRoutes_ClaimWritesTheRoute(t *testing.T) {
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("claim = %d, want 303; body=%q", w.Code, w.Body.String())
 	}
-	if n := countRoutes(t, over(routd), func(r core.Route) bool {
+	if n := countRoutes(t, routd, func(r core.Route) bool {
 		return r.Match == "chat_jid=telegram:user/7" && r.Target == "team"
 	}); n != 1 {
 		t.Fatalf("route rows after claim = %d, want 1", n)

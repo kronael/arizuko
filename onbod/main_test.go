@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"html"
 	"log/slog"
 	"net/http"
@@ -19,17 +20,23 @@ import (
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/db_utils/dbtest"
 	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 	"github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
 )
 
 func TestMain(m *testing.M) {
+	if err := dyntest.Setup(); err != nil {
+		fmt.Fprintf(os.Stderr, "dyntest: %v\n", err)
+		os.Exit(1)
+	}
 	os.Setenv("ARIZUKO_DEV", "true")
 	os.Setenv("HOST_APP_DIR", "/tmp/test-app")
-	os.Exit(m.Run())
+	code := m.Run()
+	dyntest.Shutdown()
+	os.Exit(code)
 }
 
 // migratedDB returns the two databases onbod runs against, in the order every
@@ -44,19 +51,19 @@ func migratedDB(t *testing.T) (xdb, obdb *store.Store) {
 	}
 	t.Cleanup(func() { rdb.Close() })
 
-	ob := dbtest.Open(t)
-	if err := prepareOwned(newObjectStore(ob)); err != nil {
+	ob := dyntest.Store(t)
+	if err := prepareOwned(ob); err != nil {
 		t.Fatalf("onbod migrate: %v", err)
 	}
-	return store.New(rdb.SQL()), store.NewOver(newObjectStore(ob))
+	return store.NewOver(rdb.Obj()), store.NewOver(ob)
 }
 
 // testDB fuses onbod's two owners into ONE handle, for the handlers these tests
-// drive with a single database. Both halves are built by the chain their owner
-// ships — routd's for groups/routes/route_tokens/acl/acl_membership and the
-// tables beside them, onbod's own prepareOwned for its three entities, its
-// audit_log and its invite_redemptions — so a rename on either side reaches
-// here. A CREATE TABLE of its own would build a shape production does not have.
+// drive with a single store. Both halves are built by their owner's own door —
+// routd's open for groups/routes/route_tokens/acl/acl_membership and the tables
+// beside them, onbod's own prepareOwned for its three entities, its audit_log
+// and its invite_redemptions — so a rename on either side reaches here. A
+// declaration of its own would build a shape production does not have.
 func testDB(t *testing.T) *store.Store {
 	t.Helper()
 	rdb, err := routd.OpenMem()
@@ -64,11 +71,14 @@ func testDB(t *testing.T) *store.Store {
 		t.Fatalf("routd.OpenMem: %v", err)
 	}
 	t.Cleanup(func() { rdb.Close() })
-	pool := rdb.SQL()
-	if err := prepareOwned(newObjectStore(pool)); err != nil {
+	pool, ok := rdb.Obj().(store.Driver)
+	if !ok {
+		t.Fatalf("routd's handle is %T, which makes no entities", rdb.Obj())
+	}
+	if err := prepareOwned(pool); err != nil {
 		t.Fatalf("onbod migrate: %v", err)
 	}
-	return store.New(pool)
+	return store.NewOver(pool)
 }
 
 // fixtureTS is the instant a fixture stamps when it does not care which. It is

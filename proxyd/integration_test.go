@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/auth"
-	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/tests/testutils"
 )
 
@@ -21,7 +20,7 @@ import (
 func newIntegProxy(t *testing.T, secret string) (*server, *httptest.Server, *testutils.Inst) {
 	t.Helper()
 	inst := testutils.NewRoutdInstance(t)
-	st := store.New(inst.DB)
+	st := inst.Store
 
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Upstream-Hit", "1")

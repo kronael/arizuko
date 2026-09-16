@@ -1,22 +1,17 @@
 # gitd — GitHub webhook ingress (spec 6/27). Delivery sources and their sealed
-# secrets live in routd.db (`arizuko github <inst> add …`), so gitd mounts
-# store/routd/ for the lookup (WAL readers write the -shm sidecar, so not :ro)
-# and store/gitd/ for its own inbound-retention + outbound-dedup record.
+# secrets are routd's (`arizuko github <inst> add …`) and gitd's own
+# inbound-retention and outbound-dedup record is its own prefix; both live on the
+# store server, so gitd mounts no part of the data dir.
 # SECRETS_KEY + the optional GITHUB_TOKEN arrive via env/gitd.env.
 services:
   gitd:
     container_name: ${APP}_gitd_${FLAVOR}
     image: arizuko:latest
     entrypoint: ['gitd']
-    volumes:
-      - '${DATA_DIR}/store/routd:/srv/app/home/store/routd'
-      - '${DATA_DIR}/store/gitd:/srv/app/home/store/gitd'
     env_file: ['../env/gitd.env']
     environment:
       ROUTER_URL: 'http://routd:8080'
       LISTEN_ADDR: ':8080'
       LISTEN_URL: 'http://gitd:8080'
-      DB_PATH: '/srv/app/home/store/routd/routd.db'
-      DATA_DIR: '/srv/app/home/store/gitd'
     depends_on: [routd]
     restart: on-failure

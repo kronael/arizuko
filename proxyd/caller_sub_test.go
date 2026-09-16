@@ -7,8 +7,11 @@ import (
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 	"github.com/kronael/arizuko/tests/testutils"
 )
+
+func TestMain(m *testing.M) { dyntest.Main(m) }
 
 // authd mints the JWT sub prefixed ("user:alice"), and proxyd stamps that claim
 // into X-User-Sub verbatim. acl.principal and acl_membership.child store BARE

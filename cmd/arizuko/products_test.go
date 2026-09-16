@@ -14,6 +14,7 @@ import (
 // named products, each a local source tree under <base>/src/<name>.
 func mixInstance(t *testing.T, files map[string]map[string]string, order []string) (dataDir, base string) {
 	t.Helper()
+	t.Cleanup(func() { dropInstance(t) })
 	base = t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir = filepath.Join(base, "arizuko_t")
@@ -27,7 +28,7 @@ func mixInstance(t *testing.T, files map[string]map[string]string, order []strin
 	// The owner DB must EXIST before any CLI verb touches it — routd.Open now
 	// refuses to manufacture one (spec 5/16 step 7), so a fixture that only
 	// mkdir'd store/ used to get a silently-empty instance and now fails loud.
-	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
+	rdb, err := routd.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,6 +59,7 @@ func mixInstance(t *testing.T, files map[string]map[string]string, order []strin
 // still shares the instance's key and `packages remove` could reach a group's
 // products.
 func TestProductsApplyWritesGroupScopedRecord(t *testing.T) {
+	t.Cleanup(func() { dropInstance(t) })
 	dataDir, _ := mixInstance(t, map[string]map[string]string{
 		"one": {"PRODUCT.md": "name = \"one\"\n", "PERSONA.md": "p1"},
 		"two": {"PRODUCT.md": "name = \"two\"\n", "facts/t.md": "f2"},
@@ -73,7 +75,7 @@ func TestProductsApplyWritesGroupScopedRecord(t *testing.T) {
 		t.Fatalf("facts/t.md = %q err=%v", b, err)
 	}
 
-	rdb, err := routd.Open(filepath.Join(dataDir, "store"))
+	rdb, err := routd.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,6 +106,7 @@ func TestProductsApplyWritesGroupScopedRecord(t *testing.T) {
 // that rewrites the whole group tree every run. Never the second-granular
 // installed_at, which matches even when the record is rewritten.
 func TestProductsApplyIsIdempotent(t *testing.T) {
+	t.Cleanup(func() { dropInstance(t) })
 	dataDir, _ := mixInstance(t, map[string]map[string]string{
 		"one": {"PRODUCT.md": "name = \"one\"\n", "CLAUDE.md": "runbook", "skills/s/SKILL.md": "v1"},
 	}, []string{"one"})
@@ -113,7 +116,7 @@ func TestProductsApplyIsIdempotent(t *testing.T) {
 	before := treeHashes(t, groupDir)
 	beforeMtime := treeMtimes(t, groupDir)
 
-	rdb, err := routd.Open(filepath.Join(dataDir, "store"))
+	rdb, err := routd.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +139,7 @@ func TestProductsApplyIsIdempotent(t *testing.T) {
 			t.Errorf("%s was re-written on a no-op re-apply (mtime %v -> %v)", rel, was, mt)
 		}
 	}
-	rdb2, err := routd.Open(filepath.Join(dataDir, "store"))
+	rdb2, err := routd.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,6 +163,7 @@ func TestProductsApplyIsIdempotent(t *testing.T) {
 // compose fragment. Routing it through reapplyPackage dies on "no compose
 // fragment"; routing it through the mix re-applies it.
 func TestPackagesSyncCoversGroupMix(t *testing.T) {
+	t.Cleanup(func() { dropInstance(t) })
 	dataDir, base := mixInstance(t, map[string]map[string]string{
 		"one": {"PRODUCT.md": "name = \"one\"\n", "skills/s/SKILL.md": "v1"},
 	}, []string{"one"})

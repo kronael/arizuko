@@ -82,7 +82,7 @@ func callToolArray(t *testing.T, sock, name string, args map[string]any) ([]any,
 // the audit-free PutTaskRow: this is test seeding, not an act to record.
 func seedTask(t *testing.T, d *DB, id, owner, jid, prompt string) {
 	t.Helper()
-	if err := store.New(d.SQL()).CreateTask(core.Task{
+	if err := store.NewOver(d.Obj()).CreateTask(core.Task{
 		ID: id, Owner: owner, ChatJID: jid, Prompt: prompt,
 		Cron: "0 9 * * *", Status: core.TaskActive, Created: time.Now(),
 	}); err != nil {
@@ -303,7 +303,7 @@ func TestListTasks_OwnDB(t *testing.T) {
 	}
 
 	// inspect_tasks also reads tasks + per-task run logs from routd's own db.
-	if err := store.New(db.SQL()).RecordTaskRun(store.TaskRunLog{
+	if err := store.NewOver(db.Obj()).RecordTaskRun(store.TaskRunLog{
 		TaskID: "task-1", DurationMS: 12, Status: "ok",
 	}); err != nil {
 		t.Fatalf("seed task_run_logs: %v", err)

@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
 )
@@ -18,6 +17,7 @@ import (
 // refuse to start until the operator wrote MODEL_GATEWAY_KEY by hand), and a
 // declared row lands with a record that names it, so `remove` can withdraw it.
 func TestPackagesAddProvisionsEnvAndAppliesRows(t *testing.T) {
+	t.Cleanup(func() { dropInstance(t) })
 	dataDir := seedSyncInstance(t, "mint",
 		map[string]string{
 			"litellm.yml": "services:\n  litellm:\n    image: x\n",
@@ -43,7 +43,7 @@ func TestPackagesAddProvisionsEnvAndAppliesRows(t *testing.T) {
 	if rec.Source != catalogOrigin || len(rec.Manifest["network_rules"]) != 1 {
 		t.Fatalf("add must record the rows it applied: %+v", rec)
 	}
-	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
+	rdb, err := routd.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,12 +51,12 @@ func TestPackagesAddProvisionsEnvAndAppliesRows(t *testing.T) {
 	// The floor a routd.db is born with carries this very rule, and the package
 	// declares it too — so the count is one either way and what `remove` has to
 	// prove is that the row it recorded is gone.
-	if n := ruleCount(t, rdb.SQL(), "", "api.anthropic.com"); n != 1 {
+	if n := ruleCount(t, store.NewOver(rdb.Obj()), "", "api.anthropic.com"); n != 1 {
 		t.Fatalf("catalog package's network rule not applied: %d rules name it", n)
 	}
 
 	cmdPackages([]string{"mint", "remove", "litellm"})
-	if n := ruleCount(t, rdb.SQL(), "", "api.anthropic.com"); n != 0 {
+	if n := ruleCount(t, store.NewOver(rdb.Obj()), "", "api.anthropic.com"); n != 0 {
 		t.Error("remove must withdraw the row the record names")
 	}
 	if _, err := os.Lstat(filepath.Join(dataDir, "services", "litellm.yml")); err == nil {
@@ -67,10 +67,11 @@ func TestPackagesAddProvisionsEnvAndAppliesRows(t *testing.T) {
 // seedRoutdDB gives an instance the routd.db every real one has.
 func seedRoutdDB(t *testing.T, dataDir string) {
 	t.Helper()
-	if err := db_utils.CreateDBFile(store.OwnerDBPath(filepath.Join(dataDir, "store"), store.OwnerRoutd)); err != nil {
+	t.Cleanup(func() { dropInstance(t) })
+	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
+	rdb, err := routd.Open()
 	if err != nil {
 		t.Fatal(err)
 	}

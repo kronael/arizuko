@@ -68,7 +68,7 @@ func TestPairingMint_RoutedJID(t *testing.T) {
 		t.Fatalf("url = %q, want https://x.test/pair/<token>", url)
 	}
 
-	st := store.New(db.SQL())
+	st := store.NewOver(db.Obj())
 	got, err := st.PeekPairing(raw)
 	if err != nil || got != "telegram:user/42" {
 		t.Fatalf("PeekPairing = (%q, %v)", got, err)

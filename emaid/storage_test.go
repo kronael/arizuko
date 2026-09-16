@@ -1,27 +1,30 @@
 package main
 
-// storage_test.go holds the fixture every body that needs a store uses. It goes
-// through openStorage rather than through statements: a fixture that spelled
-// the storage out in SQL would be asserting on ONE driver's table shape while
-// the adapter it tests holds none.
+// storage_test.go holds the fixture every body that needs a store uses. It asks
+// for the entity sets the two layers DECLARE rather than spelling storage out
+// itself, so a set that changes reaches these bodies. openStorage's own door is
+// proved once, in config_test.go, on the prefix a live adapter opens.
 
 import (
 	"testing"
 
 	"github.com/kronael/arizuko/chanlib/chanstore"
 	"github.com/kronael/arizuko/emaid/emaistore"
+	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 )
 
-// newTestStorage hands a test the two stores over a fresh emaid.db: chanlib's,
-// which the adapter mux dedups against, and emaistore's, which emaid reads.
+// newTestStorage hands a test the two stores over a namespace of its own:
+// chanlib's, which the adapter mux dedups against, and emaistore's, which emaid
+// reads.
 func newTestStorage(t *testing.T) (*chanstore.Store, *emaistore.Store) {
 	t.Helper()
-	as, st, err := openStorage(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
+	d := dyntest.Store(t)
+	for _, entity := range append(append([]string{}, chanstore.Entities...), emaistore.Entities...) {
+		if err := d.CreateEntity(t.Context(), entity); err != nil {
+			t.Fatalf("create entity %s: %v", entity, err)
+		}
 	}
-	t.Cleanup(func() { as.Close() })
-	return as.Chan, st
+	return chanstore.New(d), emaistore.New(d)
 }
 
 // newTestMailstore is newTestStorage for a body that needs only the store — the

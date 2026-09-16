@@ -4,7 +4,6 @@ import (
 	"crypto/ecdsa"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -35,13 +34,7 @@ var dashBearer string
 
 func newDashAdmin(t *testing.T) *admin {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "store", "onbod.db")
-	mustSeedDB(t, path)
-	db, err := openOwned(path)
-	if err != nil {
-		t.Fatalf("openOwned: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
+	db := ownedDB(t)
 	ks, tok := operatorKeySet(t)
 	dashBearer = tok
 	return &admin{st: db, ks: ks}

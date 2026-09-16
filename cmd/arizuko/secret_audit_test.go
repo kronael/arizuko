@@ -5,12 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/store"
 
 	"github.com/kronael/arizuko/audit"
-
-	"github.com/kronael/arizuko/objstore/sqlstore"
 )
 
 // `arizuko secret set|delete` carried the same false claim as grant (BUGS.md Q5)
@@ -35,14 +32,9 @@ const secretPlaintext = "sk-plaintext-do-not-log-9f3a"
 // secretAuditRow returns (actor, surface, whole-row-text) of the newest audit_log
 // row for action in dir/routd.db. The third element concatenates every column so
 // a leak into ANY of them is caught, not just the one we expect to hold params.
-func secretAuditRow(t *testing.T, dir, action string) (actor, surface, whole string) {
+func secretAuditRow(t *testing.T, st *store.Store, action string) (actor, surface, whole string) {
 	t.Helper()
-	db, err := db_utils.Open(store.OwnerDBPath(dir, store.OwnerRoutd))
-	if err != nil {
-		t.Fatalf("open routd.db: %v", err)
-	}
-	defer db.Close()
-	rows, err := audit.Query(t.Context(), sqlstore.New(db), audit.Filter{Limit: audit.MaxLimit})
+	rows, err := audit.Query(t.Context(), st.Obj(), audit.Filter{Limit: audit.MaxLimit})
 	if err != nil {
 		t.Fatalf("read the audit trail: %v", err)
 	}
@@ -57,14 +49,10 @@ func secretAuditRow(t *testing.T, dir, action string) (actor, surface, whole str
 	return "", "", ""
 }
 
-// secretStore opens dir's routd.db with a keyring, as the CLI does.
-func secretStore(t *testing.T, dir, osUser string) *store.Store {
+// secretStore is routd's own tables with a keyring, as the CLI holds them.
+func secretStore(t *testing.T, osUser string) *store.Store {
 	t.Helper()
-	s, err := store.OpenRoutd(dir)
-	if err != nil {
-		t.Fatalf("OpenRoutd: %v", err)
-	}
-	t.Cleanup(func() { s.Close() })
+	s := routdStore(t)
 	s.SetSecretKeys([]byte("test-keyring"))
 	if osUser == "" {
 		return s
@@ -73,22 +61,20 @@ func secretStore(t *testing.T, dir, osUser string) *store.Store {
 }
 
 func TestSecretSetAudited(t *testing.T) {
-	dir := setupSplitStore(t)
-	s := secretStore(t, dir, "alice")
+	s := secretStore(t, "alice")
 	var out bytes.Buffer
 	if err := runSecretSet(s, store.ScopeFolder, "atlas", "API_KEY", secretPlaintext, &out); err != nil {
 		t.Fatalf("runSecretSet: %v", err)
 	}
 
-	actor, surface, _ := secretAuditRow(t, dir, "secret.set")
+	actor, surface, _ := secretAuditRow(t, s, "secret.set")
 	if actor != "cli:alice" || surface != "cli" {
 		t.Errorf("secret.set = (%q, %q), want (cli:alice, cli)", actor, surface)
 	}
 }
 
 func TestSecretDeleteAudited(t *testing.T) {
-	dir := setupSplitStore(t)
-	s := secretStore(t, dir, "alice")
+	s := secretStore(t, "alice")
 	var out bytes.Buffer
 	if err := runSecretSet(s, store.ScopeFolder, "atlas", "API_KEY", secretPlaintext, &out); err != nil {
 		t.Fatalf("runSecretSet: %v", err)
@@ -97,7 +83,7 @@ func TestSecretDeleteAudited(t *testing.T) {
 		t.Fatalf("runSecretDelete: %v", err)
 	}
 
-	actor, surface, _ := secretAuditRow(t, dir, "secret.delete")
+	actor, surface, _ := secretAuditRow(t, s, "secret.delete")
 	if actor != "cli:alice" || surface != "cli" {
 		t.Errorf("secret.delete = (%q, %q), want (cli:alice, cli)", actor, surface)
 	}
@@ -117,12 +103,7 @@ func TestSecretAuditNeverCarriesValue(t *testing.T) {
 		{"user sealed", store.ScopeUser, "github:alice", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			dir := setupSplitStore(t)
-			s, err := store.OpenRoutd(dir)
-			if err != nil {
-				t.Fatalf("OpenRoutd: %v", err)
-			}
-			defer s.Close()
+			s := routdStore(t)
 			if tc.keyring {
 				s.SetSecretKeys([]byte("test-keyring"))
 			}
@@ -136,7 +117,7 @@ func TestSecretAuditNeverCarriesValue(t *testing.T) {
 			}
 
 			for _, action := range []string{"secret.set", "secret.delete"} {
-				actor, _, whole := secretAuditRow(t, dir, action)
+				actor, _, whole := secretAuditRow(t, s, action)
 				if actor == "" {
 					t.Fatalf("%s recorded nothing", action)
 				}
@@ -151,14 +132,13 @@ func TestSecretAuditNeverCarriesValue(t *testing.T) {
 // An unattributed Store keeps the pre-AsCLI output, so routd's own secrets
 // resource is unaffected by the CLI gaining an operator.
 func TestSecretAuditUnattributedStaysSystem(t *testing.T) {
-	dir := setupSplitStore(t)
-	s := secretStore(t, dir, "")
+	s := secretStore(t, "")
 	var out bytes.Buffer
 	if err := runSecretSet(s, store.ScopeFolder, "atlas", "API_KEY", secretPlaintext, &out); err != nil {
 		t.Fatalf("runSecretSet: %v", err)
 	}
 
-	actor, surface, _ := secretAuditRow(t, dir, "secret.set")
+	actor, surface, _ := secretAuditRow(t, s, "secret.set")
 	if actor != "system" || surface != "gateway" {
 		t.Errorf("unattributed = (%q, %q), want (system, gateway)", actor, surface)
 	}

@@ -183,7 +183,7 @@ func TestApprovalResolve_BadVerdictRejected(t *testing.T) {
 // pendingCountDB is a migrated routd.db; the portal count reads pending_actions.
 func pendingCountDB(t *testing.T) *dash {
 	t.Helper()
-	return &dash{routd: over(routdDB(t))}
+	return &dash{routd: routdDB(t)}
 }
 
 // The portal banner counts only calls still WAITING that this caller may

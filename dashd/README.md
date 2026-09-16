@@ -83,14 +83,11 @@ Read surfaces (`/dash/status/`, `/dash/tasks/`, `/dash/activity/`, `/dash/groups
 
 ## Configuration
 
-- `DATA_DIR` — base for `<DATA_DIR>/groups/`, and for the owner files when
-  the instance keeps them (`DYNAMODB_URL` unset)
-- `DB_PATH` — explicit routd.db DSN; overrides `DATA_DIR/store/routd/routd.db`.
-  `ONBOD_DB_PATH` is the same for the invites view (default
-  `DATA_DIR/store/onbod/onbod.db`); unavailable = onbod's profile is off and the
-  view banners "store unavailable". Both are read through `store.OpenOwner`, so
-  an instance served from a DynamoDB endpoint (`DYNAMODB_URL`, spec 6/42) takes
-  its tables from there and opens no file at all
+- `DATA_DIR` — base for `<DATA_DIR>/groups/`
+- `DYNAMODB_URL` + `AWS_*` + `STORE_CA` — the store server dashd reads routd's
+  and onbod's tables on, through `store.OpenOwner` (spec 6/42). An owner that
+  will not open means its profile is off, and that view banners "store
+  unavailable"
 - `DASH_PORT` — listen port (default `:8080`)
 - `ARIZUKO_INSTANCE` — instance name for audit/obs; read at startup
 - `AUTHD_URL` — authd's base URL, used twice: the JWKS endpoint (unset → identity verification disabled, local dev) and the backend for the `/dash/authd/` control plane (default `http://authd:8080` via `backendURL`)

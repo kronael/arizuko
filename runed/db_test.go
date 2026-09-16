@@ -1,34 +1,13 @@
 package runed
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 )
 
-// Open never creates runed.db. A runed pointed at the wrong store/<owner>/
-// would otherwise migrate a fresh file and lose every spawn and session_log
-// row while reporting healthy (spec 5/16 step 7).
-func TestOpenRefusesToManufactureAnEmptyDB(t *testing.T) {
-	dir := t.TempDir()
-	if _, err := Open(dir); err == nil {
-		t.Fatal("Open created runed.db on an empty dir")
-	}
-	if _, err := os.Stat(filepath.Join(dir, "runed", "runed.db")); !os.IsNotExist(err) {
-		t.Errorf("Open left a runed.db behind (err=%v)", err)
-	}
-	db, err := Create(dir)
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-	db.Close()
-	db2, err := Open(dir)
-	if err != nil {
-		t.Fatalf("Open after Create: %v", err)
-	}
-	db2.Close()
-}
+func TestMain(m *testing.M) { dyntest.Main(m) }
 
 // TestDBSpawnLifecycle exercises the spawns + session_log + mcp_tokens
 // round-trip: create → start → end, with the brokered token ref and

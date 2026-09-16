@@ -139,20 +139,14 @@ func TestRouteAddRejectsEmptyTarget(t *testing.T) {
 	}
 }
 
-// TestRouteLandsInRoutdDB proves the CLI route path writes into routd.db (which
-// owns routes in the split topology), leaving messages.db untouched.
+// TestRouteLandsInRoutdDB proves the CLI route path writes the route into
+// routd's own tables — the owner of `routes` — and takes it back out again.
 func TestRouteLandsInRoutdDB(t *testing.T) {
-	dir := setupSplitStore(t)
-
-	s, err := store.OpenRoutd(dir)
-	if err != nil {
-		t.Fatalf("OpenRoutd: %v", err)
-	}
+	s := routdStore(t)
 	var out bytes.Buffer
 	if err := runRouteAdd(s, 0, "platform=telegram", "main", &out); err != nil {
 		t.Fatalf("runRouteAdd: %v", err)
 	}
-	s.Close()
 
 	// The target is the SECOND field of a route's coordinate, so the match reads
 	// the middle of the key rather than a leading fragment.
@@ -160,24 +154,16 @@ func TestRouteLandsInRoutdDB(t *testing.T) {
 		parts := strings.SplitN(it.Key.Sort, store.KeySep, 3)
 		return len(parts) == 3 && parts[1] == "main"
 	}
-	if n := countItems(t, dir, store.OwnerRoutd, store.Routes, targetIsMain); n != 1 {
-		t.Errorf("routd.db routes = %d, want 1", n)
-	}
-	if n := countItems(t, dir, "messages.db", store.Routes, targetIsMain); n != 0 {
-		t.Errorf("messages.db routes = %d, want 0 (CLI must not write the monolith)", n)
+	if n := countItems(t, s, store.Routes, targetIsMain); n != 1 {
+		t.Errorf("routes = %d, want 1", n)
 	}
 
-	// rm path also targets routd.db.
-	s2, err := store.OpenRoutd(dir)
-	if err != nil {
-		t.Fatalf("OpenRoutd: %v", err)
-	}
+	s2 := s
 	id := s2.AllRoutes()[0].ID
 	if err := runRouteRm(s2, id, &out); err != nil {
 		t.Fatalf("runRouteRm: %v", err)
 	}
-	s2.Close()
-	if n := countItems(t, dir, store.OwnerRoutd, store.Routes, targetIsMain); n != 0 {
-		t.Errorf("routd.db routes after rm = %d, want 0", n)
+	if n := countItems(t, s, store.Routes, targetIsMain); n != 0 {
+		t.Errorf("routes after rm = %d, want 0", n)
 	}
 }

@@ -36,10 +36,10 @@ func mapFixture(t *testing.T, kind, name, event, file string) chanlib.InboundMsg
 
 func TestMapEvent_Fixtures(t *testing.T) {
 	cases := []struct {
-		file, event                string
-		jid, verb, topic, id       string
+		file, event                 string
+		jid, verb, topic, id        string
 		sender, replyTo, contentHas string
-		ts                         int64
+		ts                          int64
 	}{
 		{"ping", "ping", "github:kronael/arizuko", "ping", "", "gh-dd-ping",
 			"github:kronael", "", "ping: Keep it logically awesome.", fixedNow.Unix()},

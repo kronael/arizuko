@@ -11,7 +11,7 @@ import (
 // through routdStore(), so routd is the handle to wire.
 func profileTestDB(t *testing.T) *dash {
 	t.Helper()
-	return &dash{routd: over(routdDB(t))}
+	return &dash{routd: routdDB(t)}
 }
 
 func seedAuthUser(t *testing.T, d *dash, sub, name string) {

@@ -16,6 +16,7 @@ import (
 // group that predated the install ever received one — install/upgrade/sync all
 // printed "run generate to apply", and generate did nothing for skills.
 func TestGenerateSeedsPackageSkillsIntoExistingGroups(t *testing.T) {
+	t.Cleanup(func() { dropInstance(t) })
 	dataDir := generateInstance(t, "WEB_PORT=8095\n")
 	eng := addGroupWithClaudeDir(t, dataDir, "eng")
 
@@ -60,12 +61,13 @@ func TestGenerateSeedsPackageSkillsIntoExistingGroups(t *testing.T) {
 // group dir, which is what `generate` walks. Returns the group dir.
 func addGroupWithClaudeDir(t *testing.T, dataDir, folder string) string {
 	t.Helper()
-	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
+	t.Cleanup(func() { dropInstance(t) })
+	rdb, err := routd.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer rdb.Close()
-	if err := store.New(rdb.SQL()).PutGroup(core.Group{Folder: folder}); err != nil {
+	if err := store.NewOver(rdb.Obj()).PutGroup(core.Group{Folder: folder}); err != nil {
 		t.Fatal(err)
 	}
 	dir := filepath.Join(dataDir, "groups", folder)

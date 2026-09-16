@@ -28,6 +28,7 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/routd"
 	routdv1 "github.com/kronael/arizuko/routd/api/v1"
+	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/tests/testutils"
 )
 
@@ -125,7 +126,7 @@ func TestFeature_ForkContinuity(t *testing.T) {
 		if rec := postBearer(t, f.routdTS.URL, "POST", "/v1/messages", f.authd.mintAdapter(t, "slakd"), "", in); rec.StatusCode != 200 {
 			t.Fatalf("ingest status=%d", rec.StatusCode)
 		}
-		testutils.WaitForBotRow(t, f.routdDB.SQL(), "slack:T/C/F", 5*time.Second)
+		testutils.WaitForBotRow(t, store.NewOver(f.routdDB.Obj()), "slack:T/C/F", 5*time.Second)
 
 		childSID := f.dispatchedSession("fork.1")
 		if childSID == "" {
@@ -180,7 +181,7 @@ func TestFeature_ForkContinuity(t *testing.T) {
 		if rec := postBearer(t, f.routdTS.URL, "POST", "/v1/messages", f.authd.mintAdapter(t, "slakd"), "", in); rec.StatusCode != 200 {
 			t.Fatalf("ingest status=%d", rec.StatusCode)
 		}
-		testutils.WaitForBotRow(t, f.routdDB.SQL(), "slack:T/C/G", 5*time.Second)
+		testutils.WaitForBotRow(t, store.NewOver(f.routdDB.Obj()), "slack:T/C/G", 5*time.Second)
 
 		childSID := f.dispatchedSession("fork.2")
 		if _, err := os.Stat(filepath.Join(transcriptDir(groupsDir, "demo"), childSID+".jsonl")); err == nil {

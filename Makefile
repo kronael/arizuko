@@ -46,6 +46,10 @@ lint-strict:
 	golangci-lint run
 .PHONY: lint-strict
 
+# Every test that touches a store runs against a store server, so the suite needs
+# docker: dyntest starts one per test binary and removes it at the end.
+# ARIZUKO_TEST_DYNAMO_ENDPOINT points the same suites at one that is already
+# running — the PostgreSQL deployment, or Amazon's own service.
 test:
 	go test ./... -count=1 -short
 	$(foreach d,$(DAEMONS),make -C $(d) test;)

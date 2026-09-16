@@ -13,7 +13,7 @@ import (
 // InsertRouteToken/RevokeRouteToken). A fixture must never become a second
 // implementation of the hashing scheme (BUGS L9).
 
-func liveStore(d *routd.DB) *store.Store { return store.New(d.SQL()) }
+func liveStore(d *routd.DB) *store.Store { return store.NewOver(d.Obj()) }
 
 // mintToken issues a delivery token the way the CLI does.
 func mintToken(t *testing.T, d *routd.DB, jid, owner, target, linkContext string) string {

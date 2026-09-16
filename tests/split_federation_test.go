@@ -39,6 +39,7 @@ import (
 	"github.com/kronael/arizuko/router"
 	"github.com/kronael/arizuko/runed"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
+	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/tests/testutils"
 )
 
@@ -435,7 +436,7 @@ func TestSplitFederation_InboundToTurnRoundTrip(t *testing.T) {
 	// routd's poll loop routes the chat, dispatches the run to runed over HTTP,
 	// runed runs the fake agent, which replies over the turn's socket. Wait for
 	// the resulting bot row to land (the turn closing).
-	testutils.WaitForBotRow(t, f.routdDB.SQL(), "slack:T/C/U", 5*time.Second)
+	testutils.WaitForBotRow(t, store.NewOver(f.routdDB.Obj()), "slack:T/C/U", 5*time.Second)
 
 	if got := f.dispatchedFolder("wamid.1"); got != "demo" {
 		t.Fatalf("routd dispatched turn to folder %q, want demo (routd→runed over HTTP)", got)
@@ -444,10 +445,10 @@ func TestSplitFederation_InboundToTurnRoundTrip(t *testing.T) {
 		t.Fatalf("bot rows = %d, want 1 (the agent's reply appended exactly once)", got)
 	}
 	// the appended bot row carries the agent's text.
-	testutils.AssertMessage(t, f.routdDB.SQL(), "slack:T/C/U", "ack wamid.1")
+	testutils.AssertMessage(t, store.NewOver(f.routdDB.Obj()), "slack:T/C/U", "ack wamid.1")
 
 	// runed persisted the spawn — the execution plane saw a real run, not a stub.
-	testutils.WaitForRow(t, f.runedDB.SQL(), `SELECT COUNT(*) FROM spawns`, nil, 2*time.Second)
+	waitForSpawn(t, f.runedDB, 2*time.Second)
 }
 
 // TestSplitFederation_InboundViaServiceToken is the A1 POSITIVE: a channel
@@ -702,7 +703,7 @@ func postRaw(t *testing.T, base, path, token string, body []byte) *http.Response
 
 func countBotRows(t *testing.T, db *routd.DB, jid string) int {
 	t.Helper()
-	return testutils.BotRows(t, db.SQL(), jid)
+	return testutils.BotRows(t, store.NewOver(db.Obj()), jid)
 }
 
 func containsScope(scope []string, want string) bool {

@@ -8,7 +8,6 @@ package resreg
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"reflect"
 	"slices"
@@ -17,11 +16,9 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/db_utils"
-	"github.com/kronael/arizuko/db_utils/dbtest"
 	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/objstore/conformance"
-	"github.com/kronael/arizuko/objstore/sqlstore"
+	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -45,11 +42,10 @@ const entitySubsystem = "entitytest"
 // The preparation goes through EnsureSubsystem — the call a daemon's opener
 // makes — rather than a CREATE TABLE beside it, so a missing entity or a missing
 // version marker fails here the way it would fail at boot.
-func freshEntity(t *testing.T) (*sql.DB, objstore.Store, *Resource) {
+func freshEntity(t *testing.T) (objstore.Store, *Resource) {
 	t.Helper()
 	reset()
-	db := dbtest.Open(t)
-	s := sqlstore.New(db)
+	s := dyntest.Store(t)
 	if err := s.CreateEntity(t.Context(), "audit_log"); err != nil {
 		t.Fatalf("audit_log: %v", err)
 	}
@@ -64,7 +60,7 @@ func freshEntity(t *testing.T) (*sql.DB, objstore.Store, *Resource) {
 	if err := EnsureSubsystem(t.Context(), s, s, entitySubsystem); err != nil {
 		t.Fatalf("EnsureSubsystem: %v", err)
 	}
-	return db, s, r
+	return s, r
 }
 
 // putItem writes one item straight through the driver, deliberately bypassing
@@ -82,11 +78,11 @@ func putItem(t *testing.T, s objstore.Store, sort string, attrs map[string]strin
 }
 
 func TestEntity_ScanAllReadsItems(t *testing.T) {
-	db, s, r := freshEntity(t)
+	s, r := freshEntity(t)
 	putItem(t, s, "b", map[string]string{"note": "second", "count": "2"})
 	putItem(t, s, "a", map[string]string{"note": "first", "count": "1"})
 
-	got, err := r.ScanAll(Backend{DB: db, Obj: s})
+	got, err := r.ScanAll(On(s))
 	if err != nil {
 		t.Fatalf("ScanAll: %v", err)
 	}
@@ -104,10 +100,10 @@ func TestEntity_ScanAllReadsItems(t *testing.T) {
 // same name is still read from its coordinate. Storing the coordinate twice is
 // two facts that can disagree, and this pins which one wins.
 func TestEntity_SortKeyComesFromTheCoordinate(t *testing.T) {
-	db, s, r := freshEntity(t)
+	s, r := freshEntity(t)
 	putItem(t, s, "real", map[string]string{"key": "impostor", "count": "0"})
 
-	got, err := r.ScanAll(Backend{DB: db, Obj: s})
+	got, err := r.ScanAll(On(s))
 	if err != nil {
 		t.Fatalf("ScanAll: %v", err)
 	}
@@ -120,10 +116,10 @@ func TestEntity_SortKeyComesFromTheCoordinate(t *testing.T) {
 // An absent attribute IS the empty string, in both directions. That is why a
 // nullable value needs no COALESCE on read and no nil on write.
 func TestEntity_EmptyStringIsAnAbsentAttribute(t *testing.T) {
-	db, s, r := freshEntity(t)
+	s, r := freshEntity(t)
 	putItem(t, s, "a", map[string]string{"count": "7"})
 
-	got, err := r.ScanAll(Backend{DB: db, Obj: s})
+	got, err := r.ScanAll(On(s))
 	if err != nil {
 		t.Fatalf("ScanAll: %v", err)
 	}
@@ -131,7 +127,7 @@ func TestEntity_EmptyStringIsAnAbsentAttribute(t *testing.T) {
 		t.Errorf("absent note read back as %q, want the empty string", note)
 	}
 
-	be := Backend{DB: db, Obj: s}
+	be := On(s)
 	sum, err := Checksum(be, entitySubsystem)
 	if err != nil {
 		t.Fatalf("Checksum: %v", err)
@@ -155,9 +151,9 @@ func TestEntity_EmptyStringIsAnAbsentAttribute(t *testing.T) {
 // number is an ERROR rather than a zero: reading it as 0 would put a wrong
 // max_uses into an export the operator then applies.
 func TestEntity_IntAttributeRoundTripsAndRefusesNonsense(t *testing.T) {
-	db, s, r := freshEntity(t)
+	s, r := freshEntity(t)
 	putItem(t, s, "a", map[string]string{"count": "42"})
-	got, err := r.ScanAll(Backend{DB: db, Obj: s})
+	got, err := r.ScanAll(On(s))
 	if err != nil {
 		t.Fatalf("ScanAll: %v", err)
 	}
@@ -166,7 +162,7 @@ func TestEntity_IntAttributeRoundTripsAndRefusesNonsense(t *testing.T) {
 	}
 
 	putItem(t, s, "b", map[string]string{"count": "many"})
-	if _, err := r.ScanAll(Backend{DB: db, Obj: s}); err == nil {
+	if _, err := r.ScanAll(On(s)); err == nil {
 		t.Fatal("ScanAll accepted count=\"many\"; a non-numeric attribute must be loud")
 	} else if !strings.Contains(err.Error(), "not a number") {
 		t.Errorf("error = %v, want it to name the value that is not a number", err)
@@ -174,9 +170,9 @@ func TestEntity_IntAttributeRoundTripsAndRefusesNonsense(t *testing.T) {
 }
 
 func TestEntity_ApplyReplacesTheProjection(t *testing.T) {
-	db, s, r := freshEntity(t)
+	s, r := freshEntity(t)
 	putItem(t, s, "gone", map[string]string{"count": "1"})
-	be := Backend{DB: db, Obj: s}
+	be := On(s)
 
 	sum, err := Checksum(be, entitySubsystem)
 	if err != nil {
@@ -216,8 +212,8 @@ func TestEntity_ApplyReplacesTheProjection(t *testing.T) {
 }
 
 func TestEntity_ApplyRefusesAStaleChecksumAndForceOverrides(t *testing.T) {
-	db, s, _ := freshEntity(t)
-	be := Backend{DB: db, Obj: s}
+	s, _ := freshEntity(t)
+	be := On(s)
 	putItem(t, s, "a", map[string]string{"count": "1"})
 
 	_, err := Apply(t.Context(), be, entitySubsystem, "sha256:stale", false, map[string]any{
@@ -238,8 +234,8 @@ func TestEntity_ApplyRefusesAStaleChecksumAndForceOverrides(t *testing.T) {
 // The claim IS the lock. A scope somebody else holds refuses the apply and names
 // them rather than blocking on it.
 func TestEntity_ApplyIsFencedByItsMarker(t *testing.T) {
-	db, s, _ := freshEntity(t)
-	be := Backend{DB: db, Obj: s}
+	s, _ := freshEntity(t)
+	be := On(s)
 	sum, err := Checksum(be, entitySubsystem)
 	if err != nil {
 		t.Fatalf("Checksum: %v", err)
@@ -281,8 +277,8 @@ func TestEntity_ApplyIsFencedByItsMarker(t *testing.T) {
 }
 
 func TestEntity_ExportSnapshotMatchesChecksum(t *testing.T) {
-	db, s, _ := freshEntity(t)
-	be := Backend{DB: db, Obj: s}
+	s, _ := freshEntity(t)
+	be := On(s)
 	putItem(t, s, "a", map[string]string{"note": "x", "count": "1"})
 
 	manifest, sum, at, err := ExportSnapshot(t.Context(), be, entitySubsystem)
@@ -305,8 +301,8 @@ func TestEntity_ExportSnapshotMatchesChecksum(t *testing.T) {
 // A consistent read cannot be taken across a scope a replace is part-way
 // through, and it says so rather than reporting a state that never existed.
 func TestEntity_ExportSnapshotRefusesAHeldScope(t *testing.T) {
-	db, s, _ := freshEntity(t)
-	be := Backend{DB: db, Obj: s}
+	s, _ := freshEntity(t)
+	be := On(s)
 
 	held := make(chan struct{})
 	release := make(chan struct{})
@@ -335,8 +331,8 @@ func TestEntity_ExportSnapshotRefusesAHeldScope(t *testing.T) {
 // Two rows at one coordinate would silently become one item, so the whole set is
 // checked before any batch boundary decides which two collide.
 func TestEntity_ApplyRefusesTwoRowsAtOneCoordinate(t *testing.T) {
-	db, s, _ := freshEntity(t)
-	be := Backend{DB: db, Obj: s}
+	s, _ := freshEntity(t)
+	be := On(s)
 	sum, err := Checksum(be, entitySubsystem)
 	if err != nil {
 		t.Fatalf("Checksum: %v", err)
@@ -352,8 +348,8 @@ func TestEntity_ApplyRefusesTwoRowsAtOneCoordinate(t *testing.T) {
 // A row whose sort-key field is empty has no coordinate, and every such row
 // would address one item.
 func TestEntity_ApplyRefusesARowWithNoCoordinate(t *testing.T) {
-	db, s, _ := freshEntity(t)
-	be := Backend{DB: db, Obj: s}
+	s, _ := freshEntity(t)
+	be := On(s)
 	sum, err := Checksum(be, entitySubsystem)
 	if err != nil {
 		t.Fatalf("Checksum: %v", err)
@@ -371,7 +367,7 @@ func TestEntity_ApplyRefusesARowWithNoCoordinate(t *testing.T) {
 // anything. resreg/resources/shape_test.go holds the REGISTERED set to the same
 // rule; this is the gate in front of the two verbs.
 func TestEntity_AColumnShapedResourceRefusesTheSubsystem(t *testing.T) {
-	db, s, _ := freshEntity(t)
+	s, _ := freshEntity(t)
 	Register(Resource{
 		Name:     "columnrows",
 		Table:    "columnrows",
@@ -379,7 +375,7 @@ func TestEntity_AColumnShapedResourceRefusesTheSubsystem(t *testing.T) {
 		RowType:  reflect.TypeFor[TestRow](),
 		PKFields: []string{"Kind", "Name"},
 	})
-	be := Backend{DB: db, Obj: s}
+	be := On(s)
 	_, err := Apply(t.Context(), be, entitySubsystem, "", true, map[string]any{}, nil)
 	if err == nil || !strings.Contains(err.Error(), "columnrows") ||
 		!strings.Contains(err.Error(), "declare no EntitySortKey") {
@@ -468,8 +464,7 @@ func TestEntity_RegisterRefusesAMisdeclaredShape(t *testing.T) {
 // registrations rather than a second list beside them.
 func TestEntity_EnsureSubsystemIsQuietWithNoEntityBackedResource(t *testing.T) {
 	reset()
-	db := dbtest.Open(t)
-	s := sqlstore.New(db)
+	s := dyntest.Store(t)
 	Register(Resource{
 		Name:     "columnrows",
 		Table:    "columnrows",
@@ -480,13 +475,11 @@ func TestEntity_EnsureSubsystemIsQuietWithNoEntityBackedResource(t *testing.T) {
 	if err := EnsureSubsystem(t.Context(), s, s, entitySubsystem); err != nil {
 		t.Fatalf("EnsureSubsystem: %v", err)
 	}
-	// db_utils.TableExists asks whichever engine holds this database, so the
-	// assertion runs on both rather than skipping on one.
-	exists, err := db_utils.TableExists(db, store.ScopeEntity)
+	entities, err := s.Entities(t.Context())
 	if err != nil {
 		t.Fatalf("look for %s: %v", store.ScopeEntity, err)
 	}
-	if exists {
+	if slices.Contains(entities, store.ScopeEntity) {
 		t.Errorf("%s was created for a subsystem with no entity-backed resource", store.ScopeEntity)
 	}
 }
@@ -513,11 +506,10 @@ type CompositeRow struct {
 // separator is declared per resource rather than fixed by the engine.
 const compositeSep = "\x1f"
 
-func freshComposite(t *testing.T) (*sql.DB, objstore.Store, *Resource) {
+func freshComposite(t *testing.T) (objstore.Store, *Resource) {
 	t.Helper()
 	reset()
-	db := dbtest.Open(t)
-	s := sqlstore.New(db)
+	s := dyntest.Store(t)
 	if err := s.CreateEntity(t.Context(), "audit_log"); err != nil {
 		t.Fatalf("audit_log: %v", err)
 	}
@@ -533,15 +525,15 @@ func freshComposite(t *testing.T) (*sql.DB, objstore.Store, *Resource) {
 	if err := EnsureSubsystem(t.Context(), s, s, entitySubsystem); err != nil {
 		t.Fatalf("EnsureSubsystem: %v", err)
 	}
-	return db, s, r
+	return s, r
 }
 
 // The pair is the coordinate, so two rows sharing ONE of the two are two items.
 // This is what `target` alone could not give: krons carries 15 network_rules
 // rows over 10 targets, so a key on target would have collided five of them.
 func TestEntity_CompositeCoordinateKeepsRowsApart(t *testing.T) {
-	db, s, r := freshComposite(t)
-	be := Backend{DB: db, Obj: s}
+	s, r := freshComposite(t)
+	be := On(s)
 	rows := []CompositeRow{
 		{Folder: "corp/eng", Target: "api.example.com", By: "sre"},
 		{Folder: "corp/sre", Target: "api.example.com", By: "sre"},
@@ -585,8 +577,8 @@ func TestEntity_CompositeCoordinateKeepsRowsApart(t *testing.T) {
 // apply put there. Two rows joining to ONE key is the other half, and that one
 // the read cannot see at all, because the key it produced splits cleanly.
 func TestEntity_CompositeRefusesASeparatorInAValue(t *testing.T) {
-	db, s, r := freshComposite(t)
-	be := Backend{DB: db, Obj: s}
+	s, r := freshComposite(t)
+	be := On(s)
 
 	// One row, nothing to collide with: the damage is entirely in the write.
 	lone := []CompositeRow{{Folder: "corp/eng", Target: "a" + compositeSep + "b", By: "sre"}}
@@ -630,7 +622,7 @@ func TestEntity_CompositeRefusesASeparatorInAValue(t *testing.T) {
 // a LOUD read fault. Half a coordinate is a row nobody wrote, and answering it
 // as one would put it in an export the operator then applies.
 func TestEntity_CompositeRefusesAKeyThatDoesNotSplit(t *testing.T) {
-	db, s, r := freshComposite(t)
+	s, r := freshComposite(t)
 	committed, err := s.GuardedBatch(t.Context(), nil, []objstore.Write{{
 		Op: objstore.Put, Entity: "composites",
 		Key:   objstore.Key{Partition: entitySubsystem, Sort: "no-separator-here"},
@@ -639,7 +631,7 @@ func TestEntity_CompositeRefusesAKeyThatDoesNotSplit(t *testing.T) {
 	if err != nil || !committed {
 		t.Fatalf("put: committed=%v err=%v", committed, err)
 	}
-	if _, err := r.ScanAll(Backend{DB: db, Obj: s}); err == nil ||
+	if _, err := r.ScanAll(On(s)); err == nil ||
 		!strings.Contains(err.Error(), "splits on") {
 		t.Errorf("ScanAll err = %v, want it to name the key that does not split", err)
 	}
@@ -703,8 +695,7 @@ type PaddedRow struct {
 func freshPadded(t *testing.T) (Backend, *Resource) {
 	t.Helper()
 	reset()
-	db := dbtest.Open(t)
-	s := sqlstore.New(db)
+	s := dyntest.Store(t)
 	if err := s.CreateEntity(t.Context(), "audit_log"); err != nil {
 		t.Fatalf("audit_log: %v", err)
 	}
@@ -720,7 +711,7 @@ func freshPadded(t *testing.T) (Backend, *Resource) {
 	if err := EnsureSubsystem(t.Context(), s, s, entitySubsystem); err != nil {
 		t.Fatalf("EnsureSubsystem: %v", err)
 	}
-	return Backend{DB: db, Obj: s}, r
+	return On(s), r
 }
 
 // A driver answers in SORT-KEY order, so the read comes back in numeric order
@@ -846,11 +837,10 @@ type StampedRow struct {
 	Created string `db:"created" yaml:"created,omitempty"`
 }
 
-func freshStamped(t *testing.T) (*sql.DB, objstore.Store, *Resource) {
+func freshStamped(t *testing.T) (objstore.Store, *Resource) {
 	t.Helper()
 	reset()
-	db := dbtest.Open(t)
-	s := sqlstore.New(db)
+	s := dyntest.Store(t)
 	if err := s.CreateEntity(t.Context(), "audit_log"); err != nil {
 		t.Fatalf("audit_log: %v", err)
 	}
@@ -866,14 +856,14 @@ func freshStamped(t *testing.T) (*sql.DB, objstore.Store, *Resource) {
 	if err := EnsureSubsystem(t.Context(), s, s, entitySubsystem); err != nil {
 		t.Fatalf("EnsureSubsystem: %v", err)
 	}
-	return db, s, r
+	return s, r
 }
 
 // A row that leaves the stamped field empty gets one, and a row that carries a
 // value keeps it.
 func TestEntity_StampedFieldIsFilledByTheWriter(t *testing.T) {
-	db, s, r := freshStamped(t)
-	be := Backend{DB: db, Obj: s}
+	s, r := freshStamped(t)
+	be := On(s)
 	rows := []StampedRow{
 		{Key: "fresh", Note: "no instant of its own"},
 		{Key: "kept", Created: "2020-01-01T00:00:00.000000000Z"},
@@ -910,8 +900,8 @@ func TestEntity_StampedFieldIsFilledByTheWriter(t *testing.T) {
 // so a hand-written manifest that omits `created` reads as unchanged against a
 // live stamped item instead of phantom-updating on every plan (BUGS F49).
 func TestEntity_StampedFieldIsIgnoredByDiff(t *testing.T) {
-	db, s, r := freshStamped(t)
-	be := Backend{DB: db, Obj: s}
+	s, r := freshStamped(t)
+	be := On(s)
 	if _, err := Apply(t.Context(), be, entitySubsystem, "", true,
 		map[string]any{"stampedrows": []StampedRow{{Key: "a", Note: "n"}}}, nil); err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -937,8 +927,7 @@ type NumberedRow struct {
 func freshNumbered(t *testing.T) (Backend, *Resource) {
 	t.Helper()
 	reset()
-	db := dbtest.Open(t)
-	s := sqlstore.New(db)
+	s := dyntest.Store(t)
 	if err := s.CreateEntity(t.Context(), "audit_log"); err != nil {
 		t.Fatalf("audit_log: %v", err)
 	}
@@ -954,7 +943,7 @@ func freshNumbered(t *testing.T) (Backend, *Resource) {
 	if err := EnsureSubsystem(t.Context(), s, s, entitySubsystem); err != nil {
 		t.Fatalf("EnsureSubsystem: %v", err)
 	}
-	return Backend{DB: db, Obj: s}, r
+	return On(s), r
 }
 
 // A row that states a number keeps it, and a row that omits one gets a number
@@ -1038,11 +1027,10 @@ type FilteredRow struct {
 	Kind   string `db:"kind"   yaml:"kind,omitempty"`
 }
 
-func freshFiltered(t *testing.T) (*sql.DB, objstore.Store, *Resource) {
+func freshFiltered(t *testing.T) (objstore.Store, *Resource) {
 	t.Helper()
 	reset()
-	db := dbtest.Open(t)
-	s := sqlstore.New(db)
+	s := dyntest.Store(t)
 	if err := s.CreateEntity(t.Context(), "audit_log"); err != nil {
 		t.Fatalf("audit_log: %v", err)
 	}
@@ -1059,7 +1047,7 @@ func freshFiltered(t *testing.T) (*sql.DB, objstore.Store, *Resource) {
 	if err := EnsureSubsystem(t.Context(), s, s, entitySubsystem); err != nil {
 		t.Fatalf("EnsureSubsystem: %v", err)
 	}
-	return db, s, r
+	return s, r
 }
 
 func putFiltered(t *testing.T, s objstore.Store, sort string, attrs map[string]string) {
@@ -1075,11 +1063,11 @@ func putFiltered(t *testing.T, s objstore.Store, sort string, attrs map[string]s
 }
 
 func TestEntity_RowFilterNarrowsTheRead(t *testing.T) {
-	db, s, r := freshFiltered(t)
+	s, r := freshFiltered(t)
 	putFiltered(t, s, "kept", map[string]string{"folder": "f1", "kind": "config"})
 	putFiltered(t, s, "hidden", map[string]string{"folder": "f1", "kind": "excluded"})
 
-	got, err := r.ScanAll(Backend{DB: db, Obj: s})
+	got, err := r.ScanAll(On(s))
 	if err != nil {
 		t.Fatalf("ScanAll: %v", err)
 	}
@@ -1093,8 +1081,8 @@ func TestEntity_RowFilterNarrowsTheRead(t *testing.T) {
 // narrows the read narrows it, and an excluded item survives an apply that
 // replaces everything else.
 func TestEntity_RowFilterNarrowsTheWipeAndTheScopedDelete(t *testing.T) {
-	db, s, r := freshFiltered(t)
-	be := Backend{DB: db, Obj: s}
+	s, r := freshFiltered(t)
+	be := On(s)
 	putFiltered(t, s, "hidden", map[string]string{"folder": "f1", "kind": "excluded"})
 	putFiltered(t, s, "stale", map[string]string{"folder": "f1", "kind": "config"})
 	putFiltered(t, s, "other", map[string]string{"folder": "f2", "kind": "config"})
@@ -1141,8 +1129,8 @@ func TestEntity_RowFilterNarrowsTheWipeAndTheScopedDelete(t *testing.T) {
 // list — the operator declaring "no rows for this resource". It is built from a
 // read too, so the same filter narrows it.
 func TestEntity_RowFilterNarrowsTheWipe(t *testing.T) {
-	db, s, r := freshFiltered(t)
-	be := Backend{DB: db, Obj: s}
+	s, r := freshFiltered(t)
+	be := On(s)
 	putFiltered(t, s, "hidden", map[string]string{"folder": "f1", "kind": "excluded"})
 	putFiltered(t, s, "stale", map[string]string{"folder": "f1", "kind": "config"})
 
@@ -1174,8 +1162,8 @@ func TestEntity_RowFilterNarrowsTheWipe(t *testing.T) {
 // therefore stores it even when it is empty, which is the same guarantee routd
 // migration 0047 gives the rows it touched.
 func TestEntity_RowFilterAttributeIsWrittenEvenWhenEmpty(t *testing.T) {
-	db, s, r := freshFiltered(t)
-	be := Backend{DB: db, Obj: s}
+	s, r := freshFiltered(t)
+	be := On(s)
 	if _, err := Apply(t.Context(), be, entitySubsystem, "", true,
 		map[string]any{"filteredrows": []FilteredRow{{Key: "bare", Folder: "f1"}}},
 		nil); err != nil {
@@ -1216,11 +1204,10 @@ type DefaultedRow struct {
 	Effect string `db:"effect" yaml:"effect,omitempty"`
 }
 
-func freshDefaulted(t *testing.T) (*sql.DB, objstore.Store, *Resource) {
+func freshDefaulted(t *testing.T) (objstore.Store, *Resource) {
 	t.Helper()
 	reset()
-	db := dbtest.Open(t)
-	s := sqlstore.New(db)
+	s := dyntest.Store(t)
 	if err := s.CreateEntity(t.Context(), "audit_log"); err != nil {
 		t.Fatalf("audit_log: %v", err)
 	}
@@ -1244,14 +1231,14 @@ func freshDefaulted(t *testing.T) (*sql.DB, objstore.Store, *Resource) {
 	if err := EnsureSubsystem(t.Context(), s, s, entitySubsystem); err != nil {
 		t.Fatalf("EnsureSubsystem: %v", err)
 	}
-	return db, s, r
+	return s, r
 }
 
 // A row that omits the field gets the default, and a row that states one keeps
 // it.
 func TestEntity_DeclaredDefaultIsFilledByTheWriter(t *testing.T) {
-	db, s, r := freshDefaulted(t)
-	be := Backend{DB: db, Obj: s}
+	s, r := freshDefaulted(t)
+	be := On(s)
 	rows := []DefaultedRow{{Key: "omitted"}, {Key: "stated", Effect: "deny"}}
 	if _, err := Apply(t.Context(), be, entitySubsystem, "", true,
 		map[string]any{"defaultedrows": rows}, nil); err != nil {
@@ -1280,8 +1267,8 @@ func TestEntity_DeclaredDefaultIsFilledByTheWriter(t *testing.T) {
 // its audit counts read the same slice. So the row is copied first, and this is
 // the check that it is.
 func TestEntity_DeclaredDefaultDoesNotEditTheManifest(t *testing.T) {
-	db, s, _ := freshDefaulted(t)
-	be := Backend{DB: db, Obj: s}
+	s, _ := freshDefaulted(t)
+	be := On(s)
 	rows := []DefaultedRow{{Key: "omitted"}}
 	if _, err := Apply(t.Context(), be, entitySubsystem, "", true,
 		map[string]any{"defaultedrows": rows}, nil); err != nil {
@@ -1300,8 +1287,7 @@ func TestEntity_DeclaredDefaultDoesNotEditTheManifest(t *testing.T) {
 func freshValidated(t *testing.T) (Backend, *Resource) {
 	t.Helper()
 	reset()
-	db := dbtest.Open(t)
-	s := sqlstore.New(db)
+	s := dyntest.Store(t)
 	if err := s.CreateEntity(t.Context(), "audit_log"); err != nil {
 		t.Fatalf("audit_log: %v", err)
 	}
@@ -1326,7 +1312,7 @@ func freshValidated(t *testing.T) (Backend, *Resource) {
 	if err := EnsureSubsystem(t.Context(), s, s, entitySubsystem); err != nil {
 		t.Fatalf("EnsureSubsystem: %v", err)
 	}
-	return Backend{DB: db, Obj: s}, r
+	return On(s), r
 }
 
 // A refused set leaves the resource EXACTLY as it was. That is the whole point
@@ -1382,11 +1368,10 @@ const codecEntitySubsystem = "codecobj"
 
 // freshCodecEntity registers the entity half alone. It is engine-neutral, so
 // every body that only reads or writes ITEMS runs on both drivers.
-func freshCodecEntity(t *testing.T) (*sql.DB, objstore.Store, *Resource) {
+func freshCodecEntity(t *testing.T) (objstore.Store, *Resource) {
 	t.Helper()
 	reset()
-	db := dbtest.Open(t)
-	s := sqlstore.New(db)
+	s := dyntest.Store(t)
 	if err := s.CreateEntity(t.Context(), "audit_log"); err != nil {
 		t.Fatalf("audit_log: %v", err)
 	}
@@ -1401,7 +1386,7 @@ func freshCodecEntity(t *testing.T) (*sql.DB, objstore.Store, *Resource) {
 	if err := EnsureSubsystem(t.Context(), s, s, codecEntitySubsystem); err != nil {
 		t.Fatalf("EnsureSubsystem: %v", err)
 	}
-	return db, s, obj
+	return s, obj
 }
 
 // codecRows are the values that have to survive: a populated list, an empty
@@ -1417,8 +1402,8 @@ var codecRows = []CodecRow{
 // value — proxyd's own start-up read of a route — agree with the engine about
 // what the value IS (codec.go).
 func TestCodec_ItemsHoldTheRenderedText(t *testing.T) {
-	db, s, obj := freshCodecEntity(t)
-	be := Backend{DB: db, Obj: s}
+	s, obj := freshCodecEntity(t)
+	be := On(s)
 	if _, err := Apply(t.Context(), be, codecEntitySubsystem, "", true,
 		map[string]any{"codecrows_obj": codecRows}, nil); err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -1461,7 +1446,7 @@ func TestCodec_ItemsHoldTheRenderedText(t *testing.T) {
 // object path, not a zero: a row read wrong goes into an export the operator
 // then applies.
 func TestCodec_RefusesTextItCannotRead(t *testing.T) {
-	db, s, obj := freshCodecEntity(t)
+	s, obj := freshCodecEntity(t)
 	for _, tc := range []struct {
 		name  string
 		attrs map[string]string
@@ -1481,7 +1466,7 @@ func TestCodec_RefusesTextItCannotRead(t *testing.T) {
 			if err != nil || !committed {
 				t.Fatalf("put: committed=%v err=%v", committed, err)
 			}
-			_, err = obj.ScanAll(Backend{DB: db, Obj: s})
+			_, err = obj.ScanAll(On(s))
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Errorf("ScanAll err = %v, want it to contain %q", err, tc.want)
 			}
@@ -1575,8 +1560,7 @@ type PrefixScopedRow struct {
 func registerScoped(t *testing.T, r Resource) (Backend, *Resource) {
 	t.Helper()
 	reset()
-	db := dbtest.Open(t)
-	s := sqlstore.New(db)
+	s := dyntest.Store(t)
 	if err := s.CreateEntity(t.Context(), "audit_log"); err != nil {
 		t.Fatalf("audit_log: %v", err)
 	}
@@ -1584,7 +1568,7 @@ func registerScoped(t *testing.T, r Resource) (Backend, *Resource) {
 	if err := EnsureSubsystem(t.Context(), s, s, entitySubsystem); err != nil {
 		t.Fatalf("EnsureSubsystem: %v", err)
 	}
-	return Backend{DB: db, Obj: s}, out
+	return On(s), out
 }
 
 // A scoped apply takes the MENTIONED folders' items and leaves every other
@@ -1781,8 +1765,7 @@ func scanRows[T any](t *testing.T, be Backend, r *Resource) []T {
 // usually does not.
 func TestEntity_ScopedDeletesRideInsideTheClaim(t *testing.T) {
 	reset()
-	db := dbtest.Open(t)
-	s := sqlstore.New(db)
+	s := dyntest.Store(t)
 	if err := s.CreateEntity(t.Context(), "audit_log"); err != nil {
 		t.Fatalf("audit_log: %v", err)
 	}
@@ -1798,7 +1781,7 @@ func TestEntity_ScopedDeletesRideInsideTheClaim(t *testing.T) {
 		{Path: "/a", Folder: "corp/eng", Access: "public"},
 		{Path: "/b", Folder: "corp/sre", Access: "auth"},
 	}
-	applyRows(t, Backend{DB: db, Obj: s}, r, before)
+	applyRows(t, On(s), r, before)
 
 	// Read 1 is the checksum's scan; read 2 is the scope query whose answer the
 	// deletes are built from. Steal the claim at read 2, which is the window.
@@ -1818,7 +1801,7 @@ func TestEntity_ScopedDeletesRideInsideTheClaim(t *testing.T) {
 		}
 	})
 
-	_, err := Apply(t.Context(), Backend{DB: db, Obj: slipped}, entitySubsystem, "", true,
+	_, err := Apply(t.Context(), On(slipped), entitySubsystem, "", true,
 		map[string]any{"scopedrows": []ScopedRow{{Path: "/c", Folder: "corp/eng"}}}, nil)
 	if !errors.Is(err, objstore.ErrClaimLost) {
 		t.Fatalf("Apply err = %v, want ErrClaimLost: the deletes were built from a read "+
@@ -1827,7 +1810,7 @@ func TestEntity_ScopedDeletesRideInsideTheClaim(t *testing.T) {
 	if reads < 2 {
 		t.Fatalf("the scope query never ran (%d reads), so the interleave proved nothing", reads)
 	}
-	if got := scanRows[ScopedRow](t, Backend{DB: db, Obj: s}, r); !reflect.DeepEqual(got, before) {
+	if got := scanRows[ScopedRow](t, On(s), r); !reflect.DeepEqual(got, before) {
 		t.Errorf("rows = %v, want %v — a fenced delete writes nothing", got, before)
 	}
 }

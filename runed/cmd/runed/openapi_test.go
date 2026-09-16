@@ -4,15 +4,18 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 	_ "github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/resreg/resregtest"
 	"github.com/kronael/arizuko/runed"
 )
 
-// testServer is the minimum runed.Server the mux needs: auditResource reads
-// db.SQL() at REGISTRATION time, so a nil DB panics before any route is
-// mounted. Manager and Verifier stay nil — no handler is ever invoked here, the
-// probe only reads the pattern mux.Handler resolves to.
+func TestMain(m *testing.M) { dyntest.Main(m) }
+
+// testServer is the minimum runed.Server the mux needs: auditResource reads the
+// store at REGISTRATION time, so a nil DB panics before any route is mounted.
+// Manager and Verifier stay nil — no handler is ever invoked here, the probe
+// only reads the pattern mux.Handler resolves to.
 func testServer(t *testing.T) *runed.Server {
 	t.Helper()
 	db, err := runed.OpenMem()

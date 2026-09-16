@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -25,22 +24,14 @@ import (
 // still land (TestPackagesInstallRoutesHotApply stays green) while every
 // assertion here fails.
 
-// installRoutePkg installs a two-route package as osUser and returns the store dir.
-func installRoutePkg(t *testing.T, osUser string) string {
+// installRoutePkg installs a two-route package as osUser and answers the
+// instance store it landed in.
+func installRoutePkg(t *testing.T, osUser string) *store.Store {
 	t.Helper()
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	t.Setenv("USER", osUser)
-	dataDir := filepath.Join(base, "arizuko_raudit")
-	storeDir := filepath.Join(dataDir, "store")
-	if err := os.MkdirAll(storeDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	rdb, err := routd.Create(storeDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rdb.Close()
+	st := instanceStore(t)
 	src := filepath.Join(base, "routepkg")
 	if err := os.MkdirAll(src, 0o755); err != nil {
 		t.Fatal(err)
@@ -56,15 +47,15 @@ func installRoutePkg(t *testing.T, osUser string) string {
 		t.Fatal(err)
 	}
 	cmdPackages([]string{"raudit", "install", src})
-	return storeDir
+	return st
 }
 
 // One row for the apply, naming the operator who installed the package and every
 // route it opened.
 func TestPackageRoutesAudited(t *testing.T) {
-	dir := installRoutePkg(t, "alice")
+	s := installRoutePkg(t, "alice")
 
-	rows := aclAuditRows(t, dir, "config.apply")
+	rows := aclAuditRows(t, s, "config.apply")
 	if len(rows) != 1 {
 		t.Fatalf("config.apply rows = %d, want 1", len(rows))
 	}
@@ -81,9 +72,9 @@ func TestPackageRoutesAudited(t *testing.T) {
 // itself, which is what a reader auditing "what did this install open" reads
 // once the audit row has named the path.
 func TestPackageRouteAuditNamesBackendAndAuth(t *testing.T) {
-	dir := installRoutePkg(t, "alice")
+	s := installRoutePkg(t, "alice")
 
-	all, err := store.New(mustSQL(t, dir)).AllProxydRoutes()
+	all, err := s.AllProxydRoutes()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,10 +94,11 @@ func TestPackageRouteAuditNamesBackendAndAuth(t *testing.T) {
 // closing reads as "still live" for a route that is gone — worse than silence,
 // because it looks complete.
 func TestPackageRouteRemovalAudited(t *testing.T) {
-	dir := installRoutePkg(t, "alice")
+	t.Cleanup(func() { dropInstance(t) })
+	s := installRoutePkg(t, "alice")
 	cmdPackages([]string{"raudit", "remove", "routepkg"})
 
-	rows := aclAuditRows(t, dir, "config.apply")
+	rows := aclAuditRows(t, s, "config.apply")
 	if len(rows) != 2 {
 		t.Fatalf("config.apply rows = %d, want 2 (install + remove)", len(rows))
 	}

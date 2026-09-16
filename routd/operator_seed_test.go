@@ -17,7 +17,7 @@ func TestOperatorSeededWithGrantOption(t *testing.T) {
 	}
 	defer db.Close()
 
-	rows, err := store.New(db.SQL()).ListACL("role:operator")
+	rows, err := store.NewOver(db.Obj()).ListACL("role:operator")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestOperatorSeededWithGrantOption(t *testing.T) {
 	}
 
 	// End-to-end: the operator (via membership) can delegate anything.
-	st := store.New(db.SQL())
+	st := store.NewOver(db.Obj())
 	if err := st.AddMembership("google:op", "role:operator", "test"); err != nil {
 		t.Fatal(err)
 	}

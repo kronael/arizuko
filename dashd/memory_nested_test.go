@@ -26,7 +26,7 @@ func setupNestedMemoryTest(t *testing.T) (*dash, string, *http.ServeMux) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{routd: over(inst.DB), groupsDir: groups, routdURL: stubRoutd(t, inst.DB)}
+	d := &dash{routd: inst.Store.Obj(), groupsDir: groups, routdURL: stubRoutd(t, inst.Store.Obj())}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	return d, folder, mux

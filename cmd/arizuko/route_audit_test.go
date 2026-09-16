@@ -4,12 +4,9 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/store"
 
 	"github.com/kronael/arizuko/audit"
-
-	"github.com/kronael/arizuko/objstore/sqlstore"
 )
 
 // `arizuko route add|rm` mutates the live route table, so it must leave an
@@ -24,14 +21,9 @@ import (
 
 // routeAudit returns (actor, actor_sub, surface) of the newest audit_log row for
 // action in dir/routd.db, or zero values when the mutation recorded nothing.
-func routeAudit(t *testing.T, dir, action string) (actor, actorSub, surface string) {
+func routeAudit(t *testing.T, st *store.Store, action string) (actor, actorSub, surface string) {
 	t.Helper()
-	db, err := db_utils.Open(store.OwnerDBPath(dir, store.OwnerRoutd))
-	if err != nil {
-		t.Fatalf("open routd.db: %v", err)
-	}
-	defer db.Close()
-	rows, err := audit.Query(t.Context(), sqlstore.New(db), audit.Filter{Limit: audit.MaxLimit})
+	rows, err := audit.Query(t.Context(), st.Obj(), audit.Filter{Limit: audit.MaxLimit})
 	if err != nil {
 		t.Fatalf("read the audit trail: %v", err)
 	}
@@ -44,18 +36,14 @@ func routeAudit(t *testing.T, dir, action string) (actor, actorSub, surface stri
 }
 
 func TestRouteAddAudited(t *testing.T) {
-	dir := setupSplitStore(t)
-	s, err := store.OpenRoutd(dir)
-	if err != nil {
-		t.Fatalf("OpenRoutd: %v", err)
-	}
+	s := routdStore(t)
 	var out bytes.Buffer
 	if err := runRouteAdd(s.AsCLI("alice"), 0, "platform=telegram", "main", &out); err != nil {
 		t.Fatalf("runRouteAdd: %v", err)
 	}
 	s.Close()
 
-	actor, sub, surface := routeAudit(t, dir, "route.create")
+	actor, sub, surface := routeAudit(t, s, "route.create")
 	if actor != "cli:alice" {
 		t.Errorf("route.create actor = %q, want cli:alice", actor)
 	}
@@ -68,11 +56,7 @@ func TestRouteAddAudited(t *testing.T) {
 }
 
 func TestRouteRmAudited(t *testing.T) {
-	dir := setupSplitStore(t)
-	s, err := store.OpenRoutd(dir)
-	if err != nil {
-		t.Fatalf("OpenRoutd: %v", err)
-	}
+	s := routdStore(t)
 	var out bytes.Buffer
 	if err := runRouteAdd(s.AsCLI("alice"), 0, "platform=telegram", "main", &out); err != nil {
 		t.Fatalf("runRouteAdd: %v", err)
@@ -83,7 +67,7 @@ func TestRouteRmAudited(t *testing.T) {
 	}
 	s.Close()
 
-	actor, sub, surface := routeAudit(t, dir, "route.delete")
+	actor, sub, surface := routeAudit(t, s, "route.delete")
 	if actor != "cli:bob" {
 		t.Errorf("route.delete actor = %q, want cli:bob", actor)
 	}
@@ -98,18 +82,14 @@ func TestRouteRmAudited(t *testing.T) {
 // A delete that matched nothing is not a mutation, so it must NOT leave an
 // audit row claiming one happened.
 func TestRouteRmMissingRecordsNothing(t *testing.T) {
-	dir := setupSplitStore(t)
-	s, err := store.OpenRoutd(dir)
-	if err != nil {
-		t.Fatalf("OpenRoutd: %v", err)
-	}
+	s := routdStore(t)
 	var out bytes.Buffer
 	if err := runRouteRm(s.AsCLI("alice"), 999, &out); err == nil {
 		t.Error("runRouteRm(999) = nil, want no-such-route error")
 	}
 	s.Close()
 
-	if actor, _, _ := routeAudit(t, dir, "route.delete"); actor != "" {
+	if actor, _, _ := routeAudit(t, s, "route.delete"); actor != "" {
 		t.Errorf("route.delete recorded %q for a route that never existed", actor)
 	}
 }
@@ -117,18 +97,14 @@ func TestRouteRmMissingRecordsNothing(t *testing.T) {
 // An unattributed Store keeps the pre-AsCLI output, so daemons that never set an
 // operator are unaffected by the CLI gaining one.
 func TestRouteAuditUnattributedStaysSystem(t *testing.T) {
-	dir := setupSplitStore(t)
-	s, err := store.OpenRoutd(dir)
-	if err != nil {
-		t.Fatalf("OpenRoutd: %v", err)
-	}
+	s := routdStore(t)
 	var out bytes.Buffer
 	if err := runRouteAdd(s, 0, "platform=telegram", "main", &out); err != nil {
 		t.Fatalf("runRouteAdd: %v", err)
 	}
 	s.Close()
 
-	actor, sub, surface := routeAudit(t, dir, "route.create")
+	actor, sub, surface := routeAudit(t, s, "route.create")
 	if actor != "system" || sub != "" || surface != "gateway" {
 		t.Errorf("unattributed = (%q, %q, %q), want (system, \"\", gateway)", actor, sub, surface)
 	}

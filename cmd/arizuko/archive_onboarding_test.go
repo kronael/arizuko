@@ -10,7 +10,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"strings"
 	"testing"
 
@@ -23,9 +22,9 @@ import (
 // itself calls. An admission is an item, so there is no row to INSERT and no
 // column to COUNT — and a fixture that reached past the reader could seed a
 // shape the reader never returns.
-func seedAdmission(t *testing.T, db *sql.DB, jid string) {
+func seedAdmission(t *testing.T, db *store.Store, jid string) {
 	t.Helper()
-	st := store.New(db)
+	st := db
 	if _, err := st.ImportOnbod(t.Context(), store.OnbodSnapshot{
 		Admissions: []store.OnboardingRow{{
 			JID:      jid,
@@ -48,16 +47,16 @@ func seedAdmission(t *testing.T, db *sql.DB, jid string) {
 
 // countAdmissions answers how many admissions one database holds, through the
 // reader rather than a COUNT(*) the entity has no columns for.
-func countAdmissions(t *testing.T, db *sql.DB) int {
+func countAdmissions(t *testing.T, db *store.Store) int {
 	t.Helper()
 	return len(admissions(t, db))
 }
 
 // admissions reads every admission one database holds, through the method onbod
 // itself calls.
-func admissions(t *testing.T, db *sql.DB) []store.OnboardingRow {
+func admissions(t *testing.T, db *store.Store) []store.OnboardingRow {
 	t.Helper()
-	rows, err := store.New(db).ListOnboarding("")
+	rows, err := db.ListOnboarding("")
 	if err != nil {
 		t.Fatalf("ListOnboarding: %v", err)
 	}
@@ -66,7 +65,7 @@ func admissions(t *testing.T, db *sql.DB) []store.OnboardingRow {
 
 // admission reads ONE admission by jid, and fails when it is not there — which
 // is what every raw `SELECT ... WHERE jid = ?` in this file used to do.
-func admission(t *testing.T, db *sql.DB, jid string) (store.OnboardingRow, bool) {
+func admission(t *testing.T, db *store.Store, jid string) (store.OnboardingRow, bool) {
 	t.Helper()
 	for _, r := range admissions(t, db) {
 		if r.JID == jid {
@@ -82,7 +81,7 @@ func admission(t *testing.T, db *sql.DB, jid string) (store.OnboardingRow, bool)
 func TestArchiveOnboarding_TravelsAndRestores(t *testing.T) {
 	ctx := context.Background()
 	srcDataDir, srcStores := openInstance(t)
-	seedAdmission(t, srcStores[resreg.SubsystemOnbod].DB(), "telegram:user/12345")
+	seedAdmission(t, srcStores[resreg.SubsystemOnbod], "telegram:user/12345")
 
 	var buf bytes.Buffer
 	if _, err := buildArchive(ctx, srcStores, srcDataDir, false, &buf); err != nil {
@@ -93,7 +92,7 @@ func TestArchiveOnboarding_TravelsAndRestores(t *testing.T) {
 	}
 
 	dstDataDir, dstStores := openInstance(t)
-	dstDB := dstStores[resreg.SubsystemOnbod].DB()
+	dstDB := dstStores[resreg.SubsystemOnbod]
 	if got := countAdmissions(t, dstDB); got != 0 {
 		t.Fatalf("destination is not fresh (count=%d)", got)
 	}
@@ -130,14 +129,14 @@ func TestArchiveOnboarding_TravelsAndRestores(t *testing.T) {
 func TestArchiveOnboarding_SkippedWithoutForce(t *testing.T) {
 	ctx := context.Background()
 	srcDataDir, srcStores := openInstance(t)
-	seedAdmission(t, srcStores[resreg.SubsystemOnbod].DB(), "telegram:user/12345")
+	seedAdmission(t, srcStores[resreg.SubsystemOnbod], "telegram:user/12345")
 
 	var buf bytes.Buffer
 	if _, err := buildArchive(ctx, srcStores, srcDataDir, false, &buf); err != nil {
 		t.Fatal(err)
 	}
 	dstDataDir, dstStores := openInstance(t)
-	dstDB := dstStores[resreg.SubsystemOnbod].DB()
+	dstDB := dstStores[resreg.SubsystemOnbod]
 
 	report, err := applyArchive(ctx, dstStores, dstDataDir, bytes.NewReader(buf.Bytes()), false, nil)
 	// force=false also rejects the config CAS across two independently
@@ -155,14 +154,14 @@ func TestArchiveOnboarding_SkippedWithoutForce(t *testing.T) {
 func TestArchiveOnboarding_RefusesNonEmptyTarget(t *testing.T) {
 	ctx := context.Background()
 	srcDataDir, srcStores := openInstance(t)
-	seedAdmission(t, srcStores[resreg.SubsystemOnbod].DB(), "telegram:user/12345")
+	seedAdmission(t, srcStores[resreg.SubsystemOnbod], "telegram:user/12345")
 
 	var buf bytes.Buffer
 	if _, err := buildArchive(ctx, srcStores, srcDataDir, false, &buf); err != nil {
 		t.Fatal(err)
 	}
 	dstDataDir, dstStores := openInstance(t)
-	dstDB := dstStores[resreg.SubsystemOnbod].DB()
+	dstDB := dstStores[resreg.SubsystemOnbod]
 	seedAdmission(t, dstDB, "telegram:user/99999") // target already populated
 
 	report, err := applyArchive(ctx, dstStores, dstDataDir, bytes.NewReader(buf.Bytes()), true, nil)
@@ -188,10 +187,10 @@ func TestArchiveOnboarding_RefusesNonEmptyTarget(t *testing.T) {
 // row identically and could not tell the flag from its absence.
 func TestArchiveOnboarding_ConfigApplyStillNeverTouchesIt(t *testing.T) {
 	_, stores := openInstance(t)
-	db := stores[resreg.SubsystemOnbod].DB()
+	db := stores[resreg.SubsystemOnbod]
 	seedAdmission(t, db, "telegram:user/12345")
 
-	manifest, err := resreg.Export(resreg.OnDB(db), resreg.SubsystemOnbod)
+	manifest, err := resreg.Export(resreg.On(db.Obj()), resreg.SubsystemOnbod)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,11 +198,11 @@ func TestArchiveOnboarding_ConfigApplyStillNeverTouchesIt(t *testing.T) {
 		t.Fatal("fixture is vacuous: onboarding must be in the export projection")
 	}
 	manifest["onboarding"] = []any{} // the operator declared no admissions
-	sum, err := resreg.Checksum(resreg.OnDB(db), resreg.SubsystemOnbod)
+	sum, err := resreg.Checksum(resreg.On(db.Obj()), resreg.SubsystemOnbod)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := resreg.Apply(context.Background(), resreg.OnDB(db), resreg.SubsystemOnbod, sum, false, manifest, nil); err != nil {
+	if _, err := resreg.Apply(context.Background(), resreg.On(db.Obj()), resreg.SubsystemOnbod, sum, false, manifest, nil); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
 	got, ok := admission(t, db, "telegram:user/12345")

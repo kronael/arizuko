@@ -71,9 +71,8 @@ not a regression: both reads already scanned.
 
 - **No retention, no purge, no delete.** Append-only by design; `MaxLimit`
   (200) is what stops one request draining the whole history.
-- **No statement of its own.** `db_utils/sql_layer_test.go` fails the build if
-  SQL appears anywhere in this package — the entity is a name a driver
-  resolves, and the daemon that opens the store picks which driver.
+- **No statement of its own.** The entity is a name the driver resolves, and
+  the daemon that opens the store hands this package the handle.
 - **No dependency on `chanlib`.** `envOr`/`envInt` are re-implemented here
   because that edge once closed an `auth → audit → chanlib` import cycle.
 - **No cross-daemon merge.** Merging four owners' logs into one page is

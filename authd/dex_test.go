@@ -197,7 +197,7 @@ func TestDexCallbackRejectsWhatIsNotOurs(t *testing.T) {
 			if out.Code != http.StatusBadGateway {
 				t.Fatalf("status %d want 502: %s", out.Code, out.Body.String())
 			}
-			if users := entityCount(t, newObjectStore(db), authstore.AuthUsers); users != 0 {
+			if users := entityCount(t, db, authstore.AuthUsers); users != 0 {
 				t.Fatalf("a rejected token must not create a user (rows=%d)", users)
 			}
 		})

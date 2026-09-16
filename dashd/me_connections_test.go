@@ -1,13 +1,13 @@
 package main
 
 import (
-	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/kronael/arizuko/auth/surrogate"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
 )
@@ -15,7 +15,7 @@ import (
 // connectionsDash wires a dash whose surrogate engine's github TokenURL points at
 // the given exchange handler (the mocked GitHub token endpoint). The secrets
 // table (with routd 0017's surrogate columns) comes from routd's own chain.
-func connectionsDash(t *testing.T, exchange http.HandlerFunc) (*dash, *sql.DB) {
+func connectionsDash(t *testing.T, exchange http.HandlerFunc) (*dash, objstore.Store) {
 	t.Helper()
 	db := routdDB(t)
 	srv := httptest.NewServer(exchange)
@@ -28,7 +28,7 @@ func connectionsDash(t *testing.T, exchange http.HandlerFunc) (*dash, *sql.DB) {
 		map[string]surrogate.ClientCreds{"github": {ID: "cid", Secret: "csecret"}},
 	)
 	d := &dash{
-		routd: over(db), secretKeyring: [][]byte{[]byte("k")},
+		routd: db, secretKeyring: [][]byte{[]byte("k")},
 		surrogate: eng, stateSecret: []byte("state-secret"), connBaseURL: "https://dash.test",
 	}
 	return d, db
@@ -90,7 +90,7 @@ func TestConnections_ConnectRoundTrip(t *testing.T) {
 	}
 
 	// 3. row persisted with provider + an expiry + a refresh credential.
-	conns, err := store.New(db).UserOAuthSecrets("github:alice", []string{"GITHUB_TOKEN"})
+	conns, err := store.NewOver(db).UserOAuthSecrets("github:alice", []string{"GITHUB_TOKEN"})
 	if err != nil || len(conns) != 1 {
 		t.Fatalf("no row persisted: %d rows, err=%v", len(conns), err)
 	}

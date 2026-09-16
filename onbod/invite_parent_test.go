@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -299,17 +298,11 @@ func seedRedemption(t *testing.T, db *store.Store, sub, targetGlob string) {
 	}
 }
 
-// The hand-written schema in testDB is a model of onbod.db, not onbod.db. This
-// opens the real thing so an entity the tests above rely on cannot exist only in
-// the model.
+// testDB fuses both owners onto one handle. This opens ONLY what onbod's own
+// door prepares, so an entity the tests above rely on cannot come from the
+// other owner's set.
 func TestInviteRedemptionsEntityIsServedByARealOnbodDB(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "onbod.db")
-	mustSeedDB(t, path)
-	db, err := openOwned(path)
-	if err != nil {
-		t.Fatalf("openOwned: %v", err)
-	}
-	defer db.Close()
+	db := ownedDB(t)
 
 	st := db
 	seedRedemption(t, db, "github:bob", "acme/")

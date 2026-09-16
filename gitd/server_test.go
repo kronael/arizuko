@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/objstore/dynstore"
 )
 
 type secretMap map[string]string
@@ -70,7 +71,12 @@ func newTestEnv(t *testing.T, secrets secretMap) *testEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { as.Close() }) //nolint:errcheck // the test is ending
+	// gitd's tables are named for its SERVICE, not for this test, so the body
+	// drops them when it ends rather than leaving them as the next one's fixture.
+	t.Cleanup(func() {
+		dropGitdEntities()
+		as.Close() //nolint:errcheck // the test is ending
+	})
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	rc.RetainInbound(ctx, as.Chan)
@@ -220,5 +226,22 @@ func TestWebhook_PermanentRefusalNotRetained(t *testing.T) {
 	}
 	if n, _ := chanlib.PendingInboundCount(t.Context(), e.srv.chanStore); n != 0 {
 		t.Fatalf("pending inbound = %d, want 0", n)
+	}
+}
+
+// dropGitdEntities removes what OpenAdapterStore made, so nothing one body
+// wrote outlives it — here or on the endpoint after the run.
+func dropGitdEntities() {
+	h, err := dynstore.FromEnv(dynstore.Prefix("gitd"))
+	if err != nil {
+		return
+	}
+	ctx := context.Background()
+	left, err := h.Entities(ctx)
+	if err != nil {
+		return
+	}
+	for _, e := range left {
+		_ = h.DropEntity(ctx, e)
 	}
 }

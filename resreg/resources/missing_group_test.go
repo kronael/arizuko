@@ -7,22 +7,22 @@ package resources
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore/dynstore"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/store"
 )
 
 // seedGroup lands a groups row through store's own writer — the fixture must
 // not go through the engine under test.
-func seedGroup(t *testing.T, db *sql.DB, folder string) {
+func seedGroup(t *testing.T, db *dynstore.Store, folder string) {
 	t.Helper()
-	s := store.New(db)
+	s := store.NewOver(db)
 	if err := s.PutGroupRow(core.Group{
 		Folder: folder, Product: "assistant",
 		AddedAt: time.Date(2026, 8, 6, 0, 0, 0, 0, time.UTC),
@@ -35,9 +35,9 @@ func seedGroup(t *testing.T, db *sql.DB, folder string) {
 }
 
 // folderRules counts one folder's egress rules.
-func folderRules(t *testing.T, db *sql.DB, folder string) int {
+func folderRules(t *testing.T, db *dynstore.Store, folder string) int {
 	t.Helper()
-	rules, err := store.New(db).ListNetworkRules(folder)
+	rules, err := store.NewOver(db).ListNetworkRules(folder)
 	if err != nil {
 		t.Fatalf("ListNetworkRules(%q): %v", folder, err)
 	}
@@ -61,7 +61,7 @@ func TestMissingGroup_NetworkRulesOrphanIsRealToday(t *testing.T) {
 	}
 
 	// No preflight: straight to Apply, naming a folder that is not a group.
-	if _, err := resreg.Apply(context.Background(), resreg.OnDB(db), resreg.SubsystemRoutd,
+	if _, err := resreg.Apply(context.Background(), resreg.On(db), resreg.SubsystemRoutd,
 		routdChecksum(t, db), false, map[string]any{
 			"network_rules": []NetworkRulesRow{{Folder: "corp/typo", Target: "api.example.com"}},
 		}, nil); err != nil {
@@ -81,7 +81,7 @@ func TestMissingGroup_RefusesUnknownFolder(t *testing.T) {
 	manifest := map[string]any{
 		"network_rules": []NetworkRulesRow{{Folder: "corp/typo", Target: "api.example.com"}},
 	}
-	known, err := resreg.KnownFolders(resreg.OnDB(db), manifest)
+	known, err := resreg.KnownFolders(resreg.On(db), manifest)
 	if err != nil {
 		t.Fatalf("KnownFolders: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestMissingGroup_AcceptsFolderDeclaredInTheSameManifest(t *testing.T) {
 		"groups":        []GroupsRow{{Folder: "new/team", Product: "assistant"}},
 		"network_rules": []NetworkRulesRow{{Folder: "new/team", Target: "api.example.com"}},
 	}
-	known, err := resreg.KnownFolders(resreg.OnDB(db), manifest)
+	known, err := resreg.KnownFolders(resreg.On(db), manifest)
 	if err != nil {
 		t.Fatalf("KnownFolders: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestMissingGroup_AcceptsFolderDeclaredInTheSameManifest(t *testing.T) {
 		t.Fatalf("a folder the manifest itself declares must pass: %v", err)
 	}
 	// And it really applies: the rule must not be a check that only ever says no.
-	if _, err := resreg.Apply(context.Background(), resreg.OnDB(db), resreg.SubsystemRoutd,
+	if _, err := resreg.Apply(context.Background(), resreg.On(db), resreg.SubsystemRoutd,
 		routdChecksum(t, db), false, manifest, nil); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestMissingGroup_InstanceGlobalFolderExempt(t *testing.T) {
 	manifest := map[string]any{
 		"network_rules": []NetworkRulesRow{{Folder: "", Target: "api.anthropic.com"}},
 	}
-	known, err := resreg.KnownFolders(resreg.OnDB(db), manifest)
+	known, err := resreg.KnownFolders(resreg.On(db), manifest)
 	if err != nil {
 		t.Fatalf("KnownFolders: %v", err)
 	}
@@ -155,7 +155,7 @@ func TestMissingGroup_CatchesWebRoutesFolder(t *testing.T) {
 	manifest := map[string]any{
 		"web_routes": []WebRoutesRow{{PathPrefix: "/x/", Access: "public", Folder: "corp/ghost"}},
 	}
-	known, err := resreg.KnownFolders(resreg.OnDB(db), manifest)
+	known, err := resreg.KnownFolders(resreg.On(db), manifest)
 	if err != nil {
 		t.Fatalf("KnownFolders: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestMissingGroup_CleanManifestPasses(t *testing.T) {
 		"network_rules": []NetworkRulesRow{{Folder: "corp/eng", Target: "api.example.com"}},
 		"web_routes":    []WebRoutesRow{{PathPrefix: "/eng/", Access: "public", Folder: "corp/eng"}},
 	}
-	known, err := resreg.KnownFolders(resreg.OnDB(db), manifest)
+	known, err := resreg.KnownFolders(resreg.On(db), manifest)
 	if err != nil {
 		t.Fatalf("KnownFolders: %v", err)
 	}

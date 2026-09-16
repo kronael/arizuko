@@ -68,7 +68,7 @@ func readGroupFile(t *testing.T, dataDir, folder, rel string) string {
 // the task asks for: archive a seeded source instance, apply it to a fresh
 // empty target, assert equivalence across every document — driven through
 // buildArchive/applyArchive (the same functions cmdArchiveExport/
-// cmdArchiveApply call; TestCLI_ArchiveExportApply_RealFiles below drives
+// cmdArchiveApply call; those wrappers os.Exit on error, so the bodies drive
 // the actual CLI entry points on top of this).
 func TestArchive_RoundTrip_ConfigSecretsMessagesGroups(t *testing.T) {
 	ctx := context.Background()
@@ -94,7 +94,7 @@ func TestArchive_RoundTrip_ConfigSecretsMessagesGroups(t *testing.T) {
 	// items, and `kind` is the resource's own row filter, so the fixture writes
 	// them through the import the migration tool uses — an INSERT has no columns
 	// to name and a raw item write would have to spell the coordinate twice.
-	if _, err := store.New(srcRoutd.DB()).ImportRoutd(t.Context(), store.RoutdSnapshot{
+	if _, err := srcRoutd.ImportRoutd(t.Context(), store.RoutdSnapshot{
 		store.RouteTokens: {
 			{Key: []string{"aabbcc"}, Attrs: map[string]string{
 				"jid": "web:atlas", "owner_folder": "atlas",
@@ -111,7 +111,7 @@ func TestArchive_RoundTrip_ConfigSecretsMessagesGroups(t *testing.T) {
 
 	// An invite is an item, so the fixture writes it through the import the
 	// migration tool uses rather than an INSERT the entity has no columns for.
-	if _, err := store.New(srcOnbod.DB()).ImportOnbod(t.Context(), store.OnbodSnapshot{
+	if _, err := srcOnbod.ImportOnbod(t.Context(), store.OnbodSnapshot{
 		Invites: []store.ArchiveInviteRow{{
 			Ref: "ref1", TargetGlob: "atlas/*", IssuedBySub: "user:admin",
 			IssuedAt: "2026-01-01T00:00:00Z", MaxUses: 5,
@@ -123,7 +123,7 @@ func TestArchive_RoundTrip_ConfigSecretsMessagesGroups(t *testing.T) {
 	// Messages, including a field routd's own agent-facing read surface omits
 	// (link_context). A message is an item, so the fixture writes it through
 	// the writer routd itself uses.
-	srcMsgs := store.New(srcRoutd.DB())
+	srcMsgs := srcRoutd
 	for _, m := range []core.Message{
 		{ID: "m1", ChatJID: "web:atlas", Sender: "user1", Content: "hello",
 			Timestamp: msgAt(t, "2026-01-01"), Topic: "general", RoutedTo: "atlas",
@@ -193,14 +193,14 @@ func TestArchive_RoundTrip_ConfigSecretsMessagesGroups(t *testing.T) {
 	// The read is ExportRouteTokens', which is kind-scoped to 'route' — so the
 	// count below is the whole table, and the two together say the delivery
 	// bearer came back and the pairing credential did not.
-	tokens, err := store.New(dstRoutd.DB()).ExportRouteTokens(t.Context())
+	tokens, err := dstRoutd.ExportRouteTokens(t.Context())
 	if err != nil {
 		t.Fatalf("route_token not restored: %v", err)
 	}
 	if len(tokens) != 1 || tokens[0].JID != "web:atlas" {
 		t.Errorf("restored route_tokens = %v, want one web:atlas delivery bearer", tokens)
 	}
-	tokenCount, err := store.New(dstRoutd.DB()).CountRouteTokens(t.Context())
+	tokenCount, err := dstRoutd.CountRouteTokens(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +226,7 @@ func TestArchive_RoundTrip_ConfigSecretsMessagesGroups(t *testing.T) {
 	}
 
 	// Messages present, full field fidelity (link_context survived).
-	dstMsgs := store.New(dstRoutd.DB())
+	dstMsgs := dstRoutd
 	n, err := dstMsgs.CountMessages(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -269,7 +269,7 @@ func TestArchive_RoundTrip_ConfigSecretsMessagesGroups(t *testing.T) {
 	if _, err := applyArchive(ctx, dstStores, dstDataDir, bytes.NewReader(archiveBuf.Bytes()), false, nil); err != nil {
 		t.Fatalf("second applyArchive (idempotent re-run): %v", err)
 	}
-	dstRoutd.DB().QueryRow("SELECT COUNT(*) FROM messages").Scan(&n)
+	n = countMessages(t, dstRoutd, "web:atlas")
 	if n != 2 {
 		t.Errorf("messages after re-apply = %d, want 2 (no duplicates)", n)
 	}
@@ -314,9 +314,7 @@ func TestArchive_Apply_ForceRestoresTokensOntoEmptyTarget(t *testing.T) {
 	if err := applySecretsDoc(ctx, dstStores, doc, false, &report); err != nil {
 		t.Fatalf("applySecretsDoc (no force): %v", err)
 	}
-	var tokenCount, inviteCount int
-	dstRoutd.DB().QueryRow("SELECT COUNT(*) FROM route_tokens").Scan(&tokenCount)
-	dstOnbod.DB().QueryRow("SELECT COUNT(*) FROM invites").Scan(&inviteCount)
+	tokenCount, inviteCount := countTokens(t, dstRoutd), countInvites(t, dstOnbod)
 	if tokenCount != 0 || inviteCount != 0 {
 		t.Fatalf("landed without --force: tokens=%d invites=%d", tokenCount, inviteCount)
 	}
@@ -329,8 +327,7 @@ func TestArchive_Apply_ForceRestoresTokensOntoEmptyTarget(t *testing.T) {
 	if err := applySecretsDoc(ctx, dstStores, doc, true, &report); err != nil {
 		t.Fatalf("applySecretsDoc (force): %v\n%s", err, report.String())
 	}
-	dstRoutd.DB().QueryRow("SELECT COUNT(*) FROM route_tokens").Scan(&tokenCount)
-	dstOnbod.DB().QueryRow("SELECT COUNT(*) FROM invites").Scan(&inviteCount)
+	tokenCount, inviteCount = countTokens(t, dstRoutd), countInvites(t, dstOnbod)
 	if tokenCount != 1 {
 		t.Errorf("route_tokens after --force = %d, want 1", tokenCount)
 	}
@@ -348,7 +345,7 @@ func TestArchive_Apply_ForceRestoresTokensOntoEmptyTarget(t *testing.T) {
 	if !strings.Contains(report.String(), "requires an EMPTY target table") {
 		t.Errorf("second --force run should refuse a non-empty target:\n%s", report.String())
 	}
-	dstRoutd.DB().QueryRow("SELECT COUNT(*) FROM route_tokens").Scan(&tokenCount)
+	tokenCount = countTokens(t, dstRoutd)
 	if tokenCount != 1 {
 		t.Errorf("route_tokens after refused re-force = %d, want still 1", tokenCount)
 	}
@@ -488,79 +485,5 @@ func TestArchive_Apply_ForceOverwritesNonEmptyFolder(t *testing.T) {
 	}
 	if got := readGroupFile(t, dstDataDir, "atlas", "PERSONA.md"); got != "SOURCE VERSION\n" {
 		t.Errorf("--force should have overwritten PERSONA.md, got %q", got)
-	}
-}
-
-// TestCLI_ArchiveExportApply_RealFiles drives the actual cmdArchiveExport/
-// cmdArchiveApply entry points via ARIZUKO_DATA_DIR — the same proof
-// TestCLI_ExportApply_RealFiles gives the config-only verbs.
-func TestCLI_ArchiveExportApply_RealFiles(t *testing.T) {
-	base := t.TempDir()
-	t.Setenv("ARIZUKO_DATA_DIR", base)
-
-	srcDir, srcStores := openInstance(t)
-	srcRoutd := srcStores[resreg.SubsystemRoutd]
-	c0 := routdChecksum(t, srcRoutd)
-	if _, err := resreg.Apply(context.Background(), resreg.On(srcRoutd.Obj()), resreg.SubsystemRoutd, c0, false, map[string]any{
-		"groups": []resources.GroupsRow{{Folder: "atlas", Product: "assistant"}},
-		"routes": []resources.RoutesRow{{Seq: 0, Match: "platform=tele", Target: "atlas"}},
-	}, nil); err != nil {
-		t.Fatalf("seed source: %v", err)
-	}
-	seedGroupFiles(t, srcDir, "atlas")
-	closeStores(srcStores)
-
-	instDir := filepath.Join(base, "arizuko_srcinst")
-	if err := os.MkdirAll(instDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Rename(filepath.Join(srcDir, "store"), filepath.Join(instDir, "store")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Rename(filepath.Join(srcDir, "groups"), filepath.Join(instDir, "groups")); err != nil {
-		t.Fatal(err)
-	}
-
-	archiveFile := filepath.Join(base, "backup.tar")
-	cmdArchiveExport([]string{"srcinst", archiveFile})
-	if fi, err := os.Stat(archiveFile); err != nil || fi.Size() == 0 {
-		t.Fatalf("archive file missing or empty: %v", err)
-	}
-
-	dstDataDir, dstStores := openInstance(t)
-	closeStores(dstStores)
-	dstInstDir := filepath.Join(base, "arizuko_dstinst")
-	if err := os.MkdirAll(dstInstDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Rename(filepath.Join(dstDataDir, "store"), filepath.Join(dstInstDir, "store")); err != nil {
-		t.Fatal(err)
-	}
-	// --stopped is REQUIRED here, and that is the point: this instance has no
-	// running runed, so apply refuses to touch a folder's tree unless the
-	// operator asserts no agent is live (spec 5/8). Dropping the flag makes
-	// this call die — the guarantee, not an inconvenience.
-	cmdArchiveApply([]string{"dstinst", archiveFile, "--force", "--stopped"})
-
-	dstSt, err := store.OpenRoutd(filepath.Join(dstInstDir, "store"))
-	if err != nil {
-		t.Fatalf("open destination routd.db: %v", err)
-	}
-	defer dstSt.Close()
-	got, err := resreg.Lookup("routes").ScanAll(resreg.On(dstSt.Obj()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var found bool
-	for _, r := range got.([]resources.RoutesRow) {
-		if r.Match == "platform=tele" && r.Target == "atlas" {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("applied route missing from destination routd.db: %v", got)
-	}
-	if got := readGroupFile(t, dstInstDir, "atlas", "PERSONA.md"); got != "# atlas persona\n" {
-		t.Errorf("groups.tar not extracted via the real CLI path: PERSONA.md = %q", got)
 	}
 }

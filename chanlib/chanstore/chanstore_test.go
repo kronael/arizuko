@@ -1,11 +1,7 @@
 package chanstore_test
 
-// The storage layer's own bodies. chanlib's tests exercise it through the
-// adapter and those open a file, so these are the ones that run on WHATEVER
-// engine ARIZUKO_TEST_PG_DSN names:
-//
-//	go test ./chanlib/chanstore/...                                   # SQLite
-//	ARIZUKO_TEST_PG_DSN=postgres://… go test ./chanlib/chanstore/...  # Postgres
+// The storage layer's own bodies, run against the endpoint dyntest lends each
+// test as its own namespace.
 //
 // They are about the two guarantees an adapter would be dangerous without: an
 // outbound message is delivered exactly once even though routd re-sends the
@@ -21,14 +17,15 @@ import (
 
 	"github.com/kronael/arizuko/chanlib/chanstore"
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/db_utils/dbtest"
-	"github.com/kronael/arizuko/objstore/sqlstore"
+	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 )
 
-// newStore hands a test an empty adapter store on whichever engine dbtest opens.
+func TestMain(m *testing.M) { dyntest.Main(m) }
+
+// newStore hands a test an empty adapter store in a namespace of its own.
 func newStore(t *testing.T) *chanstore.Store {
 	t.Helper()
-	s := sqlstore.New(dbtest.Open(t))
+	s := dyntest.Store(t)
 	for _, entity := range chanstore.Entities {
 		if err := s.CreateEntity(t.Context(), entity); err != nil {
 			t.Fatalf("create entity %s: %v", entity, err)

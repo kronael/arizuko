@@ -42,7 +42,7 @@ func main() {
 			// DB routd's re-send of a still-pending row posts a second message.
 			as, err := chanlib.OpenAdapterStore("discd")
 			if err != nil {
-				slog.Error("adapter store open failed", "dir", cfg.DataDir, "err", err)
+				slog.Error("adapter store open failed", "err", err)
 				return nil, nil, err
 			}
 			// Inbound durability. The Discord gateway hands each event over
@@ -63,7 +63,6 @@ func main() {
 type config struct {
 	Name, DiscordToken, RouterURL        string
 	ListenAddr, ListenURL, AssistantName string
-	DataDir                              string
 	MediaMaxBytes                        int64
 	UserMode                             bool // true when authenticating as a user account, not a bot
 }
@@ -87,7 +86,6 @@ func loadConfig() config {
 		ListenAddr:    chanlib.EnvOr("LISTEN_ADDR", ":9002"),
 		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://discord:9002"),
 		AssistantName: chanlib.EnvOr("ASSISTANT_NAME", ""),
-		DataDir:       chanlib.EnvOr("DATA_DIR", "/srv/app/home/store/discd"),
 		MediaMaxBytes: chanlib.EnvBytes("MEDIA_MAX_FILE_BYTES", 20*1024*1024),
 		UserMode:      userMode,
 	}

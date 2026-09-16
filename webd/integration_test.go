@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -35,7 +34,7 @@ type integInst struct {
 func newIntegServer(t *testing.T) *integInst {
 	t.Helper()
 	inst := testutils.NewRoutdInstance(t)
-	st := store.New(inst.DB)
+	st := inst.Store
 
 	mr := newMockRouterWithStore(st)
 	t.Cleanup(mr.close)
@@ -84,7 +83,7 @@ func TestE2ESlinkWebsocketEcho(t *testing.T) {
 
 	// Inbound message landed in the DB.
 	testutils.WaitFor(t, `the inbound "hello" in web:echo`, time.Second, func() bool {
-		return inboundID(t, ii.DB, "web:echo", "hello") != ""
+		return inboundID(t, ii.Store, "web:echo", "hello") != ""
 	})
 
 	// Router received the inbound.
@@ -95,7 +94,7 @@ func TestE2ESlinkWebsocketEcho(t *testing.T) {
 	// Simulate gated sending an assistant message back via webd's /send
 	// callback. reply_to pins the assistant onto the inbound's topic so the
 	// SSE subscriber on that topic receives it.
-	inboundID := inboundID(t, ii.DB, "web:echo", "hello")
+	inboundID := inboundID(t, ii.Store, "web:echo", "hello")
 	if inboundID == "" {
 		t.Fatal("find inbound id: the row webd appended is not readable")
 	}
@@ -195,7 +194,7 @@ func TestE2ESlinkMCPBridge(t *testing.T) {
 		t.Fatalf("tool error: %v", res.Content)
 	}
 
-	testutils.AssertMessage(t, ii.DB, "web:alpha", "bridge-ping")
+	testutils.AssertMessage(t, ii.Store, "web:alpha", "bridge-ping")
 	if got := ii.mr.sent(); len(got) != 1 || got[0].Content != "bridge-ping" {
 		t.Fatalf("router did not receive MCP-bridged message: %+v", got)
 	}
@@ -224,9 +223,9 @@ func TestE2ESlinkMCPBridge(t *testing.T) {
 // inboundID answers the id of a chat's message carrying content, or "" when the
 // chat holds none. `messages` is an objstore entity, so the lookup is a read of
 // the chat's partition rather than a query naming columns.
-func inboundID(t *testing.T, db *sql.DB, chatJID, content string) string {
+func inboundID(t *testing.T, st *store.Store, chatJID, content string) string {
 	t.Helper()
-	msgs, err := store.New(db).MessagesSince(chatJID, time.Time{})
+	msgs, err := st.MessagesSince(chatJID, time.Time{})
 	if err != nil {
 		return ""
 	}

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
@@ -427,12 +428,13 @@ func TestObservedSinceExcludesIsolatedCronRuns(t *testing.T) {
 	// if the sender exclusion is removed rather than passing vacuously: both
 	// rows are in the folder's feed, and the cron one carries a body and is not
 	// the agent's own output.
-	var inFeed int
-	if err := db.SQL().QueryRow(
-		`SELECT COUNT(*) FROM message_folders WHERE part = 'trading'`).Scan(&inFeed); err != nil {
+	feed, err := db.Obj().Query(t.Context(), objstore.Query{
+		Entity: store.MessageFolders, Partition: "trading",
+	})
+	if err != nil {
 		t.Fatalf("precondition query: %v", err)
 	}
-	if inFeed != 2 {
+	if inFeed := len(feed); inFeed != 2 {
 		t.Fatalf("the folder feed holds %d rows; the fixture does not reach the ambient "+
 			"read at all and the test would pass for the wrong reason", inFeed)
 	}

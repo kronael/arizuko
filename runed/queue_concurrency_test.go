@@ -95,18 +95,26 @@ func TestConcurrencyCapNoOverAdmit(t *testing.T) {
 		}(i)
 	}
 
-	// Wait until the cap is saturated (all K admitted runs live), then give an
-	// over-cap admit a window to (wrongly) start before releasing.
-	deadline := time.After(2 * time.Second)
+	// Wait until the cap is saturated (all K admitted runs live), and then until
+	// every other caller has actually been rejected. Both waits are on the
+	// condition rather than on a clock: a claim is a round trip to the store, so
+	// a fixed window can end before the callers past the cap have asked at all,
+	// and releasing first hands each of them a free slot.
+	saturated := time.Now().Add(10 * time.Second)
 	for atomic.LoadInt32(&live) < cap {
-		select {
-		case <-deadline:
+		if time.Now().After(saturated) {
 			t.Fatalf("cap never saturated: live=%d want %d", atomic.LoadInt32(&live), cap)
-		default:
-			time.Sleep(time.Millisecond)
 		}
+		time.Sleep(time.Millisecond)
 	}
-	time.Sleep(50 * time.Millisecond)
+	rejected := time.Now().Add(10 * time.Second)
+	for atomic.LoadInt32(&busy) < callers-cap {
+		if time.Now().After(rejected) {
+			t.Fatalf("callers past the cap were never rejected: busy=%d want %d (live=%d)",
+				atomic.LoadInt32(&busy), callers-cap, atomic.LoadInt32(&live))
+		}
+		time.Sleep(time.Millisecond)
+	}
 	if l := atomic.LoadInt32(&live); l > cap {
 		t.Fatalf("live=%d exceeded cap %d (over-admit)", l, cap)
 	}

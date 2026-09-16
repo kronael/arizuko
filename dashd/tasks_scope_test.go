@@ -21,22 +21,21 @@ import (
 // bug straight back, which is what this test fails on.
 func TestTaskRows_WindowAppliesAfterTheVisibilityFilter(t *testing.T) {
 	db := routdDB(t)
-	defer db.Close()
 
 	// taskPageSize other-owner rows that sort ahead of the caller's one task.
 	for i := 0; i < taskPageSize+50; i++ {
-		seedScheduledTask(t, over(db), core.Task{
+		seedScheduledTask(t, db, core.Task{
 			ID: fmt.Sprintf("noise-%04d", i), Owner: "aaa-other",
 			ChatJID: "web:aaa-other", Prompt: "noise", Cron: "* * * * *",
 			Status: "active",
 		})
 	}
-	seedScheduledTask(t, over(db), core.Task{
+	seedScheduledTask(t, db, core.Task{
 		ID: "zzz-mine", Owner: "zzz-mine", ChatJID: "web:zzz-mine",
 		Prompt: "the caller's own task", Cron: "* * * * *", Status: "active",
 	})
 
-	d := &dash{routd: over(db), routdURL: stubRoutd(t, db)}
+	d := &dash{routd: db, routdURL: stubRoutd(t, db)}
 	var w strings.Builder
 	d.writeTaskRows(t.Context(), &stringResponse{&w}, []string{"zzz-mine"}, false)
 
@@ -55,12 +54,11 @@ func TestTaskRows_WindowAppliesAfterTheVisibilityFilter(t *testing.T) {
 // scheduled tasks" and no test notices.
 func TestTaskRows_RenderThroughRoutd(t *testing.T) {
 	db := routdDB(t)
-	defer db.Close()
-	seedScheduledTask(t, over(db), core.Task{
+	seedScheduledTask(t, db, core.Task{
 		ID: "t1", Owner: "alpha", ChatJID: "web:alpha",
 		Prompt: "water the plants", Cron: "0 8 * * *", Status: "active",
 	})
-	d := &dash{routd: over(db), routdURL: stubRoutd(t, db)}
+	d := &dash{routd: db, routdURL: stubRoutd(t, db)}
 	var w strings.Builder
 	d.writeTaskRows(t.Context(), &stringResponse{&w}, nil, true)
 

@@ -26,8 +26,8 @@ func newDashServer(t *testing.T) (*httptest.Server, *testutils.Inst, string) {
 	if err := os.MkdirAll(groupsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{routd: over(inst.DB), onbod: over(inst.DB), dbPath: "memory", groupsDir: groupsDir,
-		routdURL: stubRoutd(t, inst.DB)}
+	d := &dash{routd: inst.Store.Obj(), onbod: inst.Store.Obj(), groupsDir: groupsDir,
+		routdURL: stubRoutd(t, inst.Store.Obj())}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	srv := httptest.NewServer(mux)
@@ -66,7 +66,7 @@ func TestMemoryEndpoint(t *testing.T) {
 	srv, inst, groupsDir := newDashServer(t)
 
 	folder := "alice"
-	seedFolder(t, over(inst.DB), folder)
+	seedFolder(t, inst.Store.Obj(), folder)
 	if err := os.MkdirAll(filepath.Join(groupsDir, folder), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestGroupList(t *testing.T) {
 	srv, inst, _ := newDashServer(t)
 
 	for _, f := range []string{"alpha", "bravo"} {
-		seedFolder(t, over(inst.DB), f)
+		seedFolder(t, inst.Store.Obj(), f)
 	}
 
 	resp, err := opGet(t, srv.URL+"/dash/groups/")
@@ -128,12 +128,12 @@ func TestGroupListUsage(t *testing.T) {
 
 	folder := "eng"
 	now := time.Now().UTC()
-	seedFolder(t, over(inst.DB), folder)
+	seedFolder(t, inst.Store.Obj(), folder)
 	// What the gateway metered today: 700 tokens, 15 cents.
 	stubMeter(t, true, stubSpendRow{Folder: folder, Tokens: 700, CostCents: 15})
 	// Insert 3 messages routed to this folder.
 	for i := range 3 {
-		seedRoutdMessage(t, inst.DB, core.Message{
+		seedRoutdMessage(t, inst.Store.Obj(), core.Message{
 			ID: fmt.Sprintf("m%d", i), ChatJID: "jid",
 			Timestamp: now.Add(time.Duration(i) * time.Second), RoutedTo: folder,
 		})
@@ -170,7 +170,7 @@ func TestTaskList(t *testing.T) {
 		{"task-two", "bob", "0 9 * * *"},
 	}
 	for _, tk := range tasks {
-		seedScheduledTask(t, over(inst.DB), core.Task{
+		seedScheduledTask(t, inst.Store.Obj(), core.Task{
 			ID: tk.id, Owner: tk.owner, ChatJID: tk.owner, Prompt: "do stuff",
 			Cron: tk.cron, Status: "active",
 		})

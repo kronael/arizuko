@@ -1,22 +1,20 @@
 package main
 
 import (
-	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/kronael/arizuko/objstore"
-	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/store"
 )
 
-func packagesDB(t *testing.T) *sql.DB { return routdDB(t) }
+func packagesDB(t *testing.T) objstore.Store { return routdDB(t) }
 
-func packagesGet(t *testing.T, db *sql.DB) string {
+func packagesGet(t *testing.T, db objstore.Store) string {
 	t.Helper()
-	d := &dash{routd: over(db), routdURL: stubRoutd(t, db)}
+	d := &dash{routd: db, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := asOperator(httptest.NewRequest("GET", "/dash/packages/", nil))
@@ -31,7 +29,6 @@ func packagesGet(t *testing.T, db *sql.DB) string {
 // TestPackagesPageEmpty: no installed packages renders the empty marker.
 func TestPackagesPageEmpty(t *testing.T) {
 	db := packagesDB(t)
-	defer db.Close()
 	if body := packagesGet(t, db); !strings.Contains(body, "No packages installed") {
 		t.Errorf("empty packages page missing marker: %s", body)
 	}
@@ -40,7 +37,6 @@ func TestPackagesPageEmpty(t *testing.T) {
 // TestPackagesPageRows: an installed package renders its columns.
 func TestPackagesPageRows(t *testing.T) {
 	db := packagesDB(t)
-	defer db.Close()
 	seedInstalledPackage(t, db, "", "slakd", "github.com/org/slakd", "abc123",
 		"2026-07-29T00:00:00Z")
 	body := packagesGet(t, db)
@@ -57,7 +53,6 @@ func TestPackagesPageRows(t *testing.T) {
 // product as something that installed a sidecar instance-wide.
 func TestPackagesPageShowsScope(t *testing.T) {
 	db := packagesDB(t)
-	defer db.Close()
 	seedInstalledPackage(t, db, "", "slakd", "github.com/org/slakd", "abc123",
 		"2026-07-29T00:00:00Z")
 	seedInstalledPackage(t, db, "atlas/support", "trip", "ant/examples/trip", "local",
@@ -75,13 +70,13 @@ func TestPackagesPageShowsScope(t *testing.T) {
 // the fixture addresses them the way routd does — (folder, name) is the
 // coordinate and the two document attributes hold their empty document, never
 // null.
-func seedInstalledPackage(t *testing.T, db *sql.DB, folder, name, source, revision, at string) {
+func seedInstalledPackage(t *testing.T, db objstore.Store, folder, name, source, revision, at string) {
 	t.Helper()
 	key, err := store.InstalledPackageKey(folder, name)
 	if err != nil {
 		t.Fatalf("coordinate of %s/%s: %v", folder, name, err)
 	}
-	if _, err := sqlstore.New(db).GuardedBatch(t.Context(), nil, []objstore.Write{{
+	if _, err := db.GuardedBatch(t.Context(), nil, []objstore.Write{{
 		Op: objstore.Put, Entity: store.InstalledPackages, Key: key,
 		Attrs: map[string]string{
 			store.AttrPkgSource:      source,

@@ -16,7 +16,7 @@ import (
 // store.PutACLRow is the audit-free writer, so this does not depend on audit_log.
 func addACL(t *testing.T, d *DB, principal, action, scope, effect string) {
 	t.Helper()
-	if err := store.New(d.SQL()).PutACLRow(core.ACLRow{
+	if err := store.NewOver(d.Obj()).PutACLRow(core.ACLRow{
 		Principal: principal, Action: action, Scope: scope, Effect: effect,
 		GrantedAt: "2026-01-01T00:00:00.000000000Z",
 	}); err != nil {
@@ -27,7 +27,7 @@ func addACL(t *testing.T, d *DB, principal, action, scope, effect string) {
 // holdsAction is the visibility view a test asserts against: auth.EffectiveActions
 // over the folder's acl rows (role:member floor + delegated + operator rows).
 func holdsAction(db *DB, folder, action string) bool {
-	held := auth.EffectiveActions(store.New(db.SQL()), auth.Caller{Principal: "folder:" + folder})
+	held := auth.EffectiveActions(store.NewOver(db.Obj()), auth.Caller{Principal: "folder:" + folder})
 	return held(action)
 }
 
@@ -45,7 +45,7 @@ func TestIntegration_RoleInheritedGrant(t *testing.T) {
 	const folder = "w/a/b/c"
 	// A role grants mcp:post; the folder agent is a member of that role.
 	addACL(t, db, "role:poster", "mcp:post", folder, "allow")
-	st := store.New(db.SQL())
+	st := store.NewOver(db.Obj())
 	if err := st.AddMembership("folder:"+folder, "role:poster", "test"); err != nil {
 		t.Fatal(err)
 	}

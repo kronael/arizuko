@@ -16,7 +16,6 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/resreg"
-	"github.com/kronael/arizuko/store"
 )
 
 // TestArchiveApply_RefusesFolderThatIsNotAGroup: an archive whose routd
@@ -25,11 +24,11 @@ import (
 func TestArchiveApply_RefusesFolderThatIsNotAGroup(t *testing.T) {
 	ctx := context.Background()
 	srcDataDir, srcStores := openInstance(t)
-	srcDB := srcStores[resreg.SubsystemRoutd].DB()
+	srcDB := srcStores[resreg.SubsystemRoutd]
 	// A rule for a folder with no group. The writer accepts it, which is the
 	// whole point: nothing binds network_rules.folder to a group, so the refusal
 	// below has to come from the preflight rather than from storage.
-	if err := store.New(srcDB).AddNetworkRule("corp/ghost", "api.example.com", "seed"); err != nil {
+	if err := srcDB.AddNetworkRule("corp/ghost", "api.example.com", "seed"); err != nil {
 		t.Fatal(err)
 	}
 	if got := ruleCount(t, srcDB, "corp/ghost", ""); got != 1 {
@@ -42,7 +41,7 @@ func TestArchiveApply_RefusesFolderThatIsNotAGroup(t *testing.T) {
 	}
 
 	dstDataDir, dstStores := openInstance(t)
-	dstDB := dstStores[resreg.SubsystemRoutd].DB()
+	dstDB := dstStores[resreg.SubsystemRoutd]
 	beforeGroups := groupCount(t, dstDB, "")
 
 	// --force is on deliberately: it overrides the CAS, and must NOT override
@@ -70,7 +69,7 @@ func TestArchiveApply_RefusesFolderThatIsNotAGroup(t *testing.T) {
 func TestArchiveApply_CleanArchiveStillApplies(t *testing.T) {
 	ctx := context.Background()
 	srcDataDir, srcStores := openInstance(t)
-	srcDB := srcStores[resreg.SubsystemRoutd].DB()
+	srcDB := srcStores[resreg.SubsystemRoutd]
 	seedRoutdConfig(t, srcDB)
 
 	var buf bytes.Buffer
@@ -79,7 +78,7 @@ func TestArchiveApply_CleanArchiveStillApplies(t *testing.T) {
 	}
 
 	dstDataDir, dstStores := openInstance(t)
-	dstDB := dstStores[resreg.SubsystemRoutd].DB()
+	dstDB := dstStores[resreg.SubsystemRoutd]
 	if got := groupCount(t, dstDB, "corp/eng"); got != 0 {
 		t.Fatalf("destination is not fresh (count=%d)", got)
 	}

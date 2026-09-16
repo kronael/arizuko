@@ -34,7 +34,7 @@ func main() {
 		Prefixes:   []string{"email:"},
 		Caps:       caps,
 		Start: func(ctx context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
-			as, st, err := openStorage(cfg.DataDir)
+			as, st, err := openStorage()
 			if err != nil {
 				slog.Error("store open failed", "err", err)
 				return nil, nil, err
@@ -59,7 +59,6 @@ type config struct {
 	RouterURL     string
 	ListenAddr    string
 	ListenURL     string
-	DataDir       string
 	MaxAttachment int64
 	Auth          AuthConfig
 }
@@ -76,7 +75,6 @@ func loadConfig() config {
 		RouterURL:     chanlib.MustEnv("ROUTER_URL"),
 		ListenAddr:    chanlib.EnvOr("LISTEN_ADDR", ":9003"),
 		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://email:9003"),
-		DataDir:       chanlib.EnvOr("DATA_DIR", "/srv/data/emaid"),
 		MaxAttachment: chanlib.EnvBytes("MEDIA_MAX_FILE_BYTES", 20*1024*1024),
 		Auth:          LoadAuthConfig(os.Getenv),
 	}

@@ -17,19 +17,19 @@ import (
 // them without becoming a second implementation of the write.
 
 func addACLRow(d *DB, row core.ACLRow) error {
-	return store.New(d.SQL()).AddACLRow(row)
+	return store.NewOver(d.Obj()).AddACLRow(row)
 }
 
 func addMembership(d *DB, child, parent, addedBy string) error {
-	return store.New(d.SQL()).PutMembership(child, parent, addedBy)
+	return store.NewOver(d.Obj()).PutMembership(child, parent, addedBy)
 }
 
 func setThreadReplies(d *DB, folder string, on *bool) error {
-	return store.New(d.SQL()).SetThreadReplies(folder, on)
+	return store.NewOver(d.Obj()).SetThreadReplies(folder, on)
 }
 
 func messageExists(d *DB, chatJID, id string) bool {
-	_, ok := store.New(d.SQL()).MessageByID(chatJID, id)
+	_, ok := store.NewOver(d.Obj()).MessageByID(chatJID, id)
 	return ok
 }
 
@@ -39,7 +39,7 @@ func messageExists(d *DB, chatJID, id string) bool {
 // partition.
 func msgByID(t *testing.T, d *DB, chatJID, id string) core.Message {
 	t.Helper()
-	m, ok := store.New(d.SQL()).MessageByID(chatJID, id)
+	m, ok := store.NewOver(d.Obj()).MessageByID(chatJID, id)
 	if !ok {
 		t.Fatalf("no message %s in %s", id, chatJID)
 	}
@@ -59,7 +59,7 @@ func chatMessages(t *testing.T, d *DB, chatJID string) []core.Message {
 // turnBotRow reads the one bot row a turn stamped in a chat.
 func turnBotRow(t *testing.T, d *DB, chatJID, turnID string) core.Message {
 	t.Helper()
-	frames, err := store.New(d.SQL()).TurnFrames(chatJID, turnID, "", 50)
+	frames, err := store.NewOver(d.Obj()).TurnFrames(chatJID, turnID, "", 50)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func revokeACL(d *DB, row core.ACLRow) (bool, error) {
 // coordinate, so counting rows means reading them.
 func aclRows(t *testing.T, d *DB, principal string) []core.ACLRow {
 	t.Helper()
-	rows, err := store.New(d.SQL()).ListACL(principal)
+	rows, err := store.NewOver(d.Obj()).ListACL(principal)
 	if err != nil {
 		t.Fatalf("read %s's grants: %v", principal, err)
 	}
@@ -146,5 +146,5 @@ func aclRows(t *testing.T, d *DB, principal string) []core.ACLRow {
 // answers the one direction the projection cares about; Ancestors would answer
 // about the transitive closure, which is a different question.
 func hasEdge(d *DB, child, parent string) bool {
-	return slices.Contains(store.New(d.SQL()).Members(parent), child)
+	return slices.Contains(store.NewOver(d.Obj()).Members(parent), child)
 }

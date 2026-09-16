@@ -22,7 +22,7 @@ import (
 // read "" — the value that means "no actor recorded".
 func routeAttribution(t *testing.T, db *DB, match string) (string, string) {
 	t.Helper()
-	for _, r := range routeRows(t, resreg.OnDB(db.SQL())) {
+	for _, r := range routeRows(t, resreg.On(db.Obj())) {
 		if r.Match == match {
 			return r.AddedBy, r.AddedVia
 		}
@@ -81,7 +81,7 @@ func TestRoutesMCP_SetStampsEveryReplacedRow(t *testing.T) {
 		t.Fatalf("set_routes errored: %s", e)
 	}
 
-	rows := routeRows(t, resreg.OnDB(db.SQL()))
+	rows := routeRows(t, resreg.On(db.Obj()))
 	for _, r := range rows {
 		if r.AddedBy != "folder:hq" || r.AddedVia != "set_routes" {
 			t.Errorf("row %q attribution = (%q, %q), want (folder:hq, set_routes)",

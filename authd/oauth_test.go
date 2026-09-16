@@ -284,7 +284,7 @@ func TestOAuthLinkIntentCarriesBareSub(t *testing.T) {
 	if linkDone.Code != http.StatusOK {
 		t.Fatalf("link dispatch status %d: %s", linkDone.Code, linkDone.Body.String())
 	}
-	users := entityCount(t, newObjectStore(db), authstore.AuthUsers)
+	users := entityCount(t, db, authstore.AuthUsers)
 	if users != 1 {
 		t.Fatalf("linking forked the account: %d auth_users rows, want 1", users)
 	}
@@ -365,7 +365,7 @@ func TestOAuthCanonicalLoginUnaffectedByResolution(t *testing.T) {
 	if !auth.HasScope(sub.Scope, "tasks", "read") {
 		t.Fatalf("canonical login lost its grants: %v", sub.Scope)
 	}
-	users := entityCount(t, newObjectStore(db), authstore.AuthUsers)
+	users := entityCount(t, db, authstore.AuthUsers)
 	if users != 1 {
 		t.Fatalf("%d auth_users rows, want 1", users)
 	}
@@ -419,7 +419,7 @@ func TestOAuthLoginAuditRecordsTheActualLogin(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
 	o := newOAuth(t, a, nil, nil)
-	audit.Init(newObjectStore(db), "test")
+	audit.Init(db, "test")
 	t.Cleanup(func() { audit.Init(nil, "") })
 
 	o.dispatch(httptest.NewRecorder(), jsonReq(), "google", "g-1", "Alice", auth.StateIntent{})
@@ -432,7 +432,7 @@ func TestOAuthLoginAuditRecordsTheActualLogin(t *testing.T) {
 		t.Fatalf("alias login status %d", rec.Code)
 	}
 
-	rows, err := audit.Query(t.Context(), newObjectStore(db),
+	rows, err := audit.Query(t.Context(), db,
 		audit.Filter{Category: audit.CategoryAuthN})
 	if err != nil {
 		t.Fatal(err)

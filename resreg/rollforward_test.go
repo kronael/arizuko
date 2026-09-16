@@ -16,20 +16,19 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/kronael/arizuko/db_utils/dbtest"
 	"github.com/kronael/arizuko/objstore"
-	"github.com/kronael/arizuko/objstore/sqlstore"
+	"github.com/kronael/arizuko/objstore/dynstore"
+	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 	"github.com/kronael/arizuko/store"
 )
 
 // halfMigrated is freshEntity with the audit entity DELIBERATELY absent: the
 // state a database is in between `migrate-routd` and `migrate-audit`, and the
 // state L267 was reproduced from.
-func halfMigrated(t *testing.T) (Backend, *Resource, *sqlstore.Store) {
+func halfMigrated(t *testing.T) (Backend, *Resource, *dynstore.Store) {
 	t.Helper()
 	reset()
-	db := dbtest.Open(t)
-	s := sqlstore.New(db)
+	s := dyntest.Store(t)
 	r := Register(Resource{
 		Name:          "entityrows",
 		Table:         "entityrows",
@@ -41,7 +40,7 @@ func halfMigrated(t *testing.T) (Backend, *Resource, *sqlstore.Store) {
 	if err := EnsureSubsystem(t.Context(), s, s, entitySubsystem); err != nil {
 		t.Fatalf("EnsureSubsystem: %v", err)
 	}
-	return Backend{DB: db, Obj: s}, r, s
+	return On(s), r, s
 }
 
 // markerAttr reads one attribute of a subsystem's version marker straight

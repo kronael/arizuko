@@ -234,11 +234,7 @@ func (s *turnStack) spendCents() int { return s.llm.TeamSpendCents(turnFolder) }
 
 func (s *turnStack) spawns(t *testing.T) int {
 	t.Helper()
-	var n int
-	if err := s.runedDB.SQL().QueryRow(`SELECT COUNT(*) FROM spawns`).Scan(&n); err != nil {
-		t.Fatal(err)
-	}
-	return n
+	return spawnCount(t, s.runedDB)
 }
 
 // awaitIdle waits until runed holds no live run: the reply lands on
@@ -247,12 +243,7 @@ func (s *turnStack) spawns(t *testing.T) int {
 func (s *turnStack) awaitIdle(t *testing.T) {
 	t.Helper()
 	waitFor(t, "runed to close the run", turnTimeout, func() bool {
-		var n int
-		if err := s.runedDB.SQL().QueryRow(
-			`SELECT COUNT(*) FROM spawns WHERE state IN ('queued','running')`).Scan(&n); err != nil {
-			t.Fatal(err)
-		}
-		return n == 0
+		return liveSpawnCount(t, s.runedDB) == 0
 	})
 }
 
@@ -326,8 +317,8 @@ func TestE2ETurn_CostAccounting(t *testing.T) {
 
 	t.Run("completed turn books cost", func(t *testing.T) {
 		s.inbound(t, "wamid.1", "say hi")
-		testutils.WaitForBotRow(t, s.routdDB.SQL(), turnChat, turnTimeout)
-		testutils.AssertMessage(t, s.routdDB.SQL(), turnChat, fakeAnswer)
+		testutils.WaitForBotRow(t, store.NewOver(s.routdDB.Obj()), turnChat, turnTimeout)
+		testutils.AssertMessage(t, store.NewOver(s.routdDB.Obj()), turnChat, fakeAnswer)
 
 		calls := s.llm.Calls()
 		t.Logf("model calls served: %+v", calls)
@@ -443,7 +434,7 @@ func TestE2ETurn_CostAccounting(t *testing.T) {
 		}
 		// The CLI reports the API failure as its result text; ant forwards it
 		// as the turn's reply with no usage attached.
-		testutils.AssertMessage(t, s.routdDB.SQL(), turnChat, "API Error: 400")
+		testutils.AssertMessage(t, store.NewOver(s.routdDB.Obj()), turnChat, "API Error: 400")
 		// The gateway writes a spend row for a refused call too — status
 		// "failure", zero tokens, zero spend — so the turn IS metered and is
 		// charged nothing. Reporting it as 404 would lose the difference between

@@ -53,7 +53,7 @@ func TestRunBudgetSet_ReachesEnforcementReads(t *testing.T) {
 	if err := s.PutGroup(core.Group{Folder: "team"}); err != nil {
 		t.Fatalf("seed group: %v", err)
 	}
-	if err := store.New(s.SQL()).CreateUserProfile("google:bob", "bob", "Bob"); err != nil {
+	if err := store.NewOver(s.Obj()).CreateUserProfile("google:bob", "bob", "Bob"); err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
 
@@ -121,7 +121,7 @@ func TestRunBudgetShow_Folder(t *testing.T) {
 
 func TestRunBudgetShow_User(t *testing.T) {
 	s := budgetDB(t)
-	if err := store.New(s.SQL()).CreateUserProfile("google:bob", "bob", "Bob"); err != nil {
+	if err := store.NewOver(s.Obj()).CreateUserProfile("google:bob", "bob", "Bob"); err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
 	if err := s.SetUserCap("google:bob", 200); err != nil {

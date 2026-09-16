@@ -1,23 +1,48 @@
 package chanlib
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
 
 	"github.com/kronael/arizuko/chanlib/chanstore"
+	"github.com/kronael/arizuko/objstore/dynstore"
 )
 
-// testStore opens a real adapter database and hands back the store chanlib's
-// own code is given, so these bodies exercise the opener too.
+// testStore opens a real adapter store and hands back the one chanlib's own
+// code is given, so these bodies exercise the opener too. The adapter's tables
+// are named for its SERVICE, not for this test, so the body drops them when it
+// ends: two bodies here use the same keys, and a leftover row would be the next
+// one's fixture.
 func testStore(t *testing.T) *chanstore.Store {
 	t.Helper()
 	as, err := OpenAdapterStore("testadapter")
 	if err != nil {
 		t.Fatalf("open the adapter store: %v", err)
 	}
-	t.Cleanup(func() { as.Close() }) //nolint:errcheck // the test is ending
+	t.Cleanup(func() {
+		dropAdapterEntities("testadapter")
+		as.Close() //nolint:errcheck // the test is ending
+	})
 	return as.Chan
+}
+
+// dropAdapterEntities removes what the opener made, so nothing this body wrote
+// outlives it — here or on the endpoint after the run.
+func dropAdapterEntities(service string) {
+	h, err := dynstore.FromEnv(dynstore.Prefix(service))
+	if err != nil {
+		return
+	}
+	ctx := context.Background()
+	left, err := h.Entities(ctx)
+	if err != nil {
+		return
+	}
+	for _, e := range left {
+		_ = h.DropEntity(ctx, e)
+	}
 }
 
 // counter records how many times the platform was actually called.

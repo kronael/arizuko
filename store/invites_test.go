@@ -141,11 +141,14 @@ func TestConsumeInviteNoGrantSkipsACL(t *testing.T) {
 	}
 
 	// No acl row written by the no-grant path.
-	var n int
-	s.db.QueryRow(`SELECT COUNT(*) FROM acl WHERE principal=? AND scope=?`,
-		"github:bob", "alice").Scan(&n)
-	if n != 0 {
-		t.Errorf("acl rows for bob/alice = %d, want 0 (no-grant)", n)
+	rows, err := s.ListACLByScope("alice")
+	if err != nil {
+		t.Fatalf("ListACLByScope: %v", err)
+	}
+	for _, r := range rows {
+		if r.Principal == "github:bob" {
+			t.Errorf("the no-grant path wrote an acl row: %+v", r)
+		}
 	}
 }
 
@@ -186,15 +189,9 @@ func TestConsumeInviteUnknownToken(t *testing.T) {
 }
 
 // ConsumeInvite must be atomic across concurrent goroutines: exactly
-// max_uses succeed even with simulated parallel redemptions. Uses a
-// real on-disk DB because :memory: opens a fresh schema per pooled
-// connection.
+// max_uses succeed even with simulated parallel redemptions.
 func TestConsumeInviteAtomicConcurrent(t *testing.T) {
-	s, err := Open(t.TempDir())
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	defer s.Close()
+	s := openEntities(t)
 
 	const maxUses = 5
 	const racers = 20
@@ -211,12 +208,11 @@ func TestConsumeInviteAtomicConcurrent(t *testing.T) {
 			defer wg.Done()
 			<-start
 			user := "user-" + string(rune('A'+i))
-			// SQLite busy timeouts can surface as transient errors under
-			// heavy contention; retry exactly once. The atomicity check
-			// below still catches over-issuance.
+			// A redemption that LOSES the race reports ErrInviteUnavailable
+			// rather than an error, so anything else here is a real fault.
 			_, err := s.ConsumeInvite(token, user)
 			if err != nil && !errors.Is(err, ErrInviteUnavailable) {
-				_, err = s.ConsumeInvite(token, user)
+				t.Errorf("ConsumeInvite: %v", err)
 			}
 			if err == nil {
 				atomic.AddInt64(&succeed, 1)
@@ -231,10 +227,11 @@ func TestConsumeInviteAtomicConcurrent(t *testing.T) {
 		t.Errorf("succeed = %d, exceeds max_uses %d", succeed, maxUses)
 	}
 
-	// DB state must agree with success count: no lost or extra increments.
+	// The recorded count must agree with the success count: no lost or extra
+	// increments.
 	got, _ := s.GetInvite(token)
 	if int64(got.UsedCount) != succeed {
-		t.Errorf("DB used_count = %d, succeed = %d", got.UsedCount, succeed)
+		t.Errorf("used_count = %d, succeed = %d", got.UsedCount, succeed)
 	}
 }
 

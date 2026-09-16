@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -15,7 +14,7 @@ import (
 	"sync/atomic"
 
 	"github.com/kronael/arizuko/audit"
-	"github.com/kronael/arizuko/objstore/sqlstore"
+	"github.com/kronael/arizuko/objstore"
 )
 
 // The audit page no longer reads routd.db: it fans GET /v1/audit out to routd,
@@ -28,7 +27,7 @@ import (
 // auditDB is a migrated routd.db standing in for any audit_log owner: the four
 // tables are one shape, replicated per owner DB (spec 5/I), so routd's chain is
 // the honest source for all of them.
-func auditDB(t *testing.T) *sql.DB { return routdDB(t) }
+func auditDB(t *testing.T) objstore.Store { return routdDB(t) }
 
 // seedAuditSeq numbers the rows a seed writes. An id separates two rows that
 // share an instant, which is what the sequence did in the table the entity
@@ -39,9 +38,9 @@ var seedAuditSeq atomic.Int64
 // the merge orders on created_at across sources; a default-now stamp would make
 // cross-source ordering a race on insert speed. It goes in through audit's own
 // import, so the item a fixture writes is the item a daemon writes.
-func seedAudit(t *testing.T, db *sql.DB, ts, category, action, actor, folder, outcome string) {
+func seedAudit(t *testing.T, db objstore.Store, ts, category, action, actor, folder, outcome string) {
 	t.Helper()
-	n, err := audit.Import(context.Background(), sqlstore.New(db), audit.Snapshot{Rows: []audit.LegacyRow{{
+	n, err := audit.Import(context.Background(), db, audit.Snapshot{Rows: []audit.LegacyRow{{
 		ID: seedAuditSeq.Add(1), CreatedAt: ts, Category: category, Action: action,
 		Actor: actor, Folder: folder, Outcome: outcome,
 	}}})
@@ -55,14 +54,14 @@ func seedAudit(t *testing.T, db *sql.DB, ts, category, action, actor, folder, ou
 
 // auditSourceOf serves GET /v1/audit off db through audit.Query, translating
 // the same query params the page sends.
-func auditSourceOf(t *testing.T, db *sql.DB) *httptest.Server {
+func auditSourceOf(t *testing.T, db objstore.Store) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/audit", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		var limit int64
 		fmt.Sscanf(q.Get("limit"), "%d", &limit)
-		rows, err := audit.Query(context.Background(), sqlstore.New(db), audit.Filter{
+		rows, err := audit.Query(context.Background(), db, audit.Filter{
 			Folder:   q.Get("folder"),
 			Category: q.Get("category"),
 			Actor:    q.Get("actor"),
@@ -89,7 +88,7 @@ func auditDash(t *testing.T, routd, runed, authd, onbod string) *dash {
 	t.Helper()
 	d := &dash{routdURL: routd, runedURL: runed, authdURL: authd, onbodURL: onbod}
 	if onbod != "" {
-		d.onbod = over(auditDB(t))
+		d.onbod = auditDB(t)
 	}
 	return d
 }
@@ -231,7 +230,7 @@ func TestAuditOnbodProfileOffIsNotASource(t *testing.T) {
 	// Profile ON but the daemon is unreachable: that IS a failure, and silence
 	// would tell the operator "no admissions happened" when onbod did not answer.
 	on := auditDash(t, auditSourceOf(t, rdb).URL, "", "", "")
-	on.onbod = over(auditDB(t))
+	on.onbod = auditDB(t)
 	body = auditGetOn(t, on, "/dash/audit/")
 	if !strings.Contains(body, "onbod: no URL configured") {
 		t.Errorf("onboarding-on instance hid a dead onbod: %s", body)

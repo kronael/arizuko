@@ -5,39 +5,34 @@ package store_test
 // onboarding admissions. `secrets`, the fourth, is exercised in
 // secrets_test.go beside the pair it has always had here.
 //
-// The fixture is store's own frozen schema, which is the only chain carrying
-// route_tokens (routd.db) and invites/onboarding (onbod.db) in one database —
-// onbod embeds and migrates its chain from `package main`, so no test outside
-// onbod can build the invites table any other way.
+// The fixture carries BOTH owners: route_tokens is routd's and
+// invites/onboarding are onbod's, and the archive lane crosses them.
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/db_utils/dbtest"
 	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
 )
 
-// archiveStore opens a *Store over the frozen schema. The archive lane is a
-// method on the owner, so the test holds the owner; the raw pool comes back
-// alongside it because some FIXTURES are raw inserts of columns no accessor
-// writes (an admission mid-flight).
-func archiveStore(t *testing.T) (*store.Store, *sql.DB) {
+// archiveStore opens a *Store over both owners' tables. The archive lane is a
+// method on the owner, so the test holds the owner.
+func archiveStore(t *testing.T) *store.Store {
 	t.Helper()
-	db := dbtest.Open(t)
-	if err := store.Migrate(db); err != nil {
-		t.Fatalf("migrate: %v", err)
+	s, err := store.OpenMem()
+	if err != nil {
+		t.Fatalf("OpenMem: %v", err)
 	}
-	return store.New(db), db
+	t.Cleanup(func() { s.Close() })
+	return s
 }
 
 func TestExportRouteTokensExcludesPairingAndImportRestoresTheVerifier(t *testing.T) {
-	src, _ := archiveStore(t)
+	src := archiveStore(t)
 	ctx := context.Background()
 	seedArchiveGroup(t, src, "atlas")
 	delivery := store.GenRouteToken()
@@ -61,7 +56,7 @@ func TestExportRouteTokensExcludesPairingAndImportRestoresTheVerifier(t *testing
 			rows[0].TokenHash, store.TokenRef(delivery))
 	}
 
-	dstSt, _ := archiveStore(t)
+	dstSt := archiveStore(t)
 	seedArchiveGroup(t, dstSt, "atlas")
 	n, err := dstSt.ImportRouteTokens(ctx, rows)
 	if err != nil {
@@ -98,7 +93,7 @@ func seedArchiveGroup(t *testing.T, s *store.Store, folder string) {
 }
 
 func TestImportRouteTokensIsIdempotent(t *testing.T) {
-	st, _ := archiveStore(t)
+	st := archiveStore(t)
 	ctx := context.Background()
 	seedArchiveGroup(t, st, "atlas")
 	rows := []store.ArchiveRouteTokenRow{{TokenHash: "aabbcc", JID: "web:atlas", OwnerFolder: "atlas", CreatedAt: "2026-01-01T00:00:00Z"}}
@@ -115,7 +110,7 @@ func TestImportRouteTokensIsIdempotent(t *testing.T) {
 }
 
 func TestExportInvitesCarriesTheRefAndImportRestoresIt(t *testing.T) {
-	src, _ := archiveStore(t)
+	src := archiveStore(t)
 	ctx := context.Background()
 	seed := []store.ArchiveInviteRow{{
 		Ref: "ref1", TargetGlob: "atlas/*", IssuedBySub: "user:admin",
@@ -132,7 +127,7 @@ func TestExportInvitesCarriesTheRefAndImportRestoresIt(t *testing.T) {
 		t.Fatalf("exported invites = %+v", rows)
 	}
 
-	dstSt, _ := archiveStore(t)
+	dstSt := archiveStore(t)
 	n, err := dstSt.ImportInvites(ctx, rows)
 	if err != nil {
 		t.Fatal(err)
@@ -190,7 +185,7 @@ func invitesCarryNoExpiry(t *testing.T, s *store.Store) error {
 // carries NULL, and a round trip that turned those into "" would make a
 // pending admission look prompted.
 func TestExportOnboardingRoundTripsTheEmptyTimestampsAsAbsent(t *testing.T) {
-	src, _ := archiveStore(t)
+	src := archiveStore(t)
 	ctx := context.Background()
 	if _, err := src.ImportOnboarding(ctx, []store.ArchiveOnboardingRow{
 		{JID: "telegram:user/7", Status: "pending", Created: "2026-01-01T00:00:00Z"},
@@ -216,7 +211,7 @@ func TestExportOnboardingRoundTripsTheEmptyTimestampsAsAbsent(t *testing.T) {
 		t.Errorf("admitted row = %+v", rows[1])
 	}
 
-	dstSt, _ := archiveStore(t)
+	dstSt := archiveStore(t)
 	n, err := dstSt.ImportOnboarding(ctx, rows)
 	if err != nil {
 		t.Fatal(err)
@@ -250,7 +245,7 @@ func TestExportOnboardingRoundTripsTheEmptyTimestampsAsAbsent(t *testing.T) {
 // A live admission must not be walked backwards by a restore: the import
 // UPSERTs by jid and IGNOREs a jid the target already holds.
 func TestImportOnboardingLeavesALiveAdmissionAlone(t *testing.T) {
-	st, _ := archiveStore(t)
+	st := archiveStore(t)
 	ctx := context.Background()
 	live := store.ArchiveOnboardingRow{
 		JID: "telegram:user/9", Status: "admitted",

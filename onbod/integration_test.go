@@ -16,7 +16,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kronael/arizuko/db_utils/dbtest"
+	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/tests/testutils"
@@ -53,11 +53,11 @@ func newOnbodInst(t *testing.T) *onbodInst {
 		t.Fatalf("routd.OpenMem: %v", err)
 	}
 	t.Cleanup(func() { rdb.Close() })
-	ob := dbtest.Open(t)
-	if err := prepareOwned(newObjectStore(ob)); err != nil {
+	ob := dyntest.Store(t)
+	if err := prepareOwned(ob); err != nil {
 		t.Fatalf("onbod migrate: %v", err)
 	}
-	return &onbodInst{X: store.New(rdb.SQL()), Ob: store.NewOver(newObjectStore(ob)), Tmp: t.TempDir()}
+	return &onbodInst{X: store.NewOver(rdb.Obj()), Ob: store.NewOver(ob), Tmp: t.TempDir()}
 }
 
 // newOnbodServer wires the real mux against onbod's two databases and a fake

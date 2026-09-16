@@ -2,20 +2,12 @@ package store_test
 
 // Message-history archive tests — spec 5/8 "Message history" + Finding 4.
 //
-// archive_test.go's header says these live in cmd/arizuko/archive_test.go
-// against the real routd schema. They did not: nothing in the repo named
-// ExportMessagesJSONL, ImportMessagesJSONL or DeriveAgentCursors, and all
-// three read 0%. The reason the header gives is real — store's frozen
-// messages.db predates routd/migrations/0019 (link_context), so
-// archiveMessageCols cannot run against it — so these use routd.Create, the
-// daemon's own migration sequence, from the EXTERNAL test package (routd
-// imports resreg, which an internal resreg test file could not do).
+// The fixture is routd's OWN tables, opened from the EXTERNAL test package:
+// routd imports store, so an internal store test file could not import it back.
 
 import (
 	"bytes"
 	"context"
-	"database/sql"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -25,19 +17,16 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// routdMessages builds routd.db through routd's own migration chain and wraps
-// it as the owner the archive lane is a method on. The raw pool comes back too,
-// for the reads that assert on the bytes an item was STORED with rather than on
-// a value rendered again on the way out.
-func routdMessages(t *testing.T) (*store.Store, *sql.DB) {
+// routdMessages hands back routd's own tables, wrapped as the owner the archive
+// lane is a method on.
+func routdMessages(t *testing.T) *store.Store {
 	t.Helper()
-	storeDir := filepath.Join(t.TempDir(), "store")
-	db, err := routd.Create(storeDir)
+	db, err := routd.OpenMem()
 	if err != nil {
-		t.Fatalf("routd.Create: %v", err)
+		t.Fatalf("routd.OpenMem: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	return store.New(db.SQL()), db.SQL()
+	return store.NewOver(db.Obj())
 }
 
 // insertMsg seeds one message through the LIVE writer: the delivery status
@@ -74,20 +63,22 @@ func insertMsg(t *testing.T, st *store.Store, m store.ArchiveMessageRow) {
 	}
 }
 
-func countMessages(t *testing.T, db *sql.DB) int {
+// countMessages counts ONE chat's rows. `messages` is an entity, so the count
+// is a partition read rather than a column query.
+func countMessages(t *testing.T, st *store.Store, chatJID string) int {
 	t.Helper()
-	var n int
-	if err := db.QueryRow("SELECT COUNT(*) FROM messages").Scan(&n); err != nil {
+	msgs, err := st.MessagesSince(chatJID, time.Time{})
+	if err != nil {
 		t.Fatal(err)
 	}
-	return n
+	return len(msgs)
 }
 
 // A restore that loses a column loses it silently: the rows are all there and
 // the count matches. Every field, including each of the four booleans, has to
 // survive the JSONL round trip.
 func TestMessagesRoundTripEveryColumn(t *testing.T) {
-	srcSt, _ := routdMessages(t)
+	srcSt := routdMessages(t)
 	full := store.ArchiveMessageRow{
 		ID: "m1", ChatJID: "slack:C1", Sender: "u7", SenderName: "Alice",
 		Content: "hello", Timestamp: ts(t, "10:00"),
@@ -133,7 +124,7 @@ func TestMessagesRoundTripEveryColumn(t *testing.T) {
 		t.Errorf("JSONL has %d lines for 2 rows", lines)
 	}
 
-	dstSt, _ := routdMessages(t)
+	dstSt := routdMessages(t)
 	imported, touched, refused, err := dstSt.ImportMessagesJSONL(context.Background(), bytes.NewReader(buf.Bytes()), 0)
 	if err != nil {
 		t.Fatalf("import: %v", err)
@@ -183,7 +174,7 @@ func mustInstant(t *testing.T, raw string) time.Time {
 // restoring onto a target that already holds some of the same history, must
 // be a no-op on rows already present — never a duplicate, never an error.
 func TestMessagesImportIsIdempotentAndAppends(t *testing.T) {
-	srcSt, _ := routdMessages(t)
+	srcSt := routdMessages(t)
 	insertMsg(t, srcSt, store.ArchiveMessageRow{ID: "m1", ChatJID: "slack:C1", Sender: "u1", Content: "a", Timestamp: ts(t, "10:00")})
 	insertMsg(t, srcSt, store.ArchiveMessageRow{ID: "m2", ChatJID: "slack:C1", Sender: "u1", Content: "b", Timestamp: ts(t, "10:01")})
 
@@ -192,7 +183,7 @@ func TestMessagesImportIsIdempotentAndAppends(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dstSt, dst := routdMessages(t)
+	dstSt := routdMessages(t)
 	// The target already holds m1, with DIFFERENT content: the existing row
 	// must win, because it is the live one.
 	insertMsg(t, dstSt, store.ArchiveMessageRow{ID: "m1", ChatJID: "slack:C1", Sender: "u1", Content: "LIVE", Timestamp: ts(t, "10:00")})
@@ -201,7 +192,7 @@ func TestMessagesImportIsIdempotentAndAppends(t *testing.T) {
 		if _, _, _, err := dstSt.ImportMessagesJSONL(context.Background(), bytes.NewReader(buf.Bytes()), 0); err != nil {
 			t.Fatalf("import pass %d: %v", pass, err)
 		}
-		if got := countMessages(t, dst); got != 2 {
+		if got := countMessages(t, dstSt, "slack:C1"); got != 2 {
 			t.Fatalf("after pass %d the target holds %d rows, want 2", pass, got)
 		}
 	}
@@ -215,11 +206,11 @@ func TestMessagesImportIsIdempotentAndAppends(t *testing.T) {
 	}
 }
 
-// The batch bound exists so a multi-hour transfer does not hold routd.db's
-// write lock for its whole duration. Whatever the batch size, the result must
-// be the same set of rows — including a final partial batch.
+// The batch bound exists so a multi-hour transfer does not run as a single
+// write. Whatever the batch size, the result must be the same set of rows —
+// including a final partial batch.
 func TestMessagesImportBatchSizeDoesNotChangeTheResult(t *testing.T) {
-	srcSt, _ := routdMessages(t)
+	srcSt := routdMessages(t)
 	for i, hhmm := range []string{"10:00", "10:01", "10:02", "10:03", "10:04", "10:05", "10:06"} {
 		insertMsg(t, srcSt, store.ArchiveMessageRow{
 			ID:      string(rune('a' + i)),
@@ -235,13 +226,13 @@ func TestMessagesImportBatchSizeDoesNotChangeTheResult(t *testing.T) {
 	// 3 does not divide 7, so the last batch is partial — the case a flush
 	// that only fires on a full batch would drop.
 	for _, batch := range []int{1, 3, 500, 0, -1} {
-		dstSt, dst := routdMessages(t)
+		dstSt := routdMessages(t)
 		n, _, _, err := dstSt.ImportMessagesJSONL(context.Background(), bytes.NewReader(buf.Bytes()), batch)
 		if err != nil {
 			t.Fatalf("batch %d: %v", batch, err)
 		}
-		if n != 7 || countMessages(t, dst) != 7 {
-			t.Errorf("batch %d: reported %d, stored %d, want 7 and 7", batch, n, countMessages(t, dst))
+		if n != 7 || countMessages(t, dstSt, "slack:C1") != 7 {
+			t.Errorf("batch %d: reported %d, stored %d, want 7 and 7", batch, n, countMessages(t, dstSt, "slack:C1"))
 		}
 	}
 }
@@ -249,7 +240,7 @@ func TestMessagesImportBatchSizeDoesNotChangeTheResult(t *testing.T) {
 // A truncated or corrupted archive must fail loudly. Silently stopping at the
 // bad line would restore a partial history and report success.
 func TestMessagesImportRejectsMalformedJSONL(t *testing.T) {
-	dstSt, _ := routdMessages(t)
+	dstSt := routdMessages(t)
 	bad := `{"id":"m1","chat_jid":"slack:C1","sender":"u","content":"a","timestamp":"` + ts(t, "10:00") + `"}
 {"id":"m2","chat_jid":
 `
@@ -276,7 +267,7 @@ func cursorOf(t *testing.T, st *store.Store, jid string) string {
 // per historical message, the agent answering the entire archive. The cursor
 // is MAX(timestamp) over each restored chat.
 func TestDeriveAgentCursorsParksThePollerAtTheEndOfTheHistory(t *testing.T) {
-	dbSt, _ := routdMessages(t)
+	dbSt := routdMessages(t)
 	insertMsg(t, dbSt, store.ArchiveMessageRow{ID: "a1", ChatJID: "slack:C1", Sender: "u", Content: "x", Timestamp: ts(t, "10:00")})
 	insertMsg(t, dbSt, store.ArchiveMessageRow{ID: "a2", ChatJID: "slack:C1", Sender: "u", Content: "y", Timestamp: ts(t, "12:00")})
 	insertMsg(t, dbSt, store.ArchiveMessageRow{ID: "b1", ChatJID: "slack:C2", Sender: "u", Content: "z", Timestamp: ts(t, "09:00")})
@@ -307,7 +298,7 @@ func TestDeriveAgentCursorsParksThePollerAtTheEndOfTheHistory(t *testing.T) {
 // cursor backward would re-open every message the poller already consumed —
 // the agent replying to the whole recent history of a running instance.
 func TestDeriveAgentCursorsNeverWalksALiveCursorBackward(t *testing.T) {
-	dbSt, _ := routdMessages(t)
+	dbSt := routdMessages(t)
 	insertMsg(t, dbSt, store.ArchiveMessageRow{ID: "old", ChatJID: "slack:C1", Sender: "u", Content: "x", Timestamp: ts(t, "08:00")})
 	live := store.MsgStamp(ts(t, "20:00"), "live")
 	if err := dbSt.SetAgentCursor("slack:C1", live); err != nil {
@@ -346,7 +337,7 @@ func TestDeriveAgentCursorsNeverWalksALiveCursorBackward(t *testing.T) {
 // a restored history with no cursor as entirely unread — the state this
 // operation exists to prevent (spec 5/8 Finding 4).
 func TestDeriveAgentCursorsDerivesEveryChatItCanAndSkipsTheRest(t *testing.T) {
-	dbSt, _ := routdMessages(t)
+	dbSt := routdMessages(t)
 	doc := archiveOf(t, []store.ArchiveMessageRow{
 		{ID: "a1", ChatJID: "slack:A", Sender: "u", Content: "poked in by hand",
 			Timestamp: "not an instant at all"},
@@ -386,7 +377,7 @@ func TestDeriveAgentCursorsDerivesEveryChatItCanAndSkipsTheRest(t *testing.T) {
 // A rendered instant sorts at or above the raw value it came from, so the poller
 // still parks at the end of the restored history, which is what this is for.
 func TestDeriveAgentCursorsParksAtTheRenderedInstant(t *testing.T) {
-	dbSt, _ := routdMessages(t)
+	dbSt := routdMessages(t)
 	// The shape routd/migrations/0044 deliberately leaves alone rather than
 	// invent a zone for. Two rows carry it on krons today.
 	const handWritten = "2026-04-02 12:38:47"

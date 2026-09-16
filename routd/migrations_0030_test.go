@@ -20,8 +20,7 @@ import (
 // send_voice/edit all false while the operator principal held them via
 // role:operator.
 func TestNewGroupIsBornWithTheFloor(t *testing.T) {
-	dir := t.TempDir()
-	db, err := Create(dir)
+	db, err := OpenMem()
 	if err != nil {
 		t.Fatalf("open routd.db: %v", err)
 	}
@@ -30,7 +29,7 @@ func TestNewGroupIsBornWithTheFloor(t *testing.T) {
 	if err := db.PutGroup(core.Group{Folder: "fresh"}); err != nil {
 		t.Fatalf("put group: %v", err)
 	}
-	held := auth.EffectiveActions(store.New(db.SQL()), auth.Caller{Principal: "folder:fresh"})
+	held := auth.EffectiveActions(store.NewOver(db.Obj()), auth.Caller{Principal: "folder:fresh"})
 	if !held("mcp:send_file") {
 		t.Fatal("a newly created group does not hold the messaging floor")
 	}

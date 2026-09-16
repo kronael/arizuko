@@ -1,12 +1,12 @@
 package tests
 
 import (
-	"database/sql"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/tests/testutils"
 )
@@ -30,12 +30,12 @@ func timedMessage(t *testing.T, s *store.Store, id, jid, content string, at time
 	}
 }
 
-// openSharedDB returns routd.db's schema twice: through the shared store library
-// six daemons hold, and as the raw *sql.DB a caller runs statements on directly.
-func openSharedDB(t *testing.T) (*store.Store, *sql.DB) {
+// openSharedDB returns routd's tables twice: through the shared store library
+// six daemons hold, and as the handle a caller addresses items on directly.
+func openSharedDB(t *testing.T) (*store.Store, objstore.Store) {
 	t.Helper()
 	s := testutils.NewRoutdStore(t)
-	return s, s.DB()
+	return s, s.Obj()
 }
 
 // The fire loop's READ is store.DueTasks, which routd serves at

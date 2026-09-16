@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -13,27 +12,30 @@ import (
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/authd/authstore"
-	"github.com/kronael/arizuko/db_utils/dbtest"
+	"github.com/kronael/arizuko/objstore/dynstore"
+	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 )
 
-func testDB(t *testing.T) *sql.DB {
+func TestMain(m *testing.M) { dyntest.Main(m) }
+
+func testDB(t *testing.T) *dynstore.Store {
 	t.Helper()
-	db := dbtest.Open(t)
-	if err := ensureStorage(newObjectStore(db)); err != nil {
+	db := dyntest.Store(t)
+	if err := ensureStorage(db); err != nil {
 		t.Fatal(err)
 	}
 	return db
 }
 
-func userExists(t *testing.T, db *sql.DB, userID string) bool {
+func userExists(t *testing.T, db *dynstore.Store, userID string) bool {
 	t.Helper()
-	_, ok := entityItem(t, newObjectStore(db), authstore.AuthUsers, userID)
+	_, ok := entityItem(t, db, authstore.AuthUsers, userID)
 	return ok
 }
 
-func newTestAuthd(t *testing.T, db *sql.DB) *Authd {
+func newTestAuthd(t *testing.T, db *dynstore.Store) *Authd {
 	t.Helper()
-	a, err := newAuthd(newObjectStore(db), 15*time.Minute, time.Hour, time.Hour)
+	a, err := newAuthd(db, 15*time.Minute, time.Hour, time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +93,7 @@ func TestRetiredKeyDropsAfterWindow(t *testing.T) {
 	db := testDB(t)
 	// maxAccessTTL tiny so the retired key falls out of the serving window
 	// immediately after rotation.
-	a, err := newAuthd(newObjectStore(db), time.Minute, time.Hour, time.Millisecond)
+	a, err := newAuthd(db, time.Minute, time.Hour, time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +196,7 @@ func TestRefreshUnknownTokenRejected(t *testing.T) {
 
 func TestOAuthUserUpsertUniqueProvider(t *testing.T) {
 	db := testDB(t)
-	st := newTestStore(newObjectStore(db))
+	st := newTestStore(db)
 	if err := st.LinkOAuthIdentity("user:abc", "Alice", "github", "12345"); err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +208,7 @@ func TestOAuthUserUpsertUniqueProvider(t *testing.T) {
 	if err := st.LinkOAuthIdentity("user:abc", "Alice", "github", "12345"); err != nil {
 		t.Fatal(err)
 	}
-	if n := entityCount(t, newObjectStore(db), authstore.OAuthIdentities); n != 1 {
+	if n := entityCount(t, db, authstore.OAuthIdentities); n != 1 {
 		t.Fatalf("expected 1 identity, got %d", n)
 	}
 	// One identity per (account, provider): a different github id for the same
@@ -215,7 +217,7 @@ func TestOAuthUserUpsertUniqueProvider(t *testing.T) {
 	if err := st.LinkOAuthIdentity("user:abc", "Alice", "github", "67890"); err != nil {
 		t.Fatal(err)
 	}
-	if n := entityCount(t, newObjectStore(db), authstore.OAuthIdentities); n != 1 {
+	if n := entityCount(t, db, authstore.OAuthIdentities); n != 1 {
 		t.Fatalf("a second github id left %d identities on one account, want 1", n)
 	}
 	if _, _, _, _, ok := st.OAuthIdentityForSub("github:12345"); ok {
@@ -229,7 +231,7 @@ func TestOAuthUserUpsertUniqueProvider(t *testing.T) {
 		t.Fatalf("the account lists %v, want only github:67890", subs)
 	}
 	// The account's sub is stored bare (no "user:" prefix is added by storage).
-	if _, ok := entityItem(t, newObjectStore(db), authstore.AuthUsers, "user:abc"); !ok {
+	if _, ok := entityItem(t, db, authstore.AuthUsers, "user:abc"); !ok {
 		t.Fatal("the account is not stored under its own sub")
 	}
 }

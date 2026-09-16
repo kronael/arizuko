@@ -27,6 +27,7 @@ import (
 	"github.com/kronael/arizuko/diary"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/objstore/dynstore"
 	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/resreg"
 	_ "github.com/kronael/arizuko/resreg/resources"
@@ -166,15 +167,6 @@ func main() {
 	dataDir := os.Getenv("DATA_DIR")
 	groupsDir := filepath.Join(dataDir, "groups")
 
-	// DB_PATH points at routd.db: routd OWNS every table dashd reads or writes, and
-	// dashd is FS-mounted so it drives them directly (split write-discipline). The
-	// pre-split messages.db is retired. Sibling DBs resolve off this path's directory.
-	dsn, err := resolveDSN(os.Getenv("DB_PATH"), dataDir)
-	if err != nil {
-		slog.Error("resolve db path", "err", err)
-		os.Exit(1)
-	}
-
 	port := os.Getenv("DASH_PORT")
 	if port == "" {
 		port = ":8080"
@@ -191,10 +183,9 @@ func main() {
 		accentOverride = v
 	}
 
-	// store.OpenOwner answers the endpoint this instance is served from or the
-	// file at dsn, and probes for the `acl` table either way — so a stale DB_PATH
-	// and an endpoint routd has never booted against both fail loudly at boot
-	// instead of serving an empty dashboard (BUGS F58).
+	// store.OpenOwner probes for the `acl` entity, so an endpoint routd has never
+	// booted against fails loudly at boot instead of serving an empty dashboard
+	// (BUGS F58).
 	routdOwn, err := store.OpenOwner(store.OwnerRoutd)
 	if err != nil {
 		slog.Error("open routd's store", "err", err)
@@ -202,7 +193,7 @@ func main() {
 	}
 	defer routdOwn.Close() //nolint:errcheck // the process is ending
 
-	slog.Info("dashd started", "db", dsn, "port", port)
+	slog.Info("dashd started", "store", dynstore.URL(), "port", port)
 
 	// APP_SRC_DIR is the container-side path to ant/ (routd/runed read stock
 	// skills the same way); HOST_APP_DIR is a HOST path and unusable from
@@ -269,7 +260,7 @@ func main() {
 	// another's is the pattern CLAUDE.md bans. Unavailable = onbod's profile is off,
 	// and the view renders a "store unavailable" banner.
 	var onbodHandle objstore.Store
-	if onbodOwn := openSiblingOwner("ONBOD_DB_PATH", dataDir, store.OwnerOnbod); onbodOwn != nil {
+	if onbodOwn := openSiblingOwner(store.OwnerOnbod); onbodOwn != nil {
 		defer onbodOwn.Close() //nolint:errcheck // the process is ending
 		onbodHandle = onbodOwn.Obj()
 	}
@@ -302,7 +293,7 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	d := &dash{routd: routdOwn.Obj(), onbod: onbodHandle, dbPath: dsn, groupsDir: groupsDir, appDir: appDir, ks: ks, svc: svcSrc, runedURL: backendURL("RUNED_URL", "runed"), proxydURL: backendURL("PROXYD_URL", "proxyd"), routdURL: backendURL("ROUTER_URL", "routd"), authdURL: backendURL("AUTHD_URL", "authd"), onbodURL: backendURL("ONBOD_URL", "onbod"), secretKeyring: secretKeyring, surrogate: surrogateEng, stateSecret: []byte(os.Getenv("AUTH_SECRET")), connBaseURL: connBaseURL}
+	d := &dash{routd: routdOwn.Obj(), onbod: onbodHandle, groupsDir: groupsDir, appDir: appDir, ks: ks, svc: svcSrc, runedURL: backendURL("RUNED_URL", "runed"), proxydURL: backendURL("PROXYD_URL", "proxyd"), routdURL: backendURL("ROUTER_URL", "routd"), authdURL: backendURL("AUTHD_URL", "authd"), onbodURL: backendURL("ONBOD_URL", "onbod"), secretKeyring: secretKeyring, surrogate: surrogateEng, stateSecret: []byte(os.Getenv("AUTH_SECRET")), connBaseURL: connBaseURL}
 	d.registerRoutes(mux)
 	if obs.MetricsEnabled() {
 		mux.Handle("GET /metrics", obs.MetricsHandler())
@@ -372,7 +363,6 @@ type dash struct {
 	// in the split topology (spec 5/5); dashd's invites page reads+writes them
 	// here. nil when that optional profile is off.
 	onbod     objstore.Store
-	dbPath    string
 	groupsDir string
 	appDir    string                                // APP_SRC_DIR (container path to ant/); used to enumerate stock skills
 	ks        *auth.KeySet                          // authd JWKS; verifies proxyd's ES256 transit bearer (nil → local dev open)
@@ -441,47 +431,22 @@ func (d *dash) onbodStore() *store.Store {
 // handle, the same banner path routdStore answers on.
 func (d *dash) ds() *dashstore.Store { return dashstore.New(d.routd) }
 
-// openSiblingOwner opens another daemon's owner store through store.OpenOwner —
-// the endpoint this instance is served from, or the file the env names. That
-// door is the only place the branch is written (spec 6/42 §7), so dashd asks it
-// rather than deciding for itself which of the two it is talking to.
+// openSiblingOwner opens another daemon's owner store through store.OpenOwner.
+// That door is the only place the dial is written (spec 6/42 §7), so dashd asks
+// it rather than deciding for itself what it is talking to.
 //
 // A store that will not open means that daemon's profile is off — an optional
 // compose profile onbod has and routd does not — so nil is the honest answer
-// and the page banners. The reason is logged because the two shapes read alike
-// otherwise: a file nobody seeded, and an endpoint whose owner never booted.
-func openSiblingOwner(env, dataDir, owner string) *store.Store {
-	target := os.Getenv(env)
-	if target == "" {
-		if dataDir == "" {
-			return nil
-		}
-		target = store.OwnerDBPath(filepath.Join(dataDir, "store"), owner)
-	}
+// and the page banners. The reason is logged, because an endpoint whose owner
+// has never booted reads like an owner that is simply not deployed.
+func openSiblingOwner(owner string) *store.Store {
 	s, err := store.OpenOwner(owner)
 	if err != nil {
 		slog.Info("owner store unavailable; its dashd view will banner",
-			"owner", owner, "target", target, "env", env, "err", err)
+			"owner", owner, "err", err)
 		return nil
 	}
 	return s
-}
-
-// resolveDSN picks the path dashd was configured with: DB_PATH when set, else
-// <DATA_DIR>/store/routd/routd.db. It REFUSES messages.db — a stale DB_PATH from an old
-// deployment must fail loudly at boot rather than silently serve frozen data, which
-// dashd did for months.
-func resolveDSN(dbPath, dataDir string) (string, error) {
-	if dbPath == "" {
-		if dataDir == "" {
-			return "", errors.New("DB_PATH or DATA_DIR env required")
-		}
-		dbPath = store.OwnerDBPath(filepath.Join(dataDir, "store"), store.OwnerRoutd)
-	}
-	if filepath.Base(dbPath) == "messages.db" {
-		return "", fmt.Errorf("DB_PATH=%s is the retired pre-split monolith; point it at routd.db", dbPath)
-	}
-	return dbPath, nil
 }
 
 // secretStore is routd's store with the SECRETS_KEY keyring set, so user-secret

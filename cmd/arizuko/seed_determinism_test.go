@@ -6,7 +6,6 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/resreg"
-	"github.com/kronael/arizuko/store"
 )
 
 // BUGS Z5: `0005-network-rules.sql` seeded its two default rows with
@@ -46,7 +45,7 @@ func TestFreshInstancesAgreeOnSeedChecksum(t *testing.T) {
 // checksum test only while both bootstraps stayed inside one second.
 func TestNetworkRulesSeedStampIsLiteral(t *testing.T) {
 	_, stores := openInstance(t)
-	rules, err := store.New(stores[resreg.SubsystemRoutd].DB()).ListNetworkRules("")
+	rules, err := stores[resreg.SubsystemRoutd].ListNetworkRules("")
 	if err != nil {
 		t.Fatal(err)
 	}

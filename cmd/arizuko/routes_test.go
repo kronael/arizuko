@@ -9,14 +9,17 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// generateInstance builds a bare instance dir with a migrated routd.db and
-// returns it. `generate` needs .env + services/; routd.Create gives it the
-// proxyd_routes table the daemon would have migrated.
+// generateInstance builds a bare instance dir and prepares routd's own tables,
+// which is where proxyd_routes lives. `generate` needs .env + services/.
 func generateInstance(t *testing.T, env string) string {
 	t.Helper()
+	t.Cleanup(func() { dropInstance(t) })
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_g")
+	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	// core.LoadConfigFrom pins DATA_DIR process-wide on its FIRST call and
 	// godotenv-Loads the instance .env into the process env, where compose's
 	// envOr reads it as a fallback. One CLI command is one process, so this
@@ -28,7 +31,7 @@ func generateInstance(t *testing.T, env string) string {
 	if err := os.WriteFile(filepath.Join(dataDir, ".env"), []byte(env), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
+	rdb, err := routd.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,12 +41,12 @@ func generateInstance(t *testing.T, env string) string {
 
 func instanceRoutes(t *testing.T, dataDir string) map[string]store.ProxydRoute {
 	t.Helper()
-	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
+	rdb, err := routd.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer rdb.Close()
-	all, err := store.New(rdb.SQL()).AllProxydRoutes()
+	all, err := store.NewOver(rdb.Obj()).AllProxydRoutes()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,13 +108,14 @@ func TestGenerateSkipsGatedOffRoute(t *testing.T) {
 // at a path it does ship. The second is the override: owning the row is how an
 // operator wins, and generate hands the path off for good.
 func TestGenerateKeepsOperatorRoutes(t *testing.T) {
+	t.Cleanup(func() { dropInstance(t) })
 	dataDir := generateInstance(t, "WEB_PORT=8095\n")
 
-	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
+	rdb, err := routd.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
-	st := store.New(rdb.SQL())
+	st := store.NewOver(rdb.Obj())
 	if _, _, err := st.SyncProxydRoutes([]store.ProxydRoute{
 		{Path: "/arizuko", RedirectTo: "/pub/arizuko/", Auth: "public", Owner: store.RouteOwnerOperator},
 		{Path: "/panel/", Backend: "http://my-panel:8080", Auth: "user", Owner: store.RouteOwnerOperator},
@@ -143,14 +147,15 @@ func TestGenerateKeepsOperatorRoutes(t *testing.T) {
 // releases must be rewritten in place, which is exactly what the seed-once path
 // never did.
 func TestGenerateRewritesChangedArizukoRoute(t *testing.T) {
+	t.Cleanup(func() { dropInstance(t) })
 	dataDir := generateInstance(t, "WEB_PORT=8095\n")
 
-	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
+	rdb, err := routd.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
 	// The row an older release left behind: same path, stale backend and auth.
-	if _, _, err := store.New(rdb.SQL()).SyncProxydRoutes([]store.ProxydRoute{{
+	if _, _, err := store.NewOver(rdb.Obj()).SyncProxydRoutes([]store.ProxydRoute{{
 		Path: "/chat/", Backend: "http://old-webd:8080", Auth: "user",
 		Owner: store.RouteOwnerArizuko,
 	}}); err != nil {

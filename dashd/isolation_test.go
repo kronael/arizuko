@@ -44,8 +44,8 @@ func isoEnv(t *testing.T) (*http.ServeMux, *testutils.Inst) {
 	// routdURL: dashd's pages read through routd's /v1 now (6/28), so the
 	// isolation tests need something serving the rows they seed. Production
 	// always has a routdURL; a dash without one is not a state that occurs.
-	(&dash{routd: over(inst.DB), dbPath: "memory", groupsDir: inst.Tmp,
-		routdURL: stubRoutd(t, inst.DB)}).registerRoutes(mux)
+	(&dash{routd: inst.Store.Obj(), groupsDir: inst.Tmp,
+		routdURL: stubRoutd(t, inst.Store.Obj())}).registerRoutes(mux)
 
 	now := time.Now()
 	for _, f := range []string{"corp", folderEng, folderSre, folderSales} {
@@ -314,7 +314,7 @@ func TestIso_Bob_SeesSalesNotEng(t *testing.T) {
 //     sales'). Operator gets the raw COUNT(*).
 func TestIso_PortalCounts_Scoped(t *testing.T) {
 	_, inst := isoEnv(t)
-	d := &dash{routd: over(inst.DB), routdURL: stubRoutd(t, inst.DB)}
+	d := &dash{routd: inst.Store.Obj(), routdURL: stubRoutd(t, inst.Store.Obj())}
 
 	// Errored chats: one per tenant + a JID with no resolvable folder.
 	for _, m := range []struct{ id, jid string }{
@@ -323,7 +323,7 @@ func TestIso_PortalCounts_Scoped(t *testing.T) {
 		{"e-sales", "web:" + folderSales},
 		{"e-orphan", "tel:99999"}, // no route → jidFolder "" → invisible to non-op
 	} {
-		if err := store.New(inst.DB).MarkChatErrored(m.jid); err != nil {
+		if err := store.NewOver(inst.Store.Obj()).MarkChatErrored(m.jid); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -332,7 +332,7 @@ func TestIso_PortalCounts_Scoped(t *testing.T) {
 		{"ft-eng", folderEng}, {"ft-sre", folderSre}, {"ft-sales", folderSales},
 	} {
 		seedTask(t, inst, ft.taskID, ft.owner)
-		if err := store.New(inst.DB).RecordTaskRun(store.TaskRunLog{
+		if err := store.NewOver(inst.Store.Obj()).RecordTaskRun(store.TaskRunLog{
 			TaskID: ft.taskID, Status: "error",
 		}); err != nil {
 			t.Fatal(err)
@@ -409,7 +409,7 @@ func TestIso_VisiblePredicate(t *testing.T) {
 
 func seedTask(t *testing.T, inst *testutils.Inst, id, owner string) {
 	t.Helper()
-	seedScheduledTask(t, over(inst.DB), core.Task{
+	seedScheduledTask(t, inst.Store.Obj(), core.Task{
 		ID: id, Owner: owner, ChatJID: "web:" + owner, Prompt: "p",
 		Cron: "0 9 * * *", Status: "active",
 	})
@@ -417,7 +417,7 @@ func seedTask(t *testing.T, inst *testutils.Inst, id, owner string) {
 
 func seedMsg(t *testing.T, inst *testutils.Inst, id, jid, content string) {
 	t.Helper()
-	seedRoutdMessage(t, inst.DB, core.Message{
+	seedRoutdMessage(t, inst.Store.Obj(), core.Message{
 		ID: id, ChatJID: jid, Sender: "s", Content: content,
 		Timestamp: time.Now().UTC(), Source: "web",
 	})
@@ -444,9 +444,9 @@ func mustNotContain(t *testing.T, body, bad, why string) {
 //     gate, so this is a cross-tenant read, not a cosmetic mislabel.
 func TestIso_JidFolder_ReadsTheMintedTarget(t *testing.T) {
 	_, inst := isoEnv(t)
-	d := &dash{routd: over(inst.DB), routdURL: stubRoutd(t, inst.DB)}
+	d := &dash{routd: inst.Store.Obj(), routdURL: stubRoutd(t, inst.Store.Obj())}
 
-	seedRouteToken(t, over(inst.DB), store.RouteToken{
+	seedRouteToken(t, inst.Store.Obj(), store.RouteToken{
 		JID: "web:" + folderSre, OwnerFolder: folderEng, TargetFolder: folderEng,
 	})
 	if got := d.jidFolder("web:" + folderSre); got != folderEng {

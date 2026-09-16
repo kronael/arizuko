@@ -15,17 +15,16 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/resreg"
+	"github.com/kronael/arizuko/store"
 )
 
-// countNetworkRules reads the live routd.db with plain SQL.
-func countNetworkRules(t *testing.T, dataDir, folder string) int {
+// countNetworkRules counts one folder's egress rules in the store the body was
+// handed. It reads THAT store rather than reopening the instance's: the fixture
+// hands each body a namespace of its own, and a second door would answer for a
+// different set of tables.
+func countNetworkRules(t *testing.T, stores map[string]*store.Store, folder string) int {
 	t.Helper()
-	stores, err := openSubsystemStores(dataDir)
-	if err != nil {
-		t.Fatalf("reopen stores: %v", err)
-	}
-	defer closeStores(stores)
-	return ruleCount(t, stores[resreg.SubsystemRoutd].DB(), folder, "")
+	return ruleCount(t, stores[resreg.SubsystemRoutd], folder, "")
 }
 
 // twoDocManifest is a routd document plus an onbod document, the shape
@@ -50,7 +49,7 @@ onboarding_gates:
 func TestPreflightFolders_RefusesUnknownFolderAcrossDocuments(t *testing.T) {
 	dataDir, stores := openInstance(t)
 
-	if got := countNetworkRules(t, dataDir, "corp/ghost"); got != 0 {
+	if got := countNetworkRules(t, stores, "corp/ghost"); got != 0 {
 		t.Fatalf("corp/ghost rules before = %d, want 0", got)
 	}
 
@@ -72,7 +71,7 @@ func TestPreflightFolders_RefusesUnknownFolderAcrossDocuments(t *testing.T) {
 	if !strings.Contains(bad[0].Error(), "corp/ghost") {
 		t.Errorf("error %q must name the offending folder", bad[0].Error())
 	}
-	if got := countNetworkRules(t, dataDir, "corp/ghost"); got != 0 {
+	if got := countNetworkRules(t, stores, "corp/ghost"); got != 0 {
 		t.Errorf("corp/ghost rules after a refused preflight = %d, want 0", got)
 	}
 }
@@ -105,7 +104,7 @@ func TestPreflightFolders_AcceptsFolderDeclaredInAnotherDocument(t *testing.T) {
 func TestPreflightFolders_ExportRoundTripPasses(t *testing.T) {
 	dataDir, stores := openInstance(t)
 
-	if globals := countNetworkRules(t, dataDir, ""); globals == 0 {
+	if globals := countNetworkRules(t, stores, ""); globals == 0 {
 		t.Fatal("fixture is vacuous: a fresh routd.db must carry the seeded folder='' rules")
 	}
 

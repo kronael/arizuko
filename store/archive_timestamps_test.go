@@ -9,12 +9,12 @@ package store_test
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -52,26 +52,20 @@ func archiveOf(t *testing.T, rows []store.ArchiveMessageRow) []byte {
 }
 
 // storedTS reads the instant a message was STORED at — the lead of its position,
-// as the bytes on disk carry it. Reading it back through core.TS would render
-// the value a second time and hide exactly the defect under test.
-func storedTS(t *testing.T, db *sql.DB, id string) string {
+// as the item's own sort key carries it. Reading it back through core.TS would
+// render the value a second time and hide exactly the defect under test.
+func storedTS(t *testing.T, st *store.Store, chatJID, id string) string {
 	t.Helper()
-	rows, err := db.Query("SELECT sort FROM messages")
+	items, err := st.Obj().Query(context.Background(), objstore.Query{
+		Entity: store.Messages, Partition: chatJID,
+	})
 	if err != nil {
 		t.Fatalf("read %s: %v", id, err)
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var sort string
-		if err := rows.Scan(&sort); err != nil {
-			t.Fatal(err)
-		}
-		if at, got, ok := store.MsgCoord(sort); ok && got == id {
+	for _, it := range items {
+		if at, got, ok := store.MsgCoord(it.Key.Sort); ok && got == id {
 			return at
 		}
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatal(err)
 	}
 	t.Fatalf("no message %s was stored", id)
 	return ""
@@ -79,15 +73,16 @@ func storedTS(t *testing.T, db *sql.DB, id string) string {
 
 // storedCount answers how many messages of a chat sort strictly after a cursor —
 // the rows the poll loop would still feed.
-func storedCount(t *testing.T, db *sql.DB, chatJID, afterKey string) int {
+func storedCount(t *testing.T, st *store.Store, chatJID, afterKey string) int {
 	t.Helper()
-	var n int
-	if err := db.QueryRow(
-		"SELECT COUNT(*) FROM messages WHERE part = ? AND sort > ?", chatJID, afterKey).
-		Scan(&n); err != nil {
+	items, err := st.Obj().Query(context.Background(), objstore.Query{
+		Entity: store.Messages, Partition: chatJID,
+		Key: objstore.KeyPredicate{Op: objstore.GtKey, Value: afterKey},
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-	return n
+	return len(items)
 }
 
 // The defect. An archive written before the column was fixed width carries a
@@ -106,7 +101,7 @@ func TestImportedHistoryLeavesNoRowBehindTheCursorItDerives(t *testing.T) {
 			Timestamp: newest.Format(time.RFC3339Nano)},
 	})
 
-	dstSt, dst := routdMessages(t)
+	dstSt := routdMessages(t)
 	if _, touched, _, err := dstSt.ImportMessagesJSONL(context.Background(), bytes.NewReader(doc), 0); err != nil {
 		t.Fatalf("import: %v", err)
 	} else if _, err := dstSt.DeriveAgentCursors(context.Background(), touched); err != nil {
@@ -119,11 +114,11 @@ func TestImportedHistoryLeavesNoRowBehindTheCursorItDerives(t *testing.T) {
 	}
 	// The failure the cursor causes, asserted as the poller sees it: no stored
 	// row may sort at or above the cursor, or it never reaches the agent.
-	hidden := storedCount(t, dst, "slack:C1", cursor)
+	hidden := storedCount(t, dstSt, "slack:C1", cursor)
 	if hidden != 0 {
 		t.Errorf("%d restored rows sort after the cursor derived from them; the agent never sees them", hidden)
 	}
-	if got := storedTS(t, dst, "frac"); got != core.TS(newest) {
+	if got := storedTS(t, dstSt, "slack:C1", "frac"); got != core.TS(newest) {
 		t.Errorf("stored timestamp = %q, want the core.TS rendering %q", got, core.TS(newest))
 	}
 }
@@ -149,12 +144,12 @@ func TestImportRendersEveryArchivedWidthThroughTheOneRenderer(t *testing.T) {
 		})
 	}
 
-	dstSt, dst := routdMessages(t)
+	dstSt := routdMessages(t)
 	if _, _, _, err := dstSt.ImportMessagesJSONL(context.Background(), bytes.NewReader(archiveOf(t, rows)), 0); err != nil {
 		t.Fatalf("import: %v", err)
 	}
 	for _, c := range cases {
-		got := storedTS(t, dst, c.id)
+		got := storedTS(t, dstSt, "slack:C1", c.id)
 		if got != core.TS(c.at) {
 			t.Errorf("%s: archived %q stored as %q, want %q", c.id, c.raw, got, core.TS(c.at))
 		}
@@ -184,13 +179,13 @@ func TestImportRefusesTheUnorderableRowAndNamesIt(t *testing.T) {
 		{ID: "good-2", ChatJID: "slack:C1", Sender: "u", Content: "c", Timestamp: ts(t, "10:02")},
 	})
 
-	dstSt, dst := routdMessages(t)
+	dstSt := routdMessages(t)
 	imported, touched, refused, err := dstSt.ImportMessagesJSONL(context.Background(), bytes.NewReader(doc), 0)
 	if err != nil {
 		t.Fatalf("one unorderable row failed the whole restore: %v", err)
 	}
-	if imported != 2 || countMessages(t, dst) != 2 {
-		t.Errorf("imported %d, stored %d, want 2 and 2 — the rest of the archive must land", imported, countMessages(t, dst))
+	if imported != 2 || countMessages(t, dstSt, "slack:C1") != 2 {
+		t.Errorf("imported %d, stored %d, want 2 and 2 — the rest of the archive must land", imported, countMessages(t, dstSt, "slack:C1"))
 	}
 	if len(refused) != 1 {
 		t.Fatalf("refused = %v, want exactly the one unorderable row", refused)
@@ -214,7 +209,7 @@ func TestImportRefusesTheUnorderableRowAndNamesIt(t *testing.T) {
 	} else if len(refused) != 0 {
 		t.Errorf("re-run refused %v", refused)
 	}
-	if got := countMessages(t, dst); got != 3 {
+	if got := countMessages(t, dstSt, "slack:C1"); got != 3 {
 		t.Errorf("after the re-run the target holds %d rows, want 3", got)
 	}
 	if !touched["slack:C1"] {

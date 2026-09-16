@@ -39,8 +39,8 @@ func TestOnboardingEndToEnd(t *testing.T) {
 	// The schema is the frozen pre-split one, not onbod.db's. onbod embeds and
 	// migrates its own chain from `package main`, so no test outside onbod can
 	// build the onboarding table any other way.
-	onbodInst := testutils.NewInstance(t)
-	onbodStore := store.New(onbodInst.DB)
+	onbodInst := testutils.NewRoutdInstance(t)
+	onbodStore := onbodInst.Store
 	onbodMux := http.NewServeMux()
 	onbodMux.HandleFunc("POST /v1/onboarding", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
@@ -114,9 +114,9 @@ func TestOnboardingEndToEnd(t *testing.T) {
 	if rec.StatusCode != 200 {
 		t.Fatalf("post-admit ingest status=%d", rec.StatusCode)
 	}
-	testutils.WaitForBotRow(t, f.routdDB.SQL(), jid, 5*time.Second)
+	testutils.WaitForBotRow(t, store.NewOver(f.routdDB.Obj()), jid, 5*time.Second)
 	if got := f.dispatchedFolder("onb.2"); got != "niki" {
 		t.Fatalf("post-admit turn dispatched to %q, want niki", got)
 	}
-	testutils.AssertMessage(t, f.routdDB.SQL(), jid, "ack onb.2")
+	testutils.AssertMessage(t, store.NewOver(f.routdDB.Obj()), jid, "ack onb.2")
 }

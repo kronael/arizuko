@@ -21,8 +21,7 @@ import (
 // plain text, regardless of status.
 func TestServicesOperator(t *testing.T) {
 	db := routdDB(t)
-	defer db.Close()
-	d := &dash{routd: over(db), routdURL: stubRoutd(t, db)}
+	d := &dash{routd: db, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -129,8 +128,7 @@ func TestShouldLink(t *testing.T) {
 // TestServicesNonOperatorForbidden: the hub is operator-only.
 func TestServicesNonOperatorForbidden(t *testing.T) {
 	db := routdDB(t)
-	defer db.Close()
-	d := &dash{routd: over(db), routdURL: stubRoutd(t, db)}
+	d := &dash{routd: db, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 

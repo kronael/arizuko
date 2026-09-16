@@ -18,15 +18,32 @@ import (
 )
 
 // Image is the endpoint a test starts when the environment names none. It is
-// Amazon's own local build, which answers CreateTable in about 4 ms; the
-// ExtendDB development build charges a one-second control-plane delay per
-// table, and a suite that makes an owner's thirty-three entities per fixture
-// pays that delay 437 times. EnvEndpoint is how a run proves the same code
-// against the PostgreSQL deployment this repo ships.
-const Image = "amazon/dynamodb-local:latest"
+// ExtendDB's development build — the same server the deployment runs, over
+// SQLite instead of PostgreSQL — because it is a native process: this host has
+// two cores, and a JVM beside the suite competes for both.
+//
+// It ships a 250 ms control-plane delay and a 10 ms index delay, which a suite
+// that makes an owner's thirty-three entities per fixture pays hundreds of
+// times. zeroTheDelays turns both off; with them off the same thirty-three
+// tables take about 200 ms.
+const Image = "ghcr.io/extenddb/extenddb-dev:0.1.11"
 
 // ImagePort is the port Image listens on inside its container.
-const ImagePort = 8000
+const ImagePort = 18080
+
+// devConfig is the configuration `extenddb settings` reads to reach the running
+// server's own storage. The server itself is configured by environment, so this
+// exists only for that command, and it names the same SQLite file.
+const devConfig = `[server]
+bind_addr = "0.0.0.0"
+port = 18080
+[server.tls]
+enabled = false
+[storage]
+backend = "sqlite"
+[storage.sqlite]
+path = "/var/lib/extenddb/extenddb.sqlite"
+`
 
 // EnvEndpoint points the suites at an endpoint that is already running — the
 // PostgreSQL deployment, or Amazon's own service — instead of the container.
@@ -172,7 +189,12 @@ func start() (dynstore.Config, error) {
 	name := fmt.Sprintf("arizuko-dynstore-%d", os.Getpid())
 	_, _ = docker("rm", "-f", name)
 	if out, err := docker("run", "-d", "--name", name,
-		"-p", fmt.Sprintf("127.0.0.1:%d:%d", port, ImagePort), Image); err != nil {
+		"-p", fmt.Sprintf("127.0.0.1:%d:%d", port, ImagePort),
+		"-e", "EXTENDDB__SERVER__BIND_ADDR=0.0.0.0",
+		"-e", fmt.Sprintf("EXTENDDB__SERVER__PORT=%d", ImagePort),
+		"-e", "EXTENDDB__STORAGE__SQLITE__PATH=/var/lib/extenddb/extenddb.sqlite",
+		"-e", "EXTENDDB_DEV_ALLOW_ANY_BIND=1",
+		Image, "serve", "--foreground"); err != nil {
 		return dynstore.Config{}, fmt.Errorf("start %s: %v: %s", Image, err, out)
 	}
 	container = name
@@ -196,6 +218,10 @@ func start() (dynstore.Config, error) {
 		_, last = s.Entities(ctx)
 		cancel()
 		if last == nil {
+			if err := zeroTheDelays(name); err != nil {
+				Shutdown()
+				return dynstore.Config{}, err
+			}
 			return cfg, nil
 		}
 		time.Sleep(200 * time.Millisecond)
@@ -203,6 +229,48 @@ func start() (dynstore.Config, error) {
 	Shutdown()
 	return dynstore.Config{}, fmt.Errorf("%s did not answer on %d: %w", Image, port, last)
 }
+
+// zeroTheDelays turns off the two the server simulates for a real control
+// plane. They are what a deployment wants and what a suite cannot afford: one
+// fixture makes thirty-three tables, and 250 ms each is eight seconds per test.
+//
+// `extenddb settings` reads a configuration FILE to find the storage, and the
+// image is configured by environment and carries none — so the file goes in
+// here, for that command and nothing else.
+func zeroTheDelays(container string) error {
+	f, err := os.CreateTemp("", "extenddb-*.toml")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	if _, err := f.WriteString(devConfig); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	// The server refuses a configuration file other users can read.
+	if err := os.Chmod(f.Name(), 0o600); err != nil {
+		return err
+	}
+	if out, err := docker("cp", f.Name(), container+":"+configPath); err != nil {
+		return fmt.Errorf("place the settings config: %v: %s", err, out)
+	}
+	for _, kv := range [][2]string{
+		{"control_plane_delay_seconds", "0"},
+		{"index_propagation_delay_ms", "0"},
+	} {
+		if out, err := docker("exec", container, "extenddb", "settings",
+			"--config", configPath, "set", kv[0], kv[1]); err != nil {
+			return fmt.Errorf("set %s=%s: %v: %s", kv[0], kv[1], err, out)
+		}
+	}
+	return nil
+}
+
+// configPath is where the image expects its configuration file.
+const configPath = "/var/lib/extenddb/extenddb.toml"
 
 func docker(args ...string) (string, error) {
 	bin := "docker"

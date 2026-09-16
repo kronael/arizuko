@@ -18,7 +18,7 @@ import (
 func TestFeature_Onboarding(t *testing.T) {
 	// CreateInvite returns a usable token; it appears in the issuer's list.
 	t.Run("invite-create-list", func(t *testing.T) {
-		s := testutils.NewInstance(t).Store
+		s := testutils.NewRoutdInstance(t).Store
 		inv, token, err := s.CreateInvite("alice", "github:operator", 1, nil)
 		if err != nil {
 			t.Fatal(err)
@@ -34,7 +34,7 @@ func TestFeature_Onboarding(t *testing.T) {
 
 	// Consuming a single-use invite increments used_count; a second consume fails.
 	t.Run("invite-consume-exhausts", func(t *testing.T) {
-		s := testutils.NewInstance(t).Store
+		s := testutils.NewRoutdInstance(t).Store
 		_, token, _ := s.CreateInvite("bob", "github:operator", 1, nil)
 		if _, err := s.ConsumeInviteNoGrant(token, "user:bob"); err != nil {
 			t.Fatalf("first consume: %v", err)
@@ -46,7 +46,7 @@ func TestFeature_Onboarding(t *testing.T) {
 
 	// Multi-use invite can be consumed up to max_uses times.
 	t.Run("invite-multi-use", func(t *testing.T) {
-		s := testutils.NewInstance(t).Store
+		s := testutils.NewRoutdInstance(t).Store
 		_, token, _ := s.CreateInvite("team", "github:operator", 3, nil)
 		for i, sub := range []string{"user:a", "user:b", "user:c"} {
 			if _, err := s.ConsumeInviteNoGrant(token, sub); err != nil {
@@ -60,7 +60,7 @@ func TestFeature_Onboarding(t *testing.T) {
 
 	// A revoked invite cannot be consumed.
 	t.Run("invite-revoke", func(t *testing.T) {
-		s := testutils.NewInstance(t).Store
+		s := testutils.NewRoutdInstance(t).Store
 		inv, token, _ := s.CreateInvite("carol", "github:operator", 5, nil)
 		if err := s.RevokeInviteByRef(inv.Ref); err != nil {
 			t.Fatal(err)
@@ -72,7 +72,7 @@ func TestFeature_Onboarding(t *testing.T) {
 
 	// An invite past its expiry cannot be consumed.
 	t.Run("invite-expiry", func(t *testing.T) {
-		s := testutils.NewInstance(t).Store
+		s := testutils.NewRoutdInstance(t).Store
 		past := time.Now().Add(-time.Hour)
 		_, token, _ := s.CreateInvite("dave", "github:operator", 1, &past)
 		if _, err := s.ConsumeInviteNoGrant(token, "user:dave"); err == nil {
@@ -82,7 +82,7 @@ func TestFeature_Onboarding(t *testing.T) {
 
 	// A future expiry allows consumption before expiry but not after.
 	t.Run("invite-future-expiry-allows-then-blocks", func(t *testing.T) {
-		s := testutils.NewInstance(t).Store
+		s := testutils.NewRoutdInstance(t).Store
 		future := time.Now().Add(time.Hour)
 		_, token, _ := s.CreateInvite("eve", "github:operator", 2, &future)
 		if _, err := s.ConsumeInviteNoGrant(token, "user:eve"); err != nil {

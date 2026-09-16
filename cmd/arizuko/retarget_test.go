@@ -11,7 +11,6 @@ import (
 
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
-	"github.com/kronael/arizuko/store"
 )
 
 // oneFolderDocs is a single-folder routd manifest: the shape --as-folder
@@ -122,7 +121,7 @@ func TestRetarget_RefusesInstanceGlobalRows(t *testing.T) {
 // retarget that produced an unapplyable manifest.
 func TestRetarget_AppliesUnderTheNewFolder(t *testing.T) {
 	_, stores := openInstance(t)
-	db := stores[resreg.SubsystemRoutd].DB()
+	db := stores[resreg.SubsystemRoutd]
 
 	docs := oneFolderDocs("corp/eng")
 	if _, err := retargetDocs(docs, "corp/newteam"); err != nil {
@@ -145,7 +144,7 @@ func TestRetarget_AppliesUnderTheNewFolder(t *testing.T) {
 	if got := ruleCount(t, db, "corp/newteam", ""); got != 1 {
 		t.Errorf("egress rule not under the new folder (count=%d)", got)
 	}
-	routes, err := store.New(db).AllWebRoutes()
+	routes, err := db.AllWebRoutes()
 	if err != nil {
 		t.Fatalf("read web routes: %v", err)
 	}

@@ -816,11 +816,11 @@ func Generate(dataDir string) (string, []ProxydRoute, error) {
 	// authd (auth.db) + routd (routd.db) + runed (runed.db, the ONLY daemon wired to
 	// docker.sock, per-spawn egress proxies and per-folder agent networks). This is
 	// the only topology, so they carry no profile.
-	b.WriteString(authdService(app, flavor, dataDir))
+	b.WriteString(authdService(app, flavor))
 	b.WriteString(routdService(app, flavor, dataDir, env))
 	b.WriteString(runedService(app, flavor, dataDir, env))
-	b.WriteString(webdService(app, flavor, dataDir))
-	b.WriteString(proxydService(app, flavor, dataDir, env))
+	b.WriteString(webdService(app, flavor))
+	b.WriteString(proxydService(app, flavor, env))
 	b.WriteString(vitedService(app, flavor, dataDir))
 	b.WriteString(dashdService(app, flavor, dataDir, env))
 	b.WriteString(timedService(app, flavor, env))
@@ -908,17 +908,6 @@ func writeEnv(b *strings.Builder, env map[string]string) {
 // file, every group's files, and every live MCP socket. Naming subdirs mounts
 // only those children (spec 5/16, BUGS A1). Sources must pre-exist: docker
 // creates a missing bind source as root, and every daemon runs as uid 1000.
-// storeSub names one owner's subdirectory of store/. Binding store/<owner>
-// rather than store/ turns ownership from a convention into a boundary; the .db
-// and its -wal/-shm siblings live together, so one bind carries a whole triple.
-func storeSub(owner string) string { return store.OwnerDir("store", owner) }
-
-// containerOwnerDB is the container-side path of an owner's SQLite file. It reads
-// the same store.OwnerDBPath layout the daemons resolve with, so the mount, the
-// env value and the daemon's own default cannot drift apart.
-func containerOwnerDB(owner string) string {
-	return store.OwnerDBPath(containerDataMount+"/store", owner)
-}
 
 func dataMounts(dataDir string, subdirs []string) []string {
 	if len(subdirs) == 0 {
@@ -985,17 +974,17 @@ func writeSvc(def svcDef) string {
 // socket, NO egress proxy. No depends_on: authd is the authority, nothing it
 // relies on must come up first. store/authd/ is its only mount, so it reaches
 // neither the other owners' databases, nor the groups tree, nor ipc/.
-func authdService(app, flavor, dataDir string) string {
+func authdService(app, flavor string) string {
 	var b strings.Builder
 	b.WriteString("  authd:\n")
 	fmt.Fprintf(&b, "    container_name: %s_authd_%s\n", app, flavor)
 	b.WriteString("    image: arizuko:latest\n")
 	b.WriteString("    entrypoint: ['authd']\n")
 	b.WriteString("    user: '1000:1000'\n")
-	fmt.Fprintf(&b, "    volumes:\n      - %s\n", dataMounts(dataDir, []string{storeSub(store.OwnerAuthd)})[0])
+	// No data mount: authd's tables are on the store server and it reads no file
+	// of its own, so the instance tree is not its to see.
 	b.WriteString(envFileFor("authd"))
 	b.WriteString("    environment:\n")
-	fmt.Fprintf(&b, "      DATA_DIR: '%s'\n", containerDataMount)
 	// authd snapshots login/refresh scopes by calling routd's ACL owner
 	// (GET /v1/users/{sub}/scopes). Unset -> empty-scope sessions (spec 5/5).
 	fmt.Fprintf(&b, "      GRANTS_URL: '%s'\n", routdURL)
@@ -1082,25 +1071,23 @@ func timedService(app, flavor string, env map[string]string) string {
 
 func onbodService(app, flavor, dataDir string) string {
 	// ONBOARDING_ENABLED is forced true inside the container: the onbod profile is
-	// what decides whether onbod runs at all. ONBOD_DB_PATH is container-internal, so
-	// .env cannot know it.
-	// store/onbod/ + store/routd/ + groups/ + web/: onbod owns onbod.db and
-	// cross-reads routd.db (acl/groups/routes), and SetupGroup creates
-	// groups/<folder> plus the per-group web slots. It never touches ipc/, so a new
-	// world can be provisioned without reach over any running agent's MCP socket.
+	// what decides whether onbod runs at all.
+	//
+	// groups/ + web/: SetupGroup creates groups/<folder> plus the per-group web
+	// slots. onbod's own tables and routd's are on the store server, so it mounts
+	// neither. It never touches ipc/, so a new world can be provisioned without
+	// reach over any running agent's MCP socket.
 	return writeSvc(svcDef{
 		name:        "onbod",
 		app:         app,
 		flavor:      flavor,
 		entrypoint:  "onbod",
 		dataDir:     dataDir,
-		dataSubdirs: []string{storeSub(store.OwnerOnbod), storeSub(store.OwnerRoutd), "groups", "web"},
+		dataSubdirs: []string{"groups", "web"},
 		profile:     "onbod",
 		environment: map[string]string{
 			"ONBOARDING_ENABLED": "true",
 			"ROUTER_URL":         routdURL,
-			"ONBOD_DB_PATH":      containerOwnerDB(store.OwnerOnbod),
-			"ROUTD_DB_PATH":      containerOwnerDB(store.OwnerRoutd),
 		},
 	})
 }
@@ -1116,26 +1103,18 @@ func dashdService(app, flavor, dataDir string, env map[string]string) string {
 		flavor:     flavor,
 		entrypoint: "dashd",
 		dataDir:    dataDir,
-		// dashd is the operator console over three owner DBs plus the groups tree
-		// and surrogate/. The whole-tree mount it used to take handed it .env —
-		// AUTH_SECRET, SECRETS_KEY, every platform token — and ipc/, the live
-		// per-turn agent MCP sockets (BUGS F51). authd's auth.db is deliberately
-		// absent: dashd reads sessions over authd's HTTP face, not its file.
-		dataSubdirs: []string{
-			storeSub(store.OwnerRoutd), storeSub(store.OwnerOnbod),
-			"groups", "surrogate",
-		},
-		profile: "web",
-		// Both DB paths are container-internal; .env can't know them. runed's is
-		// not among them: `/dash/runed/` is served by runed itself, so dashd
-		// reads runed over its HTTP face and holds no handle on its store.
+		// dashd is the operator console over the groups tree and surrogate/. Its
+		// owner tables are on the store server, so it mounts none. The whole-tree
+		// mount it used to take handed it .env — AUTH_SECRET, SECRETS_KEY, every
+		// platform token — and ipc/, the live per-turn agent MCP sockets
+		// (BUGS F51).
+		dataSubdirs: []string{"groups", "surrogate"},
+		profile:     "web",
 		// DASH_PORT override pins internal listen to :8080 (healthcheck target)
 		// even when .env sets DASH_PORT for host-side publish.
 		environment: map[string]string{
-			"DB_PATH":       containerOwnerDB(store.OwnerRoutd),
-			"ONBOD_DB_PATH": containerOwnerDB(store.OwnerOnbod),
-			"DASH_PORT":     fmt.Sprintf("%d", core.DefaultAPIPort),
-			"APP_SRC_DIR":   src,
+			"DASH_PORT":   fmt.Sprintf("%d", core.DefaultAPIPort),
+			"APP_SRC_DIR": src,
 		},
 	}
 	if vol != "" {
@@ -1150,7 +1129,7 @@ func dashdService(app, flavor, dataDir string, env map[string]string) string {
 // proxydService emits proxyd's compose block. It carries no route config: the
 // route table is rows in routd.db, written by the same generate run (see
 // Generate), and proxyd reads them live per request.
-func proxydService(app, flavor, dataDir string, env map[string]string) string {
+func proxydService(app, flavor string, env map[string]string) string {
 	webPort := envOr(env, "WEB_PORT", "8095")
 	ports := []string{webPort + ":8080"}
 	if aliases := envOr(env, "WEB_PORT_ALIASES", ""); aliases != "" {
@@ -1166,15 +1145,15 @@ func proxydService(app, flavor, dataDir string, env map[string]string) string {
 	// store/routd/ only: proxyd opens routd.db for route/identity rows and makes no
 	// other filesystem call. /pub/ is a redirect to vited, not a static serve.
 	return writeSvc(svcDef{
-		name:        "proxyd",
-		app:         app,
-		flavor:      flavor,
-		entrypoint:  "proxyd",
-		dataDir:     dataDir,
-		dataSubdirs: []string{storeSub(store.OwnerRoutd)},
-		profile:     "web",
-		ports:       ports,
-		dependsOn:   "routd, dashd, webd",
+		name:       "proxyd",
+		app:        app,
+		flavor:     flavor,
+		entrypoint: "proxyd",
+		// No data mount: proxyd reads routd's tables on the store server and
+		// serves no file from the instance tree.
+		profile:   "web",
+		ports:     ports,
+		dependsOn: "routd, dashd, webd",
 	})
 }
 
@@ -1201,14 +1180,14 @@ func davdService(app, flavor, dataDir string, env map[string]string) string {
 	return b.String()
 }
 
-func webdService(app, flavor, dataDir string) string {
+func webdService(app, flavor string) string {
 	// webd registers as a channel and posts inbound to the router. Pin ROUTER_URL so
 	// webd never falls back to a code default.
-	// store/routd/ only: webd opens routd.db and serves the chat widget from the
-	// binary, not from web/.
+	// No data mount: webd reads routd's tables on the store server and serves the
+	// chat widget from the binary, not from web/.
 	return writeSvc(svcDef{
 		name: "webd", app: app, flavor: flavor,
-		entrypoint: "webd", dataDir: dataDir, dataSubdirs: []string{storeSub(store.OwnerRoutd)},
+		entrypoint:  "webd",
 		profile:     "web",
 		environment: map[string]string{"ROUTER_URL": routdURL},
 	})

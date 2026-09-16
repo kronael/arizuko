@@ -24,6 +24,7 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore/dynstore"
 	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/resreg"
 	_ "github.com/kronael/arizuko/resreg/resources"
@@ -39,13 +40,7 @@ type gate struct {
 }
 
 type config struct {
-	core   *core.Config
-	ownDSN string // ONBOD_DB_PATH: onbod.db for the OWNED tables
-	// routdDSN is ROUTD_DB_PATH: routd.db for the CROSS tables. Configured, not
-	// derived — under store/<owner>/ routd.db is no longer a sibling of
-	// onbod.db, and deriving one owner's file from another's was never right
-	// (CLAUDE.md "identity is configured, never derived").
-	routdDSN     string
+	core         *core.Config
 	listenAddr   string
 	gatedURL     string
 	pollInterval time.Duration
@@ -85,19 +80,18 @@ func main() {
 		os.Exit(1)
 	}
 	defer obdb.Close() //nolint:errcheck // the process is ending
-	slog.Info("onbod owns its tables", "path", cfg.ownDSN)
+	slog.Info("onbod owns its tables", "store", dynstore.URL())
 
-	// store.OpenOwner, not a bare sql.Open: sql.Open is lazy, so the error
-	// branch below could never fire and onbod would create an empty routd.db on
-	// first query — a cross-read against zero groups and zero acl, boot green
-	// (BUGS F52). OpenOwner probes for the `acl` entity and fails loud instead.
+	// OpenOwner probes for the `acl` entity, so an owner that has never booted
+	// is loud instead of a cross-read against zero groups and zero acl with the
+	// boot still green (BUGS F52).
 	xdb, err := store.OpenOwner(store.OwnerRoutd)
 	if err != nil {
-		slog.Error("open routd's store", "path", cfg.routdDSN, "err", err)
+		slog.Error("open routd's store", "err", err)
 		os.Exit(1)
 	}
 	defer xdb.Close() //nolint:errcheck // the process is ending
-	slog.Info("onbod cross-reads routd's tables", "path", cfg.routdDSN)
+	slog.Info("onbod cross-reads routd's tables", "store", dynstore.URL())
 
 	audit.Init(obdb.Obj(), os.Getenv("ARIZUKO_INSTANCE"))
 	audit.Emit(context.Background(), audit.Event{
@@ -261,8 +255,6 @@ func loadConfig() (config, error) {
 	}
 	cfg := config{
 		core:         coreCfg,
-		ownDSN:       os.Getenv("ONBOD_DB_PATH"),
-		routdDSN:     os.Getenv("ROUTD_DB_PATH"),
 		authBaseURL:  coreCfg.AuthBaseURL,
 		secureCookie: strings.HasPrefix(coreCfg.AuthBaseURL, "https://"),
 		greeting:     os.Getenv("ONBOARDING_GREETING"),

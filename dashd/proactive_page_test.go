@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,18 +11,19 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
 )
 
 // proactiveDB is a migrated routd.db; the page reads chat_proactive.
-func proactiveDB(t *testing.T) *sql.DB { return routdDB(t) }
+func proactiveDB(t *testing.T) objstore.Store { return routdDB(t) }
 
-func seedGroup(t *testing.T, db *sql.DB, groupsDir, folder, frontmatter string) {
+func seedGroup(t *testing.T, db objstore.Store, groupsDir, folder, frontmatter string) {
 	t.Helper()
 	// routd's `groups` carries no name and no parent — the hand-written fixture
 	// invented both, and the parent is the folder path itself (BUGS F44).
-	seedFolder(t, over(db), folder)
+	seedFolder(t, db, folder)
 	if frontmatter == "" {
 		return
 	}
@@ -81,13 +81,12 @@ const (
 // previously meant opening every group's CLAUDE.md by hand.
 func TestProactivePageRendersModes(t *testing.T) {
 	db := proactiveDB(t)
-	defer db.Close()
 	groupsDir := t.TempDir()
 	seedGroup(t, db, groupsDir, "corp/eng", "proactive:\n  mode: lurk\n  quiet_hours: ['22:00-08:00 Europe/Prague']")
 	seedGroup(t, db, groupsDir, "corp/sales", "product: support")
 	seedGroup(t, db, groupsDir, "corp/ops", "proactive:\n  mode: shout")
 
-	modes := sectionBetween(t, getProactivePage(t, &dash{routd: over(db), groupsDir: groupsDir, routdURL: stubRoutd(t, db)}), modesFrom, modesTo)
+	modes := sectionBetween(t, getProactivePage(t, &dash{routd: db, groupsDir: groupsDir, routdURL: stubRoutd(t, db)}), modesFrom, modesTo)
 
 	// Every group is listed at all — assert existence before properties.
 	for _, folder := range []string{"corp/eng", "corp/sales", "corp/ops"} {
@@ -123,11 +122,10 @@ func TestProactivePageRendersModes(t *testing.T) {
 // refuses to collapse: a typo must not read as a deliberate off switch.
 func TestProactivePageSeparatesBrokenFromSilent(t *testing.T) {
 	db := proactiveDB(t)
-	defer db.Close()
 	groupsDir := t.TempDir()
 	seedGroup(t, db, groupsDir, "corp/broken", "proactive:\n  mode: lurk\n  quiet_hours: ['whenever']")
 
-	modes := sectionBetween(t, getProactivePage(t, &dash{routd: over(db), groupsDir: groupsDir, routdURL: stubRoutd(t, db)}), modesFrom, modesTo)
+	modes := sectionBetween(t, getProactivePage(t, &dash{routd: db, groupsDir: groupsDir, routdURL: stubRoutd(t, db)}), modesFrom, modesTo)
 	if !strings.Contains(modes, "broken") {
 		t.Fatalf("broken group not marked broken:\n%s", modes)
 	}
@@ -143,16 +141,15 @@ func TestProactivePageSeparatesBrokenFromSilent(t *testing.T) {
 // spoke unprompted, previously reachable only by SQL.
 func TestProactivePageRendersCooldown(t *testing.T) {
 	db := proactiveDB(t)
-	defer db.Close()
 	groupsDir := t.TempDir()
 	seedGroup(t, db, groupsDir, "corp/eng", "proactive:\n  mode: lurk")
 	firedAt := time.Date(2026, 8, 6, 9, 0, 0, 0, time.UTC)
-	if err := store.New(db).RecordProactiveFire(
+	if err := store.NewOver(db).RecordProactiveFire(
 		context.Background(), "slack:T1/C1", firedAt); err != nil {
 		t.Fatal(err)
 	}
 
-	body := getProactivePage(t, &dash{routd: over(db), groupsDir: groupsDir, routdURL: stubRoutd(t, db)})
+	body := getProactivePage(t, &dash{routd: db, groupsDir: groupsDir, routdURL: stubRoutd(t, db)})
 	cooldown := sectionBetween(t, body, modesTo, "")
 	if !strings.Contains(cooldown, "slack:T1/C1") {
 		t.Fatalf("fired chat missing from the cooldown table:\n%s", cooldown)
@@ -170,8 +167,7 @@ func TestProactivePageRendersCooldown(t *testing.T) {
 // empty rather than an unexplained blank.
 func TestProactivePageEmptyStates(t *testing.T) {
 	db := proactiveDB(t)
-	defer db.Close()
-	body := getProactivePage(t, &dash{routd: over(db), groupsDir: t.TempDir(), routdURL: stubRoutd(t, db)})
+	body := getProactivePage(t, &dash{routd: db, groupsDir: t.TempDir(), routdURL: stubRoutd(t, db)})
 	if !strings.Contains(body, "No groups yet.") {
 		t.Errorf("no empty state for the modes table:\n%s", body)
 	}
@@ -186,8 +182,7 @@ func TestProactivePageEmptyStates(t *testing.T) {
 // template sets it.
 func TestProactivePageStatesFeatureIsOff(t *testing.T) {
 	db := proactiveDB(t)
-	defer db.Close()
-	body := getProactivePage(t, &dash{routd: over(db), groupsDir: t.TempDir(), routdURL: stubRoutd(t, db)})
+	body := getProactivePage(t, &dash{routd: db, groupsDir: t.TempDir(), routdURL: stubRoutd(t, db)})
 	if !strings.Contains(body, "PROACTIVE_ENABLED") {
 		t.Errorf("page does not name the env var an operator must set:\n%s", body)
 	}
@@ -200,11 +195,10 @@ func TestProactivePageStatesFeatureIsOff(t *testing.T) {
 // settings, so it is operator-only like /dash/audit/ and /dash/runed/.
 func TestProactivePageNonOperatorForbidden(t *testing.T) {
 	db := proactiveDB(t)
-	defer db.Close()
 	groupsDir := t.TempDir()
 	seedGroup(t, db, groupsDir, "corp/eng", "proactive:\n  mode: lurk")
 
-	d := &dash{routd: over(db), groupsDir: groupsDir, routdURL: stubRoutd(t, db)}
+	d := &dash{routd: db, groupsDir: groupsDir, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := httptest.NewRequest("GET", "/dash/proactive/", nil)
@@ -224,7 +218,6 @@ func TestProactivePageNonOperatorForbidden(t *testing.T) {
 // must not make the page parse a CLAUDE.md outside the groups tree.
 func TestProactivePageConfinesToGroupsDir(t *testing.T) {
 	db := proactiveDB(t)
-	defer db.Close()
 	base := t.TempDir()
 	groupsDir := filepath.Join(base, "groups")
 	if err := os.MkdirAll(groupsDir, 0o755); err != nil {
@@ -237,7 +230,7 @@ func TestProactivePageConfinesToGroupsDir(t *testing.T) {
 	}
 	seedGroup(t, db, groupsDir, "../", "")
 
-	modes := sectionBetween(t, getProactivePage(t, &dash{routd: over(db), groupsDir: groupsDir, routdURL: stubRoutd(t, db)}), modesFrom, modesTo)
+	modes := sectionBetween(t, getProactivePage(t, &dash{routd: db, groupsDir: groupsDir, routdURL: stubRoutd(t, db)}), modesFrom, modesTo)
 	if strings.Contains(modes, `<span class="status-ok">lurk</span>`) {
 		t.Fatalf("read a CLAUDE.md outside the groups dir:\n%s", modes)
 	}

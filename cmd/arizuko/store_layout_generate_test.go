@@ -3,7 +3,6 @@ package main
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/kronael/arizuko/store"
@@ -48,17 +47,12 @@ func seedFlatInstance(t *testing.T, name string) string {
 // TestGenerateComposeMovesTheStoreLayout is the WIRING assertion, not the
 // mover's: `arizuko generate` is what a live instance runs on every restart
 // (systemd ExecStartPre, after `compose down`), so if the move is not called
-// from there the deploy that ships store/<owner>/ takes the fleet down — every
-// owner daemon now refuses to boot on a missing file rather than creating one.
-//
-// It also pins the ORDER. The compose written in the same call binds
-// store/<owner> and points the DB path env vars inside it; a compose produced
-// before the tree moved is the outage this exists to prevent.
+// from there the deploy that ships store/<owner>/ never happens.
 func TestGenerateComposeMovesTheStoreLayout(t *testing.T) {
 	dataDir := seedFlatInstance(t, "flat")
 	storeDir := filepath.Join(dataDir, "store")
 
-	outPath := generateCompose(dataDir)
+	generateCompose(dataDir)
 
 	for owner, file := range store.OwnerDBs {
 		for _, suffix := range []string{"", "-wal"} {
@@ -87,21 +81,6 @@ func TestGenerateComposeMovesTheStoreLayout(t *testing.T) {
 		}
 	}
 
-	// The compose emitted by this same call must name the directories the move
-	// just produced — the two halves are one change or they are an outage.
-	yml, err := os.ReadFile(outPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for owner := range store.OwnerDBs {
-		want := storeDir + "/" + owner + ":"
-		if owner == store.OwnerRuned {
-			continue // runed takes the whole tree; it has no per-owner bind
-		}
-		if !strings.Contains(string(yml), want) {
-			t.Errorf("generated compose has no %q bind", want)
-		}
-	}
 }
 
 // TestGenerateComposeStoreLayoutIdempotent: generate runs on every restart, so

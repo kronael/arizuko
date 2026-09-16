@@ -4,41 +4,34 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
-	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/store"
-	_ "modernc.org/sqlite"
 )
 
-// mustSeedDB makes an empty SQLite file at path, the way `arizuko create`
-// seeds every owner DB. openOwned is strict and never creates one, so a
-// fixture that skipped this would get the loud "does not exist" error.
-func mustSeedDB(t *testing.T, path string) {
+// ownedDB prepares onbod's OWNED entities in a namespace of this test's own —
+// the set openOwned makes at boot, without reaching the instance's own tables.
+func ownedDB(t *testing.T) *store.Store {
 	t.Helper()
-	if err := db_utils.CreateDBFile(path); err != nil {
-		t.Fatal(err)
+	d := dyntest.Store(t)
+	if err := prepareOwned(d); err != nil {
+		t.Fatalf("prepare onbod's entities: %v", err)
 	}
+	return store.NewOver(d)
 }
 
-// openOwned prepares onbod's OWNED entities and nothing else: it runs no chain
-// of store's, so a store-only entity must be absent. Asked through the driver
-// rather than through sqlite_master, because the engine is a choice this file
+// prepareOwned builds onbod's OWNED entities and nothing else: it makes no
+// entity of store's that onbod does not read, so a store-only one must be
+// absent. Asked through the driver, because the engine is a choice this file
 // must not encode.
 func TestOpenOwned_PreparesOnbodsOwnEntitiesOnly(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "store", "onbod.db")
-	mustSeedDB(t, path)
-	db, err := openOwned(path)
-	if err != nil {
-		t.Fatalf("openOwned: %v", err)
-	}
-	defer db.Close() //nolint:errcheck // the test is ending
+	db := ownedDB(t)
 
 	d := db.Obj()
 	for _, entity := range []string{
@@ -62,13 +55,7 @@ func TestOpenOwned_PreparesOnbodsOwnEntitiesOnly(t *testing.T) {
 // dispatch (a POST-collection create returning a server-generated token) are
 // exercised end-to-end; ks=nil (open, monolith/local-dev) so no bearer needed.
 func TestAdminInviteCreateListDelete(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "store", "onbod.db")
-	mustSeedDB(t, path)
-	db, err := openOwned(path)
-	if err != nil {
-		t.Fatalf("openOwned: %v", err)
-	}
-	defer db.Close()
+	db := ownedDB(t)
 	mux := http.NewServeMux()
 	(&admin{st: db, ks: nil}).mountInvites(mux)
 
@@ -174,13 +161,7 @@ func TestInvitesRESTGateScopes(t *testing.T) {
 // {gate} path binding + resreg dispatch are exercised end-to-end; ks=nil (open)
 // so no bearer needed.
 func TestAdminGatePutListDelete(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "store", "onbod.db")
-	mustSeedDB(t, path)
-	db, err := openOwned(path)
-	if err != nil {
-		t.Fatalf("openOwned: %v", err)
-	}
-	defer db.Close()
+	db := ownedDB(t)
 	mux := http.NewServeMux()
 	(&admin{st: db, ks: nil}).mountGates(mux)
 
@@ -253,13 +234,7 @@ func TestAdminGatePutListDelete(t *testing.T) {
 // It asserts BOTH halves, because either one alone passes against the bug: the
 // answer is not a success, and the gate is still absent afterwards.
 func TestEnablingAGateThatIsNotThereIsNotASuccess(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "store", "onbod.db")
-	mustSeedDB(t, path)
-	db, err := openOwned(path)
-	if err != nil {
-		t.Fatalf("openOwned: %v", err)
-	}
-	defer db.Close()
+	db := ownedDB(t)
 	mux := http.NewServeMux()
 	(&admin{st: db, ks: nil}).mountGates(mux)
 

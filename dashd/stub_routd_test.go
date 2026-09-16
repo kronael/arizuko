@@ -1,11 +1,11 @@
 package main
 
 import (
-	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -14,7 +14,6 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/objstore"
-	"github.com/kronael/arizuko/objstore/sqlstore"
 	"github.com/kronael/arizuko/resreg/resources"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	"github.com/kronael/arizuko/router"
@@ -34,7 +33,7 @@ import (
 // owning daemon runs and marshals the owning daemon's struct. A stub that
 // invented its own shape would let these tests pass against a page that cannot
 // read the real thing.
-func stubRoutd(t *testing.T, db *sql.DB) string {
+func stubRoutd(t *testing.T, db objstore.Store) string {
 	t.Helper()
 	mux := http.NewServeMux()
 
@@ -43,7 +42,7 @@ func stubRoutd(t *testing.T, db *sql.DB) string {
 	// table (BUGS L142).
 	mux.HandleFunc("GET /v1/groups", func(w http.ResponseWriter, _ *http.Request) {
 		// The folder IS the coordinate, so the read arrives in folder order.
-		folders, err := store.New(db).GroupFolders(0)
+		folders, err := store.NewOver(db).GroupFolders(0)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -74,45 +73,41 @@ func stubRoutd(t *testing.T, db *sql.DB) string {
 		writeStubJSON(w, out)
 	})
 
+	// Both tallies come from the SAME readers routd's own handlers answer with
+	// (routd/dash_reads_http.go), so a stub cannot agree with the page about a
+	// shape the daemon does not serve.
 	mux.HandleFunc("GET /v1/sessions/counts", func(w http.ResponseWriter, _ *http.Request) {
-		rows, err := db.Query(`SELECT group_folder, COUNT(*) FROM sessions
-			GROUP BY group_folder ORDER BY group_folder`)
+		perFolder, err := store.NewOver(db).TopicsPerFolder()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		defer rows.Close()
+		folders := make([]string, 0, len(perFolder))
+		for f := range perFolder {
+			folders = append(folders, f)
+		}
+		sort.Strings(folders)
 		out := []map[string]any{}
-		for rows.Next() {
-			var f string
-			var n int
-			if err := rows.Scan(&f, &n); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			out = append(out, map[string]any{"folder": f, "count": n})
+		for _, f := range folders {
+			out = append(out, map[string]any{"folder": f, "count": perFolder[f]})
 		}
 		writeStubJSON(w, out)
 	})
 
-	mux.HandleFunc("GET /v1/messages/volume", func(w http.ResponseWriter, _ *http.Request) {
-		rows, err := db.Query(`SELECT DATE(timestamp) AS day, COUNT(*) FROM messages
-			WHERE is_bot_message=0 AND timestamp >= datetime('now','-7 days')
-			GROUP BY day ORDER BY day DESC`)
+	mux.HandleFunc("GET /v1/messages/volume", func(w http.ResponseWriter, r *http.Request) {
+		counts, err := store.NewOver(db).DailyVolume(r.Context(), 7)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		defer rows.Close()
+		days := make([]string, 0, len(counts))
+		for d := range counts {
+			days = append(days, d)
+		}
+		sort.Sort(sort.Reverse(sort.StringSlice(days)))
 		out := []map[string]any{}
-		for rows.Next() {
-			var d string
-			var n int
-			if err := rows.Scan(&d, &n); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			out = append(out, map[string]any{"day": d, "count": n})
+		for _, d := range days {
+			out = append(out, map[string]any{"day": d, "count": counts[d]})
 		}
 		writeStubJSON(w, out)
 	})
@@ -126,7 +121,7 @@ func stubRoutd(t *testing.T, db *sql.DB) string {
 		if v, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && v > 0 && v < limit {
 			limit = v
 		}
-		rows, err := store.New(db).RecentActivity(r.Context(),
+		rows, err := store.NewOver(db).RecentActivity(r.Context(),
 			r.URL.Query().Get("before"), limit)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -143,7 +138,7 @@ func stubRoutd(t *testing.T, db *sql.DB) string {
 	// TWO reads and a merge, exactly as routd's handlePrincipals does it: two
 	// entities and no join to run. A `role:` child is a role, not a person.
 	mux.HandleFunc("GET /v1/principals", func(w http.ResponseWriter, r *http.Request) {
-		names, err := store.New(db).ProfileNames(r.Context())
+		names, err := store.NewOver(db).ProfileNames(r.Context())
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -174,7 +169,7 @@ func stubRoutd(t *testing.T, db *sql.DB) string {
 
 	mux.HandleFunc("GET /v1/routes", func(w http.ResponseWriter, _ *http.Request) {
 		// RouteTable is `ORDER BY seq, id` — precedence, then write order.
-		out, err := store.New(db).RouteTable()
+		out, err := store.NewOver(db).RouteTable()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -191,7 +186,7 @@ func stubRoutd(t *testing.T, db *sql.DB) string {
 	// routd's loop calls at its route-table step — so the stub cannot list a
 	// chat the real reader would not.
 	mux.HandleFunc("GET /v1/routing/unrouted", func(w http.ResponseWriter, r *http.Request) {
-		routes, err := store.New(db).RouteTable()
+		routes, err := store.NewOver(db).RouteTable()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -200,7 +195,7 @@ func stubRoutd(t *testing.T, db *sql.DB) string {
 		// and the verdict per chat is resolve over that chat's newest inbound
 		// row — the same pair, so the stub cannot list a chat the real reader
 		// would not.
-		st := store.New(db)
+		st := store.NewOver(db)
 		summary, err := st.InboundChatSummary(r.Context())
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -265,7 +260,7 @@ func stubRoutd(t *testing.T, db *sql.DB) string {
 	// serve.
 	mux.HandleFunc("GET /v1/acl", func(w http.ResponseWriter, r *http.Request) {
 		folder := r.URL.Query().Get("folder")
-		out, err := store.New(db).ListACLByScope(folder)
+		out, err := store.NewOver(db).ListACLByScope(folder)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -304,7 +299,7 @@ func stubRoutd(t *testing.T, db *sql.DB) string {
 	// and 0 would let a page pass while showing every group as closed and capped
 	// at nothing.
 	mux.HandleFunc("GET /v1/groups/{folder...}", func(w http.ResponseWriter, r *http.Request) {
-		g, ok := store.New(db).GroupByFolder(r.PathValue("folder"))
+		g, ok := store.NewOver(db).GroupByFolder(r.PathValue("folder"))
 		if !ok {
 			http.NotFound(w, r)
 			return
@@ -313,7 +308,7 @@ func stubRoutd(t *testing.T, db *sql.DB) string {
 	})
 
 	mux.HandleFunc("GET /v1/tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
-		t, ok, err := store.New(db).TaskByID(r.PathValue("id"))
+		t, ok, err := store.NewOver(db).TaskByID(r.PathValue("id"))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -335,7 +330,7 @@ func stubRoutd(t *testing.T, db *sql.DB) string {
 			Error      string `json:"error"`
 		}
 		out := []run{}
-		for _, l := range store.New(db).TaskRunLogs(r.PathValue("id"), 20) {
+		for _, l := range store.NewOver(db).TaskRunLogs(r.PathValue("id"), 20) {
 			out = append(out, run{
 				RunAt:      l.RunAt.Format(time.RFC3339),
 				Status:     l.Status,
@@ -354,8 +349,8 @@ func stubRoutd(t *testing.T, db *sql.DB) string {
 // stubItems reads one whole entity partition, for the two endpoints whose
 // projection store has no reader for: the tasks list keys on (owner, id) and
 // the token list has to carry the digest the resource declares.
-func stubItems(r *http.Request, db *sql.DB, entity string) ([]objstore.Item, error) {
-	return sqlstore.New(db).Query(r.Context(), objstore.Query{
+func stubItems(r *http.Request, db objstore.Store, entity string) ([]objstore.Item, error) {
+	return db.Query(r.Context(), objstore.Query{
 		Entity: entity, Partition: store.OwnerRoutd,
 	})
 }

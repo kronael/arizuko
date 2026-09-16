@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -23,13 +22,7 @@ import (
 // hand-written restatement of it.
 func auditAdmin(t *testing.T, ks *auth.KeySet) *admin {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "store", "onbod.db")
-	mustSeedDB(t, path)
-	db, err := openOwned(path)
-	if err != nil {
-		t.Fatalf("openOwned: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
+	db := ownedDB(t)
 	return &admin{st: db, ks: ks}
 }
 

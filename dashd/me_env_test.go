@@ -2,9 +2,9 @@ package main
 
 import (
 	"bytes"
-	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -81,41 +82,21 @@ func captureSlog(t *testing.T) *lockedBuf {
 	return b
 }
 
-// auditDump returns (rowCount, every stored byte of every recorded row joined).
-// It reads the columns generically so a value leaking into ANY of them — not
-// just params_summary — is caught, and the entity's document column carries
-// every attribute, so an attribute added later is covered without an edit here.
-func auditDump(t *testing.T, db *sql.DB) (int, string) {
+// auditDump returns (rowCount, every recorded field of every row joined). It
+// renders the WHOLE row rather than one field, so a value leaking into ANY of
+// them — not just params_summary — is caught, and a field added later is
+// covered without an edit here.
+func auditDump(t *testing.T, db objstore.Store) (int, string) {
 	t.Helper()
-	rows, err := db.Query(`SELECT * FROM audit_log ORDER BY sort`)
+	rows, err := audit.Query(t.Context(), db, audit.Filter{Limit: audit.MaxLimit})
 	if err != nil {
-		t.Fatalf("read audit_log: %v", err)
-	}
-	defer rows.Close()
-	cols, err := rows.Columns()
-	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("read the audit trail: %v", err)
 	}
 	var out strings.Builder
-	n := 0
-	for rows.Next() {
-		cells := make([]any, len(cols))
-		for i := range cells {
-			cells[i] = new(sql.NullString)
-		}
-		if err := rows.Scan(cells...); err != nil {
-			t.Fatal(err)
-		}
-		for _, c := range cells {
-			out.WriteString(c.(*sql.NullString).String)
-			out.WriteByte('\n')
-		}
-		n++
+	for _, r := range rows {
+		fmt.Fprintf(&out, "%+v\n", r)
 	}
-	if err := rows.Err(); err != nil {
-		t.Fatal(err)
-	}
-	return n, out.String()
+	return len(rows), out.String()
 }
 
 func TestMeEnv_RequiresAuth(t *testing.T) {

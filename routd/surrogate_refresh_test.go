@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/auth/surrogate"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -39,7 +40,7 @@ func brokerDB(t *testing.T, handler http.HandlerFunc) (*DB, *int32) {
 
 func seedOAuthRow(t *testing.T, db *DB, value, refresh string, expiresAt time.Time) {
 	t.Helper()
-	seed := store.New(db.SQL())
+	seed := store.NewOver(db.Obj())
 	seed.SetSecretKeys([]byte("k"))
 	if err := seed.PutOAuthSecret("github:alice", "GITHUB_TOKEN", value, "github", refresh, expiresAt, "repo"); err != nil {
 		t.Fatal(err)
@@ -89,7 +90,7 @@ func TestBroker_RefreshNearExpiry(t *testing.T) {
 		t.Errorf("refresh hits = %d, want 1", n)
 	}
 	// Row updated in place (value + refresh + expiry).
-	reader := store.New(db.SQL())
+	reader := store.NewOver(db.Obj())
 	reader.SetSecretKeys([]byte("k"))
 	rows, _ := reader.UserOAuthSecrets("github:alice", []string{"GITHUB_TOKEN"})
 	if len(rows) != 1 || rows[0].Value != "new-access" || rows[0].Refresh != "refresh-2" {
@@ -174,11 +175,13 @@ func TestBroker_ForcedRefreshWritesNoAuditRow(t *testing.T) {
 	if _, err := db.RefreshConnectorSecrets("main", "github:alice", []string{"GITHUB_TOKEN"}); err != nil {
 		t.Fatal(err)
 	}
-	var n int
-	if err := db.SQL().QueryRow(`SELECT count(*) FROM secret_use_log`).Scan(&n); err != nil {
+	uses, err := db.Obj().Query(t.Context(), objstore.Query{
+		Entity: store.SecretUseLog, Partition: "secret_use",
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if n != 0 {
+	if n := len(uses); n != 0 {
 		t.Fatalf("secret_use_log rows = %d, want 0 (the retry must not double-count the use)", n)
 	}
 }

@@ -13,6 +13,52 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+> arizuko v0.68.0 — one store, no second path
+>
+> SQLite leaves the code. Every daemon reaches its owner's tables on the
+> instance's store server and nowhere else, so there is no file path left to
+> point at the wrong place.
+>
+> • one store, not two — the branch each daemon's boot took between a file and
+> the endpoint is gone, and so are the two SQL migration chains
+> • an instance needs a store server — `DYNAMODB_URL` is required, and a daemon
+> without one refuses to start instead of opening an empty file
+> • the test suite proves the real protocol — every fixture runs against a
+> DynamoDB endpoint, so a green suite is evidence about the store production has
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Removed
+
+- `objstore/sqlstore`, `db_utils` and both SQL migration chains
+  (`store/migrations`, `routd/migrations`). The DynamoDB driver is the only
+  driver.
+- The file branch in every opener: `store.Served`, `store.Open`,
+  `store.OpenRoutd*`, `store.OpenOnbod*`, `store.Migrate`, `store.New`,
+  `store.DB`, `routd.OpenAt`, `routd.Create`, `runed.OpenAt`, `runed.Create`,
+  and the `SQL()` door on both owners.
+- `resreg`'s column-shaped read. Every resource an owner subsystem declares is
+  entity-shaped, so the SQL half of `Backend` had nothing left to read.
+- `arizuko create`'s file seeding and its `store/` chown: there are no files to
+  seed and no uid to hand them to.
+
+### Changed
+
+- `store.OpenOwner`, `store.OwnerDriver` and `chanlib.OpenAdapterStore` take no
+  path. The endpoint holds the tables and the owner name says which.
+- `routd.OpenMem`, `runed.OpenMem` and `store.OpenMem` reserve a private table
+  namespace on the endpoint the test process dials, and `Close` drops it.
+- The test endpoint is `amazon/dynamodb-local` by default;
+  `ARIZUKO_TEST_DYNAMO_ENDPOINT` points the same suites at the PostgreSQL
+  deployment.
+
+### Operators
+
+- **An instance with no `DYNAMODB_URL` cannot run this release.** Its daemons
+  exit at boot naming the missing endpoint. Move the instance to a store server
+  first (`INSTALL.md` § The store server); an instance still on files keeps
+  running on the image it already has.
+
 ## [v0.67.0] — 2026-09-13
 
 > arizuko v0.67.0 — the store is a service

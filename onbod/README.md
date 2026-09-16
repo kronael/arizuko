@@ -49,12 +49,9 @@ resets the row (verdict included) so the observer can advance it.
 `audit_log`).
 onbod OWNS these and runs no migration chain: all four are objstore entities
 and the driver builds them from the declarations in `store/entities.go`.
-`store.OwnerDriver` is the door (`onbod/db.go` `openOwned`): the endpoint when
-`DYNAMODB_URL` names one, otherwise the database `ONBOD_DB_PATH` names — a
-SQLite path or a `postgres://` URL. onbod never creates its own database,
-because SQLite creates a missing file on first query, so a wrong path would
-build a fresh empty schema and drop every invite and gate while onbod reported
-healthy (BUGS `F52`).
+`store.OwnerDriver` is the door (`onbod/db.go` `openOwned`): it dials onbod's
+own table prefix on the instance's store server, and onbod is the only daemon
+that makes those tables.
 
 Writers reach the owned tables through onbod's `/v1/*` admin surface, or write
 them directly with the same discipline (host CLI `arizuko invite`/`gate`,
@@ -69,7 +66,7 @@ authority that decides which tenant a new folder lands in — the same
 authority BUGS `F50` was about. Spec `5/18` step 8.
 
 `auth_users`/`acl`/`groups`/`routes` are NOT onbod's — they are routd's. onbod
-holds a second reader on routd's owner (`store.OpenOwner`, `ROUTD_DB_PATH`) for
+holds a second reader on routd's owner (`store.OpenOwner`) for
 dashboard rendering, and cross-writes `acl`/`groups`/`routes` during world
 creation and invite redemption.
 
@@ -104,12 +101,8 @@ routd reads.
 
 - `ONBOARDING_ENABLED` — `0` exits immediately
 - `ONBOARDING_GREETING` — prepended to auth link message
-- `ONBOD_DB_PATH` — onbod's own DSN. Required only when the instance is NOT
-  served: with `DYNAMODB_URL` set the endpoint is the target and neither path
-  is read
-- `ROUTD_DB_PATH` — routd's DSN for the cross-read, same condition.
-  Configured, never derived: under `store/<owner>/` routd's file is not a
-  sibling of onbod's (`specs/5/16` step 7)
+- `DYNAMODB_URL` + `AWS_*` + `STORE_CA` — the store server onbod dials for its
+  own tables and for the cross-read on routd's
 - `ONBOD_LISTEN_ADDR` — HTTP listen address (default `:8080`)
 - `ONBOARD_POLL_INTERVAL` — poll tick duration (default `10s`)
 - `ROUTER_URL` — routd's `/v1/outbound` endpoint (default `http://routd:8080`)

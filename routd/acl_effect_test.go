@@ -54,7 +54,7 @@ func TestACLMCP_JunkEffectIsRefused(t *testing.T) {
 	}
 	// The escalation the refusal prevents: a row nobody validated grants the
 	// action, because every effect that is not exactly `deny` is an allow.
-	if auth.Authorize(store.New(db.SQL()), auth.Caller{Principal: "google:bob"},
+	if auth.Authorize(store.NewOver(db.Obj()), auth.Caller{Principal: "google:bob"},
 		"read", "root/team", nil) {
 		t.Fatal("the junk effect became a grant")
 	}
@@ -84,7 +84,7 @@ func TestStoreACLWriter_RefusesJunkEffect(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	s := store.New(db.SQL())
+	s := store.NewOver(db.Obj())
 	if err := s.PutACLRow(core.ACLRow{
 		Principal: "google:bob", Action: "read", Scope: "root", Effect: "denny",
 	}); err == nil {

@@ -96,7 +96,7 @@ func operatorDoc(t *testing.T, stores map[string]*store.Store) []parsedDoc {
 // this manifest may finish the claim, so its refusal is the one that reaches them.
 func TestRollForward_AHeldScopeRefusesAtTheApplyRatherThanThePreImage(t *testing.T) {
 	_, stores := openInstance(t)
-	seedRoutdConfig(t, stores[resreg.SubsystemRoutd].DB())
+	seedRoutdConfig(t, stores[resreg.SubsystemRoutd])
 	held := wedgeRoutd(t, stores)
 
 	_, err := applyDocs(context.Background(), stores, operatorDoc(t, stores), applyRun{actor: "test"})
@@ -110,7 +110,7 @@ func TestRollForward_AHeldScopeRefusesAtTheApplyRatherThanThePreImage(t *testing
 	if now := scopeHolder(t, stores); now != held {
 		t.Errorf("the refused apply moved the claim %q -> %q", held, now)
 	}
-	if got := ruleCount(t, stores[resreg.SubsystemRoutd].DB(), "corp/eng", "wanted.example.com"); got != 0 {
+	if got := ruleCount(t, stores[resreg.SubsystemRoutd], "corp/eng", "wanted.example.com"); got != 0 {
 		t.Errorf("the refused apply wrote %d of its own rules into a scope it does not hold", got)
 	}
 }
@@ -120,7 +120,7 @@ func TestRollForward_AHeldScopeRefusesAtTheApplyRatherThanThePreImage(t *testing
 // holds. Nothing else clears a claim without finishing work.
 func TestRollForward_TakeOverFinishesAScopeTheOperatorCannotReproduce(t *testing.T) {
 	_, stores := openInstance(t)
-	routdDB := stores[resreg.SubsystemRoutd].DB()
+	routdDB := stores[resreg.SubsystemRoutd]
 	seedRoutdConfig(t, routdDB)
 	wedgeRoutd(t, stores)
 
@@ -144,11 +144,11 @@ func TestRollForward_TakeOverFinishesAScopeTheOperatorCannotReproduce(t *testing
 	// operator re-applies — a hand-written document carries no server-owned
 	// stamp, so re-applying one moves the checksum whatever the scope's history
 	// (BUGS F49).
-	settled, err := resreg.Checksum(resreg.OnDB(routdDB), resreg.SubsystemRoutd)
+	settled, err := resreg.Checksum(resreg.On(routdDB.Obj()), resreg.SubsystemRoutd)
 	if err != nil {
 		t.Fatal(err)
 	}
-	exported, err := resreg.Export(resreg.OnDB(routdDB), resreg.SubsystemRoutd)
+	exported, err := resreg.Export(resreg.On(routdDB.Obj()), resreg.SubsystemRoutd)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +157,7 @@ func TestRollForward_TakeOverFinishesAScopeTheOperatorCannotReproduce(t *testing
 	}}, applyRun{actor: "test"}); err != nil {
 		t.Fatalf("the apply after the takeover: %v", err)
 	}
-	again, err := resreg.Checksum(resreg.OnDB(routdDB), resreg.SubsystemRoutd)
+	again, err := resreg.Checksum(resreg.On(routdDB.Obj()), resreg.SubsystemRoutd)
 	if err != nil {
 		t.Fatal(err)
 	}

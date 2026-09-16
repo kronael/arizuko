@@ -1,11 +1,7 @@
 package runstore_test
 
-// The storage layer's own bodies. runed's tests exercise it through the daemon
-// and the opener, so these are the ones that run on WHATEVER engine
-// ARIZUKO_TEST_PG_DSN names:
-//
-//	go test ./runed/runstore/...                                   # SQLite
-//	ARIZUKO_TEST_PG_DSN=postgres://… go test ./runed/runstore/...  # Postgres
+// The storage layer's own bodies, run against the endpoint dyntest lends each
+// test as its own namespace.
 //
 // They are about the guarantees runed would be dangerous without: a run slot is
 // claimed once and taken once, a kill never relabels a run that finished first,
@@ -20,22 +16,24 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/db_utils/dbtest"
 	"github.com/kronael/arizuko/objstore"
-	"github.com/kronael/arizuko/objstore/sqlstore"
+	"github.com/kronael/arizuko/objstore/dynstore"
+	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 	"github.com/kronael/arizuko/runed/runstore"
 )
 
-// newStore hands a test an empty runed store on whichever engine dbtest opens.
+func TestMain(m *testing.M) { dyntest.Main(m) }
+
+// newStore hands a test an empty runed store in a namespace of its own.
 func newStore(t *testing.T) *runstore.Store {
 	t.Helper()
 	return runstore.New(newDriver(t))
 }
 
 // newDriver hands back the driver itself, for the tests that wrap it.
-func newDriver(t *testing.T) *sqlstore.Store {
+func newDriver(t *testing.T) *dynstore.Store {
 	t.Helper()
-	s := sqlstore.New(dbtest.Open(t))
+	s := dyntest.Store(t)
 	if err := runstore.EnsureEntities(t.Context(), s); err != nil {
 		t.Fatalf("create entities: %v", err)
 	}
@@ -461,7 +459,7 @@ func TestTheStreakIsTheValueTheWriteCommitted(t *testing.T) {
 // commits, standing in for a ClearFailures that lands between a commit and a
 // read the caller would otherwise have made.
 type clearAfterWrite struct {
-	*sqlstore.Store
+	*dynstore.Store
 	folder string
 	fired  bool
 }
@@ -526,7 +524,7 @@ func TestAMovedCounterIsRereadRatherThanOverwritten(t *testing.T) {
 // not a race at all — and a first draft that did exactly that stayed green
 // against a deliberately broken implementation.
 type bumpBeforeWrite struct {
-	*sqlstore.Store
+	*dynstore.Store
 	folder string
 	fired  bool
 }
@@ -576,7 +574,7 @@ func TestAResetMidIncrementCountsFromItsZero(t *testing.T) {
 // increment's own read. It calls ClearFailures rather than deleting, so it
 // follows whichever reset is compiled.
 type clearAfterRefusedCreate struct {
-	*sqlstore.Store
+	*dynstore.Store
 	st     *runstore.Store
 	folder string
 	fired  bool

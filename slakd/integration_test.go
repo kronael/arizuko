@@ -13,9 +13,12 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/tests/testutils"
 )
+
+func TestMain(m *testing.M) { dyntest.Main(m) }
 
 // slackMock spins up an httptest server that mimics the Slack Web API
 // surface we use: auth.test, users.info, users.list, conversations.info,

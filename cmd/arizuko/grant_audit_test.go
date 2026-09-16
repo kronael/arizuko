@@ -18,14 +18,10 @@ import (
 // lands, but routeAudit finds nothing and only that case fails. Dropping AsCLI
 // fails too, with actor=system — the bar is the operator, not merely a row.
 
-// grantStore opens dir's routd.db as the CLI opens it: attributed to osUser.
-func grantStore(t *testing.T, dir, osUser string) *store.Store {
+// grantStore is routd's own tables as the CLI holds them: attributed to osUser.
+func grantStore(t *testing.T, osUser string) *store.Store {
 	t.Helper()
-	s, err := store.OpenRoutd(dir)
-	if err != nil {
-		t.Fatalf("OpenRoutd: %v", err)
-	}
-	t.Cleanup(func() { s.Close() })
+	s := routdStore(t)
 	if osUser == "" {
 		return s
 	}
@@ -33,22 +29,20 @@ func grantStore(t *testing.T, dir, osUser string) *store.Store {
 }
 
 func TestGrantACLAudited(t *testing.T) {
-	dir := setupSplitStore(t)
-	s := grantStore(t, dir, "alice")
+	s := grantStore(t, "alice")
 	var out bytes.Buffer
 	if err := runGrant(s, "github:1", "atlas/eng", "", &out); err != nil {
 		t.Fatalf("runGrant: %v", err)
 	}
 
-	actor, sub, surface := routeAudit(t, dir, "acl.add")
+	actor, sub, surface := routeAudit(t, s, "acl.add")
 	if actor != "cli:alice" || sub != "alice" || surface != "cli" {
 		t.Errorf("acl.add = (%q, %q, %q), want (cli:alice, alice, cli)", actor, sub, surface)
 	}
 }
 
 func TestUngrantACLAudited(t *testing.T) {
-	dir := setupSplitStore(t)
-	s := grantStore(t, dir, "alice")
+	s := grantStore(t, "alice")
 	var out bytes.Buffer
 	if err := runGrant(s, "github:1", "atlas/eng", "", &out); err != nil {
 		t.Fatalf("runGrant: %v", err)
@@ -57,7 +51,7 @@ func TestUngrantACLAudited(t *testing.T) {
 		t.Fatalf("runUngrant: %v", err)
 	}
 
-	actor, sub, surface := routeAudit(t, dir, "acl.remove")
+	actor, sub, surface := routeAudit(t, s, "acl.remove")
 	if actor != "cli:alice" || sub != "alice" || surface != "cli" {
 		t.Errorf("acl.remove = (%q, %q, %q), want (cli:alice, alice, cli)", actor, sub, surface)
 	}
@@ -67,22 +61,20 @@ func TestUngrantACLAudited(t *testing.T) {
 // an acl row. It is the single most privileged thing the CLI can hand out, so it
 // carries its own audit assertion rather than riding on the acl case.
 func TestGrantOperatorMembershipAudited(t *testing.T) {
-	dir := setupSplitStore(t)
-	s := grantStore(t, dir, "alice")
+	s := grantStore(t, "alice")
 	var out bytes.Buffer
 	if err := runGrant(s, "github:1", "**", "", &out); err != nil {
 		t.Fatalf("runGrant **: %v", err)
 	}
 
-	actor, sub, surface := routeAudit(t, dir, "membership.add")
+	actor, sub, surface := routeAudit(t, s, "membership.add")
 	if actor != "cli:alice" || sub != "alice" || surface != "cli" {
 		t.Errorf("membership.add = (%q, %q, %q), want (cli:alice, alice, cli)", actor, sub, surface)
 	}
 }
 
 func TestUngrantOperatorMembershipAudited(t *testing.T) {
-	dir := setupSplitStore(t)
-	s := grantStore(t, dir, "alice")
+	s := grantStore(t, "alice")
 	var out bytes.Buffer
 	if err := runGrant(s, "github:1", "**", "", &out); err != nil {
 		t.Fatalf("runGrant **: %v", err)
@@ -91,7 +83,7 @@ func TestUngrantOperatorMembershipAudited(t *testing.T) {
 		t.Fatalf("runUngrant **: %v", err)
 	}
 
-	actor, sub, surface := routeAudit(t, dir, "membership.remove")
+	actor, sub, surface := routeAudit(t, s, "membership.remove")
 	if actor != "cli:alice" || sub != "alice" || surface != "cli" {
 		t.Errorf("membership.remove = (%q, %q, %q), want (cli:alice, alice, cli)", actor, sub, surface)
 	}
@@ -101,8 +93,7 @@ func TestUngrantOperatorMembershipAudited(t *testing.T) {
 // an operator are unaffected by the CLI gaining one. AddMembership additionally
 // falls back to addedBy, the grantor its own row records.
 func TestGrantAuditUnattributedUnchanged(t *testing.T) {
-	dir := setupSplitStore(t)
-	s := grantStore(t, dir, "")
+	s := grantStore(t, "")
 	var out bytes.Buffer
 	if err := runGrant(s, "github:1", "atlas/eng", "", &out); err != nil {
 		t.Fatalf("runGrant: %v", err)
@@ -111,11 +102,11 @@ func TestGrantAuditUnattributedUnchanged(t *testing.T) {
 		t.Fatalf("runGrant **: %v", err)
 	}
 
-	actor, sub, surface := routeAudit(t, dir, "acl.add")
+	actor, sub, surface := routeAudit(t, s, "acl.add")
 	if actor != "arizuko grant" || sub != "arizuko grant" || surface != "gateway" {
 		t.Errorf("acl.add = (%q, %q, %q), want the granted_by fallback over gateway", actor, sub, surface)
 	}
-	actor, sub, surface = routeAudit(t, dir, "membership.add")
+	actor, sub, surface = routeAudit(t, s, "membership.add")
 	if actor != "arizuko grant" || sub != "arizuko grant" || surface != "gateway" {
 		t.Errorf("membership.add = (%q, %q, %q), want the added_by fallback over gateway", actor, sub, surface)
 	}

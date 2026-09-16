@@ -2,31 +2,24 @@ package audit
 
 import (
 	"context"
-	"database/sql"
 	"strings"
 	"testing"
 
-	"github.com/kronael/arizuko/db_utils/dbtest"
-	"github.com/kronael/arizuko/objstore/sqlstore"
+	"github.com/kronael/arizuko/objstore/dynstore"
+	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 )
 
-// openTestStore reserves a database and prepares it the way an owner's opener
+func TestMain(m *testing.M) { dyntest.Main(m) }
+
+// openTestDB reserves a namespace and prepares it the way an owner's opener
 // does — through the one applier, so a test records into the entity a daemon
 // records into rather than into a shape only tests have.
-func openTestStore(t *testing.T) (*sql.DB, *sqlstore.Store) {
+func openTestDB(t *testing.T) *dynstore.Store {
 	t.Helper()
-	db := dbtest.Open(t)
-	s := sqlstore.New(db)
+	s := dyntest.Store(t)
 	if err := EnsureEntities(context.Background(), s); err != nil {
 		t.Fatal(err)
 	}
-	return db, s
-}
-
-// openTestDB is openTestStore for a test that only needs the store.
-func openTestDB(t *testing.T) *sqlstore.Store {
-	t.Helper()
-	_, s := openTestStore(t)
 	return s
 }
 
@@ -41,7 +34,7 @@ func resetInit(t *testing.T) {
 
 // only reports the single row the store holds, read back through the same
 // method an operator's page reads it through.
-func only(t *testing.T, s *sqlstore.Store) Row {
+func only(t *testing.T, s *dynstore.Store) Row {
 	t.Helper()
 	rows, err := Query(context.Background(), s, Filter{})
 	if err != nil {

@@ -30,7 +30,7 @@ func membershipRows(t *testing.T, db *DB) []resources.ACLMembershipRow {
 	if r == nil {
 		t.Fatal("acl_membership is not registered")
 	}
-	got, err := r.ScanAll(resreg.OnDB(db.SQL()))
+	got, err := r.ScanAll(resreg.On(db.Obj()))
 	if err != nil {
 		t.Fatalf("ScanAll: %v", err)
 	}

@@ -1,12 +1,12 @@
 package resreg
 
 import (
-	"database/sql"
 	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/kronael/arizuko/db_utils/dbtest"
+	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 )
 
 // The manifest helpers decide what a `.yaml` document means before any
@@ -182,47 +182,53 @@ type GroupRow struct {
 	JID    string `db:"jid"    yaml:"jid"`
 }
 
-const folderSchema = `
-CREATE TABLE audit_log (part TEXT NOT NULL, sort TEXT NOT NULL, attrs TEXT NOT NULL, PRIMARY KEY (part, sort));
-CREATE TABLE groups (folder TEXT PRIMARY KEY, jid TEXT NOT NULL);
-CREATE TABLE testrows (
-  kind  TEXT NOT NULL,
-  name  TEXT NOT NULL,
-  value TEXT NOT NULL,
-  PRIMARY KEY (kind, name)
-);
-`
-
-func folderEngine(t *testing.T) *sql.DB {
+func folderEngine(t *testing.T) Backend {
 	t.Helper()
 	reset()
-	db := dbtest.Open(t)
-	if _, err := db.Exec(folderSchema); err != nil {
-		t.Fatal(err)
+	s := dyntest.Store(t)
+	if err := s.CreateEntity(t.Context(), "audit_log"); err != nil {
+		t.Fatalf("audit_log: %v", err)
 	}
 	Register(Resource{
 		Name: GroupsResource, Table: "groups", DB: testSubsystem,
 		RowType: reflect.TypeFor[GroupRow](), PKFields: []string{"Folder"},
-		Scope: ScopeSpec{Field: "Folder"},
+		EntitySortKey: []string{"Folder"},
+		Scope:         ScopeSpec{Field: "Folder"},
 	})
 	Register(Resource{
 		Name: "testrows", Table: "testrows", DB: testSubsystem,
 		RowType: reflect.TypeFor[TestRow](), PKFields: []string{"Kind", "Name"},
+		EntitySortKey: []string{"Kind", "Name"}, EntityKeySep: testKeySep,
 		Scope: ScopeSpec{Field: "Kind"},
 	})
-	return db
+	if err := EnsureSubsystem(t.Context(), s, s, testSubsystem); err != nil {
+		t.Fatalf("EnsureSubsystem: %v", err)
+	}
+	return On(s)
+}
+
+// seedGroup writes one live groups item straight through the driver, past the
+// engine KnownFolders reads it back through.
+func seedGroup(t *testing.T, be Backend, g GroupRow) {
+	t.Helper()
+	committed, err := be.Obj.GuardedBatch(t.Context(), nil, []objstore.Write{{
+		Op: objstore.Put, Entity: "groups",
+		Key:   objstore.Key{Partition: testSubsystem, Sort: g.Folder},
+		Attrs: map[string]string{"jid": g.JID},
+	}})
+	if err != nil || !committed {
+		t.Fatalf("seed group %s: committed=%v err=%v", g.Folder, committed, err)
+	}
 }
 
 // A restore presents every document at once, so a folder-scoped row may sit in
 // a different document from the groups row that declares it. KnownFolders is
 // the union of what is live and what the restore declares.
 func TestKnownFoldersUnionsTheLiveDBAndEveryManifest(t *testing.T) {
-	db := folderEngine(t)
-	if _, err := db.Exec(`INSERT INTO groups (folder, jid) VALUES ('live-one','x:1')`); err != nil {
-		t.Fatal(err)
-	}
+	be := folderEngine(t)
+	seedGroup(t, be, GroupRow{Folder: "live-one", JID: "x:1"})
 
-	got, err := KnownFolders(OnDB(db),
+	got, err := KnownFolders(be,
 		map[string]any{GroupsResource: []GroupRow{{Folder: "doc-a", JID: "x:2"}}},
 		map[string]any{GroupsResource: []GroupRow{{Folder: "doc-b", JID: "x:3"}}},
 	)
@@ -239,7 +245,7 @@ func TestKnownFoldersUnionsTheLiveDBAndEveryManifest(t *testing.T) {
 	}
 
 	// Live-only, no manifests at all.
-	got, err = KnownFolders(OnDB(db))
+	got, err = KnownFolders(be)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,8 +256,7 @@ func TestKnownFoldersUnionsTheLiveDBAndEveryManifest(t *testing.T) {
 
 func TestKnownFoldersErrorsWhenGroupsIsNotRegistered(t *testing.T) {
 	reset()
-	db := dbtest.Open(t)
-	if _, err := KnownFolders(OnDB(db)); err == nil {
+	if _, err := KnownFolders(On(dyntest.Store(t))); err == nil {
 		t.Fatal("KnownFolders succeeded with no groups resource; every folder would read as unknown")
 	}
 }

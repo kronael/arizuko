@@ -22,11 +22,13 @@ import (
 // so Emit actually writes rows. Returns the store so tests can
 // assert table contents. Resets package state on cleanup.
 //
-// The schema is the frozen pre-split chain because routd imports resreg, so an
-// internal test in this package cannot import routd back to build routd.db's.
+// The tables are store's own, because routd imports resreg and an internal test
+// in this package cannot import routd back.
 //
-// `store.AddACLRow` itself records a row — to keep assertAudit simple the trail
-// is emptied after seeding so tests see only what resreg recorded.
+// The operator's grant is seeded through the SAME door a handler writes one
+// through — buffered on a write set and applied — rather than through
+// `store.AddACLRow`, which records an audit row of its own. The trail the tests
+// read then holds only what resreg recorded.
 func withAuditDB(t *testing.T) *store.Store {
 	t.Helper()
 	st, err := store.OpenMem()
@@ -34,16 +36,17 @@ func withAuditDB(t *testing.T) *store.Store {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	audit.Init(st.Obj(), "test")
-	t.Cleanup(func() { audit.Init(nil, "") })
-	if err := st.AddACLRow(core.ACLRow{
+	ws := &store.WriteSet{}
+	if err := st.PutACLRowInto(ws, core.ACLRow{
 		Principal: "google:op", Action: "*", Scope: "**", Effect: "allow",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.DB().Exec(`DELETE FROM audit_log`); err != nil {
+	if err := st.Apply(t.Context(), ws); err != nil {
 		t.Fatal(err)
 	}
+	audit.Init(st.Obj(), "test")
+	t.Cleanup(func() { audit.Init(nil, "") })
 	return st
 }
 

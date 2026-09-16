@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -10,7 +9,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/objstore/sqlstore"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -21,10 +20,14 @@ import (
 // asked for UNDER ITS OWNER, which is what keeps routd.db's own opener from
 // growing it (store/entities.go). acl, acl_membership and audit_log are routd's
 // own, from routd's migrations (BUGS F44).
-func testDBWithInvites(t *testing.T) *sql.DB {
+func testDBWithInvites(t *testing.T) objstore.Store {
 	t.Helper()
 	db := routdDB(t)
-	if err := store.EnsureEntities(t.Context(), sqlstore.New(db), store.OwnerOnbod); err != nil {
+	d, ok := db.(store.Driver)
+	if !ok {
+		t.Fatalf("routd's handle is %T, which makes no entities", db)
+	}
+	if err := store.EnsureEntities(t.Context(), d, store.OwnerOnbod); err != nil {
 		t.Fatalf("onbod entities: %v", err)
 	}
 	return db
@@ -32,8 +35,7 @@ func testDBWithInvites(t *testing.T) *sql.DB {
 
 func TestHandleInvitesEmpty(t *testing.T) {
 	db := testDBWithInvites(t)
-	defer db.Close()
-	d := &dash{routd: over(db), onbod: over(db), routdURL: stubRoutd(t, db)}
+	d := &dash{routd: db, onbod: db, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -57,14 +59,13 @@ func TestHandleInvitesEmpty(t *testing.T) {
 
 func TestHandleInviteCreateAndList(t *testing.T) {
 	db := testDBWithInvites(t)
-	defer db.Close()
 	// Grant operator (**) admin so requireAdmin passes.
-	seedGrant(t, over(db), core.ACLRow{
+	seedGrant(t, db, core.ACLRow{
 		Principal: "github:operator", Action: "admin", Scope: "**",
 		Effect: "allow", GrantedBy: "test",
 	})
 
-	d := &dash{routd: over(db), onbod: over(db), routdURL: stubRoutd(t, db)}
+	d := &dash{routd: db, onbod: db, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -123,9 +124,8 @@ func TestHandleInviteCreateAndList(t *testing.T) {
 
 func TestHandleInviteCreateForbiddenWithoutAdminGrant(t *testing.T) {
 	db := testDBWithInvites(t)
-	defer db.Close()
 	// No acl row → requireAdmin denies.
-	d := &dash{routd: over(db), onbod: over(db), routdURL: stubRoutd(t, db)}
+	d := &dash{routd: db, onbod: db, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -146,8 +146,7 @@ func TestHandleInviteCreateForbiddenWithoutAdminGrant(t *testing.T) {
 
 func TestHandleInviteRevokeAndGone(t *testing.T) {
 	db := testDBWithInvites(t)
-	defer db.Close()
-	seedGrant(t, over(db), core.ACLRow{
+	seedGrant(t, db, core.ACLRow{
 		Principal: "github:operator", Action: "admin", Scope: "**",
 		Effect: "allow", GrantedBy: "test",
 	})
@@ -155,14 +154,14 @@ func TestHandleInviteRevokeAndGone(t *testing.T) {
 	// the would-be bearer, never itself persisted (long enough for the [:8]
 	// display slice).
 	const token = "tok-abcdef0123456789abcdef0123456789"
-	if _, err := store.New(db).ImportInvites(t.Context(), []store.ArchiveInviteRow{{
+	if _, err := store.NewOver(db).ImportInvites(t.Context(), []store.ArchiveInviteRow{{
 		Ref: store.TokenRef(token), TargetGlob: "carol", IssuedBySub: "github:operator",
 		IssuedAt: time.Now().UTC().Format(time.RFC3339), MaxUses: 1,
 	}}); err != nil {
 		t.Fatal(err)
 	}
 
-	d := &dash{routd: over(db), onbod: over(db), routdURL: stubRoutd(t, db)}
+	d := &dash{routd: db, onbod: db, routdURL: stubRoutd(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -210,11 +209,10 @@ func TestHandleInviteRevokeAndGone(t *testing.T) {
 // unavailable the read side has always reported.
 func TestInviteWritesRefuseWithoutTheOnbodStore(t *testing.T) {
 	db := testDBWithInvites(t)
-	defer db.Close()
 	// routd is there and onbod is not: onboarding is an optional profile, so
 	// this is an ordinary instance, not a broken one.
-	d := &dash{routd: over(db), routdURL: stubRoutd(t, db)}
-	seedAdmin(t, over(db), "github:operator", "**")
+	d := &dash{routd: db, routdURL: stubRoutd(t, db)}
+	seedAdmin(t, db, "github:operator", "**")
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 

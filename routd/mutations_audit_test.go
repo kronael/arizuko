@@ -9,56 +9,10 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// TestMigration0016AuditLogIgnoresLegacy proves routd.db gains audit_log, that
-// audit emits land there, and that routd.Open does NOT read a sibling
-// messages.db to fill it. audit's owner is routd.db; the one-time monolith copy
-// belongs to `arizuko migrate-split` alone.
-func TestMigration0016AuditLogIgnoresLegacy(t *testing.T) {
-	dir := t.TempDir()
-
-	// A pre-split messages.db carrying audit rows must be inert (store.Open runs
-	// store/0066 → messages.db audit_log).
-	msg, err := store.Open(dir)
-	if err != nil {
-		t.Fatalf("open messages.db: %v", err)
-	}
-	if _, err := audit.EmitTo(context.Background(), msg.Obj(), audit.Event{
-		Category: audit.CategoryAuthZ,
-		Action:   "acl.add",
-		Actor:    "system",
-		Folder:   "atlas/support",
-		Outcome:  audit.OutcomeOK,
-	}); err != nil {
-		t.Fatalf("seed audit row: %v", err)
-	}
-	msg.Close()
-
-	d, err := Create(dir)
-	if err != nil {
-		t.Fatalf("routd.Open: %v", err)
-	}
-	defer d.Close()
-
-	if n := auditRows(t, d, "acl.add"); n != 0 {
-		t.Errorf("routd.Open read the retired messages.db: got %d audit rows, want 0", n)
-	}
-
-	// A fresh emit against routd.db lands (routd's own mutation paths depend on
-	// the table existing — previously it did not, forcing audit-free variants).
-	if _, err := audit.EmitTo(context.Background(), d.Obj(), audit.Event{
-		Category: audit.CategoryMutation,
-		Action:   "route.add",
-		Actor:    "system",
-		Outcome:  audit.OutcomeOK,
-	}); err != nil {
-		t.Fatalf("emit into routd.db audit_log: %v", err)
-	}
-}
-
-// TestRoutdMutationsAudit proves routd's OWN acl/secret mutations now emit an
-// audit_log row into routd.db (finding: the wrappers used the audit-free store
-// variants, so ACL/secret writes persisted with zero audit trail). One mutation
-// → exactly one row.
+// TestRoutdMutationsAudit proves routd's OWN acl/secret mutations emit an
+// audit_log row (finding: the wrappers used the audit-free store variants, so
+// ACL/secret writes persisted with zero audit trail). One mutation → exactly
+// one row.
 func TestRoutdMutationsAudit(t *testing.T) {
 	d, err := OpenMem()
 	if err != nil {
@@ -66,8 +20,8 @@ func TestRoutdMutationsAudit(t *testing.T) {
 	}
 	defer d.Close()
 	d.SetSecretKeys([]byte("audit-test-key")) // the store refuses unsealed writes (BUGS S2)
-	// Route emissions into routd.db (EmitInTx writes the mutation's own tx; Init
-	// only stamps the instance column — set it so the row carries it).
+	// Init only stamps the instance column — the row rides the mutation's own
+	// batch either way — so set it and the row carries the stamp.
 	audit.Init(d.Obj(), "test")
 	t.Cleanup(func() { audit.Init(nil, "") })
 
@@ -122,18 +76,4 @@ func allAuditRows(t *testing.T, d *DB) []audit.Row {
 		t.Fatalf("read the audit trail: %v", err)
 	}
 	return rows
-}
-
-// TestMigration0016AuditLogNoLegacyDB proves routd.Open is a clean no-op when
-// there is no sibling messages.db (a fresh install) — the table exists, empty.
-func TestMigration0016AuditLogNoLegacyDB(t *testing.T) {
-	dir := t.TempDir()
-	d, err := Create(dir)
-	if err != nil {
-		t.Fatalf("routd.Open on fresh dir: %v", err)
-	}
-	defer d.Close()
-	if n := len(allAuditRows(t, d)); n != 0 {
-		t.Errorf("a fresh audit trail holds %d rows, want 0", n)
-	}
 }

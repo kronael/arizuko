@@ -208,7 +208,7 @@ func TestAppendAndDeliver_StripsThinksAndStatus(t *testing.T) {
 
 	srv.appendAndDeliver("t1", "telegram:1",
 		"<think>internal thought</think>Visible reply<status>Working on it</status>")
-	frames, err := store.New(db.SQL()).TurnFrames("telegram:1", "t1", "", 50)
+	frames, err := store.NewOver(db.Obj()).TurnFrames("telegram:1", "t1", "", 50)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +271,7 @@ func TestAppendAndDeliver_MutedGroup(t *testing.T) {
 	if len(dl.sends) != 0 {
 		t.Errorf("muted group: channel.Send called %d times, want 0", len(dl.sends))
 	}
-	frames, err := store.New(db.SQL()).TurnFrames("telegram:12345", "t1", "", 10)
+	frames, err := store.NewOver(db.Obj()).TurnFrames("telegram:12345", "t1", "", 10)
 	if err != nil {
 		t.Fatal(err)
 	}

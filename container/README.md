@@ -80,7 +80,7 @@ Additional mounts from `group.toml` validated via `mountsec`.
 
 ## Dependencies
 
-- `core`, `groupfolder`, `mountsec`, `audit`, `diary`, `router`, `chanlib`, `store`, `auth`, `obs`, `theme`, `db_utils`, `egress`, `egress/match`, `substrate` (measured with `go list -deps`; `tests/components` pins that `ipc` is not among them)
+- `core`, `groupfolder`, `mountsec`, `audit`, `diary`, `router`, `chanlib`, `chanlib/chanstore`, `store`, `objstore`, `objstore/dynstore`, `auth`, `obs`, `theme`, `egress`, `egress/match`, `substrate` (measured with `go list -deps`; `tests/components` pins that `ipc` is not among them)
 
 ## Files
 

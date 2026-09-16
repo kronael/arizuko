@@ -54,7 +54,7 @@ func unpairFixture(t *testing.T) *DB {
 	if _, err := db.AddRoute(core.Route{Match: "room=user/42", Target: "hq"}); err != nil {
 		t.Fatal(err)
 	}
-	st := store.New(db.SQL())
+	st := store.NewOver(db.Obj())
 	if err := st.PutMembership("telegram:user/42", "google:alice", store.PairingAddedBy); err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +180,7 @@ func TestUnpairREST_CannotReachRoleMembership(t *testing.T) {
 // reach from both faces.
 func TestUnpair_LeavesManifestEdgesAlone(t *testing.T) {
 	db := unpairFixture(t)
-	st := store.New(db.SQL())
+	st := store.NewOver(db.Obj())
 	if err := st.PutMembership("telegram:user/42", "google:applied", "manifest"); err != nil {
 		t.Fatal(err)
 	}

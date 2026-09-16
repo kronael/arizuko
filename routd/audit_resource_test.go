@@ -44,25 +44,19 @@ func auditFixture(t *testing.T) *DB {
 	return db
 }
 
-// seedAuditRows resets audit_log to exactly four known rows — one per folder
-// under test plus a folder-less instance row — and asserts it wrote them.
+// seedAuditRows records four known rows — one per folder under test plus a
+// folder-less instance row — and asserts it wrote them.
 //
-// The reset matters: grantAt goes through the AUDITED acl write, so every grant
-// a test sets up leaves its own acl.add row behind, in the granting folder's
-// subtree. Those rows are correct, and counting them as fixture would make the
+// The assertions below count THESE rows by name rather than the whole trail,
+// because grantAt goes through the AUDITED acl write and every grant a test
+// sets up leaves an acl.add row of its own. Counting the trail would make the
 // expected totals a function of how many grants a test happened to need.
 //
-// The count matters more: every containment assertion below is "row X is not in
-// this response", which an empty table satisfies. Four audit tests shipped
-// vacuous this week for exactly that reason.
+// The count matters: every containment assertion below is "row X is not in this
+// response", which an empty table satisfies. Four audit tests shipped vacuous
+// this week for exactly that reason.
 func seedAuditRows(t *testing.T, db *DB) {
 	t.Helper()
-	// Whatever the daemon recorded while it was being built is not what these
-	// assertions count, and a leak assertion reads "row X is absent" — so the
-	// trail starts empty and holds exactly the four rows below.
-	if _, err := db.SQL().Exec(`DELETE FROM audit_log`); err != nil {
-		t.Fatal(err)
-	}
 	rows := [][2]string{
 		{"hq-own-row", "hq"},
 		{"hq-child-row", "hq/support"},
@@ -83,6 +77,21 @@ func seedAuditRows(t *testing.T, db *DB) {
 		t.Fatalf("the fixture wrote %d audit rows, want %d (%v) — every assertion below "+
 			"would pass vacuously", n, len(rows), err)
 	}
+}
+
+// seededRows counts the rows seedAuditRows wrote that came back, by name.
+func seededRows(rows []string) int {
+	seeded := map[string]bool{
+		"hq-own-row": true, "hq-child-row": true,
+		"rival-secret-row": true, "instance-wide-row": true,
+	}
+	n := 0
+	for _, a := range rows {
+		if seeded[a] {
+			n++
+		}
+	}
+	return n
 }
 
 // serveAuditMCP stands up the agent socket for folder + the audit resreg seam.
@@ -127,10 +136,15 @@ func TestQueryAuditAgentSeesOnlyItsOwnSubtree(t *testing.T) {
 	if err := json.Unmarshal([]byte(text), &rows); err != nil {
 		t.Fatalf("not a row array (%v): %s", err, text)
 	}
-	// Own subtree = hq + hq/support. Two rows, and the count is asserted BEFORE
-	// the absence checks below so those cannot pass on an empty result.
-	if len(rows) != 2 {
-		t.Fatalf("got %d rows, want 2 (hq + hq/support): %s", len(rows), text)
+	// Own subtree = hq + hq/support. The count is over the fixture's own rows,
+	// and it is asserted BEFORE the absence checks below so those cannot pass on
+	// an empty result.
+	var actions []string
+	for _, r := range rows {
+		actions = append(actions, r.Action)
+	}
+	if n := seededRows(actions); n != 2 {
+		t.Fatalf("got %d fixture rows, want 2 (hq + hq/support): %s", n, text)
 	}
 	// Content-level, on the raw response body.
 	if strings.Contains(text, "rival-secret-row") {
@@ -192,9 +206,13 @@ func TestAuditRESTRequiresScope(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &rows); err != nil {
 		t.Fatalf("not a row array (%v): %s", err, body)
 	}
-	if len(rows) != 4 {
-		t.Fatalf("got %d rows, want all 4 — a claimless service token reads "+
-			"instance-wide: %s", len(rows), body)
+	var actions []string
+	for _, r := range rows {
+		actions = append(actions, r.Action)
+	}
+	if n := seededRows(actions); n != 4 {
+		t.Fatalf("got %d fixture rows, want all 4 — a claimless service token reads "+
+			"instance-wide: %s", n, body)
 	}
 }
 

@@ -64,11 +64,8 @@ func main() {
 	// resolution + history and writes its audit rows there — one store, no
 	// messages.db straddle (webd owns no DB; split write-discipline).
 	//
-	// store.OpenOwner is the door: on an instance served from a DynamoDB
-	// endpoint it dials routd's tables there, and otherwise it opens the file
-	// DB_PATH names — which may be a postgres:// URL, the same env gitd, slakd
-	// and dashd already read (spec 6/37 step 6). Unset, it is the owner file
-	// under the store dir.
+	// store.OpenOwner is the door: it dials routd's tables on the instance's
+	// store server.
 	stRoutd, err := store.OpenOwner(store.OwnerRoutd)
 	if err != nil {
 		slog.Error("open routd's store", "err", err)

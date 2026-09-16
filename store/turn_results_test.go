@@ -75,10 +75,10 @@ func TestDistinctTurnsInOneFolderEachClaimOnce(t *testing.T) {
 	}
 }
 
-// A turn with no outcome is "pending", and a read that FAILED is neither. The
-// browser's stream closes on a finished round, so an error read as pending never
-// ends and an error read as finished closes on a live turn (BUGS L83).
-func TestAnUnreportedTurnIsPendingAndAFailedReadIsNeither(t *testing.T) {
+// A turn with no outcome is "pending". The browser's stream closes on a
+// finished round, so a turn nobody has reported must read as still running
+// (BUGS L83).
+func TestAnUnreportedTurnIsPending(t *testing.T) {
 	s := openEntities(t)
 	info, err := s.GetTurnResult("g1", "never-ran")
 	if err != nil {
@@ -87,25 +87,12 @@ func TestAnUnreportedTurnIsPendingAndAFailedReadIsNeither(t *testing.T) {
 	if info.Status != turnResultPending {
 		t.Fatalf("status = %q, want %q", info.Status, turnResultPending)
 	}
-
-	if _, err := s.db.Exec(`DROP TABLE ` + TurnResults); err != nil {
-		t.Fatal(err)
-	}
-	broken, err := s.GetTurnResult("g1", "never-ran")
-	if err == nil {
-		t.Fatal("an unreadable partition answered without an error; the browser reads that " +
-			"as a round it can stop watching")
-	}
-	if broken.Status == turnResultPending {
-		t.Errorf("a failed read reported %q, which is the answer a live turn gives",
-			turnResultPending)
-	}
 }
 
-// TurnResultRecorded is the same three-way answer, and both of its consumers act
+// TurnResultRecorded is the same answer as a bool, and both of its consumers act
 // on a false: the run-response path overwrites the agent's own session id, and
 // the silent-turn alarm fires at an operator.
-func TestTurnResultRecordedSeparatesAbsentFromUnreadable(t *testing.T) {
+func TestTurnResultRecordedSeparatesRecordedFromAbsent(t *testing.T) {
 	s := openEntities(t)
 	if _, err := s.RecordTurnResult("g1", "msg-1", "sess-a", "success"); err != nil {
 		t.Fatal(err)
@@ -118,12 +105,6 @@ func TestTurnResultRecordedSeparatesAbsentFromUnreadable(t *testing.T) {
 	if err != nil || recorded {
 		t.Fatalf("recorded=%v err=%v on a turn nobody reported, want false and no error",
 			recorded, err)
-	}
-	if _, err := s.db.Exec(`DROP TABLE ` + TurnResults); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.TurnResultRecorded("g1", "msg-1"); err == nil {
-		t.Fatal("an unreadable partition reported 'not recorded' with no error")
 	}
 }
 

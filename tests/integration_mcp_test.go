@@ -59,7 +59,7 @@ type fullMCPHarness struct {
 func newFullMCPHarness(t *testing.T, folder string) *fullMCPHarness {
 	t.Helper()
 	tmp := t.TempDir()
-	s, err := store.Open(filepath.Join(tmp, "store"))
+	s, err := store.OpenMem()
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -12,7 +12,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"strings"
 	"testing"
 
@@ -31,9 +30,9 @@ import (
 // the group: `groups.updated_at` is server-owned and never invented (its
 // AbsentStamps declaration), so a group written any other way carries none and
 // the checksum assertion below would be measuring that instead of the rollback.
-func seedRoutdConfig(t *testing.T, db *sql.DB) {
+func seedRoutdConfig(t *testing.T, db *store.Store) {
 	t.Helper()
-	st := store.New(db)
+	st := db
 	if err := st.PutGroupRow(core.Group{
 		Folder:  "corp/eng",
 		AddedAt: time.Date(2026, 8, 6, 0, 0, 0, 0, time.UTC),
@@ -55,9 +54,9 @@ func seedRoutdConfig(t *testing.T, db *sql.DB) {
 // groupCount answers how many group items name folder. An empty folder counts
 // every group. It reads through store's own reader, so a fixture cannot agree
 // with a bug the daemon has.
-func groupCount(t *testing.T, db *sql.DB, folder string) int {
+func groupCount(t *testing.T, db *store.Store, folder string) int {
 	t.Helper()
-	all := store.New(db).AllGroups()
+	all := db.AllGroups()
 	if folder == "" {
 		return len(all)
 	}
@@ -70,9 +69,9 @@ func groupCount(t *testing.T, db *sql.DB, folder string) int {
 // ruleCount answers how many egress rules match folder and target. An empty
 // folder or target is a wildcard for that half, which is what the `WHERE`
 // clauses these replace left out.
-func ruleCount(t *testing.T, db *sql.DB, folder, target string) int {
+func ruleCount(t *testing.T, db *store.Store, folder, target string) int {
 	t.Helper()
-	rules, err := store.New(db).AllNetworkRules()
+	rules, err := db.AllNetworkRules()
 	if err != nil {
 		t.Fatalf("read network rules: %v", err)
 	}
@@ -85,15 +84,6 @@ func ruleCount(t *testing.T, db *sql.DB, folder, target string) int {
 			continue
 		}
 		n++
-	}
-	return n
-}
-
-func scalar(t *testing.T, db *sql.DB, q string) int {
-	t.Helper()
-	var n int
-	if err := db.QueryRow(q).Scan(&n); err != nil {
-		t.Fatalf("%s: %v", q, err)
 	}
 	return n
 }
@@ -143,10 +133,10 @@ func forwardDocs(t *testing.T, stores map[string]*store.Store) []parsedDoc {
 // pre-apply content hash.
 func TestRollback_LaterSubsystemFailureRestoresTheEarlierOne(t *testing.T) {
 	_, stores := openInstance(t)
-	routdDB := stores[resreg.SubsystemRoutd].DB()
+	routdDB := stores[resreg.SubsystemRoutd]
 	seedRoutdConfig(t, routdDB)
 
-	before, err := resreg.Checksum(resreg.OnDB(routdDB), resreg.SubsystemRoutd)
+	before, err := resreg.Checksum(resreg.On(routdDB.Obj()), resreg.SubsystemRoutd)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +173,7 @@ func TestRollback_LaterSubsystemFailureRestoresTheEarlierOne(t *testing.T) {
 		t.Errorf("new/team's rules survived the rollback (count=%d)", got)
 	}
 
-	after, err := resreg.Checksum(resreg.OnDB(routdDB), resreg.SubsystemRoutd)
+	after, err := resreg.Checksum(resreg.On(routdDB.Obj()), resreg.SubsystemRoutd)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,17 +188,17 @@ func TestRollback_LaterSubsystemFailureRestoresTheEarlierOne(t *testing.T) {
 // — a whole-DB file swap would have eaten it.
 func TestRollback_MessagesSurviveTheRollback(t *testing.T) {
 	_, stores := openInstance(t)
-	routdDB := stores[resreg.SubsystemRoutd].DB()
+	routdDB := stores[resreg.SubsystemRoutd]
 	seedRoutdConfig(t, routdDB)
 
-	msgs := store.New(routdDB)
+	msgs := routdDB
 	if err := msgs.PutMessage(core.Message{
 		ID: "m1", ChatJID: "web:corp/eng", Sender: "u", Content: "hello",
 		Timestamp: time.Date(2026, 8, 6, 0, 0, 1, 0, time.UTC),
 	}); err != nil {
 		t.Fatalf("seed message: %v", err)
 	}
-	if got := scalar(t, routdDB, `SELECT COUNT(*) FROM messages`); got != 1 {
+	if got := countMessages(t, routdDB, "web:corp/eng"); got != 1 {
 		t.Fatalf("seeded message count = %d, want 1", got)
 	}
 
@@ -226,14 +216,14 @@ func TestRollback_MessagesSurviveTheRollback(t *testing.T) {
 // the test above cannot see that.
 func TestRollback_SuccessfulApplyKeepsBothSubsystems(t *testing.T) {
 	_, stores := openInstance(t)
-	routdDB := stores[resreg.SubsystemRoutd].DB()
-	onbodDB := stores[resreg.SubsystemOnbod].DB()
+	routdDB := stores[resreg.SubsystemRoutd]
+	onbodDB := stores[resreg.SubsystemOnbod]
 	seedRoutdConfig(t, routdDB)
 
 	docs := forwardDocs(t, stores)
 	// Give the onbod document the checksum onbod.db actually has, so both
 	// transactions commit.
-	onbodSum, err := resreg.Checksum(resreg.OnDB(onbodDB), resreg.SubsystemOnbod)
+	onbodSum, err := resreg.Checksum(resreg.On(onbodDB.Obj()), resreg.SubsystemOnbod)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,7 +248,7 @@ func TestRollback_SuccessfulApplyKeepsBothSubsystems(t *testing.T) {
 	// The gate is an item, so it is read through the method onbod calls. This is
 	// the one assertion in this file that reaches an entity-backed resource, and
 	// it is what proves an apply on the OBJECT path landed rows a reader sees.
-	gates, err := store.New(onbodDB).ListGates()
+	gates, err := onbodDB.ListGates()
 	if err != nil {
 		t.Fatalf("ListGates: %v", err)
 	}

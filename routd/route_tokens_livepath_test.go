@@ -14,7 +14,7 @@ import (
 // resource, which resreg drives. These helpers exist so a fixture never becomes
 // a THIRD implementation of the hashing scheme (BUGS L9).
 
-func liveStore(d *DB) *store.Store { return store.New(d.SQL()) }
+func liveStore(d *DB) *store.Store { return store.NewOver(d.Obj()) }
 
 // mintToken issues a delivery token the way the CLI does: GenRouteToken then
 // InsertRouteToken. Returns the raw token, shown once.

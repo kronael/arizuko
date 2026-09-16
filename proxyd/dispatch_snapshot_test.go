@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -83,7 +82,7 @@ func TestConcurrentRouteMutationNeverSplitsAcrossSnapshots(t *testing.T) {
 				return
 			default:
 			}
-			churnRoute(st.DB(), route, i%2 != 0)
+			churnRoute(st, route, i%2 != 0)
 		}
 	}()
 
@@ -130,8 +129,7 @@ func TestConcurrentRouteMutationNeverSplitsAcrossSnapshots(t *testing.T) {
 // itself runs, each as its own committed batch. One batch that deleted and
 // re-inserted would never let a concurrent reader see the row absent, and the
 // absent read is half of what this race needs.
-func churnRoute(db *sql.DB, r store.ProxydRoute, add bool) {
-	st := store.New(db)
+func churnRoute(st *store.Store, r store.ProxydRoute, add bool) {
 	if add {
 		_ = insertProxydRoute(context.Background(), st, r)
 		return

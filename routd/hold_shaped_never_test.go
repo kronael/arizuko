@@ -25,7 +25,7 @@ import (
 // offers a shaped `always` and no shaped `never`.
 func TestShapedDenyIsInertUnderNilParams(t *testing.T) {
 	d := memDB(t)
-	s := store.New(d.SQL())
+	s := store.NewOver(d.Obj())
 	if err := addACLRow(d, core.ACLRow{
 		Principal: "folder:atlas", Action: "mcp:delete", Scope: "atlas", Effect: "allow",
 	}); err != nil {
