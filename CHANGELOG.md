@@ -13,6 +13,8 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.68.0] — 2026-09-16
+
 > arizuko v0.68.0 — one store, no second path
 >
 > SQLite leaves the code. Every daemon reaches its owner's tables on the
@@ -48,9 +50,25 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   path. The endpoint holds the tables and the owner name says which.
 - `routd.OpenMem`, `runed.OpenMem` and `store.OpenMem` reserve a private table
   namespace on the endpoint the test process dials, and `Close` drops it.
-- The test endpoint is `amazon/dynamodb-local` by default;
-  `ARIZUKO_TEST_DYNAMO_ENDPOINT` points the same suites at the PostgreSQL
-  deployment.
+- Every test that touches a store runs against one: `dyntest` starts ExtendDB's
+  development build per test binary and turns off the two delays it simulates
+  for a real control plane. `ARIZUKO_TEST_DYNAMO_ENDPOINT` points the same
+  suites at an endpoint that is already running.
+- `go test ./... -short` takes **14 m 54 s** and is green (2 cores, one endpoint
+  per test binary). It was 3 m 33 s on files; a fixture now makes its owner's
+  thirty-three tables instead of opening a file, which is what the minutes buy.
+
+### Fixed
+
+- `arizuko create` needed a store server that cannot exist yet, so a fresh
+  install failed at the first command. `create` makes the instance's FILES and
+  declares the `--product` choice; routd's own boot writes the `main` row, its
+  floor and its default tasks (`L300`).
+- slakd's watchdog counted its own shutdown as a dead token, so a clean SIGTERM
+  reached `os.Exit(1)` instead of returning.
+- dashd carried `database/sql` for three optional strings whose `Valid` half
+  nothing read (`L291`), and a `*sql.Tx` parameter threaded through nineteen
+  store functions that could only ever be nil (`L301`).
 
 ### Operators
 
