@@ -13,6 +13,37 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.68.1] — 2026-09-16
+
+> arizuko v0.68.1 — the adapter stays up so you can fix it
+>
+> A WhatsApp session the server ends no longer takes the daemon with it, so the
+> endpoint you re-pair through is still there when you need it.
+>
+> • whapd stays up unpaired — `/health` says 503 disconnected and
+> `/v1/pair/status` says unauthenticated, instead of the container restarting
+> forever and the router failing to resolve it at all
+> • an errored chat recovers — the flag clears on the next clean turn instead of
+> standing for the life of the instance
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Fixed
+
+- whapd called `process.exit(1)` on a server-side logout, and `restart:
+on-failure` made that a loop — 2,820 restarts on krons, and every error the
+  instance reported traced to it. A logout is not a crash and not transient, and
+  the pairing endpoints live in that process, so the exit took away the one
+  surface that fixes it. It stays up unpaired now (`L303`). Measured after:
+  restarts 2,820 to 0, and the router's probe reports `health: status 503
+disconnected` instead of a DNS failure that named nothing.
+- `chats.errored` had one writer and no clearer, so it reported a past minute as
+  a present state and could only grow. A clean turn clears it, beside the
+  circuit-breaker clear — not the cursor advance, which the failure path takes
+  too (`L304`).
+- Nineteen folder-scope verdicts named entities no owner declares. A second
+  completeness test locks the direction the first did not cover (`L302`).
+
 ## [v0.68.0] — 2026-09-16
 
 > arizuko v0.68.0 — one store, no second path
