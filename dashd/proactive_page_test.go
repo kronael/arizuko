@@ -13,7 +13,6 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
-	_ "modernc.org/sqlite"
 )
 
 // proactiveDB is a migrated routd.db; the page reads chat_proactive.

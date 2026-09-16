@@ -1,7 +1,6 @@
 package routd
 
 import (
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -123,7 +122,7 @@ func (s *Server) handleRouteGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rt, err := s.db.GetRoute(id)
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, ErrNoRoute) {
 		writeErr(w, 404, "not_found", "route not found")
 		return
 	}

@@ -9,7 +9,6 @@ import (
 
 	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
-	_ "modernc.org/sqlite"
 )
 
 // meSecretsTestDB is a migrated routd.db — routd owns secrets AND the audit_log

@@ -12,7 +12,6 @@ import (
 	"github.com/kronael/arizuko/dashd/dashstore"
 	"github.com/kronael/arizuko/objstore"
 
-	_ "modernc.org/sqlite"
 	"time"
 )
 

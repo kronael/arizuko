@@ -11,7 +11,6 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/tests/testutils"
-	_ "modernc.org/sqlite"
 )
 
 func TestDashHealth(t *testing.T) {

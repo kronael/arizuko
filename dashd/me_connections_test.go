@@ -9,7 +9,6 @@ import (
 	"github.com/kronael/arizuko/auth/surrogate"
 	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
-	_ "modernc.org/sqlite"
 )
 
 // connectionsDash wires a dash whose surrogate engine's github TokenURL points at

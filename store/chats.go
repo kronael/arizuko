@@ -43,7 +43,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"sort"
 	"strings"
@@ -89,18 +88,18 @@ func chatKey(jid string) (objstore.Key, error) {
 
 // chatItem reads one chat, if it has ever been seen.
 func (s *Store) chatItem(ctx context.Context, jid string) (objstore.Item, bool, error) {
-	return s.chatItemVia(ctx, nil, jid)
+	return s.chatItemVia(ctx, jid)
 }
 
 // chatItemVia reads one chat through a transaction the caller owns when it owns
 // one. A writer that reads its own decision must read through its own
 // transaction, or it tears — and on SQLite it waits for itself (scopes.go).
-func (s *Store) chatItemVia(ctx context.Context, tx *sql.Tx, jid string) (objstore.Item, bool, error) {
+func (s *Store) chatItemVia(ctx context.Context, jid string) (objstore.Item, bool, error) {
 	key, err := chatKey(jid)
 	if err != nil {
 		return objstore.Item{}, false, err
 	}
-	items, err := s.reads(tx).Query(ctx, objstore.Query{
+	items, err := s.Obj().Query(ctx, objstore.Query{
 		Entity: Chats, Partition: key.Partition,
 		Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: key.Sort},
 	})

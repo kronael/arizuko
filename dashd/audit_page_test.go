@@ -9,8 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	_ "modernc.org/sqlite"
-
 	"sync/atomic"
 
 	"github.com/kronael/arizuko/audit"

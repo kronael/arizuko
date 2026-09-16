@@ -10,8 +10,6 @@ import (
 	"strings"
 	"syscall"
 
-	_ "modernc.org/sqlite"
-
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"

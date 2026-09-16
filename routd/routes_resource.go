@@ -28,7 +28,6 @@ package routd
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -218,7 +217,7 @@ func (s *Server) routesHandler(ctx context.Context, x resreg.Execution, contain 
 			return nil, resreg.Errorf(http.StatusBadRequest, "id required")
 		}
 		route, err := s.db.GetRoute(rid)
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, ErrNoRoute) {
 			return nil, resreg.Errorf(http.StatusNotFound, "route not found: %d", rid)
 		}
 		if err != nil {

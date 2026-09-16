@@ -12,7 +12,6 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/store"
-	_ "modernc.org/sqlite"
 )
 
 // --- data-path tests for row-rendering functions ---

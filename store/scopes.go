@@ -56,7 +56,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"maps"
@@ -229,49 +228,7 @@ func (s *Store) TryWriteEntities(ctx context.Context, checks []objstore.Check,
 	return s.Obj().GuardedBatch(ctx, checks, withBumps(writes))
 }
 
-// WriteEntitiesInTx is WriteEntities on a transaction the CALLER owns, for the
-// three writers that still hold one: the invite redemption, whose claim and
-// membership edge cross two databases; the system-message drain, which reads and
-// removes the same events; and the release's proxyd route sync.
-func (s *Store) WriteEntitiesInTx(ctx context.Context, tx *sql.Tx, checks []objstore.Check,
-	writes ...objstore.Write) error {
-	ok, err := s.TryWriteEntitiesInTx(ctx, tx, checks, writes...)
-	return refusal(ok, err, checks, writes)
-}
-
-// TryWriteEntitiesInTx is TryWriteEntities on the caller's transaction.
-func (s *Store) TryWriteEntitiesInTx(ctx context.Context, tx *sql.Tx, checks []objstore.Check,
-	writes ...objstore.Write) (bool, error) {
-	if tx != nil {
-		return false, errors.New("store: a batch in a transaction, which this store does not open")
-	}
-	return s.Obj().GuardedBatch(ctx, checks, withBumps(writes))
-}
-
-// writeVia is WriteEntities on a transaction the caller owns when it owns one,
-// and on the pool when it does not.
-//
-// It is the write-side twin of reads() below, and it exists for the same reason:
-// a body that has to run both ways — the engagement window, which one caller
-// commits beside its audit row and every other caller commits alone — is written
-// once instead of twice. Both doors carry the marker, so neither can be the one
-// that forgets.
-func (s *Store) writeVia(ctx context.Context, tx *sql.Tx, checks []objstore.Check,
-	writes ...objstore.Write) error {
-	ok, err := s.tryWriteVia(ctx, tx, checks, writes...)
-	return refusal(ok, err, checks, writes)
-}
-
-// tryWriteVia is writeVia for a caller that reads the verdict.
-func (s *Store) tryWriteVia(ctx context.Context, tx *sql.Tx, checks []objstore.Check,
-	writes ...objstore.Write) (bool, error) {
-	if tx == nil {
-		return s.TryWriteEntities(ctx, checks, writes...)
-	}
-	return s.TryWriteEntitiesInTx(ctx, tx, checks, writes...)
-}
-
-// refusal turns a verdict into the error a must-commit caller gets, so the three
+// refusal turns a verdict into the error a must-commit caller gets, so the two
 // doors above cannot hold different opinions of what a false means.
 //
 // The error names the batch rather than the write that refused, because the
@@ -309,44 +266,27 @@ func refusal(committed bool, err error, checks []objstore.Check, writes []objsto
 // produced, which is all a reader comparing two point reads asks for.
 func (s *Store) incrementEntity(ctx context.Context, entity string, key objstore.Key,
 	attr string, delta int, cond []objstore.Cmp, also []objstore.Write) (int, bool, error) {
-	return s.incrementEntityVia(ctx, nil, entity, key, attr, delta, cond, also)
+	return s.incrementEntityVia(ctx, entity, key, attr, delta, cond, also)
 }
 
 // incrementEntityVia is incrementEntity on a transaction the caller owns when it
 // owns one, and on the pool when it does not. It is the counter's twin of
 // writeVia, and it exists for the same reason: a body that has to run both ways
 // is written once.
-func (s *Store) incrementEntityVia(ctx context.Context, tx *sql.Tx, entity string,
+func (s *Store) incrementEntityVia(ctx context.Context, entity string,
 	key objstore.Key, attr string, delta int, cond []objstore.Cmp,
 	also []objstore.Write) (int, bool, error) {
 	counted := append([]objstore.Write{{Entity: entity, Key: key}}, also...)
-	return objstore.Increment(ctx, s.objStore(tx), entity, key, attr, delta, cond,
+	return objstore.Increment(ctx, s.Obj(), entity, key, attr, delta, cond,
 		append(slices.Clone(also), scopeBumps(counted)...))
 }
 
-// EntityQuerier is one read's handle. objstore.Store satisfies it, and so does
-// the transaction-bound reader below, which is what lets a body that reads and
-// then writes be written once and run either way.
+// EntityQuerier is one read's handle. objstore.Store satisfies it.
 //
 // It is exported because routd's cycle guard hands its own handle to
 // MembershipWouldCycle.
 type EntityQuerier interface {
 	Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error)
-}
-
-// objStore is the handle a protocol runs through. The store opens no
-// transaction, so there is one handle and it is the pool's.
-func (s *Store) objStore(tx *sql.Tx) objstore.Store {
-	_ = tx
-	return s.Obj()
-}
-
-// reads is the handle a body reads through. A writer that decides from what it
-// read reads BEFORE it builds its writes, so there is one handle and it is the
-// pool's.
-func (s *Store) reads(tx *sql.Tx) EntityQuerier {
-	_ = tx
-	return s.Obj()
 }
 
 // putIfAbsent is the funnel's create-if-absent, for an opener holding a Driver

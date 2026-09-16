@@ -15,7 +15,6 @@ import (
 
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/emaid/emaistore"
-	_ "modernc.org/sqlite"
 )
 
 // openStorage prepares emaid's storage: the entities chanlib ships and the ones

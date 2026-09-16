@@ -12,7 +12,6 @@ import (
 
 	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
-	_ "modernc.org/sqlite"
 )
 
 // approvalsDash wires a dash pointed at the fake routd. The handle stays NIL: the

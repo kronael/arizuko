@@ -20,7 +20,7 @@ func TestPutGroupRowSeedsTheMemberEdge(t *testing.T) {
 	if err := s.PutGroupRow(core.Group{Folder: "acme"}); err != nil {
 		t.Fatal(err)
 	}
-	if n := edgesTo(t, s.reads(nil), "folder:acme", RoleMember); n != 1 {
+	if n := edgesTo(t, s.Obj(), "folder:acme", RoleMember); n != 1 {
 		t.Fatalf("acl_membership rows for folder:acme = %d, want 1", n)
 	}
 
@@ -29,7 +29,7 @@ func TestPutGroupRowSeedsTheMemberEdge(t *testing.T) {
 	if err := s.PutGroupRow(core.Group{Folder: "acme", Product: "container"}); err != nil {
 		t.Fatalf("second PutGroupRow: %v", err)
 	}
-	if n := edgesTo(t, s.reads(nil), "folder:acme", RoleMember); n != 1 {
+	if n := edgesTo(t, s.Obj(), "folder:acme", RoleMember); n != 1 {
 		t.Fatalf("after a re-put, rows = %d, want 1", n)
 	}
 }
@@ -51,7 +51,7 @@ func TestSeedMemberRoleCarriesTheCreationItBelongsTo(t *testing.T) {
 	if err != nil || !created {
 		t.Fatalf("the first creation reported created=%v err=%v", created, err)
 	}
-	if n := edgesTo(t, s.reads(nil), "folder:world", RoleMember); n != 1 {
+	if n := edgesTo(t, s.Obj(), "folder:world", RoleMember); n != 1 {
 		t.Fatalf("rows = %d, want 1", n)
 	}
 	if _, ok := s.GroupByFolder("world"); !ok {
@@ -68,7 +68,7 @@ func TestSeedMemberRoleCarriesTheCreationItBelongsTo(t *testing.T) {
 		t.Error("a second creation of the same folder reported success; the caller would be " +
 			"granted admin on somebody else's world")
 	}
-	if n := edgesTo(t, s.reads(nil), "folder:world", RoleMember); n != 1 {
+	if n := edgesTo(t, s.Obj(), "folder:world", RoleMember); n != 1 {
 		t.Errorf("rows = %d after a refused creation, want 1", n)
 	}
 }

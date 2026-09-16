@@ -44,7 +44,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strconv"
 	"time"
@@ -83,7 +82,7 @@ func (s *Store) CreateUserProfile(sub, username, name string) error {
 		return err
 	}
 	ctx := context.Background()
-	if err := s.refuseTakenUsername(ctx, nil, sub, username); err != nil {
+	if err := s.refuseTakenUsername(ctx, sub, username); err != nil {
 		return err
 	}
 	attrs := map[string]string{attrProfCreated: time.Now().Format(time.RFC3339)}
@@ -141,7 +140,7 @@ func (s *Store) SetUsername(ctx context.Context, sub, username string) error {
 	if err != nil {
 		return err
 	}
-	if err := s.refuseTakenUsername(ctx, nil, sub, username); err != nil {
+	if err := s.refuseTakenUsername(ctx, sub, username); err != nil {
 		return err
 	}
 	// A refusal is the missing item the doc above measures.
@@ -160,11 +159,11 @@ func (s *Store) SetUsername(ctx context.Context, sub, username string) error {
 // the write it guards see one state: reading through the pool instead would be
 // a torn read, and on SQLite in shared-cache memory it waits for the write lock
 // the same transaction holds.
-func (s *Store) refuseTakenUsername(ctx context.Context, tx *sql.Tx, sub, username string) error {
+func (s *Store) refuseTakenUsername(ctx context.Context, sub, username string) error {
 	if username == "" {
 		return nil
 	}
-	items, err := s.reads(tx).Query(ctx, objstore.Query{
+	items, err := s.Obj().Query(ctx, objstore.Query{
 		Entity: UserProfiles, Partition: OwnerRoutd,
 		Where:   []objstore.Cmp{{Attr: attrProfUsername, Op: objstore.Eq, Value: username}},
 		Project: []string{attrProfUsername},

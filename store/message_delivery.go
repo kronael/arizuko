@@ -95,7 +95,7 @@ func (s *Store) PutOutbound(ctx context.Context, m core.Message, status string) 
 			"sweep reads are %q, %q and %q", m.ID, status, core.MessageStatusSent,
 			core.MessageStatusPending, core.MessageStatusFailed)
 	}
-	return s.putMessage(ctx, nil, m, status)
+	return s.putMessage(ctx, m, status)
 }
 
 // PendingOutbound answers the bot rows still owed a delivery whose position is

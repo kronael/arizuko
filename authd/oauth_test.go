@@ -12,7 +12,6 @@ import (
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/authd/authstore"
 	"github.com/kronael/arizuko/core"
-	_ "modernc.org/sqlite"
 )
 
 func newOAuth(t *testing.T, a *Authd, cfg *core.Config, g GrantsFetcher) *oauth {

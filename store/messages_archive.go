@@ -344,7 +344,7 @@ func (s *Store) importMessageBatch(ctx context.Context, rows []ArchiveMessageRow
 	// number that matters is the one the whole batch leaves, and an Increment per
 	// row would be one round trip per message for the same answer.
 	for folder, n := range folders {
-		if err := s.countFolderMessageBy(ctx, nil, folder, n, nil); err != nil {
+		if err := s.countFolderMessageBy(ctx, folder, n, nil); err != nil {
 			return staged, refused, err
 		}
 	}

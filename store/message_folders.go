@@ -33,7 +33,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -94,11 +93,11 @@ func folderFeedWrite(msgKey objstore.Key, m core.Message) (objstore.Write, bool,
 
 // countFolderMessage moves one folder's count and commits the writes that
 // EARNED the move in the same batch, so a counter cannot run ahead of its rows.
-func (s *Store) countFolderMessage(ctx context.Context, tx *sql.Tx, folder string,
+func (s *Store) countFolderMessage(ctx context.Context, folder string,
 	writes []objstore.Write) error {
 	// A refusal here is the message's own create-if-absent: the id is already
 	// stored, so the row is not appended and the folder must not count it twice.
-	_, err := s.tryCountFolderMessageBy(ctx, tx, folder, 1, writes)
+	_, err := s.tryCountFolderMessageBy(ctx, folder, 1, writes)
 	return err
 }
 
@@ -116,9 +115,9 @@ var errNoCounter = errors.New("the folder has no message counter")
 // saying the row is already there, which is exactly when the count must NOT
 // move. Every other caller writes unconditional Puts, where a false is a fault.
 // Dropping the bit made both read as success, which is the shape of BUGS L268.
-func (s *Store) addFolderCount(ctx context.Context, tx *sql.Tx, folder string, delta int,
+func (s *Store) addFolderCount(ctx context.Context, folder string, delta int,
 	also []objstore.Write) (bool, error) {
-	_, committed, err := s.incrementEntityVia(ctx, tx, MessageFolderCounts,
+	_, committed, err := s.incrementEntityVia(ctx, MessageFolderCounts,
 		folderCountKey(folder), counterAttrN, delta, nil, also)
 	if err != nil {
 		if strings.Contains(err.Error(), "no such item") {
@@ -239,7 +238,7 @@ func (s *Store) MarkMessagesObserved(ctx context.Context, folder string,
 		}
 	}
 	for from, n := range dropped {
-		if err := s.countFolderMessageBy(ctx, nil, from, -n, nil); err != nil {
+		if err := s.countFolderMessageBy(ctx, from, -n, nil); err != nil {
 			return err
 		}
 	}
@@ -250,7 +249,7 @@ func (s *Store) MarkMessagesObserved(ctx context.Context, folder string,
 		if n%2 == 1 {
 			n--
 		}
-		if err := s.countFolderMessageBy(ctx, nil, folder, n/2, fresh[:n]); err != nil {
+		if err := s.countFolderMessageBy(ctx, folder, n/2, fresh[:n]); err != nil {
 			return err
 		}
 		fresh = fresh[n:]
@@ -262,9 +261,9 @@ func (s *Store) MarkMessagesObserved(ctx context.Context, folder string,
 // one.
 // countFolderMessageBy is the door for a caller whose writes carry no condition,
 // so a refusal is a fault and is raised.
-func (s *Store) countFolderMessageBy(ctx context.Context, tx *sql.Tx, folder string,
+func (s *Store) countFolderMessageBy(ctx context.Context, folder string,
 	delta int, writes []objstore.Write) error {
-	committed, err := s.tryCountFolderMessageBy(ctx, tx, folder, delta, writes)
+	committed, err := s.tryCountFolderMessageBy(ctx, folder, delta, writes)
 	if err != nil {
 		return err
 	}
@@ -283,9 +282,9 @@ func (s *Store) countFolderMessageBy(ctx context.Context, tx *sql.Tx, folder str
 // missing item seeds it and the call retries once. The seed is a
 // create-if-absent, so two chats writing into one new folder at the same moment
 // both end up counted.
-func (s *Store) tryCountFolderMessageBy(ctx context.Context, tx *sql.Tx, folder string,
+func (s *Store) tryCountFolderMessageBy(ctx context.Context, folder string,
 	delta int, writes []objstore.Write) (bool, error) {
-	committed, err := s.addFolderCount(ctx, tx, folder, delta, writes)
+	committed, err := s.addFolderCount(ctx, folder, delta, writes)
 	if err == nil || !errors.Is(err, errNoCounter) {
 		return committed, err
 	}
@@ -295,7 +294,7 @@ func (s *Store) tryCountFolderMessageBy(ctx context.Context, tx *sql.Tx, folder 
 	}); seedErr != nil {
 		return false, fmt.Errorf("open %s's message count: %w", folder, seedErr)
 	}
-	return s.addFolderCount(ctx, tx, folder, delta, writes)
+	return s.addFolderCount(ctx, folder, delta, writes)
 }
 
 // observedFetchFactor is how many feed entries are read for each message the

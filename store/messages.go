@@ -40,7 +40,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"sort"
 	"strings"
@@ -269,7 +268,7 @@ func defaultVerb(v string) string {
 // condition is on the message item, and a refusal takes the indexes with it, so
 // a re-delivered message cannot double-count a folder.
 func (s *Store) PutMessage(m core.Message) error {
-	return s.putMessage(context.Background(), nil, m, core.MessageStatusSent)
+	return s.putMessage(context.Background(), m, core.MessageStatusSent)
 }
 
 // putMessage is PutMessage's body. The status is a parameter rather than a field
@@ -280,7 +279,7 @@ func (s *Store) PutMessage(m core.Message) error {
 // append gets it atomically without a transaction — FireProactive's cooldown is
 // the one caller, and the atomicity is what makes a crash before dispatch cost
 // one missed turn rather than a double fire.
-func (s *Store) putMessage(ctx context.Context, tx *sql.Tx, m core.Message, status string,
+func (s *Store) putMessage(ctx context.Context, m core.Message, status string,
 	also ...objstore.Write) error {
 	if m.Timestamp.IsZero() {
 		// A stamped-here instant would be the caller's SILENTLY: the coordinate
@@ -293,7 +292,7 @@ func (s *Store) putMessage(ctx context.Context, tx *sql.Tx, m core.Message, stat
 	}
 	// THE READ IS FOR THE STICKY PIN, and nothing else: an untopiced message
 	// inherits the chat's pin, which is an attribute only a read answers.
-	chat, _, err := s.chatItemVia(ctx, tx, m.ChatJID)
+	chat, _, err := s.chatItemVia(ctx, m.ChatJID)
 	if err != nil {
 		return err
 	}
@@ -343,10 +342,10 @@ func (s *Store) putMessage(ctx context.Context, tx *sql.Tx, m core.Message, stat
 	if !counted {
 		// No routed_to, so no folder feed entry and no counter to move: the
 		// batch is the message and the feeds that take every row.
-		_, err := s.tryWriteVia(ctx, tx, nil, writes...)
+		_, err := s.TryWriteEntities(ctx, nil, writes...)
 		return err
 	}
-	return s.countFolderMessage(ctx, tx, m.RoutedTo, append(writes, folderWrite))
+	return s.countFolderMessage(ctx, m.RoutedTo, append(writes, folderWrite))
 }
 
 // ProactiveSelfSender is the synthetic inbound's sender. Rows from it never
@@ -1055,7 +1054,7 @@ func (s *Store) FireProactive(ctx context.Context, jid, id string) error {
 		ID: id, ChatJID: jid, Sender: ProactiveSelfSender, Timestamp: firedAt,
 		Verb: "message",
 	}
-	if err := s.putMessage(ctx, nil, row, core.MessageStatusSent, cooldown); err != nil {
+	if err := s.putMessage(ctx, row, core.MessageStatusSent, cooldown); err != nil {
 		return fmt.Errorf("record the proactive trigger on %s: %w", jid, err)
 	}
 	return nil

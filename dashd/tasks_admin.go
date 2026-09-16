@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -84,15 +83,14 @@ func (d *dash) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var owner, chatJID, prompt, status, createdAt string
-	var cron, nextRun, contextMode sql.NullString
+	var cronSpec, nextRun, contextMode string
 	if err == nil {
 		owner, chatJID, prompt = task.Owner, task.ChatJID, task.Prompt
 		status = task.Status
 		createdAt = task.Created.UTC().Format(time.RFC3339)
-		cron = sql.NullString{String: task.Cron, Valid: task.Cron != ""}
-		contextMode = sql.NullString{String: task.ContextMode, Valid: task.ContextMode != ""}
+		cronSpec, contextMode = task.Cron, task.ContextMode
 		if task.NextRun != nil {
-			nextRun = sql.NullString{String: task.NextRun.UTC().Format(time.RFC3339), Valid: true}
+			nextRun = task.NextRun.UTC().Format(time.RFC3339)
 		}
 	}
 	if err != nil {
@@ -125,11 +123,11 @@ func (d *dash) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		htmlDetail("ID", `<code>`+esc(id)+`</code>`),
 		htmlDetail("Group", esc(owner)),
 		htmlDetail("Chat JID", `<code>`+esc(chatJID)+`</code>`),
-		htmlDetail("Cron", `<code>`+esc(cron.String)+`</code>`),
+		htmlDetail("Cron", `<code>`+esc(cronSpec)+`</code>`),
 		htmlDetail("Status", `<span class="dot `+dot+`"></span>`+esc(status)),
 		htmlDetail("Created", abbrTS(createdAt)),
-		htmlDetail("Next Run", abbrTS(nextRun.String)),
-		htmlDetail("Context Mode", esc(contextMode.String)),
+		htmlDetail("Next Run", abbrTS(nextRun)),
+		htmlDetail("Context Mode", esc(contextMode)),
 	)
 
 	fmt.Fprintf(w, `<h2>Prompt</h2><pre>%s</pre>`, esc(prompt))

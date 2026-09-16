@@ -8,7 +8,6 @@ import (
 
 	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
-	_ "modernc.org/sqlite"
 )
 
 // splitSecretsDash wires a dash on routd.db — the only store dashd opens — where

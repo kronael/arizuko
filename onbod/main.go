@@ -30,7 +30,6 @@ import (
 	_ "github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/theme"
-	_ "modernc.org/sqlite"
 )
 
 type gate struct {

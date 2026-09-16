@@ -15,7 +15,6 @@ import (
 	"github.com/kronael/arizuko/core"
 
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
-	_ "modernc.org/sqlite"
 )
 
 // routdUpstream stands in for routd's /v1/engagement face. It records the

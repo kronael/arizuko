@@ -13,7 +13,6 @@ import (
 	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/tests/testutils"
-	_ "modernc.org/sqlite"
 	"time"
 )
 

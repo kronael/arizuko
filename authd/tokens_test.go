@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/auth"
-	_ "modernc.org/sqlite"
 )
 
 // postTokens calls POST /v1/tokens with an optional bearer.

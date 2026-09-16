@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/auth"
-	_ "modernc.org/sqlite"
 )
 
 // operatorKeySet returns a KeySet and the proxyd service bearer that verifies

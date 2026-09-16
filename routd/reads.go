@@ -2,7 +2,7 @@ package routd
 
 import (
 	"context"
-	"database/sql"
+	"errors"
 	"strings"
 	"time"
 
@@ -77,7 +77,12 @@ func (d *DB) JIDRoutableToFolder(jid, folder string) bool {
 	return false
 }
 
-// GetRoute returns one route by id. The error is sql.ErrNoRows when the route
+// ErrNoRoute is what GetRoute answers for an id the table does not hold. It is
+// this package's own sentinel: the store is addressed by key and has no rows to
+// borrow an error from.
+var ErrNoRoute = errors.New("routd: no such route")
+
+// GetRoute returns one route by id. The error is ErrNoRoute when the route
 // doesn't exist (caller → 404) vs a real store error (caller → 500) — callers
 // MUST distinguish them with errors.Is so a DB fault isn't reported as not-found.
 //
@@ -95,7 +100,7 @@ func (d *DB) GetRoute(id int64) (core.Route, error) {
 			return r, nil
 		}
 	}
-	return core.Route{}, sql.ErrNoRows
+	return core.Route{}, ErrNoRoute
 }
 
 // WebRouteOwner reports which folder owns an exact path_prefix row, if any

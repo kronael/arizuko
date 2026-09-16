@@ -9,7 +9,6 @@ import (
 	"github.com/kronael/arizuko/obs"
 	_ "github.com/kronael/arizuko/resreg/resources"
 	"github.com/robfig/cron/v3"
-	_ "modernc.org/sqlite"
 )
 
 var cronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)

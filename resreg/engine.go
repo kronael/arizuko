@@ -12,7 +12,6 @@ package resreg
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -107,12 +106,11 @@ type resourceMeta struct {
 }
 
 type fieldMeta struct {
-	idx        int    // struct field index
-	name       string // Go struct field name
-	col        string // SQL column name (db: tag)
-	readExpr   string // SELECT expression (col, or COALESCE(col,'') via override)
-	writeHook  func(fieldVal any) (any, error)
-	scanTarget func(rowVal reflect.Value) any // returns &row.field for sql.Rows.Scan
+	idx       int    // struct field index
+	name      string // Go struct field name
+	col       string // SQL column name (db: tag)
+	readExpr  string // SELECT expression (col, or COALESCE(col,'') via override)
+	writeHook func(fieldVal any) (any, error)
 	// codec is the declared encoding of a field whose Go type is not text, nil
 	// for one that needs none. It is the rendering the engine writes a value
 	// through and the one it reads the value back through, so a stored text has a
@@ -149,10 +147,6 @@ func (r *Resource) initMeta() {
 		col, encoding, _ := strings.Cut(tag, ",")
 		fm := fieldMeta{idx: i, name: sf.Name, col: col, readExpr: col,
 			codec: codecFor(r.Name, sf.Name, encoding, sf.Type.Kind())}
-		idx := i
-		fm.scanTarget = func(rowVal reflect.Value) any {
-			return rowVal.Field(idx).Addr().Interface()
-		}
 		if hook, ok := r.Hooks.ColumnOverride[sf.Name]; ok {
 			if hook.Read != "" {
 				fm.readExpr = hook.Read
@@ -219,49 +213,6 @@ func (r *Resource) initMeta() {
 
 func (r *Resource) newRowPtr() reflect.Value {
 	return reflect.New(r.meta.rowType)
-}
-
-// Querier is the read subset both *sql.DB and *sql.Tx satisfy, so a caller can
-// read via the live DB or via an in-flight *sql.Tx — Apply's in-transaction CAS
-// recheck must see exactly the snapshot it is about to write against (spec 5/8
-// §"Content-hash CAS").
-type Querier interface {
-	Query(query string, args ...any) (*sql.Rows, error)
-}
-
-// filterSQL renders the declared RowFilter as a bound SQL expression: the
-// conjunction and the values it compares against, so a filter value reaches the
-// engine as a BIND and never as text spliced into a statement.
-//
-// It is the column path's reading of the one declaration the object path passes
-// straight to Query.Where. The operator set is the one Register admits, so a
-// term this cannot render cannot have been registered.
-func (r *Resource) filterSQL() (string, []any) {
-	if len(r.RowFilter) == 0 {
-		return "", nil
-	}
-	terms := make([]string, len(r.RowFilter))
-	args := make([]any, len(r.RowFilter))
-	for i, c := range r.RowFilter {
-		op := "="
-		if c.Op == objstore.Ne {
-			op = "<>"
-		}
-		terms[i] = c.Attr + " " + op + " ?"
-		args[i] = c.Value
-	}
-	return strings.Join(terms, " AND "), args
-}
-
-// whereFilter opens a statement's WHERE with the RowFilter, or adds nothing.
-// ScanAll reaches it, so a resource's excluded rows stay out of every
-// manifest-visible read.
-func (r *Resource) whereFilter() (string, []any) {
-	expr, args := r.filterSQL()
-	if expr == "" {
-		return "", nil
-	}
-	return " WHERE (" + expr + ")", args
 }
 
 // checkRowFilter refuses a filter no reader can honour, at Register.
@@ -583,59 +534,6 @@ func (r *Resource) sortByPK(rv reflect.Value) reflect.Value {
 		sorted.Index(i).Set(src.Index(idx))
 	}
 	return sorted
-}
-
-// orderBy returns "" or " ORDER BY col1, col2, …" for stable Scan output.
-func (r *Resource) orderBy() string {
-	cols := r.meta.pkFields
-	if len(cols) == 0 {
-		if len(r.meta.fields) == 0 {
-			return ""
-		}
-		return " ORDER BY " + r.meta.fields[0].col
-	}
-	names := make([]string, len(cols))
-	for i, fm := range cols {
-		names[i] = fm.col
-	}
-	return " ORDER BY " + strings.Join(names, ", ")
-}
-
-// scanTargets returns []any of pointer addresses into rowVal's fields, in
-// column order, suitable for sql.Rows.Scan — and the function that finishes the
-// row.
-//
-// A codec'd field is scanned into a STAGING sql.NullString and decoded after,
-// because a driver hands back the stored text and only the codec knows the
-// value it stands for. NULL and the empty string both leave the zero value,
-// which is the one null this model has and the same answer the object path's
-// absent attribute gives (codec.go).
-func (r *Resource) scanTargets(rowVal reflect.Value) ([]any, func() error) {
-	out := make([]any, len(r.meta.fields))
-	var staged []func() error
-	for i, fm := range r.meta.fields {
-		if fm.codec == nil {
-			out[i] = fm.scanTarget(rowVal)
-			continue
-		}
-		text := new(sql.NullString)
-		out[i] = text
-		field, dec, col := rowVal.Field(fm.idx), fm.codec.decode, fm.col
-		staged = append(staged, func() error {
-			if err := dec(text.String, field); err != nil {
-				return fmt.Errorf("%s: %w", col, err)
-			}
-			return nil
-		})
-	}
-	return out, func() error {
-		for _, fn := range staged {
-			if err := fn(); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
 }
 
 // ErrChecksumMismatch is returned by Apply when the manifest's declared

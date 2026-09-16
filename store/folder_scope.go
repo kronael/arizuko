@@ -27,7 +27,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"slices"
 	"strings"
@@ -304,17 +303,17 @@ var errNoSuchGroup = errors.New("store: no group row in subtree")
 // WriteEntitiesInTx, and a partial purge IS the state this exists to prevent.
 // The entity deletes are chunked, because a batch carries at most
 // MaxBatchActions and a large folder's subtree can exceed one.
-func (s *Store) purgeFolder(ctx context.Context, tx *sql.Tx, folder string) (int, error) {
+func (s *Store) purgeFolder(ctx context.Context, folder string) (int, error) {
 	if folder == "" {
 		return 0, errNoSuchGroup
 	}
 	// The folders this purge owns are read FIRST, off `groups`, because the loop
 	// below deletes those very rows: a read after it answers nothing and every
 	// child folder's partitions survive for the next tenant to inherit.
-	owned := append([]string{folder}, s.subtreeFolders(ctx, tx, folder)...)
+	owned := append([]string{folder}, s.subtreeFolders(ctx, folder)...)
 	removed := 0
 	for _, e := range entityScopePurge {
-		items, err := s.reads(tx).Query(ctx, objstore.Query{Entity: e.entity, Partition: OwnerRoutd})
+		items, err := s.Obj().Query(ctx, objstore.Query{Entity: e.entity, Partition: OwnerRoutd})
 		if err != nil {
 			return 0, err
 		}
@@ -346,12 +345,12 @@ func (s *Store) purgeFolder(ctx context.Context, tx *sql.Tx, folder string) (int
 		}
 		if _, err := applyChunks(ctx, "purge "+e.entity+" of "+folder, writes,
 			func(ctx context.Context, chunk []objstore.Write) (bool, error) {
-				return s.tryWriteVia(ctx, tx, nil, chunk...)
+				return s.TryWriteEntities(ctx, nil, chunk...)
 			}); err != nil {
 			return 0, err
 		}
 	}
-	if err := s.purgeFolderPartitions(ctx, tx, owned); err != nil {
+	if err := s.purgeFolderPartitions(ctx, owned); err != nil {
 		return 0, err
 	}
 	return removed, nil
@@ -361,10 +360,10 @@ func (s *Store) purgeFolder(ctx context.Context, tx *sql.Tx, folder string) (int
 // takes the folder list rather than reading it, because enumerating partitions
 // is not an operation the interface has and the rows that name them are gone by
 // the time this runs.
-func (s *Store) purgeFolderPartitions(ctx context.Context, tx *sql.Tx, folders []string) error {
+func (s *Store) purgeFolderPartitions(ctx context.Context, folders []string) error {
 	for _, entity := range folderPartitionPurge {
 		for _, owned := range folders {
-			items, err := s.reads(tx).Query(ctx, objstore.Query{
+			items, err := s.Obj().Query(ctx, objstore.Query{
 				Entity: entity, Partition: owned, Project: []string{},
 			})
 			if err != nil {
@@ -378,7 +377,7 @@ func (s *Store) purgeFolderPartitions(ctx context.Context, tx *sql.Tx, folders [
 			}
 			if _, err := applyChunks(ctx, "purge "+entity+" of "+owned, writes,
 				func(ctx context.Context, chunk []objstore.Write) (bool, error) {
-					return s.tryWriteVia(ctx, tx, nil, chunk...)
+					return s.TryWriteEntities(ctx, nil, chunk...)
 				}); err != nil {
 				return err
 			}
@@ -391,8 +390,8 @@ func (s *Store) purgeFolderPartitions(ctx context.Context, tx *sql.Tx, folders [
 // that fails answers none rather than an error, because the purge above has
 // already taken the rows this would have named and a second failure here would
 // roll back a delete that succeeded.
-func (s *Store) subtreeFolders(ctx context.Context, tx *sql.Tx, folder string) []string {
-	items, err := s.reads(tx).Query(ctx, objstore.Query{
+func (s *Store) subtreeFolders(ctx context.Context, folder string) []string {
+	items, err := s.Obj().Query(ctx, objstore.Query{
 		Entity: Groups, Partition: OwnerRoutd, Project: []string{},
 	})
 	if err != nil {

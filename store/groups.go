@@ -29,7 +29,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -137,18 +136,18 @@ func groupFrom(it objstore.Item) core.Group {
 
 // groupItem reads one group's item, or reports that there is none.
 func (s *Store) groupItem(ctx context.Context, folder string) (objstore.Item, bool, error) {
-	return s.groupItemVia(ctx, nil, folder)
+	return s.groupItemVia(ctx, folder)
 }
 
 // groupItemVia is groupItem through a transaction the caller owns, for the
 // upsert that reads the settings document it is about to merge into
 // (scopes.go reads).
-func (s *Store) groupItemVia(ctx context.Context, tx *sql.Tx, folder string) (objstore.Item, bool, error) {
+func (s *Store) groupItemVia(ctx context.Context, folder string) (objstore.Item, bool, error) {
 	key, err := groupKey(folder)
 	if err != nil {
 		return objstore.Item{}, false, err
 	}
-	items, err := s.reads(tx).Query(ctx, objstore.Query{
+	items, err := s.Obj().Query(ctx, objstore.Query{
 		Entity: Groups, Partition: OwnerRoutd,
 		Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: key.Sort},
 	})
@@ -245,12 +244,12 @@ func groupUpsert(g core.Group, settings map[string]any) (objstore.Write, error) 
 }
 
 // putGroup writes the upsert, on a transaction the caller owns when it has one.
-func (s *Store) putGroup(ctx context.Context, tx *sql.Tx, g core.Group) error {
-	w, err := s.groupUpsertWrite(ctx, tx, g)
+func (s *Store) putGroup(ctx context.Context, g core.Group) error {
+	w, err := s.groupUpsertWrite(ctx, g)
 	if err != nil {
 		return err
 	}
-	return s.writeVia(ctx, tx, nil, w)
+	return s.WriteEntities(ctx, nil, w)
 }
 
 // groupUpsertWrite reads what the upsert needs and renders it, for both sinks
@@ -261,10 +260,10 @@ func (s *Store) putGroup(ctx context.Context, tx *sql.Tx, g core.Group) error {
 // nothing else here needs the item. The pair this replaces decided which of two
 // writes landed by the first one's REFUSAL, which is what made the upsert two
 // actions on one item and therefore a transaction (spec 6/40 §"Merge").
-func (s *Store) groupUpsertWrite(ctx context.Context, tx *sql.Tx, g core.Group) (objstore.Write, error) {
+func (s *Store) groupUpsertWrite(ctx context.Context, g core.Group) (objstore.Write, error) {
 	var settings map[string]any
 	if g.Model != "" {
-		it, ok, err := s.groupItemVia(ctx, tx, g.Folder)
+		it, ok, err := s.groupItemVia(ctx, g.Folder)
 		if err != nil {
 			return objstore.Write{}, err
 		}
@@ -281,7 +280,7 @@ func (s *Store) PutGroup(g core.Group) error {
 		product = core.DefaultProduct
 	}
 	return s.writeAudited(func() ([]objstore.Write, audit.Event, error) {
-		w, err := s.groupUpsertWrite(context.Background(), nil, g)
+		w, err := s.groupUpsertWrite(context.Background(), g)
 		if err != nil {
 			return nil, audit.Event{}, err
 		}
@@ -358,7 +357,7 @@ func (s *Store) DeleteGroup(folder string) (int, error) {
 	// The purge removes more rows than one batch holds, so it runs as a sweep.
 	// `groups` goes first, which is what makes the folder unreachable: a failure
 	// part-way leaves rows nothing can find, and the next run collects them.
-	removed, err := s.purgeFolder(ctx, nil, folder)
+	removed, err := s.purgeFolder(ctx, folder)
 	if errors.Is(err, errNoSuchGroup) || removed == 0 {
 		return 0, nil
 	}

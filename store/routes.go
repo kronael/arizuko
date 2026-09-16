@@ -28,7 +28,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"slices"
 	"strconv"
@@ -216,8 +215,8 @@ func (s *Store) RouteTable() ([]core.Route, error) {
 // routeByID finds the item one id names. The id is an ATTRIBUTE, not a leading
 // fragment of the key, so this reads the table and compares — which is what an
 // unindexed `WHERE id = ?` over 58 rows was.
-func (s *Store) routeByID(ctx context.Context, tx *sql.Tx, id int64) (objstore.Item, core.Route, bool, error) {
-	items, err := s.reads(tx).Query(ctx, objstore.Query{Entity: Routes, Partition: OwnerRoutd})
+func (s *Store) routeByID(ctx context.Context, id int64) (objstore.Item, core.Route, bool, error) {
+	items, err := s.Obj().Query(ctx, objstore.Query{Entity: Routes, Partition: OwnerRoutd})
 	if err != nil {
 		return objstore.Item{}, core.Route{}, false, fmt.Errorf("read routes: %w", err)
 	}
@@ -246,7 +245,7 @@ func (s *Store) GetRoute(id int64) (core.Route, bool) {
 // because an operator told 404 about a route that still exists goes and
 // recreates it, and then two rules answer one chat.
 func (s *Store) RouteByID(id int64) (core.Route, bool, error) {
-	_, r, ok, err := s.routeByID(context.Background(), nil, id)
+	_, r, ok, err := s.routeByID(context.Background(), id)
 	return r, ok, err
 }
 
@@ -389,7 +388,7 @@ func (s *Store) PutRouteRow(r core.Route) (int64, error) {
 // mutation).
 func (s *Store) DeleteRoute(id int64) (int64, error) {
 	ctx := context.Background()
-	it, r, ok, err := s.routeByID(ctx, nil, id)
+	it, r, ok, err := s.routeByID(ctx, id)
 	if err != nil {
 		return 0, err
 	}
@@ -428,7 +427,7 @@ func (s *Store) UpdateRoute(id int64, r core.Route) (int64, error) {
 		return 0, ErrWebJIDRouted
 	}
 	ctx := context.Background()
-	it, _, ok, err := s.routeByID(ctx, nil, id)
+	it, _, ok, err := s.routeByID(ctx, id)
 	if err != nil {
 		return 0, err
 	}
@@ -570,7 +569,7 @@ func (s *Store) PutRouteInto(ctx context.Context, ws *WriteSet, r core.Route,
 // reading the table; the delete then conditions on the item still being there,
 // and refused is what a rule another caller removed in between means.
 func (s *Store) DeleteRouteInto(ctx context.Context, ws *WriteSet, id int64, refused error) (bool, error) {
-	it, _, ok, err := s.routeByID(ctx, nil, id)
+	it, _, ok, err := s.routeByID(ctx, id)
 	if err != nil || !ok {
 		return false, err
 	}
