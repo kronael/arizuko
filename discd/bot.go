@@ -158,7 +158,7 @@ func buildAttachments(
 			u = fmt.Sprintf("%s/files/%s", listenURL, cache.Put(att.URL))
 		}
 		atts = append(atts, chanlib.InboundAttachment{
-			Mime: att.ContentType, Filename: name, URL: u, Size: int64(att.Size),
+			Mime: att.ContentType, Filename: name, URL: u,
 		})
 	}
 	return content, atts

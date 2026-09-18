@@ -69,8 +69,13 @@ func (s *server) handleDashRouteCreate(w http.ResponseWriter, r *http.Request) {
 		auth.Forbidden(w, "proxyd", "Path "+path+" takes over the core route "+claim+".")
 		return
 	}
+	// Owner EXPLICITLY: an empty owner defaults to RouteOwnerArizuko, which says
+	// the release derived this route, and the next `arizuko generate` deletes
+	// every arizuko-owned row it did not derive. An operator's own route would
+	// vanish on the next deploy (BUGS L205).
 	if err := s.writeRoute(r.Context(), store.ProxydRoute{
 		Path: path, Backend: backend, Auth: mode,
+		Owner: store.RouteOwnerOperator,
 	}); err != nil {
 		slog.Error("dash route create", "path", path, "err", err)
 		http.Error(w, "write failed", http.StatusInternalServerError)

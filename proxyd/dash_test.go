@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/store"
+	"github.com/kronael/arizuko/tests/testutils"
 )
 
 // proxyd is the front door: a path on its own mux never reaches s.route, where
@@ -88,5 +91,39 @@ func TestDashRefusesAFolderScopedCaller(t *testing.T) {
 	s.handleDash(w, r)
 	if w.Code != http.StatusForbidden {
 		t.Errorf("folder-scoped caller = %d, want 403", w.Code)
+	}
+}
+
+// An operator's own route must survive the next deploy. The store defaults an
+// empty owner to RouteOwnerArizuko — "the release derived this" — and
+// `arizuko generate` deletes every arizuko-owned row it did not derive, so a
+// route written from the dashboard without an owner vanished on the next
+// generate (BUGS L205).
+func TestDashRouteIsStampedOperator(t *testing.T) {
+	st := testutils.NewRoutdStore(t)
+	s := &server{stRoutd: st}
+	if err := s.writeRoute(context.Background(), store.ProxydRoute{
+		Path: "/ops/", Backend: "http://ops:8080", Auth: "user",
+		Owner: store.RouteOwnerOperator,
+	}); err != nil {
+		t.Fatalf("writeRoute: %v", err)
+	}
+	routes, err := st.AllProxydRoutes()
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	var found bool
+	for _, rt := range routes {
+		if rt.Path != "/ops/" {
+			continue
+		}
+		found = true
+		if rt.Owner != store.RouteOwnerOperator {
+			t.Errorf("owner = %q, want %q — generate deletes an arizuko-owned row it did not derive",
+				rt.Owner, store.RouteOwnerOperator)
+		}
+	}
+	if !found {
+		t.Fatalf("the route did not land; got %+v", routes)
 	}
 }

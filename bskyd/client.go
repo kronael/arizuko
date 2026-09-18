@@ -345,7 +345,6 @@ func (bc *bskyClient) extractAttachments(n notification) []chanlib.InboundAttach
 			Mime:     img.Image.MimeType,
 			Filename: fmt.Sprintf("image_%d%s", i, blobExt(img.Image.MimeType)),
 			URL:      url,
-			Size:     img.Image.Size,
 		})
 	}
 	return atts

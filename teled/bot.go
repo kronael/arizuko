@@ -842,7 +842,7 @@ func extractMedia(msg *tgbotapi.Message, listenURL string) mediaResult {
 		}
 		return mediaResult{
 			content:     content,
-			attachments: []chanlib.InboundAttachment{{Mime: mime, Filename: filename, URL: u, Size: size}},
+			attachments: []chanlib.InboundAttachment{{Mime: mime, Filename: filename, URL: u}},
 		}
 	}
 	switch {

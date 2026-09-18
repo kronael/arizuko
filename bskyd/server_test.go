@@ -337,9 +337,6 @@ func TestExtractAttachments(t *testing.T) {
 	if atts[0].Mime != "image/jpeg" {
 		t.Errorf("att[0].Mime = %q", atts[0].Mime)
 	}
-	if atts[0].Size != 5000 {
-		t.Errorf("att[0].Size = %d", atts[0].Size)
-	}
 	if atts[0].Filename != "image_0.jpg" {
 		t.Errorf("att[0].Filename = %q", atts[0].Filename)
 	}

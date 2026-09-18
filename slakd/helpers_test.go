@@ -105,9 +105,6 @@ func TestAttachmentsFor_ProxiesURLWhenListenURLSet(t *testing.T) {
 	if atts[0].Filename != "doc.pdf" {
 		t.Errorf("filename = %q", atts[0].Filename)
 	}
-	if atts[0].Size != 1024 {
-		t.Errorf("size = %d", atts[0].Size)
-	}
 }
 
 func TestAttachmentsFor_UsesRawURLWhenNoListenURL(t *testing.T) {

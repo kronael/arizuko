@@ -27,7 +27,11 @@ const maxRouterResponseBytes = 10 << 20
 
 // UserAgent is sent on outbound requests. Reddit requires one; Mastodon and
 // Bluesky use it for rate-limit attribution.
-const UserAgent = "arizuko/0.54.0 (+https://github.com/kronael/arizuko)"
+// UserAgent names arizuko to a third party. It carries NO version: the number
+// here froze at 0.54.0 while fourteen releases shipped, so it told GitHub
+// something false, and a second copy of the version is a second thing to keep in
+// step with the one in the docs.
+const UserAgent = "arizuko (+https://github.com/kronael/arizuko)"
 
 // MaxAdapterJSONBody caps inbound JSON bodies at adapters.
 const MaxAdapterJSONBody = 1 << 20
@@ -36,7 +40,6 @@ type InboundAttachment struct {
 	Mime     string `json:"mime"`
 	Filename string `json:"filename"`
 	URL      string `json:"url"`
-	Size     int64  `json:"size"`
 	Data     string `json:"data,omitempty"` // base64 inline content (whapd)
 }
 

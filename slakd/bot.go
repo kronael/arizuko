@@ -859,7 +859,7 @@ func (b *bot) attachmentsFor(content string, files []slackFile) (string, []chanl
 			u = fmt.Sprintf("%s/files/%s", b.cfg.ListenURL, b.files.Put(f.URLPriv))
 		}
 		atts = append(atts, chanlib.InboundAttachment{
-			Mime: f.Mimetype, Filename: name, URL: u, Size: f.Size,
+			Mime: f.Mimetype, Filename: name, URL: u,
 		})
 	}
 	return content, atts

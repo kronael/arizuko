@@ -106,9 +106,6 @@ func TestExtractContent_WithAttachment(t *testing.T) {
 	if atts[0].URL != "http://emaid:9003/files/42/0" {
 		t.Errorf("url = %q", atts[0].URL)
 	}
-	if atts[0].Size != int64(len("pdfdata")) {
-		t.Errorf("size = %d", atts[0].Size)
-	}
 
 	// verify metadata in registry, NOT on disk
 	meta, ok := reg.get("42-0")

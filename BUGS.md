@@ -1881,25 +1881,18 @@ question 6 (share a TypeScript chanlib, or move twitd to Go) decides it.
 - **Status:** proposed
 - **Fix:**
 
-## L172 — `InboundAttachment.Size` is set by three adapters, dropped on the wire, and read by nobody (2026-09-05, open)
+## ✅ FIXED 2026-09-18 L172 — `InboundAttachment.Size` was set by four adapters and read by nobody (2026-09-05)
 
-`chanlib.InboundAttachment.Size` (`chanlib/chanlib.go:39`) is filled by slakd
-(`bot.go:840`), discd (`bot.go:161`) and teled (`bot.go:845`). routd decodes
-the POST into `apiv1.Attachment` (`routd/api/v1/types.go:38`), which has no
-`Size`, so the stored `attachments` column never carries one. No reader in
-routd, ipc, container, router, core, chanlib or webd uses the field. The cut
-is to delete the field and its three setters — not to add it to the wire
-type, which nobody would read either. Deferred 2026-09-05 because slakd and
-teled were in another edit set that day. Spec 6/36 S9 (one wire type)
-subsumes it.
+`routd/api/v1.Attachment` has no `Size`, so every adapter that filled it handed
+the value to a JSON encoder that dropped it.
 
-- **Severity:** low
-- **Scope:** chanlib inbound wire type
-- **Affected:** slakd, discd, teled
-- **Source:** `chanlib/chanlib.go:39`; `routd/api/v1/types.go:38`
-- **Status:** open
-- **Fix:**
-
+- **Status:** fixed in v0.68.2
+- **Fix:** the field goes, and with it the writes in bskyd, discd, slakd and
+  teled and the three tests that asserted a value nothing carried.
+- **Also:** `chanlib.UserAgent` was frozen at `arizuko/0.54.0` through fourteen
+  releases — the one place arizuko names its version to a third party, and it
+  was false. It carries no version now: a second copy of the number is a second
+  thing to keep in step with the one the docs ship.
 ## ✅ FIXED 2026-09-05 L173 — `idempotency_keys` has no writer; the hourly sweep, its test and the table outlive the ledger (2026-09-05)
 
 The REST turn face was the ledger's only writer; with it gone (`fa00076d`)
@@ -12314,41 +12307,16 @@ beside the circuit-breaker clear (`routd/dispatch.go`) — not the cursor advanc
 which the failure path takes too.
 
 - **Status:** fixed in v0.68.1, and this entry is `L304`'s duplicate.
-## L205 — a route added through proxyd's own dashboard is stamped with no owner, so the next `generate` silently deletes it (2026-09-05, open)
+## ✅ FIXED 2026-09-18 L205 — a route added through proxyd's dashboard was stamped with no owner (2026-09-05)
 
-MEASURED. `proxyd/dash.go:72` writes `store.ProxydRoute{Path: path, Backend:
-backend, Auth: mode}` — `Owner` unset. `store.RouteSurvivesGenerate`
-(`store/proxyd_routes.go:41`) is `owner == RouteOwnerOperator` and nothing
-else, so an empty owner does not survive. The `/v1` face gets this right:
-`proxyd/resource.go:213` stamps `r.Owner = store.RouteOwnerOperator` before
-the write.
+`store.PutProxydRoute` defaults an empty owner to `RouteOwnerArizuko` — "the
+release derived this" — and `arizuko generate` deletes every arizuko-owned row
+it did not derive, so an operator's own route vanished on the next deploy.
 
-This is BUGS `L45`/`L81` reintroduced on the sibling surface. Those entries
-record the same class — a route that passed its guard with 200 and was
-overwritten at the next deploy — and the fix that produced the single
-`RouteSurvivesGenerate` predicate. The dashboard form was not on that list.
-
-`SyncProxydRoutes` never deletes a path nothing ships, so a route on
-package-free ground survives by luck; the collision case is the one that bites,
-and it bites silently at deploy time rather than at write time.
-
-- **Severity:** medium
-- **Scope:** proxyd
-- **Affected:** any operator who adds a route from `/dash/proxyd/` rather than
-  through `/v1/proxyd_routes`
-- **Source:** `proxyd/dash.go:72` vs `proxyd/resource.go:213`
-- **Status:** open — a one-line stamp, no sign-off needed
-- **Fix:** pass `Owner: store.RouteOwnerOperator` explicitly. Do NOT rely on a
-  default: `store.PutProxydRoute` defaults an empty owner to
-  `RouteOwnerArizuko` (`store/proxyd_routes.go:192`), which is the wrong owner
-  for an operator write and would make the row look release-shipped.
-
-Related, same file: `proxyd` hand-rolls three tx writers under the comment
-"proxyd-local until store/ exposes them uniformly" (`resource.go:379`), and
-`store/proxyd_routes.go:86/190/222` already exposes all three. The INSERTs are
-byte-identical. Folding proxyd onto store's writers removes ~45 lines and also
-gets the dashboard the `proxyd_route.set`/`.delete` audit rows it skips today.
-
+- **Status:** fixed in v0.68.2
+- **Fix:** `handleDashRouteCreate` passes `Owner: store.RouteOwnerOperator`
+  explicitly, which is what the entry named. The default is not relied on.
+- **Test:** `proxyd.TestDashRouteIsStampedOperator` reads the row back.
 ## L206 — a group created from the dashboard grants its creator an exact-folder scope, so they cannot administer their own child folders (2026-09-05, open)
 
 MEASURED. Two writers hand-roll the creator's admin grant and they disagree on
@@ -12383,35 +12351,16 @@ of who granted it.
   question is settled by `5/33`: the creator holds the folder and its subtree.
   Amend the original; do not add a third writer.
 
-## L207 — authd stamps `issued_at` in local time and then compares it as a string, so on a non-UTC host the session list orders wrong (2026-09-05, open)
+## ✅ FIXED 2026-09-18 L207 — authd stamped `issued_at` in local time (2026-09-05)
 
-MEASURED. `authd/store.go:317` is `func now() string { return
-time.Now().Format(time.RFC3339) }` — no `.UTC()`. Every other timestamp writer
-in the repo normalises to UTC first. It stamps `refresh_tokens.issued_at`.
+Fixed at the site the entry named: `authstore.now()` is
+`time.Now().UTC().Format(time.RFC3339)`.
 
-`authd/sessions_resource.go` then compares that column as TEXT:
-`:140` takes `MIN(issued_at)` per family, and `:143` is `ORDER BY r.issued_at
-DESC`. RFC3339 sorts correctly as a string only when every value carries the
-same offset. `2026-09-05T00:30:00+01:00` sorts AFTER `2026-09-05T10:00:00Z`
-because `'0'` < `'1'`, although it is nine and a half hours earlier.
+The same class survived one place more — `store/user_profiles.go` stamped
+`created_at` with `time.Now().Format`, no `.UTC()`. It goes through `core.TS`
+now, which is fixed-width and UTC, so two hosts agree (BUGS `L97`).
 
-So on a host in any non-UTC zone the operator's session list is ordered wrong
-and each family's reported start time is the wrong row. It is latent today
-because Go formats a zero offset as `Z`, identical to `.UTC()`, and the fleet
-runs UTC.
-
-Same class as `rfc3339nano_sort_key`: a timestamp whose text form is compared
-without a canonical shape.
-
-- **Severity:** low today, medium on any non-UTC deployment
-- **Scope:** authd
-- **Affected:** the sessions surface; any instance not running UTC
-- **Source:** `authd/store.go:317`; `authd/sessions_resource.go:140`, `:143`
-- **Status:** open — a one-word fix
-- **Fix:** `time.Now().UTC().Format(time.RFC3339)`. The column becomes
-  `timestamptz` at the Postgres cutover, which removes the class; until then
-  the stamp must be canonical because the comparison is textual.
-
+- **Status:** fixed in v0.68.2
 ## L208 — `store/` is a second, dead implementation of five tables that `routd` now owns: ~44 statements with no production caller, and the dead copy is the drifted one (2026-09-05, open — proposal, needs sign-off)
 
 MEASURED with gopls reference resolution, not grep. Grep cannot decide this

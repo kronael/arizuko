@@ -48,6 +48,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore"
 )
 
@@ -85,7 +86,10 @@ func (s *Store) CreateUserProfile(sub, username, name string) error {
 	if err := s.refuseTakenUsername(ctx, sub, username); err != nil {
 		return err
 	}
-	attrs := map[string]string{attrProfCreated: time.Now().Format(time.RFC3339)}
+	// core.TS, not time.Now().Format: a stored instant is fixed-width and UTC, so
+	// two hosts agree and a comparison against it is a string comparison
+	// (BUGS L97 is what a local-time stamp costs).
+	attrs := map[string]string{attrProfCreated: core.TS(time.Now())}
 	setAttr(attrs, attrProfUsername, username)
 	setAttr(attrs, AttrProfileName, name)
 	created, err := s.TryWriteEntities(ctx, nil, objstore.Write{
