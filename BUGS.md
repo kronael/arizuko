@@ -425,7 +425,7 @@ when the true fact is "the host is full".
   re-measured on a host with room, because this run cannot tell a size limit from a
   full disk. `specs/6/42` §12 items 5 and 6 own that measurement.
 
-## L290 — `routd`'s held-world test races its own recorder, so one run in five reports the owner was never asked (2026-09-13, open)
+## ✅ FIXED 2026-09-18 L290 — `routd`'s held-world test races its own recorder, so one run in five reports the owner was never asked (2026-09-13)
 
 MEASURED by a subagent running the whole suite: `routd/hold_world_inversion_test.go:70`
 failed once with "the owner was not asked: []", and `go test ./routd/ -race -count=30
@@ -441,9 +441,19 @@ five, and `make test` runs without `-race`, so the race itself is invisible ther
 - **Scope:** `routd/hold_world_inversion_test.go`
 - **Affected:** every run; the failure is timing-dependent
 - **Source:** `routd/hold_world_inversion_test.go:63`, `:69`
-- **Status:** open
-- **Fix:** the recorder holds the sends behind a mutex, and the wait is for the send
-  rather than for the row, so the assertion reads what the gate finished writing.
+- **Status:** fixed in 5a1ffc96
+- **Fix:** the CAUSE was not the read. `recDeliverer.SendOptions` stamped the
+  options onto the last recorded send OUTSIDE the lock, and the hold notice is
+  delivered through that method — so every reader raced that one write. The
+  stamp takes the lock, with `defer`: the index panics on an empty slice, and a
+  panic between Lock and Unlock holds the mutex for good, which turns one failing
+  test into a package timeout.
+
+  It also collapsed five copies of the same `for range 500 { … 2ms }` poll onto
+  one `awaitCond`. One second held for a single test on an idle host and missed
+  under `-race`; the budget is 15s now, and `TestHoldE2E_RejectPressKeepsTheCallUnrun`
+  was failing on exactly that. VERIFIED: the whole hold suite, `-race -count=10`,
+  green in 412s; `go vet ./routd/` clean.
 
 ## ✅ FIXED 2026-09-14 L291 — `database/sql` survived in dashd to carry three optional strings (2026-09-13)
 
