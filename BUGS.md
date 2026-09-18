@@ -827,7 +827,7 @@ the SQLite file the instance leaves behind.
 - **Status:** closed — the rows are history and the copy skips them
 - **Fix:** `7972f092` (`specs/6/42` §7)
 
-## L282 — three adapter containers have no Docker mount, so their databases die on every recreate (2026-09-12, open)
+## ✅ FIXED 2026-09-18 L282 — three adapter containers have no Docker mount, so their databases die on every recreate (2026-09-12, code fixed; two instances carry a frozen fragment)
 
 MEASURED with `docker inspect -f '{{len .Mounts}}'`: `arizuko_teled_marinade`,
 `arizuko_discd_marinade` and `arizuko_teled_sloth` report **0** mounts.
@@ -841,7 +841,20 @@ those instances.
 - **Severity:** medium — silent state loss on every deploy, two instances
 - **Scope:** `template/services/teled.yml`, `template/services/discd.yml`, compose generation
 - **Affected:** marinade (teled, discd), sloth (teled) — measured
-- **Status:** open
+- **Status:** the template is fixed and proven; the two instances are not
+- **Re-measured 2026-09-18:** every fragment that names `DATA_DIR` (`teled`,
+  `slakd`, `bskyd`, `linkd`, `reditd`) declares its bind mount, and
+  `arizuko_teled_krons` reports 1 mount —
+  `/srv/data/arizuko_krons/store/teled -> /srv/app/home/store/teled`, owned
+  `mivu:mivu`. `discd` needs none: it names no `DATA_DIR` and writes nothing to
+  disk, so this entry was wrong to count it.
+- **What is left is a deploy, not a code change.** `arizuko_teled_marinade`,
+  `arizuko_discd_marinade` and `arizuko_teled_sloth` still report 0 mounts
+  because `services/teled.yml` freezes once its bytes differ from the template,
+  and both instances hold the pre-deletion tag. Do NOT hand-patch a frozen
+  fragment on its own: neither instance has a `store/teled` directory, so docker
+  would make it root-owned and the non-root daemon could not write it. Make the
+  directory first, owned the way krons owns it, then recreate the adapter.
 - **Fix:** the adapter fragment declares its owner directory as a bind mount, the
   way krons already has one.
 
