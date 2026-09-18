@@ -7,6 +7,44 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L306 — `is_group` reads 0 on live multi-party chats (2026-09-18, open)
+
+MEASURED on all three instances. Every one of these carries a multi-party JID
+and a live message stream, and `chats.is_group` is 0:
+
+```
+marinade  telegram:group/1003805633088   37 msgs/30d, 11 senders
+marinade  telegram:group/5012430759      37 msgs/30d,  8 senders
+sloth     telegram:group/5125571890      46 msgs/30d
+sloth     telegram:group/5282578105
+sloth     discord:837270552959516682/{1512842813874639048,1514875125785296916,
+          1514907285451968533,1514908015936143460}
+```
+
+The JID kind and the flag come from ONE expression at the producer —
+`teled/bot.go` `chatJIDFromID(id)` returns `telegram:group/...` exactly when
+`id < 0`, and the same `id < 0` sets `IsGroup`. They cannot disagree at write
+time, so a row where they disagree was written by a path that does not set the
+field, and `routd/server.go:598` `SetChatIsGroup` then stores false as an
+absent attribute — indistinguishable from never written.
+
+Consumer: `routd/turns.go:107` `ThreadReplies(tc.Folder, s.db.ChatIsGroup(jid))`
+picks the reply shape from it, so a group is treated as a direct chat.
+
+Find the producer path that omits `IsGroup` before changing the consumer — a
+guard on the reader is the symptom patch, and the JID already carries the truth.
+
+## L307 — two Slack channels on marinade carry traffic and match no route (2026-09-18, open)
+
+`slack:T4PNSRSP7/channel/C4P090XU1` (6 msgs/30d) and
+`.../C4PMARTD2` (2 msgs/30d) reach routd and resolve to nothing: marinade's
+table routes only `C0B4JMQ8X89`, and there is no Slack wildcard the way there
+is for Discord (`chat_jid=discord:*/*`). The messages are stored and dropped.
+
+Either add the `chat_jid=slack:*/channel/* verb=mention` + `#observe` wildcard
+pair marinade already has for Discord, or the operator routes each channel.
+This is a data decision, not a code fix.
+
 ## L305 — two live threads in one Discord channel: the second one's mention is never answered (2026-09-18, open — proposal, needs sign-off)
 
 MEASURED on sloth, and it is the cause behind "sloth is not remaining active in
