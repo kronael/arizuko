@@ -334,7 +334,7 @@ func NewAdapterMux(name string, prefixes []string, bot BotHandler, isConnected f
 	// daemon, so the path is read from config rather than derived from the
 	// platform — deriving it made every adapter dashboard 404 at its own URL.
 	mux.HandleFunc("GET /dash/"+EnvOr("AUTHD_SERVICE_NAME", name)+"/",
-		handleAdapterDash(name, prefixes, bot, isConnected, lastInboundAt))
+		handleAdapterDash(name, prefixes, bot, isConnected, lastInboundAt, AuthdKeys()))
 	if hp, ok := bot.(HistoryProvider); ok {
 		mux.HandleFunc("GET /v1/history", Auth(handleHistory(hp)))
 	}

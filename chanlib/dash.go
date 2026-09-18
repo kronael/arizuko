@@ -19,7 +19,6 @@ import (
 	"html"
 	"html/template"
 	"net/http"
-	"os"
 	"sort"
 	"strings"
 	"time"
@@ -27,14 +26,6 @@ import (
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/theme"
 )
-
-// dashEnforced reports whether the operator gate is armed. An adapter verifies
-// no tokens and holds no keyset, so it cannot use the nil-KeySet form the core
-// daemons use — that falls open, and proxyd's `user` route authenticates a
-// person, not an operator (6/28: dashboards are operator-only). AUTHD_URL set
-// means proxyd is in front stamping headers; unset is local dev, where there is
-// nothing stamping and nothing to enforce.
-func dashEnforced() bool { return os.Getenv("AUTHD_URL") != "" }
 
 // DashSection is one per-adapter delta panel (spec 6/32). The shared page
 // renders overview, health and capabilities; an adapter that has state the
@@ -60,11 +51,17 @@ type DashSectioner interface {
 
 // handleAdapterDash renders the single adapter page 6/31 specifies: overview,
 // connection, stream health, capabilities, then any per-adapter deltas.
+// ks is injected for the same reason authGate takes one: AuthdKeys is built
+// once from the process env, so a test cannot swap it.
 func handleAdapterDash(name string, prefixes []string, bot BotHandler,
-	isConnected func() bool, lastInboundAt func() int64) http.HandlerFunc {
+	isConnected func() bool, lastInboundAt func() int64, ks *auth.KeySet) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if dashEnforced() && !auth.IsOperator(r) {
-			auth.Forbidden(w, name, "Operator access required.")
+		// The stamped scope is worth nothing without the proof beside it:
+		// X-User-* is trustworthy only behind proxyd's service:proxyd bearer,
+		// which proxyd attaches to every request it forwards. Reading the scope
+		// alone let anyone already inside the compose network send
+		// `X-User-Groups: ["**"]` and receive the operator page (BUGS L270).
+		if !auth.RequireOperator(w, r, ks, name) {
 			return
 		}
 		connected := isConnected()

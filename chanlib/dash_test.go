@@ -6,13 +6,19 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kronael/arizuko/auth/authtest"
 )
 
-// dashReq drives the shared adapter dashboard.
-func dashReq(h http.HandlerFunc, groups string) *httptest.ResponseRecorder {
+// dashReq drives the shared adapter dashboard. bearer is proxyd's transit
+// proof; without it a stamped scope is a forgery and the gate must refuse it.
+func dashReq(h http.HandlerFunc, groups string, bearer ...string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(http.MethodGet, "http://k.example/dash/slakd/", nil)
 	if groups != "" {
 		r.Header.Set("X-User-Groups", groups)
+	}
+	if len(bearer) > 0 && bearer[0] != "" {
+		r.Header.Set("Authorization", "Bearer "+bearer[0])
 	}
 	w := httptest.NewRecorder()
 	h(w, r)
@@ -77,29 +83,31 @@ func TestStaleThresholdMatchesTheHealthEndpoint(t *testing.T) {
 	}
 }
 
-// An adapter verifies no tokens and holds no keyset, so the nil-KeySet gate the
-// core daemons use would fall open here — and proxyd's `user` route
-// authenticates a person, not an operator.
+// Deployed, the adapter page is operator-only (6/28), and the operator scope
+// counts only behind proxyd's transit bearer. Eight adapters inherit this one
+// handler, so the third case below is eight surfaces at once (BUGS L270).
 func TestDashboardEnforcesOperatorWhenDeployed(t *testing.T) {
-	t.Setenv("AUTHD_URL", "http://authd:8080")
-	h := handleAdapterDash("slakd", nil, &fakeBot{}, func() bool { return true }, func() int64 { return 0 })
+	ks, bearer := authtest.Operator(t)
+	h := handleAdapterDash("slakd", nil, &fakeBot{}, func() bool { return true }, func() int64 { return 0 }, ks)
 
-	if w := dashReq(h, `["acme"]`); w.Code != http.StatusForbidden {
+	if w := dashReq(h, `["acme"]`, bearer); w.Code != http.StatusForbidden {
 		t.Errorf("a logged-in non-operator got %d, want 403", w.Code)
 	}
 	if w := dashReq(h, ""); w.Code != http.StatusForbidden {
 		t.Errorf("an unstamped request got %d, want 403", w.Code)
 	}
-	if w := dashReq(h, `["**"]`); w.Code != http.StatusOK {
-		t.Errorf("an operator got %d, want 200", w.Code)
+	if w := dashReq(h, `["**"]`); w.Code != http.StatusForbidden {
+		t.Errorf("an unproven `**` got %d, want 403 — the header alone is a forgery", w.Code)
+	}
+	if w := dashReq(h, `["**"]`, bearer); w.Code != http.StatusOK {
+		t.Errorf("a proven operator got %d, want 200", w.Code)
 	}
 }
 
 // With AUTHD_URL unset nothing stamps headers, so enforcing would lock the
 // local-dev operator out of their own adapter.
 func TestLocalDevFallsOpen(t *testing.T) {
-	t.Setenv("AUTHD_URL", "")
-	h := handleAdapterDash("slakd", nil, &fakeBot{}, func() bool { return true }, func() int64 { return 0 })
+	h := handleAdapterDash("slakd", nil, &fakeBot{}, func() bool { return true }, func() int64 { return 0 }, nil)
 	if w := dashReq(h, ""); w.Code != http.StatusOK {
 		t.Errorf("local dev got %d, want 200", w.Code)
 	}
@@ -117,10 +125,8 @@ func (s *sectionBot) DashSections() []DashSection { return s.secs }
 // a second page (6/32). The interface is optional, so an adapter that has no
 // delta needs no code — that is the common case.
 func TestDeltaSectionsAreOptionalAndRendered(t *testing.T) {
-	t.Setenv("AUTHD_URL", "")
-
 	plain := handleAdapterDash("slakd", nil, &fakeBot{},
-		func() bool { return true }, func() int64 { return 0 })
+		func() bool { return true }, func() int64 { return 0 }, nil)
 	if body := dashReq(plain, "").Body.String(); strings.Contains(body, "<h2>Poll sources") {
 		t.Error("an adapter with no DashSections rendered one")
 	}
@@ -129,7 +135,7 @@ func TestDeltaSectionsAreOptionalAndRendered(t *testing.T) {
 		secs: []DashSection{{Title: "Poll sources and cursors", Rows: [][2]string{
 			{"inbox", "t4_abc"}, {"sr:golang", "(never read)"},
 		}}},
-	}, func() bool { return true }, func() int64 { return 0 })
+	}, func() bool { return true }, func() int64 { return 0 }, nil)
 	body := dashReq(with, "").Body.String()
 	for _, want := range []string{"Poll sources and cursors", "sr:golang", "(never read)", "t4_abc"} {
 		if !strings.Contains(body, want) {

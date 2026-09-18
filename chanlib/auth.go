@@ -24,16 +24,20 @@ import (
 // admits only this caller — routd is the sole driver of an adapter's egress.
 const CallerRoutd = "service:routd"
 
-// adapterKeySet lazily builds (once) the JWKS-backed verifier the adapter uses
-// to check routd's service token. nil keyset → AUTHD_URL unset → local dev (gate
-// open). Built lazily so adapter daemons need no wiring change: the first
-// Auth-gated request constructs it from the process env.
+// AuthdKeys lazily builds (once) this process's JWKS-backed verifier against
+// authd. It answers BOTH questions a daemon in front of authd has: is this
+// caller routd's service token (Auth, below), and did proxyd stamp these
+// X-User-* headers (auth.RequireOperator on the dashboards). One keyset, because
+// it is one authd. nil → AUTHD_URL unset → local dev, and every gate that reads
+// it falls open exactly as the core daemons' nil-KeySet form does. Built lazily
+// so a daemon needs no wiring change: the first gated request constructs it from
+// the process env.
 var (
 	ksOnce sync.Once
 	ksVal  *auth.KeySet
 )
 
-func adapterKeySet() *auth.KeySet {
+func AuthdKeys() *auth.KeySet {
 	ksOnce.Do(func() {
 		authdURL := os.Getenv("AUTHD_URL")
 		if authdURL == "" {
@@ -58,11 +62,11 @@ func adapterKeySet() *auth.KeySet {
 // (AUTHD_URL set) it admits only a valid service:routd ES256 token; with no
 // verifier (local dev) the handler is open — no shared secret remains.
 func Auth(next http.HandlerFunc) http.HandlerFunc {
-	return authGate(adapterKeySet(), next)
+	return authGate(AuthdKeys(), next)
 }
 
 // authGate is Auth with an explicit keyset (injected for tests; production
-// passes the lazy env-built adapterKeySet). ks!=nil → ES256 service:routd pin;
+// passes the lazy env-built AuthdKeys). ks!=nil → ES256 service:routd pin;
 // ks==nil → open (local dev).
 func authGate(ks *auth.KeySet, next http.HandlerFunc) http.HandlerFunc {
 	if ks == nil {

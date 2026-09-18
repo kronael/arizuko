@@ -1,31 +1,13 @@
 package main
 
 import (
-	"crypto/ecdsa"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/auth/authtest"
 )
-
-// operatorKeySet returns a KeySet and the proxyd service bearer that verifies
-// against it. A stamped X-User-Groups is trustworthy only behind that bearer,
-// so a dashboard test must carry both halves to reach the page it is about.
-func operatorKeySet(t *testing.T) (*auth.KeySet, string) {
-	t.Helper()
-	k, err := auth.NewSigningKey("k1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	tok, err := k.Sign(auth.TokenClaims{Sub: auth.ProxydTransitSub, Typ: "service"}, time.Minute)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return auth.NewKeySet(map[string]*ecdsa.PublicKey{"k1": &k.Priv.PublicKey}), tok
-}
 
 // dashBearer is the proxyd service bearer the current test's admin verifies
 // against; a stamped header without it is refused at the gate.
@@ -34,7 +16,7 @@ var dashBearer string
 func newDashAdmin(t *testing.T) *admin {
 	t.Helper()
 	db := ownedDB(t)
-	ks, tok := operatorKeySet(t)
+	ks, tok := authtest.Operator(t)
 	dashBearer = tok
 	return &admin{st: db, ks: ks}
 }

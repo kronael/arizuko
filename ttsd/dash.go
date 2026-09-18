@@ -24,17 +24,15 @@ import (
 // suspects the backend is down, and a cached "ok" from a minute ago is the
 // answer they must not get.
 //
-// `enforce` gates on the stamped operator scope. ttsd verifies no tokens and
-// holds no keyset, so it cannot use the nil-KeySet form the other daemons use —
-// and that form would fall OPEN here, leaving the page to any logged-in user,
-// because proxyd's `user` route authenticates a person, not an operator
-// (6/28: daemon dashboards are operator-only). Deployed means AUTHD_URL is set;
-// with it unset there is no proxyd stamping headers and nothing to enforce.
-func dashHandler(backend string, enforce bool) http.HandlerFunc {
+// ks is the authd verifier, and the gate is the one every other daemon calls:
+// the stamped operator scope counts only behind proxyd's service:proxyd bearer.
+// A nil ks is local dev — no authd, nothing stamping, nothing to enforce — and
+// it falls open exactly as every other nil-KeySet gate in the tree does
+// (6/28: daemon dashboards are operator-only).
+func dashHandler(backend string, ks *auth.KeySet) http.HandlerFunc {
 	client := &http.Client{Timeout: 3 * time.Second}
 	return func(w http.ResponseWriter, r *http.Request) {
-		if enforce && !auth.IsOperator(r) {
-			auth.Forbidden(w, "ttsd", "Operator access required.")
+		if !auth.RequireOperator(w, r, ks, "ttsd") {
 			return
 		}
 		start := time.Now()

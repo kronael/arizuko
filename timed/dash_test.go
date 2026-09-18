@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/ecdsa"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,6 +8,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/auth/authtest"
 )
 
 // stubRoutd serves GET /v1/tasks with the given JSON body, standing in for routd
@@ -64,16 +64,8 @@ func TestDashNonOperatorForbidden(t *testing.T) {
 func TestDashOperatorGroupAdmitted(t *testing.T) {
 	// Both halves are required: the stamped group AND proxyd's service bearer.
 	// The header alone is attacker input on any reachable port.
-	k, err := auth.NewSigningKey("k1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	tok, err := k.Sign(auth.TokenClaims{Sub: auth.ProxydTransitSub, Typ: "service"}, time.Minute)
-	if err != nil {
-		t.Fatal(err)
-	}
-	d := &dashServer{r: stubRoutd(t, `[]`),
-		ks: auth.NewKeySet(map[string]*ecdsa.PublicKey{"k1": &k.Priv.PublicKey})}
+	ks, tok := authtest.Operator(t)
+	d := &dashServer{r: stubRoutd(t, `[]`), ks: ks}
 	req := httptest.NewRequest("GET", "/dash/timed/", nil)
 	req.Header.Set("X-User-Groups", `["**"]`)
 	req.Header.Set("Authorization", "Bearer "+tok)
