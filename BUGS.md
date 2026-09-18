@@ -7,6 +7,42 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L308 — `priv-grant` asks the eval folder to delegate a capability it holds without the grant option (2026-09-18, open)
+
+MEASURED on krons 2026-09-18, `anteval --smoke` 8/9. `priv-grant` is the only
+failure, and the agent is right — it is the FIXTURE that is wrong.
+
+The case asks the agent to create a child group and "grant it web publishing".
+The agent created the child, called `add_acl`, and reported the refusal verbatim:
+
+```
+cannot delegate folder:eval/etljzsc-priv-grant-g web:publish on
+eval/etljzsc-priv-grant-g: not held WITH GRANT OPTION
+```
+
+The acl agrees. `folder:eval` holds `web:publish` on scope `eval` with
+`grant_option = 0`, so by `5/33` it cannot delegate onward, and a grant on
+`eval` does not reach `eval/sub` anyway. The agent then declined to publish from
+its own slot as a workaround, on the grounds that the task names the child as
+the publisher — which is the honest answer, not a failure.
+
+The case's `requires` line names `mcp:register_group` and `mcp:add_acl`. Both are
+held. The requirement it does NOT state is the one that decides the case:
+`web:publish` on `eval/**` WITH GRANT OPTION.
+
+**This is an authorization change, so it is the operator's call.** Either the
+eval folder gets `web:publish` on `eval/**` with the grant option — which is what
+makes the `subagents` dimension test what it means to test, provisioning AND
+empowering a child — or the case drops the delegation half and stops claiming to
+cover it. Do not "fix" it by widening what the agent may do silently.
+
+- **Severity:** medium — one smoke case has never been able to pass, and it reads as an agent failure
+- **Scope:** `anteval/cases/anteval.toml` `priv-grant`, the krons `eval` folder's acl
+- **Affected:** every `anteval --smoke` run
+- **Source:** anteval report 2026-09-18 10:05; `routd.acl` `folder:eval web:publish eval allow grant_option=0`
+- **Status:** open — needs the operator to choose the grant or the case
+- **Fix:**
+
 ## L306 — `is_group` reads 0 on live multi-party chats (2026-09-18, open)
 
 MEASURED on all three instances. Every one of these carries a multi-party JID
@@ -2117,6 +2153,10 @@ per-case token figure cannot be trusted.
 - **Scope:** anteval cost read / turn-id derivation
 - **Affected:** anteval
 - **Source:** anteval report 2026-09-05 07:55; `routd.db` `cost_log` 07:45-07:56
+- **Confirmed still live 2026-09-18:** ALL NINE cases reported `0 tokens` and
+  every one carried "turn in-<id> never recorded a cost within 3m0s". It is no
+  longer 6 of 9 — the cost column is empty for the whole run, so the report's
+  header reads "8/9 passed (0 tokens)".
 - **Status:** open. Fix shape: read the turn id routd actually ran for the injected message instead of deriving `in-<msgid>`, and read cost after the turn's `round_done`, not on a fixed wait.
 - **Fix:**
 
@@ -5223,7 +5263,7 @@ should be decided in the same pass rather than left to a fifth caller.
 Note `L78` already fixed the shared half — all these cascades now use
 `groupfolder.SQLSubtree` instead of `LIKE`.
 
-## L85 — the smoke is 6/9 after the SDK jump L73 exposed; the three failures are all child-spawn callbacks (2026-08-23, open)
+## ✅ CLOSED 2026-09-18 L85 — the smoke is 6/9 after the SDK jump L73 exposed; the three failures are all child-spawn callbacks (2026-08-23)
 
 `L73` fixed the ant image so it ships the SDK it installs. The practical effect
 is that the fleet moved from `@anthropic-ai/claude-agent-sdk` **0.3.153 to
@@ -5248,6 +5288,13 @@ folder's egress rule is `*`.
 What is NOT ruled out, and is the obvious suspect: the SDK jump. `priv-grant`
 returning the literal string `probe` where a URL belongs reads like changed agent
 behaviour, not a Go defect.
+
+**Re-measured 2026-09-18 on krons (v0.68.2 image `802cc669`): 8/9.** The SDK
+premise is disproven. `child-delegate` and `webhook-in` both PASS — the callback
+arrives — so two of the three were transient, not the SDK. `priv-grant` still
+fails and its cause is now known and unrelated: the eval folder cannot delegate
+`web:publish` because it does not hold it WITH GRANT OPTION. That is `L308`, a
+fixture gap, and it is where the remaining work lives.
 
 An earlier run in the same session scored 1/9 and was NOT this: the harness was
 pointed at a docker gateway that a `systemctl restart` had re-allocated
