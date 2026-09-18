@@ -7,6 +7,57 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L305 — two live threads in one Discord channel: the second one's mention is never answered (2026-09-18, open — proposal, needs sign-off)
+
+MEASURED on sloth, and it is the cause behind "sloth is not remaining active in
+threads which he did not start".
+
+A Discord thread is a TOPIC inside its parent channel's chat — `discd`
+`chatAndTopic` maps the thread to `jid = parent, topic = thread id`, which is
+right. The dispatch CURSOR is per chat. So two threads in one channel share one
+cursor, and an advance made for one takes the other's messages with it.
+
+The sequence, from `messages` on sloth
+(`discord:837270552959516682/920916162416635944`):
+
+```
+05:53:09  mention  topic 1539271427620995114   -> turn 1546760285610577970 runs
+05:53:42  mention  topic 1539223435656302704   -> NO TURN, EVER
+05:55:19  status   topic 1539271427620995114   (the first turn answering)
+05:55:59  message  topic 1539271427620995114
+```
+
+`turn_context` holds two turns for topic `1539223435656302704`, both on
+2026-08-18. The 05:53:42 mention is `verb=mention`, `routed_to=main/trading` —
+routed correctly, gated correctly, and dropped. The thread then sat silent for
+three weeks while the channel's other threads were answered normally, which is
+exactly what a user reads as "he stopped attending threads".
+
+`routd/dispatch.go:135` is the site: the batch is grouped by topic and the topic
+loop dispatches, then `l.advance(chatJID, last)` moves the ONE cursor to the
+last message of the whole batch. A topic that returned busy parks the chat and
+does not advance — that guard works. A topic that is simply not dispatched in
+this pass is carried past.
+
+The mention gating is NOT at fault and sloth's routes are right: `verb=mention`
+to a real target with a `#observe` twin, which is the shape that makes a main
+channel require a mention and a thread inherit it.
+
+- **Severity:** high — a directly-addressed question gets silence, and the more
+  active the channel the likelier it is
+- **Scope:** `routd/loop.go` `advance`, `routd/dispatch.go` the topic loop,
+  `store.SetAgentCursor`
+- **Affected:** any chat carrying two live topics — Discord threads, Slack
+  threads, forked web topics
+- **Source:** the message and turn_context rows above, sloth 2026-09-08
+- **Status:** proposal — needs sign-off
+- **Fix shape:** the cursor is per (chat, topic), not per chat, so an advance
+  can only ever move the topic it fed. That is the same shape
+  `AdvanceObservedCursor(folder, topic, ts)` already has one line below — the
+  observed watermark is ALREADY per-topic, and the dispatch cursor is the one
+  that is not. Making them agree is the smallest honest change, and it is a
+  schema-shaped decision, so it is recorded rather than shipped.
+
 ## ✅ FIXED 2026-09-16 L302 — folder-scope verdicts named tables no owner declares any more (2026-09-14)
 
 Nineteen `folderScopeKeep` entries named entities no owner declares: the five
