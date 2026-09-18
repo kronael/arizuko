@@ -126,8 +126,13 @@ func TestExport_FreshDB(t *testing.T) {
 func TestApply_RoundTrip_Routes(t *testing.T) {
 	db := openMem(t)
 	c0 := routdChecksum(t, db)
+	// added_by/added_via record WHO exercised routing authority over a target and
+	// BY WHICH ACT. They took their defaults on every apply while the RowType
+	// named five of eight columns, and 84 rows across three live instances lost
+	// them (BUGS L265), so the round trip has to state that they survive.
 	rows := []RoutesRow{
-		{Seq: 0, Match: "platform=telegram room=123", Target: "atlas"},
+		{Seq: 0, Match: "platform=telegram room=123", Target: "atlas",
+			AddedBy: "google:op", AddedVia: "add_route"},
 		{Seq: 1, Match: "platform=slack", Target: "ops"},
 	}
 	c1, err := resreg.Apply(context.Background(), resreg.On(db), resreg.SubsystemRoutd, c0, false, map[string]any{
@@ -147,6 +152,22 @@ func TestApply_RoundTrip_Routes(t *testing.T) {
 	gotRows := got.([]RoutesRow)
 	if len(gotRows) != 2 {
 		t.Errorf("after apply: %d rows, want 2", len(gotRows))
+	}
+	var attributed bool
+	for _, g := range gotRows {
+		if g.Target != "atlas" {
+			continue
+		}
+		attributed = true
+		if g.AddedBy != "google:op" || g.AddedVia != "add_route" {
+			t.Errorf("attribution = (%q, %q), want it preserved through apply", g.AddedBy, g.AddedVia)
+		}
+		if g.ID == 0 {
+			t.Error("the route carries no id after apply; delete_route(id) addresses that handle")
+		}
+	}
+	if !attributed {
+		t.Fatal("the atlas route is missing after apply")
 	}
 }
 
