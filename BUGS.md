@@ -1252,7 +1252,7 @@ the second apply is a fixed point.
   release a claim it can prove is abandoned. A claim with no release is a lock,
   and `6/40` chose a marker precisely so it would not be one.
 
-## L265 — two registrations declare fewer columns than their table has, and `routes` already loses two of them on every apply (2026-09-08, open)
+## ✅ FIXED 2026-09-18 L265 — two registrations declare fewer columns than their table has, and `routes` already loses two of them on every apply (2026-09-08)
 
 MEASURED 2026-09-08, and my first count was wrong — I read a truncated grep and
 reported 12. `pending_actions` declares **16 of 18**; only `mode` and
@@ -1283,6 +1283,19 @@ incomplete `RowType` is also an incomplete export: a held action round-tripped
 through `export` and `apply` loses six fields today at the manifest level, even
 though the row keeps them.
 
+- **Status:** fixed in 3c6c6727
+- **Re-measured 2026-09-18:** both declarations are complete today. `RoutesRow`
+  names all eight columns and its own comment cites this entry; `PendingActionsRow`
+  names all thirteen fields `routd.PendingAction` stores, and `mode` is gone —
+  the three that remain (`Matcher`, `Unmatchable`, `MatcherError`) are DERIVED
+  from `Args` by one renderer and were never stored. `routd/resource_columns_test.go`
+  does not exist; it went with the column path.
+- **What was missing was the guard.** `TestApply_RoundTrip_Routes` counted rows
+  and nothing else, so the next omission would land exactly the way `added_by`
+  and `added_via` did. It now applies a route carrying both and asserts they —
+  and the `id` that `delete_route` addresses — survive the round trip. That is
+  the shape `TestApply_RoundTrip_ProxydRoutes_PreservesRedirectTo` already used
+  for the same class.
 - **Severity:** high for `routes` (live attribution loss), medium for `pending_actions`
 - **Scope:** `resreg/resources/routes.go`, `resreg/resources/pending_actions.go`
 - **Affected:** every instance; `routes` holds 58 rows on krons
