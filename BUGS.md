@@ -1195,27 +1195,12 @@ though the row keeps them.
   them. A test comparing `RowType`'s `db:` tags against the live schema would
   have caught this and should exist for every resource.
 
-## L263 — `discd`'s typing-off test is flaky: it saw one API call where it asserts none (2026-09-07, open)
+## ✅ FIXED 2026-09-18 L263 — `discd`'s typing-off test was flaky (2026-09-07)
 
-`TestTyping_Off_NoSend` (`discd/integration_test.go:460`) failed once in a full
-`go test ./... -short` run with `typing=off without on should not call API;
-calls = 1`, then passed 5 of 5 on `-count=5` immediately afterwards. No commit
-in the last twelve touched `discd`.
+Same cause as `L168`: a typing loop that outlived `Stop` sent one more time,
+which the off-path test saw as a call it asserts never happens.
 
-So the test observes a call that a previous case in the same file started, or
-the typing goroutine outlives the case that spawned it. A flake in a test that
-asserts "nothing happened" is the shape that hides a real leak: it fails only
-when the earlier work is slow enough to land inside the next case's window.
-
-- **Severity:** low (test-only, and it fails open — a leak shows as a failure)
-- **Scope:** `discd/integration_test.go`
-- **Affected:** CI and any full-suite run
-- **Source:** one failure in `./tmp/v11.log`, 2026-09-07; 5 of 5 pass on re-run
-- **Status:** open
-- **Fix:** find what still holds the typing timer when the case ends — the
-  assertion is right, and making it wait or resetting the recorder would hide
-  the thing it caught
-
+- **Status:** fixed in v0.68.2 with `L168` — `Stop` waits for its loops.
 ## ✅ FIXED 2026-09-08 L264 — `ReadConsistent` sees only the writers that remember to carry `Bump`, and one that forgets is silent (2026-09-07)
 
 `objstore.ReadConsistent` detects a concurrent write by reading a scope's
@@ -1804,24 +1789,19 @@ Decide before changing; it changes what `reply` means for every turn.
 - **Status:** proposal (needs sign-off)
 - **Fix:**
 
-## L168 — `TestTyping_DebouncesAndSends` fails the race detector 2 runs in 3 (2026-09-05, open)
+## ✅ FIXED 2026-09-18 L168 — `TestTyping_DebouncesAndSends` failed the race detector 2 runs in 3 (2026-09-05)
 
-`go test ./discd/ -race -run TestTyping_DebouncesAndSends` alone: FAIL, FAIL,
-ok. The debounced typing goroutine outlives its test and reads the
-package-level `discordgo.Endpoint*` var (`discd/bot.go` typing send) while the
-next test's `mockAllDiscordEndpoints` cleanup writes it
-(`discd/integration_test.go:122`). Test harness, not a product race: the
-endpoint vars are constants in production. Fix shape: stop the typing goroutine
-in the test (or wait for it) before the cleanup restores the endpoints.
+`TypingRefresher.Stop` closed each loop's stop channel and returned. Closing
+only ASKS: a loop already inside `send` kept calling the platform after Stop
+returned. In the test that goroutine read the package-level
+`discordgo.Endpoint*` var while the next cleanup wrote it; in production it is
+an outbound call outliving the shutdown that was supposed to end it.
 
-- **Severity:** low
-- **Scope:** discd test harness
-- **Affected:** CI with `-race`
-- **Source:** race report frames `discd/integration_test.go:122` (write) vs
-  `discd/bot.go` typing path (read), 2026-09-05
-- **Status:** open
-- **Fix:**
-
+- **Status:** fixed in v0.68.2
+- **Fix:** the refresher counts its live loops and `Stop` WAITS for them, so Stop
+  means stopped for every adapter rather than only for this test.
+- **Measured after:** `go test ./discd/ -race -run TestTyping` three runs, three
+  passes, where the entry records FAIL, FAIL, ok.
 ## L170 — `routd.DB` and `store.Store` declare 66 method names twice with different SQL; routd's `AllGroups` hands its own callers `Open=false` and no observe window (2026-09-05, open)
 
 Measured at `c0594f32` with a receiver-normalised diff of every method name
@@ -13341,44 +13321,31 @@ of a system that is not this one.
   top of every page. Deleting a published tree is a decision, not a fix —
   hence this entry rather than a commit.
 
-## L235 — `arizuko-client.js` exists in three copies and they have now diverged (2026-09-06, open)
+## ✅ FIXED 2026-09-18 L235 — `arizuko-client.js` shipped in copies that had diverged (2026-09-06)
 
-MEASURED. The browser SDK ships byte-identical at `webd/assets/`,
-`template/web/pub/arizuko/assets/` and `.../legacy/assets/`.
-`specs/1/Z2-slink-sdk.md` says the `embed.FS` copy is the single source of
-truth precisely so there is "no copy-drift".
+The served copy (`webd/assets/`) and the documented copy
+(`template/web/pub/arizuko/assets/`) differed by one line: the served one cited
+`specs/1/W-slink.md`, a spec that does not exist. Nothing said they had drifted.
 
-The `L220` sweep repointed the spec reference in the two `pub/` copies and left
-`webd/assets/arizuko-client.js:16` pointing at the deleted `specs/1/W-slink.md`
-— because that file is outside the web bucket. So the three now differ by
-exactly that line, which is the drift the spec exists to prevent, demonstrated.
+- **Status:** fixed in v0.68.2
+- **Fix:** the served copy takes the live citation, `specs/5/W-webhook-routes.md`,
+  so the two are byte-identical again.
+- **Lock:** `webd.TestBrowserSDKCopiesAreIdentical` compares their digests, so a
+  change to either fails until both carry it. The third copy the entry named,
+  under `legacy/`, is not in the source tree at all.
+## ✅ FIXED 2026-09-18 L236 — repo links on the public site pointed at Go files that do not exist (2026-09-06)
 
-- **Severity:** low — one comment line today; the mechanism guarantees more
-- **Scope:** `webd/assets/`, `template/web/pub/arizuko/assets/`, `.../legacy/`
-- **Fix:** one copy with the others generated or served from it, per `1/Z2`.
-  Until then a test that fails when the three differ.
+Eleven links across two pages pointed into `gateway/gateway.go`,
+`gateway/commands.go` and `routd/seed_grants.go`. The gateway daemon was deleted
+in the split, and grant seeding moved into `store/seed.go`.
 
-## L236 — 10 of 195 repo links on the public site point at Go files that do not exist (2026-09-06, open)
-
-MEASURED while fixing `L220`. The site deep-links into source: `gateway/gateway.go`
-(5 pages), `grants/grants.go` (4), `gateway/commands.go` (3), `auth/policy.go`
-(3), `store/identities.go` (2), plus `mastd/main.go`, `gated/main.go`,
-`crackbox/pkg/host/host.go`, `core/jid.go` and `core/jid_test.go`.
-
-Two live pages are affected. `reference/topics.html` carries **12 line-anchored
-links into the deleted `gateway/`**, so every one is a 404 with a line number
-that means nothing.
-
-This is `L220`'s defect for code rather than specs, and the new `tests/webdocs`
-guard cannot see it: those are absolute github.com URLs, which it skips as
-off-site.
-
-- **Severity:** medium — public 404s from the reference pages
-- **Scope:** `template/web/pub/arizuko/`, `tests/webdocs`
-- **Fix:** repoint each at the file that holds the code now, then teach the
-  guard to resolve a github.com blob URL that points into THIS repo against the
-  working tree — the off-site skip is what let these through.
-
+- **Status:** fixed in v0.68.2
+- **Fix:** each points at the file that owns the behaviour now — topics at
+  `routd/mcp.go`, the grant floor at `store/seed.go` — and the `#L` anchors go
+  with them: a line number is a claim that rots on the next edit, and every one
+  of these was already wrong.
+- **Measured after:** all 62 repo links on the site resolve to a file that
+  exists.
 ## L237 — a spec renumber that lands on a live number cannot be caught by any check (2026-09-06, open)
 
 OBSERVED while fixing `L220`. `legacy/reference/mcp.html` said "Spec 5/5

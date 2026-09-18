@@ -47,6 +47,10 @@ type TypingRefresher struct {
 
 	mu     sync.Mutex
 	active map[string]chan struct{}
+	// wg counts the live loops. Stop WAITS on it: closing the stop channel only
+	// asks, and a loop mid-send keeps sending after Stop returns — an outbound
+	// call that outlives the shutdown that was supposed to end it (BUGS L168).
+	wg sync.WaitGroup
 }
 
 func NewTypingRefresher(refreshRate, maxTTL time.Duration, send func(jid string) bool, clear func(jid string)) *TypingRefresher {
@@ -77,10 +81,12 @@ func (r *TypingRefresher) Set(jid string, on bool) {
 	r.mu.Unlock()
 
 	r.send(jid) // eager best-effort; loop retries on next tick if this fails
+	r.wg.Add(1)
 	go r.loop(jid, stop)
 }
 
 func (r *TypingRefresher) loop(jid string, stop chan struct{}) {
+	defer r.wg.Done()
 	deadline := time.After(r.maxTTL)
 	t := time.NewTicker(r.refreshRate)
 	defer t.Stop()
@@ -116,11 +122,15 @@ func (r *TypingRefresher) loop(jid string, stop chan struct{}) {
 	}
 }
 
+// Stop ends every live indicator and WAITS for its loop to return. The wait is
+// the point: closing the stop channel only asks, and a loop already inside send
+// keeps calling the platform after Stop returns.
 func (r *TypingRefresher) Stop() {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	for jid, stop := range r.active {
 		close(stop)
 		delete(r.active, jid)
 	}
+	r.mu.Unlock()
+	r.wg.Wait()
 }

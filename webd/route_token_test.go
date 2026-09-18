@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -199,12 +200,21 @@ func TestChatTokenPost_WaitHookToken(t *testing.T) {
 // the subscription while a goroutine plays routd's /send callback with the
 // chat JID exactly as it appears on the inbound wire. The wait response must
 // contain the assistant frame.
+// waitBudget is the ?wait= this helper asks for and the deadline its replier
+// honours. One value, so the two halves of the exchange cannot disagree.
+const waitBudget = 5 * time.Second
+
 func assertWaitSeesReply(t *testing.T, s *server, mr *mockRouter, chatURL, wantJID string) {
 	t.Helper()
 	go func() {
 		// Wait for the inbound to reach the mock router, then reply the way
 		// routd does: /send with the chat JID it holds (verbatim).
-		deadline := time.Now().Add(2 * time.Second)
+		//
+		// ONE budget, the wait's. A tighter deadline here gives up while the
+		// waiter is still waiting, and the failure then reads as "the hub keys
+		// disagree" rather than "the inbound was slow" — which is what it said on
+		// a loaded host once the inbound had a network store to cross.
+		deadline := time.Now().Add(waitBudget)
 		for time.Now().Before(deadline) {
 			if sent := mr.sent(); len(sent) == 1 {
 				if sent[0].ChatJID != wantJID {
@@ -227,7 +237,8 @@ func assertWaitSeesReply(t *testing.T, s *server, mr *mockRouter, chatURL, wantJ
 	}()
 
 	payload, _ := json.Marshal(map[string]string{"content": "ping", "topic": "tw"})
-	req, _ := http.NewRequest("POST", chatURL+"?wait=5", bytes.NewReader(payload))
+	req, _ := http.NewRequest("POST",
+		fmt.Sprintf("%s?wait=%d", chatURL, int(waitBudget.Seconds())), bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

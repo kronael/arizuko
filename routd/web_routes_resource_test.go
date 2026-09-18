@@ -56,7 +56,10 @@ func listToolNames(t *testing.T, sock string) map[string]bool {
 	req := map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
 	b, _ := json.Marshal(req)
 	c.Write(append(b, '\n'))
-	c.SetReadDeadline(time.Now().Add(2 * time.Second))
+	// The turn's work crosses a network store before the response comes back, so
+	// the deadline is the turn's budget and not a local socket's. Two seconds
+	// timed out on a loaded host while the send had already succeeded.
+	c.SetReadDeadline(time.Now().Add(mcpReadDeadline))
 	resp, err := bufio.NewReader(c).ReadBytes('\n')
 	if err != nil {
 		t.Fatalf("read: %v", err)

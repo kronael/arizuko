@@ -98,6 +98,11 @@ type Input struct {
 	ShareReadOnly bool `json:"-"`
 	EgressOpen    bool `json:"-"`
 	WebPublish    bool `json:"-"`
+	// GHWrite lets the agent make the GitHub writes ant's gh gate refuses by
+	// default. It rides to the container as ARIZUKO_GH_WRITE, because ant reads
+	// its capabilities from the environment and anything not emitted with -e is
+	// silently dead (BUGS L60 is that mistake, three times).
+	GHWrite bool `json:"-"`
 	// ModelGatewayKey is THIS spawn's virtual key at the model gateway, minted
 	// per turn by routd against a master key runed never holds (spec 6/23).
 	// buildArgs emits it as MODEL_GATEWAY_KEY; it rides the -e flag, not the
@@ -215,7 +220,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	}
 	defer eg.Stop()
 
-	args := buildArgs(cfg, mounts, containerName, eg, in.Model, in.QueryTimeoutMs, elevated, in.ModelGatewayKey)
+	args := buildArgs(cfg, mounts, containerName, eg, in.Model, in.QueryTimeoutMs, elevated, in.GHWrite, in.ModelGatewayKey)
 
 	logsDir := filepath.Join(groupDir, "logs")
 	os.MkdirAll(logsDir, 0o755)
@@ -674,7 +679,7 @@ func buildMounts(
 
 func buildArgs(
 	cfg *core.Config, mounts []volumeMount, name string, eg egressSpawn,
-	model string, queryTimeoutMs int64, elevated bool, gatewayKey string,
+	model string, queryTimeoutMs int64, elevated, ghWrite bool, gatewayKey string,
 ) []string {
 	args := []string{
 		"run", "-i", "--rm",
@@ -718,6 +723,13 @@ func buildArgs(
 		isRoot = "1"
 	}
 	args = append(args, "-e", "ARIZUKO_IS_ROOT="+isRoot)
+	// Same shape, same reason: always emitted, "1" or "", so the gate reads
+	// present-and-false rather than absent-and-ambiguous.
+	gh := ""
+	if ghWrite {
+		gh = "1"
+	}
+	args = append(args, "-e", "ARIZUKO_GH_WRITE="+gh)
 	// The network is --internal, so this is the whole egress story: the only
 	// route out is eg.ProxyURL, and that proxy answers eg.IP and no other.
 	if eg.Network != "" {

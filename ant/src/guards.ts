@@ -85,7 +85,13 @@ function ghSegments(command: string): string[][] {
 // The lock is the token's own scope: a PAT minted without `pull_requests: write`
 // cannot approve however it is called. The reason text says so, so an agent that
 // hits this gate stops rather than hunting for the way around it.
+//
+// A FOLDER CAN HOLD THE CAPABILITY. `gh:write` on the folder resolves at
+// dispatch and arrives as ARIZUKO_GH_WRITE, the same path every other 5/33
+// capability takes. Without it there was nothing to grant: the gate refused
+// every folder and the only way through was editing this list.
 export function ghWriteGate(ev: ToolEvent): Verdict {
+  if (process.env.ARIZUKO_GH_WRITE === '1') return ALLOW;
   const command = (ev.tool_input as { command?: string })?.command;
   if (!command) return ALLOW;
 
@@ -105,6 +111,7 @@ export function ghWriteGate(ev: ToolEvent): Verdict {
         kind: 'deny',
         reason:
           `Refused: ${rule.why} is not a capability this folder holds ` +
+          `(ask an operator for \`gh:write\` on this folder) ` +
           `(gh ${rule.path.join(' ')}${rule.flag ? ' ' + rule.flag : ''}). ` +
           `Do not look for another route to the same effect — the GitHub token ` +
           `is scoped to refuse it too. Report what you wanted to do instead.`,

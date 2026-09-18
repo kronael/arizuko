@@ -93,7 +93,7 @@ func TestSpawnEnvCarriesEveryKeyAntReads(t *testing.T) {
 		AgentBackend:      "codex",
 		ModelGatewayURL:   "http://litellm:4000",
 	}
-	args := strings.Join(buildArgs(cfg, nil, "c1", egressSpawn{}, "opus", 900000, false, "sk-virtual"), " ")
+	args := strings.Join(buildArgs(cfg, nil, "c1", egressSpawn{}, "opus", 900000, false, false, "sk-virtual"), " ")
 
 	for _, key := range antEnvReads(t) {
 		if notArizukos[key] != "" {
@@ -131,7 +131,7 @@ func TestSpawnEnvEmitsNothingAntIgnores(t *testing.T) {
 		ModelGatewayURL: "http://litellm:4000",
 	}
 	emitted := regexp.MustCompile(`^([A-Z_][A-Z0-9_]*)=`)
-	args := buildArgs(cfg, nil, "c1", egressSpawn{}, "opus", 900000, false, "sk-virtual")
+	args := buildArgs(cfg, nil, "c1", egressSpawn{}, "opus", 900000, false, false, "sk-virtual")
 	for i, a := range args {
 		if a != "-e" || i+1 >= len(args) {
 			continue

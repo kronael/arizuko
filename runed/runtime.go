@@ -31,6 +31,7 @@ type RunSpec struct {
 	ShareReadOnly   bool              // 5/33 grant decision → container.Input.ShareReadOnly (RO share mount)
 	Egress          bool              // 5/33 grant decision → container.Input.Egress (append "*" to allowlist)
 	WebPublish      bool              // 5/33 grant decision → container.Input.WebPublish (mount web surfaces)
+	GHWrite         bool              // 5/33 grant decision → container.Input.GHWrite (ant's gh gate)
 	EgressAllowlist []string          // routd-resolved egress allowlist → EgressConfig.AllowlistFn
 	Secrets         map[string]string // routd-resolved user env-profile keys (BYOA model creds) → container.Input.Secrets, injected as container env; capability creds are brokered, never here
 	// ModelGatewayKey is this turn's virtual key at the model gateway, minted

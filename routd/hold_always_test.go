@@ -9,6 +9,7 @@ package routd
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
@@ -37,6 +38,9 @@ func holdOnce(t *testing.T, tool string, args map[string]any) (*Server, *DB, *re
 	// in production, on the agent's own goroutine.
 	go gate(tool, args)
 	id := awaitHeldID(t, d)
+	// The NOTICE is a second write, after the row: the gate records the held call
+	// and then delivers. Every caller below reads dl.sends[0], so wait for it.
+	dl.waitSends(t, 1)
 	// End the waiter even when the test leaves the call unanswered.
 	t.Cleanup(func() { _, _ = d.expirePendingAction(id) })
 	return srv, d, dl, id
@@ -199,4 +203,17 @@ func TestNever_IsNotOffered(t *testing.T) {
 	}, "atlas"); handled {
 		t.Error("/never is a live command; it must not exist until revocation has provenance")
 	}
+}
+
+// awaitNotice waits for the hold notice the gate delivers after it records the
+// row. sentMsgs takes the deliverer's lock, so the wait is also the safe read.
+func awaitNotice(t *testing.T, dl *recDeliverer) {
+	t.Helper()
+	for range 500 {
+		if len(dl.sentMsgs()) > 0 {
+			return
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	t.Fatal("the gate never delivered the hold notice")
 }

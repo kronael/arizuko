@@ -67,6 +67,11 @@ func TestServeTurnMCP_ReplyOverSocket(t *testing.T) {
 
 // callToolOverSock drives one MCP tools/call over the unix socket and returns
 // the parsed JSON payload (or the tool's error text). Mirrors ipc's test client.
+// mcpReadDeadline is how long a test waits for one MCP tool response. One value
+// for every socket caller, so a slow store cannot make one of them flake while
+// its neighbours hold.
+const mcpReadDeadline = 15 * time.Second
+
 func callToolOverSock(t *testing.T, sock, name string, args map[string]any) (map[string]any, string) {
 	t.Helper()
 	c, err := net.Dial("unix", sock)
@@ -80,7 +85,10 @@ func callToolOverSock(t *testing.T, sock, name string, args map[string]any) (map
 	}
 	b, _ := json.Marshal(req)
 	c.Write(append(b, '\n'))
-	c.SetReadDeadline(time.Now().Add(2 * time.Second))
+	// The turn's work crosses a network store before the response comes back, so
+	// the deadline is the turn's budget and not a local socket's. Two seconds
+	// timed out on a loaded host while the send had already succeeded.
+	c.SetReadDeadline(time.Now().Add(mcpReadDeadline))
 	resp, err := bufio.NewReader(c).ReadBytes('\n')
 	if err != nil {
 		t.Fatalf("read: %v", err)

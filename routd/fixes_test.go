@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,6 +19,11 @@ import (
 
 // recDeliverer records every egress call and optionally fails Send.
 type recDeliverer struct {
+	// mu guards sends. The hold fixture runs its gate on its own goroutine —
+	// that is what a hold IS — so the notice lands from there while the test
+	// reads it, and the read used to find an empty slice (index out of range on
+	// a loaded host, and a data race under -race).
+	mu       sync.Mutex
 	sends    []sentMsg
 	edits    []sentEdit
 	editErr  error
@@ -47,6 +53,14 @@ type recDeliverer struct {
 	historyErr error
 }
 
+// sentMsgs is the safe read of what landed: the gate appends from another
+// goroutine, so a test that touched the slice directly would race it.
+func (d *recDeliverer) sentMsgs() []sentMsg {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]sentMsg(nil), d.sends...)
+}
+
 type sentMsg struct {
 	jid, text, replyTo, threadID, threadRoot, idem string
 	options                                        []chanlib.Option
@@ -61,7 +75,9 @@ type sentEdit struct {
 }
 
 func (d *recDeliverer) Send(jid, text, replyTo, threadID, threadRoot, idem string) (string, error) {
+	d.mu.Lock()
 	d.sends = append(d.sends, sentMsg{jid, text, replyTo, threadID, threadRoot, idem, nil})
+	d.mu.Unlock()
 	if d.permIdem != "" && idem == d.permIdem {
 		return "", fmt.Errorf("%w: status 400", chanlib.ErrPermanent)
 	}
@@ -85,11 +101,20 @@ func (d *recDeliverer) SendOptions(jid, text string, options []chanlib.Option, t
 // SendVia records the pin alongside the send so a test can assert which adapter
 // an explicit `channel` selected.
 func (d *recDeliverer) SendVia(channel, jid, text string) (string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.viaChannels = append(d.viaChannels, channel)
 	return d.Send(jid, text, "", "", "", "")
 }
-func (d *recDeliverer) React(_, _, _ string) error { d.reacts++; return nil }
+func (d *recDeliverer) React(_, _, _ string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.reacts++
+	return nil
+}
 func (d *recDeliverer) Edit(jid, platformID, content string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.edits = append(d.edits, sentEdit{jid, platformID, content})
 	return d.editErr
 }
@@ -98,21 +123,37 @@ func (d *recDeliverer) Pin(_, _ string) error           { return nil }
 func (d *recDeliverer) Unpin(_, _ string, _ bool) error { return nil }
 func (d *recDeliverer) Typing(_ string, _ bool) error   { return nil }
 func (d *recDeliverer) Document(jid, _, _, _, replyTo, threadID, idem string) (string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.docs = append(d.docs, sentMsg{jid: jid, replyTo: replyTo, threadID: threadID, idem: idem})
 	return d.pid, nil
 }
 func (d *recDeliverer) SendVoice(jid, audioPath, caption, threadID string) (string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.voices = append(d.voices, sentVoice{jid, audioPath, caption, threadID})
 	return d.pid, nil
 }
-func (d *recDeliverer) Post(_, _ string, _ []string) (string, error)       { d.posts++; return d.pid, nil }
-func (d *recDeliverer) Forward(_, _, _ string) (string, error)             { return d.pid, nil }
-func (d *recDeliverer) Quote(_, _, _ string) (string, error)               { return d.pid, nil }
-func (d *recDeliverer) Repost(_, _ string) (string, error)                 { return d.pid, nil }
-func (d *recDeliverer) Dislike(_, _ string) error                          { d.dislikes++; return nil }
+func (d *recDeliverer) Post(_, _ string, _ []string) (string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.posts++
+	return d.pid, nil
+}
+func (d *recDeliverer) Forward(_, _, _ string) (string, error) { return d.pid, nil }
+func (d *recDeliverer) Quote(_, _, _ string) (string, error)   { return d.pid, nil }
+func (d *recDeliverer) Repost(_, _ string) (string, error)     { return d.pid, nil }
+func (d *recDeliverer) Dislike(_, _ string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.dislikes++
+	return nil
+}
 func (d *recDeliverer) SetSuggestions(_ string, _ []core.PanePrompt) error { return nil }
 func (d *recDeliverer) SetName(_, _ string) error                          { return nil }
 func (d *recDeliverer) RoundDone(chatJID, _, _, _ string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.roundDones = append(d.roundDones, chatJID)
 	return nil
 }
@@ -1364,4 +1405,22 @@ func TestCleanRunClearsTheErroredFlag(t *testing.T) {
 	if len(errored) != 0 {
 		t.Errorf("errored chats after a clean run = %+v, want none", errored)
 	}
+}
+
+// waitSends blocks until the deliverer has recorded at least n sends. It is the
+// happens-before a test needs before it reads `sends` directly: a gate on its
+// own goroutine delivers after it records the held row, so waiting for the row
+// is not waiting for the notice.
+func (d *recDeliverer) waitSends(t *testing.T, n int) {
+	t.Helper()
+	for range 500 {
+		d.mu.Lock()
+		got := len(d.sends)
+		d.mu.Unlock()
+		if got >= n {
+			return
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	t.Fatalf("the deliverer recorded %d sends, want at least %d", len(d.sends), n)
 }

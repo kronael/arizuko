@@ -207,3 +207,32 @@ describe('ghWriteGate', () => {
     expect(v.kind === 'deny' && v.reason).toContain('token');
   });
 });
+
+// A folder CAN hold the capability. `gh:write` resolves at dispatch and arrives
+// as ARIZUKO_GH_WRITE, the same path every other 5/33 capability takes. Without
+// it there was nothing to grant: the gate refused every folder and the only way
+// through was editing the deny list.
+describe('ghWriteGate with the capability', () => {
+  test('allows the denied spellings when the folder holds gh:write', () => {
+    const was = process.env.ARIZUKO_GH_WRITE;
+    process.env.ARIZUKO_GH_WRITE = '1';
+    try {
+      for (const cmd of ['gh pr review 12 --approve', 'gh pr merge 12', 'gh pr create']) {
+        expect(ghWriteGate(bashEv(cmd)).kind).toBe('allow');
+      }
+    } finally {
+      if (was === undefined) delete process.env.ARIZUKO_GH_WRITE;
+      else process.env.ARIZUKO_GH_WRITE = was;
+    }
+  });
+
+  test('still refuses when the folder does not hold it', () => {
+    const was = process.env.ARIZUKO_GH_WRITE;
+    delete process.env.ARIZUKO_GH_WRITE;
+    try {
+      expect(ghWriteGate(bashEv('gh pr merge 12')).kind).toBe('deny');
+    } finally {
+      if (was !== undefined) process.env.ARIZUKO_GH_WRITE = was;
+    }
+  });
+});

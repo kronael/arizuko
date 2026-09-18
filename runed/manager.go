@@ -360,6 +360,7 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 		Elevated: req.Elevated,
 		Model:    req.Model, ContainerConfig: req.ContainerConfig,
 		ShareReadOnly: req.ShareReadOnly, Egress: req.Egress, WebPublish: req.WebPublish,
+		GHWrite:         req.GHWrite,
 		EgressAllowlist: req.EgressAllowlist,
 		Secrets:         req.Secrets,
 		ModelGatewayKey: req.ModelGatewayKey,

@@ -814,6 +814,7 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 	shareRO := !elevated && l.db.Authorize(sub, folder, "mcp:share_mount", map[string]string{"readonly": "true"})
 	egress := elevated || l.db.Authorize(sub, folder, "egress", nil)
 	webPublish := elevated || l.db.Authorize(sub, folder, "web:publish", nil)
+	ghWrite := elevated || l.db.Authorize(sub, folder, "gh:write", nil)
 	// A denied capability is otherwise unattributable: web:publish=false makes
 	// container/runner skip both web bind mounts, so the agent finds no
 	// ~/public_html and reports a broken mount. An agent in rhias/nemo spent a
@@ -823,6 +824,7 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 	slog.Info("dispatch capabilities resolved",
 		"folder", folder, "turn_id", turnID, "elevated", elevated,
 		"egress", egress, "share_readonly", shareRO, "web_publish", webPublish,
+		"gh_write", ghWrite,
 		"shell_env", slices.Sorted(maps.Keys(shellEnv)))
 	return l.runner.Run(ctx, runedv1.RunRequest{
 		Folder:  types.Folder(folder),
@@ -847,6 +849,7 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 		ShareReadOnly:   shareRO,
 		Egress:          egress,
 		WebPublish:      webPublish,
+		GHWrite:         ghWrite,
 		EgressAllowlist: allowlist,
 		Secrets:         secrets,
 		// The turn's own gateway credential, resolved here for the same reason

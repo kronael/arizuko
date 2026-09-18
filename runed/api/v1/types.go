@@ -45,6 +45,10 @@ type RunRequest struct {
 	ShareReadOnly   bool     `json:"share_read_only,omitempty"`
 	Egress          bool     `json:"egress,omitempty"`
 	WebPublish      bool     `json:"web_publish,omitempty"`
+	// GHWrite lets the agent make the GitHub writes ant's gh gate refuses by
+	// default — approving, merging, opening a pull request, cutting a release.
+	// The gate is defence in depth either way: the token's own scope is the lock.
+	GHWrite bool `json:"gh_write,omitempty"`
 	EgressAllowlist []string `json:"egress_allowlist,omitempty"`
 	// Secrets is the trigger user's own MODEL credentials (store.EnvProfileKeys),
 	// resolved + DECRYPTED by routd (it holds SECRETS_KEY; runed has no store).

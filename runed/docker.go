@@ -105,6 +105,7 @@ func (d *dockerRuntime) Run(ctx context.Context, spec RunSpec) RunResult {
 		ShareReadOnly:   spec.ShareReadOnly,
 		EgressOpen:      spec.Egress,
 		WebPublish:      spec.WebPublish,
+		GHWrite:         spec.GHWrite,
 		Secrets:         spec.Secrets,
 		ModelGatewayKey: spec.ModelGatewayKey,
 		QueryTimeoutMs:  queryTimeoutMs(spec.RunTTL),

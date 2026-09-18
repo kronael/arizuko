@@ -94,7 +94,7 @@ func TestBuildArgs(t *testing.T) {
 		{Host: "/h/app", Container: "/opt/arizuko", RO: true},
 	}
 
-	args := buildArgs(cfg, mounts, "test-container", egressSpawn{}, "", 0, false, "")
+	args := buildArgs(cfg, mounts, "test-container", egressSpawn{}, "", 0, false, false, "")
 
 	joined := strings.Join(args, " ")
 	if !strings.Contains(joined, "--name test-container") {
@@ -466,7 +466,7 @@ func TestBuildArgsCustomUser(t *testing.T) {
 	}
 
 	cfg := &core.Config{Timezone: "UTC", Image: "img:latest"}
-	args := buildArgs(cfg, nil, "test", egressSpawn{}, "", 0, false, "")
+	args := buildArgs(cfg, nil, "test", egressSpawn{}, "", 0, false, false, "")
 	joined := strings.Join(args, " ")
 	if !strings.Contains(joined, "--user") {
 		t.Error("expected --user for non-1000 uid")

@@ -578,7 +578,7 @@ func mustOpenOwner(owner, dataDir string) (*store.Store, error) {
 // did not exist. A typo must not silently write an inert row, hence the allowlist.
 var grantableActions = map[string]bool{
 	"*": true, "admin": true, "interact": true,
-	"egress": true, "web:publish": true, "mcp:*": true,
+	"egress": true, "web:publish": true, "gh:write": true, "mcp:*": true,
 }
 
 func grantableAction(action string) bool {
@@ -601,7 +601,7 @@ func runGrant(s *store.Store, sub, pat, action string, w io.Writer) error {
 		action = "admin"
 	}
 	if !grantableAction(action) {
-		return fmt.Errorf("unknown action %q — one of *, admin, interact, egress, web:publish, mcp:*, mcp:<tool>, shell:env:<KEY>, ext:<provider>:<area>:<verb>, <resource>.<verb>", action)
+		return fmt.Errorf("unknown action %q — one of *, admin, interact, egress, web:publish, gh:write, mcp:*, mcp:<tool>, shell:env:<KEY>, ext:<provider>:<area>:<verb>, <resource>.<verb>", action)
 	}
 	if pat == "**" && action == "admin" {
 		// Operator grant: add to role:operator instead of a per-folder row.

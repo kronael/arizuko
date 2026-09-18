@@ -13,7 +13,7 @@
  *     });
  *   </script>
  *
- * Protocol: specs/1/W-slink.md (round handle)
+ * Protocol: specs/5/W-webhook-routes.md (round handle)
  * Hosting:  specs/1/Z2-slink-sdk.md (SDK)
  *
  * No build step. No dependencies. Browser-only. ES2017 baseline.

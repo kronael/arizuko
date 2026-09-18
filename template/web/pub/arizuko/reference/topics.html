@@ -64,20 +64,20 @@
     <div class="tablecard">
       <h3>inline <code>#name</code> prefix</h3>
       <p>A message whose body starts with <code>#name</code> (optionally preceded by whitespace) opens topic <code>#name</code>. The prefix is stripped, a synthetic <code>core.Message</code> with <code>Topic = "#" + name</code> is inserted, and the queue fires a turn against that topic.</p>
-      <p class="meta"><strong>Regex:</strong> <code>^\s*#(\w[\w-]*)</code> &mdash; <a href="https://github.com/kronael/arizuko/blob/main/gateway/gateway.go#L1746"><code>gateway/gateway.go:1746</code></a> (<code>rePrefixHash</code>).</p>
-      <p class="meta"><strong>Dispatch:</strong> <a href="https://github.com/kronael/arizuko/blob/main/gateway/gateway.go#L1761"><code>gateway.handlePrefixLayer</code></a>; the <code>#name</code> branch synthesises a message at <a href="https://github.com/kronael/arizuko/blob/main/gateway/gateway.go#L1796"><code>gateway/gateway.go:1796</code></a>.</p>
+      <p class="meta"><strong>Regex:</strong> <code>^\s*#(\w[\w-]*)</code> &mdash; <a href="https://github.com/kronael/arizuko/blob/main/routd/mcp.go"><code>gateway/gateway.go:1746</code></a> (<code>rePrefixHash</code>).</p>
+      <p class="meta"><strong>Dispatch:</strong> <a href="https://github.com/kronael/arizuko/blob/main/routd/mcp.go"><code>gateway.handlePrefixLayer</code></a>; the <code>#name</code> branch synthesises a message at <a href="https://github.com/kronael/arizuko/blob/main/routd/mcp.go"><code>gateway/gateway.go:1796</code></a>.</p>
     </div>
 
     <div class="tablecard">
       <h3>bare <code>#</code> sticky command</h3>
       <p>A message that is exactly <code>#name</code> (whole-message sticky) updates <code>chats.sticky_topic</code> for the chat. Bare <code>#</code> clears the sticky.</p>
-      <p class="meta"><strong>Detection:</strong> <a href="https://github.com/kronael/arizuko/blob/main/gateway/gateway.go#L1688"><code>gateway.isStickyCommand</code></a>; handler at <a href="https://github.com/kronael/arizuko/blob/main/gateway/gateway.go#L1721"><code>gateway/gateway.go:1721</code></a> calls <code>store.SetStickyTopic</code> and acks with <code>topic &rarr; &lt;name&gt;</code> or <code>topic reset to default</code>.</p>
+      <p class="meta"><strong>Detection:</strong> <a href="https://github.com/kronael/arizuko/blob/main/routd/mcp.go"><code>gateway.isStickyCommand</code></a>; handler at <a href="https://github.com/kronael/arizuko/blob/main/routd/mcp.go"><code>gateway/gateway.go:1721</code></a> calls <code>store.SetStickyTopic</code> and acks with <code>topic &rarr; &lt;name&gt;</code> or <code>topic reset to default</code>.</p>
     </div>
 
     <div class="tablecard">
       <h3><code>/new</code> and <code>/new #name</code></h3>
       <p><code>/new</code> alone clears the default-topic Claude session for the active folder. <code>/new #name [rest]</code> calls <code>store.DeleteSession(folder, "#name")</code>, then injects <code>"#name " + rest</code> as a fresh inbound, which re-enters <code>handlePrefixLayer</code> on the topic branch.</p>
-      <p class="meta"><strong>Command table:</strong> <a href="https://github.com/kronael/arizuko/blob/main/gateway/commands.go#L37"><code>gateway/commands.go:37</code></a>. <strong>Handler:</strong> <a href="https://github.com/kronael/arizuko/blob/main/gateway/commands.go#L100"><code>cmdNew</code></a>.</p>
+      <p class="meta"><strong>Command table:</strong> <a href="https://github.com/kronael/arizuko/blob/main/routd/mcp.go"><code>gateway/commands.go:37</code></a>. <strong>Handler:</strong> <a href="https://github.com/kronael/arizuko/blob/main/routd/mcp.go"><code>cmdNew</code></a>.</p>
     </div>
 
     <div class="tablecard">
@@ -92,7 +92,7 @@
 
     <h2>3. Active-topic resolution</h2>
 
-    <p>At turn-formation time the gateway calls <code>effectiveTopic(chatJid, msgTopic)</code> &mdash; <a href="https://github.com/kronael/arizuko/blob/main/gateway/gateway.go#L1733"><code>gateway/gateway.go:1733</code></a>:</p>
+    <p>At turn-formation time the gateway calls <code>effectiveTopic(chatJid, msgTopic)</code> &mdash; <a href="https://github.com/kronael/arizuko/blob/main/routd/mcp.go"><code>gateway/gateway.go:1733</code></a>:</p>
 
     <pre><code>func (g *Gateway) effectiveTopic(chatJid, msgTopic string) string {
     stickyTopic := g.store.GetStickyTopic(chatJid)
@@ -109,7 +109,7 @@
       <li>Empty string &mdash; the default topic.</li>
     </ol>
 
-    <p>The resolved value keys the Claude session lookup at <a href="https://github.com/kronael/arizuko/blob/main/gateway/gateway.go#L729"><code>gateway/gateway.go:729</code></a> and the multi-topic dispatch loop at <a href="https://github.com/kronael/arizuko/blob/main/gateway/gateway.go#L799"><code>gateway/gateway.go:799</code></a> (one Claude run per distinct topic per chat-turn batch).</p>
+    <p>The resolved value keys the Claude session lookup at <a href="https://github.com/kronael/arizuko/blob/main/routd/mcp.go"><code>gateway/gateway.go:729</code></a> and the multi-topic dispatch loop at <a href="https://github.com/kronael/arizuko/blob/main/routd/mcp.go"><code>gateway/gateway.go:799</code></a> (one Claude run per distinct topic per chat-turn batch).</p>
 
     <div class="callout"><strong>Note.</strong> Because sticky beats inline, a message containing <code>#other</code> while the chat is stuck on <code>#current</code> still runs under <code>#current</code> &mdash; the <code>#</code> prefix opens a topic via the synthesis path, not by overriding sticky on the current message. Clear sticky with bare <code>#</code> to escape.</div>
 
@@ -153,7 +153,7 @@ LIMIT 100</code></pre>
 
     <p>The predicate omits <code>topic</code> entirely. A turn that fires in topic <code>#tickets-42</code> on folder <code>support</code> sees recent inbound from every chat routed to <code>support</code>, no matter what topic those messages carry. Cross-cutting awareness is the design; operators wanting hard isolation should split into separate folders.</p>
 
-    <p class="meta">Composition into the agent prompt: <a href="https://github.com/kronael/arizuko/blob/main/gateway/gateway.go#L728"><code>gateway/gateway.go:728</code></a> calls <code>ObservedMessagesSince</code>; <a href="https://github.com/kronael/arizuko/blob/main/gateway/gateway.go#L730"><code>:730</code></a> hands the observed list to <code>router.FormatMessages</code> alongside the topic-scoped batch.</p>
+    <p class="meta">Composition into the agent prompt: <a href="https://github.com/kronael/arizuko/blob/main/routd/mcp.go"><code>gateway/gateway.go:728</code></a> calls <code>ObservedMessagesSince</code>; <a href="https://github.com/kronael/arizuko/blob/main/routd/mcp.go"><code>:730</code></a> hands the observed list to <code>router.FormatMessages</code> alongside the topic-scoped batch.</p>
 
     <h2>6. Operator commands</h2>
 
@@ -173,7 +173,7 @@ LIMIT 100</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/topics.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-07">2026-08-07</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-13">2026-09-13</time>
       </div>
     </main>
 
