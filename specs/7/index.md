@@ -13,8 +13,8 @@ into the system — and every component is one (`25`, settled 2026-09-05).
 The three specs before it each answer one question a part raises on its
 way to the cloud: what language it may be (`22`), what it is a participant
 in (`23`), how the agent inside it finds its skills (`24`). What a part
-stores is settled before it ships alone, so the storage seam is
-[`6/38`](../6/38-storage-seam.md).
+stores is settled before it ships alone, so the store model is
+[`6/37`](../6/37-store-model.md).
 
 [`25-publish-plan.md`](25-publish-plan.md) is the package contract: the
 outsider test, what a manifest can and cannot declare (measured), and

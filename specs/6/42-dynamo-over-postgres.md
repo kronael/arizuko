@@ -4,7 +4,6 @@ depends:
   [
     37-store-model,
     40-store-surface,
-    38-storage-seam,
     41-qemu-substrate,
     23-llm-gateway,
     ../5/16-mcp-rest-unification,
@@ -827,9 +826,9 @@ are deleted, so it is the operator's own copy (§7).
 
 ## Ties
 
-`6/37` (the object model this spec keeps, and the one sentence it supersedes) ·
-`6/40` (the surface, the protocols, the audited write) · `6/38` (the census
-and the Postgres seam this spec removes) · `6/41` (the two-lever rule) ·
+`6/37` (the object model this spec keeps, the one sentence it supersedes,
+the census, and the Postgres seam this spec removes) · `6/40` (the surface,
+the protocols, the audited write) · `6/41` (the two-lever rule) ·
 `6/23` (the PostgreSQL service already in the deployment,
 `template/services/litellm.yml`) · `5/16` (ownership, and the federation debt
 the policies do not close) · `5/33` (the path is the coordinate) · BUGS `L97`,

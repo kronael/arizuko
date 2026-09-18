@@ -2,7 +2,6 @@
 status: partial
 depends:
   [
-    38-storage-seam,
     22-proxyd-cut,
     23-llm-gateway,
     36-minimal-projection,
@@ -18,13 +17,15 @@ interface.** A daemon addresses objects by key and holds no SQL; SQL lives in
 exactly one place, the interface's driver, so a second engine is a second
 driver and changes no daemon.
 
-This supersedes the earlier decision recorded here and the one
-[`6/38`](38-storage-seam.md) opens with — "arizuko moves to Postgres and writes
-no `Store` interface". That verdict costed an interface against a POSTGRES
-target, where it buys nothing because Postgres is already `database/sql`.
-Against an object store the interface is not an indirection over the engine, it
-IS the engine's shape. `6/38`'s measurements are what made the reversal
-decidable and they stand unchanged; only its verdict moved here.
+The interface is costed against the engine it serves. Against a POSTGRES
+target it buys nothing, because Postgres is already `database/sql`, and the
+verdict there is "Postgres and no `Store` interface" — §"The seam is
+`database/sql`, and it is one opener" keeps that argument, and it is correct
+on that branch. Against an object store the interface is not an indirection
+over the engine, it IS the engine's shape. The measurements in §"The census a
+scale-out model is judged against" — the transaction census, what a bounded
+conditional batch can carry, the three redesigns — are what make the choice
+decidable, and they hold whichever way it goes.
 
 **The interface must be totally encapsulating, and that is a proof
 obligation, not a claim.** It has to serve SQLite, Postgres and DynamoDB
@@ -77,7 +78,8 @@ page says "Currently, PostgreSQL is our primary supported database for
 production deployments" and "We explored MySQL but that was hard to
 maintain and led to bugs for customers" (docs.litellm.ai/docs/proxy/prod).
 Virtual keys, spend logs, budgets and team management all need that
-database (docs.litellm.ai/docs/proxy/db_info) —
+database (docs.litellm.ai/docs/proxy/db_info; without it `/spend/logs`
+answers HTTP 500 "Database not connected", measured 2026-09-05) —
 [`23`](23-llm-gateway.md) chose it for exactly those.
 
 Both tools need the server whatever arizuko does, so the server is
@@ -122,7 +124,7 @@ index holds the trust root (`authd/migrations/0002`). Foreign-key
 enforcement rides the DSN (`db_utils/db_utils.go:52-58`), and the live
 routd.db carries 10 orphan `task_run_logs` rows
 (`pragma_foreign_key_check`): the invariants are in the transactions,
-not in the DDL, as `6/38` found. 47 `Begin`/`BeginTx` sites in 24
+not in the DDL. 47 `Begin`/`BeginTx` sites in 24
 non-test files; `store.runAudited` has 24 callers. Backup is `arizuko
 archive export [--quiesced]` (`cmd/arizuko/archive.go:87`), a logical
 export of config, secrets, messages and group trees, not a file copy.
@@ -150,11 +152,137 @@ the six readers and the filesystem state have moved.
 
 ## The census a scale-out model is judged against
 
-[`6/38`](38-storage-seam.md) §"Branch B, measured": 47 sites, 26
-multi-table; 19 fit a bounded conditional batch (DynamoDB
-`TransactWriteItems`: ≤100 actions, no two on one item, a condition only
-on the item it sits on), 7 do not, and 3 of those 7 are
-security-bearing. The three, re-verified in the code:
+Measured 2026-09-05: every `BeginTx`/`Begin` in tracked, non-test Go, the
+body read to its `Commit`, helper calls resolved to the tables they touch.
+The census is the evidence for every claim that follows: what the schema
+requires of an engine, which engines keep it, and what a Dynamo-shaped batch
+can and cannot carry. It is the pre-port count the redesigns below are
+costed against; [`6/40`](40-store-surface.md) §"`Merge`" re-measures the
+transaction sites as 20 on 2026-09-12, after the port.
+
+- **47 sites; 26 touch two or more tables.** Two of the 26 are wrappers —
+  `store.runAudited` (24 callers across 10 files) and the resreg mutate
+  path (`resreg/resreg.go`, every mutating action of every registered
+  resource commits its `audit_log` row in the same tx) — so by call path
+  the multi-table share is well over half.
+- Each multi-table transaction is a security invariant, not tidiness:
+
+| Site                                 | Tables                           | What a partial write costs                               |
+| ------------------------------------ | -------------------------------- | -------------------------------------------------------- |
+| `dashd/groups_admin.go` delete group | groups, acl, routes              | a re-created folder inherits the last tenant's admin     |
+| `store/invites.go` redeem            | invites, invite_redemptions, acl | grant lands, count does not → unlimited redemption       |
+| `onbod/main.go` createWorldTx        | user_profiles, groups, acl       | TOCTOU: admin on someone else's world                    |
+| `store/pairing.go`                   | route_tokens, acl_membership     | a paired identity with two parents                       |
+| `routd/steer.go` `/always`           | pending_actions, acl, messages   | a standing skip-approval rule with no approval behind it |
+| `routd/db.go` SetEngagementAudited   | chat_reply_state, audit_log      | a window that moved with no audit row, or the reverse    |
+
+- Schema features the engine must keep, counted on the krons databases:
+  5 foreign keys on 49 live tables, all `ON DELETE CASCADE`
+  (`store/groups.go` deletes a group with no child cleanup because the
+  database does it); 3 triggers (`messages_fts_ai/au/ad`, `routd/migrations/0001`,
+  the only thing that keeps FTS5 in step with `messages`); 1 partial
+  unique index (`idx_signing_keys_one_active`, `authd/migrations/0002` —
+  what stops two concurrent rotations splitting the trust root);
+  `AUTOINCREMENT` ids as the audit cursor (`audit/query.go`: id order IS
+  time order); `json_extract` in predicates (`store/groups.go`) and
+  `datetime()` normalisation (`store/tasks.go DueTasks`).
+- `resreg.Apply` (`resreg/engine.go`) takes a write lock, recomputes a
+  checksum over every row of a subsystem and swaps the lot in one tx.
+- `acl` is 42 rows and `acl_membership` 58 on krons; `auth.Authorize`
+  reads `policyRows()` live on every call, so revocation is immediate. No
+  cache; anything that must remain true is read.
+
+**What this excludes.** Any engine without a cross-item atomic write, and
+any multi-master or CRDT replication (cr-sqlite, marmot): "grant lands,
+count does not" is exactly the cross-row outcome a per-field merge
+produces. A low foreign-key count is not evidence of a document design; the
+invariants live in transactions, which a DDL audit cannot see.
+
+**What this does not exclude.** Any engine that runs `BEGIN … COMMIT`
+across tables, and — once the three redesigns below have landed — a bounded
+conditional batch.
+
+### The question is "managed Postgres, or not?"
+
+The requirement, as stated by the maintainer (2026-09-05): an
+organization-sized deployment, so Postgres suffices for scale; the
+deployment must also be able to run on one cloud platform, through an
+abstracted database whose provider is "Postgres or so". Scale therefore
+justifies nothing here. What has to be justified is **portability
+between self-hosted and one cloud**, and that has exactly two branches.
+
+**Branch A — the cloud target is managed Postgres** (RDS, Aurora, Cloud
+SQL, AlloyDB, Azure Database for PostgreSQL, Neon, Supabase). The
+application sees the same wire protocol it sees self-hosted; the provider
+swap is a connection string, and the one opener is the whole seam
+(§"The seam is `database/sql`, and it is one opener"). The leaks that reach
+application code are small and enumerable — §"What managed Postgres leaks"
+below.
+
+**Branch B — the cloud target is Postgres-incompatible** (DynamoDB,
+Firestore, Spanner's native API). This is a decision to give up SQL, and
+its price is measured below in transactions: three security-bearing
+transactions do not fit DynamoDB's transaction model as written and must
+be redesigned first. Branch B is costed rather than dismissed, so that
+choosing it is a decision, not a discovery; the three redesigns are what a
+second driver owes.
+
+### Branch B, measured: what DynamoDB's transactions can and cannot carry
+
+`TransactWriteItems` (docs.aws.amazon.com, developerguide
+`transaction-apis.html` and APIReference `API_TransactWriteItems.html`):
+up to 100 actions — `Put`, `Update`, `Delete`, `ConditionCheck` — across
+tables in one account and region, all-or-nothing, aggregate 4 MB, **no two
+actions on the same item**, a condition may reference only the item it is
+on, and `ConditionCheck` only an item the transaction does not modify.
+Reads are a separate `TransactGetItems` (100 items). There is no
+interactive transaction: nothing reads, decides and writes under one
+lock. `Query` and `Scan` are read-committed against a transaction, not
+serializable. `ClientRequestToken` gives 10-minute idempotency.
+
+So DynamoDB is not key-value: it carries a bounded, conditional,
+cross-table atomic batch. That bound is why `GuardedBatch` caps at 100
+actions with no two on one item, and why the versioned replace exists for
+the sites that do not fit. The 26 multi-table transactions classify
+against that as follows.
+
+**Fit as a bounded conditional batch — 19 sites.** The writes are known
+before the transaction starts, or the one decision is a condition on the
+item being written: `authd` link identity (2 upserts); create group + seed
+role, in `dashd`, `onbod` and `store` (`INSERT OR IGNORE … RowsAffected==0`
+becomes `Put` with `attribute_not_exists`, which fails closed the same
+way); `emaid` thread + message id; engagement upsert + audit; message +
+proactive upsert; the three route writes, two secret writes, the secret
+use log and revoke-acl, each with its audit row; and the 24 `runAudited`
+callers, none of which reads inside the transaction. Two sites need the
+read-then-condition pattern: invite redemption reads the invite outside
+the transaction and conditions the `Update` on `used_count` and `active`
+(`store/invites.go`); `/always` reads the held action outside and
+conditions the `Update` on `status` (`routd/steer.go`, `resolveHoldTx`).
+Both stay correct because the condition is on the row the decision came
+from.
+
+**Do not fit — 7 sites, 3 of them security-bearing.**
+
+| Site                                                                 | Why the batch model cannot carry it                                                                                                                                                                                                                                 | What it guards                                       |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| group delete (`dashd/groups_admin.go`, `store/groups.go`)            | four predicate deletes over a subtree (`groupfolder.SQLSubtree` on `groups`, `acl`, `routes`); DynamoDB needs the keys, so the set is read outside the transaction and a row added in between survives; a subtree over 100 rows cannot be deleted atomically at all | a re-created folder inherits the last tenant's admin |
+| pairing + membership (`store/pairing.go`, `putMembershipTx`)         | a recursive ancestor walk (`WITH RECURSIVE up`) decides the insert; the walk is an unbounded read under the same lock                                                                                                                                               | a cycle, or a paired identity with two parents       |
+| `resreg.Apply` (`resreg/engine.go`)                                  | a checksum over every row of a subsystem, then delete-all/insert-all of unbounded size, then a second checksum, in one critical section                                                                                                                             | a package install that is transactional (BUGS `L44`) |
+| `ExportSnapshot` (`resreg/archive.go`)                               | a consistent read of a whole subsystem; `TransactGetItems` caps at 100 items and `Scan` is read-committed                                                                                                                                                           | an export whose checksum means something             |
+| message import (`resreg/archive.go`)                                 | unbounded `INSERT OR IGNORE`                                                                                                                                                                                                                                        | nothing security-bearing; atomicity of an import     |
+| two `*_legacy` backfills (`store/invites.go`, `store/onboarding.go`) | one-off table-to-table copies                                                                                                                                                                                                                                       | nothing after the move                               |
+
+The three that matter each have a known DynamoDB redesign, and each is a
+change to how every writer behaves, not a storage detail: group delete
+needs a per-world version item that every `acl`/`routes`/`groups` writer
+bumps, so the delete can `ConditionCheck` it — and still fails past 100
+rows; membership needs a materialised ancestor closure per node,
+maintained on every membership write; `Apply` needs a lock item and a
+sequence of ≤100-item batches, which gives up the pre-image rollback
+`resreg.Apply` already carries (`L44`). That is Branch B's price. It is a
+redesign of three invariants, and it is what a second driver owes. The
+three, re-verified in the code:
 
 | write path     | where                                                                                                                                                                                                                                                | the transaction                                                                                                                                                                            | what it guarantees                                                                                     | the escalation it prevents                                                                                                                                                                                                                                                                      |
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -168,8 +296,59 @@ max_uses`, `store/invites.go:279-281`); `/always` claims the held action
 with `UPDATE pending_actions SET status = ? WHERE id = ? AND status = ?`
 and a `RowsAffected == 1` check (`routd/pending_actions.go:429`, under
 the tx at `routd/steer.go:582-597`). Both are conditions on the item
-written, so both survive a batch model as written. The other 17 are
-`6/38`'s classification, not re-read here.
+written, so both survive a batch model as written. The other 17 stand on
+the classification above.
+
+### What managed Postgres leaks into application code
+
+Measured against the providers' own documentation; every item is small,
+and every one is a change the self-hosted deployment needs as well.
+
+- **Connection limits and poolers.** `max_connections` on a managed
+  instance follows the instance class, and seventeen Go daemons with
+  unbounded pools is the first thing a managed instance rejects — hence
+  the cap the opener sets on every Postgres pool. A transaction-mode
+  pooler (PgBouncer, RDS Proxy, Azure's built-in PgBouncer) additionally
+  forbids `SET`/`RESET`, `LISTEN`, session advisory locks and
+  `PREPARE`/`DEALLOCATE` (pgbouncer.org/features.html), so `pgx` runs
+  with the simple protocol or statement caching off. arizuko uses none
+  of the forbidden four; the advisory lock it does take is
+  transaction-scoped.
+- **No superuser, an extension allowlist.** RDS, Cloud SQL and Azure
+  each install only extensions on their list (`rds.allowed_extensions`;
+  Cloud SQL's extension list; Azure's `azure.extensions` parameter). The
+  move needs no extension: `tsvector`, `jsonb`, partial indexes,
+  PL/pgSQL triggers and identity columns are core.
+- **Failover drops connections mid-transaction.** A managed failover
+  re-points the endpoint; in-flight transactions fail with a connection
+  error and `database/sql` reconnects. The retry rule (`CLAUDE.md`:
+  transient errors only) covers Postgres's transient class beside the
+  SQLite lock codes: `40001` serialization failure, `40P01` deadlock,
+  connection reset — `db_utils.IsTransient`. Deadlock has no SQLite
+  counterpart: one writer means two multi-table transactions never wait
+  on each other, while on Postgres group delete against a concurrent
+  grant can, and the retry wrapper is the fix.
+- **`LISTEN/NOTIFY` and logical replication** are supported by every
+  managed provider on a direct connection, and `LISTEN` is not available
+  through a transaction-mode pooler. arizuko uses neither; routd polls.
+- **TLS on by default** on Azure and Cloud SQL public IP; `sslmode` is a
+  DSN field.
+
+None of these is an abstraction; each is a DSN field, a pool cap, or a
+retry class. That is the whole provider swap.
+
+### Partition keys are per-table — an access-pattern note, not a design
+
+This states how the tables are read, which any engine's indexes should
+follow. 19 of routd's 29 tables have no `folder` column.
+`messages` keys on `chat_jid`, `secrets` on `(scope_kind, scope_id)`,
+`audit_log` on `folder` with `""` for instance-scope rows, `acl` on a
+**world**: `container/runner.go worldOf` returns the top path segment,
+and `""` for an elevated turn. A scope whose first segment is a literal
+(`acme/**`) belongs to `acme`; a scope starting with a wildcard (`**`,
+`*/eng`) belongs to `""`. An authorization read for folder F reads those
+two partitions, never a scan. `5/5` R2 already settled that a world is a
+folder-shape predicate rather than a table.
 
 ## The three redesigns
 
@@ -194,7 +373,7 @@ read, the engagement read) treats a row whose `gen` is not the folder's
 current `gen` as absent. Delete becomes one conditional write on the
 `groups` row; the four purges become a sweep that may fail or lag with
 no consequence. A scope whose first segment is a wildcard belongs to the
-instance world (`6/38` §"Partition keys") and carries no `gen`; a group
+instance world (§"Partition keys" above) and carries no `gen`; a group
 delete never touched those rows either.
 
 Preserved: a re-created folder starts with no authority on every delete
@@ -212,7 +391,8 @@ Four copies of the cycle walk exist; the redesign keeps one
 parent's ancestor set outside the transaction by key lookups, refuses if
 it contains the child, then writes one conditional batch: the edge
 `(child, parent)` conditioned on absence; the pairing token's claim where
-there is one (the two-item batch `6/38` counts as fitting); and a
+there is one (the two-item batch §"Branch B, measured" counts as
+fitting); and a
 `membership` version item conditioned on the value it read — so two
 inserts that would together close a cycle cannot both pass. On the read
 side `store.Ancestors` becomes parent-pointer lookups with a visited set
@@ -616,7 +796,8 @@ modelling.
    bodies, and an operation that cannot be expressed for both does not go on
    the interface.
 
-   With the DynamoDB driver come the three redesigns `6/38` costed: the
+   With the DynamoDB driver come the three redesigns §"Branch B, measured"
+   costed: the
    versioned replace's per-scope version, membership's materialised ancestor
    closure, and `resreg.Apply`'s lock object with bounded batches, which gives
    up the pre-image rollback it carries today (`L44`).
@@ -789,8 +970,8 @@ the reviewability versioned files give has to come from somewhere else.
 
 ## Ties
 
-`6/38` (the census and the declined seam) · `22` step 4 (the Dex
-trade) · `23` (the gateway that needs the database) · `36` (the control
-plane's writers, S1/S6/S11) · `5/16` (ownership = the migrating daemon) ·
-`5/33` (the path is the coordinate) · BUGS `L44`, `L66`/`L67`, `L195`,
-`L198`.
+`22` step 4 (the Dex trade) · `23` (the gateway that needs the database) ·
+`36` (the control plane's writers, S1/S6/S11) · `5/5` R2 (a world is a
+predicate) · `5/16` (ownership = the migrating daemon) · `5/33` (the path is
+the coordinate) · `7/22` (argues from the invariants) · BUGS `L44`,
+`L66`/`L67`, `L195`, `L198`.

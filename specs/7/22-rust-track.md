@@ -1,6 +1,6 @@
 ---
 status: draft
-depends: [../6/38-storage-seam, 25-publish-plan]
+depends: [../6/37-store-model, 25-publish-plan]
 ---
 
 # specs/7/22 — the Rust track
@@ -36,10 +36,10 @@ lines) is imported by `store/network.go` and
 
 ## Rust buys nothing for the cloud
 
-`6/38` established that the cloud constraint is relational, not
+`6/37` established that the cloud constraint is relational, not
 linguistic: 26 of 47 transactions are multi-table, and each one prevents
 a specific privilege escalation, so no key-value or document store
-carries them. `6/38` also declines a `Store` interface — `database/sql`
+carries them. `6/37` also refuses a vendor-shaped facade — `database/sql`
 is the seam and the cloud target is managed Postgres, reached by a
 connection string. That constraint is identical in any language. A
 daemon rewritten in Rust still needs the same transaction to stop a group
@@ -117,7 +117,7 @@ write them first, in Go, against the Go implementation.
 
 ## Ties
 
-`6/38` (the actual cloud constraint) · `25-publish-plan` (the
+`6/37` (the actual cloud constraint) · `25-publish-plan` (the
 package contract; language is invisible to it) · `6/16` daemon standalone
 matrix (what makes these three extractable) · `6/12` mcpfw · `6/24`
 egress isolation.

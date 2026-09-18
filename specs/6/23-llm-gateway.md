@@ -110,7 +110,7 @@ wired by `DATABASE_URL`.
 This is the gateway's bookkeeping and not arizuko's state, which decides
 two things. It lives in a named volume rather than under the instance data
 dir that backup and restore own, and it changes nothing about arizuko's own
-stores: `routd.db` and its siblings stay SQLite (`6/37`, `6/38`).
+stores: `routd.db` and its siblings stay SQLite (`6/37`).
 
 `general_settings: proxy_batch_write_at: 1` in the fragment is
 load-bearing. LiteLLM writes usage rows on a batch timer whose default is
@@ -266,7 +266,7 @@ disguises which client is calling.
 
 ## Ties
 
-`5/14` credential tiers · `6/16` adopt-the-mechanism · `6/37` and `6/38`
+`5/14` credential tiers · `6/16` adopt-the-mechanism · `6/37`
 (Postgres as substrate for the adopted tools, SQLite for arizuko's own
 stores) · BUGS `L49` · `X2` (the same "container must not hold the raw
 secret" argument, other half).

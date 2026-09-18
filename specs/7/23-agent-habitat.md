@@ -176,6 +176,6 @@ but the distinction matters when comparing designs.
 ## Ties
 
 `25-publish-plan` (the package contract) · `22-rust-track` ·
-`6/38` · `6/16` daemon standalone matrix · `6/1` adoption (the
+`6/37` · `6/16` daemon standalone matrix · `6/1` adoption (the
 field measured by property) · `5/33` paths and roles (the grant model) ·
 `5/34` channel protocol.

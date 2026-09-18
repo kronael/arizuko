@@ -1,7 +1,7 @@
 ---
 status: shipped
 shipped: 2026-09-06
-depends: [37-store-model, 38-storage-seam, ../5/33-paths-roles]
+depends: [37-store-model, ../5/33-paths-roles]
 ---
 
 # specs/6/40 — the store surface: three operations
@@ -10,7 +10,7 @@ depends: [37-store-model, 38-storage-seam, ../5/33-paths-roles]
 derives its candidates from repetition — an operation is admitted when the same
 SQL appears in more than one package. That test admits the easy repeats and
 excludes every operation that carries an invariant, because each of those
-appears exactly once. `6/38` measured which transactions a key-value engine
+appears exactly once. `6/37` measured which transactions a key-value engine
 cannot carry: group delete, the membership walk, and `resreg.Apply`. None of
 them is in `6/37`'s list.
 
@@ -59,7 +59,7 @@ across the read.
 
 That is a conditional write, which every engine has. It stays on the surface
 because it is the shape that keeps the other 19 multi-table transactions
-`6/38` classified from needing an interactive one.
+`6/37` classified from needing an interactive one.
 
 ## 3. The versioned replace — make a scope's rows equal a document
 
@@ -85,14 +85,14 @@ one operation is work, not an observation, and `L198` is the open half of it.
 
 This is the operation a key-value engine cannot carry as one write. The scope
 is unbounded, so the row set must be read before it can be deleted, and a row
-added in between survives. That is the price `6/38` costed, and it is now one
+added in between survives. That is the price `6/37` costed, and it is now one
 price rather than two.
 
 ## The audited write commits in a GuardedBatch, not an intent log
 
 `GuardedBatch` is a bounded all-or-nothing write, so **a mutation and its audit
 row go in one call and the guarantee `runAudited` gives today survives
-unchanged**: no write without its audit, no audit without its write. `6/38`
+unchanged**: no write without its audit, no audit without its write. `6/37`
 already measured that this fits — the 24 `runAudited` callers are in its
 19-site "fits as a bounded conditional batch" group precisely because none of
 them reads inside the transaction.
@@ -165,7 +165,7 @@ with `WITH RECURSIVE up(p)` and refuses the edge if the child already appears
 in it — a graph reachability test, decided by an unbounded read, under the same
 lock as the insert. A path prefix cannot express it: membership is a DAG over
 folders, not a tree, so a parent need not be a prefix of its child. This is the
-operation `6/38` costed as needing a materialised ancestor closure maintained
+operation `6/37` costed as needing a materialised ancestor closure maintained
 on every membership write.
 
 The same walk is on the READ path: `auth.Authorize` resolves a principal's
@@ -475,7 +475,7 @@ is checked against the live schema before the cutover, not during it.
 
 ## `Merge`, the write op both engines have and the surface had no name for
 
-Re-measured 2026-09-12: the 47 transaction sites `6/38` counted are **20**, and a
+Re-measured 2026-09-12: the 47 transaction sites `6/37` counted are **20**, and a
 verdict on each says most are a `GuardedBatch` wearing a `*sql.Tx`. Three are
 already vestigial — they wrap a single conditional write. `resreg.Apply` is off
 the list entirely; it adopted the versioned replace and opens no transaction.
@@ -534,8 +534,8 @@ fixable.
 
 ## Portability, stated once
 
-**First, what this table is not.** arizuko is NOT key-value ready, and `6/38`
-decided not to be: "arizuko moves to Postgres and writes no `Store` interface".
+**First, what this table is not.** arizuko is NOT key-value ready, and `6/37`
+§"The seam is `database/sql`, and it is one opener" decided not to be.
 The seam is `db_utils.Open`, which returns a `*sql.DB` — a SQL handle. No
 key-value engine can sit behind that type, so the question is never "does the
 seam carry DynamoDB", it is "what would a rewrite cost". This table is that
@@ -570,7 +570,7 @@ above record what the review found rather than the shape that was tidier.
 
 ## Ties
 
-`6/37` (this replaces its tier-2 candidate list) · `6/38` (the transaction
-census these three are derived from) · `5/33` (the path is the coordinate) ·
+`6/37` (this replaces its tier-2 candidate list; the transaction census
+these three are derived from) · `5/33` (the path is the coordinate) ·
 BUGS `L122` (why the prefix is `substr`), `L44` (the pre-image rollback the
 versioned replace carries), `L198` (the group delete with two halves).
