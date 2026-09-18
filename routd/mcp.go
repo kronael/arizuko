@@ -208,12 +208,19 @@ func toInviteInfo(inv Invite) ipc.InviteInfo {
 // orphan is never left behind), then git-inits the group dir.
 // The jid supplies the route's room literal.
 func (s *Server) registerGroup(jid string, g core.Group) error {
+	// Whether the folder was ALREADY there decides what a rollback may undo.
+	// PutGroup upserts, so a failed route insert on a pre-existing folder used to
+	// roll back rows this call never created — and the purge is a subtree delete,
+	// so it took the folder's children with it (BUGS L245).
+	existed := s.db.GroupExists(g.Folder)
 	if err := s.db.PutGroup(g); err != nil {
 		return err
 	}
 	match := "room=" + core.JidRoom(jid)
 	if _, err := s.db.AddRoute(core.Route{Seq: 0, Match: match, Target: g.Folder}); err != nil {
-		_, _ = s.db.DeleteGroup(g.Folder)
+		if !existed {
+			_, _ = s.db.DeleteGroup(g.Folder)
+		}
 		return fmt.Errorf("add route for %s: %w", g.Folder, err)
 	}
 	ensureGroupGitRepo(filepath.Join(s.groupsDir, g.Folder))

@@ -1006,36 +1006,20 @@ without the proof beside it.
   `auth.NewKeySet` needs — then call `RequireOperator` like everyone else. One
   renderer, one gate, and the `dashEnforced` substitute goes.
 
-## L269 — nothing in production creates a `user_profiles` item, so a person who signs up today stays nameless (2026-09-11, open)
+## ✅ FIXED 2026-09-18 L269 — nothing in production created a `user_profiles` item (2026-09-11)
 
-MEASURED 2026-09-11. `store.CreateUserProfile` has **zero non-test callers**:
-every one of its 51 call sites is a `_test.go` file, across `onbod`, `proxyd`,
-`dashd`, `routd`, `auth`, `cmd/arizuko` and `store` itself. The
-`CreateAuthUser` it replaced had none either.
+Every one of `CreateUserProfile`'s call sites was a `_test.go` file, so onbod's
+`writeWorld` ended by RENAMING a profile that was never there — an Update whose
+refusal had to be tolerated for the admission to work at all. A person admitted
+today stayed nameless on every operator surface that labels people.
 
-Live rows exist — krons 0, marinade 2, sloth 3 — so a writer existed once and is
-gone. `migrate-split` carries the table, which is how the surviving rows got
-there.
-
-The visible cost is `SetUsernameTx`: it renames a sub this instance has never
-recorded, so the write refuses and the person keeps no name. onbod's tests hide
-it because `onbod/integration_test.go:153` seeds the row the flow depends on —
-the fixture supplies what production does not.
-
-Found while fixing `L268`. That site now tolerates the refusal deliberately, with
-the measurement written above the line, because making it loud would answer
-`create_world` with a 500 and roll a whole world back — blocking a signup instead
-of restoring the missing writer.
-
-- **Severity:** medium (a name is cosmetic; the missing writer is not)
-- **Scope:** `store/user_profiles.go`, onboarding's world-creation path
-- **Affected:** every instance; every person admitted since the writer was lost
-- **Source:** `grep CreateUserProfile` over non-test Go returns nothing, 2026-09-11
-- **Status:** open
-- **Fix:** whichever path admits a person creates the profile, in the same
-  transaction as the membership it already writes. Then `SetUsernameTx` stops
-  needing to tolerate a refusal and becomes a guarded write like its neighbours.
-
+- **Status:** fixed in v0.68.2
+- **Fix:** `store.RecordPerson` is the door the admission path takes: it creates
+  the profile when the instance has never seen the sub, and renames an existing
+  one when the person comes back. `CreateUserProfile`'s refusal is
+  `ErrProfileExists`, a sentinel, because RecordPerson decides on it and
+  deciding on an error's text breaks when the text is reworded.
+- **Test:** `store.TestRecordPerson_CreatesThenRenames`.
 ## ✅ FIXED 2026-09-11 L268 — a guarded write's `committed` verdict is discarded at 15 call sites, so `PUT /v1/gates/<gate>` answers 200 and writes nothing (2026-09-11)
 
 `objstore.GuardedBatch` answers `(committed bool, err error)`, and `committed=false`
@@ -13430,29 +13414,15 @@ private table namespace on the endpoint the test process dials, which is what
 "a fresh private store for one test" means.
 
 - **Status:** moot in v0.68.0
-## L243 — `system_messages` survives a group delete, and two schemas disagree on its folder column (2026-09-06, open)
+## ✅ FIXED 2026-09-18 L243 — `system_messages` survived a group delete (2026-09-06)
 
-FOUND while closing `L198`. `system_messages` is folder-scoped and no delete
-path purges it, so `FlushSysMsgs` drains a deleted tenant's queue into the NEXT
-tenant's prompt on the re-created folder.
+Fixed: `SystemMessages` is in `entityScopePurge` with its own folder extractor
+(`store/folder_scope.go`), so the subtree delete takes it. The two-schema
+disagreement the entry names is moot — there is one schema.
 
-It is not in the one purge because the two schemas disagree on the column:
-routd.db calls it `folder`, messages.db calls it `group_id`. A migration to
-reconcile them was written and rehearsed against copies of krons' and
-marinade's live `messages.db` — 0 rows both times, which is a red flag rather
-than an all-clear, so it was re-run with three seeded old-shape rows and mapped
-all three with ids preserved. It was then REVERTED, because
-`cmd/arizuko/migrate_split.go:151` reads `group_id, origin, event, created_at`
-by name, and changing a historical one-way cutover tool for a low-severity leak
-is the wrong trade.
-
-- **Severity:** medium — content crosses a tenant boundary, but only into a
-  folder path that was deleted and re-created
-- **Scope:** `store/`, `messages.db`, `cmd/arizuko/migrate_split.go`
-- **Fix:** reconcile the column with a spec that says what `migrate_split` does
-  after it, or let `6/37` redesign 1's generation make the stale rows
-  unreachable instead
-
+- **Status:** fixed
+- **Lock:** `TestFolderScope_ClassifiesEveryDeclaredEntity` fails if an entity
+  joins an owner's declaration without a verdict.
 ## L244 — `invites` and `invite_redemptions` are folder-scoped in another database, so no purge reaches them (2026-09-06, open)
 
 FOUND while closing `L198`. Both live in onbod.db and carry `target_glob`,
@@ -13469,22 +13439,17 @@ databases to commit together.
 - **Scope:** `onbod/`, `specs/6/37` redesign 1
 - **Fix:** the generation, or an onbod-side sweep keyed on the folder's absence
 
-## L245 — routd's `registerGroup` rollback deletes a subtree it did not create (2026-09-06, open)
+## ✅ FIXED 2026-09-18 L245 — routd's `registerGroup` rollback deleted a subtree it did not create (2026-09-06)
 
-FOUND while closing `L198`. `routd/mcp.go:217` rolls back a failed route insert
-by calling the group delete. `PutGroup` upserts, so when the folder already
-existed the rollback removes rows it never created — and now that the purge is
-a subtree delete, it takes the folder's children with it.
+`PutGroup` upserts, so a failed route insert on a folder that ALREADY existed
+rolled back rows the call never created — and the purge is a subtree delete, so
+it took the folder's children with it.
 
-The unsoundness predates the purge change, which only widens the blast radius:
-the rollback already destroyed a pre-existing folder's own rows.
-
-- **Severity:** low — needs a route insert to fail on a folder that already
-  exists
-- **Scope:** `routd/mcp.go`
-- **Fix:** roll back only what this call created — check whether `PutGroup`
-  inserted or updated, and skip the delete when it updated
-
+- **Status:** fixed in v0.68.2
+- **Fix:** `registerGroup` asks whether the folder existed BEFORE it upserts, and
+  rolls back only when it did not. That is the entry's own stated fix.
+- **Test:** `routd.TestRegisterGroup_RollsBackOnlyWhatItCreated` — a pre-existing
+  folder and its child both survive a failed route insert.
 ## L246 — orphan rows from the old delete cannot be cleaned through the new one (2026-09-06, open)
 
 MEASURED. marinade carries one orphan route, four engagement rows and two

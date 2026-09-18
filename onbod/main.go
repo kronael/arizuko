@@ -830,14 +830,16 @@ func membershipJIDs(db *store.Store, userSub string) []string {
 // guarded one in the batch, so a refusal detects a concurrent creator and fails
 // closed instead of granting admin on someone else's world.
 //
-// THE NAME IS WRITTEN AFTER THE FOLDER IS WON, and that is what the transaction
-// was protecting: a caller who loses the race must not be left renamed. Landing
-// it after the batch gives that directly — a lost race writes nothing at all —
-// where the transaction gave it by rolling both back. The rename is also the one
-// write here that cannot ride in the batch: it is an Update against a profile
-// that has to exist, its refusal is TOLERATED (store.SetUsernameTx says why, and
-// that nothing in production creates such an item), and a tolerated refusal
-// cannot sit in a batch that is all-or-nothing.
+// THE PERSON IS RECORDED AFTER THE FOLDER IS WON, and that is what the
+// transaction was protecting: a caller who loses the race must not be left
+// named. Landing it after the batch gives that directly — a lost race writes
+// nothing at all — where the transaction gave it by rolling both back.
+//
+// It is store.RecordPerson and not a rename: this IS the path that admits a
+// person, so it is the path that creates their profile. It used to rename a
+// profile nothing ever created, and every person admitted stayed nameless on
+// every operator surface (BUGS L269). It cannot ride in the batch because the
+// batch is all-or-nothing and this one write is create-or-rename.
 //
 // The batch runs through store.SeedMemberRole, which is objstore.AddEdge, so the
 // cycle walk compare-and-swaps routd's marker in the write it decided (BUGS
@@ -893,7 +895,7 @@ func writeWorld(db *store.Store, folder, username, userSub string) error {
 	if !created {
 		return fmt.Errorf("folder %q already exists", folder)
 	}
-	return db.SetUsername(ctx, userSub, username)
+	return db.RecordPerson(ctx, userSub, username, username)
 }
 
 func loadGates(db *store.Store) []gate {

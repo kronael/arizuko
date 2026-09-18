@@ -8,6 +8,7 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/store"
 )
 
 // TestBuildGatedFnsSendReply: SendReply is deliver-only — it fans the text out
@@ -144,5 +145,35 @@ func TestServeTurnMCPSocketLifecycle(t *testing.T) {
 	stop()
 	if _, err := os.Stat(sock); !os.IsNotExist(err) {
 		t.Fatalf("socket %s still present after stop (err=%v)", filepath.Base(sock), err)
+	}
+}
+
+// PutGroup upserts, so a failed route insert on a folder that ALREADY existed
+// used to roll back rows this call never created — and the purge is a subtree
+// delete, so it took the folder's children with it (BUGS L245).
+func TestRegisterGroup_RollsBackOnlyWhatItCreated(t *testing.T) {
+	d := memDB(t)
+	srv := &Server{db: d, groupsDir: t.TempDir()}
+
+	// A folder that is already there, with a child of its own.
+	if err := d.PutGroup(core.Group{Folder: "acme"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.PutGroup(core.Group{Folder: "acme/eng"}); err != nil {
+		t.Fatal(err)
+	}
+	// Make the route insert fail the way it fails in production: the store
+	// cannot answer for that entity.
+	dropEntity(t, d, store.Routes)
+
+	const jid = "telegram:group/77"
+	if err := srv.registerGroup(jid, core.Group{Folder: "acme"}); err == nil {
+		t.Fatal("the duplicate route insert reported success")
+	}
+
+	for _, folder := range []string{"acme", "acme/eng"} {
+		if !d.GroupExists(folder) {
+			t.Errorf("the rollback deleted %s, which this call did not create", folder)
+		}
 	}
 }

@@ -44,6 +44,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -100,9 +101,35 @@ func (s *Store) CreateUserProfile(sub, username, name string) error {
 		return fmt.Errorf("record the profile of %s: %w", sub, err)
 	}
 	if !created {
-		return fmt.Errorf("record the profile of %s: the sub already has one", sub)
+		return fmt.Errorf("record the profile of %s: %w", sub, ErrProfileExists)
 	}
 	return nil
+}
+
+// ErrProfileExists is CreateUserProfile's refusal: the sub already has a
+// profile. It is a sentinel because RecordPerson decides on it, and deciding on
+// an error's text is a decision that breaks when the text is reworded.
+var ErrProfileExists = errors.New("the sub already has a profile")
+
+// RecordPerson is the door the admission path takes: it creates the profile when
+// the instance has never seen this sub, and renames an existing one otherwise.
+//
+// It exists because NOTHING created a profile — every caller of
+// CreateUserProfile was a test — so `SetUsername` was an Update against an item
+// that was never there, and its refusal had to be tolerated for the admission to
+// work at all (BUGS L269). A person admitted today stayed nameless, and every
+// operator surface that labels people read an empty partition.
+func (s *Store) RecordPerson(ctx context.Context, sub, username, name string) error {
+	err := s.CreateUserProfile(sub, username, name)
+	if err == nil {
+		return nil
+	}
+	// The sub already has a profile — the person is coming back, and the name
+	// they chose this time is the one that stands.
+	if errors.Is(err, ErrProfileExists) {
+		return s.SetUsername(ctx, sub, username)
+	}
+	return err
 }
 
 // Username answers the name a person's folder is named after, and whether the

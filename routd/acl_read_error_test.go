@@ -13,14 +13,17 @@ import (
 // network service, so an unreadable policy is an ordinary condition — an
 // endpoint that is down, a key whose policy no longer covers the table — and a
 // missing entity is the one a test can make deterministic.
-func dropACL(t *testing.T, db *DB) {
+func dropACL(t *testing.T, db *DB) { dropEntity(t, db, store.ACL) }
+
+// dropEntity takes one entity away from the store under test.
+func dropEntity(t *testing.T, db *DB, entity string) {
 	t.Helper()
 	d, ok := db.Obj().(*dynstore.Store)
 	if !ok {
 		t.Fatalf("this fixture is not served: %T", db.Obj())
 	}
-	if err := d.DropEntity(context.Background(), store.ACL); err != nil {
-		t.Fatalf("drop acl: %v", err)
+	if err := d.DropEntity(context.Background(), entity); err != nil {
+		t.Fatalf("drop %s: %v", entity, err)
 	}
 }
 
