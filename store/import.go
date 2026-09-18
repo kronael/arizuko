@@ -77,14 +77,6 @@ type Counts struct {
 	Uses  int
 }
 
-// CheckSnapshot reports whether the entities can represent snap, writing
-// nothing. It is what a rehearsal runs: a row the store cannot address should
-// be named before the run that would stop half way through, not during it.
-func CheckSnapshot(snap Snapshot) (Counts, error) {
-	_, counts, err := importWrites(snap)
-	return counts, err
-}
-
 // Import writes snap into the entities and answers what landed.
 //
 // The writes are UNCONDITIONAL, which is the one place this package drops the

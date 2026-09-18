@@ -133,8 +133,6 @@ func (d *DB) Close() error {
 // mutation runs on.
 func (d *DB) Obj() objstore.Store { return d.obj }
 
-func nowTS() string { return core.NowTS() }
-
 // PutGroup upserts a group identity row, persisting the per-group model +
 // container_config so dispatchRun can forward them to runed (GroupConfig reads
 // them back), and binds the new folder to role:member in the SAME transaction.
@@ -852,41 +850,6 @@ func (d *DB) ChatHasRunningTurn(jid string) bool {
 // Empty topic → false (main timeline is not a thread).
 func (d *DB) ThreadHasBotMessage(chatJID, topic string) bool {
 	return d.store().ThreadHasBotMessage(chatJID, topic)
-}
-
-func b2i(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
-}
-
-func nullStr(s string) any {
-	if s == "" {
-		return nil
-	}
-	return s
-}
-
-func nz(n int) any {
-	if n == 0 {
-		return nil
-	}
-	return n
-}
-
-func defaultVerb(v string) string {
-	if v == "" {
-		return "message"
-	}
-	return v
-}
-
-func defaultStatus(s string) string {
-	if s == "" {
-		return core.MessageStatusSent
-	}
-	return s
 }
 
 // OpenOver serves routd from a handle the caller owns. The caller has already

@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strings"
-	"unicode/utf8"
 )
 
 // Contains reports whether `child` is `parent` or lives under it. This is the
@@ -24,7 +23,7 @@ import (
 func Contains(parent, child string) bool { return ContainsSep(parent, child, "/") }
 
 // ContainsSep is Contains with the separator named, and it is the Go half of
-// the one containment predicate: SQLSubtree renders the same rule for a
+// the one containment predicate, and store/groups.go renders the same rule as a
 // statement, and every read that answers it in memory answers it here.
 //
 // The separator is a parameter because a folder opens its children with "/" and
@@ -189,30 +188,4 @@ func resolve(base, folder string) (string, error) {
 		return "", err
 	}
 	return p, nil
-}
-
-// SQLSubtree renders the SQL twin of Contains: a WHERE fragment matching `col`
-// for `folder` itself plus everything below it, separated by sep ("/" between
-// folders, "#" before a route fragment). Pair it with SubtreeArgs, which binds
-// the three placeholders in order.
-//
-// It exists because the cascades hand-wrote `col = ? OR col LIKE ?||'/%'` at
-// five sites, and LIKE is the wrong predicate for containment. `_` and `%` are
-// wildcards on every engine: measured on sqlite 3.51.2 and PostgreSQL 17.11,
-// `'aXb' LIKE 'a_b'` is true on both, so deleting folder `a_b` also deleted
-// `axb`'s rows. Case folding is an engine difference, not a general fact —
-// sqlite's LIKE folds ASCII and Postgres's does not, so `'Coach' LIKE 'coach%'`
-// is true on sqlite and false on Postgres. A live instance HAS carried a
-// `Coach`/`coach` pair (BUGS L66), and it leaked on sqlite only. substr
-// comparison is exact, case-sensitive and has no metacharacters at all, which
-// is why it is the predicate on every engine.
-func SQLSubtree(col, sep string) string {
-	return "(" + col + " = ? OR substr(" + col + ", 1, ?) = ?)"
-}
-
-// SubtreeArgs returns the three bind values SQLSubtree expects. The length is a
-// RUNE count because sqlite's substr() counts characters, not bytes.
-func SubtreeArgs(folder, sep string) []any {
-	prefix := folder + sep
-	return []any{folder, utf8.RuneCountInString(prefix), prefix}
 }

@@ -243,15 +243,6 @@ func groupUpsert(g core.Group, settings map[string]any) (objstore.Write, error) 
 	}, nil
 }
 
-// putGroup writes the upsert, on a transaction the caller owns when it has one.
-func (s *Store) putGroup(ctx context.Context, g core.Group) error {
-	w, err := s.groupUpsertWrite(ctx, g)
-	if err != nil {
-		return err
-	}
-	return s.WriteEntities(ctx, nil, w)
-}
-
 // groupUpsertWrite reads what the upsert needs and renders it, for both sinks
 // that write one: the caller's transaction and the audited batch.
 //

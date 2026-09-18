@@ -115,14 +115,6 @@ func (s *Store) Import(snap Snapshot) (Counts, error) {
 	return counts, nil
 }
 
-// CheckSnapshot reports whether the entities can represent snap, writing
-// nothing. It is what a rehearsal runs: a family the model cannot hold should
-// be named before the run that would stop half way through, not during it.
-func CheckSnapshot(snap Snapshot) error {
-	_, _, err := importWrites(snap)
-	return err
-}
-
 // importWrites turns a snapshot into the writes that represent it, or names why
 // it cannot be represented.
 func importWrites(snap Snapshot) ([]objstore.Write, Counts, error) {

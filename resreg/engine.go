@@ -211,10 +211,6 @@ func (r *Resource) initMeta() {
 	r.meta = m
 }
 
-func (r *Resource) newRowPtr() reflect.Value {
-	return reflect.New(r.meta.rowType)
-}
-
 // checkRowFilter refuses a filter no reader can honour, at Register.
 //
 // The operators are Eq and Ne because those are what both shapes answer alike

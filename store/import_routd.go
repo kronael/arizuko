@@ -81,13 +81,6 @@ var routdKeyFields = map[string][]string{
 	GitHubSources:     {"source"},
 }
 
-// RoutdKeyFields answers one entity's coordinate fields, for the reader that
-// has to name them in a SELECT.
-func RoutdKeyFields(entity string) ([]string, bool) {
-	f, ok := routdKeyFields[entity]
-	return f, ok
-}
-
 // routdStamped names, per entity, the attributes whose width this move
 // normalises to core.TS. They are exactly the resources' StampedFields — the
 // instants the object path writes itself — so a value the column path left at

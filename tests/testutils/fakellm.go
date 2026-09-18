@@ -139,13 +139,6 @@ func (f *FakeLLM) MintedKeys() []string {
 	return out
 }
 
-// DeletedKeys returns every key revoked through /key/delete, in call order.
-func (f *FakeLLM) DeletedKeys() []string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return append([]string(nil), f.deleted...)
-}
-
 // serveGateway answers the admin surface routd drives: reconcile the folder's
 // team and the caller's budget, mint a key, revoke it, and report what was
 // spent. It is a small LEDGER rather than a set of canned replies — a call

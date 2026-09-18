@@ -88,13 +88,6 @@ var hotKeyFields = map[string][]string{
 	Messages: {"chat_jid", "timestamp", "id"},
 }
 
-// HotKeyFields answers one entity's coordinate fields, for the reader that has
-// to name them in a SELECT.
-func HotKeyFields(entity string) ([]string, bool) {
-	f, ok := hotKeyFields[entity]
-	return f, ok
-}
-
 // hotDropped names the legacy columns an entity does NOT keep. A column this
 // file does not name still travels, under its own name, so a column that has no
 // place in the item has to be named here or it arrives as an attribute nothing
