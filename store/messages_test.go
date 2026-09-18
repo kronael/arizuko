@@ -11,7 +11,7 @@ import (
 // inverse of MessagesSince. Used by `arizuko send` operator-direct mode to show
 // the agent's reply to a CLI-injected message.
 func TestBotRepliesSince(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 	base := time.Now().Truncate(time.Second)
 

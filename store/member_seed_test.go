@@ -14,7 +14,7 @@ import (
 // the CLI, by dashd or by web onboarding expanded to nothing, matched zero
 // allow rows, and came up with no messaging tools at all (BUGS L119).
 func TestPutGroupRowSeedsTheMemberEdge(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	if err := s.PutGroupRow(core.Group{Folder: "acme"}); err != nil {

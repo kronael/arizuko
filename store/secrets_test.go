@@ -218,7 +218,7 @@ func seedLegacyPlaintext(t *testing.T, s *Store, scope SecretScope, scopeID, key
 // BUGS S2: an empty keyring must REFUSE every write. It previously stored the
 // plaintext, so an un-keyed daemon persisted each secret readable on disk.
 func TestSecret_NoKey_RefusesToWrite(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	writes := map[string]func() error{
@@ -250,7 +250,7 @@ func TestSecret_NoKey_RefusesToWrite(t *testing.T) {
 // storeValue is the single choke point every write path funnels through, so it
 // must never hand back the plaintext it was given.
 func TestStoreValue_NeverReturnsPlaintext(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	const plaintext = "sk-live-never-at-rest"

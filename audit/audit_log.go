@@ -4,8 +4,8 @@ package audit
 // daemon records, appended and never touched again. It is the whole storage
 // half of this package, so a second driver reimplements nothing here — the
 // entity is a name a driver resolves, and the daemon that opens the database
-// picks which one (spec 6/37 step 5). db_utils/sql_layer_test.go fails the
-// build if a statement appears anywhere in audit.
+// picks which one (spec 6/37 step 5). There is no SQL driver for a statement
+// here to run against.
 //
 // THE PARTITION IS A CONSTANT, and these are the reads that decide it
 // (measured on krons' routd.db, 163,750 rows, 2026-09-07):

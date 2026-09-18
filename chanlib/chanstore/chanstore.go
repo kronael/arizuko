@@ -1,7 +1,6 @@
 // Package chanstore is chanlib's storage layer: every channel adapter asks it
 // what a delivery needs and it answers, so a second driver reimplements this
-// package and no adapter changes (spec 6/37 step 1). db_utils/sql_layer_test.go
-// fails the build if a statement appears anywhere in chanlib.
+// package and no adapter changes (spec 6/37 step 1).
 //
 // It holds no SQL and no DDL. Every method below is objstore's two primitives —
 // Query and GuardedBatch — and the driver is chosen by whoever opens the

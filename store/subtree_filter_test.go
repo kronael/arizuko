@@ -9,7 +9,7 @@ import (
 // ListRoutes scopes on `target`, which carries a `#topic` fragment as well as
 // a `/` subtree, so both separators go through the same predicate.
 func TestListRoutesIsNotWidenedByLikeMetacharacters(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 	for _, target := range []string{"a_b", "a_b/one", "a_b#t", "aXb", "aXb/two", "aXb#t"} {
 		if _, err := s.PutRouteRow(core.Route{Seq: 1, Match: "platform=slack", Target: target}); err != nil {
@@ -32,7 +32,7 @@ func TestListRoutesIsNotWidenedByLikeMetacharacters(t *testing.T) {
 // predicate would return. Mutating SQLSubtree back to LIKE therefore does NOT
 // turn this test red, which is why it asserts the pair and not the predicate.
 func TestSiblingFoldersKeepOnlyExactChildren(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 	for _, f := range []string{"a_b", "a_b/one", "a_b/two", "aXb", "aXb/three", "A_B", "A_B/four"} {
 		if err := s.PutGroup(core.Group{Folder: f}); err != nil {

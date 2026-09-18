@@ -77,7 +77,7 @@ func TestProactiveSilenceDebounce(t *testing.T) {
 	now := time.Now().UTC()
 
 	// gap < SilenceMin → live, skip.
-	db1, _ := OpenMem()
+	db1 := memDB(t)
 	defer db1.Close()
 	seedQuestion(t, db1, "slack:T/C/U", now, 10*time.Second, 3)
 	if r := evalProactive(db1, cfg, lurk, "slack:T/C/U", now); r.fired || r.check != "Silence" {
@@ -85,7 +85,7 @@ func TestProactiveSilenceDebounce(t *testing.T) {
 	}
 
 	// gap > SilenceMax → dormant, skip.
-	db2, _ := OpenMem()
+	db2 := memDB(t)
 	defer db2.Close()
 	seedQuestion(t, db2, "slack:T/C/U", now, 13*time.Hour, 3)
 	if r := evalProactive(db2, cfg, lurk, "slack:T/C/U", now); r.fired || r.check != "Silence" {
@@ -95,7 +95,7 @@ func TestProactiveSilenceDebounce(t *testing.T) {
 
 // TestProactiveBotQuietVeto covers veto: the bot spoke within BotQuiet.
 func TestProactiveBotQuietVeto(t *testing.T) {
-	db, _ := OpenMem()
+	db := memDB(t)
 	defer db.Close()
 	now := time.Now().UTC()
 	// last inbound 5m ago (passes Silence) ending in a question, so only
@@ -114,7 +114,7 @@ func TestProactiveBotQuietVeto(t *testing.T) {
 // TestProactiveRecentActivityVeto covers veto: too few inbound in the last
 // hour.
 func TestProactiveRecentActivityVeto(t *testing.T) {
-	db, _ := OpenMem()
+	db := memDB(t)
 	defer db.Close()
 	now := time.Now().UTC()
 	// only 2 inbound in the last hour (< RecentActivityMin=3).
@@ -129,7 +129,7 @@ func TestProactiveQuietHoursVeto(t *testing.T) {
 	loc, _ := time.LoadLocation("Europe/Prague")
 	// 23:00 Prague — inside 22:00-08:00.
 	now := time.Date(2026, 5, 30, 23, 0, 0, 0, loc).UTC()
-	db, _ := OpenMem()
+	db := memDB(t)
 	defer db.Close()
 	seedQuestion(t, db, "slack:T/C/U", now, 5*time.Minute, 3)
 	mode := proactive.Mode{Name: "lurk", QuietHours: []proactive.Window{
@@ -143,7 +143,7 @@ func TestProactiveQuietHoursVeto(t *testing.T) {
 // TestProactiveNoSignal covers the no-positive-signal skip: an active chat
 // past all vetoes, but the last inbound is not a question.
 func TestProactiveNoSignal(t *testing.T) {
-	db, _ := OpenMem()
+	db := memDB(t)
 	defer db.Close()
 	now := time.Now().UTC()
 	for i := range 3 {
@@ -158,7 +158,7 @@ func TestProactiveNoSignal(t *testing.T) {
 // TestProactiveAnsweredQuestion: the question has a later bot reply → the
 // signal does not hold.
 func TestProactiveAnsweredQuestion(t *testing.T) {
-	db, _ := OpenMem()
+	db := memDB(t)
 	defer db.Close()
 	now := time.Now().UTC()
 	seedQuestion(t, db, "slack:T/C/U", now, 5*time.Minute, 3)
@@ -173,7 +173,7 @@ func TestProactiveAnsweredQuestion(t *testing.T) {
 // TestProactiveCooldownBlocksSecond is acceptance #2's tail: the 24h
 // cooldown blocks a second fire even when the checks pass again.
 func TestProactiveCooldownBlocksSecond(t *testing.T) {
-	db, _ := OpenMem()
+	db := memDB(t)
 	defer db.Close()
 	cfg := defaultProactiveCfg()
 	now := time.Now().UTC()
@@ -217,7 +217,7 @@ func TestProactiveCooldownBlocksSecond(t *testing.T) {
 
 // TestProactiveRunningTurnSkips: a chat with a live turn is skipped.
 func TestProactiveRunningTurnSkips(t *testing.T) {
-	db, _ := OpenMem()
+	db := memDB(t)
 	defer db.Close()
 	now := time.Now().UTC()
 	seedQuestion(t, db, "slack:T/C/U", now, 5*time.Minute, 3)

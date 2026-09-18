@@ -1,9 +1,8 @@
 // Package emaistore is emaid's storage layer: the adapter asks it what a
 // message or a thread needs and it answers, so a second driver reimplements
 // this package and no handler changes (spec 6/37 step 1).
-// db_utils/sql_layer_test.go fails the build if a statement appears anywhere in
-// emaid, and emaid has no storage file outside this package, so the daemon
-// holds none at all.
+// emaid holds no storage outside this package, and there is no SQL driver for
+// a statement to run against.
 //
 // It holds no SQL and no DDL. Every method below is objstore's two primitives —
 // Query and GuardedBatch — and the driver is chosen by the daemon that

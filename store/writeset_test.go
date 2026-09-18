@@ -19,7 +19,7 @@ import (
 // caller that silently picked one would report the wrong thing on exactly the
 // race it was guarding against.
 func TestWriteSet_RefusesASecondGuardedWrite(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	ws := &WriteSet{}
@@ -44,7 +44,7 @@ func TestWriteSet_RefusesASecondGuardedWrite(t *testing.T) {
 // writes nothing at all — the companion write goes with it. That is the whole
 // guarantee the transaction used to give.
 func TestWriteSet_RefusedBatchAnswersTheCallerAndWritesNothing(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 	seedFolder(t, s, "acme")
 	ctx := context.Background()
@@ -77,7 +77,7 @@ func TestWriteSet_RefusedBatchAnswersTheCallerAndWritesNothing(t *testing.T) {
 // Apply sends the set and the writes named beside it — resreg's audit row — as
 // ONE batch, so a caller that buffered nothing still records its call.
 func TestWriteSet_ApplySendsTheCompanionOfAnEmptySet(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 	ctx := context.Background()
 

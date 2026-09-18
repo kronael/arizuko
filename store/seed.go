@@ -19,9 +19,8 @@ package store
 // nothing to anyone, including the operator — so it is the condition, and it is
 // exactly "a database nobody has written yet".
 //
-// The write is still create-if-absent under that condition, because two openers
-// can race the same fresh database (db_utils.Migrate serialises the chain, not
-// this).
+// The write is still create-if-absent under that condition, because two owner
+// daemons can boot against the same fresh endpoint at once.
 //
 // THE INSTANTS ARE FIXED, not now(). A fresh instance's config checksum has to
 // be the same value on every machine, or `arizuko export | apply` on a

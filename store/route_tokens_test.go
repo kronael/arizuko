@@ -19,7 +19,7 @@ func seedFolder(t *testing.T, s *Store, folder string) {
 }
 
 func TestRouteToken_InsertLookup(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 	seedFolder(t, s, "acme")
 
@@ -41,7 +41,7 @@ func TestRouteToken_InsertLookup(t *testing.T) {
 }
 
 func TestRouteToken_LookupUnknown(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 	if _, ok := s.LookupRouteToken("bogus"); ok {
 		t.Fatal("unknown token returned ok")
@@ -52,7 +52,7 @@ func TestRouteToken_LookupUnknown(t *testing.T) {
 }
 
 func TestRouteToken_Validation(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 	if err := s.InsertRouteToken("", RouteToken{JID: "web:a", OwnerFolder: "a"}); err == nil {
 		t.Fatal("empty token accepted")
@@ -66,7 +66,7 @@ func TestRouteToken_Validation(t *testing.T) {
 }
 
 func TestRouteToken_List(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	seedFolder(t, s, "acme")
@@ -94,7 +94,7 @@ func TestRouteToken_List(t *testing.T) {
 // context) written by InsertRouteToken comes back verbatim from Lookup and
 // List; a context-less token stays empty (NULL at rest).
 func TestRouteToken_ContextRoundTrip(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 	seedFolder(t, s, "acme")
 
@@ -129,7 +129,7 @@ func TestRouteToken_ContextRoundTrip(t *testing.T) {
 }
 
 func TestRouteToken_Revoke(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 	seedFolder(t, s, "acme")
 
@@ -183,7 +183,7 @@ func TestRouteTokenJIDKind(t *testing.T) {
 // revoke died with "token not found or wrong owner". The owner is a column;
 // read it (BUGS L52).
 func TestRouteTokenOwner_ReadsTheColumnForASuffixedJID(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 	seedFolder(t, s, "eval")
 

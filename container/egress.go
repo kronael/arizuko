@@ -300,23 +300,50 @@ func startEgressProxy(cfg EgressConfig, id, spawnName string) (egressSpawn, erro
 	}, nil
 }
 
-// pickPair returns two distinct addresses in subnet: one for the spawn, one
-// for its proxy.
+// pickPair returns two distinct addresses in subnet: one for the spawn, one for
+// its proxy.
+//
+// ONE DRAW, and the second address is its neighbour. Two independent draws over
+// ~250 usable hosts collide about once in 250, and the collision is not loud:
+// docker gives both containers the same address, the spawn's traffic reaches
+// whichever answers, and the folder's egress is broken until the next turn
+// re-rolls (BUGS L240). A retry until they differ makes it improbable; deriving
+// the second from the first makes it impossible.
 func pickPair(subnet string) (spawnIP, proxyIP string, _ error) {
 	spawnIP, err := PickIP(subnet)
 	if err != nil {
 		return "", "", err
 	}
-	for range 8 {
-		proxyIP, err = PickIP(subnet)
-		if err != nil {
-			return "", "", err
-		}
-		if proxyIP != spawnIP {
-			return spawnIP, proxyIP, nil
-		}
+	proxyIP, err = neighbourIP(spawnIP, subnet)
+	if err != nil {
+		return "", "", err
 	}
-	return "", "", fmt.Errorf("egress subnet %q: no second free address", subnet)
+	return spawnIP, proxyIP, nil
+}
+
+// neighbourIP is the address one above ip, wrapped back into the same subnet's
+// usable range. It is what makes the pair distinct by construction.
+func neighbourIP(ip, subnet string) (string, error) {
+	_, n, err := net.ParseCIDR(subnet)
+	if err != nil {
+		return "", fmt.Errorf("egress subnet %q: %w", subnet, err)
+	}
+	ip4 := net.ParseIP(ip).To4()
+	if ip4 == nil {
+		return "", fmt.Errorf("egress address %q: ipv4 only", ip)
+	}
+	ones, _ := n.Mask.Size()
+	mask := uint32(1)<<uint(32-ones) - 1
+	netInt := binary.BigEndian.Uint32(n.IP.To4()) &^ mask
+	host := binary.BigEndian.Uint32(ip4) & mask
+	// The same reserved ends PickIP avoids: .0-.3 and broadcast.
+	host++
+	if host >= mask {
+		host = 4
+	}
+	var out [4]byte
+	binary.BigEndian.PutUint32(out[:], netInt|host)
+	return net.IP(out[:]).String(), nil
 }
 
 // containerIP reads a container's address on one network.

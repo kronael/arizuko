@@ -13,7 +13,7 @@ import (
 )
 
 func TestInviteCRUD(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	inv, token, err := s.CreateInvite("alice/", "github:alice", 3, nil)
@@ -72,7 +72,7 @@ func TestInviteCRUD(t *testing.T) {
 }
 
 func TestInviteCreateExpiresAt(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	exp := time.Now().Add(24 * time.Hour)
@@ -97,7 +97,7 @@ func TestInviteCreateExpiresAt(t *testing.T) {
 }
 
 func TestConsumeInviteHappyPath(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	_, token, _ := s.CreateInvite("alice", "github:alice", 2, nil)
@@ -128,7 +128,7 @@ func TestConsumeInviteHappyPath(t *testing.T) {
 // NOT write the acl grant — acl is routd-OWNED, so onbod writes it to routd.db
 // separately.
 func TestConsumeInviteNoGrantSkipsACL(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	_, token, _ := s.CreateInvite("alice", "github:alice", 2, nil)
@@ -153,7 +153,7 @@ func TestConsumeInviteNoGrantSkipsACL(t *testing.T) {
 }
 
 func TestConsumeInviteExhausted(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	_, token, _ := s.CreateInvite("alice", "github:alice", 1, nil)
@@ -167,7 +167,7 @@ func TestConsumeInviteExhausted(t *testing.T) {
 }
 
 func TestConsumeInviteExpired(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	past := time.Now().Add(-time.Hour)
@@ -179,7 +179,7 @@ func TestConsumeInviteExpired(t *testing.T) {
 }
 
 func TestConsumeInviteUnknownToken(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	_, err := s.ConsumeInvite("doesnotexist", "github:bob")
@@ -239,7 +239,7 @@ func TestConsumeInviteAtomicConcurrent(t *testing.T) {
 // then RestoreInvite'd (decremented) is redeemable AGAIN — the split's rollback
 // when the cross-DB acl grant fails, so an invite is never burned without a grant.
 func TestRestoreInviteRollsBackConsume(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	_, token, err := s.CreateInvite("acme", "github:alice", 1, nil)
 	if err != nil {
 		t.Fatal(err)

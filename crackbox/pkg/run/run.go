@@ -252,21 +252,42 @@ func randTag() string {
 }
 
 // pickPair returns two distinct host addresses in subnet.
+// ONE DRAW, and the second address is its neighbour. Two independent draws over
+// ~250 usable hosts collide about once in 250, and the collision is silent
+// (BUGS L240). Deriving the second from the first makes it impossible.
 func pickPair(subnet string) (userIP, proxyIP string, _ error) {
 	userIP, err := pickIP(subnet)
 	if err != nil {
 		return "", "", err
 	}
-	for range 8 {
-		proxyIP, err = pickIP(subnet)
-		if err != nil {
-			return "", "", err
-		}
-		if proxyIP != userIP {
-			return userIP, proxyIP, nil
-		}
+	proxyIP, err = neighbourIP(userIP, subnet)
+	if err != nil {
+		return "", "", err
 	}
-	return "", "", fmt.Errorf("subnet %s: no second free address", subnet)
+	return userIP, proxyIP, nil
+}
+
+// neighbourIP is the address one above ip, wrapped back into the subnet's
+// usable range — the same reserved ends pickIP avoids.
+func neighbourIP(ip, subnet string) (string, error) {
+	_, n, err := net.ParseCIDR(subnet)
+	if err != nil {
+		return "", fmt.Errorf("subnet %s: %w", subnet, err)
+	}
+	ip4 := net.ParseIP(ip).To4()
+	if ip4 == nil {
+		return "", fmt.Errorf("address %s: ipv4 only", ip)
+	}
+	ones, _ := n.Mask.Size()
+	mask := uint32(1)<<uint(32-ones) - 1
+	netInt := binary.BigEndian.Uint32(n.IP.To4()) &^ mask
+	host := binary.BigEndian.Uint32(ip4)&mask + 1
+	if host >= mask {
+		host = 4
+	}
+	var out [4]byte
+	binary.BigEndian.PutUint32(out[:], netInt|host)
+	return net.IP(out[:]).String(), nil
 }
 
 // pickIP returns a random host address in subnet, avoiding the network

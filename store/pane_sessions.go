@@ -2,8 +2,7 @@ package store
 
 // pane_sessions.go holds every read and write of `pane_sessions`: one item per
 // Slack assistant pane, opened when a user starts one and refreshed while it
-// stays open. db_utils/sql_layer_test.go is what keeps a statement from
-// reappearing beside it.
+// stays open.
 //
 // THE PARTITION IS A CONSTANT AND THE SORT KEY IS THE (team, user, thread)
 // TRIPLE, which is the primary key the table already had. Three of the five

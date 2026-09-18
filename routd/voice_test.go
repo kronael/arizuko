@@ -94,7 +94,7 @@ func TestSendVoice_SynthesizesAndDelivers(t *testing.T) {
 // A second send of the same (text, voice, model) reuses the cached file — the
 // TTS service is hit exactly once (memoization parity with gated).
 func TestSendVoice_CachesSynthesis(t *testing.T) {
-	db, _ := OpenMem()
+	db := memDB(t)
 	t.Cleanup(func() { db.Close() })
 	tts, reqs := ttsStub(t)
 	dl := &recDeliverer{pid: "vp"}
@@ -114,7 +114,7 @@ func TestSendVoice_CachesSynthesis(t *testing.T) {
 // PERSONA.md `voice:` frontmatter resolves the voice when the caller passes
 // none and overrides the instance default (gated resolveVoice parity).
 func TestSendVoice_ResolvesPersonaVoice(t *testing.T) {
-	db, _ := OpenMem()
+	db := memDB(t)
 	t.Cleanup(func() { db.Close() })
 	tts, reqs := ttsStub(t)
 	groups := t.TempDir()
@@ -137,7 +137,7 @@ func TestSendVoice_ResolvesPersonaVoice(t *testing.T) {
 // TTS off → the send_voice fn returns an Unsupported error and never touches
 // the TTS service (faithful to gated with TTS_ENABLED=false).
 func TestSendVoice_SkipsWhenDisabled(t *testing.T) {
-	db, _ := OpenMem()
+	db := memDB(t)
 	t.Cleanup(func() { db.Close() })
 	var hit bool
 	tts := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hit = true }))
@@ -160,7 +160,7 @@ func TestSendVoice_SkipsWhenDisabled(t *testing.T) {
 // Text is validated BEFORE TTS: empty / oversize never reaches the service
 // (mirror of gateway TestSendVoice_RejectsEmptyAndOversize).
 func TestSendVoice_RejectsEmptyAndOversize(t *testing.T) {
-	db, _ := OpenMem()
+	db := memDB(t)
 	t.Cleanup(func() { db.Close() })
 	var hit bool
 	tts := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hit = true }))

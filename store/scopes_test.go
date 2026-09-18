@@ -197,8 +197,7 @@ func TestNoCallerDropsTheVerdict(t *testing.T) {
 		}
 		if d.IsDir() {
 			// .claude holds agent worktrees and refs holds reference checkouts of
-			// other projects; neither is this module's source (db_utils/opener_test.go
-			// skips the same set).
+			// other projects; neither is this module's source.
 			switch d.Name() {
 			case ".git", ".claude", "refs", "node_modules", "tmp":
 				return filepath.SkipDir

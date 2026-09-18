@@ -74,7 +74,7 @@ func TestGitHubSourceRoutes(t *testing.T) {
 
 func keyedStore(t *testing.T) *Store {
 	t.Helper()
-	s, _ := OpenMem()
+	s := openMem(t)
 	t.Cleanup(func() { s.Close() })
 	s.SetSecretKeys([]byte("k1"))
 	seedFolder(t, s, "eng")
@@ -134,7 +134,7 @@ func TestGitHubSource_AddListSecretRemove(t *testing.T) {
 }
 
 func TestGitHubSource_NoKeyRefuses(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 	seedFolder(t, s, "eng")
 	ws := &WriteSet{}

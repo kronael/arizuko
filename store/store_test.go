@@ -19,7 +19,7 @@ func TestOpenMem(t *testing.T) {
 }
 
 func TestPutAndGetMessage(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	now := time.Now()
@@ -54,7 +54,7 @@ func TestPutAndGetMessage(t *testing.T) {
 
 // A chat fed from its own watermark hands back only what landed after it.
 func TestNewMessagesForChat_FeedsPastTheCursor(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	ctx := context.Background()
@@ -94,7 +94,7 @@ func TestNewMessagesForChat_FeedsPastTheCursor(t *testing.T) {
 }
 
 func TestGroupCRUD(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	g := core.Group{
@@ -115,7 +115,7 @@ func TestGroupCRUD(t *testing.T) {
 }
 
 func TestSessionState(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	s.SetSession("main", "", "sess-1")
@@ -130,7 +130,7 @@ func TestSessionState(t *testing.T) {
 }
 
 func TestTaskCRUD(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	now := time.Now()
@@ -183,7 +183,7 @@ func TestTaskCRUD(t *testing.T) {
 }
 
 func TestTaskGetNonexistent(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	_, ok := s.GetTask("does-not-exist")
@@ -193,7 +193,7 @@ func TestTaskGetNonexistent(t *testing.T) {
 }
 
 func TestTaskDuplicateID(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	now := time.Now()
@@ -212,7 +212,7 @@ func TestTaskDuplicateID(t *testing.T) {
 }
 
 func TestTaskUpdateEmptyPatch(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	now := time.Now()
@@ -239,7 +239,7 @@ func TestTaskUpdateEmptyPatch(t *testing.T) {
 // saying `task.update` succeeded — so a swallowed refusal records a change that
 // never happened (BUGS L268).
 func TestTaskUpdateNonexistent(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	status := "paused"
@@ -250,7 +250,7 @@ func TestTaskUpdateNonexistent(t *testing.T) {
 }
 
 func TestTaskUpdateStatus(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	now := time.Now()
@@ -268,7 +268,7 @@ func TestTaskUpdateStatus(t *testing.T) {
 }
 
 func TestTaskDelete(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	now := time.Now()
@@ -287,7 +287,7 @@ func TestTaskDelete(t *testing.T) {
 }
 
 func TestTaskDeleteNonexistent(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	if err := s.DeleteTask("ghost"); err != nil {
@@ -296,7 +296,7 @@ func TestTaskDeleteNonexistent(t *testing.T) {
 }
 
 func TestTaskListByFolder(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	now := time.Now()
@@ -332,7 +332,7 @@ func TestTaskListByFolder(t *testing.T) {
 }
 
 func TestTaskListEmpty(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	tasks := s.ListTasks("main", false)
@@ -347,7 +347,7 @@ func TestTaskListEmpty(t *testing.T) {
 }
 
 func TestTaskOneShotNoCron(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	now := time.Now()
@@ -368,7 +368,7 @@ func TestTaskOneShotNoCron(t *testing.T) {
 }
 
 func TestPutMessageAttachmentsRoundTrip(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	atts := `[{"mime":"image/jpeg","filename":"photo.jpg","url":"http://teled:9001/files/abc","size":1024}]`
@@ -393,7 +393,7 @@ func TestPutMessageAttachmentsRoundTrip(t *testing.T) {
 }
 
 func TestEnrichMessage(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	atts := `[{"mime":"audio/ogg","filename":"voice.ogg","url":"http://teled:9001/files/xyz","size":512}]`
@@ -427,7 +427,7 @@ func TestEnrichMessage(t *testing.T) {
 
 // Agent output with topic must appear in MessagesByTopic for web-chat history.
 func TestAgentOutput_WritesTopicAndRoutedTo(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	if err := s.PutMessage(core.Message{
@@ -451,7 +451,7 @@ func TestAgentOutput_WritesTopicAndRoutedTo(t *testing.T) {
 // Inbound messages with empty topic must inherit the chat's sticky topic
 // so processWebTopics groups them alongside bot replies under the same topic.
 func TestPutMessage_InheritsStickyTopic(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	jid := "web:main"
@@ -478,7 +478,7 @@ func TestPutMessage_InheritsStickyTopic(t *testing.T) {
 // MessagesByThread filters by both jid AND topic; messages from another chat
 // or another thread on the same chat must not leak into the result.
 func TestMessagesByThread_ScopedByJIDAndTopic(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	now := time.Now()
@@ -508,7 +508,7 @@ func TestMessagesByThread_ScopedByJIDAndTopic(t *testing.T) {
 // `sent` is the ABSENCE of a delivery item, so a plain append owes nothing and
 // a row that still owes one is what the retry sweep reads.
 func TestPutMessage_OwesNoDelivery(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	ctx := context.Background()
@@ -554,7 +554,7 @@ func TestPutMessage_OwesNoDelivery(t *testing.T) {
 // A status no sweep reads is refused rather than stored: a typo would park the
 // row in a partition nothing drains.
 func TestPutOutbound_RefusesAnUnknownStatus(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	err := s.PutOutbound(context.Background(), core.Message{
@@ -567,7 +567,7 @@ func TestPutOutbound_RefusesAnUnknownStatus(t *testing.T) {
 
 // Spec 5/G — engagement primitives.
 func TestEngagement_SetAndCheck(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	now := time.Now()
@@ -598,7 +598,7 @@ func TestEngagement_SetAndCheck(t *testing.T) {
 // folder in engaged_folder. BumpEngagement toggles engaged_until without
 // stomping last_reply_id.
 func TestEngagement_SetLastReplyAndBump(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 	now := time.Now()
 
@@ -628,7 +628,7 @@ func TestEngagement_SetLastReplyAndBump(t *testing.T) {
 // The window names its folder with no prior reply: BumpEngagement writes both.
 // A SetEngagement on a fresh (jid, topic) still surfaces the folder.
 func TestEngagement_WindowNamesItsFolder(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 	now := time.Now()
 

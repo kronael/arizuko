@@ -1,8 +1,7 @@
 // Package dashstore is dashd's storage layer: the one package in dashd that
 // holds SQL. Handlers ask it for what a page needs and it answers with rows, so
 // a second driver reimplements this package and no handler changes (spec 6/37
-// step 1). dashd/sql_layer_test.go fails the build if a statement appears
-// anywhere else in dashd.
+// step 1).
 //
 // Every read here reaches routd's own tables. routd OWNS them; dashd writes
 // them directly, which is the split write-discipline root CLAUDE.md sets for a

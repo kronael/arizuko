@@ -51,7 +51,7 @@ func parentOf(t *testing.T, s *Store, child string) []string {
 // A pairing token is not a delivery credential and a delivery token is not a
 // pairing credential — resolution is kind-scoped in both directions.
 func TestPairing_KindScopedBothWays(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 	seedFolder(t, s, "acme")
 
@@ -81,7 +81,7 @@ func TestPairing_KindScopedBothWays(t *testing.T) {
 
 // A pairing row is not listed or revoked through the delivery-token surfaces.
 func TestPairing_HiddenFromRouteTokenSurfaces(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 	seedFolder(t, s, "acme")
 	pair := seedPairing(t, s, "telegram:user/1", "acme", time.Now())
@@ -100,7 +100,7 @@ func TestPairing_HiddenFromRouteTokenSurfaces(t *testing.T) {
 // Peek is side-effect-free: an unfurl bot hitting the URL twice must not spend
 // the pairing.
 func TestPairing_PeekDoesNotConsume(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 	seedFolder(t, s, "acme")
 	raw := seedPairing(t, s, "telegram:user/1", "acme", time.Now())
@@ -122,7 +122,7 @@ func TestPairing_PeekDoesNotConsume(t *testing.T) {
 // Redemption is single-use: the token is gone afterwards and reports the same
 // "link unavailable" as a token that never existed.
 func TestPairing_RedeemConsumes(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 	seedFolder(t, s, "acme")
 	raw := seedPairing(t, s, "telegram:user/1", "acme", time.Now())
@@ -140,7 +140,7 @@ func TestPairing_RedeemConsumes(t *testing.T) {
 
 // An expired token fails with the SAME error as a missing one.
 func TestPairing_Expired(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 	seedFolder(t, s, "acme")
 	old := seedPairing(t, s, "telegram:user/1", "acme", time.Now().Add(-PairingTTL-time.Second))
@@ -164,7 +164,7 @@ func TestPairing_Expired(t *testing.T) {
 // One parent per channel identity: a second, different parent is refused; the
 // same parent again is an idempotent no-op; a role membership does not block.
 func TestPairing_OneParent(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 	seedFolder(t, s, "acme")
 
@@ -197,7 +197,7 @@ func TestPairing_OneParent(t *testing.T) {
 // A role membership on the same JID does NOT block pairing (4e831f10): the
 // one-parent rule excludes role: parents.
 func TestPairing_RoleParentDoesNotBlock(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 	seedFolder(t, s, "acme")
 	if err := s.PutMembership("telegram:user/1", "role:member", "seed"); err != nil {
@@ -217,7 +217,7 @@ func TestPairing_RoleParentDoesNotBlock(t *testing.T) {
 // The edge pairing writes is stamped added_by='pairing' — the scope unpair
 // keys on so it can never reach role membership.
 func TestPairing_EdgeStampedAddedBy(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 	seedFolder(t, s, "acme")
 	raw := seedPairing(t, s, "telegram:user/1", "acme", time.Now())

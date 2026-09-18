@@ -34,7 +34,7 @@ func TestFolderAncestors(t *testing.T) {
 }
 
 func TestMessageByID_Found(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	now := time.Now()
@@ -52,7 +52,7 @@ func TestMessageByID_Found(t *testing.T) {
 }
 
 func TestMessageByID_Missing(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	_, ok := s.MessageByID("tg:1", "nope")
@@ -62,7 +62,7 @@ func TestMessageByID_Missing(t *testing.T) {
 }
 
 func TestMessageByID_EmptyID(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	_, ok := s.MessageByID("tg:1", "")
@@ -75,7 +75,7 @@ func TestMessageByID_EmptyID(t *testing.T) {
 }
 
 func TestMarkMessagesObserved_AndObservedSince(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	now := time.Now()
@@ -110,7 +110,7 @@ func TestMarkMessagesObserved_AndObservedSince(t *testing.T) {
 }
 
 func TestMarkMessagesObserved_Empty(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	if err := s.MarkMessagesObserved(context.Background(), "atlas", nil); err != nil {
@@ -119,7 +119,7 @@ func TestMarkMessagesObserved_Empty(t *testing.T) {
 }
 
 func TestObservedSince_WithCursor(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	ctx := context.Background()
@@ -154,7 +154,7 @@ func TestObservedSince_WithCursor(t *testing.T) {
 }
 
 func TestObservedSince_ZeroLimitsReturnNil(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	ctx := context.Background()
@@ -175,7 +175,7 @@ func TestObservedSince_ZeroLimitsReturnNil(t *testing.T) {
 }
 
 func TestMessagesBefore_OrderAscending(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	now := time.Now()
@@ -200,7 +200,7 @@ func TestMessagesBefore_OrderAscending(t *testing.T) {
 }
 
 func TestMessagesBefore_BeforeCutsOff(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	now := time.Now()
@@ -223,7 +223,7 @@ func TestMessagesBefore_BeforeCutsOff(t *testing.T) {
 }
 
 func TestTopics_GroupByTopic(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	now := time.Now()
@@ -255,7 +255,7 @@ func TestTopics_GroupByTopic(t *testing.T) {
 }
 
 func TestMessagesSinceTopic(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	now := time.Now()
@@ -280,7 +280,7 @@ func TestMessagesSinceTopic(t *testing.T) {
 }
 
 func TestRoutedToByMessageID(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	now := time.Now()
@@ -298,7 +298,7 @@ func TestRoutedToByMessageID(t *testing.T) {
 }
 
 func TestSetLastReply_EmptyReplyIDPreservesExisting(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	if err := s.SetLastReply("jid1", "", "rid-1", "folderA"); err != nil {
@@ -313,7 +313,7 @@ func TestSetLastReply_EmptyReplyIDPreservesExisting(t *testing.T) {
 }
 
 func TestMarkMessagesErrored_AndDelete(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	ctx := context.Background()
@@ -362,7 +362,7 @@ func TestMarkMessagesErrored_AndDelete(t *testing.T) {
 }
 
 func TestMarkMessagesErrored_EmptyList(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	if err := s.MarkMessagesErrored(context.Background(), nil); err != nil {

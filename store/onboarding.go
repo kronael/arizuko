@@ -2,11 +2,7 @@ package store
 
 // onboarding.go holds every read and write of `onboarding` and
 // `onboarding_gates`: one item per unrouted chat waiting to be let in, and one
-// item per admission gate. NOTHING ENFORCES THAT — `store` is not in
-// db_utils/sql_layer_test.go's covered set, because that test walks a whole
-// daemon directory and this package still holds statements for the tables that
-// have not moved. Keeping the two out of the rest of the tree is the author's
-// discipline until the package is empty enough to be named there.
+// item per admission gate.
 //
 // THE PARTITION IS store.OwnerOnbod — the literal "onbod" — AND IT IS NOT A
 // CHOICE THIS FILE MAKES. Both tables are registered resreg resources

@@ -17,7 +17,7 @@ import (
 // of its own. If the two ever drift into separate minters, one of these stops
 // compiling.
 func TestIssuePairingLink_MintsIntoBothBatchAndSet(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 	seedFolder(t, s, "acme")
 
@@ -45,7 +45,7 @@ func TestIssuePairingLink_MintsIntoBothBatchAndSet(t *testing.T) {
 // The raw token is never stored — only sha256(raw). Presenting the stored value
 // must not redeem: it is a verifier, not a second bearer.
 func TestIssuePairingLink_StoresOnlyTheHash(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 	seedFolder(t, s, "acme")
 
@@ -66,7 +66,7 @@ func TestIssuePairingLink_StoresOnlyTheHash(t *testing.T) {
 // owner_folder. An empty ownerFolder must write NO owner_folder attribute,
 // which is the only null this model has, and stay redeemable.
 func TestIssuePairingLink_EmptyOwnerFolderStoresNull(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	raw, err := s.IssuePairingLink(context.Background(), "telegram:user/1", "")
@@ -87,7 +87,7 @@ func TestIssuePairingLink_EmptyOwnerFolderStoresNull(t *testing.T) {
 // A NULL owner_folder stays invisible to the delivery surfaces, exactly like an
 // owned pairing row. Nothing may treat it as a folder-less delivery token.
 func TestIssuePairingLink_NullOwnerStaysHiddenFromDelivery(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 
 	raw, err := s.IssuePairingLink(context.Background(), "telegram:user/1", "")
@@ -105,7 +105,7 @@ func TestIssuePairingLink_NullOwnerStaysHiddenFromDelivery(t *testing.T) {
 // jid is the one thing a pairing cannot be minted without: the token names the
 // identity it binds, and a blank one would bind nothing.
 func TestIssuePairingLink_RejectsEmptyJID(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 	// Seeded so the owner folder is a real group and the only thing left to
 	// reject is the jid.

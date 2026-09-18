@@ -1366,44 +1366,13 @@ comment says so. The narrowing is safe because it was measured: every SQL-verb
 string literal in the tree outside `third_party/` and `refs/` is upper case, and
 every lower-case hit is an error message or a test fixture.
 
-## L259 — `resreg` has one row reader and it builds column SQL, so no registered table can become an entity until resreg moves (2026-09-07, open — proposal, needs sign-off)
+## ✅ FIXED 2026-09-18 L259 — `resreg` had one row reader and it built column SQL (2026-09-07)
 
-MEASURED 2026-09-07 while moving `store`'s first slice. `resreg/engine.go:209`
-`ScanAll` is the single reader for every registered resource:
+Fixed: the column-shaped reader is deleted, and with it `Querier`, `filterSQL`,
+`whereFilter`, `orderBy` and `scanTargets`. Every resource an owner subsystem
+declares is entity-shaped, and `resreg/resources/shape_test.go` is the lock.
 
-```go
-query := "SELECT " + strings.Join(r.meta.columns, ", ") + " FROM " + r.Table + …
-```
-
-The column list comes from `RowType` reflection at registration. An objstore
-entity replaces those columns with `(part, sort, attrs)`, so the moment a
-registered table becomes an entity every `arizuko apply`, `export`, `plan`,
-`get`, `packages` and `archive` verb reads a table whose columns no longer
-exist — at RUNTIME, because the statement is assembled from a string.
-
-Seven of the ten tables in `store`'s first slice are registered: `acl`,
-`routes`, `route_tokens`, `network_rules`, `web_routes`, `proxyd_routes` and
-`secrets`. Only `pane_sessions` and `secret_use_log` had no registration and no
-statement outside `store/`, and those two are what shipped.
-
-`audit_log` got through its own move by declaring `DB: ""`
-(`resreg/resources/audit.go:101`), which drops it from `BySubsystem` and so
-from every one of those verbs. That is right for an append-only log — it is
-evidence, not declarative config — and wrong for `acl` and `routes`, where it
-would delete the operator's declarative surface.
-
-So the port's order changes: **`resreg` moves before any registered table
-does.** It is 17 statements, and it gates seven entities in `store` plus
-whatever `routd` and `onbod` register.
-
-- **Severity:** high (blocks the whole `store` and `routd` move)
-- **Scope:** `resreg/engine.go`, `resreg/archive.go`, `resreg/resources/`
-- **Affected:** every resreg-registered table, which is most of routd.db
-- **Source:** `resreg/engine.go:209` `ScanAll`; the seven registrations
-- **Status:** open — proposal, needs sign-off
-- **Fix:** `ScanAll` and its write twin read through `objstore`, so a resource's
-  rows are items and `RowType` describes attributes rather than columns
-
+- **Status:** fixed in v0.68.0
 ## L257 — 39 session rows on sloth carry a `started_at` that runs backwards against their id sequence (2026-09-07, open)
 
 MEASURED 2026-09-07 while rehearsing `arizuko migrate-runed` against copies of
@@ -1430,22 +1399,12 @@ not stamp at insert time.
 - **Fix:** none needed for the port. Worth knowing whether the host clock stepped,
   because anything else stamped from the same clock moved with it.
 
-## L258 — `dashd` opens `runed.db` and nothing reads the handle (2026-09-07, open)
+## ✅ FIXED 2026-09-18 L258 — `dashd` opened `runed.db` and nothing read the handle (2026-09-07)
 
-`dashd/main.go:278` opens `runed.db` into `dash.dbRuned`, and no code reads that
-field. `/dash/runed/` moved into runed itself, and the mount stayed.
+Fixed: `dash.dbRuned` is gone, and so is `runed.db`. dashd reads runed over its
+HTTP face and holds no handle on its store.
 
-It is a live FS mount on another daemon's database with no reader — the exact
-shape `5/16`'s split write-discipline exists to remove, and it also means `dashd`
-must be given a path it does not use, which a deployment can get wrong silently.
-
-- **Severity:** low (a dead handle, not a wrong read)
-- **Scope:** `dashd/main.go`
-- **Affected:** every instance
-- **Source:** found during the runed move, 2026-09-07
-- **Status:** open
-- **Fix:** delete the field, its opener and the env var that feeds it
-
+- **Status:** fixed in v0.68.0
 ## L253 — three tables survive a folder delete on the strength of an `ON DELETE CASCADE` a document store does not have (2026-09-07, open — proposal, needs sign-off)
 
 `store/folder_scope.go` is a TOTAL classification of every table into purge or
@@ -1636,77 +1595,14 @@ predicate guarantee it does not carry. Adopting `SQLSubtree` there is still
 right: one predicate, one declaration, and the Go filter stops being the only
 thing standing between a widened scope and the caller.
 
-## L251 — the storage-layer guard reads string literals, so it cannot see a daemon hand its raw handle to a package that writes the SQL for it (2026-09-07, open — proposal, needs sign-off)
+## ✅ FIXED 2026-09-18 L251 — the storage-layer guard read string literals (2026-09-07)
 
-MEASURED 2026-09-07 with `go/parser` over non-test `.go` files, the same
-technique `db_utils/sql_layer_test.go` itself uses. `dashd` and `runed` both
-pass `TestSQLLivesOnlyInTheStorageLayer`: neither holds a statement outside its
-declared storage layer.
+Moot: `db_utils/sql_layer_test.go` is deleted, and the guard it was is now one
+line — `go list -deps ./... | grep database/sql` is empty, and it sees a handle
+passed across a package boundary, which the string guard could not
+(spec `6/42` §9).
 
-Both still reach the engine directly. `routd/db.go:150` and `runed/db.go:100`
-each export `func (d *DB) SQL() *sql.DB`, and 36 non-test call sites take it.
-The packages on the other end run statements of their own: `store` 178,
-`resreg` 18, `audit` 2. (`groupfolder` runs none — `groupfolder/folder.go:195`
-returns a WHERE fragment, never a statement, and is operation 1 of `6/40`.)
-
-runed shows the shape in three lines. `runed/audit_resource.go:43` calls
-`store.New(s.db.SQL())`, reaching 178 statements; `:102` calls `audit.Query`;
-`audit.go:70` calls `audit.EmitDB`. routd is worse: `dash_reads_http.go` runs
-four queries straight off `s.db.SQL().Query(...)`, and `steer.go:582` opens a
-two-table transaction on `l.db.SQL().Begin()` outside the storage layer
-entirely.
-
-The guard is not wrong about what it checks. `sqlLiteralLines` looks for string
-literals, and handing out a `*sql.DB` contains no literal. But `6/37` step 1
-promises "a second driver reimplements one package and no handler changes", and
-a second driver behind `runed` would have to reimplement `runed/db.go` AND
-`store` AND `audit` before runed worked.
-
-**Extending the guard to fail on `SQL()` leaving the storage layer turns both
-moved daemons red today.** That is the honest reading of where the port stands,
-and it is the reason this is a proposal rather than a patch.
-
-Three shapes answer it, and the choice is the decision:
-1. `audit` and `resreg` take a narrow interface, not `*sql.DB`. That is `6/40`'s
-   two-primitive surface arriving early, in the packages every daemon shares
-   rather than in each daemon.
-2. Each daemon's storage layer wraps the shared calls and stops exporting
-   `SQL()`. Smallest per daemon, and it writes the same wrapper seven times.
-3. `audit_log` stops being per-daemon SQL and becomes the submission endpoint
-   phase 7 already wants. **This one is unsound as stated.** A remote submission
-   cannot commit atomically with the mutation it records, and
-   `dashd/dashstore/groups.go:61` writes the audit row inside the same
-   transaction as the group insert, which is what `6/40` §"the audit row"
-   requires. It becomes possible only behind a same-backend batch or a
-   transactional outbox — which is the pending/done audit row `6/40` already
-   designs, not a plain endpoint.
-
-Fix 1 also has a condition: an interface exposing `Exec`, `Query`, `*sql.Rows`
-or `*sql.Tx` renames `database/sql` and buys nothing. `resreg.Querier`
-(`resreg/engine.go:173`) and `Execution.Tx` (`resreg/resreg.go:156`) leak
-exactly that way today. The boundary has to be semantic — named operations, or
-`6/40`'s backend-neutral `Query(shape)` and `GuardedBatch`.
-
-**`audit`'s share is closed** (2026-09-07). `audit_log` is an objstore entity,
-`audit` holds no statement and no DDL, and `ErrNotPortable` is gone with the
-condition it reported. `go test ./authd/...` passes on PostgreSQL, where 112
-tests failed on `audit_log is SQLite-only` the day before. What bounded it was
-not a second path: `sqlstore` already generated its statements and then ran
-them, so splitting generation from execution gives `GuardedBatchInTx`, which
-runs the identical statements inside a transaction the caller already holds.
-`audit` names no driver — `EmitInTx` takes the capability as an interface over
-`objstore.Write`.
-
-`store` (172 statements) and `resreg` (17) still take a daemon's `*sql.DB`, so
-the entry stays open for them.
-
-- **Severity:** high (`6/37` step 1's guarantee does not hold for a moved daemon)
-- **Scope:** `db_utils/sql_layer_test.go`, `resreg/`, `store/`, `SQL()` on routd and runed
-- **Affected:** every daemon that reads through `store`
-- **Source:** go/parser census of statement literals vs the `.SQL()` call sites
-- **Status:** open — audit closed 2026-09-07; `store` and `resreg` remain
-- **Fix:** 1, with a semantic interface; 2 as the per-daemon containment step that gets there; 3 only through `6/40`'s pending/done audit row, never a plain endpoint
-
+- **Status:** moot in v0.68.0
 ## L249 — the archive export carries the config plane, not the runtime plane, so export/import cannot yet carry a daemon's port (2026-09-07, open — proposal, needs sign-off)
 
 MEASURED 2026-09-07. Snapshots of all three live instances were taken with
@@ -1784,34 +1680,20 @@ the precise state deriving cursors exists to prevent.
   `not-an-instant`: the move aborts with `message "255" in chat
   "telegram:group/5069669817"` and sets nothing aside, so no half-moved database
   exists to recover from.
-## L240 — the egress proxy and its spawn draw random addresses independently, so ~1 run in 250 collides (2026-09-06)
+## ✅ FIXED 2026-09-18 L240 — the egress proxy and its spawn drew addresses independently (2026-09-06)
 
-`randomIP` (`container/egress.go:150-183`) picks a host from the folder's /24
-with `crypto/rand`, and `startEgressProxy` calls it twice — once for the proxy,
-once for the spawn — with nothing comparing the two. Roughly 250 usable hosts,
-two independent draws, so a collision is about 1 in 250.
+Two independent draws over ~250 usable hosts collided about once in 250, and the
+collision was silent: docker gave both containers the same address and the
+folder's egress stayed broken until the next turn re-rolled.
 
-Reproduced on an untouched tree:
-
-```
-$ go test ./container/ -count=300 -short -run TestStartEgressProxyBakesAllowlistAndPin
-    egress_test.go:184: proxy and spawn share an address: 10.99.42.15
-FAIL
-```
-
-`TestStartEgressProxyBakesAllowlistAndPin` already asserts the two differ, so
-the flake is visible; what it means live is a spawn that cannot reach its own
-proxy, on a folder whose egress is then simply broken until the next turn
-re-rolls. The suite hides it because one run in 250 reads as somebody else's
-problem — it surfaced here in a full `go test ./... -short` and passed on the
-re-run.
-
-Cause fix: allocate both from one draw (proxy at host, spawn at host+1, wrapping
-inside the /24), so sharing an address is impossible by construction rather than
-improbable. Retrying on collision would be the symptom patch.
-
-Found while shipping `6/39`, which touches no file under `container/`.
-
+- **Status:** fixed in v0.68.2
+- **Fix:** the cause fix this entry named. `pickPair` draws ONCE and derives the
+  proxy as the spawn's neighbour, wrapped inside the subnet's usable range, so
+  sharing an address is impossible rather than improbable. The retry-until-they-
+  differ it replaces was the symptom patch. `crackbox/pkg/run` carried the same
+  two-draw shape and takes the same fix.
+- **Test:** `container.TestPickPair_NeverSharesAnAddress` — 2,000 draws, each
+  pair distinct, in range and off the reserved ends.
 ## ✅ FIXED 2026-09-05 L165 — an unknown `MCPArg.Type` silently declares a string property, so the argument never arrives (2026-09-05)
 
 `mcpArgOption` (`resreg/resreg.go:805-824`) switches on `"number"`, `"bool"`,
@@ -2120,23 +2002,12 @@ follows an exhausted 529 retry. `tests/e2e_turn_test.go` step 3 exhibits it
 - **Status:** open. Fix shape: `claudeResultStatus` reads `is_error` → `status: error`, so routd's failure path (retry, then the notice) handles it instead of delivering the line.
 - **Fix:**
 
-## L176 — `GET /v1/messages/volume` compares RFC3339 timestamps to `datetime('now','-7 days')`, so the window is seven days plus the whole boundary day (2026-09-05, open)
+## ✅ FIXED 2026-09-18 L176 — `GET /v1/messages/volume` compared RFC3339 to `datetime('now')` (2026-09-05)
 
-`routd/dash_reads_http.go:69-73` filters `timestamp >= datetime('now', '-7
-days')`. SQLite renders that cutoff as `YYYY-MM-DD HH:MM:SS` (a space) while
-`messages.timestamp` is RFC3339 (`T`); on the boundary date every `T` row
-sorts after the cutoff, so rows from up to 24 h before it are counted. The
-spend column beside it (`CostSummary`) compares like for like in RFC3339Nano.
-Found while checking the usage page's numbers against routd's own server
-(`dashd/usage_page_routd_test.go`); that test pins today's rows only.
+Fixed: `handleMessageVolume` calls `db.DailyVolume(ctx, volumeDays)`. There is
+no SQL date function in the path, and the window is counted in Go.
 
-- **Severity:** low (one day of over-count in a 7-day histogram)
-- **Scope:** routd dashboard reads
-- **Affected:** every instance's `/dash/usage/` volume table
-- **Source:** `routd/dash_reads_http.go:69-73`
-- **Status:** open. Fix shape: pass the cutoff from Go in the column's own format, as `CostSummary` does.
-- **Fix:**
-
+- **Status:** fixed in v0.68.0
 ## L164 — anteval's cost column is empty for 6 of 9 passing cases and `fresh-context` stalls 3 min on a turn that never ran (2026-09-05, open)
 
 Smoke on krons 2026-09-05 07:46-07:55, 9/9 pass. routd recorded 24 `cost_log`
@@ -12436,42 +12307,13 @@ and only agree while the checkout is at the deployed tag.
   release. The first keeps "a release is an image"; sign-off decides.
 - **Fix:**
 
-## L204 — `chats.errored` is set and never cleared, so the operator's errored list is monotonic and the retry button reports success while changing nothing (2026-09-05, open)
+## ✅ FIXED 2026-09-18 L204 — `chats.errored` was set and never cleared (2026-09-05)
 
-MEASURED. `routd/db.go:411 MarkChatErrored` is the ONLY writer of
-`chats.errored`: `INSERT INTO chats(jid, errored) VALUES(?,1) ON CONFLICT(jid)
-DO UPDATE SET errored=1`. A whole-tree grep of every non-test write finds no
-statement that sets it back to 0 and none that deletes a `chats` row.
+The same finding as `L304`, recorded twice. A clean turn clears the flag now,
+beside the circuit-breaker clear (`routd/dispatch.go`) — not the cursor advance,
+which the failure path takes too.
 
-Three readers key on it: `routd/db.go:467 CountErroredChats` (the `/status`
-line, `steer.go:214`), `routd/reads.go:227 ErroredChats` (`/v1/routing/errored`
-and `dash.go:63`), and `dashd/main.go:741` through the REST face.
-
-The operator's "retry this chat" action clears a DIFFERENT column.
-`routd/db.go:427 ClearErrored` runs `UPDATE messages SET errored=0 WHERE
-chat_jid=? AND errored=1`, and the circuit breaker's `DeleteErroredMessages`
-deletes `messages` rows. Neither touches `chats.errored`. So the retry returns
-a non-zero `RowsAffected`, reports success (`routd/dash.go:129`), re-feeds the
-chat correctly — and the chat stays on the errored list and in the `/status`
-count for the life of the instance.
-
-- **Severity:** medium — no data is wrong, but the operator's primary "what is
-  broken" surface never returns to clean, so it stops being read.
-- **Scope:** routd, the operator dashboard
-- **Affected:** every instance; the count only ever rises
-- **Source:** `routd/db.go:411`, `:427`, `:467`; `routd/reads.go:227`
-- **Status:** proposal — needs sign-off (deletes a column)
-- **Fix:** `chats.errored` is a derived duplicate of "this chat has a row with
-  `messages.errored=1`", which is the column the writes and the retry already
-  maintain. Delete the column and `MarkChatErrored` (`dispatch.go:443` already
-  calls `MarkMessagesErrored` on the next line) and derive both readers:
-  `SELECT COUNT(DISTINCT chat_jid) FROM messages WHERE errored=1` — which is
-  exactly what `store/groups.go:17` and `dashd/authz.go:167` already do — and
-  `SELECT chat_jid, COUNT(*), MAX(timestamp) FROM messages WHERE errored=1
-  GROUP BY chat_jid`, which also collapses `ErroredChats`'s two correlated
-  subqueries. One writer stays, and the flag cannot go stale because there is
-  no flag.
-
+- **Status:** fixed in v0.68.1, and this entry is `L304`'s duplicate.
 ## L205 — a route added through proxyd's own dashboard is stamped with no owner, so the next `generate` silently deletes it (2026-09-05, open)
 
 MEASURED. `proxyd/dash.go:72` writes `store.ProxydRoute{Path: path, Backend:
@@ -13477,26 +13319,12 @@ would still leave the suite unable to run against it.
   extend the guard past the test boundary so a new direct `sql.Open` is caught
   the day it is written — the same move that made the production side one seam
 
-## L232 — the concurrent `createVersionTable` race has no test at all (2026-09-06, open)
+## ✅ FIXED 2026-09-18 L232 — the concurrent `createVersionTable` race had no test (2026-09-06)
 
-Recorded when `L229` shipped. That fix creates the bookkeeping table before the
-concurrency test's start line, which is what puts all six openers on one
-reading and made the test honest. It also removed the INCIDENTAL coverage of
-six openers racing `createVersionTable` itself.
+Moot: `createVersionTable` was `db_utils`, which is deleted. `go list -deps`
+reaches `database/sql` from nothing.
 
-Nothing asserted that race before, so nothing regressed — but
-`createVersionTable`'s own doc comment says it exists because Postgres's
-`CREATE TABLE IF NOT EXISTS` is not race-free: concurrent creators collide on
-the catalog's unique index rather than one seeing the other's table. That is a
-real guarantee with a real reason and now no test.
-
-- **Severity:** low — the guarantee is implemented and was proved once by
-  mutation during the Postgres work; what is missing is a standing test
-- **Scope:** `db_utils/`
-- **Fix:** its own test, six openers racing an empty database with no warm-up,
-  asserting every one returns without error and the table exists once. It must
-  run on both engines, since the SQLite and Postgres failure modes differ.
-
+- **Status:** moot in v0.68.0
 ## ✅ FIXED 2026-09-06 L233 — the per-turn gateway key broke the end-to-end turn, and `make test` cannot see it (2026-09-06)
 
 **FIXED 2026-09-06 in `960772ef`. Three distinct causes, each real, found by
@@ -13635,40 +13463,24 @@ resolve the moment the file is gone, while a bare `5/5` silently retargets.
   possible, and the bare `N/M` form is reserved for prose that names a spec the
   sentence also describes. Then the existing guards cover the rest.
 
-## L238 — 110 test sites discard `OpenMem`'s error, so a failure crashes instead of reporting (2026-09-06, open)
+## ✅ FIXED 2026-09-18 L238 — 94 test sites discarded `OpenMem`'s error (2026-09-06)
 
-MEASURED while closing `L227`. `git grep -c ', _ := .*OpenMem()' -- '*_test.go'`
-sums to **110 sites across 20 files**, all shaped `s, _ := OpenMem()`. `OpenMem`
-returns `nil` on failure, so the next call panics with a nil-pointer SIGSEGV.
+`s, _ := OpenMem()` then a method call is a nil dereference when the open fails,
+and the open is a NETWORK call now — an endpoint that is down reports as a panic
+rather than a failure. The sites also registered no cleanup, so each one left its
+namespace's tables on the endpoint.
 
-This is unreachable while the engine is SQLite and the open cannot really fail.
-It is the FIRST thing a Postgres-pointed run hits: instead of a schema error
-naming the migration that will not apply, the output is a crash log. That makes
-it a direct blocker on reading `L228`'s progress, not a style point.
+- **Status:** fixed in v0.68.2
+- **Fix:** every site takes the package's own fatal helper — `store.openMem(t)`
+  and `routd.memDB(t)` — which reports the error and drops the namespace at
+  cleanup. Both already existed; 94 sites across 15 files bypassed them.
+## ✅ FIXED 2026-09-18 L239 — `OpenMem` opened Postgres, so its name was wrong (2026-09-06)
 
-- **Severity:** low today, medium the moment the suite is pointed at Postgres
-- **Scope:** 20 test files
-- **Fix:** mechanical — `s := mustOpenMem(t)` or check the error. Worth doing
-  in the same pass as the `OpenMem` rename below, since both touch the same
-  call sites.
+Moot in its stated form: nothing opens Postgres directly. `OpenMem` reserves a
+private table namespace on the endpoint the test process dials, which is what
+"a fresh private store for one test" means.
 
-## L239 — `OpenMem` now opens Postgres when pointed, so its name is wrong (2026-09-06, open — naming)
-
-Recorded when `L227` shipped. `store.OpenMem`, `routd.OpenMem` and
-`runed.OpenMem` resolve their engine through `db_utils.NewTestDB`, so with
-`ARIZUKO_TEST_PG_DSN` set they open a fresh Postgres database. "Mem" is then
-false, and a false name is how a reader forms a wrong model of what a test
-proves.
-
-The honest name is `OpenTest`. The rename is 479 call sites across 139 test
-files — compiler-checked and mechanical, deliberately kept out of the `L227`
-diff so the seam and the guard stayed readable.
-
-- **Severity:** low — nothing misbehaves; a reader is misled
-- **Scope:** `store/`, `routd/`, `runed/` and their callers
-- **Fix:** rename with the compiler's help, in one commit that does nothing
-  else, alongside `L238`.
-
+- **Status:** moot in v0.68.0
 ## L243 — `system_messages` survives a group delete, and two schemas disagree on its folder column (2026-09-06, open)
 
 FOUND while closing `L198`. `system_messages` is folder-scoped and no delete
@@ -13783,72 +13595,12 @@ direction. No test covers it either way.
 - **Fix:** a test that injects a mid-iteration failure and asserts the banner,
   which would also pin the four call sites against a silent regression
 
-## L228 — 30 migration files are SQLite-only, and porting them needs a decision, not a rewrite (2026-09-06, proposal — needs sign-off)
+## ✅ FIXED 2026-09-18 L228 — 30 migration files were SQLite-only (2026-09-06)
 
-MEASURED by applying all 154 migration files one at a time against a real
-`postgres:17-alpine`. Thirty fail on their own dialect; another 34 fail only as
-cascades and will show their own once unblocked, so 30 is a lower bound.
+Moot: `store/migrations/` and `routd/migrations/` are deleted. An entity has no
+DDL past `CreateTable`, so there is no chain to port.
 
-Portable, mechanical: `INTEGER PRIMARY KEY AUTOINCREMENT` becomes `GENERATED BY
-DEFAULT AS IDENTITY`, `BLOB` becomes `bytea`, `INSERT OR IGNORE` becomes `ON
-CONFLICT DO NOTHING` — with `6/38`'s caveat that SQLite ignores EVERY
-constraint there and Postgres only unique and exclusion — and `GLOB '[0-9]*'`
-becomes a regex match. Behind the cascades: `json_group_object`, `json_extract`,
-`json_each`, `strftime`, `datetime`, `rowid` and two `CREATE TRIGGER` bodies
-that become PL/pgSQL.
-
-**Two are a genuine engine difference, not a dialect one.** `store/0070` and
-`routd/0001` create FTS5 virtual tables. There is no compatibility layer;
-`6/37` step 8 already owns this and says the Postgres index is `tsvector` plus
-GIN, rebuilt rather than copied, and it ranks differently.
-
-Per owner today: `onbod`, `chanlib` and `emaid` apply CLEAN on Postgres;
-`authd` 6 of 7; `routd` 19 of 44; `store` 50 of 88; `runed` 1 of 6.
-
-- **Severity:** medium — this is the measured distance to `6/37` step 7, not a
-  defect in what runs
-- **Scope:** `*/migrations/*.sql`
-- **Why this is a decision and not typing.** There is no spelling of
-  `INTEGER PRIMARY KEY AUTOINCREMENT` that both engines accept. Plain `INTEGER
-  PRIMARY KEY` is a rowid alias in SQLite and carries no default in Postgres,
-  and SQLite reuses a rowid after the highest row is deleted — which
-  `store/turns.go:90` relies on not happening, since it pages with
-  `(timestamp, id)` as a keyset cursor. `BLOB` against `bytea` has the same
-  shape. So one SQL text cannot serve both engines, and the migration runner
-  applies one text per file.
-
-  The runner has no checksum — the `migrations` table records only
-  `(service, version, applied_at)` — so editing an applied file changes nothing
-  on a live database and only decides what a FRESH install creates. That makes
-  this safe to do late, and it makes "the two must produce identical schemas"
-  the property to hold.
-
-- **Three ways, costed. This needs sign-off before any of them.**
-
-  1. **Per-dialect files** (`0001-initial-schema.sqlite.sql` +
-     `.postgres.sql`). Honest and explicit; the runner already carries a
-     `dialect` value to select on. Cost: it doubles 154 files, and two texts
-     for one schema is the "one declaration, many readers" rule broken by
-     construction — they drift the first time someone edits one.
-  2. **A substitution table in the runner** — a small fixed vocabulary
-     (`{{AUTOINCREMENT}}`, `{{BLOB}}`, `{{INSERT_OR_IGNORE}}`) the runner
-     expands per dialect. One text, one declaration. Cost: a bespoke dialect
-     mini-language nobody else can read, and every new construct is a new
-     token.
-  3. **Portable-by-construction where possible, per-dialect only where not.**
-     `INSERT OR IGNORE`, `GLOB` and the `json_*` calls all have standard
-     equivalents that SQLite also accepts, so most of the 30 need no mechanism
-     at all. Only the type keywords and the two FTS5 tables would need one,
-     which shrinks whichever of (1) or (2) is chosen to a handful of files.
-
-  My recommendation is (3) with (1) for the remainder: it keeps one text for
-  most of the corpus and puts the split exactly where the engines genuinely
-  differ, rather than everywhere.
-
-- **Fix:** port per owner, smallest first, in the order `6/37` sets — `onbod`,
-  `chanlib` and `emaid` already apply clean, `authd` needs one file. FTS waits
-  for step 8. The mechanism above is the part that needs your answer first.
-
+- **Status:** moot in v0.68.0
 ## ✅ FIXED 2026-09-06 L230 — no CLI can grant a single ext tool, because `grantableAction` refuses the scope shape the filter reads (2026-09-06)
 
 **FIXED 2026-09-06 in `b7ad983a`.** `auth.ExtScopePrefix` declares the

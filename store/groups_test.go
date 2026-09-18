@@ -245,7 +245,7 @@ func TestDeleteGroup_CascadesEveryPointerAtomically(t *testing.T) {
 // 6/28). Their defaults must match the accessors they replace, or a group with
 // no config key reads as closed and capped at nothing.
 func TestGroupRowProjectsConfigDefaultsLikeTheAccessors(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 	if err := s.PutGroup(core.Group{Folder: "acme"}); err != nil {
 		t.Fatal(err)
@@ -272,7 +272,7 @@ func TestGroupRowProjectsConfigDefaultsLikeTheAccessors(t *testing.T) {
 
 // Set values reach the row, and the accessors and the row keep agreeing.
 func TestGroupRowTracksTheSetters(t *testing.T) {
-	s, _ := OpenMem()
+	s := openMem(t)
 	defer s.Close()
 	if err := s.PutGroup(core.Group{Folder: "acme"}); err != nil {
 		t.Fatal(err)

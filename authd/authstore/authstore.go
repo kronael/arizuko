@@ -1,7 +1,6 @@
 // Package authstore is authd's storage layer: the daemon asks it for what a
 // request needs and it answers with rows, so a second driver reimplements this
-// package and no handler changes (spec 6/37 step 1). db_utils/sql_layer_test.go
-// fails the build if a statement appears anywhere in authd.
+// package and no handler changes (spec 6/37 step 1).
 //
 // It holds no SQL. Every method below is objstore's two primitives — Query and
 // GuardedBatch — and the driver is chosen by the daemon that constructs this
