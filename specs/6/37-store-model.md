@@ -391,8 +391,7 @@ Four copies of the cycle walk exist; the redesign keeps one
 parent's ancestor set outside the transaction by key lookups, refuses if
 it contains the child, then writes one conditional batch: the edge
 `(child, parent)` conditioned on absence; the pairing token's claim where
-there is one (the two-item batch §"Branch B, measured" counts as
-fitting); and a
+there is one (the two-item batch §"Branch B, measured" fits); and a
 `membership` version item conditioned on the value it read — so two
 inserts that would together close a cycle cannot both pass. On the read
 side `store.Ancestors` becomes parent-pointer lookups with a visited set
@@ -797,10 +796,10 @@ modelling.
    the interface.
 
    With the DynamoDB driver come the three redesigns §"Branch B, measured"
-   costed: the
-   versioned replace's per-scope version, membership's materialised ancestor
-   closure, and `resreg.Apply`'s lock object with bounded batches, which gives
-   up the pre-image rollback it carries today (`L44`).
+   costed: the versioned replace's per-scope version, membership's
+   materialised ancestor closure, and `resreg.Apply`'s lock object with
+   bounded batches, which gives up the pre-image rollback it carries today
+   (`L44`).
 
 ## How a storage layer is organized
 
