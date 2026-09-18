@@ -94,6 +94,14 @@ func (d *recDeliverer) Send(jid, text, replyTo, threadID, threadRoot, idem strin
 // assert what a reader is actually offered.
 func (d *recDeliverer) SendOptions(jid, text string, options []chanlib.Option, threadID, idem string) (string, error) {
 	id, err := d.Send(jid, text, "", threadID, "", idem)
+	// Send appends under the lock and releases it, so stamping the options back
+	// onto that row is a second write and needs the lock again. The hold notice
+	// is delivered through THIS method, and it is the one a waiting test reads.
+	// The index panics on an empty slice, and a panic between Lock and Unlock
+	// holds the mutex for good — every later Send then blocks and the package
+	// dies on the test timeout instead of failing this one test.
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.sends[len(d.sends)-1].options = options
 	return id, err
 }
@@ -1407,20 +1415,34 @@ func TestCleanRunClearsTheErroredFlag(t *testing.T) {
 	}
 }
 
+// awaitBudget is how long every wait in this package gives the thing it waits
+// for. One second was the old budget and it held for a single test on an idle
+// host; the whole package under -race is slow enough that the hold notice
+// missed it, which failed a green suite about one run in five.
+const awaitBudget = 15 * time.Second
+
+// awaitCond polls cond until it reports true and fails the test with `what` if
+// the budget runs out. It is the one wait in this package: a test that spins its
+// own loop gets its own budget, and budgets drift.
+func awaitCond(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(awaitBudget)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	t.Fatal(what)
+}
+
 // waitSends blocks until the deliverer has recorded at least n sends. It is the
 // happens-before a test needs before it reads `sends` directly: a gate on its
 // own goroutine delivers after it records the held row, so waiting for the row
 // is not waiting for the notice.
 func (d *recDeliverer) waitSends(t *testing.T, n int) {
 	t.Helper()
-	for range 500 {
-		d.mu.Lock()
-		got := len(d.sends)
-		d.mu.Unlock()
-		if got >= n {
-			return
-		}
-		time.Sleep(2 * time.Millisecond)
-	}
-	t.Fatalf("the deliverer recorded %d sends, want at least %d", len(d.sends), n)
+	awaitCond(t, fmt.Sprintf("the deliverer never recorded %d sends", n), func() bool {
+		return len(d.sentMsgs()) >= n
+	})
 }

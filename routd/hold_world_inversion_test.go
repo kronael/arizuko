@@ -64,10 +64,15 @@ func TestWorld_HoldsWhatTheOwnerShouldSeeAndRunsTheRest(t *testing.T) {
 		out <- held
 	}()
 	id := awaitHeldID(t, d)
+	// The gate records the row and THEN delivers the notice, so waiting for the
+	// row is not waiting for the notice. awaitNotice takes the deliverer's lock,
+	// which is what makes the read below safe as well as non-empty.
+	awaitNotice(t, dl)
 
 	// The person is told, in the chat, with the id they answer on.
-	if len(dl.sends) != 1 || !containsAll(dl.sends[0].text, "schedule_task", "/approve "+id) {
-		t.Fatalf("the owner was not asked: %+v", dl.sends)
+	sends := dl.sentMsgs()
+	if len(sends) != 1 || !containsAll(sends[0].text, "schedule_task", "/approve "+id) {
+		t.Fatalf("the owner was not asked: %+v", sends)
 	}
 
 	// The owner answers with the ordinary chat command.

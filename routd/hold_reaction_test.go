@@ -1,6 +1,7 @@
 package routd
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -212,13 +213,8 @@ func TestIngress_LeavesAnOrdinaryReactionAlone(t *testing.T) {
 // answered, stamped onto a row that already exists.
 func awaitNoticeID(t *testing.T, d *DB, id, want string) {
 	t.Helper()
-	for range 500 {
+	awaitCond(t, fmt.Sprintf("notice id never became %q — the delivery never stamped the row", want), func() bool {
 		row, ok := pendingActionRow(d, id)
-		if ok && row.NoticeID == want {
-			return
-		}
-		time.Sleep(2 * time.Millisecond)
-	}
-	row, _ := pendingActionRow(d, id)
-	t.Fatalf("notice id = %q, want %q — the delivery never stamped the row", row.NoticeID, want)
+		return ok && row.NoticeID == want
+	})
 }

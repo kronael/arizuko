@@ -9,7 +9,6 @@ package routd
 import (
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
@@ -209,11 +208,5 @@ func TestNever_IsNotOffered(t *testing.T) {
 // row. sentMsgs takes the deliverer's lock, so the wait is also the safe read.
 func awaitNotice(t *testing.T, dl *recDeliverer) {
 	t.Helper()
-	for range 500 {
-		if len(dl.sentMsgs()) > 0 {
-			return
-		}
-		time.Sleep(2 * time.Millisecond)
-	}
-	t.Fatal("the gate never delivered the hold notice")
+	dl.waitSends(t, 1)
 }

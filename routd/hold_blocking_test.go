@@ -31,18 +31,19 @@ func waitForVerdict(t *testing.T) {
 // awaitHeldID waits for the gate goroutine to record its row and returns its id.
 func awaitHeldID(t *testing.T, d *DB) string {
 	t.Helper()
-	for range 500 {
+	var id string
+	awaitCond(t, "the gate never recorded a held row", func() bool {
 		rows, err := d.ListPendingActions("atlas", "")
 		if err != nil {
 			t.Fatal(err)
 		}
 		if len(rows) == 1 {
-			return rows[0].ID
+			id = rows[0].ID
+			return true
 		}
-		time.Sleep(2 * time.Millisecond)
-	}
-	t.Fatal("the gate never recorded a held row")
-	return ""
+		return false
+	})
+	return id
 }
 
 // TestHoldGate_BlockingRunsTheApprovedCall is the whole contract: the agent's

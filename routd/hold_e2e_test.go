@@ -48,17 +48,17 @@ func newHoldAdapter(t *testing.T, caps map[string]bool) (*holdAdapter, *chanreg.
 // await returns the first recorded send, or fails.
 func (a *holdAdapter) await(t *testing.T) map[string]any {
 	t.Helper()
-	for range 500 {
+	var first map[string]any
+	awaitCond(t, "the adapter never received the notice", func() bool {
 		a.mu.Lock()
-		sent := a.sent
-		a.mu.Unlock()
-		if len(sent) > 0 {
-			return sent[0]
+		defer a.mu.Unlock()
+		if len(a.sent) == 0 {
+			return false
 		}
-		time.Sleep(2 * time.Millisecond)
-	}
-	t.Fatal("the adapter never received the notice")
-	return nil
+		first = a.sent[0]
+		return true
+	})
+	return first
 }
 
 // holdE2E wires a DB, a real chanreg-backed Deliverer and a Loop that share it,
