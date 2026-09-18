@@ -1080,7 +1080,7 @@ new tool lands on the wrong side, which is what keeps the choice honest.
   per world instead of on `role:member`, and the guard test becomes the thing
   that stops them drifting.
 
-## L270 — nine adapter dashboards trust `X-User-*` without verifying proxyd stamped it (2026-09-12, open)
+## ✅ FIXED 2026-09-18 L270 — nine adapter dashboards trust `X-User-*` without verifying proxyd stamped it (2026-09-12)
 
 `auth.RequireOperator` (`auth/dashauth.go:66`) is the one correct gate, and its
 own comment names the attack: reading `X-User-*` without verifying proxyd's
@@ -1112,7 +1112,17 @@ without the proof beside it.
 - **Scope:** `chanlib/dash.go`, `ttsd/dash.go`, `auth/dashauth.go`
 - **Affected:** 8 channel adapters plus ttsd, every instance
 - **Source:** `grep RequireOperator` vs `chanlib/dash.go:66`; `docker ps` on sloth
-- **Status:** open
+- **Status:** fixed in 59cad96e
+- **Fix:** both call `auth.RequireOperator` now, the gate every core daemon
+  already uses. The keyset was never a missing capability: `chanlib` already
+  built one to pin routd's service token, because it is one authd answering both
+  questions. It is exported as `chanlib.AuthdKeys` and INJECTED, the way
+  `authGate` already takes one — a `sync.Once` built from the process env cannot
+  be swapped, which is why the old test set `AUTHD_URL` and still passed against
+  an open gate. `dashEnforced` is gone, and `ttsd` reads the same keyset.
+  `auth/authtest` holds the fixture; onbod had a copy of it and timed had it
+  inline, so there is one now. Each gate states the case: `["**"]` with no proof
+  beside it is 403.
 - **Fix:** give the adapter the keyset it says it lacks — it already reads
   `AUTHD_URL` to decide whether to enforce, which is the same fact
   `auth.NewKeySet` needs — then call `RequireOperator` like everyone else. One
