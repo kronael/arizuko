@@ -7,6 +7,53 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L314 — one catch-all `/pub/` redirect row disables publishing for every folder but `atlas` on sloth (2026-09-19, open)
+
+MEASURED on sloth 2026-09-19 by `anteval --smoke`, which scored 7/9; the
+`link-is-public-url` failure is this. Every public page a folder publishes is
+unreachable:
+
+```
+/pub/eval/   302 -> /pub/atlas/eval/   404
+/pub/main/   302 -> /pub/atlas/main/   404
+/pub/coach/  302 -> /pub/atlas/coach/  404
+/pub/atlas/  200
+```
+
+`routd.web_routes` holds two rows, both from 2026-06-02: `/pub/atlas/` with
+`access=public`, and `/pub/` with `access=redirect` and
+`redirect_to=/pub/atlas/`. The second is a vanity redirect for an
+atlas-branded instance, and it covers every folder's publish prefix, so a page
+written correctly to `~/public_html/` is bounced to a path that does not
+exist. krons does the same branding with NARROW rows — `/pub/agents/` →
+`/pub/krons/agents/`, one per page — and its `/pub/<folder>/` therefore
+answers 200.
+
+The agent behaved correctly throughout: it published to `~/public_html/`,
+verified the URL, found the 302, chased it to the 404, reported the documented
+public URL through the callback and named the redirect as the cause. It spent
+its whole 150 s wall doing so, so the callback landed past the harness's
+deadline and the case reads as a capability failure. The instance is broken,
+not the agent.
+
+Three rows in the same class deserve the same look: nothing warns that a
+`redirect` row on a prefix shadows every folder underneath it, and
+`web_route_set` is an agent-grantable tool, so a folder can do this to an
+instance with one call.
+
+**Fix (instance data, operator's call):** drop the `/pub/` redirect row and
+express the atlas vanity as narrow per-page rows the way krons does, or move
+it to `/`. **Fix (code, needs sign-off):** `web_route_set` refuses a
+`redirect` row whose prefix is an ancestor of a live publishing folder's path,
+and says which folder it would shadow.
+
+- **Severity:** high — the publish surface is dead for 4 of 5 folders on a live instance
+- **Scope:** sloth `routd.web_routes`; `web_route_set` validation
+- **Affected:** sloth (all folders but `atlas`); any instance that sets a prefix redirect
+- **Source:** `curl -sI https://sloth.quantblue.tech/pub/eval/` → 302 `/pub/atlas/eval/` → 404; `routd.web_routes` rows `/pub/` and `/pub/atlas/`, created 2026-06-02; anteval report 2026-09-19 15:47
+- **Status:** open
+- **Fix:**
+
 ## L313 — the repo's `create-eval` skill never loads: the global one of the same name shadows it (2026-09-19, open)
 
 MEASURED 2026-09-19. `.claude/skills/create-eval/SKILL.md` is tracked in this
