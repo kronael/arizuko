@@ -27,6 +27,7 @@
             <li><a href="discd.html">discd</a></li>
             <li><a href="egress.html">egress</a></li>
             <li><a href="emaid.html">emaid</a></li>
+            <li><a href="gitd.html">gitd</a></li>
             <li><a href="linkd.html">linkd</a></li>
             <li><a href="litellm.html">litellm</a></li>
             <li><a href="onbod.html">onbod</a></li>
@@ -102,7 +103,7 @@
     <p>Anthropic&rsquo;s <a href="https://code.claude.com/docs/en/legal-and-compliance">legal and compliance page</a> documents provisioning an API key in a shared environment; the same page says developers may not intermediate Claude.ai session tokens. An operator pointing the gateway at their own subscription should read it and decide.</p>
 
     <h2>Why the package ships a database</h2>
-    <p>litellm keeps virtual keys, budgets and its spend log in Postgres, so the package ships one (<code>litellm_db</code>) beside the proxy. Without it there are no per-turn keys, no budgets and no spend table &mdash; one <code>MODEL_GATEWAY_KEY</code> shared by every spawn, and <code>GET /spend/logs</code> answering 500. arizuko&rsquo;s own stores stay SQLite; this Postgres is the gateway&rsquo;s state, not arizuko&rsquo;s, so it lives in a named volume rather than under the instance data dir.</p>
+    <p>litellm keeps virtual keys, budgets and its spend log in Postgres, so the package ships one (<code>litellm_db</code>) beside the proxy. Without it there are no per-turn keys, no budgets and no spend table &mdash; one <code>MODEL_GATEWAY_KEY</code> shared by every spawn, and <code>GET /spend/logs</code> answering 500. this Postgres is the gateway&rsquo;s own state, not arizuko&rsquo;s, so it lives in a named volume rather than under the instance data dir.</p>
 
     <h2>The gateway is the ledger</h2>
     <p>arizuko stores no spend (spec <a href="https://github.com/kronael/arizuko/blob/main/specs/6/39-gateway-owns-spend.md">6/39</a>). A second ledger can only agree, lag, or lie, so there is one number and litellm holds it.</p>
@@ -166,7 +167,7 @@ ANTHROPIC_BASE_URL=http://localhost:4000 ANTHROPIC_AUTH_TOKEN=sk-my-virtual-key 
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/litellm.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-05">2026-09-05</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-06">2026-09-06</time>
       </div>
     </main>
 

@@ -13,6 +13,48 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Security
+
+- Nine operator dashboards read `X-User-Groups` and nothing else, so anyone who
+  could reach the port could send `X-User-Groups: ["**"]` and receive the
+  operator page. Eight channel adapters inherit one `chanlib` handler and `ttsd`
+  is the ninth, so it was nine surfaces from two call sites. Both call
+  `auth.RequireOperator` now, the gate every core daemon already used: the scope
+  counts only behind proxyd's `service:proxyd` bearer. `chanlib` already built
+  the keyset it was documented as lacking — one authd answers both the
+  service-token question and the transit question — so it is exported as
+  `chanlib.AuthdKeys` and injected (`L270`). Measured on krons after the deploy:
+  a forged `["**"]` gets 403 from a live adapter dashboard.
+
+### Added
+
+- A folder can hold `gh:write`, so an agent whose folder was granted it can
+  approve and merge pull requests with `gh`. Exact-action match — an operator's
+  `**` does not confer it — and the PAT's own scope is the real lock.
+
+### Fixed
+
+- A person admitted to a group gets a user profile. Every caller of
+  `CreateUserProfile` was a test, so onbod's `writeWorld` ended by renaming a
+  profile that was never there and a new person stayed nameless on every
+  operator surface (`L269`).
+- The egress proxy and the spawn it serves can no longer be handed the same
+  address.
+- A dashboard route survives compose generation.
+- A route's `added_by` and `added_via` survive an apply, and the round-trip test
+  says so rather than counting rows (`L265`).
+- `ant/Makefile` hardcoded `docker`, so `make images DOCKER="sudo docker"` built
+  every image except `arizuko-ant` and still read as finished. Privilege is
+  parameterized.
+
+### Changed
+
+- The hold tests wait for the notice rather than for the row that precedes it,
+  and five copies of the same one-second poll became one wait with a budget that
+  survives `-race`. The cause was a recorder writing outside its own lock
+  (`L290`).
+- The last SQL-era helpers have no caller and are gone.
+
 ## [v0.68.1] — 2026-09-16
 
 > arizuko v0.68.1 — the adapter stays up so you can fix it

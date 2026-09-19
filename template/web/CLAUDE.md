@@ -60,51 +60,37 @@ Hard rules:
 
 ## Layout
 
+Each directory's `index.html` lists its own pages, so this map names the
+sections and what each one answers. Do not hand-list every file here —
+a second copy of the tree drifts the moment a page is added.
+
 ```
-pub/
-  index.html              landing — one-pager: what arizuko is, quick start
-  products/
-    index.html            product grid — what can I build?
-    assistant/
-      index.html          product intro (user pitch, key features, who it's for)
-      setup.html          setup guide: arizuko commands, env vars, first run
-    developer/index.html + setup.html
-    researcher/index.html + setup.html
-    writer/index.html + setup.html
-    ops/index.html + setup.html
-    support/index.html + setup.html
-    companion/index.html + setup.html
-  components/
-    index.html            all daemons, one-line each, links
-    gated.html            gateway daemon — what, why, how it fits, standalone
-    ant.html              agent-as-folder unit
-    slink.html            public web endpoint
-    proxyd.html           auth proxy
-    webd.html             web channel + SSE hub
-    crackbox.html         egress sandbox (old crackbox/ redirects here)
-    onbod.html            onboarding daemon
-    dashd.html            operator dashboard
-    timed.html            cron/interval scheduler
-    channels.html         adapter overview (teled, discd, whapd, slakd, bskyd, reditd, emaid, twitd, linkd)
-    davd.html             WebDAV workspace
-    ttsd.html             TTS proxy
-  reference/
-    index.html            reference overview
-    env.html              all env vars, grouped by daemon
-    cli.html              arizuko CLI commands (create, run, invite, chat, group …)
-    mcp.html              MCP tools reference (all 30+ tools, params, grants)
-    schema.html           SQLite tables (messages, groups, user_groups, …)
-    grants.html           grant rule syntax
-    jid.html              JID format reference
-  howto/
-    index.html            getting started — install, create instance, first message
-    chat-sdk.html         embed chat with arizuko-client.js (old examples/ redirects here)
-  concepts/               EXPLANATION — guided walkthrough, curriculum-ordered (spec 5/D); narrative twins of reference nouns
-  changelog/index.html
+pub/arizuko/
+  index.html      landing — what arizuko is, quick start
+  products/       one directory per product: index.html (the pitch) + setup.html
+  components/     one page per daemon, plus channels.html for the adapter set
+  concepts/       EXPLANATION — guided walkthrough, curriculum-ordered (spec
+                  5/D); the narrative twin of a reference noun
+  reference/      LOOKUP — env vars, CLI, MCP tools, store tables, grants,
+                  JIDs, OpenAPI, packages, route tokens, topics, stats
+  howto/          guided procedures, product-branded
+  security/       threat model and the operator's side of it
+  strategy/       positioning and direction
+  research/       longer write-ups
+  changelog/      what shipped, dated
+  crackbox/       the egress sandbox's own pages
+  examples/       runnable samples
   assets/
-    hub.css               single stylesheet (dark/light, prose, code, nav)
-    hub.js                theme toggle + minimal nav
+    hub.css       single stylesheet (dark/light, prose, code, nav)
+    hub.js        theme toggle, minimal nav, the version stamp
 ```
+
+Two rules the tree enforces:
+
+- A new daemon needs THREE edits: its own `components/<name>.html`, a row in
+  `components/index.html`, and a line in the nav every component page carries.
+  Miss the third and the page exists but nothing links to it.
+- `hub.js` holds `ARIZUKO_VERSION`, the only copy. Bump it when you tag.
 
 ## Section purposes
 
