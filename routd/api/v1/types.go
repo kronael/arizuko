@@ -8,20 +8,27 @@ package v1
 // routd appends exactly one messages row from it. Timestamp is unix
 // seconds; 0/absent → now.
 type Message struct {
-	ID             string       `json:"id"` // optional; routd mints <adapter>-<rand> if empty
-	ChatJID        string       `json:"chat_jid"`
-	Sender         string       `json:"sender"`
-	SenderName     string       `json:"sender_name"`
-	Content        string       `json:"content"`
-	Timestamp      int64        `json:"timestamp"`
-	ReplyTo        string       `json:"reply_to"`
-	ReplyToText    string       `json:"reply_to_text"`
-	ReplyToSender  string       `json:"reply_to_sender"`
-	ForwardedFrom  string       `json:"forwarded_from"` // delegation return-address (spec 5/E § delegation)
-	Topic          string       `json:"topic"`
-	Verb           string       `json:"verb"`     // default message; like|dislike|edit|delete|...
-	Reaction       string       `json:"reaction"` // emoji for verb=like
-	IsGroup        bool         `json:"is_group"`
+	ID            string `json:"id"` // optional; routd mints <adapter>-<rand> if empty
+	ChatJID       string `json:"chat_jid"`
+	Sender        string `json:"sender"`
+	SenderName    string `json:"sender_name"`
+	Content       string `json:"content"`
+	Timestamp     int64  `json:"timestamp"`
+	ReplyTo       string `json:"reply_to"`
+	ReplyToText   string `json:"reply_to_text"`
+	ReplyToSender string `json:"reply_to_sender"`
+	ForwardedFrom string `json:"forwarded_from"` // delegation return-address (spec 5/E § delegation)
+	Topic         string `json:"topic"`
+	Verb          string `json:"verb"`     // default message; like|dislike|edit|delete|...
+	Reaction      string `json:"reaction"` // emoji for verb=like
+	// IsGroup is the chat's classification: true for a group or channel, false for
+	// a DM, NIL for a caller that has none to give. The third state is the point,
+	// because routd WRITES this onto `chats.is_group`: only the adapter that
+	// OBSERVES the chat classifies it, while timed's cron fire and an eval
+	// injection merely post into a chat someone else observes. A bare bool spells
+	// their silence "DM", which unflagged every group chat a scheduled task fires
+	// into and answered a live group in a direct chat's reply shape (BUGS L306).
+	IsGroup        *bool        `json:"is_group,omitempty"`
 	ChatName       string       `json:"chat_name"`
 	Source         string       `json:"source"`       // adapter channel name (CHANNEL_NAME); persisted for multi-account reply routing
 	LinkContext    string       `json:"link_context"` // route-token context snapshotted at ingest by webd (spec 5/W)

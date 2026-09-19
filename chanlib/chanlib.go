@@ -61,10 +61,17 @@ type InboundMsg struct {
 	Reaction string `json:"reaction,omitempty"`
 	// IsGroup classifies the chat: true for group chats / channels /
 	// public threads, false for DMs / 1:1 threads / chat. The router
-	// upserts this onto chats.is_group; the secrets resolver reads it
-	// to decide whether user-scope secrets are safe to inject. Adapters
-	// set this on every inbound — the latest classification wins.
-	IsGroup bool `json:"is_group,omitempty"`
+	// upserts it onto chats.is_group, where routd reads it to pick the
+	// reply shape — a group gets its answer on a platform thread rooted
+	// at the trigger, a DM does not. Adapters set this on every inbound
+	// — the latest classification wins.
+	//
+	// IT GOES ON THE WIRE EVEN WHEN FALSE. An adapter OBSERVES its chat, so its
+	// false is the answer "a DM", and that answer has to be able to take a
+	// wrong `true` back off a chat routd once saw misclassified. Omitting it
+	// would spell a DM the same way a caller with no classification spells
+	// silence, and routd tells the two apart (routd/api/v1 § Message.IsGroup).
+	IsGroup bool `json:"is_group"`
 	// ChatName is the human-readable name of the source channel or group
 	// (e.g. "#general" on Discord, "My Group" on Telegram). Empty for DMs.
 	// Stored on the message so the agent can identify the channel without

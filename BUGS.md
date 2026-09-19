@@ -318,7 +318,7 @@ cover it. Do not "fix" it by widening what the agent may do silently.
 - **Status:** open — needs the operator to choose the grant or the case
 - **Fix:**
 
-## L306 — `is_group` reads 0 on live multi-party chats (2026-09-18, open)
+## ✅ FIXED 2026-09-19 L306 — `is_group` reads 0 on live multi-party chats (2026-09-18)
 
 MEASURED on all three instances. Every one of these carries a multi-party JID
 and a live message stream, and `chats.is_group` is 0:
@@ -342,8 +342,35 @@ absent attribute — indistinguishable from never written.
 Consumer: `routd/turns.go:107` `ThreadReplies(tc.Folder, s.db.ChatIsGroup(jid))`
 picks the reply shape from it, so a group is treated as a direct chat.
 
-Find the producer path that omits `IsGroup` before changing the consumer — a
-guard on the reader is the symptom patch, and the JID already carries the truth.
+The producer is `timed`. `fireSplit` (`timed/split.go`) posts one
+`apiv1.Message` per due task carrying id, chat_jid, sender, content and
+timestamp — and no classification, because a scheduler posts INTO a chat it
+does not observe. routd read that silence as the assertion "DM" and cleared the
+flag on every fire, so each listed chat is one a scheduled task fires into and
+whose last event was that fire. `anteval`'s `Inject` is the same shape.
+
+**Fix:** `apiv1.Message.IsGroup` is a `*bool` and routd's ingress writes
+`chats.is_group` only for a caller that STATES one. A classification is what
+the adapter OBSERVES; a poster that observes nothing now says nothing, and a
+bare bool can only lie for it. `chanlib.InboundMsg.IsGroup` drops `omitempty`
+so an adapter's false still reaches the wire — that answer is what takes a
+wrong `true` back off a chat routd once saw misclassified, and without it the
+third state would be decorative. The ingress no longer needs the flag write to
+open the chat item: `PutMessage` on the line above already does
+(`store/messages.go` §"ONE WRITE OPENS THE CHAT AND FLAGS IT").
+
+`timed` is deliberately NOT taught to read the JID grammar. That would be a
+second declaration of a fact every adapter already makes, and it answers
+Discord wrong: a group DM is multi-party and its JID is `discord:dm/<channel>`.
+
+`TestCronFireLeavesTheChatClassification` drives the exact `fireSplit` payload
+through the ingress and fails on the old behaviour;
+`TestCronFireOpensAnUnclassifiedChat` pins the open that no longer rides the
+flag write; `TestInboundCarriesTheClassificationEvenWhenFalse` pins the wire.
+
+The listed rows repair themselves: an adapter states the classification on
+every inbound, so each chat is re-flagged by its next message once the build
+ships. Nothing is written to a live row by hand.
 
 ## L307 — two Slack channels on marinade carry traffic and match no route (2026-09-18, open)
 

@@ -595,7 +595,14 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "store_error", err.Error())
 		return
 	}
-	_ = s.db.SetChatIsGroup(m.ChatJID, m.IsGroup)
+	// A classification is written only by a caller that gave one. PutMessage above
+	// has already opened the chat item, so silence costs nothing here (api/v1
+	// § Message.IsGroup).
+	if m.IsGroup != nil {
+		// the chat is stored and routed either way; a flag write that fails is
+		// restated by the adapter's next inbound
+		_ = s.db.SetChatIsGroup(m.ChatJID, *m.IsGroup)
+	}
 	if s.loop != nil {
 		s.loop.Enqueue(m.ChatJID)
 	}

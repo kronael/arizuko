@@ -268,10 +268,10 @@ func (s *Store) SetChatIsGroup(jid string, isGroup bool) error {
 		}
 		return nil
 	}
-	// A direct chat still OPENS the item, and that is not bookkeeping: routd
-	// calls this on every inbound, so it is what records that the instance has
-	// seen a chat at all. The false flag is the attribute's absence, so a created
-	// item already says it and only an existing one has anything to clear.
+	// A direct chat still OPENS the item. The false flag is the attribute's
+	// absence, so an item created here already says "direct" and only an item
+	// that was already there has anything to clear; creating it is what makes
+	// the two halves one answer rather than a clear that skips a chat.
 	created, err := s.TryWriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Put, Entity: Chats, Key: key, Attrs: map[string]string{},
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},

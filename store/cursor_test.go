@@ -225,9 +225,10 @@ func TestBumpEngagementWithNoFolderUnclaimsTheWindow(t *testing.T) {
 	}
 }
 
-// TestRecordingADirectChatOpensItsRow pins what the flag write is FOR. routd
-// calls SetChatIsGroup on every inbound, so it is what records that the instance
-// has seen a chat at all — the upsert it replaces always created the row.
+// TestRecordingADirectChatOpensItsRow pins that recording a DIRECT chat is a
+// write and not a no-op: the flag is the attribute's absence, so the only thing
+// left to say is that the chat exists, and a caller that names one this store
+// has never seen must still end up with a row.
 func TestRecordingADirectChatOpensItsRow(t *testing.T) {
 	s := openEntities(t)
 	ctx := context.Background()

@@ -348,3 +348,28 @@ func TestSendMessage_ConcurrentReregister_NoRace(t *testing.T) {
 	})
 	wg.Wait()
 }
+
+// An adapter OBSERVES its chat, so its "this is a DM" is an answer and has to
+// reach the router as one. routd tells an answer from a caller that has no
+// classification to give, and it clears `chats.is_group` only for the answer,
+// so a false that never left the adapter would leave a chat routd once saw
+// misclassified flagged for ever (BUGS L306).
+func TestInboundCarriesTheClassificationEvenWhenFalse(t *testing.T) {
+	for _, isGroup := range []bool{true, false} {
+		raw, err := json.Marshal(InboundMsg{ID: "1", ChatJID: "telegram:user/7", IsGroup: isGroup})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var wire map[string]any
+		if err := json.Unmarshal(raw, &wire); err != nil {
+			t.Fatal(err)
+		}
+		got, ok := wire["is_group"]
+		if !ok {
+			t.Fatalf("is_group=%v never reached the wire: %s", isGroup, raw)
+		}
+		if got != isGroup {
+			t.Errorf("is_group on the wire = %v, want %v", got, isGroup)
+		}
+	}
+}
