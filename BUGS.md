@@ -144,7 +144,7 @@ both read — one declaration, many readers.
   (`core/cron_test.go`). Spec `6/30` §"One cron parser" replaces its
   three-copies paragraph.
 
-## L311 — a second instance's `env/operator.env` points the operator CLI at a name only containers resolve, and it is world-readable (2026-09-19, open)
+## ✅ FIXED 2026-09-19 L311 — a second instance's `env/operator.env` points the operator CLI at a name only containers resolve, and it is world-readable (2026-09-19)
 
 MEASURED on sloth 2026-09-19. Every `arizuko <cmd> sloth` died with
 `open routd's store: … dial tcp: lookup extenddb on 127.0.0.53:53: server
@@ -180,8 +180,27 @@ published port then belongs in the manifest as a per-instance `env` key with a
 - **Scope:** `template/services/extenddb.yml:34`, `template/services/extenddb.yaml`, `compose/` (no writer for `env/operator.env`)
 - **Affected:** every instance after the first on a host; sloth, marinade
 - **Source:** `/srv/data/arizuko_sloth/env/operator.env` (2026-09-18 19:47, mode 0644); `sudo docker port arizuko_extenddb_sloth` → `127.0.0.1:18444`
-- **Status:** open — proposal, needs sign-off
-- **Fix:**
+- **Status:** fixed; both live files were also corrected by hand
+- **Fix:** `arizuko generate` now writes `env/operator.env`
+  (`compose.writeOperatorEnv`), pointing `DYNAMODB_URL` at the loopback address
+  of the port THIS instance publishes, at mode 0600. The credential lines are
+  minted by a by-hand `extenddb init` and cannot be generated, so the file is
+  never rewritten wholesale: one URL line is edited and every other byte,
+  comments included, is kept, and the line is touched ONLY when it is absent or
+  names the in-network service — an endpoint the operator chose is theirs and is
+  left alone. The published port left the fragment for `STORE_HOST_PORT` in the
+  manifest's `env` block, so a second instance takes its own port from `.env`
+  instead of an edit that freezes the fragment. Verified against copies of the
+  two live files: both come out byte-identical and at 0600.
+  `TestOperatorEnvKeepsAnOperatorAddressedFile` and
+  `TestOperatorEnvReplacesTheInNetworkName` pin those two cases.
+
+  **Residual, by design:** `STORE_HOST_PORT` is a `default:` key, and a
+  `default` fills the run's env without landing in `.env`, so a second instance
+  still collides on 18443 until its operator sets the key. INSTALL.md § The
+  store server now says so at the step where it matters. Making the port mint
+  itself per instance is a larger change to how `default` works and is not in
+  this fix.
 
 ## L310 — `dyntest` leaks one store container per interrupted test binary; eleven were alive for 32 hours (2026-09-19, open)
 

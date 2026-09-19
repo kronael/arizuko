@@ -31,7 +31,13 @@ services:
       # Loopback only, for the operator on the host: `arizuko` reaches the same
       # server its daemons do, and the certificate init generates carries
       # 127.0.0.1 beside the service name.
-      - '127.0.0.1:18443:18443'
+      #
+      # STORE_HOST_PORT is the host half, so a second instance on this host
+      # takes its own port from .env instead of an edit here — an edited
+      # fragment is frozen from the catalog and never takes another store
+      # change (BUGS L311). It defaults to the container port, which is what a
+      # single instance wants.
+      - '127.0.0.1:${STORE_HOST_PORT:-18443}:18443'
     healthcheck:
       test:
         [

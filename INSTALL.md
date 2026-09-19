@@ -208,6 +208,14 @@ echo 'DYNAMODB_URL=https://extenddb:18443' | sudo tee -a .env
 `DYNAMODB_URL` names the server every daemon opens its owner on. A daemon
 without it refuses to start and says so: there is no file to fall back to.
 
+`generate` writes the host's own address for the same server into
+`env/operator.env`, which is where `arizuko` on the host reads it: the service
+name above resolves inside the instance network and nowhere else. **A second
+instance on this host must set `STORE_HOST_PORT` in its `.env` first** — the
+published port defaults to 18443 and two instances cannot share it. Set the
+key, never edit `template/services/extenddb.yml`: an edited fragment is frozen
+from the catalog and stops taking store changes.
+
 ## Configure .env
 
 Edit `/srv/data/arizuko_<name>/.env`. The only required additions are:

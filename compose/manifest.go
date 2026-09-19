@@ -181,8 +181,10 @@ func appendEnvKeys(dataDir string, kv map[string]string) error {
 	return writeEnvAtomic(dataDir, path, strings.Join(lines, "\n")+"\n")
 }
 
-// writeEnvAtomic writes .env via a temp file in dataDir plus rename, 0600: the
-// file holds AUTH_SECRET, SECRETS_KEY and operator tokens.
+// writeEnvAtomic writes one of the instance's env files via a temp file in
+// dataDir plus rename, 0600: .env holds AUTH_SECRET, SECRETS_KEY and operator
+// tokens, and env/operator.env holds the store key that reaches every owner's
+// tables.
 func writeEnvAtomic(dataDir, path, body string) error {
 	tmp, err := os.CreateTemp(dataDir, ".env.*")
 	if err != nil {

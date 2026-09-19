@@ -2,6 +2,8 @@ package compose
 
 import (
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -345,6 +347,112 @@ func writeEnvFiles(dataDir string, env map[string]string, perDaemon map[string]m
 		if err := os.WriteFile(filepath.Join(dir, daemon+".env"), []byte(b.String()), 0o600); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// storeService is the compose service name of the store server
+// (template/services/extenddb.yml). A DYNAMODB_URL naming it resolves inside
+// the instance network and nowhere else, so it is exactly the value the host
+// CLI cannot use.
+const storeService = "extenddb"
+
+// storeHostPortKey is the .env key naming the host half of the store server's
+// published port, declared in template/services/extenddb.yaml. One declaration:
+// docker publishes on it and writeOperatorEnv addresses the same port.
+const storeHostPortKey = "STORE_HOST_PORT"
+
+// operatorEnvPath is the host CLI's own env file, loaded over .env by
+// core.LoadInstanceEnv. It carries the operator's store credential, which stays
+// out of .env because .env reaches every service without a scoped env file, and
+// that credential reaches every owner's tables.
+func operatorEnvPath(dataDir string) string {
+	return filepath.Join(dataDir, "env", "operator.env")
+}
+
+// writeOperatorEnv points the host CLI at the store port THIS instance
+// publishes. `arizuko` runs on the host, outside the instance network, where
+// the compose service name in DYNAMODB_URL resolves to nothing; the loopback
+// address of the published port is the same server seen from here. That
+// knowledge used to live in a hand-written comment in one instance's file and
+// so never reached the second, whose every subcommand died in DNS (BUGS L311).
+//
+// The credential lines in this file are minted by a by-hand `extenddb init`
+// (INSTALL.md § The store server) and cannot be generated from nothing, so the
+// file is never rewritten wholesale: one URL line is edited and every other
+// byte, comments included, is kept. The line is written only when it is absent
+// or when it names the in-network service — a value the host provably cannot
+// reach. Any other endpoint is the operator's own and is left alone, because a
+// published port is not derivable from an endpoint they pointed elsewhere.
+func writeOperatorEnv(dataDir string, env map[string]string) error {
+	inNetwork, err := url.Parse(env[dynstore.EnvURL])
+	if err != nil || inNetwork.Hostname() != storeService {
+		// No store server (the URL is empty or unparseable), or one the
+		// operator addressed themselves. Their file, untouched.
+		return nil
+	}
+	port := env[storeHostPortKey]
+	if port == "" {
+		port = inNetwork.Port()
+	}
+	onHost := *inNetwork
+	onHost.Host = net.JoinHostPort("127.0.0.1", port)
+
+	path := operatorEnvPath(dataDir)
+	prev, rerr := os.ReadFile(path)
+	if rerr != nil && !os.IsNotExist(rerr) {
+		return fmt.Errorf("read %s: %w", path, rerr)
+	}
+	if os.IsNotExist(rerr) || strings.TrimSpace(string(prev)) == "" {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return err
+		}
+		body := fmt.Sprintf("# The host's address for the store server this instance publishes.\n"+
+			"# The operator's own access key belongs here too, beside it: `arizuko` on\n"+
+			"# the host reaches every owner's tables, so that key is not in .env, which\n"+
+			"# every service without a scoped env file reads.\n%s=%s\n",
+			dynstore.EnvURL, onHost.String())
+		return writeEnvAtomic(dataDir, path, body)
+	}
+	lines := strings.Split(strings.TrimRight(string(prev), "\n"), "\n")
+	// Last wins, the way godotenv reads the file.
+	at := -1
+	for i, line := range lines {
+		if k, _, ok := strings.Cut(line, "="); ok && strings.TrimSpace(k) == dynstore.EnvURL {
+			at = i
+		}
+	}
+	line := fmt.Sprintf("%s=%s", dynstore.EnvURL, onHost.String())
+	switch {
+	case at == -1:
+		lines = append(lines, line)
+	case !namesStoreService(lines[at]):
+		// Reachable from here: the operator's line, and the platform does not
+		// edit an operator's line. Only the mode is still ours.
+		return chmodOperatorEnv(path)
+	default:
+		lines[at] = line
+	}
+	return writeEnvAtomic(dataDir, path, strings.Join(lines, "\n")+"\n")
+}
+
+// namesStoreService reports whether one KEY=VALUE line's URL addresses the
+// store server by its compose service name. An unparseable value counts: it
+// reaches nothing either way.
+func namesStoreService(line string) bool {
+	_, value, _ := strings.Cut(line, "=")
+	have, err := url.Parse(strings.TrimSpace(value))
+	return err != nil || have.Hostname() == storeService
+}
+
+// chmodOperatorEnv takes the file back to 0600 without touching a byte of it.
+// sloth shipped this file at 0644 holding the account key that reaches every
+// owner's tables, readable by any host user (BUGS L311). A chmod needs the
+// owner, and a non-root generate on a dev box is legitimate — the same reason
+// mkdirOwned leaves its chown best-effort there.
+func chmodOperatorEnv(path string) error {
+	if err := os.Chmod(path, 0o600); err != nil && os.Geteuid() == 0 {
+		return fmt.Errorf("chmod %s: %w", path, err)
 	}
 	return nil
 }
@@ -783,6 +891,12 @@ func Generate(dataDir string) (string, []ProxydRoute, error) {
 	// while a daemon's env file goes stale — the `/login` outage class (BUGS C11).
 	if werr := writeEnvFiles(dataDir, env, perDaemon); werr != nil {
 		return "", nil, fmt.Errorf("write per-daemon env files: %w", werr)
+	}
+	// The operator's own env file is the same shape of failure one door along:
+	// silence here leaves every `arizuko <cmd> <inst>` dialling a name only a
+	// container resolves (BUGS L311).
+	if werr := writeOperatorEnv(dataDir, env); werr != nil {
+		return "", nil, fmt.Errorf("write the operator env file: %w", werr)
 	}
 
 	// app-src/ holds the release's ant/, staged by runed for agent containers.
