@@ -91,10 +91,12 @@
     <p>The split is deliberate: minting is centralized (one key, one daemon), verification is distributed (every backend, no round-trip). A request carrying a token never calls back to authd &mdash; the backend already has the JWKS and checks the signature locally. authd can be momentarily down and existing tokens still verify; only new logins and refreshes block.</p>
 
     <h2>Standalone usage</h2>
-    <p>authd is the most standalone of the split daemons &mdash; it owns its DB and its signing key, and it needs no other daemon to mint and verify tokens. The one soft tie is <code>GRANTS_URL</code>: without routd, it still issues tokens, but their scope ceiling is empty.</p>
+    <p>authd is the most standalone of the split daemons &mdash; it owns its tables and its signing key, and it needs no other daemon to mint and verify tokens. The one soft tie is <code>GRANTS_URL</code>: without routd, it still issues tokens, but their scope ceiling is empty.</p>
 
     <pre><code>cd /srv/data/myinstance
-export DATA_DIR=/srv/data/myinstance        # resolves &lt;dir&gt;/store/auth.db
+export DATA_DIR=/srv/data/myinstance
+export DYNAMODB_URL=https://extenddb:18443       # the instance's store server
+export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... AWS_REGION=us-east-1
 export LISTEN_ADDR=:8080
 export AUTHD_SERVICE_KEY=$(grep ^AUTHD_SERVICE_KEY .env | cut -d= -f2)
 export AUTHD_SERVICE_KEYS='routd=...,runed=...,webd=...,proxyd=...'
@@ -146,7 +148,7 @@ export AUTH_BASE_URL=https://example.com
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/authd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-04">2026-09-04</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-13">2026-09-13</time>
       </div>
     </main>
 

@@ -79,23 +79,23 @@
     <div class="callout"><strong>Two streams, one shape.</strong> Both layers use the same field names, so <code>journalctl | grep tool=Bash</code> and <code>journalctl | grep tool=set_routes</code> return rows you can read side by side.</div>
 
     <h2>each daemon keeps its own</h2>
-    <p>arizuko does not have one audit table. Each daemon owns its own database and its own <code>audit_log</code> inside it, and nothing writes across that line. Correlation is by <code>turn_id</code>, which travels with the work.</p>
+    <p>arizuko does not have one audit table. Each daemon owns its own tables, including its own <code>audit_log</code>, and nothing writes across that line. A table is named for the daemon that owns it &mdash; <code>routd.audit_log</code>, <code>runed.audit_log</code>, <code>authd.audit_log</code> &mdash; so the owner is visible in the name. Correlation is by <code>turn_id</code>, which travels with the work.</p>
 
     <table>
-      <tr><th>Daemon</th><th>Table lives in</th><th>Records</th></tr>
-      <tr><td><code>routd</code></td><td><code>routd.db</code></td><td>routes, groups, grants, secrets, tasks, tokens &mdash; the bulk of it</td></tr>
-      <tr><td><code>runed</code></td><td><code>runed.db</code></td><td>who claimed a folder&rsquo;s run slot (<code>run.hold</code>) and who killed a run (<code>run.kill</code>)</td></tr>
-      <tr><td><code>authd</code></td><td><code>auth.db</code></td><td>identity and token events &mdash; logins, and who ended whose session (<code>sessions:delete</code>)</td></tr>
+      <tr><th>Daemon</th><th>Its audit table</th><th>Records</th></tr>
+      <tr><td><code>routd</code></td><td><code>routd.audit_log</code></td><td>routes, groups, grants, secrets, tasks, tokens &mdash; the bulk of it</td></tr>
+      <tr><td><code>runed</code></td><td><code>runed.audit_log</code></td><td>who claimed a folder&rsquo;s run slot (<code>run.hold</code>) and who killed a run (<code>run.kill</code>)</td></tr>
+      <tr><td><code>authd</code></td><td><code>authd.audit_log</code></td><td>identity and token events &mdash; logins, and who ended whose session (<code>sessions:delete</code>)</td></tr>
     </table>
 
-    <p>This is the same rule that keeps each daemon migrating only its own schema. The cost used to be that no single view spanned them; the dashboard now does the spanning for you, by asking each daemon rather than by merging their files.</p>
+    <p>This is the same rule that keeps each daemon owning its own schema. One view still spans all three: the dashboard asks each daemon and merges the answers, rather than reading anyone else&rsquo;s tables.</p>
 
     <h2>reading it</h2>
     <p>The dashboard at <code>/dash/audit/</code> is the everyday view: newest first, fifty rows a page, filterable by category, actor and folder, with an <code>older</code> link that carries your filters. It is operator-only.</p>
 
-    <p>It shows all three trails at once. Each daemon publishes its own table at <code>GET /v1/audit</code>, and the dashboard asks all of them and merges the answers by time, with a <strong>source</strong> column telling you which daemon a row came from. So &ldquo;who killed that run&rdquo; is a question the dashboard can now answer, and you no longer need a shell on the box.</p>
+    <p>It shows all three trails at once. Each daemon publishes its own table at <code>GET /v1/audit</code>, and the dashboard asks all of them and merges the answers by time, with a <strong>source</strong> column telling you which daemon a row came from. So &ldquo;who killed that run&rdquo; is a question you answer in the browser, without a shell on the box.</p>
 
-    <p>The dashboard asks over the network rather than opening <code>runed.db</code> and <code>auth.db</code> itself. That is the same ownership rule as everywhere else: a daemon&rsquo;s table is reached through the daemon, so there is one place that decides who may read what. If one daemon does not answer, you get a banner naming it and the other two still render &mdash; an empty section would tell you nothing happened there, which is the one thing an audit page must never say by accident.</p>
+    <p>The dashboard asks over the network rather than reading <code>runed</code>&rsquo;s and <code>authd</code>&rsquo;s tables itself. That is the same ownership rule as everywhere else: a daemon&rsquo;s table is reached through the daemon, so there is one place that decides who may read what. If one daemon does not answer, you get a banner naming it and the other two still render &mdash; an empty section would tell you nothing happened there, which is the one thing an audit page must never say by accident.</p>
 
     <p>Reading the log does not write to it. Only changes get a row, so refreshing the page all day adds nothing; a <em>refused</em> read does get recorded, which is the point.</p>
 
@@ -126,7 +126,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/audit.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-06">2026-08-06</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-07">2026-08-07</time>
       </div>
     </main>
 

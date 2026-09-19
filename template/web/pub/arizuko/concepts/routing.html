@@ -59,7 +59,7 @@
     <p class="lede">You've met the ant &mdash; a folder that is an agent. The next question is how an inbound message finds the right one. When a message arrives, <code>routd</code> walks a table of rules. Each rule says &ldquo;if this message looks like X, run it in folder Y.&rdquo; First match wins.</p>
 
     <h2>the table</h2>
-    <p>Every message arriving from Telegram, Discord, Slack, email, or the web widget hits the same store (<code>routd.db</code>). <code>routd</code> then asks one question: which folder runs this? The answer comes from the <code>routes</code> table &mdash; one row per rule, evaluated in order:</p>
+    <p>Every message arriving from Telegram, Discord, Slack, email, or the web widget hits the same store (routd&rsquo;s <code>messages</code> table). <code>routd</code> then asks one question: which folder runs this? The answer comes from the <code>routes</code> table &mdash; one row per rule, evaluated in order:</p>
     <pre><code>seq    match                                  target
 ---    -----                                  ------
 -10    chat_jid=telegram:user/12345           atlas/legal
@@ -128,7 +128,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/routing.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-07">2026-08-07</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-13">2026-08-13</time>
       </div>
     </main>
 

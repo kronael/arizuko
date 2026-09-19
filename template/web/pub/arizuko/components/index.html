@@ -61,9 +61,9 @@
     <tr><th>name</th><th>role</th></tr>
   </thead>
   <tbody>
-    <tr><td class="name"><a href="../components/routd.html">routd</a></td><td>routing plane &mdash; message loop, resolves event&rarr;group, hosts the agent MCP socket, owns <code>routd.db</code> and the grant/ACL authority. See <a href="../concepts/routing.html">concepts/routing</a></td></tr>
-    <tr><td class="name"><a href="../components/runed.html">runed</a></td><td>execution plane &mdash; spawns and tears down the per-turn agent container; the only daemon wired to the Docker socket; owns <code>runed.db</code></td></tr>
-    <tr><td class="name"><a href="../components/authd.html">authd</a></td><td>auth plane &mdash; mints and verifies tokens, OAuth provider routes, owns <code>auth.db</code>. See <a href="../concepts/auth.html">concepts/auth</a></td></tr>
+    <tr><td class="name"><a href="../components/routd.html">routd</a></td><td>routing plane &mdash; message loop, resolves event&rarr;group, hosts the agent MCP socket, owns the <code>routd.*</code> tables and the grant/ACL authority. See <a href="../concepts/routing.html">concepts/routing</a></td></tr>
+    <tr><td class="name"><a href="../components/runed.html">runed</a></td><td>execution plane &mdash; spawns and tears down the per-turn agent container; the only daemon wired to the Docker socket; owns the <code>runed.*</code> tables</td></tr>
+    <tr><td class="name"><a href="../components/authd.html">authd</a></td><td>auth plane &mdash; mints and verifies tokens, OAuth provider routes, owns the <code>authd.*</code> tables. See <a href="../concepts/auth.html">concepts/auth</a></td></tr>
     <tr><td class="name"><a href="../components/webd.html">webd</a></td><td>web channel &mdash; SSE hub, the <a href="../components/tokens.html">route-token</a> URLs, MCP endpoint</td></tr>
     <tr><td class="name"><a href="../components/proxyd.html">proxyd</a></td><td>auth-gated reverse proxy &mdash; verifies JWTs, signs identity headers for backends</td></tr>
     <tr><td class="name"><a href="../components/vited.html">vited</a></td><td>static origin &mdash; Vite server behind proxyd for the <code>/pub/</code> docs tree and group web pages</td></tr>
@@ -105,7 +105,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-18">2026-08-18</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-04">2026-09-04</time>
       </div>
     </main>
 

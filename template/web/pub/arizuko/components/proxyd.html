@@ -116,7 +116,7 @@ export AUTHD_SERVICE_KEY=$(openssl rand -hex 32)
     <p>Both forwarders &mdash; webd for the agent, dashd for the operator &mdash; authenticate the caller themselves and then present a <code>service:webd</code> or <code>service:dashd</code> bearer. proxyd honours the stamped <code>X-User-*</code> only for those two subjects. Any other valid token arriving at <code>/v1/proxyd_routes</code> gets a 401, because a token holder who could stamp their own groups could stamp themselves an operator.</p>
 
     <h2>What proxyd does not do</h2>
-    <p>proxyd does not run business logic. It does not query <code>routd.db</code> beyond the route table, sessions, and route-token lookup. It does not enforce per-group scope (backends do, once the transit bearer checks out). It does not terminate TLS in production deployments &mdash; that belongs to a front like Caddy or nginx, which forwards to proxyd over loopback or a trusted network.</p>
+    <p>proxyd does not run business logic. It does not read routd&rsquo;s tables beyond the route table, sessions, and route-token lookup. It does not enforce per-group scope (backends do, once the transit bearer checks out). It does not terminate TLS in production deployments &mdash; that belongs to a front like Caddy or nginx, which forwards to proxyd over loopback or a trusted network.</p>
 
     <h2>Go deeper</h2>
     <ul>

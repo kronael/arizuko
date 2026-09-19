@@ -94,7 +94,7 @@ export INSTANCE_NAME=demo
 ./dashd
 # browse http://localhost:8080/dash/</code></pre>
 
-    <p>On a file instance <code>DATA_DIR</code> resolves each owner at <code>$DATA_DIR/store/&lt;owner&gt;/</code> &mdash; dashd reads routd's and onbod's &mdash; and the groups tree at <code>$DATA_DIR/groups/</code>; on a served instance the same reads go to the endpoint and no file is opened. Set <code>DB_PATH</code> to override routd's file independently. Pointing it at a retired database is refused rather than served stale. <code>INSTANCE_NAME</code> appears in the portal header.</p>
+    <p><code>DYNAMODB_URL</code> names the store server, and dashd reads routd's and onbod's tables from it. <code>DATA_DIR</code> still resolves the groups tree at <code>$DATA_DIR/groups/</code>, which is files on disk. <code>INSTANCE_NAME</code> appears in the portal header.</p>
 
     <p>Health: <code>GET /health</code> returns 200 when the database is reachable. With authd wired, exposing dashd directly still rejects any request that carries no proxyd transit bearer &mdash; but proxyd owns TLS and the login flow, so front it with proxyd anyway.</p>
 
@@ -163,7 +163,7 @@ export INSTANCE_NAME=demo
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/dashd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-06">2026-09-06</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-13">2026-09-13</time>
       </div>
     </main>
 

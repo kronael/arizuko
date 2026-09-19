@@ -110,7 +110,7 @@ proactive:
 
     <p>The cooldown is written in the same database transaction that queues the turn, before anything is dispatched. If routd dies in between, the cooldown is already set: the worst case is one interjection that never happened, never two that did.</p>
 
-    <p>That timestamp lives in <code>routd.db</code> (the <code>chat_proactive</code> table), not in <code>CLAUDE.md</code>, because it is not a setting &mdash; nobody edits it, the system just remembers.</p>
+    <p>That timestamp lives in routd&rsquo;s <code>chat_proactive</code> table, not in <code>CLAUDE.md</code>, because it is not a setting &mdash; nobody edits it, the system just remembers.</p>
 
     <h2>the agent still gets a veto</h2>
     <p>Everything above decides whether this is a <em>moment</em> worth a turn. It does not decide that there is anything worth saying. So the turn runs, and the agent is free to emit nothing at all; that outcome is normal, not a failure, and it burns the cooldown just like a turn that spoke.</p>
@@ -161,7 +161,7 @@ Last inbound "so do we roll back or not?" ends with a question and has no bot re
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/proactive.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-06">2026-08-06</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-07">2026-08-07</time>
       </div>
     </main>
 

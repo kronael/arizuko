@@ -364,7 +364,7 @@
 
       <h3>Secrets</h3>
       <p>
-        Secrets are AES-256-GCM encrypted in the <code>secrets</code> table in <code>routd.db</code>.
+        Secrets are AES-256-GCM encrypted in routd&rsquo;s <code>secrets</code> table.
         The container env carries model credentials only &mdash; the four env-profile keys, taken
         from the host <code>.env</code> and overlaid with the triggering user's own rows. Every
         capability credential stays on the host: <code>routd</code> resolves it per tool call,
