@@ -634,6 +634,30 @@ cd anteval && ./anteval run https://<host> --api http://localhost:8081 \
   --sink-addr $GW:9099 --sink http://$GW:9099 --smoke
 ```
 
+**Wait for the migration storm before you run it.** A release bumps
+`MIGRATION_VERSION`, and routd then queues one `auto-migrate-<folder>` turn
+for every folder behind it — 55 of them on krons for v0.69.0. Those turns
+compete for the same run slots, so the eval measures the queue, not the
+release. Measured on 2026-09-19: the same build scored **5/9 during the storm
+and 8/9 after it drained**, and every one of the three failures was the agent
+answering correctly but past the harness's wall — `rest-roundtrip` replied 5
+minutes after a 94s cap. Drain first:
+
+```bash
+until [ "$(sudo docker ps --format '{{.Names}}' | grep -c "arizuko-$I-")" -eq 0 ]; do sleep 30; done
+```
+
+Then check no `/migrate` turn has arrived for five minutes. A run started
+before that is not a gate, and reading it as one blames the release for the
+deploy.
+
+**Capture the report to a file, not through a pipe.** `anteval | tail` loses
+the whole table when the shell that owns the pipe goes away, and the run still
+exits 0 — you get a green exit and no tally. Redirect with `> file 2>&1`, and
+find the process by `ss -ltnp | grep 9099` rather than `pgrep -f`, which
+matches the shell running it. The sink port stays bound while a previous run
+lives, so a second run panics with `address already in use`.
+
 Two things that make this fail for the wrong reason. `--cases` is
 relative, so run it from `anteval/` — from the repo root it loads nothing
 and reports "no cases match selectors", which reads like a selector typo.
