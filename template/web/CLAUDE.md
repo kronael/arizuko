@@ -25,9 +25,9 @@ contains files that must not be deleted, so the workflow is:
 cp -r template/web/pub/arizuko/. /srv/data/arizuko_krons/web/pub/arizuko/
 
 # 2. Diff to find stale files left over (cp doesn't delete)
-(cd template/web/pub/arizuko && find . -type f | sort > /tmp/src.list)
-(cd /srv/data/arizuko_krons/web/pub/arizuko && find . -type f | sort > /tmp/dst.list)
-diff /tmp/src.list /tmp/dst.list | grep '^>' | head -40
+find template/web/pub/arizuko -type f -printf '%P\n' | sort > ./tmp/src.list
+find /srv/data/arizuko_krons/web/pub/arizuko -type f -printf '%P\n' | sort > ./tmp/dst.list
+comm -13 ./tmp/src.list ./tmp/dst.list        # live-only: the stale ones
 
 # 3. Delete only verified-stale files (sudo — files owned by mivu/root).
 #    PRESERVE: ./CLAUDE.md, ./.nomigrate, ./*.bak-krons, ./skills-export/**
@@ -147,8 +147,9 @@ Each component page answers four questions in order:
 `components/index.html` — table of all daemons: name | kind (core/integration)
 | one-line role | link. Same data as README.md daemon table — keep in sync.
 
-Component pages are ~200–400 lines of HTML. Link to reference/env.html
-anchored to that daemon's section.
+Component pages run ~120–150 lines of HTML; the shared chrome carries the
+nav, so the body is the four answers and little else. Do not pad a page to
+reach a length. Link to reference/env.html anchored to that daemon's section.
 
 ### Reference (`reference/`)
 
@@ -176,7 +177,7 @@ or schema column. Comprehensive, flat, searchable.
 - Required grant (`mcp:<tool>`)
 - Example call (mcpc style)
 
-`reference/schema.html` — every SQLite table:
+`reference/schema.html` — every table the store serves:
 
 - Columns with types and meaning
 - Which daemon owns writes
@@ -372,11 +373,10 @@ skipped anyway — six shipped products had no page and four pages had no tree
 Real top-level moves (only these): `crackbox/` → `components/crackbox.html`;
 `examples/chat-sdk.html` → `howto/`. Redirect the old paths.
 
-## Current state (2026-05-29)
+## Current state
 
-Populated: landing, `concepts/` (~20 pages), `components/` (~22 daemon
-pages), `reference/` (11 pages), `products/`, `howto/`, `security/`,
-`changelog/`, plus legacy `crackbox/` + `examples/` pending the moves
-above. Pending (spec 5/D): the shared three-pane chrome (inline
-`<style>` still per-page), the reference-rhythm reflow, and the
-concepts curriculum order.
+`pub/arizuko/` holds 121 files. The counts move, so read the tree rather than
+a number here: `find template/web/pub/arizuko -type f | wc -l` against
+`find <data-dir>/web/pub/arizuko -type f | wc -l` tells you whether live and
+source agree, and `comm -13` on the two sorted lists names anything live is
+carrying that source does not.
