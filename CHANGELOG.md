@@ -13,6 +13,26 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.69.0] — 2026-09-19
+
+> arizuko v0.69.0 — the operator page checks the proof
+>
+> A stamped operator header is worth nothing on its own, and nine dashboards
+> were taking it at face value; they check proxyd's signature now.
+>
+> • nine dashboards verify the transit proof — eight channel adapters and ttsd
+> read `X-User-Groups` and nothing else, so anyone who could reach the port
+> could send `["**"]` and get the operator page
+> • a folder can hold `gh:write` — an agent whose folder was granted it can
+> approve and merge pull requests with `gh`, and an operator `**` does not
+> confer it
+> • a person admitted to a group gets a profile — every caller of the writer
+> was a test, so new people stayed nameless on every operator surface
+> • gitd has a documentation page, and the docs no longer describe daemons
+> that were deleted in June
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ### Security
 
 - Nine operator dashboards read `X-User-Groups` and nothing else, so anyone who

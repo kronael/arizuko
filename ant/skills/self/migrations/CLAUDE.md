@@ -15,11 +15,11 @@ Files run in numeric order.
 
 **Every release adds one file**, including docs-only. The migration
 is the single trigger for the auto-migrate hook in
-`gateway.checkMigrationVersion`, which also drives the chat
+routd's `checkMigrationVersion` (`routd/loop.go`), which also drives the chat
 broadcast. Stub body for no-skill-change releases is fine.
 
 1. Create `NNN-vX.Y.Z-summary.md` — short, actionable, no ceremony
-2. Bump `MIGRATION_VERSION` in this dir to `N`
+2. Bump `../MIGRATION_VERSION` (it lives in `self/`, not here) to `N`
 3. Bump "Latest migration version" in `../migration.md` (`SKILL.md` is
    the index; the version line lives in `migration.md`)
 4. Rebuild the agent image
