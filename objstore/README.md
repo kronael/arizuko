@@ -67,7 +67,7 @@ in the suite so nobody reads more into it.
 **What `Replace` costs `resreg.Apply`, said plainly.** A marker-gated sequence
 has no pre-image to roll back to. A replace that dies half-way leaves the scope
 part-written with its claim held, and recovery is to run it again, never to
-undo it. That is what buys the unbounded row set, and it is the price `6/38`
+undo it. That is what buys the unbounded row set, and it is the price `6/37`
 costed.
 
 **Roll-forward is what gives the claim back.** Nothing releases one: a released
