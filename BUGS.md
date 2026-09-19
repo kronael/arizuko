@@ -202,7 +202,7 @@ published port then belongs in the manifest as a per-instance `env` key with a
   itself per instance is a larger change to how `default` works and is not in
   this fix.
 
-## L310 — `dyntest` leaks one store container per interrupted test binary; eleven were alive for 32 hours (2026-09-19, open)
+## ✅ FIXED 2026-09-19 L310 — `dyntest` leaks one store container per interrupted test binary; eleven were alive for 32 hours (2026-09-19)
 
 MEASURED on the dev host 2026-09-19: eleven `arizuko-dynstore-<pid>`
 containers, image `ghcr.io/extenddb/extenddb-dev:0.1.11`, up 31–32 hours. Each
@@ -228,8 +228,22 @@ orphan then cannot outlive the next run, whatever killed its creator.
 - **Scope:** `objstore/dynstore/dyntest/dyntest.go:107-116` (`Shutdown`), `:189-190` (`start`)
 - **Affected:** every developer host that runs the store test suites
 - **Source:** `docker ps --filter name=arizuko-dynstore-` 2026-09-19, 11 rows, 31–32 h uptime
-- **Status:** open
-- **Fix:**
+- **Status:** fixed; the eleven measured orphans carry no label and were left for the operator
+- **Fix:** the container is started with a label naming the pid that started it
+  (`arizuko-dynstore-pid`), and `start()` removes every labelled container whose
+  process the kernel no longer knows before it starts its own — the line that
+  already removed this pid's container by name. `Shutdown` stays the tidy path
+  for a process that returns; the reap is what covers one that does not, so an
+  orphan cannot outlive the next run whatever killed its creator. Liveness is
+  signal zero: a sibling test binary under `go test ./...` holds a live pid and
+  is spared, and a permission error counts as running. The name-scoped
+  `docker rm -f` stays for the one case the reap declines — a recycled pid that
+  is this process. `TestOrphansTakesTheDeadPidOnly` pins the choice against a
+  real exited pid and a real live one, `TestOrphansKeepsARowItCannotRead` the
+  row it cannot parse, and `TestReapRemovesADeadPidContainer` drives the whole
+  reap through docker, which is the half that proves the format string.
+  Measured end to end 2026-09-19: a suite killed with SIGKILL left
+  `arizuko-dynstore-1825964` up, and the next run removed it.
 
 ## L309 — the docs mount is gated on `web:publish`, so 49 of 55 folders ship a skill that names a path they do not have (2026-09-19, open — proposal, needs sign-off)
 

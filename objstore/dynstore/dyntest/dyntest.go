@@ -5,12 +5,15 @@ package dyntest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -104,9 +107,9 @@ func Store(t *testing.T, entities ...string) *dynstore.Store {
 }
 
 // Shutdown removes the container this process started. Every test package that
-// takes an endpoint calls it from TestMain: a container left behind outlives
-// the run and the next one starts beside it (seven were found running a day
-// after their suite finished).
+// takes an endpoint calls it from TestMain, so the container goes when the
+// suite ends rather than when the next one starts. A process that dies without
+// returning never reaches it; reap collects what such a process leaves.
 func Shutdown() {
 	if container == "" {
 		return
@@ -187,8 +190,14 @@ func start() (dynstore.Config, error) {
 		return dynstore.Config{}, err
 	}
 	name := fmt.Sprintf("arizuko-dynstore-%d", os.Getpid())
+	if err := reap(); err != nil {
+		return dynstore.Config{}, err
+	}
+	// reap spares a live pid and this process is one, so a container that an
+	// older run left under this pid goes by name.
 	_, _ = docker("rm", "-f", name)
 	if out, err := docker("run", "-d", "--name", name,
+		"--label", fmt.Sprintf("%s=%d", pidLabel, os.Getpid()),
 		"-p", fmt.Sprintf("127.0.0.1:%d:%d", port, ImagePort),
 		"-e", "EXTENDDB__SERVER__BIND_ADDR=0.0.0.0",
 		"-e", fmt.Sprintf("EXTENDDB__SERVER__PORT=%d", ImagePort),
@@ -228,6 +237,67 @@ func start() (dynstore.Config, error) {
 	}
 	Shutdown()
 	return dynstore.Config{}, fmt.Errorf("%s did not answer on %d: %w", Image, port, last)
+}
+
+// pidLabel carries the pid of the process that started a container. The name
+// carries the same pid for a person reading `docker ps`, and the reap reads the
+// label: a label filter is an exact key match, where a name filter is a
+// substring regex over a field anyone is free to reuse.
+const pidLabel = "arizuko-dynstore-pid"
+
+// reap removes every container this fixture started whose process is gone. It
+// runs before a new one starts, which is the only moment the fixture holds
+// nothing of its own to lose. Shutdown covers the process that returns; a
+// process that does not — `go test -timeout` kills it, a panic, Ctrl-C — never
+// reaches Shutdown, and the container it started keeps a published port and a
+// SQLite file until someone looks (eleven were found up for 32 hours).
+//
+// A container whose pid still runs belongs to a sibling test binary: `go test
+// ./...` runs several at once and each owns its own endpoint.
+func reap() error {
+	out, err := docker("ps", "-a", "--filter", "label="+pidLabel,
+		"--format", fmt.Sprintf("{{.Names}} {{.Label %q}}", pidLabel))
+	if err != nil {
+		return fmt.Errorf("list the %s containers: %v: %s", pidLabel, err, out)
+	}
+	for _, name := range orphans(out, alive) {
+		// A sibling that exits between the listing and here removes its own
+		// container first; losing that race gives what this wanted anyway.
+		_, _ = docker("rm", "-f", name)
+	}
+	return nil
+}
+
+// orphans answers the containers in a `docker ps` listing whose creating
+// process is gone. A row is "<name> <pid>". A row that does not parse names no
+// process this can ask about, so it stays.
+func orphans(listing string, alive func(int) bool) []string {
+	var dead []string
+	for line := range strings.SplitSeq(listing, "\n") {
+		name, label, ok := strings.Cut(strings.TrimSpace(line), " ")
+		if !ok {
+			continue
+		}
+		pid, err := strconv.Atoi(strings.TrimSpace(label))
+		if err != nil || pid <= 0 || alive(pid) {
+			continue
+		}
+		dead = append(dead, name)
+	}
+	return dead
+}
+
+// alive answers whether a process still runs. Signal zero asks the kernel about
+// the pid and delivers nothing: the answer is "no such process" for a pid that
+// is gone, and a permission error for one this user does not own — which is a
+// running process, so its container stays.
+func alive(pid int) bool {
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	err = p.Signal(syscall.Signal(0))
+	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
 // zeroTheDelays turns off the two the server simulates for a real control
