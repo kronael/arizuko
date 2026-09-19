@@ -196,3 +196,45 @@ func TestRESTWebRouteOwnerLookup(t *testing.T) {
 		t.Fatalf("unclaimed owner = %q want empty", out2.Owner)
 	}
 }
+
+// TestRESTWebRouteRedirectShadowRefused is the REST half of the L314 guard. The
+// path-claim answers per EXACT row while proxyd matches the longest prefix, so a
+// prefix nobody has claimed still takes the publishing of every folder under it:
+// one `/pub/` row bounced four of five folders into a path that does not exist,
+// and it read as healthy for three months. The 409 names the folders, because a
+// caller that cannot list the groups cannot narrow the path without them. A
+// prefix that covers no group's slot stays a legal claim, and a folder still
+// governs its own root.
+func TestRESTWebRouteRedirectShadowRefused(t *testing.T) {
+	db, h := authSrv(t, fakeVerifier{sub: "user:u",
+		scope: []string{"routes:write:own_group", "routes:read:own_group"}, folder: "atlas"})
+	for _, f := range []string{"atlas", "coach", "eval"} {
+		_ = db.PutGroup(core.Group{Folder: f})
+	}
+
+	r := doJSON(t, h, "PUT", "/v1/web_routes", "", webRouteReq{
+		Folder: "atlas", Path: "/pub/", Access: "redirect", RedirectTo: "/pub/atlas/"})
+	if r.Code != 409 {
+		t.Fatalf("catch-all /pub/ redirect = %d want 409 body=%s", r.Code, r.Body.String())
+	}
+	for _, want := range []string{"coach", "eval"} {
+		if !strings.Contains(r.Body.String(), want) {
+			t.Errorf("409 body does not name shadowed folder %q: %s", want, r.Body.String())
+		}
+	}
+	if _, ok := db.WebRouteOwner("/pub/"); ok {
+		t.Fatal("the refused /pub/ redirect landed a row anyway")
+	}
+
+	// A narrow vanity alias under no group's slot: accepted.
+	if r := doJSON(t, h, "PUT", "/v1/web_routes", "", webRouteReq{
+		Folder: "atlas", Path: "/pub/agents/", Access: "redirect", RedirectTo: "/pub/atlas/agents/"}); r.Code != 200 {
+		t.Fatalf("narrow redirect = %d want 200 body=%s", r.Code, r.Body.String())
+	}
+	// The folder's own root, sent to its own gated slot: accepted (it reaches no
+	// sibling, and the self-slot constraint already binds where it may point).
+	if r := doJSON(t, h, "PUT", "/v1/web_routes", "", webRouteReq{
+		Folder: "atlas", Path: "/pub/atlas/", Access: "redirect", RedirectTo: "/priv/atlas/"}); r.Code != 200 {
+		t.Fatalf("own-root redirect = %d want 200 body=%s", r.Code, r.Body.String())
+	}
+}

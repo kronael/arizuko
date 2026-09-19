@@ -40,7 +40,9 @@ var WebRoutesMCPDoc = map[resreg.Action]string{
 	resreg.ActionCreate: "Upsert a web route: control whether a URL path is public, auth-gated, denied, or redirected. " +
 		"`path` must start with `/`. `access` is one of public|auth|deny|redirect. " +
 		"When access=redirect, `redirect_to` is required and must point into this folder's own " +
-		"slot (/pub/<folder>/... or /priv/<folder>/...) — no external URLs or other folders. " +
+		"slot (/pub/<folder>/... or /priv/<folder>/...) — no external URLs or other folders, " +
+		"and `path` may not sit above another group's /pub/<folder>/ (the longest prefix wins, " +
+		"so such a row would answer for that group's whole publish path). " +
 		"Route is scoped to this folder.",
 	resreg.ActionDelete: "Delete a web route by path. Only routes owned by this folder may be deleted (operators can delete any).",
 	resreg.ActionList:   "List all web routes owned by this folder. Returns a JSON array of {path_prefix, access, redirect_to, folder, created_at}.",

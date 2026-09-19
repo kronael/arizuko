@@ -15,6 +15,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -310,5 +311,44 @@ func TestWebRoutesMCP_AuditRowLands(t *testing.T) {
 	}
 	if n != 1 {
 		t.Fatalf("the audit trail holds %d web_routes:create rows, want 1", n)
+	}
+}
+
+// TestWebRoutesMCP_RedirectShadowsAnotherSlot is the agent half of the L314
+// guard: set_web_route is delegable, so one call from one folder could take the
+// publish path of every other folder on the instance. The refusal names them.
+func TestWebRoutesMCP_RedirectShadowsAnotherSlot(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	for _, f := range []string{"atlas", "coach", "eval"} {
+		_ = db.PutGroup(core.Group{Folder: f})
+	}
+	grantMCPTools(t, db, "atlas", "set_web_route")
+	sock := serveWebRoutesMCP(t, db, "atlas", "folder:atlas")
+
+	_, e := callToolText(t, sock, "set_web_route", map[string]any{
+		"path": "/pub/", "access": "redirect", "redirect_to": "/pub/atlas/",
+	})
+	if e == "" {
+		t.Fatal("a /pub/ redirect was accepted; it answers for every folder's publish path")
+	}
+	for _, want := range []string{"coach", "eval"} {
+		if !strings.Contains(e, want) {
+			t.Errorf("refusal does not name shadowed folder %q: %s", want, e)
+		}
+	}
+	if _, ok := db.WebRouteOwner("/pub/"); ok {
+		t.Fatal("the refused /pub/ redirect landed a row anyway")
+	}
+	if _, e := callToolText(t, sock, "set_web_route", map[string]any{
+		"path": "/pub/agents/", "access": "redirect", "redirect_to": "/pub/atlas/agents/",
+	}); e != "" {
+		t.Fatalf("narrow redirect that shadows no group was refused: %s", e)
+	}
+	if owner, _ := db.WebRouteOwner("/pub/agents/"); owner != "atlas" {
+		t.Fatalf("/pub/agents/ owner = %q, want atlas", owner)
 	}
 }

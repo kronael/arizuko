@@ -26,6 +26,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -96,16 +97,31 @@ func (s *Server) webRoutesHandler(ctx context.Context, x resreg.Execution) (any,
 			// Self-slot constraint: redirect_to must land in this folder's own
 			// /pub/<folder>/ or /priv/<folder>/ slot — no external URLs, no other
 			// folders (prevents open-redirect + cross-folder impersonation).
-			if !strings.HasPrefix(redirectTo, "/pub/"+folder+"/") &&
-				!strings.HasPrefix(redirectTo, "/priv/"+folder+"/") {
+			if !strings.HasPrefix(redirectTo, pubSlot(folder)) &&
+				!strings.HasPrefix(redirectTo, privSlot(folder)) {
 				return nil, resreg.Errorf(http.StatusBadRequest,
 					"redirect_to must point into this folder's own slot: /pub/%s/... or /priv/%s/...", folder, folder)
+			}
+			// Shadow constraint (spec 5/V §5): the claim above is per-EXACT-row,
+			// but proxyd resolves /pub/* by LONGEST prefix, so a redirect sitting
+			// above a group's slot answers for that whole slot and bounces it into
+			// this folder's tree. One `/pub/` row took publishing off four of five
+			// folders on an instance for three months (BUGS L314), and nothing in
+			// the write path said so — the refusal names the folders it would take.
+			shadowed, err := s.shadowedFolders(p, folder)
+			if err != nil {
+				return nil, err
+			}
+			if len(shadowed) > 0 {
+				return nil, resreg.Errorf(http.StatusConflict,
+					"redirect at %s shadows the publish path of %s: proxyd matches the longest prefix, so %s lands on this row too — narrow the path so it covers no group's slot",
+					p, strings.Join(shadowed, ", "), pubSlot(shadowed[0]))
 			}
 		}
 		// Path-claim (spec 5/V §4): a path in the caller's own slot is always
 		// allowed; a top-level/other prefix only if unclaimed by another folder.
-		inOwnSlot := strings.HasPrefix(p, "/pub/"+folder+"/") ||
-			strings.HasPrefix(p, "/priv/"+folder+"/")
+		inOwnSlot := strings.HasPrefix(p, pubSlot(folder)) ||
+			strings.HasPrefix(p, privSlot(folder))
 		if !inOwnSlot {
 			if owner, ok := s.db.WebRouteOwner(p); ok && owner != folder {
 				return nil, resreg.Errorf(http.StatusForbidden, "path prefix already claimed by folder: %s", owner)
@@ -142,6 +158,41 @@ func (s *Server) webRoutesHandler(ctx context.Context, x resreg.Execution) (any,
 		return apiv1.OK{OK: true}, nil
 	}
 	return nil, resreg.Errorf(http.StatusBadRequest, "unknown action %q", x.Action)
+}
+
+// pubSlot is the URL prefix a folder's `~/public_html/` is served at, privSlot
+// the OAuth-gated twin of it (spec 5/V §Agent web slots). One declaration, and
+// every reader in this file — the redirect self-slot constraint, the path-claim,
+// the shadow guard — asks it rather than spelling the prefix again.
+func pubSlot(folder string) string  { return "/pub/" + folder + "/" }
+func privSlot(folder string) string { return "/priv/" + folder + "/" }
+
+// shadowedFolders names the groups whose publish slot a route at pathPrefix
+// would answer for, in folder order. proxyd matches a raw string prefix and the
+// longest one wins (proxyd.matchWebRoute), so `/pub/` covers every folder and
+// `/pub/a` covers `atlas`; the test here is proxyd's own, not a segment walk.
+//
+// A folder governs its own root, so an exact claim on the caller's own slot is
+// not shadowing — anything ABOVE it still is, because it reaches the siblings.
+//
+// A group read that fails answers nil, which would let every prefix through, so
+// nil is refused here rather than read as "this instance has no groups".
+func (s *Server) shadowedFolders(pathPrefix, caller string) ([]string, error) {
+	groups := s.db.AllGroups()
+	if groups == nil {
+		return nil, resreg.Errorf(http.StatusInternalServerError,
+			"cannot read the group list, so cannot tell what %s would shadow", pathPrefix)
+	}
+	var out []string
+	for f := range groups {
+		slot := pubSlot(f)
+		if !strings.HasPrefix(slot, pathPrefix) || (f == caller && slot == pathPrefix) {
+			continue
+		}
+		out = append(out, f)
+	}
+	sort.Strings(out)
+	return out, nil
 }
 
 // webRoutesPostBuild returns the ServeMCP seam that mounts the web_route tools

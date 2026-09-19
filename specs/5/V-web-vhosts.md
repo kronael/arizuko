@@ -190,6 +190,14 @@ renderer, many sinks" (CLAUDE.md).
    dies. Operator-curated paths (`/pub/arizuko/`, marketing
    `/pub/index.html`) are system-owned, declared in the manifest
    ([`8-yaml-manifests.md`](8-yaml-manifests.md)).
+5. **A redirect may not sit above another group's slot.** Ownership in 4 is
+   per EXACT `path_prefix` while proxyd matches the longest prefix, so an
+   unclaimed prefix above `/pub/<folder>/` answers for that folder's whole
+   slot and bounces it into the claimant's tree. `set_web_route` refuses a
+   `redirect` row whose `path_prefix` is a prefix of any group's
+   `/pub/<folder>/` and names the folders it would take. A prefix that
+   covers no group (`/pub/guides/`) is a legal claim, and a folder still
+   governs exactly its own root.
 
 Operational consequence: the `template/web/pub/` rsync target is
 `<data>/web/pub/arizuko/` only — there is no "rsync to any subdir of

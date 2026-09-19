@@ -7,7 +7,7 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
-## L314 — one catch-all `/pub/` redirect row disables publishing for every folder but `atlas` on sloth (2026-09-19, open)
+## ✅ FIXED 2026-09-19 L314 — one catch-all `/pub/` redirect row disables publishing for every folder but `atlas` on sloth (2026-09-19)
 
 MEASURED on sloth 2026-09-19 by `anteval --smoke`, which scored 7/9; the
 `link-is-public-url` failure is this. Every public page a folder publishes is
@@ -38,21 +38,34 @@ not the agent.
 
 Three rows in the same class deserve the same look: nothing warns that a
 `redirect` row on a prefix shadows every folder underneath it, and
-`web_route_set` is an agent-grantable tool, so a folder can do this to an
+`set_web_route` is an agent-grantable tool, so a folder can do this to an
 instance with one call.
 
 **Fix (instance data, operator's call):** drop the `/pub/` redirect row and
 express the atlas vanity as narrow per-page rows the way krons does, or move
-it to `/`. **Fix (code, needs sign-off):** `web_route_set` refuses a
+it to `/`. **Fix (code, needs sign-off):** `set_web_route` refuses a
 `redirect` row whose prefix is an ancestor of a live publishing folder's path,
 and says which folder it would shadow.
 
 - **Severity:** high — the publish surface is dead for 4 of 5 folders on a live instance
-- **Scope:** sloth `routd.web_routes`; `web_route_set` validation
+- **Scope:** sloth `routd.web_routes`; `set_web_route` validation
 - **Affected:** sloth (all folders but `atlas`); any instance that sets a prefix redirect
 - **Source:** `curl -sI https://sloth.quantblue.tech/pub/eval/` → 302 `/pub/atlas/eval/` → 404; `routd.web_routes` rows `/pub/` and `/pub/atlas/`, created 2026-06-02; anteval report 2026-09-19 15:47
-- **Status:** open
-- **Fix:**
+- **Status:** fixed (code); the sloth row was dropped by hand
+- **Fix:** `set_web_route` refuses a `redirect` whose `path` is a prefix of any
+  group's `/pub/<folder>/`, and the refusal (409) names those folders. The guard
+  sits in `webRoutesHandler`'s create branch beside the self-slot constraint it
+  completes, so the agent MCP tool and the REST twin get it from the one shared
+  handler; `shadowedFolders` asks proxyd's own question — a raw string prefix over
+  `/pub/<folder>/`, not a segment walk — and refuses the write outright when the
+  group list cannot be read, because a nil answer would pass every prefix. A
+  folder still governs exactly its own root, and a prefix that covers no group
+  (`/pub/agents/` → `/pub/krons/agents/`) is still a legal claim.
+  `TestWebRoutesMCP_RedirectShadowsAnotherSlot` and
+  `TestRESTWebRouteRedirectShadowRefused` drive the sloth row on both faces and
+  assert the shadowed folders are named. Spec `5/V` §"One URL, one backing
+  store" point 5 states the rule; the agent-facing `set_web_route` doc says it
+  before the call.
 
 ## L313 — the repo's `create-eval` skill never loads: the global one of the same name shadows it (2026-09-19, open)
 

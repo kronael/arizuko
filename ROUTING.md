@@ -550,6 +550,11 @@ row's `redirect_to` must point into the caller's own slot
 (`/pub/<folder>/...` or `/priv/<folder>/...`) — proxyd rejects anything
 else, closing an open-redirect / cross-folder impersonation gap.
 
+`set_web_route` also refuses a `redirect` row whose path prefix covers another
+group's `/pub/<folder>/`, and names the folders it would take: the longest
+prefix wins, so such a row answers for those groups' whole publish paths
+(spec [`5/V`](specs/5/V-web-vhosts.md) §"One URL, one backing store" point 5).
+
 ### Default (fallthrough)
 
 Any path not matched by fixed prefixes or `web_routes` is auth-gated and
