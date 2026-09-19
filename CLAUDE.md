@@ -149,8 +149,9 @@ Pre-commit hooks configured via `.pre-commit-config.yaml`.
   tree.
 - **`specs/CLAUDE.md`** — definition of done for a spec; loads under `specs/`.
 - **`ant/skills/self/migrations/CLAUDE.md`** — the agent migration system.
-- **`.claude/skills/eval/SKILL.md`** — `/eval <instance>`: error census and
-  the five post-deploy gates.
+- **`.claude/skills/eval/checks.md`** — `/eval <instance>`: the 20 health
+  checks and the error census. `.claude/skills/eval/gates.md` holds the five
+  post-deploy gates and the `anteval` setup.
 
 ## Discoverability
 
@@ -228,7 +229,7 @@ agent` fail without it).
 - **A deploy is not done until `anteval --smoke` passes.** Gates 1-4 (build,
   ship, schema, census) pass on a fleet whose agents answer nothing — BUGS
   `L149` shipped green through all of them. Procedure:
-  `.claude/skills/eval/SKILL.md` §Post-deploy gates.
+  `.claude/skills/eval/gates.md`.
 - **A release is an image.** `ant/` — skills, `CLAUDE.md`, output-styles —
   is baked to `/opt/arizuko` by the Dockerfile. `APP_SRC_DEV=1` binds
   `HOST_APP_DIR` read-only for the dev loop; NEVER set it on an instance —
