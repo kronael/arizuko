@@ -7,6 +7,36 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L309 — the docs mount is gated on `web:publish`, so 49 of 55 folders ship a skill that names a path they do not have (2026-09-19, open — proposal, needs sign-off)
+
+MEASURED on krons 2026-09-19. Every agent carries the `arizuko` skill, whose
+whole job is to answer "how does arizuko do X" from
+`/var/lib/www/arizuko/`. `container/runner.go:641` mounts that tree only
+`if in.WebPublish`, and exactly **6 of 55 folders** hold `web:publish`
+(`fiu`, `adshaus`, `eval`, `happy`, `krons`, `rhias/nemo`). For the other 49 the
+skill names a directory that is not there, and the agent has no other copy of the
+documentation.
+
+The gate reads as deliberate but is not: the mount was added so a publishing
+folder could see what it published, and reading the docs is a second, unrelated
+purpose that inherited the condition. `/var/lib/www` is `<web-dir>/pub`, which
+proxyd already serves to the public at `/pub/`, so mounting it read-only
+discloses nothing a browser cannot fetch anonymously.
+
+**The change is two lines** — drop `in.WebPublish` from the `/var/lib/www`
+mount and leave it on the `~/public_html` read-write mount below, which
+separates "may read the public web root" from "may publish" and is the
+orthogonal split. It is recorded rather than shipped because it changes what
+every turn container mounts, and a sandbox contract change takes sign-off
+(root `CLAUDE.md` § System-change discipline).
+
+- **Severity:** medium — the documentation an agent is told to consult is absent for 89% of folders
+- **Scope:** `container/runner.go:641`, `ant/skills/arizuko/SKILL.md`
+- **Affected:** every folder without `web:publish`, every instance
+- **Source:** `container/runner.go:641`; `routd.acl` holds 6 `web:publish` rows against 55 groups
+- **Status:** open — proposal, needs sign-off
+- **Fix:**
+
 ## L308 — `priv-grant` asks the eval folder to delegate a capability it holds without the grant option (2026-09-18, open)
 
 MEASURED on krons 2026-09-18, `anteval --smoke` 8/9. `priv-grant` is the only
@@ -13485,7 +13515,7 @@ each ran the short suite and called the tree green.
   open half is process: decide whether `make test` should carry the e2e, or
   whether shipping a spec's mechanism must run `make test-e2e` before merge.
 
-## L234 — `template/web/pub/arizuko/legacy/` is a second publicly-reachable site documenting deleted machinery (2026-09-06, open)
+## ✅ FIXED 2026-09-19 L234 — `template/web/pub/arizuko/legacy/` is a second publicly-reachable site documenting deleted machinery (2026-09-06)
 
 MEASURED while fixing `L220`. The `legacy/` tree is a whole second copy of the
 operator site, linked from `changelog/index.html:183`, so a reader reaches it.
@@ -13509,7 +13539,18 @@ The served copy (`webd/assets/`) and the documented copy
 (`template/web/pub/arizuko/assets/`) differed by one line: the served one cited
 `specs/1/W-slink.md`, a spec that does not exist. Nothing said they had drifted.
 
-- **Status:** fixed in v0.68.2
+- **Status:** fixed 2026-09-19
+- **Fix:** the 75 files are archived to
+  `/srv/data/arizuko_krons/legacy-docs-20260919.tar.gz` and removed from the
+  served tree one named path at a time. `legacy/components/gated.html` answers
+  404; every current section still answers 200, and the live tree now matches
+  `template/web/pub/arizuko/` file for file (121 each, nothing live-only).
+- **Why it mattered more than a stale page.** The agent's `arizuko` skill browses
+  `/var/lib/www/arizuko/`, which is this same tree mounted read-only. An agent
+  asked "how does arizuko work" could read `legacy/components/gated.html` and
+  `legacy/components/mastd.html` and answer with two daemons that were deleted in
+  June. Nothing in the repo regenerated it: it existed on krons and nowhere else,
+  and no current page linked to it.
 - **Fix:** the served copy takes the live citation, `specs/5/W-webhook-routes.md`,
   so the two are byte-identical again.
 - **Lock:** `webd.TestBrowserSDKCopiesAreIdentical` compares their digests, so a
