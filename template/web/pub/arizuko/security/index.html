@@ -20,7 +20,7 @@
 <body>
   <div class="hub-container prose">
     <h1>security</h1>
-    <p class="dim back"><a href="../">arizuko</a> &rsaquo; security</p>
+    <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; security</p>
 
     <p class="lede">arizuko treats every agent run as untrusted code. Three controls are enforced today: a per-folder egress allowlist at a forward proxy started fresh for each spawn on an <code>internal: true</code> network, OAuth-gated identity stamped at the edge with an ES256 transit bearer, and a credential broker that keeps every capability token out of the container. The sections below mark each one shipped or planned.</p>
 
@@ -93,7 +93,7 @@ Authorization: Bearer &lt;ES256 service:proxyd token&gt;</code></pre>
       <li><a href="https://github.com/kronael/arizuko/blob/main/specs/5/1-auth-standalone.md"><code>specs/5/1-auth-standalone.md</code></a> &mdash; auth as a library: mint, verify, downscope, MCP tool surface</li>
       <li><a href="https://github.com/kronael/arizuko/blob/main/ipc/SECURITY.md"><code>ipc/SECURITY.md</code></a> &mdash; MCP unix socket, <code>SO_PEERCRED</code> peer-uid check, per-group mount isolation</li>
     </ul>
-    <p class="docs-footer">updated <time class="docs-updated" datetime="2026-09-06">2026-09-06</time></p>
+    <p class="docs-footer">updated <time class="docs-updated" datetime="2026-09-13">2026-09-13</time></p>
   </div>
   <button class="theme-toggle">&#127769;</button>
   <script src="../assets/hub.js"></script>
