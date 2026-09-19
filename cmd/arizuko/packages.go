@@ -158,6 +158,7 @@ func installPackage(dataDir, inst, name, srcDir string, files []string, hashes m
 	rdb := mustOpenRoutd()
 	defer rdb.Close()
 	manifest := map[string][]string{manifestFiles: files}
+	applied := map[string][]string{}
 	if len(frags) > 0 {
 		rows, aerr := installPkgRows(dataDir, rdb, name, frags, pkgManifestDigest(srcDir, files))
 		if aerr != nil {
@@ -168,6 +169,7 @@ func installPackage(dataDir, inst, name, srcDir string, files []string, hashes m
 			die("Failed: install %s: %v", name, aerr)
 		}
 		maps.Copy(manifest, rows)
+		applied = rows
 	}
 	if skills := applyPackageSkills(dataDir, srcDir); len(skills) > 0 {
 		manifest[manifestSkills] = skills
@@ -186,10 +188,20 @@ func installPackage(dataDir, inst, name, srcDir string, files []string, hashes m
 	}); err != nil {
 		die("Failed: record install of %s: %v", name, err)
 	}
-	fmt.Printf("installed %s@%s (%d file(s), %d route(s), %d grant(s)) — run `arizuko generate %s` to apply\n",
-		name, revision, len(files), len(manifest[resources.ProxydRoutesName]), len(grants), inst)
-	// Grants are named, not counted: files and routes are inert until
-	// `generate`, a grant is live the moment it lands.
+	// Only the files are inert until `generate`; every row the apply wrote is
+	// in its owner's table already. So the row half of the report is DERIVED
+	// from what the apply returned, and a resource the manifest engine gains
+	// reports itself. A list of kinds written out beside the apply drifts from
+	// it: a package declaring a scheduled task and an egress rule installed
+	// both, live, under `0 route(s), 0 grant(s)` and named neither (BUGS L199).
+	fmt.Printf("installed %s@%s (%d file(s)) — run `arizuko generate %s` to apply\n",
+		name, revision, len(files), inst)
+	for _, res := range slices.Sorted(maps.Keys(applied)) {
+		fmt.Printf("  %s: %d row(s), applied now\n", res, len(applied[res]))
+	}
+	// Grants are named on top of being counted: a count cannot distinguish
+	// `reply on eng/*` from `admin on eng/tts`, and a grant is the one asset
+	// kind that changes who can do what (BUGS L36).
 	for _, row := range grants {
 		fmt.Println(describeGrant(row))
 	}
@@ -461,6 +473,11 @@ func parsePkgManifests(name, dir string, files []string, bound []string) []pkgFr
 					die("Failed: %s declares %s, which `apply` never writes — it is managed "+
 						"imperatively (spec 5/8 §Secret safety); the rows would install as a silent no-op", n, res)
 				}
+				if !pkgSubsystemServed(r.DB) {
+					die("Failed: %s declares %s, which no owner applies — it is a read-only "+
+						"projection over other tables, not one this CLI writes; the rows would "+
+						"install as a silent no-op", n, res)
+				}
 				switch res {
 				case resources.ACLName:
 					rows = stampPkgGrants(name, n, bound, rows)
@@ -528,6 +545,15 @@ func stampPkgRoutes(name, file string, rows any) any {
 	return routes
 }
 
+// pkgSubsystemServed reports whether a package's rows can reach this owner DB.
+// It is the two stores pkgSubsystemStores opens; every other registered
+// resource (audit, dead_letters, sessions, signing_keys) is a read-only
+// projection over other tables that `apply` never writes. Spelled once so the
+// parser's refusal and the opener's backstop cannot disagree about the set.
+func pkgSubsystemServed(sub string) bool {
+	return sub == resreg.SubsystemRoutd || sub == resreg.SubsystemOnbod
+}
+
 // pkgSubsystemStores opens one *store.Store per named subsystem. routd is
 // always present (the installed-package record and the groups table both live
 // there); onbod is opened only on demand, so an instance that never ran
@@ -539,7 +565,7 @@ func pkgSubsystemStores(dataDir string, rdb *routd.DB, subsystems []string) (map
 		if _, ok := stores[s]; ok {
 			continue
 		}
-		if s != resreg.SubsystemOnbod {
+		if !pkgSubsystemServed(s) {
 			die("Failed: package manifest targets subsystem %q, which no owner serves", s)
 		}
 		ob, err := mustOpenOwner(store.OwnerOnbod, dataDir)

@@ -208,6 +208,39 @@ func TestFailedInstallUnwindsWrittenFiles(t *testing.T) {
 	}
 }
 
+// Four registered resources — audit, dead_letters, sessions, signing_keys —
+// are read-only projections over other tables with no owner DB of their own.
+// resreg.ParseManifest accepts any registered key, so a manifest could name one
+// and reach the store opener, whose refusal fires after the fragment files are
+// on disk and leaves them there for the next `generate` to pick up. The refusal
+// belongs beside the SkipApplyRebuild one, on the near side of the first write,
+// naming the key and the file (BUGS L199).
+func TestInstallRefusesAResourceNoOwnerAppliesBeforeWriting(t *testing.T) {
+	t.Cleanup(func() { dropInstance(t) })
+	pkgChildRun()
+	base := t.TempDir()
+	t.Setenv("ARIZUKO_DATA_DIR", base)
+	dataDir := seedPkgInstance(t, base, "np")
+	src := writePkg(t, base, "projpkg", "sessions:\n  - familyid: x\n    sub: u\n")
+
+	if code := runPkgExpectingDeath(t, []string{"np", "install", src}); code == 0 {
+		t.Fatal("install of a manifest naming a resource no owner applies must fail")
+	}
+	for _, n := range []string{"projpkg.yml", "projpkg.yaml"} {
+		if _, err := os.Stat(filepath.Join(dataDir, "services", n)); err == nil {
+			t.Errorf("a refused install left %s behind", n)
+		}
+	}
+	rdb, err := routd.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rdb.Close()
+	if _, ok, _ := rdb.InstalledPackage(routd.InstanceWide, "projpkg"); ok {
+		t.Error("a refused install left an installed-package record")
+	}
+}
+
 // Remove reverses exactly what the record names and nothing else: a route an
 // operator added by hand at another path, and a grant that predates the
 // package, both survive. Apply rebuilds a resource wholesale, so this is the

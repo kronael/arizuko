@@ -7,6 +7,48 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L315 — a catalog package's rows freeze at `add` while its files and env keep tracking the catalog, and `upgrade` reports "nothing to do" (2026-09-19, open — proposal, needs sign-off)
+
+Found while closing `L199`. A package taken from the bundled catalog is
+recorded with `Source: "catalog"`, and its `<name>.yml`/`<name>.yaml` are
+symlinks INTO the catalog, so their bytes change with every release. Two of
+the three readers follow that: `compose.collectProxydRoutes` and
+`compose.ProvisionPackageEnv` re-read the manifest on every `generate`
+(`compose/compose.go:562,880`). The third does not — the rows were applied
+once, by the `add` that installed them, and `reapplyPackage` returns on its
+first line for a catalog source (`cmd/arizuko/packages.go`), so neither
+`upgrade` nor `sync` re-reads the manifest at all.
+
+So a release that adds a `scheduled_tasks`, `network_rules`, `acl` or
+`web_routes` row to a shipped manifest delivers it to no instance that already
+ran `add`, and the operator who asks is told:
+
+```
+litellm already at catalog — nothing to do
+```
+
+Nothing is lost today: the thirteen shipped manifests declare `proxyd_routes`
+and `env` only (measured 2026-09-19 at `b5243bdb`). The day one declares a row
+kind, this is `L199`'s harm at the release boundary instead of the `add` one.
+
+- **Severity:** low today; medium the day a catalog manifest declares a row kind
+- **Scope:** `packages upgrade`, `packages sync`, the catalog origin
+- **Affected:** `cmd/arizuko/packages.go` `reapplyPackage`; every
+  `Source: "catalog"` record
+- **Source:** read 2026-09-19 at `b5243bdb`: `reapplyPackage`'s
+  `if rec.Source == catalogOrigin` early return, against
+  `compose/compose.go:562,880`
+- **Status:** open — proposal
+- **Fix (proposal, NOT shipped):** re-applying rows on `upgrade` is a redesign,
+  not a symptom patch: `reapplyPackage` deliberately replaces only the file
+  half, because overwriting the recorded row identities would strand the rows
+  `remove` must later delete. Doing it properly means withdrawing the recorded
+  rows and installing the new set in one transaction — a new contract for what
+  `upgrade` means. The cheap half, which needs no sign-off if the owner wants
+  it alone: have `upgrade`/`sync` compare the catalog manifest's current digest
+  against `pkgManifestDigest` at install time and say so, rather than print
+  "nothing to do".
+
 ## ✅ FIXED 2026-09-19 L314 — one catch-all `/pub/` redirect row disables publishing for every folder but `atlas` on sloth (2026-09-19)
 
 MEASURED on sloth 2026-09-19 by `anteval --smoke`, which scored 7/9; the
@@ -12316,7 +12358,7 @@ whether to build the stronger one.
 - **Status:** open — proposal: either mint per request through `POST /v1/tokens` (one authd round trip per request, the tax step 3 already accepts for authorization) and pin freshness with a per-response `jti` test, or accept the TTL-bounded property as the design and drop the per-request wording for good
 - **Fix:**
 
-## L192 — `idempotency_keys` has no writer: the table exists, a sweep deletes from it, nothing inserts (2026-09-05, open — dead schema)
+## ✅ FIXED 2026-09-19 L192 — `idempotency_keys` has no writer: the table exists, a sweep deletes from it, nothing inserts (2026-09-05)
 
 `routd/migrations/0001-initial-schema.sql:164` creates `idempotency_keys`
 with an expiry index; the only statement that names it in Go is the sweep
@@ -12331,8 +12373,11 @@ transaction; the 2026-09-05 census found none.
 - **Scope:** `routd/migrations`, `routd/tokens.go`
 - **Affected:** readers of the schema; the sweep loop
 - **Source:** `grep -rn idempotency_keys --include='*.go' --include='*.sql'`; `SELECT COUNT(*)` on krons `routd.db`
-- **Status:** open
-- **Fix:** a migration that drops the table, and delete the sweep — or an insert at the ledger site, if one was meant to exist
+- **Status:** fixed — carried away by the DynamoDB move, verified 2026-09-19
+- **Fix:** no work: the v0.68.0 store move deleted the table with the rest of
+  `routd/migrations/` and the sweep with it. Verified 2026-09-19 — `grep -rn
+  idempotency_keys` over `*.go` and `*.sql` matches nothing, and
+  `routd/migrations/` does not exist. a migration that drops the table, and delete the sweep — or an insert at the ledger site, if one was meant to exist
 
 ## L193 — `7/22` and `specs/index.md` argue from the "27 of 43" census and the storage seam that `6/38` declined (2026-09-05, open — docs, spec owner)
 
@@ -12576,7 +12621,7 @@ uses four table-specific predicates and no version, while `Apply` uses exact
 resource scopes plus a subsystem-wide checksum compare-and-swap
 (`resreg/engine.go:301-316,786-879`).
 
-## L199 — `packages add` links a manifest whose non-route keys nothing reads (2026-09-05, open)
+## ✅ FIXED 2026-09-19 L199 — `packages add` links a manifest whose non-route keys nothing reads (2026-09-05)
 
 `arizuko packages <inst> add <name>` symlinks or copies the catalog's
 `<name>.yml` and `<name>.yaml` into `services/` and applies no row —
@@ -12593,18 +12638,47 @@ armed for the first manifest that declares more. Same class as `L44` (rows a
 package could not express) and `J15` (a payload that applies and reaches no
 consumer).
 
-- **Severity:** low today (no shipped manifest declares a second resource);
-  medium the day one does
-- **Scope:** package install, the `add` verb
-- **Affected:** `cmd/arizuko/packages.go` `case "add"`; `compose.ManifestRoutes`
-- **Source:** `cmd/arizuko/packages.go` (`add` never calls
-  `parsePkgManifests`); `compose/compose.go:513-516`; measured 2026-09-05 at
-  `02d0fbc1`
-- **Status:** open
-- **Fix:** either `add` applies rows through the same `installPkgRows` path
-  `install` uses (one writer), or `ManifestRoutes` refuses a document that
-  names a resource `generate` will not deliver. Spec: `7/25` §"What a
-  manifest can declare".
+Re-measured 2026-09-19 at `b5243bdb`, two of the three premises no longer
+hold. `case "add"` calls `installPackage`, the one install path, so it parses
+the manifest and applies its rows through `installPkgRows` exactly as
+`install` does — `TestPackageInstallsTaskAndNetworkRule` and
+`TestPackagesAddProvisionsEnvAndAppliesRows` both drive a non-route key and
+pass. Thirteen manifests ship, not ten, and they declare `proxyd_routes` and
+`env` only.
+
+What survived is the same harm one turn further on: the install summary was a
+hand-picked list of kinds beside the apply that writes whatever the manifest
+engine understands. Measured output for a package declaring a cron and an
+egress rule, both live in routd the moment the command returned:
+
+```
+installed tnpkg@local (2 file(s), 0 route(s), 0 grant(s)) — run `arizuko generate tn` to apply
+```
+
+Two untruths in one line: the counts name neither row kind, and the tail tells
+the operator the effect is still ahead of them. And one refusal sat on the far
+side of the first write — `audit`, `dead_letters`, `sessions` and
+`signing_keys` are registered resources with no owner DB, so
+`resreg.ParseManifest` accepts them, the fragment files get written, and
+`pkgSubsystemStores` then `die`s and leaves them in `services/` for the next
+`generate` to pick up.
+
+- **Severity:** medium (an operator reads a live scheduled task or egress rule
+  as nothing at all)
+- **Scope:** package install, the `add` and `install` verbs
+- **Affected:** `cmd/arizuko/packages.go` `installPackage`, `parsePkgManifests`
+- **Source:** measured 2026-09-19 at `b5243bdb` by running
+  `go test ./cmd/arizuko/ -run TestPackageInstallsTaskAndNetworkRule -v`
+- **Status:** fixed
+- **Fix:** the report is DERIVED from the map `installPkgRows` returns, so
+  every resource the apply wrote is named with its row count and marked
+  `applied now`, and only the file count keeps the "run `arizuko generate`"
+  tail; grants stay named on top (`L36`). And the no-owner refusal moved next
+  to the `SkipApplyRebuild` one inside `parsePkgManifests`, naming the key and
+  the file, so it lands before a byte is written; `pkgSubsystemServed` spells
+  the served set once for the parser and the store opener. Tests:
+  `TestPackageAddSummaryNamesEveryAppliedResource`,
+  `TestInstallRefusesAResourceNoOwnerAppliesBeforeWriting`. SHA:
 
 ## L200 — proposal: a package cannot declare that it is a channel adapter or which env keys it reads; two name maps in `compose.go` decide both, so no outsider adapter passes the package contract (2026-09-05, proposal — needs sign-off)
 
