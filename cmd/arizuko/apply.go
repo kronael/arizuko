@@ -465,9 +465,13 @@ func printPlan(deltas []resreg.ResourceDelta) {
 	any := false
 	for _, d := range deltas {
 		if d.SkipApplyRebuild {
-			if n := len(d.Add) + len(d.Update) + len(d.Unchanged); n > 0 {
+			// The count is the LIVE one. These resources are minted imperatively, so
+			// what an operator wants from the line is how many exist — and adding the
+			// PK lists up cannot say that for route_tokens or invites, whose identity
+			// is a digest YAML never carries (BUGS L260).
+			if d.Live > 0 {
 				any = true
-				fmt.Printf("%s: %d set (not applied — managed imperatively, never via apply)\n", d.Resource, n)
+				fmt.Printf("%s: %d set (not applied — managed imperatively, never via apply)\n", d.Resource, d.Live)
 			}
 			continue
 		}

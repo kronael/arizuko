@@ -213,6 +213,24 @@ func (r *Resource) initEntity(m *resourceMeta, byField map[string]int) {
 				r.Name, name))
 		}
 	}
+	// The coordinate is unique by construction — it IS the key one item answers
+	// to — and the manifest identity has to be at least as fine, or Diff indexes
+	// two items under one PK and reports whichever it read last. So PKFields has
+	// to name every sort field. It may name more: a wider PK is still unique.
+	//
+	// This is checkable and the uniqueness it stands in for is not, which is why
+	// it is the declared rule. route_tokens keyed items on `token_hash` and
+	// declared PKFields {"JID"}; krons held 43 tokens over 27 jids, so 16 live
+	// ingress credentials shared one identity and `arizuko plan` counted them
+	// once (BUGS L260).
+	inPK := nameSet(r.PKFields)
+	for _, name := range r.EntitySortKey {
+		if !inPK[name] {
+			panic(fmt.Sprintf("resreg: %s keys items on %v and declares PKFields %v, which "+
+				"omits %q; two items would share one manifest identity and Diff would "+
+				"report one of them", r.Name, r.EntitySortKey, r.PKFields, name))
+		}
+	}
 	if r.Hooks.AfterScan != nil || len(r.Hooks.ColumnOverride) > 0 {
 		// BeforeInsert and ValidateRows are NOT here. A row default is the
 		// writer's and itemFor applies it (spec 6/40 answer 5); a set check takes

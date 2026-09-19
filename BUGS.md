@@ -1739,25 +1739,67 @@ use would spend one of `ReadConsistent`'s attempts on every tool call.
   `runAudited` owns the audit row, so forgetting is not expressible. Adopt it
   with the first real caller rather than before one exists.
 
-## L260 — `route_tokens.PKFields` is not unique in live data, so `resreg.Diff` collapses 15 of 43 tokens (2026-09-07, open)
+## ✅ FIXED 2026-09-19 L260 — `route_tokens.PKFields` is not unique in live data, so `resreg.Diff` collapses 15 of 43 tokens (2026-09-07)
 
 MEASURED on krons 2026-09-07: `route_tokens` holds 43 rows over 27 distinct
-`jid` values, and `web:eval` alone carries 16. `PKFields` is `{"JID"}`, which
+`jid` values, and `web:eval` alone carries 16. `PKFields` was `{"JID"}`, which
 `resreg.Diff` treats as the manifest identity and `EmitRows` sorts by.
 
-Today the harm is bounded: the resource is `SkipApplyRebuild`, so `apply` never
-rewrites it, and the visible cost is `arizuko plan` under-reporting how many
-tokens a folder holds. It stops being bounded the moment an entity's sort key is
-derived from `PKFields` — 15 live ingress credentials would collide onto one
-item and the last write would win.
+**The sort-key half was already safe.** `EntitySortKey` is a declaration of its
+own (spec 6/40 §1) and `route_tokens` names `TokenHash` there, so no key was
+ever derived from `PKFields`. Only the manifest identity was wrong, which is
+why the harm stayed bounded: `SkipApplyRebuild` keeps `apply` off the table,
+and `packages` refuses a `SkipApplyRebuild` resource outright, so `MergeRows` /
+`DropRows` / `PKs` never reach these rows either.
+
+**Where the rows were actually lost.** `engine.go` `byPK` is last-writer-wins
+on a duplicate PK, so `Diff` indexed 16 credentials under `web:eval|` and named
+one. `EmitRows` drops nothing — what it lost was the ORDER: `sortByPK` is a
+STABLE sort, so tied rows kept whatever order the scan handed them, and that
+order is the export's bytes, which are the subsystem checksum. A reversed copy
+of the same four rows emitted a different document (proven in the test below).
+
+**What the proposed fix alone would have broken.** `TokenHash` is `yaml:"-"`,
+so no manifest ever carries it. Moving `PKFields` to it makes the LIVE index
+right and the MANIFEST side degenerate — every parsed row reads back as the
+empty identity — so `arizuko plan` against a full export would have printed
+`route_tokens: 1 set` where it printed `27`, against a true 43. `invites` has
+had that shape all along for the same reason. So the plan line's count had to
+stop being a PK count; it is now the live row count.
+
+Checked and NOT readers of this resource's `PKFields`: REST path params (parsed
+out of `Endpoint.Path`), the MCP tool args (explicit `MCPArgs`), the
+`/openapi.json` schema, and the archive — which round-trips route tokens
+through `store.ArchiveRouteTokenRow`, a separate document that already carries
+`token_hash`.
 
 - **Severity:** medium now, high at the move
-- **Scope:** `resreg/resources/route_tokens.go`, `resreg/engine.go` `Diff`
+- **Scope:** `resreg/resources/route_tokens.go`, `resreg/entity.go` `initEntity`,
+  `resreg/engine.go` `Diff`, `cmd/arizuko/apply.go` `printPlan`
 - **Affected:** krons measured; any instance with more than one token per jid
 - **Source:** `SELECT count(*), count(DISTINCT jid) FROM route_tokens`
-- **Status:** open
-- **Fix:** `PKFields` names a unique coordinate — `token_hash` is one — and the
-  entity's sort key is declared separately from the manifest identity
+- **Status:** fixed; no schema migration and no row was rewritten — the change
+  is the manifest identity, not the stored data. `SkipApplyRebuild` is untouched.
+- **Fix:** `PKFields` is `{"TokenHash"}`, the coordinate the items are already
+  keyed on, which is exactly how `invites` declares its `ref`. `initEntity`
+  now REFUSES at registration any entity-backed resource whose `PKFields` does
+  not name every `EntitySortKey` field: the coordinate is unique by
+  construction, so a PK covering it is unique too, and that is the checkable
+  stand-in for the uniqueness nothing can check. `route_tokens` was the only
+  resource in the catalog that failed it. `ResourceDelta.Live` carries the
+  scanned row count and `printPlan`'s informational line reports it, so the
+  number means rows held rather than identities parsed.
+  `TestRouteTokens_ManyTokensOnOneJIDStayDistinct` seeds three tokens on one
+  jid plus one on another and pins both halves — `Diff` names 4 of 4 (it named
+  2) and `EmitRows` of a reversed copy is byte-identical (it was not);
+  `TestEntity_RegisterRefusesAMisdeclaredCoordinate` gains the narrow-PK case;
+  `TestPrintPlan_SkipApplyRebuildCountsLiveRows` pins 43 live against 1 parsed
+  identity. Commit SHA: (pending).
+- **Know before deploying:** the routd checksum MOVES, because `EmitRows` now
+  orders these rows by `token_hash` instead of by `jid`. Nothing persists a
+  checksum — it is recomputed from live rows at read time — so the only effect
+  is that an export taken before this change fails the CAS check of an `apply`
+  run after it, until it is re-exported. Loud, and one command to clear.
 
 ## L261 — every route on krons sits at `seq = 0`, so dispatch order is decided by an autoincrement tie-break (2026-09-07, open)
 

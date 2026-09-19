@@ -30,6 +30,8 @@ import (
 	"github.com/kronael/arizuko/store"
 
 	"github.com/kronael/arizuko/objstore/dynstore"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestMain(m *testing.M) { dyntest.Main(m) }
@@ -971,4 +973,78 @@ func applyAuditRows(t *testing.T, db *dynstore.Store) []audit.Row {
 		}
 	}
 	return out
+}
+
+// TestRouteTokens_ManyTokensOnOneJIDStayDistinct: several live tokens sharing
+// one jid each keep their own manifest identity.
+//
+// A jid is not unique and never was — a folder mints a chat link and any number
+// of webhooks under the same one, and krons' `web:eval` carried 16 of the 43
+// route_tokens rows. A manifest identity of `jid` files those 16 ingress
+// credentials under one key, so Diff names one of them and `arizuko plan`
+// counts 27 against a live 43 (BUGS L260). `token_hash` IS the item's
+// coordinate, so PKFields names that and the count is the row count.
+func TestRouteTokens_ManyTokensOnOneJIDStayDistinct(t *testing.T) {
+	db := openMem(t)
+	seedGroup(t, db, "eval")
+	s := store.NewOver(db)
+	// Three tokens on ONE jid, one on another: the krons shape in miniature.
+	for _, jid := range []string{"web:eval", "web:eval", "web:eval", "hook:eval/github"} {
+		if err := s.InsertRouteToken(store.GenRouteToken(), store.RouteToken{
+			JID: jid, OwnerFolder: "eval", TargetFolder: "eval",
+		}); err != nil {
+			t.Fatalf("seed %s: %v", jid, err)
+		}
+	}
+	r := resreg.Lookup("route_tokens")
+	live, err := r.ScanAll(resreg.On(db))
+	if err != nil {
+		t.Fatalf("ScanAll: %v", err)
+	}
+	rows := live.([]RouteTokensRow)
+	if len(rows) != 4 {
+		t.Fatalf("ScanAll = %d rows, want the 4 seeded", len(rows))
+	}
+	// Diff against an empty manifest: every live row is its own entry, so all
+	// four are named. A manifest identity of `jid` makes this list two.
+	d, err := r.Diff(resreg.On(db), nil)
+	if err != nil {
+		t.Fatalf("Diff: %v", err)
+	}
+	if len(d.Remove) != 4 {
+		t.Errorf("Diff named %d of 4 live tokens (%v); tokens sharing a jid collapsed",
+			len(d.Remove), d.Remove)
+	}
+	if n := len(slices.Compact(slices.Clone(d.Remove))); n != 4 {
+		t.Errorf("Diff reported %d distinct identities for 4 tokens: %v", n, d.Remove)
+	}
+	if d.Live != 4 {
+		t.Errorf("Live = %d, want 4 — the plan line counts rows, not identities", d.Live)
+	}
+
+	// EmitRows sorts by PK, so a non-unique PK leaves the order of the tied rows
+	// to whatever order the scan handed them in — and that order is the export's
+	// bytes, which are the subsystem checksum. A total order does not have that
+	// degree of freedom: the same rows in any order emit the same document.
+	first, err := r.EmitRows(rows)
+	if err != nil {
+		t.Fatalf("EmitRows: %v", err)
+	}
+	shuffled := slices.Clone(rows)
+	slices.Reverse(shuffled)
+	second, err := r.EmitRows(shuffled)
+	if err != nil {
+		t.Fatalf("EmitRows(shuffled): %v", err)
+	}
+	a, err := yaml.Marshal(first)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	b, err := yaml.Marshal(second)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !bytes.Equal(a, b) {
+		t.Errorf("EmitRows is order-dependent, so the checksum is too:\n%s\n---\n%s", a, b)
+	}
 }

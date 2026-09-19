@@ -456,9 +456,11 @@ them safe going forward rather than merely safe today.
   instances contains the separator.
 - `acl_membership` — `child` and `parent` joined. Same, zero hits.
 - `route_tokens` — `token_hash`, which IS the key and is unique on all three
-  instances. It sits outside the `RowType` today because it is a credential
-  digest; the coordinate declaration is separate from the manifest identity,
-  which is exactly why `PKFields` could not supply it (`L260`).
+  instances. It is a credential digest, so the `RowType` carries it under
+  `yaml:"-"` and `json:"-"`: in the row for the engine to key on, out of every
+  document and every read surface. `PKFields` names it too — the coordinate and
+  the manifest identity are separate declarations, but a PK narrower than the
+  coordinate files two items under one identity, which is what `L260` cost.
 - `routes` — `(seq, target, match)`, unique on all three. `seq` is an integer,
   so it takes the codec and a padded rendering, because string order must be
   numeric order.

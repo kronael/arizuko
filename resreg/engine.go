@@ -858,6 +858,14 @@ type ResourceDelta struct {
 	Unchanged        []string
 	Remove           []string
 	SkipApplyRebuild bool
+
+	// Live is how many rows the resource actually holds, counted off the scan
+	// before anything indexes them by PK. The four lists above are PK strings,
+	// so none of them can answer that for a resource whose manifest does not
+	// carry its identity: route_tokens and invites hide their runtime-minted
+	// digest from YAML, so every parsed row reads as the same PK and the plan
+	// line that added the lists up printed one (BUGS L260).
+	Live int
 }
 
 // Changed reports whether the delta would mutate any row. SkipApplyRebuild
@@ -892,7 +900,11 @@ func (r *Resource) diff(rd reader, manifestRows any) (ResourceDelta, error) {
 	if err != nil {
 		return d, err
 	}
-	liveByPK := r.byPK(reflect.ValueOf(live))
+	lv := reflect.ValueOf(live)
+	if lv.IsValid() && lv.Kind() == reflect.Slice {
+		d.Live = lv.Len()
+	}
+	liveByPK := r.byPK(lv)
 	manByPK := map[string]reflect.Value{}
 	if manifestRows != nil {
 		rv := reflect.ValueOf(manifestRows)

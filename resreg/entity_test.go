@@ -638,12 +638,13 @@ func TestEntity_CompositeRefusesAKeyThatDoesNotSplit(t *testing.T) {
 }
 
 // The declaration's own refusals: a composite key with nothing to join it, a
-// separator beside a single field, and a field named twice.
+// separator beside a single field, a field named twice, and a PK that does not
+// cover the coordinate.
 func TestEntity_RegisterRefusesAMisdeclaredCoordinate(t *testing.T) {
 	base := func() Resource {
 		return Resource{
 			Name: "bad", Table: "bad", DB: entitySubsystem,
-			RowType: reflect.TypeFor[CompositeRow](), PKFields: []string{"Folder"},
+			RowType: reflect.TypeFor[CompositeRow](), PKFields: []string{"Folder", "Target"},
 			EntitySortKey: []string{"Folder", "Target"}, EntityKeySep: compositeSep,
 		}
 	}
@@ -660,6 +661,11 @@ func TestEntity_RegisterRefusesAMisdeclaredCoordinate(t *testing.T) {
 			func(r Resource) Resource { r.EntitySortKey = nil; return r }},
 		{"one field twice", "cannot be two parts of a coordinate",
 			func(r Resource) Resource { r.EntitySortKey = []string{"Folder", "Folder"}; return r }},
+		// A PK narrower than the coordinate is the one misdeclaration that reads
+		// as healthy: every verb works and the rows are all there, but Diff files
+		// two items under one identity and reports one of them (BUGS L260).
+		{"pk narrower than the coordinate", `omits "Target"`,
+			func(r Resource) Resource { r.PKFields = []string{"Folder"}; return r }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

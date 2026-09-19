@@ -289,13 +289,15 @@ type Resource struct {
 	// — and installed_packages is (folder, name). store/pane_sessions and
 	// chanlib/chanstore already build a key this way (spec 6/40 §1).
 	//
-	// It is SEPARATE from PKFields because they answer different questions.
-	// PKFields is the MANIFEST identity Diff matches rows on and EmitRows sorts
-	// by, and it is not required to be unique: krons' route_tokens holds 43 rows
-	// over 27 distinct jids with PKFields {"JID"}, so a sort key derived from it
-	// would collide 15 live ingress credentials onto one item (BUGS L260). The
-	// sort key IS the coordinate, so it is argued per resource against the rows
-	// the instance actually holds.
+	// It is SEPARATE from PKFields because they answer different questions: this
+	// is the item's coordinate, PKFields is the MANIFEST identity Diff matches
+	// rows on and EmitRows sorts by. Separate, but not free — PKFields must name
+	// every field of the sort key, or two items share one manifest identity and
+	// Diff's index keeps whichever it read last. route_tokens named only `jid`
+	// while krons held 43 tokens over 27 jids, so 16 live ingress credentials
+	// answered to one identity and the plan under-reported them (BUGS L260).
+	// initEntity refuses a registration that does not, so the collapse cannot be
+	// re-declared.
 	//
 	// The PARTITION is not declared: it is DB, the owner subsystem. Every read
 	// the engine makes — Export, Checksum, Plan, Diff, Apply — is per subsystem,

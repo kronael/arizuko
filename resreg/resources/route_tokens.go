@@ -11,12 +11,12 @@ import (
 // DELIVERS to; owner_folder only bounds revocation and may differ, and is empty
 // on a token minted before the mint recorded it.
 //
-// TOKEN_HASH IS THE COORDINATE AND NOTHING ELSE. It is hex(sha256(token)) — the
-// raw bearer is shown once at issue time and never persisted (spec 5/W) — and
-// it is the one field that is unique: krons carries 43 rows over 27 distinct
-// jids, so a key on the PK would collide 16 live ingress credentials onto one
-// item (BUGS L260). The manifest identity and the coordinate are two different
-// declarations here, which is exactly why PKFields could not supply the second.
+// TOKEN_HASH IS THE IDENTITY — the coordinate AND the PK. It is
+// hex(sha256(token)) — the raw bearer is shown once at issue time and never
+// persisted (spec 5/W) — and it is the one field that is unique: krons carries
+// 43 rows over 27 distinct jids and `web:eval` alone carries 16, so a jid names
+// 16 live ingress credentials at once and Diff's PK index keeps one of them
+// (BUGS L260). `invites` declares its `ref` both ways for the same reason.
 //
 // `yaml:"-"` keeps the digest out of `arizuko export` and `json:"-"` out of
 // every read surface, the way invites' `ref` is kept out of the export. Apply
@@ -127,7 +127,7 @@ func init() {
 		Table:         "route_tokens",
 		DB:            resreg.SubsystemRoutd,
 		RowType:       reflect.TypeFor[RouteTokensRow](),
-		PKFields:      []string{"JID"},
+		PKFields:      []string{"TokenHash"},
 		EntitySortKey: []string{"TokenHash"},
 		Endpoints:     RouteTokensEndpoints,
 		MCPDoc:        RouteTokensMCPDoc,

@@ -53,10 +53,13 @@ so the daemon's own storage layer writes items at the coordinate the engine
 reads them from.
 
 The sort key is SEPARATE from `PKFields` because they answer different
-questions. `PKFields` is the manifest identity `Diff` matches on and it is not
-required to be unique — krons' `route_tokens` holds 43 rows over 27 distinct
-jids — so a coordinate derived from it would collide 15 live ingress
-credentials onto one item (BUGS `L260`).
+questions: this is the item's coordinate, `PKFields` is the manifest identity
+`Diff` matches on. Separate, but not free — `PKFields` must name every field of
+the sort key, and `Register` refuses a declaration that does not. The
+coordinate is unique by construction, so a PK covering it is unique too; a
+narrower one files two items under one identity and `Diff` reports whichever it
+read last. `route_tokens` named only `jid` while krons held 43 tokens over 27
+jids, so 16 live ingress credentials answered to one identity (BUGS `L260`).
 
 What the object path REFUSES, it refuses at `Register`, which is process start,
 and each refusal carries the reason it cannot cross:
@@ -66,6 +69,7 @@ and each refusal carries the reason it cannot cross:
 | `Hooks.AfterScan`, `Hooks.ValidateRow`, `Hooks.ColumnOverride`                 | `ColumnOverride.Read` is a SQL expression, `.Write` is the bind conversion absent-is-null already makes unnecessary, and `ValidateRow` takes a `*sql.Tx` this path never opens |
 | a `RowFilter` on a field of the coordinate                                     | a filter is a `Where` over ATTRIBUTES and the coordinate is the key; a key predicate reaches a leading fragment, never one field in the middle                                 |
 | an attribute that is not a string, an int, or a field with a declared encoding | every attribute value is text, so a bool, a slice or a map declares its encoding in the `db:` tag (`codec.go`)                                                                 |
+| `PKFields` that does not name every field of the coordinate                    | the coordinate is unique by construction and the manifest identity has to be at least as fine, or `Diff` files two items under one PK and reports one of them (`L260`)         |
 
 Two declarations the object path APPLIES rather than refuses, both because an
 entity has no engine between the caller and the item.

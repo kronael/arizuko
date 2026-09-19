@@ -57,7 +57,7 @@ func TestPrintPlan_SkipApplyRebuildAdviceIsResourceAgnostic(t *testing.T) {
 		line := strings.TrimSpace(capturePlan(t, []resreg.ResourceDelta{{
 			Resource:         name,
 			SkipApplyRebuild: true,
-			Add:              []string{"pk-1"},
+			Live:             1, // the line reports rows held, so one row makes it print
 		}}))
 		if !strings.HasPrefix(line, name+":") {
 			t.Errorf("%s: line %q must name its own resource", name, line)
@@ -88,5 +88,22 @@ func TestPrintPlan_SkipApplyRebuildEmptyPrintsNothing(t *testing.T) {
 	}})
 	if strings.Contains(out, "secrets") {
 		t.Errorf("empty skipped resource printed %q, want no mention", out)
+	}
+}
+
+// The count is the LIVE row count, not the number of distinct PKs the manifest
+// carried. route_tokens and invites keep their runtime-minted digest out of
+// YAML, so every row of theirs parses back to the same identity — a line adding
+// the PK lists up says one where the instance holds 43 (BUGS L260).
+func TestPrintPlan_SkipApplyRebuildCountsLiveRows(t *testing.T) {
+	out := capturePlan(t, []resreg.ResourceDelta{{
+		Resource:         "route_tokens",
+		SkipApplyRebuild: true,
+		Live:             43,
+		// What a plan against a full export yields: 43 rows, one identity.
+		Add: []string{"|"},
+	}})
+	if !strings.Contains(out, "route_tokens: 43 set") {
+		t.Errorf("plan line = %q, want the 43 live tokens named", strings.TrimSpace(out))
 	}
 }
