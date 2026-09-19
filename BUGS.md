@@ -7,6 +7,138 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L313 — the repo's `create-eval` skill never loads: the global one of the same name shadows it (2026-09-19, open)
+
+MEASURED 2026-09-19. `.claude/skills/create-eval/SKILL.md` is tracked in this
+repo (`2840d3cd`), and the skill listing this session carries the OTHER one —
+`~/.claude/skills/create-eval/SKILL.md`, whose description says "service-eval"
+and which writes `.claude/skills/service-eval/SKILL.md`. Two skills answer to
+one name and the global copy wins, so every edit to the repo copy changes
+nothing.
+
+They have also drifted. The repo copy has no `when_to_use` and no NOT-for
+clause, and it routes findings to `.diary/`, which contradicts this project's
+own Bug Triage Protocol (bugs go to `BUGS.md`; the diary is the resolution
+log). The global copy carries the regression-check rule, the
+threshold-from-invariants rule and the prove-it-can-fail rule that the repo
+copy never learned.
+
+The repo copy is the one that produced `.claude/skills/eval/`, so deleting it
+loses nothing that is still needed; the global skill generates a project eval
+skill in any repo. Recorded rather than deleted because removing a tracked
+file is the user's call.
+
+- **Severity:** low — a dead file, but an edit to it reads as a change and is not one
+- **Scope:** `.claude/skills/create-eval/SKILL.md`
+- **Affected:** anyone who tries to improve this repo's eval generator
+- **Source:** the session skill listing 2026-09-19 (global description shown); `git log -1 -- .claude/skills/create-eval/SKILL.md` → `2840d3cd`
+- **Status:** open
+- **Fix:**
+
+## L312 — creating a group fires all five seeded memory tasks at once, and the root session they leave aborts the next `anteval` run (2026-09-19, open)
+
+MEASURED on sloth 2026-09-19. `arizuko group sloth add web:eval eval` ran at
+15:02:37. Between 15:03:55 and 15:06:06 the folder ran **five turns** —
+`ti-eval-mem-0` … `ti-eval-mem-4`, one every ~35 s — although the rows those
+tasks wrote say `next_run` = `2026-09-20T02:00Z`, `2026-09-21T03:00Z` and
+`2026-10-01T04:00Z`. A brand-new group pays five LLM turns before anybody
+sends it a message.
+
+The cause is one line: `store/tasks.go:535` seeds every default task with
+`NextRun: &now`, so `timed` reads five overdue tasks on its next sweep and
+fires them, then computes the real next run. `timed/main.go:32`
+(`computeNextRun`) already turns a cron expression into the next instant, so
+the first `NextRun` has a correct value available at seed time; the seeder
+does not read it.
+
+The second cost is the one that blocks work. Each of those turns runs on the
+ROOT topic and persists a root session, and `anteval`'s per-case baseline
+refuses to inject against one (`specs/5/9` § Session isolation). The first
+`anteval --smoke` on sloth aborted with `root session
+a6ee16b5-216f-4a32-94b5-2453caa86066 survived /new for 1m30s` — the storm was
+still running. So the documented setup order (create the eval folder, then
+run the gate) cannot work on any instance.
+
+**Fix (one concern, amends the original):** give `SeedDefaultTasks` the first
+`NextRun` from the task's own cron instead of `now`. `computeNextRun` lives in
+`timed` and `store` must not import a daemon, so the helper moves to a place
+both read — one declaration, many readers.
+
+- **Severity:** medium — five wasted turns per new group, and the first eval run after a group is created always aborts
+- **Scope:** `store/tasks.go:525-554` (`SeedDefaultTasks`), `timed/main.go:32`
+- **Affected:** every new group on every instance; `anteval` on a fresh eval folder
+- **Source:** sloth `groups/eval/logs/container-2026-09-19T15-0{3,4,5,6}-*.log`; `routd.scheduled_tasks` rows `eval-mem-0..4`; `store/tasks.go:535`
+- **Status:** open
+- **Fix:**
+
+## L311 — a second instance's `env/operator.env` points the operator CLI at a name only containers resolve, and it is world-readable (2026-09-19, open)
+
+MEASURED on sloth 2026-09-19. Every `arizuko <cmd> sloth` died with
+`open routd's store: … dial tcp: lookup extenddb on 127.0.0.53:53: server
+misbehaving`. `env/operator.env` carried `DYNAMODB_URL=https://extenddb:18443`
+— the compose service name, which resolves inside the instance network and
+nowhere else. The operator runs on the host. krons's copy carries
+`https://127.0.0.1:18443` and a comment that says exactly this, so the file is
+hand-written and the fix travelled with the person, not with the code.
+
+The port makes it worse. `template/services/extenddb.yml:34` publishes
+`127.0.0.1:18443:18443` as a literal, so the second instance on a host
+collides with the first. sloth's fragment was hand-edited to
+`127.0.0.1:18444:18443`, and a hand-edited fragment is frozen from the
+catalog from then on (`compose/fragments.go`) — so sloth never takes another
+store change. The host address is not derivable from `.env` either: nothing
+records which port this instance published.
+
+The same file was mode 0644 holding `AWS_SECRET_ACCESS_KEY` for the store
+account that reaches every owner's tables. krons's is 0600. Any host user
+could read sloth's.
+
+Both instance files are corrected in place (sloth now
+`https://127.0.0.1:18444`, mode 0600). The code cause is untouched: nothing
+writes `operator.env`, and the published port is a literal.
+
+**Fix (needs sign-off — it adds a generated file):** `arizuko generate` writes
+`env/operator.env` from the same facts it writes every other env file, with
+the host address built from the port it published, at mode 0600. The
+published port then belongs in the manifest as a per-instance `env` key with a
+`generate`d default, the way every other colliding value already does.
+
+- **Severity:** high — the whole operator CLI is dead on a second instance, and a store credential is world-readable
+- **Scope:** `template/services/extenddb.yml:34`, `template/services/extenddb.yaml`, `compose/` (no writer for `env/operator.env`)
+- **Affected:** every instance after the first on a host; sloth, marinade
+- **Source:** `/srv/data/arizuko_sloth/env/operator.env` (2026-09-18 19:47, mode 0644); `sudo docker port arizuko_extenddb_sloth` → `127.0.0.1:18444`
+- **Status:** open — proposal, needs sign-off
+- **Fix:**
+
+## L310 — `dyntest` leaks one store container per interrupted test binary; eleven were alive for 32 hours (2026-09-19, open)
+
+MEASURED on the dev host 2026-09-19: eleven `arizuko-dynstore-<pid>`
+containers, image `ghcr.io/extenddb/extenddb-dev:0.1.11`, up 31–32 hours. Each
+holds a published loopback port and a SQLite file.
+
+`Shutdown()` (`objstore/dynstore/dyntest/dyntest.go:109`) removes the
+container this process started, and `Main` calls it after `m.Run()` returns.
+Nothing calls it when the binary does not return: `go test -timeout` kills the
+process, a panic in `TestMain`, and Ctrl-C all skip it. `start()` reaps only
+`arizuko-dynstore-<own pid>` (`dyntest.go:189-190`), and a pid does not repeat
+soon, so every orphan survives every later run.
+
+The comment above `Shutdown` already records the same symptom — "seven were
+found running a day after their suite finished". The fix that followed made
+the clean exit tidy and left the interrupted one alone, so the count grew.
+
+**Fix (one concern, amends the original):** start the container with a label
+that carries the creating pid, and reap every labelled container whose pid is
+gone in `start()` — the line that already runs `docker rm -f <name>`. The
+orphan then cannot outlive the next run, whatever killed its creator.
+
+- **Severity:** low — no production path, but the host accumulates containers and ports until someone notices
+- **Scope:** `objstore/dynstore/dyntest/dyntest.go:107-116` (`Shutdown`), `:189-190` (`start`)
+- **Affected:** every developer host that runs the store test suites
+- **Source:** `docker ps --filter name=arizuko-dynstore-` 2026-09-19, 11 rows, 31–32 h uptime
+- **Status:** open
+- **Fix:**
+
 ## L309 — the docs mount is gated on `web:publish`, so 49 of 55 folders ship a skill that names a path they do not have (2026-09-19, open — proposal, needs sign-off)
 
 MEASURED on krons 2026-09-19. Every agent carries the `arizuko` skill, whose
