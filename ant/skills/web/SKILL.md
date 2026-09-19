@@ -104,6 +104,14 @@ curl -sI "$url" | head -1   # MUST be 200
 curl -sI "https://$WEB_HOST/priv/$ARIZUKO_GROUP_FOLDER/admin/" | head -1   # MUST be 401, NOT 404
 ```
 
+**A 302 is neither 200 nor 404: the file is fine, the ROUTE is wrong.** A
+`web_routes` row on a path that covers yours redirects your page somewhere
+that does not exist. Read the target and stop: `curl -sI "$url" | grep -i
+location`. Report the redirect target and say an operator must narrow or drop
+that row. NEVER move the file, NEVER probe host and path variants — sloth
+2026-09-19 had one `/pub/` → `/pub/atlas/` row that broke publishing for every
+folder except `atlas`, and the hunt for a working URL cost a whole turn.
+
 **Elevated `/root`:** `~/public_html/` projects to `<data>/web/pub/` at
 the top level (no folder prefix); it can also write `/var/lib/www/`
 directly (RW, root-only) to stage content for any group.
@@ -134,3 +142,6 @@ chown request four separate times. Egress has the same shape:
   FHS).
 - Treating `curl -sI` 4xx as transient — almost always the file isn't
   where you think, not slow DNS/cache.
+- Spending the turn hunting for a URL that serves. Report the first answer
+  you have, then diagnose; a report that arrives after the caller gave up is
+  the same as no report.
