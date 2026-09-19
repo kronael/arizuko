@@ -25,13 +25,13 @@ package store
 // TWO INSTANTS, TWO LAYOUTS, AND THE SPLIT IS NOT AN ACCIDENT. `created_at` is
 // a StampedField, so it is core.TS at 30 bytes — the width resreg's own entity
 // path stamps one at (resreg/entity.go itemFor), and the two writers of these
-// items have to agree byte for byte. `next_run` is NOT stamped and this package
-// is not what decides its layout: timed computes it (timed/main.go
-// computeNextRun) and hands it to RescheduleTask as RFC3339 text in the
-// operator's own timezone, stored verbatim. So the read parses it as RFC3339,
-// which accepts both that and the fixed-width form, and the due comparison is
-// made on the PARSED instant — never on the bytes. That is what `datetime()`
-// gave: a non-UTC offset still orders right.
+// items have to agree byte for byte. `next_run` is NOT stamped: it is the instant
+// core.NextRun reads out of the task's cron, written here as RFC3339 text in the
+// operator's own timezone, and handed to RescheduleTask the same way by timed's
+// fire loop, stored verbatim. So the read parses it as RFC3339, which accepts
+// both that and the fixed-width form, and the due comparison is made on the
+// PARSED instant — never on the bytes. That is what `datetime()` gave: a non-UTC
+// offset still orders right.
 //
 // A CLAIM IS ONE WRITE PER TASK, because a batch is all-or-nothing. `UPDATE …
 // SET status='firing' WHERE status='active'` skipped exactly the rows a
@@ -525,14 +525,24 @@ var defaultTasks = [...]struct{ prompt, cron string }{
 func (s *Store) SeedDefaultTasks(folder, chatJID string) error {
 	ctx := context.Background()
 	now := time.Now()
+	tz := core.Timezone()
 	for i, t := range defaultTasks {
+		id := folder + "-mem-" + strconv.Itoa(i)
+		// The first run is the first instant the task's OWN cron names. Seeding
+		// it at `now` left five tasks already due, so timed's next sweep fired
+		// all five and a brand-new group paid five LLM turns on its root topic
+		// before anyone sent it a message (BUGS L312).
+		next, err := core.NextRun(t.cron, tz)
+		if err != nil {
+			return fmt.Errorf("seed task %s: cron %q: %w", id, t.cron, err)
+		}
 		task := core.Task{
-			ID:          folder + "-mem-" + strconv.Itoa(i),
+			ID:          id,
 			Owner:       folder,
 			ChatJID:     chatJID,
 			Prompt:      t.prompt,
 			Cron:        t.cron,
-			NextRun:     &now,
+			NextRun:     &next,
 			Status:      core.TaskActive,
 			Created:     now,
 			ContextMode: "isolated",

@@ -11,7 +11,8 @@ of `routd`. Drives routd over HTTP; opens NO local DB.
 
 - Poll routd's `/v1/tasks/due` every 60s; routd atomically claims + returns due tasks.
 - Enqueue the task prompt as a message (`POST /v1/messages`) with sender `timed` or `timed-isolated:<id>`.
-- Compute `next_run` client-side (`robfig/cron` or interval-ms).
+- Compute `next_run` client-side through `core.NextRun`, the one reader of a
+  task's cron value.
 - Reschedule task (`POST /v1/tasks/{id}/reschedule`); mark one-shots completed.
 - Log each run (`POST /v1/tasks/runlog`).
 
@@ -53,10 +54,9 @@ timed exchanges `AUTHD_SERVICE_KEY` for a `service:timed` ES256 token at boot
 
 ## Dependencies
 
-- `core` (config)
+- `core` (config, `NextRun` — the cron-to-next-instant reader)
 - `auth` (service-token bootstrap)
 - `routd` (HTTP client)
-- `robfig/cron/v3` (cron parsing)
 - `obs` (OTLP setup)
 - `resreg` (OpenAPI handler)
 

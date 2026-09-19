@@ -28,12 +28,10 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strconv"
 	"time"
 	"uuid"
 
 	mcpserver "github.com/mark3labs/mcp-go/server"
-	"github.com/robfig/cron/v3"
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
@@ -248,27 +246,20 @@ func (s *Server) scheduledTasksPostBuild(folder, callerSub string, authorize aut
 	return mountAgentResource(res, callerSub, folder, visible)
 }
 
-// parseTaskSchedule reads the `cron` arg into (next_run, stored-cron) exactly as
-// the deleted schedule_task body: a positive integer is a millisecond interval
-// (stored verbatim), an RFC3339 timestamp is a one-shot (empty stored cron →
-// timed marks it completed after one firing), else a 5-field cron expression.
-// An empty arg leaves next_run nil (no schedule).
+// parseTaskSchedule reads the `cron` arg into (next_run, stored-cron): an RFC3339
+// timestamp is a one-shot (empty stored cron → timed marks it completed after one
+// firing), anything else is core.NextRun's value space and is stored verbatim. An
+// empty arg leaves next_run nil (no schedule).
 func parseTaskSchedule(cronExpr string) (*time.Time, string, error) {
 	if cronExpr == "" {
 		return nil, "", nil
 	}
-	if ms, err := strconv.ParseInt(cronExpr, 10, 64); err == nil && ms > 0 {
-		t := time.Now().Add(time.Duration(ms) * time.Millisecond)
-		return &t, cronExpr, nil
-	}
 	if t, err := time.Parse(time.RFC3339, cronExpr); err == nil {
 		return &t, "", nil
 	}
-	p := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-	sched, err := p.Parse(cronExpr)
+	t, err := core.NextRun(cronExpr, core.Timezone())
 	if err != nil {
 		return nil, "", fmt.Errorf("invalid cron %q: %v", cronExpr, err)
 	}
-	t := sched.Next(time.Now())
 	return &t, cronExpr, nil
 }

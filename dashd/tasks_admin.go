@@ -8,51 +8,26 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"os"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/dashd/dashstore"
-	"github.com/robfig/cron/v3"
 )
 
-// cronParser mirrors timed's parser (Minute|Hour|Dom|Month|Dow) so dashd
-// validates cron expressions and computes next_run identically.
-var cronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-
-// taskTZ resolves the scheduler timezone from TZ env, falling back to UTC —
-// same resolution timed uses.
-func taskTZ() string {
-	tz := os.Getenv("TZ")
-	if _, err := time.LoadLocation(tz); tz == "" || err != nil {
-		return "UTC"
-	}
-	return tz
-}
-
-// taskNextRun replicates timed's computeNextRun: an integer cronVal is an
-// interval in ms (next = now + ms); empty is a one-shot (next = ""); otherwise
-// it's a robfig cron expression. ok is false only when a non-empty,
-// non-interval expression fails to parse — the caller rejects with 400.
+// taskNextRun renders the next_run dashd stores for a cron an operator typed.
+// ok is false only when a non-empty value will not parse — the caller rejects
+// that with 400, so a bad expression never reaches a row.
 func taskNextRun(cronVal string) (next string, ok bool) {
-	if ms, err := strconv.ParseInt(cronVal, 10, 64); err == nil && ms > 0 {
-		return time.Now().Add(time.Duration(ms) * time.Millisecond).Format(time.RFC3339), true
-	}
-	if cronVal == "" {
+	t, err := core.NextRun(cronVal, core.Timezone())
+	if errors.Is(err, core.ErrNoSchedule) {
 		return "", true
 	}
-	loc, err := time.LoadLocation(taskTZ())
-	if err != nil {
-		loc = time.UTC
-	}
-	s, err := cronParser.Parse(cronVal)
 	if err != nil {
 		return "", false
 	}
-	return s.Next(time.Now().In(loc)).Format(time.RFC3339), true
+	return t.Format(time.RFC3339), true
 }
 
 // handleTaskDetail renders GET /dash/tasks/{id} — full task fields + last 20 run logs.

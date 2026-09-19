@@ -1,14 +1,15 @@
 # core
 
-The vocabulary every daemon shares: the config loader, the row types and the
-timestamp format.
+The vocabulary every daemon shares: the config loader, the row types, the
+timestamp format and the cron reader.
 
 ## Purpose
 
 `core` is the bottom of the import graph. Every daemon imports it; it imports
-nothing arizuko-internal (only `godotenv`, for `.env` parsing). That is what
-keeps the split topology from growing a cycle: two daemons that must agree on
-the shape of a `Route` agree here, not through each other.
+nothing arizuko-internal (only `godotenv` for `.env` parsing, `uuid` for ids and
+`robfig/cron` for schedules). That is what keeps the split topology from growing
+a cycle: two daemons that must agree on the shape of a `Route`, or on the
+instant a cron names, agree here rather than through each other.
 
 It holds no state, opens no database and serves no HTTP.
 
@@ -45,12 +46,27 @@ moment earlier, and a forward-only cursor then skips it permanently — which is
 how every chat `/approve` wrote its re-issue trigger into a blind spot and no
 held call was ever re-issued (BUGS `L97`).
 
+## The one cron reader
+
+`NextRun(cronVal, tz)` turns what a `Task.Cron` holds into the next instant it
+names: a positive integer is an interval in milliseconds, an empty value names
+nothing further (`ErrNoSchedule`), anything else is a 5-field cron expression
+read in `tz`. `Timezone()` resolves that zone from `TZ`, UTC when it is unset or
+unloadable.
+
+Every writer of `scheduled_tasks.next_run` reads it — `store.SeedDefaultTasks`
+for a new group's first run, timed's fire loop for the re-arm after each fire,
+and routd's and dashd's task surfaces for a cron an operator typed. A seeder
+that instead wrote `now` left five tasks due the moment a group was created, so
+timed's next sweep fired all five (BUGS `L312`).
+
 ## Public API
 
 - Config: `Config`, `LoadConfig`, `LoadConfigFrom`, `LoadInstanceEnv`,
   `SecretKeyring`, `RequireSecretKeyring`, `ErrNoSecretsKey`
 - Env helpers: `EnvOr`, `EnvInt`, `DurOr`, `ParseCSV`
 - Time: `TSLayout`, `TS`, `NowTS`
+- Schedules: `NextRun`, `Timezone`, `ErrNoSchedule`
 - Row types: `Message`, `Group`, `GroupConfig`, `Mount`, `Route`, `Task`,
   `SessionRecord`, `TopicLineage`, `PanePrompt`
 - Routing: `RouteTarget`, `ParseRouteTarget` — parses `routes.target` as
@@ -78,6 +94,7 @@ held call was ever re-issued (BUGS `L97`).
 - `config.go` — `Config`, the three loaders, the env helpers
 - `types.go` — the row types, JID parsing, id minting
 - `timestamp.go` — `TSLayout` and the two renderers
+- `cron.go` — `NextRun`, `Timezone`
 
 ## Related docs
 

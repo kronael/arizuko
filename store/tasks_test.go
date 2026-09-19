@@ -62,6 +62,73 @@ func TestSeedDefaultTasks(t *testing.T) {
 	}
 }
 
+// A seeded task's first run is the first instant its OWN cron names, so a new
+// group is not already due the moment it is created. Seeding `now` made timed's
+// next sweep fire all five compaction tasks at once, on the group's root topic,
+// and the root session each of those turns persisted then aborted the next
+// capability eval (BUGS L312).
+//
+// The expectation is read off the expression by hand rather than from
+// core.NextRun, which is the code under test.
+func TestSeedDefaultTasks_FirstRunFollowsItsCron(t *testing.T) {
+	// firstRun asserts the wall-clock fields each seeded expression names.
+	firstRun := map[string]func(time.Time) bool{
+		"0 2 * * *": func(r time.Time) bool { return r.Hour() == 2 && r.Minute() == 0 },
+		"0 3 * * 1": func(r time.Time) bool {
+			return r.Hour() == 3 && r.Minute() == 0 && r.Weekday() == time.Monday
+		},
+		"0 4 1 * *": func(r time.Time) bool { return r.Hour() == 4 && r.Minute() == 0 && r.Day() == 1 },
+	}
+
+	s, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	loc, err := time.LoadLocation(core.Timezone())
+	if err != nil {
+		t.Fatal(err)
+	}
+	seededAt := time.Now()
+	if err := s.SeedDefaultTasks("alice", "alice"); err != nil {
+		t.Fatal(err)
+	}
+
+	for i, dt := range defaultTasks {
+		id := "alice-mem-" + strconv.Itoa(i)
+		task, ok := s.GetTask(id)
+		if !ok {
+			t.Fatalf("%s missing after seeding", id)
+		}
+		if task.NextRun == nil {
+			t.Fatalf("%s: no next_run", id)
+		}
+		run := task.NextRun.In(loc)
+		if !run.After(seededAt) {
+			t.Errorf("%s (%s): next_run %s is not after the seed instant %s",
+				id, dt.cron, run, seededAt)
+		}
+		want, known := firstRun[dt.cron]
+		if !known {
+			t.Fatalf("%s: no expectation written for cron %q", id, dt.cron)
+		}
+		if !want(run) {
+			t.Errorf("%s: next_run %s does not match cron %q", id, run, dt.cron)
+		}
+	}
+
+	// The behaviour that cost the five turns: the fire loop's own reader must
+	// claim nothing from a group that was just created.
+	due, err := s.DueTasks(time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(due) != 0 {
+		t.Fatalf("a freshly seeded group is already due: %d tasks claimed", len(due))
+	}
+}
+
 // DueTasks must claim each due task exactly once: the UPDATE...RETURNING
 // flips status='active'→'firing' atomically, so a second poll over the same
 // due set returns nothing (no two pollers fire the same task).

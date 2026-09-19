@@ -202,7 +202,7 @@ func LoadConfig() (*Config, error) {
 		Timeout:             envDur("CONTAINER_TIMEOUT", 60*time.Minute),
 		IdleTimeout:         envDur("IDLE_TIMEOUT", 60*time.Minute),
 		MaxContainers:       EnvInt("MAX_CONCURRENT_CONTAINERS", 5),
-		Timezone:            resolveTimezone(),
+		Timezone:            Timezone(),
 		AuthSecret:          EnvOr("AUTH_SECRET", ""),
 		WebHost:             EnvOr("WEB_HOST", ""),
 		AuthBaseURL:         EnvOr("AUTH_BASE_URL", ""),
@@ -312,14 +312,6 @@ func envDur(k string, fallback time.Duration) time.Duration {
 		}
 	}
 	return fallback
-}
-
-func resolveTimezone() string {
-	tz := os.Getenv("TZ")
-	if _, err := time.LoadLocation(tz); tz == "" || err != nil {
-		return "UTC"
-	}
-	return tz
 }
 
 func mustCwd() string {

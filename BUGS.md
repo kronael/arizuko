@@ -95,7 +95,7 @@ file is the user's call.
 - **Status:** open
 - **Fix:**
 
-## L312 — creating a group fires all five seeded memory tasks at once, and the root session they leave aborts the next `anteval` run (2026-09-19, open)
+## ✅ FIXED 2026-09-19 L312 — creating a group fires all five seeded memory tasks at once, and the root session they leave aborts the next `anteval` run (2026-09-19)
 
 MEASURED on sloth 2026-09-19. `arizuko group sloth add web:eval eval` ran at
 15:02:37. Between 15:03:55 and 15:06:06 the folder ran **five turns** —
@@ -128,8 +128,21 @@ both read — one declaration, many readers.
 - **Scope:** `store/tasks.go:525-554` (`SeedDefaultTasks`), `timed/main.go:32`
 - **Affected:** every new group on every instance; `anteval` on a fresh eval folder
 - **Source:** sloth `groups/eval/logs/container-2026-09-19T15-0{3,4,5,6}-*.log`; `routd.scheduled_tasks` rows `eval-mem-0..4`; `store/tasks.go:535`
-- **Status:** open
-- **Fix:**
+- **Status:** fixed (code); live rows keep the `now` they were seeded with until they next fire
+- **Fix:** `SeedDefaultTasks` writes each task's first `next_run` from the task's
+  OWN cron, so a new group is not already due. The cron-to-next-instant answer
+  moved to `core.NextRun` (`core/cron.go`) — one declaration, and every writer of
+  `next_run` reads it: the seeder, timed's `computeNextRun`, dashd's
+  `taskNextRun` and routd's `parseTaskSchedule`, which each held a copy of the
+  same parser. `core.Timezone()` is the one resolution of `TZ` beside it, so the
+  first run and every later run are read in the same zone. `store` gained no
+  second mechanism and no flag: the value that was wrong is the value that
+  changed. `TestSeedDefaultTasks_FirstRunFollowsItsCron` asserts each seeded
+  `next_run` matches the wall-clock fields its expression names and that
+  `DueTasks` claims NOTHING from a group that was just created — the reader that
+  fired the five. The cron tests moved with the declaration
+  (`core/cron_test.go`). Spec `6/30` §"One cron parser" replaces its
+  three-copies paragraph.
 
 ## L311 — a second instance's `env/operator.env` points the operator CLI at a name only containers resolve, and it is world-readable (2026-09-19, open)
 

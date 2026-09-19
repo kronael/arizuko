@@ -69,16 +69,19 @@ arizuko table stores a route token in plaintext
 ([`resreg/resources/route_tokens.go:38-54`](../../resreg/resources/route_tokens.go)),
 and `arizuko token`. `/dash/tokens/{folder}/` lists and revokes.
 
-**Canonical cron parser: timed's.** Per §timed below, timed owns all
-cron/interval computation
-([`timed/main.go:33-57`](../../timed/main.go) `computeNextRun`/`nextCron`).
-Two other copies exist and one has drifted: routd's
-`parseTaskSchedule`
-([`routd/scheduled_tasks_resource.go:285`](../../routd/scheduled_tasks_resource.go))
-accepts an RFC3339 one-shot and computes in the process's local time, while
-dashd's `taskNextRun` ([`dashd/tasks_admin.go:20,36`](../../dashd/tasks_admin.go))
-rejects that same one-shot with 400 and computes in `TZ`. So the identical
-schedule is accepted by the agent and refused by the dashboard.
+**One cron parser: `core.NextRun`.** A `cron` value becomes an instant in
+exactly one place ([`core/cron.go`](../../core/cron.go)), and every writer of
+`next_run` reads it: the seeder that gives a new group's tasks their first run
+([`store/tasks.go`](../../store/tasks.go) `SeedDefaultTasks`), timed's re-arm
+after each fire ([`timed/main.go`](../../timed/main.go) `computeNextRun`), and
+the two surfaces that take a cron from a human — routd's `parseTaskSchedule`
+([`routd/scheduled_tasks_resource.go`](../../routd/scheduled_tasks_resource.go))
+and dashd's `taskNextRun` ([`dashd/tasks_admin.go`](../../dashd/tasks_admin.go)).
+
+What still differs is what those two surfaces ACCEPT, not what they compute:
+routd reads an RFC3339 timestamp as a one-shot, dashd rejects that same value
+with 400. So the identical schedule is accepted by the agent and refused by the
+dashboard.
 
 ## Daemon-specific notes
 
@@ -169,7 +172,8 @@ No `/v1` response or rendered page ever carries a live onboarding
 
 routd owns `scheduled_tasks` + `task_run_logs` at rest and serves the
 agent MCP verbs. timed owns the **fire runtime**: the 60s tick, the
-atomic claim, and all cron/interval computation. That split is why
+atomic claim, and the re-arm after each fire (which reads the cron
+through `core.NextRun`, above). That split is why
 `/dash/timed/` reads task rows through **routd's `GET /v1/tasks`** over
 timed's `service:timed` bearer rather than its own DB — in split mode
 timed opens no DB at all ([`timed/dash.go`](../../timed/dash.go),

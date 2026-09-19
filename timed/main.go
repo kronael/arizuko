@@ -1,25 +1,20 @@
 package main
 
 import (
+	"errors"
 	"log/slog"
 	"os"
-	"strconv"
 	"time"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/obs"
 	_ "github.com/kronael/arizuko/resreg/resources"
-	"github.com/robfig/cron/v3"
 )
-
-var cronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 
 func main() {
 	defer obs.Setup("timed", os.Getenv("ARIZUKO_INSTANCE"))()
 
-	tz := os.Getenv("TZ")
-	if _, err := time.LoadLocation(tz); tz == "" || err != nil {
-		tz = "UTC"
-	}
+	tz := core.Timezone()
 
 	routerURL := os.Getenv("ROUTER_URL")
 	if routerURL == "" {
@@ -29,29 +24,18 @@ func main() {
 	runSplit(routerURL, tz)
 }
 
+// computeNextRun renders the fire loop's next next_run: core.NextRun's instant as
+// the RFC3339 text routd stores, or "" for a value that names no further run —
+// a one-shot that has fired, or an expression that will not parse, which the
+// caller turns into the task's 'completed' or 'error' status.
 func computeNextRun(cronVal, tz, taskID string) string {
-	if ms, err := strconv.ParseInt(cronVal, 10, 64); err == nil && ms > 0 {
-		return time.Now().Add(time.Duration(ms) * time.Millisecond).Format(time.RFC3339)
-	}
-	if cronVal == "" {
+	next, err := core.NextRun(cronVal, tz)
+	if errors.Is(err, core.ErrNoSchedule) {
 		return ""
 	}
-	next, err := nextCron(cronVal, tz)
 	if err != nil {
 		slog.Warn("parse cron expr", "task", taskID, "cron", cronVal, "err", err)
 		return ""
 	}
 	return next.Format(time.RFC3339)
-}
-
-func nextCron(expr, tz string) (time.Time, error) {
-	loc, err := time.LoadLocation(tz)
-	if err != nil {
-		loc = time.UTC
-	}
-	s, err := cronParser.Parse(expr)
-	if err != nil {
-		return time.Time{}, err
-	}
-	return s.Next(time.Now().In(loc)), nil
 }

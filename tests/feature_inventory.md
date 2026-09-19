@@ -123,7 +123,7 @@ routd-side capability gate is covered in `routd/deliver_test.go`.
 | Feature                                         | exists | tested                                                                   | ref                                              |
 | ----------------------------------------------- | ------ | ------------------------------------------------------------------------ | ------------------------------------------------ |
 | Task create                                     | yes    | yes — `TestFeature_Tasks/create`, `routd/tasks_test.go`                  | `store/tasks.go:CreateTask`                      |
-| Cron / interval scheduling                      | yes    | partial — `timed/timed_test.go` (computeNextRun is `package main`)       | timed/README.md                                  |
+| Cron / interval scheduling                      | yes    | yes — `core/cron_test.go` (`NextRun`), `timed/timed_test.go`             | timed/README.md                                  |
 | Pause / resume / cancel state machine           | yes    | yes — `TestFeature_Tasks/pause-resume-cancel`                            | `store/tasks.go:SetTaskStatus`                   |
 | next_run set on reschedule (dead-task guard)    | yes    | yes — `TestFeature_Tasks/reschedule-sets-future-next-run`                | `store/tasks.go:RescheduleTask`, .diary/20260618 |
 | Firing recovery (crash safety)                  | yes    | yes — `TestFeature_Tasks/firing-recovery`                                | `store/tasks.go:RecoverFiringTasks`              |
