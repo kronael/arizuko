@@ -149,7 +149,10 @@ messages:write,messages:read` (add `cost:read` for budgets). Pass
 - **API base**: `--api http://localhost:<routd-port>`. The public host
   serves no `/v1`, so pointing at it 404s every injected message.
 - **Eval folder**: `arizuko group <inst> add web:<folder> <folder>` —
-  never a manual `mkdir`; `--chat web:<folder>` then routes 1:1.
+  never a manual `mkdir`; `--chat web:<folder>` then routes 1:1. Creating
+  it seeds five `/compact-memories` tasks that fire at once (BUGS `L312`),
+  and each of those turns persists a root session, so the first run after
+  the folder is created aborts on the baseline unless it drains first.
 - **Subagent cases need a child that exists**: nothing auto-creates a
   group. Create the child with `register_group` (the eval folder must hold
   `mcp:register_group`) before a child-delegate case can pass.

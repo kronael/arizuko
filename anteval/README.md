@@ -31,8 +31,11 @@ make validate                     # load+validate the case catalog (no target)
 ```
 
 Live preconditions (spec § "Live-run preconditions"): the eval folder exists
-(`arizuko group <inst> add web:eval eval`), its `MaxChildren` is raised for the
-subagent cases, and the sink URL is reachable from agent containers.
+(`arizuko group <inst> add web:eval eval`), it holds the grants the cases need,
+its egress allows the sink, and the sink URL answers from an agent container.
+The operator recipe, with the commands and the two traps that abort a run, is
+`.claude/skills/eval/gates.md` § "Bringing `anteval` up on an instance that has
+never run it".
 
 **Tiers** (2026-08-21, reduced from 35 cases — the deletions and why are
 noted in place in `cases/anteval.toml`): `--smoke` is the per-release gate —
