@@ -67,7 +67,7 @@ and says which folder it would shadow.
   store" point 5 states the rule; the agent-facing `set_web_route` doc says it
   before the call.
 
-## L313 — the repo's `create-eval` skill never loads: the global one of the same name shadows it (2026-09-19, open)
+## ✅ FIXED 2026-09-19 L313 — the repo's `create-eval` skill never loads: the global one of the same name shadows it (2026-09-19)
 
 MEASURED 2026-09-19. `.claude/skills/create-eval/SKILL.md` is tracked in this
 repo (`2840d3cd`), and the skill listing this session carries the OTHER one —
@@ -92,8 +92,15 @@ file is the user's call.
 - **Scope:** `.claude/skills/create-eval/SKILL.md`
 - **Affected:** anyone who tries to improve this repo's eval generator
 - **Source:** the session skill listing 2026-09-19 (global description shown); `git log -1 -- .claude/skills/create-eval/SKILL.md` → `2840d3cd`
-- **Status:** open
-- **Fix:**
+- **Status:** fixed
+- **Fix:** `.claude/skills/create-eval/SKILL.md` is deleted. The global
+  `~/.claude/skills/create-eval/` is the one that loads and the one that
+  carries the regression-check, threshold-from-invariants and
+  prove-it-can-fail rules; it generates a project eval skill in any repo, so
+  the repo needed no copy of its own. The lesson this eval produced went to
+  the live skill instead: keep a generated `SKILL.md` under 200 lines and put
+  the checks and the gates in siblings, because this project's own grew to
+  678 lines in one file.
 
 ## ✅ FIXED 2026-09-19 L312 — creating a group fires all five seeded memory tasks at once, and the root session they leave aborts the next `anteval` run (2026-09-19)
 
@@ -228,7 +235,7 @@ orphan then cannot outlive the next run, whatever killed its creator.
 - **Scope:** `objstore/dynstore/dyntest/dyntest.go:107-116` (`Shutdown`), `:189-190` (`start`)
 - **Affected:** every developer host that runs the store test suites
 - **Source:** `docker ps --filter name=arizuko-dynstore-` 2026-09-19, 11 rows, 31–32 h uptime
-- **Status:** fixed; the eleven measured orphans carry no label and were left for the operator
+- **Status:** fixed; the eleven measured orphans carried no label, so the reap could not take them — removed by hand 2026-09-19, each pid checked dead first
 - **Fix:** the container is started with a label naming the pid that started it
   (`arizuko-dynstore-pid`), and `start()` removes every labelled container whose
   process the kernel no longer knows before it starts its own — the line that
