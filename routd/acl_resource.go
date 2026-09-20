@@ -209,10 +209,18 @@ type aclAddResult struct {
 // the principal — moving a grant the operator did not ask to move is the failure
 // mode N1 chose an immutable canonical sub to avoid.
 func (s *Server) nonCanonicalWarning(principal string) string {
-	if s.identity == nil {
+	return NonCanonicalWarning(s.identity, principal)
+}
+
+// NonCanonicalWarning is the one renderer of that warning, for every surface
+// that writes an acl row. dashd writes grants straight to routd's store rather
+// than through this handler, so without a shared renderer the web form either
+// stayed silent or grew a second copy of these sentences to drift (BUGS L152).
+func NonCanonicalWarning(ident IdentityResolver, principal string) string {
+	if ident == nil {
 		return ""
 	}
-	id, _, claimed, err := s.identity.Resolve(principal)
+	id, _, claimed, err := ident.Resolve(principal)
 	if err != nil {
 		// A guard that stops working exactly when identity data is unavailable is
 		// worth less than it reads, so say so rather than implying the principal

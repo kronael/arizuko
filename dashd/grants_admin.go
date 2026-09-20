@@ -11,6 +11,7 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -43,6 +44,8 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 		crumb{"", folder},
 		crumb{"", "Grants"},
 	)
+	// The alias warning from a just-written grant rides back as ?err=.
+	writeFlash(w, r, nil)
 
 	fmt.Fprint(w, `<p><a href="/dash/groups/`+folderPath(folder)+`/settings">← Back to settings</a></p>`)
 
@@ -235,7 +238,29 @@ func (d *dash) handleGroupGrantAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.Info("grant added", "folder", folder, "principal", principal, "action", action, "sub", sub)
-	http.Redirect(w, r, "/dash/groups/"+folderPath(folder)+"/grants", http.StatusSeeOther)
+	// A grant written against a linked alias creates a row that can never match
+	// a token: it looks applied and never fires. routd's own acl handler has
+	// warned about that since N2, but this form writes the store directly, so
+	// the operator using the web surface was the one person not told (BUGS
+	// L152). One renderer, carried back through the flash the page already
+	// renders. Fail-open, like routd's: the grant is written either way.
+	dest := "/dash/groups/" + folderPath(folder) + "/grants"
+	if warn := routd.NonCanonicalWarning(d.identityResolver(), principal); warn != "" {
+		slog.Warn("grant added against a non-canonical principal", "folder", folder,
+			"principal", principal, "warning", warn)
+		dest += "?err=" + url.QueryEscape(warn)
+	}
+	http.Redirect(w, r, dest, http.StatusSeeOther)
+}
+
+// identityResolver builds the authd client the alias check needs. nil when this
+// instance has no service token (local dev), which NonCanonicalWarning reads as
+// "cannot check" and stays silent about.
+func (d *dash) identityResolver() routd.IdentityResolver {
+	if d.svc == nil || d.authdURL == "" {
+		return nil
+	}
+	return routd.NewIdentityResolver(d.authdURL, d.svc)
 }
 
 // POST /dash/groups/{folder}/grants/revoke — delete one ACL row.
