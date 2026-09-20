@@ -91,23 +91,26 @@ func (l *Loop) enrichAttachments(ctx context.Context, msg *core.Message, folder 
 			if att.Data == "" {
 				// Neither a download URL nor inline base64 → nothing to fetch. An
 				// empty URL means the adapter built the attachment without a
-				// reachable file ref (e.g. teled with LISTEN_URL unset); WARN so it
-				// is never a silent drop.
+				// reachable file ref (e.g. teled with LISTEN_URL unset).
 				slog.Warn("enrich: attachment has no URL or data", "id", msg.ID, "mime", att.Mime, "filename", att.Filename)
+				extra.WriteString(unavailableAttachment(att, "the adapter sent no file reference"))
 				continue
 			}
 			raw, err := base64.StdEncoding.DecodeString(att.Data)
 			if err != nil {
 				slog.Warn("enrich: base64 decode", "err", err)
+				extra.WriteString(unavailableAttachment(att, "the inline data did not decode"))
 				continue
 			}
 			if err := os.WriteFile(dest, raw, 0o644); err != nil {
 				slog.Warn("enrich: write base64", "dest", dest, "err", err)
+				extra.WriteString(unavailableAttachment(att, "the file could not be written"))
 				continue
 			}
 		} else {
 			if err := downloadFile(ctx, att.URL, dest, l.media.Bearer, l.media.MaxBytes); err != nil {
 				slog.Warn("enrich: download failed", "url", att.URL, "err", err)
+				extra.WriteString(unavailableAttachment(att, "the file could not be fetched"))
 				continue
 			}
 		}
@@ -146,6 +149,24 @@ func (l *Loop) enrichAttachments(ctx context.Context, msg *core.Message, folder 
 	if err := l.db.EnrichMessage(*msg, msg.Content); err != nil {
 		slog.Warn("enrich: store update failed", "id", msg.ID, "err", err)
 	}
+}
+
+// unavailableAttachment renders the element a turn gets when a file the sender
+// attached did not arrive. The agent is TOLD, which is the whole point: a
+// dropped attachment used to write nothing at all, so the turn ran on a message
+// that named a file it never received and neither the agent nor the user could
+// see that anything was missing (BUGS L163).
+//
+// ONE renderer for four failure sites, beside the one that renders the success
+// case, because two shapes for "here is what the sender attached" is how the
+// two drift.
+func unavailableAttachment(att chanlib.InboundAttachment, why string) string {
+	name := att.Filename
+	if name == "" {
+		name = "(unnamed)"
+	}
+	return fmt.Sprintf("\n<attachment filename=%q mime=%q unavailable=%q/>",
+		name, att.Mime, why)
 }
 
 func downloadFile(ctx context.Context, url, dest string, bearer func(context.Context) (string, error), maxBytes int64) error {

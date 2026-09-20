@@ -401,3 +401,86 @@ func TestTranscribeOnce_Non200ClosesBody(t *testing.T) {
 		t.Errorf("server saw %d calls, want 2", calls)
 	}
 }
+
+// A file the sender attached and routd could not fetch used to write NOTHING
+// into the turn, so the agent ran on a message that named a file it never
+// received and neither it nor the user could see anything was missing. An
+// adapter restart empties the in-memory /files/<id> map, so 12 of these landed
+// on sloth in six seconds after one restart (BUGS L163).
+func TestEnrich_AnUnfetchableAttachmentIsVisibleToTheAgent(t *testing.T) {
+	gone := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "not found", http.StatusNotFound)
+	}))
+	defer gone.Close()
+
+	db, l, _ := enrichLoop(t, mediaConfig{Enabled: true, MaxBytes: 1 << 20})
+	raw, _ := json.Marshal([]chanlib.InboundAttachment{
+		{URL: gone.URL + "/lost.png", Mime: "image/png", Filename: "lost.png"},
+	})
+	msg := &core.Message{ID: "m1", ChatJID: "tg:1", Content: "look at this",
+		Timestamp: time.Now().UTC(), Attachments: string(raw)}
+	if err := db.PutMessage(*msg); err != nil {
+		t.Fatal(err)
+	}
+
+	l.enrichAttachments(context.Background(), msg, "demo")
+
+	if !strings.Contains(msg.Content, "unavailable=") {
+		t.Fatalf("a dropped attachment left no trace in the turn: %q", msg.Content)
+	}
+	if !strings.Contains(msg.Content, `filename="lost.png"`) {
+		t.Errorf("the notice does not name the file: %q", msg.Content)
+	}
+	// It must not claim a path the agent could try to read.
+	if strings.Contains(msg.Content, "path=") {
+		t.Errorf("the notice offers a path to a file that is not there: %q", msg.Content)
+	}
+}
+
+// An attachment the adapter built with no file reference at all is the other
+// half of the same silence — teled with LISTEN_URL unset produces exactly this.
+func TestEnrich_AnAttachmentWithNoReferenceIsVisibleToTheAgent(t *testing.T) {
+	db, l, _ := enrichLoop(t, mediaConfig{Enabled: true, MaxBytes: 1 << 20})
+	raw, _ := json.Marshal([]chanlib.InboundAttachment{
+		{Mime: "image/png", Filename: "nothing.png"},
+	})
+	msg := &core.Message{ID: "m2", ChatJID: "tg:1", Content: "here",
+		Timestamp: time.Now().UTC(), Attachments: string(raw)}
+	if err := db.PutMessage(*msg); err != nil {
+		t.Fatal(err)
+	}
+
+	l.enrichAttachments(context.Background(), msg, "demo")
+
+	if !strings.Contains(msg.Content, "unavailable=") {
+		t.Fatalf("an attachment with no reference left no trace: %q", msg.Content)
+	}
+}
+
+// The success path must be untouched: a file that DOES arrive still carries the
+// path the agent reads it from, and no unavailable marker.
+func TestEnrich_AFetchedAttachmentCarriesItsPathAndNoNotice(t *testing.T) {
+	served := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("PNGDATA"))
+	}))
+	defer served.Close()
+
+	db, l, _ := enrichLoop(t, mediaConfig{Enabled: true, MaxBytes: 1 << 20})
+	raw, _ := json.Marshal([]chanlib.InboundAttachment{
+		{URL: served.URL + "/ok.png", Mime: "image/png", Filename: "ok.png"},
+	})
+	msg := &core.Message{ID: "m3", ChatJID: "tg:1", Content: "see",
+		Timestamp: time.Now().UTC(), Attachments: string(raw)}
+	if err := db.PutMessage(*msg); err != nil {
+		t.Fatal(err)
+	}
+
+	l.enrichAttachments(context.Background(), msg, "demo")
+
+	if !strings.Contains(msg.Content, "path=") {
+		t.Fatalf("a fetched attachment lost its path: %q", msg.Content)
+	}
+	if strings.Contains(msg.Content, "unavailable=") {
+		t.Errorf("a fetched attachment was marked unavailable: %q", msg.Content)
+	}
+}

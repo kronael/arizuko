@@ -3258,7 +3258,7 @@ filter the adapter that would carry a real one.
   `stale_seconds` still rides `/health` every tick.
 - **Fix:** `fix(slakd): warn on the edge into a quiet stream, not every tick`
 
-## L163 — an adapter restart empties its in-memory `/files/<id>` cache, so attachments re-fed across the restart 404 and the agent gets the text only (2026-09-05, open)
+## L163 — an adapter restart empties its in-memory `/files/<id>` cache, so attachments re-fed across the restart 404 and the agent gets the text only (2026-09-05, PARTLY FIXED 2026-09-20; the durable map needs sign-off)
 
 sloth 2026-09-04 13:43:13-19, right after the 13:41 restart: 12 × `enrich:
 download failed url=http://discd:8080/files/<id> err="HTTP 404"`.
@@ -3285,6 +3285,36 @@ names an attachment it never receives. Silent to the user.
   (3) is the only one that makes the bad state impossible by construction, but
   it changes the `/files/<id>` contract for every adapter on `FileProxyHandler`.
 - **Fix:**
+
+- **The silence is fixed 2026-09-20 — option (2), which the standing rules
+  already required.** "An error on a user-facing path MUST surface to the user,
+  not just be logged" (`~/.claude/CLAUDE.md`), and a dropped attachment wrote
+  NOTHING into the turn: the agent ran on a message naming a file it never
+  received, and neither it nor the user could see anything was missing.
+
+  `routd/enrich.go` now renders `<attachment filename=… mime=… unavailable=…/>`
+  at every failure site — all FOUR of them, not just the download: no file
+  reference at all (teled with `LISTEN_URL` unset), a base64 body that does not
+  decode, a write that fails, and the fetch that fails. One renderer beside the
+  one that renders the success case, because two shapes for "here is what the
+  sender attached" is how the two drift.
+
+  The notice carries NO `path=`, deliberately: offering a path to a file that is
+  not there trades a silent loss for a failed read.
+
+  PROVEN BY MUTATION: silence the download failure again, or let the notice
+  carry a path — each turns a test red. A third test pins the success path, so
+  the fix cannot be satisfied by marking everything unavailable.
+- **Still open, and it is the cause fix:** the id→url map is in-memory, so it is
+  lost by RESTART and by EVICTION alike (`DefaultURLCacheSize = 4096`). Options
+  (1) persist it and (3) make the id a signed capability token carrying the URL
+  both stand; (3) is the only one that makes the bad state impossible by
+  construction, and it changes the `/files/<id>` contract for all three adapters
+  on `FileProxyHandler` — so it needs sign-off. RE-MEASURED 2026-09-20: those
+  three are `slakd/server.go:46`, `discd/server.go:25`, `reditd/server.go:38`,
+  and all three already carry a `chanstore.Store`, which makes (1) cheaper than
+  when this was filed. teled is NOT affected — `teled/server.go:80-97` rebuilds
+  the URL from the request path and holds no cache.
 
 ## ✅ FIXED 2026-09-20 L153 — anteval `webhook-in`: the ingress worked and the agent answered the PREVIOUS case; a skill that hardcodes a nonce outlives the case that built it (2026-09-03, eval finding)
 
