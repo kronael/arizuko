@@ -18,18 +18,20 @@ func TestChatTokenHistory_OrderAndRoles(t *testing.T) {
 	tok := seedChatToken(t, st, "main")
 
 	now := time.Now()
-	// Insert out of chronological order to prove the handler sorts ascending.
-	if err := st.PutMessage(core.Message{
-		ID: "b1", ChatJID: "web:main", Content: "pong",
-		Timestamp: now, Topic: "v1-t1", BotMsg: true,
-	}); err != nil {
-		t.Fatalf("put b1: %v", err)
-	}
+	// The rows go in as they happened: a live append takes the chat's next
+	// position, so an out-of-order fixture would be re-stamped onto the tail
+	// and could not say anything about order (store.appendInstant).
 	if err := st.PutMessage(core.Message{
 		ID: "u1", ChatJID: "web:main", Content: "ping",
 		Timestamp: now.Add(-time.Second), Topic: "v1-t1", Name: "Alice",
 	}); err != nil {
 		t.Fatalf("put u1: %v", err)
+	}
+	if err := st.PutMessage(core.Message{
+		ID: "b1", ChatJID: "web:main", Content: "pong",
+		Timestamp: now, Topic: "v1-t1", BotMsg: true,
+	}); err != nil {
+		t.Fatalf("put b1: %v", err)
 	}
 	// A message on a different topic must not leak in.
 	if err := st.PutMessage(core.Message{

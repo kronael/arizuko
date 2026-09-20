@@ -205,15 +205,18 @@ func (d *DB) RemoveGroupWatcher(observer, source string) error {
 // PutMessage appends one message row. routd is the only writer, and store owns
 // the item shape and the three indexes one write fans out into.
 //
-// The ranked index is fed here, from the row rendered BEFORE the write, so the
-// refusal a bad position earns is the store's own and a committed message is
-// never reported as a failure (search.go).
+// The ranked index is fed from the row the store says it STORED, not from the
+// one handed in: an append whose own instant would bury it under the chat's
+// newest row takes the next position instead, and an index built on the
+// caller's instant would then answer "no such message" about it (search.go,
+// store.appendInstant).
 func (d *DB) PutMessage(m core.Message) error {
-	row, err := store.IndexedFrom(m)
+	stored, err := d.store().AppendMessage(m)
 	if err != nil {
 		return err
 	}
-	if err := d.store().PutMessage(m); err != nil {
+	row, err := store.IndexedFrom(stored)
+	if err != nil {
 		return err
 	}
 	d.search.Put(row)

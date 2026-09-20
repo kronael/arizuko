@@ -780,12 +780,15 @@ func TestOutboundRetryRedispatchesAndFails(t *testing.T) {
 	loop := NewLoop(db, runnerFn(nil), LoopConfig{Deliver: dl})
 
 	now := time.Now().UTC()
-	// pending for 2 min → re-dispatched.
-	_ = db.PutOutbound(core.Message{ID: "stale", ChatJID: "slack:T/C/U", Sender: "demo",
-		Content: "retry me", Timestamp: now.Add(-2 * time.Minute), BotMsg: true}, core.MessageStatusPending)
+	// The rows are appended oldest first, because an append takes the chat's
+	// next position and a row handed an instant below the tail is re-stamped
+	// onto it (store.appendInstant).
 	// pending for 25h → still re-dispatched: age is not a bound.
 	_ = db.PutOutbound(core.Message{ID: "ancient", ChatJID: "slack:T/C/U", Sender: "demo",
 		Content: "old but owed", Timestamp: now.Add(-25 * time.Hour), BotMsg: true}, core.MessageStatusPending)
+	// pending for 2 min → re-dispatched.
+	_ = db.PutOutbound(core.Message{ID: "stale", ChatJID: "slack:T/C/U", Sender: "demo",
+		Content: "retry me", Timestamp: now.Add(-2 * time.Minute), BotMsg: true}, core.MessageStatusPending)
 	// fresh (5s) → left alone.
 	_ = db.PutOutbound(core.Message{ID: "fresh", ChatJID: "slack:T/C/U", Sender: "demo",
 		Content: "wait", Timestamp: now.Add(-5 * time.Second), BotMsg: true}, core.MessageStatusPending)

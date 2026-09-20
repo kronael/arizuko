@@ -26,6 +26,14 @@ package store
 // stored instant, and that derivation is proven per chat against all three
 // snapshots (messages_migrate_test.go).
 //
+// AND THE LOG IS APPEND-ORDERED. A live append takes the chat's next position,
+// never one at or below the row the chat already ends on (appendInstant). The
+// dispatch cursor is a high-water mark over this key, so a row written below it
+// is a row no feed ever returns — which is what buried every steer re-injection
+// behind a platform second and what dropped eleven of twelve documents of one
+// Telegram upload. The archive's restore writes items directly and is NOT this
+// door, so a history import still lands at the instants it carries.
+//
 // platform_id STAYS HERE and is not delivery state. One writer stamps it, once,
 // when the adapter confirms delivery; no non-bot row on any of the three
 // instances carries one; and MessageByID resolves a reply's parent BY it inside
@@ -268,44 +276,60 @@ func defaultVerb(v string) string {
 // condition is on the message item, and a refusal takes the indexes with it, so
 // a re-delivered message cannot double-count a folder.
 func (s *Store) PutMessage(m core.Message) error {
+	_, err := s.AppendMessage(m)
+	return err
+}
+
+// AppendMessage is PutMessage answering the row AS STORED, which is what a
+// caller that indexes, addresses or reports the row afterwards has to hold: the
+// instant it carries is the one the append actually took, and appendInstant
+// moves that instant when the caller's own would bury the row.
+func (s *Store) AppendMessage(m core.Message) (core.Message, error) {
 	return s.putMessage(context.Background(), m, core.MessageStatusSent)
 }
 
-// putMessage is PutMessage's body. The status is a parameter rather than a field
-// of the message because it is not stored on the message: it decides whether a
-// delivery item exists at all (message_delivery.go).
+// putMessage is PutMessage's body, answering the row as stored. The status is a
+// parameter rather than a field of the message because it is not stored on the
+// message: it decides whether a delivery item exists at all
+// (message_delivery.go).
 //
 // `also` rides the message's own batch, so a caller whose write BELONGS with the
 // append gets it atomically without a transaction — FireProactive's cooldown is
 // the one caller, and the atomicity is what makes a crash before dispatch cost
 // one missed turn rather than a double fire.
 func (s *Store) putMessage(ctx context.Context, m core.Message, status string,
-	also ...objstore.Write) error {
+	also ...objstore.Write) (core.Message, error) {
 	if m.Timestamp.IsZero() {
 		// A stamped-here instant would be the caller's SILENTLY: the coordinate
 		// is built from the message, so the caller would walk away holding a
 		// message whose position does not exist, and every later address of it —
 		// the enrich, the errored flag, the delivery stamp — would miss without
 		// saying so. The writer stamps the instant; this refuses to invent one.
-		return fmt.Errorf("message %s in %s carries no instant, and the instant is half its "+
+		return m, fmt.Errorf("message %s in %s carries no instant, and the instant is half its "+
 			"position", m.ID, m.ChatJID)
 	}
 	// THE READ IS FOR THE STICKY PIN, and nothing else: an untopiced message
 	// inherits the chat's pin, which is an attribute only a read answers.
 	chat, _, err := s.chatItemVia(ctx, m.ChatJID)
 	if err != nil {
-		return err
+		return m, err
 	}
 	if m.Topic == "" {
 		m.Topic = chat.Attrs[AttrChatStickyTopic]
 	}
 	chatKey, err := chatKey(m.ChatJID)
 	if err != nil {
-		return err
+		return m, err
+	}
+	// THE APPEND TAKES THE CHAT'S NEXT POSITION, never one at or below the row
+	// it already ends on.
+	m.Timestamp, err = s.appendInstant(ctx, m)
+	if err != nil {
+		return m, err
 	}
 	key, err := messageKeyOf(m)
 	if err != nil {
-		return err
+		return m, err
 	}
 	// ONE WRITE OPENS THE CHAT AND FLAGS IT. `chats` is the partition list the
 	// poll loop and the archive both walk, so a message in a chat it does not
@@ -336,16 +360,85 @@ func (s *Store) putMessage(ctx context.Context, m core.Message, status string,
 	}
 	folderWrite, counted, err := folderFeedWrite(key, m)
 	if err != nil {
-		return err
+		return m, err
 	}
 	writes = append(writes, also...)
 	if !counted {
 		// No routed_to, so no folder feed entry and no counter to move: the
 		// batch is the message and the feeds that take every row.
 		_, err := s.TryWriteEntities(ctx, nil, writes...)
-		return err
+		return m, err
 	}
-	return s.countFolderMessage(ctx, m.RoutedTo, append(writes, folderWrite))
+	return m, s.countFolderMessage(ctx, m.RoutedTo, append(writes, folderWrite))
+}
+
+// appendInstant answers the instant a live append takes: the writer's own, or
+// one nanosecond past the chat's newest row when the writer's own would put the
+// new row at or below it.
+//
+// THE DISPATCH CURSOR IS A HIGH-WATER MARK, so a row written BELOW it is a row
+// no feed ever returns: NewMessagesForChat reads `> cursor` and the cursor only
+// moves forward. That made three separate bugs out of one mistake. Adapters
+// stamp a message with the platform's whole second (routd's ingest truncates
+// `time.Unix(sec, 0)`), and the re-injection a steer command writes carries the
+// HOST clock — so a platform second three ahead of the host buried every
+// `/root <cmd>`, `/new <text>` and `#topic <text>` re-injection behind the
+// cursor the command itself had just set, with no ack and a leaked elevation
+// (BUGS L102). And two rows of one second are ordered by their ids, which is
+// arrival order for nothing: a row landing while the previous turn ran, at the
+// same second as the batch tail but with a lesser id, sorted below the cursor
+// the turn then set and was never fed again — one Telegram upload lost eleven of
+// twelve documents (BUGS L103).
+//
+// ONE FLOOR ANSWERS BOTH, and it is the chat's own newest position rather than
+// its cursor, because the cursor has not moved yet when a steer re-injects.
+// The instant is the key's fixed-width LEAD, so one nanosecond past it sorts
+// above every row at the floor whatever id follows.
+//
+// THE COST IS ONE KEY-ONLY READ of the partition this write already opens, and
+// what is left is the window between that read and the write: two appends to one
+// chat can still interleave. That window is microseconds against L103's, which
+// was the whole duration of a turn.
+//
+// A CLAMPED ROW IS STILL THE CALLER'S ROW. Nothing is dropped and nothing is
+// renamed — the id, the sender and the text are untouched and the instant moves
+// by a nanosecond from a value the platform had already rounded to a second.
+func (s *Store) appendInstant(ctx context.Context, m core.Message) (time.Time, error) {
+	own := MsgStamp(core.TS(m.Timestamp), m.ID)
+	floor, err := s.newestMessageKey(ctx, m.ChatJID)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if floor == "" || own > floor {
+		return m.Timestamp, nil
+	}
+	// A RE-DELIVERY IS NOT A LATE ARRIVAL. The append-only log dedups on the
+	// message ITEM: the same id at the same instant is the same position, and the
+	// Put's ItemAbsent condition turns the second one into a no-op. Moving that
+	// row to a free position would defeat the only dedup ingest has and append the
+	// message twice. The extra read costs nothing on the ordinary path, which
+	// returned above.
+	held, err := s.Obj().Query(ctx, objstore.Query{
+		Entity: Messages, Partition: m.ChatJID, Project: []string{},
+		Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: own},
+	})
+	if err != nil {
+		return time.Time{}, fmt.Errorf("read %s in %s: %w", own, m.ChatJID, err)
+	}
+	if len(held) > 0 {
+		return m.Timestamp, nil
+	}
+	at, _, ok := MsgCoord(floor)
+	if !ok {
+		return time.Time{}, fmt.Errorf("%s ends on %q, which is not a message position, so "+
+			"there is no instant to append past", m.ChatJID, floor)
+	}
+	t, err := time.Parse(time.RFC3339Nano, at)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("%s ends at %q, which is not an instant: %w",
+			m.ChatJID, at, err)
+	}
+	return t.Add(time.Nanosecond), nil
 }
 
 // ProactiveSelfSender is the synthetic inbound's sender. Rows from it never
@@ -1054,7 +1147,7 @@ func (s *Store) FireProactive(ctx context.Context, jid, id string) error {
 		ID: id, ChatJID: jid, Sender: ProactiveSelfSender, Timestamp: firedAt,
 		Verb: "message",
 	}
-	if err := s.putMessage(ctx, row, core.MessageStatusSent, cooldown); err != nil {
+	if _, err := s.putMessage(ctx, row, core.MessageStatusSent, cooldown); err != nil {
 		return fmt.Errorf("record the proactive trigger on %s: %w", jid, err)
 	}
 	return nil

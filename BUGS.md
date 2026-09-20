@@ -7,6 +7,26 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L317 — `/stop` no longer cancels a question typed just before it (2026-09-20, open — needs a decision)
+
+Fallout of the `L104` fix, named rather than discovered late. `/stop` kills the
+running container (`routd/steer.go` `cmdStop`) and has never meant "discard my
+backlog". Before `L104` it cancelled a pending question anyway, because the
+steer advanced the cursor past EVERY older row in the batch — the bug. Now
+"do X" then `/stop` kills the current container and X falls through to a new
+turn and runs.
+
+The old behaviour was the right answer for `/stop` and the wrong answer for
+every other command, which is why the fix went the way it did. `/stop` is the
+one place where a user plainly wants the backlog dropped too.
+
+- **Severity:** low — one command, and the user can say so in words
+- **Scope:** `routd/steer.go` `cmdStop`, `routd/dispatch.go` steer branch
+- **Affected:** any chat where a person cancels by `/stop` right after asking
+- **Source:** named in the `L102`/`L103`/`L104` fix, 2026-09-20
+- **Status:** open — needs a decision
+- **Fix:** if `/stop` should clear the backlog, it advances the cursor past the whole batch it steered from, and says how many rows it dropped. That is a different contract from every other command, so it wants sign-off rather than a quiet default.
+
 ## L316 — a late follow-up ping makes the agent restate an answer the user can already see (2026-09-20, open)
 
 MEASURED on sloth 2026-09-20, the `main/trading` Discord thread. Two mentions
@@ -4295,7 +4315,7 @@ old helper test and drives the real middleware: it pins both divergences —
 `atlas` no longer reaches `atlas/content`, and `atlas/**` now reaches both
 `atlas` and its subtree. Both rows fail against the deleted predicate.
 
-## L102 — every steer re-injection is written BEHIND the cursor it must outrun, so `/root <cmd>`, `/new <text>` and `#topic <text>` silently never run (2026-08-26, proposal — needs sign-off)
+## ✅ FIXED 2026-09-20 L102 — every steer re-injection is written BEHIND the cursor it must outrun, so `/root <cmd>`, `/new <text>` and `#topic <text>` silently never run (2026-08-26, proposal — needs sign-off)
 
 An operator types `/root allow.it` and nothing happens. No ack, no elevated
 turn, and the `pendingElevation` entry leaks.
@@ -4346,7 +4366,7 @@ calls no Enqueue at all).
   timestamp order — cursor on `rowid`, or stamping a re-injection from the
   consumed message's own timestamp. Decide with `L97` and `L103`.
 
-## L103 — a message sharing its platform second with a batch tail is dropped forever; one Telegram upload lost 11 of 12 documents (2026-08-26, proposal — needs sign-off)
+## ✅ FIXED 2026-09-20 L103 — a message sharing its platform second with a batch tail is dropped forever; one Telegram upload lost 11 of 12 documents (2026-08-26, proposal — needs sign-off)
 
 Adapters truncate platform timestamps to seconds (`routd/server.go:513`), so
 equal timestamps within one chat are routine — Telegram albums, Slack bursts,
@@ -4388,7 +4408,7 @@ milliseconds.
 - **Proposed fix (cross-cutting → sign-off):** a strictly monotonic sort key
   (rowid-based cursor), or `>=` plus an id-set dedup.
 
-## L104 — a steer consumes the whole batch, discarding older unprocessed user messages (2026-08-26, open)
+## ✅ FIXED 2026-09-20 L104 — a steer consumes the whole batch, discarding older unprocessed user messages (2026-08-26, open)
 
 `routd/dispatch.go:51` picks `steerMsg = newestUserMsg(msgs)`; `:79-81` then
 calls `advance(chatJID, steerMsg)` unconditionally, moving the cursor past

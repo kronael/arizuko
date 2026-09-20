@@ -20,12 +20,12 @@ func TestNewestUserMsg_SkipsBotRowsAfterACommand(t *testing.T) {
 		{ID: "reply", Content: "Page is published", BotMsg: true, Timestamp: base.Add(6 * time.Minute)},
 	}
 
-	got, ok := newestUserMsg(msgs)
-	if !ok {
+	i := newestUserIdx(msgs)
+	if i < 0 {
 		t.Fatal("no user message found in a batch that contains one")
 	}
-	if got.ID != "cmd" {
-		t.Errorf("steered %q; the bot reply overtook the command again", got.ID)
+	if msgs[i].ID != "cmd" {
+		t.Errorf("steered %q; the bot reply overtook the command again", msgs[i].ID)
 	}
 }
 
@@ -39,9 +39,9 @@ func TestNewestUserMsg_TakesTheLatestUserRow(t *testing.T) {
 		{ID: "new", Content: "/new", Timestamp: base.Add(2 * time.Minute)},
 	}
 
-	got, ok := newestUserMsg(msgs)
-	if !ok || got.ID != "new" {
-		t.Errorf("got %q (ok=%v), want the latest user row", got.ID, ok)
+	i := newestUserIdx(msgs)
+	if i < 0 || msgs[i].ID != "new" {
+		t.Errorf("got index %d, want the latest user row", i)
 	}
 }
 
@@ -52,7 +52,7 @@ func TestNewestUserMsg_AllBotBatchSteersNothing(t *testing.T) {
 		{ID: "b1", BotMsg: true, Timestamp: time.Now()},
 		{ID: "b2", BotMsg: true, Timestamp: time.Now().Add(time.Second)},
 	}
-	if got, ok := newestUserMsg(msgs); ok {
-		t.Errorf("steered bot row %q; an all-bot batch must steer nothing", got.ID)
+	if i := newestUserIdx(msgs); i >= 0 {
+		t.Errorf("steered bot row %q; an all-bot batch must steer nothing", msgs[i].ID)
 	}
 }

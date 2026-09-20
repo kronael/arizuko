@@ -77,19 +77,73 @@ func TestNewMessagesForChat_FeedsPastTheCursor(t *testing.T) {
 		t.Fatalf("feed past the first message = %+v, want only m2", msgs)
 	}
 
-	// A message AT the cursor instant is consumed once: a bare instant would
-	// sort below its own key and hand the whole second back on every poll.
-	same := core.Message{ID: "m1-twin", ChatJID: "tg:1", Sender: "user",
-		Content: "same instant", Timestamp: now}
-	if err := s.PutMessage(same); err != nil {
-		t.Fatal(err)
-	}
-	msgs, err = s.NewMessagesForChat(ctx, "tg:1", MessageCursor(same), 10)
+	// A LATE APPEND AT AN INSTANT THE CHAT HAS ALREADY USED takes the chat's
+	// next position, so it lands above the tail instead of behind the cursor a
+	// running turn is about to set — that burial lost eleven of twelve documents
+	// of one Telegram upload (BUGS L103). AppendMessage answers the row as
+	// stored, which is the only copy whose position is the real one.
+	stored, err := s.AppendMessage(core.Message{ID: "m1-twin", ChatJID: "tg:1",
+		Sender: "user", Content: "same instant", Timestamp: now})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(msgs) != 1 || msgs[0].ID != "m2" {
-		t.Fatalf("feed past the twin = %+v, want only m2", msgs)
+	msgs, err = s.NewMessagesForChat(ctx, "tg:1", MessageCursor(second), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 1 || msgs[0].ID != "m1-twin" {
+		t.Fatalf("feed past m2 = %+v, want the late twin", msgs)
+	}
+
+	// And it is consumed ONCE: a bare instant would sort below its own key and
+	// hand the whole second back on every poll.
+	msgs, err = s.NewMessagesForChat(ctx, "tg:1", MessageCursor(stored), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 0 {
+		t.Fatalf("feed past the twin = %+v, want nothing", msgs)
+	}
+}
+
+// A RE-DELIVERY IS NOT A LATE ARRIVAL. The same id at the same instant is the
+// same position, and the append-only log's ItemAbsent condition is the only
+// dedup ingest has — routd mints `<adapter>-<idempotency-key>` for exactly this.
+// A late append takes the chat's next position, so the re-delivery has to be
+// told apart from a row that merely arrived out of order, or the platform's
+// retry appends the message twice.
+func TestPutMessage_RedeliveryIsStillANoOp(t *testing.T) {
+	s := openMem(t)
+	defer s.Close()
+
+	ctx := context.Background()
+	now := time.Now()
+	first := core.Message{ID: "tg-7", ChatJID: "tg:1", Sender: "user",
+		Content: "hi", Timestamp: now}
+	if err := s.PutMessage(first); err != nil {
+		t.Fatal(err)
+	}
+	// A second row lands after it, so the re-delivery below is no longer the
+	// chat's newest position — which is what makes the append-order rule apply.
+	if err := s.PutMessage(core.Message{ID: "tg-8", ChatJID: "tg:1", Sender: "user",
+		Content: "again", Timestamp: now.Add(time.Second)}); err != nil {
+		t.Fatal(err)
+	}
+	redelivered := first
+	redelivered.Content = "hi (retried)"
+	if err := s.PutMessage(redelivered); err != nil {
+		t.Fatal(err)
+	}
+
+	msgs, err := s.NewMessagesForChat(ctx, "tg:1", "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 2 {
+		t.Fatalf("chat holds %d rows, want 2: %+v", len(msgs), msgs)
+	}
+	if msgs[0].ID != "tg-7" || msgs[0].Content != "hi" {
+		t.Errorf("first row = %+v; the first write is authoritative", msgs[0])
 	}
 }
 

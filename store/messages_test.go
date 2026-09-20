@@ -20,13 +20,16 @@ func TestBotRepliesSince(t *testing.T) {
 			t.Fatalf("put %s: %v", m.ID, err)
 		}
 	}
+	// The rows are appended in the order they happened, because an append takes
+	// the chat's next position and an out-of-order fixture would be re-stamped
+	// onto the tail (store.appendInstant).
+	// bot reply BEFORE the cutoff — excluded
+	mustPut(core.Message{ID: "old", ChatJID: "web:krons", Sender: "bot", Content: "stale", Timestamp: base.Add(-time.Hour), BotMsg: true})
 	// operator inbound (not a bot row) — must be excluded
 	mustPut(core.Message{ID: "in", ChatJID: "web:krons", Sender: "operator", Content: "draft tweets", Timestamp: base, Verb: "mention"})
 	// agent replies (bot rows) after the cutoff — included, oldest first
 	mustPut(core.Message{ID: "b1", ChatJID: "web:krons", Sender: "bot", Content: "tweet 1", Timestamp: base.Add(2 * time.Second), BotMsg: true})
 	mustPut(core.Message{ID: "b2", ChatJID: "web:krons", Sender: "bot", Content: "tweet 2", Timestamp: base.Add(3 * time.Second), BotMsg: true})
-	// bot reply BEFORE the cutoff — excluded
-	mustPut(core.Message{ID: "old", ChatJID: "web:krons", Sender: "bot", Content: "stale", Timestamp: base.Add(-time.Hour), BotMsg: true})
 	// bot reply on a different jid — excluded
 	mustPut(core.Message{ID: "other", ChatJID: "web:happy", Sender: "bot", Content: "elsewhere", Timestamp: base.Add(2 * time.Second), BotMsg: true})
 

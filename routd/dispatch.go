@@ -39,11 +39,12 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	// into a route miss and archives it as context, silently, on the shipped
 	// mention-only Slack/Discord config. The steer half of the same mistake was
 	// BUGS L56; this is its twin one line up. An all-bot batch routes nothing.
-	steerMsg, hasUser := newestUserMsg(msgs)
-	if !hasUser {
+	steerIdx := newestUserIdx(msgs)
+	if steerIdx < 0 {
 		l.advance(chatJID, last)
 		return false, nil
 	}
+	steerMsg := msgs[steerIdx]
 	// A batch runed refused as Busy retries on a growing backoff, not on
 	// every 2s poll: the re-feed below this line is the expensive part
 	// (capability resolve, MCP socket, prompt build). The key is the newest
@@ -69,10 +70,29 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	// Steer the newest USER message, not the newest message: handleCommand refuses a
 	// bot row, so when the agent's own reply lands after the command and before this
 	// poll, the command falls through to the turn as plain text (BUGS L56). Advance
-	// past the steered row only — anything newer has not been consumed.
+	// past the steered row only — anything newer has not been consumed, and
+	// anything older takes the turn below.
+	//
+	// steerConsumed is the OUTER one: the batch tail WAS a steer command. The
+	// loop further down declares its own `steered`, which is runTurn saying an
+	// in-flight run absorbed the batch — a different fact about a different row.
+	steerConsumed := false
 	if l.steer(chatJID, steerMsg, folder) {
+		// The steered row is consumed HERE and exactly once, before anything
+		// else can fail: the handlers clear a session, pin a route, delegate to a
+		// child or re-inject an operator's elevated instruction, and none of that
+		// may run a second time because a later dispatch was refused.
 		l.advance(chatJID, steerMsg)
-		return true, nil
+		// A STEER CONSUMES ITS OWN ROW AND NO OTHER. Returning here advanced the
+		// cursor over every OLDER row in the batch too — ordinary messages
+		// nothing had dispatched, steered or observed. The user asks for
+		// something, waits, gets impatient and types /status; both land in one
+		// batch, the command is acked and the question is skipped for good (BUGS
+		// L104). The rest of this function is the turn those rows were owed, and
+		// `last` stays at the steered row so the advance that closes it does not
+		// walk the cursor back over the command.
+		steerConsumed = true
+		msgs, last = msgs[:steerIdx], steerMsg
 	}
 	// Strip bot rows from the trigger batch (don't feed the agent its own
 	// output) but keep them in the rendered context.
@@ -84,7 +104,7 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	}
 	if len(trigger) == 0 {
 		l.advance(chatJID, last)
-		return false, nil
+		return steerConsumed, nil
 	}
 
 	// web: chats dispatch one turn per topic in first-seen order; everyone
@@ -112,7 +132,13 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		had, steered, busy, mark, derr := l.runTurn(folder, topic, chatJID, bl.ID, batch)
 		if derr != nil {
 			// Transport failure: do NOT advance — re-fed next poll
-			// (at-least-once; turn_results dedups). State stays running.
+			// (at-least-once; turn_results dedups). State stays running. A
+			// steered batch is the exception and says so: its cursor already
+			// passed the command, so these rows have no re-feed left.
+			if steerConsumed {
+				slog.Error("the rows a steer left behind did not reach runed; they are not re-fed",
+					"jid", chatJID, "rows", len(batch), "first", batch[0].ID, "err", derr)
+			}
 			return hadAny, derr
 		}
 		if busy {
@@ -121,7 +147,14 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 			// trip the queue breaker. The batch is re-fed after a growing per-chat
 			// backoff, and turn_context stays 'running' so the re-dispatch is live.
 			l.noteBusy(chatJID, steerMsg.ID)
-			return hadAny, nil
+			if steerConsumed {
+				// The steered row is already consumed, so this batch has no
+				// re-feed left: say which rows the refusal costs instead of
+				// dropping them quietly.
+				slog.Error("runed refused the rows a steer left behind; they are not re-fed",
+					"jid", chatJID, "rows", len(batch), "first", batch[0].ID)
+			}
+			return hadAny || steerConsumed, nil
 		}
 		if steered {
 			// Steer ack: the original run governs the batch; don't advance.
@@ -133,6 +166,7 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		hadAny = hadAny || had
 	}
 	l.advance(chatJID, last)
+	hadAny = hadAny || steerConsumed
 	// The observed watermark rides the SAME success path as the message cursor
 	// (BUGS L58). Every early return above re-feeds the batch, and a re-fed turn
 	// must still see the ambient context the failed attempt was shown.
@@ -148,15 +182,17 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 // observedAdvance is one topic's pending observed watermark for this dispatch.
 type observedAdvance struct{ topic, ts string }
 
-// newestUserMsg returns the newest non-bot message in a batch. ok=false when the
-// batch is all bot rows, which nothing may steer on.
-func newestUserMsg(msgs []core.Message) (core.Message, bool) {
+// newestUserIdx returns the position of the newest non-bot message in a batch,
+// or -1 when the batch is all bot rows, which nothing may steer on. It answers
+// the INDEX rather than the row because the rows BEHIND it are the other half of
+// the answer: a steer consumes this one and leaves those to a turn (BUGS L104).
+func newestUserIdx(msgs []core.Message) int {
 	for i := len(msgs) - 1; i >= 0; i-- {
 		if !msgs[i].BotMsg {
-			return msgs[i], true
+			return i
 		}
 	}
-	return core.Message{}, false
+	return -1
 }
 
 // Busy re-dispatch backoff: base delay for the first refused attempt,
