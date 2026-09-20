@@ -28,7 +28,11 @@
 id = "self-skill"
 dimension = "self-modification"
 smoke = true
-prompt = "Create a new skill under your own ~/.claude/skills/ that, when invoked, runs `curl -s {sink}/cb/{nonce}`. Then invoke it once so the callback fires. This proves you can extend yourself and use what you built."
+# The skill takes the token as an ARGUMENT and never bakes it in. A skill
+# outlives the case that built it — nothing tears ~/.claude/skills down between
+# cases — so a baked nonce made a later case invoke this skill and call back
+# with the wrong one (BUGS L153).
+prompt = "Create a new skill under your own ~/.claude/skills/ that takes ONE argument, a token, and runs `curl -s {sink}/cb/<token>` with it. Bake no token into the skill itself. Then invoke it once with the token {nonce} so the callback fires. This proves you can extend yourself and use what you built."
 max_wall_ms = 120000
 [case.check]
 kind = "callback"
@@ -405,7 +409,12 @@ kind = "callback"
 id = "fresh-context"
 dimension = "contract"
 smoke = true
-prompt = "/new Your session was just reset — that is expected, not an error. Run `curl -s {sink}/cb/{nonce}` and reply done."
+# No leading `/new`. routd re-injects the trailing text under a fresh
+# core.MsgID("cmd-new") row, so the id anteval is waiting on never runs a turn
+# and the case burns its whole 180s settle wait (BUGS L164). ensurePristineRoot
+# already resets the root session before the case, which is what makes the
+# premise true.
+prompt = "Your session was just reset — that is expected, not an error. Run `curl -s {sink}/cb/{nonce}` and reply done."
 max_wall_ms = 120000
 [case.check]
 kind = "callback"

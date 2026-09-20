@@ -2988,7 +2988,7 @@ Fixed: `handleMessageVolume` calls `db.DailyVolume(ctx, volumeDays)`. There is
 no SQL date function in the path, and the window is counted in Go.
 
 - **Status:** fixed in v0.68.0
-## L164 — anteval's cost column is empty for 6 of 9 passing cases and `fresh-context` stalls 3 min on a turn that never ran (2026-09-05, open)
+## ✅ FIXED 2026-09-20 L164 — anteval's cost column is empty for 6 of 9 passing cases and `fresh-context` stalls 3 min on a turn that never ran (2026-09-05, open)
 
 Smoke on krons 2026-09-05 07:46-07:55, 9/9 pass. routd recorded 24 `cost_log`
 rows — opus + haiku for every one of the 12 turns the run dispatched — so the
@@ -3012,6 +3012,26 @@ per-case token figure cannot be trusted.
 - **Status:** open. Fix shape: read the turn id routd actually ran for the injected message instead of deriving `in-<msgid>`, and read cost after the turn's `round_done`, not on a fixed wait.
 - **Fix:**
 
+- **Status:** the stall is fixed 2026-09-20; the empty cost column is not a
+  code defect.
+- **Fix for the stall:** the `fresh-context` prompt no longer opens with `/new`.
+  routd's command handler consumes the command and re-injects the trailing text
+  under a fresh `core.MsgID("cmd-new")` row (`routd/steer.go:392-398`), while
+  anteval waits on the ack id from its own inject (`anteval/pkg/run/target.go:55-71`)
+  — an id that never runs a turn. The case then burned the whole
+  `DefaultSettleWait` of 180s and reported a timeout naming the agent.
+  `ensurePristineRoot` (`anteval/pkg/run/run.go:113-143`) already resets the
+  root session before the case, which is what makes the prompt's premise true
+  without the command.
+- **Pinned by a corpus test:** `TestNoCaseOpensWithASlashCommand` reads the
+  shipped cases and refuses any prompt opening with `/`. PROVEN BY MUTATION:
+  put `/new` back and it goes red.
+- **The empty cost column is a deployment fact, not a bug.** `/v1/cost` reads
+  the MODEL GATEWAY's meter (`routd/reads_http.go:321-325`), so an instance with
+  no gateway 404s for every turn and every case reports 0. Reading the real turn
+  id would need a new routd read — `trigger_msg_id` is written
+  (`routd/dispatch.go:367`) but has no reverse index and no HTTP surface.
+  Recorded, not built.
 ## ✅ FIXED 2026-09-05 L156 — runed's `warnChown` reports docker's root-owned `auth.json` mount stub in every group: 50 false EPERM warnings per restart (2026-09-05)
 
 `runed` start runs `SeedCodexDirs` → `warnChown(<group>/.codex)`
@@ -3266,7 +3286,7 @@ names an attachment it never receives. Silent to the user.
   it changes the `/files/<id>` contract for every adapter on `FileProxyHandler`.
 - **Fix:**
 
-## L153 — anteval `webhook-in`: the ingress worked and the agent answered the PREVIOUS case; a skill that hardcodes a nonce outlives the case that built it (2026-09-03, eval finding)
+## ✅ FIXED 2026-09-20 L153 — anteval `webhook-in`: the ingress worked and the agent answered the PREVIOUS case; a skill that hardcodes a nonce outlives the case that built it (2026-09-03, eval finding)
 
 `anteval --smoke` on krons after the 2026-09-03 deploy: **7/9**. Both failures
 are agent reasoning, not platform — every surface under them worked. Recorded so
@@ -3309,6 +3329,19 @@ the case's prompt build a skill that takes the nonce as an ARGUMENT rather than
 baking it in, which also removes the stale-token lesson from the group. Either
 is a change to the catalog's independence contract, so it waits for sign-off.
 
+- **Status:** fixed 2026-09-20.
+- **Fix:** the `self-skill` case has the agent build a skill that takes the
+  token as an ARGUMENT, and invokes it with `{nonce}`. Nothing is baked in, so
+  the skill that outlives the case carries no nonce to call back with.
+- **The coupling is real and was confirmed:** nothing tears `~/.claude/skills`
+  down between cases — `ensurePristineRoot` resets the session, never the skill
+  tree — and the nonce is per case. `self-skill` runs first of the nine smoke
+  cases and `webhook-in` seventh, so the stale skill was still there.
+- **Pinned by a corpus test:** `TestASkillBuildingCaseBakesNoNonce` reads the
+  shipped cases, requires any case naming `.claude/skills` to say the token is
+  an argument, and fails if it bakes `{nonce}` into the command. It fails loudly
+  when NO skill-building case exists, so it cannot pass vacuously.
+  PROVEN BY MUTATION: restore the baked form and it goes red.
 ## ✅ FIXED 2026-09-03 L154 — `6/28` states its own read-path rule two incompatible ways, which is why `L142` reads as a violation and the per-daemon dashboards read as compliant (2026-09-03, phase-6 status audit)
 
 **FIXED 2026-09-03 — `:223` wins, `:37` is rewritten to match.** The rule is
