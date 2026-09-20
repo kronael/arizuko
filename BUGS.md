@@ -7,6 +7,12 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+> **Three markers, and the middle one is not a bug.** `## L<n>` is open.
+> `## ✅ FIXED <date> L<n>` is closed. `## 📋 RECORD L<n>` is a finding kept so a
+> later sweep does not re-derive it — a negative result, or a principle whose
+> work items are their own entries. A record has nothing to fix and never will,
+> so counting one as open overstates the queue.
+
 ## L326 — the smoke liveness probe measures the queue, not liveness (2026-09-20, PARTLY FIXED 2026-09-20; the barrier needs sign-off)
 
 `rest-roundtrip` (`anteval/cases/anteval.toml:228-236`) is the ONLY `rest_reply` case
@@ -4107,7 +4113,7 @@ as the unsuffixed-web case only.
 - **Status:** the write seam shipped; the parse half is REFUSED as filed, and the
   entry now says why so the next pass does not re-derive it.
 
-## L147 — principle: the channel attests, the router resolves, the ACL authorizes — and `web:` JIDs exist only to satisfy a storage column (2026-08-30, principle — records a design fault, no work item)
+## 📋 RECORD L147 — principle: the channel attests, the router resolves, the ACL authorizes — and `web:` JIDs exist only to satisfy a storage column (2026-08-30, principle — records a design fault, no work item)
 
 The operator's formulation, at the end of the session that produced `L139`,
 `L145` and `L146`: *"web should not have JIDs, that's the fault in the design"*,
@@ -9975,7 +9981,7 @@ answers "who used which secret" only to an operator with sqlite3 on the host.
   `secret_use_log writers=1 readers=0 resreg=0`. `grep -rn secret_use_log`
   → writer paths + migrate-split copy + docs only.
 
-## L15 — dead-code sweep 2026-08-11: the hits deliberately REJECTED (record, not a bug)
+## 📋 RECORD L15 — dead-code sweep 2026-08-11: the hits deliberately REJECTED (record, not a bug)
 
 Not a defect. This is the audit's negative result, kept so the next sweep does not
 re-report the same ~135 hits. `deadcode ./...` gave 149 hits, 56 under `-test`;
