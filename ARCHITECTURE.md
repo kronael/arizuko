@@ -1085,17 +1085,18 @@ Platform mounts follow FHS canonical locations; per-group web slots
 live under `~` in the agent's home. Full spec:
 `specs/5/V-web-vhosts.md`.
 
-| Container         | Host                           | Mode                                   |
-| ----------------- | ------------------------------ | -------------------------------------- |
-| `/opt/arizuko`    | `<data>/app-src/`              | RO                                     |
-| `/var/lib/www`    | `<data>/web/pub/`              | RO whole tree, `web:publish` grant     |
-| `/run/ipc`        | `<data>/ipc/<folder>/`         | RW                                     |
-| `/var/lib/share`  | `<data>/groups/<world>/share/` | RW always (RO via grant)               |
-| `/var/lib/groups` | `<data>/groups/`               | RW, elevated `/root` turn only         |
-| `/mnt/<name>`     | operator extras                | varies                                 |
-| `/home/node/`     | `<data>/groups/<folder>/`      | RW (group home)                        |
-| `~/public_html`   | `<data>/web/pub/<folder>/`     | RW per-group slot, `web:publish` grant |
-| `~/private_html`  | `<data>/web/priv/<folder>/`    | RW per-group slot, `web:publish` grant |
+| Container              | Host                           | Mode                                   |
+| ---------------------- | ------------------------------ | -------------------------------------- |
+| `/opt/arizuko`         | `<data>/app-src/`              | RO                                     |
+| `/var/lib/www`         | `<data>/web/pub/`              | RO whole tree, `web:publish` grant     |
+| `/var/lib/www/arizuko` | `<data>/web/pub/arizuko/`      | RO doc site, every folder, no grant    |
+| `/run/ipc`             | `<data>/ipc/<folder>/`         | RW                                     |
+| `/var/lib/share`       | `<data>/groups/<world>/share/` | RW always (RO via grant)               |
+| `/var/lib/groups`      | `<data>/groups/`               | RW, elevated `/root` turn only         |
+| `/mnt/<name>`          | operator extras                | varies                                 |
+| `/home/node/`          | `<data>/groups/<folder>/`      | RW (group home)                        |
+| `~/public_html`        | `<data>/web/pub/<folder>/`     | RW per-group slot, `web:publish` grant |
+| `~/private_html`       | `<data>/web/priv/<folder>/`    | RW per-group slot, `web:publish` grant |
 
 The `~/public_html` and `~/private_html` slots are bind-mount VIEWS
 into the canonical web tree — writes appear simultaneously at the

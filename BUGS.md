@@ -448,49 +448,55 @@ kind, this is `L199`'s harm at the release boundary instead of the `add` one.
   for what `upgrade` means. Today the operator's route is `packages remove` +
   `packages add`, which the report names.
 
-## L309 — the docs mount is gated on `web:publish`, so 49 of 55 folders ship a skill that names a path they do not have (2026-09-19, open — proposal, needs sign-off)
+## L309 — the docs mount is gated on `web:publish`, so 53 of 59 folders ship a skill that names a path they do not have (2026-09-19, FIXED 2026-09-20)
 
-MEASURED on krons 2026-09-19. Every agent carries the `arizuko` skill, whose
-whole job is to answer "how does arizuko do X" from
-`/var/lib/www/arizuko/`. `container/runner.go:641` mounts that tree only
-`if in.WebPublish`, and exactly **6 of 55 folders** hold `web:publish`
-(`fiu`, `adshaus`, `eval`, `happy`, `krons`, `rhias/nemo`). For the other 49 the
-skill names a directory that is not there, and the agent has no other copy of the
-documentation.
+MEASURED on krons 2026-09-19, re-measured 2026-09-20. Every agent carries the
+`arizuko` skill, whose whole job is to answer "how does arizuko do X" from
+`/var/lib/www/arizuko/`. `container/runner.go` mounted that tree only
+`if in.WebPublish`, and exactly **6 folders hold `web:publish`** (`fiu`,
+`adshaus`, `eval`, `happy`, `krons`, `rhias/nemo`) against **59 groups**. For
+the other 53 the skill named a directory that is not there, and the agent has
+no other copy: the image stages only `ant/` + `template/services` +
+`CHANGELOG.md` under `/opt/arizuko` (`Dockerfile:40-48`), never
+`template/web/`.
 
-The gate reads as deliberate but is not: the mount was added so a publishing
-folder could see what it published, and reading the docs is a second, unrelated
-purpose that inherited the condition. `/var/lib/www` is `<web-dir>/pub`, which
-proxyd already serves to the public at `/pub/`, so mounting it read-only
-discloses nothing a browser cannot fetch anonymously.
+The gate was not deliberate: the mount was added so a publishing folder could
+see what it published, and reading the docs is a second purpose that inherited
+the condition.
 
-**The change is two lines** — drop `in.WebPublish` from the `/var/lib/www`
-mount and leave it on the `~/public_html` read-write mount below, which
-separates "may read the public web root" from "may publish" and is the
-orthogonal split. It is recorded rather than shipped because it changes what
-every turn container mounts, and a sandbox contract change takes sign-off
-(root `CLAUDE.md` § System-change discipline).
+**The entry's original safety argument was REFUTED, and the fix it prescribed
+was not shipped.** It argued that `/var/lib/www` is `<web-dir>/pub`, which
+proxyd serves publicly at `/pub/`, so an ungated read-only whole-tree mount
+"discloses nothing a browser cannot fetch anonymously". That is false.
+`proxyd/main.go:518` takes the longest-prefix `web_routes` match and switches
+on `access` — `public|auth|deny|redirect` (`resreg/resources/web_routes.go:41`)
+— and `routd/web_routes_resource.go:87` accepts `auth` and `deny` on any prefix
+the caller's own slot covers. A folder CAN therefore gate part of its own
+`/pub/` subtree at the edge, and a filesystem mount bypasses that gate. Dropping
+`in.WebPublish` from the whole-tree mount would have handed all 59 folders a
+read path around every such row. On krons today the only `auth` row is
+`/priv/eval/eti0hsk-priv-401.html`, under `<web>/priv/` — a different host
+directory that is not in the mount — so this was mechanism risk, not a live
+leak, which is exactly why it would have shipped unnoticed.
 
-- **Severity:** medium — the documentation an agent is told to consult is absent for 89% of folders
-- **Scope:** `container/runner.go:641`, `ant/skills/arizuko/SKILL.md`
+**Shipped instead: split by subtree, not by dropping the grant.** A folder with
+`web:publish` keeps the whole-tree RO mount unchanged. A folder without it gets
+`<web>/pub/arizuko` → `/var/lib/www/arizuko` read-only and nothing else — no
+whole-tree view, no writable slot. `<web>/pub/arizuko/` is not a group's
+content: it is the platform doc site `arizuko create` copies from
+`template/web/pub/arizuko/`, and it is what the skill every folder ships reads.
+
+- **Severity:** medium — the documentation an agent is told to consult was absent for 90% of folders
+- **Scope:** `container/runner.go` `buildMounts`; spec `specs/5/V-web-vhosts.md`
 - **Affected:** every folder without `web:publish`, every instance
-- **Source:** `container/runner.go:641`; `routd.acl` holds 6 `web:publish` rows against 55 groups
-- **Status:** open — proposal, needs sign-off
-- **Fix:**
-
-**Re-measured 2026-09-20: the safety argument in this entry does not hold, and
-there is a narrower fix that needs no such argument.** The code is as described
-(`container/runner.go:653` gates the read-only mount on `in.WebPublish`, `:661`
-the writable slots), and every folder does get the skill — `seedSkills`
-(`container/runner.go:1256`) copies every `ant/skills/*` dir into each group,
-and `ant/skills/arizuko/SKILL.md:5` names `/var/lib/www/arizuko/`. But
-`proxyd/main.go:518` switches on `web_routes.access`
-(`public|auth|deny|redirect`, `resreg/resources/web_routes.go:41`), so a folder
-CAN gate a `/pub/` subtree at the edge and a whole-tree mount bypasses that. On
-krons the only `auth` route points under `/priv/`, a different host directory
-that is not in the mount, so the risk is mechanism and not a live leak. The
-narrower change: mount `<web>/pub/arizuko` at `/var/lib/www/arizuko` read-only
-for every folder and leave the whole-tree mount on `web:publish`.
+- **Source:** `routd.acl` holds 6 `web:publish` rows against 59 `routd.groups` rows (krons, 2026-09-20)
+- **Status:** fixed — `container/runner.go` splits the mount by subtree; `TestBuildMounts_DocsSubtreeWithoutWebPublish` pins both directions (docs mounted RO without the grant; no whole-tree mount and no writable slot without it)
+- **Residual:** the doc subtree itself is still a filesystem read around any
+  future `auth`/`deny` row over `/pub/arizuko/...`. Closing that would need a
+  longest-prefix route matcher in routd — proxyd owns the only one
+  (`proxyd.matchWebRoute`), so a second copy is the drift this repo bans. Not
+  worth it for a subtree whose only purpose is to be read by every agent, but
+  it is the reason `arizuko` should never become a group folder name.
 
 ## L308 — `priv-grant` asks the eval folder to delegate a capability it holds without the grant option (2026-09-18, open)
 

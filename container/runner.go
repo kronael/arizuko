@@ -36,6 +36,14 @@ const (
 	containerHome               = core.ContainerHome
 	containerGracePeriod        = 30 * time.Second
 	containerSoftDeadlineOffset = 2 * time.Minute
+
+	// webRoot is where the public web tree appears in the container, and
+	// webDocsDir is the one subtree under it that belongs to the platform
+	// rather than to a group: the doc site `arizuko create` copies from
+	// `template/web/pub/arizuko/`. Declared here because the mount, its test
+	// and `ant/skills/arizuko/SKILL.md` must spell the same path.
+	webRoot    = "/var/lib/www"
+	webDocsDir = "arizuko"
 )
 
 var execCommand = exec.Command
@@ -648,12 +656,29 @@ func buildMounts(
 	// specs/5/V-web-vhosts.md: a folder with the `web:publish` grant (resolved by
 	// routd, 5/33) gets RO access to the whole public web tree at /var/lib/www, plus
 	// per-group bind-mount slots for the writable web surfaces (~/public_html and
-	// ~/private_html). No grant → no web surface.
-	pubHost := filepath.Join(cfg.WebDir, "pub")
-	if fi, err := os.Stat(pubHost); err == nil && fi.IsDir() && in.WebPublish {
+	// ~/private_html). No grant → no writable web surface.
+	//
+	// The grant decides HOW WIDE the read-only view is, not whether there is one.
+	// The whole tree stays a publisher privilege because it is every group's
+	// published content, and a group may gate part of its own with an `auth`/`deny`
+	// web_routes row that proxyd applies at the edge (proxyd.matchWebRoute) and a
+	// bind mount does not — ungating the whole tree would hand every folder a read
+	// path around those rows. `pub/arizuko` is not a group's content: it is the doc
+	// site `arizuko create` copies from `template/web/pub/arizuko/`, and every
+	// folder gets a skill whose whole job is to read it (`seedSkills` seeds
+	// `ant/skills/arizuko`). So a non-publisher sees that subtree and only it.
+	// Gating it too left the skill naming a directory 53 of krons' 59 folders did
+	// not have, with no other copy in the container: the image stages `ant/` +
+	// `template/services` + CHANGELOG.md under /opt/arizuko, never `template/web/`.
+	webHost := filepath.Join(cfg.WebDir, "pub", webDocsDir)
+	webTarget := filepath.Join(webRoot, webDocsDir)
+	if in.WebPublish {
+		webHost, webTarget = filepath.Join(cfg.WebDir, "pub"), webRoot
+	}
+	if fi, err := os.Stat(webHost); err == nil && fi.IsDir() {
 		m = append(m, volumeMount{
-			Host:      hp(cfg, pubHost),
-			Container: "/var/lib/www",
+			Host:      hp(cfg, webHost),
+			Container: webTarget,
 			RO:        true,
 		})
 	}

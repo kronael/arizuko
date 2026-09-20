@@ -10,6 +10,7 @@ Platform mounts use FHS canonical locations (v0.45.11+). Your home
 | `~/public_html/`      | public web slot, projects to `<data>/web/pub/<folder>/`        | read-write, needs `web:publish`             |
 | `~/private_html/`     | OAuth web slot, projects to `<data>/web/priv/<folder>/`        | read-write, needs `web:publish`             |
 | `/var/lib/www`        | unified public web tree (RO browse of every group's `web/pub`) | read-only, needs `web:publish`              |
+| `/var/lib/www/arizuko` | this deployment's arizuko doc site (the `arizuko` skill reads it) | read-only, all groups                    |
 | `/var/lib/share`      | shared group memory                                            | RO/RW per grant                             |
 | `/run/ipc`            | gateway↔agent IPC (input/, gated.sock MCP server)              | read-write                                  |
 | `/var/lib/groups`     | all group dirs (elevated `/root` turn only)                    | read-write, elevated turn only              |
