@@ -7,6 +7,49 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L319 — arizuko never provisions a store identity, so a shared store server has no enrolment path (2026-09-20, open)
+
+MEASURED 2026-09-20. arizuko reads five env values from the store server and
+calls nothing else: `DYNAMODB_URL`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`,
+`AWS_SECRET_ACCESS_KEY`, `STORE_CA` (`objstore/dynstore/env.go:16-22`). A grep
+over the tree for `create-user`, `create-access-key`, `put-user-policy` and
+`EXTENDDB_ACCOUNT_ID` returns no Go hit; the only `EXTENDDB_*` strings are test
+container flags in `dyntest.go`. `EXTENDDB_ACCOUNT_ID` and `EXTENDDB_PASSWORD`
+sit in `.env` for a person to type into `extenddb manage`.
+
+`generate` PRESERVES and never mints: for each daemon it reads the key out of
+`env/<daemon>.env` and carries it forward, skipping the daemon when either half
+is absent (`compose/compose.go:862-872`). The comment says why — a daemon whose
+key changed under it signs every request wrong.
+
+`template/services/extenddb.yml` states the design outright: the operator runs
+`extenddb init` ONCE, by hand, and that single run makes both databases, the
+TLS certificate, the account and every daemon's key. It ends "an instance moves
+once and a printed-once password has to reach `.env`, so that run belongs to a
+person, not to a subcommand."
+
+That reasoning holds for one server per instance. It does not hold for one
+server serving the fleet, which needs a per-deployment step that does not exist:
+`manage create-account`, then one `create-user` + `put-user-policy` +
+`create-access-key` per daemon, against a server that already exists.
+
+Two further things the by-hand run hides, both blocking:
+
+- **The certificate SAN is the compose service name `extenddb`**, which resolves
+  only inside ONE instance's network. A shared server needs a SAN every instance
+  can reach, and each instance's `STORE_CA` must carry that certificate.
+- **The per-instance PostgreSQL role is a superuser of its own server**
+  (`POSTGRES_USER: ${APP}_${FLAVOR}`, and the fragment says "the role IS the
+  instance"). On a shared server that role must not exist, so the account becomes
+  the only boundary and `L318` stops being cosmetic.
+
+- **Severity:** medium — no instance is broken; a shared store server cannot be built without this
+- **Scope:** `cmd/arizuko`, `compose/compose.go`, `template/services/extenddb.yml`, `INSTALL.md` § The store server
+- **Affected:** any second instance on one store server; the 10.0.5.1 consolidation
+- **Source:** `objstore/dynstore/env.go:16-22`; `compose/compose.go:855-872`; `template/services/extenddb.yml` header
+- **Status:** open — proposal, needs sign-off on the shape: an `arizuko enrol <instance>` subcommand against a shared server, minting the account and the 19 scoped keys `L318` specifies, in one loop. It writes the identity plane arizuko today leaves to a person.
+- **Fix:**
+
 ## L318 — every daemon's store key carries `dynamodb:* on *`, so 19 per-daemon keys give attribution and not isolation (2026-09-20, open)
 
 MEASURED on sloth 2026-09-20. The instance mints one IAM user and one access
@@ -35,7 +78,31 @@ is a superuser owning that instance's own server, no longer exists.
 - **Scope:** `extenddb init`'s per-daemon `put-user-policy`; `INSTALL.md` § The store server
 - **Affected:** krons, sloth, marinade (the same by-hand recipe)
 - **Source:** `iam_policies` on sloth, 38 rows: one `SelfServicePolicy` and one `tables` policy per user, the latter identical for all 19
-- **Status:** open — the fix is a per-daemon resource list, and it needs the owner map (which daemon writes which entity) stated once before a policy can name it. `store/entities.go` already carries the entity names; nothing carries the owner.
+**The owner map exists — this entry first claimed it did not.** `store/owners.go`
+registers four owners (`authd`, `onbod`, `routd`, `runed`), `dynstore.Prefix`
+puts the owner in front of every entity name, and `chanlib/dedup.go` gives each
+adapter a `<service>` prefix of its own. sloth's catalog agrees: `routd.*` 33
+tables, `authd.*` 7, `onbod.*` 6, `runed.*` 4, `discd.*` 2, `teled.*` 2. So a
+policy CAN name what a daemon may reach; nothing had to be invented.
+
+Measured from the call sites, not from the `OpenOwner` comment above them:
+
+| daemon | owners it opens |
+| --- | --- |
+| `routd` / `runed` / `authd` | its own, only |
+| `onbod` | `onbod`, `routd` |
+| `dashd` | `onbod`, `routd` |
+| `webd` / `proxyd` / `gitd` / `slakd` | `routd` |
+| the operator CLI | `authd`, `onbod`, `routd` |
+| every adapter | its own `<service>` dedup prefix |
+
+`timed` opens none: it writes through the owner's HTTP API, which is the split
+write-discipline working.
+
+- **Status:** open — the resource list is derivable from the table above, so the
+  work is the rollout, not the design. It rewrites 19 live IAM policies on a
+  running fleet, so it ships one daemon at a time against krons — `gitd` first,
+  which reads `routd` and nothing else — each proven before the next.
 - **Fix:**
 
 ## L317 — `/stop` no longer cancels a question typed just before it (2026-09-20, open — needs a decision)
