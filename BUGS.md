@@ -13644,7 +13644,7 @@ turn; `ago=` reads "now" for a negative duration, and `MessagesBefore(before="")
 - **Status:** open (infra)
 - **Fix:**
 
-## L183 — a same-second inbound pair split across two turns loses the second message; measured exposure, no loss observed (2026-09-05, proposal)
+## ✅ FIXED 2026-09-20 L183 — a same-second inbound pair split across two turns loses the second message; measured exposure, no loss observed (2026-09-05, proposal)
 
 Adapters stamp whole seconds (`m.Timestamp.Unix()`; 5844 of sloth's inbound
 rows have no fraction) and the chat cursor is the trigger's timestamp string
@@ -13665,6 +13665,31 @@ for `new_day` and idle expiry — a cursor redesign, not a patch.
   MessagesSince; `messages` on sloth 2026-09-05
 - **Status:** proposal (needs sign-off)
 - **Fix:**
+
+- **Status:** closed on re-check 2026-09-20 — the cursor redesign this entry
+  prescribes has shipped, in a better form than the one it proposed.
+- **The cursor is the whole message key, not an instant.**
+  `store/messages.go:125` — `MessageCursor(m) = MsgStamp(core.TS(m.Timestamp), m.ID)`
+  — and `NewMessagesForChat` reads `GtKey` against it
+  (`store/messages.go:507-518`), whose own comment says "THE CURSOR IS A WHOLE
+  MESSAGE KEY and the read is `> cursor`, so a message at exactly the cursor
+  instant is consumed once." `routd/loop.go:832` is the one writer.
+- **`MessageCursor`'s comment states this entry's root cause as its reason for
+  existing:** "A cursor that held only the instant would sort below every
+  message at that instant and hand the whole second back on the next read." Two
+  messages in one second now carry different KEYS, so advancing past A cannot
+  skip B.
+- **The entry asked for a rowid and the coordinate is better.** A rowid is an
+  engine's handle; the message key is the thing the store sorts by, so the
+  cursor and the read order are the same fact rather than two that can disagree.
+- **Its second requirement was kept too:** "with the timestamp kept for
+  `new_day` and idle expiry". `CursorInstant` (`store/messages.go:129`) reads
+  the instant back out, "for the readers that ask when rather than where — the
+  new-day notice and the idle-session check".
+- **The string-sort half is gone as well.** `core.TS` is fixed-width to nine
+  digits, so a whole second renders `…05.000000000Z` and cannot sort after a
+  fractional `…05.3Z` (`L97`). The ordered-attribute declarations at
+  `store/chats.go:79` make a driver refuse a short instant outright.
 
 ## L184 — `fetch_history` cannot tell the agent which rows are its own (2026-09-05, proposal)
 
