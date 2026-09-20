@@ -99,8 +99,18 @@ func measureReach(t *testing.T) map[string][]string {
 			return err
 		}
 		if d.IsDir() {
+			// A DOT DIRECTORY IS NOT PART OF THE MODULE. The go tool ignores
+			// them and so must this walk: the repo root carries untracked
+			// working copies of the whole tree (`.migrate/`, `.migrate2/`) and
+			// every agent worktree under `.claude/`, each holding another
+			// `routd/` and `authd/`. Walking one reports a daemon named
+			// `.migrate` that opens twelve owners — a failure about a
+			// directory, not about this instance's keys.
+			if name := d.Name(); name != ".." && strings.HasPrefix(name, ".") {
+				return filepath.SkipDir
+			}
 			switch d.Name() {
-			case ".git", ".claude", "refs", "node_modules", "tmp", "dist":
+			case "refs", "node_modules", "tmp", "dist":
 				return filepath.SkipDir
 			}
 			return nil
