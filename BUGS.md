@@ -13899,7 +13899,7 @@ seam".
   `specs/6/37-store-model.md:431` heads a section "The seam is `database/sql`,
   and it is one opener", which `6/42` reverses. `6/37` is `status: partial` and
   is the spec `7/22` argues from, so the drift outlives the citation fix.
-## L195 — `store/migrations` is a second declaration of routd's schema that only tests run, and it has drifted on 7 shared tables (2026-09-05, open — proposal, needs sign-off)
+## ✅ FIXED 2026-09-20 L195 — `store/migrations` is a second declaration of routd's schema that only tests run, and it has drifted on 7 shared tables (2026-09-05, open — proposal, needs sign-off)
 
 Measured at `23b629e0` by migrating both chains into memory and diffing
 `pragma_table_info`: `store/migrations/` (88 files, 1855 lines) builds 45
@@ -13941,6 +13941,13 @@ additions, moving the four `NewInstance` callers to `NewRoutdInstance`.
 - **Source:** `store/store.go` Migrate/Open/OpenMem; `tests/testutils/testutils.go` NewInstance
 - **Status:** open — proposal, needs sign-off
 - **Fix:** (c) first; then (a) as its own spec under `6/38`
+- **Status:** closed on re-check 2026-09-20 — the directory is gone.
+- **Re-measured:** neither `store/migrations` nor `routd/migrations` exists.
+  Both were deleted in the SQLite→DynamoDB move, which `specs/6/42` §13 lists by
+  name among what went: "`store/migrations` and `routd/migrations`, the owner
+  files and `seedOwnerDBs`". There is no second declaration of routd's schema
+  because there is no migration chain at all — an entity is declared once, in
+  `store/entities.go`.
 ## L194 — `routd/cmd/routd/main.go` re-declares five defaults `core.LoadConfig` also declares, and one pair already differs (2026-09-05, open — proposal, needs sign-off)
 
 routd builds its `LoopConfig` from `os.Getenv` directly and never calls
@@ -13969,7 +13976,7 @@ constants in `core` that both `LoadConfig` and routd's `main` read.
 - **Status:** open — proposal, needs sign-off
 - **Fix:** constants in `core` (~15 lines) or `core.LoadConfig` in routd's main
 
-## L196 — routd's operator dashboard renders to anyone who sets `X-User-Groups`, on a host-published port (2026-09-05, open — needs sign-off)
+## ✅ FIXED 2026-09-20 L196 — routd's operator dashboard renders to anyone who sets `X-User-Groups`, on a host-published port (2026-09-05, open — needs sign-off)
 
 MEASURED on live krons, read-only GET, no token:
 
@@ -14011,6 +14018,13 @@ exposes routes, tokens, queue and errored traffic for every tenant.
   one gate is one gate, and add the negative test (`X-User-Groups` with no
   transit proof → 403) that no dashboard has today
 
+- **Status:** closed on re-check 2026-09-20 — fixed in v0.69.0.
+- **Re-measured:** `routd/dash.go:89` gates the page with
+  `auth.RequireOperator(w, r, s.dashKeys, "routd")`, and the file's own header
+  says so at `:7`. That release closed nine operator dashboards that read
+  `X-User-Groups` and nothing else, across two call sites — `chanlib`'s shared
+  handler for the eight adapters plus `ttsd`, and this one. Proven live at the
+  time: a forged `["**"]` gets 403.
 ## ✅ FIXED 2026-09-20 L197 — six phase-6 specs read `shipped` in frontmatter and `draft`/`defected` in the index, and five of those flips touched no code (2026-09-05, open — docs, spec owner)
 
 MEASURED. Frontmatter vs `specs/6/index.md`, whole directory:
@@ -14467,7 +14481,7 @@ The same class survived one place more — `store/user_profiles.go` stamped
 now, which is fixed-width and UTC, so two hosts agree (BUGS `L97`).
 
 - **Status:** fixed in v0.68.2
-## L208 — `store/` is a second, dead implementation of five tables that `routd` now owns: ~44 statements with no production caller, and the dead copy is the drifted one (2026-09-05, open — proposal, needs sign-off)
+## ✅ FIXED 2026-09-20 L208 — `store/` is a second, dead implementation of five tables that `routd` now owns: ~44 statements with no production caller, and the dead copy is the drifted one (2026-09-05, open — proposal, needs sign-off)
 
 MEASURED with gopls reference resolution, not grep. Grep cannot decide this
 question: `routd.DB` and `store.Store` share 20+ method names, so `s.X()` and
@@ -14566,6 +14580,18 @@ harness (invites, watchers, tasks) on routd too. That is the test-scaffold
 migration, and it is the last thing standing between the tree and one FTS5
 query instead of two.
 
+- **Status:** closed on re-check 2026-09-20 — the premise has INVERTED.
+- **Re-measured:** `store/` is not the dead implementation; it is the live one.
+  `L170`, closed earlier today, measured the other direction: `routd/db.go`
+  declares 90 methods and ~78 are one-line forwards to `store()`. `PutGroup` is
+  `return d.store().PutGroupRow(g)` and `AllGroups` is
+  `return d.store().AllGroups()`. `d783394e`, "refactor: SQL leaves the
+  dependency graph", removed the second body — so the duplication this entry
+  names was resolved by deleting routd's copy, not store's.
+- **The entry's own method was right and its conclusion aged out.** It resolved
+  every claim by symbol with gopls rather than grep, precisely because the two
+  types share 20+ method names. That care is why the finding was actionable; the
+  refactor then went the other way.
 ## ✅ FIXED 2026-09-20 L209 — a bare TLD is a valid egress allow entry, so one agent-written rule opens every host under it (2026-09-06)
 
 MEASURED, on the live sloth instance. `main/trading` holds eight allow rows
