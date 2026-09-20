@@ -8349,7 +8349,7 @@ covers `web:eval` and `web:eval/egress624` — the live failure — revokes both
 with the owner it reports, and asserts `JidFolder` still returns the whole
 remainder, so a later "fix" there is caught.
 
-## L51 — every turn waits ~1s for a poll tick that could be a channel send (2026-08-18)
+## ✅ FIXED 2026-09-20 L51 — every turn waits ~1s for a poll tick that could be a channel send (2026-08-18)
 
 `routd/loop.go:325` drives dispatch from `time.NewTicker(l.pollEvery)`, and
 `pollEvery` defaults to **2 seconds** (`routd/pending_actions_http.go:12`
@@ -8387,6 +8387,27 @@ the tick is really the dominant wait rather than container spawn. If spawn is
 300ms and the tick is 1000ms, this is the biggest single latency item in the
 system.
 
+
+- **Status:** closed on re-check 2026-09-20 — the push path exists, and the
+  entry's own method is why it was not found.
+- **THE PREMISE WAS A SINGLE-FILE GREP.** The entry says "There is no push path
+  — grepping `loop.go` for a channel, a notify or a wake finds nothing", and
+  that is true of `loop.go`. The push path is one call away:
+  `routd/server.go:607-608` — `handleMessages` ends with `s.loop.Enqueue(m.ChatJID)`
+  on every ingest → `routd/loop.go:318-323` → `queue.EnqueueMessageCheck`
+  (`queue/queue.go:112`), which ends at `go q.runForGroup(groupJid)`
+  (`:159`). An adapter's POST starts the worker goroutine before the handler
+  writes its ack.
+- **The repo already asserts it**: `queue/queue_test.go:21`
+  `TestEnqueueMessageCheckStartsContainer`.
+- **So the ticker is a backstop, not the trigger.** It sweeps chats an ingest
+  could not start — one already active, one behind a busy folder, one at the
+  concurrency limit — each of which returns early from `EnqueueMessageCheck`
+  above. A message arriving at an idle chat waits for no tick.
+- **The 1s figure never applied to an idle chat, and the entry's own caveat
+  ("instrument one turn first") was the right instinct.** Measured on krons
+  2026-09-20, rhias replies landed at 13s, 29s, 33s, 59s, 62s, 97s and 101s —
+  model time, by orders of magnitude.
 
 ## L50 — LoadConfigFrom leaks one instance's .env into the process (2026-08-18, found while fixing L47)
 
