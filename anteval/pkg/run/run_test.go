@@ -409,3 +409,33 @@ func TestProbeSink_AcceptsTheRunningSink(t *testing.T) {
 		t.Fatalf("the run's own sink must pass: %v", err)
 	}
 }
+
+// A bare "timeout" cannot be told from a dead agent, and the two want opposite
+// responses: a dead agent blocks the release, a slow queue is a precondition to
+// drain. The same build scored 5/9 during a migration storm and 8/9 after it,
+// with rest-roundtrip replying five minutes past a 94s cap — so a red that does
+// not say what it waited for trains an operator to re-run the gate instead of
+// reading it (BUGS L326).
+func TestTimeoutReasonNamesTheWallItWaitedFor(t *testing.T) {
+	c := spec.Case{ID: "z", Prompt: "noop", MaxWallMs: 40, Check: spec.Check{Kind: "callback"}}
+	res := mustDrive(t, Config{Target: silentTarget{}, Cases: []spec.Case{c}, Nonce: "R",
+		Poll: 5 * time.Millisecond})
+	if len(res) != 1 || res[0].Pass {
+		t.Fatalf("want one failing result, got %+v", res)
+	}
+	if !strings.Contains(res[0].Reason, "timeout after") {
+		t.Errorf("reason %q does not say it waited on a wall", res[0].Reason)
+	}
+	// The budget must be the case's own, not the 90s default: a case that sets
+	// its own cap and reports the default teaches the reader the wrong number.
+	if !strings.Contains(res[0].Reason, "0s") {
+		t.Errorf("reason %q does not carry the case's own budget", res[0].Reason)
+	}
+}
+
+// A case that declares no wall reports the default it actually waited on.
+func TestTimeoutReasonNamesTheDefaultWall(t *testing.T) {
+	if got := budget(spec.Case{}).Round(time.Second).String(); got != "1m30s" {
+		t.Fatalf("default budget = %s, want 1m30s; the reason would print the wrong wall", got)
+	}
+}

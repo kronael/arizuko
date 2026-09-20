@@ -204,7 +204,16 @@ func runCase(cfg Config, s *sink, c spec.Case) report.Result {
 			break
 		}
 		if time.Now().After(deadline) {
-			r.Reason = "timeout: " + reason + requiresHint(c)
+			// NAME THE WALL. A bare "timeout" cannot be told from a dead agent,
+			// and the two want opposite responses: a dead agent is the release
+			// blocker this gate exists to catch, a slow queue is a precondition
+			// the operator has to drain. The same build scored 5/9 during a
+			// migration storm and 8/9 after it, with this case replying five
+			// minutes past a 94s cap — so a red that does not say what it waited
+			// for trains an operator to re-run the gate rather than read it
+			// (BUGS L326).
+			r.Reason = fmt.Sprintf("timeout after %s: %s%s",
+				budget(c).Round(time.Second), reason, requiresHint(c))
 			break
 		}
 		time.Sleep(cfg.Poll)

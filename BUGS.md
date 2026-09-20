@@ -7,7 +7,7 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
-## L326 — the smoke liveness probe measures the queue, not liveness (2026-09-20, open)
+## L326 — the smoke liveness probe measures the queue, not liveness (2026-09-20, PARTLY FIXED 2026-09-20; the barrier needs sign-off)
 
 `rest-roundtrip` (`anteval/cases/anteval.toml:228-236`) is the ONLY `rest_reply` case
 in the catalog and therefore the whole of what `anteval --smoke` — gate 5, the one gate
@@ -34,6 +34,26 @@ should be red, now also red when it should be green.
   harness contract change and needs sign-off. `TestSmokeKeepsALivenessProbe`
   (`anteval/pkg/spec/catalog_test.go`) now pins that the probe keeps EXISTING; it says
   nothing about whether its budget is honest.
+
+- **The READABLE half is fixed 2026-09-20.** The verdict now names the wall it
+  waited for: `timeout after 1m30s: no callback` rather than `timeout: no
+  callback`. That is the difference between the two readings an operator has to
+  choose between — a dead agent, which blocks the release, and a queue that has
+  not drained, which is a precondition.
+
+  It is the same shape `requiresHint` already had and for the same reason: a red
+  that does not say what it waited for is a red the reader cannot act on, and
+  this entry's own severity is "trains an operator to re-run it rather than read
+  it". Naming the budget does not make the gate honest; it makes its answer
+  legible, which is the part that needed no contract change.
+
+  PROVEN BY MUTATION: restore the bare `"timeout: "` and
+  `TestTimeoutReasonNamesTheWallItWaitedFor` fails. A second test pins that the
+  default wall prints as `1m30s`, so a case declaring none cannot report a
+  number it did not wait on.
+- **Still open, and it is the honest fix:** the settle barrier waits on a WALL
+  rather than on queue depth, so the gate's verdict still depends on an operator
+  draining first. That is a harness contract change and needs sign-off.
 
 ## ✅ FIXED 2026-09-20 L325 — the status page drops a routd read failure to a log line (2026-09-20, open)
 
