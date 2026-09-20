@@ -76,9 +76,28 @@ reasoning as prose. Repeating the instruction is not the lever.
   when a turn calls none, and nudge the agent instead — with the bulk of
   `ant/CLAUDE.md` replaced by situation-triggered skill injection. That is
   specced separately and needs sign-off. Its blocking unknown is in this
-  entry: the fallback at `routd/turns.go:252` is silent, so nobody knows how
+  entry: the fallback at `routd/turns.go:252` was silent, so nobody knew how
   often a turn calls no reply tool, and that number decides whether the
   inversion costs one extra round trip on rare turns or on most of them.
+
+  **The measurement is now wired.** `arizuko_prose_fallback_turns_total`
+  (`obs/metrics.go`) counts that branch per folder. It is a SEPARATE counter
+  from `arizuko_silent_turns_total` on purpose: a prose-fallback turn answered,
+  a silent turn did not, and folding them together would make the older name a
+  lie and corrupt the series `obs/README.md` says to drive to zero. Spec
+  `6/44` (`status: draft`) holds the design and names ≥2,000 turns as the
+  sample.
+
+  The design pass expects the gate to FAIL as proposed, and the reason is in
+  this repo: `ant/CLAUDE.md:85` tells the agent "Only your FINAL text block is
+  delivered … write the answer once, at the end" — an instruction to answer in
+  prose rather than through a tool. Under that manual the fallback is the
+  designed normal path, not an exception, so the inversion would re-run most
+  turns. That contradicting line is what to fix before re-measuring. The same
+  pass costed the nudge layer honestly: it retires 18 lines / 11.6% of
+  `ant/CLAUDE.md`, not its bulk, and regex classification of the inbound is
+  refused — routd already classifies the turn, so a second classifier would
+  decide the same question from worse evidence.
 
 
 ## L327 — an `#observe` route sorting above its answering twin makes a chat deaf to a direct mention (2026-09-20, open — operator data, and a missing check)
@@ -294,7 +313,7 @@ them — the same "two readers, one question" shape as `L206`.
   (`tests/dashd-playwright/global-setup.ts`), so the guard is untested in the
   BROWSER path only.
 
-## L323 — a folder delete does its work and then reports failure, and one comment still says it rolls back (2026-09-20, open)
+## ✅ FIXED 2026-09-20 L323 — a folder delete does its work and then reports failure, and one comment still says it rolls back (2026-09-20)
 
 Split out of `L246`, whose own premise turned out to be false.
 
@@ -350,6 +369,27 @@ successfully swept, is told nothing was done, and has no audit row to check.
   `removed` answers "did I delete a group?", which the 404 needs, and nobody
   answers "how much did I clean?", which the operator needs. Two facts, one
   return value.
+
+**FIXED 2026-09-20.** `purgeFolder` and `DeleteGroup` return `(removed, swept,
+err)`: `removed` is the `groups` rows, `swept` is every OTHER entity's rows
+that went with them. A sweep is no longer indistinguishable from a no-op.
+
+Both callers branch on the pair, not on `removed` alone — the CLI prints "no
+group at X — swept N orphan row(s) under it" and exits 0, dashd 404s only when
+BOTH counts are zero, and the audit row carries `orphans_swept` beside
+`groups_removed`.
+
+One more defect sat on the same expression and went with it: `DeleteGroup`
+tested `errors.Is(err, errNoFolder) || removed == 0` BEFORE `err != nil`, and a
+failed purge removes nothing — so every store error on this path returned
+`(0, nil)` and was reported as an empty folder. The error is tested first now.
+
+- **Status:** fixed
+- **Fix:** tests `TestDeleteGroupReportsTheOrphansItSweeps` and
+  `TestDeleteGroupReportsNothingForAFolderThatNeverExisted`. The second is what
+  keeps the first honest: without it a counter that always returns non-zero
+  passes. Proven by mutation — drop the `swept` accumulation and the first test
+  fails.
 
 ## ✅ FIXED 2026-09-20 L322 — webd advertises a browser SDK at `/assets/`, and no proxyd route carries that prefix (2026-09-20)
 
@@ -989,6 +1029,20 @@ every turn container mounts, and a sandbox contract change takes sign-off
 - **Status:** open — proposal, needs sign-off
 - **Fix:**
 
+**Re-measured 2026-09-20: the safety argument in this entry does not hold, and
+there is a narrower fix that needs no such argument.** The code is as described
+(`container/runner.go:653` gates the read-only mount on `in.WebPublish`, `:661`
+the writable slots), and every folder does get the skill — `seedSkills`
+(`container/runner.go:1256`) copies every `ant/skills/*` dir into each group,
+and `ant/skills/arizuko/SKILL.md:5` names `/var/lib/www/arizuko/`. But
+`proxyd/main.go:518` switches on `web_routes.access`
+(`public|auth|deny|redirect`, `resreg/resources/web_routes.go:41`), so a folder
+CAN gate a `/pub/` subtree at the edge and a whole-tree mount bypasses that. On
+krons the only `auth` route points under `/priv/`, a different host directory
+that is not in the mount, so the risk is mechanism and not a live leak. The
+narrower change: mount `<web>/pub/arizuko` at `/var/lib/www/arizuko` read-only
+for every folder and leave the whole-tree mount on `web:publish`.
+
 ## L308 — `priv-grant` asks the eval folder to delegate a capability it holds without the grant option (2026-09-18, open)
 
 MEASURED on krons 2026-09-18, `anteval --smoke` 8/9. `priv-grant` is the only
@@ -1140,6 +1194,17 @@ channel require a mention and a thread inherit it.
   observed watermark is ALREADY per-topic, and the dispatch cursor is the one
   that is not. Making them agree is the smallest honest change, and it is a
   schema-shaped decision, so it is recorded rather than shipped.
+
+**Re-measured 2026-09-20: this entry names half the cause, and the fix it
+proposes does not close the other half.** The cursor half is confirmed —
+`routd/dispatch.go:180` writes one attribute on the chat row
+(`store/chats.go:141`) while the observed watermark one line below is already
+per topic. The half not written down: for every non-web chat the batch is
+grouped by SENDER, not topic (`routd/dispatch.go:129`, `groupBySender` at
+`:697`), and the turn takes the topic of the group's LAST row (`:140`). Two
+threads from one person collapse into one turn in one thread, which reproduces
+the sloth trace exactly. A per-(chat, topic) cursor alone therefore will not fix
+this; the grouping key belongs in the proposal before sign-off.
 
 ## ✅ FIXED 2026-09-16 L302 — folder-scope verdicts named tables no owner declares any more (2026-09-14)
 
@@ -3105,6 +3170,17 @@ and `replyToID` on success — one row shape for both paths. Touches `ipc/ipc.go
 - **Status:** proposal (needs sign-off)
 - **Fix:**
 
+**Re-measured 2026-09-20: the scope in this entry's title is wrong.** It calls
+the fix "the ipc↔routd contract", which reads as a cross-daemon change needing
+sign-off. `GatedFns.SendReply` is a plain Go func field (`ipc/ipc.go:35`) with
+ONE production assignment (`routd/mcp.go:50`), and `mcpDeliver` already computes
+`threadRoot` (`routd/mcp.go:261`) — it just does not return it. Widen the field
+to return the root, thread it through `recordOutbound` /
+`recordOutboundFailure` / `putOutboundRow` from the single reply site
+(`ipc/ipc.go:1216-1221`), and prefer it over `activeTopic` when non-empty. Six
+test doubles take the new signature. About 40-60 lines, no contract crosses a
+process. L169's MCP half is the same change.
+
 ## L167 — `reply(replyToId=<parent-channel message>)` from inside a thread: the tool doc promised a quote Discord cannot make, and which thread it should go to is undecided (2026-09-05, open — proposal)
 
 The `reply` description (`ipc/ipc.go:1186`) says "pass replyToId to target a
@@ -4132,6 +4208,17 @@ characters and is a progress signal, not an answer.
 - **Evidence:** krons session `32863f1a-c7a0-4373-a789-a6ce3c05c404`, transcript
   lines 299/329 and 351/356; `routd.db` messages `6318`, `6322`, `6324`
 - **Related:** `L150` (the agent cannot observe the loss), `submit_turn_result`
+
+**Re-measured 2026-09-20.** The instruction half is CLOSED: `ant/CLAUDE.md:85`
+now states the real rule, and `:124` reconciles it. The mechanism half stands,
+and this entry's "amend the one extraction site" undercounts it: the SDK
+documents `result` as the final assistant text
+(`ant/node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts:5414`) and THREE
+readers take it — `ant/src/claude.ts:404`, `ant/src/codex.ts:178`,
+`ant/src/pi.ts:151`. Earlier blocks reach `streamStatuses`, which forwards
+`<status>`-wrapped text and drops the rest. Concatenating them contradicts the
+instruction shipped at `:85` and widens `L329`, so this needs sign-off rather
+than an inline patch.
 
 ## L150 — the agent never sees what it delivered, so it cannot detect a truncated reply and confabulates a cause instead (2026-08-31, open — proposal, needs sign-off)
 
@@ -6222,6 +6309,17 @@ ignored — `webd/route_token.go:412-413` says so.
   the parallel path the repoint exists to avoid.
 - **Status:** open — needs a decision on the panel's default topic name, then
   the repoint is two lines.
+
+**Re-measured 2026-09-20: this entry's "needs a topic-name decision" premise is
+wrong, and the fix is about eight lines.** An empty topic is not "the main
+thread". `webd/api.go:93-95` mints a fresh `t<ms>` for every empty-topic send
+and answers 202 with no body, and the history read filters `topic Eq ""`
+(`store/messages.go:572`) — so the default panel view lists nothing AND each
+send opens a new topic. `webd/pages.go:83,104` emit `/chat/stream?group=…&topic=`
+with no token, which `webd/route_token.go:52-58,415-419` refuses twice over.
+Initialise `_topic` the way `newTopic()` (`pages.go:108`) already does, and
+point `sse-connect` at `/me/chats/<folder>/<topic>/sse` (`webd/me.go:328-347`)
+— same hub, same `web:`+folder JID, same `requireUser` + `MatchGroups` gate.
 
 ## ✅ FIXED 2026-09-20 L117 — the published chat SDK cannot send: `POST /slink/<token>` answers 301, which downgrades the request to GET, and `/slink/` carries no CORS (2026-08-26)
 
