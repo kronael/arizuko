@@ -8453,7 +8453,7 @@ along with `applyPackageGrants` / `applyPackageRoutes`.
   `cmd/arizuko/packages.go:parsePkgManifests`, and `ManifestRoutes` already
   drops the `owner` column on the compose side.
 
-## L43 — 44 stale spec references in the live tree (2026-08-16, PARTLY FIXED 2026-09-20; the `6/7` family remains)
+## L43 — 44 stale spec references in the live tree (2026-08-16, PARTLY FIXED 2026-09-20; 24 `6/7` sites remain, all in directories with work in flight)
 
 A reference-graph check over tracked `.md`/`.go` (excluding `CHANGELOG.md`, which
 is history and correct as written) found **44 distinct spec IDs that no longer
@@ -8537,10 +8537,47 @@ pointer into a confidently wrong one.
   The citations are correct and the note was not. It also named `8/16` where
   the code says `8/15`.
 
-- **Left: the `6/7` family, 36 sites and the largest.** It is NOT a scripted
-  rewrite: `6/7` was retired into `6/1`, `5/9`, `5/16` and `6/16`, so each site
-  needs the one that holds its claim. That is judgement per hunk, which is what
-  the `blind_id_rewrite` rule exists for.
+- **2026-09-20, the `6/7` family measured: 29 sites, not 36, and every one of
+  them a code comment.** Tracked files minus `BUGS.md`, `CHANGELOG.md`,
+  `.diary/` and `ant/skills/self/migrations/`: 26 in `.go`/`.ts`, 3 in
+  `anteval/cases/anteval.toml`, and **zero in `specs/` or any root UPPERCASE
+  doc**. No scripted rewrite was possible, and not only because the content
+  split: `specs/6/7-*.md` has been six different specs across the renumbers
+  (`self-learning`, `platform-api`, `ant-portability`, `onbod-dashboard`,
+  `orthogonal-components`, `environment-contracts`), so the citations do not
+  even share a subject.
+
+  Five repointed (`8c83e657`), each to the spec whose CURRENT text carries the
+  claim the citing line makes:
+
+  | target | sites | the claim                                                                                    |
+  | ------ | ----- | -------------------------------------------------------------------------------------------- |
+  | `6/23` | 2     | anything `buildArgs` omits is dead inside the container — `6/23` names `ARIZUKO_BACKEND` in it |
+  | `6/16` | 1     | the harness seam owns the backend selector (§ "The four layers")                               |
+  | `5/P`  | 1     | the layered `.codex` mount (§ "The container model")                                           |
+  | none   | 1     | `tests/specrefs/refs_test.go:130` cited the retired number as its own rationale; it dates the incident instead |
+
+  Two of those three destinations sit OUTSIDE the four the split was expected to
+  land in (`6/1`, `5/9`, `5/16`, `6/16`). The claim moved with the code, not
+  with the spec text — which is the reason to read each site rather than trust
+  the retirement commit's own account of where its content went.
+
+- **Left: 24 sites, all in directories with other work in flight** — `ant/src/`
+  (14), `cmd/arizuko/` (5), `anteval/cases/anteval.toml` (3), `onbod/` (2).
+  Read and mapped, not applied:
+  - `ant/src/` — the harness seam, the renderers and the selector are `6/16`;
+    `skills-scan.ts`/`skills-scan.test.ts` are `5/23` (the skill-guard table
+    they reuse at the second hook point).
+  - `cmd/arizuko/probe.go` + `main.go` — the component contract is `6/16`
+    § "The component contract"; "capabilities federate, infrastructure
+    conforms" has no current home and needs a sentence written, not a pointer
+    moved.
+  - `onbod/dash.go:67` cites `6/7` for "one renderer per resource", which is
+    root `CLAUDE.md` § "One renderer, many sinks" and was never in `6/7`.
+    `onbod/main.go:203` is the proxyd transit proof, `5/16`.
+  - `anteval/cases/anteval.toml:402` cites § "Context — three layers". **No
+    current spec states the three-layer context model at all** — that is a hole
+    to fill, not a citation to repoint.
 
 ## L42 — krons WhatsApp is down: the paired session is invalidated (2026-08-16, BLOCKED on the operator's phone)
 
@@ -12618,6 +12655,14 @@ index points at for "what ships", and the sentence is written as a measurement
 - **Three sites still name the deleted mechanism**, and belong in a fresh entry:
   `tests/feature_inventory.md:257`, `slimming.md:36`,
   `template/web/pub/arizuko/research/index.html:118`.
+- **Those three closed 2026-09-20 (`c0ce2007`, `ec3a933d`).**
+  `tests/feature_inventory.md`'s egress row cites `egress/test/e2e_test.go`
+  (5 of 8 cases run over real sockets; 3 need netns isolation), `egress/match`
+  and `container/egress_test.go` (9 spawn-wiring cases), and drops DNS from the
+  feature name. `slimming.md`'s `CRACKBOX_ADMIN_SECRET` bullet records that the
+  var is absent from the tree — it survives in `CHANGELOG.md` and this file
+  only. `research/index.html:118` names the per-spawn egress proxy as the
+  defence layer.
 ## L136 — the `--internal` network does not seal UDP/53, and the two docs that explain the DNS filter's absence give a reason that does not cover DNS (2026-08-30, open)
 
 `SECURITY.md:103` states the egress guarantee as "Default-deny; the spawn's
@@ -12667,10 +12712,21 @@ the agent can reach", for anything an attacker can encode in a hostname.
   sloth, marinade)
 - **Source:** `SECURITY.md:103,300,332,345-349`; `container/network.go:159`
   (`--internal`); measured docker probe 2026-08-30 (network created and removed)
-- **Status:** open — needs a decision, not just a doc edit: either correct the
-  docs to scope the guarantee to TCP and accept the channel, or restore a
-  UDP/53 filter and wire it (it never was)
-- **Fix:**
+- **Status:** open — the DECISION is what is outstanding; the docs are true as
+  of 2026-09-20. Either scope the guarantee to TCP and accept the channel, or
+  add a UDP/53 filter and wire it into `container.Run` (nothing ever wired one).
+- **Docs corrected 2026-09-20 (`ec3a933d`).** Five `SECURITY.md` claims carry a
+  protocol now — the Network-egress table row (`:110`), the § intro (`:317`),
+  the fail-closed bullet (`:329`) and the allowlist caveat (`:362`) all say TCP,
+  and § "No DNS filter" states the 2026-08-30 measurement, why the proxy cannot
+  subsume the control (a DNS query never reaches a CONNECT line), the residual
+  channel and its cost, and both options WITHOUT taking one. The same reason had
+  spread to `template/web/pub/arizuko/security/index.html` §4 and
+  `components/egress.html`; both carry the corrected one.
+  `research/index.html:118` listed DNS filtering as a live defence layer and now
+  names the per-spawn egress proxy. `specs/6/24-crackbox-lightest.md:118-124`
+  was already correct and is the source all of them were written from.
+- **Fix:** docs `ec3a933d`; the decision itself is unmade
 
 ## L137 — proposal: `sandbox/` is 1342 lines nothing in arizuko runs; the import graph says it can leave cleanly, and the cost of leaving is one 144-line package (2026-08-30, proposal — needs sign-off)
 
@@ -13232,6 +13288,20 @@ seam".
   `database/sql` (`audit/audit_log_test.go`), and `6/42` reversed that target — which
   `7/22` never cites. Three code comments still cite the dead `6/38`:
   `objstore/replace.go:27`, `resreg/entity.go:811`, `dashd/group_create_test.go:15`.
+- **That drift closed 2026-09-20 (`e934fa9e`).** `7/22` cites `6/42` and lists it
+  in `depends:`: the seam is `objstore.Store` — two methods, four protocols —
+  and the target is the DynamoDB API served over PostgreSQL. Its two other
+  storage claims went with it (`:55` "no SQLite dependency", `:90` "SQLite-backed
+  business logic"); `objstore/` holds `dynstore` and no `sqlstore`, and the 19
+  Go files mentioning sqlite do so about `LIKE` case-folding, not a driver. The
+  Rust argument is untouched, because "relational, not linguistic" survives a
+  change of engine. The three comments name `6/37` — the `Apply` redesign for
+  the roll-forward price, rule 3 of § "How a storage layer is organized" for the
+  group-create transaction.
+- **Still open, same root cause, not fixed here:**
+  `specs/6/37-store-model.md:431` heads a section "The seam is `database/sql`,
+  and it is one opener", which `6/42` reverses. `6/37` is `status: partial` and
+  is the spec `7/22` argues from, so the drift outlives the citation fix.
 ## L195 — `store/migrations` is a second declaration of routd's schema that only tests run, and it has drifted on 7 shared tables (2026-09-05, open — proposal, needs sign-off)
 
 Measured at `23b629e0` by migrating both chains into memory and diffing
