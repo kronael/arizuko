@@ -326,7 +326,7 @@ func TestRedemptionNamingADeletedFolderAdmitsNobody(t *testing.T) {
 	seedRedemption(t, db, "github:newcomer", "acme/")
 
 	// The folder goes; the redemption stays, which is the whole shape.
-	if _, err := db.DeleteGroup("acme"); err != nil {
+	if _, _, err := db.DeleteGroup("acme"); err != nil {
 		t.Fatalf("delete the parent: %v", err)
 	}
 	if n := redemptionCount(t, db, "github:newcomer"); n != 1 {

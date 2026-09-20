@@ -93,12 +93,12 @@ func TestFolderScope_ClassifiesNothingUndeclared(t *testing.T) {
 	}
 }
 
-// A delete whose groups row is already gone DOES sweep the orphans, and then
-// reports that nothing happened. `purgeFolder` counts only the `groups` rows
-// (`folder_scope.go:331`, `if e.entity == Groups`), so every other entity is
-// deleted uncounted; `DeleteGroup` reads `removed == 0` and returns early, and
-// both callers render that as "no group at X" (BUGS L323).
-func TestDeleteGroupSweepsOrphansButReportsNothing(t *testing.T) {
+// A delete whose groups row is already gone still sweeps the orphan rows under
+// it, and now REPORTS them. Counting only the `groups` rows made that sweep
+// indistinguishable from a no-op, so the CLI died "no group at X" and dashd
+// answered 404 — both telling the operator to go and find rows that were
+// already deleted (BUGS L323).
+func TestDeleteGroupReportsTheOrphansItSweeps(t *testing.T) {
 	s := openMem(t)
 	if err := s.PutACLRow(core.ACLRow{
 		Principal: "alice@x", Action: "admin", Scope: "ghost",
@@ -113,7 +113,7 @@ func TestDeleteGroupSweepsOrphansButReportsNothing(t *testing.T) {
 		t.Fatal("the seed did not land; this test checks nothing")
 	}
 
-	removed, err := s.DeleteGroup("ghost")
+	removed, swept, err := s.DeleteGroup("ghost")
 	if err != nil {
 		t.Fatalf("DeleteGroup: %v", err)
 	}
@@ -128,10 +128,28 @@ func TestDeleteGroupSweepsOrphansButReportsNothing(t *testing.T) {
 			t.Errorf("the orphan grant survived the purge: %+v", r)
 		}
 	}
-	// And the REPORT says it did not. This is the defect, pinned as it stands so
-	// the fix has something to turn green.
+	// And the REPORT says so. `removed` stays 0 — there was no groups row — so
+	// `swept` is the only thing that separates this from a folder that never
+	// existed, which is exactly what the callers branch on.
 	if removed != 0 {
-		t.Errorf("removed = %d; L323 is fixed and this test now states the old behaviour", removed)
+		t.Errorf("removed = %d, want 0: there was no groups row to delete", removed)
+	}
+	if swept == 0 {
+		t.Error("swept = 0, but the orphan grant is gone — a caller cannot tell " +
+			"this sweep from a folder that never existed")
+	}
+}
+
+// The counterpart, and the one that keeps the report honest: a folder with
+// nothing under it reports nothing, so `swept > 0` still means work happened.
+func TestDeleteGroupReportsNothingForAFolderThatNeverExisted(t *testing.T) {
+	s := openMem(t)
+	removed, swept, err := s.DeleteGroup("no-such-folder")
+	if err != nil {
+		t.Fatalf("DeleteGroup: %v", err)
+	}
+	if removed != 0 || swept != 0 {
+		t.Errorf("removed = %d, swept = %d, want 0 and 0", removed, swept)
 	}
 }
 
@@ -139,7 +157,7 @@ func TestDeleteGroupSweepsOrphansButReportsNothing(t *testing.T) {
 // the sweep must refuse.
 func TestDeleteGroupRefusesAnEmptyFolder(t *testing.T) {
 	s := openMem(t)
-	removed, err := s.DeleteGroup("")
+	removed, _, err := s.DeleteGroup("")
 	if err != nil {
 		t.Fatalf("an empty folder should be swallowed, not an error: %v", err)
 	}

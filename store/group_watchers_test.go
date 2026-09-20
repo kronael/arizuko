@@ -77,7 +77,7 @@ func TestAGroupDeleteTakesTheSubscriptionsAtBothEnds(t *testing.T) {
 		}
 	}
 
-	if _, err := s.DeleteGroup("doomed"); err != nil {
+	if _, _, err := s.DeleteGroup("doomed"); err != nil {
 		t.Fatalf("DeleteGroup: %v", err)
 	}
 

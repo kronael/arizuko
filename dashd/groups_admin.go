@@ -406,15 +406,22 @@ func (d *dash) handleGroupDelete(w http.ResponseWriter, r *http.Request) {
 	// store.folderScopePurge — and AsUser attributes its audit row to the
 	// operator who pressed the button. A second list here is a second thing to
 	// keep in step, and two lists purging different halves is BUGS L198.
-	removed, err := d.routdStore().AsUser(sub).DeleteGroup(folder)
+	removed, swept, err := d.routdStore().AsUser(sub).DeleteGroup(folder)
 	if err != nil {
 		slog.Warn("group delete: db", "folder", folder, "err", err)
 		http.Error(w, "delete failed", http.StatusInternalServerError)
 		return
 	}
-	if removed == 0 {
+	// 404 only when NOTHING went. A folder whose groups row is already gone can
+	// still own acl, secret, task and route rows, and deleting those is work: a
+	// 404 there told the operator the rows are still there (BUGS L323).
+	if removed == 0 && swept == 0 {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
+	}
+	if removed == 0 {
+		slog.Info("group delete: swept orphan rows, no groups row",
+			"folder", folder, "swept", swept)
 	}
 	if d.groupsDir != "" {
 		// Best-effort cleanup. Symlink-escape guard via filepath.Clean +

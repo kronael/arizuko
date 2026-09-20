@@ -827,7 +827,7 @@ func TestRouteToken_DeletedTargetFolderRefusedAtIngress(t *testing.T) {
 	}
 
 	// The operator deletes the delivery target. No cascade reaches these rows.
-	if _, err := st.DeleteGroup("doomed"); err != nil {
+	if _, _, err := st.DeleteGroup("doomed"); err != nil {
 		t.Fatalf("DeleteGroup: %v", err)
 	}
 	if _, ok := st.LookupRouteToken(hookTok); !ok {

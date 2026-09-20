@@ -342,21 +342,25 @@ func (s *Store) PutGroupRow(g core.Group) error {
 // grants of its own, and a child's acl rows sit under the parent's path.
 //
 // A folder with no groups row in its subtree returns 0 and records no audit row.
-// IT STILL SWEEPS: `purgeFolder` counts only the `groups` rows it deletes
-// (`folder_scope.go`, `if e.entity == Groups`), so orphan acl, secret, task and
-// route rows under that folder are removed and not counted. The caller is then
-// told nothing happened, which is what both of them render (BUGS L323).
-func (s *Store) DeleteGroup(folder string) (int, error) {
+// It returns the `groups` rows deleted AND the orphan rows swept with them.
+// A folder whose groups row is already gone still has acl, secret, task and
+// route rows under it, and deleting those is work the caller has to be able to
+// report — counting only the first made a sweep read as "no group at X" (BUGS
+// L323).
+func (s *Store) DeleteGroup(folder string) (int, int, error) {
 	ctx := context.Background()
 	// The purge removes more rows than one batch holds, so it runs as a sweep.
 	// `groups` goes first, which is what makes the folder unreachable: a failure
 	// part-way leaves rows nothing can find, and the next run collects them.
-	removed, err := s.purgeFolder(ctx, folder)
-	if errors.Is(err, errNoFolder) || removed == 0 {
-		return 0, nil
+	removed, swept, err := s.purgeFolder(ctx, folder)
+	// The error comes FIRST. Testing the count first returned (0, nil) for a
+	// failed query, because a purge that fails removes nothing — so a store
+	// error was reported as an empty folder.
+	if err != nil && !errors.Is(err, errNoFolder) {
+		return 0, 0, err
 	}
-	if err != nil {
-		return 0, err
+	if err != nil || (removed == 0 && swept == 0) {
+		return 0, 0, nil
 	}
 	actor, actorSub, surface := s.auditIdentity()
 	_, rec := audit.WriteFor(audit.Event{
@@ -368,12 +372,12 @@ func (s *Store) DeleteGroup(folder string) (int, error) {
 		Resource:      "groups/" + folder,
 		Folder:        folder,
 		Outcome:       audit.OutcomeOK,
-		ParamsSummary: map[string]any{"groups_removed": removed},
+		ParamsSummary: map[string]any{"groups_removed": removed, "orphans_swept": swept},
 	})
 	if err := s.WriteEntities(ctx, nil, rec); err != nil {
-		return removed, err
+		return removed, swept, err
 	}
-	return removed, nil
+	return removed, swept, nil
 }
 
 // GroupFolders lists every group's folder in path order, capped at limit — 0 is

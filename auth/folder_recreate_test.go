@@ -41,7 +41,7 @@ func TestRecreatedFolder_InheritsNoGrant(t *testing.T) {
 		t.Fatal("seed: the old admin must hold acme before the delete")
 	}
 
-	removed, err := s.DeleteGroup("acme")
+	removed, _, err := s.DeleteGroup("acme")
 	if err != nil {
 		t.Fatalf("DeleteGroup: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestRecreatedFolder_InheritsNoMembership(t *testing.T) {
 		t.Fatal("seed: the folder must reach the privileged role before the delete")
 	}
 
-	if _, err := s.DeleteGroup("acme"); err != nil {
+	if _, _, err := s.DeleteGroup("acme"); err != nil {
 		t.Fatalf("DeleteGroup: %v", err)
 	}
 	if err := s.PutGroup(core.Group{Folder: "acme", AddedAt: time.Now()}); err != nil {

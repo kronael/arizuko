@@ -467,15 +467,22 @@ func cmdGroup(args []string) {
 	case "rm":
 		need(args, 3, "arizuko group <instance> rm <folder>")
 		folder := args[2]
-		removed, err := s.DeleteGroup(folder)
+		removed, swept, err := s.DeleteGroup(folder)
 		if err != nil {
 			die("Failed: remove group: %v", err)
 		}
-		if removed == 0 {
+		// A folder whose groups row is already gone can still own acl, secret,
+		// task and route rows. Sweeping those IS the work; reporting "no group"
+		// told the operator to go and find them by hand (BUGS L323).
+		if removed == 0 && swept == 0 {
 			die("Failed: no group at %s", folder)
 		}
 		auditCLI(s, "group rm", []string{folder})
-		fmt.Printf("removed %d group(s) under %s\n", removed, folder)
+		if removed == 0 {
+			fmt.Printf("no group at %s — swept %d orphan row(s) under it\n", folder, swept)
+			break
+		}
+		fmt.Printf("removed %d group(s) under %s, with %d other row(s)\n", removed, folder, swept)
 
 	case "grant", "ungrant":
 		row, err := parseGrantArgs(action, args[2:])

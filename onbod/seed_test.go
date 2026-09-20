@@ -146,7 +146,7 @@ func routeExists(t *testing.T, db *store.Store, id int64) bool {
 // subtree and every row conferring on it or routing into it.
 func deleteFolder(t *testing.T, db *store.Store, folder string) {
 	t.Helper()
-	if _, err := db.DeleteGroup(folder); err != nil {
+	if _, _, err := db.DeleteGroup(folder); err != nil {
 		t.Fatalf("delete group %s: %v", folder, err)
 	}
 }

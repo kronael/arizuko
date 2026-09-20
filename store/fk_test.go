@@ -65,7 +65,7 @@ func TestWebRoutes_PurgedOnGroupDelete(t *testing.T) {
 		t.Fatalf("seed: want 1 web_route, got %d", got)
 	}
 
-	if _, err := s.DeleteGroup("acme"); err != nil {
+	if _, _, err := s.DeleteGroup("acme"); err != nil {
 		t.Fatal(err)
 	}
 	if got := countWebRoutes(t, s, "acme"); got != 0 {
@@ -91,7 +91,7 @@ func TestRouteTokens_PurgedOnGroupDelete(t *testing.T) {
 		t.Fatalf("seed: want 1 route_token, got %d", len(got))
 	}
 
-	if _, err := s.DeleteGroup("acme"); err != nil {
+	if _, _, err := s.DeleteGroup("acme"); err != nil {
 		t.Fatal(err)
 	}
 	if got := s.ListRouteTokens("acme"); len(got) != 0 {
@@ -121,7 +121,7 @@ func TestFK_HistoryTablesStrandOnGroupDelete(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DeleteGroup("acme"); err != nil {
+	if _, _, err := s.DeleteGroup("acme"); err != nil {
 		t.Fatal(err)
 	}
 	// History strands by spec.
@@ -198,7 +198,7 @@ func TestHotTier_PurgedOnGroupDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := s.DeleteGroup("acme"); err != nil {
+	if _, _, err := s.DeleteGroup("acme"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -269,7 +269,7 @@ func TestMessageFolders_ChildPartitionPurgedOnGroupDelete(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := s.DeleteGroup("acme"); err != nil {
+	if _, _, err := s.DeleteGroup("acme"); err != nil {
 		t.Fatalf("DeleteGroup: %v", err)
 	}
 	for _, f := range []string{"acme", "acme/support"} {

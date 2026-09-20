@@ -219,7 +219,7 @@ func (s *Server) registerGroup(jid string, g core.Group) error {
 	match := "room=" + core.JidRoom(jid)
 	if _, err := s.db.AddRoute(core.Route{Seq: 0, Match: match, Target: g.Folder}); err != nil {
 		if !existed {
-			_, _ = s.db.DeleteGroup(g.Folder)
+			_, _, _ = s.db.DeleteGroup(g.Folder)
 		}
 		return fmt.Errorf("add route for %s: %w", g.Folder, err)
 	}

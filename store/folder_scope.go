@@ -283,26 +283,29 @@ var folderPartitionPurge = []string{MessageFolders}
 // `removed == 0` as "nothing was there", which it is.
 var errNoFolder = errors.New("store: purge needs a folder")
 
-// purgeFolder removes folder's subtree from every scope, and returns how many
-// groups items went with it.
+// purgeFolder removes folder's subtree from every scope. It returns how many
+// `groups` items went with it, and separately how many rows of every OTHER
+// entity did — an orphan sweep, where the groups row is already gone and the
+// rows under it are not. Counting only the first made a sweep indistinguishable
+// from a no-op, and both callers rendered it as "no group at X" (BUGS L323).
 //
 // ONE transaction: the caller owns it, every entity write rides in it through
 // WriteEntitiesInTx, and a partial purge IS the state this exists to prevent.
 // The entity deletes are chunked, because a batch carries at most
 // MaxBatchActions and a large folder's subtree can exceed one.
-func (s *Store) purgeFolder(ctx context.Context, folder string) (int, error) {
+func (s *Store) purgeFolder(ctx context.Context, folder string) (int, int, error) {
 	if folder == "" {
-		return 0, errNoFolder
+		return 0, 0, errNoFolder
 	}
 	// The folders this purge owns are read FIRST, off `groups`, because the loop
 	// below deletes those very rows: a read after it answers nothing and every
 	// child folder's partitions survive for the next tenant to inherit.
 	owned := append([]string{folder}, s.subtreeFolders(ctx, folder)...)
-	removed := 0
+	removed, swept := 0, 0
 	for _, e := range entityScopePurge {
 		items, err := s.Obj().Query(ctx, objstore.Query{Entity: e.entity, Partition: OwnerRoutd})
 		if err != nil {
-			return 0, err
+			return 0, 0, err
 		}
 		var writes []objstore.Write
 		for _, it := range items {
@@ -329,18 +332,20 @@ func (s *Store) purgeFolder(ctx context.Context, folder string) (int, error) {
 		}
 		if e.entity == Groups {
 			removed = len(writes)
+		} else {
+			swept += len(writes)
 		}
 		if _, err := applyChunks(ctx, "purge "+e.entity+" of "+folder, writes,
 			func(ctx context.Context, chunk []objstore.Write) (bool, error) {
 				return s.TryWriteEntities(ctx, nil, chunk...)
 			}); err != nil {
-			return 0, err
+			return 0, 0, err
 		}
 	}
 	if err := s.purgeFolderPartitions(ctx, owned); err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	return removed, nil
+	return removed, swept, nil
 }
 
 // purgeFolderPartitions empties the partitions the deleted subtree OWNS. It

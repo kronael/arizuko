@@ -154,10 +154,11 @@ func (d *DB) GroupExists(folder string) bool {
 }
 
 // DeleteGroup removes a group's subtree and every row that confers on it or
-// routes into it, and reports how many groups rows went. The purge, its
+// routes into it. It reports the groups rows that went AND the orphan rows
+// swept with them, so a caller can tell a sweep from a no-op. The purge, its
 // transaction and its audit row all live in store.DeleteGroup — the ONE delete,
 // shared with the operator's `arizuko group rm` and dashd's delete page.
-func (d *DB) DeleteGroup(folder string) (int, error) {
+func (d *DB) DeleteGroup(folder string) (int, int, error) {
 	return d.store().DeleteGroup(folder)
 }
 
