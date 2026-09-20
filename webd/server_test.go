@@ -42,12 +42,15 @@ func newMockRouterWithStore(st *store.Store) *mockRouter {
 	mux.HandleFunc("POST /v1/messages", func(w http.ResponseWriter, r *http.Request) {
 		var msg chanlib.InboundMsg
 		_ = json.NewDecoder(r.Body).Decode(&msg)
-		m.mu.Lock()
-		m.messages = append(m.messages, msg)
-		m.mu.Unlock()
-		// Persist to store (simulates routd), enabling read-back tests.
+		// Persist BEFORE publishing the arrival: sent() is the signal a test
+		// waits on to play routd's reply, and webd's /send resolves the reply's
+		// hub topic by reading this row back (TopicByMessageID). Announcing
+		// first let the reply publish on an empty topic while the waiter sat on
+		// the real one, so ?wait= timed out roughly one run in ten. Real routd
+		// appends before it calls back; this keeps the same order.
+		//
 		// Use time.Now() with full nanosecond precision — time.Unix(seconds, 0)
-		// produces "...T10:15:47Z" which SQLite string-compares as > "...T10:15:47.nnnZ"
+		// produces "...T10:15:47Z", which string-compares as > "...T10:15:47.nnnZ"
 		// because 'Z' (90) > '.' (46), breaking timestamp < ? queries.
 		if m.st != nil {
 			_ = m.st.PutMessage(core.Message{
@@ -62,6 +65,9 @@ func newMockRouterWithStore(st *store.Store) *mockRouter {
 				Source:    "web",
 			})
 		}
+		m.mu.Lock()
+		m.messages = append(m.messages, msg)
+		m.mu.Unlock()
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	})
 	m.srv = httptest.NewServer(mux)

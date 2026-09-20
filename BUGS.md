@@ -7,6 +7,40 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## ✅ FIXED 2026-09-20 L321 — webd's mock router announces a message before it persists it, so `?wait=` misses the reply about one run in ten (2026-09-20)
+
+MEASURED. `go test ./... -count=1 -short` on 2026-09-20 returned 72 `ok` and one
+`FAIL`: `webd` / `TestChatTokenPost_WaitSuffixedToken`. A rerun of the same pair
+failed the OTHER test, `TestChatTokenPost_WaitHookToken`. Both report
+"wait= missed the assistant frame (hub keys disagree)", which names a cause that
+was not the cause.
+
+The order inside `newMockRouterWithStore`'s `POST /v1/messages` handler is the
+fault. It appended to `m.messages` first and wrote the row to the store second.
+`assertWaitSeesReply` polls `mr.sent()` and plays routd's `/send` callback as
+soon as the length reaches 1 — at which point the row may not be readable yet.
+`handleSend` resolves the reply's hub topic with
+`stRoutd.TopicByMessageID(reply_to, chat_jid)`, which returns `""` on a miss, so
+the reply published on key `<jid>/` while the waiter sat on `<jid>/tw`. The
+`?wait=` then burned its whole 5s budget and reported a key disagreement.
+
+Real routd appends the message before it calls back, so no product path has this
+window. The store went over the network at v0.68.0, which is what widened the
+gap from nanoseconds to a visible fraction of a run.
+
+- **Severity:** medium — the failure is intermittent and names the wrong cause, so a real hub-key regression would read as this flake and be dismissed
+- **Scope:** `webd/server_test.go` (test harness only)
+- **Affected:** `TestChatTokenPost_WaitSuffixedToken`, `TestChatTokenPost_WaitHookToken`
+- **Source:** `./tmp/test-fin.log` (suite run 2026-09-20 15:28); reproduced with `go test ./webd/ -count=5 -run TestChatTokenPost_Wait`
+- **Status:** fixed 2026-09-20.
+- **Fix:** the mock persists the row BEFORE it appends to `m.messages`, so
+  `sent()` is a promise the row is readable — the same order routd guarantees.
+  The comment states that contract, because the two statements look independent.
+
+  PROVEN BY MUTATION: with the old order, `-count=20` over the two tests gives
+  **2 failures in 40 runs**; with the fix, **0 in 40**. The full `webd` package
+  is `ok` at 40.5s.
+
 ## ✅ FIXED 2026-09-20 L320 — a chat that takes human messages and answers none is invisible to every operator surface (2026-09-20)
 
 MEASURED on krons 2026-09-20. `telegram:group/5229089286` routes to
