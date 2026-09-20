@@ -256,3 +256,46 @@ func TestEntryOwns(t *testing.T) {
 		t.Error("expected Owns(empty) = false")
 	}
 }
+
+// An adapter restart is a legitimate re-registration, and docker hands the new
+// container a new IP. Pinning the entry to that address refused the adapter's
+// own return; `chanlib/run.go` exits 1 on a failed Register, so the adapter
+// then crash-looped — 156 rejections on krons in 30 days (BUGS L107).
+func TestReRegisterSurvivesANewContainerIP(t *testing.T) {
+	r := New()
+	first, err := r.RegisterWithOrigin("teled", "http://10.0.0.11:8080",
+		[]string{"telegram:"}, nil, "172.18.0.4", "s3cret")
+	if err != nil {
+		t.Fatalf("first register: %v", err)
+	}
+	second, err := r.RegisterWithOrigin("teled", "http://10.0.0.11:8080",
+		[]string{"telegram:"}, nil, "172.18.0.9", "s3cret")
+	if err != nil {
+		t.Fatalf("re-register from a new container IP: %v — a restart must not be refused", err)
+	}
+	if second == first {
+		t.Error("re-register returned the same token; the session token must be rotated")
+	}
+	if e := r.Get("teled"); e == nil || e.OriginIP != "172.18.0.9" {
+		t.Errorf("OriginIP = %v, want the new address recorded", e)
+	}
+}
+
+// The secret is the credential, so the pin must still hold against a caller
+// who does not have it — whatever address it calls from.
+func TestReRegisterRefusesADifferentSecret(t *testing.T) {
+	r := New()
+	if _, err := r.RegisterWithOrigin("teled", "http://10.0.0.11:8080",
+		[]string{"telegram:"}, nil, "172.18.0.4", "s3cret"); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ name, ip, secret string }{
+		{"same address, wrong secret", "172.18.0.4", "guess"},
+		{"new address, wrong secret", "172.18.0.9", "guess"},
+	} {
+		if _, err := r.RegisterWithOrigin("teled", "http://10.0.0.11:8080",
+			[]string{"telegram:"}, nil, c.ip, c.secret); err == nil {
+			t.Errorf("%s: register succeeded; the principal pin is open", c.name)
+		}
+	}
+}

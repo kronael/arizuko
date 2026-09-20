@@ -26,11 +26,19 @@ type Entry struct {
 	HealthFails  int
 	RegisteredAt time.Time
 
-	// Origin pin: first caller to claim Name becomes the owner. Subsequent
-	// Register calls for the same Name must present the same origin IP +
-	// principal hash (the verified service:<adapter> sub — spec 5/1), otherwise
-	// the request is rejected. Blocks hijack of an adapter's session token by a
-	// different service principal.
+	// Origin pin: the first caller to claim Name becomes the owner, and a later
+	// Register for the same Name must present the same principal hash (the
+	// verified service:<adapter> sub — spec 5/1). That hash is the credential,
+	// and it is what blocks a different service principal from taking an
+	// adapter's session token.
+	//
+	// OriginIP is RECORDED, never compared. An adapter's address is its docker
+	// container IP, which changes on every legitimate restart, so comparing it
+	// refused the adapter's own re-registration — and `chanlib/run.go:64` exits
+	// 1 on a failed Register, so the adapter then crash-looped (BUGS L107,
+	// measured at 156 rejections on krons in 30 days). An attacker who holds
+	// the secret is already inside; an attacker who does not is stopped by the
+	// hash whatever address they call from.
 	OriginIP   string
 	SecretHash [32]byte
 	Principal  string // service principal (e.g., service:teled) for ingress ownership lookup
@@ -125,13 +133,12 @@ func (r *Registry) RegisterWithOrigin(name, rawURL string, prefixes []string, ca
 	defer r.mu.Unlock()
 
 	if old, ok := r.entries[name]; ok {
-		// Only enforce origin pinning when both sides supplied identifiers.
-		// Tests that call Register(...) skip the check; production callers
-		// always supply a non-empty presentedSecret via the HTTP handler.
+		// Only enforce the pin when both sides supplied identifiers. Tests that
+		// call Register(...) skip the check; production callers always supply a
+		// non-empty presentedSecret via the HTTP handler.
 		if old.OriginIP != "" || presentedSecret != "" {
-			if subtle.ConstantTimeCompare(old.SecretHash[:], presentedHash[:]) != 1 ||
-				old.OriginIP != originIP {
-				return "", fmt.Errorf("name %q already registered from a different origin", name)
+			if subtle.ConstantTimeCompare(old.SecretHash[:], presentedHash[:]) != 1 {
+				return "", fmt.Errorf("name %q already registered by a different principal", name)
 			}
 		}
 		delete(r.byToken, old.Token)

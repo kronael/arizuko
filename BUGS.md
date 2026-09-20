@@ -4861,7 +4861,7 @@ the id it used alongside the platform id. Both change a shared contract, so
 this is a proposal awaiting sign-off, not a one-line change. The defect and the
 live evidence stand exactly as written above.
 
-## L107 — the adapter-name pin is bound to the docker container IP, so a legitimate restart is rejected; 156 rejections on krons in 30 days (2026-08-26, open)
+## ✅ FIXED 2026-09-20 L107 — the adapter-name pin is bound to the docker container IP, so a legitimate restart is rejected; 156 rejections on krons in 30 days (2026-08-26)
 
 `chanreg/chanreg.go:122-131` pins a registered adapter name to BOTH its service
 principal and `old.OriginIP != originIP`. `originIP` is
@@ -4905,6 +4905,27 @@ The stale entry clears only after 3 consecutive `/health` failures at 30s
 - **Fix (local):** drop `OriginIP` from the comparison, keep the principal pin.
   A second, independent defect: a 409 is not a config fault, so
   `chanlib/run.go`'s `os.Exit(1)` on it is wrong — that half is cross-cutting.
+
+- **Status:** fixed 2026-09-20.
+- **Fix:** the origin pin drops its address term and keeps its credential one.
+  `chanreg/chanreg.go` compared BOTH the presented secret's hash and
+  `old.OriginIP` against the caller; the hash is the credential and the address
+  is not. An adapter's address is its docker container IP, which changes on
+  every legitimate restart, so the adapter's own return was refused — and
+  `chanlib/run.go:64` exits 1 on a failed `Register`, before `opts.Start` and
+  before it listens, so the adapter then crash-looped.
+
+  The security property is unchanged: an attacker who holds the secret is
+  already inside, and one who does not is stopped by the hash whatever address
+  they call from. `OriginIP` stays on the entry, recorded and never compared,
+  and the comment says which of the two it is so the term is not re-added.
+
+  PROVEN BY MUTATION, both halves:
+  - put the address term back → `TestReRegisterSurvivesANewContainerIP` fails;
+  - make the hash compare never refuse → `TestReRegisterRefusesADifferentSecret`
+    fails, at the same address and at a new one.
+
+  The 156-rejection count is instance data and was not re-measured today.
 
 ## ✅ FIXED 2026-08-29 L108 — bskyd, reditd and linkd retry non-idempotent CREATE calls, so a lost response double-posts (2026-08-26)
 
