@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/router"
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
 )
 
 func registerInspect(srv *server.MCPServer, db StoreFns, id auth.Identity, folder string) {

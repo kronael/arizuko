@@ -19,10 +19,10 @@ import (
 
 func TestBuildMCPServer(t *testing.T) {
 	gated := GatedFns{
-		SendMessage:   func(jid, text string) (string, error) { return "", nil },
-		SendDocument:  func(jid, path, fn, caption, replyTo, threadID string) (string, error) { return "", nil },
-		ClearSession:  func(f string) {},
-		GroupsDir:     "/tmp/groups",
+		SendMessage:  func(jid, text string) (string, error) { return "", nil },
+		SendDocument: func(jid, path, fn, caption, replyTo, threadID string) (string, error) { return "", nil },
+		ClearSession: func(f string) {},
+		GroupsDir:    "/tmp/groups",
 	}
 	db := StoreFns{}
 	// tier-0 gets all tools via ["*"] rules
@@ -34,10 +34,10 @@ func TestBuildMCPServer(t *testing.T) {
 
 func TestBuildMCPServer_NoTools(t *testing.T) {
 	gated := GatedFns{
-		SendMessage:   func(jid, text string) (string, error) { return "", nil },
-		SendDocument:  func(jid, path, fn, caption, replyTo, threadID string) (string, error) { return "", nil },
-		ClearSession:  func(f string) {},
-		GroupsDir:     "/tmp/groups",
+		SendMessage:  func(jid, text string) (string, error) { return "", nil },
+		SendDocument: func(jid, path, fn, caption, replyTo, threadID string) (string, error) { return "", nil },
+		ClearSession: func(f string) {},
+		GroupsDir:    "/tmp/groups",
 	}
 	db := StoreFns{}
 	// empty rules → no tools registered (except get/set_grants for tier 0-1)
@@ -46,7 +46,6 @@ func TestBuildMCPServer_NoTools(t *testing.T) {
 		t.Fatal("expected non-nil server")
 	}
 }
-
 
 func TestAllToolsRegistered(t *testing.T) {
 	gated := GatedFns{
@@ -108,10 +107,10 @@ func TestSocialActionsRegistered(t *testing.T) {
 
 func TestSendReply(t *testing.T) {
 	gated := GatedFns{
-		SendMessage:   func(jid, text string) (string, error) { return "", nil },
-		SendDocument:  func(jid, path, fn, caption, replyTo, threadID string) (string, error) { return "", nil },
-		SendReply:     func(jid, text, rid string) (string, string, error) { return "", "", nil },
-		GroupsDir:     "/tmp/groups",
+		SendMessage:  func(jid, text string) (string, error) { return "", nil },
+		SendDocument: func(jid, path, fn, caption, replyTo, threadID string) (string, error) { return "", nil },
+		SendReply:    func(jid, text, rid string) (string, string, error) { return "", "", nil },
+		GroupsDir:    "/tmp/groups",
 	}
 	srv := buildMCPServer(gated, StoreFns{}, "world", false, "")
 	if srv == nil {
@@ -142,9 +141,9 @@ func TestWorkspaceRel(t *testing.T) {
 	}{
 		{"/home/node/file.txt", "file.txt", false},
 		{"/home/node/tmp/out.pdf", "tmp/out.pdf", false},
-		{"/var/lib/www/file.txt", "", true},                   // not a workspace-rel path
+		{"/var/lib/www/file.txt", "", true}, // not a workspace-rel path
 		{"/run/ipc/img.png", "", true},
-		{"/home/node", "", true},                              // exact prefix, no trailing slash
+		{"/home/node", "", true}, // exact prefix, no trailing slash
 		{"~/tmp/out.txt", "", true},
 		{"/tmp/file", "", true},
 	}

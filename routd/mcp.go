@@ -253,7 +253,7 @@ func ensureGroupGitRepo(groupDir string) {
 // platform thread on the trigger message.
 //
 // It returns that root, because the ipc layer writes the row and cannot see it.
-// Without it the row carried the turn's topic — `''` for a parent-channel turn —
+// Without it the row carried the turn's topic — `”` for a parent-channel turn —
 // so an MCP reply that rooted a thread recorded no thread: 4 of 9 `mcp-` rows in
 // one sloth thread had an empty topic while the REST rows beside them said where
 // they landed (BUGS L166).
