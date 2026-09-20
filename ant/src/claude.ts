@@ -17,6 +17,7 @@ import type { ModelUsage } from './mcp.js';
 import { QUERY_TIMEOUT_MS, timeoutFrame } from './backend.js';
 import type { Frame, Harness, ResultFrame, Turn } from './backend.js';
 import { modelGateway } from './gateway.js';
+import { AGENTS } from './agents.js';
 
 const HOME = '/home/node';
 
@@ -466,6 +467,10 @@ async function* runClaude(turn: Turn): AsyncGenerator<Frame> {
         // Reasoning depth. Absent means the CLI's own default (high), so an
         // instance that sets nothing behaves exactly as before.
         effort: turn.effort as EffortLevel | undefined,
+        // The subagent types ant/skills dispatch to. Without them the SDK
+        // answers "Agent type 'sonnet' not found" and the dispatch silently
+        // runs at this turn's own model and effort (BUGS L77).
+        agents: AGENTS,
         // No allowedTools allowlist: under bypassPermissions every tool is available
         // with no prompt (allowedTools is only an auto-approve hint, not a restriction).
         // arizuko gates side effects at the gated MCP socket and the egress proxy.

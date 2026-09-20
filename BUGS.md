@@ -6216,7 +6216,7 @@ The real fix is proactive-operator delivery via `role:operator` routing, which
 `ARCHITECTURE.md` already lists as unshipped; that is a redesign and not
 proposed here.
 
-## L77 — four shipped skills tell the agent to use subagent types the container does not have (2026-08-23)
+## ✅ FIXED 2026-09-20 L77 — shipped skills tell the agent to use subagent types the container does not have (2026-08-23)
 
 `ant/skills/sonnet/SKILL.md:8` instructs `ALWAYS use subagent_type: "sonnet"`,
 and `opus/`, `haiku/`, `fable/` say the same for their tiers. The agent container
@@ -6235,10 +6235,27 @@ where those definitions exist; the definitions were not ported.
 Every tier dispatch therefore runs at the parent's model and effort instead of
 the cheaper one the skill promises — a cost leak, unmeasured.
 
-**Fix**: ship the definitions (add `agents` to the SDK options in
-`ant/src/claude.ts`, or seed `.claude/agents/*.md`), which keeps the effort
-pinning the skills promise. Rewriting the four SKILL.md files to use `model:` on
-the default type is the smaller alternative and loses the effort pin.
+**It was ten types, not four.** Measured 2026-09-20 over the shipped corpus:
+`distill`, `fable`, `haiku`, `improve`, `learn`, `opus`, `readme`, `sonnet`,
+`visual` are dispatched by eleven SKILL.md files, and `refine` is named by the
+host set beside them.
+
+- **Status:** fixed 2026-09-20.
+- **Fix:** `ant/src/agents.ts` declares them and `claude.ts` passes the map as
+  the SDK's `agents` option, so the effort pin the skills promise is real. Two
+  shapes, and the split is the point:
+  - a TIER agent (`fable`, `opus`, `sonnet`, `haiku`) is only a model and an
+    effort, because effort is INHERITED when absent — which is exactly what
+    `model: "haiku"` alone fails to pin;
+  - a ROLE agent (`distill`, `improve`, `learn`, `readme`, `refine`, `visual`)
+    names its skill through `AgentDefinition.skills` instead of restating it.
+    Copying the skill body here would be a second declaration of the same text.
+
+  `ant/src/agents.test.ts` reads the shipped corpus and fails when a skill
+  dispatches to a type nothing declares, so the drift cannot return silently. It
+  also asserts the corpus really dispatches, so the check cannot pass vacuously.
+  VERIFIED by mutation: dropping `sonnet` turns it red. Full ant suite 223 pass,
+  0 fail; `tsc --noEmit` clean.
 
 ## ✅ FIXED 2026-08-23 L71 — the operator's only group delete cascades nothing and writes no audit row (2026-08-23)
 
