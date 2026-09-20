@@ -173,7 +173,17 @@ of the group-scoped routing:
   any `*.pem`, any `.git` (so a workspace `git/` clone, the agent's
   `.env`, and TLS keys can't be exfiltrated/overwritten via WebDAV).
 
-Blocked requests log `"dav blocked"` and return `403 Forbidden`.
+`COPY` and `MOVE` carry a second write target in the `Destination`
+header, and both checks run on it too. proxyd resolves the header the
+way `dufs` does — URI parse with scheme and authority discarded, one
+percent-decode, then Rust `Path::components` semantics — and rewrites
+it to the path it authorized before forwarding, so the backend resolves
+what proxyd wrote rather than what the caller sent. A destination
+outside `/dav/`, unparseable, or carrying a `..` is `400 Bad Request`.
+
+Blocked requests log `"dav blocked"` — `"dav destination blocked"` and
+`"dav destination forbidden"` for the header — and return
+`403 Forbidden`.
 
 ## Entry points
 

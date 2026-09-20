@@ -1055,6 +1055,9 @@ func testDavServer(t *testing.T) (*server, *httputil.ReverseProxy, *httptest.Ser
 	t.Helper()
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Upstream-Path", r.URL.Path)
+		// Echoed so a test can read the Destination the backend would have
+		// acted on, and tell a refusal apart from a rewrite.
+		w.Header().Set("X-Upstream-Dest", r.Header.Get("Destination"))
 		w.WriteHeader(200)
 		w.Write([]byte("dav:" + r.URL.Path))
 	}))
@@ -1346,6 +1349,203 @@ func TestDavAllow(t *testing.T) {
 		got := davAllow(c.method, c.rest)
 		if got != c.want {
 			t.Errorf("davAllow(%q, %q) = %v, want %v", c.method, c.rest, got, c.want)
+		}
+	}
+}
+
+// --- the Destination header, WebDAV's second write target (BUGS L114) -------
+
+// A MOVE/COPY whose Destination leaves the caller's slot is refused. Both
+// guards used to read the request line only, so a caller granted `coach` moved
+// its own file onto `/main/trading/CLAUDE.md` and davd — dufs --allow-all over
+// a read-write bind of <data>/groups — wrote another tenant's workspace.
+func TestProxydDavDestinationOutOfSlotRefused(t *testing.T) {
+	s, rp, up := testDavServer(t)
+	defer up.Close()
+
+	cases := []struct {
+		name, dest string
+		want       int
+	}{
+		{"path_only", "/dav/main/trading/CLAUDE.md", http.StatusForbidden},
+		{"absolute_uri", "https://krons.example/dav/main/trading/CLAUDE.md", http.StatusForbidden},
+		{"foreign_authority", "http://evil.example/dav/main/trading/CLAUDE.md", http.StatusForbidden},
+		{"userinfo_authority", "http://u:p@evil.example/dav/main/x.md", http.StatusForbidden},
+		{"percent_encoded", "/dav/%6dain/%74rading/CLAUDE.md", http.StatusForbidden},
+		// net/url reads `//main` as an authority and the path as
+		// `/trading/CLAUDE.md`; hyper, which is what davd parses with, reads
+		// the whole thing as a path. Resolving it the other way would have
+		// authorized a folder the write never touched.
+		{"double_slash_is_not_an_authority", "//dav/main/trading/CLAUDE.md", http.StatusForbidden},
+		{"dot_segments", "/dav/coach/../main/trading/CLAUDE.md", http.StatusBadRequest},
+		{"encoded_dot_segments", "/dav/coach/%2e%2e/main/trading/CLAUDE.md", http.StatusBadRequest},
+		{"encoded_uppercase_dot_segments", "/dav/coach/%2E%2E/main/x.md", http.StatusBadRequest},
+		{"encoded_separator_then_dot_segments", "/dav/coach%2F%2e%2e%2Fmain/x.md", http.StatusBadRequest},
+		{"outside_the_dav_namespace", "/main/trading/CLAUDE.md", http.StatusBadRequest},
+		{"the_dav_root_itself", "/dav/", http.StatusBadRequest},
+		{"missing", "", http.StatusBadRequest},
+		{"in_slot_env", "/dav/coach/.env", http.StatusForbidden},
+		{"in_slot_logs", "/dav/coach/logs/run.log", http.StatusForbidden},
+	}
+	for _, method := range []string{"MOVE", "COPY"} {
+		for _, c := range cases {
+			t.Run(method+"_"+c.name, func(t *testing.T) {
+				req := httptest.NewRequest(method, "/dav/coach/notes.md", nil)
+				req.Header.Set("X-User-Groups", `["coach"]`)
+				if c.dest != "" {
+					req.Header.Set("Destination", c.dest)
+				}
+				w := httptest.NewRecorder()
+				s.davRoute(rp, w, req)
+				if w.Code != c.want {
+					t.Fatalf("%s Destination:%q = %d, want %d", method, c.dest, w.Code, c.want)
+				}
+				if got := w.Header().Get("X-Upstream-Dest"); got != "" {
+					t.Fatalf("%s Destination:%q reached the backend as %q", method, c.dest, got)
+				}
+			})
+		}
+	}
+}
+
+// A legitimate in-slot move still succeeds, and the backend is handed the
+// Destination proxyd resolved rather than the caller's spelling — so the
+// authorized path is the written path whatever dufs would have made of the
+// original. The `/dav` strip mirrors buildRouteProxy's on the request line;
+// without it a conforming client's move landed in <data>/groups/dav/.
+func TestProxydDavDestinationInSlotRewritten(t *testing.T) {
+	s, rp, up := testDavServer(t)
+	defer up.Close()
+
+	cases := []struct {
+		name, dest, want string
+	}{
+		{"path_only", "/dav/coach/sub/notes.md", "/coach/sub/notes.md"},
+		{"absolute_uri", "https://krons.example/dav/coach/sub/notes.md", "/coach/sub/notes.md"},
+		{"percent_encoded", "/dav/coach/sub/my%20notes.md", "/coach/sub/my%20notes.md"},
+		{"separators_collapse", "//dav/coach//sub/notes.md", "/coach/sub/notes.md"},
+		{"query_is_not_path", "/dav/coach/sub/notes.md?v=1", "/coach/sub/notes.md"},
+		{"stray_percent_is_a_name", "/dav/coach/100%zz.md", "/coach/100%25zz.md"},
+	}
+	for _, method := range []string{"MOVE", "COPY"} {
+		for _, c := range cases {
+			t.Run(method+"_"+c.name, func(t *testing.T) {
+				req := httptest.NewRequest(method, "/dav/coach/notes.md", nil)
+				req.Header.Set("X-User-Groups", `["coach"]`)
+				req.Header.Set("Destination", c.dest)
+				w := httptest.NewRecorder()
+				s.davRoute(rp, w, req)
+				if w.Code != 200 {
+					t.Fatalf("%s Destination:%q = %d, want 200", method, c.dest, w.Code)
+				}
+				if got := w.Header().Get("X-Upstream-Path"); got != "/coach/notes.md" {
+					t.Errorf("upstream path = %q, want /coach/notes.md", got)
+				}
+				if got := w.Header().Get("X-Upstream-Dest"); got != c.want {
+					t.Errorf("upstream Destination = %q, want %q", got, c.want)
+				}
+			})
+		}
+	}
+}
+
+// Only COPY and MOVE read the header — davd answers every other verb from the
+// request line, so a Destination beside one of them is inert and is forwarded
+// untouched rather than refused.
+func TestProxydDavDestinationIgnoredOffCopyMove(t *testing.T) {
+	s, rp, up := testDavServer(t)
+	defer up.Close()
+
+	for _, method := range []string{"PUT", "DELETE", "MKCOL", "PROPFIND", "move"} {
+		req := httptest.NewRequest(method, "/dav/coach/notes.md", nil)
+		req.Header.Set("X-User-Groups", `["coach"]`)
+		req.Header.Set("Destination", "/dav/main/trading/CLAUDE.md")
+		w := httptest.NewRecorder()
+		s.davRoute(rp, w, req)
+		if w.Code != 200 {
+			t.Fatalf("%s: status = %d, want 200", method, w.Code)
+		}
+		if got := w.Header().Get("X-Upstream-Dest"); got != "/dav/main/trading/CLAUDE.md" {
+			t.Errorf("%s: upstream Destination = %q, want it untouched", method, got)
+		}
+	}
+}
+
+// davDest unit table. Every expectation is the path dufs 0.46 resolves the
+// same header to, measured against the shipped arizuko-davd image.
+func TestDavDest(t *testing.T) {
+	cases := []struct {
+		dest, want string
+		ok         bool
+	}{
+		{"/dav/g/x.md", "g/x.md", true},
+		// Scheme and authority are discarded, exactly as dufs discards them.
+		{"http://any.host/dav/g/x.md", "g/x.md", true},
+		{"http://u:p@any.host:9999/dav/g/x.md", "g/x.md", true},
+		// Origin-form: `//` opens a path, not an authority.
+		{"//dav/g/x.md", "g/x.md", true},
+		{"///dav/g/x.md", "g/x.md", true},
+		{"/dav//g//x.md", "g/x.md", true},
+		{"/dav/g/x.md/", "g/x.md", true},
+		// `.` is normalized away anywhere but the front.
+		{"/dav/g/./x.md", "g/x.md", true},
+		{"/dav/g/%2e/x.md", "g/x.md", true},
+		// Query and fragment are not the path.
+		{"/dav/g/x.md?v=1", "g/x.md", true},
+		{"/dav/g/x.md#frag", "g/x.md", true},
+		// Decoding precedes the split, so %2F is a separator.
+		{"/dav/g/sub%2Fx.md", "g/sub/x.md", true},
+		{"/dav/g/%C3%A9.md", "g/é.md", true},
+		// `..` inside a name is an ordinary name.
+		{"/dav/g/a..b.md", "g/a..b.md", true},
+		// A `%` without two hex digits is itself; net/url would error here.
+		{"/dav/g/a%zz.md", "g/a%zz.md", true},
+		{"/dav/g/x%", "g/x%", true},
+		// No form decoding: `+` is a plus.
+		{"/dav/g/a+b.md", "g/a+b.md", true},
+		{"/dav/g/a[b]^c|d{e}.md", "g/a[b]^c|d{e}.md", true},
+		// Refused, and dufs answers 400 to each of these too.
+		{"", "", false},
+		{"/dav/g/../h/x.md", "", false},
+		{"/dav/g/%2e%2e/h/x.md", "", false},
+		{"/dav/g/%2E%2E/h/x.md", "", false},
+		{"/./dav/g/x.md", "", false},
+		{"/%2e/dav/g/x.md", "", false},
+		{"/dav/g/a%FF.md", "", false},
+		{"/dav/g/a b.md", "", false},
+		{"/dav/g/a`b.md", "", false},
+		{"/dav/g/a<b>.md", "", false},
+		{"/dav/g/é.md", "", false},
+		{"dav/g/x.md", "", false},
+		{"http:/dav/g/x.md", "", false},
+		// Resolvable, but outside the prefix this route serves — the shape the
+		// bug turned into a cross-tenant write.
+		{"/g/x.md", "", false},
+		{"/dav", "", false},
+		{"/dav/", "", false},
+		{"http://any.host", "", false},
+	}
+	for _, c := range cases {
+		got, ok := davDest(c.dest)
+		if ok != c.ok || got != c.want {
+			t.Errorf("davDest(%q) = (%q, %v), want (%q, %v)", c.dest, got, ok, c.want, c.ok)
+		}
+	}
+}
+
+// What proxyd forwards re-resolves to what proxyd authorized: the rewrite
+// cannot smuggle a separator, a dot segment or a query into the backend's
+// reading of the path.
+func TestDavDestHeaderRoundTrip(t *testing.T) {
+	for _, rest := range []string{
+		"g/x.md", "g/sub/x.md", "g/my notes.md", "g/a%zz.md", "g/é.md",
+		"g/a+b.md", "g/a?b.md", "g/a#b.md", "g/a b/c;d,e.md", "g/a..b.md",
+		"g/..sneaky/x.md", "main/trading/CLAUDE.md",
+	} {
+		header := davDestHeader(rest)
+		got, ok := davDest("/dav" + header)
+		if !ok || got != rest {
+			t.Errorf("davDestHeader(%q) = %q, davDest → (%q, %v)", rest, header, got, ok)
 		}
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
@@ -707,8 +708,40 @@ func (s *server) davRoute(rp *httputil.ReverseProxy, w http.ResponseWriter, r *h
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
+	if davDestMethods[r.Method] {
+		dest, ok := davDest(r.Header.Get("Destination"))
+		if !ok {
+			slog.Warn("dav destination unresolvable", "sub", r.Header.Get("X-User-Sub"),
+				"method", r.Method, "path", r.URL.Path,
+				"destination", r.Header.Get("Destination"))
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		if !auth.MatchSlot(gs, dest) {
+			slog.Warn("dav destination forbidden", "sub", r.Header.Get("X-User-Sub"),
+				"method", r.Method, "slot_path", dest, "path", r.URL.Path)
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+		if !davAllow(r.Method, dest) {
+			slog.Warn("dav destination blocked", "sub", r.Header.Get("X-User-Sub"),
+				"method", r.Method, "slot_path", dest, "path", r.URL.Path)
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+		// The backend resolves the header proxyd wrote, never the one the
+		// caller sent, so the authorized path IS the written path.
+		r.Header.Set("Destination", davDestHeader(dest))
+	}
 	rp.ServeHTTP(w, r)
 }
+
+// davDestMethods are the verbs whose write target is the Destination header
+// instead of the request line. Measured against davd's binary (dufs 0.46):
+// COPY and MOVE read the header, every other verb it serves writes only where
+// it was addressed, and the match is case-sensitive — a lowercase `move` is a
+// 405 there, so an exact match here refuses exactly what the backend acts on.
+var davDestMethods = map[string]bool{"COPY": true, "MOVE": true}
 
 // davReadMethods are HTTP/WebDAV verbs that don't mutate the workspace.
 var davReadMethods = map[string]bool{
@@ -717,7 +750,8 @@ var davReadMethods = map[string]bool{
 
 // davAllow enforces two protections on top of group-scoped routing: sensitive
 // paths (`.env`, `*.pem`, anything under `.git/`) cannot be written via WebDAV,
-// and any path under `<group>/logs/` is read-only. rest is the path after `/dav/`.
+// and any path under `<group>/logs/` is read-only. rest is a path after
+// `/dav/` — the request line's, and for COPY/MOVE the Destination's too.
 // Returns false to block.
 func davAllow(method, rest string) bool {
 	if davReadMethods[method] {
@@ -739,6 +773,170 @@ func davAllow(method, rest string) bool {
 		}
 	}
 	return true
+}
+
+// davDest resolves a WebDAV Destination header to the path dufs will write,
+// in the same shape as `rest`: the part under `/dav/`. It returns false when
+// the header names nothing this route serves — unparseable, a `..` hop, or
+// outside `/dav/`.
+//
+// WebDAV has two write targets and only the request line was modelled, so a
+// caller granted `coach` moved `/dav/coach/notes.md` onto
+// `Destination: /main/trading/CLAUDE.md` and both guards passed (BUGS L114).
+// Every step below mirrors dufs 0.46, measured against the shipped
+// arizuko-davd image: parse as a URI and discard scheme and authority
+// (`http://evil.example/b/x` writes `b/x`), take the path, percent-decode it
+// ONCE, then walk it with Rust `Path::components` semantics. Decoding precedes
+// the split, so `%2F` is a separator and `%2e%2e` is a parent hop. davRoute
+// then rewrites the header from this result (davDestHeader), which is what
+// makes the guard authoritative: a normalization that diverged from the
+// backend would be a bypass rather than a fix, and the backend never sees the
+// caller's spelling.
+func davDest(v string) (string, bool) {
+	raw, ok := davDestPath(v)
+	if !ok {
+		return "", false
+	}
+	decoded, ok := davDestDecode(raw)
+	if !ok {
+		return "", false
+	}
+	segs, ok := davDestSegments(decoded)
+	// `/dav` is this route's own prefix, which buildRouteProxy strips off the
+	// forwarded URL; a conforming client derives Destination from the request
+	// URI (RFC 4918 §10.3), so it carries the prefix too.
+	if !ok || len(segs) < 2 || segs[0] != "dav" {
+		return "", false
+	}
+	return strings.Join(segs[1:], "/"), true
+}
+
+// davDestPath extracts the URI path the way hyper's `Uri` does, which is what
+// dufs feeds its resolver. A value starting with `/` is origin-form and is a
+// path in full: `//main/x` is the path `//main/x`, NOT authority `main` — that
+// is where net/url disagrees, and reading its Host would have left the write
+// unguarded. Anything else must be absolute-form, whose authority is dropped.
+// The byte filter is hyper's own, measured over the whole ASCII range: visible
+// ASCII less `<`, `>` and backtick, with `?` and `#` ending the path.
+func davDestPath(v string) (string, bool) {
+	if v == "" {
+		return "", false
+	}
+	if v[0] != '/' {
+		i := strings.Index(v, "://")
+		if i <= 0 || !davScheme(v[:i]) {
+			return "", false
+		}
+		authority := v[i+3:]
+		j := strings.IndexAny(authority, "/?#")
+		if j < 0 || authority[j] != '/' {
+			// Absolute-form carrying no path; hyper reports "/" for it.
+			return "/", true
+		}
+		v = authority[j:]
+	}
+	for i := 0; i < len(v); i++ {
+		c := v[i]
+		if c == '?' || c == '#' {
+			return v[:i], true
+		}
+		if c <= 0x20 || c >= 0x7f || c == '<' || c == '>' || c == '`' {
+			return "", false
+		}
+	}
+	return v, true
+}
+
+// davScheme reports whether s is a URI scheme: ALPHA *( ALPHA / DIGIT / "+" /
+// "-" / "." ), RFC 3986 §3.1.
+func davScheme(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z':
+		case i > 0 && (c >= '0' && c <= '9' || c == '+' || c == '-' || c == '.'):
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// davDestDecode percent-decodes the way dufs's decode_uri does: `%` and two
+// hex digits is one byte, a `%` without them is itself — net/url's unescape
+// rejects that instead, and refusing a name dufs accepts would break a move
+// the caller is entitled to. Invalid UTF-8 fails, as it does there.
+func davDestDecode(p string) (string, bool) {
+	out := make([]byte, 0, len(p))
+	for i := 0; i < len(p); i++ {
+		if p[i] == '%' && i+2 < len(p) {
+			hi, okHi := davHex(p[i+1])
+			lo, okLo := davHex(p[i+2])
+			if okHi && okLo {
+				out = append(out, hi<<4|lo)
+				i += 2
+				continue
+			}
+		}
+		out = append(out, p[i])
+	}
+	if !utf8.Valid(out) {
+		return "", false
+	}
+	return string(out), true
+}
+
+func davHex(c byte) (byte, bool) {
+	switch {
+	case c >= '0' && c <= '9':
+		return c - '0', true
+	case c >= 'a' && c <= 'f':
+		return c - 'a' + 10, true
+	case c >= 'A' && c <= 'F':
+		return c - 'A' + 10, true
+	}
+	return 0, false
+}
+
+// davDestSegments splits a decoded path the way Rust's `Path::components`
+// does, which is how dufs turns it into a file path: repeated separators
+// collapse, a trailing slash drops, `.` is normalized away everywhere but the
+// front — where it is a CurDir component dufs refuses — and `..` is a ParentDir
+// component it refuses wherever it stands. `..` inside a segment (`a..b`) is an
+// ordinary name.
+func davDestSegments(p string) ([]string, bool) {
+	var out []string
+	for i, seg := range strings.Split(strings.Trim(p, "/"), "/") {
+		switch seg {
+		case "":
+			continue
+		case "..":
+			return nil, false
+		case ".":
+			if i == 0 {
+				return nil, false
+			}
+			continue
+		}
+		out = append(out, seg)
+	}
+	return out, true
+}
+
+// davDestHeader renders the Destination proxyd forwards: the authorized path,
+// escaped segment by segment so dufs decodes back exactly these names. `/dav`
+// is absent because buildRouteProxy strips the same prefix off the request
+// line — header and request line must name one tree.
+func davDestHeader(rest string) string {
+	var b strings.Builder
+	for _, seg := range strings.Split(rest, "/") {
+		b.WriteByte('/')
+		b.WriteString(url.PathEscape(seg))
+	}
+	return b.String()
 }
 
 // setUserHeaders stamps the verified caller's identity onto the forwarded request

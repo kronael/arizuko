@@ -4814,7 +4814,7 @@ A `github` product was added to the corpus without bumping the count in
 'TestProductCorpusPayloadKinds|TestProductCatalogMatchesCorpus'` is green;
 commit `1a6e480d` shipped the github catalog pages.
 
-## L114 — WebDAV `MOVE`/`COPY` authorize the source path and never the `Destination` header, so a folder-scoped user writes into any other tenant (2026-08-26, proposal — needs sign-off; cross-tenant write)
+## ✅ FIXED 2026-09-20 L114 — WebDAV `MOVE`/`COPY` authorize the source path and never the `Destination` header, so a folder-scoped user writes into any other tenant (2026-08-26; cross-tenant write)
 
 `/dav/` is a `user` route with `StripPrefix` (`compose/compose.go:403`).
 `davRoute` (`proxyd/main.go:667`) computes `rest` from `r.URL.Path` at `:698`
@@ -4863,6 +4863,36 @@ WebDAV has two write targets. Only one is modelled.
 - **Not executed:** a `MOVE` through the live proxyd (needs an OAuth session and
   would write live data). Disproof would be proxyd or nginx stripping
   `Destination` on `/dav/*` — neither does.
+- **Fix:** `davRoute` resolves the `Destination` header for `COPY` and `MOVE`
+  (`davDestMethods`; measured against the shipped image, those are the only two
+  verbs davd reads it for, and the match is case-sensitive there), applies the
+  SAME two guards to the result that the request line already gets —
+  `auth.MatchSlot` then `davAllow` — and rewrites the header to the path it
+  authorized before forwarding. The rewrite is what makes the guard answer:
+  davd resolves the header proxyd wrote, never the caller's spelling, so a
+  normalization that diverged from the backend cannot become a bypass.
+  `davDest` mirrors dufs 0.46 step for step — hyper's URI parse, which drops
+  scheme and authority and reads `//main/x.md` as a PATH where `net/url` reads
+  an authority and would authorize a folder the write never touches; ONE
+  percent-decode BEFORE the split, so `%2F` is a separator and `%2e%2e` a
+  parent hop; then Rust `Path::components` semantics, where repeated separators
+  collapse, `.` drops everywhere but the front and `..` refuses. A destination
+  outside `/dav/`, unparseable, or carrying a `..` is 400; one that resolves
+  inside `/dav/` but outside the caller's slot, or onto `.env` / `*.pem` /
+  `.git` / `logs/`, is 403. `davDestHeader` strips `/dav` the way
+  `buildRouteProxy` strips it off the request line, so header and request line
+  name one tree — without that a conforming client's `MOVE` wrote to
+  `<data>/groups/dav/`, which the same throwaway container reproduces.
+- **Evidence:** a 37-case differential against `arizuko-davd:latest` (dufs
+  0.46.0, throwaway container, scratch tree) agrees with `davDest` on every raw
+  header, and every header `davDestHeader` renders lands the file on exactly
+  the authorized path. `TestProxydDavDestinationOutOfSlotRefused` drives the
+  path-only, absolute-URI, foreign-authority, percent-encoded, `//`,
+  dot-segment and encoded-dot-segment forms for MOVE and COPY;
+  `TestProxydDavDestinationInSlotRewritten` proves an in-slot move still
+  succeeds and reaches the backend rewritten; `TestDavDest` and
+  `TestDavDestHeaderRoundTrip` hold the resolution table and the round trip.
+  With the guard removed every refusal case answers 200. SHA (pending).
 
 ## ✅ FIXED 2026-08-29 L115 — `davAllow`'s `logs/` read-only rule only covers top-level groups (2026-08-26)
 
