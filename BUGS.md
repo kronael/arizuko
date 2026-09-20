@@ -2525,7 +2525,7 @@ Fixed: `dash.dbRuned` is gone, and so is `runed.db`. dashd reads runed over its
 HTTP face and holds no handle on its store.
 
 - **Status:** fixed in v0.68.0
-## L253 — three tables survive a folder delete on the strength of an `ON DELETE CASCADE` a document store does not have (2026-09-07, open — proposal, needs sign-off)
+## ✅ FIXED 2026-09-20 L253 — three tables survive a folder delete on the strength of an `ON DELETE CASCADE` a document store does not have (2026-09-07, open — proposal, needs sign-off)
 
 `store/folder_scope.go` is a TOTAL classification of every table into purge or
 keep, with a completeness test in both `store` and `routd`. Three tables sit in
@@ -2560,6 +2560,27 @@ on a surface whose whole point is that deleting a folder removes the tenant.
 - **Fix:** the classification records the MECHANISM, not just the verdict, and the
   completeness test refuses a keep-reason naming a cascade once the owning table
   is an entity. Then those three move to `folderScopePurge` with the rest.
+
+- **Status:** closed on re-check 2026-09-20 — all three are purged explicitly,
+  and the file states the rule this entry asked for.
+- **`store/folder_scope.go:15-21` says it in its own words:** "AN ENTITY HAS NO
+  FOREIGN KEY, so no verdict here may say 'the groups row's cascade removes
+  it'. Three tables were kept on exactly that claim — `web_routes`,
+  `route_tokens.owner_folder` and `github_sources` — and the claim stops being
+  true the moment the row stops being a SQL row: the row would then be deleted
+  by NOTHING while a completeness test still passed, because the table is still
+  classified (BUGS L253). **All three are purged here now**, by the same
+  predicate every other scope uses."
+- **Pinned by a test whose whole subject is the absence of cascades.**
+  `store/fk_test.go:16-19`: "nothing here rides on a cascade: every row a delete
+  removes is removed by `store/folder_scope.go`'s purge, explicitly, by the same
+  containment predicate for every scope."
+- **The cost is written down rather than hidden**, which is the other half of
+  doing this honestly: the entity purge reads and then deletes, "the unbounded
+  read-then-delete spec `6/40` costs, and a group delete is an operator action
+  measured in ones per week".
+- **Same class as `L118`**, closed today: both were filed against cascades that
+  left the codebase with SQLite.
 
 ## L254 — "the point of no return arrives once per daemon" is false for anything that reaches through `store` (2026-09-07, open — proposal, needs sign-off)
 
