@@ -833,6 +833,8 @@ func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if operator {
+		fmt.Fprint(w, d.answeringSection(r.Context()))
+
 		counts, err := d.sessionCountsViaRoutd(r.Context())
 		if err != nil {
 			slog.Warn("status: session counts via routd", "err", err)
