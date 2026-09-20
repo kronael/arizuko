@@ -3198,7 +3198,7 @@ Silently storing a row nobody will ever act on is the worst of the three.
   nor "my own output" — a message-model change, which is the sign-off this
   entry has been waiting for since August.
 
-## J16 — `ant/CLAUDE.md` tells the agent connector tools are deferred; they are eager (2026-08-09, proposed)
+## ✅ FIXED 2026-09-20 J16 — `ant/CLAUDE.md` tells the agent connector tools are deferred; they are eager (2026-08-09)
 
 "Third-party connector tools (Slack, GitHub, …) do NOT [load eagerly] — they're
 deferred behind the **Tool Search Tool**." Connectors are `ExtTools` on the
@@ -3220,6 +3220,22 @@ be deferred, so no deferred MCP server exists at all now.
   Editing `ant/CLAUDE.md` fires the release path — migration file,
   `MIGRATION_VERSION` bump, agent image rebuild — so it rides a release, not a
   doc commit.
+
+**ALREADY FIXED, verified 2026-09-20.** `dc2bcfbe` ("the turn's tool list is
+complete, and there is no tool search") removed the claim, and did better than
+this entry's "drop the paragraph": `ant/CLAUDE.md:102` now states the true
+mechanism AND what to do about it — "There is no tool search in this runtime …
+A capability you cannot see is an unmet grant — give the user the exact ask;
+never hunt for a tool that would produce it." So the agent is no longer sent
+searching for tools already in its list.
+
+The mechanism the entry named is unchanged and still correct:
+`ant/src/mcp-servers.ts` sets `alwaysLoad: true`, so every tool on the arizuko
+server rides the eager prefix. No release action is outstanding — the edit
+shipped with its own commit.
+
+- **Status:** fixed
+- **Fix:** `dc2bcfbe`
 
 ## F75 — three skill trees are triplicated and one pair has already drifted (2026-08-08, open — verified 2026-08-15, still a redesign)
 
