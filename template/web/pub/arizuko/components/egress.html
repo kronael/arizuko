@@ -103,7 +103,7 @@ agent  --internal net-->  its proxy  --uplink-->  allowed hosts only</code></pre
       <li>no request or response body access, no content filtering, no secret injection</li>
       <li>no registry, no admin API, no client library</li>
       <li>no transparent interception and no SNI peeking &mdash; forward mode reads the destination from the request line, so it never needed either</li>
-      <li>no DNS filter &mdash; a single-tenant proxy already sees every destination, and a rule expressed twice can disagree with itself</li>
+      <li>no DNS filter &mdash; UDP/53 leaves a spawn unfiltered and the proxy cannot stand in for one, because a DNS query never appears in a CONNECT line (<a href="../security/">security</a> &sect; No DNS filter)</li>
       <li>no supervision &mdash; the spawn&rsquo;s lifetime is the proxy&rsquo;s lifetime, and runed owns both</li>
     </ul>
     <p>Interception stays declined (<code>specs/5/13-ext-mcp.md</code>): a proxy that never terminates TLS has nothing to leak if it is compromised, which is what keeps it small enough to audit.</p>
@@ -167,7 +167,7 @@ crackbox run --image python:3 --allow pypi.org,files.pythonhosted.org -- pip ins
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/egress.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-06">2026-09-06</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-19">2026-09-19</time>
       </div>
     </main>
 

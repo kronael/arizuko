@@ -115,7 +115,7 @@
       <p class="tldr-text">
         <strong>Folders are agents.</strong> Each folder is a tenant: isolated memory, persona, skills, routes.
         <strong>MCP over unix socket.</strong> Tool calls go through routd, which decides what an agent may reach.
-        <strong>Defense-in-depth.</strong> Container isolation + DNS filtering + per-group MCP sockets + the host-side secret broker.
+        <strong>Defense-in-depth.</strong> Container isolation + a per-spawn egress proxy + per-group MCP sockets + the host-side secret broker.
       </p>
     </div>
 

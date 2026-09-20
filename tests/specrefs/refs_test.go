@@ -127,7 +127,8 @@ func TestEveryDependsEntryResolves(t *testing.T) {
 // `specs/5/33`. That is how most of the corpus cites a spec, and it is the form
 // no other check sees: a link check reads `](path.md)` and the depends check
 // reads frontmatter, so a prose ID can name a retired number while the build
-// stays green. `6/7` was retired and left 25 such pointers across eight files.
+// stays green. One retirement on 2026-09-05 left 25 such pointers across eight
+// files.
 var specIDRe = regexp.MustCompile("`(?:specs/)?([1-9][0-9]?)/([0-9]{1,2}|[A-Z])`")
 
 // historyFiles record what was true when they were written, so a retired ID in

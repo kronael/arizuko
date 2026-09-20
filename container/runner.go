@@ -612,9 +612,10 @@ func buildMounts(
 	// are resolved by the docker daemon at spawn time.
 	//
 	// The group dir mounts UNCONDITIONALLY: it holds the rollouts `codex exec resume`
-	// reads (spec 6/7). Gating it on HostCodexDir silently broke resume for anyone
-	// authenticating with OPENAI_API_KEY — codex wrote its rollout to a
-	// container-local path and every resume afterwards found nothing.
+	// reads (spec 5/P § "The container model"). Gating it on HostCodexDir
+	// silently broke resume for anyone authenticating with OPENAI_API_KEY —
+	// codex wrote its rollout to a container-local path and every resume
+	// afterwards found nothing.
 	groupCodex := filepath.Join(groupDir, ".codex")
 	os.MkdirAll(groupCodex, 0o755)
 	m = append(m, volumeMount{Host: hp(cfg, groupCodex), Container: containerHome + "/.codex"})
@@ -714,7 +715,7 @@ func buildArgs(
 	}
 	// The backend selector must also be real container env: the first
 	// ARIZUKO_BACKEND died because ant read the var and nothing ever emitted
-	// it here (spec 6/7 § "Why this document exists").
+	// it here (spec 6/23: anything buildArgs omits is dead in the container).
 	if cfg.AgentBackend != "" {
 		args = append(args, "-e", "ARIZUKO_BACKEND="+cfg.AgentBackend)
 	}

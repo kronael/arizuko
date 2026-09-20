@@ -12,9 +12,9 @@ import (
 // TestGroupCreatePage_CommitsTheAdminGrantWithTheFolder is BUGS L247 stated as
 // an assertion. POST /dash/groups/new writes the group row, the member edge,
 // the creator's admin grant and the audit row in ONE transaction, and
-// `specs/6/38` names that shape security-bearing: the escalation it prevents is
-// a folder whose creator holds no admin on it, or holds one the audit does not
-// record.
+// `specs/6/37` § "How a storage layer is organized" rule 3 names that shape
+// security-bearing: the escalation it prevents is a folder whose creator holds
+// no admin on it, or holds one the audit does not record.
 //
 // It drives the HANDLER, not CreateGroupWithAdmin. A fixture that called the
 // store method would prove the method and leave the page — the part that

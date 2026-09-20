@@ -37,8 +37,8 @@ type Config struct {
 	// credential, unchanged. Static infra config, like AgentBackend.
 	ModelGatewayURL string
 	ModelGatewayKey string
-	// AgentBackend selects the container occupant (spec 6/7 "The connector
-	// seam"): claude (default, empty), codex, pi. Static infra config — a
+	// AgentBackend selects the container occupant (spec 6/16 — the harness
+	// seam): claude (default, empty), codex, pi. Static infra config — a
 	// backend exists only if its CLI is baked into Image — so it lives in the
 	// instance .env, never the DB.
 	AgentBackend        string

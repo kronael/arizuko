@@ -33,9 +33,10 @@
   `template/env.example`, read; KEEP.
 - `ARIZUKO_DEV` — `core/config.go:181`, `ipc/ipc.go:768` — dev-only
   gate, read in two sites. KEEP.
-- `CRACKBOX_ADMIN_SECRET` — `crackbox/pkg/host/host.go:105,130` —
-  crackbox is sandbox dormant per memory. Sibling concern; not in scope
-  to strip but verify before any crackbox cleanup.
+- `CRACKBOX_ADMIN_SECRET` — absent from the tree. `crackbox` is four
+  tracked files and has no daemon mode, no admin API and no registry
+  (`crackbox/cmd/crackbox/main.go:7-9`), so nothing reads it. Sibling
+  concern, nothing to strip.
 
 Net: no truly dead env vars in the core. Most dead env vars hide
 inside dead adapter binaries (see below).
