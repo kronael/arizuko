@@ -155,19 +155,29 @@ func TestEnrich_Base64Attachment(t *testing.T) {
 	}
 }
 
-// TestEnrich_SkipsEmptyURLAndData: an attachment with neither URL nor Data is
-// skipped (no panic, no <attachment> block), the rest of the turn proceeds
-// (gated enrichAttachments empty-source guard).
-func TestEnrich_SkipsEmptyURLAndData(t *testing.T) {
+// An attachment with neither URL nor Data is NAMED to the agent, not dropped.
+// Skipping it silently ran the agent on a message naming a file it never
+// received, and neither the agent nor the user could see anything was missing —
+// an adapter restart empties the in-memory /files/<id> map and put 12 of these
+// on sloth in six seconds (BUGS L163, fixed in dcef71ab).
+func TestEnrich_NamesAnAttachmentWithNoSource(t *testing.T) {
 	_, l, _ := enrichLoop(t, mediaConfig{Enabled: true, MaxBytes: 1 << 20})
 	raw, _ := json.Marshal([]chanlib.InboundAttachment{{Mime: "audio/ogg", Filename: "ghost.ogg"}})
 	msg := &core.Message{ID: "m1", ChatJID: "tg:1", Content: "no media here", Attachments: string(raw)}
 	l.enrichAttachments(context.Background(), msg, "demo")
 
-	if strings.Contains(msg.Content, "<attachment") {
-		t.Errorf("empty-source attachment produced a block: %q", msg.Content)
+	if !strings.Contains(msg.Content, "unavailable=") {
+		t.Fatalf("no unavailable element, so the agent runs blind on a file it never got: %q", msg.Content)
 	}
-	if msg.Content != "no media here" {
-		t.Errorf("content mutated for skipped attachment: %q", msg.Content)
+	if !strings.Contains(msg.Content, "ghost.ogg") {
+		t.Errorf("the notice does not name the file, so the agent cannot say WHICH one is missing: %q", msg.Content)
+	}
+	// The notice carries no path: offering a path to a file that is not there
+	// trades a silent loss for a failed read.
+	if strings.Contains(msg.Content, "path=") {
+		t.Errorf("the notice offers a path to a file that does not exist: %q", msg.Content)
+	}
+	if !strings.HasPrefix(msg.Content, "no media here") {
+		t.Errorf("the sender's own text was lost: %q", msg.Content)
 	}
 }
