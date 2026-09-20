@@ -3070,7 +3070,7 @@ class root `CLAUDE.md` forbids ("Strict, not magical").
   existing panic-on-misconfiguration path, so an unknown Type is a build
   failure — every `Register` call is `init()`-time.
 - **Fix:** `fix(resreg): reject an unknown MCPArg.Type at registration`
-## L169 — a Discord `reply` quoting a message outside its thread was refused, labelled 502, retried ten times and re-posted top-level; the agent re-sent it too (2026-09-05, link 1 FIXED; link 2 REST half FIXED 2026-09-20; the MCP half is a proposal)
+## ✅ FIXED 2026-09-20 L169 — a Discord `reply` quoting a message outside its thread was refused, labelled 502, retried ten times and re-posted top-level; the agent re-sent it too (2026-09-05)
 
 Measured on sloth, channel `920916162416635944`, 11:39–11:47 UTC: 14 `mcp
 deliver failed` and 22 sweep retries, every one `channel discord send: status
@@ -3146,7 +3146,27 @@ neither for a `topic=''` row).
   `activeTopic(db, folder)` rather than the root it used, and fixing that needs
   `mcpDeliver` to return the root across the ipc↔routd socket contract.
 
-## L166 — the MCP outbound row records neither the thread it rooted nor its reply target; the REST row does (2026-09-05, open — proposal)
+**Link 2 FIXED 2026-09-20, both paths.** The pending row now carries the thread
+the reply meant to root, which is what the sweep reads:
+
+- REST — `deliverRow` (`routd/turns.go:187`) stamps `row.Topic = threadRoot`
+  BEFORE `deliver.Send`, so a send that fails still leaves the thread on the row.
+- MCP — `recordOutboundFailure` takes the root (`3d00bb09`). It is computed
+  before the send, so a failure has it. Test
+  `TestRecordOutboundFailure_KeepsTheThreadTheReplyMeantToRoot`, which asserts
+  the thread, the reply target and `pending` status together — a 502 is
+  transient, so the sweep owns the retry and a dead letter would be wrong.
+
+The Slack worry in the text above is answered by the same change, not by a
+slakd edit: the sweep passes the row's `Topic` as `threadID`
+(`routd/loop.go:477`), which is the EXISTING thread to post into, so a row with
+a topic lands in its thread. A thread the first reply never created answers 404
+and dead-letters visibly, which is the outcome this entry asked for.
+
+- **Status:** fixed
+- **Fix:** link 1 earlier; link 2 `deliverRow`'s stamp + `3d00bb09`
+
+## L166 — the MCP outbound row records neither the thread it rooted nor its reply target; the REST row does (2026-09-05, THREAD HALF FIXED 2026-09-20; the reply-target half is a separate question)
 
 `deliverRow` (`routd/turns.go`) stamps `row.Topic = threadRoot` after a
 thread-rooting reply "so threadHasBotMessage finds it". The MCP path does not:
@@ -3180,6 +3200,23 @@ to return the root, thread it through `recordOutbound` /
 (`ipc/ipc.go:1216-1221`), and prefer it over `activeTopic` when non-empty. Six
 test doubles take the new signature. About 40-60 lines, no contract crosses a
 process. L169's MCP half is the same change.
+
+**THREAD HALF FIXED 2026-09-20 (`091b2e3f`).** `mcpDeliver` returns the root it
+used and `putOutboundRow` stamps it, preferring the turn's own topic when it has
+one — `deliverRow`'s policy, not a second one, so a reply inside an existing
+thread is not re-keyed onto a root the platform handed back. Tests
+`TestRecordOutboundReply_RecordsTheThreadItRooted` and
+`TestRecordOutboundReply_TheTurnsTopicWinsOverTheRoot`; the second is what stops
+a counter that always stamps the root from passing.
+
+**The reply-target half is NOT shipped, and it is a real question rather than an
+oversight.** `putOutboundRow` documents the current shape: an undelivered row
+carries `ReplyToID` so the sweep re-sends against it, and a delivered row leaves
+it empty because its own id belongs in `platform_id`. So `ReplyToID` currently
+means "this still needs sending to X". Stamping it on a delivered row changes
+what the field means for every consumer, including the reply-to-bot →
+`verb=mention` promotion. Decide whether the row needs a separate `in_reply_to`
+before doing it — do not widen `ReplyToID`.
 
 ## L167 — `reply(replyToId=<parent-channel message>)` from inside a thread: the tool doc promised a quote Discord cannot make, and which thread it should go to is undecided (2026-09-05, open — proposal)
 
