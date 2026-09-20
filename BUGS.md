@@ -3464,7 +3464,7 @@ or may be a real finding in our own corpus.
   path for every `ant/CLAUDE.md` change (see `L316`), so quarantining it stops
   the fleet taking new instructions at all.
 
-## L152 — an `acl` grant can name a principal nobody will ever present, and no surface says so (2026-09-02)
+## L152 — an `acl` grant can name a principal nobody will ever present, and no surface says so (2026-09-02, open — proposal REFUTED 2026-09-20, needs a new record + sign-off)
 
 `acl_membership` on krons grants `role:operator` to
 `telegram:user/1183985669`. That id has sent **zero** messages on the instance,
@@ -3490,10 +3490,47 @@ looks like policy.
 **Shape of a fix (proposal — needs sign-off).** A read-only reconciler, not a
 write-time check: write-time validation would refuse to pre-grant an identity
 that has not spoken yet, which is legitimate and common (an invite names someone
-before they arrive). One query — principals in `acl`/`acl_membership` that are
-JID-shaped and appear in no `messages.sender` and no linked identity — surfaced
-on the dashboard grants page and in the CLI grant listing as a "never seen"
-marker beside the row. No new table, no new write path, no evaluator change.
+before they arrive). Surfaced on the dashboard grants page and in the CLI grant
+listing as a "never seen" marker beside the row. No new table, no new write
+path, no evaluator change.
+
+**THE ONE QUERY THIS ASKED FOR DOES NOT EXIST. Measured against the call paths
+2026-09-20, and no oracle in the store can answer "never seen".** The marker
+would be wrong on correct grants, which is worse than the silence it replaces:
+this entry's own history is a false-absence conclusion, and a reconciler built
+on any source below would manufacture them at fleet scale. What each candidate
+actually answers:
+
+| candidate | what it answers | why it is not "never seen" |
+| --- | --- | --- |
+| `messages.sender` | nothing, in one query | `sender` is an ATTRIBUTE (`store/messages.go:66`), not part of the key, and `messages` is partitioned per chat JID — every read in the file names a `Partition`. The "one query" is a sweep of every chat partition on the instance. |
+| `message_activity.sender` | spoke in the last 30 days | This one IS a single query: one constant partition and `sender` is an attribute on it (`store/message_activity.go:46`, `:114`). But `ActivityRetention` is `30 * 24 * time.Hour` (`:59`) and the feed is swept to it, so a real person quiet for a month reads exactly like a typo. |
+| `user_profiles` | created a world through onbod | `RecordPerson` has ONE caller — `onbod/main.go:911`, the last write of `writeWorld`. A platform sender who only ever chats in an existing group never gets an item, which `UserCap` states outright (`store/user_profiles.go:236`: "platform senders (telegram:user/…, anon:…) and service:routd never own one"). |
+| `oauth_identities` | has linked an OAuth login | `OAuthIdentityForSub` (`authd/authstore/auth_users.go:33`) resolves only identities an account has LINKED. An unlinked `telegram:user/…` is genuinely unclaimed — which is precisely the `!claimed` branch `nonCanonicalWarning` already returns `""` on (`routd/acl_resource.go:224`). Warning there would fire on nearly every legitimate grant. |
+
+Nor is the krons case separable by shape: `telegram:user/1183985669` and
+`telegram:user/1112184352` are both well-formed, and the repo declares no
+principal validator at all (no `ValidPrincipal`, no canonical-JID check on any
+write surface), so no syntactic rule tells the typo from the real account.
+
+**What a sound fix therefore needs, and why it is not an edit.** Arizuko keeps
+no durable, enumerable record of the principals it has seen present themselves.
+Answering this question at all means writing one — a new item per sender on the
+message-append path, or an attribute moved onto an existing one — which is a new
+write on the hot path and a new entity to sweep. That is a redesign, so it is
+recorded here for sign-off rather than shipped (root `CLAUDE.md`, "Redesigns
+need sign-off"). Until then the three write surfaces stay as they are, and
+`nonCanonicalWarning`'s alias check remains the only real signal: it is sound
+because it fires only when authd says the string IS an alias of another account.
+
+**Three write surfaces, one guard — and only one surface reads it.** Re-measured
+2026-09-20 and unchanged in substance: `cmd/arizuko/main.go` `checkGrantRow`
+refuses an EMPTY principal and nothing more, `dashd/grants_admin.go:199` refuses
+an empty principal and action and nothing more, and `nonCanonicalWarning` is
+wired into `add_acl` alone. Not one of the three asks whether the string
+corresponds to an account. Extending the alias guard to the other two is sound
+work with no false positives, and it is a separate, smaller entry than the
+reconciler above.
 
 **How this entry was first written wrong.** The first version claimed krons'
 Telegram operator had been unreachable since 2026-07-19. That came from a
