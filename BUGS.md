@@ -6781,7 +6781,7 @@ Threading itself is NOT at fault and was checked: every bot reply on
 `#trading` since 2026-08-01 carries its trigger's topic, and the only cross-topic
 rows are the expected root→new-thread creations.
 
-## L80 — the agent/REST acl face cannot express a narrowed grant (2026-08-23, proposal)
+## ✅ FIXED 2026-08-30 L80 — the agent/REST acl face cannot express a narrowed grant (2026-08-23, proposal)
 
 `grantACLTx` hardcodes `params='', predicate=''` on INSERT and `revokeACLTx`
 matches the same, so the resreg acl resource can neither create nor address a
@@ -6794,6 +6794,18 @@ Since `L79` the mismatch is at least loud (a revoke that matches nothing 404s).
 REST twins accept optional `params` and `predicate`, defaulting to `''` so
 existing callers are unaffected, and both writers bind them. That makes the
 resreg face the one renderer for the acl table instead of a lossy subset of it.
+
+- **Status:** closed on re-check 2026-09-20 — fixed 2026-08-30.
+- **Re-measured:** `grantACLTx` and `revokeACLTx` no longer exist in non-test
+  code; they survive only in test comments recording what they used to do. The
+  acl resource carries `params` end to end — validated at
+  `routd/acl_resource.go:121`, read from the args at `:246`, and matched EXACTLY
+  on revoke at `:140-142`, with an error that says so in the words the caller
+  sees.
+- **Three test files pin it**, and they drive the REAL socket so the Gate's
+  delegation check and the handler's write are exercised together:
+  `routd/acl_params_test.go`, `acl_narrow_scope_test.go` (a narrow action named
+  at scope `**` stays a narrow row) and `acl_grant_option_test.go`.
 
 ## ✅ FIXED 2026-08-23 L78 — group-delete cascades used SQL `LIKE`, so deleting one folder deleted another's rows (2026-08-23)
 
@@ -7111,6 +7123,14 @@ shell out to `arizuko group rm` on the instance host.
 
 Not in scope here: whether leaked folders should auto-migrate at all. They
 should not, but the cause is the leak, not the migration hook.
+
+- **RE-MEASURED 2026-09-20: the code half is CONFIRMED LIVE.** `grep` over
+  `anteval/pkg/run/` and `anteval/cases/anteval.toml` for `delete_group`,
+  `DeleteGroup`, `cleanup` or `teardown` returns **nothing**. No case deletes
+  the group it made and the harness has no teardown, so the leak is exactly as
+  filed. `ensurePristineRoot` resets the root SESSION, never the group tree —
+  the same gap that let a built skill outlive its case (`L153`).
+- The 31-of-43 count is instance data and was not re-read.
 
 ## L70 — spend is recorded on three dimensions and readable on none of them (2026-08-22, proposal)
 
