@@ -13439,6 +13439,19 @@ ship gate for a component whose shape `6/24` already changed, and `6/9` stays
 - [x] ✅ FIXED 2026-09-05 — `add_acl` and `POST /v1/acl` never write `grant_option` (`routd/acl_resource.go:290` vs `store/acl.go:16`), so re-delegation is reachable only through `resreg.Apply` — the live grant surfaces cannot express it. `aclArgsRow` reads the argument, `grantACLTx` writes the column and `list_acl` reports it; the Gate needed no change, because `auth.Delegate`'s `grantableRows` already only holds rows the caller has WITH the option. `fix(routd): write grant_option on the live acl grant surfaces`
 - [x] ✅ FIXED 2026-09-05 — `webd` registers with chanreg once and sends no heartbeat (`webd/main.go:127`), so three failed probes deregister the `web` channel until the daemon restarts. The heartbeat `chanlib.Run` ran inline is now `RouterClient.Heartbeat`, replaying the registration `Register` already saves; `chanlib.Run` and webd both start it. `fix(chanlib): one heartbeat every registering daemon can run`
 
+- **RE-MEASURED 2026-09-20: still live, and the number moved the wrong way.**
+  `sandbox/` is **2029** lines of Go now, against the 1342 this entry counted.
+- **The "nothing runs it" claim needs one correction.** No arizuko daemon
+  imports it, which is the entry's point and holds — but it is not unreferenced:
+  `crackbox/pkg/run/run.go:26` imports `github.com/kronael/arizuko/sandbox`, and
+  crackbox is a shippable sibling with its own `cmd` and `Makefile`. So a delete
+  is not a delete of dead code; it is a decision about whether crackbox keeps
+  its isolation path.
+- **That is why this stays a proposal.** `specs/6/24` cut the per-spawn egress
+  proxy down to `egress/` and explicitly declined the heavier sandbox shape, so
+  the question is whether the sibling still needs what arizuko decided not to
+  use — and that is the maintainer's call about crackbox, not a cleanup.
+
 ## ✅ FIXED 2026-09-05 L177 — every `<reply-to>` rendered `sender="unknown"` with no body; routd never read the excerpt columns back (2026-09-05)
 
 `msgReadCols` (`routd/reads.go`) omitted `reply_to_text` and `reply_to_sender`,
