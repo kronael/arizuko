@@ -2626,7 +2626,7 @@ an outbound call outliving the shutdown that was supposed to end it.
   means stopped for every adapter rather than only for this test.
 - **Measured after:** `go test ./discd/ -race -run TestTyping` three runs, three
   passes, where the entry records FAIL, FAIL, ok.
-## L170 — `routd.DB` and `store.Store` declare 66 method names twice with different SQL; routd's `AllGroups` hands its own callers `Open=false` and no observe window (2026-09-05, open)
+## ✅ FIXED 2026-09-20 L170 — `routd.DB` and `store.Store` declare 66 method names twice with different SQL; routd's `AllGroups` hands its own callers `Open=false` and no observe window (2026-09-05)
 
 Measured at `c0594f32` with a receiver-normalised diff of every method name
 both types declare: 69 shared, 3 textually identical (`Close`,
@@ -2648,8 +2648,28 @@ mechanical change: each of the 66 is a decision on which body survives.
 - **Scope:** routd data layer vs `store`
 - **Affected:** routd; dashd, webd, proxyd and the CLI as the `store` side
 - **Source:** `routd/db.go:115,170`; `store/groups.go:21,148`
-- **Status:** open — refused as a cut 2026-09-05; needs a per-method decision, not a forward
-- **Fix:**
+- **Status:** fixed. Closed on re-check 2026-09-20 — `d783394e`, "refactor: SQL
+  leaves the dependency graph", removed the second body.
+- **Fix:** RE-MEASURED 2026-09-20. Both behavioural differences are gone, and
+  the premise the entry rests on — two bodies with different SQL — no longer
+  describes the code.
+
+  - `routd/db.go:146` `PutGroup` is `return d.store().PutGroupRow(g)`. One
+    writer, one audit decision.
+  - `routd/db.go:173` `AllGroups` is `return d.store().AllGroups()`, which
+    decodes through `groupFrom` (`store/groups.go:112`) — the same decoder
+    `GroupByFolder` uses. It sets `Open` (absent means OPEN) and both observe-
+    window fields (unset is -1). Every routd caller listed above now reads them,
+    and `WriteGroupsSnapshot` serialises whole `core.Group` values, so the
+    agent's `available_groups.json` carries `open`.
+  - `json_set` appears once in the whole tree, inside a comment in
+    `store/groups.go:462`. No statement uses it.
+
+  `routd/db.go` declares 90 methods; ~78 are one-line forwards to `store()` and
+  about twelve do routd-specific work. That layer is a wrapper-type question
+  (`~/.claude/skills/go` ¶ "Wrapper types vs functions"), not two writers over
+  one file, so it is not a bug. Collapsing it is a cross-package refactor and
+  needs sign-off before it ships — spec `6/36` S3 still holds the question.
 
 ## L171 — proposal: one TypeScript channel module for whapd and twitd (2026-09-05, proposal — needs sign-off)
 
