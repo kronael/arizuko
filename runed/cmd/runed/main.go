@@ -163,13 +163,6 @@ func main() {
 	// precede the first spawn — an agent with no /opt/arizuko cannot migrate.
 	container.MaterializeAppSrc(cfg)
 
-	// Pre-seed each group's .codex/ (uid 1000) before any spawn so cold-start
-	// parallel docker run can't materialize the bind source as root. Only when
-	// the codex feature is enabled (HOST_CODEX_DIR set).
-	if cfg.HostCodexDir != "" {
-		container.SeedCodexDirs(cfg.GroupsDir)
-	}
-
 	srv := runed.NewServer(mgr, db, verify)
 	srv.SetDashKeySet(dashKeys)
 	srv.SetSubstrate(sub)

@@ -2976,7 +2976,7 @@ in the 30-day journal).
   `CodexROMounts` declaration.
 - **Fix:** `fix(container): own the codex RO mount targets before docker does`
 
-## L157 — `SeedCodexDirs` derives "group" from a `.claude/` marker on disk, so a root-owned project dir is seeded and fails at every restart (2026-09-05, open)
+## ✅ FIXED 2026-09-20 L157 — `SeedCodexDirs` derives "group" from a `.claude/` marker on disk, so a root-owned project dir is seeded and fails at every restart (2026-09-05, open)
 
 `SeedCodexDirs` walks `groups/` and treats any directory holding `.claude/` as
 a group (`runtime.go:19-24`: "runed has no groups table to enumerate, so it
@@ -3013,6 +3013,30 @@ dir with a `.claude/` marker gets a platform-seeded `.codex/`.
   `/v1/groups`. Not shipped: deleting a startup mechanism is a control-flow
   change.
 - **Fix:**
+
+- **Status:** fixed 2026-09-20.
+- **Fix:** `SeedCodexDirs` is deleted, with its one call site in
+  `runed/cmd/runed/main.go`. Nothing replaces it, because the spawn path
+  already does the work: `buildMounts` (`container/runner.go`) calls
+  `os.MkdirAll(groupCodex)` and `SeedCodexMountTargets` in-process, before
+  runed execs `docker run`, and a group's spawns are serialised by its run
+  slot. There was no window for docker to materialise the bind source.
+
+  The deletion also removes the class violation. The walk decided what a group
+  IS from a `.claude/` directory on disk, which is identity derived from a
+  filesystem marker — the thing root `CLAUDE.md` opens by forbidding. runed
+  now never needs to answer that question, so there is nothing left to derive.
+
+  The four tests that exercised the walk are gone. The one that matters now
+  asserts the property the deletion depends on:
+  `TestBuildMountsOwnsTheGroupCodexDirBeforeDockerSeesIt` checks `.codex/` does
+  NOT exist first, so it cannot pass vacuously, then that `buildMounts` creates
+  it and seeds both overmount targets. The `SeedCodexMountTargets` tests stay
+  and now drive that function directly.
+
+  PROVEN BY MUTATION: remove the `os.MkdirAll(groupCodex)` from `buildMounts`
+  and the new test fails — so if the spawn path ever stops owning the
+  directory, deleting the walk stops being safe and the suite says so.
 
 ## ✅ FIXED 2026-09-05 L158 — a Discord mention of the assistant is parsed as a child-group `@prefix` (2026-09-05)
 

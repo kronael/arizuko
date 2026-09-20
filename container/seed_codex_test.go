@@ -6,62 +6,6 @@ import (
 	"testing"
 )
 
-// TestSeedCodexDirsCreatesUnderGroupDirs: SeedCodexDirs creates a .codex/ in
-// every directory that holds a .claude/ marker (a group dir), recursively
-// (group folders nest corp/eng/sre), and SKIPS directories without the marker.
-// This is the runed startup parity with gateway.seedCodexDirs — the bind source
-// must exist (uid 1000) before any cold-start parallel `docker run` materializes
-// it as root. No docker needed; pure FS.
-func TestSeedCodexDirsCreatesUnderGroupDirs(t *testing.T) {
-	root := t.TempDir()
-	// two group dirs (have .claude), one nested; one plain dir (no .claude).
-	mustMkdir(t, filepath.Join(root, "alice", ".claude"))
-	mustMkdir(t, filepath.Join(root, "corp", "eng", ".claude")) // nested group
-	mustMkdir(t, filepath.Join(root, "notagroup"))              // no .claude marker
-
-	SeedCodexDirs(root)
-
-	for _, g := range []string{"alice", filepath.Join("corp", "eng")} {
-		cx := filepath.Join(root, g, ".codex")
-		if fi, err := os.Stat(cx); err != nil || !fi.IsDir() {
-			t.Fatalf("group %s: .codex not created (err=%v)", g, err)
-		}
-	}
-	if _, err := os.Stat(filepath.Join(root, "notagroup", ".codex")); !os.IsNotExist(err) {
-		t.Fatalf("non-group dir got a .codex (err=%v) — marker gate broken", err)
-	}
-}
-
-// TestSeedCodexDirsNoGroups: an empty groups tree is a silent no-op (no panic,
-// nothing created). Covers the cold instance with no folders yet.
-func TestSeedCodexDirsNoGroups(t *testing.T) {
-	root := t.TempDir()
-	SeedCodexDirs(root) // must not panic.
-	entries, _ := os.ReadDir(root)
-	if len(entries) != 0 {
-		t.Fatalf("empty tree gained %d entries after seed, want 0", len(entries))
-	}
-}
-
-// TestSeedCodexDirsMissingRoot: a non-existent groups dir is a silent no-op
-// (WalkDir's first callback gets the stat error; the closure returns nil).
-func TestSeedCodexDirsMissingRoot(t *testing.T) {
-	SeedCodexDirs(filepath.Join(t.TempDir(), "does-not-exist")) // must not panic.
-}
-
-// TestSeedCodexDirsIdempotent: re-running over an already-seeded tree is a no-op
-// (MkdirAll on an existing dir succeeds) — startup may run repeatedly across
-// restarts.
-func TestSeedCodexDirsIdempotent(t *testing.T) {
-	root := t.TempDir()
-	mustMkdir(t, filepath.Join(root, "alice", ".claude"))
-	SeedCodexDirs(root)
-	SeedCodexDirs(root) // second pass must not error/panic.
-	if fi, err := os.Stat(filepath.Join(root, "alice", ".codex")); err != nil || !fi.IsDir() {
-		t.Fatalf(".codex missing after idempotent re-seed: %v", err)
-	}
-}
-
 func mustMkdir(t *testing.T, p string) {
 	t.Helper()
 	if err := os.MkdirAll(p, 0o755); err != nil {
@@ -100,18 +44,18 @@ func TestCleanupOrphansNoPanic(t *testing.T) {
 	CleanupOrphans("", "") // the both-empty path (prefix=arizuko-, no image filter).
 }
 
-// TestSeedCodexDirsCreatesMountTargets: the RO overmount targets exist after
-// the seed, so the docker daemon never has to materialize them. The daemon
-// creates them root-owned inside the group's bind-mounted .codex/, which is
-// the EPERM runed then reports on every restart (BUGS L156).
-func TestSeedCodexDirsCreatesMountTargets(t *testing.T) {
-	root := t.TempDir()
-	mustMkdir(t, filepath.Join(root, "alice", ".claude"))
+// The RO overmount targets exist after the seed, so the docker daemon never
+// has to materialize them. The daemon creates them root-owned inside the
+// group's bind-mounted .codex/, which is the EPERM runed then reports on every
+// restart (BUGS L156).
+func TestSeedCodexMountTargetsCreatesTheTargets(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), ".codex")
+	mustMkdir(t, dir)
 
-	SeedCodexDirs(root)
+	SeedCodexMountTargets(dir)
 
 	for _, name := range CodexROMounts {
-		p := filepath.Join(root, "alice", ".codex", name)
+		p := filepath.Join(dir, name)
 		fi, err := os.Stat(p)
 		if err != nil {
 			t.Fatalf("mount target %s not seeded: %v", name, err)
@@ -155,8 +99,7 @@ func TestSeedCodexMountTargetsKeepsContent(t *testing.T) {
 }
 
 // TestSeedCodexMountTargetsIdempotent: a second pass leaves the seeded stubs
-// alone. Both callers (the startup seed and every spawn's buildMounts) run it
-// repeatedly over the same directory.
+// alone. buildMounts runs it on every spawn over the same directory.
 func TestSeedCodexMountTargetsIdempotent(t *testing.T) {
 	dir := t.TempDir()
 	SeedCodexMountTargets(dir)

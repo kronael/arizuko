@@ -475,3 +475,38 @@ func TestSetupGroup_WebSlotMkdirIsFatal(t *testing.T) {
 		t.Fatal("SetupGroup ignored an uncreatable web slot (want an error)")
 	}
 }
+
+// The spawn path owns the group's .codex/, so runed needs no startup walk over
+// groups/. The walk it replaces derived "group" from a `.claude/` marker on
+// disk and so seeded any project directory that had one — root-owned ones
+// failed at every restart (BUGS L157). buildMounts runs in-process before
+// `docker run`, and a group's spawns are serialised by its run slot, so docker
+// never sees a bind source that is about to be created.
+func TestBuildMountsOwnsTheGroupCodexDirBeforeDockerSeesIt(t *testing.T) {
+	cfg, folders := fhsConfig(t)
+	cfg.HostCodexDir = t.TempDir()
+
+	in := Input{Folder: "atlas/support"}
+	groupDir := filepath.Join(cfg.GroupsDir, in.Folder)
+	os.MkdirAll(groupDir, 0o755)
+
+	codex := filepath.Join(groupDir, ".codex")
+	if _, err := os.Stat(codex); !os.IsNotExist(err) {
+		t.Fatalf(".codex exists before the build; this test checks nothing (err=%v)", err)
+	}
+
+	mounts := buildMounts(cfg, in, groupDir, false, folders)
+
+	fi, err := os.Stat(codex)
+	if err != nil || !fi.IsDir() {
+		t.Fatalf("buildMounts did not create %s (err=%v)", codex, err)
+	}
+	for _, name := range CodexROMounts {
+		if _, err := os.Stat(filepath.Join(codex, name)); err != nil {
+			t.Errorf("overmount target %s not seeded: %v", name, err)
+		}
+	}
+	if findMount(mounts, "/home/node/.codex") == nil {
+		t.Error("no .codex mount in the built list")
+	}
+}
