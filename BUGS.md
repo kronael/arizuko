@@ -4495,7 +4495,7 @@ makes one blocking `POST /chat/<token>?wait=120` — still one call, no poll loo
 server-side deadline — against a surface this change does not touch. Its
 `chatMCPCall` helper is deleted.
 
-## L138 — the CLI cannot revoke the acl row `/always` writes, and cannot type one (2026-08-30, open)
+## ✅ FIXED 2026-09-20 L138 — the CLI cannot revoke the acl row `/always` writes, and cannot type one (2026-08-30)
 
 `always` (spec `6/26` Decision 5, shipped 2026-08-30) writes a skip-approval
 row: `hold:mcp:<tool>` at `effect='deny'` carrying the call's argument
@@ -4516,10 +4516,40 @@ the exact `remove_acl` call that undoes what it wrote. It is a gap in the
 operator's host-side escape hatch, which is the surface that matters when the
 dashboard is the thing that is broken.
 
-- **Owed:** `arizuko grant/ungrant` take `--action`/`--effect`/`--params` and
-  `grantableAction` learns `hold:`. Additive; no behaviour changes for the
-  existing call shapes. Worth pairing with a `grants` listing that prints
-  `params`, which `runGrants` also omits today.
+**FIXED 2026-09-20 in `cmd/arizuko/main.go`.** Both verbs now take the acl ROW
+(`core.ACLRow`) rather than five loose strings, because a grant and its
+revocation name ONE item: `store/acl.go` `aclKey` joins principal, action,
+scope, params, predicate and effect into the sort key, so a revoke carrying
+fewer fields than the grant addresses a different coordinate and deletes
+nothing. `parseGrantArgs` reads `<sub> <pattern> [action]` plus `--effect` and
+`--params` through the existing `flexParse`, so the flags sit anywhere and the
+two-positional call is unchanged. `predicate` deliberately has no flag, matching
+`routd/acl_resource.go` `aclArgsRow`, which pins it empty for the same reason.
+
+`grantableAction` learns `auth.HoldPrefix` — the constant, not a second literal
+— so `hold:mcp:<tool>` and `hold:mcp:*` are typeable. `runGrants` prints
+`PARAMS`, the sixth key field it omitted.
+
+**Three things the re-measurement turned up that the entry did not name:**
+
+1. `RemoveACLRow` validates NOTHING. `store.aclPut` refuses a misspelt effect on
+   the write, but the delete path has no equivalent, and deleting a coordinate
+   nobody wrote succeeds — so `ungrant --effect denny` would have answered
+   success with the rule still standing. `checkGrantRow` runs
+   `store.EffectAllowed` on both verbs.
+2. `runUngrant`'s `**` branch asked only about the scope while `runGrant`'s
+   asked about the scope AND `action == "admin"`. Revoking any `**` rule
+   therefore dropped the operator role with it. `operatorRow` is now one
+   predicate both verbs call, and it asks about all four pinned fields.
+3. `describeGrant` already existed in `cmd/arizuko/packages.go` and already
+   rendered every field including `params`. It takes `core.ACLRow` now and the
+   package installer converts its manifest row into one, so the install summary
+   and the grant verbs share ONE renderer instead of two that drift.
+
+Tests in `cmd/arizuko/grant_hold_test.go`, each mutation-checked: dropping the
+`hold:` prefix, re-pinning `runUngrant`'s action/effect/params, removing the
+`PARAMS` column, disabling the effect check, widening `operatorRow` to the scope
+alone, and dropping `--params` on the floor each turn exactly one test red.
 
 ## ✅ FIXED 2026-09-06 L97 — `/approve` on a held call is a no-op: the re-issue trigger sorts BEHIND the cursor that skips it (2026-08-26)
 

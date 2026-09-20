@@ -203,7 +203,7 @@ func installPackage(dataDir, inst, name, srcDir string, files []string, hashes m
 	// `reply on eng/*` from `admin on eng/tts`, and a grant is the one asset
 	// kind that changes who can do what (BUGS L36).
 	for _, row := range grants {
-		fmt.Println(describeGrant(row))
+		fmt.Println("  " + describeGrant(grantRowOf(row)))
 	}
 }
 
@@ -390,16 +390,25 @@ func scopeWitnesses(bound []string, scope string) []string {
 	return []string{strings.Join(shallow, "/"), strings.Join(deep, "/")}
 }
 
-// describeGrant is the operator-facing line for one applied grant: WHO may do
-// WHAT, WHERE. A bare count hides the fact the install handed somebody admin on
-// a folder — the same reason the audit row names every row it wrote (BUGS
-// Q5/L36).
-func describeGrant(row resources.ACLRow) string {
+// describeGrant is the operator-facing line for one acl row: WHO may do WHAT,
+// WHERE, and under which narrowing. A bare count hides the fact the install
+// handed somebody admin on a folder — the same reason the audit row names every
+// row it wrote (BUGS Q5/L36).
+//
+// IT NAMES EVERY FIELD OF THE COORDINATE. store.aclKey joins principal, action,
+// scope, params, predicate and effect, so a line that prints fewer of them
+// shows two different rows as one and leaves an operator unable to type the
+// `ungrant` that removes either (BUGS L138).
+//
+// It renders the DOMAIN row, and the package installer converts its manifest
+// row into one. Two renderers drift, and this one already has two sinks: the
+// install summary and `arizuko group grant`/`ungrant`.
+func describeGrant(row core.ACLRow) string {
 	effect := row.Effect
 	if effect == "" {
-		effect = "allow"
+		effect = store.EffectAllow
 	}
-	s := fmt.Sprintf("  %s: %s %s on %s", effect, row.Principal, row.Action, row.Scope)
+	s := fmt.Sprintf("%s: %s %s on %s", effect, row.Principal, row.Action, row.Scope)
 	if row.Params != "" {
 		s += " (" + row.Params + ")"
 	}
@@ -407,6 +416,18 @@ func describeGrant(row resources.ACLRow) string {
 		s += " WITH GRANT OPTION"
 	}
 	return s
+}
+
+// grantRowOf converts a package manifest's acl row into the domain row every
+// writer and the renderer above take. The manifest type is the wire shape
+// `resreg/resources` declares; core.ACLRow is what store writes.
+func grantRowOf(row resources.ACLRow) core.ACLRow {
+	return core.ACLRow{
+		Principal: row.Principal, Action: row.Action, Scope: row.Scope,
+		Effect: row.Effect, Params: row.Params, Predicate: row.Predicate,
+		GrantedBy: row.GrantedBy, GrantedAt: row.GrantedAt,
+		GrantOption: row.GrantOption,
+	}
 }
 
 // packageStore wraps routd.db for the package writers, attributed to the

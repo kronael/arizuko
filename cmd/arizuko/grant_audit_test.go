@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -31,7 +32,7 @@ func grantStore(t *testing.T, osUser string) *store.Store {
 func TestGrantACLAudited(t *testing.T) {
 	s := grantStore(t, "alice")
 	var out bytes.Buffer
-	if err := runGrant(s, "github:1", "atlas/eng", "", &out); err != nil {
+	if err := runGrant(s, core.ACLRow{Principal: "github:1", Scope: "atlas/eng"}, &out); err != nil {
 		t.Fatalf("runGrant: %v", err)
 	}
 
@@ -44,10 +45,10 @@ func TestGrantACLAudited(t *testing.T) {
 func TestUngrantACLAudited(t *testing.T) {
 	s := grantStore(t, "alice")
 	var out bytes.Buffer
-	if err := runGrant(s, "github:1", "atlas/eng", "", &out); err != nil {
+	if err := runGrant(s, core.ACLRow{Principal: "github:1", Scope: "atlas/eng"}, &out); err != nil {
 		t.Fatalf("runGrant: %v", err)
 	}
-	if err := runUngrant(s, "github:1", "atlas/eng", &out); err != nil {
+	if err := runUngrant(s, core.ACLRow{Principal: "github:1", Scope: "atlas/eng"}, &out); err != nil {
 		t.Fatalf("runUngrant: %v", err)
 	}
 
@@ -63,7 +64,7 @@ func TestUngrantACLAudited(t *testing.T) {
 func TestGrantOperatorMembershipAudited(t *testing.T) {
 	s := grantStore(t, "alice")
 	var out bytes.Buffer
-	if err := runGrant(s, "github:1", "**", "", &out); err != nil {
+	if err := runGrant(s, core.ACLRow{Principal: "github:1", Scope: "**"}, &out); err != nil {
 		t.Fatalf("runGrant **: %v", err)
 	}
 
@@ -76,10 +77,10 @@ func TestGrantOperatorMembershipAudited(t *testing.T) {
 func TestUngrantOperatorMembershipAudited(t *testing.T) {
 	s := grantStore(t, "alice")
 	var out bytes.Buffer
-	if err := runGrant(s, "github:1", "**", "", &out); err != nil {
+	if err := runGrant(s, core.ACLRow{Principal: "github:1", Scope: "**"}, &out); err != nil {
 		t.Fatalf("runGrant **: %v", err)
 	}
-	if err := runUngrant(s, "github:1", "**", &out); err != nil {
+	if err := runUngrant(s, core.ACLRow{Principal: "github:1", Scope: "**"}, &out); err != nil {
 		t.Fatalf("runUngrant **: %v", err)
 	}
 
@@ -95,10 +96,10 @@ func TestUngrantOperatorMembershipAudited(t *testing.T) {
 func TestGrantAuditUnattributedUnchanged(t *testing.T) {
 	s := grantStore(t, "")
 	var out bytes.Buffer
-	if err := runGrant(s, "github:1", "atlas/eng", "", &out); err != nil {
+	if err := runGrant(s, core.ACLRow{Principal: "github:1", Scope: "atlas/eng"}, &out); err != nil {
 		t.Fatalf("runGrant: %v", err)
 	}
-	if err := runGrant(s, "github:2", "**", "", &out); err != nil {
+	if err := runGrant(s, core.ACLRow{Principal: "github:2", Scope: "**"}, &out); err != nil {
 		t.Fatalf("runGrant **: %v", err)
 	}
 

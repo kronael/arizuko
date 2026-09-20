@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/core"
 )
 
 // TestGrantActionReachesEgress pins the gap migration 0023 opened. It removed the
@@ -19,7 +20,7 @@ func TestGrantActionReachesEgress(t *testing.T) {
 	var out bytes.Buffer
 
 	// The default grant is unchanged, and deliberately does NOT reach egress.
-	if err := runGrant(s, "folder:demo", "demo", "", &out); err != nil {
+	if err := runGrant(s, core.ACLRow{Principal: "folder:demo", Scope: "demo"}, &out); err != nil {
 		t.Fatalf("admin grant: %v", err)
 	}
 	if auth.Authorize(s, auth.Caller{Principal: "folder:demo"}, "egress", "demo", nil) {
@@ -27,7 +28,7 @@ func TestGrantActionReachesEgress(t *testing.T) {
 	}
 
 	// An explicit action does.
-	if err := runGrant(s, "folder:demo", "demo", "egress", &out); err != nil {
+	if err := runGrant(s, core.ACLRow{Principal: "folder:demo", Scope: "demo", Action: "egress"}, &out); err != nil {
 		t.Fatalf("egress grant: %v", err)
 	}
 	if !auth.Authorize(s, auth.Caller{Principal: "folder:demo"}, "egress", "demo", nil) {
@@ -43,7 +44,7 @@ func TestGrantActionReachesEgress(t *testing.T) {
 func TestGrantRejectsUnknownAction(t *testing.T) {
 	s := newMem(t)
 	var out bytes.Buffer
-	err := runGrant(s, "folder:demo", "demo", "egres", &out)
+	err := runGrant(s, core.ACLRow{Principal: "folder:demo", Scope: "demo", Action: "egres"}, &out)
 	if err == nil {
 		t.Fatal("typo'd action was accepted; an inert acl row now reads as a grant")
 	}
@@ -64,7 +65,7 @@ func TestGrantActionReachesShellEnv(t *testing.T) {
 	s := newMem(t)
 	var out bytes.Buffer
 
-	if err := runGrant(s, "folder:atlas", "atlas", "", &out); err != nil {
+	if err := runGrant(s, core.ACLRow{Principal: "folder:atlas", Scope: "atlas"}, &out); err != nil {
 		t.Fatalf("admin grant: %v", err)
 	}
 	if got := auth.ShellEnvKeys(s, auth.Caller{Principal: "folder:atlas"}, "atlas",
@@ -72,7 +73,7 @@ func TestGrantActionReachesShellEnv(t *testing.T) {
 		t.Fatalf("an admin grant must not confer a shell credential, got %v", got)
 	}
 
-	if err := runGrant(s, "folder:atlas", "atlas", auth.ShellEnvPrefix+"GITHUB_TOKEN", &out); err != nil {
+	if err := runGrant(s, core.ACLRow{Principal: "folder:atlas", Scope: "atlas", Action: auth.ShellEnvPrefix + "GITHUB_TOKEN"}, &out); err != nil {
 		t.Fatalf("shell:env grant: %v", err)
 	}
 	if got := auth.ShellEnvKeys(s, auth.Caller{Principal: "folder:atlas"}, "atlas",
@@ -93,14 +94,14 @@ func TestGrantActionReachesAnExtTool(t *testing.T) {
 	var out bytes.Buffer
 	const scope = auth.ExtScopePrefix + "cloudflare:dns:read"
 
-	if err := runGrant(s, "folder:atlas", "atlas", "", &out); err != nil {
+	if err := runGrant(s, core.ACLRow{Principal: "folder:atlas", Scope: "atlas"}, &out); err != nil {
 		t.Fatalf("admin grant: %v", err)
 	}
 	if auth.Authorize(s, auth.Caller{Principal: "folder:atlas"}, scope, "atlas", nil) {
 		t.Fatal("an admin grant must not confer an ext tool — the lattice stops at mcp:*")
 	}
 
-	if err := runGrant(s, "folder:atlas", "atlas", scope, &out); err != nil {
+	if err := runGrant(s, core.ACLRow{Principal: "folder:atlas", Scope: "atlas", Action: scope}, &out); err != nil {
 		t.Fatalf("ext scope grant: %v", err)
 	}
 	if !auth.Authorize(s, auth.Caller{Principal: "folder:atlas"}, scope, "atlas", nil) {

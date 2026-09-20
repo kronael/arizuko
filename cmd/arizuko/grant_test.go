@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/tests/testutils"
 )
@@ -23,7 +24,7 @@ func TestGrantThenList(t *testing.T) {
 	s := newMem(t)
 	var out bytes.Buffer
 
-	if err := runGrant(s, "github:1", "alice", "", &out); err != nil {
+	if err := runGrant(s, core.ACLRow{Principal: "github:1", Scope: "alice"}, &out); err != nil {
 		t.Fatalf("runGrant: %v", err)
 	}
 	if !strings.Contains(out.String(), "alice") {
@@ -43,7 +44,7 @@ func TestGrantOperatorMembership(t *testing.T) {
 	s := newMem(t)
 	var out bytes.Buffer
 
-	if err := runGrant(s, "github:1", "**", "", &out); err != nil {
+	if err := runGrant(s, core.ACLRow{Principal: "github:1", Scope: "**"}, &out); err != nil {
 		t.Fatalf("operator grant: %v", err)
 	}
 	if !strings.Contains(out.String(), "role:operator") {
@@ -61,10 +62,10 @@ func TestUngrantRemoves(t *testing.T) {
 	s := newMem(t)
 	var out bytes.Buffer
 
-	runGrant(s, "github:1", "alice", "", &out)
+	runGrant(s, core.ACLRow{Principal: "github:1", Scope: "alice"}, &out)
 	out.Reset()
 
-	if err := runUngrant(s, "github:1", "alice", &out); err != nil {
+	if err := runUngrant(s, core.ACLRow{Principal: "github:1", Scope: "alice"}, &out); err != nil {
 		t.Fatalf("runUngrant: %v", err)
 	}
 	if !strings.Contains(out.String(), "ungranted") {
@@ -81,7 +82,7 @@ func TestUngrantNonexistent(t *testing.T) {
 	var out bytes.Buffer
 
 	// Should not error even when no row exists; SQL DELETE is a no-op.
-	if err := runUngrant(s, "ghost", "nowhere", &out); err != nil {
+	if err := runUngrant(s, core.ACLRow{Principal: "ghost", Scope: "nowhere"}, &out); err != nil {
 		t.Fatalf("runUngrant should not error: %v", err)
 	}
 }
@@ -90,9 +91,9 @@ func TestGrantsFilterBySub(t *testing.T) {
 	s := newMem(t)
 	var sink bytes.Buffer
 
-	runGrant(s, "u1", "alpha", "", &sink)
-	runGrant(s, "u1", "beta", "", &sink)
-	runGrant(s, "u2", "gamma", "", &sink)
+	runGrant(s, core.ACLRow{Principal: "u1", Scope: "alpha"}, &sink)
+	runGrant(s, core.ACLRow{Principal: "u1", Scope: "beta"}, &sink)
+	runGrant(s, core.ACLRow{Principal: "u2", Scope: "gamma"}, &sink)
 
 	var out bytes.Buffer
 	if err := runGrants(s, "u1", &out); err != nil {
@@ -122,13 +123,13 @@ func TestGrantRejectsEmpty(t *testing.T) {
 	s := newMem(t)
 	var out bytes.Buffer
 
-	if err := runGrant(s, "", "alice", "", &out); err == nil {
+	if err := runGrant(s, core.ACLRow{Principal: "", Scope: "alice"}, &out); err == nil {
 		t.Error("expected error for empty sub")
 	}
-	if err := runGrant(s, "u1", "", "", &out); err == nil {
+	if err := runGrant(s, core.ACLRow{Principal: "u1", Scope: ""}, &out); err == nil {
 		t.Error("expected error for empty pattern")
 	}
-	if err := runUngrant(s, "", "alice", &out); err == nil {
+	if err := runUngrant(s, core.ACLRow{Principal: "", Scope: "alice"}, &out); err == nil {
 		t.Error("expected error for empty sub in ungrant")
 	}
 }

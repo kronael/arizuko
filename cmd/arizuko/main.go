@@ -477,20 +477,17 @@ func cmdGroup(args []string) {
 		auditCLI(s, "group rm", []string{folder})
 		fmt.Printf("removed %d group(s) under %s\n", removed, folder)
 
-	case "grant":
-		need(args, 4, "arizuko group <instance> grant <sub> <pattern> [action]")
-		gAction := ""
-		if len(args) >= 5 {
-			gAction = args[4]
+	case "grant", "ungrant":
+		row, err := parseGrantArgs(action, args[2:])
+		if err != nil {
+			die("Failed: %s: %v", action, err)
 		}
-		if err := runGrant(s, args[2], args[3], gAction, os.Stdout); err != nil {
-			die("Failed: grant: %v", err)
+		run := runGrant
+		if action == "ungrant" {
+			run = runUngrant
 		}
-
-	case "ungrant":
-		need(args, 4, "arizuko group <instance> ungrant <sub> <pattern>")
-		if err := runUngrant(s, args[2], args[3], os.Stdout); err != nil {
-			die("Failed: ungrant: %v", err)
+		if err := run(s, row, os.Stdout); err != nil {
+			die("Failed: %s: %v", action, err)
 		}
 
 	case "grants":
@@ -585,59 +582,129 @@ func grantableAction(action string) bool {
 	if grantableActions[action] {
 		return true
 	}
-	// mcp:<tool>, shell:env:<KEY>, ext:<provider>:<area>:<verb> and
-	// <resource>.<verb> are open-ended by design.
+	// mcp:<tool>, shell:env:<KEY>, ext:<provider>:<area>:<verb>,
+	// hold:mcp:<tool> and <resource>.<verb> are open-ended by design.
 	return strings.HasPrefix(action, "mcp:") ||
 		strings.HasPrefix(action, auth.ShellEnvPrefix) ||
 		strings.HasPrefix(action, auth.ExtScopePrefix) ||
+		strings.HasPrefix(action, auth.HoldPrefix) ||
 		strings.Contains(action, ".")
 }
 
-func runGrant(s *store.Store, sub, pat, action string, w io.Writer) error {
-	if sub == "" || pat == "" {
+// grantUsage is the one usage string both verbs print, because they take the
+// same row and a divergence would document a flag only one of them has.
+const grantUsage = "arizuko group <instance> <grant|ungrant> <sub> <pattern> [action] " +
+	"[--effect allow|deny] [--params <matcher>]"
+
+// parseGrantArgs reads the operator's words into the acl row the verb addresses.
+//
+// IT IS THE ROW, not five loose strings: a grant and its revocation name ONE
+// item — store.aclKey joins principal, action, scope, params, predicate and
+// effect — so a revoke that carries fewer fields than the grant addresses a
+// different item and silently deletes nothing. That is L138: `ungrant` pinned
+// action=admin, effect=allow and params="", which is exactly one of the six
+// shapes an operator can now write.
+//
+// `predicate` has no flag. routd's face leaves it out for the same reason
+// (acl_resource.go aclArgsRow): a claim condition is a different vocabulary
+// from a rule over call arguments, and a revoke pins it empty to match.
+func parseGrantArgs(verb string, args []string) (core.ACLRow, error) {
+	fs := flag.NewFlagSet("group "+verb, flag.ContinueOnError)
+	effect := fs.String("effect", "", "allow or deny; default allow")
+	params := fs.String("params", "", "argument matcher the row is narrowed to, as add_acl writes it")
+	if err := flexParse(fs, args); err != nil {
+		return core.ACLRow{}, err
+	}
+	if fs.NArg() < 2 || fs.NArg() > 3 {
+		return core.ACLRow{}, fmt.Errorf("usage: %s", grantUsage)
+	}
+	return core.ACLRow{
+		Principal: fs.Arg(0), Scope: fs.Arg(1), Action: fs.Arg(2),
+		Effect: *effect, Params: *params,
+	}, nil
+}
+
+// grantDefaults applies the defaults BOTH verbs share, so the row a grant
+// writes is the row the matching ungrant addresses. The pair is the whole
+// point: two default sets would put the revoke at a coordinate the grant never
+// wrote (store/acl.go aclKey), which is the silent no-op of L138.
+func grantDefaults(row core.ACLRow) core.ACLRow {
+	if row.Action == "" {
+		row.Action = "admin"
+	}
+	if row.Effect == "" {
+		row.Effect = store.EffectAllow
+	}
+	return row
+}
+
+// checkGrantRow refuses a row no evaluator would read the way the operator
+// typed it. The effect check is here and not only in store.aclPut because
+// RemoveACLRow does NOT validate: a delete of a coordinate nobody wrote
+// succeeds, so a typo'd effect on `ungrant` would report success and leave the
+// rule standing.
+func checkGrantRow(row core.ACLRow) error {
+	if row.Principal == "" || row.Scope == "" {
 		return errEmptyGrant
 	}
-	if action == "" {
-		action = "admin"
+	if !grantableAction(row.Action) {
+		return fmt.Errorf("unknown action %q — one of *, admin, interact, egress, web:publish, "+
+			"gh:write, mcp:*, mcp:<tool>, shell:env:<KEY>, ext:<provider>:<area>:<verb>, "+
+			"hold:mcp:<tool>, <resource>.<verb>", row.Action)
 	}
-	if !grantableAction(action) {
-		return fmt.Errorf("unknown action %q — one of *, admin, interact, egress, web:publish, gh:write, mcp:*, mcp:<tool>, shell:env:<KEY>, ext:<provider>:<area>:<verb>, <resource>.<verb>", action)
+	if !store.EffectAllowed(row.Effect) {
+		return fmt.Errorf("unknown effect %q — %q or %q; every other spelling reads as a "+
+			"grant to the evaluator", row.Effect, store.EffectAllow, store.EffectDeny)
 	}
-	if pat == "**" && action == "admin" {
-		// Operator grant: add to role:operator instead of a per-folder row.
-		if err := s.AddMembership(sub, "role:operator", "arizuko grant"); err != nil {
-			return err
-		}
-		fmt.Fprintf(w, "granted %s -> role:operator\n", sub)
-		return nil
-	}
-	if err := s.AddACLRow(core.ACLRow{
-		Principal: sub, Action: action, Scope: pat,
-		Effect: "allow", GrantedBy: "arizuko grant",
-	}); err != nil {
-		return err
-	}
-	fmt.Fprintf(w, "granted %s %s -> %s\n", sub, action, pat)
 	return nil
 }
 
-func runUngrant(s *store.Store, sub, pat string, w io.Writer) error {
-	if sub == "" || pat == "" {
-		return errEmptyGrant
-	}
-	if pat == "**" {
-		if err := s.RemoveMembership(sub, "role:operator"); err != nil {
-			return err
-		}
-		fmt.Fprintf(w, "ungranted %s -> role:operator\n", sub)
-		return nil
-	}
-	if err := s.RemoveACLRow(core.ACLRow{
-		Principal: sub, Action: "admin", Scope: pat, Effect: "allow",
-	}); err != nil {
+// operatorRow reports whether the row is the operator membership rather than a
+// per-folder grant. BOTH verbs ask, and they must agree: `ungrant sub **` used
+// to drop the operator role whatever action it carried, so revoking one `**`
+// rule took the whole role with it.
+func operatorRow(row core.ACLRow) bool {
+	return row.Scope == "**" && row.Action == "admin" &&
+		row.Effect == store.EffectAllow && row.Params == ""
+}
+
+func runGrant(s *store.Store, row core.ACLRow, w io.Writer) error {
+	row = grantDefaults(row)
+	if err := checkGrantRow(row); err != nil {
 		return err
 	}
-	fmt.Fprintf(w, "ungranted %s admin -> %s\n", sub, pat)
+	if operatorRow(row) {
+		// Operator grant: add to role:operator instead of a per-folder row.
+		if err := s.AddMembership(row.Principal, "role:operator", "arizuko grant"); err != nil {
+			return err
+		}
+		fmt.Fprintf(w, "granted %s -> role:operator\n", row.Principal)
+		return nil
+	}
+	row.GrantedBy = "arizuko grant"
+	if err := s.AddACLRow(row); err != nil {
+		return err
+	}
+	fmt.Fprintln(w, "granted "+describeGrant(row))
+	return nil
+}
+
+func runUngrant(s *store.Store, row core.ACLRow, w io.Writer) error {
+	row = grantDefaults(row)
+	if err := checkGrantRow(row); err != nil {
+		return err
+	}
+	if operatorRow(row) {
+		if err := s.RemoveMembership(row.Principal, "role:operator"); err != nil {
+			return err
+		}
+		fmt.Fprintf(w, "ungranted %s -> role:operator\n", row.Principal)
+		return nil
+	}
+	if err := s.RemoveACLRow(row); err != nil {
+		return err
+	}
+	fmt.Fprintln(w, "ungranted "+describeGrant(row))
 	return nil
 }
 
@@ -652,13 +719,20 @@ func runGrants(s *store.Store, sub string, w io.Writer) error {
 		return nil
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "PRINCIPAL\tACTION\tSCOPE\tEFFECT\tGRANTED_AT")
+	// PARAMS is in the table because it is in the KEY. A listing that hides it
+	// shows two narrowings of one tool as one indistinguishable line, and an
+	// operator cannot type the `ungrant` that removes either (L138).
+	fmt.Fprintln(tw, "PRINCIPAL\tACTION\tSCOPE\tEFFECT\tPARAMS\tGRANTED_AT")
 	for _, r := range rows {
 		ts := r.GrantedAt
 		if ts == "" {
 			ts = "-"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", r.Principal, r.Action, r.Scope, r.Effect, ts)
+		params := r.Params
+		if params == "" {
+			params = "-"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", r.Principal, r.Action, r.Scope, r.Effect, params, ts)
 	}
 	// Also show role memberships transitively reachable from sub.
 	if anc := s.Ancestors(sub); len(anc) > 0 {
