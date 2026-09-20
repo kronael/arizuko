@@ -25,6 +25,7 @@ beyond `docker` for `run` and `pair`).
   - `arizuko status <instance>` — show compose services + channels
   - `arizuko pair <instance> <svc>` — `docker compose run --rm`
   - `arizuko group <inst> list | add | rm | grant | ungrant | grants`
+  - `arizuko group <inst> grant|ungrant <sub> <pattern> [action] [--effect allow|deny] [--params <matcher>]` — one acl row, named by its whole coordinate. `store.aclKey` joins principal, action, scope, params, predicate and effect, so a revoke naming fewer fields addresses a different item and deletes nothing. `--effect deny` on a `hold:mcp:<tool>` action IS the skip-approval rule `/always` writes; `--params` carries the argument matcher it was narrowed to, and `grants` prints that column. `<sub> ** admin` with no params stays the operator-role shortcut, both ways
   - `arizuko gate  <inst> list | add | rm | enable | disable`
   - `arizuko network <inst> allow|deny <folder> <target> | list | resolve <folder>` — per-folder egress allow/deny rules
   - `arizuko secret <inst> set <folder> KEY --value V | list <folder> | delete <folder> KEY | seal-legacy [--dry-run]` — folder-scoped secrets; `seal-legacy` encrypts any still-unsealed row in place (rehearse with `--dry-run` — it rewrites the attribute every credential lives in)

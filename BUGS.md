@@ -247,7 +247,12 @@ is a superuser owning that instance's own server, no longer exists.
 
 - **Severity:** medium — an adapter compromise reaches every owner's tables in that instance
 - **Scope:** `extenddb init`'s per-daemon `put-user-policy`; `INSTALL.md` § The store server
-- **Affected:** krons, sloth, marinade (the same by-hand recipe)
+- **Affected:** sloth is the drift, krons is the template. Re-measured by the
+  operator 2026-09-20: sloth holds 19 `tables` policies with ONE distinct
+  document, `{"Action":"dynamodb:*","Resource":"*"}`; krons holds 9 `owners`
+  policies genuinely bounded to `routd.*`, `onbod.*`, `teled.*` and so on. The
+  original "Affected: krons" was backwards. marinade unverified. (Live-instance
+  figures are the operator's measurement, not this repo's.)
 - **Source:** `iam_policies` on sloth, 38 rows: one `SelfServicePolicy` and one `tables` policy per user, the latter identical for all 19
 **The owner map exists — this entry first claimed it did not.** `store/owners.go`
 registers four owners (`authd`, `onbod`, `routd`, `runed`), `dynstore.Prefix`
@@ -270,8 +275,42 @@ Measured from the call sites, not from the `OpenOwner` comment above them:
 `timed` opens none: it writes through the owner's HTTP API, which is the split
 write-discipline working.
 
-- **Status:** open — the resource list is derivable from the table above, so the
-  work is the rollout, not the design. It rewrites 19 live IAM policies on a
+**The code half is DONE 2026-09-20; the rollout is not.** Nothing in the repo
+generated, documented or checked these policies — the only mention was one
+sentence in `INSTALL.md` § The store server, and it had already drifted: it gave
+`dashd` a policy on `runed.*`, which dashd has never opened. A shape that lives
+in prose beside no check is a shape that is already wrong.
+
+Now declared and checked:
+
+- `store/owner_reach.go` `StoreReach` declares daemon → owner prefixes, beside
+  the owner registry that the prefix comes from.
+- `store/owner_reach_test.go` `TestStoreReachMatchesTheCallSites` walks the
+  module for the store doors and fails on either direction — a daemon that opens
+  an owner the map omits, and a daemon declared for an owner it never opens. The
+  measured map matched the declaration on the first run, which independently
+  confirms the table this entry already carried.
+- `TestInstallDocumentsTheReach` asserts `INSTALL.md` carries the same rows, and
+  prints the rows to paste when it does not. One declaration, two readers: the
+  test and the operator.
+- `INSTALL.md` § The store server now carries the table, the bounded policy
+  document, and the `create-user` / `put-user-policy` / `create-access-key`
+  commands, replacing the sentence that described them.
+
+**The two the rollout must not get wrong**, and the reason the table beats
+"adapters get their own prefix": `gitd` and `slakd` open `routd` directly
+(`gitd/main.go`, `slakd/main.go`) ON TOP of their own adapter prefix, so an
+adapter-prefix-only policy leaves them authenticated and unable to read
+anything. `timed` and `ttsd` need no key at all. A too-narrow policy does not
+fail at deploy — it fails the first time the daemon touches the table, which is
+why the rollout is one daemon at a time and watched.
+
+Each assertion was mutation-checked: declaring `runed.*` for dashd, dropping
+`routd.*` from gitd, removing slakd from the map, giving ttsd a key it does not
+use, and drifting the INSTALL.md row each turn the matching test red.
+
+- **Status:** open — the ROLLOUT only; the resource list is now declared and
+  checked, so the work is not the design. It rewrites 19 live IAM policies on a
   running fleet, so it ships one daemon at a time against krons — `gitd` first,
   which reads `routd` and nothing else — each proven before the next.
 - **Fix:**
@@ -3494,7 +3533,7 @@ or may be a real finding in our own corpus.
   path for every `ant/CLAUDE.md` change (see `L316`), so quarantining it stops
   the fleet taking new instructions at all.
 
-## L152 — an `acl` grant can name a principal nobody will ever present, and no surface says so (2026-09-02)
+## L152 — an `acl` grant can name a principal nobody will ever present, and no surface says so (2026-09-02, open — proposal REFUTED 2026-09-20, needs a new record + sign-off)
 
 `acl_membership` on krons grants `role:operator` to
 `telegram:user/1183985669`. That id has sent **zero** messages on the instance,
@@ -3520,10 +3559,47 @@ looks like policy.
 **Shape of a fix (proposal — needs sign-off).** A read-only reconciler, not a
 write-time check: write-time validation would refuse to pre-grant an identity
 that has not spoken yet, which is legitimate and common (an invite names someone
-before they arrive). One query — principals in `acl`/`acl_membership` that are
-JID-shaped and appear in no `messages.sender` and no linked identity — surfaced
-on the dashboard grants page and in the CLI grant listing as a "never seen"
-marker beside the row. No new table, no new write path, no evaluator change.
+before they arrive). Surfaced on the dashboard grants page and in the CLI grant
+listing as a "never seen" marker beside the row. No new table, no new write
+path, no evaluator change.
+
+**THE ONE QUERY THIS ASKED FOR DOES NOT EXIST. Measured against the call paths
+2026-09-20, and no oracle in the store can answer "never seen".** The marker
+would be wrong on correct grants, which is worse than the silence it replaces:
+this entry's own history is a false-absence conclusion, and a reconciler built
+on any source below would manufacture them at fleet scale. What each candidate
+actually answers:
+
+| candidate | what it answers | why it is not "never seen" |
+| --- | --- | --- |
+| `messages.sender` | nothing, in one query | `sender` is an ATTRIBUTE (`store/messages.go:66`), not part of the key, and `messages` is partitioned per chat JID — every read in the file names a `Partition`. The "one query" is a sweep of every chat partition on the instance. |
+| `message_activity.sender` | spoke in the last 30 days | This one IS a single query: one constant partition and `sender` is an attribute on it (`store/message_activity.go:46`, `:114`). But `ActivityRetention` is `30 * 24 * time.Hour` (`:59`) and the feed is swept to it, so a real person quiet for a month reads exactly like a typo. |
+| `user_profiles` | created a world through onbod | `RecordPerson` has ONE caller — `onbod/main.go:911`, the last write of `writeWorld`. A platform sender who only ever chats in an existing group never gets an item, which `UserCap` states outright (`store/user_profiles.go:236`: "platform senders (telegram:user/…, anon:…) and service:routd never own one"). |
+| `oauth_identities` | has linked an OAuth login | `OAuthIdentityForSub` (`authd/authstore/auth_users.go:33`) resolves only identities an account has LINKED. An unlinked `telegram:user/…` is genuinely unclaimed — which is precisely the `!claimed` branch `nonCanonicalWarning` already returns `""` on (`routd/acl_resource.go:224`). Warning there would fire on nearly every legitimate grant. |
+
+Nor is the krons case separable by shape: `telegram:user/1183985669` and
+`telegram:user/1112184352` are both well-formed, and the repo declares no
+principal validator at all (no `ValidPrincipal`, no canonical-JID check on any
+write surface), so no syntactic rule tells the typo from the real account.
+
+**What a sound fix therefore needs, and why it is not an edit.** Arizuko keeps
+no durable, enumerable record of the principals it has seen present themselves.
+Answering this question at all means writing one — a new item per sender on the
+message-append path, or an attribute moved onto an existing one — which is a new
+write on the hot path and a new entity to sweep. That is a redesign, so it is
+recorded here for sign-off rather than shipped (root `CLAUDE.md`, "Redesigns
+need sign-off"). Until then the three write surfaces stay as they are, and
+`nonCanonicalWarning`'s alias check remains the only real signal: it is sound
+because it fires only when authd says the string IS an alias of another account.
+
+**Three write surfaces, one guard — and only one surface reads it.** Re-measured
+2026-09-20 and unchanged in substance: `cmd/arizuko/main.go` `checkGrantRow`
+refuses an EMPTY principal and nothing more, `dashd/grants_admin.go:199` refuses
+an empty principal and action and nothing more, and `nonCanonicalWarning` is
+wired into `add_acl` alone. Not one of the three asks whether the string
+corresponds to an account. Extending the alias guard to the other two is sound
+work with no false positives, and it is a separate, smaller entry than the
+reconciler above.
 
 **How this entry was first written wrong.** The first version claimed krons'
 Telegram operator had been unreachable since 2026-07-19. That came from a
@@ -4550,7 +4626,7 @@ makes one blocking `POST /chat/<token>?wait=120` — still one call, no poll loo
 server-side deadline — against a surface this change does not touch. Its
 `chatMCPCall` helper is deleted.
 
-## L138 — the CLI cannot revoke the acl row `/always` writes, and cannot type one (2026-08-30, open)
+## ✅ FIXED 2026-09-20 L138 — the CLI cannot revoke the acl row `/always` writes, and cannot type one (2026-08-30)
 
 `always` (spec `6/26` Decision 5, shipped 2026-08-30) writes a skip-approval
 row: `hold:mcp:<tool>` at `effect='deny'` carrying the call's argument
@@ -4571,10 +4647,40 @@ the exact `remove_acl` call that undoes what it wrote. It is a gap in the
 operator's host-side escape hatch, which is the surface that matters when the
 dashboard is the thing that is broken.
 
-- **Owed:** `arizuko grant/ungrant` take `--action`/`--effect`/`--params` and
-  `grantableAction` learns `hold:`. Additive; no behaviour changes for the
-  existing call shapes. Worth pairing with a `grants` listing that prints
-  `params`, which `runGrants` also omits today.
+**FIXED 2026-09-20 in `cmd/arizuko/main.go`.** Both verbs now take the acl ROW
+(`core.ACLRow`) rather than five loose strings, because a grant and its
+revocation name ONE item: `store/acl.go` `aclKey` joins principal, action,
+scope, params, predicate and effect into the sort key, so a revoke carrying
+fewer fields than the grant addresses a different coordinate and deletes
+nothing. `parseGrantArgs` reads `<sub> <pattern> [action]` plus `--effect` and
+`--params` through the existing `flexParse`, so the flags sit anywhere and the
+two-positional call is unchanged. `predicate` deliberately has no flag, matching
+`routd/acl_resource.go` `aclArgsRow`, which pins it empty for the same reason.
+
+`grantableAction` learns `auth.HoldPrefix` — the constant, not a second literal
+— so `hold:mcp:<tool>` and `hold:mcp:*` are typeable. `runGrants` prints
+`PARAMS`, the sixth key field it omitted.
+
+**Three things the re-measurement turned up that the entry did not name:**
+
+1. `RemoveACLRow` validates NOTHING. `store.aclPut` refuses a misspelt effect on
+   the write, but the delete path has no equivalent, and deleting a coordinate
+   nobody wrote succeeds — so `ungrant --effect denny` would have answered
+   success with the rule still standing. `checkGrantRow` runs
+   `store.EffectAllowed` on both verbs.
+2. `runUngrant`'s `**` branch asked only about the scope while `runGrant`'s
+   asked about the scope AND `action == "admin"`. Revoking any `**` rule
+   therefore dropped the operator role with it. `operatorRow` is now one
+   predicate both verbs call, and it asks about all four pinned fields.
+3. `describeGrant` already existed in `cmd/arizuko/packages.go` and already
+   rendered every field including `params`. It takes `core.ACLRow` now and the
+   package installer converts its manifest row into one, so the install summary
+   and the grant verbs share ONE renderer instead of two that drift.
+
+Tests in `cmd/arizuko/grant_hold_test.go`, each mutation-checked: dropping the
+`hold:` prefix, re-pinning `runUngrant`'s action/effect/params, removing the
+`PARAMS` column, disabling the effect check, widening `operatorRow` to the scope
+alone, and dropping `--params` on the floor each turn exactly one test red.
 
 ## ✅ FIXED 2026-09-06 L97 — `/approve` on a held call is a no-op: the re-issue trigger sorts BEHIND the cursor that skips it (2026-08-26)
 

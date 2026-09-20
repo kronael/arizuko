@@ -195,12 +195,78 @@ sudo docker exec -e EXTENDDB_PASSWORD=$STORE_ADMIN_PASSWORD arizuko_extenddb_<na
   extenddb settings -c /var/lib/extenddb/extenddb.toml set control_plane_delay_seconds 0
 ```
 
-Each daemon signs as itself, with a policy bounded to the owners it reaches —
-routd on `routd.*`, dashd on `routd.*`, `onbod.*` and `runed.*`, an adapter on
-its own prefix. For every daemon that reaches a store, create the user, put the
-policy and mint the key with `extenddb manage --user admin`, then write the
-pair into `env/<daemon>.env` as `AWS_ACCESS_KEY_ID` and
-`AWS_SECRET_ACCESS_KEY`; a later generate carries them forward.
+#### The per-daemon store keys
+
+Each daemon signs as itself: its own IAM user, its own access key in its own
+`env/<daemon>.env`, and a policy bounded to the tables it actually opens. The
+account is the tenancy boundary; the POLICY is the only boundary inside it.
+`dynstore.Prefix` puts the owner in front of every entity name, so `routd.acl`
+is routd's and a resource of `routd.*` means exactly "routd's tables".
+
+**Do not give a key `dynamodb:*` on `*`.** That is a key with attribution and
+no isolation — one compromised adapter reaches every owner's tables on the
+instance, and it is what all 19 users on sloth carried (BUGS `L318`).
+
+The reach below is MEASURED from the call sites, not described: `StoreReach` in
+`store/owner_reach.go` declares it and `TestStoreReachMatchesTheCallSites` fails
+when a daemon opens an owner the table does not list, or lists one it does not
+open. Change a daemon's store use and that test tells you which policy to
+rewrite.
+
+| daemon        | policy resources                |
+| ------------- | ------------------------------- |
+| `authd`       | `authd.*`                       |
+| `bskyd`       | `bskyd.*`                       |
+| `cmd/arizuko` | `authd.*`, `onbod.*`, `routd.*` |
+| `dashd`       | `onbod.*`, `routd.*`            |
+| `discd`       | `discd.*`                       |
+| `emaid`       | `emaid.*`                       |
+| `gitd`        | `routd.*`, `gitd.*`             |
+| `linkd`       | `linkd.*`                       |
+| `onbod`       | `onbod.*`, `routd.*`            |
+| `proxyd`      | `routd.*`                       |
+| `reditd`      | `reditd.*`                      |
+| `routd`       | `routd.*`                       |
+| `runed`       | `runed.*`                       |
+| `slakd`       | `routd.*`, `slakd.*`            |
+| `teled`       | `teled.*`                       |
+| `timed`       | —                               |
+| `ttsd`        | —                               |
+| `webd`        | `routd.*`                       |
+
+Two of those need care. **`gitd` and `slakd` carry `routd.*` on top of their own
+adapter prefix** — both open routd's tables directly (`gitd/main.go`,
+`slakd/main.go`), so an adapter-prefix-only policy leaves them authenticated and
+unable to read anything. Every other adapter gets its own prefix and nothing
+else. **`timed` and `ttsd` need no key at all**: `timed` writes through the
+owner's HTTP API with a service token, which is the split write-discipline
+working, and `ttsd` opens no store.
+
+`cmd/arizuko` is the operator CLI on the host, and its key goes in
+`env/operator.env` rather than a daemon's file.
+
+For each row, create the user, put the policy and mint the key:
+
+```bash
+sudo docker exec -e EXTENDDB_PASSWORD=$STORE_ADMIN_PASSWORD arizuko_extenddb_<name> \
+  extenddb manage -c /var/lib/extenddb/extenddb.toml --user admin \
+  create-user --account $STORE_ACCOUNT_ID --name routd
+
+sudo docker exec -e EXTENDDB_PASSWORD=$STORE_ADMIN_PASSWORD arizuko_extenddb_<name> \
+  extenddb manage -c /var/lib/extenddb/extenddb.toml --user admin \
+  put-user-policy --account $STORE_ACCOUNT_ID --name routd --policy-name tables \
+  --policy '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"dynamodb:*","Resource":["arn:aws:dynamodb:*:*:table/routd.*"]}]}'
+
+sudo docker exec -e EXTENDDB_PASSWORD=$STORE_ADMIN_PASSWORD arizuko_extenddb_<name> \
+  extenddb manage -c /var/lib/extenddb/extenddb.toml --user admin \
+  create-access-key --account $STORE_ACCOUNT_ID --name routd
+```
+
+Write the printed pair into `env/routd.env` as `AWS_ACCESS_KEY_ID` and
+`AWS_SECRET_ACCESS_KEY`; a later `generate` carries them forward. A daemon whose
+policy is too narrow does NOT fail at deploy — it fails the first time it
+touches the table it was never granted, so roll one daemon at a time and watch
+it answer.
 
 TLS is mandatory — the server refuses to start without it — so every daemon
 needs the certificate the init run generated:
