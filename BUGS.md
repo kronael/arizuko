@@ -13145,6 +13145,29 @@ This entry is about the shape, not a live defect.
   `namespacedAllows`, `CheckHold`, `ShellEnvKeys`; `specs/5/33-paths-roles.md`
   ("SOLE runtime authorization evaluator"), `specs/5/19` Hazard 2.
 
+- **RE-MEASURED 2026-09-20: the root cause is unchanged and the consequence was
+  PREVENTED.** The entry's title is the part that no longer holds.
+- **The one line is still there.** `auth/authorize.go:390-393` — `actionCovers`
+  returns true for any requested action when `rowAction == "*"`. Under the
+  lattice an operator's `(*, **)` still matches `hold:mcp:delete` and
+  `shell:env:GITHUB_TOKEN`.
+- **But "every namespaced rule needs its own evaluator" did not happen.** There
+  are TWO namespaces, `hold:` and `shell:env:`, and they share ONE body.
+  `namespacedAllows` (`auth/authorize.go:603-613`) states both the reason and
+  the guard against the drift this entry predicts: "The action is matched
+  EXACTLY, never through `actionCovers`. That is the whole reason this body
+  exists apart from `Authorize` … Both namespaces need the same refusal, so they
+  share one body rather than two loops that drift."
+- **So the debt is bounded and written down rather than accumulating.** What
+  remains is the design question the entry really asks: `5/33` calls
+  `auth.Authorize` the SOLE runtime evaluator and there are two, because the
+  lattice cannot express a rule — only a grant. Resolving that is an auth-model
+  change, which is why this stays a proposal.
+- **The hazard it cites is real and already guarded:** an operator's `*` reading
+  as a rule would hold every tool call the operator makes (`5/19` Hazard 2) and
+  hand every folder secret to every operator turn. Exact matching is what stops
+  both.
+
 ## ✅ FIXED 2026-08-30 L132 — the GitHub connector `6/26` calls "shipped, use this" cannot run: all three documented commands are absent from routd's image (2026-08-28, fixed)
 
 `6/26` Decision 3 picks the MCP connector over the `gh` CLI and labels it
