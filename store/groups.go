@@ -341,15 +341,18 @@ func (s *Store) PutGroupRow(g core.Group) error {
 // The subtree, not the row: a child folder left behind is an orphan holding
 // grants of its own, and a child's acl rows sit under the parent's path.
 //
-// A folder with no groups row in its subtree returns 0 and writes nothing,
-// audit row included — there is no delete to record.
+// A folder with no groups row in its subtree returns 0 and records no audit row.
+// IT STILL SWEEPS: `purgeFolder` counts only the `groups` rows it deletes
+// (`folder_scope.go`, `if e.entity == Groups`), so orphan acl, secret, task and
+// route rows under that folder are removed and not counted. The caller is then
+// told nothing happened, which is what both of them render (BUGS L323).
 func (s *Store) DeleteGroup(folder string) (int, error) {
 	ctx := context.Background()
 	// The purge removes more rows than one batch holds, so it runs as a sweep.
 	// `groups` goes first, which is what makes the folder unreachable: a failure
 	// part-way leaves rows nothing can find, and the next run collects them.
 	removed, err := s.purgeFolder(ctx, folder)
-	if errors.Is(err, errNoSuchGroup) || removed == 0 {
+	if errors.Is(err, errNoFolder) || removed == 0 {
 		return 0, nil
 	}
 	if err != nil {

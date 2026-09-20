@@ -168,6 +168,39 @@ successfully swept, is told nothing was done, and has no audit row to check.
   REPORT after a successful sweep with no group row is a small contract
   question, so it waits.
 
+- **CONFIRMED 2026-09-20 with the exact mechanism, and pinned by a test.**
+  `store/folder_scope.go:331` is the whole of it:
+
+  ```go
+  if e.entity == Groups {
+      removed = len(writes)
+  }
+  ```
+
+  `removed` counts ONLY the `groups` rows. Every other entity in
+  `entityScopePurge` — acl, membership, secrets, network rules, tasks, route
+  tokens — has its deletions built and APPLIED, and none of them counted. So a
+  folder whose `groups` row is already gone gets its orphans swept and returns
+  `0`, `DeleteGroup` takes the early return at `store/groups.go:352`, and both
+  callers render "no group at X".
+- **I took two wrong turns getting here, and both are worth recording.** First I
+  reasoned from the sentinel's name and comment — `errNoSuchGroup`, "rolls the
+  purge back when the subtree holds no groups row" — and concluded the entry was
+  false. That sentinel is returned ONLY for an empty folder name; the name and
+  the comment described a check that does not exist. It is `errNoFolder` now and
+  says what it does. Then I wrote a test that asserted the COUNT and fataled
+  before it ever checked whether the row survived, which hid the answer behind
+  the wrong assertion.
+- **`store/groups.go`'s own doc comment was false** and said the opposite of the
+  code: "returns 0 and writes nothing, audit row included". It writes. Corrected.
+- **`TestDeleteGroupSweepsOrphansButReportsNothing`** now states the behaviour as
+  it stands — the grant is gone AND `removed == 0` — so the fix has something to
+  turn green, and it says so in the failure message.
+- **Status:** open — the report is a contract question and it is now a sharp one.
+  `removed` answers "did I delete a group?", which the 404 needs, and nobody
+  answers "how much did I clean?", which the operator needs. Two facts, one
+  return value.
+
 ## ✅ FIXED 2026-09-20 L322 — webd advertises a browser SDK at `/assets/`, and no proxyd route carries that prefix (2026-09-20)
 
 Split out of `L117`, where it was recorded as the adjacent finding.

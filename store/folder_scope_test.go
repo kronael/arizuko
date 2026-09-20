@@ -1,6 +1,7 @@
 package store
 
 import (
+	"github.com/kronael/arizuko/core"
 	"sort"
 	"strings"
 	"testing"
@@ -89,5 +90,60 @@ func TestFolderScope_ClassifiesNothingUndeclared(t *testing.T) {
 		t.Fatalf("folder-scope verdicts for entities no owner declares: %s\n"+
 			"delete each, or name it above with the owner it belongs to",
 			strings.Join(orphans, ", "))
+	}
+}
+
+// A delete whose groups row is already gone DOES sweep the orphans, and then
+// reports that nothing happened. `purgeFolder` counts only the `groups` rows
+// (`folder_scope.go:331`, `if e.entity == Groups`), so every other entity is
+// deleted uncounted; `DeleteGroup` reads `removed == 0` and returns early, and
+// both callers render that as "no group at X" (BUGS L323).
+func TestDeleteGroupSweepsOrphansButReportsNothing(t *testing.T) {
+	s := openMem(t)
+	if err := s.PutACLRow(core.ACLRow{
+		Principal: "alice@x", Action: "admin", Scope: "ghost",
+		Effect: EffectAllow, GrantedBy: "test",
+	}); err != nil {
+		t.Fatalf("seed the orphan grant: %v", err)
+	}
+	if _, ok := s.GroupByFolder("ghost"); ok {
+		t.Fatal("a groups row exists; this test checks nothing")
+	}
+	if pre, _ := s.ListACL("alice@x"); len(pre) == 0 {
+		t.Fatal("the seed did not land; this test checks nothing")
+	}
+
+	removed, err := s.DeleteGroup("ghost")
+	if err != nil {
+		t.Fatalf("DeleteGroup: %v", err)
+	}
+
+	// The WORK happened.
+	rows, err := s.ListACL("alice@x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows {
+		if r.Scope == "ghost" {
+			t.Errorf("the orphan grant survived the purge: %+v", r)
+		}
+	}
+	// And the REPORT says it did not. This is the defect, pinned as it stands so
+	// the fix has something to turn green.
+	if removed != 0 {
+		t.Errorf("removed = %d; L323 is fixed and this test now states the old behaviour", removed)
+	}
+}
+
+// An empty folder names the subtree of everything, so it is the one argument
+// the sweep must refuse.
+func TestDeleteGroupRefusesAnEmptyFolder(t *testing.T) {
+	s := openMem(t)
+	removed, err := s.DeleteGroup("")
+	if err != nil {
+		t.Fatalf("an empty folder should be swallowed, not an error: %v", err)
+	}
+	if removed != 0 {
+		t.Errorf("removed %d for an empty folder", removed)
 	}
 }
