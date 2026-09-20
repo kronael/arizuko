@@ -257,6 +257,14 @@ compose / restart side effects can't be transactionally rolled back (`5/8`).
   route, grant and skill identities are re-applied by neither verb, so
   overwriting them would strand rows `remove` is supposed to delete.
 
+  A `catalog` record has nothing to re-fetch — its files are links the catalog
+  refreshes by itself. Its `<name>.yaml` therefore moves with each release while
+  the rows that manifest declared stay as `add` applied them, so both verbs
+  compare the recorded asset hash against the linked manifest and REPORT that
+  drift, naming the file, instead of answering "nothing to do". Installing the
+  new row set is `remove` + `add`; re-applying it in place is a new contract for
+  what `upgrade` means and is not built (BUGS `L315`).
+
 - **remove** — delete exactly the recorded identities via their owner handlers
   (`DELETE /v1/proxyd_routes/<path>`, drop skills/files, bring the sidecar down in
   health→route reverse order). Refuse if another installed package declares a

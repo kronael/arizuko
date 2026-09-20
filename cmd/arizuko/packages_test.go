@@ -613,3 +613,45 @@ func TestCheckGrantPredicate(t *testing.T) {
 		}
 	}
 }
+
+// TestPackagesUpgradeReportsCatalogManifestDrift: a catalog package's files are
+// links into the catalog, so upgrade has nothing to re-fetch — but the ROWS its
+// manifest declares were applied once, by `add`, and neither verb re-applies
+// them. When a release moves the manifest, the operator was told
+// "already at catalog — nothing to do" while its new rows reached no instance
+// (BUGS L315). Both sinks are asserted: there is one updater, two reports.
+func TestPackagesUpgradeReportsCatalogManifestDrift(t *testing.T) {
+	t.Cleanup(func() { dropInstance(t) })
+	dataDir := seedSyncInstance(t, "drift",
+		map[string]string{
+			"driftpkg.yml":  "services:\n  driftpkg:\n    image: x\n",
+			"driftpkg.yaml": "network_rules:\n  - folder: ''\n    target: api.one.example\n",
+		},
+		map[string]string{})
+	seedRoutdDB(t, dataDir)
+	captureStdout(t, func() { cmdPackages([]string{"drift", "add", "driftpkg"}) })
+
+	// The release adds a rule to the shipped manifest. The fragment is a link,
+	// so the instance reads the new bytes; the rows stay as `add` left them.
+	catalog := filepath.Join(filepath.Dir(dataDir), "app", "template", "services", "driftpkg.yaml")
+	if err := os.WriteFile(catalog, []byte("network_rules:\n  - folder: ''\n    target: api.one.example\n"+
+		"  - folder: ''\n    target: api.two.example\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out := captureStdout(t, func() { cmdPackages([]string{"drift", "upgrade", "driftpkg"}) })
+	if strings.Contains(out, "nothing to do") {
+		t.Errorf("upgrade reports nothing to do while the catalog manifest moved: %q", out)
+	}
+	if !strings.Contains(out, "driftpkg.yaml") {
+		t.Errorf("upgrade does not name the manifest that moved: %q", out)
+	}
+
+	out = captureStdout(t, func() { cmdPackages([]string{"drift", "sync"}) })
+	if strings.Contains(out, "unchanged") {
+		t.Errorf("sync reports unchanged while the catalog manifest moved: %q", out)
+	}
+	if !strings.Contains(out, "driftpkg.yaml") {
+		t.Errorf("sync does not name the manifest that moved: %q", out)
+	}
+}

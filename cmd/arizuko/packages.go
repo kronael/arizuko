@@ -855,7 +855,17 @@ func dirtyAssets(svcDir string, rec routd.InstalledPackage) []string {
 type reapplyResult struct {
 	Revision string   // revision resolved from the source this run
 	Dirty    []string // locally edited assets; non-empty means nothing was written
+	Drifted  []string // catalog manifests whose bytes moved since `add`
 	Changed  bool     // an asset's content or the resolved revision actually moved
+}
+
+// driftReport is the one sentence `upgrade` and `sync` both print for a catalog
+// package whose manifest moved: one renderer, so the two verbs cannot describe
+// the same state differently.
+func driftReport(name string, drifted []string) string {
+	return fmt.Sprintf("%s moved in the catalog since `add` — its rows were applied then and no verb "+
+		"re-applies them; `packages remove %s` then `packages add %s` installs the new set",
+		strings.Join(drifted, ", "), name, name)
 }
 
 // reapplyPackage re-fetches rec.Source, rewrites every file asset the record owns,
@@ -866,7 +876,20 @@ type reapplyResult struct {
 // recorded row and skill identities would strand rows `remove` must delete.
 func reapplyPackage(svcDir string, rdb *routd.DB, rec routd.InstalledPackage) reapplyResult {
 	if rec.Source == catalogOrigin {
-		return reapplyResult{Revision: rec.Revision}
+		// A catalog record has nothing to re-fetch — but only its FILE half
+		// tracks the catalog. The rows a manifest declares were applied once,
+		// by `add`, and neither verb re-applies them, so a manifest that moved
+		// since then is drift the operator is TOLD about rather than being
+		// answered "nothing to do" (BUGS L315). The `.yml` fragment needs no
+		// report: generate reads it through the link, and a copy that fell
+		// behind is already relinkCatalog's FROZEN warning.
+		var moved []string
+		for _, f := range dirtyAssets(svcDir, rec) {
+			if strings.HasSuffix(f, ".yaml") {
+				moved = append(moved, f)
+			}
+		}
+		return reapplyResult{Revision: rec.Revision, Drifted: moved}
 	}
 	if dirty := dirtyAssets(svcDir, rec); len(dirty) > 0 {
 		return reapplyResult{Dirty: dirty}
@@ -1017,6 +1040,10 @@ func cmdPackages(args []string) {
 				"  delete the file(s) then upgrade; keep-mine: file the diff upstream + fork.",
 				name, strings.Join(res.Dirty, ", "))
 		}
+		if len(res.Drifted) > 0 {
+			fmt.Println(driftReport(name, res.Drifted))
+			return
+		}
 		if !res.Changed {
 			fmt.Printf("%s already at %s — nothing to do\n", name, res.Revision)
 			return
@@ -1067,6 +1094,8 @@ func cmdPackages(args []string) {
 			case len(res.Dirty) > 0:
 				skipped++
 				fmt.Printf("%-12s SKIPPED — locally edited: %s\n", rec.Name, strings.Join(res.Dirty, ", "))
+			case len(res.Drifted) > 0:
+				fmt.Printf("%-12s %s\n", rec.Name, driftReport(rec.Name, res.Drifted))
 			case res.Changed:
 				updated++
 				fmt.Printf("%-12s updated to %s\n", rec.Name, res.Revision)
@@ -1144,7 +1173,6 @@ func relinkCatalog(dataDir string) {
 			"instance; diff it against template/services/%s.yml (BUGS L41)\n", name, name)
 	}
 }
-
 
 // writeFileAtomic writes b to path via a temp file + rename, so a failure mid
 // operation never leaves a truncated fragment behind.

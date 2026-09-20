@@ -359,7 +359,7 @@ one place where a user plainly wants the backlog dropped too.
 - **Status:** open — needs a decision
 - **Fix:** if `/stop` should clear the backlog, it advances the cursor past the whole batch it steered from, and says how many rows it dropped. That is a different contract from every other command, so it wants sign-off rather than a quiet default.
 
-## L315 — a catalog package's rows freeze at `add` while its files and env keep tracking the catalog, and `upgrade` reports "nothing to do" (2026-09-19, open — proposal, needs sign-off)
+## L315 — a catalog package's rows freeze at `add` while its files and env keep tracking the catalog, and `upgrade` reports "nothing to do" (2026-09-19, REPORT FIXED 2026-09-20; re-applying the rows stays a proposal)
 
 Found while closing `L199`. A package taken from the bundled catalog is
 recorded with `Source: "catalog"`, and its `<name>.yml`/`<name>.yaml` are
@@ -390,16 +390,32 @@ kind, this is `L199`'s harm at the release boundary instead of the `add` one.
 - **Source:** read 2026-09-19 at `b5243bdb`: `reapplyPackage`'s
   `if rec.Source == catalogOrigin` early return, against
   `compose/compose.go:562,880`
-- **Status:** open — proposal
-- **Fix (proposal, NOT shipped):** re-applying rows on `upgrade` is a redesign,
-  not a symptom patch: `reapplyPackage` deliberately replaces only the file
-  half, because overwriting the recorded row identities would strand the rows
-  `remove` must later delete. Doing it properly means withdrawing the recorded
-  rows and installing the new set in one transaction — a new contract for what
-  `upgrade` means. The cheap half, which needs no sign-off if the owner wants
-  it alone: have `upgrade`/`sync` compare the catalog manifest's current digest
-  against `pkgManifestDigest` at install time and say so, rather than print
-  "nothing to do".
+- **Status:** the report half is FIXED 2026-09-20; re-applying the rows is still
+  a proposal, unsigned
+- **Fixed (2026-09-20):** `reapplyPackage`'s catalog branch re-hashes the
+  record's `<name>.yaml` through `dirtyAssets` and returns what moved, and both
+  sinks — `upgrade` and `sync` — print it through ONE renderer (`driftReport`),
+  naming the file and saying the rows it declares were applied at `add` and are
+  re-applied by no verb. Only the `.yaml` is reported: the `.yml` fragment is
+  read through the link at every `generate`, and a copy that fell behind is
+  already `relinkCatalog`'s FROZEN warning, so reporting it here would be a
+  second path. Spec `specs/5/28-packages.md` states the catalog case under
+  `sync`. Test: `TestPackagesUpgradeReportsCatalogManifestDrift`, which fails on
+  both sinks against the old branch.
+- **REFUTED in the fix text above:** "compare … against `pkgManifestDigest` at
+  install time" cannot be done from the record — `pkgManifestDigest` is computed
+  at `installPackage` and handed to `pkgApply` as the audit row's correlation
+  token (`cmd/arizuko/packages.go`); no field of `routd.InstalledPackage` carries
+  it. The recorded `AssetHashes["file:<name>.yaml"]` is the same bytes hashed and
+  is already what `dirtyAssets` compares, so the existing mechanism answers it
+  with no new field and no second hash.
+- **Still open (proposal, NOT shipped):** re-applying rows on `upgrade` is a
+  redesign, not a symptom patch: `reapplyPackage` deliberately replaces only the
+  file half, because overwriting the recorded row identities would strand the
+  rows `remove` must later delete. Doing it properly means withdrawing the
+  recorded rows and installing the new set in one transaction — a new contract
+  for what `upgrade` means. Today the operator's route is `packages remove` +
+  `packages add`, which the report names.
 
 ## L309 — the docs mount is gated on `web:publish`, so 49 of 55 folders ship a skill that names a path they do not have (2026-09-19, open — proposal, needs sign-off)
 
