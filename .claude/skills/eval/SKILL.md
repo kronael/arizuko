@@ -1,6 +1,6 @@
 ---
 name: eval
-description: Operational health and post-deploy gates for a running arizuko instance — the 21 checks, the error census, and the live-agent `anteval --smoke` gate. NOT for code review (use /code-review), NOT for logging a bug you already found (use /bugs).
+description: Operational health and post-deploy gates for a running arizuko instance — the 22 checks, the error census, and the live-agent `anteval --smoke` gate. NOT for code review (use /code-review), NOT for logging a bug you already found (use /bugs).
 when_to_use: /eval, eval krons, eval sloth, check the instance, is the fleet healthy, agent stuck, cursor stalled, circuit breaker open, container timed out, errored messages, no reply from the agent, after a deploy, after a restart, before a tag, post-deploy gates, anteval, anteval --smoke, agent capability eval, error census, skill seeding, dispatch discovery, solve wiring, store serves what the daemons declare
 ---
 
@@ -8,7 +8,7 @@ when_to_use: /eval, eval krons, eval sloth, check the instance, is the fleet hea
 
 Checks operational health of running arizuko instances.
 Run after deploys, on suspicion of a stuck agent, or periodically.
-The 21 checks live in `checks.md`; the five post-deploy gates — build, ship,
+The 22 checks live in `checks.md`; the five post-deploy gates — build, ship,
 schema, census, `anteval --smoke` — live in `gates.md`.
 
 ## Method: causes, not symptoms
@@ -88,7 +88,7 @@ ALWAYS read the file the task needs; NEVER work from this page alone.
 
 | Task | Read |
 |------|------|
-| Health of a running instance — the 21 checks, the report table, the known failure modes | `checks.md` |
+| Health of a running instance — the 22 checks, the report table, the known failure modes | `checks.md` |
 | After a deploy or a tag — the five gates, `anteval --smoke` | `gates.md` |
 | First `anteval` run on an instance whose eval folder does not exist | `gates.md` § "Bringing `anteval` up on an instance that has never run it" |
 

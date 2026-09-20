@@ -13,6 +13,53 @@
 > work items are their own entries. A record has nothing to fix and never will,
 > so counting one as open overstates the queue.
 
+## L327 — an `#observe` route sorting above its answering twin makes a chat deaf to a direct mention (2026-09-20, open — operator data, and a missing check)
+
+MEASURED on sloth 2026-09-20. The operator asked why the agent does not attend
+to messages in Discord. The threads are fine — every threaded exchange answered
+inside 30 s (19:32:06→19:33:13, 17:06:58→17:07:27, 09:12:51→09:12:59). The
+MAIN channel is what is silent, which is the opposite of how it reads from
+inside Discord.
+
+`routd.routes` for guild `837270552959516682`:
+
+```
+seq 1  main#observe          platform=discord room=837270552959516682/1504474527638224936
+seq 1  main/trading#observe  platform=discord room=837270552959516682/920916162416635944
+seq 2  main/main             platform=discord room=837270552959516682/*  verb=mention
+```
+
+`ResolveRoute` (`router/router.go:357-368`) returns the FIRST match in
+`(seq, id)` order, and an `#observe` route carries no verb — so it matches every
+message, mentions included. At seq 1 it shadows the guild-wide mention route at
+seq 2 completely. Channel `1504474527638224936` has no answering route below it
+at all: last human 2026-09-19T09:08:48, bot **NONE**.
+
+**This is the route pair inverted.** The correct shape puts the answering route
+FIRST and the `#observe` twin one seq below — sloth's own Slack rows do it
+right: `atlas/support verb=mention` at seq 10, `atlas/support#observe` at
+seq 11. The Discord rows are the other way round.
+
+**The chat that DOES answer is not a counter-example.** `920916162416635944`
+replied at 19:30:07 to a message whose whole content was "sloth", and at
+19:33:13 inside a thread the agent was already engaged in — so engagement, not
+the route table, is what woke it.
+
+- **Severity:** medium — a channel reads as configured-to-answer and answers nothing, and a direct mention does not override it
+- **Scope:** sloth's `routd.routes` rows (operator data); `.claude/skills/eval/checks.md` (the missing check)
+- **Affected:** sloth, measured; the shape is possible on any instance
+- **Source:** sloth `routd.routes` and `routd.messages`, read 2026-09-20
+- **Status:** open. Two halves:
+  1. **Operator data** — add an answering `verb=mention` route for the two
+     channels at a seq BELOW the observe rows, or renumber the observe rows
+     above the guild mention route. NOT done: which channels should answer is
+     the operator's call, and this entry does not guess it.
+  2. **The missing check** — `/eval` check 21 asks whether a chat answers its
+     humans and tells the reader to "read the route before calling it a fault",
+     but nothing tells the reader that the route ITSELF is inverted. A check
+     that finds an `#observe` route sorting at or above an answering route for
+     an overlapping room would have named this without anyone asking.
+
 ## L326 — the smoke liveness probe measures the queue, not liveness (2026-09-20, PARTLY FIXED 2026-09-20; the barrier needs sign-off)
 
 `rest-roundtrip` (`anteval/cases/anteval.toml:228-236`) is the ONLY `rest_reply` case

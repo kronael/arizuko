@@ -496,6 +496,43 @@ A `verb=mention` rule with an `#observe` twin one seq below means plain messages
 are observed by design. Adding a `sender=` rule at the same seq answers one
 person without opening the chat to everyone.
 
+### 22. Inverted route pairs (an `#observe` twin that shadows its answer)
+
+Check 21 tells you to read the route before calling a silent chat a fault. This
+one asks whether the ROUTE is the fault.
+
+`router.ResolveRoute` returns the FIRST match in `(seq, id)` order, and an
+`#observe` route carries no verb — so it matches every message, **mentions
+included**. An `#observe` row sitting at or above its answering twin therefore
+shadows it completely, and the chat is deaf even to a direct mention. It reads
+as configured-to-answer and answers nothing.
+
+```bash
+sq routd.routes "select sk_s from e order by sk_s"
+```
+
+Read the sort key as `<seq> <US> <target> <US> <match>`. For every target, the
+`verb=mention` row must sort BEFORE its `#observe` twin. The shipped shape is
+the pair at adjacent seqs, answer first:
+
+    seq 10  atlas/support          chat_jid=slack:… verb=mention
+    seq 11  atlas/support#observe  chat_jid=slack:…
+
+**Inverted, measured on sloth 2026-09-20 (BUGS `L327`):**
+
+    seq 1  main#observe  platform=discord room=<guild>/<channel>
+    seq 2  main/main     platform=discord room=<guild>/*  verb=mention
+
+The observe row at seq 1 matched every message in that channel, so the
+guild-wide mention route at seq 2 was never consulted. Last human
+2026-09-19T09:08:48, bot NONE.
+
+**Two traps when reading this.** A room GLOB counts — `room=<guild>/*` at a
+higher seq is still shadowed by a specific `room=<guild>/<channel>#observe`
+below it. And a chat that DOES answer is not proof the routes are right:
+engagement wakes an already-active thread whatever the table says, which is
+exactly what hid this on the busier channel.
+
 ## Output pattern
 
 After running checks, append findings to `.diary/YYYYMMDD.md`:

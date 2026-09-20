@@ -149,7 +149,7 @@ Pre-commit hooks configured via `.pre-commit-config.yaml`.
   tree.
 - **`specs/CLAUDE.md`** — definition of done for a spec; loads under `specs/`.
 - **`ant/skills/self/migrations/CLAUDE.md`** — the agent migration system.
-- **`.claude/skills/eval/checks.md`** — `/eval <instance>`: the 21 health
+- **`.claude/skills/eval/checks.md`** — `/eval <instance>`: the 22 health
   checks and the error census. `.claude/skills/eval/gates.md` holds the five
   post-deploy gates and the `anteval` setup.
 
