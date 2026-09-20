@@ -3108,7 +3108,7 @@ in another edit set that day.
 - **Source:** `routd/tokens.go` `SweepIdempotency`; `routd/loop.go:498`
 - **Status:** fixed — migration 0042 drops the table (0043 takes `pane_sessions.last_status_at`, the same writer-less shape, found by a column census); zero rows on krons, marinade and sloth
 - **Fix:** dde8683f
-## L174 — gateway-measured spend has no path into `cost_log`: the litellm package exports OTLP spans and nothing arizuko runs reads them (2026-09-05, open — proposal, needs sign-off)
+## ✅ FIXED 2026-09-20 L174 — gateway-measured spend has no path into `cost_log`: the litellm package exports OTLP spans and nothing arizuko runs reads them (2026-09-05, open — proposal, needs sign-off)
 
 `cost_log` has two writers, both in routd: `recordTurnResult` books
 `req.Models` from the agent's `submit_turn` (`routd/turns.go:703`), and
@@ -3173,6 +3173,29 @@ stands: the gateway is a credential boundary, not an accounting one.
   row. No callback file, no header the metered party sets, no second
   accounting substrate — attribution is the key itself, which routd minted.
 - **Fix:** 2f6441ed, c8854f7d
+
+- **Status:** closed on re-check 2026-09-20 — the gap it names was closed by
+  moving the ledger, and both of its writers are gone.
+- **`cost_log` has ZERO writers now, not two.** `LogExternalCost` and
+  `log_external_cost` return zero non-test hits, and `recordTurnResult` no
+  longer books `req.Models` into a row — it calls `logSelfReportedCost`
+  (`routd/turns.go:210-216`), whose own comment says what it is: "records what
+  the agent says the turn cost. It is a log". The table itself is gone with them
+  (`L70`, closed today).
+- **And the cap no longer enforces against the spender's own report**, which is
+  this entry's substantive claim. `routd/dispatch.go:295-301` gates the spawn on
+  `l.budgetGate`, which "asks the meter whether either cap is spent" — the
+  GATEWAY's meter, via `folderMeter` and `userMeter` (`routd/budget.go:37-41`).
+  A gateway that will not answer fails the turn as a dependency outage rather
+  than spawning: "Spawning anyway would run a turn no cap can stop."
+- **The instance with no meter is named rather than left silent**, which is the
+  other half of doing this honestly. `routd/budget.go:26-33`: with no gateway
+  and a cap set, it logs "cost cap set but this instance has no model gateway;
+  nothing enforces it" — because "a cap that silently does nothing is worse than
+  no cap".
+- **The design question this entry raised is settled by `specs/6/39`**, "the
+  gateway owns spend": arizuko keeps no spend of its own, so there is no
+  arizuko-side row for gateway spend to reach.
 
 ## ✅ FIXED 2026-09-20 L175 — ant delivers a model API failure as a successful reply and books no usage for it (2026-09-05)
 
