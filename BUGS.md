@@ -3487,7 +3487,7 @@ gate either: it already guards whether this block runs at all.
   (`out.RunID` unset), with the idempotency key extended per destination so the
   adapter does not dedup the fan-out into one delivery.
 
-## X2 — the aws-devops product's credential model died with X1 (2026-08-09, DECIDED 2026-08-20: retire)
+## ✅ FIXED 2026-09-20 X2 — the aws-devops product's credential model died with X1 (2026-08-09)
 
 `specs/17/product-aws-devops.md` sells one headline: each engineer's `AWS_*`
 keys reach `aws`/`boto3` **inside the container**, so CloudTrail attributes the
@@ -3529,6 +3529,16 @@ than loudly — worse than a crash.
   transform re-signs SigV4 host-side from the same credential store —
   configuration, not new crypto code, and `boto3` works unmodified in the
   container. Decision between (a)/(b)/(c) remains the user's.
+
+**CLOSED 2026-09-20: the decision was carried out.** `242b7d10` ("retire the
+aws-devops product — its credential model is gone") removed all three things
+this entry names. Verified at HEAD: `specs/17/product-aws-devops.md` does not
+exist, `ant/examples/aws-devops/` does not exist, and `aws-devops` appears
+nowhere in `cmd/arizuko/`, so the `--product aws-devops` flag is gone with it.
+Nothing can seed the product that would fail silently.
+
+- **Status:** fixed
+- **Fix:** `242b7d10`
 
 ## M1 — `mcpc` socat-connect form 502s since mcpc 0.3.0 (2026-07-16, open)
 
