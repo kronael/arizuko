@@ -4957,6 +4957,11 @@ Bearer header, and a browser navigation carries a cookie.
 - **Not verified:** the authenticated case. No session was available to drive
   it. A live browser that reaches `/onboard` and renders would disprove this.
 
+- **RE-MEASURED 2026-09-20 at `6cef0e48`: CONFIRMED LIVE, unchanged.** All
+  three routes still declare `Auth: "public"` — `compose/compose.go:531,532,533`.
+  The line numbers moved; the declaration did not. Still correctly a proposal:
+  the fix changes either the auth on three routes or the identity model of the
+  handlers behind them.
 ## ✅ FIXED 2026-09-20 L100 — proxyd and webd authorize under a `user:`-prefixed principal, so `/dash/proxyd/` and webd's `routes.*` tools are 403 for everyone (2026-08-26)
 
 The JWT `sub` is always prefixed — `authd/oauth.go:329` mints
@@ -5302,6 +5307,11 @@ the id it used alongside the platform id. Both change a shared contract, so
 this is a proposal awaiting sign-off, not a one-line change. The defect and the
 live evidence stand exactly as written above.
 
+- **RE-MEASURED 2026-09-20 at `6cef0e48`: CONFIRMED LIVE, and it is TWO sites
+  not one.** `routd/mcp.go:264` still delivers with `"mcp-"+randHex(8)`, and
+  `:285` does the same for `Document`. A throwaway key on each, so the retry
+  sweep's own key can never match either. Still correctly a proposal: the fix
+  crosses the ipc↔routd contract.
 ## ✅ FIXED 2026-09-20 L107 — the adapter-name pin is bound to the docker container IP, so a legitimate restart is rejected; 156 rejections on krons in 30 days (2026-08-26)
 
 `chanreg/chanreg.go:122-131` pins a registered adapter name to BOTH its service
@@ -6122,6 +6132,13 @@ Also structural, and separate: `bskyd`, `reditd` and `linkd` can SEND a reaction
 and can never receive one — no `InboundMsg` is ever built from a like or an
 upvote in those three.
 
+- **RE-MEASURED 2026-09-20 at `6cef0e48`: CONFIRMED LIVE.** The ingest half is
+  as the entry describes. The delivery half is confirmed by ABSENCE, which is
+  what makes it hard to see: `grep -i reaction` over `routd/dispatch.go` and
+  `routd/prompt.go` returns **nothing**, and `router/router.go` has no reaction
+  verb. So a stored reaction has no path into a prompt and no route can select
+  on it — there is no code to be unreliable, which is why no log line reports
+  the loss.
 ## ✅ FIXED 2026-08-25 L94 — `Like` and `Post` skip the capability guard, so an unsupported verb 404s instead of returning Unsupported (2026-08-25)
 
 Every verb in `chanreg/httpchan.go` short-circuits on `HasCap` before it
