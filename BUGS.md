@@ -247,7 +247,12 @@ is a superuser owning that instance's own server, no longer exists.
 
 - **Severity:** medium — an adapter compromise reaches every owner's tables in that instance
 - **Scope:** `extenddb init`'s per-daemon `put-user-policy`; `INSTALL.md` § The store server
-- **Affected:** krons, sloth, marinade (the same by-hand recipe)
+- **Affected:** sloth is the drift, krons is the template. Re-measured by the
+  operator 2026-09-20: sloth holds 19 `tables` policies with ONE distinct
+  document, `{"Action":"dynamodb:*","Resource":"*"}`; krons holds 9 `owners`
+  policies genuinely bounded to `routd.*`, `onbod.*`, `teled.*` and so on. The
+  original "Affected: krons" was backwards. marinade unverified. (Live-instance
+  figures are the operator's measurement, not this repo's.)
 - **Source:** `iam_policies` on sloth, 38 rows: one `SelfServicePolicy` and one `tables` policy per user, the latter identical for all 19
 **The owner map exists — this entry first claimed it did not.** `store/owners.go`
 registers four owners (`authd`, `onbod`, `routd`, `runed`), `dynstore.Prefix`
@@ -270,8 +275,42 @@ Measured from the call sites, not from the `OpenOwner` comment above them:
 `timed` opens none: it writes through the owner's HTTP API, which is the split
 write-discipline working.
 
-- **Status:** open — the resource list is derivable from the table above, so the
-  work is the rollout, not the design. It rewrites 19 live IAM policies on a
+**The code half is DONE 2026-09-20; the rollout is not.** Nothing in the repo
+generated, documented or checked these policies — the only mention was one
+sentence in `INSTALL.md` § The store server, and it had already drifted: it gave
+`dashd` a policy on `runed.*`, which dashd has never opened. A shape that lives
+in prose beside no check is a shape that is already wrong.
+
+Now declared and checked:
+
+- `store/owner_reach.go` `StoreReach` declares daemon → owner prefixes, beside
+  the owner registry that the prefix comes from.
+- `store/owner_reach_test.go` `TestStoreReachMatchesTheCallSites` walks the
+  module for the store doors and fails on either direction — a daemon that opens
+  an owner the map omits, and a daemon declared for an owner it never opens. The
+  measured map matched the declaration on the first run, which independently
+  confirms the table this entry already carried.
+- `TestInstallDocumentsTheReach` asserts `INSTALL.md` carries the same rows, and
+  prints the rows to paste when it does not. One declaration, two readers: the
+  test and the operator.
+- `INSTALL.md` § The store server now carries the table, the bounded policy
+  document, and the `create-user` / `put-user-policy` / `create-access-key`
+  commands, replacing the sentence that described them.
+
+**The two the rollout must not get wrong**, and the reason the table beats
+"adapters get their own prefix": `gitd` and `slakd` open `routd` directly
+(`gitd/main.go`, `slakd/main.go`) ON TOP of their own adapter prefix, so an
+adapter-prefix-only policy leaves them authenticated and unable to read
+anything. `timed` and `ttsd` need no key at all. A too-narrow policy does not
+fail at deploy — it fails the first time the daemon touches the table, which is
+why the rollout is one daemon at a time and watched.
+
+Each assertion was mutation-checked: declaring `runed.*` for dashd, dropping
+`routd.*` from gitd, removing slakd from the map, giving ttsd a key it does not
+use, and drifting the INSTALL.md row each turn the matching test red.
+
+- **Status:** open — the ROLLOUT only; the resource list is now declared and
+  checked, so the work is not the design. It rewrites 19 live IAM policies on a
   running fleet, so it ships one daemon at a time against krons — `gitd` first,
   which reads `routd` and nothing else — each proven before the next.
 - **Fix:**
