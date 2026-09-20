@@ -36,22 +36,22 @@ New coverage added by `tests/integration_features_test.go` is marked
 
 ## 2. Agent dispatch
 
-| Feature                                    | exists | tested                                                                                                                   | ref                                     |
-| ------------------------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------ | --------------------------------------- |
-| Container spawn per turn (runed)           | yes    | yes — `TestFeature_AgentDispatch/spawn-persisted` (FakeRuntime), `routd/parity_spawn_test.go`                            | ARCHITECTURE.md                         |
-| Spawn row persisted (runed.db)             | yes    | yes — `TestFeature_AgentDispatch/spawn-persisted`                                                                        | ARCHITECTURE.md                         |
-| Session persistence / fork                 | yes    | partial — `routd/session_test.go`, `routd/session_fork_test.go`                                                          | ARCHITECTURE.md                         |
-| Context mode (group / isolated)            | yes    | yes — `TestFeature_AgentDispatch/context-mode`                                                                           | `core/types.go:Task.ContextMode`        |
-| Per-group model override                   | yes    | yes — `TestFeature_AgentDispatch/model-override`                                                                         | `store/groups.go:SetGroupModel`         |
-| Observe window (context sizing)            | yes    | yes — `TestFeature_AgentDispatch/observe-window`, `tests/mcp_helpers_test.go`                                            | `store/groups.go:SetGroupObserveWindow` |
-| Group queue serialization                  | yes    | partial — `routd/loop_test.go`                                                                                           | ARCHITECTURE.md                         |
-| Steer (SIGUSR1 mid-run inject)             | yes    | partial — `routd/steer_commands_test.go`                                                                                 | ARCHITECTURE.md                         |
-| Circuit breaker (3-fail open)              | yes    | partial — runed manager                                                                                                  | ARCHITECTURE.md                         |
-| MaxConcurrent cap                          | yes    | no                                                                                                                       | ARCHITECTURE.md                         |
-| Run TTL / kill                             | yes    | partial — `runed/*`                                                                                                      | ARCHITECTURE.md                         |
-| Cost cap pre-check                         | yes    | yes — `routd/budget_test.go`, `tests/e2e_turn_test.go::TestE2ETurn_CostAccounting` (real container, refused at dispatch) | routd/README.md                         |
-| Model gateway redirect (`MODEL_GATEWAY_*`) | yes    | yes — `tests/e2e_turn_test.go::TestE2ETurn_CostAccounting` (harness reaches the fake model with the virtual key)         | specs/6/23                              |
-| Egress allowlist (crackbox network_rules)  | yes    | partial — `crackbox/pkg/*`                                                                                               | ARCHITECTURE.md                         |
+| Feature                                    | exists | tested                                                                                                                                | ref                                     |
+| ------------------------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| Container spawn per turn (runed)           | yes    | yes — `TestFeature_AgentDispatch/spawn-persisted` (FakeRuntime), `routd/parity_spawn_test.go`                                         | ARCHITECTURE.md                         |
+| Spawn row persisted (runed.db)             | yes    | yes — `TestFeature_AgentDispatch/spawn-persisted`                                                                                     | ARCHITECTURE.md                         |
+| Session persistence / fork                 | yes    | partial — `routd/session_test.go`, `routd/session_fork_test.go`                                                                       | ARCHITECTURE.md                         |
+| Context mode (group / isolated)            | yes    | yes — `TestFeature_AgentDispatch/context-mode`                                                                                        | `core/types.go:Task.ContextMode`        |
+| Per-group model override                   | yes    | yes — `TestFeature_AgentDispatch/model-override`                                                                                      | `store/groups.go:SetGroupModel`         |
+| Observe window (context sizing)            | yes    | yes — `TestFeature_AgentDispatch/observe-window`, `tests/mcp_helpers_test.go`                                                         | `store/groups.go:SetGroupObserveWindow` |
+| Group queue serialization                  | yes    | partial — `routd/loop_test.go`                                                                                                        | ARCHITECTURE.md                         |
+| Steer (SIGUSR1 mid-run inject)             | yes    | partial — `routd/steer_commands_test.go`                                                                                              | ARCHITECTURE.md                         |
+| Circuit breaker (3-fail open)              | yes    | partial — runed manager                                                                                                               | ARCHITECTURE.md                         |
+| MaxConcurrent cap                          | yes    | no                                                                                                                                    | ARCHITECTURE.md                         |
+| Run TTL / kill                             | yes    | partial — `runed/*`                                                                                                                   | ARCHITECTURE.md                         |
+| Cost cap pre-check                         | yes    | yes — `routd/budget_test.go`, `tests/e2e_turn_test.go::TestE2ETurn_CostAccounting` (real container, refused at dispatch)              | routd/README.md                         |
+| Model gateway redirect (`MODEL_GATEWAY_*`) | yes    | yes — `tests/e2e_turn_test.go::TestE2ETurn_CostAccounting` (harness reaches the fake model with the virtual key)                      | specs/6/23                              |
+| Egress allowlist (`network_rules`)         | yes    | yes — `egress/match/match_test.go` (6), `egress/proxy_test.go` (9); `egress/test/e2e_test.go` runs 5 of 8, 3 skip for netns isolation | ARCHITECTURE.md                         |
 
 ## 3. Channel adapters
 
