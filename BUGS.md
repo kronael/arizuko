@@ -8517,7 +8517,7 @@ untestable, because the budget is not per-visitor.
   before anything is trusted
 - **Fix:**
 
-## L39 — whapd acks WhatsApp before routd accepts, the TS half of L25 (2026-08-15, open)
+## ✅ FIXED 2026-09-20 L39 — whapd acks WhatsApp before routd accepts, the TS half of L25 (2026-08-15)
 
 Found while fixing `L25`, which named a sibling entry `L20` for this — `L20`
 does not exist in this file, and the in-memory queue it described
@@ -8544,6 +8544,40 @@ adapter-local database, two tables, not two bespoke stores.
 - **Status:** open — do it together with `L32`, which has to choose the same
   durable store (node:22 has no stable `node:sqlite`).
 - **Fix:**
+
+- **Status:** fixed 2026-09-20.
+- **Fix:** `whapd/src/retain.ts`, the inbound twin of the outbound ledger `L32`
+  already shipped — same shape, same reasons, same mounted state dir. One JSON
+  file per message under `<WHAPD_STATE_DIR>/inbound-pending`, because node:22
+  still has no stable `node:sqlite` and the filesystem gives the only atomicity
+  this needs. The store choice `L39` said to settle with `L32` is therefore
+  settled: it is `L32`'s.
+
+  **The ordering is the fix.** `main.ts` retains the payload BEFORE
+  `sock.readMessages`. The read receipt tells WhatsApp the message is handled
+  and Baileys never offers it again, so it may only be sent once the message
+  survives a routd restart. A retain that FAILS withholds the receipt —
+  acknowledging something neither routd nor the disk holds is the loss itself.
+
+  A sweep re-offers what routd did not accept, at startup first: whapd outlives
+  a routd restart, so those messages are already on disk and nothing else will
+  hand them over. It stops at the FIRST failure, because routd being down is
+  the ordinary reason a sweep has work, and walking past it only repeats the
+  error while reordering a chat.
+
+  PROVEN BY MUTATION, three ways: let the sweep continue past a failure, drop
+  the oldest-first sort, or put the raw id in the path — each turns a test red.
+  The path one matters: a WhatsApp id reaches the filesystem, and
+  `../../escape` must stay inside the ledger.
+
+  whapd: 139 pass, 0 fail; `tsc --noEmit` clean.
+- **Not covered by a test, and said plainly:** the retain-before-ack ORDERING
+  lives inside `sock.ev.on('messages.upsert')` in `main.ts`, which is not
+  exported and has no seam. The ledger's contract is tested; its use at that one
+  call site is read, not asserted.
+- **Out of scope here:** `messages.reaction` takes the same `rc.sendMessage`
+  path with a log-only catch. A lost reaction is a weaker failure and it sends
+  no read receipt, so it is a different concern, not this one.
 
 ## ✅ FIXED 2026-08-15 — L32 — whapd ignores `idempotency_key`: the one adapter still outside the D5 dedup contract (2026-08-15)
 

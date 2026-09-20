@@ -20,6 +20,7 @@ import {
 import { WhapdBot, authDirHasCreds, type SocketBuilder } from './bot.js';
 import { RouterClient } from './client.js';
 import { DedupLedger } from './dedup.js';
+import { InboundLedger } from './retain.js';
 import {
   buildMessagePayload,
   buildReactionPayload,
@@ -58,6 +59,13 @@ const stateDir = env(
   dataDir ? `${dataDir}/store/whapd` : '/srv/data/store/whapd',
 );
 const ledger = new DedupLedger(`${stateDir}/outbound-dedup`);
+// Inbound retention is the other half of the same guarantee: the read receipt
+// tells WhatsApp never to offer the message again, so it may only be sent once
+// the message survives a routd restart (BUGS L39).
+const inbound = new InboundLedger(`${stateDir}/inbound-pending`);
+// How often the sweep re-offers what routd has not accepted. It also runs once
+// at startup, which is the case that matters: whapd outlives a routd restart.
+const INBOUND_SWEEP_MS = 30_000;
 
 // Baileys writes creds.json non-atomically; restore from .bak if a prior crash
 // left the live file empty.
@@ -388,14 +396,22 @@ async function connect(): Promise<void> {
       );
       if (!payload) continue;
 
-      sock!.readMessages([msg.key]).catch(() => {});
+      // Retain BEFORE the read receipt. readMessages tells WhatsApp the
+      // message is handled and Baileys never offers it again, so sending it
+      // first meant a routd that was restarting lost the message outright
+      // (BUGS L39). A retain that fails withholds the receipt instead.
+      const held = inbound.retain(payload);
+      if (held) sock!.readMessages([msg.key]).catch(() => {});
 
       try {
         await rc.sendMessage(payload);
+        if (held) inbound.settle(payload.id);
         lastInboundAt = Math.floor(Date.now() / 1000);
       } catch (e) {
-        log('error', 'deliver failed', {
+        log('error', 'deliver failed; the sweep holds the message', {
           jid: payload.chat_jid,
+          id: payload.id,
+          retained: held,
           err: String(e),
         });
       }
@@ -483,6 +499,19 @@ async function main() {
   // and LID/JID translation makes offline lookup unsafe. The gateway falls
   // back to its local-DB cache for history queries.
   registerWithRetry();
+
+  // The sweep re-offers what routd has not accepted. It runs at startup first,
+  // which is the case it exists for: whapd outlives a routd restart, so the
+  // messages that arrived during one are already on disk and nothing else will
+  // hand them over.
+  const sweepInbound = () => {
+    void inbound
+      .sweep((m) => rc.sendMessage(m))
+      .catch((e) => log('error', 'inbound sweep failed', { err: String(e) }));
+  };
+  sweepInbound();
+  const inboundTimer = setInterval(sweepInbound, INBOUND_SWEEP_MS);
+  inboundTimer.unref();
 
   const srv = startServer(
     listenAddr,
