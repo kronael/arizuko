@@ -2,6 +2,11 @@
 // (THREAT_PATTERNS, 120 entries) by an AST extraction — spec 5/23 requires the
 // table be ported, not rewritten: a hand-retyped table is a new table with new
 // gaps. Regenerate with the same extraction if the upstream table moves.
+//
+// Three entries carry a local narrowing, each marked by the comment above it
+// and each tested both ways: upstream matched a MENTION where the threat is an
+// ACT, and the mentions were arizuko's own shipped skills documenting the very
+// thing the pattern guards (BUGS L155). A regeneration must re-apply them.
 
 export type Severity = 'critical' | 'high' | 'medium' | 'low';
 
@@ -32,7 +37,9 @@ export const THREAT_PATTERNS: ThreatPattern[] = [
   { re: "os\\.getenv\\s*\\(\\s*[^\\)]*(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)", id: "python_getenv_secret", severity: "critical", category: "exfiltration", description: "reads secret via os.getenv()" },
   { re: "process\\.env\\[", id: "node_process_env", severity: "high", category: "exfiltration", description: "accesses process.env (Node.js environment)" },
   { re: "ENV\\[.*(?:KEY|TOKEN|SECRET|PASSWORD)", id: "ruby_env_secret", severity: "critical", category: "exfiltration", description: "reads secret via Ruby ENV[]" },
-  { re: "\\b(dig|nslookup|host)\\s+[^\\n]*\\$", id: "dns_exfil", severity: "critical", category: "exfiltration", description: "DNS lookup with variable interpolation (possible DNS exfiltration)" },
+  // The interpolation must BEGIN an argument — the query name being built. A `$`
+  // anywhere later on the line matched the English noun "host" in prose (L155).
+  { re: "\\b(?:dig|nslookup|host)\\s+(?:[^\\s\\n]+\\s+)*\\$", id: "dns_exfil", severity: "critical", category: "exfiltration", description: "DNS lookup with variable interpolation (possible DNS exfiltration)" },
   { re: ">\\s*/tmp/[^\\s]*\\s*&&\\s*(curl|wget|nc|python)", id: "tmp_staging", severity: "critical", category: "exfiltration", description: "writes to /tmp then exfiltrates" },
   { re: "!\\[.*\\]\\(https?://[^\\)]*\\$\\{?", id: "md_image_exfil", severity: "high", category: "exfiltration", description: "markdown image URL with variable interpolation (image-based exfil)" },
   { re: "\\[.*\\]\\(https?://[^\\)]*\\$\\{?", id: "md_link_exfil", severity: "high", category: "exfiltration", description: "markdown link with variable interpolation" },
@@ -65,7 +72,11 @@ export const THREAT_PATTERNS: ThreatPattern[] = [
   { re: "launchctl\\s+load|LaunchAgents|LaunchDaemons", id: "macos_launchd", severity: "medium", category: "persistence", description: "macOS launch agent/daemon persistence" },
   { re: "/etc/sudoers|visudo", id: "sudoers_mod", severity: "critical", category: "persistence", description: "modifies sudoers (privilege escalation)" },
   { re: "git\\s+config\\s+--global\\s+", id: "git_config_global", severity: "medium", category: "persistence", description: "modifies global git configuration" },
-  { re: "\\bnc\\s+-[lp]|ncat\\s+-[lp]|\\bsocat\\b", id: "reverse_shell", severity: "critical", category: "network", description: "potential reverse shell listener" },
+  // socat is a relay, not a listener: it is a reverse shell when it names a
+  // network address or EXECs. Bare `socat` matched arizuko's own documented MCP
+  // bridge, `socat UNIX-CONNECT:$ARIZUKO_MCP_SOCKET -`, in five shipped skills;
+  // the nc/ncat siblings already ask for a listen flag (BUGS L155).
+  { re: "\\bnc\\s+-[lp]|ncat\\s+-[lp]|\\bsocat\\b[^\\n]*(?:EXEC|SYSTEM|TCP|UDP|OPENSSL|PTY)", id: "reverse_shell", severity: "critical", category: "network", description: "potential reverse shell listener" },
   { re: "\\bngrok\\b|\\blocaltunnel\\b|\\bserveo\\b|\\bcloudflared\\b", id: "tunnel_service", severity: "high", category: "network", description: "uses tunneling service for external access" },
   { re: "\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}:\\d{2,5}", id: "hardcoded_ip_port", severity: "medium", category: "network", description: "hardcoded IP address with port" },
   { re: "0\\.0\\.0\\.0:\\d+|INADDR_ANY", id: "bind_all_interfaces", severity: "high", category: "network", description: "binds to all network interfaces" },
@@ -120,10 +131,13 @@ export const THREAT_PATTERNS: ThreatPattern[] = [
   // for a write. Matching the bare filename made every skill that merely NAMES
   // CLAUDE.md a critical, and a critical is blocking — 66 of arizuko's own 551
   // shipped skill files were quarantined by their own documentation (BUGS L155).
-  // Three forms: a redirect whose path follows with no space, a mutating command
-  // or tool naming the file on the same line, and a write-mode open. A prose
-  // mention matches none of them.
-  { re: ">>?\\s*[^\\s\\n]{0,60}(?:AGENTS\\.md|CLAUDE\\.md|\\.cursorrules|\\.clinerules)|(?:\\btee\\b|\\bsed\\s+-i\\b|\\brm\\b|\\bmv\\b|\\bcp\\b|\\btruncate\\b|\\bWrite\\b|\\bEdit\\b|\\bwriteFile(?:Sync)?\\b|\\bappendFile(?:Sync)?\\b|\\bopen\\()[^\\n]{0,80}(?:AGENTS\\.md|CLAUDE\\.md|\\.cursorrules|\\.clinerules)|(?:AGENTS\\.md|CLAUDE\\.md|\\.cursorrules|\\.clinerules)[^\\n]{0,40}[\"'][wa]\\+?[\"']", id: "agent_config_mod", severity: "critical", category: "persistence", description: "writes an agent config file (could persist malicious instructions across sessions)" },
+  // Four forms, each the shape of an ACT, because a mention wears the same
+  // tokens: a redirect, whose `>` follows whitespace or an fd digit, so the
+  // closing bracket of a `<group>/CLAUDE.md` placeholder is not one; a mutating
+  // shell command or fs call; a Write/Edit tool call, which names a PATH — the
+  // table compiles /i, so a bare `Write` also caught the English verb; and a
+  // write-mode open, since `open(x).read()` is a read.
+  { re: "(?:^|[\\s\\d])>>?\\s*[^\\s\\n]{0,60}(?:AGENTS\\.md|CLAUDE\\.md|\\.cursorrules|\\.clinerules)|(?:\\btee\\b|\\bsed\\s+-i\\b|\\brm\\b|\\bmv\\b|\\bcp\\b|\\btruncate\\b|\\bwriteFile(?:Sync)?\\b|\\bappendFile(?:Sync)?\\b)[^\\n]{0,80}(?:AGENTS\\.md|CLAUDE\\.md|\\.cursorrules|\\.clinerules)|(?:\\bWrite\\b|\\bEdit\\b)[^\\n]{0,60}[~/][^\\s\\n]{0,40}(?:AGENTS\\.md|CLAUDE\\.md|\\.cursorrules|\\.clinerules)|(?:AGENTS\\.md|CLAUDE\\.md|\\.cursorrules|\\.clinerules)[^\\n]{0,40}[\"'][wa]\\+?[\"']", id: "agent_config_mod", severity: "critical", category: "persistence", description: "writes an agent config file (could persist malicious instructions across sessions)" },
   { re: "\\.hermes/config\\.yaml|\\.hermes/SOUL\\.md", id: "hermes_config_mod", severity: "critical", category: "persistence", description: "references Hermes configuration files directly" },
   { re: "\\.claude/settings|\\.codex/config", id: "other_agent_config", severity: "high", category: "persistence", description: "references other agent configuration files" },
   { re: "(?:api[_-]?key|token|secret|password)\\s*[=:]\\s*[\"\\'][A-Za-z0-9+/=_-]{20,}", id: "hardcoded_secret", severity: "critical", category: "credential_exposure", description: "possible hardcoded API key, token, or secret" },
