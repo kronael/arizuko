@@ -6089,7 +6089,7 @@ Per RFC 9110 and the Fetch spec a 301 on POST is re-issued as GET, so
   `/pub/krons/assets/arizuko-client.js`, which happens to hold a matching copy.
   An accident of one world's pub slot, not a route.
 
-## L118 — `arizuko apply` destroys every route token and the whole task-run history through FK cascades, on an UNCHANGED round-trip (2026-08-26, proposal — needs sign-off; data loss)
+## ✅ FIXED 2026-09-20 L118 — `arizuko apply` destroys every route token and the whole task-run history through FK cascades, on an UNCHANGED round-trip (2026-08-26, proposal — needs sign-off; data loss)
 
 `resreg.Apply` rebuilds each mentioned resource: `DeleteScope`
 (`resreg/engine.go:316`, `DELETE FROM groups WHERE folder=?`) or `DeleteAll`
@@ -6144,6 +6144,28 @@ wiped/rebuilt"* and *"a resource the manifest omits entirely is not touched"*.
   "route_tokens is deliberately NOT cascaded" — `store.DeleteGroup`
   (`store/groups.go:117`) deletes the groups row on an FK-on handle, so
   self-owned tokens cascade anyway.
+
+- **Status:** closed on re-check 2026-09-20 — the mechanism is gone, and the
+  decision it would have forced is already recorded.
+- **Re-measured:** there are no foreign keys to cascade. `foreign_keys`,
+  `REFERENCES` and `ON DELETE CASCADE` return **zero** non-test hits across the
+  tree; the one survivor is a COMMENT saying why they cannot exist.
+  `resreg.DeleteScope` — the `DELETE FROM groups WHERE folder=?` this entry
+  opens with — does not exist either. The store is a document store, the DSN
+  with the pragma is gone, and so is the schema the three cascade lines are
+  quoted from.
+- **What replaced it is the OPPOSITE choice, deliberately.**
+  `store/task_run_logs.go:30-35`: "A RUN LOG OUTLIVES THE TASK IT NAMES.
+  `scheduled_tasks` is an entity and an entity has no column a REFERENCES clause
+  can name, so removing a task removes the task and nothing else — the decision
+  routd's migration 0009 already records, and the same one `folder_scope.go`
+  makes for a group delete." It even names the cost: the three live instances
+  carry 10, 32 and 66 run logs whose task is gone.
+- **So an unchanged `apply` round-trip cannot take route tokens or run history
+  with it by cascade.** What `Apply` still does to a resource it MENTIONS is a
+  replace, and its semantics — roll-forward, no pre-image, no rollback — are
+  documented at `objstore/replace.go` and `resreg/entity.go`, which is a
+  different question from this entry's.
 
 ## ✅ FIXED 2026-08-29 L119 — three of the four group-creation surfaces never bind `folder:<f> → role:member`, so a world born there holds zero messaging verbs (2026-08-26)
 
