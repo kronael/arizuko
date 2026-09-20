@@ -808,8 +808,9 @@ func EnsureSubsystem(ctx context.Context, m EntityMaker, s objstore.Store, subsy
 // WHAT IT COSTS, said plainly because an operator pays it. There is no
 // pre-image and no rollback: a replace that dies after it has written leaves the
 // subsystem PART-APPLIED with its claim still held, and recovery is to run the
-// same apply again — roll forward, never undo. That is the price 6/38 costed for
-// an unbounded row set, and objstore.Replace's own error says it in the words
+// same apply again — roll forward, never undo. That is the price 6/37's `Apply`
+// redesign costed for an unbounded row set, and objstore.Replace's own error
+// says it in the words
 // the operator sees.
 //
 // THE ROLL-FORWARD IS THE SAME CALL, which is why the claim carries an intent.

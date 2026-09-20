@@ -24,7 +24,7 @@ package objstore
 // and no rollback. A replace that dies half-way leaves the scope PART-WRITTEN
 // with its marker still held, and recovery is to run the replace again
 // (roll-forward), never to undo it. That is what buys an unbounded row set, and
-// it is the price 6/38 costed for a key-value engine.
+// it is the price 6/37's `Apply` redesign costed for a key-value engine.
 //
 // THE CLAIM IS NOT RELEASED WHEN A BODY FAILS AFTER WRITING, and nothing else
 // releases one either. A released half-written scope reads as settled and

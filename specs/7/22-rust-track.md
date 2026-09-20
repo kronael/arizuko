@@ -1,6 +1,6 @@
 ---
 status: draft
-depends: [../6/37-store-model, 25-publish-plan]
+depends: [../6/37-store-model, ../6/42-dynamo-over-postgres, 25-publish-plan]
 ---
 
 # specs/7/22 — the Rust track
@@ -39,20 +39,21 @@ lines) is imported by `store/network.go` and
 `6/37` established that the cloud constraint is relational, not
 linguistic: 26 of 47 transactions are multi-table, and each one prevents
 a specific privilege escalation, so no key-value or document store
-carries them. `6/37` also refuses a vendor-shaped facade — `database/sql`
-is the seam and the cloud target is managed Postgres, reached by a
-connection string. That constraint is identical in any language. A
+carries them. `6/42` settles what that resolves to: the seam is
+`objstore.Store` — two methods and four protocols — and arizuko speaks the
+DynamoDB API to a server that stores in PostgreSQL. Every daemon changes by
+zero lines at that seam. The constraint is identical in any language: a
 daemon rewritten in Rust still needs the same transaction to stop a group
 delete conferring inherited admin.
 
-So the cloud track proceeds through the Postgres move whatever happens
+So the cloud track proceeds through the store move whatever happens
 here, and a Rust rewrite would not advance it by a line.
 
 ## Where Rust plausibly pays
 
 The isolation boundary, and only there. `egress` is a forward proxy on
 every agent's network path; `crackbox` is the sandbox; `mcpfw` is the
-tool-call gate. All three are small, have no SQLite dependency, hold no
+tool-call gate. All three are small, reach no store, hold no
 schema, ship as single static binaries, and sit exactly where a memory
 bug is a tenancy breach rather than a crash.
 
@@ -87,7 +88,7 @@ asks for and also the reason to leave it last.
 
 ## Where it does not
 
-The remaining ~82,000 lines are SQLite-backed business logic: routing,
+The remaining ~82,000 lines are store-backed business logic: routing,
 grants, onboarding, scheduling, the dashboard. Go is already the right
 tool for them, the transactions are the correctness argument rather than
 the performance one, and no user-visible property improves by moving
