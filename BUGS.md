@@ -7,6 +7,38 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L320 — a chat that takes human messages and answers none is invisible to every operator surface (2026-09-20, open)
+
+MEASURED on krons 2026-09-20. `telegram:group/5229089286` routes to
+`rhias/nemo`. It carried **zero** bot replies from 2026-09-17 09:00 onward while
+two human messages waited — 10:24 and 14:41 on 2026-09-20. Nothing reported it.
+
+Every check reads green, and each is right on its own terms:
+
+- `chats.errored` is clear, because no turn failed — none ran.
+- The cursor is at the newest message, because `#observe` advances it.
+- The circuit breaker is closed, because it counts failed runs.
+- The error census is empty, because nothing logged an error.
+- `/eval` check 4 compares `agent_cursor` against the newest user message and
+  passes for the same reason: the cursor is not behind.
+
+The cause was a route the operator declared — a `verb=mention` rule with an
+`#observe` twin — so the platform behaved exactly as configured. That is what
+makes it a monitoring gap rather than a routing bug: a folder can be configured
+deaf, and no surface says a chat with live human traffic stopped answering.
+
+Same shape as `L175`, from the other end: there a model outage was delivered as
+a reply and booked as success; here a configuration makes the reply never
+happen. Both are silent, and both need a check that asks about OUTCOMES rather
+than errors.
+
+- **Severity:** medium — a tenant can go unanswered for days and every health surface says the fleet is well
+- **Scope:** `.claude/skills/eval/checks.md`; the census; any future alerting
+- **Affected:** every instance; found on krons, and the shape exists wherever a route pair is used
+- **Source:** krons `routd.messages` on `telegram:group/5229089286`, 2026-09-17 to 2026-09-20; routes `id=60` (`verb=mention`, seq 0) and `id=61` (`#observe`, seq 1)
+- **Status:** open — the check is the fix, and it is small: for each chat with a human message in the window, compare the newest human message against the newest bot message, and report a chat whose humans have outrun its replies by more than one round. It belongs beside check 4, which today asks only whether the cursor moved.
+- **Fix:**
+
 ## L319 — arizuko never provisions a store identity, so a shared store server has no enrolment path (2026-09-20, open)
 
 MEASURED 2026-09-20. arizuko reads five env values from the store server and
