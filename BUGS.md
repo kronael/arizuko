@@ -7623,7 +7623,7 @@ accruing; the existing 38 are dead files.
   `5/F` and needs sign-off.
 - **Do NOT** run anteval and trust the score until this is settled.
 
-## L53 — the secret broker writes `surface: "crackbox"` on every secret read (2026-08-18)
+## ✅ FIXED 2026-09-20 L53 — the secret broker writes `surface: "crackbox"` on every secret read (2026-08-18)
 
 `store/secret_use_log.go:57` stamps `audit.SurfaceCrackbox` on the `audit_log`
 row it emits per secret read, and `audit/log.go:34` defines that constant as the
@@ -7650,6 +7650,23 @@ Recommended: change the write to `audit.SurfaceMCP`, delete `SurfaceCrackbox`
 from the enum, and migrate existing rows — the string appears on exactly one
 write path, so the rewrite is `UPDATE audit_log SET surface='mcp' WHERE
 surface='crackbox'` with no ambiguity about which rows are meant.
+
+- **Status:** fixed 2026-09-20.
+- **Fix:** `store/secret_use_log.go` stamps `audit.SurfaceMCP`. There is
+  exactly ONE production writer — routd's MCP broker middleware
+  `ResolveConnectorSecrets` (`routd/mcp.go:530-548`) — so `mcp` is not a
+  guess about the surface, it is the surface. `crackbox` named a sandbox that
+  is not on this path, so a query by surface found none of these rows.
+
+  RE-MEASURED 2026-09-20: `SurfaceCrackbox` now has exactly one use left in the
+  tree, its own declaration at `audit/event.go:27`.
+
+  PROVEN BY MUTATION: put `SurfaceCrackbox` back and
+  `TestSecretUseLogStampsTheMCPSurface` fails. The test reads the row back
+  through `audit.Query` rather than asserting the constant, and fails loudly if
+  no `secret.read` row exists at all, so it cannot pass vacuously.
+- **Left to the operator:** rows already written carry `crackbox`. Rewriting
+  them is a data decision, not a code one.
 
 ## ✅ FIXED 2026-08-29 L52 — `arizuko token revoke <jid>` cannot revoke a suffixed chat token (2026-08-18)
 

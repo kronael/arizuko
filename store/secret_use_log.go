@@ -150,11 +150,16 @@ func (s *Store) LogSecretUse(r SecretUseRow) error {
 		errMsg = r.Status
 	}
 	ev := audit.Event{
-		Category:   audit.CategorySecret,
-		Action:     "secret.read",
-		Actor:      r.CallerSub,
-		ActorSub:   r.CallerSub,
-		Surface:    audit.SurfaceCrackbox,
+		Category: audit.CategorySecret,
+		Action:   "secret.read",
+		Actor:    r.CallerSub,
+		ActorSub: r.CallerSub,
+		// The one production writer is routd's MCP broker middleware,
+		// `ResolveConnectorSecrets` (`routd/mcp.go:530`), so the surface a secret
+		// read happened on is `mcp`. Stamping `crackbox` named a sandbox that is
+		// not on this path and made every broker read unfindable by surface
+		// (BUGS L53).
+		Surface:    audit.SurfaceMCP,
 		Resource:   "secrets/" + r.Scope + "/" + r.Folder + "/" + r.Key,
 		Scope:      r.Scope,
 		Folder:     r.Folder,

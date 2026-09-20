@@ -170,9 +170,39 @@ func mustAuditWrite(t *testing.T) objstore.Write {
 		Action:   "secret.read",
 		Actor:    "github:bob",
 		ActorSub: "github:bob",
-		Surface:  audit.SurfaceCrackbox,
+		Surface:  audit.SurfaceMCP,
 		Resource: "secrets/missing//K",
 		Outcome:  audit.OutcomeOK,
 	})
 	return w
+}
+
+// A broker secret read happens on the MCP surface — routd's
+// ResolveConnectorSecrets is the one production caller. Stamping `crackbox`
+// named a sandbox that is not on this path, so no surface query found these
+// rows (BUGS L53).
+func TestSecretUseLogStampsTheMCPSurface(t *testing.T) {
+	s := openMem(t)
+	if err := s.LogSecretUse(SecretUseRow{
+		Tool: "t", Key: "K", Scope: "folder", Folder: "eng",
+		CallerSub: "github:bob", Status: "ok",
+	}); err != nil {
+		t.Fatalf("LogSecretUse: %v", err)
+	}
+	rows, err := audit.Query(context.Background(), s.Obj(), audit.Filter{Limit: 10})
+	if err != nil {
+		t.Fatalf("audit.Query: %v", err)
+	}
+	found := false
+	for _, r := range rows {
+		if r.Action == "secret.read" {
+			found = true
+			if r.Surface != audit.SurfaceMCP {
+				t.Errorf("surface = %q, want %q", r.Surface, audit.SurfaceMCP)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("no secret.read audit row; this test checks nothing")
+	}
 }
