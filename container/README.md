@@ -70,6 +70,11 @@ With the `web:publish` grant:
 - `WEB_DIR/pub/<folder>/` → `~/public_html` (rw)
 - `WEB_DIR/priv/<folder>/` → `~/private_html` (rw)
 
+Without it, one subtree of that tree still mounts — the platform doc site
+the `arizuko` skill every folder ships reads from (spec `5/V`):
+
+- `WEB_DIR/pub/arizuko/` → `/var/lib/www/arizuko` (ro)
+
 When `HOST_CODEX_DIR` set:
 
 - `groupDir/.codex/` → `~/.codex` (rw, per-group)

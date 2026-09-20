@@ -111,15 +111,30 @@ descendant.
 
 Every group container with the `web:publish` grant gets two writable slots
 in its home plus a read-only view of the unified public tree
-(`container/runner.go:604-632`). **No grant → no web surface at all** —
-this is a grant decision, not a rank: the all-groups `/var/lib/groups`
-mount is separately gated on operator elevation.
+(`container/runner.go` `buildMounts`). **No grant → no writable web surface
+at all** — this is a grant decision, not a rank: the all-groups
+`/var/lib/groups` mount is separately gated on operator elevation.
 
-| Container path    | URL served at         | Auth      | Bind-mount source            |
-| ----------------- | --------------------- | --------- | ---------------------------- |
-| `~/public_html/`  | `/pub/<folder>/…`     | none      | `<data>/web/pub/<folder>/`   |
-| `~/private_html/` | `/priv/<folder>/…`    | OAuth/JWT | `<data>/web/priv/<folder>/`  |
-| `/var/lib/www/`   | (read access, no URL) | n/a       | `<data>/web/pub/` (RO whole) |
+| Container path         | URL served at         | Auth      | Bind-mount source              |
+| ---------------------- | --------------------- | --------- | ------------------------------ |
+| `~/public_html/`       | `/pub/<folder>/…`     | none      | `<data>/web/pub/<folder>/`     |
+| `~/private_html/`      | `/priv/<folder>/…`    | OAuth/JWT | `<data>/web/priv/<folder>/`    |
+| `/var/lib/www/`        | (read access, no URL) | n/a       | `<data>/web/pub/` (RO whole)   |
+| `/var/lib/www/arizuko` | (read access, no URL) | n/a       | `<data>/web/pub/arizuko/` (RO) |
+
+**The doc site is not a group's content, so it is not behind the grant.**
+`<data>/web/pub/arizuko/` is the platform doc site `arizuko create` copies
+from `template/web/pub/arizuko/`, and every folder ships the `arizuko`
+skill whose only job is to answer from `/var/lib/www/arizuko/`. A folder
+WITHOUT `web:publish` gets that subtree read-only and nothing else; a
+folder with the grant gets the whole tree, which already contains it.
+
+The split is by subtree, not by dropping the grant, because the rest of the
+tree is every group's published content and a group may gate part of its
+own with an `auth`/`deny` `web_routes` row (`set_web_route`, § One URL, one
+backing store). proxyd enforces that at the edge; a filesystem mount does
+not, so widening the whole-tree mount would hand every folder a read path
+around it.
 
 The `/pub/<X>` and `/<X>` URLs land on the SAME file. `/priv/<X>` serves a
 DIFFERENT tree; content under `web/priv/` is NEVER served via `/pub/`.
@@ -145,15 +160,16 @@ web tree. They have no URL.
 Platform mounts use FHS canonical locations. The previous `/workspace/*`
 prefix was a devcontainer convention misapplied.
 
-| Container         | Host                           | Mode                    |
-| ----------------- | ------------------------------ | ----------------------- |
-| `/opt/arizuko`    | `<repo>`                       | RO                      |
-| `/var/lib/www`    | `<data>/web/pub/`              | RO (with `web:publish`) |
-| `/run/ipc`        | `<data>/ipc/<folder>/`         | RW                      |
-| `/var/lib/share`  | `<data>/groups/<world>/share/` | RO/RW per grant         |
-| `/var/lib/groups` | `<data>/groups/`               | RW, elevated turn only  |
-| `/mnt/<name>`     | operator extras                | varies                  |
-| `/home/node/`     | `<data>/groups/<folder>/`      | RW (group home)         |
+| Container              | Host                           | Mode                    |
+| ---------------------- | ------------------------------ | ----------------------- |
+| `/opt/arizuko`         | `<repo>`                       | RO                      |
+| `/var/lib/www`         | `<data>/web/pub/`              | RO (with `web:publish`) |
+| `/var/lib/www/arizuko` | `<data>/web/pub/arizuko/`      | RO (always)             |
+| `/run/ipc`             | `<data>/ipc/<folder>/`         | RW                      |
+| `/var/lib/share`       | `<data>/groups/<world>/share/` | RO/RW per grant         |
+| `/var/lib/groups`      | `<data>/groups/`               | RW, elevated turn only  |
+| `/mnt/<name>`          | operator extras                | varies                  |
+| `/home/node/`          | `<data>/groups/<folder>/`      | RW (group home)         |
 
 An elevated `/root` turn also gets an `infra` skill for instance-level
 setup: setting `HOSTING_DOMAIN` once, the wildcard `*.<HOSTING_DOMAIN>` DNS

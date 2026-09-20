@@ -70,7 +70,9 @@ ls /var/lib/www/
 
 You cannot write to `/var/lib/www/` directly — it is mounted read-only.
 Your writable view is `~/public_html/`. Both appear only if your folder
-holds the `web:publish` grant.
+holds the `web:publish` grant. Without it the one subtree you still see
+there is `arizuko/`, the doc site — so `arizuko/` alone under
+`/var/lib/www/` means you do NOT hold the grant.
 
 ## Nested subgroups
 

@@ -510,3 +510,69 @@ func TestBuildMountsOwnsTheGroupCodexDirBeforeDockerSeesIt(t *testing.T) {
 		t.Error("no .codex mount in the built list")
 	}
 }
+
+// TestBuildMounts_DocsSubtreeWithoutWebPublish pins the split BUGS L309 asks
+// for, in both directions. `seedSkills` gives every folder `ant/skills/arizuko`,
+// whose whole job is to answer from `/var/lib/www/arizuko/`, so that subtree
+// mounts read-only with no grant. Everything the grant ALSO carries must stay
+// behind it: a non-publisher gets no whole-tree view of what other groups
+// published — which a group may gate at the edge with an `auth`/`deny`
+// web_routes row that a filesystem mount would bypass — and no writable slot.
+func TestBuildMounts_DocsSubtreeWithoutWebPublish(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := &core.Config{
+		GroupsDir:   filepath.Join(tmp, "groups"),
+		IpcDir:      filepath.Join(tmp, "ipc"),
+		HostAppDir:  filepath.Join(tmp, "app"),
+		WebDir:      filepath.Join(tmp, "web"),
+		ProjectRoot: tmp,
+	}
+	os.MkdirAll(cfg.GroupsDir, 0o755)
+	os.MkdirAll(cfg.IpcDir, 0o755)
+	pubHost := filepath.Join(cfg.WebDir, "pub")
+	docsHost := filepath.Join(pubHost, webDocsDir)
+	os.MkdirAll(docsHost, 0o755)
+	// A sibling group's published tree: what the whole-tree mount carries and
+	// the docs mount must not.
+	os.MkdirAll(filepath.Join(pubHost, "atlas"), 0o755)
+	folders := &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir}
+
+	in := Input{Folder: "nogrant"} // holds no web:publish
+	groupDir := filepath.Join(cfg.GroupsDir, in.Folder)
+	os.MkdirAll(groupDir, 0o755)
+	mounts := buildMounts(cfg, in, groupDir, false, folders)
+
+	// The grant half first, so a widening still reports when the docs half is
+	// also broken.
+	if indexOfMount(mounts, webRoot) >= 0 {
+		t.Errorf("%s whole-tree mount without web:publish — the docs fix must not widen the grant", webRoot)
+	}
+	for _, m := range mounts {
+		if strings.HasSuffix(m.Container, "/public_html") || strings.HasSuffix(m.Container, "/private_html") {
+			t.Errorf("writable web slot %s without web:publish", m.Container)
+		}
+	}
+
+	docs := filepath.Join(webRoot, webDocsDir)
+	i := indexOfMount(mounts, docs)
+	if i < 0 {
+		t.Fatalf("no %s mount without web:publish; the arizuko skill names a directory that is not there", docs)
+	}
+	if !mounts[i].RO {
+		t.Errorf("%s must be read-only; got a writable mount", docs)
+	}
+	if mounts[i].Host != docsHost {
+		t.Errorf("%s binds %q, want the doc site %q", docs, mounts[i].Host, docsHost)
+	}
+
+	// With the grant the whole tree comes back, and the subtree does not mount
+	// a second time underneath it.
+	in.WebPublish = true
+	mounts = buildMounts(cfg, in, groupDir, false, folders)
+	if indexOfMount(mounts, webRoot) < 0 {
+		t.Errorf("web:publish lost the %s whole-tree mount", webRoot)
+	}
+	if indexOfMount(mounts, docs) >= 0 {
+		t.Errorf("%s mounted again under the whole tree it is already part of", docs)
+	}
+}
