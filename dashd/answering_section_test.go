@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/routd"
 )
@@ -172,5 +173,42 @@ func TestStatus_SessionCountsSayWhenRoutdIsUnreachable(t *testing.T) {
 	// The page must not ALSO claim a healthy tally beside the banner.
 	if strings.Contains(body, "<h2>Active sessions") {
 		t.Error("a dead routd still rendered a session table")
+	}
+}
+
+// An operator BY GRANT arrives with no X-User-Groups header: callerScope falls
+// back to an auth.UserScopes ACL read and serves them the pages, while
+// dashNavFor read the header alone and showed them no links to those pages
+// (BUGS L324). One derivation now, decided in the guard.
+func TestNav_OperatorByGrantSeesTheOperatorLinks(t *testing.T) {
+	d, db := answeringDash(t)
+	seedGrant(t, db.Obj(), core.ACLRow{
+		Principal: "carol@x", Action: "admin", Scope: auth.OperatorGroup,
+		Effect: "allow", GrantedBy: "test",
+	})
+
+	// No X-User-Groups: the grant is the only thing that makes them operator.
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/dash/status/", nil)
+	r.Header.Set("X-User-Sub", "carol@x")
+	newMux(d).ServeHTTP(w, r)
+	body := w.Body.String()
+
+	if !strings.Contains(body, `href="/dash/audit/"`) {
+		t.Errorf("operator-by-grant was shown no operator links:\n%s", body)
+	}
+}
+
+// The same nav must still hide those links from a caller who is neither, or the
+// fix would be "show everyone everything".
+func TestNav_AFolderScopedCallerSeesNoOperatorLinks(t *testing.T) {
+	d, _ := answeringDash(t)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/dash/status/", nil)
+	r.Header.Set("X-User-Sub", "bob@x")
+	r.Header.Set("X-User-Groups", `["demo"]`)
+	newMux(d).ServeHTTP(w, r)
+	if body := w.Body.String(); strings.Contains(body, `href="/dash/audit/"`) {
+		t.Errorf("a folder-scoped caller was shown operator links:\n%s", body)
 	}
 }

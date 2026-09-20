@@ -470,21 +470,45 @@ func (d *dash) secretStore() *store.Store {
 // X-User-Sub/-Groups directly, so we deliberately do NOT stamp the bearer's own
 // subject over them. No verifier passes through open; failure redirects to
 // /auth/login.
+// operatorCtxKey carries the caller's operator verdict for the length of one
+// request.
+//
+// IT EXISTS BECAUSE TWO READERS ANSWERED ONE QUESTION DIFFERENTLY. `callerScope`
+// reads the proxyd-stamped header and falls back to an `auth.UserScopes` ACL
+// read; `dashNavFor` read the header alone. So an operator BY GRANT, arriving
+// without the header, was served the pages and shown no links to them
+// (BUGS L324). One derivation, decided once per request, read by both.
+type operatorCtxKey struct{}
+
+// operatorFromCtx reports the verdict the guard decided, and whether it decided
+// one. A handler mounted outside the guard has none, and says so rather than
+// reading a false `false`.
+func operatorFromCtx(ctx context.Context) (bool, bool) {
+	v, ok := ctx.Value(operatorCtxKey{}).(bool)
+	return v, ok
+}
+
+// guard proves the request came through proxyd and decides the operator verdict
+// once for the handlers below it.
+//
+// THE WRAPPER IS UNCONDITIONAL. A nil keyset means local dev with no AUTHD_URL
+// — the transit check cannot run — but the verdict still must, and returning
+// `next` bare skipped BOTH. That is also how every dashd test runs, so a fix
+// seated here and gated on the keyset would have been invisible to the suite
+// that covers it.
 func (d *dash) guard(next http.HandlerFunc) http.HandlerFunc {
-	if d.ks == nil {
-		return next
-	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		r = r.WithContext(obs.ExtractRequest(r))
-		if auth.ProxydTransit(r, d.ks) {
-			next(w, r)
+		if d.ks != nil && !auth.ProxydTransit(r, d.ks) {
+			slog.Warn("dashd: identity proof failed",
+				"path", r.URL.Path,
+				"attempted_sub", r.Header.Get("X-User-Sub"),
+				"remote", r.Header.Get("X-Forwarded-For"))
+			http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
 			return
 		}
-		slog.Warn("dashd: identity proof failed",
-			"path", r.URL.Path,
-			"attempted_sub", r.Header.Get("X-User-Sub"),
-			"remote", r.Header.Get("X-Forwarded-For"))
-		http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
+		_, operator := d.callerScope(r)
+		next(w, r.WithContext(context.WithValue(r.Context(), operatorCtxKey{}, operator)))
 	}
 }
 
@@ -634,7 +658,13 @@ var navLinks = []struct {
 // from the signed X-User-Groups).
 func dashNavFor(r *http.Request) string {
 	urlPath := r.URL.Path
-	operator := auth.IsOperator(r)
+	// The guard decided this once, from the same source callerScope trusts —
+	// the stamped header, or an ACL read when it is absent. Falling back to the
+	// header alone here is what hid every operator-by-grant's links (BUGS L324).
+	operator, decided := operatorFromCtx(r.Context())
+	if !decided {
+		operator = auth.IsOperator(r)
+	}
 	name := r.Header.Get("X-User-Name")
 	if name == "" {
 		sub := r.Header.Get("X-User-Sub")

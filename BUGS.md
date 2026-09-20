@@ -71,7 +71,7 @@ looks like on one page.
   asserts the page does NOT still render an `Active sessions` heading beside the
   banner, so the fix cannot be satisfied by showing both answers at once.
 
-## L324 — two operator-surface checks that never run, split out of L98 (2026-09-20, open)
+## L324 — two operator-surface checks that never run, split out of L98 (2026-09-20, PARTLY FIXED 2026-09-20; the transit guard half remains)
 
 `L98`'s headline claim is false — both faces have end-to-end tests — but two things it
 noticed are real and outlived it.
@@ -117,6 +117,32 @@ them — the same "two readers, one question" shape as `L206`.
   harness leaves `AUTHD_URL` unset. A fix seated there would be invisible to
   every test that covers it, which is this entry's other half wearing a
   different hat.
+
+- **The `dashNavFor` half is fixed 2026-09-20, and it was three edits, not the
+  thirty-two I estimated.** The estimate was wrong because I looked for a place
+  to thread the verdict THROUGH rather than a place to decide it ONCE.
+
+  `d.guard` wraps every `/dash/` handler and is that place. It now decides the
+  verdict with `d.callerScope(r)` — the same derivation the write gate trusts,
+  header first and an `auth.UserScopes` ACL read when the header is absent — and
+  carries it on the request context. `dashNavFor` reads it, falling back to the
+  header alone only for a handler mounted outside the guard, which says "no
+  verdict was decided" rather than reading a false `false`.
+
+  **The guard's wrapper is unconditional now, and that IS the fix's other half.**
+  It returned `next` bare when `d.ks == nil` — local dev with no `AUTHD_URL`,
+  and the path every dashd test takes. A verdict seated inside a keyset-gated
+  wrapper would have been invisible to the suite covering it. The transit check
+  stays gated on the keyset; the wrapper does not.
+
+  PROVEN BY MUTATION, both halves: make the nav read the header alone again, or
+  restore the `ks == nil` early return, and `TestNav_OperatorByGrantSeesThe
+  OperatorLinks` fails. Its twin asserts a folder-scoped caller still sees NO
+  operator links, so the fix cannot be satisfied by showing everyone everything.
+  `dashd` 92s, `dashstore` 3.5s, both ok.
+- **Still open:** the proxyd transit guard is exercised by nothing, because the
+  harness leaves `AUTHD_URL` unset on purpose. Turning it on needs an authd in
+  the fixture, which is a harness decision.
 
 ## L323 — a folder delete does its work and then reports failure, and one comment still says it rolls back (2026-09-20, open)
 
