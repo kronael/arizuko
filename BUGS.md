@@ -212,7 +212,7 @@ looks like on one page.
   asserts the page does NOT still render an `Active sessions` heading beside the
   banner, so the fix cannot be satisfied by showing both answers at once.
 
-## L324 — two operator-surface checks that never run, split out of L98 (2026-09-20, PARTLY FIXED 2026-09-20; the transit guard half remains)
+## ✅ FIXED 2026-09-20 L324 — two operator-surface checks that never run, split out of L98 (2026-09-20)
 
 `L98`'s headline claim is false — both faces have end-to-end tests — but two things it
 noticed are real and outlived it.
@@ -281,9 +281,18 @@ them — the same "two readers, one question" shape as `L206`.
   OperatorLinks` fails. Its twin asserts a folder-scoped caller still sees NO
   operator links, so the fix cannot be satisfied by showing everyone everything.
   `dashd` 92s, `dashstore` 3.5s, both ok.
-- **Still open:** the proxyd transit guard is exercised by nothing, because the
-  harness leaves `AUTHD_URL` unset on purpose. Turning it on needs an authd in
-  the fixture, which is a harness decision.
+- **That "still open" half is REFUTED, re-measured 2026-09-20.** The proxyd
+  transit guard IS exercised. `dashd/auth_bearer_test.go` builds a dash with a
+  non-nil keyset, mints a real `service:proxyd` ES256 bearer, and asserts 200
+  with the proof and 303 without it, with a wrong key, and with a non-proxyd
+  subject. It dates to `beafe6e8` (2026-06-10), three months BEFORE the
+  measurement that called it untested. The same guard is covered again by
+  `auth/transit_test.go`, `onbod/auth_bearer_test.go`,
+  `webd/anonshield_test.go` and the `auth/authtest` helper four adapter
+  dashboards use. What is true is narrower and is not a trust gap: the
+  Playwright browser suite alone runs with `AUTHD_URL` unset
+  (`tests/dashd-playwright/global-setup.ts`), so the guard is untested in the
+  BROWSER path only.
 
 ## L323 — a folder delete does its work and then reports failure, and one comment still says it rolls back (2026-09-20, open)
 
