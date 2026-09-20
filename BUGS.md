@@ -5253,7 +5253,7 @@ ignored — `webd/route_token.go:412-413` says so.
   JSON (`webd/hub.go:66-68`). A connected reply would land as raw JSON text.
   Not driven through htmx; flagged, not claimed.
 
-## L117 — the published chat SDK cannot send: `POST /slink/<token>` answers 301, which downgrades the request to GET, and `/slink/` carries no CORS (2026-08-26, open)
+## ✅ FIXED 2026-09-20 L117 — the published chat SDK cannot send: `POST /slink/<token>` answers 301, which downgrades the request to GET, and `/slink/` carries no CORS (2026-08-26)
 
 `webd/assets/arizuko-client.js` uses the `/slink/` prefix at five sites
 (`:109` send, `:127` status, `:147` snapshot, `:166` stream, `:222` config).
@@ -5285,7 +5285,31 @@ Per RFC 9110 and the Fetch spec a 301 on POST is re-issued as GET, so
 - **Two local fixes:** point the SDK at the `endpoints` map `/config` already
   returns (fetched into `this.endpoints` at `arizuko-client.js:86`, then never
   used), and make the compatibility shim `308` and CORS-wrapped for POST.
-- **Adjacent, weaker:** `/assets/` is absent from `coreProxydRoutes`
+- **Status:** fixed 2026-09-20.
+- **Fix:** both local fixes, one concern each.
+
+  The SDK builds all five request paths from one `SURFACE = '/chat/'` constant,
+  so it reaches the mux directly and no hop sits on the critical path of a send.
+  The `endpoints` map `/config` returns is NOT the source: it holds three of the
+  five paths, and `connect()` must fetch `/config` before it can read the map at
+  all, so a client that used it would still spell two paths itself. One constant
+  is the single spelling; the map stays as the server's own advertisement.
+
+  The shim answers **308**, which RFC 9110 §15.4.2 defines as method-preserving,
+  and it is registered through `tokenSurface`, so it carries the same CORS
+  headers and anon shield as its target. A browser can now both read and follow
+  it.
+
+  PROVEN BY MUTATION, three assertions in `webd/slink_shim_test.go`:
+  - `308 → 301`: the status assertion fails AND the end-to-end send fails, because
+    Go's client re-issues the POST as GET exactly as a browser does.
+  - `tokenSurface → mux.HandleFunc`: the `Access-Control-Allow-Origin` assertion
+    fails.
+  - `SURFACE = '/slink/'`: the SDK-source assertion fails, and so does the
+    copies-are-identical test.
+
+  `ARCHITECTURE.md:154` and `SECURITY.md:96` now say 308.
+- **Left open, filed as `L322`:** `/assets/` is absent from `coreProxydRoutes`
   (`compose/compose.go:371-407`) and from all three live `proxyd_routes` tables,
   so webd's `GET /assets/{path...}` is unreachable through proxyd everywhere. On
   krons the request survives only by falling through to `vhostRedirect` →

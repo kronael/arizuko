@@ -151,7 +151,7 @@ by topic and dispatches one run per topic (first-seen order).
 fallthrough in `ROUTING.md` "HTTP Routing (proxyd)"):
 
 - `/pub/*`, `/health`, `/invite/*`, `/p/*` — public
-- `/slink/*` — 301-redirects to `/chat/<token>/`; header is `X-Chat-Token`
+- `/slink/*` — 308-redirects to `/chat/<token>/`; header is `X-Chat-Token`
 - `/chat/<token>/` (GET widget + POST) and `/hook/<token>` (POST only)
   — one `route_tokens` row each
   ([specs/5/W-webhook-routes.md](specs/5/W-webhook-routes.md)).

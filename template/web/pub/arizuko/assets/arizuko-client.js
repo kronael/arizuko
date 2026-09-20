@@ -1,5 +1,5 @@
 /**
- * arizuko-client — vanilla-JS SDK for the slink REST surface.
+ * arizuko-client — vanilla-JS SDK for the slink REST surface at /chat/<token>.
  *
  * Usage:
  *   <script src="/assets/arizuko-client.js"></script>
@@ -58,6 +58,10 @@
 
   const DEFAULT_BASE = '';
 
+  // The one place this file spells the surface path. Every request below is
+  // built from it, so the SDK and the mux cannot drift apart a URL at a time.
+  const SURFACE = '/chat/';
+
   function joinURL(base, path) {
     if (!base) return path;
     if (base.endsWith('/')) base = base.slice(0, -1);
@@ -106,7 +110,7 @@
       opts = opts || {};
       const body = { content };
       if (opts.topic) body.topic = opts.topic;
-      return fetchJSON(this._url('/slink/' + encodeURIComponent(this.token)), {
+      return fetchJSON(this._url(SURFACE + encodeURIComponent(this.token)), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -124,7 +128,7 @@
     status(turnId) {
       return fetchJSON(
         this._url(
-          '/slink/' +
+          SURFACE +
             encodeURIComponent(this.token) +
             '/' +
             encodeURIComponent(turnId) +
@@ -144,7 +148,7 @@
         opts && opts.after ? '?after=' + encodeURIComponent(opts.after) : '';
       return fetchJSON(
         this._url(
-          '/slink/' +
+          SURFACE +
             encodeURIComponent(this.token) +
             '/' +
             encodeURIComponent(turnId) +
@@ -163,7 +167,7 @@
     stream(turnId, handlers) {
       handlers = handlers || {};
       const url = this._url(
-        '/slink/' +
+        SURFACE +
           encodeURIComponent(this.token) +
           '/' +
           encodeURIComponent(turnId) +
@@ -219,7 +223,7 @@
       opts = opts || {};
       const base = opts.baseURL || DEFAULT_BASE;
       const cfg = await fetchJSON(
-        joinURL(base, '/slink/' + encodeURIComponent(token) + '/config'),
+        joinURL(base, SURFACE + encodeURIComponent(token) + '/config'),
       );
       return new Slink(cfg, base);
     },

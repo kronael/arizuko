@@ -111,11 +111,15 @@ func (s *server) handler() http.Handler {
 	// Preflight covers both prefixes.
 	tokenSurface("OPTIONS /chat/", func(http.ResponseWriter, *http.Request) {})
 	tokenSurface("OPTIONS /hook/", func(http.ResponseWriter, *http.Request) {})
-	// Legacy /slink/<token>/... → 301 to /chat/<token>/...
-	mux.HandleFunc("GET /slink/{token}/{rest...}", s.handleSlinkRedirect)
-	mux.HandleFunc("POST /slink/{token}/{rest...}", s.handleSlinkRedirect)
-	mux.HandleFunc("GET /slink/{token}", s.handleSlinkRedirect)
-	mux.HandleFunc("POST /slink/{token}", s.handleSlinkRedirect)
+	// /slink/<token>/... redirects to /chat/<token>/... . It goes through
+	// tokenSurface for the same reason the target does: a browser SDK reaches it
+	// cross-origin, and a redirect a client cannot read is a redirect it cannot
+	// follow (BUGS L117).
+	tokenSurface("GET /slink/{token}/{rest...}", s.handleSlinkRedirect)
+	tokenSurface("POST /slink/{token}/{rest...}", s.handleSlinkRedirect)
+	tokenSurface("GET /slink/{token}", s.handleSlinkRedirect)
+	tokenSurface("POST /slink/{token}", s.handleSlinkRedirect)
+	tokenSurface("OPTIONS /slink/", func(http.ResponseWriter, *http.Request) {})
 
 	// MCP: single per-instance, user-grant-gated
 	// The operator dashboard (spec 6/28): webd's own /dash/ namespace, gated by
@@ -277,7 +281,10 @@ func (s *server) handleSlinkRedirect(w http.ResponseWriter, r *http.Request) {
 	if r.URL.RawQuery != "" {
 		target += "?" + r.URL.RawQuery
 	}
-	http.Redirect(w, r, target, http.StatusMovedPermanently)
+	// 308, not 301: RFC 9110 lets a client re-issue a 301 POST as GET, and the
+	// Fetch spec requires it, so a 301 silently turned every SDK send into a
+	// GET that never reached the handler (BUGS L117).
+	http.Redirect(w, r, target, http.StatusPermanentRedirect)
 }
 
 func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
