@@ -13559,6 +13559,29 @@ Nothing mechanical fixes stored data. Two sets to clean by hand:
 - **Status:** open (operator)
 - **Fix:**
 
+- **RE-MEASURED on the live hosts 2026-09-20: still there, and item 1 now has a
+  COLLISION the entry could not have known about.**
+
+  sloth `groups/main/trading/users/` holds all four of
+  `dc-162597936323231753.md`, `dc-811295670702047272.md`,
+  `dc-user-657972559354265610.md` and `dc-user-811295670702047272.md`, and
+  `groups/main/main/users/` still holds `dc-user-811295670702047272.md`.
+
+  **`dc-811295670702047272.md` already exists in its correct form beside the
+  wrong one.** So the rename this entry prescribes would OVERWRITE a file the
+  platform has been writing since the fix landed. That one is a merge, not a
+  rename, and whichever file is discarded loses whatever the agent learned about
+  that person while it was the live name. `dc-user-657972559354265610.md` has no
+  twin and renames cleanly.
+- **Item 2's count could not be reproduced from here.** A predicate over the
+  entity's attributes rather than the original SQL NULLs answers ~6.3k on krons
+  against the 947 filed. The two are not comparable — an absent attribute and a
+  SQL NULL are not the same test, and the entity migration happened between the
+  two measurements — so the row set must be re-derived before anything is
+  deleted, not deleted against the old number.
+- **Still an operator task**, and now a sharper one: one clean rename, one merge
+  that loses data whichever way it goes, and a row count to re-derive first.
+
 ## L182 — the sloth host clock is 18 s behind Discord, so every inbound `time=` is in the future of `now:` (2026-09-05, open — infra)
 
 `date -u` on hel1v5 read 12:35:56Z while `https://discord.com` answered
