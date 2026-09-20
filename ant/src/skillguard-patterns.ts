@@ -116,7 +116,14 @@ export const THREAT_PATTERNS: ThreatPattern[] = [
   { re: "setuid|setgid|cap_setuid", id: "setuid_setgid", severity: "critical", category: "privilege_escalation", description: "setuid/setgid (privilege escalation mechanism)" },
   { re: "NOPASSWD", id: "nopasswd_sudo", severity: "critical", category: "privilege_escalation", description: "NOPASSWD sudoers entry (passwordless privilege escalation)" },
   { re: "chmod\\s+[u+]?s", id: "suid_bit", severity: "critical", category: "privilege_escalation", description: "sets SUID/SGID bit on a file" },
-  { re: "AGENTS\\.md|CLAUDE\\.md|\\.cursorrules|\\.clinerules", id: "agent_config_mod", severity: "critical", category: "persistence", description: "references agent config files (could persist malicious instructions across sessions)" },
+  // The threat is a skill that WRITES an agent config file, so the pattern asks
+  // for a write. Matching the bare filename made every skill that merely NAMES
+  // CLAUDE.md a critical, and a critical is blocking — 66 of arizuko's own 551
+  // shipped skill files were quarantined by their own documentation (BUGS L155).
+  // Three forms: a redirect whose path follows with no space, a mutating command
+  // or tool naming the file on the same line, and a write-mode open. A prose
+  // mention matches none of them.
+  { re: ">>?\\s*[^\\s\\n]{0,60}(?:AGENTS\\.md|CLAUDE\\.md|\\.cursorrules|\\.clinerules)|(?:\\btee\\b|\\bsed\\s+-i\\b|\\brm\\b|\\bmv\\b|\\bcp\\b|\\btruncate\\b|\\bWrite\\b|\\bEdit\\b|\\bwriteFile(?:Sync)?\\b|\\bappendFile(?:Sync)?\\b|\\bopen\\()[^\\n]{0,80}(?:AGENTS\\.md|CLAUDE\\.md|\\.cursorrules|\\.clinerules)|(?:AGENTS\\.md|CLAUDE\\.md|\\.cursorrules|\\.clinerules)[^\\n]{0,40}[\"'][wa]\\+?[\"']", id: "agent_config_mod", severity: "critical", category: "persistence", description: "writes an agent config file (could persist malicious instructions across sessions)" },
   { re: "\\.hermes/config\\.yaml|\\.hermes/SOUL\\.md", id: "hermes_config_mod", severity: "critical", category: "persistence", description: "references Hermes configuration files directly" },
   { re: "\\.claude/settings|\\.codex/config", id: "other_agent_config", severity: "high", category: "persistence", description: "references other agent configuration files" },
   { re: "(?:api[_-]?key|token|secret|password)\\s*[=:]\\s*[\"\\'][A-Za-z0-9+/=_-]{20,}", id: "hardcoded_secret", severity: "critical", category: "credential_exposure", description: "possible hardcoded API key, token, or secret" },

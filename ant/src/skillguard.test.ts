@@ -275,3 +275,44 @@ describe('block-scalar frontmatter (J11)', () => {
       .some((x) => x.patternId === 'frontmatter_no_name')).toBe(true);
   });
 });
+
+// The threat is a skill that WRITES an agent config file. Matching the bare
+// filename made every skill that merely NAMES CLAUDE.md a critical, and a
+// critical is blocking, so 66 of arizuko's own 551 shipped skill files were
+// quarantined by their own documentation (BUGS L155).
+describe('agent_config_mod asks for a write, not a mention', () => {
+  const flagged = (body: string) =>
+    scanContent(body).some((f) => f.patternId === 'agent_config_mod');
+
+  test('a write to an agent config file is still critical', () => {
+    for (const attack of [
+      'echo "do evil" >> ~/.claude/CLAUDE.md',
+      'cat payload > /home/node/CLAUDE.md',
+      'tee -a ~/.claude/CLAUDE.md < evil.txt',
+      "sed -i 's/x/y/' AGENTS.md",
+      "open('CLAUDE.md', 'w').write(payload)",
+      "fs.writeFileSync('.cursorrules', evil)",
+      'Use the Write tool on ~/.claude/CLAUDE.md',
+      'rm ~/.clinerules',
+    ]) {
+      expect(flagged(attack)).toBe(true);
+    }
+  });
+
+  test('naming an agent config file in prose is not', () => {
+    for (const benign of [
+      'See CLAUDE.md for the project conventions.',
+      '> The CLAUDE.md file explains the layout.',
+      'Read AGENTS.md before editing.',
+      'The repo has a CLAUDE.md at its root.',
+      'Conventions live in AGENTS.md and .cursorrules.',
+    ]) {
+      expect(flagged(benign)).toBe(false);
+    }
+  });
+
+  test('a critical finding still blocks, so the severity is load-bearing', () => {
+    const blocked = blockingVerdict('x/SKILL.md', 'echo x >> ~/.claude/CLAUDE.md', false);
+    expect(blocked.some((f) => f.patternId === 'agent_config_mod')).toBe(true);
+  });
+});

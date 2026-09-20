@@ -7,6 +7,31 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L324 — two operator-surface checks that never run, split out of L98 (2026-09-20, open)
+
+`L98`'s headline claim is false — both faces have end-to-end tests — but two things it
+noticed are real and outlived it.
+
+**The proxyd transit guard is never exercised.**
+`tests/dashd-playwright/global-setup.ts:86-91` leaves `AUTHD_URL` unset on purpose, so
+`auth.ProxydTransit` — the `service:proxyd` ES256 bearer every backend trusts before it
+reads an `X-User-*` header — is not in the path any test walks. The header-trust model
+rests on it (`SECURITY.md`).
+
+**`dashNavFor` derives operator twice.** `dashd/main.go:635` uses `auth.IsOperator(r)`,
+which reads `X-User-Groups` and nothing else (`auth/dashauth.go:41-56`), while
+`dashd/authz.go:23-38` `callerScope` falls back to an `auth.UserScopes` ACL read. An
+operator-by-grant who arrives without the header gets the PAGES and not the LINKS to
+them — the same "two readers, one question" shape as `L206`.
+
+- **Severity:** low — neither is a live breach; the first is untested trust, the second is a confusing surface
+- **Scope:** `tests/dashd-playwright/global-setup.ts`; `dashd/main.go`, `dashd/authz.go`
+- **Affected:** every instance
+- **Source:** measured 2026-09-20 at `87e8fa16`
+- **Status:** open — the `dashNavFor` half is one renderer away and contained; turning
+  the transit guard on in the harness needs an authd in the fixture, which is a harness
+  decision.
+
 ## L323 — a folder delete does its work and then reports failure, and one comment still says it rolls back (2026-09-20, open)
 
 Split out of `L246`, whose own premise turned out to be false.
@@ -271,7 +296,7 @@ one place where a user plainly wants the backlog dropped too.
 - **Status:** open — needs a decision
 - **Fix:** if `/stop` should clear the backlog, it advances the cursor past the whole batch it steered from, and says how many rows it dropped. That is a different contract from every other command, so it wants sign-off rather than a quiet default.
 
-## L316 — a late follow-up ping makes the agent restate an answer the user can already see (2026-09-20, open)
+## ✅ FIXED 2026-09-20 L316 — a late follow-up ping makes the agent restate an answer the user can already see (2026-09-20, open)
 
 MEASURED on sloth 2026-09-20, the `main/trading` Discord thread. Two mentions
 landed 16 s apart: "ask codex astra why what you said is wrong" at 07:25:43 and
@@ -305,6 +330,14 @@ forward, and never restate an answer the user can already see.
   path changed, and the rule reaches a live agent on the next `MIGRATION_VERSION`
   bump plus ant image rebuild.
 
+- **Status:** closed on re-check 2026-09-20 — the rule is in the tree.
+- **Re-measured:** `ant/CLAUDE.md:91` names the case ("a late-delivered follow-up, not a
+  second question: react, or send ONE line") and adds "NEVER restate an answer the user
+  can already see". `22a59518` added it and is an ancestor of HEAD.
+- **Not yet delivered, and that is `L155`'s problem not this one's:**
+  `container/runner.go:1299-1302` writes a group's `CLAUDE.md` only when it is missing,
+  so an existing group takes new text through `/migrate`. `MIGRATION_VERSION` is 211 and
+  has not moved since `22a59518`, so no live agent has the rule yet.
 ## L315 — a catalog package's rows freeze at `add` while its files and env keep tracking the catalog, and `upgrade` reports "nothing to do" (2026-09-19, open — proposal, needs sign-off)
 
 Found while closing `L199`. A package taken from the bundled catalog is
@@ -2243,7 +2276,7 @@ Fixed: the column-shaped reader is deleted, and with it `Querier`, `filterSQL`,
 declares is entity-shaped, and `resreg/resources/shape_test.go` is the lock.
 
 - **Status:** fixed in v0.68.0
-## L257 — 39 session rows on sloth carry a `started_at` that runs backwards against their id sequence (2026-09-07, open)
+## ✅ FIXED 2026-09-20 L257 — 39 session rows on sloth carry a `started_at` that runs backwards against their id sequence (2026-09-07, open)
 
 MEASURED 2026-09-07 while rehearsing `arizuko migrate-runed` against copies of
 all three live snapshots. On sloth, 39 `session_log` rows in one folder on one
@@ -2269,6 +2302,13 @@ not stamp at insert time.
 - **Fix:** none needed for the port. Worth knowing whether the host clock stepped,
   because anything else stamped from the same clock moved with it.
 
+- **Status:** closed on re-check 2026-09-20 — the premise is not expressible now.
+- **Re-measured:** `started_at` is no longer a stored attribute. The id IS the instant,
+  and the reader derives it back with `startedAtOf` (`runed/runstore/session_log.go:64-66`,
+  `:119-126`, `:211`), so the id sequence and the clock order cannot disagree by
+  construction. `arizuko migrate-runed` is gone from the tracked tree.
+- **Unanswered, and it is data not code:** whatever stepped sloth's clock to produce the
+  39 rows. Nothing in the code can carry the fault forward.
 ## ✅ FIXED 2026-09-18 L258 — `dashd` opened `runed.db` and nothing read the handle (2026-09-07)
 
 Fixed: `dash.dbRuned` is gone, and so is `runed.db`. dashd reads runed over its
@@ -3308,7 +3348,7 @@ page from it is the topology, not a leak. If `:37` is the intended rule instead,
 then `6/30` is defected too and dashd's rewrite is larger than `L142` scopes. The
 choice decides two specs' status, so it is the operator's.
 
-## L155 — the skill-guard quarantines 74 of arizuko's own 544 shipped skill files, `migrate/SKILL.md` first; `agent_config_mod` fires `critical` on the STRING "CLAUDE.md" (2026-09-03, live on krons)
+## L155 — the skill-guard quarantines 74 of arizuko's own 544 shipped skill files, `migrate/SKILL.md` first; `agent_config_mod` fires `critical` on the STRING "CLAUDE.md" (2026-09-03, PARTLY FIXED 2026-09-20; the shipped-corpus half remains)
 
 The krons agent reported it in chat before any audit did: "`/migrate` … 14
 quarantined by the platform skill-guard (which I did not circumvent)", and a turn
@@ -3363,6 +3403,33 @@ Not shipped: narrowing a threat pattern is a security decision, and the six
 non-`agent_config_mod` patterns need reading one at a time before anyone claims
 they are false too — `reverse_shell` across 5 files may be honest documentation
 or may be a real finding in our own corpus.
+
+- **RE-MEASURED 2026-09-20 by running `blockingVerdict` over the whole corpus:**
+  **75 of 551** skill files blocked, `agent_config_mod` **109 hits across 66
+  files**, `migrate/SKILL.md` first with 16 findings. The entry's 74/544 and
+  108/65 were right at the time.
+- **The false-positive half is fixed 2026-09-20.** `agent_config_mod` matched
+  the BARE string `CLAUDE.md`, so a skill that merely NAMED the file was a
+  `critical`, and a critical is blocking. The threat is a skill that WRITES an
+  agent config file, so the pattern now asks for a write: a redirect whose path
+  follows with no space, a mutating command or tool naming the file on the same
+  line, or a write-mode `open`. **66 flagged files → 11**, measured over the
+  same 551.
+
+  PROVEN BY MUTATION: put the bare filename back, or drop the severity from
+  `critical`, and a test fails. The test carries both directions — eight write
+  forms that must still be caught, and five prose mentions that must not be —
+  so narrowing it further to nothing would fail too.
+- **Still open, and it is the half the entry says needs its own sign-off:** the
+  remaining **11** files are arizuko's OWN shipped skills that genuinely write
+  agent config, because that is their job — `migrate/SKILL.md`, `wisdom/SKILL.md`,
+  `self/extension.md`, `self/migration.md` and seven migration notes. The guard
+  has no notion of provenance, so it cannot tell the image's corpus from a skill
+  the agent wrote. That is a new mechanism.
+
+  It matters more than its severity suggests: `migrate/SKILL.md` is the delivery
+  path for every `ant/CLAUDE.md` change (see `L316`), so quarantining it stops
+  the fleet taking new instructions at all.
 
 ## L152 — an `acl` grant can name a principal nobody will ever present, and no surface says so (2026-09-02)
 
@@ -4536,7 +4603,7 @@ same second, and always carries a fraction.
   deep link. `approvalURL` landed in `d82ed823` at 18:41 on 2026-08-24; the
   instance image was built 12:51 the same day. Stale image, not a defect.
 
-## L98 — HITL's operator surface has no end-to-end test on either face (2026-08-26, open)
+## ✅ FIXED 2026-09-20 L98 — HITL's operator surface has no end-to-end test on either face (2026-08-26, open)
 
 `L97` — chat `/approve` never re-issues the held call — survived because
 nothing exercises the approval path end to end.
@@ -4586,6 +4653,17 @@ Two gaps stay open, both harness-side:
   consumes `acl_membership`, so an operator cannot add a principal to
   `role:operator` from the dashboard.
 
+- **Status:** closed on re-check 2026-09-20 — the titled claim is false on both faces.
+- **Re-measured:** `routd/hold_e2e_test.go:89` holds a call, reads the button payload OFF
+  THE WIRE, feeds it through `loop.steer` — the ordinary command path — and asserts the
+  suspended call runs; `:197` does the same with a typed `/approve <id>`;
+  `routd/hold_blocking_test.go:53` pins the blocking contract. The mechanism the entry
+  described is gone: `ConsumeApprovedAction` has **0 hits repo-wide**. The REST face has
+  `tests/dashd-playwright/tests/approvals.spec.ts`, now among 21 specs.
+- **Not a gap:** `acl_membership` having no add face is a WRITTEN decision
+  (`resreg/resources/membership.go:28-30`, spec `5/31` §Unpair).
+- **Two residuals, filed as `L324`:** the proxyd transit guard is never exercised, and
+  `dashNavFor` derives operator twice.
 ## L99 — `/invite/` and `/onboard` are `public` routes whose handlers key on identity, so onboarding is an infinite redirect (2026-08-26, proposal — needs sign-off)
 
 Nobody can redeem an invite or create a world through the web. The link 303s to
@@ -12450,7 +12528,7 @@ registration, and a consent flow with no user present at routd — is recorded i
 - **Status:** resolved-not-yet-removed
 - **Fix:** see the commit closing this entry
 
-## L135 — `6/16` says the shared registry and the DNS filter are "both LIVE and enforcing"; `6/24` deleted both three days later (2026-08-30, open)
+## ✅ FIXED 2026-09-20 L135 — `6/16` says the shared registry and the DNS filter are "both LIVE and enforcing"; `6/24` deleted both three days later (2026-08-30, open)
 
 `specs/6/16-daemon-standalone-matrix.md:178-180` is the paragraph that clears
 crackbox's ship gate, and its parenthesis names three mechanisms that do not
@@ -12498,6 +12576,15 @@ index points at for "what ships", and the sentence is written as a measurement
 - **Status:** open
 - **Fix:**
 
+- **Status:** closed on re-check 2026-09-20 — every site it names is corrected.
+- **Re-measured:** `specs/6/16-daemon-standalone-matrix.md` holds **0 hits** for "LIVE
+  and enforcing", and none for `pkg/host` or "admin API"; it is `status: shipped` now,
+  not the `draft` the entry cites. crackbox is 4 tracked files, and
+  `crackbox/cmd/crackbox/main.go:7-9` states there is no daemon mode, no admin API and
+  no registry.
+- **Three sites still name the deleted mechanism**, and belong in a fresh entry:
+  `tests/feature_inventory.md:257`, `slimming.md:36`,
+  `template/web/pub/arizuko/research/index.html:118`.
 ## L136 — the `--internal` network does not seal UDP/53, and the two docs that explain the DNS filter's absence give a reason that does not cover DNS (2026-08-30, open)
 
 `SECURITY.md:103` states the egress guarantee as "Default-deny; the spawn's
@@ -13086,7 +13173,7 @@ transaction; the 2026-09-05 census found none.
   idempotency_keys` over `*.go` and `*.sql` matches nothing, and
   `routd/migrations/` does not exist. a migration that drops the table, and delete the sweep — or an insert at the ledger site, if one was meant to exist
 
-## L193 — `7/22` and `specs/index.md` argue from the "27 of 43" census and the storage seam that `6/38` declined (2026-09-05, open — docs, spec owner)
+## ✅ FIXED 2026-09-20 L193 — `7/22` and `specs/index.md` argue from the "27 of 43" census and the storage seam that `6/38` declined (2026-09-05, open — docs, spec owner)
 
 `specs/7/22-rust-track.md` §"Rust buys nothing for the cloud" says the cloud
 track "proceeds through the storage seam" and repeats "~27 of 43". `6/38`
@@ -13103,6 +13190,15 @@ seam".
 - **Source:** `grep -n '27 of 43\|storage seam' specs/7/22-rust-track.md specs/index.md`
 - **Status:** open — docs
 - **Fix:** one paragraph in `7/22` pointing at the `6/38` census; two phrases in `specs/index.md`
+- **Status:** closed on re-check 2026-09-20 — the spec it argues from no longer exists.
+- **Re-measured:** `specs/6/38-storage-seam.md` folded into `6/37` (`35f535aa`); specs/6
+  holds 35, 36, 37, 39-43. `specs/7/22-rust-track.md:40` already says "26 of 47" and
+  cites `6/37`, and "storage seam" has 0 hits in `specs/index.md`.
+- **Successor drift, worth its own entry:** `specs/7/22:42-49` still says "`database/sql`
+  is the seam and the cloud target is managed Postgres". Exactly one file imports
+  `database/sql` (`audit/audit_log_test.go`), and `6/42` reversed that target — which
+  `7/22` never cites. Three code comments still cite the dead `6/38`:
+  `objstore/replace.go:27`, `resreg/entity.go:811`, `dashd/group_create_test.go:15`.
 ## L195 — `store/migrations` is a second declaration of routd's schema that only tests run, and it has drifted on 7 shared tables (2026-09-05, open — proposal, needs sign-off)
 
 Measured at `23b629e0` by migrating both chains into memory and diffing
@@ -13215,7 +13311,7 @@ exposes routes, tokens, queue and errored traffic for every tenant.
   one gate is one gate, and add the negative test (`X-User-Groups` with no
   transit proof → 403) that no dashboard has today
 
-## L197 — six phase-6 specs read `shipped` in frontmatter and `draft`/`defected` in the index, and five of those flips touched no code (2026-09-05, open — docs, spec owner)
+## ✅ FIXED 2026-09-20 L197 — six phase-6 specs read `shipped` in frontmatter and `draft`/`defected` in the index, and five of those flips touched no code (2026-09-05, open — docs, spec owner)
 
 MEASURED. Frontmatter vs `specs/6/index.md`, whole directory:
 
@@ -13255,6 +13351,17 @@ this, which is why `L154`'s audit and this one found the same class again.
   row, and a `shipped` spec contains no "not built"/"no consumer"/"nothing
   moves" sentence
 
+- **Status:** closed on re-check 2026-09-20 — zero disagreements remain.
+- **Re-measured over the WHOLE corpus**, not a sample: frontmatter `status:` against the
+  phase index row for all 162 spec files in 15 phases — **0 disagreements**. All seven
+  rows in the entry's own table read `shipped` on both sides. The three body
+  contradictions it cites are gone.
+- **Half the proposed check is worth building and half is not.** "Frontmatter equals the
+  index row" is buildable and passes today. "A shipped spec has no 'not built' sentence"
+  matches 43 lines in 21 shipped specs, nearly all costed declines — that check would
+  fight the decision-record convention.
+- **One real gap it did not name:** `specs/4/index.md` is a bullet list with no status
+  column, so its 14 specs cannot be checked at all.
 ## ✅ FIXED 2026-09-06 L198 — two group deletes, each purging a different half (2026-09-05)
 
 **FIXED 2026-09-06 in `2d93482d`, and the scope was FOUR gaps, not two.** Both
@@ -15043,7 +15150,7 @@ claim-expiry machinery.
 - **Scope:** `specs/6/18`
 - **Fix:** five tables, six under partitioning; name `e_<queue>`
 
-## L241 — the `6/40` audit intent log loses successful deletes and races active or later writers (2026-09-06, proposed)
+## ✅ FIXED 2026-09-20 L241 — the `6/40` audit intent log loses successful deletes and races active or later writers (2026-09-06, proposed)
 
 The pending-audit back-reference proves only that one row currently names the
 audit id. A successful delete leaves no row, a partial multi-row write leaves
@@ -15060,7 +15167,13 @@ the mutation.
 - **Status:** proposed — redesign needs sign-off
 - **Fix:**
 
-## L242 — the `6/40` three-operation surface omits graph and multi-row invariants (2026-09-06, proposed)
+- **Status:** closed on re-check 2026-09-20 — there is no intent log, in the spec or the code.
+- **Re-measured:** `specs/6/40-store-surface.md:91` is headed "The audited write
+  commits in a GuardedBatch, not an intent log" (`4f416d23`, the same day this was
+  filed). `runAudited` has **0 definitions repo-wide** (`5c403145`). `store/audit_helpers.go:13-23`
+  appends the audit record to the SAME batch as the mutation, so every failure mode
+  the entry lists needs a two-phase marker that does not exist.
+## ✅ FIXED 2026-09-20 L242 — the `6/40` three-operation surface omits graph and multi-row invariants (2026-09-06, proposed)
 
 `AddMembership` reads the full ancestor closure and inserts the edge under the
 same transaction. No path-prefix, single-row conditional write, or scoped
@@ -15074,3 +15187,12 @@ and returns an unbounded due set.
 - **Source:** `store/membership.go:18-84`; `store/invites.go:265-337`; `routd/pending_actions.go:356-407`; `store/tasks.go:77-97`
 - **Status:** proposed — redesign needs sign-off
 - **Fix:**
+
+- **Status:** closed on re-check 2026-09-20 — the finding was accepted and both halves shipped.
+- **Re-measured:** `specs/6/40-store-surface.md:159` is headed "Three is not enough
+  — two more the census missed" and names exactly this entry's items; `:206` cuts the
+  surface to two primitives. The code follows: `objstore.Reachable` (`objstore/reach.go:71`)
+  plus a version-marker compare-and-swap in the batch carrying the edge
+  (`store/membership.go:167`, `:226`); `DueTasks` (`store/tasks.go:355-388`) is the
+  claim-and-return the spec prescribes.
+- **Live remnant:** `L256`, the same walk's latency question, which is its own entry.
