@@ -86,14 +86,15 @@ BEFORE auth — it is a public endpoint.
 
 Twelve metrics, declared once in `metrics.go`:
 
-| metric                                                                                             | what it counts                                          |
-| -------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
-| `arizuko_turn_duration_seconds`, `arizuko_turns_total`, `arizuko_silent_turns_total`               | the turn: how long, how many, how many answered nothing |
-| `arizuko_model_tokens_total`                                                                       | token usage                                             |
-| `arizuko_container_spawns_total`, `arizuko_container_active`, `arizuko_container_duration_seconds` | the spawn                                               |
-| `arizuko_requests_total`, `arizuko_request_duration_seconds`                                       | HTTP, per daemon — every daemon emits these two         |
-| `arizuko_circuit_breaker_state`                                                                    | breaker status                                          |
-| `arizuko_token_mints_total`, `arizuko_token_refreshes_total`                                       | authd's issuance                                        |
+| metric                                                                                             | what it counts                                                                     |
+| -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `arizuko_turn_duration_seconds`, `arizuko_turns_total`, `arizuko_silent_turns_total`               | the turn: how long, how many, how many answered nothing                            |
+| `arizuko_prose_fallback_turns_total`                                                               | turns delivered from the agent's prose because it called no reply tool (spec 6/44) |
+| `arizuko_model_tokens_total`                                                                       | token usage                                                                        |
+| `arizuko_container_spawns_total`, `arizuko_container_active`, `arizuko_container_duration_seconds` | the spawn                                                                          |
+| `arizuko_requests_total`, `arizuko_request_duration_seconds`                                       | HTTP, per daemon — every daemon emits these two                                    |
+| `arizuko_circuit_breaker_state`                                                                    | breaker status                                                                     |
+| `arizuko_token_mints_total`, `arizuko_token_refreshes_total`                                       | authd's issuance                                                                   |
 
 ## Files
 

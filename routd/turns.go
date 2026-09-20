@@ -250,6 +250,10 @@ func (s *Server) recordTurnResult(turnID string, req apiv1.TurnResult) (bool, er
 		// silent by design — their output is the file write, never a chat message.
 		isolated := strings.HasPrefix(tc.Trigger, "timed-isolated:")
 		if req.Result != "" && !isolated && !s.db.TurnHasBotReply(tc.ChatJID, turnID) {
+			// Counted, because this branch decides whether spec 6/44's inversion
+			// is cheap: requiring an explicit reply tool costs one extra model
+			// round trip on every turn that lands here (BUGS L329).
+			obs.RecordProseFallbackTurn(tc.Folder)
 			s.appendAndDeliver(turnID, tc.ChatJID, req.Result)
 		}
 		// An isolated turn holds no session lineage — it neither resumes the

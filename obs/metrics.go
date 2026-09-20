@@ -38,6 +38,11 @@ var (
 		Help: "Clean runs that delivered neither a turn result nor a bot reply.",
 	}, []string{"folder"})
 
+	proseFallbackTurns = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "arizuko_prose_fallback_turns_total",
+		Help: "Turns delivered from the agent's prose because it called no reply tool.",
+	}, []string{"folder"})
+
 	modelTokens = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "arizuko_model_tokens_total",
 		Help: "Tokens used (in/out/cache_read/cache_write).",
@@ -96,7 +101,7 @@ func reg() *prometheus.Registry {
 	registryOnce.Do(func() {
 		registry = prometheus.NewRegistry()
 		registry.MustRegister(
-			turnDuration, turnsTotal, silentTurns,
+			turnDuration, turnsTotal, silentTurns, proseFallbackTurns,
 			modelTokens,
 			containerSpawns, containerActive, containerDuration,
 			requestsTotal, requestDuration,
@@ -134,6 +139,18 @@ func RecordTurn(folder, outcome string, seconds float64) {
 // result nor a bot reply. The metric to drive to zero over successive evals.
 func RecordSilentTurn(folder string) {
 	silentTurns.WithLabelValues(folder).Inc()
+}
+
+// RecordProseFallbackTurn counts a turn routd delivered from the agent's prose
+// result because the agent called no reply tool.
+//
+// It is NOT a silent turn: this one answered. It is the denominator for the
+// question spec 6/44 cannot answer without it — requiring an explicit reply
+// tool costs one extra model round trip on every turn counted here, so whether
+// that inversion is cheap or ruinous is exactly this number against the total
+// (BUGS L329).
+func RecordProseFallbackTurn(folder string) {
+	proseFallbackTurns.WithLabelValues(folder).Inc()
 }
 
 // RecordModelTokens adds n tokens for (model, folder, direction). direction is
