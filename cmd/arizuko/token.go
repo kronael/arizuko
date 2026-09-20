@@ -11,6 +11,7 @@ import (
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/authd/authstore"
+	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -75,9 +76,9 @@ func tokenIssue(st *store.Store, dataDir string, args []string) {
 			suffix = args[2]
 		}
 		if suffix != "" {
-			jid = "web:" + folder + "/" + suffix
+			jid = groupfolder.WebJID(folder) + "/" + suffix
 		} else {
-			jid = "web:" + folder
+			jid = groupfolder.WebJID(folder)
 		}
 	case "webhook", "hook":
 		if len(args) < 3 {

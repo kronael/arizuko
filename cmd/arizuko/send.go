@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -161,7 +162,7 @@ func cmdSend(args []string) {
 // polls BotRepliesSince and prints the agent's reply until the run goes quiet
 // (a direct inject carries no round_done signal, so quiescence is the terminator).
 func operatorInject(st *store.Store, folder, sender, msg, topic string, follow bool) {
-	jid := "web:" + folder
+	jid := groupfolder.WebJID(folder)
 	since := time.Now()
 	m := core.Message{
 		ID:        core.MsgID("cli"),

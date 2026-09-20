@@ -255,7 +255,7 @@ func routeTokenJID(kind, targetFolder, sourceLabel, jidSuffix string) (jid, urlP
 	}
 	switch kind {
 	case "chat":
-		jid, urlPrefix = "web:"+targetFolder, "/chat/"
+		jid, urlPrefix = groupfolder.WebJID(targetFolder), "/chat/"
 	case "hook":
 		if sourceLabel == "" {
 			return "", "", fmt.Errorf("source_label required for webhook")
