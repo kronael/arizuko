@@ -4059,6 +4059,34 @@ as the unsuffixed-web case only.
   suffixed chat's frames to a hub key nobody held (`L30`).
 - **The 12 parses are a separate pass** and mostly already have a seam to adopt.
 
+- **The PARSE half was re-read site by site on 2026-09-20, and it should NOT be
+  collapsed. The count conflates two different operations and one deliberate
+  compromise.**
+
+  **Scheme tests, which are not folder extractions at all** — `webd/ratelimit.go:37`
+  picks a rate cap by prefix, `dashd/authz.go:103` decides whether a token lookup
+  is worth doing, `routd/dispatch.go:114` groups by topic on the web path,
+  `store/routes.go:487` asks whether a pattern is a web pattern, and
+  `webd/route_token.go:306` extracts the hook SENDER (the LAST segment), which is
+  `JidFolder`'s complement, not `JidFolder`. Routing these through a folder seam
+  would be wrong: they ask "which scheme is this", and the seam answers "which
+  folder is this".
+
+  **The two genuine extractions must stay narrow.** `routd/server.go:450` and
+  `ipc/ipc.go:893` both do `CutPrefix(jid, "web:")` as a LAST RESORT after the
+  recorded mint target comes back empty, and both carry the same comment saying
+  why: "`web:T/S` is byte-identical to a plain token at a folder named `T/S`, so
+  the grammar hands ownership to a descendant (BUGS `L4`)". `groupfolder.JidFolder`
+  resolves `hook:` as well as `web:`, so adopting it at these two sites would
+  WIDEN a fallback whose own comment calls it a compromise. That is the opposite
+  of the fix.
+
+  So the parse side is not 12 sites of duplication. It is five sites of a
+  different question and two sites of a guarded compromise, and the honest
+  remaining work is the 12 CONSTRUCTIONS — three of which are already adopted.
+- **Status:** the write seam shipped; the parse half is REFUSED as filed, and the
+  entry now says why so the next pass does not re-derive it.
+
 ## L147 — principle: the channel attests, the router resolves, the ACL authorizes — and `web:` JIDs exist only to satisfy a storage column (2026-08-30, principle — records a design fault, no work item)
 
 The operator's formulation, at the end of the session that produced `L139`,
