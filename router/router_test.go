@@ -565,3 +565,26 @@ func TestResolveRouteTarget_SlothPattern(t *testing.T) {
 		t.Fatalf("non-mention should observe, got %+v", rt)
 	}
 }
+
+// The same two rows in the other order answer nothing. An `#observe` route
+// carries no verb, so it matches a mention too, and ResolveRoute returns the
+// FIRST match in slice order — which store.routeOrder has already sorted to
+// `ORDER BY seq, id`. So an observe row at a lower seq makes the mention row
+// below it dead. Nothing logs a refusal: the message IS routed, to observe, so
+// the channel reads as a silent agent (BUGS L327, eval check 22). This is the
+// shape sloth's two Discord channels were in.
+func TestResolveRouteTarget_ObserveAboveMentionShadowsIt(t *testing.T) {
+	// Written in the order the store hands them over: seq 1 before seq 2.
+	routes := []core.Route{
+		{Seq: 1, ID: 1, Match: "room=42", Target: "main#observe"},
+		{Seq: 2, ID: 2, Match: "room=* verb=mention", Target: "main/main"},
+	}
+	rt := ResolveRouteTarget(core.Message{ChatJID: "discord:42", Verb: "mention"}, routes)
+	if rt.Mode != "observe" {
+		t.Fatalf("mode = %q, want observe — this order is the shadowing bug, and the "+
+			"fix that makes the mention win belongs in the route rows, not here", rt.Mode)
+	}
+	if rt.Folder != "main" {
+		t.Errorf("folder = %q, want main", rt.Folder)
+	}
+}
