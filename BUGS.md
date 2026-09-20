@@ -6248,7 +6248,7 @@ group. `TestDavAllow` gains the multi-segment rows the old table missed
 (`main/trading/logs/agent.log`, `a/b/c/logs/x`) plus the read and the
 top-level-group rows; they fail against the old `parts[1]` test.
 
-## L116 — `/panel/<folder>`'s live SSE stream can never connect: it asks for a route token it does not have (2026-08-26, open)
+## ✅ FIXED 2026-09-20 L116 — `/panel/<folder>`'s live SSE stream can never connect: it asks for a route token it does not have (2026-08-26)
 
 `webd/pages.go:83` emits `sse-connect="/chat/stream?group=%s&topic="` and
 `:104` rebuilds it on topic switch. Neither carries `token`. The endpoint
@@ -6320,6 +6320,27 @@ with no token, which `webd/route_token.go:52-58,415-419` refuses twice over.
 Initialise `_topic` the way `newTopic()` (`pages.go:108`) already does, and
 point `sse-connect` at `/me/chats/<folder>/<topic>/sse` (`webd/me.go:328-347`)
 — same hub, same `web:`+folder JID, same `requireUser` + `MatchGroups` gate.
+
+**FIXED 2026-09-20.** The page streams from `/me/chats/<folder>/<topic>/sse`
+(`webd/me.go` `handleMeSSE`) — same hub, same `web:`+folder JID, and a gate
+that is equal or stricter: `/panel` is registered with `requireFolder`, which
+wraps `requireUser` and adds `MatchGroups`, and `handleMeSSE` checks
+`MatchGroups` again itself.
+
+The opening topic is minted server-side, so the URL in the markup and the value
+the send body carries are one string. Four sites already spelled
+`fmt.Sprintf("t%d", …)` and a fifth was about to; they read one `newTopicID`
+now.
+
+A third defect sat at the same site and is fixed with it: `newTopic()` cleared
+the thread and left `sse-connect` on the old topic, so the empty pane then
+filled with the PREVIOUS topic's messages. One `streamTopic()` moves the
+stream and both callers use it.
+
+- **Status:** fixed
+- **Fix:** `52be8607` (the minter), `bfc869d2` (the stream). Test
+  `TestChatPageStreamsFromAnAuthenticatedTopicURL`, proven by mutation —
+  restore the `/chat/stream` URL and it fails.
 
 ## ✅ FIXED 2026-09-20 L117 — the published chat SDK cannot send: `POST /slink/<token>` answers 301, which downgrades the request to GET, and `/slink/` carries no CORS (2026-08-26)
 
