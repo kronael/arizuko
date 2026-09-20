@@ -3,6 +3,7 @@ package core
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -190,7 +191,23 @@ func LoadConfigFrom(dir string) (*Config, error) {
 // Every host CLI door calls it, and that is not a convenience: DYNAMODB_URL
 // decides whether a store is the server or a file, so a subcommand that skipped
 // this wrote to the file while every daemon read the server (BUGS L294).
+// loadedInstanceDir is the directory of the FIRST LoadInstanceEnv call in this
+// process. Both mutations below are one-way — godotenv writes into the process
+// env and nothing unsets it, and LoadConfigFrom pins DATA_DIR only when it is
+// empty — so a second instance in the same process silently inherits the first
+// one's values. Nothing in the tree loops instances today; this names the
+// constraint so the day something does, it says so (BUGS L50).
+var loadedInstanceDir string
+
 func LoadInstanceEnv(dir string) {
+	if loadedInstanceDir == "" {
+		loadedInstanceDir = dir
+	} else if loadedInstanceDir != dir {
+		slog.Warn("LoadInstanceEnv: a second instance in one process inherits the "+
+			"first one's env; every var already set keeps the first instance's value "+
+			"and DATA_DIR still points at it",
+			"first", loadedInstanceDir, "now", dir)
+	}
 	// A process that already names the store is inside the instance's network
 	// and keeps what it was given; the operator's file is the HOST's view of the
 	// same server, and only fills in for a process that has none.

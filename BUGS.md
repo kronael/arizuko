@@ -8649,7 +8649,7 @@ system.
   2026-09-20, rhias replies landed at 13s, 29s, 33s, 59s, 62s, 97s and 101s —
   model time, by orders of magnitude.
 
-## L50 — LoadConfigFrom leaks one instance's .env into the process (2026-08-18, found while fixing L47)
+## L50 — LoadConfigFrom leaks one instance's .env into the process (2026-08-18, SILENT HALF FIXED 2026-09-20; the prescribed cause fix is refuted)
 
 `core.LoadConfigFrom` (`core/config.go:185`) does two things a loader should not:
 
@@ -8670,12 +8670,40 @@ and it is already reachable in the test binary — wiring `syncPackageSkills`
 neighbouring test's `.env`. Worked around there by pinning `DATA_DIR` and
 `ONBOARDING_ENABLED` per test, which is a test fix, not the cause fix.
 
-Cause fix (redesign, needs sign-off): a non-mutating loader — read the `.env`
-into a map like compose already does, resolve the Config from it, and let a
-caller that genuinely wants process env opt in. Touches every `LoadConfigFrom`
-caller, so it is a contract change, not an inline patch.
+**That cause fix is REFUTED, re-measured 2026-09-20 at `b09de9ea`.** Both
+mutations are deliberate and each one closed a named earlier bug, so a
+non-mutating loader reopens both:
 
-Recorded, not fixed (Bug Triage Protocol).
+- the `.env` write is `LoadInstanceEnv` (`core/config.go:193`), and its own
+  doc says every host CLI door calls it because `DYNAMODB_URL` decides whether
+  a store is the server or a file — a subcommand that skipped it wrote to the
+  file while every daemon read the server (`L294`);
+- the `DATA_DIR` default is `LoadConfigFrom`'s (`core/config.go:176`), and
+  without it the root fell back to the operator's cwd, so `arizuko create` and
+  `group add` wrote the `groups/` skeleton into whatever directory the command
+  ran from (2026-07-11).
+
+What survives is the hazard, not the prescription: the process env is global
+and one-way, so the FIRST instance a process touches owns every var. No
+production path loops instances — grepping every one of the 15
+`LoadConfigFrom` call sites finds no loop — so this is latent, and nothing
+stated the constraint or would notice it breaking.
+
+- **Severity:** low while latent; the failure mode when it wakes is one
+  instance generating compose against another's env, which looks healthy
+- **Scope:** `core.LoadInstanceEnv`
+- **Affected:** any future in-process instance loop; the test binary today
+- **Source:** `core/config.go:171-208`; 15 `LoadConfigFrom` call sites, none
+  in a loop; measured 2026-09-20
+- **Status:** the silent half is FIXED; the non-mutating loader is refused as
+  a fix, not deferred
+- **Fix:** `LoadInstanceEnv` remembers the first directory and WARNS when a
+  later call names a different one, saying that the first instance still owns
+  the env and `DATA_DIR`. Tests
+  `TestLoadInstanceEnvWarnsOnASecondInstanceInOneProcess` and
+  `TestLoadInstanceEnvIsSilentForTheSameInstanceTwice` — the second one
+  matters as much, because one instance loaded twice is every normal CLI
+  command and a warning that fires there is noise nobody reads.
 
 
 ## ✅ FIXED 2026-09-06 L49 — proposal: an LLM gateway, so the container never holds the real model key (2026-08-18, operator's idea)
