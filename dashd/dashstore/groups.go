@@ -61,10 +61,7 @@ func (s *Store) CreateGroupWithAdmin(ctx context.Context, folder, product, admin
 	if err != nil {
 		return fmt.Errorf("insert group: %w", err)
 	}
-	grant, err := store.ACLGrantWrite(core.ACLRow{
-		Principal: admin, Action: "admin", Scope: folder,
-		Effect: "allow", GrantedBy: "dashd",
-	})
+	grant, err := store.AdminGrantWrite(admin, folder, "dashd")
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrGrantAdmin, err)
 	}

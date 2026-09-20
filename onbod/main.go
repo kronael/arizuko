@@ -858,10 +858,7 @@ func writeWorld(db *store.Store, folder, username, userSub string) error {
 	}
 	// A groups row implies the member edge: without it the new world expands to
 	// nothing and comes up mute (BUGS L119).
-	grant, err := store.ACLGrantWrite(core.ACLRow{
-		Principal: userSub, Action: "admin", Scope: folder + "/**",
-		Effect: store.EffectAllow, GrantedBy: "onbod",
-	})
+	grant, err := store.AdminGrantWrite(userSub, folder, "onbod")
 	if err != nil {
 		return err
 	}

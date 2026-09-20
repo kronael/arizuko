@@ -182,6 +182,21 @@ func aclPut(r core.ACLRow) (objstore.Write, error) {
 // every other door into aclPut does.
 func ACLGrantWrite(row core.ACLRow) (objstore.Write, error) { return aclPut(aclDefaults(row)) }
 
+// AdminGrantWrite renders the grant that makes `principal` the admin of a
+// folder it has just created. It exists because the scope is the part a caller
+// gets wrong: `matchSegments` (auth/acl.go) walks the glob segment by segment
+// and ends on `len(in) == 0`, so a bare `eng` covers `eng` and REFUSES
+// `eng/sre`, while `eng/**` covers both — `**` with nothing after it answers
+// true whatever input is left. Two folder creators wrote two different scopes
+// and the bare one left its creator unable to administer a child of their own
+// folder (BUGS L206). One renderer, so there is no second shape to drift.
+func AdminGrantWrite(principal, folder, grantedBy string) (objstore.Write, error) {
+	return ACLGrantWrite(core.ACLRow{
+		Principal: principal, Action: "admin", Scope: folder + "/**",
+		Effect: EffectAllow, GrantedBy: grantedBy,
+	})
+}
+
 // aclDefaults fills what a caller may leave out: the effect every grant has
 // unless it says otherwise, and the instant it was granted.
 func aclDefaults(r core.ACLRow) core.ACLRow {

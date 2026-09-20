@@ -13423,7 +13423,7 @@ it did not derive, so an operator's own route vanished on the next deploy.
 - **Fix:** `handleDashRouteCreate` passes `Owner: store.RouteOwnerOperator`
   explicitly, which is what the entry named. The default is not relied on.
 - **Test:** `proxyd.TestDashRouteIsStampedOperator` reads the row back.
-## L206 — a group created from the dashboard grants its creator an exact-folder scope, so they cannot administer their own child folders (2026-09-05, open)
+## ✅ FIXED 2026-09-20 L206 — a group created from the dashboard grants its creator an exact-folder scope, so they cannot administer their own child folders (2026-09-05)
 
 MEASURED. Two writers hand-roll the creator's admin grant and they disagree on
 the scope:
@@ -13456,6 +13456,34 @@ of who granted it.
   inside one), granting `folder+"/**"`, and emitting the audit row. The scope
   question is settled by `5/33`: the creator holds the folder and its subtree.
   Amend the original; do not add a third writer.
+
+- **Status:** fixed 2026-09-20.
+- **Fix:** one renderer. `store.AdminGrantWrite(principal, folder, grantedBy)`
+  makes the grant a folder's creator gets, and both creators call it —
+  `dashd/dashstore/groups.go` and `onbod/main.go`. There is no second shape left
+  to drift.
+
+  The scope is `folder + "/**"`, which is onbod's shape and not dashd's.
+  `matchSegments` (`auth/acl.go:76-105`) walks the glob segment by segment and
+  ends on `len(in) == 0`, so a bare `eng` covers `eng` and REFUSES `eng/sre`;
+  `**` with nothing after it answers true whatever input is left, so `eng/**`
+  covers the folder AND its whole subtree. A dashboard-created group therefore
+  gave its creator 403 on every child folder, at `dashd/authz.go:189`.
+
+  The reason for the shape is now pinned where the matcher lives:
+  `auth.TestSubtreeScopeCoversTheFolderAndItsChildren` asserts both directions,
+  including that a bare folder does NOT cover a child — so the test fails if the
+  premise ever stops being true rather than passing vacuously.
+
+  PROVEN BY MUTATION: put `Scope: folder` back and both
+  `TestGroupCreatePage_CommitsTheAdminGrantWithTheFolder` and
+  `TestAdminGrantWriteCoversTheFolderAndItsSubtree` fail.
+
+  The existing dashd test pinned the bare scope, so it changes here too, and it
+  gained the assertion that names the symptom: the creator can administer a
+  CHILD of the folder they just made.
+- **Left open:** onbod's `writeWorld` still emits no audit row for the grant
+  (`onbod/main.go`), which is the entry's second half and a separate concern.
 
 ## ✅ FIXED 2026-09-18 L207 — authd stamped `issued_at` in local time (2026-09-05)
 

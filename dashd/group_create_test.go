@@ -44,18 +44,22 @@ func TestGroupCreatePage_CommitsTheAdminGrantWithTheFolder(t *testing.T) {
 	}
 	found := false
 	for _, row := range rows {
-		if row.Action == "admin" && row.Scope == "team2" && row.Effect == "allow" {
+		if row.Action == "admin" && row.Scope == "team2/**" && row.Effect == "allow" {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("no `admin` grant on team2 for the creator; got %+v", rows)
+		t.Errorf("no `admin` grant on team2/** for the creator; got %+v", rows)
 	}
-	// And the evaluator honours it. A row no surface reads would be a grant in
-	// name only.
+	// And the evaluator honours it, on the folder AND on a child of it. A bare
+	// `team2` scope reads as admin of the folder and 403 on every child, because
+	// matchSegments ends on len(in) == 0 (BUGS L206).
 	creator := auth.Caller{Principal: "alice@x"}
 	if !auth.Authorize(store.NewOver(routd), creator, "admin", "team2", nil) {
 		t.Error("the creator holds no admin on the folder they just created")
+	}
+	if !auth.Authorize(store.NewOver(routd), creator, "admin", "team2/sre", nil) {
+		t.Error("the creator holds no admin on a CHILD of the folder they just created")
 	}
 	if got := auditActor(t, d, "group.create"); got != "alice@x" {
 		t.Errorf("group.create actor_sub = %q, want alice@x", got)

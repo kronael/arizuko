@@ -1,6 +1,7 @@
 package store
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/kronael/arizuko/core"
@@ -141,5 +142,27 @@ func TestEffectAllowed_OnlyTwoSpellings(t *testing.T) {
 		if got := EffectAllowed(c.effect); got != c.want {
 			t.Errorf("EffectAllowed(%q) = %v, want %v", c.effect, got, c.want)
 		}
+	}
+}
+
+// Two folder creators wrote two different admin scopes: a bare `eng` and
+// `eng/**`. The bare one reads as admin of the folder and 403 on every child,
+// because matchSegments ends on len(in) == 0 (BUGS L206). One renderer now
+// makes the shape, and this says which shape it is.
+func TestAdminGrantWriteCoversTheFolderAndItsSubtree(t *testing.T) {
+	w, err := AdminGrantWrite("alice@x", "eng", "dashd")
+	if err != nil {
+		t.Fatalf("AdminGrantWrite: %v", err)
+	}
+	// The scope rides the coordinate, so the key is where it is asserted.
+	sort := w.Key.Sort
+	if !strings.Contains(sort, "eng/**") {
+		t.Fatalf("sort key = %q, want it to carry eng/** — a bare folder scope refuses every child", sort)
+	}
+	if !strings.Contains(sort, "admin") {
+		t.Errorf("sort key = %q, want the admin action", sort)
+	}
+	if !strings.Contains(sort, "alice@x") {
+		t.Errorf("sort key = %q, want the principal", sort)
 	}
 }

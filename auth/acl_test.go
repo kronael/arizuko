@@ -129,3 +129,24 @@ func TestMatchSlot(t *testing.T) {
 		}
 	}
 }
+
+// The scope glob is why a folder's admin grant must be written `<folder>/**`
+// and not `<folder>`: matchSegments ends on len(in) == 0, so a bare folder
+// covers itself and refuses every child, while `**` with nothing after it
+// answers true whatever input is left. A dashboard-created group carried the
+// bare form and gave its creator 403 on every child folder (BUGS L206).
+func TestSubtreeScopeCoversTheFolderAndItsChildren(t *testing.T) {
+	for _, target := range []string{"eng", "eng/sre", "eng/sre/oncall"} {
+		if !matchPattern("eng/**", target) {
+			t.Errorf("eng/** does not cover %q", target)
+		}
+	}
+	if !matchPattern("eng", "eng") {
+		t.Error("a bare `eng` does not cover eng itself")
+	}
+	for _, target := range []string{"eng/sre", "eng/sre/oncall"} {
+		if matchPattern("eng", target) {
+			t.Errorf("a bare `eng` covers %q; the reason for the /** shape is gone", target)
+		}
+	}
+}
