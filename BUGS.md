@@ -12788,7 +12788,7 @@ scored **7/9** on the codex smoke.
 - **Docs:** `6/7`'s certification procedure names only `ARIZUKO_BACKEND`. It
   now also names the model; the spec text was corrected in the same pass.
 
-## L130 — a codex or pi agent never receives arizuko's operating manual, so it fails exactly the tasks that need platform knowledge (2026-08-27, open — proposal, needs sign-off)
+## ✅ FIXED 2026-09-20 L130 — a codex or pi agent never receives arizuko's operating manual, so it fails exactly the tasks that need platform knowledge (2026-08-27, open — proposal, needs sign-off)
 
 Diagnosis of the two failures in the first live codex certification (7/9,
 krons 2026-08-27). Both share one signature — `unsupported protocol scheme ""`,
@@ -12842,6 +12842,25 @@ duplication rule says amend the original instead.
 - **Source:** `ant/src/index.ts:49`, `container/runner.go:531`,
   `ant/src/codex.ts:84` (`codexPrompt`), `ant/src/pi.ts` (`runPi`);
   the measurement above.
+
+- **Status:** closed on re-check 2026-09-20 — fixed, and the fix cites this
+  entry by name.
+- **Re-measured:** `HarnessProfile` carries `manual: 'native' | 'rendered'`
+  (`ant/src/backend.ts:79-83`), and its comment states the contract: "'native'
+  when the harness reads that file itself, 'rendered' when the chassis must put
+  it in the system prompt. One file, one reader per harness — never a
+  per-harness copy (BUGS L130)."
+- **All three occupants declare it and the chassis honours it.**
+  `ant/src/claude.ts:559` is `native` — Claude Code reads `~/.claude/CLAUDE.md`
+  itself; `ant/src/codex.ts:304` and `ant/src/pi.ts:223` are both `rendered`,
+  which are exactly the two backends this entry says received nothing.
+  `ant/src/index.ts:62` is the one site that acts on it:
+  `profile.manual === 'rendered' ? manual() : null`, folded into the system
+  prompt beside `SYSTEM.md`, the persona and the output style.
+- **The shape is the one the entry asked for**, and the code says why in its own
+  comment: the manual is "the platform contract the persona adds voice on top
+  of, and a harness that reads the file natively must not receive it a second
+  time here". One file, one reader — not a copy per backend.
 
 ## L131 — pi's bash tool inherits the whole process env, so every model credential is readable from the agent's shell (2026-08-28, claude half FIXED; pi half open — candidate 1 DISPROVED 2026-09-03, replacement mechanism identified, not shipped)
 
