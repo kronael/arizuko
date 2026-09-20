@@ -160,10 +160,16 @@ at that daemon's first boot: routd seeds the ACL floor, the egress floor and the
 
 ## The store server
 
-Every owner's tables live on one DynamoDB-protocol server per instance —
-ExtendDB over PostgreSQL (`specs/6/42-dynamo-over-postgres.md`). The package
-brings both containers; the server's own init run is the operator's, because it
-prints an admin password once and mints one access key per daemon.
+Every owner's tables live on a DynamoDB-protocol server — ExtendDB over
+PostgreSQL (`specs/6/42-dynamo-over-postgres.md`). A deployment is an ACCOUNT
+on that server, never a database or a PostgreSQL role, so **one server can hold
+every instance on a host** (`specs/6/43-shared-store-server.md`). Follow this
+section for a server of the instance's own; follow "A shared server" below to
+put several instances on one.
+
+The package brings both containers; the server's own init run is the
+operator's, because it prints an admin password once and mints one access key
+per daemon.
 
 ```bash
 ./arizuko packages <name> add extenddb   # mints STORE_DB_PASSWORD + STORE_APP_PASSWORD
@@ -215,6 +221,105 @@ instance on this host must set `STORE_HOST_PORT` in its `.env` first** — the
 published port defaults to 18443 and two instances cannot share it. Set the
 key, never edit `template/services/extenddb.yml`: an edited fragment is frozen
 from the catalog and stops taking store changes.
+
+### A shared server for several instances
+
+One engine and one PostgreSQL pair per instance is a waste once a host carries
+more than two. The account is already the tenancy boundary, so the shared
+shape costs nothing in isolation. The reasoning is in
+`specs/6/43-shared-store-server.md`; the procedure is here.
+
+**A shared PostgreSQL usually withholds `CREATEDB`.** `init` needs it only to
+create the two databases, and `init` refuses to run against databases that
+already exist — it says `Run 'destroy' first`, and `destroy` drops them. Where
+the role cannot create databases, the operator creates them and completes the
+deployment by hand. That is four rows, and nothing else.
+
+1. **Create the pair**, as a role that has `CREATEDB`, and hand both to the
+   application role:
+
+   ```sql
+   CREATE ROLE dynamo LOGIN PASSWORD '<pw>';
+   CREATE DATABASE dynamo OWNER dynamo;
+   CREATE DATABASE dynamo_catalog OWNER dynamo;
+   ```
+
+2. **Apply the catalog schema** with `extenddb migrate`. The role owns both
+   databases, so no further grant is needed.
+
+3. **Generate the certificate.** TLS is mandatory. `init` is the only
+   subcommand that writes a certificate, and it writes it before it touches
+   PostgreSQL, so run it once for that alone — it will then fail on
+   `AlreadyExists`, which is expected here. Give it every address a client
+   will use:
+
+   ```bash
+   sudo docker run --rm --network=host -u 1000:1000 \
+     -v /srv/data/extenddb:/var/lib/extenddb \
+     -e EXTENDDB_PG_PASSWORD="$PW" -e EXTENDDB_APP_PASSWORD="$PW" \
+     ghcr.io/extenddb/extenddb-postgres:0.1.11 init \
+     --pg-host <pg-host> --pg-port 5432 --pg-user dynamo --extenddb-user dynamo \
+     --data-db dynamo --catalog-db dynamo_catalog \
+     --bind-addr 0.0.0.0 --tls-san <host-ip> --tls-san <host-fqdn> \
+     --config /var/lib/extenddb/extenddb.toml --overwrite
+   ```
+
+4. **Write the four rows** `init` would have written. Without them the server
+   looks for the data tables in the catalog and exits on
+   `Encryption key not found in settings table`:
+
+   ```sql
+   INSERT INTO settings (key, value) VALUES
+     ('encryption_key',                  '<openssl rand -base64 32>'),
+     ('data_database_name',              'dynamo'),
+     ('data_database_connection_string', 'postgresql://dynamo:<pw>@<pg-host>:5432/dynamo'),
+     ('default_account_id',              '<12 digits>')
+   ON CONFLICT (key) DO UPDATE SET value = excluded.value;
+   ```
+
+   `encryption_key` is the deployment's root secret. It encrypts every stored
+   credential, it is generated once, and losing it loses them all.
+
+5. **Write `extenddb.toml`**, mode `0600`, owned by the service uid. The
+   `connection_string` names the **catalog**, and the port is unique on the
+   host — the fleet holds 18443, 18444 and 18445:
+
+   ```toml
+   [server]
+   bind_addr = "0.0.0.0"
+   port = 18445
+
+   [server.tls]
+   cert_path = "/var/lib/extenddb/.extenddb/tls/cert.pem"
+   key_path  = "/var/lib/extenddb/.extenddb/tls/key.pem"
+
+   [storage]
+   backend = "postgres"
+
+   [storage.postgres]
+   connection_string = "postgresql://dynamo:<pw>@<pg-host>:5432/dynamo_catalog"
+   ```
+
+6. **Run it.** The command must carry `--foreground`; without it the server
+   daemonizes and systemd reports `PID file not created within 5 seconds`. The
+   image `ENTRYPOINT` is already `extenddb`, so the command is
+   `serve --config … --foreground`, never `extenddb serve …`.
+
+7. **Verify before pointing anything at it:**
+
+   ```bash
+   sudo docker run --rm --network=host -u 1000:1000 \
+     -v /srv/data/extenddb:/var/lib/extenddb \
+     ghcr.io/extenddb/extenddb-postgres:0.1.11 verify \
+     --config /var/lib/extenddb/extenddb.toml
+   ```
+
+   It must print `HEALTHY: All checks passed`.
+
+An instance then joins with its own account and its own key pair, and points
+`DYNAMODB_URL` at this server instead of its own. Creating that account and
+minting that key is still by hand through `extenddb manage`: `arizuko` has no
+enrolment subcommand (BUGS `L319`).
 
 ## Configure .env
 

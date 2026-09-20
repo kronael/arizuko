@@ -826,7 +826,8 @@ are deleted, so it is the operator's own copy (§7).
 
 ## Ties
 
-`6/37` (the object model this spec keeps, the one sentence it supersedes,
+`6/43` (one server for every deployment — the topology this spec left open,
+the catalog/data split and the account boundary) · `6/37` (the object model this spec keeps, the one sentence it supersedes,
 the census, and the Postgres seam this spec removes) · `6/40` (the surface,
 the protocols, the audited write) · `6/41` (the two-lever rule) ·
 `6/23` (the PostgreSQL service already in the deployment,

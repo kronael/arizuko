@@ -124,6 +124,13 @@ than errors.
 
 ## L319 — arizuko never provisions a store identity, so a shared store server has no enrolment path (2026-09-20, open)
 
+**The shared server is now live, so this is the only thing between it and use.**
+`extenddb 0.1.11` serves `0.0.0.0:18445` on hel1v5 against `dynamo` /
+`dynamo_catalog` at `10.0.5.1`, and `extenddb verify` reports `HEALTHY` (spec
+`6/43`, 2026-09-20). Nothing is pointed at it, because pointing an instance at
+it means creating that instance's account and minting its key pair, and that is
+exactly what no subcommand does.
+
 MEASURED 2026-09-20. arizuko reads five env values from the store server and
 calls nothing else: `DYNAMODB_URL`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`,
 `AWS_SECRET_ACCESS_KEY`, `STORE_CA` (`objstore/dynstore/env.go:16-22`). A grep

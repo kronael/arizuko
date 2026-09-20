@@ -448,10 +448,44 @@ Config: `MEDIA_ENABLED=true`, `VOICE_TRANSCRIPTION_ENABLED=true`,
 ## Schema
 
 Every table is an objstore entity: one item per row at a `(partition, sort)`
-coordinate, three columns wide (`objstore/README.md`). One DynamoDB-protocol
-server per instance holds every owner's tables as `<owner>.<entity>`
-(`dynstore.Prefix`), named by `DYNAMODB_URL`. The coordinate is what a read pays
-for, and `store/entities.go` argues each one beside the code that writes it.
+coordinate, three columns wide (`objstore/README.md`). A DynamoDB-protocol
+server holds every owner's tables as `<owner>.<entity>` (`dynstore.Prefix`),
+named by `DYNAMODB_URL`. The coordinate is what a read pays for, and
+`store/entities.go` argues each one beside the code that writes it.
+
+### Why the store layer is shaped this way
+
+Four decisions, each with its spec:
+
+1. **The engine is a server, not a library.** ExtendDB over PostgreSQL speaks
+   the DynamoDB wire protocol, and arizuko is one client of it through a
+   driver on the official SDK (`specs/6/42`). SQLite left entirely, FTS5
+   included, so no component holds a state of record on local disk. The
+   protocol was chosen because it is the one with transactions, conditional
+   writes and a second implementation to fall back to — and because the same
+   driver reaches Amazon's service by changing one `BaseEndpoint`.
+2. **There is no database layer.** `objstore.Store` is TWO methods, `Query`
+   and `GuardedBatch` (`objstore/objstore.go:47`), and `specs/6/40` derives
+   them from the five operations arizuko actually needs: containment by path
+   prefix, the guarded batch, the versioned replace, the reachability guard
+   and the claim-and-return. A caller states a coordinate and a condition; it
+   never states a plan. That is what lets the engine change without a
+   rewrite, and it is why `go list -deps ./...` reaches `database/sql` from
+   nothing — measured, not asserted.
+3. **A deployment is an account, not a database.** The `tables` registry is
+   keyed `(account_id, table_name)`, so one server can hold every instance on
+   a host and keep them apart on the account (`specs/6/43`). A PostgreSQL
+   role is NOT the tenancy boundary and must not be used as one.
+4. **The engine splits its own state in two.** `<data-db>` holds one
+   PostgreSQL table per DynamoDB table; `<data-db>_catalog` holds accounts,
+   IAM, the table registry and `settings`. They differ in size, in read
+   pattern and in what a restore destroys, so a control-plane read never
+   contends with a tenant's scan and a tenant restore cannot take the account
+   registry with it. The `connection_string` names the **catalog**, which is
+   the root of discovery: `settings` carries the data database's name and
+   connection string, along with the deployment's encryption key.
+
+Deploy procedure: `INSTALL.md` § The store server.
 
 - **`routd`** (`store/entities.go`):
   `messages` and the four read-shaped indexes one append fans out into
