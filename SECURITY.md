@@ -107,7 +107,7 @@ tenant's routes or tasks.
 | Secrets at rest     | AES-256-GCM encrypted (`v2:` prefix, key=SHA-256(`SECRETS_KEY`); required — routd refuses to start without it, no `AUTH_SECRET` fallback); comma keyring for rotation; legacy plaintext rows sealed in place by the explicit `arizuko secret <inst> seal-legacy` verb (never on boot, never deleted)                                                           | `store/secrets.go`, `cmd/arizuko/secret.go`                                                                                     |
 | Secret injection    | Container env carries model credentials ONLY: operator anchors from host `.env`, overridden by the triggering user's own `store.EnvProfileKeys` (BYOA). Capability credentials are broker-only — resolved on the host per tool call, narrowed to the keys that call declares, scrubbed from the result (`specs/5/13-ext-mcp.md`, `specs/5/14-credentials.md`). | `routd/sibling_db.go` (`EnvProfileSecrets`), `container/runner.go` (`mergeSecrets`), `routd/mcp.go` (`ResolveConnectorSecrets`) |
 | Onboarding rate cap | Per-gate daily limit from `onboarding_gates` table                                                                                                                                                                                                                                                                                                             | `onbod/main.go` (`admitFromQueue`)                                                                                              |
-| Network egress      | Default-deny; the spawn's network has no route out and its own proxy holds the per-folder allowlist, serving that spawn's address only                                                                                                                                                                                                                         | `egress/`, `store/network.go`, `container/egress.go`                                                                            |
+| Network egress      | Default-deny for TCP: the spawn's network has no default route, and its own proxy holds the per-folder allowlist, serving that spawn's address only. UDP/53 sits outside it (§ No DNS filter)                                                                                                                                                                  | `egress/`, `store/network.go`, `container/egress.go`                                                                            |
 | Store access        | One access key per daemon, signed as itself over TLS; the server's policy bounds each key to the owner prefixes that daemon reaches (`<owner>.<entity>`). A file instance binds one `store/<owner>/` subdir per container instead                                                                                                                              | `objstore/dynstore/env.go`, `compose/compose.go`, INSTALL.md § The store server                                                 |
 
 Anything not in this table is not a security boundary. In particular:
@@ -317,7 +317,7 @@ Two consequences we state rather than paper over:
 
 When `EGRESS_IMAGE` is set, agent containers attach to a Docker
 `internal: true` network with no default route to the internet. The only
-path out is that spawn's OWN proxy container, which runed starts before
+TCP path out is that spawn's OWN proxy container, which runed starts before
 the agent exists and stops with the turn (spec `6/24`). The proxy runs on
 both the internal network and `EGRESS_UPLINK_NETWORK`; the agent runs on
 the internal network only.
@@ -326,10 +326,11 @@ the internal network only.
   plus `NODE_OPTIONS=--require=/app/proxy-shim.js` so Node's built-in
   fetch honors the proxy (curl/wget/pip/go/npm honor it natively).
   The proxy forwards HTTP and CONNECT-tunnels HTTPS without decrypting.
-- Non-cooperating clients fail closed: the internal Docker network
-  has no default route, so a client that ignores `HTTPS_PROXY` cannot
-  reach the internet at all. This is the enforcement; the proxy is what
-  filters WHICH allowed hosts, not what confines. Never give the agent a
+- Non-cooperating TCP clients fail closed: the internal Docker network
+  has no default route, so a client that ignores `HTTPS_PROXY` cannot open
+  a TCP connection to anything off that network. This is the enforcement
+  for TCP; the proxy is what filters WHICH allowed hosts, not what
+  confines. UDP/53 leaves by another door (§ No DNS filter). Never give the agent a
   second interface, and never let it share the proxy's namespace
   (`--network container:`) — the proxy is dual-homed by necessity, so its
   namespace carries the route out (measured: a container sharing a
@@ -359,7 +360,7 @@ Caveats:
   `mergeSecrets`). That reader queries `scope_kind='user'` and keeps only
   the four model keys, so a folder capability credential cannot reach the
   container even if a future caller asks it to. The egress allowlist
-  restricts _where_ the agent can reach; it does not prevent leaking a
+  restricts _where_ the agent can reach over TCP; it does not prevent leaking a
   model credential to an allowed domain. The `litellm` package closes
   that gap by construction: the container holds `MODEL_GATEWAY_KEY`, which
   buys exactly the gateway's upstream access and nothing else — the
@@ -381,11 +382,29 @@ Caveats:
   wired — see `specs/5/13-ext-mcp.md` §"OAuth is the next step, not this one".
 - IPv6 is not redirected by the entrypoint script.
 
-**No DNS filter.** The UDP/53 NXDOMAIN listener was deleted with the
-shared proxy (spec `6/24`). It was never wired into
-`container.Run`, and a single-tenant proxy already sees every destination
-in the CONNECT line — a rule expressed twice is a rule that can disagree
-with itself. The HTTP/CONNECT 403 in `egress/` is the enforced path.
+**No DNS filter, and the proxy does not stand in for one.** Nothing in a
+spawn filters UDP/53. `/etc/resolv.conf` inside an agent container is
+`nameserver 127.0.0.11` — docker's embedded resolver, which forwards
+upstream from the HOST namespace, so the container's missing default route
+never applies to it. Measured 2026-08-30 on this docker host: on an
+`--internal` network with no proxy environment, `getent hosts example.com`
+returned real addresses and exit 0 while `curl` to the same host timed out.
+A DNS query never appears in a CONNECT line, so the proxy cannot see one —
+the two controls do not overlap, and the HTTP/CONNECT 403 in `egress/` is
+the enforced path for TCP alone.
+
+What that costs: an agent emits arbitrary query names to a resolver it does
+not control, whatever the folder's `network_rules` allowlist says — a
+low-bandwidth outbound channel for anything encodable in a hostname. It does
+not breach the boundary § Model names (a malicious agent in group A reaching
+group B's data, files, or network); folder isolation is per-network and
+holds. It does defeat the weaker property above, that the allowlist restricts
+_where_ the agent can reach.
+
+The decision is open (BUGS `L136`; `specs/6/24-crackbox-lightest.md` § "DNS
+is not sealed"): scope the guarantee to TCP and accept the channel, or add a
+UDP/53 filter and wire it into `container.Run`. This section states what is
+true today and takes neither.
 
 ## Per-daemon docs
 
