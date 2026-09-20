@@ -562,11 +562,6 @@ func mustOpenOwner(owner, dataDir string) (*store.Store, error) {
 	return store.OpenOwner(owner)
 }
 
-// runGrant writes acl rows through the AUDITED AddACLRow / AddMembership:
-// routd.db HAS had audit_log since routd migration 0016, so the grant and its
-// audit row commit together, matching what the same grant already records
-// through dashd and MCP. Granting authority is the mutation an audit trail
-// exists for.
 // grantableActions is the vocabulary an operator can delegate. `admin` stays the
 // default so existing muscle memory is unchanged, but it covers only `interact` and
 // `mcp:*` (auth.actionCovers) — it does NOT reach `egress` or `web:publish`. Migration
@@ -668,6 +663,11 @@ func operatorRow(row core.ACLRow) bool {
 		row.Effect == store.EffectAllow && row.Params == ""
 }
 
+// runGrant writes acl rows through the AUDITED AddACLRow / AddMembership:
+// routd.db HAS had audit_log since routd migration 0016, so the grant and its
+// audit row commit together, matching what the same grant already records
+// through dashd and MCP. Granting authority is the mutation an audit trail
+// exists for.
 func runGrant(s *store.Store, row core.ACLRow, w io.Writer) error {
 	row = grantDefaults(row)
 	if err := checkGrantRow(row); err != nil {
