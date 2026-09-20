@@ -3708,7 +3708,7 @@ would rebuild the leak `6/24` removed.
 - **Fix:** delete `6/30`'s crackbox required-work column and prose, or restate it
   as "per-spawn proxy, no dashboard — see `6/24`"
 
-## L143 — `6/30`'s runed section describes a build state two releases stale, and its acceptance criterion cites an endpoint that was never mounted (2026-08-30, open)
+## ✅ FIXED 2026-09-20 L143 — `6/30`'s runed section describes a build state two releases stale, and its acceptance criterion cites an endpoint that was never mounted (2026-08-30)
 
 **Stale build state.** `6/30`'s top table says runed is "overview only" with the
 runs list "unbuilt", and its Migration-state table says `/dash/runed/` runs+kill
@@ -3835,6 +3835,17 @@ Also established and worth keeping: the REST path is `/v1/tasks`, NOT
 A conversion that assumes the resource name is the path gets a 404, which is how
 this one started.
 
+
+- **Status:** closed 2026-09-20. The prose halves were already fixed: `6/30`'s
+  runed row now reads "overview (capacity + breaker + run table)" with kill and
+  stop, and neither `GET /v1/runs` nor `/v1/capacity` nor `Snapshot()` is cited
+  anywhere in the spec. Re-measured against the tree today, and the code half of
+  the entry holds exactly: `runed/server.go` mounts `POST /v1/runs`,
+  `GET /v1/runs/{run_id}` and `DELETE /v1/runs/{run_id}` — there is still no GET
+  list — while `runed/dash.go` does serve the run list with `state=` filtering.
+- **Fix:** one stale citation was left and is corrected here. The row pointed at
+  `runed/server.go:38-43` for "kill run, stop folder's run"; those lines are
+  `NewServer` today. The controls are at `:61-70`.
 ## ✅ FIXED 2026-09-04 L142 — `6/28`'s core rule "no dashboard reads a SQLite DB directly" is false: at least 6 of 9 retained dashd pages still read `routd.db` for their displayed content (2026-08-30, fixed 2026-09-04)
 
 **FIXED 2026-09-04.** Every display read now goes through the owner, verified
@@ -3961,7 +3972,7 @@ drifted copy — lower severity, but it means "the one gate" is not literally tr
 - **Status:** open — `6/28` carries `defected`
 - **Fix:** dashd adopts `auth.RequireOperator`/`RequireWrite`, deleting `callerScope`'s `**` branch; or `6/28` states dashd's folder-scoped gate as a second deliberate exception alongside ttsd's
 
-## L140 — three shipped adapter specs still count ten channel adapters; `mastd` was deleted 17 days earlier (2026-08-30, open)
+## ✅ FIXED L140 — three shipped adapter specs still count ten channel adapters; `mastd` was deleted 17 days earlier (2026-08-30, closed 2026-09-20)
 
 `mastd/` was removed in `b72e80f9` ("feat(channels)!: drop Mastodon support",
 2026-08-13) — the directory, `template/services/mastd.yml`, the `go-mastodon`
@@ -3986,6 +3997,13 @@ via `isStubVerb`, the four `DashSectioner` implementers exact, and
 `tests/socialboundary` passing all three subtests.
 
 - **Severity:** low (documentation; the mechanism holds for all nine)
+- **Status:** closed 2026-09-20 — ALREADY FIXED, by `64dcc899` ("the gitd
+  headcount") and `23119576` ("phase 6 states the present, and the adapter
+  counts follow the tree"). Re-measured today: `mastd` appears **zero** times in
+  `6/31`, `6/32` and `6/33`. "Ten channel adapters" is true again for a
+  different ten — `mastd` left and `gitd` arrived — and the fragments in
+  `template/services/` list exactly those ten. `6/33`'s social/chat split is
+  right: bskyd, reditd, twitd, linkd + teled, discd, slakd, whapd, emaid.
 - **Scope:** specs
 - **Affected:** `specs/6/31`, `specs/6/32`, `specs/6/33`
 - **Status:** open
