@@ -13683,6 +13683,22 @@ wire change; decide before adding the field.
 - **Status:** proposal (needs sign-off)
 - **Fix:**
 
+- **RE-MEASURED 2026-09-20: CONFIRMED LIVE, exactly as filed.**
+  `chanlib.InboundMsg` (`chanlib/chanlib.go:49-57`) carries `Sender`,
+  `SenderName` and `ReplyToSender` and **no own-author field** — no `FromMe`,
+  no `BotMsg`. `HistoryResponse` (`chanlib/handler.go:280-284`) is a slice of
+  exactly that type, so the flag has nowhere to ride even if an adapter set it.
+- **And routd drops the question rather than answering it.**
+  `routd/mcp.go:399-404` maps each history row into a `core.Message` carrying
+  `ID`, `ChatJID`, `Sender`, `Name`, `Content`, `Timestamp` and `ReplyToID` —
+  `BotMsg` is never set, so every row the adapter returns renders as a user row,
+  the agent's own posts included.
+- **No contained fix exists**, which is why this stays a proposal: routd cannot
+  infer own-authorship from what it receives. The adapter is the only party that
+  knows its own platform user id (`session.State.User.ID` on Discord), so the
+  flag has to be added to the wire type and set by each of the ten adapters — a
+  `chanlib` contract change, the same reach `5/34` governs.
+
 ## L185 — proposal: `arizuko` runtime verbs as HTTP clients need a CLI principal and an audit-surface decision; refused as a mechanical cut (2026-09-05, proposal — needs sign-off)
 
 Spec 6/36 S4 moves the nine `cmd/arizuko` writers (`grant`, `route`,
