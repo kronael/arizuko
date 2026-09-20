@@ -283,6 +283,20 @@ func genToken() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
+// adapterDNSTimeout bounds the name check below. Register runs on routd's
+// POST /v1/channels handler goroutine, and glibc answers an unreachable
+// resolver in 5s x 2 attempts per nameserver line, so three nameservers held
+// that handler for ~30s and read as "routd is hung" (BUGS L121). An
+// unresolvable name is allowed on purpose, so the timeout reaches the same
+// verdict at a bounded cost.
+const adapterDNSTimeout = 2 * time.Second
+
+// lookupHostIPs resolves the adapter's hostname for the SSRF check. A package
+// var so a test can pin the bound without a resolver that answers.
+var lookupHostIPs = func(ctx context.Context, host string) ([]net.IP, error) {
+	return net.DefaultResolver.LookupIP(ctx, "ip", host)
+}
+
 // validateAdapterURL enforces SSRF protection: adapter URLs must be http(s)
 // and resolve to private/loopback/link-local addresses. Set
 // CHANNEL_REGISTER_ALLOW_PUBLIC=1 to permit public IPs (dev only).
@@ -315,7 +329,9 @@ func validateAdapterURL(raw string) error {
 		return nil
 	}
 
-	ips, err := net.LookupIP(host)
+	ctx, cancel := context.WithTimeout(context.Background(), adapterDNSTimeout)
+	defer cancel()
+	ips, err := lookupHostIPs(ctx, host)
 	if err != nil || len(ips) == 0 {
 		return nil
 	}

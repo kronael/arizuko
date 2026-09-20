@@ -2563,11 +2563,40 @@ cost row, and the run counts as clean for the breaker. The same shape
 follows an exhausted 529 retry. `tests/e2e_turn_test.go` step 3 exhibits it
 (the assertion documents the behaviour, it does not endorse it).
 
-- **Severity:** low (the user sees the error text; no retry, no notice, no cost)
+**Measured again live, 2026-09-20 on sloth, and the severity is wrong.** The
+account behind sloth's `CLAUDE_CODE_OAUTH_TOKEN` hit its seven-day limit with
+the org spend cap reached, so every turn came back
+`apiErrorStatus: 429, quotaLimits.status: "rejected",
+overageDisabledReason: "org_spend_cap_reached"`. The container exited 0, ant
+submitted the rejection text as the turn result, and routd delivered
+"You've hit your individual spend limit …" to the Discord chat as the agent's
+answer. `chats.errored` stayed clear, no cost row was written, the breaker
+stayed closed, and every eval check reads green. A fleet-wide outage is
+invisible to the operator surfaces — that is the real cost, not the one line
+the user reads.
+
+The status field ant submits is write-only today: `store.RecordTurnResult`
+persists it and NOTHING reads it back (`grep` over `routd/`, `store/` finds
+one writer, zero readers). `routd`'s failure path keys on runed's
+`out.Outcome`, which comes from the container exit code. So fixing
+`claudeResultStatus` alone changes nothing — the second half is required.
+
+Retry shape matters here: a seven-day quota rejection is NOT transient
+(`~/.claude/CLAUDE.md`, retry only transient errors). Its reset was 11 hours
+out, so routd's `maxTurnRetry` path must not re-spawn it — this is the
+`out.Terminal` shape, which names the cause and never retries.
+
+- **Severity:** high (a fleet-wide model outage reads green on every operator surface)
 - **Scope:** ant claude harness → routd turn result
 - **Affected:** every claude-backend instance
-- **Source:** `ant/src/claude.ts:329-335`, `:388-397`; `routd/turns.go:679`
-- **Status:** open. Fix shape: `claudeResultStatus` reads `is_error` → `status: error`, so routd's failure path (retry, then the notice) handles it instead of delivering the line.
+- **Source:** `ant/src/claude.ts:329-335`, `:388-397`; `routd/turns.go:679`; `store/turn_results.go:91`
+- **Status:** open — proposal, needs sign-off (the second half changes cross-daemon control flow). Two parts:
+  1. `claudeResultStatus` reads the result's `is_error` → `status: error`, and
+     a quota rejection carries a terminal marker rather than a retry one.
+  2. `recordTurnResult` acts on `req.Status`: an error result reaches the chat
+     as a failure notice, not as the agent's reply; it marks `chats.errored`
+     and leaves the turn visible to the census. Today it delivers the line and
+     records a clean turn.
 - **Fix:**
 
 ## ✅ FIXED 2026-09-18 L176 — `GET /v1/messages/volume` compared RFC3339 to `datetime('now')` (2026-09-05)
@@ -10985,7 +11014,7 @@ so the seed was off-format as well as non-deterministic. The literal is RFC3339.
   inside one second. Mutation-checked: both tests FAIL with 0037 moved aside
   (`a = sha256:e2c741d7…` vs `b = sha256:de29e07a…`) and pass with it restored.
 
-## L121 — adapter registration blocks on an unbounded `net.LookupIP`, so a slow resolver stalls a routd handler for the platform's whole DNS timeout (2026-08-27, open)
+## ✅ FIXED 2026-09-20 L121 — adapter registration blocks on an unbounded `net.LookupIP`, so a slow resolver stalls a routd handler for the platform's whole DNS timeout (2026-08-27)
 
 `chanreg.validateAdapterURL` (`chanreg/chanreg.go:319`) resolves the adapter's
 hostname with the package-level `net.LookupIP`, which takes no `context.Context`
@@ -11024,11 +11053,16 @@ the common case for a compose service name resolved from outside its network.
   7.7 s is `ssrf_test.go`'s one deliberate `docker_service_name` case. That is a
   test fix, not a fix for this entry — the production path is unchanged.
 - **Source:** `chanreg/chanreg.go:319`; callers `chanreg/chanreg.go:108,112`.
-- **Fix (local):** take the caller's context and use
-  `net.DefaultResolver.LookupIP(ctx, "ip", host)` with a short bounded timeout
-  (1–2 s). The branch already treats an unresolvable name as allowed, so a
-  timeout collapses into the existing "cannot check, let it through" path and
-  changes no verdict — only how long the wrong-answer case costs.
+- **Status:** fixed 2026-09-20.
+- **Fix:** `validateAdapterURL` resolves through `net.DefaultResolver.LookupIP`
+  under a 2 s `adapterDNSTimeout`. The caller's context was not threaded:
+  `Register`/`RegisterWithOrigin` take none, and adding one changes a public
+  signature and every caller for no extra guarantee — the bound is the whole
+  benefit. The branch already allows an unresolvable name, so a timeout reaches
+  the same verdict and no verdict changes.
+  `TestAdapterDNSLookupCarriesABound` pins that the resolver is handed a
+  deadline, through the `lookupHostIPs` seam, so the check cannot silently go
+  unbounded again. Measured: `go test ./chanreg/` 7.7 s → 2.1 s.
 
 ## ✅ FIXED 2026-08-29 L122 — six containment filters still hand-write `LIKE ?||'/%'`, so a folder named `%` reads every tenant's messages and a `Coach`/`coach` pair leaks both ways (2026-08-27)
 

@@ -1,6 +1,12 @@
 package chanreg
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"net"
+	"testing"
+	"time"
+)
 
 // validateAdapterURL is the SSRF gate: adapter URLs must be http(s) and, unless
 // CHANNEL_REGISTER_ALLOW_PUBLIC=1, resolve to private/loopback/link-local
@@ -72,5 +78,39 @@ func TestRegisterRejectsPublicURL(t *testing.T) {
 	}
 	if r.Get("rogue") != nil {
 		t.Error("rejected registration must not leave an entry")
+	}
+}
+
+// A name the resolver cannot answer must cost a bounded wait, not the
+// platform's whole DNS timeout: validateAdapterURL runs on routd's
+// POST /v1/channels handler goroutine, and three unreachable nameservers held
+// it for ~30 s (BUGS L121). The fake resolver reports the deadline it was
+// handed, so the bound is pinned without a slow test.
+func TestAdapterDNSLookupCarriesABound(t *testing.T) {
+	t.Setenv("CHANNEL_REGISTER_ALLOW_PUBLIC", "")
+	original := lookupHostIPs
+	t.Cleanup(func() { lookupHostIPs = original })
+
+	var called bool
+	var bound time.Duration
+	lookupHostIPs = func(ctx context.Context, host string) ([]net.IP, error) {
+		called = true
+		if deadline, ok := ctx.Deadline(); ok {
+			bound = time.Until(deadline)
+		}
+		return nil, errors.New("this resolver cannot answer")
+	}
+
+	if err := validateAdapterURL("http://teled:8080"); err != nil {
+		t.Fatalf("an unresolvable name stays allowed, got %v", err)
+	}
+	if !called {
+		t.Fatal("the name was never resolved, so the SSRF check did not run")
+	}
+	if bound <= 0 {
+		t.Fatal("the resolver got no deadline: a slow resolver holds the handler")
+	}
+	if bound > adapterDNSTimeout {
+		t.Errorf("bound is %v, want at most %v", bound, adapterDNSTimeout)
 	}
 }
