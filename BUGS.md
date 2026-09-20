@@ -2628,7 +2628,7 @@ as absent rather than claiming it. No adoption happened — `acl_membership` is
 raw SQL at eight sites in `onbod/main.go` alone, and `resreg.Apply` still takes
 a `*sql.DB` (`L259`).
 
-## L256 — the membership cycle check runs inside its own insert's transaction, and `Check` cannot express the graph frontier it needs (2026-09-07, open — proposal, needs sign-off)
+## ✅ FIXED 2026-09-20 L256 — the membership cycle check runs inside its own insert's transaction, and `Check` cannot express the graph frontier it needs (2026-09-07, open — proposal, needs sign-off)
 
 `store/membership.go:36`, `:151`, `:199`, `routd/acl_resource.go:361` and
 `resreg/resources/membership.go:88` all run the same recursive walk — four
@@ -2657,6 +2657,29 @@ made a member of something.
 - **Fix:** a version attribute on the graph that every edge insert conditions on,
   so two concurrent inserts serialise. That is `6/40`'s reachability protocol,
   and `L255` is why it does not exist yet.
+
+- **Status:** closed on re-check 2026-09-20 — both halves shipped, and the code
+  cites this entry at 17 sites.
+- **The four copies are one protocol.** `store/membership.go:19` states it:
+  "THE CYCLE GUARD IS `objstore.AddEdge`, FOR EVERY WRITER THIS PACKAGE OWNS."
+  The walk lives once, in `objstore/reach.go`, whose header names this entry:
+  "COMMITTED does not, and neither does a key-value engine. That is BUGS L256."
+  `store/membership.go:156` calls `objstore.Reachable`, `:239` calls
+  `objstore.AddEdge`, and `store/cycle_guard_test.go` is "the adoption half …
+  these prove the four writers that used to hold a transaction instead now go
+  through it".
+- **The concurrent case — the part `Check` could not express — is pinned by a
+  conformance body**, and it is the exact scenario this entry describes.
+  `objstore/conformance/protocols.go:633-656` uses a `slip` to make the second
+  walker read the graph BEFORE the first commits its edge, so it decides on a
+  graph with no cycle in it, and asserts `ErrCycle` anyway: "only the marker it
+  compare-and-swaps can make it walk again (BUGS L256)". It then asserts exactly
+  one edge landed — "two edges is the cycle both walkers were allowed to close".
+- **Which answers the entry's own objection.** `objstore.Check` binds an item
+  and a cycle is a condition on a graph frontier; the resolution is that the
+  guard is a PROTOCOL rather than a `Check`, serialised on a version marker the
+  edge's own batch compare-and-swaps. `protocols.go:577` says so: "BUGS L256 is
+  why it is a protocol rather than a Check."
 
 ## ✅ FIXED 2026-09-07 L252 — three folder-containment filters build the LIKE wildcard in Go, so `L122`'s "all six fixed" grep could not see them (2026-09-07)
 
