@@ -14261,7 +14261,7 @@ never have reached in the first place.
   `groups` row, or `6/37` redesign 1's generation, which makes an orphan
   unreachable rather than absent
 
-## L247 — `handleGroupCreate` has no test, and it is the security-bearing transaction (2026-09-06, open)
+## ✅ FIXED 2026-09-20 L247 — `handleGroupCreate` has no test, and it is the security-bearing transaction (2026-09-06)
 
 MEASURED while giving `dashd` a storage layer. `dashstore.GroupExists` and
 `dashstore.CreateGroupWithAdmin` sit at **0% coverage**, and
@@ -14280,9 +14280,21 @@ pattern.
 - **Severity:** medium — untested, not known broken; the risk is that a future
   change to the three-write sequence has nothing to catch it
 - **Scope:** `dashd/`, `dashd/dashstore`
-- **Fix:** drive it through the real handler, not the store method — the point
-  is that the four writes commit together, and a fixture that calls
-  `CreateGroupWithAdmin` directly proves the method rather than the page.
+- **Status:** fixed 2026-09-20.
+- **Fix:** `dashd/group_create_test.go` drives `POST /dash/groups/new` through
+  the mux. `TestGroupCreatePage_CommitsTheAdminGrantWithTheFolder` asserts the
+  group row, the creator's `admin` grant and the `group.create` audit row;
+  `TestGroupCreatePage_RefusesAFolderTheCallerCannotAdminister` pins that a
+  caller without admin on the target gets no row written.
+
+  **The first assertion was a false green and the mutation caught it.** It read
+  the verdict from `auth.Authorize`, but `splitAdminDash` seeds the creator
+  `**`, so the evaluator answers yes whether or not the transaction wrote
+  anything — scoping the grant to `folder + "-MUTANT"` passed. It now reads the
+  acl ROW back through `ListACL` and keeps the `Authorize` call beside it, so
+  the test says both "the row was written" and "the evaluator honours it".
+  VERIFIED by mutation: a wrong grant scope and a renamed audit action each
+  turn it red, and both revert green.
 
 ## L248 — four dashd list reads now surface a mid-iteration failure that was silently dropped (2026-09-06, open — behaviour delta)
 
