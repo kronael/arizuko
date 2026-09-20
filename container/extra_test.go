@@ -140,7 +140,7 @@ func TestBuildArgsWithEgress(t *testing.T) {
 
 // The backend selector must reach ant as real container env — the first
 // ARIZUKO_BACKEND died precisely because buildArgs never emitted it
-// (spec 6/7 § "Why this document exists").
+// (spec 6/23: anything buildArgs omits is dead in the container).
 func TestBuildArgsAgentBackend(t *testing.T) {
 	cfg := &core.Config{Timezone: "UTC", Image: "img:latest", AgentBackend: "codex"}
 	args := buildArgs(cfg, nil, "c4", egressSpawn{}, "", "", 0, false, false, "")
