@@ -1996,7 +1996,7 @@ the history — which is what `L87` fixes on the fork axis.
 Both are behaviour changes on every turn on every instance, so neither ships
 inline. `5/B` and `5/F` are the specs to amend.
 
-## L75 — a dispatch failure loses the trigger silently: the retry never retries, and pending mentions get demoted to "observed" (2026-08-23, proposal)
+## L75 — a dispatch failure loses the trigger silently: the retry never retries, and pending mentions get demoted to "observed" (2026-08-23, (a) FIXED 2026-09-20; (b) needs sign-off)
 
 Two faults with one root: a dispatch failure path advances the cursor past the
 work it did not do.
@@ -2084,6 +2084,41 @@ overlaps ordinary chatter.
   scheduled. Either the retry drops its own timer and rides the busy backoff, or
   `runTurn` grows a fifth verdict that means "held, re-feed, no backoff". One
   return value either way.
+
+- **(a) FIXED 2026-09-20, `c1bd9473`.** The retry branch returns
+  `false, false, true, "", nil`, so the caller takes the hold-and-re-feed path
+  it already honours, the cursor stays behind the batch, and the next poll
+  re-dispatches the same turn id. The stacked-backoff question answers itself:
+  the retry dropped its own timer, so there is nothing left to stack. Three
+  attempts now cost 4s + 8s of busy backoff, which a fresh inbound row clears
+  at once, against the 10s x 3 the timer promised and never delivered.
+
+  `time.AfterFunc`, `retryBackoff`, `DB.ResetTurnForRetry` and
+  `Store.ResetTurnForRetry` are deleted with it. The reset was the re-bind
+  written twice: `OpenTurnContext` seeds `bound` with `state=running` and
+  removes `run_returned` on every re-dispatch, under a `state != done`
+  condition that `pending_retry` satisfies. Net 11 lines out of the shipped
+  code.
+
+  Crash recovery closes as a consequence, so it needed no second fix:
+  `recoverPending` only `Enqueue`s the chat, and an un-advanced cursor is
+  exactly what makes that enough.
+
+  PROVEN BY MUTATION. `TestTurnRetry_SchedulesRetryOnError`
+  (`routd/fixes_test.go`) now asserts the cursor is still empty after the failed
+  attempt, then clears the busy wait and polls again for a second attempt.
+  Restoring the `false` busy value fails it on the cursor
+  (`cursor advanced to "2026-09-20T21:18:44.877074502Z\x1fr1"`); with that
+  assert removed it fails on `attempts = 1, want 2`. Both halves red, both green
+  restored, `go test ./routd/ ./store/ -count=1 -short` clean. Spec `5/12` now
+  records the busy re-feed as the retry's backoff.
+
+- **(b) and the sweep-notice item are untouched and still need the decision.**
+  (b) is route resolution, not the dispatch lifecycle: choosing between a
+  per-message resolve and excluding live-turn rows from the newest-message
+  resolve changes which route a MIXED batch takes, on every chat. The
+  `SweepExpiredRunning` item is a third concern again — a terminal state that
+  owes the user a notice.
 
 ## L72 — anteval leaks a group per case and every release pays an LLM turn for each (2026-08-23, proposal)
 
