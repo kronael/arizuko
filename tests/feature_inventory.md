@@ -247,19 +247,19 @@ Tools dispatched over the real MCP unix socket. Generic socket path covered by
 
 ## 14. Integration plumbing
 
-| Feature                                     | exists | tested                                                                                                     | ref                           |
-| ------------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------- | ----------------------------- |
-| Idempotency ledger (exactly-once)           | yes    | yes — `TestFeature_IntegrationPlumbing/idempotency-ledger`, `split_federation_test.go` (X-Idempotency-Key) | `routd/tokens.go:IdemClaim`   |
-| web_routes URL-tree access table            | yes    | yes — `TestFeature_IntegrationPlumbing/web-routes-table`                                                   | `routd/tokens.go:PutWebRoute` |
-| proxyd routing rules                        | yes    | partial — `routd/network_test.go`, compose tests                                                           | ARCHITECTURE.md               |
-| davd (WebDAV per-group)                     | yes    | no                                                                                                         | ARCHITECTURE.md               |
-| vited dev server                            | yes    | no                                                                                                         | ARCHITECTURE.md               |
-| crackbox egress (network_rules, DNS, proxy) | yes    | partial — `crackbox/pkg/*`, `crackbox/test/egress_e2e_test.go`                                             | ARCHITECTURE.md               |
-| MCP connectors (third-party servers)        | yes    | partial — `routd/connectors_test.go`                                                                       | EXTENDING.md                  |
-| Whisper transcription                       | yes    | no                                                                                                         | ARCHITECTURE.md               |
-| TTS (ttsd)                                  | yes    | partial — `routd/voice_test.go`                                                                            | routd/README.md               |
-| Oracle skill (codex fallback)               | yes    | no (agent-runtime)                                                                                         | EXTENDING.md                  |
-| Compose generation                          | yes    | partial — `compose/*` tests                                                                                | ARCHITECTURE.md               |
+| Feature                                  | exists | tested                                                                                                                                                      | ref                           |
+| ---------------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| Idempotency ledger (exactly-once)        | yes    | yes — `TestFeature_IntegrationPlumbing/idempotency-ledger`, `split_federation_test.go` (X-Idempotency-Key)                                                  | `routd/tokens.go:IdemClaim`   |
+| web_routes URL-tree access table         | yes    | yes — `TestFeature_IntegrationPlumbing/web-routes-table`                                                                                                    | `routd/tokens.go:PutWebRoute` |
+| proxyd routing rules                     | yes    | partial — `routd/network_test.go`, compose tests                                                                                                            | ARCHITECTURE.md               |
+| davd (WebDAV per-group)                  | yes    | no                                                                                                                                                          | ARCHITECTURE.md               |
+| vited dev server                         | yes    | no                                                                                                                                                          | ARCHITECTURE.md               |
+| Per-spawn egress proxy (`network_rules`) | yes    | yes — `egress/test/e2e_test.go` (5 of 8 cases over real sockets; 3 need netns isolation), `egress/match`, `container/egress_test.go` (9 spawn-wiring cases) | SECURITY.md § Network egress  |
+| MCP connectors (third-party servers)     | yes    | partial — `routd/connectors_test.go`                                                                                                                        | EXTENDING.md                  |
+| Whisper transcription                    | yes    | no                                                                                                                                                          | ARCHITECTURE.md               |
+| TTS (ttsd)                               | yes    | partial — `routd/voice_test.go`                                                                                                                             | routd/README.md               |
+| Oracle skill (codex fallback)            | yes    | no (agent-runtime)                                                                                                                                          | EXTENDING.md                  |
+| Compose generation                       | yes    | partial — `compose/*` tests                                                                                                                                 | ARCHITECTURE.md               |
 
 ---
 
