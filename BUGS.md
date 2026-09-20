@@ -9266,6 +9266,30 @@ untestable, because the budget is not per-visitor.
   before anything is trusted
 - **Fix:**
 
+- **RE-MEASURED 2026-09-20, and the obvious lever is the WRONG one.** The
+  tempting fix is to add the gateway to `TRUSTED_PROXIES` — it is unset on
+  krons, so the `127.0.0.1/32` default applies and `10.0.5.1` is not in it.
+  **That would change nothing, and it would widen a trust boundary for no
+  benefit.**
+- **Because no `X-Forwarded-For` arrives at all.** proxyd already reports this
+  case: `untrustedEdgeOnce` (`proxyd/main.go:119-126`) warns once per peer with
+  "untrusted edge proxy: X-Forwarded-For discarded, client identity is the hop"
+  and names the exact CIDR to add. It fires only when a peer SENDS an XFF that
+  is not trusted. **It has not fired on krons in 24 hours.** No header is being
+  discarded, so there is none to trust.
+- **So the lever is at the edge, outside this repo.** Whatever terminates
+  `krons.fiu.wtf` / `65.21.89.43` forwards to the host without the client
+  address. Until that edge sets `X-Forwarded-For`, every external visitor
+  reaches proxyd as the same hop and `webd`'s `anonSender`
+  (`webd/route_token.go:33-42`) derives one identity for all of them — which is
+  correct behaviour on the input it gets.
+- **The code half stays fixed** (`3e19ea3e`), and `webd/anonshield.go:23-31`
+  reads the leftmost XFF token, so the moment the edge sets one this resolves
+  with no code change.
+- **Status:** open — infra, and now a specific one: set `X-Forwarded-For` at the
+  edge, THEN add that edge to `TRUSTED_PROXIES`. Doing the second without the
+  first is a widening that buys nothing.
+
 ## ✅ FIXED 2026-09-20 L39 — whapd acks WhatsApp before routd accepts, the TS half of L25 (2026-08-15)
 
 Found while fixing `L25`, which named a sibling entry `L20` for this — `L20`
