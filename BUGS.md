@@ -13,6 +13,37 @@
 > work items are their own entries. A record has nothing to fix and never will,
 > so counting one as open overstates the queue.
 
+## L330 — 160 files are gofmt-dirty and nothing gates formatting (2026-09-20, open)
+
+`gofmt -l .` (excluding `third_party/` and the untracked `.migrate*` copies)
+names **160 files**. Nothing catches it: `make lint` is `go vet ./...`, which
+does not check formatting, and `.pre-commit-config.yaml` runs
+trailing-whitespace, end-of-file, yaml, json, merge-conflict, private-key,
+prettier and two typecheck hooks — no `gofmt`, no `gofumpt`, no
+`golangci-lint`.
+
+So the drift is silent and one-way: every edit to an already-dirty file keeps
+it dirty, and a clean file goes dirty the first time a signature change
+misaligns a struct literal. Two of the 160 were made dirty by this session's
+own `L166` commit and were only noticed because a subagent happened to run
+`gofmt -l`.
+
+The cost is not aesthetic. A dirty file makes every later diff noisier than the
+change it carries, and it hides a real reformat inside an unrelated commit.
+
+- **Severity:** low (nothing breaks; every diff is dirtier than it needs to be)
+- **Scope:** the lint gate
+- **Affected:** 160 files across `container/`, `emaid/`, `ipc/` and others
+- **Source:** `gofmt -l .` 2026-09-20; `Makefile:36` `lint:`;
+  `.pre-commit-config.yaml` hook list
+- **Status:** open
+- **Fix:** add the gate FIRST, then sweep — a sweep without a gate drifts
+  straight back. `golangci-lint` is already the `lint-strict` dependency
+  (`Makefile:45`), and its `gofmt` linter is the gate that costs no new tool.
+  The sweep is then one mechanical commit, kept separate from any behaviour
+  change so neither hides in the other.
+
+
 ## L329 — an agent that decides to stay silent narrates the decision, and the guard that catches it is whole-string only (2026-09-20, BOUNDARY FIXED 2026-09-20; the steering redesign is a proposal)
 
 A desk agent woke on a message that did not address it, decided correctly,
