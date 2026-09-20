@@ -136,12 +136,15 @@ never sees the conversation.
   `--network <egress-net>`, set `HTTP(S)_PROXY`.
 - **The harness is opaque to the envelope.** `runed` writes JSON to
   stdin and drains stdout/stderr — it must stay harness-agnostic.
-- **Graceful shutdown — containers outlive the accept loop.** On
-  SIGTERM/SIGINT runed stops accepting `POST /v1/runs`, **detaches**
-  (does not kill) live containers so the agent can still finish against
-  routd's socket, waits `RUNED_SHUTDOWN_GRACE`, then exits. Killing
-  in-flight turns to exit faster is the wrong trade — the deadline
-  injection already wraps them up.
+- **Graceful shutdown — a run outlives runed, not routd.** On
+  SIGTERM/SIGINT runed stops accepting `POST /v1/runs`, waits
+  `RUNED_SHUTDOWN_GRACE` for live handlers, then exits. The run context is
+  the REQUEST's, and `armCancel` kills the container when it dies — so
+  routd going away ends the turn with 137 and routd re-feeds it. Turn
+  delivery is therefore at-least-once across a deploy. Detaching in runed
+  alone cannot change that: the agent's MCP socket lives in routd's
+  process, so a container that outlives routd has no socket and still holds
+  the folder's run slot (BUGS `L161`).
 
 ### ant wraps a harness, it never is one
 

@@ -185,12 +185,18 @@ func main() {
 
 	<-stop
 	// Graceful shutdown (spec 5/P § Graceful shutdown): stop accepting new
-	// POST /v1/runs but DETACH in-flight runs — don't cancel them. Each
-	// in-flight spawn's MCP socket lives inside its still-running
-	// container.Run handler (driven by the per-request context, NOT the
-	// daemon ctx), so the container can still call tools + submit_turn. We
-	// wait up to RUNED_SHUTDOWN_GRACE for handlers to finish, then exit
-	// (containers are docker --rm and outlive the daemon).
+	// POST /v1/runs and wait up to RUNED_SHUTDOWN_GRACE for the handlers
+	// already running to finish.
+	//
+	// A run only survives runed's own exit. It does NOT survive routd's: the
+	// run context is the REQUEST's (Manager.spawn, runed/manager.go), and
+	// armCancel (runed/docker.go) kills the container when that context dies
+	// — its own comment names "routd dropped the POST /v1/runs request" as
+	// one of the two causes. A deploy stops both daemons, so a live turn ends
+	// with 137 and routd re-feeds it. Detaching here alone would be worse, not
+	// better: the agent's MCP socket lives in ROUTD's process, so a container
+	// outliving routd has no socket, holds the folder's run slot, and is
+	// re-fed anyway (BUGS L161).
 	grace := core.DurOr("RUNED_SHUTDOWN_GRACE", runTTL)
 	slog.Info("runed stopping (detaching in-flight runs)", "grace", grace, "in_flight", mgr.ActiveCount(context.Background()))
 	sctx, scancel := context.WithTimeout(context.Background(), grace)
