@@ -7341,7 +7341,7 @@ should not, but the cause is the leak, not the migration hook.
   the same gap that let a built skill outlive its case (`L153`).
 - The 31-of-43 count is instance data and was not re-read.
 
-## L70 — spend is recorded on three dimensions and readable on none of them (2026-08-22, proposal)
+## ✅ FIXED 2026-09-20 L70 — spend is recorded on three dimensions and readable on none of them (2026-08-22, proposal)
 
 With `L69` fixed, `cost_log` carries folder, model and user_sub on every row.
 Nothing can read them together.
@@ -7382,6 +7382,27 @@ Explicitly NOT in this proposal: whether the numbers can be trusted. That is
 `specs/6/23` — cost is still self-reported by the spender, and a gateway is what
 makes it authoritative. The two are orthogonal: `L69` made the row attributable,
 this makes it readable, `6/23` makes it true.
+
+- **Status:** closed on re-check 2026-09-20 — the table this entry is about no
+  longer exists.
+- **Re-measured:** `cost_log` is declared by nothing (`store/entities.go` has no
+  cost entity) and written by nothing — `PutCost`, `InsertCost` and `WriteCost`
+  all return zero non-test hits. The surviving mentions are comments and one
+  test fixture's prose. So there is no three-dimensional row set to read
+  together, and "readable on none of them" describes a table that is gone.
+- **The ledger moved, which is the real answer.** `specs/6/39 — the gateway
+  owns spend` is `shipped`, and `routd/reads_http.go:226` `handleCostSummary`
+  says it in its own words: "arizuko keeps no spend of its own, so this is a
+  proxied read: the gateway is the ledger and this is the one place every
+  operator surface reaches it, which is what stops the dashboard and the CLI
+  showing two different numbers." It already takes `folder` and `since`, so the
+  second question this entry says nothing can ask IS asked — of the ledger that
+  now holds the answer.
+- **What survives in arizuko is a LOG, not a ledger:** `logSelfReportedCost`
+  (`routd/turns.go:210-216`) records what the agent claims a turn cost and
+  stores nothing.
+- **Still true and already its own entry:** `L174`, that gateway-metered spend
+  has no path into an arizuko-side row.
 
 ## ✅ FIXED 2026-08-22 L68 — anteval starves its own tail: one overrunning case times out every case after it (2026-08-22)
 
