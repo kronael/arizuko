@@ -718,14 +718,18 @@ func recordOutboundReply(gated GatedFns, db StoreFns, jid, text, platformID, fol
 // A transient failure lands 'pending' and routd's sweep re-sends it. A permanent
 // refusal lands 'failed'. retryable=false forces the dead letter for a file send,
 // which the text-only sweep would repeat as a captionless, fileless message.
-func recordOutboundFailure(gated GatedFns, db StoreFns, jid, text, folder, replyToID string, retryable bool, err error) {
+// threadRoot is the platform thread the send MEANT to root. It is what the
+// sweep needs: a pending reply with no thread cannot be put back where it
+// belonged, so the retry landed in the parent channel instead (BUGS L169 link
+// 2). It is known before the send, so a failure still has it.
+func recordOutboundFailure(gated GatedFns, db StoreFns, jid, text, folder, replyToID, threadRoot string, retryable bool, err error) {
 	status := core.MessageStatusPending
 	if !retryable || errors.Is(err, chanlib.ErrPermanent) {
 		status = core.MessageStatusFailed
 	}
 	slog.Error("outbound send failed: recording undelivered row",
 		"folder", folder, "jid", jid, "status", status, "err", err)
-	putOutboundRow(gated, db, jid, text, "", folder, replyToID, "", status)
+	putOutboundRow(gated, db, jid, text, "", folder, replyToID, threadRoot, status)
 }
 
 // putOutboundRow is the ONE writer of an MCP-originated outbound row. Both
@@ -806,7 +810,7 @@ func internalSend(gated GatedFns, db StoreFns, folder, jid, text string, files [
 		}
 		platformID, err := gated.SendMessage(jid, text)
 		if err != nil {
-			recordOutboundFailure(gated, db, jid, text, folder, "", true, err)
+			recordOutboundFailure(gated, db, jid, text, folder, "", "", true, err)
 			return "", err
 		}
 		recordOutbound(gated, db, jid, text, platformID, folder)
@@ -819,7 +823,7 @@ func internalSend(gated GatedFns, db StoreFns, folder, jid, text string, files [
 	for _, f := range files {
 		platformID, err := gated.SendDocument(jid, f.LocalPath, f.Filename, text, f.ReplyTo, f.ThreadID)
 		if err != nil {
-			recordOutboundFailure(gated, db, jid, text, folder, f.ReplyTo, false, err)
+			recordOutboundFailure(gated, db, jid, text, folder, f.ReplyTo, "", false, err)
 			return "", err
 		}
 		recordOutbound(gated, db, jid, text, platformID, folder)
@@ -1228,7 +1232,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			}
 			platformID, threadRoot, err := gated.SendReply(jid, text, replyToID)
 			if err != nil {
-				recordOutboundFailure(gated, db, jid, text, folder, replyToID, true, err)
+				recordOutboundFailure(gated, db, jid, text, folder, replyToID, threadRoot, true, err)
 				return toolErr(err.Error())
 			}
 			recordOutboundReply(gated, db, jid, text, platformID, folder, threadRoot)

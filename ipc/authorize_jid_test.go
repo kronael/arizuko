@@ -1,6 +1,7 @@
 package ipc
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/kronael/arizuko/auth"
@@ -159,5 +160,33 @@ func TestRecordOutboundReply_TheTurnsTopicWinsOverTheRoot(t *testing.T) {
 
 	if got.Topic != "turn-topic" {
 		t.Fatalf("Topic = %q, want the turn's own topic", got.Topic)
+	}
+}
+
+// The PENDING row is the one the sweep reads, so it needs the thread most. A
+// transient failure on a thread-rooting reply left the row with no thread, so
+// the retry could not put it back and landed in the parent channel instead —
+// on sloth the sweep re-posted a refused in-thread reply top-level, ten times
+// (BUGS L169 link 2). The root is known before the send, so a failure has it.
+func TestRecordOutboundFailure_KeepsTheThreadTheReplyMeantToRoot(t *testing.T) {
+	var got core.Message
+	var gotStatus string
+	db := StoreFns{PutOutbound: func(m core.Message, status string) error {
+		got, gotStatus = m, status
+		return nil
+	}}
+
+	const root = "1545760882322182276"
+	recordOutboundFailure(GatedFns{}, db, "discord:g/channel/C1", "answer", "sloth/desk",
+		"parent-msg", root, true, errors.New("502 bad gateway"))
+
+	if got.Topic != root {
+		t.Fatalf("Topic = %q, want the thread it meant to root (%s) — the sweep cannot put it back without one", got.Topic, root)
+	}
+	if got.ReplyToID != "parent-msg" {
+		t.Errorf("ReplyToID = %q, want the reply target so the sweep re-sends against it", got.ReplyToID)
+	}
+	if gotStatus != core.MessageStatusPending {
+		t.Errorf("status = %q, want pending: a 502 is transient and the sweep owns the retry", gotStatus)
 	}
 }
