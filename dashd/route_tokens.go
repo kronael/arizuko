@@ -10,6 +10,7 @@ import (
 	"sort"
 
 	"github.com/kronael/arizuko/resreg/resources"
+	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -284,4 +285,26 @@ func (d *dash) principalsViaRoutd(ctx context.Context) ([]Principal, error) {
 		return nil, err
 	}
 	return rows, nil
+}
+
+// answeringViaRoutd reads whether agents are answering people from the daemon
+// that owns `messages` and `turn_context` (6/28). It is the whole
+// GET /v1/routing/answering envelope, because the two halves are one question
+// and the page shows them together.
+//
+// It shares routd's apiv1 struct rather than re-declaring a twin, so the page
+// cannot drift into rendering a field the API does not serve.
+func (d *dash) answeringViaRoutd(ctx context.Context) (apiv1.AnsweringResponse, error) {
+	var out apiv1.AnsweringResponse
+	body, status, err := d.bearerCall(ctx, d.routdURL, http.MethodGet, "/v1/routing/answering", nil)
+	if err != nil {
+		return out, err
+	}
+	if status < 200 || status >= 300 {
+		return out, fmt.Errorf("routd /v1/routing/answering: status %d", status)
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return out, err
+	}
+	return out, nil
 }

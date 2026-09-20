@@ -108,3 +108,53 @@ func TestASkillBuildingCaseBakesNoNonce(t *testing.T) {
 		t.Fatal("no skill-building case found; this test checks nothing")
 	}
 }
+
+// The smoke tier must keep at least one case that fails when the agent answers
+// NOTHING, and `rest_reply` is the only check kind that can: it reads the chat
+// back and skips every row the agent did not write, so it cannot pass on the
+// harness's own injected prompt. A `callback` can fire from a skill, a webhook
+// or a child while the turn still ends think-only, which is the failure this
+// tier exists to catch.
+//
+// It is pinned because `anteval --smoke` is the ONLY post-deploy gate that
+// reaches a live agent: gates 1-4 pass on a fleet whose agents answer nothing
+// (BUGS L149). Flipping a case's `kind` or its `smoke` flag would leave the
+// gate green and silent, and the catalog carries exactly one `rest_reply` case
+// today — so the margin is one edit wide.
+//
+// The chat is pinned with it. Validate does not require `check.chat`, and a
+// liveness case naming none fails every poll on a read error until its wall
+// deadline: still red, but red for a configuration reason while reporting the
+// agent. A probe that fails for the wrong reason is not a probe.
+func TestSmokeKeepsALivenessProbe(t *testing.T) {
+	cases, err := Load("../../cases")
+	if err != nil {
+		t.Fatalf("load the shipped cases: %v", err)
+	}
+	smoke, probes := 0, 0
+	for _, c := range cases {
+		if !c.Smoke {
+			continue
+		}
+		smoke++
+		if c.Check.Kind != "rest_reply" {
+			continue
+		}
+		probes++
+		if c.Check.Chat == "" {
+			t.Errorf("case %q is a smoke liveness probe but names no check.chat, so it "+
+				"times out on a read error and reports the agent", c.ID)
+		}
+		if c.Check.Text == "" {
+			t.Errorf("case %q is a smoke liveness probe but asserts no text", c.ID)
+		}
+	}
+	if smoke == 0 {
+		t.Fatal("no smoke case found; this test checks nothing")
+	}
+	if probes == 0 {
+		t.Errorf("no smoke case checks rest_reply: --smoke is the only gate that reaches a "+
+			"live agent, so nothing in it now fails when the fleet answers nothing "+
+			"(%d smoke cases checked)", smoke)
+	}
+}

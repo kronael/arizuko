@@ -210,6 +210,69 @@ type UnroutedChatsResponse struct {
 	Chats []UnroutedChat `json:"chats"`
 }
 
+// TurnOutcomes counts the turns dispatched in the window by the state they
+// reached. `Done` and `Expired` are the terminal pair; a window whose Expired is
+// climbing is a fleet whose turns stop before they answer.
+//
+// `Other` catches a state none of the four names. It exists so the four plus it
+// always sum to the turns in the window: a state added later would otherwise
+// leave this surface under-reporting, which is the failure the surface is for.
+type TurnOutcomes struct {
+	Done         int `json:"done"`
+	Expired      int `json:"expired"`
+	Running      int `json:"running"`
+	PendingRetry int `json:"pending_retry"`
+	Other        int `json:"other"`
+}
+
+// The verdicts a WaitingChat carries: what the loop does with this chat's newest
+// human message TODAY. They are the outcomes of routd's own resolve, so the
+// surface cannot disagree with the loop it describes.
+const (
+	// VerdictRoute — a turn is due and the folder is named. Waiting here is a
+	// fault: someone wrote, the loop would answer, and no reply came.
+	VerdictRoute = "route"
+	// VerdictObserve — an #observe route consumes the message. No turn runs, by
+	// the operator's own configuration.
+	VerdictObserve = "observe"
+	// VerdictHeld — no route, direct address or engagement window claims the
+	// message. A `verb=mention` rule and a plain message land here: the chat is
+	// deaf by configuration, not broken.
+	VerdictHeld = "held"
+)
+
+// WaitingChat is one chat whose newest human message is newer than its newest
+// agent reply — someone wrote and nothing answered.
+//
+// Verdict is what makes the row readable. "Waiting" alone cannot tell a stalled
+// turn from a chat the operator configured not to answer, and reporting the two
+// the same way is what made this question unanswerable without hand-written SQL.
+type WaitingChat struct {
+	ChatJID  string `json:"chat_jid"`
+	Platform string `json:"platform"`
+	ChatName string `json:"chat_name,omitempty"`
+	// Folder is where the answer would come from; empty under VerdictHeld,
+	// which is a chat no folder has claimed.
+	Folder      string `json:"folder,omitempty"`
+	Verdict     string `json:"verdict"`
+	LastHumanAt string `json:"last_human_at"`
+	// LastReplyAt is empty when the agent has never answered this chat at all —
+	// a different fact from an answer that arrived before the question.
+	LastReplyAt string `json:"last_reply_at,omitempty"`
+	LastSender  string `json:"last_sender"`
+	WaitingSec  int    `json:"waiting_seconds"`
+}
+
+// AnsweringResponse is GET /v1/routing/answering: whether agents are answering
+// people over one window. Turns says what the dispatcher did; Waiting says what
+// the people got. Both are needed — a fleet can finish every turn and still
+// answer nobody, and a chat can wait with no turn ever having been due.
+type AnsweringResponse struct {
+	Since   string        `json:"since"`
+	Turns   TurnOutcomes  `json:"turns"`
+	Waiting []WaitingChat `json:"waiting"`
+}
+
 // EngagementResponse is GET /v1/engagement?jid&topic: the engaged folder and
 // deadline (both "" when the window is not live) plus the (jid,topic) thread
 // anchor last_reply_id, which outlives the window and is reported regardless.

@@ -417,6 +417,32 @@ func (s *Store) RunningTurns() ([]TurnContext, error) {
 	return out, nil
 }
 
+// TurnsSince answers every turn dispatched at or after `since`, whatever state
+// it reached. It is the operator's outcome read: the states these rows carry are
+// what says whether turns are finishing or expiring.
+//
+// It narrows on started_at, which is the one ordered attribute here, so the
+// answer is bounded by the window rather than by the partition. The READ is not:
+// a filter is not an index, so the driver still examines the partition — 2,954
+// items on krons — and the header above says why that is the cost of this
+// entity's coordinate. A window is an operator's read, not a hot path.
+func (s *Store) TurnsSince(since time.Time) ([]TurnContext, error) {
+	items, err := s.Obj().Query(context.Background(), objstore.Query{
+		Entity: TurnContexts, Partition: OwnerRoutd,
+		Where: []objstore.Cmp{
+			{Attr: AttrTurnStartedAt, Op: objstore.Ge, Value: core.TS(since)},
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read the turns dispatched since %s: %w", core.TS(since), err)
+	}
+	out := make([]TurnContext, 0, len(items))
+	for _, it := range items {
+		out = append(out, turnFrom(it))
+	}
+	return out, nil
+}
+
 // SweepExpiredRunning moves every turn that has been running longer than the run
 // timeout to `expired`, and answers how many moved.
 //

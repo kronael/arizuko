@@ -128,6 +128,14 @@ Endpoints (`server.go`, `channels.go`):
 - `GET /v1/channels` — adapter list
 - `GET /v1/messages/{inspect,thread,find}` — message reads
 - `GET /v1/routing/{resolve,errored}` — routing info
+- `GET /v1/routing/answering?since=` — whether agents are ANSWERING people over
+  a window (default 7 days): turn outcomes by state, and every chat whose newest
+  human message is newer than its newest agent reply. Each waiting chat carries
+  the loop's own verdict — `route` (a turn was due, so waiting is a fault),
+  `observe` or `held` (the chat answers nothing by the operator's own
+  configuration, e.g. a `verb=mention` rule and a plain message). An aggregate,
+  never message content; a folder-scoped bearer sees its own subtree and no
+  unclaimed chats
 - `GET|POST /v1/engagement` — engagement state (spec 5/G). `GET` with `jid`
   reads one pair (`folder`, `engaged_until`, `last_reply_id`); `GET` with no
   `jid` LISTS the live windows in the caller's subtree, newest deadline first
