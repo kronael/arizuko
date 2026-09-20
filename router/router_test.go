@@ -588,3 +588,40 @@ func TestResolveRouteTarget_ObserveAboveMentionShadowsIt(t *testing.T) {
 		t.Errorf("folder = %q, want main", rt.Folder)
 	}
 }
+
+// A desk agent decided correctly that a conversation was not for it, then said
+// so in the chat: "Not addressed to me — [user] is continuing the geopolitics
+// discussion ... Staying silent." The whole-string guard could not catch it,
+// because the reasoning came first (BUGS L329). The whole block goes: an agent
+// that closes by announcing silence has told us the words before it were
+// deliberation.
+func TestFormatOutboundDropsReasoningThatEndsInARefusal(t *testing.T) {
+	for _, raw := range []string{
+		"Not addressed to me — michal is continuing the geopolitics discussion with susheen, no @mention or tag. Desk norm is reply only when tagged.  ... Staying silent.",
+		"Staying silent.",
+		"<think>Not addressed to me.</think>\nStaying silent.",
+		"They're talking to each other, not me. No reply needed.",
+		"This one is for the other desk. Not addressed to me.",
+		"I'm staying silent",
+	} {
+		if got := FormatOutbound(raw); got != "" {
+			t.Errorf("FormatOutbound(%.40q…) = %q, want empty — the agent said it was not replying", raw, got)
+		}
+	}
+}
+
+// The guard must not eat an answer. "silent" and "acknowledged" end real
+// sentences, which is why the trailing pattern takes only phrases that can
+// mean nothing but a decision about replying.
+func TestFormatOutboundKeepsAnAnswerThatMerelyMentionsSilence(t *testing.T) {
+	for _, raw := range []string{
+		"I checked the alert history: between 02:00 and 06:00 the pager stayed silent.",
+		"Your request is acknowledged by the upstream API, which returns 202.",
+		"The log line is there but the handler is silent",
+		"Nothing to add to the config — it already sets the timeout.",
+	} {
+		if got := FormatOutbound(raw); got != raw {
+			t.Errorf("FormatOutbound(%q) = %q, want it delivered unchanged", raw, got)
+		}
+	}
+}

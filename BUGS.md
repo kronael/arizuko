@@ -13,7 +13,7 @@
 > work items are their own entries. A record has nothing to fix and never will,
 > so counting one as open overstates the queue.
 
-## L329 — an agent that decides to stay silent narrates the decision, and the guard that catches it is whole-string only (2026-09-20, open)
+## L329 — an agent that decides to stay silent narrates the decision, and the guard that catches it is whole-string only (2026-09-20, BOUNDARY FIXED 2026-09-20; the steering redesign is a proposal)
 
 A desk agent woke on a message that did not address it, decided correctly,
 and delivered the decision to the chat:
@@ -55,19 +55,30 @@ reasoning as prose. Repeating the instruction is not the lever.
 - **Source:** `router/router.go:163-173`; `routd/turns.go:244-254`;
   `ant/CLAUDE.md:71-88`; measured 2026-09-20 by running `FormatOutbound` on
   the four shapes above
-- **Status:** open
-- **Fix:** two candidates, and they are not alternatives.
-  1. Boundary (cheap, certain): let the guard match a silent-refusal
-     SENTENCE that ends the block, not only a whole string. The text before
-     it is deliberation by construction — the sentence says the agent chose
-     not to speak. Amend `silentRefusalRe` in place; do not add a second
-     guard.
-  2. Cause (needs sign-off): `ant/CLAUDE.md` is 198 lines / 16.5 KB and its
-     largest section is `Response Style` (2305 B, 14%), which is formatting,
-     not conduct. The silence rule sits in the second largest. Cut the style
-     prose so the conduct sections carry the weight. Whether a literal
-     `<think>` wrapper is the right convention for a model with a native
-     thinking channel is the deeper question behind it.
+- **Status:** the leak is FIXED at the boundary; the steering redesign is a
+  proposal
+- **Fix:** `trailingRefusalRe` (`router/router.go`) drops the WHOLE block when
+  it ends by announcing the decision not to speak — not just the last
+  sentence, because an agent that closes with "staying silent" has said every
+  word before it was deliberation. Its phrase list is a deliberate SUBSET of
+  the whole-string guard's: anchored to the whole string, bare "silent" and
+  "acknowledged" are unambiguous, and at the end of a sentence they are not
+  ("the pager stayed silent." is a real answer). Tests
+  `TestFormatOutboundDropsReasoningThatEndsInARefusal` and
+  `TestFormatOutboundKeepsAnAnswerThatMerelyMentionsSilence`; the second is
+  the one that stops this guard from eating replies.
+
+  The boundary fix does not close the cause, which is the second candidate:
+  `ant/CLAUDE.md` is 198 lines / 16.5 KB and its
+  largest section is `Response Style` (2305 B, 14%), which is formatting, not
+  conduct, and the silence rule sits in the second largest. The operator's own
+  proposal goes further: require an explicit reply tool call, deliver nothing
+  when a turn calls none, and nudge the agent instead — with the bulk of
+  `ant/CLAUDE.md` replaced by situation-triggered skill injection. That is
+  specced separately and needs sign-off. Its blocking unknown is in this
+  entry: the fallback at `routd/turns.go:252` is silent, so nobody knows how
+  often a turn calls no reply tool, and that number decides whether the
+  inversion costs one extra round trip on rare turns or on most of them.
 
 
 ## L327 — an `#observe` route sorting above its answering twin makes a chat deaf to a direct mention (2026-09-20, open — operator data, and a missing check)

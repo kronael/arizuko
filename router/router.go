@@ -162,12 +162,25 @@ var statusRe = regexp.MustCompile(`(?s)<status>(.*?)</status>`)
 // Whole-string match only; substrings stay.
 var silentRefusalRe = regexp.MustCompile(`(?is)^\s*\(?\[?\s*(no response(?: requested| needed)?|no reply(?: needed)?|nothing to (?:add|say)|staying silent|remaining silent|silent|acknowledged)\s*\.?\s*\]?\)?\s*$`)
 
+// trailingRefusalRe matches a block that ENDS by announcing the decision not
+// to speak, after saying why. The whole block goes, not the last sentence: an
+// agent that closes with "staying silent" has told us every word before it was
+// deliberation, and delivering the reasoning alone is the leak this catches. A
+// desk agent shipped exactly that — "Not addressed to me — [user] is
+// continuing the geopolitics discussion ... Staying silent." (BUGS L329).
+//
+// The phrases here are a SUBSET of the ones above, and deliberately. Anchored
+// to the whole string, bare "silent" and "acknowledged" are unambiguous; at the
+// end of a sentence they are not, and "the alert stayed silent." is a real
+// answer. Only phrases that can only be a decision about replying belong here.
+var trailingRefusalRe = regexp.MustCompile(`(?is)(?:^|[.!?\n])\s*\(?\[?\s*(?:i(?:'m| am) (?:staying|remaining) silent|staying silent|remaining silent|no reply needed|no response (?:needed|requested)|nothing to (?:add|say) here|not addressed to me)\s*[.!]?\s*\]?\)?\s*$`)
+
 func FormatOutbound(raw string) string {
 	s := internalRe.ReplaceAllString(raw, "")
 	s = StripThinkBlocks(s)
 	s = statusRe.ReplaceAllString(s, "")
 	s = strings.TrimSpace(s)
-	if silentRefusalRe.MatchString(s) {
+	if silentRefusalRe.MatchString(s) || trailingRefusalRe.MatchString(s) {
 		return ""
 	}
 	return s
