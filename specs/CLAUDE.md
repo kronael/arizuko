@@ -79,3 +79,34 @@ dashboard → migration/version bump → verify (green + `/pub` 200).
 
 If a step reveals the design is wrong, fix the spec first, then the code —
 never leave code that adds an unspecced structure.
+
+## Citing a spec
+
+**Cite by FILENAME wherever a link is possible** — `specs/5/16-mcp-rest-unification.md`,
+or `5/16-mcp-rest-unification` in prose. The bare `N/M` form is reserved for a
+sentence that also describes the spec it names, so a reader can tell from the
+sentence alone whether the pointer still fits.
+
+The filename form is **self-checking** and the bare number is not. A filename
+stops resolving the moment the file moves, and `tests/specrefs` says so. A bare
+`5/5` keeps resolving after a renumber and silently names a different spec —
+`5/5` was `uniform-mcp-rest` and is `worlds-agents-sessions` today. Neither
+`tests/specrefs` nor `tests/webdocs` can flag that, by construction: both ask
+whether the number resolves, never whether it names the same document
+(BUGS `L237`).
+
+This is not hypothetical arithmetic. **MEASURED 2026-09-20: 56 spec numbers are
+live today and named a different file before** — among them `5/5`, `5/9`,
+`5/33`, `5/34`, `6/1`, `6/41`, `6/42` and every number in phases 16 and 17.
+
+Two corollaries, both of which have cost real work:
+
+- **A retired number stays burnt.** Never reuse one for new content; a citation
+  written against the old meaning cannot be distinguished from one written
+  against the new.
+- **Never rewrite a spec ID globally.** A number is only safe to replace where
+  it had ONE meaning across the whole corpus, and in phases 6 and 7 it never
+  did. Rewrite by reading each site's claim and choosing the spec whose CURRENT
+  text supports it. A sweep on 2026-09-20 found the destination lay outside the
+  retirement commit's own account of where the content went, for two of three
+  families — the claim moves with the code, not with the paperwork.

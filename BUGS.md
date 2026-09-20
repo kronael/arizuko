@@ -14983,7 +14983,7 @@ in the split, and grant seeding moved into `store/seed.go`.
   of these was already wrong.
 - **Measured after:** all 62 repo links on the site resolve to a file that
   exists.
-## L237 — a spec renumber that lands on a live number cannot be caught by any check (2026-09-06, open)
+## ✅ FIXED 2026-09-20 L237 — a spec renumber that lands on a live number cannot be caught by any check (2026-09-06, open)
 
 OBSERVED while fixing `L220`. `legacy/reference/mcp.html` said "Spec 5/5
 (uniform MCP/REST registry)". `5/5` today is `worlds-agents-sessions`. The
@@ -14999,6 +14999,27 @@ resolve the moment the file is gone, while a bare `5/5` silently retargets.
 - **Fix:** a house rule that a spec is cited by filename wherever a link is
   possible, and the bare `N/M` form is reserved for prose that names a spec the
   sentence also describes. Then the existing guards cover the rest.
+
+- **Status:** fixed 2026-09-20 — the house rule is written.
+- **Fix:** `specs/CLAUDE.md` §"Citing a spec". Cite by FILENAME wherever a link
+  is possible; the bare `N/M` form is reserved for a sentence that also
+  describes the spec it names, so a reader can judge the pointer from the
+  sentence alone. No citation convention existed there before.
+- **The class is bigger than the one instance, and that is now written down.**
+  RE-MEASURED 2026-09-20: **56 spec numbers are live today and named a
+  different file before**, among them `5/5`, `5/9`, `5/33`, `5/34`, `6/1`,
+  `6/41`, `6/42` and every number in phases 16 and 17. Neither guard can see
+  it: `tests/specrefs` resolved 909 backtick IDs today and `tests/webdocs` 51
+  prose IDs, and both ask only whether the number resolves.
+- **The instance itself is gone** — `legacy/reference/mcp.html` was repointed at
+  `5/16` in `ba3c4104` and the whole legacy tree deleted in `15c5d1ec`. The
+  `specs/11/index.md` warning that ~12 code sites cite `5/34` meaning cost caps
+  is ALSO stale: all eleven live `5/34` sites match `5/34`'s current content,
+  and acting on that warning would have broken eleven correct citations.
+- **Two corollaries went in with the rule**, both paid for today: a retired
+  number stays burnt, and a spec ID is never rewritten globally — the `6/7`
+  sweep found two of three destinations lay outside the retirement commit's own
+  account of where the content went.
 
 ## ✅ FIXED 2026-09-18 L238 — 94 test sites discarded `OpenMem`'s error (2026-09-06)
 
