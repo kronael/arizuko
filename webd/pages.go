@@ -57,7 +57,13 @@ func (s *server) handleChatPage(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html")
 	folderURL := url.PathEscape(folder)
-	folderQ := url.QueryEscape(folder)
+	// The opening topic is minted HERE, not in the script, so the stream URL in
+	// the markup and the `_topic` the send body carries are one value. An empty
+	// topic is not "the main thread": handleMeSend mints a fresh `t<ms>` for
+	// every empty-topic send and the history read filters on empty, so the
+	// default view listed nothing and each send opened a new topic (BUGS L116).
+	topic0 := newTopicID()
+	topicURL := url.PathEscape(topic0)
 	fmt.Fprint(w, htmlHead)
 	fmt.Fprintf(w, `<body>
 <header>
@@ -80,7 +86,7 @@ func (s *server) handleChatPage(w http.ResponseWriter, r *http.Request) {
        hx-include="#topic-select"
        hx-vals="js:{topic: currentTopic()}"
        hx-ext="sse"
-       sse-connect="/chat/stream?group=%s&topic="
+       sse-connect="/me/chats/%s/%s/sse"
        sse-swap:message="beforeend">
   </div>
 </main>
@@ -94,18 +100,25 @@ func (s *server) handleChatPage(w http.ResponseWriter, r *http.Request) {
   </form>
 </footer>
 <script>
-var _topic = '';
+var _topic = %q;
 var folder = %q;
+var folderPath = %q;
 function currentTopic() { return _topic; }
-function switchTopic(t) {
+function streamTopic(t) {
   _topic = t;
-  htmx.ajax('GET', '/x/groups/' + encodeURIComponent(folder) + '/messages?topic=' + encodeURIComponent(t), {target:'#thread', swap:'innerHTML'});
   var sse = document.getElementById('thread');
-  sse.setAttribute('sse-connect', '/chat/stream?group=' + encodeURIComponent(folder) + '&topic=' + encodeURIComponent(t));
+  sse.setAttribute('sse-connect', '/me/chats/' + folderPath + '/' + encodeURIComponent(t) + '/sse');
   htmx.process(sse);
 }
+function switchTopic(t) {
+  streamTopic(t);
+  htmx.ajax('GET', '/x/groups/' + encodeURIComponent(folder) + '/messages?topic=' + encodeURIComponent(t), {target:'#thread', swap:'innerHTML'});
+}
 function newTopic() {
-  _topic = 't' + Date.now();
+  // The stream has to move too. Clearing the thread and leaving sse-connect on
+  // the old topic showed an empty pane that then filled with the PREVIOUS
+  // topic's messages.
+  streamTopic('t' + Date.now());
   document.getElementById('thread').innerHTML = '';
 }
 async function sendMsg(e) {
@@ -122,5 +135,6 @@ async function sendMsg(e) {
 }
 </script>
 </body></html>`,
-		htmlEscape(groupfolder.NameOf(g.Folder)), folderURL, folderURL, folderQ, folder)
+		htmlEscape(groupfolder.NameOf(g.Folder)), folderURL, folderURL,
+		folderURL, topicURL, topic0, folder, folderURL)
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -256,5 +257,45 @@ func TestXMessages_InvalidBefore(t *testing.T) {
 	s.handleXMessages(w, req)
 	if w.Code != 200 {
 		t.Fatalf("status = %d", w.Code)
+	}
+}
+
+// The panel's live stream pointed at `/chat/stream?group=…&topic=`, which
+// refuses the page twice over: it wants a route token the panel does not carry,
+// and it 400s on an empty topic. The empty topic was the second half — it is not
+// "the main thread", because a send with no topic mints a fresh `t<ms>` and the
+// history read filters on empty, so the default view listed nothing and every
+// send opened a new topic (BUGS L116).
+func TestChatPageStreamsFromAnAuthenticatedTopicURL(t *testing.T) {
+	s, _, st := newTestServer(t)
+	seedGroup(t, st, "main", "MyGroup")
+	srv := httptest.NewServer(s.handler())
+	defer srv.Close()
+
+	groups, _ := json.Marshal([]string{"main"})
+	req, _ := http.NewRequest("GET", srv.URL+"/panel/main", nil)
+	for k, v := range signUserHeaders(map[string]string{
+		"X-User-Sub": "user:alice", "X-User-Name": "Alice", "X-User-Groups": string(groups),
+	}) {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	page := string(body)
+
+	if strings.Contains(page, "/chat/stream") {
+		t.Error("the page still streams from /chat/stream, which needs a route token it has no way to hold")
+	}
+	if !strings.Contains(page, `sse-connect="/me/chats/main/t`) {
+		t.Errorf("no /me/chats/<folder>/<topic>/sse stream URL in the page")
+	}
+	// The topic the markup streams and the topic the send body carries are one
+	// value, minted server-side. An empty one here is the bug.
+	if strings.Contains(page, "var _topic = \"\";") || strings.Contains(page, "var _topic = '';") {
+		t.Error("the script opens with an empty topic, so the first send opens a topic the stream is not on")
 	}
 }
