@@ -7,6 +7,56 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L326 — the smoke liveness probe measures the queue, not liveness (2026-09-20, open)
+
+`rest-roundtrip` (`anteval/cases/anteval.toml:228-236`) is the ONLY `rest_reply` case
+in the catalog and therefore the whole of what `anteval --smoke` — gate 5, the one gate
+that reaches a live agent — knows about whether anyone answers. It carries
+`max_wall_ms = 90000`.
+
+That cap is a measured false-fail source, not a hypothetical one.
+`.claude/skills/eval/gates.md:56-60`: the same build scored "5/9 during the storm and
+8/9 after it drained, and every one of the three failures was the agent answering
+correctly but past the harness's wall — `rest-roundtrip` replied 5 minutes after a 94s
+cap." The runbook's fix is a human instruction to drain first, which makes the gate's
+verdict depend on an operator remembering a precondition.
+
+A liveness probe that reports the agent when the queue is deep is the same class of
+lie this queue's L149 entry names from the other side: a gate that is green when it
+should be red, now also red when it should be green.
+
+- **Severity:** medium — gate 5 is the release gate, and a false red trains an operator to re-run it rather than read it
+- **Scope:** `anteval/cases/anteval.toml`; `anteval/pkg/run/run.go` budget handling
+- **Affected:** every tagged release
+- **Source:** measured 2026-09-20 at `bfcd70f9`; the 5/9-vs-8/9 run is `gates.md`'s own 2026-09-19 measurement
+- **Status:** open — raising the cap trades run time for signal and the honest fix is
+  probably to make the settle barrier wait on queue depth rather than a wall, which is a
+  harness contract change and needs sign-off. `TestSmokeKeepsALivenessProbe`
+  (`anteval/pkg/spec/catalog_test.go`) now pins that the probe keeps EXISTING; it says
+  nothing about whether its budget is honest.
+
+## L325 — the status page drops a routd read failure to a log line (2026-09-20, open)
+
+`dashd/main.go` `handleStatus` reads the per-folder session tally through
+`sessionCountsViaRoutd` and, on error, calls `slog.Warn` and renders nothing else. The
+operator sees a Status page with no session table and no statement that one is missing.
+
+Spec `6/29` is explicit that this is the failure mode to avoid: "Every page renders an
+unreachable owner as an ERROR, never as empty data: 'no routes', 'no tokens', 'no
+permissions', 'costs nothing' and 'no such task' are all false statements an operator
+acts on." An absent session table reads as "no sessions".
+
+Noticed while adding the Answering section beside it, which renders the same failure as
+a banner (`dashd/answering_section.go`). The two now disagree about what a dead routd
+looks like on one page.
+
+- **Severity:** low — read-only page, and the neighbouring banner makes a dead routd visible anyway
+- **Scope:** `dashd/main.go` `handleStatus`
+- **Affected:** every instance
+- **Source:** read 2026-09-20 at `bfcd70f9`
+- **Status:** open — one banner, same shape as the section beside it; left unfixed
+  because it is not the concern this change touches.
+
 ## L324 — two operator-surface checks that never run, split out of L98 (2026-09-20, open)
 
 `L98`'s headline claim is false — both faces have end-to-end tests — but two things it
