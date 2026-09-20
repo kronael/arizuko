@@ -555,9 +555,8 @@ func (s *Store) MessagesByThread(jid, topic string, before time.Time,
 	return messagesFrom(items), nil
 }
 
-// webChatJID is the chat a folder's web panel writes into. groupfolder.JidFolder
-// is the read half of the same grammar.
-func webChatJID(folder string) string { return "web:" + folder }
+// webChatJID is the chat a folder's web panel writes into.
+func webChatJID(folder string) string { return groupfolder.WebJID(folder) }
 
 // MessagesByTopic is MessagesByThread on a folder's web chat.
 func (s *Store) MessagesByTopic(folder, topic string, before time.Time,

@@ -14,6 +14,7 @@ import (
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
 )
 
 // chatPin fixes the ONE chat an anonymous route-token principal addresses.
@@ -94,7 +95,7 @@ func (s *server) buildWebMCP(sub, name string, grants []string, pin *chatPin) *m
 		if pin != nil {
 			return pin.jid
 		}
-		return "web:" + folder
+		return groupfolder.WebJID(folder)
 	}
 	linkContext := ""
 	if pin != nil {

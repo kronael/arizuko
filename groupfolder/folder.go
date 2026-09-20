@@ -104,6 +104,16 @@ func (r *Resolver) IpcPath(folder string) (string, error) {
 	return resolve(r.IpcDir, folder)
 }
 
+// WebJID is the chat JID a folder's web surface writes into, and the write half
+// of the grammar JidFolder reads. `WebJID(f)` and `JidFolder` are inverses for
+// every folder, which is the property the test beside them pins.
+//
+// It exists because seven call sites spelled `"web:" + folder` themselves
+// across four packages (BUGS L148). Two spellings of one grammar is how the two
+// drift, and this grammar has drifted before: a `"web:"+folder` rebuild on the
+// read side sent a suffixed chat's frames to a key nobody held (BUGS L30).
+func WebJID(folder string) string { return "web:" + folder }
+
 // JidFolder extracts the owner folder from a route-token / web-chat JID by
 // prefix grammar alone. web:<folder>[/<suffix>] → the whole rest (the folder
 // may itself contain "/", e.g. acme/eng). hook:<folder>/<source>[/...] →

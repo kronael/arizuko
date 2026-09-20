@@ -313,7 +313,7 @@ func (s *server) handleMeSend(w http.ResponseWriter, r *http.Request) {
 	if name == "" {
 		name = sub
 	}
-	jid := "web:" + folder
+	jid := groupfolder.WebJID(folder)
 
 	m, _, err := s.injectRouteMessage(jid, folder, content, topic, sub, name, "", "")
 	if err != nil {
@@ -342,7 +342,7 @@ func (s *server) handleMeSSE(w http.ResponseWriter, r *http.Request) {
 	}
 	// Panel chats live on the "web:"+folder JID (handleMeSend mints exactly
 	// that); the hub key is the chat JID verbatim.
-	ch, unsub := s.hub.subscribe("web:"+folder, topic)
+	ch, unsub := s.hub.subscribe(groupfolder.WebJID(folder), topic)
 	defer unsub()
 	serveSSE(w, r, ch)
 }

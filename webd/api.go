@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/groupfolder"
 )
 
 // GET /api/groups
@@ -93,7 +94,7 @@ func (s *server) handleAPIMessagesPost(w http.ResponseWriter, r *http.Request) {
 	if topic == "" {
 		topic = fmt.Sprintf("t%d", time.Now().UnixMilli())
 	}
-	jid := "web:" + folder
+	jid := groupfolder.WebJID(folder)
 	sender := userSub(r)
 	senderName := userName(r)
 	if sender == "" {

@@ -3733,7 +3733,7 @@ pair). The tool result must name who owns the retry: either the error reads
 send the agent was told failed is not retried by the sweep (one owner). Today it
 is both, and the agent cannot tell.
 
-## L148 — 22 ad-hoc JID⇄folder conversions in 16 files; collapse them to three named seams so `"web:"` appears twice in the tree (2026-08-30, open — minimal, no schema change)
+## L148 — 22 ad-hoc JID⇄folder conversions in 16 files; collapse them to three named seams so `"web:"` appears twice in the tree (2026-08-30, open — minimal, no schema change; PARTLY FIXED 2026-09-20)
 
 The operator's requirement: *"remove special treatment of JIDs — that should all
 only be specced in routing, or not there at all."* This is the minimal way to
@@ -3792,6 +3792,31 @@ as the unsuffixed-web case only.
 - **Fix:** add `groupfolder.WebJID`, route all 22 sites through the three seams,
   add a test that fails if `"web:"` appears as a literal outside `groupfolder/`
 - **Related:** `L147` (the principle), `L146` (deferred), `identity_derived_not_read`
+
+- **RE-MEASURED 2026-09-20. The entry undercounts, and the seam it asks for did
+  not exist.** 40 `"web:`/`"hook:` literal lines in non-test Go across 22 files;
+  **24 are genuine conversions in 15 files** — 12 constructions and 12 parses.
+  Of the three seams the entry names, `RouteToken.Folder()`
+  (`store/route_tokens.go:78`) and `groupfolder.JidFolder`
+  (`groupfolder/folder.go`) existed; **`groupfolder.WebJID` did not**, so the
+  write half had no renderer at all and seven call sites spelled it themselves
+  across four packages.
+- **The write seam ships 2026-09-20.** `groupfolder.WebJID(folder)` sits beside
+  `JidFolder`, which is its inverse — one package owns both directions of one
+  grammar. `store/messages.go`'s private `webChatJID` now delegates to it rather
+  than being a second private spelling.
+
+  Adopted: `store/messages.go`, `webd/api.go`, `webd/me.go` (both sites),
+  `webd/mcp.go`. **Two hand-spellings remain** — `cmd/arizuko/token.go:78,80`,
+  `cmd/arizuko/send.go:164` and `routd/route_tokens_resource.go:258` — left
+  because other work holds those files today, not because they should stay.
+
+  PROVEN BY MUTATION: change the scheme, or make `WebJID` strip a nested folder,
+  and the inverse test fails. The inverse is asserted over four folder shapes
+  including `acme/eng/sre/oncall` and the suffixed `main/widget`, because this
+  grammar has drifted before — a `"web:"+folder` rebuild on the read side sent a
+  suffixed chat's frames to a hub key nobody held (`L30`).
+- **The 12 parses are a separate pass** and mostly already have a seam to adopt.
 
 ## L147 — principle: the channel attests, the router resolves, the ACL authorizes — and `web:` JIDs exist only to satisfy a storage column (2026-08-30, principle — records a design fault, no work item)
 

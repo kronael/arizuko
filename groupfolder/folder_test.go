@@ -177,3 +177,30 @@ func TestContains(t *testing.T) {
 		}
 	}
 }
+
+// WebJID and JidFolder are the write and read halves of ONE grammar, so they
+// must be inverses. Seven call sites spelled `"web:" + folder` themselves
+// across four packages, and this grammar has drifted before: a `"web:"+folder`
+// rebuild on the read side sent a suffixed chat's frames to a hub key nobody
+// held (BUGS L30, L148).
+func TestWebJIDAndJidFolderAreInverses(t *testing.T) {
+	for _, folder := range []string{
+		"main",
+		"acme/eng",
+		"acme/eng/sre/oncall",
+		"main/widget",
+	} {
+		jid := WebJID(folder)
+		if got := JidFolder(jid); got != folder {
+			t.Errorf("JidFolder(WebJID(%q)) = %q, want %q", folder, got, folder)
+		}
+	}
+}
+
+// The prefix is the grammar, so it is asserted literally: a reader outside this
+// package matches on it, and changing it silently would break every stored JID.
+func TestWebJIDCarriesTheWebScheme(t *testing.T) {
+	if got := WebJID("acme/eng"); got != "web:acme/eng" {
+		t.Fatalf("WebJID = %q, want web:acme/eng", got)
+	}
+}
