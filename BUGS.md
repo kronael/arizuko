@@ -3795,7 +3795,7 @@ sharing hazard that does not exist today.
 - **Status:** proposal (needs sign-off) — nothing changed
 - **Fix:** add a folder-addressed token surface whose grant set may be a glob; keep the one-element pinned form as the default a shared link gets
 
-## L144 — `6/30`'s crackbox section prescribes reviving the shared-daemon shape `6/24` retired; two shipped specs contradict each other (2026-08-30, open)
+## ✅ FIXED 2026-09-05 L144 — `6/30`'s crackbox section prescribes reviving the shared-daemon shape `6/24` retired; two shipped specs contradict each other (2026-08-30)
 
 `6/30`'s table row for crackbox is honest — `Built? no`, citing `6/24` as the
 reason. But its "Required `/v1` work" column and its "crackbox — orthogonality
@@ -3819,9 +3819,12 @@ would rebuild the leak `6/24` removed.
 - **Severity:** low (nothing built; the risk is a future reader acting on it)
 - **Scope:** specs
 - **Affected:** `specs/6/30`, `specs/6/24`
-- **Status:** open
-- **Fix:** delete `6/30`'s crackbox required-work column and prose, or restate it
-  as "per-spawn proxy, no dashboard — see `6/24`"
+- **Status:** fixed 2026-09-05 by `942474b7`, "docs(specs): specs state what is,
+  not what was declined or never built". Closed on re-check 2026-09-20.
+- **Fix:** the crackbox section is gone from `6/30`. VERIFIED: `grep -i crackbox
+  specs/6/30-per-daemon-dashboards.md` returns nothing, and `3129`,
+  `InjectAuthorization` and `CRACKBOX_ADMIN_SECRET` appear in no spec at all.
+  `6/24` stands alone as the governing text.
 
 ## ✅ FIXED 2026-09-20 L143 — `6/30`'s runed section describes a build state two releases stale, and its acceptance criterion cites an endpoint that was never mounted (2026-08-30)
 
