@@ -524,6 +524,7 @@ applies a default auth-gate.
 | `/chat/`, `/hook/`                                      | route-token surfaces — no auth required                                                              |
 | `/pair/`                                                | identity pairing — JWT-gated; an anonymous visitor bounces through OAuth and returns to the same URL |
 | `/pub/`                                                 | Vite public assets — no auth required; serves `<data>/web/pub/`                                      |
+| `/assets/`                                              | webd's baked-in browser SDK — no auth required; the path `/chat/<token>/config` advertises           |
 | `/priv/`                                                | JWT-gated; serves `<data>/web/priv/` (v0.45.11+, separate tree)                                      |
 | `/panel/`, `/api/`, `/x/`, `/static/`, `/auth/`, `/mcp` | auth-gated, forwarded upstream                                                                       |
 

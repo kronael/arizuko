@@ -520,7 +520,12 @@ var coreProxydRoutes = []ProxydRoute{
 	{Path: "/x/", Backend: "http://webd:8080", Auth: "user"},
 	{Path: "/static/", Backend: "http://webd:8080", Auth: "user"},
 	{Path: "/mcp", Backend: "http://webd:8080", Auth: "user"},
-	// Legacy /slink/* → handled by webd as 301 → /chat/. Public.
+	// /assets/ — the browser SDK webd bakes into its binary and advertises as
+	// `"sdk": "/assets/arizuko-client.js"`. Public because a widget on a
+	// third-party page loads it with no session; without the row the script tag
+	// 404s unless a world's /pub/ slot happens to hold a copy (BUGS L322).
+	{Path: "/assets/", Backend: "http://webd:8080", Auth: "public"},
+	// /slink/* — webd answers 308 → /chat/<token>/. Public.
 	{Path: "/slink/", Backend: "http://webd:8080", Auth: "public"},
 	{Path: "/dav/", Backend: "http://davd:8080", Auth: "user", StripPrefix: true, GatedBy: "WEBDAV_ENABLED"},
 	{Path: "/onboard", Backend: "http://onbod:8080", Auth: "public", GatedBy: "ONBOARDING_ENABLED"},

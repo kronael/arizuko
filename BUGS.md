@@ -7,6 +7,40 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## ✅ FIXED 2026-09-20 L322 — webd advertises a browser SDK at `/assets/`, and no proxyd route carries that prefix (2026-09-20)
+
+Split out of `L117`, where it was recorded as the adjacent finding.
+
+`handleChatTokenConfig` returns `"sdk": "/assets/arizuko-client.js"`
+(`webd/route_token.go:109`) and webd mounts `GET /assets/{path...}`
+(`webd/server.go:79`). `coreProxydRoutes` has no `/assets/` row, and neither do
+the three live `proxyd_routes` tables, so the request never leaves proxyd. On
+krons it survives by falling through to `vhostRedirect` →
+`/pub/krons/assets/arizuko-client.js`, which happens to hold a matching copy —
+an accident of one world's pub slot, not a route.
+
+The two facts live in two packages, which is why the advertisement outlived the
+route: webd says where the SDK is, and compose decides whether that path reaches
+webd.
+
+- **Severity:** medium — the documented cross-origin widget cannot load its own SDK except on the one instance whose pub slot happens to hold a copy
+- **Scope:** `compose/compose.go` (`coreProxydRoutes`)
+- **Affected:** every instance
+- **Status:** fixed 2026-09-20.
+- **Fix:** one row, `{Path: "/assets/", Backend: "http://webd:8080", Auth: "public"}`.
+  Public because a widget on a third-party page carries no session.
+  `ReservedRoutePaths` derives from the same table, so the prefix is reserved
+  against a package claim with no second list to keep.
+
+  The binding is now a test rather than a convention:
+  `TestAdvertisedSDKPathHasAProxydRoute` reads the `sdk` path out of webd's own
+  `/config` response and requires a core route to cover it. PROVEN BY MUTATION:
+  with the row removed the test reports the advertised path is unreachable.
+
+  Docs: `ARCHITECTURE.md` path model and the `ROUTING.md` fixed-prefix table
+  both carry `/assets/`.
+- **Reaches a running instance only through `arizuko generate`** — `proxyd_routes` is store-backed, so the row lands on a live fleet at the next apply, not at the next image (`L45` is this class).
+
 ## ✅ FIXED 2026-09-20 L321 — webd's mock router announces a message before it persists it, so `?wait=` misses the reply about one run in ten (2026-09-20)
 
 MEASURED. `go test ./... -count=1 -short` on 2026-09-20 returned 72 `ok` and one

@@ -151,6 +151,8 @@ by topic and dispatches one run per topic (first-seen order).
 fallthrough in `ROUTING.md` "HTTP Routing (proxyd)"):
 
 - `/pub/*`, `/health`, `/invite/*`, `/p/*` — public
+- `/assets/*` — public; webd serves the browser SDK it advertises in
+  `/chat/<token>/config`
 - `/slink/*` — 308-redirects to `/chat/<token>/`; header is `X-Chat-Token`
 - `/chat/<token>/` (GET widget + POST) and `/hook/<token>` (POST only)
   — one `route_tokens` row each
@@ -207,7 +209,7 @@ compose.coreProxydRoutes (dashd/webd/davd/onbod) ──┘             │
 
 Hand-wired in `proxyd/main.go` outside this table: `/auth/*`, `/health`,
 `/pub/*` (with optional `PUB_REDIRECT_URL`), `/slink/*` (forwarded as an
-ordinary route — the 301→`/chat/<token>/` redirect is issued by webd,
+ordinary route — the 308→`/chat/<token>/` redirect is issued by webd,
 `handleSlinkRedirect`), `/chat/*` and `/hook/*` (route-token bearer),
 `/dav/*` (`davAllow` + group-scope). All other routes flow
 through the manifest declaration → `proxyd_routes` rows → dispatcher path.
