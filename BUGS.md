@@ -14070,7 +14070,7 @@ additions, moving the four `NewInstance` callers to `NewRoutdInstance`.
   files and `seedOwnerDBs`". There is no second declaration of routd's schema
   because there is no migration chain at all — an entity is declared once, in
   `store/entities.go`.
-## L194 — `routd/cmd/routd/main.go` re-declares five defaults `core.LoadConfig` also declares, and one pair already differs (2026-09-05, open — proposal, needs sign-off)
+## ✅ FIXED 2026-09-20 L194 — `routd/cmd/routd/main.go` re-declares five defaults `core.LoadConfig` also declares, and one pair already differs (2026-09-05, open — proposal, needs sign-off)
 
 routd builds its `LoopConfig` from `os.Getenv` directly and never calls
 `core.LoadConfig`. After the dead-field cut (`core.Config` lost 19 fields no
@@ -14097,6 +14097,27 @@ constants in `core` that both `LoadConfig` and routd's `main` read.
 - **Source:** `routd/cmd/routd/main.go` NewLoop call; `core/config.go` LoadConfig
 - **Status:** open — proposal, needs sign-off
 - **Fix:** constants in `core` (~15 lines) or `core.LoadConfig` in routd's main
+
+- **Status:** fixed 2026-09-20, by the second of the two options this entry
+  offers — the one that needs no sign-off, because it changes no control flow.
+- **Fix:** the defaults are named once in `core` and both readers spell them
+  from there. `DefaultAssistantName`, `DefaultWhisperModel` and
+  `DefaultMediaMaxBytes` sit beside the `DefaultAPIPort` that already set the
+  precedent in the same file, and `routd/cmd/routd/main.go` reads all three.
+- **The pair that had already DRIFTED is now a function, not a constant**, and
+  that is the important half. `core.AppSrcDir()` resolves `APP_SRC_DIR`, then
+  `HOST_APP_DIR`, then the running binary's directory — one chain, one reader.
+  routd's own copy stopped at `HOST_APP_DIR` and fell to `""`, so a bare `routd`
+  outside compose resolved an empty app dir while every other reader resolved
+  the binary's. Compose always sets `HOST_APP_DIR`, which is exactly why it
+  stayed latent.
+- **PROVEN BY MUTATION:** restore routd's shorter chain — fall to `""` instead
+  of `execDir()` — and `TestAppSrcDirFallsThroughToTheBinaryDir` fails with "a
+  bare daemon then resolves no app dir at all". The test walks all three rungs,
+  so a fix that hardcoded any one of them would fail too.
+- **The first option stays unshipped and is no longer needed:** routd calling
+  `core.LoadConfig` is a control-flow change in `main`, and naming the defaults
+  removes the reason to make it.
 
 ## ✅ FIXED 2026-09-20 L196 — routd's operator dashboard renders to anyone who sets `X-User-Groups`, on a host-published port (2026-09-05, open — needs sign-off)
 

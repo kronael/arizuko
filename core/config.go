@@ -26,6 +26,30 @@ const DefaultImage = "arizuko-ant:latest"
 // for API_PORT in config, compose generation, and seeded .env files.
 const DefaultAPIPort = 8080
 
+// The defaults routd's main reads as well as LoadConfig. TWO READERS OF ONE ENV
+// VAR ARE FINE; two declarations of its DEFAULT are not — they drift silently
+// and the drift only shows on the instance that hits the fallback. routd builds
+// its LoopConfig from the environment directly rather than through LoadConfig,
+// so these are what stop the two from disagreeing (BUGS L194, the shape F71
+// already paid for).
+const (
+	DefaultAssistantName = "Andy"
+	DefaultWhisperModel  = "turbo"
+	DefaultMediaMaxBytes = 20 * 1024 * 1024
+)
+
+// AppSrcDir resolves where the release's own tree lives, for every reader.
+//
+// IT IS A FUNCTION BECAUSE THE FALLBACK CHAIN IS THE PART THAT DRIFTED: this
+// resolves APP_SRC_DIR, then HOST_APP_DIR, then the running binary's directory.
+// routd's own copy stopped at HOST_APP_DIR and fell to "", so a bare `routd`
+// outside compose resolved an empty app dir while every other reader resolved
+// the binary's. Compose always sets HOST_APP_DIR, which is exactly why the
+// difference stayed latent (BUGS L194).
+func AppSrcDir() string {
+	return EnvOr("APP_SRC_DIR", EnvOr("HOST_APP_DIR", execDir()))
+}
+
 type Config struct {
 	Name          string
 	TelegramToken string
@@ -189,8 +213,8 @@ func LoadConfig() (*Config, error) {
 	root := EnvOr("DATA_DIR", mustCwd())
 	hostRoot := EnvOr("HOST_DATA_DIR", root)
 	appDir := EnvOr("HOST_APP_DIR", execDir())
-	appSrcDir := EnvOr("APP_SRC_DIR", appDir)
-	name := EnvOr("ASSISTANT_NAME", "Andy")
+	appSrcDir := AppSrcDir()
+	name := EnvOr("ASSISTANT_NAME", DefaultAssistantName)
 
 	c := &Config{
 		Name:                name,
@@ -233,10 +257,10 @@ func LoadConfig() (*Config, error) {
 		APIPort: EnvInt("API_PORT", DefaultAPIPort),
 
 		MediaEnabled:  EnvOr("MEDIA_ENABLED", "false") == "true",
-		MediaMaxBytes: int64(EnvInt("MEDIA_MAX_FILE_BYTES", 20*1024*1024)),
+		MediaMaxBytes: int64(EnvInt("MEDIA_MAX_FILE_BYTES", DefaultMediaMaxBytes)),
 		VoiceEnabled:  EnvOr("VOICE_TRANSCRIPTION_ENABLED", "false") == "true",
 		VideoEnabled:  EnvOr("VIDEO_TRANSCRIPTION_ENABLED", "false") == "true",
-		WhisperModel:  EnvOr("WHISPER_MODEL", "turbo"),
+		WhisperModel:  EnvOr("WHISPER_MODEL", DefaultWhisperModel),
 
 		EgressNetworkPrefix: EnvOr("EGRESS_NETWORK_PREFIX", ""),
 		EgressImage:         EnvOr("EGRESS_IMAGE", ""),

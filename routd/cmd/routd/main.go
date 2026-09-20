@@ -181,9 +181,9 @@ func main() {
 		GroupsDir: filepath.Join(dataDir, "groups"),
 		// Auto-migrate source root (ant/skills/self/MIGRATION_VERSION lives
 		// under it); APP_SRC_DIR falls back to HOST_APP_DIR (core.LoadConfig).
-		AppSrcDir: core.EnvOr("APP_SRC_DIR", os.Getenv("HOST_APP_DIR")),
+		AppSrcDir: core.AppSrcDir(),
 		// Prompt envelope (buildAgentPrompt).
-		InstanceName:          core.EnvOr("ASSISTANT_NAME", "Andy"),
+		InstanceName:          core.EnvOr("ASSISTANT_NAME", core.DefaultAssistantName),
 		ObserveWindowMessages: core.EnvInt("OBSERVE_WINDOW_MESSAGES", 10),
 		ObserveWindowChars:    core.EnvInt("OBSERVE_WINDOW_CHARS", 4000),
 		// Pre-spawn budget gate (spec 11/19, 6/39); default-on. Off clears the
@@ -220,9 +220,9 @@ func main() {
 		// mirror core.LoadConfig, which runed reads for the agent's media config.
 		Media: routd.MediaConfig(
 			core.EnvOr("MEDIA_ENABLED", "false") == "true",
-			int64(core.EnvInt("MEDIA_MAX_FILE_BYTES", 20*1024*1024)),
+			int64(core.EnvInt("MEDIA_MAX_FILE_BYTES", core.DefaultMediaMaxBytes)),
 			core.EnvOr("WHISPER_BASE_URL", "http://localhost:8080"),
-			core.EnvOr("WHISPER_MODEL", "turbo"),
+			core.EnvOr("WHISPER_MODEL", core.DefaultWhisperModel),
 			core.EnvOr("VOICE_TRANSCRIPTION_ENABLED", "false") == "true",
 			core.EnvOr("VIDEO_TRANSCRIPTION_ENABLED", "false") == "true",
 			svcSrc, // service:routd token for the adapter /files download

@@ -376,3 +376,41 @@ func TestTheNetworkAddressSurvivesTheOperatorFile(t *testing.T) {
 		t.Errorf("the operator's credential did not load: %q", got)
 	}
 }
+
+// routd builds its LoopConfig from the environment directly rather than through
+// LoadConfig, so a default declared in both places drifts silently — and the
+// drift only shows on the instance that hits the fallback. APP_SRC_DIR is the
+// pair that had already drifted: core fell to HOST_APP_DIR then the binary's
+// directory, routd fell to HOST_APP_DIR then "" (BUGS L194).
+func TestAppSrcDirFallsThroughToTheBinaryDir(t *testing.T) {
+	t.Setenv("APP_SRC_DIR", "")
+	t.Setenv("HOST_APP_DIR", "")
+	if got := AppSrcDir(); got == "" {
+		t.Error("AppSrcDir fell to the empty string; a bare daemon then resolves no app dir at all")
+	}
+
+	t.Setenv("HOST_APP_DIR", "/srv/app/from-host")
+	if got := AppSrcDir(); got != "/srv/app/from-host" {
+		t.Errorf("AppSrcDir = %q, want the HOST_APP_DIR value", got)
+	}
+
+	t.Setenv("APP_SRC_DIR", "/srv/app/explicit")
+	if got := AppSrcDir(); got != "/srv/app/explicit" {
+		t.Errorf("AppSrcDir = %q, want the explicit APP_SRC_DIR", got)
+	}
+}
+
+// The named defaults exist so both readers spell them once. Asserting the
+// values pins what an unset env var means, which is the thing a second
+// declaration would quietly change.
+func TestTheSharedDefaultsAreNamedOnce(t *testing.T) {
+	if DefaultAssistantName != "Andy" {
+		t.Errorf("DefaultAssistantName = %q", DefaultAssistantName)
+	}
+	if DefaultWhisperModel != "turbo" {
+		t.Errorf("DefaultWhisperModel = %q", DefaultWhisperModel)
+	}
+	if DefaultMediaMaxBytes != 20*1024*1024 {
+		t.Errorf("DefaultMediaMaxBytes = %d", DefaultMediaMaxBytes)
+	}
+}
