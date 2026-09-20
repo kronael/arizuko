@@ -8,6 +8,7 @@ import os from 'os';
 import path from 'path';
 import {
   query,
+  EffortLevel,
   HookCallback,
   PreCompactHookInput,
 } from '@anthropic-ai/claude-agent-sdk';
@@ -462,6 +463,9 @@ async function* runClaude(turn: Turn): AsyncGenerator<Frame> {
         // The chassis renders the text layers; absent means claude's own preset.
         systemPrompt: turn.systemPrompt ?? { type: 'preset' as const, preset: 'claude_code' as const },
         model: turn.model || DEFAULT_MODEL,
+        // Reasoning depth. Absent means the CLI's own default (high), so an
+        // instance that sets nothing behaves exactly as before.
+        effort: turn.effort as EffortLevel | undefined,
         // No allowedTools allowlist: under bypassPermissions every tool is available
         // with no prompt (allowedTools is only an auto-approve hint, not a restriction).
         // arizuko gates side effects at the gated MCP socket and the egress proxy.

@@ -144,7 +144,7 @@ var daemonKeys = map[string][]string{
 		// decrypt connector/scoped secrets. Without it: "SECRETS_KEY unset".
 		"SECRETS_KEY",
 		// Instance-wide fallback model when a group has no per-group model.
-		"ARIZUKO_DEFAULT_MODEL",
+		"ARIZUKO_DEFAULT_MODEL", "ARIZUKO_DEFAULT_EFFORT",
 		// The product `arizuko create` was given. routd writes the default
 		// group's row at boot and carries the choice onto it; without this the
 		// instance is born with a group that names no product.

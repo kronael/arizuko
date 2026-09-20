@@ -100,6 +100,7 @@ func (d *dockerRuntime) Run(ctx context.Context, spec RunSpec) RunResult {
 		MessageID:       spec.TurnID,
 		Sender:          spec.TriggerSender,
 		Model:           spec.Model,
+		Effort:          spec.Effort,
 		Config:          gc,
 		Elevated:        spec.Elevated,
 		ShareReadOnly:   spec.ShareReadOnly,

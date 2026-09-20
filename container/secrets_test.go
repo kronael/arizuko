@@ -100,7 +100,7 @@ func TestSpawnSecrets_GatewayWithholdsModelCredential(t *testing.T) {
 	if got["GITHUB_TOKEN"] != "ghp-shell-env" {
 		t.Errorf("shell:env key dropped by the gateway filter: %v", got)
 	}
-	args := strings.Join(buildArgs(cfg, nil, "c8", egressSpawn{}, "", 0, false, false, "sk-turn-key"), " ")
+	args := strings.Join(buildArgs(cfg, nil, "c8", egressSpawn{}, "", "", 0, false, false, "sk-turn-key"), " ")
 	if !strings.Contains(args, "-e MODEL_GATEWAY_KEY=sk-turn-key") {
 		t.Errorf("virtual key must still reach the spawn: %s", args)
 	}

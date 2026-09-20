@@ -270,6 +270,7 @@ export async function runTurn(
     cwd: HOME,
     turnID,
     model: env.ARIZUKO_MODEL || undefined,
+    effort: env.ARIZUKO_EFFORT || undefined,
     continuity,
     systemPrompt: buildSystemPrompt(containerInput, harness.profile),
     tools: injectMcpEnv(env),

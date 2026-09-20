@@ -21,6 +21,10 @@ export interface Turn {
   // (messageId:N); the 5/24 TodoWrite hook keys the live checklist by it.
   turnID: string;
   model?: string; // backend-native id, verbatim
+  // effort is the reasoning depth the harness asks for: low|medium|high|xhigh|max.
+  // The instance sets it (ARIZUKO_DEFAULT_EFFORT) and claude passes it to the SDK;
+  // a harness whose CLI has no effort knob ignores it rather than failing.
+  effort?: string;
   continuity?: string; // opaque token from the last turn; undefined = fresh
   systemPrompt?: string; // rendered text; absent = the harness's own default
   // tools is the assembled MCP server map (the single declaration). claude renders

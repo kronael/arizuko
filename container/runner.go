@@ -110,6 +110,10 @@ type Input struct {
 	// gateway, and the model credential stays in Secrets.
 	ModelGatewayKey string `json:"-"`
 	Model           string `json:"-"` // per-group model override; empty = instance default
+	// Effort is the reasoning depth handed to the harness CLI (low|medium|high|
+	// xhigh|max). ant reads it from process env, so it MUST be emitted as real
+	// container env below or it is silently dead.
+	Effort string `json:"-"`
 	// QueryTimeoutMs is the agent's in-container query timeout, derived from
 	// runed's RunTTL and set just below it so the agent aborts + delivers a
 	// graceful summary BEFORE runed's hard container kill. 0 = unset (agent
@@ -220,7 +224,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	}
 	defer eg.Stop()
 
-	args := buildArgs(cfg, mounts, containerName, eg, in.Model, in.QueryTimeoutMs, elevated, in.GHWrite, in.ModelGatewayKey)
+	args := buildArgs(cfg, mounts, containerName, eg, in.Model, in.Effort, in.QueryTimeoutMs, elevated, in.GHWrite, in.ModelGatewayKey)
 
 	logsDir := filepath.Join(groupDir, "logs")
 	os.MkdirAll(logsDir, 0o755)
@@ -679,7 +683,7 @@ func buildMounts(
 
 func buildArgs(
 	cfg *core.Config, mounts []volumeMount, name string, eg egressSpawn,
-	model string, queryTimeoutMs int64, elevated, ghWrite bool, gatewayKey string,
+	model, effort string, queryTimeoutMs int64, elevated, ghWrite bool, gatewayKey string,
 ) []string {
 	args := []string{
 		"run", "-i", "--rm",
@@ -694,6 +698,9 @@ func buildArgs(
 	// every RUNED_RUN_TIMEOUT bump were dead until 2026-06-09.
 	if model != "" {
 		args = append(args, "-e", "ARIZUKO_MODEL="+model)
+	}
+	if effort != "" {
+		args = append(args, "-e", "ARIZUKO_EFFORT="+effort)
 	}
 	if queryTimeoutMs > 0 {
 		args = append(args, "-e", "ARIZUKO_QUERY_TIMEOUT_MS="+strconv.FormatInt(queryTimeoutMs, 10))
@@ -892,6 +899,11 @@ func seedSettings(
 		env["ARIZUKO_MODEL"] = in.Model
 	} else {
 		delete(env, "ARIZUKO_MODEL")
+	}
+	if in.Effort != "" {
+		env["ARIZUKO_EFFORT"] = in.Effort
+	} else {
+		delete(env, "ARIZUKO_EFFORT")
 	}
 	if in.QueryTimeoutMs > 0 {
 		env["ARIZUKO_QUERY_TIMEOUT_MS"] = strconv.FormatInt(in.QueryTimeoutMs, 10)

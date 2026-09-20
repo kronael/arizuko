@@ -208,7 +208,8 @@ func main() {
 		// A hardcoded claude id made "absent" unexpressible, so switching
 		// ARIZUKO_BACKEND to codex sent it a claude model and every turn 400d
 		// (BUGS L129). Empty reaches ant as falsy, and each CLI defaults itself.
-		DefaultModel: core.EnvOr("ARIZUKO_DEFAULT_MODEL", ""),
+		DefaultModel:  core.EnvOr("ARIZUKO_DEFAULT_MODEL", ""),
+		DefaultEffort: core.EnvOr("ARIZUKO_DEFAULT_EFFORT", ""),
 		// Turn retry on SIGKILL/OOM/timeout (spec 5/12). Default 3.
 		MaxTurnRetry: core.EnvInt("MAX_TURN_RETRY", 3),
 		// Transient delivery failures a pending bot row absorbs before the

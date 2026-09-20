@@ -358,7 +358,7 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 		TriggerSender: req.TriggerSender, CallerSub: req.CallerSub,
 		TurnID: req.TurnID, Kind: kind, Isolated: req.Isolated,
 		Elevated: req.Elevated,
-		Model:    req.Model, ContainerConfig: req.ContainerConfig,
+		Model:    req.Model, Effort: req.Effort, ContainerConfig: req.ContainerConfig,
 		ShareReadOnly: req.ShareReadOnly, Egress: req.Egress, WebPublish: req.WebPublish,
 		GHWrite:         req.GHWrite,
 		EgressAllowlist: req.EgressAllowlist,

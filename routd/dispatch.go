@@ -823,6 +823,9 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 	if model == "" {
 		model = l.defaultModel
 	}
+	// Reasoning depth is instance-wide: no per-group override exists yet, and an
+	// empty value leaves the harness CLI's own default (high) in place.
+	effort := l.defaultEffort
 	// Resolve the per-folder grant rules + egress allowlist HERE (routd is the
 	// authz plane; runed has neither store) and ship them so runed can attach the
 	// spawn to its own egress network + honor share_mount. nil allowlist on error
@@ -879,6 +882,7 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 		CallerSub:       caller,
 		TurnID:          turnID,
 		Model:           model,
+		Effort:          effort,
 		ContainerConfig: containerCfg,
 		Isolated:        isolated,
 		Elevated:        elevated,

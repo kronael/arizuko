@@ -142,6 +142,8 @@ type Loop struct {
 	// applied when a group has no per-group model. A per-group model wins; if
 	// both are empty the container's ant SDK uses its own hardcoded default.
 	defaultModel string
+	// defaultEffort is the instance-wide reasoning depth (ARIZUKO_DEFAULT_EFFORT).
+	defaultEffort string
 
 	// maxTurnRetry is the number of times to retry a turn that fails without
 	// delivering a reply (SIGKILL/OOM/timeout). Default 3.
@@ -221,6 +223,9 @@ type LoopConfig struct {
 	// applied when a group has no per-group model. Empty leaves resolution to the
 	// container's ant SDK default.
 	DefaultModel string
+	// DefaultEffort is the instance-wide reasoning depth (ARIZUKO_DEFAULT_EFFORT):
+	// low|medium|high|xhigh|max. Empty leaves the harness CLI's own default.
+	DefaultEffort string
 
 	// MaxTurnRetry is the number of retry attempts when a turn fails without
 	// delivering a reply (SIGKILL/OOM/timeout). Default 3.
@@ -280,6 +285,7 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 		onboardingEnabled:   cfg.OnboardingEnabled,
 		onboardingPlatforms: cfg.OnboardingPlatforms,
 		defaultModel:        cfg.DefaultModel,
+		defaultEffort:       cfg.DefaultEffort,
 		maxTurnRetry:        maxRetry,
 		maxOutboundRetry:    maxOutRetry,
 	}
