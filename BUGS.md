@@ -5478,7 +5478,7 @@ redirector in front of a sink that is not on the list, and asserts the sink is
 never reached, the body never arrives, and the re-issued hop answers 403. The
 test fails with the `CheckRedirect` line removed.
 
-## L110 — `network_allow` refuses `*` and then accepts `com`, which is the same allow-all spelled differently; live on sloth for 2.5 months (2026-08-26, proposal — needs sign-off)
+## ✅ FIXED 2026-09-20 L110 — `network_allow` refuses `*` and then accepts `com`, which is the same allow-all spelled differently; live on sloth for 2.5 months (2026-08-26, proposal — needs sign-off)
 
 `routd/network_rules_resource.go:97` refuses a bare `*` — *"opening all egress
 is an operator decision, not an agent grant"* — then hands the value to
@@ -5520,6 +5520,23 @@ matches every `*.com` host. The repo's own test pins it as intended semantics:
   would reject existing rows. `localhost` must stay legal, which is what makes
   the naive "require a dot" rule wrong.
 
+- **Status:** closed on re-check 2026-09-20 — `L209`'s fix closed this one too.
+- **Re-measured:** `match.Host` (`egress/match/match.go:49-60`) takes the suffix
+  arm only when `strings.Contains(entry, ".")`, so a stored `com` matches the
+  host `com` and nothing under it. The exact behaviour this entry describes —
+  `com` matching `github.com` — is now false.
+- **The test it cited as proof of intent has been INVERTED.** It read
+  `{"single label matches its suffix", []string{"com"}, "github.com", true}`;
+  `egress/match/match_test.go:35` now reads
+  `{"single label does not grant its TLD", []string{"com"}, "github.com",
+  false}`, with two more pinning that `localhost` still matches itself and is
+  not a parent of `evil.localhost`. That is this entry's requirement, written as
+  an assertion.
+- **`*` is no longer spellable either:** `Allowed` takes an explicit `allowAll`
+  mode, which replaced the magic `"*"` list entry, so the two spellings the
+  entry compares no longer both exist.
+- **Live rows on sloth are operator data** and were not re-read; a stored `com`
+  is now inert whatever it says.
 ## ✅ FIXED 2026-08-29 L111 — the steer callback is deleted by folder without checking which run owns it, so a live run silently loses steering (2026-08-26)
 
 The write side is guarded: `runed/manager.go:439` `SetSteer(folder, runID, …)`
@@ -6530,7 +6547,7 @@ recorded as `L80`, not smuggled into a fail-loud fix.
 Live rows affected: zero — no `params`-bearing acl row exists on any of the three
 instances. The defect is the shape, on an auth surface.
 
-## L84 — dashd's "Delete group" is a fourth delete renderer L71 missed, and it strands tasks (2026-08-23, proposal)
+## ✅ FIXED 2026-09-20 L84 — dashd's "Delete group" is a fourth delete renderer L71 missed, and it strands tasks (2026-08-23, proposal)
 
 `L71` unified three group-delete paths into `store.DeleteGroup`. It missed the
 one an operator is most likely to use: the dashboard button
@@ -6566,6 +6583,16 @@ should be decided in the same pass rather than left to a fifth caller.
 Note `L78` already fixed the shared half — all these cascades now use
 `groupfolder.SQLSubtree` instead of `LIKE`.
 
+- **Status:** closed on re-check 2026-09-20 — the fourth renderer is gone.
+- **Re-measured:** `dashd/groups_admin.go:405-408` now calls `store.DeleteGroup`
+  and says why in its own words: "store.DeleteGroup is the ONE purge — what it
+  removes is declared once, in store.folderScopePurge — and AsUser attributes
+  its audit row to the operator who pressed the button. A second list here is a
+  second thing to keep in step, and two lists purging different halves is BUGS
+  L198." The dashboard handler no longer opens its own transaction or cascades
+  a different set, so the disjoint-strand table in this entry describes nothing.
+- **Related and still open:** `L323`, which is about what the one purge REPORTS
+  after it succeeds, not about how many purges there are.
 ## ✅ CLOSED 2026-09-18 L85 — the smoke is 6/9 after the SDK jump L73 exposed; the three failures are all child-spawn callbacks (2026-08-23)
 
 `L73` fixed the ant image so it ships the SDK it installs. The practical effect
