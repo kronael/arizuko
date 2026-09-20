@@ -6932,6 +6932,35 @@ overlaps ordinary chatter.
   dies with no user-visible trace at all, which is the fail-loud rule broken on a
   user-facing path.
 
+- **RE-MEASURED 2026-09-20 at `9d2f1009`: CONFIRMED LIVE, and the entry
+  understates it.** The retry is not merely a dead promise — the cursor moves
+  past the batch first, so there is nothing left for it to retry.
+
+  `runTurn` returns `(hadOutput, steered, busy, observedMark, rerr)`
+  (`routd/dispatch.go:257`). Its retry path returns
+  `false, false, false, "", nil` (`:526`) — no output, not steered, **not
+  busy**, no mark, **no error**. The caller reads exactly those five at
+  `:132-167`: `derr` nil, `busy` false, `steered` false, `mark` empty — so it
+  falls through to `l.advance(chatJID, last)` at `:168`.
+
+  Ten seconds later `ResetTurnForRetry` runs. It sets `state=running` and clears
+  `run_returned` (`store/turn_context.go:293-296`) and **does not rewind
+  `agent_cursor`**. So `l.Enqueue` wakes `processGroupMessages`,
+  `NewMessagesForChat` returns zero rows past the advanced cursor, and it
+  returns `(false, nil)` at `:33`. The retry is a no-op by construction.
+
+- **The signal it needs already exists, which is what makes this contained.**
+  `busy=true` is precisely "do not advance the cursor, re-feed" — `runTurn`'s
+  own doc comment says so at `:254-256`, and the caller honours it at `:144-158`.
+  The retry path wants the same treatment and does not ask for it.
+
+  It is NOT a drop-in, and that is the one design question: `busy` also calls
+  `l.noteBusy` and starts the per-chat backoff, so reusing it would stack a
+  second backoff on top of the `time.AfterFunc(retryBackoff, ...)` already
+  scheduled. Either the retry drops its own timer and rides the busy backoff, or
+  `runTurn` grows a fifth verdict that means "held, re-feed, no backoff". One
+  return value either way.
+
 ## ✅ FIXED 2026-08-23 L76 — a message no one can receive is stamped `sent` (2026-08-23)
 
 `routd/turns.go` `deliverRow` skips delivery for a JID with no `:` prefix and
