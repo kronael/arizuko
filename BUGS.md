@@ -13,6 +13,63 @@
 > work items are their own entries. A record has nothing to fix and never will,
 > so counting one as open overstates the queue.
 
+## L329 — an agent that decides to stay silent narrates the decision, and the guard that catches it is whole-string only (2026-09-20, open)
+
+A desk agent woke on a message that did not address it, decided correctly,
+and delivered the decision to the chat:
+
+```
+Not addressed to me — michal0093 is continuing the geopolitics discussion
+with susheen_, no @mention or tag. Desk norm is reply only when tagged.
+... Staying silent.
+```
+
+Two mechanisms let it through, and the second is the one in this repo.
+
+`routd.recordTurnResult` delivers `req.Result` as the reply when the agent
+called no reply tool (`routd/turns.go:252`). That is deliberate — the contract
+is "text outside `<think>` is delivered", and it closes the 2026-06-08 krons
+no-reply outage. So any prose the agent leaves in its final block is a reply.
+
+`router.FormatOutbound` has a guard for exactly this case:
+`silentRefusalRe` (`router/router.go:163`) maps a bare "staying silent" to the
+empty string, and its own comment says it exists "when it has nothing to say
+but didn't wrap silence in `<think>`". It is anchored `^...$`, so it matches
+the whole string only. Measured:
+
+| final block | delivered |
+| --- | --- |
+| `Staying silent.` | "" |
+| `<think>reasoning</think>\nStaying silent.` | "" |
+| `reasoning. ... Staying silent.` | the whole line |
+
+The agent is told the rule three times in one section
+(`ant/CLAUDE.md:73,77,88`), including a bolded ALWAYS, and still wrote its
+reasoning as prose. Repeating the instruction is not the lever.
+
+- **Severity:** medium (a user-visible leak of the agent's deliberation into
+  a chat it decided not to join; it reads as the agent talking to itself)
+- **Scope:** `router.FormatOutbound`; `ant/CLAUDE.md`
+- **Affected:** every channel; any turn woken by engagement rather than a
+  mention
+- **Source:** `router/router.go:163-173`; `routd/turns.go:244-254`;
+  `ant/CLAUDE.md:71-88`; measured 2026-09-20 by running `FormatOutbound` on
+  the four shapes above
+- **Status:** open
+- **Fix:** two candidates, and they are not alternatives.
+  1. Boundary (cheap, certain): let the guard match a silent-refusal
+     SENTENCE that ends the block, not only a whole string. The text before
+     it is deliberation by construction — the sentence says the agent chose
+     not to speak. Amend `silentRefusalRe` in place; do not add a second
+     guard.
+  2. Cause (needs sign-off): `ant/CLAUDE.md` is 198 lines / 16.5 KB and its
+     largest section is `Response Style` (2305 B, 14%), which is formatting,
+     not conduct. The silence rule sits in the second largest. Cut the style
+     prose so the conduct sections carry the weight. Whether a literal
+     `<think>` wrapper is the right convention for a model with a native
+     thinking channel is the deeper question behind it.
+
+
 ## L327 — an `#observe` route sorting above its answering twin makes a chat deaf to a direct mention (2026-09-20, open — operator data, and a missing check)
 
 MEASURED on sloth 2026-09-20. The operator asked why the agent does not attend
