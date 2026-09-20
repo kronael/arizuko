@@ -314,3 +314,59 @@ func TestInviteRedemptionsEntityIsServedByARealOnbodDB(t *testing.T) {
 		t.Errorf("target_glob = %q, want %q", r.TargetGlob, "acme/")
 	}
 }
+
+// A folder delete sweeps routd's tables and cannot reach onbod's, so a
+// redemption outlives the folder it names (BUGS L244). Redeeming it then
+// admitted a person into a subtree whose owner is gone — the authority was
+// spent against nothing.
+func TestRedemptionNamingADeletedFolderAdmitsNobody(t *testing.T) {
+	db := testDB(t)
+	seedProfile(t, db, "github:newcomer")
+	seedTenant(t, db, "acme", "github:owner")
+	seedRedemption(t, db, "github:newcomer", "acme/")
+
+	// The folder goes; the redemption stays, which is the whole shape.
+	if _, err := db.DeleteGroup("acme"); err != nil {
+		t.Fatalf("delete the parent: %v", err)
+	}
+	if n := redemptionCount(t, db, "github:newcomer"); n != 1 {
+		t.Fatalf("the delete took the redemption with it (%d left); this test checks nothing", n)
+	}
+
+	w := postCreateWorld(db, "github:newcomer", "newcomer", "")
+
+	if w.Code == http.StatusSeeOther {
+		t.Errorf("redeeming against a deleted parent succeeded (303)")
+	}
+	for _, f := range allFolders(t, db) {
+		if strings.HasPrefix(f, "acme/") {
+			t.Errorf("folder %q was created under a parent that does not exist", f)
+		}
+	}
+	if scopes := aclScopes(t, db, "github:newcomer"); len(scopes) != 0 {
+		t.Errorf("grants written for a dead authority: %v", scopes)
+	}
+}
+
+// The guard must not refuse a live parent, or every real invite stops working.
+func TestRedemptionNamingALiveFolderStillAdmits(t *testing.T) {
+	db := testDB(t)
+	seedProfile(t, db, "github:newcomer")
+	seedTenant(t, db, "acme", "github:owner")
+	seedRedemption(t, db, "github:newcomer", "acme/")
+
+	w := postCreateWorld(db, "github:newcomer", "newcomer", "")
+
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("a live invite was refused: %d %s", w.Code, w.Body.String())
+	}
+	var found bool
+	for _, f := range allFolders(t, db) {
+		if f == "acme/newcomer" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("acme/newcomer not created; folders = %v", allFolders(t, db))
+	}
+}

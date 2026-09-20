@@ -743,6 +743,22 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db, obdb *store.S
 		parent = strings.TrimSuffix(redemption.TargetGlob, "/")
 	}
 
+	// The parent must still exist. A folder delete sweeps routd's tables and
+	// cannot reach onbod's, so `invites` and `invite_redemptions` outlive the
+	// folder they name (BUGS L244) — and redeeming one then admits a person into
+	// a subtree whose owner is gone. The redemption is the authority; the parent
+	// is what it is authority OVER, so a missing parent is a dead authority.
+	if parent != "" {
+		if _, ok := db.GroupByFolder(parent); !ok {
+			slog.Warn("invite names a folder that no longer exists; refusing",
+				"parent", parent, "user_sub", userSub)
+			renderPage(w, "Invitation Expired",
+				template.HTML("<p>The folder this invitation was for no longer exists.</p>"+
+					"<p>Ask whoever invited you for a new invitation.</p>"))
+			return
+		}
+	}
+
 	username := strings.TrimSpace(r.FormValue("username"))
 	if !usernameRe.MatchString(username) {
 		renderPage(w, "Invalid Username",

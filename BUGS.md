@@ -14852,7 +14852,7 @@ disagreement the entry names is moot — there is one schema.
 - **Status:** fixed
 - **Lock:** `TestFolderScope_ClassifiesEveryDeclaredEntity` fails if an entity
   joins an owner's declaration without a verdict.
-## L244 — `invites` and `invite_redemptions` are folder-scoped in another database, so no purge reaches them (2026-09-06, open)
+## ✅ FIXED 2026-09-20 L244 — `invites` and `invite_redemptions` are folder-scoped in another database, so no purge reaches them (2026-09-06, open)
 
 FOUND while closing `L198`. Both live in onbod.db and carry `target_glob`,
 which names a folder subtree. A redemption that outlives its folder authorizes
@@ -14867,6 +14867,34 @@ databases to commit together.
 - **Severity:** medium — admission to a re-created folder by a stale invite
 - **Scope:** `onbod/`, `specs/6/37` redesign 1
 - **Fix:** the generation, or an onbod-side sweep keyed on the folder's absence
+
+- **Status:** the admission hole is fixed 2026-09-20; the orphan rows remain and
+  are now cosmetic.
+- **The entry's stated blocker is no longer why.** "One transaction on routd.db
+  cannot reach a second database" describes a topology that is gone: there are
+  no `.db` files, owners are table-name prefixes on one store server
+  (`store/owners.go:3-5`), and a `Store` handle is bound to one prefix. So it is
+  a HANDLE problem, not a transaction problem — and onbod already holds both
+  handles in the same request.
+- **Fix:** one guard. `handleCreateWorld` derives `parent` from the redemption
+  and now refuses when `db.GroupByFolder(parent)` finds nothing. The redemption
+  is the authority and the parent is what it is authority OVER, so a missing
+  parent is a dead authority. The person is told the invitation is expired, not
+  handed a folder under a tenant that does not exist.
+
+  RE-MEASURED: `entityScopePurge` holds 19 scopes and neither `invites` nor
+  `invite_redemptions` is among them, and `purgeFolder` queries
+  `Partition: OwnerRoutd` only — so the rows do still outlive the folder. They
+  are now inert.
+
+  PROVEN BY MUTATION: disable the guard and
+  `TestRedemptionNamingADeletedFolderAdmitsNobody` fails. The test deletes the
+  parent, ASSERTS the redemption survived the delete (so it cannot pass
+  vacuously), and reads the whole folder list rather than looking up an expected
+  name. Its twin asserts a live parent still admits, so the guard cannot be
+  satisfied by refusing everything.
+- **Left, and it is cleanup not admission:** the orphan rows themselves. Nothing
+  reads them to any effect now.
 
 ## ✅ FIXED 2026-09-18 L245 — routd's `registerGroup` rollback deleted a subtree it did not create (2026-09-06)
 
