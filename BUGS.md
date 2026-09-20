@@ -5463,6 +5463,30 @@ ignored — `webd/route_token.go:412-413` says so.
   JSON (`webd/hub.go:66-68`). A connected reply would land as raw JSON text.
   Not driven through htmx; flagged, not claimed.
 
+- **RE-MEASURED 2026-09-20, and the obvious repoint does NOT work.** The defect
+  holds exactly: `webd/pages.go:83` emits
+  `sse-connect="/chat/stream?group=%s&topic="` and `:104` rebuilds it on topic
+  switch; neither carries `token`. `handleRouteTokenStream`
+  (`webd/route_token.go:416`) 400s on the empty topic, and then 404s on the
+  empty token. The stream can never connect.
+
+  The obvious fix is to point it at `/me/chats/{folder}/{topic}/sse`
+  (`webd/me.go:328`), which is the same hub, the same `web:`+folder JID and a
+  working `auth.MatchGroups` gate — one renderer for both surfaces. It is
+  blocked on a fact neither the entry nor the repoint mentions: **the panel's
+  default topic is the EMPTY string.** `pages.go:97` starts `_topic = ''`, and
+  `sendMsg` (`:120`) posts that verbatim, so the panel's main thread genuinely
+  carries topic `""`. `handleMeSSE:330` rejects an empty topic, and its URL
+  shape cannot express one anyway — `meFolderTopic` (`webd/me.go:500`) reads
+  the last path segment.
+
+  So the fix needs a decision the code cannot make: what the panel's default
+  thread is CALLED. `/me/chats` never faces it because a topic is always in its
+  URL. Adding a second SSE endpoint for the panel is the wrong answer — that is
+  the parallel path the repoint exists to avoid.
+- **Status:** open — needs a decision on the panel's default topic name, then
+  the repoint is two lines.
+
 ## ✅ FIXED 2026-09-20 L117 — the published chat SDK cannot send: `POST /slink/<token>` answers 301, which downgrades the request to GET, and `/slink/` carries no CORS (2026-08-26)
 
 `webd/assets/arizuko-client.js` uses the `/slink/` prefix at five sites
@@ -7997,7 +8021,7 @@ Not considered in `6/8`, `6/9` or `6/20`. Worth costing before any further work
 on the registry, because it would delete the registry rather than improve it.
 
 
-## L47 — a package's skills never reach a group that already existed (2026-08-17, FIXED)
+## ✅ FIXED 2026-08-17 L47 — a package's skills never reach a group that already existed (2026-08-17)
 
 `seedSkills` (`container/runner.go:1125`) copies a package's `skills/<n>/` into a
 group's `~/.claude/skills/`. It has exactly one non-test caller:
@@ -8070,7 +8094,7 @@ Two guards the overwrite needed, neither in the original entry:
 never produces (a free-standing `claudeDir`, not the group's own); corrected.
 
 
-## L46 — a package may grant itself operator authority and claim core routes (2026-08-17, FIXED)
+## ✅ FIXED 2026-08-17 L46 — a package may grant itself operator authority and claim core routes (2026-08-17)
 
 `arizuko packages install <git-url>` applies a package's declared grants and
 routes with **no bound on what it may ask for**.
@@ -8139,7 +8163,7 @@ Two corrections to this entry, found while implementing:
   second list in `compose` is the wrong answer. Not fixed here.
 
 
-## L45 — proxyd routes shipped in a release never reach an existing instance (2026-08-17, FIXED)
+## ✅ FIXED 2026-08-17 L45 — proxyd routes shipped in a release never reach an existing instance (2026-08-17)
 
 `loadInitialRoutes` (`proxyd/main.go:248`) is seed-once: if `proxyd_routes` has
 any row, `PROXYD_ROUTES_JSON` is ignored. There is no reconcile — the env var is
@@ -8211,7 +8235,7 @@ calls per request — `auth.MatchSlot` folder scoping, which is the one thing
 daemon doing all three.
 
 
-## L44 — packages declare in two bespoke formats what the manifest already carries (2026-08-17, FIXED)
+## ✅ FIXED 2026-08-17 L44 — packages declare in two bespoke formats what the manifest already carries (2026-08-17)
 
 `5/8`'s manifest carries "ACL, routes, secrets metadata, scheduled tasks, proxyd
 routes, web routes, network rules" and `apply` installs it. Packages re-declare
