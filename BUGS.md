@@ -13156,7 +13156,7 @@ owner, and whose observance nothing measures. A row closes when
 | Persona layers (`persona/SKILL.md`, the `<persona>` block's own `/persona` pointer)          | none                                             |
 | `inspect_*` / `find_messages` over `sqlite3` (`self/mcp.md`)                                  | none                                             |
 | Session-opening ritual (`self/SKILL.md` §Session recovery)                                   | none                                             |
-| `register_group` is explicit, absent = ask (`self/mcp.md`)                                    | partial — `world-create-refusal-honest`, `child-delegate` |
+| `register_group` absent = ask, the CLAUSE only (`self/mcp.md`)                                | partial — `world-create-refusal-honest`, `child-delegate` |
 | Additional mounts, operator SQL (`EXTENDING.md` §Adding a host mount)                         | none (operator procedure, not agent behaviour)   |
 | CLAUDE.md ownership, `~/CLAUDE.md` operator-only (`self/migration.md`)                        | none                                             |
 | Web routing table + login/dashboard/portal pointers (`self/web-routing.md`)                   | partial — `web-route`                            |
@@ -13169,7 +13169,6 @@ owner, and whose observance nothing measures. A row closes when
 | Slack / Discord threading (`slack-thread.md`, `slack-channel.md`, `discord-channel.md`)       | none                                             |
 | Reaction register mirroring, DM anti-patterns (`like` description)                            | none                                             |
 | Telegram group reactions (`telegram-group.md`)                                                | none                                             |
-| `send_file` caption = TL;DR (`send_file` description)                                         | none                                             |
 
 Covered by an existing case and therefore not listed: Network egress
 (`egress-diagnose`, `egress-dns-distinguish`, `self-grant-noop`),
@@ -13180,10 +13179,28 @@ Local paths table (`link-is-public-url`), the map (`self-skill`).
 - **Severity:** low (measurement gap, no observed regression)
 - **Scope:** anteval cases
 - **Affected:** every backend, every group
-- **Source:** `specs/6/34-resident-prompt.md` §"The failure mode"; the move
+- **Source:** `specs/6/34-resident-prompt.md:276` §"The failure mode, and the three guards" (`status: shipped`); the move
   commit `docs(ant): ant/CLAUDE.md carries only what the rule of 6/34 keeps resident`
 - **Status:** open — each row wants a case before the ledger is done
 - **Fix:**
+
+- **RE-MEASURED 2026-09-20 and the ledger was wrong about two of its own rows.**
+  A ledger that names a rule as unguarded when the rule never left sends the
+  next person to write a case for something that already loads on every turn.
+  - **`send_file` caption = TL;DR — row removed.** The rule is still in the
+    resident file, twice: `ant/CLAUDE.md:186` ("the `caption` carries the
+    TL;DR") and `:196` ("a 2-4 sentence distillation"). It never moved.
+  - **`register_group` — row narrowed.** `ant/CLAUDE.md:41` still says
+    "Creating a group is always explicit … nothing auto-creates one". Only the
+    "absent = ask" clause moved, so the row now names that clause alone.
+  - The `Source:` line cited §"The failure mode"; the section is §"The failure
+    mode, and the three guards" at `specs/6/34-resident-prompt.md:276`, and that
+    spec is `status: shipped`.
+
+  `anteval/cases/anteval.toml` holds 22 cases and has not changed since
+  `9579fd32`, so every remaining "Case today" column re-measures identically.
+  All 19 owner paths resolve and all 11 "already covered" ids exist.
+- **Status:** open — 17 rows remain, and each is a case to write, not an edit.
 
 ## L189 — `sandbox/` writes no netfilter rule for a host-name allowlist entry, and the comment that explains why names a proxy `6/24` deleted (2026-09-05, open — proposal, needs sign-off)
 
