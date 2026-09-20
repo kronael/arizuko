@@ -7,6 +7,37 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L318 — every daemon's store key carries `dynamodb:* on *`, so 19 per-daemon keys give attribution and not isolation (2026-09-20, open)
+
+MEASURED on sloth 2026-09-20. The instance mints one IAM user and one access
+key per daemon — 19 of them, each in its own scoped env file (`routd.env`,
+`teled.env`, …) and none in `.env`, so a daemon reads only its own key. The
+separation stops there. Every one of those users carries the same `tables`
+policy:
+
+```json
+{"Version":"2012-10-17","Statement":[
+ {"Action":"dynamodb:*","Effect":"Allow","Resource":"*"}]}
+```
+
+So `ttsd`'s key can read `routd.messages`, and `teled`'s can drop
+`routd.audit_log`. The key answers "who wrote this row", never "may you". The
+account boundary is real — `tables` is keyed `(account_id, table_name)` and a
+request authenticates into one account — but inside an account there is no
+boundary at all.
+
+This costs little today, where every daemon is ours and the blast radius is one
+instance. It costs more under a SHARED store server, because the account then
+becomes the only isolation left: the per-instance PostgreSQL role, which today
+is a superuser owning that instance's own server, no longer exists.
+
+- **Severity:** medium — an adapter compromise reaches every owner's tables in that instance
+- **Scope:** `extenddb init`'s per-daemon `put-user-policy`; `INSTALL.md` § The store server
+- **Affected:** krons, sloth, marinade (the same by-hand recipe)
+- **Source:** `iam_policies` on sloth, 38 rows: one `SelfServicePolicy` and one `tables` policy per user, the latter identical for all 19
+- **Status:** open — the fix is a per-daemon resource list, and it needs the owner map (which daemon writes which entity) stated once before a policy can name it. `store/entities.go` already carries the entity names; nothing carries the owner.
+- **Fix:**
+
 ## L317 — `/stop` no longer cancels a question typed just before it (2026-09-20, open — needs a decision)
 
 Fallout of the `L104` fix, named rather than discovered late. `/stop` kills the
