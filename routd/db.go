@@ -650,11 +650,6 @@ func (d *DB) IncrementRetryCount(turnID string) (int, error) {
 	return d.store().RecordRetryAttempt(turnID)
 }
 
-// ResetTurnForRetry resets a turn's state to running for the next retry attempt.
-func (d *DB) ResetTurnForRetry(turnID string) error {
-	return d.store().ResetTurnForRetry(turnID)
-}
-
 // RunningTurns lists turn_ids still in state=running or pending_retry
 // (crash-recovery feed).
 func (d *DB) RunningTurns() ([]TurnContext, error) {

@@ -226,14 +226,14 @@ func (s *Store) TurnContextOf(turnID string) (TurnContext, bool) {
 // setTurnAttrs merges attributes into a bound turn. An Update against a turn
 // nobody bound writes nothing, which is what the statements this replaces did by
 // matching no row.
-func (s *Store) setTurnAttrs(turnID string, attrs map[string]string, remove ...string) error {
+func (s *Store) setTurnAttrs(turnID string, attrs map[string]string) error {
 	key, err := turnKey(turnID)
 	if err != nil {
 		return err
 	}
 	// A refusal is a turn nobody bound, which the doc above allows.
 	if _, err := s.TryWriteEntities(context.Background(), nil, objstore.Write{
-		Op: objstore.Update, Entity: TurnContexts, Key: key, Attrs: attrs, Remove: remove,
+		Op: objstore.Update, Entity: TurnContexts, Key: key, Attrs: attrs,
 	}); err != nil {
 		return fmt.Errorf("update turn %s: %w", turnID, err)
 	}
@@ -285,14 +285,6 @@ func (s *Store) TurnGatewayKey(turnID string) (string, error) {
 		return "", err
 	}
 	return it.Attrs[attrTurnGatewayKey], nil
-}
-
-// ResetTurnForRetry puts a turn back in flight for its next attempt, and clears
-// the run-returned flag with it: a retry whose flag survived would answer every
-// callback of the new attempt with turn_done.
-func (s *Store) ResetTurnForRetry(turnID string) error {
-	return s.setTurnAttrs(turnID, map[string]string{attrTurnState: TurnRunning},
-		attrTurnRunReturned)
 }
 
 // retryRounds bounds RecordRetryAttempt's compare-and-swap. A refusal is a lost

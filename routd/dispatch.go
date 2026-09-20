@@ -154,10 +154,11 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 			return hadAny, derr
 		}
 		if busy {
-			// runed didn't admit the run and keeps no internal queue. Busy is NOT an
+			// The batch was not consumed: runed refused admission (it keeps no
+			// internal queue), or the run failed and owes a retry. Neither is an
 			// error: do NOT advance the cursor and do NOT return an err, which would
 			// trip the queue breaker. The batch is re-fed after a growing per-chat
-			// backoff, and turn_context stays 'running' so the re-dispatch is live.
+			// backoff, and the turn is non-terminal so the re-dispatch is live.
 			l.noteBusy(chatJID, steerMsg.ID)
 			if steerConsumed {
 				// The steered row is already consumed, so this batch has no
@@ -262,10 +263,12 @@ func (l *Loop) noteBusy(chatJID, lastMsgID string) {
 }
 
 // runTurn dispatches ONE turn for a trigger batch (already bot-stripped),
-// records its outcome, and returns (hadOutput, steered, busy, err). It does
+// records its outcome, and returns (hadOutput, steered, busy, observedMark, err).
+// It does
 // NOT advance the agent_cursor — processGroupMessages advances once past the
-// whole batch after all per-sender/per-topic turns close. busy=true means
-// runed rejected admission (at capacity); the caller must re-feed, not advance.
+// whole batch after all per-sender/per-topic turns close. busy=true means the
+// batch was not consumed — runed rejected admission, or the run failed and owes
+// a retry — so the caller must re-feed it, not advance.
 func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Message) (hadOutput, steered, busy bool, observedMark string, rerr error) {
 	last := trigger[len(trigger)-1]
 	// Elevation: a message cmdRoot registered in pendingElevation (operator-gated,
@@ -531,11 +534,12 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 			if err == nil {
 				slog.Warn("turn failed without reply, scheduling retry",
 					"folder", folder, "turn_id", turnID, "retry", newCount, "max", l.maxTurnRetry)
-				time.AfterFunc(retryBackoff, func() {
-					_ = l.db.ResetTurnForRetry(turnID)
-					l.Enqueue(chatJID)
-				})
-				return false, false, false, "", nil
+				// The re-feed IS the retry: busy=true holds the cursor on this
+				// batch, the next poll re-dispatches it on the busy backoff, and
+				// the re-bind puts the turn back in flight. The no-op shape
+				// advanced the cursor first, so every retry the fleet logged woke
+				// a poll with nothing left to retry (BUGS L75a).
+				return false, false, true, "", nil
 			}
 		}
 		// Final failure: all retries exhausted or agent did reply (partial is OK).
@@ -747,9 +751,6 @@ const silentTurnNotice = "⚠️ I couldn't produce a reply to that — please r
 // ghostGroupNotice is sent when a chat routes to a folder with no registered
 // group row (a ghost route). See runTurn's ghost-group guard.
 const ghostGroupNotice = "⚠️ This chat routes to a group that isn't set up — an operator needs to register it."
-
-// retryBackoff is the delay between retry attempts (spec 5/12).
-const retryBackoff = 10 * time.Second
 
 // retryNoteBlock renders the system note injected on retry attempts.
 func retryNoteBlock(attempt, max int) string {

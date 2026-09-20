@@ -33,10 +33,11 @@ as an error notice. Retry state is `turn_context.retry_count` +
 and `RunningTurns` re-feeds `running` and `pending_retry` alike
 (`routd/db.go:929`).
 
-**Short fixed backoff (10s, `routd/dispatch.go:467`), no exponential
-ramp.** The old container is
-already dying and the new one is a fresh spawn — there is nothing to wait
-for except the reaper. A long ramp would just extend the user's silence.
+**The re-feed IS the retry: the failed batch stays un-advanced and the
+poll re-dispatches it on the busy backoff** (4s, doubling to a 60s cap,
+cleared by a fresh inbound row). A retry that owns a timer has to rewind
+the cursor its own return value moved; the poll re-feed is the one
+serialization point that does both, as the runed-Busy path already does.
 
 **Global config only** — no per-folder or per-skill override. A retry
 budget is a property of the runtime, not of a tenant's content.
@@ -67,7 +68,7 @@ keeps the old retry behavior. (BUGS F73)
 
 **Retry does not extend engagement.** From the user's side the turn is
 still in progress — they are waiting — so the window is naturally alive.
-Three 10s delays are negligible against `ENGAGEMENT_TTL` either way.
+Three backoff delays are negligible against `ENGAGEMENT_TTL` either way.
 
 ## Related
 

@@ -545,6 +545,23 @@ func TestTurnRetry_SchedulesRetryOnError(t *testing.T) {
 	if len(dl.sends) != 0 {
 		t.Fatalf("expected no notice on retry schedule, got %+v", dl.sends)
 	}
+	// THE RETRY IS THE RE-FEED, so the cursor must still sit behind the batch.
+	// Advancing it leaves the next poll nothing to dispatch and the retry is a
+	// no-op: every retry the fleet logged in a week died that way (BUGS L75a).
+	if cur := db.GetAgentCursor("slack:T/C/U"); cur != "" {
+		t.Fatalf("cursor advanced to %q past the batch the retry re-feeds", cur)
+	}
+
+	// Second attempt: the batch is held on the busy backoff, which a fresh
+	// inbound message clears — expire it by hand and poll again.
+	loop.busyWait.Delete("slack:T/C/U")
+	_, _ = loop.processGroupMessages("slack:T/C/U")
+	if attempts != 2 {
+		t.Fatalf("the retry never re-dispatched: attempts = %d, want 2", attempts)
+	}
+	if tc, _ := db.GetTurnContext("r1"); tc.RetryCount != 2 {
+		t.Fatalf("expected retry_count=2 after the second attempt, got %d", tc.RetryCount)
+	}
 }
 
 // TestTurnRetry_TerminalNotRetried: a failure runed marked Terminal (bad
@@ -618,9 +635,6 @@ func TestTurnRetry_ExhaustsAndNotifies(t *testing.T) {
 	_, _ = db.PutTurnContext("r2", "demo", "", "slack:T/C/U", "u1", "")
 	db.IncrementRetryCount("r2")
 	db.IncrementRetryCount("r2") // now retry_count=2, at max
-
-	// Reset for retry dispatch.
-	db.ResetTurnForRetry("r2")
 
 	_, _ = loop.processGroupMessages("slack:T/C/U")
 	if len(dl.sends) != 1 || dl.sends[0].text != retryExhaustedNotice(loop.maxTurnRetry) {

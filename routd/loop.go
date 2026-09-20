@@ -90,8 +90,9 @@ type Loop struct {
 	pendingElevation sync.Map // message_id → struct{}
 	nextScanAt       time.Time
 
-	// busyWait backs off the re-dispatch of a batch runed refused as Busy,
-	// per chat (chatJID → busyState). Without it a refused batch is re-fed
+	// busyWait backs off the re-dispatch of a batch nothing consumed — refused
+	// by runed as Busy, or failed with a retry still owed — per chat
+	// (chatJID → busyState). Without it a refused batch is re-fed
 	// on every 2s poll and each re-feed does the FULL pre-dispatch setup —
 	// capability resolve, MCP socket, prompt build — before runed refuses it
 	// again: a restart's migrate wave on krons produced 4,704 dispatches for

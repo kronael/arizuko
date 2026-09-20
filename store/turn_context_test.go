@@ -127,7 +127,9 @@ func TestARetryMovesTheCountAndTheStateTogether(t *testing.T) {
 		if tc.RetryCount != want {
 			t.Fatalf("the turn reads back %d attempts, want %d", tc.RetryCount, want)
 		}
-		if err := s.ResetTurnForRetry("t1"); err != nil {
+		// The re-dispatch is what puts the turn back in flight, so the next
+		// attempt is counted from a re-bound turn the way dispatch counts it.
+		if _, err := s.OpenTurnContext("t1", "demo", "", "tg:1", "u1", ""); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -286,7 +288,7 @@ func TestTheGatewayKeyPointerSurvivesTheTurnsWholeLifecycle(t *testing.T) {
 	if _, err := s.RecordRetryAttempt("t1"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.ResetTurnForRetry("t1"); err != nil {
+	if _, err := s.OpenTurnContext("t1", "demo", "", "tg:1", "u1", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetTurnState("t1", TurnDone); err != nil {
