@@ -7,6 +7,30 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L323 — a folder delete does its work and then reports failure, and one comment still says it rolls back (2026-09-20, open)
+
+Split out of `L246`, whose own premise turned out to be false.
+
+`purgeFolder` (`store/folder_scope.go:287-343`) sweeps every scope and deletes
+matching items with `TryWriteEntities` per chunk. It is not a transaction and it
+does not roll back — but the comment at `store/folder_scope.go:275` still says
+it does, which is the kind of claim a reader acts on.
+
+`DeleteGroup` (`store/groups.go:351-353`) then reads `removed == 0` and skips
+the audit row. Both callers read that as the whole operation failing:
+`cmd/arizuko/main.go:475` dies with "no group at X", and
+`dashd/groups_admin.go:416` answers 404. So an operator deleting a folder whose
+`groups` row is already gone gets an error AFTER the orphan rows were
+successfully swept, is told nothing was done, and has no audit row to check.
+
+- **Severity:** low — the data outcome is correct; the report is not, and it invites a second attempt that also "fails"
+- **Scope:** `store/folder_scope.go`, `store/groups.go`, the two callers
+- **Affected:** every instance; reachable whenever a purge runs against a missing `groups` row
+- **Source:** measured 2026-09-20 at `ed81ed1f`
+- **Status:** open — the comment fix is mechanical; what the callers should
+  REPORT after a successful sweep with no group row is a small contract
+  question, so it waits.
+
 ## ✅ FIXED 2026-09-20 L322 — webd advertises a browser SDK at `/assets/`, and no proxyd route carries that prefix (2026-09-20)
 
 Split out of `L117`, where it was recorded as the adjacent finding.
@@ -2117,7 +2141,7 @@ through `store.ArchiveRouteTokenRow`, a separate document that already carries
   is that an export taken before this change fails the CAS check of an `apply`
   run after it, until it is re-exported. Loud, and one command to clear.
 
-## L261 — every route on krons sits at `seq = 0`, so dispatch order is decided by an autoincrement tie-break (2026-09-07, open)
+## ✅ FIXED 2026-09-20 L261 — every route on krons sits at `seq = 0`, so dispatch order is decided by an autoincrement tie-break (2026-09-07)
 
 MEASURED on krons 2026-09-07: `routes` holds 58 rows and `count(DISTINCT seq)`
 is 1 — every row has `seq = 0`. `ORDER BY seq, id` therefore resolves entirely
@@ -2139,6 +2163,25 @@ value; the point is that it must stop being the ORDER.
 - **Status:** open
 - **Fix:** `seq` carries a declared order — the route verbs set it — and the
   entity sorts on a padded `seq` so string order is numeric order
+
+
+- **Status:** closed on re-check 2026-09-20 — the premise is false, and shipping
+  the proposed fix would CONTRADICT a written decision.
+- **Re-measured:** `id` is no longer an autoincrement. `store/routes.go:22-27`
+  mints it through `store.Counters` compare-and-swap, because an entity has no
+  AUTOINCREMENT and two concurrent `add_route` calls reading `max(id)+1` would
+  hand one handle to two rules. The padded-seq half is shipped: `padSeq` and
+  `routeSeqWidth = 10` (`store/routes.go:62-105`), with `db:"seq,pad"` at
+  `resreg/resources/routes.go:39`. An operator can already declare order with
+  `arizuko route --seq` (`cmd/arizuko/route.go:62-63`). A re-import preserves
+  `id` and carries the counter past it (`store/import_routd.go:301-348`), so the
+  entry's concrete risk — re-importing in a different order reordering dispatch
+  — does not happen.
+- **The tie-break is deliberate.** `store/routes.go:16-21` states why: every
+  live instance carries almost every rule at seq 0 (58 of 58 on krons), so
+  sorting by the coordinate would re-rank those 58 rules alphabetically and
+  change which one answers a chat. Taken during the entity migration
+  (`1628b3bd`) to avoid exactly that re-rank.
 
 ## ✅ FIXED 2026-09-07 L262 — the storage-layer guard uppercases a line before matching, so prose reads as SQL (2026-09-07)
 
@@ -4541,7 +4584,7 @@ Bearer header, and a browser navigation carries a cookie.
 - **Not verified:** the authenticated case. No session was available to drive
   it. A live browser that reaches `/onboard` and renders would disprove this.
 
-## L100 — proxyd and webd authorize under a `user:`-prefixed principal, so `/dash/proxyd/` and webd's `routes.*` tools are 403 for everyone (2026-08-26, authz half FIXED 2026-08-29; the response-shape half open)
+## ✅ FIXED 2026-09-20 L100 — proxyd and webd authorize under a `user:`-prefixed principal, so `/dash/proxyd/` and webd's `routes.*` tools are 403 for everyone (2026-08-26)
 
 The JWT `sub` is always prefixed — `authd/oauth.go:329` mints
 `claimSub := "user:" + sub`, `authd/server.go:361` the same on refresh — and
@@ -4593,6 +4636,19 @@ asserts a `user:`-prefixed header reaches the Caller bare and that
 a separate defect on the same page, and the cross-cutting half — a per-daemon
 strip is now a seven-copy predicate, and the durable fix is stripping once
 where the header is read.
+
+- **Status:** closed on re-check 2026-09-20 — both halves hold.
+- **Re-measured:** the response-shape half is settled, not open.
+  `proxyd/resource.go:181-188` returns a BARE array, its own comment names the
+  convention, and the one in-tree consumer decodes a bare array
+  (`dashd/services.go:166-169`). `grep 'json:\"routes\"'` returns **0 hits**
+  repo-wide, so no envelope survives to disagree with. `dashd/proxyd_page.go`
+  is gone — proxyd serves its own page from its snapshot (`proxyd/dash.go:40`,
+  `ba63d55a`). The authz half stays fixed at `proxyd/resource.go:374` and
+  `webd/routes_mcp.go:46`.
+- **Not a defect:** the "seven-copy strip" note is a design preference about
+  `BareSub`, measured at six production sites today. It is not part of this
+  entry's failure.
 
 ## ✅ FIXED 2026-08-29 L101 — webd runs a second folder-containment predicate that disagrees with `auth.MatchGroups` in both directions (2026-08-26)
 
@@ -4758,7 +4814,7 @@ followed by a command.
 - **Fix (local):** after a steer, advance only if no older un-dispatched
   non-bot rows remain — or re-run the loop over the remainder first.
 
-## L105 — `fetch_history` caches platform rows as user-authored, and the twin poisons every `id=? OR platform_id=?` lookup (2026-08-26, open)
+## ✅ FIXED 2026-09-20 L105 — `fetch_history` caches platform rows as user-authored, and the twin poisons every `id=? OR platform_id=?` lookup (2026-08-26)
 
 `fetchPlatformHistory` (`routd/mcp.go:390-399`, behind the agent's
 `fetch_history` tool) inserts each fetched row as
@@ -4797,6 +4853,18 @@ whichever the query plan scans first.
   authored one.
 - **Confidence:** high on the mechanism, medium on frequency — the outcome is
   nondeterministic on query-plan order.
+
+
+- **Status:** closed on re-check 2026-09-20 — the writer is gone.
+- **Re-measured:** `routd/mcp.go:394-405` decodes the `HistoryResponse` into
+  `out.Messages` and returns it; there is no `PutMessage` on the path, so no
+  twin row is written. `ba3f8615` (2026-09-05) removed it, and every remaining
+  `PutMessage` caller in routd mints a fresh id. `ReplyTargetIsBot` returns
+  **0 hits** repo-wide — `routd/server.go:577` reads `parent.BotMsg` off a full
+  row instead.
+- **Left, and it is operator data not code:** the first-match-wins scan
+  survives (`store/messages.go:725-730`), latent with no twin writer. Twin rows
+  an instance already holds would need a data cleanup.
 
 ## L106 — the agent's `reply`/`send` sends one idempotency key and the retry sweep sends a different one, so the whole dedup contract is off for every MCP message (2026-08-26, proposal — needs sign-off; the fix crosses the ipc↔routd contract)
 
@@ -13498,7 +13566,7 @@ harness (invites, watchers, tasks) on routd too. That is the test-scaffold
 migration, and it is the last thing standing between the tree and one FTS5
 query instead of two.
 
-## L209 — a bare TLD is a valid egress allow entry, so one agent-written rule opens every host under it (2026-09-06, FIXED)
+## ✅ FIXED 2026-09-20 L209 — a bare TLD is a valid egress allow entry, so one agent-written rule opens every host under it (2026-09-06)
 
 MEASURED, on the live sloth instance. `main/trading` holds eight allow rows
 that are bare TLDs: `com`, `org`, `net`, `io`, `ai`, `co`, `news`, `xyz`. All
@@ -13548,6 +13616,15 @@ agent explicitly asked for is withdrawn.
   fleet-wide
 - **Status:** fixed in `egress/match/match.go`; reaches an instance on the next
   image rebuild and restart
+
+
+- **Status:** closed on re-check 2026-09-20 — the entry's own FIXED note holds.
+- **Re-measured:** `egress/match/match.go:53-58` — an entry matches exactly, and
+  the suffix arm runs only when `strings.Contains(entry, ".")`, so a bare TLD
+  opens nothing under it. `egress/match` is the ONE matcher: `crackbox/pkg/match`
+  is gone, and its five importers are `egress/proxy.go:21`, `store/network.go:36`,
+  `sandbox/internal/netfilter.go:8`, `routd/network_rules_resource.go:29` and
+  `sandbox/sandbox.go`.
 
 ## ✅ FIXED 2026-09-06 L210 — 26 prose spec IDs across the corpus name a spec that does not exist, and no check sees that form (2026-09-06)
 
@@ -14502,7 +14579,7 @@ it took the folder's children with it.
   rolls back only when it did not. That is the entry's own stated fix.
 - **Test:** `routd.TestRegisterGroup_RollsBackOnlyWhatItCreated` — a pre-existing
   folder and its child both survive a failed route insert.
-## L246 — orphan rows from the old delete cannot be cleaned through the new one (2026-09-06, open)
+## ✅ FIXED 2026-09-20 L246 — orphan rows from the old delete cannot be cleaned through the new one (2026-09-06)
 
 MEASURED. marinade carries one orphan route, four engagement rows and two
 sessions for `libtest` and `atlas/tom`, left by the delete path `L198` fixed.
@@ -14518,6 +14595,20 @@ never have reached in the first place.
 - **Fix:** a `purge <folder>` verb that runs the scope without requiring the
   `groups` row, or `6/37` redesign 1's generation, which makes an orphan
   unreachable rather than absent
+
+
+- **Status:** closed on re-check 2026-09-20 — the premise is false now.
+- **Re-measured:** `purgeFolder` (`store/folder_scope.go:287-343`) returns
+  `errNoSuchGroup` only when `folder == ""`. It then sweeps every scope and
+  deletes matching items with `TryWriteEntities` per chunk. `DeleteGroup`
+  (`store/groups.go:351-353`) reads `removed == 0` only AFTER that sweep ran, so
+  it skips the audit row — never the delete. The gate went in `ce5ccaa0`,
+  "deleting a folder is a sweep, not a transaction".
+- **Two residuals, filed as `L323` rather than left here:** the comment at
+  `store/folder_scope.go:275` still says the purge rolls back, and both callers
+  report failure after a successful sweep (`cmd/arizuko/main.go:475` dies with
+  "no group at X"; `dashd/groups_admin.go:416` answers 404), so the cleanup
+  happens and nothing tells the operator.
 
 ## ✅ FIXED 2026-09-20 L247 — `handleGroupCreate` has no test, and it is the security-bearing transaction (2026-09-06)
 
@@ -14554,7 +14645,7 @@ pattern.
   VERIFIED by mutation: a wrong grant scope and a renamed audit action each
   turn it red, and both revert green.
 
-## L248 — four dashd list reads now surface a mid-iteration failure that was silently dropped (2026-09-06, open — behaviour delta)
+## ✅ FIXED 2026-09-20 L248 — four dashd list reads now surface a mid-iteration failure that was silently dropped (2026-09-06)
 
 RECORDED as a change, not a bug, because it is a real behaviour delta shipped
 inside a refactor and it deserves to be visible.
@@ -14572,6 +14663,17 @@ direction. No test covers it either way.
 - **Scope:** `dashd/dashstore`
 - **Fix:** a test that injects a mid-iteration failure and asserts the banner,
   which would also pin the four call sites against a silent regression
+
+
+- **Status:** closed on re-check 2026-09-20 — the mechanism is gone.
+- **Re-measured:** `grep -rn 'rows.Err()'` over the tree (excluding the
+  untracked `.migrate*` copies) returns **0 hits**. The four functions survive
+  and read through `objstore.Query` (`dashd/dashstore/pages.go:30-51`, `:96-97`,
+  `:121-145`), which returns a complete slice or an error — there is no
+  mid-iteration failure left to drop, so the entry's stated fix is
+  unimplementable as written. The SQLite→DynamoDB move took it (`9698de97`).
+  The error-surfacing behaviour it praised survives in another shape
+  (`dashd/proactive_page.go:140-145`).
 
 ## ✅ FIXED 2026-09-18 L228 — 30 migration files were SQLite-only (2026-09-06)
 
