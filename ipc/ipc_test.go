@@ -110,7 +110,7 @@ func TestSendReply(t *testing.T) {
 	gated := GatedFns{
 		SendMessage:   func(jid, text string) (string, error) { return "", nil },
 		SendDocument:  func(jid, path, fn, caption, replyTo, threadID string) (string, error) { return "", nil },
-		SendReply:     func(jid, text, rid string) (string, error) { return "", nil },
+		SendReply:     func(jid, text, rid string) (string, string, error) { return "", "", nil },
 		GroupsDir:     "/tmp/groups",
 	}
 	srv := buildMCPServer(gated, StoreFns{}, "world", false, "")
@@ -698,9 +698,9 @@ func TestServeMCP_Reply_ThreadsViaActiveTopic(t *testing.T) {
 		DefaultFolderForJID: func(jid string) string { return "world" }, // route exists → authz passes
 	}
 	gated := GatedFns{
-		SendReply: func(jid, text, rid string) (string, error) {
+		SendReply: func(jid, text, rid string) (string, string, error) {
 			sentReplyTo = rid
-			return "new-id", nil
+			return "new-id", "", nil
 		},
 	}
 	stop, err := ServeMCP(sock, gated, db, "world", true, 0, "")

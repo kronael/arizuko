@@ -122,10 +122,10 @@ func TestMcpDeliverReplyThreadsSendDoesNot(t *testing.T) {
 	_ = db.SetChatIsGroup(jid, true)
 	threadTurn(t, db, "t1", "demo", jid, "1700000111.000100")
 
-	if _, err := srv.mcpDeliver("t1", jid, "answer", "", true); err != nil {
+	if _, _, err := srv.mcpDeliver("t1", jid, "answer", "", true); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := srv.mcpDeliver("t1", jid, "announce", "", false); err != nil {
+	if _, _, err := srv.mcpDeliver("t1", jid, "announce", "", false); err != nil {
 		t.Fatal(err)
 	}
 	if len(dl.sends) != 2 {

@@ -45,9 +45,11 @@ func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 		Audit:                s.audit,
 		FetchPlatformHistory: s.fetchPlatformHistory,
 		SendMessage: func(jid, text string) (string, error) {
-			return s.mcpDeliver(t.turnID, jid, text, "", false)
+			// send roots no thread, so it has no root to report.
+			pid, _, err := s.mcpDeliver(t.turnID, jid, text, "", false)
+			return pid, err
 		},
-		SendReply: func(jid, text, replyTo string) (string, error) {
+		SendReply: func(jid, text, replyTo string) (string, string, error) {
 			return s.mcpDeliver(t.turnID, jid, text, replyTo, true)
 		},
 		SendDocument: func(jid, path, filename, caption, replyTo, threadID string) (string, error) {
@@ -249,9 +251,15 @@ func ensureGroupGitRepo(groupDir string) {
 // this must NOT do any of that or the row double-persists. returnTarget redirects
 // delegated turns to the origin; threaded marks the REPLY verb, which may root a new
 // platform thread on the trigger message.
-func (s *Server) mcpDeliver(turnID, jid, text, replyTo string, threaded bool) (string, error) {
+//
+// It returns that root, because the ipc layer writes the row and cannot see it.
+// Without it the row carried the turn's topic — `''` for a parent-channel turn —
+// so an MCP reply that rooted a thread recorded no thread: 4 of 9 `mcp-` rows in
+// one sloth thread had an empty topic while the REST rows beside them said where
+// they landed (BUGS L166).
+func (s *Server) mcpDeliver(turnID, jid, text, replyTo string, threaded bool) (string, string, error) {
 	if s.deliver == nil {
-		return "", nil
+		return "", "", nil
 	}
 	topic, threadRoot := "", ""
 	if tc, ok := s.db.GetTurnContext(turnID); ok {
@@ -265,7 +273,7 @@ func (s *Server) mcpDeliver(turnID, jid, text, replyTo string, threaded bool) (s
 	if err != nil {
 		slog.Warn("mcp deliver failed", "turn_id", turnID, "jid", jid, "err", err)
 	}
-	return pid, err
+	return pid, threadRoot, err
 }
 
 // mcpAppendDoc is the in-process send_file: deliver-only (the ipc tool layer's

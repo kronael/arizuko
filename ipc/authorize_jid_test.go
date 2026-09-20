@@ -124,3 +124,40 @@ func TestAuthorizeJID_PreColumnTokenKeepsTheGrammar(t *testing.T) {
 		t.Fatalf("pre-column token: authorizeJID = %v, want nil", err)
 	}
 }
+
+// A reply that ROOTS a platform thread lands in that thread, and the row has to
+// say so. The MCP path stamped the turn's active topic, which is "" for a
+// parent-channel turn, so an MCP-rooted thread recorded no thread at all: 4 of 9
+// `mcp-` rows in one sloth thread carried an empty topic while the REST rows
+// beside them said where they landed. threadHasBotMessage then missed the
+// thread, the retry sweep had none to re-send into, and "where did this reply
+// go" was unanswerable from the row (BUGS L166).
+func TestRecordOutboundReply_RecordsTheThreadItRooted(t *testing.T) {
+	var got core.Message
+	db := StoreFns{PutOutbound: func(m core.Message, _ string) error { got = m; return nil }}
+
+	const root = "1545760882322182276"
+	recordOutboundReply(GatedFns{}, db, "discord:g/channel/C1", "answer", "m-9", "sloth/desk", root)
+
+	if got.Topic != root {
+		t.Fatalf("Topic = %q, want the thread it rooted (%s)", got.Topic, root)
+	}
+}
+
+// The turn's own topic still wins. A reply inside a thread the turn is already
+// on must not be re-keyed onto a root the platform handed back, or the next
+// in-thread reply chains off the wrong key. This is deliverRow's policy
+// (routd/turns.go) and not a second one.
+func TestRecordOutboundReply_TheTurnsTopicWinsOverTheRoot(t *testing.T) {
+	var got core.Message
+	db := StoreFns{
+		PutOutbound:  func(m core.Message, _ string) error { got = m; return nil },
+		CurrentTopic: func(folder string) string { return "turn-topic" },
+	}
+
+	recordOutboundReply(GatedFns{}, db, "discord:g/channel/C1", "answer", "m-9", "sloth/desk", "rooted-elsewhere")
+
+	if got.Topic != "turn-topic" {
+		t.Fatalf("Topic = %q, want the turn's own topic", got.Topic)
+	}
+}

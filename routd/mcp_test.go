@@ -30,7 +30,7 @@ func TestBuildGatedFnsSendReply(t *testing.T) {
 	}
 
 	fns := srv.buildGatedFns(turnMCP{folder: "demo", topic: "", chatJID: "tg:42", turnID: "t1", trigger: "u1"})
-	pid, err := fns.SendReply("tg:42", "answer", "")
+	pid, _, err := fns.SendReply("tg:42", "answer", "")
 	if err != nil {
 		t.Fatalf("SendReply: %v", err)
 	}
