@@ -8606,7 +8606,7 @@ Ties: `5/14` (credential tiers — this moves the model key OUT of the env tier)
 `X2` (the same "container must not hold the raw secret" argument, other half).
 
 
-## L48 — proposal: one proxy per spawn, instead of one registry keyed by source IP (2026-08-18, operator's idea, needs sign-off)
+## ✅ FIXED 2026-09-20 L48 — proposal: one proxy per spawn, instead of one registry keyed by source IP (2026-08-18, operator's idea, needs sign-off)
 
 `6/8` §"Security invariants" makes egress safety depend on an ordering the
 consumer must honour:
@@ -8689,6 +8689,25 @@ trust model cannot.
 Not considered in `6/8`, `6/9` or `6/20`. Worth costing before any further work
 on the registry, because it would delete the registry rather than improve it.
 
+
+- **Status:** closed on re-check 2026-09-20 — the proposal was adopted and
+  shipped. The entry is the idea; `specs/6/24-crackbox-lightest.md` is the
+  decision, and it is `status: shipped`.
+- **`6/24:10` states this entry's proposal in its own words:** "Per-folder
+  egress is enforced by the smallest thing that can: **one forward proxy per
+  spawn, statically configured, forward mode only.**" Its component table at
+  `:80` names `egress/` as "the forward proxy: library + small binary", used by
+  "`runed`, per spawn, in production", and `container/runner.go:693` carries the
+  `egressSpawn` that builds it.
+- **The registry this argues against is gone.** `unregister` and a source-IP-keyed
+  entry return **zero** non-test hits; the surviving `source_ip` matches are
+  `audit_log` columns and unrelated. So the late-unregistration window — runed
+  dying between a container exiting and `/v1/unregister`, leaving a stale entry
+  for the next tenant on a reused docker IP — has no mechanism left to occur in.
+- **Which is the outcome the entry asked for**, quoting root `CLAUDE.md`: a
+  cross-folder leak held off by a convention was replaced by a design that makes
+  the bad state impossible. A proxy that exists only for one spawn cannot be
+  inherited by the next.
 
 ## ✅ FIXED 2026-08-17 L47 — a package's skills never reach a group that already existed (2026-08-17)
 
