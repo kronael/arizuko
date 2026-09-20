@@ -1078,7 +1078,7 @@ the file path on a served instance — a split-brain writer, the exact shape
 - **Fix:** `core.LoadInstanceEnv` is the one declaration and `instanceDir` its second
   reader, so every subcommand that names an instance sees the same store the daemons do
 
-## L293 — the store server answers 500 under a full host disk, and says nothing about the disk (2026-09-13, open)
+## ✅ FIXED 2026-09-20 L293 — the store server answers 500 under a full host disk, and says nothing about the disk (2026-09-13)
 
 MEASURED on krons' own server (ExtendDB 0.1.11 over PostgreSQL 17) during the copy: a
 `Query` of `routd.audit_log` and then a `TransactWriteItems` into it both failed with
@@ -1102,6 +1102,33 @@ when the true fact is "the host is full".
   read of a constant-partition entity (`audit_log`, 182,314 items in ONE partition) is
   re-measured on a host with room, because this run cannot tell a size limit from a
   full disk. `specs/6/42` §12 items 5 and 6 own that measurement.
+
+- **Status:** the driver half is fixed 2026-09-20; the re-measurement is still owed.
+- **Fix (the half that is ours):** `objstore/dynstore/fault.go`. `serverFault`
+  marks an error the SERVER produced with `ErrServerFault` and names the
+  operation, and both call sites use it — `query.go`'s `Query` and `batch.go`'s
+  `TransactWriteItems`, which is exactly the read and the write that failed on
+  krons. A caller can now tell "the request was well formed and the server
+  failed" from "the request was wrong", which is the distinction the opaque
+  wrap destroyed.
+
+  Two shapes are recognised, because the SDK models one and not the other:
+  DynamoDB's typed `InternalServerError`, which ExtendDB answers, and any 5xx
+  the transport saw, which is what a proxy or a crashed server answers. A 4xx
+  is NOT a fault — marking one would send an operator to inspect a healthy host.
+
+  The original error is preserved in the chain, so every caller that matches on
+  an SDK type still can, and an error that did not fault is returned EXACTLY as
+  it came — not rewrapped — so `refused()` and every other shape match is
+  untouched.
+
+  PROVEN BY MUTATION, three ways: make the typed check never match, treat every
+  status as a fault, or drop the operation name — each turns a test red.
+- **Still owed, and it is a measurement not a code change:** re-reading
+  `audit_log` (182,314 items in ONE partition) on a host with room, because the
+  krons run could not tell a size limit from a full disk. `specs/6/42` §12
+  items 5 and 6 own it.
+- **Not ours:** the disk itself is an infrastructure concern.
 
 ## ✅ FIXED 2026-09-18 L290 — `routd`'s held-world test races its own recorder, so one run in five reports the owner was never asked (2026-09-13)
 

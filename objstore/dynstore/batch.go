@@ -163,7 +163,10 @@ func (s *Store) GuardedBatch(ctx context.Context, checks []objstore.Check,
 	if refused(err) {
 		return false, nil
 	}
-	return false, err
+	// The operation's name rides the error because a batch that fails names
+	// nothing on its own; a caller reading a log line needs to know which
+	// write, and whether the server or the request is at fault (BUGS L293).
+	return false, serverFault(fmt.Sprintf("batch of %d writes", len(writes)), err)
 }
 
 // refused reports whether the endpoint turned the batch down because a

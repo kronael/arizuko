@@ -138,7 +138,7 @@ func (s *Store) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, e
 	for {
 		res, err := s.api.Query(ctx, in)
 		if err != nil {
-			return nil, fmt.Errorf("query %s: %w", q.Entity, err)
+			return nil, serverFault(fmt.Sprintf("query %s", q.Entity), err)
 		}
 		for _, raw := range res.Items {
 			it, err := readItem(raw)
