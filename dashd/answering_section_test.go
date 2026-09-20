@@ -156,3 +156,21 @@ func TestStatus_AnsweringSectionSaysWhenRoutdIsUnreachable(t *testing.T) {
 		t.Error("a dead routd rendered as a healthy instance")
 	}
 }
+
+// The session tally on the same page dropped an unreachable routd to a
+// slog.Warn and rendered nothing, so an absent session table read as "no
+// sessions" — a false statement an operator acts on, and exactly the failure
+// mode spec 6/29 names. One page cannot hold two answers to "what does a dead
+// routd look like" (BUGS L325).
+func TestStatus_SessionCountsSayWhenRoutdIsUnreachable(t *testing.T) {
+	d, _ := answeringDash(t)
+	d.routdURL = "http://127.0.0.1:1"
+	body := statusPage(t, d)
+	if !strings.Contains(body, "could not reach routd for session counts") {
+		t.Errorf("an unreachable routd left the session tally silent:\n%s", body)
+	}
+	// The page must not ALSO claim a healthy tally beside the banner.
+	if strings.Contains(body, "<h2>Active sessions") {
+		t.Error("a dead routd still rendered a session table")
+	}
+}

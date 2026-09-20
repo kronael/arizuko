@@ -35,7 +35,7 @@ should be red, now also red when it should be green.
   (`anteval/pkg/spec/catalog_test.go`) now pins that the probe keeps EXISTING; it says
   nothing about whether its budget is honest.
 
-## L325 — the status page drops a routd read failure to a log line (2026-09-20, open)
+## ✅ FIXED 2026-09-20 L325 — the status page drops a routd read failure to a log line (2026-09-20, open)
 
 `dashd/main.go` `handleStatus` reads the per-folder session tally through
 `sessionCountsViaRoutd` and, on error, calls `slog.Warn` and renders nothing else. The
@@ -56,6 +56,20 @@ looks like on one page.
 - **Source:** read 2026-09-20 at `bfcd70f9`
 - **Status:** open — one banner, same shape as the section beside it; left unfixed
   because it is not the concern this change touches.
+
+- **Status:** fixed 2026-09-20.
+- **Fix:** one banner, the same shape as the Answering section directly above
+  it — `htmlBanner("err", "could not reach routd for session counts")`. The
+  `slog.Warn` stays, because a log line is for the operator reading logs and the
+  banner is for the operator reading the page; neither replaces the other.
+- **It is the rule, not a nicety.** Spec `6/29`: "Every page renders an
+  unreachable owner as an ERROR, never as empty data — 'no routes', 'no tokens',
+  'no permissions', 'costs nothing' and 'no such task' are all false statements
+  an operator acts on." An absent session table reads as "no sessions".
+- **PROVEN BY MUTATION:** drop the banner and
+  `TestStatus_SessionCountsSayWhenRoutdIsUnreachable` fails. The test also
+  asserts the page does NOT still render an `Active sessions` heading beside the
+  banner, so the fix cannot be satisfied by showing both answers at once.
 
 ## L324 — two operator-surface checks that never run, split out of L98 (2026-09-20, open)
 

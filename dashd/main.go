@@ -837,7 +837,13 @@ func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 		counts, err := d.sessionCountsViaRoutd(r.Context())
 		if err != nil {
+			// An unreachable owner is an ERROR and never empty data (spec 6/29):
+			// an absent session table reads as "no sessions", which is a false
+			// statement an operator acts on. The Answering section directly above
+			// renders the same failure as a banner, and one page cannot hold two
+			// answers to "what does a dead routd look like" (BUGS L325).
 			slog.Warn("status: session counts via routd", "err", err)
+			fmt.Fprint(w, htmlBanner("err", "could not reach routd for session counts"))
 		} else {
 			var sessionRows [][]string
 			var total int
