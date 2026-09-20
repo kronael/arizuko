@@ -1,6 +1,6 @@
 # Eval checks — arizuko
 
-The twenty health checks, the report shape they fill, and the failure modes
+The twenty-one health checks, the report shape they fill, and the failure modes
 production has already shown. `INSTANCE` and the `sq` helper come from
 `SKILL.md` § "Reaching the store" — source it before the first query.
 
@@ -451,6 +451,50 @@ grep -q '\[solve\]' /home/onvos/app/arizuko/container/runner.go && \
 Runner missing nudge → solve never fires → no skill matching → agent runs blind.
 
 ---
+
+### 21. Unanswered chats (humans outran the replies)
+
+Check 4 asks whether the cursor MOVED. A chat can stay current and still answer
+nothing: an `#observe` route advances the cursor without running a turn, so the
+flag stays clear, the breaker stays closed and the census stays empty while a
+tenant waits for days (BUGS `L320`, found on krons after three silent days).
+This check asks about the OUTCOME instead — the newest human message against
+the newest reply.
+
+```bash
+sq routd.messages "select pk as chat,
+    max(substr(sk_s,1,30)) filter (where not attrs ? 'is_bot_message'
+      and attrs->'sender'->>'S' not like 'arizuko%'
+      and attrs->'sender'->>'S' not like 'timed%'
+      and attrs->'sender'->>'S' <> 'system') as newest_human,
+    max(substr(sk_s,1,30)) filter (where attrs->'is_bot_message'->>'S' = '1') as newest_reply
+  from e group by pk
+  having max(substr(sk_s,1,30)) filter (where not attrs ? 'is_bot_message'
+      and attrs->'sender'->>'S' not like 'arizuko%'
+      and attrs->'sender'->>'S' not like 'timed%'
+      and attrs->'sender'->>'S' <> 'system') > '$(date -u -d '7 days ago' +%Y-%m-%d)'
+  order by 2 desc"
+```
+
+**Pass**: every chat with a human message in the window has a `newest_reply`
+later than its `newest_human`, or later by one round at most.
+**Fail**: `newest_reply` is NULL or older than `newest_human` → that chat takes
+messages and answers none.
+
+Read the route before calling it a fault. A NULL reply is correct for a folder
+nobody talks to, and for the `#observe` half of a route pair when the operator
+meant plain messages to be observed. It is a fault when a person writes and
+expects an answer:
+
+```bash
+# Which rule answers this chat, and which one only observes it.
+sq routd.routes "select split_part(sk_s,chr(31),1)||' | '||split_part(sk_s,chr(31),2)
+  ||' | '||split_part(sk_s,chr(31),3) from e where sk_s like '%<room-id>%' order by sk_s"
+```
+
+A `verb=mention` rule with an `#observe` twin one seq below means plain messages
+are observed by design. Adding a `sender=` rule at the same seq answers one
+person without opening the chat to everyone.
 
 ## Output pattern
 

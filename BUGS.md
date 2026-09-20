@@ -7,7 +7,7 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
-## L320 — a chat that takes human messages and answers none is invisible to every operator surface (2026-09-20, open)
+## ✅ FIXED 2026-09-20 L320 — a chat that takes human messages and answers none is invisible to every operator surface (2026-09-20)
 
 MEASURED on krons 2026-09-20. `telegram:group/5229089286` routes to
 `rhias/nemo`. It carried **zero** bot replies from 2026-09-17 09:00 onward while
@@ -36,8 +36,23 @@ than errors.
 - **Scope:** `.claude/skills/eval/checks.md`; the census; any future alerting
 - **Affected:** every instance; found on krons, and the shape exists wherever a route pair is used
 - **Source:** krons `routd.messages` on `telegram:group/5229089286`, 2026-09-17 to 2026-09-20; routes `id=60` (`verb=mention`, seq 0) and `id=61` (`#observe`, seq 1)
-- **Status:** open — the check is the fix, and it is small: for each chat with a human message in the window, compare the newest human message against the newest bot message, and report a chat whose humans have outrun its replies by more than one round. It belongs beside check 4, which today asks only whether the cursor moved.
-- **Fix:**
+- **Status:** fixed 2026-09-20.
+- **Fix:** `/eval` check 21, "Unanswered chats (humans outran the replies)". It
+  groups `routd.messages` per chat and compares the newest human message against
+  the newest bot message over a 7-day window, so a chat that takes messages and
+  answers none is named even when nothing errored. Check 4 stays as it is: it
+  asks whether the cursor MOVED, and the whole point here is that the cursor
+  moves fine.
+
+  The check also says how to read its own output, because a NULL reply is
+  correct for a quiet folder and for the `#observe` half of a route pair. It
+  prints the chat's rules so the reader can tell "configured to observe" from
+  "should have answered", and names the `sender=` rule that answers one person
+  without opening the chat to everyone.
+
+  VERIFIED against krons: the query returns the rhias group answered (human
+  14:41, reply 14:47) and flags two `eval/*-child-delegate` chats that hold a
+  human message and no reply.
 
 ## L319 — arizuko never provisions a store identity, so a shared store server has no enrolment path (2026-09-20, open)
 
