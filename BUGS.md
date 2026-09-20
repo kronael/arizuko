@@ -96,6 +96,28 @@ them — the same "two readers, one question" shape as `L206`.
   the transit guard on in the harness needs an authd in the fixture, which is a harness
   decision.
 
+- **RE-MEASURED 2026-09-20: the `dashNavFor` half is CONFIRMED, and it is NOT
+  "one renderer away".** The two derivations are exactly as described —
+  `dashd/main.go:637` `auth.IsOperator(r)` reads `X-User-Groups` and nothing
+  else (`auth/dashauth.go:53-55`), while `dashd/authz.go:23-38` `callerScope`
+  falls back to `auth.UserScopes`. An operator-by-grant arriving without the
+  header gets the PAGES and not the LINKS.
+
+  `dashNavFor` takes only `*http.Request` and has no `*dash`, so it cannot
+  reach the store. `pageShell` and `pageTopFor` have no receiver either, and
+  they are called at **32 sites** across dashd. So the honest fix is to make the
+  derivation a method and thread `d` through both shells — mechanical, contained
+  to dashd, and thirty-two edits, not one.
+
+- **The obvious shortcut is a TRAP, and it is written here so nobody takes it.**
+  `d.guard` (`dashd/main.go:473`) wraps every `/dash/` handler and looks like
+  the single place to compute the verdict once and put it on the request
+  context. It returns `next` UNCHANGED when `d.ks == nil` (`:474-476`) — which
+  is the local-dev path AND the path every dashd test takes, because the
+  harness leaves `AUTHD_URL` unset. A fix seated there would be invisible to
+  every test that covers it, which is this entry's other half wearing a
+  different hat.
+
 ## L323 — a folder delete does its work and then reports failure, and one comment still says it rolls back (2026-09-20, open)
 
 Split out of `L246`, whose own premise turned out to be false.
