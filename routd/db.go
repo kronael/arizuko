@@ -660,6 +660,23 @@ func (d *DB) RunningTurns() ([]TurnContext, error) {
 	return d.store().RunningTurns()
 }
 
+// TurnsSince lists every turn dispatched at or after `since`, in whatever state
+// it reached — the outcome window the answering read folds into counts.
+func (d *DB) TurnsSince(since time.Time) ([]TurnContext, error) {
+	return d.store().TurnsSince(since)
+}
+
+// LastHumanMessage answers a chat's newest row a person wrote, and whether there
+// is one.
+func (d *DB) LastHumanMessage(jid string) (core.Message, bool, error) {
+	return d.store().LastHumanMessage(context.Background(), jid)
+}
+
+// LastBotMessage answers a chat's newest agent reply, and whether there is one.
+func (d *DB) LastBotMessage(jid string) (core.Message, bool, error) {
+	return d.store().LastBotMessage(context.Background(), jid)
+}
+
 // SweepExpiredRunning flips stale state='running' turns older than the run
 // timeout to the DISTINCT terminal 'expired' (NOT 'done') so they stop being
 // re-fed by crash recovery, without tripping the done-guard against a legitimate

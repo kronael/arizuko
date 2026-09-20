@@ -448,6 +448,29 @@ func (s *Store) appendInstant(ctx context.Context, m core.Message) (time.Time, e
 // name.
 const ProactiveSelfSender = "timed-proactive"
 
+// The senders arizuko writes on its own behalf. A person's sender is always
+// platform-qualified (`telegram:user/7`, `slack:user/U1`, `email:address/…`);
+// these four are the platform addressing itself.
+const (
+	// SystemSender writes the auto-migrate prompt (routd/loop.go).
+	SystemSender = "system"
+	// EscalateSender and DelegateSender write the agent-to-agent hand-offs
+	// (ipc/ipc.go, routd/steer.go).
+	EscalateSender = "escalate"
+	DelegateSender = "delegate"
+)
+
+// SyntheticSenders is the whole set of them, declared once beside the writer
+// because the message writer is what decides a row is not a person's traffic.
+//
+// The answering read (routd/answering.go) is its reader: a chat whose newest
+// unanswered row came from one of these has arizuko waiting on arizuko, and
+// reporting that as a person waiting is what turns a migration storm — 55
+// folders take one `system` prompt apiece — into 55 false alarms.
+var SyntheticSenders = []string{
+	ProactiveSelfSender, SystemSender, EscalateSender, DelegateSender,
+}
+
 // isRealInbound reports whether a message is traffic a person sent. A bot row is
 // the agent's own output and the proactive row is the trigger's.
 func isRealInbound(m core.Message) bool {
@@ -1248,22 +1271,62 @@ type ChatSummary struct {
 	LastAt  time.Time
 }
 
-// LastInboundMessage answers a chat's newest inbound human row — the message the
-// loop resolved last, and the one a held-set reader asks resolve about again.
-func (s *Store) LastInboundMessage(ctx context.Context, jid string) (core.Message, bool, error) {
+// lastMessageWhere answers a chat's newest row matching `where`, and whether
+// there is one. `what` names the row for the error a fault carries.
+//
+// It is ONE read for the three questions below, because they differ only in the
+// predicate: the descending-limit-1 shape and the "no row is not a fault"
+// contract are the same answer to all three and would drift if written thrice.
+func (s *Store) lastMessageWhere(ctx context.Context, jid, what string,
+	where []objstore.Cmp) (core.Message, bool, error) {
 	items, err := s.Obj().Query(ctx, objstore.Query{
 		Entity: Messages, Partition: jid,
-		Where: []objstore.Cmp{
-			{Attr: attrMsgFromMe, Op: objstore.Absent},
-			{Attr: attrMsgBot, Op: objstore.Absent},
-		},
-		Descending: true, Limit: 1,
+		Where: where, Descending: true, Limit: 1,
 	})
 	if err != nil {
-		return core.Message{}, false, fmt.Errorf("read %s's newest inbound row: %w", jid, err)
+		return core.Message{}, false, fmt.Errorf("read %s's newest %s row: %w", jid, what, err)
 	}
 	if len(items) == 0 {
 		return core.Message{}, false, nil
 	}
 	return messageFrom(items[0]), true, nil
+}
+
+// inboundWhere selects the rows neither the agent nor the operator's own device
+// wrote — the traffic the loop resolves.
+func inboundWhere() []objstore.Cmp {
+	return []objstore.Cmp{
+		{Attr: attrMsgFromMe, Op: objstore.Absent},
+		{Attr: attrMsgBot, Op: objstore.Absent},
+	}
+}
+
+// LastInboundMessage answers a chat's newest inbound human row — the message the
+// loop resolved last, and the one a held-set reader asks resolve about again.
+func (s *Store) LastInboundMessage(ctx context.Context, jid string) (core.Message, bool, error) {
+	return s.lastMessageWhere(ctx, jid, "inbound", inboundWhere())
+}
+
+// LastHumanMessage answers a chat's newest row a PERSON wrote: inbound, and from
+// none of the senders arizuko writes on its own behalf.
+//
+// It is narrower than LastInboundMessage on purpose. The held set asks which
+// message the loop resolved, and a `system` auto-migrate prompt is one; the
+// answering read asks who is waiting, and that prompt is arizuko waiting on
+// itself. The two questions want different rows, so they are two reads rather
+// than one read with a flag.
+func (s *Store) LastHumanMessage(ctx context.Context, jid string) (core.Message, bool, error) {
+	where := inboundWhere()
+	for _, sender := range SyntheticSenders {
+		where = append(where, objstore.Cmp{Attr: attrMsgSender, Op: objstore.Ne, Value: sender})
+	}
+	return s.lastMessageWhere(ctx, jid, "human", where)
+}
+
+// LastBotMessage answers a chat's newest row the agent wrote — the reply a
+// waiting person is waiting for. Absent means this chat has never been answered,
+// which is a different fact from an answer that arrived before the question.
+func (s *Store) LastBotMessage(ctx context.Context, jid string) (core.Message, bool, error) {
+	return s.lastMessageWhere(ctx, jid, "bot",
+		[]objstore.Cmp{{Attr: attrMsgBot, Op: objstore.Present}})
 }

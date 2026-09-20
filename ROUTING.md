@@ -206,6 +206,15 @@ seq 0. A `platform=<name>` rule claims a whole platform. History does
 not move: only messages after the claim reach the group. Spec
 `specs/6/35-unrouted-traffic.md`.
 
+A held chat looks identical to a broken one from the outside: nobody
+answers either. `GET /v1/routing/answering` separates them. It lists every
+chat whose newest human message is newer than its newest agent reply and
+tags each with the loop's own verdict — `route` means a turn was due and
+none answered, `observe` and `held` mean the chat is silent by the
+configuration above. It also counts the window's turn outcomes, so
+`expired` turns are readable without a hand-written query. The operator
+sees both on `/dash/status/`.
+
 ### Example: Discord guild mention-only
 
 A guild where the agent reads everything but only replies on mention:
