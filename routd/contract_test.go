@@ -3,6 +3,7 @@ package routd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -400,10 +401,16 @@ type fakeDeliverer struct {
 	platformID string
 	sends      int
 	docErr     error
+	// sendErr makes Send fail, which is the pending path: the row is stored as
+	// it stands and the outbound sweep re-sends it later.
+	sendErr error
 }
 
 func (d *fakeDeliverer) Send(_, _, _, _, _, _ string) (string, error) {
 	d.sends++
+	if d.sendErr != nil {
+		return "", d.sendErr
+	}
 	return d.platformID, nil
 }
 func (d *fakeDeliverer) SendVia(_, _, _ string) (string, error) {
@@ -505,4 +512,44 @@ func doJSONKey(t *testing.T, h http.Handler, method, path, idemKey string, body 
 	h.ServeHTTP(rec, req)
 	_ = time.Now
 	return rec
+}
+
+// A reply aimed at a thread must carry that thread on the row even when the
+// send FAILS. PutOutbound stores the row as it stands, and the outbound sweep
+// re-sends it with threadRoot="" — so a row left with no topic came back
+// TOP-LEVEL, outside the thread it was written for (BUGS L169).
+func TestDeliverRow_AFailedSendStillRecordsItsThread(t *testing.T) {
+	dl := &fakeDeliverer{platformID: "pid-1", sendErr: errors.New("platform said no")}
+	srv := &Server{deliver: dl}
+
+	row := &core.Message{ID: "out-1"}
+	status := srv.deliverRow(TurnContext{Folder: "atlas"}, "slack:T/C/1", row, "root-9", "")
+
+	if status != core.MessageStatusPending {
+		t.Fatalf("status = %q, want pending — the sweep re-sends this row", status)
+	}
+	if row.Topic != "root-9" {
+		t.Errorf("row.Topic = %q, want root-9; the sweep has no thread to aim at", row.Topic)
+	}
+}
+
+// A send that succeeds records the same thread, and a row that already has a
+// topic keeps its own — the stamp fills a gap, it does not overwrite.
+func TestDeliverRow_TheThreadStampFillsOnlyAnEmptyTopic(t *testing.T) {
+	dl := &fakeDeliverer{platformID: "pid-1"}
+	srv := &Server{deliver: dl}
+
+	fresh := &core.Message{ID: "out-1"}
+	if st := srv.deliverRow(TurnContext{Folder: "atlas"}, "slack:T/C/1", fresh, "root-9", ""); st != core.MessageStatusSent {
+		t.Fatalf("status = %q, want sent", st)
+	}
+	if fresh.Topic != "root-9" {
+		t.Errorf("a sent reply lost its thread: %q", fresh.Topic)
+	}
+
+	owned := &core.Message{ID: "out-2", Topic: "its-own"}
+	srv.deliverRow(TurnContext{Folder: "atlas"}, "slack:T/C/1", owned, "root-9", "")
+	if owned.Topic != "its-own" {
+		t.Errorf("the stamp overwrote an existing topic: %q", owned.Topic)
+	}
 }

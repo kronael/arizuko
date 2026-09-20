@@ -2811,7 +2811,7 @@ class root `CLAUDE.md` forbids ("Strict, not magical").
   existing panic-on-misconfiguration path, so an unknown Type is a build
   failure — every `Register` call is `init()`-time.
 - **Fix:** `fix(resreg): reject an unknown MCPArg.Type at registration`
-## L169 — a Discord `reply` quoting a message outside its thread was refused, labelled 502, retried ten times and re-posted top-level; the agent re-sent it too (2026-09-05, partial)
+## L169 — a Discord `reply` quoting a message outside its thread was refused, labelled 502, retried ten times and re-posted top-level; the agent re-sent it too (2026-09-05, link 1 FIXED; link 2 REST half FIXED 2026-09-20; the MCP half is a proposal)
 
 Measured on sloth, channel `920916162416635944`, 11:39–11:47 UTC: 14 `mcp
 deliver failed` and 22 sweep retries, every one `channel discord send: status
@@ -2866,6 +2866,26 @@ neither for a `topic=''` row).
   `discd/bot.go:416,719`, `chanreg/httpchan.go:206`, `routd/loop.go:428`
 - **Status:** partial — links 1 and 3's Discord case fixed; link 2 is a proposal
 - **Fix:** (this commit) for link 1
+
+- **Link 2's REST half is fixed 2026-09-20, and it was one statement moved.**
+  `deliverRow` stamped `row.Topic = threadRoot` AFTER the send's error return,
+  so a send that failed returned `pending` with the row's topic still empty.
+  `appendAndDeliver` then calls `PutOutbound(row, status)` and stores it as it
+  stands, and the outbound sweep sends `threadRoot=""` — so the retry posted the
+  reply TOP-LEVEL, outside the thread it was written for.
+
+  The stamp now runs BEFORE the send. A reply aimed at a thread belongs to that
+  thread from the moment this function decides to send it there: the thread ID
+  IS `threadRoot` on both Discord (thread channel = root message id) and Slack
+  (`thread_ts` = root ts), so the root exists whether or not this send lands.
+
+  PROVEN BY MUTATION: put the stamp back below the error return and
+  `TestDeliverRow_AFailedSendStillRecordsItsThread` fails. A second test pins
+  that the stamp fills only an EMPTY topic — a row carrying its own keeps it —
+  so the fix cannot be satisfied by overwriting every topic with the root.
+- **The MCP half stays a proposal, unchanged.** `ipc/ipc.go` stamps
+  `activeTopic(db, folder)` rather than the root it used, and fixing that needs
+  `mcpDeliver` to return the root across the ipc↔routd socket contract.
 
 ## L166 — the MCP outbound row records neither the thread it rooted nor its reply target; the REST row does (2026-09-05, open — proposal)
 
