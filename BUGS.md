@@ -7,6 +7,40 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L316 — a late follow-up ping makes the agent restate an answer the user can already see (2026-09-20, open)
+
+MEASURED on sloth 2026-09-20, the `main/trading` Discord thread. Two mentions
+landed 16 s apart: "ask codex astra why what you said is wrong" at 07:25:43 and
+a bare "sloth" at 07:25:59. The second arrived 23 s into the first turn, so the
+queue serialized it into a SECOND turn once the first finished — one container
+each, `...134084` exiting 07:26:53 and `...222462` exiting 07:28:03.
+
+Delivery was correct: the two replies differ in content, length (1534 vs 450
+bytes) and `platform_id`, so nothing was sent twice and no dedup contract was
+broken. The defect is judgement. The second reply opens "here." and recaps the
+critique it had just posted, and its own text says "I ran the adversarial pass
+myself just above" — the agent KNEW it had answered and answered again.
+
+The resident prompt produced this. `ant/CLAUDE.md` § Solve said a short or
+ambiguous message "earns `fetch_history` first, never silence", and § Reactions
+makes a reaction the floor for an addressed message. Neither said what to do
+when the history shows the question is already answered, so the agent took the
+only instruction it had and wrote the answer a second time.
+
+A bare name arriving mid-turn is a late-delivered follow-up, not a second
+question. The rule now says so: react, or send one line that moves things
+forward, and never restate an answer the user can already see.
+
+- **Severity:** low — no data loss; the agent reads as broken to the person in the chat
+- **Scope:** `ant/CLAUDE.md` § Solve
+- **Affected:** every chat where a user pings again before a turn lands
+- **Source:** sloth `routd.messages` on `discord:837270552959516682/920916162416635944`, 2026-09-20 07:25:43–07:27:40; `runed` container exits 07:26:53 and 07:28:03
+- **Status:** fixed
+- **Fix:** § Solve now names the already-answered case and its answer, beside the
+  `fetch_history` rule that sent the agent looking. Behaviour only — no code
+  path changed, and the rule reaches a live agent on the next `MIGRATION_VERSION`
+  bump plus ant image rebuild.
+
 ## L315 — a catalog package's rows freeze at `add` while its files and env keep tracking the catalog, and `upgrade` reports "nothing to do" (2026-09-19, open — proposal, needs sign-off)
 
 Found while closing `L199`. A package taken from the bundled catalog is
