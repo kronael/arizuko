@@ -6,7 +6,7 @@
   `emaid`, `linkd`, `mastd`, `reditd`) are wired in `compose/compose.go` +
   `template/services/*.toml` but absent from krons/sloth/marinade. Move
   them behind a feature-branch or strip; ~5k LOC.
-- **`discd/sent_ids.go` is add-never-read** since spec 6/J shipped — the
+- **`discd/sent_ids.go` is add-never-read** since spec 5/L shipped — the
   ring's `.has()` has zero non-test callers. Confirmed dead. ~70 LOC + test.
 - **Two registered MCP tools** (`get_history`, `pane_set_prompts`/`pane_set_title`)
   have zero usage in 7d of krons transcripts; `get_history` is self-documented
@@ -44,7 +44,7 @@ inside dead adapter binaries (see below).
 
 - `discd/sent_ids.go` (`sentIDs.has()` at line 41) — `.has()` has **zero**
   non-test callers (grep across `discd/*.go` minus `_test.go` shows only
-  `.add()`). Spec 6/J moved bot-message identification to a store column.
+  `.add()`). Spec 5/L moved bot-message identification to a store column.
   Recommendation: DELETE `sent_ids.go` + `sent_ids_test.go`, drop
   `botMsgs *sentIDs` field on `bot{}`, drop the four `.add()` callsites
   in `discd/bot.go`. Net: ~120 LOC.

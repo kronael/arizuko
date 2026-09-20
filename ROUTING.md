@@ -180,8 +180,8 @@ Spec: `specs/5/B-route-mode-ingestion.md`.
 
 routd rewrites `verb` at inbound ingest before routing, uniformly
 across adapters: reactions or text replies pointing at a bot-authored
-message promote to `verb=mention` (spec 6/J); emaid stamps
-`verb=untrusted` on mail failing DMARC + allowlist (spec 10/17). Route
+message promote to `verb=mention` (spec 5/L); emaid stamps
+`verb=untrusted` on mail failing DMARC + allowlist (spec 11/17). Route
 on these directly — e.g. `platform=email verb=untrusted` → quarantine
 folder, `verb=mention` → trigger turn.
 
@@ -238,7 +238,7 @@ seq  match                                             target
 A message in any Slack channel or private group without `@atlas` hits
 seq 100 and is stored as observed context — no turn fires, atlas stays
 silent. An `@atlas` mention promotes `verb=mention` (routd-side verb
-promotion, spec 6/J), which matches seq 40 first and fires a turn.
+promotion, spec 5/L), which matches seq 40 first and fires a turn.
 
 DMs (`slack:*/dm/*`) are routed separately at a lower seq number with
 a plain trigger target, so the agent always replies in DMs regardless
@@ -354,7 +354,7 @@ its own Claude session, reply chain, and message history.
 - **Web topic batching**: `processWebTopics` splits web messages by
   topic and runs one agent per topic, serially.
 
-- **Lineage (spec 6/F)**: every non-main topic carries
+- **Lineage (spec 5/F)**: every non-main topic carries
   `parent_topic`, `forked_at`, `observed_cursor` in `sessions`. New
   topics default to parent = topic of the message they reply to (or
   `""`/main if no reply-to). On fork routd `cp`s the parent's

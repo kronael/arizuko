@@ -38,7 +38,11 @@ var (
 	// the slug is left off: "spec 5/17", "spec&nbsp;5/17", "specs/5/17".
 	// All three are in the tree, so all three are checked.
 	specPathRe = regexp.MustCompile(`specs/([1-9][0-9]?)/([0-9A-Za-z][0-9A-Za-z_.-]*)\.md`)
-	specIDRe   = regexp.MustCompile(`(?i)\bspecs?(?:[ \t\x{00A0}]+|&nbsp;|/)([1-9][0-9]?)/([0-9]{1,2}|[A-Za-z][0-9]?)\b`)
+	// The separator class carries a COLON as well as whitespace: pages write
+	// "Spec:&nbsp;7/F." as readily as "spec 7/F", and a class without it let
+	// five dead IDs through on the one page a public reader hits
+	// (reference/mcp.html, BUGS L43).
+	specIDRe = regexp.MustCompile(`(?i)\bspecs?(?::?(?:[ \t\x{00A0}]+|&nbsp;)|/)([1-9][0-9]?)/([0-9]{1,2}|[A-Za-z][0-9]?)\b`)
 )
 
 // specsDir is the corpus the site cites. It sits outside pubDir, so the

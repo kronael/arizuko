@@ -113,7 +113,7 @@ type Route struct {
 	ObserveWindowChars    int    `json:"observe_window_chars,omitempty"`
 }
 
-// TopicLineage is the per-topic state introduced by spec 6/F. ParentTopic is *string
+// TopicLineage is the per-topic state introduced by spec 5/F. ParentTopic is *string
 // so "fork from main" is distinguishable from "no parent". Empty ObservedCursor means
 // no cursor recorded yet. All timestamps are core.TSLayout UTC.
 type TopicLineage struct {
@@ -259,7 +259,7 @@ func NewSessionID() string {
 }
 
 // ErrTopicExists signals a fork attempted to overwrite an existing
-// (folder, topic) without force=true. Spec 6/F.
+// (folder, topic) without force=true. Spec 5/F.
 var ErrTopicExists = fmt.Errorf("topic exists")
 
 // ACLRow is one grant in the unified ACL (spec 6/9). Effect is "allow"

@@ -571,7 +571,7 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	// verb=mention so routing sees a uniform trigger and the agent re-attends the
 	// thread instead of going silent after its 5/G engagement window closes.
 	// An untrusted sender (emaid marks unverified senders verb=untrusted, spec
-	// 10/17) must NOT escalate to a mention this way — that would let a spoofed
+	// 11/17) must NOT escalate to a mention this way — that would let a spoofed
 	// inbound drive an agent turn. gated guarded this; the split had dropped it.
 	if verb != "untrusted" &&
 		((hasParent && parent.BotMsg) || s.db.ThreadHasBotMessage(m.ChatJID, m.Topic)) {

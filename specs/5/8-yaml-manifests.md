@@ -671,7 +671,7 @@ An earlier per-folder lease/TTL design and a per-folder "pause new dispatch"
 flag were both considered and rejected in favor of this. Neither is built.
 `groups.open` (`store/groups.go:238`) was checked as a candidate "pause
 admission" lever and rejected as a red herring: it is read _only_ by
-`dashd`'s admin page for cross-group sibling visibility (spec 6/F), never
+`dashd`'s admin page for cross-group sibling visibility (spec 5/F), never
 consulted by any dispatch or admission path — the `routd/db.go:228` comment
 calling it "ambient turn admission" is stale prose, not evidence of behavior.
 

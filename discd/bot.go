@@ -242,7 +242,7 @@ func (b *bot) onReactionAdd(_ *discordgo.Session, m *discordgo.MessageReactionAd
 	}
 	jid := chatJID(m.GuildID, m.ChannelID)
 	// Reply-to-bot promotion to verb=mention happens in gateway/api
-	// (spec 6/J) — uniform across all adapters. Ship the raw emoji
+	// (spec 5/L) — uniform across all adapters. Ship the raw emoji
 	// classification; gateway upgrades when ReplyTo points at a bot row.
 	verb := chanlib.ClassifyEmoji(emoji)
 	senderName := ""
@@ -773,7 +773,7 @@ func isRateLimit(err error) bool {
 
 // isMentioned returns true when the bot is in the Discord-populated
 // Mentions list — i.e. the user typed `@<bot>` in body. Reply-to-bot
-// promotion lives in gateway/api (spec 6/J), driven by ReplyTo + the
+// promotion lives in gateway/api (spec 5/L), driven by ReplyTo + the
 // stored is_bot_message column; no per-adapter ring buffer needed.
 func (b *bot) isMentioned(m *discordgo.MessageCreate) bool {
 	botID := b.session.State.User.ID

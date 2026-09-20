@@ -8291,7 +8291,7 @@ along with `applyPackageGrants` / `applyPackageRoutes`.
   `cmd/arizuko/packages.go:parsePkgManifests`, and `ManifestRoutes` already
   drops the `owner` column on the compose side.
 
-## L43 — 44 stale spec references in the live tree (2026-08-16, PARTLY FIXED 2026-08-27; the retired-ID table was rejected)
+## L43 — 44 stale spec references in the live tree (2026-08-16, PARTLY FIXED 2026-09-20; the `6/7` family remains)
 
 A reference-graph check over tracked `.md`/`.go` (excluding `CHANGELOG.md`, which
 is history and correct as written) found **44 distinct spec IDs that no longer
@@ -8349,6 +8349,36 @@ the file anyway. The renumber rule that came out of this is recorded in
 different specs, `specs/7/2` six, and reusing one is what turns a dangling
 pointer into a confidently wrong one.
 
+
+- **2026-09-20, five families repointed — 36 sites.** Each destination was read
+  and its title matched against what the citing site claims, not guessed:
+  - `6/F` → `5/F` (topic lineage: forks + per-topic observed cursor), 11 sites
+  - `6/J` → `5/L` (routd-side reply-to-bot → `verb=mention` promotion), 9
+  - `10/17` → `11/17` (emaid sender authentication + quarantine), 8
+  - `7/F` → `5/F`, 4 · `7/D` → `8/D` (Slack agent pane), 3
+  - `8/15` → `11/15` in `dashd/channels.go`, whose own line calls itself the
+    operator-only re-pair surface — which is `11/15`'s title.
+
+  `BUGS.md`, `.diary/`, `CHANGELOG.md` and `ant/skills/self/migrations/` were
+  NOT touched: those record what was true when written.
+
+- **The guard gap is closed, and it was real.** `tests/webdocs`'s `specIDRe`
+  required whitespace after "spec", so the `Spec:&nbsp;7/F` colon form slipped
+  past it — on `reference/mcp.html`, the one page a public reader hits, five
+  times. The separator class now accepts a colon. PROVEN BY MUTATION: put one
+  site back to `7/F` and the test names the file and the citation.
+
+- **A stale warning removed, because acting on it would have caused a wrong
+  rewrite.** `specs/11/index.md` warned that `5/34` in code meant cost caps.
+  RE-MEASURED: all eleven `5/34` sites are about dedup, outbound resolution and
+  route targets — exactly what `specs/5/34 — Channel adapter protocol` holds.
+  The citations are correct and the note was not. It also named `8/16` where
+  the code says `8/15`.
+
+- **Left: the `6/7` family, 36 sites and the largest.** It is NOT a scripted
+  rewrite: `6/7` was retired into `6/1`, `5/9`, `5/16` and `6/16`, so each site
+  needs the one that holds its claim. That is judgement per hunk, which is what
+  the `blind_id_rewrite` rule exists for.
 
 ## L42 — krons WhatsApp is down: the paired session is invalidated (2026-08-16, BLOCKED on the operator's phone)
 

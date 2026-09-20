@@ -24,14 +24,20 @@ configured by env or `dashd`.
 | `14-plugins.md`           | an MCP-tool plugin layer with its own manifest, CLI and catalog. The package manager shipped that surface — `5/28`, `arizuko packages`, `cmd/arizuko/packages.go`.                                        |
 | `18-daemon-dashboards.md` | superseded by [`../6/28-cockpit-index.md`](../6/28-cockpit-index.md), which carries its routing/auth/theme/hub model over almost verbatim and fixes the read path.                                        |
 
-## Numbering warning
+## Numbering
 
-These specs were renumbered from an `8/xx` and `10/xx` scheme, and the old
-numbers are **baked into shipped code comments** — `emaid/main.go` and
-`emaid/auth.go` cite "spec 10/17" for what is now `11/17`, and
-`dashd/channels.go` cites "spec 8/16" for what is now `11/16`.
+These specs were renumbered from an `8/xx` and `10/xx` scheme. Every code
+comment carrying an old number has been repointed: `emaid/main.go` and
+`emaid/auth.go` cite `11/17`, and `dashd/channels.go` cites `11/15` — the
+self-service re-pair surface, which is what that file serves.
 
-Worse, ~12 code sites cite "Spec 5/34" meaning **cost caps** (`19`), from a
-numbering in which `5/34` was the cost-caps spec. `specs/5/34` is now
-`channel-protocol`, an unrelated shipped spec, so those comments now point a
-reader at the wrong document. Fixing them is a code change, not a spec one.
+A bare `<phase>/<id>` in prose is the form no check validates. `tests/specrefs`
+reads links and `depends:`; `tests/webdocs` reads the published pages and, as
+of 2026-09-20, accepts a colon after "spec" so `Spec:&nbsp;7/F` no longer slips
+past it. Source comments have no guard at all, which is why they are the thing
+a renumber has to sweep by hand (BUGS `L43`, `L237`).
+
+**Do not rewrite `5/34` on sight.** An older note here warned that `5/34` in
+code meant cost caps. RE-MEASURED 2026-09-20: all eleven `5/34` sites are about
+dedup, outbound resolution and route targets, which is exactly what
+`specs/5/34 — Channel adapter protocol` holds. The citations are correct.

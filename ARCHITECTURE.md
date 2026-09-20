@@ -1022,10 +1022,10 @@ today:
   under this folder via `#observe` routes; `routd/prompt.go`
 - `<topic name=…/>` — scope envelope on every turn (empty for main).
   Parent topic context arrives via the forked Claude Code session,
-  not via injection (spec 7/F rev6); `routd/prompt.go`
+  not via injection (spec 5/F rev6); `routd/prompt.go`
 - `<surface>slack-pane</surface>` + `<pane-context jid=…/>` —
   emitted when the trigger arrives via an open Slack assistant pane
-  (spec 7/D); `routd/prompt.go`
+  (spec 8/D); `routd/prompt.go`
 
 The convention for adding a block lives in `routd/README.md`. See
 `EXTENDING.md` for the autocall extension point in particular.

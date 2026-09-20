@@ -443,7 +443,7 @@ func (s *Store) GroupByFolder(folder string) (core.Group, bool) {
 
 // IsGroupOpen reports the folder's `open` flag. A missing group defaults to
 // true so a freshly-created one stays visible to its siblings until an operator
-// explicitly closes it. Spec 6/F.
+// explicitly closes it. Spec 5/F.
 func (s *Store) IsGroupOpen(folder string) bool {
 	it, ok, err := s.groupItem(context.Background(), folder)
 	if err != nil || !ok {
@@ -496,7 +496,7 @@ func (s *Store) SetGroupOpen(folder string, open bool) error {
 
 // GroupObserveWindow returns the per-group observe-window caps. (-1,-1)
 // means "not set; fall back to env defaults". Per-route caps still win
-// over per-group; per-group still wins over env. Spec 6/F.
+// over per-group; per-group still wins over env. Spec 5/F.
 func (s *Store) GroupObserveWindow(folder string) (msgs, chars int) {
 	msgs, chars = -1, -1
 	it, ok, err := s.groupItem(context.Background(), folder)
@@ -567,7 +567,7 @@ func (s *Store) SetGroupModel(folder, model string) error {
 
 // SiblingFolders returns folders that share folder's immediate parent,
 // excluding folder itself and any closed sibling. Root folders (no parent) have
-// no siblings — returns nil. Spec 6/F ambient join.
+// no siblings — returns nil. Spec 5/F ambient join.
 func (s *Store) SiblingFolders(folder string) []string {
 	parent := groupfolder.ParentOf(folder)
 	if parent == "" {

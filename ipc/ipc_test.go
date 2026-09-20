@@ -801,7 +801,7 @@ func TestServeMCP_SendFile_ThreadsViaActiveTopic(t *testing.T) {
 	}
 	// The recorded outbound must carry the platform id SendDocument returned,
 	// not "". A human reply to this file lands here via reply_to → the
-	// reply-to-bot → verb=mention promotion (spec 6/J) only fires when this is set.
+	// reply-to-bot → verb=mention promotion (spec 5/L) only fires when this is set.
 	if recordedPlatformID != wantPlatformID {
 		t.Fatalf("recorded PlatformID = %q, want %q (empty = the send_file empty-platform_id bug)", recordedPlatformID, wantPlatformID)
 	}

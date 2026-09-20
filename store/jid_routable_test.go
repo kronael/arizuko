@@ -40,7 +40,7 @@ func TestJIDRoutableToFolder_MentionOnlySubfolder(t *testing.T) {
 
 // An outbound bot row carries a synthetic primary id, so the only handle on it
 // the platform ever returns is `platform_id`. routd matches a reply's parent on
-// `id OR platform_id` to promote it to verb=mention (spec 6/J); a row written
+// `id OR platform_id` to promote it to verb=mention (spec 5/L); a row written
 // without the column makes that lookup miss and the agent never re-attends.
 func TestPutMessage_KeepsThePlatformID(t *testing.T) {
 	s := openMem(t)
