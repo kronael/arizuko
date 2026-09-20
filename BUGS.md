@@ -13940,7 +13940,7 @@ Local paths table (`link-is-public-url`), the map (`self-skill`).
   All 19 owner paths resolve and all 11 "already covered" ids exist.
 - **Status:** open — 17 rows remain, and each is a case to write, not an edit.
 
-## L189 — `sandbox/` writes no netfilter rule for a host-name allowlist entry, and the comment that explains why names a proxy `6/24` deleted (2026-09-05, open — proposal, needs sign-off)
+## L189 — `sandbox/` writes no netfilter rule for a host-name allowlist entry, and the comment that explains why names a proxy `6/24` deleted (2026-09-05, SILENT HALF FIXED 2026-09-20; the rule itself needs the crackbox decision — proposal, needs sign-off)
 
 Measured at `7c631ed3`: `sandbox/internal/netfilter.go` `RestoreNetworkRules`
 and `CleanupNetworkRules` walk `meta.AllowList` and act only where
@@ -13969,6 +13969,25 @@ the proxy ("a rule that never matches reads as protection and is not").
 - **Source:** `sandbox/internal/netfilter.go` RestoreNetworkRules; `egress/match.LooksLikeIP`; `sandbox/sandbox.go` Profile
 - **Status:** open — proposal, needs sign-off
 - **Fix:** pick (a), (b) or (c); (c) is ~10 lines in `sandbox.Spawn` plus one spec line
+
+- **The silence is fixed 2026-09-20, and the stale comment with it.**
+  `RestoreNetworkRules` said "domains are handled by egred proxy — no iptables
+  rules needed". `egred` has not existed in the code for months; the only
+  survivors are `CHANGELOG.md` and `USELESS.md`, which record what was true when
+  written. A host-name entry now logs that NOTHING enforces it, naming the entry
+  and the VM.
+- **What the comment should have said, and now does:** iptables matches
+  addresses, not names, and there is no proxy on the VM path to resolve one.
+  `6/24` cut per-folder egress to one forward proxy per SPAWN — arizuko's path,
+  not this one. So an operator who allowlists `api.github.com` here has
+  allowlisted nothing.
+- **PROVEN BY MUTATION:** make it silent again and the first test fails; drop
+  the no-IP early return and the second fails, because a VM with no address yet
+  must claim nothing either way.
+- **Still open:** whether a host-name entry should get a rule at all. That needs
+  a resolver on the VM path, and `sandbox/` is reached only by `crackbox`
+  (`L137`), so it is the same decision — whether the sibling keeps an isolation
+  path arizuko chose not to use.
 
 ## L190 — proposal: `6/9`, `6/16` and `6/25` §Order restate substrate facts that `substrate.Profile` now declares; make the prose a pointer (2026-09-05, open — docs, needs the spec owner)
 

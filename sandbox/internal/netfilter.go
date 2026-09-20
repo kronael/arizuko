@@ -59,8 +59,16 @@ func (m *Manager) RestoreNetworkRules(meta *Meta) error {
 			if err := m.allowIP(meta, target); err != nil {
 				return err
 			}
+			continue
 		}
-		// domains are handled by egred proxy — no iptables rules needed
+		// A HOST NAME GETS NO RULE, AND NOTHING ELSE ENFORCES IT. iptables
+		// matches addresses, not names, and there is no proxy on the VM path to
+		// resolve one — `6/24` cut per-folder egress down to one forward proxy
+		// per SPAWN, which is arizuko's path and not this one. So an operator who
+		// allowlists `api.github.com` here has allowlisted nothing, and silence
+		// is what made that look like it worked (BUGS L189).
+		log.Printf("sandbox: allowlist entry %q is a host name; no netfilter rule "+
+			"enforces it on VM %s", target, meta.ID)
 	}
 	return nil
 }
