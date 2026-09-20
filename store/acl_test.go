@@ -166,3 +166,48 @@ func TestAdminGrantWriteCoversTheFolderAndItsSubtree(t *testing.T) {
 		t.Errorf("sort key = %q, want the principal", sort)
 	}
 }
+
+// A predicate on a shell:env: row can only ever mean "never": ShellEnvKeys
+// resolves once per dispatch keyed on the folder and carries no claims, and
+// predicateMatches answers true only for an empty predicate. So
+// `predicate=platform=telegram`, which reads like "only in Telegram", revokes
+// the key on EVERY channel and nothing logs a denial, because nothing was
+// denied (BUGS L134). The write refuses it instead.
+func TestACLRefusesAPredicateOnAShellEnvGrant(t *testing.T) {
+	_, err := ACLGrantWrite(core.ACLRow{
+		Principal: "folder:atlas", Action: ShellEnvPrefix + "GITHUB_TOKEN",
+		Scope: "atlas", Effect: EffectAllow, Predicate: "platform=telegram",
+		GrantedBy: "test",
+	})
+	if err == nil {
+		t.Fatal("an impossible shell:env predicate was accepted; it would revoke the key silently")
+	}
+	for _, want := range []string{"can never match", "platform=telegram", "exact folder"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal %q does not carry %q — the operator cannot act on it", err.Error(), want)
+		}
+	}
+}
+
+// The same grant with NO predicate is the shape that works, and must still be
+// writable — a guard that refused both would take the capability away.
+func TestACLAcceptsAShellEnvGrantWithNoPredicate(t *testing.T) {
+	if _, err := ACLGrantWrite(core.ACLRow{
+		Principal: "folder:atlas", Action: ShellEnvPrefix + "GITHUB_TOKEN",
+		Scope: "atlas", Effect: EffectAllow, GrantedBy: "test",
+	}); err != nil {
+		t.Fatalf("the working shape was refused: %v", err)
+	}
+}
+
+// A predicate on any OTHER namespace stays legal: CheckHold passes the caller's
+// claims, so a hold: predicate is evaluated rather than dead.
+func TestACLAllowsAPredicateOnAHoldGrant(t *testing.T) {
+	if _, err := ACLGrantWrite(core.ACLRow{
+		Principal: "folder:atlas", Action: HoldPrefix + "send",
+		Scope: "atlas", Effect: EffectAllow, Predicate: "platform=telegram",
+		GrantedBy: "test",
+	}); err != nil {
+		t.Fatalf("a hold: predicate was refused, but its evaluator reads claims: %v", err)
+	}
+}

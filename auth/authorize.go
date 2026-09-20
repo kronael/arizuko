@@ -639,7 +639,7 @@ func namespacedAllows(
 	return allowed && !denied
 }
 
-const ShellEnvPrefix = "shell:env:"
+const ShellEnvPrefix = store.ShellEnvPrefix
 
 // ExtScopePrefix opens the namespace an external connector's tools authorize
 // on. `routd.LoadExtProviders` carries each tool's `scope` from its TOML

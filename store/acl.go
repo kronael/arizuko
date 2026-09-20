@@ -140,6 +140,13 @@ const (
 // these actions; auth reads the same constant to evaluate them.
 const HoldPrefix = "hold:mcp:"
 
+// ShellEnvPrefix names the grant that puts a folder secret into the agent's
+// shell. It lives here beside HoldPrefix, and auth aliases it, for the reason
+// HoldPrefix does: the acl WRITE validates rows in this namespace and the
+// evaluator reads them, so one declaration serves both and neither can drift
+// into a prefix the other does not recognise.
+const ShellEnvPrefix = "shell:env:"
+
 // EffectAllowed reports whether `effect` is a spelling every evaluator reads.
 func EffectAllowed(effect string) bool {
 	return effect == EffectAllow || effect == EffectDeny
@@ -162,6 +169,25 @@ func aclPut(r core.ACLRow) (objstore.Write, error) {
 		return objstore.Write{}, fmt.Errorf(
 			"acl: effect %q on action %q is not a spelling any evaluator reads; "+
 				"use %q or %q", r.Effect, r.Action, EffectAllow, EffectDeny)
+	}
+	// A PREDICATE ON A shell:env: ROW CAN ONLY EVER MEAN "NEVER", so writing one
+	// is refused here rather than discovered later. `ShellEnvKeys`
+	// (auth/authorize.go) resolves once per dispatch keyed on the FOLDER and
+	// builds its caller with no Claims, and `predicateMatches` answers true only
+	// for an EMPTY predicate — so `predicate=platform=telegram`, which reads like
+	// "only in Telegram", matches nothing on every channel and the key silently
+	// stops appearing in the agent's shell. Nothing logs a denial because nothing
+	// was denied (BUGS L134).
+	//
+	// Refused at the write for the same reason the effect is: every door into
+	// this entity renders through this function, and a guard in one face is a
+	// guard the next face forgets.
+	if r.Predicate != "" && strings.HasPrefix(r.Action, ShellEnvPrefix) {
+		return objstore.Write{}, fmt.Errorf(
+			"acl: a predicate on %q can never match — the shell-secret resolver is "+
+				"keyed on the folder and carries no claims, so %q would revoke the key "+
+				"on every channel rather than narrow it; scope the grant to an exact "+
+				"folder instead", r.Action, r.Predicate)
 	}
 	key, err := aclKey(r)
 	if err != nil {

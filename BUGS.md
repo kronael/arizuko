@@ -13043,7 +13043,7 @@ handling on a live backend, so it is recorded rather than shipped.
   pi `dist/utils/shell.js:105` + `dist/core/tools/bash.js`,
   codex-cli 0.147.0 binary strings.
 
-## L134 — a `shell:env:` grant cannot be conditioned on the channel, and writing the predicate that looks like it can silently revokes the key everywhere (2026-08-29, open — proposal, needs sign-off)
+## L134 — a `shell:env:` grant cannot be conditioned on the channel, and writing the predicate that looks like it can silently revokes the key everywhere (2026-08-29, SILENT HALF FIXED 2026-09-20; the channel condition is a proposal — proposal, needs sign-off)
 
 An operator asked for "only atlas **in telegram** may use the gh key". The
 `shell:env:<KEY>` row has a `predicate` column and `namespacedAllows` evaluates
@@ -13100,6 +13100,33 @@ simply never appears in the shell.
   an unknown predicate key when the row is written, or log at ERROR when a
   `shell:env:` row is skipped for a predicate the caller carries no claims for.
   Today the failure is indistinguishable from "no grant".
+
+- **The SILENT half is fixed 2026-09-20 — the trap is now a loud refusal.**
+  `aclPut` (`store/acl.go`) refuses a `shell:env:` row carrying any predicate,
+  and the message says what it would have done and what to write instead: "a
+  predicate on %q can never match — the shell-secret resolver is keyed on the
+  folder and carries no claims, so %q would revoke the key on every channel
+  rather than narrow it; scope the grant to an exact folder instead".
+- **It sits beside the effect check, at the same choke point and for the same
+  stated reason:** every door into the acl entity renders through `aclPut`, and
+  "a guard in one face is a guard the next face forgets" (`L272`'s wording).
+- **Scoped to the namespace whose resolver carries no claims**, not to
+  predicates in general. `CheckHold` passes `caller.Claims`, so a `hold:`
+  predicate is evaluated rather than dead and stays writable.
+  PROVEN BY MUTATION both ways: drop the namespace term and the `hold:` test
+  fails (the guard took a working capability away); remove the guard and the
+  `shell:env:` test fails (the silent revocation is back). A third test pins
+  that a `shell:env:` grant with NO predicate — the shape that works — is still
+  accepted.
+- **`ShellEnvPrefix` moved to `store` and `auth` aliases it**, matching
+  `HoldPrefix` exactly: the acl WRITE validates rows in this namespace and the
+  evaluator reads them, so one declaration serves both and neither can drift
+  into a prefix the other does not recognise.
+- **Still open, and it is the operator's original ask:** expressing "only atlas
+  IN TELEGRAM may use the gh key". The trigger's platform is a property of the
+  chat JID that routed the turn, and the resolution happens once per dispatch
+  keyed on the FOLDER (`routd/dispatch.go`), so the information is not there to
+  condition on. Carrying it is a capability-call contract change.
 
 ## L133 — `actionCovers`'s `*` covers rule namespaces too, so every namespaced rule needs its own evaluator (2026-08-29, open — proposal, needs sign-off)
 
