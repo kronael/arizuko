@@ -1,10 +1,12 @@
 package routd
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -551,5 +553,77 @@ func TestDeliverRow_TheThreadStampFillsOnlyAnEmptyTopic(t *testing.T) {
 	srv.deliverRow(TurnContext{Folder: "atlas"}, "slack:T/C/1", owned, "root-9", "")
 	if owned.Topic != "its-own" {
 		t.Errorf("the stamp overwrote an existing topic: %q", owned.Topic)
+	}
+}
+
+// Agent-to-agent delegation reaches the child as a `send`, and every
+// agent-authored row is stamped BotMsg — so the child's chat holds only bot
+// rows, the all-bot batch is dropped, and no container ever runs. The drop is
+// silent by design, which is why that went unnoticed from August (BUGS L2).
+// The CROSS-FOLDER case must say so.
+func TestDispatch_ADelegationThatWokeNothingSaysSo(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	var logged bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	loop := NewLoop(db, runnerFn(func(context.Context, runedv1.RunRequest) (runedv1.RunOutcome, error) {
+		t.Error("a container ran for an all-bot batch")
+		return runedv1.RunOutcome{}, nil
+	}), LoopConfig{})
+	loop.StopQueue()
+
+	// The parent wrote into the child's own chat. Sender is the PARENT folder.
+	if err := db.PutMessage(core.Message{ID: "d1", ChatJID: "web:eval/child",
+		Sender: "eval", Content: "Task: do the thing", BotMsg: true, FromMe: true,
+		Timestamp: time.Now().UTC(), Verb: "message"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loop.processGroupMessages("web:eval/child"); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+
+	out := logged.String()
+	if !strings.Contains(out, "delegation woke nothing") {
+		t.Errorf("a cross-folder delegation was dropped silently:\n%s", out)
+	}
+	if !strings.Contains(out, "eval/child") {
+		t.Errorf("the notice does not name the chat:\n%s", out)
+	}
+}
+
+// An agent's OWN output is the ordinary all-bot batch and must stay silent, or
+// every turn a folder takes would log a false alarm about itself.
+func TestDispatch_AnAgentsOwnOutputIsDroppedQuietly(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	var logged bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	loop := NewLoop(db, runnerFn(func(context.Context, runedv1.RunRequest) (runedv1.RunOutcome, error) {
+		return runedv1.RunOutcome{}, nil
+	}), LoopConfig{})
+	loop.StopQueue()
+
+	if err := db.PutMessage(core.Message{ID: "o1", ChatJID: "web:eval/child",
+		Sender: "eval/child", Content: "my own reply", BotMsg: true, FromMe: true,
+		Timestamp: time.Now().UTC(), Verb: "message"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loop.processGroupMessages("web:eval/child"); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	if strings.Contains(logged.String(), "delegation woke nothing") {
+		t.Errorf("a folder's own output logged a false alarm:\n%s", logged.String())
 	}
 }

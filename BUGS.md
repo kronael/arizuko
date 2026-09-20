@@ -10120,7 +10120,7 @@ Production run: 149 hits. With `-test`: 56. Buckets and verdicts:
   same-group-restart (`hasPending`) in production load — behavior inference
   from code, not observed live.
 
-## L2 — a delegated child is never dispatched: its only message is a bot row (2026-08-08, CAUSE ISOLATED 2026-08-15, fix needs sign-off, REPRODUCED 2026-08-16 on v0.64.0)
+## L2 — a delegated child is never dispatched: its only message is a bot row (2026-08-08, CAUSE ISOLATED 2026-08-15; SILENT HALF FIXED 2026-09-20, the fix needs sign-off, REPRODUCED 2026-08-16 on v0.64.0)
 
 Same live run, `child-delegate`. Unlike L1 this one is NOT root-caused, and it
 is recorded that way on purpose.
@@ -10191,6 +10191,28 @@ is a new contract on the message model plus a loop-safety rule:
 Until then, delegation should either be refused loudly at the `send` gate when
 the target folder is not the caller's own chat, or documented as not supported.
 Silently storing a row nobody will ever act on is the worst of the three.
+
+- **The DROP HAS MOVED since this was filed, and it is still silent.** It is no
+  longer the bot-row strip: `processGroupMessages` now calls `newestUserIdx`
+  first and returns at `steerIdx < 0` — "An all-bot batch routes nothing"
+  (`routd/dispatch.go`). Same outcome, one screen earlier. The mechanism this
+  entry isolated is unchanged: every agent-authored row is stamped `BotMsg`, so
+  a delegated child's chat holds nothing else.
+- **The silence is fixed 2026-09-20.** An all-bot batch is normally a folder's
+  OWN output, correctly ignored. It is not when another folder wrote it, and
+  that case now says so, naming the chat, the author and the row count. The
+  distinction is `groupfolder.JidFolder(chatJID)` against the newest row's
+  `Sender`: a delegation carries the PARENT's folder, a self-reply carries the
+  chat's own.
+- **PROVEN BY MUTATION both ways:** drop the warning and the delegation test
+  fails; drop the `Sender != author` term and the twin fails, because a folder's
+  own output must stay quiet — a notice on every turn a folder takes would be
+  worse than silence.
+- **Still NOT FIXED, and it is the redesign:** the bot-row strip is correct and
+  must stay, because it is what stops an agent re-triggering itself. Making a
+  delegation wake its target needs a row shape that is neither "a person spoke"
+  nor "my own output" — a message-model change, which is the sign-off this
+  entry has been waiting for since August.
 
 ## J16 — `ant/CLAUDE.md` tells the agent connector tools are deferred; they are eager (2026-08-09, proposed)
 

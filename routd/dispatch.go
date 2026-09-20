@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/kronael/arizuko/groupfolder"
 	"log/slog"
 	"maps"
 	"net"
@@ -41,6 +42,17 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	// BUGS L56; this is its twin one line up. An all-bot batch routes nothing.
 	steerIdx := newestUserIdx(msgs)
 	if steerIdx < 0 {
+		// An all-bot batch is normally an agent's own output, correctly ignored.
+		// It is NOT when another folder wrote it: agent-to-agent delegation
+		// reaches the child as a `send`, and every agent-authored row is stamped
+		// BotMsg, so the delegation is dropped here and the child never runs.
+		// The drop is silent by design, which is why that went unnoticed since
+		// August (BUGS L2) — so the CROSS-FOLDER case says so.
+		if author := groupfolder.JidFolder(chatJID); author != "" && last.Sender != "" && last.Sender != author {
+			slog.Warn("delegation woke nothing: the chat holds only bot rows, so no turn ran",
+				"chat_jid", chatJID, "wrote_by", last.Sender, "chat_folder", author,
+				"rows", len(msgs))
+		}
 		l.advance(chatJID, last)
 		return false, nil
 	}
