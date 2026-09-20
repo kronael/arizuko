@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -155,7 +154,7 @@ func (s *server) buildWebMCP(sub, name string, grants []string, pin *chatPin) *m
 		}
 		topic := strings.TrimSpace(req.GetString("topic", ""))
 		if topic == "" {
-			topic = fmt.Sprintf("t%d", time.Now().UnixMilli())
+			topic = newTopicID()
 		}
 		if len(topic) > maxTopicLen {
 			return mcp.NewToolResultError("topic too long"), nil

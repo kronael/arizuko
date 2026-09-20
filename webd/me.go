@@ -392,7 +392,7 @@ func (s *server) handleMeNewChatPost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
-	topic := fmt.Sprintf("t%d", time.Now().UnixMilli())
+	topic := newTopicID()
 	http.Redirect(w, r,
 		fmt.Sprintf("/me/chats/%s/%s", url.PathEscape(folder), url.PathEscape(topic)),
 		http.StatusSeeOther)

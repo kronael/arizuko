@@ -170,7 +170,7 @@ func (s *server) handleChatTokenPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if topic == "" {
-		topic = fmt.Sprintf("t%d", time.Now().UnixMilli())
+		topic = newTopicID()
 	}
 	if len(topic) > maxTopicLen {
 		http.Error(w, "topic too long", http.StatusBadRequest)

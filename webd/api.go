@@ -11,6 +11,15 @@ import (
 )
 
 // GET /api/groups
+// newTopicID mints the id an untitled web chat gets. FIVE sites needed this
+// string and each wrote its own: the panel page's opening topic, this send, the
+// MCP send, the route-token send and the /me new-chat. A second spelling would
+// not fail loudly — it would just put two turns in two topics that the operator
+// meant as one (BUGS L116).
+func newTopicID() string {
+	return fmt.Sprintf("t%d", time.Now().UnixMilli())
+}
+
 func (s *server) handleAPIGroups(w http.ResponseWriter, r *http.Request) {
 	groups := s.groupList()
 	chanlib.WriteJSON(w, map[string]any{"data": groups, "has_more": false})
@@ -92,7 +101,7 @@ func (s *server) handleAPIMessagesPost(w http.ResponseWriter, r *http.Request) {
 	}
 	topic := body.Topic
 	if topic == "" {
-		topic = fmt.Sprintf("t%d", time.Now().UnixMilli())
+		topic = newTopicID()
 	}
 	jid := groupfolder.WebJID(folder)
 	sender := userSub(r)
