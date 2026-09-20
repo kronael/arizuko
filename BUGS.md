@@ -13926,7 +13926,7 @@ the root socket.
 - **Source:** `ipc/ipc.go` ServeMCP callerSub; `container/runner.go`
 - **Status:** fixed — retired: the last code mention (`ipc/ipc.go`) is gone; the v0.42.0 CHANGELOG entry and migration 136 stay as history
 - **Fix:** 277b1dbf
-## ✅ FIXED 2026-09-05 L185 — closes L130: the resident manual reaches codex and pi (2026-09-05)
+## ✅ FIXED 2026-09-05 L328 — closes L130: the resident manual reaches codex and pi (2026-09-05)
 
 L130 measured a codex agent on the eval folder with `~/.claude/CLAUDE.md`
 present at 33,511 bytes and unread: only Claude Code discovers that file, so
@@ -14528,48 +14528,11 @@ side of the first write — `audit`, `dead_letters`, `sessions` and
   the file, so it lands before a byte is written; `pkgSubsystemServed` spells
   the served set once for the parser and the store opener. Tests:
   `TestPackageAddSummaryNamesEveryAppliedResource`,
-  `TestInstallRefusesAResourceNoOwnerAppliesBeforeWriting`. SHA:
-
-## L200 — proposal: a package cannot declare that it is a channel adapter or which env keys it reads; two name maps in `compose.go` decide both, so no outsider adapter passes the package contract (2026-09-05, proposal — needs sign-off)
-
-`7/25`'s acceptance test: can someone outside the repo ship a package that
-hooks in without patching arizuko. The wire contract passes it — `5/34` is
-HTTP in any language, and `whapd`/`twitd` prove it from TypeScript — and the
-deployment contract fails it at two names:
-
-- `compose.adapterDaemons` (`compose/compose.go:250-254`) is the set
-  `wireServiceKey` provisions a `service:<daemon>` principal for. An adapter
-  outside it gets no `AUTHD_SERVICE_KEY`, and `POST /v1/channels/register`
-  answers 401 under a Verifier (`routd/channels.go`, `channelAuth`).
-- `compose.daemonKeys` (`compose/compose.go:98-238`) is the per-daemon env
-  allowlist `writeEnvFiles` writes `env/<daemon>.env` from. A daemon outside
-  it gets no file; a fragment that names one fails `compose up` (compose's
-  `env_file` `required` defaults to true), and `envFileName`'s fallback hands
-  it the shared `.env` with every instance secret.
-
-The same class, smaller: `hasService(services, "ttsd")`
-(`compose/compose.go:788`) sets `TTS_ENABLED`/`TTS_BASE_URL` on runed by name;
-`/dash/ttsd/` is a core route (`compose/compose.go:369`) where every adapter's
-dashboard route is a manifest row; `dashd/services.go:57-67` lists the hub
-tiles by name. Adding `gitd` touched `cmd/arizuko/github.go`,
-`compose/compose.go`, `resreg/resources/github_sources.go`,
-`store/github_sources.go` and `store/migrations/0088` in one commit
-(`c0594f32`), against `5/27`'s "adding an adapter touches no Go".
-
-- **Severity:** medium (the package contract is unmet for the whole channel
-  layer; every shipped adapter needs a `compose.go` edit to exist)
-- **Scope:** compose generation; the package manifest
-- **Affected:** every adapter package; any outsider adapter; `ttsd`
-- **Source:** `compose/compose.go:98-238,250-254,369,788`;
-  `dashd/services.go:57-67`; `routd/channels.go` `channelAuth`;
-  `git show --stat c0594f32`; measured 2026-09-05 at `02d0fbc1`
-- **Status:** proposal — needs sign-off (a manifest key is a new contract)
-- **Fix:** the manifest declares what the maps decide — that the package is a
-  channel adapter (a principal) and the env keys it reads — and `generate`
-  reads the declaration instead of a map keyed by name; the hub lists what
-  the route table serves. Spec: `7/25` §"What the contract needs". Whether
-  the declaration is a resreg row (`5/8`'s shape) or a compose-side key in
-  `<name>.yaml` is the decision to sign.
+  `TestInstallRefusesAResourceNoOwnerAppliesBeforeWriting`. Still unread by
+  any verb: `upgrade` re-applies no rows for any package, a gap `5/28`
+  records. SHA `b0998e91`; the earlier half — one install path shared by
+  `add` and `install`, with `TestPackagesAddProvisionsEnvAndAppliesRows` —
+  is `0e9b5691`.
 
 ## ✅ FIXED 2026-09-05 L203 — the manifest half of every shipped package never reached a live instance (2026-09-05)
 
@@ -14606,31 +14569,6 @@ causes, both in the delivery path, neither in the manifests:
   `/dash/whapd/` (`auth: user`, gated by each adapter's token).
 - **Fix:** `a8e1a34a`
 
-## ✅ FIXED 2026-09-05 L199 — `packages add` applied nothing, so two install paths read one manifest differently (2026-09-05)
-
-`install <source>` parsed every resource of `<name>.yaml` and applied it
-through the apply engine with an `installed_packages` record; `add <name>` —
-the verb every shipped package uses — linked two files and applied nothing,
-and `generate` read exactly one key (`proxyd_routes`) from the sidecar. A
-catalog package therefore could not declare a grant, a task, a network rule
-or a web route, whatever `5/28` says it may, which is why all ten shipped
-manifests carry only `proxyd_routes`. Two verbs, two readers, one format —
-the optionality root `CLAUDE.md` forbids.
-
-- **Severity:** medium
-- **Scope:** `cmd/arizuko/packages.go`
-- **Affected:** every catalog package
-- **Source:** `cmdPackages` `add` vs `install`; `compose.ManifestRoutes`
-- **Status:** fixed. `installPackage` is the one path: `add` and `install`
-  differ only in where the files come from (catalog, linked; source, copied)
-  and what the record says. A catalog record carries `Source: catalog`, so
-  `upgrade`/`sync` leave it alone (its files follow the catalog) and `remove`
-  withdraws the rows it names. `add` takes `--folder` for the same grant
-  bound `install` does. Test `TestPackagesAddProvisionsEnvAndAppliesRows`.
-  Still unread by any verb: `upgrade` re-applies no rows for any package
-  (`5/28` records this gap); the new env section is provisioned by both.
-- **Fix:** `0e9b5691`
-
 ## L200 — first-party wiring lives in five Go tables no manifest can express, so a third-party package cannot be an adapter (2026-09-05, open — proposal, needs sign-off)
 
 The contract's test is a package this repo does not contain. Measured
@@ -14645,28 +14583,57 @@ adapter without patching Go, because four facts have no manifest key:
 | its routes reserved as core ground | `compose.coreProxydRoutes` | first-party daemons declaring theirs in `<daemon>.yaml` |
 | a dashd hub tile | `dashd/services.go` core set + `compose.ReservedRoutePaths` | derived from the route it declares |
 
-Adding `gitd` touched five core files for exactly these. `baseDaemons`
-(`packages.go`) is a sixth copy of "what is core". Nothing in the residue is
-imperative, so no install script is needed: every item is a declaration the
-manifest lacks a key for. A `postinst` would only re-express these as code
+Adding `gitd` touched five core files for exactly these (`c0594f32`:
+`cmd/arizuko/github.go`, `compose/compose.go`,
+`resreg/resources/github_sources.go`, `store/github_sources.go`,
+`store/migrations/0088`), against `5/27`'s "adding an adapter touches no Go".
+`baseDaemons` (`packages.go`) is a sixth copy of "what is core".
+
+What a package outside the maps actually hits:
+
+- Outside `adapterDaemons`: no `AUTHD_SERVICE_KEY` is provisioned, so `POST
+  /v1/channels/register` answers 401 under a Verifier (`routd/channels.go`,
+  `channelAuth`). The adapter never registers and nothing says why.
+- Outside `daemonKeys`: `writeEnvFiles` writes no `env/<daemon>.env`, and the
+  two ways to reach one fail differently. Every adapter fragment in
+  `template/services/` hardcodes `env_file: ['../env/<name>.env']`, so a
+  package that ships its own fragment fails `compose up` — compose's
+  `env_file` `required` defaults to true and the file was never written. A
+  daemon that takes the generated stanza instead gets `envFileFor`, whose
+  `envFileName` falls back to the shared `.env` (`compose/compose.go:283-293`)
+  — every instance secret, to a package from outside the tree. Neither path
+  says the daemon is not in the map.
+- The same class, smaller: `hasService(services, "ttsd")`
+  (`compose/compose.go:788`) sets `TTS_ENABLED`/`TTS_BASE_URL` on runed by
+  name, and `/dash/ttsd/` (`compose/compose.go:369`) is a core route where
+  every adapter's dashboard route is a manifest row.
+
+Nothing in the residue is imperative, so no install script is needed: every
+item is a declaration the manifest lacks a key for. A `postinst` would only re-express these as code
 that runs with the operator's authority, which is the second path this file's
 policy forbids.
 
 - **Severity:** medium (first-party components are not packages yet; the
-  contract holds for a sidecar like litellm and fails for an adapter)
+  contract holds for a sidecar like litellm and fails for an adapter). The
+  `envFileName` fallback raises it: the failure mode is not "no env" but "the
+  shared `.env`".
 - **Scope:** compose, dashd, packages
 - **Affected:** any adapter shipped outside this repo; every first-party
   adapter's own wiring
-- **Source:** `compose/compose.go` `adapterDaemons`, `daemonKeys`,
-  `foreignImages`, `coreProxydRoutes`; `dashd/services.go`; `cmd/arizuko/packages.go`
-  `baseDaemons`
+- **Source:** `compose/compose.go` `adapterDaemons` (250-254), `daemonKeys`
+  (98-238), `foreignImages`, `coreProxydRoutes`, `hasService` (788), the core
+  route set (369); `dashd/services.go:57-67`; `routd/channels.go` `channelAuth`;
+  `cmd/arizuko/packages.go` `baseDaemons`; `git show --stat c0594f32`; measured
+  2026-09-05 at `02d0fbc1`
 - **Status:** proposed. Dissolve the tables into per-daemon `<daemon>.yaml`:
   the `env` block becomes the scoped env file's key list (a daemon is in
   `daemonKeys` XOR declares `env`, both refuses); one manifest flag names an
   adapter needing a service principal; each core daemon's routes move to its
   own manifest and the reserved set derives from the catalog. Then
   `TestFragmentEnvFilesAreGenerated` asserts against the catalog, not the
-  map. Redesign — sign-off before code.
+  map. Spec: `7/25` §"What the contract needs"; whether the declaration is a
+  resreg row (`5/8`'s shape) or a compose-side key in `<name>.yaml` is the
+  decision to sign. Redesign — sign-off before code.
 - **Fix:**
 
 ## L201 — nothing mechanical stops a sourced package from mounting a core owner's store or the docker socket (2026-09-05, open — proposal, needs sign-off)
