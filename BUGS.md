@@ -958,7 +958,7 @@ names an attachment it never receives. Silent to the user.
   when this was filed. teled is NOT affected — `teled/server.go:80-97` rebuilds
   the URL from the request path and holds no cache.
 
-## L155 — the skill-guard quarantines 74 of arizuko's own 544 shipped skill files, `migrate/SKILL.md` first; `agent_config_mod` fires `critical` on the STRING "CLAUDE.md" (2026-09-03, PARTLY FIXED 2026-09-20; the shipped-corpus half remains)
+## L155 — the skill-guard quarantines 74 of arizuko's own 544 shipped skill files, `migrate/SKILL.md` first; `agent_config_mod` fires `critical` on the STRING "CLAUDE.md" (2026-09-03, FIXED 2026-09-20 — 20 of 551 → 11, and no shipped `SKILL.md` blocks; the 11 are true positives, left blocked on purpose)
 
 The krons agent reported it in chat before any audit did: "`/migrate` … 14
 quarantined by the platform skill-guard (which I did not circumvent)", and a turn
@@ -1040,6 +1040,57 @@ or may be a real finding in our own corpus.
   It matters more than its severity suggests: `migrate/SKILL.md` is the delivery
   path for every `ant/CLAUDE.md` change (see `L316`), so quarantining it stops
   the fleet taking new instructions at all.
+- **The "11 genuinely write agent config" claim was wrong, and the corpus half
+  is FIXED 2026-09-20 without a provenance mechanism. 20 of 551 → 11**, measured
+  by running `blockingVerdict` over the tree before and after. Reading all 20
+  one at a time (which this entry asked for and nobody had done) found nine
+  firing on text that is not the threat the pattern names, in three patterns:
+  - `agent_config_mod` kept three members that match a MENTION. `\bopen\(` is
+    not a mutation — a bare `open()` is a READ, and the write-mode branch
+    already carried `open(x,'w')`; it was the ONLY reason `migrate/SKILL.md`
+    fired, so the file this entry leads with was never a true positive.
+    `\bWrite\b|\bEdit\b` compile `/i`, so the English verb counted — that is all
+    `wisdom/SKILL.md` ever did (`description: Write or edit SKILL.md,
+    CLAUDE.md`); they now have to name a PATH, which the tool-call form does.
+    And branch 1's `>` matched the closing bracket of the markdown placeholder
+    `<group>/CLAUDE.md`, which is how `self/migration.md` and `128` fired; a
+    redirect's `>` now has to follow whitespace or an fd digit.
+  - `reverse_shell` matched bare `\bsocat\b` while its `nc`/`ncat` siblings ask
+    for a listen flag. All five hits are `socat UNIX-CONNECT:$ARIZUKO_MCP_SOCKET`
+    — arizuko's own documented MCP bridge, a local socket that cannot be a
+    network shell. It now asks for a network address or an `EXEC`.
+  - `dns_exfil` took a `$` anywhere on the line after the word `host`, so the
+    English noun in `canonical host + public/private URLs … \`$WEB_HOST\`` was a
+    critical. The `$` now has to begin an argument — the query name being built.
+
+  PROVEN BY MUTATION, six of them, each reversing one narrowing and one
+  (`socat` → matches nothing) in the opposite direction to show the attack
+  cases are real: every one turns a test red. The regression net is a new test
+  that walks the shipped tree and asserts **no `SKILL.md` blocks** — the sharp
+  invariant, because `bashSkillRescan` renames a blocking file and a skill
+  dispatches only while its SKILL.md sits at its own path, so a blocked entry
+  point does not degrade that skill, it deletes it fleet-wide. Helper pages are
+  not pinned, so a new migration note does not turn it red.
+- **DELIBERATELY LEFT BLOCKED — the remaining 11 are 9 files, all true
+  positives, and no provenance mechanism is needed for them.** Seven skills
+  really do instruct a write to an agent config, which is their job:
+  `self/extension.md` and migration notes `013`, `014`, `054`, `057`, `059`,
+  `091`. `self/chat-link.md` really does put a route token in an outbound fetch
+  URL. `software/docker.md` really does `curl … | sh`. None is an entry point,
+  so none deletes a skill.
+
+  Two patterns are blunt and were left alone on purpose, because narrowing
+  either unblocks NOTHING and one of them would cost real coverage:
+  `setuid_setgid` fires on puppeteer's `--disable-setuid-sandbox` (a flag that
+  DISABLES a sandbox) in the two copies of `p5js/references/export-pipeline.md`,
+  and separating that from a real `setuid` needs an enumeration, which is an
+  allowlist by another name; `destructive_root_rm` reads `rm -rf /var/lib/…` as
+  "from root" for want of an end anchor, but `software/docker.md` stays blocked
+  on its genuine `curl | sh` either way, and anchoring it would let `rm -rf
+  /usr` pass. Both are recorded here rather than half-fixed.
+
+  Noticed in passing, NOT fixed (different concern): `p5js/references/` is
+  shipped twice, once under `create/art/`.
 
 ## L152 — an `acl` grant can name a principal nobody will ever present, and no surface says so (2026-09-02, open — proposal REFUTED 2026-09-20, needs a new record + sign-off)
 
