@@ -328,10 +328,17 @@ function extractModelUsage(modelUsage: unknown): Record<string, ModelUsage> | un
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+// claudeResultStatus decides whether a harness result is an answer or a
+// failure. `isError` is the SDK's own verdict and it is the one that matters:
+// a model API failure arrives as subtype 'success' with is_error true and the
+// error line as the result, so reading the subtype alone delivered
+// "API Error: 400 …" to the user as the agent's reply (BUGS L175).
 export function claudeResultStatus(
   subtype: string | undefined,
   result: string | undefined,
+  isError?: boolean,
 ): 'success' | 'error' {
+  if (isError) return 'error';
   if (subtype !== 'success') return 'error';
   return result?.trim() === 'Not logged in · Please run /login' ? 'error' : 'success';
 }
@@ -356,6 +363,11 @@ export class ClaudeTurn {
   // sessionId is captured from system/init so continuity frames and the
   // max-turns summary subquery can name the session.
   sessionId: string | undefined;
+
+  // rejected records that the account was refused during this turn, not merely
+  // throttled. A refusal outlives a retry — sloth's seven-day cap reset eleven
+  // hours out — so a result that errors after one is terminal (BUGS L175).
+  private rejected = false;
 
   push(message: unknown): Frame[] {
     const m = message as { type?: string; subtype?: string; session_id?: string };
@@ -384,11 +396,14 @@ export class ClaudeTurn {
       return frames;
     }
     if (m.type === 'rate_limit_event') {
-      return isRateLimitRejected(raw) ? [{ kind: 'status', text: RATE_LIMIT_NOTICE }] : [];
+      if (!isRateLimitRejected(raw)) return [];
+      this.rejected = true;
+      return [{ kind: 'status', text: RATE_LIMIT_NOTICE }];
     }
     if (m.type === 'result') {
       const text = 'result' in raw ? (raw as { result?: string }).result ?? undefined : undefined;
-      const status = claudeResultStatus(m.subtype, text);
+      const isError = (raw as { is_error?: boolean }).is_error === true;
+      const status = claudeResultStatus(m.subtype, text, isError);
       return [{
         kind: 'result',
         ok: status === 'success',
@@ -397,6 +412,7 @@ export class ClaudeTurn {
         // A resume miss ("No conversation found") surfaces as this subtype; it is a
         // retry signal, never a user-facing reply.
         retryFresh: m.subtype === 'error_during_execution' || undefined,
+        terminal: (status === 'error' && this.rejected) || undefined,
       }];
     }
     return [];

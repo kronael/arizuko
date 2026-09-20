@@ -480,13 +480,20 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	return Output{Status: "success", ExitCode: code, MessageCount: msgCount}
 }
 
+// agentTerminalExit is sysexits.h EX_CONFIG, which the agent container uses to
+// say the model refused for a reason a retry cannot repair — an exhausted
+// quota or a spend cap, whose reset is hours out (BUGS L175). It is the
+// container's own code, so it must stay clear of the three Docker reserves
+// below and of the 128+ signal range.
+const agentTerminalExit = 78
+
 // terminalExit reports whether the exit code proves a configuration
 // fault. Docker reserves 125 (docker run failed — bad image or bad
 // flags), 126 (command not runnable), and 127 (command not found) for
 // invocation failures; a retry cannot repair them. Every other code
 // stays retryable (BUGS F73, spec 5/12).
 func terminalExit(code int) bool {
-	return code == 125 || code == 126 || code == 127
+	return code == 125 || code == 126 || code == 127 || code == agentTerminalExit
 }
 
 func prepareInput(cfg *core.Config, in Input, groupDir string) Input {

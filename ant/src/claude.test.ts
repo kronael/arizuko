@@ -210,3 +210,48 @@ test('claudeEnv: URL without key sets only the base URL', () => {
   expect(out.ANTHROPIC_BASE_URL).toBe('http://gw:4000');
   expect('ANTHROPIC_AUTH_TOKEN' in out).toBe(false);
 });
+
+// A model API failure arrives as subtype 'success' with is_error true and the
+// error line as the result text. Reading the subtype alone delivered
+// "API Error: 400 …" to the user as the agent's answer, wrote no cost row, and
+// left the run looking clean to the circuit breaker (BUGS L175).
+test('claudeResultStatus honours the SDK is_error verdict over the subtype', () => {
+  expect(claudeResultStatus('success', 'API Error: 400 fake says no', true)).toBe('error');
+  expect(claudeResultStatus('success', 'a real answer', false)).toBe('success');
+});
+
+test('ClaudeTurn marks an is_error result as a failure', () => {
+  const frames = new ClaudeTurn().push({
+    type: 'result', subtype: 'success', is_error: true, result: 'API Error: 400 fake says no',
+  });
+  const r = frames[0];
+  if (r.kind !== 'result') throw new Error('expected result frame');
+  expect(r.ok).toBe(false);
+  expect(r.terminal).toBeUndefined();
+});
+
+// sloth's seven-day cap reset eleven hours out, so re-spawning the turn only
+// burns runs. A refusal seen during the turn makes its failure terminal.
+test('ClaudeTurn marks a failure after a rejected rate limit as terminal', () => {
+  const turn = new ClaudeTurn();
+  turn.push({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected' } });
+  const frames = turn.push({
+    type: 'result', subtype: 'success', is_error: true,
+    result: "You've hit your individual spend limit",
+  });
+  const r = frames[0];
+  if (r.kind !== 'result') throw new Error('expected result frame');
+  expect(r.ok).toBe(false);
+  expect(r.terminal).toBe(true);
+});
+
+// An informational rate-limit event is not a refusal, so it must not make the
+// next failure terminal — that would stop retrying a merely flaky turn.
+test('ClaudeTurn leaves a failure retryable when the rate limit was informational', () => {
+  const turn = new ClaudeTurn();
+  turn.push({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed' } });
+  const frames = turn.push({ type: 'result', subtype: 'success', is_error: true, result: 'API Error: 529' });
+  const r = frames[0];
+  if (r.kind !== 'result') throw new Error('expected result frame');
+  expect(r.terminal).toBeUndefined();
+});

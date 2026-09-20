@@ -57,6 +57,10 @@ export type Frame =
       // timedOut marks the graceful query-timeout summary, not a normal
       // completion. routd logs a WARN.
       timedOut?: boolean;
+      // terminal marks a failure a retry cannot repair — a quota or spend
+      // rejection, not a flaky call. The chassis turns it into an exit code
+      // runed reads as Terminal, so the turn is never re-spawned (BUGS L175).
+      terminal?: boolean;
     };
 
 // ResultFrame is the terminal variant — what a reducer's finish() synthesizes

@@ -2790,7 +2790,7 @@ stands: the gateway is a credential boundary, not an accounting one.
   accounting substrate — attribution is the key itself, which routd minted.
 - **Fix:** 2f6441ed, c8854f7d
 
-## L175 — ant delivers a model API failure as a successful reply and books no usage for it (2026-09-05, open)
+## ✅ FIXED 2026-09-20 L175 — ant delivers a model API failure as a successful reply and books no usage for it (2026-09-05)
 
 Measured with claude-cli 2.1.261 (host and the `arizuko-ant` image alike):
 an HTTP 400 from the model endpoint yields a result of `subtype:"success",
@@ -2830,14 +2830,47 @@ out, so routd's `maxTurnRetry` path must not re-spawn it — this is the
 - **Scope:** ant claude harness → routd turn result
 - **Affected:** every claude-backend instance
 - **Source:** `ant/src/claude.ts:329-335`, `:388-397`; `routd/turns.go:679`; `store/turn_results.go:91`
-- **Status:** open — proposal, needs sign-off (the second half changes cross-daemon control flow). Two parts:
-  1. `claudeResultStatus` reads the result's `is_error` → `status: error`, and
-     a quota rejection carries a terminal marker rather than a retry one.
-  2. `recordTurnResult` acts on `req.Status`: an error result reaches the chat
-     as a failure notice, not as the agent's reply; it marks `chats.errored`
-     and leaves the turn visible to the census. Today it delivers the line and
-     records a clean turn.
-- **Fix:**
+- **Status:** fixed 2026-09-20.
+- **Fix:** the proposal's second half is NOT needed, and looking for it was the
+  mistake. routd already has the failure path this turn belongs on —
+  `dispatch.go:509`, keyed on `out.Outcome == OutcomeError`, which retries a
+  non-terminal failure, marks `chats.errored`, marks the trigger's messages
+  errored, delivers a failure notice (naming the cause when `out.Terminal`),
+  closes the turn and feeds the breaker. Nothing was missing there. What was
+  missing is that a model API failure never REACHED it, because the container
+  exited 0. So the fix moves the failure onto the existing serialization point
+  rather than building a second one, and **routd is unchanged**.
+
+  Three edits, all in the container's own half:
+
+  1. `claudeResultStatus` takes the SDK's `is_error` and lets it win over the
+     subtype (`ant/src/claude.ts`). That is the verdict the SDK already
+     publishes and the one the old reading ignored.
+  2. A failed turn's text rides `error`, never `result` (`ant/src/index.ts`).
+     routd delivers a non-empty `result` to the chat as the agent's reply, so
+     this is what stops "API Error: 400 …" being the answer. The shape matches
+     the one the no-result-frame case already used.
+  3. The container exits non-zero on a failed turn: `1` for a retryable one,
+     `78` for a terminal one. `78` is sysexits.h `EX_CONFIG`, and
+     `container.terminalExit` accepts it beside Docker's 125/126/127 — whose
+     comment already reads "the exit code proves a configuration fault", which
+     an exhausted quota is.
+
+  Terminal is decided from a signal the harness already emits, not from
+  matching the error text: `ClaudeTurn` records a `rate_limit_event` whose
+  `rate_limit_info.status` is `rejected`, and a result that errors after one is
+  terminal. An informational rate-limit event leaves the failure retryable.
+
+  PROVEN BY MUTATION, four ways:
+  - drop the `is_error` check → 3 ant tests fail;
+  - put a failed turn's text back into `result` → 1 fails;
+  - never set `terminal` → 1 fails;
+  - drop `78` from `terminalExit` → `TestRun_ExitCodes/exit_code_78` fails.
+
+  ant: 227 pass, 0 fail, `tsc --noEmit` clean.
+
+  **Reaches live agents only after an `arizuko-ant` image rebuild** — the
+  change is in the container, so a restart alone does not carry it.
 
 ## ✅ FIXED 2026-09-18 L176 — `GET /v1/messages/volume` compared RFC3339 to `datetime('now')` (2026-09-05)
 

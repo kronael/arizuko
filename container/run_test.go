@@ -81,6 +81,9 @@ func TestRun_ExitCodes(t *testing.T) {
 		{name: "exit code 125 (docker run failed) -> terminal", exitCode: 125, wantErr: true, wantTerminal: true},
 		{name: "exit code 126 (not runnable) -> terminal", exitCode: 126, wantErr: true, wantTerminal: true},
 		{name: "exit code 127 (not found) -> terminal", exitCode: 127, wantErr: true, wantTerminal: true},
+		// The agent container's own EX_CONFIG: the model refused for a reason a
+		// retry cannot repair, so the turn must not be re-spawned (BUGS L175).
+		{name: "exit code 78 (agent EX_CONFIG) -> terminal", exitCode: 78, wantErr: true, wantTerminal: true},
 	}
 
 	for _, c := range cases {

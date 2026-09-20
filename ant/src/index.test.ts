@@ -231,3 +231,36 @@ describe('buildSystemPrompt layering', () => {
     expect(buildSystemPrompt({}, rendered, noManual)).toBeUndefined();
   });
 });
+
+// A failed turn's text is a diagnostic, not the answer. It must ride `error`,
+// because routd delivers a non-empty `result` to the chat as the agent's reply
+// — which is how "API Error: 400 …" reached users (BUGS L175).
+test('runTurn: a failed turn sends its text as error, never as the reply', async () => {
+  const { deliveries, deliver } = spy();
+  const r = await runTurn(scripted([{ kind: 'result', ok: false, text: 'API Error: 400 fake says no' }]),
+    'p', undefined, INPUT, {}, 'turn-1', deliver);
+  expect(deliveries).toHaveLength(1);
+  expect(deliveries[0].status).toBe('error');
+  expect(deliveries[0].result).toBeNull();
+  expect(deliveries[0].error).toBe('API Error: 400 fake says no');
+  expect(r.failed).toBe('retryable');
+});
+
+// The exit code is what puts the turn on routd's existing failure path, and a
+// terminal failure must not be re-spawned.
+test('runTurn: a terminal failure is reported as terminal', async () => {
+  const { deliveries, deliver } = spy();
+  const r = await runTurn(scripted([{ kind: 'result', ok: false, terminal: true, text: 'spend limit reached' }]),
+    'p', undefined, INPUT, {}, 'turn-1', deliver);
+  expect(deliveries[0].error).toBe('spend limit reached');
+  expect(r.failed).toBe('terminal');
+});
+
+test('runTurn: a clean turn reports no failure and keeps its text as the reply', async () => {
+  const { deliveries, deliver } = spy();
+  const r = await runTurn(scripted([{ kind: 'result', ok: true, text: 'the answer' }]),
+    'p', undefined, INPUT, {}, 'turn-1', deliver);
+  expect(deliveries[0].result).toBe('the answer');
+  expect(deliveries[0].error).toBeUndefined();
+  expect(r.failed).toBeUndefined();
+});

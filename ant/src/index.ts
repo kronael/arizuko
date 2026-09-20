@@ -248,7 +248,18 @@ interface TurnResult {
   sessionId?: string;
   closedDuringQuery: boolean;
   retryFresh: boolean;
+  // failed says the turn produced no answer, and whether a retry could. The
+  // container's exit code carries it to runed, which is what puts the turn on
+  // routd's existing failure path instead of delivering the harness's error
+  // line to the chat as the reply (BUGS L175).
+  failed?: 'retryable' | 'terminal';
 }
+
+// EXIT_TERMINAL is sysexits.h EX_CONFIG: "something was found in an
+// unconfigured or misconfigured state". An exhausted quota or a spend cap is
+// exactly that, and `container.terminalExit` reads this code as a fault a
+// retry cannot repair.
+const EXIT_TERMINAL = 78;
 
 // runTurn drives one harness run and consumes its frames. retryFresh results are
 // never delivered — the caller retries with no continuity. A retryFresh on a turn
@@ -328,11 +339,19 @@ export async function runTurn(
           out.retryFresh = true;
         } else {
           if (frame.retryFresh) log('Session error on an already-fresh turn, delivering as error');
+          // A failed turn's text is a diagnostic, never the answer. It rides
+          // `error`, so routd delivers its own failure notice rather than
+          // handing the user "API Error: 400 …" as the agent's reply.
+          if (!frame.ok) out.failed = frame.terminal ? 'terminal' : 'retryable';
           await deliver(turnID, {
             status: frame.ok ? 'success' : 'error',
-            result: frame.text || null,
+            result: frame.ok ? frame.text || null : null,
             newSessionId: out.sessionId,
-            error: frame.retryFresh ? 'harness could not complete the turn on a fresh session' : undefined,
+            error: frame.ok
+              ? undefined
+              : frame.retryFresh
+                ? 'harness could not complete the turn on a fresh session'
+                : frame.text || 'the harness failed this turn',
             models: frame.usage,
             timedOut: frame.timedOut,
           });
@@ -356,6 +375,7 @@ export async function runTurn(
   // occupant.
   if (resultCount === 0 && !out.retryFresh && !closedDuringQuery) {
     log('Harness produced no result frame, delivering an error turn');
+    out.failed = 'retryable';
     await deliver(turnID, {
       status: 'error',
       result: null,
@@ -445,6 +465,15 @@ async function main(): Promise<void> {
         }
         if (r.token) continuity = r.token;
         if (r.sessionId) lastSessionId = r.sessionId;
+
+        // The turn delivered no answer. Exit non-zero so runed reports the run
+        // as failed and routd's own failure path runs — the one that retries,
+        // marks the chat errored and tells the user. Staying alive for the next
+        // message would hide a model outage behind a clean-looking container.
+        if (r.failed) {
+          log(`Turn failed (${r.failed}); exiting so the run is recorded as a failure`);
+          process.exit(r.failed === 'terminal' ? EXIT_TERMINAL : 1);
+        }
 
         if (r.closedDuringQuery) {
           log('Close sentinel consumed during query, exiting');
