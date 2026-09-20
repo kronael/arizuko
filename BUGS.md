@@ -9033,12 +9033,13 @@ gone. Run the whole target once at the next tag to confirm the sum.
 
 ## L24 — a fresh instance ships with egress isolation OFF, while the docs describe it as the model (2026-08-15, docs half FIXED; the default is still off)
 
-`CRACKBOX_ADMIN_API` is the master switch for egress isolation
-(`core/config.go:265` → `Config.EgressAPI`; `compose/compose.go:493,621` gate
-the crackbox service and the per-folder agent networks on it). Nothing seeds it:
-`template/env.example` is 20 lines and does not mention it, and no code under
-`cmd/arizuko/` writes it. So `arizuko create` produces an instance whose agent
-containers reach the internet unfiltered, silently.
+**RE-MEASURED 2026-09-20 and the switch has been renamed since this was
+filed.** It is `EGRESS_IMAGE`, not `CRACKBOX_ADMIN_API`: `core/config.go:242`
+→ `Config.EgressImage`, and `compose/compose.go:777` gates the egress service
+and the per-folder networks on it being non-empty. `container/runner.go:749`
+attaches no proxy network when it is empty. The finding itself is unchanged —
+`arizuko create` writes six keys and not this one (`cmd/arizuko/main.go:314`),
+so a fresh instance's agent containers reach the internet unfiltered, silently.
 
 `SECURITY.md:249` and `ARCHITECTURE.md:23,88,761` describe egress isolation as
 the deployment model without saying it is opt-in and off by default. A reader
@@ -9084,6 +9085,14 @@ as the model something a fresh instance does not have.
 `cmd/arizuko` path writes one, so a fresh instance is still unfiltered by
 default. Turning that on by default is a deployment-behaviour decision and
 still needs sign-off.
+
+- **Discoverable half fixed 2026-09-20.** `template/env.example` now carries a
+  commented `EGRESS_IMAGE=` that says in as many words what an empty value
+  means: agent containers reach the internet unfiltered. An operator reading the
+  file they are told to copy now sees the switch and its default.
+- **Still open, and it needs the sign-off the entry asks for:** flipping the
+  default so a fresh instance is isolated unless the operator opts out. Both
+  live instances set `EGRESS_IMAGE`, so no running instance is exposed today.
 
 ## L13 — `secret_use_log` is write-only: no read surface on any face (2026-08-11, proposed 2026-08-15 — needs sign-off)
 
