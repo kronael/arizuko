@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/kronael/arizuko/groupfolder"
 	"log/slog"
 	"maps"
 	"net"
@@ -48,7 +47,14 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		// BotMsg, so the delegation is dropped here and the child never runs.
 		// The drop is silent by design, which is why that went unnoticed since
 		// August (BUGS L2) — so the CROSS-FOLDER case says so.
-		if author := groupfolder.JidFolder(chatJID); author != "" && last.Sender != "" && last.Sender != author {
+		//
+		// The chat's folder is READ, never parsed out of the JID. The grammar is
+		// ambiguous — `web:t/sfx` reads as folder `t/sfx` while its mint recorded
+		// `t`, `hook:a/b/c` reads as `a/b` — so parsing made a folder's OWN reply
+		// into its own route-token chat compare unequal and log this alarm once
+		// per reply, forever. directFolder is the reader that consults the mint
+		// record first (BUGS L4, L1).
+		if author := l.directFolder(chatJID); author != "" && last.Sender != "" && last.Sender != author {
 			slog.Warn("delegation woke nothing: the chat holds only bot rows, so no turn ran",
 				"chat_jid", chatJID, "wrote_by", last.Sender, "chat_folder", author,
 				"rows", len(msgs))
