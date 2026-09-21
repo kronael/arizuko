@@ -3653,7 +3653,7 @@ Nothing can seed the product that would fail silently.
 - **Status:** fixed
 - **Fix:** `242b7d10`
 
-## M1 — `mcpc` socat-connect form 502s since mcpc 0.3.0 (2026-07-16, open)
+## M1 — `mcpc` socat-connect form 502s since mcpc 0.3.0 (2026-07-16, ✅ FIXED 2026-09-21 in the repo; delivery needs a `MIGRATION_VERSION` bump)
 
 The documented ad-hoc MCP-call form for agents — `mcpc connect "socat
 UNIX-CONNECT:$ARIZUKO_MCP_SOCKET -" @s` (`ant/skills/self/mcp.md:128`,
@@ -3695,6 +3695,66 @@ merely LOOKS right is what put the failing one in three skills), and
 `MIGRATION_VERSION` bump and an ant image rebuild to reach any agent. Shipping
 an unverified form into all three skills would replace a known-broken
 instruction with an unknown one.
+
+**✅ FIXED 2026-09-21 — the form was measured against a real socket, and the
+client's grammar, not its HTTP tunnel, is the cause.** The deferral's stated
+blocker was "unverifiable without a live socket", so one was built: a socat
+`UNIX-LISTEN` in front of a minimal newline-delimited JSON-RPC MCP server, and
+`@apify/mcpc` installed at the version npm serves today.
+
+The 502 is gone because the version moved — exactly the drift the unpinned
+`ant/Dockerfile:171` install was flagged for. npm now serves **0.6.0**, and on
+it the documented form fails differently and more plainly:
+
+```
+$ mcpc connect "socat UNIX-CONNECT:$ARIZUKO_MCP_SOCKET -" @s
+Error: Cannot specify @session name when connecting all servers from a config file.
+$ mcpc connect "socat UNIX-CONNECT:$ARIZUKO_MCP_SOCKET -"
+Error: Config file not found: …/socat UNIX-CONNECT:…/gated.sock -
+```
+
+`mcpc help connect` states the whole grammar: a server argument is a remote HTTP
+server or a `<config-file>[:<entry>]` pair. **There is no ad-hoc command form.**
+A stdio server is reachable only as a config entry — "Config entries spawn the
+command on connect". So the form in the skills was never a tunnel regression to
+wait out; it is a shape the client does not parse, and no version will parse it.
+
+The working form, connected and `tools-list`ed against that socket:
+
+```bash
+cat > "$HOME/gated.mcp.json" <<JSON
+{"mcpServers":{"gated":{"command":"socat","args":["UNIX-CONNECT:$ARIZUKO_MCP_SOCKET","-"]}}}
+JSON
+mcpc connect "$HOME/gated.mcp.json:gated" @s
+```
+
+→ `MCP: version 2024-11-05 / stdio (stateful)`, the server info and the tool
+list. `mcpc @s close` (the `trap` the skills already use) also works as written
+— only `connect` was wrong.
+
+Shipped into the three live sites: `ant/skills/self/mcp.md`,
+`ant/skills/mcp/SKILL.md`, `ant/skills/migrate/SKILL.md`.
+`ant/skills/self/migrations/052-mcpc-cli.md` is frozen history and is untouched.
+Pinned by `ipc/skill_mcpc_form_test.go`, which fails on any shipped skill whose
+`mcpc connect` argument carries a space — the one property that separates a
+command from a URL or a config path — so the form cannot rot back in silently.
+
+- **Blast radius this closes, and it is wider than "ad-hoc scripts":** the whole
+  release-announce step in `ant/skills/migrate/SKILL.md` opens with this connect
+  and every later line runs through `@s`, so the `#announce` broadcast could not
+  run at all.
+- **Still the operator's call:** the repo is correct, the fleet is not. `ant/` is
+  baked into the image, so delivery needs a `MIGRATION_VERSION` bump plus an
+  ant-image rebuild and a restart — a release, not a bug fix, and a bump also
+  queues one auto-migrate turn per folder.
+- **Pinning `@apify/mcpc` is still undone** and is the other half the entry named:
+  `ant/Dockerfile:171` installs it unpinned, which is how 0.3.0's 502 became
+  0.6.0's parse error with no commit in between.
+- **Found next door, NOT fixed here (record-don't-fix):** two lines below the
+  edit, `migrate/SKILL.md` pipes `mcpc @s tools-call inspect_routing` into `jq`
+  with no `--json`. Measured on 0.6.0, a plain `tools-call` prints a human
+  banner (`✓ Tool … executed successfully`), and only `--json` emits JSON, so
+  that `jq` cannot parse what it is given. Separate defect, separate entry.
 
 ## M4 — `vited` runs the Vite DEV server in production (2026-07-16, partly fixed 2026-07-18)
 
