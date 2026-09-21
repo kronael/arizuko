@@ -6198,7 +6198,7 @@ Nothing mechanical fixes stored data. Two sets to clean by hand:
 - **Still an operator task**, and now a sharper one: one clean rename, one merge
   that loses data whichever way it goes, and a row count to re-derive first.
 
-## L182 — the sloth host clock is 18 s behind Discord, so every inbound `time=` is in the future of `now:` (2026-09-05, open — infra)
+## ✅ FIXED 2026-09-21 L182 — the sloth host clock is 18 s behind Discord, so every inbound `time=` is in the future of `now:` (2026-09-05, open — infra)
 
 `date -u` on hel1v5 read 12:35:56Z while `https://discord.com` answered
 `Date: 12:36:14 GMT`. Every Discord inbound is stamped from the snowflake, so
@@ -6213,6 +6213,33 @@ turn; `ago=` reads "now" for a negative duration, and `MessagesBefore(before="")
   header 2026-09-05 12:36
 - **Status:** open (infra)
 - **Fix:**
+
+**FIXED 2026-09-21, and the entry understated it: the HOST clock had never
+synchronised at all.** This was filed as sloth being 18 s behind Discord — a
+one-instance annoyance. Measured, `chronyd` was running with stratum 0,
+reference ID `00000000` and a ref time of the Unix epoch, and every server in
+`2.debian.pool.ntp.org` sat at `Reach 0`. The clock was free-running, so every
+timestamp on the box was wrong, on every instance.
+
+Not a local firewall — `iptables -L OUTPUT` is ACCEPT and `nft` has no matching
+rule. **The provider blocks outbound UDP/123 to public pools and allows its
+own**, proven both ways:
+
+```
+$ sudo chronyd -Q -t 8 'server time.cloudflare.com iburst'   → Timeout reached
+$ sudo chronyd -Q -t 8 'server ntp1.hetzner.de iburst'       → System clock wrong by 0.72s
+```
+
+`/etc/chrony/sources.d/hetzner.sources` now names ntp1/2/3.hetzner.de, with the
+measurement recorded in the file so the next person does not re-diagnose it.
+After `chronyc reload sources`: stratum 3, tracking ntp1.hetzner.de,
+`NTPSynchronized=yes`, **0.000000135 seconds** off.
+
+Worth knowing for anything that reads a timestamp: the skew was not constant,
+so a stored `time=` written before today is not correctable by a fixed offset.
+
+- **Status:** fixed (host config)
+- **Fix:** `/etc/chrony/sources.d/hetzner.sources`
 
 ## L184 — `fetch_history` cannot tell the agent which rows are its own (2026-09-05, proposal)
 
