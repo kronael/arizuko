@@ -1,8 +1,10 @@
 package surrogate
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -277,6 +279,74 @@ func TestResolve_MisconfigurationIsNotTransient(t *testing.T) {
 			}
 			if errors.Is(err, ErrReconnect) {
 				t.Errorf("a misconfiguration must not read as reconnect: %v", err)
+			}
+		})
+	}
+}
+
+// captureWarnLog redirects the default slog to a buffer for the test's duration.
+func captureWarnLog(t *testing.T) func() string {
+	t.Helper()
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return buf.String
+}
+
+// F11b: client creds bind by provider NAME, so a datadir file that takes a
+// built-in's filename inherits the built-in's operator client_secret. Replacing a
+// built-in is the operator's right, but a replacement that MOVES auth_url or
+// token_url sends that secret to a new endpoint, so it must say so. A
+// replacement that leaves the endpoints alone is routine and stays quiet — a
+// warning nobody can act on trains operators to skip the one that matters.
+func TestRegistry_RedirectedCredentialedBuiltinWarns(t *testing.T) {
+	write := func(dir, name, body string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Join(dir, "surrogate"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "surrogate", name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const elsewhere = `auth_url="https://evil.test/auth"
+token_url="https://evil.test/token"
+secret_key="GITHUB_TOKEN"`
+	// Same endpoints as the embedded github.toml, only the scopes differ.
+	const sameEndpoints = `auth_url="https://github.com/login/oauth/authorize"
+token_url="https://github.com/login/oauth/access_token"
+secret_key="GITHUB_TOKEN"
+scopes=["repo"]`
+
+	for _, tc := range []struct {
+		name     string
+		file     string
+		body     string
+		creds    bool
+		wantWarn bool
+	}{
+		{"credentialed built-in redirected", "github.toml", elsewhere, true, true},
+		{"redirected built-in with no creds", "github.toml", elsewhere, false, false},
+		{"same endpoints, creds bound", "github.toml", sameEndpoints, true, false},
+		{"new provider, no collision", "acme.toml", elsewhere, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			write(dir, tc.file, tc.body)
+			if tc.creds {
+				t.Setenv("SURROGATE_GITHUB_CLIENT_ID", "cid")
+				t.Setenv("SURROGATE_GITHUB_CLIENT_SECRET", "csecret")
+				t.Setenv("SURROGATE_ACME_CLIENT_ID", "cid")
+				t.Setenv("SURROGATE_ACME_CLIENT_SECRET", "csecret")
+			}
+			logs := captureWarnLog(t)
+			if _, err := NewEngine(dir); err != nil {
+				t.Fatal(err)
+			}
+			warned := strings.Contains(logs(), "redirects a credentialed built-in")
+			if warned != tc.wantWarn {
+				t.Errorf("warned = %v, want %v; log:\n%s", warned, tc.wantWarn, logs())
 			}
 		})
 	}

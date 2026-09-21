@@ -41,11 +41,16 @@ type Provider struct {
 // validated (required fields non-empty); a malformed or incomplete file is a
 // hard error naming the file (fail loud — a half-defined provider yields a
 // broken OAuth dance).
-func loadRegistry(dataDir string) (map[string]Provider, error) {
+//
+// The second result names the built-ins whose auth_url/token_url an operator
+// file CHANGED. Client creds bind by provider NAME, so such a file keeps the
+// built-in's operator client_secret and points it at its own endpoint; the
+// caller warns once it knows which names carry creds.
+func loadRegistry(dataDir string) (map[string]Provider, []string, error) {
 	out := make(map[string]Provider)
 	entries, err := fs.ReadDir(builtinProviders, "providers")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".toml") {
@@ -53,23 +58,24 @@ func loadRegistry(dataDir string) (map[string]Provider, error) {
 		}
 		raw, err := builtinProviders.ReadFile("providers/" + e.Name())
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if err := addProvider(out, "embedded:"+e.Name(), e.Name(), raw); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	if dataDir == "" {
-		return out, nil
+		return out, nil, nil
 	}
 	dir := filepath.Join(dataDir, "surrogate")
 	opEntries, err := os.ReadDir(dir)
 	if errors.Is(err, os.ErrNotExist) {
-		return out, nil
+		return out, nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("surrogate: read %s: %w", dir, err)
+		return nil, nil, fmt.Errorf("surrogate: read %s: %w", dir, err)
 	}
+	var redirected []string
 	for _, e := range opEntries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".toml") {
 			continue
@@ -77,13 +83,25 @@ func loadRegistry(dataDir string) (map[string]Provider, error) {
 		path := filepath.Join(dir, e.Name())
 		raw, rerr := os.ReadFile(path)
 		if rerr != nil {
-			return nil, fmt.Errorf("surrogate: read %s: %w", path, rerr)
+			return nil, nil, fmt.Errorf("surrogate: read %s: %w", path, rerr)
 		}
+		name := providerName(e.Name())
+		prev, replaced := out[name]
 		if err := addProvider(out, path, e.Name(), raw); err != nil {
-			return nil, err
+			return nil, nil, err
+		}
+		if replaced && (out[name].AuthURL != prev.AuthURL || out[name].TokenURL != prev.TokenURL) {
+			redirected = append(redirected, name)
 		}
 	}
-	return out, nil
+	return out, redirected, nil
+}
+
+// providerName is the registry key a provider file lands under. ONE derivation:
+// the loader reads a name out of the map before addProvider writes it, and a
+// second spelling would make that read miss the entry the write then replaces.
+func providerName(filename string) string {
+	return strings.TrimSuffix(filename, ".toml")
 }
 
 // addProvider parses one provider TOML, validates it, and stores it under its
@@ -96,6 +114,6 @@ func addProvider(out map[string]Provider, src, filename string, raw []byte) erro
 	if p.AuthURL == "" || p.TokenURL == "" || p.SecretKey == "" {
 		return fmt.Errorf("surrogate: %s: auth_url, token_url and secret_key are required", src)
 	}
-	out[strings.TrimSuffix(filename, ".toml")] = p
+	out[providerName(filename)] = p
 	return nil
 }

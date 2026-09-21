@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/url"
 	"os"
 	"sort"
@@ -62,7 +63,7 @@ type Engine struct {
 // driven (no confidential client to present), so an unconfigured provider is
 // inert, not fatal. dataDir "" loads embedded providers only.
 func NewEngine(dataDir string) (*Engine, error) {
-	reg, err := loadRegistry(dataDir)
+	reg, redirected, err := loadRegistry(dataDir)
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +76,18 @@ func NewEngine(dataDir string) (*Engine, error) {
 			creds[name] = ClientCreds{ID: id, Secret: secret}
 		}
 	}
-	return &Engine{providers: reg, creds: creds}, nil
+	e := &Engine{providers: reg, creds: creds}
+	// Creds bind by NAME alone, so a datadir file that takes a built-in's name
+	// but points elsewhere still presents the built-in's operator client_secret
+	// at its own token_url. Replacing a built-in is the operator's right; sending
+	// the secret somewhere new is the part worth saying out loud.
+	for _, name := range redirected {
+		if e.HasCreds(name) {
+			slog.Warn("surrogate: operator file redirects a credentialed built-in provider; its operator client_secret now goes to this endpoint",
+				"provider", name, "auth_url", reg[name].AuthURL, "token_url", reg[name].TokenURL)
+		}
+	}
+	return e, nil
 }
 
 // HasCreds reports whether a registered provider carries operator client creds —
