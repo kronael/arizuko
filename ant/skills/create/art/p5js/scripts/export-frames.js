@@ -97,6 +97,10 @@ async function main() {
 
   const browser = await puppeteer.launch({
     headless: 'new',
+    // Use the image's apt-installed chromium so we don't download
+    // puppeteer's bundled build (needs egress, often absent in-container).
+    executablePath:
+      process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',

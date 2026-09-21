@@ -4269,7 +4269,7 @@ shipped with its own commit.
 - **Status:** fixed
 - **Fix:** `dc2bcfbe`
 
-## F75 — three skill trees are triplicated and one pair has already drifted (2026-08-08, open — verified 2026-08-15, still a redesign)
+## F75 — three skill trees are triplicated and one pair has already drifted (2026-08-08, partly fixed 2026-09-21 — live drift closed, de-triplication still a redesign)
 
 `ant/skills/p5js/` also exists under `ant/skills/create/art/.../p5js/` (same for
 excalidraw and manim-video). A `diff` shows the top-level
@@ -4317,11 +4317,44 @@ So the copy an agent reaches through `/create` is the one that tries to download
 a chromium the container's egress allowlist will not let through. That is the
 live cost, and it is the argument for deciding rather than deferring again.
 
-NOT fixed here, deliberately. Syncing the four lines patches this instance of
-drift and leaves the mechanism that produced it, which is the case root
-`CLAUDE.md` makes under "No duplication — amend the original". **The owner's
-decision is one sentence: which tree is canonical for each pair, and does the
-other become a reference to it rather than a second copy?**
+**Live drift fixed 2026-09-21; de-triplication still a redesign.** The four
+lines are carried into `ant/skills/create/art/p5js/scripts/export-frames.js`,
+so both copies pin the image's chromium and the `/create` export path no
+longer attempts a download. The egress half of the claim checks out: the base
+allowlist every folder inherits is `{anthropic.com, api.anthropic.com}`
+(`store/seed.go:86`) and `egress.New` allows "exactly allow minus deny", so
+puppeteer's download host was refused by default deny, not merely unlisted.
+`ant/Dockerfile:25` apt-installs the chromium the fix points at.
+
+Sharpened while fixing:
+
+- Only the `p5js` pair ever drifted in content. The `excalidraw` and `manim`
+  pairs differ solely by the dispatch marker — `SKILL.md` top-level vs
+  `README.md` nested — which is the intended difference, not drift.
+- The mechanism is a re-vendor, not an edit slip. The top-level fix landed in
+  `ec15fefb` as a local repair; `9769d1ec` later vendored the create router
+  fresh from `kronael/tools`, reintroducing the unfixed upstream copy. Any
+  future `sync-tools-skills` run splits the pair again the same way.
+- `ant/src/skill-tree-parity.test.ts` now holds all three pairs byte-equal
+  (bar the marker) and names the chromium line specifically, so a re-vendor
+  fails the suite instead of shipping silently. That guard makes the redesign
+  safe to defer; it does not replace it.
+
+**Still the owner's one-sentence decision:** which tree is canonical for each
+pair, and does the other become a reference rather than a second copy? What
+reads each copy today: the top-level tree is reached by skill dispatch through
+its `SKILL.md`; the nested tree is reached only by `create/SKILL.md:26,30,32`
+via the `<mode>/<slug>.md` router page. Nothing else references either. The
+one-declaration shape, for when the question is answered: keep the top-level
+tree as the single source, and reduce each nested copy to its
+`<mode>/<slug>.md` router page alone, its body pointing at the top-level tree
+instead of a sibling subtree. That removes three duplicate subtrees and leaves
+one reader per declaration. It wants sign-off because it changes how `create`
+resolves subtree-relative paths, an invariant `ant/skills/create/CLAUDE.md`
+states explicitly.
+
+**Ships with the next release** — editing `ant/` rides a `MIGRATION_VERSION`
+bump plus an agent image rebuild. Neither is done here, deliberately.
 
 ## F41 — the re-greet cooldown is a rate, not a cap (2026-08-06, open question — NOT a spec defect; sharpened to a three-way choice with costs 2026-09-21, UNANSWERED by design)
 
