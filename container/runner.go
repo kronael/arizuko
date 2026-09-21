@@ -942,16 +942,6 @@ func seedSettings(
 	// ARIZUKO_TIER (the depth rank the agent used to see) is dropped — 5/33 decision 10:
 	// identity is world + path + granted capabilities, never a rank. tierOf survives
 	// ONLY above for WEB_PREFIX (the vhost coordinate, not authz).
-	if in.Model != "" {
-		env["ARIZUKO_MODEL"] = in.Model
-	} else {
-		delete(env, "ARIZUKO_MODEL")
-	}
-	if in.Effort != "" {
-		env["ARIZUKO_EFFORT"] = in.Effort
-	} else {
-		delete(env, "ARIZUKO_EFFORT")
-	}
 	if in.QueryTimeoutMs > 0 {
 		env["ARIZUKO_QUERY_TIMEOUT_MS"] = strconv.FormatInt(in.QueryTimeoutMs, 10)
 	}
