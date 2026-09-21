@@ -48,9 +48,11 @@ lint:
 	@out=$$(gofmt -l $(GOFMT_DIRS)); \
 	  if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi
 	go vet ./...
-	@command -v golangci-lint >/dev/null 2>&1 \
-	  && golangci-lint run \
-	  || echo "note: golangci-lint absent, the errcheck/nilerr gate did not run"
+	@if command -v golangci-lint >/dev/null 2>&1; then \
+	  golangci-lint run; \
+	else \
+	  echo "note: golangci-lint absent, the errcheck/nilerr gate did not run"; \
+	fi
 
 # The tree's own Go, excluding vendored and scratch checkouts.
 GOFMT_DIRS = $(shell git ls-files '*.go' | grep -v '^third_party/' | xargs -r dirname | sort -u)
