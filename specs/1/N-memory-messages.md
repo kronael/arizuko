@@ -50,12 +50,26 @@ Assembly order: clock > system messages > pendingArgs > messages.
 ## Rules
 
 - **100 message limit**, most recent, ordered by time, no time window
-- **Bot messages filtered** (`is_bot_message = 0`)
+- **Bot messages filtered from the injected history** (`is_bot_message`
+  absent on the folder-feed and activity reads), and **marked wherever they
+  are deliberately returned**: `inspect_messages`, `get_thread` and
+  `fetch_history`'s cache fallback read the chat partition unfiltered and
+  render the agent's own rows as `bot="true"`. The filter and the marker are
+  the same answer for two audiences — a feed the agent must not re-answer,
+  and an audit it asked for.
 - **Injection on new session only** (not resume -- SDK transcript
   has context, injection would duplicate)
 - System messages always flushed regardless of new/resume
 
 Attributes on `<message>`: `id`, `sender`, `sender_id` (JID),
-`chat_id`, `platform`, `time` (ISO 8601), `ago` (relative). When
+`chat_id`, `chat_name`, `platform`, `platform_id`, `time` (ISO 8601),
+`ago` (relative), `verb`, `thread`, and the two flags emitted only when
+true — `bot` (the agent wrote this row) and `errored`. When
 the message is a reply, the preceding `<reply-to>` carries `id`
 (parent's id) and `sender`, with optional excerpt body.
+
+`bot` reads `is_bot_message`, never `is_from_me`: an imported archive sets
+`is_from_me` for the linked ACCOUNT's own messages, which are the operator's.
+Own-authorship is READ off the row, never inferred by comparing `sender`
+against the folder name — that inference holds only for rows this instance
+wrote and is silently wrong for every platform-fetched one.

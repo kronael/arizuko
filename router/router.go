@@ -140,6 +140,22 @@ func FormatMessages(msgs []core.Message, observed ...[]core.Message) string {
 			b.WriteString(escapeXml(m.Topic))
 			b.WriteString(`"`)
 		}
+		// bot="true" is the agent's own output, and it is emitted ONLY where a
+		// bot row can reach the feed at all. The injected history filters them
+		// (`is_bot_message` Absent on the folder-feed and activity reads), so
+		// this attribute appears on the three tools that deliberately return
+		// them: inspect_messages, get_thread and fetch_history's cache
+		// fallback. Without it the agent reads its own past words as another
+		// user's — the read-side twin of BUGS L150, and the reason
+		// inspect_messages could promise "including outbound/bot rows" and
+		// still not say which ones those were.
+		//
+		// BotMsg, never FromMe: an imported archive sets FromMe for the linked
+		// ACCOUNT's own messages, which are the operator's, while BotMsg marks
+		// what this agent wrote (store/messages_archive.go).
+		if m.BotMsg {
+			b.WriteString(` bot="true"`)
+		}
 		if m.Errored {
 			b.WriteString(` errored="true"`)
 		}

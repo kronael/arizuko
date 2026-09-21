@@ -3667,7 +3667,7 @@ untestable, because the budget is not per-visitor.
   edge, THEN add that edge to `TRUSTED_PROXIES`. Doing the second without the
   first is a widening that buys nothing.
 
-## L31 — a product never really updates: four of six payload kinds are seed-once (2026-08-15, proposal — needs sign-off)
+## L31 — a product never really updates: four of six payload kinds are seed-once (2026-08-15, CONFIRMED at HEAD 2026-09-21 with three corrections; still a proposal — needs sign-off, and it is NOT `L315`)
 
 `arizuko packages upgrade` / `sync` re-apply exactly two payload kinds: skills
 (and `blendSkills` REFUSES any skill whose hash moved, so a locally edited one
@@ -3720,6 +3720,64 @@ it is a one-time copy.
   columns — then `container/blend.go` moves payloads from `blendSeedOnce` to the
   managed path, keeping dirty-detection only where a carve-out survives.
 - **Fix:**
+
+- **RE-MEASURED 2026-09-21 at `17459f6a`: the defect is CONFIRMED and three
+  details in the entry are wrong.**
+
+  Seed-once at HEAD, by code and not by comment: `blendSeedOnce`
+  (`container/blend.go:395`) writes `PERSONA.md`, `Dockerfile.ant` and every
+  union/verbatim payload (`facts/`, `tasks.toml`) through `seedOnce`, which
+  writes only when nothing is there yet; `blendClaude` skips an existing region
+  outright (`container/blend.go:471`, `if present[name] { continue }`). The two
+  managed kinds are `blendSkills` and `blendSettings`. The headline count holds.
+
+  1. **`packages upgrade` cannot reach a product at all** — it reads
+     `rdb.InstalledPackage(routd.InstanceWide, name)`
+     (`cmd/arizuko/packages.go:1029`), so a group-scoped product record is never
+     found and the verb answers "is not installed". `reapplyPackage` is the
+     compose-fragment plane (`svcDir`, `*.yml`) and never calls the blend. The
+     verbs that DO run the blend are `packages sync` — which loops every
+     non-instance-wide folder through `applyProductMix`
+     (`cmd/arizuko/packages.go:1083`) — and `products apply <folder>`.
+  2. **The `CLAUDE.md` region is not in `blendSeedOnce`**; it is `blendClaude`'s
+     own skip. Same outcome, different function, and it matters because the
+     region is the precedent the proposal builds on.
+  3. **`Dockerfile.ant` is a fifth seed-once payload** the entry does not name
+     (`image_extension`). A product cannot fix its own image extension either.
+
+- **The cost estimate is too high, and that opens a third option the entry does
+  not list.** "Moves payloads to the managed path" reads as new machinery; it is
+  not. `blendSkills` already does per-file dirty-detection end to end: `isDirty`
+  against the recorded `AssetHashes`, report as `Dirty`, skip the write, and
+  carry the recorded hash forward so the next apply does not call the edit clean
+  and clobber it (`container/blend.go:344-372`). `dropStale` already withdraws
+  what a product stops shipping. Moving a payload is a classification change,
+  not a new mechanism.
+
+  So `PERSONA.md` does not have to be either overwritten or carved out. The
+  third answer is **managed with dirty-detection**: an untouched persona takes
+  the author's typo fix, an operator-tuned one is reported and skipped exactly
+  like a locally edited skill today. That is the same contract the operator
+  already lives with on skills, so it adds no concept.
+
+  **The question for the owner is one sentence: does an operator's edit to
+  `PERSONA.md` / `tasks.toml` block the author's update (managed + dirty-skip,
+  the skills contract) or lose to it (overwrite, customization moves to the
+  local layer)?** Dirty-skip costs an author whose fix silently does not land on
+  the tuned groups — the group must be reconciled by hand. Overwrite costs an
+  operator whose tuning disappears on the next `packages sync`, with `sync`
+  being the verb an operator runs for unrelated reasons.
+
+- **NOT the same question as `L315`, and not blocked by it.** `L315` defers
+  re-applying the **rows** a catalog manifest declares (`scheduled_tasks`,
+  `network_rules`, `acl`, `web_routes`) because overwriting recorded row
+  identities strands the rows `remove` must later delete — it needs a withdraw-
+  and-reinstall transaction that does not exist. This entry is the **file**
+  plane, a different verb (`packages sync`/`products apply`, not
+  `packages upgrade`) and a different mechanism (`BlendProducts`), and the
+  withdrawal problem that blocks `L315` is already solved here by `dropStale`
+  (`container/blend.go:289-300`, BUGS `L34`). Answering one does not answer the
+  other; they should stay two entries.
 
 ## ✅ FIXED 2026-09-21 L27 — five channel platforms ship no output-style file, so their agents format blind (2026-08-15)
 
@@ -6417,7 +6475,7 @@ so a stored `time=` written before today is not correctable by a fixed offset.
 - **Status:** fixed (host config)
 - **Fix:** `/etc/chrony/sources.d/hetzner.sources`
 
-## L184 — `fetch_history` cannot tell the agent which rows are its own (2026-09-05, proposal)
+## L184 — `fetch_history` cannot tell the agent which rows are its own (2026-09-05, LOCAL-ROW HALF FIXED 2026-09-21; the platform-fetched half stays the chanlib proposal)
 
 With L178 fixed the rows are rendered from the adapter's response, whose
 `InboundMsg` has no own-author flag, so the bot's posts render as
@@ -6449,6 +6507,52 @@ wire change; decide before adding the field.
   knows its own platform user id (`session.State.User.ID` on Discord), so the
   flag has to be added to the wire type and set by each of the ten adapters — a
   `chanlib` contract change, the same reach `5/34` governs.
+
+- **SCOPE CORRECTION 2026-09-21 — the entry named one tool and the defect had
+  three, and two of them needed no wire change at all.** `fetch_history` is not
+  the only agent surface that returns bot rows. `inspect_messages` (`ipc/ipc.go:2177`)
+  and `get_thread` (`ipc/ipc.go:2297`) read `MessagesBefore` / `MessagesByThread`,
+  which apply no `is_bot_message` filter (`store/messages.go:541,559`), and
+  `fetch_history` falls back to the same unfiltered read when the adapter is
+  unreachable (`routd/mcp.go:392`). On every one of those rows the store HAS the
+  answer: `ipc/ipc.go:792` writes the agent's own reply `BotMsg: true`,
+  `store/messages.go:206` persists it and `:238` reads it back. Only the
+  renderer lost it — `router.FormatMessages` emitted twelve attributes and not
+  that one.
+
+  `inspect_messages`'s own tool description promises rows "including
+  outbound/bot rows", so the tool documented a distinction its output could not
+  express.
+
+- **FIXED 2026-09-21 (local-row half), at the one renderer.** `FormatMessages`
+  now emits `bot="true"` when `BotMsg` is set, beside the existing
+  `errored="true"`. One renderer serves all four message sinks — the three tools
+  and the turn prompt — so the fix lands once. The injected history is unchanged:
+  it filters bot rows out (`is_bot_message` Absent, `store/messages.go:1106,1150,1244,1299`),
+  which is spec `1/N`'s rule, so the marker only ever appears on rows the agent
+  explicitly asked for.
+
+  `BotMsg`, NOT `FromMe`: an imported archive sets `FromMe` for the linked
+  ACCOUNT's own messages — the operator's, not the agent's
+  (`store/messages_archive.go:411`). A test pins that.
+
+  Tests: `TestFormatMessagesMarksBotRows` and
+  `TestFormatMessagesFromMeIsNotOwnAuthorship`. Mutation-proven three ways —
+  dropping the marker, emitting it unconditionally, and reading `FromMe` instead
+  of `BotMsg` each fail.
+
+  `ant/CLAUDE.md` tells the agent to read the attribute rather than infer
+  authorship by matching `sender` against its folder name — the inference the
+  doc previously implied, which is right only for rows this instance wrote and
+  silently wrong for every platform-fetched one (the
+  `identity_derived_not_read` class). Editing `ant/` rides a release: NOT bumped
+  here, it ships with the next `MIGRATION_VERSION`.
+
+- **Still open, and it is the original entry unchanged:** a row fetched FROM THE
+  PLATFORM still carries no own-author flag, because `chanlib.InboundMsg` has no
+  field for one and `routd/mcp.go:409` has nothing to map. That half is the
+  chanlib wire change above and still needs sign-off. The fix here does not
+  pre-empt it — it adds the renderer the wire flag would feed once it exists.
 
 ## L185 — proposal: `arizuko` runtime verbs as HTTP clients need a CLI principal and an audit-surface decision; refused as a mechanical cut (2026-09-05, proposal — needs sign-off)
 
