@@ -1,4 +1,4 @@
-// Harness selection contract (spec 6/7): unset ARIZUKO_BACKEND runs claude; an
+// Harness selection contract (spec 6/16): unset ARIZUKO_BACKEND runs claude; an
 // unknown value throws so the spawn fails loudly instead of silently running the
 // wrong harness. The profiles are the declared capability matrix.
 
@@ -22,7 +22,7 @@ test('selectHarness: unknown value throws — no silent fallback', () => {
   expect(() => selectHarness('gemini')).toThrow('unknown ARIZUKO_BACKEND');
 });
 
-// The conformance matrix rows of spec 6/7 that are capability declarations.
+// The conformance matrix rows of spec 6/16 that are capability declarations.
 // A capability that disappears must show up as a changed value here, not as a
 // feature quietly not happening.
 test('profiles declare the measured capability matrix', () => {

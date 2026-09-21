@@ -1,4 +1,4 @@
-// pi.ts — the pi harness: drives `pi -p --mode json` as a subprocess (spec 6/7).
+// pi.ts — the pi harness: drives `pi -p --mode json` as a subprocess (spec 6/16).
 // pi resumes layer 1 natively: sessions live under the group home, so a rollout
 // survives between spawns. pi has NO MCP client: arizuko verbs never appear in
 // its tool list, and the terminal frame submitted by the chassis is its only

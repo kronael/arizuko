@@ -1,4 +1,4 @@
-// backend.ts — the harness seam (spec 6/7), stated as arizuko's REQUIREMENTS of
+// backend.ts — the harness seam (spec 6/16), stated as arizuko's REQUIREMENTS of
 // an occupant rather than one SDK's options object: Turn in, Frames out, one
 // run() per harness, a profile declaring capabilities as data. One file per
 // harness (claude.ts, codex.ts, pi.ts). The outer contract stays the process

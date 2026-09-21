@@ -64,8 +64,8 @@ func actionForms(jid string) string {
 
 // handleDashApprove/Deny/Reprompt are the dash mutation shims: operator-gated,
 // they call the SAME store writers the /v1 handlers use, then redirect back to
-// the queue. The store method is the single writer per resource (spec 6/7
-// "one renderer per resource") — these and the /v1 handlers share it.
+// the queue. The store method is the single writer per resource (root
+// CLAUDE.md § "One renderer, many sinks") — these and the /v1 handlers share it.
 func (a *admin) handleDashApprove(w http.ResponseWriter, r *http.Request) {
 	if !auth.RequireOperator(w, r, a.ks, "onbod") {
 		return

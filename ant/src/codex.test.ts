@@ -51,7 +51,7 @@ test('CodexTurn: the recorded stream yields continuity, status, then one ok resu
   expect(turn.finish(0, '')).toBeNull();
 });
 
-// The live <status> bug (spec 6/7): the pre-seam runtime parsed claude's raw
+// The live <status> bug (spec 6/16): the pre-seam runtime parsed claude's raw
 // message shape, which codex's {item:{text}} raw does not have — so codex
 // streamed NO interim status.
 test('codex interim text reaches the <status> pipeline', () => {

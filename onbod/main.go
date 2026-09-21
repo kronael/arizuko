@@ -200,7 +200,7 @@ func newOnbodMux(xdb, obdb *store.Store, cfg config, ks *auth.KeySet) *http.Serv
 	adm.mountGates(mux)      // /v1/gates via the shared resreg handler (spec 5/16)
 	adm.mountAudit(mux)      // /v1/audit — onbod is the fourth audit_log owner (spec 5/I)
 
-	// Operator dashboard (spec 6/7): the proxyd transit proof (stripUnsigned)
+	// Operator dashboard (spec 5/16): the proxyd transit proof (stripUnsigned)
 	// admits the proxyd-stamped end-user identity; handleDash then gates on
 	// operator (`**` in X-User-Groups). Distinct from the /v1 bearer gate.
 	mux.HandleFunc("GET /dash/onbod/", stripUnsigned(adm.handleDash))

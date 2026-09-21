@@ -376,7 +376,7 @@ kind = "callback"
 # transcript (seconds-hours, disposable), the platform observed window
 # (minutes, routd), and the platform group files — diary/episodes/work.md,
 # injected into EVERY spawn by container prepareInput regardless of harness
-# (days-months). The portability claim (specs/6/7) is that an agent with NO
+# (days-months). The portability claim (specs/6/16) is that an agent with NO
 # transcript still answers from the group layers; that is what a second
 # harness occupant has to pass. This case pins it: the fact goes into group
 # knowledge, then a contextMode='isolated' follow-up — no `--resume` by
@@ -397,7 +397,7 @@ max_wall_ms = 240000
 [case.check]
 kind = "callback"
 
-# ── Backend contract (6/7) ───────────────────────────────────────────────────
+# ── Backend contract (6/16) ──────────────────────────────────────────────────
 
 # Layer-1-empty guarantee (spec 6/7 § "Context — three layers"): /new resets
 # the session in the same inbound, so the turn that fires the callback runs on
