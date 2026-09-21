@@ -533,6 +533,39 @@ below it. And a chat that DOES answer is not proof the routes are right:
 engagement wakes an already-active thread whatever the table says, which is
 exactly what hid this on the busier channel.
 
+### 23. An adapter stuck in `health: starting` forever
+
+A crash loop is loud: `RestartCount` climbs and `docker ps` says `Restarting`.
+An adapter that never passes its healthcheck is **equally down and quieter** —
+`RestartCount=0`, status `health: starting`, indefinitely. It reads as "still
+coming up" for weeks.
+
+Measured on marinade (BUGS `O2`): `emaid` sat at `health: starting` with
+`RestartCount=0`, logging `[AUTHENTICATIONFAILED] Invalid credentials` every
+~60s while routd deregistered the `email` channel every ~3 minutes. Nothing in
+`docker ps` looked alarming.
+
+```bash
+sudo docker ps --format '{{.Names}}\t{{.Status}}' | grep -i 'starting'
+```
+
+Any row is a finding. A container that has been `starting` for more than a few
+minutes is not starting — it is failing its healthcheck on a loop, and the
+cause is usually a credential the platform rejects rather than a code fault.
+
+Cross-check it against the channel registry: an adapter that keeps being
+deregistered is the same fault seen from routd's side.
+
+```bash
+sq routd.audit_log "select attrs->'action'->>'S', count(*) from e
+                    where sk_s > '<today>' and attrs->'action'->>'S' like 'channel.%'
+                    group by 1"
+```
+
+A `channel.deregister` count that tracks `channel.register` is an adapter
+flapping, not an adapter working.
+
+
 ## Output pattern
 
 After running checks, append findings to `.diary/YYYYMMDD.md`:

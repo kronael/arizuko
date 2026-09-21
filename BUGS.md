@@ -5078,7 +5078,7 @@ chart would now *look* current. That is worse than the honest breakage.
   the `AUTHD_*` env, drop `gated.yaml` and `secrets.channelSecret`), or deleting
   the chart if helm is not a supported install path. Do not half-wire it.
 
-## O2 — two adapters down on platform credentials, not code (2026-08-02, open)
+## ✅ CLOSED 2026-09-21 O2 — two adapters down on platform credentials, not code (2026-08-02)
 
 Fleet eval + redeploy of all three instances (2026-08-02 15:17–15:20). All units
 active, all daemons healthy, and the agent path is verified end-to-end on krons —
@@ -5108,6 +5108,27 @@ noting: an adapter stuck in `health: starting` forever looks less alarming in
 - **Affected:** `arizuko_whapd_krons`, `arizuko_emaid_marinade`
 - **Fix:** re-pair whapd per `reference_whapd_pairing`; set marinade's IMAP
   password. Neither requires a deploy.
+
+**CLOSED 2026-09-21: both adapters already have their own entries, and the one
+thing this entry added that they did not is now covered.**
+
+The two credential faults are `L63` (krons whapd, needs the `--pair` re-auth)
+and `L62` (marinade emaid, needs the IMAP password). Three entries for two
+operator actions is how a queue reads bigger than it is; those two stay, this
+one goes.
+
+What O2 contributed beyond them is the MONITORING gap, and it was real:
+`RestartCount=0` with status `health: starting` is equally down and much
+quieter than a crash loop, so an adapter failing its healthcheck on a
+credential looks like one that is still coming up — for weeks. Verified
+2026-09-21 that no eval check mentioned `health: starting` or `unhealthy`.
+
+Now check 23 in `.claude/skills/eval/checks.md`, with the routd-side
+cross-check beside it: a `channel.deregister` count that tracks
+`channel.register` is an adapter flapping, not an adapter working.
+
+- **Status:** closed; the credential work lives in `L62` and `L63`
+- **Fix:** eval check 23
 
 ## A1 — the split is deployment-shaped only: auth data lives in the router's DB (2026-08-02, proposal)
 
