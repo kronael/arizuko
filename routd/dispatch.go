@@ -33,18 +33,15 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		return false, nil
 	}
 	last := msgs[len(msgs)-1]
-	// Route and steer both read the row steerRowIdx picks, never the newest row.
-	// A `verb=mention` route matches on the message's verb, and a bot reply
-	// carries no mention — so resolving on a bot row turns the user's @mention
-	// into a route miss and archives it as context, silently, on the shipped
-	// mention-only Slack/Discord config. The steer half of the same mistake was
-	// BUGS L56; this is its twin one line up. An all-bot batch routes nothing.
 	// routeIdx and steerIdx answer DIFFERENT questions and must not share a row.
-	// The route and the busy key want the NEWEST user row; the steer offer wants
-	// the oldest slash command (L336). Feeding the command row to resolve made a
-	// `/root` followed by an @mention resolve on the command's verb, miss a
-	// mention-only route, and drop the whole batch at routeMiss — worse than the
-	// text-passthrough L336 set out to fix.
+	// The route and the busy key want the NEWEST user row: a `verb=mention`
+	// route matches on the message's verb and a bot reply carries no mention, so
+	// resolving on a bot row turns the user's @mention into a route miss and
+	// archives it as context, silently, on the shipped mention-only
+	// Slack/Discord config (BUGS L56 is the steer half of the same mistake). The
+	// steer offer wants the oldest slash command (L336); feeding that row to
+	// resolve made a `/root` followed by an @mention miss a mention-only route
+	// and drop the whole batch at routeMiss. An all-bot batch routes nothing.
 	routeIdx := newestUserIdx(msgs)
 	if routeIdx < 0 {
 		// An all-bot batch is normally an agent's own output, correctly ignored.
@@ -232,11 +229,11 @@ type observedAdvance struct{ topic, ts string }
 // steerRowIdx picks the row `steer` is offered. It is the OLDEST slash command
 // in the batch when there is one, and otherwise the newest non-bot row.
 //
-// Only the newest row used to be offered, so a command was steered only when
-// nothing non-bot landed after it before the next poll. A second human message,
-// another person in a group chat, or a `timed` cron row was enough: the command
-// stayed in the trigger batch and reached the agent as plain text. `/root` then
-// ran unelevated, which reads as the platform ignoring the command (BUGS L336).
+// The whole batch, not just its newest row. A command with any non-bot row
+// after it — a second human message, another person in a group chat, a `timed`
+// cron row — otherwise stayed in the trigger batch and reached the agent as
+// plain text, so `/root` ran unelevated, which reads as the platform ignoring
+// the command (BUGS L336).
 //
 // The OLDEST, not the newest, and that is what keeps the consume contract. The
 // steered row is consumed and the cursor advances to IT, so rows behind it get
