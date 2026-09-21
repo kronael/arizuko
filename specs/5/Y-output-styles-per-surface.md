@@ -30,11 +30,21 @@ mechanisms, one concern, guaranteed drift.
 platform-less surface keys. `ant/output-styles/` ships
 `slack-{dm,channel,thread,pane}`, `telegram-{dm,group}`,
 `discord-{dm,channel}`, `email.md`, `web.md`, plus the bare
-`<platform>.md` fallbacks. Platforms whose length envelope isn't
-interesting (WhatsApp, Reddit, Bluesky, Twitter, LinkedIn) ship no file
-today: the picker still names a style for them, Claude Code cannot
-resolve it, and the reply falls back to stock formatting — the same
-outcome as any channel with no matching file.
+`<platform>.md` fallbacks. WhatsApp, Bluesky, LinkedIn and Twitter each
+ship a bare `<platform>.md`: none has a surface split worth drawing, but
+each has a send path that makes stock markdown wrong — `whapd.mdToWa`
+rewrites `**bold**` and nothing else, while bskyd, linkd and twitd post
+the text verbatim to platforms with no markdown renderer and a hard
+length cap they enforce by REJECTING the post.
+
+**A platform earns a file only when its send path makes stock formatting
+wrong.** Reddit and GitHub ship none: `reditd` and `gitd` post the
+agent's text verbatim into a field their platform renders as real
+markdown, so a file would add a surface to maintain and change nothing.
+The picker still names `reddit`/`github`, Claude Code resolves nothing,
+and the reply falls back to stock — which is the correct output there.
+`container/output_style_test.go` pins both halves: every named style
+either ships a file or is recorded as a deliberate stock fallback.
 Operators override per folder via `~/.claude/output-styles/` — Claude
 Code's own settings precedence, no arizuko mechanism.
 

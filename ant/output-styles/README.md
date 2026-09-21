@@ -10,6 +10,10 @@ the agent's `outputStyle` at session bind. Spec:
 `telegram-group.md`. Channel-only fallback `<channel>.md` (e.g.
 `web.md`) when the channel has no per-surface split.
 
+The channel is the JID scheme (`whatsapp`, `bluesky`), never the daemon
+name (`whapd`, `bskyd`) — a file named after the daemon ships and is
+never read.
+
 | Channel  | Surfaces                                  |
 | -------- | ----------------------------------------- |
 | slack    | dm, channel, thread, pane                 |
@@ -17,6 +21,17 @@ the agent's `outputStyle` at session bind. Spec:
 | telegram | dm, group                                 |
 | web      | (no split — single `web.md`)              |
 | email    | (no split — single `email.md`)            |
+| whatsapp | (no split — single `whatsapp.md`)         |
+| bluesky  | (no split — single `bluesky.md`)          |
+| linkedin | (no split — single `linkedin.md`)         |
+| twitter  | (no split — single `twitter.md`)          |
+| reddit   | none — stock markdown is already correct  |
+| github   | none — stock markdown is already correct  |
+
+`reditd` and `gitd` post the agent's text verbatim into a field their
+platform renders as real markdown, so a style file would add a surface to
+maintain and change nothing. `container/output_style_test.go` pins that
+decision; shipping a file for either flips a bool there.
 
 ## Selection algorithm
 
@@ -28,12 +43,18 @@ the agent's `outputStyle` at session bind. Spec:
      `pane` if `paneLookup(channelID)` returns true)
    - discord DM → `dm`; otherwise → `channel`
    - telegram DM → `dm`; otherwise → `group`
-3. File picked = `<channel>-<surface>.md` if both stat, else
-   `<channel>.md` fallback. Empty channel → no `outputStyle` set.
+3. Name = `<channel>-<surface>` when `deriveSurface` matched, else the
+   bare `<channel>`. Empty channel → no `outputStyle` set.
+
+The picker does no existence check — it names a style, it does not open
+one. That is what makes a per-group operator override at the same path
+work for free, and it is why a name with no file is silent: the reader
+(`ant/src/index.ts::readOutputStyle`) swallows the ENOENT and the agent
+drops to stock formatting with nothing logged.
 
 Files are seeded into the agent container's `~/.claude/output-styles/`
-at spawn (`seedOutputStyles` in `container/runner.go:669`). Claude
-Code's SDK reads the file referenced by `settings.json::outputStyle`.
+at spawn (`seedOutputStyles` in `container/runner.go`). Claude Code's SDK
+reads the file referenced by `settings.json::outputStyle`.
 
 ## Voice + length conventions (carried by each file)
 
@@ -46,7 +67,14 @@ Should cover:
 - **Markdown support** — what the agent should emit (Slack `mrkdwn`;
   Discord CommonMark; Telegram markdown `**bold**`/`` `code` ``/`#`→bold,
   which `teled.mdToHTML` converts to Telegram HTML — never emit raw HTML;
-  plain for email/web/RSS)
+  WhatsApp markdown `**bold**`, which `whapd.mdToWa` converts to `*bold*`
+  and converts nothing else; plain text for Bluesky/LinkedIn/X, which run
+  no markdown renderer at all; plain for email/web/RSS)
+
+An adapter's send path decides what the file may ask for. Read it before
+writing a style — `teled.mdToHTML` and `whapd.mdToWa` each rewrite a
+SUBSET of markdown, and a rule that assumes the rest is rewritten too
+teaches the agent a syntax the user sees raw.
 - **Special escape hatches** — when to send a file (`send_file`),
   when to spawn a thread, when to use a status reaction
 
@@ -73,7 +101,8 @@ Should cover:
 
 ## Files
 
-`discord-channel.md`, `discord-dm.md`, `discord.md`, `email.md`,
-`slack-channel.md`, `slack-dm.md`, `slack-pane.md`, `slack-thread.md`,
-`slack.md`, `telegram-dm.md`, `telegram-group.md`, `telegram.md`,
-`web.md`.
+`bluesky.md`, `discord-channel.md`, `discord-dm.md`, `discord.md`,
+`email.md`, `linkedin.md`, `slack-channel.md`, `slack-dm.md`,
+`slack-pane.md`, `slack-thread.md`, `slack.md`, `telegram-dm.md`,
+`telegram-group.md`, `telegram.md`, `twitter.md`, `web.md`,
+`whatsapp.md`.
