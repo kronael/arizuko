@@ -152,10 +152,10 @@ func (l *Loop) enrichAttachments(ctx context.Context, msg *core.Message, folder 
 }
 
 // unavailableAttachment renders the element a turn gets when a file the sender
-// attached did not arrive. The agent is TOLD, which is the whole point: a
-// dropped attachment used to write nothing at all, so the turn ran on a message
-// that named a file it never received and neither the agent nor the user could
-// see that anything was missing (BUGS L163).
+// attached did not arrive. The agent is TOLD, which is the whole point: an
+// attachment that writes nothing at all leaves the turn running on a message
+// that names a file it never received, and neither the agent nor the user can
+// see that anything is missing (BUGS L163).
 //
 // ONE renderer for the four failure sites, so they cannot drift.
 func unavailableAttachment(att chanlib.InboundAttachment, why string) string {

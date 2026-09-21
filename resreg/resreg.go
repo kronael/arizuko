@@ -281,12 +281,12 @@ type Resource struct {
 	// entry here documents "OK" and no schema at all.
 	//
 	// It is separate from RowType because a Handler returns `any` and nothing
-	// constrains it to the row. The emitter used to pick the shape off the verb
-	// — list → array<Row>, GET/POST → Row — and 22 mounted operations answered
-	// with something else entirely: GET /v1/routes with []router.RouteView,
-	// GET /v1/tasks with []core.Task (Go field names, no json tags), the mints
-	// with {token,jid,url}, onbod's mutations with {"ok":true}. A generated
-	// client mis-decoded every one of them (BUGS L120).
+	// constrains it to the row. The verb cannot give the shape — list →
+	// array<Row>, GET/POST → Row — because 22 mounted operations answer with
+	// something else entirely: GET /v1/routes with []router.RouteView, GET
+	// /v1/tasks with []core.Task (Go field names, no json tags), the mints with
+	// {token,jid,url}, onbod's mutations with {"ok":true}. A generated client
+	// mis-decoded every one of them (BUGS L120).
 	//
 	// The declared type is the ONE declaration and the handler is its second
 	// reader: it constructs that same type, so a field renamed in the struct

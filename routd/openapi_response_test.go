@@ -3,9 +3,9 @@ package routd
 // Does /openapi.json describe the body routd actually answers with?
 //
 // Nothing else asks. The advertised PATHS come off the mux and the request
-// schemas off RowType, but a resreg.Handler returns `any`, so before BUGS L120
-// the emitter picked the response shape off the verb — list → array<RowType>,
-// GET → RowType — and 22 mounted operations answered with something else. The
+// schemas off RowType, but a resreg.Handler returns `any`, so the verb cannot
+// give the response shape — list → array<RowType>, GET → RowType — and 22
+// mounted operations answer with something else (BUGS L120). The
 // loudest are pinned here: GET /v1/routes answers []router.RouteView
 // (annotated: mode, fires_turn, explain, shadowed_by), the task reads answer
 // core.Task, which carries NO json tags, so its wire keys are Go field names
@@ -59,9 +59,8 @@ func documentedBodyFixture(t *testing.T) *http.ServeMux {
 	return mux
 }
 
-// TestOpenAPIDescribesTheBodyItAnswers is the L120 pin. Each read below is one
-// the emitter used to describe off the RowType convention and answer with
-// something else.
+// TestOpenAPIDescribesTheBodyItAnswers is the L120 pin. Each read below answers
+// with something other than the RowType convention would predict.
 func TestOpenAPIDescribesTheBodyItAnswers(t *testing.T) {
 	mux := documentedBodyFixture(t)
 	reads := []string{

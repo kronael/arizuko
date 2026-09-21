@@ -1356,9 +1356,10 @@ func TestDavAllow(t *testing.T) {
 // --- the Destination header, WebDAV's second write target (BUGS L114) -------
 
 // A MOVE/COPY whose Destination leaves the caller's slot is refused. Both
-// guards used to read the request line only, so a caller granted `coach` moved
-// its own file onto `/main/trading/CLAUDE.md` and davd — dufs --allow-all over
-// a read-write bind of <data>/groups — wrote another tenant's workspace.
+// guards have to read the Destination and not the request line alone: a caller
+// granted `coach` otherwise moves its own file onto `/main/trading/CLAUDE.md`
+// and davd — dufs --allow-all over a read-write bind of <data>/groups — writes
+// another tenant's workspace.
 func TestProxydDavDestinationOutOfSlotRefused(t *testing.T) {
 	s, rp, up := testDavServer(t)
 	defer up.Close()

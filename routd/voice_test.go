@@ -402,9 +402,9 @@ func TestTranscribeOnce_Non200ClosesBody(t *testing.T) {
 	}
 }
 
-// A file the sender attached and routd could not fetch used to write NOTHING
-// into the turn, so the agent ran on a message that named a file it never
-// received and neither it nor the user could see anything was missing. An
+// A file the sender attached and routd could not fetch must not write NOTHING
+// into the turn: the agent then runs on a message that names a file it never
+// received, and neither it nor the user can see anything is missing. An
 // adapter restart empties the in-memory /files/<id> map, so 12 of these landed
 // on sloth in six seconds after one restart (BUGS L163).
 func TestEnrich_AnUnfetchableAttachmentIsVisibleToTheAgent(t *testing.T) {
