@@ -128,10 +128,7 @@ func TestFileProxy_AddsUpstreamAuth(t *testing.T) {
 	}))
 	defer upstream.Close()
 	s, _ := newTestServer(t, "shh")
-	id, err := s.files.Put(t.Context(), upstream.URL+"/private")
-	if err != nil {
-		t.Fatalf("put: %v", err)
-	}
+	id := s.files.Put(t.Context(), upstream.URL+"/private")
 
 	req := httptest.NewRequest("GET", "/files/"+id, nil)
 	req.Header.Set("Authorization", "Bearer chsec")

@@ -857,12 +857,7 @@ func (b *bot) attachmentsFor(ctx context.Context, content string, files []slackF
 		content += fmt.Sprintf(" [Attachment: %s]", name)
 		u := f.URLPriv
 		if b.cfg.ListenURL != "" && b.files != nil {
-			id, err := b.files.Put(ctx, f.URLPriv)
-			if err != nil {
-				// The id still works in this process; only a restart loses it
-				// (URLCache.Put, BUGS L163).
-				slog.Error("attachment url not recorded", "id", id, "err", err)
-			}
+			id := b.files.Put(ctx, f.URLPriv)
 			u = fmt.Sprintf("%s/files/%s", b.cfg.ListenURL, id)
 		}
 		atts = append(atts, chanlib.InboundAttachment{

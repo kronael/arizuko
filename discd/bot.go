@@ -157,12 +157,7 @@ func buildAttachments(
 		content += fmt.Sprintf(" [Attachment: %s]", name)
 		u := att.URL
 		if listenURL != "" && cache != nil {
-			id, err := cache.Put(ctx, att.URL)
-			if err != nil {
-				// The id still works in this process; only a restart loses it
-				// (URLCache.Put, BUGS L163).
-				slog.Error("attachment url not recorded", "id", id, "err", err)
-			}
+			id := cache.Put(ctx, att.URL)
 			u = fmt.Sprintf("%s/files/%s", listenURL, id)
 		}
 		atts = append(atts, chanlib.InboundAttachment{

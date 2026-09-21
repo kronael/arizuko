@@ -383,10 +383,7 @@ func TestFileProxyHandler_Success(t *testing.T) {
 	defer upstream.Close()
 
 	cache := NewURLCache(10, nil)
-	id, err := cache.Put(t.Context(), upstream.URL)
-	if err != nil {
-		t.Fatalf("put: %v", err)
-	}
+	id := cache.Put(t.Context(), upstream.URL)
 
 	h := FileProxyHandler(FileProxyOpts{Resolve: cache.Get})
 	req := httptest.NewRequest("GET", "/files/"+id, nil)

@@ -214,10 +214,7 @@ func TestReditFileProxy(t *testing.T) {
 	defer cdn.Close()
 
 	fc := chanlib.NewURLCache(100, nil)
-	id, err := fc.Put(t.Context(), cdn.URL+"/image.jpg")
-	if err != nil {
-		t.Fatalf("put: %v", err)
-	}
+	id := fc.Put(t.Context(), cdn.URL+"/image.jpg")
 	s := newServer(config{Name: "reddit"}, &stubSender{}, fc, nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	s.safeFetch = nil
 
@@ -298,10 +295,7 @@ func TestReditLikeUnsupported(t *testing.T) {
 // when the file cache happens to contain one (defense-in-depth).
 func TestReditFileProxy_SSRFBlock(t *testing.T) {
 	fc := chanlib.NewURLCache(100, nil)
-	id, err := fc.Put(t.Context(), "http://169.254.169.254/latest/meta-data/")
-	if err != nil {
-		t.Fatalf("put: %v", err)
-	}
+	id := fc.Put(t.Context(), "http://169.254.169.254/latest/meta-data/")
 	s := newServer(config{Name: "reddit"}, &stubSender{}, fc, nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	// default safeFetch = isSafeFetchURL must reject
 	req := httptest.NewRequest("GET", "/files/"+id, nil)

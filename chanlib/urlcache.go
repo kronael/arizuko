@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"log/slog"
 	"sync"
 
 	"github.com/kronael/arizuko/chanlib/chanstore"
@@ -47,20 +48,24 @@ func NewURLCache(cap int, st *chanstore.Store) *URLCache {
 // Put records url and returns the short opaque id standing for it. Idempotent:
 // the same url always returns the same id.
 //
-// THE ID IS RETURNED EVEN WHEN THE RECORD FAILS, together with the error. The
-// caller is building an inbound envelope: the proxy resolves the id from memory
-// for as long as this process lives, so dropping the attachment over a failed
-// record would turn a lost restart into a loss right now. The caller logs and
-// carries on; routd's enrich renders the `unavailable=` notice if the mapping
-// is later gone, so the user is told either way.
-func (c *URLCache) Put(ctx context.Context, url string) (string, error) {
+// THE ID IS ANSWERED EVEN WHEN THE RECORD FAILS, and the failure is logged
+// here rather than returned. The caller is building an inbound envelope: the
+// proxy resolves the id from memory for as long as this process lives, so
+// dropping the attachment over a failed record would turn a lost restart into
+// a loss right now. Every caller wants that same answer, so the decision is
+// made once here instead of in each adapter. routd's enrich renders the
+// `unavailable=` notice if the mapping is later gone, so the user is told.
+func (c *URLCache) Put(ctx context.Context, url string) string {
 	sum := sha256.Sum256([]byte(url))
 	id := hex.EncodeToString(sum[:6])
 	c.remember(id, url)
 	if c.st == nil {
-		return id, nil
+		return id
 	}
-	return id, c.st.RecordFileURL(ctx, id, url)
+	if err := c.st.RecordFileURL(ctx, id, url); err != nil {
+		slog.ErrorContext(ctx, "attachment url not recorded", "id", id, "url", url, "err", err)
+	}
+	return id
 }
 
 // Get returns the url an id stands for. A store miss is reported as not-found,

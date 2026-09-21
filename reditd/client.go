@@ -619,12 +619,7 @@ func (rc *redditClient) extractAttachments(ctx context.Context, t thing) []chanl
 }
 
 func (rc *redditClient) makeAttachment(ctx context.Context, rawURL, mime, fname string) chanlib.InboundAttachment {
-	id, err := rc.files.Put(ctx, rawURL)
-	if err != nil {
-		// The id still works in this process; only a restart loses it
-		// (URLCache.Put, BUGS L163).
-		slog.Error("attachment url not recorded", "id", id, "err", err)
-	}
+	id := rc.files.Put(ctx, rawURL)
 	proxyURL := rc.cfg.ListenURL + "/files/" + id
 	return chanlib.InboundAttachment{
 		Mime:     mime,
