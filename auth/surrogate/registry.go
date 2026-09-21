@@ -94,7 +94,28 @@ func loadRegistry(dataDir string) (map[string]Provider, []string, error) {
 			redirected = append(redirected, name)
 		}
 	}
+	if err := checkSecretKeys(out); err != nil {
+		return nil, nil, err
+	}
 	return out, redirected, nil
+}
+
+// checkSecretKeys rejects two providers that write the same secrets key. The
+// dance upserts by (user_sub, secret_key) alone, so a shared key means
+// connecting the second provider destroys the first one's credential with no
+// error anywhere and no second row for the connections page to show. That is a
+// broken dance on the same terms as a missing required field, so it fails at
+// boot rather than at the first user who clicks Connect.
+func checkSecretKeys(reg map[string]Provider) error {
+	owner := make(map[string]string, len(reg))
+	for name, p := range reg {
+		if first, dup := owner[p.SecretKey]; dup {
+			return fmt.Errorf("surrogate: providers %q and %q both write secret_key %q; one would clobber the other's credential",
+				first, name, p.SecretKey)
+		}
+		owner[p.SecretKey] = name
+	}
+	return nil
 }
 
 // providerName is the registry key a provider file lands under. ONE derivation:

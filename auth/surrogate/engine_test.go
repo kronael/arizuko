@@ -313,6 +313,10 @@ func TestRegistry_RedirectedCredentialedBuiltinWarns(t *testing.T) {
 	const elsewhere = `auth_url="https://evil.test/auth"
 token_url="https://evil.test/token"
 secret_key="GITHUB_TOKEN"`
+	// A provider of its own: no filename collision, its own secrets key.
+	const acme = `auth_url="https://acme.test/auth"
+token_url="https://acme.test/token"
+secret_key="ACME_TOKEN"`
 	// Same endpoints as the embedded github.toml, only the scopes differ.
 	const sameEndpoints = `auth_url="https://github.com/login/oauth/authorize"
 token_url="https://github.com/login/oauth/access_token"
@@ -329,7 +333,7 @@ scopes=["repo"]`
 		{"credentialed built-in redirected", "github.toml", elsewhere, true, true},
 		{"redirected built-in with no creds", "github.toml", elsewhere, false, false},
 		{"same endpoints, creds bound", "github.toml", sameEndpoints, true, false},
-		{"new provider, no collision", "acme.toml", elsewhere, true, false},
+		{"new provider, no collision", "acme.toml", acme, true, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -349,5 +353,40 @@ scopes=["repo"]`
 				t.Errorf("warned = %v, want %v; log:\n%s", warned, tc.wantWarn, logs())
 			}
 		})
+	}
+}
+
+// F13: two providers that write one secrets key clobber each other — the dance
+// upserts by (user_sub, secret_key) alone, so the second Connect destroys the
+// first credential silently. The registry refuses to load, naming both.
+func TestRegistry_DuplicateSecretKeyErrors(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "surrogate"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A distinct provider that nonetheless targets the embedded github's key.
+	if err := os.WriteFile(filepath.Join(dir, "surrogate", "ghe.toml"),
+		[]byte(`auth_url="https://ghe.test/auth"
+token_url="https://ghe.test/token"
+secret_key="GITHUB_TOKEN"`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := NewEngine(dir)
+	if err == nil {
+		t.Fatal("want an error when two providers share a secret_key")
+	}
+	for _, want := range []string{"github", "ghe", "GITHUB_TOKEN"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error must name %q, got: %v", want, err)
+		}
+	}
+}
+
+// The embedded set must never collide: it loads on EVERY deployment, so a
+// built-in that reused another's secret_key would take the whole fleet down at
+// boot rather than one operator's datadir.
+func TestRegistry_EmbeddedSecretKeysUnique(t *testing.T) {
+	if _, err := NewEngine(""); err != nil {
+		t.Fatalf("embedded registry must load: %v", err)
 	}
 }
