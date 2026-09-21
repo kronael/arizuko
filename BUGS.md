@@ -7940,7 +7940,7 @@ a `/v1` reply read for `send`.
     an audit-surface decision that includes `resreg/engine.go:805`, and the
     acceptance that every runtime verb now fails when routd is down.
 
-## L186 — proposal: dashd's admin writes over routd's `/v1` need a forwarder trust routd does not have; refused as a cut (2026-09-05, proposal — needs sign-off)
+## L186 — proposal: dashd's admin writes over routd's `/v1` need a forwarder trust routd does not have; refused as a cut (2026-09-05, proposal — RE-VERIFIED 2026-09-21: the absence already cost `L152` a dashd→routd import edge; ONE question, needs sign-off)
 
 Spec 6/36 S1 says `webd/routes_mcp.go` proves the audit-actor bridge
 (`X-User-*` forwarded under a service bearer). Measured at `f86e84b2`: that
@@ -7979,6 +7979,50 @@ routd's `/v1` first — it is the precondition for both S1 and S11.
   bearerCall; `resreg/resources/groups.go` GroupsAgentEndpoints
 - **Status:** proposal (needs sign-off)
 - **Fix:**
+
+- **RE-VERIFIED 2026-09-21 at `b3b973e2`. Every premise holds.**
+  `trustedForwarders = {service:webd, service:dashd}` exists at proxyd only
+  (`proxyd/resource.go:343`), and `channelTrusted` pins the bearer's sub so a
+  valid token reaching proxyd directly cannot forge `X-User-*`. routd's verifier
+  is `auth.VerifyHTTP` alone (`routd/cmd/routd/main.go:337-343`): it returns the
+  bearer's own sub and reads no `X-User-*`. `auth.ProxydTransit`
+  (`auth/middleware.go:33-39`) pins `service:proxyd`. dashd's `bearerCall`
+  (`dashd/engagement_page.go:186`) still sends no `X-User-*` to routd on
+  purpose. `POST /v1/groups` is still unserved
+  (`resreg/resources/groups.go:30-38`).
+
+- **NEW, and it is the strongest evidence this entry has: the absence has
+  already been PAID FOR, on `acl` — the very table routd owns.** dashd's grants
+  surface is SPLIT down the middle. It READS over routd's `/v1/acl`
+  (`dashd/grants_admin.go:327`) and WRITES straight to the store
+  (`:235` `AddACLRow`, `:309` `AsUser(sub).RemoveACLRow`).
+  - When `L152` was fixed (2026-09-21), routd's alias warning could not reach
+    the operator on the web surface, because dashd never makes the HTTP call
+    that would carry it back. The fix exported the renderer —
+    `routd.NonCanonicalWarning` (`routd/acl_resource.go:215-219`, "the one
+    renderer of that warning, for every surface") — and dashd now calls it
+    through a **Go import edge into the routd package**
+    (`dashd/grants_admin.go:248`). Its own comment names the cause: "this form
+    writes the store directly, so the operator using the web surface was the one
+    person not told (BUGS `L152`)".
+  - **So the missing forwarder trust is not a future cost.** It has already
+    converted one HTTP dependency into a tighter compile-time one. Every further
+    routd-side rule about an acl write — not just a warning — lands the same
+    way: exported from routd and linked into dashd, or silently absent on the
+    web surface. That is the drift `L152` paid for once and will pay for again.
+
+- **THE ONE QUESTION:** may routd trust an allowlisted sibling's forwarded
+  `X-User-*` — keeping the audit actor the human who clicked — or does routd
+  stay bearer-only, making the daemon the actor on every admin write?
+  - Answer "trust the forwarder" → shape (a): routd grows proxyd's allowlist
+    under `service:dashd`, a new trust edge on the daemon that owns `acl`.
+    `groups.create` on `/v1` is then the first handler to build, because S1 and
+    S11 both need it.
+  - Answer "bearer only" → shape (b), and the consequence is written down
+    rather than discovered: `store.AsUser` stops being reachable from dashd's
+    admin writes, so `6/36` S1 is declined and dashd keeps writing the store
+    directly — with the `L152` import edge as the accepted pattern, not an
+    accident.
 
 ## L188 — sections that left `ant/CLAUDE.md` under 6/34 with no anteval case behind them (2026-09-05, open — backfill list)
 
