@@ -34,7 +34,7 @@ const DefaultAPIPort = 8080
 // so these are what stop the two from disagreeing (BUGS L194, the shape F71
 // already paid for).
 const (
-	DefaultAssistantName = "Andy"
+	DefaultAssistantName = "arizuko"
 	DefaultWhisperModel  = "turbo"
 	DefaultMediaMaxBytes = 20 * 1024 * 1024
 )

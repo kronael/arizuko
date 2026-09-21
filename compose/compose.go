@@ -762,14 +762,7 @@ func Generate(dataDir string) (string, []ProxydRoute, error) {
 	if env == nil {
 		env = map[string]string{}
 	}
-	for k, v := range map[string]string{
-		"API_PORT":       fmt.Sprintf("%d", core.DefaultAPIPort),
-		"ASSISTANT_NAME": "arizuko",
-	} {
-		if _, ok := env[k]; !ok {
-			env[k] = v
-		}
-	}
+	seedSharedDefaults(env)
 
 	// Compose owns the project name. When egress isolation is on, write the derived
 	// names explicitly into env so daemons inside containers don't guess them from
@@ -1069,6 +1062,23 @@ func mergeStoreCredentials(dataDir string, perDaemon map[string]map[string]strin
 		}
 		perDaemon[daemon][dynstore.EnvKeyID] = keyID
 		perDaemon[daemon][dynstore.EnvSecret] = secret
+	}
+}
+
+// seedSharedDefaults fills the env keys whose default is DECLARED in core, for
+// an instance `.env` that omits them. Both values are read from there, never
+// respelled: `ASSISTANT_NAME` is in commonKeys, so a second literal here
+// reaches every daemon's scoped env file and the constant surfaces only
+// outside compose — which is the drift L194 was closed to prevent, and which
+// happened anyway (BUGS L340).
+func seedSharedDefaults(env map[string]string) {
+	for k, v := range map[string]string{
+		"API_PORT":       fmt.Sprintf("%d", core.DefaultAPIPort),
+		"ASSISTANT_NAME": core.DefaultAssistantName,
+	} {
+		if _, ok := env[k]; !ok {
+			env[k] = v
+		}
 	}
 }
 

@@ -70,7 +70,7 @@ Four commands shared the gate and each spelled its own refusal —
   fails on all four commands without the fix. It does NOT change who may run
   `/root`; the wrong-principal data is `L334`. (`4f78901e`)
 
-## L340 — `ASSISTANT_NAME` has two declared defaults with two different values, and the test that should catch it is a tautology (2026-09-21, open)
+## ✅ FIXED 2026-09-21 L340 — `ASSISTANT_NAME` has two declared defaults with two different values, and the test that should catch it is a tautology (2026-09-21, open)
 
 `core/config.go:37` declares `DefaultAssistantName = "Andy"` under a comment
 that forbids precisely this:
@@ -105,6 +105,26 @@ while the drift is live.
   comparing a constant to its own literal pins nothing, and should not be left
   standing as evidence — it is why this survived.
   Check the other two the same way before assuming only this one drifted.
+
+**FIXED 2026-09-21, and the resolution went the way that changes nothing.**
+`ASSISTANT_NAME` is in `commonKeys`, so compose's seeded value is what every
+daemon has always read — `arizuko`. Making compose read the constant while the
+constant said `Andy` would have renamed the assistant on every new instance.
+So the CONSTANT takes the value the fleet already uses, and compose reads it:
+one declaration, two readers, zero behaviour change.
+
+`seedSharedDefaults` (`compose/compose.go`) is extracted from `Generate` so the
+invariant is testable at all — it was inline, and `Generate` needs a whole
+instance layout to drive.
+
+- **Status:** fixed
+- **Fix:** `core.DefaultAssistantName` is `arizuko`; `compose` reads it.
+  `TestSeededAssistantNameIsTheSharedDefault` pins the two sides equal, proven
+  by mutation with a DIFFERING literal — mutating both sides together passes,
+  which is the trap that made the old test worthless.
+  `TestTheSharedDefaultsAreNamedOnce` no longer compares a constant to its own
+  literal; it asserts what the declaration is for, that `EnvOr` on an unset var
+  resolves to the shared default.
 
 ## L341 — every inbound attachment's store write has no deadline (2026-09-21, open)
 

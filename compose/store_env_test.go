@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore/dynstore"
 )
 
@@ -226,4 +227,20 @@ func captureComposeErrors(t *testing.T) *bytes.Buffer {
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelError})))
 	t.Cleanup(func() { slog.SetDefault(prev) })
 	return &buf
+}
+
+// The seeded default and the constant are ONE declaration with two readers.
+// They drifted — core said "Andy", this seeded "arizuko", and since
+// ASSISTANT_NAME is in commonKeys the seeded value reached every daemon's
+// scoped env file. So the constant only ever surfaced outside compose, which
+// is the case L194 was closed to make impossible (BUGS L340).
+func TestSeededAssistantNameIsTheSharedDefault(t *testing.T) {
+	env := map[string]string{}
+	seedSharedDefaults(env)
+
+	if got := env["ASSISTANT_NAME"]; got != core.DefaultAssistantName {
+		t.Fatalf("seeded ASSISTANT_NAME = %q, want core.DefaultAssistantName %q — "+
+			"a second literal here is the drift the constant exists to prevent",
+			got, core.DefaultAssistantName)
+	}
 }
