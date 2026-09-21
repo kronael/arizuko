@@ -1,12 +1,10 @@
 package routd
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -576,21 +574,8 @@ func TestDeliverRow_TheThreadStampFillsOnlyAnEmptyTopic(t *testing.T) {
 // silent by design, which is why that went unnoticed from August (BUGS L2).
 // The CROSS-FOLDER case must say so.
 func TestDispatch_ADelegationThatWokeNothingSaysSo(t *testing.T) {
-	db, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
-	var logged bytes.Buffer
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelWarn})))
-	t.Cleanup(func() { slog.SetDefault(prev) })
-
-	loop := NewLoop(db, runnerFn(func(context.Context, runedv1.RunRequest) (runedv1.RunOutcome, error) {
-		t.Error("a container ran for an all-bot batch")
-		return runedv1.RunOutcome{}, nil
-	}), LoopConfig{})
-	loop.StopQueue()
+	db, loop, rr := recLoop(t)
+	logged := captureInfoLog(t)
 
 	// The parent wrote into the child's own chat. Sender is the PARENT folder.
 	if err := db.PutMessage(core.Message{ID: "d1", ChatJID: "web:eval/child",
@@ -602,7 +587,10 @@ func TestDispatch_ADelegationThatWokeNothingSaysSo(t *testing.T) {
 		t.Fatalf("process: %v", err)
 	}
 
-	out := logged.String()
+	if len(rr.runs) != 0 {
+		t.Errorf("a container ran for an all-bot batch: %+v", rr.runs)
+	}
+	out := logged()
 	if !strings.Contains(out, "delegation woke nothing") {
 		t.Errorf("a cross-folder delegation was dropped silently:\n%s", out)
 	}
@@ -614,20 +602,8 @@ func TestDispatch_ADelegationThatWokeNothingSaysSo(t *testing.T) {
 // An agent's OWN output is the ordinary all-bot batch and must stay silent, or
 // every turn a folder takes would log a false alarm about itself.
 func TestDispatch_AnAgentsOwnOutputIsDroppedQuietly(t *testing.T) {
-	db, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
-	var logged bytes.Buffer
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelWarn})))
-	t.Cleanup(func() { slog.SetDefault(prev) })
-
-	loop := NewLoop(db, runnerFn(func(context.Context, runedv1.RunRequest) (runedv1.RunOutcome, error) {
-		return runedv1.RunOutcome{}, nil
-	}), LoopConfig{})
-	loop.StopQueue()
+	db, loop, _ := recLoop(t)
+	logged := captureInfoLog(t)
 
 	if err := db.PutMessage(core.Message{ID: "o1", ChatJID: "web:eval/child",
 		Sender: "eval/child", Content: "my own reply", BotMsg: true, FromMe: true,
@@ -637,8 +613,8 @@ func TestDispatch_AnAgentsOwnOutputIsDroppedQuietly(t *testing.T) {
 	if _, err := loop.processGroupMessages("web:eval/child"); err != nil {
 		t.Fatalf("process: %v", err)
 	}
-	if strings.Contains(logged.String(), "delegation woke nothing") {
-		t.Errorf("a folder's own output logged a false alarm:\n%s", logged.String())
+	if strings.Contains(logged(), "delegation woke nothing") {
+		t.Errorf("a folder's own output logged a false alarm:\n%s", logged())
 	}
 }
 
@@ -648,26 +624,14 @@ func TestDispatch_AnAgentsOwnOutputIsDroppedQuietly(t *testing.T) {
 // unequal, and the delegation notice fired once per reply, forever. The chat's
 // folder is READ from the mint record (BUGS L2, the L4/L1 class).
 func TestDispatch_ARouteTokenChatsOwnReplyIsNotADelegation(t *testing.T) {
-	db, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
+	db, loop, _ := recLoop(t)
 	const jid = "web:acme/tok"
 	if err := db.store().InsertRouteToken("raw-token-acme", store.RouteToken{
 		JID: jid, OwnerFolder: "acme", TargetFolder: "acme",
 	}); err != nil {
 		t.Fatalf("mint: %v", err)
 	}
-	var logged bytes.Buffer
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelWarn})))
-	t.Cleanup(func() { slog.SetDefault(prev) })
-
-	loop := NewLoop(db, runnerFn(func(context.Context, runedv1.RunRequest) (runedv1.RunOutcome, error) {
-		return runedv1.RunOutcome{}, nil
-	}), LoopConfig{})
-	loop.StopQueue()
+	logged := captureInfoLog(t)
 
 	// acme's own reply into the chat its own token delivers to.
 	if err := db.PutMessage(core.Message{ID: "o1", ChatJID: jid,
@@ -678,7 +642,7 @@ func TestDispatch_ARouteTokenChatsOwnReplyIsNotADelegation(t *testing.T) {
 	if _, err := loop.processGroupMessages(jid); err != nil {
 		t.Fatalf("process: %v", err)
 	}
-	if strings.Contains(logged.String(), "delegation woke nothing") {
-		t.Errorf("a route-token chat's own reply logged a false alarm:\n%s", logged.String())
+	if strings.Contains(logged(), "delegation woke nothing") {
+		t.Errorf("a route-token chat's own reply logged a false alarm:\n%s", logged())
 	}
 }

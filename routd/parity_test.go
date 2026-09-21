@@ -21,7 +21,13 @@ type turnRec struct {
 // recRunner records every POST /v1/runs and returns a clean ok outcome. Used
 // by the parity tests to assert per-topic / per-sender turn fan-out without
 // the callback round-trip stubRunner does.
-type recRunner struct{ runs []turnRec }
+//
+// `during` fires while the turn is in flight, which is the only moment the
+// cursor bugs happen in.
+type recRunner struct {
+	runs   []turnRec
+	during func()
+}
 
 func (r *recRunner) Run(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
 	r.runs = append(r.runs, turnRec{
@@ -29,6 +35,9 @@ func (r *recRunner) Run(_ context.Context, req runedv1.RunRequest) (runedv1.RunO
 		batch: req.MessageBatch, trigger: req.TriggerSender, model: req.Model,
 		elevated: req.Elevated,
 	})
+	if r.during != nil {
+		r.during()
+	}
 	return runedv1.RunOutcome{RunID: "r", Outcome: runedv1.OutcomeOK, SessionID: "s"}, nil
 }
 

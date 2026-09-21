@@ -1,46 +1,12 @@
 package routd
 
 import (
-	"context"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/kronael/arizuko/core"
-	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 )
-
-// hookRunner is recRunner with a door into the middle of a run: `during` fires
-// while the turn is in flight, which is the only moment the three cursor bugs
-// happen in.
-type hookRunner struct {
-	runs   []turnRec
-	during func()
-}
-
-func (r *hookRunner) Run(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
-	r.runs = append(r.runs, turnRec{
-		turnID: req.TurnID, folder: string(req.Folder), topic: req.Topic,
-		batch: req.MessageBatch, trigger: req.TriggerSender, elevated: req.Elevated,
-	})
-	if r.during != nil {
-		r.during()
-	}
-	return runedv1.RunOutcome{RunID: "r", Outcome: runedv1.OutcomeOK, SessionID: "s"}, nil
-}
-
-func hookLoop(t *testing.T) (*DB, *Loop, *hookRunner) {
-	t.Helper()
-	db, err := OpenMem()
-	if err != nil {
-		t.Fatalf("open mem: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
-	rr := &hookRunner{}
-	loop := NewLoop(db, rr, LoopConfig{})
-	loop.StopQueue()
-	return db, loop, rr
-}
 
 // TestSteerReinjectionOutrunsAPlatformSecond is BUGS L102. An adapter stamps an
 // inbound with the PLATFORM's whole second (routd's ingest truncates
@@ -50,7 +16,7 @@ func hookLoop(t *testing.T) (*DB, *Loop, *hookRunner) {
 // had just set, so `/root <cmd>` acked nothing, ran nothing and leaked its
 // pendingElevation entry. Same for `/new <text>` and `#topic <text>`.
 func TestSteerReinjectionOutrunsAPlatformSecond(t *testing.T) {
-	db, loop, rr := hookLoop(t)
+	db, loop, rr := recLoop(t)
 	loop.deliver = &recDeliverer{}
 	_ = db.PutGroup(core.Group{Folder: "demo"})
 	if err := addMembership(db, "u", "role:operator", "test"); err != nil {
@@ -104,7 +70,7 @@ func TestSteerReinjectionOutrunsAPlatformSecond(t *testing.T) {
 // feed never returned it again: one Telegram upload lost eleven of twelve
 // documents. The window is the whole duration of the turn.
 func TestSameSecondArrivalDuringATurnIsNotSkipped(t *testing.T) {
-	db, loop, rr := hookLoop(t)
+	db, loop, rr := recLoop(t)
 	_ = db.PutGroup(core.Group{Folder: "demo"})
 
 	// One whole second, as an adapter writes it.
@@ -153,7 +119,7 @@ func TestSameSecondArrivalDuringATurnIsNotSkipped(t *testing.T) {
 // batch and the question is skipped for good. An in-flight turn stretches the
 // batching window to minutes, so the ordering is common.
 func TestSteerLeavesOlderMessagesTheirTurn(t *testing.T) {
-	db, loop, rr := hookLoop(t)
+	db, loop, rr := recLoop(t)
 	dl := &recDeliverer{}
 	loop.deliver = dl
 	_ = db.PutGroup(core.Group{Folder: "demo"})
