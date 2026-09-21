@@ -93,3 +93,43 @@ func TestDispatch_AStickyTopicStillTakesOneTurn(t *testing.T) {
 		t.Fatalf("topic=%q want stuck", rr.runs[0].topic)
 	}
 }
+
+// L336 made steerRowIdx pick the OLDEST slash command, and that row also fed
+// route resolution. On a mention-only route, a batch of `/ping` then `@bot …`
+// resolved on the COMMAND's verb, missed the route, and routeMiss advanced the
+// cursor over BOTH rows — the mention was lost for good. That is worse than
+// the text-passthrough L336 set out to fix.
+//
+// The correct behaviour is not "one turn now": a steer consumes its own row and
+// no other, so the mention stays ABOVE the cursor and takes the next poll. This
+// drives processGroupMessages twice, because the defect was in which row each
+// question reads and only the wiring shows it.
+func TestDispatch_ACommandBeforeAMentionStillRoutes(t *testing.T) {
+	db, loop, rr := recLoop(t)
+	_ = db.PutGroup(core.Group{Folder: "desk"})
+	doSetRoutes(t, db, []core.Route{{Match: "platform=discord verb=mention", Target: "desk"}})
+	now := time.Now().UTC()
+	const jid = "discord:G/C"
+	// The command carries verb=message — it matches no mention-only route.
+	_ = db.PutMessage(core.Message{ID: "c1", ChatJID: jid, Sender: "u",
+		Content: "/ping", Timestamp: now, Verb: "message"})
+	_ = db.PutMessage(core.Message{ID: "c2", ChatJID: jid, Sender: "u",
+		Content: "@bot and also look at this", Timestamp: now.Add(time.Second), Verb: "mention"})
+
+	if _, err := loop.processGroupMessages(jid); err != nil {
+		t.Fatalf("first poll: %v", err)
+	}
+	if len(rr.runs) != 0 {
+		t.Fatalf("first poll ran %d turns, want 0: the command is steered and "+
+			"consumes only its own row: %+v", len(rr.runs), rr.runs)
+	}
+	// The mention was never consumed, so the next poll must dispatch it. Before
+	// the fix the route missed here and routeMiss walked the cursor past it.
+	if _, err := loop.processGroupMessages(jid); err != nil {
+		t.Fatalf("second poll: %v", err)
+	}
+	if len(rr.runs) != 1 {
+		t.Fatalf("second poll ran %d turns, want 1: the mention must still "+
+			"dispatch after a command in front of it: %+v", len(rr.runs), rr.runs)
+	}
+}

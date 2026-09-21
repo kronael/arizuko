@@ -39,8 +39,14 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	// into a route miss and archives it as context, silently, on the shipped
 	// mention-only Slack/Discord config. The steer half of the same mistake was
 	// BUGS L56; this is its twin one line up. An all-bot batch routes nothing.
-	steerIdx := steerRowIdx(msgs)
-	if steerIdx < 0 {
+	// routeIdx and steerIdx answer DIFFERENT questions and must not share a row.
+	// The route and the busy key want the NEWEST user row; the steer offer wants
+	// the oldest slash command (L336). Feeding the command row to resolve made a
+	// `/root` followed by an @mention resolve on the command's verb, miss a
+	// mention-only route, and drop the whole batch at routeMiss — worse than the
+	// text-passthrough L336 set out to fix.
+	routeIdx := newestUserIdx(msgs)
+	if routeIdx < 0 {
 		// An all-bot batch is normally an agent's own output, correctly ignored.
 		// It is NOT when another folder wrote it: agent-to-agent delegation
 		// reaches the child as a `send`, and every agent-authored row is stamped
@@ -62,7 +68,7 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		l.advance(chatJID, last)
 		return false, nil
 	}
-	steerMsg := msgs[steerIdx]
+	routeMsg := msgs[routeIdx]
 	// A batch runed refused as Busy retries on a growing backoff, not on
 	// every 2s poll: the re-feed below this line is the expensive part
 	// (capability resolve, MCP socket, prompt build). The key is the newest
@@ -70,10 +76,10 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	// RUNNING turn's own bot rows do not: a cron turn that writes progress
 	// cleared its own backoff on every row and re-dispatched itself fifteen
 	// times for one fire (BUGS L298, and L55 for the cost of one attempt).
-	if l.busyDeferred(chatJID, steerMsg.ID) {
+	if l.busyDeferred(chatJID, routeMsg.ID) {
 		return false, nil
 	}
-	r := l.resolve(chatJID, steerMsg)
+	r := l.resolve(chatJID, routeMsg)
 	if !r.ok {
 		l.routeMiss(chatJID, msgs, r)
 		return false, nil
@@ -93,6 +99,8 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	// further down declares its own `steered`, which is runTurn saying an
 	// in-flight run absorbed the batch — a different fact about a different row.
 	steerConsumed := false
+	steerIdx := steerRowIdx(msgs)
+	steerMsg := msgs[steerIdx]
 	if l.steer(chatJID, steerMsg, folder) {
 		// The steered row is consumed HERE and exactly once, before anything
 		// else can fail: the handlers clear a session, pin a route, delegate to a
