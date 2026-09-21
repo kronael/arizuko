@@ -70,6 +70,33 @@ Four commands shared the gate and each spelled its own refusal —
   fails on all four commands without the fix. It does NOT change who may run
   `/root`; the wrong-principal data is `L334`. (`4f78901e`)
 
+## L339 — a sourced fragment can interpolate any `.env` key, so the `L201` bound stops at the mount (2026-09-21, open — proposal, needs sign-off)
+
+`docker compose` interpolates `${KEY}` in every included fragment from the
+project `.env` — the whole file, not the compose-managed block. A package
+from a source that may no longer bind `.env` (`L201`, `d1d857b9`) can still
+write `environment: {K: '${SECRETS_KEY}'}` or `'${AUTHD_SERVICE_KEYS}'` and
+receive the value at `up`; `TestLitellmFragmentReadsOnlyItsDeclaredKeys` pins
+this for litellm alone, by hand. `compose/README.md` states the rule ("no
+fragment may read the shared `.env`") with nothing mechanical behind it for
+a sourced package.
+
+- **Severity:** medium (the same supply-chain reach as `L201`, one docker
+  feature over)
+- **Scope:** package install + upgrade
+- **Affected:** any sourced package
+- **Source:** `compose.CheckSourcedFragment` reads no `${…}` reference;
+  `writeManagedEnv` writes `APP`, `FLAVOR`, `DATA_DIR`, `COMPOSE_PROFILES`
+- **Status:** proposed. A sourced fragment may reference only the keys its
+  manifest `env` block declares plus the four managed keys; every other
+  `${KEY}`, `${KEY:-x}`, `${KEY:?x}` or `$KEY` is refused at install and at
+  upgrade, in the same check. This is `5/28`'s `env` section read strictly —
+  "what the package's process needs from `.env`" becomes what it may read —
+  so litellm shipped as a sourced package would have to declare
+  `ANTHROPIC_API_KEY` as `required`, which is the contract's own answer.
+  Sign-off because it changes what an author must write.
+- **Fix:**
+
 ## L334 — sloth grants instance-wide operator to a third party's Telegram account, and to none of the operator's (2026-09-21, open — operator data, needs the owner)
 
 On sloth, `role:operator` holds `* :: ** :: allow` and its Telegram member is:
@@ -7164,7 +7191,7 @@ restated value, so the next substrate difference is a diff to one struct.
   "address-only" into the prose, and why `L189`'s `specs/6/9` scope is discharged
   without taking its decision.
 
-## L200 — first-party wiring lives in five Go tables no manifest can express, so a third-party package cannot be an adapter (2026-09-05, open — proposal, needs sign-off)
+## L200 — first-party wiring lives in five Go tables no manifest can express, so a third-party package cannot be an adapter (2026-09-05, open — proposal, needs sign-off; RE-MEASURED 2026-09-21: two hooks dissolved, one table missed, the XOR refuted)
 
 The contract's test is a package this repo does not contain. Measured
 against it, a package outside the tree can declare routes, ten row kinds and
@@ -7229,9 +7256,75 @@ policy forbids.
   map. Spec: `7/25` §"What the contract needs"; whether the declaration is a
   resreg row (`5/8`'s shape) or a compose-side key in `<name>.yaml` is the
   decision to sign. Redesign — sign-off before code.
-- **Fix:**
+- **Fix:** `f8b82a90` (the `/dash/ttsd/` row); the rest is the redesign below
 
-## L201 — nothing mechanical stops a sourced package from mounting a core owner's store or the docker socket (2026-09-05, open — proposal, needs sign-off)
+**Re-measured at HEAD 2026-09-21.** The tables above were checked one by
+one; two of the facts are gone and one table was missed.
+
+- `hasService(services, "ttsd")` does not exist. `166a0223` (2026-09-05,
+  the day this entry was filed) replaced it with `ttsd.yaml` declaring
+  `TTS_ENABLED` and `TTS_BASE_URL` as `env` defaults — the manifest key this
+  entry asks for, already shipped for one hook. `7/25`'s table row and
+  ttsd's "three name switches" are stale by that commit.
+- `/dash/ttsd/` left `coreProxydRoutes` at `f8b82a90`: `ttsd.yaml` declares
+  it in `proxyd_routes` like every adapter, gated by `TTS_ENABLED`, owner
+  `package:ttsd`. The core row also routed `/dash/ttsd/` at a `ttsd:8080`
+  that did not run whenever an operator pointed `TTS_BASE_URL` at an
+  external backend. `coreProxydRoutes` now holds core daemons only.
+- The `envFileName` fallback to the shared `.env` — what raised this
+  entry's severity — is on no live path. Every stanza `writeSvc` renders is
+  in `daemonKeys`; davd and vited declare no `env_file` at all; a package's
+  fragment is included verbatim and never takes the generated stanza; and
+  since `d1d857b9` (`L201`) a sourced fragment may not declare `env_file`,
+  refused at install naming this entry, so "installs, then the whole
+  instance fails at `up`" is now one refused install. The fallback is dead
+  code and should become a refusal in the redesign, not a wider map.
+- A table this entry missed: `authd/http.go` `serviceGrants`. A
+  `service:<name>` principal outside it mints a token with no scope, and its
+  own comment says what follows: "a missing entry means empty scope and every
+  inbound 401/403s". `compose.adapterDaemons` carries "Keep in sync with
+  authd serviceGrants" — two tables, one fact ("I post inbound as
+  `service:<name>`"), kept in step by a comment.
+- The file count. `c0594f32` touched 51 files; the ADAPTER-WIRING subset is
+  `compose/compose.go` (+5: a `daemonKeys` row and an `adapterDaemons`
+  row), `authd/http.go` (+1: the grants row), `Dockerfile` (+1) and
+  `Makefile`. The other four files named above — `cmd/arizuko/github.go`,
+  `resreg/resources/github_sources.go`, `store/github_sources.go`,
+  `store/migrations/0088` — are gitd's `github_sources` feature: a core
+  resource because gitd's delivery sources are routd's rows, which is the
+  "mount of another owner's database" coupling `7/25` measures separately,
+  not adapter wiring. The honest cost of "become an adapter" today is two
+  compose rows, one authd row and an image — `7/25`'s "one map edit from
+  passing", except it is three tables.
+- `dashd/services.go` now lists all nine adapters as tiles; the fact holds
+  (a third-party `/dash/<name>/` route works and the hub does not show it)
+  over a wider table.
+- **The `daemonKeys` XOR `env` refusal is refuted by ttsd**, which is in
+  `daemonKeys` (an empty entry, so it gets a scoped file instead of `.env`)
+  AND declares `env`. They are two declarations: `env` provisions `.env`
+  keys (`generate`/`default`/`required`, spec `5/28`); `daemonKeys` says
+  which `.env` keys reach the daemon's scoped file. Making the `env` block
+  mean both changes its meaning for the three manifests that carry it.
+
+**What remains, sharpened.** Three facts, five tables:
+
+| fact                                  | tables today                                   | one-declaration shape                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "I post inbound as `service:<name>`"  | `compose.adapterDaemons`, `authd.serviceGrants` | a manifest key (`service: {scopes: [messages:write]}`); generate wires the key AND emits the scopes beside `AUTHD_SERVICE_KEYS` in authd's env, so authd becomes a reader of generate's output — the second reader at a different time and shape the CLAUDE.md rule allows — and `serviceGrants` keeps only authd's own row                                                                                                                  |
+| "these `.env` keys reach my env file" | `compose.daemonKeys`, `compose.foreignImages`  | a manifest key naming the keys (`env_file: [KEYS…]`), distinct from `env`, which provisions; `foreignImages` is the same key with `commonKeys` off. The redesign MUST keep two special cases or reopen closed bugs: runed's `store.EnvProfileKeys` (`M1`, the `/login` outage) and runed's NO `SECRETS_KEY` (`X3`) — a per-daemon list that a comment no longer guards is exactly how M1 happened. A daemon outside the declaration is refused, never handed `.env` |
+| "show a hub tile"                     | `dashd/services.go`                            | derived from the `/dash/<name>/` rows in `proxyd_routes` (spec `6/28`: route entry IS registration), with the static list kept for core daemons only                                                                                                                                                                                                                                                                                       |
+
+`baseDaemons` (`cmd/arizuko/packages.go`) is the sixth copy and is bounded
+on its own — export the list from `compose` and pin `Generate`'s stanzas to
+it — but it dissolves with the rest and changes nothing an operator sees, so
+it waits for the redesign. The decision the owner signs: the declaration is
+a compose-side manifest key like `env` (read at generate, before any DB
+exists — the only reader that can wire a key and write a file), not a
+resreg row (`packages add` applies no rows, `L199`, and generate runs where
+no store is open). `env` already set that precedent; the sign-off is to
+extend it to two more keys.
+
+## ✅ FIXED 2026-09-21 L201 — nothing mechanical stops a sourced package from mounting a core owner's store or the docker socket (2026-09-05, FIXED 2026-09-21 at both writers of a sourced fragment; the `${KEY}` interpolation half is `L339`)
 
 Contract rule 1: a package brings its own dependencies and arizuko's store is
 untouched. `TestNoFragmentMountsTheWholeDataDir` and
@@ -7241,19 +7334,57 @@ may bind `${DATA_DIR}/store/routd`, `${DATA_DIR}/.env`, `${DATA_DIR}/ipc` or
 `/var/run/docker.sock` and install cleanly. Routes have the analogue already
 (`compose.ReservedRouteClaim`, refused at install and again at generate).
 
+Re-verified at HEAD 2026-09-21: `readFragmentAssets` hashes every `*.yml` and
+`installPackage` writes it; nothing between them reads a byte of it. The
+proposal's blacklist was too narrow to be the fix: `privileged: true`,
+`pid: host`, a `driver_opts: {device: /var/run/docker.sock}` behind a volume
+name, `extends: {file: ../docker-compose.yml, service: routd}`, a config
+`file: ../.env` and `env_file: ['../env/routd.env']` all reach the same
+places and none is a bind source; and "an owner store dir" leaves out
+`store/whatsapp-auth` (whapd's session) and `groups/` (every agent's home).
+
+**Fixed at `d1d857b9`.** `compose.CheckSourcedFragment` holds a fragment from
+a source to its own name — a whitelist on the bind, not the blacklist above:
+services named `<name>`, `<name>-*` or `<name>_*` (the catalog's own
+practice: `litellm` + `litellm_db`); binds only `${DATA_DIR}/store/<name>` or
+below it with `..` resolved, or a named volume; no `env_file` (generate
+writes none for a package outside the release, `L200`, and every existing
+one is another daemon's secrets); no `privileged`, `cap_add`, `devices`,
+`pid`, `userns_mode`, `cgroup`, `volumes_from`, host network or IPC, or an
+`unconfined` security_opt; no `build`, `extends` or `include`; no volume
+`driver`/`driver_opts`; no config or secret read from a host `file:` or
+`environment:`. An unreadable fragment is refused, not skipped. Both writers
+of a sourced fragment call it before their first write: `installPackage`,
+ahead of the env block that mints keys (a refusal after it left a
+`generate:` key in `.env` for a package that never installed — the test
+asserts the order), and `reapplyPackage`, the one updater, so `upgrade` dies
+naming the line and `sync` reports and skips it the way it skips a dirty
+asset. Install also refuses a core service's name and a file that would
+replace one `services/` already holds — `install ./teled` overwrote the
+catalog's link with no message. The catalog is exempt, the same bundled
+exception `ReservedRouteClaim` makes; its fragments are held by the
+`fragments_test.go` suite at build.
+
+Generate is NOT the second reader here, unlike routes, and on purpose: the
+fragment is what `upgrade` rewrites, so the updater is the second WRITER and
+is where the check belongs; generate cannot read a linked fragment from the
+deploy container at all (`L202`), and a real file in `services/` there is
+the operator's own or a frozen release copy (`L41`) — a generate-time
+refusal would turn a frozen copy into an outage on the next restart.
+
 - **Severity:** medium (supply-chain: an installed package reads every
   owner DB and every secret)
-- **Scope:** package install + generate
+- **Scope:** package install + upgrade + sync
 - **Affected:** any sourced package
-- **Source:** `readFragmentAssets`/`installPackage` never read `volumes:`;
-  `warnUnsatisfiedDeps` shows the regex-over-fragment precedent
-- **Status:** proposed. Refuse at install and at generate a fragment whose
-  bind source is an owner store dir, `.env`, `ipc/`, or the docker socket —
-  the same two-reader shape as `ReservedRouteClaim`. A new refusal on an
-  operator path; sign-off first.
-- **Fix:**
+- **Source:** `compose/contain.go`; `cmd/arizuko/packages.go`
+  `checkSourcedFiles`, called from `installPackage` and `reapplyPackage`;
+  `compose/contain_test.go`, `cmd/arizuko/packages_contain_test.go`
+- **Status:** fixed. What a sourced fragment can still read is `${KEY}` —
+  docker interpolates every `.env` key into it, so `environment: {K:
+'${SECRETS_KEY}'}` is a value the bound above does not see (`L339`).
+- **Fix:** `d1d857b9`
 
-## L202 — a linked package runs the host checkout's compose fragment while generate reads the image's manifest, so one package can come from two versions (2026-09-05, open — needs sign-off)
+## L202 — a linked package runs the host checkout's compose fragment while generate reads the image's manifest, so one package can come from two versions (2026-09-05, open — needs sign-off; RE-VERIFIED 2026-09-21 at HEAD, no bounded half)
 
 `packages add` links `services/<name>.yml` at `HOST_APP_DIR/template/services/`
 (`compose.HostCatalogDir`); docker `include`s it on the host, so the live
@@ -7264,14 +7395,59 @@ baked `/opt/arizuko` copy where the deploy unit runs generate. The two halves
 of one package therefore come from the checkout and the release respectively,
 and only agree while the checkout is at the deployed tag.
 
+Re-verified at HEAD 2026-09-21 against the live unit. `arizuko_krons.service`
+runs generate as `docker run --rm -v /srv/data/arizuko_krons:/srv/data/arizuko_krons
+-v /var/run/docker.sock:/var/run/docker.sock arizuko:latest arizuko generate
+krons` — the data dir and the socket, never `/home/onvos/app/arizuko`. Inside
+that container `CatalogDir` finds no `HOST_APP_DIR/template/services` and
+answers the baked `/opt/arizuko/template/services`, so `manifestPath` reads
+the release's `teled.yaml`; on the host, `docker compose up` follows
+`services/teled.yml → /home/onvos/app/arizuko/template/services/teled.yml`,
+the checkout's. Ten of krons' twelve fragments are such links; sloth's slakd
+pair was linked today.
+
+**There is no bounded half.** Detecting the split is a byte comparison of
+the link target against the baked copy, and the process that reads the
+manifest is the one process that cannot read the target — the checkout is
+not mounted. The comparison exists only once the checkout is visible to
+generate, and making it visible IS shape 2 or 3 below. Two weaker signals
+were considered and rejected: a per-generate line saying the link is
+unverifiable fires on every deploy for every linked package while nothing is
+wrong (`L41`'s FROZEN line fires only while a divergence exists); and
+`app-src/template/services/`, the release copy runed materialises on the
+host, would let `packages add` compare at LINK time — but it exists only
+after runed ran, it is a staging dir for agents, and add-time says nothing
+about the checkout at the next deploy.
+
+Three shapes, one decision:
+
+1. **A release copy in the data dir.** Generate exports the baked
+   `template/services/` to `<dataDir>/catalog/` on every run — the
+   `app-src/` precedent, same image, same data dir. `packages add` and
+   `relinkCatalog` link there (`HostCatalogDir` becomes
+   `HOST_DATA_DIR/catalog`, host-resolvable by construction) and
+   `manifestPath` reads the same dir, so both halves are the image's and
+   "a release is an image" holds; `APP_SRC_DEV=1` can keep the checkout for
+   the dev loop the way `appSrc` does. Cost: relink re-points every existing
+   link under `HOST_APP_DIR` (mechanical — the target is compared against the
+   export), and the first `add` on a fresh instance needs one generate
+   before it, or falls back to a copy as it does today without `HOST_APP_DIR`.
+2. **The checkout is the release.** Mount `HOST_APP_DIR` read-only into the
+   generate container; `CatalogDir` then answers the checkout for both
+   halves. Cost: every instance runs whatever the checkout holds, uncommitted
+   edits included — the `M1` class this repo closed for `ant/`.
+3. **A compare-only mount.** Mount the checkout at a path `CatalogDir` never
+   consults; generate compares each link target with the baked copy and
+   refuses on a byte difference. The split is detected and what runs is
+   unchanged; cost: every deploy while the checkout is off the tag fails at
+   ExecStartPre, which is shape 2's coupling turned into an outage.
+
 - **Severity:** medium
 - **Scope:** package delivery
 - **Affected:** every catalog-linked package on every instance
-- **Source:** `compose.HostCatalogDir`, `compose.CatalogDir`, the deploy
-  unit's mounts
-- **Status:** open. Two honest shapes: link at a release copy generate
-  exports into the data dir (`<dataDir>/catalog/`, written from
-  `/opt/arizuko` on every generate, so both halves are the image's), or mount
-  the checkout into the generate container and accept that a checkout is the
-  release. The first keeps "a release is an image"; sign-off decides.
+- **Source:** `compose.HostCatalogDir`, `compose.CatalogDir`,
+  `compose.manifestPath`; `/etc/systemd/system/arizuko_krons.service`
+  ExecStartPre (2026-09-21)
+- **Status:** open. Shape 1 keeps "a release is an image" and is the one
+  the `app-src/` mechanism already argues for; sign-off decides.
 - **Fix:**
