@@ -7853,7 +7853,7 @@ wire change; decide before adding the field.
   chanlib wire change above and still needs sign-off. The fix here does not
   pre-empt it — it adds the renderer the wire flag would feed once it exists.
 
-## L185 — proposal: `arizuko` runtime verbs as HTTP clients need a CLI principal and an audit-surface decision; refused as a mechanical cut (2026-09-05, proposal — needs sign-off)
+## L185 — proposal: `arizuko` runtime verbs as HTTP clients need a CLI principal and an audit-surface decision; refused as a mechanical cut (2026-09-05, proposal — RE-VERIFIED 2026-09-21: all four facts hold, `resreg/engine.go` is a third `cli`-surface producer; ONE question, needs sign-off)
 
 Spec 6/36 S4 moves the nine `cmd/arizuko` writers (`grant`, `route`,
 `network`, `secret`, `token`, `send`, `packages`, `apply`, `skills`) from
@@ -7901,6 +7901,44 @@ a `/v1` reply read for `send`.
   `routd/acl_resource.go` aclRESTGate
 - **Status:** proposal (needs sign-off)
 - **Fix:**
+
+- **RE-VERIFIED 2026-09-21 at `b3b973e2`. All four facts hold; spec `6/36` still
+  carries S4 (`specs/6/36-minimal-projection.md:339,391`). One cost is missing.**
+  1. **Credential — holds, and is tighter than "only routd publishes a host
+     port".** `ports` is set as a literal at exactly one site,
+     `compose/compose.go:1170` (routd's `API_PORT:8080`). proxyd and davd build
+     theirs from env for the web and file surfaces; authd publishes none. So
+     there is no host-reachable authd to exchange `AUTHD_SERVICE_KEY` against.
+     `mintBearer` (`cmd/arizuko/token.go:163-191`) still opens the authd store
+     directly and signs with the ACTIVE key. The trust root is the filesystem.
+  2. **Authorization — holds.** `aclRESTGate` (`routd/acl_resource.go:71-85`)
+     gates on the `acl:write` bearer scope then `ownsFolder` against the JWT
+     folder. No acl-row read, so a root bearer can make the bootstrap grant over
+     HTTP and the principal question does not block. `scope "**"` needs the
+     empty-folder root token.
+  3. **Audit surface — holds, and reaches further than the entry says.**
+     `store.AsCLI` sets `SurfaceCLI` and `auditIdentity` (`store/store.go:60-67`)
+     is the one renderer of `cli:<osuser>` versus `user:<sub>`; the comment
+     calling a REST recording "a lie the audit trail cannot detect" is intact.
+     **But `audit.SurfaceCLI` has a THIRD producer the entry does not name:**
+     `resreg/engine.go:805` `applyEvent` hardcodes it on every `config.apply`
+     row. Its only production caller is `cmd/arizuko/apply.go`, so nothing lies
+     today — and "retiring audit surface `cli`" therefore edits the resreg
+     ENGINE, not only the ~750 lines of `cmd/arizuko`. That is a second
+     subsystem inside option (b)'s blast radius.
+  4. **`send` — holds.** `BotRepliesSince` (`store/messages.go:611`) still has
+     no REST reader: `cmd/arizuko/send.go:197` and one store test are the only
+     callers. An HTTP `send --wait` still needs a new endpoint.
+
+- **THE ONE QUESTION:** is the `arizuko` binary an operator standing ON the host
+  — filesystem as the root of trust, audited as `cli:<osuser>` — or a client OF
+  the deployment, holding a bearer like every other caller?
+  - Answer "on the host" → (a). Nothing moves, and `6/36` S4 is recorded as
+    declined with the four facts above as the cost of doing it. `resreg.Apply`
+    stays the ungated second engine by the same decision.
+  - Answer "a client" → (b). Needs, in order: a reply-read endpoint for `send`,
+    an audit-surface decision that includes `resreg/engine.go:805`, and the
+    acceptance that every runtime verb now fails when routd is down.
 
 ## L186 — proposal: dashd's admin writes over routd's `/v1` need a forwarder trust routd does not have; refused as a cut (2026-09-05, proposal — needs sign-off)
 
