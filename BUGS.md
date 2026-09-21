@@ -7021,7 +7021,7 @@ the proxy ("a rule that never matches reads as protection and is not").
   (`L137`), so it is the same decision — whether the sibling keeps an isolation
   path arizuko chose not to use.
 
-## L190 — proposal: `6/9`, `6/16` and `6/25` §Order restate substrate facts that `substrate.Profile` now declares; make the prose a pointer (2026-09-05, open — docs, needs the spec owner)
+## ✅ FIXED 2026-09-21 L190 — `6/9` restated substrate facts that `substrate.Profile` declares; the prose is a pointer now (2026-09-05)
 
 `6/25` §3 says the matrix in `6/16` "becomes the doc rendering of a value,
 not a second source of truth". The value shipped 2026-09-05:
@@ -7043,11 +7043,39 @@ recorded: the code is the only statement. Each paragraph should become "see
 restated value, so the next substrate difference is a diff to one struct.
 
 - **Severity:** low (docs drift, no runtime effect)
-- **Scope:** `specs/6/9`, `specs/6/16`, `specs/6/25`
+- **Scope:** `specs/6/9-crackbox-sandboxing.md`
 - **Affected:** readers of the specs
 - **Source:** `substrate/substrate.go`; `container/egress.go` Profile, Effective; `sandbox/sandbox.go` Profile
-- **Status:** open — docs
-- **Fix:** replace each restated value with the pointer; one edit per spec
+- **Status:** ✅ fixed — the one remaining restatement is a pointer
+- **Fix:** `6/9`'s `AllowList` comment, §"Egress enforcement" and the third
+  acceptance clause now name `sandbox.Profile.Egress` instead of restating a
+  granularity
+
+- **RE-MEASURED at `fdb59418` 2026-09-21. Two of the three sites were already
+  pointers; only `6/9` still restated, and it restated the value WRONGLY.**
+
+  **Already done, so the entry over-counted:** `6/16` §"The four layers" item 3
+  reads "What a substrate can do is declared once, as a value: `substrate.Profile`
+  … This spec restates none of it", and the package axis has no `dockbox` row —
+  it has a `container` row reading "the Docker substrate; `container.Profile`",
+  followed by "What either can do is read from those values (`6/25` §2), not from
+  this table." `6/25` has no §Order; its §State reads "All three are adopted".
+  Nothing to edit in either.
+
+  **`6/9` was the live one, and it is the same line `L189` names.** Three sites
+  restated the granularity and all three asserted the OPPOSITE of the
+  declaration: the `VMConfig` comment said "host allowlist enforced by netfilter
+  on the VM's tap", §"Egress enforcement" said enforcement IS netfilter rules,
+  and the acceptance clause promised a spawn "reaches a listed host". The
+  declaration says `EgressAddress` — "A host name in the allowlist is not a
+  rule" (`substrate/substrate.go`).
+
+  **The pointer is what keeps this a correction rather than `L189`'s decision.**
+  Naming `sandbox.Profile.Egress` asserts nothing about host names; it delegates.
+  Adopting `L189` (a) or (b) would move the declaration to `EgressDomain` and
+  `6/9` would need no edit — which is the argument for the pointer over writing
+  "address-only" into the prose, and why `L189`'s `specs/6/9` scope is discharged
+  without taking its decision.
 
 ## L200 — first-party wiring lives in five Go tables no manifest can express, so a third-party package cannot be an adapter (2026-09-05, open — proposal, needs sign-off)
 
