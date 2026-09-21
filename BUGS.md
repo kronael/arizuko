@@ -3599,32 +3599,54 @@ it is a one-time copy.
   managed path, keeping dirty-detection only where a carve-out survives.
 - **Fix:**
 
-## L27 — five channel platforms ship no output-style file, so their agents format blind (2026-08-15, open)
-
-`specs/5/Y` says WhatsApp, Reddit, Bluesky, Twitter and LinkedIn "keep their
-single platform file". None of those files exists. `ant/output-styles/` ships
-`slack{,-dm,-channel,-thread,-pane}`, `telegram{,-dm,-group}`,
-`discord{,-dm,-channel}`, `email.md`, `web.md` and `README.md` — nothing else.
-(Mastodon is correctly absent: `mastd` was dropped 2026-08-15.)
+## ✅ FIXED 2026-09-21 L27 — five channel platforms ship no output-style file, so their agents format blind (2026-08-15)
 
 The picker does no host-side existence check by design (`5/Y` §"Name selection
-and file loading are separate concerns"), so it names `whatsapp` for a whapd
-turn, Claude Code's `readOutputStyle` finds no such file, and the agent answers
-with Claude Code's stock formatting — markdown a platform may not render, no
-length envelope, no per-surface shape.
+and file loading are separate concerns"), so it named `whatsapp` for a whapd
+turn, `ant/src/index.ts::readOutputStyle` swallowed the ENOENT in a bare
+`catch`, and the agent answered with Claude Code's stock formatting — nothing
+logged.
 
-- **Severity:** medium — every reply on five live adapters is unstyled; whapd
-  and reditd both run today.
+**Wrote four files, refused the fifth.** Each of the four earns its lines from
+a send path that makes stock markdown wrong, read before writing:
+
+- `whatsapp.md` — `whapd/src/server.ts:31` `mdToWa` rewrites `**bold**`→`*bold*`
+  and `~~strike~~`→`~strike~` and NOTHING else, so `#` headers, `[text](url)`
+  and single-backtick code reach the phone literal. Same class as teled's
+  `mdToHTML`: the file tells the agent to emit markdown, not WhatsApp markup.
+- `bluesky.md` — `bskyd/client.go:396` posts `req.Content` verbatim as the
+  post's `text` and builds no richtext facets. 300 graphemes, enforced by the
+  PDS REJECTING the record; the adapter neither trims nor threads, so an
+  over-length reply delivers nothing at all.
+- `linkedin.md` — `linkd/client.go:520` posts verbatim into
+  `shareCommentary.text` / comment `message.text`, both plain text, 3000 chars.
+- `twitter.md` — `twitd/src/verbs.ts` posts verbatim; 280 chars, no truncation
+  and no threading in the adapter.
+
+**Reddit deliberately gets no file.** `reditd/client.go:469` posts the agent's
+text verbatim into a field Reddit renders as real markdown, so stock formatting
+is already correct there; a file would add a surface to maintain and change
+nothing. Its self-post title is hardcoded `"arizuko"` (`client.go:523`), so the
+agent shapes nothing there either.
+
+**Scope correction: the count was five, the reality is six.** `gitd` registers
+`github:` (`gitd/main.go:28`) and `gitd/bot.go:98` posts `req.Content` verbatim
+as an issue/PR comment — a sixth channel the picker names and no file serves.
+It is the same call as Reddit: GitHub renders GFM, so stock output is right and
+no file is wanted. Both are now recorded as deliberate, not missing.
+
+- **Severity:** medium — every reply on four live adapters was unstyled.
 - **Scope:** agent output formatting
-- **Affected:** whapd, reditd, bskyd, linkd, and the Twitter surface
-- **Source:** `ant/output-styles/` (14 files, none of the five);
-  `specs/5/Y-output-styles-per-surface.md:33-36`
-- **Status:** open. Two halves, and only the first is mechanical: the spec
-  sentence is false and must say those platforms ship no file today. Whether to
-  AUTHOR the five files is a content decision — each one is a real
-  length/markup envelope per platform, not a template — so it wants the user's
-  call before anyone writes prose into the agent's mouth.
-- **Fix:**
+- **Affected:** whapd, bskyd, linkd, twitd (reditd + gitd: no file by decision)
+- **Source:** `ant/output-styles/` (18 files); `container/output_style_test.go`
+- **Status:** resolved-not-yet-deployed. Editing `ant/` rides a release — this
+  needs a `MIGRATION_VERSION` bump and an agent image rebuild to reach live
+  agents. NOT bumped here; it ships with the next release.
+- **Fix:** `fe13ded2`. `TestPickOutputStyle_ShippedStyleExists` binds every
+  selected name to a shipped file and records the two deliberate stock
+  fallbacks, so a later addition has to declare itself. Proved by mutation:
+  renaming `whatsapp.md`→`whapd.md` fails the test, which is the real failure
+  mode — the channel is the JID scheme, never the daemon name.
 
 ## L24 — a fresh instance ships with egress isolation OFF, while the docs describe it as the model (2026-08-15, docs half FIXED; the default is still off)
 
