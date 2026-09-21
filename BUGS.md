@@ -314,7 +314,7 @@ steered. Neither made it more than one.
   unsteered leading `/`-command and tell the chat to re-send it — loud, but it
   makes ordinary chat timing reject the operator's message.
 
-## L337 — sloth's teled has no state directory, so the next inbound Telegram message kills it (2026-09-21, open — found while diagnosing `L333`)
+## ✅ FIXED 2026-09-21 L337 — sloth's teled has no state directory, so the next inbound Telegram message kills it (2026-09-21, open — found while diagnosing `L333`)
 
 `teled` writes its Telegram poll offset to `STATE_FILE`, and the directory is
 gone on sloth:
@@ -367,6 +367,16 @@ up.
      on an installer step; sloth's `store/` was reorganised for ExtendDB on
      2026-09-18 and the directory did not come back. Not shipped here: it is a
      different concern from `L333`, and it wants its own test.
+
+**FIXED 2026-09-21.** `/srv/data/arizuko_sloth/store/teled` created
+`mivu:mivu 755`, matching krons. The offset save has somewhere to land, so the
+counter stops climbing toward `maxSaveFailStreak` and the next inbound message
+no longer takes the adapter down. `arizuko_teled_sloth` is `Up (healthy)`.
+
+This was armed, not theoretical: the streak was at 2 of 3 when it was found.
+
+- **Status:** fixed (operator data; no code change)
+- **Fix:** the directory
 
 ## L332 — the release broadcast pipes a human banner into `jq` (2026-09-21, open)
 
