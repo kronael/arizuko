@@ -479,7 +479,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 	// that turn's chat is not always this one — the twenty-minute "typing…" a user
 	// reported (BUGS T1).
 	if l.deliver != nil && !out.Steered {
-		for _, jid := range l.typingOwnedBy(typingJID, out.RunID) {
+		for _, jid := range l.chatsOwnedBy(typingJID, out.RunID) {
 			_ = l.deliver.Typing(jid, false)
 		}
 	}
@@ -558,7 +558,23 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 			if out.Terminal {
 				notice = terminalFailureNotice(out.Error)
 			}
-			_, _ = l.deliver.Send(chatJID, notice, "", topic, "", "fail-"+turnID)
+			// Every chat this run owed an answer to, not just this turn's. A
+			// follow-up steered into the live container was marked done and
+			// returned long before the run died, so its chat waits on a
+			// submit_turn that never comes: the message was accepted and
+			// produced neither a reply nor an error (BUGS T2). Same fan-out the
+			// typing clear uses. Only the primary carries the topic — a thread
+			// id is local to its own chat, so the rest land in the chat's main
+			// thread instead of an unrelated thread there. The idempotency key
+			// is per destination or the adapter dedups the fan-out into one
+			// delivery.
+			for _, jid := range l.chatsOwnedBy(chatJID, out.RunID) {
+				thread := ""
+				if jid == chatJID {
+					thread = topic
+				}
+				_, _ = l.deliver.Send(jid, notice, "", thread, "", "fail-"+turnID+"-"+jid)
+			}
 		}
 		if err := l.db.SetTurnState(turnID, "done"); err != nil {
 			slog.Error("processGroupMessages: SetTurnState(done) failed on terminal failure; turn may appear stuck in-progress",
@@ -706,11 +722,13 @@ func groupByTopic(msgs []core.Message) [][]core.Message {
 	return consecutiveRuns(msgs, func(m core.Message) string { return m.Topic })
 }
 
-// typingOwnedBy lists the chats whose indicator a finished run must clear:
-// primary (this turn's, resolved before the run so it holds even when the run
-// reported no id) plus every chat of a turn recorded against runID. Duplicates
-// are dropped so an adapter is not told twice.
-func (l *Loop) typingOwnedBy(primary, runID string) []string {
+// chatsOwnedBy lists the chats a finished run owed something to: primary (this
+// turn's, resolved before the run so it holds even when the run reported no id)
+// plus every chat of a turn recorded against runID. Duplicates are dropped so
+// an adapter is not told twice. Two consumers read it — the run-end typing
+// clear and the failure notice — and they must agree, or the half that goes
+// quiet is the half that tells the user something.
+func (l *Loop) chatsOwnedBy(primary, runID string) []string {
 	jids := []string{primary}
 	if runID == "" {
 		return jids

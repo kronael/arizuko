@@ -509,6 +509,59 @@ func TestRunErrorMarksAndNotifies(t *testing.T) {
 	}
 }
 
+// The T2 orphan: a follow-up steered into a live run is marked done and returns
+// long before that run dies, so the failure notice has to reach its chat too.
+// routd steers by FOLDER, so that chat is not always the running turn's, and
+// the steered user's message was accepted and then produced neither a reply nor
+// an error.
+func TestRunErrorNotifiesEveryChatTheRunOwned(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	_ = db.PutGroup(core.Group{Folder: "demo"})
+	dl := &recDeliverer{}
+	runner := runnerFn(func(_ context.Context, _ runedv1.RunRequest) (runedv1.RunOutcome, error) {
+		// Mid-run a second chat of the same folder is steered into this live
+		// container, which records that turn against the running run.
+		if _, perr := db.PutTurnContext("steered", "demo", "", "slack:T/B/U", "u2", ""); perr != nil {
+			t.Errorf("seed steered turn: %v", perr)
+		}
+		if serr := db.SetTurnRunID("steered", "run-1"); serr != nil {
+			t.Errorf("set steered run id: %v", serr)
+		}
+		return runedv1.RunOutcome{RunID: "run-1", Outcome: runedv1.OutcomeError, Error: "boom"}, nil
+	})
+	// MaxTurnRetry=-1 disables retry so the first failure notifies immediately.
+	loop := NewLoop(db, runner, LoopConfig{Deliver: dl, MaxTurnRetry: -1})
+	loop.StopQueue()
+	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo"}})
+	_ = db.PutMessage(core.Message{ID: "e", ChatJID: "slack:T/A/U", Sender: "u1",
+		Content: "hi", Timestamp: time.Now().UTC(), Verb: "message"})
+
+	if _, perr := loop.processGroupMessages("slack:T/A/U"); perr != nil {
+		t.Fatalf("process: %v", perr)
+	}
+
+	text := map[string]string{}
+	idem := map[string]string{}
+	for _, s := range dl.sends {
+		text[s.jid] = s.text
+		idem[s.jid] = s.idem
+	}
+	for _, jid := range []string{"slack:T/A/U", "slack:T/B/U"} {
+		if text[jid] != runFailureNotice {
+			t.Errorf("chat %s got %q, want the failure notice: the run it was "+
+				"waiting on died, so silence there is the bug", jid, text[jid])
+		}
+	}
+	if idem["slack:T/A/U"] == idem["slack:T/B/U"] {
+		t.Errorf("both notices carry idempotency key %q, so an adapter dedups "+
+			"the fan-out into one delivery", idem["slack:T/A/U"])
+	}
+}
+
 // TestTurnRetry_SchedulesRetryOnError verifies that a failed turn without a
 // reply schedules a retry (spec 5/12).
 func TestTurnRetry_SchedulesRetryOnError(t *testing.T) {

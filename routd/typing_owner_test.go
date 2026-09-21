@@ -59,10 +59,10 @@ func TestTypingJIDsForRunUsesTheReturnAddress(t *testing.T) {
 	}
 }
 
-// typingOwnedBy always includes the turn's own indicator chat, even when the
+// chatsOwnedBy always includes the turn's own indicator chat, even when the
 // run reported no id (a transport failure before runed answered), and never
 // tells an adapter about the same chat twice.
-func TestTypingOwnedByAlwaysIncludesPrimaryAndDeduplicates(t *testing.T) {
+func TestChatsOwnedByAlwaysIncludesPrimaryAndDeduplicates(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
@@ -70,7 +70,7 @@ func TestTypingOwnedByAlwaysIncludesPrimaryAndDeduplicates(t *testing.T) {
 	defer db.Close()
 	l := &Loop{db: db}
 
-	if got := l.typingOwnedBy("slack:T/A/U", ""); len(got) != 1 || got[0] != "slack:T/A/U" {
+	if got := l.chatsOwnedBy("slack:T/A/U", ""); len(got) != 1 || got[0] != "slack:T/A/U" {
 		t.Fatalf("no run id: got %v, want [slack:T/A/U]", got)
 	}
 
@@ -80,7 +80,7 @@ func TestTypingOwnedByAlwaysIncludesPrimaryAndDeduplicates(t *testing.T) {
 	if err := db.SetTurnRunID("t", "run-3"); err != nil {
 		t.Fatalf("set run id: %v", err)
 	}
-	if got := l.typingOwnedBy("slack:T/A/U", "run-3"); len(got) != 1 {
+	if got := l.chatsOwnedBy("slack:T/A/U", "run-3"); len(got) != 1 {
 		t.Fatalf("got %v, want the chat listed once", got)
 	}
 }

@@ -4269,7 +4269,7 @@ delete-orphans-vs-relax-the-constraint choice was made in favour of neither:
 there is no constraint, and the rows are history that is meant to outlive the
 task. Nothing to fix.
 
-## T2 — a steered turn gets no failure notice when its run dies (2026-08-15, open)
+## ✅ FIXED 2026-09-21 T2 — a steered turn gets no failure notice when its run dies (2026-08-15)
 
 Split out of `T1` point 3, confirmed at this tree while fixing `T1` points 1
 and 2.
@@ -4290,7 +4290,8 @@ is silent.
 - **Affected:** routd dispatch, any folder with two chats routed to it
 - **Source:** `routd/dispatch.go` (steered early return vs the
   `OutcomeError` notice block)
-- **Status:** open — the decision is much smaller than this entry assumed.
+- **Status:** fixed — the failure notice fans out over the same reader the
+  typing clear uses.
 
 **Update 2026-08-29 — the fan-out reader already exists, and its twin already
 uses it.** `T1`'s fix built `DB.TypingJIDsForRun(runID)` (`routd/db.go:852`),
@@ -4317,14 +4318,30 @@ it is the turns recorded against the ONE run that failed, which is precisely who
 was affected. No per-run cap is needed, and `TurnHasBotReply` is not needed as a
 gate either: it already guards whether this block runs at all.
 
-- **Remaining decision, and it is only this:** the notice is sent with the
-  parent turn's `topic`. Sending the parent's topic to a DIFFERENT chat can land
-  the notice in the wrong thread there. Either resolve each chat's own topic
-  from its turn row, or send the fan-out notices untopiced. Not chosen here.
-- **Fix shape (one loop, one fallback):** send `notice` to
-  `TypingJIDsForRun(out.RunID)`, falling back to `chatJID` when that is empty
-  (`out.RunID` unset), with the idempotency key extended per destination so the
-  adapter does not dedup the fan-out into one delivery.
+**Fixed 2026-09-21.** The `OutcomeError` block sends over
+`chatsOwnedBy(chatJID, out.RunID)` — the helper `T1` built, which already
+carries the fall back to the primary when the run reported no id. It was named
+`typingOwnedBy`; a second consumer that is not typing makes that name a lie, so
+it is now `chatsOwnedBy` and its comment says both readers must agree or the
+half that goes quiet is the half that tells the user something. The notice
+renderer is untouched — same `runFailureNotice` / `retryExhaustedNotice` /
+`terminalFailureNotice` selection, one destination loop around it.
+
+The topic decision went to **untopiced for the fan-out**: a thread id is local
+to its own chat, so the parent's topic means nothing in chat B and could land
+the notice in an unrelated thread there. Only the primary keeps its topic, so
+the already-correct path is byte-identical. The idempotency key gained a `-<jid>`
+suffix on every destination, primary included, or the adapter dedups the
+fan-out into one delivery.
+
+Test `TestRunErrorNotifiesEveryChatTheRunOwned` (`routd/fixes_test.go`) steers a
+second chat into the live run from inside the runner, then asserts the notice
+TEXT reached that chat and that the two keys differ. Without the loop it fails
+with `chat slack:T/B/U got ""`.
+
+- **Left alone deliberately:** `MarkChatErrored`/`MarkMessagesErrored` still
+  name only the primary chat. Those drive the breaker and the error census, not
+  delivery — a different concern, and widening them changes breaker semantics.
 
 ## ✅ FIXED 2026-09-20 X2 — the aws-devops product's credential model died with X1 (2026-08-09)
 
