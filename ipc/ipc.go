@@ -718,8 +718,8 @@ func recordOutboundReply(gated GatedFns, db StoreFns, jid, text, platformID, fol
 }
 
 // recordOutboundFailure appends the durable row for an outbound message the
-// platform did NOT accept, so a failed send leaves evidence. The agent still gets
-// the error from the tool — this row only decides who owns the retry.
+// platform did NOT accept, so a failed send leaves evidence, and returns the
+// error the tool hands back to the agent.
 //
 // A transient failure lands 'pending' and routd's sweep re-sends it. A permanent
 // refusal lands 'failed'. retryable=false forces the dead letter for a file send,
@@ -728,7 +728,14 @@ func recordOutboundReply(gated GatedFns, db StoreFns, jid, text, platformID, fol
 // sweep needs: a pending reply with no thread cannot be put back where it
 // belonged, so the retry landed in the parent channel instead (BUGS L169 link
 // 2). It is known before the send, so a failure still has it.
-func recordOutboundFailure(gated GatedFns, db StoreFns, jid, text, folder, replyToID, threadRoot, msgID string, retryable bool, err error) {
+//
+// The status decided here is also what the agent needs, so it goes into the
+// returned error rather than into a second classifier at the call site: one
+// declaration, two readers. A bare "failed" leaves the retry with two owners —
+// a `reply` answered 502, the sweep delivered the row 52 s later, and the agent,
+// told only that it failed, re-sent the same text six seconds after that, so the
+// channel got both copies (BUGS L165).
+func recordOutboundFailure(gated GatedFns, db StoreFns, jid, text, folder, replyToID, threadRoot, msgID string, retryable bool, err error) error {
 	status := core.MessageStatusPending
 	if !retryable || errors.Is(err, chanlib.ErrPermanent) {
 		status = core.MessageStatusFailed
@@ -736,6 +743,10 @@ func recordOutboundFailure(gated GatedFns, db StoreFns, jid, text, folder, reply
 	slog.Error("outbound send failed: recording undelivered row",
 		"folder", folder, "jid", jid, "status", status, "err", err)
 	putOutboundRow(gated, db, jid, text, "", folder, replyToID, threadRoot, msgID, status)
+	if status == core.MessageStatusPending {
+		return fmt.Errorf("%w (queued: the router re-sends this message — do NOT send it again)", err)
+	}
+	return fmt.Errorf("%w (not delivered, and no retry follows — the message is dead-lettered)", err)
 }
 
 // putOutboundRow is the ONE writer of an MCP-originated outbound row. Both
@@ -815,8 +826,8 @@ func putOutboundRow(gated GatedFns, db StoreFns, jid, text, platformID, folder, 
 }
 
 // internalSend delivers one MCP send and records it. Both outcomes write a
-// durable row; the error still returns to the agent — the row decides the retry,
-// not the report. It returns the last platform-assigned message id it recorded,
+// durable row, and a failure returns the error that names which of them owns the
+// retry. It returns the last platform-assigned message id it recorded,
 // so send and send_file can hand it back for edit/delete/branch targeting.
 func internalSend(gated GatedFns, db StoreFns, folder, jid, text string, files []internalSendFile) (string, error) {
 	if len(files) == 0 {
@@ -828,8 +839,7 @@ func internalSend(gated GatedFns, db StoreFns, folder, jid, text string, files [
 		msgID := core.MsgID("mcp")
 		platformID, err := gated.SendMessage(jid, text, msgID)
 		if err != nil {
-			recordOutboundFailure(gated, db, jid, text, folder, "", "", msgID, true, err)
-			return "", err
+			return "", recordOutboundFailure(gated, db, jid, text, folder, "", "", msgID, true, err)
 		}
 		recordOutbound(gated, db, jid, text, platformID, folder, msgID)
 		return platformID, nil
@@ -843,8 +853,7 @@ func internalSend(gated GatedFns, db StoreFns, folder, jid, text string, files [
 		msgID := core.MsgID("mcp")
 		platformID, err := gated.SendDocument(jid, f.LocalPath, f.Filename, text, f.ReplyTo, f.ThreadID, msgID)
 		if err != nil {
-			recordOutboundFailure(gated, db, jid, text, folder, f.ReplyTo, "", msgID, false, err)
-			return "", err
+			return "", recordOutboundFailure(gated, db, jid, text, folder, f.ReplyTo, "", msgID, false, err)
 		}
 		recordOutbound(gated, db, jid, text, platformID, folder, msgID)
 		lastID = platformID
@@ -1257,7 +1266,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			msgID := core.MsgID("mcp")
 			platformID, threadRoot, err := gated.SendReply(jid, text, replyToID, msgID)
 			if err != nil {
-				recordOutboundFailure(gated, db, jid, text, folder, replyToID, threadRoot, msgID, true, err)
+				err = recordOutboundFailure(gated, db, jid, text, folder, replyToID, threadRoot, msgID, true, err)
 				return toolErr(err.Error())
 			}
 			recordOutboundReply(gated, db, jid, text, platformID, folder, threadRoot, msgID)

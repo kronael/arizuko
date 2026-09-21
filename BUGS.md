@@ -1978,7 +1978,7 @@ readers take it — `ant/src/claude.ts:404`, `ant/src/codex.ts:178`,
 instruction shipped at `:85` and widens `L329`, so this needs sign-off rather
 than an inline patch.
 
-## L150 — the agent never sees what it delivered, so it cannot detect a truncated reply and confabulates a cause instead (2026-08-31, open — proposal, needs sign-off)
+## L150 — the agent never sees what it delivered, so it cannot detect a truncated reply and confabulates a cause instead (2026-08-31, RETRY-OWNER HALF FIXED 2026-09-21; the per-turn receipt stays a proposal)
 
 `routd/prompt_db.go:192,197,208` build the `<messages>` block with
 `AND is_bot_message = 0`. The envelope therefore carries **inbound messages
@@ -2020,7 +2020,7 @@ directive `[resolve] Invoke /resolve now` — which guarantees a tool call, whic
 under `L149` is what destroys the answer. The proportion is not itself a bug,
 but it is the pressure that makes `L149` fire on the turns that matter most.
 
-- **Files:** `routd/prompt_db.go:192,197,208`, `ant/src/index.ts:89-107`
+- **Files:** `store/message_folders.go:354`, `ant/src/index.ts:89-107`
 - **Evidence:** krons session `32863f1a`, transcript lines 333 (envelope), 340,
   351, 367
 - **Related:** `L149` (the loss this blindness hides); `L165` (the same
@@ -2035,6 +2035,38 @@ pair). The tool result must name who owns the retry: either the error reads
 "queued; the sweep retries this, do not resend" (fix 1's receipt shape), or a
 send the agent was told failed is not retried by the sweep (one owner). Today it
 is both, and the agent cannot tell.
+
+**RE-MEASURED 2026-09-21 — one claim REFUTED, the filed line numbers are dead,
+and one half was bounded after all.**
+
+- **REFUTED: "the agent's sole record of its own speech is its transcript."**
+  `inspect_messages` (`ipc/ipc.go:2177`) and `get_thread` (`:2297`) read
+  `MessagesBefore` / `MessagesByThread`, which apply no bot filter
+  (`store/messages.go:541,559`), so they have always returned the agent's own
+  rows. With `L184` shipped today those rows also carry `bot="true"`
+  (`router/router.go:156`), so the agent can now both reach and identify what it
+  delivered. What is missing is not ACCESS — it is automatic feedback at the
+  moment the agent can still act. Fix 1 (receipt) is the half that survives;
+  fix 2 (echo) is largely redundant on the read side now.
+- **The filed line numbers are dead.** `routd/prompt_db.go` holds the
+  system-message flush and topic lineage, and reads no messages. The injected
+  `<messages>` window excludes bot rows at `store/message_folders.go:354`
+  (`{Attr: attrFeedBot, Op: objstore.Absent}`), so the envelope half of this
+  entry is still live — at a different site.
+- **FIXED 2026-09-21 — the `L165` half, which needed no sign-off.**
+  `recordOutboundFailure` (`ipc/ipc.go`) ALREADY decides who owns the retry: a
+  transient failure lands `pending` and routd's sweep re-sends it, a permanent
+  refusal lands `failed`. It told the log and the row and not the caller, and
+  all three egress sites (`send`, `send_file`, `reply`) returned the bare
+  platform error, so one word "failed" covered both outcomes. The status now
+  rides the returned error — one declaration, two readers, no second classifier
+  at the call site. `TestRecordOutboundFailure_TellsTheAgentWhoOwnsTheRetry`
+  fails when the error is returned bare and when the two branches are collapsed,
+  and holds the `chanlib.ErrPermanent` sentinel across the wrap.
+- **Still a proposal:** the per-turn receipt (fix 1 proper — `submit_turn`
+  returns the stored id and length so the agent can see a truncated turn-final
+  delivery) and the `<messages>` echo (fix 2). Both change a contract spanning
+  routd and ant.
 
 ## L148 — 22 ad-hoc JID⇄folder conversions in 16 files; collapse them to three named seams so `"web:"` appears twice in the tree (2026-08-30, open — minimal, no schema change; PARTLY FIXED 2026-09-20)
 

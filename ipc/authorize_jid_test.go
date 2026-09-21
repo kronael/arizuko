@@ -2,9 +2,12 @@ package ipc
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
 )
 
@@ -177,7 +180,7 @@ func TestRecordOutboundFailure_KeepsTheThreadTheReplyMeantToRoot(t *testing.T) {
 	}}
 
 	const root = "1545760882322182276"
-	recordOutboundFailure(GatedFns{}, db, "discord:g/channel/C1", "answer", "sloth/desk",
+	_ = recordOutboundFailure(GatedFns{}, db, "discord:g/channel/C1", "answer", "sloth/desk",
 		"parent-msg", root, "", true, errors.New("502 bad gateway"))
 
 	if got.Topic != root {
@@ -188,5 +191,42 @@ func TestRecordOutboundFailure_KeepsTheThreadTheReplyMeantToRoot(t *testing.T) {
 	}
 	if gotStatus != core.MessageStatusPending {
 		t.Errorf("status = %q, want pending: a 502 is transient and the sweep owns the retry", gotStatus)
+	}
+}
+
+// The row already decides who owns the retry; the agent is the reader that
+// never got told. A `reply` answered 502, the sweep delivered the pending row
+// 52 s later, and the agent — told only "failed" — sent the same text again six
+// seconds after that, so the channel carried both copies (BUGS L165). The
+// returned error must name the owner, and must still carry the platform's own
+// message and sentinel so nothing downstream loses the classification.
+func TestRecordOutboundFailure_TellsTheAgentWhoOwnsTheRetry(t *testing.T) {
+	db := StoreFns{PutOutbound: func(core.Message, string) error { return nil }}
+
+	transient := recordOutboundFailure(GatedFns{}, db, "discord:g/channel/C1", "answer",
+		"sloth/desk", "", "", "", true, errors.New("502 bad gateway"))
+	if transient == nil {
+		t.Fatal("transient failure returned nil, want the error the tool hands the agent")
+	}
+	if !strings.Contains(transient.Error(), "502 bad gateway") {
+		t.Errorf("transient = %q, want the platform's own message kept", transient)
+	}
+	if !strings.Contains(transient.Error(), "do NOT send it again") {
+		t.Errorf("transient = %q, want the agent told the router owns this retry", transient)
+	}
+
+	permanent := recordOutboundFailure(GatedFns{}, db, "discord:g/channel/C1", "answer",
+		"sloth/desk", "", "", "", true, fmt.Errorf("%w: chat gone", chanlib.ErrPermanent))
+	if permanent == nil {
+		t.Fatal("permanent failure returned nil, want the error the tool hands the agent")
+	}
+	if !strings.Contains(permanent.Error(), "dead-lettered") {
+		t.Errorf("permanent = %q, want the agent told no retry follows", permanent)
+	}
+	if strings.Contains(permanent.Error(), "do NOT send it again") {
+		t.Errorf("permanent = %q, want the dead letter NOT described as queued", permanent)
+	}
+	if !errors.Is(permanent, chanlib.ErrPermanent) {
+		t.Errorf("errors.Is(permanent, ErrPermanent) = false; the wrap dropped the sentinel")
 	}
 }
