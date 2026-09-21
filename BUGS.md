@@ -4031,7 +4031,7 @@ callback-checked).
 - **Status:** proposed (redesign, needs sign-off)
 - **Fix:**
 
-## krons: `/hook/` proxyd route missing — webhook surface dead; route table not hot-reloaded (2026-07-11, open)
+## ✅ FIXED 2026-09-21 krons: `/hook/` proxyd route missing — webhook surface dead; route table not hot-reloaded (2026-07-11)
 
 Found by anteval's `webhook-in` live case. `POST /hook/<token>` on krons falls through to the
 public catch-all (302 → `/pub/krons/hook/<token>`) for EVERY token — the `proxyd_routes` table
@@ -4068,6 +4068,28 @@ next proxyd restart activates it).
   upsert-missing-core-routes-on-boot path — new boot behavior, cross-cutting
   (every instance's route table), so this stays a PROPOSAL needing sign-off,
   not a same-session fix.
+
+**Both facets are closed in code, verified 2026-09-21.**
+
+*Seeded-once drift.* Core routes are no longer seeded into an empty table and
+then frozen. `collectProxydRoutes` (`compose/compose.go:565`) rebuilds the whole
+core set from `coreProxydRoutes` on EVERY generate, and `store.SyncProxydRoutes`
+rewrites the arizuko-owned side each run — its own test says so: "rewritten
+every run, because generate re-derives it from the package's own manifest
+fragment, exactly as it re-derives a core route from the release table". So an
+instance seeded before a route was added gains it on its next generate.
+`/hook/` is row `compose/compose.go:508`.
+
+*Hot reload.* `proxyd`'s `snapshot()` (`proxyd/resource.go:57`) queries the
+route table per call and holds no cache across requests, so a row written live
+is served without a restart.
+
+What is NOT settled by this entry is whether a given live instance is running a
+build new enough to contain either — that is a deploy question, answered by the
+eval gates, not a defect. `anteval --case webhook-in` is still the check.
+
+- **Status:** fixed in code; live verification belongs to the deploy gates
+- **Fix:** `collectProxydRoutes` + `SyncProxydRoutes`; `proxyd/resource.go`
 
 ## Adversarial review of the 5/16+surrogate features — deferred findings (2026-07-30)
 

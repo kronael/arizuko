@@ -52,7 +52,7 @@ func newRoutesResource(st *store.Store, initial []Route) *routesResource {
 }
 
 // snapshot returns a fresh view of the route table by querying the DB.
-// One indexed read per call; cheap on SQLite/WAL. Callers MUST NOT
+// One indexed read per call. Callers MUST NOT
 // hold the returned slice across requests — it's a per-call snapshot.
 func (rr *routesResource) snapshot() ([]Route, map[string]*httputil.ReverseProxy) {
 	var routes []Route
