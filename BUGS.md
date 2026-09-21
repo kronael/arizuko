@@ -4578,7 +4578,7 @@ agent accepts, the dashboard refuses. dashd's copy dies with its tasks page
 pages land — filed as the follow-up, not fixed here, because it is a second
 concern.
 
-## Z1 — all three live instances run a routd/onbod image ~5 days stale; a chunk of shipped migrations is not live (2026-08-04, open)
+## ✅ CLOSED-STALE 2026-09-20 Z1 — all three live instances run a routd/onbod image ~5 days stale; a chunk of shipped migrations is not live (2026-08-04)
 
 Found verifying `83cccc78` (the 5/8 CAS/repoint) against read-only `.backup`
 copies of the three live instance DBs (never touched the originals). Every
@@ -4619,6 +4619,21 @@ image build, are not protecting any live user.
   per "never touch a live instance." Once redeployed, re-verify `route_tokens`/
   `invites` export against real data (this session's synthetic-schema tests
   already cover the post-migration shape; only the live-data path was blocked).
+
+**CLOSED-STALE 2026-09-20: the subsystem this entry measures no longer
+exists.** The defect was numbered SQL migrations shipping in the tree but not
+in the running image — `routd` at version 19 against `routd/migrations/0027`.
+The DynamoDB move (v0.68.0, 2026-09-16) removed that whole mechanism. Verified
+at HEAD: `routd/migrations/`, `onbod/migrations/` and `store/migrations/` do
+not exist, and no Go code reads a `migrations` table.
+
+A stale image is still possible and still worth catching, but it is a
+different failure now — no numbered migration can be "not live", because there
+are none. The live surface for that question is the eval gates, not this
+entry.
+
+- **Status:** closed, subsystem gone
+- **Fix:** none needed
 
 ## L131 — pi's bash tool inherits the whole process env, so every model credential is readable from the agent's shell (2026-08-28, claude half FIXED; pi half open — candidate 1 DISPROVED 2026-09-03, replacement mechanism identified, not shipped)
 
