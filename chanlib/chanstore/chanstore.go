@@ -9,12 +9,13 @@
 // the storage is asking the driver for the entities this package declares, and
 // asking twice is a no-op.
 //
-// Two entities, two questions, and they share nothing. `outbound_dedup` answers
-// "was this message already sent"; `inbound_pending` answers "which messages is
-// this adapter still holding". No operation spans them, so they get a file each
-// (6/37 rule 1) and neither file needs the other's coordinate.
+// Three entities, three questions, and they share nothing. `outbound_dedup`
+// answers "was this message already sent"; `inbound_pending` answers "which
+// messages is this adapter still holding"; `file_urls` answers "what platform
+// URL does this proxied attachment id stand for". No operation spans them, so
+// they get a file each (6/37 rule 1) and no file needs another's coordinate.
 //
-// One database per adapter holds both. chanlib SHIPS the entities; the FILE
+// One database per adapter holds all three. chanlib SHIPS the entities; the FILE
 // belongs to the adapter daemon, one per service, so an adapter stays
 // outage-resistant on its own and no library owns a database.
 package chanstore
@@ -36,6 +37,9 @@ const (
 	// InboundPending holds one item per inbound message routd has not accepted,
 	// addressed by the adapter's own stable message id.
 	InboundPending = "inbound_pending"
+	// FileURL holds one item per attachment published behind the adapter's
+	// `/files/<id>` proxy, addressed by that opaque id.
+	FileURL = "file_urls"
 )
 
 // Entities is the set a driver must be able to serve before an adapter boots.
@@ -43,7 +47,7 @@ const (
 // holds the driver — chanlib's opener for a running adapter, the import tool for
 // the data move. One declaration, two readers; an engine with no DDL applies
 // nothing and still answers every query below.
-var Entities = []string{OutboundDedup, InboundPending}
+var Entities = []string{OutboundDedup, InboundPending, FileURL}
 
 // The two timestamps the sweep COMPARES are declared ordered, so every driver
 // refuses a value of another width before it can sort into the wrong place.

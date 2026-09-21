@@ -2,6 +2,7 @@ package chanlib
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -381,8 +382,11 @@ func TestFileProxyHandler_Success(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	cache := NewURLCache(10)
-	id := cache.Put(upstream.URL)
+	cache := NewURLCache(10, nil)
+	id, err := cache.Put(t.Context(), upstream.URL)
+	if err != nil {
+		t.Fatalf("put: %v", err)
+	}
 
 	h := FileProxyHandler(FileProxyOpts{Resolve: cache.Get})
 	req := httptest.NewRequest("GET", "/files/"+id, nil)
@@ -400,7 +404,7 @@ func TestFileProxyHandler_Success(t *testing.T) {
 }
 
 func TestFileProxyHandler_NotFound(t *testing.T) {
-	h := FileProxyHandler(FileProxyOpts{Resolve: func(string) (string, bool) { return "", false }})
+	h := FileProxyHandler(FileProxyOpts{Resolve: func(context.Context, string) (string, bool, error) { return "", false, nil }})
 	req := httptest.NewRequest("GET", "/files/nope", nil)
 	w := httptest.NewRecorder()
 	h(w, req)
@@ -410,7 +414,7 @@ func TestFileProxyHandler_NotFound(t *testing.T) {
 }
 
 func TestFileProxyHandler_EmptyID(t *testing.T) {
-	h := FileProxyHandler(FileProxyOpts{Resolve: func(string) (string, bool) { return "", true }})
+	h := FileProxyHandler(FileProxyOpts{Resolve: func(context.Context, string) (string, bool, error) { return "", true, nil }})
 	req := httptest.NewRequest("GET", "/files/", nil)
 	w := httptest.NewRecorder()
 	h(w, req)
@@ -427,7 +431,7 @@ func TestFileProxyHandler_ValidateRejectsBeforeFetch(t *testing.T) {
 	defer upstream.Close()
 
 	h := FileProxyHandler(FileProxyOpts{
-		Resolve:  func(string) (string, bool) { return upstream.URL, true },
+		Resolve:  func(context.Context, string) (string, bool, error) { return upstream.URL, true, nil },
 		Validate: func(string) bool { return false },
 	})
 	req := httptest.NewRequest("GET", "/files/x", nil)

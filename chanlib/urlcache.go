@@ -2,42 +2,100 @@ package chanlib
 
 import (
 	"container/list"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"sync"
+
+	"github.com/kronael/arizuko/chanlib/chanstore"
 )
 
-// URLCache is a bounded-size LRU cache mapping short opaque ids to URLs.
-// Id is a 12-char hex prefix of sha256(url) — stable, collision-resistant
-// enough for /files/<id> proxy endpoints in channel adapters.
+// URLCache maps the short opaque ids in an adapter's `/files/<id>` proxy paths
+// back to the platform URLs they stand for. Id is a 12-char hex prefix of
+// sha256(url) — stable, so the same URL always yields the same id.
+//
+// THE MAPPING IS THE FILE. The adapter rewrites an inbound attachment's URL to
+// `<listen>/files/<id>` before the envelope reaches routd, so the platform URL
+// is held nowhere else, and routd's enrich downloads through the proxy when the
+// turn runs — which can be long after the message arrived. An id that no longer
+// resolves is an attachment the agent never receives (BUGS L163).
+//
+// So the LRU in front is a cache and the store behind it is the record. The LRU
+// bounds what is held in memory; it does not bound what can be answered, because
+// a miss falls through to the store. A purely in-memory map lost an id two ways
+// — a restart emptied it, and a busy adapter evicted the oldest while running —
+// and both are the same loss to the turn that needed the file.
 type URLCache struct {
 	mu    sync.Mutex
 	m     map[string]*list.Element
 	order *list.List
 	cap   int
+	// st is where the mapping actually lives. nil leaves the cache
+	// memory-only, which is what a test that exercises the LRU itself wants;
+	// every adapter passes its own store.
+	st *chanstore.Store
 }
 
 type urlEntry struct{ id, url string }
 
 const DefaultURLCacheSize = 4096
 
-func NewURLCache(cap int) *URLCache {
+// NewURLCache builds a cache over st. The store is a required argument rather
+// than a later setter because a cache wired after the platform's event loop is
+// already running would answer some ids from memory alone, which is the
+// failure this type exists to stop.
+func NewURLCache(cap int, st *chanstore.Store) *URLCache {
 	if cap <= 0 {
 		cap = DefaultURLCacheSize
 	}
-	return &URLCache{m: map[string]*list.Element{}, order: list.New(), cap: cap}
+	return &URLCache{m: map[string]*list.Element{}, order: list.New(), cap: cap, st: st}
 }
 
-// Put stores url and returns a short opaque id. Idempotent: same url
-// always returns the same id. Bumps LRU position.
-func (c *URLCache) Put(url string) string {
+// Put records url and returns the short opaque id standing for it. Idempotent:
+// the same url always returns the same id.
+//
+// THE ID IS RETURNED EVEN WHEN THE RECORD FAILS, together with the error. The
+// caller is building an inbound envelope: the proxy resolves the id from memory
+// for as long as this process lives, so dropping the attachment over a failed
+// record would turn a lost restart into a loss right now. The caller logs and
+// carries on; routd's enrich renders the `unavailable=` notice if the mapping
+// is later gone, so the user is told either way.
+func (c *URLCache) Put(ctx context.Context, url string) (string, error) {
 	sum := sha256.Sum256([]byte(url))
 	id := hex.EncodeToString(sum[:6])
+	c.remember(id, url)
+	if c.st == nil {
+		return id, nil
+	}
+	return id, c.st.RecordFileURL(ctx, id, url)
+}
+
+// Get returns the url an id stands for. A store miss is reported as not-found,
+// not as an error: an id nothing recorded is the proxy's 404.
+func (c *URLCache) Get(ctx context.Context, id string) (string, bool, error) {
+	if url, ok := c.lookup(id); ok {
+		return url, true, nil
+	}
+	if c.st == nil {
+		return "", false, nil
+	}
+	url, held, err := c.st.FileURL(ctx, id)
+	if err != nil || !held {
+		return "", false, err
+	}
+	// Warm the LRU so a second fetch of the same file — a retried download, a
+	// re-fed turn — does not pay for the store again.
+	c.remember(id, url)
+	return url, true, nil
+}
+
+// remember inserts id under the LRU bound, bumping it if already held.
+func (c *URLCache) remember(id, url string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if el, ok := c.m[id]; ok {
 		c.order.MoveToFront(el)
-		return id
+		return
 	}
 	el := c.order.PushFront(&urlEntry{id, url})
 	c.m[id] = el
@@ -46,11 +104,10 @@ func (c *URLCache) Put(url string) string {
 		c.order.Remove(back)
 		delete(c.m, back.Value.(*urlEntry).id)
 	}
-	return id
 }
 
-// Get returns the stored url and bumps LRU position.
-func (c *URLCache) Get(id string) (string, bool) {
+// lookup answers from memory alone and bumps LRU position.
+func (c *URLCache) lookup(id string) (string, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	el, ok := c.m[id]

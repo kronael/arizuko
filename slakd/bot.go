@@ -574,7 +574,8 @@ func (b *bot) handleMessage(teamID string, raw json.RawMessage, verb string) {
 		b.recordPane(cmp.Or(teamID, b.TeamID()), m.User, root, m.Channel)
 	}
 
-	content, atts := b.attachmentsFor(b.demangleMentions(m.Text), m.Files)
+	// The event handler carries no context of its own.
+	content, atts := b.attachmentsFor(context.Background(), b.demangleMentions(m.Text), m.Files)
 	if content == "" && len(atts) == 0 {
 		return
 	}
@@ -843,7 +844,7 @@ func (b *bot) setSuggestedPrompts(channelID, threadTS string, prompts []paneProm
 	}
 }
 
-func (b *bot) attachmentsFor(content string, files []slackFile) (string, []chanlib.InboundAttachment) {
+func (b *bot) attachmentsFor(ctx context.Context, content string, files []slackFile) (string, []chanlib.InboundAttachment) {
 	var atts []chanlib.InboundAttachment
 	for _, f := range files {
 		if f.URLPriv == "" {
@@ -856,7 +857,13 @@ func (b *bot) attachmentsFor(content string, files []slackFile) (string, []chanl
 		content += fmt.Sprintf(" [Attachment: %s]", name)
 		u := f.URLPriv
 		if b.cfg.ListenURL != "" && b.files != nil {
-			u = fmt.Sprintf("%s/files/%s", b.cfg.ListenURL, b.files.Put(f.URLPriv))
+			id, err := b.files.Put(ctx, f.URLPriv)
+			if err != nil {
+				// The id still works in this process; only a restart loses it
+				// (URLCache.Put, BUGS L163).
+				slog.Error("attachment url not recorded", "id", id, "err", err)
+			}
+			u = fmt.Sprintf("%s/files/%s", b.cfg.ListenURL, id)
 		}
 		atts = append(atts, chanlib.InboundAttachment{
 			Mime: f.Mimetype, Filename: name, URL: u,

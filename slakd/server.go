@@ -28,7 +28,7 @@ func newServer(cfg config, b *bot, chanStore *chanstore.Store, isConnected func(
 	return &server{
 		cfg:           cfg,
 		bot:           b,
-		files:         chanlib.NewURLCache(0),
+		files:         chanlib.NewURLCache(0, chanStore),
 		chanStore:     chanStore,
 		isConnected:   isConnected,
 		lastInboundAt: lastInboundAt,

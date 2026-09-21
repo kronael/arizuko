@@ -37,7 +37,7 @@ func TestOnMessage_SkipsSelfAuthor(t *testing.T) {
 		session: s,
 		rc:      chanlib.NewRouterClient(router.URL),
 		cfg:     config{AssistantName: "sloth"},
-		files:   chanlib.NewURLCache(0),
+		files:   chanlib.NewURLCache(0, nil),
 	}
 
 	// Self-authored message — must be dropped.

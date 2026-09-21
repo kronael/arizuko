@@ -235,7 +235,10 @@ func TestServerFileProxy(t *testing.T) {
 	defer cdn.Close()
 
 	srv := newServer(config{Name: "discord"}, &stubBot{}, nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
-	id := srv.files.Put(cdn.URL + "/image.png")
+	id, err := srv.files.Put(t.Context(), cdn.URL+"/image.png")
+	if err != nil {
+		t.Fatalf("put: %v", err)
+	}
 	h := srv.handler()
 
 	req := httptest.NewRequest("GET", "/files/"+id, nil)

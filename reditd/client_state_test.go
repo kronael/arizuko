@@ -106,7 +106,7 @@ func TestDoWithRetryPassesANormalResponseStraightThrough(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	rc := &redditClient{http: srv.Client(), files: chanlib.NewURLCache(1)}
+	rc := &redditClient{http: srv.Client(), files: chanlib.NewURLCache(1, nil)}
 	req, err := http.NewRequest("GET", srv.URL, nil)
 	if err != nil {
 		t.Fatal(err)

@@ -29,17 +29,22 @@ func main() {
 		Prefixes:   []string{"reddit:"},
 		Caps:       caps,
 		Start: func(ctx context.Context, router *chanlib.RouterClient) (http.Handler, func(), error) {
-			rc, err := newRedditClient(cfg)
-			if err != nil {
-				slog.Error("reddit auth failed", "err", err)
-				return nil, nil, err
-			}
-			rc.loadCursors()
+			// The store opens BEFORE the client, because the client's file
+			// cache is built with it: a cache wired afterwards would answer
+			// the ids of every attachment polled in between from memory
+			// alone, and lose them on the next restart (BUGS L163).
 			as, err := chanlib.OpenAdapterStore("reditd")
 			if err != nil {
 				slog.Error("adapter store open failed", "dir", cfg.DataDir, "err", err)
 				return nil, nil, err
 			}
+			rc, err := newRedditClient(cfg, as.Chan)
+			if err != nil {
+				slog.Error("reddit auth failed", "err", err)
+				as.Close() //nolint:errcheck // the start already failed
+				return nil, nil, err
+			}
+			rc.loadCursors()
 			go rc.poll(ctx, router)
 			return newServer(cfg, rc, rc.files, as.Chan, rc.isConnected, rc.LastInboundAt).handler(),
 				func() { as.Close() }, nil

@@ -55,7 +55,7 @@ func TestPaneTitle_NoAssistantName(t *testing.T) {
 
 func TestAttachmentsFor_Empty(t *testing.T) {
 	b := &bot{}
-	content, atts := b.attachmentsFor("text", nil)
+	content, atts := b.attachmentsFor(t.Context(), "text", nil)
 	if content != "text" {
 		t.Errorf("content = %q", content)
 	}
@@ -67,7 +67,7 @@ func TestAttachmentsFor_Empty(t *testing.T) {
 func TestAttachmentsFor_SkipsFilesWithoutURL(t *testing.T) {
 	b := &bot{}
 	files := []slackFile{{Name: "x.pdf", Mimetype: "application/pdf", URLPriv: ""}}
-	content, atts := b.attachmentsFor("base", files)
+	content, atts := b.attachmentsFor(t.Context(), "base", files)
 	if content != "base" {
 		t.Errorf("content = %q, want base (no change)", content)
 	}
@@ -79,7 +79,7 @@ func TestAttachmentsFor_SkipsFilesWithoutURL(t *testing.T) {
 func TestAttachmentsFor_ProxiesURLWhenListenURLSet(t *testing.T) {
 	b := &bot{
 		cfg:   config{ListenURL: "http://slakd:8080"},
-		files: chanlib.NewURLCache(10),
+		files: chanlib.NewURLCache(10, nil),
 	}
 	files := []slackFile{
 		{
@@ -89,7 +89,7 @@ func TestAttachmentsFor_ProxiesURLWhenListenURLSet(t *testing.T) {
 			Size:     1024,
 		},
 	}
-	content, atts := b.attachmentsFor("see file", files)
+	content, atts := b.attachmentsFor(t.Context(), "see file", files)
 	if !strings.Contains(content, "[Attachment: doc.pdf]") {
 		t.Errorf("content missing attachment label: %q", content)
 	}
@@ -115,7 +115,7 @@ func TestAttachmentsFor_UsesRawURLWhenNoListenURL(t *testing.T) {
 			URLPriv: "https://files.slack.com/F2/img.png",
 		},
 	}
-	_, atts := b.attachmentsFor("", files)
+	_, atts := b.attachmentsFor(t.Context(), "", files)
 	if len(atts) != 1 {
 		t.Fatalf("atts = %d", len(atts))
 	}
@@ -127,7 +127,7 @@ func TestAttachmentsFor_UsesRawURLWhenNoListenURL(t *testing.T) {
 func TestAttachmentsFor_FallsBackFilenameWhenEmpty(t *testing.T) {
 	b := &bot{}
 	files := []slackFile{{Name: "", URLPriv: "https://files.slack.com/F3/x"}}
-	content, atts := b.attachmentsFor("", files)
+	content, atts := b.attachmentsFor(t.Context(), "", files)
 	if !strings.Contains(content, "[Attachment: attachment]") {
 		t.Errorf("content = %q, want 'attachment' fallback name", content)
 	}
