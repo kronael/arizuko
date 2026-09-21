@@ -7,3 +7,11 @@ env:
     default: 'true'
   TTS_BASE_URL:
     default: 'http://ttsd:8880'
+proxyd_routes:
+  # The operator dashboard (spec 6/28, 6/30), served by ttsd itself. Declared
+  # here like every adapter's, so the route exists exactly when the package
+  # does: an external TTS sets TTS_ENABLED with no ttsd to route to.
+  - path: /dash/ttsd/
+    backend: http://ttsd:8080
+    auth: user
+    gated_by: TTS_ENABLED
