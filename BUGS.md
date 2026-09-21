@@ -7388,7 +7388,7 @@ This entry is about the shape, not a live defect.
     sentence, and this entry closes as a RECORD. `namespacedAllows`' comment
     already carries the whole argument.
 
-## L136 — the `--internal` network does not seal UDP/53, and the two docs that explain the DNS filter's absence give a reason that does not cover DNS (2026-08-30, open)
+## L136 — the `--internal` network does not seal UDP/53, and the two docs that explain the DNS filter's absence give a reason that does not cover DNS (2026-08-30, open — RE-MEASURED 2026-09-21: channel reproduced, but the TCP-vs-UDP framing is REFUTED; ONE question)
 
 `SECURITY.md:103` states the egress guarantee as "Default-deny; the spawn's
 network has no route out", and `:~300` as "Non-cooperating clients fail
@@ -7452,6 +7452,48 @@ the agent can reach", for anything an attacker can encode in a hostname.
   names the per-spawn egress proxy. `specs/6/24-crackbox-lightest.md:118-124`
   was already correct and is the source all of them were written from.
 - **Fix:** docs `ec3a933d`; the decision itself is unmade
+
+- **RE-MEASURED 2026-09-21 on this host at `b3b973e2`. The channel is still
+  open, and the MECHANISM is not what either the entry or `SECURITY.md` says.**
+  Probe: `docker network create --internal … --subnet 10.253.77.0/24`, one
+  container on it from a local image, network removed after.
+  - `/etc/resolv.conf` → `nameserver 127.0.0.11` (unchanged).
+  - `getent hosts example.com` → `2606:4700:10::ac42:93f3`, exit 0 — the SAME
+    address the 2026-08-30 measurement recorded. Reproduced exactly.
+  - **`ip route` shows `default via 10.253.77.1 dev eth0`.** So "the spawn's
+    network has no default route" (`SECURITY.md:110`) is false as literally
+    read. The route is there; something else does the sealing.
+  - **What actually seals it, read from the host:**
+    `iptables -S DOCKER-ISOLATION-STAGE-1` carries, for the probe's bridge,
+    `! -d 10.253.77.0/24 -i br-… -j DROP` and its `-s`/`-o` mirror.
+- **That REFUTES the TCP-versus-UDP framing this entry and `SECURITY.md` now
+  both use.** The DROP rule carries no `-p`, so it covers every FORWARDED
+  protocol — a spawn's UDP to an arbitrary external address is dropped exactly
+  as its TCP is. Nothing "sits outside it" by protocol. What escapes is one
+  address: `127.0.0.11` is docker's embedded resolver, served inside the
+  container's own netns and forwarded upstream from the HOST namespace, so its
+  query never crosses this bridge and this rule never sees it.
+- **Why that changes the decision rather than just the wording.** "Add a UDP/53
+  filter and wire it into `container.Run`" cannot be an iptables rule on the
+  spawn's bridge — that rule already exists and already drops UDP. The only
+  places to filter are what the embedded resolver is allowed to forward, or
+  replacing it (`--dns` at a resolver that holds the folder's allowlist). The
+  residual channel is also narrower than "arbitrary UDP/53": the agent cannot
+  choose a resolver, only the NAMES it asks docker's one for — which is still
+  the NXDOMAIN side channel, and still not visible in any CONNECT line.
+- **Unchanged and still true:** `container/network.go:159` creates the network
+  `--internal`; the docs' § "No DNS filter" states the measurement and both
+  options without taking one.
+
+- **THE ONE QUESTION:** does the egress guarantee cover the NAMES a spawn can
+  make docker's embedded resolver look up, or does it stop at the destinations
+  the spawn can connect to?
+  - Answer "names too" → the spawn gets `--dns` at a resolver that reads the
+    folder's `network_rules`, and `SECURITY.md`'s protocol wording is replaced
+    with the forwarded-versus-resolver distinction above.
+  - Answer "destinations only" → the residual channel is accepted and written
+    as accepted, and `SECURITY.md:110` stops naming an absent default route as
+    the mechanism, because it is not the one doing the work.
 
 ## L137 — proposal: `sandbox/` is 1342 lines nothing in arizuko runs; the import graph says it can leave cleanly, and the cost of leaving is one 144-line package (2026-08-30, proposal — needs sign-off)
 
