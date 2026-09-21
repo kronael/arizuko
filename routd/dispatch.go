@@ -40,7 +40,7 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	// into a route miss and archives it as context, silently, on the shipped
 	// mention-only Slack/Discord config. The steer half of the same mistake was
 	// BUGS L56; this is its twin one line up. An all-bot batch routes nothing.
-	steerIdx := newestUserIdx(msgs)
+	steerIdx := steerRowIdx(msgs)
 	if steerIdx < 0 {
 		// An all-bot batch is normally an agent's own output, correctly ignored.
 		// It is NOT when another folder wrote it: agent-to-agent delegation
@@ -199,6 +199,29 @@ type observedAdvance struct{ topic, ts string }
 // or -1 when the batch is all bot rows, which nothing may steer on. It answers
 // the INDEX rather than the row because the rows BEHIND it are the other half of
 // the answer: a steer consumes this one and leaves those to a turn (BUGS L104).
+// steerRowIdx picks the row `steer` is offered. It is the OLDEST slash command
+// in the batch when there is one, and otherwise the newest non-bot row.
+//
+// Only the newest row used to be offered, so a command was steered only when
+// nothing non-bot landed after it before the next poll. A second human message,
+// another person in a group chat, or a `timed` cron row was enough: the command
+// stayed in the trigger batch and reached the agent as plain text. `/root` then
+// ran unelevated, which reads as the platform ignoring the command (BUGS L336).
+//
+// The OLDEST, not the newest, and that is what keeps the consume contract. The
+// steered row is consumed and the cursor advances to IT, so rows behind it get
+// the turn they are owed and rows after it stay above the cursor for the next
+// poll — nothing is skipped in either direction (BUGS L104). Picking the newest
+// command would advance past an older one and lose it.
+func steerRowIdx(msgs []core.Message) int {
+	for i, m := range msgs {
+		if IsSteerCommand(m) {
+			return i
+		}
+	}
+	return newestUserIdx(msgs)
+}
+
 func newestUserIdx(msgs []core.Message) int {
 	for i := len(msgs) - 1; i >= 0; i-- {
 		if !msgs[i].BotMsg {

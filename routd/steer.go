@@ -121,8 +121,32 @@ func lookupCommand(raw string) (head, arg string) {
 	return h, a
 }
 
-func (l *Loop) handleCommand(chatJID string, msg core.Message, folder string) bool {
+// steerCommands is the set handleCommand's switch answers, declared so a
+// SECOND reader can ask "is this row a command?" without running it.
+// dispatch needs that question: it must find the command in a batch before it
+// decides which row to steer, and it may not execute one to find out. The
+// switch below guards on this map, so a case added there without a key here
+// stops being a command rather than silently becoming unfindable (BUGS L336).
+var steerCommands = map[string]bool{
+	"/new": true, "/chatid": true, "/ping": true, "/stop": true,
+	"/status": true, "/root": true, "/invite": true, "/gate": true,
+	"/approve": true, "/reject": true, "/always": true,
+}
+
+// IsSteerCommand reports whether this row is a slash command handleCommand
+// would run. PURE — it parses content and reads the two sender guards, touches
+// no store and sends nothing, which is what lets dispatch call it on every row
+// of a batch.
+func IsSteerCommand(msg core.Message) bool {
 	if msg.BotMsg || strings.HasPrefix(msg.Sender, "timed-") {
+		return false
+	}
+	head, _ := lookupCommand(msg.Content)
+	return steerCommands[head]
+}
+
+func (l *Loop) handleCommand(chatJID string, msg core.Message, folder string) bool {
+	if !IsSteerCommand(msg) {
 		return false
 	}
 	head, arg := lookupCommand(msg.Content)

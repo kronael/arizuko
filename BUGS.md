@@ -228,7 +228,7 @@ Recorded, not fixed: reconciling a merged cursor is not an edit.
      stops advertising an ingress nothing serves. `L307` (marinade's two
      unrouted Slack channels) is moot either way — that instance is stopped.
 
-## L336 — a slash command that is not the newest row of its batch is never steered, and `/root` then reaches the agent as plain text (2026-09-21, proposal — needs sign-off)
+## ✅ FIXED 2026-09-21 L336 — a slash command that is not the newest row of its batch is never steered, and `/root` then reaches the agent as plain text (2026-09-21)
 
 `steer` inspects exactly ONE row per batch:
 
@@ -313,6 +313,36 @@ steered. Neither made it more than one.
   steer only the newest row as now, but REFUSE to dispatch a batch containing an
   unsteered leading `/`-command and tell the chat to re-send it — loud, but it
   makes ordinary chat timing reject the operator's message.
+
+**FIXED 2026-09-21, and it is NOT the redesign this entry assumed.** The
+"consume/advance contract" is what made it look like one, and the contract is
+what makes the fix safe — it turns entirely on WHICH command you pick.
+
+`steerRowIdx` (`routd/dispatch.go`) offers `steer` the **oldest** slash command
+in the batch, falling back to the newest non-bot row when there is none.
+`advance` sets the cursor to the steered row's message key, so rows BEHIND it
+still get the turn they are owed and rows AFTER it stay above the cursor for
+the next poll. Nothing is skipped in either direction. Picking the NEWEST
+command is the variant that breaks it — that advances past an older command and
+loses it, which is `L104` seen from the other side.
+
+The second thing that made it look hard was that detection and execution were
+fused. `lookupCommand` is pure, so `IsSteerCommand` (`routd/steer.go`) now
+answers "is this row a command?" without running it, and the eleven-command set
+is declared ONCE in `steerCommands` with `handleCommand`'s switch guarding on
+it — a case added there without a key stops being a command rather than
+silently becoming unfindable.
+
+- **Status:** fixed
+- **Fix:** tests `TestSteerRowIdx_FindsACommandThatIsNotTheNewestRow`,
+  `TestSteerRowIdx_TakesTheOldestCommandOfTwo`,
+  `TestSteerRowIdx_NoCommandKeepsTheNewestUserRow` and
+  `TestIsSteerCommand_RefusesBotAndCronRows`. The third is the regression that
+  matters — without it a change here re-routes every ordinary turn. Mutation:
+  collapsing `steerRowIdx` to `newestUserIdx` fails the first two.
+- **Known gap:** these pin the FUNCTION. No test drives dispatch's call site,
+  so reverting `steerIdx := steerRowIdx(msgs)` alone is caught by nothing —
+  found because that exact mutation passed. Closing it needs the loop harness.
 
 ## ✅ FIXED 2026-09-21 L337 — sloth's teled has no state directory, so the next inbound Telegram message kills it (2026-09-21, open — found while diagnosing `L333`)
 
