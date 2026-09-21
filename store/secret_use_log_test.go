@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -204,5 +205,71 @@ func TestSecretUseLogStampsTheMCPSurface(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("no secret.read audit row; this test checks nothing")
+	}
+}
+
+// The `audit_log` twin is the ONLY read surface a secret use has: this entity
+// has no reader (the file header says so), and the answer to "who used which
+// secret, with which tool" is served from the twin on both faces —
+// `GET /v1/audit?category=secret` and `query_audit` (BUGS L13).
+//
+// So every field of SecretUseRow must survive into that row. Dropping one from
+// the event loses a forensic answer with nothing failing: the write still
+// succeeds, the row still appears, and only the missing column says so. Each
+// field is pinned here by name, and retiring the entity (audit/PLAN.md round 3)
+// is safe only while this passes.
+func TestSecretUseLogAuditTwinCarriesEveryField(t *testing.T) {
+	s := openMem(t)
+	use := SecretUseRow{
+		SpawnID: "spawn-7", CallerSub: "github:bob", Folder: "eng/sre",
+		Tool: "gh_search", Key: "GH_TOKEN", Scope: "folder",
+		Status: "ok", LatencyMS: 42,
+	}
+	if err := s.LogSecretUse(use); err != nil {
+		t.Fatalf("LogSecretUse: %v", err)
+	}
+
+	rows, err := audit.Query(context.Background(), s.Obj(), audit.Filter{Limit: 10})
+	if err != nil {
+		t.Fatalf("audit.Query: %v", err)
+	}
+	var row audit.Row
+	for _, r := range rows {
+		if r.Action == "secret.read" {
+			row = r
+			break
+		}
+	}
+	if row.Action == "" {
+		t.Fatal("no secret.read audit row; this test checks nothing")
+	}
+
+	// Key and Scope ride the resource coordinate; the rest are columns.
+	for _, c := range []struct{ field, got, want string }{
+		{"category", row.Category, audit.CategorySecret},
+		{"actor", row.Actor, use.CallerSub},
+		{"actor_sub", row.ActorSub, use.CallerSub},
+		{"folder", row.Folder, use.Folder},
+		{"scope", row.Scope, use.Scope},
+		{"resource (key)", row.Resource, "secrets/folder/eng/sre/GH_TOKEN"},
+		{"outcome", row.Outcome, audit.OutcomeOK},
+		{"surface", row.Surface, audit.SurfaceMCP},
+	} {
+		if c.got != c.want {
+			t.Errorf("%s = %q, want %q", c.field, c.got, c.want)
+		}
+	}
+	if row.DurationMS != use.LatencyMS {
+		t.Errorf("duration_ms = %d, want %d", row.DurationMS, use.LatencyMS)
+	}
+	if row.ID == "" {
+		t.Error("id is empty: the row carries no instant, so no window can page it")
+	}
+	// Tool and SpawnID are the two that live in params_summary, which is where
+	// a dropped field is least visible.
+	for _, want := range []string{use.Tool, use.SpawnID} {
+		if !strings.Contains(row.ParamsSummary, want) {
+			t.Errorf("params_summary = %q, missing %q", row.ParamsSummary, want)
+		}
 	}
 }

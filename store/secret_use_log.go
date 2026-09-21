@@ -7,9 +7,13 @@ package store
 // THE PARTITION IS A CONSTANT AND THE SORT KEY IS THE INSTANT, which is
 // audit_log's shape and it is here for audit_log's reason. This entity is
 // append-only history with a single writer, and the only thing that will ever
-// read it back is a window of it in time order — an operator at `sqlite3`
-// today, the forensic page 5/13 sketches later. Time IS the sort key, so
-// ordering, paging and a limit are one range and the read is one query.
+// read it back is a window of it in time order — the forensic page 5/13
+// sketches. An operator answers the question today from this write's
+// `audit_log` twin, which carries every field below and is served on both
+// faces (`GET /v1/audit?category=secret` and `query_audit`); `secret.read`
+// is written from here and nowhere else, so it isolates uses from
+// `secret.set`. Time IS the sort key, so ordering, paging and a limit are
+// one range and the read is one query.
 //
 // NO READ DECIDED IT, because there is no reader: nothing in the tree calls
 // this file for anything but the write, on any instance. That is worth stating

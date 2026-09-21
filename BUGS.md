@@ -3833,7 +3833,7 @@ still needs sign-off.
   default so a fresh instance is isolated unless the operator opts out. Both
   live instances set `EGRESS_IMAGE`, so no running instance is exposed today.
 
-## L13 — `secret_use_log` is write-only: no read surface on any face (2026-08-11, proposed 2026-08-15 — needs sign-off)
+## L13 — `secret_use_log` is write-only: no read surface on any face (2026-08-11, proposed 2026-08-15 — RE-MEASURED 2026-09-21: the ENTITY has no reader, the FACT has two. Do NOT build the proposal below)
 
 The table (routd/migrations/0008-secrets.sql) is written on every resolved
 secret (`routd/mcp.go:503`, `store/secret_use_log.go:38`) and read by nothing:
@@ -3876,6 +3876,73 @@ answers "who used which secret" only to an operator with sqlite3 on the host.
   (`INSERT INTO|UPDATE` vs `FROM <table>` vs `Table:` resreg decls) →
   `secret_use_log writers=1 readers=0 resreg=0`. `grep -rn secret_use_log`
   → writer paths + migrate-split copy + docs only.
+- **RE-MEASURED at 17459f6a 2026-09-21. The defect is half real and the
+  prescribed fix is now the WRONG one — building it would manufacture the
+  duplication root `CLAUDE.md` forbids.**
+
+  **The entity still has no reader.** Confirmed, and the source says so itself:
+  `store/secret_use_log.go:15` — "NO READ DECIDED IT, because there is no
+  reader: nothing in the tree calls this file for anything but the write, on
+  any instance." No resreg declaration, no handler, no dashd page, no CLI verb.
+
+  **But the FACT is fully readable, on both faces, and has been.** `LogSecretUse`
+  writes the item and an `audit_log` row in ONE batch
+  (`store/secret_use_log.go:141-183`), and that row is a COMPLETE projection of
+  `SecretUseRow` — all nine fields, nothing dropped:
+
+  | `SecretUseRow` | where it lands in the `audit_log` row |
+  | --- | --- |
+  | `TS` | the row id / `created_at` |
+  | `CallerSub` | `actor` + `actor_sub` |
+  | `Key`, `Scope` | `resource` = `secrets/<scope>/<folder>/<key>` |
+  | `Scope` | `scope` |
+  | `Folder` | `folder` |
+  | `Tool`, `SpawnID` | `params_summary` |
+  | `Status` | `outcome` + `error_msg` |
+  | `LatencyMS` | `duration_ms` |
+
+  `audit_log` IS a registered resreg resource (`resreg/resources/audit.go`),
+  mounted by routd (`routd/audit_resource.go`), which is the daemon that owns
+  this table. So "who used which secret, from where, with which tool" is already
+  answerable two ways, neither needing a shell on the host:
+
+  - REST `GET /v1/audit?category=secret` behind the `audit:read` scope;
+  - MCP `query_audit` with `category=secret`, bound to the caller's own folder.
+
+  `action=secret.read` is written by exactly one site in the tree
+  (`store/secret_use_log.go:154`), so it isolates secret USES from
+  `secret.set` / `secret.delete` cleanly.
+
+  **Therefore the entry's own security question is already answered, and not in
+  the direction it assumed.** It asks the operator to decide "may an AGENT read
+  which secrets were used, by whom, with which tool?" — an agent holding
+  `mcp:query_audit` can read exactly that today, folder-bound. Registering
+  `secret_use_log` would not open a new door; it would cut a second door into
+  the same room, publishing `/v1/secret_use_log` and a second agent tool over a
+  fact `/v1/audit` already serves. That is a second FORMAT for one declaration,
+  the rule in root `CLAUDE.md` §"One declaration, many readers", and
+  `resreg/resources/audit.go` is emphatic that an append-only log gets one
+  read-only face, not several.
+
+  **The recorded direction is the opposite one: retire the entity.**
+  `audit/PLAN.md:319-322` already says so — "`secret_use_log` — replaced by
+  `secret.read` rows in `audit_log` once the audit table lands (… consolidates
+  in round 3 if hot-path volume permits)". The audit table landed. The item is
+  the leftover half of a consolidation that stopped at the write.
+
+  **What it costs to leave alone: almost nothing.** The entity is EMPTY on the
+  whole fleet — `store/secret_use_log.go:28` records zero rows on all three live
+  snapshots at 2026-09-07, because the broker writes only when a container tool
+  resolves a secret and the fleet has one secret. A reader would page nothing.
+
+  **Status: the proposal above is WITHDRAWN, not pending.** Do not build it. The
+  live question is whether to finish `audit/PLAN.md`'s round 3 and delete the
+  entity, leaving `audit_log` as the single record. That is a spec-level
+  deletion touching `specs/5/13` §Audit, which mandates the row, so it is a
+  sign-off rather than a refinement — but a much smaller and better-shaped one
+  than the new wire contract this entry originally asked for. Until it happens
+  the duplicate write is harmless: one empty item collection, written in the
+  same batch, costing one item per secret read.
 
 ## 📋 RECORD L15 — dead-code sweep 2026-08-11: the hits deliberately REJECTED (record, not a bug)
 
