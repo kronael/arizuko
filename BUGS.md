@@ -3389,6 +3389,37 @@ case creates a child group nothing deletes, so closing `L188` first would raise
 the leak by about half again and make every later release slower and dearer.
 Fix the deletion here first; then the backfill costs what it should.
 
+**Re-measured 2026-09-21 — every figure in this entry has grown, and the docker
+half is now the larger one.**
+
+| what | when filed | 2026-09-21 |
+| --- | --- | --- |
+| krons eval groups | 31 of 43 | **47 of 59** |
+| leaked `eval-` docker networks | 28 | **52** |
+
+52 of the host's 81 arizuko networks are leaked eval networks — nearly two in
+three. Each was created for a case that finished, and nothing removes them.
+That is a bigger footprint than the folders, and unlike the folders it costs
+address space in the parent subnet the per-folder /24s are carved from, not
+just LLM turns.
+
+The groups query that answers this today (the SQLite one above is frozen):
+
+```sql
+select count(*) filter (where sk_s like 'eval/%'), count(*) from "_ddb_<groups-id>"
+```
+
+and `sudo docker network ls --format '{{.Name}}' | grep -c 'eval-'`.
+
+**The network half may be separable from the sign-off.** The entry's blocker is
+that anteval has no delete SURFACE for groups — a new destructive write. A
+docker network has no such gate: it is host state the harness created, and
+removing one it made needs no new arizuko permission. If the group delete waits
+on a decision, the network cleanup need not.
+
+This entry also gates `L188` (see that entry): backfilling ~12 anteval cases
+against today's harness raises both numbers by about half again.
+
 ## L62 — marinade's emaid IMAP login fails, unhealthy for 3 days (2026-08-21, open)
 
 `arizuko_emaid_marinade` has been `Up (unhealthy)` since 2026-08-18. Every IMAP
