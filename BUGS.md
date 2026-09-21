@@ -4765,6 +4765,36 @@ Silently storing a row nobody will ever act on is the worst of the three.
   delegation wake its target needs a row shape that is neither "a person spoke"
   nor "my own output" — a message-model change, which is the sign-off this
   entry has been waiting for since August.
+- **The notice shipped 2026-09-20 read the chat's folder out of the JID, and on
+  two JID shapes that made it lie. FIXED 2026-09-21 (`2abe141f`).** It called
+  `groupfolder.JidFolder(chatJID)`, but the grammar is ambiguous by design —
+  `web:t/sfx` reads as folder `t/sfx` while its mint recorded `t`, and
+  `hook:a/b/c` reads as `a/b`. So on every route-token chat and every `hook:`
+  chat the comparison was `t/sfx != t`, and the folder's OWN reply logged
+  "delegation woke nothing" once per reply, forever.
+  `store.RouteTokenTargetByJID` is "the single reader every folder-from-JID path
+  goes through" (its own comment) and `routd/loop.go` `directFolder` is the call
+  site that already uses it; the notice now uses it too. The 2026-09-20 mutation
+  proof could not catch this because both its tests use a plain `web:<folder>`
+  JID, where the grammar happens to be right. Same bug class as `L4`/`L1`, in
+  the code written to report `L2`.
+  - PROVEN BY MUTATION: with the grammar reader,
+    `TestDispatch_ARouteTokenChatsOwnReplyIsNotADelegation` fails with
+    `chat_folder=acme/tok wrote_by=acme`; the two 2026-09-20 tests keep passing
+    either way, so a real cross-folder delegation still warns and a plain
+    folder chat still stays quiet.
+- **The warning is NOT enough to act on, and that is the bounded half of the
+  sign-off.** A `slog.Warn` in routd reaches an operator reading the census. It
+  does not reach the agent that called `send`, which still gets a success and
+  then waits for a callback that cannot come, and it does not reach the person
+  who asked for the delegation. `CLAUDE.md` §Fail loud requires an error on a
+  user-facing path to surface to the caller, not only to a log — and the entry
+  already named this option ("refused loudly at the `send` gate"). It is one
+  question, not a redesign: **should `send` refuse when the target chat's folder
+  is not the caller's own, given that posting a notification into another
+  folder's channel is a legitimate use of the same call?** The message-model
+  change (a row that is neither "a person spoke" nor "my own output", plus the
+  hop budget) stays the separate, larger sign-off; nothing here touches it.
 
 ## ✅ FIXED 2026-09-20 J16 — `ant/CLAUDE.md` tells the agent connector tools are deferred; they are eager (2026-08-09)
 
