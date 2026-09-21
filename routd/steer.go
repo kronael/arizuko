@@ -121,16 +121,32 @@ func lookupCommand(raw string) (head, arg string) {
 	return h, a
 }
 
-// steerCommands is the set handleCommand's switch answers, declared so a
-// SECOND reader can ask "is this row a command?" without running it.
-// dispatch needs that question: it must find the command in a batch before it
-// decides which row to steer, and it may not execute one to find out. The
-// switch below guards on this map, so a case added there without a key here
-// stops being a command rather than silently becoming unfindable (BUGS L336).
-var steerCommands = map[string]bool{
-	"/new": true, "/chatid": true, "/ping": true, "/stop": true,
-	"/status": true, "/root": true, "/invite": true, "/gate": true,
-	"/approve": true, "/reject": true, "/always": true,
+// steerCommand runs one slash command. arg is the text after the head.
+type steerCommand func(l *Loop, chatJID, folder, arg, sender string)
+
+// steerCommands is the set of slash commands and what each one does. It is a
+// map rather than a switch so a SECOND reader can ask "is this row a command?"
+// without running it: dispatch must find the command in a batch before it
+// decides which row to steer, and it may not execute one to find out (BUGS
+// L336). One declaration, so a command cannot be runnable and unfindable.
+var steerCommands = map[string]steerCommand{
+	"/new":    func(l *Loop, chat, folder, arg, _ string) { l.cmdNew(chat, folder, arg) },
+	"/chatid": func(l *Loop, chat, _, _, _ string) { l.ack(chat, chat) },
+	"/ping":   func(l *Loop, chat, folder, _, _ string) { l.cmdPing(chat, folder) },
+	"/stop":   func(l *Loop, chat, folder, _, _ string) { l.cmdStop(chat, folder) },
+	"/status": func(l *Loop, chat, folder, _, sender string) { l.cmdStatus(chat, folder, sender) },
+	"/root":   func(l *Loop, chat, folder, arg, sender string) { l.cmdRoot(chat, folder, arg, sender) },
+	"/invite": func(l *Loop, chat, folder, arg, sender string) { l.cmdInvite(chat, folder, arg, sender) },
+	"/gate":   func(l *Loop, chat, folder, arg, sender string) { l.cmdGate(chat, folder, arg, sender) },
+	"/approve": func(l *Loop, chat, folder, arg, sender string) {
+		l.cmdResolveHold(chat, folder, arg, sender, PendingApproved, false)
+	},
+	"/reject": func(l *Loop, chat, folder, arg, sender string) {
+		l.cmdResolveHold(chat, folder, arg, sender, PendingRejected, false)
+	},
+	"/always": func(l *Loop, chat, folder, arg, sender string) {
+		l.cmdResolveHold(chat, folder, arg, sender, PendingApproved, true)
+	},
 }
 
 // IsSteerCommand reports whether this row is a slash command handleCommand
@@ -142,7 +158,7 @@ func IsSteerCommand(msg core.Message) bool {
 		return false
 	}
 	head, _ := lookupCommand(msg.Content)
-	return steerCommands[head]
+	return steerCommands[head] != nil
 }
 
 func (l *Loop) handleCommand(chatJID string, msg core.Message, folder string) bool {
@@ -150,32 +166,7 @@ func (l *Loop) handleCommand(chatJID string, msg core.Message, folder string) bo
 		return false
 	}
 	head, arg := lookupCommand(msg.Content)
-	switch head {
-	case "/new":
-		l.cmdNew(chatJID, folder, arg)
-	case "/chatid":
-		l.ack(chatJID, chatJID)
-	case "/ping":
-		l.cmdPing(chatJID, folder)
-	case "/stop":
-		l.cmdStop(chatJID, folder)
-	case "/status":
-		l.cmdStatus(chatJID, folder, msg.Sender)
-	case "/root":
-		l.cmdRoot(chatJID, folder, arg, msg.Sender)
-	case "/invite":
-		l.cmdInvite(chatJID, folder, arg, msg.Sender)
-	case "/gate":
-		l.cmdGate(chatJID, folder, arg, msg.Sender)
-	case "/approve":
-		l.cmdResolveHold(chatJID, folder, arg, msg.Sender, PendingApproved, false)
-	case "/reject":
-		l.cmdResolveHold(chatJID, folder, arg, msg.Sender, PendingRejected, false)
-	case "/always":
-		l.cmdResolveHold(chatJID, folder, arg, msg.Sender, PendingApproved, true)
-	default:
-		return false
-	}
+	steerCommands[head](l, chatJID, folder, arg, msg.Sender)
 	return true
 }
 
