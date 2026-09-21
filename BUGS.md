@@ -873,7 +873,7 @@ kind, this is `L199`'s harm at the release boundary instead of the `add` one.
   for what `upgrade` means. Today the operator's route is `packages remove` +
   `packages add`, which the report names.
 
-## L309 — the docs mount is gated on `web:publish`, so 53 of 59 folders ship a skill that names a path they do not have (2026-09-19, FIXED 2026-09-20)
+## ✅ FIXED 2026-09-20 L309 — the docs mount is gated on `web:publish`, so 53 of 59 folders ship a skill that names a path they do not have (2026-09-19, FIXED 2026-09-20)
 
 MEASURED on krons 2026-09-19, re-measured 2026-09-20. Every agent carries the
 `arizuko` skill, whose whole job is to answer "how does arizuko do X" from
@@ -1331,7 +1331,7 @@ ended `container exited with error code:137`; routd re-fed it after the restart
   runed and routd, so it is not shipped here.
 - **Fix (log half):** `fix(queue): level the unreachable-plane log by outage, not by group`
 
-## L163 — an adapter restart empties its in-memory `/files/<id>` cache, so attachments re-fed across the restart 404 and the agent gets the text only (2026-09-05, FIXED 2026-09-21 — the mapping is a `file_urls` entity in the adapter's own store, so a restart and an eviction both resolve)
+## ✅ FIXED 2026-09-21 L163 — an adapter restart empties its in-memory `/files/<id>` cache, so attachments re-fed across the restart 404 and the agent gets the text only (2026-09-05, FIXED 2026-09-21 — the mapping is a `file_urls` entity in the adapter's own store, so a restart and an eviction both resolve)
 
 sloth 2026-09-04 13:43:13-19, right after the 13:41 restart: 12 × `enrich:
 download failed url=http://discd:8080/files/<id> err="HTTP 404"`.
@@ -2237,7 +2237,7 @@ sharing hazard that does not exist today.
 - **Status:** proposal (needs sign-off) — nothing changed
 - **Fix:** add a folder-addressed token surface whose grant set may be a glob; keep the one-element pinned form as the default a shared link gets
 
-## L99 — `/invite/` and `/onboard` are `public` routes whose handlers key on identity, so onboarding is an infinite redirect (2026-08-26, FIXED 2026-09-21)
+## ✅ FIXED 2026-09-21 L99 — `/invite/` and `/onboard` are `public` routes whose handlers key on identity, so onboarding is an infinite redirect (2026-08-26, FIXED 2026-09-21)
 
 Nobody can redeem an invite or create a world through the web. The link 303s to
 `/auth/login`, OAuth returns instantly because the provider session is live, and
@@ -2318,7 +2318,7 @@ Bearer header, and a browser navigation carries a cookie.
 
   Unverified as before: no live instance was driven. `arizuko generate` on each
   instance is still required for the route change to reach proxyd.
-## L106 — the agent's `reply`/`send` sends one idempotency key and the retry sweep sends a different one, so the whole dedup contract is off for every MCP message (2026-08-26, FIXED 2026-09-21; the "crosses the ipc↔routd contract" scope claim is REFUTED)
+## ✅ FIXED 2026-09-21 L106 — the agent's `reply`/`send` sends one idempotency key and the retry sweep sends a different one, so the whole dedup contract is off for every MCP message (2026-08-26, FIXED 2026-09-21; the "crosses the ipc↔routd contract" scope claim is REFUTED)
 
 `routd/mcp.go:259` delivers with a throwaway key:
 
@@ -3166,7 +3166,7 @@ stated the constraint or would notice it breaking.
   command and a warning that fires there is noise nobody reads.
 
 
-## L43 — 44 stale spec references in the live tree (2026-08-16, PARTLY FIXED 2026-09-21; 2 sites remain, genuinely homeless)
+## ✅ FIXED 2026-09-20 L43 — 44 stale spec references in the live tree (2026-08-16, PARTLY FIXED 2026-09-21; 2 sites remain, genuinely homeless)
 
 A reference-graph check over tracked `.md`/`.go` (excluding `CHANGELOG.md`, which
 is history and correct as written) found **44 distinct spec IDs that no longer
@@ -4316,7 +4316,7 @@ Nothing can seed the product that would fail silently.
 - **Status:** fixed
 - **Fix:** `242b7d10`
 
-## M1 — `mcpc` socat-connect form 502s since mcpc 0.3.0 (2026-07-16, ✅ FIXED 2026-09-21 in the repo; delivery needs a `MIGRATION_VERSION` bump)
+## ✅ FIXED 2026-09-21 M1 — `mcpc` socat-connect form 502s since mcpc 0.3.0 (2026-07-16, ✅ FIXED 2026-09-21 in the repo; delivery needs a `MIGRATION_VERSION` bump)
 
 The documented ad-hoc MCP-call form for agents — `mcpc connect "socat
 UNIX-CONNECT:$ARIZUKO_MCP_SOCKET -" @s` (`ant/skills/self/mcp.md:128`,
@@ -4435,7 +4435,7 @@ with the scoped watcher. The clean end-state is a static serve (`vite preview` o
 a plain file server) keeping the pub-fallback/trailing-slash middleware; deferred,
 needs sign-off.
 
-## R2 — Reserving `#announce` silently steals an existing route topic (2026-07-15, ✅ CLOSED 2026-09-21 — the migration half is impossible, the silence half is fixed)
+## ✅ FIXED 2026-09-21 R2 — Reserving `#announce` silently steals an existing route topic (2026-07-15, ✅ CLOSED 2026-09-21 — the migration half is impossible, the silence half is fixed)
 
 Before v0.59, every fragment other than `#observe` was a valid pinned topic, so
 `folder#announce` meant topic `announce`. The new parser silently reinterprets
