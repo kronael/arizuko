@@ -7132,7 +7132,7 @@ disproved on a live pi.
 - **Fix:** `b7d3b253` (startup warning); claude scrub and gateway
   withholding shipped earlier
 
-## L134 — a `shell:env:` grant cannot be conditioned on the channel, and writing the predicate that looks like it can silently revokes the key everywhere (2026-08-29, SILENT HALF FIXED 2026-09-20; the channel condition is a proposal — proposal, needs sign-off)
+## L134 — a `shell:env:` grant cannot be conditioned on the channel, and writing the predicate that looks like it can silently revokes the key everywhere (2026-08-29, SILENT HALF FIXED 2026-09-20; RE-MEASURED 2026-09-21 — the same trap is LIVE and FAIL-OPEN in the exempted `hold:` namespace, pinned by test; ONE question, needs sign-off)
 
 An operator asked for "only atlas **in telegram** may use the gh key". The
 `shell:env:<KEY>` row has a `predicate` column and `namespacedAllows` evaluates
@@ -7214,8 +7214,49 @@ simply never appears in the shell.
 - **Still open, and it is the operator's original ask:** expressing "only atlas
   IN TELEGRAM may use the gh key". The trigger's platform is a property of the
   chat JID that routed the turn, and the resolution happens once per dispatch
-  keyed on the FOLDER (`routd/dispatch.go`), so the information is not there to
-  condition on. Carrying it is a capability-call contract change.
+  keyed on the FOLDER (`routd/dispatch.go:899`), so the information is not there
+  to condition on. Carrying it is a capability-call contract change.
+
+- **RE-MEASURED 2026-09-21 at `b3b973e2`: the same trap is live in the `hold:`
+  namespace, which the write-guard deliberately exempts — and there it fails
+  OPEN.** The exemption's stated ground is false as a statement about the call
+  graph. `store/acl_test.go` justified it with "CheckHold passes the caller's
+  claims, so a hold: predicate is evaluated rather than dead". `auth.CheckHold`
+  does forward `caller.Claims` (`auth/authorize.go:605`) — and nothing fills
+  them. The only production caller is `routd/sibling_db.go:301`,
+  `auth.Caller{Principal: sub}`, reached from `routd/pending_actions.go:479`
+  `holdGate`. The only two sites that populate `auth.Caller.Claims`
+  (`resreg/resreg.go:755` `authCaller`, fed by `routd/server.go:407`) reach
+  `Authorize` and never `CheckHold`. Grep of every `.Claims` site confirms it.
+  - **Direction matters, and it is the reverse of the `shell:env:` case.** A
+    never-matching `shell:env:` row withholds a KEY — the agent loses `gh`.
+    A never-matching `hold:` row withholds the GATE: the tool call the operator
+    wrote the rule to suspend proceeds unheld, and nothing logs a denial because
+    nothing was denied. Same silence, opposite side of the fence.
+  - **PINNED BY TEST, mutation-proven both ways**
+    (`auth.TestCheckHold_PredicateIsInertOnTheLiveCaller`): the predicated rule
+    does not hold a claimless caller; the identical row WITHOUT a predicate
+    does, so the predicate is the cause; and the same row DOES hold once the
+    caller carries `platform=telegram`, so the evaluator is sound and the gap is
+    the caller. Mutation 1 — drop `predicateMatches` from `namespacedAllows` —
+    turns the first assertion red. Mutation 2 — pass `nil` claims from
+    `CheckHold` — turns the third red.
+  - **Not fixed here on purpose.** Both remedies are policy: extend the
+    `aclPut` refusal to `hold:` (the row becomes unwritable), or stamp the
+    trigger's platform as a claim (the row becomes live in BOTH namespaces).
+    They are the same decision, and it is the one below.
+
+- **THE ONE QUESTION:** should a turn carry its trigger's platform as a caller
+  claim — making `predicate=platform=telegram` mean what it reads on `hold:`
+  AND `shell:env:` rows — or is a capability conditioned only on FOLDER, with
+  the acl write refusing a predicate in both namespaces?
+  - Answer "carry it" → stamp `Claims` at `routd/dispatch.go:899` and
+    `routd/pending_actions.go:479`, drop the `aclPut` refusal. Auth-model
+    change; needs the folder/channel confinement argued, because a claim the
+    channel supplies is a claim the channel can choose.
+  - Answer "folder only" → extend `aclPut`'s refusal to `HoldPrefix`, and the
+    `hold:` fail-open closes at the write. Smaller, and it removes a row shape
+    no evaluator reads.
 
 ## L133 — `actionCovers`'s `*` covers rule namespaces too, so every namespaced rule needs its own evaluator (2026-08-29, open — proposal, needs sign-off)
 

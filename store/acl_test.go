@@ -200,8 +200,17 @@ func TestACLAcceptsAShellEnvGrantWithNoPredicate(t *testing.T) {
 	}
 }
 
-// A predicate on any OTHER namespace stays legal: CheckHold passes the caller's
-// claims, so a hold: predicate is evaluated rather than dead.
+// A predicate on any OTHER namespace stays legal. The WRITE is what this pins,
+// and the guard is deliberately scoped to shell:env: rather than to predicates
+// in general.
+//
+// It is not evidence that a hold: predicate works. auth.CheckHold forwards
+// caller.Claims, but routd asks every hold question as
+// auth.Caller{Principal: sub} and fills none, so on the live path the row is
+// inert and the call runs UNHELD —
+// auth.TestCheckHold_PredicateIsInertOnTheLiveCaller measures it. Whether the
+// caller should carry the trigger's platform is the open half of BUGS L134;
+// until that is answered this write stays legal on purpose.
 func TestACLAllowsAPredicateOnAHoldGrant(t *testing.T) {
 	if _, err := ACLGrantWrite(core.ACLRow{
 		Principal: "folder:atlas", Action: HoldPrefix + "send",

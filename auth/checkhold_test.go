@@ -275,3 +275,49 @@ func addLegacyEffectRow(t *testing.T, s *store.Store, principal, action, scope, 
 		t.Fatalf("write the legacy row: %v", err)
 	}
 }
+
+// TestCheckHold_PredicateIsInertOnTheLiveCaller pins the `hold:` half of BUGS
+// L134. The acl write refuses a predicate on a `shell:env:` row because that
+// resolver carries no claims, and it EXEMPTS `hold:` on the stated ground that
+// "CheckHold passes the caller's claims, so a hold: predicate is evaluated
+// rather than dead" (store/acl_test.go). CheckHold does pass them. Nothing
+// fills them: routd asks every hold question as auth.Caller{Principal: sub}
+// (routd/sibling_db.go CheckHold, from routd/pending_actions.go holdGate), and
+// the two sites that DO populate auth.Caller.Claims (resreg.authCaller, fed by
+// routd/server.go) reach Authorize and never this one. So predicateMatches
+// answers false for any non-empty predicate and the rule matches nothing.
+//
+// The direction is the OPPOSITE of the shell:env: trap, and worse. There a
+// never-matching row withholds a key; here it withholds the GATE, so the call
+// the operator wrote the rule to suspend runs unheld and nothing says so.
+func TestCheckHold_PredicateIsInertOnTheLiveCaller(t *testing.T) {
+	s := openMem(t)
+	addRowFull(t, s, core.ACLRow{
+		Principal: "folder:atlas", Action: auth.HoldPrefix + "mcp:delete",
+		Scope: "atlas", Effect: auth.EffectHoldBlock, Predicate: "platform=telegram",
+	})
+	// Exactly the caller routd builds: a principal and nothing else.
+	live := auth.Caller{Principal: "folder:atlas"}
+	if auth.CheckHold(s, live, "mcp:delete", "atlas", nil) {
+		t.Fatal("a predicated hold rule matched a claimless caller — the trap is closed and this test is stale")
+	}
+
+	// The predicate is what kills it, not the action or the scope: the same row
+	// without one holds for the same caller.
+	bare := openMem(t)
+	addRow(t, bare, "folder:atlas", auth.HoldPrefix+"mcp:delete", "atlas", auth.EffectHoldBlock)
+	if !auth.CheckHold(bare, live, "mcp:delete", "atlas", nil) {
+		t.Fatal("the bare hold rule stopped holding, so this case no longer isolates the predicate")
+	}
+
+	// And the EVALUATOR is not the gap. Hand the caller the claim the operator
+	// meant and the same row holds, so what is missing is a caller carrying the
+	// trigger's platform — the open question L134 records, not a defect here.
+	withClaim := auth.Caller{
+		Principal: "folder:atlas",
+		Claims:    map[string]string{"platform": "telegram"},
+	}
+	if !auth.CheckHold(s, withClaim, "mcp:delete", "atlas", nil) {
+		t.Fatal("the predicate did not match even with the claim present; the gap would not be the caller")
+	}
+}
