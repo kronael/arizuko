@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
@@ -77,20 +78,30 @@ func Dial(cfg Config) (*Store, error) {
 	if cfg.Endpoint != "" {
 		opts = append(opts, func(o *dynamodb.Options) { o.BaseEndpoint = aws.String(cfg.Endpoint) })
 	}
-	if len(cfg.CA) > 0 {
-		client, err := httpsWith(cfg.CA)
-		if err != nil {
-			return nil, err
-		}
-		opts = append(opts, func(o *dynamodb.Options) { o.HTTPClient = client })
+	client, err := httpClient(cfg.CA)
+	if err != nil {
+		return nil, err
 	}
+	opts = append(opts, func(o *dynamodb.Options) { o.HTTPClient = client })
 	return New(dynamodb.NewFromConfig(aws.Config{Region: region}, opts...), cfg.Prefix), nil
 }
 
-// httpsWith trusts exactly the certificate given, in ADDITION to the host's own
-// roots, so an instance whose endpoint carries a self-signed certificate keeps
-// verifying every other name it talks to.
-func httpsWith(ca []byte) (*awshttp.BuildableClient, error) {
+// requestTimeout bounds one attempt at the store. The SDK's own client bounds
+// the dial and the TLS handshake and nothing after them, so a server that
+// accepts a connection and then goes silent holds its caller forever — and a
+// daemon reaches the store mostly from contexts that never cancel. The SDK
+// retries, so a transient timeout still completes the call. It is a var so a
+// test can lower it and prove the bound holds.
+var requestTimeout = 30 * time.Second
+
+// httpClient bounds every attempt and, when the endpoint carries a certificate
+// of its own, trusts it in ADDITION to the host's roots — so an instance with a
+// self-signed store keeps verifying every other name it talks to.
+func httpClient(ca []byte) (*awshttp.BuildableClient, error) {
+	client := awshttp.NewBuildableClient().WithTimeout(requestTimeout)
+	if len(ca) == 0 {
+		return client, nil
+	}
 	pool, err := x509.SystemCertPool()
 	if err != nil {
 		pool = x509.NewCertPool()
@@ -98,7 +109,7 @@ func httpsWith(ca []byte) (*awshttp.BuildableClient, error) {
 	if !pool.AppendCertsFromPEM(ca) {
 		return nil, fmt.Errorf("dynstore: the configured CA holds no certificate")
 	}
-	return awshttp.NewBuildableClient().WithTransportOptions(func(tr *http.Transport) {
+	return client.WithTransportOptions(func(tr *http.Transport) {
 		if tr.TLSClientConfig == nil {
 			tr.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 		}

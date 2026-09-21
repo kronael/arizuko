@@ -126,30 +126,36 @@ instance layout to drive.
   literal; it asserts what the declaration is for, that `EnvOr` on an unset var
   resolves to the shared default.
 
-## L341 — every inbound attachment's store write has no deadline (2026-09-21, open)
+## L341 — no store call is bounded, on any daemon (2026-09-21, fixed `pending`)
 
-`URLCache.Put` takes a `context.Context` and hands it to
-`chanstore.RecordFileURL`, but all four production call sites resolve to
-`context.Background()` one to three frames up — `slakd/bot.go:578`,
-`discd/bot.go:186`, `discd/bot.go:699`, and `reditd/client.go:369`
-(`rc.extractAttachments(context.Background(), t)`). Only tests pass a real one.
+Filed as "every inbound attachment's store write has no deadline", with a fix
+of "four call sites, each passing what its loop already holds". Both halves
+were wrong, and measuring them found a larger fault.
 
-So the durable write behind every inbound attachment has no deadline and no
-cancellation on any adapter. `Get` is fine: `FileProxyHandler` passes
-`r.Context()`.
+The call sites cannot pass a context: `discd`'s is a `discordgo` callback and
+`FetchHistory` is a `chanlib.BotHandler` method, so neither signature admits
+one, and `slakd` reaches `Put` three frames below `dispatch`. More to the
+point, the daemons hold **1109** `context.Background()` call sites, so
+threading three of them would have bounded three writes and left the rest.
 
-Found in the refine pass over `L163`, which added that parameter. The parameter
-is right; the three platform event loops never threaded a context down to it.
+The cause is one declaration lower. `dynstore.Dial` built an HTTP client only
+when the endpoint carried its own CA, and the SDK's default client bounds the
+dial (5s) and the TLS handshake (10s) and **nothing after them** — no client
+timeout, no response-header timeout, and the read timeout is opt-in. A store
+server that accepts a connection and then goes silent therefore held its caller
+forever, from any context that never cancels, which is how a daemon reaches the
+store nearly everywhere.
 
-- **Severity:** low (a store write that cannot be cancelled; the store is local
-  and the write is small)
-- **Scope:** adapter inbound paths
-- **Affected:** slakd, discd, reditd
-- **Source:** `chanlib/urlcache.go` `Put`; the four call sites above
-- **Status:** open
-- **Fix:** thread the event loop's context to the call. Not a signature change
-  — the parameter already exists, so this is four call sites, each passing what
-  its loop already holds.
+- **Severity:** medium (one silent store server hangs every daemon that talks
+  to it, with no error and no log)
+- **Scope:** every store call on every daemon
+- **Affected:** all
+- **Source:** `objstore/dynstore/dynstore.go` `Dial`
+- **Status:** fixed. `Dial` always builds the client and bounds one attempt at
+  `requestTimeout` (30s); the SDK retries, so a transient timeout still
+  completes the call. `TestSilentServerFailsInsteadOfHolding` stands up a
+  listener that accepts and never replies and asserts the call returns —
+  removing the bound makes it hang and fail at 20s.
 
 
 ## L339 — a sourced fragment can interpolate any `.env` key, so the `L201` bound stops at the mount (2026-09-21, open — proposal, needs sign-off)
