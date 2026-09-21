@@ -221,7 +221,15 @@ func (s *Server) registerGroup(jid string, g core.Group) error {
 	match := "room=" + core.JidRoom(jid)
 	if _, err := s.db.AddRoute(core.Route{Seq: 0, Match: match, Target: g.Folder}); err != nil {
 		if !existed {
-			_, _, _ = s.db.DeleteGroup(g.Folder)
+			// A rollback that ALSO fails leaves the route-less orphan this
+			// rollback exists to prevent, and the next register of the same
+			// folder sees existed==true and will not try again. The caller gets
+			// both facts or it cannot tell a clean refusal from a half-made
+			// group (BUGS L343).
+			if _, _, rerr := s.db.DeleteGroup(g.Folder); rerr != nil {
+				return fmt.Errorf("add route for %s: %w; the group row is still there: %w",
+					g.Folder, err, rerr)
+			}
 		}
 		return fmt.Errorf("add route for %s: %w", g.Folder, err)
 	}
