@@ -7002,7 +7002,7 @@ One row needs no case at all and should be struck rather than backfilled:
 "Additional mounts, operator SQL" is an operator procedure, not agent
 behaviour, and the table already says so.
 
-## L189 — `sandbox/` writes no netfilter rule for a host-name allowlist entry, and the comment that explains why names a proxy `6/24` deleted (2026-09-05, SILENT HALF FIXED 2026-09-20; the rule itself needs the crackbox decision — proposal, needs sign-off)
+## L189 — `sandbox/` writes no netfilter rule for a host-name allowlist entry (2026-09-05, SILENT HALF FIXED 2026-09-20; the rule is BLOCKED on `L137`, not separately decidable)
 
 Measured at `7c631ed3`: `sandbox/internal/netfilter.go` `RestoreNetworkRules`
 and `CleanupNetworkRules` walk `meta.AllowList` and act only where
@@ -7026,11 +7026,11 @@ address rules (TTL churn, rebinding); (b) a proxy inside the VM network;
 the proxy ("a rule that never matches reads as protection and is not").
 
 - **Severity:** low (nothing in arizuko runs `sandbox/`; `crackbox run --kvm` is local dev)
-- **Scope:** `sandbox/internal/netfilter.go`; `specs/6/9` line 70
+- **Scope:** `sandbox/internal/netfilter.go`
 - **Affected:** `crackbox run --kvm` users who pass host names
 - **Source:** `sandbox/internal/netfilter.go` RestoreNetworkRules; `egress/match.LooksLikeIP`; `sandbox/sandbox.go` Profile
-- **Status:** open — proposal, needs sign-off
-- **Fix:** pick (a), (b) or (c); (c) is ~10 lines in `sandbox.Spawn` plus one spec line
+- **Status:** open — BLOCKED on `L137`; do not take this one on its own
+- **Fix:** none until `L137` is signed; then (a), (b) or (c) against whatever `L137` chooses
 
 - **The silence is fixed 2026-09-20, and the stale comment with it.**
   `RestoreNetworkRules` said "domains are handled by egred proxy — no iptables
@@ -7046,10 +7046,34 @@ the proxy ("a rule that never matches reads as protection and is not").
 - **PROVEN BY MUTATION:** make it silent again and the first test fails; drop
   the no-IP early return and the second fails, because a VM with no address yet
   must claim nothing either way.
-- **Still open:** whether a host-name entry should get a rule at all. That needs
-  a resolver on the VM path, and `sandbox/` is reached only by `crackbox`
-  (`L137`), so it is the same decision — whether the sibling keeps an isolation
-  path arizuko chose not to use.
+- **Still open, and it is `L137`'s decision, not this entry's. RE-MEASURED
+  2026-09-21 at `fdb59418`.** `L137` is still `proposal — needs sign-off` with
+  nothing chosen among its four options, and three of the four make the rule
+  wasted work: under **B** (`sandbox/` + `crackbox/` leave as qemubox) and
+  **D** (delete) the code is not arizuko's to harden, and under **A** (keep as
+  is) the package stays unwired, so a rule enforces nothing any arizuko path
+  reaches. Only **C** — wire `sandbox/` into runed as a second backend — gives
+  the rule a caller, and `L137` prices **C** as "real engineering, not
+  packaging … a separate project".
+
+  So the honest verdict is: **do not write the rule, and do not spend the ~10
+  lines on (c) either.** (c) is cheap but it is a behaviour change to a shipped
+  public API (`Spawn` starts rejecting a `VMConfig.AllowList` a caller accepts
+  today), which is its own sign-off, spent on a package three of four options
+  move or leave. Writing either one buys a decision `L137` has not taken.
+
+  Re-open this the moment `L137` is signed **C**. Until then the log is the
+  whole of what is owed, and it is shipped.
+
+- **The `specs/6/9` half is discharged, without taking this decision.** That
+  line is out of scope now: `6/9` points at `sandbox.Profile.Egress` instead of
+  restating a granularity (`L190`, 2026-09-21), so it asserts nothing about
+  host names and needs no second edit whichever option lands — adopting (a) or
+  (b) moves the declaration to `EgressDomain` and the prose follows for free.
+
+- **Stale in the neighbour, noted not fixed:** `L137`'s closing paragraph says
+  "`6/9` stays `defected`". `6/9`'s frontmatter is `status: shipped` with no
+  `defects:` key at `fdb59418`.
 
 ## ✅ FIXED 2026-09-21 L190 — `6/9` restated substrate facts that `substrate.Profile` declares; the prose is a pointer now (2026-09-05)
 
