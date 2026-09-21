@@ -5033,8 +5033,11 @@ Closed since, with evidence:
   a winner arbitrarily and leave a provider whose Connect button writes into
   another's row; and the blast radius is a datadir that ALREADY corrupts
   credentials silently, since the embedded pair cannot collide
-  (`TestRegistry_EmbeddedSecretKeysUnique` pins that). Guard:
-  `TestRegistry_DuplicateSecretKeyErrors`.
+  (`TestRegistry_EmbeddedSecretKeysUnique` pins that, but only since
+  `c2aa8901`: the check first sat after the operator overlay, behind two early
+  returns that most deployments take, so it ran nowhere without a datadir TOML.
+  The overlay moved into `overlayOperator` and `loadRegistry` has one tail).
+  Guard: `TestRegistry_DuplicateSecretKeyErrors`.
 - **F14 (a de-registered provider leaves a live, unlistable, unrevocable token)
   — FIXED 2026-09-21 (`9ef99cb1`).** `listConnections` lists the union of
   registry + stored providers inside itself (no third reader), and
@@ -5095,7 +5098,8 @@ Still live:
   action), F6 and F12 (both redesigns needing sign-off), and F11's first half
   (`os.Exit(1)` on a malformed operator TOML — a decision, not a mechanical fix,
   and F13 now rides on it). The four bounded ones are fixed.
-- **Fix:** F10a `416c4cb2`, F11b `fcd203c3`, F13 `8d493784`, F14 `9ef99cb1`, F7
+- **Fix:** F10a `416c4cb2`, F11b `fcd203c3`, F13 `8d493784`+`c2aa8901`, F14
+  `9ef99cb1`, F7
   `debe58f4` — all 2026-09-21; F1 and F10b closed as dead / wrong premise
 
 ## ✅ CLOSED 2026-09-21 5/33 grant-surface flip — attempted, reverted (2026-07-30)
