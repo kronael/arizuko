@@ -128,9 +128,10 @@ func (d *dash) groupUsageBulk(ctx context.Context, folders []string) ([]groupUsa
 
 	// Spend comes from routd's GET /v1/cost/summary in ONE call (spec 6/28
 	// read-path; 6/30 named this endpoint as the /v1 work this page needed).
-	// The batching below exists for SQLite's IN-list limit, which an HTTP call
-	// does not have — so the cost read is hoisted out of the loop and only the
-	// message aggregation is still batched.
+	// The message half below needs no chunking either: the count is an attribute
+	// on the folder rather than a GROUP BY over the message table, so every
+	// folder's count arrives in one read and only the last-active instant costs
+	// an item apiece (dashstore.MessageActivityByFolder).
 	summary, err := d.costSummary(ctx, cutoff)
 	if err != nil {
 		return nil, false, err
