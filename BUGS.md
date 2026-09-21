@@ -2538,6 +2538,31 @@ folders appear for existing users — a live authorization-behaviour change.
   that ships only after sign-off.
 - **Found:** specs/5 frontmatter audit; `5/32` demoted to `partial`, now shipped.
 
+**Re-verified 2026-09-21 at `a388cad7` — unchanged, and still the same class of
+decision.** The closed half stayed closed: `auth.UserScopes`
+(`auth/authorize.go:239`) reads through `policyRows`, the single reader
+`Authorize` uses, so the wildcard-principal blindness cannot return, and its doc
+comment now states the limit as a rule — *"It is a LISTING, and it can never be
+the decision. A `[]string` carries no action and cannot represent a deny row, so
+anything gating access MUST call Authorize; a caller that treats this result as
+a verdict has built a second, weaker evaluator."*
+
+dashd is still that caller. `callerScope` (`dashd/authz.go:23`) takes
+`auth.CallerGroups(r)` from the proxyd-signed `X-User-Groups` header, falls back
+to `auth.UserScopes(sub)`, and returns `slices.Contains(allowed, auth.OperatorGroup)`
+as operator. `visible()` (`dashd/authz.go:46`) then decides 200/403 with
+`auth.MatchGroups(allowed, folder)`. `requireVisible` and `requireOperator` are
+the only two read gates and both go through it. There is no `auth.Authorize` in
+dashd's read path.
+
+NOT fixed here, and the reason is the one the entry already gives: closing it
+picks WHICH action a dashboard read requires and moves the gate off a `[]string`
+header that structurally cannot carry a deny row. That is an auth-model change
+on a live surface — it changes which folders existing users see — so it is a
+sign-off, not a refactor. **The owner's decision is one sentence: is `interact`
+the floor action for dashboard read, and may the visibility gate stop trusting
+the header and call `auth.Authorize` per folder instead?**
+
 ## F77 — skill-guard's per-line scan is evadable by splitting a payload (2026-08-08, PARTIALLY FIXED 2026-08-08)
 
 The demonstrated case is fixed: shell line-continuations are joined before
@@ -2561,6 +2586,20 @@ scanning. The residual class is genuinely out of scope: closing it needs AST or
 dataflow analysis, which `specs/5/23` excludes by decision, so there is no
 contained fix to make and nothing to close. Left open deliberately as a
 recorded residual, which is what this entry is for.
+
+**Re-verified 2026-09-21 at `a388cad7`: accurate as written, no action, and no
+change since.** `logicalLines` (`ant/src/skillguard.ts`) still joins a line
+ending in `\` with the next before the regex table runs, and
+`ant/src/skillguard.test.ts` still carries the regression case. The residual
+class — a payload assembled by string concatenation, held in a variable, or
+split across a here-doc — still passes, and closing it still needs AST or
+dataflow analysis that `specs/5/23` excludes by decision.
+
+This entry wants no verdict and no sign-off. It is a recorded residual, kept so
+the gap is not mistaken for coverage; `SECURITY.md` names the actual containment
+boundaries (Docker, the crackbox egress allowlist, the gated MCP socket). It
+should be re-read, not re-triaged, and it costs the queue a line rather than a
+decision.
 
 ## L50 — LoadConfigFrom leaks one instance's .env into the process (2026-08-18, SILENT HALF FIXED 2026-09-20; the prescribed cause fix is refuted)
 
@@ -3374,6 +3413,36 @@ entry already names (which tree is the single source, and whether the other
 becomes a symlink/reference rather than a second copy), which is a
 cross-cutting structural change to skill dispatch and wants sign-off.
 
+**Re-verified 2026-09-21 at `a388cad7` — all three pairs stand, the drift is
+still the same four lines, and one thing the earlier verifications left implicit
+is worth stating, because it is what makes the drift bite.** Both trees are
+LIVE and documented as such: `ant/skills/create/CLAUDE.md` lists the nested
+copies as the create router's own subtree (`art/p5js.md` + `art/p5js/`,
+`diagram/excalidraw.md` + `diagram/excalidraw/`, `video/manim.md` +
+`video/manim/`), and `ant/skills/create/SKILL.md:30,32,26` dispatches into them.
+Nothing outside those trees references the nested paths, so neither copy is dead
+and neither can simply be deleted.
+
+The drift is not cosmetic. The top-level `ant/skills/p5js/scripts/export-frames.js`
+carries four lines the `create/` copy lacks:
+
+```js
+// Use the image's apt-installed chromium so we don't download
+// puppeteer's bundled build (needs egress, often absent in-container).
+executablePath:
+  process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
+```
+
+So the copy an agent reaches through `/create` is the one that tries to download
+a chromium the container's egress allowlist will not let through. That is the
+live cost, and it is the argument for deciding rather than deferring again.
+
+NOT fixed here, deliberately. Syncing the four lines patches this instance of
+drift and leaves the mechanism that produced it, which is the case root
+`CLAUDE.md` makes under "No duplication — amend the original". **The owner's
+decision is one sentence: which tree is canonical for each pair, and does the
+other become a reference to it rather than a second copy?**
+
 ## F41 — the re-greet cooldown is a rate, not a cap (2026-08-06, open question — NOT a spec defect)
 
 Shipped with the `5/31` fold and named in the spec rather than hidden. A chat
@@ -3400,7 +3469,23 @@ its own text and shipped it deliberately, so the spec is accurate and the code
 matches it; what is open is a future policy choice, which is a backlog item.
 `5/31` returns to `shipped` and keeps this entry as the recorded question.
 
-## F37 — three dispatch tests fail under whole-suite load, so the suite cannot gate a release (2026-08-06, open)
+**Re-verified 2026-09-21 at `a388cad7` — the mechanism survived the DynamoDB
+move intact, and the question is still unanswered because nothing has asked
+it.** `store.InsertOnboarding` (`store/onboarding.go:138`) is now two conditional
+writes rather than SQL, but it re-arms on exactly the two bounds the entry
+credits: a create-if-absent (`Cond: ItemAbsent`), and on refusal an update that
+removes `prompted_at` only when `status = awaiting_message` AND
+`prompted_at < now - PairingTTL` (`store/onboarding.go:169`). The caller is still
+routd's route-MISS branch, so a routed chat and a silent chat are both never
+re-greeted. There is no `prompt_count` column anywhere in the tree.
+
+Still an open POLICY question, not a defect: should the Nth greeting back off?
+**The owner's decision is one sentence: leave the re-greet a flat rate, or add a
+`prompt_count` attribute and widen the interval after N.** Two months on, no
+instance has reported the 144/day worst case, which is the evidence the entry
+said to wait for.
+
+## F37 — three dispatch tests fail under whole-suite load, so the suite cannot gate a release (2026-08-06, ✅ `tests/` HALF FIXED 2026-09-12 at `881bfbf0`; the slakd half is still uncaptured)
 
 Found while verifying `F36`. Two packages failed on two separate whole-suite
 runs and passed every isolated re-run:
@@ -3456,13 +3541,57 @@ these two are waiting on asynchronous work with no barrier to hold.
   `slakd` package tests
 - **Affected:** CI and any developer running the full suite on a busy machine
 - **Source:** tests/feat_routing_test.go:66-75 (poll-then-assert); TestSplitFederation_InboundToTurnRoundTrip; slakd whole-package FAIL with no subtest line
-- **Status:** open
+- **Status:** the `tests/` half is FIXED; the slakd half is still open and still
+  needs a captured failure.
 - **Fix:** give `inbound-to-dispatch` the same deadline treatment for the bot
   row that it already gives the dispatch — poll `countBotRows` rather than
   reading it once the instant dispatch is observed. `slakd` needs a captured
   failure first: run it under `-count=N` with the log kept, because a
   package-level `FAIL` with no `--- FAIL` line is usually a panic or timeout in
   a goroutine, not an assertion.
+
+**✅ The `tests/` half shipped 2026-09-12 in `881bfbf0`, and it was applied to
+the whole package, which is what this entry asked for.** The prescribed fix —
+wait on the bot row instead of reading it the instant dispatch is seen — is
+`testutils.WaitForBotRow` (`tests/testutils/testutils.go:277`), a deadline poll
+over `MessagesSince` for a `BotMsg` row. Both named tests now go through it
+before they assert, on a 5s deadline:
+
+- `tests/feat_routing_test.go:58` — `inbound-to-dispatch`, with the race written
+  down beside it: *"The fake agent records the dispatch before it posts its
+  reply, so the bot row is the signal the turn closed; waiting on the dispatch
+  alone raced the reply under a loaded package run."*
+- `tests/split_federation_test.go:439` — `TestSplitFederation_InboundToTurnRoundTrip`.
+
+It reaches six more poll-then-assert sites in the package
+(`feat_continuity_test.go:129,184`, `onboarding_e2e_test.go:114`,
+`feat_secrets_test.go:209`, `e2e_turn_test.go:320`), so the shape, not the one
+named test, is covered.
+
+**The slakd half is unchanged and is NOT closed by this.** It never got its
+captured failure, and the entry's own instruction still stands: do not close it
+by re-running on an idle box.
+
+Two things narrow it since filing, both measured at `a388cad7`:
+
+- **The DNS confound does not apply here.** `chanreg.Register`'s unbounded
+  `net.LookupIP` costs ~7.8s per hostname and did wreck `chanreg` and `routd`
+  timings, and slakd's tests do use compose service names
+  (`http://slakd:8080`, `http://gated:8080`). But slakd never registers through
+  that path — `ListenURL` is read only at `slakd/bot.go:858` to build a
+  `/files/<id>` URL string. No resolver, so this is not slakd's cause.
+- **slakd is instead uniformly slow, which is the profile that fits a
+  package-level timeout.** `go test ./slakd/ -count=1 -short` took 37.7s then
+  23.9s on two consecutive idle runs — a 1.6x spread with nothing else changing.
+  No single test dominates (slowest: `TestOutbound_RateLimitRetry` 1.41s,
+  `TestPostFormDoesNotRetryACreateCallOn500` 1.23s, then a long tail of ~98
+  tests at 0.1-0.6s). Nearly every one carries a real timer, so the package
+  total scales with host load rather than with any one assertion — which is why
+  the failure presented with no `--- FAIL` line and why an idle re-run cannot
+  reproduce it.
+
+So the remaining work is exactly what the entry says: capture it. The disk-
+pressure confound was never eliminated and the host is at 97% again today.
 
 ## F34 — "who ended this engagement" has two answers in two tables (2026-08-06, PROPOSED — needs sign-off, DISPROVED)
 
@@ -3517,7 +3646,7 @@ contract change over every ipc tool and therefore a sign-off, not an inline fix.
   "persists one ipc_audit row" — a claim, not evidence. Comment corrected.
   No code move needed; `disengage` is audited like its ~45 neighbours.
 
-## F38 — `task_run_logs` holds orphan rows on all three live instances (2026-08-06, open)
+## F38 — `task_run_logs` holds orphan rows on all three live instances (2026-08-06, ✅ CLOSED 2026-09-21 — the constraint that made it a trap is gone, and the orphan is now the recorded design)
 
 Found while proving migration `0031` caused no FK damage: `PRAGMA
 foreign_key_check` on a `.backup` copy of each live `routd.db` reports violations
@@ -3540,8 +3669,34 @@ not a one-off backfill.
 - **Scope:** routd.db `task_run_logs`
 - **Affected:** krons (10), sloth (32), marinade (66)
 - **Source:** `PRAGMA foreign_key_check` on read-only `.backup` copies, 2026-08-06
-- **Status:** open — needs the producer identified before deciding delete-orphans
-  vs relax-the-constraint. Do NOT rebuild `task_run_logs` until then.
+- **Status:** CLOSED 2026-09-21.
+
+**Every load-bearing word of this entry names something that no longer exists.**
+The whole entry is a SQLite statement: `PRAGMA foreign_key_check`, a FK added by
+a later migration than its data, `routd.db` opened with
+`_pragma=foreign_keys(on)`, and "a rebuild under FK enforcement". The
+DynamoDB move (v0.68.0, 2026-09-16) took all four. There is no
+`routd/migrations/` or `store/migrations/` directory, no `PRAGMA` anywhere in
+the Go tree, and `database/sql` is reached only by `audit/audit_log_test.go`
+and `objstore/ordered.go`. The trap the entry warns about — "the moment any
+migration rebuilds `task_run_logs`" — has no mechanism left to fire.
+
+**The concern did not die with the subsystem; it was decided.** `task_run_logs`
+is an objstore entity (`store/task_run_logs.go`), and the question the entry
+raised is answered twice in the tree, in writing, as intent rather than damage:
+
+- `store/task_run_logs.go:30-35` — "A RUN LOG OUTLIVES THE TASK IT NAMES.
+  `scheduled_tasks` is an entity and an entity has no column a REFERENCES clause
+  can name, so removing a task removes the task and nothing else", and it names
+  the same three counts this entry measured: "The three live instances already
+  carry 10, 32 and 66 logs whose task is gone."
+- `store/folder_scope.go:200` — a group delete keeps `task_run_logs` on purpose:
+  `keep("history; a run names a task id the next tenant never mints")`.
+
+So the producer the entry asked to identify is an ordinary task delete, and the
+delete-orphans-vs-relax-the-constraint choice was made in favour of neither:
+there is no constraint, and the rows are history that is meant to outlive the
+task. Nothing to fix.
 
 ## T2 — a steered turn gets no failure notice when its run dies (2026-08-15, open)
 
