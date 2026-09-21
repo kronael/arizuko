@@ -1461,7 +1461,7 @@ question 6 (share a TypeScript chanlib, or move twitd to Go) decides it.
 - **Status:** proposed
 - **Fix:**
 
-## L159 — a scheduled task fires nightly into a Telegram chat teled already classified as permanently dead (2026-09-05, open)
+## L159 — a scheduled task fires nightly into a Telegram chat teled already classified as permanently dead (2026-09-05, open — proposal; the filed trigger is UNSAFE, a narrower one is named 2026-09-21)
 
 krons `task-1776079794467-4c33dcb2` (`/compact-memories episodes day`, owner
 `mayai`, `0 2 * * *`, isolated, created 2026-04-13) targets
@@ -1485,7 +1485,40 @@ the operator sees nothing.
   the OUTBOUND retry bound — `routd/loop.go:432` dead-letters the message row —
   and nothing anywhere reads it to touch `chats`, `routes` or `scheduled_tasks`.
   The chat stays live, the task stays armed, the container runs nightly.
-- **Status:** open — proposal, needs sign-off: on a permanent send or typing error (chat not found, chat deleted, bot kicked) mark the chat dead in `chats`, pause its scheduled tasks, and show it on the dashboard; the operator deletes or re-targets. No retry, no silent skip. This is a new lifecycle spanning teled, routd's chat/task tables and the dashboard, so it is not shipped inline.
+- **UNSAFE TRIGGER, confirmed 2026-09-21 — do not sign off the trigger as
+  filed.** "A permanent send error" cannot carry this decision. `teled`
+  collapses the whole class: `classifySendErr` (`teled/bot.go:497`) maps EVERY
+  `tgbotapi.Error` with code 400 or 403 to `chanlib.ErrInvalidRequest`,
+  `chanlib/handler.go:539` writes it as HTTP 400, and
+  `chanreg.classifyStatus` (`chanreg/httpchan.go:61`) turns any 4xx into
+  `ErrPermanent`. So `Bad Request: chat not found` and `Bad Request: message to
+  be replied not found` arrive at routd as the same verdict. Retiring a chat on
+  that would pause a LIVE chat's scheduled tasks on one malformed `reply_to`.
+  The classification itself is correct for its actual job — both really are
+  permanent for that message — it is just too coarse to retire a chat with.
+- **NARROWER TRIGGER, and it is structurally immune to that.** The typing call.
+  `sendTyping` (`teled/bot.go:758`) issues `sendChatAction` with a chat id and
+  an action and NOTHING else — no text, no `reply_to`, no parse mode, no
+  length. A 400/403 there cannot be caused by a malformed message, because
+  there is no message; it can only be about the chat. This entry's own evidence
+  is already that signal (10 WARN per run, `chat not found`), and it repeats on
+  its own: `TypingRefresher` retries every 5 s and keeps going on failure
+  (`chanlib/typing.go:83`). N consecutive chat-scoped typing failures is the
+  same shape `chanreg` already uses for channel health
+  (`maxHealthFails = 3`), so the trigger needs no new counting mechanism —
+  only a classification at the typing site, which today just logs WARN.
+- **Two conditions on the consumer, whatever trigger is chosen.** It must be
+  REVERSIBLE: `bot was blocked by the user` and `bot was kicked` are chat-scoped
+  but undoable, so a successful inbound or send has to revive the chat, or a
+  restored chat stays retired with its tasks paused. And the retirement must be
+  visible to the operator at the moment it happens — this entry exists because
+  a verdict with no consumer is invisible, and a consumer with no notice would
+  repeat that from the other side.
+- **Status:** open — proposal, needs sign-off. The trigger is now settled
+  enough to sign: chat-scoped typing failure, repeated, not "a permanent send
+  error". The CONSUMER is what still needs the decision — marking the chat dead
+  in `chats`, pausing its scheduled tasks and showing it on the dashboard spans
+  teled, routd's chat/task tables and dashd, so it is not shipped inline.
 - **Fix:**
 
 ## L161 — every deploy logs `execution plane unreachable` at ERROR and ends a live turn with 137 (2026-09-05, log half FIXED 2026-09-05; the stop half is a proposal)
