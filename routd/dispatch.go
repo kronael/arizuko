@@ -33,7 +33,7 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		return false, nil
 	}
 	last := msgs[len(msgs)-1]
-	// Route and steer both read the newest USER row, never the newest row.
+	// Route and steer both read the row steerRowIdx picks, never the newest row.
 	// A `verb=mention` route matches on the message's verb, and a bot reply
 	// carries no mention — so resolving on a bot row turns the user's @mention
 	// into a route miss and archives it as context, silently, on the shipped
@@ -85,14 +85,12 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	// when steering lived only in the pollOnce backstop it raced the queue and lost —
 	// a Slack "/root mint …" reached the agent as plain unelevated text (marinade
 	// atlas, 2026-07-16).
-	// Steer the newest USER message, not the newest message: handleCommand refuses a
-	// bot row, so when the agent's own reply lands after the command and before this
-	// poll, the command falls through to the turn as plain text (BUGS L56). Advance
-	// past the steered row only — anything newer has not been consumed, and
-	// anything older takes the turn below.
 	//
-	// steerConsumed is the OUTER one: the batch tail WAS a steer command. The
-	// loop further down declares its own `steered`, which is runTurn saying an
+	// Advance past the steered row only — anything newer has not been consumed,
+	// and anything older takes the turn below.
+	//
+	// steerConsumed is the OUTER one: this batch held a steer command. The loop
+	// further down declares its own `steered`, which is runTurn saying an
 	// in-flight run absorbed the batch — a different fact about a different row.
 	steerConsumed := false
 	if l.steer(chatJID, steerMsg, folder) {
@@ -192,9 +190,6 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 			// backoff, and the turn is non-terminal so the re-dispatch is live.
 			l.noteBusy(chatJID, steerMsg.ID)
 			if steerConsumed {
-				// The steered row is already consumed, so this batch has no
-				// re-feed left: say which rows the refusal costs instead of
-				// dropping them quietly.
 				slog.Error("runed refused the rows a steer left behind; they are not re-fed",
 					"jid", chatJID, "rows", len(batch), "first", batch[0].ID)
 			}
@@ -226,10 +221,6 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 // observedAdvance is one topic's pending observed watermark for this dispatch.
 type observedAdvance struct{ topic, ts string }
 
-// newestUserIdx returns the position of the newest non-bot message in a batch,
-// or -1 when the batch is all bot rows, which nothing may steer on. It answers
-// the INDEX rather than the row because the rows BEHIND it are the other half of
-// the answer: a steer consumes this one and leaves those to a turn (BUGS L104).
 // steerRowIdx picks the row `steer` is offered. It is the OLDEST slash command
 // in the batch when there is one, and otherwise the newest non-bot row.
 //
@@ -253,6 +244,10 @@ func steerRowIdx(msgs []core.Message) int {
 	return newestUserIdx(msgs)
 }
 
+// newestUserIdx returns the position of the newest non-bot message in a batch,
+// or -1 when the batch is all bot rows, which nothing may steer on. It answers
+// the INDEX rather than the row because the rows BEHIND it are the other half of
+// the answer: a steer consumes this one and leaves those to a turn (BUGS L104).
 func newestUserIdx(msgs []core.Message) int {
 	for i := len(msgs) - 1; i >= 0; i-- {
 		if !msgs[i].BotMsg {
@@ -318,9 +313,8 @@ func (l *Loop) noteBusy(chatJID, lastMsgID string) {
 
 // runTurn dispatches ONE turn for a trigger batch (already bot-stripped),
 // records its outcome, and returns (hadOutput, steered, busy, observedMark, err).
-// It does
-// NOT advance the agent_cursor — processGroupMessages advances once past the
-// whole batch after all per-sender/per-topic turns close. busy=true means the
+// It does NOT advance the agent_cursor — processGroupMessages advances once
+// past the whole batch after all per-sender/per-topic turns close. busy=true means the
 // batch was not consumed — runed rejected admission, or the run failed and owes
 // a retry — so the caller must re-feed it, not advance.
 func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Message) (hadOutput, steered, busy bool, observedMark string, rerr error) {

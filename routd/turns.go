@@ -173,17 +173,13 @@ func (s *Server) deliverRow(tc TurnContext, jid string, row *core.Message,
 	if s.deliver == nil {
 		return core.MessageStatusPending
 	}
-	// A reply aimed at a thread belongs to that thread from the moment this
-	// function decides to send it there, not from the moment the platform
-	// accepts it. The thread ID = threadRoot on both Discord (thread channel ID
-	// = root message ID) and Slack (thread_ts = root message ts), so the root
-	// exists whether or not this send lands.
-	//
-	// STAMPED BEFORE THE SEND, because a failed send returns `pending` and
-	// `PutOutbound` stores the row as it stands. Stamping after the error return
-	// left the pending row with no topic, and the outbound sweep
-	// (`routd/loop.go`) sends `threadRoot=""` — so the retry posted the reply
-	// TOP-LEVEL, outside the thread it was written for (BUGS L169).
+	// STAMPED BEFORE THE SEND: a failed send returns `pending` and `PutOutbound`
+	// stores the row as it stands, so a row stamped after the error return has no
+	// topic and the outbound sweep (`routd/loop.go`) re-sends it with
+	// `threadRoot=""` — TOP-LEVEL, outside the thread it was written for (BUGS
+	// L169). The thread ID IS threadRoot on Discord (thread channel = root
+	// message id) and Slack (thread_ts = root ts), so the root holds whether or
+	// not this send lands.
 	if threadRoot != "" && row.Topic == "" {
 		row.Topic = threadRoot
 	}

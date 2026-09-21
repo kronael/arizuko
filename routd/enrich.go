@@ -157,9 +157,7 @@ func (l *Loop) enrichAttachments(ctx context.Context, msg *core.Message, folder 
 // that named a file it never received and neither the agent nor the user could
 // see that anything was missing (BUGS L163).
 //
-// ONE renderer for four failure sites, beside the one that renders the success
-// case, because two shapes for "here is what the sender attached" is how the
-// two drift.
+// ONE renderer for the four failure sites, so they cannot drift.
 func unavailableAttachment(att chanlib.InboundAttachment, why string) string {
 	name := att.Filename
 	if name == "" {

@@ -196,26 +196,28 @@ type aclAddResult struct {
 	Warning string `json:"warning,omitempty"`
 }
 
-// nonCanonicalWarning reports whether `principal` is a KNOWN alias of some other
+// nonCanonicalWarning binds this handler's resolver to NonCanonicalWarning.
+func (s *Server) nonCanonicalWarning(principal string) string {
+	return NonCanonicalWarning(s.identity, principal)
+}
+
+// NonCanonicalWarning reports whether `principal` is a KNOWN alias of some other
 // account, and returns the operator-facing warning if so (BUGS N2). 5/32 resolves a
 // linked OAuth login to the canonical sub at MINT, and grants key on the exact
 // string, so a grant written against a linked alias creates a row that can NEVER
 // match — it looks applied and never fires. authd owns the answer; routd federates
 // it over HTTP.
 //
+// It is the ONE renderer of that warning, for every surface that writes an acl
+// row. dashd writes grants straight to routd's store rather than through this
+// handler, so without a shared renderer the web form either stayed silent or
+// grew a second copy of these sentences to drift (BUGS L152).
+//
 // FAIL-OPEN, deliberately. Refusing on authd's answer would put a hard dependency
 // on authd into a write path that has none. But fail-open with a log only is a
 // guard nobody sees, so the warning rides back on the RESPONSE. It never rewrites
 // the principal — moving a grant the operator did not ask to move is the failure
 // mode N1 chose an immutable canonical sub to avoid.
-func (s *Server) nonCanonicalWarning(principal string) string {
-	return NonCanonicalWarning(s.identity, principal)
-}
-
-// NonCanonicalWarning is the one renderer of that warning, for every surface
-// that writes an acl row. dashd writes grants straight to routd's store rather
-// than through this handler, so without a shared renderer the web form either
-// stayed silent or grew a second copy of these sentences to drift (BUGS L152).
 func NonCanonicalWarning(ident IdentityResolver, principal string) string {
 	if ident == nil {
 		return ""
