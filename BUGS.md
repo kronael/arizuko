@@ -1883,7 +1883,7 @@ before, 1018 in the 17 h after (~60/h both). krons `whapd` unchanged: 336
 `session invalidated` in the 6 h before, 973 in the 17 h after (~56/h both).
 Both still log-only.
 
-## L149 — only the LAST assistant text block is delivered, so an answer written before a tool call is destroyed; `ant/CLAUDE.md:85` tells the agent the opposite (2026-08-31, instruction half FIXED 2026-08-31; the mechanism half is a proposal)
+## L149 — only the LAST assistant text block is delivered, so an answer written before a tool call is destroyed (2026-08-31, instruction half FIXED 2026-08-31; the mechanism half is GOVERNED BY spec 6/44, whose gate is armed)
 
 The operator watched the krons agent answer him three times and receive
 *"you did not reply though"*. The agent had answered. The answers were thrown
@@ -1977,6 +1977,42 @@ readers take it — `ant/src/claude.ts:404`, `ant/src/codex.ts:178`,
 `<status>`-wrapped text and drops the rest. Concatenating them contradicts the
 instruction shipped at `:85` and widens `L329`, so this needs sign-off rather
 than an inline patch.
+
+**RE-MEASURED 2026-09-21 — the defect is CONFIRMED, the reader count was
+imprecise, and the proposed fix is SUPERSEDED. Do not ship option 2.**
+
+- **Confirmed live on all three backends, by three different mechanisms.**
+  Only `ant/src/claude.ts:404` reads the SDK's `result` field. `codex.ts:178`
+  and `pi.ts:151` return their own `this.lastText`, which each OVERWRITES on
+  every assistant message (`codex.ts:133`, `pi.ts:130`). "Three readers take
+  `result`" reads as one shared site; it is three, so a concatenation fix is
+  three separate changes, not an amendment to one extraction site.
+- **Earlier blocks really are destroyed.** On every backend they reach
+  `streamStatuses` (`ant/src/index.ts:174`), which forwards only
+  `statusBlocks(text)` — the `<status>`-wrapped spans — and drops the rest.
+- **SUPERSEDED: `specs/6/44-delivery-contract.md` (draft, unsigned) already
+  owns this question, and its decision is the opposite of option 2.** 6/44
+  rules that "a turn reaches a chat through a delivery tool call, or it reaches
+  nothing" — the prose result stops being a delivery path at all. Under that
+  contract there is no last-block-only defect to fix, because `reply` delivers
+  the whole argument it is given and returns an id. 6/44 also names the three
+  disagreeing declarations this entry straddles (`ipc/ipc.go:1194`,
+  `ant/CLAUDE.md`, `routd/turns.go:252`) and deletes `appendAndDeliver` rather
+  than adding to it.
+- **Why concatenating would be a regression, not a fix.** Every intermediate
+  block the agent wrote would ship — which is the deliberation-leak class
+  `L329` was narrowed to stop — and `ant/CLAUDE.md` now instructs agents that
+  pre-tool-call text is discarded, so they write intermediates freely on that
+  promise. Changing delivery under a manual agents are written against breaks
+  the contract from the other side.
+- **The gate is armed; this entry is waiting on a number, not on a design.**
+  6/44 §"The gate" holds the inversion until `arizuko_prose_fallback_turns_total`
+  has krons data (≥ 2,000 turns, ≥ 5 folders, ≥ 7 days). That counter has
+  SHIPPED — `obs/metrics.go:152`, wired at `routd/turns.go:256` — so the
+  measurement is running. Read it before reopening the mechanism half.
+- **Status:** mechanism half tracked by `specs/6/44`; this entry keeps only the
+  measured blast radius and the instruction fix. No separate sign-off needed
+  here, and no code change should land against option 2.
 
 ## L150 — the agent never sees what it delivered, so it cannot detect a truncated reply and confabulates a cause instead (2026-08-31, RETRY-OWNER HALF FIXED 2026-09-21; the per-turn receipt stays a proposal)
 
