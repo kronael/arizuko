@@ -59,3 +59,51 @@ func TestProfile_HidesOwnProviderOffersRest(t *testing.T) {
 		}
 	}
 }
+
+// The portal tile may promise no more than the page delivers. handleProfile
+// reads the caller's own sub and nothing else, so a tile advertising the
+// accounts linked to it sends the reader after a list nothing can render
+// (BUGS P2).
+func TestPortalProfileTilePromisesOnlyWhatProfileShows(t *testing.T) {
+	db := routdDB(t)
+	d := &dash{routd: db, routdURL: stubRoutd(t, db)}
+	mux := http.NewServeMux()
+	d.registerRoutes(mux)
+
+	req := httptest.NewRequest("GET", "/dash/", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	if body := w.Body.String(); strings.Contains(body, "linked accounts") {
+		t.Error(`portal tile promises "linked accounts"; /dash/profile/ shows none`)
+	}
+}
+
+// Exactly one provider is hidden — the caller's own — and an unrecognised
+// prefix hides none, so the list is non-empty on every render and the page
+// has no all-linked state to write. A filter that could empty it must say
+// what the page shows instead (BUGS P2).
+func TestProfile_ProviderListIsNeverEmpty(t *testing.T) {
+	cases := map[string]int{"unknown:zed": len(supportedProviders)}
+	for _, p := range supportedProviders {
+		cases[p.prefix+"alice"] = len(supportedProviders) - 1
+	}
+	for sub, want := range cases {
+		if want < 1 {
+			t.Fatalf("sub %q wants %d buttons; the arithmetic changed", sub, want)
+		}
+		d := profileTestDB(t)
+		seedAuthUser(t, d, sub, "Alice")
+		mux := http.NewServeMux()
+		d.registerRoutes(mux)
+		req := httptest.NewRequest("GET", "/dash/profile/", nil)
+		req.Header.Set("X-User-Sub", sub)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if got := strings.Count(w.Body.String(), "intent=link"); got != want {
+			t.Errorf("sub %q: %d link buttons, want %d", sub, got, want)
+		}
+	}
+}
