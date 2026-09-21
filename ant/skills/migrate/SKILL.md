@@ -284,7 +284,10 @@ MSG="<output of script above>"
 latest="${MSG%% — *}"
 guard=~/.announced-version
 
-mcpc connect "socat UNIX-CONNECT:$ARIZUKO_MCP_SOCKET -" @s
+cat > "$HOME/gated.mcp.json" <<JSON
+{"mcpServers":{"gated":{"command":"socat","args":["UNIX-CONNECT:$ARIZUKO_MCP_SOCKET","-"]}}}
+JSON
+mcpc connect "$HOME/gated.mcp.json:gated" @s
 trap 'mcpc @s close' EXIT
 
 routes=$(mcpc @s tools-call inspect_routing) \

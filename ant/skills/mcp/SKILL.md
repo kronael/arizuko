@@ -16,12 +16,18 @@ reachable from any script in the container via the unix socket at
 `$ARIZUKO_MCP_SOCKET` (`/run/ipc/gated.sock`). Use `mcpc` (apify) as the
 wire-protocol client; pipe the socket through `socat`.
 
+`mcpc connect` takes a URL or a `<config-file>:<entry>` pair, never a command,
+so the `socat` bridge is declared as a stdio entry in a config file first.
+
 Args: `key:=value` is JSON-typed (numbers, bools, raw JSON), `key=value` is
 plain string.
 
 ```bash
 set -e
-mcpc connect "socat UNIX-CONNECT:$ARIZUKO_MCP_SOCKET -" @s
+cat > "$HOME/gated.mcp.json" <<JSON
+{"mcpServers":{"gated":{"command":"socat","args":["UNIX-CONNECT:$ARIZUKO_MCP_SOCKET","-"]}}}
+JSON
+mcpc connect "$HOME/gated.mcp.json:gated" @s
 trap 'mcpc @s close' EXIT
 
 mcpc @s tools-list
