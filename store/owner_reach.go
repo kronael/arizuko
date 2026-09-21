@@ -52,23 +52,3 @@ var StoreReach = map[string][]string{
 	// for the signing keys `token issue bearer` reads.
 	"cmd/arizuko": {OwnerAuthd, OwnerOnbod, OwnerRoutd},
 }
-
-// StoreDoors are the calls that open a store on one of the four owners. A
-// daemon reaches an owner's tables through one of these and no other way. The
-// two unexported names are the local wrappers dashd and the CLI put in front of
-// OpenOwner; their call sites carry the constant, their bodies take a variable.
-//
-// The owner arrives as a `store.Owner*` CONSTANT, never as a literal, and the
-// reach test demands that. `Handle` is a common method name — `http.Handle("GET
-// /metrics", …)` is not a daemon opening a store called `GET /metrics` — so the
-// constant is what separates a door from its namesake.
-var StoreDoors = map[string]bool{
-	"OpenOwner": true, "OwnerDriver": true, "Handle": true,
-	"PrepareOwner": true, "TestOwner": true,
-	"mustOpenOwner": true, "openSiblingOwner": true,
-}
-
-// AdapterStoreDoor opens an adapter's OWN tables, and its prefix is the service
-// name as a literal rather than one of the four owner constants — an adapter's
-// tables are its own (chanlib.OpenAdapterStore).
-const AdapterStoreDoor = "OpenAdapterStore"
