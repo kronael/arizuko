@@ -1,5 +1,5 @@
 ---
-status: draft
+status: partial
 depends:
   [
     20-sandbox-lifecycle-decline,
@@ -15,8 +15,10 @@ depends:
 
 Decision (maintainer): **the turn substrate is a KVM virtual machine, one per
 turn, driven by `qemu-system-x86_64`, and it is the only substrate arizuko
-supports.** runed boots the release's guest kernel on `-M microvm`, exports the
-turn's files through one virtio-fs share, and reaches the guest over vsock.
+supports.** runed boots the release's guest kernel by direct kernel boot, exports
+the turn's files through one virtio-fs share, and reaches the guest over vsock.
+The machine type is `-M q35` today and `-M microvm` when its devices can be
+found; §"The engine" carries the measurement and the open question.
 Docker leaves the turn path: no `docker run`, no per-folder docker network, no
 proxy container, no `docker.sock` in runed. The daemon fleet's packaging
 (compose) is outside this spec.
@@ -62,10 +64,9 @@ The VMM is the distro's QEMU binary, driven by `exec.Command` from `runed/`
 is taken.
 
 - **QEMU (taken).** Packaged on every Debian and Alpine host arizuko runs
-  on; arizuko already drives it by `exec.Command`
-  (`sandbox/internal/qemu.go:94`); `-M microvm` is "a minimalist machine type
-  without PCI nor ACPI support, designed for short-lived guests … optimized
-  for both boot time and footprint"
+  on; arizuko drives it by `exec.Command` (`runed/qemu.go:318`); `-M microvm`
+  is "a minimalist machine type without PCI nor ACPI support, designed for
+  short-lived guests … optimized for both boot time and footprint"
   (qemu.org/docs/master/system/i386/microvm.html). The guest kernel is
   arizuko's to build and pin, which is the cost §"The image and the guest
   kernel" prices.
@@ -294,8 +295,11 @@ VSOCK-CONNECT:2:<mcp>` on a guest-local tmpfs and execs ant as uid 1000
    routd's `gated.sock`. Steer and stop arrive on `ctl` (§"Steer and stop").
    ant's stderr streams over `ctl` as `{log}` frames into the turn log.
 9. ant exits; `guest-init` sends `{exit: code}` on `ctl` and powers the
-   guest off; QEMU exits; runed reaps in order: tap rules, tap, the `egress`
-   proxy, the two `virtiofsd`, the staging tree, the record. A `virtiofsd`
+   guest off; QEMU exits; runed reaps in order: QEMU first and alone, then the
+   tap rules and the tap, then the `egress` proxy, the MCP bridge and the two
+   `virtiofsd`, then the staging tree, then the record. QEMU goes first because
+   taking away a running guest's filter, its proxy or its share leaves it running
+   with a route nobody watches. A `virtiofsd`
    normally exits when its socket closes; the reap does not rely on that — it
    signals the recorded pid and waits, because the record is what the disk
    scan replays after a crash. `ctx` expiry is `SIGKILL` on the QEMU pid, then
@@ -337,7 +341,7 @@ arrive by `submit_turn` over MCP, unchanged.
 | stop → `docker kill` → `rm -f` (`runner.go:288-299`, `runed/docker.go:56-58`)                            | `{stop}` frame → `SIGTERM` to ant → power-off; `SIGKILL` QEMU on the deadline; reap                                                                                                                                                                                                      |
 | `docker network create --internal` + `--ip` (`container/network.go:157-163`, `runner.go:724-725`)        | one tap per turn; the guest's only route is the host side of its tap (§"Egress")                                                                                                                                                                                                         |
 | the egress proxy as a sidecar container on two networks (`container/egress.go:238-274`)                  | the `egress` binary as a process on the tap's host side, `--client <guest ip>`; `EGRESS_IMAGE`, `EGRESS_UPLINK_NETWORK`, `EGRESS_NETWORK_PREFIX/_SUBNET` retire                                                                                                                          |
-| `docker ps --filter=name=arizuko-` orphan sweep (`container/runtime.go:138`)                             | runed's own disk scan: every on-disk VM record, plus a check of the recorded pid (§"What moves into `runed`")                                                                                                                                                                            |
+| `docker ps --filter=name=arizuko-` orphan sweep (`container/runtime.go:100`)                             | runed's own disk scan: every on-disk VM record, plus a check of the recorded pid (§"What moves into `runed`")                                                                                                                                                                            |
 | `docker info` liveness (`container/runtime.go:124-131`)                                                  | `/dev/kvm` opens and `qemu-system-x86_64 -version` runs, checked once at runed start, refused loudly                                                                                                                                                                                     |
 | stderr over the CLI's pipe, `docker logs` unused (`runner.go:245-253`)                                   | `{log}` frames on `ctl`; kernel console on `-serial file:` into `container-<ts>.console.log` BESIDE the turn log — never the turn log itself, which `writeLog` truncates with `os.WriteFile` at turn end (`runed/turnlog.go:67`) and would destroy the console exactly when it is wanted |
 | session copy is host-FS (`runner.go:1330-1360`); `docker cp`/`exec` unused                               | unchanged                                                                                                                                                                                                                                                                                |
@@ -502,10 +506,10 @@ through it. This spec builds exactly that.
   channel the `--internal` network leaves open does not exist here, because
   no packet leaves the tap except to the proxy.
 - IP literals in `network_rules` go to the proxy too (`egress/match` already
-  matches them), so the allow-by-address rules go
-  (`sandbox/internal/netfilter.go:77` `allowIP`), and `L189` closes by
-  construction: a name never reaches netfilter, and the proxy is the one
-  matcher for names and addresses alike.
+  matches them), so netfilter carries no per-destination rule at all
+  (`runed/vmnet.go` `tapRules`), and `L189` closes by construction: a name never
+  reaches netfilter, and the proxy is the one matcher for names and addresses
+  alike.
 - runed's substrate profile delivers `domain`, and `Effective` says so from
   the same one named function shape `6/25` §2 requires: the proxy binary
   missing is an error at runed start, never a quiet open spawn.
@@ -687,72 +691,64 @@ is **the kernel pipeline, not the pool**, and it is conditional on a number:
 
 ## What moves into `runed`
 
-arizuko publishes no Go library for KVM sandboxing. `qemubox`
-(`/home/onvos/app/tools/qemubox`, a 35 KB shell script) is the standalone
-tool, and the shippable set is `egress`, `substrate` and `mcpfw`
-(`tests/components/imports_test.go:28`). The mechanisms below become
-**unexported code inside `runed/`**, under the names §"The turn" uses. A
-mechanism that no step of §"The turn" calls is deleted, not carried.
-Measured 2026-09-23:
+arizuko publishes no Go library for KVM sandboxing. The substrate is
+**unexported code inside `runed/`**, the shippable set stays `egress`,
+`substrate` and `mcpfw` (`tests/components/imports_test.go:28`), and `qemubox`
+(`/home/onvos/app/tools/qemubox`, a 35 KB shell script) is the standalone tool.
+`Runtime`'s two methods are the whole public seam: nothing outside `runed` names
+a guest, a tap or a pid. Six files hold it, one concern each.
 
-**Moves.**
-
-- The disk-scan reconcile: `List()` over the record directory, `detectState`
-  on the recorded pid, `readPID` (`sandbox/internal/manager.go:235`,
-  `sandbox/internal/metadata.go:65,76`). It answers the orphan sweep of
-  §"The mechanisms", and it keeps the property that makes it worth moving:
-  runed **keeps no index of guests in memory**, so the disk and the pid table
-  are the one source of truth, and two readers of the same instance see the
-  same set.
-- The on-disk VM record: one file per guest under
-  `<dataDir>/<instance>/vms/<id>` (`sandbox/internal/metadata.go:16-29,30`),
-  which is the record §"The turn" step 1 writes. Its fields become
-  `{Handle, Folder, CreatedAt, CID, CtlPort, McpPort, QemuPid, VirtiofsdPids,
-EgressPid, BridgePid, Tap, GuestIP, HostIP, ProxyPort, TurnDir}` — the network
-  four because the reap re-renders and deletes exactly the rules it inserted, and
-  `BridgePid` because the MCP bridge is the turn's fourth process
-  — **every process the turn starts, not only QEMU**, because the disk scan is
-  the only thing that reaps after a runed crash and it can reap only what the
-  record names. Today's orphan sweep finds proxies by docker label
-  (`container/runtime.go:138`); with four host processes per turn and no label,
-  the record IS the label. `SSHPort`, `SSHKeys`,
-  `SSHKeyPath`, `AllowList` and `AllowAll` go with the mechanisms that wrote
-  them.
-- The tap helper: `sandbox/libexec/crackbox-tap` and its callers
-  (`sandbox/internal/network.go:41-84`), cut to one tap per turn. The shared
-  bridge (`network.go:24` `BridgeName`) and the DHCP address discovery
-  (`network.go:86` `discoverVMIP`) go: §"Egress" gives each guest a `/30`
-  with no neighbour and both addresses fixed.
-- The netfilter renderer's skeleton: the insert-if-absent and delete helpers
-  (`sandbox/internal/netfilter.go:104,117`), which render the static
-  proxy-only rule set of §"Egress".
-- The qemu exec shape: `exec.Command("qemu-system-x86_64", …)`, the pid-file
-  wait and the stop path (`sandbox/internal/qemu.go:94,107,122`).
-- The substrate declaration: `Profile` (`sandbox/sandbox.go:28-33`) becomes
-  runed's, and reads `substrate.KVM`, `MountedHome` (§"The files"),
-  `Sessions: false` and `EgressDomain` (§"Egress").
-
-**Rewritten.** The QEMU argument list (`sandbox/internal/qemu.go:77-92` —
-`q35`, a qcow2 disk, a cloud-init ISO, `virtio-net-pci`, `-daemonize`)
-becomes the microvm line of §"The turn" step 5. `VMConfig`
-(`sandbox/sandbox.go:52-58`) becomes
-`{Rootfs, Kernel, Initrd, TurnDir, CID, Ports, TapRules}`: `Mounts` is
-declared (`sandbox/sandbox.go:45,56`) and never read
-(`sandbox/internal/manager.go:82-90` builds `Meta` without it, and the tree
-holds no `vhost-user-fs` flag), and `AllowList` leaves because the proxy
-holds it. The per-address accept rules
-(`sandbox/internal/netfilter.go:48-88`) become the static proxy-only set.
-
-**Deleted.** `sandbox/internal/cloudinit.go` and
-`sandbox/libexec/crackbox-cloudinit`: `guest-init` receives `{env, stdin}` on
-`ctl`. The Alpine download (`sandbox/internal/qemu.go:15-46`, the URL at
-`sandbox/internal/vm.go:49-53`): the rootfs and the kernel come from the
-release image (§"The image and the guest kernel"). SSH `Exec`
-(`sandbox/sandbox.go:136,153`) and the ssh-key fields: `Profile.Sessions` is
-false, so a workload is one process from boot to power-off. The exported
-ceiling `New(instanceID, dataDir)`, `Spawn`, `Stop`, `List` and `Exec`
-(`sandbox/sandbox.go:75,91,123,136,210`): runed calls its own code, so
-`Runtime`'s two methods are the whole public seam.
+- **`runed/vmrecord.go` — the record, the allocator and the reap.** One record
+  file per guest under the record root, written before anything starts and
+  removed only when every pid it names is confirmed gone. It names **every
+  process the turn starts, not only QEMU** — `QemuPid`, `VirtiofsdPids`,
+  `EgressPid`, `BridgePid` — plus the tap, its two addresses and the proxy
+  port, because the disk scan is the only thing that reaps after a runed crash
+  and it reaps only what the record names. The Docker substrate finds a turn's
+  second process by container label (`container.SweepEgressProxies`); with four
+  host processes and no label, the record IS the label. `listVMRecords` scans the
+  root and `liveCIDs` derives the CID set from that scan on every allocation, so
+  runed **keeps no index of guests in memory**: the disk and the pid table are
+  the one source of truth, and two readers of the same instance see the same set.
+  `reapTargets`
+  fixes the order §"The turn" step 9 sets, and it signals a pid only when that
+  pid's own cmdline carries this turn's token — a record outlives its processes,
+  and the kernel hands pid numbers out again.
+- **`runed/vmnet.go` — the tap, the rule set and the proxy.** `tapUp` calls
+  `ip tuntap add` for one tap per turn, and `tapNet` carves that turn's `/30`
+  out of the configured subnet: a guest has no neighbour on its own link and
+  both addresses are fixed before it boots, so there is no shared bridge and no
+  address discovery. `tapRules` renders the whole set statically, one accept to
+  `HostIP:ProxyPort` above the drops, because the proxy is the one matcher for
+  names and addresses alike (§"Egress by name, sealed below the kernel").
+  `egressArgs` reads `container.EgressRules`, the same translation the Docker
+  substrate's proxy gets, so the two substrates cannot disagree about what a
+  folder may reach.
+- **`runed/vmtree.go` — the staging tree.** `treePlan` is pure, so one `Turn`
+  always renders one tree. `teardown` reads `/proc/self/mountinfo` rather than
+  the plan, so a disk scan after a crash unmounts a tree whose plan died with
+  the process that built it, and `remove` refuses anything the staging step did
+  not create — a recursive delete over a live bind would delete the group's own
+  files (§"The files: one staging tree, one share").
+- **`runed/vmctl.go` — the control channel.** The frame codec, the host-side
+  vsock bind, the MCP bridge, and `steer`, which returns false unless the GUEST
+  acknowledged the batch (§"Steer and stop"). A bind failure fails the turn:
+  runed never moves to another port, because a silent retry turns a denial into
+  a guest talking to whoever answered.
+- **`runed/qemuhost.go` — what this host can run.** `qemuPreconditions` refuses
+  at runed START, naming every missing input at once, rather than per spawn, for
+  the reason `container.EnsureRunning` does: an input found missing per spawn is
+  a fleet that looks healthy and answers nothing. `checkClamp` refuses while the
+  uid clamp is absent, because a guest as uid 0 writes host-root-owned files
+  into the folder (§"The peer credential"). `memoryFits` multiplies
+  `RUNED_GUEST_MEM` by `MAX_CONCURRENT_CONTAINERS` against this host's
+  `MemTotal`, because the guest size and the cap are one setting (§"The host
+  budget").
+- **`runed/qemu.go` — the machine and the turn.** `qemuArgs` is pure, so a test
+  names every value it expects. `qemuProfile` is the substrate declaration —
+  `KVM`, `MountedHome`, `Sessions: false`, `EgressDomain` — and `Delivered`
+  equals `Declared` or runed does not start, so there is no half configuration
+  to report (`6/25` §2).
 
 ## Order
 
@@ -780,8 +776,8 @@ commitment to an estimate, not to a design.
    reap, and it is deleted after. **2–3 days**, and a miss here changes the
    design rather than the schedule.
 1. **Land behind the selector, default `docker`.** `runed/qemu.go`, the
-   `container.Run` split, the fold of `sandbox/` into `runed/` (§"What moves
-   into `runed`"), `guest-init`, the kernel stage, the compose generator's
+   `container.Run` split, the substrate's five files (§"What moves into
+   `runed`"), `guest-init`, the kernel stage, the compose generator's
    device and capability lines, the Rust `virtiofsd` stage
    (§"The peer credential"), and the two host-budget guards
    (§"The host budget"): the memory-times-cap refusal at runed start and the

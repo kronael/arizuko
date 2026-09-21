@@ -22,9 +22,9 @@ const (
 
 // shippable are the components that must stand alone. They may import each
 // other — a component reads substrate's declaration and egress's allowlist
-// matcher — but nothing else inside arizuko. sandbox/ is not in the set: the
-// KVM substrate is runed's own unexported code, and qemubox is the standalone
-// tool (spec 6/41-qemu-substrate).
+// matcher — but nothing else inside arizuko. The KVM substrate is not in the
+// set: it is runed's own unexported code, and qemubox is the standalone tool
+// (spec 6/41-qemu-substrate).
 var shippable = []string{"egress", "substrate", "mcpfw"}
 
 func deps(t *testing.T, pattern string) []string {

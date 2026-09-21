@@ -128,7 +128,6 @@ a second owner of the verb? Only the middle kind is a cut.
 | dashd admin pages                                       | (read face)     | `dashd/routes_admin.go:278`, `tasks_admin.go:204`, `groups_admin.go:133`         | **raw SQL beside the resreg handlers** for routes, tasks, groups (§7, S1)                                |
 | CLI grant/route/invite/secret/network                   | (write face)    | `cmd/arizuko/main.go:605`, `route.go:101`, `secret.go`, `network.go`             | a third writer through `store`; `resreg.Apply` already exists for the offline case (`apply.go:193`)      |
 | onbod world creation                                    | Grant bootstrap | `onbod/main.go:923-940` raw `INSERT` into routd's `groups`, `acl`, `routes`      | a second group-create transaction beside `store.SeedMemberRoleTx` (`store/membership.go:118`)            |
-| `sandbox/`                                              | (substrate)     | `runed/cmd/runed/main.go:102` wires `NewDockerRuntime` only                      | not in the turn path until [`6/41`](41-qemu-substrate.md) step 1 folds it into `runed/`                  |
 | `proxycfg/caddy.go`                                     | (surface)       | `cmd/arizuko/routes.go:60-95` prints, never installs                             | a third reader of `proxyd_routes`, staged by [`6/22`](22-proxyd-cut.md)                                  |
 
 Two rows deserve a sentence each. The 14-verb set is declared five times:
@@ -344,7 +343,7 @@ architecture.
 | S9  | `chanlib` imports `apiv1.Message`; `InboundMsg` goes                                                 | ~40 lines; restores `Size` on the wire              | low    |
 | S10 | one verb table drives the adapter mux and the client                                                 | ~150 lines and the reason for `caps_test.go`        | low    |
 | S11 | onbod's world creation calls routd's group create                                                    | ~60 lines; one group-create transaction             | medium |
-| S12 | `sandbox/`, runed's `mcp_tokens` table, the `content/` `project/` `sidecar/` directories             | 205 lines, one dead table, three stray dirs         | low    |
+| S12 | the `content/` `project/` `sidecar/` directories                                                     | three stray dirs                                    | low    |
 | S13 | proxyd reads scopes from `/v1/users/{sub}/scopes`; `container` drops its `ipc` branch                | two of the §3 couplings; the rest follow S1 and S4  | low    |
 
 **S1 — dashd as a client.** [`6/28`](28-cockpit-index.md) §"Read-path"

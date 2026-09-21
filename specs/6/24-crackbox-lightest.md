@@ -73,12 +73,11 @@ because the tap IS the identity. A registry exists to answer "which
 tenant is this source IP?", and that question does not arise when the
 answer is "the one on the other end of this tap".
 
-## Two parts
+## What is left
 
-| Piece      | Is                                                     | Used by                           |
-| ---------- | ------------------------------------------------------ | --------------------------------- |
-| `egress/`  | the forward proxy: library + small binary              | `runed`, per spawn, in production |
-| `sandbox/` | the KVM/qemu lifecycle, unexported code inside `runed` | the VM substrate (`6/41`)         |
+| Piece     | Is                                        | Used by                           |
+| --------- | ----------------------------------------- | --------------------------------- |
+| `egress/` | the forward proxy: library + small binary | `runed`, per spawn, in production |
 
 Production consumes the proxy: runed starts one `egress` process per spawn
 and stops it with the turn. `qemubox` is the standalone tool a developer runs
@@ -91,7 +90,7 @@ never a bundle — the same answer the Anthropic finding gives below.
 
 ## The layout
 
-Two directories, both inside arizuko's single `go.mod` (root `CLAUDE.md` —
+One directory, inside arizuko's single `go.mod` (root `CLAUDE.md` —
 siblings share the module; orthogonality is enforced by the import graph,
 not by module boundaries):
 
@@ -101,7 +100,6 @@ egress/            the proxy: forward-only, static allowlist, one client
   match/           allowlist globbing
   cmd/egress/      the binary runed starts per spawn
   test/            end-to-end over real sockets
-sandbox/           the KVM/qemu lifecycle, folding into runed/ (6/41)
 ```
 
 **DNS is not sealed.** A DNS query never appears in a CONNECT line, so the

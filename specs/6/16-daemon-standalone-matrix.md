@@ -68,7 +68,7 @@ arizuko is four layers, and **each boundary is a contract, not a directory**:
 3. **Execution substrate** — runed + `container/` + the egress proxy. The layer
    that PROVIDES the agent environment: home, socket, mounts, network policy.
    What a substrate can do is declared once, as a value: `substrate.Profile`
-   (`container.Profile` for Docker, `sandbox.Profile` for KVM). This spec
+   (`container.Profile` for Docker, `runed.qemuProfile` for KVM). This spec
    restates none of it.
 4. **The agent** — `ant`. Runs inside 3, consumes what 2 defines.
 
@@ -163,7 +163,6 @@ shippable set):
 | ------------------------ | ------------------------------------------- | --------------------------- | ------------------------------------------- |
 | `mcpfw`, `egress`, `obs` | 0                                           | **ship now** (`7/25` order) | MCP gate, egress proxy, observability       |
 | `substrate`              | 0                                           | **ship now**                | the capability declaration (`Profile`)      |
-| `sandbox`                | 2 (`egress`, `substrate`)                   | **don't extract**           | the KVM substrate, folding into `runed`     |
 | `groupfolder`            | 0                                           | not published — 73 callers  | the containment predicate (`7/25`)          |
 | `router`                 | 1 (`core`)                                  | near — lift `core` types    | routing-table DSL                           |
 | `resreg`                 | 3 (`audit`, `auth`, `store`)                | roadmap = two-face lib      | two-face API engine (`5/17`)                |
@@ -173,11 +172,11 @@ shippable set):
 | store, ipc, compose      | 3–9                                         | **don't extract**           | these _are_ the platform                    |
 
 The Docker substrate is `container/` and its declaration is
-`container.Profile`; the KVM substrate is `sandbox/` and its declaration
-is `sandbox.Profile`. What either can do is read from those values
-(`6/25` §2), not from this table. Neither is a component: a substrate is
-runed's own mechanism, and [`6/41`](41-qemu-substrate.md) folds the KVM one
-into `runed/` as unexported code.
+`container.Profile`; the KVM substrate is unexported code inside `runed/`
+and its declaration is `runed.qemuProfile`
+([`6/41`](41-qemu-substrate.md)). What either can do is read from those
+values (`6/25` §2), not from this table. Neither is a component: a
+substrate is runed's own mechanism.
 
 **The web stack is three unrelated contracts**, so as a bundle it fails the
 one-sentence test:

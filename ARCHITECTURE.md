@@ -90,8 +90,6 @@ sidecar/ whisper-cpp container; routd calls Whisper for inbound
 egress/   forward proxy, one static allowlist, one client. runed starts
         one per spawn when EGRESS_IMAGE is set and stops it with the
         turn (see "Compose Containers" below); specs/6/24
-sandbox/  KVM/qemu lifecycle; it folds into runed/ as the VM substrate
-        and is not a shippable library; specs/6/41
 anteval/  agent-capability gate: a black-box prober that runs real tasks
         through the public surfaces (REST/HTTP/MCP + a callback sink) against
         a LIVE instance and grades observable effects, not prose. Zero

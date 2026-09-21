@@ -108,12 +108,12 @@ with no reader.
 
 **Adopted.** `substrate.Profile` is the declared ceiling and
 `substrate.Effective` is what a substrate delivers against it
-(`substrate/substrate.go:53,65`); `container.Profile` and `sandbox.Profile`
-are the two declarations. `EgressConfig.Effective` (`container/egress.go:110`)
+(`substrate/substrate.go:53,65`); `container.Profile` and `runed.qemuProfile`
+are the two declarations. `EgressConfig.Effective` (`container/egress.go:111`)
 is the one named function where a capability may be found missing, and it
 returns an error rather than delivering less quietly; `runed.Substrate`
-(`runed/docker.go:153`) calls it at boot and `substrateLine`
-(`runed/dash.go:89`) renders the gap on the operator page. The matrix in `6/16`
+(`runed/docker.go:449`) calls it at boot and `substrateLine`
+(`runed/dash.go:84`) renders the gap on the operator page. The matrix in `6/16`
 is the doc rendering of that value, not a second source of truth.
 
 ## 3 — agent behaviour is testable without a live instance
