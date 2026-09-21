@@ -66,6 +66,16 @@ func main() {
 	}
 	slog.Info("substrate", "backend", sub.Delivered.Backend, "egress", sub.Delivered.Egress,
 		"declared_egress", sub.Declared.Egress, "reason", sub.Reason)
+	// Where the model credential sits is decided at the same moment. With no
+	// gateway, spawnSecrets hands the operator anchor to every container, and
+	// inside one it is readable from the agent's shell and from /proc whatever
+	// the harness scrubs (BUGS L131). A supported deployment (spec 6/23), so a
+	// warning, not a refusal — once, where the operator is looking.
+	if container.SpawnHoldsModelCredential(cfg) {
+		slog.Warn("no model gateway: the operator model credential enters every agent container " +
+			"and is readable from the agent's shell and /proc; set MODEL_GATEWAY_URL " +
+			"(the litellm package, spec 6/23) to withhold it")
+	}
 	// A .env still naming the shared crackbox proxy reads as isolation on to
 	// the operator while the substrate delivers none: the admin API it points
 	// at does not exist (spec 6/24). Same refusal, same moment.
