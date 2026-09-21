@@ -154,10 +154,18 @@ fragment. The fragment selects the ingestion mode for matched messages.
 A target with no fragment means **trigger** — the default and the only
 mode that fires a turn.
 
-| Fragment   | Effect                                                                          |
-| ---------- | ------------------------------------------------------------------------------- |
-| _(none)_   | trigger: store under `target` and fire a turn                                   |
-| `#observe` | store under `target`, no turn; agent sees it via `<observed>` block and history |
+| Fragment    | Effect                                                                           |
+| ----------- | -------------------------------------------------------------------------------- |
+| _(none)_    | trigger: store under `target` and fire a turn                                    |
+| `#observe`  | store under `target`, no turn; agent sees it via `<observed>` block and history  |
+| `#announce` | trigger, and marks this channel as the group's release-note target for `migrate` |
+| `#<topic>`  | trigger, and pins topic `<topic>` on every matched message                       |
+
+`observe` and `announce` are **reserved words**, so a topic cannot be named
+either one: `folder#announce` always means the announce fragment, never a topic
+called `announce`. Reserving `announce` in v0.59 reinterpreted any route that
+already pinned that topic, and a route row carries no creation time, so no
+migration can tell the two apart (`BUGS.md` R2). Pick another topic name.
 
 **Engagement overrides all routes**: if the agent has an active engagement window on
 `(jid, topic)` (via a prior reply or `engage` MCP call), inbounds are routed to
