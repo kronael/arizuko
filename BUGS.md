@@ -2888,7 +2888,7 @@ rather than being treated as normal.
 
 - **Source:** `whapd/`, operator action required.
 
-## Error-hygiene sweep: swallowed / mis-levelled errors in the hot path (2026-07-11, 8 FIXED, rest OPEN)
+## Error-hygiene sweep: swallowed / mis-levelled errors in the hot path (2026-07-11, ONE item left, and it is design work)
 
 Sweep for the same class as the no-reply bug below (an error swallowed as
 Warn/`_ =` while execution continues → silent degradation). Two shapes recur:
@@ -2960,21 +2960,25 @@ bookkeeping writes that matter next turn.
   naming "turn may appear stuck in-progress" (or, for the steer site, "may be
   re-dispatched, duplicating output").
 - **Still open, unverified:**
-  - `runed/manager.go` (steer-related discards near the admit/spawn path,
-    line numbers drifted from the original 212-214 citation — not
-    independently re-audited this pass).
+  - `runed/manager.go` — **re-audited 2026-09-21, not a gap.** The package has
+    exactly ONE discard left, `_ = m.executor(sp.Kind).Kill(...)` (`:474`), and
+    it is a deliberate best-effort kill: the DURABLE write on the next line,
+    `m.db.KillSpawn`, IS checked and returned, and the comment between them
+    says why (`KillSpawn` re-checks liveness, so a run that finished between
+    the read and the kill keeps its terminal state). Nothing silent.
   - `ipc/ipc.go:340-345` (conn-limit reject, no error frame) — already logs
     `slog.Warn`, so not silent; the gap is a missing JSON-RPC error frame to
     the caller, which needs the request id threaded through `writeJSON` —
     design work, not a log-add.
-  - `routd/budget.go:32-43` spend caps fail open on a DB hiccup — already
-    logs `slog.Warn` on `FolderCap`/`UserCap` read failure, so not silent
-    either; the open question is whether failing OPEN (allow the turn) is the
-    right policy when the cap check itself errors, vs. failing closed — a
-    policy call, not a log-add.
-  - `crackbox/pkg/host/host.go:130-132` — egress-proxy unregister failure on
-    VM stop logs to stderr via `fmt.Fprintf`, not `slog` — inconsistent
-    structured-logging but not silent. Low priority, left open.
+  - `routd/budget.go` — **the policy question is SETTLED, and it went the
+    other way: it fails CLOSED.** `budgetGate` returns its error, and
+    `routd/dispatch.go:316-322` logs `slog.Error` ("model gateway did not
+    answer the budget gate; no spawn") and returns `queue.ErrDependencyDown`,
+    so no run is dispatched. A cap set on an instance with no gateway to
+    enforce it is now its own `slog.Error` too (`budget.go:31`).
+  - `crackbox/pkg/host/` — **subsystem gone, verified 2026-09-21.** The
+    package does not exist; `crackbox/pkg/` holds only `run`. Nothing to make
+    consistent.
 
 Adapters (teled/discd/slakd/mastd/bskyd/reditd/emaid/chanlib) swept clean for
 this class.
