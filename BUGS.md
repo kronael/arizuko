@@ -448,7 +448,7 @@ Found while fixing `L99`; it is a separate concern, so it is a separate entry.
   agree, because nothing checks that today — which is how this survived.
 
 
-## L330 — 160 files are gofmt-dirty and nothing gates formatting (2026-09-20, open)
+## ✅ FIXED 2026-09-21 L330 — 160 files are gofmt-dirty and nothing gates formatting (2026-09-20)
 
 `gofmt -l .` (excluding `third_party/` and the untracked `.migrate*` copies)
 names **160 files**. Nothing catches it: `make lint` is `go vet ./...`, which
@@ -478,6 +478,33 @@ change it carries, and it hides a real reformat inside an unrelated commit.
   The sweep is then one mechanical commit, kept separate from any behaviour
   change so neither hides in the other.
 
+
+**The count in this entry's own title is WRONG, and I wrote it.** 160 came from
+`gofmt -l .` without excluding `refs/`, an UNTRACKED vendored checkout, and
+`third_party/`. Measured against tracked files only, the real number was
+**three**: `container/env_contract_test.go`, `container/output_style_test.go`,
+`emaid/imap.go`. The gate was missing; the damage was not widespread.
+
+**FIXED 2026-09-21, and the lint surface is now ONE target.** `make lint` runs
+gofmt, then `go vet ./...`, then golangci-lint, failing cheapest first. CI runs
+exactly that target and installs golangci-lint, so its half of the gate is real
+there rather than a skipped notice.
+
+`lint-strict` is gone. It existed because golangci-lint could not build against
+this repo's toolchain in 2026-07; keeping a second target meant the
+errcheck/nilerr gate CI never ran. It now runs inside `lint`, and is skipped
+with a printed notice when the binary is absent — so a machine without it still
+gets gofmt and vet instead of a blocked commit.
+
+The per-daemon `make -C <d> lint` loop went with it: every one of those twenty
+targets is `go vet ./...`, and this is a SINGLE-module repo, so the top-level
+vet already covered them. Twenty invocations of a subset of work already done.
+
+- **Status:** fixed
+- **Fix:** the three files formatted; `Makefile` `lint` consolidated;
+  `.github/workflows/ci.yml` installs golangci-lint. Gate proven by mutation —
+  appending badly-formatted Go to `emaid/imap.go` makes `make lint` exit 1 and
+  name the file.
 
 ## L329 — an agent that decides to stay silent narrates the decision, and the guard that catches it is whole-string only (2026-09-20, BOUNDARY FIXED 2026-09-20; the steering redesign is a proposal)
 

@@ -88,10 +88,10 @@ func antEnvReads(t *testing.T) []string {
 // identical to no emission at all, which is the fault this pins.
 func TestSpawnEnvCarriesEveryKeyAntReads(t *testing.T) {
 	cfg := &core.Config{
-		Timezone:          "UTC",
-		Image:             "img:latest",
-		AgentBackend:      "codex",
-		ModelGatewayURL:   "http://litellm:4000",
+		Timezone:        "UTC",
+		Image:           "img:latest",
+		AgentBackend:    "codex",
+		ModelGatewayURL: "http://litellm:4000",
 	}
 	args := strings.Join(buildArgs(cfg, nil, "c1", egressSpawn{}, "opus", "xhigh", 900000, false, false, "sk-virtual"), " ")
 

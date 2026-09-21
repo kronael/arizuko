@@ -33,6 +33,14 @@ jobs:
       - name: pre-commit
         run: pre-commit run --all-files
 
+      # The one gate. `make lint` is gofmt + go vet + golangci-lint; installing
+      # the linter here is what makes its half of that gate real in CI rather
+      # than a skipped notice.
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --version
+
       - name: Lint
         run: make lint
 

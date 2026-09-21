@@ -101,7 +101,7 @@ Full target list (build/images/agent/smoke) in [INSTALL.md](INSTALL.md).
 Dev loop:
 
 ```bash
-make lint              # go vet ./...
+make lint              # the ONE gate: gofmt + go vet + golangci-lint (CI runs exactly this)
 make test              # go test ./... -count=1 -short (fast, skips long tests)
 make test-e2e          # end-to-end via webd route-token surface (≤5 min); run before tagging
 

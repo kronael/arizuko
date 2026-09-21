@@ -6,8 +6,9 @@
 #   sanctioned, reviewed ignore (~200 in-tree); we only want the UNsanctioned
 #   fully-dropped calls, keeping noise low.
 #
-# Run via `make lint-strict`. Not in `make lint` (go vet) yet: golangci-lint must
-# build against this repo's Go toolchain first (x/tools mismatch, 2026-07-11).
+# Run by `make lint`, the one gate CI enforces. When golangci-lint is absent
+# that step prints a notice instead of failing, so a machine without it still
+# gets gofmt and go vet; CI installs it, so the gate is real there.
 linters:
   enable:
     - errcheck

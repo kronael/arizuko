@@ -488,7 +488,7 @@ func extractContent(
 			att := chanlib.InboundAttachment{
 				Mime:     ct,
 				Filename: fname,
-				}
+			}
 			if reg != nil && listenURL != "" {
 				key := fmt.Sprintf("%d-%d", uid, attIdx)
 				// IMAP BODY section = absolute 1-indexed leaf position.

@@ -6,7 +6,7 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 )
 
-func never(string) bool { return false }
+func never(string) bool  { return false }
 func always(string) bool { return true }
 
 func TestPickOutputStyle_SurfaceMatrix(t *testing.T) {
