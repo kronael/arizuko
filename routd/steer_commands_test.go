@@ -22,8 +22,14 @@ func lastAck(t *testing.T, dl *recDeliverer) string {
 // drive runs one inbound through the steer layer (the slash-command path is
 // inside steer → handleCommand). Returns whether the message was consumed.
 func steerOne(l *Loop, chatJID, folder, content string) bool {
+	return steerAs(l, chatJID, folder, "u", content)
+}
+
+// steerAs is steerOne with the sender named — the operator gate reads it, so a
+// test about WHO was refused has to set it.
+func steerAs(l *Loop, chatJID, folder, sender, content string) bool {
 	return l.steer(chatJID, core.Message{
-		ChatJID: chatJID, Sender: "u", Content: content, Timestamp: time.Now().UTC(),
+		ChatJID: chatJID, Sender: sender, Content: content, Timestamp: time.Now().UTC(),
 	}, folder)
 }
 
@@ -216,7 +222,7 @@ func TestCmdStatusPermissionDenied(t *testing.T) {
 	loop.deliver = dl
 	_ = db.PutGroup(core.Group{Folder: "root/child"})
 	_ = steerOne(loop, "web:root/child", "root/child", "/status")
-	if got := lastAck(t, dl); got != "Permission denied: operator only." {
+	if got := lastAck(t, dl); got != `Permission denied: /status requires an operator grant (**); "u" has none.` {
 		t.Fatalf("/status non-operator ack=%q", got)
 	}
 }
@@ -250,6 +256,47 @@ func TestCmdRootDeniedNonOperator(t *testing.T) {
 	// No message was re-injected — the turn was refused, not downgraded.
 	if msgs, _ := db.MessagesSince("web:demo", ""); len(msgs) != 0 {
 		t.Fatalf("non-operator /root re-injected %d messages, want 0", len(msgs))
+	}
+}
+
+// TestOperatorDenialNamesTheSender: every operator-only slash command names, in
+// the chat, the principal string its gate tested — the sloth shape, where the
+// `role:operator` edge holds one Telegram id and the person typing carries
+// another. Without the name the refusal reads as "the platform refuses
+// everybody" and cannot be compared against the acl table: the operator there
+// retried `/root` on three days across five weeks and the agent, which never
+// sees a steered command, published the opposite cause in the chat (BUGS L333).
+func TestOperatorDenialNamesTheSender(t *testing.T) {
+	db, loop, _ := recLoop(t)
+	dl := &recDeliverer{}
+	loop.deliver = dl
+	_ = db.PutGroup(core.Group{Folder: "demo"})
+	// The grant names the WRONG platform id — a real, live principal, just not
+	// the one that talks here. This is what an operator cannot see from the chat.
+	_ = addMembership(db, "telegram:user/1183985669", "role:operator", "test")
+
+	const chat = "telegram:group/5069669817"
+	for _, tc := range []struct{ cmd, want string }{
+		{"/root do a thing", `Permission denied: /root requires an operator grant (**); "telegram:user/1112184352" has none.`},
+		{"/status", `Permission denied: /status requires an operator grant (**); "telegram:user/1112184352" has none.`},
+		{"/invite", `Permission denied: /invite requires an operator grant (**); "telegram:user/1112184352" has none.`},
+		{"/gate list", `Permission denied: /gate requires an operator grant (**); "telegram:user/1112184352" has none.`},
+	} {
+		if !steerAs(loop, chat, "demo", "telegram:user/1112184352", tc.cmd) {
+			t.Fatalf("%s not consumed", tc.cmd)
+		}
+		if got := lastAck(t, dl); got != tc.want {
+			t.Errorf("%s ack=%q want %q", tc.cmd, got, tc.want)
+		}
+	}
+	// The granted id passes the same gate in the same chat — the denial is about
+	// the principal, not about the commands being off.
+	if !steerAs(loop, chat, "demo", "telegram:user/1183985669", "/root do a thing") {
+		t.Fatal("granted /root not consumed")
+	}
+	msgs, _ := db.MessagesSince(chat, "")
+	if len(msgs) != 1 || msgs[0].Content != "do a thing" {
+		t.Fatalf("granted /root re-injected %+v, want one row content=do a thing", msgs)
 	}
 }
 
@@ -327,7 +374,7 @@ func TestCmdInviteFederation(t *testing.T) {
 
 	// non-operator → denied.
 	_ = steerOne(loop, "web:root", "root", "/invite")
-	if got := lastAck(t, dl); got != "Permission denied: operator only." {
+	if got := lastAck(t, dl); got != `Permission denied: /invite requires an operator grant (**); "u" has none.` {
 		t.Fatalf("/invite non-operator ack=%q", got)
 	}
 	_ = addMembership(db, "u", "role:operator", "test")
@@ -352,7 +399,7 @@ func TestCmdGateFederation(t *testing.T) {
 	_ = db.PutGroup(core.Group{Folder: "root"})
 
 	_ = steerOne(loop, "web:root", "root", "/gate list")
-	if got := lastAck(t, dl); got != "Permission denied: operator only." {
+	if got := lastAck(t, dl); got != `Permission denied: /gate requires an operator grant (**); "u" has none.` {
 		t.Fatalf("/gate non-operator ack=%q", got)
 	}
 	_ = addMembership(db, "u", "role:operator", "test")

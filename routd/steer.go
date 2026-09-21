@@ -194,13 +194,40 @@ func (l *Loop) cmdStop(chatJID, folder string) {
 	}
 }
 
+// denyNonOperator is the ONE gate the operator-only slash commands share, and
+// the one place their refusal is worded. It reports true when the command was
+// refused (the caller returns).
+//
+// The ack NAMES the principal the gate tested. A chat identity is not the
+// identity a grant was written against, and the person typing cannot see either:
+// `IsOperator` reads the sender string verbatim (auth.Authorize resolves nothing,
+// auth/authorize.go), so an operator whose grant row names a different platform
+// id reads a bare "operator only" as the platform refusing everybody. Naming the
+// string turns the denial into the acl lookup that answers it. On sloth eight
+// Telegram `/root` attempts since 2026-04-02 were refused against a
+// `role:operator` edge holding ANOTHER person's Telegram id, and nothing the
+// operator could see said so (BUGS L333, L334).
+//
+// The WARN is the operator-side half of the same fact. A steer denial writes no
+// message row (an ack goes straight to the platform), and IsOperator writes no
+// audit row, so without this line the refusal leaves NO trace on the instance.
+func (l *Loop) denyNonOperator(chatJID, sender, cmd string) bool {
+	if l.db.IsOperator(sender) {
+		return false
+	}
+	slog.Warn("operator command denied: the sender holds no ** grant",
+		"cmd", cmd, "chat_jid", chatJID, "sender", sender)
+	l.ack(chatJID, fmt.Sprintf(
+		"Permission denied: %s requires an operator grant (**); %q has none.", cmd, sender))
+	return true
+}
+
 // cmdStatus reports instance-wide counts. It is operator-only — instance-wide
 // visibility is a `**` (operator) privilege, not a folder position (a top-level
 // world is a tenant like any other). Channels come from the channel registry (held
 // by the Server); errored chats + active tasks from routd.db.
 func (l *Loop) cmdStatus(chatJID, folder, sender string) {
-	if !l.db.IsOperator(sender) {
-		l.ack(chatJID, "Permission denied: operator only.")
+	if l.denyNonOperator(chatJID, sender, "/status") {
 		return
 	}
 	nChannels := 0
@@ -223,8 +250,7 @@ func (l *Loop) cmdStatus(chatJID, folder, sender string) {
 // success the arg is re-injected in-place and its message id is registered in
 // pendingElevation, so runTurn spawns it with Elevated=true.
 func (l *Loop) cmdRoot(chatJID, folder, arg, sender string) {
-	if !l.db.IsOperator(sender) {
-		l.ack(chatJID, "Permission denied: /root requires an operator grant (**).")
+	if l.denyNonOperator(chatJID, sender, "/root") {
 		return
 	}
 	if arg == "" {
@@ -257,8 +283,7 @@ func (l *Loop) cmdRoot(chatJID, folder, arg, sender string) {
 // onbod client (ONBOD_URL unset) → the federation-gap notice. The minted invite
 // targets the folder + "/" so the redeemer picks a username under it.
 func (l *Loop) cmdInvite(chatJID, folder, arg, sender string) {
-	if !l.db.IsOperator(sender) {
-		l.ack(chatJID, "Permission denied: operator only.")
+	if l.denyNonOperator(chatJID, sender, "/invite") {
 		return
 	}
 	maxUses := 1
@@ -287,8 +312,7 @@ func (l *Loop) cmdInvite(chatJID, folder, arg, sender string) {
 // validates the subcommand shape and calls onbod's /v1/gates endpoints. nil
 // onbod client → the federation-gap notice.
 func (l *Loop) cmdGate(chatJID, folder, arg, sender string) {
-	if !l.db.IsOperator(sender) {
-		l.ack(chatJID, "Permission denied: operator only.")
+	if l.denyNonOperator(chatJID, sender, "/gate") {
 		return
 	}
 	parts := strings.Fields(arg)
