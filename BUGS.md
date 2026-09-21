@@ -3203,6 +3203,38 @@ the history — which is what `L87` fixes on the fork axis.
 Both are behaviour changes on every turn on every instance, so neither ships
 inline. `5/B` and `5/F` are the specs to amend.
 
+- **RE-MEASURED 2026-09-21 at `b3b973e2`: the defect is CONFIRMED and proposal 1
+  is MIS-SCOPED in both directions.** `store.ObservedSince`
+  (`store/message_folders.go:337-356`) reads the observer's own folder with
+  `is_observed` **Present** and each watched folder with **Absent**. There is no
+  intra-folder primary read, so the hole is real.
+  - It is NARROWER than the entry implies. That read is partitioned by FOLDER,
+    not by topic, so sibling topics ALREADY share every `is_observed=1` row —
+    and on `5/B`'s canonical mention-only shape (a `verb=mention` trigger row
+    above a `#observe` catch-all) that is most of the channel. The rows a
+    sibling cannot see are exactly the ones that TRIGGERED a turn.
+  - It is also WIDER than the entry implies, and this is the half proposal 1
+    does not name: BOTH reads carry `{Attr: attrFeedBot, Op: objstore.Absent}`,
+    so the ambient window excludes bot rows outright. Thread B never sees what
+    the agent SAID in thread A. "dont yiu see the history?" is about a
+    conversation, and half of a conversation is the agent's own turns.
+  - The bot filter is LOAD-BEARING and its comment says so, so widening it is
+    the part that needs the sign-off, not the `is_observed` term.
+    `router/router.go` names the folder-feed's `is_bot_message` Absent filter as
+    the reason a bot row could go unlabelled at all, "the read-side twin of BUGS
+    `L150`". `L184` (local-row half shipped 2026-09-21) removes that dependency:
+    `FormatMessages` now marks a bot row `bot="true"`, so an ambient window
+    COULD carry the agent's own words without the agent reading them as another
+    user's. Before `L184` the same widening would have re-opened `L150`'s
+    read-side twin.
+  - `L305`'s grouping fix (`1c263329`) removes the other reported symptom — the
+    desk answering thread A inside thread B — but not this one. The two are
+    independent.
+- **One question for the sign-off:** does the intra-folder ambient window carry
+  the siblings' BOT rows as well as their triggering user rows — and if it does,
+  is `observe_window_*` still the right budget once the window stops meaning
+  "what nobody answered" and starts meaning "the channel"?
+
 ## L75 — a dispatch failure loses the trigger silently: the retry never retries, and pending mentions get demoted to "observed" (2026-08-23, (a) FIXED 2026-09-20; (b) needs sign-off)
 
 Two faults with one root: a dispatch failure path advances the cursor past the
