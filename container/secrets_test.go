@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/store"
 )
 
 // readSecrets picks the operator anchors (ANTHROPIC_API_KEY /
@@ -127,5 +128,26 @@ func TestSpawnSecrets_NoGatewayKeepsBothSources(t *testing.T) {
 	}
 	if got["CLAUDE_CODE_OAUTH_TOKEN"] != "operator-oauth" || got["ANTHROPIC_API_KEY"] != "user-byoa" {
 		t.Errorf("unset gateway must change nothing: %v", got)
+	}
+}
+
+// runed warns once at start when every spawn will carry the model credential in
+// container env: no gateway and an anchor set. Neither half alone — a gateway
+// withholds the keys (spawnSecrets), and with no anchor there is nothing to
+// carry (that failure is eval check 9a, not this warning).
+func TestSpawnHoldsModelCredential(t *testing.T) {
+	for key := range store.EnvProfileKeys {
+		t.Setenv(key, "")
+	}
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "operator-oauth")
+	if !SpawnHoldsModelCredential(&core.Config{}) {
+		t.Error("no gateway with an anchor set: every spawn holds the credential")
+	}
+	if SpawnHoldsModelCredential(&core.Config{ModelGatewayURL: "http://gw:4000"}) {
+		t.Error("a gateway withholds the credential; nothing to warn about")
+	}
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
+	if SpawnHoldsModelCredential(&core.Config{}) {
+		t.Error("no anchor set: no credential enters the container")
 	}
 }

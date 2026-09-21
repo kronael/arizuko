@@ -847,6 +847,17 @@ func spawnSecrets(cfg *core.Config, override map[string]string) map[string]strin
 	return s
 }
 
+// SpawnHoldsModelCredential reports whether every spawn from this
+// configuration carries the operator model credential in container env: no
+// gateway to withhold it (spawnSecrets) and an anchor set. runed logs it once
+// at start. The scrub in ant/src/guards.ts is not a boundary: every process in
+// the container shares one uid, nothing sets hidepid, and /proc/<pid>/environ
+// is readable across siblings, so a shell reads the harness's env whatever the
+// harness strips from its child (BUGS L131).
+func SpawnHoldsModelCredential(cfg *core.Config) bool {
+	return cfg.ModelGatewayURL == "" && readSecrets() != nil
+}
+
 // mergeSecrets overlays override onto base (override wins per key) and returns
 // the combined env map. base is the operator anchors (floor); override is the
 // trigger user's own env-profile keys (BYOA) — so a user's own ANTHROPIC_API_KEY
