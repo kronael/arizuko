@@ -40,6 +40,16 @@ service) plus an optional `services/<name>.yaml` (its 5/8 manifest, whose
 `proxyd_routes` and `env` blocks this package reads). Fragment paths
 resolve against `services/`, so a fragment reads `../env/<name>.env`.
 
+A fragment from a source — `arizuko packages <inst> install <dir|url>`,
+and every `upgrade`/`sync` of it — passes `CheckSourcedFragment` before a
+byte is written: its services carry the package's name, it binds only
+`${DATA_DIR}/store/<name>` or a named volume, declares no `env_file`, and
+escapes no namespace (`privileged`, `pid`, `network_mode: host`, a volume
+`driver_opts`, a config `file:` …). `docker compose` refuses none of that,
+so a package could otherwise mount an owner's store, `.env` or the docker
+socket and install cleanly (BUGS L201). The release's own catalog is exempt:
+its fragments are held to the tests in `fragments_test.go` at build.
+
 `Generate` provisions each package's `env` block before it writes any env
 file (`ProvisionPackageEnv`): a `.env` value wins; `generate` mints a token
 once and appends it to `.env` above the managed block; `default` fills the

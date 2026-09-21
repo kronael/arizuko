@@ -135,8 +135,13 @@ const catalogOrigin = "catalog"
 func installPackage(dataDir, inst, name, srcDir string, files []string, hashes map[string]string,
 	bound []string, origin, revision, hostDir string) {
 	frags := parsePkgManifests(name, srcDir, files, bound)
-	provisionPkgEnv(dataDir, filepath.Join(srcDir, name+".yaml"), name)
 	svcDir := filepath.Join(dataDir, "services")
+	if origin != catalogOrigin {
+		if err := checkSourcedFiles(svcDir, name, srcDir, files, nil); err != nil {
+			die("Failed: install %s: %v", name, err)
+		}
+	}
+	provisionPkgEnv(dataDir, filepath.Join(srcDir, name+".yaml"), name)
 	if err := os.MkdirAll(svcDir, 0o755); err != nil {
 		die("Failed: mkdir services: %v", err)
 	}
@@ -247,6 +252,36 @@ func fetchSource(src string) (dir, revision string, cleanup func()) {
 func packageName(origin string) string {
 	s := strings.TrimSuffix(strings.TrimRight(strings.TrimPrefix(origin, "git+"), "/"), ".git")
 	return filepath.Base(s)
+}
+
+// checkSourcedFiles bounds what a package from a source may put into
+// services/: no file that would replace one the instance already has (the
+// catalog's link, an operator's own fragment), no name of a core service, and
+// each fragment within compose.CheckSourcedFragment. owned names the files
+// this package's record already holds, which an upgrade may rewrite.
+func checkSourcedFiles(svcDir, name, srcDir string, files []string, owned map[string]string) error {
+	if baseDaemons[name] {
+		return fmt.Errorf("%s is a core service; a package from a source may not take its name", name)
+	}
+	for _, n := range files {
+		if _, mine := owned["file:"+n]; !mine {
+			if _, err := os.Lstat(filepath.Join(svcDir, n)); err == nil {
+				return fmt.Errorf("services/%s is already there and not this package's — "+
+					"`packages remove` what owns it first", n)
+			}
+		}
+		if !strings.HasSuffix(n, ".yml") {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(srcDir, n))
+		if err != nil {
+			return err
+		}
+		if err := compose.CheckSourcedFragment(name, n, b); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // readFragmentAssets returns the file asset names in dir and their content
@@ -856,6 +891,7 @@ type reapplyResult struct {
 	Revision string   // revision resolved from the source this run
 	Dirty    []string // locally edited assets; non-empty means nothing was written
 	Drifted  []string // catalog manifests whose bytes moved since `add`
+	Refused  error    // the new revision reaches outside the package; nothing was written
 	Changed  bool     // an asset's content or the resolved revision actually moved
 }
 
@@ -899,6 +935,9 @@ func reapplyPackage(svcDir string, rdb *routd.DB, rec routd.InstalledPackage) re
 	newFiles, newHashes := readFragmentAssets(dir)
 	if len(newFiles) == 0 {
 		die("Failed: no compose fragment in source %s", rec.Source)
+	}
+	if err := checkSourcedFiles(svcDir, rec.Name, dir, newFiles, rec.AssetHashes); err != nil {
+		return reapplyResult{Refused: err}
 	}
 	for _, n := range newFiles {
 		b, err := os.ReadFile(filepath.Join(dir, n))
@@ -1040,6 +1079,9 @@ func cmdPackages(args []string) {
 				"  delete the file(s) then upgrade; keep-mine: file the diff upstream + fork.",
 				name, strings.Join(res.Dirty, ", "))
 		}
+		if res.Refused != nil {
+			die("Failed: upgrade %s: %v", name, res.Refused)
+		}
 		if len(res.Drifted) > 0 {
 			fmt.Println(driftReport(name, res.Drifted))
 			return
@@ -1094,6 +1136,9 @@ func cmdPackages(args []string) {
 			case len(res.Dirty) > 0:
 				skipped++
 				fmt.Printf("%-12s SKIPPED — locally edited: %s\n", rec.Name, strings.Join(res.Dirty, ", "))
+			case res.Refused != nil:
+				skipped++
+				fmt.Printf("%-12s SKIPPED — %v\n", rec.Name, res.Refused)
 			case len(res.Drifted) > 0:
 				fmt.Printf("%-12s %s\n", rec.Name, driftReport(rec.Name, res.Drifted))
 			case res.Changed:
