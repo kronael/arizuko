@@ -1099,7 +1099,7 @@ cover it. Do not "fix" it by widening what the agent may do silently.
 - **Status:** open — needs the operator to choose the grant or the case
 - **Fix:**
 
-## L307 — two Slack channels on marinade carry traffic and match no route (2026-09-18, open)
+## L307 — seven Slack chats carry traffic and match no route — now LIVE on sloth (2026-09-18, open)
 
 `slack:T4PNSRSP7/channel/C4P090XU1` (6 msgs/30d) and
 `.../C4PMARTD2` (2 msgs/30d) reach routd and resolve to nothing: marinade's
@@ -1109,6 +1109,37 @@ is for Discord (`chat_jid=discord:*/*`). The messages are stored and dropped.
 Either add the `chat_jid=slack:*/channel/* verb=mention` + `#observe` wildcard
 pair marinade already has for Discord, or the operator routes each channel.
 This is a data decision, not a code fix.
+
+**Re-measured 2026-09-21, and this is now LIVE — my own change activated it.**
+The entry said two channels on marinade. marinade is disabled (`L338`) and its
+store was consolidated into sloth's, and today I brought `slakd` up on sloth,
+so this traffic now arrives at a running adapter.
+
+sloth's `routd.messages` holds eight Slack chats; exactly ONE has routes:
+
+| chat | rows | routed |
+| --- | --- | --- |
+| `channel/C0B4JMQ8X89` | 335 | yes — `atlas/support` mention + `#observe` |
+| `channel/C4PMARTD2` | 352 | **no** |
+| `channel/C4P090XU1` | 252 | **no** |
+| `channel/C0B835BA9M2` | 65 | **no** |
+| `channel/C0B61QK4A9F` | 63 | **no** |
+| `dm/D0B43KQG9E2` | 54 | **no** |
+| `dm/D0BAKBXKS5C` | 18 | **no** |
+| `channel/C0B63J2RBJ8` | 18 | **no** |
+
+822 rows across seven chats route nowhere. While marinade was down this was
+dormant; it is not any more — a message in any of those seven is accepted,
+stored, and answered by nothing.
+
+The entry's proposed `chat_jid=slack:*/channel/*` glob does NOT cover the two
+DMs, which use `/dm/`. Any fix needs both shapes, or two rows.
+
+This is operator data — route rows — so it is the owner's to write, and the
+choice is per chat: which of the seven should answer, under what verb, and
+into which folder. `C0B4JMQ8X89`'s pair is the shape to copy (`verb=mention`
+at the lower seq, `#observe` above it — see eval check 22 for why that order
+matters).
 
 ## L305 — two live threads in one Discord channel: the second one's mention is never answered (2026-09-18, open — proposal, needs sign-off)
 
