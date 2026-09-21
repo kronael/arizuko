@@ -3182,7 +3182,7 @@ now write `.claude`. Pending end-to-end confirm on next inbound.
   (`Input`/`RunResult` contract change) — a redesign, needs sign-off, not
   attempted here.
 
-## F5 — `store.UserScopes` decides folder visibility without action or deny (2026-08-05, PARTIALLY FIXED 2026-08-05)
+## F5 — `store.UserScopes` decides folder visibility without action or deny (2026-08-05, reader half FIXED; the read GATE is ONE signed sentence away — re-verified 2026-09-21, and krons now has a deny row)
 
 `specs/5/32` makes `auth.Authorize` the one question the ACL answers.
 `store.UserScopes` (`store/acl.go:200-228`) is a second reader:
@@ -3264,6 +3264,63 @@ on a live surface — it changes which folders existing users see — so it is a
 sign-off, not a refactor. **The owner's decision is one sentence: is `interact`
 the floor action for dashboard read, and may the visibility gate stop trusting
 the header and call `auth.Authorize` per folder instead?**
+
+**Re-verified 2026-09-21 at `e7f1bac3`. The call path is unchanged, and three
+facts sharpen the decision that were not on the record.**
+
+The premise holds exactly: `callerScope` (`dashd/authz.go:23`) →
+`auth.CallerGroups(r)` → `visible()` → `auth.MatchGroups`. dashd's WRITE gate
+does go through the evaluator — `adminOn` calls
+`auth.Authorize(store, caller, "admin", scope, nil)` — so the split is read
+without an action, write with one, in the same file.
+
+**1. "All 43 rows fleet-wide are allow" is no longer true, and the binary is
+wrong too.** krons' `routd.acl` holds 42 rows today: 40 `allow`, **1 `deny`**,
+and **1 `async`** — a third effect the entry's allow/deny framing does not
+mention. The deny row is
+`folder:rhias/nemo | hold:mcp:like | rhias/nemo | chatJid=…,reaction=👀,targetId=3148`.
+
+**Live impact is still nil, but no longer for the reason the entry gives.** It
+is nil because two independent guards each stop that row reaching an
+`interact` read: `actionCovers("hold:mcp:like", "interact")` is false (the
+switch covers only `*`, `admin` and `mcp:*`), and `paramsMatch` fails a
+param-bearing row against a `nil` params call (`auth/authorize.go:442`). The day
+someone writes a deny row with a bare action and no params, moving read onto
+`Authorize` changes which folders that user sees. Also worth knowing before
+choosing: the evaluator treats every effect that is not literally `"deny"` as an
+allow, so `async` lands in the allow branch.
+
+**2. "Call `auth.Authorize` per folder" is not a drop-in, and the cost is
+structural.** `Authorize` runs `expandPrincipals` plus `policyRows` — two store
+queries, `ACLRowsFor` and `ACLWildcardRows` — on EVERY call, with no cache.
+`countVisible` (`dashd/authz.go`) calls the gate once per row for groups,
+errored chats and failed tasks, so a literal substitution turns one dashboard
+render into 2+ store round trips per row against extenddb over HTTP. Closing
+this needs a request-scoped evaluator — one policy read, many folders — which
+`auth` does not expose today. That is why it is a redesign and not a rename.
+
+**3. Do not touch `jidFolder` while doing it.** `visible()` is fed by
+`d.jidFolder(jid)`, which resolves a `web:`/`hook:` JID through the folder its
+mint RECORDED precisely because the JID grammar reads `hook:a/b/c` as folder
+`a/b` and showed tenant `a`'s message to tenant `a/b` (BUGS `L4`). A rewrite
+that routes visibility through `Authorize` must keep that resolver in front of
+it; folding the folder derivation back into the gate reopens a closed
+cross-tenant leak.
+
+**Sharpened to ONE sentence.** The two halves are not separable — `Authorize`
+takes an action argument, so the gate cannot move without naming one, and the
+`[]string` header cannot carry an action, so naming one demotes the header. They
+are one change with two parameters:
+
+> **Should a dashboard READ become an authorization question — `Authorize(caller,
+> "interact", folder)` with deny-wins — accepting that it needs a request-scoped
+> evaluator (one policy read, many folders) and demotes `X-User-Groups` from the
+> source of truth to a hint?**
+
+Yes means building that evaluator and re-verifying every dashboard page against
+the 42 live rows. No means `auth.UserScopes`' doc comment keeps naming a rule
+dashd does not follow, and that gap should be written down where dashd reads it
+rather than left as a latent contradiction.
 
 ## F77 — skill-guard's per-line scan is evadable by splitting a payload (2026-08-08, PARTIALLY FIXED 2026-08-08)
 
