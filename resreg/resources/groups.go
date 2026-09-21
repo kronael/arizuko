@@ -39,6 +39,19 @@ var GroupsAgentEndpoints = []resreg.Endpoint{
 	{Verb: "GET", Path: "/v1/groups", Action: resreg.ActionList},
 }
 
+// GroupsFolderRef is what the list answers with: the folder and nothing else.
+// A registered group carries six more columns and GroupsRow declares all of
+// them, so documenting the list off the row promised a container config, a
+// product and a cost cap that no caller ever receives (BUGS L120).
+type GroupsFolderRef struct {
+	Folder string `json:"folder"`
+}
+
+// GroupsResponses: the list is a projection, never the row.
+var GroupsResponses = map[resreg.Action]reflect.Type{
+	resreg.ActionList: reflect.TypeFor[[]GroupsFolderRef](),
+}
+
 // GroupsMCPNames maps each agent action to the flat tool name the live agent already
 // calls; routd's groups_resource.go references it (agent socket derivation) and
 // ipc.ListTools reads it via the registry walk (MCPNames is the facade-tool
@@ -84,6 +97,7 @@ func init() {
 		// refresh_groups. The manifest CRUD path uses RowType/Table only; these are
 		// inert to it (Apply/Export ignore Endpoints/MCP*).
 		Endpoints: GroupsAgentEndpoints,
+		Responses: GroupsResponses,
 		MCPDoc:    GroupsMCPDoc,
 		MCPArgs:   GroupsMCPArgs,
 		MCPNames:  GroupsMCPNames,

@@ -3,6 +3,7 @@ package resources
 import (
 	"reflect"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/resreg"
 )
 
@@ -19,6 +20,17 @@ type ScheduledTasksRow struct {
 	Status      string `db:"status"       yaml:"status,omitempty" json:"status,omitempty"`
 	Created     string `db:"created_at"   yaml:"created_at,omitempty" json:"created_at,omitempty"`
 	ContextMode string `db:"context_mode" yaml:"context_mode,omitempty" json:"context_mode,omitempty"`
+}
+
+// ScheduledTasksResponses declares what each mounted REST face ANSWERS with.
+// core.Task carries NO json tags, so the wire names are the GO field names —
+// ID, ChatJID, NextRun — and timed/dash.go decodes exactly those. Documented
+// off ScheduledTasksRow the doc promised snake_case for every one of them
+// (BUGS L120). cancel answers {"ok"}, which has no Go type to name.
+var ScheduledTasksResponses = map[resreg.Action]reflect.Type{
+	resreg.ActionList:      reflect.TypeFor[[]core.Task](),
+	resreg.ActionGet:       reflect.TypeFor[core.Task](),
+	resreg.Action("patch"): reflect.TypeFor[core.Task](),
 }
 
 // ScheduledTasksEndpoints is the single owner of the scheduled_tasks endpoint
@@ -95,6 +107,7 @@ func init() {
 		PKFields:      []string{"ID"},
 		EntitySortKey: []string{"ID"},
 		Endpoints:     ScheduledTasksEndpoints,
+		Responses:     ScheduledTasksResponses,
 		MCPDoc:        ScheduledTasksMCPDoc,
 		MCPArgs:       ScheduledTasksMCPArgs,
 		MCPNames:      ScheduledTasksMCPNames,

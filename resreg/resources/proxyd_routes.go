@@ -66,6 +66,15 @@ var ProxydRoutesMCPArgs = map[resreg.Action][]resreg.MCPArg{
 	resreg.ActionDelete: {{Name: "path", Type: "string", Required: true}},
 }
 
+// ProxydRoutesResponses: proxyd's handler answers its own Route struct, whose
+// json tags are this row's field for field, on every face but the 204 delete.
+var ProxydRoutesResponses = map[resreg.Action]reflect.Type{
+	resreg.ActionList:   reflect.TypeFor[[]ProxydRoutesRow](),
+	resreg.ActionGet:    reflect.TypeFor[ProxydRoutesRow](),
+	resreg.ActionCreate: reflect.TypeFor[ProxydRoutesRow](),
+	resreg.ActionUpdate: reflect.TypeFor[ProxydRoutesRow](),
+}
+
 // ProxydRoutesEndpoints is the single owner of the REST endpoint set for
 // proxyd_routes. proxyd's live dispatch decl and webd's forwarder decl both
 // reference this so the mounted routes + the derived MCP action set never
@@ -87,6 +96,7 @@ func init() {
 		PKFields:      []string{"Path"},
 		EntitySortKey: []string{"Path"},
 		Endpoints:     ProxydRoutesEndpoints,
+		Responses:     ProxydRoutesResponses,
 		MCPDoc:        ProxydRoutesMCPDoc,
 		MCPArgs:       ProxydRoutesMCPArgs,
 	})

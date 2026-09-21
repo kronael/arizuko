@@ -217,8 +217,26 @@ Spec: [`specs/5/16-mcp-rest-unification.md`](../specs/5/16-mcp-rest-unification.
 doc for **whatever that mux serves**. `MountedResources(mux)` derives the
 advertised set: `RegisterREST` mounts each face as a `*restMount` stamped
 with its `(resource, endpoint)`, and only registry resources the mux
-resolves to one of those are documented. Schemas come from the same
+resolves to one of those are documented. Request schemas come from the same
 `RowType` reflection (struct field → schema property).
+
+**A response body is declared, never inferred.** `Handler` returns `any`, so
+reflection cannot see what an action answers with; `Resource.Responses` maps an
+action to the Go type its handler returns (or a slice of it) and that type is
+what `components/schemas` carries. An action with no entry documents `"OK"` and
+**no body schema at all** — a stated gap, which a generated client handles, in
+place of a wrong struct, which it silently mis-decodes. The emitter used to pick
+the shape off the verb (list → `array<RowType>`, GET/POST → `RowType`) and 22
+mounted operations answered with something else: `GET /v1/routes` with
+`[]router.RouteView`, `GET /v1/tasks` with `[]core.Task` (Go field names — that
+struct has no json tags), the route-token mints with `{token,jid,url}`, onbod's
+mutations with `{"ok":true}` (BUGS `L120`).
+
+The declared type is the one declaration and the handler is its second reader:
+it constructs that same struct, so a renamed field moves the doc and the wire
+together. Only a handler returning a DIFFERENT type can still drift, which is
+what `resregtest.AssertDocumentedResponse` serves a real request to catch —
+`routd/openapi_response_test.go` runs it over routd's own mux.
 
 A daemon passes no resource list, so it cannot advertise what it does not
 mount — the hand-passed lists were BUGS `F33`, the cause under `F21`/`F27`/

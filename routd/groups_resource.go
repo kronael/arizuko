@@ -58,9 +58,7 @@ func (s *Server) groupsHandler(_ context.Context, x resreg.Execution) (any, erro
 	switch x.Action {
 	case resreg.ActionList:
 		groups := s.db.AllGroups()
-		out := make([]struct {
-			Folder string `json:"folder"`
-		}, 0, len(groups))
+		out := make([]resources.GroupsFolderRef, 0, len(groups))
 		for _, g := range groups {
 			// The operator REST face (/v1/groups) scopes to the caller's subtree —
 			// an unscoped list-all would leak every tenant's folders to any operator
@@ -69,9 +67,7 @@ func (s *Server) groupsHandler(_ context.Context, x resreg.Execution) (any, erro
 			if x.Surface == audit.SurfaceREST && !ownsFolder(x.Caller.Folder, g.Folder) {
 				continue
 			}
-			out = append(out, struct {
-				Folder string `json:"folder"`
-			}{Folder: g.Folder})
+			out = append(out, resources.GroupsFolderRef{Folder: g.Folder})
 		}
 		return out, nil
 

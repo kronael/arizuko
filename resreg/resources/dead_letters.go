@@ -29,6 +29,13 @@ type DeadLetterRow struct {
 	DeliveryAttempts int    `db:"delivery_attempts" json:"delivery_attempts"`
 }
 
+// DeadLettersResponses: the list handler PROJECTS core.Message onto the row
+// before answering, which is what makes the declared schema true. replay
+// answers {"ok","id","status"} and declares nothing.
+var DeadLettersResponses = map[resreg.Action]reflect.Type{
+	resreg.ActionList: reflect.TypeFor[[]DeadLetterRow](),
+}
+
 // DeadLettersEndpoints — read the lost messages, and put one back on the wire.
 //
 // There is deliberately no create/update/delete. The row is written by the
@@ -81,6 +88,7 @@ func init() {
 		RowType:   reflect.TypeFor[DeadLetterRow](),
 		PKFields:  []string{"ID"},
 		Endpoints: DeadLettersEndpoints,
+		Responses: DeadLettersResponses,
 		MCPDoc:    DeadLettersMCPDoc,
 		MCPArgs:   DeadLettersMCPArgs,
 		MCPNames:  DeadLettersMCPNames,

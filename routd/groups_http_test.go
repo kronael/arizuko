@@ -7,6 +7,7 @@ import (
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/resreg"
+	"github.com/kronael/arizuko/resreg/resources"
 )
 
 // spec 5/16: the /v1/groups REST list is scoped to the caller's subtree (closes
@@ -34,9 +35,7 @@ func TestGroupsList_RESTScopedMCPUnscoped(t *testing.T) {
 			t.Fatal(err)
 		}
 		var out []string
-		for _, g := range res.([]struct {
-			Folder string `json:"folder"`
-		}) {
+		for _, g := range res.([]resources.GroupsFolderRef) {
 			out = append(out, g.Folder)
 		}
 		return out

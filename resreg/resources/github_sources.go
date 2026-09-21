@@ -15,6 +15,13 @@ type GitHubSourcesRow struct {
 	CreatedAt   string `db:"created_at"   yaml:"created_at,omitempty" json:"created_at,omitempty"`
 }
 
+// GitHubSourcesResponses: list answers the row. register answers
+// {"source","url","secret"} — the webhook URL and its signing secret, neither
+// of them a column — so it declares nothing and documents no body.
+var GitHubSourcesResponses = map[resreg.Action]reflect.Type{
+	resreg.ActionList: reflect.TypeFor[[]GitHubSourcesRow](),
+}
+
 // GitHubSourcesEndpoints is the single owner of the endpoint set for BOTH the
 // agent's tools and the operator REST face. register is a custom POST verb and
 // revoke a source-addressed DELETE, so the faces diverge from PK-CRUD.
@@ -67,6 +74,7 @@ func init() {
 		PKFields:         []string{"Source"},
 		EntitySortKey:    []string{"Source"},
 		Endpoints:        GitHubSourcesEndpoints,
+		Responses:        GitHubSourcesResponses,
 		MCPDoc:           GitHubSourcesMCPDoc,
 		MCPArgs:          GitHubSourcesMCPArgs,
 		MCPNames:         GitHubSourcesMCPNames,

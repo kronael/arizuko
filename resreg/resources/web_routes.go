@@ -15,6 +15,12 @@ type WebRoutesRow struct {
 	CreatedAt  string `db:"created_at"  yaml:"created_at,omitempty" json:"created_at,omitempty"`
 }
 
+// WebRoutesResponses: the list handler copies each row field for field before
+// answering, so the row IS the wire shape.
+var WebRoutesResponses = map[resreg.Action]reflect.Type{
+	resreg.ActionList: reflect.TypeFor[[]WebRoutesRow](),
+}
+
 // WebRoutesEndpoints is the single owner of the web_routes REST endpoint set:
 // routd's web_route tools (web_routes_resource.go) reference it. create is a PUT
 // upsert on the collection and delete addresses the row by `path` in the body
@@ -69,6 +75,7 @@ func init() {
 		PKFields:      []string{"PathPrefix"},
 		EntitySortKey: []string{"PathPrefix"},
 		Endpoints:     WebRoutesEndpoints,
+		Responses:     WebRoutesResponses,
 		MCPDoc:        WebRoutesMCPDoc,
 		MCPArgs:       WebRoutesMCPArgs,
 		MCPNames:      WebRoutesMCPNames,

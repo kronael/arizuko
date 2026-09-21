@@ -30,6 +30,7 @@ import (
 	"net/http/httptest"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/kronael/arizuko/resreg"
@@ -217,4 +218,162 @@ func AssertServesNoForeignResource(t TB, daemon string, mux *http.ServeMux) int 
 		}
 	}
 	return len(ops)
+}
+
+// AssertDocumentedResponse serves req on mux and checks the body against the
+// schema /openapi.json advertises for that operation. It returns true when a
+// schema was actually there to check, so a caller can pin non-vacuity.
+//
+// This is the guard nothing else provides. Paths are derived from the mux and
+// request schemas from RowType, but a Handler returns `any`, so the only proof
+// that the doc describes the BODY is to serve a real request and read it back.
+// The operations named in BUGS L120 answered with a shape the doc had invented
+// from the verb — []router.RouteView documented as RoutesRow, core.Task's Go
+// field names documented as snake_case columns — and every emitter-level test
+// passed throughout, because both sides read the same invented convention.
+//
+// The check is CONTAINMENT, not equality: an omitempty field absent from the
+// body is legal, so a key the schema does not name is the failure. Sub-objects
+// are not walked — the top level is where every recorded drift lived.
+func AssertDocumentedResponse(t TB, daemon string, mux *http.ServeMux, req *http.Request) bool {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	op := req.Method + " " + req.URL.Path
+	if rec.Code >= 300 {
+		t.Fatalf("%s: %s answered %d: %s — a doc check needs a real success body",
+			daemon, op, rec.Code, strings.TrimSpace(rec.Body.String()))
+	}
+	doc := emitDoc(t, daemon, mux)
+	// A mux pattern carries its method ("GET /v1/tasks/{taskId}"); a document
+	// path key does not.
+	key := strings.TrimPrefix(pattern(mux, req.Method, req.URL.Path), req.Method+" ")
+	schema, ok := successSchema(doc, key, req.Method, rec.Code)
+	if !ok {
+		return false
+	}
+	var body any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("%s: %s answered non-JSON: %v", daemon, op, err)
+	}
+	checkAgainst(t, daemon, op, schema, body)
+	return true
+}
+
+// emitDoc runs the production emitter over the daemon's own mux and returns the
+// decoded document.
+func emitDoc(t TB, daemon string, mux *http.ServeMux) map[string]any {
+	t.Helper()
+	raw, err := resreg.OpenAPI(daemon, "/", resreg.MountedResources(mux))
+	if err != nil {
+		t.Fatalf("%s: OpenAPI: %v", daemon, err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("%s: emitted doc is not JSON: %v", daemon, err)
+	}
+	return doc
+}
+
+// successSchema resolves the JSON schema the document gives for one operation's
+// status, following a $ref into components.schemas. Missing at any step means
+// the operation advertises no body — the honest answer for an action whose
+// resource declares no response type.
+func successSchema(doc map[string]any, pathKey, method string, status int) (map[string]any, bool) {
+	paths, _ := doc["paths"].(map[string]any)
+	item, _ := paths[pathKey].(map[string]any)
+	op, _ := item[strings.ToLower(method)].(map[string]any)
+	responses, _ := op["responses"].(map[string]any)
+	resp, _ := responses[strconv.Itoa(status)].(map[string]any)
+	content, _ := resp["content"].(map[string]any)
+	js, _ := content["application/json"].(map[string]any)
+	schema, ok := js["schema"].(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	schema = resolveRef(doc, schema)
+	// A collection's element schema is a ref of its own, and an unresolved one
+	// declares no properties — which would read as "the handler answers with
+	// nothing the doc knows" for every list.
+	if items, ok := schema["items"].(map[string]any); ok {
+		return map[string]any{"type": schema["type"], "items": resolveRef(doc, items)}, true
+	}
+	return schema, true
+}
+
+// resolveRef swaps a $ref for the component it names, one level, which is all
+// the emitter ever produces.
+func resolveRef(doc map[string]any, schema map[string]any) map[string]any {
+	ref, ok := schema["$ref"].(string)
+	if !ok {
+		return schema
+	}
+	components, _ := doc["components"].(map[string]any)
+	schemas, _ := components["schemas"].(map[string]any)
+	out, _ := schemas[strings.TrimPrefix(ref, "#/components/schemas/")].(map[string]any)
+	if out == nil {
+		return schema
+	}
+	return out
+}
+
+// checkAgainst compares one body against its schema: array-ness first, then
+// every object's keys against the declared properties.
+func checkAgainst(t TB, daemon, op string, schema map[string]any, body any) {
+	t.Helper()
+	items, isArray := schema["items"].(map[string]any)
+	rows, bodyIsArray := body.([]any)
+	if isArray != bodyIsArray {
+		t.Errorf("%s: %s answers %s but the doc advertises %v",
+			daemon, op, jsonKind(body), schema["type"])
+		return
+	}
+	if !isArray {
+		checkObject(t, daemon, op, schema, body)
+		return
+	}
+	if len(rows) == 0 {
+		t.Errorf("%s: %s answered an empty array — seed a row, or this proves nothing", daemon, op)
+		return
+	}
+	for _, row := range rows {
+		checkObject(t, daemon, op, items, row)
+	}
+}
+
+// checkObject fails on a key the schema does not declare. Extra keys are the
+// drift: the doc's reader decodes into the documented struct and silently loses
+// every field the document never named.
+func checkObject(t TB, daemon, op string, schema map[string]any, body any) {
+	t.Helper()
+	obj, ok := body.(map[string]any)
+	if !ok {
+		t.Errorf("%s: %s answers %s where the doc advertises an object", daemon, op, jsonKind(body))
+		return
+	}
+	props, _ := schema["properties"].(map[string]any)
+	var undocumented []string
+	for k := range obj {
+		if _, ok := props[k]; !ok {
+			undocumented = append(undocumented, k)
+		}
+	}
+	if len(undocumented) > 0 {
+		sort.Strings(undocumented)
+		t.Errorf("%s: %s answers with %s, which /openapi.json does not document — "+
+			"declare the answering type in the resource's Responses (root CLAUDE.md "+
+			"\"one declaration, many readers\")", daemon, op, strings.Join(undocumented, ", "))
+	}
+}
+
+func jsonKind(v any) string {
+	switch v.(type) {
+	case []any:
+		return "an array"
+	case map[string]any:
+		return "an object"
+	case nil:
+		return "null"
+	}
+	return "a scalar"
 }
