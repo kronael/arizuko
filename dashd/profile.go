@@ -51,23 +51,26 @@ func (d *dash) handleProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	fmt.Fprint(w, identity+`</table>`)
 
-	prefixes := map[string]bool{providerPrefix(sub): true}
+	// One identity reaches this page: the caller's own sub, stamped by proxyd.
+	// Which other providers resolve to the same account is authd's answer
+	// (`GET /v1/identities/{sub}`) and `service:dashd` holds no `identity:read`
+	// scope to ask for it, so the page offers every provider but the caller's
+	// own and claims nothing about the rest. One prefix hidden out of four
+	// leaves the list non-empty on every render, so there is no all-linked
+	// state to write (BUGS P2).
+	own := providerPrefix(sub)
 
 	var providerLinks string
 	for _, p := range supportedProviders {
-		if prefixes[p.prefix] {
+		if p.prefix == own {
 			continue
 		}
 		providerLinks += fmt.Sprintf(
 			`<a class="oauth-btn" href="%s?intent=link&return=%s">Link %s</a>`,
 			esc(p.path), esc("/dash/profile/"), esc(p.label))
 	}
-	if providerLinks == "" {
-		providerLinks = `<p class="empty">All known providers already linked.</p>`
-	} else {
-		providerLinks = `<div class="form-narrow">` + providerLinks + `</div>`
-	}
-	fmt.Fprint(w, htmlSection("Add a provider", providerLinks))
+	fmt.Fprint(w, htmlSection("Add a provider",
+		`<div class="form-narrow">`+providerLinks+`</div>`))
 
 	fmt.Fprint(w, htmlSection("API keys",
 		`<p class="dim">Bring your own API keys (e.g. ANTHROPIC_API_KEY). They override the group's keys when the agent runs for you.</p>`+

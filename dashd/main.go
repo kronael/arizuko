@@ -737,7 +737,7 @@ var portalTmpl = template.Must(template.New("portal").Parse(`<h1 class="brand">{
 <a class="tile" href="/dash/groups/"><h2>groups</h2><p>group hierarchy</p></a>
 <a class="tile" href="/dash/routes/"><h2>routes</h2><p>message routing table</p></a>
 <a class="tile" href="/dash/memory/"><h2>memory</h2><p>knowledge browser</p></a>
-<a class="tile" href="/dash/profile/"><h2>profile</h2><p>linked accounts</p></a>
+<a class="tile" href="/dash/profile/"><h2>profile</h2><p>account and API keys</p></a>
 {{if .Operator}}<a class="tile" href="/dash/services/"><h2>services</h2><p>daemon health</p></a>{{end}}
 {{if .Operator}}<a class="tile" href="/dash/invites/"><h2>invites</h2><p>onboarding invites</p></a>{{end}}
 </div>`))

@@ -5614,7 +5614,7 @@ verified at `96cab2b6`.
 - **Status:** closed — nothing left to track
 - **Fix:** `6f980437`, `2ef91f65`, `3a8b8291`
 
-## P2 — dashd promises "linked accounts" and cannot show them (2026-08-02, open — one failure-mode decision left)
+## ✅ FIXED 2026-09-21 P2 — dashd promised "linked accounts" and could not show them (2026-08-02)
 
 Steps 1 and 2 of the identity-link collapse shipped (`90e46d62`; `fcd845cb` +
 `54125cbd`): `oauth_identities` + `auth_users` is the single model,
@@ -5643,9 +5643,34 @@ accounts" and this drops from the queue.
 
 - **Severity:** low (a page that under-promised would be fine; this one
   over-promises)
-- **Scope:** `dashd/profile.go`, `dashd/main.go:740`, `authd/http.go` serviceGrants
-- **Status:** open — needs sign-off (a new cross-daemon read plus a service scope)
-- **Fix:** steps 1-2 shipped at `90e46d62`, `fcd845cb`, `54125cbd`
+- **Scope:** `dashd/profile.go`, `dashd/main.go:740`
+- **Status:** ✅ fixed — the promise is gone, the page is unchanged in what it shows
+- **Fix:** steps 1-2 shipped at `90e46d62`, `fcd845cb`, `54125cbd`; the promise
+  dropped 2026-09-21
+
+- **Taken: the honest absence, which is the branch this entry offered
+  ("the tile stops saying 'linked accounts' and this drops from the queue").**
+  The portal tile reads `account and API keys`, which is both sections the page
+  actually renders, and the unreachable `All known providers already linked.`
+  branch is deleted along with the one-entry `prefixes` map that made it look
+  reachable. `handleProfile` says in a comment what it knows (the caller's own
+  sub) and what it does not (which providers resolve to the same account,
+  authd's `GET /v1/identities/{sub}`), so the gap is written down where the
+  next reader hits it.
+
+- **NOT taken, and it needs no entry of its own to stay refusable.** dashd
+  reading `GET /v1/identities/{sub}` is still a new cross-daemon read plus
+  `identity:read` on `service:dashd` in `authd/http.go` serviceGrants (only
+  `service:routd` holds it), plus a failure mode for an unreachable authd.
+  That is a redesign and wants sign-off. Nothing in the tree now claims it
+  happened, which is the whole point of closing this the other way.
+
+- **PROVEN BY MUTATION:** put `linked accounts` back in the tile and
+  `TestPortalProfileTilePromisesOnlyWhatProfileShows` fails; make the provider
+  filter skip every provider and `TestProfile_ProviderListIsNeverEmpty` reports
+  0 buttons for all five subs — which is the arithmetic that made the deleted
+  branch unreachable, now pinned, so a filter that CAN empty the list has to
+  supply the empty state it removes.
 
 ## P3b — rejected minimization phases, recorded so they are not retried (2026-08-01, closed)
 
