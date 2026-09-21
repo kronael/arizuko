@@ -57,6 +57,21 @@ similar, resolved at seed time by `container/runner.go`.
 
 ## Next (small wins)
 
+- **A chat axis on the gateway meter (`6/39` amendment — needs a call).**
+  Spend attribution is three coordinates and they are named in the spec:
+  folder→team, person→`user_id`, turn→key. The mint writes exactly those
+  (`routd/gateway.go:100-113`) and no chat, so a folder's many chats collapse
+  to one folder total on every rollup surface. Per-TURN cost IS answerable —
+  `turn_context` keeps the turn's `chat_jid` (`store/turn_context.go:97`) and
+  `GET /v1/cost?turn_id=` resolves the turn to its key — so the number exists
+  per turn and only the rollup is missing. The honest shape is a LiteLLM tag
+  set at mint and read back from `/spend/tags`: one writer, one reader
+  (`spendByChat` beside `spendByFolder`), and no arizuko-side spend table,
+  which `6/39` deleted on purpose. Two questions come first: whether a chat
+  rollup is wanted at all, or folder + turn is the honest granularity; and
+  whether the gateway's tag index takes one value per chat jid unbounded over
+  an instance's life. A fourth coordinate is an amendment to a shipped spec,
+  so it is a decision before it is work.
 - **JID model evolution** — four debts queued in
   `specs/5/S-jid-format.md` ("Adjacent open evolution work"): chat-jid
   vs user-jid as distinct types, unified struct representation
