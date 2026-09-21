@@ -588,7 +588,7 @@ func (l *Loop) checkMigrationVersion() {
 		if err := l.db.PutMessage(core.Message{
 			ID:        core.MsgID("auto-migrate-" + folder),
 			ChatJID:   folder,
-			Sender:    "system",
+			Sender:    store.SystemSender,
 			Content:   prompt,
 			Timestamp: time.Now(),
 		}); err != nil {

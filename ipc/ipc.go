@@ -25,6 +25,7 @@ import (
 	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/router"
+	"github.com/kronael/arizuko/store"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"golang.org/x/sys/unix"
@@ -1972,7 +1973,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			if err := db.PutMessage(core.Message{
 				ID:            core.MsgID("escalate"),
 				ChatJID:       parent,
-				Sender:        "escalate",
+				Sender:        store.EscalateSender,
 				Content:       wrapped,
 				Timestamp:     time.Now(),
 				ForwardedFrom: fwdFrom,
@@ -2011,7 +2012,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			if err := db.PutMessage(core.Message{
 				ID:            core.MsgID("delegate"),
 				ChatJID:       target,
-				Sender:        "delegate",
+				Sender:        store.DelegateSender,
 				Content:       prompt,
 				Timestamp:     time.Now(),
 				ForwardedFrom: chatJid,

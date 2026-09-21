@@ -585,7 +585,7 @@ func (l *Loop) delegateViaMessage(targetFolder, prompt, originJID string) error 
 	_ = l.db.PutMessage(core.Message{
 		ID:            core.MsgID("delegate"),
 		ChatJID:       targetFolder,
-		Sender:        "delegate",
+		Sender:        store.DelegateSender,
 		Content:       prompt,
 		Timestamp:     time.Now().UTC(),
 		ForwardedFrom: fwdFrom,
