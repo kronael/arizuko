@@ -528,9 +528,15 @@ var coreProxydRoutes = []ProxydRoute{
 	// /slink/* — webd answers 308 → /chat/<token>/. Public.
 	{Path: "/slink/", Backend: "http://webd:8080", Auth: "public"},
 	{Path: "/dav/", Backend: "http://davd:8080", Auth: "user", StripPrefix: true, GatedBy: "WEBDAV_ENABLED"},
-	{Path: "/onboard", Backend: "http://onbod:8080", Auth: "public", GatedBy: "ONBOARDING_ENABLED"},
-	{Path: "/onboard/", Backend: "http://onbod:8080", Auth: "public", GatedBy: "ONBOARDING_ENABLED"},
-	{Path: "/invite/", Backend: "http://onbod:8080", Auth: "public", GatedBy: "ONBOARDING_ENABLED"},
+	// Onboarding — `user`, the same requirement /pair/ has. Every handler behind
+	// these paths names the caller: /onboard shows the worlds they hold routing
+	// authority over and /invite/ redeems in their name. `public` forwards a
+	// browser anonymously (proxyd resolves a session only in requireAuth), so
+	// the surface was unreachable — the newcomer these pages exist for is
+	// exactly the caller who arrives with no session (BUGS L99).
+	{Path: "/onboard", Backend: "http://onbod:8080", Auth: "user", GatedBy: "ONBOARDING_ENABLED"},
+	{Path: "/onboard/", Backend: "http://onbod:8080", Auth: "user", GatedBy: "ONBOARDING_ENABLED"},
+	{Path: "/invite/", Backend: "http://onbod:8080", Auth: "user", GatedBy: "ONBOARDING_ENABLED"},
 }
 
 // gatedByOn reports whether the named env-gate is enabled. Empty key = no gate.
@@ -602,6 +608,24 @@ func ReservedRoutePaths() []string {
 		out = append(out, r.Path)
 	}
 	return out
+}
+
+// CoreRouteAuth returns the auth mode core arizuko declares for the exact path,
+// or "" when no core route claims it. Derived from coreProxydRoutes, like
+// ReservedRoutePaths, so there is no second list to drift.
+//
+// The reader is a daemon's own test: a handler that keys on the X-User-Sub
+// proxyd stamps is only reachable behind a route that makes proxyd stamp one,
+// and that declaration lives here rather than next to the handler. onbod's
+// three onboarding surfaces sat behind `public` and bounced every arrival back
+// to a login that returned them unidentified (BUGS L99).
+func CoreRouteAuth(path string) string {
+	for _, r := range coreProxydRoutes {
+		if r.Path == path {
+			return r.Auth
+		}
+	}
+	return ""
 }
 
 // ReservedRouteClaim returns the core path that `path` would take over, or "".

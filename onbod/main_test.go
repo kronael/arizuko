@@ -1245,25 +1245,16 @@ func TestInviteAuthRequired(t *testing.T) {
 	cfg := config{authBaseURL: "https://example.com", secureCookie: true}
 	req := httptest.NewRequest("GET", "/invite/auth-tok", nil)
 	req.SetPathValue("token", "auth-tok")
-	// No X-User-Sub header → should redirect to login
+	// No X-User-Sub header: the gate runs before the invite is even looked up,
+	// so a redeemable token is still refused rather than spent.
 	w := httptest.NewRecorder()
 	handleInvite(w, req, db, db, cfg)
 
-	if w.Code != http.StatusSeeOther {
-		t.Errorf("want 303, got %d", w.Code)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("want 401, got %d", w.Code)
 	}
-	if loc := w.Header().Get("Location"); loc != "/auth/login" {
-		t.Errorf("want redirect to /auth/login, got %s", loc)
-	}
-	// auth_return cookie should save the invite URL
-	var found bool
-	for _, c := range w.Result().Cookies() {
-		if c.Name == "auth_return" && c.Value == "/invite/auth-tok" {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("expected auth_return cookie with invite path")
+	if loc := w.Header().Get("Location"); loc != "" {
+		t.Errorf("onbod bounced the caller to %s; proxyd owns the login redirect", loc)
 	}
 }
 
@@ -1736,37 +1727,6 @@ func TestStateMachineMigrated(t *testing.T) {
 	}
 }
 
-// Invite: auth_return cookie is also set when unauthenticated (regression guard).
-func TestInviteSetsCookieFlagsHTTPS(t *testing.T) {
-	db := testDB(t)
-	seedInviteRow(t, db, store.ArchiveInviteRow{Ref: store.TokenRef("tok"),
-		TargetGlob: "alice", IssuedBySub: "x", MaxUses: 1})
-	cfg := config{authBaseURL: "https://example.com", secureCookie: true}
-	req := httptest.NewRequest("GET", "/invite/tok", nil)
-	req.SetPathValue("token", "tok")
-	w := httptest.NewRecorder()
-	handleInvite(w, req, db, db, cfg)
-
-	var c *http.Cookie
-	for _, x := range w.Result().Cookies() {
-		if x.Name == "auth_return" {
-			c = x
-		}
-	}
-	if c == nil {
-		t.Fatal("auth_return cookie missing")
-	}
-	if !c.Secure {
-		t.Error("want Secure cookie over HTTPS")
-	}
-	if !c.HttpOnly {
-		t.Error("want HttpOnly cookie")
-	}
-	if c.SameSite != http.SameSiteLaxMode {
-		t.Errorf("want SameSite=Lax, got %v", c.SameSite)
-	}
-}
-
 // paramVal / emailDomain edge cases.
 func TestParamValAndEmailDomain(t *testing.T) {
 	if paramVal("domain=co.com", "domain") != "co.com" {
@@ -1789,9 +1749,9 @@ func TestDashboardUnauthenticated(t *testing.T) {
 	req := httptest.NewRequest("GET", "/onboard", nil)
 	w := httptest.NewRecorder()
 	handleOnboard(w, req, db, db, cfg)
-	// No token, no X-User-Sub → redirect to login
-	if w.Code != http.StatusSeeOther {
-		t.Fatalf("want 303 redirect, got %d", w.Code)
+	// No X-User-Sub: proxyd let through a caller it could not name, so say so.
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("want 401, got %d", w.Code)
 	}
 }
 
