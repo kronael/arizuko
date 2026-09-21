@@ -8,6 +8,7 @@ import (
 	"html"
 	"html/template"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
 	"os/signal"
@@ -355,6 +356,14 @@ var knownStatuses = map[string]bool{
 	"refused":          true,
 }
 
+// knownStatusList renders knownStatuses for the operator who has to repair a
+// stranded row. It is DERIVED, because the hand-written copy it replaces named
+// `token_used` — gone with the token (spec 5/31) — and omitted `refused`, so
+// the error told the operator to write a status the pipeline cannot advance.
+func knownStatusList() string {
+	return strings.Join(slices.Sorted(maps.Keys(knownStatuses)), "/")
+}
+
 // warnedStranded remembers which (jid, status) pairs this process has already
 // reported, so a stranded row is ERROR once and not once per poll. The scan
 // runs from promptUnprompted on a 10s poll: unbounded repetition buried real
@@ -380,7 +389,7 @@ func warnStrandedRows(db *store.Store) {
 			continue
 		}
 		slog.Error("onboarding row stranded in an unknown status — it will never advance",
-			"jid", r.JID, "status", r.Status, "known", "awaiting_message/token_used/queued/approved")
+			"jid", r.JID, "status", r.Status, "known", knownStatusList())
 	}
 }
 
