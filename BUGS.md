@@ -4621,17 +4621,60 @@ room `user/137865889`.
 - **Severity:** none (closed)
 - **Status:** CLOSED — no code change; test widened to the second shape.
 
-## Cost attribution is folder-only — per-chat lost, per-user auth-only, plus a duplicate cost_log (2026-07-13, OPEN)
+## Per-chat spend has no rollup surface (2026-07-13, rewritten 2026-09-21, NEEDS SIGN-OFF)
 
-Question raised: is LLM cost attributed completely to individual chats + users? **No.**
-- **Cost → folder: yes.** `recordTurnResult` writes `cost_log(folder, turn_id, model, …)` once per model (`routd/turns.go:684-689`; schema `routd/migrations/0001` + `0011-cost-log-user-sub.sql`).
-- **Cost → chat: NO (derivable, unwired).** `cost_log` has no `chat_jid`. The turn's `chat_jid` is on `turn_context` (same `turn_id` PK) but nothing joins it — not `CostByTurn` (`routd/db.go:1104`), `/v1/cost` (`routd/reads_http.go:299`), or dashd. A folder with many chats collapses to one folder total. **Min fix:** add `chat_jid` to `cost_log`, set from `tc.ChatJID` at the one write-site (`turns.go:685-689`).
-- **Cost → user: PARTIAL.** `userSub := callerSubOfMsg(tc.Trigger)` resolves only `google:`/`github:`/`local:` senders (`routd/budget.go:9-23`); native adapter senders (`telegram:user/…`, WhatsApp, Slack) → `""` → folder-only. Most chat traffic has no user dimension. **Decision needed:** widen `callerSubOfMsg` to key on the raw adapter sender, OR document per-user cost as auth-only by design (currently reads as a bug, not a decision).
-- **Duplicate cost_log (no-duplication violation).** A second, structurally different `cost_log` exists in `store/` (`store/cost_log.go` + `store/migrations/0049-cost-log.sql`, cols `ts/cache_read/cache_write`, no `turn_id`) with its own `LogCost`/`GroupUsageBulk` (dashd usage reads this one). Two cost-recording paths that will drift — consolidate to one owner.
-- **Reporting:** dashd usage + `GroupUsageBulk` slice by folder only (`dashd/usage_page.go`, `store/cost_log.go:119`); `/v1/cost` is per-turn only. No per-chat or per-user rollup surface exists.
+Three of this entry's four premises died with spec `6/39` ("the gateway owns
+spend", shipped): **arizuko stores no spend at all.** LiteLLM is the ledger, the
+cap is enforced by the gateway, and every operator surface reads the gateway's
+number. Verified at `96cab2b6`.
 
-- **Severity:** medium (billing/showback can't split by chat or by unauthenticated user)
-- **Status:** OPEN — chat gap is a 1-column + 1-write-site fix; user gap needs a design call; the duplicate cost_log needs sign-off (schema consolidation).
+**Refuted — do not act on the original text.**
+
+- *"`recordTurnResult` writes `cost_log`"* — no. `routd/turns.go:216`
+  `logSelfReportedCost` only LOGS the agent's self-report; with a gateway it is
+  kept solely as the signature of a bypassed gateway when the two disagree.
+- *"Min fix: add `chat_jid` to `cost_log`"* — **the table is gone.** Migration
+  `routd/0046` renamed it `cost_log_archive` and the DynamoDB move dropped even
+  that; `cost_log` appears in no Go or SQL file. Adding a column would resurrect
+  the second ledger `6/39` deleted.
+- *"Duplicate `cost_log` in `store/`"* — resolved. `store/cost_log.go`,
+  `LogCost`, `GroupUsageBulk`, `CostByTurn`, `SpendTodayFolder`/`User` and
+  `LogExternalCost` are all deleted. One reader now: `spendByFolder`
+  (`routd/gateway.go:267`) behind `GET /v1/cost/summary`, which the dashboard,
+  the REST face and the CLI all go through.
+- *"Cost → user is PARTIAL; `callerSubOfMsg` resolves only google/github/local"*
+  — **decided and shipped the other way.** `callerSubOfMsg` is gone;
+  `turnCallerSub` (`routd/dispatch.go:804`) passes every sender VERBATIM onto
+  the key's `user_id`, so `telegram:user/…` is attributed. Its comment records
+  why: an allowlist standing there emptied `user_sub` in all 7,188 rows the
+  fleet had written (`L69`). **Never reintroduce a scheme allowlist here.**
+
+**What survives.** The chat axis is genuinely absent from the meter. A turn's
+key carries `team_id=<folder>`, `metadata{folder, turn_id}` and `user_id`
+(`routd/gateway.go:100-113`) — no chat. So a folder's many chats still collapse
+to one folder total on every rollup surface. Per-TURN cost is answerable
+(`GET /v1/cost?turn_id=` resolves the turn to its key hash and asks the
+gateway), and `turn_context` holds the turn's `chat_jid`, so the number is
+recoverable one gateway call per turn — but there is no rollup.
+
+**Proposal (needs sign-off — a new dimension on the mint).** Put the chat on the
+key as a LiteLLM tag at `mint`, then read `/spend/tags` for the rollup. That
+keeps the single-ledger rule: one writer (the mint), one reader (a
+`spendByChat` beside `spendByFolder`), no arizuko-side table. Open questions the
+owner decides:
+
+1. Cardinality. One tag value per chat jid, unbounded over an instance's life —
+   does the gateway's tag index take that, and does it need a retention window?
+2. Whether a chat rollup is wanted at all, or whether folder + turn is the
+   honest granularity and per-chat showback is out of scope. `6/39` deliberately
+   narrowed what arizuko reports; this widens it again.
+
+Not shipped inline: `6/39` is a signed decision about what the meter carries,
+and adding an axis to it is an amendment to that spec, not a bug fix.
+
+- **Severity:** low (folder + per-turn attribution both work; only the per-chat
+  rollup is missing)
+- **Status:** NEEDS SIGN-OFF — spec `6/39` amendment. No code change pending.
 
 ## Codex mount assumes creds readable by the container uid — 0600 operator creds break codex-in-container (2026-07-12, unblocked live, DURABLE FIX OPEN)
 
