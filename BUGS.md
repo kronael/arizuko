@@ -4256,7 +4256,7 @@ drift and leaves the mechanism that produced it, which is the case root
 decision is one sentence: which tree is canonical for each pair, and does the
 other become a reference to it rather than a second copy?**
 
-## F41 — the re-greet cooldown is a rate, not a cap (2026-08-06, open question — NOT a spec defect)
+## F41 — the re-greet cooldown is a rate, not a cap (2026-08-06, open question — NOT a spec defect; sharpened to a three-way choice with costs 2026-09-21, UNANSWERED by design)
 
 Shipped with the `5/31` fold and named in the spec rather than hidden. A chat
 that (a) keeps messaging, (b) still routes nowhere, and (c) never redeems its
@@ -4297,6 +4297,50 @@ Still an open POLICY question, not a defect: should the Nth greeting back off?
 `prompt_count` attribute and widen the interval after N.** Two months on, no
 instance has reported the 144/day worst case, which is the evidence the entry
 said to wait for.
+
+**RE-VERIFIED 2026-09-21 at `17459f6a` (`a388cad7` is its ancestor) — mechanism
+unchanged, `prompt_count` still absent from the whole tree. Two bounds the entry
+does not credit, and a THIRD option cheaper than the one it names.**
+
+- **The mechanism is three conditional writes and NO read, which is the thing a
+  back-off would spend.** Absence of `prompted_at` IS "due a greeting":
+  `InsertOnboarding` re-arms by REMOVING the stamp once it is older than
+  `PairingTTL` (`store/onboarding.go:163-171`), `UnpromptedJIDs` lists rows
+  where it is Absent (`:560`), and `ClaimOnboardingPrompt` sets it under
+  `Absent` — "the condition IS the claim: two overlapping poll ticks cannot both
+  win one jid" (`:651-668`). No path reads the row to decide.
+- **Two more bounds.** routd's route-miss call is gated by
+  `onboardingAllowed(chatJID, l.onboardingPlatforms)`, and a Discord GUILD
+  channel additionally needs `Verb == "mention"` (`routd/loop.go:696-699`) — so
+  the 144/day worst case needs 144 explicit @mentions there, not 144 messages.
+  `InsertOnboarding` has a second caller the entry does not name, the REST
+  `create` on `/v1/onboarding` (`onbod/onboarding_resource.go:79`); it is
+  operator/agent-invoked and drives no automatic rate.
+
+- **Three options, not two.** The entry's title already says "a rate, not a
+  cap", and the cap is the cheap one it does not cost out:
+
+  1. **Flat rate (as is).** No code, no attribute. Worst case 144 greetings/day
+     to one chat that keeps talking, never routes and never redeems; the user
+     cannot switch it off. The failure it prevents — the permanent lockout
+     `P1b` blocker 2 removed — is PROVEN; the flood it permits is still
+     hypothetical after ~7 weeks.
+  2. **Hard cap after N.** One `prompt_count` attribute, incremented at claim
+     time (the `incrementEntityVia` primitive already exists), plus ONE more
+     term on the re-arm condition: `prompt_count < N`. A comparison against a
+     literal, so it stays a single conditional write with no read and the
+     race-freedom above survives intact. Costs the user who hits N a silent
+     dead end — the entry's original lockout, deferred rather than removed.
+  3. **Widening interval after N.** Same attribute, but the re-arm condition
+     becomes `prompted_at < now - interval(count)`, and the comparison value is
+     computed by the CALLER. `InsertOnboarding` does not know `count`, so this
+     one buys a read-modify-write where there is now a single conditional
+     write. That is the real price, and it is invisible from "add a column".
+
+  **So the sentence to answer is: flat rate, hard cap at N, or widening
+  interval — knowing the cap costs one condition term and the widening costs the
+  lock-free write.** Unanswered here on purpose: it is a policy choice, and
+  nothing has yet asked it.
 
 ## F37 — three dispatch tests fail under whole-suite load, so the suite cannot gate a release (2026-08-06, ✅ `tests/` HALF FIXED 2026-09-12 at `881bfbf0`; the slakd half is still uncaptured)
 
