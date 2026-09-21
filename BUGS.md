@@ -962,7 +962,7 @@ use, and drifting the INSTALL.md row each turn the matching test red.
   which reads `routd` and nothing else — each proven before the next.
 - **Fix:**
 
-## L317 — `/stop` no longer cancels a question typed just before it (2026-09-20, open — needs a decision)
+## L317 — `/stop` no longer cancels a question typed just before it (2026-09-20, open — needs a decision; re-measured 2026-09-21 after `L336`)
 
 Fallout of the `L104` fix, named rather than discovered late. `/stop` kills the
 running container (`routd/steer.go` `cmdStop`) and has never meant "discard my
@@ -975,12 +975,62 @@ The old behaviour was the right answer for `/stop` and the wrong answer for
 every other command, which is why the fix went the way it did. `/stop` is the
 one place where a user plainly wants the backlog dropped too.
 
+**RE-MEASURED 2026-09-21 at `f5851f94`, after `L336` changed the selection.**
+`steerRowIdx` now takes the OLDEST slash command in a batch rather than the
+newest non-bot row, so the shape this entry describes had to be re-read rather
+than assumed. Three batches driven through `processGroupMessages` with a
+`RunStopper` runner:
+
+| batch | `/stop` fires | turns dispatched | cursor lands on |
+| --- | --- | --- | --- |
+| `do X`, `/stop` | yes | 1 — `do X` | `/stop` |
+| `/stop`, `do Y` | yes | 0 | `/stop` |
+| `do X`, `/stop`, `do Y` | yes | 1 — `do X` only | `/stop` |
+
+So the defect is unchanged in its own shape — the question typed BEFORE `/stop`
+still runs — and `L336` made it reach FURTHER. Row 3 is the new part: before
+`L336` the newest row (`do Y`) was the steer candidate, `/stop` was never
+steered at all, and it reached the agent as plain text killing nothing. `/stop`
+now fires reliably, and every older row still dispatches. The entry got worse,
+not stale.
+
+**The fix as originally written would re-open `L104`.** "Advances the cursor
+past the whole batch it steered from" was written when the steered row was the
+NEWEST row, where "the whole batch" and "everything older" were the same set.
+Under `L336` the steered row is the OLDEST command, so the whole batch now
+includes rows NEWER than the `/stop` — row 3's `do Y`, typed deliberately after
+the cancel. Discarding those is exactly the harm `L104` names, in the other
+direction, and it contradicts `steerRowIdx`'s own comment: "rows after it stay
+above the cursor for the next poll — nothing is skipped in either direction
+(BUGS L104)".
+
+The only defensible variant is therefore **drop what is OLDER than the `/stop`
+row and nothing else** — skip the turn for `msgs[:steerIdx]` in
+`routd/dispatch.go`, where the steer branch already truncates to exactly that
+slice. That is a one-line change, not a redesign, once the contract is signed
+off.
+
+**What sign-off has to answer**, and it is not "should /stop be tidier":
+
+1. **Whose rows does it drop?** `msgs[:steerIdx]` is not filtered by sender, and
+   the non-web path fans out per sender (`groupBySender`, `routd/dispatch.go`).
+   In a group chat one person's `/stop` would discard every other person's
+   pending question. Either the drop is sender-scoped to the stopper or `/stop`
+   becomes a command one member can use to silence the others.
+2. **Is it still the same contract as every other command?** No command in
+   `steerCommands` consumes a row it did not author. `/new` goes the other way:
+   it RE-INJECTS its argument as a fresh message row (`cmdNew`,
+   `routd/steer.go:440`). `/stop` dropping the backlog would be the only
+   command that eats rows, which is why it wants sign-off and not a default.
+3. **Does the user get told?** A silent drop of a question the user typed is the
+   failure mode this queue keeps re-filing. The drop has to ack the count.
+
 - **Severity:** low — one command, and the user can say so in words
-- **Scope:** `routd/steer.go` `cmdStop`, `routd/dispatch.go` steer branch
-- **Affected:** any chat where a person cancels by `/stop` right after asking
-- **Source:** named in the `L102`/`L103`/`L104` fix, 2026-09-20
-- **Status:** open — needs a decision
-- **Fix:** if `/stop` should clear the backlog, it advances the cursor past the whole batch it steered from, and says how many rows it dropped. That is a different contract from every other command, so it wants sign-off rather than a quiet default.
+- **Scope:** `routd/dispatch.go` steer branch (`msgs[:steerIdx]`); `routd/steer.go` `cmdStop`
+- **Affected:** any chat where a person cancels by `/stop` right after asking; a group chat is where it would bite others
+- **Source:** named in the `L102`/`L103`/`L104` fix, 2026-09-20; re-measured 2026-09-21 at `f5851f94` after `L336` (`f63957e4`)
+- **Status:** open — needs a decision, and the decision is narrower than it was: the question is no longer "clear the backlog?" but "clear the OLDER rows, scoped to whose sender, and acked how?"
+- **Fix:** if `/stop` should clear the backlog, it skips the turn for `msgs[:steerIdx]` — the rows older than the command, never the whole batch — and acks how many it dropped. Sender scope is the open half. Advancing past the whole batch is now WRONG: it would discard rows typed after the `/stop` and re-open `L104`.
 
 ## L315 — a catalog package's rows freeze at `add` while its files and env keep tracking the catalog, and `upgrade` reports "nothing to do" (2026-09-19, REPORT FIXED 2026-09-20; re-applying the rows stays a proposal)
 
