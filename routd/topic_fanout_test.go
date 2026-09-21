@@ -8,10 +8,10 @@ import (
 )
 
 // Two live threads in one Discord channel, addressed by the SAME person: each
-// one is its own conversation and each one is owed its own turn. The batch used
-// to group by sender alone, so both mentions landed in one turn whose topic was
-// the LAST row's — the first thread was answered inside the second and then went
-// silent for three weeks on sloth (BUGS L305).
+// one is its own conversation and each one is owed its own turn. Grouping by
+// sender alone put both mentions in one turn whose topic was the LAST row's, so
+// the first thread was answered inside the second and then went silent for
+// three weeks on sloth (BUGS L305).
 func TestDispatch_TwoThreadsOneSenderGetOneTurnEach(t *testing.T) {
 	db, loop, rr := recLoop(t)
 	_ = db.PutGroup(core.Group{Folder: "desk"})

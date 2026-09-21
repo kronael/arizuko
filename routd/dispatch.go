@@ -125,17 +125,26 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		return steerConsumed, nil
 	}
 
-	// turnTopic answers the topic one row's turn dispatches under: a set sticky
-	// #topic overrides the message's own topic, and a route-pinned topic is the
-	// explicit non-web override. It is DECLARED ONCE because the grouping key
-	// below and the loop body both read it, and a group whose rows disagree
-	// about their destination has no destination of its own.
+	// turnTopic answers the topic one row's turn dispatches under. It is DECLARED
+	// ONCE because the grouping key below and the loop body both read it, and a
+	// group whose rows disagree about their destination has no destination of
+	// its own.
+	//
+	// Both overrides — a set sticky #topic and a route-pinned topic — are
+	// properties of the CHAT, so they resolve ONCE, here. The key function runs
+	// for every row and pollBatch is 200, so reading the sticky pin inside it
+	// would be hundreds of chat reads for one fact. effectiveTopic on an empty
+	// topic IS that pin, which keeps the rule declared in one place.
 	web := strings.HasPrefix(chatJID, "web:")
+	pin := l.effectiveTopic(chatJID, "")
+	if !web && r.Topic != "" {
+		pin = r.Topic
+	}
 	turnTopic := func(m core.Message) string {
-		if !web && r.Topic != "" {
-			return r.Topic
+		if pin != "" {
+			return pin
 		}
-		return l.effectiveTopic(chatJID, m.Topic)
+		return m.Topic
 	}
 
 	// web: chats dispatch one turn per topic in first-seen order; everyone else
