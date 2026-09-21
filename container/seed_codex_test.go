@@ -3,6 +3,7 @@ package container
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -115,5 +116,92 @@ func TestSeedCodexMountTargetsIdempotent(t *testing.T) {
 	}
 	if !os.SameFile(first, second) {
 		t.Fatal("second pass replaced an already-owned stub")
+	}
+}
+
+// The RO overmount hands the container the HOST file's owner and mode, so an
+// operator's own ~/.codex at 0600 is unopenable by the agent's uid and codex
+// answers "not logged in" — a permission fault wearing an expired-login face.
+// The named set is the certain one: a group-readable file may be reachable
+// through a supplementary group, so it is not accused.
+func TestUnreadableCodexCredsNamesOnlyTheCertainCase(t *testing.T) {
+	me := os.Getuid()
+	other := me + 1
+
+	for _, tc := range []struct {
+		name string
+		mode os.FileMode
+		uid  int
+		want bool
+	}{
+		{"operator 0600, another uid", 0o600, other, true},
+		{"operator 0600, the owner", 0o600, me, false},
+		{"0644 world-readable", 0o644, other, false},
+		{"0640 group-readable, unknowable", 0o640, other, false},
+		{"0000 unopenable by its owner too", 0o000, me, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			for _, n := range CodexROMounts {
+				if err := os.WriteFile(filepath.Join(dir, n), []byte("{}"), tc.mode); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Chmod(filepath.Join(dir, n), tc.mode); err != nil {
+					t.Fatal(err)
+				}
+			}
+			got := unreadableCodexCreds(dir, tc.uid)
+			if (len(got) > 0) != tc.want {
+				t.Fatalf("named %v, want unreadable=%v", got, tc.want)
+			}
+			if tc.want && len(got) != len(CodexROMounts) {
+				t.Fatalf("named %d of %d credentials", len(got), len(CodexROMounts))
+			}
+		})
+	}
+}
+
+// An absent HOST_CODEX_DIR file is the mount's own failure to report; naming it
+// here would put a permission verdict on a file that has no permissions.
+func TestUnreadableCodexCredsIgnoresAbsent(t *testing.T) {
+	if got := unreadableCodexCreds(t.TempDir(), os.Getuid()+1); len(got) != 0 {
+		t.Fatalf("named %v for a directory holding no credentials", got)
+	}
+}
+
+// buildMounts mounts the credential either way — codex is optional and a spawn
+// that refused over it would break every turn that never runs codex — so the
+// log is the whole surfacing. An unread emission is dead wiring, hence this.
+func TestBuildMountsSaysWhenCodexCredsAreUnreachable(t *testing.T) {
+	cfg, folders := fhsConfig(t)
+	cfg.HostCodexDir = t.TempDir()
+	for _, n := range CodexROMounts {
+		p := filepath.Join(cfg.HostCodexDir, n)
+		if err := os.WriteFile(p, []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		// 0000: no uid but root can open it, and containerRunUID() is never root.
+		if err := os.Chmod(p, 0o000); err != nil {
+			t.Fatal(err)
+		}
+	}
+	in := Input{Folder: "atlas/support"}
+	groupDir := filepath.Join(cfg.GroupsDir, in.Folder)
+	mustMkdir(t, groupDir)
+
+	logged := captureWarnings(t)
+	mounts := buildMounts(cfg, in, groupDir, false, folders)
+
+	out := logged()
+	for _, n := range CodexROMounts {
+		if !strings.Contains(out, filepath.Join(cfg.HostCodexDir, n)) {
+			t.Errorf("%s unreadable and unnamed; log was: %s", n, out)
+		}
+	}
+	if !strings.Contains(out, "not logged in") {
+		t.Errorf("the log does not name the symptom the operator sees: %s", out)
+	}
+	if findMount(mounts, "/home/node/.codex/"+CodexROMounts[0]) == nil {
+		t.Error("the credential was dropped from the mount list; the log is the surfacing, not a skip")
 	}
 }

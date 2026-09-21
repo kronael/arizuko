@@ -5056,7 +5056,7 @@ and adding an axis to it is an amendment to that spec, not a bug fix.
   rollup is missing)
 - **Status:** NEEDS SIGN-OFF — spec `6/39` amendment. No code change pending.
 
-## Codex mount assumes creds readable by the container uid — 0600 operator creds break codex-in-container (2026-07-12, unblocked live, DURABLE FIX OPEN)
+## Codex mount assumes creds readable by the container uid — 0600 operator creds break codex-in-container (2026-07-12, unblocked live; SILENT HALF FIXED 2026-09-21, the copy is still a proposal)
 
 `container/runner.go:582-590` RO-mounts `HOST_CODEX_DIR/{auth.json,config.toml}`
 into the agent container, which runs as uid 1000 (`mivu`). But those files are
@@ -5078,6 +5078,44 @@ acl`; `setfacl -m u:1000:r …`) if the host gains other users; (2) if onvos's
   dir (`runner.go:583`, already chowned to the run uid) so the container reads
   its own uid-1000 copy. Keeps operator creds untouched, survives host-side
   rewrites, no world-read. Redesign of the codex mount → record + sign-off.
+  Still unsigned, and it widens exposure in a way the entry does not price: a
+  copy chowned to the run uid is WRITABLE by the agent and outlives the
+  container in the group folder, where the RO mount is neither.
+
+- **RE-MEASURED at `fdb59418` 2026-09-21. The mount is there and the failure
+  mode is real.** `container/runner.go` mounts the group's `.codex` and then
+  RO-overmounts each `CodexROMounts` entry from `cfg.HostCodexDir`; the
+  overmount carries the HOST file's owner and mode, and the agent's uid is 1000
+  unless runed runs as some third uid. Nothing between the operator's `chmod`
+  wearing off and the agent answering "not logged in" said a word.
+
+- **The silence is fixed 2026-09-21. The permission is NOT, and must not be.**
+  `unreadableCodexCreds` (`container/runtime.go`) names each shared credential
+  the agent's uid certainly cannot open, and `buildMounts` logs it at ERROR
+  with the path, the uid and the symptom the operator will otherwise chase.
+  Two options were refused, each for its own reason:
+  - **Repairing the mode** would have arizuko `chmod` an operator's own
+    `~/.codex`. `CLAUDE.md`: operator data fixes belong to the operator, the
+    platform stays mechanical.
+  - **Refusing the spawn** would break every turn that never runs codex. codex
+    is one optional backend; a hard gate on its credential is the wrong blast
+    radius, so the log is the whole surfacing and the mount is unchanged — the
+    test asserts the credential still reaches the mount list.
+  Only the CERTAIN case is named: a file the uid owns and can read, or one with
+  the world-read bit, is reachable; a group-readable one may be reachable
+  through a supplementary group runed cannot enumerate, so it is not accused.
+  A wrong accusation trains the operator to skip the line that matters.
+
+- **Also collapsed: `containerRunUID`.** `buildArgs` decided the agent's
+  in-container uid with a bare `uid != 1000` beside the `containerUID`
+  constant; the readability check needs the same answer, so the rule is one
+  function with two readers rather than a second copy that drifts.
+
+- **PROVEN BY MUTATION:** drop the log site and
+  `TestBuildMountsSaysWhenCodexCredsAreUnreachable` fails on both credentials
+  and on the missing symptom; the 0640 case in
+  `TestUnreadableCodexCredsNamesOnlyTheCertainCase` fails the moment the check
+  widens to accuse a group-readable file.
 
 ## ✅ FIXED 2026-09-21 OPERATIONAL — Admin cannot log in to the krons dashboard (2026-07-12)
 
