@@ -4575,41 +4575,51 @@ that `observe` and `announce` are reserved words a topic cannot use.
 the next reserved fragment cannot reach the parser without reaching the operator
 — which is the mechanism that produced this entry.
 
-## System-turn / broadcast delivery targets a folder-jid or prefix-less room → "no channel for jid" → the broadcast is silently lost (2026-07-13, OPEN)
+## System-turn / broadcast delivery targets a folder-jid or prefix-less room → "no channel for jid" (2026-07-13, CLOSED 2026-09-21)
 
-From the "chats stop responding" eval. System/auto turns (the auto-migrate
-release broadcast; some proactive turns) call `deliver.Send(jid, …)` with `jid`
-set to the **group folder** (`main`, `atlas/support`) or a **prefix-less/stale
-room** (`user/137865889`) instead of the group's actual routed **channel** jid.
-`chanDeliverer.resolve` (`routd/deliver.go:78`) maps a jid → adapter via
-`lookupSource` (the adapter that delivered the jid's newest inbound); a folder or
-a prefix-less room has no inbound source → nil channel → `no channel for jid …`
-and the message is dropped. Live: marinade `user/137865889` during
-`auto-migrate-atlas/martin` (release note never delivered); sloth `jid:main` on
-restart. **Impact:** the migration/announcement broadcast silently fails to reach
-users on affected groups; error-spam in logs (51 hits/2d). NOT a user chat dying
-(distinct from the stale-session fix). **Fix direction (record-only):** system-turn
-delivery should resolve the group's bound channel jid (the routes-table channel /
-newest routed inbound), not the folder; or skip+debug-log when a folder has no
-bound channel instead of ERROR-spamming a doomed `Send`. Needs the broadcast/send
-target-resolution audited — design, not a one-liner.
+CLOSED — all three premises fixed by dated commits, and BOTH prescriptions the
+entry proposed are now regressions. Verified at `96cab2b6`.
 
-**v0.59 confirmation:** the new opt-in path still has this exact prefix-loss.
-Normal CLI-created routes use `room=` plus `core.JidRoom(jid)`, so the migrate
-script strips `room=` and passes values such as `T/channel/C` or `group/42` to
-`send`. Adapter ownership requires the original `slack:`/`telegram:`/`discord:`
-prefix, and routd returns `no channel for jid`. A normal `room=` route tagged
-`#announce` therefore cannot announce. Source: `cmd/arizuko/main.go:403-425`,
-`ant/skills/migrate/SKILL.md:280-295`, `chanreg/chanreg.go:41-47`,
-`routd/deliver.go:112-120`.
+- **The ERROR-spam / breaker storm** (`5f7a2f3a`, 2026-07-15). `deliverRow`
+  (`routd/turns.go:168`) refuses a jid with no `:` before the Send, so a doomed
+  `Send` no longer trips the per-folder breaker on a MIGRATION_VERSION bump.
+- **"Silently lost"** (`ed9d9e9f`, 2026-08-23, `L76`). The refused row lands
+  `failed` — the dead-letter state — so the content stays visible on the
+  `dead_letters` surface. Nothing is lost; it is parked where an operator reads
+  it. `/v1/outbound` does the same AND returns `502 delivery_failed` to the
+  caller (`routd/server.go:648-662`).
+- **The v0.59 prefix loss** (`8e19a746`, 2026-08-24, `L89`). The announce step
+  builds `<platform>:<room>` from the route match, and a `room=`-only match
+  aborts the step loudly rather than announcing nowhere
+  (`ant/skills/migrate/SKILL.md:268-317`). The `~/.announced-version` guard
+  advances only after every send succeeds, so the step retries.
 
-**2026-09-05 evidence.** sloth: 22 lines in 7 days, newest 2026-09-04 14:30:35 —
-the `/migrate` broadcast is delegated to `main/main`, whose reply targets jid
-`main` (a folder) and is dead-lettered (`out-c804cc4821ac8d0f`). krons: 7 lines
-2026-09-03 20:47-20:52 for the anteval `eval/etksvtw-*` chats, same shape.
+**The 2026-09-05 evidence in this entry recorded the fix working, not the bug.**
+`WARN`, not `ERROR` — the guard's own line; "is dead-lettered (`out-c804…`)" is
+`L76`'s chosen outcome. The krons `eval/etksvtw-*` lines are anteval chats,
+which have no platform channel by design: anteval asserts on stored rows via
+`/v1/messages/inspect`, so a dead-lettered reply is still the eval's evidence.
 
-- **Severity:** medium (announcements silently lost on some groups; log noise)
-- **Status:** OPEN, record-only.
+**Do not apply either prescribed fix.**
+
+- "Skip + debug-log instead of ERROR-spamming" would re-stamp the row `sent` or
+  drop it — that is exactly `L76`, which cost two lost operator alerts, one of
+  them reporting a skills-breaking guard.
+- "Resolve the group's bound channel jid in routd" would be a SECOND announce
+  resolver beside the migrate skill's `inspect_routing` + `#announce` read. One
+  renderer, many sinks: the skill owns destination resolution.
+
+`routd/loop.go:588` still writes the auto-migrate prompt with `ChatJID: folder`.
+That is the internal address of a turn with no chat, not a defect: the turn's
+announcement goes out through the skill's own `send` calls to real JIDs, and the
+leftover prose dead-letters by design.
+
+Pinned by `routd/contract_test.go` `TestDeliverRow_SkipsBareFolderJid`, which
+now asserts BOTH shapes the entry named — the bare folder and the prefix-less
+room `user/137865889`.
+
+- **Severity:** none (closed)
+- **Status:** CLOSED — no code change; test widened to the second shape.
 
 ## Cost attribution is folder-only — per-chat lost, per-user auth-only, plus a duplicate cost_log (2026-07-13, OPEN)
 
