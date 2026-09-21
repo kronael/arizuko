@@ -353,13 +353,12 @@ func (s *Store) DeleteGroup(folder string) (int, int, error) {
 	// `groups` goes first, which is what makes the folder unreachable: a failure
 	// part-way leaves rows nothing can find, and the next run collects them.
 	removed, swept, err := s.purgeFolder(ctx, folder)
-	// The error comes FIRST. Testing the count first returned (0, nil) for a
-	// failed query, because a purge that fails removes nothing — so a store
-	// error was reported as an empty folder.
-	if err != nil && !errors.Is(err, errNoFolder) {
+	// The error comes FIRST. Testing the count first reported a failed query as
+	// an empty folder, because a purge that fails removes nothing.
+	if err != nil {
 		return 0, 0, err
 	}
-	if err != nil || (removed == 0 && swept == 0) {
+	if removed == 0 && swept == 0 {
 		return 0, 0, nil
 	}
 	actor, actorSub, surface := s.auditIdentity()

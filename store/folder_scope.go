@@ -27,7 +27,6 @@ package store
 
 import (
 	"context"
-	"errors"
 	"slices"
 	"strings"
 
@@ -272,17 +271,6 @@ func FolderScopeClassified(table string) bool {
 // cannot see. The messages themselves stay: what names the folder is the index.
 var folderPartitionPurge = []string{MessageFolders}
 
-// errNoFolder refuses a purge with no folder to purge. An empty folder names the
-// whole subtree of everything, so it is the one argument this sweep must not
-// take.
-//
-// IT IS THE ONLY WAY OUT BEFORE THE SWEEP RUNS. There is no "subtree holds no
-// groups row" check and no rollback: `Groups` is the first entry in
-// `entityScopePurge`, so a present row is simply counted with the rest, and an
-// absent one leaves the count to the orphans. `DeleteGroup` then reads
-// `removed == 0` as "nothing was there", which it is.
-var errNoFolder = errors.New("store: purge needs a folder")
-
 // purgeFolder removes folder's subtree from every scope. It returns how many
 // `groups` items went with it, and separately how many rows of every OTHER
 // entity did — an orphan sweep, where the groups row is already gone and the
@@ -294,8 +282,11 @@ var errNoFolder = errors.New("store: purge needs a folder")
 // The entity deletes are chunked, because a batch carries at most
 // MaxBatchActions and a large folder's subtree can exceed one.
 func (s *Store) purgeFolder(ctx context.Context, folder string) (int, int, error) {
+	// An empty folder names the subtree of everything, so it is the one argument
+	// this sweep must not take. It is also the only way out before the sweep
+	// runs: there is no rollback.
 	if folder == "" {
-		return 0, 0, errNoFolder
+		return 0, 0, nil
 	}
 	// The folders this purge owns are read FIRST, off `groups`, because the loop
 	// below deletes those very rows: a read after it answers nothing and every
