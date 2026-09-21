@@ -50,7 +50,7 @@ func TestGateJIDDenialIsAudited(t *testing.T) {
 				rows = append(rows, ipcAuditRow{folder, sub, tool, outcome})
 				return nil
 			}
-			gated := GatedFns{SendReply: func(string, string, string) (string, string, error) { sent++; return "m1", "", nil }}
+			gated := GatedFns{SendReply: func(string, string, string, string) (string, string, error) { sent++; return "m1", "", nil }}
 
 			stop, err := ServeMCP(sock, gated, db, "world/a", false, 0, "folder:world/a")
 			if err != nil {
@@ -97,7 +97,7 @@ func TestGateJIDAllowsContainedChat(t *testing.T) {
 			return nil
 		},
 	}
-	gated := GatedFns{SendReply: func(string, string, string) (string, string, error) { sent++; return "m1", "", nil }}
+	gated := GatedFns{SendReply: func(string, string, string, string) (string, string, error) { sent++; return "m1", "", nil }}
 
 	stop, err := ServeMCP(sock, gated, db, "world/a", false, 0, "folder:world/a")
 	if err != nil {

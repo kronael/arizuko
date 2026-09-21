@@ -2290,7 +2290,7 @@ Bearer header, and a browser navigation carries a cookie.
 
   Unverified as before: no live instance was driven. `arizuko generate` on each
   instance is still required for the route change to reach proxyd.
-## L106 — the agent's `reply`/`send` sends one idempotency key and the retry sweep sends a different one, so the whole dedup contract is off for every MCP message (2026-08-26, proposal — needs sign-off; the fix crosses the ipc↔routd contract)
+## L106 — the agent's `reply`/`send` sends one idempotency key and the retry sweep sends a different one, so the whole dedup contract is off for every MCP message (2026-08-26, FIXED 2026-09-21; the "crosses the ipc↔routd contract" scope claim is REFUTED)
 
 `routd/mcp.go:259` delivers with a throwaway key:
 
@@ -2358,6 +2358,33 @@ live evidence stand exactly as written above.
   `:285` does the same for `Document`. A throwaway key on each, so the retry
   sweep's own key can never match either. Still correctly a proposal: the fix
   crosses the ipc↔routd contract.
+
+- **FIXED 2026-09-21 at `f13f3428`, and the scope claim it carried for 23 days
+  is WRONG.** The 2026-08-29 correction called this a shared-contract change
+  needing sign-off. `GatedFns.SendMessage`/`SendReply`/`SendDocument` are plain
+  Go func fields in one module with ONE production assignment each
+  (`routd/mcp.go` `buildGatedFns`) and ONE production call site each
+  (`ipc/ipc.go`). Widening them is compile-checked, not a wire change: the
+  adapter's `idempotency_key` field, `chanlib.deliverOnce` and every adapter
+  are untouched. Same shape as `L166`'s false contract claim.
+- **The direction the correction proposed was also the wrong one.** It offered
+  "the id crosses as a parameter OR as a return". The Deliverer's own doc says
+  the key IS *"the bot row's stable message_id"*, and ipc writes that row — so
+  ipc owns the mint and routd is the reader. `mcpDeliver`/`mcpAppendDoc` take
+  the id and forward it; both `"mcp-"+randHex(8)` sites are gone. Returning it
+  from routd would have kept two mints, because a nil Deliverer still persists
+  a row and would need its own fallback.
+- **Shipped:** one `core.MsgID("mcp")` per outbound attempt, minted in the
+  `reply` handler and in `internalSend` (one per file), handed to the send AND
+  to `putOutboundRow`. A failed send now records the row under the very id it
+  presented, so the sweep's `m.ID` re-opens the claim the first attempt made.
+  The verbs whose Deliverer takes no key — voice, post, the social verbs — pass
+  `""` and the row mints its own id; there is nothing for them to match.
+  `routd/mcp_integration_test.go` `TestMCPReplyRetryReusesIdempotencyKey`
+  drives a failing `reply` over the real socket and sweeps the row it leaves:
+  both the row id and the retry's key must equal the first send's key. Against
+  the old code it prints `row id="mcp-1789982117543437938" but the send claimed
+  "mcp-be1f5085bb961060"` — the entry's live krons evidence, reproduced.
 ## L120 — `/openapi.json` fabricated response schemas from a verb convention, so 22 mounted REST operations were documented wrongly (2026-08-26, LIE REMOVED 2026-09-21; typing the remaining 22 bodies is a proposal)
 
 `resreg/openapi.go:283` `endpointOp` INVENTS the response — list → `array<RowType>`,

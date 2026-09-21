@@ -34,7 +34,7 @@ func captureStore(rows *[]outboundRow) StoreFns {
 func TestSendTransientFailureRecordsPendingRow(t *testing.T) {
 	var rows []outboundRow
 	gated := GatedFns{
-		SendMessage: func(string, string) (string, error) { return "", fmt.Errorf("adapter down") },
+		SendMessage: func(string, string, string) (string, error) { return "", fmt.Errorf("adapter down") },
 	}
 
 	_, err := internalSend(gated, captureStore(&rows), "demo", "slack:T/C/U", "do not lose me", nil)
@@ -61,7 +61,7 @@ func TestSendTransientFailureRecordsPendingRow(t *testing.T) {
 func TestSendPermanentFailureDeadLetters(t *testing.T) {
 	var rows []outboundRow
 	gated := GatedFns{
-		SendMessage: func(string, string) (string, error) {
+		SendMessage: func(string, string, string) (string, error) {
 			return "", fmt.Errorf("channel slack send: %w: status 400", chanlib.ErrPermanent)
 		},
 	}
@@ -84,7 +84,7 @@ func TestSendPermanentFailureDeadLetters(t *testing.T) {
 func TestSendFileFailureDeadLetters(t *testing.T) {
 	var rows []outboundRow
 	gated := GatedFns{
-		SendDocument: func(string, string, string, string, string, string) (string, error) {
+		SendDocument: func(string, string, string, string, string, string, string) (string, error) {
 			return "", fmt.Errorf("adapter down")
 		},
 	}
@@ -110,7 +110,7 @@ func TestSendFileFailureDeadLetters(t *testing.T) {
 func TestSendSuccessRecordsSentRow(t *testing.T) {
 	var rows []outboundRow
 	gated := GatedFns{
-		SendMessage: func(string, string) (string, error) { return "pid-7", nil },
+		SendMessage: func(string, string, string) (string, error) { return "pid-7", nil },
 	}
 
 	id, err := internalSend(gated, captureStore(&rows), "demo", "slack:T/C/U", "hello", nil)

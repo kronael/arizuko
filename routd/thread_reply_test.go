@@ -122,10 +122,10 @@ func TestMcpDeliverReplyThreadsSendDoesNot(t *testing.T) {
 	_ = db.SetChatIsGroup(jid, true)
 	threadTurn(t, db, "t1", "demo", jid, "1700000111.000100")
 
-	if _, _, err := srv.mcpDeliver("t1", jid, "answer", "", true); err != nil {
+	if _, _, err := srv.mcpDeliver("t1", jid, "answer", "", "mcp-1", true); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := srv.mcpDeliver("t1", jid, "announce", "", false); err != nil {
+	if _, _, err := srv.mcpDeliver("t1", jid, "announce", "", "mcp-2", false); err != nil {
 		t.Fatal(err)
 	}
 	if len(dl.sends) != 2 {
@@ -306,7 +306,7 @@ func TestDocumentThreadsOnTopic(t *testing.T) {
 	if _, err := db.PutTurnContext("t1", "demo", "th-9", jid, "u1", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := srv.mcpAppendDoc("t1", jid, "/tmp/report.pdf", "report.pdf", "", "", ""); err != nil {
+	if _, err := srv.mcpAppendDoc("t1", jid, "/tmp/report.pdf", "report.pdf", "", "", "", "mcp-3"); err != nil {
 		t.Fatal(err)
 	}
 	if len(dl.docs) != 1 || dl.docs[0].threadID != "th-9" {

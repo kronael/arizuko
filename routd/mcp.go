@@ -44,16 +44,16 @@ func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 		GroupsDir:            s.groupsDir,
 		Audit:                s.audit,
 		FetchPlatformHistory: s.fetchPlatformHistory,
-		SendMessage: func(jid, text string) (string, error) {
+		SendMessage: func(jid, text, msgID string) (string, error) {
 			// send roots no thread, so it has no root to report.
-			pid, _, err := s.mcpDeliver(t.turnID, jid, text, "", false)
+			pid, _, err := s.mcpDeliver(t.turnID, jid, text, "", msgID, false)
 			return pid, err
 		},
-		SendReply: func(jid, text, replyTo string) (string, string, error) {
-			return s.mcpDeliver(t.turnID, jid, text, replyTo, true)
+		SendReply: func(jid, text, replyTo, msgID string) (string, string, error) {
+			return s.mcpDeliver(t.turnID, jid, text, replyTo, msgID, true)
 		},
-		SendDocument: func(jid, path, filename, caption, replyTo, threadID string) (string, error) {
-			return s.mcpAppendDoc(t.turnID, jid, path, filename, caption, replyTo, threadID)
+		SendDocument: func(jid, path, filename, caption, replyTo, threadID, msgID string) (string, error) {
+			return s.mcpAppendDoc(t.turnID, jid, path, filename, caption, replyTo, threadID, msgID)
 		},
 		SendVoice: func(jid, text, voice, folder, threadID string) (string, error) {
 			return s.mcpSendVoice(t.turnID, jid, text, voice, folder, threadID)
@@ -257,7 +257,11 @@ func ensureGroupGitRepo(groupDir string) {
 // so an MCP reply that rooted a thread recorded no thread: 4 of 9 `mcp-` rows in
 // one sloth thread had an empty topic while the REST rows beside them said where
 // they landed (BUGS L166).
-func (s *Server) mcpDeliver(turnID, jid, text, replyTo string, threaded bool) (string, string, error) {
+// msgID is the id the ipc layer will store the row under, presented to the
+// adapter as the idempotency key. Minting one here instead left the row and the
+// claim under different keys, so the retry sweep — which sends under the row id
+// — opened a second claim and the user got the message twice (BUGS L106).
+func (s *Server) mcpDeliver(turnID, jid, text, replyTo, msgID string, threaded bool) (string, string, error) {
 	if s.deliver == nil {
 		return "", "", nil
 	}
@@ -269,7 +273,7 @@ func (s *Server) mcpDeliver(turnID, jid, text, replyTo string, threaded bool) (s
 			threadRoot = s.replyThreadRoot(tc, jid)
 		}
 	}
-	pid, err := s.deliver.Send(jid, text, replyTo, topic, threadRoot, "mcp-"+randHex(8))
+	pid, err := s.deliver.Send(jid, text, replyTo, topic, threadRoot, msgID)
 	if err != nil {
 		slog.Warn("mcp deliver failed", "turn_id", turnID, "jid", jid, "err", err)
 	}
@@ -280,7 +284,7 @@ func (s *Server) mcpDeliver(turnID, jid, text, replyTo string, threaded bool) (s
 // recordOutbound persists the row, keyed on the returned platform id so a later
 // human reply re-promotes). An empty threadID falls back to the turn's topic so
 // files land in the active thread like text replies (mirrors mcpSendVoice).
-func (s *Server) mcpAppendDoc(turnID, jid, path, name, caption, replyTo, threadID string) (string, error) {
+func (s *Server) mcpAppendDoc(turnID, jid, path, name, caption, replyTo, threadID, msgID string) (string, error) {
 	if s.deliver == nil {
 		return "", nil
 	}
@@ -290,7 +294,7 @@ func (s *Server) mcpAppendDoc(turnID, jid, path, name, caption, replyTo, threadI
 			threadID = tc.Topic
 		}
 	}
-	pid, err := s.deliver.Document(jid, path, name, caption, replyTo, threadID, "mcp-"+randHex(8))
+	pid, err := s.deliver.Document(jid, path, name, caption, replyTo, threadID, msgID)
 	if err != nil {
 		slog.Warn("mcp deliver document failed", "turn_id", turnID, "jid", jid, "err", err)
 	}

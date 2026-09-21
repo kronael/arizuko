@@ -121,3 +121,78 @@ func callToolOverSock(t *testing.T, sock, name string, args map[string]any) (map
 	_ = json.Unmarshal([]byte(text), &payload)
 	return payload, ""
 }
+
+// TestMCPReplyRetryReusesIdempotencyKey: the agent's `reply` and the retry
+// sweep must present the adapter the SAME idempotency key, because that key is
+// the only thing chanlib's deliverOnce dedups on. routd minted a throwaway key
+// for the MCP send while the row it persisted carried another, so a first
+// attempt whose response was lost left a claim the sweep never matched: it
+// opened a fresh one and the user got the message twice (BUGS L106).
+//
+// The sweep sends under the row id, so this drives a failing reply over the
+// real socket, then sweeps the row it left behind and compares the two keys.
+func TestMCPReplyRetryReusesIdempotencyKey(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := db.PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
+	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo"}})
+	const jid = "slack:team/channel/c1"
+	if _, err := db.PutTurnContext("t1", "demo", "", jid, "u1", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	// failSend is the live failure: the adapter posted and the response was
+	// lost, or it never posted at all. Either way routd owes a retry.
+	deliver := &recDeliverer{pid: "pid-x", failSend: true}
+	srv := NewServer(db, nil, deliver, nil, 0, "")
+	ipcDir := filepath.Join(t.TempDir(), "ipc", "demo")
+	stop, err := srv.ServeTurnMCP(
+		turnMCP{folder: "demo", topic: "", chatJID: jid, turnID: "t1", trigger: "u1"}, ipcDir)
+	if err != nil {
+		t.Fatalf("ServeTurnMCP: %v", err)
+	}
+	defer stop()
+
+	if _, errText := callToolOverSock(t, groupfolder.IpcSocket(ipcDir), "reply",
+		map[string]any{"chatJid": jid, "text": "hello"}); errText == "" {
+		t.Fatal("reply reported success though the Deliverer failed")
+	}
+	sends := deliver.sentMsgs()
+	if len(sends) != 1 {
+		t.Fatalf("deliver.sends=%d want 1", len(sends))
+	}
+	firstKey := sends[0].idem
+	if firstKey == "" {
+		t.Fatal("the first send presented no idempotency key, so the adapter cannot dedup it at all")
+	}
+
+	// The row the sweep re-sends must BE that key: it sends under m.ID.
+	pending, err := db.PendingOutbound(time.Now().Add(time.Hour), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 {
+		t.Fatalf("pending rows=%d want 1 (the failed reply)", len(pending))
+	}
+	if pending[0].Message.ID != firstKey {
+		t.Fatalf("row id=%q but the send claimed %q — the sweep would open a second claim",
+			pending[0].Message.ID, firstKey)
+	}
+
+	loop := NewLoop(db, runnerFn(nil), LoopConfig{Deliver: deliver, MaxOutboundRetry: 10})
+	sweepNow(loop, time.Now().Add(2*time.Minute))
+
+	sends = deliver.sentMsgs()
+	if len(sends) != 2 {
+		t.Fatalf("deliver.sends=%d want 2 (the reply and its retry)", len(sends))
+	}
+	if sends[1].idem != firstKey {
+		t.Fatalf("retry key=%q, first send key=%q — a mismatch posts the message twice",
+			sends[1].idem, firstKey)
+	}
+}
