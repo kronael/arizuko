@@ -652,7 +652,7 @@ so it gets its own entry.
   rebuild), so it ships with one, not as a doc commit.
 
 
-## L331 — the `/onboard/` route row points at a 404 (2026-09-21, open)
+## ✅ FIXED 2026-09-21 L331 — the `/onboard/` route row points at a 404 (2026-09-21, open)
 
 `compose.coreProxydRoutes` declares both spellings
 (`compose/compose.go:537-538`):
@@ -686,6 +686,26 @@ Found while fixing `L99`; it is a separate concern, so it is a separate entry.
   Whichever way, a test should assert the declared route table and the mux
   agree, because nothing checks that today — which is how this survived.
 
+
+**FIXED 2026-09-21, and this entry had the mechanism wrong.** It read the two
+rows as two SPELLINGS of one page. They are not: `proxyd.MatchRoute` treats a
+trailing-slash path as a PREFIX and a bare path as exact
+(`proxyd/routes.go:38`), so `/onboard/` was a SUBTREE route — and onbod serves
+no path under `/onboard`, only the exact `GET` and `POST`
+(`onbod/main.go:189,192`).
+
+So the row forwarded every `/onboard/...` to a 404 while the route table
+advertised the subtree as served. Dropped it; the bare row stays and is the one
+spelling every link uses (`onbod/main.go:774,786`).
+
+That also answers the entry's "decide which spelling is canonical": there was
+never a second spelling to choose, only a subtree nothing served.
+
+- **Status:** fixed
+- **Fix:** the row is gone and `TestNoOnboardSubtreeRouteWithoutASubtreeHandler`
+  pins BOTH halves — the exact row must stay, the subtree row must not return.
+  The entry asked for a test that the route table and the mux agree; this is
+  that test for this pair.
 
 ## ✅ FIXED 2026-09-21 L330 — 160 files are gofmt-dirty and nothing gates formatting (2026-09-20)
 

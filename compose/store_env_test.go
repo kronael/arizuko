@@ -244,3 +244,26 @@ func TestSeededAssistantNameIsTheSharedDefault(t *testing.T) {
 			got, core.DefaultAssistantName)
 	}
 }
+
+// A trailing-slash route row matches the whole SUBTREE (proxyd.MatchRoute), and
+// onbod serves no path under /onboard — only the exact GET and POST. The
+// "/onboard/" row therefore forwarded every /onboard/... to a 404 while the
+// route table advertised the subtree as served (BUGS L331). A row that can only
+// produce a 404 is worse than no row: it reads as handled.
+func TestNoOnboardSubtreeRouteWithoutASubtreeHandler(t *testing.T) {
+	var bare, subtree bool
+	for _, r := range coreProxydRoutes {
+		switch r.Path {
+		case "/onboard":
+			bare = true
+		case "/onboard/":
+			subtree = true
+		}
+	}
+	if !bare {
+		t.Error("the exact /onboard row is gone; the onboarding page is unreachable")
+	}
+	if subtree {
+		t.Error("a /onboard/ row is back; it matches the subtree, and onbod serves none of it")
+	}
+}

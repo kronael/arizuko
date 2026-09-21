@@ -534,8 +534,12 @@ var coreProxydRoutes = []ProxydRoute{
 	// browser anonymously (proxyd resolves a session only in requireAuth), so
 	// the surface was unreachable — the newcomer these pages exist for is
 	// exactly the caller who arrives with no session (BUGS L99).
+	// Bare, so MatchRoute requires an exact path. There is deliberately no
+	// "/onboard/" twin: a trailing-slash row matches the whole SUBTREE, and
+	// onbod serves no path under /onboard — only the exact GET and POST. That
+	// row forwarded every /onboard/... to a 404 while the route table said the
+	// subtree was served (BUGS L331).
 	{Path: "/onboard", Backend: "http://onbod:8080", Auth: "user", GatedBy: "ONBOARDING_ENABLED"},
-	{Path: "/onboard/", Backend: "http://onbod:8080", Auth: "user", GatedBy: "ONBOARDING_ENABLED"},
 	{Path: "/invite/", Backend: "http://onbod:8080", Auth: "user", GatedBy: "ONBOARDING_ENABLED"},
 }
 
