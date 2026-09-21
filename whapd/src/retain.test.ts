@@ -103,3 +103,24 @@ test('an ids-with-slashes message does not escape the ledger directory', () => {
   expect(l.retain(msg('../../escape'))).toBe(true);
   expect(l.pending().map((m) => m.id)).toEqual(['../../escape']);
 });
+
+// A ledger directory that cannot be read must say so. Answering [] reads as
+// "nothing to deliver", which retires every retained message silently (L346).
+test('pending says so when the ledger cannot be read', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'whapd-unreadable-'));
+  const ledger = new InboundLedger(dir);
+  fs.rmSync(dir, { recursive: true, force: true });
+
+  const written: string[] = [];
+  const realWrite = process.stderr.write.bind(process.stderr);
+  process.stderr.write = ((chunk: string) => {
+    written.push(String(chunk));
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    expect(ledger.pending()).toEqual([]);
+  } finally {
+    process.stderr.write = realWrite;
+  }
+  expect(written.join('')).toContain('the inbound ledger is unreadable');
+});

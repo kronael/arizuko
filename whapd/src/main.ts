@@ -408,12 +408,18 @@ async function connect(): Promise<void> {
         if (held) inbound.settle(payload.id);
         lastInboundAt = Math.floor(Date.now() / 1000);
       } catch (e) {
-        log('error', 'deliver failed; the sweep holds the message', {
-          jid: payload.chat_jid,
-          id: payload.id,
-          retained: held,
-          err: String(e),
-        });
+        log(
+          'error',
+          held
+            ? 'deliver failed; the sweep holds the message'
+            : 'deliver failed and NOTHING holds the message; it is lost',
+          {
+            jid: payload.chat_jid,
+            id: payload.id,
+            retained: held,
+            err: String(e),
+          },
+        );
       }
     }
   });

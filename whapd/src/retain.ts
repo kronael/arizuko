@@ -72,7 +72,18 @@ export class InboundLedger {
     let names: string[];
     try {
       names = fs.readdirSync(this.dir);
-    } catch {
+    } catch (e) {
+      // An empty answer here reads as "nothing to deliver", so a disk fault
+      // after the constructor's mkdir would retire the whole ledger silently
+      // and every retained message with it (BUGS L346).
+      log(
+        'error',
+        'the inbound ledger is unreadable; retained messages are NOT being swept',
+        {
+          dir: this.dir,
+          err: String(e),
+        },
+      );
       return [];
     }
     const out: RouterMessage[] = [];
