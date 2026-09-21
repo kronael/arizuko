@@ -112,9 +112,10 @@ type Loop struct {
 	costCapsEnabled bool
 
 	// gateway is the model gateway's admin client (spec 6/23). Non-nil means
-	// every turn mints its own virtual key and cost_log is written from what
-	// the gateway measured. nil means no gateway: the container keeps the model
-	// credential and the agent's submit_turn report is the only number there is.
+	// every turn mints its own virtual key and the GATEWAY is the ledger —
+	// arizuko stores no spend of its own (spec 6/39). nil means no gateway:
+	// the container keeps the model credential and the agent's submit_turn
+	// report is the only number there is.
 	gateway *modelGateway
 
 	// media is the inbound enrichment config (MEDIA_*/WHISPER_*/VOICE_/VIDEO_
@@ -197,10 +198,10 @@ type LoopConfig struct {
 
 	// GatewayURL/GatewayKey are the model gateway pair (MODEL_GATEWAY_URL,
 	// MODEL_GATEWAY_KEY). With a URL set, every turn gets its own virtual key
-	// minted against the gateway with this master key, and cost_log takes the
-	// gateway's measurement instead of the agent's report (spec 6/23). Empty
-	// URL leaves the container holding the model credential and the agent
-	// reporting its own spend.
+	// minted against the gateway with this master key, and the gateway's own
+	// measurement is the ledger rather than the agent's report (specs 6/23,
+	// 6/39). Empty URL leaves the container holding the model credential and
+	// the agent reporting its own spend.
 	GatewayURL string
 	GatewayKey string
 

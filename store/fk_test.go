@@ -103,8 +103,8 @@ func TestRouteTokens_PurgedOnGroupDelete(t *testing.T) {
 }
 
 // TestFK_HistoryTablesStrandOnGroupDelete verifies that history tables
-// (messages, audit_log, cost_log) are NOT deleted on group removal — per spec
-// 5/8 they must strand. This pins the absence of a FK on these tables.
+// (messages, audit_log) are NOT deleted on group removal — per spec 5/8 they
+// must strand. This pins the absence of a FK on these tables.
 func TestFK_HistoryTablesStrandOnGroupDelete(t *testing.T) {
 	s := openEntities(t)
 	if err := s.PutGroup(core.Group{Folder: "acme"}); err != nil {

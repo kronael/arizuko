@@ -21,8 +21,9 @@ type LLMReply struct {
 	InputTokens  int
 	OutputTokens int
 	// CostCents is what this reply cost, which /spend/logs reports back in
-	// dollars for the key that made the call. One declaration: a test that
-	// asserts on cost_log reads this same number rather than a second copy.
+	// dollars for the key that made the call. The gateway is the ledger and
+	// arizuko stores no spend (spec 6/39), so a test that asserts on cost
+	// reads this same number rather than a second copy.
 	CostCents int
 	Status    int
 	Message   string

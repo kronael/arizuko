@@ -5422,10 +5422,15 @@ record, FK'd from `oauth_identities`.
   dashboard. `hash` is genuinely dead: no `SELECT` anywhere, written only by
   `store/auth.go:29,96` to satisfy `NOT NULL`. Delete `hash`; keep `username`
   and carry it into `user_profiles`.
-- **`cost_cap_cents_per_day` is live but is not identity** —
-  `store/cost_log.go:87,98` read/write it as a per-user spend cap (the same
-  column also exists on `groups`). It belongs on a budget table keyed by sub,
-  not on an identity table.
+- **`cost_cap_cents_per_day` is live but is not identity** — the column is a
+  per-user spend cap and the same column also exists on `groups`. It belongs
+  on a budget table keyed by sub, not on an identity table.
+
+  *(The `store/cost_log.go:87,98` citation this bullet carried is dead:
+  `cost_log` and its file were deleted when spec `6/39` made the gateway the
+  ledger. Re-measured 2026-09-21, the column now lives at
+  `store/user_profiles.go:61` and `store/groups.go:55`, read by
+  `cmd/arizuko/budget.go`. The observation stands; only the pointer rotted.)*
 - **`sub`/`name`/`created_at`/`linked_to_sub`** are identity, duplicating
   authd's row.
 
