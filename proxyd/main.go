@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"log/slog"
 	"net"
@@ -873,10 +874,8 @@ func davDestDecode(p string) (string, bool) {
 	out := make([]byte, 0, len(p))
 	for i := 0; i < len(p); i++ {
 		if p[i] == '%' && i+2 < len(p) {
-			hi, okHi := davHex(p[i+1])
-			lo, okLo := davHex(p[i+2])
-			if okHi && okLo {
-				out = append(out, hi<<4|lo)
+			if b, err := hex.DecodeString(p[i+1 : i+3]); err == nil {
+				out = append(out, b[0])
 				i += 2
 				continue
 			}
@@ -887,18 +886,6 @@ func davDestDecode(p string) (string, bool) {
 		return "", false
 	}
 	return string(out), true
-}
-
-func davHex(c byte) (byte, bool) {
-	switch {
-	case c >= '0' && c <= '9':
-		return c - '0', true
-	case c >= 'a' && c <= 'f':
-		return c - 'a' + 10, true
-	case c >= 'A' && c <= 'F':
-		return c - 'A' + 10, true
-	}
-	return 0, false
 }
 
 // davDestSegments splits a decoded path the way Rust's `Path::components`
