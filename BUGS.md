@@ -187,7 +187,7 @@ a sharper edge.
   link to a Google sub authd does not know — `authd.oauth_identities` holds one
   row, `google:115672318187756389401`. It confers `admin :: coach` on him.
 
-## L335 — sloth serves marinade's Slack routes with no Slack adapter, credential or compose fragment (2026-09-21, open — operator data + deploy)
+## ✅ FIXED 2026-09-21 L335 — sloth serves marinade's Slack routes with no Slack adapter, credential or compose fragment (2026-09-21, open — operator data + deploy)
 
 marinade's store was consolidated into sloth's ExtendDB around 2026-09-18:
 sloth's own frozen SQLite (`store/routd/routd.db`, 2026-09-18 19:20) holds
@@ -254,6 +254,33 @@ Recorded, not fixed: reconciling a merged cursor is not an edit.
   2. **Retire it**: delete the two Slack route rows (ids 17, 18) so the table
      stops advertising an ingress nothing serves. `L307` (marinade's two
      unrouted Slack channels) is moot either way — that instance is stopped.
+
+**FIXED 2026-09-21: Slack has one home, and it is sloth.** All three gaps in
+the table above are closed, verified on the live instance:
+
+- `services/slakd.yml` installed from the catalog — NOT copied from marinade,
+  whose frozen copy was an older generated form missing the `store/slakd`
+  volume and the entrypoint.
+- `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET` copied into sloth's top-level
+  `.env` (original backed up as `.env.bak-preslack`).
+- `store/slakd/` created `mivu:mivu`, and sloth redeployed.
+
+`arizuko_slakd_sloth` is `Up (healthy)`, `slack connected bot_user_id=…
+team_id=T4PNSRSP7` — the same workspace the carried-over routes name — and
+routd registered the `slack:` prefix.
+
+**The move was only safe because marinade was stopped first** (`L338`). Two
+instances holding one bot token contend for the same workspace connection, and
+marinade still has the credentials in its own `.env`. Re-enabling it without
+removing them re-opens that.
+
+**It also activated `L307`.** Those routes were dormant while no adapter
+served them; seven Slack chats on sloth carry 822 rows and match no route, so
+messages there now reach a live adapter and are answered by nothing. That is
+operator route data — see `L307`.
+
+- **Status:** fixed
+- **Fix:** operator deploy; no code change
 
 ## ✅ FIXED 2026-09-21 L336 — a slash command that is not the newest row of its batch is never steered, and `/root` then reaches the agent as plain text (2026-09-21)
 
