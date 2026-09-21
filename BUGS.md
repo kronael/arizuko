@@ -6599,7 +6599,56 @@ catalog source). Both are open, newer and sharper.
 - **Status:** closed — superseded by `L41` + `L315` for the live half
 - **Fix:** see the 2026-08-15 verdicts
 
-## V2 — dashd duplicates control planes the cockpit specs move away — CHAT PORTAL + MINT FORM DELETED 2026-08-15; the rest BLOCKED on `6/30` (2026-08-04, partial)
+## V2 — the cockpit split SHIPPED and the duplication is closed; one item is live: dashd has no authority-provenance view (2026-08-04, DUPLICATION CLOSED 2026-09-21)
+
+**Re-measured 2026-09-21 at `f5851f94`. The direction was taken, not
+abandoned.** `6/28`, `6/29` and `6/30` are all `status: shipped`, and eight
+daemons serve their own `/dash/<daemon>/` (`routd/dash.go`, `runed/dash.go`,
+`authd/dash.go`, `proxyd/dash.go`, `onbod/dash.go`, `timed/dash.go`,
+`webd/dash.go`, `ttsd/dash.go`), with davd's abstention recorded as the ninth
+outcome rather than a ninth gap. So the premise this entry was blocked on —
+"no daemon but onbod and timed has a `/dash/` route at all" — is no longer
+true, and every row of the table below has an answer:
+
+| this entry's row | outcome at HEAD |
+| --- | --- |
+| `chat.go` + test | deleted 2026-08-15, as recorded below |
+| route-token mint form | deleted 2026-08-15, as recorded below |
+| `runed_page.go` runs + kill | **moved** — the file is gone; `runed/dash.go` serves the run table and kill |
+| errored-retry | **moved** — `routd/dash.go` serves retry + replay |
+| routes, tokens list/revoke, tasks, invites, usage, audit, packages, groups | **RETAINED BY DECISION** — `6/29` §"Retained cross-cutting pages" names `route_tokens`, `routes_admin`, `grants_admin`, `usage_page`, `groups_admin` and `tasks_admin` as dashd's, because they span daemons or are operator-global |
+
+The per-page complaints are answered too, and by the code rather than the
+spec's intention: `usage_page.go` reads routd's store, not the frozen
+`messages.db`; `audit_page.go` fans out to each owner's `GET /v1/audit` and
+merges, instead of reading routd's `audit_log` and calling it global; the tool
+browser (`dashd/tools_admin.go`, 51 lines) renders `ipc.ListTools` — the same
+path the runtime uses, which is one renderer and not a second copy; and
+`/dash/` is now a tile grid of PAGES that links to `/dash/services/` as one
+tile among eleven, rather than repeating it.
+
+**The one thing still live is the item this entry itself called "the one real
+gap", and it is no longer blocked by anything.** `6/29`'s retained-page table
+promises "grants / ACL (rows, **edges, roles, principal-effective**)".
+`dashd/grants_admin.go` renders `acl` rows and consumes `acl_membership` as
+autocomplete only — the same two sites this entry named in August. Measured
+across the tree: `store.MemberEdges` and `store.ParentEdges` exist and are
+called by `onbod/main.go` (the person's own linked-accounts list) and by tests.
+No dashd handler calls either. So an operator still cannot answer "why does
+this Telegram account carry Alice's authority?", and the shipped spec says they
+can.
+
+- **Severity:** medium — an operator cannot audit delegated authority, and a
+  shipped spec advertises the view
+- **Scope:** `dashd` grants page
+- **Affected:** `dashd/grants_admin.go`; `specs/6/29-dashd-hub.md`
+  §"Retained cross-cutting pages"
+- **Status:** open — the view, wired to the existing unpair action. Not a
+  redesign: the reads exist (`store.MemberEdges` / `store.ParentEdges`,
+  `added_by` is already stamped by `store.PairingAddedBy`) and the page exists
+- **Fix:**
+
+### The August review, kept for the record
 
 Codex review of the dashd surface against the post-phase-5 end state. Almost
 nothing is *dead* — the identity deletions left only textual rot. The problem is
@@ -6665,12 +6714,24 @@ both folder-link sites (`runed_page.go`, `routd_page.go`) now point at
 List + revoke stay. `6/30` §webd already said it: "There is no token minting
 anywhere in the cockpit."
 
-### BLOCKED on `6/30` — do not delete these yet
+### Was BLOCKED on `6/30` — resolved 2026-09-21, two moved and one retained
 
-Verified against each daemon's route registration, not the spec's intention.
-No daemon but onbod and timed has a `/dash/` route at all
-(`compose/compose.go:367-370`); dashd answers `/dash/routd/` and `/dash/runed/`
-from the catch-all.
+The August measurement, and what each row became once `6/30` shipped. It was
+verified against each daemon's route registration rather than the spec's
+intention, which is why the table survived being wrong about the direction:
+at the time, no daemon but onbod and timed had a `/dash/` route at all
+(`compose/compose.go:367-370`), and dashd answered `/dash/routd/` and
+`/dash/runed/` from the catch-all.
+
+- **runs + kill: MOVED.** `runed/dash.go` serves the run table and kill;
+  `dashd/runed_page.go` is deleted.
+- **errored-retry: MOVED.** `routd/dash.go` serves retry + replay. `6/30`
+  §routd records why retry and "reset breaker" are one verb, not two.
+- **routes, tokens list/revoke, tasks: RETAINED.** `6/29` keeps them in dashd
+  as cross-cutting pages, so there is nothing to delete. `/dash/timed/` ships
+  deliberately control-less — routd owns the task rows and timed owns the fire
+  loop, so timed's page reads through routd's `GET /v1/tasks` and dashd stays
+  the place a task is created, paused or cancelled.
 
 | dashd surface                                        | LOC (verified)              | what `6/30` must ship first                                                                                                       |
 | ----------------------------------------------------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
@@ -6681,18 +6742,28 @@ from the catch-all.
 Deleting any of these today removes the capability outright. Order stands:
 build the per-daemon page, then delete dashd's copy.
 
-### The cron duplication is real and ALREADY DRIFTED
+### The cron duplication was real and is FIXED — one renderer, `core.NextRun`
 
-Canonical is **timed's** (`timed/main.go:33-57`) — `6/30` §timed: "timed owns
-the fire runtime … and all cron/interval computation". There are three copies,
-not two, and the drift is live: routd's `parseTaskSchedule`
-(`scheduled_tasks_resource.go:285`) accepts an RFC3339 one-shot and computes in
-the process's local time; dashd's `taskNextRun` (`tasks_admin.go:20,36`)
-rejects that same expression with 400 and computes in `TZ`. So a schedule the
-agent accepts, the dashboard refuses. dashd's copy dies with its tasks page
-(blocked above); routd's needs to converge on timed's semantics when timed's
-pages land — filed as the follow-up, not fixed here, because it is a second
-concern.
+Three copies computed a next run in August, and the drift was live: routd's
+`parseTaskSchedule` computed in the process's local time, dashd's `taskNextRun`
+in `TZ`.
+
+`core/cron.go` `NextRun(cronVal, tz)` is now the one place a cron value becomes
+an instant, and every writer of `next_run` reads it — the seeder that gives a
+new group's tasks their first run, timed's re-arm after each fire, and both
+surfaces that take a cron from a human. dashd's `taskNextRun` is six lines over
+`core.NextRun(cronVal, core.Timezone())`; routd's `parseTaskSchedule` calls the
+same pair. The timezone drift is gone by construction: one function, one
+`Timezone()`.
+
+What remains is not a drift and is spec-recorded rather than loose. `6/30`
+states it: "What still differs is what those two surfaces ACCEPT, not what they
+compute: routd reads an RFC3339 timestamp as a one-shot, dashd rejects that
+same value with 400." Confirmed in code — routd parses RFC3339 ahead of
+`core.NextRun` and stores an empty cron so timed completes the task after one
+firing, which is a value space `core.NextRun` deliberately does not carry.
+Whether dashd should grow the one-shot is a product question for its owner, not
+a defect in the renderer.
 
 ## ✅ CLOSED-STALE 2026-09-20 Z1 — all three live instances run a routd/onbod image ~5 days stale; a chunk of shipped migrations is not live (2026-08-04)
 
