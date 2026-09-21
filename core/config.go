@@ -183,6 +183,9 @@ func LoadConfigFrom(dir string) (*Config, error) {
 	return LoadConfig()
 }
 
+// loadedInstanceDir is the dir of the first LoadInstanceEnv call in this process.
+var loadedInstanceDir string
+
 // LoadInstanceEnv puts one instance's environment into this process: its .env,
 // and the operator's own store credential from its own file. That credential is
 // not in .env because .env reaches every service that has no scoped env file,
@@ -191,14 +194,12 @@ func LoadConfigFrom(dir string) (*Config, error) {
 // Every host CLI door calls it, and that is not a convenience: DYNAMODB_URL
 // decides whether a store is the server or a file, so a subcommand that skipped
 // this wrote to the file while every daemon read the server (BUGS L294).
-// loadedInstanceDir is the directory of the FIRST LoadInstanceEnv call in this
-// process. Both mutations below are one-way — godotenv writes into the process
-// env and nothing unsets it, and LoadConfigFrom pins DATA_DIR only when it is
-// empty — so a second instance in the same process silently inherits the first
-// one's values. Nothing in the tree loops instances today; this names the
-// constraint so the day something does, it says so (BUGS L50).
-var loadedInstanceDir string
-
+//
+// ONE INSTANCE PER PROCESS. Both mutations below are one-way — godotenv writes
+// into the process env and nothing unsets it, and LoadConfigFrom pins DATA_DIR
+// only when it is empty — so a second dir silently inherits the first one's
+// values. Nothing in the tree loops instances today; the warning names the
+// constraint for the day something does (BUGS L50).
 func LoadInstanceEnv(dir string) {
 	if loadedInstanceDir == "" {
 		loadedInstanceDir = dir
