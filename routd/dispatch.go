@@ -119,14 +119,35 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		return steerConsumed, nil
 	}
 
-	// web: chats dispatch one turn per topic in first-seen order; everyone
-	// else batches per distinct sender, one turn each. The route-pinned topic
-	// (r.Topic) overrides the message's own topic for the non-web path.
+	// turnTopic answers the topic one row's turn dispatches under: a set sticky
+	// #topic overrides the message's own topic, and a route-pinned topic is the
+	// explicit non-web override. It is DECLARED ONCE because the grouping key
+	// below and the loop body both read it, and a group whose rows disagree
+	// about their destination has no destination of its own.
+	web := strings.HasPrefix(chatJID, "web:")
+	turnTopic := func(m core.Message) string {
+		if !web && r.Topic != "" {
+			return r.Topic
+		}
+		return l.effectiveTopic(chatJID, m.Topic)
+	}
+
+	// web: chats dispatch one turn per topic in first-seen order; everyone else
+	// batches per distinct sender AND destination topic, one turn each.
+	//
+	// The topic half of that key is not decoration. Grouping by sender alone put
+	// two of one person's Discord threads in one batch, and the turn took the
+	// topic of the group's LAST row — so the older thread's @mention was answered
+	// inside the newer thread and its own thread went silent for three weeks
+	// (BUGS L305, measured on sloth). A sticky or route-pinned topic collapses
+	// the key back to one value, so a pinned chat still dispatches one turn.
 	var groups [][]core.Message
-	if strings.HasPrefix(chatJID, "web:") {
+	if web {
 		groups = groupByTopic(trigger)
 	} else {
-		groups = groupBySender(trigger)
+		groups = consecutiveRuns(trigger, func(m core.Message) string {
+			return m.Sender + "\x00" + turnTopic(m)
+		})
 	}
 
 	hadAny := false
@@ -135,12 +156,7 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	var marks []observedAdvance
 	for _, batch := range groups {
 		bl := batch[len(batch)-1]
-		// A set sticky #topic overrides the message's own topic; a route-pinned
-		// topic is the explicit non-web override.
-		topic := l.effectiveTopic(chatJID, bl.Topic)
-		if !strings.HasPrefix(chatJID, "web:") && r.Topic != "" {
-			topic = r.Topic
-		}
+		topic := turnTopic(bl)
 		had, steered, busy, mark, derr := l.runTurn(folder, topic, chatJID, bl.ID, batch)
 		if derr != nil {
 			// Transport failure: do NOT advance — re-fed next poll
@@ -735,10 +751,6 @@ func consecutiveRuns(msgs []core.Message, key func(core.Message) string) [][]cor
 		batches[len(batches)-1] = append(batches[len(batches)-1], m)
 	}
 	return batches
-}
-
-func groupBySender(msgs []core.Message) [][]core.Message {
-	return consecutiveRuns(msgs, func(m core.Message) string { return m.Sender })
 }
 
 func groupByTopic(msgs []core.Message) [][]core.Message {

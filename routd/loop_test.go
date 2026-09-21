@@ -448,7 +448,7 @@ func TestSteeredPartialBatchNoRedispatch(t *testing.T) {
 	_ = db.PutGroup(core.Group{Folder: "demo"})
 
 	// First sender's turn completes (records a result, flips done); second
-	// sender's turn steers. groupBySender yields [u1],[u2] in that order.
+	// sender's turn steers. the consecutive-run grouping yields [u1],[u2] in that order.
 	var dispatched []string
 	runner := runnerFn(func(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
 		dispatched = append(dispatched, req.TurnID)
