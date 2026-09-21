@@ -3527,7 +3527,7 @@ Use the pairing-code path, not QR (recipe in the operator's notes): whapd
 - **Status:** blocked — needs the operator's phone, nothing else
 - **Fix:**
 
-## L41 — an instance's compose fragments freeze forever once they differ by a byte (2026-08-16, LOUD NOW, auto-repair needs sign-off)
+## L41 — an instance's compose fragments freeze forever once they differ by a byte (2026-08-16, LOUD NOW and the warning NAMES THE ABSENT LINES 2026-09-21; auto-repair still needs sign-off)
 
 Found when tonight's `L32` whapd fix crash-looped krons' primary channel:
 
@@ -3579,8 +3579,56 @@ which is also why it is not shipping without a decision.
   catalog (krons: whapd, teled, ttsd, kokoro)
 - **Source:** `compose/fragments.go` `RelinkCatalog` (byte-identical gate);
   `cmd/arizuko/packages.go` `relinkCatalog`
-- **Status:** warning shipped; auto-repair proposed
-- **Fix:**
+- **Status:** warning shipped and now names the absent lines; auto-repair proposed
+- **Fix:** `compose.Diverged` + `missingLines` (`compose/fragments.go`), printed
+  by `relinkCatalog` (`cmd/arizuko/packages.go`)
+
+**✅ VERIFIED FIRING 2026-09-21 at `e7f1bac3`, and the report was half a report.**
+The premise holds on live data: sloth has three frozen fragments — `discd.yml`,
+`extenddb.yml` and `teled.yml` are real files while `slakd.yml`/`slakd.yaml` are
+symlinks, so the classifier is working and three fragments are skipped on every
+generate.
+
+The warning fired and named the file. It did not say what differed, and
+"differs from the catalog" is not something an operator can act on — it names a
+file and hands back the diffing job that produced this entry in the first place.
+It also pointed at `template/services/<x>.yml`, a repo-relative path, when
+`relinkCatalog` already holds the resolved host catalog dir.
+
+**The warning now names the absent lines.** `RelinkCatalog` returns
+`[]Diverged{Name, Missing}` instead of names alone; `Missing` is the catalog's
+own lines, verbatim, that the installed copy does not carry. Run against sloth's
+real fragments:
+
+    services: services/discd.yml differs from the catalog and is FROZEN
+      1 catalog line(s) absent from it:
+        RUNED_RUN_TIMEOUT: '${RUNED_RUN_TIMEOUT:-20m}'
+    services: services/extenddb.yml differs from the catalog and is FROZEN
+      1 catalog line(s) absent from it:
+        - '127.0.0.1:${STORE_HOST_PORT:-18443}:18443'
+    services: services/teled.yml differs from the catalog and is FROZEN
+      4 catalog line(s) absent from it:
+        volumes:
+        - '${DATA_DIR}/store/teled:/srv/app/home/store/teled'
+        DATA_DIR: '/srv/app/home/store/teled'
+        RUNED_RUN_TIMEOUT: '${RUNED_RUN_TIMEOUT:-20m}'
+
+teled's four are this entry's own `F53` and `T1`, still absent on sloth today.
+**discd and extenddb are new live findings**: discd has no typing backstop, and
+sloth's extenddb publishes no host port. Both are operator work, not platform.
+
+**The noise had to go or the report would train people to skip it.** sloth's
+frozen `teled.yml` was written by the older generator, which quotes with `"`
+where the catalog quotes with `'` — a byte-level diff calls nearly every line
+changed. The comparison runs on a normalized key (quotes stripped, whitespace
+collapsed, comments and blank lines dropped) while the report prints the
+catalog's verbatim line, so teled reports 4 lines rather than 12 and every one
+is a real absence. `compose/fragments_test.go` pins both halves: the restyled
+copy reports nothing, the copy missing a mount names it.
+
+**The auto-repair is untouched and still needs sign-off.** Nothing here converts
+a fragment; the byte-identical gate is exactly as it was. This only makes the
+report actionable while the decision waits.
 
 ## L40 — live krons cannot tell two anonymous visitors apart (2026-08-16, open — needs an infra decision)
 

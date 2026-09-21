@@ -221,8 +221,71 @@ func TestRelinkCatalogReportsDivergedFragment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(diverged) != 1 || diverged[0] != "teled" {
+	if len(diverged) != 1 || diverged[0].Name != "teled" {
 		t.Fatalf("diverged = %v, want [teled]", diverged)
+	}
+}
+
+// Naming the frozen file is half the report: "differs from the catalog" leaves
+// the operator to find WHAT differs, and on krons what differed was three
+// absent lines, each a live fault. The report must name the catalog lines the
+// installed copy does not carry — and must stay quiet about the ones it carries
+// in a different YAML style, because sloth's frozen teled.yml restyled every
+// quoted value AND dropped a state mount, and a report that lists both buries
+// the one that matters (BUGS L41).
+func TestRelinkCatalogNamesTheAbsentCatalogLines(t *testing.T) {
+	catalog := "# teled — the comment is not a work item\n" +
+		"services:\n  teled:\n    image: arizuko:latest\n" +
+		"    volumes:\n      - '${DATA_DIR}/store/teled:/srv/app/home/store/teled'\n" +
+		"    environment:\n      LISTEN_ADDR: ':8080'\n      DATA_DIR: '/srv/app/home/store/teled'\n"
+	// The same fragment from an older generator: double quotes throughout, and
+	// no volumes or DATA_DIR.
+	frozen := "# Converted from services/teled.toml by `arizuko generate`.\n" +
+		"services:\n  teled:\n    image: arizuko:latest\n" +
+		"    environment:\n      LISTEN_ADDR: \":8080\"\n"
+
+	svcDir, tmplDir := seedCatalog(t,
+		map[string]string{"teled.yml": catalog},
+		map[string]string{"teled.yml": frozen})
+	hostDir := filepath.Join(t.TempDir(), "hostview", "template", "services")
+
+	_, diverged, err := RelinkCatalog(svcDir, tmplDir, hostDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(diverged) != 1 {
+		t.Fatalf("diverged = %v, want one entry", diverged)
+	}
+	// Verbatim, quotes and all: the operator copies these lines into the
+	// frozen file, so they must be the catalog's own text, not the
+	// normalized key the comparison runs on.
+	want := []string{
+		"volumes:",
+		"- '${DATA_DIR}/store/teled:/srv/app/home/store/teled'",
+		"DATA_DIR: '/srv/app/home/store/teled'",
+	}
+	if !slices.Equal(diverged[0].Missing, want) {
+		t.Errorf("Missing = %q\nwant %q", diverged[0].Missing, want)
+	}
+}
+
+// A fragment that only restyles its YAML withholds nothing, and reporting lines
+// for it would train the operator to ignore the warning that matters.
+func TestRelinkCatalogReportsNoAbsentLineForARestyledCopy(t *testing.T) {
+	svcDir, tmplDir := seedCatalog(t,
+		map[string]string{"teled.yml": teledV2},
+		map[string]string{"teled.yml": strings.ReplaceAll(teledV2, "'", `"`)})
+	hostDir := filepath.Join(t.TempDir(), "hostview", "template", "services")
+
+	_, diverged, err := RelinkCatalog(svcDir, tmplDir, hostDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(diverged) != 1 {
+		t.Fatalf("diverged = %v, want one entry (the bytes do differ)", diverged)
+	}
+	if len(diverged[0].Missing) != 0 {
+		t.Errorf("Missing = %q, want none: requoting withholds nothing", diverged[0].Missing)
 	}
 }
 
