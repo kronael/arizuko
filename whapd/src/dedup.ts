@@ -45,10 +45,12 @@ export interface Claim {
   platformId?: string;
 }
 
-// keyFile maps an idempotency key to a filename. routd's keys are message ids,
-// which carry '/' and ':' on some platforms, so they are encoded rather than
-// used raw — a raw key would escape the ledger directory.
-function keyFile(dir: string, key: string): string {
+// keyFile maps a ledger key to a filename. The keys are message ids, which
+// carry '/' and ':' on some platforms, so they are encoded rather than used raw
+// — a raw key would escape the ledger directory. Both ledgers in this daemon
+// read it, so the encoding cannot differ between what one writes and another
+// looks for.
+export function keyFile(dir: string, key: string): string {
   return path.join(dir, encodeURIComponent(key) + '.json');
 }
 

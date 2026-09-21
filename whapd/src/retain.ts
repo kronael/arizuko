@@ -18,15 +18,9 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { keyFile } from './dedup.js';
 import { log } from './log.js';
 import type { RouterMessage } from './inbound.js';
-
-// keyFile maps a WhatsApp message id to a filename. Ids carry characters that
-// are legal in a JID and not in a path, so they are encoded — a raw id would
-// escape the ledger directory.
-function keyFile(dir: string, id: string): string {
-  return path.join(dir, encodeURIComponent(id) + '.json');
-}
 
 export class InboundLedger {
   constructor(private dir: string) {
