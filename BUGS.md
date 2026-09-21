@@ -4442,7 +4442,7 @@ does not credit, and a THIRD option cheaper than the one it names.**
   lock-free write.** Unanswered here on purpose: it is a policy choice, and
   nothing has yet asked it.
 
-## F37 — three dispatch tests fail under whole-suite load, so the suite cannot gate a release (2026-08-06, ✅ `tests/` HALF FIXED 2026-09-12 at `881bfbf0`; the slakd half is still uncaptured)
+## ✅ FIXED 2026-09-21 F37 — three dispatch tests fail under whole-suite load, so the suite cannot gate a release (2026-08-06, `tests/` half FIXED 2026-09-12 at `881bfbf0`; the slakd half CAPTURED 2026-09-21 — it is a TIMEOUT, not a flake)
 
 Found while verifying `F36`. Two packages failed on two separate whole-suite
 runs and passed every isolated re-run:
@@ -4549,6 +4549,69 @@ Two things narrow it since filing, both measured at `a388cad7`:
 
 So the remaining work is exactly what the entry says: capture it. The disk-
 pressure confound was never eliminated and the host is at 97% again today.
+
+**✅ CAPTURED 2026-09-21 at `e7f1bac3`, and the answer is that slakd was never a
+flake. It is go's own per-package timeout, and there is no race to find.**
+
+Reproduced on demand — the signature this entry has carried unexplained since
+August is what `go test` prints when it runs out of budget:
+
+    $ go test ./slakd/ -count=1 -short -timeout 20s
+    panic: test timed out after 20s
+        running tests:
+            TestWatchdog_ReprobesOnStale (0s)
+    <2703 lines of goroutine dump>
+    FAIL    github.com/kronael/arizuko/slakd    21.339s
+
+Zero `--- FAIL:` lines, a goroutine dump, and a bare package-level `FAIL`. That
+is exactly what the August run recorded, and it is a timeout, not an assertion.
+The same thing happened to `go test ./routd/` under load on 2026-09-21.
+
+Three facts close the alternatives:
+
+- **The budget was never chosen.** `make test` ran `go test ./... -count=1
+  -short` with no `-timeout`, so every package inherited go's silent 10m. 22 of
+  the suite's invocations were in that state — the root line and all 21
+  per-daemon and per-component sub-makes, each of which runs `go test ./...
+  -count=1` bare. slakd is one of them, and `make test` runs it twice.
+- **The other producer of a bare `FAIL` would have said so.** A `dyntest` setup
+  failure is the only other load-sensitive path to a package-level FAIL with no
+  subtest line, and `dyntest.Main` prints `dyntest: <err>` to stderr before
+  `os.Exit(1)` (`objstore/dynstore/dyntest/dyntest.go:127`). Nothing like that
+  was in the record.
+- **The load arithmetic works.** slakd measures 24.8s idle at HEAD and the entry
+  already recorded a 1.6x spread with nothing changing. The host has TWO cores
+  (`dyntest.go` says so, and `nproc` agrees), `dyntest` starts a container per
+  test binary, and the failures happened with three agents running suites
+  concurrently at 100% disk. Reaching 600s needs 24x; the headroom was never
+  there.
+
+**This entry's own diagnosis was the cost.** It reasoned from "passes isolated,
+fails under load" to a race and asked for a captured failure to find it. The
+premise was sound and the conclusion was wrong: passing isolated and failing
+under load is also, and more simply, what a fixed time budget does. `make
+test-race` had already hit the identical wall and written it down (BUGS `L26`,
+"two packages exceed go's 10m per-package default … the gate the release
+procedure names could never run") — but it set a budget only for itself, so the
+lesson never reached the target that needed it.
+
+**Fixed by stating the budget once**: `export GOFLAGS += -timeout=20m` in the
+root Makefile. `+=` so a caller's own GOFLAGS survives rather than being
+replaced, and an inline `-timeout` still wins because go's command line beats
+GOFLAGS — `integration` (120s), `test-race` (30m), `test-e2e` (300s) and
+`test-turns` (600s) keep the budgets they name. Verified: `GOFLAGS=-timeout=1s
+go test ./slakd/ -short -timeout 300s` passes in 24.4s, so an explicit budget is
+not overridden. `tests/buildgate/timeout_test.go` reads the Makefiles and fails
+when a `go test` the gate runs would fall back to the default; deleting the
+export makes it name all 22.
+
+**The disk confound is unaffected and stays true.** Disk pressure and CPU
+contention are both ways to run out of a fixed budget, and this fix does not
+distinguish them — it only stops either one presenting as a mystery FAIL. A
+package that now exceeds 20m is a real hang and should be read as one.
+
+- **Fix:** Makefile `export GOFLAGS += -timeout=20m` +
+  `tests/buildgate/timeout_test.go`
 
 ## ✅ CLOSED 2026-09-21 F34 — "who ended this engagement" has two answers in two tables (2026-08-06, DISPROVED — there is one table, and the correction is now pinned in the code)
 
