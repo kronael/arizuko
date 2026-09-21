@@ -39,8 +39,7 @@ $(addprefix docker-build-,$(DAEMONS)): docker-build-%:
 #   gofmt   — formatting drifted silently for want of a gate, and a dirty file
 #             makes every later diff noisier than the change it carries.
 #   go vet  — one module, so `./...` from here covers every daemon and
-#             component. The per-daemon `make -C <d> lint` loop this replaced
-#             ran the same vet twenty more times over subsets of it.
+#             component; no sub-make repeats it over a subset.
 #   golangci-lint — the swallow-class gate (errcheck + nilerr, .golangci.yml).
 #             Skipped with a notice when not installed, so the gate degrades to
 #             a warning on a machine without it instead of blocking the commit.
@@ -57,19 +56,14 @@ lint:
 # The tree's own Go, excluding vendored and scratch checkouts.
 GOFMT_DIRS = $(shell git ls-files '*.go' | grep -v '^third_party/' | xargs -r dirname | sort -u)
 
-# go test's built-in per-package timeout is 10m, and a package that hits it dies
-# with a goroutine dump and NO `--- FAIL:` line — only a bare `FAIL <pkg> 600s`,
-# which reads exactly like a flaky assertion. BUGS F37 filed that signature as a
-# slakd race and hunted it for six weeks; the package was outrunning a budget
-# nobody had chosen. test-race learned the same lesson separately (BUGS L26) and
-# set its own. This states the budget for the 22 invocations that state none —
-# root `go test` and every per-daemon sub-make.
-#
-# `+=` so a caller's own GOFLAGS survives instead of being replaced, and an
-# inline `-timeout` on any recipe below still wins, because go's command line
-# beats GOFLAGS: integration, test-race, test-e2e and test-turns keep the budgets
-# they name. 20m is ~48x slakd's ~25s on this two-core host, which is the
-# headroom a whole-suite run with other work on the box has needed.
+# A package that hits go test's built-in 10m timeout dies with a goroutine dump
+# and NO `--- FAIL:` line — only a bare `FAIL <pkg> 600s`, which reads as a flaky
+# assertion. BUGS F37 hunted that signature as a slakd race for six weeks; the
+# package was outrunning a budget nobody had chosen. This names the budget for
+# every invocation that names none. `+=` keeps a caller's own GOFLAGS, and an
+# inline `-timeout` on a recipe below still wins, because go's command line beats
+# GOFLAGS: integration, test-race, test-e2e and test-turns keep the budgets they
+# name (BUGS L26).
 export GOFLAGS += -timeout=20m
 
 # Every test that touches a store runs against a store server, so the suite needs

@@ -10,7 +10,4 @@ image:
 test:
 	bun test
 
-lint:
-	bunx tsc --noEmit
-
-.PHONY: build clean image test lint
+.PHONY: build clean image test

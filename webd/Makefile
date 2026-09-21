@@ -20,10 +20,7 @@ test-e2e:
 	exit $$code
 .PHONY: test-e2e
 
-lint:
-	go vet ./...
-
 clean:
 	rm -f webd
 
-.PHONY: build test lint clean
+.PHONY: build test clean

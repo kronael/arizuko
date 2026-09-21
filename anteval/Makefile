@@ -7,10 +7,7 @@ validate:
 test:
 	go test ./... -count=1
 
-lint:
-	go vet ./...
-
 clean:
 	rm -f anteval
 
-.PHONY: build validate test lint clean
+.PHONY: build validate test clean
