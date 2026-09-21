@@ -344,6 +344,59 @@ silently becoming unfindable.
   so reverting `steerIdx := steerRowIdx(msgs)` alone is caught by nothing —
   found because that exact mutation passed. Closing it needs the loop harness.
 
+## L338 — marinade restart-loops every 6 seconds: its store was consolidated away and its config still points at the old one (2026-09-21, LIVE — operator action)
+
+`arizuko_marinade.service` is `activating (auto-restart)` and has been failing
+continuously. **Measured 2026-09-21: 559 failed starts in one hour**, one every
+~6 seconds, and each iteration runs a `docker compose down --remove-orphans`
+plus a `docker run` of the generate image. That is a live resource burn on a
+host already at 97% disk.
+
+The cause, reproduced by running the unit's own ExecStartPre by hand:
+
+```
+$ sudo docker run --rm -v /srv/data/arizuko_marinade:/srv/data/arizuko_marinade \
+    -v /var/run/docker.sock:/var/run/docker.sock arizuko:latest arizuko generate marinade
+Failed: open routd's store: dynstore: DYNAMODB_URL names no endpoint
+```
+
+`/srv/data/arizuko_marinade/.env` carries NO `DYNAMODB_URL` line, and no
+`arizuko_extenddb_*_marinade` container exists. marinade's store was
+consolidated into sloth's ExtendDB on 2026-09-18 — sloth now holds marinade's
+1,160 `slack:` rows and its `slack:user/U4PMARRT6 -> role:operator` edge — but
+the instance's own config was never repointed or retired.
+
+**This is why Slack is dead on both instances.** marinade owned the Slack
+adapter and cannot boot; sloth inherited the routes and the operator grant but
+not the adapter, so `slakd` runs nowhere. The two facts are one incident.
+
+The same run also prints four `L41` FROZEN warnings (`discd`, `emaid`, `slakd`,
+`teled` fragments differ from the catalog), which are not the failure but will
+bite whoever repoints this instance.
+
+- **Severity:** high (a continuous restart loop on a disk-pressured host; one
+  channel dead across two instances)
+- **Scope:** instance config vs the store consolidation
+- **Affected:** `arizuko_marinade` (loop), Slack on marinade AND sloth
+- **Source:** `systemctl status arizuko_marinade`; the generate run above;
+  `journalctl -u arizuko_marinade --since '1 hour ago' | grep -c 'Failed to
+  start'` = 559; `/srv/data/arizuko_marinade/.env`
+- **Status:** open — operator action, and the DECISION is which of two things
+  marinade now is
+- **Fix:** either **retire it** (`systemctl disable --now arizuko_marinade`,
+  which stops the loop immediately and is reversible), or **repoint it** at
+  sloth's ExtendDB by setting `DYNAMODB_URL` plus the store credential in its
+  `.env`, then clear the four frozen fragments. Retiring is the smaller move
+  and matches where the data already went. Whichever is chosen, Slack needs a
+  home: the adapter, its `SLACK_BOT_TOKEN`/`SLACK_SIGNING_SECRET`, and the
+  routes must end up on ONE instance — sloth already has the routes and the
+  grant, marinade still has the tokens.
+
+  Do NOT copy the bot token to sloth while marinade can still boot: two
+  instances holding one Slack bot token contend for the same workspace
+  connection.
+
+
 ## ✅ FIXED 2026-09-21 L337 — sloth's teled has no state directory, so the next inbound Telegram message kills it (2026-09-21, open — found while diagnosing `L333`)
 
 `teled` writes its Telegram poll offset to `STATE_FILE`, and the directory is
