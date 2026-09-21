@@ -22,6 +22,13 @@ import (
 // errors.Is.
 var ErrReconnect = errors.New("surrogate: refresh rejected, reconnect required")
 
+// ErrNotConfigured signals a PERMANENT configuration fault — the provider is not
+// in the registry, or it carries no operator client credentials. No retry can
+// clear it; only an operator edit can. A caller that retries transient faults
+// MUST branch on this one and report it loudly instead, or a misconfiguration
+// reads as a network blip forever. Match with errors.Is.
+var ErrNotConfigured = errors.New("surrogate: provider not configured")
+
 // ClientCreds is one provider's operator-owned confidential-client id+secret,
 // from .env (SURROGATE_<PROVIDER>_CLIENT_ID / _CLIENT_SECRET).
 type ClientCreds struct {
@@ -104,11 +111,11 @@ func (e *Engine) Names() []string {
 func (e *Engine) resolve(name string) (Provider, ClientCreds, error) {
 	p, ok := e.providers[name]
 	if !ok {
-		return Provider{}, ClientCreds{}, fmt.Errorf("surrogate: unknown provider %q", name)
+		return Provider{}, ClientCreds{}, fmt.Errorf("%w: unknown provider %q", ErrNotConfigured, name)
 	}
 	c, ok := e.creds[name]
 	if !ok || c.ID == "" || c.Secret == "" {
-		return Provider{}, ClientCreds{}, fmt.Errorf("surrogate: no client credentials for provider %q", name)
+		return Provider{}, ClientCreds{}, fmt.Errorf("%w: no client credentials for provider %q", ErrNotConfigured, name)
 	}
 	return p, c, nil
 }
@@ -173,11 +180,13 @@ func (e *Engine) Exchange(ctx context.Context, provider, code, verifier, redirec
 	return toTokens(tr, ""), nil
 }
 
-// Refresh trades a refresh_token for fresh tokens (grant_type=refresh_token). A
-// definitive rejection (error body / 4xx) returns ErrReconnect; a transient
-// failure (network / 5xx) returns a plain error so the caller keeps the row.
-// When the provider does not rotate the refresh_token, the result carries the
-// incoming one.
+// Refresh trades a refresh_token for fresh tokens (grant_type=refresh_token).
+// Three error classes, each with its own caller action: a definitive rejection
+// (error body / 4xx) returns ErrReconnect; an unregistered or credential-less
+// provider returns ErrNotConfigured before any network call; a transient failure
+// (network / 5xx) returns a plain error so the caller keeps the row. When the
+// provider does not rotate the refresh_token, the result carries the incoming
+// one.
 func (e *Engine) Refresh(ctx context.Context, provider, refresh string) (Tokens, error) {
 	p, c, err := e.resolve(provider)
 	if err != nil {

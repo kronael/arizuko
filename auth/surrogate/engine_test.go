@@ -256,3 +256,28 @@ func TestRegistry_IncompleteProviderErrors(t *testing.T) {
 		t.Errorf("error must name the file, got: %v", err)
 	}
 }
+
+// F10a: "unknown provider" and "no client credentials" are PERMANENT operator
+// faults, not network blips. They carry ErrNotConfigured so a caller that retries
+// transient failures can tell the two apart, and they are never ErrReconnect,
+// which would null a user's still-valid credential over an operator mistake.
+func TestResolve_MisconfigurationIsNotTransient(t *testing.T) {
+	e := NewEngineWith(
+		map[string]Provider{"github": {AuthURL: "https://github.test/a", TokenURL: "https://github.test/t", SecretKey: "GITHUB_TOKEN"}},
+		map[string]ClientCreds{},
+	)
+	for _, tc := range []struct{ name, provider string }{
+		{"unknown provider", "gitlab"},
+		{"registered but no client creds", "github"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := e.Refresh(context.Background(), tc.provider, "refresh-1")
+			if !errors.Is(err, ErrNotConfigured) {
+				t.Errorf("Refresh err = %v, want ErrNotConfigured", err)
+			}
+			if errors.Is(err, ErrReconnect) {
+				t.Errorf("a misconfiguration must not read as reconnect: %v", err)
+			}
+		})
+	}
+}

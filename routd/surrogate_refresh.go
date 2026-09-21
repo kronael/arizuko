@@ -49,6 +49,15 @@ func (d *DB) refreshOAuth(userSub string, required []string, out map[string]stri
 				reconnect = append(reconnect, oa.Key)
 				continue
 			}
+			if errors.Is(rerr, surrogate.ErrNotConfigured) {
+				// Permanent: the provider left the registry or lost its operator
+				// client creds. Retrying cannot clear it, so it must not read as a
+				// network blip. The credential still works until it expires, so keep
+				// the stale token — only an operator edit fixes this.
+				slog.Error("surrogate: provider misconfigured; refresh can never succeed until an operator fixes it",
+					"sub", userSub, "key", oa.Key, "provider", oa.Provider, "err", rerr)
+				continue
+			}
 			slog.Warn("surrogate: transient refresh failure; using stale token",
 				"sub", userSub, "key", oa.Key, "provider", oa.Provider, "err", rerr)
 			continue

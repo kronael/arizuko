@@ -185,3 +185,40 @@ func TestBroker_ForcedRefreshWritesNoAuditRow(t *testing.T) {
 		t.Fatalf("secret_use_log rows = %d, want 0 (the retry must not double-count the use)", n)
 	}
 }
+
+// F10a: a provider that left the registry (or lost its operator client creds) is
+// a PERMANENT fault. It must log at ERROR — the transient WARN reads as a network
+// blip and hides the misconfiguration forever — and it must keep the stale token,
+// because nulling the row would force every user of that provider to reconnect
+// over one operator mistake.
+func TestBroker_MisconfiguredProviderIsErrorNotTransient(t *testing.T) {
+	logs := captureInfoLog(t)
+	db, hits := brokerDB(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Error("a misconfigured provider must not reach the network")
+	})
+	// The row names a provider the registry does not carry.
+	seed := store.NewOver(db.Obj())
+	seed.SetSecretKeys([]byte("k"))
+	if err := seed.PutOAuthSecret("github:alice", "GITLAB_TOKEN", "old-access", "gitlab",
+		"refresh-1", time.Now().Add(30*time.Second), "api"); err != nil {
+		t.Fatal(err)
+	}
+
+	got, _, err := db.ConnectorSecrets("main", "github:alice", []string{"GITLAB_TOKEN"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["GITLAB_TOKEN"] != "old-access" {
+		t.Errorf("GITLAB_TOKEN = %q, want the stale token kept", got["GITLAB_TOKEN"])
+	}
+	if n := atomic.LoadInt32(hits); n != 0 {
+		t.Errorf("refresh hits = %d, want 0", n)
+	}
+	out := logs()
+	if !strings.Contains(out, "level=ERROR") || !strings.Contains(out, "provider misconfigured") {
+		t.Errorf("want an ERROR-level misconfiguration log, got:\n%s", out)
+	}
+	if strings.Contains(out, "transient refresh failure") {
+		t.Errorf("misconfiguration laundered as transient:\n%s", out)
+	}
+}
