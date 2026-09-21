@@ -5720,119 +5720,106 @@ entry.
 - **Status:** closed, subsystem gone
 - **Fix:** none needed
 
-## L131 — pi's bash tool inherits the whole process env, so every model credential is readable from the agent's shell (2026-08-28, claude half FIXED; pi half open — candidate 1 DISPROVED 2026-09-03, replacement mechanism identified, not shipped)
+## L131 — the model credential is readable from the agent's shell on every harness; the boundary is the gateway, and no live instance runs one (2026-08-28, partial — claude scrub FIXED, gateway withholding SHIPPED 2026-09-05 and deployed nowhere, startup warning FIXED 2026-09-21, pi filter REFUSED; the closing action is the operator's)
 
-Found auditing the policy layer across all three harnesses. **This entry was
-filed wrong the first time and is corrected here**: the original claimed codex
-was exposed too, reasoning "the key is in the process env, therefore the shell
-sees it" without checking whether each CLI filters its own shell env. codex
-does. pi does not.
+**Boundary statement.** A harness-level env filter is defence against an
+accidental echo, not a boundary. Every process in the agent container runs as
+one uid (`container/runner.go`, `--user 1000:1000`), nothing sets `hidepid`,
+and `/proc/<pid>/environ` is readable across siblings at equal uid. Measured
+2026-09-05 and re-measured 2026-09-21 on `arizuko-ant:latest`: a sentinel
+planted in one process's env, read from a sibling —
 
-**CORRECTED 2026-09-05: the harness filter is not a boundary, and the table
-below only ever described accidental leakage.** Every process in the agent
-container runs as the same uid (`container/runner.go:718`, `--user 1000:1000`),
-nothing sets `hidepid`, and `/proc/<pid>/environ` is readable across siblings at
-equal uid. Measured: a sentinel planted in one process was read from another
-inside `arizuko-ant:latest`. So the agent's shell reads the harness's own env
-whatever that harness strips from the child it spawns — `cat /proc/1/environ`
-defeats codex's `shell_environment_policy` and claude's `bash-scrub` alike.
-All three occupants are exposed; pi is only the one that does not try.
+    sibling pid=8 self=1 uid=1000
+    sentinel lines readable from sibling environ: 1
+    pid 1 environ readable: 21 vars
+    hidepid mounts: 0
 
-The fix is upstream of every harness and it SHIPPED 2026-09-05: with
-`cfg.ModelGatewayURL` set, `container.spawnSecrets` deletes every
-`store.EnvProfileKeys` entry from the merged secret map, so no model credential
-enters the container and `/proc` holds nothing to read. Scrubbing stays as
-defence against an accidental echo. Without a gateway configured the exposure
-is unchanged, so 6/7's defect stands for that case.
+So `cat /proc/1/environ` shows the credential on claude (`bash-scrub`), codex
+(`shell_environment_policy`) and pi (`{...process.env}` verbatim) alike. The
+one fix that holds is upstream of every harness: with `MODEL_GATEWAY_URL` set,
+`container.spawnSecrets` deletes every `store.EnvProfileKeys` entry, so no
+model credential enters the container and `/proc` holds nothing (spec 6/23).
 
-**The delivery chain is common to all three.** `readSecrets`
-(`container/runner.go:765`) iterates `store.EnvProfileKeys` and passes every one
-set in the host `.env` through; they ride the stdin payload as
-`containerInput.secrets`, and `index.ts:377` merges them into the `env` handed
-verbatim to `turn.env`. So all five are in every harness's process env. What
-differs is what each harness's SHELL TOOL inherits:
+**The fleet runs without it (measured 2026-09-21).** No live instance has a
+gateway, none runs pi, and each authenticates with a subscription token:
 
-| harness | shell env | verdict |
-| --- | --- | --- |
-| claude | full, minus what `bash-scrub` unsets | **was 2 of 5 scrubbed — FIXED** |
-| codex | filtered by codex itself | **not exposed** |
-| pi | `{...process.env}` verbatim | **all 5 exposed — open** |
+    $ for i in krons sloth marinade; do sudo grep -hE '^(MODEL_GATEWAY_URL|ARIZUKO_BACKEND)=' /srv/data/arizuko_$i/.env; done
+    (no output)
+    $ for i in krons sloth marinade; do sudo grep -hoE '^(ANTHROPIC_API_KEY|CLAUDE_CODE_OAUTH_TOKEN|ANTHROPIC_OAUTH_TOKEN|OPENAI_API_KEY|CODEX_API_KEY)=' /srv/data/arizuko_$i/.env; done
+    CLAUDE_CODE_OAUTH_TOKEN=     (each of the three)
 
-- **codex is clean, for a reason worth writing down.** `shell_environment_policy`
-  is a real `ConfigToml` key, and its default excludes are the literals `*KEY*`,
-  `*SECRET*`, `*TOKEN*` (read from the codex-cli 0.147.0 binary alongside the
-  `core` inherit set `SHELL`/`TMPDIR`/`TMP`/`LC_ALL`/`LOGNAME`/`LC_CTYPE`, and
-  corroborated by the existence of an `ignore_default_excludes` field). All five
-  EnvProfileKeys match one of those globs. Basis: static read of the binary, not
-  an executed probe.
-- **pi is exposed.** `getShellEnv()` (`utils/shell.js:105`) returns
-  `{...process.env, PATH: updatedPath}` with no filtering, and `bash.js` passes
-  it to every spawn. `bash-scrub` cannot cover it: the row returns `rewrite`,
-  `PI_HONOURS` is `['deny','inject']`, so `runnableBy` drops it.
+The gateway fix is in effect on zero instances. Every live agent container
+holds the operator's `CLAUDE_CODE_OAUTH_TOKEN` in its process env, readable
+from the agent's shell and from `/proc`; on a multi-folder instance that is
+every tenant able to read the operator's own token. This is the live state of
+the whole fleet, not an edge case.
 
-**FIXED (claude half).** `SECRET_ENV_VARS` held 2 of the 5 and nothing said
-whether the other 3 were an omission or a decision. It is now a stated
-partition: the three ANTHROPIC/CLAUDE credentials are scrubbed (nothing under
-`ant/skills` reads them), and `OPENAI_API_KEY`/`CODEX_API_KEY` are deliberately
-NOT — the agent's own `/oracle` skill shells out to `codex` and probes exactly
-those two, so scrubbing them breaks a shipped skill.
-`container/secret_scrub_test.go` pins the partition against
-`store.EnvProfileKeys` across the language boundary, so a key added to the
-canonical set fails the build rather than landing on the wrong side by
-omission. Both directions mutation-tested.
+**Shipped.**
 
-**Candidate 1 is DISPROVED (2026-09-03, measured on pi 0.51.6).** Deleting the
-keys from `process.env` inside the extension breaks pi's authentication, because
-pi does not read the credential once at startup — it reads it **per request**:
-`agent-loop.js:150` calls `config.getApiKey(provider)` on every turn, and
-`AuthStorage.getApiKey` (`core/auth-storage.js:223`) walks a five-step priority
-list whose step 4 is the environment variable. Delete the variable and the
-second model call of the turn has no credential.
+- claude scrub (`ant/src/guards.ts` `SECRET_ENV_VARS`, `bashScrub`): the
+  three ANTHROPIC/CLAUDE names are unset in front of every Bash command.
+  `OPENAI_API_KEY` / `CODEX_API_KEY` are deliberately not — the agent's own
+  `/oracle` skill shells out to `codex` and probes exactly those two.
+  `container/secret_scrub_test.go` pins the partition against
+  `store.EnvProfileKeys` across the language boundary. Echo defence only.
+- gateway withholding (`container.spawnSecrets`, 2026-09-05): the boundary,
+  wherever a gateway is configured.
+- startup warning (2026-09-21, `b7d3b253`): `container.SpawnHoldsModelCredential`
+  — no gateway and an anchor set — and runed logs one WARN at start beside the
+  substrate line: `no model gateway: the operator model credential enters every
+  agent container and is readable from the agent's shell and /proc; set
+  MODEL_GATEWAY_URL (the litellm package, spec 6/23) to withhold it`. Unset is
+  a supported deployment (6/23: fine when operator and users are the same
+  people), so a warning, not a refusal. `TestSpawnHoldsModelCredential` pins
+  both halves; both mutants killed.
 
-The two escapes pi offers cannot be reached from where we stand.
-`setRuntimeApiKey` (step 1) and `setFallbackResolver` (step 5) are public on
-`AuthStorage`, but `ExtensionContext` (`core/extensions/types.d.ts:169`) exposes
-`ui`, `sessionManager`, `modelRegistry`, `model`, `abort`, `shutdown`,
-`compact` — and no auth handle. An extension cannot supply the credential by
-another route, so it cannot take it out of the env.
+**Refused: a pi shell-env filter.** Any one reason suffices. (1) Not a
+boundary — see above. (2) pi is the backend on no instance, so it defends
+nothing today. (3) The only mechanism that works is unverified. Deleting the
+keys from `process.env` inside the extension is DISPROVED on pi 0.51.6: pi
+reads the credential per request (`agent-loop.js:150` →
+`AuthStorage.getApiKey`, whose step 4 is the env var), and `ExtensionContext`
+exposes no auth handle to supply it another way. What would work is writing
+the credential to `getAgentDir()/auth.json` (pi's step 2) and spawning pi from
+`ant/src/pi.ts` with `turn.env` minus the keys; two unknowns only a live pi
+settles — the `auth.json` entry shape for an OAuth credential, and whether
+pi's refresh rewrites that file. A credential-handling change verified only by
+reading does not ship. With a gateway the question is moot: pi's env then
+holds `MODEL_GATEWAY_KEY`, a per-turn virtual key. codex needs no filter of
+ours: `shell_environment_policy` default excludes `*KEY*`, `*SECRET*`,
+`*TOKEN*` (codex-cli 0.147.0 binary strings) cover all five names — echo
+defence, same caveat.
 
-**The mechanism that does work is upstream of the extension: never put the
-credential in pi's env.** `ant/src/pi.ts:200` spawns pi with `env: turn.env`,
-the whole set. pi's step 2 reads `auth.json` at `getAgentDir()/auth.json`, and
-arizuko owns the container. Write the credential there and spawn with
-`turn.env` minus `SECRET_ENV_VARS`: `getShellEnv()` then has nothing to leak —
-by construction, not by a delete that races a re-read — and auth resolves one
-step earlier than it does today.
+**OPEN — the closing action is the operator's, and it is a billing decision.**
+The `litellm` package closes the live exposure by construction, but the three
+instances hold `CLAUDE_CODE_OAUTH_TOKEN`, a Claude subscription token, and
+Anthropic's terms (code.claude.com/docs/en/legal-and-compliance, read
+2026-09-21) say developers "may not collect, store, or intermediate Claude.ai
+credentials or session tokens" and may not "route requests through Free, Pro,
+or Max plan credentials on behalf of their users"; an API key "in a
+development environment, secrets manager, or machine image" billed to the key
+owner is the permitted shape. So the choice is: gateway + API-key billing
+(exposure closed), or keep the subscription token in every container and
+accept the posture the WARN names. Neither is a code change. The entry closes
+when each instance sets `MODEL_GATEWAY_URL`, or the operator records that the
+posture is accepted.
 
-Not shipped, and deliberately. Two unknowns remain that only a live pi can
-settle: the `auth.json` entry shape for an OAUTH credential (`{type:"oauth",
-expires, ...}`) versus an api key, and whether pi's refresh path rewrites that
-file under a container's read-only assumptions. **pi is not the backend on any
-instance** — krons, sloth and marinade all run the claude default with
-`ARIZUKO_BACKEND` unset — so this leaks nothing today and there is no reason to
-ship a credential change verified only by reading. It becomes urgent the day a
-folder is switched to pi.
+History, so it is not filed wrong a third time: the first filing claimed codex
+was exposed (it filters its shell env); the second treated the harness filters
+as the gate (the `/proc` measurement refuted that); candidate 1 for pi was
+disproved on a live pi.
 
-**OPEN (pi half) — proposal, needs sign-off.** The tension is real: the
-credential MUST be in pi's own env (that is how pi authenticates) and must NOT
-reach the shell pi spawns later. pi offers no `shell_environment_policy`
-equivalent and its hook cannot rewrite a tool's input. Candidates:
-
-1. `delete process.env.<key>` inside `pi-extension.ts` after pi initialises its
-   provider — the extension is in-process, so children spawned later never see
-   them. Changes re-auth behaviour if pi re-reads the env on a provider retry.
-2. A `deny` row matching a bash command that references the names — weak
-   (trivially evaded by `${A}${B}` concatenation) and it fights the agent.
-3. Teach the seam a `scrub-env` verdict pi CAN honour, rendered as (1).
-
-(1) is the smallest, and it is still a control-flow change to credential
-handling on a live backend, so it is recorded rather than shipped.
-
-- **Source:** `ant/src/guards.ts` (`SECRET_ENV_VARS`, `bashScrub`),
-  `store/secrets.go:115`, `container/runner.go:765`, `ant/src/index.ts:377`,
-  `ant/src/pi-extension.ts` (`PI_HONOURS`),
-  pi `dist/utils/shell.js:105` + `dist/core/tools/bash.js`,
-  codex-cli 0.147.0 binary strings.
+- **Severity:** high — live on all three instances, and the credential is the
+  operator's subscription token
+- **Scope:** container env / model credential
+- **Affected:** krons, sloth, marinade — every agent container
+- **Source:** `container/runner.go` (`readSecrets`, `spawnSecrets`,
+  `SpawnHoldsModelCredential`), `runed/cmd/runed/main.go` (the WARN),
+  `ant/src/guards.ts`, `ant/src/index.ts` (env merge), `ant/src/pi.ts:200`,
+  `store/secrets.go` (`EnvProfileKeys`), pi `dist/utils/shell.js:105`
+- **Status:** open — operational, operator decision
+- **Fix:** `b7d3b253` (startup warning); claude scrub and gateway
+  withholding shipped earlier
 
 ## L134 — a `shell:env:` grant cannot be conditioned on the channel, and writing the predicate that looks like it can silently revokes the key everywhere (2026-08-29, SILENT HALF FIXED 2026-09-20; the channel condition is a proposal — proposal, needs sign-off)
 
