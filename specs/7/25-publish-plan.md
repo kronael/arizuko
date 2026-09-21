@@ -115,6 +115,21 @@ rows in a manifest. Each is a place the outsider test fails.
 | a core-declared route                    | `/dash/ttsd/` in `compose.coreProxydRoutes` (`compose/compose.go:369`)          | the adapter dashboards declare theirs in the manifest; ttsd's is core's                                                                                                                                |
 | a hub tile                               | `dashd/services.go:57-67`                                                       | the `/dash/<name>/` route works; the hub does not list it                                                                                                                                              |
 
+> **Correction (2026-09-21, at `f8b82a90`).** Rows 3 and 4 of the table are
+> closed. `hasService("ttsd")` is gone (`166a0223`): `ttsd.yaml` declares
+> `TTS_ENABLED` and `TTS_BASE_URL` as `env` defaults, so "env on a core
+> daemon" is a manifest key. `/dash/ttsd/` moved to `ttsd.yaml`
+> `proxyd_routes` (`f8b82a90`), so `coreProxydRoutes` holds core daemons
+> only and ttsd fails the outsider test on `daemonKeys` alone. One hook the
+> table missed: `authd/http.go` `serviceGrants` — a `service:<name>` outside
+> it mints a token with no scope and every inbound 403s, so the principal
+> row lives in two tables (`compose.adapterDaemons` and this), and
+> `c0594f32` added a line to each. The channel layer is therefore three
+> rows from passing, not one map edit. And since `d1d857b9` a fragment from
+> a source is held to its own name — no `env_file`, binds under
+> `${DATA_DIR}/store/<name>` only, no namespace escape — so the "shared
+> `.env`" failure in row 2 is a refusal at install (BUGS `L201`).
+
 Two packages hook in through a database file as well. `gitd` mounts
 `store/routd/` and opens `routd.db` for `github_sources`
 (`gitd/main.go:34`); `slakd` mounts it for `pane_sessions`
