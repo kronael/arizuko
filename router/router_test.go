@@ -619,6 +619,10 @@ func TestFormatOutboundKeepsAnAnswerThatMerelyMentionsSilence(t *testing.T) {
 		"Your request is acknowledged by the upstream API, which returns 202.",
 		"The log line is there but the handler is silent",
 		"Nothing to add to the config — it already sets the timeout.",
+		// The whole-string list widened to this anchor would eat these two:
+		// the phrase is the last SENTENCE, not the whole message.
+		"The upstream API returns 202. Acknowledged.",
+		"I pinged the pager at 02:00 and again at 06:00. Silent.",
 	} {
 		if got := FormatOutbound(raw); got != raw {
 			t.Errorf("FormatOutbound(%q) = %q, want it delivered unchanged", raw, got)
