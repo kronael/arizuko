@@ -13,7 +13,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 )
@@ -39,20 +38,6 @@ func verdictLabel(verdict string) (text, class string) {
 		return "no route", "dim"
 	}
 	return verdict, "dim"
-}
-
-// waitedFor renders a wait in the coarsest unit that still reads honestly.
-func waitedFor(seconds int) string {
-	d := time.Duration(seconds) * time.Second
-	switch {
-	case d < time.Minute:
-		return "just now"
-	case d < time.Hour:
-		return fmt.Sprintf("%dm", int(d.Minutes()))
-	case d < 24*time.Hour:
-		return fmt.Sprintf("%dh", int(d.Hours()))
-	}
-	return fmt.Sprintf("%dd", int(d.Hours()/24))
 }
 
 // answeringSection renders the whole section, or a banner naming routd when it
@@ -136,7 +121,7 @@ func waitingTable(chats []apiv1.WaitingChat) string {
 			esc(c.Platform),
 			folder,
 			fmt.Sprintf(`<span class="%s">%s</span>`, class, esc(label)),
-			esc(waitedFor(c.WaitingSec)),
+			abbrTS(c.LastHumanAt),
 			esc(c.LastSender),
 		})
 	}
