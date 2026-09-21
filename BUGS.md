@@ -13,6 +13,41 @@
 > work items are their own entries. A record has nothing to fix and never will,
 > so counting one as open overstates the queue.
 
+## L332 — the release broadcast pipes a human banner into `jq` (2026-09-21, open)
+
+`ant/skills/migrate/SKILL.md:293` captures a tool result and parses it as JSON:
+
+```sh
+routes=$(mcpc @s tools-call inspect_routing) || { ...; exit 1; }
+tagged=$(printf '%s' "$routes" | jq '[.routes[] | select(.announce == true)] | length')
+```
+
+Measured against the `mcpc` the ant image installs today (0.6.0): plain
+`tools-call` prints a human-readable banner, and only `--json` emits JSON. So
+`jq` is handed text it cannot parse. No site in `ant/skills/` passes `--json`
+(`grep -rn 'tools-call.*--json' ant/skills/` finds nothing).
+
+The `||` guard does not catch it: `mcpc` EXITS 0 and prints the banner, so the
+failure lands in `jq` on the next line, and the script continues past a
+"route discovery failed" check that never fired.
+
+This is the same command chain as `M1` and was found while fixing it, but it is
+a different defect — `M1` was the connect grammar, this is the output format —
+so it gets its own entry.
+
+- **Severity:** medium (the release broadcast is the consumer; a release that
+  should announce may announce nothing, and say nothing about why)
+- **Scope:** `ant/skills/migrate/SKILL.md` and any skill parsing a tool result
+- **Affected:** the `#announce` broadcast path
+- **Source:** `ant/skills/migrate/SKILL.md:293,296,299`; measured on mcpc 0.6.0
+- **Status:** open
+- **Fix:** pass `--json` at every site that pipes a tool result into `jq`, and
+  pin `@apify/mcpc` in `ant/Dockerfile` — the version is unpinned today, which
+  is how `M1`'s 502 appeared and disappeared without a code change. Editing
+  `ant/skills/` rides a release (`MIGRATION_VERSION` bump + agent image
+  rebuild), so it ships with one, not as a doc commit.
+
+
 ## L331 — the `/onboard/` route row points at a 404 (2026-09-21, open)
 
 `compose.coreProxydRoutes` declares both spellings
