@@ -69,7 +69,7 @@ func main() {
 		fmt.Println("  export   <instance> [output.yaml]")
 		fmt.Println("  archive  export <instance> [file] [--quiesced]  — full backup: config+secrets+messages+group trees")
 		fmt.Println("  archive  apply  <instance> <archive.tar> [--force]")
-		fmt.Println("  probe    <base-url> [--token|-t T] [--foreign-folder|-f F]  — check a live component against the 6/7 contract")
+		fmt.Println("  probe    <base-url> [--token|-t T] [--foreign-folder|-f F]  — check a live component against the 6/16 contract")
 		os.Exit(1)
 	}
 
@@ -100,7 +100,7 @@ func main() {
 		"get":          cmdGet,     // spec 5/8
 		"export":       cmdExport,  // spec 5/8
 		"archive":      cmdArchive, // spec 5/8
-		"probe":        cmdProbe,   // spec 6/7 component contract
+		"probe":        cmdProbe,   // spec 6/16 component contract
 	}
 	fn, ok := cmds[os.Args[1]]
 	if !ok {

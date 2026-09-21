@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// The component-contract probe (spec 6/7).
+// The component-contract probe (spec 6/16).
 //
 // Primarily an OPERATOR DEPLOYMENT CHECK. Go tests read the source, so they
 // check the code; this checks the deployed instance, which no test can — a
@@ -37,7 +37,7 @@ type probeResult struct {
 func cmdProbe(args []string) {
 	if len(args) < 1 {
 		die("usage: arizuko probe <base-url> [--token|-t <bearer>] [--foreign-folder|-f <folder>]\n" +
-			"  checks a live component against the spec 6/7 component contract")
+			"  checks a live component against the spec 6/16 component contract")
 	}
 	base := strings.TrimSuffix(args[0], "/")
 	var token, foreign string

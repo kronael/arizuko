@@ -1,4 +1,4 @@
-// policy.ts — the capability layer (spec 6/7). A POLICY is (ToolEvent) =>
+// policy.ts — the capability layer (spec 6/16). A POLICY is (ToolEvent) =>
 // Verdict with no harness in it; BINDINGS is the table saying where each one
 // goes and what it may answer. Three renderers read that table: claude.ts wraps
 // rows as SDK callbacks, codex.ts writes them to hooks.json, pi-extension.ts

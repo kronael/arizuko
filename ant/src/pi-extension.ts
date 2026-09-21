@@ -1,4 +1,4 @@
-// pi-extension.ts — the pi renderer (spec 6/7). pi's hooks are in-process
+// pi-extension.ts — the pi renderer (spec 6/16). pi's hooks are in-process
 // TypeScript and it loads an extension by explicit path (`-e`), which keeps
 // working under `--no-extensions`. So this file imports the same binding table
 // claude and codex render; the only translation is pi's field names.

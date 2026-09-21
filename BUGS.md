@@ -2557,7 +2557,7 @@ stated the constraint or would notice it breaking.
   command and a warning that fires there is noise nobody reads.
 
 
-## L43 — 44 stale spec references in the live tree (2026-08-16, PARTLY FIXED 2026-09-20; 24 `6/7` sites remain, all in directories with work in flight)
+## L43 — 44 stale spec references in the live tree (2026-08-16, PARTLY FIXED 2026-09-21; 2 sites remain, genuinely homeless)
 
 A reference-graph check over tracked `.md`/`.go` (excluding `CHANGELOG.md`, which
 is history and correct as written) found **44 distinct spec IDs that no longer
@@ -2682,6 +2682,57 @@ pointer into a confidently wrong one.
   - `anteval/cases/anteval.toml:402` cites § "Context — three layers". **No
     current spec states the three-layer context model at all** — that is a hole
     to fill, not a citation to repoint.
+
+**2026-09-21, the 24 sites applied — 22 fixed, 2 left.** Each destination was
+read before writing, not assumed from the plan above:
+
+- `ant/src/` (14) → `6/16` for the harness seam / occupant / renderer files
+  (`backend.ts`, `backend.test.ts`, `claude.ts`, `codex.ts`, `codex.test.ts`,
+  `pi.ts`, `pi-extension.ts`, `policy.ts`) — confirmed: `6/16` § "The four
+  layers" names `ant/src/backend.ts` as owning "the seam types and the
+  selector" and states "a second backend — pi, codex — is a sibling of
+  `ant`", which is exactly what these files claim of themselves.
+  `claude.ts:549`'s section name changed too: `6/16` has no section titled
+  "The harness seam" (that phrase is prose, not a heading) — repointed to
+  the actual heading, "The four layers". `skills-scan.ts` +
+  `skills-scan.test.ts` → `5/23` instead: they extend the SAME skill-guard
+  scanner to a second hook point, not the harness-seam architecture: the
+  file already said so ("the 5/23 skill-guard hook"). Dropped their `§
+  "Skills across backends"` — no section by that name exists in `5/23` or
+  anywhere else; inventing one would trade a dead ID for a dead anchor.
+- `cmd/arizuko/main.go` + `probe.go` (5) → `6/16` for the 4 "component
+  contract" sites (confirmed: `6/16` has `### The component contract —
+  arizuko owns domain, the component owns mechanism`). `probe.go:22`'s
+  `"capabilities federate, infrastructure conforms"` is untouched — that
+  exact phrase appears nowhere in the current corpus; re-verified, still a
+  hole.
+- `onbod/dash.go:67` → repointed to `CLAUDE.md § "One renderer, many
+  sinks"` (not a spec ID — this was never a spec citation, `6/7` was wrong
+  about its own kind, not just its number). `onbod/main.go:203` → `5/16`:
+  confirmed `5/16`'s "hot-path exception" section documents the
+  `X-User-Groups` transit-trust chain (`setUserHeaders` /
+  `auth.UserScopes`) that `stripUnsigned` consumes.
+- `anteval/cases/anteval.toml` (3): lines 379 and 400 (the portability claim
+  and the "Backend contract" section header) → `6/16`, same seam. Line 402
+  (`§ "Context — three layers"`) untouched — re-verified, still no current
+  spec states a three-layer context model.
+
+**Left, deliberately: 2 sites**, both genuinely homeless rather than
+mis-numbered — writing a spec ID for either would be a guess:
+`cmd/arizuko/probe.go:22` and `anteval/cases/anteval.toml:402`. Each names a
+real design point (`5/13`'s capability-federates boundary; the three-layer
+context model) that no current spec states in those words. Fixing these
+means writing the missing sentence into an existing spec (or a new one),
+not moving a pointer — out of scope for a reference-graph fix.
+
+Measured before: 24 sites (`git grep '6/7'` over tracked files minus
+`BUGS.md`/`CHANGELOG.md`/`.diary/`/`ant/skills/self/migrations/`). Measured
+after: 2. `go test ./tests/specrefs/... -count=1 -short` stays green — none
+of these 24 were in its scope (`TestEveryBacktickSpecIDResolves` only scans
+`.md`; these were all plain-prose `(spec N/N)`, no backticks, in `.go`/
+`.ts`/`.toml`), so the fix did not add regression coverage. That gap is
+still open: a plain-prose, non-backtick citation in code can go stale again
+with nothing to catch it.
 
 ## L42 — krons WhatsApp is down: the paired session is invalidated (2026-08-16, BLOCKED on the operator's phone)
 

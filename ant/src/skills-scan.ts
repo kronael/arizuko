@@ -1,5 +1,5 @@
 // skills-scan.ts — load-time skill gate for backends without a write-time
-// PreToolUse hook (spec 6/7). codex and pi cannot run the 5/23 skill-guard hook,
+// PreToolUse hook (spec 5/23). codex and pi cannot run that skill-guard hook,
 // so the SAME scanner (skillguard.ts) runs here at session start instead: a
 // skill with a blocking finding is excluded from what the connector loads. This
 // gates what is LOADED, not what the model later reads by path.

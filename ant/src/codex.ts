@@ -1,5 +1,5 @@
 // codex.ts — the codex harness: drives `codex exec --json` as a subprocess
-// (spec 6/7). codex resumes layer 1 natively: `codex exec resume <thread_id>`
+// (spec 6/16). codex resumes layer 1 natively: `codex exec resume <thread_id>`
 // continues a rollout under CODEX_HOME, verified against codex-cli 0.147.0.
 // arizuko tools reach it through its native MCP client — turn.tools is rendered
 // into -c mcp_servers.* overrides, so every call still crosses the gated socket.
@@ -263,7 +263,7 @@ export function codexHooksConfig(rows: Binding[], turnID: string): unknown {
   for (const event of events) {
     hooks[event] = [{ hooks: [{ type: 'command', command: `node ${POLICY_CLI} ${event} ${turnID}`, timeout: 30 }] }];
   }
-  return { description: 'arizuko policy (spec 6/7) — generated per turn, do not edit', hooks };
+  return { description: 'arizuko policy (spec 6/16) — generated per turn, do not edit', hooks };
 }
 
 // codexHomeDir resolves where codex will LOOK for hooks.json. Writing to
