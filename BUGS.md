@@ -5505,7 +5505,7 @@ stale field comment that produced the premise cannot re-seed it.
   inconsistent, and rewriting all 11 is a rename sweep across specs and tests
   that belongs to its own pass. Recorded, not swept.
 
-## F38 — `task_run_logs` holds orphan rows on all three live instances (2026-08-06, ✅ CLOSED 2026-09-21 — the constraint that made it a trap is gone, and the orphan is now the recorded design)
+## ✅ CLOSED 2026-09-21 F38 — `task_run_logs` holds orphan rows on all three live instances (2026-08-06, ✅ CLOSED 2026-09-21 — the constraint that made it a trap is gone, and the orphan is now the recorded design)
 
 Found while proving migration `0031` caused no FK damage: `PRAGMA
 foreign_key_check` on a `.backup` copy of each live `routd.db` reports violations
@@ -5898,7 +5898,7 @@ that `observe` and `announce` are reserved words a topic cannot use.
 the next reserved fragment cannot reach the parser without reaching the operator
 — which is the mechanism that produced this entry.
 
-## System-turn / broadcast delivery targets a folder-jid or prefix-less room → "no channel for jid" (2026-07-13, CLOSED 2026-09-21)
+## ✅ CLOSED 2026-09-21 System-turn / broadcast delivery targets a folder-jid or prefix-less room → "no channel for jid" (2026-07-13, CLOSED 2026-09-21)
 
 CLOSED — all three premises fixed by dated commits, and BOTH prescriptions the
 entry proposed are now regressions. Verified at `96cab2b6`.
@@ -6619,7 +6619,7 @@ accounts" and this drops from the queue.
   branch unreachable, now pinned, so a filter that CAN empty the list has to
   supply the empty state it removes.
 
-## P3b — rejected minimization phases, recorded so they are not retried (2026-08-01, closed)
+## ✅ CLOSED 2026-09-21 P3b — rejected minimization phases, recorded so they are not retried (2026-08-01, closed)
 
 Two phases from the 2026-08-01 minimization plan were rejected on review and
 should NOT be reattempted as written:
