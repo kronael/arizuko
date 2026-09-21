@@ -28,7 +28,7 @@ stdout is discarded. Also owns `SetupGroup` to create new group folders.
 - `ReadRecentEpisodes(groupDir) string` — XML snippet for prompt
 - `WriteTasksSnapshot`, `WriteGroupsSnapshot` — per-group snapshots
 - `CopySession(groupDir, srcUUID, dstUUID) error` — fork sessions
-- `SeedCodexDirs(groupsDir)` — pre-create `.codex/` per group
+- `SeedCodexMountTargets(codexDir)` — pre-create the files codex overmounts
 - `FolderNetwork(prefix, folder) string` — per-folder network name
 - `PickIP(subnet) string` — random IP in /24 for egress isolation
 - `EgressConfig` — this instance's egress isolation inputs

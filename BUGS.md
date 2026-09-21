@@ -126,6 +126,112 @@ instance layout to drive.
   literal; it asserts what the declaration is for, that `EnvOr` on an unset var
   resolves to the shared default.
 
+## L342 — `make test` runs every daemon's suite twice, the second time long (2026-09-21, open)
+
+`make test` is `go test ./... -count=1 -short` and then
+`make -C <d> test` for all 20 daemons and 2 components. The root line already
+covers every package in the module, and each sub-make is `go test ./...
+-count=1` with NO `-short`. So each daemon runs twice, and the second run is
+the LONG suite that `-short` exists to skip.
+
+CLAUDE.md and INSTALL.md both describe `make test` as the fast unit target.
+It is not: it is the fast target followed by the slow one.
+
+- **Severity:** low (wasted time, and a wrong claim in two docs)
+- **Scope:** the dev loop
+- **Affected:** every daemon
+- **Source:** `Makefile` `test:`; `routd/Makefile` and 21 siblings
+- **Status:** open. Either drop the sub-make loop from `test:` (the root line
+  covers it) or give the sub-makes `-short` and move the long run to
+  `test-all`. The first is the same cut `39e6669b` made for `lint`. Deciding
+  which is the user's call, because it changes what `make test` means.
+
+## L343 — a failed group rollback is silent (2026-09-21, open)
+
+`routd/mcp.go` `_, _, _ = s.db.DeleteGroup(g.Folder)` undoes a group create
+whose `AddRoute` failed. The AddRoute error reaches the caller, so the user is
+told the create failed — but if the rollback ALSO fails, the folder keeps a
+`groups` row with no route, and nothing says so. The next create of the same
+folder then finds `existed == true` and skips the rollback entirely.
+
+- **Severity:** low (a group row nothing routes to; the operator sees a failed
+  create and a folder that exists)
+- **Scope:** group creation over MCP
+- **Affected:** routd
+- **Source:** `routd/mcp.go` (the `!existed` branch)
+- **Status:** open. The rollback's own failure is a second fact the caller
+  needs: name it in the returned error, or log it at ERROR beside the first.
+
+## L344 — `describeGrant` hides a row's predicate, so two rows print alike (2026-09-21, open)
+
+`cmd/arizuko/packages.go` `describeGrant`'s doc says the line "names every
+field of the coordinate", and it prints no `Predicate`. A manifest row may
+carry one (`checkGrantPredicate` reads it), so two grants that differ only in
+their predicate render as one line during install review — which is the
+review the line exists for.
+
+- **Severity:** low (an install review that cannot distinguish two grants)
+- **Scope:** package install
+- **Affected:** the CLI
+- **Source:** `cmd/arizuko/packages.go` `describeGrant`
+- **Status:** open. Print the predicate when the row carries one. The doc
+  already claims this is what it does (BUGS L138 is the shape it belongs to).
+
+## L345 — the acl defaults are declared three times (2026-09-21, open)
+
+`store/acl.go` declares the default EFFECT, `routd/acl_resource.go` declares
+action + effect and its comment calls itself "the ONE place", and
+`cmd/arizuko/main.go` `grantDefaults` declares action + effect again. Three
+readers, three declarations — the ASSISTANT_NAME class exactly (`L340`), where
+the drift stayed invisible because each reader agreed with itself.
+
+- **Severity:** medium (a default changed in one and not the others grants or
+  refuses differently depending on which surface wrote the row)
+- **Scope:** grants
+- **Affected:** store, routd, cmd/arizuko
+- **Source:** the three sites above
+- **Status:** open. One declaration in `store/`, the other two read it. This
+  is a cross-package contract change, so it needs sign-off before it ships.
+
+## L346 — whapd's sweep reports a hold it does not have (2026-09-21, open)
+
+`whapd/src/main.ts` logs "the sweep holds the message" on a path where
+`held` is false, so a retain that FAILED reads in the log as a retain that
+worked. Separately, `retain.ts` `pending()` answers `[]` when `readdir`
+fails and logs nothing, so a disk fault after the constructor's `mkdir`
+reports zero work to do rather than a fault.
+
+Both are the same class: the inbound ledger exists so a message is never
+acknowledged to WhatsApp before it is durable, and both of these make a
+failure read as a quiet success.
+
+- **Severity:** medium (a dropped inbound message the log calls held)
+- **Scope:** whapd inbound
+- **Affected:** whapd
+- **Source:** `whapd/src/main.ts` (the sweep log), `whapd/src/retain.ts`
+  `pending`
+- **Status:** open. The log line reads `held`; `pending` raises or logs at
+  ERROR rather than answering an empty list.
+
+## L347 — rows behind a steered command are never re-fed (2026-09-21, open)
+
+`routd/dispatch.go` consumes the steered row and advances the cursor TO it, so
+the rows behind it are below the cursor and are owed a turn. On the `derr` and
+`busy` paths that turn does not run: the rows are logged at ERROR and nothing
+re-feeds them. A user who asks a question and then sends `/status` loses the
+question when runed refuses the turn.
+
+The ERROR log is a symptom marker — it names the loss without ending it.
+
+- **Severity:** medium (a user message silently dropped, on a path that
+  already knows it happened)
+- **Scope:** dispatch
+- **Affected:** routd
+- **Source:** `routd/dispatch.go` (the steer branch's `derr` and `busy` arms)
+- **Status:** open. The cause fix is to leave the cursor where it was when the
+  turn does not run, so the next poll re-reads the batch — which is a change to
+  the consume contract (`L104`) and needs sign-off.
+
 ## L341 — no store call is bounded, on any daemon (2026-09-21, fixed `pending`)
 
 Filed as "every inbound attachment's store write has no deadline", with a fix

@@ -341,7 +341,8 @@ func (s *Store) PutGroupRow(g core.Group) error {
 // The subtree, not the row: a child folder left behind is an orphan holding
 // grants of its own, and a child's acl rows sit under the parent's path.
 //
-// A folder with no groups row in its subtree returns 0 and records no audit row.
+// A folder whose subtree holds nothing at all returns 0 and records no audit
+// row; an orphan sweep with no groups row records one, because rows went.
 // It returns the `groups` rows deleted AND the orphan rows swept with them.
 // A folder whose groups row is already gone still has acl, secret, task and
 // route rows under it, and deleting those is work the caller has to be able to
