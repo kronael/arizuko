@@ -56,7 +56,7 @@ func TestRecordOutbound_StoresPlatformID(t *testing.T) {
 	var got core.Message
 	db := StoreFns{PutOutbound: func(m core.Message, _ string) error { got = m; return nil }}
 
-	recordOutbound(GatedFns{}, db, "slack:T/channel/C0B4", "hello", "1780300379.765170", "atlas/support")
+	recordOutbound(GatedFns{}, db, "slack:T/channel/C0B4", "hello", "1780300379.765170", "atlas/support", "")
 
 	if got.PlatformID != "1780300379.765170" {
 		t.Fatalf("recordOutbound PlatformID = %q, want the sent TS", got.PlatformID)
@@ -77,7 +77,7 @@ func TestRecordOutbound_RoutesToTheFolderNotTheChat(t *testing.T) {
 
 	const folder = "atlas/support"
 	const jid = "slack:T/channel/C0B4"
-	recordOutbound(GatedFns{}, db, jid, "hello", "1780300379.765170", folder)
+	recordOutbound(GatedFns{}, db, jid, "hello", "1780300379.765170", folder, "")
 
 	if got.RoutedTo != folder {
 		t.Fatalf("recordOutbound RoutedTo = %q, want the turn's folder %q", got.RoutedTo, folder)
@@ -138,7 +138,7 @@ func TestRecordOutboundReply_RecordsTheThreadItRooted(t *testing.T) {
 	db := StoreFns{PutOutbound: func(m core.Message, _ string) error { got = m; return nil }}
 
 	const root = "1545760882322182276"
-	recordOutboundReply(GatedFns{}, db, "discord:g/channel/C1", "answer", "m-9", "sloth/desk", root)
+	recordOutboundReply(GatedFns{}, db, "discord:g/channel/C1", "answer", "m-9", "sloth/desk", root, "")
 
 	if got.Topic != root {
 		t.Fatalf("Topic = %q, want the thread it rooted (%s)", got.Topic, root)
@@ -156,7 +156,7 @@ func TestRecordOutboundReply_TheTurnsTopicWinsOverTheRoot(t *testing.T) {
 		CurrentTopic: func(folder string) string { return "turn-topic" },
 	}
 
-	recordOutboundReply(GatedFns{}, db, "discord:g/channel/C1", "answer", "m-9", "sloth/desk", "rooted-elsewhere")
+	recordOutboundReply(GatedFns{}, db, "discord:g/channel/C1", "answer", "m-9", "sloth/desk", "rooted-elsewhere", "")
 
 	if got.Topic != "turn-topic" {
 		t.Fatalf("Topic = %q, want the turn's own topic", got.Topic)
@@ -178,7 +178,7 @@ func TestRecordOutboundFailure_KeepsTheThreadTheReplyMeantToRoot(t *testing.T) {
 
 	const root = "1545760882322182276"
 	recordOutboundFailure(GatedFns{}, db, "discord:g/channel/C1", "answer", "sloth/desk",
-		"parent-msg", root, true, errors.New("502 bad gateway"))
+		"parent-msg", root, "", true, errors.New("502 bad gateway"))
 
 	if got.Topic != root {
 		t.Fatalf("Topic = %q, want the thread it meant to root (%s) — the sweep cannot put it back without one", got.Topic, root)

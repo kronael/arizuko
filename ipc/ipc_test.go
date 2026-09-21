@@ -19,8 +19,8 @@ import (
 
 func TestBuildMCPServer(t *testing.T) {
 	gated := GatedFns{
-		SendMessage:  func(jid, text string) (string, error) { return "", nil },
-		SendDocument: func(jid, path, fn, caption, replyTo, threadID string) (string, error) { return "", nil },
+		SendMessage:  func(jid, text, msgID string) (string, error) { return "", nil },
+		SendDocument: func(jid, path, fn, caption, replyTo, threadID, msgID string) (string, error) { return "", nil },
 		ClearSession: func(f string) {},
 		GroupsDir:    "/tmp/groups",
 	}
@@ -34,8 +34,8 @@ func TestBuildMCPServer(t *testing.T) {
 
 func TestBuildMCPServer_NoTools(t *testing.T) {
 	gated := GatedFns{
-		SendMessage:  func(jid, text string) (string, error) { return "", nil },
-		SendDocument: func(jid, path, fn, caption, replyTo, threadID string) (string, error) { return "", nil },
+		SendMessage:  func(jid, text, msgID string) (string, error) { return "", nil },
+		SendDocument: func(jid, path, fn, caption, replyTo, threadID, msgID string) (string, error) { return "", nil },
 		ClearSession: func(f string) {},
 		GroupsDir:    "/tmp/groups",
 	}
@@ -49,8 +49,8 @@ func TestBuildMCPServer_NoTools(t *testing.T) {
 
 func TestAllToolsRegistered(t *testing.T) {
 	gated := GatedFns{
-		SendMessage:         func(jid, text string) (string, error) { return "", nil },
-		SendDocument:        func(jid, path, fn, caption, replyTo, threadID string) (string, error) { return "", nil },
+		SendMessage:         func(jid, text, msgID string) (string, error) { return "", nil },
+		SendDocument:        func(jid, path, fn, caption, replyTo, threadID, msgID string) (string, error) { return "", nil },
 		ClearSession:        func(f string) {},
 		EnqueueMessageCheck: func(jid string) {},
 		InjectMessage:       func(j, c, s, n string) (string, error) { return "", nil },
@@ -107,9 +107,9 @@ func TestSocialActionsRegistered(t *testing.T) {
 
 func TestSendReply(t *testing.T) {
 	gated := GatedFns{
-		SendMessage:  func(jid, text string) (string, error) { return "", nil },
-		SendDocument: func(jid, path, fn, caption, replyTo, threadID string) (string, error) { return "", nil },
-		SendReply:    func(jid, text, rid string) (string, string, error) { return "", "", nil },
+		SendMessage:  func(jid, text, msgID string) (string, error) { return "", nil },
+		SendDocument: func(jid, path, fn, caption, replyTo, threadID, msgID string) (string, error) { return "", nil },
+		SendReply:    func(jid, text, rid, msgID string) (string, string, error) { return "", "", nil },
 		GroupsDir:    "/tmp/groups",
 	}
 	srv := buildMCPServer(gated, StoreFns{}, "world", false, "")
@@ -127,7 +127,7 @@ func TestRecordOutboundStampsTurnID(t *testing.T) {
 		PutOutbound:   func(m core.Message, _ string) error { got = m; return nil },
 		CurrentTurnID: func(string) string { return "turn-xyz" },
 	}
-	recordOutbound(GatedFns{}, db, "slack:T/C/U", "hi", "pid-1", "demo")
+	recordOutbound(GatedFns{}, db, "slack:T/C/U", "hi", "pid-1", "demo", "")
 	if got.TurnID != "turn-xyz" {
 		t.Fatalf("recordOutbound did not stamp turn_id: got %q", got.TurnID)
 	}
@@ -637,7 +637,7 @@ func TestRecordOutbound_TimedSkipsEngagement(t *testing.T) {
 
 	// Human-triggered turn: bump fires.
 	db := mkDB("user:42")
-	recordOutbound(gated, db, "tg:1", "hi", "plat-1", "world")
+	recordOutbound(gated, db, "tg:1", "hi", "plat-1", "world", "")
 	if lastReplyWrites != 1 || bumps != 1 {
 		t.Fatalf("user turn: writes=%d bumps=%d, want 1/1", lastReplyWrites, bumps)
 	}
@@ -648,7 +648,7 @@ func TestRecordOutbound_TimedSkipsEngagement(t *testing.T) {
 	// Timed-triggered turn: bump skipped, last_reply still written.
 	lastReplyWrites, bumps, triggerLookup = 0, 0, ""
 	db = mkDB("timed-isolated-abc")
-	recordOutbound(gated, db, "tg:1", "hi", "plat-2", "world")
+	recordOutbound(gated, db, "tg:1", "hi", "plat-2", "world", "")
 	if lastReplyWrites != 1 {
 		t.Fatalf("timed turn: SetLastReply writes=%d, want 1", lastReplyWrites)
 	}
@@ -659,7 +659,7 @@ func TestRecordOutbound_TimedSkipsEngagement(t *testing.T) {
 	// Empty platformID (failed send): neither write fires.
 	lastReplyWrites, bumps = 0, 0
 	db = mkDB("user:42")
-	recordOutbound(gated, db, "tg:1", "hi", "", "world")
+	recordOutbound(gated, db, "tg:1", "hi", "", "world", "")
 	if lastReplyWrites != 0 || bumps != 0 {
 		t.Fatalf("empty platformID: writes=%d bumps=%d, want 0/0", lastReplyWrites, bumps)
 	}
@@ -697,7 +697,7 @@ func TestServeMCP_Reply_ThreadsViaActiveTopic(t *testing.T) {
 		DefaultFolderForJID: func(jid string) string { return "world" }, // route exists → authz passes
 	}
 	gated := GatedFns{
-		SendReply: func(jid, text, rid string) (string, string, error) {
+		SendReply: func(jid, text, rid, msgID string) (string, string, error) {
 			sentReplyTo = rid
 			return "new-id", "", nil
 		},
@@ -776,7 +776,7 @@ func TestServeMCP_SendFile_ThreadsViaActiveTopic(t *testing.T) {
 	}
 	gated := GatedFns{
 		GroupsDir: dir,
-		SendDocument: func(jid, path, name, caption, replyTo, threadID string) (string, error) {
+		SendDocument: func(jid, path, name, caption, replyTo, threadID, msgID string) (string, error) {
 			sentThreadID = threadID
 			return wantPlatformID, nil
 		},

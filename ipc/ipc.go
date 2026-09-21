@@ -31,9 +31,15 @@ import (
 )
 
 type GatedFns struct {
-	SendMessage          func(jid, text string) (string, error)
-	SendReply            func(jid, text, replyToId string) (platformID, threadRoot string, err error)
-	SendDocument         func(jid, path, filename, caption, replyTo, threadID string) (string, error)
+	// msgID is the id the bot row will carry AND the idempotency key the
+	// adapter dedups on — one value, because routd's retry sweep re-sends a
+	// pending row under its OWN id (routd/loop.go). A key minted inside the
+	// send would never match it, so the adapter opened a fresh claim and
+	// posted the message a second time (BUGS L106). The caller mints it
+	// before the send, so a failed send records the same id it tried.
+	SendMessage          func(jid, text, msgID string) (string, error)
+	SendReply            func(jid, text, replyToId, msgID string) (platformID, threadRoot string, err error)
+	SendDocument         func(jid, path, filename, caption, replyTo, threadID, msgID string) (string, error)
 	SendVoice            func(jid, text, voice, folder, threadID string) (string, error)
 	Post                 func(jid, content string, mediaPaths []string) (string, error)
 	Like                 func(jid, targetID, reaction string) error
@@ -701,14 +707,14 @@ func activeTopic(db StoreFns, folder string) string {
 }
 
 // recordOutbound appends the durable row for a DELIVERED outbound message.
-func recordOutbound(gated GatedFns, db StoreFns, jid, text, platformID, folder string) {
-	putOutboundRow(gated, db, jid, text, platformID, folder, "", "", core.MessageStatusSent)
+func recordOutbound(gated GatedFns, db StoreFns, jid, text, platformID, folder, msgID string) {
+	putOutboundRow(gated, db, jid, text, platformID, folder, "", "", msgID, core.MessageStatusSent)
 }
 
 // recordOutboundReply is recordOutbound for the verb that can ROOT a thread. The
 // root is the reply's own, so only the reply path has one to pass.
-func recordOutboundReply(gated GatedFns, db StoreFns, jid, text, platformID, folder, threadRoot string) {
-	putOutboundRow(gated, db, jid, text, platformID, folder, "", threadRoot, core.MessageStatusSent)
+func recordOutboundReply(gated GatedFns, db StoreFns, jid, text, platformID, folder, threadRoot, msgID string) {
+	putOutboundRow(gated, db, jid, text, platformID, folder, "", threadRoot, msgID, core.MessageStatusSent)
 }
 
 // recordOutboundFailure appends the durable row for an outbound message the
@@ -722,19 +728,25 @@ func recordOutboundReply(gated GatedFns, db StoreFns, jid, text, platformID, fol
 // sweep needs: a pending reply with no thread cannot be put back where it
 // belonged, so the retry landed in the parent channel instead (BUGS L169 link
 // 2). It is known before the send, so a failure still has it.
-func recordOutboundFailure(gated GatedFns, db StoreFns, jid, text, folder, replyToID, threadRoot string, retryable bool, err error) {
+func recordOutboundFailure(gated GatedFns, db StoreFns, jid, text, folder, replyToID, threadRoot, msgID string, retryable bool, err error) {
 	status := core.MessageStatusPending
 	if !retryable || errors.Is(err, chanlib.ErrPermanent) {
 		status = core.MessageStatusFailed
 	}
 	slog.Error("outbound send failed: recording undelivered row",
 		"folder", folder, "jid", jid, "status", status, "err", err)
-	putOutboundRow(gated, db, jid, text, "", folder, replyToID, threadRoot, status)
+	putOutboundRow(gated, db, jid, text, "", folder, replyToID, threadRoot, msgID, status)
 }
 
 // putOutboundRow is the ONE writer of an MCP-originated outbound row. Both
 // outcomes go through it, so the delivered and undelivered shapes cannot drift.
-func putOutboundRow(gated GatedFns, db StoreFns, jid, text, platformID, folder, replyToID, threadRoot, status string) {
+//
+// msgID is the id the send already presented to the adapter as its idempotency
+// key, so the row the retry sweep re-sends carries the key the first attempt
+// opened its claim under. A verb whose Deliverer takes no key — voice, post and
+// the social verbs — passes "" and the row mints its own id: there is nothing
+// for it to have to match.
+func putOutboundRow(gated GatedFns, db StoreFns, jid, text, platformID, folder, replyToID, threadRoot, msgID, status string) {
 	// Key last-reply + engagement under the active turn's topic — same
 	// key the gateway seeds (SetLastReply at turn start). "" would chain
 	// the next in-thread reply off the wrong (root) key.
@@ -766,9 +778,12 @@ func putOutboundRow(gated GatedFns, db StoreFns, jid, text, platformID, folder, 
 	if db.CurrentTurnID != nil {
 		turnID = db.CurrentTurnID(folder)
 	}
+	if msgID == "" {
+		msgID = core.MsgID("mcp")
+	}
 	if db.PutOutbound != nil {
 		err := db.PutOutbound(core.Message{
-			ID:        core.MsgID("mcp"),
+			ID:        msgID,
 			ChatJID:   jid,
 			Sender:    folder,
 			Content:   text,
@@ -808,12 +823,15 @@ func internalSend(gated GatedFns, db StoreFns, folder, jid, text string, files [
 		if gated.SendMessage == nil {
 			return "", fmt.Errorf("send not configured")
 		}
-		platformID, err := gated.SendMessage(jid, text)
+		// Minted before the send: the adapter dedups on it, and both outcomes
+		// record the row under the very id they presented (BUGS L106).
+		msgID := core.MsgID("mcp")
+		platformID, err := gated.SendMessage(jid, text, msgID)
 		if err != nil {
-			recordOutboundFailure(gated, db, jid, text, folder, "", "", true, err)
+			recordOutboundFailure(gated, db, jid, text, folder, "", "", msgID, true, err)
 			return "", err
 		}
-		recordOutbound(gated, db, jid, text, platformID, folder)
+		recordOutbound(gated, db, jid, text, platformID, folder, msgID)
 		return platformID, nil
 	}
 	if gated.SendDocument == nil {
@@ -821,12 +839,14 @@ func internalSend(gated GatedFns, db StoreFns, folder, jid, text string, files [
 	}
 	var lastID string
 	for _, f := range files {
-		platformID, err := gated.SendDocument(jid, f.LocalPath, f.Filename, text, f.ReplyTo, f.ThreadID)
+		// One id per file: each file is its own delivery and its own row.
+		msgID := core.MsgID("mcp")
+		platformID, err := gated.SendDocument(jid, f.LocalPath, f.Filename, text, f.ReplyTo, f.ThreadID, msgID)
 		if err != nil {
-			recordOutboundFailure(gated, db, jid, text, folder, f.ReplyTo, "", false, err)
+			recordOutboundFailure(gated, db, jid, text, folder, f.ReplyTo, "", msgID, false, err)
 			return "", err
 		}
-		recordOutbound(gated, db, jid, text, platformID, folder)
+		recordOutbound(gated, db, jid, text, platformID, folder, msgID)
 		lastID = platformID
 	}
 	return lastID, nil
@@ -1230,12 +1250,17 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 				// in-thread turns (topic = thread_ts) and post to root.
 				replyToID = db.GetLastReplyID(jid, activeTopic(db, folder))
 			}
-			platformID, threadRoot, err := gated.SendReply(jid, text, replyToID)
+			// Minted before the send: the adapter dedups on it, and both
+			// outcomes record the row under the very id they presented, so
+			// routd's retry sweep re-sends under the key the first attempt
+			// already claimed (BUGS L106).
+			msgID := core.MsgID("mcp")
+			platformID, threadRoot, err := gated.SendReply(jid, text, replyToID, msgID)
 			if err != nil {
-				recordOutboundFailure(gated, db, jid, text, folder, replyToID, threadRoot, true, err)
+				recordOutboundFailure(gated, db, jid, text, folder, replyToID, threadRoot, msgID, true, err)
 				return toolErr(err.Error())
 			}
-			recordOutboundReply(gated, db, jid, text, platformID, folder, threadRoot)
+			recordOutboundReply(gated, db, jid, text, platformID, folder, threadRoot, msgID)
 			return toolJSON(map[string]any{"ok": true, "id": platformID})
 		})
 
@@ -1312,7 +1337,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			if err != nil {
 				return toolMaybeUnsupported(err)
 			}
-			recordOutbound(gated, db, jid, text, platformID, folder)
+			recordOutbound(gated, db, jid, text, platformID, folder, "")
 			return toolJSON(map[string]any{"ok": true, "id": platformID})
 		})
 
@@ -1351,7 +1376,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			if err != nil {
 				return toolMaybeUnsupported(err)
 			}
-			recordOutbound(gated, db, jid, content, platformID, folder)
+			recordOutbound(gated, db, jid, content, platformID, folder, "")
 			return toolJSON(map[string]any{"ok": true, "id": platformID})
 		})
 
@@ -1403,7 +1428,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 					return toolMaybeUnsupported(err)
 				}
 				if s.record != nil {
-					recordOutbound(gated, db, jid, s.record(vals), id, folder)
+					recordOutbound(gated, db, jid, s.record(vals), id, folder, "")
 				}
 				if s.idOut {
 					return toolJSON(map[string]any{"ok": true, "id": id})
