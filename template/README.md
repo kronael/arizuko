@@ -27,7 +27,10 @@ scaffold that `vited` serves in dev.
 
 ## Usage
 
-- `arizuko create <name>` seeds a new instance from `env.example`
+- `arizuko create <name>` writes a new instance's `.env` from its own key
+  set — the generated secrets, the product choice and the commented
+  `EGRESS_IMAGE`. It does not read `env.example`, which stays the operator's
+  reference for every remaining knob
 - `arizuko packages <instance> add <name>` links a package into
   `<dataDir>/services/`, provisions its `env` needs and applies its rows
   (`list` shows available vs enabled, `remove` withdraws exactly what the
