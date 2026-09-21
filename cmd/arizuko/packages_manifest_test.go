@@ -68,23 +68,11 @@ func seedPkgInstance(t *testing.T, base, name string) string {
 	return dataDir
 }
 
-// writePkg writes a package source dir: a compose fragment plus a manifest.
+// writePkg writes a package source dir whose fragment is the plainest one that
+// installs, for a body that is testing something other than the fragment.
 func writePkg(t *testing.T, base, name, manifest string) string {
 	t.Helper()
-	src := filepath.Join(base, name)
-	if err := os.MkdirAll(src, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(src, name+".yml"),
-		[]byte("services:\n  "+name+":\n    image: x\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if manifest != "" {
-		if err := os.WriteFile(filepath.Join(src, name+".yaml"), []byte(manifest), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	return src
+	return writeSourced(t, base, name, "services:\n  "+name+":\n    image: x\n", manifest)
 }
 
 // The headline of the cutover: a scheduled task and a network rule are things
