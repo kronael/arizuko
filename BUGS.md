@@ -126,7 +126,7 @@ instance layout to drive.
   literal; it asserts what the declaration is for, that `EnvOr` on an unset var
   resolves to the shared default.
 
-## L342 — `make test` runs every daemon's suite twice, the second time long (2026-09-21, open)
+## L342 — `make test` runs every daemon's suite twice, the second time long (2026-09-21, fixed `pending`)
 
 `make test` is `go test ./... -count=1 -short` and then
 `make -C <d> test` for all 20 daemons and 2 components. The root line already
@@ -141,12 +141,11 @@ It is not: it is the fast target followed by the slow one.
 - **Scope:** the dev loop
 - **Affected:** every daemon
 - **Source:** `Makefile` `test:`; `routd/Makefile` and 21 siblings
-- **Status:** open. Either drop the sub-make loop from `test:` (the root line
-  covers it) or give the sub-makes `-short` and move the long run to
-  `test-all`. The first is the same cut `39e6669b` made for `lint`. Deciding
-  which is the user's call, because it changes what `make test` means.
-
-## L343 — a failed group rollback is silent (2026-09-21, open)
+- **Status:** fixed. `test:` is the root `-short` line alone; the module is
+  one module, so `./...` already covers every daemon and component. The long
+  run lives in `integration`, which `test-all` composes, as both docs say. The
+  sub-makes keep their own `test` target as a hand tool.
+## L343 — a failed group rollback is silent (2026-09-21, fixed `pending`)
 
 `routd/mcp.go` `_, _, _ = s.db.DeleteGroup(g.Folder)` undoes a group create
 whose `AddRoute` failed. The AddRoute error reaches the caller, so the user is
@@ -159,10 +158,9 @@ folder then finds `existed == true` and skips the rollback entirely.
 - **Scope:** group creation over MCP
 - **Affected:** routd
 - **Source:** `routd/mcp.go` (the `!existed` branch)
-- **Status:** open. The rollback's own failure is a second fact the caller
-  needs: name it in the returned error, or log it at ERROR beside the first.
-
-## L344 — `describeGrant` hides a row's predicate, so two rows print alike (2026-09-21, open)
+- **Status:** fixed. A rollback that fails returns BOTH errors, so the caller
+  can tell a clean refusal from a group row left without a route.
+## L344 — `describeGrant` hides a row's predicate, so two rows print alike (2026-09-21, fixed `pending`)
 
 `cmd/arizuko/packages.go` `describeGrant`'s doc says the line "names every
 field of the coordinate", and it prints no `Predicate`. A manifest row may
@@ -174,9 +172,9 @@ review the line exists for.
 - **Scope:** package install
 - **Affected:** the CLI
 - **Source:** `cmd/arizuko/packages.go` `describeGrant`
-- **Status:** open. Print the predicate when the row carries one. The doc
-  already claims this is what it does (BUGS L138 is the shape it belongs to).
-
+- **Status:** fixed. The line renders `when <predicate>`.
+  `TestDescribeGrantNamesThePredicate` pins that two rows differing only by
+  predicate render differently; removing the clause fails it.
 ## L345 — the acl defaults are declared three times (2026-09-21, open)
 
 `store/acl.go` declares the default EFFECT, `routd/acl_resource.go` declares
@@ -193,7 +191,7 @@ the drift stayed invisible because each reader agreed with itself.
 - **Status:** open. One declaration in `store/`, the other two read it. This
   is a cross-package contract change, so it needs sign-off before it ships.
 
-## L346 — whapd's sweep reports a hold it does not have (2026-09-21, open)
+## L346 — whapd's sweep reports a hold it does not have (2026-09-21, fixed `pending`)
 
 `whapd/src/main.ts` logs "the sweep holds the message" on a path where
 `held` is false, so a retain that FAILED reads in the log as a retain that
@@ -210,9 +208,9 @@ failure read as a quiet success.
 - **Affected:** whapd
 - **Source:** `whapd/src/main.ts` (the sweep log), `whapd/src/retain.ts`
   `pending`
-- **Status:** open. The log line reads `held`; `pending` raises or logs at
-  ERROR rather than answering an empty list.
-
+- **Status:** fixed. The sweep log reads `held`, and `pending` logs at ERROR
+  before it answers empty. `pending says so when the ledger cannot be read`
+  pins the second; removing the log fails it.
 ## L347 — rows behind a steered command are never re-fed (2026-09-21, open)
 
 `routd/dispatch.go` consumes the steered row and advances the cursor TO it, so
