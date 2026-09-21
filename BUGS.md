@@ -13,6 +13,41 @@
 > work items are their own entries. A record has nothing to fix and never will,
 > so counting one as open overstates the queue.
 
+## L331 — the `/onboard/` route row points at a 404 (2026-09-21, open)
+
+`compose.coreProxydRoutes` declares both spellings
+(`compose/compose.go:537-538`):
+
+```go
+{Path: "/onboard",  Backend: "http://onbod:8080", Auth: "user", GatedBy: "ONBOARDING_ENABLED"},
+{Path: "/onboard/", Backend: "http://onbod:8080", Auth: "user", GatedBy: "ONBOARDING_ENABLED"},
+```
+
+onbod's mux registers only the exact path — `GET /onboard` and `POST /onboard`
+(`onbod/main.go:189,192`). Go's `ServeMux` treats a pattern WITHOUT a trailing
+slash as an exact match, so it does not serve `/onboard/`. proxyd forwards the
+request faithfully and onbod answers 404.
+
+So a user who types the trailing slash, or follows a link that normalises to
+it, gets a 404 on the one page whose whole job is to onboard them. The route
+row makes it look handled.
+
+Found while fixing `L99`; it is a separate concern, so it is a separate entry.
+
+- **Severity:** low (one spelling of one path; the bare form works)
+- **Scope:** the core route table vs onbod's mux
+- **Affected:** every instance with `ONBOARDING_ENABLED`
+- **Source:** `compose/compose.go:537-538`; `onbod/main.go:189,192`; Go
+  `net/http.ServeMux` exact-match semantics for a pattern with no trailing
+  slash
+- **Status:** open
+- **Fix:** decide which spelling is canonical and make ONE of them true —
+  either drop the `/onboard/` row, or register the subtree in onbod. Do not do
+  both: two live spellings of one page is the drift `L45` already paid for.
+  Whichever way, a test should assert the declared route table and the mux
+  agree, because nothing checks that today — which is how this survived.
+
+
 ## L330 — 160 files are gofmt-dirty and nothing gates formatting (2026-09-20, open)
 
 `gofmt -l .` (excluding `third_party/` and the untracked `.migrate*` copies)
