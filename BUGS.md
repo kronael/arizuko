@@ -4492,7 +4492,7 @@ acl`; `setfacl -m u:1000:r …`) if the host gains other users; (2) if onvos's
   its own uid-1000 copy. Keeps operator creds untouched, survives host-side
   rewrites, no world-read. Redesign of the codex mount → record + sign-off.
 
-## OPERATIONAL 2026-08-15 — Admin cannot log in to the krons dashboard (2026-07-12, HIGH, config-not-code)
+## ✅ FIXED 2026-09-21 OPERATIONAL — Admin cannot log in to the krons dashboard (2026-07-12)
 
 Reported: an admin cannot get into krons (`/dash`/`/auth`). Facts gathered:
 `auth_users` in krons `auth.db` has **0 rows**; krons `.env` and
@@ -4545,6 +4545,31 @@ inventing a fallback.
   /srv/data/arizuko_krons/store/authd/auth.db "select sub, created_at from
   auth_users;"` to confirm whether a login has since completed; if still 0
   rows, follow the three numbered actions above. No further code change.
+
+**CLOSED 2026-09-21: both halves this entry asked about are in place on krons.**
+Measured against the live instance, not inferred:
+
+- *(a) is a provider configured?* Yes. `GITHUB_CLIENT_ID` and
+  `GITHUB_CLIENT_SECRET` are set in the top-level `/srv/data/arizuko_krons/.env`
+  and reach authd through its scoped `env/authd.env`, with
+  `AUTH_BASE_URL=https://krons.fiu.wtf`. The entry's "no OAuth provider config"
+  was true when written and is not now.
+- *(b) does the first operator hold a grant?* Yes.
+  `role:operator :: * :: ** :: allow` exists in `routd.acl`, and
+  `routd.acl_membership` edges `github:kronael -> role:operator` — the GitHub
+  identity the configured provider issues. So a successful GitHub login lands on
+  an operator.
+
+`auth_users` having 0 rows is no longer the signal it was: the SQLite
+`auth.db` this entry read is frozen, and identity lives in authd's
+`oauth_identities` entity now.
+
+One nearby fact worth keeping, since it burned a measurement here: reading
+these keys with `grep -o '^KEY='` prints the key and HIDES the value, so a
+configured key reads as empty. Match the whole line.
+
+- **Status:** fixed (operator config, since applied)
+- **Fix:** none in code
 
 ## 5/16 invites fold — agent-forwarder half deferred (2026-07-07, by design)
 
