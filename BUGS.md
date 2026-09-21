@@ -3491,7 +3491,7 @@ the 42 live rows. No means `auth.UserScopes`' doc comment keeps naming a rule
 dashd does not follow, and that gap should be written down where dashd reads it
 rather than left as a latent contradiction.
 
-## F77 — skill-guard's per-line scan is evadable by splitting a payload (2026-08-08, PARTIALLY FIXED 2026-08-08)
+## 📋 RECORD F77 — skill-guard's per-line scan is evadable by splitting a payload (2026-08-08, RECORD 2026-09-21 — the demonstrated case is fixed, the class is out of scope by `5/23`)
 
 The demonstrated case is fixed: shell line-continuations are joined before
 scanning, so `curl \` + newline + payload no longer scans `safe` while the
@@ -3528,6 +3528,28 @@ the gap is not mistaken for coverage; `SECURITY.md` names the actual containment
 boundaries (Docker, the crackbox egress allowlist, the gated MCP socket). It
 should be re-read, not re-triaged, and it costs the queue a line rather than a
 decision.
+
+**Typed RECORD 2026-09-21 at `f5851f94`, which is the only thing that was
+missing.** Both halves re-measured a third time and unchanged: `logicalLines`
+(`ant/src/skillguard.ts`) joins a line ending in `\` before the regex table
+runs, and `ant/src/skillguard.test.ts` carries three cases over it — the
+`curl \`-split payload scanning `dangerous`, the finding pointing at the FIRST
+physical line, and a Windows path that ends in a backslash and must NOT join.
+The exclusion is the spec's own text, not an inference: `specs/5/23` is
+`status: shipped` and says both halves itself — "split across string
+concatenation or assembled from a variable still passes", and "Deliberately NOT
+in scope: … AST scanning".
+
+So the residual is spec-sanctioned and the title was the whole problem:
+`PARTIALLY FIXED` reads as an open defect and drew a re-triage in August, in
+September, and again now. It is typed `RECORD` so the next pass re-reads it
+instead. Nothing here is a work item.
+
+- **Severity:** low — raises cost, never a containment boundary
+- **Scope:** `ant/` skill-guard PreToolUse hook
+- **Source:** `ant/src/skillguard.ts` `logicalLines`; `specs/5/23-skill-guard.md`
+- **Status:** record — the class is excluded by a shipped spec; do not re-triage
+- **Fix:** none wanted
 
 ## L50 — LoadConfigFrom leaks one instance's .env into the process (2026-08-18, SILENT HALF FIXED 2026-09-20; the prescribed cause fix is refuted)
 
