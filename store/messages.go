@@ -27,12 +27,9 @@ package store
 // snapshots (messages_migrate_test.go).
 //
 // AND THE LOG IS APPEND-ORDERED. A live append takes the chat's next position,
-// never one at or below the row the chat already ends on (appendInstant). The
-// dispatch cursor is a high-water mark over this key, so a row written below it
-// is a row no feed ever returns — which is what buried every steer re-injection
-// behind a platform second and what dropped eleven of twelve documents of one
-// Telegram upload. The archive's restore writes items directly and is NOT this
-// door, so a history import still lands at the instants it carries.
+// never one at or below the row the chat already ends on — appendInstant states
+// why, and what it cost. The archive's restore writes items directly and is NOT
+// this door, so a history import still lands at the instants it carries.
 //
 // platform_id STAYS HERE and is not delivery state. One writer stamps it, once,
 // when the adapter confirms delivery; no non-bot row on any of the three

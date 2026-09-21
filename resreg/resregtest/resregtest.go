@@ -227,10 +227,8 @@ func AssertServesNoForeignResource(t TB, daemon string, mux *http.ServeMux) int 
 // This is the guard nothing else provides. Paths are derived from the mux and
 // request schemas from RowType, but a Handler returns `any`, so the only proof
 // that the doc describes the BODY is to serve a real request and read it back.
-// The operations named in BUGS L120 answered with a shape the doc had invented
-// from the verb — []router.RouteView documented as RoutesRow, core.Task's Go
-// field names documented as snake_case columns — and every emitter-level test
-// passed throughout, because both sides read the same invented convention.
+// Every emitter-level test passes on the operations BUGS L120 names, because
+// both sides read the same convention.
 //
 // The check is CONTAINMENT, not equality: an omitempty field absent from the
 // body is legal, so a key the schema does not name is the failure. Sub-objects
