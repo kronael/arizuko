@@ -289,7 +289,7 @@ a sourced package.
   Sign-off because it changes what an author must write.
 - **Fix:**
 
-## L334 — sloth grants instance-wide operator to a third party's Telegram account, and to none of the operator's (2026-09-21, fixed `pending` — the revoke still needs the owner)
+## L334 — sloth grants instance-wide operator to a third party's Telegram account, and to none of the operator's (2026-09-21, fixed — the revoke still needs the owner)
 
 On sloth, `role:operator` holds `* :: ** :: allow` and its Telegram member is:
 
@@ -379,7 +379,23 @@ half hours before its `/root`, and no re-injection followed. That sits with
 command never reached a live adapter. `L335` and `L338` are closed; the Slack
 half is untested since.
 
-- **Status:** fixed `pending` for the operator's own access — the additive edge
+**PROVEN LIVE 2026-09-21 23:55.** Both identities ran an elevated turn on the
+running instance, in a throwaway `web:eval/rootproof` chat (token revoked after):
+
+```
+trigger telegram:user/1112184352 -> turn root-eval-1790034919875239910
+  dispatch capabilities resolved  elevated=true
+  container agent  Result #1: ok=true text=ROOTPROOF      container exited code=0
+
+trigger slack:user/U4PMARRT6     -> turn root-eval-1790034943843725650
+  dispatch capabilities resolved  elevated=true
+  container agent  Result #1: ok=true text=SLACKPROOF
+```
+
+The real routd, the real store, the real grant, a real elevated container. No
+test double anywhere in that chain.
+
+- **Status:** fixed for the operator's own access — the additive edge
   is in the live store. The third party's `**` is NOT revoked: that is operator
   data and the owner's call. Neither channel has seen a `/root` since its fix,
   so both are unproven by a real attempt.
