@@ -2858,6 +2858,25 @@ should not, but the cause is the leak, not the migration hook.
   the same gap that let a built skill outlive its case (`L153`).
 - The 31-of-43 count is instance data and was not re-read.
 
+**Re-measured 2026-09-21 on the live store: the leak has GROWN, and it now
+gates another entry.** krons holds **47 eval groups of 59 total**, up from the
+31 of 43 this entry recorded. The SQLite evidence above is frozen; the query
+that answers it today is the `routd.groups` entity:
+
+```sql
+select count(*) filter (where sk_s like 'eval/%'), count(*) from "_ddb_<groups-id>"
+```
+
+Every one of those folders still bills an auto-migrate turn on each
+`MIGRATION_VERSION` bump, so the per-release cost scales with a number that
+only goes up.
+
+**This blocks `L188`, and the two must be sequenced.** `L188` is a backfill
+ledger asking for roughly 12 new anteval cases against the 22 that exist. Each
+case creates a child group nothing deletes, so closing `L188` first would raise
+the leak by about half again and make every later release slower and dearer.
+Fix the deletion here first; then the backfill costs what it should.
+
 ## L62 — marinade's emaid IMAP login fails, unhealthy for 3 days (2026-08-21, open)
 
 `arizuko_emaid_marinade` has been `Up (unhealthy)` since 2026-08-18. Every IMAP
@@ -6299,6 +6318,20 @@ Local paths table (`link-is-public-url`), the map (`self-skill`).
   `9579fd32`, so every remaining "Case today" column re-measures identically.
   All 19 owner paths resolve and all 11 "already covered" ids exist.
 - **Status:** open — 17 rows remain, and each is a case to write, not an edit.
+
+**Sequencing, measured 2026-09-21: `L72` comes first.** Each row here closes by
+adding an anteval case, and `anteval/cases/anteval.toml` holds 22 today. `L72`
+records that every case creates a child group nothing deletes — re-measured,
+krons now carries 47 eval groups of 59, and each one bills an auto-migrate turn
+on every `MIGRATION_VERSION` bump, forever.
+
+So backfilling these twelve rows against today's anteval raises a live leak by
+about half again, and every release after pays for it. The ledger is right that
+the rules are unmeasured; the cost of measuring them is the thing to fix first.
+
+One row needs no case at all and should be struck rather than backfilled:
+"Additional mounts, operator SQL" is an operator procedure, not agent
+behaviour, and the table already says so.
 
 ## L189 — `sandbox/` writes no netfilter rule for a host-name allowlist entry, and the comment that explains why names a proxy `6/24` deleted (2026-09-05, SILENT HALF FIXED 2026-09-20; the rule itself needs the crackbox decision — proposal, needs sign-off)
 
