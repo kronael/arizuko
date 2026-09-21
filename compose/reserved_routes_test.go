@@ -1,6 +1,8 @@
 package compose
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -118,5 +120,36 @@ func TestDaemonDashRoutesPrecedeTheCatchAll(t *testing.T) {
 	}
 	if daemons == 0 {
 		t.Fatal("no per-daemon dashboard routes at all")
+	}
+}
+
+// The ttsd console route is the package's, declared in its manifest like every
+// adapter's (BUGS L200): absent with no ttsd package even when TTS_ENABLED
+// names an external backend — the core row routed /dash/ttsd/ at a backend
+// that did not run — and present, package-owned, when the package is installed.
+func TestTTSDashRouteComesFromThePackage(t *testing.T) {
+	external := seed(t, "TTS_ENABLED=true\nTTS_BASE_URL=https://api.openai.com\n")
+	if hasRoute(genRoutes(t, external), "/dash/ttsd/") {
+		t.Error("/dash/ttsd/ routed with no ttsd package to answer it")
+	}
+
+	host, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := os.ReadFile(filepath.Join(templateServices, "ttsd.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := seed(t, "HOST_APP_DIR="+host+"\n")
+	write(t, dir, "services/ttsd.yml", "services:\n  ttsd:\n    image: arizuko-ttsd:latest\n")
+	write(t, dir, "services/ttsd.yaml", string(manifest))
+	routes := genRoutes(t, dir)
+	i := slices.IndexFunc(routes, func(r ProxydRoute) bool { return r.Path == "/dash/ttsd/" })
+	if i < 0 {
+		t.Fatalf("the ttsd package's route is missing: %+v", routes)
+	}
+	if routes[i].Owner != store.RouteOwnerPackage("ttsd") || routes[i].Auth != "user" {
+		t.Errorf("route = %+v, want package-owned and user-authenticated", routes[i])
 	}
 }

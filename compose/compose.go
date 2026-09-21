@@ -496,7 +496,6 @@ var coreProxydRoutes = []ProxydRoute{
 	{Path: "/dash/proxyd/", Backend: "http://proxyd:8080", Auth: "user"},
 	{Path: "/dash/runed/", Backend: "http://runed:8080", Auth: "user"},
 	{Path: "/dash/timed/", Backend: "http://timed:8080", Auth: "user"},
-	{Path: "/dash/ttsd/", Backend: "http://ttsd:8080", Auth: "user", GatedBy: "TTS_ENABLED"},
 	{Path: "/dash/webd/", Backend: "http://webd:8080", Auth: "user"},
 	// /dash/ catch-all → dashd (hub + cross-cutting pages).
 	{Path: "/dash/", Backend: "http://dashd:8080", Auth: "user"},
