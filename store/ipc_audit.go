@@ -13,8 +13,11 @@ import (
 // enum: ok | error: <msg> | authz_denied. Spec 5/I + audit/PLAN.md.
 //
 // The legacy ipc_audit table is not written to; existing rows remain
-// for backfill. New callers should prefer audit.EmitInTx so the audit
-// row commits with the underlying mutation.
+// for backfill. A new caller carries the record in the mutation's own
+// GuardedBatch — audit.WriteFor renders the write — so the row commits
+// with the mutation or not at all (spec 6/40). This function cannot: an
+// MCP tool's mutation is whatever the tool did, so the row is a separate
+// write and a lost one is a silent gap.
 func (s *Store) LogIPCAudit(folder, sub, tool, params, outcome string) error {
 	out, errMsg := mapIPCAuditOutcome(outcome)
 	var paramsMap map[string]any

@@ -4286,7 +4286,7 @@ Two things narrow it since filing, both measured at `a388cad7`:
 So the remaining work is exactly what the entry says: capture it. The disk-
 pressure confound was never eliminated and the host is at 97% again today.
 
-## F34 — "who ended this engagement" has two answers in two tables (2026-08-06, PROPOSED — needs sign-off, DISPROVED)
+## ✅ CLOSED 2026-09-21 F34 — "who ended this engagement" has two answers in two tables (2026-08-06, DISPROVED — there is one table, and the correction is now pinned in the code)
 
 Found while shipping `5/G`'s disengage control, which fixed the REST half only.
 
@@ -4338,6 +4338,52 @@ contract change over every ipc tool and therefore a sign-off, not an inline fix.
   The premise came from a stale field comment at `ipc/ipc.go:251` saying
   "persists one ipc_audit row" — a claim, not evidence. Comment corrected.
   No code move needed; `disengage` is audited like its ~45 neighbours.
+
+**CLOSED 2026-09-21 at 17459f6a. Re-verified from the call path, not from the
+2026-08-06 note: the premise is dead and the correction it prompted has held.**
+
+Both writers land in `audit_log`, so the operator's question takes one query:
+
+- REST — `routd/engagement_http.go:112` → `DB.SetEngagementAudited`
+  (`routd/db.go:523`), which rides the window's own write:
+  `audit.WriteFor(ev)` then `BumpEngagementWith`. One batch, all-or-nothing.
+- MCP — `granted("disengage", …)` (`ipc/ipc.go:1706`) → `emitSys`
+  (`ipc/ipc.go:1108`) → `db.LogIPCAudit` → `audit.EmitTo`
+  (`store/ipc_audit.go`), `category=agent`, `action=mcp.tool.invoke`,
+  `surface=mcp`. An `audit_log` row, not an `ipc_audit` one.
+
+`ipc_audit` is written by nothing: `grep -rn "ipc_audit" --include=*.go`
+returns this one file plus test doubles, and the name is all that is legacy.
+`/dash/audit/` reads `audit_log`, so it shows the agent's disengages too.
+
+The cause fix this entry asked sign-off for — "should the `granted` wrapper
+emit `audit_log` for every state-changing tool" — is **already the shipped
+behaviour**, and not for `disengage` alone: `emitSys` is the wrapper, so all
+~45 granted tools report the same way. There is nothing to sign off.
+
+The correction is pinned where the wrong claim lived: `ipc/ipc.go:296-300`
+now names `audit.EmitTo` as the destination and cites this bug ID, so the
+stale field comment that produced the premise cannot re-seed it.
+
+**Two things found while closing, neither reopening this entry:**
+
+- **The transactionality difference in the original report is REAL and is the
+  recorded design, not a gap.** REST rides the mutation's batch; the MCP path
+  cannot, because an MCP tool's mutation is whatever the tool did and there is
+  no batch to join. `emitSys` also discards the error (`_ = db.LogIPCAudit(…)`),
+  so a failed audit write is silent. That is one concern, not this one — this
+  entry was "two tables", and there is one. `store/ipc_audit.go` states the
+  constraint at the function, corrected in this commit.
+- **`audit.EmitInTx` no longer exists** (`audit/audit_log.go` has `WriteFor`
+  and `EmitTo`), yet eleven sites still name it: `store/ipc_audit.go:16`,
+  `audit/PLAN.md:517,546,549`, `specs/5/I:8`, `specs/5/35:73`, `specs/5/G:185`,
+  `routd/social_audit.go:44`, `runed/audit.go:44`, six routd `*_resource_test.go`
+  comments, and `CHANGELOG.md:1781`. Only ONE instructed a future caller to use
+  it — `store/ipc_audit.go:16` — and that one is fixed here. The rest are
+  descriptive ("EmitTo, not EmitInTx, because …"), historical (CHANGELOG), or a
+  spec's record of what shipped; rewriting 1 of 11 would leave the tree
+  inconsistent, and rewriting all 11 is a rename sweep across specs and tests
+  that belongs to its own pass. Recorded, not swept.
 
 ## F38 — `task_run_logs` holds orphan rows on all three live instances (2026-08-06, ✅ CLOSED 2026-09-21 — the constraint that made it a trap is gone, and the orphan is now the recorded design)
 
