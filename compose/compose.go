@@ -2,6 +2,7 @@ package compose
 
 import (
 	"fmt"
+	"log/slog"
 	"net"
 	"net/url"
 	"os"
@@ -886,19 +887,7 @@ func Generate(dataDir string) (string, []ProxydRoute, error) {
 	// It stays OUT of the shared .env, so one daemon's key is not every
 	// daemon's. This runs after the service keys so it merges into their maps
 	// rather than standing where wireServiceKey tests for its own work.
-	for daemon := range daemonKeys {
-		file := filepath.Join(dataDir, "env", daemon+".env")
-		keyID := readEnvFileKey(file, dynstore.EnvKeyID)
-		secret := readEnvFileKey(file, dynstore.EnvSecret)
-		if keyID == "" || secret == "" {
-			continue
-		}
-		if perDaemon[daemon] == nil {
-			perDaemon[daemon] = map[string]string{}
-		}
-		perDaemon[daemon][dynstore.EnvKeyID] = keyID
-		perDaemon[daemon][dynstore.EnvSecret] = secret
-	}
+	mergeStoreCredentials(dataDir, perDaemon)
 
 	// What each package needs from .env, resolved before any env file is
 	// written: a minted key reaches the daemons that read it (runed re-emits
@@ -1050,6 +1039,38 @@ func writeEnv(b *strings.Builder, env map[string]string) {
 // file, every group's files, and every live MCP socket. Naming subdirs mounts
 // only those children (spec 5/16, BUGS A1). Sources must pre-exist: docker
 // creates a missing bind source as root, and every daemon runs as uid 1000.
+
+// mergeStoreCredentials folds each daemon's own store key out of its scoped
+// env file into perDaemon, so one daemon's key is not every daemon's.
+//
+// Neither key present is NORMAL — that daemon has no store identity yet.
+// Exactly one is a fault: the file is half written, and skipping it silently
+// turns a config error here into an auth failure on that daemon's first store
+// call, far from the file that caused it.
+func mergeStoreCredentials(dataDir string, perDaemon map[string]map[string]string) {
+	for daemon := range daemonKeys {
+		file := filepath.Join(dataDir, "env", daemon+".env")
+		keyID := readEnvFileKey(file, dynstore.EnvKeyID)
+		secret := readEnvFileKey(file, dynstore.EnvSecret)
+		if (keyID == "") != (secret == "") {
+			have, missing := dynstore.EnvKeyID, dynstore.EnvSecret
+			if keyID == "" {
+				have, missing = dynstore.EnvSecret, dynstore.EnvKeyID
+			}
+			slog.Error("store credential is half written; the daemon will fail to "+
+				"authenticate at its first store call, not here",
+				"daemon", daemon, "file", file, "has", have, "missing", missing)
+		}
+		if keyID == "" || secret == "" {
+			continue
+		}
+		if perDaemon[daemon] == nil {
+			perDaemon[daemon] = map[string]string{}
+		}
+		perDaemon[daemon][dynstore.EnvKeyID] = keyID
+		perDaemon[daemon][dynstore.EnvSecret] = secret
+	}
+}
 
 func dataMounts(dataDir string, subdirs []string) []string {
 	if len(subdirs) == 0 {
