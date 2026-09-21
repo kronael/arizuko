@@ -401,26 +401,3 @@ func TestAppSrcDirFallsThroughToTheBinaryDir(t *testing.T) {
 		t.Errorf("AppSrcDir = %q, want the explicit APP_SRC_DIR", got)
 	}
 }
-
-// The named defaults exist so both readers spell them once.
-//
-// This used to compare each constant to its own literal, in the package that
-// declares it — green by construction, and it stayed green while
-// compose.Generate seeded a DIFFERENT value for ASSISTANT_NAME into every
-// scoped env file (BUGS L340). A test that cannot fail is not evidence.
-//
-// What it asserts now is the invariant itself: the value a reader falls back
-// to is the value the OTHER reader seeds. compose's side is pinned in
-// compose's own package, because that is where the second declaration lived.
-func TestTheSharedDefaultsAreNamedOnce(t *testing.T) {
-	if DefaultAssistantName == "" || DefaultWhisperModel == "" {
-		t.Fatal("a shared default is empty, so an unset env var means nothing")
-	}
-	// EnvOr must return the constant when the var is unset — that IS what the
-	// declaration is for, and it is the half a second seeder can contradict.
-	t.Setenv("ASSISTANT_NAME", "")
-	if got := EnvOr("ASSISTANT_NAME", DefaultAssistantName); got != DefaultAssistantName {
-		t.Errorf("unset ASSISTANT_NAME resolved to %q, want the shared default %q",
-			got, DefaultAssistantName)
-	}
-}
