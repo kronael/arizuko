@@ -37,11 +37,10 @@ const (
 	containerGracePeriod        = 30 * time.Second
 	containerSoftDeadlineOffset = 2 * time.Minute
 
-	// webRoot is where the public web tree appears in the container, and
-	// webDocsDir is the one subtree under it that belongs to the platform
-	// rather than to a group: the doc site `arizuko create` copies from
-	// `template/web/pub/arizuko/`. Declared here because the mount, its test
-	// and `ant/skills/arizuko/SKILL.md` must spell the same path.
+	// Where the public web tree appears in the container, and the one subtree
+	// under it that is the platform's rather than a group's (buildMounts states
+	// why). Declared here because the mount, its test and
+	// `ant/skills/arizuko/SKILL.md` must spell the same path.
 	webRoot    = "/var/lib/www"
 	webDocsDir = "arizuko"
 )
@@ -1453,10 +1452,9 @@ func cpDirOverwrite(src, dst string) { cpDirImpl(src, dst, false) }
 func cpDirFresh(src, dst string) { cpDirImpl(src, dst, true) }
 
 func cpDirImpl(src, dst string, skipExisting bool) {
-	// ERROR, not warn: a destination the run uid cannot create is the
-	// "typing but no reply" outage — the agent spawns with the files this copy
-	// was meant to place missing, and answers nothing. seedSettings names the
-	// same symptom at the same level; a Warn here was quieter than the failure.
+	// ERROR, the level seedSettings uses for the same symptom: a destination
+	// the run uid cannot create is the "typing but no reply" outage — the agent
+	// spawns without the files this copy was meant to place, and answers nothing.
 	if err := os.MkdirAll(dst, 0o755); err != nil {
 		slog.Error("cpDir: mkdir failed — the group home is not writable by the run uid, "+
 			"so the agent starts without these files; chown the home to the run uid",

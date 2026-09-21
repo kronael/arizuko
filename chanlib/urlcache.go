@@ -14,16 +14,11 @@ import (
 // back to the platform URLs they stand for. Id is a 12-char hex prefix of
 // sha256(url) — stable, so the same URL always yields the same id.
 //
-// THE MAPPING IS THE FILE. The adapter rewrites an inbound attachment's URL to
-// `<listen>/files/<id>` before the envelope reaches routd, so the platform URL
-// is held nowhere else, and routd's enrich downloads through the proxy when the
-// turn runs — which can be long after the message arrived. An id that no longer
-// resolves is an attachment the agent never receives (BUGS L163).
-//
-// So the LRU in front is a cache and the store behind it is the record. The LRU
-// bounds what is held in memory; it does not bound what can be answered, because
-// a miss falls through to the store. A purely in-memory map lost an id two ways
-// — a restart emptied it, and a busy adapter evicted the oldest while running —
+// THE MAPPING IS THE FILE, and chanstore's `file_urls` is where it lives —
+// that entity states why (BUGS L163). The LRU here is a cache in front of it:
+// it bounds what is held in memory, not what can be answered, because a miss
+// falls through to the store. A purely in-memory map lost an id two ways — a
+// restart emptied it, and a busy adapter evicted the oldest while running —
 // and both are the same loss to the turn that needed the file.
 type URLCache struct {
 	mu    sync.Mutex
@@ -40,10 +35,8 @@ type urlEntry struct{ id, url string }
 
 const DefaultURLCacheSize = 4096
 
-// NewURLCache builds a cache over st. The store is a required argument rather
-// than a later setter because a cache wired after the platform's event loop is
-// already running would answer some ids from memory alone, which is the
-// failure this type exists to stop.
+// NewURLCache builds a cache over st, which is an argument so that no cache
+// can serve an id before it has its record. cap <= 0 takes the default.
 func NewURLCache(cap int, st *chanstore.Store) *URLCache {
 	if cap <= 0 {
 		cap = DefaultURLCacheSize
