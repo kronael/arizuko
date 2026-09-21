@@ -3295,13 +3295,13 @@ inline. `5/B` and `5/F` are the specs to amend.
     conversation, and half of a conversation is the agent's own turns.
   - The bot filter is LOAD-BEARING and its comment says so, so widening it is
     the part that needs the sign-off, not the `is_observed` term.
-    `router/router.go` names the folder-feed's `is_bot_message` Absent filter as
-    the reason a bot row could go unlabelled at all, "the read-side twin of BUGS
-    `L150`". `L184` (local-row half shipped 2026-09-21) removes that dependency:
-    `FormatMessages` now marks a bot row `bot="true"`, so an ambient window
-    COULD carry the agent's own words without the agent reading them as another
-    user's. Before `L184` the same widening would have re-opened `L150`'s
-    read-side twin.
+    `router/router.go`'s `bot="true"` comment names that same filter as the
+    reason a bot row never reaches the injected history, and says that without a
+    marker the agent "reads its own past words as another user's — the read-side
+    twin of BUGS L150". `L184` (local-row half shipped 2026-09-21) supplies the
+    marker, so an ambient window COULD now carry the agent's own words without
+    the agent reading them as another user's. Before `L184` the same widening
+    would have re-opened that twin.
   - `L305`'s grouping fix (`1c263329`) removes the other reported symptom — the
     desk answering thread A inside thread B — but not this one. The two are
     independent.
