@@ -45,7 +45,8 @@ type Provider struct {
 // The second result names the built-ins whose auth_url/token_url an operator
 // file CHANGED. Client creds bind by provider NAME, so such a file keeps the
 // built-in's operator client_secret and points it at its own endpoint; the
-// caller warns once it knows which names carry creds.
+// caller warns once it knows which names carry creds. Whatever the datadir
+// holds, the assembled set is validated before it is returned.
 func loadRegistry(dataDir string) (map[string]Provider, []string, error) {
 	out := make(map[string]Provider)
 	entries, err := fs.ReadDir(builtinProviders, "providers")
@@ -64,40 +65,54 @@ func loadRegistry(dataDir string) (map[string]Provider, []string, error) {
 			return nil, nil, err
 		}
 	}
+	redirected, err := overlayOperator(out, dataDir)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := checkSecretKeys(out); err != nil {
+		return nil, nil, err
+	}
+	return out, redirected, nil
+}
+
+// overlayOperator lays <dataDir>/surrogate/*.toml over the loaded set and
+// reports the built-ins whose auth_url/token_url a file CHANGED. dataDir "" and
+// an absent directory both mean "no operator files"; every other read error is
+// the operator's data and fails loud. It owns the early exits so loadRegistry
+// keeps ONE tail — the validation below it must run on every path, and it did
+// not when each exit returned for itself.
+func overlayOperator(out map[string]Provider, dataDir string) ([]string, error) {
 	if dataDir == "" {
-		return out, nil, nil
+		return nil, nil
 	}
 	dir := filepath.Join(dataDir, "surrogate")
-	opEntries, err := os.ReadDir(dir)
+	entries, err := os.ReadDir(dir)
 	if errors.Is(err, os.ErrNotExist) {
-		return out, nil, nil
+		return nil, nil
 	}
 	if err != nil {
-		return nil, nil, fmt.Errorf("surrogate: read %s: %w", dir, err)
+		return nil, fmt.Errorf("surrogate: read %s: %w", dir, err)
 	}
 	var redirected []string
-	for _, e := range opEntries {
+	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".toml") {
 			continue
 		}
 		path := filepath.Join(dir, e.Name())
 		raw, rerr := os.ReadFile(path)
 		if rerr != nil {
-			return nil, nil, fmt.Errorf("surrogate: read %s: %w", path, rerr)
+			return nil, fmt.Errorf("surrogate: read %s: %w", path, rerr)
 		}
 		name := providerName(e.Name())
 		prev, replaced := out[name]
 		if err := addProvider(out, path, e.Name(), raw); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		if replaced && (out[name].AuthURL != prev.AuthURL || out[name].TokenURL != prev.TokenURL) {
 			redirected = append(redirected, name)
 		}
 	}
-	if err := checkSecretKeys(out); err != nil {
-		return nil, nil, err
-	}
-	return out, redirected, nil
+	return redirected, nil
 }
 
 // checkSecretKeys rejects two providers that write the same secrets key. The
