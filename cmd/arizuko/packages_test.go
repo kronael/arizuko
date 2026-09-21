@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
@@ -653,5 +654,23 @@ func TestPackagesUpgradeReportsCatalogManifestDrift(t *testing.T) {
 	}
 	if !strings.Contains(out, "driftpkg.yaml") {
 		t.Errorf("sync does not name the manifest that moved: %q", out)
+	}
+}
+
+// The line has to separate two rows that differ only in their predicate,
+// because an operator reads it to decide whether to accept the install and then
+// to type the `ungrant` that removes one of them. store.aclKey puts the
+// predicate in the key, so two such rows ARE two rows (BUGS L344).
+func TestDescribeGrantNamesThePredicate(t *testing.T) {
+	base := core.ACLRow{Principal: "github:bob", Action: "mcp:send", Scope: "main/**"}
+	narrowed := base
+	narrowed.Predicate = "platform=telegram"
+
+	plain, narrow := describeGrant(base), describeGrant(narrowed)
+	if plain == narrow {
+		t.Fatalf("two rows that differ by predicate render as one line: %q", plain)
+	}
+	if !strings.Contains(narrow, "platform=telegram") {
+		t.Errorf("the line does not name the predicate: %q", narrow)
 	}
 }

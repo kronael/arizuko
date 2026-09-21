@@ -447,6 +447,9 @@ func describeGrant(row core.ACLRow) string {
 	if row.Params != "" {
 		s += " (" + row.Params + ")"
 	}
+	if row.Predicate != "" {
+		s += " when " + row.Predicate
+	}
 	if row.GrantOption {
 		s += " WITH GRANT OPTION"
 	}
