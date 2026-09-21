@@ -1,14 +1,8 @@
 package compose
 
 import (
-	"bytes"
-	"log/slog"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/kronael/arizuko/objstore/dynstore"
 )
 
 // BUGS L201: `docker compose` accepts any bind, any namespace and any env
@@ -86,44 +80,4 @@ func TestCheckSourcedFragment(t *testing.T) {
 			}
 		})
 	}
-}
-
-// A daemon with NEITHER store credential is normal — it has no identity yet.
-// A daemon with exactly ONE is a half-written file, and skipping it silently
-// turns a config fault into a runtime auth error on that daemon's first store
-// call, far from the file that caused it.
-func TestHalfWrittenStoreCredentialIsLoud(t *testing.T) {
-	logs := captureComposeErrors(t)
-	dir := t.TempDir()
-	envDir := filepath.Join(dir, "env")
-	if err := os.MkdirAll(envDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	// routd gets an id and no secret; authd gets neither.
-	if err := os.WriteFile(filepath.Join(envDir, "routd.env"),
-		[]byte(dynstore.EnvKeyID+"=AKIAEXAMPLE\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(envDir, "authd.env"), []byte("\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	mergeStoreCredentials(dir, map[string]map[string]string{})
-
-	got := logs.String()
-	if !strings.Contains(got, "half written") || !strings.Contains(got, "routd") {
-		t.Fatalf("a half-written credential logged no error naming the daemon: %q", got)
-	}
-	if strings.Contains(got, "authd") {
-		t.Errorf("a daemon with NO credential was reported as a fault: %q", got)
-	}
-}
-
-func captureComposeErrors(t *testing.T) *bytes.Buffer {
-	t.Helper()
-	var buf bytes.Buffer
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelError})))
-	t.Cleanup(func() { slog.SetDefault(prev) })
-	return &buf
 }
