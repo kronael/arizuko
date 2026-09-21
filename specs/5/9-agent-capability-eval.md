@@ -136,8 +136,12 @@ the capability prober did not. That single result is the spec's
 justification.
 
 Surface gaps the run exposed, kept honest rather than silent: with
-`--mcp` unset, `rest-mcp-parity` fails loudly ("surface not configured")
-because the chat-token MCP face lacks an inspect-read.
+`--mcp` unset, every parity check fails loudly ("surface not
+configured") rather than passing on an unread surface. Configuring it is
+anteval-side work — the platform's half is served. `HTTPTarget.McpMessages`
+GETs a REST-shaped `/v1/messages/inspect`, so it can only be pointed at a
+REST URL, while webd's MCP face answers `get_history` over streamable HTTP
+on both `POST /mcp` and `POST /chat/{token}/mcp`.
 
 ## Live-run preconditions (learned the hard way)
 

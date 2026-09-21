@@ -127,12 +127,15 @@ injecting token needs `messages:write` + read scope on the eval folder, and the
 
 `Cost()` reads routd `GET /v1/cost?turn_id=` (token needs `cost:read`); a 404
 — no cost recorded yet, or a routd predating the endpoint — reads as 0, other
-failures surface. One known gap (honest, not silent): the platform's
-chat-token MCP face lacks an inspect-read (proposal in `BUGS.md`), so `--mcp`
-was never configurable against it and the `rest-mcp-parity` case failed every
-live run by construction — deleted 2026-08-21. The `parity_sentinel` checker
-and the `--mcp` flag remain for its return, and for product catalogs whose
-target has such a face.
+failures surface. One known gap (honest, not silent): `McpMessages` GETs a
+REST-shaped `/v1/messages/inspect`, so `--mcp` can only be pointed at a REST
+URL and never at the platform's own MCP face, and the `rest-mcp-parity` case
+failed every live run by construction — deleted 2026-08-21. Closing it is
+anteval-side work, not a platform contract: webd serves `get_history` over
+streamable HTTP on `POST /chat/{token}/mcp`, and it returns user frames as
+well as assistant ones, which is what a sentinel needs. The
+`parity_sentinel` checker and the `--mcp` flag remain for that case's return,
+and for product catalogs whose target has such a face.
 
 The callback sink binds locally; the agent containers must be able to reach
 `--sink`, so the eval host has to be on the target folder's crackbox egress

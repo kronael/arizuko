@@ -5602,28 +5602,55 @@ session-to-topic column persisted at first message — has no reader left to ser
   which left that sweep's heading standing over nothing.
 - **Fix:** none needed
 
-## PROPOSAL — anteval `--mcp` parity face needs an inspect-read on a public MCP surface (2026-07-11, proposed)
+## anteval `--mcp` has no MCP client — bounded, anteval-side (2026-07-11, re-scoped 2026-09-21, no longer a proposal)
 
-Spec 5/9 gap (b): `anteval --mcp` expects an "inspect-compatible MCP-over-HTTP face" —
-`HTTPTarget.McpMessages` just GETs `<mcp>/v1/messages/inspect`, i.e. a REST-shaped URL, not a
-real MCP client. The platform DOES have MCP-over-HTTP (webd `POST /mcp` session-auth'd, and
-`POST /chat/{token}/mcp` chat-token-auth'd, stateless streamable HTTP) but its tools are
-`send_message`/`get_round` — get_round returns ASSISTANT frames for one turn, so the
-`rest-mcp-parity` sentinel (harness-injected USER message identical via both faces) cannot be
-read through it. Closing the gap honestly needs ONE of: (1) an inspect-read tool on the
-chat-token MCP face (new public contract on webd, folder-bound like routd's REST inspect);
-(2) a real streamable-HTTP MCP client in anteval driving send_message/get_round and a
-reshaped parity case (assert the ROUND's frames match via REST + MCP instead of the raw
-sentinel). Both change a public surface contract or the spec's case semantics → needs
-sign-off before shipping. Until then `--mcp` stays unset and `rest-mcp-parity` fails loudly
-("surface not configured") — honest, not silent; `mcp-roundtrip` is unaffected (agent-driven,
-callback-checked).
+**The sign-off this entry asked for is not needed: the public surface it
+wanted already exists.** It offered two ways to close `5/9` gap (b) and said
+both "change a public surface contract or the spec's case semantics". Option
+(1) — an inspect-read on the chat-token MCP face — is SHIPPED. `webd/mcp.go:171`
+registers `get_history(folder, topic, limit≤100)` in `buildWebMCP`, the one
+builder both doors call, so it answers on `POST /mcp` AND on
+`POST /chat/{token}/mcp` (`webd/server.go:103,128`). It is folder-bound the way
+the entry asked — the grant set comes from the route-token ROW, never a request
+param — and it returns BOTH roles (`messageRole`, `webd/server.go:296`:
+non-bot → `"user"`), which is exactly what a harness-injected USER sentinel
+needs.
 
-- **Severity:** low (one non-smoke case ungated; documented honest gap)
-- **Scope:** anteval/pkg/run/target.go McpMessages + webd chat MCP toolset + spec 5/9
-- **Affected:** anteval `rest-mcp-parity` case
-- **Source:** anteval/README.md "Two known gaps"; webd/chat_mcp.go toolset
-- **Status:** proposed (redesign, needs sign-off)
+**Two of the entry's facts were already stale when it was filed or went stale
+after.** The tools are not `send_message`/`get_round` — those names exist
+nowhere in the tree; the surface is `list_groups` / `send` / `get_history`. And
+the blocker it rested on ("get_round returns ASSISTANT frames for one turn, so
+the sentinel cannot be read through it") therefore has no referent.
+
+**What is actually missing is one thing, inside anteval.**
+`HTTPTarget.McpMessages` (`anteval/pkg/run/target.go:107`) hands `t.MCPURL` to
+`messages()`, which GETs `<base>/v1/messages/inspect?jid=` — a REST shape. So
+`--mcp` can only ever be pointed at a second REST URL, and pointing it at
+webd's MCP face is not a misconfiguration the operator can fix. The work:
+
+- a streamable-HTTP MCP client calling `get_history`. `mark3labs/mcp-go
+  v0.45.0` is already a direct dependency and ships
+  `client.NewStreamableHttpClient`; webd mounts the server side stateless.
+- the argument shape. `McpMessages` takes a chat jid; `get_history` takes
+  `folder` + `topic`, both required. anteval has `--folder` and runs each case
+  in its own topic, so both are in hand — but it is a signature change, not a
+  URL swap.
+- `role` → `check.Msg.FromBot`, the mapping `RestMessages` does from
+  `is_bot_message`.
+- restoring a `rest-mcp-parity` case. The `parity_sentinel` checker is still in
+  the vocabulary (`anteval/pkg/check/check.go:76`, `spec.go:52`) and still
+  tested; only the case was deleted 2026-08-21, so nothing is affected TODAY.
+
+No public contract changes, no spec amendment, no case semantics rewritten.
+`5/9` and `anteval/README.md` both said the face lacks an inspect-read; both
+corrected in the same pass.
+
+- **Severity:** low (a flag that cannot be configured; no case depends on it)
+- **Scope:** `anteval/pkg/run/target.go`, `anteval/cases/anteval.toml`
+- **Affected:** nothing live — the case that used it is gone
+- **Source:** anteval/pkg/run/target.go:83-107; webd/mcp.go:171;
+  webd/server.go:103,128,296
+- **Status:** open — bounded anteval work, no sign-off pending
 - **Fix:**
 
 ## ✅ FIXED 2026-09-21 krons: `/hook/` proxyd route missing — webhook surface dead; route table not hot-reloaded (2026-07-11)
