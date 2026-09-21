@@ -38,7 +38,7 @@ type VMConfig struct {
     Memory    string   // e.g. "2G"; empty = default
     CPUs      int      // 0 = default (2)
     Mounts    []Mount  // virtio-fs mounts
-    AllowList []string // host allowlist enforced by netfilter on the VM's tap
+    AllowList []string // egress allowlist; granularity: sandbox.Profile.Egress
 }
 
 type Handle struct{ ID string; IP string }
@@ -60,10 +60,14 @@ every caller, in every process, sees the same set.
 
 ## Egress enforcement
 
-`VMConfig.AllowList []string` is the whole surface, and enforcement is
-netfilter rules on the VM's own tap device (`sandbox/internal/manager.go`).
-The gate is in the kernel, on the interface the VM's packets must cross, so
-a VM cannot be outside it.
+`VMConfig.AllowList []string` is the whole surface. At what granularity a
+listed entry becomes a rule is declared once, as a value:
+`sandbox.Profile.Egress` (`substrate/substrate.go`, owned by
+[`6/25`](25-qm-adoptions.md) §2). This spec restates none of it.
+
+The gate is netfilter on the VM's own tap device
+(`sandbox/internal/manager.go`): in the kernel, on the interface the VM's
+packets must cross, so a VM cannot be outside it.
 
 There is no admin API, no `/v1/register`, and nothing for a caller to hold
 open across a spawn's life. That is the point rather than an omission: an
@@ -89,6 +93,7 @@ it needs. The consumer daemon is the user-facing privilege boundary.
   with no arizuko process and no arizuko data directory.
 - `sandbox/` has zero arizuko-internal imports (component test, per
   [`6/16`](16-daemon-standalone-matrix.md)).
-- A spawn with a non-empty `AllowList` reaches a listed host and is
-  refused a listed-out one, with the VM's tap rules as the evidence —
-  not a registration the caller has to remember to undo.
+- A spawn with a non-empty `AllowList` reaches an entry
+  `sandbox.Profile.Egress` covers and is refused one outside it, with the
+  VM's tap rules as the evidence — not a registration the caller has to
+  remember to undo.
