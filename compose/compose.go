@@ -47,7 +47,7 @@ func dockerGID() int {
 // provisionServiceKey returns the AUTHD_SERVICE_KEY for a daemon, reusing the
 // value already persisted in env/<daemon>.env (so a redeploy keeps the same
 // service identity) and minting a fresh random hex key on first generate.
-func provisionServiceKey(dataDir, daemon string, env map[string]string) string {
+func provisionServiceKey(dataDir, daemon string) string {
 	if existing := readEnvFileKey(filepath.Join(dataDir, "env", daemon+".env"), "AUTHD_SERVICE_KEY"); existing != "" {
 		return existing
 	}
@@ -827,7 +827,7 @@ func Generate(dataDir string) (string, []ProxydRoute, error) {
 		if _, done := perDaemon[daemon]; done {
 			return // already wired (e.g. two multi-account variants of one adapter)
 		}
-		key := provisionServiceKey(dataDir, daemon, env)
+		key := provisionServiceKey(dataDir, daemon)
 		// AUTHD_SERVICE_NAME pins the exchange principal to the DAEMON name so an
 		// adapter whose CHANNEL_NAME differs (telegram→teled) — and its multi-account
 		// variants sharing this env file — exchange as service:<daemon>.
