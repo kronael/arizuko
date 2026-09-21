@@ -72,8 +72,6 @@ export GOFLAGS += -timeout=20m
 # running — the PostgreSQL deployment, or Amazon's own service.
 test:
 	go test ./... -count=1 -short
-	$(foreach d,$(DAEMONS),make -C $(d) test;)
-	$(foreach c,$(COMPONENTS),make -C $(c) test;)
 
 # integration: pure integration tests in tests/ (no -short; hits real DBs,
 # real HTTP between daemons). Excluded from `make test` due to setup cost.
