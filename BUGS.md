@@ -3064,7 +3064,7 @@ list, audit list, sessions list, signing_keys list, proxyd_routes list/get/creat
   same way and is a separate entry's worth of work: `POST /v1/routes` documents a
   `RoutesRow` body while the handler reads `{"route": "<json>"}`.
 
-## L96 — an inbound reaction reaches the DB but never reliably reaches the agent (2026-08-25, proposal)
+## L96 — an inbound reaction reaches the agent, but never as a distinguishable event (2026-08-25, RE-SCOPED 2026-09-21 — one question, no redesign)
 
 Inbound reactions are wired end-to-end on the four chat adapters — teled asks
 Telegram for them explicitly (`teled/bot.go:233` `allowed_updates` must NAME
@@ -3096,13 +3096,50 @@ Also structural, and separate: `bskyd`, `reditd` and `linkd` can SEND a reaction
 and can never receive one — no `InboundMsg` is ever built from a like or an
 upvote in those three.
 
-- **RE-MEASURED 2026-09-20 at `6cef0e48`: CONFIRMED LIVE.** The ingest half is
-  as the entry describes. The delivery half is confirmed by ABSENCE, which is
-  what makes it hard to see: `grep -i reaction` over `routd/dispatch.go` and
-  `routd/prompt.go` returns **nothing**, and `router/router.go` has no reaction
-  verb. So a stored reaction has no path into a prompt and no route can select
-  on it — there is no code to be unreliable, which is why no log line reports
-  the loss.
+- **RE-MEASURED 2026-09-21 at `b3b973e2`: the 2026-09-20 note above is REFUTED
+  on both of its claims, and the refutation removes all three options.** That
+  note grepped for `reaction` in `routd/` and concluded from the silence that no
+  delivery path exists. The mechanism is spelled `verb`, not `reaction`, so the
+  grep could not see it.
+  - `router.FormatMessages` emits `verb="like"` for any verb but `message`
+    (`router/router.go:133`) above a `<reply-to sender=…>excerpt</reply-to>`
+    header (`router/router.go:75-92`). A reaction that reaches a prompt already
+    says what arrived and which message it was on.
+    `router/router_test.go:422` pins it.
+  - `verb` IS a route predicate (`router/router.go:329`), so `verb=like` is a
+    routable match today. `router/router_test.go:269` pins it.
+  Therefore, of the entry's three candidate shapes:
+  - **(b) a route-level `verb=like` opt-in needs NO code.** It is one route row.
+    Ruled out as work.
+  - **(c) promote reactions on the bot's own messages is SHIPPED**, and not
+    "half, via `ReplyTo`": `routd/server.go:578` resolves the parent through
+    `MessageByID`, which matches on `platform_id` — the id a reaction actually
+    carries — and then tests `parent.BotMsg`, which is authorship.
+    `ThreadHasBotMessage` widens it to any thread the bot has spoken in
+    (spec `5/L`). Every adapter sets `ReplyTo` on a reaction
+    (`discd/bot.go:273`, `teled/bot.go:264`). Ruled out as work.
+  - **(a) is already the shipped default on the canonical config.** A reaction
+    that misses the `verb=mention` trigger row hits `5/B`'s `#observe`
+    catch-all, so `routeMiss` ingests it with `is_observed=1` and it reaches the
+    NEXT turn's `<observed>` window — under the rule "Observed messages are
+    context, not requests. Do not reply to them." The live krons finding, "the
+    bot's next reply answers the user's next TEXT message", is that rule
+    working as specified, not a delivery failure. Ruled out as work.
+  So the title is wrong: a reaction DOES reach the agent, by all three doors.
+  What is left is narrower. Once promoted, `verb` is OVERWRITTEN to `mention`
+  and `core.Message` carries no reaction field at all
+  (`routd/routes_http.go:38` drops `apiv1.Message.Reaction`), so the agent reads
+  a message whose entire body is `👍`. A reaction is never a distinguishable
+  EVENT — only ambient text it is told to ignore, or a bare emoji under a
+  `<reply-to>` header.
+- **One question for the sign-off:** should a reaction be distinguishable in the
+  prompt — a `reaction` attribute the mention promotion does not overwrite — or
+  is a bare emoji under a `<reply-to>` header enough? Nothing here needs a
+  redesign or a product decision about spending a turn per emoji: (b) is a
+  config row and (c) already ships. The structural half of this entry —
+  `bskyd`, `reditd` and `linkd` can SEND a reaction and never receive one —
+  is untouched and still open.
+
 ## L92 — the HITL hold gate fails OPEN when the `acl` read fails (2026-08-24, proposal)
 
 `auth.CheckHold` (`auth/authorize.go:392`) logs and returns `false` when
