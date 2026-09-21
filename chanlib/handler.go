@@ -1,6 +1,7 @@
 package chanlib
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -671,8 +672,13 @@ func handleHealth(name string, prefixes []string, isConnected func() bool, lastI
 // slakd, discd and reditd where Resolve = URLCache.Get; slakd
 // passes Decorate to add the `Authorization: Bearer xoxb` header required
 // by the Slack file CDN, reditd passes Validate as its SSRF allowlist.
+//
+// Resolve takes the request's context and may fail, because the mapping lives
+// in the adapter's store rather than in memory alone (BUGS L163): "the store
+// would not answer" is not "no such file", and reporting 404 for it would tell
+// routd's enrich the sender attached nothing.
 type FileProxyOpts struct {
-	Resolve  func(id string) (string, bool)
+	Resolve  func(ctx context.Context, id string) (string, bool, error)
 	Validate func(url string) bool // optional: reject a resolved URL before the fetch
 	Decorate func(*http.Request)   // optional: tweak the upstream request
 	Client   *http.Client          // optional; defaults to a 30s-timeout client
@@ -698,7 +704,12 @@ func FileProxyHandler(opts FileProxyOpts) http.HandlerFunc {
 			WriteErr(w, 400, "file id required")
 			return
 		}
-		cdnURL, ok := opts.Resolve(id)
+		cdnURL, ok, err := opts.Resolve(r.Context(), id)
+		if err != nil {
+			slog.Error("file proxy: resolve failed", "id", id, "err", err)
+			WriteErr(w, 502, "file lookup failed")
+			return
+		}
 		if !ok {
 			WriteErr(w, 404, "not found")
 			return

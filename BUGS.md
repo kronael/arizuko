@@ -1331,7 +1331,7 @@ ended `container exited with error code:137`; routd re-fed it after the restart
   runed and routd, so it is not shipped here.
 - **Fix (log half):** `fix(queue): level the unreachable-plane log by outage, not by group`
 
-## L163 — an adapter restart empties its in-memory `/files/<id>` cache, so attachments re-fed across the restart 404 and the agent gets the text only (2026-09-05, PARTLY FIXED 2026-09-20; the durable map needs sign-off)
+## L163 — an adapter restart empties its in-memory `/files/<id>` cache, so attachments re-fed across the restart 404 and the agent gets the text only (2026-09-05, FIXED 2026-09-21 — the mapping is a `file_urls` entity in the adapter's own store, so a restart and an eviction both resolve)
 
 sloth 2026-09-04 13:43:13-19, right after the 13:41 restart: 12 × `enrich:
 download failed url=http://discd:8080/files/<id> err="HTTP 404"`.
@@ -1378,16 +1378,44 @@ names an attachment it never receives. Silent to the user.
   PROVEN BY MUTATION: silence the download failure again, or let the notice
   carry a path — each turns a test red. A third test pins the success path, so
   the fix cannot be satisfied by marking everything unavailable.
-- **Still open, and it is the cause fix:** the id→url map is in-memory, so it is
-  lost by RESTART and by EVICTION alike (`DefaultURLCacheSize = 4096`). Options
-  (1) persist it and (3) make the id a signed capability token carrying the URL
-  both stand; (3) is the only one that makes the bad state impossible by
-  construction, and it changes the `/files/<id>` contract for all three adapters
-  on `FileProxyHandler` — so it needs sign-off. RE-MEASURED 2026-09-20: those
-  three are `slakd/server.go:46`, `discd/server.go:25`, `reditd/server.go:38`,
-  and all three already carry a `chanstore.Store`, which makes (1) cheaper than
-  when this was filed. teled is NOT affected — `teled/server.go:80-97` rebuilds
-  the URL from the request path and holds no cache.
+- **The cause is fixed 2026-09-21 — option (1), persist the mapping.** The
+  adapter rewrites an attachment's URL to `/files/<id>` before the envelope
+  reaches routd, so the platform URL is held nowhere else: the envelope carries
+  the proxy URL and so does the message routd stores. The map was therefore a
+  state of record living in memory, which `durable_local_db` forbids.
+
+  `chanstore` gains a third entity, `file_urls` (`chanlib/chanstore/file_url.go`),
+  keyed partition=sort=id for `outbound_dedup`'s reason: both reads address one
+  id handed to them by an HTTP path and neither filters. chanlib SHIPS the
+  entity; the TABLE belongs to each adapter daemon, so no library owns a
+  database.
+
+  `chanlib.URLCache` IS KEPT and given that backing rather than replaced — five
+  packages name the type. The LRU is now a cache in front of the record: `Put`
+  writes through, `Get` falls through to the store on a miss and warms memory.
+  That is one mechanism for both halves of the loss, because a restart and an
+  eviction are the same thing to the turn that needed the file.
+
+  `FileProxyOpts.Resolve` gains ctx and an error, so "the store would not
+  answer" reports 502 instead of the 404 that would tell enrich the sender
+  attached nothing. `s.files.Get` stays a method value at all three sites.
+
+  NOTHING SWEEPS `file_urls`, deliberately: an expiry is a deliberate loss of
+  the mapping, which is this bug. The cost is one item per inbound attachment,
+  strictly fewer than `outbound_dedup`'s one per outbound delivery, which this
+  entity set already accepts unswept.
+
+  PROVEN BY MUTATION: stop `Get` falling through to the store, or stop `Put`
+  recording, and `TestURLCacheResolvesAfterARestart` — a SECOND cache built over
+  the same store, which is what a restart is — goes red along with the eviction
+  and warm-up bodies, while the memory-tier bodies stay green. Dropping
+  `FileURL` from `chanstore.Entities` reddens all five `file_url_test.go`
+  bodies, since an undeclared entity is a table no deployment creates.
+
+  REFUTED while fixing: whapd does not reference `URLCache` at all — the
+  referencers are slakd, discd and reditd (plus the type's own tests). teled
+  stays unaffected: `teled/server.go` rebuilds the URL from the request path and
+  holds no cache.
 
 ## L155 — the skill-guard quarantines 74 of arizuko's own 544 shipped skill files, `migrate/SKILL.md` first; `agent_config_mod` fires `critical` on the STRING "CLAUDE.md" (2026-09-03, FIXED 2026-09-20 — 20 of 551 → 11, and no shipped `SKILL.md` blocks; the 11 are true positives, left blocked on purpose)
 

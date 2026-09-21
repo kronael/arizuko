@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/chanlib/chanstore"
 )
 
 type tokenResp struct {
@@ -60,13 +61,13 @@ func (rc *redditClient) markPollOK() {
 	rc.lastPollOK.Store(time.Now().Unix())
 }
 
-func newRedditClient(cfg config) (*redditClient, error) {
+func newRedditClient(cfg config, chanStore *chanstore.Store) (*redditClient, error) {
 	rc := &redditClient{
 		cfg:       cfg,
 		http:      &http.Client{Timeout: 15 * time.Second},
 		cursors:   map[string]string{},
 		skipFirst: map[string]bool{},
-		files:     chanlib.NewURLCache(1000),
+		files:     chanlib.NewURLCache(1000, chanStore),
 	}
 	rc.lastInboundAt.Store(time.Now().Unix())
 	if err := rc.refreshToken(); err != nil {
@@ -364,7 +365,8 @@ func (rc *redditClient) thingToMsg(t thing, jid string) (chanlib.InboundMsg, boo
 	case "t3":
 		verb = "post"
 	}
-	atts := rc.extractAttachments(t)
+	// The poll and the history verb both reach here without a context.
+	atts := rc.extractAttachments(context.Background(), t)
 	for _, a := range atts {
 		content += fmt.Sprintf(" [Attachment: %s]", a.Filename)
 	}
@@ -594,11 +596,11 @@ func (rc *redditClient) Delete(req chanlib.DeleteRequest) error {
 	return checkStatus(resp, "reddit delete")
 }
 
-func (rc *redditClient) extractAttachments(t thing) []chanlib.InboundAttachment {
+func (rc *redditClient) extractAttachments(ctx context.Context, t thing) []chanlib.InboundAttachment {
 	d := t.Data
 	switch {
 	case d.Media != nil && d.Media.RedditVideo != nil && d.Media.RedditVideo.FallbackURL != "":
-		return []chanlib.InboundAttachment{rc.makeAttachment(d.Media.RedditVideo.FallbackURL, "video/mp4", "video.mp4")}
+		return []chanlib.InboundAttachment{rc.makeAttachment(ctx, d.Media.RedditVideo.FallbackURL, "video/mp4", "video.mp4")}
 	case d.IsGallery && d.GalleryData != nil && d.MediaMetadata != nil:
 		var atts []chanlib.InboundAttachment
 		for _, item := range d.GalleryData.Items {
@@ -607,17 +609,22 @@ func (rc *redditClient) extractAttachments(t thing) []chanlib.InboundAttachment 
 				continue
 			}
 			imgURL := strings.ReplaceAll(meta.S.U, "&amp;", "&")
-			atts = append(atts, rc.makeAttachment(imgURL, meta.Mime, item.MediaID+extFromRedditMime(meta.Mime)))
+			atts = append(atts, rc.makeAttachment(ctx, imgURL, meta.Mime, item.MediaID+extFromRedditMime(meta.Mime)))
 		}
 		return atts
 	case d.URL != "" && isRedditImageURL(d.URL, d.PostHint):
-		return []chanlib.InboundAttachment{rc.makeAttachment(d.URL, imageMimeFromURL(d.URL), filenameFromURL(d.URL))}
+		return []chanlib.InboundAttachment{rc.makeAttachment(ctx, d.URL, imageMimeFromURL(d.URL), filenameFromURL(d.URL))}
 	}
 	return nil
 }
 
-func (rc *redditClient) makeAttachment(rawURL, mime, fname string) chanlib.InboundAttachment {
-	id := rc.files.Put(rawURL)
+func (rc *redditClient) makeAttachment(ctx context.Context, rawURL, mime, fname string) chanlib.InboundAttachment {
+	id, err := rc.files.Put(ctx, rawURL)
+	if err != nil {
+		// The id still works in this process; only a restart loses it
+		// (URLCache.Put, BUGS L163).
+		slog.Error("attachment url not recorded", "id", id, "err", err)
+	}
 	proxyURL := rc.cfg.ListenURL + "/files/" + id
 	return chanlib.InboundAttachment{
 		Mime:     mime,

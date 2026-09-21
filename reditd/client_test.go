@@ -22,7 +22,7 @@ func makeRedditClient(t *testing.T, srv *httptest.Server) *redditClient {
 		skipFirst: map[string]bool{},
 		token:     "test-token",
 		expiresAt: time.Now().Add(time.Hour),
-		files:     chanlib.NewURLCache(100),
+		files:     chanlib.NewURLCache(100, nil),
 		http: &http.Client{
 			Transport: &hostRewrite{target: srv.Listener.Addr().String()},
 			Timeout:   5 * time.Second,
@@ -189,7 +189,7 @@ func TestExtractAttachments_ImagePost(t *testing.T) {
 	th.Data.URL = "https://i.redd.it/abc123.jpg"
 	th.Data.PostHint = "image"
 
-	atts := rc.extractAttachments(th)
+	atts := rc.extractAttachments(t.Context(), th)
 	if len(atts) != 1 {
 		t.Fatalf("got %d attachments, want 1", len(atts))
 	}
@@ -220,7 +220,7 @@ func TestExtractAttachments_Video(t *testing.T) {
 		}{FallbackURL: "https://v.redd.it/abc/DASH_720.mp4"},
 	}
 
-	atts := rc.extractAttachments(th)
+	atts := rc.extractAttachments(t.Context(), th)
 	if len(atts) != 1 {
 		t.Fatalf("got %d attachments, want 1", len(atts))
 	}
@@ -254,7 +254,7 @@ func TestExtractAttachments_Gallery(t *testing.T) {
 		}{U: "https://preview.redd.it/img2.jpg"}},
 	}
 
-	atts := rc.extractAttachments(th)
+	atts := rc.extractAttachments(t.Context(), th)
 	if len(atts) != 2 {
 		t.Fatalf("got %d attachments, want 2", len(atts))
 	}
@@ -271,7 +271,7 @@ func TestExtractAttachments_NoMedia(t *testing.T) {
 	rc := makeRedditClient(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})))
 	th := thing{Kind: "t4"}
 	th.Data.Body = "just text"
-	atts := rc.extractAttachments(th)
+	atts := rc.extractAttachments(t.Context(), th)
 	if len(atts) != 0 {
 		t.Errorf("got %d attachments, want 0", len(atts))
 	}

@@ -17,7 +17,7 @@ type server struct {
 }
 
 func newServer(cfg config, b chanlib.BotHandler, chanStore *chanstore.Store, isConnected func() bool, lastInboundAt func() int64) *server {
-	return &server{cfg: cfg, bot: b, files: chanlib.NewURLCache(0), chanStore: chanStore, isConnected: isConnected, lastInboundAt: lastInboundAt}
+	return &server{cfg: cfg, bot: b, files: chanlib.NewURLCache(0, chanStore), chanStore: chanStore, isConnected: isConnected, lastInboundAt: lastInboundAt}
 }
 
 func (s *server) handler() http.Handler {

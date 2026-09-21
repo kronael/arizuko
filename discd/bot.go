@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -141,7 +142,8 @@ func (b *bot) channelName(id string) string {
 // buildAttachments appends attachment text to content and returns chanlib attachments.
 // Proxies through the local file cache when listenURL is set.
 func buildAttachments(
-	raw []*discordgo.MessageAttachment, content, listenURL string, cache *chanlib.URLCache,
+	ctx context.Context, raw []*discordgo.MessageAttachment, content, listenURL string,
+	cache *chanlib.URLCache,
 ) (string, []chanlib.InboundAttachment) {
 	var atts []chanlib.InboundAttachment
 	for _, att := range raw {
@@ -155,7 +157,13 @@ func buildAttachments(
 		content += fmt.Sprintf(" [Attachment: %s]", name)
 		u := att.URL
 		if listenURL != "" && cache != nil {
-			u = fmt.Sprintf("%s/files/%s", listenURL, cache.Put(att.URL))
+			id, err := cache.Put(ctx, att.URL)
+			if err != nil {
+				// The id still works in this process; only a restart loses it
+				// (URLCache.Put, BUGS L163).
+				slog.Error("attachment url not recorded", "id", id, "err", err)
+			}
+			u = fmt.Sprintf("%s/files/%s", listenURL, id)
 		}
 		atts = append(atts, chanlib.InboundAttachment{
 			Mime: att.ContentType, Filename: name, URL: u,
@@ -174,7 +182,9 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 	if self := b.session.State.User; self != nil && m.Author.ID == self.ID {
 		return
 	}
-	content, atts := buildAttachments(m.Attachments, m.Content, b.cfg.ListenURL, b.files)
+	// The gateway handler carries no context of its own.
+	content, atts := buildAttachments(context.Background(), m.Attachments, m.Content,
+		b.cfg.ListenURL, b.files)
 	if content == "" {
 		return
 	}
@@ -686,7 +696,8 @@ func (b *bot) FetchHistory(req chanlib.HistoryRequest) (chanlib.HistoryResponse,
 		if m == nil || m.Author == nil {
 			continue
 		}
-		content, atts := buildAttachments(m.Attachments, m.Content, b.cfg.ListenURL, b.files)
+		content, atts := buildAttachments(context.Background(), m.Attachments, m.Content,
+			b.cfg.ListenURL, b.files)
 		if content == "" && len(atts) == 0 {
 			continue
 		}

@@ -49,7 +49,7 @@ func (s *stubSender) Delete(r chanlib.DeleteRequest) error {
 func testReditServer(t *testing.T, secret string) *server {
 	t.Helper()
 	cfg := config{Name: "reddit"}
-	s := newServer(cfg, &stubSender{}, chanlib.NewURLCache(100), nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
+	s := newServer(cfg, &stubSender{}, chanlib.NewURLCache(100, nil), nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	s.safeFetch = nil
 	return s
 }
@@ -74,7 +74,7 @@ func TestReditHealth(t *testing.T) {
 }
 
 func TestReditHealthDisconnected(t *testing.T) {
-	s := newServer(config{Name: "reddit"}, &stubSender{}, chanlib.NewURLCache(100), nil, func() bool { return false }, func() int64 { return time.Now().Unix() })
+	s := newServer(config{Name: "reddit"}, &stubSender{}, chanlib.NewURLCache(100, nil), nil, func() bool { return false }, func() int64 { return time.Now().Unix() })
 	req := httptest.NewRequest("GET", "/health", nil)
 	w := httptest.NewRecorder()
 	s.handler().ServeHTTP(w, req)
@@ -146,7 +146,7 @@ func TestReditAuthNoSecret(t *testing.T) {
 
 func TestReditSendComment(t *testing.T) {
 	stub := &stubSender{}
-	s := newServer(config{Name: "reddit"}, stub, chanlib.NewURLCache(100), nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
+	s := newServer(config{Name: "reddit"}, stub, chanlib.NewURLCache(100, nil), nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	body, _ := json.Marshal(map[string]string{"chat_jid": "reddit:1", "content": "reply", "reply_to": "t3_abc"})
 	req := httptest.NewRequest("POST", "/send", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -165,7 +165,7 @@ func TestReditSendComment(t *testing.T) {
 
 func TestReditSendSubmit(t *testing.T) {
 	stub := &stubSender{}
-	s := newServer(config{Name: "reddit"}, stub, chanlib.NewURLCache(100), nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
+	s := newServer(config{Name: "reddit"}, stub, chanlib.NewURLCache(100, nil), nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	body, _ := json.Marshal(map[string]string{"chat_jid": "reddit:1", "content": "post"})
 	req := httptest.NewRequest("POST", "/send", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -184,7 +184,7 @@ func TestReditSendSubmit(t *testing.T) {
 
 func TestReditSendError(t *testing.T) {
 	stub := &stubSender{err: errors.New("boom")}
-	s := newServer(config{Name: "reddit"}, stub, chanlib.NewURLCache(100), nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
+	s := newServer(config{Name: "reddit"}, stub, chanlib.NewURLCache(100, nil), nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	body, _ := json.Marshal(map[string]string{"chat_jid": "reddit:1", "content": "hi"})
 	req := httptest.NewRequest("POST", "/send", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -213,8 +213,11 @@ func TestReditFileProxy(t *testing.T) {
 	}))
 	defer cdn.Close()
 
-	fc := chanlib.NewURLCache(100)
-	id := fc.Put(cdn.URL + "/image.jpg")
+	fc := chanlib.NewURLCache(100, nil)
+	id, err := fc.Put(t.Context(), cdn.URL+"/image.jpg")
+	if err != nil {
+		t.Fatalf("put: %v", err)
+	}
 	s := newServer(config{Name: "reddit"}, &stubSender{}, fc, nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	s.safeFetch = nil
 
@@ -244,7 +247,7 @@ func TestReditFileProxyNotFound(t *testing.T) {
 }
 func TestReditPost(t *testing.T) {
 	stub := &stubSender{postID: "t3_abc"}
-	s := newServer(config{Name: "reddit"}, stub, chanlib.NewURLCache(100), nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
+	s := newServer(config{Name: "reddit"}, stub, chanlib.NewURLCache(100, nil), nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	body, _ := json.Marshal(map[string]any{"chat_jid": "reddit:sub", "content": "body"})
 	req := httptest.NewRequest("POST", "/post", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -265,7 +268,7 @@ func TestReditPost(t *testing.T) {
 
 func TestReditDelete(t *testing.T) {
 	stub := &stubSender{}
-	s := newServer(config{Name: "reddit"}, stub, chanlib.NewURLCache(100), nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
+	s := newServer(config{Name: "reddit"}, stub, chanlib.NewURLCache(100, nil), nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	body, _ := json.Marshal(map[string]any{"chat_jid": "reddit:sub", "target_id": "t3_abc"})
 	req := httptest.NewRequest("POST", "/delete", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -280,7 +283,7 @@ func TestReditDelete(t *testing.T) {
 }
 
 func TestReditLikeUnsupported(t *testing.T) {
-	s := newServer(config{Name: "reddit"}, &stubSender{}, chanlib.NewURLCache(100), nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
+	s := newServer(config{Name: "reddit"}, &stubSender{}, chanlib.NewURLCache(100, nil), nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	body, _ := json.Marshal(map[string]any{"chat_jid": "reddit:sub", "target_id": "t3_abc", "reaction": "👍"})
 	req := httptest.NewRequest("POST", "/like", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -294,8 +297,11 @@ func TestReditLikeUnsupported(t *testing.T) {
 // TestReditFileProxy_SSRFBlock verifies that disallowed URLs are rejected even
 // when the file cache happens to contain one (defense-in-depth).
 func TestReditFileProxy_SSRFBlock(t *testing.T) {
-	fc := chanlib.NewURLCache(100)
-	id := fc.Put("http://169.254.169.254/latest/meta-data/")
+	fc := chanlib.NewURLCache(100, nil)
+	id, err := fc.Put(t.Context(), "http://169.254.169.254/latest/meta-data/")
+	if err != nil {
+		t.Fatalf("put: %v", err)
+	}
 	s := newServer(config{Name: "reddit"}, &stubSender{}, fc, nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	// default safeFetch = isSafeFetchURL must reject
 	req := httptest.NewRequest("GET", "/files/"+id, nil)
