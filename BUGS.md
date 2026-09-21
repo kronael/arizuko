@@ -792,9 +792,10 @@ should be red, now also red when it should be green.
 - **Scope:** `anteval/cases/anteval.toml`; `anteval/pkg/run/run.go` budget handling
 - **Affected:** every tagged release
 - **Source:** measured 2026-09-20 at `bfcd70f9`; the 5/9-vs-8/9 run is `gates.md`'s own 2026-09-19 measurement
-- **Status:** open — raising the cap trades run time for signal and the honest fix is
-  probably to make the settle barrier wait on queue depth rather than a wall, which is a
-  harness contract change and needs sign-off. `TestSmokeKeepsALivenessProbe`
+- **Status:** open — the READABLE half shipped; the honest fix needs sign-off on a
+  new machine-readable in-flight-depth surface before `runCase`'s deadline loop can
+  stop its clock (see below — it is NOT `settle`, and raising the cap only trades run
+  time for signal). `TestSmokeKeepsALivenessProbe`
   (`anteval/pkg/spec/catalog_test.go`) now pins that the probe keeps EXISTING; it says
   nothing about whether its budget is honest.
 
@@ -814,9 +815,48 @@ should be red, now also red when it should be green.
   `TestTimeoutReasonNamesTheWallItWaitedFor` fails. A second test pins that the
   default wall prints as `1m30s`, so a case declaring none cannot report a
   number it did not wait on.
-- **Still open, and it is the honest fix:** the settle barrier waits on a WALL
-  rather than on queue depth, so the gate's verdict still depends on an operator
-  draining first. That is a harness contract change and needs sign-off.
+- **Still open, and it is the honest fix** — but re-measured 2026-09-21 at
+  `f5851f94`, and the sentence above named the WRONG FUNCTION. There is a
+  `settle` (`anteval/pkg/run/run.go:158`) and it is not this bug:
+
+  - `settle` writes `r.Note` and nothing else (`run.go:99`), and `report.Note`
+    is typed "a run-level warning that is NOT a case verdict"
+    (`anteval/pkg/report/report.go:22-24`); `AllPassed`/`Summary` read only
+    `Pass`. So `settle` cannot have produced 5/9-vs-8/9.
+  - `settle` ALREADY prefers a completion signal to a wall: it polls
+    `cfg.Target.Cost(turnID) > 0` — the model gateway metering the turn — and
+    the 180s is the fail-safe for an instance whose gateway has no meter. Its
+    comment traces to BUGS `L68`: a case starting behind a still-running turn.
+
+  **A "make the settle barrier wait on queue depth" patch would edit `settle`,
+  fix nothing, and weaken `L68`'s guard.** That is the shape this queue keeps
+  re-filing: a prescribed fix that reopens what a later commit closed.
+
+  The wall that actually decides pass/fail is the UNNAMED per-case deadline
+  loop in `runCase` (`anteval/pkg/run/run.go:199-220`), gated on `budget(c)`.
+  It carries this entry's own `L326` comment. That loop is the fix target.
+
+- **Queue depth is not observable, so this is a new capability and not a
+  config change.** MEASURED 2026-09-21: `queue.GroupQueue.ActiveCount()` exists
+  but its only two non-test callers are `routd/steer.go:189` and `:262` — the
+  `/ping` and `/status` CHAT commands, text for a human. `runed`'s
+  `Manager.ActiveCount` has exactly one non-test caller, a shutdown log line
+  (`runed/cmd/runed/main.go:211`). No REST route, no MCP tool, no metric. The
+  harness's own `Target`/`check.Reader` interfaces (`run.go:23-33`,
+  `check.go:36-39`) expose `Inject`/`Cost`/`Session`/`RestMessages`/
+  `McpMessages` — nothing about in-flight work.
+
+  So the honest fix is two changes, and the first is the one to sign off:
+  1. Expose in-flight depth on a machine surface — `ActiveCount` is already the
+     gauge `/ping` prints, so this is one resreg resource over an existing
+     reader, not a new count. One declaration, two readers (the chat command
+     and the harness).
+  2. Make `runCase`'s deadline loop stop the clock while depth is non-zero, so
+     the budget measures the agent rather than the queue.
+
+  Until (1) exists, raising the cap is the only lever, and it trades run time
+  for signal without making the verdict honest. The runbook's drain-first
+  instruction (`.claude/skills/eval/gates.md`) stays load-bearing meanwhile.
 
 ## L319 — arizuko never provisions a store identity, so a shared store server has no enrolment path (2026-09-20, open)
 
