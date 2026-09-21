@@ -1822,7 +1822,7 @@ Telegram operator had been unreachable since 2026-07-19. That came from a
 `SELECT … LIMIT 30` on a 54-row table: the correct grant is row 31. Read the
 whole table before concluding a row is absent — see `truncated_evidence`.
 
-## L151 — proposal: an adapter whose credential is dead restart-loops forever and the only trace is one log line; routd already owns the mechanism to say so (2026-09-01, proposal — needs sign-off)
+## L151 — proposal: an adapter whose credential is dead restart-loops forever and nothing PUSHES the fact to anyone; routd already owns the mechanism to say so (2026-09-01, proposal — needs sign-off; sharpened 2026-09-21)
 
 Three of the fleet's adapters are dead right now on a bad credential, and every
 one of them fails the root `CLAUDE.md` rule *"fail loud, fail to the user — a
@@ -1881,7 +1881,48 @@ registered name=discord` 14:29:32; a Discord turn answered at 14:30:57), zero
 `4004` lines since. marinade `emaid` unchanged: 358 `imap idle error` in the 6 h
 before, 1018 in the 17 h after (~60/h both). krons `whapd` unchanged: 336
 `session invalidated` in the 6 h before, 973 in the 17 h after (~56/h both).
-Both still log-only.
+
+**RE-MEASURED 2026-09-21 — both mechanisms CONFIRMED, two claims REFUTED, and
+the proposal now carries an ORDER it did not have.**
+
+- **Both halves are still live, verbatim.** `chanlib/run.go:74` logs
+  `adapter start failed` and exits 1, and every adapter fragment declares
+  `restart: on-failure` (`template/services/*.yml`, `compose/compose.go:1111`),
+  so docker is the retry. `chanreg/health.go:62-64` still deregisters after
+  `maxHealthFails = 3`, and `EnqueueSysMsg` still has exactly two producers
+  (`routd/prompt.go:244,251`, new_day / new_session) — nothing tells an agent a
+  channel died.
+- **REFUTED: "the only trace is one log line."** `Deregister` emits a durable
+  `audit_log` row (`chanreg/chanreg.go:203`, `channel.deregister`). It is
+  queryable, and eval check 23 already uses it: a `channel.deregister` count
+  that tracks `channel.register` is an adapter flapping. The trace is a
+  second, durable one — what it is not is a notification.
+- **REFUTED: "nothing says so — not the operator, not the agent that calls
+  `send`."** The agent gets a real error: every egress path returns
+  `no channel for jid <jid>` (`routd/deliver.go:107` and 16 sibling verbs), and
+  inbound from an unregistered adapter is rejected `jid_prefix_mismatch`
+  (`routd/server.go:500`). The operator has `GET /v1/channels`
+  (`routd/channels.go:135`) and eval check 23. **The real defect is narrower
+  than filed and still worth fixing: nothing PUSHES the fact.** A dead channel
+  is visible to whoever asks, and absence from a list is not an alert.
+- **The credential inventory in the table above is now duplicated.** sloth
+  `discd` is resolved; marinade `emaid` is `L62`; krons `whapd` is `L63`. That
+  is the same three-entries-for-two-actions shape `O2` was closed for today.
+  This entry keeps only the MECHANISM proposal; the operator actions live in
+  `L62`/`L63`.
+- **ORDER, and the trap in half 1.** Half 1 reads as "stop retrying a permanent
+  misconfiguration", but `os.Exit(1)` under `restart: on-failure` is the only
+  reason the fault is visible at all — `RestartCount` climbs and `docker ps`
+  says `Restarting` (marinade, 1,574 restarts, 2026-09-21). An adapter that
+  exits and stays down reads as `Exited`, and one that exits 0 looks
+  deliberate. That is exactly the quieter failure eval check 23 exists for:
+  `health: starting` with `RestartCount=0` went unnoticed for weeks on
+  marinade. **So half 2 (the notification) must ship BEFORE half 1, or the fix
+  trades a loud symptom for a silent one.** Half 1 alone is a regression.
+- **The design question is unchanged and is the operator's:** `chanreg` is a
+  library with no DB handle, and a dead channel is not folder-scoped. Which
+  folders get told — every folder routing through that channel, the operator
+  folder only, or all of them — is the sign-off this entry waits on.
 
 ## L149 — only the LAST assistant text block is delivered, so an answer written before a tool call is destroyed (2026-08-31, instruction half FIXED 2026-08-31; the mechanism half is GOVERNED BY spec 6/44, whose gate is armed)
 
