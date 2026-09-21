@@ -1159,12 +1159,11 @@ func TestInviteConsume(t *testing.T) {
 
 	token := createInvite(t, db, "alice", "telegram:1", 1)
 
-	cfg := config{authBaseURL: "https://example.com"}
 	req := httptest.NewRequest("GET", "/invite/"+token, nil)
 	req.SetPathValue("token", token)
 	req.Header.Set("X-User-Sub", "github:bob")
 	w := httptest.NewRecorder()
-	handleInvite(w, req, db, db, cfg)
+	handleInvite(w, req, db, db)
 
 	if w.Code != http.StatusSeeOther {
 		t.Errorf("want 303, got %d", w.Code)
@@ -1200,12 +1199,11 @@ func TestInviteExpired(t *testing.T) {
 	seedInviteRow(t, db, store.ArchiveInviteRow{Ref: store.TokenRef("expired-tok"),
 		TargetGlob: "alice", IssuedBySub: "telegram:1", MaxUses: 1, ExpiresAt: past})
 
-	cfg := config{}
 	req := httptest.NewRequest("GET", "/invite/expired-tok", nil)
 	req.SetPathValue("token", "expired-tok")
 	req.Header.Set("X-User-Sub", "github:bob")
 	w := httptest.NewRecorder()
-	handleInvite(w, req, db, db, cfg)
+	handleInvite(w, req, db, db)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("want 200 (error page), got %d", w.Code)
@@ -1221,12 +1219,11 @@ func TestInviteMaxUses(t *testing.T) {
 	seedInviteRow(t, db, store.ArchiveInviteRow{Ref: store.TokenRef("used-tok"),
 		TargetGlob: "alice", IssuedBySub: "telegram:1", MaxUses: 1, UsedCount: 1})
 
-	cfg := config{}
 	req := httptest.NewRequest("GET", "/invite/used-tok", nil)
 	req.SetPathValue("token", "used-tok")
 	req.Header.Set("X-User-Sub", "github:bob")
 	w := httptest.NewRecorder()
-	handleInvite(w, req, db, db, cfg)
+	handleInvite(w, req, db, db)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("want 200 (error page), got %d", w.Code)
@@ -1242,13 +1239,12 @@ func TestInviteAuthRequired(t *testing.T) {
 	seedInviteRow(t, db, store.ArchiveInviteRow{Ref: store.TokenRef("auth-tok"),
 		TargetGlob: "alice", IssuedBySub: "telegram:1", MaxUses: 1})
 
-	cfg := config{authBaseURL: "https://example.com", secureCookie: true}
 	req := httptest.NewRequest("GET", "/invite/auth-tok", nil)
 	req.SetPathValue("token", "auth-tok")
 	// No X-User-Sub header: the gate runs before the invite is even looked up,
 	// so a redeemable token is still refused rather than spent.
 	w := httptest.NewRecorder()
-	handleInvite(w, req, db, db, cfg)
+	handleInvite(w, req, db, db)
 
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("want 401, got %d", w.Code)
@@ -1260,12 +1256,11 @@ func TestInviteAuthRequired(t *testing.T) {
 
 func TestInviteInvalidToken(t *testing.T) {
 	db := testDB(t)
-	cfg := config{}
 	req := httptest.NewRequest("GET", "/invite/nonexistent", nil)
 	req.SetPathValue("token", "nonexistent")
 	req.Header.Set("X-User-Sub", "github:bob")
 	w := httptest.NewRecorder()
-	handleInvite(w, req, db, db, cfg)
+	handleInvite(w, req, db, db)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("want 200 (error page), got %d", w.Code)
@@ -1439,7 +1434,7 @@ func TestInviteAtomicConsume(t *testing.T) {
 	req.SetPathValue("token", tok)
 	req.Header.Set("X-User-Sub", "github:bob")
 	w := httptest.NewRecorder()
-	handleInvite(w, req, db, db, config{})
+	handleInvite(w, req, db, db)
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("first consume: want 303, got %d", w.Code)
 	}
@@ -1452,7 +1447,7 @@ func TestInviteAtomicConsume(t *testing.T) {
 	req2.SetPathValue("token", tok)
 	req2.Header.Set("X-User-Sub", "github:eve")
 	w2 := httptest.NewRecorder()
-	handleInvite(w2, req2, db, db, config{})
+	handleInvite(w2, req2, db, db)
 	if w2.Code != http.StatusOK {
 		t.Errorf("second consume: want 200 error page, got %d", w2.Code)
 	}
@@ -1831,7 +1826,7 @@ func TestInviteEmptyToken(t *testing.T) {
 	req.SetPathValue("token", "")
 	req.Header.Set("X-User-Sub", "github:alice")
 	w := httptest.NewRecorder()
-	handleInvite(w, req, db, db, config{})
+	handleInvite(w, req, db, db)
 	if w.Code != http.StatusOK {
 		t.Errorf("want 200 page, got %d", w.Code)
 	}

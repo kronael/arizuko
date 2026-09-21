@@ -96,7 +96,7 @@ func newOnbodServer(t *testing.T) (*httptest.Server, *onbodInst, *testutils.Fake
 		handleOnboardPost(w, r, inst.X, inst.Ob, cfg)
 	})
 	mux.HandleFunc("GET /invite/{token}", func(w http.ResponseWriter, r *http.Request) {
-		handleInvite(w, r, inst.X, inst.Ob, cfg)
+		handleInvite(w, r, inst.X, inst.Ob)
 	})
 
 	srv := httptest.NewServer(mux)

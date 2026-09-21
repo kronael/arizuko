@@ -193,7 +193,7 @@ func newOnbodMux(xdb, obdb *store.Store, cfg config, ks *auth.KeySet) *http.Serv
 		handleOnboardPost(w, r, xdb, obdb, cfg)
 	}))
 	mux.HandleFunc("GET /invite/{token}", stripUnsigned(func(w http.ResponseWriter, r *http.Request) {
-		handleInvite(w, r, xdb, obdb, cfg)
+		handleInvite(w, r, xdb, obdb)
 	}))
 
 	// Bearer-gated admin surface (spec 5/5 § Daemon ownership). onbod OWNS
@@ -1131,7 +1131,7 @@ func admitFromQueue(db *store.Store) {
 	}
 }
 
-func handleInvite(w http.ResponseWriter, r *http.Request, db, obdb *store.Store, cfg config) {
+func handleInvite(w http.ResponseWriter, r *http.Request, db, obdb *store.Store) {
 	token := r.PathValue("token")
 	if token == "" {
 		renderPage(w, "Invalid Invite", template.HTML("<p>No invite token provided.</p>"))

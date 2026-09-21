@@ -279,7 +279,7 @@ func redeemInvite(t *testing.T, db *store.Store, token, sub string) {
 	req.SetPathValue("token", token)
 	req.Header.Set("X-User-Sub", sub)
 	w := httptest.NewRecorder()
-	handleInvite(w, req, db, db, config{authBaseURL: "https://example.com"})
+	handleInvite(w, req, db, db)
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("redeem %q: want 303, got %d: %s", token, w.Code, w.Body.String())
 	}

@@ -104,7 +104,7 @@ func TestInviteRedemptionRouteCarriesAttribution(t *testing.T) {
 	req.SetPathValue("token", token)
 	req.Header.Set("X-User-Sub", "github:bob")
 	w := httptest.NewRecorder()
-	handleInvite(w, req, db, db, config{authBaseURL: "https://example.com"})
+	handleInvite(w, req, db, db)
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("redeem: want 303, got %d: %s", w.Code, w.Body.String())
 	}
@@ -187,7 +187,7 @@ func TestInviteRedemptionRoutesOnlyTheJIDItConcerns(t *testing.T) {
 	req.SetPathValue("token", token)
 	req.Header.Set("X-User-Sub", "github:bob")
 	w := httptest.NewRecorder()
-	handleInvite(w, req, db, db, config{authBaseURL: "https://example.com"})
+	handleInvite(w, req, db, db)
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("redeem: want 303, got %d: %s", w.Code, w.Body.String())
 	}

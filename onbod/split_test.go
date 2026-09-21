@@ -63,12 +63,11 @@ func TestSplitInviteGrantLandsInRoutd(t *testing.T) {
 
 	token := createInvite(t, obdb, "alice", "telegram:1", 1)
 
-	cfg := config{authBaseURL: "https://example.com"}
 	req := httptest.NewRequest("GET", "/invite/"+token, nil)
 	req.SetPathValue("token", token)
 	req.Header.Set("X-User-Sub", "github:bob")
 	w := httptest.NewRecorder()
-	handleInvite(w, req, xdb, obdb, cfg)
+	handleInvite(w, req, xdb, obdb)
 
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("want 303, got %d; body: %s", w.Code, w.Body.String())
@@ -170,7 +169,7 @@ func TestSplitInviteGrantAudited(t *testing.T) {
 	req.SetPathValue("token", token)
 	req.Header.Set("X-User-Sub", "github:bob")
 	w := httptest.NewRecorder()
-	handleInvite(w, req, xdb, obdb, config{authBaseURL: "https://example.com"})
+	handleInvite(w, req, xdb, obdb)
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("want 303, got %d; body: %s", w.Code, w.Body.String())
 	}
