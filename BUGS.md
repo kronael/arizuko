@@ -4706,90 +4706,75 @@ configured key reads as empty. Match the whole line.
 - **Status:** fixed (operator config, since applied)
 - **Fix:** none in code
 
-## 5/16 invites fold — agent-forwarder half deferred (2026-07-07, by design)
+## 5/16 invites fold — the agent invite tools stay hand-rolled (2026-07-07, open — one decision, re-verified 2026-09-21)
 
-onbod's `/v1/invites` REST face is folded onto resreg (`154cd17f`, mirrors the
-gates fold): create/list/revoke ride the shared handler + one tx + audit, and
-invites is on onbod's `/openapi.json`. The AGENT invite tools (`invite_create`/
-`invite_list`/`invite_revoke`, ipc/ipc.go registerRaw → GatedFns → routd/mcp.go
-→ httpOnbod federation) are deliberately NOT folded yet — same precedent as the
-route_tokens operator twin left hand-rolled where the shape doesn't fit resreg.
+onbod's `/v1/invites` REST face rides resreg (`154cd17f`). The three AGENT tools
+(`invite_create`/`invite_list`/`invite_revoke`) do not: they are hand-written
+closures in `routd/mcp.go:129-177` that forward to onbod over HTTP. That is the
+debt root `CLAUDE.md` names — "the ~45 hand-rolled ipc.go tools are the debt 5/16
+reverses".
 
-Blocker for a mechanical forwarder fold (Store nil → forward to onbod): the agent
-face carries three things a single HTTP forward can't express —
-- **caller-bound issuer** (`issued_by="agent:"+folder`, never a client arg),
-- **accept_url synthesis** (routd computes `AcceptURLBase + /invite/<token>`),
-- **revoke ownership as list-then-delete** (routd/mcp.go:141 lists THIS folder's
-  invites and confirms the token before calling onbod's token-only DELETE — the
-  comment: "an agent must not revoke another folder's invite even though the wire
-  call would"). A naive forwarded DELETE `/v1/invites/{token}` REGRESSES this into
-  a cross-folder revoke.
+Re-verified at `96cab2b6`: all three blockers are unchanged, and the code does
+exactly what the 2026-07-07 note describes.
 
-Safe fold needs onbod's DELETE to gain an `issued_by` scope (`DELETE ... WHERE
-token=? AND issued_by_sub=?`) so the forwarder passes the caller-bound issuer and
-onbod enforces ownership in one call; create needs the forwarder to inject issuer
-+ synthesize accept_url. That's the "one-owner + federation" design step, not a
-mechanical fold — left for a focused change on the live agent surface.
+- **caller-bound issuer** — `ipc/ipc.go:2062` passes `"agent:"+folder`; it is
+  never a client argument.
+- **accept_url synthesis** — `ipc/ipc.go:2080` builds `<base>/invite/<token>`.
+- **revoke ownership as list-then-confirm** — `routd/mcp.go:161-177` lists THIS
+  folder's invites and refuses a ref it did not issue, because onbod's
+  `DELETE /v1/invites/{ref}` takes a ref and nothing else. A naive forwarded
+  DELETE regresses that into a cross-folder revoke. `routd/invite_mcp_test.go`
+  is the guard.
 
-## 5/16 two-faces rollout — status (updated 2026-07-06)
+Nothing is broken today: the ownership gate works and is tested. The cost is a
+second surface that can drift from the REST one.
 
-All 5 cold-tier agent-MCP faces ride one resreg.Resource via the injected Gate
-seam. REST faces folded onto their shared handlers: web_routes (27537500 +
-9d649e59 list-all leak fix), acl (44c53cef, closed a cross-folder scope hole),
-routes (3195f867), tasks (0b6ca53e). Open:
+**The decision, in one sentence:** give onbod's DELETE an `issued_by` argument so
+ownership is enforced in one call and the agent face becomes a forwarder that
+injects the issuer and synthesizes `accept_url` — or record that the agent invite
+tools stay hand-authored, and drop this from the queue.
 
-1. **routes/tasks REST bake the agent tier model in the handler — two failure modes
-   (being fixed by the containment decouple).** These handlers run
-   `auth.AuthorizeStructural(auth.Resolve(Caller.Folder), …)` — a predicate written for
-   the agent tier identity — against a REST operator whose real authority is `ownsFolder`
-   (own-or-descendant, tier-independent). The two diverge in BOTH directions:
-   - **routes — over-restrictive (no leak).** A tier-1+ REST token managing its OWN
-     folder gets 403 (tier-1 needs a STRICT descendant); a tier-2 REST token can't manage
-     routes at all. Latent (existing tests use tier-0 folders where the tier cap is a no-op).
-   - **tasks — LIVE CROSS-TENANT LEAK (security).** `tasksRESTGate` keys `ownsFolder(jwt,
-     Caller.Folder)` where `Caller.Folder==jwt` for per-task ops → a no-op; the only per-task
-     check is the handler's tier cap, which is LOOSER than ownsFolder: a **tier-0 REST
-     operator can `DELETE /v1/tasks/{anyId}` and cancel ANOTHER tenant's task**; a tier-1
-     operator can cancel/patch any same-world sibling's task (`isInWorld`). Uncovered
-     (`TestRESTTaskScopedSelfService` uses tier-2, where exact-own ≈ ownsFolder). Present on
-     main since the tasks fold (0b6ca53e).
-   **RESOLVED 2026-07-06 (0d25b687).** Decoupled containment into a routd-internal
-   per-face `containFn(caller,action,target)` — agent→tier `AuthorizeStructural`,
-   REST→`ownsFolder` — dropping the baked tier check from the handler (resreg untouched;
-   set_routes keeps its face-agnostic `routeTargetWithin` loop). TDD'd: the two tasks
-   guards returned 200+deleted pre-fix (leak confirmed), 403 post-fix. Guards:
-   `TestRESTTask{Tier0NoCrossTenant,Tier1NoWorldLeak,Tier2Descendant}`,
-   `TestRESTRoute{Tier1OwnSubtree,Tier2OperatorOwnSubtree}`. Agent tier semantics
-   (`TestRoutesMCP_*`/`TestScheduledTasksMCP_*`) unchanged.
-1b. **scheduled_tasks REST (`/v1/tasks`) not OpenAPI-discoverable (minor, follow-on).**
-   OpenAPI truthfulness shipped (7c14efd6 — docs emit real Endpoints, no phantom paths).
-   But `scheduled_tasks`'s REST face is mounted at `/v1/tasks/{taskId}` (`mountTasks`
-   override) with a DIFFERENT action set (list/get/patch/cancel) than its agent tools
-   (schedule/pause/resume/cancel/list), so it can't share the resource's registered
-   `ScheduledTasksEndpoints` (`/v1/scheduled_tasks`, agent-derivation) — and advertising
-   the resource would emit the wrong paths. So it's correctly LEFT OUT of routd's
-   `/openapi.json` list (`[routes, web_routes, acl]`). Truthfully advertising `/v1/tasks`
-   needs a separate REST resource declaration for the tasks operator face — a follow-on,
-   not a phantom.
-2. **network_rules: already clean, out of scope.** Its `AuthorizeStructural` lives in the
-   injected Gate (network_rules_resource.go:187), the handler is auth-agnostic, and it has
-   NO REST twin — the model the decouple brings routes/tasks to. Adopt the same containFn
-   only if/when a REST face lands.
-3. **Tool-browser drift — RESOLVED 2026-07-11** (df9ebad3 single-sources facade-tool
-   MCP metadata; d5023c60 `ipc.ListTools` renders grant-visible cold-tier facade tools
-   for dashd; `facade_tools_test.go`). `dashd`'s schema browser now shows the migrated
-   cold-tier facade tools. Verified this pass (`ipc/ipc.go:2263`).
-4. **`container/runner.go` standalone ServeMCP (minor).** The non-split dev path
-   (`!ExternalMCP`) gets no postBuild → no facade tools there. Production (split, routd
-   hosts the socket) unaffected.
-5. **surrogate refresh: bodyless-4xx nulls the row (5/15).** RESOLVED 2026-07-07 (e813efd5):
-   `Engine.Refresh` now signals `ErrReconnect` ONLY on a definitive OAuth error body
-   (`tr.Error` set); a bodyless/unparseable non-2xx is a transient error that keeps the
-   credential. Test `TestRefresh_BodylessErrorIsNotReconnect`.
-6. **flaky test: `TestRefreshRotationRaceSingleWinner` (authd/bugfix_test.go:131).** A
-   refresh-rotation concurrency race test that intermittently fails under full-suite parallel
-   load but passes 5/5 in isolation. Pre-existing, unrelated to the 5/16/5/15 work. Needs a
-   sync point or serialization in the test harness. Low priority (not a product bug).
+- **Severity:** low (duplication; no live defect)
+- **Scope:** `routd/mcp.go`, `ipc/ipc.go`, onbod's invites resource
+- **Status:** open — needs sign-off (a new onbod contract, not a mechanical fold)
+- **Fix:**
+
+## ✅ CLOSED 2026-09-21 5/16 two-faces rollout — status (2026-07-06)
+
+A rollout snapshot; the rollout finished. Each of its six items re-verified at
+`96cab2b6`.
+
+1. **routes/tasks REST bake the agent tier model** — the entry already recorded
+   this RESOLVED at `0d25b687` (per-face `containFn`).
+1b. **`/v1/tasks` not OpenAPI-discoverable** — fixed, and the mechanism the item
+   reasoned about is gone. `ScheduledTasksEndpoints`
+   (`resreg/resources/scheduled_tasks.go:54`) declares the REST paths `/v1/tasks`
+   and `/v1/tasks/{taskId}` beside three `MCPOnly` agent actions, and
+   `resreg.MountedResources` (`resreg/openapi.go:100`) derives the advertised set
+   from the daemon's own mux — so the hand-curated `[routes, web_routes, acl]`
+   list no longer exists to leave anything out of.
+2. **network_rules out of scope** — still true, still no work item: all three
+   actions are `MCPOnly` (`resreg/resources/network_rules.go:28`), i.e. no REST
+   twin, so the `containFn` adoption stays conditional on a face that has not
+   landed.
+3. **Tool-browser drift** — recorded RESOLVED; confirmed. `dashd/tools_admin.go:34`
+   renders from `auth.EffectiveActions`, the same view the agent socket gets at
+   `routd/agent_gate.go:72` (`2ef91f65`).
+4. **`container/runner.go` standalone ServeMCP** — subsystem gone. Neither
+   `ExternalMCP` nor any `ServeMCP` call survives in `container/`; routd hosts the
+   socket on every path (`routd/mcp.go` `ServeTurnMCP`).
+5. **surrogate bodyless-4xx** — the entry already recorded this RESOLVED at
+   `e813efd5`.
+6. **flaky `TestRefreshRotationRaceSingleWinner`** — superseded, and the
+   supersession is written down. `authd/f36_test.go` states in its own header that
+   this test "passes on an idle machine, so it can never be the proof that a fix
+   landed", and adds two tests that FORCE the interleave through a production seam
+   (`Authd.grants`). Measured 2026-09-21: `go test ./authd/ -count=10 -run
+   TestRefreshRotationRaceSingleWinner` passes, and `go test ./authd/ -count=1
+   -race` passes in 27s.
+
+- **Status:** closed — nothing left to track
+- **Fix:** none needed
 
 ## dashd reads SQLite directly — spec 7/1 (formerly 6/1) says it shouldn't; code and CLAUDE.md say it should (2026-06-16, PROPOSED — spec/code conflict, needs sign-off, verified 2026-08-15)
 
@@ -4830,34 +4815,17 @@ NON-adoption as the shipped decision.
   Either direction needs a decision, not a docs-only close. NOT fixed this pass.
 - **Fix:** needs sign-off — see Status.
 
-## Codex audit 2026-06-18 — dashd full sweep
+## ✅ CLOSED-STALE 2026-09-21 chat: loadChatSessions limits before filtering; nondeterministic continue links (2026-06-18)
 
----
+Subsystem gone. `dashd/chat.go` was deleted at `f98f2f33` (2026-08-15, "V2 delete
+the chat portal and the route-token mint form"); `loadChatSessions` and
+`folderSessionTokens` match nothing in the tree. The proposed fix — an explicit
+session-to-topic column persisted at first message — has no reader left to serve.
 
-## chat: loadChatSessions limits before filtering; nondeterministic continue links (2026-06-18, PARTIAL — folderSessionTokens half PROPOSED, needs sign-off, verified still open 2026-08-15)
-
-`chat.go:90`: newest 200 rows fetched then filtered in Go — older sessions disappear once table
-grows. `chat.go:361`: `folderSessionTokens` infers topic→token by time proximity; two sessions
-without an early message produce nondeterministic continue links.
-
-- **Severity:** medium
-- **Scope:** dashd/chat.go:90,:361
-- **Source:** codex audit 2026-06-18
-- **Status:** partial — LIMIT-before-filter half resolved a51989cc (2026-07-05,
-  verified 2026-07-13: `folder IN (...)` pushed into SQL before the LIMIT 200).
-  `folderSessionTokens` half re-verified 2026-08-15, still open and NOT a contained
-  fix: for each `chat_sessions` row (newest created_at first) it takes the first
-  `messages` row with `timestamp >= created_at AND topic != ''` as that session's
-  topic, first claim wins (`dashd/chat.go:359-391`). Two sessions from the same
-  folder created close together can each have a topic-bearing message fall inside
-  the other's `>= created_at` window, so the session→topic mapping can attach a
-  continue link to the wrong session — a heuristic on message timing, not an
-  explicit link. A real fix needs an explicit session↔topic (or session↔turn)
-  column persisted at session-creation/first-message time — a schema change to an
-  existing table, not a new call path — so per CLAUDE.md redesign discipline this
-  is reported, not fixed, pending sign-off on where that column lives
-  (`chat_sessions.topic` set once at first message, vs. `messages.session_id`).
-- **Fix:** push filter into SQL (done); persist topic-session linkage explicitly (proposed, open)
+- **Status:** closed. This was the last surviving finding of the 2026-06-18 codex
+  dashd sweep; the other 19 were pruned at `57b14af8` + `0d376586` (2026-08-15),
+  which left that sweep's heading standing over nothing.
+- **Fix:** none needed
 
 ## PROPOSAL — anteval `--mcp` parity face needs an inspect-read on a public MCP surface (2026-07-11, proposed)
 
@@ -4943,223 +4911,229 @@ eval gates, not a defect. `anteval --case webhook-in` is still the check.
 - **Status:** fixed in code; live verification belongs to the deploy gates
 - **Fix:** `collectProxydRoutes` + `SyncProxydRoutes`; `proxyd/resource.go`
 
-## Adversarial review of the 5/16+surrogate features — deferred findings (2026-07-30)
+## Adversarial review of the 5/16+surrogate features — the surviving findings (2026-07-30, re-adjudicated 2026-09-21)
 
-Bug-hunt on the newly-shipped features. Fixed inline: F3 (Delegate glob-widening,
-cc11eace), F4 (Delegate deny/wildcard, cc11eace), F8 (tier-cap on operator REST
-mint, 48c7e5ce), F9 (surrogate over-aggressive credential null, 25e0d91c), F16
-(OpenAPI omitted route_tokens, 1f66d77f). Remaining, deferred:
+Fixed inline at filing time: F3, F4 (`cc11eace`), F8 (`48c7e5ce`), F9
+(`25e0d91c`), F16 (`1f66d77f`).
 
-- **F1 (fix before wiring Delegate — phase 3).** `role:operator` grant_option=1 is
-  set by an UPDATE in routd/0021 + store/0075, but on a split-migrated instance
-  `cmd/arizuko/migrate_split.go` copies `acl` (omitting grant_option) at :344
-  AFTER routd.Open runs 0021 at :300 → the root ends up grant_option=0, so
-  `auth.Delegate`'s root can delegate nothing once wired. Fresh-install seeding of
-  role:operator into routd.db also needs grant_option=1. Latent today (Delegate
-  unwired). Fix: seed grant_option on the operator row idempotently at the point
-  Delegate is wired, after any copy.
-- **F6 (verify before relying on /v1/groups for humans).** `groupsRESTAuthz` wants
-  a `routes:read`/`acl:read` resource:verb scope, but human JWTs carry folder-glob
-  scopes (`handleUserScopes`) that `auth/scope.go` rejects → the read twin may be
-  reachable only by service/CLI tokens (folder="" → unfiltered list-all), and the
-  subtree filter (`ownsFolder`) inverts for folder=""/"**". Entangled with the
-  tier/scope claim model that `5/33` rewrites — resolve there.
-- **F7 (pre-existing).** `DELETE /v1/route_tokens/{jid}` matches one path segment;
-  hook JIDs (`hook:acme/github`) and nested `web:` JIDs contain `/` → 404. Fix:
-  `{jid...}` catch-all (verify resreg path-param binding) or a query param.
-- **F5 (by-design, pre-existing).** Both new REST faces (+the pre-existing acl one)
-  are open when `verify==nil` (unset AUTHD_URL = local-dev open). Inert in prod
-  (AUTHD_URL always set). Changing the open-when-unverified model needs its own
-  sign-off.
-- **Surrogate robustness (F10–F14, medium).** F10: misconfig (unknown provider / no
-  creds) laundered as transient + near-expiry token dropped not stale-used. F11: one
-  malformed operator TOML `os.Exit(1)`s routd (routing outage from an optional
-  feature) + a shadowing datadir filename silently inherits the built-in's client
-  secret. F12: `Provider.AllowedDomain` parsed, never enforced (false egress
-  guarantee). F13: unvalidated `secret_key` collisions overwrite/clobber rows. F14:
-  a provider removed from the registry leaves a live, unlistable, unrevocable token.
+Closed since, with evidence:
 
-## 5/33 grant-surface flip — attempted, reverted (2026-07-30, adversary-caught)
+- **F1 (role:operator grant_option seeding) — dead.** `cmd/arizuko/migrate_split.go`
+  does not exist and no numbered SQL migration does either, so the copy-then-UPDATE
+  race cannot occur. One write site remains: `store/seed.go` seeds `role:operator`
+  `(*, **)` WITH GRANT OPTION when the ACL entity is empty (`RoleOperator`,
+  `store/seed.go:39-42`). The item's own caveat is false too — `auth.Delegate`
+  is wired, called at `routd/acl_resource.go:182`.
+- **F7 (`DELETE /v1/route_tokens/{jid}` 404s on a slash-bearing jid) — FIXED
+  2026-09-21 (`debe58f4`).** It was live: a hook jid is `hook:<folder>/<label>`, so
+  every token `POST /v1/route_tokens/hook` mints was unrevokable over REST. The
+  single-segment wildcard is now `{jid...}`, the catch-all `proxyd_routes` and
+  `github_sources` already use. Guard:
+  `TestFeature_RouteTokens/http-revoke-slash-bearing-hook-jid`.
+- **F10, second half ("near-expiry token dropped, not stale-used") — wrong
+  premise.** `routd/sibling_db.go` `connectorSecrets` pre-populates `out[k]` from
+  the stored value BEFORE calling `refreshOAuth`, and the transient-failure branch
+  `continue`s without deleting it. The stale value is served, not dropped.
 
-The role-based grant flip (`600fc408`) shipped broken; reverted (`0f8d956f`). An
-adversarial review (fable sub; codex dead this session) found + reproduced:
+Still live:
 
-- **BUG1 (critical):** the "differential" test drove `SeedFolderGrants` — dead code
-  the shipped `deriveFolderGrants` never called. "Proven safe by the differential"
-  was FALSE. Lesson: an equivalence test must diff the ACTUAL production function.
-- **BUG2 (critical):** `deriveFolderGrants` blind-rebound `folder:<path>` → its
-  DEPTH role on every call → restriction-by-role impossible (only widening). The
-  "decoupled from location" claim was false. Fix: assign the role once at
-  create/invite, never re-derive per read.
-- **BUG3 (high, live):** `grants.CheckAction` is last-match-wins; `store.ACLRowsFor`
-  has no `ORDER BY`; the `acl_by_principal_action` index returns `folder:` before
-  `role:`, so an operator DENY sorted before a role ALLOW and was masked. Confirmed
-  repro. Live unmitigated consumer: `container/runner.go:553` `share_mount` RO gate
-  (fed from `deriveFolderGrants`, no `db.Authorize` pairing). Fix in the correct
-  flip: render denies LAST, or add `ORDER BY effect` / deny-wins to the render.
-- **BUG4 (medium):** `SeedTierRoles` is INSERT-OR-IGNORE-only — a tightened tier
-  bundle never revokes; stale role rows survive a redeploy. Now moot (unwired).
-- **BUG5 (medium, pre-existing):** `dashd/tools_admin.go:36` renders the tool list
-  from `grants.DeriveRules` directly — a second sink that drifts from the socket's
-  `deriveFolderGrants` (overlay/roles). Violates one-renderer-many-sinks. Predates
-  the flip; fold both onto one renderer when the flip lands.
+- **F5 (REST faces open when `verify == nil`) — by design, no action.**
+  `routd/groups_http.go:25` and ~12 sibling gates return nil when `s.verify` is
+  nil (local dev). Inert in production because `compose/compose.go` always writes
+  `AUTHD_URL` — an operational guarantee, not a code-enforced one. Kept as a
+  standing decision record; changing it is an auth-model change.
+- **F6 (`groupsRESTAuthz` scope mismatch) — real, REDESIGN, and this entry's own
+  fix pointer was wrong.** `routd/groups_http.go:23-30` gates on `resource:verb`
+  scopes, but a human JWT's scopes come from `auth.UserScopes`
+  (`auth/authorize.go:239`), which returns raw ACL-row folder globs (`acme/eng`,
+  `**`). `hasAnyScope` (`routd/server.go:371-379`) matches neither, so a human
+  session token can never pass; only a service/CLI token can. `210b8012` fixed a
+  different, narrower half (it added the `ownsFolder` subtree filter at
+  `routd/groups_resource.go:67`) and never touched the gate. The entry said
+  "resolve at 5/33" — wrong: 5/33 governs ACL rows and shipped without touching
+  this. The model to reconcile against is 5/1 / `auth/scope.go`, and the fix spans
+  authd's mint side and routd's gate side.
+- **F10, first half (misconfig laundered as transient) — real, small, bounded.**
+  `auth/surrogate/engine.go` `resolve()` returns a plain error for "unknown
+  provider" / "no client credentials", and `routd/surrogate_refresh.go`
+  `refreshOAuth` treats it exactly like a network blip ("transient refresh
+  failure; using stale token", at WARN). That is the standing `CLAUDE.md` rule
+  "retry ONLY transient errors" being violated in two files. Fix: a distinct
+  sentinel plus an ERROR-level log. **Take this one first.**
+- **F11, first half (`os.Exit(1)` on a malformed operator TOML) — real, but the
+  failure mode needs a decision.** `routd/cmd/routd/main.go` and `dashd/main.go`
+  exit if `surrogate.NewEngine(dataDir)` errors, so one bad optional-feature file
+  takes down all routing — even though downstream code already handles
+  `surrogate == nil`. Log-and-continue is one line per call site, but it trades a
+  loud crash for a silently-absent feature, which is the fail-loud rule cutting
+  both ways. Sign-off, not a mechanical fix.
+- **F11, second half — restated; the filed wording is wrong.** `Provider`
+  (`auth/surrogate/registry.go`) carries no secret field, so no TOML "inherits the
+  built-in's client secret". The real shape: client id/secret come from
+  `SURROGATE_<NAME>_CLIENT_ID/_SECRET`, keyed purely by NAME, and an operator file
+  fully replaces the embedded struct — so a datadir file reusing a built-in's
+  filename with a different `auth_url`/`token_url` is still paired with the real
+  credential and sends it wherever that file points. Fix: warn on a filename
+  collision with a credentialed built-in. Small, bounded.
+- **F12 (`Provider.AllowedDomain` parsed, never enforced) — real, REDESIGN.**
+  `AllowedDomain` is populated in both shipped TOMLs and read nowhere in
+  `engine.go`; it is the only occurrence of that identifier in the Go tree. Egress
+  is actually enforced by a different system (`routd/network_rules_resource.go` +
+  `egress/match`, folder-scoped host allowlists). Giving the field teeth means a
+  new contract joining provider config to that egress point. Until then it is a
+  false guarantee in a config file — deleting the field is the other honest option.
+- **F13 (unvalidated `secret_key` collisions) — real, small, bounded.**
+  `loadRegistry`/`addProvider` check that required fields are non-empty but never
+  check `secret_key` uniqueness, and `dashd/me_connections.go` upserts via
+  `PutOAuthSecret(sub, p.SecretKey, ...)` keyed on that string alone, so two
+  providers sharing one clobber the same row. Note the deployment risk: adding the
+  check makes a colliding registry fail to load.
+- **F14 (a de-registered provider leaves a live, unlistable, unrevocable token) —
+  real, small, bounded.** `dashd/me_connections.go` `listConnections` iterates
+  `d.surrogate.Names()` (the current registry only), and
+  `handleMeConnectionDelete` 404s on `Provider(provider)` before touching the
+  stored row — so the row can be neither seen nor deleted. With F10's live half it
+  is also logged "transient" forever. Fix: list the union of registry + stored
+  keys, and let delete resolve the row without a live registry entry.
 
-Status: BUG1-3 un-shipped by the revert; deriveFolderGrants back to DeriveRules-base
-+ expanded overlay (deny appended last = correct precedence). BUG4 moot until the
-flip; BUG5 pre-existing. The correct flip must satisfy all five + the tests the
-review named (differential over the REAL path; operator-deny-vs-role-verb; restrict-
-via-role; multi-platform dedup; dashd/socket parity; reseed-staleness).
+- **Severity:** medium (F6 blocks a documented REST face for humans; F12 is a
+  false security guarantee)
+- **Scope:** `auth/surrogate`, `routd/surrogate_refresh.go`,
+  `dashd/me_connections.go`, `routd/groups_http.go`
+- **Status:** open — F10a/F11b/F13/F14 are bounded fixes; F6 and F12 need sign-off
+- **Fix:** F7 fixed 2026-09-21 (`debe58f4`); F1 and F10b closed as dead / wrong premise
 
-## CEO audit — release-readiness doc gaps (2026-07-31)
+## ✅ CLOSED 2026-09-21 5/33 grant-surface flip — attempted, reverted (2026-07-30)
 
-Release-ready per the CEO audit after these (docs/positioning, not code):
+A record of what the CORRECT flip had to satisfy. The flip landed; all five are
+satisfied, and three of them describe functions that no longer exist. Verified at
+`96cab2b6`.
 
-- **Connector/ext-mcp capability is buried (biggest pitch-vs-capability gap).** The
-  ext-mcp connector injection (5/13) — arizuko's actual differentiator — has no
-  landing-page or concepts-page presence, only `reference/mcp.html:830-871` + one
-  line in `security/index.html:44`. Fix: write `concepts/ext-mcp.html` (connectors)
-  + link from landing; add `howto/add-connector.html` mirroring
-  `howto/oauth-provider.html`. Half-day.
-- **Tier-language doc-debt (NOT stale yet — tracked for the 5/33 rename pass).** ~27
-  web pages + root docs say "tier"; today they're still factually accurate (roles ==
-  the tier bundles), so NOT release-blocking. But when 5/33 phase (b)
-  (AuthorizeStructural→scope) + the tier-scalar deletion land, every "tier"-language
-  file must update in one coordinated pass. Files to sweep: `security/index.html`,
-  `concepts/*`, `reference/mcp.html`+`grants.html`, root `SECURITY.md`/`ARCHITECTURE.md`/
-  `ROUTING.md`, ant self-skills reading `ARIZUKO_TIER`. Owner: the 5/33 rename pass.
-- **README/landing polish:** SDK-comparison pitch (`README.md:88-102`) should move onto
-  `index.html` (done: README "What's planned" 5/17-shipped staleness fixed 2026-07-31).
+- **BUG1 (the differential drove dead code)** — a lesson, never a code defect, and
+  moot besides: `auth.Authorize` is now the one evaluator, so there is no second
+  representation to run a differential against.
+- **BUG2 (`deriveFolderGrants` rebound the role per read)** — the function is
+  gone. The role is bound once at create: `store.SeedMemberRoleTx`, called from
+  `store.SeedRoutdFloor` (`store/seed.go:102`, `routd/db.go:83`).
+- **BUG3 (deny masked by index sort order) — the one flagged LIVE; fixed, and by
+  construction rather than by an ORDER BY.** `auth.Authorize`
+  (`auth/authorize.go:87-118`) scans ALL matching rows, accumulates `denied`, and
+  returns false if any deny matched — so row order cannot change the answer.
+  Guard: `TestAuthorize_DenyWinsSameTriple` (`auth/authorize_test.go:62`). The
+  named live consumer is gone too: the `share_mount` gate is now
+  `routd/dispatch.go:884`, which calls `l.db.Authorize` directly.
+- **BUG4 (`SeedTierRoles` insert-or-ignore)** — gone. `SeedRoutdFloor` seeds only
+  when the ACL entity is empty; no periodic re-seed of a changing bundle exists to
+  go stale.
+- **BUG5 (dashd renders the tool list from a second renderer)** — fixed at
+  `2ef91f65`. `dashd/tools_admin.go:34` calls `auth.EffectiveActions`, the same
+  renderer `routd/agent_gate.go:72` uses for the agent socket. One renderer.
 
-## CTO audit — 5/33 partial cutover (2026-07-31)
+- **Status:** closed — the flip landed and satisfies all five
+- **Fix:** `6f980437`, `2ef91f65`, `e10cfcc2`
 
-CRITICAL C1+C2 FIXED by reverting step (d) `edd42181` (commit `3a8b8291`): `egress`/`web:publish`
-off `tierOf` onto grants was NOT equivalence-preserving — `container.tierOf` (count+1) and
-`auth.Resolve().Tier` (min(count,3), floored to 1) diverge below top level, so 18 live sub-groups
-would gain unconstrained egress and `/root` turns silently lost web mounts (`CheckAction(["*"],
-"web:publish")` is false — `matchGlob` stops `*` at `:`). Real fix (deferred, needs sign-off):
-a reviewed backfill migration writing explicit per-folder `egress`/`web:publish` grants that
-reproduce the `tierOf` predicate EXACTLY, then delete `tierOf` — the capability was never
-derivable from the tier scalar. H1 (test fixtures) + H2/H3 (atomic seed + loud assign) FIXED.
+## CEO audit — the connector capability has no concepts or howto page (2026-07-31, open — half a day of docs)
 
-Open (MEDIUM, deferred — none release-blocking; fail-closed or latent):
+The one surviving item of the 2026-07-31 CEO audit. Re-verified 2026-09-21: the
+ext-mcp connector injection (spec `5/13`) — the differentiator the pitch leans on
+— still has no landing-page or concepts-page presence. `concepts/ext-mcp.html` and
+`howto/add-connector.html` do not exist, `concepts/index.html`'s 27-entry
+curriculum has no connector entry, and `template/web/pub/arizuko/index.html`
+contains the word "connector" zero times. The capability is documented only in
+`reference/mcp.html` (the `[[connector]]` TOML descriptor, credential injection,
+grant gating), one sentence at `security/index.html:46`, and one at
+`components/egress.html:109`.
 
-- **M3 — folderGrantsFromACLOnly drops ACL row Scope.** `routd/seed_grants.go` renders a
-  scoped operator DENY (`mcp:send` on `acme/eng/secret`) as a GLOBAL `!send` for the folder.
-  Fail-closed (over-denies), but wrong. The flip made the overlay the whole bundle so it bites
-  more. Fix: thread scope into the rule render / evaluate scope in CheckAction.
-- **M4 — `/root` gets a READ-ONLY share mount (inverted).** `container/runner.go:554`
-  `CheckAction(["*"], "share_mount", {readonly:"true"})` matches (rule `*` has no params) so
-  elevated gets RO while tier-1 gets RW. Pre-existing `*`-glob-vs-params gap (same as C2).
-- **M5 — no un-assign path.** `store.RemoveMembershipBare` has no caller; `remove_acl` scope `**`
-  only deletes `role:operator` edges. The operator-rebind rationale isn't reachable via any tool.
-- **M6 — role rows are scope `**`.** Bypasses authorize.go's "tier defaults apply only at own
-  folder" guard. Harmless today (every db.Authorize passes scope==socket folder) but the `**`
-  scope, not the guard, bounds delegation once `AuthorizeStructural` is deleted in step (b).
-- **M1/BUG5 — dashd tools display off DeriveRules.** `dashd/tools_admin.go:36`. The revert
-  neutralized the "made-it-live" divergence (egress/web back on tierOf); still a second sink to
-  fold when step (e) lands. **M2 self-resolved by the revert** — `SECURITY.md:210` "tier ≤ 1
-  egress" is accurate again.
+Fix: write `concepts/ext-mcp.html`, link it from the landing page, and add
+`howto/add-connector.html` mirroring `howto/oauth-provider.html`. Deploy per
+`template/web/CLAUDE.md`.
 
-## P2 — three identity-link mechanisms; authd owns two of them (2026-08-02, decided)
+The other two items are closed:
 
-"One human, many logins" is implemented three times. Operator decision
-2026-08-02: **collapse to one, exposed by authd in the system's canonical way**
-(a resreg resource — REST + MCP from one handler, per root CLAUDE.md), with
-proxyd and dashd consuming that surface rather than reading a table.
+- **Tier-language doc-debt — resolved.** The item was explicitly conditional ("NOT
+  stale yet — tracked for the 5/33 rename pass"). The trigger fired
+  (`AuthorizeStructural` has no definition in the tree; `container/runner.go:928`
+  documents `ARIZUKO_TIER` as dropped per 5/33 decision 10) and the coordinated
+  sweep it called for landed on 2026-08-05 in `7b3c41fe` (web) and `1bc1a967`
+  (root docs). Swept again 2026-09-21: no web page, root UPPERCASE doc or `ant/`
+  skill claims tiers gate anything today. The remaining "tier" hits are
+  cold-tier/hot-tier (MCP surface categories), `strategy/index.html`'s Tier A-D
+  roadmap buckets, third-party API tiers (Slack, Twitter), a CSS class, and dated
+  changelog and migration-summary history.
+- **README SDK-comparison pitch — moot.** `README.md:88-102` no longer holds a
+  pitch of that shape; it is a "when to use / when not to" fit filter. There is
+  nothing left to move onto the landing page.
 
-| mechanism | DB | writer | read surface | live rows |
-|---|---|---|---|---|
-| `identities` + `identity_claims` | auth.db | `store/identities.go:33` | **yes** — `GET /v1/identities/{sub}` (`authd/http.go:384`), consumed by routd's `inspect_identity` | 0 everywhere |
-| `auth_users(user_id)` + `oauth_identities` | auth.db | `authd/store.go:122` (the live OAuth login path) | **none** | 1 (marinade) |
-| `auth_users.linked_to_sub` | **routd.db** | none (`LinkSubToCanonical` has no non-test caller) | read by `proxyd/main.go:885`, `dashd/profile.go:81` | 0 everywhere |
+- **Severity:** low (positioning, not code)
+- **Scope:** `template/web/pub/arizuko/concepts/`, `howto/`, `index.html`
+- **Status:** open — a writing task, no decision needed
+- **Fix:**
 
-So authd holds one model that is exposed but never populated, and one that is
-populated but never exposed; routd holds a third that is neither. The two
-readers in row 3 therefore always get the empty answer — proxyd canonicalises
-to the input sub unchanged, dashd renders an empty linked-accounts list.
+## ✅ CLOSED 2026-09-21 CTO audit — 5/33 partial cutover (2026-07-31)
 
-**Trap worth knowing**: `auth_users` exists in BOTH routd.db and auth.db with
-DIFFERENT schemas — `(sub, username, hash, name, created_at, linked_to_sub)`
-versus `(user_id, name, created_at)`. Same name, two databases, two meanings.
+A snapshot of a cutover that has since completed. C1+C2 were already fixed by the
+revert (`3a8b8291`). The deferred real fix and all five MEDIUMs are resolved;
+verified at `96cab2b6`.
 
-### Target
+- **The deferred `tierOf` backfill** — done, and better than filed. `6f980437`
+  (2026-08-01, "capability grants as typed booleans") DELETED `tierOf` outright:
+  `egress`, `web:publish` and the share mount are typed booleans routd resolves
+  via `auth.Authorize` (`routd/dispatch.go:884-887`). The only survivor is
+  `worldOf()` for `WEB_PREFIX`, a vhost coordinate, not authz
+  (`container/runner.go:928`).
+- **M3 (`folderGrantsFromACLOnly` drops ACL row Scope)** — subsystem gone. The
+  function does not exist; `auth.Authorize` matches `r.Scope` against the real
+  target before it branches on allow/deny (`auth/authorize.go:89`), so a scoped
+  deny stays scoped.
+- **M4 (`/root` gets a READ-ONLY share mount, inverted)** — fixed.
+  `routd/dispatch.go:884` reads `shareRO := !elevated && l.db.Authorize(...)`, so
+  an elevated turn short-circuits to a WRITABLE share before `Authorize` runs.
+- **M5 (no un-assign path)** — fixed. `DELETE /v1/acl` at operator shape removes
+  the membership edge (`routd/acl_resource.go` `revokeACLInto` →
+  `RemoveMembershipInto(principal, "role:operator")`), guarded by
+  `TestACLRESTOperatorRootOnly`.
+- **M6 (`**`-scoped role rows bound delegation once `AuthorizeStructural` dies)** —
+  the trigger fired and the replacement is in place. Delegation is bounded by
+  `auth.Delegate` (subset-of-held + `grant_option`, `auth/delegate.go`) plus the
+  Gate's own containment; writing a `**` scope itself requires root.
+- **M1/BUG5 (dashd tools display off a second renderer)** — fixed at `2ef91f65`;
+  see the 5/33 flip entry.
 
-1. `oauth_identities` (+ `auth_users(user_id)`) becomes the single model: it has
-   the live writer and a first-class person entity, so no sub is "elected"
-   canonical and losing one provider account cannot orphan the rest.
-   `UNIQUE(provider, provider_sub)` already prevents one login mapping to two
-   people.
-2. Re-point `GET /v1/identities/{sub}` at it and register it as a resreg
-   resource so the MCP twin is derived rather than hand-rolled. The endpoint
-   already exists as the seed; today it reads the empty model.
-3. proxyd and dashd consume that surface. Note the accepted cost: this puts an
-   HTTP hop on proxyd's per-request cookie path, so authd being unreachable
-   degrades session canonicalisation — decide the failure mode (fail closed, or
-   fall through to the raw sub) as part of the work.
-4. Delete `identities`, `identity_claims`, `store/identities.go`,
-   `auth_users.linked_to_sub`, `CanonicalSub`, `LinkSubToCanonical`,
-   `SubsLinkedTo`, and `dashd`'s `linkedSubs` — additive DROP migrations in
-   both schemas.
+- **Status:** closed — nothing left to track
+- **Fix:** `6f980437`, `2ef91f65`, `3a8b8291`
 
-Deleting before step 2 lands would remove `inspect_identity`'s backing store,
-so the order matters.
+## P2 — dashd promises "linked accounts" and cannot show them (2026-08-02, open — one failure-mode decision left)
 
-- **Severity:** medium (account linking non-functional on two surfaces)
-- **Source:** `store/identities.go`; `authd/store.go:122`; `authd/http.go:384`;
-  `store/auth.go:60,73`; `proxyd/main.go:885`; `dashd/profile.go:81`
-### Step 1 SHIPPED (90e46d62)
+Steps 1 and 2 of the identity-link collapse shipped (`90e46d62`; `fcd845cb` +
+`54125cbd`): `oauth_identities` + `auth_users` is the single model,
+`GET /v1/identities/{sub}` reads it, `inspect_identity` resolves through that
+endpoint, and `identities`/`identity_claims`/`linked_to_sub`/`CanonicalSub`/
+`LinkSubToCanonical`/`LinkedSubs` and dashd's `linkedSubs` are deleted. proxyd
+does not read `CanonicalSub` at all. Re-verified 2026-09-21: none of those symbols
+exist in the tree.
 
-`GET /v1/identities/{sub}` now reads `auth_users`+`oauth_identities`. The
-endpoint had been answering `{identity:null,subs:[]}` for every sub, so routd's
-`inspect_identity` reported everyone as unclaimed.
+**Step 3 is what remains** — dashd consuming that endpoint — and it is an
+addition, not a deletion. Today `dashd/main.go:740` advertises the profile tile as
+"linked accounts" and `dashd/profile.go` shows none: it renders the caller's own
+sub, then builds the "Add a provider" list from
+`prefixes := map[string]bool{providerPrefix(sub): true}` — the CALLER'S OWN sub
+prefix and nothing else. With four supported providers and at most one prefix
+skipped, the page always offers at least three "Link X" buttons, so its
+"All known providers already linked." branch is unreachable and a user who has
+already linked GitHub is still invited to link GitHub.
 
-### Step 2 is NOT a deletion — correction to this entry
+**The decision, in one sentence:** dashd calls authd's
+`GET /v1/identities/{sub}` for the profile page — which needs `identity:read`
+added to `service:dashd` in `authd/http.go`'s `serviceGrants` (only `service:routd`
+holds it today) and a choice of failure mode when authd is unreachable (render
+nothing, or render the raw sub behind a banner) — or the tile stops saying "linked
+accounts" and this drops from the queue.
 
-The old model has two more live surfaces, found while attempting the delete:
-
-- **an operator CLI** — `arizuko identity list/create/link/unlink`
-  (`cmd/arizuko/main.go:815-870`), the only way to bind a platform sub to a
-  person by hand;
-- **`inspect_identity`** (`ipc/inspect.go:112`) reads
-  `GetIdentityForSub` straight from the DB, NOT through authd's endpoint — so
-  re-pointing the endpoint did not re-point the tool.
-
-So the two models are not redundant in the way this entry first claimed. They
-differ by WRITER: `identities`/`identity_claims` is manual and
-operator-driven and accepts any sub (`tg:42`); `oauth_identities` is written
-only by the OAuth login path (`upsertOAuthUser`) and has no manual entry point.
-Deleting the first would remove the operator's ability to link a platform
-identity by hand — which is the pairing capability `5/31` is about.
-
-**Revised step 2**: give `oauth_identities` a manual writer, migrate the CLI and
-`inspect_identity` onto it, THEN delete `identities`, `identity_claims`,
-`store/identities.go`, `linked_to_sub` + accessors, and dashd's `linkedSubs`.
-`provider`/`provider_sub` already holds a platform sub fine — the endpoint test
-seeds `tg:42` that way.
-
-### Step 2 SHIPPED as a deletion (2026-08-04, fcd845cb + 54125cbd)
-
-The revision above was itself wrong on one point: `inspect_identity` had
-already moved. `routd/identity.go` resolves through authd's
-`GET /v1/identities/{sub}` (`b6aabfd2`), which step 1 re-pointed at
-`auth_users` + `oauth_identities` — so the tool needed no work.
-
-That left `arizuko identity link|unlink` as the only writer, filling a table no
-reader ever looked at, which is not a capability to preserve. And the manual
-bind it nominally offered is what `5/31` pairing now does with consent and an
-inverse. So step 2 landed as a straight delete, no manual writer added:
-`store/identities.go`, the CLI subcommand, `linked_to_sub` + `CanonicalSub` +
-`LinkSubToCanonical` + `LinkedSubs` + `AuthUserBySub`, dashd's `linkedSubs`,
-and migrate-split's copy of the two tables. Dropped by authd `0006` and routd
-`0027`.
-
-**Step 3 is what remains** and is an addition, not a deletion: dashd's
-"Linked accounts" section was removed rather than left rendering an
-always-empty table, so showing a real list means dashd consuming authd's
-`GET /v1/identities/{sub}` — including the failure-mode decision this entry
-already flagged. proxyd no longer reads `CanonicalSub` at all.
-
-- **Status:** steps 1 + 2 shipped; step 3 (dashd consumes authd's endpoint) open
+- **Severity:** low (a page that under-promised would be fine; this one
+  over-promises)
+- **Scope:** `dashd/profile.go`, `dashd/main.go:740`, `authd/http.go` serviceGrants
+- **Status:** open — needs sign-off (a new cross-daemon read plus a service scope)
+- **Fix:** steps 1-2 shipped at `90e46d62`, `fcd845cb`, `54125cbd`
 
 ## P3b — rejected minimization phases, recorded so they are not retried (2026-08-01, closed)
 
@@ -5395,101 +5369,30 @@ Note what that writer implies more broadly: routd still opens the frozen
 `messages.db` at every boot to copy legacy rows forward. That is the real
 blocker for retiring `messages.db`, and it is bigger than any single table.
 
-## R1 — codex review of the 2026-08-03 fix batch: six gaps (2026-08-03, 5 of 6 closed 2026-08-15; 1 open on live-state only)
+## ✅ CLOSED 2026-09-21 R1 — codex review of the 2026-08-03 fix batch: six gaps (2026-08-03)
 
-Adversarial review of `50af5f50..e37a084b` (the Y2/M1/E1/D6/D7 fixes). Findings
-verified before logging. Ordered by consequence.
+All six were re-verified SEPARATELY at `bcb5bb83` on 2026-08-15 and five closed
+there; the sixth was "closed in code, live state unverifiable from a worktree".
+Spot-checked again at `96cab2b6`:
 
-**1. CRITICAL — the adapter-mount fix is inert on every live instance.**
-`compose/compose.go:383-402` includes each instance's OWN
-`/srv/data/arizuko_<inst>/services/*.yml`, not `template/services/`. Confirmed
-on krons: that directory holds installed copies ("Converted from
-services/teled.toml by `arizuko generate`"), including a second adapter
-`teled-rhias.yml`. Editing the template fixes NEW installs only —
-krons/sloth/marinade still have no adapter state mounts, so teled still replays
-~24h of Telegram updates on recreate. `cmd/arizuko/packages.go:347-375` copies
-templates only on `packages add`; there is no update path for installed
-fragments. The installed copies are also still emitting the retired
-`CHANNEL_SECRET`.
+- **5** — `cmd/arizuko/apply.go` `printPlan` names no command on the
+  `SkipApplyRebuild` line, and its own comment cites this finding ("BUGS R1-5").
+- **6** — `webd/Makefile` `test-e2e` captures the output and `exit 1`s on "no
+  tests to run", with a comment naming the root Makefile's guard as its mirror.
+  (Confirmed useful: a vacuous `-run` selector bit this pass too.)
 
-**2. teled's swallow moved from read to write.** The startup read now fails
-loud through `chanlib/run.go:90-94`, but `teled/bot.go:92-94` only warns when
-the SAVE fails, advances the in-memory offset, and continues. A full or
-read-only mount looks healthy until restart, then replays from the last
-offset that actually persisted.
+**Item 1's residual is now two live entries, not this one.** The update path R1
+demanded exists (`arizuko packages upgrade` / `sync`, both through one
+`reapplyPackage`, `cmd/arizuko/packages.go:877`), and `template/services/teled.yml`
+carries the `${DATA_DIR}/store/teled` state mount with no `CHANNEL_SECRET`. What
+R1 could not check — whether an instance's installed fragment actually receives
+that — is exactly the subject of `L41` ("compose fragments freeze forever once
+they differ by a byte", which says in its own text that "`R1` already fixed this
+class" and names the residue) and `L315` (`reapplyPackage` early-returns for a
+catalog source). Both are open, newer and sharper.
 
-**3. The dissolved-tier class is incomplete.** `resreg/resources/route_tokens.go:86`
-still tells `issue_webhook` "Tier rules match issue_chat_link", and — worse —
-the agent's own global instructions assert tier ceilings at `ant/CLAUDE.md:28`
-and `:165-166`. Those reach the model on every turn.
-
-**4. The invite-bearer fix is YAML-only.** `yaml:"-"` does stop `export`
-(`resreg/engine.go:359-375`), but `json:"token"` remains, so the live token is
-still returned by `GET /v1/invites` (`onbod/admin.go:53-72`), rendered in full
-by dashd (`dashd/invites.go:72-84`), printed by the CLI
-(`cmd/arizuko/main.go:732-743`), and published in OpenAPI
-(`resreg/openapi.go:122-143`). Y2 fixed the manifest path, not credential
-exposure generally.
-
-**5. `SkipApplyRebuild` now yields false advice.** `cmd/arizuko/apply.go:165-169`
-assumes every skipped resource is a secret and prints "set via `arizuko secret
-set`" — nonsense for invites.
-
-**6. The vacuous-target class remains.** `webd/Makefile:10-11` still runs
-`-run E2E` with no zero-match guard; only the root Makefile was hardened.
-
-Minimality notes (not defects): `shouldLink` is a one-line wrapper with a
-dedicated 21-line test the renderer test already covers; commit `32b180da`
-bundles three narrowings with the persistence fix and `e37a084b` bundles dashd
-with Make.
-
-- **Severity:** high (1 leaves the reported bug live on all three instances)
-- **Fix:** 1 needs an installed-fragment update path — a real `arizuko` command,
-  not a manual edit, since it must run on every instance and survive the next
-  `generate`. 2-6 are small and independent.
-- **Status:** 2026-08-15 — each of the six re-verified SEPARATELY at `bcb5bb83`.
-  Five are closed, one (1) is closed in code and unverifiable here. Verdicts:
-
-  1. **Closed in code; live state unverified.** The mechanism claim still holds —
-     `compose/compose.go:764` writes `./services/<name>.yml`, i.e. the
-     instance's own dir, never `template/services/`. But the update path R1
-     demanded now exists as a real command: `arizuko packages upgrade` (one
-     package) and `arizuko packages sync` (all) both re-fetch the recorded
-     source and rewrite the installed fragment through ONE updater,
-     `reapplyPackage` (`cmd/arizuko/packages.go:371`), which refuses to
-     overwrite a locally edited asset instead of clobbering it. `template/
-     services/teled.yml` carries the `${DATA_DIR}/store/teled` state mount and
-     no `CHANNEL_SECRET`. What cannot be checked from this worktree: whether
-     krons/sloth/marinade have actually RUN it, and whether hand-made variants
-     like `teled-rhias.yml` carry an `installed_packages` record for `sync` to
-     reach. Both are live-host questions.
-  2. **Closed.** teled no longer swallows the save. `maxSaveFailStreak = 3`
-     consecutive `saveOffset` failures now call `fatalExit` (`teled/bot.go`),
-     so a full or read-only mount crashes the process instead of looking
-     healthy until restart. A single failure is still logged and tolerated,
-     which is correct — a transient write hiccup must not crash-loop the poll
-     goroutine.
-  3. **Closed.** Both halves. `resreg/resources/*.go` contains no tier language
-     at all (the `route_tokens.go:86` sentence is gone), and `ant/CLAUDE.md`
-     now states the opposite of what R1 found: lines 4, 35 and 173 each say
-     "5/33: no tiers" explicitly. Repo-wide, nothing outside this queue's own
-     history says "Tier 0-2 only" or "Tier 0-1 only". See `M1` for the last
-     residue of this class, fixed in the same pass.
-  4. **Closed by a schema change, not by a serializer tag.** `json:"token"` is
-     gone because the FIELD is gone: migration
-     `store/migrations/0077-invites-hash-at-rest` made `ref` (=
-     `hex(sha256(token))`) the primary key, so the raw bearer is never
-     persisted and `InvitesRow` has no token field to leak by omission. dashd
-     renders `ref`. The only surviving raw token is
-     `toInviteCreatedJSON`'s mint-time response (`onbod/admin.go`), which is the
-     one moment the caller must receive it.
-  5. **FIXED 2026-08-15** — see the commit closing it. It was real: FIVE
-     resources carry `SkipApplyRebuild` (secrets, route_tokens, invites,
-     onboarding, installed_packages), and `printPlan` printed the secrets
-     command for all five.
-  6. **Closed.** `webd/Makefile` `test-e2e` captures the output and `exit 1`s on
-     "no tests to run", with a comment naming the root Makefile's guard as its
-     mirror. A selector matching zero tests can no longer pass as green.
+- **Status:** closed — superseded by `L41` + `L315` for the live half
+- **Fix:** see the 2026-08-15 verdicts
 
 ## V2 — dashd duplicates control planes the cockpit specs move away — CHAT PORTAL + MINT FORM DELETED 2026-08-15; the rest BLOCKED on `6/30` (2026-08-04, partial)
 
