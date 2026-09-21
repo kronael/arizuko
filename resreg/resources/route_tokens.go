@@ -44,7 +44,7 @@ var RouteTokensEndpoints = []resreg.Endpoint{
 	{Verb: "POST", Path: "/v1/route_tokens/hook", Action: resreg.Action("issue_hook"), Status: 201},
 	{Action: resreg.Action("issue_pair"), MCPOnly: true},
 	{Verb: "GET", Path: "/v1/route_tokens", Action: resreg.ActionList},
-	{Verb: "DELETE", Path: "/v1/route_tokens/{jid}", Action: resreg.Action("revoke")},
+	{Verb: "DELETE", Path: "/v1/route_tokens/{jid...}", Action: resreg.Action("revoke")},
 }
 
 // RouteTokensMCPNames maps each action to the flat tool name the live agent
