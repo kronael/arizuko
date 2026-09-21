@@ -3828,7 +3828,7 @@ no file is wanted. Both are now recorded as deliberate, not missing.
   renaming `whatsapp.md`→`whapd.md` fails the test, which is the real failure
   mode — the channel is the JID scheme, never the daemon name.
 
-## L24 — a fresh instance ships with egress isolation OFF, while the docs describe it as the model (2026-08-15, docs half FIXED; the default is still off)
+## L24 — a fresh instance ships with egress isolation OFF, while the docs describe it as the model (2026-08-15, docs + discoverability halves FIXED 2026-09-21 on the path operators actually use; the DEFAULT is one signed sentence away)
 
 **RE-MEASURED 2026-09-20 and the switch has been renamed since this was
 filed.** It is `EGRESS_IMAGE`, not `CRACKBOX_ADMIN_API`: `core/config.go:242`
@@ -3890,6 +3890,68 @@ still needs sign-off.
 - **Still open, and it needs the sign-off the entry asks for:** flipping the
   default so a fresh instance is isolated unless the operator opts out. Both
   live instances set `EGRESS_IMAGE`, so no running instance is exposed today.
+
+- **RE-MEASURED 2026-09-21 at `17459f6a` — the discoverability fix landed in a
+  file the documented install path never reads, so it reached nobody.**
+  `arizuko create` writes a SIX-KEY string literal and never opens
+  `template/env.example` (`cmd/arizuko/main.go:314`, no branch reads it). So the
+  2026-09-20 warning comment helps only an operator who copies `env.example` by
+  hand, while `INSTALL.md` tells them to run `arizuko create`. On that route the
+  generated `.env` said nothing about egress at all.
+
+  Two docs asserted the opposite and were simply false: `template/README.md`
+  ("seeds a new instance from `env.example`") and `cmd/arizuko/README.md`
+  ("seed data dir from `template/env.example`").
+
+- **FIXED 2026-09-21 — the no-sign-off half, done properly this time.**
+  `create`'s generated `.env` now carries the commented `EGRESS_IMAGE=` block
+  naming the switch and saying that empty lets agent containers reach the
+  internet UNFILTERED. **Zero behaviour change**: `core/config.go:283` is
+  `EnvOr("EGRESS_IMAGE", "")` and `compose/compose.go:801` gates on non-empty,
+  so an explicit empty is exactly what absent already meant. Both README lines
+  now state what `create` actually writes.
+
+  Test: `TestCreateEnvNamesEgressIsolation` (`cmd/arizuko/create_env_test.go`).
+  Mutation-proven two ways — removing the block fails it, and SEEDING AN IMAGE
+  also fails it. That second assertion is deliberate: it is a tripwire so the
+  unsigned default cannot be flipped as a "docs fix" by a later pass.
+
+- **The default is now the ONLY thing left, and three facts price it.**
+  1. **Every live instance already runs isolated.** `krons`, `marinade` AND
+     `sloth` all set `EGRESS_IMAGE=arizuko-egress:latest` (read 2026-09-21 —
+     the entry said "both", there are three). The default is the only thing
+     disagreeing with universal operator practice.
+  2. **The image is not an extra step.** The entry's stated blocker — "requires
+     the crackbox image to be present" — names the wrong image and overstates
+     it: `make images` builds `arizuko-egress` unconditionally
+     (`Makefile:166`), and `INSTALL.md` tells every operator to run it.
+  3. **Seeding the one key is enough, and its failure mode is loud.** Two
+     checks that could have made this a multi-key change do not:
+     `compose.Generate` DERIVES the other two inputs whenever `EGRESS_IMAGE`
+     is non-empty — `EGRESS_NETWORK_PREFIX` from the app/flavor and
+     `EGRESS_UPLINK_NETWORK` as `<project>_default`
+     (`compose/compose.go:801-812`) — so `EgressConfig.Effective`'s
+     missing-input error (`container/egress.go:127`) cannot fire from a seeded
+     default, and runed starts normally. And if the IMAGE itself is absent,
+     `container/runner.go:229` returns `Status: "error"` for the spawn:
+     "starting the agent anyway would put an unfiltered container on the
+     network, the exact inversion of the property egress exists for." So a
+     host that skipped `make images` gets a per-turn error naming the cause —
+     never a silent unfiltered fallback.
+
+  **The owner's decision is one sentence: should `arizuko create` seed
+  `EGRESS_IMAGE=arizuko-egress:latest`, accepting that on a host that skipped
+  `make images` every turn then errors instead of answering unfiltered?** Yes
+  costs a new operator a fleet that answers nothing until they build one image,
+  with the error naming it. No keeps first-run frictionless and keeps shipping
+  a default that all three live instances already override by hand.
+
+- **REFUTED while measuring this — two claims that read as blockers are not.**
+  The entry's "requires the crackbox image to be present" names the wrong
+  image (`arizuko-egress`, which `Makefile:166` builds in `make images`), and
+  `runed/docker.go:152`'s comment about refusing to start describes a
+  MISSING-INPUT config, not a missing docker image; compose derives those
+  inputs, so that refusal is unreachable from this flip.
 
 ## L13 — `secret_use_log` is write-only: no read surface on any face (2026-08-11, proposed 2026-08-15 — RE-MEASURED 2026-09-21: the ENTITY has no reader, the FACT has two. Do NOT build the proposal below)
 
@@ -4261,7 +4323,7 @@ drift and leaves the mechanism that produced it, which is the case root
 decision is one sentence: which tree is canonical for each pair, and does the
 other become a reference to it rather than a second copy?**
 
-## F41 — the re-greet cooldown is a rate, not a cap (2026-08-06, open question — NOT a spec defect)
+## F41 — the re-greet cooldown is a rate, not a cap (2026-08-06, open question — NOT a spec defect; sharpened to a three-way choice with costs 2026-09-21, UNANSWERED by design)
 
 Shipped with the `5/31` fold and named in the spec rather than hidden. A chat
 that (a) keeps messaging, (b) still routes nowhere, and (c) never redeems its
@@ -4302,6 +4364,50 @@ Still an open POLICY question, not a defect: should the Nth greeting back off?
 `prompt_count` attribute and widen the interval after N.** Two months on, no
 instance has reported the 144/day worst case, which is the evidence the entry
 said to wait for.
+
+**RE-VERIFIED 2026-09-21 at `17459f6a` (`a388cad7` is its ancestor) — mechanism
+unchanged, `prompt_count` still absent from the whole tree. Two bounds the entry
+does not credit, and a THIRD option cheaper than the one it names.**
+
+- **The mechanism is three conditional writes and NO read, which is the thing a
+  back-off would spend.** Absence of `prompted_at` IS "due a greeting":
+  `InsertOnboarding` re-arms by REMOVING the stamp once it is older than
+  `PairingTTL` (`store/onboarding.go:163-171`), `UnpromptedJIDs` lists rows
+  where it is Absent (`:560`), and `ClaimOnboardingPrompt` sets it under
+  `Absent` — "the condition IS the claim: two overlapping poll ticks cannot both
+  win one jid" (`:651-668`). No path reads the row to decide.
+- **Two more bounds.** routd's route-miss call is gated by
+  `onboardingAllowed(chatJID, l.onboardingPlatforms)`, and a Discord GUILD
+  channel additionally needs `Verb == "mention"` (`routd/loop.go:696-699`) — so
+  the 144/day worst case needs 144 explicit @mentions there, not 144 messages.
+  `InsertOnboarding` has a second caller the entry does not name, the REST
+  `create` on `/v1/onboarding` (`onbod/onboarding_resource.go:79`); it is
+  operator/agent-invoked and drives no automatic rate.
+
+- **Three options, not two.** The entry's title already says "a rate, not a
+  cap", and the cap is the cheap one it does not cost out:
+
+  1. **Flat rate (as is).** No code, no attribute. Worst case 144 greetings/day
+     to one chat that keeps talking, never routes and never redeems; the user
+     cannot switch it off. The failure it prevents — the permanent lockout
+     `P1b` blocker 2 removed — is PROVEN; the flood it permits is still
+     hypothetical after ~7 weeks.
+  2. **Hard cap after N.** One `prompt_count` attribute, incremented at claim
+     time (the `incrementEntityVia` primitive already exists), plus ONE more
+     term on the re-arm condition: `prompt_count < N`. A comparison against a
+     literal, so it stays a single conditional write with no read and the
+     race-freedom above survives intact. Costs the user who hits N a silent
+     dead end — the entry's original lockout, deferred rather than removed.
+  3. **Widening interval after N.** Same attribute, but the re-arm condition
+     becomes `prompted_at < now - interval(count)`, and the comparison value is
+     computed by the CALLER. `InsertOnboarding` does not know `count`, so this
+     one buys a read-modify-write where there is now a single conditional
+     write. That is the real price, and it is invisible from "add a column".
+
+  **So the sentence to answer is: flat rate, hard cap at N, or widening
+  interval — knowing the cap costs one condition term and the widening costs the
+  lock-free write.** Unanswered here on purpose: it is a policy choice, and
+  nothing has yet asked it.
 
 ## F37 — three dispatch tests fail under whole-suite load, so the suite cannot gate a release (2026-08-06, ✅ `tests/` HALF FIXED 2026-09-12 at `881bfbf0`; the slakd half is still uncaptured)
 

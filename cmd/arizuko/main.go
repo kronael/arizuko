@@ -311,7 +311,19 @@ func cmdCreate(args []string) {
 		// The product choice is DECLARED here and read back by routd, which writes
 		// the default group's row at its first boot. `create` runs before the
 		// instance has a store server at all, so the row cannot be written here.
-		content := fmt.Sprintf("ASSISTANT_NAME=%s\nCONTAINER_IMAGE=%s\nAPI_PORT=%d\nAUTH_SECRET=%s\nSECRETS_KEY=%s\nARIZUKO_DEFAULT_PRODUCT=%s\n",
+		//
+		// EGRESS_IMAGE ships COMMENTED, and its comment is the point: empty is
+		// what this file already meant, and an operator who never heard of the
+		// switch got an unfiltered instance while SECURITY.md described the
+		// isolated one. The warning lived only in `template/env.example`, which
+		// this path does not read — so on the documented install route
+		// (`arizuko create`) nothing said it. Whether the DEFAULT should be on
+		// is the open half of BUGS `L24` and needs the owner; saying so does
+		// not.
+		content := fmt.Sprintf("ASSISTANT_NAME=%s\nCONTAINER_IMAGE=%s\nAPI_PORT=%d\nAUTH_SECRET=%s\nSECRETS_KEY=%s\nARIZUKO_DEFAULT_PRODUCT=%s\n"+
+			"# Egress isolation (spec 6/24, SECURITY.md). Empty — as shipped — lets agent\n"+
+			"# containers reach the internet UNFILTERED. Set it to turn the model on:\n"+
+			"# EGRESS_IMAGE=arizuko-egress:latest\nEGRESS_IMAGE=\n",
 			name, core.DefaultImage, core.DefaultAPIPort, hex.EncodeToString(authSecret), hex.EncodeToString(secretsKey), product)
 		// 0600: .env holds AUTH_SECRET plus operator-populated OAuth
 		// secrets and tokens — not world-readable.
