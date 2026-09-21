@@ -5509,38 +5509,54 @@ configured key reads as empty. Match the whole line.
 - **Status:** fixed (operator config, since applied)
 - **Fix:** none in code
 
-## 5/16 invites fold — the agent invite tools stay hand-rolled (2026-07-07, open — one decision, re-verified 2026-09-21)
+## RECORD — 5/16 invites fold: the agent invite tools stay hand-authored (2026-07-07, re-verified 2026-09-21 — not a defect)
+
+**This is a record of a deferred fold, not a bug.** It sat in the open queue
+reading like a defect; nothing here is broken, and the duplication it names is
+priced and guarded. Re-verified line by line at `9229a97b`.
 
 onbod's `/v1/invites` REST face rides resreg (`154cd17f`). The three AGENT tools
 (`invite_create`/`invite_list`/`invite_revoke`) do not: they are hand-written
-closures in `routd/mcp.go:129-177` that forward to onbod over HTTP. That is the
-debt root `CLAUDE.md` names — "the ~45 hand-rolled ipc.go tools are the debt 5/16
-reverses".
+closures in `routd/mcp.go:130-179` forwarding to onbod over HTTP. All three
+reasons stand, unchanged:
 
-Re-verified at `96cab2b6`: all three blockers are unchanged, and the code does
-exactly what the 2026-07-07 note describes.
+- **caller-bound issuer** — `ipc/ipc.go:2062` passes `"agent:"+folder`; never a
+  client argument.
+- **accept_url synthesis** — `ipc/ipc.go:2080` builds
+  `<AcceptURLBase>/invite/<token>`.
+- **revoke ownership as list-then-confirm** — `routd/mcp.go:160-179` lists THIS
+  folder's invites and refuses a ref it did not issue, because onbod's DELETE
+  takes a ref and nothing else (`onbod/invites_resource.go:90-103`, "ref IS the
+  coordinate"). A naive forwarded DELETE regresses that into a cross-folder
+  revoke.
 
-- **caller-bound issuer** — `ipc/ipc.go:2062` passes `"agent:"+folder`; it is
-  never a client argument.
-- **accept_url synthesis** — `ipc/ipc.go:2080` builds `<base>/invite/<token>`.
-- **revoke ownership as list-then-confirm** — `routd/mcp.go:161-177` lists THIS
-  folder's invites and refuses a ref it did not issue, because onbod's
-  `DELETE /v1/invites/{ref}` takes a ref and nothing else. A naive forwarded
-  DELETE regresses that into a cross-folder revoke. `routd/invite_mcp_test.go`
-  is the guard.
+The gate is live, not aspirational: neutering the `!found` refusal in
+`routd/mcp.go` fails `TestBuildGatedFns_RevokeInvite_OwnershipGate`
+("RevokeInvite(cross-folder) should be rejected"), measured 2026-09-21. All
+three cases in `routd/invite_mcp_test.go` pass.
 
-Nothing is broken today: the ownership gate works and is tested. The cost is a
-second surface that can drift from the REST one.
+**Why this is not the `5/17` fold CLAUDE.md asks for.** `resources.InvitesRow`
+declares no `x-mcp-*` action, so there is no derived MCP face for invites to
+drift from — the hand-authored tools are the only agent face, not a second one
+beside a generated twin. And `onbod/invites_resource.go` says it in its own
+header: "onbod has no agent socket, so this is REST-only — there is no MCP twin
+to share the handler with." routd cannot mount onbod's handler in-process. So
+folding is not a resreg registration; it is a change to onbod's public DELETE
+contract plus a rewrite of routd's closures into forwarders.
 
-**The decision, in one sentence:** give onbod's DELETE an `issued_by` argument so
-ownership is enforced in one call and the agent face becomes a forwarder that
-injects the issuer and synthesizes `accept_url` — or record that the agent invite
-tools stay hand-authored, and drop this from the queue.
+**The decision, whenever 5/16 next moves:** give onbod's DELETE an `issued_by`
+argument so ownership is enforced in one call and the agent face becomes a
+forwarder that injects the issuer and synthesizes `accept_url` — or leave the
+agent invite tools hand-authored for good. Either is defensible; neither is
+urgent. Kept here as the written reason the duplication exists, so the next
+audit does not re-derive it.
 
-- **Severity:** low (duplication; no live defect)
+- **Severity:** none (no live defect; duplication is guarded and tested)
 - **Scope:** `routd/mcp.go`, `ipc/ipc.go`, onbod's invites resource
-- **Status:** open — needs sign-off (a new onbod contract, not a mechanical fold)
-- **Fix:**
+- **Source:** routd/mcp.go:130-179; ipc/ipc.go:2062,2080;
+  onbod/invites_resource.go:8,90-103; routd/invite_mcp_test.go
+- **Status:** record — deferred by design, no sign-off pending
+- **Fix:** none needed
 
 ## ✅ CLOSED 2026-09-21 5/16 two-faces rollout — status (2026-07-06)
 
