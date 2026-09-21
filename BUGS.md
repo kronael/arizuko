@@ -5073,7 +5073,7 @@ command from a URL or a config path — so the form cannot rot back in silently.
   banner (`✓ Tool … executed successfully`), and only `--json` emits JSON, so
   that `jq` cannot parse what it is given. Separate defect, separate entry.
 
-## M4 — `vited` runs the Vite DEV server in production (2026-07-16, partly fixed 2026-07-18)
+## M4 — `vited` runs the Vite DEV server in production (2026-07-16, crash class fixed 2026-07-18; the COST premise is REFUTED and the entry is re-scoped to posture 2026-09-21 — needs sign-off)
 
 **Crash class fixed (2026-07-18):** the dev server's dep-optimization cache
 defaulted into the bind-mounted `/web` root, where host uid ownership drifted to
@@ -5084,10 +5084,64 @@ cache is now container-owned + ephemeral, so it can't recur. Immediate incident
 patched by chowning the stale `/web/**/.vite` caches back to the container uid.
 
 **Residual (still open):** vited still runs `vite dev` (poll-watch + transform)
-rather than serving the static `/pub`+`/priv` tree — a steady ~1-core cost even
-with the scoped watcher. The clean end-state is a static serve (`vite preview` or
-a plain file server) keeping the pub-fallback/trailing-slash middleware; deferred,
-needs sign-off.
+rather than serving the static `/pub`+`/priv` tree.
+
+**Re-measured 2026-09-21 at `e7f1bac3`. The dev server is still there; the
+~1-core cost is not.** `ant/Dockerfile.vite:15` runs bare `vite`, so the premise
+that vited runs the dev server HOLDS. The cost that justified acting on it does
+not. Cumulative CPU over each container's whole life, which is a fairer number
+than an instantaneous sample:
+
+- `arizuko_vited_krons` — 2212s CPU over 3h55m uptime = **0.157 cores**
+- `arizuko_vited_sloth` — 13.9s CPU over 1h02m uptime = **0.004 cores**
+
+Both containers run the image built 2026-09-18, which carries the scoped
+watcher (`unwatched` is in `/etc/vite.config.js` inside the running container),
+so this measures the state the entry calls "~1 core even with the scoped
+watcher". It is 6x lower than that on krons and ~250x lower on a clean instance.
+krons is the outlier because of the 16k-file tree an agent published under
+`pub/`, which is the watcher's input, not the dev server's floor.
+
+**`vite preview` is not an option, and the entry should stop naming it.**
+`preview` serves a BUILT `dist/`, and `template/web/package.json` has one script,
+`dev`. There is no build, and there cannot usefully be one: `/web` is a
+read-only bind mount whose contents agents in other containers write at runtime
+(that is why the watcher polls at all). A build artifact is stale the moment an
+agent publishes a page. That leaves "a plain file server" as the only real
+end-state.
+
+**Which is not bounded.** The two plugins that make the site work,
+`pubFallback` and `trailingSlash`, hang off `configureServer` — a dev-server
+hook. A static server has to re-implement the `/pub` rewrite, the directory 301,
+the trailing-slash index resolution and the `fs.deny` list for `.env`/`*.db`/
+`.git`, and then two healthchecks change (`ant/Dockerfile.vite`'s `/` probe and
+`compose/compose.go:1350`'s `/@vite/client` probe) plus `vited/README.md`,
+`template/web/pub/arizuko/components/vited.html`, `ARCHITECTURE.md` and
+`SECURITY.md`. Nothing in the tree tests that image, `make vite-image` needs
+docker on a 95%-full host, and this exact component has already taken `/pub` to
+a 502 crash-loop twice. An unverifiable rewrite of the operator web origin to
+recover 0.15 of a core on one instance is a bad trade.
+
+**What survives is a posture argument, and it is measurable.** Every public page
+krons serves carries an injected dev client:
+
+    $ docker exec arizuko_vited_krons wget -qO- http://127.0.0.1:8080/pub/arizuko/ | grep -o @vite/client
+    @vite/client
+    $ docker exec arizuko_vited_krons wget -S -qO- http://127.0.0.1:8080/@vite/client
+    HTTP/1.1 200 OK
+    Content-Type: text/javascript
+
+So the public operator site ships Vite's HMR client to every visitor and answers
+for it, and the healthcheck depends on that answer. That is a different claim
+from the one this entry was filed on, and it is the one worth deciding.
+
+- **Severity:** low (was medium on the cost claim, which no longer holds)
+- **Status:** the cost premise is refuted; the posture question is open
+- **The owner's decision is one sentence:** is shipping Vite's dev client and
+  its HMR endpoint on the public `/pub` site acceptable, given that removing it
+  means hand-writing the `/pub` rewrite, directory 301 and deny-list that
+  `configureServer` currently provides, on a component with no test and two
+  prior `/pub` outages?
 
 ## ✅ FIXED 2026-09-21 R2 — Reserving `#announce` silently steals an existing route topic (2026-07-15, ✅ CLOSED 2026-09-21 — the migration half is impossible, the silence half is fixed)
 
