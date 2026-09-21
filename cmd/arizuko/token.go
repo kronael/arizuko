@@ -156,10 +156,10 @@ func tokenIssueBearer(st *store.Store, dataDir string, args []string) {
 // this answers on whichever store authd keeps its keys on. store.OwnerDriver is
 // the door: an instance served from an endpoint dials it and ignores storeDir.
 //
-// store.OwnerDBPath, never a hand-built join: 5/16 step 7 moved auth.db into
-// store/authd/, and this kept opening the pre-move flat path — a stray 0-byte
-// file in the exact place the migration notes warn about, from a command that
-// only reads.
+// The door is store.OwnerDriver, never a hand-built path: this once opened a
+// flat pre-move path and left a stray 0-byte file, from a command that only
+// reads. `OwnerDBPath` is gone with the file layout it addressed — an owner is
+// a partition on the store server now, not a path.
 func mintBearer(storeDir, folder, sub string, scopes []string, ttl time.Duration) (string, time.Time, error) {
 	d, closeStore, err := store.OwnerDriver(store.OwnerAuthd)
 	if err != nil {

@@ -60,7 +60,7 @@ func TestMintBearerNoActiveKey(t *testing.T) {
 }
 
 // openAuthStore prepares authd's entities at the SAME path production uses —
-// store.OwnerDBPath, not a hand-built join. A fixture that built `storeDir/auth.db`
+// store.OwnerDriver, not a hand-built path. A fixture that built `storeDir/auth.db`
 // agreed with a mintBearer looking at the same pre-5/16-step-7 flat path, so it
 // passed while `arizuko token issue bearer` was broken on every live instance.
 func openAuthStore(t *testing.T) *authstore.Store {
