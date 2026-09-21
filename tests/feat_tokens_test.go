@@ -186,6 +186,33 @@ func TestFeature_RouteTokens(t *testing.T) {
 		}
 	})
 
+	// A hook JID is `hook:<folder>/<label>`, so it always carries a slash, and
+	// a nested folder adds more. The revoke path must bind the WHOLE remainder
+	// as the jid; a single-segment wildcard cannot match one, which made
+	// `DELETE /v1/route_tokens/{jid}` a 404 for every token
+	// `POST /v1/route_tokens/hook` can mint (BUGS F7). The sibling subtest above
+	// revokes `web:demo`, which has no slash — that is why this went uncaught.
+	t.Run("http-revoke-slash-bearing-hook-jid", func(t *testing.T) {
+		f := bootFederation(t)
+		if err := f.routdDB.PutGroup(core.Group{Folder: "demo"}); err != nil {
+			t.Fatal(err)
+		}
+		tok := f.authd.mintService(t, "service:dashd", "routes:write routes:read")
+		body := routdv1.RouteTokenRequest{OwnerFolder: "demo", TargetFolder: "demo", SourceLabel: "github"}
+		if rec := postBearer(t, f.routdTS.URL, "POST", "/v1/route_tokens/hook", tok, "", body); rec.StatusCode != 201 {
+			t.Fatalf("issue hook = %d, want 201", rec.StatusCode)
+		}
+		drec := postBearer(t, f.routdTS.URL, "DELETE",
+			"/v1/route_tokens/hook:demo/github?owner_folder=demo", tok, "", nil)
+		if drec.StatusCode != 200 {
+			t.Fatalf("revoke hook:demo/github = %d, want 200", drec.StatusCode)
+		}
+		rows, err := f.routdDB.ListRouteTokens("demo")
+		if err != nil || len(rows) != 0 {
+			t.Fatalf("after revoke rows = %+v err=%v, want 0", rows, err)
+		}
+	})
+
 	// A web: route token binds anonymous chat to a folder; resolving it yields
 	// the web:<folder> JID the portal posts on.
 	t.Run("web-chat-jid-binding", func(t *testing.T) {
