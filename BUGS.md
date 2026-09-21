@@ -6168,7 +6168,36 @@ should NOT be reattempted as written:
   derivable, and the fail-loud work (`c6bfe2b0`) added a refusal outcome that
   makes it less so.
 
-- **Status:** closed — recorded to prevent a repeat, no action wanted
+**Re-measured 2026-09-21 at `f5851f94`. Both rejections hold. The first one's
+POINTER is dead and its REASONING was vindicated — corrected, not
+re-litigated.**
+
+There is no `onboarding.token` any more. `store/onboarding.go` declares the
+admission item's whole attribute set — `status`, `user_sub`, `gate`, `created`,
+`prompted_at`, `queued_at`, `admitted_at` — with the JID as the sort key and no
+token among them. The pairing nonce moved to `route_tokens` under
+`kind='pair'` (`store/pairing.go`, spec `5/31`), a 10-minute single-use
+credential that commits in the same batch as the `acl_membership` edge it
+authorizes.
+
+So the nonce went to a THIRD home rather than into `invites`, which is the
+rejection's own reasoning arriving by a route it did not name: an invite is
+still a granter's scope and a pairing is still a proof of chat control, and
+they still do not share a table. What the record must not do now is send a
+reader hunting a column that is gone. The rule it states survives the move
+intact — if a pairing credential and an invite ever share storage it is via an
+explicit `kind`, never NULL-inference — and `route_tokens` is already built
+that way, which is why it could hold the nonce at all.
+
+The second rejection needs no correction. `attrOnbStatus` is still a stored
+attribute and still carries four values, `refused` among them
+(`store/onboarding.go`) — the fail-loud refusal outcome that made the status
+less derivable from timestamps than it already was.
+
+- **Status:** closed — recorded to prevent a repeat, no action wanted. Still
+  useful: `onboarding` and `invites` are separate entities today
+  (`store/entities.go`), so the merge this records the rejection of is still a
+  thing somebody could propose.
 
 ## S1b — the helm chart deploys the deleted `gated` daemon (2026-08-05, PROPOSED — redesign, needs sign-off; RE-MEASURED 2026-09-21)
 
