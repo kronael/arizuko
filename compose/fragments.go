@@ -84,15 +84,16 @@ func SymlinkFragment(servicesDir, hostCatalogDir, filename string) error {
 // HostCatalogDir), so a fragment that is already a symlink is left exactly as
 // is on every later run, never re-read, never re-compared.
 // diverged names every fragment kept as a real file because its bytes differ
-// from the catalog. That is indistinguishable here from an operator edit, and
-// it is also what a fragment written by an OLDER generator looks like — so the
-// instance silently keeps running a frozen copy. On krons that hid three live
-// faults at once: whapd's dedup mount (added with BUGS L32) never arrived and
-// the adapter crash-looped, teled's state mount (F53) and typing timeout (T1)
-// were absent, and ttsd/kokoro still loaded the whole instance .env instead of
-// their scoped env files. The caller must say so; converting automatically
-// would overwrite real operator edits and needs sign-off (BUGS L41).
-func RelinkCatalog(servicesDir, readableCatalogDir, hostCatalogDir string) (relinked, diverged []string, err error) {
+// from the catalog, and carries the catalog lines that never reached it. That
+// is indistinguishable here from an operator edit, and it is also what a
+// fragment written by an OLDER generator looks like — so the instance silently
+// keeps running a frozen copy. On krons that hid three live faults at once:
+// whapd's dedup mount (added with BUGS L32) never arrived and the adapter
+// crash-looped, teled's state mount (F53) and typing timeout (T1) were absent,
+// and ttsd/kokoro still loaded the whole instance .env instead of their scoped
+// env files. The caller must say so; converting automatically would overwrite
+// real operator edits and needs sign-off (BUGS L41).
+func RelinkCatalog(servicesDir, readableCatalogDir, hostCatalogDir string) (relinked []string, diverged []Diverged, err error) {
 	names, err := readFragments(servicesDir)
 	if err != nil {
 		return nil, nil, err
@@ -116,7 +117,8 @@ func RelinkCatalog(servicesDir, readableCatalogDir, hostCatalogDir string) (reli
 			return relinked, diverged, fmt.Errorf("read services/%s.yml: %w", name, rerr)
 		}
 		if !bytes.Equal(installed, tmpl) {
-			diverged = append(diverged, name) // a hand edit or an older generator
+			// A hand edit or an older generator.
+			diverged = append(diverged, Diverged{Name: name, Missing: missingLines(installed, tmpl)})
 			continue
 		}
 		if err := SymlinkFragment(servicesDir, hostCatalogDir, name+".yml"); err != nil {
@@ -128,6 +130,59 @@ func RelinkCatalog(servicesDir, readableCatalogDir, hostCatalogDir string) (reli
 		}
 	}
 	return relinked, diverged, nil
+}
+
+// Diverged is an installed fragment kept as a real file because its bytes
+// differ from the catalog, with the catalog lines it does not carry.
+//
+// Missing is what turns the report into a work item: on krons the divergence
+// was three specific absent lines — whapd's dedup mount, teled's state mount
+// and ttsd's scoped env file — and each one was a live fault (BUGS L41).
+type Diverged struct {
+	Name string
+
+	// Missing holds the catalog's own lines, verbatim, that the installed copy
+	// does not carry. Comments and blank lines are left out, and quoting and
+	// indentation are normalized before comparing, so a fragment that differs
+	// from the catalog only in YAML style reports nothing.
+	Missing []string
+}
+
+// unquoteFragment strips YAML's interchangeable quote styles for comparison.
+var unquoteFragment = strings.NewReplacer("'", "", `"`, "")
+
+// missingLines returns the catalog's own lines, verbatim, that installed does
+// not carry — the mounts and env vars a frozen fragment withholds.
+//
+// The comparison is on a normalized key, quotes stripped and whitespace
+// collapsed: a generator that writes `KEY: "v"` where the catalog writes
+// `KEY: 'v'` differs on nearly every line of a fragment while withholding
+// nothing, and sloth's frozen teled.yml is exactly that plus three real
+// absences. Comments and blank lines never carry a mount, so they are left out.
+func missingLines(installed, tmpl []byte) []string {
+	have := make(map[string]bool)
+	for _, line := range strings.Split(string(installed), "\n") {
+		have[fragmentKey(line)] = true
+	}
+	var out []string
+	for _, line := range strings.Split(string(tmpl), "\n") {
+		key := fragmentKey(line)
+		if key == "" || have[key] {
+			continue
+		}
+		out = append(out, strings.TrimSpace(line))
+	}
+	return out
+}
+
+// fragmentKey normalizes a fragment line for comparison. It returns "" for a
+// line that can withhold nothing: blank, or comment-only.
+func fragmentKey(line string) string {
+	s := strings.TrimSpace(line)
+	if s == "" || strings.HasPrefix(s, "#") {
+		return ""
+	}
+	return strings.Join(strings.Fields(unquoteFragment.Replace(s)), " ")
 }
 
 // isSymlink reports whether path exists and is a symlink. False (not an
