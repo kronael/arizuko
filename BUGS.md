@@ -6355,7 +6355,91 @@ cross-check beside it: a `channel.deregister` count that tracks
 - **Status:** closed; the credential work lives in `L62` and `L63`
 - **Fix:** eval check 23
 
-## A1 — the split is deployment-shaped only: auth data lives in the router's DB (2026-08-02, proposal)
+## ✅ CLOSED 2026-09-21 A1 — the split is deployment-shaped only: auth data lives in the router's DB (2026-08-02, proposal — all three facts resolved, migrated or ADJUDICATED; the proposal was rejected by name in `5/16`)
+
+**Closed 2026-09-21 at `f5851f94`. Do not apply the proposal below.** It was
+put to `specs/5/16` as option A and REJECTED THERE BY NAME, with a cost; the
+vocabulary its three facts are written in ("mounts every DB", "the router's
+DB") no longer describes the system; and the two halves that were genuinely
+wrong were fixed on the day this entry was filed. Taking each fact in turn,
+because each closes for a different reason and only one of them closes as
+"fixed".
+
+**Fact 1 — "every daemon mounts every DB" — the DBs are gone, and both halves
+of what replaced them are declared and checked.** `store.OwnerDBPath` no longer
+exists. `store.OpenOwner(owner)` is `dynstore.FromEnv(dynstore.Prefix(owner))`
+(`store/served.go`): there is one store server, the owner is a prefix in front
+of every entity name, and no daemon opens a file another daemon owns because
+there are no files. The concern did not dissolve in the move, it SPLIT, and
+both halves landed:
+
+- The filesystem half is `svcDef.dataSubdirs` → `dataMounts`
+  (`compose/compose.go`), whose comment cites this entry: with no subdirs a
+  daemon gets the whole instance tree, naming subdirs mounts only those
+  children. dashd and onbod are narrowed — dashd to `groups` + `surrogate`,
+  because the whole-tree mount handed it `.env` and the live per-turn agent MCP
+  sockets. That is the "narrow the mount per daemon" the proposal asked for,
+  built and shipped as a `5/16` step.
+- The isolation half is `store/owner_reach.go` `StoreReach`, which declares
+  daemon → owner prefixes, and `TestStoreReachMatchesTheCallSites`, which walks
+  the module for the store doors and fails in BOTH directions. The residual —
+  the 19 live IAM policies still carrying `dynamodb:* on *` — is `L318`, open,
+  with the rollout as its only remaining work.
+
+So fact 1 is tracked, in current vocabulary, in a newer entry. Keeping it here
+too is two entries on one root cause.
+
+**And its supporting claim about slakd is REFUTED.** This entry read
+`slakd/main.go` opening routd as a write-discipline violation, since CLAUDE.md
+names slakd an HTTP writer. It conflated opening with writing. `slakd/bot.go`
+declares `paneStore` as "the READ subset of `*store.Store` slakd needs for pane
+sessions", and the pane WRITE goes through routd (`SetPaneContext`) —
+"routd routes the write; slakd never opens messages.db for pane writes".
+CLAUDE.md's sentence is about writes and it is correct as written.
+
+**Fact 2 — "authorization lives in the router" — still TRUE, and it is the
+signed decision, not the defect.** `acl` and `acl_membership` are `OwnerRoutd`
+(`store/scopes.go`) and proxyd reads them per request. `specs/5/16`
+§"The auth decision" put exactly this entry's proposal as option A — it cites
+`BUGS.md A1` and quotes its sentence — and rejected it: `acl`/`acl_membership`
+are queried in-process, per-call, by the two highest-QPS authorization paths in
+the system (`resreg`'s default `Gate` on every routd-mounted REST mutation, and
+`db.Authorize` on every agent tool invocation of every turn), and moving the
+rows to authd forces both onto a cross-daemon round trip. Option B — routd
+stays the policy decision point — was chosen and shipped. `5/16` §"Not done in
+this phase" states the terms for reopening: "Revisit only if a consumer emerges
+whose need authd can serve more cheaply than routd's in-process path." No such
+consumer has emerged; the one this entry named has gone the other way.
+
+**Fact 3 — "`auth_users` is duplicated across two owner DBs" — RESOLVED,
+exactly as this entry's own decomposition prescribed.** `auth_users` exists in
+one place, authd's (`authd/authstore/auth_users.go`). The routd-side table was
+renamed to `user_profiles` carrying precisely the two columns the decomposition
+said to keep — `username` (the correction that caught the truncated-grep error)
+and `cost_cap_cents_per_day` — at `store/user_profiles.go`. `hash` is deleted.
+The latent split-brain cannot happen: there is one table.
+
+**`auth_sessions` is gone outright, and with it the thing the proposal turned
+on.** Zero references in the tree — no table, no `CreateAuthSession`, no
+`copyLegacyProxydTables`. The proposal's hinge was "the one thing forcing a DB
+read is the opaque session cookie; have authd's login set a JWT-bearing cookie
+and proxyd's identity reads disappear entirely." That is what proxyd does now:
+identity is an ES256 access JWT, with a `refresh_token` cookie exchanged at
+authd's `POST /v1/refresh` (`proxyd/main.go`). Proxyd's remaining routd read is
+not identity — it is `groupsForSub` → `auth.UserScopes`, the per-folder grant
+patterns it stamps as `X-User-Groups`, which no token claim can carry and which
+`5/16` recorded as the hot-path exception. The proposal conflates the two; at
+HEAD they are visibly different reads.
+
+Nothing below is actionable. The two sub-sections that follow are the
+corrections this entry made to itself, both fully overtaken — the `auth_users`
+decomposition is done, and `auth_sessions` is deleted rather than ordered.
+
+- **Status:** closed — proposal rejected by `specs/5/16` with a stated cost;
+  facts 1 and 3 resolved; fact 1's residual lives in `L318`
+- **Fix:** none. `auth_sessions` drop and `auth_users` → `user_profiles` landed
+  as `5/16` steps; the per-daemon mount narrowing is `compose/compose.go`
+  `dataMounts`, which cites this ID.
 
 The daemons look like microservices and are coupled through a shared filesystem.
 Three verified facts:
