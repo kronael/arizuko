@@ -14,7 +14,14 @@ schema, census, `anteval --smoke` — live in `gates.md`.
 ## Method: causes, not symptoms
 
 Eval hunts ALL errors and maps each to its CAUSE — not just pass/fail health.
-For every ERROR/WARN across journald, `audit_log`, and container logs:
+For every ERROR/WARN across journald and `audit_log`:
+
+> `docker logs` does not work on this host — `/etc/docker/daemon.json` sets
+> `log-driver: none`, so it exits 1 and piping it to `grep -c` answers 0, which
+> reads as a healthy daemon. Compose forwards every container's output to the
+> unit, so one query covers the instance and each line names its container:
+> `sudo journalctl -u arizuko_${INSTANCE} --since '-1 hour' --no-pager | grep -E '"level":"(ERROR|WARN)"'`
+
 
 1. **Census** — collect every distinct error with count + first/last seen. A
    rare error still counts; a swallowed one (see check 16) counts double.
