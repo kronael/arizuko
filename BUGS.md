@@ -3772,7 +3772,7 @@ with the scoped watcher. The clean end-state is a static serve (`vite preview` o
 a plain file server) keeping the pub-fallback/trailing-slash middleware; deferred,
 needs sign-off.
 
-## R2 — Reserving `#announce` silently steals an existing route topic (2026-07-15, proposed)
+## R2 — Reserving `#announce` silently steals an existing route topic (2026-07-15, ✅ CLOSED 2026-09-21 — the migration half is impossible, the silence half is fixed)
 
 Before v0.59, every fragment other than `#observe` was a valid pinned topic, so
 `folder#announce` meant topic `announce`. The new parser silently reinterprets
@@ -3786,8 +3786,32 @@ more than one field.
 - **Scope:** route-target backward compatibility
 - **Affected:** any pre-v0.59 route whose pinned topic is literally `announce`
 - **Source:** core/types.go:94-135; routd/loop.go:630-646
-- **Status:** proposed
-- **Fix:**
+- **Status:** CLOSED 2026-09-21. The entry's `Fix:` field was left blank for two
+  months, and that blank was the honest answer.
+
+**The premise holds and the parser is unchanged** (`core.ParseRouteTarget`,
+`core/types.go:138-154`): `case "announce": rt.Announce = true`, `Topic` stays
+empty, and `String()` renders it back as `#announce`.
+
+**The migration the entry asks for cannot be written.** `core.Route` is
+`{ID, Seq, Match, Target, ObserveWindow*}` (`core/types.go:107-114`) — no
+created-at, and the DynamoDB move did not add one. The string `folder#announce`
+is therefore identical whether it was written before v0.59 as a pinned topic or
+after it as an announce tag. Nothing in the row distinguishes them, so
+"detect and rewrite existing collisions" has no predicate to run. The window is
+also shut: v0.59 is two months and one whole store migration back, and no
+instance reported a topic that stopped pinning.
+
+**What was live is the word "silently", and that half is fixed.** The reserved
+vocabulary existed only in the parser. `ROUTING.md`'s fragment table — the
+operator-facing list — carried `_(none)_` and `#observe` and stopped, so an
+operator had no way to learn that `announce` was taken, nor even that any other
+fragment pins a topic. The table now names `#announce` and `#<topic>` and states
+that `observe` and `announce` are reserved words a topic cannot use.
+`core/route_fragment_doc_test.go` reads the `case` labels out of
+`ParseRouteTarget`'s own source and fails when ROUTING.md does not name one, so
+the next reserved fragment cannot reach the parser without reaching the operator
+— which is the mechanism that produced this entry.
 
 ## System-turn / broadcast delivery targets a folder-jid or prefix-less room → "no channel for jid" → the broadcast is silently lost (2026-07-13, OPEN)
 
