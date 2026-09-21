@@ -26,8 +26,10 @@ func TestLoadConfigDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if cfg.Name != "Andy" {
-		t.Fatalf("expected default name 'Andy', got %q", cfg.Name)
+	// The shared default, not a literal — a second spelling here is the drift
+	// this constant exists to prevent (BUGS L340).
+	if cfg.Name != DefaultAssistantName {
+		t.Fatalf("expected the shared default %q, got %q", DefaultAssistantName, cfg.Name)
 	}
 	if cfg.Image != "arizuko-ant:latest" {
 		t.Fatalf("expected default image, got %q", cfg.Image)
