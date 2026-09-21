@@ -344,7 +344,7 @@ silently becoming unfindable.
   so reverting `steerIdx := steerRowIdx(msgs)` alone is caught by nothing —
   found because that exact mutation passed. Closing it needs the loop harness.
 
-## L338 — marinade restart-loops every 6 seconds: its store was consolidated away and its config still points at the old one (2026-09-21, LIVE — operator action)
+## L338 — marinade restart-loops every 6 seconds: its store was consolidated away and its config still points at the old one (2026-09-21, LOOP STOPPED 2026-09-21; where Slack lives is the open decision)
 
 `arizuko_marinade.service` is `activating (auto-restart)` and has been failing
 continuously. **Measured 2026-09-21: 559 failed starts in one hour**, one every
@@ -396,6 +396,26 @@ bite whoever repoints this instance.
   instances holding one Slack bot token contend for the same workspace
   connection.
 
+
+**LOOP STOPPED 2026-09-21.** `sudo systemctl disable --now arizuko_marinade`.
+Failures went from ~10/minute to **0 in 30 seconds**, and free disk recovered
+from 9.2G to **15G** (97% → 95%) — the container churn was itself consuming
+the space.
+
+That was harm reduction, not a decision: the journal spans 2026-09-10 to
+2026-09-21 and contains **1,574 failed starts and not one successful start**,
+so the unit has run at no point in at least eleven days. Stopping it removed no
+working function. Reversible with
+`sudo systemctl enable --now arizuko_marinade` once the store question below
+is answered — but it will resume looping until then.
+
+**The decision that remains is where Slack lives**, and it is now unblocked:
+with marinade stopped there is no contention for the bot token, so sloth can
+take the adapter safely. sloth already holds the routes, the 1,160 `slack:`
+rows and the `slack:user/U4PMARRT6 -> role:operator` edge. What it needs is the
+`slakd` package, `SLACK_BOT_TOKEN`/`SLACK_SIGNING_SECRET` in its `.env`, and a
+restart — and a restart of a non-krons instance is an explicit operator call
+per the root `CLAUDE.md`.
 
 ## ✅ FIXED 2026-09-21 L337 — sloth's teled has no state directory, so the next inbound Telegram message kills it (2026-09-21, open — found while diagnosing `L333`)
 
