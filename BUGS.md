@@ -1053,10 +1053,72 @@ Each assertion was mutation-checked: declaring `runed.*` for dashd, dropping
 `routd.*` from gitd, removing slakd from the map, giving ttsd a key it does not
 use, and drifting the INSTALL.md row each turn the matching test red.
 
-- **Status:** open — the ROLLOUT only; the resource list is now declared and
-  checked, so the work is not the design. It rewrites 19 live IAM policies on a
-  running fleet, so it ships one daemon at a time against krons — `gitd` first,
-  which reads `routd` and nothing else — each proven before the next.
+**RE-VERIFIED 2026-09-21 at `f5851f94`.** The code half holds: `StoreReach`
+(`store/owner_reach.go:32`) declares 18 daemons, and both tests pass —
+
+```
+=== RUN   TestStoreReachMatchesTheCallSites
+--- PASS: TestStoreReachMatchesTheCallSites (0.09s)
+=== RUN   TestInstallDocumentsTheReach
+--- PASS: TestInstallDocumentsTheReach (0.00s)
+```
+
+The test binds in THREE directions, not two: a daemon that opens an owner the
+map omits also fails (`owner_reach_test.go:173`), so `whapd`, `twitd` and
+`kokoro` being absent from the map is verified — they open no store — rather
+than forgotten.
+
+**Nothing here is bounded as code.** No Go code builds or applies the policy
+document; the JSON body exists only as literal text in `INSTALL.md`. So the
+remaining work is an operator rollout, in full, and the commands belong here
+rather than in a fix.
+
+**The Status line below used to say "`gitd` first, which reads `routd` and
+nothing else". That is WRONG, and it contradicts this entry's own body four
+paragraphs up.** `gitd` opens TWO prefixes: `store.OpenOwner(store.OwnerRoutd)`
+at `gitd/main.go:34` AND `chanlib.OpenAdapterStore("gitd")` at `gitd/main.go:45`
+— which is exactly what `StoreReach` declares, `"gitd": {OwnerRoutd, "gitd"}`.
+An operator who copied that sentence would write a policy one resource short,
+and `gitd` would authenticate and then fail on its own dedup table — the
+too-narrow failure this entry already warns does not surface at deploy.
+
+**The rollout, per daemon** (`gitd` shown, and it is still the right one to go
+first — two resources, no other daemon reads its tables). `STORE_ACCOUNT_ID` and
+`STORE_ADMIN_PASSWORD` come from the instance `.env`:
+
+```bash
+sudo docker exec -e EXTENDDB_PASSWORD=$STORE_ADMIN_PASSWORD arizuko_extenddb_<name> \
+  extenddb manage -c /var/lib/extenddb/extenddb.toml --user admin \
+  create-user --account $STORE_ACCOUNT_ID --name gitd
+
+sudo docker exec -e EXTENDDB_PASSWORD=$STORE_ADMIN_PASSWORD arizuko_extenddb_<name> \
+  extenddb manage -c /var/lib/extenddb/extenddb.toml --user admin \
+  put-user-policy --account $STORE_ACCOUNT_ID --name gitd --policy-name tables \
+  --policy '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"dynamodb:*","Resource":["arn:aws:dynamodb:*:*:table/routd.*","arn:aws:dynamodb:*:*:table/gitd.*"]}]}'
+
+sudo docker exec -e EXTENDDB_PASSWORD=$STORE_ADMIN_PASSWORD arizuko_extenddb_<name> \
+  extenddb manage -c /var/lib/extenddb/extenddb.toml --user admin \
+  create-access-key --account $STORE_ACCOUNT_ID --name gitd
+```
+
+Write the printed pair into `env/gitd.env` as `AWS_ACCESS_KEY_ID` /
+`AWS_SECRET_ACCESS_KEY` — the only place `generate` will read it back from
+(`compose/compose.go:882-901`). Then restart that one daemon and watch it before
+the next. The resource array for every other daemon is `StoreReach`'s row for it,
+one `arn:aws:dynamodb:*:*:table/<prefix>.*` per entry.
+
+**Headcount: the repo's design says 16 keys, not 19.** `StoreReach` has 18
+entries, of which `timed` and `ttsd` are empty — 15 daemons plus the operator
+CLI need one. The "19" in this entry's title and body is the operator's LIVE
+measurement on sloth and is not derivable from this repo; do not use it as a
+rollout headcount.
+
+- **Status:** open — the ROLLOUT only; the resource list is declared and checked,
+  so the work is not the design, and no code change is pending. It rewrites live
+  IAM policies on a running fleet, so it ships one daemon at a time against krons
+  — `gitd` first, whose policy carries BOTH `routd.*` and `gitd.*` — each proven
+  before the next. `slakd` is the same two-prefix shape; `timed` and `ttsd` get
+  no key at all.
 - **Fix:**
 
 ## L317 — `/stop` no longer cancels a question typed just before it (2026-09-20, open — needs a decision; re-measured 2026-09-21 after `L336`)
