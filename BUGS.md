@@ -764,7 +764,7 @@ This was armed, not theoretical: the streak was at 2 of 3 when it was found.
 - **Status:** fixed (operator data; no code change)
 - **Fix:** the directory
 
-## L332 — the release broadcast pipes a human banner into `jq` (2026-09-21, open)
+## L332 — the release broadcast pipes a human banner into `jq` (2026-09-21, fixed)
 
 `ant/skills/migrate/SKILL.md:293` captures a tool result and parses it as JSON:
 
@@ -791,12 +791,18 @@ so it gets its own entry.
 - **Scope:** `ant/skills/migrate/SKILL.md` and any skill parsing a tool result
 - **Affected:** the `#announce` broadcast path
 - **Source:** `ant/skills/migrate/SKILL.md:293,296,299`; measured on mcpc 0.6.0
-- **Status:** open
-- **Fix:** pass `--json` at every site that pipes a tool result into `jq`, and
-  pin `@apify/mcpc` in `ant/Dockerfile` — the version is unpinned today, which
-  is how `M1`'s 502 appeared and disappeared without a code change. Editing
-  `ant/skills/` rides a release (`MIGRATION_VERSION` bump + agent image
-  rebuild), so it ships with one, not as a doc commit.
+- **Status:** fixed — and the fix this entry PRESCRIBED would not have worked.
+  `--json` alone is not enough: mcpc prints `JSON.stringify(result)` where
+  `result` is the MCP `CallToolResult`, and ipc's `toolJSON` answers
+  `NewToolResultText`, so the payload is a JSON STRING in `.content[0].text`
+  with no `structuredContent`. `jq '.routes[]'` over the envelope reads null,
+  `tagged` is empty, and the script exits 0 with "no #announce route" — the
+  same silent non-announcement, one layer over. The site now reads
+  `--json … | jq '.content[0].text | fromjson'` and then proves `has("routes")`
+  before it may conclude there are none. `@apify/mcpc` is pinned to 0.6.0.
+  `ant/src/skill-tool-parse.test.ts` fails on any CAPTURED `tools-call` that
+  does not pass `--json` and open the envelope — keyed on the capture, because
+  the defect put its `jq` two lines below the assignment.
 
 
 ## ✅ FIXED 2026-09-21 L331 — the `/onboard/` route row points at a 404 (2026-09-21, open)

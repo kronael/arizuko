@@ -290,8 +290,18 @@ JSON
 mcpc connect "$HOME/gated.mcp.json:gated" @s
 trap 'mcpc @s close' EXIT
 
-routes=$(mcpc @s tools-call inspect_routing) \
+# --json, because plain tools-call prints a human banner and EXITS 0, so the
+# guard below never fires and jq gets prose. Even with it the payload is the MCP
+# envelope, and ipc's toolJSON answers NewToolResultText — the routes are a JSON
+# STRING in .content[0].text, with no structuredContent to read instead.
+routes=$(mcpc @s tools-call --json inspect_routing | jq '.content[0].text | fromjson') \
   || { echo "route discovery failed — NOT marking $latest announced, retry next run" >&2; exit 1; }
+
+# Prove we hold the routes before concluding there are none: every shape error
+# above lands here as a missing key, and "no #announce route" exits 0, so a
+# silent release is what an unchecked answer buys.
+printf '%s' "$routes" | jq -e 'has("routes")' >/dev/null \
+  || { echo "inspect_routing answered no routes object — NOT marking $latest announced, retry next run" >&2; exit 1; }
 
 tagged=$(printf '%s' "$routes" | jq '[.routes[] | select(.announce == true)] | length')
 [ "$tagged" = 0 ] && { echo "no #announce route — nothing to announce"; exit 0; }
