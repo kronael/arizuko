@@ -550,7 +550,11 @@ act as them) rather than a static key, add a **surrogate OAuth provider** (spec
    ```
 
    `auth_url`, `token_url`, `secret_key` are required — a missing one is a hard
-   boot error naming the file.
+   boot error naming the file. So is two providers sharing a `secret_key`: the
+   dance upserts by that key alone, so the second `Connect` would destroy the
+   first one's credential. Shadowing a built-in's NAME while changing its
+   `auth_url`/`token_url` logs a warning — creds bind by name, so the built-in's
+   operator `client_secret` goes to the endpoint your file names.
 
 2. **Register the redirect URI** at the provider's app console:
    `<WEB_HOST>/dash/me/connections/<name>/callback`.
