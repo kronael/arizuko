@@ -5670,8 +5670,14 @@ chart would now *look* current. That is worse than the honest breakage.
   chart under `deploy/helm/arizuko/`". It now points at `kubernetes.html`, the
   Kubernetes howto that sits beside it. Nothing else references the chart; its
   own `README.md` is the sole remaining mention. The dead install path is no
-  longer advertised, and the chart was NOT touched — half-wiring it is still
-  refused.
+  longer advertised, and the chart's templates were NOT touched — half-wiring
+  them is still refused.
+
+  Its `README.md`, the one remaining mention, now opens by stating that the
+  chart does not deploy arizuko and pointing at the Kubernetes howto, so a
+  reader who reaches it directly is not told a dead path is a supported one.
+  That is the opposite of half-wiring: the chart still does not work, and now
+  says so instead of describing a `gated` monolith as current.
 
   **REFUTED — the `CHANNEL_SECRET` half already shipped.** `46c4e69e`
   ("fix(helm): drop CHANNEL_SECRET and PROXYD_HMAC_SECRET from the chart")
@@ -6492,51 +6498,160 @@ ship gate for a component whose shape `6/24` already changed, and `6/9` stays
   the question is whether the sibling still needs what arizuko decided not to
   use — and that is the maintainer's call about crackbox, not a cleanup.
 
-## L181 — operator data left behind by L178 and L179 (2026-09-05, open — operator task)
+## L181 — operator data left behind by L178 and L179 (2026-09-05, open — operator task; RE-MEASURED 2026-09-21, now exact commands)
 
-Nothing mechanical fixes stored data. Two sets to clean by hand:
+Nothing mechanical fixes stored data. Two sets to clean by hand. **Measured
+again on the live hosts at 2026-09-21; the numbers below replace every earlier
+count in this entry, and three of its claims are refuted.** marinade is
+disabled (no containers; its data dir remains), so only **krons** and **sloth**
+are in scope, and krons is CLEAN on both items.
 
-1. Per-user files written under the wrong name while L179 was live — rename
-   to `<short>-<bare id>.md`: sloth `groups/main/trading/users/dc-user-657972559354265610.md`,
-   `groups/main/trading/users/dc-user-811295670702047272.md`,
-   `groups/main/main/users/dc-user-811295670702047272.md`; marinade
-   `groups/atlas/search/users/sl-user/U4PMARRT6.md` (a subdirectory).
-2. The platform rows L178 wrote: `is_bot_message=0 AND sender_name IS NULL
-   AND source IS NULL AND chat_name IS NULL` on a `<platform>:` chat — 634 on
-   sloth, 947 on krons, 28 on marinade. They answer `inspect_messages`,
-   `search_messages` and the 7-day census as user inbound. Deleting them is a
-   data fix on three live DBs; sign off before running it.
+### Item 1 — per-user files under a name no reader looks up
+
+`router.senderToUserFileID` (`router/router.go:233`) builds the name the agent
+reads: the platform short code from `platformShort` (`dc`, `sl`, `tg`, `wa`,
+`em`, `web`), a hyphen, then the BARE id with the `user/` kind segment dropped.
+So `discord:user/811…` is `dc-811….md`. A file under any other name is invisible
+to `UserContextXml`, which is why these four are stranded rather than merely
+misnamed.
+
+All four are on **sloth**; krons has none:
+
+```
+$ sudo find /srv/data/arizuko_krons/groups -path '*/users/*' \
+    \( -iname '*-user-*' -o -path '*-user/*' \)     # → nothing
+```
+
+| path under `/srv/data/arizuko_sloth/groups/` | bytes | mtime | correct name | twin? |
+| --- | --- | --- | --- | --- |
+| `main/trading/users/dc-user-657972559354265610.md` | 2686 | 08-24 21:36 | `dc-657972559354265610.md` | no — clean move |
+| `main/main/users/dc-user-811295670702047272.md` | 1117 | 06-12 06:32 | `dc-811295670702047272.md` | no — clean move |
+| `atlas/search/users/sl-user/U4PMARRT6.md` | 833 | 06-12 07:16 | `sl-U4PMARRT6.md` | no — clean move |
+| `main/trading/users/dc-user-811295670702047272.md` | 2643 | 09-04 13:50 | `dc-811295670702047272.md` | **YES, 1917 B, 09-18** — MERGE |
+
+**The three clean moves.** `-n` refuses to clobber, so a twin appearing between
+reading this and running it stops the command instead of overwriting:
+
+```bash
+cd /srv/data/arizuko_sloth/groups
+sudo -u mivu mv -n main/trading/users/dc-user-657972559354265610.md \
+                   main/trading/users/dc-657972559354265610.md
+sudo -u mivu mv -n main/main/users/dc-user-811295670702047272.md \
+                   main/main/users/dc-811295670702047272.md
+sudo -u mivu mv -n atlas/search/users/sl-user/U4PMARRT6.md \
+                   atlas/search/users/sl-U4PMARRT6.md
+sudo -u mivu rmdir atlas/search/users/sl-user      # non-recursive: fails if not empty
+# verify: every users/ file now starts with a known short code
+sudo find . -path '*/users/*' \( -iname '*-user-*' -o -path '*-user/*' \)
+```
+
+`atlas/search` is LIVE on sloth (activity 2026-09-21 03:09), so that third move
+is the one with a reader waiting.
+
+**The merge is a HUMAN read, not a command.** Both files are the same person
+(`name: kronael`) and neither is a subset of the other — the older wrong-named
+file carries operator knowledge the current one lost:
+
+- only in `dc-user-811295670702047272.md` (09-04): the DEAD-token exclusion list
+  (MNGO, DRIFT, ZEX/ZETA, "confirmed dead by live data 2026-06-15"), the
+  candles-repo working style (never patch repo code from chat; log to `BUGS.md`;
+  2025-2026 data is a LOCKED HOLDOUT), the clickable-bare-URL preference, and
+  `first_seen: 2026-05-23`;
+- only in `dc-811295670702047272.md` (09-18): the current thread-only reply norm
+  and the recent-entry log.
+
+So `mv` either way destroys real content. Open both, fold the four items above
+into the 09-18 file, then delete the wrong-named one:
+
+```bash
+cd /srv/data/arizuko_sloth/groups/main/trading/users
+sudo -u mivu "${EDITOR:-vi}" dc-811295670702047272.md dc-user-811295670702047272.md
+# only after the fold is saved:
+sudo rm dc-user-811295670702047272.md
+```
+
+`main/main/users/dc-user-811295670702047272.md` (1117 B) is an OLDER, shorter
+copy of the same person in a different group and has no twin there, so it moves
+cleanly above — it is a different group's file, not a third copy to reconcile.
+
+### Item 2 — the rows `fetch_history` wrote into the inbound log
+
+**krons: 0. sloth: 62.** The filed 634/947/28 cannot be reproduced and the
+krons number was wrong when it was filed.
+
+The damage is defined by the code that made it: before `216196c1`,
+`fetchPlatformHistory` called `PutMessage` with
+`core.Message{ID, ChatJID, Sender, Content, Timestamp, ReplyToID}` — so a
+damaged row has the platform's own message id as its sort suffix and carries
+NONE of `sender_name`, `source`, `chat_name`, `is_bot_message`.
+
+The absent-attribute half of that test is NOT sufficient on its own, which is
+what inflated every earlier count: `timed-isolated:` crons, `system` migrate
+broadcasts, `user:anteval` harness traffic and HITL-approval synthetics all
+share it and are all still written today. On krons the loose predicate answers
+4229, of which **620 postdate the fix** — proof it matches live traffic. The
+platform-native message id is what separates them.
+
+Set `TBL` per instance, then count (read-only):
+
+```bash
+INSTANCE=sloth      # or krons
+TBL=$(sudo docker exec -e PGUSER=arizuko_${INSTANCE} arizuko_extenddb_db_${INSTANCE} \
+  psql -d extenddb_catalog -At -c \
+  "select table_id from tables where table_name='routd.messages';")
+sudo docker exec -e PGUSER=arizuko_${INSTANCE} arizuko_extenddb_db_${INSTANCE} \
+  psql -d extenddb -At -F'|' -c "
+  select pk, count(*), min(substr(sk_s,1,19)), max(substr(sk_s,1,19))
+  from \"_ddb_${TBL}\"
+  where not item_data ? 'sender_name' and not item_data ? 'source'
+    and not item_data ? 'chat_name'   and not item_data ? 'is_bot_message'
+    and substr(sk_s,32) ~ '^[0-9]+\$' and pk ~ '^[a-z]+:'
+  group by pk order by 2 desc;"
+```
+
+The sort key is a 30-char instant, a `\x1f` separator, then the id — so the id
+starts at **32**, not 31. Off by one and the count silently reads 0.
+
+sloth answers 62 rows over four Discord chats, newest `2026-09-05T11:44:41`:
+
+| chat | rows | oldest | newest |
+| --- | --- | --- | --- |
+| `discord:837270552959516682/920916162416635944` | 52 | 2026-05-29 | 2026-09-05 |
+| `discord:837270552959516682/1388139201173655634` | 4 | 2026-07-28 | 2026-07-28 |
+| `discord:837270552959516682/1514908015936143460` | 4 | 2026-06-12 | 2026-06-12 |
+| `discord:837270552959516682/1505268596622753872` | 2 | 2026-05-18 | 2026-05-19 |
+
+Two facts confirm the set is the right one: it contains
+`1545761586571116545`, the single row `216196c1`'s message names, and **zero**
+rows postdate the fix, so the producer is stopped and the set cannot grow.
+
+**Recommendation: leave the 62 in place.** The producer is dead, the newest row
+is outside the 7-day census, and what remains is that four Discord chats'
+`inspect_messages` / `search_messages` return 62 rows of the bot's own history
+as user inbound. Deleting them means raw `DELETE` against `_ddb_<uuid>` on a
+live store — there is no CLI verb and no resreg face for it — which is a larger
+risk than the symptom. If the owner still wants them gone, take a store backup
+first, run the SELECT above and read every row, then re-run it as `DELETE` with
+the identical WHERE clause, one `pk` at a time.
 
 - **Severity:** low
 - **Scope:** instance data
-- **Affected:** sloth, krons, marinade
-- **Source:** `find … -path '*/users/*.md'` and the `messages` query above,
-  2026-09-05
-- **Status:** open (operator)
-- **Fix:**
-
-- **RE-MEASURED on the live hosts 2026-09-20: still there, and item 1 now has a
-  COLLISION the entry could not have known about.**
-
-  sloth `groups/main/trading/users/` holds all four of
-  `dc-162597936323231753.md`, `dc-811295670702047272.md`,
-  `dc-user-657972559354265610.md` and `dc-user-811295670702047272.md`, and
-  `groups/main/main/users/` still holds `dc-user-811295670702047272.md`.
-
-  **`dc-811295670702047272.md` already exists in its correct form beside the
-  wrong one.** So the rename this entry prescribes would OVERWRITE a file the
-  platform has been writing since the fix landed. That one is a merge, not a
-  rename, and whichever file is discarded loses whatever the agent learned about
-  that person while it was the live name. `dc-user-657972559354265610.md` has no
-  twin and renames cleanly.
-- **Item 2's count could not be reproduced from here.** A predicate over the
-  entity's attributes rather than the original SQL NULLs answers ~6.3k on krons
-  against the 947 filed. The two are not comparable — an absent attribute and a
-  SQL NULL are not the same test, and the entity migration happened between the
-  two measurements — so the row set must be re-derived before anything is
-  deleted, not deleted against the old number.
-- **Still an operator task**, and now a sharper one: one clean rename, one merge
-  that loses data whichever way it goes, and a row count to re-derive first.
+- **Affected:** sloth only (krons clean on both items; marinade disabled)
+- **Source:** `router/router.go:233` (the name a reader looks up); `216196c1`
+  (the write that stopped); live measurement 2026-09-21
+- **Status:** open (operator) — four file operations and one judgement call on
+  the rows
+- **REFUTED from the earlier text:**
+  - **krons is not affected.** It has no stranded user file and 0 damaged rows.
+    Its filed 947 is close to the 946 `local:` chat rows whose sender is
+    `system`/`anon` — synthetic CLI traffic the loose predicate swept up, not
+    `fetch_history` output.
+  - **`sl-user/U4PMARRT6.md` is on SLOTH, not marinade.** This entry filed it
+    under marinade. marinade holds its own inert copy; sloth's is the one in a
+    live group.
+  - **`main/main/users/dc-user-811295670702047272.md` has no twin**, so the
+    collision this entry warns about applies to `main/trading` alone — one
+    merge, not two.
 
 ## ✅ FIXED 2026-09-21 L182 — the sloth host clock is 18 s behind Discord, so every inbound `time=` is in the future of `now:` (2026-09-05, open — infra)
 

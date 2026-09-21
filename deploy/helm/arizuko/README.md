@@ -1,5 +1,21 @@
 # arizuko Helm chart
 
+> **This chart does not deploy arizuko. Do not install it.** It targets a
+> daemon topology and a storage model the project does not have: it runs
+> `gated`, which no longer exists; it declares no `authd`, `routd` or `runed`,
+> so every adapter exits on its required-env check; and it provisions an RWO
+> PVC for a SQLite WAL, while every owner table lives on the `extenddb` store
+> server the chart never mounts. `Chart.yaml` tracks `appVersion 0.49.0`.
+>
+> **To run arizuko on Kubernetes, follow `/pub/arizuko/howto/kubernetes.html`**
+> (source `template/web/pub/arizuko/howto/kubernetes.html`), which is current
+> and maintained. Whether this chart is rewritten or deleted is BUGS `S1b`;
+> either way it needs an owner and a `helm template` gate in CI, because
+> nothing renders it today.
+>
+> Everything below describes what this chart CONTAINS. It is not a description
+> of a working deployment.
+
 A **starter** Helm chart that maps arizuko's Docker Compose topology onto
 Kubernetes. It is honest about the one hard part — agent spawning — and gives
 you a working single-node deployment you can grow, not a 20-microservice
