@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kronael/arizuko/auth/surrogate"
 	"github.com/kronael/arizuko/objstore"
@@ -131,5 +132,73 @@ func TestConnections_ListJSON(t *testing.T) {
 	}
 	if body := w.Body.String(); !strings.Contains(body, `"provider":"github"`) || !strings.Contains(body, `"connected":false`) {
 		t.Errorf("list JSON = %s", body)
+	}
+}
+
+// F14: a provider the operator has removed from the registry leaves a LIVE token
+// behind. Keying the page and the delete on the registry made that token
+// invisible and unrevocable — the one credential a user most needs to get rid of.
+// The stored row is what both surfaces resolve now.
+func TestConnections_DeregisteredProviderStaysListableAndDeletable(t *testing.T) {
+	d, db := connectionsDash(t, func(w http.ResponseWriter, r *http.Request) {})
+	seed := store.NewOver(db)
+	seed.SetSecretKeys([]byte("k"))
+	// "gitlab" is not in the engine's registry — the operator dropped its TOML.
+	if err := seed.PutOAuthSecret("github:alice", "GITLAB_TOKEN", "live-access", "gitlab",
+		"refresh-1", time.Now().Add(time.Hour), "api"); err != nil {
+		t.Fatal(err)
+	}
+	mux := newMux(d)
+
+	list := httptest.NewRequest("GET", "/dash/me/connections", nil)
+	list.Header.Set("X-User-Sub", "github:alice")
+	lw := httptest.NewRecorder()
+	mux.ServeHTTP(lw, list)
+	if lw.Code != 200 {
+		t.Fatalf("list = %d body=%q", lw.Code, lw.Body.String())
+	}
+	if body := lw.Body.String(); !strings.Contains(body, `"provider":"gitlab"`) ||
+		!strings.Contains(body, `"key":"GITLAB_TOKEN"`) {
+		t.Errorf("de-registered provider missing from the list: %s", body)
+	}
+
+	del := httptest.NewRequest("DELETE", "/dash/me/connections/gitlab", nil)
+	del.Header.Set("X-User-Sub", "github:alice")
+	dw := httptest.NewRecorder()
+	mux.ServeHTTP(dw, del)
+	if dw.Code != http.StatusNoContent {
+		t.Fatalf("delete = %d body=%q", dw.Code, dw.Body.String())
+	}
+	rows, err := seed.ListUserConnections("github:alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 {
+		t.Errorf("row survived the disconnect: %+v", rows)
+	}
+}
+
+// Disconnecting a provider the caller never connected is a 404, and it must not
+// reach for the row a PAT paste holds at that provider's secret_key: the
+// connections page owns OAuth rows only.
+func TestConnections_DeleteWithoutRowKeepsPastedPAT(t *testing.T) {
+	d, db := connectionsDash(t, func(w http.ResponseWriter, r *http.Request) {})
+	seed := store.NewOver(db)
+	seed.SetSecretKeys([]byte("k"))
+	if err := seed.PutSecretRow(store.ScopeUser, "github:alice", "GITHUB_TOKEN", "pasted-pat"); err != nil {
+		t.Fatal(err)
+	}
+	mux := newMux(d)
+
+	del := httptest.NewRequest("DELETE", "/dash/me/connections/github", nil)
+	del.Header.Set("X-User-Sub", "github:alice")
+	dw := httptest.NewRecorder()
+	mux.ServeHTTP(dw, del)
+	if dw.Code != http.StatusNotFound {
+		t.Fatalf("delete of an unconnected provider = %d body=%q", dw.Code, dw.Body.String())
+	}
+	got, err := seed.GetSecret(store.ScopeUser, "github:alice", "GITHUB_TOKEN")
+	if err != nil || got.Value != "pasted-pat" {
+		t.Errorf("the pasted PAT must survive a disconnect: %+v err=%v", got, err)
 	}
 }

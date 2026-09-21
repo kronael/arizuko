@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -42,8 +43,10 @@ type connectionItem struct {
 	Connected bool   `json:"connected"`
 }
 
-// listConnections returns one item per registered provider, marking those the
-// caller has connected (a user-scoped OAuth row with that provider).
+// listConnections returns one item per provider the caller can act on: the
+// registered ones, plus any the caller still holds a row for. A provider the
+// operator has since removed from the registry keeps a live token, so it stays
+// listed — otherwise the page hides a credential the user cannot revoke.
 func (d *dash) listConnections(sub string) ([]connectionItem, error) {
 	ss := d.secretStore()
 	if ss == nil || d.surrogate == nil {
@@ -57,8 +60,15 @@ func (d *dash) listConnections(sub string) ([]connectionItem, error) {
 	for _, c := range conns {
 		byProvider[c.Provider] = c
 	}
+	names := d.surrogate.Names()
+	for provider := range byProvider {
+		if _, registered := d.surrogate.Provider(provider); !registered {
+			names = append(names, provider)
+		}
+	}
+	sort.Strings(names)
 	var out []connectionItem
-	for _, name := range d.surrogate.Names() {
+	for _, name := range names {
 		// A provider without operator client creds cannot run the dance — hide
 		// it unless the user already holds a connection to it (so a revoked-creds
 		// provider still shows its live token).
@@ -232,7 +242,10 @@ func (d *dash) handleMeConnectionCallback(w http.ResponseWriter, r *http.Request
 	http.Redirect(w, r, "/dash/me/connections", http.StatusSeeOther)
 }
 
-// handleMeConnectionDelete best-effort revokes then deletes the OAuth row.
+// handleMeConnectionDelete best-effort revokes then deletes the OAuth row. The
+// STORED ROW is the only thing it resolves: the registry may no longer carry the
+// provider, and its token is live until it is deleted, so a registry miss must
+// not stand between the user and their own credential.
 func (d *dash) handleMeConnectionDelete(w http.ResponseWriter, r *http.Request) {
 	sub, ok := requireUser(w, r)
 	if !ok {
@@ -245,29 +258,37 @@ func (d *dash) handleMeConnectionDelete(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "connections unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	provider := r.PathValue("provider")
-	p, ok := d.surrogate.Provider(provider)
-	if !ok {
-		http.Error(w, "unknown provider", http.StatusNotFound)
-		return
-	}
 	ss := d.secretStore()
 	if ss == nil {
 		http.Error(w, "secrets store unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	// Best-effort provider-side revoke before deleting the local row.
-	if conns, err := ss.ListUserConnections(sub); err == nil {
-		for _, c := range conns {
-			if c.Provider == provider && c.Value != "" {
-				if rerr := d.surrogate.Revoke(context.Background(), provider, c.Value); rerr != nil {
-					slog.Warn("me_connections revoke", "sub", sub, "provider", provider, "err", rerr)
-				}
-				break
-			}
+	provider := r.PathValue("provider")
+	conns, err := ss.ListUserConnections(sub)
+	if err != nil {
+		slog.Warn("me_connections read", "sub", sub, "provider", provider, "err", err)
+		http.Error(w, "query failed", http.StatusInternalServerError)
+		return
+	}
+	var row store.OAuthSecret
+	for _, c := range conns {
+		if c.Provider == provider {
+			row = c
+			break
 		}
 	}
-	switch err := ss.DeleteSecretRow(store.ScopeUser, sub, p.SecretKey); {
+	if row.Key == "" {
+		http.Error(w, "not connected", http.StatusNotFound)
+		return
+	}
+	// Best-effort provider-side revoke. A de-registered provider has no revoke
+	// endpoint left to call, and the local delete still has to happen.
+	if row.Value != "" {
+		if rerr := d.surrogate.Revoke(context.Background(), provider, row.Value); rerr != nil {
+			slog.Warn("me_connections revoke", "sub", sub, "provider", provider, "err", rerr)
+		}
+	}
+	switch err := ss.DeleteSecretRow(store.ScopeUser, sub, row.Key); {
 	case errors.Is(err, store.ErrSecretNotFound):
 		http.Error(w, "not connected", http.StatusNotFound)
 		return
@@ -282,7 +303,7 @@ func (d *dash) handleMeConnectionDelete(w http.ResponseWriter, r *http.Request) 
 		Actor:    "user:" + sub,
 		ActorSub: sub,
 		Surface:  audit.SurfaceREST,
-		Resource: "secrets/user/" + sub + "/" + p.SecretKey,
+		Resource: "secrets/user/" + sub + "/" + row.Key,
 		Scope:    "user",
 		Outcome:  audit.OutcomeOK,
 	})
