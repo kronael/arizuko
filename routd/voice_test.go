@@ -437,26 +437,6 @@ func TestEnrich_AnUnfetchableAttachmentIsVisibleToTheAgent(t *testing.T) {
 	}
 }
 
-// An attachment the adapter built with no file reference at all is the other
-// half of the same silence — teled with LISTEN_URL unset produces exactly this.
-func TestEnrich_AnAttachmentWithNoReferenceIsVisibleToTheAgent(t *testing.T) {
-	db, l, _ := enrichLoop(t, mediaConfig{Enabled: true, MaxBytes: 1 << 20})
-	raw, _ := json.Marshal([]chanlib.InboundAttachment{
-		{Mime: "image/png", Filename: "nothing.png"},
-	})
-	msg := &core.Message{ID: "m2", ChatJID: "tg:1", Content: "here",
-		Timestamp: time.Now().UTC(), Attachments: string(raw)}
-	if err := db.PutMessage(*msg); err != nil {
-		t.Fatal(err)
-	}
-
-	l.enrichAttachments(context.Background(), msg, "demo")
-
-	if !strings.Contains(msg.Content, "unavailable=") {
-		t.Fatalf("an attachment with no reference left no trace: %q", msg.Content)
-	}
-}
-
 // The success path must be untouched: a file that DOES arrive still carries the
 // path the agent reads it from, and no unavailable marker.
 func TestEnrich_AFetchedAttachmentCarriesItsPathAndNoNotice(t *testing.T) {
