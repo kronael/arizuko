@@ -253,14 +253,10 @@ func ensureGroupGitRepo(groupDir string) {
 // platform thread on the trigger message.
 //
 // It returns that root, because the ipc layer writes the row and cannot see it.
-// Without it the row carried the turn's topic — `”` for a parent-channel turn —
+// Without it the row carried the turn's topic — "" for a parent-channel turn —
 // so an MCP reply that rooted a thread recorded no thread: 4 of 9 `mcp-` rows in
 // one sloth thread had an empty topic while the REST rows beside them said where
-// they landed (BUGS L166).
-// msgID is the id the ipc layer will store the row under, presented to the
-// adapter as the idempotency key. Minting one here instead left the row and the
-// claim under different keys, so the retry sweep — which sends under the row id
-// — opened a second claim and the user got the message twice (BUGS L106).
+// they landed (BUGS L166). msgID is the caller's, per ipc.GatedFns.
 func (s *Server) mcpDeliver(turnID, jid, text, replyTo, msgID string, threaded bool) (string, string, error) {
 	if s.deliver == nil {
 		return "", "", nil

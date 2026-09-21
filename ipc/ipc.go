@@ -31,12 +31,12 @@ import (
 )
 
 type GatedFns struct {
-	// msgID is the id the bot row will carry AND the idempotency key the
-	// adapter dedups on — one value, because routd's retry sweep re-sends a
-	// pending row under its OWN id (routd/loop.go). A key minted inside the
-	// send would never match it, so the adapter opened a fresh claim and
-	// posted the message a second time (BUGS L106). The caller mints it
-	// before the send, so a failed send records the same id it tried.
+	// msgID, in the three sends below, is the id the bot row will carry AND the
+	// idempotency key the adapter dedups on — one value, because routd's retry
+	// sweep re-sends a pending row under its OWN id (routd/loop.go). A key
+	// minted inside the send would never match it, so the adapter opened a fresh
+	// claim and posted the message a second time (BUGS L106). The caller mints
+	// it before the send, so a failed send records the same id it tried.
 	SendMessage          func(jid, text, msgID string) (string, error)
 	SendReply            func(jid, text, replyToId, msgID string) (platformID, threadRoot string, err error)
 	SendDocument         func(jid, path, filename, caption, replyTo, threadID, msgID string) (string, error)
@@ -724,10 +724,10 @@ func recordOutboundReply(gated GatedFns, db StoreFns, jid, text, platformID, fol
 // A transient failure lands 'pending' and routd's sweep re-sends it. A permanent
 // refusal lands 'failed'. retryable=false forces the dead letter for a file send,
 // which the text-only sweep would repeat as a captionless, fileless message.
-// threadRoot is the platform thread the send MEANT to root. It is what the
-// sweep needs: a pending reply with no thread cannot be put back where it
-// belonged, so the retry landed in the parent channel instead (BUGS L169 link
-// 2). It is known before the send, so a failure still has it.
+//
+// threadRoot is the thread the send MEANT to root, known before the send: a
+// pending reply without it cannot be put back where it belonged, so the retry
+// landed in the parent channel instead (BUGS L169 link 2).
 //
 // The status decided here is also what the agent needs, so it goes into the
 // returned error rather than into a second classifier at the call site: one
@@ -752,11 +752,9 @@ func recordOutboundFailure(gated GatedFns, db StoreFns, jid, text, folder, reply
 // putOutboundRow is the ONE writer of an MCP-originated outbound row. Both
 // outcomes go through it, so the delivered and undelivered shapes cannot drift.
 //
-// msgID is the id the send already presented to the adapter as its idempotency
-// key, so the row the retry sweep re-sends carries the key the first attempt
-// opened its claim under. A verb whose Deliverer takes no key — voice, post and
-// the social verbs — passes "" and the row mints its own id: there is nothing
-// for it to have to match.
+// A verb whose Deliverer takes no idempotency key — voice, post and the social
+// verbs — passes msgID="" and the row mints its own id: there is nothing for it
+// to have to match.
 func putOutboundRow(gated GatedFns, db StoreFns, jid, text, platformID, folder, replyToID, threadRoot, msgID, status string) {
 	// Key last-reply + engagement under the active turn's topic — same
 	// key the gateway seeds (SetLastReply at turn start). "" would chain
@@ -834,8 +832,6 @@ func internalSend(gated GatedFns, db StoreFns, folder, jid, text string, files [
 		if gated.SendMessage == nil {
 			return "", fmt.Errorf("send not configured")
 		}
-		// Minted before the send: the adapter dedups on it, and both outcomes
-		// record the row under the very id they presented (BUGS L106).
 		msgID := core.MsgID("mcp")
 		platformID, err := gated.SendMessage(jid, text, msgID)
 		if err != nil {
@@ -1259,10 +1255,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 				// in-thread turns (topic = thread_ts) and post to root.
 				replyToID = db.GetLastReplyID(jid, activeTopic(db, folder))
 			}
-			// Minted before the send: the adapter dedups on it, and both
-			// outcomes record the row under the very id they presented, so
-			// routd's retry sweep re-sends under the key the first attempt
-			// already claimed (BUGS L106).
 			msgID := core.MsgID("mcp")
 			platformID, threadRoot, err := gated.SendReply(jid, text, replyToID, msgID)
 			if err != nil {

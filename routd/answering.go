@@ -1,19 +1,15 @@
 package routd
 
 // answering.go answers one operator question: are agents ANSWERING people?
-//
-// Two facts, one window. `turns` is what the dispatcher did — how many turns
-// finished and how many expired. `waiting` is what the people got — every chat
-// whose newest human message is newer than its newest agent reply. Both are
-// needed and neither implies the other: a fleet can finish every turn it starts
-// and answer nobody, because a turn only runs when a route says so.
+// `turns` is what the dispatcher did, `waiting` is what the people got, and
+// neither implies the other because a turn only runs when a route says so. The
+// wire shapes, and what each field claims, live in routd/api/v1/types.go.
 //
 // A PLAIN /v1 READ, NOT A RESREG RESOURCE, for the reason dash_reads_http.go
-// records: resreg gives REST and MCP from one declaration, so registering this
-// would hand every agent a cross-folder tool for reading who is waiting on whom.
-// The operator needs that; an agent does not. It is an AGGREGATE — counts,
-// timestamps and a verdict, never message content — so the surface cannot become
-// a way to read another folder's conversations.
+// records: registering it would hand every agent a cross-folder tool for
+// reading who is waiting on whom. It is an AGGREGATE — counts, timestamps and a
+// verdict, never message content — so the surface cannot become a way to read
+// another folder's conversations.
 //
 // WHAT IT DOES NOT CLAIM. A reply is a bot row routd stored, not a message a
 // person received: delivery failures are bot rows too (dead_letters_db.go is a
@@ -22,13 +18,9 @@ package routd
 // half belongs to `/v1/routing/errored` and the dead-letter surface, and the
 // two are read together.
 //
-// THE VERDICT IS WHY THIS IS A SURFACE AND NOT A QUERY. "Nobody answered" alone
-// cannot separate a stalled turn from a chat the operator configured not to
-// answer, and the two want opposite responses. A `verb=mention` rule means plain
-// messages fire no turn: that chat waits by design and is reported as `held`,
-// not as a fault. The verdict is routd's own resolve over the chat's newest
-// human message — the same call the loop makes — so this reader cannot disagree
-// with the behaviour it describes. Nothing here changes that behaviour.
+// The verdict is routd's own resolve over the chat's newest human message — the
+// same call the loop makes — so this reader cannot disagree with the behaviour
+// it describes. Nothing here changes that behaviour.
 
 import (
 	"fmt"
@@ -130,12 +122,8 @@ func answeringVerdict(r resolution) (verdict, folder string) {
 	}
 }
 
-// countTurn folds one turn's state into the window's counts.
-//
-// The four states are named explicitly and anything else lands in Other, so the
-// counts always sum to the turns in the window. A state added later would
-// otherwise be dropped silently, and a surface built to expose silence is the
-// last place that should keep any.
+// countTurn folds one turn's state into the window's counts. Anything the four
+// names miss lands in Other, so they always sum (apiv1.TurnOutcomes).
 func countTurn(out *apiv1.TurnOutcomes, state string) {
 	switch state {
 	case store.TurnDone:
