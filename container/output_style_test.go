@@ -1,6 +1,8 @@
 package container
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/kronael/arizuko/chanlib"
@@ -86,6 +88,59 @@ func TestParseSlackJID(t *testing.T) {
 			if ok != c.wantOK || p.Workspace != c.wantWS || p.Kind != c.wantKind || p.ID != c.wantID {
 				t.Fatalf("got (%q,%q,%q,%v) want (%q,%q,%q,%v)",
 					p.Workspace, p.Kind, p.ID, ok, c.wantWS, c.wantKind, c.wantID, c.wantOK)
+			}
+		})
+	}
+}
+
+// TestPickOutputStyle_ShippedStyleExists binds the name the picker hands the
+// agent to a file the image actually ships. ant/src/index.ts::readOutputStyle
+// reads ~/.claude/output-styles/<name>.md inside a bare try/catch, so a name
+// with no file is SILENT: the agent drops to Claude Code's stock formatting and
+// nothing logs it (BUGS L27). The channel is the JID scheme
+// (routd/dispatch.go::jidScheme), never the daemon name, so a file named after
+// the daemon — whapd.md rather than whatsapp.md — would ship and never be read.
+//
+// shipsFile false is a DECISION, not a gap: that platform renders the agent's
+// stock markdown correctly, so a style file would add a surface to maintain and
+// change nothing. Shipping one flips the bool.
+func TestPickOutputStyle_ShippedStyleExists(t *testing.T) {
+	cases := []struct {
+		name, channel, jid string
+		shipsFile          bool
+	}{
+		{"whatsapp", "whatsapp", "whatsapp:1@s.whatsapp.net", true},
+		{"bluesky", "bluesky", "bluesky:user/did%3Aplc%3Aa", true},
+		{"linkedin", "linkedin", "linkedin:post/urn%3Ali%3Ashare%3A1", true},
+		{"twitter", "twitter", "twitter:user/alice", true},
+		{"slack dm", "slack", "slack:T1/dm/D1", true},
+		{"slack channel", "slack", "slack:T1/channel/C1", true},
+		{"telegram dm", "telegram", "telegram:user/42", true},
+		{"telegram group", "telegram", "telegram:group/42", true},
+		{"discord dm", "discord", "discord:dm/D1", true},
+		{"discord channel", "discord", "discord:G1/C1", true},
+		{"email", "email", "email:someone@example.com", true},
+		{"web", "web", "web:solo/inbox", true},
+		// reditd and gitd post the agent's text verbatim into a field their
+		// platform renders as real markdown, so stock formatting already lands
+		// correctly on both.
+		{"reddit", "reddit", "reddit:r_golang", false},
+		{"github", "github", "github:o/r/issue/1", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			style := pickOutputStyle(c.channel, c.jid, "", never)
+			if style == "" {
+				t.Fatalf("picker named no style for %q", c.jid)
+			}
+			_, err := os.Stat(filepath.Join("..", "ant", "output-styles", style+".md"))
+			switch {
+			case c.shipsFile && err != nil:
+				t.Fatalf("picker chose %q but ant/output-styles/%s.md does not ship: %v",
+					style, style, err)
+			case !c.shipsFile && err == nil:
+				t.Fatalf("ant/output-styles/%s.md now ships; set shipsFile true for %q",
+					style, c.channel)
 			}
 		})
 	}
